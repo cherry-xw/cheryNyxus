@@ -14,6 +14,8 @@ import {
   isResponse,
 } from './types.js'
 import { requestSchemaFor } from './schemas.js'
+import { responseSchemaFor } from './responseSchemas.js'
+import { ChunkEnvelopeSchema, NotificationEnvelopeSchema } from '@chery/protocol'
 import { isAsyncGenerator } from '@/utils/generator.js'
 import { newTracingId } from '@/utils/error.js'
 import { logger } from '@/utils/logger/index.js'
@@ -70,7 +72,15 @@ export class RpcRouter {
    * 注册 handler
    */
   register<M extends Method>(method: M, handler: HandlerFn<M>): void {
+    if (this.handlers.has(method)) {
+      throw new Error(`Duplicate RPC handler registration: ${method}`)
+    }
     this.handlers.set(method, { method, handler: handler as unknown as ErasedHandlerFn })
+  }
+
+  /** Stable read-only snapshot used by startup assertions and contract tests. */
+  registeredMethods(): readonly Method[] {
+    return Object.freeze([...this.handlers.keys()].sort())
   }
 
   /**
@@ -132,15 +142,16 @@ export class RpcRouter {
         return this.wrapStreamingHandler(
           result as AsyncGenerator<Chunk | Notification, unknown, unknown>,
           request.id,
+          request.method,
         )
       }
 
       // 普通 Promise
       const data = await result
       if (isResponse(data)) {
-        return data
+        return this.validateResponse(request.method, normalizeResponseRequestId(data, request.id))
       }
-      return createResponse(request.id, true, data)
+      return this.validateResponse(request.method, createResponse(request.id, true, data))
     } catch (err) {
       const error = toRpcError(err)
       logger.event(
@@ -158,15 +169,22 @@ export class RpcRouter {
   private async *wrapStreamingHandler(
     generator: AsyncGenerator<Chunk | Notification, unknown, unknown>,
     requestId: string,
+    method: Method,
   ): AsyncGenerator<Chunk | Notification, Response, unknown> {
     try {
       while (true) {
         const iter = await generator.next()
         if (iter.done) {
           if (isResponse(iter.value)) {
-            return normalizeResponseRequestId(iter.value, requestId)
+            return this.validateResponse(
+              method,
+              normalizeResponseRequestId(iter.value, requestId),
+            )
           }
-          return createResponse(requestId, true, iter.value as ResponseData | undefined)
+          return this.validateResponse(
+            method,
+            createResponse(requestId, true, iter.value as ResponseData | undefined),
+          )
         }
         // 统一 requestId：generator handler 可能用 chatId 作 chunk/notification 的 requestId
         // （如 handleChatGet 历史回放用 p.chatId），客户端按 RPC requestId 路由 → 统一覆盖为 request.id，
@@ -175,6 +193,22 @@ export class RpcRouter {
         // 注：spawn 的 role_created/destroyed 经 spawnBroker.broadcaster 直发 ws（不经 generator），不受此覆盖影响。
         const yielded = iter.value as Chunk | Notification
         yielded.requestId = requestId
+        const eventSchema = yielded.kind === 'chunk' ? ChunkEnvelopeSchema : NotificationEnvelopeSchema
+        const eventResult = eventSchema.safeParse(yielded)
+        if (!eventResult.success) {
+          const tracingId = newTracingId()
+          logger.event(
+            'res.invalid_event',
+            { tracingId, method, issues: eventResult.error.issues },
+            LogLevel.error,
+          )
+          return createResponse(
+            requestId,
+            false,
+            undefined,
+            createError(ErrorCode.INTERNAL, `[${tracingId}] 系统返回了无效事件`),
+          )
+        }
         yield yielded
       }
     } catch (err) {
@@ -182,6 +216,24 @@ export class RpcRouter {
       logger.event('req.stream.error', { requestId, message: error.message }, LogLevel.error)
       return createResponse(requestId, false, undefined, createError(error.code, error.message))
     }
+  }
+
+  private validateResponse(method: Method, response: Response): Response {
+    if (!response.success) return response
+    const parsed = responseSchemaFor(method).safeParse(response.data)
+    if (parsed.success) return response
+    const tracingId = newTracingId()
+    logger.event(
+      'res.invalid_data',
+      { tracingId, method, issues: parsed.error.issues },
+      LogLevel.error,
+    )
+    return createResponse(
+      response.requestId,
+      false,
+      undefined,
+      createError(ErrorCode.INTERNAL, `[${tracingId}] 系统返回了无效数据`),
+    )
   }
 }
 

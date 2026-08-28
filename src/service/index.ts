@@ -39,6 +39,33 @@ export { createHttpServer } from './http/index.js'
 export { createRouter } from './message/router.js'
 export * from './message/types.js'
 
+/** Register the complete public RPC surface without opening sockets or workers. */
+export function registerAllHandlers(router: ReturnType<typeof createRouter>): void {
+  registerBrainHandlers(router)
+  registerSenseHandlers(router)
+  registerSkillHandlers(router)
+  registerSkillImportHandlers(router)
+  registerSkillSourceHandlers(router)
+  registerPluginHandlers(router)
+  registerCredentialsHandlers(router)
+  registerPromptHandlers(router)
+  registerRuleHandlers(router)
+  registerRuntimeSetHandlers(router)
+  registerSessionRuntimeHandlers(router)
+  registerChatHandlers(router)
+  registerChatManageHandlers(router)
+  registerConversationRouterHandlers(router)
+  registerConversationBranchHandlers(router)
+  registerInteractionHandlers(router)
+  registerBashHandlers(router)
+  registerMcpHandlers(router)
+  registerConfigHandlers(router)
+  registerHooksHandlers(router)
+  registerUtilsHandlers(router)
+  registerBrowseHandlers(router)
+  registerCommandHandlers(router)
+}
+
 export interface StartServiceOptions {
   /** WebSocket 服务端口（config.server.port） */
   port: number
@@ -70,24 +97,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   const router = createRouter()
 
   // 注册 handlers
-  registerBrainHandlers(router)
-  registerSenseHandlers(router)
-  registerSkillHandlers(router)
-  registerSkillImportHandlers(router)
-  registerSkillSourceHandlers(router)
-  registerPluginHandlers(router)
-  registerCredentialsHandlers(router)
-  registerPromptHandlers(router)
-  registerRuleHandlers(router)
-  registerRuntimeSetHandlers(router)
-  registerSessionRuntimeHandlers(router)
-  registerChatHandlers(router)
-  registerChatManageHandlers(router)
-  registerConversationRouterHandlers(router)
-  registerConversationBranchHandlers(router)
-  registerInteractionHandlers(router)
-  registerBashHandlers(router)
-  registerMcpHandlers(router)
+  registerAllHandlers(router)
   // CP3 + T9：spawn broadcaster 注入 + wait=true 看门狗超时回调（spawn_role sense 用）。
   // 历史 subagent.result RPC 已废弃（wait=true 改后端注入唤醒，无需前端回传）。
   registerRole()
@@ -105,15 +115,10 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     parkApproval: (approvalId) => approvalManager.park(approvalId),
   })
   // Config 设置面板：读写 .chery/config.yaml（除 server 段，重启生效）
-  registerConfigHandlers(router)
   // Hooks 管理：读写 .chery/hooks/hooks.json（独立于 config.yaml）
-  registerHooksHandlers(router)
   // Utils 工具：独立信息查询（utils.models 等，不依赖 chat/brain 运行时）
-  registerUtilsHandlers(router)
   // 文件夹浏览协议：设置页工作区「浏览」（config.workspace.browse.*，根锚定 + 载荷加密）
-  registerBrowseHandlers(router)
   // 内置命令系统：settings 「指令」tab 后端（读写 .chery/command/*.md）
-  registerCommandHandlers(router)
 
   // 创建 WebSocket 服务器
   const auth = new OAuth2Auth(options.auth)

@@ -14,7 +14,13 @@ import type {
   ChatRunResumeRequest,
   ChatRunResumeResponse,
   ChatTimelineGetRequest,
+  ErrorSource,
+  ProtocolError,
+  StagedReverseChunkData as ProtocolStagedReverseChunkData,
+  TurnCancelledNotificationData as ProtocolTurnCancelledNotificationData,
 } from '@chery/protocol'
+import { Method as ProtocolMethod } from '@chery/protocol'
+import { InternalCommand } from './internalCommand.js'
 
 // ========== 消息基础类型 ==========
 
@@ -123,6 +129,7 @@ export type NotificationType =
   | 'timeline.patch' // 持久化消息事务提交后的权威时间线 patch
   | 'turn.started'
   | 'turn.delta'
+  | 'turn.cancelled'
   | 'turn.completed'
   | 'input.updated'
   | 'run.updated'
@@ -1974,6 +1981,8 @@ export interface TurnCompletedNotificationData {
   completedAt?: number
 }
 
+export type TurnCancelledNotificationData = ProtocolTurnCancelledNotificationData
+
 export interface InputUpdatedNotificationData {
   inputId: string
   clientMessageId?: string
@@ -2303,7 +2312,7 @@ export interface StagedChunkData {
   /** 消息主键 msgId（= messages.id）。全部 assistant staged 携带；reverse 不携带。 */
   msgId?: string
   /** reverse 类型：被撤回的消息 id 列表（chat.send 恢复撤回整个当前周期时携带） */
-  messageIds?: string[]
+  messageIds?: ProtocolStagedReverseChunkData['messageIds']
   /** 感官去重：该消息已被后续相同 hash 调用替换（chat.get 历史返回时携带，content 仍为原内容） */
   replace?: { state: boolean; by: string; content: string }
   /** 被替换时的原内容（溯源/前端展示） */
@@ -2346,6 +2355,7 @@ export type NotificationData =
   | TimelinePatchData
   | TurnStartedNotificationData
   | TurnDeltaNotificationData
+  | TurnCancelledNotificationData
   | TurnCompletedNotificationData
   | InputUpdatedNotificationData
   | RunUpdatedNotificationData
@@ -2465,10 +2475,15 @@ export interface DoneNotificationData {
 
 export interface ErrorNotificationData {
   message: string
+  code: string
+  source: ErrorSource
+  retryable: boolean
+  tracingId: string
+  retryAfterMs?: number
   /**
    * 权威 canResume：AI 报错归 paused（可 resume 重试），前端据此显继续按钮。
    */
-  canResume?: boolean
+  canResume: boolean
 }
 
 /**
@@ -2608,10 +2623,7 @@ export interface QuestionBatchCompletedNotificationData {
 
 // ========== Error ==========
 
-export interface RpcError {
-  code: string
-  message: string
-}
+export interface RpcError extends ProtocolError {}
 
 // ========== 方法常量 ==========
 
@@ -2653,7 +2665,6 @@ export const Method = {
   CHAT_CREATE: 'chat.create',
   CHAT_LIST: 'chat.list',
   CHAT_ROUTE_SUGGEST: 'chat.route.suggest',
-  CHAT_GET: 'chat.get',
   CHAT_DELETE: 'chat.delete',
   CHAT_BRANCH_PREVIEW: 'chat.branch.preview',
   CHAT_BRANCH_CREATE: 'chat.branch.create',
@@ -2664,34 +2675,25 @@ export const Method = {
   CHAT_PROMPT_SNAPSHOT: 'chat.promptSnapshot',
   /** List immutable context epochs; only the active epoch is executable. */
   CHAT_EPOCH_LIST: 'chat.epoch.list',
-  CHAT_SEND: 'chat.send',
   CHAT_INPUT_SUBMIT: 'chat.input.submit',
   CHAT_TIMELINE_GET: 'chat.timeline.get',
   CHAT_TIMELINE_GENERATION_GET: 'chat.timeline.generation.get',
   // lite profile：按需拉取单个节点的完整详情（P0，canonical §3.6.3；低频用户触发，只读）
   CHAT_TIMELINE_NODE_GET: 'chat.timeline.node.get',
-  CHAT_RESUME: 'chat.resume',
   CHAT_RUN_RESUME: 'chat.run.resume',
   CHAT_RESUME_TREE: 'chat.resumeTree',
-  CHAT_SYNC: 'chat.sync',
   CHAT_OPEN: 'chat.open',
   CHAT_CLOSE: 'chat.close',
-  CHAT_START_SPAWN: 'chat.startSpawn',
   CHAT_STOP_CHILD: 'chat.stopChild',
-  CHAT_SEND_TO_CHILD: 'chat.sendToChild',
 
   // Sense 审批
-  SENSE_APPROVAL: 'sense.approval',
   INTERACTION_LIST: 'interaction.list',
   INTERACTION_APPROVAL_DECIDE: 'interaction.approval.decide',
   INTERACTION_QUESTION_ANSWER: 'interaction.question.answer',
   // Sense 问答（ask_user_question 感官答案回传）
-  SENSE_QUESTION_ANSWER: 'sense.question.answer',
-  SENSE_QUESTION_BATCH_ANSWER: 'sense.question.batchAnswer',
   // Chat 中止（切换 chat：清内存 + 退出挂起 generator，不动 DB，pending 保留供下次重新审核）
   CHAT_ABORT: 'chat.abort',
   // Chat 重连（F5 后重连运行中 run，重定向后续实时输出到本连接）
-  CHAT_ATTACH: 'chat.attach',
 
   // Bash 进程管理（挂起子进程的查询 / 显式杀死）
   BASH_LIST: 'bash.list',
@@ -2752,7 +2754,7 @@ export const Method = {
   CREDENTIALS_LIST: 'credentials.list',
   CREDENTIALS_SAVE: 'credentials.save',
   CREDENTIALS_DELETE: 'credentials.delete',
-} as const
+} as const satisfies typeof ProtocolMethod
 
 /**
  * Method 类型别名：所有合法 method 字符串的联合。
@@ -2824,7 +2826,7 @@ export interface RpcMethodMap {
     params: ChatRouteSuggestRequestData
     result: ChatRouteSuggestResponseData
   }
-  [Method.CHAT_GET]: { params: ChatGetRequestData; result: ChatGetResponseData }
+  [InternalCommand.CHAT_GET]: { params: ChatGetRequestData; result: ChatGetResponseData }
   [Method.CHAT_DELETE]: { params: ChatDeleteRequestData; result: ChatDeleteResponseData }
   [Method.CHAT_BRANCH_PREVIEW]: {
     params: ChatBranchPreviewRequestData
@@ -2851,7 +2853,7 @@ export interface RpcMethodMap {
     params: ChatEpochListRequestData
     result: ChatEpochListResponseData
   }
-  [Method.CHAT_SEND]: { params: ChatSendRequestData; result: ChatSendResponseData }
+  [InternalCommand.CHAT_SEND]: { params: ChatSendRequestData; result: ChatSendResponseData }
   [Method.CHAT_INPUT_SUBMIT]: {
     params: ChatInputSubmitRequestData
     result: ChatInputSubmitResponseData
@@ -2868,7 +2870,7 @@ export interface RpcMethodMap {
     params: ChatTimelineNodeGetRequestData
     result: ChatTimelineNodeGetResponseData
   }
-  [Method.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData }
+  [InternalCommand.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData }
   [Method.CHAT_RUN_RESUME]: {
     params: ChatRunResumeRequest
     result: ChatRunResumeResponse
@@ -2877,10 +2879,10 @@ export interface RpcMethodMap {
     params: ChatResumeTreeRequestData
     result: ChatResumeTreeResponseData
   }
-  [Method.CHAT_SYNC]: { params: ChatSyncRequestData; result: ChatSyncResponseData }
+  [InternalCommand.CHAT_SYNC]: { params: ChatSyncRequestData; result: ChatSyncResponseData }
   [Method.CHAT_OPEN]: { params: ChatOpenRequestData; result: ChatOpenResponseData }
   [Method.CHAT_CLOSE]: { params: ChatCloseRequestData; result: ChatCloseResponseData }
-  [Method.CHAT_START_SPAWN]: {
+  [InternalCommand.CHAT_START_SPAWN]: {
     params: ChatStartSpawnRequestData
     result: ChatStartSpawnResponseData
   }
@@ -2888,11 +2890,11 @@ export interface RpcMethodMap {
     params: ChatStopChildRequestData
     result: ChatStopChildResponseData
   }
-  [Method.CHAT_SEND_TO_CHILD]: {
+  [InternalCommand.CHAT_SEND_TO_CHILD]: {
     params: ChatSendToChildRequestData
     result: ChatSendToChildResponseData
   }
-  [Method.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData }
+  [InternalCommand.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData }
   [Method.INTERACTION_LIST]: {
     params: InteractionListRequestData
     result: InteractionListResponseData
@@ -2905,16 +2907,16 @@ export interface RpcMethodMap {
     params: InteractionQuestionAnswerRequestData
     result: InteractionQuestionAnswerResponseData
   }
-  [Method.SENSE_QUESTION_ANSWER]: {
+  [InternalCommand.SENSE_QUESTION_ANSWER]: {
     params: SenseQuestionAnswerRequestData
     result: SenseQuestionAnswerResponseData
   }
-  [Method.SENSE_QUESTION_BATCH_ANSWER]: {
+  [InternalCommand.SENSE_QUESTION_BATCH_ANSWER]: {
     params: SenseQuestionBatchAnswerRequestData
     result: SenseQuestionBatchAnswerResponseData
   }
   [Method.CHAT_ABORT]: { params: ChatAbortRequestData; result: ChatAbortResponseData }
-  [Method.CHAT_ATTACH]: { params: ChatAttachRequestData; result: ChatAttachResponseData }
+  [InternalCommand.CHAT_ATTACH]: { params: ChatAttachRequestData; result: ChatAttachResponseData }
   [Method.BASH_LIST]: { params: BashListRequestData; result: BashListResponseData }
   [Method.BASH_KILL]: { params: BashKillRequestData; result: BashKillResponseData }
   [Method.MCP_LIST]: { params: McpListRequestData; result: McpListResponseData }
@@ -3078,8 +3080,27 @@ export function createNotification(
   }
 }
 
-export function createError(code: string, message: string): RpcError {
-  return { code, message }
+export function createError(
+  code: string,
+  message: string,
+  options: {
+    source?: ErrorSource
+    retryable?: boolean
+    tracingId?: string
+    retryAfterMs?: number
+  } = {},
+): RpcError {
+  const embeddedTrace = /^\[([0-9a-f]{8})\]\s/i.exec(message)?.[1]
+  const retryableByCode =
+    code === ErrorCode.TIMEOUT || code === ErrorCode.RATE_LIMITED || code === ErrorCode.CONFLICT
+  return {
+    code,
+    message,
+    source: options.source ?? 'system',
+    retryable: options.retryable ?? retryableByCode,
+    tracingId: options.tracingId ?? embeddedTrace ?? randomUUID().slice(0, 8),
+    ...(options.retryAfterMs !== undefined ? { retryAfterMs: options.retryAfterMs } : {}),
+  }
 }
 
 // ========== 类型守卫 ==========

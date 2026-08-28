@@ -1,17 +1,18 @@
 import { z } from 'zod'
+import { Method } from './rpc'
 
 /** Canonical chat methods. Legacy stream/replay methods intentionally do not live here. */
 export const ChatMethod = {
-  OPEN: 'chat.open',
-  CLOSE: 'chat.close',
-  LIST: 'chat.list',
-  TIMELINE_GET: 'chat.timeline.get',
-  TIMELINE_GENERATION_GET: 'chat.timeline.generation.get',
-  TIMELINE_NODE_GET: 'chat.timeline.node.get',
-  INPUT_SUBMIT: 'chat.input.submit',
-  RUN_RESUME: 'chat.run.resume',
-  ABORT: 'chat.abort',
-  RESUME_TREE: 'chat.resumeTree',
+  OPEN: Method.CHAT_OPEN,
+  CLOSE: Method.CHAT_CLOSE,
+  LIST: Method.CHAT_LIST,
+  TIMELINE_GET: Method.CHAT_TIMELINE_GET,
+  TIMELINE_GENERATION_GET: Method.CHAT_TIMELINE_GENERATION_GET,
+  TIMELINE_NODE_GET: Method.CHAT_TIMELINE_NODE_GET,
+  INPUT_SUBMIT: Method.CHAT_INPUT_SUBMIT,
+  RUN_RESUME: Method.CHAT_RUN_RESUME,
+  ABORT: Method.CHAT_ABORT,
+  RESUME_TREE: Method.CHAT_RESUME_TREE,
 } as const
 
 const openBase = {

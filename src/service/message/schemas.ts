@@ -2,9 +2,11 @@ import { z } from 'zod'
 import { Method, type Method as MethodName, type ParamsOf } from './types.js'
 import {
   ChatInputSubmitRequestSchema,
+  ChatCloseRequestSchema,
   ChatOpenRequestSchema,
   ChatRunResumeRequestSchema,
 } from '@chery/protocol'
+import { InternalCommand } from './internalCommand.js'
 
 /**
  * RPC 请求参数 zod schema（每 method 一个）。
@@ -14,15 +16,16 @@ import {
  * schema 与 types.ts 的 *RequestData interface 一一对应（字段/可选性同步）。
  */
 
-const chatIdSchema = z.object({ chatId: z.string() })
+const nonEmptyString = z.string().min(1)
+const chatIdSchema = z.object({ chatId: nonEmptyString })
 // 注意：本文件仅定义「请求参数」zod schema（router.safeParse 校验 params，见 requestSchemas）。
 // 响应数据结构一律在 types.ts 定义（*ResponseData / ChatSummary），不在此处。
 const emptySchema = z.object({}).strict()
 
 /** mcpServers 缺省 []：旧 client 不携带视为关闭所有 MCP（向后兼容） */
-const mcpServersSchema = z.array(z.string()).optional()
+const mcpServersSchema = z.array(nonEmptyString).optional()
 const runtimeSelectionSchema = z.object({
-  brain: z.string(),
+  brain: nonEmptyString,
   senseGroup: z.string().optional(),
   mcpServers: mcpServersSchema,
   /** 消息级溯源快照（messages.runtime / content_end.runtime）：消息发送时 brain 的 model/provider */
@@ -140,10 +143,10 @@ const fileCompressionSchema = z.object({
 })
 
 /** Threshold{unit,value}：percent value ∈ [0,1]、tokens value ≥ 0（对齐 utils/config.ts Threshold） */
-const thresholdSchema = z.object({
-  unit: z.enum(['tokens', 'percent']),
-  value: z.number(),
-})
+const thresholdSchema = z.discriminatedUnion('unit', [
+  z.object({ unit: z.literal('tokens'), value: z.number().nonnegative() }),
+  z.object({ unit: z.literal('percent'), value: z.number().min(0).max(1) }),
+])
 
 /** command 配置（compact 阈值等）；对齐 utils/config.ts CommandConfig */
 const commandConfigSchema = z.object({
@@ -193,7 +196,7 @@ const mcpServerConfigSchema = z.object({
 })
 
 /** config.save 入参：除 server 外全部字段；顶层 strict 拒 server 等多余键 */
-const configSaveSchema = z
+export const configSaveSchema = z
   .object({
     global: globalSchema,
     llm: z.object({ brain: z.record(z.string(), brainSchema) }),
@@ -257,8 +260,8 @@ export const requestSchemas = {
     tools: z.array(z.string()).optional(),
   }),
   [Method.SKILLS_LIST]: z.object({
-    page: z.number().optional(),
-    pageSize: z.number().optional(),
+    page: z.number().int().positive().optional(),
+    pageSize: z.number().int().positive().max(200).optional(),
     search: z.string().optional(),
     plugin: z.string().optional(),
   }),
@@ -266,24 +269,42 @@ export const requestSchemas = {
   [Method.PROMPTS_LIST]: emptySchema,
   [Method.RULES_LIST]: emptySchema,
   [Method.RUNTIME_SET]: z.object({
-    chatId: z.string(),
-    brain: z.string(),
+    chatId: nonEmptyString,
+    brain: nonEmptyString,
     senseGroup: z.string().optional(),
     mcpServers: mcpServersSchema,
   }),
   [Method.SESSION_RUNTIME_SET]: z.object({
-    chatId: z.string(),
+    chatId: nonEmptyString,
     primary: runtimeSelectionSchema,
-    roles: z.record(z.string(), runtimeSelectionSchema),
+    roles: z.record(nonEmptyString, runtimeSelectionSchema),
   }),
   [Method.CHAT_CREATE]: z.object({
-    chatId: z.string().optional(),
+    chatId: nonEmptyString.optional(),
     /** T6 预设：给出则从 config.presets 解析编制，忽略 brain/senseGroup */
-    preset: z.string().optional(),
-    brain: z.string().optional(),
+    preset: nonEmptyString.optional(),
+    brain: nonEmptyString.optional(),
     senseGroup: z.string().optional(),
     mcpServers: mcpServersSchema,
-    parentChatId: z.string().optional(),
+    parentChatId: nonEmptyString.optional(),
+  }).superRefine((value, ctx) => {
+    if (!value.preset && !value.brain) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['brain'],
+        message: 'preset 或 brain 至少提供一个',
+      })
+    }
+    if (
+      value.preset &&
+      (value.brain !== undefined || value.senseGroup !== undefined || value.mcpServers !== undefined)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preset'],
+        message: 'preset 与显式 runtime 字段互斥',
+      })
+    }
   }),
   [Method.CHAT_LIST]: z
     .object({
@@ -300,7 +321,7 @@ export const requestSchemas = {
     draft: z.string().trim().min(1).max(12000),
     requestVersion: z.number().int().nonnegative(),
   }),
-  [Method.CHAT_GET]: chatIdSchema,
+  [InternalCommand.CHAT_GET]: chatIdSchema,
   [Method.CHAT_DELETE]: chatIdSchema,
   [Method.CHAT_BRANCH_PREVIEW]: z.object({
     rootChatId: z.string().min(1),
@@ -327,7 +348,7 @@ export const requestSchemas = {
     epochId: z.string().min(1).optional(),
   }),
   [Method.CHAT_EPOCH_LIST]: chatIdSchema,
-  [Method.CHAT_SEND]: z.object({
+  [InternalCommand.CHAT_SEND]: z.object({
     chatId: z.string(),
     prompt: z.string(),
     /** P4：结构化附件（替代 [[media:filename]] 文本标记）。旧客户端不发该字段 → 走 marker 兼容路径。 */
@@ -344,9 +365,9 @@ export const requestSchemas = {
   [Method.CHAT_INPUT_SUBMIT]: ChatInputSubmitRequestSchema,
   [Method.CHAT_TIMELINE_GET]: z
     .object({
-      chatId: z.string().optional(),
-      rootChatId: z.string().optional(),
-      taskId: z.string().optional(),
+      chatId: nonEmptyString.optional(),
+      rootChatId: nonEmptyString.optional(),
+      taskId: nonEmptyString.optional(),
       view: z.enum(['conversation', 'tree', 'audit']).optional(),
       // before：legacy chat.get 路径为字符串复合游标（createdAt/id 编码）；lite P1-② 为 number（orderKey 排他下界）。两者按类型分流，handler/投影层各自消费。
       before: z.union([z.string(), z.number()]).optional(),
@@ -394,33 +415,33 @@ export const requestSchemas = {
         })
       }
     }),
-  [Method.CHAT_RESUME]: chatIdSchema,
+  [InternalCommand.CHAT_RESUME]: chatIdSchema,
   [Method.CHAT_RUN_RESUME]: ChatRunResumeRequestSchema,
   [Method.CHAT_RESUME_TREE]: z.object({
     rootChatId: z.string().min(1),
     pauseId: z.string().min(1),
     commandId: z.string().min(1),
   }),
-  [Method.CHAT_SYNC]: z.object({
+  [InternalCommand.CHAT_SYNC]: z.object({
     chatId: z.string(),
     afterSeq: z.number().int().min(0),
   }),
   [Method.CHAT_OPEN]: ChatOpenRequestSchema,
-  [Method.CHAT_CLOSE]: z.object({ subscriptionId: z.string() }),
-  [Method.CHAT_START_SPAWN]: z.object({ taskId: z.string() }),
+  [Method.CHAT_CLOSE]: ChatCloseRequestSchema,
+  [InternalCommand.CHAT_START_SPAWN]: z.object({ taskId: z.string() }),
   [Method.CHAT_STOP_CHILD]: z.object({
     rootChatId: z.string().min(1),
     childChatId: z.string().min(1),
     commandId: z.string().min(1),
     recursive: z.boolean().optional(),
   }),
-  [Method.CHAT_SEND_TO_CHILD]: z.object({
+  [InternalCommand.CHAT_SEND_TO_CHILD]: z.object({
     rootChatId: z.string().min(1),
     childChatId: z.string().min(1),
     commandId: z.string().min(1),
     content: z.string().min(1),
   }),
-  [Method.SENSE_APPROVAL]: z.object({
+  [InternalCommand.SENSE_APPROVAL]: z.object({
     approvalId: z.string(),
     action: z.enum(['accept', 'reject']),
     reason: z.string().optional(),
@@ -454,14 +475,14 @@ export const requestSchemas = {
       )
       .min(1),
   }),
-  [Method.SENSE_QUESTION_ANSWER]: z.object({
+  [InternalCommand.SENSE_QUESTION_ANSWER]: z.object({
     questionId: z.string(),
     selectedLabels: z.array(z.string()),
     optionNotes: z.record(z.string(), z.string()).optional(),
     freeText: z.string().optional(),
     cancelled: z.boolean().optional(),
   }),
-  [Method.SENSE_QUESTION_BATCH_ANSWER]: z.object({
+  [InternalCommand.SENSE_QUESTION_BATCH_ANSWER]: z.object({
     chatId: z.string(),
     batchId: z.string(),
     answers: z
@@ -477,21 +498,21 @@ export const requestSchemas = {
       .min(1),
   }),
   [Method.CHAT_ABORT]: z.object({
-    chatId: z.string(),
-    runId: z.string().optional(),
+    chatId: nonEmptyString,
+    runId: nonEmptyString.optional(),
     commandId: z.string().min(1).optional(),
   }),
-  [Method.CHAT_ATTACH]: chatIdSchema,
+  [InternalCommand.CHAT_ATTACH]: chatIdSchema,
   [Method.BASH_LIST]: chatIdSchema,
   [Method.BASH_KILL]: z.object({
-    chatId: z.string(),
-    pid: z.number(),
+    chatId: nonEmptyString,
+    pid: z.number().int().positive(),
   }),
   [Method.MCP_LIST]: emptySchema,
-  [Method.MCP_GET]: z.object({ name: z.string() }),
-  [Method.MCP_CONNECT]: z.object({ name: z.string() }),
-  [Method.MCP_DISCONNECT]: z.object({ name: z.string() }),
-  [Method.MCP_RELOAD]: z.object({ name: z.string().optional() }),
+  [Method.MCP_GET]: z.object({ name: nonEmptyString }),
+  [Method.MCP_CONNECT]: z.object({ name: nonEmptyString }),
+  [Method.MCP_DISCONNECT]: z.object({ name: nonEmptyString }),
+  [Method.MCP_RELOAD]: z.object({ name: nonEmptyString.optional() }),
   [Method.CONFIG_GET]: emptySchema,
   [Method.CONFIG_WORKSPACE_VALIDATE]: z.object({ workspace: z.string().optional() }).strict(),
   [Method.CONFIG_WORKSPACE_BROWSE_START]: emptySchema,
@@ -527,8 +548,8 @@ export const requestSchemas = {
   [Method.HOOKS_EVENTS]: emptySchema,
   // Utils 工具：provider/url 必填，key 可选（ollama 通常无需）
   [Method.UTILS_MODELS]: z.object({
-    provider: z.string(),
-    url: z.string(),
+    provider: nonEmptyString,
+    url: nonEmptyString,
     key: z.string().optional(),
     fullUrl: z.boolean().optional(),
   }),
@@ -544,7 +565,7 @@ export const requestSchemas = {
   [Method.ENV_LIST]: emptySchema,
   // 打开文件：path 为相对 CHERY_DIR 的文件路径
   [Method.UTILS_OPEN_FILE]: z.object({
-    path: z.string(),
+    path: nonEmptyString,
   }),
   // 打开配置目录：固定目标 CHERY_DIR/.chery，不接受客户端路径
   [Method.UTILS_OPEN_CONFIG_DIR]: emptySchema,
@@ -623,7 +644,7 @@ export const requestSchemas = {
     password: z.string().min(1),
   }),
   [Method.CREDENTIALS_DELETE]: z.object({ id: z.string().min(1) }),
-} as const satisfies Record<Method, z.ZodTypeAny>
+} as const satisfies Record<Method | InternalCommand, z.ZodTypeAny>
 
 /**
  * 按 method 取请求 schema。未知 method 返回 undefined（router 先查 handler 存在性，再校验）。
