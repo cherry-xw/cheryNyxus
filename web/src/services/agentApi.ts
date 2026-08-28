@@ -1477,7 +1477,9 @@ export const agentApi = {
     }
   },
 
-  /** chat.create：创建 chat。返回 chatId + 实际生效编制（预设路径由后端回填，供记 pet.runtime）。 */
+  /** chat.create：创建 chat。返回 chatId + 实际生效编制（预设路径由后端回填，供记 pet.runtime）。
+   * 仅发送显式提供的字段：preset 路径按后端契约「preset 与显式 runtime 字段互斥」不得携带
+   * brain/senseGroup/mcpServers（严格 zod 校验，携带即 INVALID_PARAMS「方言不通」）。 */
   async createAgent(opts: CreateAgentOptions): Promise<CreateAgentResult> {
     const data = await call<{
       chatId?: string
@@ -1491,9 +1493,9 @@ export const agentApi = {
       ...(opts.preset ? { preset: opts.preset } : {}),
       ...(opts.brain !== undefined ? { brain: opts.brain } : {}),
       ...(opts.senseGroup !== undefined ? { senseGroup: opts.senseGroup } : {}),
-      mcpServers: opts.mcpServers ?? [],
-      chatId: opts.chatId,
-      parentChatId: opts.parentChatId,
+      ...(opts.mcpServers !== undefined ? { mcpServers: opts.mcpServers } : {}),
+      ...(opts.chatId !== undefined ? { chatId: opts.chatId } : {}),
+      ...(opts.parentChatId !== undefined ? { parentChatId: opts.parentChatId } : {}),
     })
     if (!data?.chatId || !data.brain) {
       throw new Error('chat.create: missing chatId/brain/senseGroup in response')
