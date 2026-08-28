@@ -1,7 +1,8 @@
 import { getMonthlyDb, getSoulDb } from '@/db/index.js'
-import { getChatMetadata, updateChatMetadata } from '@/db/chat.js'
+import { getChat, getChatMetadata, updateChatMetadata } from '@/db/chat.js'
 import { markChatEpochSnapshotLifecycle } from '@/db/epoch.js'
 import { abortChatRuntime, clearChatRuntime } from '@/service/chat/runtime.js'
+import { emitChildAbandoned } from '@/service/chat/wake.js'
 import { clearWaitedChild, clearWaitedChildrenByParent } from '@/agent/spawnBroker.js'
 
 export interface RoleLifecycleChangeResult {
@@ -146,6 +147,16 @@ export function abandonChatSubtree(chatId: string, reason: string): string[] {
   const rows = descendantRows(chatId)
   const ids = rows.map((row) => row.id)
   if (ids.length === 0) return []
+  const notifications = rows.flatMap((row) => {
+    const chat = getChat(row.id)
+    if (!chat?.parent_chat_id || chat.lifecycle === 'abandoned') return []
+    const type = getChatMetadata(row.id).type
+    return [{
+      parentChatId: chat.parent_chat_id,
+      childChatId: row.id,
+      type: typeof type === 'string' ? type : 'unknown',
+    }]
+  })
   const placeholders = ids.map(() => '?').join(',')
   const now = Date.now()
 
@@ -160,6 +171,14 @@ export function abandonChatSubtree(chatId: string, reason: string): string[] {
   ).run(reason, now, ...ids)
   for (const row of rows) {
     markChatEpochSnapshotLifecycle(row.id, 'abandoned', reason)
+  }
+  for (const notification of notifications) {
+    emitChildAbandoned(
+      notification.parentChatId,
+      notification.childChatId,
+      notification.type,
+      reason,
+    )
   }
   return ids
 }

@@ -193,7 +193,7 @@ export async function wakeParent(
  * 两者并列发送互不阻塞——role_reply 丢投递时 child_abandoned 仍保证前端 ghost 视觉落地。
  * WS 投递用 findOwnerWsByChatId（主 turn 已结束也能反查 owner）；前端离线则由 chat.list 的 finished=true 重建兜底。
  */
-function emitChildAbandoned(
+export function emitChildAbandoned(
   parentChatId: string,
   childChatId: string,
   type: string,
