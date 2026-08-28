@@ -84,6 +84,7 @@
 | 文档 | 内容 |
 |------|------|
 | [system-prompt.md](./system-prompt.md) | **提示词来源汇总入口**：主 system message 组装、额外 system/user 消息、Tools 边界、缓存与生效时机 |
+| [context-epochs.md](./context-epochs.md) | **配置修订与上下文纪元**：删除/重建生命周期、历史只读快照、维护模式、RPC 与验收边界 |
 | [protocol.md](./protocol.md) | WebSocket 协议规范：传输帧格式、消息结构、方法列表、HTTP API、错误码 |
 | [interaction.md](./interaction.md) | 各 RPC 方法完整交互序列、端到端流程、错误路径 |
 | [web/frontend-protocol-binding.md](./web/frontend-protocol-binding.md) | 前端协议消费手册：逐 RPC/Chunk/Notification 字段映射 + 端到端数据通路 + StreamState 契约；协议契约的「消费侧索引」 |

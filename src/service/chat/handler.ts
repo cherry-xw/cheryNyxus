@@ -108,7 +108,9 @@ import { CHERY_NYXUS_NAME } from '@/utils/lockedRole.js'
 import {
   getChatEvents,
   getRecentChatEvents,
+  getSpawnTask,
   claimSpawnTask,
+  abandonSpawnTask,
   finishSpawnTask,
   getSpawnTaskByChild,
   setSpawnTaskOwnership,
@@ -140,6 +142,9 @@ import {
 } from './generations.js'
 import { handleChatTimelineNodeGet } from './nodeDetail.js'
 import { handleChatResumeTree, toTreeControlState } from './treeControl.js'
+import { getActiveChatEpoch, getChatEpochStats } from '@/db/epoch.js'
+import { clearWaitedChild, clearWaitedChildrenByParent } from '@/agent/spawnBroker.js'
+import { abandonChatSubtree } from '@/service/config/roleLifecycle.js'
 import {
   getConversationBranchByChat,
   getConversationTask,
@@ -309,6 +314,7 @@ export async function handleChatList(
   )
 
   const chats = rows.map((chat) => {
+    const epochStats = getChatEpochStats(chat.id)
     const conversationBranch = getConversationBranchByChat(chat.id)
     const meta = chat.metadata
       ? (safeJsonParse(chat.metadata, {}) as {
@@ -347,6 +353,8 @@ export async function handleChatList(
       updatedAt: chat.updated_at,
       messageCount: chat.message_count,
       parentChatId: chat.parent_chat_id ?? null,
+      ...epochStats,
+      lifecycle: chat.lifecycle ?? 'active',
       ...(conversationBranch
         ? {
             taskId: conversationBranch.taskId,
@@ -1640,10 +1648,44 @@ export async function* handleChatStartSpawn(
   ctx: HandlerContext,
   data: ChatStartSpawnRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatStartSpawnResponseData | RpcResponse, unknown> {
+  const pendingTask = getSpawnTask(data.taskId)
+  if (!pendingTask) throw new Error('找不到这个 spawn 任务')
+  if (
+    pendingTask.status === 'finished' ||
+    pendingTask.status === 'timed_out' ||
+    pendingTask.status === 'abandoned'
+  ) {
+    return {
+      chatId: pendingTask.childChatId,
+      runId: ctx.requestId ?? data.taskId,
+      alreadyFinished: true,
+    }
+  }
+  const child = getChat(pendingTask.childChatId)
+  const activeEpochId = child ? getActiveChatEpoch(child.id)?.epochId : undefined
+  const staleEpoch = !pendingTask.epochId || pendingTask.epochId !== activeEpochId
+  if (child?.lifecycle !== 'active' || staleEpoch) {
+    abandonSpawnTask(pendingTask.taskId)
+    if (child) {
+      abandonChatSubtree(
+        child.id,
+        staleEpoch ? 'spawn 任务属于历史纪元，不能在当前纪元恢复' : 'spawn 子树已不可执行',
+      )
+    }
+    return {
+      chatId: pendingTask.childChatId,
+      runId: ctx.requestId ?? data.taskId,
+      alreadyFinished: true,
+    }
+  }
   const claimed = claimSpawnTask(data.taskId)
   const task = claimed.task
   if (!task) throw new Error('找不到这个 spawn 任务')
-  if (task.status === 'finished' || task.status === 'timed_out') {
+  if (
+    task.status === 'finished' ||
+    task.status === 'timed_out' ||
+    task.status === 'abandoned'
+  ) {
     updateChatMetadata(task.childChatId, { finished: true })
     return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true }
   }
@@ -1706,6 +1748,7 @@ export async function handleChatDelete(
   const isMaster = !chat.parent_chat_id
   let cascaded = 0
   const deletedChatIds: string[] = []
+  const deletionOrder: Array<{ id: string }> = []
   if (isMaster) {
     const descendants: Array<{ id: string }> = []
     const seen = new Set<string>([p.chatId])
@@ -1719,17 +1762,26 @@ export async function handleChatDelete(
     }
     visit(p.chatId)
     cascaded = descendants.length
-    for (const child of descendants) {
-      clearChatRuntime(child.id)
-      deleteChat(child.id)
-      deletedChatIds.push(child.id)
-    }
+    deletionOrder.push(...descendants)
+  }
+  deletionOrder.push({ id: p.chatId })
+
+  const running = deletionOrder.filter((candidate) => isChatRunning(candidate.id))
+  if (running.length > 0) {
+    const error = new Error(
+      `会话仍在运行，不能直接删除：${running.map((candidate) => candidate.id).join(', ')}。请先停止运行。`,
+    ) as Error & { code: string }
+    error.code = ErrorCode.CONFLICT
+    throw error
   }
 
-  // 清理运行时缓存 + 删除目标 chat
-  clearChatRuntime(p.chatId)
-  deleteChat(p.chatId)
-  deletedChatIds.push(p.chatId)
+  for (const target of deletionOrder) {
+    clearWaitedChild(target.id)
+    clearWaitedChildrenByParent(target.id)
+    clearChatRuntime(target.id)
+    deleteChat(target.id)
+    deletedChatIds.push(target.id)
+  }
 
   logger.event('chat.delete', { chatId: p.chatId, cascaded, deletedChatIds })
   return { chatId: p.chatId, deletedChatIds }

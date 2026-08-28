@@ -36,7 +36,9 @@ export interface SpawnTask {
   deliveryChatId: string
   deliveryBranchId?: string
   deliveryGeneration: number
-  status: 'pending' | 'started' | 'finished' | 'timed_out'
+  epochId?: string
+  roleId?: string
+  status: 'pending' | 'started' | 'finished' | 'timed_out' | 'abandoned'
 }
 
 export type RequestClaim =
@@ -282,8 +284,8 @@ export function createSpawnTask(
     .prepare(
       `INSERT INTO spawn_tasks
       (task_id, child_chat_id, parent_chat_id, type, prompt, brain, sense_group, spawn_call_id, owning_batch_id,
-       delivery_chat_id, delivery_branch_id, delivery_generation, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+       delivery_chat_id, delivery_branch_id, delivery_generation, epoch_id, role_id, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
     .run(
       taskId,
@@ -298,6 +300,8 @@ export function createSpawnTask(
       input.deliveryChatId ?? input.parentChatId,
       input.deliveryBranchId ?? null,
       input.deliveryGeneration ?? 0,
+      input.epochId ?? null,
+      input.roleId ?? null,
       now,
       now,
     )
@@ -324,6 +328,8 @@ function toSpawnTask(row: Record<string, unknown>): SpawnTask {
     deliveryChatId: String(row.delivery_chat_id ?? row.parent_chat_id),
     ...(row.delivery_branch_id ? { deliveryBranchId: String(row.delivery_branch_id) } : {}),
     deliveryGeneration: Number(row.delivery_generation ?? 0),
+    ...(row.epoch_id ? { epochId: String(row.epoch_id) } : {}),
+    ...(row.role_id ? { roleId: String(row.role_id) } : {}),
     status: row.status as SpawnTask['status'],
   }
 }
@@ -345,7 +351,14 @@ export function getSpawnTaskByChild(childChatId: string): SpawnTask | undefined 
 export function claimSpawnTask(taskId: string): { task?: SpawnTask; firstStart: boolean } {
   const db = getSoulDb()
   const task = getSpawnTask(taskId)
-  if (!task || task.status === 'finished') return { task, firstStart: false }
+  if (
+    !task ||
+    task.status === 'finished' ||
+    task.status === 'timed_out' ||
+    task.status === 'abandoned'
+  ) {
+    return { task, firstStart: false }
+  }
   if (task.status === 'pending') {
     const changed = db
       .prepare(
@@ -361,6 +374,14 @@ export function finishSpawnTask(taskId: string): void {
   getSoulDb()
     .prepare(
       "UPDATE spawn_tasks SET status = 'finished', updated_at = ? WHERE task_id = ? AND status IN ('pending', 'started')",
+    )
+    .run(Date.now(), taskId)
+}
+
+export function abandonSpawnTask(taskId: string): void {
+  getSoulDb()
+    .prepare(
+      "UPDATE spawn_tasks SET status = 'abandoned', updated_at = ? WHERE task_id = ? AND status IN ('pending', 'started')",
     )
     .run(Date.now(), taskId)
 }
@@ -400,7 +421,16 @@ export function timeoutSpawnTask(childChatId: string): {
 export function listOpenSpawnTasks(parentChatId: string): SpawnTask[] {
   const rows = getSoulDb()
     .prepare(
-      "SELECT * FROM spawn_tasks WHERE parent_chat_id = ? AND status IN ('pending', 'started') ORDER BY created_at ASC",
+      `SELECT task.* FROM spawn_tasks task
+       JOIN chats child ON child.id = task.child_chat_id
+       WHERE task.parent_chat_id = ?
+         AND task.status IN ('pending', 'started')
+         AND child.lifecycle = 'active'
+         AND (
+           task.epoch_id = child.active_epoch_id
+           OR (task.epoch_id IS NULL AND child.active_epoch_id IS NULL)
+         )
+       ORDER BY task.created_at ASC`,
     )
     .all(parentChatId) as Record<string, unknown>[]
   return rows.map(toSpawnTask)
@@ -417,8 +447,10 @@ export function listSpawnTasksNeedingWakeRecovery(): SpawnTask[] {
       `SELECT task.* FROM spawn_tasks task
        JOIN chats child ON child.id = task.child_chat_id
        WHERE child.parent_chat_id IS NOT NULL
+         AND child.lifecycle = 'active'
          AND COALESCE(json_extract(child.metadata, '$.roleInjected'), 0) != 1
          AND COALESCE(json_extract(child.metadata, '$.abandoned'), 0) != 1
+         AND (task.epoch_id IS NULL OR task.epoch_id = child.active_epoch_id)
        ORDER BY task.created_at, task.task_id`,
     )
     .all() as Record<string, unknown>[]

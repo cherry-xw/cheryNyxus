@@ -28,6 +28,15 @@ import {
 } from '@/service/restartCoordinator.js'
 import fs from 'node:fs'
 import yaml from 'js-yaml'
+import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
+import { startConfigRevisionWatcher } from '@/service/config/watcher.js'
+import { getActiveConfigRevision } from '@/db/epoch.js'
+import {
+  applyRetiredRoles,
+  archivePresetRoots,
+  detectRemovedPresetIds,
+  detectRetiredRoleIdentities,
+} from '@/service/config/roleLifecycle.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /**
@@ -113,6 +122,36 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
     return
   }
 
+  getSoulDb()
+  const previousRevision = getActiveConfigRevision()
+  const currentRaw = readRawConfig()
+  const activeRevision = ensureCurrentConfigRevision()
+  if (previousRevision && previousRevision.revisionId !== activeRevision.revisionId) {
+    const beforeRoles = (previousRevision.snapshot.roles ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >
+    const afterRoles = currentRaw.roles as unknown as Record<string, Record<string, unknown>>
+    const retired = detectRetiredRoleIdentities(beforeRoles, afterRoles)
+    applyRetiredRoles({
+      roleIds: retired.ids,
+      roleNames: retired.names,
+      reason: `角色在已激活配置修订 ${activeRevision.revisionId} 中被删除或语义修改`,
+    })
+    const removedPresetIds = detectRemovedPresetIds(
+      (previousRevision.snapshot.presets ?? {}) as Record<string, Record<string, unknown>>,
+      currentRaw.presets as unknown as Record<string, Record<string, unknown>>,
+    )
+    archivePresetRoots(
+      removedPresetIds,
+      `预设在已激活配置修订 ${activeRevision.revisionId} 中被删除`,
+    )
+  }
+  logger.event('config.revision.active', {
+    revisionId: activeRevision.revisionId,
+    fingerprint: activeRevision.fingerprint,
+  })
+
   await bootstrapAgentRuntime()
 
   const recoveredRuns = reconcileOrphanedExecutionRuns()
@@ -154,7 +193,7 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
       `HTTP http://${bindHost}:${config.server.webPort}（登录/静态资源）`,
   )
 
-  getSoulDb()
+  const configWatcher = startConfigRevisionWatcher()
 
   let shuttingDown = false
   async function gracefulShutdown(signal: string): Promise<void> {
@@ -164,6 +203,7 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
     closeAllConnections(wss)
     clearAllApprovals()
     clearAllWaitedChildren()
+    configWatcher.close()
     try {
       await Promise.race([
         Promise.all([

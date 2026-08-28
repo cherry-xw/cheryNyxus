@@ -16,6 +16,8 @@ export interface ChatRow {
    * 可选：旧库未补列前查询结果可能缺该字段（CREATE 后 ensureChatColumn 已统一补，运行时恒存在）。
    */
   parent_chat_id?: string | null
+  active_epoch_id?: string | null
+  lifecycle?: 'active' | 'retired' | 'abandoned' | 'archived'
 }
 
 export interface MessageRow {
@@ -38,6 +40,8 @@ export interface MessageRow {
   runtime: string | null
   context_compaction?: number | null
   context_compaction_tokens?: number | null
+  /** Immutable context epoch that owned this message. */
+  epoch_id?: string | null
 }
 
 export interface MessageData {
@@ -108,6 +112,7 @@ export interface PendingInputRow {
   state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
   accepted_at: number
   consumed_at: number | null
+  epoch_id?: string | null
 }
 
 /**
@@ -144,10 +149,16 @@ export function createChat(
   const db = getSoulDb()
   const now = Date.now()
   const messagesMonth = formatYearMonth(now)
+  const parentEpoch = parentChatId
+    ? ((db.prepare('SELECT active_epoch_id FROM chats WHERE id = ?').get(parentChatId) as
+        | { active_epoch_id: string | null }
+        | undefined)?.active_epoch_id ?? null)
+    : null
 
   const stmt = db.prepare(`
-    INSERT INTO chats (id, messages_month, created_at, updated_at, metadata, parent_chat_id)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO chats
+      (id, messages_month, created_at, updated_at, metadata, parent_chat_id, active_epoch_id, lifecycle)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
   `)
 
   stmt.run(
@@ -157,6 +168,7 @@ export function createChat(
     now,
     metadata ? JSON.stringify(metadata) : null,
     parentChatId ?? null,
+    parentEpoch,
   )
 
   // 确保月份文件存在
@@ -171,6 +183,8 @@ export function createChat(
     message_count: 0,
     timeline_revision: 0,
     parent_chat_id: parentChatId ?? null,
+    active_epoch_id: parentEpoch,
+    lifecycle: 'active',
   }
 }
 
@@ -195,11 +209,14 @@ export function addPendingInput(input: {
   state: PendingInputRow['state']
   acceptedAt: number
 }): void {
+  const epoch = getSoulDb()
+    .prepare('SELECT active_epoch_id FROM chats WHERE id = ?')
+    .get(input.chatId) as { active_epoch_id: string | null } | undefined
   getSoulDb()
     .prepare(
       `INSERT INTO pending_inputs
-        (input_id, chat_id, message_id, client_message_id, command_id, content, queue_sequence, state, accepted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (input_id, chat_id, message_id, client_message_id, command_id, content, queue_sequence, state, accepted_at, epoch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.inputId,
@@ -211,6 +228,7 @@ export function addPendingInput(input: {
       input.queueSequence,
       input.state,
       input.acceptedAt,
+      epoch?.active_epoch_id ?? null,
     )
 }
 
@@ -219,9 +237,13 @@ export function listPendingInputs(chatId: string): PendingInputRow[] {
     .prepare(
       `SELECT * FROM pending_inputs
        WHERE chat_id = ? AND state IN ('accepted', 'started', 'queued')
+         AND (
+           epoch_id = (SELECT active_epoch_id FROM chats WHERE id = ?)
+           OR (epoch_id IS NULL AND (SELECT active_epoch_id FROM chats WHERE id = ?) IS NULL)
+         )
        ORDER BY queue_sequence ASC, accepted_at ASC`,
     )
-    .all(chatId) as PendingInputRow[]
+    .all(chatId, chatId, chatId) as PendingInputRow[]
 }
 
 export function markPendingInputsConsumed(chatId: string, inputIds: string[]): void {
@@ -551,8 +573,10 @@ export function deleteChat(chatId: string): void {
   const soulDb = getSoulDb()
 
   // 1. 查询 messages_month
-  const chatStmt = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?')
-  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined
+  const chatStmt = soulDb.prepare('SELECT messages_month, active_epoch_id FROM chats WHERE id = ?')
+  const chat = chatStmt.get(chatId) as
+    | { messages_month: string; active_epoch_id: string | null }
+    | undefined
 
   if (!chat) return
   const executionRootId = getRootChat(chatId).id
@@ -573,7 +597,18 @@ export function deleteChat(chatId: string): void {
     })
     clear()
   } finally {
-    soulDb.prepare('DELETE FROM interactions WHERE chat_id = ?').run(chatId)
+    soulDb.prepare('DELETE FROM interactions WHERE chat_id = ? OR root_chat_id = ?').run(chatId, chatId)
+    soulDb
+      .prepare(
+        'DELETE FROM tree_control_targets WHERE chat_id = ? OR pause_id IN (SELECT pause_id FROM tree_control_operations WHERE root_chat_id = ?)',
+      )
+      .run(chatId, chatId)
+    soulDb.prepare('DELETE FROM tree_control_operations WHERE root_chat_id = ?').run(chatId)
+    soulDb
+      .prepare(
+        'DELETE FROM spawn_tasks WHERE child_chat_id = ? OR parent_chat_id = ? OR delivery_chat_id = ?',
+      )
+      .run(chatId, chatId, chatId)
     soulDb
       .prepare(
         'DELETE FROM execution_edges WHERE root_chat_id = ? AND (? = ? OR from_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?) OR to_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?))',
@@ -597,6 +632,11 @@ export function deleteChat(chatId: string): void {
       )
       .run(chatId, chatId, chatId)
     soulDb.prepare('DELETE FROM pending_inputs WHERE chat_id = ?').run(chatId)
+    soulDb.prepare('DELETE FROM chat_epoch_snapshots WHERE chat_id = ?').run(chatId)
+    if (chatId === executionRootId) {
+      soulDb.prepare('DELETE FROM root_events WHERE root_chat_id = ?').run(chatId)
+      soulDb.prepare('DELETE FROM chat_epochs WHERE root_chat_id = ?').run(chatId)
+    }
     const branch = soulDb
       .prepare('SELECT task_id FROM conversation_branches WHERE chat_id = ?')
       .get(chatId) as { task_id: string } | undefined
@@ -739,8 +779,10 @@ export function getChatPreviews(
 export function addMessage(messageId: string, chatId: string, data: MessageData): MessageRow {
   // 1. 获取 chat 的 messages_month
   const soulDb = getSoulDb()
-  const chatStmt = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?')
-  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined
+  const chatStmt = soulDb.prepare('SELECT messages_month, active_epoch_id FROM chats WHERE id = ?')
+  const chat = chatStmt.get(chatId) as
+    | { messages_month: string; active_epoch_id: string | null }
+    | undefined
 
   if (!chat) throw new Error(`Chat ${chatId} not found`)
 
@@ -752,8 +794,8 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
   const now = Date.now()
 
   const stmt = monthlyDb.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime, context_compaction, context_compaction_tokens)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime, context_compaction, context_compaction_tokens, epoch_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   stmt.run(
@@ -774,6 +816,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     data.runtime ? JSON.stringify(data.runtime) : null,
     data.contextCompaction ? 1 : 0,
     data.contextCompactionTokens ?? null,
+    chat.active_epoch_id,
   )
 
   // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
@@ -802,6 +845,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     runtime: data.runtime ? JSON.stringify(data.runtime) : null,
     context_compaction: data.contextCompaction ? 1 : 0,
     context_compaction_tokens: data.contextCompactionTokens ?? null,
+    epoch_id: chat.active_epoch_id,
   }
 }
 
@@ -913,7 +957,7 @@ export function getChildReturnMessageIds(parentChatId: string): Set<string> {
 /**
  * 获取消息（路由到月份文件）
  */
-export function getMessages(chatId: string): MessageRow[] {
+export function getMessages(chatId: string, epochId?: string): MessageRow[] {
   // 1. 获取 chat 的 messages_month
   const soulDb = getSoulDb()
   const chatStmt = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?')
@@ -925,10 +969,16 @@ export function getMessages(chatId: string): MessageRow[] {
   const monthlyDb = getMonthlyDb(chat.messages_month)
 
   // 3. 查询 messages
-  const stmt = monthlyDb.prepare(
-    'SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC',
-  )
-  return stmt.all(chatId) as MessageRow[]
+  if (epochId) {
+    return monthlyDb
+      .prepare(
+        'SELECT * FROM messages WHERE chat_id = ? AND epoch_id = ? ORDER BY created_at ASC, rowid ASC',
+      )
+      .all(chatId, epochId) as MessageRow[]
+  }
+  return monthlyDb
+    .prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC')
+    .all(chatId) as MessageRow[]
 }
 
 /**

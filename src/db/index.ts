@@ -30,6 +30,7 @@ export function getSoulDb(): Database.Database {
     }
 
     dbCache.soulDb = new Database(dbPath)
+    dbCache.soulDb.pragma('busy_timeout = 5000')
     dbCache.soulDb.pragma('foreign_keys = ON')
     dbCache.soulDb.pragma('journal_mode = WAL')
     initSoulTables(dbCache.soulDb)
@@ -58,6 +59,7 @@ export function getMonthlyDb(yearMonth: string): Database.Database {
     }
 
     const db = new Database(dbPath)
+    db.pragma('busy_timeout = 5000')
     db.pragma('journal_mode = WAL')
     initMonthlyTables(db)
     dbCache.monthlyDbs.set(yearMonth, db)
@@ -311,6 +313,66 @@ function initSoulTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_execution_active_runs_root_status
       ON execution_active_runs(root_chat_id, status, updated_at);
+
+    /* Immutable semantic configuration revisions. Secret values are never
+       stored in snapshot_json; callers persist only a redacted projection. */
+    CREATE TABLE IF NOT EXISTS config_revisions (
+      revision_id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL,
+      source TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      resources_json TEXT NOT NULL,
+      validation_error TEXT,
+      created_at INTEGER NOT NULL,
+      activated_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_config_revisions_status_created
+      ON config_revisions(status, created_at DESC);
+
+    /* A root conversation may have many immutable context epochs, but only
+       one may be executable. Historical epochs remain available for audit. */
+    CREATE TABLE IF NOT EXISTS chat_epochs (
+      epoch_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      revision_id TEXT,
+      status TEXT NOT NULL,
+      snapshot_quality TEXT NOT NULL,
+      transition_reason TEXT NOT NULL,
+      handoff_summary TEXT,
+      created_at INTEGER NOT NULL,
+      activated_at INTEGER,
+      closed_at INTEGER,
+      UNIQUE(root_chat_id, ordinal)
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_epochs_one_active
+      ON chat_epochs(root_chat_id) WHERE status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_chat_epochs_root_ordinal
+      ON chat_epochs(root_chat_id, ordinal DESC);
+
+    /* Per-chat materialization inside an epoch. This is deliberately data,
+       not executable code: prompt text and tool contracts are auditable while
+       implementations continue to come from the validated deployment. */
+    CREATE TABLE IF NOT EXISTS chat_epoch_snapshots (
+      epoch_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      role_id TEXT,
+      role_name TEXT,
+      lifecycle TEXT NOT NULL,
+      prompt_snapshot_json TEXT,
+      runtime_snapshot_json TEXT,
+      resource_manifest_json TEXT NOT NULL,
+      invalidation_reason TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(epoch_id, chat_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_epoch_snapshots_chat
+      ON chat_epoch_snapshots(chat_id, created_at DESC);
   `)
   // P1-8：旧库 chats 表无 message_count，CREATE IF NOT EXISTS 跳过建表，按列检查补 ALTER。
   ensureChatColumn(db, 'message_count', 'INTEGER NOT NULL DEFAULT 0')
@@ -319,11 +381,15 @@ function initSoulTables(db: Database.Database): void {
   ensureChatColumn(db, 'timeline_revision', 'INTEGER NOT NULL DEFAULT 0')
   // CP1 主从 Agent：旧库缺 parent_chat_id 列，按列检查补 ALTER（TEXT 缺省 NULL，无需回填）。
   ensureChatColumn(db, 'parent_chat_id', 'TEXT')
+  ensureChatColumn(db, 'active_epoch_id', 'TEXT')
+  ensureChatColumn(db, 'lifecycle', "TEXT NOT NULL DEFAULT 'active'")
   ensureTableColumn(db, 'spawn_tasks', 'spawn_call_id', 'TEXT')
   ensureTableColumn(db, 'spawn_tasks', 'owning_batch_id', 'TEXT')
   ensureTableColumn(db, 'spawn_tasks', 'delivery_chat_id', 'TEXT')
   ensureTableColumn(db, 'spawn_tasks', 'delivery_branch_id', 'TEXT')
   ensureTableColumn(db, 'spawn_tasks', 'delivery_generation', 'INTEGER NOT NULL DEFAULT 0')
+  ensureTableColumn(db, 'spawn_tasks', 'epoch_id', 'TEXT')
+  ensureTableColumn(db, 'spawn_tasks', 'role_id', 'TEXT')
   ensureTableColumn(db, 'conversation_tasks', 'active_branch_id', 'TEXT')
   ensureTableColumn(db, 'conversation_tasks', 'delivery_generation', 'INTEGER NOT NULL DEFAULT 0')
   db.exec(`UPDATE spawn_tasks SET delivery_chat_id = parent_chat_id WHERE delivery_chat_id IS NULL`)
@@ -335,6 +401,8 @@ function initSoulTables(db: Database.Database): void {
     )
     WHERE active_branch_id IS NULL`)
   ensureTableColumn(db, 'message_links', 'causation_node_id', 'TEXT')
+  ensureTableColumn(db, 'pending_inputs', 'epoch_id', 'TEXT')
+  ensureTableColumn(db, 'execution_active_runs', 'epoch_id', 'TEXT')
 }
 
 function ensureTableColumn(
@@ -400,6 +468,7 @@ function initMonthlyTables(db: Database.Database): void {
       runtime TEXT,
       context_compaction INTEGER DEFAULT 0,
       context_compaction_tokens INTEGER,
+      epoch_id TEXT,
       created_at INTEGER NOT NULL
     );
 
@@ -459,6 +528,7 @@ function initMonthlyTables(db: Database.Database): void {
   ensureMessageColumn(db, 'runtime', 'TEXT')
   ensureMessageColumn(db, 'context_compaction', 'INTEGER DEFAULT 0')
   ensureMessageColumn(db, 'context_compaction_tokens', 'INTEGER')
+  ensureMessageColumn(db, 'epoch_id', 'TEXT')
   ensureChatEventColumn(db, 'chat_seq', 'INTEGER')
   // Development builds created before per-chat sequence migration used the
   // global row id as `seq`. Backfill deterministic per-chat cursors so those

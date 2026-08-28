@@ -23,6 +23,7 @@ import { createSpawnTask, getSpawnTaskByChild, setSpawnTaskOwnership } from '@/d
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
 import { getToolCallOwner } from '@/db/executionGraph.js'
 import { recordSpawnEdgeFact, recordSpawnTargetFact } from '@/service/chat/executionFacts.js'
+import { getActiveChatEpoch } from '@/db/epoch.js'
 
 // tool 暴露面：让主 agent LLM 可见可用角色及能力（非盲串 type）。
 // - catalog = config.roles 全集（单一源，模块加载期冻结；预设按 type 引用，不在预设内重定义）。
@@ -79,10 +80,12 @@ const SPAWN_DESC_SUFFIX = `
   - deferred: 子完成结果暂存不唤主；全 deferred 集最后一个完成隐式唤主。适合后台任务
   - barrier: 声明栅栏，主进入 all 模式，所有未完成子完成才唤主。适合批量并行后汇总
 主一轮内可连续 spawn 多个子（本轮 LLM 结束后统一停等）；子结果都带 [角色 type] 来源说明注入主消息流。`
+const EPOCH_DESC_SUFFIX = `
+纪元规则：本工具只会在当前可执行纪元创建或恢复同纪元任务。历史纪元、已退役角色及 abandoned 子树均为只读，不可 resume；角色同名重建也必须创建新的子会话。具体哪些旧角色已退役，以系统注入的 <epoch_transition> 为准。`
 
 /** 完整工具描述（前缀 + 指定角色 catalog + 参数说明）。 */
 function buildSpawnDescription(keys: string[]): string {
-  return `${SPAWN_DESC_PREFIX}${buildCatalogText(keys)}${SPAWN_DESC_SUFFIX}`
+  return `${SPAWN_DESC_PREFIX}${buildCatalogText(keys)}${SPAWN_DESC_SUFFIX}${EPOCH_DESC_SUFFIX}`
 }
 
 /**
@@ -227,10 +230,14 @@ async function spawnHandler(
   const existingChildren = findChatsByParent(parentChatId)
   const reusableChild = existingChildren.find((c) => {
     const metadata = c.metadata ? JSON.parse(c.metadata) : {}
+    const taskEpochId = getSpawnTaskByChild(c.id)?.epochId
+    const activeEpochId = getActiveChatEpoch(parentChatId)?.epochId
     return (
+      c.lifecycle === 'active' &&
       metadata.finished !== true &&
       metadata.type === type &&
-      metadata.spawnPromptHash === inputPromptHash
+      metadata.spawnPromptHash === inputPromptHash &&
+      (!activeEpochId || taskEpochId === activeEpochId)
     )
   })
 
@@ -304,6 +311,10 @@ async function spawnHandler(
       prompt,
       brain,
       senseGroup,
+      ...(getActiveChatEpoch(parentChatId)?.epochId
+        ? { epochId: getActiveChatEpoch(parentChatId)!.epochId }
+        : {}),
+      ...(roleCfg.id ? { roleId: roleCfg.id } : {}),
       ...(spawnSenseCallId ? { spawnCallId: spawnSenseCallId } : {}),
     })
   }

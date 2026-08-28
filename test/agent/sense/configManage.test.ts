@@ -9,7 +9,7 @@
  *  - rollback 无备份时返回可行动报错（不抛异常、不报"目录不存在"）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -119,5 +119,64 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
     const r = await exec({ action: 'rollback' } as never, sharedData)
     expect(r.content).toContain('已从 .chery/backups/')
     expect(r.content).toContain('恢复')
+  })
+
+  it('asset_save 原子创建提示词，asset_archive 可恢复归档零引用资产', async () => {
+    const saved = await exec(
+      {
+        action: 'asset_save',
+        assetPath: 'prompt/new-role/system.md',
+        content: '# New role\nbackground',
+      } as never,
+      sharedData,
+    )
+    const target = join(tempCheryDir, '.chery', 'prompt', 'new-role', 'system.md')
+    expect(saved.content).toContain('已原子保存')
+    expect(readFileSync(target, 'utf8')).toContain('New role')
+
+    const archived = await exec(
+      { action: 'asset_archive', assetPath: 'prompt/new-role/system.md' } as never,
+      sharedData,
+    )
+    expect(archived.content).toContain('活动目录移出')
+    expect(existsSync(target)).toBe(false)
+    expect(existsSync(join(tempCheryDir, '.chery', 'backups', 'assets'))).toBe(true)
+  })
+
+  it('asset_save can replace an existing asset and preserves the old version', async () => {
+    const target = join(tempCheryDir, '.chery', 'prompt', 'editable.md')
+    mkdirSync(join(tempCheryDir, '.chery', 'prompt'), { recursive: true })
+    writeFileSync(target, 'old content')
+
+    const result = await exec(
+      {
+        action: 'asset_save',
+        assetPath: 'prompt/editable.md',
+        content: 'new content',
+      } as never,
+      sharedData,
+    )
+
+    expect(result.content).toContain('已原子保存')
+    expect(readFileSync(target, 'utf8')).toBe('new content')
+    const backupsRoot = join(tempCheryDir, '.chery', 'backups', 'assets')
+    expect(existsSync(backupsRoot)).toBe(true)
+  })
+
+  it('asset_archive 严格拒绝仍被角色引用的提示词', async () => {
+    const prompt = join(tempCheryDir, '.chery', 'prompt', 'used.md')
+    mkdirSync(join(tempCheryDir, '.chery', 'prompt'), { recursive: true })
+    writeFileSync(prompt, 'used')
+    writeFileSync(
+      join(tempCheryDir, '.chery', 'config.yaml'),
+      `${minimalConfigYaml()}roles:\n  used-role:\n    brain: brain-a\n    senseGroup: leader\n    systemPrompt: prompt/used.md\n`,
+    )
+
+    const result = await exec(
+      { action: 'asset_archive', assetPath: 'prompt/used.md' } as never,
+      sharedData,
+    )
+    expect(result.content).toContain('仍被引用')
+    expect(existsSync(prompt)).toBe(true)
   })
 })

@@ -112,6 +112,9 @@ export interface ChatSummary {
   messageCount?: number
   /** 子 chat 关联主 chat；主 chat 为 null。后端 parent_chat_id 列。 */
   parentChatId?: string | null
+  activeEpochId?: string
+  epochCount?: number
+  lifecycle?: 'active' | 'retired' | 'abandoned' | 'archived'
   /** 子 chat 的角色 type 与头像；主 chat 缺省。 */
   agentType?: string
   avatar?: string
@@ -157,6 +160,19 @@ export interface ChatSummary {
     question: string
     createdAt: number
   }>
+}
+
+export interface ChatEpochSummary {
+  epochId: string
+  ordinal: number
+  label: string
+  status: 'active' | 'historical' | 'archived'
+  snapshotQuality: 'exact' | 'partial' | 'reconstructed'
+  transitionReason: string
+  handoffSummary?: string
+  executable: boolean
+  createdAt: number
+  closedAt?: number
 }
 
 export interface ConversationRouteTarget {
@@ -1725,16 +1741,38 @@ export const agentApi = {
    * 供历史抽屉顶部「上下文」hover 面板展示完整系统提示词（system 段 + tools 段）。
    * 按 chat 当前快照重建（systemPromptFile/workspace/skillFilter + runtime selection）。
    */
-  async promptSnapshot(chatId: string): Promise<{
+  async promptSnapshot(chatId: string, epochId?: string): Promise<{
     chatId: string
+    epochId?: string
+    epochOrdinal?: number
+    epochStatus?: 'active' | 'historical' | 'archived'
+    snapshotQuality?: 'exact' | 'partial' | 'reconstructed'
     systemPrompt: string
     tools: PromptSnapshotTool[]
   }> {
     return call<{
       chatId: string
+      epochId?: string
+      epochOrdinal?: number
+      epochStatus?: 'active' | 'historical' | 'archived'
+      snapshotQuality?: 'exact' | 'partial' | 'reconstructed'
       systemPrompt: string
       tools: PromptSnapshotTool[]
-    }>('chat.promptSnapshot', { chatId })
+    }>('chat.promptSnapshot', { chatId, ...(epochId ? { epochId } : {}) })
+  },
+
+  async listEpochs(chatId: string): Promise<{
+    chatId: string
+    rootChatId: string
+    activeEpochId?: string
+    epochs: ChatEpochSummary[]
+  }> {
+    return call<{
+      chatId: string
+      rootChatId: string
+      activeEpochId?: string
+      epochs: ChatEpochSummary[]
+    }>('chat.epoch.list', { chatId })
   },
 
   /**

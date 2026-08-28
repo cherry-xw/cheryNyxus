@@ -1,5 +1,10 @@
 import { computed, ref, watch, type MaybeRefOrGetter, toValue } from 'vue'
-import { agentApi, type ContextBreakdown, type PromptSnapshotTool } from '@/application/backend/public'
+import {
+  agentApi,
+  type ChatEpochSummary,
+  type ContextBreakdown,
+  type PromptSnapshotTool,
+} from '@/application/backend/public'
 import { useChatSessionData } from '@/application/chat/public'
 
 type RoleSelection = { brain: string }
@@ -73,29 +78,50 @@ export function useWorkbenchContextInspector(options: {
     tools: PromptSnapshotTool[]
     status: 'idle' | 'loading' | 'error' | 'loaded'
     error?: string
+    epochs: ChatEpochSummary[]
+    selectedEpochId?: string
+    activeEpochId?: string
+    snapshotQuality?: 'exact' | 'partial' | 'reconstructed'
   } | null>(null)
-  let treePromptSnapChatId = ''
+  let treePromptSnapKey = ''
 
-  async function loadTreePromptSnapshot(chatId: string): Promise<void> {
-    if (treePromptSnapChatId === chatId && treePromptSnap.value?.status !== 'error') return
-    treePromptSnapChatId = chatId
-    treePromptSnap.value = { systemPrompt: '', tools: [], status: 'loading' }
+  async function loadTreePromptSnapshot(chatId: string, epochId?: string): Promise<void> {
+    const key = `${chatId}:${epochId ?? 'active'}`
+    if (treePromptSnapKey === key && treePromptSnap.value?.status !== 'error') return
+    treePromptSnapKey = key
     try {
-      const result = await agentApi.promptSnapshot(chatId)
-      if (treePromptSnapChatId === chatId) {
+      const epochsResult = await agentApi.listEpochs(chatId)
+      const selectedEpochId = epochId ?? epochsResult.activeEpochId
+      treePromptSnap.value = {
+        systemPrompt: '',
+        tools: [],
+        status: 'loading',
+        epochs: epochsResult.epochs,
+        selectedEpochId,
+        activeEpochId: epochsResult.activeEpochId,
+      }
+      const result = await agentApi.promptSnapshot(chatId, selectedEpochId)
+      const effectiveSelectedEpochId = result.epochId ?? selectedEpochId
+      if (treePromptSnapKey === key) {
         treePromptSnap.value = {
           systemPrompt: result.systemPrompt,
           tools: result.tools,
           status: 'loaded',
+          epochs: epochsResult.epochs,
+          selectedEpochId: effectiveSelectedEpochId,
+          activeEpochId: epochsResult.activeEpochId,
+          snapshotQuality: result.snapshotQuality,
         }
       }
     } catch (error) {
-      if (treePromptSnapChatId === chatId) {
+      if (treePromptSnapKey === key) {
         treePromptSnap.value = {
           systemPrompt: '',
           tools: [],
           status: 'error',
           error: (error as Error).message,
+          epochs: treePromptSnap.value?.epochs ?? [],
+          selectedEpochId: epochId,
         }
       }
     }
@@ -106,8 +132,14 @@ export function useWorkbenchContextInspector(options: {
     if (chatId) void loadTreePromptSnapshot(chatId)
   }
 
+  function onTreeEpochChange(epochId: string): void {
+    const chatId = toValue(options.treeRootChatId)
+    if (chatId) void loadTreePromptSnapshot(chatId, epochId)
+  }
+
   return {
     onTreePromptSnapShow,
+    onTreeEpochChange,
     roleUsages,
     treeBreakdown,
     treePromptSnap,

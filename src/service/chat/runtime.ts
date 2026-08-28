@@ -13,9 +13,9 @@ import {
   getChat,
   getChatType,
   getChatBranchContext,
-  findChildChatsWithType,
   listPendingInputs,
   markPendingInputsConsumed,
+  getChatMetadata,
 } from '@/db/chat.js'
 import config from '@/utils/config'
 import { ErrorCode } from '@/service/message/types.js'
@@ -25,6 +25,18 @@ import { notifyRestartActivityChanged } from '@/service/restartCoordinator.js'
 import { getChatMentionableRoles } from './roleMentions.js'
 import { computeHistoryGenerationInfos } from './generations.js'
 import { buildTreeInterruptionNotice } from './treeInterruption.js'
+import {
+  assertEpochExecutable,
+  ensureActiveChatEpoch,
+  freezeChatEpochSnapshot,
+  getActiveChatEpoch,
+  getFrozenChatSnapshot,
+  rotateActiveChatEpoch,
+  type ChatEpochRecord,
+} from '@/db/epoch.js'
+import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
+import { buildLivePromptSnapshot } from './promptSnapshot.js'
+import { assertAgentExecutionAllowed } from '@/service/maintenanceMode.js'
 
 /**
  * Chat 运行时缓存：chatId → builder + runtime 选择（单 chat 绑定，跨轮不重建）
@@ -37,6 +49,8 @@ import { buildTreeInterruptionNotice } from './treeInterruption.js'
 interface ChatRuntime {
   builder: AgentBuilder
   selection?: RuntimeSelection
+  /** Frozen context epoch loaded into this builder. */
+  epochId?: string
   /** 当前活跃 chat.send/chat.resume 的协议运行标识。 */
   activeRunId?: string
 }
@@ -218,6 +232,11 @@ export interface SessionRoleRuntimeResult {
   deferredRunning: string[]
 }
 
+export interface SessionRoleRuntimeOptions {
+  /** Create a new immutable context epoch only for an actual semantic change. */
+  rotateEpoch?: boolean
+}
+
 /**
  * 设置主会话的临时角色编制，并立即切换主角色运行时；同时回灌已存在的同 type 子 chat。
  *
@@ -236,50 +255,35 @@ export async function setSessionRoleRuntimes(
   chatId: string,
   primary: RuntimeSelection,
   roles: Record<string, RuntimeSelection>,
+  options: SessionRoleRuntimeOptions = {},
 ): Promise<SessionRoleRuntimeResult> {
-  const previous = sessionRoleRuntimes.get(chatId)
+  const current = await ensureChat(chatId)
+  if (current.isRunning()) {
+    throw new Error('主 Agent 正在运行，必须先到达安全检查点再修改角色编制')
+  }
   sessionRoleRuntimes.set(chatId, { primary, roles })
-  let runtime: ChatRuntime
-  try {
-    await ensureChat(chatId)
-    runtime = chatRuntimes.get(chatId)!
-  } catch (error) {
-    if (previous) sessionRoleRuntimes.set(chatId, previous)
-    else sessionRoleRuntimes.delete(chatId)
-    throw error
-  }
-  runtime.selection = primary
-  runtime.builder.configureRuntime(primary, true, getChatRule(chatId), chatId)
+  if (!options.rotateEpoch) return { applied: [], deferredRunning: [] }
 
-  // 回灌已存在的同 type 子 chat（修主发送界面改子角色 brain 不作用于已派发子的缺口）。
-  const applied: string[] = []
-  const deferredRunning: string[] = []
-  const children = findChildChatsWithType(chatId)
-  for (const { childChatId, type } of children) {
-    const sel = roles[type]
-    if (!sel) continue
-    const childRt = chatRuntimes.get(childChatId)
-    if (childRt?.builder.isRunning()) {
-      // running 子：仍立即 configureRuntime 替换 ctx.runtime 引用（不打断当前 stream——流是已发出
-      // chunk，与 ctx.runtime 解耦），同时持久化 metadata.runtime。下一轮 LLM 请求自然取新 brain。
-      // 仅在日志层标记 deferredRunning（前端可选提示「下一轮生效」）；不静默。
-      childRt.selection = sel
-      childRt.builder.configureRuntime(sel, false, getChatRule(childChatId), childChatId)
-      updateChatMetadata(childChatId, { runtime: sel })
-      applied.push(childChatId)
-      deferredRunning.push(childChatId)
-      continue
-    }
-    // idle / 未加载：直接 configureRuntime + 持久化到子 chat 自己的 metadata.runtime。
-    // 下次 ensureChat 从 metadata 恢复（重启/切回皆生效）。
-    if (childRt) {
-      childRt.selection = sel
-      childRt.builder.configureRuntime(sel, false, getChatRule(childChatId), childChatId)
-    }
-    updateChatMetadata(childChatId, { runtime: sel })
-    applied.push(childChatId)
-  }
-  return { applied, deferredRunning }
+  rotateActiveChatEpoch({
+    chatId,
+    transitionReason: 'session-runtime-changed',
+    handoffSummary:
+      '用户调整了主 Agent 或子角色的会话级运行配置。旧纪元角色调用仅保留为历史；后续子任务必须重新派发。',
+  })
+  chatRuntimes.delete(chatId)
+  ephemeralChatRuntimes.delete(chatId)
+  await ensureChat(chatId)
+  return { applied: [], deferredRunning: [] }
+}
+
+/** Exact root-session override, without walking ancestor chats. */
+export function getSessionRoleConfiguration(
+  chatId: string,
+): { primary: RuntimeSelection; roles: Record<string, RuntimeSelection> } | undefined {
+  const value = sessionRoleRuntimes.get(chatId)
+  return value
+    ? { primary: value.primary, roles: { ...value.roles } }
+    : undefined
 }
 
 /** 返回祖先主会话的某角色临时编制，供 spawn_role 使用。 */
@@ -311,8 +315,8 @@ export function setEphemeralChatRuntime(chatId: string, selection: RuntimeSelect
  * 从 DB 加载历史消息，交给 builder.init 注入 middleware 内存。
  * 仅 ensureChat 创建时调用一次，send/resume 不再重复加载。
  */
-function loadHistory(chatId: string): LLMResponse[] | undefined {
-  const rows = getMessages(chatId)
+function loadHistory(chatId: string, epoch: ChatEpochRecord): LLMResponse[] | undefined {
+  const rows = getMessages(chatId, epoch.epochId)
   const branchContext = getChatBranchContext(chatId)
   const contextMessage: LLMResponse | undefined = branchContext
     ? {
@@ -323,7 +327,23 @@ function loadHistory(chatId: string): LLMResponse[] | undefined {
         updateAt: 0,
       }
     : undefined
-  if (rows.length === 0) return contextMessage ? [contextMessage] : undefined
+  const handoffMessage: LLMResponse | undefined = epoch.handoffSummary
+    ? {
+        id: `epoch-transition:${epoch.epochId}`,
+        role: 'system',
+        content:
+          `<epoch_transition epoch="${epoch.ordinal}">\n` +
+          `${epoch.handoffSummary}\n` +
+          '此前结构化工具调用属于只读历史纪元，不得假定其角色或工具当前仍存在。\n' +
+          '</epoch_transition>',
+        createdAt: epoch.createdAt,
+        updateAt: epoch.createdAt,
+      }
+    : undefined
+  const prefix = [contextMessage, handoffMessage].filter(
+    (message): message is LLMResponse => !!message,
+  )
+  if (rows.length === 0) return prefix.length > 0 ? prefix : undefined
   const parsedRows = rows.map((row) => {
     const parsed = parseMessageRow(row)
     return {
@@ -352,10 +372,10 @@ function loadHistory(chatId: string): LLMResponse[] | undefined {
       break
     }
   }
-  if (summaryIdx === -1) return contextMessage ? [contextMessage, ...parsedRows] : parsedRows
+  if (summaryIdx === -1) return [...prefix, ...parsedRows]
   const latestSummary = parsedRows[summaryIdx]!
   return [
-    ...(contextMessage ? [contextMessage] : []),
+    ...prefix,
     {
       ...latestSummary,
       role: 'system',
@@ -378,7 +398,34 @@ export async function ensureChat(
   chatId: string,
   selection?: RuntimeSelection,
 ): Promise<AgentBuilder> {
-  const existing = chatRuntimes.get(chatId)
+  assertAgentExecutionAllowed()
+  const revision = ensureCurrentConfigRevision()
+  const previousEpoch = getActiveChatEpoch(chatId)
+  const transition = ensureActiveChatEpoch({
+    chatId,
+    revisionId: revision.revisionId,
+    transitionReason: previousEpoch ? 'configuration-changed' : 'created',
+    ...(previousEpoch && previousEpoch.revisionId !== revision.revisionId
+      ? {
+          handoffSummary:
+            `系统已从纪元 ${previousEpoch.ordinal} 切换到当前配置修订。` +
+            '旧纪元中的角色、工具结果和配置仅作为历史事实保留；后续任务必须使用当前角色编制重新派发。',
+        }
+      : {}),
+  })
+  const epoch = transition.epoch
+  assertEpochExecutable(chatId, epoch.epochId)
+
+  let existing = chatRuntimes.get(chatId)
+  if (existing?.epochId && existing.epochId !== epoch.epochId) {
+    if (existing.builder.isRunning()) {
+      existing.builder.requestParkAfterTurn()
+      throw new Error('配置纪元正在切换；当前调用已停靠，请在安全边界后重试')
+    }
+    chatRuntimes.delete(chatId)
+    ephemeralChatRuntimes.delete(chatId)
+    existing = undefined
+  }
   if (existing) {
     if (selection) {
       configureRuntime(existing, chatId, selection)
@@ -394,7 +441,7 @@ export async function ensureChat(
   // 每个 chat 独享一个 AgentBuilder 实例（不再全局单例）
   const builder = new AgentBuilder().build()
 
-  const runtime: ChatRuntime = { builder }
+  const runtime: ChatRuntime = { builder, epochId: epoch.epochId }
   chatRuntimes.set(chatId, runtime)
   try {
     // 原子配置 runtime selection：
@@ -427,7 +474,24 @@ export async function ensureChat(
     // 来源：spawn 写子 agent / chat.create 写预设主 agent；缺省 → undefined → 全局）
     // skillFilter：per-role 技能组/插件组过滤（metadata.skillFilter），仅 <skills> 块按角色裁剪。
     // historyGenerations：LLM 历史回忆 L0 代际索引（存在已定稿 compact 代际时注入 <history_generations> 段）。
-    const history = loadHistory(chatId)
+    const selectionForSnapshot = runtime.selection
+    if (!selectionForSnapshot) throw new Error(`会话 ${chatId} 缺少运行配置`)
+    let frozen = getFrozenChatSnapshot(epoch.epochId, chatId)
+    if (!frozen) {
+      const live = buildLivePromptSnapshot(chatId, selectionForSnapshot)
+      const metadata = getChatMetadata(chatId)
+      frozen = freezeChatEpochSnapshot({
+        epochId: epoch.epochId,
+        chatId,
+        ...(typeof metadata.roleId === 'string' ? { roleId: metadata.roleId } : {}),
+        ...(getChatType(chatId) ? { roleName: getChatType(chatId) } : {}),
+        systemPrompt: live.systemPrompt,
+        tools: live.tools,
+        runtime: selectionForSnapshot as unknown as Record<string, unknown>,
+        resources: revision.resources,
+      })
+    }
+    const history = loadHistory(chatId, epoch)
     builder.init(
       chatId,
       history,
@@ -436,11 +500,15 @@ export async function ensureChat(
       getChatSkillFilter(chatId),
       getChatMentionableRoles(chatId),
       computeHistoryGenerationInfos(chatId),
+      frozen.systemPrompt,
     )
     // Restore accepted command-plane inputs that were acknowledged before a
     // process restart. If the user message already reached the durable history,
     // mark it consumed instead of enqueueing a duplicate.
-    const existingMessageIds = new Set((history ?? []).map((message) => message.id))
+    // Deduplicate against every immutable epoch, not only the active context.
+    // A crash may commit the user message immediately before an epoch boundary;
+    // replaying it into the new epoch would execute the same command twice.
+    const existingMessageIds = new Set(getMessages(chatId).map((message) => message.id))
     const durablePending = listPendingInputs(chatId)
     const consumedIds: string[] = []
     for (const pending of durablePending) {
@@ -485,7 +553,18 @@ export async function ensureChat(
  */
 export async function setRuntime(chatId: string, selection: RuntimeSelection): Promise<void> {
   const runtime = await ensureRuntime(chatId)
-  configureRuntime(runtime, chatId, selection)
+  if (runtime.builder.isRunning()) {
+    throw new Error('Agent 正在运行，必须先到达安全检查点再修改运行配置')
+  }
+  if (JSON.stringify(runtime.selection) === JSON.stringify(selection)) return
+  rotateActiveChatEpoch({
+    chatId,
+    transitionReason: 'runtime-changed',
+    handoffSummary: '用户修改了 Agent 的大脑或工具运行配置。旧纪元工具调用仅作为历史事实保留。',
+  })
+  chatRuntimes.delete(chatId)
+  ephemeralChatRuntimes.delete(chatId)
+  await ensureChat(chatId, selection)
 }
 
 /**
@@ -512,6 +591,11 @@ export function resolveChatRuntimeSelection(chatId: string): RuntimeSelection | 
  */
 export function abortChatRuntime(chatId: string): void {
   chatRuntimes.get(chatId)?.builder.abort()
+}
+
+/** Fail-closed maintenance transition: stop all active generators immediately. */
+export function abortAllChatRuntimes(): void {
+  for (const runtime of chatRuntimes.values()) runtime.builder.abort()
 }
 
 /**

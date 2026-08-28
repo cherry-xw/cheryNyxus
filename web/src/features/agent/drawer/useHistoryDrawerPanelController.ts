@@ -31,6 +31,7 @@ import PromptSnapshotTip from './PromptSnapshotTip.vue'
 import ContextUsageBar from './ContextUsageBar.vue'
 import type {
   ChatSummary,
+  ChatEpochSummary,
   ConversationBranchSummary,
   GenerationEntry,
   GraphToolCall,
@@ -862,30 +863,47 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     tools: PromptSnapshotTool[]
     status: 'idle' | 'loading' | 'error' | 'loaded'
     error?: string
+    epochs: ChatEpochSummary[]
+    selectedEpochId?: string
+    activeEpochId?: string
+    snapshotQuality?: 'exact' | 'partial' | 'reconstructed'
   } | null>(null)
-  let promptSnapChatId = ''
-  async function loadPromptSnapshot(chatId: string): Promise<void> {
+  let promptSnapKey = ''
+  async function loadPromptSnapshot(chatId: string, epochId?: string): Promise<void> {
     // 同 chat 已加载或加载中 → 不重复请求
-    if (promptSnapChatId === chatId && promptSnap.value && promptSnap.value.status !== 'error') return
-    promptSnapChatId = chatId
-    promptSnap.value = { systemPrompt: '', tools: [], status: 'loading' }
+    const key = `${chatId}:${epochId ?? 'active'}`
+    if (promptSnapKey === key && promptSnap.value && promptSnap.value.status !== 'error') return
+    promptSnapKey = key
     try {
-      const res = await agentApi.promptSnapshot(chatId)
+      const epochResult = await agentApi.listEpochs(chatId)
+      const selectedEpochId = epochId ?? epochResult.activeEpochId
+      promptSnap.value = {
+        systemPrompt: '', tools: [], status: 'loading', epochs: epochResult.epochs,
+        selectedEpochId, activeEpochId: epochResult.activeEpochId,
+      }
+      const res = await agentApi.promptSnapshot(chatId, selectedEpochId)
+      const effectiveSelectedEpochId = res.epochId ?? selectedEpochId
       // chatId 期间未切换才写入（避免竞态覆盖）
-      if (promptSnapChatId === chatId) {
+      if (promptSnapKey === key) {
         promptSnap.value = {
           systemPrompt: res.systemPrompt,
           tools: res.tools,
           status: 'loaded',
+          epochs: epochResult.epochs,
+          selectedEpochId: effectiveSelectedEpochId,
+          activeEpochId: epochResult.activeEpochId,
+          snapshotQuality: res.snapshotQuality,
         }
       }
     } catch (err) {
-      if (promptSnapChatId === chatId) {
+      if (promptSnapKey === key) {
         promptSnap.value = {
           systemPrompt: '',
           tools: [],
           status: 'error',
           error: (err as Error).message,
+          epochs: promptSnap.value?.epochs ?? [],
+          selectedEpochId: epochId,
         }
       }
     }
@@ -893,6 +911,10 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   function onPromptSnapShow(): void {
     if (!props.chatId) return
     void loadPromptSnapshot(props.chatId)
+  }
+  function onPromptEpochChange(epochId: string): void {
+    if (!props.chatId) return
+    void loadPromptSnapshot(props.chatId, epochId)
   }
 
   return {
@@ -904,7 +926,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     generationLoading, generationPayload, generationScrollRef, generationSummaryLine,
     getHistoryItemKey, history, isLastSubReply, layout, loaded, loadingAgents, manager,
     masterPetName, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp, onJumpToSpawn,
-    onPromptSnapShow, onRailJump, onSwitchCascade, openGenerationCard, packedGenerations,
+    onPromptEpochChange, onPromptSnapShow, onRailJump, onSwitchCascade, openGenerationCard, packedGenerations,
     panelFullStyle, pet, previewOf, previewTooltip, previewTooltipStyle, promptSnap, ref,
     removeOutgoing, retryOutgoing, runtimeForItem, scrollToBottomSmooth, scrollToTopSmooth,
     showAgentLoading, showDetailBranchDivider, subPetFace, subPetName, subPetType, taskTimeline,

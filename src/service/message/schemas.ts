@@ -322,7 +322,11 @@ export const requestSchemas = {
   }),
   [Method.CHAT_ABORT_TASK]: z.object({ taskId: z.string().min(1), commandId: z.string().min(1) }),
   [Method.CHAT_CONTEXT_USAGE]: chatIdSchema,
-  [Method.CHAT_PROMPT_SNAPSHOT]: chatIdSchema,
+  [Method.CHAT_PROMPT_SNAPSHOT]: z.object({
+    chatId: z.string().min(1),
+    epochId: z.string().min(1).optional(),
+  }),
+  [Method.CHAT_EPOCH_LIST]: chatIdSchema,
   [Method.CHAT_SEND]: z.object({
     chatId: z.string(),
     prompt: z.string(),

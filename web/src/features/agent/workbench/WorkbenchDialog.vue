@@ -16,7 +16,7 @@ const {
   matchingRoleMentions, maxControlState, mediaAttachments, mediaHint, mediaServicesByType,
   minimizeWorkbench, nyxusDraftActive, onDialogEditorKeydown, onEasterEgg, onEditorInput,
   onEditorPaste, onEditorSelectionChange, onMaximizeClick, onMediaSelected, onSessionDelete,
-  onTitlePointerDown, onTreeInteractionFocus, onTreePromptSnapShow, openHistory,
+  onTitlePointerDown, onTreeEpochChange, onTreeInteractionFocus, onTreePromptSnapShow, openHistory,
   orderedRoleSelections, paperMode, pauseWholeTask, pianoOpen, presetName, primaryRole,
   primarySelection, ref, removeMedia, resizeDirections, roleListOpen, roleListPinned,
   roleMenuRefFn, roleSelections, roleUsages, rootSessions, scheduleFoldToolClose,
@@ -542,6 +542,11 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                     :tools="treePromptSnap.tools"
                     :status="treePromptSnap.status"
                     :error="treePromptSnap.error"
+                    :epochs="treePromptSnap.epochs"
+                    :selected-epoch-id="treePromptSnap.selectedEpochId"
+                    :active-epoch-id="treePromptSnap.activeEpochId"
+                    :snapshot-quality="treePromptSnap.snapshotQuality"
+                    @epoch-change="onTreeEpochChange"
                   />
                 </el-popover>
               </span>

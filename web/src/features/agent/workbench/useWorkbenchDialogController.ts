@@ -737,6 +737,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     window.removeEventListener('pointerdown', onSessionOutsidePointerDown)
   })
   const {
+    onTreeEpochChange,
     onTreePromptSnapShow,
     roleUsages,
     treeBreakdown,
@@ -824,6 +825,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onSessionDelete,
     onTitlePointerDown,
     onTreeInteractionFocus,
+    onTreeEpochChange,
     onTreePromptSnapShow,
     openHistory,
     orderedRoleSelections,

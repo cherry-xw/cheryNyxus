@@ -10,7 +10,7 @@ const {
   faceStateClass, generationError, generationHistory, generationLoading, generationPayload,
   generationScrollRef, generationSummaryLine, getHistoryItemKey, history, isLastSubReply, layout,
   loaded, loadingAgents, manager, masterPetName, onHandlePointerDown, onHandlePointerMove,
-  onHandlePointerUp, onJumpToSpawn, onPromptSnapShow, onRailJump, onSwitchCascade,
+  onHandlePointerUp, onJumpToSpawn, onPromptEpochChange, onPromptSnapShow, onRailJump, onSwitchCascade,
   openGenerationCard, packedGenerations, panelFullStyle, pet, previewOf, previewTooltip,
   previewTooltipStyle, promptSnap, ref, removeOutgoing, retryOutgoing, runtimeForItem,
   scrollToBottomSmooth, scrollToTopSmooth, showAgentLoading, showDetailBranchDivider, subPetFace,
@@ -153,6 +153,11 @@ const {
             :tools="promptSnap.tools"
             :status="promptSnap.status"
             :error="promptSnap.error"
+            :epochs="promptSnap.epochs"
+            :selected-epoch-id="promptSnap.selectedEpochId"
+            :active-epoch-id="promptSnap.activeEpochId"
+            :snapshot-quality="promptSnap.snapshotQuality"
+            @epoch-change="onPromptEpochChange"
           />
         </el-popover>
       </template>

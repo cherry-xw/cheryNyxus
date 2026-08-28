@@ -8,6 +8,7 @@ import {
   upsertExecutionNode,
 } from '@/db/executionGraph.js'
 import type { TerminationFact, TimelineActor, TimelineNode } from '../message/types.js'
+import { getActiveChatEpoch } from '@/db/epoch.js'
 
 export function recordRunFact(input: {
   chatId: string
@@ -20,7 +21,11 @@ export function recordRunFact(input: {
   // streamMapper is also used as a protocol-only unit in tests; durable facts
   // are meaningful only after the owning chat has been created.
   if (!getChat(input.chatId)) return
-  upsertExecutionActiveRun({ rootChatId: getRootChatId(input.chatId), ...input })
+  upsertExecutionActiveRun({
+    rootChatId: getRootChatId(input.chatId),
+    ...input,
+    epochId: getActiveChatEpoch(input.chatId)?.epochId,
+  })
 }
 
 export function recordTerminationFact(input: {

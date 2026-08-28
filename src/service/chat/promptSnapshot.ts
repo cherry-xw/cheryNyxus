@@ -14,10 +14,13 @@ import {
   Method,
   type ChatPromptSnapshotRequestData,
   type ChatPromptSnapshotResponseData,
+  type ChatEpochListRequestData,
+  type ChatEpochListResponseData,
   type PromptSnapshotTool,
 } from '../message/types.js'
 import buildFirstSystemPrompt from '@/agent/prompt/index.js'
 import { RuntimeResolver } from '@/agent/runtimeResolver.js'
+import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import {
   getChat,
   getChatRuntimeSelection,
@@ -27,13 +30,24 @@ import {
 } from '@/db/chat.js'
 import { getChatMentionableRoles } from './roleMentions.js'
 import { computeHistoryGenerationInfos } from './generations.js'
+import {
+  getChatEpoch,
+  getActiveChatEpoch,
+  getFrozenChatSnapshot,
+  ensureActiveChatEpoch,
+  listChatEpochs,
+} from '@/db/epoch.js'
+import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 
 /**
  * 重建 system prompt 全文 + tools 列表。
  * selection 缺失（chat 无 runtime）→ tools=[]；systemPrompt 仍按 systemPromptFile/workspace/skillFilter 重建。
  * 与 computeContextBreakdown 同构：isSubagent 据是否 parent_chat_id 决定 injectMemoryManage。
  */
-function buildPromptSnapshot(chatId: string): {
+export function buildLivePromptSnapshot(
+  chatId: string,
+  selectionOverride?: RuntimeSelection,
+): {
   systemPrompt: string
   tools: PromptSnapshotTool[]
 } {
@@ -48,7 +62,7 @@ function buildPromptSnapshot(chatId: string): {
     computeHistoryGenerationInfos(chatId),
   )
 
-  const selection = getChatRuntimeSelection(chatId)
+  const selection = selectionOverride ?? getChatRuntimeSelection(chatId)
   if (!selection) return { systemPrompt, tools: [] }
 
   const isSubagent = !!getChat(chatId)?.parent_chat_id
@@ -69,13 +83,114 @@ export async function handleChatPromptSnapshot(
   data: ChatPromptSnapshotRequestData,
 ): Promise<ChatPromptSnapshotResponseData> {
   const { chatId } = data
-  if (!getChat(chatId)) throw new Error('这个会话不见了')
+  const chat = getChat(chatId)
+  if (!chat) throw new Error('这个会话不见了')
   try {
-    const { systemPrompt, tools } = buildPromptSnapshot(chatId)
-    return { chatId, systemPrompt, tools }
+    const activeEpoch =
+      chat.lifecycle === 'active'
+        ? ensureActiveChatEpoch({
+            chatId,
+            revisionId: ensureCurrentConfigRevision().revisionId,
+          }).epoch
+        : getActiveChatEpoch(chatId)
+    const knownEpochs = listChatEpochs(chatId)
+    const latestFrozenEpoch = [...knownEpochs]
+      .reverse()
+      .find((epoch) => getFrozenChatSnapshot(epoch.epochId, chatId))
+    const requestedEpochId =
+      data.epochId ??
+      (chat.lifecycle === 'active' ? activeEpoch?.epochId : latestFrozenEpoch?.epochId) ??
+      knownEpochs.at(-1)?.epochId
+    if (requestedEpochId) {
+      const epoch = getChatEpoch(requestedEpochId)
+      const expectedRoot = activeEpoch?.rootChatId ?? knownEpochs[0]?.rootChatId
+      if (!epoch || epoch.rootChatId !== expectedRoot) {
+        throw new Error('该纪元不属于这个会话')
+      }
+      const frozen = getFrozenChatSnapshot(requestedEpochId, chatId)
+      if (frozen) {
+        return {
+          chatId,
+          epochId: requestedEpochId,
+          epochOrdinal: epoch.ordinal,
+          epochStatus: epoch.status,
+          snapshotQuality: epoch.snapshotQuality,
+          systemPrompt: frozen.systemPrompt,
+          tools: frozen.tools as PromptSnapshotTool[],
+        }
+      }
+      const isCurrentExecutableEpoch =
+        chat.lifecycle === 'active' && requestedEpochId === activeEpoch?.epochId
+      if (!isCurrentExecutableEpoch) {
+        return {
+          chatId,
+          epochId: requestedEpochId,
+          epochOrdinal: epoch.ordinal,
+          epochStatus: epoch.status,
+          snapshotQuality:
+            epoch.snapshotQuality === 'exact' ? 'partial' : epoch.snapshotQuality,
+          systemPrompt:
+            epoch.snapshotQuality === 'reconstructed'
+              ? '此历史纪元来自旧数据重建，无法可靠还原当时的完整系统提示词与工具定义。'
+              : '此会话在该纪元中没有冻结快照；不会用最新配置伪造历史上下文。',
+          tools: [],
+        }
+      }
+    }
+    const { systemPrompt, tools } = buildLivePromptSnapshot(chatId)
+    return {
+      chatId,
+      ...(requestedEpochId ? { epochId: requestedEpochId } : {}),
+      ...(activeEpoch
+        ? {
+            epochOrdinal: activeEpoch.ordinal,
+            epochStatus: activeEpoch.status,
+            snapshotQuality: activeEpoch.snapshotQuality,
+          }
+        : {}),
+      systemPrompt,
+      tools,
+    }
   } catch (err) {
     // resolve runtime 失败（感官组不存在 / MCP server 未连等）→ fail loud：抛错给前端，不静默返空 tools
     throw new Error(`重建提示词快照失败：${(err as Error).message}`)
+  }
+}
+
+export async function handleChatEpochList(
+  _ctx: HandlerContext,
+  data: ChatEpochListRequestData,
+): Promise<ChatEpochListResponseData> {
+  if (!getChat(data.chatId)) throw new Error('这个会话不见了')
+  const chat = getChat(data.chatId)!
+  const active =
+    chat.lifecycle === 'active'
+      ? ensureActiveChatEpoch({
+          chatId: data.chatId,
+          revisionId: ensureCurrentConfigRevision().revisionId,
+        }).epoch
+      : getActiveChatEpoch(data.chatId)
+  const epochs = listChatEpochs(data.chatId)
+  const executableEpochId = chat.lifecycle === 'active' ? active?.epochId : undefined
+  return {
+    chatId: data.chatId,
+    rootChatId: active?.rootChatId ?? epochs[0]?.rootChatId ?? data.chatId,
+    ...(executableEpochId ? { activeEpochId: executableEpochId } : {}),
+    epochs: epochs.map((epoch) => ({
+      epochId: epoch.epochId,
+      ordinal: epoch.ordinal,
+      label:
+        epoch.transitionReason === 'legacy-migration'
+          ? 'legacy-0'
+          : `纪元 ${epoch.ordinal}`,
+      status: epoch.status,
+      snapshotQuality: epoch.snapshotQuality,
+      transitionReason: epoch.transitionReason,
+      ...(epoch.handoffSummary ? { handoffSummary: epoch.handoffSummary } : {}),
+      executable: epoch.epochId === executableEpochId,
+      createdAt: epoch.createdAt,
+      ...(epoch.closedAt ? { closedAt: epoch.closedAt } : {}),
+    })),
   }
 }
 
@@ -84,4 +199,5 @@ export function registerPromptSnapshotHandler(
   router: import('../message/router.js').RpcRouter,
 ): void {
   router.register(Method.CHAT_PROMPT_SNAPSHOT, handleChatPromptSnapshot)
+  router.register(Method.CHAT_EPOCH_LIST, handleChatEpochList)
 }

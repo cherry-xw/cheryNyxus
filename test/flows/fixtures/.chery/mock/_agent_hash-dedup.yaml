@@ -5,10 +5,10 @@ script:
       - id: hd-0
         name: read_file
         arguments: >-
-          {"path":"C:\\Users\\chc\\AppData\\Local\\Temp\\cheryNyxus-test-Lj2hwg\\dup.txt"}
+          {"path":"C:\\Users\\chery\\AppData\\Local\\Temp\\cheryNyxus-test-hTcFf3\\dup.txt"}
   - senseCalls:
       - id: hd-1
         name: read_file
         arguments: >-
-          {"path":"C:\\Users\\chc\\AppData\\Local\\Temp\\cheryNyxus-test-Lj2hwg\\dup.txt"}
+          {"path":"C:\\Users\\chery\\AppData\\Local\\Temp\\cheryNyxus-test-hTcFf3\\dup.txt"}
   - content: done

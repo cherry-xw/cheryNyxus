@@ -290,7 +290,7 @@ export interface BranchInheritedTask {
   childChatId: string
   parentChatId: string
   type: string
-  status: 'pending' | 'started' | 'finished' | 'timed_out'
+  status: 'pending' | 'started' | 'finished' | 'timed_out' | 'abandoned'
   content?: string
 }
 export interface ChatBranchCreateRequestData {
@@ -1414,6 +1414,10 @@ export interface ChatListResponseData {
      * 前端据此溯源重建 pet 树（主 chat → 主 pet，子 chat 挂主 pet 附近）。CP1。
      */
     parentChatId: string | null
+    /** Current immutable runtime epoch; only this epoch may execute. */
+    activeEpochId?: string
+    epochCount?: number
+    lifecycle?: 'active' | 'retired' | 'abandoned' | 'archived'
     taskId?: string
     branchId?: string
     branchKind?: ConversationBranchKind
@@ -1608,14 +1612,42 @@ export interface PromptSnapshotTool {
 
 export interface ChatPromptSnapshotRequestData {
   chatId: string
+  /** Omit for the current executable epoch; historical epochs are read-only. */
+  epochId?: string
 }
 
 export interface ChatPromptSnapshotResponseData {
   chatId: string
+  epochId?: string
+  epochOrdinal?: number
+  epochStatus?: 'active' | 'historical' | 'archived'
+  snapshotQuality?: 'exact' | 'partial' | 'reconstructed'
   /** system 消息全文：buildFirstSystemPrompt 重建（<system-reminder>+<environment>+<workspace>+<memory>+<skills>）。 */
   systemPrompt: string
   /** 当前 runtime 启用的全部工具定义（name + description + parameters；含 mcp/memory_manage）。空 runtime → []。 */
   tools: PromptSnapshotTool[]
+}
+
+export interface ChatEpochListRequestData {
+  chatId: string
+}
+
+export interface ChatEpochListResponseData {
+  chatId: string
+  rootChatId: string
+  activeEpochId?: string
+  epochs: Array<{
+    epochId: string
+    ordinal: number
+    label: string
+    status: 'active' | 'historical' | 'archived'
+    snapshotQuality: 'exact' | 'partial' | 'reconstructed'
+    transitionReason: string
+    handoffSummary?: string
+    executable: boolean
+    createdAt: number
+    closedAt?: number
+  }>
 }
 
 export interface ChatSendResponseData {
@@ -2630,6 +2662,8 @@ export const Method = {
   CHAT_CONTEXT_USAGE: 'chat.contextUsage',
   /** 重建 chat 当前 runtime 的 system prompt 全文 + 工具定义，供前端历史抽屉「上下文」hover 面板展示。 */
   CHAT_PROMPT_SNAPSHOT: 'chat.promptSnapshot',
+  /** List immutable context epochs; only the active epoch is executable. */
+  CHAT_EPOCH_LIST: 'chat.epoch.list',
   CHAT_SEND: 'chat.send',
   CHAT_INPUT_SUBMIT: 'chat.input.submit',
   CHAT_TIMELINE_GET: 'chat.timeline.get',
@@ -2813,6 +2847,10 @@ export interface RpcMethodMap {
     params: ChatPromptSnapshotRequestData
     result: ChatPromptSnapshotResponseData
   }
+  [Method.CHAT_EPOCH_LIST]: {
+    params: ChatEpochListRequestData
+    result: ChatEpochListResponseData
+  }
   [Method.CHAT_SEND]: { params: ChatSendRequestData; result: ChatSendResponseData }
   [Method.CHAT_INPUT_SUBMIT]: {
     params: ChatInputSubmitRequestData
@@ -2973,6 +3011,8 @@ export const ErrorCode = {
   CONFLICT: 'CONFLICT',
   /** 历史任务无法关联到当前 preset/type，执行前需要用户选择当前运行配置。 */
   RUNTIME_SELECTION_REQUIRED: 'RUNTIME_SELECTION_REQUIRED',
+  /** A semantic configuration candidate is invalid; all Agent execution is fail-closed. */
+  MAINTENANCE_MODE: 'MAINTENANCE_MODE',
   // ---- D13 交互命令专用码（mcu-lite-api.md D13 定稿六码；lite v1 冻结集）----
   /** 交互 expectedRevision 过期（乐观锁不匹配 / claim 失败），客户端重拉收件箱后重试。 */
   INTERACTION_STALE: 'INTERACTION_STALE',

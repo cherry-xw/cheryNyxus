@@ -6,7 +6,7 @@
  * 数据由父级拉取后传入（父级 hover 顶部「上下文」标签触发 chat.promptSnapshot RPC）。
  */
 import { ref } from 'vue'
-import type { PromptSnapshotTool } from '@/application/backend/public'
+import type { ChatEpochSummary, PromptSnapshotTool } from '@/application/backend/public'
 
 defineProps<{
   /** system 消息全文（<system-reminder>+<environment>+<workspace>+<memory>+<skills>）。 */
@@ -17,7 +17,12 @@ defineProps<{
   status: 'idle' | 'loading' | 'error' | 'loaded'
   /** status='error' 时的错误消息。 */
   error?: string
+  epochs?: ChatEpochSummary[]
+  selectedEpochId?: string
+  activeEpochId?: string
+  snapshotQuality?: 'exact' | 'partial' | 'reconstructed'
 }>()
+const emit = defineEmits<{ epochChange: [epochId: string] }>()
 
 // 各工具参数区折叠态（按工具名索引；默认收起，弱化展示）
 const openParams = ref<Set<string>>(new Set())
@@ -49,11 +54,31 @@ function paramFields(
 
 <template>
   <div class="ps-panel">
+    <div v-if="epochs && epochs.length > 0" class="ps-epoch-bar">
+      <label class="ps-epoch-label" for="prompt-snapshot-epoch">上下文纪元</label>
+      <select
+        id="prompt-snapshot-epoch"
+        class="ps-epoch-select"
+        :value="selectedEpochId"
+        @change="emit('epochChange', ($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="epoch in epochs" :key="epoch.epochId" :value="epoch.epochId">
+          {{ epoch.label }}{{ epoch.epochId === activeEpochId ? ' · 当前可用' : ' · 只读' }}
+        </option>
+      </select>
+      <span v-if="selectedEpochId !== activeEpochId" class="ps-readonly">只读历史</span>
+    </div>
+    <div
+      v-if="snapshotQuality && snapshotQuality !== 'exact'"
+      class="ps-quality-warning"
+    >
+      此纪元为{{ snapshotQuality === 'reconstructed' ? '重建' : '部分' }}快照，无法保证还原当时的完整配置。
+    </div>
     <div v-if="status === 'loading' || status === 'idle'" class="ps-status">重建系统提示词…</div>
     <div v-else-if="status === 'error'" class="ps-status ps-error">{{ error ?? '加载失败' }}</div>
     <template v-else>
       <section class="ps-section">
-        <div class="ps-section-title">系统消息内容(基于最新发送消息构建)</div>
+        <div class="ps-section-title">冻结的系统消息内容</div>
         <pre class="ps-pre">{{ systemPrompt }}</pre>
       </section>
       <section class="ps-section">
@@ -123,6 +148,41 @@ function paramFields(
   padding: 8px;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-size: 12px;
+}
+.ps-epoch-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 8px;
+}
+.ps-epoch-label {
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+.ps-epoch-select {
+  min-width: 0;
+  flex: 1;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 10.5px;
+}
+.ps-readonly {
+  color: #b45309;
+  font-size: 9.5px;
+  flex-shrink: 0;
+}
+.ps-quality-warning {
+  margin: 0 8px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: rgba(180, 83, 9, 0.1);
+  color: #92400e;
+  font-size: 10px;
+  line-height: 1.4;
 }
 .ps-error {
   color: var(--danger);

@@ -77,6 +77,7 @@ export class AgentBuilder {
     skillFilter?: SkillFilter,
     roleMentions?: RoleMentionInfo[],
     historyGenerations?: HistoryGenerationInfo[],
+    frozenSystemPrompt?: string,
   ): this {
     const systemMsg = this.createInitialMessages(
       systemPromptFile,
@@ -84,6 +85,7 @@ export class AgentBuilder {
       skillFilter,
       roleMentions,
       historyGenerations,
+      frozenSystemPrompt,
     )
     let msgs: LLMResponse[]
     if (messages && messages.length > 0) {
@@ -120,19 +122,22 @@ export class AgentBuilder {
     skillFilter?: SkillFilter,
     roleMentions?: RoleMentionInfo[],
     historyGenerations?: HistoryGenerationInfo[],
+    frozenSystemPrompt?: string,
   ): LLMResponse[] {
     const now = Date.now()
     return [
       {
         id: randomUUID(),
         role: 'system',
-        content: buildFirstSystemPrompt(
-          systemPromptFile,
-          workspace,
-          skillFilter,
-          roleMentions,
-          historyGenerations,
-        ),
+        content:
+          frozenSystemPrompt ??
+          buildFirstSystemPrompt(
+            systemPromptFile,
+            workspace,
+            skillFilter,
+            roleMentions,
+            historyGenerations,
+          ),
         createdAt: now,
         updateAt: now,
       },

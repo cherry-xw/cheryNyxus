@@ -5,9 +5,9 @@ script:
       - id: sm-0
         name: write_file
         arguments: >-
-          {"path":"C:\\Users\\chc\\AppData\\Local\\Temp\\cheryNyxus-test-RahRZz/a.txt","content":"a"}
+          {"path":"C:\\Users\\chery\\AppData\\Local\\Temp\\cheryNyxus-test-NFdJtl/a.txt","content":"a"}
       - id: sm-1
         name: write_file
         arguments: >-
-          {"path":"C:\\Users\\chc\\AppData\\Local\\Temp\\cheryNyxus-test-RahRZz/b.txt","content":"b"}
+          {"path":"C:\\Users\\chery\\AppData\\Local\\Temp\\cheryNyxus-test-NFdJtl/b.txt","content":"b"}
   - content: done

@@ -38,6 +38,7 @@ export interface ExecutionActiveRunRow {
   turnId?: string
   nodeId?: string
   batchId?: string
+  epochId?: string
 }
 
 type ExecutionNodeInput = Pick<
@@ -221,8 +222,8 @@ export function upsertExecutionActiveRun(run: ExecutionActiveRunRow): void {
   getSoulDb()
     .prepare(
       `INSERT INTO execution_active_runs
-        (chat_id, run_id, root_chat_id, status, turn_id, node_id, batch_id, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (chat_id, run_id, root_chat_id, status, turn_id, node_id, batch_id, epoch_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(chat_id, run_id) DO UPDATE SET
          root_chat_id=excluded.root_chat_id,
          status=CASE
@@ -233,6 +234,7 @@ export function upsertExecutionActiveRun(run: ExecutionActiveRunRow): void {
          turn_id=COALESCE(excluded.turn_id, execution_active_runs.turn_id),
          node_id=COALESCE(excluded.node_id, execution_active_runs.node_id),
          batch_id=COALESCE(excluded.batch_id, execution_active_runs.batch_id),
+         epoch_id=COALESCE(excluded.epoch_id, execution_active_runs.epoch_id),
          updated_at=excluded.updated_at`,
     )
     .run(
@@ -243,6 +245,7 @@ export function upsertExecutionActiveRun(run: ExecutionActiveRunRow): void {
       run.turnId ?? null,
       run.nodeId ?? null,
       run.batchId ?? null,
+      run.epochId ?? null,
       Date.now(),
     )
 }
@@ -302,5 +305,6 @@ function activeRunFromRow(row: Record<string, unknown>): ExecutionActiveRunRow {
     ...(row.turn_id ? { turnId: String(row.turn_id) } : {}),
     ...(row.node_id ? { nodeId: String(row.node_id) } : {}),
     ...(row.batch_id ? { batchId: String(row.batch_id) } : {}),
+    ...(row.epoch_id ? { epochId: String(row.epoch_id) } : {}),
   }
 }

@@ -19,6 +19,7 @@ export type {
   ChatSendAttachment,
   ChatSessionEvent,
   ChatSummary,
+  ChatEpochSummary,
   ChildControlTargetResult,
   CommandConfigDataDto,
   CommandConfigDto,
