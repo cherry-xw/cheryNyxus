@@ -1,5 +1,7 @@
 /** Presentation-facing chat types owned by the chat domain, not by a Pinia store. */
 
+import type { StagedReverseChunkData as ProtocolStagedReverseChunkData } from '@chery/protocol'
+
 export interface RuntimeSelection {
   brain: string
   senseGroup: string
@@ -149,6 +151,7 @@ export interface StagedChunkData {
   contextCompaction?: boolean
   contextCompactionTokens?: number
   msgId?: string
+  messageIds?: ProtocolStagedReverseChunkData['messageIds']
   agentChatId?: string
 }
 

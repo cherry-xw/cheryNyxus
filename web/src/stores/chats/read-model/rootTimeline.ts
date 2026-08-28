@@ -343,7 +343,10 @@ export function applyRootTransientEvent(
     return
   }
 
-  if (event.type === 'turn.completed' && typeof data.turnId === 'string') {
+  if (
+    (event.type === 'turn.completed' || event.type === 'turn.cancelled') &&
+    typeof data.turnId === 'string'
+  ) {
     state.activeTurns = state.activeTurns.filter((turn) => turn.turnId !== data.turnId)
     return
   }

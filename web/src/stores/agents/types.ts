@@ -6,6 +6,10 @@
  */
 
 import type { RuntimeSelection, TerminationFact, ToolAuthorizationDto } from '@/services/agentApi'
+import type {
+  ProtocolError,
+  StagedReverseChunkData as ProtocolStagedReverseChunkData,
+} from '@chery/protocol'
 
 /** 消息内嵌媒体引用（从 content/result 解析 `/api/media/` URL）。 */
 export interface MediaAssetRef {
@@ -158,6 +162,8 @@ export interface StreamState {
   thinking: string
   content: string
   isWorking: boolean
+  /** Message currently accumulated in the live Pet bubble. */
+  activeMessageId?: string
   /** 当前 send/resume 运行；用于把 abort 定向到仍在执行的那一轮。 */
   activeRunId?: string
   /** 历史消息（chat.get staged 累积；实时流不影响此处）。loaded=true 表示 staged 回放完成。
@@ -212,6 +218,8 @@ export interface StreamState {
    * PetSprite 据 v-if 显 error-bubble（红边浅红底）。sendMessage 入口清空（确保新轮不残留）。
    */
   error?: string
+  /** Legacy Pet stream mirror of the canonical structured run error. */
+  errorFact?: ProtocolError & { canResume?: boolean }
   /**
    * 回放期标记（chat.sync 期间为 true，回放结束清；F3 收敛）。
    * - true：回放期，事件幂等累加进缓存数组 + 抑制副作用 RPC（startSpawn/resumeAgent）+ 抑制终态
@@ -258,6 +266,8 @@ export interface StagedChunkData {
    * 历史 DB 写入早于后端 E 改动时为 undefined，前端按现有行为兼容。
    */
   msgId?: string
+  /** reverse payload; shared with the public wire contract. */
+  messageIds?: ProtocolStagedReverseChunkData['messageIds']
   /**
    * 消息来源 chatId（chat.get 历史回放时携带，= 当前回放的 chatId）。
    * 前端反向溯源：filter agentChatId === X 取该 agent 完整 history，无需正向溯源。

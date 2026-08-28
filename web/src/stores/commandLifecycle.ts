@@ -1,10 +1,22 @@
 import type { ConnectionStatus } from '@/services/ws'
+import type { ErrorSource, ProtocolError } from '@chery/protocol'
 
-export type CanonicalCommandError = {
-  code: string
-  message: string
-  retryable: boolean
-  retryAfterMs?: number
+export type CanonicalCommandError = ProtocolError
+
+let localTraceSequence = 0
+
+function localTracingId(code: string): string {
+  localTraceSequence += 1
+  return `local:${code}:${Date.now().toString(36)}:${localTraceSequence.toString(36)}`
+}
+
+function errorSource(value: unknown): ErrorSource {
+  return typeof value === 'string' &&
+    ['brain', 'sense', 'media', 'mcp', 'chat', 'system', 'hook', 'config', 'transport'].includes(
+      value,
+    )
+    ? (value as ErrorSource)
+    : 'system'
 }
 
 export interface CommandGateInput {
@@ -54,6 +66,9 @@ export function commandGate(input: CommandGateInput): CommandGate {
 export function commandErrorFact(cause: unknown, fallback: string): CanonicalCommandError {
   const source = cause as Error & {
     code?: string
+    source?: ErrorSource
+    retryable?: boolean
+    tracingId?: string
     retryAfterMs?: number
     retryAfter?: number
   }
@@ -67,21 +82,38 @@ export function commandErrorFact(cause: unknown, fallback: string): CanonicalCom
   return {
     code,
     message: source instanceof Error ? source.message : fallback,
-    retryable: ![
-      'ROOT_REQUIRED',
-      'PROFILE_VERSION_UNSUPPORTED',
-      'RUNTIME_SELECTION_REQUIRED',
-    ].includes(code),
+    source: errorSource(source?.source),
+    retryable:
+      typeof source?.retryable === 'boolean'
+        ? source.retryable
+        : ![
+            'ROOT_REQUIRED',
+            'PROFILE_VERSION_UNSUPPORTED',
+            'RUNTIME_SELECTION_REQUIRED',
+          ].includes(code),
+    tracingId:
+      typeof source?.tracingId === 'string' && source.tracingId.length > 0
+        ? source.tracingId
+        : localTracingId(code),
     ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   }
 }
 
 export function commandGateError(gate: Exclude<CommandGate, { allowed: true }>): Error & {
   code: string
+  source: ErrorSource
   retryable: boolean
+  tracingId: string
 } {
-  const error = new Error(gate.reason) as Error & { code: string; retryable: boolean }
+  const error = new Error(gate.reason) as Error & {
+    code: string
+    source: ErrorSource
+    retryable: boolean
+    tracingId: string
+  }
   error.code = gate.code
+  error.source = gate.code === 'CONNECTING' || gate.code === 'RECONNECTING' ? 'transport' : 'chat'
   error.retryable = gate.retryable
+  error.tracingId = localTracingId(gate.code)
   return error
 }

@@ -149,6 +149,36 @@ export function applyExecutionTimingEvent(
     })
   }
 
+  if (event.type === 'turn.cancelled' && typeof data.turnId === 'string') {
+    const completedAt = typeof data.cancelledAt === 'number' ? data.cancelledAt : fallbackNow
+    const existing = steps.find(
+      (step) =>
+        step.chatId === event.chatId &&
+        step.kind === 'model' &&
+        step.id === data.turnId &&
+        (!runId || step.runId === runId),
+    )
+    if (existing) {
+      return completeStep(
+        steps,
+        (step) => executionStepKey(step) === executionStepKey(existing),
+        'cancelled',
+        completedAt,
+      )
+    }
+    if (!runId || completedAt === undefined) return steps
+    return upsertStep(steps, {
+      id: data.turnId,
+      runId,
+      chatId: event.chatId,
+      kind: 'model',
+      name: '模型响应',
+      status: 'cancelled',
+      startedAt: completedAt,
+      completedAt,
+    })
+  }
+
   if (event.type === 'sense_started' && runId && typeof data.id === 'string') {
     const startedAt = typeof data.startedAt === 'number' ? data.startedAt : fallbackNow
     if (startedAt === undefined) return steps

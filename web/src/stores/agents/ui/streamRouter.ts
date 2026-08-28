@@ -143,6 +143,9 @@ export function createStreamRouter(
       return
     }
     const data = (c.data ?? {}) as StreamChunkData
+    stream.error = undefined
+    stream.errorFact = undefined
+    stream.activeMessageId = data.msgId
     if (data.thinking) stream.thinking += data.thinking
     if (data.content) stream.content += data.content
     stream.isWorking = true
@@ -189,6 +192,10 @@ export function createStreamRouter(
         const stream = streams.value[chatId]
         if (stream) {
           stream.isWorking = false
+          if (type === 'done') {
+            stream.error = undefined
+            stream.errorFact = undefined
+          }
           if (!n.runId || n.runId === stream.activeRunId) stream.activeRunId = undefined
           if (stream.replaying && stream.replayLiveChunks) {
             // 回放中的终态属于已完成旧 run；清掉其积累，随后 seq 更大的
@@ -269,10 +276,27 @@ export function createStreamRouter(
         // 修复：回放期间跳过实时副作用，防止历史 error 重显 error-bubble / 覆盖 chat.list 权威 canResume（sync/resume 都跳过）
         if (streams.value[chatId]?.replaying) return
         const stream = streams.value[chatId]
-        const d = (n.data ?? {}) as { message?: string; canResume?: boolean }
+        const d = (n.data ?? {}) as {
+          code?: string
+          message?: string
+          source?: NonNullable<StreamState['errorFact']>['source']
+          retryable?: boolean
+          tracingId?: string
+          retryAfterMs?: number
+          canResume?: boolean
+        }
         const errMsg = d.message ?? '系统出了点小问题'
         if (stream) {
           stream.error = errMsg
+          stream.errorFact = {
+            code: d.code ?? 'INTERNAL',
+            message: errMsg,
+            source: d.source ?? 'system',
+            retryable: d.retryable ?? false,
+            tracingId: d.tracingId ?? requestId ?? n.runId ?? `legacy:${chatId}`,
+            ...(d.retryAfterMs !== undefined ? { retryAfterMs: d.retryAfterMs } : {}),
+            ...(d.canResume !== undefined ? { canResume: d.canResume } : {}),
+          }
           // error 不保留气泡（即时隐藏 content/thinking）；30s 后清 stream.error（error-bubble 自动消失）
           stream.retainUntil = Date.now() + 30000
         }

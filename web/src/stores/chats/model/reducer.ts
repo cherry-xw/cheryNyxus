@@ -36,10 +36,46 @@ import type {
 import { extractMediaUrls } from '@/utils/markdown'
 import type { QuestionBatchPayload } from '@/domain/chat/projectionTypes'
 import { applyExecutionTimingEvent } from '../read-model/executionTiming'
+import type { TurnCancelledNotificationData } from '@chery/protocol'
 
 /** reducer 调用上下文（注入时间，保持纯函数）。 */
 export interface ReduceContext {
   now: number
+}
+
+const ERROR_SOURCES = new Set([
+  'brain',
+  'sense',
+  'media',
+  'mcp',
+  'chat',
+  'system',
+  'hook',
+  'config',
+  'transport',
+])
+
+function structuredRunError(
+  data: Record<string, unknown>,
+  fallbackTracingId: string,
+): NonNullable<ChatSession['run']['errorFact']> {
+  const source =
+    typeof data.source === 'string' && ERROR_SOURCES.has(data.source) ? data.source : 'system'
+  return {
+    code: typeof data.code === 'string' && data.code.length > 0 ? data.code : 'INTERNAL',
+    message:
+      typeof data.message === 'string' && data.message.length > 0
+        ? data.message
+        : '系统出了点小问题',
+    source: source as NonNullable<ChatSession['run']['errorFact']>['source'],
+    retryable: typeof data.retryable === 'boolean' ? data.retryable : false,
+    tracingId:
+      typeof data.tracingId === 'string' && data.tracingId.length > 0
+        ? data.tracingId
+        : fallbackTracingId,
+    ...(typeof data.retryAfterMs === 'number' ? { retryAfterMs: data.retryAfterMs } : {}),
+    ...(typeof data.canResume === 'boolean' ? { canResume: data.canResume } : {}),
+  }
 }
 
 /** 就地创建/取规范化消息（按 msgId）。新消息入 messageOrder 尾部。 */
@@ -384,10 +420,17 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
 
 /** reverse 撤回：按 messageIds 标 revoked（展示 selector 排除）。 */
 function reduceReverse(session: ChatSession, ids: string[]): void {
+  const revokedIds = new Set(ids)
   for (const id of ids) {
     const msg = session.messagesById[id]
     if (msg) msg.status = 'revoked'
   }
+  if (session.activeMessageId && revokedIds.has(session.activeMessageId)) {
+    session.activeMessageId = undefined
+  }
+  session.activeTurns = session.activeTurns.filter(
+    (turn) => !revokedIds.has(turn.messageId) && !revokedIds.has(turn.turnId),
+  )
 }
 
 // ---- 主入口 ----
@@ -417,7 +460,7 @@ function reduceChunk(
   if (chunk.type === 'staged') {
     const d = chunk.data as StagedChunkData | undefined
     if (d?.type === 'reverse') {
-      reduceReverse(session, d.id ? [d.id] : [])
+      reduceReverse(session, Array.isArray(d.messageIds) ? d.messageIds : [])
       return
     }
     reduceStaged(session, d)
@@ -457,6 +500,7 @@ function reduceChunk(
   active.updatedAt = ctx.now
   session.run.status = 'running'
   session.run.error = undefined
+  session.run.errorFact = undefined
   session.ui.bubbleVisible = true
 }
 
@@ -480,6 +524,16 @@ function reduceNotification(
     type,
     data: d,
   })
+
+  if (type === 'turn.cancelled') {
+    const cancelled = d as unknown as Partial<TurnCancelledNotificationData>
+    if (typeof cancelled.turnId !== 'string' || typeof cancelled.messageId !== 'string') return
+    reduceReverse(session, [cancelled.messageId])
+    session.activeTurns = session.activeTurns.filter(
+      (turn) => turn.turnId !== cancelled.turnId && turn.messageId !== cancelled.messageId,
+    )
+    return
+  }
 
   if (type === 'done' || type === 'error') {
     const terminalRunId = n.runId ?? (typeof d.runId === 'string' ? (d.runId as string) : undefined)
@@ -506,6 +560,8 @@ function reduceNotification(
     }
 
     if (type === 'done') {
+      session.run.error = undefined
+      session.run.errorFact = undefined
       // finalMessage 幂等补全并 seal
       const fm = d.finalMessage as
         | {
@@ -559,8 +615,13 @@ function reduceNotification(
       if (d.finished === true) session.meta.finished = true
     } else {
       // error：AI 报错归 paused（可重试）；active 消息标 error 保留已到部分
+      const errorFact = structuredRunError(
+        d,
+        n.requestId ?? n.runId ?? `legacy:${session.chatId}`,
+      )
       session.run.status = 'paused'
-      session.run.error = typeof d.message === 'string' ? d.message : '系统出了点小问题'
+      session.run.error = errorFact.message
+      session.run.errorFact = errorFact
       if (!replaying) session.run.retainUntil = ctx.now + 30000
       if (session.activeMessageId) {
         const am = session.messagesById[session.activeMessageId]
@@ -1032,6 +1093,15 @@ export function reduceSessionEvent(
     case 'turn.delta':
       applyTurnDelta(session, event, ctx)
       break
+    case 'turn.cancelled': {
+      const turnId = typeof data.turnId === 'string' ? data.turnId : undefined
+      const messageId = typeof data.messageId === 'string' ? data.messageId : undefined
+      session.activeTurns = session.activeTurns.filter(
+        (turn) => turn.turnId !== turnId && turn.messageId !== messageId,
+      )
+      if (messageId) reduceReverse(session, [messageId])
+      break
+    }
     case 'turn.completed': {
       const turnId = typeof data.turnId === 'string' ? data.turnId : undefined
       const turn = session.activeTurns.find((t) => t.turnId === turnId)
@@ -1064,7 +1134,9 @@ export function reduceSessionEvent(
             optimistic.delivery.error = {
               code: input.state === 'rejected' ? 'INPUT_REJECTED' : 'INPUT_CANCELLED',
               message: input.reason ?? (input.state === 'rejected' ? '发送被拒绝' : '发送已取消'),
+              source: 'chat',
               retryable: input.state === 'rejected',
+              tracingId: `input:${input.inputId}`,
             }
           } else {
             optimistic.delivery.status = 'committed'

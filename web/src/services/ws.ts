@@ -1,13 +1,12 @@
 import { encodeRequest, decodeMessage } from './transport'
 import { getServerConfig, wsUrl, type ServerConfig } from './platform'
 import { serviceAuth } from './authContext'
+import type { ProtocolError } from '@chery/protocol'
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
 
-export interface RpcError {
-  code: string
-  message: string
-}
+/** Public RPC failures use the same structured contract on both sides of the socket. */
+export type RpcError = ProtocolError
 
 export interface RpcResponse {
   id: string

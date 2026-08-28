@@ -400,4 +400,193 @@ describe('chat live run recovery', () => {
 
     expect(session.run.status).toBe('running')
   })
+
+  it('retracts a partial message by staged.reverse before rendering the clean retry', () => {
+    const session = createEmptySession('parent-chat')
+    session.activeTurns = [
+      {
+        turnId: 'failed-turn',
+        runId: 'run-1',
+        messageId: 'failed-turn',
+        thinking: '',
+        content: 'discarded partial',
+        status: 'running',
+      },
+    ]
+
+    reduce(
+      session,
+      {
+        kind: 'chunk',
+        type: 'stream',
+        requestId: 'request-1',
+        chatId: 'parent-chat',
+        runId: 'run-1',
+        data: { msgId: 'failed-turn', createdAt: 1, content: 'discarded partial' },
+      },
+      { now: 1 },
+    )
+    reduce(
+      session,
+      {
+        kind: 'chunk',
+        type: 'staged',
+        requestId: 'request-1',
+        chatId: 'parent-chat',
+        runId: 'run-1',
+        data: { type: 'reverse', messageIds: ['failed-turn'] },
+      },
+      { now: 2 },
+    )
+
+    expect(session.messagesById['failed-turn']?.status).toBe('revoked')
+    expect(session.activeMessageId).toBeUndefined()
+    expect(session.activeTurns).toEqual([])
+
+    reduce(
+      session,
+      {
+        kind: 'chunk',
+        type: 'stream',
+        requestId: 'request-1',
+        chatId: 'parent-chat',
+        runId: 'run-1',
+        data: { msgId: 'clean-turn', createdAt: 3, content: 'clean result' },
+      },
+      { now: 3 },
+    )
+    reduce(
+      session,
+      {
+        kind: 'notification',
+        type: 'done',
+        chatId: 'parent-chat',
+        runId: 'run-1',
+        data: {
+          canResume: false,
+          finalMessage: {
+            msgId: 'clean-turn',
+            role: 'assistant',
+            content: 'clean result',
+            createdAt: 3,
+          },
+        },
+      },
+      { now: 4 },
+    )
+
+    expect(session.messagesById['clean-turn']).toMatchObject({
+      content: 'clean result',
+      status: 'sealed',
+    })
+    expect(session.activeMessageId).toBeUndefined()
+  })
+
+  it('uses turn.cancelled to close the active turn and execution step', () => {
+    const session = createEmptySession('parent-chat')
+    session.activeTurns = [
+      {
+        turnId: 'failed-turn',
+        runId: 'run-1',
+        messageId: 'failed-turn',
+        thinking: '',
+        content: 'partial',
+        status: 'running',
+      },
+    ]
+    reduce(
+      session,
+      {
+        kind: 'notification',
+        type: 'turn.started',
+        chatId: 'parent-chat',
+        runId: 'run-1',
+        data: {
+          turnId: 'failed-turn',
+          messageId: 'failed-turn',
+          runId: 'run-1',
+          createdAt: 10,
+        },
+      },
+      { now: 10 },
+    )
+    reduce(
+      session,
+      {
+        kind: 'chunk',
+        type: 'stream',
+        requestId: 'request-1',
+        chatId: 'parent-chat',
+        runId: 'run-1',
+        data: { msgId: 'failed-turn', createdAt: 10, content: 'partial' },
+      },
+      { now: 11 },
+    )
+    reduce(
+      session,
+      {
+        kind: 'notification',
+        type: 'turn.cancelled',
+        chatId: 'parent-chat',
+        runId: 'run-1',
+        data: {
+          turnId: 'failed-turn',
+          messageId: 'failed-turn',
+          reason: 'retry_reset',
+          cancelledAt: 12,
+        },
+      },
+      { now: 12 },
+    )
+
+    expect(session.activeTurns).toEqual([])
+    expect(session.activeMessageId).toBeUndefined()
+    expect(session.messagesById['failed-turn']?.status).toBe('revoked')
+    expect(session.executionSteps).toEqual([
+      expect.objectContaining({ id: 'failed-turn', status: 'cancelled', completedAt: 12 }),
+    ])
+
+    const v2Session = createEmptySession('v2-chat')
+    expect(
+      reduceSessionEvent(
+        v2Session,
+        {
+          kind: 'session',
+          type: 'turn.started',
+          chatId: 'v2-chat',
+          runId: 'run-2',
+          eventSeq: 1,
+          data: {
+            turnId: 'v2-failed-turn',
+            messageId: 'v2-failed-turn',
+            runId: 'run-2',
+            createdAt: 20,
+          },
+        },
+        { now: 20 },
+      ),
+    ).toBe(true)
+    expect(
+      reduceSessionEvent(
+        v2Session,
+        {
+          kind: 'session',
+          type: 'turn.cancelled',
+          chatId: 'v2-chat',
+          runId: 'run-2',
+          eventSeq: 2,
+          data: {
+            turnId: 'v2-failed-turn',
+            messageId: 'v2-failed-turn',
+            reason: 'retry_reset',
+            cancelledAt: 21,
+          },
+        },
+        { now: 21 },
+      ),
+    ).toBe(true)
+    expect(v2Session.activeTurns).toEqual([])
+    expect(v2Session.messagesById['v2-failed-turn']?.status).toBe('revoked')
+    expect(v2Session.executionSteps[0]).toMatchObject({ status: 'cancelled', completedAt: 21 })
+  })
 })

@@ -36,6 +36,18 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
   if (!d || !d.type) return
   const history = stream.history
 
+  if (d.type === 'reverse') {
+    const revokedIds = new Set(d.messageIds ?? [])
+    if (revokedIds.size === 0) return
+    stream.history = history.filter((item) => !item.msgId || !revokedIds.has(item.msgId))
+    if (stream.activeMessageId && revokedIds.has(stream.activeMessageId)) {
+      stream.activeMessageId = undefined
+      stream.thinking = ''
+      stream.content = ''
+    }
+    return
+  }
+
   if (d.type === 'thinking_end') {
     // 去重：done.finalMessage 已按 msgId push 过（streamRouter.ts 经 pushHistoryItem 统一入口）
     // → 合并到既有 item，不 push 新 item。否则 chat.sync staged 回放会产出两条同 msgId
@@ -199,7 +211,6 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
     return
   }
 
-  // d.type === "reverse"：消息撤回（chat.resume 场景），CP4 历史回放暂不处理
 }
 
 /**

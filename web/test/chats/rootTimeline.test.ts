@@ -100,6 +100,37 @@ describe('RootTimelineStore', () => {
     })
   })
 
+  it('removes a cancelled retry turn and seals its execution step as cancelled', () => {
+    const state = createRootTransientState()
+    applyRootTransientEvent(state, {
+      chatId: 'root',
+      runId: 'run-1',
+      type: 'turn.started',
+      data: {
+        turnId: 'failed-turn',
+        messageId: 'failed-turn',
+        runId: 'run-1',
+        createdAt: 10,
+      },
+    })
+    applyRootTransientEvent(state, {
+      chatId: 'root',
+      runId: 'run-1',
+      type: 'turn.cancelled',
+      data: {
+        turnId: 'failed-turn',
+        messageId: 'failed-turn',
+        reason: 'retry_reset',
+        cancelledAt: 12,
+      },
+    })
+
+    expect(state.activeTurns).toEqual([])
+    expect(state.executionSteps).toEqual([
+      expect.objectContaining({ id: 'failed-turn', status: 'cancelled', completedAt: 12 }),
+    ])
+  })
+
   it('does not synthesize a live run from a stale turn after its session run completed', () => {
     const root = createEmptySession('root')
     root.activeTurns = [

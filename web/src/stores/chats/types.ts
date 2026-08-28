@@ -37,6 +37,8 @@ import type {
   NotificationMessage,
   QuestionBatchPayload,
 } from '@/domain/chat/projectionTypes'
+import type { ProtocolError } from '@chery/protocol'
+import type { CanonicalCommandError } from '../commandLifecycle'
 
 /** 协议命令配置投影（镜像后端 CommandConfigData；camelCase）。 */
 export interface CommandConfigData {
@@ -97,7 +99,7 @@ export interface ChatMessage {
     provisionalInputId: string
     /** Immutable copy of the canonical submit payload, reused by failed-message retry. */
     attachments?: ChatSendAttachment[]
-    error?: { code: string; message: string; retryable: boolean; retryAfterMs?: number }
+    error?: CanonicalCommandError
   }
 }
 
@@ -135,6 +137,8 @@ export interface ChatRunState {
   retainUntil?: number
   /** 流式错误文案（error-bubble 红）；run 仍可 canResume 重试。 */
   error?: string
+  /** 与错误气泡并存的协议事实；用于诊断、通知和重试决策，不从文案反推。 */
+  errorFact?: ProtocolError & { canResume?: boolean }
 }
 
 /** 交互态：审批 / 问题 / 运行中工具 / todo（currentState 权威 replace；事件按 id 幂等增删）。 */

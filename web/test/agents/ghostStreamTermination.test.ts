@@ -82,4 +82,49 @@ describe('child ghost stream termination', () => {
     expect(stream.isWorking).toBe(false)
     expect(stream.content).toBe('')
   })
+
+  it('replaces a failed Pet stream instead of concatenating it with the retry', () => {
+    const pet = makeChildPet()
+    const { router } = makeRouter(pet)
+    const stream = router.ensureStream('child-chat')
+
+    router.routeChunk({
+      type: 'stream',
+      requestId: 'request-1',
+      chatId: 'child-chat',
+      runId: 'run-1',
+      data: { msgId: 'failed-turn', createdAt: 1, content: 'discarded partial' },
+    })
+    router.routeChunk({
+      type: 'staged',
+      requestId: 'request-1',
+      chatId: 'child-chat',
+      runId: 'run-1',
+      data: {
+        type: 'content_end',
+        role: 'assistant',
+        msgId: 'failed-turn',
+        content: 'discarded partial',
+        createdAt: 1,
+      },
+    })
+    router.routeChunk({
+      type: 'staged',
+      requestId: 'request-1',
+      chatId: 'child-chat',
+      runId: 'run-1',
+      data: { type: 'reverse', messageIds: ['failed-turn'] },
+    })
+    router.routeChunk({
+      type: 'stream',
+      requestId: 'request-1',
+      chatId: 'child-chat',
+      runId: 'run-1',
+      data: { msgId: 'clean-turn', createdAt: 2, content: 'clean result' },
+    })
+
+    expect(stream.content).toBe('clean result')
+    expect(stream.activeMessageId).toBe('clean-turn')
+    expect(stream.history.some((item) => item.msgId === 'failed-turn')).toBe(false)
+  })
 })

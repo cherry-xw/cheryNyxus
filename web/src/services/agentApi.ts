@@ -16,6 +16,7 @@ import type {
   ChatRunResumeRequest,
   ChatRunResumeResponse,
   ChatTimelineResponse,
+  ProtocolError,
 } from '@chery/protocol'
 import type { ContextBreakdown } from '@/domain/chat/context'
 import type {
@@ -1154,10 +1155,17 @@ export interface HookEventMeta {
   matcherField?: string
 }
 
-/** RPC 错误构造：透传后端 ErrorCode 到 Error.code（调用方可按码分支引导选择当前运行配置）。 */
-function fail(method: string, res: RpcResponse): Error {
-  const err = new Error(res.error?.message ?? `${method} failed`) as Error & { code?: string }
-  if (res.error?.code) err.code = res.error.code
+export type RpcCallError = Error & ProtocolError
+
+/** RPC 错误构造：完整透传公共结构化错误，供 store/reducer 和通知层可靠分支。 */
+export function fail(method: string, res: RpcResponse): Error {
+  const source = res.error
+  const err = new Error(source?.message ?? `${method} failed`) as RpcCallError
+  err.code = source?.code ?? 'INTERNAL'
+  err.source = source?.source ?? 'transport'
+  err.retryable = source?.retryable ?? false
+  err.tracingId = source?.tracingId ?? `client:${method}`
+  if (source?.retryAfterMs !== undefined) err.retryAfterMs = source.retryAfterMs
   return err
 }
 

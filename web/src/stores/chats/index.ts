@@ -126,6 +126,7 @@ export function beginLiveRun(
   const started = session.run.status !== 'running'
   session.run.status = 'running'
   session.run.error = undefined
+  session.run.errorFact = undefined
   session.run.retainUntil = undefined
   session.ui.bubbleVisible = true
   if (started) onWorkingChange(session.chatId, true)
@@ -158,6 +159,7 @@ export type ChatEventProvenance = 'live' | 'replay'
 const REPLAY_TRANSIENT_EVENT_TYPES = new Set([
   'turn.started',
   'turn.delta',
+  'turn.cancelled',
   'turn.completed',
   'run.updated',
   'legacy.stream',
@@ -755,10 +757,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     await reopenRootSubscription(rootChatId)
   }
 
-  /** 终态事件判定：done/error/turn.completed/run.updated{paused|completed|failed}。
+  /** 终态事件判定：done/error/turn.cancelled/turn.completed/run.updated{paused|completed|failed}。
    * 终态事件对 transient 是幂等清理；栅栏丢弃分支据此决定是否重拉权威快照。 */
   function isTerminalRootEvent(event: { type?: unknown; data?: unknown }): boolean {
-    if (event.type === 'turn.completed') return true
+    if (event.type === 'turn.completed' || event.type === 'turn.cancelled') return true
     if (event.type === 'done' || event.type === 'error') return true
     if (event.type === 'run.updated') {
       const data = (event.data && typeof event.data === 'object' ? event.data : {}) as Record<
@@ -787,7 +789,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (event.type === 'done' || event.type === 'error') {
       return typeof chatId === 'string' && transient.activeRuns.some((run) => run.chatId === chatId)
     }
-    if (event.type === 'turn.completed' && typeof data.turnId === 'string') {
+    if (
+      (event.type === 'turn.completed' || event.type === 'turn.cancelled') &&
+      typeof data.turnId === 'string'
+    ) {
       return transient.activeTurns.some((turn) => turn.turnId === data.turnId)
     }
     if (event.type === 'run.updated' && typeof data.runId === 'string') {
@@ -1083,6 +1088,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (prepared.startedRun) {
       session.run.status = error ? 'paused' : 'idle'
       session.run.error = error instanceof Error ? error.message : error ? '发送失败' : undefined
+      session.run.errorFact = error ? commandErrorFact(error, '发送失败') : undefined
       ;(effects.value.onWorkingChange ?? noop)(prepared.chatId, false)
     }
   }
@@ -1528,6 +1534,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         if (started) {
           session.run.status = 'paused'
           session.run.error = e instanceof Error ? e.message : '连接中断'
+          session.run.errorFact = commandErrorFact(e, '连接中断')
           session.run.activeRunId = undefined
           ;(effects.value.onWorkingChange ?? noop)(chatId, false)
         }
