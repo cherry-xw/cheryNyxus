@@ -167,6 +167,49 @@ html.dark {
   --el-color-info-dark-2: #b0b5bf;
 }
 
+/* ── 代码高亮浅色暖色调（v1.0，ui-visual-and-interaction.md §4.4）────────────
+ * 浅色默认引入 highlight.js 官方 github.css（蓝系、非主题色调），此处以同特异性
+ * `:root .hljs-*` 覆盖为主题暖色系；该块必须位于深色块之前——深色模式两块同特异性，
+ * 后加载的 [data-theme='dark'] 块胜出（顺序决定），浅色模式仅本块生效。
+ * 调色板全部走主题语义 token（不含蓝，规范 §4）：关键词红 / 数字与变量金 /
+ * 字符串绿 / 标题紫 / 标签绿 / 符号橙 / 注释灰。背景透明，随宿主 pre 底色。 */
+:root .hljs {
+  background: transparent;
+  color: var(--ink);
+}
+:root .hljs-comment,
+:root .hljs-quote { color: var(--info); }
+:root .hljs-keyword,
+:root .hljs-selector-tag,
+:root .hljs-subst { color: var(--danger); }
+:root .hljs-number,
+:root .hljs-literal,
+:root .hljs-variable,
+:root .hljs-template-variable,
+:root .hljs-tag .hljs-attr,
+:root .hljs-built_in,
+:root .hljs-builtin-name { color: var(--warning); }
+:root .hljs-string,
+:root .hljs-doctag,
+:root .hljs-regexp,
+:root .hljs-link { color: var(--success); }
+:root .hljs-title,
+:root .hljs-section,
+:root .hljs-selector-id,
+:root .hljs-class .hljs-title { color: var(--violet); }
+:root .hljs-type,
+:root .hljs-class .hljs-title.class_ { color: var(--danger); }
+:root .hljs-tag,
+:root .hljs-name,
+:root .hljs-attribute { color: var(--success); }
+:root .hljs-symbol,
+:root .hljs-bullet { color: var(--accent-ink); }
+:root .hljs-meta { color: var(--info); }
+:root .hljs-deletion { color: var(--danger); }
+:root .hljs-addition { color: var(--success); }
+:root .hljs-emphasis { font-style: italic; }
+:root .hljs-strong { font-weight: bold; }
+
 /* ── 代码高亮（highlight.js github 浅色主题）深色翻转 ──────────────────
  * main.ts 全局 import github.css（浅底深字）。深色下必须整组覆盖 token 色，
  * 否则 markdown 代码块白底黑字。背景置透明，随宿主 pre 底色。

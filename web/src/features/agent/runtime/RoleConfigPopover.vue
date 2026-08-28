@@ -14,16 +14,22 @@ import type {
   ThinkingLevel,
 } from '@/application/backend/public'
 
-const props = defineProps<{
-  role: string
-  selection: RuntimeSelection
-  brains: BrainInfo[]
-  senseGroups: readonly SenseGroupOption[]
-  config: ConfigDto | null
-  senseTools: SenseToolInfo[]
-  isPrimary: boolean
-  primaryRole: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    role: string
+    selection: RuntimeSelection
+    brains: BrainInfo[]
+    senseGroups: readonly SenseGroupOption[]
+    config: ConfigDto | null
+    senseTools: SenseToolInfo[]
+    isPrimary: boolean
+    primaryRole: string
+    /** v1.0 只读模式：仅展示资料卡、隐藏大脑/器官组选择区（workbench rail 角色 popout 用；
+     *  发送消息角色卡不传该 prop，保持可操作）。 */
+    readonly?: boolean
+  }>(),
+  { readonly: false },
+)
 
 const emit = defineEmits<{
   (e: 'update:selection', val: RuntimeSelection): void
@@ -103,13 +109,19 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 </script>
 
 <template>
-  <el-card shadow="never" class="role-card" :aria-label="`${role} 的临时编制`">
+  <el-card
+    shadow="never"
+    class="role-card"
+    :class="{ 'is-readonly': readonly }"
+    :aria-label="`${role} 的临时编制${readonly ? '（只读）' : ''}`"
+  >
     <div class="profile-hero">
       <el-avatar :size="52" class="profile-avatar">{{ role.slice(0, 1) }}</el-avatar>
       <div class="profile-identity">
         <strong>{{ role }}</strong>
         <div class="profile-summary">
           <span class="identity-kind">{{ isPrimary ? '♛ 小组组长' : '✦ 小组成员' }}</span>
+          <span v-if="readonly" class="identity-readonly" aria-label="只读">🔒 只读</span>
           <span class="brain-name">◈ {{ selection.brain || '未选择大脑' }}</span>
         </div>
         <div class="brain-facts" aria-label="当前大脑参数">
@@ -195,7 +207,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
       </div>
     </div>
 
-    <div class="profile-settings">
+    <div v-if="!readonly" class="profile-settings">
       <section class="profile-setting">
         <div class="setting-heading">
           <span class="setting-icon">◈</span>
@@ -248,7 +260,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
       </section>
       <p v-else class="runtime-note">该模型不支持 Tool Call，仅可进行对话与已标记的媒体理解。</p>
     </div>
-    <div class="runtime-note">仅本次会话，服务重启后失效</div>
+    <div v-if="!readonly" class="runtime-note">仅本次会话，服务重启后失效</div>
   </el-card>
 </template>
 
@@ -318,6 +330,19 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 
 .identity-kind {
   color: var(--accent-ink);
+  font-weight: 600;
+}
+/* v1.0 只读标（workbench rail 角色 popout）：暖金小 chip，与 identity-kind 同排。 */
+.identity-readonly {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-ink);
+  font-size: 10px;
+  line-height: 16px;
   font-weight: 600;
 }
 .brain-name {

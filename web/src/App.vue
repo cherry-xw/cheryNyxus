@@ -313,18 +313,15 @@ async function bootstrap(): Promise<void> {
     <template #title-actions>
       <ConnectionStatusChip />
       <!-- lite 极简视图切换（§2.1）：native 面 WorkbenchDialog 内部 titlebar 被 v-if="!isNative"
-           隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useLiteViewToggle -->
-      <button
-        type="button"
-        class="workbench-lite-toggle"
-        :class="{ 'is-active': workbenchLiteEnabled }"
-        :aria-pressed="workbenchLiteEnabled"
+           隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useLiteViewToggle；
+           v1.0 改 el-switch（原 ⚡ 按钮 icon 歪斜、active 不突出） -->
+      <el-switch
+        :model-value="workbenchLiteEnabled"
+        class="workbench-lite-switch"
         aria-label="切换极简 lite 视图"
         title="切换极简 lite 视图"
-        @click="toggleWorkbenchLiteView"
-      >
-        ⚡
-      </button>
+        @change="toggleWorkbenchLiteView"
+      />
     </template>
     <WorkbenchDialog
       ref="wbRef"
@@ -458,27 +455,11 @@ body {
     transform: scale(1.12);
   }
 }
-/* workbench 原生窗 title-actions 的 lite 切换钮（§2.1，与 WorkbenchDialog 内同名样式同观感） */
-.workbench-lite-toggle {
+/* workbench 原生窗 title-actions 的 lite 切换 switch（§2.1，与 WorkbenchDialog 内同名样式同观感；
+   v1.0：原 ⚡ 按钮改 el-switch，主色轨道浅深适配，仅留间距） */
+.workbench-lite-switch {
   flex: none;
-  width: 26px;
-  height: 26px;
   margin-left: 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--el-text-color-secondary);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-}
-.workbench-lite-toggle:hover {
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-}
-.workbench-lite-toggle.is-active {
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  vertical-align: middle;
 }
 </style>

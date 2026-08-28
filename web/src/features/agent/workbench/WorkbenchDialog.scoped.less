@@ -58,6 +58,14 @@
 .workbench-shell.is-lite .nyxus-rail-action.is-message {
   display: none;
 }
+/* v1.0 lite 视图下隐藏用不到的视图/任务树按钮（用户确认：保留「暂停/继续任务树」，
+   仅隐藏「暂停全部分支」）：布局切换、卡牌阅读、折叠工具、暂停全部分支。 */
+.workbench-shell.is-lite .nyxus-rail-action.is-layout-action,
+.workbench-shell.is-lite .nyxus-rail-action[data-view-action='paper'],
+.workbench-shell.is-lite .nyxus-fold-tool,
+.workbench-shell.is-lite .nyxus-rail-action[data-view-action='pause-whole'] {
+  display: none;
+}
 
 .workbench-shell.is-lite {
   display: flex;
@@ -70,29 +78,12 @@
   padding-top: 40px;
 }
 
-.workbench-lite-toggle {
+/* v1.0：极简切换改 el-switch（选中态实心主色轨+白钮，取代原 ⚡ 按钮的 icon 歪斜/active 不突出）。
+   el-switch 自带主题主色（--el-color-primary 暖金）浅深适配，此处仅留标题栏内间距。 */
+.workbench-lite-switch {
   flex: none;
-  width: 26px;
-  height: 26px;
   margin-left: 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--el-text-color-secondary);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-}
-
-.workbench-lite-toggle:hover {
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-}
-
-.workbench-lite-toggle.is-active {
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  vertical-align: middle;
 }
 
 .workbench-shell {
@@ -360,11 +351,6 @@
 .nyxus-side-tools.has-open-popout {
   z-index: var(--nx-z-side-popover);
 }
-.nyxus-pinned-layout-action {
-  flex: none;
-  margin-bottom: 7px;
-  pointer-events: auto;
-}
 /* 内部滚动列承载高度限制；弹窗作为 nav 兄弟节点，避免被 overflow 裁剪。 */
 .nyxus-tool-column {
   display: flex;
@@ -554,7 +540,8 @@
   outline: 2px solid color-mix(in srgb, var(--nx-cyan) 86%, transparent);
   outline-offset: 2px;
 }
-// 会话列表 popout：镜像角色 popout（rail 右侧悬浮、垂直居中）+ 不透明暖深面板与边框（内容突出）。
+// 会话列表 popout：镜像角色 popout（rail 右侧悬浮、垂直居中）+ 主题面板与边框
+// （v1.0 由硬编码暖深棕 #241a10 改为 --nx-bg/--nx-border，浅深双端自适应）。
 .nyxus-session-popout {
   position: absolute;
   right: calc(100% + 8px);
@@ -564,9 +551,9 @@
   box-sizing: border-box;
   transform-origin: right center;
   pointer-events: auto;
-  border: 1px solid rgba(150, 130, 100, 0.45);
+  border: 1px solid var(--nx-border);
   border-radius: 0;
-  background: #241a10;
+  background: var(--nx-bg);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
 }
 // 钢琴彩蛋浮层：作为 .nyxus-branch-top 的 flex 子元素自然居中于节点树视口中央。

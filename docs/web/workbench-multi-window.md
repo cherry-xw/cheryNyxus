@@ -52,6 +52,8 @@ interface WorkbenchWindowState {
 
 自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、会话列表/角色 popout、右侧待处理抽屉、composer dock、resize handles。rail 的钢琴按钮已移除——钢琴仅经**节点树彩蛋**触发浮层出现（见 [pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](./pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。
 
+**rail 工具栏分组与 lite 显隐（2026-08-28）**：右侧工具栏按三组划分——**主操作**（发送消息 / 暂停·继续任务树 / 暂停全部分支）、**会话**（新建会话 / 会话列表 / 对话历史 / 查看上下文）、**视图与配置**（布局切换 / 卡牌阅读 / 折叠档位 / 角色配置）；布局切换按钮从标题栏下独立顶部位置挪入视图与配置组。会话组 icon 区分：对话历史用 ↺（回看）、查看上下文用 ❐（内容快照），替换原 ◷/◍ 双圆点避免混淆。**lite 极简模式下**隐藏无对应界面的按钮：树视图类（布局切换 / 卡牌阅读 / 折叠档位）与「暂停全部分支」；「暂停·继续任务树」保留（lite 顶部的停止/继续是 abort/resume，与任务树 pause/resume 互补，用户拍板保留）。**角色 popout（rail ♟）只读**：仅展示角色大脑/器官组信息，不提供编辑（`RoleConfigPopover` 传 `readonly`，选择区隐藏，资料卡 🔒 只读标）；编辑入口只在发送消息 composer 的角色卡片中。**会话列表 popout** 背景由硬编码深棕改主题 token（浅色适配，不再深底深字）。
+
 - chatId 来源：`useAgentDialogOptions({ chatId: () => win.chatId ?? null })`，不再读全局单例。
 - **presetName 来源**：`useAgentDialogOptions` 同传 `presetName: () => win.presetName ?? null`——窗口打开时由**入口携带**（Nyxus 传预设名 `'cheryNyxus'`、Pet 传历史 summary 的 `preset` 名），不依赖 pet/session/history 推导。空白工作台（无历史会话、会话未水合）下角色编制、Nyxus 判定、`quickTargetRequired`、`roleMentions` 等据此立即正确。
 - 几何/视图/最小化写回 per-window store actions。

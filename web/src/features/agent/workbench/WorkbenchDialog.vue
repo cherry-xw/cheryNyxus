@@ -118,17 +118,15 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台'
         }}</small>
         <ConnectionStatusChip class="workbench-conn-chip" />
-        <button
-          type="button"
-          class="workbench-lite-toggle"
-          :class="{ 'is-active': liteViewEnabled }"
-          :aria-pressed="liteViewEnabled"
+        <!-- v1.0 切换入口改 el-switch：原 ⚡ 字符按钮存在 icon 歪斜、active 不突出问题，
+             开关选中态实心主色轨 + 白色滑块，激活/未激活一目了然（§2.1） -->
+        <el-switch
+          :model-value="liteViewEnabled"
+          class="workbench-lite-switch"
           aria-label="切换极简 lite 视图"
           title="切换极简 lite 视图"
-          @click="toggleLiteView"
-        >
-          ⚡
-        </button>
+          @change="toggleLiteView"
+        />
         <div class="workbench-window-actions" role="group" aria-label="窗口控制">
           <button
             type="button"
@@ -369,32 +367,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
         :class="{ 'has-open-popout': roleListOpen || sessionListOpen }"
         aria-label="节点树工作台功能工具栏"
       >
-        <el-tooltip
-          :content="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
-          placement="left"
-          :show-after="200"
-          :hide-after="0"
-        >
-          <span class="nyxus-tool-tip-anchor nyxus-pinned-layout-action">
-            <button
-              type="button"
-              class="nyxus-rail-action is-layout-action"
-              data-view-action="layout"
-              :class="{ 'is-active': topologyLayout }"
-              :aria-label="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
-              :aria-pressed="topologyLayout"
-              @click="topologyLayout = !topologyLayout"
-            >
-              <svg class="nyxus-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 4v5M7 9h10M7 9v4M17 9v4" />
-                <circle cx="12" cy="4" r="2" />
-                <circle cx="7" cy="15" r="2" />
-                <circle cx="17" cy="15" r="2" />
-                <path d="M7 17v3M17 17v3" />
-              </svg>
-            </button>
-          </span>
-        </el-tooltip>
         <div class="nyxus-tool-column">
           <div class="nyxus-primary-tools" aria-label="主要操作">
             <el-tooltip
@@ -459,6 +431,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 <button
                   type="button"
                   class="nyxus-rail-action is-stop"
+                  data-view-action="pause-whole"
                   :disabled="taskControlPending"
                   aria-label="暂停全部分支"
                   @click="pauseWholeTask"
@@ -469,19 +442,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </el-tooltip>
           </div>
           <div class="nyxus-tool-group" role="group" aria-label="会话工具">
-            <el-tooltip content="对话历史" placement="left" :show-after="200" :hide-after="0">
-              <span class="nyxus-tool-tip-anchor">
-                <button
-                  type="button"
-                  class="nyxus-rail-action"
-                  :disabled="!chatId"
-                  aria-label="对话历史"
-                  @click="openHistory"
-                >
-                  <span aria-hidden="true">◷</span>
-                </button>
-              </span>
-            </el-tooltip>
             <el-tooltip content="新建会话" placement="left" :show-after="200" :hide-after="0">
               <span class="nyxus-tool-tip-anchor">
                 <button
@@ -512,6 +472,20 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 <span aria-hidden="true">≡</span>
               </button>
             </div>
+            <!-- v1.0 icon 区分：历史 ↺（回看）vs 上下文 ❐（内容快照），原 ◷/◍ 双圆点过似 -->
+            <el-tooltip content="对话历史" placement="left" :show-after="200" :hide-after="0">
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action"
+                  :disabled="!chatId"
+                  aria-label="对话历史"
+                  @click="openHistory"
+                >
+                  <span aria-hidden="true">↺</span>
+                </button>
+              </span>
+            </el-tooltip>
             <el-tooltip
               :content="`查看上下文 · ${treeUsagePct}%`"
               placement="left"
@@ -533,7 +507,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                       :disabled="!chatId"
                       :aria-label="`查看上下文 · ${treeUsagePct}%`"
                     >
-                      <span aria-hidden="true">◍</span>
+                      <span aria-hidden="true">❐</span>
                     </button>
                   </template>
                   <PromptSnapshotTip
@@ -553,6 +527,34 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </el-tooltip>
           </div>
           <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
+            <!-- v1.0 布局切换从 nav 顶部移入视图与配置组，作为组内第一个按钮
+                 （三组方案：主操作 / 会话 / 视图与配置，见 workbench-multi-window.md） -->
+            <el-tooltip
+              :content="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action is-layout-action"
+                  data-view-action="layout"
+                  :class="{ 'is-active': topologyLayout }"
+                  :aria-label="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
+                  :aria-pressed="topologyLayout"
+                  @click="topologyLayout = !topologyLayout"
+                >
+                  <svg class="nyxus-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 4v5M7 9h10M7 9v4M17 9v4" />
+                    <circle cx="12" cy="4" r="2" />
+                    <circle cx="7" cy="15" r="2" />
+                    <circle cx="17" cy="15" r="2" />
+                    <path d="M7 17v3M17 17v3" />
+                  </svg>
+                </button>
+              </span>
+            </el-tooltip>
             <el-tooltip
               :content="paperMode ? '关闭卡牌阅读模式' : '打开卡牌阅读模式'"
               placement="left"
@@ -563,6 +565,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 <button
                   type="button"
                   class="nyxus-rail-action"
+                  data-view-action="paper"
                   :class="{ 'is-active': paperMode }"
                   :aria-label="paperMode ? '关闭卡牌阅读模式' : '打开卡牌阅读模式'"
                   :aria-pressed="paperMode"
@@ -670,6 +673,8 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             <div class="nyxus-role-card-list" aria-label="Nyxus 角色列表">
               <div v-if="loading" class="nyxus-role-loading">角色加载中…</div>
               <template v-else>
+                <!-- v1.0 rail 角色 popout 只读展示（🔒 只读 chip，隐藏大脑/器官组选择区）：
+                     编制操作统一在发送消息角色卡（RoleConfigPopover 不传 readonly 保持可操作） -->
                 <RoleConfigPopover
                   v-for="[role, selection] in orderedRoleSelections"
                   :key="role"
@@ -681,6 +686,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                   :sense-tools="senseTools"
                   :is-primary="role === primaryRole"
                   :primary-role="primaryRole"
+                  readonly
                   @update:selection="roleSelections[role] = $event"
                 />
               </template>

@@ -18,6 +18,8 @@
 }
 
 /* ── 顶部状态栏：轻量状态 + 节点数（需求 2：去掉「已连接」，改为轻量状态/节点数）── */
+/* v1.0 浅色可读性：状态条默认文字由 secondary（浅色 #909399 过浅）提为 regular，
+   状态文本进一步提为 primary，保证第一行浅色下清晰可读。 */
 .lite-statusbar {
   flex: none;
   display: flex;
@@ -25,8 +27,13 @@
   gap: 8px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--el-border-color-lighter);
-  color: var(--el-text-color-secondary);
+  color: var(--el-text-color-regular);
   font-size: 12px;
+}
+.lite-status-text {
+  flex: none;
+  white-space: nowrap;
+  color: var(--el-text-color-primary);
 }
 .lite-status-dot {
   flex: none;
@@ -55,10 +62,6 @@
     opacity: 0.45;
   }
 }
-.lite-status-text {
-  flex: none;
-  white-space: nowrap;
-}
 .lite-hydration {
   flex: none;
   color: var(--el-color-warning);
@@ -68,7 +71,7 @@
   padding: 0 8px;
   border-radius: 999px;
   background: var(--el-fill-color-light);
-  color: var(--el-text-color-secondary);
+  color: var(--el-text-color-regular);
   font-size: 11px;
   line-height: 18px;
   font-variant-numeric: tabular-nums;
@@ -185,7 +188,8 @@
   border-radius: 0;
   font-family: inherit;
   font-size: 10.5px;
-  color: var(--el-text-color-secondary);
+  /* v1.0 浅色可读性：链路行头角色名由 secondary 提为 regular（浅色下不再看不清） */
+  color: var(--el-text-color-regular);
   background: var(--el-bg-color);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -286,6 +290,8 @@
 .lite-lane-bar::-webkit-scrollbar {
   display: none;
 }
+/* v1.0 浅色可读性：非激活链路标签加边框（区分不同 Agent 流程按钮）+ 文字加深（regular），
+   激活仍为主色实底——浅色下标签间边界清晰、可读。 */
 .lite-lane-tab {
   display: inline-flex;
   align-items: center;
@@ -293,10 +299,10 @@
   flex: 0 0 auto;
   height: 22px;
   padding: 0 8px;
-  border: 1px solid transparent;
+  border: 1px solid var(--el-border-color);
   border-radius: 0;
-  background: transparent;
-  color: var(--el-text-color-secondary);
+  background: color-mix(in srgb, var(--el-bg-color) 72%, transparent);
+  color: var(--el-text-color-regular);
   font-size: 11px;
   line-height: 1;
   font-weight: 400;
@@ -498,6 +504,7 @@
   gap: 6px;
   padding: 4px 10px;
 }
+/* v1.0 浅色可读性：cluster 小按钮 icon 由 secondary 提为 regular（icon 比状态线更清晰） */
 .lite-cluster-node {
   position: relative;
   display: inline-flex;
@@ -509,7 +516,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--el-text-color-secondary);
+  color: var(--el-text-color-regular);
   cursor: pointer;
   font-size: 10px;
   line-height: 1;
@@ -610,6 +617,8 @@
 .lite-cluster-node.is-tool .lite-cluster-icon {
   color: var(--lite-tone-tool);
 }
+/* v1.0 弱化状态线：icon 为主、状态线为辅——状态线统一降透明度（成功绿/失败红不再全实色抢眼），
+   仅作底部细微状态指示，`prefers-reduced-motion` 下运行线保持常亮。 */
 .lite-cluster-status {
   position: absolute;
   z-index: 1;
@@ -618,28 +627,29 @@
   left: 2px;
   height: 2px;
   border-radius: 0;
-  background: var(--el-text-color-placeholder);
+  background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
   pointer-events: none;
 }
 .lite-cluster-status[data-status='running'] {
-  background: var(--el-color-success);
+  background: color-mix(in srgb, var(--el-color-success) 78%, transparent);
   animation: lite-tool-blink 900ms steps(1, end) infinite;
 }
 .lite-cluster-status[data-status='completed'] {
-  background: var(--el-color-success);
+  background: color-mix(in srgb, var(--el-color-success) 78%, transparent);
 }
 .lite-cluster-status[data-status='failed'],
 .lite-cluster-status[data-status='rejected'] {
-  background: var(--el-color-danger);
+  background: color-mix(in srgb, var(--el-color-danger) 78%, transparent);
 }
 .lite-cluster-status[data-status='cancelled'] {
-  background: var(--el-text-color-placeholder);
+  background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
 }
+/* v1.0 icon 增强：字号 10→11px，清晰度不低于下方状态线 */
 .lite-cluster-icon {
   flex: none;
   min-width: 2ch;
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   letter-spacing: -0.08em;
   text-align: center;
@@ -977,14 +987,22 @@
   font: inherit;
   line-height: 1.5;
 }
+/* v1.0 高度对齐：发送按钮高度固定为单行输入框同高（≈35px，含输入框 padding 7px×2 + 1.5 行高 + 边框），
+   消除右下角按钮与左侧单行输入框的纵向错位；多行输入增高时按钮仍贴底（.lite-input 为 align-items:flex-end）。 */
 .lite-send-btn {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 35px;
+  box-sizing: border-box;
   margin-left: 8px;
-  padding: 6px 16px;
+  padding: 0 16px;
   border: none;
   background: var(--el-color-primary);
   color: #fff;
   font-size: 12.5px;
+  line-height: 1;
   cursor: pointer;
   transition:
     background-color 120ms ease,
