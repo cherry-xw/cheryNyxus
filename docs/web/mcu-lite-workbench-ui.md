@@ -71,7 +71,7 @@
 1. chat.list({stage}) → 拿到会话摘要。**注意（T31 核验）**：chat.list 响应**不做 lite 投影**（applyLiteResponse 只投影 rootTimeline 形态的响应）——lean 目录依赖 scope:'stage' 省略 preview 的既有行为，非 profile 裁剪。
 2. chat.open(rootChatId, {knownTimelineRevision}) → state 快照（lean 集：activeTurns/questionBatches/runningTools/roles）+ rootTimeline（LeanTimelineNode[]，分页 + nodeCount + hasMore）。
 3. interaction.list({maxItems: 20}) → 待处理审批/提问（serverNow 校准本地钟）。
-4. 实时增量：run.updated（唯一权威工作态信号）+ turn.started/completed + interaction.changed（失效信号）+ timeline.patch（lean upsert）+ turn.delta（若 turnDelta 可选开，默认关）。
+4. 实时增量：run.updated（唯一权威工作态信号）+ turn.started/cancelled/completed + interaction.changed（失效信号）+ timeline.patch（lean upsert）+ turn.delta（若 turnDelta 可选开，默认关）；cancelled 到达时丢弃对应流式缓冲。
 5. 每轮免费时钟校准：interaction.list 响应带 serverNow；done 投影也带 serverNow（T28 修复）。
 
 ### 3.3 视图数据模型（前端 lean store）

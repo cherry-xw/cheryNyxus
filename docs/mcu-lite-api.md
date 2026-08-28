@@ -33,7 +33,7 @@
 | # | 目标 | 可验证形态 |
 |---|---|---|
 | G1 | 默认只展示用户消息 + 最终回复 | 逐 token/thinking/staged 全文默认不推；最终回复由 done 精简投影 + timeline patch lean 节点权威下发 |
-| G2 | 中间过程只报运行状态（起始时间/时长） | run.updated（唯一权威工作态信号，先于首 token）/ turn.started/completed / input.updated / interaction.changed / sense_started(工具名级) |
+| G2 | 中间过程只报运行状态（起始时间/时长） | run.updated（唯一权威工作态信号，先于首 token）/ turn.started/cancelled/completed / input.updated / interaction.changed / sense_started(工具名级) |
 | G3 | 节点信息精简到核心（工具名级别） | LeanTimelineNode：kind/actor/direction/orderKey/时间戳/摘要 + toolNames[] |
 | G4 | 审批节点全量下发供交互 | interrupt 与 question_batch_requested 全量（受 §3.7 有界负载约束）；interaction.list 收件箱兜底 |
 | G5 | 保留按需获取完整详情 | chat.timeline.node.get（P0，按需+分段）+ chat.timeline.generation.get（已有）|
@@ -115,7 +115,7 @@ lite 连接的推送分三类：**原样透传**（已足够小）、**投影精
 | `run.updated` | 原样+去重 | `{runId, status, at?, startedAt?}`。首个 running 的 `at=startedAt`，终态用 `at` 封口；lite 信封仍会去掉与外层重复的 data.runId。run.updated 是**工作态唯一权威信号**（先于首 token 发出） | G2 状态核心 |
 | `input.updated` | **投影精简** | {inputId, state, queueSequence, acceptedAt}（**去 content**——T7 发现 ack 路径携带用户原始输入全文回显，实测 503B+，设备本地已有刚发送的文本，id 对齐即可） | G2；T7 修正③ |
 | `interaction.changed` | 原样+加字段 | {interactionId, status, revision, **presetId**}（T7 实测 150B；加 presetId +4B 供设备判断是否需重拉，消多 agent 放大器）。设备侧 500ms 防抖后重拉 interaction.list（C5） | G2 |
-| `turn.started` / `turn.completed` | 原样 | started `{turnId,messageId,createdAt}`；completed `{turnId,messageId,completedAt?}`。设备用两端时间在本地计算模型轮次耗时 | G2、本地推导原则 |
+| `turn.started` / `turn.cancelled` / `turn.completed` | 原样 | started `{turnId,messageId,createdAt}`；cancelled `{turnId,messageId,reason:'retry_reset',cancelledAt?}`；completed `{turnId,messageId,completedAt?}`。设备收到 cancelled 必须立即丢弃对应 turn.delta 缓冲并以取消态封口计时，不得把半截内容渲染为回复 | G2、本地推导原则 |
 | `done` | 投影精简 | `{finalMessage?, canResume, finished?, contextUsage?, completedAt?, **serverNow**}`；去 contextBreakdown/used/total。**负向语义（B-9，逐条）**：① done≠必有 finalMessage（loop 结束在审批 yield 时根本不发 done；结束在 sense 循环时末条可能是 tool 结果）——无 finalMessage 的 done 只更新状态不显回复；② serverNow 每轮免费校准时钟（B-3），时钟误差容忍条款见 §3.9 | G1；§3.4 |
 | `error` | 原样 | {message, canResume}。message 含前置 [tracingId] 码（error-conventions 规范），设备**原样显示不得截前缀**（那是用户报障唯一线索）、不得自行生成文案（A-2/F11 全文引用） | F11 |
 | `consumed` | 投影精简 | {count, messages:[{id, role, createdAt, **msgId**}]}（去 content；附 msgId 供对齐，D10 裁定） | G1 |
@@ -147,7 +147,7 @@ lite 连接的推送分三类：**原样透传**（已足够小）、**投影精
 **子 chat 事件路由语义（B-1，三条规则文档化）**：
 
 1. **子 chat 的 done / staged 全部抑制**（终审裁定：二选一锁定为纯抑制，不做纯状态化投影——子完成态已由 timeline patch 的 return lean 节点权威表达，重复通道徒增歧义）——最终回复**只认 rootChatId 维度的 done**（chatId==rootChatId）；子 chat done 携 finished=true（types.ts:2269），若都按「本轮最终回复」处理即错乱（多 agent 必现）。**服务端已实现**（liteProjection：done 事件按 getRootChatId(chatId)===chatId 判定，非 root 整帧抑制；chat 已删除等异常路径按 root 透传，保守不丢数据）。
-2. **子 chat 的 turn.started/completed** 透传但设备按 `chatId ≠ rootChatId` 折叠为「子任务运行中」状态行——判定规则固化于此，固件实现者不得猜测。**注意（T26 实测补充）**：子事件信封无 rootChatId（streamMapper 只携 {chatId,runId}），设备判定依据 = 连接期记录的 rootChatId（chat.open 时获得）与事件 chatId 比对。
+2. **子 chat 的 turn.started/cancelled/completed** 透传但设备按 `chatId ≠ rootChatId` 折叠为「子任务运行中」状态行；cancelled 同样要求丢弃对应增量缓冲——判定规则固化于此，固件实现者不得猜测。**注意（T26 实测补充）**：子事件信封无 rootChatId（streamMapper 只携 {chatId,runId}），设备判定依据 = 连接期记录的 rootChatId（chat.open 时获得）与事件 chatId 比对。
 3. **role_reply 抑制**（见矩阵行）：子任务完成唯一权威 = timeline patch 的 return lean 节点（actor=子 agent、direction=child-to-parent）。
 4. **子 chat 的 run.updated 语义限定（T26 补充）**：`run.updated` 的「工作态唯一权威信号」**仅指 chatId==rootChatId 的 run.updated**（驱动设备全局「运行中」指示）；子 chat 的 run.updated（信封 chatId=子）只驱动该子任务状态行的起止，**不得**据此翻转设备全局工作态——子 run 的 running/paused 与主 run 形态完全相同（{runId,status}），不分流会把子 run 结束误判为整体结束。
 5. **子 chat 的 error 折叠（T26 补充）**：error 原样透传且不分根/子（F11：message 保持一行中文原样）。设备按 chatId≠rootChatId 把子 error 折叠为该子任务状态行的失败态（消息可点开看 message 原文），**不得**当主回复失败展示全局错误页。子 error 的 canResume 语义同 F4（子的 paused 可由父流程 resume，设备不单独发起）。

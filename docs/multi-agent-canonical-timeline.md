@@ -235,6 +235,7 @@ CP2 实施契约：root-tree subscription 与 root graph patch 作为 canonical 
 ```ts
 turn.started({ rootChatId, sourceChatId, turnId, messageId, actor, createdAt })
 turn.delta({ rootChatId, sourceChatId, turnId, messageId, channel, offset, delta })
+turn.cancelled({ rootChatId, sourceChatId, turnId, messageId, reason: 'retry_reset', cancelledAt? })
 turn.completed({ rootChatId, sourceChatId, turnId, messageId, completedAt? })
 run.updated({ rootChatId, sourceChatId, runId, status, at?, startedAt? })
 sense_started({ rootChatId, sourceChatId, id, senseName, arguments, startedAt? })
@@ -250,8 +251,9 @@ rejected({ rootChatId, sourceChatId, approvalId, senseName, reason, completedAt?
 
 1. `turn.started(A)` 建立节点 A，并打开仅属于 A 的 CRT；后续 `turn.delta(A)` 只更新该 CRT。
 2. assistant A 的完整节点事实提交后，服务端立即发送 `turn.completed(A)`；前端关闭 CRT-A，保留实际节点 A，详情改由 hover popover 展示。
-3. 同一 run 后续出现 `turn.started(B)` 时创建 CRT-B，不复用 CRT-A 的组件身份、隐藏状态或固定状态。run 结束只补全尚未完成的 turn，不重复完成 A。
-4. 不同 child chat 的 active turn 可以并发存在，因此多个节点 CRT 可以同时显示；其中任一 turn 完成不得关闭其他节点的 CRT。
+3. provider 尝试失败并进入干净重试时，服务端发送 `turn.cancelled(A)`；前端丢弃 CRT-A 及其增量缓冲，并由配套 `staged.reverse` 撤回临时消息投影。失败尝试未写入数据库，因此不产生 timeline patch。
+4. 同一 run 后续出现 `turn.started(B)` 时创建 CRT-B，不复用 CRT-A 的组件身份、隐藏状态或固定状态。run 结束只补全尚未完成的 turn，不重复完成 A。
+5. 不同 child chat 的 active turn 可以并发存在，因此多个节点 CRT 可以同时显示；其中任一 turn 完成或取消不得关闭其他节点的 CRT。
 
 审批/提问弹窗属于节点交互状态，不属于 CRT 生命周期。待审批节点即使启用默认折叠也保持展开，交互弹窗持续显示到用户完成操作；对应流结束只关闭该节点 CRT，不提前关闭审批弹窗。
 
@@ -341,7 +343,7 @@ type LeanTimelineNode = {
 1. **revision/orderKey 语义不变**：snapshot 与 patch 的 revision、knownRevision 短路、缺口全量自愈（§3.5）对 lean 投影同等适用；edges 不投影（conversation 视图顺序 = orderKey 全序），tree/audit 视图不属于 lite 范围。
 2. **conversation 视图降采样**：`visibility='conversation'` 节点逐一映射为 lean 节点（无额外抽样）；`tool-batch`/`spawn`/`tool-group` 不产生独立节点，归并进所属 message 节点的 toolNames。
 3. **return 节点是子任务完成的唯一权威投影**：lite 连接抑制 role_reply 通知（其与 return 节点无对齐键，靠 childChatId 猜配对违反归属规则）；子完成只经 timeline patch 的 return lean 节点表达——与 §4 child_return/child_output 显式合并规则同源，不在投影层引入第二事实。
-4. **子 chat 事件路由**：子 chat 的 done/staged 全部抑制（最终回复只认 rootChatId 维度 done）；子 turn.started/completed 折叠为「子任务运行中」状态；**子 run.updated 只驱动该子任务状态行**（「工作态唯一权威信号」限定为 chatId==rootChatId 的 run.updated）；子 error 折叠为子任务失败态（message 原样保留，不当主回复错误展示）；子 accept/rejected 折叠进子任务状态行，子 interrupt 不折叠（G4 审批全量不分根/子）；seq 游标按 chatId 分道。判定规则与完整语义见 mcu-lite-api.md §3.2（唯一维护处）。
+4. **子 chat 事件路由**：子 chat 的 done/staged 全部抑制（最终回复只认 rootChatId 维度 done）；子 turn.started/cancelled/completed 折叠为「子任务运行中」状态，cancelled 要求丢弃对应增量缓冲；**子 run.updated 只驱动该子任务状态行**（「工作态唯一权威信号」限定为 chatId==rootChatId 的 run.updated）；子 error 折叠为子任务失败态（message 原样保留，不当主回复错误展示）；子 accept/rejected 折叠进子任务状态行，子 interrupt 不折叠（G4 审批全量不分根/子）；seq 游标按 chatId 分道。判定规则与完整语义见 mcu-lite-api.md §3.2（唯一维护处）。
 5. **事件白名单**：lite 连接的完整推送裁剪矩阵（原样/投影精简/抑制三分类）以 [mcu-lite-api.md §3.2](mcu-lite-api.md) 为唯一维护处，本节不重复。
 6. **执行步骤投影**：`chat.open.state.executionSteps` 保留 `ExecutionStep` 计时字段，名称截至 96 UTF-8 bytes；活动 `run` / `runs[]` 保留从持久 `run.updated` 重建的可选 `startedAt`，供重连恢复总计时。lite 省略 `executionStepLimit` 时默认 16。活动步骤优先，但总数严格不超过 limit（活动超限取最新项）；`executionStepLimit` 与连接 `maxFrameBytes` 同时约束响应，超预算先丢最旧终态步骤，再丢最旧 lean timeline 节点（至少保留一个）并重算 `nextCursor`；若仍超预算，再丢最旧活动步骤，但至少保留最新活动项。
 
@@ -431,7 +433,7 @@ Reducer 只做四件事：安装快照、应用 revision patch、按 offset 累�
 Nyxus 实时树固定采用以下单向依赖，组件挂载不能直接拥有 WebSocket 订阅生命周期：
 
 1. **后端 API / LLM 层**输出完整节点事实、父子关系、持久 revision，以及运行期
-   `input.updated` / `turn.started` / `turn.delta` / `turn.completed` / 审批事件。历史接口只返回
+   `input.updated` / `turn.started` / `turn.delta` / `turn.cancelled` / `turn.completed` / 审批事件。历史接口只返回
    完整节点；逐 token delta 只服务当前运行中的 CRT，不作为历史回放单元。
 2. **前端消息层**为每个被观察的 `rootChatId` 维护唯一 subscription。`conversation`、`tree`、
    `audit` 是同一订阅下的只读快照视图，不能分别调用 `chat.open`。消息层原子合并 snapshot、

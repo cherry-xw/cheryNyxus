@@ -42,9 +42,9 @@ interface WorkbenchWindowState {
 
 `applyRootSubscriptionEvent` 的序栅栏三分支：`rootEventSeq <= eventSeq` 按重复静默丢弃 / `rootEventSeq !== eventSeq+1` 判 gap 触发 `reopenRootSubscription`（重拉权威快照）/ 正常路径应用并推进 cursor。
 
-**问题**：Electron 原生独立窗各自独立 renderer + Pinia store，工作台窗打开瞬间的 root 订阅 cursor 基准（`openChat` 的 `eventSeq`）可能落后于跨窗并发事件 → 后续终态事件（`done`/`error`/`turn.completed`/`run.updated{终态}`）落入「重复丢弃」分支时，该 run/turn 若在 `rootTimelineStates` transient 里仍有残留（曾被 delta 建立、终态被丢弃），就永远卡「执行中/工作中」，重启才自愈。
+**问题**：Electron 原生独立窗各自独立 renderer + Pinia store，工作台窗打开瞬间的 root 订阅 cursor 基准（`openChat` 的 `eventSeq`）可能落后于跨窗并发事件 → 后续终态事件（`done`/`error`/`turn.cancelled`/`turn.completed`/`run.updated{终态}`）落入「重复丢弃」分支时，该 run/turn 若在 `rootTimelineStates` transient 里仍有残留（曾被 delta 建立、终态被丢弃），就永远卡「执行中/工作中」，重启才自愈。
 
-**修复**：丢弃分支不再纯静默——终态事件且 transient 中仍有对应残留时，`flushRootDeltas` 后 `reopenRootSubscription` 重拉权威快照（`openChat` 的 `state.runs` 已空自愈）。判定函数 `isTerminalRootEvent`（`done`/`error`/`turn.completed`/`run.updated` 的 status ∈ `paused|completed|failed`）；残留检查避免无谓重拉（已清理则直接丢弃）。
+**修复**：丢弃分支不再纯静默——终态事件且 transient 中仍有对应残留时，`flushRootDeltas` 后 `reopenRootSubscription` 重拉权威快照（`openChat` 的 `state.runs` 已空自愈）。判定函数 `isTerminalRootEvent`（`done`/`error`/`turn.cancelled`/`turn.completed`/`run.updated` 的 status ∈ `paused|completed|failed`）；残留检查避免无谓重拉（已清理则直接丢弃）。
 
 ## 组件
 

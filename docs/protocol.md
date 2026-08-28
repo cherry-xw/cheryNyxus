@@ -120,6 +120,7 @@ interface Notification {
     | 'timeline.patch'
     | 'turn.started'
     | 'turn.delta'
+    | 'turn.cancelled'
     | 'turn.completed'
     | 'input.updated'
     | 'run.updated'
@@ -166,6 +167,7 @@ interface Notification {
 | `timeline.patch` | `{chatId, baseRevision, revision, operations, rootPatch?, rootPatches?}` | 持久化消息事务提交后的权威时间线增量 patch（root 维度 diff，详见 [multi-agent-canonical-timeline.md](./multi-agent-canonical-timeline.md)）。 |
 | `turn.started` | `{turnId, messageId, runId?, createdAt}` | 该 msgId 的首个 stream chunk 到达时发出（同 turn 只发一次，服务端 Set 去重）。`turnId = messageId` = checkpoint 预分配的 assistant msgId（= 最终落库 messages.id）。 |
 | `turn.delta` | `{turnId, messageId, channel, offset, delta}` | 实时打字机增量（V2 session 通道）。`channel ∈ thinking | content`；`offset` 为该 channel 内字符偏移（服务端维护）。**与 legacy 0x01 stream chunk 双通道并存**（同内容两条通道同时发出）。 |
+| `turn.cancelled` | `{turnId, messageId, reason:'retry_reset', cancelledAt?}` | provider 已输出部分内容但本次尝试需要干净重试时发出。客户端必须丢弃该 turn 的增量缓冲、关闭 active turn，并把对应执行步骤封为 cancelled；该事件不代表持久时间线发生变更。 |
 | `turn.completed` | `{turnId, messageId, completedAt?}` | 该 turn 的节点事实已提交；staged 完成处发出，run 终态时对所有未完成 turn 补发（completedTurns 去重）。`completedAt` 为 epoch ms。 |
 | `input.updated` | `{inputId, clientMessageId?, messageId?, state, content?, queueSequence?, acceptedAt?, reason?}` | 用户输入生命周期。`state ∈ accepted | started | queued | consumed | cancelled | rejected`（accepted/cancelled/rejected 当前无发射方，属类型预留）。`chat.input.submit` ack 时携 `content`（用户原始输入全文回显，无截断）与 `state: started/queued`；`consumed` 通知后逐 input 补发 `state: consumed`。 |
 | `run.updated` | `{runId, status, at?, startedAt?}` | run 状态变更。`status ∈ running | waiting | paused | completed | failed`。`at` 是本次状态发生的 epoch ms；首个 `running` 同时携 `startedAt`。**run 启动即发 running，先于首个 token**——工作态判定的唯一权威信号，前端不得从 turn.started / assistant 输出推断；done 按 canResume 发 paused/completed；abort/park/未预期异常一律补发 paused（兜底安全网）。新增时间字段均可选，以兼容旧客户端。 |
@@ -182,7 +184,7 @@ interface Notification {
 | `stream` | `{msgId, createdAt, thinking?, content?, senseCall?}`                                                                                                  | 当前 LLM 响应的实时增量；同一响应所有 chunk 的 msgId 稳定，工具循环下一次 LLM 调用使用新 msgId |
 | `staged` | `{type, role?, thinking?, content?, senseName?, arguments?, id?, msgId?, createdAt?, messageIds?, replace?, originalContent?, runtime?, agentChatId?}` | 阶段完成（JSON 帧）                                                                            |
 
-`staged.type` 取值：`thinking_end` / `content_end` / `sense_end` / `reverse`。`role`（user/assistant/system/sense）仅 chat.get 返回历史时携带。`id` 用于把 `sense_end` 与 `role:"sense"` 的结果块关联起来。`reverse`（携 `messageIds`）由 `chat.send` 在自动撤回末尾 pending sense 时发送，标记客户端回滚对应消息。`replace/originalContent` 仅 chat.get 历史回放命中感官去重时携带。`runtime` 仅 `content_end` 携带：user 消息=发送时配置（来自 `messages.runtime`），assistant=前一条 user 的 runtime（后端关联，不入库 assistant runtime），供前端 hover 历史消息显该消息用的 brain/工具。`agentChatId` 仅 chat.get 历史回放携带（= 当前回放的 chatId），供前端 HistoryItem 反向溯源（filter `agentChatId === X` 取该 agent 完整 history）。
+`staged.type` 取值：`thinking_end` / `content_end` / `sense_end` / `reverse`。`role`（user/assistant/system/sense）仅 chat.get 返回历史时携带。`id` 用于把 `sense_end` 与 `role:"sense"` 的结果块关联起来。`reverse` 必须携带至少一个非空 `messageIds`：`chat.send` 恢复路径用它撤回末尾 pending sense，provider 重试重置用它撤回未持久化的半截 assistant 投影。后者同时发送 `turn.cancelled` 关闭 session-plane turn；不会发送 `timeline.patch`，因为数据库时间线并未写入失败尝试。`replace/originalContent` 仅 chat.get 历史回放命中感官去重时携带。`runtime` 仅 `content_end` 携带：user 消息=发送时配置（来自 `messages.runtime`），assistant=前一条 user 的 runtime（后端关联，不入库 assistant runtime），供前端 hover 历史消息显该消息用的 brain/工具。`agentChatId` 仅 chat.get 历史回放携带（= 当前回放的 chatId），供前端 HistoryItem 反向溯源（filter `agentChatId === X` 取该 agent 完整 history）。
 
 `msgId` / `role` / `createdAt`：checkpoint 在每个 LLM turn 开始时预分配 assistant id。该 `msgId` 从第一个实时 `stream` delta 起携带，并与 staged、done.finalMessage、最终落库 messages.id、chat.sync/chat.get 回放 id 完全相同。工具循环中的下一次 LLM 调用生成新 `msgId`，前端据此封口旧 active message、建立空新消息，再应用首个 delta；不从 thinking/content 的内容变化猜测边界。`thinking_end`、`content_end`、`sense_end` 均携当前 assistant `msgId`，由 reducer upsert 同一对象。
 
@@ -260,7 +262,7 @@ idle chat:
 | 分类         | 事件                                                                                                                                                                 | 重放行为                                                                |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | 幂等可重放   | `stream` / `staged`(thinking_end·content_end·sense_end·reverse) / `consumed` / `interrupt` / `accept` / `rejected` / `sense_started` / `replaced` / `auto_compacted` | 重放即累积进缓存数组、更新对应显示                                      |
-| 动作/终态    | `done` / `error` / `role_reply` / `question_batch_requested` / `question_batch_completed`                                                                            | 重放仅更新态（如 finished/canResume/批次关闭），不重复触发 RPC 或副作用 |
+| 动作/终态    | `done` / `error` / `turn.cancelled` / `role_reply` / `question_batch_requested` / `question_batch_completed`                                                         | 重放仅更新态（如 finished/canResume/活动 turn/批次关闭），不重复触发 RPC 或副作用 |
 | 跳过发起动作 | `chat.startSpawn` / `chat.resume` 的 RPC 响应流                                                                                                                      | 属前端主动发起的 RPC，重放时不重新发起（仅消费其流内事件）              |
 
 > `role_created` 不入 chat_events（spawn task 是持久权威载体，刷新靠 `chat.list` 重建 pet 树，非事件回放）。
