@@ -28,6 +28,7 @@ chat.send → AgentBuilder.run(input)
 | [./plugin.md](./plugin.md) | [service/plugin/](../../src/service/plugin/) + [prompt/loadSkill.ts](../../src/agent/prompt/loadSkill.ts) | 插件整仓 git 导入（分支选择 + 凭据池 + 版本检查）+ `<plugin>__<skill>` 命名空间发现（跨 service/agent） |
 | [./config-manage.md](./config-manage.md) | [sense/configManage.ts](../../src/agent/sense/configManage.ts) + [service/config/operations.ts](../../src/service/config/operations.ts) | `config_manage` 感官（get/patch/rollback）+ 强类型增量候选、版本冲突校验与空闲重启 |
 | [./skill-install.md](./skill-install.md) | [sense/installSkill.ts](../../src/agent/sense/installSkill.ts) + [utils/pathGuard.ts](../../src/utils/pathGuard.ts) | `install_skill` 感官（stage/commit 两阶段 + 三态分发）+ `.chery/` 路径守卫 |
+| [./role-design.md](./role-design.md) | [.chery.template/skills/role-design/](../../.chery.template/skills/role-design/) + [.chery.template/prompt/roleArchitect/](../../.chery.template/prompt/roleArchitect/) | 任意岗位研究、开放文本能力诉求、真实工具映射与职责分离 |
 
 ## 文件清单
 

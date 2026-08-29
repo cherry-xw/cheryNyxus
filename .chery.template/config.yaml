@@ -166,6 +166,11 @@ sense_groups:
     - read_file
     - search_codebase
     - skill
+  role_architect: # 任意岗位研究与角色蓝图；不具备配置写入能力
+    - skill
+    - read_file
+    - search_codebase
+    - ask_user_question
   detail_diagnostics: # 解释分支专用：允许核对项目与执行诊断，禁止修改/派发
     - read_file
     - search_codebase
@@ -192,6 +197,16 @@ roles:
     systemPrompt: prompt/cheryNyxus/cheryNyxus.md
     description: Chery Nyxus：系统配置管理核心角色（管理所有角色配置）+ 桌宠组长
     lock: true
+  roleArchitect:
+    brain: my-brain
+    avatar: '🧩'
+    senseGroup: role_architect
+    mcpServers: []
+    systemPrompt: prompt/roleArchitect/roleArchitect.md
+    skills:
+      - role-design
+    description: 角色架构师：研究任意岗位并输出职责、风险、能力诉求与验收蓝图；不修改配置
+    mentionable: false
   coordinator:
     brain: my-brain # 引用 llm.brain 中的 key
     avatar: '🧭' # [可选] 角色头像；缺省按角色名稳定生成，也可在设置页切换 Emoji
@@ -254,6 +269,7 @@ presets:
     detailRole: explanation
     roles:
       - cheryNyxus
+      - roleArchitect
       - curator
       - explanation
     shadows:

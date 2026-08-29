@@ -172,7 +172,7 @@ roles:
     lock: true                  # 锁定禁止前端删除/改名（保护配置管理能力）
 presets:
   cheryNyxus:
-    roles: [cheryNyxus, curator, explanation]   # 加入固定预设，主 agent 可 spawn
+    roles: [cheryNyxus, roleArchitect, curator, explanation]   # 加入固定预设，主 agent 可 spawn
 ```
 
 persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../.chery.template/prompt/cheryNyxus/cheryNyxus.md)：双职责——**配置管理核心**（`config_manage` 感官 get/patch/rollback + 强类型候选与备份回滚，详见 [./config-manage.md](./config-manage.md)）+ **技能安装**（install_skill stage → ask_user 逐项确认 → commit → 回报）。所有 `.chery/` 写操作集中在 Cherry Nexus，结构化感官（config_manage / install_skill）天然不触发路径守卫。

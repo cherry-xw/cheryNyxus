@@ -19,6 +19,8 @@ prompt/
     reviewer.md
   cheryNyxus/                    # Cherry Nexus 专属提示词（配置管理核心角色）
     cheryNyxus.md
+  roleArchitect/                 # 任意岗位研究与角色蓝图；不写配置
+    roleArchitect.md
 ```
 
 ## 文件类型
@@ -31,6 +33,7 @@ prompt/
 | `prefebMain/coder.md` | 编码角色（coder）的专属指令 | `roles.coder.systemPrompt` |
 | `prefebMain/reviewer.md` | 审查角色（reviewer）的专属指令 | `roles.reviewer.systemPrompt` |
 | `cheryNyxus/cheryNyxus.md` | Cherry Nexus（配置管理核心角色：管理角色/感官/全局/llm 配置 + 组长） | `roles.cheryNyxus.systemPrompt` |
+| `roleArchitect/roleArchitect.md` | Role Architect（研究岗位、输出职责/风险/能力诉求/验收蓝图，不修改配置） | `roles.roleArchitect.systemPrompt` |
 
 ## 字段参考表
 
@@ -100,4 +103,6 @@ prompt/
 - 角色配置：[./config.md#rolesrole-字段](./config.md#rolesrole-字段)
 - 提示词系统：[../../docs/system-prompt.md](../../docs/system-prompt.md)
 - Cherry Nexus 提示词：[../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md)（配置管理 + 组长）
+- Role Architect 提示词：[../prompt/roleArchitect/roleArchitect.md](../prompt/roleArchitect/roleArchitect.md)（岗位研究 + 蓝图，不授权工具）
+- 任意岗位角色设计：[./role-design.md](./role-design.md)
 - 配置管理感官：[../../docs/core/sense.md](../../docs/core/sense.md#config_manage-感官)（get/patch/backup/rollback）

@@ -16,6 +16,7 @@
 | 自定义感官 | [./senses.md](./senses.md) | [../senses/](../senses/) | 外部 .ts 感官开发规范（schema + handler + 测试） |
 | 技能包 | [./skills.md](./skills.md) | [../skills/](../skills/) | 可加载提示词片段（SKILL.md frontmatter） |
 | 角色提示词 | [./prompt.md](./prompt.md) | [../prompt/](../prompt/) | system.md + 各角色专属提示词 |
+| 角色设计 | [./role-design.md](./role-design.md) | [../skills/role-design/](../skills/role-design/) | 任意岗位研究、工具映射、权限契约与验收流程 |
 | 用户指令 | [./command.md](./command.md) | [../command/](../command/) | `[[command:/名称]]` 触发的内置指令 |
 
 ## AI 自动修改配置
@@ -47,6 +48,7 @@ cherryNyxus 角色：
 | 改 LLM brain | [./config.md#llmbrain-name-字段](./config.md#llmbrain-name-字段) + [./model-thinking.md](./model-thinking.md) | [../../docs/agent/provider.md](../../docs/agent/provider.md) |
 | 改感官监管等级 | [./config.md#sense_groupsgroup-字段](./config.md#sense_groupsgroup-字段) | [../../docs/core/sense.md](../../docs/core/sense.md) |
 | 加 / 改角色 | [./config.md#rolesrole-字段](./config.md#rolesrole-字段) + [./prompt.md](./prompt.md) | [../../docs/system-prompt.md](../../docs/system-prompt.md) |
+| 研究任意岗位并创建角色 | [./role-design.md](./role-design.md) + [./config.md#rolesrole-字段](./config.md#rolesrole-字段) | [../../docs/agent/role-design.md](../../docs/agent/role-design.md) |
 | 改预设 | [./config.md#presetsname-字段](./config.md#presetsname-字段) | — |
 | 改服务端口 | [./config.md#server-字段](./config.md#server-字段) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 改文件夹浏览白名单 / 文件可见性 | [./config.md#workspace_browse-字段文件夹浏览协议](./config.md#workspace_browse-字段文件夹浏览协议) | [../../docs/protocol.md](../../docs/protocol.md) |

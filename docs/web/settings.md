@@ -80,7 +80,7 @@
 
 **工作区选择**：目录选择按钮按运行模式互斥展示——Electron 模式显示「选择目录」原生按钮（`dialog.showOpenDialog`，选的是后端同机绝对路径）；浏览器模式显示「浏览」按钮，通过 `config.workspace.browse.*` 协议打开「面包屑 + 目录列表」弹层，逐层懒加载服务端文件系统并选中目录回填。**默认全盘可浏览**（POSIX 从 `/`、win32 全部盘符），权限由系统对后端的实际访问报错把关——目录无权限时列表行内提示「下级无法加载（无权限）」，不可再钻取；`.chery` 系统配置目录恒不可见。配置 `server.workspace_browse.roots` 可收窄浏览范围。选中目录走既有 `updateWorkspace` → `workspaceChange` → 即时校验链路（`config.workspace.validate`）。手动输入绝对路径不受影响。
 
-**Cherry Nexus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（roles=[cheryNyxus, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。前端「选择成员」下拉禁用、「设置解释」禁用、成员卡全部禁用；成员配置本身不在设置页改动。
+**Cherry Nexus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（模板默认为 roles=[cheryNyxus, roleArchitect, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。`roleArchitect` 只研究任意岗位并返回蓝图，具体工具映射与配置写入仍由 Cherry Nexus 完成。前端「选择成员」下拉禁用、「设置解释」禁用、成员卡全部禁用；成员配置本身不在设置页改动。
 
 **审批规则**：原「规则文件」改名为「审批规则」。下拉选择 `.chery/rule/` 下覆盖文件（`presets.<name>.rule`），与基准 `base.yaml` 深合并（详见 docs/core/sense.md「smart 规则表」）。右侧「刷新」按钮重新拉取 `rules.list`——手动新建或与 Cherry Nexus 对话生成规则文件后立即可见。tip 含机制（命中危险拦截/未命中放行）+ 操作方案（与 Cherry Nexus 对话生成 / 手动编辑 `.chery/rule/` + 保存重启）。
 
