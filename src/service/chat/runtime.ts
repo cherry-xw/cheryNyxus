@@ -268,7 +268,9 @@ export async function setSessionRoleRuntimes(
     chatId,
     transitionReason: 'session-runtime-changed',
     handoffSummary:
-      '用户调整了主 Agent 或子角色的会话级运行配置。旧纪元角色调用仅保留为历史；后续子任务必须重新派发。',
+      '用户调整了主 Agent 或子角色的会话级运行配置。' +
+      '仅系统提示词与工具契约更换为当前版本，历史对话完整保留并继续参与上下文；' +
+      '旧纪元工具调用仅作为历史事实，后续子任务按当前角色编制派发。',
   })
   chatRuntimes.delete(chatId)
   ephemeralChatRuntimes.delete(chatId)
@@ -314,9 +316,14 @@ export function setEphemeralChatRuntime(chatId: string, selection: RuntimeSelect
 /**
  * 从 DB 加载历史消息，交给 builder.init 注入 middleware 内存。
  * 仅 ensureChat 创建时调用一次，send/resume 不再重复加载。
+ *
+ * 跨纪元全量加载（docs/context-epochs.md「历史连续性与兼容投影」）：
+ * 历史消息是会话的完整事实，不按 epoch_id 过滤；配置变更只更换系统提示词与工具契约，
+ * 对话内容一个字不动。过渡期 v1 纪元隔离实现落库的 <epoch_carryover> 消息在加载时过滤
+ * （其内容是旧纪元投影摘要，与全量加载的原文冗余；DB 行保留供审计）。
  */
 function loadHistory(chatId: string, epoch: ChatEpochRecord): LLMResponse[] | undefined {
-  const rows = getMessages(chatId, epoch.epochId)
+  const rows = getMessages(chatId)
   const branchContext = getChatBranchContext(chatId)
   const contextMessage: LLMResponse | undefined = branchContext
     ? {
@@ -334,7 +341,8 @@ function loadHistory(chatId: string, epoch: ChatEpochRecord): LLMResponse[] | un
         content:
           `<epoch_transition epoch="${epoch.ordinal}">\n` +
           `${epoch.handoffSummary}\n` +
-          '此前结构化工具调用属于只读历史纪元，不得假定其角色或工具当前仍存在。\n' +
+          '配置快照已切换：仅系统提示词与工具契约更换为当前版本，以上历史对话完整保留并继续有效；' +
+          '历史中出现的角色与工具以当时事实为准，不得假定其当前仍存在。\n' +
           '</epoch_transition>',
         createdAt: epoch.createdAt,
         updateAt: epoch.createdAt,
@@ -344,24 +352,28 @@ function loadHistory(chatId: string, epoch: ChatEpochRecord): LLMResponse[] | un
     (message): message is LLMResponse => !!message,
   )
   if (rows.length === 0) return prefix.length > 0 ? prefix : undefined
-  const parsedRows = rows.map((row) => {
-    const parsed = parseMessageRow(row)
-    return {
-      id: row.id,
-      role: parsed.role,
-      content: parsed.content ?? '',
-      thinking: parsed.thinking,
-      senseCalls: parsed.senseCall,
-      hash: parsed.hash,
-      replace: parsed.replace,
-      originalContent: parsed.originalContent,
-      revoked: parsed.revoked,
-      contextCompaction: parsed.contextCompaction,
-      contextCompactionTokens: parsed.contextCompactionTokens,
-      createdAt: row.created_at,
-      updateAt: row.created_at,
-    }
-  })
+  const parsedRows = rows
+    .map((row) => {
+      const parsed = parseMessageRow(row)
+      return {
+        id: row.id,
+        role: parsed.role,
+        content: parsed.content ?? '',
+        thinking: parsed.thinking,
+        senseCalls: parsed.senseCall,
+        hash: parsed.hash,
+        replace: parsed.replace,
+        originalContent: parsed.originalContent,
+        revoked: parsed.revoked,
+        contextCompaction: parsed.contextCompaction,
+        contextCompactionTokens: parsed.contextCompactionTokens,
+        createdAt: row.created_at,
+        updateAt: row.created_at,
+      }
+    })
+    // 兼容投影·过渡期过滤：v1 纪元隔离实现落库的 <epoch_carryover> 投影摘要
+    // 与跨纪元全量加载的原文冗余，进入 LLM 上下文前剔除（DB 行保留供审计）。
+    .filter((message) => !message.content.startsWith('<epoch_carryover'))
   // 取最后一条 compact 摘要作为重建起点；其后的全部后续对话一并加载。
   // 与 compactToLatestSummary 内存裁剪语义对齐——冷重建不得丢失压缩点之后已持久化的消息
   // （否则重启/切 chat 回来，summary 之后的几轮对话"DB 在、模型看不见"）。
@@ -409,7 +421,8 @@ export async function ensureChat(
       ? {
           handoffSummary:
             `系统已从纪元 ${previousEpoch.ordinal} 切换到当前配置修订。` +
-            '旧纪元中的角色、工具结果和配置仅作为历史事实保留；后续任务必须使用当前角色编制重新派发。',
+            '仅系统提示词与工具契约更换为当前版本，历史对话完整保留并继续参与上下文；' +
+            '后续任务使用当前角色编制执行。',
         }
       : {}),
   })
@@ -560,7 +573,10 @@ export async function setRuntime(chatId: string, selection: RuntimeSelection): P
   rotateActiveChatEpoch({
     chatId,
     transitionReason: 'runtime-changed',
-    handoffSummary: '用户修改了 Agent 的大脑或工具运行配置。旧纪元工具调用仅作为历史事实保留。',
+    handoffSummary:
+      '用户修改了 Agent 的大脑或工具运行配置。' +
+      '仅系统提示词与工具契约更换为当前版本，历史对话完整保留并继续参与上下文；' +
+      '旧纪元工具调用仅作为历史事实。',
   })
   chatRuntimes.delete(chatId)
   ephemeralChatRuntimes.delete(chatId)

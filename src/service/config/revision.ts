@@ -48,6 +48,68 @@ function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
+// ========== 语义面 / 连接面分层（见 docs/context-epochs.md「配置修订的语义面与连接面」） ==========
+//
+// fingerprint 只覆盖语义面：影响发往 LLM 的消息内容或工具契约的字段属语义面；
+// 只影响请求目标、请求参数或执行策略的字段属连接面（url/key/rpm/超时等），变更仅热更新运行配置。
+// 裁剪用排除法：剔除已登记的连接面字段，其余（未登记字段）默认按语义面保守兜底。
+
+/** 已登记为连接面的顶层配置 roots（从语义面 snapshot 中剔除）。 */
+const CONNECTION_ROOTS = ['global', 'memory', 'media', 'server'] as const
+
+/** brain 配置内已登记为连接面的字段（url/key/rpm/fullUrl/contextLimit/thinking/anthropicCompat）。 */
+const CONNECTION_BRAIN_FIELDS = new Set([
+  'url',
+  'key',
+  'rpm',
+  'fullUrl',
+  'contextLimit',
+  'thinking',
+  'anthropicCompat',
+])
+
+/**
+ * 从脱敏 snapshot 提取语义面子集：剔除连接面顶层 roots 与 llm.brain.<n> 的连接面字段，
+ * 其余全部保留（未登记字段默认语义面）。
+ */
+function extractSemanticConfig(snapshot: Record<string, unknown>): Record<string, unknown> {
+  const semantic: Record<string, unknown> = {}
+  for (const [root, value] of Object.entries(snapshot)) {
+    if ((CONNECTION_ROOTS as readonly string[]).includes(root)) continue
+    if (root === 'llm') {
+      const brains = (value as { brain?: Record<string, unknown> } | undefined)?.brain
+      if (brains && typeof brains === 'object') {
+        const semanticBrains: Record<string, unknown> = {}
+        for (const [name, brain] of Object.entries(brains)) {
+          const b = (brain ?? {}) as Record<string, unknown>
+          semanticBrains[name] = Object.fromEntries(
+            Object.entries(b).filter(([field]) => !CONNECTION_BRAIN_FIELDS.has(field)),
+          )
+        }
+        semantic.llm = { brain: semanticBrains }
+      }
+      continue
+    }
+    semantic[root] = value
+  }
+  return semantic
+}
+
+/**
+ * fingerprint 用资源清单：剔除 `config.yaml` 条目（其文件哈希随连接面变化），
+ * `model-thinking.yaml` 与资源目录（prompt/skills/...）保留——均属语义面。
+ */
+function semanticResourceManifest(resources: Record<string, unknown>): Record<string, unknown> {
+  const entries = Array.isArray(resources.entries)
+    ? resources.entries.filter(
+        (entry) =>
+          !(entry as { path?: string } | null)?.path ||
+          (entry as { path: string }).path !== 'config.yaml',
+      )
+    : resources.entries
+  return { ...resources, entries }
+}
+
 function walkFiles(root: string): string[] {
   if (!fs.existsSync(root)) return []
   const result: string[] = []
@@ -90,7 +152,10 @@ export function createConfigRevision(input: {
   const raw = input.raw ?? readRawConfig()
   const snapshot = redact(redactConfigSecrets(raw)) as Record<string, unknown>
   const resources = collectRuntimeResourceManifest()
-  const fingerprint = sha256(stableStringify({ snapshot, resources }))
+  // fingerprint 只覆盖语义面（连接面变更不产生新修订、不切纪元）；snapshot/resources 仍存全量供审计
+  const fingerprint = sha256(
+    stableStringify({ snapshot: extractSemanticConfig(snapshot), resources: semanticResourceManifest(resources) }),
+  )
   const revision = upsertConfigRevision({
     fingerprint,
     source: input.source,

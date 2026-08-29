@@ -326,6 +326,7 @@ C→S sense.approval {action:"accept"}
 >
 > - **末尾有 pending sense** → senseMiddleware 检测到 pending，重发 `sense_end` → auto 直接执行（不推 interrupt）/ smart 推 `interrupt` 等客户端审批，不调 `next` 进 chat；执行后 loop 正常继续
 > - **末尾全 done（无 pending）** → 直接进 loop，正常调 LLM 处理 sense 结果并回复
+> - **历史跨纪元完整加载**（不按 epoch_id 过滤，见 [context-epochs.md 历史连续性与兼容投影](./context-epochs.md#历史连续性与兼容投影)）→ resume 与 send 一样携带全部历史消息；若因历史数据异常构建的消息列表仍无 user 内容，chat middleware 抛 validation 错误（防御性兜底，`[tracingId] 该会话当前纪元没有可延续的用户消息，请重新发送`），error 通知 `retryable=false`，前端不显"继续"按钮
 > - **sense 群中有工具不在当前 senseTable**（sense group 已换 / 工具移除）→ 跳过监管，静默处理，写结果「无此工具」（占位回执，LLM 据此感知工具不存在）
 > - Phase 0（send 自动恢复执行 pending sense）已移除，续接必须由显式 `chat.resume` 按钮触发
 >
