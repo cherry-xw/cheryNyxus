@@ -4,14 +4,12 @@
  * DeepSeek thinking mode 的历史规则与普通 OpenAI 兼容端点不同：
  * 只有含 tool_calls 的 assistant 消息必须把 reasoning_content 原样带回；普通轮次不拼接。
  * 详见 https://api-docs.deepseek.com/zh-cn/guides/thinking_mode 。
+ *
+ * thinking 参数：provider 不内置档位词映射——chat middleware 统一翻译 `options.thinkingParams`
+ * 片段（翻译表 .chery/model-thinking.yaml），此处只原样 spread 进请求体。
  */
 import type { SenseFunction, SenseAdapter } from '@/core/sense'
-import {
-  registerLLMAdapter,
-  type LLMAdapter,
-  type LLMOptions,
-  type ThinkingLevel,
-} from '@/core/llm/adapter'
+import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import { registerMessageAdapter, type MessageProviderAdapterConfig } from '@/core/message/adapter'
 import { registerSenseAdapter } from '@/core/sense/adapter'
@@ -22,16 +20,6 @@ import {
   openaiSenseAdapterConfig,
 } from './openaiCompat.js'
 import { assertChatOptions, jsonRequest, streamSSE } from './fetchBase.js'
-
-function buildThinkingParams(level: ThinkingLevel | undefined): Record<string, unknown> {
-  if (level === 'off') return { thinking: { type: 'disabled' } }
-  // `xhigh` 与 YAML 自定义档位 `max` 都映射到 DeepSeek API 的 `reasoning_effort: 'max'`。
-  const reasoningEffort = level === 'xhigh' || level === 'max' ? 'max' : 'high'
-  return {
-    thinking: { type: 'enabled' },
-    reasoning_effort: reasoningEffort,
-  }
-}
 
 const deepseekMessageAdapterConfig = {
   ...openaiMessageAdapterConfig,
@@ -54,7 +42,8 @@ const deepseekLLMAdapter: LLMAdapter = {
         model,
         messages,
         stream: false,
-        ...buildThinkingParams(options?.thinking),
+        // thinking 片段直传（翻译在 chat middleware，见 docs/agent/provider.md）
+        ...(options?.thinkingParams ?? {}),
         ...(senses.length > 0 && { tools: senses }),
       },
       key,
@@ -75,7 +64,7 @@ const deepseekLLMAdapter: LLMAdapter = {
         model,
         messages,
         stream: true,
-        ...buildThinkingParams(options?.thinking),
+        ...(options?.thinkingParams ?? {}),
         ...(senses.length > 0 && { tools: senses }),
       },
       key,

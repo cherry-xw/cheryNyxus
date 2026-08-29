@@ -21,7 +21,6 @@ import {
   registerLLMAdapter,
   type LLMAdapter,
   type LLMOptions,
-  type ThinkingLevel,
 } from '@/core/llm/adapter'
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import {
@@ -77,8 +76,10 @@ interface AnthropicMsg {
   content: AnthropicContentBlock[] | string
 }
 
-/** Anthropic 顶层请求体 */
+/** Anthropic 顶层请求体。带 index signature 以直传 thinkingParams 片段（thinking/output_config 等
+ *  协议字段由 .chery/model-thinking.yaml 声明，provider 不内置映射）。 */
 interface AnthropicBody {
+  [key: string]: unknown
   model: string
   max_tokens: number
   system?: string
@@ -132,42 +133,6 @@ type AnthropicDelta =
 interface AnthropicSplitResult {
   system: string | null
   messages: AnthropicMsg[]
-}
-
-// ========== thinking 默认映射 ==========
-
-/**
- * ThinkingLevel → Anthropic thinking/output_config 参数。
- * off/undefined → 省略；on → {type:'adaptive'}；low/medium/high → +output_config.effort；xhigh 降级 high。
- *
- * 钩子（PreLLMRequest）是覆盖逃生口：handler 可整体替换 body.thinking/body.output_config。
- */
-function buildThinkingParam(level: ThinkingLevel | undefined): Record<string, unknown> {
-  switch (level) {
-    case undefined:
-    case 'off':
-      return {}
-    case 'on':
-      return { thinking: { type: 'adaptive' } }
-    case 'low':
-    case 'medium':
-    case 'high':
-      return {
-        thinking: { type: 'adaptive' },
-        output_config: { effort: level },
-      }
-    case 'xhigh':
-      return {
-        thinking: { type: 'adaptive' },
-        output_config: { effort: 'high' },
-      }
-    default:
-      // YAML 自定义档位（如 DeepSeek 的 `max`）：Anthropic 协议无对应值，降级 high。
-      return {
-        thinking: { type: 'adaptive' },
-        output_config: { effort: 'high' },
-      }
-  }
 }
 
 // ========== Message Adapter ==========
@@ -507,7 +472,6 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
       const { model, url, key } = assertChatOptions(options)
       await acquireRpm(options)
       const sensesAsAnthropic = transformSensesToAnthropic(senses)
-      const thinkingParam = buildThinkingParam(options?.thinking)
 
       let body: AnthropicBody = {
         model,
@@ -515,7 +479,8 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
         ...(messages.system ? { system: messages.system } : {}),
         messages: messages.messages,
         ...(sensesAsAnthropic.length > 0 ? { tools: sensesAsAnthropic } : {}),
-        ...thinkingParam,
+        // thinking 片段直传（翻译在 chat middleware，见 docs/agent/provider.md）
+        ...(options?.thinkingParams ?? {}),
       }
 
       // PreLLMRequest 钩子：handler 可改 body（thinking/max_tokens/tools） 或阻断
@@ -532,7 +497,6 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
       const { model, url, key } = assertChatOptions(options)
       await acquireRpm(options)
       const sensesAsAnthropic = transformSensesToAnthropic(senses)
-      const thinkingParam = buildThinkingParam(options?.thinking)
 
       let body: AnthropicBody = {
         model,
@@ -540,7 +504,8 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
         ...(messages.system ? { system: messages.system } : {}),
         messages: messages.messages,
         ...(sensesAsAnthropic.length > 0 ? { tools: sensesAsAnthropic } : {}),
-        ...thinkingParam,
+        // thinking 片段直传（翻译在 chat middleware，见 docs/agent/provider.md）
+        ...(options?.thinkingParams ?? {}),
         stream: true,
       }
 

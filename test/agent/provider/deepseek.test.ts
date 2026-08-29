@@ -54,11 +54,10 @@ describe('DeepSeek provider', () => {
   })
 
   it.each([
-    ['off', { thinking: { type: 'disabled' } }],
-    ['on', { thinking: { type: 'enabled' }, reasoning_effort: 'high' }],
-    ['medium', { thinking: { type: 'enabled' }, reasoning_effort: 'high' }],
-    ['xhigh', { thinking: { type: 'enabled' }, reasoning_effort: 'max' }],
-  ] as const)('按 %s 映射思考请求参数', async (thinking, expected) => {
+    ['enabled 片段', { thinking: { type: 'enabled' } }],
+    ['disabled 片段', { thinking: { type: 'disabled' } }],
+    ['enabled + effort 片段', { thinking: { type: 'enabled' }, reasoning_effort: 'high' }],
+  ] as const)('thinkingParams %s 直传 spread 进请求 body', async (_name, thinkingParams) => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), {
         status: 200,
@@ -69,12 +68,30 @@ describe('DeepSeek provider', () => {
       model: 'deepseek-v4-pro',
       url: 'https://api.deepseek.com',
       key: 'test-key',
-      thinking,
+      thinkingParams,
     })
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     const body = JSON.parse(String(init.body)) as Record<string, unknown>
-    expect(body).toMatchObject(expected)
-    if (thinking === 'off') expect(body).not.toHaveProperty('reasoning_effort')
+    expect(body).toMatchObject(thinkingParams)
+  })
+
+  it('不传 thinkingParams 时 body 不含 thinking / reasoning_effort 键', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    await getLLMAdapter('deepseek')!.chat([], [], {
+      model: 'deepseek-v4-pro',
+      url: 'https://api.deepseek.com',
+      key: 'test-key',
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    expect(body).not.toHaveProperty('thinking')
+    expect(body).not.toHaveProperty('reasoning_effort')
   })
 })

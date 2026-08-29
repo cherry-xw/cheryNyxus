@@ -1,7 +1,8 @@
 /**
- * OpenAI 兼容 provider 共享件：message adapter / sense adapter / RPM 限流 / ThinkingLevel 映射。
+ * OpenAI 兼容 provider 共享件：message adapter / sense adapter / RPM 限流。
  *
  * 供 openai.ts（SDK 实现）和 bigmodel.ts（fetch 实现）复用，保证 OpenAI 兼容协议的行为一致。
+ * thinking 参数翻译不在此层：chat middleware 统一解析 `thinkingParams` 片段，provider 直传。
  *
  * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) 「共享件」。
  */
@@ -12,7 +13,6 @@ import type {
   ChatCompletionMessageParam,
 } from 'openai/resources/chat/completions'
 import type { ZodType } from 'zod'
-import type { ThinkingLevel } from '@/core/llm/adapter'
 import type { LLMResponse, LLMAttachment } from '@/core/message/adapter'
 import type { Sense, SenseCallData, SenseFunction } from '@/core/sense'
 import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
@@ -33,37 +33,6 @@ export async function acquireRpm(options?: {
   const url = options?.url
   if (!rpm || rpm <= 0 || !url) return
   await getRateLimiter(url, options.key, rpm).acquire()
-}
-
-// ========== ThinkingLevel 映射 ==========
-
-/**
- * 把 ThinkingLevel 映射成 OpenAI o1 系列的 reasoning_effort 参数值。
- * - off / thinking / undefined → undefined（provider 省略该参数）
- *   - off = 显式关闭
- *   - thinking = 由模型/服务端决定，不传参
- * - low/medium/high → 返回对应字符串；xhigh 降级为 high（OpenAI 兼容端点未统一支持 max）
- *
- * 智谱 BigModel（open.bigmodel.cn）同样认 reasoning_effort；其他 OpenAI 兼容聚合端点亦然。
- * ollama 不走此映射（忽略 thinking 参数）。
- */
-export function mapThinkingToReasoningEffort(
-  level: ThinkingLevel | undefined,
-): 'low' | 'medium' | 'high' | undefined {
-  switch (level) {
-    case 'low':
-      return 'low'
-    case 'medium':
-      return 'medium'
-    case 'high':
-      return 'high'
-    case 'xhigh':
-      return 'high'
-    default:
-      // off / on / undefined / 自定义档位（如 DeepSeek 的 `max`）-> 不发 reasoning_effort
-      // （OpenAI / BigModel 协议不认 `max`；DeepSeek 自有 buildThinkingParams 处理）
-      return undefined
-  }
 }
 
 // ========== Message Adapter ==========

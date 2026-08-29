@@ -19,10 +19,10 @@ registerSenseAdapter<Msg, Raw>(name, cfg)      ← core/sense/adapter
 | 文件 | 一句话 |
 |------|--------|
 | [index.ts](../../src/agent/provider/index.ts) | `registerBuiltinProviders()`：幂等注册 openai/deepseek/ollama/mock/bigmodel/anthropic |
-| [openai.ts](../../src/agent/provider/openai.ts) | OpenAI（含兼容服务）三件套，含 RPM 限流、`reasoning_effort` 映射、`reasoning_content` 提取、`strict:true` |
+| [openai.ts](../../src/agent/provider/openai.ts) | OpenAI（含兼容服务）三件套，含 RPM 限流、`thinkingParams` 直传、`reasoning_content` 提取、`strict:true` |
 | [ollama.ts](../../src/agent/provider/ollama.ts) | Ollama 三件套，含 `tool_calls` 处理与流式不可靠警告 |
 | [mock.ts](../../src/agent/provider/mock.ts) | 脚本回放 provider（离线测试），按 LLM 调用序逐条回放 |
-| [bigmodel.ts](../../src/agent/provider/bigmodel.ts) | 智谱 BigModel 三件套（fetch 实现），`reasoning_effort` 映射、`reasoning_content` 提取、image 多模态 |
+| [bigmodel.ts](../../src/agent/provider/bigmodel.ts) | 智谱 BigModel 三件套（fetch 实现），`thinkingParams` 直传、`reasoning_content` 提取、image 多模态 |
 | [anthropic.ts](../../src/agent/provider/anthropic.ts) | Anthropic Messages API 三件套（fetch 实现），native fetch + x-api-key + typed SSE + PreLLMRequest hook |
 | [deepseek.ts](../../src/agent/provider/deepseek.ts) | DeepSeek Chat Completions 三件套，按工具调用条件回传 `reasoning_content` |
 
@@ -61,7 +61,7 @@ export function registerBuiltinProviders(): void {
 
 | 维度 | openai | deepseek | ollama | mock | bigmodel | anthropic |
 |------|--------|----------|--------|------|----------|-----------|
-| thinking 请求参数 | `reasoning_effort:level`（off 省略） | `thinking.type` + `reasoning_effort` | 无（不传） | N/A | `reasoning_effort:level`（同 openai） | `thinking:{type:'adaptive'}` + `output_config.effort`（off 省略） |
+| thinking 请求参数 | 直传 `thinkingParams` 片段（YAML 定义，如 `reasoning_effort`） | 直传 `thinkingParams` 片段（如 `thinking.type` + `reasoning_effort`） | 无（不传） | N/A | 直传 `thinkingParams` 片段（同 openai） | 直传 `thinkingParams` 片段（如 `thinking:{type:'adaptive'}` + `output_config.effort`） |
 | thinking 响应字段 | `reasoning_content` | `reasoning_content` | `message.thinking` | `thinking` | `reasoning_content` | `content[].thinking` / `redacted_thinking` blocks（含 signature） |
 | `buildSenses` 加 `strict:true` | ✓ | ✗ | ✗ | ✓ | ✗（Anthropic 不支持） |
 | tool_call.id | 有（`call_xxx`） | 无（randomUUID 占位） | 缺省 randomUUID | 有 | 有（`toolu_xxx`） |
@@ -159,7 +159,7 @@ resolveProviderUrl(provider, url, { fullUrl, kind })   // kind ∈ 'chat' | 'mod
 | anthropic chat（`joinAnthropicUrl`） | `resolveProviderUrl('anthropic', url, { fullUrl, kind: 'chat' })` | chat |
 | bigmodel / deepseek chat | `jsonRequest` / `streamSSE` 内部协议常量（见下） | chat |
 | `utils.models` openai/deepseek | 未勾选：`resolveProviderUrl(provider, url, { kind: 'models' })` → SDK baseURL（base 原样）；**勾选 fullUrl：原生 fetch 直接请求用户 URL** | models |
-| `utils.models` anthropic | `resolveProviderUrl('anthropic', url, { fullUrl, kind: 'models' })` → 原生 fetch | models |
+| `utils.models` anthropic | **双尝试**：主尝试 `resolveProviderUrl('anthropic', url, { fullUrl, kind: 'models' })` → 原生 fetch；主尝试失败且未勾选 fullUrl 时回退 OpenAI 兼容 `GET {base}/models`（Bearer），详见下方「anthropic 模型列表双尝试」 | models |
 
 - ⚠️ **openai 勾选 fullUrl 的语义**：openai SDK 强制在 baseURL 后拼 `/chat/completions` / `/models`，无法做到「零拼接」。因此勾选 fullUrl 后 openai 的 `chat`/`chatStream` **绕开 SDK**，改走 fetchBase 的 `jsonRequest` / `streamSSE`（与 bigmodel/deepseek 的 fetch 路径同款），models 拉取改原生 fetch——**实际请求 URL = 用户填写的值本身**（仅去尾斜杠），彻底兑现「完整 URL 完全自负责」。请求体仍为 OpenAI 兼容协议（POST 到用户 URL）。
 - ⚠️ `jsonRequest` / `streamSSE`（fetchBase.ts）内部的 `/chat/completions` 是 **openai 兼容协议常量**（bigmodel/deepseek 共用），非 provider 特性，**保持不收敛**——它们已正确透传 `fullUrl`，与注册值的一致性由单测锁死防漂移。
@@ -167,6 +167,21 @@ resolveProviderUrl(provider, url, { fullUrl, kind })   // kind ∈ 'chat' | 'mod
 - ⚠️ `fullUrl` 语义（2026-08）：勾选 = **完全不拼接**。若勾选且 url 未含完整端点，请求直接落到该地址（如填 `…/v1` 访问 anthropic 会 404）——fullUrl 下 url 由用户完全自负责。
 - ⚠️ 已知边界：anthropic 勾选 fullUrl 后，「刷新模型」请求地址 = 用户填写的完整 URL（须含 `/models` 端点），与 chat 的 `…/v1/messages` 同用一个 `url` 字段**不可兼得**——fullUrl「完全自负责」语义的固有张力，填完整 URL 时按需取舍。
 - ⚠️ 兼容性（2026-08 简化）：**不再自动补版本段**——url 未含版本段的旧配置会失效（如 openai 填 `https://x:11411` 未勾选会请求到 `https://x:11411/chat/completions` 而非 `…/v1/chat/completions`），需在 url 中补上版本段（如 `https://x:11411/v1`）。placeholder 已提示。
+
+
+- ⚠️ `utils.models` openai SDK 路径的空列表提示（2026-08-28）：openai-node v6 对伪 200（200 + 非 JSON，如网关 SPA 回退页）**不抛错**——`src/internal/parse.ts` 把非 JSON 体原样当文本返回，分页层 `body.data || []` 兜成空数组，与「真返回空列表」不可区分。因此 SDK 路径拿到空列表时返回 error 文案，提示**地址末尾补版本段（如 /v1）后重试**（也可手填模型名）。
+#### anthropic 模型列表双尝试（2026-08-28）
+
+**背景**：网关的 Anthropic 兼容 base 与 OpenAI 兼容 base 常是不同路径（如 MiniMax：`…/anthropic/v1` vs `…/v1`），且部分网关 models 端点只认 `Authorization: Bearer`（Anthropic 原生是 `x-api-key`）——只发 Anthropic 原生请求会 401/404/伪 200，而诊断场景（选模型）只需要一份可用列表。
+
+**规则**（实现于 [service/utils/handler.ts](../../src/service/utils/handler.ts) 的 `fetchAnthropicModels`）：
+
+1. **主尝试**：Anthropic 原生 `GET {base}/models?limit=1000`（`x-api-key` + `anthropic-version`），行为与此前一致；
+2. **回退触发**：主尝试**无模型产出**（非 2xx / 非 JSON / 网络错误 / 空列表），且 `fullUrl=false`——`fullUrl=true` 属「完全自负责」，不做协议回退（回退 URL 无法从用户给的完整端点推导）；
+3. **回退请求**：OpenAI 兼容 `GET {base}/models`，仅带 `Authorization: Bearer`。`/models` 是 **openai 兼容协议常量**（与 `/chat/completions` 同款豁免，`buildEndpointUrl` 直拼，不走注册表）；
+4. **错误聚合**：两边都无产出时，`error` 同时携带主尝试与回退的失败原因（各自带 status/片段），诊断信息不打折；
+5. **版本段提示**：主尝试/回退的「非 JSON 内容」错误文案均提示「url 可能缺版本段（如 /v1）」——网关无版本段路径回退网页是最常见的失败原因，文案引导用户在地址末尾补版本段后重试。
+6. **已知边界**：回退命中只保证「模型列表」可得，**不代表该 base 的 Anthropic chat（`{base}/messages`）可用**——两种协议 base 不同时（MiniMax 类），列表拉得到、chat 仍可能挂，选型时以「测试连接」为准。
 
 ### 流完整性校验（伪 200 / 空流拦截）
 
@@ -302,7 +317,7 @@ const index = messages.filter(m => m.role === "assistant").length;
     const client = new OpenAI({ baseURL: url, apiKey: key });
     return client.chat.completions.create({
       model, messages,
-      ...(effort && { reasoning_effort: effort }),  // 思考强度：low/medium/high（off 省略）
+      ...(options?.thinkingParams ?? {}),  // YAML 片段直传（翻译在 chat middleware，见「thinking 参数片段直传」）
       ...(senses.length > 0 && { tools: senses }),
     });
   },
@@ -448,44 +463,34 @@ interface MockResponse { thinking?: string; content?: string; toolCalls?: MockTo
 
 > abort 不靠下传 signal，而靠 generator 生命周期：外层 `for await` 被 `.throw()` 打断时 async generator 的 finally 自动跑、HTTP 连接被切断（与现有 openai SDK 路径行为一致）。
 
-### ThinkingLevel → 请求参数映射
+### thinking 参数片段直传
 
-每个 provider 自行把 `LLMOptions.thinking`（`ThinkingLevel`，见 [llm.md](../core/llm.md)）翻译成厂商请求参数。共享映射 `mapThinkingToReasoningEffort(level)`（在 [openaiCompat.ts](../../src/agent/provider/openaiCompat.ts)）：
+provider **不再内置任何档位词映射**。chat middleware 在构造 `LLMOptions` 时统一把显示词翻译成请求参数片段：`thinkingParams: resolveThinkingParams(model, thinking)`（翻译表在 [.chery/model-thinking.yaml](../../.chery/model-thinking.yaml)，实现见 [src/utils/modelThinking.ts](../../src/utils/modelThinking.ts)，语义详见 [../utils/README.md#modelThinkingts--模型档位映射](../utils/README.md)）。provider 在请求体组装时只做一件事：`...(options?.thinkingParams ?? {})` 原样 spread 进 body。
 
-- `off` → 返回 `undefined`（provider 省略该参数，绝对安全）。
-- `on` → 返回 `undefined`（不传参，由模型/服务端决定；语义「开启思考但不给强度」）。
-- `low/medium/high` → 返回 `"low"|"medium"|"high"`，塞入 `reasoning_effort` 字段（OpenAI o1 系 / 智谱 bigmodel / OpenAI 兼容聚合端点均认）。
-
-> ⚠ `reasoning_effort` 仅对**推理模型**有效，非推理模型返回 400；`off`/`on` 档省略参数无此风险。ollama provider 全档忽略 thinking（不传，由服务端/模型决定）。未来 anthropic provider 将映射为 thinking block。
+- `thinkingParams` 为 `undefined`/空对象 = 不追加任何思考参数。
+- `LLMOptions.thinking`（显示词）语义保留：仅用于 `llm.req` 日志与 `PreLLMRequest` hook payload，不进请求体。
+- 协议专属字段（如 MiniMax 的 `thinking:{type:...}` / `reasoning_split`、Anthropic 的 `output_config`）直接写在 YAML 片段里，provider 无需感知。
+- mock / ollama 请求侧不消费 `thinkingParams`（mock 脚本回放、ollama 由服务端决定）。
 
 ### 模型级档位查询
 
-`.chery/model-thinking.yaml` 声明每个模型支持的档位子集（详见 [../utils/README.md#modelThinking.ts — 模型档位映射](../utils/README.md)）。前端 BrainCard 经 `utils.thinkingLevels` RPC 拉取当前 model 的可选档位列表，渲染「深度思考」旋钮。后端在 [src/utils/modelThinking.ts](../../src/utils/modelThinking.ts) 实现，匹配顺序：精确 → 最长前缀 → 通配 `*` → 兜底 `["off","on"]`。
+`.chery/model-thinking.yaml` 声明每个模型的档位（显示词 + 请求参数片段，详见 [../utils/README.md#modelThinkingts--模型档位映射](../utils/README.md)）。前端 BrainCard 经 `utils.thinkingLevels` RPC 拉取当前 model 的可选**显示词**列表渲染「深度思考」旋钮（不含 params，前端无感知）。后端在 [src/utils/modelThinking.ts](../../src/utils/modelThinking.ts) 实现，匹配顺序：精确 → 最长前缀 → 通配 `*` → 兜底 `["off","on"]`（片段均为空）。
 
 ### 共享件（[openaiCompat.ts](../../src/agent/provider/openaiCompat.ts)）
 
-OpenAI 兼容协议的 provider（openai / bigmodel）共享 message/sense adapter 配置 + `acquireRpm` + `mapThinkingToReasoningEffort` + `assertChatOptions`，抽到 `openaiCompat.ts`。openai.ts 用 SDK 实现 LLMAdapter、bigmodel.ts 用 fetch 实现 LLMAdapter，二者复用同一套 message/sense adapter（结构同形，鸭子类型解析）。
+OpenAI 兼容协议的 provider（openai / bigmodel）共享 message/sense adapter 配置 + `acquireRpm` + `assertChatOptions`，抽到 `openaiCompat.ts`。openai.ts 用 SDK 实现 LLMAdapter、bigmodel.ts 用 fetch 实现 LLMAdapter，二者复用同一套 message/sense adapter（结构同形，鸭子类型解析）。
 
 ### bigmodel provider（[bigmodel.ts](../../src/agent/provider/bigmodel.ts)）
 
-智谱 BigModel，OpenAI 兼容协议，base_url 默认 `https://open.bigmodel.cn/api/paas/v4/`（可配，也能指向聚合端点）。LLMAdapter 用 fetch 基座：`chat` 走 `jsonRequest`、`chatStream` 走 `streamSSE`，请求体 `{model, messages, stream, tools?, reasoning_effort?}`；message/sense adapter 复用 openaiCompat（自动获得 `reasoning_content` 解析 + image 多模态 + tool_calls）。注册名 `"bigmodel"`。
+智谱 BigModel，OpenAI 兼容协议，base_url 默认 `https://open.bigmodel.cn/api/paas/v4/`（可配，也能指向聚合端点）。LLMAdapter 用 fetch 基座：`chat` 走 `jsonRequest`、`chatStream` 走 `streamSSE`，请求体 `{model, messages, stream, tools?, ...thinkingParams}`；message/sense adapter 复用 openaiCompat（自动获得 `reasoning_content` 解析 + image 多模态 + tool_calls）。注册名 `"bigmodel"`。
 
 ### anthropic provider（[anthropic.ts](../../src/agent/provider/anthropic.ts)）
 
 Anthropic Messages API（endpoint `/messages`，版本前缀如 `/v1`、`/v4` 由用户在 `cfg.url` 自己负责，与 openai 模式对齐），原生 fetch 实现（遵项目扩展点约定，不引 `@anthropic-ai/sdk`）。message/sense adapter 不可复用 openaiCompat（Anthropic 用 content-block + 顶层 `system` + tool_use/input 对象），需自写。LLMAdapter 也**不复用** fetchBase 的 `jsonRequest/streamSSE`（硬编码 `/chat/completions`+Bearer+`[DONE]`），需写私有 `anthropicFetch`/`anthropicStreamSSE`。
 
-**请求侧（[anthropic.ts buildThinkingParam](../../src/agent/provider/anthropic.ts)）：**
+**请求侧（thinking 片段直传）：**
 
-```ts
-buildThinkingParam(level: ThinkingLevel | undefined): Record<string, unknown> {
-  switch (level) {
-    case undefined: case 'off': return {}
-    case 'on': return { thinking: { type: 'adaptive' } }
-    case 'low': case 'medium': case 'high':
-      return { thinking: { type: 'adaptive' }, output_config: { effort: level } }
-  }
-}
-```
+anthropic provider 不再内置 `buildThinkingParam` 映射——`thinking:{type:'adaptive'}`、`output_config:{effort}` 等字段全部写在 `.chery/model-thinking.yaml` 的 params 片段中，chat middleware 翻译后经 `options.thinkingParams` 传入，body 组装时原样 spread。
 
 `max_tokens` 硬常量 `16384`（Anthropic 强制必填，钩子可覆盖）。**`PreLLMRequest` hook 是覆盖逃生口**——适配怪异端点的 thinking 字段（详见 [hooks.md](./hooks.md)）。
 
@@ -497,7 +502,7 @@ let body: AnthropicBody = {
   ...(messages.system && { system: messages.system }),  // buildMessages 抽出的 system
   messages: messages.messages,                            // 只剩 user/assistant
   ...(sensesAsAnthropic.length && { tools: sensesAsAnthropic }),
-  ...buildThinkingParam(options?.thinking),
+  ...(options?.thinkingParams ?? {}),                     // YAML 片段直传（thinking/output_config 等）
 }
 body = await applyPreLLMRequest(body, options)  // ← hook 改 body 或抛 ClassifiedError
 ```

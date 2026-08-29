@@ -1,12 +1,11 @@
 /**
  * OpenAI（含兼容服务）provider。
  *
- * LLMAdapter 用官方 SDK（保留原有依赖）；message/sense adapter 与 thinking 映射、RPM 限流、
- * 必填项校验复用 [openaiCompat](./openaiCompat.js) 与 [fetchBase](./fetchBase.js)。
+ * LLMAdapter 用官方 SDK（保留原有依赖）；message/sense adapter、RPM 限流、必填项校验
+ * 复用 [openaiCompat](./openaiCompat.js) 与 [fetchBase](./fetchBase.js)。
  *
- * 思考参数：按 ThinkingLevel 映射为 reasoning_effort（off 省略）。
- * 历史问题：曾硬编码 `thinking: { type: "enabled" }`，被聚合端点忽略导致思考丢失；
- * 现按 reasoning_effort 映射（OpenAI o1 系 / 智谱 bigmodel / 兼容聚合端点均认）。
+ * thinking 参数：provider 不内置档位词映射——chat middleware 统一把显示词翻译成
+ * `options.thinkingParams` 片段（翻译表 .chery/model-thinking.yaml），此处只原样 spread 进请求体。
  *
  * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md)。
  */
@@ -16,12 +15,7 @@ import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import { registerMessageAdapter } from '@/core/message/adapter'
 import { registerSenseAdapter, type SenseFunction } from '@/core/sense'
-import {
-  openaiMessageAdapterConfig,
-  openaiSenseAdapterConfig,
-  acquireRpm,
-  mapThinkingToReasoningEffort,
-} from './openaiCompat.js'
+import { openaiMessageAdapterConfig, openaiSenseAdapterConfig, acquireRpm } from './openaiCompat.js'
 import { assertChatOptions, jsonRequest, resolveProviderUrl, streamSSE, classifyBrainError, wrapBrainStream } from './fetchBase.js'
 
 // ========== LLM Adapter 定义 ==========
@@ -30,7 +24,6 @@ const openaiLLMAdapter: LLMAdapter = {
   async chat(messages: unknown[], senses: SenseFunction[], options?: LLMOptions): Promise<unknown> {
     const { model, url, key } = assertChatOptions(options)
     const msgArray = messages as ChatCompletionMessageParam[]
-    const effort = mapThinkingToReasoningEffort(options?.thinking)
     await acquireRpm(options)
     const fullUrl = options?.fullUrl === true
     if (fullUrl) {
@@ -41,7 +34,7 @@ const openaiLLMAdapter: LLMAdapter = {
         {
           model,
           messages: msgArray,
-          ...(effort ? { reasoning_effort: effort } : {}),
+          ...(options?.thinkingParams ?? {}),
           ...(senses.length > 0 && { tools: senses }),
         },
         key,
@@ -50,18 +43,21 @@ const openaiLLMAdapter: LLMAdapter = {
       )
     }
     // 未勾选：SDK 自拼 /chat/completions，baseURL 原样（版本段由用户填写，见 resolveProviderUrl）
+    // thinkingParams 含 SDK 类型未声明的协议字段（如 MiniMax thinking/reasoning_split），整体 cast
     const client = new OpenAI({
       baseURL: resolveProviderUrl('openai', url, { fullUrl: false, kind: 'chat' }),
       apiKey: key,
     })
     try {
-      return await client.chat.completions.create({
+      const params: Record<string, unknown> = {
         model,
         messages: msgArray,
-        // 思考强度：low/medium/high → reasoning_effort；off/undefined 省略（非推理模型也安全）
-        ...(effort ? { reasoning_effort: effort } : {}),
+        ...(options?.thinkingParams ?? {}),
         ...(senses.length > 0 && { tools: senses }),
-      })
+      }
+      return await client.chat.completions.create(
+        params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+      )
     } catch (err) {
       throw classifyBrainError(err)
     }
@@ -73,7 +69,6 @@ const openaiLLMAdapter: LLMAdapter = {
   ): Promise<AsyncIterable<unknown>> {
     const { model, url, key } = assertChatOptions(options)
     const msgArray = messages as ChatCompletionMessageParam[]
-    const effort = mapThinkingToReasoningEffort(options?.thinking)
     await acquireRpm(options)
     const fullUrl = options?.fullUrl === true
     if (fullUrl) {
@@ -84,7 +79,7 @@ const openaiLLMAdapter: LLMAdapter = {
           model,
           messages: msgArray,
           stream: true,
-          ...(effort ? { reasoning_effort: effort } : {}),
+          ...(options?.thinkingParams ?? {}),
           ...(senses.length > 0 && { tools: senses }),
         },
         key,
@@ -97,14 +92,16 @@ const openaiLLMAdapter: LLMAdapter = {
       apiKey: key,
     })
     try {
+      // thinkingParams 含 SDK 类型未声明的协议字段，整体 cast（同 chat）
+      const params: Record<string, unknown> = {
+        model,
+        messages: msgArray,
+        stream: true,
+        ...(options?.thinkingParams ?? {}),
+        ...(senses.length > 0 && { tools: senses }),
+      }
       const stream = await client.chat.completions.create(
-        {
-          model,
-          messages: msgArray,
-          stream: true,
-          ...(effort ? { reasoning_effort: effort } : {}),
-          ...(senses.length > 0 && { tools: senses }),
-        },
+        params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
         options?.signal ? { signal: options.signal } : undefined,
       )
       // 包裹迭代：流中途抛错（连接中断/限流/鉴权）映射为大脑 ClassifiedError，避免裸抛漏到 compose 兜底。

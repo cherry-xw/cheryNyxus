@@ -1,11 +1,10 @@
 import type { SenseFunction } from '../sense/adapter'
 
-/** 思考强度档位。
- * - off：关闭（provider 省略思考参数）
- * - on：开关模型的「开启」档（不传 reasoning_effort）；有显式强度档位的模型不列此值
- * - low/medium/high/xhigh：强度递增，各 provider 自行映射为请求参数
- * - 任意字符串：来自 `.chery/model-thinking.yaml` 的原样档位（如 DeepSeek 的 `max`）。
- *   `(string & {})` 保留对已知值的自动补全，又允许任何 string 通过编译。
+/** 思考档位「显示词」。
+ * - off/on/low/medium/high/xhigh + 任意字符串（来自 `.chery/model-thinking.yaml` 的自定义档位，如 DeepSeek 的 `max`）。
+ * - 仅用于日志与 PreLLMRequest hook payload；**不进请求体**。
+ * - 请求参数由 `thinkingParams` 承载：显示词 → 参数片段的映射在 model-thinking.yaml 显式声明，
+ *   chat middleware 统一翻译（resolveThinkingParams），provider 只 spread 直传。
  */
 export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | (string & {})
 
@@ -20,8 +19,12 @@ export interface LLMOptions {
   runId?: string
   url?: string
   key?: string
-  /** 思考强度档位（见 ThinkingLevel）；off=不发思考参数，其余按 provider 映射 */
+  /** 思考档位显示词（见 ThinkingLevel）；仅日志 / hook payload 用，不进请求体 */
   thinking?: ThinkingLevel
+  /** thinking 显示词翻译出的请求参数片段（来自 `.chery/model-thinking.yaml`）。
+   *  由 chat middleware 统一翻译注入；provider 原样 spread 进请求 body，不内置映射。
+   *  undefined / 空对象 = 不追加任何思考参数。 */
+  thinkingParams?: Record<string, unknown>
   /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
   rpm?: number
   /** brain name（如 'anthropic-main'），供 hooks dispatcher 注入 ctx.brain（handler stdin 可见） */

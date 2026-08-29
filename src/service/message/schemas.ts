@@ -71,10 +71,8 @@ const brainSchema = z.object({
   url: z.string().optional(),
   model: z.string(),
   key: z.string().optional(),
-  /** ThinkingLevel（off/on/low/medium/high/xhigh）；兼容 legacy boolean（true/false），由 normalizeBrainThinking 归一。对齐 BrainConfig.thinking */
-  thinking: z
-    .union([z.enum(['off', 'on', 'low', 'medium', 'high', 'xhigh']), z.boolean()])
-    .optional(),
+  /** thinking 显示词（任意非空字符串，由 model-thinking.yaml 翻译成请求参数）；兼容 legacy boolean，由 normalizeBrainThinking 归一。对齐 BrainConfig.thinking */
+  thinking: z.union([z.string().min(1), z.boolean()]).optional(),
   provider: z.string(),
   rpm: z.number().optional(),
   mock: z.object({ enabled: z.boolean().optional(), file: z.string() }).optional(),

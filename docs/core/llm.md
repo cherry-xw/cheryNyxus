@@ -30,37 +30,35 @@ export interface LLMOptions {
   model: string;
   url?: string;
   key?: string;
-  thinking?: ThinkingLevel; // 思考强度档位（见下），off=不发该参数，其余按 provider 映射
+  thinking?: ThinkingLevel;              // 思考档位「显示词」：仅用于日志与 PreLLMRequest hook payload，不进请求体
+  thinkingParams?: Record<string, unknown>; // 显示词翻译出的请求参数片段（翻译表 .chery/model-thinking.yaml）；provider 原样 spread 进 body
   rpm?: number;             // 每分钟最大请求数，provider 层滑动窗口限流，未配置则不限流
 }
 
-/** 思考强度档位。off=关闭（provider 省略思考参数）；on=由模型决定（provider 不传参）；low/medium/high=强度递增，各 provider 自行映射为请求参数。 */
-export type ThinkingLevel = "off" | "on" | "low" | "medium" | "high";
+/** 思考档位「显示词」。off/on/low/medium/high/xhigh + 任意自定义词（YAML 声明）。
+ *  显示词 → 请求参数的映射在 .chery/model-thinking.yaml 显式声明，chat middleware 统一翻译（见下）。 */
+export type ThinkingLevel = "off" | "on" | "low" | "medium" | "high" | "xhigh" | (string & {});
 ```
 
 ### ThinkingLevel 全链路与 global 总闸
 
-`thinking` 从纯 boolean 升级为 5 档枚举（含 `on`「由模型决定」），全链路：
+显示词与请求参数解耦，全链路：
 
 ```text
-config.yaml brain.<name>.thinking (ThinkingLevel)
-  └─ loadConfig / readRawConfig 归一化（legacy boolean 兼容：true→"high"、false/缺省→"off"）
-     → ctx.runtime.brain.thinking (ThinkingLevel)
-        └─ chatMiddleware 构造 LLMOptions.thinking（与 global.thinking 做 AND 闸，见下）
-           → provider 内 mapThinkingToReasoningEffort 等映射 → 请求参数
+config.yaml brain.<name>.thinking (显示词)
+  └─ loadConfig / readRawConfig 归一化（legacy boolean 兼容：true→"on"、false/缺省→"off"；任意非空字符串原样通过）
+     → ctx.runtime.brain.thinking (显示词)
+        └─ chatMiddleware 构造 LLMOptions（与 global.thinking 做 AND 闸，见下）
+           thinking = 显示词（日志 / hook payload 用）
+           thinkingParams = resolveThinkingParams(model, thinking)  ← 统一翻译点
+              → provider 只做 ...(options?.thinkingParams ?? {}) 直传，不内置映射
 ```
 
-**模型级档位（settings 渲染用）**：不同模型支持的档位不同。`.chery/model-thinking.yaml` 声明模型别名 → 档位子集的映射；前端 BrainCard 经 `utils.thinkingLevels` RPC 查询当前 model 的可选档位，渲染「深度思考」旋钮。未配置或未命中 → 兜底 `["off", "on"]`。详见 [../utils/README.md#modelThinking.ts — 模型档位映射](../utils/README.md)。
+**模型级档位（settings 渲染 + 请求翻译用）**：`.chery/model-thinking.yaml` 声明模型别名 → 档位规格数组（`{display: 显示词, params: 请求参数片段}`，数组顺序 = UI 弱→强顺序）；前端 BrainCard 经 `utils.thinkingLevels` RPC 查询当前 model 的可选**显示词**渲染「深度思考」旋钮（前端无感知 params）。未配置或未命中 → 兜底 `["off", "on"]`（片段均为空）。详见 [../utils/README.md#modelThinkingts--模型档位映射](../utils/README.md)。
 
-**global.thinking AND 闸**：`config.yaml` 另有 `global.thinking: boolean`（全局总开关）。`chatMiddleware` 构造 `LLMOptions.thinking` 时做 AND：`global.thinking` 为 false 时强制 `"off"`，为 true 时取 `brain.thinking`。即全局开关关闭则一律不思考，开启后强度由各 brain 自定。
+**global.thinking AND 闸**：`config.yaml` 另有 `global.thinking: boolean`（全局总开关）。`chatMiddleware` 构造 `LLMOptions` 时做 AND：`global.thinking` 为 false 时强制 `"off"`，为 true 时取 `brain.thinking`。即全局开关关闭则一律不思考（`off` 显示词的 params 片段生效——若 YAML 为该模型声明了显式关闭片段如 `thinking:{type:disabled}`，总闸关闭也会显式下发）。
 
-**provider 映射约定**：每个 provider 自行把 `ThinkingLevel` 翻译成厂商参数（详见 [provider.md](../agent/provider.md)「ThinkingLevel→参数映射」）：
-
-- `off` → 省略该参数（绝对安全，非推理模型也不会报错）。
-- `on` → 不传参，**由模型/服务端自行决定**是否思考（适合 ollama 等不接 `reasoning_effort` 的 provider，或未声明档位的模型）。
-- `low/medium/high` → 厂商对应字段：OpenAI 兼容端点（含智谱 bigmodel、聚合端点）用 `reasoning_effort: <level>`；ollama 不传（由服务端/模型决定）；未来 anthropic 用 thinking block。
-
-> ⚠ `reasoning_effort` 等思考参数仅对**推理模型**有效，非推理模型（如 gpt-4o）会返回 400；`off` 档省略参数无此风险。brain 配置时按模型类型选择。
+**provider 直传约定**：provider **不再内置任何档位词映射**，只在请求体组装时 spread `options.thinkingParams`；协议专属字段（如 MiniMax 的 `thinking:{type:...}` / `reasoning_split`、Anthropic 的 `output_config`）直接写在 YAML 片段里。mock / ollama 请求侧不消费（mock 脚本回放、ollama 由服务端决定）。详见 [provider.md](../agent/provider.md)「thinking 参数片段直传」。
 
 ### LLMAdapter 接口
 
@@ -112,7 +110,7 @@ AgentBuilder.configureRuntime(selection)
   ├─ ctx.runtime.adapters.messageAdapter.buildMessages(history) → provider 消息格式
   ├─ ctx.runtime.adapters.senseAdapter.buildSenses(...)         → SenseFunction[]
   └─ llmAdapter.chatStream(messages, senses, LLMOptions)        → AsyncIterable<chunk>
-       │  （LLMOptions 由 brain 配置映射：model/url/key/thinking/rpm）
+       │  （LLMOptions 由 brain 配置映射：model/url/key/thinking/thinkingParams/rpm）
        └─ 逐 chunk yield StreamChunk（经 MessageAdapter.extractStreamDelta 归一）
 ```
 

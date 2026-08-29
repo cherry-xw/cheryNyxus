@@ -5,7 +5,8 @@ import type {
   RuntimeConfig,
 } from '@/core/middleware/types'
 import type { SenseFunction, SenseCallData } from '@/core/sense/adapter'
-import type { LLMOptions } from '@/core/llm/adapter'
+import type { LLMOptions, ThinkingLevel } from '@/core/llm/adapter'
+import { resolveThinkingParams } from '@/utils/modelThinking.js'
 import { logger, LogLevel } from '@/utils/logger/index.js'
 import type { LLMResponse, LLMAttachment, ThinkingBlockDelta } from '@/core/message/adapter'
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
@@ -80,13 +81,19 @@ export async function* chatMiddleware(
   const senses = ctx.runtime.builtSenses
 
   // 构建请求选项（P1-6：LLMOptions 显式类型，替代 Record<string, unknown>）
+  // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 显示词。
+  // off 也过翻译：MiniMax/DeepSeek 等模型在 YAML 中为 off 声明了显式关闭片段（thinking:{type:disabled}）。
+  const thinkingLevel: ThinkingLevel = ctx.global.thinking
+    ? (ctx.runtime.brain.thinking ?? 'off')
+    : 'off'
   const options: LLMOptions = {
     model: ctx.runtime.brain.model,
     chatId: ctx.soul.chatId,
     url: ctx.runtime.brain.url,
     key: ctx.runtime.brain.key,
-    // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 档位（ThinkingLevel，off/on/low/medium/high/xhigh）
-    thinking: ctx.global.thinking ? (ctx.runtime.brain.thinking ?? 'off') : 'off',
+    thinking: thinkingLevel,
+    // 统一翻译点：显示词 → 请求参数片段（.chery/model-thinking.yaml）；provider 只 spread 直传
+    thinkingParams: resolveThinkingParams(ctx.runtime.brain.model, thinkingLevel),
     ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
     // URL 完整性开关：true=url 已含版本段（/v1 等），provider 只拼 endpoint 不自动补全
     fullUrl: ctx.runtime.brain.fullUrl === true,
@@ -100,12 +107,33 @@ export async function* chatMiddleware(
     anthropicOfficial: options.anthropicOfficial,
   })
 
+  // ========== 空上下文守卫 ==========
+  // 纪元切换后 loadHistory 可能只有 system 内容（frozen prompt / epoch handoff / carryover 重构失败时），
+  // 纯 system 列表发往 LLM 会被上游拒绝（MiniMax 400 2013 / new-api `field messages is required`）。
+  // 在此拦截（category=validation、source=chat，不进 retry；文案见 error-conventions.md / context-epochs.md）。
+  // 有媒体附件（多模态旁路 content 被清空）不算空。
+  const hasUserContent =
+    (enriched.attachments?.length ?? 0) > 0 ||
+    historyForBuild.some(
+      (m) => (m.role === 'user' || m.role === 'role' || m.role === 'subagent') && m.content.trim() !== '',
+    )
+  if (!hasUserContent) {
+    logger.event('llm.empty_context', { chatId: ctx.soul.chatId, msgCount: messages.length }, LogLevel.error)
+    throw new ClassifiedError({
+      message: `empty context: no user content for chat ${ctx.soul.chatId} (${messages.length} system-only messages)`,
+      userMessage: '该会话当前纪元没有可延续的用户消息，请重新发送',
+      category: 'validation',
+      source: 'chat',
+    })
+  }
+
   // ========== AI 输入参数日志 ==========
   logger.event('llm.req', {
     chatId: ctx.soul.chatId,
     provider: ctx.runtime.brain.provider || 'unknown',
     model: options.model,
     thinking: options.thinking ?? 'off',
+    thinkingParams: Object.keys(options.thinkingParams ?? {}),
     stream: !!ctx.global.stream,
     senseCount: senses.length,
     senseNames: senses.map((s) => s.function?.name || 'unknown'),
