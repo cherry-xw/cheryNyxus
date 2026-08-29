@@ -6,7 +6,8 @@ import { logger } from '@/utils/logger/index.js'
 /**
  * 幂等终态化 spawn 子 chat（防御性兜底，见 docs/service/chat.md chat.resume 流程）。
  *
- * 统一暂停语义下，子 loop 的任何错误（429 / retry 耗尽 / AI 报错）只归 paused（可 resume 续跑），不中断流程。
+ * 子 loop 真实故障归 failed，但 canResume 可独立为 true；故障本身不应把子任务误标 finished。
+ * 用户续跑后若自然完成，再由末条 assistant 无 senseCalls 的判据终态化。
  * 子可能多次暂停-resume，最终一次 chat.resume 跑完时（末条 assistant 无 senseCalls）即为真正完成，必须标 finished。
  *
  * 主路径：wait=true/false 子 loop 结束均 yield child_done → observer 设 finished + wakeParent（docs/agent-pet.md §5.4）。

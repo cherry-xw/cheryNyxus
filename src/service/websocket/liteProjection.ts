@@ -68,6 +68,7 @@ const PROJECTED_NOTIFICATION_TYPES = new Set([
 /** 原样透传（信封仍最小化）的状态事件。 */
 const PASSTHROUGH_NOTIFICATION_TYPES = new Set([
   'run.updated',
+  'run.outcome', // 权威终态：状态、用户反馈与语义动作均需完整到达设备
   'interaction.changed',
   'turn.started',
   'turn.cancelled',

@@ -58,6 +58,26 @@ describe('RpcRouter protocol boundary', () => {
     expect(response.error?.tracingId).toEqual(expect.any(String))
   })
 
+  it('does not expose an unclassified handler exception to the client', async () => {
+    const router = createRouter()
+    router.register(Method.BRAIN_LIST, async () => {
+      throw new Error('database password=secret-value')
+    })
+
+    const result = await router.handle(request(Method.BRAIN_LIST, {}), context)
+    const { response } = await settle(result)
+
+    expect(response.error).toMatchObject({
+      code: 'INTERNAL',
+      message: expect.stringMatching(/^\[[0-9a-f]{8}\] 系统出了点小问题$/),
+      feedback: {
+        severity: 'error',
+        title: '操作没有完成',
+      },
+    })
+    expect(response.error?.message).not.toContain('secret-value')
+  })
+
   it('rejects a legacy unstructured error notification at the event boundary', async () => {
     const router = createRouter()
     router.register(Method.BRAIN_LIST, async function* () {

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { Method } from '@chery/protocol'
 import { getMockProviderTranscript, resetMockProviderState } from '@/agent/provider/mock.js'
@@ -21,6 +23,22 @@ import type { RequestHandle } from '@test/helpers/rpcClient.js'
 import { bootProtocolService, waitFor, type ProtocolService } from '../helpers/serviceHarness.js'
 import { buildReferenceCanonicalTimelineTree } from '../graph/referenceExecutionTree.js'
 
+function installReplacementMockFixture(): void {
+  writeFileSync(
+    resolve(process.env.CHERY_DIR!, '.chery/mock/spawn-replacement.yaml'),
+    [
+      'repeat: last',
+      'script:',
+      '  - content: dispatching replacement protocol child',
+      '    senseCalls:',
+      '      - name: spawn_role',
+      `        arguments: '{"type":"protocol_replacement","prompt":"run in the new epoch","wake":"immediate"}'`,
+      '',
+    ].join('\n'),
+    'utf8',
+  )
+}
+
 function commandInput(chatId: string, content: string) {
   return {
     chatId,
@@ -31,11 +49,7 @@ function commandInput(chatId: string, content: string) {
   }
 }
 
-function notifications(
-  service: ProtocolService,
-  type: string,
-  chatId?: string,
-): Notification[] {
+function notifications(service: ProtocolService, type: string, chatId?: string): Notification[] {
   return service.client.received.filter(
     (event): event is Notification =>
       event.kind === 'notification' &&
@@ -93,6 +107,8 @@ async function createRoot(
   if (!preset) throw new Error(`missing protocol spawn preset for brain: ${brain}`)
   const created = await service.client.call(Method.CHAT_CREATE, {
     preset,
+    // 测试要求全新会话（断言新纪元/新运行），显式关闭 chat.create 空白复用检查
+    skipBlankReuse: true,
   })
   expect(created.success).toBe(true)
   const chatId = (created.data as ChatCreateResponseData).chatId
@@ -125,6 +141,9 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
   })
 
   beforeEach(() => {
+    // The active epoch keeps the historical assistant turn, so this stateless
+    // mock must explicitly repeat its sole dispatch response at turn index 1.
+    installReplacementMockFixture()
     resetMockProviderState()
   })
 
@@ -168,18 +187,22 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     const rootTimeline = (timelineResponse.data as ChatTimelineGetResponseData).rootTimeline!
     const referenceTree = buildReferenceCanonicalTimelineTree(rootTimeline)
     expect(referenceTree.nodes.map((node) => node.id)).toEqual(
-      rootTimeline.nodes.map((node) => node.id).sort((a, b) => {
-        const left = rootTimeline.nodes.find((node) => node.id === a)!
-        const right = rootTimeline.nodes.find((node) => node.id === b)!
-        return left.orderKey - right.orderKey || a.localeCompare(b)
-      }),
+      rootTimeline.nodes
+        .map((node) => node.id)
+        .sort((a, b) => {
+          const left = rootTimeline.nodes.find((node) => node.id === a)!
+          const right = rootTimeline.nodes.find((node) => node.id === b)!
+          return left.orderKey - right.orderKey || a.localeCompare(b)
+        }),
     )
     expect(referenceTree.edges).toHaveLength(rootTimeline.edges.length)
     expect(referenceTree.roots.length).toBeGreaterThan(0)
     expect(rootTimeline.nodes.some((node) => node.sourceChatId === created.chatId)).toBe(true)
     expect(rootTimeline.edges.some((edge) => edge.kind === 'spawn')).toBe(true)
     expect(rootTimeline.edges.some((edge) => edge.kind === 'return')).toBe(true)
-    expect(rootTimeline.activeRuns.some((run) => run.runId === rootRunId && run.status === 'running')).toBe(false)
+    expect(
+      rootTimeline.activeRuns.some((run) => run.runId === rootRunId && run.status === 'running'),
+    ).toBe(false)
 
     await closeAndDelete(service, chatId, subscriptionId)
   })
@@ -193,17 +216,33 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     await service.client.awaitResponse(submitHandle)
     const created = await waitForRoleCreated(service, chatId, 'protocol_failing')
     await waitForDone(service, chatId, submitHandle)
-    const childError = await waitFor(() =>
-      notifications(service, 'error', created.chatId).at(-1),
+    const childError = await waitFor(() => notifications(service, 'error', created.chatId).at(-1))
+    const childOutcome = await waitFor(() =>
+      notifications(service, 'run.outcome', created.chatId).at(-1),
     )
 
     expect(childError.data).toMatchObject({
-      code: 'RUN_AUTH',
+      code: 'RUN_AUTH_FAILED',
       source: 'brain',
       retryable: false,
       tracingId: expect.any(String),
       canResume: true,
     })
+    expect(childOutcome.data).toMatchObject({
+      status: 'failed',
+      reasonCode: 'RUN_AUTH_FAILED',
+      retryable: false,
+      canResume: true,
+      feedback: {
+        code: 'RUN_AUTH_FAILED',
+        severity: 'error',
+        source: 'brain',
+      },
+    })
+    expect(service.client.received.indexOf(childOutcome)).toBeLessThan(
+      service.client.received.indexOf(childError),
+    )
+    expect(notifications(service, 'run.outcome', created.chatId)).toHaveLength(1)
     expect(notifications(service, 'error', created.chatId)).toHaveLength(1)
     expect(notifications(service, 'error', chatId)).toHaveLength(0)
     expect(getMockProviderTranscript().filter((entry) => entry.chatId === created.chatId)).toEqual([
@@ -257,7 +296,9 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
       status: 'historical',
       executable: false,
     })
-    expect(afterEpochs.epochs.find((epoch) => epoch.epochId === afterEpochs.activeEpochId)).toMatchObject({
+    expect(
+      afterEpochs.epochs.find((epoch) => epoch.epochId === afterEpochs.activeEpochId),
+    ).toMatchObject({
       status: 'active',
       executable: true,
       transitionReason: 'session-runtime-changed',
@@ -291,7 +332,9 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     expect(getMockProviderTranscript().filter((entry) => entry.chatId === chatId)).toEqual([
       expect.objectContaining({
         model: 'protocol_spawn_replacement',
-        turn: 0,
+        // Epoch changes preserve the complete conversation history, so the
+        // stateless mock sees the historical root assistant as turn 0.
+        turn: 1,
         toolNames: ['spawn_role'],
       }),
     ])
@@ -310,9 +353,7 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     )
     await service.client.awaitResponse(submitHandle)
     const child = await waitForRoleCreated(service, chatId, 'protocol_slow')
-    await waitFor(() =>
-      getMockProviderTranscript().find((entry) => entry.chatId === child.chatId),
-    )
+    await waitFor(() => getMockProviderTranscript().find((entry) => entry.chatId === child.chatId))
 
     const lifecycle = applyRetiredRoles({
       roleIds: [],
@@ -340,10 +381,9 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     ).toMatchObject({ lifecycle: 'abandoned' })
 
     const abandoned = await waitFor(() =>
-      notifications(service, 'child_abandoned', chatId)
-        .find((event) =>
-          (event.data as { childChatId?: string }).childChatId === child.chatId,
-        ),
+      notifications(service, 'child_abandoned', chatId).find(
+        (event) => (event.data as { childChatId?: string }).childChatId === child.chatId,
+      ),
     )
     expect(abandoned.data).toMatchObject({
       parentChatId: chatId,

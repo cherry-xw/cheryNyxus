@@ -100,6 +100,7 @@ function rebuildExecutionSteps(
 
   const steps = new Map<string, ExecutionStep>()
   let runHadError = false
+  let hasAuthoritativeOutcome = false
 
   for (const stored of events) {
     const event = stored as Record<string, unknown>
@@ -190,7 +191,14 @@ function rebuildExecutionSteps(
       continue
     }
 
+    if (type === 'run.outcome') {
+      hasAuthoritativeOutcome = true
+      runHadError = data.status === 'failed'
+      continue
+    }
+
     if (type === 'error') {
+      if (hasAuthoritativeOutcome) continue
       runHadError = true
       continue
     }

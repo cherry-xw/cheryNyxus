@@ -1,7 +1,7 @@
 import type {
   MiddlewareContext,
   LoopHandler,
-  ErrorChunk,
+  RunPausedChunk,
   DoneChunk,
   ChildYieldChunk,
   ChildDoneChunk,
@@ -24,6 +24,7 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
     let times = 0
     let stopped = false // 区分 break（正常停止）vs while 条件耗尽（避免误报）
     let failed = false // runChain 内 yield ErrorChunk（retry 重试耗尽等）→ 跳过末尾 done yield
+    let paused = false // 保护性限制命中，不属于失败，也不应再发送 done
 
     // yieldTurn 仅属于上一轮 spawn(wait=true) 的停止决定；同一 AgentSession 被 resume 时必须重置，
     // 否则已回传的 role 会在首轮 LLM 调用后再次被旧标记直接截断。
@@ -152,25 +153,18 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
       break
     }
 
-    // 仅当 while 条件耗尽（非 break）才报 max loop 超限。
+    // 仅当 while 条件耗尽（非 break）才触发保护性暂停。
     // 旧实现 `times >= maxLoop` 在第 maxLoop 轮正常 break 时（times===maxLoop）会误报。
     if (!stopped && !failed && times >= maxLoop) {
       logger.event('loop.max', { max: maxLoop }, LogLevel.warn)
-      const errorChunk: ErrorChunk = {
-        type: 'error',
-        errors: [
-          {
-            attempt: times,
-            timestamp: Date.now(),
-            message: `已达到最大循环次数限制 (${maxLoop})`,
-            userMessage: '我绕进去了，先停下来',
-            recoverable: false,
-            category: 'validation',
-          },
-        ],
+      const pausedChunk: RunPausedChunk = {
+        type: 'run_paused',
+        reason: 'loop_limit',
+        iterations: times,
+        limit: maxLoop,
       }
-      yield errorChunk
-      failed = true
+      yield pausedChunk
+      paused = true
     }
 
     logger.event('loop.end', { iterations: times })
@@ -179,10 +173,10 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
     // - yieldTurn=true（spawn 孙 agent wait=true 触发）→ yield child_yield（不唤醒主，不设 finished）
     // - yieldTurn=false（无 spawn 孙或所有任务完成）→ yield child_done（唤醒主，设 finished）
     // getWaitedParent 守卫：仅被注册唤醒的子 chat 发（wait=true/false 均注册），过滤主 agent。
-    // 注：runChain 内 throw 路径下不执行此处（throw 跳过）；统一暂停语义下 observer catch 不再唤主报错，
-    //     子 chat 保持末条派生 canResume 待用户/前端 resume 续跑。
-    // failed 时不 yield child_yield/child_done：错误路径下由 observer catch 记 paused 日志。
-    if (!failed) {
+    // 注：runChain 内 throw 路径下不执行此处（throw 跳过）；observer catch 不唤主，
+    //     真实故障记录 failed，canResume 仍由末条消息独立派生。
+    // failed 时不 yield child_yield/child_done，避免把失败子任务误标完成。
+    if (!failed && !paused) {
       const waited = getWaitedParent(ctx.soul.chatId)
       if (waited) {
         const result =
@@ -217,12 +211,13 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
       }
     }
 
-    // loop 结束后 yield done（表示整个流程完成）。
-    // 失败路径（retry yield ErrorChunk / max loop 超限）跳过 done：streamMapper 已下发 error notification
-    // （含 canResume），统一暂停语义下 AI 报错/maxLoop 归 paused，可 resume 续跑；final Response 恒 success:true。
-    if (!failed) {
+    // loop 结束后 yield done（表示整个流程完成）。真实失败与保护性暂停都已有各自终态，
+    // 因此跳过 done，防止覆盖 ErrorChunk 或 RunPausedChunk 的具体原因。
+    if (!failed && !paused) {
       const doneChunk: DoneChunk = { type: 'done' }
       yield doneChunk
+    } else if (paused) {
+      logger.event('loop.end.paused', { iterations: times, reason: 'loop_limit' }, LogLevel.warn)
     } else {
       logger.event('loop.end.failed', { iterations: times }, LogLevel.warn)
     }

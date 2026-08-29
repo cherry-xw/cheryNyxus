@@ -204,12 +204,7 @@ export async function* handleChatSend(
       emitTimelinePatch(chatId, baseRevision)
       logger.event('chat.send.revoke', { count: revokedIds.length, messageIds: revokedIds })
       const reverse: StagedReverseChunkData = { type: 'reverse', messageIds: revokedIds }
-      yield createChunk(
-        'staged',
-        rid,
-        reverse,
-        { chatId, runId },
-      )
+      yield createChunk('staged', rid, reverse, { chatId, runId })
     }
   }
 
@@ -260,9 +255,9 @@ export async function* handleChatSend(
     yield* streamAgentChunks(generator, rid, chatId, runId)
   } catch (err) {
     const error = err as Error
-    // 统一暂停语义：abort/park（isAgentAbortError 覆盖 park）静默——暂停控制流，非故障；
-    // 其余真实故障记 error 日志，但不再构造 failureResponse（loop 已停，末条保持可恢复态，
-    // 前端据 error/done notification 的 canResume 显继续按钮）。final Response 恒 success:true。
+    // abort/park（isAgentAbortError 覆盖 park）是静默控制流；未预期 throw 记 error 日志。
+    // 权威终态已由 streamMapper 发出，canResume 与 failed/paused 独立；此层不再构造
+    // failureResponse，final Response 恒 success:true。
     if (isAgentAbortError(error)) {
       logger.event('chat.send.aborted', { reason: 'approval aborted' })
     } else {
@@ -279,8 +274,8 @@ export async function* handleChatSend(
     logger.event('chat.release', { chatId, connectionId: ctx.connectionId })
   }
 
-  // 统一暂停语义：不再构造 failureResponse。AI 报错（retry 耗尽 ErrorChunk）等异常归 paused，
-  // streamMapper 已下发 error notification（含 canResume）；final Response 恒 success:true。
+  // 不再构造 failureResponse。retry 耗尽的 ErrorChunk 由 streamMapper 映射为 failed outcome，
+  // 并下发兼容 error notification；是否可继续只看 canResume。final Response 恒 success:true。
   return { chatId, runId, ...(userMsgId ? { userMsgId } : {}) }
 }
 
@@ -450,7 +445,12 @@ export async function launchDetachedResume(
 export async function handleChatRunResume(
   ctx: HandlerContext,
   data: ChatRunResumeRequest,
-): Promise<{ chatId: string; commandId: string; runId: string; status: 'started' | 'already-running' }> {
+): Promise<{
+  chatId: string
+  commandId: string
+  runId: string
+  status: 'started' | 'already-running'
+}> {
   const claimed = claimRequest(data.commandId, Method.CHAT_RUN_RESUME, data)
   if (claimed.state === 'completed') {
     return JSON.parse(claimed.responseJson) as {

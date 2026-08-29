@@ -356,9 +356,7 @@ export async function handleChatList(
       updatedAt: chat.updated_at,
       messageCount: chat.message_count,
       parentChatId: chat.parent_chat_id ?? null,
-      ...(lifecycle === 'active'
-        ? epochStats
-        : { epochCount: epochStats.epochCount }),
+      ...(lifecycle === 'active' ? epochStats : { epochCount: epochStats.epochCount }),
       lifecycle,
       ...(conversationBranch
         ? {
@@ -1688,11 +1686,7 @@ export async function* handleChatStartSpawn(
   const claimed = claimSpawnTask(data.taskId)
   const task = claimed.task
   if (!task) throw new Error('找不到这个 spawn 任务')
-  if (
-    task.status === 'finished' ||
-    task.status === 'timed_out' ||
-    task.status === 'abandoned'
-  ) {
+  if (task.status === 'finished' || task.status === 'timed_out' || task.status === 'abandoned') {
     updateChatMetadata(task.childChatId, { finished: true })
     return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true }
   }
@@ -1944,7 +1938,10 @@ export function buildActiveTurns(chatId: string): ActiveTurnSnapshot[] {
     if (e.kind === 'chunk' && e.type === 'staged' && typeof data.msgId === 'string') {
       if (data.type === 'content_end' || data.type === 'sense_end') turns.delete(data.msgId)
     }
-    if (e.kind === 'notification' && (e.type === 'done' || e.type === 'error')) {
+    if (
+      e.kind === 'notification' &&
+      (e.type === 'done' || e.type === 'error' || e.type === 'run.outcome')
+    ) {
       const terminalRun = runId
       for (const [id, turn] of turns) {
         if (!terminalRun || !turn.runId || turn.runId === terminalRun) turns.delete(id)

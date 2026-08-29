@@ -15,6 +15,7 @@ import { SUPPORTED_LITE_VERSIONS, applyLiteResponse, type LiteProfile } from './
 import { isAsyncGenerator } from '@/utils/generator.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
+import { newTracingId } from '@/utils/error.js'
 import { reportFatalStartupError } from '../fatalStartup.js'
 import { OAuth2Auth } from '../auth/index.js'
 import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
@@ -149,15 +150,17 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
         await handleMessage(ws, state, buffer, router)
       } catch (err) {
         const error = err as Error
+        const tracingId = newTracingId()
         logger.run({ connectionId: state.id }, () =>
-          logger.event('req.error', { message: error.message }, LogLevel.error),
+          logger.event('req.error', { tracingId, message: error.message }, LogLevel.error),
         )
+        const publicMessage = `[${tracingId}] 系统出了点小问题`
         try {
           const raw = transport.parseMessage(buffer) as { id?: string }
           const requestId = raw.id || ''
-          sendError(ws, error.message, requestId)
+          sendError(ws, publicMessage, requestId)
         } catch {
-          sendError(ws, error.message)
+          sendError(ws, publicMessage)
         }
       }
     })
@@ -374,12 +377,17 @@ async function handleRequest(
     })
   } catch (error) {
     const err = error as Error
-    logger.event('req.error', { method: request.method, message: err.message }, LogLevel.error)
+    const tracingId = newTracingId()
+    logger.event(
+      'req.error',
+      { method: request.method, tracingId, message: err.message },
+      LogLevel.error,
+    )
     finalResponse = createResponse(
       request.id,
       false,
       undefined,
-      createError(ErrorCode.INTERNAL, err.message),
+      createError(ErrorCode.INTERNAL, `[${tracingId}] 系统出了点小问题`, { tracingId }),
     )
   } finally {
     const response =

@@ -156,7 +156,7 @@ export class RpcRouter {
       const error = toRpcError(err)
       logger.event(
         'req.handler.error',
-        { method: request.method, message: error.message },
+        { method: request.method, message: rawErrorMessage(err), code: error.code },
         LogLevel.error,
       )
       return createResponse(request.id, false, undefined, createError(error.code, error.message))
@@ -176,10 +176,7 @@ export class RpcRouter {
         const iter = await generator.next()
         if (iter.done) {
           if (isResponse(iter.value)) {
-            return this.validateResponse(
-              method,
-              normalizeResponseRequestId(iter.value, requestId),
-            )
+            return this.validateResponse(method, normalizeResponseRequestId(iter.value, requestId))
           }
           return this.validateResponse(
             method,
@@ -193,7 +190,8 @@ export class RpcRouter {
         // 注：spawn 的 role_created/destroyed 经 spawnBroker.broadcaster 直发 ws（不经 generator），不受此覆盖影响。
         const yielded = iter.value as Chunk | Notification
         yielded.requestId = requestId
-        const eventSchema = yielded.kind === 'chunk' ? ChunkEnvelopeSchema : NotificationEnvelopeSchema
+        const eventSchema =
+          yielded.kind === 'chunk' ? ChunkEnvelopeSchema : NotificationEnvelopeSchema
         const eventResult = eventSchema.safeParse(yielded)
         if (!eventResult.success) {
           const tracingId = newTracingId()
@@ -213,7 +211,11 @@ export class RpcRouter {
       }
     } catch (err) {
       const error = toRpcError(err)
-      logger.event('req.stream.error', { requestId, message: error.message }, LogLevel.error)
+      logger.event(
+        'req.stream.error',
+        { requestId, message: rawErrorMessage(err), code: error.code },
+        LogLevel.error,
+      )
       return createResponse(requestId, false, undefined, createError(error.code, error.message))
     }
   }
@@ -254,9 +256,15 @@ function toRpcError(err: unknown): { code: string; message: string } {
     ) {
       return { code, message: err.message }
     }
-    return { code: ErrorCode.INTERNAL, message: err.message }
+    const tracingId = newTracingId()
+    return { code: ErrorCode.INTERNAL, message: `[${tracingId}] 系统出了点小问题` }
   }
-  return { code: ErrorCode.INTERNAL, message: String(err) }
+  const tracingId = newTracingId()
+  return { code: ErrorCode.INTERNAL, message: `[${tracingId}] 系统出了点小问题` }
+}
+
+function rawErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 function normalizeResponseRequestId(response: Response, requestId: string): Response {

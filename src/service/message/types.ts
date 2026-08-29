@@ -15,12 +15,17 @@ import type {
   ChatRunResumeResponse,
   ChatTimelineGetRequest,
   ErrorSource,
+  NoticeNotificationData as ProtocolNoticeNotificationData,
   ProtocolError,
+  RunErrorNotificationData as ProtocolRunErrorNotificationData,
+  RunOutcomeNotificationData as ProtocolRunOutcomeNotificationData,
   StagedReverseChunkData as ProtocolStagedReverseChunkData,
+  TerminationFact as ProtocolTerminationFact,
   TurnCancelledNotificationData as ProtocolTurnCancelledNotificationData,
 } from '@chery/protocol'
-import { Method as ProtocolMethod } from '@chery/protocol'
+import { ErrorCode as ProtocolErrorCode, Method as ProtocolMethod } from '@chery/protocol'
 import { InternalCommand } from './internalCommand.js'
+import { feedbackForRpcError } from '../errorCatalog.js'
 
 // ========== 消息基础类型 ==========
 
@@ -116,6 +121,8 @@ export type NotificationType =
   | 'loaded' // 历史对话已载入
   | 'done' // 执行完成
   | 'error' // 错误
+  | 'run.outcome' // 权威运行终态；done/error 仅为兼容旧客户端
+  | 'notice' // 非终态用户提醒
   | 'replaced' // 感官去重命中：历史 sense 结果被新读取替换
   | 'role_created' // 角色（子 pet）派发（spawn_role sense 执行时推送给主 chat 所属连接）
   | 'role_destroyed' // 角色销毁（destroy_role sense 执行时推送给主 chat 所属连接，CP6）
@@ -184,6 +191,12 @@ export interface ChatCreateRequestData {
   mcpServers?: string[]
   /** 角色（子 pet）关联主 chat 的 chatId；主 chat 不携带（DB 存 NULL）。主从 Agent 桌宠系统 CP1。 */
   parentChatId?: string
+  /**
+   * 空白复用检查开关（默认 false = 启用检查）：仅预设路径 + 主 chat + 未显式指定 chatId 时生效。
+   * 启用时后端先查同预设 root 会话中无任何 user 消息（turnCount===0）者，命中直接返回其 chatId
+   * （不新建，响应带 reused:true）；置 true 显式关闭检查，强制新建。
+   */
+  skipBlankReuse?: boolean
 }
 
 export interface ChatListRequestData {
@@ -473,26 +486,25 @@ export interface PendingInputSnapshot {
   acceptedAt?: number
 }
 
-export interface ChatOpenResponseData
-  extends ChatOpenResponse<
-    {
-      chatIds?: string[]
-      run?: {
-        runId: string
-        state: 'running' | 'paused' | 'completed' | 'failed'
-        startedAt?: number
-      }
-      runs?: Array<{
-        chatId: string
-        runId: string
-        state: 'running' | 'paused' | 'completed' | 'failed'
-        startedAt?: number
-      }>
-      pendingInputs: PendingInputSnapshot[]
-      activeTurns: ActiveTurnSnapshot[]
-    },
-    RootTimelineSnapshot
-  > {
+export interface ChatOpenResponseData extends ChatOpenResponse<
+  {
+    chatIds?: string[]
+    run?: {
+      runId: string
+      state: 'running' | 'paused' | 'completed' | 'failed'
+      startedAt?: number
+    }
+    runs?: Array<{
+      chatId: string
+      runId: string
+      state: 'running' | 'paused' | 'completed' | 'failed'
+      startedAt?: number
+    }>
+    pendingInputs: PendingInputSnapshot[]
+    activeTurns: ActiveTurnSnapshot[]
+  },
+  RootTimelineSnapshot
+> {
   chatId: string
   subscriptionId: string
   eventSeq: number
@@ -1408,6 +1420,8 @@ export interface ChatCreateResponseData {
   workspace?: string
   /** workspace 当前是否有效；workspace 缺省时不返回。 */
   workspaceValid?: boolean
+  /** 空白复用命中标记：true = 未新建，直接返回了同预设既有的空会话（brain/senseGroup/mcpServers 为该会话持久化快照回显）。新建路径缺省不返回。 */
+  reused?: boolean
 }
 
 export interface ChatListResponseData {
@@ -1732,13 +1746,7 @@ export interface GraphToolCall {
   targetChatId?: string
 }
 
-export interface TerminationFact {
-  actor: 'user' | 'system' | 'agent'
-  code: 'user_abort' | 'system_stop' | 'watchdog' | 'error' | 'agent_redirect'
-  at: number
-  detail?: string
-  controlOperationId?: string
-}
+export type TerminationFact = ProtocolTerminationFact
 
 export interface TimelineNode {
   id: string
@@ -2341,6 +2349,8 @@ export type NotificationData =
   | RejectedNotificationData
   | ConsumedNotificationData
   | ErrorNotificationData
+  | RunOutcomeNotificationData
+  | NoticeNotificationData
   | ReplacedNotificationData
   | RoleCreatedNotificationData
   | RoleDestroyedNotificationData
@@ -2473,18 +2483,9 @@ export interface DoneNotificationData {
   }
 }
 
-export interface ErrorNotificationData {
-  message: string
-  code: string
-  source: ErrorSource
-  retryable: boolean
-  tracingId: string
-  retryAfterMs?: number
-  /**
-   * 权威 canResume：AI 报错归 paused（可 resume 重试），前端据此显继续按钮。
-   */
-  canResume: boolean
-}
+export type ErrorNotificationData = ProtocolRunErrorNotificationData
+export type RunOutcomeNotificationData = ProtocolRunOutcomeNotificationData
+export type NoticeNotificationData = ProtocolNoticeNotificationData
 
 /**
  * 自动压缩事件（auto_compacted）。
@@ -2894,7 +2895,10 @@ export interface RpcMethodMap {
     params: ChatSendToChildRequestData
     result: ChatSendToChildResponseData
   }
-  [InternalCommand.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData }
+  [InternalCommand.SENSE_APPROVAL]: {
+    params: SenseApprovalRequestData
+    result: SenseApprovalResponseData
+  }
   [Method.INTERACTION_LIST]: {
     params: InteractionListRequestData
     result: InteractionListResponseData
@@ -3000,35 +3004,9 @@ export type ResultOf<M extends Method> = RpcMethodMap[M]['result']
 export type RequestData = ParamsOf<Method>
 export type ResponseData = ResultOf<Method>
 
-// ========== 错误码常量 ==========
-
-export const ErrorCode = {
-  METHOD_NOT_FOUND: 'METHOD_NOT_FOUND',
-  INTERNAL: 'INTERNAL',
-  TIMEOUT: 'TIMEOUT',
-  // MCP 管理：资源不存在 / 参数非法（handler 显式返回，非抛错走 INTERNAL）
-  NOT_FOUND: 'NOT_FOUND',
-  INVALID_PARAMS: 'INVALID_PARAMS',
-  /** 资源当前状态不允许该操作，例如用旧 runId 中止已替换的新运行。 */
-  CONFLICT: 'CONFLICT',
-  /** 历史任务无法关联到当前 preset/type，执行前需要用户选择当前运行配置。 */
-  RUNTIME_SELECTION_REQUIRED: 'RUNTIME_SELECTION_REQUIRED',
-  /** A semantic configuration candidate is invalid; all Agent execution is fail-closed. */
-  MAINTENANCE_MODE: 'MAINTENANCE_MODE',
-  // ---- D13 交互命令专用码（mcu-lite-api.md D13 定稿六码；lite v1 冻结集）----
-  /** 交互 expectedRevision 过期（乐观锁不匹配 / claim 失败），客户端重拉收件箱后重试。 */
-  INTERACTION_STALE: 'INTERACTION_STALE',
-  /** 交互已处理（status ∉ pending/blocked），以 interaction.status 为准，不报错重放语义。 */
-  INTERACTION_ALREADY_RESOLVED: 'INTERACTION_ALREADY_RESOLVED',
-  /** commandId 已用于另一条命令或该命令正在处理中（幂等层冲突）。 */
-  COMMAND_CONFLICT: 'COMMAND_CONFLICT',
-  /** chat.input.submit 输入队列满（上限 16；此前归 INTERNAL，现按 D13 显式注册）。 */
-  INPUT_QUEUE_FULL: 'INPUT_QUEUE_FULL',
-  /** lite profile 握手期版本不支持（当前以 close(4001) 表达；注册为协议码备用，handler 不抛）。 */
-  PROFILE_VERSION_UNSUPPORTED: 'PROFILE_VERSION_UNSUPPORTED',
-  /** node.get 等按需详情的节流触发（预留位：当前注册不触发，落地时在 handler 抛）。 */
-  RATE_LIMITED: 'RATE_LIMITED',
-} as const
+// Public error codes are defined once in @chery/protocol and re-exported here
+// for existing service imports.
+export const ErrorCode = ProtocolErrorCode
 
 // ========== 工厂函数 ==========
 
@@ -3093,13 +3071,17 @@ export function createError(
   const embeddedTrace = /^\[([0-9a-f]{8})\]\s/i.exec(message)?.[1]
   const retryableByCode =
     code === ErrorCode.TIMEOUT || code === ErrorCode.RATE_LIMITED || code === ErrorCode.CONFLICT
+  const source = options.source ?? 'system'
+  const retryable = options.retryable ?? retryableByCode
+  const tracingId = options.tracingId ?? embeddedTrace ?? randomUUID().slice(0, 8)
   return {
     code,
     message,
-    source: options.source ?? 'system',
-    retryable: options.retryable ?? retryableByCode,
-    tracingId: options.tracingId ?? embeddedTrace ?? randomUUID().slice(0, 8),
+    source,
+    retryable,
+    tracingId,
     ...(options.retryAfterMs !== undefined ? { retryAfterMs: options.retryAfterMs } : {}),
+    feedback: feedbackForRpcError({ code, message, source, tracingId, retryable }),
   }
 }
 

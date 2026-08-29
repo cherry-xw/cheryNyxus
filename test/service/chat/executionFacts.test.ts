@@ -15,6 +15,47 @@ afterEach(() => {
 })
 
 describe('execution termination facts', () => {
+  it('records a reached limit as paused rather than failed', () => {
+    const chatId = randomUUID()
+    const runId = randomUUID()
+    cleanupChats.push(chatId)
+    createChat(chatId)
+    recordRunFact({ chatId, runId, status: 'running' })
+
+    const node = recordTerminationFact({
+      chatId,
+      runId,
+      actor: 'system',
+      code: 'limit_reached',
+      content: '已达到循环上限\n\n本轮已安全暂停。',
+      detail: 'iterations=30; maxLoop=30',
+    })
+
+    expect(node).toMatchObject({
+      content: '已达到循环上限\n\n本轮已安全暂停。',
+      termination: { code: 'limit_reached', detail: 'iterations=30; maxLoop=30' },
+    })
+    expect(getExecutionActiveRun(chatId, runId)).toMatchObject({ status: 'paused' })
+  })
+
+  it('uses a safe explanation for terminal facts without an explicit content', () => {
+    const chatId = randomUUID()
+    const runId = randomUUID()
+    cleanupChats.push(chatId)
+    createChat(chatId)
+
+    const node = recordTerminationFact({
+      chatId,
+      runId,
+      actor: 'system',
+      code: 'watchdog',
+      detail: '300s without output',
+    })
+
+    expect(node.content).toContain('任务长时间没有新的输出')
+    expect(node.content).not.toContain('300s without output')
+  })
+
   it('does not fabricate a message when a reserved response id was never committed', () => {
     const chatId = randomUUID()
     const runId = randomUUID()
@@ -34,6 +75,7 @@ describe('execution termination facts', () => {
       runId,
       actor: 'system',
       code: 'error',
+      content: 'AI 服务配置有误\n\n请检查服务设置。',
       detail: 'failed before message commit',
     })
 
@@ -42,6 +84,7 @@ describe('execution termination facts', () => {
       kind: 'system',
       visibility: 'internal',
       direction: 'internal',
+      content: 'AI 服务配置有误\n\n请检查服务设置。',
       runId,
       turnId: reservedMessageId,
       termination: {
@@ -51,9 +94,7 @@ describe('execution termination facts', () => {
       },
     })
     expect(listExecutionNodes(chatId)).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: reservedMessageId, kind: 'message' }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ id: reservedMessageId, kind: 'message' })]),
     )
     expect(getExecutionActiveRun(chatId, runId)).toMatchObject({
       status: 'failed',

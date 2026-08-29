@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { NotificationEnvelopeSchema } from '@chery/protocol'
 import type { MiddlewareChunk } from '@/core/middleware/types.js'
 import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
 import { createChat, deleteChat } from '@/db/chat.js'
+import { listExecutionNodes } from '@/db/executionGraph.js'
 import { streamAgentChunks } from '@/service/chat/streamMapper.js'
 
 const cleanup: string[] = []
@@ -79,6 +81,112 @@ function notifications(events: unknown[]): Array<[string, unknown]> {
 }
 
 describe('streamAgentChunks run lifecycle', () => {
+  it('maps loop limit to a warning pause before the legacy compatibility error', async () => {
+    const chatId = 'chat-loop-limit'
+    cleanup.push(chatId)
+    createChat(chatId)
+    async function* limited(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      yield { type: 'run_paused', reason: 'loop_limit', iterations: 30, limit: 30 }
+      // Defensive duplicate terminal signal: the mapper must keep the first,
+      // more specific limit outcome authoritative and suppress this tail event.
+      yield { type: 'done' }
+    }
+    const events: unknown[] = []
+    for await (const event of streamAgentChunks(limited(), 'request-limit', chatId, 'run-limit')) {
+      events.push(event)
+    }
+    const typed = notifications(events)
+    expect(typed.map(([type]) => type)).toEqual([
+      'run.updated',
+      'run.outcome',
+      'error',
+      'timeline.patch',
+      'run.updated',
+    ])
+    expect(typed[1]?.[1]).toMatchObject({
+      status: 'paused',
+      reasonCode: 'RUN_LOOP_LIMIT_REACHED',
+      canResume: true,
+      retryable: false,
+      feedback: {
+        severity: 'warning',
+        title: '已达到循环上限',
+        retention: 'history',
+      },
+    })
+    const termination = listExecutionNodes(chatId).find(
+      (node) => node.id === 'termination:run-limit:limit_reached',
+    )
+    expect(termination).toMatchObject({
+      content: expect.stringContaining('已达到循环上限'),
+      termination: { detail: 'iterations=30; maxLoop=30' },
+    })
+    expect(typed.at(-1)?.[1]).toMatchObject({ status: 'paused' })
+    expect(typed.filter(([type]) => type === 'run.outcome')).toHaveLength(1)
+    expect(typed.some(([type]) => type === 'done')).toBe(false)
+  })
+
+  it('normalizes long multiline error details before emitting terminal notifications', async () => {
+    const chatId = 'chat-long-error-detail'
+    cleanup.push(chatId)
+    createChat(chatId)
+    async function* failed(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      yield {
+        type: 'error',
+        errors: [
+          {
+            attempt: 1,
+            timestamp: Date.now(),
+            message: 'upstream request failed',
+            userMessage: 'AI 服务拒绝了这个请求',
+            detail: `upstream 400:\n${'x'.repeat(240)}`,
+            source: 'brain',
+            recoverable: false,
+            category: 'validation',
+          },
+        ],
+      }
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentChunks(
+      failed(),
+      'request-long-detail',
+      chatId,
+      'run-long-detail',
+    )) {
+      events.push(event)
+    }
+
+    const terminalEvents = events.filter((event) => {
+      const type = (event as { type?: string }).type
+      return type === 'run.outcome' || type === 'error'
+    }) as Array<{ type: string; data: Record<string, unknown> }>
+    expect(terminalEvents).toHaveLength(2)
+    expect(
+      terminalEvents.every((event) => NotificationEnvelopeSchema.safeParse(event).success),
+    ).toBe(true)
+
+    const error = terminalEvents.find((event) => event.type === 'error')!
+    const outcome = terminalEvents.find((event) => event.type === 'run.outcome')!
+    const detail = error.data.detail as string
+    expect(detail).toHaveLength(200)
+    expect(detail).not.toContain('\n')
+    expect(detail).toMatch(/…$/)
+    expect((outcome.data.feedback as { detail?: string }).detail).toBe(detail)
+    expect(outcome.data.feedback).toMatchObject({
+      guidance: '请在设置中修正模型地址、模型或密钥配置后，再继续运行。',
+      actions: [{ type: 'open_settings', section: 'provider' }, { type: 'view_details' }],
+    })
+    const termination = listExecutionNodes(chatId).find(
+      (node) => node.id === 'termination:run-long-detail:error',
+    )
+    expect(termination).toMatchObject({
+      content: expect.stringContaining('AI 服务拒绝了这个请求'),
+      termination: { detail: 'upstream request failed' },
+    })
+  })
+
   it('broadcasts active run state before the provider produces a first chunk', async () => {
     const stream = streamAgentChunks(idleGenerator(), 'request-1', 'chat-1', 'run-1')
     const first = await stream.next()
@@ -116,12 +224,13 @@ describe('streamAgentChunks run lifecycle', () => {
     expect(types.map(([type]) => type)).toEqual([
       'run.updated', // running
       'turn.started',
+      'run.outcome',
       'done',
       'run.updated', // 空 chat 无末条 assistant → canResume false → completed
       'turn.completed',
     ])
     expect(types[1][1]).toMatchObject({ turnId: 'assistant-node-1', messageId: 'assistant-node-1' })
-    expect(types[2][1]).toMatchObject({ canResume: false })
+    expect(types[2][1]).toMatchObject({ status: 'completed', canResume: false })
     // 空 stream delta 抑制 legacy chunk（chunk 通道无任何输出）
     expect(events.some((event) => (event as { kind?: string }).kind === 'chunk')).toBe(false)
   })
@@ -166,6 +275,7 @@ describe('streamAgentChunks run lifecycle', () => {
         'turn.completed',
         expect.objectContaining({ turnId: 'assistant-node-2', messageId: 'assistant-node-2' }),
       ],
+      ['run.outcome', expect.objectContaining({ status: 'completed', canResume: false })],
       ['done', expect.objectContaining({ canResume: false })],
       ['run.updated', expect.objectContaining({ runId: 'run-shared', status: 'completed' })],
     ])
@@ -189,7 +299,7 @@ describe('streamAgentChunks run lifecycle', () => {
       (event) =>
         (event as { kind?: string }).kind === 'chunk' &&
         (event as { type?: string }).type === 'staged' &&
-        ((event as { data?: { type?: string } }).data?.type === 'reverse'),
+        (event as { data?: { type?: string } }).data?.type === 'reverse',
     ) as { data?: unknown } | undefined
     expect(reverse?.data).toEqual({ type: 'reverse', messageIds: ['failed-turn'] })
 
@@ -202,7 +312,11 @@ describe('streamAgentChunks run lifecycle', () => {
     })
     const retryLifecycle = events
       .map((event) => {
-        const envelope = event as { kind?: string; type?: string; data?: { type?: string; turnId?: string } }
+        const envelope = event as {
+          kind?: string
+          type?: string
+          data?: { type?: string; turnId?: string }
+        }
         if (envelope.type === 'turn.started') return `started:${envelope.data?.turnId}`
         if (envelope.type === 'turn.cancelled') return `cancelled:${envelope.data?.turnId}`
         if (envelope.type === 'staged' && envelope.data?.type === 'reverse') return 'reverse'
@@ -215,21 +329,17 @@ describe('streamAgentChunks run lifecycle', () => {
       'reverse',
       'started:clean-turn',
     ])
-    expect(
-      typed.filter(([type]) => type === 'turn.started').map(([, data]) => data),
-    ).toEqual([
+    expect(typed.filter(([type]) => type === 'turn.started').map(([, data]) => data)).toEqual([
       expect.objectContaining({ turnId: 'failed-turn' }),
       expect.objectContaining({ turnId: 'clean-turn' }),
     ])
-    expect(
-      typed.filter(([type]) => type === 'turn.delta').map(([, data]) => data),
-    ).toEqual([
+    expect(typed.filter(([type]) => type === 'turn.delta').map(([, data]) => data)).toEqual([
       expect.objectContaining({ turnId: 'failed-turn', offset: 0, delta: 'discard-me' }),
       expect.objectContaining({ turnId: 'clean-turn', offset: 0, delta: 'clean-result' }),
     ])
-    expect(
-      typed.filter(([type]) => type === 'turn.completed').map(([, data]) => data),
-    ).toEqual([expect.objectContaining({ turnId: 'clean-turn' })])
+    expect(typed.filter(([type]) => type === 'turn.completed').map(([, data]) => data)).toEqual([
+      expect.objectContaining({ turnId: 'clean-turn' }),
+    ])
   })
 
   it('映射工具真实 started 与所有终态可选时间戳', async () => {
@@ -237,6 +347,13 @@ describe('streamAgentChunks run lifecycle', () => {
     cleanup.push(chatId)
     createChat(chatId)
     async function* timed(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      yield {
+        type: 'stream',
+        thinkingDelta: '',
+        contentDelta: '',
+        msgId: 'turn-before-tool',
+        createdAt: 1200,
+      }
       yield {
         type: 'sense_started',
         id: 'tool-timed',
@@ -264,6 +381,14 @@ describe('streamAgentChunks run lifecycle', () => {
       events.push(event)
     }
     const typed = notifications(events)
+    const handoff = typed
+      .map(([type, data]) => [type, data as Record<string, unknown>] as const)
+      .filter(([type]) => type === 'turn.completed' || type === 'sense_started')
+    expect(handoff).toEqual([
+      ['turn.completed', expect.objectContaining({ turnId: 'turn-before-tool', completedAt: 1234 })],
+      ['sense_started', expect.objectContaining({ id: 'tool-timed', startedAt: 1234 })],
+      ['turn.completed', expect.objectContaining({ turnId: 'turn-timed' })],
+    ])
     expect(typed.find(([type]) => type === 'sense_started')?.[1]).toMatchObject({
       id: 'tool-timed',
       startedAt: 1234,
@@ -317,10 +442,12 @@ describe('streamAgentChunks terminal fallback（统一暂停语义）', () => {
     expect(types.map(([type]) => type)).toEqual([
       'run.updated', // running 首发
       'turn.started',
+      'run.outcome',
       'run.updated', // catch 兜底 paused
       'turn.completed',
     ])
-    expect(types[2][1]).toMatchObject({ runId: 'run', status: 'paused' })
+    expect(types[2][1]).toMatchObject({ status: 'paused', reasonCode: 'RUN_PAUSED' })
+    expect(types[3][1]).toMatchObject({ runId: 'run', status: 'paused' })
     expect(types.some(([type]) => type === 'error')).toBe(false)
   })
 
@@ -332,12 +459,13 @@ describe('streamAgentChunks terminal fallback（统一暂停语义）', () => {
 
     expect(thrown).toBeInstanceOf(AgentAbortError)
     const types = notifications(events)
-    expect(types.map(([type]) => type)).toEqual(['run.updated', 'run.updated'])
-    expect(types[1][1]).toMatchObject({ runId: 'run', status: 'paused' })
+    expect(types.map(([type]) => type)).toEqual(['run.updated', 'run.outcome', 'run.updated'])
+    expect(types[1][1]).toMatchObject({ status: 'cancelled', reasonCode: 'RUN_USER_CANCELLED' })
+    expect(types[2][1]).toMatchObject({ runId: 'run', status: 'paused' })
     expect(types.some(([type]) => type === 'error')).toBe(false)
   })
 
-  it('generator throw 普通 Error → 补发 error（tracingId 前缀 + canResume）+ paused、rejects 原错误', async () => {
+  it('generator throw 普通 Error → 补发 failed outcome + error（tracingId 前缀 + canResume）、rejects 原错误', async () => {
     const chatId = 'c-boom'
     cleanup.push(chatId)
     createChat(chatId)
@@ -349,12 +477,18 @@ describe('streamAgentChunks terminal fallback（统一暂停语义）', () => {
     expect(thrown).toBeInstanceOf(Error)
     expect(thrown?.message).toBe('boom')
     const types = notifications(events)
-    expect(types.map(([type]) => type)).toEqual(['run.updated', 'error', 'run.updated'])
+    expect(types.map(([type]) => type)).toEqual([
+      'run.updated',
+      'run.outcome',
+      'error',
+      'run.updated',
+    ])
     const errorNotif = types.find(([type]) => type === 'error')![1] as Record<string, unknown>
     expect(typeof errorNotif.message).toBe('string')
     expect(errorNotif.message).toMatch(/^\[[a-z0-9]{6,}\] /)
     expect(typeof errorNotif.canResume).toBe('boolean')
-    expect(types[2][1]).toMatchObject({ runId: 'run', status: 'paused' })
+    expect(types[1][1]).toMatchObject({ status: 'failed', reasonCode: 'RUN_UNKNOWN_FAILED' })
+    expect(types[3][1]).toMatchObject({ runId: 'run', status: 'failed' })
   })
 
   it('generator 正常 return 且无 done/error → finally 兜底发 paused', async () => {
@@ -370,9 +504,11 @@ describe('streamAgentChunks terminal fallback（统一暂停语义）', () => {
     expect(types.map(([type]) => type)).toEqual([
       'run.updated',
       'turn.started',
+      'run.outcome',
       'run.updated', // finally 兜底 paused
       'turn.completed',
     ])
-    expect(types[2][1]).toMatchObject({ runId: 'run', status: 'paused' })
+    expect(types[2][1]).toMatchObject({ status: 'paused', reasonCode: 'RUN_SYSTEM_CANCELLED' })
+    expect(types[3][1]).toMatchObject({ runId: 'run', status: 'paused' })
   })
 })

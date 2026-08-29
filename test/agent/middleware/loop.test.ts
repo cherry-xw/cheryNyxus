@@ -1,5 +1,5 @@
 /**
- * createLoopHandler 单元测试（loop 停止条件 + maxLoop + done/error）。
+ * createLoopHandler 单元测试（loop 停止条件 + maxLoop + done/error/run_paused）。
  *
  * 覆盖：
  * - content-only（assistant 无 senseCalls）→ stop
@@ -8,13 +8,13 @@
  * - 空 messages + 无 userInputs → stop
  * - residual userInputs → continue（到 maxLoop）
  * - revoked 末尾 → 跳过取 lastVisible
- * - maxLoop 超限 → yield ErrorChunk（抑制 done，P2 失败路径不双发 done/Response.success:true）
+ * - maxLoop 超限 → yield RunPausedChunk（抑制 done，不伪装成失败）
  * - 正常停止 → yield done
  */
 import { describe, it, expect } from 'vitest'
 import { createLoopHandler } from '@/agent/middleware/loop.js'
 import { AgentAbortError } from '@/core/middleware/errors.js'
-import type { MiddlewareContext, MiddlewareChunk } from '@/core/middleware/types.js'
+import type { MiddlewareContext, MiddlewareChunk, RunPausedChunk } from '@/core/middleware/types.js'
 import { SupervisionLevel } from '@/core/config.js'
 import { createMockContext } from '../helpers/fakeContext.js'
 import { collectChunks, firstError, hasDone } from '../helpers/chunkAssert.js'
@@ -56,6 +56,10 @@ function assistantMsg(
 
 function senseMsg(content: string): MiddlewareContext['soul']['messages'][number] {
   return { id: `s-${Math.random()}`, role: 'sense', content, createdAt: 0, updateAt: 0 }
+}
+
+function firstPause(chunks: MiddlewareChunk[]): RunPausedChunk | undefined {
+  return chunks.find((chunk) => chunk.type === 'run_paused') as RunPausedChunk | undefined
 }
 
 describe('createLoopHandler 停止条件', () => {
@@ -189,7 +193,7 @@ describe('createLoopHandler revoked 与 userInputs', () => {
     expect(hasDone(out)).toBe(true)
   })
 
-  it('residual userInputs + 持续空 messages → continue 到 maxLoop（yield error，抑制 done）', async () => {
+  it('residual userInputs + 持续空 messages → continue 到 maxLoop（yield run_paused，抑制 done）', async () => {
     const ctx = createMockContext({
       messages: [],
       userInputs: [{ content: 'queued', time: 0 }],
@@ -199,19 +203,19 @@ describe('createLoopHandler revoked 与 userInputs', () => {
       calls++
       yield { type: 'stream', thinkingDelta: '', contentDelta: '' } as MiddlewareChunk
     }
-    // maxLoop=2：iteration1 empty+userInputs→continue, iteration2 同→continue, while 退出→error
+    // maxLoop=2：iteration1 empty+userInputs→continue, iteration2 同→continue, while 退出→run_paused
     const out = await collectChunks(createLoopHandler(2)(ctx, runChain))
     expect(calls).toBe(2)
-    const err = firstError(out)
-    expect(err).toBeDefined()
-    expect(err!.errors[0]!.message).toContain('最大循环次数')
-    // P2：失败路径不 yield done（避免 streamMapper 双发 done notification + Response.success:true）
+    const paused = firstPause(out)
+    expect(paused).toMatchObject({ reason: 'loop_limit', iterations: 2, limit: 2 })
+    expect(firstError(out)).toBeUndefined()
+    // 保护性暂停不 yield done，交由 streamMapper 发送 paused outcome。
     expect(hasDone(out)).toBe(false)
   })
 })
 
 describe('createLoopHandler maxLoop', () => {
-  it('持续 sense 不停止 → 到 maxLoop yield ErrorChunk（抑制 done）', async () => {
+  it('持续 sense 不停止 → 到 maxLoop yield RunPausedChunk（抑制 done）', async () => {
     const ctx = createMockContext({ messages: [] })
     let calls = 0
     const runChain = async function* (): AsyncGenerator<MiddlewareChunk, void, unknown> {
@@ -221,10 +225,10 @@ describe('createLoopHandler maxLoop', () => {
     }
     const out = await collectChunks(createLoopHandler(3)(ctx, runChain))
     expect(calls).toBe(3)
-    const err = firstError(out)
-    expect(err).toBeDefined()
-    expect(err!.errors[0]!.recoverable).toBe(false)
-    // P2：失败路径不 yield done
+    const paused = firstPause(out)
+    expect(paused).toMatchObject({ reason: 'loop_limit', iterations: 3, limit: 3 })
+    expect(firstError(out)).toBeUndefined()
+    // 保护性暂停路径不 yield done
     expect(hasDone(out)).toBe(false)
   })
 

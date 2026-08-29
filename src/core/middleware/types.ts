@@ -417,6 +417,17 @@ export interface ErrorChunk {
 }
 
 /**
+ * Protective pause requested by the runtime. This is a user-visible terminal
+ * outcome for the current run, but it is deliberately not an ErrorChunk.
+ */
+export interface RunPausedChunk {
+  type: 'run_paused'
+  reason: 'loop_limit'
+  iterations: number
+  limit: number
+}
+
+/**
  * 角色本轮暂停信号（spawn wait=true 子 agent yield turn 时发送）。
  * 子 agent spawn 孙 agent（wait=true）后 yield turn → loop 本轮结束 → yield 此 chunk；
  * observer 收到 → 仅记录日志，不唤醒主，不设 finished；
@@ -461,6 +472,7 @@ export type MiddlewareChunk =
   | QuestionBatchPendingChunk
   | DoneChunk
   | ErrorChunk
+  | RunPausedChunk
   | ChildYieldChunk
   | ChildDoneChunk
 

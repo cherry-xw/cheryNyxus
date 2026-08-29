@@ -18,11 +18,23 @@ import { LogLevel } from '@/utils/logger/types.js'
 import config from '@/utils/config.js'
 import { getWaitedParent, feedWatchdog } from '@/agent/spawnBroker.js'
 import { isAgentAbortError, isAgentParkError } from '@/core/middleware/errors.js'
+import { ClassifiedError } from '@/utils/error.js'
 import { createQuestionBatch } from '@/db/question.js'
 import { upsertPendingInteraction } from '@/db/interaction.js'
 import { broadcastInteractionChanged } from '../interaction/events.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 import { recordTerminationFact } from './executionFacts.js'
+
+function unexpectedTerminationContent(error: unknown): string {
+  if (error instanceof ClassifiedError) {
+    const guidance =
+      error.category === 'validation' && error.source === 'brain'
+        ? '请在设置中修正模型地址、模型或密钥配置后，再继续运行。'
+        : '可以尝试继续运行；若持续出现，请检查服务设置或查看日志。'
+    return `本轮运行未完成。\n\n${error.userMessage}\n\n下一步：${guidance}`
+  }
+  return '本轮运行意外中断。\n\n下一步：可以尝试继续运行；若持续出现，请检查服务设置或查看日志。'
+}
 
 /**
  * 统一消费 agent 内部 effect chunk（P2-1 从 send.ts 拆出）。
@@ -218,10 +230,9 @@ export async function* observeAgentChunks(
       yield chunk
     }
   } catch (err) {
-    // 统一暂停语义：所有控制流信号（用户 chat.abort / WS 断连 park）与未预期错误都归 paused。
-    // 不唤主、不写 finished——子 chat 末条保持原样，由 computeCanResume 派生 canResume=true，
-    // 用户/前端显式 resume 续跑（子结果不再当错误回传父；父若在等待由看门狗中性唤主或用户干预）。
-    // 仅记日志区分来源便于排查：park/abort=info，真实故障=error 带 stack。
+    // 控制流信号（用户 chat.abort / WS 断连 park）归 paused；未预期异常记录 error
+    // termination 并归 failed。两者都不唤主、不写 finished；canResume 由末条消息独立派生。
+    // 用户可在 canResume=true 时显式续跑，父若仍等待则由看门狗中性唤主或用户干预。
     // child_done 正常完成路径不触发此处（throw 跳过 loop 末尾 child_done yield）。
     const activeRunId = getActiveChatRunId(chatId)
     if (isAgentParkError(err)) {
@@ -247,12 +258,13 @@ export async function* observeAgentChunks(
           runId: activeRunId,
           actor: 'system',
           code: 'error',
+          content: unexpectedTerminationContent(err),
           detail: (err as Error).message,
         })
         emitTimelinePatch(chatId, baseRevision)
       }
       logger.event(
-        'agent.paused',
+        'agent.failed',
         {
           chatId,
           kind: 'unexpected',
