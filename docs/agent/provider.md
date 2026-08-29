@@ -480,6 +480,8 @@ provider **不再内置任何档位词映射**。chat middleware 在构造 `LLMO
 
 OpenAI 兼容协议的 provider（openai / bigmodel）共享 message/sense adapter 配置 + `acquireRpm` + `assertChatOptions`，抽到 `openaiCompat.ts`。openai.ts 用 SDK 实现 LLMAdapter、bigmodel.ts 用 fetch 实现 LLMAdapter，二者复用同一套 message/sense adapter（结构同形，鸭子类型解析）。
 
+**发送前防御校验（`validateToolResultPairing`）：** `buildOpenAICompatibleMessages` 构造后逐条校验——每条 `role:"tool"` 的 `tool_call_id` 必须能在前置 assistant 的 `tool_calls` 中找到，否则抛 `ClassifiedError`（category=`unknown`、source=`system`，detail 携带缺失 id）。背景：框架内部缺陷（如历史组装不一致）会让 tool result 成"孤儿"，上游报 `tool result's tool id(...) not found` 400 被误判为 brain 配置问题（validation、retryable=false）；本地拦截把它还原为明确的系统错误（用户面"会话数据出了点问题"+ detail 可见线索）。Anthropic 等非 OpenAI 兼容 provider 的配对结构不同，暂不加同款校验，按需补齐。
+
 ### bigmodel provider（[bigmodel.ts](../../src/agent/provider/bigmodel.ts)）
 
 智谱 BigModel，OpenAI 兼容协议，base_url 默认 `https://open.bigmodel.cn/api/paas/v4/`（可配，也能指向聚合端点）。LLMAdapter 用 fetch 基座：`chat` 走 `jsonRequest`、`chatStream` 走 `streamSSE`，请求体 `{model, messages, stream, tools?, ...thinkingParams}`；message/sense adapter 复用 openaiCompat（自动获得 `reasoning_content` 解析 + image 多模态 + tool_calls）。注册名 `"bigmodel"`。

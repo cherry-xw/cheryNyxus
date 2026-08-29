@@ -91,12 +91,13 @@ describe("OpenAI message adapter", () => {
   it("buildMessages: sense → role:tool + tool_call_id", () => {
     const cfg = getMessageAdapter("openai")!;
     const history: LLMResponse[] = [
+      { id: "a1", role: "assistant", content: "c", senseCalls: [{ id: "s1", name: "t", arguments: "{}" }], createdAt: 0, updateAt: 0 },
       { id: "s1", role: "sense", content: "result", createdAt: 0, updateAt: 0 },
     ];
     const out = cfg.buildMessages(history) as Array<{ role: string; content: string; tool_call_id: string }>;
-    expect(out[0]!.role).toBe("tool");
-    expect(out[0]!.tool_call_id).toBe("s1");
-    expect(out[0]!.content).toBe("result");
+    expect(out[1]!.role).toBe("tool");
+    expect(out[1]!.tool_call_id).toBe("s1");
+    expect(out[1]!.content).toBe("result");
   });
 
   it("buildMessages: assistant+senseCalls → tool_calls", () => {
@@ -140,9 +141,41 @@ describe("OpenAI message adapter", () => {
   it("buildMessages: sense 被替换 → content 用 replace.content", () => {
     const cfg = getMessageAdapter("openai")!;
     const out = cfg.buildMessages([
+      { id: "a", role: "assistant", content: "c", senseCalls: [{ id: "s", name: "t", arguments: "{}" }], createdAt: 0, updateAt: 0 },
       { id: "s", role: "sense", content: "old", replace: { state: true, by: "new", content: "REPLACED" }, createdAt: 0, updateAt: 0 },
     ]) as Array<{ content: string }>;
-    expect(out[0]!.content).toBe("REPLACED");
+    expect(out[1]!.content).toBe("REPLACED");
+  });
+
+  it("buildMessages: 孤儿 tool result 抛 ClassifiedError（防御校验，复现 400 2013 根因拦截）", () => {
+    const cfg = getMessageAdapter("openai")!;
+    // journal/DB 数据损坏：sense result 存在但前置 assistant 的 senseCalls 缺失该 trigger
+    const history: LLMResponse[] = [
+      { id: "a1", role: "assistant", content: "c", senseCalls: [{ id: "tc-1", name: "t", arguments: "{}" }], createdAt: 0, updateAt: 0 },
+      { id: "tc-1", role: "sense", content: "ok", createdAt: 0, updateAt: 0 },
+      { id: "orphan", role: "sense", content: "lost", createdAt: 0, updateAt: 0 },
+    ];
+    expect(() => cfg.buildMessages(history)).toThrowError(/tool_call_id\(orphan\) not found/);
+    try {
+      cfg.buildMessages(history);
+    } catch (err) {
+      const classified = err as { category?: string; source?: string; detail?: string };
+      expect(classified.category).toBe("unknown");
+      expect(classified.source).toBe("system");
+      expect(classified.detail).toContain("orphan");
+    }
+  });
+
+  it("buildMessages: assistant+senseCalls 与 tool result 配对完整 → 通过", () => {
+    const cfg = getMessageAdapter("openai")!;
+    const history: LLMResponse[] = [
+      { id: "a1", role: "assistant", content: "c", senseCalls: [{ id: "tc-1", name: "t", arguments: "{}" }, { id: "tc-2", name: "t2", arguments: "{}" }], createdAt: 0, updateAt: 0 },
+      { id: "tc-1", role: "sense", content: "r1", createdAt: 0, updateAt: 0 },
+      { id: "tc-2", role: "sense", content: "r2", createdAt: 0, updateAt: 0 },
+      { id: "a2", role: "assistant", content: "done", createdAt: 0, updateAt: 0 },
+    ];
+    const out = cfg.buildMessages(history) as Array<{ role: string }>;
+    expect(out.map((m) => m.role)).toEqual(["assistant", "tool", "tool", "assistant"]);
   });
 });
 

@@ -56,3 +56,46 @@ describe('MessageJournal injected inputs', () => {
     ])
   })
 })
+
+describe('MessageJournal updateAssistantSenseCalls', () => {
+  it('in-place 更新指定 assistant 的 senseCalls（reconcile 内存回写）', () => {
+    const soul: SoulGroup = {
+      chatId: 'chat',
+      senseSharedData: new Map(),
+      userInputs: [],
+      messages: [],
+    }
+    const journal = new MessageJournal(soul, logger)
+    const assistant = journal.appendAssistant({
+      content: 'c',
+      thinking: '',
+      senseCalls: [{ id: 't0', name: 'read_file', arguments: '{}' }],
+    })
+
+    journal.updateAssistantSenseCalls(assistant.id, [
+      { id: 't0', name: 'read_file', arguments: '{}' },
+      { id: 't1', name: 'write_file', arguments: '{}' },
+    ])
+
+    expect(journal.getMessages().find((m) => m.id === assistant.id)?.senseCalls).toEqual([
+      { id: 't0', name: 'read_file', arguments: '{}' },
+      { id: 't1', name: 'write_file', arguments: '{}' },
+    ])
+  })
+
+  it('id 未命中时静默忽略（不抛错不新增）', () => {
+    const soul: SoulGroup = {
+      chatId: 'chat',
+      senseSharedData: new Map(),
+      userInputs: [],
+      messages: [],
+    }
+    const journal = new MessageJournal(soul, logger)
+    journal.appendAssistant({ content: 'c', thinking: '', senseCalls: [] })
+
+    journal.updateAssistantSenseCalls('missing-id', [{ id: 't1', name: 'x', arguments: '{}' }])
+
+    expect(journal.getMessages()).toHaveLength(1)
+    expect(journal.getMessages()[0]?.senseCalls).toEqual([])
+  })
+})

@@ -237,6 +237,24 @@ export class MessageJournal {
   }
 
   /**
+   * 原地更新 assistant 消息的 senseCalls（流式多 sense_call reconcile 的内存回写）。
+   * findIndex-by-id + in-place 语义同 completeSense；未命中（消息不在 journal）静默忽略。
+   * 背景：首个 sense_end flushAssistant 时 senseDeltas 未累积完整，流结束后 reconcile
+   * 必须双写——内存 journal 回写 + observer 落库。缺内存回写时 loop 下一轮 buildMessages
+   * 组装的 tool_calls 缺 trigger，上游报 "tool result's tool id(...) not found"（400 2013）。
+   */
+  updateAssistantSenseCalls(
+    id: string,
+    senseCalls: Array<{ id: string; name: string; arguments: string }>,
+  ): void {
+    const messages = this.soul.messages ?? []
+    const existing = messages.find((message) => message.id === id)
+    if (!existing) return
+    existing.senseCalls = senseCalls
+    existing.updateAt = Date.now()
+  }
+
+  /**
    * 保留系统提示词与最后一条 compact 摘要，丢弃本次运行之后模型不应再见到的旧上下文。
    * 完整记录已由 observer 根据 message_created effect 持久化，因此这里只影响后续模型调用。
    */

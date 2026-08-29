@@ -275,7 +275,11 @@ export async function* checkpointMiddleware(
     // 流式多 sense_call reconcile：首个 sense_end 时 senseDeltas 未累积完整，流结束后补充 last assistant 的 senseCalls
     // （见 CheckpointState.reconcileAssistantSenseCalls）。无补充则返回 null。
     const reconcile = state.reconcileAssistantSenseCalls()
-    if (reconcile && reconcile.type === 'updated') {
+    if (reconcile && reconcile.type === 'updated' && 'senseCalls' in reconcile.patch) {
+      // 双写①：回写内存 journal——loop 下一轮 buildMessages 从内存 journal 组装 tool_calls，
+      // 只落库不回写会让 tool result 成"孤儿"（上游 400 2013，见 docs/agent/middleware.md reconcile 段）。
+      ctx.journal.updateAssistantSenseCalls(reconcile.id, reconcile.patch.senseCalls ?? [])
+      // 双写②：yield effect 由 observer 落库（DB sense_calls 列）。
       yield {
         type: 'message_updated',
         id: reconcile.id,

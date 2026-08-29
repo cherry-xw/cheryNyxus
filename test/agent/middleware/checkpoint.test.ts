@@ -119,6 +119,40 @@ describe('checkpointMiddleware 集成', () => {
     expect(senseEnds(chunks)).toHaveLength(0)
   })
 
+  it('流式多 sense_call：reconcile 双写回写内存 journal（复现 400 2013 根因）', async () => {
+    const ctx = createMockContext({ messages: [] })
+    const next = async function* (): AsyncGenerator<MiddlewareChunk> {
+      // 首个 sense_end 到达时仅 ingest 了 index 0 的 delta → flushAssistant 落库的 senseCalls 不完整
+      yield {
+        type: 'stream',
+        thinkingDelta: '',
+        contentDelta: '调用',
+        senseDelta: [{ index: 0, id: 't0', name: 'read_file', arguments: '{}' }],
+      }
+      yield {
+        type: 'sense_end',
+        id: 't0',
+        name: 'read_file',
+        arguments: '{}',
+        supervisionLevel: 0,
+      } as MiddlewareChunk
+      // 流结束前第二个 sense call 的 delta 才到达（真实流式时序）
+      yield {
+        type: 'stream',
+        thinkingDelta: '',
+        contentDelta: '',
+        senseDelta: [{ index: 1, id: 't1', name: 'write_file', arguments: '{}' }],
+      }
+    }
+
+    await collectChunks(checkpointMiddleware(ctx, next))
+
+    // 内存 journal 的 assistant.senseCalls 必须完整——loop 下一轮 buildMessages 从这里
+    // 组装 tool_calls，缺失会造出孤儿 tool result（上游 400 2013，见 docs/agent/middleware.md）
+    const assistant = ctx.soul.messages?.find((message) => message.role === 'assistant')
+    expect(assistant?.senseCalls?.map((sc) => sc.id)).toEqual(['t0', 't1'])
+  })
+
   it('rotates the assistant turn and discards accumulated content on retry_reset', async () => {
     const ctx = createMockContext({ messages: [] })
     const next = async function* (): AsyncGenerator<MiddlewareChunk> {

@@ -14,6 +14,7 @@ import type {
 } from 'openai/resources/chat/completions'
 import type { ZodType } from 'zod'
 import type { LLMResponse, LLMAttachment } from '@/core/message/adapter'
+import { ClassifiedError } from '@/utils/error.js'
 import type { Sense, SenseCallData, SenseFunction } from '@/core/sense'
 import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
 import { getRateLimiter } from '@/utils/rateLimiter.js'
@@ -51,7 +52,7 @@ export function buildOpenAICompatibleMessages(
   attachments?: LLMAttachment[],
   includeReasoningContent: (message: LLMResponse) => boolean = () => false,
 ) {
-  return history
+  const messages = history
     .filter((m) => !m.revoked)
     .map((m) => {
       if (m.role === 'sense') {
@@ -125,6 +126,36 @@ export function buildOpenAICompatibleMessages(
         content: m.content,
       } as ChatCompletionMessageParam
     })
+
+  // 发送前防御校验：tool result 与前置 assistant.tool_calls 必须配对，否则上游 400。
+  return validateToolResultPairing(messages)
+}
+
+/**
+ * 逐条校验 tool result 的 tool_call_id 能否在前置 assistant.tool_calls 中找到；
+ * 找不到抛 ClassifiedError（category=unknown、source=system，detail 携带缺失 id），
+ * 让错误可见而非上游 400 黑盒。正常流程不会被触发——只拦截 journal/DB 数据损坏。
+ */
+function validateToolResultPairing(
+  messages: ChatCompletionMessageParam[],
+): ChatCompletionMessageParam[] {
+  const knownCallIds = new Set<string>()
+  for (const message of messages) {
+    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+      for (const toolCall of message.tool_calls) {
+        knownCallIds.add(toolCall.id)
+      }
+    } else if (message.role === 'tool' && !knownCallIds.has(message.tool_call_id)) {
+      throw new ClassifiedError({
+        message: `orphan tool result: tool_call_id(${message.tool_call_id}) not found in preceding assistant tool_calls`,
+        userMessage: '会话数据出了点问题（工具调用记录不完整），请重试或开启新对话',
+        category: 'unknown',
+        source: 'system',
+        detail: `tool result's tool_call_id(${message.tool_call_id}) not found in preceding assistant tool_calls`,
+      })
+    }
+  }
+  return messages
 }
 
 export const openaiMessageAdapterConfig = {
