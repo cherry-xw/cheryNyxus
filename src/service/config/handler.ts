@@ -12,18 +12,9 @@ import {
   type ConfigSaveRequestData,
   type ConfigSaveResponseData,
 } from '../message/types.js'
-import { readRawConfig, saveRawConfig, validateWorkspacePath, validateLoadable, rollbackConfig } from '@/utils/config.js'
-import { logger, LogLevel } from '@/utils/logger/index.js'
-import { requestRestartWhenIdle } from '@/service/restartCoordinator.js'
-import { detectRoleRenames, migrateRoleRename } from './roleRename.js'
-import { createConfigRevision, markConfigRevisionHandled } from './revision.js'
-import {
-  applyRetiredRoles,
-  archivePresetRoots,
-  detectRemovedPresetIds,
-  detectRetiredRoleIdentities,
-} from './roleLifecycle.js'
-import { leaveMaintenanceMode } from '@/service/maintenanceMode.js'
+import { readRawConfig, validateWorkspacePath } from '@/utils/config.js'
+import { logger } from '@/utils/logger/index.js'
+import { commitConfigCandidate } from './commit.js'
 
 /**
  * Config 设置 RPC handler。
@@ -58,19 +49,9 @@ export async function handleConfigSave(
   data: ConfigSaveRequestData,
 ): Promise<ConfigSaveResponseData | Response> {
   const rid = ctx.requestId ?? ''
-  // 保存前快照（含 ensureRoleIds 补全的 id），用于保存后检测同 id 改名
-  const before = readRawConfig()
-  const result = saveRawConfig(data)
+  const result = commitConfigCandidate({ candidate: data })
   if (!result.ok) {
-    // errors（硬错误）+ warnings（软错误，如 workspace 路径无效）合并展示给 UI；
-    // 仅 warnings 时也阻止写盘（提示用户修正）。
-    const combined = [...result.errors, ...(result.warnings ?? [])]
-    createConfigRevision({
-      raw: data,
-      source: 'structured',
-      status: 'rejected',
-      validationError: combined.join('\n'),
-    })
+    const combined = [...result.errors, ...result.warnings]
     return createResponse(
       rid,
       false,
@@ -79,80 +60,15 @@ export async function handleConfigSave(
     )
   }
   // logger 在统一边界递归脱敏 key/token/secret/env 等字段。
-  logger.event('config.save', { config: data })
-  // 重启前 dry-run 预检：模拟 loadConfig 校验（坏配置会致重启后 crash-loop 永不恢复）。
-  // 仅结构硬错误（validateRawConfig）会阻塞：失败 → 自动回滚最近备份 + 返回失败信息（未重启，进程保持运行）。
-  // 软告警（如 $ENV 缺失变量）不阻塞：照常写盘并重启，随成功响应带出提示，运行期实际调用时再报错。
-  const loadable = validateLoadable(data)
-  if (!loadable.ok) {
-    const backup = rollbackConfig()
-    createConfigRevision({
-      raw: data,
-      source: 'structured',
-      status: 'rejected',
-      validationError: loadable.errors.join('\n'),
-    })
-    logger.event(
-      'config.restart.validation_failed',
-      { errors: loadable.errors, warnings: loadable.warnings, rollback: backup.backup },
-      LogLevel.warn,
-    )
-    return {
-      needRestart: false,
-      restart: 'manual',
-      validationErrors: loadable.errors,
-      validationWarnings: loadable.warnings,
-      rollbackBackup: backup.backup,
-    }
-  }
-  if (loadable.warnings.length > 0) {
-    logger.event('config.save.warnings', { warnings: loadable.warnings }, LogLevel.warn)
-  }
-  const candidate = createConfigRevision({ raw: data, source: 'structured' })
-  leaveMaintenanceMode()
-  process.send?.({ type: 'maintenance-cleared' })
-  const retired = detectRetiredRoleIdentities(
-    before.roles as unknown as Record<string, Record<string, unknown>>,
-    data.roles as unknown as Record<string, Record<string, unknown>>,
-  )
-  const lifecycle = applyRetiredRoles({
-    roleIds: retired.ids,
-    roleNames: retired.names,
-    reason: `角色在配置修订 ${candidate.revisionId} 中被删除或语义修改`,
+  logger.event('config.save', {
+    config: data,
+    candidateRevisionId: result.candidateRevisionId,
+    baseRevision: result.baseRevision,
   })
-  const removedPresetIds = detectRemovedPresetIds(
-    before.presets as unknown as Record<string, Record<string, unknown>>,
-    data.presets as unknown as Record<string, Record<string, unknown>>,
-  )
-  const archivedRoots = archivePresetRoots(
-    removedPresetIds,
-    `预设在配置修订 ${candidate.revisionId} 中被删除`,
-  )
-  logger.event('config.revision.candidate', {
-    revisionId: candidate.revisionId,
-    retiredRoleIds: retired.ids,
-    retiredChatIds: lifecycle.retiredChatIds,
-    abandonedChatIds: lifecycle.abandonedChatIds,
-    archivedRoots,
-  })
-  markConfigRevisionHandled(candidate)
-
-  // 角色改名迁移仅在候选配置通过隔离校验后执行；冻结纪元快照仍保留旧名称。
-  for (const { from, to } of detectRoleRenames(before.roles, data.roles)) {
-    try {
-      migrateRoleRename(from, to)
-    } catch (err) {
-      logger.event('role.rename.failed', {
-        from,
-        to,
-        error: (err as Error).message,
-      })
-    }
-  }
   return {
     needRestart: true,
-    restart: requestRestartWhenIdle(),
-    warnings: loadable.warnings.length > 0 ? loadable.warnings : undefined,
+    restart: result.restart,
+    warnings: result.warnings.length > 0 ? result.warnings : undefined,
   }
 }
 

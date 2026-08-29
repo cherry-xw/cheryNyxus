@@ -153,8 +153,22 @@ export function createConfigRevision(input: {
   const snapshot = redact(redactConfigSecrets(raw)) as Record<string, unknown>
   const resources = collectRuntimeResourceManifest()
   // fingerprint 只覆盖语义面（连接面变更不产生新修订、不切纪元）；snapshot/resources 仍存全量供审计
+  const semanticImage = {
+    snapshot: extractSemanticConfig(snapshot),
+    resources: semanticResourceManifest(resources),
+  }
+  // rejected 记录不能与相同语义面的 active 记录共用唯一 fingerprint。例如 workspace、URL
+  // 等连接面字段校验失败时，直接复用 active 会导致 rejectConfigRevision 试图拒绝活动修订。
   const fingerprint = sha256(
-    stableStringify({ snapshot: extractSemanticConfig(snapshot), resources: semanticResourceManifest(resources) }),
+    stableStringify(
+      input.status === 'rejected'
+        ? {
+            rejected: snapshot,
+            semanticImage,
+            validationError: input.validationError ?? '配置验证失败',
+          }
+        : semanticImage,
+    ),
   )
   const revision = upsertConfigRevision({
     fingerprint,

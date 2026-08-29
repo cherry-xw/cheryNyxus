@@ -968,9 +968,14 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   // roles.*.brain 必须存在于 llm.brain；roles.*.systemPrompt 文件存在性（相对 .chery 目录解析；绝对路径原样）。
   if (raw.roles) {
     const cheryDir = process.env.CHERY_DIR || process.cwd()
+    const roleNameById = new Map<string, string>()
     for (const [name, cfg] of Object.entries(raw.roles)) {
       if (cfg.id !== undefined && !/^role-[a-zA-Z0-9_-]{8,}$/.test(cfg.id)) {
         errors.push(`roles.${name}.id 非法（必须以 role- 开头且至少包含 8 位标识）`)
+      } else if (cfg.id !== undefined) {
+        const duplicate = roleNameById.get(cfg.id)
+        if (duplicate) errors.push(`roles.${name}.id 与 roles.${duplicate}.id 重复：${cfg.id}`)
+        else roleNameById.set(cfg.id, name)
       }
       if (cfg.kind !== undefined && cfg.kind !== 'role' && cfg.kind !== 'shadow') {
         errors.push(`roles.${name}.kind "${String(cfg.kind)}" 非法（合法：role/shadow）`)
@@ -1010,9 +1015,14 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     const roleNames = Object.keys(raw.roles ?? {})
     const ordinaryRoleNames = roleNames.filter((name) => isOrdinaryRole(raw.roles?.[name]))
     const shadowRoleNames = roleNames.filter((name) => isShadowRole(raw.roles?.[name]))
+    const presetNameById = new Map<string, string>()
     for (const [pname, pcfg] of Object.entries(raw.presets)) {
       if (pcfg.id !== undefined && !/^preset-[a-zA-Z0-9_-]{8,}$/.test(pcfg.id)) {
         errors.push(`presets.${pname}.id 非法（必须以 preset- 开头且至少包含 8 位标识）`)
+      } else if (pcfg.id !== undefined) {
+        const duplicate = presetNameById.get(pcfg.id)
+        if (duplicate) errors.push(`presets.${pname}.id 与 presets.${duplicate}.id 重复：${pcfg.id}`)
+        else presetNameById.set(pcfg.id, pname)
       }
       const members = pcfg?.roles ?? []
       if (pcfg.detailRole && !ordinaryRoleNames.includes(pcfg.detailRole)) {
@@ -1348,9 +1358,9 @@ export function redactConfigSecrets(raw: ConfigRaw): ConfigRaw {
 }
 
 /**
- * 配置敏感字段还原（供 config_manage save / 前端 config.save 落盘前）。
- * 把 partial 中值为 `[REDACTED]` 的敏感字段替换为盘上（disk）原值——模型 get → 改无关字段 → save
- * 传回 [REDACTED] 不会覆盖真实 key；若模型显式给出新明文（非 [REDACTED]）则以新值为准（允许换 key）。
+ * 配置敏感字段还原（供 config_manage patch / 前端 config.save 落盘前）。
+ * 把候选中值为 `[REDACTED]` 的敏感字段替换为盘上（disk）原值——模型 get → patch 目标资源时
+ * 携带 [REDACTED] 不会覆盖真实 key；若显式给出新明文（非 [REDACTED]）则以新值为准。
  * 深拷贝返回，不改入参。
  */
 function restoreUrlSecret(partialUrl: string, diskUrl: string): string {
@@ -1439,7 +1449,7 @@ export function rollbackConfig(backupName?: string): { backup: string } {
     .sort()
     .reverse()
   const target = backupName && candidates.includes(backupName) ? backupName : candidates[0]
-  if (!target) throw new Error('备份目录为空，尚无可用备份（首次 action="save" 后才会生成）')
+  if (!target) throw new Error('备份目录为空，尚无可用备份（首次成功 action="patch" 后才会生成）')
   const targetPath = path.join(backupsDir, target)
   const backupRaw = yaml.load(fs.readFileSync(targetPath, 'utf8')) as ConfigRaw
   const errors = validateCredentialEnvPlaceholders(backupRaw)
@@ -1461,11 +1471,41 @@ export function rollbackConfig(backupName?: string): { backup: string } {
 export function saveRawConfig(
   partial: ConfigRaw,
 ): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
-  const errors = [...validateRawConfig(partial), ...validateCredentialEnvPlaceholders(partial)]
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
+  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
+  const disk = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & {
+    server?: ServerConfig
+  }
+  const validation = validateConfigCandidate(partial, disk)
+  if (!validation.ok) return validation
+
+  // 落盘前补全缺失 id（前端新建角色未带 id；改名场景 value 对象随行携带 id，此处不覆盖）。
+  ensurePresetIds(partial.presets)
+  ensureRoleIds(partial.roles)
+  const merged = { ...partial, server: disk.server ?? { port: 8182, transport: 'binary' as const } }
+
+  // 写盘前备份旧配置（.chery/backups/，保留最近 BACKUP_KEEP 份）——回滚到修改前状态的唯一依据。
+  // 校验失败路径已提前 return，不会走到这里，故不会产生无效备份。
+  backupConfig(configPath)
+  fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }))
+  return { ok: true }
+}
+
+/**
+ * 完整校验一个尚未写盘的候选配置。
+ *
+ * 结构、凭证占位符、workspace、锁定角色和固定预设均在内存候选上完成；调用方可在
+ * 校验通过后再决定是否持久化。`disk` 必须是本次写入所基于的磁盘快照，用于身份保护校验。
+ */
+export function validateConfigCandidate(
+  candidate: ConfigRaw,
+  disk: ConfigRaw = readRawConfig(),
+): { ok: true; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] } {
+  const errors = [...validateRawConfig(candidate), ...validateCredentialEnvPlaceholders(candidate)]
   // workspace 单独校验（启动期不参与；保存期非绝对路径 → 硬错误；其他无效目录 → 软警告）
   const warnings: string[] = []
-  if (partial.presets) {
-    for (const [pname, pcfg] of Object.entries(partial.presets)) {
+  if (candidate.presets) {
+    for (const [pname, pcfg] of Object.entries(candidate.presets)) {
       const ws = pcfg?.workspace
       if (!ws) continue
       if (!path.isAbsolute(ws)) {
@@ -1477,30 +1517,11 @@ export function saveRawConfig(
       }
     }
   }
-  if (errors.length > 0 || warnings.length > 0) {
-    return { ok: false, errors, warnings }
-  }
-
-  const cheryDir = process.env.CHERY_DIR || process.cwd()
-  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
-
-  // 读盘取 server 段（保留不动），合并 partial（除 server 外全部字段）
-  const disk = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & {
-    server?: ServerConfig
-  }
-  errors.push(...validateLockedRoleEdits(disk.roles, partial.roles))
-  errors.push(...validateFixedPresetEdits(disk.presets, partial.presets))
-  if (errors.length > 0) return { ok: false, errors, warnings }
-  // 落盘前补全缺失 id（前端新建角色未带 id；改名场景 value 对象随行携带 id，此处不覆盖）。
-  ensurePresetIds(partial.presets)
-  ensureRoleIds(partial.roles)
-  const merged = { ...partial, server: disk.server ?? { port: 8182, transport: 'binary' as const } }
-
-  // 写盘前备份旧配置（.chery/backups/，保留最近 10 份）——回滚到修改前状态的唯一依据。
-  // 校验失败路径已提前 return，不会走到这里，故不会产生无效备份。
-  backupConfig(configPath)
-  fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }))
-  return { ok: true }
+  errors.push(...validateLockedRoleEdits(disk.roles, candidate.roles))
+  errors.push(...validateFixedPresetEdits(disk.presets, candidate.presets))
+  return errors.length > 0 || warnings.length > 0
+    ? { ok: false, errors, warnings }
+    : { ok: true, warnings }
 }
 
 /**

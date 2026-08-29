@@ -75,7 +75,15 @@ const brainSchema = z.object({
   thinking: z.union([z.string().min(1), z.boolean()]).optional(),
   provider: z.string(),
   rpm: z.number().optional(),
-  mock: z.object({ enabled: z.boolean().optional(), file: z.string() }).optional(),
+  fullUrl: z.boolean().optional(),
+  mock: z
+    .object({
+      enabled: z.boolean().optional(),
+      file: z.string(),
+      chunkDelayMs: z.number().nonnegative().optional(),
+      preRespondMs: z.number().nonnegative().optional(),
+    })
+    .optional(),
   contextLimit: z.number().optional(),
   capabilities: z
     .object({
@@ -96,6 +104,8 @@ const brainSchema = z.object({
         .optional(),
     })
     .optional(),
+  hooks: z.string().optional(),
+  anthropicCompat: z.object({ official: z.boolean().optional() }).optional(),
 })
 
 const mediaServiceSchema = z.object({
@@ -205,6 +215,10 @@ export const configSaveSchema = z
       .record(
         z.string(),
         z.object({
+          id: z
+            .string()
+            .regex(/^role-[a-zA-Z0-9_-]{8,}$/)
+            .optional(),
           kind: z.enum(['role', 'shadow']).optional(),
           brain: z.string(),
           avatar: z.string().max(24).optional(),
@@ -243,6 +257,13 @@ export const configSaveSchema = z
           workspace: z.string().optional(),
           /** smart 监管规则覆盖文件名（对齐 PresetConfig.rule；缺省 → 仅用基准 base.yaml） */
           rule: z.string().optional(),
+          schedule: z
+            .object({
+              cron: z.string().min(1),
+              task: z.string().min(1),
+              enabled: z.boolean().optional(),
+            })
+            .optional(),
         }),
       )
       .optional(),

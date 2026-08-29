@@ -41,6 +41,42 @@ describe('semantic config revisions', () => {
     expect(serialized).toContain('[REDACTED]')
     expect(JSON.stringify(revision.resources)).not.toContain('sk-do-not-store')
   })
+
+  it('records a rejected connection-only candidate without rejecting the active semantic revision', () => {
+    const base = {
+      global: { supervision: 'smart', thinking: true, stream: true },
+      llm: {
+        brain: {
+          'rejected-collision-test': {
+            provider: 'mock',
+            model: 'revision_collision_model',
+            url: 'https://active.example.invalid',
+          },
+        },
+      },
+    } as unknown as ConfigRaw
+    const active = createConfigRevision({ source: 'structured', raw: base, status: 'active' })
+    const rejected = createConfigRevision({
+      source: 'structured',
+      raw: {
+        ...base,
+        llm: {
+          brain: {
+            'rejected-collision-test': {
+              ...base.llm.brain['rejected-collision-test'],
+              url: 'not-loadable',
+            },
+          },
+        },
+      },
+      status: 'rejected',
+      validationError: '连接地址无效',
+    })
+
+    expect(active.status).toBe('active')
+    expect(rejected.status).toBe('rejected')
+    expect(rejected.revisionId).not.toBe(active.revisionId)
+  })
 })
 
 describe('fail-closed maintenance mode', () => {
