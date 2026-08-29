@@ -67,9 +67,8 @@ export function selectRunStatus(session: ChatSession): ChatSession['run']['statu
  * 消费方（agents store / hydration）必须复用本函数，消除三处漂移（docs/web/pet/agent-integration.md）。
  */
 export function resolveCanResume(session: ChatSession): boolean {
-  // retryable=false（brain 4xx validation / 空上下文守卫等确定性错误）不提供「继续」重试：
-  // 改为提示修改配置后重新发送（error-conventions.md 规则 2），优先于 context.canResume 判定。
-  if (session.run.errorFact?.retryable === false) return false
+  // 「继续」显隐由服务端 canResume 权威判定（error 通知 / chat.list 投影），原样尊重；
+  // errorFact.retryable=false 仅约束文案（error-conventions.md 规则 2），不再隐藏恢复入口。
   return session.context.canResume !== undefined
     ? session.context.canResume
     : session.run.status === 'paused'

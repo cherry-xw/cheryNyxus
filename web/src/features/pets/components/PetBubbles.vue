@@ -129,11 +129,10 @@ const batchInfo = computed(() => {
     >
       <div class="work-text error-text">
         <div>⚠ {{ stream.error }}</div>
-        <!-- 上游技术摘要折叠展示（error-conventions.md detail 通道）：默认收起，点开可见 status/body 摘要 -->
-        <details v-if="stream.errorFact?.detail" class="error-detail">
-          <summary>详情</summary>
+        <!-- 上游技术摘要全文展示（error-conventions.md detail 通道）：不再折叠，让用户直接看到上游拒绝原因 -->
+        <div v-if="stream.errorFact?.detail" class="error-detail">
           <span class="error-detail-body">{{ stream.errorFact.detail }}</span>
-        </details>
+        </div>
       </div>
     </PetBubble>
     <PetBubble
@@ -232,14 +231,6 @@ const batchInfo = computed(() => {
   /* detail 折叠：全直角、正文 400；summary 为关键词强调用 600 */
   .error-detail {
     margin-top: 4px;
-    border-radius: 0;
-
-    summary {
-      cursor: pointer;
-      font-weight: 600;
-      color: color-mix(in srgb, var(--danger) 80%, var(--ink));
-      user-select: none;
-    }
 
     .error-detail-body {
       display: block;

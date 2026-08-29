@@ -302,11 +302,12 @@ export function createStreamRouter(
           // error 不保留气泡（即时隐藏 content/thinking）；30s 后清 stream.error（error-bubble 自动消失）
           stream.retainUntil = Date.now() + 30000
         }
-        // 统一暂停语义：AI 报错归 paused，据 notification.canResume 显继续按钮（可重试）。
-        // retryable=false（4xx validation / 空上下文守卫）不显「继续」，与 resolveCanResume 收口一致。
+        // 统一暂停语义：AI 报错归 paused，「继续运行」按钮显隐尊重服务端 canResume
+        // （computeCanResume 权威判定，error-conventions.md 规则 2）。retryable=false 仅约束文案，
+        // 不再隐藏恢复入口——validation 错误可能源于框架瞬时缺陷，堵死入口会形成死局。
         const pet = pets.value.find((p) => p.chatId === chatId)
         if (pet && typeof d.canResume === 'boolean') {
-          pet.canResume = d.retryable === false ? false : d.canResume
+          pet.canResume = d.canResume
         }
         console.error('[agents] stream error:', errMsg)
       }

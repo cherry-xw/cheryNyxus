@@ -43,13 +43,13 @@
 | 层级 | 位置 | 内容约束 |
 |------|------|----------|
 | `message`（已有） | error 通知 data / toast | 一行友好文案 + `[tracingId]` 前缀，规则不变 |
-| `detail`（新增） | error 通知 data；前端 error-bubble 折叠展示 | 上游技术摘要：`upstream ${status}: ${body前200字符}`；一行内，可含机读片段（request id 等），**不换行、不含栈** |
+| `detail`（新增） | error 通知 data；前端错误条目**全文展示**（聊天界面 run 错误条目 + pet 气泡，不再折叠） | 上游技术摘要：`upstream ${status}: ${body前200字符}`；一行内，可含机读片段（request id 等），**不换行、不含栈** |
 | 日志面（已有） | `logger.event` | 完整上下文 |
 
 规则：
 
 1. **哪些错误必须带 detail**：`brainHttpError`（非 2xx）、`brainInvalidStream`（伪 200）、`brainNetworkError`（网络失败）——即 source=brain 的全部确定性错误。sense/mcp 抛错后续按需补齐。
-2. **`retryable` 语义收紧**：4xx（含 400/404/422）类错误 `category` 不得归类为 `provider`（不可重试的错误不要显示"稍后再试"）；前端对 `retryable=false` 的错误不提供"继续"重试按钮，改为提示修改配置后重新发送。
+2. **`retryable` 语义收紧**：4xx（含 400/404/422）类错误 `category` 不得归类为 `provider`（不可重试的错误不要显示"稍后再试"）；`retryable=false` 仅约束**文案**（不写"稍后再试"），**不再隐藏「继续运行」按钮**——按钮显隐由服务端 error 通知的 `canResume`（`computeCanResume` 权威判定，统一暂停语义）决定，前端原样尊重。理由：validation 错误既可能是配置问题也可能是框架瞬时缺陷（如历史组装不一致），堵死恢复入口会形成"报错 + 无出路"死局。
 3. **文案携带检索指引**：对 `validation` / `provider` 类错误，message 末尾追加「详情见日志，检索 [tracingId]」提示（一行内），让 tracingId 可被发现。
 4. **空上下文守卫错误**：历史加载异常导致无 user 内容的请求在 chat middleware 层拦截（防御性兜底，见 [context-epochs.md 历史连续性与兼容投影](./context-epochs.md#历史连续性与兼容投影)），`category='validation'`、`source='chat'`，message 指向「重新发送」，不进入 retry。
 
@@ -157,7 +157,7 @@ throw new ClassifiedError({
 | Sense 执行错误 | [src/agent/middleware/](../src/agent/middleware/) | TODO | sense 抛错同样要分层 |
 | WebSocket 错误帧（router 结构校验失败） | [src/service/message/router.ts](../src/service/message/router.ts) | ✓ 已实施 | `safeParse` 失败（INVALID_PARAMS）：message 一行中文 + `tracingId`，完整 Zod issues（path/code/expected/received）走 `logger.event("req.invalid_params")` 落盘。handler 业务校验错误（如 `saveRawConfig`）仍各自返回中文 join 串，未走本工具 |
 | HTTP 错误响应 | [src/service/http/](../src/service/http/) | TODO | 401/500 等响应 body 同样分层 |
-| 前端 toast / banner | [web/src/](../web/src/) | ✓ 已实施 | error 通知 data.detail 消费：Pet 气泡 error-bubble `<details>` 折叠展示；`resolveCanResume` 收口 `retryable=false` → 不显「继续」按钮；前端不重生成 detail |
+| 前端 toast / banner | [web/src/](../web/src/) | ✓ 已实施 | error 通知 data.detail 消费：聊天界面 run 错误条目（AgentDialog 时间线末尾，`session.run.errorFact` 驱动）+ Pet 气泡 error-bubble，**detail 全文展示不折叠**；错误保留至用户下次交互（新流首 chunk / done 时清除）；「继续运行」按钮显隐尊重服务端 `canResume`，不因 `retryable=false` 隐藏；前端不重生成 detail |
 
 ## 日志检索约定
 

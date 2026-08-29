@@ -12,7 +12,7 @@ const {
   loaded, loadingAgents, manager, masterPetName, onHandlePointerDown, onHandlePointerMove,
   onHandlePointerUp, onJumpToSpawn, onPromptEpochChange, onPromptSnapShow, onRailJump, onSwitchCascade,
   openGenerationCard, packedGenerations, panelFullStyle, pet, previewOf, previewTooltip,
-  previewTooltipStyle, promptSnap, ref, removeOutgoing, retryOutgoing, runtimeForItem,
+  previewTooltipStyle, promptSnap, ref, removeOutgoing, retryOutgoing, runError, runtimeForItem,
   scrollToBottomSmooth, scrollToTopSmooth, showAgentLoading, showDetailBranchDivider, subPetFace,
   subPetName, subPetType, taskTimeline, titleText, userAvatarCaption, userMarks, virtualScrollRef,
 } = controller
@@ -255,6 +255,13 @@ const {
           </el-tooltip>
         </template>
       </VirtualScroll>
+
+      <!-- run 级中断错误：告知「这里运行中断了」+ 上游技术摘要全文（error-conventions.md detail 通道）。
+           不落时间线 DB，保留至下次 run 清除（新流 chunk / done 时 reducer 清空 session.run.error）。 -->
+      <div v-if="runError" class="run-error-bar" role="alert">
+        <div class="run-error-message">⚠ {{ runError.message }}</div>
+        <div v-if="runError.detail" class="run-error-detail">{{ runError.detail }}</div>
+      </div>
 
       <!-- 滚动顶部 / 底部按钮：堆叠在 drawer-body 底部右侧（绝对定位，不挤压列表布局） -->
       <div v-if="history.length > 0" class="scroll-actions">

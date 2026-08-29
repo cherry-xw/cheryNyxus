@@ -272,9 +272,27 @@
   position: relative; // 滚动按钮 .scroll-actions 绝对定位的参照
 }
 
+// run 级中断错误条目：列表末尾告知运行中断 + 上游技术摘要全文（不折叠）
+// 直角（ui-visual-and-interaction.md 圆角规则）；message/detail 均默认字重 400
+.run-error-bar {
+  margin: 8px 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--el-color-danger);
+  color: var(--el-color-danger);
+  background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
+  font-weight: 400;
+
+  .run-error-detail {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+    word-break: break-all;
+    opacity: 0.85;
+  }
+}
+
 // 滚动顶部 / 底部按钮：堆叠在 drawer-body 右下角（绝对定位，不挤压列表布局）
-.scroll-actions {
-  position: absolute;
+.scroll-actions {  position: absolute;
   right: 14px;
   bottom: 18px;
   display: flex;

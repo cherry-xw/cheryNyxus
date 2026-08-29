@@ -465,6 +465,14 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   const showDetailBranchDivider = computed(
     () => detailBranchStartIndex.value > 0 && branchHistory.value.length > 0,
   )
+  // run 级中断错误（run 失败时后端 error 通知写入 session.run）：列表末尾告知「这里运行中断了」，
+  // 保留至下次 run 清除（新流 chunk / done 时 reducer 清空），不落时间线 DB（error-conventions.md detail 通道）。
+  const runError = computed(() => {
+    const session = chatSessions.sessionsById[props.chatId]
+    const message = session?.run.error
+    if (!message) return null
+    return { message, detail: session?.run.errorFact?.detail }
+  })
   // ── 打包代际（长会话代际分割）：首层卡片条 + 二层代际抽屉（栈深恒 ≤2） ──
   
   /** 已定稿代际（除上一代、当前代外），与树中 pack 节点同数据（snapshot.generations）。 */
@@ -928,7 +936,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     masterPetName, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp, onJumpToSpawn,
     onPromptEpochChange, onPromptSnapShow, onRailJump, onSwitchCascade, openGenerationCard, packedGenerations,
     panelFullStyle, pet, previewOf, previewTooltip, previewTooltipStyle, promptSnap, ref,
-    removeOutgoing, retryOutgoing, runtimeForItem, scrollToBottomSmooth, scrollToTopSmooth,
+    removeOutgoing, retryOutgoing, runError, runtimeForItem, scrollToBottomSmooth, scrollToTopSmooth,
     showAgentLoading, showDetailBranchDivider, subPetFace, subPetName, subPetType, taskTimeline,
     titleText, userAvatarCaption, userMarks, virtualScrollRef,
   }
