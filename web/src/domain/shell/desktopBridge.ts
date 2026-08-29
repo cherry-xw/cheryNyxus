@@ -1,7 +1,9 @@
 export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
+export type SettingsSection = 'provider' | 'runtime' | 'limits'
 
 export interface OpenWindowRequest {
   kind: WindowKind
+  settingsSection?: SettingsSection
   presetId?: string
   chatId?: string
   presetName?: string
@@ -19,6 +21,7 @@ export interface DesktopBridge {
   onWindowMaximized(listener: (maximized: boolean) => void): () => void
   onWindowFocused(listener: (focused: boolean) => void): () => void
   onWorkbenchFocus(listener: (focus: OpenWindowRequest['focus']) => void): () => void
+  onSettingsSection(listener: (section: SettingsSection) => void): () => void
   onOpenChat(listener: (chatId: string) => void): () => void
   onSurfaceRetarget(
     listener: (target: {

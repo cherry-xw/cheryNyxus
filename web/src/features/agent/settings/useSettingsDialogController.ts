@@ -9,7 +9,17 @@
  * ⚠ 入场动画只用 opacity + y（无 scale）：scale 会让 panel 视觉上 < 720px，
  *    若 RPC 在 180ms 内 resolve，content 切换会被叠在 scale 动画里导致宽高抖动。
  */
-import { computed, nextTick, onMounted, onUnmounted, provide, reactive, readonly, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  provide,
+  reactive,
+  readonly,
+  ref,
+  watch,
+} from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { ArrowLeft, ArrowRight, Close } from '@element-plus/icons-vue'
 import { useAgentsStore, useConnectionStore } from '@/application/public'
@@ -48,8 +58,15 @@ import PluginsTab from './tabs/tools/PluginsTab.vue'
 import HooksTab from './tabs/hooks/HooksTab.vue'
 import SkeletonTab from './tabs/SkeletonTab.vue'
 import OpenConfigDirButton from './components/OpenConfigDirButton.vue'
+import type { SettingsSection } from '@/domain/shell/desktopBridge'
 
-export type SettingsDialogControllerProps = { native?: boolean }
+export type SettingsDialogControllerProps = { native?: boolean; initialSection?: SettingsSection }
+
+const SETTINGS_TAB_BY_SECTION: Record<SettingsSection, TabKey> = {
+  provider: 'brains',
+  runtime: 'presets',
+  limits: 'global',
+}
 
 export function useSettingsDialogController(props: SettingsDialogControllerProps) {
   const MotionDiv = motion.div
@@ -60,9 +77,14 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const isNative = computed(() => !!props.native && !!desktopBridge())
   const bridge = desktopBridge()
   const draft = ref<ConfigDto | null>(null)
-  const activeTab = ref<TabKey>('presets')
+  const initialTab = props.initialSection
+    ? SETTINGS_TAB_BY_SECTION[props.initialSection]
+    : agents.settingsSection
+      ? SETTINGS_TAB_BY_SECTION[agents.settingsSection]
+      : 'presets'
+  const activeTab = ref<TabKey>(initialTab)
   /** 实际已揭示的 Tab；切换时先置空，让骨架屏完成一帧绘制后再挂载目标页。 */
-  const renderedTab = ref<TabKey | null>('presets')
+  const renderedTab = ref<TabKey | null>(initialTab)
   const tabSwitching = ref(false)
   const rolesShadowMode = ref(false)
   provide(SETTINGS_ACTIVE_TAB_KEY, readonly(activeTab))
@@ -102,9 +124,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   /** 释放时判定「拖到顶部」的阈值（px）：面板上缘距视口顶 ≤ 该值即最大化。 */
   const MAXIMIZE_TOP_THRESHOLD = 12
   const panelStyle = computed(() => ({
-    transform: maximized.value
-      ? undefined
-      : `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+    transform: maximized.value ? undefined : `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
   }))
   /** 面板合并样式：主题色变量 + 拖动 transform（motion-v 的 style 不接受 Vue 数组语法，展开合并）。 */
   const panelStyles = computed(() => ({
@@ -402,6 +422,10 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
         rolesShadowMode.value = false
         return
       }
+      if (agents.settingsSection) {
+        activeTab.value = SETTINGS_TAB_BY_SECTION[agents.settingsSection]
+        renderedTab.value = activeTab.value
+      }
       await loadSettingsData()
     },
     { immediate: true },
@@ -455,6 +479,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       bridge?.windowControl('close')
       return
     }
+    agents.settingsSection = null
     agents.settingsOpen = false
   }
   function onError(msg: string): void {
@@ -486,11 +511,16 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     const tabKey = key ? ERROR_TAB_BY_PREFIX[key] : undefined
     if (!tabKey) return { text: line }
     const tab = TABS.find((t) => t.key === tabKey)
-    return tab ? { text: line, tab: { key: tab.key, icon: tab.icon, label: tab.label } } : { text: line }
+    return tab
+      ? { text: line, tab: { key: tab.key, icon: tab.icon, label: tab.label } }
+      : { text: line }
   }
   /** 错误弹窗逐行条目（保存/加载失败共用）。 */
   const errorLines = computed<ErrorLine[]>(() =>
-    (error.value ?? '').split('\n').filter((l) => l.trim()).map(parseErrorLine),
+    (error.value ?? '')
+      .split('\n')
+      .filter((l) => l.trim())
+      .map(parseErrorLine),
   )
   /** 点击错误行跳转对应 Tab。 */
   function gotoErrorTab(key: TabKey): void {
@@ -534,15 +564,13 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     try {
       sanitizeSenseGroups(draft.value)
       // 并行保存 config.yaml + hooks.json
-      const savePromises: Promise<unknown>[] = [
-        agentApi.saveConfig(draft.value),
-      ]
+      const savePromises: Promise<unknown>[] = [agentApi.saveConfig(draft.value)]
       const saveHooks = hooksState.dirty
       if (saveHooks) {
         // 过滤掉 command 为空的 handler（前端可能留空行）
         const cleaned: Record<string, HookHandlerDTO[]> = {}
         for (const [event, list] of Object.entries(hooksState.handlers)) {
-          const valid = list.filter(h => h.command?.trim())
+          const valid = list.filter((h) => h.command?.trim())
           if (valid.length > 0) cleaned[event] = valid
         }
         // 空对象同样需要保存，表示用户删除了最后一个全局 Hook。
@@ -639,6 +667,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
    * connected 抛「还没连上服务器」。故等待 `connection.status === 'connected'` 后再拉数据。
    */
   let nativeConnectWatch: (() => void) | undefined
+  let nativeSectionCleanup: (() => void) | undefined
   function loadNativeSettings(): void {
     if (!isNative.value) return
     if (connection.status === 'connected') {
@@ -658,12 +687,18 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     )
   }
   onMounted(() => {
+    if (isNative.value) {
+      nativeSectionCleanup = bridge?.onSettingsSection((section) => {
+        activeTab.value = SETTINGS_TAB_BY_SECTION[section]
+      })
+    }
     // native 面：settingsOpen 永不翻转（窗开即挂载），等 WS 连接后拉数据 + 挂 tab 滚动；
     // 浏览器路径由 immediate watch(settingsOpen) 驱动，此处 no-op。
     loadNativeSettings()
   })
   onUnmounted(() => {
     nativeConnectWatch?.()
+    nativeSectionCleanup?.()
     dragCleanup?.()
     clearRestartWait()
     teardownTabScroll()
@@ -690,7 +725,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     overflowed.value = el.scrollWidth - el.clientWidth > 1
     canLeft.value = el.scrollLeft > 1
     canRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
-  
+
     console.log('[tab-scroll]', {
       scrollWidth: el.scrollWidth,
       clientWidth: el.clientWidth,
@@ -746,16 +781,76 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   }
 
   return {
-    AnimatePresence, ArrowLeft, ArrowRight, BrainsTab, Close, CommandsTab, GlobalTab, HooksTab,
-    McpTab, MediaTab, MotionDiv, OVERLAY_Z_INDEX, OpenConfigDirButton, PluginsTab, PresetsTab,
-    RolesTab, SensesTab, SkeletonTab, SkillsTab, TABS, activeTab, agents, canLeft, canRight, close,
-    draft, dragging, envVars, error, errorLines, gotoErrorTab, hintLines, hooksState, indexCount,
-    isNative, isWaitingReconnect, loading, maximized, onError, onTitlePointerDown, overflowed,
-    panelStyles, plugins, prompts, ref, refreshPlugins, refreshRules, refreshSkillSources,
-    refreshSkills, renderedTab, rolesShadowMode, rules, save, savedHint, savedWarnings, saving,
+    AnimatePresence,
+    ArrowLeft,
+    ArrowRight,
+    BrainsTab,
+    Close,
+    CommandsTab,
+    GlobalTab,
+    HooksTab,
+    McpTab,
+    MediaTab,
+    MotionDiv,
+    OVERLAY_Z_INDEX,
+    OpenConfigDirButton,
+    PluginsTab,
+    PresetsTab,
+    RolesTab,
+    SensesTab,
+    SkeletonTab,
+    SkillsTab,
+    TABS,
+    activeTab,
+    agents,
+    canLeft,
+    canRight,
+    close,
+    draft,
+    dragging,
+    envVars,
+    error,
+    errorLines,
+    gotoErrorTab,
+    hintLines,
+    hooksState,
+    indexCount,
+    isNative,
+    isWaitingReconnect,
+    loading,
+    maximized,
+    onError,
+    onTitlePointerDown,
+    overflowed,
+    panelStyles,
+    plugins,
+    prompts,
+    ref,
+    refreshPlugins,
+    refreshRules,
+    refreshSkillSources,
+    refreshSkills,
+    renderedTab,
+    rolesShadowMode,
+    rules,
+    save,
+    savedHint,
+    savedWarnings,
+    saving,
     scrollTabBar,
-    senseDocs, senseTools, setPanelEl, settingsThemeStyle, skillNames, skillSources, skills,
-    tabBarRef, tabSwitching, toggleMaximize, updateHooksHandlers, validatePresetWorkspace, waitElapsed,
+    senseDocs,
+    senseTools,
+    setPanelEl,
+    settingsThemeStyle,
+    skillNames,
+    skillSources,
+    skills,
+    tabBarRef,
+    tabSwitching,
+    toggleMaximize,
+    updateHooksHandlers,
+    validatePresetWorkspace,
+    waitElapsed,
     workspaceWarnings,
   }
 }

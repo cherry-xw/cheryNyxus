@@ -1,4 +1,5 @@
 import { computed, ref, type ComputedRef } from 'vue'
+import type { SettingsSection } from '@/domain/shell/desktopBridge'
 
 /** 历史抽屉栈最大深度（防多级 spawn 递归下钻失控）。 */
 const HISTORY_STACK_MAX = 5
@@ -67,6 +68,8 @@ export function createUiState() {
   const historyDrawerGeneration = ref<{ rootChatId: string; generationIndex: number } | null>(null)
   const historyListOpen = ref(false)
   const settingsOpen = ref(false)
+  /** Feedback actions can open Settings directly at the relevant configuration area. */
+  const settingsSection = ref<SettingsSection | null>(null)
   const pendingScrollSenseCallId = ref<string | null>(null)
   // 子 agent 消息显示模式（跨所有 chat 持久；VirtualScroll 离屏销毁 MessageBubble 会丢 local 态，故放 store 兜底）。
   const subagentDisplay = ref<SubagentDisplayMode>('show')
@@ -403,6 +406,7 @@ export function createUiState() {
     pruneDeletedChats,
     historyListOpen,
     settingsOpen,
+    settingsSection,
     pendingScrollSenseCallId,
     subagentDisplay,
     setSubagentDisplay,

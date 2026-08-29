@@ -21,8 +21,10 @@ interface BackendConfig {
  * desktop renderer → main 的独立原生窗打开请求（与 main.ts 的 OpenWindowRequest 保持一致）。
  */
 export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
+export type SettingsSection = 'provider' | 'runtime' | 'limits'
 export interface OpenWindowRequest {
   kind: WindowKind
+  settingsSection?: SettingsSection
   presetId?: string
   chatId?: string
   /** 入口携带的预设名（workbench 窗空白态角色编制解析；经 main extraParams 拼 URL 供 App.vue 读）。 */
@@ -66,20 +68,25 @@ function subscribe<T>(channel: string, listener: (data: T) => void): () => void 
  * 每个 surface 各自直连后端 WebSocket。
  */
 const desktopBridge = {
-  setMousePassthrough: (ignore: boolean) =>
-    ipcRenderer.send('desktop:mouse-passthrough', ignore),
+  setMousePassthrough: (ignore: boolean) => ipcRenderer.send('desktop:mouse-passthrough', ignore),
   openWindow: (req: OpenWindowRequest) => ipcRenderer.send('window:open', req),
   windowControl: (action: 'minimize' | 'maximize' | 'restore' | 'close') =>
     ipcRenderer.send('window:control', action),
   onWindowMaximized: (listener: (maximized: boolean) => void) =>
     subscribe('window:maximized', listener),
-  onWindowFocused: (listener: (focused: boolean) => void) =>
-    subscribe('window:focused', listener),
+  onWindowFocused: (listener: (focused: boolean) => void) => subscribe('window:focused', listener),
   onWorkbenchFocus: (listener: (focus: OpenWindowRequest['focus']) => void) =>
     subscribe('workbench:focus', listener),
+  onSettingsSection: (listener: (section: SettingsSection) => void) =>
+    subscribe('settings:focus-section', listener),
   onOpenChat: (listener: (chatId: string) => void) => subscribe('workbench:open-chat', listener),
-  onSurfaceRetarget: (listener: (target: { chatId: string; source?: 'pet' | 'history' | 'nyxus'; view?: 'composer' | 'attention' | 'tree' }) => void) =>
-    subscribe('surface:retarget', listener),
+  onSurfaceRetarget: (
+    listener: (target: {
+      chatId: string
+      source?: 'pet' | 'history' | 'nyxus'
+      view?: 'composer' | 'attention' | 'tree'
+    }) => void,
+  ) => subscribe('surface:retarget', listener),
   flashFrame: (flag: boolean) => ipcRenderer.send('window:flash', flag),
   setBackgroundColor: (color: string) => ipcRenderer.send('window:set-background', color),
   emitThemeChanged: (theme: 'light' | 'dark') => ipcRenderer.send('theme:changed', theme),

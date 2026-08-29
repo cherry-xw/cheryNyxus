@@ -69,6 +69,8 @@ const surfacePresetId = query.get('presetId') ?? undefined
 /** 入口携带的预设名（workbench 窗空白态角色编制解析；main extraParams 拼入 URL）。 */
 const surfacePresetName = query.get('presetName') ?? undefined
 const surfaceChatId = query.get('chatId') ?? undefined
+const surfaceSettingsSection = query.get('settingsSection') as
+  'provider' | 'runtime' | 'limits' | null
 const surfaceSource = query.get('source') as 'pet' | 'history' | 'nyxus' | null
 const surfaceView = query.get('view') as 'composer' | 'attention' | 'tree' | null
 
@@ -298,7 +300,7 @@ async function bootstrap(): Promise<void> {
     <template #title-actions>
       <OpenConfigDirButton @error="onSettingsOpenDirError" />
     </template>
-    <SettingsDialog native />
+    <SettingsDialog native :initial-section="surfaceSettingsSection ?? undefined" />
   </WindowFrame>
   <!-- workbench 面同用 WindowFrame 公共外壳：标题=预设名，attentionBlink→标题栏闪烁，
        关闭经 closeWorkbench（先释放根时间线订阅再交 main hide 保活）；

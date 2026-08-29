@@ -21,8 +21,7 @@ type GraphicsMode = 'hardware' | 'software'
 
 const GPU_SAFE_MODE_PATH = join(app.getPath('userData'), 'gpu-safe-mode.json')
 const graphicsModeEnv = process.env.CHERY_GRAPHICS_MODE?.trim().toLowerCase()
-const forceHardware =
-  process.argv.includes('--chery-force-gpu') || graphicsModeEnv === 'hardware'
+const forceHardware = process.argv.includes('--chery-force-gpu') || graphicsModeEnv === 'hardware'
 const forceSoftware =
   process.argv.includes('--chery-software-rendering') ||
   process.argv.includes('--disable-gpu') ||
@@ -50,8 +49,10 @@ function recordGpuSafeMode(reason: string): void {
  * 仅 desktop 窗可发起；main 惰性创建 / show+focus 复用（工作台窗 hide 保活）。
  */
 export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
+export type SettingsSection = 'provider' | 'runtime' | 'limits'
 export interface OpenWindowRequest {
   kind: WindowKind
+  settingsSection?: SettingsSection
   presetId?: string
   chatId?: string
   /** 入口携带的预设名（workbench 窗空白态角色编制解析；经 extraParams 拼 URL 供 App.vue 读）。 */
@@ -68,7 +69,14 @@ export interface OpenWindowRequest {
 function isValidOpenRequest(value: unknown): value is OpenWindowRequest {
   if (!value || typeof value !== 'object') return false
   const req = value as Partial<OpenWindowRequest>
-  if (req.kind === 'settings') return true
+  if (req.kind === 'settings') {
+    return (
+      req.settingsSection === undefined ||
+      req.settingsSection === 'provider' ||
+      req.settingsSection === 'runtime' ||
+      req.settingsSection === 'limits'
+    )
+  }
   if (req.kind === 'login') return true
   if (req.kind === 'history') return typeof req.chatId === 'string'
   if (req.kind === 'composer') {
@@ -304,7 +312,9 @@ function loadRenderer(win: BrowserWindow, params: Record<string, string> = {}): 
  */
 function attachWindowDiagnostics(win: BrowserWindow, label: string): void {
   win.webContents.on('render-process-gone', (_e, details) => {
-    console.error(`[${label}] 渲染进程异常退出: reason=${details.reason} exitCode=${details.exitCode}`)
+    console.error(
+      `[${label}] 渲染进程异常退出: reason=${details.reason} exitCode=${details.exitCode}`,
+    )
   })
   win.webContents.on('did-fail-load', (_e, code, desc, url, isMain) => {
     if (isMain) console.error(`[${label}] 页面加载失败: ${code} ${desc} ${url}`)
@@ -374,10 +384,13 @@ const SETTINGS_DEFAULT_SIZE = { width: 1080, height: 760 }
 const SETTINGS_MIN_SIZE = { width: 900, height: 640 }
 const WORKBENCH_DEFAULT_SIZE = { width: 1200, height: 800 }
 const COMMON_MIN_SIZE = { width: 640, height: 480 }
-const AUX_WINDOW_SIZES: Record<'composer' | 'history' | 'login', {
-  defaultSize: { width: number; height: number }
-  minSize: { width: number; height: number }
-}> = {
+const AUX_WINDOW_SIZES: Record<
+  'composer' | 'history' | 'login',
+  {
+    defaultSize: { width: number; height: number }
+    minSize: { width: number; height: number }
+  }
+> = {
   composer: { defaultSize: { width: 420, height: 640 }, minSize: { width: 380, height: 520 } },
   history: { defaultSize: { width: 620, height: 760 }, minSize: { width: 420, height: 520 } },
   login: { defaultSize: { width: 440, height: 620 }, minSize: { width: 420, height: 520 } },
@@ -389,8 +402,12 @@ function managedWindowSizes(kind: WindowKind): {
   minSize: { width: number; height: number }
 } {
   const workArea = screen.getPrimaryDisplay().workArea
-  const aux = kind === 'composer' || kind === 'history' || kind === 'login' ? AUX_WINDOW_SIZES[kind] : undefined
-  const nominal = aux?.defaultSize ?? (kind === 'settings' ? SETTINGS_DEFAULT_SIZE : WORKBENCH_DEFAULT_SIZE)
+  const aux =
+    kind === 'composer' || kind === 'history' || kind === 'login'
+      ? AUX_WINDOW_SIZES[kind]
+      : undefined
+  const nominal =
+    aux?.defaultSize ?? (kind === 'settings' ? SETTINGS_DEFAULT_SIZE : WORKBENCH_DEFAULT_SIZE)
   const minNominal = aux?.minSize ?? (kind === 'settings' ? SETTINGS_MIN_SIZE : COMMON_MIN_SIZE)
   return {
     defaultSize: {
@@ -522,13 +539,23 @@ function restoreSourceWindow(entry: ManagedWindow): void {
   showManagedWindow(key)
 }
 
-function openSettingsWindow(): void {
-  if (showManagedWindow('settings')) return
+function openSettingsWindow(
+  req: OpenWindowRequest & { kind: 'settings' } = { kind: 'settings' },
+): void {
+  if (showManagedWindow('settings')) {
+    if (req.settingsSection) {
+      managedWindows
+        .get('settings')
+        ?.win.webContents.send('settings:focus-section', req.settingsSection)
+    }
+    return
+  }
   createManagedWindow('settings', {
     kind: 'settings',
     title: 'CheryNyxus 设置',
     surface: 'settings',
     keepAlive: false,
+    ...(req.settingsSection ? { extraParams: { settingsSection: req.settingsSection } } : {}),
   })
 }
 
@@ -657,7 +684,12 @@ function openAuxWindow(req: OpenWindowRequest & { kind: 'composer' | 'history' |
     return
   }
 
-  const title = req.kind === 'composer' ? 'CheryNyxus 会话' : req.kind === 'history' ? 'CheryNyxus 历史' : '连接服务'
+  const title =
+    req.kind === 'composer'
+      ? 'CheryNyxus 会话'
+      : req.kind === 'history'
+        ? 'CheryNyxus 历史'
+        : '连接服务'
   createManagedWindow(key, {
     kind: req.kind,
     title,
@@ -758,11 +790,7 @@ app.whenReady().then(async () => {
   // GPU 进程等工具子进程异常退出观测（与 attachWindowDiagnostics 渲染进程日志互补）
   app.on('child-process-gone', (_e, details) => {
     console.warn(`[main] 子进程异常退出: type=${details.type} reason=${details.reason}`)
-    if (
-      !isQuitting &&
-      details.type.toLowerCase() === 'gpu' &&
-      details.reason !== 'clean-exit'
-    ) {
+    if (!isQuitting && details.type.toLowerCase() === 'gpu' && details.reason !== 'clean-exit') {
       recordGpuSafeMode(`${details.type}:${details.reason}`)
     }
   })
@@ -807,7 +835,7 @@ app.whenReady().then(async () => {
     if (!isTrustedRenderer(event.sender)) return
     if (!isValidOpenRequest(req)) return
     if (req.kind === 'settings') {
-      openSettingsWindow()
+      openSettingsWindow(req as OpenWindowRequest & { kind: 'settings' })
     } else if (req.kind === 'workbench') {
       openWorkbenchWindow(req as OpenWindowRequest & { kind: 'workbench' })
     } else {
