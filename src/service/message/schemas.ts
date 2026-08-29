@@ -285,6 +285,8 @@ export const requestSchemas = {
     senseGroup: z.string().optional(),
     mcpServers: mcpServersSchema,
     parentChatId: nonEmptyString.optional(),
+    /** 空白复用检查开关（缺省 false = 启用检查）；true 强制新建 */
+    skipBlankReuse: z.boolean().optional(),
   }).superRefine((value, ctx) => {
     if (!value.preset && !value.brain) {
       ctx.addIssue({

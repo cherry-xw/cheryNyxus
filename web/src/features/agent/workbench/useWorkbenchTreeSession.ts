@@ -192,25 +192,20 @@ export function useWorkbenchTreeSession(options: {
     if (creating.value) return
     creating.value = true
     try {
-      await agents.fetchHistoryList()
+      // 空白复用判定在后端（chat.create 默认启用，契约见 docs/interaction.md）：命中同预设
+      // turnCount===0 的 root 会话直接返回其 chatId（reused:true），前端无须区分，直接跳转。
+      // 此前前端曾以 stage 目录的 turnCount 自行判空——stage lean 响应恒无 turnCount，判定恒真，
+      // 导致「新建会话」永远复用当前会话而不发创建请求（2026-08-29 修复，判定移交后端）。
       const isNyxusWindow = options.presetId === CHERY_NYXUS_PRESET
-      const blank = agents.historyList.find(
-        (session) =>
-          !session.parentChatId &&
-          (isNyxusWindow
-            ? session.preset === CHERY_NYXUS_PRESET
-            : session.presetId === options.presetId) &&
-          (session.turnCount ?? 0) === 0,
-      )
       let chatId: string
-      if (blank) chatId = blank.chatId
-      else if (isNyxusWindow || toValue(options.isNyxus)) chatId = await agents.createNyxusSession()
+      if (isNyxusWindow || toValue(options.isNyxus)) chatId = await agents.createNyxusSession()
       else {
         const presetName = toValue(options.presetName)
         if (!presetName) throw new Error('工作台未关联到预设，无法新建会话，请在设置中配置预设')
         chatId = await agents.createMasterPet({ preset: presetName })
       }
-      if (!blank) await agents.fetchHistoryList()
+      // 复用/新建都会改变目录（stage 每预设仅最新 1 root），switchSession 的 taskId 查询依赖目录
+      await agents.fetchHistoryList()
       await switchSession(chatId)
     } catch (cause) {
       console.error('[WorkbenchDialog] createSession failed:', cause)

@@ -182,6 +182,34 @@ export async function handleChatCreate(
     // 预设路径：解析编制快照 + 记 preset 名 + spawn roster（选中子 agent type 列表）+ prompt 路径
     const resolved = resolvePresetSelection(p.preset)
     selection = resolved.selection
+    // 空白复用（默认启用，skipBlankReuse 显式关闭）：预设路径 + 主 chat + 未显式指定 chatId 时，
+    // 命中同预设 turnCount===0（无任何 user 消息）的最近 root 会话即直接返回其 chatId——
+    // 不新建 DB 行、不 ensureChat，前端「新建会话」入口据此天然去重。
+    // runtime 字段回显该会话持久化的 metadata.runtime（缺失时回退本次解析值）。
+    if (!p.skipBlankReuse && !p.parentChatId && !p.chatId) {
+      const reusedChat = findBlankPresetRootChat(p.preset)
+      if (reusedChat) {
+        const reusedMeta = reusedChat.metadata
+          ? (safeJsonParse(reusedChat.metadata, {}) as {
+              presetId?: string
+              runtime?: { brain?: string; senseGroup?: string; mcpServers?: string[] }
+            })
+          : {}
+        const workspace = getChatWorkspace(reusedChat.id)
+        logger.event('chat.create', { chatId: reusedChat.id, preset: p.preset, reused: true })
+        return {
+          chatId: reusedChat.id,
+          ...(typeof reusedMeta.presetId === 'string'
+            ? { presetId: reusedMeta.presetId }
+            : { presetId: resolved.presetId }),
+          brain: reusedMeta.runtime?.brain ?? selection.brain,
+          senseGroup: reusedMeta.runtime?.senseGroup ?? selection.senseGroup,
+          mcpServers: reusedMeta.runtime?.mcpServers ?? [...selection.mcpServers],
+          reused: true,
+          ...(workspace ? { workspace, workspaceValid: validateWorkspacePath(workspace).valid } : {}),
+        }
+      }
+    }
     metadata.preset = p.preset
     metadata.presetId = resolved.presetId
     // leader 角色稳定身份快照（getChatType ID 优先反查当前名，角色改名不影响历史主 chat 身份）。
@@ -227,6 +255,20 @@ export async function handleChatCreate(
     mcpServers: selection.mcpServers,
     ...(workspace ? { workspace, workspaceValid } : {}),
   }
+}
+
+/**
+ * 空白复用：查同预设 root 会话中无任何 user 消息（turnCount===0）者，取最近更新的一条。
+ * 复用 listRootChatsForPresets（updated_at DESC）+ getChatPreviews（user 消息计数），
+ * turnCount 口径与 chat.list includePreview 完全一致；presetId/preset 双字段关联与
+ * handleChatList 的 stage 归属判定同源（覆盖预设改名与旧 name-only 数据）。
+ */
+function findBlankPresetRootChat(preset: string): ReturnType<typeof listRootChatsForPresets>[number] | undefined {
+  const presetId = config.presets?.[preset]?.id
+  const association = presetId ? { presetId, preset } : { preset }
+  const roots = listRootChatsForPresets([association])
+  const previews = getChatPreviews(roots)
+  return roots.find((chat) => previews.get(chat.id)?.turnCount === 0)
 }
 
 /**
