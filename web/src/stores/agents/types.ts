@@ -219,7 +219,7 @@ export interface StreamState {
    */
   error?: string
   /** Legacy Pet stream mirror of the canonical structured run error. */
-  errorFact?: ProtocolError & { canResume?: boolean }
+  errorFact?: ProtocolError & { canResume?: boolean; detail?: string }
   /**
    * 回放期标记（chat.sync 期间为 true，回放结束清；F3 收敛）。
    * - true：回放期，事件幂等累加进缓存数组 + 抑制副作用 RPC（startSpawn/resumeAgent）+ 抑制终态

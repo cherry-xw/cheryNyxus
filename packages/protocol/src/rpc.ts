@@ -136,6 +136,8 @@ export type ProtocolError = z.infer<typeof ProtocolErrorSchema>
 
 export const RunErrorNotificationDataSchema = ProtocolErrorSchema.extend({
   canResume: z.boolean(),
+  /** 上游技术摘要（≤200 字符一行，如 `upstream 400: {...}`）；前端 error-bubble 折叠展示 */
+  detail: z.string().min(1).max(200).optional(),
 })
 export type RunErrorNotificationData = z.infer<typeof RunErrorNotificationDataSchema>
 

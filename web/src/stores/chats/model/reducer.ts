@@ -69,6 +69,7 @@ function structuredRunError(
         : '系统出了点小问题',
     source: source as NonNullable<ChatSession['run']['errorFact']>['source'],
     retryable: typeof data.retryable === 'boolean' ? data.retryable : false,
+    ...(typeof data.detail === 'string' && data.detail.length > 0 ? { detail: data.detail } : {}),
     tracingId:
       typeof data.tracingId === 'string' && data.tracingId.length > 0
         ? data.tracingId

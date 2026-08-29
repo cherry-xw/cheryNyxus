@@ -83,6 +83,7 @@ export const useAgentsStore = defineStore('agents', () => {
         runningTools: session.interaction.runningTools,
         currentTodo: session.interaction.currentTodo,
         error: session.run.error,
+        errorFact: session.run.errorFact,
       }
     }
     return projection

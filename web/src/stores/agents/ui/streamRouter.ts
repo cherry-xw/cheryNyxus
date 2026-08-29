@@ -279,6 +279,7 @@ export function createStreamRouter(
         const d = (n.data ?? {}) as {
           code?: string
           message?: string
+          detail?: string
           source?: NonNullable<StreamState['errorFact']>['source']
           retryable?: boolean
           tracingId?: string
@@ -293,6 +294,7 @@ export function createStreamRouter(
             message: errMsg,
             source: d.source ?? 'system',
             retryable: d.retryable ?? false,
+            ...(d.detail ? { detail: d.detail } : {}),
             tracingId: d.tracingId ?? requestId ?? n.runId ?? `legacy:${chatId}`,
             ...(d.retryAfterMs !== undefined ? { retryAfterMs: d.retryAfterMs } : {}),
             ...(d.canResume !== undefined ? { canResume: d.canResume } : {}),
@@ -300,9 +302,12 @@ export function createStreamRouter(
           // error 不保留气泡（即时隐藏 content/thinking）；30s 后清 stream.error（error-bubble 自动消失）
           stream.retainUntil = Date.now() + 30000
         }
-        // 统一暂停语义：AI 报错归 paused，据 notification.canResume 显继续按钮（可重试）
+        // 统一暂停语义：AI 报错归 paused，据 notification.canResume 显继续按钮（可重试）。
+        // retryable=false（4xx validation / 空上下文守卫）不显「继续」，与 resolveCanResume 收口一致。
         const pet = pets.value.find((p) => p.chatId === chatId)
-        if (pet && typeof d.canResume === 'boolean') pet.canResume = d.canResume
+        if (pet && typeof d.canResume === 'boolean') {
+          pet.canResume = d.retryable === false ? false : d.canResume
+        }
         console.error('[agents] stream error:', errMsg)
       }
       return

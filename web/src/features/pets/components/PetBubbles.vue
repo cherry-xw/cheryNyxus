@@ -127,7 +127,14 @@ const batchInfo = computed(() => {
       :speech="speech"
       :style="speechStyle"
     >
-      <div class="work-text error-text">⚠ {{ stream.error }}</div>
+      <div class="work-text error-text">
+        <div>⚠ {{ stream.error }}</div>
+        <!-- 上游技术摘要折叠展示（error-conventions.md detail 通道）：默认收起，点开可见 status/body 摘要 -->
+        <details v-if="stream.errorFact?.detail" class="error-detail">
+          <summary>详情</summary>
+          <span class="error-detail-body">{{ stream.errorFact.detail }}</span>
+        </details>
+      </div>
     </PetBubble>
     <PetBubble
       v-else-if="showWorkMain"
@@ -221,5 +228,25 @@ const batchInfo = computed(() => {
   line-height: 1.4;
   word-break: break-word;
   white-space: pre-wrap;
+
+  /* detail 折叠：全直角、正文 400；summary 为关键词强调用 600 */
+  .error-detail {
+    margin-top: 4px;
+    border-radius: 0;
+
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: color-mix(in srgb, var(--danger) 80%, var(--ink));
+      user-select: none;
+    }
+
+    .error-detail-body {
+      display: block;
+      margin-top: 2px;
+      font-weight: 400;
+      color: color-mix(in srgb, var(--ink) 78%, var(--danger));
+    }
+  }
 }
 </style>

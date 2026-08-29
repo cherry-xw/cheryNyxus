@@ -22,7 +22,7 @@ import type {
 import { SupervisionLevel } from '@/core/config'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
-import { COMPLIANT_TRACE_PATTERN, friendlyMessage, newTracingId } from '@/utils/error.js'
+import { COMPLIANT_TRACE_PATTERN, ClassifiedError, friendlyMessage, newTracingId } from '@/utils/error.js'
 import { breakdownUsed } from '@/utils/token.js'
 import { computeContextBreakdown } from './contextUsage.js'
 import { maybeAutoCompactAfterDone } from './autoCompact.js'
@@ -344,12 +344,17 @@ export async function* streamAgentChunks(
           LogLevel.error,
         )
         // 合规（已前置 tracingId，如终态 throwUserFacing 错误）→ 原样；否则按 userMessage / friendlyMessage 出，前置 tracingId。
+        // validation/provider 类错误末尾追加检索指引（一行内），让 tracingId 可被发现（error-conventions.md 规则 3）。
         const embeddedTracingId = raw?.match(/^\[([0-9a-f]{8})\]\s/i)?.[1]
         const tracingId = embeddedTracingId ?? newTracingId()
-        const message =
+        const category = info?.category ?? 'unknown'
+        let message =
           raw && COMPLIANT_TRACE_PATTERN.test(raw)
             ? raw
-            : `[${tracingId}] ${info?.userMessage ?? friendlyMessage(info?.category ?? 'unknown', info?.source ?? 'system')}`
+            : `[${tracingId}] ${info?.userMessage ?? friendlyMessage(category, info?.source ?? 'system')}`
+        if (!COMPLIANT_TRACE_PATTERN.test(raw ?? '') && (category === 'validation' || category === 'provider')) {
+          message += `（详情见日志，检索 [${tracingId}]）`
+        }
         errored = true
         terminated = true
         const terminationBaseRevision = getTimelineRevision(chatId)
@@ -368,8 +373,9 @@ export async function* streamAgentChunks(
           'error',
           rid,
           {
-            code: `RUN_${(info?.category ?? 'unknown').toUpperCase()}`,
+            code: `RUN_${category.toUpperCase()}`,
             message,
+            ...(info?.detail !== undefined ? { detail: info.detail } : {}),
             source: info?.source ?? 'system',
             retryable: info?.recoverable ?? false,
             tracingId,
@@ -572,18 +578,25 @@ export async function* streamAgentChunks(
     if (!isAgentAbortError(error)) {
       const raw = error.message
       logger.event('chat.run.error', { message: raw, source: 'generator-throw' }, LogLevel.error)
-      // 与 error chunk 分支同款友好文案（前置 tracingId；无 category/source → unknown/system）。
+      // 与 error chunk 分支同款友好文案（前置 tracingId；ClassifiedError 取其分类，否则 unknown/system）。
       // 注意：此处绝不 recordTerminationFact / 发 timeline.patch——observer.ts 已在 catch 里对
       // park/未预期记过终止事实并发 patch，重复会双发。
+      const classified = error instanceof ClassifiedError ? error : undefined
+      const category = classified?.category ?? 'unknown'
+      const source = classified?.source ?? 'system'
       const tracingId = newTracingId()
-      const message = `[${tracingId}] ${friendlyMessage('unknown', 'system')}`
+      let message = `[${tracingId}] ${classified?.userMessage ?? friendlyMessage(category, source)}`
+      if (category === 'validation' || category === 'provider') {
+        message += `（详情见日志，检索 [${tracingId}]）`
+      }
       yield createNotification(
         'error',
         rid,
         {
-          code: 'RUN_UNKNOWN',
+          code: `RUN_${category.toUpperCase()}`,
           message,
-          source: 'system',
+          ...(classified?.detail !== undefined ? { detail: classified.detail } : {}),
+          source,
           retryable: false,
           tracingId,
           canResume: computeCanResume(chatId),

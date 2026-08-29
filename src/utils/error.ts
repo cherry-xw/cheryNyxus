@@ -59,11 +59,18 @@ export class ClassifiedError extends Error {
   readonly category: ErrorCategory
   readonly source: ErrorSource
   readonly userMessage: string
+  /**
+   * 上游技术摘要（可选，≤200 字符，一行）：用户面与日志面之间的中间层。
+   * brain 确定性错误（HTTP 非 2xx / 伪 200 / 网络失败）必带，如 `upstream 400: {"error":...}`。
+   * 前端 error-bubble 折叠展示；不进 message 本体（见 error-conventions.md「错误详情通道」）。
+   */
+  readonly detail?: string
   constructor(opts: {
     message: string
     userMessage: string
     category: ErrorCategory
     source: ErrorSource
+    detail?: string
     cause?: unknown
   }) {
     super(opts.message, opts.cause !== undefined ? { cause: opts.cause } : undefined)
@@ -71,6 +78,7 @@ export class ClassifiedError extends Error {
     this.category = opts.category
     this.source = opts.source
     this.userMessage = opts.userMessage
+    this.detail = opts.detail
   }
 }
 

@@ -404,6 +404,8 @@ export interface ErrorChunk {
     message: string
     /** 友好文案（ClassifiedError 携带）；表层出口优先用此作用户面，tracingId 由出口前置 */
     userMessage?: string
+    /** 上游技术摘要（ClassifiedError.detail 透传，≤200 字符一行）；streamMapper 下发至 error 通知 data 供前端折叠展示 */
+    detail?: string
     /** 错误来源（ClassifiedError 携带）；friendlyMessage 主语依据 */
     source?: import('@/utils/error.js').ErrorSource
     stack?: string

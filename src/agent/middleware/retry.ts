@@ -50,8 +50,13 @@ function createErrorInfo(attempt: number, error: unknown): ErrorChunk['errors'][
     timestamp: Date.now(),
     message: error instanceof Error ? error.message : String(error),
     // ClassifiedError 携带友好文案与来源：表层出口（streamMapper）据此出用户面，tracingId 由出口前置。
+    // detail 一并透传（上游技术摘要），供前端 error-bubble 折叠展示。
     ...(error instanceof ClassifiedError
-      ? { userMessage: error.userMessage, source: error.source }
+      ? {
+          userMessage: error.userMessage,
+          source: error.source,
+          ...(error.detail !== undefined ? { detail: error.detail } : {}),
+        }
       : {}),
     stack: error instanceof Error ? error.stack : undefined,
     recoverable: isRecoverable(category),

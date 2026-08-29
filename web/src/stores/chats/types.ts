@@ -138,7 +138,7 @@ export interface ChatRunState {
   /** 流式错误文案（error-bubble 红）；run 仍可 canResume 重试。 */
   error?: string
   /** 与错误气泡并存的协议事实；用于诊断、通知和重试决策，不从文案反推。 */
-  errorFact?: ProtocolError & { canResume?: boolean }
+  errorFact?: ProtocolError & { canResume?: boolean; detail?: string }
 }
 
 /** 交互态：审批 / 问题 / 运行中工具 / todo（currentState 权威 replace；事件按 id 幂等增删）。 */

@@ -27,12 +27,13 @@ import {
 
 /** 伪 200（非事件流/JSON 响应，典型如网关对未知路径回退 Web 控制台 SPA）→ 配置类错误：
  *  不重试（validation），文案指引检查 brain 的 url。见 docs/agent/provider.md「流完整性校验」。 */
-export function brainInvalidStream(detail: string): ClassifiedError {
+export function brainInvalidStream(summary: string): ClassifiedError {
   return new ClassifiedError({
-    message: `invalid stream: ${detail}`,
-    userMessage: `大脑配置可能有误：${detail}，请在设置里检查 brain 的 url`,
+    message: `invalid stream: ${summary}`,
+    userMessage: `大脑配置可能有误：${summary}，请在设置里检查 brain 的 url`,
     category: 'validation',
     source: 'brain',
+    detail: summary,
   })
 }
 
@@ -46,7 +47,9 @@ export function brainEmptyStream(): ClassifiedError {
   })
 }
 
-/** 上游返回非 2xx → 按 status 定 category + 直观文案。返回 ClassifiedError 供调用方 throw。 */
+/** 上游返回非 2xx → 按 status 定 category + 直观文案。返回 ClassifiedError 供调用方 throw。
+ *  4xx（除 401/403/429）归 validation 不归 provider（确定性请求错误重试无意义，retryable=false，
+ *  前端不显"继续"按钮）；detail 携带上游 body 摘要供前端折叠展示（error-conventions.md「错误详情通道」）。 */
 export function brainHttpError(status: number, logMessage: string): ClassifiedError {
   let category: ErrorCategory
   let userMessage: string
@@ -60,14 +63,15 @@ export function brainHttpError(status: number, logMessage: string): ClassifiedEr
     category = 'provider'
     userMessage = '脑子出了点状况，稍后再试'
   } else {
-    category = 'unknown'
-    userMessage = '脑子回话不太对'
+    category = 'validation'
+    userMessage = '脑子拒绝了这个请求，请检查 brain 配置'
   }
   return new ClassifiedError({
     message: `upstream ${status}: ${logMessage}`,
     userMessage,
     category,
     source: 'brain',
+    detail: `upstream ${status}: ${logMessage}`,
   })
 }
 
@@ -78,6 +82,7 @@ export function brainNetworkError(logMessage: string, cause: unknown): Classifie
     userMessage: '连不上我的脑子了',
     category: 'network',
     source: 'brain',
+    detail: logMessage,
     cause,
   })
 }
@@ -95,11 +100,13 @@ export function classifyBrainError(err: unknown): ClassifiedError {
     return brainHttpError(status, msg)
   }
   const category = classifyError(err)
+  const rawMessage = err instanceof Error ? err.message : String(err)
   return new ClassifiedError({
-    message: err instanceof Error ? err.message : String(err),
+    message: rawMessage,
     userMessage: brainFriendly(category),
     category,
     source: 'brain',
+    detail: rawMessage.slice(0, 200),
     cause: err,
   })
 }

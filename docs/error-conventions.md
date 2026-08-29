@@ -22,7 +22,7 @@
 3. **抽象直观表达问题**——用 Brain（大脑/AI服务）/Sense（感官/工具）/Chat 隐喻；**通用兜底必须带来源名词**（`脑子`/`感官`/`媒体`/`扩展工具`/`会话`/`系统`），禁止裸"出了点小问题"。不写"反馈给开发"话术——使用端不考虑开发问题，所有错误导向"去改设置"。
 4. **`tracingId` 前置** `[xxxxxxxx]`——8 位 hex（UUID 前 8 位）放消息**开头**（非末尾），便于日志肉眼追踪定位来源
 5. 抛错点若已知分类与来源，用 `ClassifiedError`（见下）携带——[retry 中间件](./agent/middleware.md) 据此判重试；否则表层出口按 `classifyError` 关键词兜底分类
-6. **不暴露后端机读字段**（如 OpenAI 返回的 `request id`、HTTP `status`、栈帧）—— 这些只进日志，不进 message
+6. **message 一行内不暴露后端机读字段**（OpenAI `request id`、HTTP `status`、栈帧）——技术细节走 **detail 通道**（见下节）或日志，不进 `message` 本体
 
 ## 日志面规则
 
@@ -33,6 +33,25 @@
    - 1~3 个上下文锚定字段（`model` / `senseName` / `component` / `chatId`）
 3. **扩展字段**：`reason`（细分原因枚举，如 `placeholder_unresolved` / `key_empty` / `network_refused`）、`url` / `envName` / `attempt` 等自由扩展
 4. **栈**：`cause` 链由 Error.cause 传递，不在 data 里重复
+
+## 错误详情通道（detail）
+
+**背景**：message 一行 + 友好文案的分离策略，在「确定性配置错误反复失败」场景下体验失效——用户只看到「脑子出了点状况，稍后再试」，不知道 upstream 具体拒绝了什么（status、body 摘要），也没有可操作的自查方向；tracingId 虽在 message 里，但用户不知道它怎么用。
+
+**约定**：`ClassifiedError` 与流式错误通知增加可选 **`detail` 字段**，作为用户面与日志面之间的中间层：
+
+| 层级 | 位置 | 内容约束 |
+|------|------|----------|
+| `message`（已有） | error 通知 data / toast | 一行友好文案 + `[tracingId]` 前缀，规则不变 |
+| `detail`（新增） | error 通知 data；前端 error-bubble 折叠展示 | 上游技术摘要：`upstream ${status}: ${body前200字符}`；一行内，可含机读片段（request id 等），**不换行、不含栈** |
+| 日志面（已有） | `logger.event` | 完整上下文 |
+
+规则：
+
+1. **哪些错误必须带 detail**：`brainHttpError`（非 2xx）、`brainInvalidStream`（伪 200）、`brainNetworkError`（网络失败）——即 source=brain 的全部确定性错误。sense/mcp 抛错后续按需补齐。
+2. **`retryable` 语义收紧**：4xx（含 400/404/422）类错误 `category` 不得归类为 `provider`（不可重试的错误不要显示"稍后再试"）；前端对 `retryable=false` 的错误不提供"继续"重试按钮，改为提示修改配置后重新发送。
+3. **文案携带检索指引**：对 `validation` / `provider` 类错误，message 末尾追加「详情见日志，检索 [tracingId]」提示（一行内），让 tracingId 可被发现。
+4. **空上下文守卫错误**：历史加载异常导致无 user 内容的请求在 chat middleware 层拦截（防御性兜底，见 [context-epochs.md 历史连续性与兼容投影](./context-epochs.md#历史连续性与兼容投影)），`category='validation'`、`source='chat'`，message 指向「重新发送」，不进入 retry。
 
 ## 反例 vs 正例
 
@@ -45,6 +64,7 @@
 | ✓ 正例 | `[ecb4595a] 连不上我的脑子了` | 隐喻直观（Brain=AI服务）+ 来源（脑子）+ 码前置 |
 | ✓ 正例 | `[7d0ff4a1] 大脑的钥匙不对，请在设置里检查 key` | 来源 + 问题 + 指向设置 |
 | ✓ 正例 | `[3a9f10c2] 感官出了点小问题` | 通用兜底带来源（感官），非裸"出了点小问题" |
+| ✓ 正例 | message=`[4b06695b] 脑子拒绝了这个请求，请检查设置（详情见日志，检索 [4b06695b]）` + detail=`upstream 400: {"error":{"message":"invalid params, chat content is empty (2013)"}}` | 友好文案与 `retryable=false` 一致；技术细节进 detail 不进 message |
 
 ## 实施工具
 
@@ -131,11 +151,13 @@ throw new ClassifiedError({
 |------|---------|------|------|
 | Provider 抛错（openai 无 key / 占位符） | [src/agent/provider/openai.ts](../src/agent/provider/openai.ts) | ✓ 已实施 | 详见 [agent/provider.md](./agent/provider.md) |
 | Provider 抛错（ollama / mock） | [src/agent/provider/](../src/agent/provider/) | 审视 | ollama 不需要 key，mock 一般不抛 401；如有其他错误路径，按需 |
+| **brain 确定性错误 detail 通道**（brainHttpError / brainInvalidStream / brainNetworkError 补 `detail`；4xx 不归 provider） | [src/agent/provider/fetchBase.ts](../src/agent/provider/fetchBase.ts) + [src/service/chat/streamMapper.ts](../src/service/chat/streamMapper.ts) | ✓ 已实施 | 4xx（非 401/403/429）归 `validation`（retryable=false）；detail 经 retry → ErrorChunk → error 通知 data 透传（`RunErrorNotificationData.detail`） |
+| **空上下文守卫**（buildMessages 后无 user 内容 → validation 错误） | [src/agent/middleware/chat.ts](../src/agent/middleware/chat.ts) | ✓ 已实施 | 见 [context-epochs.md 初始上下文重构](./context-epochs.md#初始上下文重构) |
 | Middleware 通用错误包装 | [src/core/middleware/compose.ts](../src/core/middleware/compose.ts) | ✓ 已实施 | 合规错误（前置 tracingId）原样上浮；`ClassifiedError` **原样上浮**（保分类身份给 retry 判重试，仅最外层兜底取 `userMessage`）；其余裸抛按 `classifyError`+`friendlyMessage(category,"系统")` 重包。详细走 logger |
 | Sense 执行错误 | [src/agent/middleware/](../src/agent/middleware/) | TODO | sense 抛错同样要分层 |
 | WebSocket 错误帧（router 结构校验失败） | [src/service/message/router.ts](../src/service/message/router.ts) | ✓ 已实施 | `safeParse` 失败（INVALID_PARAMS）：message 一行中文 + `tracingId`，完整 Zod issues（path/code/expected/received）走 `logger.event("req.invalid_params")` 落盘。handler 业务校验错误（如 `saveRawConfig`）仍各自返回中文 join 串，未走本工具 |
 | HTTP 错误响应 | [src/service/http/](../src/service/http/) | TODO | 401/500 等响应 body 同样分层 |
-| 前端 toast / banner | [web/src/](../web/src/) | TODO | **消费**后端 tracingId 展示给用户；前端**不重生成** |
+| 前端 toast / banner | [web/src/](../web/src/) | ✓ 已实施 | error 通知 data.detail 消费：Pet 气泡 error-bubble `<details>` 折叠展示；`resolveCanResume` 收口 `retryable=false` → 不显「继续」按钮；前端不重生成 detail |
 
 ## 日志检索约定
 
