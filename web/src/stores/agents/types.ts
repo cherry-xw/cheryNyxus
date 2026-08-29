@@ -8,6 +8,7 @@
 import type { RuntimeSelection, TerminationFact, ToolAuthorizationDto } from '@/services/agentApi'
 import type {
   ProtocolError,
+  RunOutcomeNotificationData,
   StagedReverseChunkData as ProtocolStagedReverseChunkData,
 } from '@chery/protocol'
 
@@ -220,6 +221,9 @@ export interface StreamState {
   error?: string
   /** Legacy Pet stream mirror of the canonical structured run error. */
   errorFact?: ProtocolError & { canResume?: boolean; detail?: string }
+  /** Canonical terminal result mirrored from the chat session. */
+  outcome?: RunOutcomeNotificationData
+  outcomeRunId?: string
   /**
    * 回放期标记（chat.sync 期间为 true，回放结束清；F3 收敛）。
    * - true：回放期，事件幂等累加进缓存数组 + 抑制副作用 RPC（startSpawn/resumeAgent）+ 抑制终态

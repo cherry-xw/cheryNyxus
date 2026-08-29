@@ -37,6 +37,7 @@ import { extractMediaUrls } from '@/utils/markdown'
 import type { QuestionBatchPayload } from '@/domain/chat/projectionTypes'
 import { applyExecutionTimingEvent } from '../read-model/executionTiming'
 import type { TurnCancelledNotificationData } from '@chery/protocol'
+import { legacyErrorOutcome, parseRunOutcome } from '@/domain/chat/runOutcome'
 
 /** reducer 调用上下文（注入时间，保持纯函数）。 */
 export interface ReduceContext {
@@ -77,6 +78,59 @@ function structuredRunError(
     ...(typeof data.retryAfterMs === 'number' ? { retryAfterMs: data.retryAfterMs } : {}),
     ...(typeof data.canResume === 'boolean' ? { canResume: data.canResume } : {}),
   }
+}
+
+function applyOutcomeResultData(
+  session: ChatSession,
+  data: Record<string, unknown>,
+  replaying: boolean,
+  ctx: ReduceContext,
+): void {
+  const fm = data.finalMessage as
+    | {
+        msgId: string
+        role: 'assistant'
+        content: string
+        thinking?: string
+        createdAt: number
+        agentChatId?: string
+        contextCompaction?: boolean
+        contextCompactionTokens?: number
+      }
+    | undefined
+  if (fm) {
+    upsertMessage(session, {
+      msgId: fm.msgId,
+      role: 'assistant',
+      content: fm.content,
+      status: 'sealed',
+      createdAt: fm.createdAt,
+      agentChatId: fm.agentChatId ?? session.chatId,
+      ...(fm.thinking ? { thinking: fm.thinking } : {}),
+      ...(fm.contextCompaction ? { contextCompaction: true } : {}),
+      ...(fm.contextCompactionTokens !== undefined
+        ? { contextCompactionTokens: fm.contextCompactionTokens }
+        : {}),
+    })
+    const sealed = session.messagesById[fm.msgId]
+    if (sealed) {
+      sealed.content = fm.content
+      if (fm.thinking !== undefined) sealed.thinking = fm.thinking
+      sealed.status = 'sealed'
+      const mediaAssets = extractMediaUrls(sealed.content)
+      if (mediaAssets.length > 0) sealed.mediaAssets = mediaAssets
+    }
+    if (session.activeMessageId === fm.msgId) session.activeMessageId = undefined
+  }
+  if (typeof data.contextUsage === 'number') session.context.contextUsage = data.contextUsage
+  if (!replaying && typeof data.serverNow === 'number') {
+    session.context.serverClockOffsetMs = data.serverNow - ctx.now
+  }
+  if (typeof data.used === 'number') session.context.contextUsed = data.used
+  if (typeof data.total === 'number') session.context.contextTotal = data.total
+  if (data.contextBreakdown)
+    session.context.contextBreakdown = data.contextBreakdown as ContextBreakdown
+  if (data.finished === true) session.meta.finished = true
 }
 
 /** 就地创建/取规范化消息（按 msgId）。新消息入 messageOrder 尾部。 */
@@ -502,6 +556,8 @@ function reduceChunk(
   session.run.status = 'running'
   session.run.error = undefined
   session.run.errorFact = undefined
+  session.run.outcome = undefined
+  session.run.outcomeRunId = undefined
   session.ui.bubbleVisible = true
 }
 
@@ -536,8 +592,62 @@ function reduceNotification(
     return
   }
 
+  if (type === 'run.outcome') {
+    const outcome = parseRunOutcome(d)
+    if (!outcome) return
+    const terminalRunId = n.runId ?? (typeof d.runId === 'string' ? (d.runId as string) : undefined)
+    session.activeTurns = session.activeTurns.filter(
+      (turn) => !!terminalRunId && turn.runId !== terminalRunId,
+    )
+    if (!n.runId || n.runId === session.run.activeRunId) session.run.activeRunId = undefined
+    session.interaction.runningTools = []
+    session.run.outcome = outcome
+    session.run.outcomeRunId = terminalRunId
+    if (outcome.feedback?.retention === 'history') {
+      const previous = session.run.outcomeHistory ?? []
+      session.run.outcomeHistory = [
+        ...previous.filter(
+          (entry) =>
+            entry.runId !== terminalRunId || entry.outcome.reasonCode !== outcome.reasonCode,
+        ),
+        { ...(terminalRunId ? { runId: terminalRunId } : {}), outcome },
+      ]
+    }
+    session.run.status = outcome.status === 'completed' ? 'ended' : outcome.status
+    session.context.canResume = outcome.canResume
+    session.run.error = outcome.feedback?.severity === 'error' ? outcome.feedback.title : undefined
+    session.run.errorFact = undefined
+    if (!replaying && outcome.feedback) session.run.retainUntil = undefined
+    if (terminalRunId) {
+      session.activeRun = {
+        ...(session.activeRun?.runId === terminalRunId ? session.activeRun : {}),
+        chatId: session.chatId,
+        runId: terminalRunId,
+        status:
+          outcome.status === 'cancelled'
+            ? 'paused'
+            : outcome.status === 'completed'
+              ? 'completed'
+              : outcome.status,
+        at: outcome.occurredAt,
+        completedAt: outcome.occurredAt,
+      }
+    }
+    if (session.activeMessageId && outcome.status !== 'completed') {
+      const active = session.messagesById[session.activeMessageId]
+      if (active && active.status === 'streaming') {
+        active.status = outcome.status === 'failed' ? 'error' : 'paused'
+      }
+    }
+    applyOutcomeResultData(session, d, replaying, ctx)
+    return
+  }
+
   if (type === 'done' || type === 'error') {
     const terminalRunId = n.runId ?? (typeof d.runId === 'string' ? (d.runId as string) : undefined)
+    // New servers emit run.outcome first. Ignore the following compatibility
+    // event so it cannot overwrite warning/paused semantics with legacy error.
+    if (terminalRunId && session.run.outcomeRunId === terminalRunId) return
     session.activeTurns = session.activeTurns.filter(
       (turn) => !!terminalRunId && turn.runId !== terminalRunId,
     )
@@ -615,14 +725,28 @@ function reduceNotification(
       if (typeof canResume === 'boolean') session.context.canResume = canResume
       if (d.finished === true) session.meta.finished = true
     } else {
-      // error：AI 报错归 paused（可重试）；active 消息标 error 保留已到部分
-      const errorFact = structuredRunError(
-        d,
-        n.requestId ?? n.runId ?? `legacy:${session.chatId}`,
-      )
-      session.run.status = 'paused'
+      // legacy error 仍代表 failed；canResume 独立决定是否显示继续入口。
+      // active 消息标 error，保留已到达的部分内容。
+      const errorFact = structuredRunError(d, n.requestId ?? n.runId ?? `legacy:${session.chatId}`)
+      session.run.status = 'failed'
       session.run.error = errorFact.message
       session.run.errorFact = errorFact
+      session.run.outcome = legacyErrorOutcome(
+        d,
+        n.requestId ?? n.runId ?? `legacy:${session.chatId}`,
+        ctx.now,
+      )
+      session.run.outcomeRunId = terminalRunId
+      if (session.run.outcome.feedback?.retention === 'history') {
+        const previous = session.run.outcomeHistory ?? []
+        session.run.outcomeHistory = [
+          ...previous.filter((entry) => entry.runId !== terminalRunId),
+          {
+            ...(terminalRunId ? { runId: terminalRunId } : {}),
+            outcome: session.run.outcome,
+          },
+        ]
+      }
       if (!replaying) session.run.retainUntil = ctx.now + 30000
       if (session.activeMessageId) {
         const am = session.messagesById[session.activeMessageId]

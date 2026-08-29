@@ -32,6 +32,58 @@ afterEach(() => {
 })
 
 describe('structured error delivery to web state', () => {
+  it('keeps a loop-limit warning paused and ignores the following legacy error event', () => {
+    const session = createEmptySession('root-chat')
+    session.run.status = 'running'
+    session.run.activeRunId = 'run-limit'
+    const outcome = {
+      status: 'paused' as const,
+      reasonCode: 'RUN_LOOP_LIMIT_REACHED',
+      canResume: true,
+      retryable: false,
+      occurredAt: 1000,
+      feedback: {
+        code: 'RUN_LOOP_LIMIT_REACHED',
+        severity: 'warning' as const,
+        source: 'system' as const,
+        title: '已达到循环上限',
+        description: '本轮已执行 30 次，系统已安全暂停。',
+        guidance: '检查最后几步后继续，或调整循环限制。',
+        actions: [{ type: 'resume_run' as const }],
+        retention: 'history' as const,
+      },
+    }
+
+    reduce(
+      session,
+      {
+        kind: 'notification',
+        type: 'run.outcome',
+        chatId: 'root-chat',
+        runId: 'run-limit',
+        data: outcome,
+      },
+      { now: 1000 },
+    )
+    reduce(
+      session,
+      {
+        kind: 'notification',
+        type: 'error',
+        chatId: 'root-chat',
+        runId: 'run-limit',
+        data: { ...protocolError, canResume: true },
+      },
+      { now: 1001 },
+    )
+
+    expect(session.run.status).toBe('paused')
+    expect(session.run.error).toBeUndefined()
+    expect(session.run.outcome).toMatchObject(outcome)
+    expect(session.run.outcomeHistory).toHaveLength(1)
+    expect(session.context.canResume).toBe(true)
+  })
+
   it('copies every Response.error field onto the thrown Error', () => {
     const response: RpcResponse = {
       id: 'response-1',
@@ -63,7 +115,7 @@ describe('structured error delivery to web state', () => {
     expect(session.run.errorFact).toMatchObject(protocolError)
   })
 
-  it('records a run notification as paused plus one structured notification signal', () => {
+  it('records a legacy error as failed while preserving independent resume capability', () => {
     const session = createEmptySession('root-chat')
     session.run.status = 'running'
     session.run.activeRunId = 'run-1'
@@ -82,7 +134,7 @@ describe('structured error delivery to web state', () => {
     )
 
     expect(session.run).toMatchObject({
-      status: 'paused',
+      status: 'failed',
       error: protocolError.message,
       errorFact: { ...protocolError, canResume: true },
       retainUntil: 31_000,

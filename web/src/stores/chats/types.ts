@@ -37,7 +37,7 @@ import type {
   NotificationMessage,
   QuestionBatchPayload,
 } from '@/domain/chat/projectionTypes'
-import type { ProtocolError } from '@chery/protocol'
+import type { ProtocolError, RunOutcomeNotificationData } from '@chery/protocol'
 import type { CanonicalCommandError } from '../commandLifecycle'
 
 /** 协议命令配置投影（镜像后端 CommandConfigData；camelCase）。 */
@@ -130,7 +130,7 @@ export interface ChatMetadata {
 
 /** 单次 send/resume 运行状态（权威工作态；Pet 只读 selector）。 */
 export interface ChatRunState {
-  status: 'idle' | 'running' | 'paused' | 'ended'
+  status: 'idle' | 'running' | 'paused' | 'failed' | 'cancelled' | 'ended'
   /** 当前 send/resume 运行 id；abort 定向到仍在执行的那一轮。 */
   activeRunId?: string
   /** done 后气泡保留到期时间戳（ms）；过期隐藏；新消息/abort 清除；hover 期间保持。 */
@@ -139,6 +139,11 @@ export interface ChatRunState {
   error?: string
   /** 与错误气泡并存的协议事实；用于诊断、通知和重试决策，不从文案反推。 */
   errorFact?: ProtocolError & { canResume?: boolean; detail?: string }
+  /** Canonical terminal result. Legacy errorFact remains during rollout. */
+  outcome?: RunOutcomeNotificationData
+  outcomeRunId?: string
+  /** Important terminal feedback retained across later runs for history rendering. */
+  outcomeHistory?: Array<{ runId?: string; outcome: RunOutcomeNotificationData }>
 }
 
 /** 交互态：审批 / 问题 / 运行中工具 / todo（currentState 权威 replace；事件按 id 幂等增删）。 */

@@ -17,6 +17,7 @@ import type {
   ChatRunResumeResponse,
   ChatTimelineResponse,
   ProtocolError,
+  TerminationFact as ProtocolTerminationFact,
 } from '@chery/protocol'
 import type { ContextBreakdown } from '@/domain/chat/context'
 import type {
@@ -32,11 +33,7 @@ export type {
   RuntimeSelection,
   SessionRuntimeSelection,
 } from '@/domain/chat/runtime'
-export type {
-  CommandConfigDataDto,
-  CommandConfigDto,
-  ThresholdDto,
-} from '@/domain/chat/commands'
+export type { CommandConfigDataDto, CommandConfigDto, ThresholdDto } from '@/domain/chat/commands'
 
 /**
  * 凭据类 .env 变量名后缀过滤：任何以 KEY / TOKEN / SECRET / PASSWORD / PASSWD /
@@ -241,6 +238,8 @@ export interface CreateAgentResult {
   workspace?: string
   /** workspace 当前是否有效；workspace 缺省时不返回。 */
   workspaceValid?: boolean
+  /** 空白复用命中：true = 后端未新建，直接返回了同预设既有的空会话。新建路径缺省。 */
+  reused?: boolean
 }
 
 export type ApprovalAction = 'accept' | 'reject'
@@ -614,13 +613,7 @@ export interface GraphToolCall {
   targetChatId?: string
 }
 
-export interface TerminationFact {
-  actor: 'user' | 'system' | 'agent'
-  code: 'user_abort' | 'system_stop' | 'watchdog' | 'error' | 'agent_redirect'
-  at: number
-  detail?: string
-  controlOperationId?: string
-}
+export type TerminationFact = ProtocolTerminationFact
 
 export type TreeControlOperationStatus =
   'pausing' | 'paused' | 'resuming' | 'partial' | 'completed' | 'superseded'
@@ -1166,6 +1159,7 @@ export function fail(method: string, res: RpcResponse): Error {
   err.retryable = source?.retryable ?? false
   err.tracingId = source?.tracingId ?? `client:${method}`
   if (source?.retryAfterMs !== undefined) err.retryAfterMs = source.retryAfterMs
+  if (source?.feedback !== undefined) err.feedback = source.feedback
   return err
 }
 
@@ -1479,7 +1473,9 @@ export const agentApi = {
 
   /** chat.create：创建 chat。返回 chatId + 实际生效编制（预设路径由后端回填，供记 pet.runtime）。
    * 仅发送显式提供的字段：preset 路径按后端契约「preset 与显式 runtime 字段互斥」不得携带
-   * brain/senseGroup/mcpServers（严格 zod 校验，携带即 INVALID_PARAMS「方言不通」）。 */
+   * brain/senseGroup/mcpServers（严格 zod 校验，携带即 INVALID_PARAMS「方言不通」）。
+   * 空白复用（后端默认启用）：preset 路径命中同预设空会话时直接返回其 chatId 且 `reused: true`
+   * （未新建）；前端无须区分，拿 chatId 直接跳转即可。 */
   async createAgent(opts: CreateAgentOptions): Promise<CreateAgentResult> {
     const data = await call<{
       chatId?: string
@@ -1489,6 +1485,7 @@ export const agentApi = {
       mcpServers?: string[]
       workspace?: string
       workspaceValid?: boolean
+      reused?: boolean
     }>('chat.create', {
       ...(opts.preset ? { preset: opts.preset } : {}),
       ...(opts.brain !== undefined ? { brain: opts.brain } : {}),
@@ -1508,6 +1505,7 @@ export const agentApi = {
       mcpServers: data.mcpServers ?? [],
       workspace: data.workspace,
       workspaceValid: data.workspaceValid,
+      reused: data.reused,
     }
   },
 
@@ -1751,7 +1749,10 @@ export const agentApi = {
    * 供历史抽屉顶部「上下文」hover 面板展示完整系统提示词（system 段 + tools 段）。
    * 按 chat 当前快照重建（systemPromptFile/workspace/skillFilter + runtime selection）。
    */
-  async promptSnapshot(chatId: string, epochId?: string): Promise<{
+  async promptSnapshot(
+    chatId: string,
+    epochId?: string,
+  ): Promise<{
     chatId: string
     epochId?: string
     epochOrdinal?: number

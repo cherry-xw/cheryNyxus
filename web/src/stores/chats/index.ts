@@ -127,6 +127,8 @@ export function beginLiveRun(
   session.run.status = 'running'
   session.run.error = undefined
   session.run.errorFact = undefined
+  session.run.outcome = undefined
+  session.run.outcomeRunId = undefined
   session.run.retainUntil = undefined
   session.ui.bubbleVisible = true
   if (started) onWorkingChange(session.chatId, true)

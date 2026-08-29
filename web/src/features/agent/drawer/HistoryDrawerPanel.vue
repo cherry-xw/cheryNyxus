@@ -1,20 +1,82 @@
 <script setup lang="ts">
-import { useHistoryDrawerPanelController, type HistoryDrawerPanelControllerProps } from './useHistoryDrawerPanelController'
+import {
+  useHistoryDrawerPanelController,
+  type HistoryDrawerPanelControllerProps,
+} from './useHistoryDrawerPanelController'
+import UserFeedbackCard from '@/features/feedback/UserFeedbackCard.vue'
 const props = defineProps<HistoryDrawerPanelControllerProps>()
 const controller = useHistoryDrawerPanelController(props)
 const {
-  ContextUsageBar, MessageBubble, MotionDiv, PromptSnapshotTip, VirtualScroll,
-  activateCurrentBranch, activatingBranch, activeGenerationIndex, agents, batchReloading,
-  callerIsMaster, callerPetFace, callerPetName, cascadeOptions, cascadeProps, closeGenerationLayer,
-  copied, copyChatId, currentTaskBranch, detailBranchStartIndex, dropdownAsTitle, estimateSize,
-  faceStateClass, generationError, generationHistory, generationLoading, generationPayload,
-  generationScrollRef, generationSummaryLine, getHistoryItemKey, history, isLastSubReply, layout,
-  loaded, loadingAgents, manager, masterPetName, onHandlePointerDown, onHandlePointerMove,
-  onHandlePointerUp, onJumpToSpawn, onPromptEpochChange, onPromptSnapShow, onRailJump, onSwitchCascade,
-  openGenerationCard, packedGenerations, panelFullStyle, pet, previewOf, previewTooltip,
-  previewTooltipStyle, promptSnap, ref, removeOutgoing, retryOutgoing, runError, runtimeForItem,
-  scrollToBottomSmooth, scrollToTopSmooth, showAgentLoading, showDetailBranchDivider, subPetFace,
-  subPetName, subPetType, taskTimeline, titleText, userAvatarCaption, userMarks, virtualScrollRef,
+  ContextUsageBar,
+  MessageBubble,
+  MotionDiv,
+  PromptSnapshotTip,
+  VirtualScroll,
+  activateCurrentBranch,
+  activatingBranch,
+  activeGenerationIndex,
+  agents,
+  batchReloading,
+  callerIsMaster,
+  callerPetFace,
+  callerPetName,
+  cascadeOptions,
+  cascadeProps,
+  closeGenerationLayer,
+  copied,
+  copyChatId,
+  currentTaskBranch,
+  detailBranchStartIndex,
+  dropdownAsTitle,
+  estimateSize,
+  faceStateClass,
+  generationError,
+  generationHistory,
+  generationLoading,
+  generationPayload,
+  generationScrollRef,
+  generationSummaryLine,
+  getHistoryItemKey,
+  history,
+  isLastSubReply,
+  layout,
+  loaded,
+  loadingAgents,
+  manager,
+  masterPetName,
+  onHandlePointerDown,
+  onHandlePointerMove,
+  onHandlePointerUp,
+  onJumpToSpawn,
+  onPromptEpochChange,
+  onPromptSnapShow,
+  onRailJump,
+  onSwitchCascade,
+  openGenerationCard,
+  packedGenerations,
+  panelFullStyle,
+  pet,
+  previewOf,
+  previewTooltip,
+  previewTooltipStyle,
+  promptSnap,
+  ref,
+  removeOutgoing,
+  retryOutgoing,
+  runFeedbacks,
+  runtimeForItem,
+  scrollToBottomSmooth,
+  scrollToTopSmooth,
+  showAgentLoading,
+  showDetailBranchDivider,
+  subPetFace,
+  subPetName,
+  subPetType,
+  taskTimeline,
+  titleText,
+  userAvatarCaption,
+  userMarks,
+  virtualScrollRef,
 } = controller
 </script>
 
@@ -258,9 +320,13 @@ const {
 
       <!-- run 级中断错误：告知「这里运行中断了」+ 上游技术摘要全文（error-conventions.md detail 通道）。
            不落时间线 DB，保留至下次 run 清除（新流 chunk / done 时 reducer 清空 session.run.error）。 -->
-      <div v-if="runError" class="run-error-bar" role="alert">
-        <div class="run-error-message">⚠ {{ runError.message }}</div>
-        <div v-if="runError.detail" class="run-error-detail">{{ runError.detail }}</div>
+      <div v-if="runFeedbacks.length" class="run-error-bar" role="status">
+        <UserFeedbackCard
+          v-for="entry in runFeedbacks"
+          :key="entry.key"
+          :feedback="entry.feedback"
+          :chat-id="props.chatId"
+        />
       </div>
 
       <!-- 滚动顶部 / 底部按钮：堆叠在 drawer-body 底部右侧（绝对定位，不挤压列表布局） -->

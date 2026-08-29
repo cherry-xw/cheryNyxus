@@ -25,6 +25,7 @@ import {
 } from '../actions/questionBatch'
 import { removeApprovalById } from '../actions/approvalActions'
 import { turnChildIntoGhost } from '../data/petLifecycle'
+import { legacyErrorOutcome, parseRunOutcome } from '@/domain/chat/runOutcome'
 
 /** role_created 通知 / chatSessions effect 共享的子 agent 诞生载荷。 */
 type RoleCreatedData = {
@@ -145,6 +146,8 @@ export function createStreamRouter(
     const data = (c.data ?? {}) as StreamChunkData
     stream.error = undefined
     stream.errorFact = undefined
+    stream.outcome = undefined
+    stream.outcomeRunId = undefined
     stream.activeMessageId = data.msgId
     if (data.thinking) stream.thinking += data.thinking
     if (data.content) stream.content += data.content
@@ -184,7 +187,71 @@ export function createStreamRouter(
     const chatId = n.chatId ?? (requestId ? requestMap.get(requestId) : undefined)
     const type = n.type
 
+    if (type === 'run.outcome') {
+      if (!chatId) return
+      const stream = streams.value[chatId]
+      const outcome = parseRunOutcome(n.data)
+      if (!stream || !outcome) return
+      markHistoryAncestorsDirty(chatId)
+      stream.isWorking = false
+      stream.runningTools = []
+      stream.outcome = outcome
+      stream.outcomeRunId = n.runId
+      stream.error = outcome.feedback?.severity === 'error' ? outcome.feedback.title : undefined
+      stream.errorFact = undefined
+      stream.retainUntil = undefined
+      if (!n.runId || n.runId === stream.activeRunId) stream.activeRunId = undefined
+      const data = (n.data ?? {}) as {
+        contextUsage?: number
+        used?: number
+        total?: number
+        contextBreakdown?: ContextBreakdown
+        finished?: boolean
+        finalMessage?: {
+          msgId: string
+          role: 'assistant'
+          content: string
+          thinking?: string
+          createdAt: number
+          agentChatId?: string
+          contextCompaction?: boolean
+          contextCompactionTokens?: number
+        }
+      }
+      if (data.finalMessage) {
+        const fm = data.finalMessage
+        pushHistoryItem(stream, {
+          role: fm.role,
+          content: fm.content,
+          ...(fm.thinking ? { thinking: fm.thinking } : {}),
+          createdAt: fm.createdAt,
+          msgId: fm.msgId,
+          agentChatId: fm.agentChatId ?? chatId,
+          ...(fm.contextCompaction ? { contextCompaction: true } : {}),
+          ...(fm.contextCompactionTokens !== undefined
+            ? { contextCompactionTokens: fm.contextCompactionTokens }
+            : {}),
+        })
+      }
+      const pet = pets.value.find((candidate) => candidate.chatId === chatId)
+      if (pet) {
+        pet.canResume = outcome.canResume
+        if (typeof data.contextUsage === 'number') pet.contextUsage = data.contextUsage
+        if (typeof data.used === 'number') pet.contextUsed = data.used
+        if (typeof data.total === 'number') pet.contextTotal = data.total
+        if (data.contextBreakdown) pet.contextBreakdown = data.contextBreakdown
+        if (data.finished === true && !pet.isMaster) {
+          turnChildIntoGhost(pet, pets.value, pickGhostFace)
+        }
+      }
+      setWorking(pet, false)
+      if (requestId) requestMap.delete(requestId)
+      return
+    }
+
     if (type === 'done' || type === 'error') {
+      const knownStream = chatId ? streams.value[chatId] : undefined
+      if (n.runId && knownStream?.outcomeRunId === n.runId) return
       if (chatId) {
         markHistoryAncestorsDirty(chatId)
         // T9（wake 策略版）：主一律本轮 yieldTurn 停等子；子完成后端按 wake 策略推 role_reply 唤主（immediate 立即推 / deferred+barrier 静默暂存）。
@@ -299,12 +366,17 @@ export function createStreamRouter(
             ...(d.retryAfterMs !== undefined ? { retryAfterMs: d.retryAfterMs } : {}),
             ...(d.canResume !== undefined ? { canResume: d.canResume } : {}),
           }
+          stream.outcome = legacyErrorOutcome(
+            d as Record<string, unknown>,
+            requestId ?? n.runId ?? `legacy:${chatId}`,
+            Date.now(),
+          )
+          stream.outcomeRunId = n.runId
           // error 不保留气泡（即时隐藏 content/thinking）；30s 后清 stream.error（error-bubble 自动消失）
           stream.retainUntil = Date.now() + 30000
         }
-        // 统一暂停语义：AI 报错归 paused，「继续运行」按钮显隐尊重服务端 canResume
-        // （computeCanResume 权威判定，error-conventions.md 规则 2）。retryable=false 仅约束文案，
-        // 不再隐藏恢复入口——validation 错误可能源于框架瞬时缺陷，堵死入口会形成死局。
+        // legacy error 投影为 failed；「继续运行」按钮仍只尊重服务端 canResume。
+        // retryable=false 不得隐藏恢复入口，两者表达的是不同能力。
         const pet = pets.value.find((p) => p.chatId === chatId)
         if (pet && typeof d.canResume === 'boolean') {
           pet.canResume = d.canResume

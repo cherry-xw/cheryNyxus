@@ -124,7 +124,9 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       content: node.content,
       ...(node.thinking ? { thinking: node.thinking } : {}),
       ...(node.runtime ? { runtime: node.runtime } : {}),
-      ...(node.toolCalls?.length ? { senseCalls: node.toolCalls.map(canonicalToolCallToSense) } : {}),
+      ...(node.toolCalls?.length
+        ? { senseCalls: node.toolCalls.map(canonicalToolCallToSense) }
+        : {}),
       createdAt: node.createdAt,
       msgId: node.id,
       agentChatId: node.sourceChatId,
@@ -133,7 +135,9 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
         ? { callerSubPetChatId: node.actor.kind === 'agent' ? node.actor.chatId : node.rootChatId }
         : {}),
       ...(node.kind === 'return' ? { mergedView: 'child-to-master' as const } : {}),
-      ...(node.actor.kind === 'agent' && node.actor.roleType ? { petName: node.actor.roleType } : {}),
+      ...(node.actor.kind === 'agent' && node.actor.roleType
+        ? { petName: node.actor.roleType }
+        : {}),
       ...(node.causationId ? { spawnSenseCallId: node.causationId } : {}),
       ...(node.termination ? { termination: node.termination } : {}),
     }
@@ -210,9 +214,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       // 注入值仅当属于当前任务时暂用（工作台 openHistory 即时显示优化）；跨任务残留
       // （switchSession 切会话不更新全局 historyDrawerTaskBranches）或无任务会话时
       // 过滤为空，避免下拉泄漏别的任务分支。真实数据以 timeline 拉取结果为准。
-      taskBranches.value = agents.historyDrawerTaskBranches.filter(
-        (branch) => branch.taskId === id,
-      )
+      taskBranches.value = agents.historyDrawerTaskBranches.filter((branch) => branch.taskId === id)
       taskTimeline.value = undefined
       if (!id) return
       const requestedTaskId = id
@@ -354,7 +356,11 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   const activatingBranch = ref(false)
   async function activateCurrentBranch(): Promise<void> {
     const branch = currentTaskBranch.value
-    if (!branch || branch.kind === 'detail' || branch.branchId === taskTimeline.value?.activeBranchId)
+    if (
+      !branch ||
+      branch.kind === 'detail' ||
+      branch.branchId === taskTimeline.value?.activeBranchId
+    )
       return
     activatingBranch.value = true
     try {
@@ -385,7 +391,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
             .filter((node) => node.visibility === 'conversation' || !!node.termination)
             .map(rootNodeToHistory)
         : sessionData.ownTimeline.value
-  
+
     const transient: HistoryItem[] = []
     if (layout.value === 'group') {
       const rootState = chatSessions.rootTimelineStates[props.chatId]
@@ -467,14 +473,46 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   )
   // run 级中断错误（run 失败时后端 error 通知写入 session.run）：列表末尾告知「这里运行中断了」，
   // 保留至下次 run 清除（新流 chunk / done 时 reducer 清空），不落时间线 DB（error-conventions.md detail 通道）。
-  const runError = computed(() => {
+  const runFeedbacks = computed(() => {
     const session = chatSessions.sessionsById[props.chatId]
+    const persisted = (session?.run.outcomeHistory ?? [])
+      .map((entry) => ({
+        key: `${entry.runId ?? 'legacy'}:${entry.outcome.reasonCode}:${entry.outcome.occurredAt}`,
+        feedback: entry.outcome.feedback,
+      }))
+      .filter((entry): entry is { key: string; feedback: NonNullable<typeof entry.feedback> } =>
+        Boolean(entry.feedback),
+      )
+    if (persisted.length > 0) return persisted
+    const feedback = session?.run.outcome?.feedback ?? session?.run.errorFact?.feedback
+    if (feedback) return [{ key: 'current', feedback }]
     const message = session?.run.error
-    if (!message) return null
-    return { message, detail: session?.run.errorFact?.detail }
+    if (!message) return []
+    const canResume = session?.run.errorFact?.canResume === true
+    const hasDetails = Boolean(session?.run.errorFact?.tracingId || session?.run.errorFact?.detail)
+    return [
+      {
+        key: 'legacy-error',
+        feedback: {
+          code: session?.run.errorFact?.code ?? 'INTERNAL',
+          severity: 'error' as const,
+          source: session?.run.errorFact?.source ?? ('system' as const),
+          title: '本轮运行意外中断',
+          description: message,
+          guidance: canResume ? '检查当前状态后，可以继续运行。' : '请检查输入或配置后重新发送。',
+          actions: [
+            canResume ? ({ type: 'resume_run' } as const) : ({ type: 'resend_input' } as const),
+            ...(hasDetails ? ([{ type: 'view_details' as const }] as const) : []),
+          ],
+          retention: 'history' as const,
+          tracingId: session?.run.errorFact?.tracingId,
+          detail: session?.run.errorFact?.detail,
+        },
+      },
+    ]
   })
   // ── 打包代际（长会话代际分割）：首层卡片条 + 二层代际抽屉（栈深恒 ≤2） ──
-  
+
   /** 已定稿代际（除上一代、当前代外），与树中 pack 节点同数据（snapshot.generations）。 */
   const packedGenerations = computed<GenerationEntry[]>(() => {
     if (layout.value !== 'group') return []
@@ -734,7 +772,8 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     if (v) scrollToBottom()
   })
   // 宽度拖拽 + 持久化（localStorage，所有面板共享同一 key → 同宽）
-  const { panelStyle, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp } = useDrawerWidth()
+  const { panelStyle, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp } =
+    useDrawerWidth()
   // 合并宽度变量 + 层叠 z-index
   const panelFullStyle = computed<Record<string, string>>(() => ({
     ...panelStyle.value,
@@ -886,8 +925,12 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       const epochResult = await agentApi.listEpochs(chatId)
       const selectedEpochId = epochId ?? epochResult.activeEpochId
       promptSnap.value = {
-        systemPrompt: '', tools: [], status: 'loading', epochs: epochResult.epochs,
-        selectedEpochId, activeEpochId: epochResult.activeEpochId,
+        systemPrompt: '',
+        tools: [],
+        status: 'loading',
+        epochs: epochResult.epochs,
+        selectedEpochId,
+        activeEpochId: epochResult.activeEpochId,
       }
       const res = await agentApi.promptSnapshot(chatId, selectedEpochId)
       const effectiveSelectedEpochId = res.epochId ?? selectedEpochId
@@ -926,18 +969,75 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   }
 
   return {
-    ContextUsageBar, MessageBubble, MotionDiv, PromptSnapshotTip, VirtualScroll,
-    activateCurrentBranch, activatingBranch, activeGenerationIndex, agents, batchReloading,
-    callerIsMaster, callerPetFace, callerPetName, cascadeOptions, cascadeProps,
-    closeGenerationLayer, copied, copyChatId, currentTaskBranch, detailBranchStartIndex,
-    dropdownAsTitle, estimateSize, faceStateClass, generationError, generationHistory,
-    generationLoading, generationPayload, generationScrollRef, generationSummaryLine,
-    getHistoryItemKey, history, isLastSubReply, layout, loaded, loadingAgents, manager,
-    masterPetName, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp, onJumpToSpawn,
-    onPromptEpochChange, onPromptSnapShow, onRailJump, onSwitchCascade, openGenerationCard, packedGenerations,
-    panelFullStyle, pet, previewOf, previewTooltip, previewTooltipStyle, promptSnap, ref,
-    removeOutgoing, retryOutgoing, runError, runtimeForItem, scrollToBottomSmooth, scrollToTopSmooth,
-    showAgentLoading, showDetailBranchDivider, subPetFace, subPetName, subPetType, taskTimeline,
-    titleText, userAvatarCaption, userMarks, virtualScrollRef,
+    ContextUsageBar,
+    MessageBubble,
+    MotionDiv,
+    PromptSnapshotTip,
+    VirtualScroll,
+    activateCurrentBranch,
+    activatingBranch,
+    activeGenerationIndex,
+    agents,
+    batchReloading,
+    callerIsMaster,
+    callerPetFace,
+    callerPetName,
+    cascadeOptions,
+    cascadeProps,
+    closeGenerationLayer,
+    copied,
+    copyChatId,
+    currentTaskBranch,
+    detailBranchStartIndex,
+    dropdownAsTitle,
+    estimateSize,
+    faceStateClass,
+    generationError,
+    generationHistory,
+    generationLoading,
+    generationPayload,
+    generationScrollRef,
+    generationSummaryLine,
+    getHistoryItemKey,
+    history,
+    isLastSubReply,
+    layout,
+    loaded,
+    loadingAgents,
+    manager,
+    masterPetName,
+    onHandlePointerDown,
+    onHandlePointerMove,
+    onHandlePointerUp,
+    onJumpToSpawn,
+    onPromptEpochChange,
+    onPromptSnapShow,
+    onRailJump,
+    onSwitchCascade,
+    openGenerationCard,
+    packedGenerations,
+    panelFullStyle,
+    pet,
+    previewOf,
+    previewTooltip,
+    previewTooltipStyle,
+    promptSnap,
+    ref,
+    removeOutgoing,
+    retryOutgoing,
+    runFeedbacks,
+    runtimeForItem,
+    scrollToBottomSmooth,
+    scrollToTopSmooth,
+    showAgentLoading,
+    showDetailBranchDivider,
+    subPetFace,
+    subPetName,
+    subPetType,
+    taskTimeline,
+    titleText,
+    userAvatarCaption,
+    userMarks,
+    virtualScrollRef,
   }
 }

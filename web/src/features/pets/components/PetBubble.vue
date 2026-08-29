@@ -13,7 +13,8 @@ import type { VariantType } from 'motion-v'
 const MotionDiv = motion.div
 
 const props = defineProps<{
-  variant: 'question' | 'approval' | 'error' | 'work' | 'speech'
+  variant: 'question' | 'approval' | 'error' | 'feedback' | 'work' | 'speech'
+  tone?: 'info' | 'warning' | 'error'
   speech: {
     initial: VariantType
     animate: VariantType
@@ -38,6 +39,8 @@ const bubbleClass = computed(() => {
       return 'approval-bubble'
     case 'error':
       return 'work-bubble error-bubble'
+    case 'feedback':
+      return ['work-bubble', 'feedback-bubble', `is-${props.tone ?? 'info'}`]
     case 'work':
       return ['work-bubble', { 'is-thinking': props.isThinking, 'is-sub': props.isSub }]
     case 'speech':
@@ -147,5 +150,24 @@ const bubbleClass = computed(() => {
   background: color-mix(in srgb, var(--danger) 10%, var(--surface));
   border-color: color-mix(in srgb, var(--danger) 55%, transparent);
   color: var(--danger);
+}
+
+.feedback-bubble {
+  max-width: 300px;
+  padding: 7px 10px;
+  color: var(--ink);
+
+  &.is-warning {
+    background: color-mix(in srgb, var(--warning, #b7791f) 10%, var(--surface));
+    border-color: color-mix(in srgb, var(--warning, #b7791f) 55%, transparent);
+  }
+  &.is-error {
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+    border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  }
+  &.is-info {
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
 }
 </style>

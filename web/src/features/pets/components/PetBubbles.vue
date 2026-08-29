@@ -22,6 +22,7 @@ import { findQuestion } from '@/domain/chat/questionProjection'
 import type { PetInstance } from '@/domain/pets/types'
 import PetBubble from './PetBubble.vue'
 import ThinkingTrigger from './ThinkingTrigger.vue'
+import UserFeedbackCard from '@/features/feedback/UserFeedbackCard.vue'
 
 defineEmits<{
   bubbleEnter: []
@@ -63,6 +64,13 @@ defineSlots<{
 }>()
 
 const agents = useAgentsStore()
+
+function dismissOutcome(): void {
+  if (!props.stream) return
+  props.stream.outcome = undefined
+  props.stream.error = undefined
+  props.stream.errorFact = undefined
+}
 
 /**
  * 接力棒：该 chat 的提问/审批已被某个打开的工作台窗口接管时，pet 气泡隐藏（工作台就地消费），
@@ -119,6 +127,21 @@ const batchInfo = computed(() => {
       :style="approvalStyle"
     >
       <ApprovalCard :approval="stream!.approval!" :chat-id="pet.chatId" />
+    </PetBubble>
+    <PetBubble
+      v-else-if="stream?.outcome?.feedback"
+      key="run-feedback"
+      variant="feedback"
+      :tone="stream.outcome.feedback.severity"
+      :speech="speech"
+      :style="speechStyle"
+    >
+      <UserFeedbackCard
+        :feedback="stream.outcome.feedback"
+        :chat-id="chatId"
+        compact
+        @dismiss="dismissOutcome"
+      />
     </PetBubble>
     <PetBubble
       v-else-if="stream?.error"

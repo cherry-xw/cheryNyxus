@@ -28,13 +28,8 @@ export interface RunningTool {
   name: string
 }
 
-export interface TerminationFact {
-  actor: 'user' | 'system' | 'agent'
-  code: 'user_abort' | 'system_stop' | 'watchdog' | 'error' | 'agent_redirect'
-  at: number
-  detail?: string
-  controlOperationId?: string
-}
+export type { TerminationFact } from '@chery/protocol'
+import type { TerminationFact } from '@chery/protocol'
 
 export interface HistoryItem {
   role: 'user' | 'assistant' | 'role' | 'subagent' | 'master'

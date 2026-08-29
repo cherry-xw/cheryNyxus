@@ -9,6 +9,7 @@ const TERMINATION_COPY: Record<TerminationFact['code'], { label: string; tone: T
     watchdog: { label: '看门狗超时停止', tone: 'warning' },
     error: { label: '执行错误终止', tone: 'error' },
     agent_redirect: { label: '主 Agent 已重定向任务', tone: 'redirect' },
+    limit_reached: { label: '达到保护性限制，已暂停', tone: 'warning' },
   }
 
 /** User-facing copy intentionally excludes the audit-only detail field. */

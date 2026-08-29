@@ -285,7 +285,11 @@ export function createPetLifecycle(
     return createNyxusSession()
   }
 
-  /** 始终新建一条 Nyxus 会话并设为活跃（AgentDialog 索引签「+新建」、Nyxus 历史面板新建入口调用）。 */
+  /**
+   * 新建一条 Nyxus 会话并设为活跃（AgentDialog 索引签「+新建」、Nyxus 历史面板新建入口调用）。
+   * 空白复用由后端 chat.create 默认判定（命中同预设空会话返回既有 chatId，reused:true）；
+   * 前端无条件登记目录并设活跃，直接跳转即可。
+   */
   async function createNyxusSession(): Promise<string> {
     const result = await agentApi.createAgent({ preset: CHERY_NYXUS_PRESET })
     const nextCatalog = registerNewNyxusSession(historyList.value, result.chatId)
