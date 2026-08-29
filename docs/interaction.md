@@ -80,6 +80,8 @@
 ```
 
 > `chatId` 可选（不传服务端生成 UUID）。必带 brain + senseGroup，可选 mcpServers。创建时一次性加载历史到内存，并把 runtime selection 持久化到 chat metadata。
+>
+> **空白复用（默认启用，仅预设路径）**：带 `preset` 且无 `parentChatId`、未显式指定 `chatId` 时，后端先查同预设 root 会话中 `turnCount===0`（无任何 user 消息）者，命中取最近更新的一条直接返回其 chatId（不新建），响应增返 `reused: true`，runtime 字段回显该会话已持久化的 `metadata.runtime`；未命中正常新建，响应不含 `reused`。入参 `skipBlankReuse: true` 可显式关闭检查强制新建。显式 brain+senseGroup 路径与子 chat 创建永不复用。前端「新建会话」入口据此天然去重（空会话幂等），无谓词重复建会话。
 
 ### chat.list
 
@@ -220,11 +222,11 @@
 
 > 2026-08-20 修复「指定历史会话发送仍莫名新建会话」引入。根因：`quickTarget`（AgentDialog/WorkbenchDialog 内持有的发送目标选择，含 `{target:'new'}`）此前无任何重置时机，且 composer 原生窗 keepAlive（close=hide 不销毁组件），残留的 `'new'` 会在后续发送时跳过用户确认直接 `chat.create` 新会话。
 
-| 清空时机 | 理由 |
-|----------|------|
-| `chatId` 变化（`watch` 清空） | 会话列表/历史列表/retarget 等外部切换不经过目标选择器，旧选择对新会话无意义；残留 `'new'` 会把消息发进意外新建的会话 |
-| 发送成功且 `target === 'new'` | `'new'` 是**一次性**语义：会话已创建并接收本条消息，继续持有会让下一条消息再建一个新会话 |
-| AI 选择（`source:'ai'`）被用户操作覆盖 | 既有行为：`clearAiQuickTarget` / picker `clear-target` |
+| 清空时机                               | 理由                                                                                                                 |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `chatId` 变化（`watch` 清空）          | 会话列表/历史列表/retarget 等外部切换不经过目标选择器，旧选择对新会话无意义；残留 `'new'` 会把消息发进意外新建的会话 |
+| 发送成功且 `target === 'new'`          | `'new'` 是**一次性**语义：会话已创建并接收本条消息，继续持有会让下一条消息再建一个新会话                             |
+| AI 选择（`source:'ai'`）被用户操作覆盖 | 既有行为：`clearAiQuickTarget` / picker `clear-target`                                                               |
 
 交互约束：「＋新会话」按钮与历史会话一致走**两段式确认**（第一次点击半选高亮、第二次点击锁定），不得一次点击即锁定为 `'new'`——历史会话列表末尾的该按钮极易误触，一次锁定即静默新建会话。
 
@@ -348,6 +350,7 @@ C→S chat.resumeTree {rootChatId:root,pauseId,commandId}
 **目标可续语义（回落）**：`tree_control_targets.status` 由 `paused`→`resumed` 后，若续跑中途再次失败/被暂停，目标不会在 DB 回落回 `paused`。判定"可续"以**运行时为准**：目标为 `paused`/`failed`，或虽为 `resumed` 但该 chat 最新 run 处于 `paused` 且 `computeCanResume` 成立 → 均可续。`chat.resumeTree` 匹配放宽到该判据（不再要求 `latest.runId===target.pausedRunId`），续接前把 `paused_run_id` 对齐到当前 run。已被 `send_to_child` 接管的 `delegated` 目标与 `skipped` 目标不参与续接。
 
 **提问态与继续的关系**：`chat` 存在 `status='pending'` 的提问批（`question_batches`）时，`chat.list`/`chat.get` 的 `canResume=false` 是设计——答案必须走 `chat.answerQuestionBatch`（批完成 → 置 `resumePending` → 返回 `shouldResume`），由前端在批完成后调 `chat.resume` 续跑。因此：
+
 - `chat.resume` **拒绝**带 pending 批的直接调用（防御守卫），避免带着未答问题跑执行死循环。
 - 前端**必须保证**工作台/会话打开即恢复提问快照（hydrateTree→syncOne→pendingQuestionBatches），不得出现"无卡片无按钮"的硬死锁。
 - 孤立 pending 批（`status='pending'` 但零 `status='pending'` 的 item）视为僵尸，会被读时自愈清扫标 `completed`，不再阻塞 `canResume`。清扫语义单测见 [test/db/questionOrphanSweep.test.ts](../test/db/questionOrphanSweep.test.ts)。
@@ -428,17 +431,21 @@ C→S chat.resume {chatId}              ← 无 prompt
 
 ---
 
-## 错误路径
+## 异常与保护性暂停路径
 
-**软失败**（middleware 产出 ErrorChunk，如 maxLoop 超限）：
+**保护性暂停**（如达到 maxLoop）：不是 ErrorChunk 或失败。服务端先发权威
+`run.outcome`，再发仅供旧客户端使用的兼容 `error`；不会再发 `done`。
 
 ```json
-← {"kind":"notification","type":"error","requestId":"r9","data":{"message":"已达到最大循环次数限制 (30)"}}
-← {"kind":"notification","type":"done","requestId":"r9","chatId":"c1","runId":"r9","data":{"contextUsage":0.12}}
+← {"kind":"notification","type":"run.outcome","requestId":"r9","chatId":"c1","runId":"r9","data":{"status":"paused","reasonCode":"RUN_LOOP_LIMIT_REACHED","canResume":true,"retryable":false,"occurredAt":123,"feedback":{"code":"RUN_LOOP_LIMIT_REACHED","severity":"warning","source":"system","title":"已达到循环上限","description":"系统已安全暂停，当前执行现场已保留。","guidance":"检查最后几步后继续，或调整循环限制。","actions":[{"type":"resume_run"},{"type":"open_settings","section":"limits"}],"retention":"history"}}}
+← {"kind":"notification","type":"error","requestId":"r9","chatId":"c1","runId":"r9","data":{"code":"RUN_LOOP_LIMIT_REACHED","message":"已达到循环上限","source":"system","retryable":false,"tracingId":"limit:r9","canResume":true}}
 ← {"id":"a9","kind":"response","requestId":"r9","success":true,"data":{"chatId":"c1","runId":"r9"}}
 ```
 
-**硬失败**（handler 抛异常，如 chat 不存在 / Chat busy）：
+真实的 middleware `ErrorChunk` 使用 `status=failed` 的 `run.outcome`；`canResume`
+仍独立计算。新客户端收到同一 run 的 outcome 后，必须忽略随后到达的兼容 `error`。
+
+**命令失败**（handler 抛异常，如 chat 不存在 / Chat busy）：
 
 ```json
 ← {"id":"a9","kind":"response","requestId":"r9","success":false,"error":{"code":"INTERNAL","message":"..."}}

@@ -12,11 +12,11 @@ config.yaml 的 brain 下声明 mock provider，**只保留开关 + 脚本文件
 llm:
   brain:
     mock_test:
-      model: mock_test          # 任意，脚本按此 model 名查找
+      model: mock_test # 任意，脚本按此 model 名查找
       provider: mock
       mock:
-        enabled: true           # 开关，缺省 true
-        file: mock/read_file.yaml  # 脚本文件，相对 .chery 目录
+        enabled: true # 开关，缺省 true
+        file: mock/read_file.yaml # 脚本文件，相对 .chery 目录
 ```
 
 ## 脚本文件格式
@@ -24,25 +24,25 @@ llm:
 `.chery/<file>.yaml`，结构 `{ repeat?, script[] }`：
 
 ```yaml
-repeat: last                    # 耗尽后行为：last=重复最后一条；缺省=返回空
+repeat: last # 耗尽后行为：last=重复最后一条；缺省=返回空
 script:
-  - thinking: "思考内容"          # 思考增量（可选）
-    content: "正文内容"           # 正文增量（可选）
-    senseCalls:                  # 工具调用（可选；监管等级由 sense_groups 决定，不在此处）
-      - id: "call_1"             # 可选，缺省 mock-${i}
-        name: "read_file"
+  - thinking: '思考内容' # 思考增量（可选）
+    content: '正文内容' # 正文增量（可选）
+    senseCalls: # 工具调用（可选；监管等级由 sense_groups 决定，不在此处）
+      - id: 'call_1' # 可选，缺省 mock-${i}
+        name: 'read_file'
         arguments: '{"path":"/a.txt"}'
-    error: "timeout"             # 抛错（可选，测 retry 中间件）
+    error: 'timeout' # 抛错（可选，测 retry 中间件）
 ```
 
 **单脚本项字段：**
 
-| 字段 | 说明 |
-|------|------|
-| `thinking?` | 思考增量 |
-| `content?` | 正文增量 |
+| 字段          | 说明                                  |
+| ------------- | ------------------------------------- |
+| `thinking?`   | 思考增量                              |
+| `content?`    | 正文增量                              |
 | `senseCalls?` | 工具调用数组 `{id?, name, arguments}` |
-| `error?` | 抛错信息（触发 retry） |
+| `error?`      | 抛错信息（触发 retry）                |
 
 > 不缓存：每次 LLM 调用重读文件，dev 改脚本免重启。
 
@@ -74,19 +74,19 @@ index = messages 中 role==="assistant" 的数量
 
 改脚本文件内容即可模拟各交互模式：
 
-| 场景 | 调用次数 | `script[]` |
-|------|---------|-----------|
-| 纯文本（流程A） | 1 | `[{content:"回复"}]` |
-| thinking + 文本 | 1 | `[{thinking:"...",content:"回复"}]` |
-| auto sense（流程B） | 2 | `[{content:"读取",senseCalls:[{name:"read_file",arguments:'{"path":"/a"}'}]},{content:"结果"}]` |
-| smart sense（流程C） | 2 | 同上（smart 由 sense_groups `:level` 定，mock 不感知） |
-| 多 sense 单轮 | 2 | `[{senseCalls:[A,B]},{content:"..."}]` |
-| 多轮 sense 链 | 3+ | `[{senseCalls:[A]},{senseCalls:[B]},{content:"完成"}]` |
-| maxLoop 超限 | 30+ | `[{senseCalls:[A]}]` + `repeat:last` |
-| retry | - | `[{error:"timeout"}]` |
-| send 撤回重跑 | 1 | 撤回后索引回退到 0，重放 script[0] |
-| resume Case1 续接 | 1 | pending 不增 assistant，续接后取 script[next] |
-| resume Case2（全done） | 1 | 直接取 script[next]，LLM 基于 done sense 回复 |
+| 场景                   | 调用次数 | `script[]`                                                                                      |
+| ---------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| 纯文本（流程A）        | 1        | `[{content:"回复"}]`                                                                            |
+| thinking + 文本        | 1        | `[{thinking:"...",content:"回复"}]`                                                             |
+| auto sense（流程B）    | 2        | `[{content:"读取",senseCalls:[{name:"read_file",arguments:'{"path":"/a"}'}]},{content:"结果"}]` |
+| smart sense（流程C）   | 2        | 同上（smart 由 sense_groups `:level` 定，mock 不感知）                                          |
+| 多 sense 单轮          | 2        | `[{senseCalls:[A,B]},{content:"..."}]`                                                          |
+| 多轮 sense 链          | 3+       | `[{senseCalls:[A]},{senseCalls:[B]},{content:"完成"}]`                                          |
+| maxLoop 超限           | 30+      | `[{senseCalls:[A]}]` + `repeat:last`                                                            |
+| retry                  | -        | `[{error:"timeout"}]`                                                                           |
+| send 撤回重跑          | 1        | 撤回后索引回退到 0，重放 script[0]                                                              |
+| resume Case1 续接      | 1        | pending 不增 assistant，续接后取 script[next]                                                   |
+| resume Case2（全done） | 1        | 直接取 script[next]，LLM 基于 done sense 回复                                                   |
 
 ## 示例脚本
 
@@ -97,22 +97,22 @@ index = messages 中 role==="assistant" 的数量
 ```yaml
 repeat: last
 script:
-  - content: "我来读取文件"
+  - content: '我来读取文件'
     senseCalls:
-      - name: "read_file"
+      - name: 'read_file'
         arguments: '{"path":"/a.txt"}'
-  - content: "文件内容是 hello"
+  - content: '文件内容是 hello'
 ```
 
 ### smart sense（需 sense_groups 配 `:level`）
 
 ```yaml
 script:
-  - content: "准备写文件"
+  - content: '准备写文件'
     senseCalls:
-      - name: "write_file"
+      - name: 'write_file'
         arguments: '{"path":"/b.txt","content":"hi"}'
-  - content: "已写入"
+  - content: '已写入'
 ```
 
 config.yaml sense_groups 加 smart 级：
@@ -129,17 +129,17 @@ sense_groups:
 repeat: last
 script:
   - senseCalls:
-      - name: "read_file"
+      - name: 'read_file'
         arguments: '{"path":"/a.txt"}'
 ```
 
-LLM 每轮都调 read_file，loop 持续到 maxLoopCount 触发 error。
+LLM 每轮都调 read_file，loop 持续到 maxLoopCount 后触发保护性暂停（`RUN_LOOP_LIMIT_REACHED`）。
 
 ### retry
 
 ```yaml
 script:
-  - error: "网络超时"
+  - error: '网络超时'
 ```
 
 mock.chat/chatStream 抛错 → retry 中间件捕获。

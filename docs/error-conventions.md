@@ -10,10 +10,10 @@
 
 错误信息**分两层**展示：
 
-| 层级 | 形态 | 用途 |
-|------|------|------|
-| **用户面**（throw / 推送给前端） | `[tracingId] 带来源的直观中文`，1 行，**码前置** | 用户直观理解问题 + 开发者凭码查日志 |
-| **日志面**（`logger.event`） | 结构化 JSON 事件，含完整上下文 | 开发者凭 `tracingId` 全文检索日志还原 |
+| 层级                             | 形态                                             | 用途                                  |
+| -------------------------------- | ------------------------------------------------ | ------------------------------------- |
+| **用户面**（throw / 推送给前端） | `[tracingId] 带来源的直观中文`，1 行，**码前置** | 用户直观理解问题 + 开发者凭码查日志   |
+| **日志面**（`logger.event`）     | 结构化 JSON 事件，含完整上下文                   | 开发者凭 `tracingId` 全文检索日志还原 |
 
 ## 用户面规则
 
@@ -40,11 +40,11 @@
 
 **约定**：`ClassifiedError` 与流式错误通知增加可选 **`detail` 字段**，作为用户面与日志面之间的中间层：
 
-| 层级 | 位置 | 内容约束 |
-|------|------|----------|
-| `message`（已有） | error 通知 data / toast | 一行友好文案 + `[tracingId]` 前缀，规则不变 |
-| `detail`（新增） | error 通知 data；前端错误条目**全文展示**（聊天界面 run 错误条目 + pet 气泡，不再折叠） | 上游技术摘要：`upstream ${status}: ${body前200字符}`；一行内，可含机读片段（request id 等），**不换行、不含栈** |
-| 日志面（已有） | `logger.event` | 完整上下文 |
+| 层级              | 位置                                                                            | 内容约束                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `message`（已有） | error 通知 data / toast                                                         | 一行友好文案 + `[tracingId]` 前缀，规则不变                                                                     |
+| `detail`（新增）  | error 通知 data；前端反馈卡的“查看详情”区域（聊天界面 run 错误条目 + pet 气泡） | 上游技术摘要：`upstream ${status}: ${body前200字符}`；一行内，可含机读片段（request id 等），**不换行、不含栈** |
+| 日志面（已有）    | `logger.event`                                                                  | 完整上下文                                                                                                      |
 
 规则：
 
@@ -55,29 +55,29 @@
 
 ## 反例 vs 正例
 
-| 形态 | 例子 | 评价 |
-|------|------|------|
-| ❌ 反例 | `内部错误，请用 [ecb4595a] 反馈给开发` | 兜底临床文案 + "反馈给开发"话术错位，使用端不应见开发问题 |
-| ❌ 反例 | `[compose] handler at index 3 threw: 401 Invalid token (request id: ...)` | 技术层细节、不可读、机读 ID 暴露、无修复指引 |
-| ❌ 反例 | `Error: connect ECONNREFUSED 127.0.0.1:11411` | 英文栈、用户不可操作 |
-| ❌ 反例 | `请求失败: fetch failed` / `上游返回 401: ...` | 临床、暴露技术细节，不直观 |
-| ✓ 正例 | `[ecb4595a] 连不上我的脑子了` | 隐喻直观（Brain=AI服务）+ 来源（脑子）+ 码前置 |
-| ✓ 正例 | `[7d0ff4a1] 大脑的钥匙不对，请在设置里检查 key` | 来源 + 问题 + 指向设置 |
-| ✓ 正例 | `[3a9f10c2] 感官出了点小问题` | 通用兜底带来源（感官），非裸"出了点小问题" |
-| ✓ 正例 | message=`[4b06695b] 脑子拒绝了这个请求，请检查设置（详情见日志，检索 [4b06695b]）` + detail=`upstream 400: {"error":{"message":"invalid params, chat content is empty (2013)"}}` | 友好文案与 `retryable=false` 一致；技术细节进 detail 不进 message |
+| 形态    | 例子                                                                                                                                                                             | 评价                                                              |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| ❌ 反例 | `内部错误，请用 [ecb4595a] 反馈给开发`                                                                                                                                           | 兜底临床文案 + "反馈给开发"话术错位，使用端不应见开发问题         |
+| ❌ 反例 | `[compose] handler at index 3 threw: 401 Invalid token (request id: ...)`                                                                                                        | 技术层细节、不可读、机读 ID 暴露、无修复指引                      |
+| ❌ 反例 | `Error: connect ECONNREFUSED 127.0.0.1:11411`                                                                                                                                    | 英文栈、用户不可操作                                              |
+| ❌ 反例 | `请求失败: fetch failed` / `上游返回 401: ...`                                                                                                                                   | 临床、暴露技术细节，不直观                                        |
+| ✓ 正例  | `[ecb4595a] 连不上我的脑子了`                                                                                                                                                    | 隐喻直观（Brain=AI服务）+ 来源（脑子）+ 码前置                    |
+| ✓ 正例  | `[7d0ff4a1] 大脑的钥匙不对，请在设置里检查 key`                                                                                                                                  | 来源 + 问题 + 指向设置                                            |
+| ✓ 正例  | `[3a9f10c2] 感官出了点小问题`                                                                                                                                                    | 通用兜底带来源（感官），非裸"出了点小问题"                        |
+| ✓ 正例  | message=`[4b06695b] 脑子拒绝了这个请求，请检查设置（详情见日志，检索 [4b06695b]）` + detail=`upstream 400: {"error":{"message":"invalid params, chat content is empty (2013)"}}` | 友好文案与 `retryable=false` 一致；技术细节进 detail 不进 message |
 
 ## 实施工具
 
 ### newTracingId()
 
 ```ts
-import { randomUUID } from "node:crypto";
+import { randomUUID } from 'node:crypto'
 
 /**
  * 8 位 hex tracingId：UUID v4 前 8 位，理论 16^8 ≈ 42 亿组合，足够全局唯一。
  */
 export function newTracingId(): string {
-  return randomUUID().slice(0, 8);
+  return randomUUID().slice(0, 8)
 }
 ```
 
@@ -85,21 +85,21 @@ export function newTracingId(): string {
 
 ```ts
 /** 用户面 message 是否已含前置 tracingId（throwUserFacing / ClassifiedError 出口产出）。 */
-export const COMPLIANT_TRACE_PATTERN = /^\[[0-9a-f]{8}\] /;
+export const COMPLIANT_TRACE_PATTERN = /^\[[0-9a-f]{8}\] /
 ```
 
 ### classifyError() / friendlyMessage()
 
 `classifyError(error)` 按关键词分类（`auth`/`network`/`provider`/`timeout`/`validation`/`unknown`），retry 与 compose 兜底共用。`friendlyMessage(category, source)` 查表返回带来源的直观文案（不含 tracingId，由出口前置）：
 
-| category \ source | brain（脑子） | sense（感官） | system（系统） |
-|-------------------|---------------|---------------|----------------|
-| network | 连不上我的脑子了 | 感官连不上了 | 系统连不上了 |
-| auth | 大脑的钥匙不对，请在设置里检查 key | — | — |
-| timeout | 脑子反应太慢了 | 感官反应太慢了 | 系统等太久了 |
-| provider | 脑子忙不过来了，稍后再试 | 感官出了点状况 | 系统出了点状况 |
-| validation | 脑子没听懂这个请求 | 感官没听懂 | 系统没听懂这个请求 |
-| unknown | 脑子出了点小问题 | 感官出了点小问题 | 系统出了点小问题 |
+| category \ source | brain（脑子）                      | sense（感官）    | system（系统）     |
+| ----------------- | ---------------------------------- | ---------------- | ------------------ |
+| network           | 连不上我的脑子了                   | 感官连不上了     | 系统连不上了       |
+| auth              | 大脑的钥匙不对，请在设置里检查 key | —                | —                  |
+| timeout           | 脑子反应太慢了                     | 感官反应太慢了   | 系统等太久了       |
+| provider          | 脑子忙不过来了，稍后再试           | 感官出了点状况   | 系统出了点状况     |
+| validation        | 脑子没听懂这个请求                 | 感官没听懂       | 系统没听懂这个请求 |
+| unknown           | 脑子出了点小问题                   | 感官出了点小问题 | 系统出了点小问题   |
 
 ### ClassifiedError
 
@@ -124,9 +124,9 @@ retry 读 `ClassifiedError.category`（不再靠 message 关键词）；表层�
  * 仅用于终态配置错误（缺 key/model 等，本就不重试）；可重试错误用 ClassifiedError。
  */
 export function throwUserFacing(scope, userMessage, context = {}): never {
-  const tracingId = newTracingId();
-  logger.event(scope, { tracingId, ...context }, LogLevel.error);
-  throw new Error(`[${tracingId}] ${userMessage}`);   // 码前置
+  const tracingId = newTracingId()
+  logger.event(scope, { tracingId, ...context }, LogLevel.error)
+  throw new Error(`[${tracingId}] ${userMessage}`) // 码前置
 }
 ```
 
@@ -134,30 +134,57 @@ export function throwUserFacing(scope, userMessage, context = {}): never {
 
 ```ts
 // 终态配置错误（不重试）—— throwUserFacing
-throwUserFacing("llm.key.missing", `${model} 缺少 key，请在设置里检查`, { model, reason: "key_empty" });
+throwUserFacing('llm.key.missing', `${model} 缺少 key，请在设置里检查`, {
+  model,
+  reason: 'key_empty',
+})
 
 // 可重试错误 —— ClassifiedError（provider 捕 SDK/fetch 错误）
 throw new ClassifiedError({
-  message: `fetch failed: ${err.message}`,        // 日志用
-  userMessage: "连不上我的脑子了",                   // 用户面
-  category: "network", source: "brain",
+  message: `fetch failed: ${err.message}`, // 日志用
+  userMessage: '连不上我的脑子了', // 用户面
+  category: 'network',
+  source: 'brain',
   cause: err,
-});
+})
 ```
+
+## 用户反馈与运行结果
+
+错误原因、运行状态、严重程度、重试能力和会话恢复能力是五个独立维度：
+
+- `ErrorCategory`（`auth/network/provider/timeout/validation/unknown`）只用于诊断、重试策略和日志，不直接决定 UI。
+- `run.outcome.status` 是运行终态的唯一权威值：`completed/paused/failed/cancelled`。
+- `feedback.severity` 决定展示层级：`info/warning/error`。
+- `retryable` 表示同一操作是否适合重试；`canResume` 表示会话是否能够继续。
+- 新客户端先消费 `run.outcome`，再按 `runId` 忽略随后到达的兼容 `done/error`。
+
+所有用户可见结果统一使用 `UserFeedback`：标题说明发生了什么，description 说明影响，guidance 给出下一步，actions 只携带协议定义的语义动作。追踪码和上游摘要默认折叠，不得占据首屏。
+
+保护性限制不是错误。以循环上限为例：
+
+- `status=paused`
+- `reasonCode=RUN_LOOP_LIMIT_REACHED`
+- `severity=warning`
+- `retryable=false`
+- `canResume=true`
+- execution termination code 为 `limit_reached`，不得记录为 `error/failed`
+
+内部断言、`AgentAbortError`、`AgentParkError`、工具拒绝和审批取消不直接转换成普通错误；仅在用户边界转换为相应的暂停、取消或就地提示。
 
 ## 适用范围
 
-| 场景 | 实施位置 | 状态 | 备注 |
-|------|---------|------|------|
-| Provider 抛错（openai 无 key / 占位符） | [src/agent/provider/openai.ts](../src/agent/provider/openai.ts) | ✓ 已实施 | 详见 [agent/provider.md](./agent/provider.md) |
-| Provider 抛错（ollama / mock） | [src/agent/provider/](../src/agent/provider/) | 审视 | ollama 不需要 key，mock 一般不抛 401；如有其他错误路径，按需 |
-| **brain 确定性错误 detail 通道**（brainHttpError / brainInvalidStream / brainNetworkError 补 `detail`；4xx 不归 provider） | [src/agent/provider/fetchBase.ts](../src/agent/provider/fetchBase.ts) + [src/service/chat/streamMapper.ts](../src/service/chat/streamMapper.ts) | ✓ 已实施 | 4xx（非 401/403/429）归 `validation`（retryable=false）；detail 经 retry → ErrorChunk → error 通知 data 透传（`RunErrorNotificationData.detail`） |
-| **空上下文守卫**（buildMessages 后无 user 内容 → validation 错误） | [src/agent/middleware/chat.ts](../src/agent/middleware/chat.ts) | ✓ 已实施 | 见 [context-epochs.md 初始上下文重构](./context-epochs.md#初始上下文重构) |
-| Middleware 通用错误包装 | [src/core/middleware/compose.ts](../src/core/middleware/compose.ts) | ✓ 已实施 | 合规错误（前置 tracingId）原样上浮；`ClassifiedError` **原样上浮**（保分类身份给 retry 判重试，仅最外层兜底取 `userMessage`）；其余裸抛按 `classifyError`+`friendlyMessage(category,"系统")` 重包。详细走 logger |
-| Sense 执行错误 | [src/agent/middleware/](../src/agent/middleware/) | TODO | sense 抛错同样要分层 |
-| WebSocket 错误帧（router 结构校验失败） | [src/service/message/router.ts](../src/service/message/router.ts) | ✓ 已实施 | `safeParse` 失败（INVALID_PARAMS）：message 一行中文 + `tracingId`，完整 Zod issues（path/code/expected/received）走 `logger.event("req.invalid_params")` 落盘。handler 业务校验错误（如 `saveRawConfig`）仍各自返回中文 join 串，未走本工具 |
-| HTTP 错误响应 | [src/service/http/](../src/service/http/) | TODO | 401/500 等响应 body 同样分层 |
-| 前端 toast / banner | [web/src/](../web/src/) | ✓ 已实施 | error 通知 data.detail 消费：聊天界面 run 错误条目（AgentDialog 时间线末尾，`session.run.errorFact` 驱动）+ Pet 气泡 error-bubble，**detail 全文展示不折叠**；错误保留至用户下次交互（新流首 chunk / done 时清除）；「继续运行」按钮显隐尊重服务端 `canResume`，不因 `retryable=false` 隐藏；前端不重生成 detail |
+| 场景                                                                                                                       | 实施位置                                                                                                                                        | 状态     | 备注                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider 抛错（openai 无 key / 占位符）                                                                                    | [src/agent/provider/openai.ts](../src/agent/provider/openai.ts)                                                                                 | ✓ 已实施 | 详见 [agent/provider.md](./agent/provider.md)                                                                                                                                                                                                                                                                 |
+| Provider 抛错（ollama / mock）                                                                                             | [src/agent/provider/](../src/agent/provider/)                                                                                                   | 审视     | ollama 不需要 key，mock 一般不抛 401；如有其他错误路径，按需                                                                                                                                                                                                                                                  |
+| **brain 确定性错误 detail 通道**（brainHttpError / brainInvalidStream / brainNetworkError 补 `detail`；4xx 不归 provider） | [src/agent/provider/fetchBase.ts](../src/agent/provider/fetchBase.ts) + [src/service/chat/streamMapper.ts](../src/service/chat/streamMapper.ts) | ✓ 已实施 | 4xx（非 401/403/429）归 `validation`（retryable=false）；detail 经 retry → ErrorChunk → error 通知 data 透传（`RunErrorNotificationData.detail`）                                                                                                                                                             |
+| **空上下文守卫**（buildMessages 后无 user 内容 → validation 错误）                                                         | [src/agent/middleware/chat.ts](../src/agent/middleware/chat.ts)                                                                                 | ✓ 已实施 | 见 [context-epochs.md 初始上下文重构](./context-epochs.md#初始上下文重构)                                                                                                                                                                                                                                     |
+| Middleware 通用错误包装                                                                                                    | [src/core/middleware/compose.ts](../src/core/middleware/compose.ts)                                                                             | ✓ 已实施 | 合规错误（前置 tracingId）原样上浮；`ClassifiedError` **原样上浮**（保分类身份给 retry 判重试，仅最外层兜底取 `userMessage`）；其余裸抛按 `classifyError`+`friendlyMessage(category,"系统")` 重包。详细走 logger                                                                                              |
+| Sense 执行错误                                                                                                             | [src/agent/middleware/](../src/agent/middleware/)                                                                                               | TODO     | sense 抛错同样要分层                                                                                                                                                                                                                                                                                          |
+| WebSocket 错误帧（router 结构校验失败）                                                                                    | [src/service/message/router.ts](../src/service/message/router.ts)                                                                               | ✓ 已实施 | `safeParse` 失败（INVALID_PARAMS）：message 一行中文 + `tracingId`，完整 Zod issues（path/code/expected/received）走 `logger.event("req.invalid_params")` 落盘。handler 业务校验错误（如 `saveRawConfig`）仍各自返回中文 join 串，未走本工具                                                                  |
+| HTTP 错误响应                                                                                                              | [src/service/http/](../src/service/http/)                                                                                                       | TODO     | 401/500 等响应 body 同样分层                                                                                                                                                                                                                                                                                  |
+| 前端 toast / banner                                                                                                        | [web/src/](../web/src/)                                                                                                                         | ✓ 已实施 | error 通知 data.detail 消费：聊天界面 run 错误条目（AgentDialog 时间线末尾，`session.run.errorFact` 驱动）+ Pet 气泡反馈卡，detail 默认折叠在“查看详情”中；错误保留至用户下次交互（新流首 chunk / done 时清除）；「继续运行」按钮显隐尊重服务端 `canResume`，不因 `retryable=false` 隐藏；前端不重生成 detail |
 
 ## 日志检索约定
 

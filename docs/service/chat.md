@@ -10,7 +10,7 @@ service 层的核心枢纽。把 RPC 请求（`chat.*` / `sense.approval`）转�
 - **副作用编排**（observer.ts）：统一消费 agent 内部 effect chunk并落库。`question_batch_pending` 到达时先持久化完整 QuestionBatch，再转发给协议层，确保事件出站前答案目标已可写。
 - **协议映射**（streamMapper.ts）：`MiddlewareChunk` → 协议 `Chunk` / `Notification`（`sense_end`→`interrupt`、`sense_accept/reject`→`accept/rejected`、`question_batch_pending`→`question_batch_requested`、`message_updated` 带 replace → `replaced` 等）。ask_user_question 不再产生 `sense_started`，问题指示器直接由批次投影派生。
 - **运行时缓存**（runtime.ts）：`chatRuntimes: Map<chatId, {builder, selection}>`，单 chat 绑定 AgentBuilder（跨轮不重建），`ensureChat` 创建/恢复 + 持久化 runtime + 一次性加载历史。
-- **chat 管理**（handler.ts）：`chat.create` / `list` / `get`（流式载入历史 + `canResume`）/ `delete`。
+- **chat 管理**（handler.ts）：`chat.create` / `list` / `get`（流式载入历史 + `canResume`）/ `delete`。`chat.create` 预设路径默认**空白复用**：命中同预设 `turnCount===0` 的 root 会话即直接返回其 chatId（不新建、不 ensureChat，响应带 `reused: true` 并回显该会话持久化 runtime）；`skipBlankReuse: true` / 显式 `chatId` / `parentChatId` / 显式 brain 路径均跳过复用。
 - **审批 service 侧**（send.ts `handleSenseApproval`）：转调 `approvalManager.confirm` → core `approvalRegistry.resolveApproval` 触发 senseMiddleware await。
 - **问答 service 侧**（send.ts `handleSenseQuestionBatchAnswer` + wake.ts `resolveQuestionBatch`）：按 `chatId+batchId` 原子校验整批答案，在同一月库事务中更新全部 sense content、question_items 和 question_batches；随后同步内存 journal、set `resumePending`、持久化 `question_batch_completed`。旧单题 RPC 仅兼容单题批次。
 - **任务分支**（conversationBranch.ts）：一个用户任务可包含多个独立根 Chat，但任一时刻只有一个 `active_branch_id` 主干。`continuation` 从历史节点继承因果闭包并接管主干，`detail` 只用于解释；二者都不使用 `parent_chat_id`。
@@ -64,36 +64,42 @@ running chat hydration 顺序固定：`chat.attach` 先建立实时输出重定�
 
 ## 文件清单
 
-| 文件 | 一句话 |
-|------|--------|
-| [src/service/chat/send.ts](../../src/service/chat/send.ts) | `handleChatSend` / `handleChatResume` / `handleSenseApproval` / `handleChatAbort` + `registerChatHandlers` |
-| [src/service/chat/handler.ts](../../src/service/chat/handler.ts) | `handleChatCreate` / `handleChatList` / `handleChatGet`（流式历史 + canResume）/ `handleChatDelete` + `registerChatManageHandlers` |
-| [src/service/chat/contextUsage.ts](../../src/service/chat/contextUsage.ts) | `computeContextBreakdown`：仅针对已建立当前执行 runtime 的活跃会话计算 6 段 token 用量 |
-| [src/service/chat/generations.ts](../../src/service/chat/generations.ts) | `computeGenerations`（compact 边界推导代际索引）+ `handleChatTimelineGenerationGet`（chat.timeline.generation.get）+ 分支代际校验辅助 |
-| [src/service/chat/promptSnapshot.ts](../../src/service/chat/promptSnapshot.ts) | `handleChatPromptSnapshot`：重建 chat 当前 runtime 的 system prompt 全文 + 工具定义（chat.promptSnapshot RPC，供历史抽屉「上下文」hover 面板） |
-| [src/service/chat/observer.ts](../../src/service/chat/observer.ts) | `observeAgentChunks`：消费 effect chunk 做 DB 副作用 + 审批注册 + child_done 调度，finally abort flush + 每条 chunk feed-dog 喂狗 |
-| [src/service/chat/streamMapper.ts](../../src/service/chat/streamMapper.ts) | `streamAgentChunks`：MiddlewareChunk → 协议 Chunk/Notification 映射 |
-| [src/service/chat/runtime.ts](../../src/service/chat/runtime.ts) | `chatRuntimes` Map + `ensureChat` / `setRuntime` / `clearChatRuntime` / `abortChatRuntime` / `loadHistory` |
-| [src/service/chat/wakeScheduler.ts](../../src/service/chat/wakeScheduler.ts) | 唤醒策略调度器：`onChildDone` + `evalWakePolicy`（hasBarrier→all / first+immediate→唤 / first+deferred→兜底）+ `allChildrenFinished` + `parentHasBarrier` |
-| [src/service/chat/wake.ts](../../src/service/chat/wake.ts) | `wakeParent(silent?)`（deferred/barrier 静默注入 / immediate 完整唤主）+ `handleAsyncWakeTimeout`（按 `watchdog.wake_on_timeout` 分支）+ `resolveQuestionBatch` + `rebuildWaitedChildren`（启动期按 policy 重建唤醒链） |
+| 文件                                                                           | 一句话                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [src/service/chat/send.ts](../../src/service/chat/send.ts)                     | `handleChatSend` / `handleChatResume` / `handleSenseApproval` / `handleChatAbort` + `registerChatHandlers`                                                                                                              |
+| [src/service/chat/handler.ts](../../src/service/chat/handler.ts)               | `handleChatCreate` / `handleChatList` / `handleChatGet`（流式历史 + canResume）/ `handleChatDelete` + `registerChatManageHandlers`                                                                                      |
+| [src/service/chat/contextUsage.ts](../../src/service/chat/contextUsage.ts)     | `computeContextBreakdown`：仅针对已建立当前执行 runtime 的活跃会话计算 6 段 token 用量                                                                                                                                  |
+| [src/service/chat/generations.ts](../../src/service/chat/generations.ts)       | `computeGenerations`（compact 边界推导代际索引）+ `handleChatTimelineGenerationGet`（chat.timeline.generation.get）+ 分支代际校验辅助                                                                                   |
+| [src/service/chat/promptSnapshot.ts](../../src/service/chat/promptSnapshot.ts) | `handleChatPromptSnapshot`：重建 chat 当前 runtime 的 system prompt 全文 + 工具定义（chat.promptSnapshot RPC，供历史抽屉「上下文」hover 面板）                                                                          |
+| [src/service/chat/observer.ts](../../src/service/chat/observer.ts)             | `observeAgentChunks`：消费 effect chunk 做 DB 副作用 + 审批注册 + child_done 调度，finally abort flush + 每条 chunk feed-dog 喂狗                                                                                       |
+| [src/service/chat/streamMapper.ts](../../src/service/chat/streamMapper.ts)     | `streamAgentChunks`：MiddlewareChunk → 协议 Chunk/Notification 映射                                                                                                                                                     |
+| [src/service/chat/runtime.ts](../../src/service/chat/runtime.ts)               | `chatRuntimes` Map + `ensureChat` / `setRuntime` / `clearChatRuntime` / `abortChatRuntime` / `loadHistory`                                                                                                              |
+| [src/service/chat/wakeScheduler.ts](../../src/service/chat/wakeScheduler.ts)   | 唤醒策略调度器：`onChildDone` + `evalWakePolicy`（hasBarrier→all / first+immediate→唤 / first+deferred→兜底）+ `allChildrenFinished` + `parentHasBarrier`                                                               |
+| [src/service/chat/wake.ts](../../src/service/chat/wake.ts)                     | `wakeParent(silent?)`（deferred/barrier 静默注入 / immediate 完整唤主）+ `handleAsyncWakeTimeout`（按 `watchdog.wake_on_timeout` 分支）+ `resolveQuestionBatch` + `rebuildWaitedChildren`（启动期按 policy 重建唤醒链） |
 
 ## 核心概念 / 导出
 
 ### runtime.ts —— chatRuntimes 缓存
 
 ```ts
-interface ChatRuntime { builder: AgentBuilder; selection?: RuntimeSelection; }
-const chatRuntimes = new Map<string, ChatRuntime>();
+interface ChatRuntime {
+  builder: AgentBuilder
+  selection?: RuntimeSelection
+}
+const chatRuntimes = new Map<string, ChatRuntime>()
 
-export async function ensureChat(chatId: string, selection?: RuntimeSelection): Promise<AgentBuilder>;
-export async function setRuntime(chatId: string, selection: RuntimeSelection): Promise<void>;
+export async function ensureChat(
+  chatId: string,
+  selection?: RuntimeSelection,
+): Promise<AgentBuilder>
+export async function setRuntime(chatId: string, selection: RuntimeSelection): Promise<void>
 export async function setSessionRoleRuntimes(
   chatId: string,
   primary: RuntimeSelection,
   roles: Record<string, RuntimeSelection>,
-): Promise<{ applied: string[]; deferredRunning: string[] }>;
-export function clearChatRuntime(chatId: string): void;        // chat.delete / chat.abort
-export function abortChatRuntime(chatId: string): void;        // builder.abort → compose.abort throw 注入
+): Promise<{ applied: string[]; deferredRunning: string[] }>
+export function clearChatRuntime(chatId: string): void // chat.delete / chat.abort
+export function abortChatRuntime(chatId: string): void // builder.abort → compose.abort throw 注入
 ```
 
 `ensureChat` 幂等：已存在直接返回（带 selection 则 `configureRuntime` 原子更新）；不存在则 `new AgentBuilder().build()`，从显式会话选择或当前 preset/type 关联解析 runtime，再由 `loadHistory` 一次性注入消息。历史 `metadata.runtime` 不参与新执行。
@@ -118,11 +124,11 @@ export function abortChatRuntime(chatId: string): void;        // builder.abort 
 
 **分层语义**（修主发送界面改子角色 brain 不作用于已派发子的缺口）：
 
-| 层级 | 行为 | 持久化 |
-|------|------|--------|
-| 主角色（`primary`） | 立即 `configureRuntime(primary, true)` 切换主运行时 | **不**写主 chat `metadata.runtime`（会话级模板，重启失效） |
-| 子角色（`roles`）未来 spawn | 写入内存 `sessionRoleRuntimes`，`spawn_role` 时由 `getSessionRoleRuntime` 消费 | 不落库 |
-| 子角色（`roles`）已存在子 | **回灌**：遍历父会话存活子 chat（`findChildChatsWithType`），按 type 匹配新 `roles`：idle/未加载子 `configureRuntime` + 写**子 chat 自己的 `metadata.runtime`**；running 子记 `deferredRunning`（不打断流，需用户先 abort→resume） | 子 chat `metadata.runtime` 持久化（重启自动恢复） |
+| 层级                        | 行为                                                                                                                                                                                                                               | 持久化                                                     |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 主角色（`primary`）         | 立即 `configureRuntime(primary, true)` 切换主运行时                                                                                                                                                                                | **不**写主 chat `metadata.runtime`（会话级模板，重启失效） |
+| 子角色（`roles`）未来 spawn | 写入内存 `sessionRoleRuntimes`，`spawn_role` 时由 `getSessionRoleRuntime` 消费                                                                                                                                                     | 不落库                                                     |
+| 子角色（`roles`）已存在子   | **回灌**：遍历父会话存活子 chat（`findChildChatsWithType`），按 type 匹配新 `roles`：idle/未加载子 `configureRuntime` + 写**子 chat 自己的 `metadata.runtime`**；running 子记 `deferredRunning`（不打断流，需用户先 abort→resume） | 子 chat `metadata.runtime` 持久化（重启自动恢复）          |
 
 **返回值** `{ applied: childChatId[], deferredRunning: childChatId[] }` 供前端展示反馈（fail-loud，规则12）。running 子不静默——前端 console.info 提示「需先停止再修改才能生效」。
 
@@ -185,17 +191,17 @@ handleChatDelete(ctx, params): Promise<{chatId}>                       // clearC
        yield createChunk("staged", rid, {type:"reverse", messageIds: revokedIds})
 7. try:
      generator = observeAgentChunks(agent.run(prompt), chatId, () => agent.getMessages())
-     yield* streamAgentChunks(generator, rid, chatId, runId)   // 统一暂停语义：不再传 onError
+     yield* streamAgentChunks(generator, rid, chatId, runId)
    catch err:
      AgentAbortError / AgentParkError（chat.abort 或 WS 断连触发）→ 静默（归 paused）
-     其他 → 仅记 error 日志（不再构造 failureResponse；loop 已停，末条保持可恢复态）
+     其他 → 仅记 error 日志（streamMapper 已归 failed；不再构造 failureResponse）
    finally:
      connectionManager.releaseChatConnection(chatId, ctx.connectionId)
-   // 统一暂停语义：final Response 恒 success:true。AI 报错（retry 耗尽 ErrorChunk）等异常归 paused，
-   // streamMapper 已下发 error notification（含 canResume）；前端据 canResume 显继续按钮。
-   // 结束态（ended）仅 loop 自然完成（末条 assistant 无 senseCalls）。
+   // final Response 恒 success:true。retry 耗尽 ErrorChunk 归 failed；循环上限归 warning/paused；
+   // abort/park 归 cancelled/paused。streamMapper 先下发 run.outcome，再发 legacy done/error。
+   // canResume 与 retryable、status 独立，前端只据 canResume 显示继续按钮。
    // streamMapper 终态兜底：generator 抛异常（park/abort/未预期）时，streamMapper 的 catch/finally
-   // 先补发 run.updated{paused} + 未完成 turn 的 turn.completed（abort/park 静默不弹 error；未预期故障
+   // 先补发对应 run.outcome/run.updated + 未完成 turn 的 turn.completed（abort/park 静默不弹 error；未预期故障
    // 补发 error 含 canResume），随后 rethrow 交本层 catch 记日志 + finally 释放——前端在 RPC resolve
    // 前已收到终态通知清 running，无重复、无时序冲突。
    return { chatId, runId, ...(userMsgId ? { userMsgId } : {}) }
@@ -234,12 +240,12 @@ for await chunk of generator:
       await wakeScheduler.onChildDone(childChatId, content) // 按 policy: silent 暂存 / resume 唤主
     continue
   else: yield chunk                                     // 透传 stream/staged/sense_*/consumed/done/error/question_batch_pending
-catch err:                                              // 统一暂停语义：abort/park/真实故障皆归 paused
+catch err:
   if isAgentParkError(err): log('agent.paused', kind='park')        // WS 断连
   elif isAgentAbortError(err): log('agent.paused', kind='abort')    // 用户 chat.abort
-  else: log('agent.paused', kind='unexpected', ...)                 // 真实故障（error 级，带 stack）
-  // 不 wakeParent、不写 finished——子 chat 末条保持原样，computeCanResume 派生 canResume=true 待 resume
-  throw err                                             // 传播 send 层（统一静默）
+  else: log('agent.failed', kind='unexpected', ...)                 // 真实故障（error 级，带 stack）
+  // 不 wakeParent、不写 finished；canResume 由末条状态独立派生
+  throw err                                             // 传播给 streamMapper 生成权威终态
 finally:                                                // abort 兜底 flush
   for m of getMessages():                               // 极端未 sync 的 user/assistant/sense
     if m.revoked: continue
@@ -250,19 +256,20 @@ finally:                                                // abort 兜底 flush
 
 ### streamMapper 映射表
 
-| MiddlewareChunk.type | → 协议 | 说明 |
-|---|---|---|
-| `stream` | `createChunk("stream", rid, {msgId,createdAt,...delta}, {chatId,runId})` | 每次 LLM 响应的实时增量；`msgId` 在 checkpoint turn 开始时预分配并与最终 messages.id 相同。经 WS 发送前持久化并附 `seq`，断线由 `chat.sync` 重放。 |
-| `staged` | `createChunk("staged", rid, {type: stagedType, thinking?, content?, senseName?, arguments?, id?, msgId?, role?, createdAt?}, {chatId,runId})` | 阶段完成。实时路径（`chat.send`/`resume` 执行中）`thinking_end`/`content_end` 携预分配 `msgId`+`createdAt`（`content_end` 另携 `role:"assistant"`），与 chat.get 回放同 id，供前端实时累积进 `stream.history` |
-| `sense_end`（SenseTriggerChunk） | `createNotification("interrupt", rid, {approvalId:id, senseName, arguments, supervisionLevel, needsApproval: level>auto})` | 感官触发 |
-| `sense_accept` | `createNotification("accept", rid, {approvalId:id, senseName, result})` | 执行成功 |
-| `sense_reject` | `createNotification("rejected", rid, {approvalId:id, senseName, reason})` | 被拒 |
-| `question_batch_pending` | `createNotification("question_batch_requested", rid, {batchId,assistantMessageId,createdAt,questions})` | 同一 assistant turn 的完整 ask_user_question 批次；observer 已先持久化领域状态 |
-| `consumed` | `createNotification("consumed", rid, {count,messages})` | 输入入队；messages 为已写 journal 的规范化 user 消息，含真实 id，前端据此 upsert/rekey 乐观消息。 |
-| `error` | `createNotification("error", rid, {message: errors[0].message})` | 软失败（error chunk 分支）。另有 catch 兜底：generator 抛未预期异常时补发同款 error（含 `canResume`）；abort/park 静默不弹 error |
-| `done` | `createNotification("done", rid, null)` | loop 结束。done 分支构造前先跑 `finalizeSpawnChildIfDone`（幂等），使独立 `chat.resume` 完成的子 chat 的 `finished:true` 就位（修复 resume 路径时序竞态）；`finished` 供前端子 pet 转 ghost |
-| `message_updated`（带 replace） | `createNotification("replaced", rid, {id, content, originalContent, by})` | 感官去重 |
-| `message_created` / `sense_pending` | `continue`（被 observer 消费） | 不进传输层 |
+| MiddlewareChunk.type                | → 协议                                                                                                                                        | 说明                                                                                                                                                                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stream`                            | `createChunk("stream", rid, {msgId,createdAt,...delta}, {chatId,runId})`                                                                      | 每次 LLM 响应的实时增量；`msgId` 在 checkpoint turn 开始时预分配并与最终 messages.id 相同。经 WS 发送前持久化并附 `seq`，断线由 `chat.sync` 重放。                                                            |
+| `staged`                            | `createChunk("staged", rid, {type: stagedType, thinking?, content?, senseName?, arguments?, id?, msgId?, role?, createdAt?}, {chatId,runId})` | 阶段完成。实时路径（`chat.send`/`resume` 执行中）`thinking_end`/`content_end` 携预分配 `msgId`+`createdAt`（`content_end` 另携 `role:"assistant"`），与 chat.get 回放同 id，供前端实时累积进 `stream.history` |
+| `sense_end`（SenseTriggerChunk）    | `createNotification("interrupt", rid, {approvalId:id, senseName, arguments, supervisionLevel, needsApproval: level>auto})`                    | 感官触发                                                                                                                                                                                                      |
+| `sense_accept`                      | `createNotification("accept", rid, {approvalId:id, senseName, result})`                                                                       | 执行成功                                                                                                                                                                                                      |
+| `sense_reject`                      | `createNotification("rejected", rid, {approvalId:id, senseName, reason})`                                                                     | 被拒                                                                                                                                                                                                          |
+| `question_batch_pending`            | `createNotification("question_batch_requested", rid, {batchId,assistantMessageId,createdAt,questions})`                                       | 同一 assistant turn 的完整 ask_user_question 批次；observer 已先持久化领域状态                                                                                                                                |
+| `consumed`                          | `createNotification("consumed", rid, {count,messages})`                                                                                       | 输入入队；messages 为已写 journal 的规范化 user 消息，含真实 id，前端据此 upsert/rekey 乐观消息。                                                                                                             |
+| `run_paused`                        | `run.outcome{status:"paused",reasonCode:"RUN_LOOP_LIMIT_REACHED"}` → legacy `error`                                                           | 循环上限是 warning 级保护性暂停，不是 ErrorChunk 或失败；`retryable=false`、`canResume=true`                                                                                                                  |
+| `error`                             | `run.outcome{status:"failed",...}` → legacy `error`                                                                                           | 真实 ErrorChunk 故障。未预期 generator 异常也走同类兜底；是否能继续仅看 `canResume`；abort/park 不弹 legacy error                                                                                             |
+| `done`                              | `run.outcome{status:"completed"或"paused",...}` → legacy `done`                                                                               | loop 自然结束。done 分支构造前先跑 `finalizeSpawnChildIfDone`（幂等），使独立 `chat.resume` 完成的子 chat 的 `finished:true` 就位；同一 run 仅首个 outcome 生效                                               |
+| `message_updated`（带 replace）     | `createNotification("replaced", rid, {id, content, originalContent, by})`                                                                     | 感官去重                                                                                                                                                                                                      |
+| `message_created` / `sense_pending` | `continue`（被 observer 消费）                                                                                                                | 不进传输层                                                                                                                                                                                                    |
 
 ### chat.resume 流程（send.ts `handleChatResume`）
 
@@ -281,7 +288,7 @@ finally:                                                // abort 兜底 flush
 
 `agent.resume()`（builder.ts）：末尾有 pending sense → 置 `resumePending=true`，首轮 senseMiddleware skip chat 层、重发 `sense_end`→`interrupt`（按监管等级）；全 done → `run("")` 正常 loop。续接规则与交互序列见 [../interaction.md](../interaction.md) chat.resume，agent 侧实现见 [../agent/middleware.md](../agent/middleware.md)。
 
-**防御性 finalize**（[spawnFinalize.ts](../../src/service/chat/spawnFinalize.ts) `finalizeSpawnChildIfDone`）：done 分支构造前（streamMapper.ts done 分支）先调一次——子 chat 走独立 `chat.resume` 续跑完成的场景，loop 不 yield `child_done`、observer 不在流内设 finished，此调用使 done 通知携带 `finished:true`（修复时序竞态：原兜底在 send.ts 末尾、done 通知之后执行，为时已晚）。判定：末条 assistant **且无 sense_calls**（带 sense_calls = yield-turn 子 spawn 孙后等待，不标）→ `finishSpawnTask` + `updateChatMetadata({finished:true})`；幂等（非子 chat / 已 finished / 末条非 assistant / 带 sense_calls 均短路），不调 wakeParent 避免重复唤主。`handleChatSend`/`handleChatResume` 末尾的调用保留为防御性兜底。统一暂停语义下错误只归 paused 可续，最终一次 resume 跑完必须标 finished。
+**防御性 finalize**（[spawnFinalize.ts](../../src/service/chat/spawnFinalize.ts) `finalizeSpawnChildIfDone`）：done 分支构造前（streamMapper.ts done 分支）先调一次——子 chat 走独立 `chat.resume` 续跑完成的场景，loop 不 yield `child_done`、observer 不在流内设 finished，此调用使 done 通知携带 `finished:true`（修复时序竞态：原兜底在 send.ts 末尾、done 通知之后执行，为时已晚）。判定：末条 assistant **且无 sense_calls**（带 sense_calls = yield-turn 子 spawn 孙后等待，不标）→ `finishSpawnTask` + `updateChatMetadata({finished:true})`；幂等（非子 chat / 已 finished / 末条非 assistant / 带 sense_calls 均短路），不调 wakeParent 避免重复唤主。`handleChatSend`/`handleChatResume` 末尾的调用保留为防御性兜底。真实故障归 failed 且不标 finished；若 `canResume=true`，最终一次 resume 自然跑完后才标 finished。
 
 ### chat.get 流式载入历史（handler.ts `handleChatGet`）
 
@@ -319,11 +326,11 @@ observer 收 child_done chunk
 
 **evalWakePolicy 判定矩阵**（运行时推导，每次扫 `findChatsByParent`，无持久 wake_mode）：
 
-| 模式 | 当前完成子 policy | 判定 |
-|------|------------------|------|
-| all（主的子中存在 `wake='barrier'`） | 任意 | `allChildrenFinished(parent)` 才唤主，否则暂存 |
-| first（无 barrier 子） | `immediate` | **唤主**（聚合已完成子结果） |
-| first（无 barrier 子） | `deferred` | 暂存；若碰巧 `allChildrenFinished` 则唤主（兜底） |
+| 模式                                 | 当前完成子 policy | 判定                                              |
+| ------------------------------------ | ----------------- | ------------------------------------------------- |
+| all（主的子中存在 `wake='barrier'`） | 任意              | `allChildrenFinished(parent)` 才唤主，否则暂存    |
+| first（无 barrier 子）               | `immediate`       | **唤主**（聚合已完成子结果）                      |
+| first（无 barrier 子）               | `deferred`        | 暂存；若碰巧 `allChildrenFinished` 则唤主（兜底） |
 
 **wakeParent silent 参数**（[wake.ts](../../src/service/chat/wake.ts)）：
 
