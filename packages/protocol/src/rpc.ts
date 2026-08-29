@@ -124,6 +124,84 @@ export const ErrorSourceSchema = z.enum([
 ])
 export type ErrorSource = z.infer<typeof ErrorSourceSchema>
 
+export const FeedbackSeveritySchema = z.enum(['info', 'warning', 'error'])
+export type FeedbackSeverity = z.infer<typeof FeedbackSeveritySchema>
+
+export const FeedbackActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('resume_run') }),
+  z.object({ type: z.literal('retry') }),
+  z.object({ type: z.literal('reconnect') }),
+  z.object({
+    type: z.literal('open_settings'),
+    section: z.enum(['provider', 'runtime', 'limits']),
+  }),
+  z.object({ type: z.literal('select_chat') }),
+  z.object({ type: z.literal('resend_input') }),
+  z.object({ type: z.literal('view_details') }),
+  z.object({ type: z.literal('dismiss') }),
+])
+export type FeedbackAction = z.infer<typeof FeedbackActionSchema>
+
+/**
+ * Canonical user-facing feedback. Internal exception text and stacks must not
+ * be placed in title/description/guidance; use detail and server logs instead.
+ */
+export const UserFeedbackSchema = z.object({
+  code: z.string().min(1),
+  severity: FeedbackSeveritySchema,
+  source: ErrorSourceSchema,
+  title: z.string().min(1),
+  description: z.string().min(1),
+  guidance: z.string().min(1).optional(),
+  actions: z.array(FeedbackActionSchema).min(1),
+  retention: z.enum(['transient', 'history']),
+  tracingId: z.string().min(1).optional(),
+  detail: z.string().min(1).max(200).optional(),
+})
+export type UserFeedback = z.infer<typeof UserFeedbackSchema>
+
+export const RunOutcomeReasonCode = {
+  COMPLETED: 'RUN_COMPLETED',
+  PAUSED: 'RUN_PAUSED',
+  LOOP_LIMIT_REACHED: 'RUN_LOOP_LIMIT_REACHED',
+  AUTH_FAILED: 'RUN_AUTH_FAILED',
+  NETWORK_FAILED: 'RUN_NETWORK_FAILED',
+  PROVIDER_FAILED: 'RUN_PROVIDER_FAILED',
+  TIMEOUT: 'RUN_TIMEOUT',
+  VALIDATION_FAILED: 'RUN_VALIDATION_FAILED',
+  UNKNOWN_FAILED: 'RUN_UNKNOWN_FAILED',
+  USER_CANCELLED: 'RUN_USER_CANCELLED',
+  SYSTEM_CANCELLED: 'RUN_SYSTEM_CANCELLED',
+} as const
+export type RunOutcomeReasonCode = (typeof RunOutcomeReasonCode)[keyof typeof RunOutcomeReasonCode]
+
+export const RunOutcomeStatusSchema = z.enum(['completed', 'paused', 'failed', 'cancelled'])
+export type RunOutcomeStatus = z.infer<typeof RunOutcomeStatusSchema>
+
+export const RunOutcomeNotificationDataSchema = z
+  .object({
+    status: RunOutcomeStatusSchema,
+    reasonCode: z.string().min(1),
+    canResume: z.boolean(),
+    retryable: z.boolean(),
+    occurredAt: z.number().int().nonnegative(),
+    feedback: UserFeedbackSchema.optional(),
+  })
+  .loose()
+  .superRefine((outcome, ctx) => {
+    if (outcome.status !== 'completed' && !outcome.feedback) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['feedback'],
+        message: 'non-completed run outcomes require user feedback',
+      })
+    }
+  })
+export type RunOutcomeNotificationData = z.infer<typeof RunOutcomeNotificationDataSchema>
+
+export const NoticeNotificationDataSchema = UserFeedbackSchema
+export type NoticeNotificationData = z.infer<typeof NoticeNotificationDataSchema>
+
 export const ProtocolErrorSchema = z.object({
   code: z.string().min(1),
   message: z.string().min(1),
@@ -131,6 +209,7 @@ export const ProtocolErrorSchema = z.object({
   retryable: z.boolean(),
   tracingId: z.string().min(1),
   retryAfterMs: z.number().int().nonnegative().optional(),
+  feedback: UserFeedbackSchema.optional(),
 })
 export type ProtocolError = z.infer<typeof ProtocolErrorSchema>
 
@@ -198,9 +277,13 @@ export const NotificationEnvelopeSchema = z
     const schema =
       notification.type === 'error'
         ? RunErrorNotificationDataSchema
-        : notification.type === 'turn.cancelled'
-          ? TurnCancelledNotificationDataSchema
-          : undefined
+        : notification.type === 'run.outcome'
+          ? RunOutcomeNotificationDataSchema
+          : notification.type === 'notice'
+            ? NoticeNotificationDataSchema
+            : notification.type === 'turn.cancelled'
+              ? TurnCancelledNotificationDataSchema
+              : undefined
     if (schema) {
       const parsed = schema.safeParse(notification.data)
       if (parsed.success) return

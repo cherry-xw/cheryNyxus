@@ -1,6 +1,24 @@
 import { z } from 'zod'
 import { Method } from './rpc'
 
+export const TerminationCode = {
+  USER_ABORT: 'user_abort',
+  SYSTEM_STOP: 'system_stop',
+  WATCHDOG: 'watchdog',
+  ERROR: 'error',
+  AGENT_REDIRECT: 'agent_redirect',
+  LIMIT_REACHED: 'limit_reached',
+} as const
+export type TerminationCode = (typeof TerminationCode)[keyof typeof TerminationCode]
+
+export interface TerminationFact {
+  actor: 'user' | 'system' | 'agent'
+  code: TerminationCode
+  at: number
+  detail?: string
+  controlOperationId?: string
+}
+
 /** Canonical chat methods. Legacy stream/replay methods intentionally do not live here. */
 export const ChatMethod = {
   OPEN: Method.CHAT_OPEN,
