@@ -9,6 +9,7 @@
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
 | v1.0 | 2026-08-26 | 从记忆落为强制规范：URL 端点是注册 provider 必须提供的能力、统一入口、版本段交用户、fullUrl 不拼接 |
+| v1.1 | 2026-08-28 | §4 新增 `/models` openai 兼容协议常量豁免：utils.models anthropic 双尝试回退的拼接路径（buildEndpointUrl 直拼，仅 utils.models，三处一致性不变） |
 
 ## 1. 核心原则
 
@@ -35,6 +36,7 @@
 
 - **ollama 类 host 模式 provider 可不注册**：未注册 → `getProviderUrlPattern` 返回 undefined → host 模式不拼接。
 - **`/chat/completions` 是 openai 兼容协议常量**：`jsonRequest` / `streamSSE` 内的该端点不收敛、不走注册表；一致性由单测锁死（`test/agent/provider/fetchBase.test.ts`）。
+- **`/models` 是 utils.models anthropic 双尝试的 openai 兼容协议常量**（2026-08-28）：主尝试（Anthropic 原生 `/models?limit=1000`）无产出且未勾选 `fullUrl` 时，回退请求 `GET {base}/models`（Bearer）由 `buildEndpointUrl` 直拼，不走注册表——与 `/chat/completions` 同款豁免；回退仅存在于 `utils.models`，chat / `utils.testConnection` 行为不变，三处一致性不受影响。
 - **地址拼接只做简单拼接**（最多对结尾 `/` 归一），不做花哨兼容判断。
 
 ## 5. 兼容性注意（2026-08 简化）

@@ -38,9 +38,8 @@ import {
 import { getLLMAdapter } from '@/core/llm/adapter.js'
 import { getMessageAdapter, type LLMResponse } from '@/core/message/adapter.js'
 import { openWithSystem } from './openWithSystem.js'
-import { readErrorSnippet } from '@/agent/provider/fetchBase.js'
+import { readErrorSnippet, resolveProviderUrl, buildEndpointUrl } from '@/agent/provider/fetchBase.js'
 import { ANTHROPIC_VERSION } from '@/agent/provider/anthropic.js'
-import { resolveProviderUrl } from '@/agent/provider/fetchBase.js'
 
 const exec = promisify(execCallback)
 
@@ -185,13 +184,22 @@ async function fetchOpenAIModels(
     apiKey: key,
   })
   const response = await client.models.list()
-  return {
-    models: response.data.map((m) => ({
-      id: m.id,
-      name: m.id,
-      ownedBy: m.owned_by,
-    })),
+  const models = response.data.map((m) => ({
+    id: m.id,
+    name: m.id,
+    ownedBy: m.owned_by,
+  }))
+  // openai-node v6 对伪 200（200 + 非 JSON，如网关 SPA 回退页）不抛错：parse 层把非 JSON 体
+  // 原样当文本返回，分页层 body.data || [] 兜成空数组，与「真返回空列表」不可区分
+  // （docs/agent/provider.md「utils.models openai SDK 路径的空列表提示」）。空列表时显式提示
+  // 最常见原因（地址缺版本段），让用户可自查；真返回空 data 的网关同样收到此提示，属可接受歧义。
+  if (models.length === 0) {
+    return {
+      models: [],
+      error: '未获取到任何模型：若地址缺少版本段（如 /v1），请在地址末尾补上后重试；也可直接手填模型名',
+    }
   }
+  return { models }
 }
 
 async function fetchOllamaModels(url: string): Promise<UtilsModelsResponseData> {
@@ -206,13 +214,16 @@ async function fetchOllamaModels(url: string): Promise<UtilsModelsResponseData> 
 }
 
 /**
- * Anthropic 模型列表：原生 fetch GET {url}/models?limit=1000
- * header x-api-key + anthropic-version（同 anthropic.ts 的 chat 路径鉴权方式）。
- * 版本前缀（如 /v1）由用户在 url 自己提供，与 joinAnthropicUrl 约定一致。
- * 非流式、无第三方 SDK（Anthropic 无官方 SDK 依赖）。
+ * Anthropic 模型列表：双尝试（docs/agent/provider.md「anthropic 模型列表双尝试」）。
+ * 主尝试 Anthropic 原生 GET {url}/models?limit=1000，header x-api-key + anthropic-version
+ * （同 anthropic.ts 的 chat 路径鉴权方式）；版本前缀（如 /v1）由用户在 url 自己提供，
+ * 与 joinAnthropicUrl 约定一致。非流式、无第三方 SDK。
+ *
+ * 回退：主尝试无模型产出且未勾选 fullUrl 时，按 OpenAI 兼容 GET {base}/models
+ * （仅 Authorization Bearer）再试一次——网关两种协议 base 常不同、且可能只认 Bearer
+ * （如 MiniMax）。两边均无产出 → error 聚合两段原因，诊断信息不打折。
  *
  * 错误策略：诊断接口需 Fail Loud，**不走外层 friendlyMessage 泛化**（会吞 status/snippet）。
- * 网络/HTTP/JSON 解析三类失败就地返回 {models:[], error} 携带真实 status+片段，
  * 仅占位符/空 key 同 fetchOpenAIModels 早返模式。
  */
 async function fetchAnthropicModels(
@@ -236,6 +247,28 @@ async function fetchAnthropicModels(
     }
   }
 
+  const primary = await fetchAnthropicModelsNative(url, key, fullUrl)
+  if (primary.models.length > 0) return primary
+  // fullUrl=true：完全自负责，不做协议回退（回退 URL 无法从用户给的完整端点推导）
+  if (fullUrl) return primary
+
+  const fallback = await fetchOpenAICompatModelsFallback(url, key)
+  if (fallback.models.length > 0) return fallback
+  return {
+    models: [],
+    error: `${primary.error ?? 'Anthropic 原生 /models 未返回模型'}；OpenAI 兼容回退（GET /models + Bearer）亦失败：${fallback.error ?? '未返回模型'}`,
+  }
+}
+
+/**
+ * Anthropic 原生尝试：GET {url}/models?limit=1000（x-api-key + anthropic-version）。
+ * 网络/HTTP/JSON 解析失败就地返回 {models:[], error} 携带真实 status+片段，不抛。
+ */
+async function fetchAnthropicModelsNative(
+  url: string,
+  key: string,
+  fullUrl: boolean,
+): Promise<UtilsModelsResponseData> {
   // models 端点走统一入口（拼 /models?limit=1000；fullUrl=true 原样访问，须含 /models，见
   // docs/agent/provider.md「URL 解析与端点拼接」）
   const modelsUrl = resolveProviderUrl('anthropic', url, { fullUrl, kind: 'models' })
@@ -294,7 +327,7 @@ async function fetchAnthropicModels(
     )
     return {
       models: [],
-      error: `Anthropic 返回了非 JSON 内容（检查 url 是否指向正确的 API：${url}）`,
+      error: `Anthropic 返回了非 JSON 内容：url 可能缺版本段（如 /v1，请在地址末尾补上后重试）或未指向 API（当前：${url}）`,
     }
   }
   // has_more=true 表示超过 limit 被截断（Anthropic 模型目录远小于 1000，仅兜底可见性，不静默丢弃）
@@ -309,6 +342,68 @@ async function fetchAnthropicModels(
     models: (json.data ?? []).map((m) => ({
       id: m.id,
       name: m.display_name ?? m.id,
+    })),
+  }
+}
+
+/**
+ * OpenAI 兼容回退尝试：GET {base}/models（仅 Authorization Bearer）。
+ * `/models` 为 openai 兼容协议常量（与 /chat/completions 同款豁免，buildEndpointUrl 直拼，
+ * 见 docs/standards/provider-url-resolution.md §4）。失败就地返回 {models:[], error}，不抛。
+ */
+async function fetchOpenAICompatModelsFallback(
+  url: string,
+  key: string,
+): Promise<UtilsModelsResponseData> {
+  const modelsUrl = buildEndpointUrl(url, { fullUrl: false, endpoint: '/models' })
+  let res: Response
+  try {
+    res = await fetch(modelsUrl, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${key}` },
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.event(
+      'utils.models.error',
+      { provider: 'anthropic', url, error: `fallback network: ${msg}`, category: 'network' },
+      LogLevel.warn,
+    )
+    return { models: [], error: `连接失败：${msg}（GET ${modelsUrl}）` }
+  }
+  if (!res.ok) {
+    const snippet = await readErrorSnippet(res)
+    const status = res.status
+    const category = status === 401 || status === 403 ? 'auth' : 'unknown'
+    logger.event(
+      'utils.models.error',
+      {
+        provider: 'anthropic',
+        url,
+        error: `fallback upstream ${status}: ${snippet}`,
+        category,
+      },
+      LogLevel.warn,
+    )
+    return { models: [], error: `接口返回 ${status}：${snippet}` }
+  }
+  let json: { data?: Array<{ id: string; owned_by?: string }> }
+  try {
+    json = (await res.json()) as { data?: Array<{ id: string; owned_by?: string }> }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.event(
+      'utils.models.error',
+      { provider: 'anthropic', url, error: `fallback json parse: ${msg}`, category: 'unknown' },
+      LogLevel.warn,
+    )
+    return { models: [], error: `返回了非 JSON 内容（GET ${modelsUrl}；url 可能缺版本段，请在地址末尾补上（如 /v1）后重试）` }
+  }
+  return {
+    models: (json.data ?? []).map((m) => ({
+      id: m.id,
+      name: m.id,
+      ownedBy: m.owned_by,
     })),
   }
 }

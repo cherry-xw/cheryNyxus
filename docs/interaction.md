@@ -172,6 +172,19 @@
 -> {"id":"ru5","kind":"request","method":"utils.models","params":{"provider":"anthropic","url":"https://api.anthropic.com/v1","key":"sk-ant-..."}}
 ← {"id":"au5","kind":"response","requestId":"ru5","success":true,"data":{"models":[{"id":"claude-sonnet-4-5","name":"Claude Sonnet 4.5"},{"id":"claude-opus-4-5","name":"Claude Opus 4.5"}]}}
 
+// 提示（openai，SDK 对伪 200 不抛错→空列表被识别为异常并提示补版本段；真返回 {"data":[]} 的网关同样收到此提示，属可接受歧义）
+→ {"id":"ru9","kind":"request","method":"utils.models","params":{"provider":"openai","url":"https://gw.example.com","key":"sk-..."}}
+→ {"id":"au9","kind":"response","requestId":"ru9","success":true,"data":{"models":[],"error":"未获取到任何模型：若地址缺少版本段（如 /v1），请在地址末尾补上后重试；也可直接手填模型名"}}
+
+// 成功（anthropic，双尝试回退命中）：主尝试 Anthropic 原生 /models?limit=1000 失败（如网关只认 Bearer 或未实现该路径），
+// 且未勾选 fullUrl → 自动回退 OpenAI 兼容 GET {base}/models（仅 Authorization: Bearer），返回非空列表
+→ {"id":"ru7","kind":"request","method":"utils.models","params":{"provider":"anthropic","url":"https://api.minimaxi.com/v1","key":"$MINIMAX_KEY"}}
+→ {"id":"au7","kind":"response","requestId":"ru7","success":true,"data":{"models":[{"id":"MiniMax-M2.7","name":"MiniMax-M2.7"}]}}
+
+// 失败（anthropic，双尝试均无产出）：error 聚合主尝试与回退两段失败原因（各自带 status/片段）
+→ {"id":"ru8","kind":"request","method":"utils.models","params":{"provider":"anthropic","url":"https://gw.example.com/v1","key":"sk-..."}}
+→ {"id":"au8","kind":"response","requestId":"ru8","success":true,"data":{"models":[],"error":"Anthropic 接口返回 404：not found；OpenAI 兼容回退（GET /models + Bearer）亦失败：upstream 401"}}
+
 // 成功（openai，勾选「完整 URL」fullUrl=true → 不补全，baseURL 直接用用户地址，须含版本段）
 → {"id":"ru6","kind":"request","method":"utils.models","params":{"provider":"openai","url":"https://api.openai.com/v1","key":"sk-...","fullUrl":true}}
 ← {"id":"au6","kind":"response","requestId":"ru6","success":true,"data":{"models":[{"id":"gpt-4o","name":"gpt-4o","ownedBy":"system"}]}}
