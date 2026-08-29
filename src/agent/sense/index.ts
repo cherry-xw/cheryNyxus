@@ -230,13 +230,13 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
     name: 'config_manage',
     label: '配置管理',
     description:
-      '管理 .chery 配置与受管资产（Cherry Nexus 独占：get/save/rollback + asset_get/save/archive）',
+      '管理 .chery 配置与受管资产（Cherry Nexus 独占：get/patch/rollback + asset_get/save/archive）',
     icon: '⚙️',
     doc:
       '【作用】读取、保存或回滚 .chery/config.yaml，并以引用检查 + 可恢复归档管理 prompt/skill/rule 资产。\n' +
-      '【能力】get 读取完整脱敏配置并附备份列表；save 写盘（写前自动备份最近 10 份）；rollback 从备份恢复；密钥以 [REDACTED] 哨兵 round-trip 保留盘上原值。\n' +
+      '【能力】get 读取完整脱敏配置、baseRevision 与备份列表；patch 提交强类型增量候选，全量校验通过后写盘并等待任务空闲重启；rollback 从备份恢复。\n' +
       '【边界】仅配置管理核心角色可用（其他角色的 senseTable 无此工具）；server 段保留不动。\n' +
-      '【注意】写配置影响全局，保存前先 get 回读确认；未知 action 会 fail-loud 返回用法，不静默兜底。',
+      '【注意】写配置影响全局，patch 前先 get 回读确认；旧 save 会被拒绝，未知 action 会 fail-loud 返回用法。',
   },
   {
     name: 'select_conversation',

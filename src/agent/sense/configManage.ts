@@ -3,25 +3,27 @@ import { sense, type SenseResult } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
 import {
   readRawConfig,
-  saveRawConfig,
   rollbackConfig,
   listConfigBackups,
   redactConfigSecrets,
-  restoreRedactedSecrets,
-  type ConfigRaw,
 } from '@/utils/config.js'
+import {
+  applyConfigOperations,
+  configOperationsSchema,
+  getConfigBaseRevision,
+  type ConfigOperation,
+} from '@/service/config/operations.js'
+import { commitConfigCandidate } from '@/service/config/commit.js'
 import fs from 'node:fs'
 import path from 'node:path'
 
 /**
  * config_manage 感官：配置管理核心角色（cheryNyxus）专用，读写 .chery/config.yaml。
  *
- * action 三态：
- *   - get：readRawConfig() 读盘（剥离 server 段），经 redactConfigSecrets 脱敏后返回**完整配置**
- *     （key 为 $ENV 占位符原样 / [REDACTED] 哨兵）+ backups 回滚点，可直接 round-trip 传回 save。
- *   - save：先 readRawConfig() 读盘 → restoreRedactedSecrets 把 [REDACTED] 还原为盘上原值 →
- *     复用 saveRawConfig()（校验 + 锁角色/固定预设编辑校验 + 写盘）。
- *     写盘前 saveRawConfig 层自动备份旧配置到 .chery/backups/（保留最近 10 份），出错可 rollback。
+ * 配置 action：
+ *   - get：返回完整脱敏配置、覆盖全部可编辑字段的 baseRevision 与 backups 回滚点。
+ *   - patch：把强类型资源操作应用到当前磁盘快照，完整校验候选后写盘，并安排空闲重启。
+ *   - save：旧全量协议仅返回迁移指引，不执行写入。
  *   - rollback：从 .chery/backups/ 恢复指定（或缺省最近）备份到 config.yaml。
  *
  * 结构化感官（action 参数无路径）→ extractSensePaths 返回 []，天然不触发 .chery/ 路径守卫。
@@ -37,20 +39,25 @@ import path from 'node:path'
 // 详见 docs/agent/prompt-guide.md 规范 #3。
 const ConfigManageSchema = z.object({
   action: z
-    .enum(['get', 'save', 'rollback', 'asset_get', 'asset_save', 'asset_archive'])
+    .enum(['get', 'patch', 'save', 'rollback', 'asset_get', 'asset_save', 'asset_archive'])
     .describe(
-      '操作类型，必填：get/save/rollback 管配置；asset_get/asset_save/asset_archive 管提示词、技能或规则资产',
+      '操作类型，必填：get/patch/rollback 管配置；save 已停用；asset_get/asset_save/asset_archive 管提示词、技能或规则资产',
     ),
-  config: z
-    .record(z.string(), z.unknown())
+  baseRevision: z
+    .string()
     .optional()
     .describe(
-      'save 必填：完整配置对象（roles / sense_groups / global / llm / media / mcp_servers / presets 等 config.yaml 字段；server 段保留不动）。由 config_manage(action="get") 返回的完整脱敏配置改造，未改字段保留原值；敏感 key 传回 [REDACTED] 哨兵自动保留盘上原值',
+      'patch 必填：必须原样使用最近一次 get 返回的 baseRevision；磁盘配置变化后旧值会被拒绝',
     ),
+  operations: configOperationsSchema
+    .optional()
+    .describe('patch 必填：1 到 50 个强类型资源级 put/remove 操作，按数组顺序原子应用'),
   backup: z
     .string()
     .optional()
-    .describe('rollback 用：回滚目标备份文件名（.chery/backups/ 下，如 config-20260821-120000.yaml）；缺省用最近一份'),
+    .describe(
+      'rollback 用：回滚目标备份文件名（.chery/backups/ 下，如 config-20260821-120000.yaml）；缺省用最近一份',
+    ),
   assetPath: z
     .string()
     .optional()
@@ -173,41 +180,59 @@ function doAssetArchive(assetPath: string): SenseResult {
   }
 }
 
-/** get：读盘返回完整脱敏配置（可 round-trip 传回 save）+ backups 回滚点。backups 独立于 config 对象，避免污染 save 入参。 */
+/** get：读盘返回完整脱敏配置、乐观并发 revision 与 backups 回滚点。 */
 function doGet(): SenseResult {
   const raw = readRawConfig()
   const config = redactConfigSecrets(raw)
+  const baseRevision = getConfigBaseRevision(raw)
   const backups = listConfigBackups()
   return {
     content:
-      `当前 .chery/config.yaml 配置（完整、已脱敏，可直接 round-trip 传给 config_manage(action="save")）：\n` +
+      `当前 .chery/config.yaml 配置（完整、已脱敏，仅用于定位目标资源）：\n` +
       JSON.stringify(config, null, 2) +
+      `\nbaseRevision（patch 时必须原样传回）：${baseRevision}` +
       `\n回滚点（.chery/backups/，最近在前）：\n` +
       (backups.length ? backups.join('\n') : '（无）') +
-      `\n说明：未改字段保留原值；敏感 key 字段为 [REDACTED] 哨兵（$ENV 占位符原样保留），` +
-      `save 时原样传回 [REDACTED] 即保留盘上原值，显式给出新值则以新值为准。`,
+      `\n说明：不要回传完整配置；只提交目标资源的强类型 operations。` +
+      `敏感 key 为 [REDACTED] 时会保留盘上原值，显式给出新值才会替换。`,
     hash: '',
   }
 }
 
-/** save：先读盘还原 [REDACTED] 为盘上原值，再复用 saveRawConfig 校验 + 写盘（自动备份旧配置）。校验失败不落盘。 */
-function doSave(config: Record<string, unknown>): SenseResult {
+/** patch：检查 baseRevision，增量构造候选，全量校验后持久化并安排空闲重启。 */
+function doPatch(baseRevision: string, operations: readonly ConfigOperation[]): SenseResult {
   const disk = readRawConfig()
-  const restored = restoreRedactedSecrets(config as unknown as ConfigRaw, disk)
-  const result = saveRawConfig(restored)
-  if (!result.ok) {
-    const combined = [...result.errors, ...(result.warnings ?? [])]
+  const applied = applyConfigOperations(disk, operations)
+  if (!applied.ok) {
     return {
-      content:
-        `配置保存被拒绝，未落盘：\n${combined.join('\n')}\n` +
-        `可基于报错调整 config 后重试 save；如需撤销已落盘变更用 action="rollback"。`,
+      content: `配置增量操作被拒绝，未落盘：\n${applied.errors.join('\n')}`,
+      hash: '',
+    }
+  }
+  const result = commitConfigCandidate({
+    candidate: applied.candidate,
+    expectedBaseRevision: baseRevision,
+  })
+  if (!result.ok) {
+    const retry =
+      result.kind === 'stale'
+        ? `\n请重新调用 action="get" 获取最新配置与 baseRevision，重新核对后再提交。当前 revision：${result.currentRevision}`
+        : '\n请按错误修正 operations 后重试；候选配置未写盘。'
+    return {
+      content: `配置候选被拒绝，未落盘：\n${[...result.errors, ...result.warnings].join('\n')}${retry}`,
       hash: '',
     }
   }
   return {
     content:
-      '配置已保存到 .chery/config.yaml（写盘前旧配置已自动备份到 .chery/backups/，保留最近 10 份）。' +
-      '注意：配置不热更，需要重启进程才能生效。',
+      `配置候选已通过完整校验并保存；候选修订 ${result.candidateRevisionId}，` +
+      `新 baseRevision ${result.baseRevision}。旧配置已自动备份。` +
+      (result.restart === 'manual'
+        ? '当前没有守护进程，请手动重启后生效。'
+        : result.restart === 'immediate'
+          ? '当前没有运行中的会话任务，已安排立即受控重启。'
+          : '已安排在所有运行中的会话任务结束后受控重启；不会中断当前任务。') +
+      (result.warnings.length ? `\n警告：\n${result.warnings.join('\n')}` : ''),
     hash: '',
   }
 }
@@ -226,19 +251,19 @@ function doRollback(backup: string | undefined): SenseResult {
     return {
       content:
         `回滚失败：${(error as Error).message}\n` +
-        '可通过 config_manage(action="get") 查看当前 .chery/backups/ 回滚点；首次 action="save" 后才会生成备份。',
+        '可通过 config_manage(action="get") 查看当前 .chery/backups/ 回滚点；首次成功 action="patch" 后才会生成备份。',
       hash: '',
     }
   }
 }
 
-const configManageDescription = `管理 .chery/config.yaml 配置（配置管理核心角色 cheryNyxus 专用）。本感官是读写 .chery 配置的唯一正式通道，可完整替代对配置文件的直接指令读写（get 读 / save 写 / rollback 恢复）。
-⚠️ action 参数必填。配置操作取 get / save / rollback；资产操作取 asset_get / asset_save / asset_archive：
-1. action="get"：读取并返回 .chery/config.yaml 完整脱敏配置（roles / sense_groups / global / llm / media / mcp_servers / presets 等全量字段；敏感 key 为 [REDACTED] 哨兵，$ENV 占位符原样保留）+ .chery/backups/ 回滚点列表。任何配置操作的第一步，必须先调用。
-2. action="save" + config：基于 get 返回的完整对象，仅改动目标字段后整体传回（未改字段保留原值；[REDACTED] 哨兵原样传回即保留盘上原值，显式给出新明文则以新值为准）。写盘前自动备份旧配置到 .chery/backups/（保留最近 10 份）；校验失败不落盘并返回错误。
+const configManageDescription = `管理 .chery/config.yaml 配置（配置管理核心角色 cheryNyxus 专用）。配置采用强类型增量候选流程（get 读 / patch 改 / rollback 恢复）。
+⚠️ action 参数必填。配置操作取 get / patch / rollback；旧 action="save" 已停用；资产操作取 asset_get / asset_save / asset_archive：
+1. action="get"：读取完整脱敏配置、baseRevision 和回滚点。任何配置变更的第一步，必须先调用。
+2. action="patch" + baseRevision + operations：只提交目标 brain/role/preset/senseGroup 的强类型 put/remove 操作。服务端基于当前磁盘配置构造候选，全量校验通过后才写盘；revision 过期或任一校验失败均不落盘。成功后仅在所有会话任务空闲时受控重启。
 3. action="rollback"（+ 可选 backup 文件名）：从 .chery/backups/ 恢复指定（或缺省最近）备份，撤销之前的保存。
 4. asset_get/asset_save/asset_archive + assetPath：管理角色提示词、技能和规则文件。archive 会先检查当前引用并移动到 backups/assets，不做不可恢复删除；仍被引用时严格拒绝。
-使用流程：先 action="get" 了解现状与锁定约束 → 用 ask_user_question 向用户确认变更（含改动前后对比、影响范围）→ action="save" 落盘 → 提示重启生效；出错先 action="rollback" 再基于报错重试。
+使用流程：先 get → 核对字段与稳定 id → 用 ask_user_question 向用户确认变更（含前后对比、影响范围）→ patch。不得猜测类型，不得回传完整配置。
 禁止用 execute_command（cat/type/grep/head 等读取内容）或 write_file 直接读取/修改 .chery 配置（会被拦截，且绕过脱敏层）；获取 .chery 目录信息类命令（ls/dir/find/stat 列目录）不受影响。`
 
 export default sense(
@@ -247,17 +272,24 @@ export default sense(
   ConfigManageSchema,
   async (args): Promise<SenseResult> => {
     if (args.action === 'get') return doGet()
-    if (args.action === 'save') {
-      // config 为 optional（enum 后无法用 discriminatedUnion 表达"save 时必填"），此处显式校验
-      if (!args.config) {
+    if (args.action === 'patch') {
+      if (!args.baseRevision || !args.operations) {
         return {
           content:
-            '错误：config_manage action="save" 需要 config 参数（基于 get 返回的完整对象改动后整体传回）。\n' +
-            '请先调用 config_manage(action="get") 获取当前配置，修改后以 action="save"+config 传回。',
+            '错误：config_manage action="patch" 需要 baseRevision 和 operations。\n' +
+            '请先调用 action="get"，确认变更后原样传回 revision，并只提交目标资源操作。',
           hash: '',
         }
       }
-      return doSave(args.config)
+      return doPatch(args.baseRevision, args.operations)
+    }
+    if (args.action === 'save') {
+      return {
+        content:
+          '错误：config_manage action="save" 的全量配置写入已停用，未执行任何操作。\n' +
+          '请重新调用 action="get" 获取 baseRevision，然后使用 action="patch" + 强类型 operations。',
+        hash: '',
+      }
     }
     if (args.action === 'rollback') return doRollback(args.backup)
     if (args.action === 'asset_get') {
@@ -282,7 +314,7 @@ export default sense(
         '错误：config_manage 必须显式指定 action，本次调用缺少或不合法，未执行任何操作。\n' +
         '用法：\n' +
         '  1. action="get"：读取 .chery/config.yaml 完整脱敏配置（任何配置操作的第一步）。\n' +
-        '  2. action="save" + config：基于 get 返回的对象修改后整体传回。\n' +
+        '  2. action="patch" + baseRevision + operations：提交强类型增量候选。\n' +
         '  3. action="rollback"（+ 可选 backup 文件名）：从 .chery/backups/ 恢复指定（或缺省最近）备份。\n' +
         '请先调用 config_manage(action="get") 获取当前配置。',
       hash: '',

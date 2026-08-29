@@ -14,7 +14,8 @@ import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import configManageSense from '@/agent/sense/configManage.js'
-import { listConfigBackups } from '@/utils/config.js'
+import { backupConfig, listConfigBackups, readRawConfig } from '@/utils/config.js'
+import { getConfigBaseRevision } from '@/service/config/operations.js'
 
 const exec = configManageSense.executor.execute.bind(configManageSense.executor)
 const sharedData = new Map<string, Map<string, unknown>>()
@@ -43,6 +44,16 @@ describe('config_manage sense 定义', () => {
     expect(configManageSense.definition.function.name).toBe('config_manage')
     expect(configManageSense.supervisionLevel).toBeDefined()
   })
+
+  it('tool JSON Schema 保留顶层 action 必填与嵌套资源真实类型', () => {
+    const parameters = configManageSense.definition.function.parameters
+    expect(parameters.required).toContain('action')
+    const operations = JSON.stringify(parameters.properties.operations)
+    expect(operations).toContain('"putBrain"')
+    expect(operations).toContain('"rpm":{"type":"number"')
+    expect(operations).toContain('"fullUrl":{"type":"boolean"')
+    expect(operations).toContain('"senses":{"type":"array"')
+  })
 })
 
 describe('config_manage 执行（缺 action 回归 / get / save / rollback）', () => {
@@ -62,7 +73,7 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
     const r = await exec({} as never, sharedData)
     expect(r.content).toContain('action')
     expect(r.content).toContain('get')
-    expect(r.content).toContain('save')
+    expect(r.content).toContain('patch')
     expect(r.content).toContain('rollback')
     // 不得出现 rollback 误触发的"备份"错误，也不得误生成备份目录
     expect(r.content).not.toContain('回滚失败')
@@ -75,10 +86,11 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
     expect(r.content).toContain('global')
     expect(r.content).toContain('brain-a')
     expect(r.content).toContain('回滚点')
+    expect(r.content).toContain('baseRevision')
     expect(r.content).toContain('（无）')
   })
 
-  it('action="save" 写盘前自动备份旧配置', async () => {
+  it('旧 action="save" 被拒绝，并给出 patch 迁移指引', async () => {
     const r = await exec(
       {
         action: 'save',
@@ -92,30 +104,85 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
       } as never,
       sharedData,
     )
-    expect(r.content).toContain('已保存')
+    expect(r.content).toContain('已停用')
+    expect(r.content).toContain('baseRevision')
+    expect(r.content).toContain('patch')
+    expect(listConfigBackups()).toHaveLength(0)
+  })
+
+  it('action="patch" 通过 revision 应用增量候选，写盘前自动备份', async () => {
+    const baseRevision = getConfigBaseRevision(readRawConfig())
+    const r = await exec(
+      {
+        action: 'patch',
+        baseRevision,
+        operations: [
+          { op: 'putSenseGroup', name: 'leader', senses: ['read_file'] },
+          {
+            op: 'putBrain',
+            name: 'brain-a',
+            brain: { provider: 'mock', model: 'mock_test', fullUrl: true },
+          },
+        ],
+      } as never,
+      sharedData,
+    )
+    expect(r.content).toContain('候选已通过完整校验')
+    expect(r.content).toContain('重启')
+    expect(readRawConfig().sense_groups?.leader).toEqual(['read_file'])
     expect(listConfigBackups()).toHaveLength(1)
+    const returnedRevision = r.content.match(/新 baseRevision (config-[a-f0-9]+)/)?.[1]
+    expect(returnedRevision).toBe(getConfigBaseRevision(readRawConfig()))
+  })
+
+  it('过期 baseRevision 被拒绝且不落盘', async () => {
+    const stale = getConfigBaseRevision(readRawConfig())
+    writeFileSync(
+      join(tempCheryDir, '.chery', 'config.yaml'),
+      `${minimalConfigYaml()}sense_groups:\n  changed:\n    - read_file\n`,
+    )
+    const r = await exec(
+      {
+        action: 'patch',
+        baseRevision: stale,
+        operations: [{ op: 'putSenseGroup', name: 'leader', senses: ['write_file'] }],
+      } as never,
+      sharedData,
+    )
+    expect(r.content).toContain('已过期')
+    expect(r.content).toContain('重新调用 action="get"')
+    expect(readRawConfig().sense_groups?.leader).toBeUndefined()
+    expect(listConfigBackups()).toHaveLength(0)
+  })
+
+  it('增量操作产生不可加载候选时在写盘前拒绝', async () => {
+    const baseRevision = getConfigBaseRevision(readRawConfig())
+    const r = await exec(
+      {
+        action: 'patch',
+        baseRevision,
+        operations: [{ op: 'removeBrain', name: 'brain-a' }],
+      } as never,
+      sharedData,
+    )
+    expect(r.content).toContain('候选被拒绝，未落盘')
+    expect(r.content).toContain('llm.brain 不能为空')
+    expect(readRawConfig().llm.brain['brain-a']).toBeDefined()
+    expect(listConfigBackups()).toHaveLength(0)
   })
 
   it('action="rollback" 无备份时返回可行动报错（自愈创建目录，不抛异常）', async () => {
     const r = await exec({ action: 'rollback' } as never, sharedData)
     expect(r.content).toContain('回滚失败')
     expect(r.content).toContain('尚无可用备份')
-    expect(r.content).toContain('action="save"')
+    expect(r.content).toContain('action="patch"')
     expect(existsSync(join(tempCheryDir, '.chery', 'backups'))).toBe(true)
   })
 
   it('action="rollback" 有备份时恢复最近一份', async () => {
-    // 先 save 产生备份，再改动配置，最后 rollback 恢复
-    await exec(
-      {
-        action: 'save',
-        config: {
-          global: { supervision: 'smart' },
-          llm: { brain: { 'brain-a': { provider: 'mock', model: 'mock_test' } } },
-        },
-      } as never,
-      sharedData,
-    )
+    const configPath = join(tempCheryDir, '.chery', 'config.yaml')
+    backupConfig(configPath)
+    writeFileSync(configPath, `${minimalConfigYaml()}sense_groups:\n  changed: []\n`)
     const r = await exec({ action: 'rollback' } as never, sharedData)
     expect(r.content).toContain('已从 .chery/backups/')
     expect(r.content).toContain('恢复')

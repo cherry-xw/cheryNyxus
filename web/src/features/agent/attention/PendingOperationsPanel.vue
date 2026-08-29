@@ -174,7 +174,8 @@ function toggleExpanded(): void {
  */
 const CONFIG_MANAGE_ACTION_DESC: Record<string, string> = {
   get: '读取 .chery/config.yaml 完整脱敏配置并返回回滚点列表',
-  save: '把改动后的完整配置写盘保存（写盘前自动备份旧配置）',
+  patch: '基于已确认的版本提交强类型增量候选；完整校验通过后保存，并在任务空闲时重启',
+  save: '旧版全量保存动作，后端将拒绝并提示改用强类型增量 patch',
   rollback: '从 .chery/backups/ 恢复指定（或缺省最近）备份',
 }
 

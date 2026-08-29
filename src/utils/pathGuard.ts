@@ -127,7 +127,7 @@ export function extractSensePaths(name: string, args: Record<string, unknown>): 
 /** 拦截文案（注入给 LLM，引导交配置管理核心角色）。 */
 export const CHERY_GUARD_MESSAGE =
   '.chery/ 是系统配置目录（技能/插件/提示词/命令/数据库）。' +
-  '读取/修改 .chery 配置请使用 config_manage 感官（action="get"/"save"/"rollback"），' +
+  '读取/修改 .chery 配置请使用 config_manage 感官（action="get"/"patch"/"rollback"），' +
   '它可完整替代对配置文件的直接指令读写；禁止用 cat/type/grep/head 等读取配置内容、' +
   '或用 cp/mv/rm/echo 重定向等修改 .chery（会绕过脱敏并可能损坏配置）。' +
   '仅信息获取类命令（ls/dir/find/stat 等列目录、查询状态）放行。' +
