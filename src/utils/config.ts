@@ -1,6 +1,11 @@
 import dotenv from 'dotenv'
 import yaml from 'js-yaml'
 import { validateFixedPresetEdits, validateLockedRoleEdits } from './lockedRole.js'
+import {
+  ENV_PLACEHOLDER_RE,
+  envPlaceholderFormatError,
+  isMalformedEnvPlaceholder,
+} from './envPlaceholder.js'
 import fs from 'fs'
 import path from 'path'
 import { createHash, randomBytes } from 'node:crypto'
@@ -1229,6 +1234,29 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
 }
 
 /**
+ * 密钥字段中的 `$ENV` 必须使用统一的全大写占位符格式。
+ *
+ * 此项故意不并入 validateRawConfig：旧配置在启动时仍可加载，实际调用会给出
+ * 可操作的运行期提示；但所有新的保存、预检与回滚都必须阻止该错误重新落盘。
+ */
+function validateCredentialEnvPlaceholders(raw: unknown): string[] {
+  // 兼容历史备份：rollbackConfig 过去允许注释/空 YAML 原样恢复；只有对象配置才检查密钥字段。
+  const config = raw !== null && typeof raw === 'object' ? (raw as ConfigRaw) : undefined
+  const errors: string[] = []
+  for (const [name, cfg] of Object.entries(config?.llm?.brain ?? {})) {
+    if (isMalformedEnvPlaceholder(cfg?.key)) {
+      errors.push(envPlaceholderFormatError(`llm.brain.${name}.key`))
+    }
+  }
+  for (const [name, cfg] of Object.entries(config?.media ?? {})) {
+    if (isMalformedEnvPlaceholder(cfg?.key)) {
+      errors.push(envPlaceholderFormatError(`media.${name}.key`))
+    }
+  }
+  return errors
+}
+
+/**
  * 在后端主机上校验预设 workspace。空值代表「未限定」，视为有效。
  * 仅做文件系统检查，不读取或写入 config.yaml；设置页的即时校验与 saveRawConfig 复用此规则。
  */
@@ -1283,8 +1311,6 @@ export function readRawConfig(): ConfigRaw {
  *  - `mcp_servers.*.url`：内联凭证（scheme://user:pass@host）→ 凭证段 `[REDACTED]`（url 其余保留）。
  * 深拷贝返回，不改入参。
  */
-const ENV_PLACEHOLDER_RE = /^\$[A-Z_][A-Z0-9_]*$/
-
 function redactSecretValue(value: string): string {
   return ENV_PLACEHOLDER_RE.test(value) ? value : '[REDACTED]'
 }
@@ -1414,7 +1440,13 @@ export function rollbackConfig(backupName?: string): { backup: string } {
     .reverse()
   const target = backupName && candidates.includes(backupName) ? backupName : candidates[0]
   if (!target) throw new Error('备份目录为空，尚无可用备份（首次 action="save" 后才会生成）')
-  fs.copyFileSync(path.join(backupsDir, target), configPath)
+  const targetPath = path.join(backupsDir, target)
+  const backupRaw = yaml.load(fs.readFileSync(targetPath, 'utf8')) as ConfigRaw
+  const errors = validateCredentialEnvPlaceholders(backupRaw)
+  if (errors.length > 0) {
+    throw new Error(`备份配置校验失败，未恢复：\n${errors.join('\n')}`)
+  }
+  fs.copyFileSync(targetPath, configPath)
   return { backup: target }
 }
 
@@ -1429,7 +1461,7 @@ export function rollbackConfig(backupName?: string): { backup: string } {
 export function saveRawConfig(
   partial: ConfigRaw,
 ): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
-  const errors = validateRawConfig(partial)
+  const errors = [...validateRawConfig(partial), ...validateCredentialEnvPlaceholders(partial)]
   // workspace 单独校验（启动期不参与；保存期非绝对路径 → 硬错误；其他无效目录 → 软警告）
   const warnings: string[] = []
   if (partial.presets) {
@@ -1486,7 +1518,7 @@ export function validateLoadable(
 ): { ok: true; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] } {
   const copy = structuredClone(raw)
   // 1) 核心业务校验（loadConfig 阶段 throw 的唯一来源；systemPrompt 存在性在其内为硬错误）
-  const errors = validateRawConfig(copy)
+  const errors = [...validateRawConfig(copy), ...validateCredentialEnvPlaceholders(copy)]
   // 2) $ENV 占位符缺失变量 → 软警告（占位符匹配规则与 replaceEnvVars 一致；不阻塞重启）
   const warnings: string[] = []
   const missing = new Set<string>()

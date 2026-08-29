@@ -114,6 +114,20 @@ describe('config 自动备份回滚', () => {
     expect(readFileSync(join(tempCheryDir, '.chery', 'config.yaml'), 'utf8')).toBe('# older')
   })
 
+  it('rollbackConfig 遇到格式错误的密钥占位符 → 拒绝恢复且保留当前配置', () => {
+    const configPath = setupConfigYaml(minimalConfigYaml())
+    const original = readFileSync(configPath, 'utf8')
+    const backupsDir = join(tempCheryDir, '.chery', 'backups')
+    mkdirSync(backupsDir, { recursive: true })
+    writeFileSync(
+      join(backupsDir, 'config-20260820-020000.yaml'),
+      'global:\n  supervision: smart\nllm:\n  brain:\n    brain-a:\n      provider: mock\n      model: mock_test\n      key: $APq_KEY\n',
+    )
+
+    expect(() => rollbackConfig()).toThrow(/环境变量占位符格式错误/)
+    expect(readFileSync(configPath, 'utf8')).toBe(original)
+  })
+
   it('rollbackConfig 备份目录不存在时自愈创建并报"尚无可用备份"（不再报误导性的目录不存在）', () => {
     setupConfigYaml(minimalConfigYaml())
     expect(() => rollbackConfig()).toThrow(/备份目录为空|尚无可用备份/)

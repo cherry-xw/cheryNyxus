@@ -59,6 +59,17 @@ describe('validateLoadable 重启前预检', () => {
     expect(validateLoadable(raw)).toEqual({ ok: true, warnings: [] })
   })
 
+  it('密钥占位符含小写字母 → 配置错误，并说明正确格式', () => {
+    const raw = validRaw()
+    if (raw.llm?.brain?.['brain-a']) raw.llm.brain['brain-a'].key = '$APq_KEY'
+    const result = validateLoadable(raw)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.errors.join('\n')).toContain('llm.brain.brain-a.key 环境变量占位符格式错误')
+      expect(result.errors.join('\n')).toContain('$API_KEY')
+    }
+  })
+
   it('roles.*.systemPrompt 指向不存在文件 → errors（validateRawConfig 硬错误，loadConfig 会 throw）', () => {
     const raw = validRaw()
     raw.roles = { r1: { id: 'role-test1234', brain: 'brain-a', systemPrompt: 'prompt/missing.md' } }

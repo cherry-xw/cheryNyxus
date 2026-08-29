@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildEndpointUrl, jsonRequest, resolveProviderUrl, streamSSE } from '@/agent/provider/fetchBase.js'
+import {
+  assertChatOptions,
+  buildEndpointUrl,
+  jsonRequest,
+  resolveProviderUrl,
+  streamSSE,
+} from '@/agent/provider/fetchBase.js'
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern.js'
 import { ClassifiedError } from '@/utils/error.js'
 
@@ -29,6 +35,23 @@ function asClassified(err: unknown): ClassifiedError {
   expect(err).toBeInstanceOf(ClassifiedError)
   return err as ClassifiedError
 }
+
+describe('assertChatOptions 密钥占位符校验', () => {
+  it('格式错误的 $ENV 占位符 → validation，不会进入上游认证流程', () => {
+    expect(() =>
+      assertChatOptions({ model: 'MiniMax-M3', url: 'https://gw.example/v1', key: '$APq_KEY' }),
+    ).toThrowError(ClassifiedError)
+    try {
+      assertChatOptions({ model: 'MiniMax-M3', url: 'https://gw.example/v1', key: '$APq_KEY' })
+    } catch (error) {
+      const classified = asClassified(error)
+      expect(classified.category).toBe('validation')
+      expect(classified.source).toBe('brain')
+      expect(classified.userMessage).toContain('环境变量占位符格式错误')
+      expect(classified.userMessage).toContain('$API_KEY')
+    }
+  })
+})
 
 describe('buildEndpointUrl', () => {
   it('无版本段 → base + endpoint（版本段由用户填写，不自动补 /v1）', () => {

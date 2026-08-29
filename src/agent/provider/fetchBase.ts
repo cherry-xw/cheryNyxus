@@ -6,6 +6,7 @@ import {
   classifyError,
   type ErrorCategory,
 } from '@/utils/error.js'
+import { envPlaceholderFormatError, isMalformedEnvPlaceholder } from '@/utils/envPlaceholder.js'
 
 /**
  * fetch 基座：供新 provider（bigmodel 及未来 anthropic/minimax/aliyun）用原生 fetch 替代第三方 SDK。
@@ -163,6 +164,14 @@ export function assertChatOptions(options?: LLMOptions): {
     })
   }
   const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/)
+  if (isMalformedEnvPlaceholder(key)) {
+    throw new ClassifiedError({
+      message: `invalid LLM key environment placeholder for model ${model}`,
+      userMessage: envPlaceholderFormatError('AI 服务密钥'),
+      category: 'validation',
+      source: 'brain',
+    })
+  }
   if (placeholderMatch) {
     const envName = placeholderMatch[1]!
     throwUserFacing('llm.key.missing', `大脑的钥匙没配好（${model}），请在设置里检查`, {
