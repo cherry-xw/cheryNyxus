@@ -175,7 +175,7 @@ presets:
     roles: [cheryNyxus, curator, explanation]   # 加入固定预设，主 agent 可 spawn
 ```
 
-persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../.chery.template/prompt/cheryNyxus/cheryNyxus.md)：双职责——**配置管理核心**（`config_manage` 感官 get/save/rollback + 备份回滚，详见 [./config-manage.md](./config-manage.md)）+ **技能安装**（install_skill stage → ask_user 逐项确认 → commit → 回报）。所有 `.chery/` 写操作集中在 Cherry Nexus，结构化感官（config_manage / install_skill）天然不触发路径守卫。
+persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../.chery.template/prompt/cheryNyxus/cheryNyxus.md)：双职责——**配置管理核心**（`config_manage` 感官 get/patch/rollback + 强类型候选与备份回滚，详见 [./config-manage.md](./config-manage.md)）+ **技能安装**（install_skill stage → ask_user 逐项确认 → commit → 回报）。所有 `.chery/` 写操作集中在 Cherry Nexus，结构化感官（config_manage / install_skill）天然不触发路径守卫。
 
 **编制锁定**：Cherry Nexus 加入预设 `roles` 后，主 agent（leader）可 `spawn_role({type:"cheryNyxus", wait:true})` 派出（roster gate 自动生效，详见 [agent-pet.md](./agent-pet.md)）。
 

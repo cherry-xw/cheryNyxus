@@ -145,12 +145,12 @@ fingerprint 分两面，只有语义面参与指纹计算；连接面变更不�
 
 `config_manage` 支持：
 
-- 配置：`get`、`save`、`rollback`；
+- 配置：`get`、强类型增量 `patch`、`rollback`；旧全量 `save` 被拒绝并返回迁移指引；
 - 资产：`asset_get`、`asset_save`、`asset_archive`。
 
 资产只允许 `prompt/*.md`、`skills/<name>/**` 和 `rule/*.yaml`。保存使用候选文件替换，并把旧文件移入 `.chery/backups/assets/`；归档前检查活动配置引用，仍被引用时严格拒绝。归档是可恢复移动，不是永久删除。
 
-当前实现和验收只落在工作区 `.chery` 与隔离测试 fixture；在验收通过前不复制到 `.chery.template`。
+`patch` 必须携带 get 返回的全配置 `baseRevision`。服务端基于当前磁盘状态构造候选，完整验证后写盘并登记候选修订；所有会话任务空闲后才通知 guardian 替换 worker。重启恢复不会自动重放模型运行，孤儿 run 进入 paused 等待用户继续。
 
 ## 验收原则
 

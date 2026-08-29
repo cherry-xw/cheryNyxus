@@ -30,12 +30,12 @@ Cherry Nexus（`cheryNyxus`）是**唯一**被授权直接管理 `.chery/` 配�
 主 agent 识别为配置管理需求 → 由 cheryNyxus 直接处理（或移交其接管）
   ↓
 cherryNyxus 角色：
-  1. config_manage(action="get") 读取当前配置（返回精简摘要：roles 列表 + 锁定状态）
+  1. config_manage(action="get") 读取当前完整脱敏配置并记录 baseRevision
   2. 对照本目录的字段参考表，定位目标字段
   3. 用 ask_user_question 确认变更（含改动前后对比、影响范围）
-  4. config_manage(action="save") 落盘 —— saveRawConfig 层自动备份旧配置到 .chery/backups/
-  5. 若校验失败（返回 errors）：不落盘，回报错误原文，用 config_manage(action="rollback") 回滚后重试
-  6. 提示用户重启（运行时配置不热更）
+  4. config_manage(action="patch") 携带 baseRevision 与强类型资源级 operations；服务端全量校验候选后落盘并自动备份
+  5. 若类型、revision 或候选校验失败：不落盘，回报错误原文；revision 过期先重新 get
+  6. 说明重启状态：有任务时等待全部空闲后受控重启；无守护进程时手动重启
 ```
 
 ### 必读文档
@@ -74,11 +74,11 @@ cherryNyxus 角色：
 
 ### 写入流程规范
 
-1. **读摘要**（不要 patch）：`config_manage(action="get")` 拿精简配置摘要（roles 列表 + 锁定状态）
+1. **读配置**：`config_manage(action="get")` 拿完整脱敏配置与 baseRevision
 2. **校验当前状态**：对照字段参考表确认字段存在 / 类型正确
-3. **构造变更**：`config_manage(action="save")` 传完整配置对象（缺省字段按默认值补齐；server 段保留不动）
-4. **落盘**：`saveRawConfig` 层校验 + 自动备份 + 写回（含锁角色 / 固定预设编辑校验）
-5. **重启提示**：配置不热更，必须告诉用户重启
+3. **构造变更**：`config_manage(action="patch")` 原样传回 baseRevision，只提交目标 brain/role/preset/senseGroup 的强类型 put/remove 操作
+4. **落盘**：服务端完整校验候选 + 自动备份 + 写回（含锁角色 / 固定预设编辑校验）
+5. **重启提示**：报告 immediate / scheduled / manual；重启恢复不自动重放模型运行
 
 ## 文档约定
 

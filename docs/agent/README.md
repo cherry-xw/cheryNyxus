@@ -26,7 +26,7 @@ chat.send → AgentBuilder.run(input)
 | [./provider.md](./provider.md) | [provider/](../../src/agent/provider/) | openai/ollama/mock 三 Provider 的 LLM/Message/Sense Adapter 注册 |
 | [./sense.md](./sense.md) | [sense/](../../src/agent/sense/) | 内置感官（execute_command/read_file/write_file/skill）+ bash 进程注册表 + reloadSenses + 编译产物加载 |
 | [./plugin.md](./plugin.md) | [service/plugin/](../../src/service/plugin/) + [prompt/loadSkill.ts](../../src/agent/prompt/loadSkill.ts) | 插件整仓 git 导入（分支选择 + 凭据池 + 版本检查）+ `<plugin>__<skill>` 命名空间发现（跨 service/agent） |
-| [./config-manage.md](./config-manage.md) | [sense/configManage.ts](../../src/agent/sense/configManage.ts) + [utils/config.ts](../../src/utils/config.ts) | `config_manage` 感官（get/save/rollback）+ `saveRawConfig` 自动备份回滚（Cherry Nexus 配置管理核心角色） |
+| [./config-manage.md](./config-manage.md) | [sense/configManage.ts](../../src/agent/sense/configManage.ts) + [service/config/operations.ts](../../src/service/config/operations.ts) | `config_manage` 感官（get/patch/rollback）+ 强类型增量候选、版本冲突校验与空闲重启 |
 | [./skill-install.md](./skill-install.md) | [sense/installSkill.ts](../../src/agent/sense/installSkill.ts) + [utils/pathGuard.ts](../../src/utils/pathGuard.ts) | `install_skill` 感官（stage/commit 两阶段 + 三态分发）+ `.chery/` 路径守卫 |
 
 ## 文件清单

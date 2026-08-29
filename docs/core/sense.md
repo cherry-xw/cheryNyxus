@@ -185,7 +185,7 @@ smart 档的「危险/放行」判定规则**外置**到 `.chery/rule/` 目录�
 
 **AI 生成（Cherry Nexus 豁免）**：前端预设 Tab 该字段显示名「审批规则」（原「规则文件」）。Cherry Nexus（cheryNyxus，senseTable 含 `install_skill`，双重隔离信号）可对 `.chery/rule/` 读写——pathGuard 放行该目录的 `read_file`/`write_file`（`checkCheryGuard` 的 `allowRuleDir`），用于对话生成/修改审批规则文件；`.chery/` 其余路径仍拦。Cherry Nexus 提示词（`.chery/prompt/cheryNyxus/cheryNyxus.md`）含规则编写规范，铁律：只允许**加严**（新增危险模式/改为需确认），禁止**放宽**（删除危险模式/改为放行）——防 AI 自授权绕过审批。
 
-**config_manage 感官**：`config_manage` 是结构化感官（action=get/save/rollback），参数不携带路径 → `extractSensePaths` 返回 `[]`，天然不触发 `.chery/` 路径守卫，可直接读写 `.chery/config.yaml`（配置管理核心角色 cheryNyxus 独占）。仅 leader 组含此感官 → 其他角色调不到。备份：`saveRawConfig` 写盘前自动备份旧配置到 `.chery/backups/`（保留最近 10 份），出错可 `rollback`。详见 [agent/config-manage.md](../agent/config-manage.md)。
+**config_manage 感官**：`config_manage` 是结构化感官（action=get/patch/rollback；旧 save 明确拒绝），参数不携带路径 → `extractSensePaths` 返回 `[]`，天然不触发 `.chery/` 路径守卫，可直接读写 `.chery/config.yaml`（配置管理核心角色 cheryNyxus 独占）。`patch` 必须携带 get 返回的 `baseRevision` 与强类型资源操作；服务端基于磁盘快照构造候选，完整校验通过后写盘并等待所有会话任务空闲再重启。仅 leader 组含此感官 → 其他角色调不到。详见 [agent/config-manage.md](../agent/config-manage.md)。
 
 **配置读取放行（`filesystemRead` override）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`，能力驱动）经 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 接线，`authorizeToolCall` 传 `filesystemRead: 'any'`——read_file/search_codebase 的读取范围整体放行（绕过 filesystem workspace 校验，即使策略 deny）；该 override **不进 assessmentHash**（两处授权同源计算 → hash 恒等，不误触「策略已变化」拒绝）；`write_file`/`execute_command` 不受影响。结合 pathGuard 的 `allowConfigRead`（读 `.chery/` 全树放行），配置读取仅剩 envGuard 对 `.env` 敏感 key 值的后置遮蔽一道防线。
 

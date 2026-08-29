@@ -27,7 +27,8 @@
 **规则**：`z.discriminatedUnion` 转 JSON Schema 时顶层 `required`/`properties` 为 `undefined`（仅 `oneOf` 分支内部有）→ `senseCreator` 用 `required: jsonSchema.required ?? []` 兜底 → **模型端 tool 定义 `required: []`，必填参数不再强制**。
 
 - 教训：`config_manage` 用 `z.discriminatedUnion('action', [...])` → LLM 连续两次传 `{}`（空参数）→ 进 smart 审批后被拒/报缺 action。
-- 现状：改用普通 `z.object({ action: z.enum(['get','save','rollback']), ... })`，`toJSONSchema().required` 含 `action`。
+- 现状：改用普通 `z.object({ action: z.enum(['get','patch','rollback', ...]), ... })`，`toJSONSchema().required` 含 `action`。
+- 当前配置协议：顶层仍是普通 object + action enum；资源级 operations 才使用嵌套 discriminated union，避免再次丢失顶层 required。
 - 自检：**新增/修改感官 schema 后必须断言 `schema.toJSONSchema().required` 非空**（每个必填参数都在其中）。
 
 ### 4. 运行时 schema 校验（schema 不止用于生成 tool 定义）
@@ -52,6 +53,15 @@
 
 - 教训：`search.ts` 的 `finderCache` 缓存 `null`（"初始化失败也缓存 null，需重试重启进程"）→ 一次相对路径失败，后续所有搜索永久报错。
 
+### 7. 模型可写对象禁止 `z.unknown()`
+
+**规则**：模型需要生成的每个配置资源都必须有完整 Zod 类型；不能用 `z.record(z.string(), z.unknown())` 把整棵配置树作为自由对象暴露给模型。人类字段文档用于理解，强类型 JSON Schema 用于生成约束，服务端候选校验用于最终兜底，三层职责不同。
+
+- 事故：对话 `522b058c-d4dd-4905-ba07-ee189ce3bac5` 中，持久化工具参数已证明错误值由模型直接生成：`30000` 变成 `"30000"`、`true` 变成 `"true"`，数组/对象有时变成空字符串；并非工具链序列化改型。
+- 根因：旧 `config` 字段为 `z.record(z.string(), z.unknown())`，生成的 JSON Schema 对嵌套值只给出 `additionalProperties: {}`，模型看不到任何真实字段类型。
+- 现状：AI 改用 `baseRevision + operations`；brain/role/preset/senseGroup 资源有明确 schema，旧全量 save 明确拒绝。服务端把操作应用到磁盘快照，完整校验候选后才写盘。
+- 自检：把 sense 的 JSON Schema 打印出来，确认 number/boolean/array/object 的嵌套类型真实存在，而不是空 `{}`。
+
 ## 二、问题排查清单（历史 bug 诊断库）
 
 > 每一条 = 一次真实事故。格式：现象 → 根因 → 修复 → 防再犯。按日期归档，积累后拆分子文档。
@@ -60,18 +70,19 @@
 
 **现象**：cherryNyxus 配置管理角色执行"删除默认预设相关配置"，6 个节点全部异常：
 
-| # | 节点 | 现象 | 根因 | 修复 |
-|---|------|------|------|------|
-| 1 | config_manage | `arguments="{}"` 空参数 → smart 审批 → 30s 超时被拒 | schema 用 discriminatedUnion → 顶层 required 丢失 → 模型不强制传 action | P0：改用 object+enum；P1：运行时 safeParse |
-| 2 | search_codebase | 报"fff 原生库不可用或初始扫描失败" | 传相对路径 `.chery` → create 抛 `Invalid path` → 错误消息误导 | P1：入口 path.isAbsolute 校验 + 透传真实错误 |
-| 3 | read_file | "路径 .chery/config.yaml 不是绝对路径" | LLM 无路径锚点，只能猜相对路径 | P2：`<environment>` 注入 cheryDir |
-| 4 | execute_command | "当前会话没有有效工作区"（`pwd` 自救被拒） | preset 未配 workspace + LLM 不知情 | P2：无 workspace 报错引导 config_manage |
-| 5 | config_manage | "必须显式指定 action"（仍 `{}`） | 同 #1（框架 bug 未修前） | P0+P1 |
-| 6 | config_manage | 内容为空 | 连续踩坑后上下文污染 | 同上 |
+| #   | 节点            | 现象                                                | 根因                                                                    | 修复                                         |
+| --- | --------------- | --------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
+| 1   | config_manage   | `arguments="{}"` 空参数 → smart 审批 → 30s 超时被拒 | schema 用 discriminatedUnion → 顶层 required 丢失 → 模型不强制传 action | P0：改用 object+enum；P1：运行时 safeParse   |
+| 2   | search_codebase | 报"fff 原生库不可用或初始扫描失败"                  | 传相对路径 `.chery` → create 抛 `Invalid path` → 错误消息误导           | P1：入口 path.isAbsolute 校验 + 透传真实错误 |
+| 3   | read_file       | "路径 .chery/config.yaml 不是绝对路径"              | LLM 无路径锚点，只能猜相对路径                                          | P2：`<environment>` 注入 cheryDir            |
+| 4   | execute_command | "当前会话没有有效工作区"（`pwd` 自救被拒）          | preset 未配 workspace + LLM 不知情                                      | P2：无 workspace 报错引导 config_manage      |
+| 5   | config_manage   | "必须显式指定 action"（仍 `{}`）                    | 同 #1（框架 bug 未修前）                                                | P0+P1                                        |
+| 6   | config_manage   | 内容为空                                            | 连续踩坑后上下文污染                                                    | 同上                                         |
 
 **核心因果链**：preset 未配 workspace → 系统提示词不注入 `<workspace>` 段 → `<environment>` 也无路径 → LLM 无任何绝对路径锚点 → 需要路径时只能猜/自救 → 每步被拒或误导。
 
 **关键证据**（三方交叉验证）：
+
 - DB 对话记录：`.chery/db/2026-08.db`（messages 表，chat_id=`25c894db...`）
 - 运行时日志：`.chery/logs/2026-08-23.log`（`sense.trigger` 的 `arguments` 字段 + `FileFinder.create 失败` 行）
 - 环境实测：`FileFinder.isAvailable()=true`（证明库完好，错在参数）

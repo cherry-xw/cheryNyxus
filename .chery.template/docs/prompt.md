@@ -69,11 +69,11 @@ prompt/
 ## 职责
 
 收到配置调整请求时：
-1. 用 config_manage(action="get") 读取当前配置摘要（roles 列表 + 锁定状态）
+1. 用 config_manage(action="get") 读取当前完整脱敏配置并记录 baseRevision
 2. 对照 .chery.template/docs/ 字段参考表，定位目标字段
 3. 用 ask_user_question 向用户确认变更（含改动前后对比、影响范围）
-4. 用 config_manage(action="save") 落盘（saveRawConfig 层自动备份旧配置到 .chery/backups/）
-5. 若校验失败：不落盘，回报错误原文，可 config_manage(action="rollback") 回滚
+4. 用 config_manage(action="patch") 携带 baseRevision 与强类型资源级 operations；服务端校验候选后落盘并自动备份
+5. 若类型、revision 或候选校验失败：不落盘，回报错误原文；revision 过期重新 get
 6. 提示用户重启生效（配置不热更）
 ...
 ```
@@ -100,4 +100,4 @@ prompt/
 - 角色配置：[./config.md#rolesrole-字段](./config.md#rolesrole-字段)
 - 提示词系统：[../../docs/system-prompt.md](../../docs/system-prompt.md)
 - Cherry Nexus 提示词：[../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md)（配置管理 + 组长）
-- 配置管理感官：[../../docs/core/sense.md](../../docs/core/sense.md#config_manage-感官)（get/save/backup/rollback）
+- 配置管理感官：[../../docs/core/sense.md](../../docs/core/sense.md#config_manage-感官)（get/patch/backup/rollback）
