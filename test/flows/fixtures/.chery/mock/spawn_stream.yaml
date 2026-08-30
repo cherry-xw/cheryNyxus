@@ -1,0 +1,10 @@
+# S16：父会话派发一个慢流式 reviewer_stream
+repeat: last
+script:
+  - thinking: "需要流式审查角色"
+    content: "正在派发流式审查"
+    senseCalls:
+      - id: "spawn-stream-0"
+        name: "spawn_role"
+        arguments: '{"type":"reviewer_stream","prompt":"流式审查当前实现","wake":"immediate"}'
+  - content: "已汇总流式审查结果"

@@ -1,0 +1,10 @@
+# S14：派发一个 immediate reviewer，子完成后主会话 resume 汇总
+repeat: last
+script:
+  - thinking: "需要派发审查角色"
+    content: "正在派发审查"
+    senseCalls:
+      - id: "spawn-immediate-0"
+        name: "spawn_role"
+        arguments: '{"type":"reviewer","prompt":"审查当前实现并给出结论","wake":"immediate"}'
+  - content: "已汇总角色审查结果"

@@ -1,0 +1,13 @@
+# S15：同一轮派发两个 deferred reviewer，全部完成后只唤醒主会话一次
+repeat: last
+script:
+  - thinking: "并行派发两项审查"
+    content: "正在并行审查"
+    senseCalls:
+      - id: "spawn-deferred-0"
+        name: "spawn_role"
+        arguments: '{"type":"reviewer_stream","prompt":"审查测试完整性","wake":"deferred"}'
+      - id: "spawn-deferred-1"
+        name: "spawn_role"
+        arguments: '{"type":"reviewer","prompt":"审查实现正确性","wake":"deferred"}'
+  - content: "已汇总两项角色审查结果"

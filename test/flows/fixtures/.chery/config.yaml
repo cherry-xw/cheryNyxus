@@ -98,8 +98,8 @@ sense_groups:
     - write_file:smart
   todo_senses:                   # update_todo 自动执行（todo 显示）
     - update_todo:auto
-  spawn_senses:                  # spawn_role 派发（父 agent 用，builtin auto）
-    - spawn_role
+  spawn_senses:                  # spawn_role 派发（父 agent 用；权限策略要求 smart 审批）
+    - spawn_role:smart
   detail_diagnostics:
     - read_file
     - search_codebase

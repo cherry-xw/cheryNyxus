@@ -6,6 +6,7 @@
  * staticDir 取 CHERY_DIR（fixtures 目录，已存在），HTTP 静态服务对此目录无害。
  */
 import { createRequire } from 'node:module'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startService, type ServiceHandle } from '@/service/index.js'
@@ -13,7 +14,15 @@ import { closeAllConnections } from '@/service/websocket/index.js'
 import { bootstrapAgentRuntime } from '@/agent/bootstrap.js'
 import { closeAllDbs } from '@/db/index.js'
 import config from '@/utils/config.js'
-import { RpcClient } from '../../helpers/rpcClient.js'
+import type {
+  ChatInputSubmitResponseData,
+  InteractionApprovalDecideResponseData,
+  InteractionListResponseData,
+  ChatOpenResponseData,
+  ChatTimelineGetResponseData,
+} from '@/service/message/types.js'
+import type { ChatRunResumeResponse } from '@chery/protocol'
+import { RpcClient, type RequestHandle } from '../../helpers/rpcClient.js'
 
 let runtimeBootstrapped = false
 
@@ -33,6 +42,10 @@ export interface BootFlowOptions {
    * （真实 timer，免 fake timers 与异步 ws/grace 链路耦合）。startService 前设，全进程生效。
    */
   disconnectGraceMs?: number
+  /** Canonical detached approvals use this business deadline independently of WebSocket ownership. */
+  approvalTimeoutMs?: number
+  /** Resource ceiling for unlimited approvals; reaching it parks the run as resumable. */
+  approvalHardTimeoutMs?: number
 }
 
 export async function bootFlowService(options?: BootFlowOptions): Promise<FlowService> {
@@ -48,6 +61,12 @@ export async function bootFlowService(options?: BootFlowOptions): Promise<FlowSe
   config.global.db_dir = join(tmpdir(), `cheryNyxus-flow-${process.pid}`)
   if (options?.disconnectGraceMs !== undefined) {
     config.global.disconnect_grace_ms = options.disconnectGraceMs
+  }
+  if (options?.approvalTimeoutMs !== undefined) {
+    config.global.approval_timeout = options.approvalTimeoutMs
+  }
+  if (options?.approvalHardTimeoutMs !== undefined) {
+    config.global.approval_hard_timeout = options.approvalHardTimeoutMs
   }
   const staticDir =
     process.env.CHERY_DIR ??
@@ -94,6 +113,104 @@ export async function connectClient(svc: FlowService): Promise<RpcClient> {
   })
   await client.connect()
   return client
+}
+
+/** Submit user input through the canonical command plane. */
+export function submitChatInput(
+  client: RpcClient,
+  chatId: string,
+  content: string,
+): RequestHandle {
+  return client.request('chat.input.submit', {
+    chatId,
+    commandId: randomUUID(),
+    clientMessageId: randomUUID(),
+    messageId: randomUUID(),
+    content,
+  })
+}
+
+/** Resume a paused run through the canonical command plane. */
+export function resumeChatRun(client: RpcClient, chatId: string): RequestHandle {
+  return client.request('chat.run.resume', { chatId, commandId: randomUUID() })
+}
+
+/** Atomically open a direct-chat subscription and hydrate its transient state. */
+export async function openChat(client: RpcClient, chatId: string): Promise<ChatOpenResponseData> {
+  return requireResponseData<ChatOpenResponseData>(
+    await client.call('chat.open', { scope: 'chat', chatId }),
+    'chat.open',
+  )
+}
+
+/** Read the canonical, retention-independent message timeline. */
+export async function getChatTimeline(
+  client: RpcClient,
+  chatId: string,
+  knownRevision?: number,
+): Promise<ChatTimelineGetResponseData> {
+  return requireResponseData<ChatTimelineGetResponseData>(
+    await client.call('chat.timeline.get', {
+      chatId,
+      ...(knownRevision === undefined ? {} : { knownRevision }),
+    }),
+    'chat.timeline.get',
+  )
+}
+
+/** Decode the immediate ACK while keeping the request handle for live events. */
+export async function awaitInputAccepted(
+  client: RpcClient,
+  handle: RequestHandle,
+): Promise<ChatInputSubmitResponseData> {
+  return requireResponseData<ChatInputSubmitResponseData>(
+    await client.awaitResponse(handle),
+    'chat.input.submit',
+  )
+}
+
+/** Decode a canonical resume ACK while keeping the handle for live events. */
+export async function awaitResumeStarted(
+  client: RpcClient,
+  handle: RequestHandle,
+): Promise<ChatRunResumeResponse> {
+  return requireResponseData<ChatRunResumeResponse>(
+    await client.awaitResponse(handle),
+    'chat.run.resume',
+  )
+}
+
+/** Resolve a durable approval through the canonical interaction command plane. */
+export async function decideApproval(
+  client: RpcClient,
+  interactionId: string,
+  action: 'accept' | 'reject',
+  reason?: string,
+): Promise<InteractionApprovalDecideResponseData> {
+  const listed = requireResponseData<InteractionListResponseData>(
+    await client.call('interaction.list', {}),
+    'interaction.list',
+  )
+  const interaction = listed.interactions.find((item) => item.interactionId === interactionId)
+  if (!interaction) throw new Error(`approval interaction not found: ${interactionId}`)
+  return requireResponseData<InteractionApprovalDecideResponseData>(
+    await client.call('interaction.approval.decide', {
+      interactionId,
+      action,
+      expectedRevision: interaction.revision,
+      commandId: randomUUID(),
+      ...(reason === undefined ? {} : { reason }),
+    }),
+    'interaction.approval.decide',
+  )
+}
+
+function requireResponseData<T>(
+  response: { success: boolean; data?: unknown; error?: unknown },
+  method: string,
+): T {
+  if (!response.success) throw new Error(`${method} failed: ${JSON.stringify(response.error)}`)
+  return response.data as T
 }
 
 function waitForListening(handle: ServiceHandle): Promise<void> {

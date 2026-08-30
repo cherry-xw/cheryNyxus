@@ -1,0 +1,6 @@
+# S16：子角色慢流，保证运行中能够断连并通过 chat.open 恢复
+repeat: last
+script:
+  - thinking: "正在流式审查"
+    content: "角色流式审查已经完成"
+    chunkDelayMs: 2000

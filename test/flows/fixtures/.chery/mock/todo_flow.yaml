@@ -1,0 +1,10 @@
+# S7/S11/S12：结构化 todo 自动执行后继续一轮总结
+repeat: last
+script:
+  - thinking: "先建立任务清单"
+    content: "正在规划任务"
+    senseCalls:
+      - id: "todo-wf-0"
+        name: "update_todo"
+        arguments: '{"todos":[{"content":"分析需求","status":"completed"},{"content":"实现功能","status":"in_progress","activeForm":"编码中"},{"content":"编写测试","status":"pending"}]}'
+  - content: "任务规划完成"
