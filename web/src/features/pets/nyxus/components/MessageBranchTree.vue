@@ -5,7 +5,7 @@ const emit = defineEmits<MessageBranchTreeControllerEmits>()
 const controller = useMessageBranchTreeController(props, emit)
 const {
   AnchoredRunCrt, ExecutionNodePopover, FoldTabRail, GenerationTreeDialog, NodePaperStack,
-  activateNode, activePaperQuestionPopover, agents, canvas, closeCrt, closeNodeDetail, crtById,
+  activateNode, activePaperApprovalPopover, activePaperQuestionPopover, agents, canvas, closeCrt, closeNodeDetail, crtById,
   crtPlacements, crtVisibility, defaultPopoverAnchorIds, defaultPopoverViews, detailAnchorEl,
   detailAnchorStyle, detailDisplayNode, detailFoldMember, detailMaxHeight, detailNode, detailPinned,
   detailPlacement, detailRelatedEdges, dragActionPopover, dragCrt, dragDetailPopover, focusCrt,
@@ -38,7 +38,9 @@ defineExpose({ resetLayout: controller.resetLayout })
       :detail-branch-available="detailBranchAvailable"
       :detail-branch-unavailable-reason="detailBranchUnavailableReason"
       :sense-tools="agents.senseTools"
-      :chat-id="activePaperQuestionPopover?.chatId"
+      :chat-id="activePaperApprovalPopover?.chatId ?? activePaperQuestionPopover?.chatId"
+      :approval="activePaperApprovalPopover?.approval"
+      :approval-node-id="activePaperApprovalPopover?.displayNodeId"
       :question="activePaperQuestionPopover?.question"
       :question-node-id="activePaperQuestionPopover?.displayNodeId"
       @select="selectPaperIndex"

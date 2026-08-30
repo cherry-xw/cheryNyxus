@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, typ
 import { renderMarkdown } from '@/utils/markdown'
 import type { ExecutionNode } from '../graph/executionGraph'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
+import type { ApprovalState } from '@/domain/chat/projectionTypes'
 import type {
   PaperDetailBlock,
   PaperGameCardModel,
@@ -11,6 +12,8 @@ import type {
 import { buildPaperGameCard } from '../paper/paperCardModel'
 import PaperPixelIcon from './PaperPixelIcon.vue'
 import ToolFieldTree from './ToolFieldTree.vue'
+import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
+import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 
 const DETAIL_PREVIEW_LIMIT = 12_000
 const MARKDOWN_UPDATE_INTERVAL_MS = 240
@@ -23,6 +26,8 @@ const props = defineProps<{
   node?: ExecutionNode
   foldNode?: ExecutionNode
   chatId?: string
+  approval?: ApprovalState
+  approvalNodeId?: string
   question?: NodePopoverQuestion
   questionNodeId?: string
 }>()
@@ -99,6 +104,12 @@ const detailMarkdownSource = computed(() => {
   return detail?.format === 'markdown' ? detail.content : ''
 })
 const renderedDetail = useThrottledMarkdown(detailMarkdownSource)
+const activeApproval = computed(() =>
+  props.chatId && props.approval && props.approvalNodeId === props.node?.id ? props.approval : undefined,
+)
+const activeQuestion = computed(() =>
+  props.chatId && props.question && props.questionNodeId === props.node?.id ? props.question : undefined,
+)
 
 watch(
   () => props.model.id,
@@ -346,6 +357,20 @@ async function copyDetail(): Promise<void> {
       </div>
 
       <div class="card-scroll-body">
+        <ApprovalCard v-if="activeApproval && chatId" :approval="activeApproval" :chat-id="chatId" />
+        <QuestionCard
+          v-if="activeQuestion && chatId"
+          :question="activeQuestion.question"
+          :chat-id="chatId"
+          :batch-info="{
+            batchId: activeQuestion.batch.batchId,
+            total: activeQuestion.batch.questions.length,
+            readyCount: activeQuestion.batch.questions.filter((item) => item.localStatus === 'ready').length,
+            currentIndex: activeQuestion.currentIndex,
+            isLast: activeQuestion.currentIndex === activeQuestion.batch.questions.length - 1,
+          }"
+          variant="paper"
+        />
         <!-- 过程组：按发生顺序串成流程，批量工具仍为一个阶段。 -->
         <template v-if="model.processStages?.length">
           <div class="stat-grid" aria-label="节点属性">
@@ -646,6 +671,8 @@ async function copyDetail(): Promise<void> {
           :max-height="maxHeight"
           :quiet-motion="quietMotion"
           :chat-id="chatId"
+          :approval="approvalNodeId === activeStage.node.id ? approval : undefined"
+          :approval-node-id="approvalNodeId"
           :question="questionNodeId === activeStage.node.id ? question : undefined"
           :question-node-id="questionNodeId"
           :detail-branch-available="detailBranchAvailable"

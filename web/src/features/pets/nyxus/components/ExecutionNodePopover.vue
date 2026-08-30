@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { useExecutionNodePopoverController, type ExecutionNodePopoverControllerProps, type ExecutionNodePopoverControllerEmits } from './useExecutionNodePopoverController'
+import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
+import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 const props = defineProps<ExecutionNodePopoverControllerProps>()
 const emit = defineEmits<ExecutionNodePopoverControllerEmits>()
 const controller = useExecutionNodePopoverController(props, emit)
@@ -13,7 +15,7 @@ const {
   readFileRange, renderMarkdown, renderedNodeContent, renderedResult, resultFields, resultTruncated,
   searchConfiguration, searchMode, searchPath, searchQuery, searchResult, secondaryFields,
   selectedCall, selectedStatus, skillResult, skinForNode, spawnPrompt, spawnRole, spawnWake,
-  terminationDisplay, thinkingOpen, toolBatchUsesTabs, toolGlyph, toolIcon, toolLabel,
+  terminationDisplay, thinkingOpen, toolBatchUsesTabs, toolGlyph, toolIcon, toolLabel, toolPresentation,
 } = controller
 </script>
 
@@ -111,10 +113,24 @@ const {
     </div>
 
     <div class="popover-body">
+      <ApprovalCard v-if="approval && chatId" :approval="approval" :chat-id="chatId" />
       <!-- 询问节点（question 场景）：标题 → 思考 → 正文 → tabs(指示器) → 选项区+操作。
            tabs 高亮由当前活动问题（activeQuestionCall）联动，"下一步"推进后高亮跟走；
            点击 tab 不切换问题内容（问题只由"下一步"实质切换）。 -->
       <template v-if="question">
+        <QuestionCard
+          v-if="chatId"
+          :question="question.question"
+          :chat-id="chatId"
+          :batch-info="{
+            batchId: question.batch.batchId,
+            total: question.batch.questions.length,
+            readyCount: question.batch.questions.filter((item) => item.localStatus === 'ready').length,
+            currentIndex: question.currentIndex,
+            isLast: question.currentIndex === question.batch.questions.length - 1,
+          }"
+          variant="paper"
+        />
         <div class="question-title-row">
           <span class="question-symbol" aria-hidden="true">?</span>
           <span class="heading-copy">
@@ -213,6 +229,18 @@ const {
             <div class="single-tool-status">
               <span :class="`status-${selectedCall.status}`">{{ selectedStatus }}</span>
             </div>
+            <section v-if="toolPresentation" class="actual-description detail-field">
+              <small class="detail-label">本次操作</small>
+              <div class="detail-value">
+                <p>{{ toolPresentation.operationLabel }}</p>
+                <code v-if="toolPresentation.target">{{ toolPresentation.target }}</code>
+                <ul v-if="toolPresentation.changes.length">
+                  <li v-for="change in toolPresentation.changes" :key="`${change.label}:${change.detail}`">
+                    {{ change.detail }}
+                  </li>
+                </ul>
+              </div>
+            </section>
             <section v-if="actualDescription" class="actual-description detail-field">
               <small class="detail-label">说明</small>
               <div class="detail-value">
