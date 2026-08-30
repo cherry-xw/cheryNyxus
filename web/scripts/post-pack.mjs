@@ -1,48 +1,49 @@
 #!/usr/bin/env node
 /**
- * electron-builder afterPack 钩子
+ * electron-builder afterPack hook.
  *
- * electron-builder 在生成 `win-unpacked/` / `mac/` / `linux-unpacked/` 之后、
- * 打包安装包（NSIS/DMG/AppImage）之前调用本脚本。
- *
- * 目的：把 resources/ 下的用户配置模板复制到 CheryNyxus.exe 同级，让用户在安装包里
- * 直接看到 .env 和 .chery/，**无需等待首次启动**。
- *
- * 复制规则：
- *   resources/.env.example     → <appOutDir>/.env
- *   resources/.chery.template/ → <appOutDir>/.chery/
- *
- * NSIS 安装时默认会覆盖已存在的目标文件。如果用户想"升级不覆盖用户修改"，
- * 需额外加 nsis.include 自定义 .nsh 脚本（暂未实现）。
- *
- * context 文档：https://www.electron.build/configuration/configuration#afterpack
+ * Release artifacts carry immutable seeds only under `resources/`. Runtime `.env` and `.chery`
+ * are created/upgraded on application startup, so an installer upgrade cannot overwrite user data.
  */
-import { existsSync, copyFileSync, cpSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, rmSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
+
+function assertResource(path, kind) {
+  if (!existsSync(path)) throw new Error(`[post-pack] required ${kind} is missing: ${path}`)
+  const stat = lstatSync(path)
+  if (kind === 'file' && !stat.isFile()) {
+    throw new Error(`[post-pack] required file is invalid: ${path}`)
+  }
+  if (kind === 'directory' && !stat.isDirectory()) {
+    throw new Error(`[post-pack] required directory is invalid: ${path}`)
+  }
+}
+
+function assertSafeChild(root, target) {
+  const rel = relative(root, target)
+  if (!rel || rel === '..' || rel.startsWith('../') || rel.startsWith('..\\')) {
+    throw new Error(`[post-pack] refusing to remove path outside appOutDir: ${target}`)
+  }
+}
 
 export default async function afterPack(context) {
-  const { appOutDir, electronPlatformName } = context;
-  console.log(`[post-pack] platform=${electronPlatformName} appOutDir=${appOutDir}`);
+  const appOutDir = resolve(context.appOutDir)
+  console.log(
+    `[post-pack] platform=${context.electronPlatformName ?? 'unknown'} appOutDir=${appOutDir}`,
+  )
 
-  const resourcesDir = join(appOutDir, "resources");
+  const resourcesDir = join(appOutDir, 'resources')
+  assertResource(join(resourcesDir, '.env.example'), 'file')
+  assertResource(join(resourcesDir, '.chery.template'), 'directory')
 
-  // 1. .env.example → .env
-  const envExample = join(resourcesDir, ".env.example");
-  const envTarget = join(appOutDir, ".env");
-  if (existsSync(envExample)) {
-    copyFileSync(envExample, envTarget);
-    console.log(`[post-pack] ✓ ${envTarget}`);
-  } else {
-    console.warn(`[post-pack] ⚠ ${envExample} not found, skip .env`);
+  // A reused build directory may contain copies produced by older hooks. Remove only those exact
+  // build-output paths after validating the immutable resources that replace them.
+  for (const stale of [join(appOutDir, '.env'), join(appOutDir, '.chery')]) {
+    assertSafeChild(appOutDir, stale)
+    if (!existsSync(stale)) continue
+    rmSync(stale, { recursive: true, force: true })
+    console.log(`[post-pack] removed stale runtime copy: ${stale}`)
   }
 
-  // 2. .chery.template/ → .chery/
-  const cheryTemplate = join(resourcesDir, ".chery.template");
-  const cheryTarget = join(appOutDir, ".chery");
-  if (existsSync(cheryTemplate)) {
-    cpSync(cheryTemplate, cheryTarget, { recursive: true });
-    console.log(`[post-pack] ✓ ${cheryTarget}/`);
-  } else {
-    console.warn(`[post-pack] ⚠ ${cheryTemplate} not found, skip .chery`);
-  }
+  console.log('[post-pack] immutable runtime templates verified')
 }

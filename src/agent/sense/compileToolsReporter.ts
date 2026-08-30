@@ -1,5 +1,4 @@
-import { pathToFileURL } from 'url'
-import { runSenseTests, type TestResultDetail } from './index.js'
+import { loadCompiledSense, runSenseTests, type TestResultDetail } from './index.js'
 import type { CompiledSenseInfo, SenseCompileSummary } from '@/core/sense/compiler/index.js'
 import { logger } from '@/utils/logger/index.js'
 
@@ -163,8 +162,8 @@ export async function runSenseTestsAndCollect(
     }
 
     try {
-      const module = await import(pathToFileURL(info.compiledPath).href)
-      const detail = await runSenseTests(module.default, info.testCases)
+      const compiledSense = loadCompiledSense(info.compiledPath)
+      const detail = await runSenseTests(compiledSense, info.testCases)
       results.set(info.sourcePath, { detail })
     } catch (err) {
       results.set(info.sourcePath, {

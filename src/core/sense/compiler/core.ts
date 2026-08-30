@@ -18,6 +18,7 @@ function loadSwcWasm(): { transformSync: (code: string, opts: unknown) => { code
 }
 
 const { transformSync } = loadSwcWasm()
+const COMPILED_FORMAT_VERSION = 'function-body-v1'
 
 // 不再注入外部依赖，编译产物为纯代码
 // 运行时通过 new Function() 在当前上下文执行，z/sense/SupervisionLevel 由上下文提供。
@@ -80,7 +81,14 @@ async function compileSenseFile(
       module: { type: 'es6' },
     })
 
-    const outputContent = `// hash:${sourceHash}\n${result.code}`
+    const exportPattern = /^export default\s+/m
+    if (!exportPattern.test(result.code)) {
+      throw new Error('自定义感官必须使用 export default 导出 sense(...)')
+    }
+    // Compiled senses are function bodies evaluated with the runtime z/sense context. Converting
+    // the default export to a return keeps tests and runtime loading on the same executable format.
+    const executableCode = result.code.replace(exportPattern, 'return ')
+    const outputContent = `// hash:${sourceHash}\n${executableCode}`
     writeFileSync(outputPath, outputContent, 'utf-8')
     return outputPath
   } catch (err) {
@@ -89,7 +97,7 @@ async function compileSenseFile(
 }
 
 function computeSourceHash(sourceContent: string, fileName: string): string {
-  return hashGenerator('sense', sourceContent, fileName)
+  return hashGenerator('sense', COMPILED_FORMAT_VERSION, sourceContent, fileName)
 }
 
 function readEmbeddedHash(jsPath: string): string | null {

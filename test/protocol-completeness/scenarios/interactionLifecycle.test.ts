@@ -130,7 +130,7 @@ describe('interaction, resume, abort, and stream protocol lifecycles', () => {
         (event) => (event.data as { senseName?: string }).senseName === 'write_file',
       ),
     )
-    expect(interrupt.data).toMatchObject({ needsApproval: true, waitTime: 0 })
+    expect(interrupt.data).toMatchObject({ needsApproval: true, waitTime: 300000 })
     const pending = await interaction(chatId, 'approval')
     expect(pending).toMatchObject({ status: 'pending', revision: expect.any(Number) })
 

@@ -349,6 +349,23 @@ const runtimeContext = {
   registerSenses,
 }
 
+/** Evaluate the compiler's function-body artifact with the same runtime context used in production. */
+export function loadCompiledSense(filePath: string): Sense<ZodType> {
+  const code = readFileSync(filePath, 'utf-8')
+  const pureCode = code.replace(/^\/\/ hash:[a-f0-9]+\r?\n/, '')
+  const fn = new Function('z', 'sense', 'SupervisionLevel', 'registerSenses', pureCode)
+  const result = fn(
+    runtimeContext.z,
+    runtimeContext.sense,
+    runtimeContext.SupervisionLevel,
+    runtimeContext.registerSenses,
+  ) as Sense<ZodType> | undefined
+  if (!result?.definition?.function?.name) {
+    throw new Error(`自定义感官未返回有效 sense 实例: ${filePath}`)
+  }
+  return result
+}
+
 /**
  * 动态加载自定义感官（从编译产物目录）
  * 使用 new Function() 在当前上下文执行，无需 import
@@ -374,25 +391,9 @@ async function loadCustomSenses(): Promise<void> {
   for (const file of jsFiles) {
     const filePath = join(sensesDir, file)
     try {
-      const code = readFileSync(filePath, 'utf-8')
-      // 移除 hash 注释行
-      const pureCode = code.replace(/^\/\/ hash:[a-f0-9]+\n/, '')
-
-      // 使用 new Function 在当前上下文执行
-      // 传入运行时上下文变量
-      const fn = new Function('z', 'sense', 'SupervisionLevel', 'registerSenses', pureCode)
-      const result = fn(
-        runtimeContext.z,
-        runtimeContext.sense,
-        runtimeContext.SupervisionLevel,
-        runtimeContext.registerSenses,
-      )
-
-      // 如果代码返回 sense 实例，直接注册
-      if (result?.definition?.function?.name) {
-        registerSenses([result])
-        logger.info(`✓ 自定义感官已加载: ${result.definition.function.name}`)
-      }
+      const result = loadCompiledSense(filePath)
+      registerSenses([result])
+      logger.info(`✓ 自定义感官已加载: ${result.definition.function.name}`)
     } catch (err) {
       logger.warn(`⚠ 自定义感官加载失败: ${file}`, (err as Error).message)
     }

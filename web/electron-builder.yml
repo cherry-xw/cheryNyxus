@@ -1,27 +1,22 @@
-# electron-builder 配置
-# 详见 docs/web/electron.md 扩展点 + docs/web/deployment.md 模式 2
-
 appId: com.cherynyxus.app
 productName: CheryNyxus
 directories:
   output: release
   buildResources: build
 
-# 主进程 + 渲染产物（web/ 内）
+# Electron main process and renderer output under web/.
 files:
   - dist/**
   - dist-electron/**
 
-# koffi（N-API 原生模块，全屏覆盖检测用）：.node 不能从 asar 内加载，必须解包。
-# koffi 主包 + 平台二进制分发包 @koromix/koffi-<platform>-<arch>（optionalDependencies）都要解包。
+# koffi and its platform packages contain native binaries and cannot load from asar.
 asarUnpack:
   - "**/node_modules/koffi/**"
   - "**/node_modules/@koromix/**"
 
-# 后端 bundle + 用户配置模板（afterPack 钩子把模板复制到 CheryNyxus.exe 同级：
-# resources/.env.example → appOutDir/.env
-# resources/.chery.template/ → appOutDir/.chery/
-# 详见 scripts/post-pack.mjs）
+# The backend, immutable workspace seeds and bundled Node runtime live under resources/.
+# Runtime `.env` and `.chery/` are deliberately not materialized in appOutDir: the app creates or
+# upgrades them on startup, preventing installer upgrades from overwriting user-owned files.
 extraResources:
   - from: ../dist
     to: dist
@@ -29,18 +24,15 @@ extraResources:
     to: .env.example
   - from: ../.chery.template
     to: .chery.template
-  # Node 22 LTS 二进制（scripts/electron-pack.mjs 下载到 build/node/）
-  # electron/main.ts getNodeExecutable() 优先 resources/node/node[.exe]
-  # 路径相对 yml 文件所在 package 根（web/）；从 web/ 出发 ../build/node 即 <repo>/build/node
+  # Path is relative to the web/ package root, so ../build/node resolves to <repo>/build/node.
   - from: ../build/node
     to: node
 
-# 后端由系统 node / 打包 node 二进制运行，不走 Electron ABI。
-# npmRebuild 仅影响 web 包依赖；root better-sqlite3 需匹配随发行版携带的 node ABI。
+# The backend runs with the bundled/system Node ABI rather than Electron's embedded Node ABI.
 npmRebuild: true
 buildDependenciesFromSource: true
 
-# afterPack 钩子：把 .env 和 .chery/ 模板复制到 CheryNyxus.exe 同级（用户首次安装即可见，无需启动时复制）
+# Verify immutable seeds and remove stale runtime copies left by older build hooks.
 afterPack: ./scripts/post-pack.mjs
 
 win:

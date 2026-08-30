@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { compileSenses, parseTestCases } from "@/core/sense/compiler/index.js";
-import { runSenseTests } from "@/agent/sense/index.js";
+import { loadCompiledSense, runSenseTests } from "@/agent/sense/index.js";
 import { sense } from "@/core/sense/index.js";
 import { SupervisionLevel } from "@/core/config.js";
+import { hashGenerator } from "@/utils/hash.js";
 import { z } from "zod";
 import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
@@ -74,8 +75,15 @@ export default sense(
     const jsPath = join(distDir, "compile_test.js");
     expect(existsSync(jsPath)).toBe(true);
     const jsContent = readFileSync(jsPath, "utf-8");
-    expect(jsContent).toContain("export default");
-    expect(jsContent).toContain("sense(");
+    expect(jsContent).not.toContain("export default sense(");
+    expect(jsContent).toContain("return sense(");
+
+    const compiledSense = loadCompiledSense(jsPath);
+    expect(compiledSense.definition.function.name).toBe("compile_test");
+    const testResult = await runSenseTests(compiledSense, [
+      { input: { text: "works" }, output: { content: "works", hash: "" } },
+    ]);
+    expect(testResult.passed).toBe(true);
   });
 
   it("returns empty succeeded when senses_dir does not exist", async () => {
@@ -156,8 +164,8 @@ export default sense(
     const jsContent = readFileSync(jsPath, "utf-8");
     expect(jsContent).not.toContain('import { z }');
     expect(jsContent).not.toContain('import { sense }');
-    expect(jsContent).toContain("export default");
-    expect(jsContent).toContain("sense(");
+    expect(jsContent).not.toContain("export default sense(");
+    expect(jsContent).toContain("return sense(");
   });
 
   describe("parseTestCases", () => {
@@ -253,6 +261,29 @@ export default sense("test", "test", Schema, async (input) => ({ content: input.
   });
 
   describe("hash incremental compilation", () => {
+    it("invalidates artifacts created by the legacy ESM format", async () => {
+      const source = `
+const Schema = z.object({ text: z.string() });
+export default sense("format_upgrade", "format", Schema, async (input) => ({ content: input.text, hash: "" }));
+`;
+      writeSense("format_upgrade", source);
+      mkdirSync(distDir, { recursive: true });
+      const legacyHash = hashGenerator("sense", source, "format_upgrade.ts");
+      writeFileSync(
+        join(distDir, "format_upgrade.js"),
+        `// hash:${legacyHash}\nexport default sense("legacy");`,
+        "utf-8",
+      );
+
+      const info = (await compileSenses()).succeeded.find((item) =>
+        item.compiledPath.endsWith("format_upgrade.js"),
+      );
+      const compiled = readFileSync(info!.compiledPath, "utf-8");
+
+      expect(compiled).toContain('return sense("format_upgrade"');
+      expect(compiled).not.toContain(`// hash:${legacyHash}\n`);
+    });
+
     it("embeds hash as first line of compiled JS", async () => {
       writeSense("hash_embed", `
 const Schema = z.object({ text: z.string() });

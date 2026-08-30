@@ -29,6 +29,8 @@ SIGINT/SIGTERM → wss.close() + httpServer.close() + closeAllDbs() + exit
 
 **守护进程（guardian）双进程模型**：`node dist/index.js`（无参数）→ 守护进程 [src/index.ts](../../src/index.ts) spawn worker（`--worker` 标志，同文件重入）。worker 崩退 → guardian 指数退避重启（500ms 起，封顶 10s）。**端口占用不重试**：worker 监听失败（EADDRINUSE）时经 IPC `process.send({type:"fatal", code, port})` 上报（见 [fatalStartup.ts](../../src/service/fatalStartup.ts)），guardian 收到后打印「端口 N 已被占用」并退出（不进入重启循环）——因为端口被占用属环境问题，重试无效。维护子命令（`compile-senses`/`reconcile-db` 等）不进入守护循环，直接 runWorker。**Windows spawn 约定**：guardian spawn worker 是控制台子进程，须 `windowsHide: true`（CREATE_NO_WINDOW）隐藏，避免无控制台的父进程 spawn 时闪现 cmd 窗；同约定见 [web/electron.md](../web/electron.md#electron-spawn-后端模式-2)。
 
+guardian 在启动常驻 worker 或执行维护子命令前，会把不可变 `.chery.template/` 安全同步到 `CHERY_DIR/.chery/`：全新 workspace 初始化完整副本；已有 workspace 只更新仍保持官方哈希的文件，并保留用户修改/主动删除。替换前备份到 `.chery/backups/template/<timestamp>/`，`config.yaml` 只迁移缺失的内置资源。模板默认取后端 bundle 同级的 `.chery.template/`，可用 `CHERY_TEMPLATE_DIR` 覆盖；同步失败只告警，不阻止原 workspace 启动。
+
 `startService`（[service/index.ts](../../src/service/index.ts)）：
 
 ```ts

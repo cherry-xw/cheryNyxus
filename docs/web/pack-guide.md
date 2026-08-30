@@ -115,15 +115,15 @@ node scripts/electron-pack.mjs pack    # 仅构建 + 打包（依赖前置步骤
 
 ## 三、打包后目录结构
 
-afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)）在打包阶段就把 `.env` 与 `.chery/` 复制到 `CheryNyxus.exe` 同级——**用户首次安装即看到，无需首次启动**。
+afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)）只验证 `resources/.env.example` 与 `resources/.chery.template/`，并移除旧构建目录可能残留的运行时副本。安装包不再携带可被升级覆盖的用户 `.env` / `.chery/`。
 
-> 开发环境的 `.env` / `.chery/` 由 [scripts/setup-env.mjs](../../scripts/setup-env.mjs) 走 `pnpm install` 的 `postinstall` 钩子从仓库根 `.env.example` / `.chery.template/` 拷出,逻辑与 afterPack 等价(目标存在即跳过,保护编辑)。
+> 开发环境的 `.env` / `.chery/` 由 [scripts/setup-env.mjs](../../scripts/setup-env.mjs) 在 `postinstall` 中初始化和增量升级。`.env` 只补缺失；`.chery` 只替换仍为官方原版的资产，并保留用户修改与主动删除。
 
 ```
 安装目录（CheryNyxus.exe 同级）          ← 用户可维护位置
 ├── CheryNyxus.exe
-├── .env                                 # API Key 等环境变量（从 .env.example 模板复制，可编辑）
-├── .chery\                              # 运行时配置（从 .chery.template/ 复制，可编辑）
+├── .env                                 # 首次启动时从模板创建；之后永不覆盖
+├── .chery\                              # 首次启动初始化，后续按官方哈希安全升级
 │   ├── config.yaml
 │   ├── prompt\
 │   │   └── system.md
@@ -137,8 +137,8 @@ afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)�
 │   │   └── lib\
 │   │       ├── .pnpm-better_sqlite3-*.node
 │   │       └── @swc\wasm\
-│   ├── .env.example                     # .env 模板（afterPack 用作种子）
-│   ├── .chery.template\                 # .chery 模板（afterPack 用作种子）
+│   ├── .env.example                     # 不可变 .env 种子
+│   ├── .chery.template\                 # 不可变 workspace 模板
 │   │   ├── config.yaml
 │   │   ├── prompt\
 │   │   │   └── system.md
@@ -154,10 +154,10 @@ afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)�
 
 **用户配置（`.env` + `.chery/`）位置规则**：
 
-1. **统一在 `CheryNyxus.exe` 同级目录**。打包即就位，无需运行时复制。
+1. **统一在 `CheryNyxus.exe` 同级目录**。首次启动安全初始化；安装载荷中不包含用户副本。
 2. **`CHERY_DIR`**：`.env` 留空时默认 `CheryNyxus.exe` 同级；用户可显式设置（如部署到 NAS/容器）。
 3. **`DB_DIR`**：始终在 `app.getPath('userData')/.chery/db/`（避开 Program Files 权限问题），不可改。
-4. **升级**：主进程不主动重写用户已修改的 `.env`；NSIS 默认会覆盖目标文件，**如需升级不覆盖需加 `nsis.include` 自定义 .nsh 脚本**（暂未实现）。
+4. **升级**：`.env` 不覆盖；`.chery/.template-manifest.json` 记录官方哈希，只更新未修改的内置资产。替换前备份到 `.chery/backups/template/<timestamp>/`，`config.yaml` 只做缺失内置资源迁移。
 5. **UX 入口**：设置面板「打开配置目录」按钮通过后端 `utils.openConfigDir` RPC 打开后端主机的 `<CHERY_DIR>/.chery`。
 
 **`.env` 用法**：填入 `LONGCAT_API_KEY` 等占位符值。`config.yaml` 中用 `$KEY` 引用这些变量，运行时由 [src/utils/config.ts](../../src/utils/config.ts) 替换（[优先级：OS env > `.env`](../utils/README.md)）。

@@ -6,7 +6,7 @@
 
 把用户写在 `.chery/senses/*.ts` 的**外部感官源码**编译为可在主进程执行的 JS 产物，供 [`agent/sense/index.ts`](../../src/agent/sense/index.ts) `loadCustomSenses` 通过 `new Function()` 动态加载。它是 core/ 中**唯一带文件系统 I/O** 的子模块。
 
-核心机制：用 `@swc/wasm` 把 TypeScript 转 ES2022，**剥离所有 import 语句**（编译产物是纯代码体），运行时再由 `new Function("z","sense","SupervisionLevel","registerSenses", code)` 把这些标识符作为函数参数注入——这样用户源码可正常写 `import { z } from "zod"` 享受 IDE 类型检查，而编译产物不依赖打包器解析 ESM。编译产物首行嵌入源码 hash，**未变动时跳过重编**（增量缓存）。
+核心机制：用 `@swc/wasm` 把 TypeScript 转 ES2022，**剥离所有 import 语句**（编译产物是纯代码体），运行时再由 `new Function("z","sense","SupervisionLevel","registerSenses", code)` 把这些标识符作为函数参数注入——这样用户源码可正常写 `import { z } from "zod"` 享受 IDE 类型检查，而编译产物不依赖打包器解析 ESM。编译产物首行嵌入“源码 + 文件名 + 产物格式版本”的 hash，**均未变动时跳过重编**（增量缓存）；加载协议升级会自动失效旧缓存。
 
 ## 文件清单
 
@@ -85,7 +85,7 @@ $CHERY_DIR/.chery/senses/<name>.ts  （用户源码，含 import 语句 + /* @te
   │  compileSenseFile: swc.transformSync({
   │      jsc: { parser: {syntax:"typescript"}, target:"es2022" },
   │      module: { type:"es6" }
-  │  })  ──► 产物 code
+  │  })  ──► 产物 code ── 将默认导出语句 `export default` 转为 `return`
   │                                                  ▼
   │  写 dist/senses/<name>.js = "// hash:abc123\n" + code
   └─ 返回 SenseCompileSummary { succeeded:[...], failed:[...] }
@@ -99,7 +99,7 @@ dist/senses/<name>.js  ── 读全文，移除首行 hash 注释 ──►  pu
         └─ 返回值若为 Sense 实例（含 definition.function.name）→ registerSenses([result])
 ```
 
-> **注入依赖 vs 编译依赖**：用户源码顶部写 `import { z } from "zod"` / `import { sense } from "@/core/sense"` 等仅供 IDE 类型检查；compiler **剥离**所有 import；运行时由 `new Function` 形参注入 `z`、`sense`、`SupervisionLevel`、`registerSenses` 四个标识符。故外部感官源码只能用这四个标识符 + 纯 JS/TS 语法，不能 import 其他模块。
+> **注入依赖 vs 编译依赖**：用户源码顶部写 `import { z } from "zod"` / `import { sense } from "@/core/sense"` 等仅供 IDE 类型检查；compiler **剥离**所有 import，并把默认导出转换成函数体的 `return`；运行时和自测统一通过 `loadCompiledSense()` / `new Function` 注入 `z`、`sense`、`SupervisionLevel`、`registerSenses` 四个标识符。故外部感官源码只能用这四个标识符 + 纯 JS/TS 语法，不能 import 其他模块。
 
 > **安全边界**：`new Function` 在主进程执行编译产物，信任边界 = `.chery/senses/*.ts`（本地用户配置，与项目代码同级可信）。源码注释标注：未来若支持远程 senses 再升级为 `vm` 模块隔离。
 

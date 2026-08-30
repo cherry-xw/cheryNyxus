@@ -56,14 +56,16 @@
 pnpm install
 ```
 
-这一步会自动触发 `postinstall` 钩子（[scripts/setup-env.mjs](../scripts/setup-env.mjs)），完成两件**种子初始化**：
+这一步会自动触发 `postinstall` 钩子（[scripts/setup-env.mjs](../scripts/setup-env.mjs)），完成环境初始化与内置资产增量升级：
 
 | 来源 | 目标 | 说明 |
 |------|------|------|
-| `.env.example` | `.env` | 单文件拷贝 |
-| `.chery.template/` | `.chery/` | 整目录递归拷贝（含 `config.yaml`、prompt、rule 等） |
+| `.env.example` | `.env` | 仅目标缺失时创建，已有密钥永不覆盖 |
+| `.chery.template/` | `.chery/` | 全新 workspace 整体初始化；已有 workspace 按官方文件哈希增量同步 |
 
-> 约定：**目标已存在则跳过**，不会覆盖你已有的编辑。若种子没生成（比如模板当时未就绪），手动跑 `node scripts/setup-env.mjs`。
+> `.chery/.template-manifest.json` 记录上一版官方文件哈希。升级只替换仍保持官方原版的文件；用户修改或主动删除的资产保持不变。被替换的旧版文件与配置会先备份到 `.chery/backups/template/<timestamp>/`。`config.yaml` 不做整文件覆盖，只迁移当前版本缺失的内置角色、感官组和预设引用。
+>
+> 若种子没生成（比如模板当时未就绪），可手动运行 `node scripts/setup-env.mjs`。后端 guardian 正常启动和执行维护命令前也会做同样的增量同步；同步失败只告警，并继续尝试使用原 workspace 启动。
 >
 > `.env` 与 `.chery/` 都在 [.gitignore](../.gitignore) 中（运行时配置不入库），所以这一步是本地配置的**唯一起点**。
 

@@ -3,10 +3,11 @@ import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
+import { syncCheryTemplate } from '../scripts/lib/chery-template-sync.mjs'
 
 const WORKER_FLAG = '--worker'
 const MAX_BACKOFF_MS = 10_000
-let healthPort = readHealthPort()
+let healthPort = 8183
 let worker: ChildProcess | undefined
 let stopping = false
 let intentionalRestart = false
@@ -15,6 +16,29 @@ let maintenanceReason: string | undefined
 
 function configRoot(): string {
   return path.resolve(process.env.CHERY_DIR || process.cwd(), '.chery')
+}
+
+function templateRoot(): string {
+  if (process.env.CHERY_TEMPLATE_DIR) return path.resolve(process.env.CHERY_TEMPLATE_DIR)
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.chery.template')
+}
+
+/** Template upgrades are best-effort: an existing workspace must remain bootable on sync failure. */
+function syncWorkspaceTemplate(): void {
+  try {
+    const report = syncCheryTemplate({
+      templateDir: templateRoot(),
+      runtimeRoot: path.resolve(process.env.CHERY_DIR || process.cwd()),
+    })
+    for (const warning of report.warnings) console.warn(`[guardian] template sync: ${warning}`)
+    console.log(
+      `[guardian] template sync: created=${report.created} copied=${report.copied.length} updated=${report.updated.length} preserved=${report.preserved.length} configMigrated=${report.configMigrated}`,
+    )
+  } catch (error) {
+    console.warn(
+      `[guardian] template sync failed; continuing with the existing workspace: ${(error as Error).message}`,
+    )
+  }
 }
 
 /** Guardian must remain bootable even when config.yaml is malformed. */
@@ -169,6 +193,8 @@ async function main(): Promise<void> {
     await runWorker(process.argv.slice(3))
     return
   }
+  syncWorkspaceTemplate()
+  healthPort = readHealthPort()
   // 维护命令不进入常驻守护循环，保持原 node dist/index.js <command> 语义。
   if (process.argv.length > 2) {
     const { startWorker: runWorker } = await import('./worker.js')
