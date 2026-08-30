@@ -695,6 +695,14 @@ export interface TimelineNodeDetailResponse {
   node: TimelineNode
   refs: Array<{ field: string; contentLength: number; contentHash: string }>
   hasMore: boolean
+  page?:
+    | { section: 'content' | 'thinking'; offset: number; consumed: number; nextOffset?: number }
+    | {
+        section: 'toolCalls'
+        cursor: { callIndex: number; field: 'arguments' | 'result'; offset: number }
+        consumed: number
+        nextCursor?: { callIndex: number; field: 'arguments' | 'result'; offset: number }
+      }
 }
 
 export type ExecutionEdgeKind =
@@ -1561,6 +1569,7 @@ export const agentApi = {
     sections?: Array<'content' | 'thinking' | 'toolCalls'>
     offset?: number
     limit?: number
+    toolCursor?: { callIndex: number; field: 'arguments' | 'result'; offset: number }
   }): Promise<TimelineNodeDetailResponse> {
     return call<TimelineNodeDetailResponse>('chat.timeline.node.get', {
       rootChatId: params.rootChatId,
@@ -1568,6 +1577,7 @@ export const agentApi = {
       ...(params.sections ? { sections: params.sections } : {}),
       ...(params.offset !== undefined ? { offset: params.offset } : {}),
       ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      ...(params.toolCursor ? { toolCursor: params.toolCursor } : {}),
     })
   },
 

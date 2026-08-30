@@ -10,7 +10,7 @@ const DETAIL_NODE_CACHE_LIMIT = 12
 
 /**
  * 单个问题在本 Lite 窗口内的作答草稿（UI 态，仅存于 store）。
- * selected：已选 label；notes：label → 补充描述；freeText：自由文本（无选项时）。
+ * selected：已选 label；notes：label → 选项补充；freeText：自由回答或整题补充描述。
  */
 export interface LiteQuestionDraft {
   selected: string[]

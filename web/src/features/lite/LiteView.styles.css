@@ -745,57 +745,96 @@
   background: color-mix(in srgb, var(--el-color-danger) 16%, transparent);
   color: var(--el-color-danger);
 }
-/* ── 待处理详情面板（v0.4.2 浏览器式多 tab）：独立卡片（直角边框，无圆角——用户强制规则）与上方对话流区分；
-   卡内两级结构——标签栏（灰背景）+ 内容区（亮背景）；激活 tab 亮背景与内容区同色连体、
-   底部直通内容区无分隔（切换 tab 内容随之切换）── */
+/* ── 待处理工作区：外层任务 tab + 内层问题导航，正文独立滚动，操作区固定。── */
 .lite-pending-panel {
   flex: none;
   display: flex;
   flex-direction: column;
-  max-height: 36%;
+  height: clamp(270px, 44%, 440px);
+  max-height: 52%;
   margin: 4px 10px 0;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px 8px 0 0;
+  background: var(--el-bg-color);
+  box-shadow: 0 -6px 20px color-mix(in srgb, var(--el-text-color-primary) 6%, transparent);
   overflow: hidden;
 }
-/* 标签栏：灰背景（浏览器 tab 栏），页签靠左排、不撑满、右侧留白 */
 .lite-pending-tabs-bar {
   flex: none;
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  padding: 6px 12px 0;
+  padding: 7px 10px 0;
+  border-bottom: 1px solid var(--el-border-color);
   background: var(--el-fill-color-lighter);
-  overflow: hidden;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-/* 内容区：亮背景卡片，激活 tab 底部与此同色连体 */
+.lite-pending-tabs-bar::-webkit-scrollbar {
+  display: none;
+}
 .lite-pending-content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: 8px 12px;
+  overflow: hidden;
   background: var(--el-bg-color);
-  scrollbar-width: none;
 }
-.lite-pending-content::-webkit-scrollbar {
-  display: none;
+
+:global(html[data-theme='light'] .lite-pending-panel) {
+  border-color: color-mix(in srgb, var(--nx-cyan) 56%, var(--el-border-color));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--nx-cyan) 3%, transparent) 1px, transparent 1px)
+      0 0 / 24px 24px,
+    linear-gradient(color-mix(in srgb, var(--nx-cyan) 3%, transparent) 1px, transparent 1px) 0 0 /
+      24px 24px,
+    var(--el-bg-color);
+  box-shadow:
+    0 -8px 24px color-mix(in srgb, var(--nx-cyan) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--nx-cyan) 16%, transparent);
+}
+:global(html[data-theme='light'] .lite-pending-tabs-bar) {
+  border-bottom-color: color-mix(in srgb, var(--nx-cyan) 38%, var(--el-border-color));
+  background:
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--nx-cyan) 5%, transparent) 0 1px,
+      transparent 1px 18px
+    ),
+    color-mix(in srgb, var(--nx-cyan) 5%, var(--el-fill-color-lighter));
+}
+:global(html[data-theme='light'] .lite-pending-tab.is-active) {
+  border-color: var(--nx-cyan);
+  color: var(--nx-cyan);
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--nx-cyan) 58%, transparent);
 }
 
 .lite-interaction {
-  padding: 6px 0;
-  border-bottom: 1px dashed var(--el-border-color-lighter);
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
-.lite-interaction:last-child {
-  border-bottom: 0;
+.lite-interaction-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--el-border-color) transparent;
 }
 .lite-interaction-head {
   display: flex;
   align-items: center;
-  /* v0.4.2 去掉内容区标题后：状态与倒计时靠左展示 */
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 8px;
+  margin-bottom: 10px;
 }
-/* 审批/提问交互的状态小色点：与节点同一套状态表达（待处理=暖金 / 处理中=主色脉冲 /
-   失败·超时=红 / 已完成=绿 / 已取消=灰），一眼看状态 */
+.lite-interaction-kicker {
+  color: var(--el-text-color-secondary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
 .lite-interaction-dot {
   flex: none;
   width: 8px;
@@ -825,6 +864,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
 }
 .lite-status-pill {
   padding: 0 7px;
@@ -850,40 +891,224 @@
 .lite-countdown[data-expired='true'] {
   color: var(--el-color-danger);
 }
-.lite-risk-summary {
-  margin: 5px 0;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
+.lite-approval-overview {
+  display: grid;
+  gap: 8px;
 }
-.lite-interaction-actions {
+.lite-approval-overview h3,
+.lite-approval-overview p {
+  margin: 0;
+}
+.lite-approval-overview h3 {
+  color: var(--el-text-color-primary);
+  font-size: 16px;
+  line-height: 1.4;
+}
+.lite-approval-overview p {
+  color: var(--el-text-color-regular);
+  line-height: 1.55;
+}
+.lite-approval-overview dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 2px 0 0;
+  border: 1px solid var(--el-border-color);
+  background: var(--el-border-color);
+}
+.lite-approval-overview dl > div {
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--el-bg-color);
+}
+.lite-approval-overview dt {
+  color: var(--el-text-color-secondary);
+  font-size: 10px;
+}
+.lite-approval-overview dd {
+  margin: 2px 0 0;
+  color: var(--el-text-color-primary);
+  overflow-wrap: anywhere;
+}
+.lite-risk-summary {
   display: flex;
   gap: 8px;
-  margin-top: 7px;
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--el-color-warning);
+  background: color-mix(in srgb, var(--el-color-warning) 8%, transparent);
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.lite-risk-summary > span {
+  color: var(--el-color-warning);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.lite-technical-details {
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.lite-technical-details > summary {
+  padding: 8px 2px;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+}
+.lite-technical-details-body {
+  display: grid;
+  gap: 10px;
+  padding: 2px 0 10px 16px;
+}
+.lite-technical-details :deep(.args-body) {
+  padding-left: 0;
+}
+.lite-technical-details :deep(.file-diff) {
+  margin: 0;
+}
+.lite-interaction-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--el-border-color);
+  background: color-mix(in srgb, var(--el-bg-color) 94%, var(--el-fill-color));
+  box-shadow: 0 -4px 12px color-mix(in srgb, var(--el-text-color-primary) 5%, transparent);
+}
+.lite-action-hint {
+  margin-right: auto;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
 }
 .lite-btn {
-  padding: 2px 14px;
+  min-width: 84px;
+  padding: 6px 14px;
   border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  background: transparent;
+  border-radius: 6px;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
   cursor: pointer;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.lite-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 .lite-btn.is-accept {
   border-color: var(--el-color-success);
-  color: var(--el-color-success);
+  background: var(--el-color-success);
+  color: #fff;
 }
 .lite-btn.is-reject {
   border-color: var(--el-color-danger);
   color: var(--el-color-danger);
 }
+.lite-btn.is-submit {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary);
+  color: #fff;
+}
 .lite-btn:disabled {
   cursor: default;
   opacity: 0.5;
 }
-.lite-followup-question {
-  margin: 7px 0;
+.lite-question-workspace {
+  display: grid;
+  grid-template-columns: minmax(170px, 24%) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
 }
-.lite-followup-question p {
-  margin: 2px 0;
+.lite-question-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.lite-question-nav-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--el-fill-color-light) 55%, transparent);
+  color: var(--el-text-color-regular);
+  text-align: left;
+  cursor: pointer;
+}
+.lite-question-nav-item:hover {
+  border-color: var(--el-border-color-darker);
+}
+.lite-question-nav-item.is-active {
+  border-color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 9%, var(--el-bg-color));
+}
+.lite-question-nav-item.is-answered .lite-question-state {
+  color: var(--el-color-success);
+}
+:global(html[data-theme='light'] .lite-question-nav-item.is-active) {
+  border-color: var(--nx-cyan);
+  background: color-mix(in srgb, var(--nx-cyan) 8%, var(--el-bg-color));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--nx-cyan) 8%, transparent);
+}
+.lite-question-index {
+  color: var(--el-text-color-secondary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+.lite-question-nav-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.lite-question-nav-copy strong,
+.lite-question-nav-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lite-question-nav-copy strong {
+  color: var(--el-text-color-primary);
+  font-size: 12px;
+  font-weight: 400;
+}
+.lite-question-nav-copy small {
+  color: var(--el-text-color-secondary);
+  font-size: 10px;
+}
+.lite-question-state {
+  color: var(--el-text-color-placeholder);
+  text-align: center;
+}
+.lite-followup-question {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--el-bg-color) 96%, var(--el-fill-color));
+}
+.lite-followup-question legend {
+  padding: 0 5px;
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+}
+.lite-question-prompt {
+  margin: 0 0 4px;
+  color: var(--el-text-color-regular);
+  line-height: 1.55;
+}
+.lite-question-type {
+  margin: 0 0 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 10px;
+  letter-spacing: 0.05em;
 }
 .lite-object-error,
 .lite-question-error {
@@ -894,14 +1119,22 @@
 .lite-option-wrap {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  margin-top: 6px;
 }
 .lite-option {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 0;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 5px;
+  background: var(--el-bg-color);
   cursor: pointer;
+}
+.lite-option:has(input:checked) {
+  border-color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-bg-color));
 }
 .lite-option-label {
   min-width: 0;
@@ -927,11 +1160,37 @@
 .lite-freetext {
   width: 100%;
   box-sizing: border-box;
-  padding: 5px 8px;
+  min-height: 92px;
+  margin-top: 0;
+  padding: 8px 10px;
   border: 1px solid var(--el-border-color);
   border-radius: 5px;
   background: var(--el-fill-color-blank);
   color: inherit;
+}
+.lite-freetext.is-other {
+  min-height: 64px;
+  margin-top: 6px;
+}
+.lite-question-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+}
+.lite-question-pager button {
+  padding: 4px 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+}
+.lite-question-pager button:disabled {
+  cursor: default;
+  opacity: 0.42;
 }
 
 .lite-error-banner {
@@ -1019,5 +1278,21 @@
 @media (max-width: 560px) {
   .lite-history-content {
     padding-left: 26px;
+  }
+}
+
+@media (max-width: 760px) {
+  .lite-question-workspace {
+    grid-template-columns: 1fr;
+  }
+  .lite-question-nav {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .lite-question-nav-item {
+    flex: 0 0 170px;
+  }
+  .lite-action-hint {
+    display: none;
   }
 }

@@ -347,6 +347,7 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
         sections?: Array<'content' | 'thinking' | 'toolCalls'>
         offset?: number
         limit?: number
+        toolCursor?: { callIndex: number; field: 'arguments' | 'result'; offset: number }
       } = {},
     ) {
       try {

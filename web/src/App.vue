@@ -460,6 +460,8 @@ body {
 /* workbench 原生窗 title-actions 的 lite 切换 switch（§2.1，与 WorkbenchDialog 内同名样式同观感；
    v1.0：原 ⚡ 按钮改 el-switch，主色轨道浅深适配，仅留间距） */
 .workbench-lite-switch {
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
   flex: none;
   margin-left: 8px;
   vertical-align: middle;

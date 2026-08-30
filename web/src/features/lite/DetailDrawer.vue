@@ -135,12 +135,33 @@ async function loadSection(section: LiteDetailSectionName): Promise<void> {
   if (sectionLoading.value[requestKey]) return
   const state = detailState(section)
   if (state.loaded && !state.hasMore) return
+  // The Lite projection already contains complete content for ordinary
+  // conversation/event nodes. Asking the execution-node endpoint for those
+  // source-message ids produces a false "invalid data" error.
+  if (section === 'content' && !state.loaded && props.node?.kind !== 'tool') {
+    liteUi.patchDetailSection(props.windowId, props.rootChatId, nodeId, section, {
+      ...state,
+      loaded: true,
+      text: props.node.content,
+      offset: props.node.content.length,
+      error: null,
+    })
+    return
+  }
   const requestedOffset = state.loaded ? state.offset : 0
   sectionLoading.value[requestKey] = true
   try {
     const response = await lite.fetchNodeDetail(nodeId, {
       sections: [section],
-      offset: requestedOffset,
+      ...(section === 'toolCalls'
+        ? {
+            toolCursor: state.toolCursor ?? {
+              callIndex: 0,
+              field: 'arguments' as const,
+              offset: 0,
+            },
+          }
+        : { offset: requestedOffset }),
       limit: DETAIL_PAGE_LIMIT,
     })
     if (!response.success) {

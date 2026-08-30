@@ -13,6 +13,7 @@ export interface LiteDetailSectionState {
   text: string
   toolCalls: GraphToolCall[]
   offset: number
+  toolCursor?: { callIndex: number; field: 'arguments' | 'result'; offset: number }
   hasMore: boolean
   refs: LiteDetailReference[]
   error: string | null
@@ -103,10 +104,14 @@ export function mergeDetailSectionPage(
     thinking?: string
     toolCalls?: GraphToolCall[]
   }
-  const append = requestedOffset > 0
+  const append = section === 'toolCalls' ? current.loaded : requestedOffset > 0
   const chunkText = section === 'content' ? (node.content ?? '') : (node.thinking ?? '')
   const incomingCalls = section === 'toolCalls' ? (node.toolCalls ?? []) : []
-  const consumed = section === 'toolCalls' ? toolChunkLength(incomingCalls) : chunkText.length
+  const consumed = section === 'toolCalls'
+    ? response.page?.section === 'toolCalls'
+      ? response.page.consumed
+      : toolChunkLength(incomingCalls)
+    : chunkText.length
   const stalled = response.hasMore && consumed === 0
   // Older node.get implementations do not set hasMore when `limit` itself
   // performed the slice. A full page is therefore treated as resumable; an
@@ -119,6 +124,9 @@ export function mergeDetailSectionPage(
     toolCalls:
       section === 'toolCalls' ? mergeToolCalls(current.toolCalls, incomingCalls, append) : [],
     offset: requestedOffset + consumed,
+    ...(section === 'toolCalls' && response.page?.section === 'toolCalls' && response.page.nextCursor
+      ? { toolCursor: response.page.nextCursor }
+      : {}),
     hasMore: (response.hasMore || fullPage) && !stalled,
     refs: mergeRefs(append ? current.refs : [], response.refs),
     error: stalled ? '详情分页未返回新内容，请稍后重试' : null,

@@ -10,11 +10,13 @@ import { computed } from 'vue'
 import type { GraphToolCall } from '@/application/backend/public'
 import type { LiteToolType } from './executionMonitor'
 import { toolTypeGlyph, toolTypeLabel } from './executionMonitor'
+import { formatApprovalArgumentScalar } from '@/utils/approvalPresentation'
 import {
   isPrimaryField,
   isScalarValue,
   parseJsonValue,
   prettyTranslatedJson,
+  readableToolRun,
   scalarText,
   toObjectEntries,
   type RenderedEntry,
@@ -109,17 +111,30 @@ function isCodeField(entry: RenderedEntry): boolean {
 }
 
 function fieldText(entry: RenderedEntry): string {
+  if (entry.key === 'action' && isScalarValue(entry.value)) {
+    return formatApprovalArgumentScalar(entry.key, entry.value)
+  }
   return isScalarValue(entry.value) ? scalarText(entry.value) : prettyTranslatedJson(entry.value)
 }
 
 const waiting = computed(() => props.call.status === 'pending' || props.call.status === 'accepted')
+const readable = computed(() =>
+  readableToolRun(
+    props.call.name,
+    props.label,
+    props.type,
+    props.call.status,
+    props.call.arguments,
+    props.call.result,
+  ),
+)
 </script>
 
 <template>
   <article class="lite-tool-call" :data-tooltype="type" :class="{ 'is-focused': focused }">
     <header class="lite-tool-call-head">
       <span class="lite-tool-call-icon" aria-hidden="true">{{ icon }}</span>
-      <strong>{{ label }}</strong>
+      <strong>{{ readable.toolLabel }}</strong>
       <span
         class="lite-tool-type-badge"
         :data-tooltype="type"
@@ -133,8 +148,22 @@ const waiting = computed(() => props.call.status === 'pending' || props.call.sta
       }}</span>
     </header>
 
-    <div class="lite-tool-call-args">
-      <h5>参数</h5>
+    <section class="lite-tool-story" aria-label="执行说明">
+      <p class="lite-tool-story-intent">{{ readable.intent }}</p>
+      <code v-if="readable.target" class="lite-tool-story-target">{{ readable.target }}</code>
+      <p class="lite-tool-story-outcome">{{ readable.outcome }}</p>
+      <p v-if="readable.resultSummary" class="lite-tool-story-result">
+        {{ readable.resultSummary }}
+      </p>
+      <ul v-if="readable.changes.length" class="lite-tool-story-changes" aria-label="本次变更">
+        <li v-for="change in readable.changes" :key="`${change.label}:${change.detail}`">
+          <small>{{ change.label }}</small><span>{{ change.detail }}</span>
+        </li>
+      </ul>
+    </section>
+
+    <details class="lite-tool-call-args">
+      <summary>查看完整参数</summary>
       <template v-if="argsEntries">
         <div
           v-for="entry in primaryArgs"
@@ -175,10 +204,10 @@ const waiting = computed(() => props.call.status === 'pending' || props.call.sta
       </template>
       <pre v-else-if="argsFallback" class="lite-pre">{{ argsFallback }}</pre>
       <p v-else class="lite-drawer-hint is-muted">（无参数）</p>
-    </div>
+    </details>
 
-    <div class="lite-tool-call-result">
-      <h5>结果</h5>
+    <details class="lite-tool-call-result">
+      <summary>查看原始结果</summary>
       <template v-if="resultEntries">
         <div
           v-for="entry in primaryResult"
@@ -222,7 +251,7 @@ const waiting = computed(() => props.call.status === 'pending' || props.call.sta
       </template>
       <pre v-else-if="resultText" class="lite-pre">{{ resultText }}</pre>
       <p v-else class="lite-drawer-hint is-muted">{{ waiting ? '等待工具返回…' : '（无结果）' }}</p>
-    </div>
+    </details>
   </article>
 </template>
 
@@ -322,6 +351,92 @@ const waiting = computed(() => props.call.status === 'pending' || props.call.sta
   color: var(--el-color-success);
   border-color: color-mix(in srgb, var(--el-color-success) 50%, var(--el-border-color));
 }
+.lite-tool-story {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--el-color-primary);
+  border-radius: 0 6px 6px 0;
+  background: var(--el-fill-color-blank);
+}
+.lite-tool-story p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.lite-tool-story-intent {
+  color: var(--el-text-color-primary);
+}
+.lite-tool-story-outcome {
+  color: var(--el-text-color-secondary);
+}
+.lite-tool-story-result {
+  color: var(--el-text-color-regular);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.lite-tool-story-target {
+  display: block;
+  padding: 3px 6px;
+  overflow: auto;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  background: var(--el-fill-color-lighter);
+  color: var(--el-text-color-primary);
+  font-family: var(--el-font-family-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.lite-tool-story-changes {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.lite-tool-story-changes li {
+  display: grid;
+  gap: 1px;
+  padding-top: 4px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.lite-tool-story-changes small {
+  color: var(--el-text-color-secondary);
+  font-size: 10.5px;
+}
+.lite-tool-story-changes span {
+  color: var(--el-text-color-primary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.lite-tool-call-args > summary,
+.lite-tool-call-result > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  user-select: none;
+}
+.lite-tool-call-args > summary:hover,
+.lite-tool-call-result > summary:hover {
+  color: var(--el-color-primary);
+}
+.lite-tool-call-args > summary::-webkit-details-marker,
+.lite-tool-call-result > summary::-webkit-details-marker {
+  display: none;
+}
+.lite-tool-call-args[open] > summary,
+.lite-tool-call-result[open] > summary {
+  margin-bottom: 6px;
+}
+.lite-tool-call-args,
+.lite-tool-call-result {
+  margin-top: 8px;
+}
+/* Preserves the field-level labels when a user explicitly inspects raw data. */
 .lite-tool-call-args h5,
 .lite-tool-call-result h5 {
   margin: 0 0 4px;

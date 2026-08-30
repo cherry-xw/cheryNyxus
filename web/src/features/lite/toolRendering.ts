@@ -7,6 +7,19 @@
  * - 嵌套对象 / 数组递归翻译键后 pretty-print，避免整段英文 JSON 直接糊在 <pre> 里。
  */
 import type { LiteToolType } from './executionMonitor'
+import { createToolRunPresentation } from '@/utils/approvalPresentation'
+
+export type ReadableToolStatus = 'pending' | 'accepted' | 'rejected' | 'error' | 'completed'
+
+/** The short, user-facing account of a tool run shown before its raw payload. */
+export interface ReadableToolRun {
+  toolLabel: string
+  intent: string
+  target?: string
+  outcome: string
+  resultSummary?: string
+  changes: Array<{ label: string; detail: string }>
+}
 
 /** 常见参数 / 结果字段的英文键 → 中文标签（键已归一化为 snake_case）。 */
 const KEY_LABELS: Record<string, string> = {
@@ -286,4 +299,137 @@ export function scalarText(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   return prettyTranslatedJson(value)
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function valueOf(record: Record<string, unknown>, ...keys: string[]): unknown {
+  const entries = Object.entries(record)
+  for (const key of keys) {
+    const entry = entries.find(([candidate]) => normalizeKey(candidate) === normalizeKey(key))
+    if (entry) return entry[1]
+  }
+  return undefined
+}
+
+function shortText(value: unknown, limit = 120): string | undefined {
+  if (value === undefined || value === null) return undefined
+  const text = typeof value === 'string' ? value : isScalarValue(value) ? String(value) : ''
+  const compact = text.replace(/\s+/g, ' ').trim()
+  if (!compact) return undefined
+  return compact.length > limit ? `${compact.slice(0, limit - 1)}…` : compact
+}
+
+function countSummary(value: unknown, noun: string): string | undefined {
+  if (Array.isArray(value)) return `${noun} ${value.length} 条`
+  if (typeof value === 'number') return `${noun} ${value} 条`
+  return undefined
+}
+
+function resultSummary(type: LiteToolType, result: unknown): string | undefined {
+  const record = asRecord(result)
+  const error = shortText(valueOf(record, 'error', 'message', 'stderr'))
+  if (error) return error
+  if (!Object.keys(record).length) return shortText(result)
+
+  if (type === 'read') {
+    const rawContent = valueOf(record, 'content')
+    if (typeof rawContent === 'string' && rawContent.trim()) {
+      const lines = rawContent.split(/\r?\n/).length
+      return `已读取 ${lines} 行内容`
+    }
+    return countSummary(valueOf(record, 'matches', 'results', 'files', 'total', 'count'), '找到结果')
+  }
+  if (type === 'exec') {
+    const code = valueOf(record, 'exit_code', 'exitCode')
+    const output = shortText(valueOf(record, 'stdout', 'output'))
+    if (code !== undefined) return `退出码 ${code}${output ? `：${output}` : ''}`
+    return output
+  }
+  if (type === 'write') {
+    if (valueOf(record, 'created') === true) return '已创建文件'
+    if (valueOf(record, 'updated') === true) return '已更新文件'
+    return shortText(valueOf(record, 'message', 'result'))
+  }
+  if (type === 'web') {
+    return countSummary(valueOf(record, 'results', 'matches', 'items', 'total', 'count'), '获得结果')
+  }
+  if (type === 'dispatch') {
+    return shortText(valueOf(record, 'agent', 'role', 'task', 'message', 'result'))
+  }
+  return shortText(valueOf(record, 'message', 'result', 'output'))
+}
+
+/**
+ * Converts a tool payload into the answer to “what is it doing, and what happened?”
+ * Payload remains available separately for inspection; this function never invents a result.
+ */
+export function readableToolRun(
+  name: string,
+  label: string,
+  type: LiteToolType,
+  status: ReadableToolStatus,
+  argumentsText?: string | null,
+  resultText?: string | null,
+): ReadableToolRun {
+  const presentation = createToolRunPresentation(name, argumentsText)
+  const args = asRecord(parseJsonValue(argumentsText))
+  const path = shortText(valueOf(args, 'path', 'file_path', 'filePath', 'file', 'filename'))
+  const query = shortText(valueOf(args, 'query', 'pattern', 'search', 'keyword'))
+  const url = shortText(valueOf(args, 'url'))
+  const command = shortText(valueOf(args, 'command', 'cmd'))
+  const description = shortText(valueOf(args, 'description', 'explanation', 'instruction', 'prompt', 'task'))
+  const role = shortText(valueOf(args, 'role', 'agent', 'target'))
+  const isSearch = /search|grep|find|query/i.test(name)
+  const fallbackAction =
+    type === 'read'
+      ? isSearch
+        ? '搜索代码或信息'
+        : '读取文件或信息'
+      : type === 'write'
+        ? '修改文件或项目内容'
+        : type === 'exec'
+          ? '执行命令'
+          : type === 'web'
+            ? query
+              ? '搜索网页信息'
+              : '访问网页'
+            : type === 'dispatch'
+              ? '委派子任务'
+              : description
+                ? '执行工具步骤'
+                : `运行“${label || name || '工具'}”`
+  const target = presentation.target ?? path ?? (type === 'web' ? url ?? query : undefined) ?? (type === 'exec' ? command : undefined) ?? (type === 'dispatch' ? role ?? description : undefined) ?? (isSearch ? query : undefined)
+  const prefix = status === 'accepted' ? '正在' : status === 'pending' ? '准备' : '已'
+  const operationLabel = presentation.operationLabel.startsWith('执行「')
+    ? fallbackAction
+    : presentation.operationLabel
+  const parsedResult = parseJsonValue(resultText)
+  const rawResult = shortText(resultText)
+  const completedSummary =
+    status === 'completed' ? resultSummary(type, parsedResult) ?? rawResult : undefined
+  const failure = status === 'error' || status === 'rejected'
+    ? resultSummary(type, parsedResult) ?? rawResult
+    : undefined
+  return {
+    toolLabel: presentation.toolLabel || label || name,
+    intent: `${prefix}${operationLabel || fallbackAction}`,
+    ...(target ? { target } : {}),
+    outcome:
+      status === 'pending'
+        ? '等待工具执行'
+        : status === 'accepted'
+          ? '工具正在运行，等待返回结果'
+          : status === 'completed'
+            ? '执行完成'
+            : status === 'rejected'
+              ? '本次操作已被拒绝'
+              : '工具执行失败',
+    ...(failure ? { resultSummary: failure } : completedSummary ? { resultSummary: completedSummary } : {}),
+    changes: presentation.changes,
+  }
 }

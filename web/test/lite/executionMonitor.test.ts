@@ -241,6 +241,21 @@ describe('Lite execution monitor', () => {
     expect(firstParagraph('One line')).toBe('One line')
   })
 
+  it('treats a final response as completed when the run snapshot is stale waiting', () => {
+    const root = createEmptySession('root')
+    root.activeRun = { runId: 'run-1', status: 'waiting', startedAt: 100 } as typeof root.activeRun
+    const execution = selectExecutionReadModel({
+      rootChatId: 'root',
+      sessionsById: { root },
+      timeline: timeline([
+        messageNode('root', 'root', 'question', 'user', 'Question', 100),
+        messageNode('root', 'root', 'final', 'agent', 'Done', 160),
+      ]),
+    })
+    expect(execution.status).toBe('completed')
+    expect(projectLiteExecution(execution, 10_000).activeSteps).toEqual([])
+  })
+
   it('bounds a long single-paragraph final preview and reports remaining content', () => {
     const content = 'x'.repeat(FINAL_PREVIEW_CHAR_LIMIT + 50)
     const preview = finalContentPreview(content)
@@ -498,6 +513,19 @@ describe('Lite detail lazy pagination', () => {
     expect(view).toContain('LiteScrollbar')
     expect(view).toContain('activePendingTab')
     expect(view).toContain('lite-pending-tab')
+    expect(view).toContain('lite-question-nav')
+    expect(view).toContain("'is-other': !activeQuestion.freeText")
+    expect(view).toContain('其他补充（可选）')
+    expect(view).toContain('if (draft.freeText.trim()) return true')
+    expect(view).toContain(
+      'const selected = !question.multiSelect && freeText ? [] : draft.selected',
+    )
+    expect(view).not.toContain('lite-question-supplement')
+    expect(view).toContain('activeQuestion')
+    expect(view).toContain('canAnswerBatch')
+    expect(view).toContain('lite-interaction-actions is-question')
+    expect(view).toContain("html[data-theme='light']")
+    expect(view).not.toContain('inset 3px 0 0')
     expect(view).toContain('remainingLabel(')
     expect(view).toContain('detailReturnFocus.value?.focus()')
     expect(view).toContain('<button')
@@ -723,7 +751,13 @@ describe('projectLiteHistory run-history projection', () => {
         runId: 'run-1',
         startedAt: 0,
         steps: [
-          step({ id: 'turn-1', kind: 'model', startedAt: 30, status: 'completed', completedAt: 50 }),
+          step({
+            id: 'turn-1',
+            kind: 'model',
+            startedAt: 30,
+            status: 'completed',
+            completedAt: 50,
+          }),
         ],
         agents: [],
       },
