@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { SenseToolInfo } from '@/application/backend/public'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
+import type { ApprovalState } from '@/domain/chat/projectionTypes'
 import type { ExecutionEdge } from '../graph/executionGraph'
 import { buildPaperGameCard } from '../paper/paperCardModel'
 import type { PaperStackEntry } from '../paper/paperStackModel'
@@ -27,6 +28,8 @@ const props = defineProps<{
   detailBranchUnavailableReason?: string
   senseTools?: SenseToolInfo[]
   chatId?: string
+  approval?: ApprovalState
+  approvalNodeId?: string
   question?: NodePopoverQuestion
   questionNodeId?: string
 }>()
@@ -455,6 +458,8 @@ function onScrubberKeydown(event: KeyboardEvent): void {
             :max-height="maxHeight"
             :quiet-motion="true"
             :chat-id="chatId"
+            :approval="approval"
+            :approval-node-id="approvalNodeId"
             :question="question"
             :question-node-id="questionNodeId"
             :detail-branch-available="detailBranchAvailable"

@@ -308,6 +308,12 @@ export function useMessageBranchTreeController(
       (model) => model.question && model.anchorNodeId === activePaperNodeId.value,
     )
   })
+  const activePaperApprovalPopover = computed(() => {
+    if (!props.paperMode || !activePaperNodeId.value) return undefined
+    return defaultNodePopovers.value.find(
+      (model) => model.approval && model.anchorNodeId === activePaperNodeId.value,
+    )
+  })
   const defaultPopoverById = computed(
     () => new Map(defaultNodePopovers.value.map((model) => [model.id, model] as const)),
   )
@@ -1555,6 +1561,7 @@ export function useMessageBranchTreeController(
     NodePaperStack,
     activateNode,
     activePaperQuestionPopover,
+    activePaperApprovalPopover,
     agents,
     canvas,
     closeCrt,

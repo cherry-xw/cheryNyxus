@@ -9,6 +9,8 @@ import { useNyxusHost } from '../application/host'
 import type { ApprovalState } from '@/domain/chat/projectionTypes'
 import { renderMarkdown } from '@/utils/markdown'
 import { formatTime } from '@/utils/formatTime'
+import { createToolRunPresentation } from '@/utils/approvalPresentation'
+import { toSenseNameZh } from '@/utils/senseName'
 import type { ExecutionEdge, ExecutionNode } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
@@ -268,7 +270,9 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   
   const toolIcon = computed(() => toolMeta.value?.icon || '⚙')
   
-  const toolName = computed(() => toolMeta.value?.label?.trim() || selectedCall.value?.name || '工具')
+  const toolName = computed(() =>
+    toolMeta.value?.label?.trim() || toSenseNameZh(selectedCall.value?.name),
+  )
   
   const selectedStatus = computed(() =>
   
@@ -277,6 +281,11 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   )
   
   const parsedArguments = computed(() => parseRecord(selectedCall.value?.arguments))
+  const toolPresentation = computed(() =>
+    selectedCall.value
+      ? createToolRunPresentation(selectedCall.value.name, selectedCall.value.arguments)
+      : undefined,
+  )
   
   const isSpawnTool = computed(() => SPAWN_TOOL_NAMES.has(selectedCall.value?.name ?? ''))
   
@@ -712,7 +721,7 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   
   function toolLabel(name: string): string {
   
-    return agents.senseTools.find((tool) => tool.name === name)?.label?.trim() || name
+    return agents.senseTools.find((tool) => tool.name === name)?.label?.trim() || toSenseNameZh(name)
   
   }
   
@@ -759,5 +768,6 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
     resultTruncated, searchConfiguration, searchMode, searchPath, searchQuery, searchResult,
     secondaryFields, selectedCall, selectedStatus, skillResult, skinForNode, spawnPrompt, spawnRole,
     spawnWake, terminationDisplay, thinkingOpen, toolBatchUsesTabs, toolGlyph, toolIcon, toolLabel,
+    toolPresentation,
   }
 }

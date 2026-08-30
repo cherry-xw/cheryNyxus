@@ -1,5 +1,7 @@
 import type { GraphToolCall, SenseToolInfo } from '@/application/backend/public'
 import { formatTime } from '@/utils/formatTime'
+import { createToolRunPresentation } from '@/utils/approvalPresentation'
+import { toSenseNameZh } from '@/utils/senseName'
 import type { ExecutionEdge, ExecutionNode, ExecutionFoldMember } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'
 import { terminationDisplay } from '../graph/termination'
@@ -191,7 +193,7 @@ function toolIcon(name: string): PaperPixelIconName {
 }
 
 export function toolDisplayName(name: string, tools: readonly SenseToolInfo[] = []): string {
-  return tools.find((tool) => tool.name === name)?.label?.trim() || name
+  return tools.find((tool) => tool.name === name)?.label?.trim() || toSenseNameZh(name)
 }
 
 function canBranchFrom(node: ExecutionNode): boolean {
@@ -257,7 +259,14 @@ function buildProcessStages(
       label: calls.map((call) => call.label).join('、') || skinForNode(node).label,
       status: statusLabel(stageStatus),
       tone: statusTone(stageStatus),
-      summary: plainSummary(node.content || node.thinking || '', skinForNode(node).label),
+      summary:
+        calls.length === 1
+          ? createToolRunPresentation(calls[0]!.call.name, calls[0]!.call.arguments).operationLabel
+          : calls.length
+            ? calls
+                .map((call) => createToolRunPresentation(call.call.name, call.call.arguments).operationLabel)
+                .join('；')
+            : plainSummary(node.content || node.thinking || '', skinForNode(node).label),
       calls,
       cardOptions,
     }
@@ -279,6 +288,9 @@ export function buildPaperGameCard(
   const identity = cardIdentity(options.foldNode ?? node)
   const batch = toolBatchDetail(node)
   const selectedCall = selectedToolCall(batch?.calls ?? [], options.selectedCallId)
+  const toolPresentation = selectedCall
+    ? createToolRunPresentation(selectedCall.name, selectedCall.arguments)
+    : undefined
   const nodeParts = contentParts(node.content)
   const thinking = node.thinking?.trim() || node.sourceFact?.thinking?.trim() || ''
   const status = selectedCall?.status ?? node.inputState ?? node.sourceFact?.status ?? node.status
@@ -314,8 +326,10 @@ export function buildPaperGameCard(
       id: `${selectedCall.callId}:arguments`,
       kind: 'arguments',
       icon: 'map',
-      title: '技能铭文',
-      hint: plainSummary(selectedCall.arguments, '查看工具参数'),
+      title: '具体操作',
+      hint:
+        [toolPresentation?.operationLabel, toolPresentation?.target].filter(Boolean).join('：') ||
+        plainSummary(selectedCall.arguments, '查看工具参数'),
       content: selectedCall.arguments,
       format: 'code',
       ...(argumentFields.length ? { fields: argumentFields } : {}),
@@ -373,12 +387,20 @@ export function buildPaperGameCard(
     ...identity,
     title:
       (selectedCall
-        ? toolDisplayName(selectedCall.name, options.senseTools)
+        ? toolPresentation?.toolLabel || toolDisplayName(selectedCall.name, options.senseTools)
         : options.title.trim()) || skinForNode(node).label,
     status: statusLabel(status),
     statusTone: statusTone(status),
     time: formatTime(node.createdAt),
-    summary: plainSummary(summarySource, batch ? '工具技能记录' : '这张卡片没有留下正文。'),
+    summary: toolPresentation
+      ? [
+          toolPresentation.operationLabel,
+          toolPresentation.target,
+          ...toolPresentation.changes.map((change) => change.detail),
+        ]
+          .filter(Boolean)
+          .join('；')
+      : plainSummary(summarySource, batch ? '工具技能记录' : '这张卡片没有留下正文。'),
     sequence: `${String(options.index + 1).padStart(2, '0')} / ${String(options.total).padStart(2, '0')}`,
     stats: stats.slice(0, 3),
     details,
