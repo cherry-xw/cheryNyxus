@@ -32,4 +32,15 @@ describe('approval presentation', () => {
     expect(toArgumentKeyLabel('baseRevision')).toBe('配置版本')
     expect(toArgumentKeyLabel('custom_field')).toBe('custom field')
   })
+
+  it('makes each config patch understandable without reading raw operations', () => {
+    const view = createApprovalPresentation(
+      'config_manage',
+      '{"action":"patch","operations":[{"op":"putRole","name":"reviewer","role":{"brain":"gpt-5"}}]}',
+    )
+    expect(view.operationLabel).toBe('修改配置参数')
+    expect(view.changes).toEqual([
+      { label: '角色配置', detail: '将角色“reviewer”使用模型“gpt-5”' },
+    ])
+  })
 })

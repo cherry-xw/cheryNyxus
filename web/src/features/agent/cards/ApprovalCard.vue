@@ -17,6 +17,7 @@ import { useChatSessionsStore, useInteractionsStore } from '@/application/public
 import type { ApprovalState } from '@/domain/chat/projectionTypes'
 import ParsedArgs from './ParsedArgs.vue'
 import ApprovalSummary from './ApprovalSummary.vue'
+import FileChangeDiff from './FileChangeDiff.vue'
 import { createApprovalPresentation } from '@/utils/approvalPresentation'
 
 const props = defineProps<{
@@ -116,6 +117,7 @@ function closeToQueue(): void {
       </button>
     </div>
     <ApprovalSummary :sense-name="approval.senseName" :args="approval.args" />
+    <FileChangeDiff :args="approval.args" />
     <div v-if="security" class="security-summary">
       <div class="security-meta">
         <span>角色：{{ security.roleType }}</span>

@@ -9,16 +9,25 @@ import { parseArgs } from '@/utils/parseArgs'
 import { toArgumentKeyLabel } from '@/utils/approvalPresentation'
 import ArgumentValue from './ArgumentValue.vue'
 
-const props = defineProps<{
-  args: unknown
-  title?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    args: unknown
+    title?: string
+    /** Render inside a parent disclosure without adding a second toggle. */
+    embedded?: boolean
+  }>(),
+  { embedded: false },
+)
 
 const expanded = ref(true)
 
 const argsParsed = computed(() => parseArgs(props.args))
 const argsFallback = computed(() => argsParsed.value.fallback)
-const argsEntries = computed(() => argsParsed.value.parsed?.entries ?? [])
+// File previews have their own readable diff surface; keeping the raw before/
+// after payload in the generic argument list duplicates large file contents.
+const argsEntries = computed(() =>
+  (argsParsed.value.parsed?.entries ?? []).filter((entry) => entry.key !== '__filePreview'),
+)
 const argsToggleLabel = computed(
   () => props.title ?? argsParsed.value.parsed?.description ?? '操作参数',
 )
@@ -32,6 +41,7 @@ const hasArgs = computed(() => {
 <template>
   <div v-if="hasArgs" class="args">
     <button
+      v-if="!props.embedded"
       type="button"
       class="args-toggle"
       :aria-expanded="expanded"
@@ -39,7 +49,7 @@ const hasArgs = computed(() => {
     >
       {{ expanded ? '▾' : '▸' }} {{ argsToggleLabel }}
     </button>
-    <div v-if="expanded" class="args-body">
+    <div v-if="props.embedded || expanded" class="args-body">
       <div v-if="argsEntries.length" class="arg-rows">
         <div v-for="entry in argsEntries" :key="entry.key" class="arg-row">
           <span class="arg-key">{{ toArgumentKeyLabel(entry.key) }}</span>
