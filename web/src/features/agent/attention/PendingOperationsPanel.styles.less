@@ -3,10 +3,10 @@
   z-index: var(--nx-z-drawer);
   top: 44px;
   right: 52px; // 位于右侧 rail 左侧，避免盖住 rail 按钮
-  width: 600px; // 左右分栏后加宽：左栏导航 + 右栏详情一屏容纳，降低滚动依赖
+  width: 820px; // 宽屏工作台优先给任务详情与内层问题导航足够空间
   max-width: calc(100% - 120px);
   // 最大高度固定上限 560px，叠加窗口可用空间约束（min 取小者）：任务再多也保持适中尺寸，窗口过小不溢出
-  max-height: min(560px, calc(100% - 44px)); // 原：calc(100% - 44px) 跟随窗口可占满
+  max-height: min(620px, calc(100% - 44px));
   display: flex;
   flex-direction: column;
   min-height: 0; // 收起态仅入口行不撑高；展开态由 .is-expanded 覆盖为保底高度
@@ -44,6 +44,16 @@
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--nx-green) 22%, transparent),
     0 4px 16px rgba(0, 0, 0, 0.28);
+}
+:global(html[data-theme='light'] .pending-panel.has-tasks .pending-panel-head) {
+  border-color: color-mix(in srgb, var(--nx-cyan) 54%, transparent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--nx-cyan) 5%, transparent) 1px, transparent 1px)
+      0 0 / 20px 20px,
+    color-mix(in srgb, var(--nx-bg) 92%, var(--nx-cyan) 5%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--nx-cyan) 16%, transparent),
+    0 5px 18px color-mix(in srgb, var(--nx-cyan) 12%, transparent);
 }
 .pending-panel-toggle {
   display: flex;
@@ -145,6 +155,18 @@
   backdrop-filter: blur(12px) saturate(115%);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 }
+:global(html[data-theme='light'] .pending-panel-body) {
+  border-color: color-mix(in srgb, var(--nx-cyan) 46%, transparent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--nx-cyan) 3%, transparent) 1px, transparent 1px)
+      0 0 / 24px 24px,
+    linear-gradient(color-mix(in srgb, var(--nx-cyan) 3%, transparent) 1px, transparent 1px) 0 0 /
+      24px 24px,
+    color-mix(in srgb, var(--nx-bg) 97%, var(--nx-cyan) 3%);
+  box-shadow:
+    0 14px 38px rgba(13, 54, 62, 0.18),
+    inset 0 1px 0 color-mix(in srgb, var(--nx-cyan) 18%, transparent);
+}
 .pending-panel-body-enter-active,
 .pending-panel-body-leave-active {
   transition:
@@ -171,20 +193,40 @@
   display: flex;
   align-items: stretch;
   gap: 10px;
+  box-sizing: border-box;
   flex: 1 1 auto; // basis auto：高度由两栏内容中较高者撑开；面板被 max-height 截断时收缩，两栏在其内各自滚动
   min-width: 0;
   min-height: 0;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 22%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--nx-bg) 96%, var(--nx-text) 4%);
+}
+:global(html[data-theme='light'] .panel-main) {
+  border-color: color-mix(in srgb, var(--nx-cyan) 34%, transparent);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--nx-cyan) 2.5%, transparent) 1px,
+      transparent 1px
+    )
+    0 0 / 24px 24px,
+    color-mix(in srgb, var(--nx-cyan) 2%, var(--nx-bg));
 }
 
-// ── 右栏：任务导航（▲/▼ 分页、中间列表内部滚动）+ 底部操作按钮同列、贴列底固定 ──
+// ── 右栏：一级任务导航（▲/▼ 分页、中间列表内部滚动）──
 .side-col {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 176px;
+  box-sizing: border-box;
+  width: 190px;
   flex-shrink: 0;
   align-self: stretch;
   min-height: 0; // 允许随面板限高收缩，超高时任务列表内部滚动而非撑破面板
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--nx-text) 18%, transparent);
 }
 .task-nav {
   display: flex;
@@ -192,6 +234,9 @@
   gap: 6px;
   flex: 1 1 auto; // basis auto：高度由内容撑开；右栏超高（side-col 高度受限）时收缩，列表内部滚动
   min-height: 0;
+}
+:global(html[data-theme='light'] .side-col) {
+  border-left-color: color-mix(in srgb, var(--nx-cyan) 24%, transparent);
 }
 .page-nav {
   border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
@@ -284,6 +329,11 @@
     }
   }
 }
+:global(html[data-theme='light'] .task-nav-btn.is-active) {
+  border-color: color-mix(in srgb, var(--nx-cyan) 70%, transparent);
+  background: color-mix(in srgb, var(--nx-cyan) 9%, var(--nx-bg));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--nx-cyan) 10%, transparent);
+}
 .task-nav-meta {
   text-align: center;
   color: color-mix(in srgb, var(--nx-text) 48%, transparent);
@@ -327,6 +377,74 @@
   }
 }
 
+.detail-kicker {
+  color: color-mix(in srgb, var(--nx-text) 54%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+.approval-overview {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  h3,
+  p {
+    margin: 0;
+  }
+  h3 {
+    color: var(--nx-text);
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  p {
+    color: color-mix(in srgb, var(--nx-text) 78%, transparent);
+    line-height: 1.55;
+  }
+  dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin: 2px 0 10px;
+    border: 1px solid color-mix(in srgb, var(--nx-text) 24%, transparent);
+    background: color-mix(in srgb, var(--nx-text) 24%, transparent);
+    > div {
+      min-width: 0;
+      padding: 7px 9px;
+      background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 6%);
+      &.is-change {
+        grid-column: 1 / -1;
+      }
+    }
+  }
+  dt {
+    color: color-mix(in srgb, var(--nx-text) 54%, transparent);
+    font-size: 10px;
+  }
+  dd {
+    margin: 2px 0 0;
+    color: var(--nx-text);
+    overflow-wrap: anywhere;
+  }
+}
+.technical-details {
+  margin-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--nx-text) 18%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 18%, transparent);
+  > summary {
+    padding: 8px 2px;
+    color: color-mix(in srgb, var(--nx-text) 78%, transparent);
+    cursor: pointer;
+  }
+}
+.technical-details-body {
+  display: grid;
+  gap: 10px;
+  padding: 2px 0 10px 15px;
+}
+.technical-details :deep(.args-body) {
+  padding-left: 0;
+}
+
 // ── 左栏详情分块折叠头（工具能力解释 / 每个问题块） ──
 .detail-block {
   display: flex;
@@ -345,13 +463,6 @@
   font-size: 13px;
   font-weight: 400;
   cursor: pointer;
-  &:hover {
-    color: var(--nx-text);
-  }
-}
-.question-toggle {
-  cursor: pointer;
-  color: color-mix(in srgb, var(--nx-text) 84%, transparent);
   &:hover {
     color: var(--nx-text);
   }
@@ -385,15 +496,88 @@
 }
 
 .questions {
+  display: grid;
+  grid-template-columns: minmax(160px, 34%) minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--nx-text) 3%, transparent);
+}
+.question-step-nav {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
+  button {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 2px 7px;
+    width: 100%;
+    min-width: 0;
+    padding: 7px 8px;
+    border: 1px solid color-mix(in srgb, var(--nx-text) 20%, transparent);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 6%);
+    color: var(--nx-text);
+    text-align: left;
+    cursor: pointer;
+    &:hover {
+      border-color: color-mix(in srgb, var(--nx-text) 38%, transparent);
+    }
+    &.is-active {
+      border-color: color-mix(in srgb, var(--nx-green) 66%, transparent);
+      background: color-mix(in srgb, var(--nx-green) 12%, var(--nx-bg));
+    }
+    &.is-answered .question-state {
+      color: var(--nx-green);
+    }
+  }
+}
+:global(html[data-theme='light'] .question-step-nav button.is-active) {
+  border-color: color-mix(in srgb, var(--nx-cyan) 70%, transparent);
+  background: color-mix(in srgb, var(--nx-cyan) 8%, var(--nx-bg));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--nx-cyan) 9%, transparent);
+}
+.question-index {
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: color-mix(in srgb, var(--nx-text) 54%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+}
+.question-nav-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  strong,
+  small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  strong {
+    font-size: 12px;
+    font-weight: 400;
+  }
+  small {
+    color: color-mix(in srgb, var(--nx-text) 60%, transparent);
+    font-size: 10px;
+  }
+}
+.question-state {
+  grid-column: 2;
+  color: color-mix(in srgb, var(--nx-text) 48%, transparent);
+  font-size: 9px;
 }
 fieldset {
   margin: 0;
-  padding: 9px;
-  border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 30%, transparent);
   border-radius: 9px;
+  background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 4%);
   &:disabled {
     opacity: 0.6;
   }
@@ -468,31 +652,49 @@ input {
   margin-top: 0;
 }
 
-// 右列底部操作区（margin-top:auto 贴列底，与任务按钮同列）。
-.side-actions {
+// 当前一级任务的操作区：位于该任务内容内部，避免被误解为批量提交所有任务。
+.current-task-actions {
+  position: sticky;
+  z-index: 1;
+  bottom: -2px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
   gap: 7px;
   margin-top: auto;
-  flex-shrink: 0; // 超高时操作区固定贴列底，不被压缩（task-nav 单独收缩内部滚动）
-  padding-top: 8px;
+  flex-shrink: 0;
+  padding: 9px 2px 2px;
   border-top: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+  background: color-mix(in srgb, var(--nx-bg) 96%, var(--nx-text) 4%);
+  .side-progress {
+    margin-right: auto;
+    color: color-mix(in srgb, var(--nx-text) 58%, transparent);
+    font-size: 10px;
+  }
   button {
-    width: 100%;
+    min-width: 86px;
     padding: 6px 11px;
     border: 0;
     border-radius: 8px;
     font-size: 13px;
     font-weight: 400;
     cursor: pointer;
+    transition:
+      transform 120ms ease,
+      filter 120ms ease;
+    &:hover:not(:disabled) {
+      transform: translateY(-1px);
+      filter: brightness(1.04);
+    }
     &:disabled {
       opacity: 0.5;
       cursor: default;
     }
   }
   .reject {
-    background: color-mix(in srgb, #e35a49 16%, transparent);
-    color: #ff8d7e;
+    border: 1px solid color-mix(in srgb, var(--nx-red) 62%, transparent);
+    background: color-mix(in srgb, var(--nx-red) 10%, transparent);
+    color: var(--nx-red);
   }
   .accept {
     background: var(--nx-green);
@@ -506,4 +708,17 @@ input {
   text-align: center;
   opacity: 0.55;
   font-size: 13px;
+}
+
+@media (max-width: 850px) {
+  .questions {
+    grid-template-columns: 1fr;
+  }
+  .question-step-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    button {
+      flex: 0 0 158px;
+    }
+  }
 }

@@ -16,7 +16,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useInteractionsStore } from '@/application/public'
 import type { InteractionRecord } from '@/application/backend/public'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
-import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
+import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 import { createApprovalPresentation } from '@/utils/approvalPresentation'
 
 const props = defineProps<{
@@ -201,11 +201,14 @@ function toggleOption(
       draft.selectedLabels = [label]
       draft.freeText = ''
       // 单选切选项：丢弃其他选项的补充描述
-      draft.optionNotes = { ...(draft.optionNotes[label] ? { [label]: draft.optionNotes[label] } : {}) }
+      draft.optionNotes = {
+        ...(draft.optionNotes[label] ? { [label]: draft.optionNotes[label] } : {}),
+      }
     }
   } else if (draft.selectedLabels.includes(label)) {
     draft.selectedLabels = draft.selectedLabels.filter((value) => value !== label)
-    const { [label]: _removed, ...rest } = draft.optionNotes
+    const rest = { ...draft.optionNotes }
+    delete rest[label]
     draft.optionNotes = rest
   } else draft.selectedLabels.push(label)
 }
@@ -244,15 +247,31 @@ function statusOf(item: InteractionRecord): string {
   }[item.status]
 }
 
-// ── 左栏详情分块折叠：能力解释默认折叠；每个问题块独立折叠（默认展开） ──
+// ── 详情切换：外层任务导航不变，提问任务在内容区内再切换单个问题。 ──
 const senseDescCollapsed = ref(true)
-/** 按 questionId 记录各问题块的折叠态（缺省=展开）；切换 active 任务后新块自然回落到展开。 */
-const collapsedQuestions = reactive<Record<string, boolean>>({})
-function toggleQuestion(questionId: string): void {
-  collapsedQuestions[questionId] = !collapsedQuestions[questionId]
+const activeQuestionByInteraction = reactive<Record<string, string>>({})
+function questionAnsweredOf(item: InteractionRecord, question: PanelQuestion): boolean {
+  const draft = draftOf(item, question.questionId)
+  if (draft.freeText.trim()) return true
+  return question.multiSelect ? draft.selectedLabels.length > 0 : draft.selectedLabels.length === 1
 }
-function isQuestionCollapsed(questionId: string): boolean {
-  return collapsedQuestions[questionId] === true
+function activeQuestionIdOf(item: InteractionRecord): string {
+  const questions = questionsOf(item)
+  const saved = activeQuestionByInteraction[item.interactionId]
+  if (saved && questions.some((question) => question.questionId === saved)) return saved
+  return questions[0]?.questionId ?? ''
+}
+const activeQuestion = computed(() => {
+  const item = activeItem.value
+  if (!item || item.kind !== 'question_batch') return undefined
+  const id = activeQuestionIdOf(item)
+  return questionsOf(item).find((question) => question.questionId === id)
+})
+function selectQuestion(item: InteractionRecord, questionId: string): void {
+  activeQuestionByInteraction[item.interactionId] = questionId
+}
+function answeredQuestionCountOf(item: InteractionRecord): number {
+  return questionsOf(item).filter((question) => questionAnsweredOf(item, question)).length
 }
 
 /**
@@ -282,14 +301,7 @@ async function decide(item: InteractionRecord, action: 'accept' | 'reject'): Pro
 /** 提交可点判定：单选恰好 1 项或有「其他补充」输入；多选 ≥1。无选择/输入时提交按钮禁用（灰）。 */
 function canSubmitOf(item: InteractionRecord): boolean {
   const qs = questionsOf(item)
-  if (!qs.length) return false
-  return qs.every((question) => {
-    const draft = draftOf(item, question.questionId)
-    if (draft.freeText.trim()) return true
-    return question.multiSelect
-      ? draft.selectedLabels.length > 0
-      : draft.selectedLabels.length === 1
-  })
+  return qs.length > 0 && qs.every((question) => questionAnsweredOf(item, question))
 }
 
 async function answer(item: InteractionRecord): Promise<void> {
@@ -311,6 +323,10 @@ async function answer(item: InteractionRecord): Promise<void> {
   })
   if (answers.some((answer) => answer.selectedLabels.length === 0 && !answer.freeText)) {
     submitError.value = '请完成全部问题后提交'
+    const firstIncomplete = questionsOf(item).find(
+      (question) => !questionAnsweredOf(item, question),
+    )
+    if (firstIncomplete) selectQuestion(item, firstIncomplete.questionId)
     return
   }
   if (
@@ -415,11 +431,33 @@ onBeforeUnmount(() => {
                 <span class="detail-status">{{ statusOf(activeItem) }}</span>
               </div>
 
-              <ApprovalSummary
-                v-if="activeItem.kind === 'approval'"
-                :sense-name="payload(activeItem).senseName"
-                :args="payload(activeItem).arguments"
-              />
+              <section v-if="activeItem.kind === 'approval'" class="approval-overview">
+                <span class="detail-kicker">APPROVAL REQUEST</span>
+                <h3>{{ approvalPresentationOf(activeItem).title }}</h3>
+                <p>{{ approvalPresentationOf(activeItem).summary }}</p>
+                <dl>
+                  <div>
+                    <dt>能力</dt>
+                    <dd>{{ approvalPresentationOf(activeItem).toolLabel }}</dd>
+                  </div>
+                  <div>
+                    <dt>行为</dt>
+                    <dd>{{ approvalPresentationOf(activeItem).operationLabel }}</dd>
+                  </div>
+                  <div v-if="approvalPresentationOf(activeItem).target">
+                    <dt>对象</dt>
+                    <dd>{{ approvalPresentationOf(activeItem).target }}</dd>
+                  </div>
+                  <div
+                    v-for="change in approvalPresentationOf(activeItem).changes"
+                    :key="change.label + ':' + change.detail"
+                    class="is-change"
+                  >
+                    <dt>{{ change.label }}</dt>
+                    <dd>{{ change.detail }}</dd>
+                  </div>
+                </dl>
+              </section>
 
               <!-- 工具能力解释（后端注入 sense 定义 description；config_manage 等）。默认折叠，点击标题展开。 -->
               <div v-if="senseDescriptionOf(activeItem)" class="detail-block">
@@ -439,89 +477,136 @@ onBeforeUnmount(() => {
                 </p>
               </div>
 
-              <ParsedArgs
-                v-if="activeItem.kind === 'approval'"
-                :args="payload(activeItem).arguments"
-                title="完整操作参数"
-              />
+              <details v-if="activeItem.kind === 'approval'" class="technical-details">
+                <summary>技术详情</summary>
+                <div class="technical-details-body">
+                  <ParsedArgs :args="payload(activeItem).arguments" title="完整操作参数" embedded />
+                  <FileChangeDiff :args="payload(activeItem).arguments" embedded />
+                </div>
+              </details>
               <div v-else class="questions">
-                <fieldset
-                  v-for="question in questionsOf(activeItem)"
-                  :key="question.questionId"
-                  :disabled="activeItem.status !== 'pending'"
-                >
-                  <legend
-                    class="question-toggle"
-                    :aria-expanded="!isQuestionCollapsed(question.questionId)"
-                    @click="toggleQuestion(question.questionId)"
+                <nav class="question-step-nav" aria-label="问题列表">
+                  <button
+                    v-for="(question, index) in questionsOf(activeItem)"
+                    :key="question.questionId"
+                    type="button"
+                    :class="{
+                      'is-active': question.questionId === activeQuestionIdOf(activeItem),
+                      'is-answered': questionAnsweredOf(activeItem, question),
+                    }"
+                    :aria-current="
+                      question.questionId === activeQuestionIdOf(activeItem) ? 'step' : undefined
+                    "
+                    @click="selectQuestion(activeItem, question.questionId)"
                   >
-                    <span class="detail-block-glyph" aria-hidden="true">{{
-                      isQuestionCollapsed(question.questionId) ? '▸' : '▾'
+                    <span class="question-index">{{ String(index + 1).padStart(2, '0') }}</span>
+                    <span class="question-nav-copy">
+                      <strong>{{ question.header || `问题 ${index + 1}` }}</strong>
+                      <small>{{ question.question }}</small>
+                    </span>
+                    <span class="question-state">{{
+                      questionAnsweredOf(activeItem, question) ? '已完成' : '待回答'
                     }}</span>
-                    {{ question.header || question.question }}
-                  </legend>
-                  <template v-if="!isQuestionCollapsed(question.questionId)">
-                    <small v-if="question.header">{{ question.question }}</small>
-                    <p class="options-hint">
-                      {{ question.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
-                    </p>
-                    <div class="options">
-                      <div
-                        v-for="option in question.options"
-                        :key="option.label"
-                        class="option-row"
+                  </button>
+                </nav>
+                <fieldset v-if="activeQuestion" :disabled="activeItem.status !== 'pending'">
+                  <legend>{{ activeQuestion.header || activeQuestion.question }}</legend>
+                  <small v-if="activeQuestion.header">{{ activeQuestion.question }}</small>
+                  <p class="options-hint">
+                    {{ activeQuestion.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
+                  </p>
+                  <div class="options">
+                    <div
+                      v-for="option in activeQuestion.options"
+                      :key="option.label"
+                      class="option-row"
+                    >
+                      <button
+                        type="button"
+                        :class="{
+                          selected: draftOf(
+                            activeItem,
+                            activeQuestion.questionId,
+                          ).selectedLabels.includes(option.label),
+                        }"
+                        @click="
+                          toggleOption(
+                            activeItem,
+                            activeQuestion.questionId,
+                            option.label,
+                            activeQuestion.multiSelect,
+                          )
+                        "
                       >
-                        <button
-                          type="button"
-                          :class="{
-                            selected: draftOf(
-                              activeItem,
-                              question.questionId,
-                            ).selectedLabels.includes(option.label),
-                          }"
-                          @click="
-                            toggleOption(
-                              activeItem,
-                              question.questionId,
-                              option.label,
-                              question.multiSelect,
-                            )
-                          "
-                        >
-                          <b>{{ option.label }}</b
-                          ><span v-if="option.description">{{ option.description }}</span>
-                        </button>
-                        <input
-                          v-if="
-                            draftOf(activeItem, question.questionId).selectedLabels.includes(
-                              option.label,
-                            )
-                          "
-                          class="option-note-input"
-                          :value="
-                            draftOf(activeItem, question.questionId).optionNotes[option.label] ??
-                            ''
-                          "
-                          placeholder="为这个选项补充描述（可选）"
-                          @input="
-                            onOptionNoteInput(
-                              activeItem,
-                              question.questionId,
-                              option.label,
-                              $event,
-                            )
-                          "
-                        />
-                      </div>
+                        <b>{{ option.label }}</b
+                        ><span v-if="option.description">{{ option.description }}</span>
+                      </button>
+                      <input
+                        v-if="
+                          draftOf(activeItem, activeQuestion.questionId).selectedLabels.includes(
+                            option.label,
+                          )
+                        "
+                        class="option-note-input"
+                        :value="
+                          draftOf(activeItem, activeQuestion.questionId).optionNotes[
+                            option.label
+                          ] ?? ''
+                        "
+                        placeholder="为这个选项补充描述（可选）"
+                        @input="
+                          onOptionNoteInput(
+                            activeItem,
+                            activeQuestion.questionId,
+                            option.label,
+                            $event,
+                          )
+                        "
+                      />
                     </div>
-                    <input
-                      :value="draftOf(activeItem, question.questionId).freeText"
-                      placeholder="其他补充（可选）"
-                      @input="onOtherInput(activeItem, question.questionId, $event)"
-                    />
-                  </template>
+                  </div>
+                  <input
+                    :value="draftOf(activeItem, activeQuestion.questionId).freeText"
+                    placeholder="其他补充（可选）"
+                    @input="onOtherInput(activeItem, activeQuestion.questionId, $event)"
+                  />
                 </fieldset>
               </div>
+
+              <footer class="current-task-actions">
+                <span v-if="activeItem.kind === 'question_batch'" class="side-progress">
+                  当前任务已回答 {{ answeredQuestionCountOf(activeItem) }}/{{
+                    questionsOf(activeItem).length
+                  }}
+                </span>
+                <template v-if="activeItem.kind === 'approval'">
+                  <button
+                    type="button"
+                    class="reject"
+                    :disabled="activeItem.status === 'resolving'"
+                    @click="decide(activeItem, 'reject')"
+                  >
+                    拒绝
+                  </button>
+                  <button
+                    type="button"
+                    class="accept"
+                    :disabled="activeItem.status === 'resolving'"
+                    @click="decide(activeItem, 'accept')"
+                  >
+                    {{ activeItem.status === 'blocked' ? '重试并接受' : '接受' }}
+                  </button>
+                </template>
+                <button
+                  v-else
+                  type="button"
+                  class="accept"
+                  :disabled="activeItem.status !== 'pending' || !canSubmitOf(activeItem)"
+                  @click="answer(activeItem)"
+                >
+                  提交当前任务回答
+                </button>
+              </footer>
             </template>
 
             <p v-else class="pending-panel-empty">
@@ -529,7 +614,7 @@ onBeforeUnmount(() => {
             </p>
           </div>
 
-          <!-- 右栏：任务导航（▲/▼ 分页）+ 操作按钮同一列。 -->
+          <!-- 右栏：一级任务导航；当前任务的操作按钮位于左侧内容区内部。 -->
           <div class="side-col">
             <nav class="task-nav" aria-label="待操作任务列表">
               <button
@@ -591,36 +676,6 @@ onBeforeUnmount(() => {
                 >{{ page }}/{{ lastPage }}</span
               >
             </nav>
-
-            <footer v-if="activeItem" class="side-actions">
-              <template v-if="activeItem.kind === 'approval'">
-                <button
-                  type="button"
-                  class="reject"
-                  :disabled="activeItem.status === 'resolving'"
-                  @click="decide(activeItem, 'reject')"
-                >
-                  拒绝
-                </button>
-                <button
-                  type="button"
-                  class="accept"
-                  :disabled="activeItem.status === 'resolving'"
-                  @click="decide(activeItem, 'accept')"
-                >
-                  {{ activeItem.status === 'blocked' ? '重试并接受' : '接受' }}
-                </button>
-              </template>
-              <button
-                v-else
-                type="button"
-                class="accept"
-                :disabled="activeItem.status !== 'pending' || !canSubmitOf(activeItem)"
-                @click="answer(activeItem)"
-              >
-                提交回答
-              </button>
-            </footer>
           </div>
         </div>
       </div>
