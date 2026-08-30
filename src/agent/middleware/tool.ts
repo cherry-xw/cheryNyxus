@@ -18,6 +18,7 @@ import { ClassifiedError } from '@/utils/error.js'
 import { authorizeToolCall, compileRoleSecurity, type ToolAuthorization } from '@/core/security/index.js'
 import { getChatWorkspace } from '@/db/chat.js'
 import config from '@/utils/config.js'
+import { approvalPreview, approvalSnapshotMatches, type ApprovalSnapshot } from './approvalPreview.js'
 
 /**
  * 待批量执行的 sense call
@@ -30,6 +31,7 @@ interface PendingSenseCall {
   /** smart/manual 时存在，用于 Promise.all 批量等待审批 */
   approvalPromise?: Promise<{ action: 'accept' | 'reject'; reason?: string }>
   authorization: ToolAuthorization
+  approvalSnapshot?: ApprovalSnapshot
   preDenied?: boolean
 }
 
@@ -150,6 +152,7 @@ async function* executeCollectedCalls(
       call.argsJson,
       call.id,
       call.authorization,
+      call.approvalSnapshot,
     )
     if (rejected) {
       yield { type: 'sense_reject', id: call.id, name: call.name, reason: rejected }
@@ -208,6 +211,7 @@ async function* executeCollectedCalls(
           call.argsJson,
           call.id,
           call.authorization,
+          call.approvalSnapshot,
         )
         if (rejected) {
           yield { type: 'sense_reject', id: call.id, name: call.name, reason: rejected }
@@ -384,11 +388,12 @@ function buildSenseTrigger(
     )
   }
 
+  const preview = effectiveLevel > SupervisionLevel.auto ? approvalPreview(name, argsJson) : undefined
   const trigger: SenseTriggerChunk = {
     type: 'sense_end',
     id,
     name,
-    arguments: argsJson,
+    arguments: preview?.arguments ?? argsJson,
     supervisionLevel: effectiveLevel,
     security: authorization,
   }
@@ -402,6 +407,7 @@ function buildSenseTrigger(
       supervisionLevel: effectiveLevel,
       approvalPromise,
       authorization,
+      approvalSnapshot: preview?.snapshot,
       preDenied,
     },
   }
@@ -416,6 +422,7 @@ async function* doExecuteSense(
   argsJson: string,
   id: string,
   authorization: ToolAuthorization,
+  approvalSnapshot?: ApprovalSnapshot,
 ): AsyncGenerator<SenseStartedChunk, {
   content: string
   hash?: string
@@ -430,6 +437,10 @@ async function* doExecuteSense(
   }> = []
   try {
     if (!ctx.runtime) throw new Error('Runtime not configured.')
+    if (approvalSnapshot && !approvalSnapshotMatches(approvalSnapshot)) {
+      const rejected = '文件已在审批后发生变化；为避免覆盖他人修改，请重新发起并审核新的差异。'
+      return { content: rejected, rejected, replaced }
+    }
     let args = argsJson ? safeJsonParse(argsJson, {}) : {}
     const senseEntry = ctx.runtime.senseTable.get(name)
     if (!senseEntry) {
