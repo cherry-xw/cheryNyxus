@@ -58,9 +58,9 @@ compact 事件（手动 `[[command:/compact]]` 与 autoCompact 统一）把 root
 - 每个实时 stream delta 必带 `msgId` 和 `createdAt`。前端首次看到新 id 时建立空 streaming message，再追加 delta；Pet 和历史抽屉读取同一对象。
 - `consumed` notification 携本次进入 journal 的完整 user messages（含真实 id），覆盖主 chat 排队输入和子 chat 初始 prompt。
 - `chat.sync` response 携 session metadata/历史 runtime/currentState/question snapshot；历史 runtime 仅回显，不解析。冷启动 `chat.sync(0)` 可构建完整 ChatSession，正常运行不再依赖 `chat.get` 收敛。
-- 所有 live chat 事件先持久化再发 socket，并携 `seq`。前端以 `seq` 去事件重放、以 `msgId` 做消息 upsert。
+- 结构事件、完整 staged 与终态先持久化再发 socket，并携 `seq`；`stream`/`turn.delta` 仅实时发送，带 `transient:true` 和 root 路由信息但不占持久游标。前端以持久 `seq` 去事件重放、以 `msgId` 做消息 upsert。
 
-running chat hydration 顺序固定：`chat.attach` 先建立实时输出重定向，但不推进客户端 cursor；随后 `chat.sync(lastSeq)` 填补缺口，sync response 在 `snapshotSeq` 边界应用权威快照，再继续消费更晚事件。attach snapshot 不得提前跳过当前 active message 的既有 delta。
+running chat hydration 顺序固定：`chat.open`/`chat.attach` 先建立实时输出重定向，并从进程内 active-turn 缓冲返回当前累计文本；`chat.sync(lastSeq)` 只补持久结构事实。刷新期间错过的逐 token 动画不重放，快照之后的新 delta 按 offset 续接；最终内容始终由 messages/timeline patch 收敛。
 
 ## 文件清单
 
@@ -258,7 +258,7 @@ finally:                                                // abort 兜底 flush
 
 | MiddlewareChunk.type                | → 协议                                                                                                                                        | 说明                                                                                                                                                                                                          |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `stream`                            | `createChunk("stream", rid, {msgId,createdAt,...delta}, {chatId,runId})`                                                                      | 每次 LLM 响应的实时增量；`msgId` 在 checkpoint turn 开始时预分配并与最终 messages.id 相同。经 WS 发送前持久化并附 `seq`，断线由 `chat.sync` 重放。                                                            |
+| `stream`                            | `createChunk("stream", rid, {msgId,createdAt,...delta}, {chatId,runId})`                                                                      | 每次 LLM 响应的实时增量；`msgId` 在 checkpoint turn 开始时预分配并与最终 messages.id 相同。仅实时发送，不写 `chat_events/root_events`；刷新由 active-turn 累计快照恢复当前前缀。                                |
 | `staged`                            | `createChunk("staged", rid, {type: stagedType, thinking?, content?, senseName?, arguments?, id?, msgId?, role?, createdAt?}, {chatId,runId})` | 阶段完成。实时路径（`chat.send`/`resume` 执行中）`thinking_end`/`content_end` 携预分配 `msgId`+`createdAt`（`content_end` 另携 `role:"assistant"`），与 chat.get 回放同 id，供前端实时累积进 `stream.history` |
 | `sense_end`（SenseTriggerChunk）    | `createNotification("interrupt", rid, {approvalId:id, senseName, arguments, supervisionLevel, needsApproval: level>auto})`                    | 感官触发                                                                                                                                                                                                      |
 | `sense_accept`                      | `createNotification("accept", rid, {approvalId:id, senseName, result})`                                                                       | 执行成功                                                                                                                                                                                                      |

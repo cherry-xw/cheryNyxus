@@ -120,6 +120,36 @@ describe('ConnectionManager chat subscriptions', () => {
     ])
   })
 
+  it('buffers transient deltas during root open without assigning a durable cursor', () => {
+    const manager = new ConnectionManager()
+    const ws = socket(1)
+    const state = manager.create(ws)
+    const subscriptionId = manager.beginRootSessionOpen('root-transient', state.id)
+
+    const delta = {
+      kind: 'notification',
+      type: 'turn.delta',
+      chatId: 'child-transient',
+      rootChatId: 'root-transient',
+      transient: true,
+      data: { turnId: 'turn-1', channel: 'content', offset: 0, delta: 'hello' },
+    }
+    expect(manager.prepareSessionEvent(ws, delta)).toEqual([])
+    manager.setSessionBoundary(subscriptionId, 0)
+    manager.finishSessionOpen(subscriptionId)
+
+    const buffered = manager.drainSessionBuffer(subscriptionId)
+    expect(buffered).toEqual([delta])
+    expect(manager.prepareSessionEvent(ws, buffered[0])).toEqual([
+      expect.objectContaining({
+        subscriptionId,
+        transient: true,
+        type: 'turn.delta',
+      }),
+    ])
+    expect(manager.prepareSessionEvent(ws, buffered[0])[0]).not.toHaveProperty('eventSeq')
+  })
+
   it('replaces the previous root subscription on the same connection', () => {
     const manager = new ConnectionManager()
     const ws = socket(1)

@@ -23,6 +23,13 @@ export interface RootEventPage {
   reset: boolean
 }
 
+export type DeliverableChatEvent = Record<string, unknown> & {
+  seq?: number
+  rootChatId?: string
+  rootEventSeq?: number
+  transient?: boolean
+}
+
 export interface SpawnTask {
   taskId: string
   childChatId: string
@@ -157,6 +164,33 @@ export function appendChatEvent(chatId: string, event: Record<string, unknown>):
   event.rootChatId = rootChatId
   event.rootEventSeq = rootEventSeq
   return seq
+}
+
+/** Per-token data is useful only while a run is live; final/staged/structural facts remain durable. */
+export function isTransientChatEvent(event: Record<string, unknown>): boolean {
+  return (
+    (event.kind === 'chunk' && event.type === 'stream') ||
+    (event.kind === 'notification' && event.type === 'turn.delta')
+  )
+}
+
+/**
+ * Prepare one chat event for socket delivery.
+ *
+ * Durable events receive chat/root cursors through appendChatEvent. Stream deltas receive only
+ * root routing metadata, so current subscribers still see them without consuming durable cursors
+ * or writing two SQLite journals for every provider token.
+ */
+export function prepareChatEventForDelivery(
+  chatId: string,
+  event: DeliverableChatEvent,
+): void {
+  if (isTransientChatEvent(event)) {
+    event.rootChatId = rootChatIdOf(chatId)
+    event.transient = true
+    return
+  }
+  event.seq = appendChatEvent(chatId, event)
 }
 
 function rootChatIdOf(chatId: string): string {

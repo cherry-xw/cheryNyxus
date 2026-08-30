@@ -217,7 +217,13 @@ function decodeFrame(data: Buffer): S2CMessage | null {
     const payloadRaw = data.subarray(2 + len).toString('utf-8')
     const payload = safeJsonParse<Record<string, unknown>>(payloadRaw, {})
     if (payload && typeof payload === 'object' && 'data' in payload) {
-      const p = payload as { data: unknown; chatId?: string; runId?: string; seq?: number }
+      const p = payload as {
+        data: unknown
+        chatId?: string
+        runId?: string
+        seq?: number
+        transient?: boolean
+      }
       return {
         kind: 'chunk',
         type: 'stream',
@@ -225,6 +231,7 @@ function decodeFrame(data: Buffer): S2CMessage | null {
         ...(p.chatId ? { chatId: p.chatId } : {}),
         ...(p.runId ? { runId: p.runId } : {}),
         ...(p.seq !== undefined ? { seq: p.seq } : {}),
+        ...(p.transient === true ? { transient: true } : {}),
         data: p.data as Chunk['data'],
       }
     }

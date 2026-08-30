@@ -118,6 +118,7 @@ import {
   setSpawnTaskOwnership,
   listOpenSpawnTasks,
   appendChatEvent,
+  prepareChatEventForDelivery,
   getRootEvents,
   abandonRequest,
   claimRequest,
@@ -125,6 +126,7 @@ import {
 } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
 import { handleChatResume, handleChatSend, attachmentsToPromptMarkers } from './send.js'
+import { getLiveTurns } from './liveTurns.js'
 import { computeCanResume } from './canResume.js'
 import { computeCurrentState, limitExecutionSteps } from './currentState.js'
 import { transport } from '../websocket/transport.js'
@@ -1265,8 +1267,12 @@ export async function handleChatInputSubmit(
         )
         for await (const item of generator) {
           const event = item as Chunk | Notification
-          if (event.chatId)
-            event.seq = appendChatEvent(event.chatId, event as unknown as Record<string, unknown>)
+          if (event.chatId) {
+            prepareChatEventForDelivery(
+              event.chatId,
+              event as unknown as Record<string, unknown>,
+            )
+          }
           for (const ws of connectionManager.getChatOutputs(data.chatId)) {
             if (ws.readyState !== ws.OPEN) continue
             for (const routed of connectionManager.prepareSessionEvent(ws, event)) {
@@ -1990,6 +1996,9 @@ export function buildActiveTurns(chatId: string): ActiveTurnSnapshot[] {
       }
     }
   }
+  // 新运行不再持久化逐 token delta；当前进程内的累计文本覆盖兼容事件重建结果。
+  // 旧数据库中仍保留的 delta 继续由上面的扫描读取，不需要迁移。
+  for (const live of getLiveTurns(chatId)) turns.set(live.turnId, live)
   return [...turns.values()]
 }
 

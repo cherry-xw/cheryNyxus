@@ -58,7 +58,8 @@ export class Transport {
       !!chunk.subscriptionId ||
       !!chunk.rootChatId ||
       chunk.rootEventSeq !== undefined ||
-      chunk.sourceEventSeq !== undefined
+      chunk.sourceEventSeq !== undefined ||
+      chunk.transient === true
     const data =
       typeof chunk.data === 'string' && !hasEnvelope
         ? chunk.data
@@ -76,6 +77,7 @@ export class Transport {
                   ...(chunk.sourceEventSeq !== undefined
                     ? { sourceEventSeq: chunk.sourceEventSeq }
                     : {}),
+                  ...(chunk.transient === true ? { transient: true } : {}),
                 }
               : chunk.data,
           )

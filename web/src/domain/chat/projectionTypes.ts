@@ -162,6 +162,7 @@ export interface ChunkMessage {
   rootChatId?: string
   rootEventSeq?: number
   sourceEventSeq?: number
+  transient?: boolean
   data?: StreamChunkData | StagedChunkData
 }
 
@@ -177,5 +178,6 @@ export interface NotificationMessage {
   rootChatId?: string
   rootEventSeq?: number
   sourceEventSeq?: number
+  transient?: boolean
   data?: unknown
 }

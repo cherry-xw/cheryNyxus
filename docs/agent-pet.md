@@ -398,7 +398,7 @@ runtime 每轮可换（AgentDialog 发消息时改 brain/senseGroup），chat �
 - 用户从新连接发起 `chat.abort`（[send.ts:264-276](../../src/service/chat/send.ts#L264-L276)）
 - 后端进程退出
 
-纯 LLM stream / sense 执行无自动停止机制。`chat.abort` 或进程杀是确定性结束的唯一手段。**stream-rejoin 协议**：同页瞬断复用 requestId join `inFlightRequests`；F5（新页面、requestId 丢失）用 `chat.attach(chatId)` 重连——后端把运行中 run 的后续 chunk/notification 按 chatId 重定向到新连接（`liveOutputByChat`），配合 `chat.sync` 回放补齐断连窗口已持久化事件，前端实时气泡无缝续显。仍可用 `chat.resume` 续跑已 park 的会话，或 `chat.get` 看持久化历史。
+纯 LLM stream / sense 执行无自动停止机制。`chat.abort` 或进程杀是确定性结束的唯一手段。**stream-rejoin 协议**：同页瞬断复用 requestId join `inFlightRequests`；F5（新页面、requestId 丢失）用 `chat.attach(chatId)` 重连——后端把运行中 run 的后续 chunk/notification 按 chatId 重定向到新连接（`liveOutputByChat`），并从进程内 active-turn 缓冲返回断连期间的累计文本；`chat.sync` 仅补持久结构事件。仍可用 `chat.resume` 续跑已 park 的会话，或 `chat.get` 看持久化历史。
 
 **场景 2：手动结束主 agent，子 agent 会怎样？**
 

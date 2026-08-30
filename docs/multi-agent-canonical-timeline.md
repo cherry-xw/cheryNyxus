@@ -257,9 +257,9 @@ rejected({ rootChatId, sourceChatId, approvalId, senseName, reason, completedAt?
 
 审批/提问弹窗属于节点交互状态，不属于 CRT 生命周期。待审批节点即使启用默认折叠也保持展开，交互弹窗持续显示到用户完成操作；对应流结束只关闭该节点 CRT，不提前关闭审批弹窗。
 
-节点树历史读取不得调用 `chat.sync` 重播已完成 turn 的 delta。`turn.delta` 只服务当前打开的 root subscription；已完成历史只由 `RootTimelineSnapshot.nodes/edges` 返回完整节点。切换 root 时关闭旧 subscription 仅表示停止观察，绝不隐含 pause/abort；旧 root 的 Agent、输入队列和子 Agent 在后台继续运行。
+节点树历史读取不得调用 `chat.sync` 重播已完成 turn 的 delta。`stream`/`turn.delta` 是不占持久 cursor 的瞬态事件，只服务当前打开的订阅，不写 `chat_events/root_events`；已完成历史只由 `RootTimelineSnapshot.nodes/edges` 返回完整节点。切换 root 时关闭旧 subscription 仅表示停止观察，绝不隐含 pause/abort；旧 root 的 Agent、输入队列和子 Agent 在后台继续运行。
 
-刷新中断后，不保证恢复“已经错过的逐 token 动画”；正确行为是 `chat.open` 返回 active turn 的当前累计文本，随后继续接收新的 delta。最终内容始终以 timeline snapshot/patch 为准。
+刷新中断后，不保证恢复“已经错过的逐 token 动画”；正确行为是 `chat.open` 从后端进程内 active-turn 缓冲返回当前累计文本，随后继续接收新的 delta。进程崩溃时未封口的半截输出允许丢弃；已经完成的内容始终以 messages 和 timeline snapshot/patch 为准。
 
 #### 3.4.1 可重建的执行步骤计时
 

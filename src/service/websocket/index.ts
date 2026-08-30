@@ -18,7 +18,7 @@ import { LogLevel } from '@/utils/logger/types.js'
 import { newTracingId } from '@/utils/error.js'
 import { reportFatalStartupError } from '../fatalStartup.js'
 import { OAuth2Auth } from '../auth/index.js'
-import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
+import { prepareChatEventForDelivery, claimRequest, completeRequest } from '@/db/delivery.js'
 import { disconnectGrace } from './disconnectGrace.js'
 
 /** Requests still executing in this process. A reconnect joins this promise instead of rerunning a handler. */
@@ -28,12 +28,12 @@ function shouldPersistChatEvent(method: string): boolean {
   return method === 'chat.send' || method === 'chat.resume' || method === 'chat.startSpawn'
 }
 
-function persistChatEvent<T extends { chatId?: string; seq?: number }>(
+function prepareChatEvent<T extends { chatId?: string; seq?: number }>(
   method: string,
   event: T,
 ): T {
   if (shouldPersistChatEvent(method) && event.chatId) {
-    event.seq = appendChatEvent(event.chatId, event as Record<string, unknown>)
+    prepareChatEventForDelivery(event.chatId, event as Record<string, unknown>)
   }
   return event
 }
@@ -340,7 +340,7 @@ async function handleRequest(
               finalResponse = iter.value
               break
             }
-            const item = persistChatEvent(request.method, iter.value)
+            const item = prepareChatEvent(request.method, iter.value)
 
             // Notification 消息
             if (item.kind === 'notification') {

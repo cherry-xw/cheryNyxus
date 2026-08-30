@@ -60,7 +60,11 @@ import { safeJsonParse } from '@/utils/json.js'
 import { randomUUID } from 'crypto'
 import { recordTerminationFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
-import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
+import {
+  claimRequest,
+  completeRequest,
+  prepareChatEventForDelivery,
+} from '@/db/delivery.js'
 import type { ChatRunResumeRequest } from '@chery/protocol'
 import { getExecutionActiveRun } from '@/db/executionGraph.js'
 import { transport } from '../websocket/transport.js'
@@ -404,7 +408,7 @@ export async function launchDetachedResume(
   const generator = handleChatResume({ ...ctx, requestId: runId }, { chatId })
   const route = (item: Chunk | Notification): void => {
     if (item.chatId) {
-      item.seq = appendChatEvent(item.chatId, item as unknown as Record<string, unknown>)
+      prepareChatEventForDelivery(item.chatId, item as unknown as Record<string, unknown>)
     }
     for (const ws of connectionManager.getChatOutputs(chatId)) {
       if (ws.readyState !== ws.OPEN) continue

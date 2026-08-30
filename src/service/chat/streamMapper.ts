@@ -45,6 +45,12 @@ import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
 import { isAgentAbortError, isAgentParkError } from '@/core/middleware/errors.js'
 import config from '@/utils/config.js'
 import { recordRunFact, recordTerminationFact } from './executionFacts.js'
+import {
+  appendLiveTurnDelta,
+  clearLiveRun,
+  completeLiveTurn,
+  startLiveTurn,
+} from './liveTurns.js'
 import { loopLimitFeedback, runFailureFeedback } from '../errorCatalog.js'
 import { RunOutcomeReasonCode } from '@chery/protocol'
 import type {
@@ -105,6 +111,7 @@ export async function* streamAgentChunks(
           cancelledAt: Date.now(),
         }
         yield createNotification('turn.cancelled', rid, cancellation, { chatId, runId })
+        completeLiveTurn(chatId, reset.messageId)
         turnStarted.delete(reset.messageId)
         completedTurns.delete(reset.messageId)
         offsets.delete(reset.messageId)
@@ -134,6 +141,13 @@ export async function* streamAgentChunks(
         const state = offsets.get(turnId) ?? { thinking: 0, content: 0 }
         if (!turnStarted.has(turnId)) {
           turnStarted.add(turnId)
+          startLiveTurn({
+            chatId,
+            runId,
+            turnId,
+            messageId: turnId,
+            createdAt: chunk.createdAt,
+          })
           recordRunFact({ chatId, runId, status: 'running', turnId, nodeId: turnId })
           yield createNotification(
             'turn.started',
@@ -155,6 +169,7 @@ export async function* streamAgentChunks(
         if (chunk.thinkingDelta) {
           const offset = state.thinking
           state.thinking += chunk.thinkingDelta.length
+          appendLiveTurnDelta(chatId, turnId, 'thinking', offset, chunk.thinkingDelta)
           yield createNotification(
             'turn.delta',
             rid,
@@ -165,6 +180,7 @@ export async function* streamAgentChunks(
         if (chunk.contentDelta) {
           const offset = state.content
           state.content += chunk.contentDelta.length
+          appendLiveTurnDelta(chatId, turnId, 'content', offset, chunk.contentDelta)
           yield createNotification(
             'turn.delta',
             rid,
@@ -251,6 +267,7 @@ export async function* streamAgentChunks(
         for (const turnId of turnStarted) {
           if (completedTurns.has(turnId)) continue
           completedTurns.add(turnId)
+          completeLiveTurn(chatId, turnId)
           yield createNotification(
             'turn.completed',
             rid,
@@ -432,6 +449,7 @@ export async function* streamAgentChunks(
         for (const turnId of turnStarted) {
           if (completedTurns.has(turnId)) continue
           completedTurns.add(turnId)
+          completeLiveTurn(chatId, turnId)
           yield createNotification(
             'turn.completed',
             rid,
@@ -543,6 +561,7 @@ export async function* streamAgentChunks(
         for (const turnId of turnStarted) {
           if (completedTurns.has(turnId)) continue
           completedTurns.add(turnId)
+          completeLiveTurn(chatId, turnId)
           yield createNotification(
             'turn.completed',
             rid,
@@ -665,6 +684,7 @@ export async function* streamAgentChunks(
         for (const turnId of turnStarted) {
           if (completedTurns.has(turnId)) continue
           completedTurns.add(turnId)
+          completeLiveTurn(chatId, turnId)
           yield createNotification(
             'turn.completed',
             rid,
@@ -715,6 +735,7 @@ export async function* streamAgentChunks(
           !completedTurns.has(turnId)
         ) {
           completedTurns.add(turnId)
+          completeLiveTurn(chatId, turnId)
           yield createNotification(
             'turn.completed',
             rid,
@@ -845,6 +866,7 @@ export async function* streamAgentChunks(
     for (const turnId of turnStarted) {
       if (completedTurns.has(turnId)) continue
       completedTurns.add(turnId)
+      completeLiveTurn(chatId, turnId)
       yield createNotification(
         'turn.completed',
         rid,
@@ -901,6 +923,7 @@ export async function* streamAgentChunks(
       for (const turnId of turnStarted) {
         if (completedTurns.has(turnId)) continue
         completedTurns.add(turnId)
+        completeLiveTurn(chatId, turnId)
         yield createNotification(
           'turn.completed',
           rid,
@@ -910,5 +933,6 @@ export async function* streamAgentChunks(
       }
       recordRunFact({ chatId, runId, status: 'paused' })
     }
+    clearLiveRun(chatId, runId)
   }
 }

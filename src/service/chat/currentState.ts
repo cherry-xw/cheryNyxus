@@ -232,9 +232,9 @@ function rebuildExecutionSteps(
  * - runningTools：已发 sense_end/sense_started 但无 accept/rejected 的工具（含待审批）。
  * - currentTodo：最近一条 update_todo 的结构化 todos（todo 无专用通知，靠 sense_end.arguments）。
  *
- * 事件流（chat.sync）仍是前端缓存数组的累积水源；本快照仅补事件无法可靠判定的事实。
- * 不含 currentTurnContent：当前轮 content 由事件流（stream delta + content_end）累积重建，
- * 快照会造成双内容源合并，违背单一缓存数组原则。
+ * 事件流（chat.sync）仍是持久事实的累积水源；本快照仅补事件无法可靠判定的事实。
+ * 不含 currentTurnContent：运行中的累计文本由 chat.open/chat.attach 的 activeTurns 提供，
+ * 完成内容由 messages/staged 提供；逐 token delta 只走实时订阅，不进入 currentState。
  */
 export function computeCurrentState(
   chatId: string,

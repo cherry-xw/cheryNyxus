@@ -78,6 +78,7 @@ function decodeStreamFrame(buf: ArrayBuffer, view: Uint8Array): unknown {
     ...(isEnvelope && typeof payload.sourceEventSeq === 'number'
       ? { sourceEventSeq: payload.sourceEventSeq }
       : {}),
+    ...(isEnvelope && payload.transient === true ? { transient: true } : {}),
     data: isEnvelope ? payload.data : payload,
   }
 }

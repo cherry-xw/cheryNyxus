@@ -160,7 +160,7 @@ close(ws):
 - `chat.attach` 命中运行中 run → 写 `liveOutputByChat[chatId] = 新连接 ws`，原 run 的后续 chunk/notification（含终态 `done`/`error`）改投新 ws。
 - run 结束（`onRequestFinished` / send·resume·startSpawn finally）清除该 chatId 映射。
 
-按 **chatId** 而非 requestId 寻址：`startSpawn` 请求 params 无 chatId（不被 disconnectGrace 跟踪），子 run 亦可经此统一重定向。断连窗口中已持久化但未投递的事件由 `chat.sync` 回放补齐（每个事件持久化带单调 seq，前端 `drainChatEvents` 连续补放、按 `seq<=consumed` 去重）。
+按 **chatId** 而非 requestId 寻址：`startSpawn` 请求 params 无 chatId（不被 disconnectGrace 跟踪），子 run 亦可经此统一重定向。断连窗口中的结构事件由 `chat.sync` 按单调 seq 补齐；逐 token delta 不落库，重连由 `chat.open/chat.attach.activeTurns` 恢复当前累计前缀后继续实时接收。
 
 #### 刷新（F5）重连：chat.attach
 
@@ -176,7 +176,7 @@ chat.attach(chatId):
     └─ { running:true, attached:true }
 ```
 
-前端 hydration 时序：先 `chat.attach`（开启重定向 + 返 `currentState`）→ 再 `chat.sync`（回放补齐当前实时态）；运行中 chat 的回放用 `resume` 模式重建 thinking/content/runningTools/approval，但不重放 startSpawn/resumeAgent/终态副作用（详见 web 侧 streamRouter 分档）。
+前端 hydration 时序：先 `chat.attach`（开启重定向 + 返回 `activeTurns/currentState`）→ 再 `chat.sync`（回放持久结构事实）；thinking/content 从 active-turn 累计快照恢复，runningTools/approval 由 currentState 补齐，不重放 startSpawn/resumeAgent/终态副作用。
 
 > **单一 hydration 水源（G3 改造A）**：冷启动 `chat.sync(0)` 一次返回完整连续事件流（无超窗时即全部事件；超窗时消息合成回填旧历史 + 留存近期，`backfilled:true`），前端**单数组累积**，不再 chat.get 快照 + chat.sync 事件双路合并。`currentState`（chat.attach/chat.sync response）权威给 pending approval 存活判定 / 运行中工具 / 当前 todo，补事件无法可靠判定的事实（park 无 rejected 事件）。事件重放分类见 [protocol.md 事件重放分类](../protocol.md)。
 

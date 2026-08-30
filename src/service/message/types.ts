@@ -76,6 +76,8 @@ export interface Chunk {
   rootEventSeq?: number
   /** Original per-chat cursor retained inside a root subscription envelope. */
   sourceEventSeq?: number
+  /** Live-only event. It is delivered without consuming a durable cursor. */
+  transient?: boolean
   data: ChunkData
 }
 
@@ -103,6 +105,8 @@ export interface Notification {
   rootEventSeq?: number
   /** Original per-chat cursor retained inside a root subscription envelope. */
   sourceEventSeq?: number
+  /** Live-only event. It is delivered without consuming a durable cursor. */
+  transient?: boolean
   data: NotificationData
 }
 

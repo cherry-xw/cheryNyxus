@@ -804,23 +804,28 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   function applyRootSubscriptionEvent(event: {
+    chatId?: unknown
+    runId?: unknown
     rootChatId?: unknown
     rootEventSeq?: unknown
     eventSeq?: unknown
     subscriptionId?: unknown
+    transient?: unknown
     type?: unknown
     data?: unknown
   }): boolean {
     if (typeof event.rootChatId === 'string' && evictedRoots.has(event.rootChatId)) return true
-    if (
-      typeof event.rootChatId !== 'string' ||
-      typeof (event.rootEventSeq ?? event.eventSeq) !== 'number' ||
-      typeof event.subscriptionId !== 'string'
-    )
-      return false
-    const rootEventSeq = (event.rootEventSeq ?? event.eventSeq) as number
+    if (typeof event.rootChatId !== 'string' || typeof event.subscriptionId !== 'string') return false
     const subscription = rootSubscriptions.value[event.rootChatId]
     if (!subscription || subscription.subscriptionId !== event.subscriptionId) return false
+    // turn.delta 只属于当前实时订阅，不写事件日志，也不推进持久 cursor。
+    // chat.open 的 activeTurns 提供断线期间累计前缀，后续 delta 继续按 offset 追加。
+    if (event.transient === true && event.type === 'turn.delta') {
+      queueRootDelta(event.rootChatId, event)
+      return true
+    }
+    if (typeof (event.rootEventSeq ?? event.eventSeq) !== 'number') return false
+    const rootEventSeq = (event.rootEventSeq ?? event.eventSeq) as number
     if (rootEventSeq <= subscription.eventSeq) {
       // 重复/乱序事件：快照已覆盖，常规直接丢弃。但终态事件若指向 transient
       // 仍残留的 run/turn（跨窗并发下 cursor 漂移，该终态曾被跳过未应用），

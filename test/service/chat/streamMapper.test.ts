@@ -5,6 +5,7 @@ import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
 import { createChat, deleteChat } from '@/db/chat.js'
 import { listExecutionNodes } from '@/db/executionGraph.js'
 import { streamAgentChunks } from '@/service/chat/streamMapper.js'
+import { getLiveTurns } from '@/service/chat/liveTurns.js'
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -279,6 +280,49 @@ describe('streamAgentChunks run lifecycle', () => {
       ['done', expect.objectContaining({ canResume: false })],
       ['run.updated', expect.objectContaining({ runId: 'run-shared', status: 'completed' })],
     ])
+  })
+
+  it('keeps the current accumulated text in memory only until the turn is sealed', async () => {
+    const chatId = 'chat-live-buffer'
+    cleanup.push(chatId)
+    createChat(chatId)
+    async function* live(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      yield {
+        type: 'stream',
+        thinkingDelta: 'thought',
+        contentDelta: 'answer',
+        msgId: 'live-turn',
+        createdAt: 321,
+      }
+      yield {
+        type: 'message_created',
+        message: { id: 'live-turn', role: 'assistant', content: 'answer', thinking: 'thought' },
+      }
+      yield { type: 'done' }
+    }
+
+    const stream = streamAgentChunks(live(), 'request-live', chatId, 'run-live')
+    let sawContentDelta = false
+    while (!sawContentDelta) {
+      const next = await stream.next()
+      expect(next.done).toBe(false)
+      const event = next.value as { type?: string; data?: { channel?: string } }
+      sawContentDelta = event.type === 'turn.delta' && event.data?.channel === 'content'
+    }
+    expect(getLiveTurns(chatId)).toEqual([
+      expect.objectContaining({
+        turnId: 'live-turn',
+        thinking: 'thought',
+        content: 'answer',
+        nextThinkingOffset: 7,
+        nextContentOffset: 6,
+      }),
+    ])
+
+    while (!(await stream.next()).done) {
+      // drain terminal events so message_created can seal and clear the live buffer
+    }
+    expect(getLiveTurns(chatId)).toEqual([])
   })
 
   it('maps retry_reset to staged.reverse and restarts turn offsets from zero', async () => {

@@ -321,13 +321,18 @@ export class ConnectionManager {
     sub.status = 'open'
     const buffered = sub.buffer.splice(0).filter((item) => {
       if (!item || typeof item !== 'object') return false
-      const event = item as { eventSeq?: unknown; seq?: unknown; rootEventSeq?: unknown }
+      const event = item as {
+        eventSeq?: unknown
+        seq?: unknown
+        rootEventSeq?: unknown
+        transient?: unknown
+      }
       const seq = sub.rootChatId
         ? event.rootEventSeq
         : typeof event.eventSeq === 'number'
           ? event.eventSeq
           : event.seq
-      return typeof seq === 'number' && seq > sub.boundarySeq
+      return event.transient === true || (typeof seq === 'number' && seq > sub.boundarySeq)
     })
     if (buffered.length > 0) this.readySessionBuffers.set(subscriptionId, buffered)
     return buffered
@@ -388,6 +393,7 @@ export class ConnectionManager {
       rootChatId?: string
       rootEventSeq?: number
       sourceEventSeq?: number
+      transient?: boolean
     }
     // lite profile 投影（canonical §3.6）：在「每条出站 item」最终出口处应用，
     // 不改变 buffering / 订阅匹配 / mutedRoots 原流程（opening 期事件仍先进 buffer，
@@ -426,7 +432,10 @@ export class ConnectionManager {
       // it. Buffer every sequenced event while opening; finishSessionOpen drops
       // events covered by the snapshot and releases only events above the fence.
       // lite 连接的 buffered item 保持原始形态（投影发生在 drain 后的再次出站时）。
-      if (sub.status === 'opening' && typeof subscriptionSeq === 'number') {
+      if (
+        sub.status === 'opening' &&
+        (typeof subscriptionSeq === 'number' || event.transient === true)
+      ) {
         sub.buffer.push(item)
         continue
       }

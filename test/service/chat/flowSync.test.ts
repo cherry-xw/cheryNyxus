@@ -8,7 +8,12 @@ import { randomUUID } from 'crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { addMessage, createChat, deleteChat, getChat } from '@/db/chat.js'
 import { getMonthlyDb } from '@/db/index.js'
-import { appendChatEvent, getChatEvents, getRootEvents } from '@/db/delivery.js'
+import {
+  appendChatEvent,
+  getChatEvents,
+  getRootEvents,
+  prepareChatEventForDelivery,
+} from '@/db/delivery.js'
 import {
   buildActiveTurns,
   buildRootTimeline,
@@ -25,6 +30,11 @@ import type { HandlerContext } from '@/service/message/router.js'
 import type { Chunk, Notification } from '@/service/message/types.js'
 import { registerBuiltinProviders } from '@/agent/provider/index.js'
 import { reloadSenses } from '@/agent/sense/index.js'
+import {
+  appendLiveTurnDelta,
+  completeLiveTurn,
+  startLiveTurn,
+} from '@/service/chat/liveTurns.js'
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -134,6 +144,97 @@ describe('root event journal', () => {
 })
 
 describe('active turn snapshot recovery', () => {
+  it('实时 delta 不落事件库，并通过进程内累计文本恢复当前 CRT', async () => {
+    registerBuiltinProviders()
+    await reloadSenses()
+    const rootChatId = randomUUID()
+    const chatId = randomUUID()
+    const runId = randomUUID()
+    cleanup.push(chatId, rootChatId)
+    createChat(rootChatId)
+    createChat(chatId, {}, rootChatId)
+    await ensureChat(chatId, { brain: 'mock_content', senseGroup: 'auto_senses', mcpServers: [] })
+    activateChatRun(chatId, runId)
+    try {
+      const started = {
+        kind: 'notification',
+        type: 'turn.started',
+        chatId,
+        runId,
+        data: { turnId: 'turn-live', messageId: 'message-live', runId, createdAt: 100 },
+      }
+      prepareChatEventForDelivery(chatId, started)
+      startLiveTurn({
+        chatId,
+        runId,
+        turnId: 'turn-live',
+        messageId: 'message-live',
+        createdAt: 100,
+      })
+
+      const stream = {
+        kind: 'chunk',
+        type: 'stream',
+        chatId,
+        runId,
+        data: { msgId: 'message-live', createdAt: 100, content: 'hello' },
+      }
+      const delta = {
+        kind: 'notification',
+        type: 'turn.delta',
+        chatId,
+        runId,
+        data: {
+          turnId: 'turn-live',
+          messageId: 'message-live',
+          channel: 'content',
+          offset: 0,
+          delta: 'hello',
+        },
+      }
+      prepareChatEventForDelivery(chatId, stream)
+      prepareChatEventForDelivery(chatId, delta)
+      appendLiveTurnDelta(chatId, 'turn-live', 'content', 0, 'hello')
+
+      expect(stream).toMatchObject({ transient: true, rootChatId })
+      expect(delta).toMatchObject({ transient: true, rootChatId })
+      expect('seq' in stream).toBe(false)
+      expect('seq' in delta).toBe(false)
+      expect(getChatEvents(chatId, 0).events.map((event) => event.type)).toEqual(['turn.started'])
+      expect(getRootEvents(rootChatId, 0).events.map((event) => event.type)).toEqual([
+        'turn.started',
+      ])
+      expect(buildActiveTurns(chatId)).toEqual([
+        expect.objectContaining({
+          turnId: 'turn-live',
+          messageId: 'message-live',
+          content: 'hello',
+          nextContentOffset: 5,
+        }),
+      ])
+
+      completeLiveTurn(chatId, 'turn-live')
+      const completed = {
+        kind: 'notification',
+        type: 'turn.completed',
+        chatId,
+        runId,
+        data: { turnId: 'turn-live', messageId: 'message-live' },
+      }
+      prepareChatEventForDelivery(chatId, completed)
+      expect((completed as { seq?: number }).seq).toBe(2)
+      expect(getChatEvents(chatId, 0).events.map((event) => event.type)).toEqual([
+        'turn.started',
+        'turn.completed',
+      ])
+      expect(buildActiveTurns(chatId)).toEqual([])
+    } finally {
+      completeLiveTurn(chatId, 'turn-live')
+      releaseChatRun(chatId, runId)
+      clearChatRuntime(chatId)
+    }
+  })
+
   it('以 V2 turn 生命周期恢复 CRT 状态且不重复累积 legacy stream', async () => {
     // mock_content brain 的 provider/sense 需先注册（同 treeControl.test.ts 模式）。
     registerBuiltinProviders()

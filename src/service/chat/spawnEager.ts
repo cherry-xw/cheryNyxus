@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws'
 import { handleChatStartSpawn } from './handler.js'
 import { connectionManager } from '../websocket/connection.js'
 import { transport } from '../websocket/transport.js'
-import { appendChatEvent } from '@/db/delivery.js'
+import { prepareChatEventForDelivery } from '@/db/delivery.js'
 import { logger } from '@/utils/logger/index.js'
 import type { Chunk, Notification } from '../message/types.js'
 
@@ -16,11 +16,11 @@ import type { Chunk, Notification } from '../message/types.js'
  *     handleChatStartSpawn claim + handleChatSend 绑子 chatId → chunk/notification 持久化 + 推 parent ws。
  *
  * 与 websocket/index.ts.handleRequest 的差异：本函数脱离 RPC 请求上下文（无 wrapStreamingHandler）。
- *   仍复用 persistChatEvent 加 seq + sendToWs 序列化发到 ws，保证 chat.sync 重连能回放。
+ *   仍复用统一事件投递边界：结构事件加 seq 持久化，delta 仅实时发到 ws。
  */
 
-/** 持久化 chat 事件 seq（chat_events 表，monotonic per chat），与 websocket/index.ts.persistChatEvent 同语义。 */
-function persistChatEvent<T extends { chatId?: string; seq?: number }>(
+/** 与 websocket/index.ts.prepareChatEvent 同语义：结构事实持久化，delta 仅附路由信息。 */
+function prepareChatEvent<T extends { chatId?: string; seq?: number }>(
   method: string,
   event: T,
 ): T {
@@ -28,7 +28,7 @@ function persistChatEvent<T extends { chatId?: string; seq?: number }>(
     (method === 'chat.send' || method === 'chat.resume' || method === 'chat.startSpawn') &&
     event.chatId
   ) {
-    event.seq = appendChatEvent(event.chatId, event as Record<string, unknown>)
+    prepareChatEventForDelivery(event.chatId, event as Record<string, unknown>)
   }
   return event
 }
@@ -120,7 +120,7 @@ export async function runChildTaskInBackground(
         })
         break
       }
-      const item = persistChatEvent('chat.startSpawn', iter.value as Chunk | Notification)
+      const item = prepareChatEvent('chat.startSpawn', iter.value as Chunk | Notification)
       sendToWss(resolveOutputWss(item, parentWs), item)
     }
   } catch (error) {

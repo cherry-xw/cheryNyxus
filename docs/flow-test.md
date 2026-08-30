@@ -34,7 +34,7 @@
 | 分支 | 语义 | 覆盖场景 |
 |------|------|----------|
 | C1 断连 → 后端宽限计时 | WS close → `disconnectGrace` 启动 grace（默认 15s），不立即 park | S8/S9 前置 |
-| C2 窗口内重连 → 取历史 + 实时流续跑 | grace 内 `chat.attach(running:true)` + `chat.sync` 回放 → 续跑 | S8/S9/S12 |
+| C2 窗口内重连 → 取历史 + 实时流续跑 | grace 内 `chat.attach(running:true, activeTurns)` 恢复累计前缀 + `chat.sync` 补结构事实 → 续跑 | S8/S9/S12 |
 | C3 超宽限 → 释放资源 → resume | grace 到期 `parkApproval` → paused → `canResume=true` | S10 |
 | C4 流式中断刷新续跑（打字机续） | 流式 close → 重连回放 stream chunk → 续 | S8 |
 | C5 审批中断刷新续跑（**原 approvalId 命中**） | 审批挂起 close → grace 内 approval 存活 → 用原 id confirm 命中 | S9 |
@@ -74,7 +74,7 @@
 | 维度 | 断言内容 |
 |------|----------|
 | **事件** | chunk/notification 类型 + 顺序 + 关键字段（`approvalId`/`msgId`/`seq`/`senseName`/`waitTime`/`createdAt`） |
-| **DB 状态** | messages（role/content/sense_calls/revoked/runtime）、chat metadata（finished/wake/resumePending）、chat_events（seq 单调、留存） |
+| **DB 状态** | messages（完整 role/content/sense_calls/revoked/runtime）、chat metadata（finished/wake/resumePending）、chat_events（仅结构/终态，seq 单调；不含 stream/turn.delta） |
 | **运行时态** | `isChatRunning`、`approvalManager.approvals`（含/不含 id）、`computeCanResume`、`waitedChildren` |
 | **交互功能** | 对应 RPC（send/resume/abort/attach/sync/approval/startSpawn）是否按预期触发/返回；attach 的 `running`/`attached`、sync 的 `reset`/`backfilled`、approval confirm 命中/失效 |
 
@@ -144,7 +144,7 @@
 
 #### S8 流式中断刷新续跑
 - **前置**：S2 流式中（`chunkDelayMs` 使 close 落在流式窗口内）
-- **步骤**：`ws.close()` → grace 启动 → `chat.attach(running:true)` + `chat.sync` 回放断连窗口事件 → 续跑 → `done`
+- **步骤**：`ws.close()` → grace 启动 → `chat.attach(running:true, activeTurns)` 恢复断连窗口累计文本 + `chat.sync` 补结构事件 → 续跑 → `done`
 - **检查**：流式 close **不 park**，generator 存活；`isChatRunning=true`；attach 重定向输出；sync 回放 stream chunk（打字机续）
 - **功能点**：FP-C1 / FP-C2 / FP-C4
 - **覆盖**：C1、C2、C4
@@ -216,7 +216,7 @@
 
 #### S16 子 agent 刷新重连
 - **前置**：子 running → `chat.attach(子)`
-- **步骤**：父 send → spawn_role(reviewer_stream) → role_created → 等首个 stream chunk 落到 client.background（eager 推 parent ws 经 ws.ts seq path drain；chunkDelayMs=2000 拉长窗口）→ client.close → client.reconnect → `chat.attach(child, running:true)` → `chat.sync` 补齐断连窗口 → 等子 done
+- **步骤**：父 send → spawn_role(reviewer_stream) → role_created → 等首个瞬态 stream chunk 落到 client.background（chunkDelayMs=2000 拉长窗口）→ client.close → client.reconnect → `chat.attach(child, running:true, activeTurns)` 恢复累计前缀 → `chat.sync` 补结构事实 → 等子 done
 - **关键差异**：eager 启动 → 子 chunks 通过 background（按 chatId=childChatId 过滤）到达，非经 chat.startSpawn RPC 流。spawnHandle.events 改读 background（eager requestId='eager-{taskId}' 不在 harness pending）
 - **检查**：`running:true`、`attached:true`、跨断连续跑至 done（chat.run.done notification 携带 finished:true）
 - **功能点**：FP-F4

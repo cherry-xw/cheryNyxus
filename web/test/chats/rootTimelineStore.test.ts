@@ -284,6 +284,59 @@ describe('Nyxus root message controller', () => {
     }
   })
 
+  it('applies transient root deltas without advancing the durable root cursor', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
+    vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
+    const store = useChatSessionsStore()
+    await store.observeRootTimeline('root-live', 'conversation')
+    store.bindWsClient()
+
+    try {
+      const dispatch = wsClient as unknown as {
+        dispatchEvent(message: unknown, kind: unknown): void
+      }
+      dispatch.dispatchEvent(
+        {
+          kind: 'notification',
+          type: 'turn.started',
+          chatId: 'root-live',
+          rootChatId: 'root-live',
+          rootEventSeq: 10,
+          subscriptionId: 'subscription-live',
+          data: { turnId: 'turn-live', messageId: 'message-live' },
+        },
+        'notification',
+      )
+      dispatch.dispatchEvent(
+        {
+          kind: 'notification',
+          type: 'turn.delta',
+          chatId: 'root-live',
+          rootChatId: 'root-live',
+          transient: true,
+          subscriptionId: 'subscription-live',
+          data: {
+            turnId: 'turn-live',
+            messageId: 'message-live',
+            channel: 'content',
+            offset: 0,
+            delta: 'live only',
+          },
+        },
+        'notification',
+      )
+
+      expect(store.rootSubscriptions['root-live']?.eventSeq).toBe(10)
+      await vi.advanceTimersByTimeAsync(64)
+      expect(store.rootTimelineStates['root-live']?.activeTurns[0]?.content).toBe('live only')
+      expect(store.rootSubscriptions['root-live']?.eventSeq).toBe(10)
+    } finally {
+      store.unbindWsClient()
+      vi.useRealTimers()
+    }
+  })
+
   it('flushes queued root deltas before applying the next structural event', async () => {
     vi.useFakeTimers()
     vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
