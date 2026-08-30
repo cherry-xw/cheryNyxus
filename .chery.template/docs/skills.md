@@ -56,6 +56,10 @@ skill(name: string) → string    // 加载技能正文，注入当前对话上�
 
 [../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)：识别用户「安装技能」意图后，调用 `spawn_role` 派出 `cheryNyxus` 角色执行安装。演示技能如何协调其他感官与角色。
 
+## 模板示例（preset-lifecycle）
+
+[../skills/preset-lifecycle/SKILL.md](../skills/preset-lifecycle/SKILL.md)：Cherry Nexus 创建、重建或删除完整预设时按需激活，集中约束稳定 ID、共享引用、增量 patch、可恢复资产归档和历史会话退役规则。
+
 ## 模板示例（role-design）
 
 [../skills/role-design/SKILL.md](../skills/role-design/SKILL.md)：为任意岗位建立开放文本角色蓝图。技能只定义研究与安全方法，不维护岗位字典，也不直接把能力诉求绑定到工具；最终映射由 Cherry Nexus 基于运行时真实工具完成。
@@ -94,4 +98,4 @@ skill(name: string) → string    // 加载技能正文，注入当前对话上�
 
 - 技能加载：[src/agent/prompt/loadSkill](../../src/agent/prompt/loadSkill.ts)
 - 安装技能：由 `cheryNyxus` 角色的 `install_skill` 感官负责（详见 [./prompt.md](./prompt.md#cherrynexus-提示词)）
-- 模板示例：[../skills/haveFun/SKILL.md](../skills/haveFun/SKILL.md)、[../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)、[../skills/role-design/SKILL.md](../skills/role-design/SKILL.md)、[../skills/role-acceptance/SKILL.md](../skills/role-acceptance/SKILL.md)
+- 模板示例：[../skills/haveFun/SKILL.md](../skills/haveFun/SKILL.md)、[../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)、[../skills/preset-lifecycle/SKILL.md](../skills/preset-lifecycle/SKILL.md)、[../skills/role-design/SKILL.md](../skills/role-design/SKILL.md)、[../skills/role-acceptance/SKILL.md](../skills/role-acceptance/SKILL.md)

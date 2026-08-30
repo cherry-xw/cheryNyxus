@@ -51,6 +51,7 @@ cherryNyxus 角色：
 | 研究任意岗位并创建角色 | [./role-design.md](./role-design.md) + [./config.md#rolesrole-字段](./config.md#rolesrole-字段) | [../../docs/agent/role-design.md](../../docs/agent/role-design.md) |
 | 对已激活角色做端到端验收 | [./role-acceptance.md](./role-acceptance.md) | [../../docs/agent/role-acceptance.md](../../docs/agent/role-acceptance.md) |
 | 改预设 | [./config.md#presetsname-字段](./config.md#presetsname-字段) | — |
+| 创建、重建或删除完整预设 | [../skills/preset-lifecycle/SKILL.md](../skills/preset-lifecycle/SKILL.md) | [../../docs/agent/config-manage.md](../../docs/agent/config-manage.md) |
 | 改服务端口 | [./config.md#server-字段](./config.md#server-字段) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 改文件夹浏览白名单 / 文件可见性 | [./config.md#workspace_browse-字段文件夹浏览协议](./config.md#workspace_browse-字段文件夹浏览协议) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 加 model 档位映射 | [./model-thinking.md](./model-thinking.md) | — |
