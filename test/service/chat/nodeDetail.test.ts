@@ -6,6 +6,7 @@ import type {
 } from '@/service/message/types.js'
 import { Method } from '@/service/message/types.js'
 import { requestSchemas } from '@/service/message/schemas.js'
+import { responseSchemas } from '@/service/message/responseSchemas.js'
 
 let storedNode: TimelineNode
 
@@ -58,6 +59,42 @@ describe('chat.timeline.node.get 分页协议', () => {
     expect(rebuilt).toBe(full)
   })
 
+  it.each([
+    undefined,
+    ['content'],
+    ['thinking'],
+    ['toolCalls'],
+    ['content', 'thinking'],
+    ['content', 'toolCalls'],
+    ['thinking', 'toolCalls'],
+    ['content', 'thinking', 'toolCalls'],
+  ] as const)('returns a schema-valid node for sections %j', async (sections) => {
+    storedNode = baseNode({
+      content: 'full content',
+      thinking: 'full thinking',
+      toolCalls: [{
+        callId: 'call-1', index: 0, name: 'read_file', status: 'completed',
+        arguments: '{"path":"fixture.txt"}', result: 'fixture content',
+      }],
+    })
+    const response = await handleChatTimelineNodeGet({} as never, {
+      rootChatId: 'root',
+      nodeId: 'node-1',
+      ...(sections ? { sections: [...sections] } : {}),
+    })
+
+    expect(responseSchemas[Method.CHAT_TIMELINE_NODE_GET].safeParse(response).success).toBe(true)
+    expect(response.node.content).toBe(
+      sections !== undefined && !sections.includes('content') ? '' : 'full content',
+    )
+    expect(response.node.thinking).toBe(
+      sections === undefined || sections.includes('thinking') ? 'full thinking' : undefined,
+    )
+    expect(response.node.toolCalls).toEqual(
+      sections === undefined || sections.includes('toolCalls') ? storedNode.toolCalls : undefined,
+    )
+  })
+
   it('toolCursor 逐调用、逐 arguments/result 字段前进且不跳调用', async () => {
     const calls: GraphToolCall[] = Array.from({ length: 12 }, (_, index) => ({
       callId: `call-${index}`,
@@ -82,6 +119,8 @@ describe('chat.timeline.node.get 分页协议', () => {
         limit: 9,
         toolCursor: cursor,
       })
+      expect(responseSchemas[Method.CHAT_TIMELINE_NODE_GET].safeParse(response).success).toBe(true)
+      expect(response.node.content).toBe('')
       expect(response.node.toolCalls).toHaveLength(1)
       const page = response.page!
       expect(page.section).toBe('toolCalls')

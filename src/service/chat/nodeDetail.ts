@@ -118,8 +118,11 @@ export async function handleChatTimelineNodeGet(
 
   // 构建响应节点：未请求的 section 字段省略（重建对象，避免 delete 非可选字段）。
   const { content: _fullContent, thinking: _fullThinking, toolCalls: fullToolCalls, ...rest } = full
-  const result = { ...rest } as TimelineNode & {
-    content?: string
+  // `content` is required by TimelineNode's public response schema.  An
+  // omitted content section is represented by an empty payload, not an absent
+  // field, so callers can request tool details without producing an invalid
+  // successful response at the router boundary.
+  const result = { ...rest, content: '' } as TimelineNode & {
     thinking?: string
     toolCalls?: typeof fullToolCalls
   }
