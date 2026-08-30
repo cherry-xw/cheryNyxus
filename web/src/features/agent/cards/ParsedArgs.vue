@@ -5,10 +5,13 @@
  * description 字段作折叠标题；其余字段作 key:value 行。解析失败 → fallback JSON pretty-print。
  */
 import { computed, ref } from 'vue'
-import { formatArgValue, parseArgs } from '@/utils/parseArgs'
+import { parseArgs } from '@/utils/parseArgs'
+import { toArgumentKeyLabel } from '@/utils/approvalPresentation'
+import ArgumentValue from './ArgumentValue.vue'
 
 const props = defineProps<{
   args: unknown
+  title?: string
 }>()
 
 const expanded = ref(true)
@@ -16,7 +19,9 @@ const expanded = ref(true)
 const argsParsed = computed(() => parseArgs(props.args))
 const argsFallback = computed(() => argsParsed.value.fallback)
 const argsEntries = computed(() => argsParsed.value.parsed?.entries ?? [])
-const argsToggleLabel = computed(() => argsParsed.value.parsed?.description ?? 'arguments')
+const argsToggleLabel = computed(
+  () => props.title ?? argsParsed.value.parsed?.description ?? '操作参数',
+)
 const hasArgs = computed(() => {
   const { parsed, fallback } = argsParsed.value
   if (parsed) return parsed.description != null || parsed.entries.length > 0
@@ -37,8 +42,8 @@ const hasArgs = computed(() => {
     <div v-if="expanded" class="args-body">
       <div v-if="argsEntries.length" class="arg-rows">
         <div v-for="entry in argsEntries" :key="entry.key" class="arg-row">
-          <span class="arg-key">{{ entry.key }}:</span>
-          <span class="arg-val">{{ formatArgValue(entry.value) }}</span>
+          <span class="arg-key">{{ toArgumentKeyLabel(entry.key) }}</span>
+          <span class="arg-val"><ArgumentValue :value="entry.value" :field-key="entry.key" /></span>
         </div>
       </div>
       <pre v-else-if="argsFallback" class="args-pre">{{ argsFallback }}</pre>

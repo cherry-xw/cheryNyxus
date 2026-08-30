@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useAgentsStore, useInteractionsStore } from '@/application/public'
 import type { InteractionRecord } from '@/application/backend/public'
-import { toSenseNameZh } from '@/utils/senseName'
+import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
+import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
+import { createApprovalPresentation } from '@/utils/approvalPresentation'
 
 const props = withDefaults(defineProps<{ presetId?: string; native?: boolean }>(), {
   native: false,
@@ -146,7 +148,7 @@ function onOtherInput(item: InteractionRecord, questionId: string, event: Event)
 }
 function titleOf(item: InteractionRecord): string {
   if (item.kind === 'approval')
-    return `确认 ${toSenseNameZh(String(payload(item).senseName ?? ''))}`
+    return createApprovalPresentation(payload(item).senseName, payload(item).arguments).title
   const questions = questionsOf(item)
   return questions[0]?.header || questions[0]?.question || '回答 Agent 提问'
 }
@@ -323,7 +325,13 @@ onBeforeUnmount(() => {
             </small>
           </header>
 
-          <pre v-if="item.kind === 'approval'" class="arguments">{{ payload(item).arguments }}</pre>
+          <template v-if="item.kind === 'approval'">
+            <ApprovalSummary
+              :sense-name="payload(item).senseName"
+              :args="payload(item).arguments"
+            />
+            <ParsedArgs :args="payload(item).arguments" title="完整操作参数" />
+          </template>
           <div v-else class="questions">
             <fieldset
               v-for="question in questionsOf(item)"

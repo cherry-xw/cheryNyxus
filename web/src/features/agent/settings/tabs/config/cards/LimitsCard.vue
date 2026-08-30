@@ -8,7 +8,7 @@ const props = defineProps<{ global: GlobalConfigDto; no: number }>()
 
 /**
  * 审批等待时长（global.approval_timeout）：后端存 ms，前端 UI 按秒录入。
- * - 读取：ms ÷ 1000 → 秒（undefined 时保持 undefined，placeholder 显示「0 = 不超时」）
+ * - 读取：ms ÷ 1000 → 秒（undefined 时保持 undefined，placeholder 显示默认 300 秒）
  * - 写入：秒 × 1000 → ms；清空时回退到 undefined（不强制写 0，保留 yaml 原状）
  */
 const approvalTimeoutSeconds = computed<number | undefined>({
@@ -64,8 +64,8 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
     <NeonNumberControl
       v-model="approvalTimeoutSeconds"
       label="审批等待"
-      tip="0 = 不设置截止时间；到期拒绝该工具，Agent 继续执行；用户提问不受影响"
-      placeholder="不限时"
+      tip="默认 300 秒；0 = 不设置截止时间；到期拒绝该工具，Agent 继续执行；用户提问不受影响"
+      placeholder="300"
       unit="秒"
       :step="10"
       :min="0"

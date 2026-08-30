@@ -13,7 +13,7 @@ global:
   supervision: manual # Sense 监管等级：auto | smart | manual
   stream: true # 是否流式返回（true/false）
   sense_execute_timeout: 10000 # [可选] 单次 Sense 执行超时(ms)，默认 10000
-  approval_timeout: 30000 # [可选] 审批业务截止时间(ms)，默认 30000；到期拒绝本次工具并继续 Agent；0=无业务截止时间
+  approval_timeout: 300000 # [可选] 审批业务截止时间(ms)，默认 300000(5min)；到期拒绝本次工具并继续 Agent；0=无业务截止时间
   approval_hard_timeout: 1800000 # [可选] 内存运行资源上限(ms)，默认 1800000(30min)；到点只暂停运行，持久审批仍可恢复
   disconnect_grace_ms: 15000 # [可选] WS 断连后等待重连(ms)，默认 15000；到期后当前输出结束即暂停
   watchdog: # [可选] 子 agent 看门狗（feed-dog 运行时监控，子无产出超时判定卡死）

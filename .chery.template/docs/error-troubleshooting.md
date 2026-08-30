@@ -166,7 +166,7 @@ grep -r "compose.unhandled\|llm.key.missing\|req.invalid_params" .chery/logs/ | 
 
 ### 调高超时
 
-> 「去 **设置 → 全局** 页，把 `sense_execute_timeout`（默认 10000ms）和 `approval_timeout`（默认 30000ms）调大。改完保存重启。」
+> 「去 **设置 → 全局** 页，把 `sense_execute_timeout`（默认 10000ms）和 `approval_timeout`（默认 300000ms / 5 分钟）调大。改完保存重启。」
 
 ### 让用户提供日志
 

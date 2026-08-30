@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { useLiteViewController, type LiteViewControllerProps } from './useLiteViewController'
+import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
+import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
 const props = defineProps<LiteViewControllerProps>()
 const controller = useLiteViewController(props)
 const {
   DetailDrawer, LiteMarkdown, LiteScrollbar, aborting, activeInteraction, activeLane,
-  activePendingTabId, answering, approvalDetailNodeId, approvalRiskSummary, autoGrowInput,
-  closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex,
+  activePendingTabId, answering, approvalArguments, approvalDetailNodeId, approvalPresentation,
+  approvalRiskSummary, autoGrowInput, closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex,
   entryDispatch, entryExpanded, entryHasMore, entryPreview, errorBanner, focusNodeFromTrajectory,
   focusNodeId, formatElapsed, hideBarTip, history, hoverNode, hydrationLabel, inputText,
   interactionActionable, interactionStatusLabel, isDetailNode, isInFlightNode, isPlainRowContent,
@@ -320,7 +322,12 @@ const {
               </span>
             </span>
           </div>
+          <ApprovalSummary
+            :sense-name="approvalPresentation(activeInteraction).senseName"
+            :args="approvalArguments(activeInteraction)"
+          />
           <p class="lite-risk-summary">{{ approvalRiskSummary(activeInteraction) }}</p>
+          <ParsedArgs :args="approvalArguments(activeInteraction)" title="完整操作参数" />
           <p
             v-if="lite.interactionError(activeInteraction.interactionId)"
             class="lite-object-error"

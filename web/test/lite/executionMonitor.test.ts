@@ -482,7 +482,9 @@ describe('Lite detail lazy pagination', () => {
     ])
 
     expect(view).not.toContain('approvalEntries')
-    expect(view).not.toContain('payload.arguments')
+    // 审批参数只能通过待处理详情的结构化组件展示，不得回退为原始 pre 或渗入运行摘要。
+    expect(view).toContain('ParsedArgs')
+    expect(view).toContain('approvalArguments')
     expect(view).not.toContain('payload.result')
     expect(view).not.toContain('lite-actions')
     // 上半部运行历史列表（需求 1c）+ 顶部时间瀑布流（需求：放在节点区顶部）+ 底部 tab 栏（需求 1a/1b）

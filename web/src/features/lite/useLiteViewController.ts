@@ -21,6 +21,7 @@ import LiteScrollbar from './LiteScrollbar.vue'
 import DetailDrawer from './DetailDrawer.vue'
 import LiteMarkdown from './LiteMarkdown.vue'
 import { useLiteNodeTones } from './useLiteNodeTones'
+import { createApprovalPresentation } from '@/utils/approvalPresentation'
 
 export type LiteViewControllerProps = { windowId: string; rootChatId: string; presetName?: string }
 
@@ -254,6 +255,12 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       (interaction.kind === 'approval' && interaction.status === 'blocked')
     )
   }
+  function approvalPresentation(interaction: LiteInteraction) {
+    return createApprovalPresentation(interaction.payload.senseName, interaction.payload.arguments)
+  }
+  function approvalArguments(interaction: LiteInteraction): unknown {
+    return interaction.payload.arguments
+  }
   function approvalRiskSummary(interaction: LiteInteraction): string {
     const security = interaction.payload.security
     if (security && typeof security === 'object') {
@@ -263,10 +270,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
         if (typeof message === 'string' && message.trim()) return message.slice(0, 120)
       }
     }
-    const description = interaction.payload.senseDescription
-    return typeof description === 'string' && description.trim()
-      ? description.slice(0, 120)
-      : '此工具需要确认后执行。'
+    return '未发现额外安全提示；仍请核对能力、行为和完整操作参数。'
   }
   // ── 顶部待操作 tab 栏（需求 1a/1b/4e）：只渲染存在的类型，每个审批/提问交互独立一个小 Tab，
   // 按时间排序；激活的交互在 Tab 栏下方的内容面板展示。
@@ -288,15 +292,15 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   const pendingTabs = computed<PendingTabView[]>(() =>
     sortedInteractions.value.map((interaction) => {
       if (interaction.kind === 'approval') {
-        const senseName =
-          typeof interaction.payload.senseName === 'string' && interaction.payload.senseName.trim()
-            ? interaction.payload.senseName
-            : '审批'
+        const presentation = approvalPresentation(interaction)
         return {
           id: interaction.interactionId,
           kind: 'approval' as const,
-          label: senseName.length > 12 ? senseName.slice(0, 12) + '…' : senseName,
-          icon: toolTypeGlyph(classifyToolType(senseName)),
+          label:
+            presentation.title.length > 16
+              ? presentation.title.slice(0, 16) + '…'
+              : presentation.title,
+          icon: toolTypeGlyph(classifyToolType(presentation.senseName)),
           countdown: remainingLabel(interaction),
           expired: remainingLabel(interaction) === '已超时',
         }
@@ -747,7 +751,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     // 需求 5：用户消息并入主 Agent 链路（用户消息发给主 Agent）；其余按归属 Agent（sourceChatId）分链路。
     const laneIdOf = (node: LiteRunNode): string =>
       node.kind === 'user' ? rootChatId : node.sourceChatId
-  
+
     // 需求 3/6：全局共享压缩时间轴——所有节点按 startedAt 绝对定位，而非每条链路从头画起。
     // 逐个全局事件累加压缩间隔，得到每个节点在时间轴上的 X 坐标（大段等待被封顶剔除）。
     const sorted = [...nodes].sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))
@@ -759,7 +763,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       xByKey.set(node.key, cursor)
       prevStartedAt = node.startedAt
     }
-  
+
     const byLane = new Map<string, LiteRunNode[]>()
     for (const node of nodes) {
       const laneId = laneIdOf(node)
@@ -767,7 +771,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       if (list) list.push(node)
       else byLane.set(laneId, [node])
     }
-  
+
     // 按给定上限档位排布各链路块，并返回整条时间轴的右边界（决定是否溢出）。
     const buildTracks = (
       maxPx: number,
@@ -816,7 +820,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       tracks.sort((a, b) => a.firstStartedAt - b.firstStartedAt || a.chatId.localeCompare(b.chatId))
       return { tracks, contentWidth, compactWidth }
     }
-  
+
     // 需求（本次）：空间足够 → 1s=1px（封顶 180px）；一行放不下 → 整体挤压到 [10, 30]。
     // 先用正常档排布，若紧凑口径内容宽度超出视口（width），改用压缩档重排。
     let { tracks, contentWidth, compactWidth } = buildTracks(MAX_BAR_PX)
@@ -862,8 +866,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
 
   return {
     DetailDrawer, LiteMarkdown, LiteScrollbar, aborting, activeInteraction, activeLane,
-    activePendingTabId, answering, approvalDetailNodeId, approvalRiskSummary, autoGrowInput,
-    closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex,
+    activePendingTabId, answering, approvalArguments, approvalDetailNodeId, approvalPresentation,
+    approvalRiskSummary, autoGrowInput, closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex,
     entryDispatch, entryExpanded, entryHasMore, entryPreview, errorBanner, focusNodeFromTrajectory,
     focusNodeId, formatElapsed, hideBarTip, history, hoverNode, hydrationLabel, inputText,
     interactionActionable, interactionStatusLabel, isDetailNode, isInFlightNode, isPlainRowContent,
@@ -872,8 +876,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     onMonitorScroll,
     onResume, onSend, onStop, onTrajectoryKeydown, onTrajectoryWheel, openApprovalDetail,
     openNodeDetail, operationBlockReason, pendingTab, pendingTabs, questionsOf, remainingLabel,
-    resetTrajectoryZoom, resuming, rootUi, rowKey, runStatusLabel, selectedOf, sending,
-    setOptionNote, setRowEl, setTextDraft, showBarTip, showsRowContent, textDraftOf, tipPos,
-    toggleOption, toolTypeGlyph, trajectoryBarStyle, trajectoryLayout, trajectoryZoom, visibleRows,
+    resetTrajectoryZoom, resuming, rootUi, rowKey, runStatusLabel, selectedOf, sending, setOptionNote,
+    setRowEl, setTextDraft, showBarTip, showsRowContent, textDraftOf, tipPos, toggleOption,
+    toolTypeGlyph, trajectoryBarStyle, trajectoryLayout, trajectoryZoom, visibleRows,
   }
 }

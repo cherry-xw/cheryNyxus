@@ -16,7 +16,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useChatSessionsStore, useInteractionsStore } from '@/application/public'
 import type { ApprovalState } from '@/domain/chat/projectionTypes'
 import ParsedArgs from './ParsedArgs.vue'
-import { toSenseNameZh } from '@/utils/senseName'
+import ApprovalSummary from './ApprovalSummary.vue'
+import { createApprovalPresentation } from '@/utils/approvalPresentation'
 
 const props = defineProps<{
   approval: ApprovalState
@@ -27,6 +28,9 @@ const props = defineProps<{
 const chatSessions = useChatSessionsStore()
 const interactions = useInteractionsStore()
 const objectError = computed(() => interactions.errorsById[props.approval.approvalId])
+const presentation = computed(() =>
+  createApprovalPresentation(props.approval.senseName, props.approval.args),
+)
 
 // 待执行动作（请求中两按钮都禁用防双击；null = idle）
 const pending = ref<'accept' | 'reject' | null>(null)
@@ -94,13 +98,11 @@ function closeToQueue(): void {
   <div
     class="approval-card"
     role="group"
-    :aria-label="`Approval request for ${approval.senseName}`"
+    :aria-label="presentation.title"
   >
     <div class="header">
       <span class="indicator" aria-hidden="true" />
-      <span class="sense-name" :title="approval.senseName">{{
-        toSenseNameZh(approval.senseName)
-      }}</span>
+      <span class="sense-name" :title="approval.senseName">待审批</span>
       <span v-if="showCountdown" class="countdown" :class="{ expired }">{{ remainingSec }}s</span>
       <button
         type="button"
@@ -113,6 +115,7 @@ function closeToQueue(): void {
         ✕
       </button>
     </div>
+    <ApprovalSummary :sense-name="approval.senseName" :args="approval.args" />
     <div v-if="security" class="security-summary">
       <div class="security-meta">
         <span>角色：{{ security.roleType }}</span>
@@ -126,7 +129,7 @@ function closeToQueue(): void {
         </li>
       </ul>
     </div>
-    <ParsedArgs :args="approval.args" />
+    <ParsedArgs :args="approval.args" title="完整操作参数" />
     <p v-if="objectError || submitError" class="submit-error" role="alert">
       {{ objectError?.message || submitError }}
     </p>

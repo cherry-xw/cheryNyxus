@@ -773,6 +773,10 @@ function loadConfig(): Config {
   config.global.disconnect_grace_ms =
     config.global.disconnect_grace_ms !== undefined ? config.global.disconnect_grace_ms : 15000
 
+  // 审批业务截止时间默认值：300000ms（5min）。0 仍显式表示不设业务截止时间。
+  config.global.approval_timeout =
+    config.global.approval_timeout !== undefined ? config.global.approval_timeout : 300000
+
   // 审批 runtime 资源上限默认值：1800000ms（30min；approval_timeout=0 时生效，与 .chery.template 同步）
   config.global.approval_hard_timeout =
     config.global.approval_hard_timeout !== undefined

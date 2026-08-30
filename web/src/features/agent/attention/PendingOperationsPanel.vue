@@ -16,8 +16,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useInteractionsStore } from '@/application/public'
 import type { InteractionRecord } from '@/application/backend/public'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
-import { toSenseNameZh } from '@/utils/senseName'
-import { parseArgs } from '@/utils/parseArgs'
+import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
+import { createApprovalPresentation } from '@/utils/approvalPresentation'
 
 const props = defineProps<{
   /** 当前工作台窗口的根会话 id（「当前树」范围判定；缺省则默认全部）。 */
@@ -168,42 +168,14 @@ function toggleExpanded(): void {
   expanded.value = !expanded.value
 }
 
-/**
- * config_manage 各 action 的用户可见短描述（核心任务 + 当前操作一句，前端维护）。
- * 仅展示实际发起的 action，避免全量能力说明堆叠——「用到哪里看到哪里」。
- */
-const CONFIG_MANAGE_ACTION_DESC: Record<string, string> = {
-  get: '读取 .chery/config.yaml 完整脱敏配置并返回回滚点列表',
-  patch: '基于已确认的版本提交强类型增量候选；完整校验通过后保存，并在任务空闲时重启',
-  save: '旧版全量保存动作，后端将拒绝并提示改用强类型增量 patch',
-  rollback: '从 .chery/backups/ 恢复指定（或缺省最近）备份',
-}
-
-/** 从审批 arguments（JSON 字符串或对象，复用 parseArgs 契约）安全提取 action 字段。 */
-function argsActionOf(item: InteractionRecord): string | undefined {
-  const { parsed } = parseArgs(payload(item).arguments)
-  const action = parsed?.entries.find((entry) => entry.key === 'action')?.value
-  return typeof action === 'string' && action.trim() ? action : undefined
-}
-
-/**
- * config_manage 审批说明：按实际发起的 action 裁剪为「核心任务 + 当前操作」一句。
- * action 缺失/未知时返回 undefined（不展示说明，宁缺毋滥）。
- */
-function configManageDescriptionOf(item: InteractionRecord): string | undefined {
-  const action = argsActionOf(item)
-  const actionDesc = action ? CONFIG_MANAGE_ACTION_DESC[action] : undefined
-  if (!actionDesc) return undefined
-  return `核心任务：管理 .chery/config.yaml 配置。\n当前操作（${action}）：${actionDesc}`
-}
-
-/** 工具能力解释（后端注入 sense 定义 description；config_manage 按 action 裁剪）。缺失时不展示。 */
+/** 工具能力解释（后端注入 sense 定义 description）。缺失时不展示。 */
 function senseDescriptionOf(item: InteractionRecord): string | undefined {
-  if (String(payload(item).senseName ?? '') === 'config_manage') {
-    return configManageDescriptionOf(item)
-  }
   const desc = payload(item).senseDescription
   return typeof desc === 'string' && desc.trim() ? desc.trim() : undefined
+}
+
+function approvalPresentationOf(item: InteractionRecord) {
+  return createApprovalPresentation(payload(item).senseName, payload(item).arguments)
 }
 
 function payload(item: InteractionRecord): Record<string, unknown> {
@@ -256,7 +228,7 @@ function onOtherInput(item: InteractionRecord, questionId: string, event: Event)
 }
 function titleOf(item: InteractionRecord): string {
   if (item.kind === 'approval') {
-    return `确认 ${toSenseNameZh(String(payload(item).senseName ?? ''))}`
+    return approvalPresentationOf(item).title
   }
   const questions = questionsOf(item)
   return questions[0]?.header || questions[0]?.question || '回答 Agent 提问'
@@ -443,6 +415,12 @@ onBeforeUnmount(() => {
                 <span class="detail-status">{{ statusOf(activeItem) }}</span>
               </div>
 
+              <ApprovalSummary
+                v-if="activeItem.kind === 'approval'"
+                :sense-name="payload(activeItem).senseName"
+                :args="payload(activeItem).arguments"
+              />
+
               <!-- 工具能力解释（后端注入 sense 定义 description；config_manage 等）。默认折叠，点击标题展开。 -->
               <div v-if="senseDescriptionOf(activeItem)" class="detail-block">
                 <button
@@ -464,6 +442,7 @@ onBeforeUnmount(() => {
               <ParsedArgs
                 v-if="activeItem.kind === 'approval'"
                 :args="payload(activeItem).arguments"
+                title="完整操作参数"
               />
               <div v-else class="questions">
                 <fieldset

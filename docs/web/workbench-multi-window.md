@@ -132,8 +132,10 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 ### 工具能力解释
 
 - 后端审批注册时从 senseRegistry 注入 sense 定义 `description` → `ApprovalPayload.senseDescription` → interaction payload（[manager.ts](../../src/service/approval/manager.ts) / [observer.ts](../../src/service/chat/observer.ts)）。
-- 前端卡片展开时在参数区上方以**小字 + 主题色左条**展示（`.sense-desc`）；config_manage 等用户不了解能力的工具据此说明 get/patch/rollback 能力。缺失描述不展示。
-- **config_manage 按实际发起 action 裁剪（2026-08-23）**：解析 `arguments.action`（复用 [parseArgs](../../web/src/utils/parseArgs.ts)），仅展示「核心任务：管理 .chery/config.yaml 配置」+ 当前 action 对应一句（get/patch/rollback 以及旧 save 拒绝说明映射 `CONFIG_MANAGE_ACTION_DESC`，见 [PendingOperationsPanel.vue](../../web/src/features/agent/attention/PendingOperationsPanel.vue)）。action 缺失/未知时不展示。
+- 审批卡不直接暴露「工具名 + 原始 action」。共享 [approvalPresentation.ts](../../web/src/utils/approvalPresentation.ts) 把 `senseName + arguments` 投影为「大模型需要做什么」、能力、行为、对象和「由你审批后执行」标记；未知自定义工具保留原名安全回退。
+- `config_manage` 按实际 `action` 显示「获取/修改/恢复配置参数」或「获取/保存/归档角色资产」；技术值（如 `get`）仅在完整参数中作为追溯信息保留。
+- [ParsedArgs.vue](../../web/src/features/agent/cards/ParsedArgs.vue) 与递归 `ArgumentValue.vue` 解析 JSON 字符串、嵌套对象和数组，统一中文字段名；非法 JSON 仍以原文回退，不会丢失审批证据。
+- 后端注入的 sense `description` 保留为默认折叠的深入能力说明，不再承担审批主标题。
 
 ### 节点展开与动画
 
@@ -150,8 +152,8 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 - **字重**：待确认面板与节点树弹窗全部 **400**（原 600/700/800 加粗去除，避免小字号糊字）。
 - **工具解释排版**：`.sense-desc` 不设 `max-height` 滚动（避免内容被挤压小空间），随面板列表自然滚动；字号 13px、行高 1.65、正文色。
 - **倒计时**：approval 卡头状态旁显示 `剩余 Ns`（后端 `deadlineAt` = createdAt + approval_timeout），归零变红显示「已超时」，`now` 250ms 定时器驱动。
-- **中文名**：sense 英文名 → 中文统一走共享 [senseName.ts](../../web/src/utils/senseName.ts)（`toSenseNameZh`：config_manage→配置管理、execute_command→执行命令、read_file→读取文件、spawn_role→委派角色等，未知工具回退原名），待确认标题与 pet 审批气泡共用。
-- **同步入口**：同一可读性规范同步到平行待确认入口 [WorkspaceSessionBrowser.vue](../../web/src/features/agent/attention/WorkspaceSessionBrowser.vue)（设置窗会话浏览器：13px/14px 字号、字重 400、中文名、倒计时）与 [ApprovalCard.vue](../../web/src/features/agent/cards/ApprovalCard.vue)（pet 气泡审批：13px 字号、字重 400、中文名）。
+- **语义标题**：待确认标题统一使用 `createApprovalPresentation`，不再只是 sense 英文名的中文替换。
+- **同步入口**：节点树工作台、Pet 气泡、设置窗待办与轻量工作台共用 `ApprovalSummary + ParsedArgs`，同一审批在不同入口的标题、参数和审批责任标记一致。
 
 ### 左右分栏重构（2026-08-23）
 

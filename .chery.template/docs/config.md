@@ -29,7 +29,7 @@
 | `supervision` | enum | ✅ | — | Sense 监管等级：`auto`（0，静默）/ `smart`(1，审批）/ `manual`（2，手动）；可被感官配置或感官内置声明覆盖 |
 | `stream` | bool | ✅ | — | 是否流式返回（false 则整段返回） |
 | `sense_execute_timeout` | number (ms) | ❌ | 10000 | 单次 Sense 执行超时 |
-| `approval_timeout` | number (ms) | ❌ | 30000 | 审批等待超时（`global.approval_timeout` 也可由 RPC/感官级覆盖） |
+| `approval_timeout` | number (ms) | ❌ | 300000 | 审批等待超时（默认 5 分钟；`0` = 不设业务截止时间） |
 | `bash_log_retention_hours` | number (hours) | ❌ | 24 | bash 子进程日志保留时长 |
 | `tree_full_render_threshold` | number | ❌ | 500 | 节点树全量渲染阈值（节点数≤此值跳过视口裁剪避免平移卡顿；`0`=始终裁剪） |
 | `history_recall.max_output_chars` | number | ❌ | 4000 | `history_recall` 感官（长会话历史回忆）单次返回的硬字符上限，超限截断并提示缩小范围 |
