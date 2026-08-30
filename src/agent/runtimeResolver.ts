@@ -14,6 +14,7 @@ import { getSense as getBuiltinSense } from '@/core/sense'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
 import { buildSpawnRoleSense } from './sense/spawn.js'
 import { compileRoleSecurity } from '@/core/security/index.js'
+import type { AcceptanceExecutionPolicy } from '@/core/security/rolePolicy.js'
 import { getChatType } from '@/db/chat.js'
 
 export interface RuntimeSelection {
@@ -179,12 +180,18 @@ export class RuntimeResolver {
    */
   resolve(
     selection: RuntimeSelection,
-    opts?: { injectMemoryManage?: boolean; ruleName?: string; chatId?: string; roleName?: string },
+    opts?: {
+      injectMemoryManage?: boolean
+      ruleName?: string
+      chatId?: string
+      roleName?: string
+      acceptance?: AcceptanceExecutionPolicy
+    },
   ): RuntimeConfig {
     this.validateSelection(selection)
 
     const { brain, adapters } = this.resolveBrain(selection.brain)
-    const { builtSenses, senseTable } = this.resolveSense(
+    let { builtSenses, senseTable } = this.resolveSense(
       adapters.senseAdapter,
       selection.senseGroup,
       selection.mcpServers,
@@ -192,6 +199,12 @@ export class RuntimeResolver {
       opts?.injectMemoryManage ?? true,
       opts?.chatId,
     )
+
+    if (opts?.acceptance) {
+      const allowed = new Set(opts.acceptance.allowedTools)
+      builtSenses = builtSenses.filter((tool) => allowed.has(tool.function.name))
+      senseTable = new Map([...senseTable].filter(([name]) => allowed.has(name)))
+    }
 
     const roleType = opts?.roleName ?? (opts?.chatId ? getChatType(opts.chatId) : undefined)
     return {
@@ -201,6 +214,7 @@ export class RuntimeResolver {
       senseTable,
       sensitivityRules: loadMergedRuleSet(opts?.ruleName),
       roleSecurity: compileRoleSecurity(roleType, roleType ? config.roles?.[roleType] : undefined),
+      acceptance: opts?.acceptance,
     }
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SupervisionLevel } from '@/core/config.js'
 import { authorizeToolCall, compileRoleSecurity } from '@/core/security/rolePolicy.js'
+import type { AcceptanceExecutionPolicy } from '@/core/security/rolePolicy.js'
 
 const workspace = process.cwd()
 const role = (template: 'read-only' | 'workspace-developer' | 'supervised' | 'trusted') => ({
@@ -105,5 +106,80 @@ describe('filesystemRead override（配置管理角色读放行）', () => {
     expect(withAny.findings).toEqual([])
     expect(without.findings.length).toBeGreaterThan(0)
     expect(without.assessmentHash).not.toBe(withAny.assessmentHash)
+  })
+})
+
+describe('角色验收安全覆盖层', () => {
+  const acceptance: AcceptanceExecutionPolicy = {
+    workspaceRoot: workspace,
+    allowedTools: ['read_file', 'write_file', 'execute_command'],
+    maxCommandSandboxMode: 'workspace-write',
+    preapproveSafeRequests: true,
+  }
+  const developer = compileRoleSecurity('developer', role('workspace-developer'))
+
+  it('工具白名单和临时工作区不可由普通角色策略放宽', () => {
+    expect(
+      authorizeToolCall({
+        security: developer,
+        name: 'config_manage',
+        args: { action: 'get' },
+        configuredLevel: SupervisionLevel.auto,
+        acceptance,
+      }).decision,
+    ).toBe('deny')
+    expect(
+      authorizeToolCall({
+        security: developer,
+        name: 'read_file',
+        args: { path: '../../secret.txt' },
+        workspace: 'C:/intentionally-ignored',
+        configuredLevel: SupervisionLevel.auto,
+        filesystemRead: 'any',
+        acceptance,
+      }).decision,
+    ).toBe('deny')
+  })
+
+  it('保留角色显式硬拒绝', () => {
+    const reader = compileRoleSecurity('reader', role('read-only'))
+    expect(
+      authorizeToolCall({
+        security: reader,
+        name: 'write_file',
+        args: { path: 'acceptance-output.txt', content: 'ok' },
+        configuredLevel: SupervisionLevel.auto,
+        acceptance,
+      }).decision,
+    ).toBe('deny')
+  })
+
+  it('允许工作区安全命令，拒绝破坏性与网络命令', () => {
+    const authorize = (command: string) =>
+      authorizeToolCall({
+        security: developer,
+        name: 'execute_command',
+        args: { shell: 'bash', command, workdir: workspace },
+        configuredLevel: SupervisionLevel.smart,
+        acceptance,
+      })
+    expect(authorize('touch acceptance-output.txt').decision).toBe('allow')
+    expect(authorize('rm acceptance-output.txt').decision).toBe('deny')
+    expect(authorize('curl https://example.com').decision).toBe('deny')
+  })
+
+  it('覆盖层内容进入授权哈希', () => {
+    const base = {
+      security: developer,
+      name: 'read_file',
+      args: { path: 'package.json' },
+      configuredLevel: SupervisionLevel.auto,
+    }
+    const first = authorizeToolCall({ ...base, acceptance })
+    const changed = authorizeToolCall({
+      ...base,
+      acceptance: { ...acceptance, allowedTools: ['read_file'] },
+    })
+    expect(first.assessmentHash).not.toBe(changed.assessmentHash)
   })
 })

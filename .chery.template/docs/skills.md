@@ -60,6 +60,10 @@ skill(name: string) → string    // 加载技能正文，注入当前对话上�
 
 [../skills/role-design/SKILL.md](../skills/role-design/SKILL.md)：为任意岗位建立开放文本角色蓝图。技能只定义研究与安全方法，不维护岗位字典，也不直接把能力诉求绑定到工具；最终映射由 Cherry Nexus 基于运行时真实工具完成。
 
+## 模板示例（role-acceptance）
+
+[../skills/role-acceptance/SKILL.md](../skills/role-acceptance/SKILL.md)：在目标配置成为当前激活修订后，把角色蓝图转换为隔离场景，调用 `role_acceptance` 并按工具轨迹、产物和独立评估证据判读结果。
+
 ## 字段参考表
 
 | 元素 | 类型 | 必填 | 说明 |
@@ -90,4 +94,4 @@ skill(name: string) → string    // 加载技能正文，注入当前对话上�
 
 - 技能加载：[src/agent/prompt/loadSkill](../../src/agent/prompt/loadSkill.ts)
 - 安装技能：由 `cheryNyxus` 角色的 `install_skill` 感官负责（详见 [./prompt.md](./prompt.md#cherrynexus-提示词)）
-- 模板示例：[../skills/haveFun/SKILL.md](../skills/haveFun/SKILL.md)、[../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)、[../skills/role-design/SKILL.md](../skills/role-design/SKILL.md)
+- 模板示例：[../skills/haveFun/SKILL.md](../skills/haveFun/SKILL.md)、[../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)、[../skills/role-design/SKILL.md](../skills/role-design/SKILL.md)、[../skills/role-acceptance/SKILL.md](../skills/role-acceptance/SKILL.md)

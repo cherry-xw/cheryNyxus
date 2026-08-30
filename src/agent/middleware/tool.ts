@@ -350,18 +350,22 @@ function buildSenseTrigger(
     ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
     : undefined
   const roleSecurity = ctx.runtime.roleSecurity ?? compileRoleSecurity(undefined, undefined)
+  const workspace = ctx.runtime.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId)
   const authorization = authorizeToolCall({
     security: roleSecurity,
     name,
     args,
-    workspace: getChatWorkspace(ctx.soul.chatId),
+    workspace,
     configuredLevel,
     legacySafe,
     // 配置管理核心角色读放行：read_file/search_codebase 绕过 filesystem workspace 校验
-    filesystemRead: isConfigManager(ctx.runtime.senseTable) ? 'any' : undefined,
+    filesystemRead: !ctx.runtime.acceptance && isConfigManager(ctx.runtime.senseTable) ? 'any' : undefined,
+    acceptance: ctx.runtime.acceptance,
   })
   const preDenied = authorization.decision === 'deny'
-  const effectiveLevel = preDenied || authorization.decision === 'allow'
+  const effectiveLevel = preDenied ||
+    authorization.decision === 'allow' ||
+    ctx.runtime.acceptance?.preapproveSafeRequests
     ? SupervisionLevel.auto
     : configuredLevel === SupervisionLevel.manual
       ? SupervisionLevel.manual
@@ -471,14 +475,15 @@ async function* doExecuteSense(
       security: liveSecurity,
       name,
       args,
-      workspace: getChatWorkspace(ctx.soul.chatId),
+      workspace: ctx.runtime.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId),
       configuredLevel: senseEntry.supervisionLevel,
       legacySafe:
         senseEntry.supervisionLevel === SupervisionLevel.smart
           ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
           : undefined,
       // 与 buildSenseTrigger 同源（isConfigManager(ctx.runtime.senseTable)）→ override 一致 → hash 恒等
-      filesystemRead: configManager ? 'any' : undefined,
+      filesystemRead: !ctx.runtime.acceptance && configManager ? 'any' : undefined,
+      acceptance: ctx.runtime.acceptance,
     })
     if (
       currentAuthorization.policyHash !== authorization.policyHash ||
@@ -512,7 +517,7 @@ async function* doExecuteSense(
       // 透传当前 sense call id（= sense message.id）。spawn_role 等需用此 id 回写 metadata 关联。
       messageId: id,
       security: currentAuthorization,
-      workspaceRoot: getChatWorkspace(ctx.soul.chatId),
+      workspaceRoot: ctx.runtime.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId),
     })
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。

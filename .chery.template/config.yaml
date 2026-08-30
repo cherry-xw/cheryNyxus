@@ -126,7 +126,7 @@ media: {}
 # sense_groups：感官分组
 # 将 Sense 分组，角色通过 senseGroup 引用
 # 内置 Sense：read_file / write_file / execute_command /
-#   search_codebase / spawn_role / update_todo / skill
+#   search_codebase / spawn_role / update_todo / skill / role_acceptance
 # ------------------------------------------------------------
 sense_groups:
   leader: # 纯组长组（coordinator 等）：不配配置管理感官，配置需交 Cherry Nexus
@@ -149,6 +149,7 @@ sense_groups:
     - history_recall
     - install_skill
     - config_manage
+    - role_acceptance
   plan:
     - update_todo
     - skill
@@ -171,6 +172,8 @@ sense_groups:
     - read_file
     - search_codebase
     - ask_user_question
+  role_acceptance: # 隐藏独立评估角色；服务执行时仍强制无工具
+    - skill
   detail_diagnostics: # 解释分支专用：允许核对项目与执行诊断，禁止修改/派发
     - read_file
     - search_codebase
@@ -206,6 +209,18 @@ roles:
     skills:
       - role-design
     description: 角色架构师：研究任意岗位并输出职责、风险、能力诉求与验收蓝图；不修改配置
+    mentionable: false
+  roleAcceptance:
+    brain: my-brain
+    avatar: '🧪'
+    senseGroup: role_acceptance
+    mcpServers: []
+    systemPrompt: prompt/roleAcceptance/roleAcceptance.md
+    skills:
+      - role-acceptance
+    permissions:
+      template: read-only
+    description: 独立角色验收器：只依据隔离执行证据判定，不修改配置或执行目标任务
     mentionable: false
   coordinator:
     brain: my-brain # 引用 llm.brain 中的 key
@@ -270,6 +285,7 @@ presets:
     roles:
       - cheryNyxus
       - roleArchitect
+      - roleAcceptance
       - curator
       - explanation
     shadows:

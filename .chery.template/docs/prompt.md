@@ -21,6 +21,8 @@ prompt/
     cheryNyxus.md
   roleArchitect/                 # 任意岗位研究与角色蓝图；不写配置
     roleArchitect.md
+  roleAcceptance/                # 独立角色验收证据评估；运行时无工具
+    roleAcceptance.md
 ```
 
 ## 文件类型
@@ -34,6 +36,7 @@ prompt/
 | `prefebMain/reviewer.md` | 审查角色（reviewer）的专属指令 | `roles.reviewer.systemPrompt` |
 | `cheryNyxus/cheryNyxus.md` | Cherry Nexus（配置管理核心角色：管理角色/感官/全局/llm 配置 + 组长） | `roles.cheryNyxus.systemPrompt` |
 | `roleArchitect/roleArchitect.md` | Role Architect（研究岗位、输出职责/风险/能力诉求/验收蓝图，不修改配置） | `roles.roleArchitect.systemPrompt` |
+| `roleAcceptance/roleAcceptance.md` | 独立验收器（只依据隔离证据返回结构化 verdict，不执行目标任务） | `roles.roleAcceptance.systemPrompt` |
 
 ## 字段参考表
 
@@ -104,5 +107,7 @@ prompt/
 - 提示词系统：[../../docs/system-prompt.md](../../docs/system-prompt.md)
 - Cherry Nexus 提示词：[../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md)（配置管理 + 组长）
 - Role Architect 提示词：[../prompt/roleArchitect/roleArchitect.md](../prompt/roleArchitect/roleArchitect.md)（岗位研究 + 蓝图，不授权工具）
+- Role Acceptance 提示词：[../prompt/roleAcceptance/roleAcceptance.md](../prompt/roleAcceptance/roleAcceptance.md)（隔离证据独立评估，无工具）
 - 任意岗位角色设计：[./role-design.md](./role-design.md)
+- 角色端到端验收：[./role-acceptance.md](./role-acceptance.md)
 - 配置管理感官：[../../docs/core/sense.md](../../docs/core/sense.md#config_manage-感官)（get/patch/backup/rollback）

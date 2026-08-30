@@ -249,6 +249,10 @@ chatId → (pid → BashProcessRecord)
 
 ## 扩展点
 
+### 隔离验收专用感官
+
+`role_acceptance` 是 Cherry Nexus 的角色配置验收入口。它不是通用任务执行器：服务会为每个场景创建临时工作区和临时 Agent，只暴露目标角色工具与安全白名单的交集，并在正常角色授权之外叠加不可放宽的验收策略。无人值守运行只会预批准覆盖层判定安全的本地 `ask` 操作；越界、破坏性命令和被目标角色显式拒绝的操作仍然拒绝。完整契约见 [role-acceptance.md](./role-acceptance.md)。
+
 ### 添加内置 Sense
 
 1. 在 [sense/](../../src/agent/sense/) 新增 `<name>.ts`，用 [sense()](../../src/core/sense/senseCreator.ts) 工厂创建：

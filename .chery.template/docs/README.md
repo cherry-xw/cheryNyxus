@@ -49,6 +49,7 @@ cherryNyxus 角色：
 | 改感官监管等级 | [./config.md#sense_groupsgroup-字段](./config.md#sense_groupsgroup-字段) | [../../docs/core/sense.md](../../docs/core/sense.md) |
 | 加 / 改角色 | [./config.md#rolesrole-字段](./config.md#rolesrole-字段) + [./prompt.md](./prompt.md) | [../../docs/system-prompt.md](../../docs/system-prompt.md) |
 | 研究任意岗位并创建角色 | [./role-design.md](./role-design.md) + [./config.md#rolesrole-字段](./config.md#rolesrole-字段) | [../../docs/agent/role-design.md](../../docs/agent/role-design.md) |
+| 对已激活角色做端到端验收 | [./role-acceptance.md](./role-acceptance.md) | [../../docs/agent/role-acceptance.md](../../docs/agent/role-acceptance.md) |
 | 改预设 | [./config.md#presetsname-字段](./config.md#presetsname-字段) | — |
 | 改服务端口 | [./config.md#server-字段](./config.md#server-字段) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 改文件夹浏览白名单 / 文件可见性 | [./config.md#workspace_browse-字段文件夹浏览协议](./config.md#workspace_browse-字段文件夹浏览协议) | [../../docs/protocol.md](../../docs/protocol.md) |

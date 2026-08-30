@@ -25,6 +25,7 @@ import installSkillSense from './installSkill'
 import configManageSense from './configManage'
 import childControlSenses from './childControl'
 import selectConversationSense from './selectConversation'
+import roleAcceptanceSense from './roleAcceptance'
 import { logger } from '@/utils/logger/index.js'
 
 /**
@@ -239,6 +240,17 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
       '【注意】写配置影响全局，patch 前先 get 回读确认；旧 save 会被拒绝，未知 action 会 fail-loud 返回用法。',
   },
   {
+    name: 'role_acceptance',
+    label: '角色验收',
+    description: '在临时工作区端到端验收已激活角色',
+    icon: '🧪',
+    doc:
+      '【作用】在当前激活配置修订上，以目标角色的真实大脑、提示词和安全工具运行隔离场景，再由独立角色依据证据评估。\n' +
+      '【能力】支持场景提示、成功标准、禁止行为、临时夹具和期望产物；返回工具轨迹、产物、覆盖缺口与人工复核项。\n' +
+      '【边界】仅使用操作系统临时工作区；工具取目标角色能力与安全白名单交集；不开放配置修改、网络/MCP、外部发送、角色派发、记忆或媒体。\n' +
+      '【注意】只能验收当前激活修订；角色设计者不能自我认证；隔离环境无法覆盖的生产能力必须保留为人工复核。',
+  },
+  {
     name: 'select_conversation',
     label: '选择会话',
     description: 'Shadow 流程终止工具：选择历史会话或新对话',
@@ -268,6 +280,7 @@ function registerBuiltinSenses(): void {
     askSense,
     installSkillSense,
     configManageSense,
+    roleAcceptanceSense,
     selectConversationSense,
     ...childControlSenses,
     ...mediaSenses,

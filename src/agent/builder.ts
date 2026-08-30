@@ -11,6 +11,7 @@ import type { SkillFilter } from '@/agent/prompt/loadSkill'
 import type { UserInputEntry } from '@/core/middleware/types'
 import { randomUUID } from 'crypto'
 import { RuntimeResolver, type RuntimeSelection } from './runtimeResolver.js'
+import type { AcceptanceExecutionPolicy } from '@/core/security/rolePolicy.js'
 
 /**
  * AgentBuilder - RuntimeConfig 工厂 + Middleware 工厂
@@ -49,12 +50,14 @@ export class AgentBuilder {
     ruleName?: string,
     chatId?: string,
     roleName?: string,
+    acceptance?: AcceptanceExecutionPolicy,
   ): this {
     const runtime = this.runtimeResolver.resolve(selection, {
       injectMemoryManage,
       ruleName,
       chatId,
       roleName,
+      acceptance,
     })
     this.requireAgent().configureRuntime(runtime)
     return this

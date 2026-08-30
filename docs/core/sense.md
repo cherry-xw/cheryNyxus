@@ -189,6 +189,8 @@ smart 档的「危险/放行」判定规则**外置**到 `.chery/rule/` 目录�
 
 **配置读取放行（`filesystemRead` override）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`，能力驱动）经 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 接线，`authorizeToolCall` 传 `filesystemRead: 'any'`——read_file/search_codebase 的读取范围整体放行（绕过 filesystem workspace 校验，即使策略 deny）；该 override **不进 assessmentHash**（两处授权同源计算 → hash 恒等，不误触「策略已变化」拒绝）；`write_file`/`execute_command` 不受影响。结合 pathGuard 的 `allowConfigRead`（读 `.chery/` 全树放行），配置读取仅剩 envGuard 对 `.env` 敏感 key 值的后置遮蔽一道防线。
 
+**角色验收安全覆盖层**：临时角色验收运行会把 `AcceptanceExecutionPolicy` 与普通角色策略求交。覆盖层强制工具白名单、临时工作区路径和最高命令沙箱等级，并拒绝高风险命令分类。覆盖层只允许收紧；普通角色策略中的 `deny`、系统路径守卫和执行时二次授权均继续生效。覆盖层参与 `assessmentHash`，初次判定和执行前复核必须传入同一份冻结策略。对覆盖层判定安全但普通监管仍为 `ask` 的调用，验收运行时可进程内预批准，不创建用户审批。
+
 **深合并语义**（[`ruleLoader.loadMergedRuleSet`](../../src/core/sense/ruleLoader.ts)，per sense）：
 - 覆盖文件未提及的 sense → 用基准条目。
 - 覆盖文件给某 sense `false` → 结果 `false`（硬开关：整体需确认）。

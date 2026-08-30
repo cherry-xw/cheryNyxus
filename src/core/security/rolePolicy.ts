@@ -25,13 +25,37 @@ export interface ToolAuthorization {
   assessmentHash: string
 }
 
+/**
+ * 进程内角色验收的不可放宽安全覆盖层。
+ *
+ * 它与角色自身权限求交：只能继续收紧，不能把角色策略的 deny 改为 allow。
+ */
+export interface AcceptanceExecutionPolicy {
+  workspaceRoot: string
+  allowedTools: readonly string[]
+  maxCommandSandboxMode: 'read-only' | 'workspace-write'
+  preapproveSafeRequests: true
+}
+
+const ACCEPTANCE_DENIED_COMMAND_CATEGORIES = new Set([
+  'destructive',
+  'privilege',
+  'system',
+  'process',
+  'network',
+  'credential',
+  'dynamic-code',
+  'obfuscation',
+  'unknown',
+])
+
 const MUTATING_TOOLS = new Set([
   'write_file', 'memory_manage', 'install_skill', 'generate_image', 'generate_video',
   'generate_audio', 'destroy_role',
 ])
 const HARMLESS_TOOLS = new Set([
   'read_file', 'search_codebase', 'history_recall', 'ask_user_question', 'update_todo',
-  'select_conversation', 'send_to_child', 'stop_child',
+  'select_conversation', 'send_to_child', 'stop_child', 'role_acceptance',
 ])
 
 function defaultPolicy(template: RolePermissionTemplate): RolePermissionPolicy {
@@ -152,12 +176,25 @@ export function authorizeToolCall(input: {
    * 不进 assessmentHash（两处授权同源计算 → hash 恒等，不误触 tool.ts 的「策略或参数已变化」校验）。
    */
   filesystemRead?: 'workspace' | 'any'
+  /** 角色验收专用的冻结覆盖层；存在时路径基准强制取其临时工作区。 */
+  acceptance?: AcceptanceExecutionPolicy
 }): ToolAuthorization {
-  const { security, name, args, workspace } = input
+  const { security, name, args } = input
+  const workspace = input.acceptance?.workspaceRoot ?? input.workspace
   const { policy } = security
   const findings: SecurityFinding[] = []
   let decision: 'allow' | 'ask' | 'deny' = 'allow'
   let requiredSandboxMode: SandboxMode | undefined
+
+  if (input.acceptance && !input.acceptance.allowedTools.includes(name)) {
+    decision = 'deny'
+    findings.push({
+      code: 'acceptance.tool-denied',
+      category: 'unknown',
+      severity: 'high',
+      message: `角色验收不允许执行工具 ${name}`,
+    })
+  }
 
   decision = addEffect(decision, matchingEffect(policy.tools, name))
   if (name.startsWith('mcp__')) {
@@ -177,7 +214,7 @@ export function authorizeToolCall(input: {
     const write = name === 'write_file'
     const scope = write
       ? policy.filesystem?.write
-      : input.filesystemRead === 'any'
+        : !input.acceptance && input.filesystemRead === 'any'
         ? 'any'
         : policy.filesystem?.read
     if (scope === 'deny') decision = 'deny'
@@ -228,6 +265,26 @@ export function authorizeToolCall(input: {
       for (const finding of commandAssessment.findings) {
         decision = addEffect(decision, policy.commands?.categories?.[finding.category] ?? 'inherit')
       }
+      if (input.acceptance) {
+        if (
+          sandboxModeRank(requiredSandboxMode) >
+          sandboxModeRank(input.acceptance.maxCommandSandboxMode)
+        ) {
+          decision = 'deny'
+        }
+        const forbidden = commandAssessment.findings.filter((finding) =>
+          ACCEPTANCE_DENIED_COMMAND_CATEGORIES.has(finding.category),
+        )
+        if (forbidden.length > 0) {
+          decision = 'deny'
+          findings.push({
+            code: 'acceptance.command-risk-denied',
+            category: 'unknown',
+            severity: 'high',
+            message: `角色验收拒绝高风险命令分类：${[...new Set(forbidden.map((finding) => finding.category))].join(', ')}`,
+          })
+        }
+      }
     }
   }
 
@@ -235,8 +292,16 @@ export function authorizeToolCall(input: {
   if (input.configuredLevel === SupervisionLevel.manual) decision = addEffect(decision, 'ask')
   else if (input.configuredLevel === SupervisionLevel.smart && name !== 'execute_command' && input.legacySafe === false) decision = addEffect(decision, 'ask')
 
-  const assessmentHash = commandAssessment?.assessmentHash ?? hashAuthorization({
-    version: 1, roleType: security.roleType, policyHash: security.policyHash, name, args, workspace, findings,
+  const assessmentHash = hashAuthorization({
+    version: 2,
+    roleType: security.roleType,
+    policyHash: security.policyHash,
+    name,
+    args,
+    workspace,
+    findings,
+    commandAssessmentHash: commandAssessment?.assessmentHash,
+    acceptance: input.acceptance,
   })
   return {
     decision,

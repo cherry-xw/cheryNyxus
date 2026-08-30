@@ -9,7 +9,7 @@ import type { LLMAdapter } from '../llm/adapter'
 import type { SenseAdapter, SenseCallData, SenseFunction } from '../sense/adapter'
 import type { SenseResult, SenseSharedData, SenseRuntimeContext } from '../sense/senseCreator'
 import type { CompiledRuleSet } from '../sense/ruleLoader.js'
-import type { CompiledRoleSecurity } from '../security/rolePolicy.js'
+import type { AcceptanceExecutionPolicy, CompiledRoleSecurity } from '../security/rolePolicy.js'
 import type { ToolAuthorization } from '../security/rolePolicy.js'
 import type { GlobalConfig, BrainConfig } from '@/utils/config'
 import type { Logger } from '@/utils/logger/types.js'
@@ -103,6 +103,8 @@ export interface RuntimeConfig {
   sensitivityRules: CompiledRuleSet
   /** 当前 chat 的稳定角色身份与实时编译行为策略。 */
   roleSecurity?: CompiledRoleSecurity
+  /** 仅进程内角色验收使用；普通会话不得设置。 */
+  acceptance?: AcceptanceExecutionPolicy
 }
 
 /**

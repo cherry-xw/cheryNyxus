@@ -221,6 +221,8 @@ src/index.ts（服务入口）
 
 详见 [./sense.md](./sense.md)「扩展点」。要点：在 `sense/` 新增 `<name>.ts` 用 `sense()` 工厂创建，在 [sense/index.ts](../../src/agent/sense/index.ts) 的 `registerBuiltinSenses()` 中 `registerSenses([...])`。
 
+角色创建后的独立隔离验收见 [role-acceptance.md](./role-acceptance.md)。该流程使用目标角色真实提示词和安全工具，但以临时工作区、工具交集和运行时安全覆盖层阻断配置修改、外部副作用与自我认证。
+
 ### 添加外部（编译产物）Sense
 
 在 `.chery/senses/<name>.ts` 创建文件，系统启动时由 `loadCustomSenses` 用 `new Function()` 执行（注入 `z`/`sense`/`SupervisionLevel`/`registerSenses`）。编译机制见 [core/sense/compiler](../../src/core/sense/compiler/)。
