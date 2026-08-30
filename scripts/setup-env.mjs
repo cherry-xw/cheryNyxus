@@ -1,46 +1,30 @@
-import { existsSync, copyFileSync, cpSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ensureEnvSeed, syncCheryTemplate } from './lib/chery-template-sync.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const root = resolve(__dirname, '..')
+const scriptDir = dirname(fileURLToPath(import.meta.url))
+const root = resolve(scriptDir, '..')
 
 /**
- * pnpm install 后自动初始化开发环境种子：
- *   1) .env.example     → .env           （单文件,copyFileSync）
- *   2) .chery.template/ → .chery/        （目录递归,cpSync）
- *
- * 行为约定（与 Electron afterPack 钩子 [web/scripts/post-pack.mjs] 对齐）：
- *   - 目标已存在 → 跳过（保护用户已有编辑，pnpm install 不会覆盖）
- *   - 模板缺失 → 跳过 + 警告（不抛错,允许模板未就绪的仓库继续装依赖）
- *   - 拷贝失败 → 设 process.exitCode = 1,中断 postinstall 钩子
+ * `pnpm install` 后初始化或升级开发 workspace：
+ * - `.env` 只在缺失时由 `.env.example` 创建，已有值永不覆盖。
+ * - `.chery.template` 通过受管哈希同步到 `.chery`；只升级仍为官方原版的文件，
+ *   用户修改和主动删除都会保留，结构化配置仅迁移缺失的内置资源。
  */
+try {
+  const env = ensureEnvSeed({ envExamplePath: resolve(root, '.env.example'), runtimeRoot: root })
+  if (env.warning) console.warn(`[setup] ${env.warning}`)
+  else console.log(`[setup] .env ${env.created ? 'created' : 'already exists, preserved'}`)
 
-const SEEDS = [
-  { src: '.env.example',     dest: '.env' },           // 单文件
-  { src: '.chery.template',  dest: '.chery', recursive: true }, // 目录
-]
-
-for (const { src, dest, recursive } of SEEDS) {
-  const srcPath = resolve(root, src)
-  const destPath = resolve(root, dest)
-  if (existsSync(destPath)) {
-    console.log(`${dest} already exists, skipped`)
-    continue
-  }
-  if (!existsSync(srcPath)) {
-    console.warn(`${src} not found, skipped`)
-    continue
-  }
-  try {
-    if (recursive) {
-      cpSync(srcPath, destPath, { recursive: true })
-    } else {
-      copyFileSync(srcPath, destPath)
-    }
-    console.log(`✓ ${dest} created from ${src}`)
-  } catch (err) {
-    console.error(`✗ ${dest} copy failed: ${err?.message ?? err}`)
-    process.exitCode = 1
-  }
+  const report = syncCheryTemplate({
+    templateDir: resolve(root, '.chery.template'),
+    runtimeRoot: root,
+  })
+  for (const warning of report.warnings) console.warn(`[setup] ${warning}`)
+  console.log(
+    `[setup] .chery sync: created=${report.created} copied=${report.copied.length} updated=${report.updated.length} preserved=${report.preserved.length} configMigrated=${report.configMigrated}`,
+  )
+} catch (error) {
+  console.error(`[setup] workspace initialization failed: ${error?.message ?? error}`)
+  process.exitCode = 1
 }

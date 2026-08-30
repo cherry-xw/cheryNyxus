@@ -2,6 +2,7 @@ import { join, dirname } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } from 'electron'
+import { ensureEnvSeed } from '../../scripts/lib/chery-template-sync.mjs'
 // 桌面单窗：pet / nyxus 两独立浮窗体系（FloatingWindow / 漂移 / teleport / surface:* IPC）已废弃，见 docs/web/electron.md「2026-08 单窗合并」。
 // 全屏覆盖检测：外部全屏视频 / 游戏出现时隐藏 desktop 窗（koffi + user32，失败降级不阻塞）。
 import { startFullscreenGuard } from './fullscreenGuard'
@@ -143,6 +144,11 @@ function getBackendBundle(): string {
   return join(app.getAppPath(), '..', 'dist', 'index.js')
 }
 
+/** Development root or packaged `resources/`, both of which carry the immutable seed assets. */
+function getTemplateAssetsRoot(): string {
+  return join(app.getAppPath(), '..')
+}
+
 /**
  * node 可执行文件：打包后优先 extraResources 内的 node；否则系统 PATH 的 node。
  *
@@ -164,8 +170,8 @@ function getNodeExecutable(): string {
 /**
  * 解析用户运行时配置根目录（`CHERY_DIR` 的父目录，即 `.env` 与 `.chery/` 所在目录）：
  *
- * - 打包后：afterPack 钩子（[scripts/post-pack.mjs](../../scripts/post-pack.mjs)）已经把 `.env`
- *   和 `.chery/` 复制到 `CheryNyxus.exe` 同级。默认 `dirname(process.execPath)`；
+ * - 打包后：安装包只携带 resources 下的不可变模板，运行时默认根为
+ *   `dirname(process.execPath)`；主进程补缺失 `.env`，guardian 初始化/升级 `.chery/`；
  *   `.env` 中 `CHERY_DIR` 非空时改用其值（便于跨平台部署）。
  * - 开发期：默认项目根 `<repo>/`（含 `.chery/`），`CHERY_DIR` env 优先。
  *
@@ -189,8 +195,8 @@ function getRuntimeRoot(): string {
  * - 空值（如 `CHERY_DIR=`）**不灌进 `process.env`**——保留默认推断行为
  * - 已存在的 `process.env` 变量**不覆盖**——OS env 优先级最高
  *
- * 注意：模板 `.env` 与运行时 `.env` 都在 `getRuntimeRoot()` 下，打包后由 afterPack
- * 钩子在打包阶段复制；不存在则静默跳过（用户可能手动删了 `.env`）。
+ * 注意：模板位于 resources，运行时 `.env` 位于 `getRuntimeRoot()`；调用方会先尝试
+ * 只补缺失文件。模板缺失或创建失败时仍允许继续，并在这里静默跳过加载。
  */
 function loadEnvFile(): void {
   const envPath = join(getRuntimeRoot(), '.env')
@@ -228,7 +234,19 @@ function loadEnvFile(): void {
  *   也能写）；开发期沿用 `CHERY_DIR/.chery/db`
  */
 function startBackend(): ChildProcess {
-  // 加载 .env（必须在 CHERY_DIR 计算之前，因为 .env 可能覆盖 CHERY_DIR）
+  // 先创建缺失的 .env，再加载它；已有文件和用户密钥永不覆盖。
+  try {
+    const envSeed = ensureEnvSeed({
+      envExamplePath: join(getTemplateAssetsRoot(), '.env.example'),
+      runtimeRoot: getRuntimeRoot(),
+    })
+    if (envSeed.warning) console.warn(`[setup] ${envSeed.warning}`)
+    else console.log(`[setup] .env ${envSeed.created ? 'created' : 'already exists, preserved'}`)
+  } catch (error) {
+    console.warn(`[setup] .env initialization failed; continuing: ${(error as Error).message}`)
+  }
+
+  // 加载 .env（必须在最终 CHERY_DIR 计算之前，因为 .env 可能覆盖 CHERY_DIR）
   loadEnvFile()
 
   // 重新解析 runtimeRoot（CHERY_DIR 可能被 .env 改了）

@@ -74,9 +74,10 @@ CheryNyxus/
 | `getNodeExecutable()` | 优先 `resources/node[.exe]`，fallback 系统 `node` |
 | `getBackendBundle()` | `app.getAppPath()/../dist/index.js` |
 | `startBackend()` | spawn 系统 node，设 CHERY_DIR |
-| `loadEnvFile()` | 读 `CheryNyxus.exe/.env`，空值不灌进 process.env，不覆盖 OS env；不存在则跳过 |
+| `ensureEnvSeed()` + `loadEnvFile()` | 先只补缺失 `.env`，再读取；不覆盖用户文件、OS env，空值不灌进 process.env |
 | `getRuntimeRoot()` | 打包后 `process.env.CHERY_DIR || dirname(process.execPath)`；开发期项目根 |
-| afterPack 钩子 | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 把 `.env.example` / `.chery.template/` 复制到 `CheryNyxus.exe` 同级，打包即就位 |
+| afterPack 钩子 | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 验证不可变模板，并清理旧构建残留的运行时副本 |
+| workspace 升级 | 后端 guardian 启动前按官方哈希同步 `.chery.template/`；保留用户修改/删除，替换前备份 |
 | 配置目录入口 | 设置面板调用后端 `utils.openConfigDir` WebSocket RPC，由后端系统默认打开器打开 `<CHERY_DIR>/.chery`；不再维护专用 Electron IPC |
 | preload 注入 | `__BACKEND_CONFIG__` + `__BACKEND_HTTP_URL__` |
 
@@ -86,10 +87,10 @@ CheryNyxus/
 files: [dist/**, dist-electron/**]
 extraResources:
   - from: ../dist    → dist                       # 后端 bundle
-  - from: ../.env.example → .env.example         # .env 模板（afterPack 复制为 CheryNyxus.exe/.env）
-  - from: ../.chery.template → .chery.template   # .chery 模板（afterPack 复制为 CheryNyxus.exe/.chery/）
+  - from: ../.env.example → .env.example         # 不可变 .env 种子
+  - from: ../.chery.template → .chery.template   # 不可变 workspace 模板
   - from: ../build/node → node                   # Node 22 LTS 二进制
-afterPack: ./scripts/post-pack.mjs               # 钩子：模板 → CheryNyxus.exe 同级
+afterPack: ./scripts/post-pack.mjs               # 验证模板 + 清理旧构建残留
 targets: win=nsis, mac=dmg, linux=AppImage
 ```
 
@@ -141,7 +142,7 @@ targets: win=nsis, mac=dmg, linux=AppImage
 ## 5. 打包后文件系统
 
 ```
-安装目录/                                          ← 用户可维护（afterPack 钩子打包即就位）
+安装目录/                                          ← 用户可维护（首次启动安全初始化）
 ├── CheryNyxus.exe
 ├── .env                                           # API Key 占位符（用户填真实 Key）
 ├── .chery/                                        # 配置副本
@@ -167,10 +168,10 @@ targets: win=nsis, mac=dmg, linux=AppImage
 
 **用户配置（`.env` + `.chery/`）位置规则**：
 
-- 统一在 `CheryNyxus.exe` 同级，**afterPack 钩子在打包阶段就位**——用户首次安装即看到。
+- 统一在 `CheryNyxus.exe` 同级，首次启动由不可变种子初始化；安装包升级不覆盖用户副本。
 - `CHERY_DIR`：`.env` 留空时默认 `dirname(process.execPath)`；用户可显式设置。
 - `DB_DIR`：始终 `app.getPath('userData')/.chery/db/`（避开 Program Files 权限问题）。
-- 升级：主进程不主动重写；NSIS 默认会覆盖（暂未实现 NSIS include 跳过）。
+- 升级：`.env` 仅补缺失；`.chery` 按 manifest 中的官方哈希增量更新并在替换前备份。
 
 详见 [electron.md#electron-spawn-后端模式-2](./electron.md#electron-spawn-后端模式-2)。
 

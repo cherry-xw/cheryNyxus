@@ -152,8 +152,9 @@ if (process.env.VITE_DEV_SERVER_URL) {
 [electron/main.ts](../../web/electron/main.ts) `startBackend()` 用**系统 node** spawn 后端 bundle(`node + index.js`):
 
 ```ts
-loadEnvFile();                              // 1. 加载 .env → process.env（不覆盖 OS env，空值不灌）
-const cheryDir = getRuntimeRoot();          // 2. CHERY_DIR 父目录（默认 CheryNyxus.exe 同级）
+ensureEnvSeed(...);                         // 1. 仅在缺失时由 resources/.env.example 创建 .env
+loadEnvFile();                              // 2. 加载 .env → process.env（不覆盖 OS env，空值不灌）
+const cheryDir = getRuntimeRoot();          // 3. CHERY_DIR 父目录（默认 CheryNyxus.exe 同级）
 spawn(getNodeExecutable(), [getBackendBundle()], {
   env: { ...process.env, CHERY_DIR, ...(app.isPackaged ? { DB_DIR } : {}) },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -166,14 +167,15 @@ spawn(getNodeExecutable(), [getBackendBundle()], {
 
 - **`getNodeExecutable()`**:优先打包的 node(extraResources 内 `../node`),否则系统 PATH `node`。用系统 node 跑后端,better-sqlite3 用系统 Node ABI,与后端 build 一致,**无跨 ABI 问题**(弃用 `ELECTRON_RUN_AS_NODE`,因 Electron 内嵌 node ABI ≠ 系统 node ABI)。
 - **后端 bundle 路径**:`join(app.getAppPath(), '..', 'dist', 'index.js')`。开发期 `<root>/dist/index.js`;打包后 `resources/dist/index.js`。
-- **`.env` 加载(`loadEnvFile()`)**:
-  - **打包即就位**:[scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 在打包阶段已经把 `.env` 复制到 `CheryNyxus.exe` 同级(从 `resources/.env.example` 模板),无需启动时复制。
-  - 运行时只读取 `dirname(process.execPath)/.env`;不存在则静默跳过。
+- **`.env` 初始化与加载**:
+  - `ensureEnvSeed()` 在 `loadEnvFile()` 前运行，仅当目标 `.env` 缺失时从 `resources/.env.example` 创建；已有文件和密钥永不覆盖。
+  - 运行时读取 `dirname(process.execPath)/.env`；模板缺失或创建失败时记录告警并继续。
   - 解析 `KEY=VALUE` / `KEY="VALUE"`,跳过 `#` 注释;
   - **空值不灌**(`CHERY_DIR=` → 不写入 process.env,让默认推断生效);
   - **不覆盖已有**(`process.env` 已设的优先于 `.env`,OS env 优先级最高)。
-- **`.chery` 用户位置(`getRuntimeRoot()`)**:
-  - **打包即就位**:`.chery/` 也由 afterPack 钩子复制到 `CheryNyxus.exe` 同级。
+- **`.chery` 用户位置与升级(`getRuntimeRoot()`)**:
+  - 后端 guardian 启动 worker 或维护命令前，用 `resources/.chery.template/` 初始化或增量同步运行时 `.chery/`。
+  - 用户修改或主动删除的资产不覆盖；官方原版更新前创建恢复副本；`config.yaml` 只迁移缺失的内置资源。
   - `CHERY_DIR = process.env.CHERY_DIR || dirname(process.execPath)`——`.env` 中 `CHERY_DIR` 留空时默认 `CheryNyxus.exe` 同级,用户可显式覆盖。
   - 开发期:`CHERY_DIR = process.env.CHERY_DIR || <项目根>`。
 - **`CHERY_DIR`**:打包后默认 `dirname(process.execPath)/`(exe 同级,`.chery/` 在这下面)。
@@ -213,15 +215,15 @@ if (config) {
 files: [dist/**, dist-electron/**]              # 渲染 + 主进程
 extraResources:
   - { from: ../dist, to: dist }                 # 后端 bundle
-  - { from: ../.env.example, to: .env.example } # .env 模板（afterPack 复制为 CheryNyxus.exe/.env）
-  - { from: ../.chery.template, to: .chery.template }  # .chery 模板（afterPack 复制为 CheryNyxus.exe/.chery/）
+  - { from: ../.env.example, to: .env.example } # 不可变 .env 种子
+  - { from: ../.chery.template, to: .chery.template }  # 不可变 workspace 模板
   - { from: ../build/node, to: node }           # Node 22 LTS 二进制
-afterPack: ./scripts/post-pack.mjs              # 把模板复制到 CheryNyxus.exe 同级（无需首次启动）
+afterPack: ./scripts/post-pack.mjs              # 验证模板并清理旧构建残留的运行时副本
 npmRebuild: true                                # native rebuild(注:不解决 root better-sqlite3,见下)
 ```
 
-- **`.env` 模板分发**:`.env.example` 作为种子打入 `resources/.env.example`,**不带 API Key**。[post-pack.mjs](../../web/scripts/post-pack.mjs) 在打包阶段把它复制为 `CheryNyxus.exe` 同级的 `.env`,用户后续自由修改,升级不覆盖(NSIS 默认会覆盖,需手动 NSIS include 跳过)。
-- **`.chery` 用户副本**:`resources/.chery.template/` 是只读模板,afterPack 复制为 `CheryNyxus.exe` 同级的 `.chery/`,用户编辑这个副本。`.chery.template/` 与开发用的 `.chery/` 隔离——开发期的 `.chery/` 含运行时生成(`db/`、`media/`、`mock/`),不打包。开发环境由 [scripts/setup-env.mjs](../../scripts/setup-env.mjs) 走 `postinstall` 钩子从仓库根 `.chery.template/` 拷出,行为对齐(目标存在即跳过,保护用户编辑)。
+- **`.env` 模板分发**：`.env.example` 作为不含 API Key 的种子打入 `resources/.env.example`。主进程启动时只补缺失目标，不会覆盖用户值。
+- **`.chery` 模板分发**：`resources/.chery.template/` 是只读模板，guardian 负责初始化和增量升级用户副本。开发期由 [scripts/setup-env.mjs](../../scripts/setup-env.mjs) 执行同一同步器。官方文件哈希记录在 `.chery/.template-manifest.json`，恢复副本位于 `.chery/backups/template/`。
 - `appId` / `productName` / win/mac/linux targets 配置。
 - 打包命令:`pnpm electron:pack`(一键全量)/ `pnpm electron:pack:fast`(增量,跳过依赖安装 + Node 22 LTS + SQLite 预编译 + 类型检查,假定缓存已就绪;Node/better-sqlite3 升版本后需先跑全量重建缓存)。
 - native rebuild:`pnpm --filter web rebuild`(`electron-builder install-app-deps`)—— **仅 rebuild web/ deps,不触及 root better-sqlite3**。

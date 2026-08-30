@@ -108,7 +108,7 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 | Electron main spawn 后端 | ✅ | [electron/main.ts](../../web/electron/main.ts) |
 | preload 注入端口配置 | ✅ | [electron/preload.ts](../../web/electron/preload.ts) |
 | DB 路径 → userData | ✅ | `DB_DIR` env([config.ts](../../src/utils/config.ts)),main 打包时注入 `app.getPath('userData')` |
-| 用户配置位置 → exe 同级(afterPack 钩子打包即就位) | ✅ | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 把 `resources/.env.example` / `resources/.chery.template/` 复制到 `CheryNyxus.exe` 同级;主进程 `loadEnvFile()` + `getRuntimeRoot()` 仅读取不修改 |
+| 用户配置位置 → exe 同级（启动时安全初始化/升级） | ✅ | 安装包仅携带 `resources/.env.example` / `resources/.chery.template/`；主进程只补缺失 `.env`，后端 guardian 按官方哈希增量同步 `.chery/` |
 | 设置面板「打开配置目录」按钮 | ✅ | `utils.openConfigDir` WebSocket RPC → 后端系统默认打开器 → `<CHERY_DIR>/.chery`；Electron 与浏览器共用，远程浏览器打开后端主机目录 |
 | electron-builder 打包配置 | ✅ | [electron-builder.yml](../../web/electron-builder.yml);GUI 验证留后续 |
 | native addon ABI(better-sqlite3 跨 ABI) | ✅ | 改用系统 node spawn(弃用 ELECTRON_RUN_AS_NODE);发行版打包 Node 22 LTS + prebuild-install 拉官方 Node 22 预编译,见 [关键坑](#native-addon-abi模式-2) |
@@ -148,24 +148,24 @@ Node 版本锁定在 [package.json](../../package.json) `packConfig.nodeVersion`
 | 资源 | from | to | 用途 |
 |------|------|-----|------|
 | 后端 bundle | `../dist` | `dist` | `index.js` + `lib/*.node` + `lib/@swc/wasm/` + `senses/` |
-| `.env` 模板 | `../.env.example` | `.env.example` | afterPack 钩子复制为 `CheryNyxus.exe/.env`(用户可填 API Key) |
-| `.chery` 模板 | `../.chery.template` | `.chery.template` | afterPack 钩子复制为 `CheryNyxus.exe/.chery/`(用户可改 config.yaml / skills / senses) |
+| `.env` 模板 | `../.env.example` | `.env.example` | 主进程仅在运行时 `.env` 缺失时创建，已有 API Key 永不覆盖 |
+| `.chery` 模板 | `../.chery.template` | `.chery.template` | guardian 初始化全新 workspace，并按清单增量升级已有 workspace |
 | Node 22 LTS 二进制 | `../build/node` | `node` | `node.exe`(~78 MB),`getNodeExecutable()` 优先用它,fallback 系统 PATH `node` |
 
-`afterPack: ./scripts/post-pack.mjs`(详见 [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs))在 electron-builder 生成 `win-unpacked/` 后、打 NSIS 前把 `resources/.env.example` → `appOutDir/.env`、`resources/.chery.template/` → `appOutDir/.chery/`,**用户首次安装即看到,无需首次启动**。
+`afterPack: ./scripts/post-pack.mjs`（详见 [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)）只验证两个不可变模板已经进入 `resources/`，并清除旧构建目录可能残留的 `.env` / `.chery/` 副本。它不再把用户运行时文件写入安装载荷，因此安装升级不会覆盖用户编辑。
 
 main spawn 时 `CHERY_DIR = process.env.CHERY_DIR || dirname(process.execPath)`(`.env` 留空时默认 `exe` 同级),`DB_DIR = app.getPath('userData')/.chery/db`(始终可写)。
 
 ### 用户配置位置(模式 2,已解决)
 
-`.env` 与 `.chery/` **打包即就位**在 `CheryNyxus.exe` 同级,由 afterPack 钩子在打包阶段复制:
+`.env` 与 `.chery/` 的默认运行位置仍是 `CheryNyxus.exe` 同级，但由首次启动安全初始化，而不是作为安装文件分发：
 
 - **位置**:`dirname(process.execPath)/`(即 `CheryNyxus.exe` 同级)。
   - Windows: `D:\CheryNyxus\.env` / `D:\CheryNyxus\.chery\`
   - macOS: `/Applications/CheryNyxus.app/Contents/Resources/../.env`? 不——NSIS/DMG 解包到 `/Applications/CheryNyxus.app/Contents/Resources/app/`,**.env 在 `/Applications/CheryNyxus.app/Contents/Resources/.env` 同级**
   - Linux: AppImage 解包到 `/opt/CheryNyxus/`
 - **`CHERY_DIR`**:`.env` 留空时默认 `CheryNyxus.exe` 同级;用户可显式设置(如部署到 NAS/容器时指向共享目录)。
-- **升级**:`existsSync` 短路——主进程不主动重写用户已修改的 `.env`;但 **NSIS 安装时默认会覆盖**目标文件,如需升级不覆盖需加 `nsis.include` 自定义 .nsh 脚本(暂未实现)。
+- **升级**：`.env` 只补缺失；`.chery` 以 `.template-manifest.json` 的官方哈希为依据，只更新未被用户修改的内置资产。用户修改、主动删除和自定义文件均保留，替换前备份到 `.chery/backups/template/<timestamp>/`。
 - **UX 入口**:设置面板「打开配置目录」按钮调用后端 `utils.openConfigDir` WebSocket RPC，由后端系统默认打开器打开 `<CHERY_DIR>/.chery`。Electron 与浏览器共用该链路；远程浏览器打开的是后端主机目录。
 
 详见 [electron.md#electron-spawn-后端模式-2](./electron.md#electron-spawn-后端模式-2)。

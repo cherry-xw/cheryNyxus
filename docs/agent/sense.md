@@ -72,14 +72,11 @@ export async function reloadSenses(): Promise<void> {
 const runtimeContext = { z, sense, SupervisionLevel, registerSenses };
 
 // 遍历 dist/senses/*.js（实际路径相对 import.meta.url）
-const fn = new Function("z", "sense", "SupervisionLevel", "registerSenses", pureCode);
-const result = fn(runtimeContext.z, runtimeContext.sense, runtimeContext.SupervisionLevel, runtimeContext.registerSenses);
-if (result?.definition?.function?.name) {
-  registerSenses([result]);   // 编译产物 return 一个 Sense 实例
-}
+const result = loadCompiledSense(filePath); // 去 hash + new Function + 注入统一运行时上下文
+registerSenses([result]);                    // 编译产物 return 一个 Sense 实例
 ```
 
-> 移除 `// hash:xxx` 注释行后执行。编译机制本身见 [core/sense/compiler](../../src/core/sense/compiler/)。
+> `compile-senses` 的自测与启动期注册复用同一个 `loadCompiledSense()`，避免 ESM dynamic import 与 `new Function` 使用不同协议。编译机制本身见 [core/sense/compiler](../../src/core/sense/compiler/)。
 
 ## 关键流程
 
