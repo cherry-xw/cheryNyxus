@@ -5,6 +5,7 @@ import {
   normalizeKey,
   parseJsonValue,
   prettyTranslatedJson,
+  readableToolRun,
   scalarText,
   toObjectEntries,
   translateKey,
@@ -121,5 +122,63 @@ describe('isScalarValue / scalarText', () => {
     expect(scalarText(5)).toBe('5')
     expect(scalarText(false)).toBe('false')
     expect(scalarText(null)).toBe('')
+  })
+})
+
+describe('readableToolRun', () => {
+  const cases = [
+    ['read_file', '读取文件', 'read', '{"path":"src/a.ts"}', '{"content":"one\\ntwo"}', '读取文件', 'src/a.ts', '已读取 2 行内容'],
+    ['search_codebase', '搜索代码', 'read', '{"query":"toolCursor"}', '{"matches":[{},{}]}', '搜索代码', 'toolCursor', '找到结果 2 条'],
+    ['write_file', '写入文件', 'write', '{"path":"src/a.ts"}', '{"updated":true}', '写入文件', 'src/a.ts', '已更新文件'],
+    ['execute_command', '执行命令', 'exec', '{"command":"pnpm test"}', '{"exit_code":0,"stdout":"passed"}', '执行命令', 'pnpm test', '退出码 0：passed'],
+    ['web_search', '网页搜索', 'web', '{"query":"Vue"}', '{"results":[{}]}', '搜索网页信息', 'Vue', '获得结果 1 条'],
+    ['spawn_role', '委派角色', 'dispatch', '{"role":"reviewer","task":"检查协议"}', '{"message":"已启动"}', '派发子任务', 'reviewer', '已启动'],
+    ['custom_tool', '自定义工具', 'other', '{"description":"整理数据"}', '{"message":"完成"}', '执行工具步骤', undefined, '完成'],
+  ] as const
+
+  it.each(cases)('explains %s in human terms', (name, label, type, args, result, intent, target, summary) => {
+    const run = readableToolRun(name, label, type, 'completed', args, result)
+    expect(run.intent).toBe(`已${intent}`)
+    expect(run.target).toBe(target)
+    expect(run.outcome).toBe('执行完成')
+    expect(run.resultSummary).toBe(summary)
+  })
+
+  it.each([
+    ['pending', '等待工具执行'],
+    ['accepted', '工具正在运行，等待返回结果'],
+    ['rejected', '本次操作已被拒绝'],
+    ['error', '工具执行失败'],
+  ] as const)('covers %s without inventing a result', (status, outcome) => {
+    const run = readableToolRun('read_file', '读取文件', 'read', status, '{"path":"a.ts"}', null)
+    expect(run.outcome).toBe(outcome)
+    expect(run.resultSummary).toBeUndefined()
+  })
+
+  it('keeps real failures visible and falls back for malformed payloads', () => {
+    const failed = readableToolRun('execute_command', '执行命令', 'exec', 'error', 'not-json', '{"stderr":"permission denied"}')
+    expect(failed.resultSummary).toBe('permission denied')
+    const unknown = readableToolRun('opaque', '未知工具', 'other', 'completed', '', 'not-json')
+    expect(unknown.intent).toBe('已运行“未知工具”')
+    expect(unknown.outcome).toBe('执行完成')
+    expect(unknown.resultSummary).toBe('not-json')
+  })
+
+  it('turns config actions and patches into concrete user-visible work', () => {
+    const get = readableToolRun('config_manage', 'config_manage', 'write', 'completed', '{"action":"get"}', '')
+    expect(get.toolLabel).toBe('配置管理')
+    expect(get.intent).toBe('已获取配置参数')
+    const patch = readableToolRun(
+      'config_manage',
+      'config_manage',
+      'write',
+      'pending',
+      '{"action":"patch","operations":[{"op":"putSenseGroup","name":"leader","senses":["read_file","write_file"]}]}',
+      '',
+    )
+    expect(patch.intent).toBe('准备修改配置参数')
+    expect(patch.changes).toEqual([
+      { label: '工具组', detail: '将工具组“leader”设置为：读取文件、写入文件' },
+    ])
   })
 })

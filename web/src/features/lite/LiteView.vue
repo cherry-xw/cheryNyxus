@@ -1,24 +1,102 @@
 <script setup lang="ts">
 import { useLiteViewController, type LiteViewControllerProps } from './useLiteViewController'
-import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
+import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 const props = defineProps<LiteViewControllerProps>()
 const controller = useLiteViewController(props)
 const {
-  DetailDrawer, LiteMarkdown, LiteScrollbar, aborting, activeInteraction, activeLane,
-  activePendingTabId, answering, approvalArguments, approvalDetailNodeId, approvalPresentation,
-  approvalRiskSummary, autoGrowInput, closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex,
-  entryDispatch, entryExpanded, entryHasMore, entryPreview, errorBanner, focusNodeFromTrajectory,
-  focusNodeId, formatElapsed, hideBarTip, history, hoverNode, hydrationLabel, inputText,
-  interactionActionable, interactionStatusLabel, isDetailNode, isInFlightNode, isPlainRowContent,
-  isRowFocused, laneTabs, lite, liteInputEl, liteStatus, monitor, monitorEl, moveBarTip,
-  nodeKindLabel, nodeToneVars, noteOf, onAnswerBatch, onDecide, onErrorAction, onInputKeydown,
+  DetailDrawer,
+  LiteMarkdown,
+  LiteScrollbar,
+  aborting,
+  activeInteraction,
+  activeLane,
+  activePendingTabId,
+  activeQuestion,
+  activeQuestionIdOf,
+  activeQuestionIndexOf,
+  answeredQuestionCount,
+  answering,
+  approvalArguments,
+  approvalDetailNodeId,
+  approvalPresentation,
+  approvalRiskSummary,
+  autoGrowInput,
+  closeDetail,
+  connectionBlocked,
+  deciding,
+  detailNode,
+  detailNodeIndex,
+  entryDispatch,
+  entryExpanded,
+  entryHasMore,
+  entryPreview,
+  errorBanner,
+  focusNodeFromTrajectory,
+  focusNodeId,
+  formatElapsed,
+  hideBarTip,
+  history,
+  hoverNode,
+  hydrationLabel,
+  inputText,
+  interactionActionable,
+  interactionStatusLabel,
+  isDetailNode,
+  isInFlightNode,
+  isPlainRowContent,
+  isRowFocused,
+  laneTabs,
+  lite,
+  liteInputEl,
+  liteStatus,
+  monitor,
+  monitorEl,
+  moveBarTip,
+  nodeKindLabel,
+  nodeToneVars,
+  noteOf,
+  onAnswerBatch,
+  onDecide,
+  onErrorAction,
+  onInputKeydown,
   onMonitorScroll,
-  onResume, onSend, onStop, onTrajectoryKeydown, onTrajectoryWheel, openApprovalDetail,
-  openNodeDetail, operationBlockReason, pendingTab, pendingTabs, questionsOf, remainingLabel,
-  resetTrajectoryZoom, resuming, rootUi, rowKey, runStatusLabel, selectedOf, sending, setOptionNote,
-  setRowEl, setTextDraft, showBarTip, showsRowContent, textDraftOf, tipPos, toggleOption,
-  toolTypeGlyph, trajectoryBarStyle, trajectoryLayout, trajectoryZoom, visibleRows,
+  onResume,
+  onSend,
+  onStop,
+  onTrajectoryKeydown,
+  onTrajectoryWheel,
+  openApprovalDetail,
+  moveQuestion,
+  openNodeDetail,
+  operationBlockReason,
+  pendingTab,
+  pendingTabs,
+  questionAnswered,
+  questionsOf,
+  remainingLabel,
+  resetTrajectoryZoom,
+  resuming,
+  rootUi,
+  rowKey,
+  runStatusLabel,
+  selectedOf,
+  sending,
+  setOptionNote,
+  selectQuestion,
+  setRowEl,
+  setTextDraft,
+  showBarTip,
+  showsRowContent,
+  textDraftOf,
+  tipPos,
+  toggleOption,
+  canAnswerBatch,
+  toolTypeGlyph,
+  trajectoryBarStyle,
+  trajectoryLayout,
+  trajectoryZoom,
+  visibleRows,
 } = controller
 </script>
 
@@ -37,14 +115,13 @@ const {
           :key="tab.chatId"
           type="button"
           class="lite-lane-tab"
-          :class="[
-            { 'is-active': tab.chatId === activeLane },
-            { 'is-root-lane': tab.isRootLane },
-          ]"
+          :class="[{ 'is-active': tab.chatId === activeLane }, { 'is-root-lane': tab.isRootLane }]"
           :title="'切换到 ' + tab.label + ' 链路'"
           @click="activeLane = tab.chatId"
         >
-          <span class="lite-lane-tab-icon" aria-hidden="true">{{ tab.isRootLane ? '✧' : '◆' }}</span>
+          <span class="lite-lane-tab-icon" aria-hidden="true">{{
+            tab.isRootLane ? '✧' : '◆'
+          }}</span>
           <span class="lite-lane-tab-label">{{ tab.label }}</span>
         </button>
       </nav>
@@ -160,7 +237,9 @@ const {
       <main ref="monitorEl" class="lite-monitor" aria-label="执行监控" @scroll="onMonitorScroll">
         <div v-if="entryDispatch" class="lite-entry-dispatch">
           <div class="lite-entry-dispatch-head">
-            <span class="lite-entry-dispatch-icon" aria-hidden="true">{{ entryDispatch.icon }}</span>
+            <span class="lite-entry-dispatch-icon" aria-hidden="true">{{
+              entryDispatch.icon
+            }}</span>
             <span class="lite-entry-dispatch-actor">{{ entryDispatch.agentLabel }}</span>
             <span class="lite-entry-dispatch-verb">任务委派</span>
             <button
@@ -207,7 +286,10 @@ const {
                 </button>
               </div>
               <div v-if="showsRowContent(row.node)" class="lite-history-content">
-                <LiteMarkdown :text="row.node.content || '（空）'" :plain="isPlainRowContent(row.node)" />
+                <LiteMarkdown
+                  :text="row.node.content || '（空）'"
+                  :plain="isPlainRowContent(row.node)"
+                />
               </div>
             </template>
             <div v-else class="lite-cluster" role="group" aria-label="本轮中间节点">
@@ -300,188 +382,317 @@ const {
         <div class="lite-pending-content">
           <div
             v-if="activeInteraction.kind === 'approval'"
-            class="lite-interaction"
+            class="lite-interaction is-approval"
             :data-status="activeInteraction.status"
           >
-          <div class="lite-interaction-head">
-            <!-- v0.4.2 双层标题去除：名称由上方页签承载，这里只保留状态与倒计时（靠左展示） -->
-            <span class="lite-interaction-dot" :data-status="activeInteraction.status" aria-hidden="true" />
-            <span class="lite-interaction-head-right">
-              <span
-                v-if="activeInteraction.status !== 'pending'"
-                class="lite-status-pill"
-                :data-status="activeInteraction.status"
-                >{{ interactionStatusLabel(activeInteraction) }}</span
+            <div class="lite-interaction-body">
+              <header class="lite-interaction-head">
+                <span class="lite-interaction-kicker">APPROVAL REQUEST</span>
+                <span class="lite-interaction-head-right">
+                  <span
+                    class="lite-interaction-dot"
+                    :data-status="activeInteraction.status"
+                    aria-hidden="true"
+                  />
+                  <span
+                    v-if="activeInteraction.status !== 'pending'"
+                    class="lite-status-pill"
+                    :data-status="activeInteraction.status"
+                    >{{ interactionStatusLabel(activeInteraction) }}</span
+                  >
+                  <span
+                    v-if="remainingLabel(activeInteraction)"
+                    class="lite-countdown"
+                    :data-expired="remainingLabel(activeInteraction) === '已超时'"
+                  >
+                    {{ remainingLabel(activeInteraction) }}
+                  </span>
+                </span>
+              </header>
+              <section class="lite-approval-overview">
+                <h3>{{ approvalPresentation(activeInteraction).title }}</h3>
+                <p>{{ approvalPresentation(activeInteraction).summary }}</p>
+                <dl>
+                  <div>
+                    <dt>能力</dt>
+                    <dd>{{ approvalPresentation(activeInteraction).toolLabel }}</dd>
+                  </div>
+                  <div>
+                    <dt>行为</dt>
+                    <dd>{{ approvalPresentation(activeInteraction).operationLabel }}</dd>
+                  </div>
+                  <div v-if="approvalPresentation(activeInteraction).target">
+                    <dt>对象</dt>
+                    <dd>{{ approvalPresentation(activeInteraction).target }}</dd>
+                  </div>
+                  <div
+                    v-for="change in approvalPresentation(activeInteraction).changes"
+                    :key="change.label + ':' + change.detail"
+                  >
+                    <dt>{{ change.label }}</dt>
+                    <dd>{{ change.detail }}</dd>
+                  </div>
+                </dl>
+              </section>
+              <p class="lite-risk-summary">
+                <span aria-hidden="true">!</span>{{ approvalRiskSummary(activeInteraction) }}
+              </p>
+              <details class="lite-technical-details">
+                <summary>技术详情</summary>
+                <div class="lite-technical-details-body">
+                  <ParsedArgs
+                    :args="approvalArguments(activeInteraction)"
+                    title="完整操作参数"
+                    embedded
+                  />
+                  <FileChangeDiff :args="approvalArguments(activeInteraction)" embedded />
+                </div>
+              </details>
+              <p
+                v-if="lite.interactionError(activeInteraction.interactionId)"
+                class="lite-object-error"
+                role="alert"
               >
-              <span
-                v-if="remainingLabel(activeInteraction)"
-                class="lite-countdown"
-                :data-expired="remainingLabel(activeInteraction) === '已超时'"
+                {{ lite.interactionError(activeInteraction.interactionId)?.message }}
+              </p>
+              <button
+                type="button"
+                class="lite-view-full"
+                :disabled="!approvalDetailNodeId(activeInteraction)"
+                @click="openApprovalDetail(activeInteraction, $event)"
               >
-                {{ remainingLabel(activeInteraction) }}
-              </span>
-            </span>
-          </div>
-          <ApprovalSummary
-            :sense-name="approvalPresentation(activeInteraction).senseName"
-            :args="approvalArguments(activeInteraction)"
-          />
-          <p class="lite-risk-summary">{{ approvalRiskSummary(activeInteraction) }}</p>
-          <ParsedArgs :args="approvalArguments(activeInteraction)" title="完整操作参数" />
-          <p
-            v-if="lite.interactionError(activeInteraction.interactionId)"
-            class="lite-object-error"
-            role="alert"
-          >
-            {{ lite.interactionError(activeInteraction.interactionId)?.message }}
-          </p>
-          <button
-            type="button"
-            class="lite-view-full"
-            :disabled="!approvalDetailNodeId(activeInteraction)"
-            @click="openApprovalDetail(activeInteraction, $event)"
-          >
-            查看工具详情
-          </button>
-          <div v-if="interactionActionable(activeInteraction)" class="lite-interaction-actions">
-            <button
-              type="button"
-              class="lite-btn is-accept"
-              :disabled="
-                deciding === activeInteraction.interactionId ||
-                remainingLabel(activeInteraction) === '已超时' ||
-                connectionBlocked
-              "
-              @click="onDecide(activeInteraction, 'accept')"
+                查看工具详情
+              </button>
+            </div>
+            <footer
+              v-if="interactionActionable(activeInteraction)"
+              class="lite-interaction-actions"
             >
-              {{ deciding === activeInteraction.interactionId ? '处理中…' : '允许' }}
-            </button>
-            <button
-              type="button"
-              class="lite-btn is-reject"
-              :disabled="
-                deciding === activeInteraction.interactionId ||
-                remainingLabel(activeInteraction) === '已超时' ||
-                connectionBlocked
-              "
-              @click="onDecide(activeInteraction, 'reject')"
-            >
-              {{ deciding === activeInteraction.interactionId ? '处理中…' : '拒绝' }}
-            </button>
-          </div>
-        </div>
-        <div v-else class="lite-interaction" :data-status="activeInteraction.status">
-          <div class="lite-interaction-head">
-            <!-- v0.4.2 双层标题去除：名称由上方页签承载，这里只保留状态与倒计时（靠左展示） -->
-            <span class="lite-interaction-dot" :data-status="activeInteraction.status" aria-hidden="true" />
-            <span class="lite-interaction-head-right">
-              <span
-                v-if="activeInteraction.status !== 'pending'"
-                class="lite-status-pill"
-                :data-status="activeInteraction.status"
-                >{{ interactionStatusLabel(activeInteraction) }}</span
+              <span class="lite-action-hint">批准后将立即执行，请先核对目标与变更。</span>
+              <button
+                type="button"
+                class="lite-btn is-reject"
+                :disabled="
+                  deciding === activeInteraction.interactionId ||
+                  remainingLabel(activeInteraction) === '已超时' ||
+                  connectionBlocked
+                "
+                @click="onDecide(activeInteraction, 'reject')"
               >
-              <span
-                v-if="remainingLabel(activeInteraction)"
-                class="lite-countdown"
-                :data-expired="remainingLabel(activeInteraction) === '已超时'"
+                拒绝
+              </button>
+              <button
+                type="button"
+                class="lite-btn is-accept"
+                :disabled="
+                  deciding === activeInteraction.interactionId ||
+                  remainingLabel(activeInteraction) === '已超时' ||
+                  connectionBlocked
+                "
+                @click="onDecide(activeInteraction, 'accept')"
               >
-                {{ remainingLabel(activeInteraction) }}
-              </span>
-            </span>
+                {{ deciding === activeInteraction.interactionId ? '处理中…' : '允许执行' }}
+              </button>
+            </footer>
           </div>
-          <div
-            v-for="question in questionsOf(activeInteraction)"
-            :key="question.questionId"
-            class="lite-followup-question"
-          >
-            <p>{{ question.question }}</p>
-            <p
-              v-if="lite.questionError(activeInteraction.interactionId, question.questionId)"
-              class="lite-question-error"
-              role="alert"
-            >
-              {{
-                lite.questionError(activeInteraction.interactionId, question.questionId)?.message
-              }}
-            </p>
-            <template v-if="!question.freeText">
-              <div v-for="option in question.options" :key="option.label" class="lite-option-wrap">
-                <label class="lite-option">
-                  <input
-                    :type="question.multiSelect ? 'checkbox' : 'radio'"
-                    :name="activeInteraction.interactionId + ':' + question.questionId"
+          <div v-else class="lite-interaction is-question" :data-status="activeInteraction.status">
+            <div class="lite-interaction-body is-question">
+              <header class="lite-interaction-head">
+                <span class="lite-interaction-kicker">QUESTION SESSION</span>
+                <span class="lite-interaction-head-right">
+                  <span
+                    class="lite-interaction-dot"
+                    :data-status="activeInteraction.status"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    已完成 {{ answeredQuestionCount(activeInteraction) }}/{{
+                      questionsOf(activeInteraction).length
+                    }}
+                  </span>
+                </span>
+              </header>
+              <div class="lite-question-workspace">
+                <nav class="lite-question-nav" aria-label="问题列表">
+                  <button
+                    v-for="(question, index) in questionsOf(activeInteraction)"
+                    :key="question.questionId"
+                    type="button"
+                    class="lite-question-nav-item"
+                    :class="{
+                      'is-active': question.questionId === activeQuestionIdOf(activeInteraction),
+                      'is-answered': questionAnswered(activeInteraction.interactionId, question),
+                    }"
+                    :aria-current="
+                      question.questionId === activeQuestionIdOf(activeInteraction)
+                        ? 'step'
+                        : undefined
+                    "
+                    @click="selectQuestion(activeInteraction, question.questionId)"
+                  >
+                    <span class="lite-question-index">{{
+                      String(index + 1).padStart(2, '0')
+                    }}</span>
+                    <span class="lite-question-nav-copy">
+                      <strong>{{ question.header || `问题 ${index + 1}` }}</strong>
+                      <small>{{ question.question }}</small>
+                    </span>
+                    <span class="lite-question-state" aria-hidden="true">{{
+                      questionAnswered(activeInteraction.interactionId, question) ? '✓' : '·'
+                    }}</span>
+                  </button>
+                </nav>
+                <fieldset v-if="activeQuestion" class="lite-followup-question">
+                  <legend>{{ activeQuestion.header || activeQuestion.question }}</legend>
+                  <p v-if="activeQuestion.header" class="lite-question-prompt">
+                    {{ activeQuestion.question }}
+                  </p>
+                  <p class="lite-question-type">
+                    {{
+                      activeQuestion.freeText
+                        ? '自由回答'
+                        : activeQuestion.multiSelect
+                          ? '可多选'
+                          : '单选'
+                    }}
+                  </p>
+                  <p
+                    v-if="
+                      lite.questionError(activeInteraction.interactionId, activeQuestion.questionId)
+                    "
+                    class="lite-question-error"
+                    role="alert"
+                  >
+                    {{
+                      lite.questionError(activeInteraction.interactionId, activeQuestion.questionId)
+                        ?.message
+                    }}
+                  </p>
+                  <template v-if="!activeQuestion.freeText">
+                    <div
+                      v-for="option in activeQuestion.options"
+                      :key="option.label"
+                      class="lite-option-wrap"
+                    >
+                      <label class="lite-option">
+                        <input
+                          :type="activeQuestion.multiSelect ? 'checkbox' : 'radio'"
+                          :name="activeInteraction.interactionId + ':' + activeQuestion.questionId"
+                          :disabled="!interactionActionable(activeInteraction)"
+                          :checked="
+                            selectedOf(
+                              activeInteraction.interactionId,
+                              activeQuestion.questionId,
+                            ).includes(option.label)
+                          "
+                          @change="
+                            toggleOption(
+                              activeInteraction.interactionId,
+                              activeQuestion,
+                              option.label,
+                            )
+                          "
+                        />
+                        <span class="lite-option-label">{{ option.label }}</span>
+                        <span v-if="option.description" class="lite-option-description">{{
+                          option.description
+                        }}</span>
+                      </label>
+                      <textarea
+                        v-if="
+                          selectedOf(
+                            activeInteraction.interactionId,
+                            activeQuestion.questionId,
+                          ).includes(option.label)
+                        "
+                        class="lite-option-note"
+                        rows="2"
+                        :value="
+                          noteOf(
+                            activeInteraction.interactionId,
+                            activeQuestion.questionId,
+                            option.label,
+                          )
+                        "
+                        :disabled="!interactionActionable(activeInteraction)"
+                        placeholder="为这个选项补充描述（可选）"
+                        @input="
+                          setOptionNote(
+                            activeInteraction.interactionId,
+                            activeQuestion.questionId,
+                            option.label,
+                            ($event.target as HTMLTextAreaElement).value,
+                          )
+                        "
+                      />
+                    </div>
+                  </template>
+                  <textarea
+                    class="lite-freetext"
+                    :class="{ 'is-other': !activeQuestion.freeText }"
+                    rows="4"
+                    :value="textDraftOf(activeInteraction.interactionId, activeQuestion.questionId)"
                     :disabled="!interactionActionable(activeInteraction)"
-                    :checked="
-                      selectedOf(activeInteraction.interactionId, question.questionId).includes(
-                        option.label,
+                    :placeholder="activeQuestion.freeText ? '输入回答' : '其他补充（可选）'"
+                    @input="
+                      setTextDraft(
+                        activeInteraction.interactionId,
+                        activeQuestion,
+                        ($event.target as HTMLTextAreaElement).value,
                       )
                     "
-                    @change="toggleOption(activeInteraction.interactionId, question, option.label)"
                   />
-                  <span class="lite-option-label">{{ option.label }}</span>
-                  <span v-if="option.description" class="lite-option-description">{{
-                    option.description
-                  }}</span>
-                </label>
-                <textarea
-                  v-if="
-                    selectedOf(activeInteraction.interactionId, question.questionId).includes(
-                      option.label,
-                    )
-                  "
-                  class="lite-option-note"
-                  rows="2"
-                  :value="
-                    noteOf(activeInteraction.interactionId, question.questionId, option.label)
-                  "
-                  :disabled="!interactionActionable(activeInteraction)"
-                  placeholder="为这个选项补充描述（可选）"
-                  @input="
-                    setOptionNote(
-                      activeInteraction.interactionId,
-                      question.questionId,
-                      option.label,
-                      ($event.target as HTMLTextAreaElement).value,
-                    )
-                  "
-                />
+                </fieldset>
               </div>
-            </template>
-            <textarea
-              v-else
-              class="lite-freetext"
-              rows="2"
-              :value="textDraftOf(activeInteraction.interactionId, question.questionId)"
-              :disabled="!interactionActionable(activeInteraction)"
-              placeholder="输入回答"
-              @input="
-                setTextDraft(
-                  activeInteraction.interactionId,
-                  question.questionId,
-                  ($event.target as HTMLTextAreaElement).value,
-                )
-              "
-            />
-          </div>
-          <p
-            v-if="lite.interactionError(activeInteraction.interactionId)"
-            class="lite-object-error"
-            role="alert"
-          >
-            {{ lite.interactionError(activeInteraction.interactionId)?.message }}
-          </p>
-          <div v-if="interactionActionable(activeInteraction)" class="lite-interaction-actions">
-            <button
-              type="button"
-              class="lite-btn is-accept"
-              :disabled="answering === activeInteraction.interactionId || connectionBlocked"
-              @click="onAnswerBatch(activeInteraction)"
+              <p
+                v-if="lite.interactionError(activeInteraction.interactionId)"
+                class="lite-object-error"
+                role="alert"
+              >
+                {{ lite.interactionError(activeInteraction.interactionId)?.message }}
+              </p>
+            </div>
+            <footer
+              v-if="interactionActionable(activeInteraction)"
+              class="lite-interaction-actions is-question"
             >
-              提交回答
-            </button>
+              <div class="lite-question-pager">
+                <button
+                  type="button"
+                  :disabled="activeQuestionIndexOf(activeInteraction) <= 0"
+                  @click="moveQuestion(activeInteraction, -1)"
+                >
+                  上一题
+                </button>
+                <span
+                  >{{ activeQuestionIndexOf(activeInteraction) + 1 }} /
+                  {{ questionsOf(activeInteraction).length }}</span
+                >
+                <button
+                  type="button"
+                  :disabled="
+                    activeQuestionIndexOf(activeInteraction) >=
+                    questionsOf(activeInteraction).length - 1
+                  "
+                  @click="moveQuestion(activeInteraction, 1)"
+                >
+                  下一题
+                </button>
+              </div>
+              <button
+                type="button"
+                class="lite-btn is-submit"
+                :disabled="
+                  answering === activeInteraction.interactionId ||
+                  connectionBlocked ||
+                  !canAnswerBatch(activeInteraction)
+                "
+                @click="onAnswerBatch(activeInteraction)"
+              >
+                {{ canAnswerBatch(activeInteraction) ? '提交回答' : '请完成全部问题' }}
+              </button>
+            </footer>
           </div>
-        </div>
         </div>
       </section>
 

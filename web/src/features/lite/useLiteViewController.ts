@@ -335,7 +335,10 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     return lite.interactions.find((item) => item.interactionId === id) ?? null
   })
   const deciding = ref<string | null>(null)
-  async function onDecide(interaction: LiteInteraction, action: 'accept' | 'reject'): Promise<void> {
+  async function onDecide(
+    interaction: LiteInteraction,
+    action: 'accept' | 'reject',
+  ): Promise<void> {
     deciding.value = interaction.interactionId
     try {
       await lite.decideApproval(interaction.interactionId, action)
@@ -346,6 +349,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   interface QuestionView {
     questionId: string
     question: string
+    header?: string
     options: Array<{ label: string; description?: string }>
     multiSelect: boolean
     freeText: boolean
@@ -356,6 +360,9 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     return (questions as Array<Record<string, unknown>>).map((question) => ({
       questionId: typeof question.questionId === 'string' ? question.questionId : '',
       question: typeof question.question === 'string' ? question.question : '',
+      ...(typeof question.header === 'string' && question.header.trim()
+        ? { header: question.header.trim() }
+        : {}),
       options: Array.isArray(question.options)
         ? (question.options as Array<{ label: string; description?: string }>)
         : [],
@@ -390,9 +397,11 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       } else current.add(label)
       next.selected = [...current]
     } else {
-      next.selected = current.has(label) ? [] : [label]
+      const deselecting = current.has(label)
+      next.selected = deselecting ? [] : [label]
+      if (!deselecting) next.freeText = ''
       // 单选切选项：丢弃非当前选项的补充描述
-      next.notes = current.has(label)
+      next.notes = deselecting
         ? {}
         : { ...(next.notes[label] ? { [label]: next.notes[label] } : {}) }
     }
@@ -408,15 +417,80 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   function textDraftOf(batchId: string, questionId: string): string {
     return draftOf(batchId, questionId).freeText
   }
-  function setTextDraft(batchId: string, questionId: string, value: string): void {
+  function setTextDraft(batchId: string, question: QuestionView, value: string): void {
     const batch = { ...questionDrafts.value[batchId] }
-    const draft = draftOf(batchId, questionId)
-    batch[questionId] = { ...draft, freeText: value }
+    const draft = draftOf(batchId, question.questionId)
+    const next = { ...draft, freeText: value }
+    if (!question.freeText && !question.multiSelect && value.trim()) {
+      next.selected = []
+      next.notes = {}
+    }
+    batch[question.questionId] = next
     questionDrafts.value = { ...questionDrafts.value, [batchId]: batch }
+  }
+  const activeQuestionByBatch = ref<Record<string, string>>({})
+  function questionAnswered(batchId: string, question: QuestionView): boolean {
+    const draft = draftOf(batchId, question.questionId)
+    if (draft.freeText.trim()) return true
+    if (question.freeText) return false
+    return question.multiSelect ? draft.selected.length > 0 : draft.selected.length === 1
+  }
+  function activeQuestionIdOf(interaction: LiteInteraction): string {
+    const questions = questionsOf(interaction)
+    const saved = activeQuestionByBatch.value[interaction.interactionId]
+    if (saved && questions.some((question) => question.questionId === saved)) return saved
+    return questions[0]?.questionId ?? ''
+  }
+  function activeQuestionOf(interaction: LiteInteraction): QuestionView | undefined {
+    const id = activeQuestionIdOf(interaction)
+    return questionsOf(interaction).find((question) => question.questionId === id)
+  }
+  const activeQuestion = computed(() =>
+    activeInteraction.value?.kind === 'question_batch'
+      ? activeQuestionOf(activeInteraction.value)
+      : undefined,
+  )
+  function selectQuestion(interaction: LiteInteraction, questionId: string): void {
+    activeQuestionByBatch.value = {
+      ...activeQuestionByBatch.value,
+      [interaction.interactionId]: questionId,
+    }
+  }
+  function moveQuestion(interaction: LiteInteraction, offset: number): void {
+    const questions = questionsOf(interaction)
+    const index = questions.findIndex(
+      (question) => question.questionId === activeQuestionIdOf(interaction),
+    )
+    const next = questions[index + offset]
+    if (next) selectQuestion(interaction, next.questionId)
+  }
+  function activeQuestionIndexOf(interaction: LiteInteraction): number {
+    return questionsOf(interaction).findIndex(
+      (question) => question.questionId === activeQuestionIdOf(interaction),
+    )
+  }
+  function answeredQuestionCount(interaction: LiteInteraction): number {
+    return questionsOf(interaction).filter((question) =>
+      questionAnswered(interaction.interactionId, question),
+    ).length
+  }
+  function canAnswerBatch(interaction: LiteInteraction): boolean {
+    const questions = questionsOf(interaction)
+    return (
+      questions.length > 0 &&
+      questions.every((question) => questionAnswered(interaction.interactionId, question))
+    )
   }
   const answering = ref<string | null>(null)
   async function onAnswerBatch(interaction: LiteInteraction): Promise<void> {
     const batchId = interaction.interactionId
+    if (!canAnswerBatch(interaction)) {
+      const firstIncomplete = questionsOf(interaction).find(
+        (question) => !questionAnswered(batchId, question),
+      )
+      if (firstIncomplete) selectQuestion(interaction, firstIncomplete.questionId)
+      return
+    }
     const answers = questionsOf(interaction).map((question) => {
       const draft = draftOf(batchId, question.questionId)
       if (question.freeText) {
@@ -426,14 +500,17 @@ export function useLiteViewController(props: LiteViewControllerProps) {
         }
       }
       const notes: Record<string, string> = {}
-      for (const label of draft.selected) {
+      const freeText = draft.freeText.trim()
+      const selected = !question.multiSelect && freeText ? [] : draft.selected
+      for (const label of selected) {
         const note = draft.notes[label]?.trim()
         if (note) notes[label] = note
       }
       return {
         questionId: question.questionId,
-        selectedLabels: draft.selected,
+        selectedLabels: selected,
         ...(Object.keys(notes).length ? { optionNotes: notes } : {}),
+        ...(freeText ? { freeText } : {}),
       }
     })
     answering.value = batchId
@@ -510,7 +587,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   }
   const detailReturnFocus = ref<HTMLElement | null>(null)
   function rememberDetailTrigger(event?: Event): void {
-    detailReturnFocus.value = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null
+    detailReturnFocus.value =
+      event?.currentTarget instanceof HTMLElement ? event.currentTarget : null
   }
   /** t20：t18 合成的 in-flight 占位节点（无持久内容）——禁用详情入口，避免抽屉对不存在节点报错。 */
   function isInFlightNode(node: LiteRunNode): boolean {
@@ -638,7 +716,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   // t16：MCU 方向键选中（预留）——左右/上下移动时间轴 bar 焦点并同步定位高亮。
   function onTrajectoryKeydown(event: KeyboardEvent): void {
     const target = event.target
-    if (!(target instanceof HTMLElement) || !target.classList.contains('lite-trajectory-bar')) return
+    if (!(target instanceof HTMLElement) || !target.classList.contains('lite-trajectory-bar'))
+      return
     const section = event.currentTarget
     if (!(section instanceof HTMLElement)) return
     const bars = Array.from(
@@ -754,7 +833,9 @@ export function useLiteViewController(props: LiteViewControllerProps) {
 
     // 需求 3/6：全局共享压缩时间轴——所有节点按 startedAt 绝对定位，而非每条链路从头画起。
     // 逐个全局事件累加压缩间隔，得到每个节点在时间轴上的 X 坐标（大段等待被封顶剔除）。
-    const sorted = [...nodes].sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))
+    const sorted = [...nodes].sort(
+      (a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key),
+    )
     const xByKey = new Map<string, number>()
     let cursor = LABEL_GUTTER_PX
     let prevStartedAt: number | null = null
@@ -865,19 +946,97 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   }
 
   return {
-    DetailDrawer, LiteMarkdown, LiteScrollbar, aborting, activeInteraction, activeLane,
-    activePendingTabId, answering, approvalArguments, approvalDetailNodeId, approvalPresentation,
-    approvalRiskSummary, autoGrowInput, closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex,
-    entryDispatch, entryExpanded, entryHasMore, entryPreview, errorBanner, focusNodeFromTrajectory,
-    focusNodeId, formatElapsed, hideBarTip, history, hoverNode, hydrationLabel, inputText,
-    interactionActionable, interactionStatusLabel, isDetailNode, isInFlightNode, isPlainRowContent,
-    isRowFocused, laneTabs, lite, liteInputEl, liteStatus, monitor, monitorEl, moveBarTip,
-    nodeKindLabel, nodeToneVars, noteOf, onAnswerBatch, onDecide, onErrorAction, onInputKeydown,
+    DetailDrawer,
+    LiteMarkdown,
+    LiteScrollbar,
+    aborting,
+    activeInteraction,
+    activeLane,
+    activePendingTabId,
+    activeQuestion,
+    activeQuestionIdOf,
+    activeQuestionIndexOf,
+    answeredQuestionCount,
+    answering,
+    approvalArguments,
+    approvalDetailNodeId,
+    approvalPresentation,
+    approvalRiskSummary,
+    autoGrowInput,
+    closeDetail,
+    connectionBlocked,
+    deciding,
+    detailNode,
+    detailNodeIndex,
+    entryDispatch,
+    entryExpanded,
+    entryHasMore,
+    entryPreview,
+    errorBanner,
+    focusNodeFromTrajectory,
+    focusNodeId,
+    formatElapsed,
+    hideBarTip,
+    history,
+    hoverNode,
+    hydrationLabel,
+    inputText,
+    interactionActionable,
+    interactionStatusLabel,
+    isDetailNode,
+    isInFlightNode,
+    isPlainRowContent,
+    isRowFocused,
+    laneTabs,
+    lite,
+    liteInputEl,
+    liteStatus,
+    monitor,
+    monitorEl,
+    moveBarTip,
+    nodeKindLabel,
+    nodeToneVars,
+    noteOf,
+    onAnswerBatch,
+    onDecide,
+    onErrorAction,
+    onInputKeydown,
     onMonitorScroll,
-    onResume, onSend, onStop, onTrajectoryKeydown, onTrajectoryWheel, openApprovalDetail,
-    openNodeDetail, operationBlockReason, pendingTab, pendingTabs, questionsOf, remainingLabel,
-    resetTrajectoryZoom, resuming, rootUi, rowKey, runStatusLabel, selectedOf, sending, setOptionNote,
-    setRowEl, setTextDraft, showBarTip, showsRowContent, textDraftOf, tipPos, toggleOption,
-    toolTypeGlyph, trajectoryBarStyle, trajectoryLayout, trajectoryZoom, visibleRows,
+    onResume,
+    onSend,
+    onStop,
+    onTrajectoryKeydown,
+    onTrajectoryWheel,
+    openApprovalDetail,
+    moveQuestion,
+    openNodeDetail,
+    operationBlockReason,
+    pendingTab,
+    pendingTabs,
+    questionAnswered,
+    questionsOf,
+    remainingLabel,
+    resetTrajectoryZoom,
+    resuming,
+    rootUi,
+    rowKey,
+    runStatusLabel,
+    selectedOf,
+    sending,
+    setOptionNote,
+    selectQuestion,
+    setRowEl,
+    setTextDraft,
+    showBarTip,
+    showsRowContent,
+    textDraftOf,
+    tipPos,
+    toggleOption,
+    canAnswerBatch,
+    toolTypeGlyph,
+    trajectoryBarStyle,
+    trajectoryLayout,
+    trajectoryZoom,
+    visibleRows,
   }
 }

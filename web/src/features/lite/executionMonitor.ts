@@ -6,6 +6,7 @@ import type {
 } from '@/application/chat/public'
 import type { ExecutionStep, GraphToolCall, TimelineNode } from '@/application/backend/public'
 import { executionStepKey } from '@/application/chat/public'
+import { toSenseNameZh } from '@/utils/senseName'
 
 export interface LiteExecutionStepView {
   key: string
@@ -538,7 +539,7 @@ export function projectLiteHistory(
     const toolCalls = node.toolCalls ?? []
     // 工具名一律使用中文名（sense.tools label），未命中回退原名（需求：所有工具调用必须使用中文名称）。
     const toolNames = toolCalls
-      .map((call) => toolMetaOf(call.name)?.label?.trim() || call.name)
+      .map((call) => toolMetaOf(call.name)?.label?.trim() || toSenseNameZh(call.name))
       .filter(Boolean)
     const toolType = classifyToolType(toolCalls[0]?.name ?? '')
     // v0.5.2：主/子 Agent 节点不再要求 direction==='agent-to-user' 才匹配 model step——
@@ -642,7 +643,7 @@ export function projectLiteHistory(
     if (step.status !== 'running' || matchedStepIds.has(step.id)) continue
     const isModel = step.kind === 'model'
     const modelKind: LiteRunNodeKind = step.chatId === model.rootChatId ? 'root-agent' : 'child-agent'
-    const toolLabel = toolMetaOf(step.name)?.label?.trim()
+    const toolLabel = toolMetaOf(step.name)?.label?.trim() || toSenseNameZh(step.name)
     nodesOut.push({
       key: `inflight:${step.id}`,
       nodeId: `inflight:${step.id}`,

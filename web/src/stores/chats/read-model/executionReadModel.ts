@@ -366,12 +366,16 @@ function deriveOverallStatus(
 ): ExecutionRootStatus {
   const statuses = [...runs].map(runStatus)
   if (statuses.includes('running') || steps.some((step) => step.status === 'running')) return 'running'
+  // A completed final response is stronger evidence than a stale waiting run
+  // snapshot. Without this, Lite keeps its clock and Stop button alive after a
+  // round has already finished.
+  if (hasFinal) return 'completed'
   if (statuses.includes('waiting')) return 'waiting'
   const rootStatus = runStatus(rootRun)
   if (rootStatus) return rootStatus
   if (statuses.includes('failed') || steps.some((step) => step.status === 'failed')) return 'failed'
   if (statuses.includes('paused') || steps.some((step) => step.status === 'cancelled')) return 'paused'
-  if (hasFinal || steps.length > 0) return 'completed'
+  if (steps.length > 0) return 'completed'
   return 'idle'
 }
 
