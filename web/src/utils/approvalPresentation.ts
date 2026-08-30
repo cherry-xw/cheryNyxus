@@ -10,12 +10,27 @@ export interface ApprovalPresentation {
   title: string
   summary: string
   target?: string
+  changes: ToolChangePresentation[]
 }
 
 interface ToolPresentation {
   label: string
   operation: string
   targetKeys?: string[]
+}
+
+/** One concrete, user-readable change within a structured tool call. */
+export interface ToolChangePresentation {
+  label: string
+  detail: string
+}
+
+/** Shared display model for every tool surface: approval, node tree, cards and Lite. */
+export interface ToolRunPresentation {
+  toolLabel: string
+  operationLabel: string
+  target?: string
+  changes: ToolChangePresentation[]
 }
 
 const TOOL_PRESENTATIONS: Record<string, ToolPresentation> = {
@@ -149,10 +164,47 @@ function operationFor(senseName: string, args: Record<string, unknown>): ToolPre
   )
 }
 
-export function createApprovalPresentation(
+function configChanges(args: Record<string, unknown>): ToolChangePresentation[] {
+  if (!Array.isArray(args.operations)) return []
+  return args.operations.flatMap((raw): ToolChangePresentation[] => {
+    if (!raw || typeof raw !== 'object') return []
+    const operation = raw as Record<string, unknown>
+    const name = shortValue(operation.name) ?? '未命名项'
+    switch (operation.op) {
+      case 'putBrain':
+        return [{ label: '模型配置', detail: `将“${name}”更新为本次提交的模型配置` }]
+      case 'removeBrain':
+        return [{ label: '模型配置', detail: `删除模型配置“${name}”` }]
+      case 'putRole': {
+        const role = argumentRecord(operation.role)
+        const brain = shortValue(role.brain)
+        return [{ label: '角色配置', detail: `将角色“${name}”${brain ? `使用模型“${brain}”` : '更新为本次提交的配置'}` }]
+      }
+      case 'removeRole':
+        return [{ label: '角色配置', detail: `删除角色“${name}”` }]
+      case 'putPreset':
+        return [{ label: '预设配置', detail: `将预设“${name}”更新为本次提交的配置` }]
+      case 'removePreset':
+        return [{ label: '预设配置', detail: `删除预设“${name}”` }]
+      case 'putSenseGroup': {
+        const senses = Array.isArray(operation.senses) ? operation.senses.filter((item): item is string => typeof item === 'string') : []
+        return [{
+          label: '工具组',
+          detail: `将工具组“${name}”设置为：${senses.map(toSenseNameZh).join('、') || '空'}`,
+        }]
+      }
+      case 'removeSenseGroup':
+        return [{ label: '工具组', detail: `删除工具组“${name}”` }]
+      default:
+        return [{ label: '配置变更', detail: `执行配置操作“${String(operation.op ?? '未知')}”` }]
+    }
+  })
+}
+
+export function createToolRunPresentation(
   senseNameInput: unknown,
   argsInput: unknown,
-): ApprovalPresentation {
+): ToolRunPresentation {
   const senseName =
     typeof senseNameInput === 'string' && senseNameInput.trim() ? senseNameInput.trim() : '未知工具'
   const args = argumentRecord(argsInput)
@@ -160,16 +212,41 @@ export function createApprovalPresentation(
   const target = tool.targetKeys
     ?.map((key) => shortValue(args[key]))
     .find((value): value is string => value !== undefined)
+  const genericTarget = target ??
+    shortValue(args.path) ?? shortValue(args.assetPath) ?? shortValue(args.query) ??
+    shortValue(args.command) ?? shortValue(args.task) ?? shortValue(args.prompt)
+  const changes = senseName === 'config_manage' && args.action === 'patch'
+    ? configChanges(args)
+    : senseName === 'write_file' && typeof args.path === 'string'
+      ? [{ label: '文件变更', detail: `写入文件“${args.path}”` }]
+      : []
+  return {
+    toolLabel: tool.label,
+    operationLabel: tool.operation,
+    ...(genericTarget ? { target: genericTarget } : {}),
+    changes,
+  }
+}
+
+export function createApprovalPresentation(
+  senseNameInput: unknown,
+  argsInput: unknown,
+): ApprovalPresentation {
+  const senseName =
+    typeof senseNameInput === 'string' && senseNameInput.trim() ? senseNameInput.trim() : '未知工具'
+  const tool = createToolRunPresentation(senseName, argsInput)
+  const target = tool.target
   const targetText = target ? `：${target}` : ''
   return {
     senseName,
     actorLabel: '大模型发起',
     approvalLabel: '由你审批后执行',
-    toolLabel: tool.label,
-    operationLabel: tool.operation,
-    title: `大模型需要${tool.operation}`,
-    summary: `大模型请求通过「${tool.label}」${tool.operation}${targetText}。批准后才会执行。`,
+    toolLabel: tool.toolLabel,
+    operationLabel: tool.operationLabel,
+    title: `大模型需要${tool.operationLabel}`,
+    summary: `大模型请求通过「${tool.toolLabel}」${tool.operationLabel}${targetText}。批准后才会执行。`,
     ...(target ? { target } : {}),
+    changes: tool.changes,
   }
 }
 

@@ -4,6 +4,7 @@ import { useAgentsStore, useInteractionsStore } from '@/application/public'
 import type { InteractionRecord } from '@/application/backend/public'
 import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
+import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 import { createApprovalPresentation } from '@/utils/approvalPresentation'
 
 const props = withDefaults(defineProps<{ presetId?: string; native?: boolean }>(), {
@@ -331,6 +332,7 @@ onBeforeUnmount(() => {
               :args="payload(item).arguments"
             />
             <ParsedArgs :args="payload(item).arguments" title="完整操作参数" />
+            <FileChangeDiff :args="payload(item).arguments" />
           </template>
           <div v-else class="questions">
             <fieldset

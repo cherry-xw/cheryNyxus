@@ -38,6 +38,10 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
         <dt>对象</dt>
         <dd>{{ presentation.target }}</dd>
       </div>
+      <div v-for="change in presentation.changes" :key="`${change.label}:${change.detail}`" class="change">
+        <dt>{{ change.label }}</dt>
+        <dd>{{ change.detail }}</dd>
+      </div>
     </dl>
     <p v-if="!compact">{{ presentation.summary }}</p>
   </section>
@@ -98,6 +102,9 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+.approval-summary .change {
+  flex-basis: 100%;
 }
 .approval-summary p {
   margin: 0;
