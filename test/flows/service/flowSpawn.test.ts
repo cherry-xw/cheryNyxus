@@ -2,9 +2,9 @@
  * 流程测试 Tier 2：子 agent spawn 全链路 S14–S16（service+WS 级）。
  *
  * 规约见 [docs/flow-test.md](../../../docs/flow-test.md) §3.D / FP-F。主子 agent 唤醒策略调度器端到端：
- * - S14 immediate：spawn_role → role_created → startSpawn → 子 done → role_reply → 主 resume（全链路）。
+ * - S14 immediate：spawn_role → role_created → eager 子 done → role_reply → 主 canonical resume。
  * - S15 deferred：多子 deferred，wakeScheduler silent 暂存，全完成兜底唤主（仅 1 条 role_reply）。
- * - S16 子刷新重连：子 running 断连 → attach(child, running:true) 续跑（机制继承 S8/S9）。
+ * - S16 子刷新重连：子 running 断连 → open(child) 续跑（机制继承 S8/S9）。
  *
  * 复用 serviceHarness + RpcClient + eventsAssert。role_created/role_reply 无 requestId → client.background，
  * 按 parentChatId 过滤避跨测串扰。
@@ -13,16 +13,22 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { deleteChat, getChat } from '@/db/chat.js'
 import type {
   ChatCreateResponseData,
-  ChatStartSpawnResponseData,
-  ChatAttachResponseData,
   RoleCreatedNotificationData,
   RoleReplyNotificationData,
 } from '@/service/message/types.js'
-import { bootFlowService, connectClient, type FlowService } from '../helpers/serviceHarness.js'
 import {
-  allEvents,
+  awaitInputAccepted,
+  awaitResumeStarted,
+  bootFlowService,
+  connectClient,
+  decideApproval,
+  openChat,
+  resumeChatRun,
+  submitChatInput,
+  type FlowService,
+} from '../helpers/serviceHarness.js'
+import {
   notificationsByType,
-  streamChunks,
   collectStreamContent,
   waitFor,
   waitForNotification,
@@ -59,6 +65,29 @@ function roleEventCount(
   ).length
 }
 
+function chatEventsSince(client: RpcClient, start: number, chatId: string) {
+  return client.received
+    .slice(start)
+    .filter((event) => (event as { chatId?: string }).chatId === chatId)
+}
+
+async function acceptSpawnApprovals(
+  client: RpcClient,
+  inputEvents: Parameters<typeof notificationsByType>[0],
+  count = 1,
+): Promise<void> {
+  const approvalIds = await waitFor(
+    () => inputEvents,
+    (events) => {
+      const ids = notificationsByType(events, 'interrupt').map(
+        (event) => (event.data as { approvalId: string }).approvalId,
+      )
+      return ids.length >= count ? ids.slice(0, count) : undefined
+    },
+  )
+  for (const approvalId of approvalIds) await decideApproval(client, approvalId, 'accept')
+}
+
 describe('S14 spawn immediate 全链路', () => {
   let svc: FlowService
   let client: RpcClient
@@ -84,15 +113,16 @@ describe('S14 spawn immediate 全链路', () => {
     await svc.close()
   })
 
-  it('spawn_role → role_created → startSpawn → 子 done → role_reply → 主 resume', async () => {
+  it('spawn_role → role_created → eager 子 done → role_reply → 主 resume', async () => {
     const createRes = await client.call('chat.create', {
       brain: 'mock_spawn',
       senseGroup: 'spawn_senses',
     })
     parentChatId = (createRes.data as ChatCreateResponseData).chatId
 
-    // 1. send：父轮1 content + spawn_role(immediate) → role_created 推主连接（background）
-    const send = client.request('chat.send', { chatId: parentChatId, prompt: '派发审查' })
+    const input = submitChatInput(client, parentChatId, '派发审查')
+    await awaitInputAccepted(client, input)
+    await acceptSpawnApprovals(client, input.events)
     const roleCreated = (await waitForRoleEvent(
       client,
       'role_created',
@@ -102,19 +132,12 @@ describe('S14 spawn immediate 全链路', () => {
     expect(roleCreated.wake).toBe('immediate')
     expect(roleCreated.parentChatId).toBe(parentChatId)
     expect(roleCreated.brain).toBe('mock_content')
-    const { taskId, chatId: childChatId } = roleCreated
+    const { chatId: childChatId } = roleCreated
 
     // 父 yieldTurn → done（主非 waited child，loop 正常发 done）
-    await waitForNotification(() => send.events, 'done')
+    await waitForNotification(() => input.events, 'done')
 
-    // 2. chat.startSpawn 退化为 recovery（spawn_role sense 已 eager 启动子）：
-    //    - 子未完成 → alreadyRunning / 子已 finished → alreadyFinished（测试用 mock_content 同步响应场景，后者）
-    //    - 与 S14 原语义（finished:true）等价——「子已能消费 done」即视为完成。
-    const spawnRes = await client.call('chat.startSpawn', { taskId })
-    const spawnData = spawnRes.data as ChatStartSpawnResponseData
-    expect(spawnData.finished || spawnData.alreadyFinished).toBe(true)
-
-    // 3. 子 done → wakeScheduler evalWakePolicy(immediate)=shouldWake → wakeParent → role_reply
+    // 2. 子由 spawn_role 后端 eager 启动；done 后 wakeScheduler 唤醒主会话。
     const roleReply = (await waitForRoleEvent(
       client,
       'role_reply',
@@ -125,9 +148,12 @@ describe('S14 spawn immediate 全链路', () => {
     expect(roleReply.content).toContain('角色')
 
     // 4. 主 resume：消费注入的 role 消息 → 轮2 content（script[1]）
-    const resume = client.request('chat.resume', { chatId: parentChatId })
-    await waitForNotification(() => resume.events, 'done')
-    expect(collectStreamContent(allEvents(resume.events))).toContain('汇总')
+    const resumeStart = client.received.length
+    const resume = resumeChatRun(client, parentChatId)
+    await awaitResumeStarted(client, resume)
+    await waitForNotification(() => chatEventsSince(client, resumeStart, parentChatId), 'done')
+    expect(collectStreamContent(chatEventsSince(client, resumeStart, parentChatId))).toContain('汇总')
+    client.release(resume)
 
     // 5. DB：子 chat finished + parent_chat_id 关联
     const childRow = getChat(childChatId)
@@ -168,45 +194,35 @@ describe('S15 spawn deferred 静默批量唤主', () => {
     })
     parentChatId = (createRes.data as ChatCreateResponseData).chatId
 
-    // 1. send：父一轮派发 2 个 deferred 子（不同 prompt 避免去重）→ 2 条 role_created
-    const send = client.request('chat.send', { chatId: parentChatId, prompt: '并行派发' })
+    const input = submitChatInput(client, parentChatId, '并行派发')
+    await awaitInputAccepted(client, input)
+    await acceptSpawnApprovals(client, input.events, 2)
     await waitFor(
       () => client.background,
       () => (roleEventCount(client, 'role_created', parentChatId) >= 2 ? true : undefined),
     )
-    await waitForNotification(() => send.events, 'done')
+    await waitForNotification(() => input.events, 'done')
     expect(roleEventCount(client, 'role_created', parentChatId)).toBe(2)
 
-    const createdEvents = notificationsByType(client.background, 'role_created').filter(
-      (n) => (n.data as { parentChatId: string }).parentChatId === parentChatId,
-    )
-    const taskA = (createdEvents[0]!.data as RoleCreatedNotificationData).taskId
-    const taskB = (createdEvents[1]!.data as RoleCreatedNotificationData).taskId
-
-    // 2. 两子 deferred + eager 并发跑（mock_content 同步响应→fast-finish）：
-    //    截断 deferred silent 失效（两子全部 finish 太快，无可观察中间态）
-    //    → 直接验最终态：A startSpawn recovery 命中 alreadyFinished；B 同样
-    //    role_reply 数量断言：「仅 1 条」（deferred 全完成兜底唤主，非每子各唤）锁核心语义
-    await client.call('chat.startSpawn', { taskId: taskA })
-    await sleep(300)
-    // 等待 role_reply 到达（最后完成的子触发；eager 下时机不可控）
+    // 2. 两子 deferred 由后端 eager 并发执行；全部完成时只允许一个兜底唤醒。
     const reply = (await waitForRoleEvent(
       client,
       'role_reply',
       parentChatId,
     )) as RoleReplyNotificationData
-    expect(reply.type).toBe('reviewer')
+    expect(reply.type).toBe('reviewer_stream')
 
-    // 3. startSpawn B：recovery alreadyFinished，主已被最后完成子唤起
-    await client.call('chat.startSpawn', { taskId: taskB })
     await sleep(300)
     // 仅 1 条 role_reply（deferred 兜底唤主，非按子计数）
     expect(roleEventCount(client, 'role_reply', parentChatId)).toBe(1)
 
     // 4. 主 resume：消费暂存的 role 消息 → 轮2 content
-    const resume = client.request('chat.resume', { chatId: parentChatId })
-    await waitForNotification(() => resume.events, 'done')
-    expect(collectStreamContent(allEvents(resume.events))).toContain('汇总')
+    const resumeStart = client.received.length
+    const resume = resumeChatRun(client, parentChatId)
+    await awaitResumeStarted(client, resume)
+    await waitForNotification(() => chatEventsSince(client, resumeStart, parentChatId), 'done')
+    expect(collectStreamContent(chatEventsSince(client, resumeStart, parentChatId))).toContain('汇总')
+    client.release(resume)
   }, 25000)
 })
 
@@ -235,23 +251,24 @@ describe('S16 子 agent 刷新重连（机制继承 S8/S9）', () => {
     await svc.close()
   })
 
-  it('子 running 断连 → attach(child, running:true) → 跨断连续跑至 done', async () => {
+  it('子 running 断连 → open(child) 恢复运行态 → 跨断连续跑至 done', async () => {
     const createRes = await client.call('chat.create', {
       brain: 'mock_spawn_stream',
       senseGroup: 'spawn_senses',
     })
     parentChatId = (createRes.data as ChatCreateResponseData).chatId
 
-    // 1. send：父派发 reviewer_stream（流式子）
-    const send = client.request('chat.send', { chatId: parentChatId, prompt: '派发流式审查' })
+    const input = submitChatInput(client, parentChatId, '派发流式审查')
+    await awaitInputAccepted(client, input)
+    await acceptSpawnApprovals(client, input.events)
     const roleCreated = (await waitForRoleEvent(
       client,
       'role_created',
       parentChatId,
     )) as RoleCreatedNotificationData
     expect(roleCreated.type).toBe('reviewer_stream')
-    const { taskId, chatId: childChatId } = roleCreated
-    await waitForNotification(() => send.events, 'done')
+    const { chatId: childChatId } = roleCreated
+    await waitForNotification(() => input.events, 'done')
 
     // 2. eager 已启动子 → 子 stream chunks 经 ws 推到 parent 连接；
     //    requestId=eager-{taskId} → harness 路由到 client.background（pending 不匹配）。
@@ -269,26 +286,13 @@ describe('S16 子 agent 刷新重连（机制继承 S8/S9）', () => {
       10000,
     )
 
-    // 3. chat.startSpawn RPC：recovery（子运行中 → alreadyRunning:true），无 stream chunk 流经 RPC；
-    //    仍发 RPC 验证「子流启动 + recovery 共存」语义不破。
-    const spawnHandle = client.request('chat.startSpawn', { taskId })
-    const spawnRes = await client.awaitResponse(spawnHandle)
-    const spawnData = spawnRes.data as ChatStartSpawnResponseData
-    expect(spawnData.chatId).toBe(childChatId)
-    expect(spawnData.alreadyRunning).toBe(true)
-
-    // 4. 断连 → grace（子 run 存活，不 park）；即时重连
+    // 3. 断连；eager 子 run 存活，随后即时重连。
     client.close()
     await client.reconnect()
 
-    // 5. attach 子：running=true（子跨断连存活，generator 仍悬挂）+ 重定向输出到新 ws
-    const attachRes = await client.call('chat.attach', { chatId: childChatId })
-    const attachData = attachRes.data as ChatAttachResponseData
-    expect(attachData.running).toBe(true)
-    expect(attachData.attached).toBe(true)
-
-    // 6. sync 子（chat_events 补齐断连窗口事件）
-    await client.call('chat.sync', { chatId: childChatId, afterSeq: 0 })
+    const opened = await openChat(client, childChatId)
+    expect(opened.state.run?.state).toBe('running')
+    expect(opened.state.activeTurns.length).toBeGreaterThan(0)
 
     // 7. 余下 stream chunk + done 经 liveOutput 到新 ws；子端终态可能不显式 done notification
     //    （runner 已 fast-finish mock_content mock_child_stream）→ 验 chat 内容+1 条 done 通知

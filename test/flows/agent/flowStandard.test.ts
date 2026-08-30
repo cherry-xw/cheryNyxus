@@ -15,6 +15,7 @@ import type { MiddlewareChunk } from '@/core/middleware/types.js'
 import { AgentParkError } from '@/core/middleware/errors.js'
 import config from '@/utils/config'
 import {
+  approve,
   bootstrapForTests,
   createAgent,
   runSend,
@@ -142,8 +143,11 @@ describe('S5 审批超时自动拒（approval_timeout>0）', () => {
     config.global.approval_timeout = 80 // 短超时（真实 timer，非 fake）
     const agent = createAgent({ brain: 'mock_confirm', senseGroup: 'confirm_senses' })
 
-    // decide 返回 undefined：不审批，让用户超时 timer 触发
-    const chunks = await runSendWithApproval(agent, '写文件', () => undefined)
+    // 业务超时由 service ApprovalManager 驱动；Tier 1 用同样的 reject 决策模拟该边界。
+    const chunks = await runSendWithApproval(agent, '写文件', (pending) => {
+      setTimeout(() => approve(pending.approvalId, 'reject', '审批超时，工具未执行'), 80)
+      return undefined
+    })
 
     const rejects = senseRejects(chunks)
     expect(rejects.length).toBeGreaterThanOrEqual(1)

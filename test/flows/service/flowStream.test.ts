@@ -5,12 +5,19 @@
  * 「流式中断 → 重连 → 打字机内容完整重建」。flow_stream.yaml 的 chunkDelayMs=2000 制造
  * 可靠断连窗口（首 stream chunk 后断连，余下 content + done 经 liveOutput 到新 ws）。
  *
- * 关键：流式中 close **不 park**（grace 内 generator 存活）；重连 attach(running:true) 重定向输出。
+ * 关键：canonical input 在 ACK 后脱离传输请求；close **不 park**，重连 chat.open 原子恢复累计前缀与订阅。
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { deleteChat } from '@/db/chat.js'
-import type { ChatCreateResponseData, ChatAttachResponseData } from '@/service/message/types.js'
-import { bootFlowService, connectClient, type FlowService } from '../helpers/serviceHarness.js'
+import type { ChatCreateResponseData } from '@/service/message/types.js'
+import {
+  awaitInputAccepted,
+  bootFlowService,
+  connectClient,
+  openChat,
+  submitChatInput,
+  type FlowService,
+} from '../helpers/serviceHarness.js'
 import {
   allEvents,
   waitFor,
@@ -21,7 +28,7 @@ import {
 } from '../helpers/eventsAssert.js'
 import type { RpcClient } from '../../helpers/rpcClient.js'
 
-describe('S8 流式中断刷新续跑（grace 内 generator 存活，跨断连重建打字机内容）', () => {
+describe('S8 流式中断刷新续跑（detached run 存活，跨断连重建打字机内容）', () => {
   let svc: FlowService
   let client: RpcClient
   let chatId: string
@@ -46,41 +53,38 @@ describe('S8 流式中断刷新续跑（grace 内 generator 存活，跨断连�
     await svc.close()
   })
 
-  it('流式中 close 不 park → 重连 attach 续跑 → done 到新 ws，内容跨断连重建', async () => {
+  it('流式中 close 不 park → 重连 open 续跑 → done 到新 ws，内容跨断连重建', async () => {
     const createRes = await client.call('chat.create', {
       brain: 'mock_flow_stream',
       senseGroup: 'auto_senses',
     })
     chatId = (createRes.data as ChatCreateResponseData).chatId
 
-    // 1. send（chunkDelayMs=2000，首 thinking chunk 约 +2s 到达）
-    const send = client.request('chat.send', { chatId, prompt: '回复' })
+    const input = submitChatInput(client, chatId, '回复')
+    await awaitInputAccepted(client, input)
 
     // 2. 等首个 stream chunk → 流式已开始
     await waitFor(
-      () => send.events,
+      () => input.events,
       (events) => (streamChunks(events).length > 0 ? true : undefined),
       6000,
     )
-    expect(streamChunks(send.events).length).toBeGreaterThanOrEqual(1)
+    expect(streamChunks(input.events).length).toBeGreaterThanOrEqual(1)
 
-    // 3. 流式中断连 → grace（不 park，generator 存活）
+    // 3. 流式中断连；detached run 不 park，generator 存活。
     client.close()
     await client.reconnect()
 
-    // 4. attach：running=true（generator 仍存活，未 park）
-    const attachRes = await client.call('chat.attach', { chatId })
-    expect((attachRes.data as ChatAttachResponseData).running).toBe(true)
-
-    // 5. sync 回放断连窗口事件
-    await client.call('chat.sync', { chatId, afterSeq: 0 })
+    const opened = await openChat(client, chatId)
+    expect(opened.state.run?.state).toBe('running')
+    expect(opened.state.activeTurns.length).toBeGreaterThan(0)
 
     // 6. 续跑到 done：余下 content chunk + done 经 liveOutput 到新 ws，归入 send.events
-    await waitForNotification(() => send.events, 'done', 8000)
-    expect(dones(allEvents(send.events)).length).toBeGreaterThanOrEqual(1)
+    await waitForNotification(() => input.events, 'done', 8000)
+    expect(dones(allEvents(input.events)).length).toBeGreaterThanOrEqual(1)
 
     // 7. 跨断连重建打字机内容：thinking(pre-close) + content(post-reconnect) stream chunk 合并
-    const content = collectStreamContent(allEvents(send.events))
+    const content = collectStreamContent(allEvents(input.events))
     expect(content.length).toBeGreaterThan(0)
   }, 25000)
 })

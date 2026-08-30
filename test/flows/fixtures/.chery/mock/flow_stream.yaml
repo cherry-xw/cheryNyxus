@@ -1,0 +1,6 @@
+# S8：两段慢流，保证首段到达后仍有可靠的断连/重连窗口
+repeat: last
+script:
+  - thinking: "正在组织回复"
+    content: "这是跨断连继续完成的流式回复"
+    chunkDelayMs: 2000
