@@ -35,7 +35,7 @@ describe('DeepSeek provider', () => {
         createdAt: 0,
         updateAt: 0,
       },
-      { id: 'result', role: 'sense', content: '晴天', createdAt: 0, updateAt: 0 },
+      { id: 'call-1', role: 'sense', content: '晴天', createdAt: 0, updateAt: 0 },
       { id: 'user', role: 'user', content: '继续', createdAt: 0, updateAt: 0 },
     ]
 

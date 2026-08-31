@@ -23,6 +23,7 @@ import {
   oppositePopoverPlacement,
   selectedToolCall,
 } from '../../../src/features/pets/nyxus/graph/toolBatchDetails'
+import { foldLifecycleSnapshot } from '../../fixtures/executionGraphFixtures'
 
 const rootChatId = 'root'
 
@@ -106,26 +107,22 @@ describe('Agent-local Fold projection', () => {
     expect(oppositePopoverPlacement('left')).toBe('right')
     expect(oppositePopoverPlacement('right')).toBe('left')
   })
-  it('keeps a single terminal member canonical, then creates Fold after the successor resolves', async () => {
-    const fixture = JSON.parse(
-      await readComponentSource(resolve('test/fixtures/cp7-real-fold.json'), 'utf8'),
-    ) as { snapshot: RootTimelineSnapshot }
-    const activeCanonical = projectPersistentExecutionGraph(fixture.snapshot)
+  it('keeps a single terminal member canonical, then creates Fold after the successor resolves', () => {
+    const snapshot = foldLifecycleSnapshot()
+    const activeCanonical = projectPersistentExecutionGraph(snapshot)
     const before = structuredClone(activeCanonical)
     const active = projectFoldExecutionGraph(activeCanonical)
     expect(active.ranges).toHaveLength(0)
     expect(active.graph.nodes.map((node) => node.id)).toEqual(
       expect.arrayContaining([
         'message:user-upstream',
-        'message:assistant-a',
         'batch:assistant-a',
-        'message:assistant-b',
         'batch:assistant-b',
       ]),
     )
     expect(activeCanonical).toEqual(before)
 
-    const resolvedSnapshot = structuredClone(fixture.snapshot)
+    const resolvedSnapshot = structuredClone(snapshot)
     resolvedSnapshot.activeRuns = resolvedSnapshot.activeRuns.map((run) => ({
       ...run,
       status: 'completed' as const,
@@ -140,13 +137,12 @@ describe('Agent-local Fold projection', () => {
     const resolved = projectFoldExecutionGraph(projectPersistentExecutionGraph(resolvedSnapshot))
     expect(resolved.ranges).toHaveLength(1)
     expect(resolved.ranges[0]).toMatchObject({
-      id: 'fold:root-cp7-real:message:assistant-a',
+      id: 'fold:legacy:root-fold:root-fold:batch:assistant-a',
     })
     expect(resolved.ranges[0]?.members.map((item) => item.id)).toEqual([
       'batch:assistant-a',
       'batch:assistant-b',
     ])
-    expect(resolved.graph.nodes.some((node) => node.id === 'message:assistant-b')).toBe(false)
     expect(resolved.graph.nodes.some((node) => node.id === 'batch:assistant-b')).toBe(false)
   })
 

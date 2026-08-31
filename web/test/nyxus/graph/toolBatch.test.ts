@@ -1,7 +1,7 @@
 import { readComponentSource } from '../../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { GraphToolCall, RootTimelineSnapshot, TimelineNode } from '../../../src/services/agentApi'
+import type { GraphToolCall, TimelineNode } from '../../../src/services/agentApi'
 import { projectPersistentExecutionGraph } from '../../../src/features/pets/nyxus/graph/executionGraph'
 import {
   anchoredPopoverPosition,
@@ -11,6 +11,10 @@ import {
   toolBatchUsesTabs,
   toolBatchVisualStatus,
 } from '../../../src/features/pets/nyxus/graph/toolBatchDetails'
+import {
+  toolBatchLifecycleFixture,
+  topologyMatrixSnapshot,
+} from '../../fixtures/executionGraphFixtures'
 
 function call(index: number, id: string, status: GraphToolCall['status'] = 'completed'): GraphToolCall {
   return { callId: id, index, name: id, arguments: '{}', status }
@@ -93,12 +97,9 @@ describe('tool batch detail projection', () => {
   })
 })
 
-describe('topology and real fixture', () => {
-  it('preserves multi/nested spawn, continue and return paths and excludes rejected spawn edges', async () => {
-    const fixture = JSON.parse(
-      await readComponentSource(resolve('test/fixtures/cp3-topology-matrix.json'), 'utf8'),
-    ) as { snapshot: RootTimelineSnapshot }
-    const graph = projectPersistentExecutionGraph(fixture.snapshot)
+describe('topology and streaming fixtures', () => {
+  it('preserves multi/nested spawn, continue and return paths and excludes rejected spawn edges', () => {
+    const graph = projectPersistentExecutionGraph(topologyMatrixSnapshot())
     const rootSpawnEdges = graph.edges
       .filter((edge) => edge.kind === 'spawn' && edge.from === 'root-spawn-batch')
       .sort((a, b) => (a.sourceFact?.callId ?? '').localeCompare(b.sourceFact?.callId ?? ''))
@@ -122,17 +123,15 @@ describe('topology and real fixture', () => {
     expect(rejectedGraph.edges.some((edge) => edge.kind === 'spawn')).toBe(false)
   })
 
-  it('keeps real streaming spawn calls in index order without rebuilding the batch', async () => {
-    const fixture = JSON.parse(
-      await readComponentSource(resolve('test/fixtures/cp6-real-tool-batch.json'), 'utf8'),
-    ) as { batchId: string; streamStates: GraphToolCall[][] }
+  it('keeps streaming spawn calls in index order without rebuilding the batch', () => {
+    const fixture = toolBatchLifecycleFixture()
     const [initial, final] = fixture.streamStates
     expect(initial).toHaveLength(1)
     expect(orderedToolCalls(final).map((item) => item.callId)).toEqual([
       initial![0]!.callId,
-      'toolu_tool-007f2732b9e64571aa2fca5d765c9223',
+      'spawn-second',
     ])
-    expect(fixture.batchId).toBe('batch:9d6c4baf-ba5d-4c7e-afd6-2e1eb7cac57f')
+    expect(fixture.batchId).toBe('batch:streaming-spawn')
   })
 
   it('isolates popover selection, scrolling and pointer gestures from the canvas', async () => {

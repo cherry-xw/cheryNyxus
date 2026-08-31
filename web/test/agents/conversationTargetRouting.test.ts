@@ -26,10 +26,10 @@ describe('conversation target routing', () => {
     expect(conversationTargetVisualState('other', undefined, undefined, [], 'half')).toBe('idle')
   })
 
-  it('cycles a single click one notch: idle → half → full → idle', () => {
-    expect(nextTargetCycleState('idle')).toBe('half')
-    expect(nextTargetCycleState('half')).toBe('full')
-    expect(nextTargetCycleState('full')).toBe('idle')
+  it('cycles a single click one notch: idle → full → half → idle', () => {
+    expect(nextTargetCycleState('idle')).toBe('full')
+    expect(nextTargetCycleState('full')).toBe('half')
+    expect(nextTargetCycleState('half')).toBe('idle')
   })
 
   it('appends an off-screen selected conversation after the visible history', () => {
@@ -37,14 +37,19 @@ describe('conversation target routing', () => {
       { chatId: 'first', lastUserActivityAt: 50 },
       { chatId: 'second', lastUserActivityAt: 40 },
       { chatId: 'third', lastUserActivityAt: 30 },
-      { chatId: 'selected', lastUserActivityAt: 20 },
-      { chatId: 'last', lastUserActivityAt: 10 },
+      { chatId: 'fourth', lastUserActivityAt: 20 },
+      { chatId: 'fifth', lastUserActivityAt: 10 },
+      { chatId: 'sixth', lastUserActivityAt: 5 },
+      { chatId: 'selected', lastUserActivityAt: 1 },
     ]
 
     expect(visibleConversationTargetSessions(sessions, 'selected').map(({ chatId }) => chatId)).toEqual([
       'first',
       'second',
       'third',
+      'fourth',
+      'fifth',
+      'sixth',
       'selected',
     ])
   })

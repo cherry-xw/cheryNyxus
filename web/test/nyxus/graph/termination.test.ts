@@ -1,16 +1,18 @@
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { TerminationFact } from '../../../src/services/agentApi'
 import { terminationDisplay } from '../../../src/features/pets/nyxus/graph/termination'
+import { terminationFacts } from '../../fixtures/executionGraphFixtures'
 
 describe('termination presentation', () => {
-  it('maps every durable code without exposing audit detail', async () => {
-    const fixture = JSON.parse(
-      await readFile(resolve('test/fixtures/cp8-real-termination.json'), 'utf8'),
-    ) as { terminations: TerminationFact[]; expectedLabels: string[] }
-    const displays = fixture.terminations.map(terminationDisplay)
-    expect(displays.map((item) => item.label)).toEqual(fixture.expectedLabels)
+  it('maps every durable code without exposing audit detail', () => {
+    const displays = terminationFacts().map(terminationDisplay)
+    expect(displays.map((item) => item.label)).toEqual([
+      '用户手动截断',
+      '系统停止',
+      '看门狗超时停止',
+      '执行错误终止',
+      '主 Agent 已重定向任务',
+      '达到保护性限制，已暂停',
+    ])
     expect(displays.every((item) => !('detail' in item))).toBe(true)
   })
 })

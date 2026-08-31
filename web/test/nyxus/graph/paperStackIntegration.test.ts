@@ -79,7 +79,7 @@ describe('paper stack workbench integration', () => {
     expect(card).toContain('animation: process-name-loop 11s linear infinite')
     expect(card).toContain('animation-play-state: paused')
     expect(card).toContain('<QuestionCard')
-    expect(card).toContain('v-if="currentQuestion && chatId"')
+    expect(card).toContain('v-if="activeQuestion && chatId"')
     expect(card.match(/<PaperGameCard/g)).toHaveLength(1)
     expect(card).toContain(':model="activeStageCard!"')
     expect(card).not.toContain('PaperSkillPopover')

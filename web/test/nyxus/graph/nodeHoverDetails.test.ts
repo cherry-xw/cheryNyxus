@@ -87,7 +87,7 @@ describe('execution node hover details', () => {
       source.indexOf('class="tool-tabs question-tabs"'),
     )
     expect(source.indexOf('class="tool-tabs question-tabs"')).toBeLessThan(
-      source.indexOf(':show-heading="false"'),
+      source.indexOf('<template v-if="batch && !question">'),
     )
     expect(source).toContain('v-if="batch" class="batch-lead"')
     expect(source).toContain('v-if="batch && toolBatchUsesTabs(batch.calls)"')

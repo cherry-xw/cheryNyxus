@@ -64,7 +64,7 @@ export default sense(
   "编译测试",
   Schema,
   async (input) => ({ content: input.text, hash: "" }),
-  SupervisionLevel.confirm,
+  SupervisionLevel.smart,
 );
 `);
 

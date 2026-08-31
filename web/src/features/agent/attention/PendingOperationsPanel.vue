@@ -15,6 +15,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useInteractionsStore } from '@/application/public'
 import type { InteractionRecord } from '@/application/backend/public'
+import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
 import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 import { createApprovalPresentation } from '@/utils/approvalPresentation'
@@ -431,33 +432,12 @@ onBeforeUnmount(() => {
                 <span class="detail-status">{{ statusOf(activeItem) }}</span>
               </div>
 
-              <section v-if="activeItem.kind === 'approval'" class="approval-overview">
-                <span class="detail-kicker">APPROVAL REQUEST</span>
-                <h3>{{ approvalPresentationOf(activeItem).title }}</h3>
-                <p>{{ approvalPresentationOf(activeItem).summary }}</p>
-                <dl>
-                  <div>
-                    <dt>能力</dt>
-                    <dd>{{ approvalPresentationOf(activeItem).toolLabel }}</dd>
-                  </div>
-                  <div>
-                    <dt>行为</dt>
-                    <dd>{{ approvalPresentationOf(activeItem).operationLabel }}</dd>
-                  </div>
-                  <div v-if="approvalPresentationOf(activeItem).target">
-                    <dt>对象</dt>
-                    <dd>{{ approvalPresentationOf(activeItem).target }}</dd>
-                  </div>
-                  <div
-                    v-for="change in approvalPresentationOf(activeItem).changes"
-                    :key="change.label + ':' + change.detail"
-                    class="is-change"
-                  >
-                    <dt>{{ change.label }}</dt>
-                    <dd>{{ change.detail }}</dd>
-                  </div>
-                </dl>
-              </section>
+              <ApprovalSummary
+                v-if="activeItem.kind === 'approval'"
+                class="approval-overview"
+                :sense-name="payload(activeItem).senseName"
+                :args="payload(activeItem).arguments"
+              />
 
               <!-- 工具能力解释（后端注入 sense 定义 description；config_manage 等）。默认折叠，点击标题展开。 -->
               <div v-if="senseDescriptionOf(activeItem)" class="detail-block">

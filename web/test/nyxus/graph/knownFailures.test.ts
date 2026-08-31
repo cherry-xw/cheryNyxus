@@ -1,27 +1,12 @@
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import { effectScope } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import type { TimelineNode } from '../../../src/services/agentApi'
 import { projectExecutionGraph } from '../../../src/features/pets/nyxus/graph/executionGraph'
 import { useTreeCanvas } from '../../../src/features/pets/nyxus/composables/useTreeCanvas'
+import { topologyMatrixSnapshot } from '../../fixtures/executionGraphFixtures'
 
-async function realTimelineNodes(): Promise<TimelineNode[]> {
-  const fixture = JSON.parse(
-    await readFile(resolve('test/fixtures/cp0/real/root-67dabe81.json'), 'utf8'),
-  ) as { rootTimeline: { nodes: TimelineNode[] } }
-  return fixture.rootTimeline.nodes
-}
-
-describe('known failures', () => {
-  it.fails('has explicit cross-agent edges in both directions', async () => {
-    const nodes = await realTimelineNodes()
-    const graph = projectExecutionGraph({
-      rootChatId: '67dabe81-00fd-4021-92e0-f65cd061e94f',
-      nodes,
-      edges: [],
-      activeRuns: [],
-    })
+describe('graph interaction regressions', () => {
+  it('keeps explicit cross-agent edges in both directions', () => {
+    const graph = projectExecutionGraph(topologyMatrixSnapshot())
     const byId = new Map(graph.nodes.map((node) => [node.id, node]))
     const crossAgentEdges = graph.edges.filter((edge) => {
       const from = byId.get(edge.from)

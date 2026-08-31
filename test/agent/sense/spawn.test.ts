@@ -32,13 +32,13 @@ describe('spawn_role handler', () => {
     ).rejects.toThrow('spawn_role 缺少主 chatId')
   })
 
-  it('无效角色 type → throw', async () => {
+  it('无效角色 type → 参数格式错误', async () => {
     await expect(
       exec(
         { type: '__nonexistent_role__', prompt: 'test', wait: false },
         sharedData,
         { chatId: 'test-chat' },
       ),
-    ).rejects.toThrow('没有')
+    ).rejects.toThrow('type 应为单一角色名')
   })
 })

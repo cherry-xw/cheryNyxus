@@ -181,7 +181,7 @@ describe('workbench Lite single-connection integration', () => {
     expect(adapter).toContain('chats.rootTimeline(root()')
     expect(adapter).not.toContain('chat.list')
     expect(workbench).toContain(':root-chat-id="treeRootChatId"')
-    expect(workbench).toContain('@click="toggleLiteView"')
+    expect(workbench).toContain('@change="toggleLiteView"')
     expect(workbench).toContain(
       'const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)',
     )

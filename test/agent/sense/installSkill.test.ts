@@ -18,8 +18,8 @@ describe('install_skill sense 定义', () => {
     expect(installSkillSense.definition.function.name).toBe('install_skill')
   })
 
-  it('supervision = confirm', () => {
-    expect(installSkillSense.supervisionLevel).toBe(SupervisionLevel.confirm)
+  it('supervision = smart', () => {
+    expect(installSkillSense.supervisionLevel).toBe(SupervisionLevel.smart)
   })
 
   it('schema 为 discriminatedUnion(phase)', () => {

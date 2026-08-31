@@ -3,12 +3,19 @@
  *
  * 覆盖：
  * - 三个 sense 定义：generate_image / generate_video / generate_audio
- * - supervision = confirm
+ * - supervision = smart
  * - handler：mock callMediaService + saveMediaAsset
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import mediaSenses from '@/agent/sense/media.js'
 import { SupervisionLevel } from '@/core/config.js'
+
+const mediaMocks = vi.hoisted(() => ({
+  callMediaService: vi.fn(),
+  saveMediaAsset: vi.fn(),
+}))
+
+vi.mock('@/service/media/index.js', () => mediaMocks)
 
 describe('media sense 定义', () => {
   it('导出 3 个 sense', () => {
@@ -27,52 +34,33 @@ describe('media sense 定义', () => {
     expect(mediaSenses[2]!.definition.function.name).toBe('generate_audio')
   })
 
-  it('supervision = confirm', () => {
+  it('supervision = smart', () => {
     for (const s of mediaSenses) {
-      expect(s.supervisionLevel).toBe(SupervisionLevel.confirm)
+      expect(s.supervisionLevel).toBe(SupervisionLevel.smart)
     }
   })
 })
 
 describe('media sense handler', () => {
   beforeEach(() => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
   })
 
-  it('generate_image mock 调用', async () => {
-    vi.mock('@/service/media/index.js', () => ({
-      callMediaService: vi.fn().mockResolvedValue({
-        assets: [
-          { data: 'aGVsbG8=', mimeType: 'image/png', filename: 'test-img.png' },
-        ],
-      }),
-      saveMediaAsset: vi.fn().mockResolvedValue({ filename: 'test-img.png' }),
-      mediaKindForMime: vi.fn().mockReturnValue('image'),
-    }))
+  it.each([
+    ['image', 0, 'a cat', 'image/png', 'test-img.png'],
+    ['video', 1, 'a movie', 'video/mp4', 'test-video.mp4'],
+    ['audio', 2, 'a song', 'audio/mpeg', 'test-audio.mp3'],
+  ] as const)('generate_%s mock 调用', async (kind, index, prompt, mimeType, filename) => {
+    mediaMocks.callMediaService.mockResolvedValueOnce({
+      assets: [{ data: 'aGVsbG8=', mimeType, filename }],
+    })
+    mediaMocks.saveMediaAsset.mockResolvedValueOnce({ filename })
 
-    const exec = mediaSenses[0]!.executor.execute.bind(mediaSenses[0]!.executor)
-    const r = await exec({ prompt: 'a cat' }, new Map())
-    expect(r.content).toBeDefined()
-    expect(typeof r.content).toBe('string')
-  })
+    const exec = mediaSenses[index]!.executor.execute.bind(mediaSenses[index]!.executor)
+    const result = await exec({ prompt }, new Map())
 
-  it('generate_video mock 调用', async () => {
-    const exec = mediaSenses[1]!.executor.execute.bind(mediaSenses[1]!.executor)
-    // 不 mock 实际 service（太重），只验证 handler 接口
-    // 无 mock → callMediaService 会抛错（无配置的媒体服务），验证错误路径
-    try {
-      await exec({ prompt: 'a movie' }, new Map())
-    } catch {
-      // 预期：无媒体服务配置 → throw
-    }
-  })
-
-  it('generate_audio mock 调用', async () => {
-    const exec = mediaSenses[2]!.executor.execute.bind(mediaSenses[2]!.executor)
-    try {
-      await exec({ prompt: 'a song' }, new Map())
-    } catch {
-      // 预期：无媒体服务配置 → throw
-    }
+    expect(mediaMocks.callMediaService).toHaveBeenCalledWith(kind, 'generate', { prompt })
+    expect(mediaMocks.saveMediaAsset).toHaveBeenCalledWith(expect.any(Uint8Array), mimeType, filename)
+    expect(result.content).toBe(`/api/media/${filename}`)
   })
 })

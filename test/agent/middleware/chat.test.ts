@@ -31,6 +31,10 @@ function asyncIter<T>(items: T[]): AsyncIterable<T> {
   };
 }
 
+function userMessages() {
+  return [{ id: "u", role: "user" as const, content: "hello", createdAt: 0, updateAt: 0 }];
+}
+
 describe("chatMiddleware runtime 校验", () => {
   it("runtime 未配置 → throw", async () => {
     const ctx = createMockContext({});
@@ -51,6 +55,7 @@ describe("chatMiddleware 流式分支", () => {
     });
     const sense = mockSenseAdapter();
     const ctx = createMockContext({
+      messages: userMessages(),
       runtime: createMockRuntime({ adapters: { llmAdapter: llm, messageAdapter: msg, senseAdapter: sense } }),
       global: { stream: true, thinking: false, supervision: SupervisionLevel.auto },
     });
@@ -69,6 +74,7 @@ describe("chatMiddleware 流式分支", () => {
       extractStreamThinking: (raw: { t: string }) => raw.t,
     });
     const ctx = createMockContext({
+      messages: userMessages(),
       runtime: createMockRuntime({ adapters: { llmAdapter: llm, messageAdapter: msg, senseAdapter: mockSenseAdapter() } }),
       global: { stream: true, thinking: false, supervision: SupervisionLevel.auto },
     });
@@ -85,6 +91,7 @@ describe("chatMiddleware 流式分支", () => {
       extractSenseCallDeltas: () => [{ index: 0, id: "t1", name: "read_file", arguments: "{}" }],
     });
     const ctx = createMockContext({
+      messages: userMessages(),
       runtime: createMockRuntime({ adapters: { llmAdapter: llm, messageAdapter: msg, senseAdapter: sense } }),
       global: { stream: true, thinking: false, supervision: SupervisionLevel.auto },
     });
@@ -99,6 +106,7 @@ describe("chatMiddleware 流式分支", () => {
     });
     const msg = mockMessageAdapter({ extractStreamDelta: () => "" });
     const ctx = createMockContext({
+      messages: userMessages(),
       runtime: createMockRuntime({ adapters: { llmAdapter: llm, messageAdapter: msg, senseAdapter: mockSenseAdapter() } }),
       global: { stream: true, thinking: false, supervision: SupervisionLevel.auto },
     });
@@ -117,6 +125,7 @@ describe("chatMiddleware 非流式分支", () => {
       thinking: (raw: { t: string }) => raw.t,
     });
     const ctx = createMockContext({
+      messages: userMessages(),
       runtime: createMockRuntime({ adapters: { llmAdapter: llm, messageAdapter: msg, senseAdapter: mockSenseAdapter() } }),
       global: { stream: false, thinking: false, supervision: SupervisionLevel.auto },
     });
@@ -137,6 +146,7 @@ describe("chatMiddleware 非流式分支", () => {
       senseCalls: () => [{ index: 0, id: "t1", name: "read_file", arguments: "{}" }],
     });
     const ctx = createMockContext({
+      messages: userMessages(),
       runtime: createMockRuntime({ adapters: { llmAdapter: llm, messageAdapter: msg, senseAdapter: sense } }),
       global: { stream: false, thinking: false, supervision: SupervisionLevel.auto },
     });
@@ -175,6 +185,7 @@ describe("chatMiddleware buildMessages 与下游", () => {
     const llm = mockLLMAdapter({ chatStream: vi.fn(async () => asyncIter([{ d: "c" }])) });
     const msg = mockMessageAdapter({ extractStreamDelta: () => "c" });
     const ctx = createMockContext({
+      messages: userMessages(),
       runtime: createMockRuntime({ adapters: { llmAdapter: llm, messageAdapter: msg, senseAdapter: mockSenseAdapter() } }),
       global: { stream: true, thinking: false, supervision: SupervisionLevel.auto },
     });

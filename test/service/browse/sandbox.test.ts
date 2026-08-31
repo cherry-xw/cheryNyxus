@@ -221,7 +221,9 @@ describe('全盘缺省（默认用户可访问任意路径，权限靠系统报�
     expect(r!.name).toBe('/')
   })
 
-  it("'/' 根锚定任意路径：/tmp 下临时目录可列（全盘语义）", () => {
+  it.skipIf(process.platform === 'win32')(
+    "'/' 根锚定任意路径：/tmp 下临时目录可列（全盘语义）",
+    () => {
     const r = listBrowseEntries(root, {
       roots: [{ path: '/', name: '/' }],
       includeFiles: false,
@@ -229,5 +231,6 @@ describe('全盘缺省（默认用户可访问任意路径，权限靠系统报�
     })
     expect(r.accessible).toBe(true)
     expect(r.entries.some((e) => e.name === 'dirA')).toBe(true)
-  })
+    },
+  )
 })

@@ -8,8 +8,9 @@ describe('agent dialog option initialization', () => {
       resolve(import.meta.dirname, '../src/features/agent/composer/useAgentDialogOptions.ts'),
       'utf8',
     )
-    const reconnectGuard = source.indexOf('let connectResumed = false')
-    const immediateChatWatcher = source.indexOf('watch(\n    chatId,')
+    const normalized = source.replace(/\r\n/g, '\n')
+    const reconnectGuard = normalized.indexOf('let connectResumed = false')
+    const immediateChatWatcher = normalized.indexOf('watch(\n    chatId,')
 
     expect(reconnectGuard).toBeGreaterThan(-1)
     expect(immediateChatWatcher).toBeGreaterThan(-1)

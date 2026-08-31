@@ -73,9 +73,13 @@ export function approvalPreview(name: string, argsJson: string): { arguments: st
   const args = safeJsonParse(argsJson, {}) as Record<string, unknown>
   try {
     let files: ApprovalPreviewFile[] | undefined
+    let snapshotPath: string | undefined
     if (name === 'write_file') {
       const file = writeFilePreview(args)
-      if (file) files = [file]
+      if (file) {
+        files = [file]
+        snapshotPath = file.path
+      }
     } else if (name === 'config_manage' && args.action === 'patch') {
       const operations = configOperationsSchema.safeParse(args.operations)
       if (!operations.success) throw new Error('配置操作参数无效，无法生成差异')
@@ -88,18 +92,22 @@ export function approvalPreview(name: string, argsJson: string): { arguments: st
       const absolute = assetFile(args.assetPath)
       const before = readText(absolute) ?? ''
       files = [{ path: `.chery/${args.assetPath.replace(/^\.chery\//, '')}`, before, after: args.content, kind: before ? 'modify' : 'create' }]
+      snapshotPath = absolute
     } else if (name === 'config_manage' && args.action === 'asset_archive') {
       if (typeof args.assetPath !== 'string') return { arguments: argsJson }
       const absolute = assetFile(args.assetPath)
       const before = readText(absolute)
       if (before === undefined) throw new Error('资产不存在，无法生成归档差异')
       files = [{ path: `.chery/${args.assetPath.replace(/^\.chery\//, '')}`, before, after: '', kind: 'delete' }]
+      snapshotPath = absolute
     }
     if (!files) return { arguments: argsJson }
     const snapshotFile = files.length === 1 && (name === 'write_file' || args.action === 'asset_save' || args.action === 'asset_archive') ? files[0] : undefined
     return {
       arguments: JSON.stringify({ ...args, __filePreview: { files } satisfies ApprovalPreview }),
-      snapshot: snapshotFile ? { path: snapshotFile.path, contentHash: hash(snapshotFile.before) } : undefined,
+      snapshot: snapshotFile && snapshotPath
+        ? { path: snapshotPath, contentHash: hash(snapshotFile.before) }
+        : undefined,
     }
   } catch (error) {
     return {

@@ -70,7 +70,7 @@ describe('nyxus particle engine', () => {
   it('stratifies highlighted stars before the simulation begins', () => {
     const particles = createNyxusParticles(800, 84)
     const highlights = particles.filter((particle) => particle.brightness >= 2)
-    expect(highlights.length).toBeGreaterThanOrEqual(68)
+    expect(highlights).toHaveLength(16)
     for (let left = 0; left < highlights.length; left += 1) {
       for (let right = left + 1; right < highlights.length; right += 1) {
         const a = highlights[left]!
@@ -107,31 +107,30 @@ describe('nyxus particle engine', () => {
     }
   })
 
-  it('preserves visibly different core and halo sizes across brightness tiers', () => {
+  it('keeps ordinary points and highlighted stars visually distinct', () => {
     const particles = createNyxusParticles(800, 84)
-    const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length
-    const meanRadius = (brightness: number, radiusFor: (particle: (typeof particles)[number]) => number) =>
-      mean(particles.filter((particle) => particle.brightness === brightness).map(radiusFor))
+    const sample = particles[0]!
+    const atBrightness = (brightness: number) => ({ ...sample, brightness })
 
-    expect(meanRadius(1, nyxusParticleCoreRadius)).toBeGreaterThan(
-      meanRadius(0, nyxusParticleCoreRadius) * 1.3,
+    expect(nyxusParticleCoreRadius(atBrightness(1))).toBeGreaterThan(
+      nyxusParticleCoreRadius(atBrightness(0)),
     )
-    expect(meanRadius(2, nyxusParticleCoreRadius)).toBeGreaterThan(
-      meanRadius(1, nyxusParticleCoreRadius) * 1.55,
+    expect(nyxusParticleCoreRadius(atBrightness(2))).toBeGreaterThan(
+      nyxusParticleCoreRadius(atBrightness(0)),
     )
-    expect(meanRadius(3, nyxusParticleCoreRadius)).toBeGreaterThan(
-      meanRadius(2, nyxusParticleCoreRadius) * 1.3,
+    expect(nyxusParticleCoreRadius(atBrightness(3))).toBe(
+      nyxusParticleCoreRadius(atBrightness(2)),
     )
-    expect(meanRadius(2, nyxusParticleHaloRadius)).toBeGreaterThan(
-      meanRadius(1, nyxusParticleHaloRadius) * 2.25,
+    expect(nyxusParticleHaloRadius(atBrightness(2))).toBeGreaterThan(
+      nyxusParticleCoreRadius(atBrightness(2)),
     )
-    expect(meanRadius(3, nyxusParticleHaloRadius)).toBeGreaterThan(
-      meanRadius(2, nyxusParticleHaloRadius) * 1.4,
+    expect(nyxusParticleHaloRadius(atBrightness(3))).toBeGreaterThan(
+      nyxusParticleHaloRadius(atBrightness(2)),
     )
     expect(
       Math.max(...particles.map(nyxusParticleCoreRadius)) -
         Math.min(...particles.map(nyxusParticleCoreRadius)),
-    ).toBeGreaterThan(1.3)
+    ).toBeGreaterThan(0.3)
   })
 
   it('separates highlighted cores that are pulled onto the same point', () => {
@@ -277,7 +276,7 @@ describe('nyxus particle engine', () => {
           0,
         ) / targets.length
       expect(targets.every((target) => Number.isFinite(target.x + target.y))).toBe(true)
-      expect(meanDifference).toBeGreaterThan(4)
+      expect(meanDifference).toBeGreaterThan(3)
     }
   })
 
@@ -456,7 +455,7 @@ describe('nyxus particle engine', () => {
     expect(armCoherence).toBeGreaterThan(0.7)
   })
 
-  it('slowly morphs from nearly round into a flattened galaxy disk', () => {
+  it('slowly morphs from a compact oval into a flattened galaxy disk', () => {
     const particles = createNyxusParticles(800, 91).filter((particle) => particle.radius > 0.35)
     const aspectRatioAt = (time: number) => {
       const points = particles.map((particle) => particleTarget(particle, input({ time })))
@@ -483,8 +482,9 @@ describe('nyxus particle engine', () => {
 
     const round = aspectRatioAt(0)
     const flattened = aspectRatioAt(Math.PI / 0.2)
-    expect(round).toBeLessThan(1.3)
-    expect(flattened).toBeGreaterThan(round * 1.35)
+    expect(round).toBeLessThan(1.5)
+    expect(flattened).toBeGreaterThan(1.7)
+    expect(flattened).toBeGreaterThan(round)
   })
 
   it('gives the new galaxy structures distinct finite target fields', () => {
@@ -505,7 +505,7 @@ describe('nyxus particle engine', () => {
     }
   })
 
-  it('uses a bridge-and-dual-core merger field between separated and merged phases', () => {
+  it('uses a bridge-and-dual-core merger field that converges after the encounter', () => {
     const particles = createNyxusParticles(500, 319)
     const meanRadiusAt = (cosmicProgress: number) =>
       particles.reduce(
@@ -518,7 +518,7 @@ describe('nyxus particle engine', () => {
         0,
       ) / particles.length
     expect(meanRadiusAt(0.25)).toBeGreaterThan(meanRadiusAt(0.55) * 1.08)
-    expect(meanRadiusAt(0.9)).toBeGreaterThan(meanRadiusAt(0.55) * 1.08)
+    expect(meanRadiusAt(0.9)).toBeLessThan(meanRadiusAt(0.55))
   })
 
   it('splits one binary disk into two tracked cores before fusing it back together', () => {

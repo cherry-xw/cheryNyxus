@@ -4,6 +4,11 @@ import { Transport } from '@/service/websocket/transport.js'
 import { decodeMessage } from '../../../web/src/services/transport'
 import { WsClient } from '../../../web/src/services/ws'
 
+vi.mock('../../../web/src/services/platform', () => ({
+  getServerConfig: vi.fn(),
+  wsUrl: vi.fn(),
+}))
+
 type TestableWsClient = WsClient & {
   handleMessage(event: MessageEvent): void
 }

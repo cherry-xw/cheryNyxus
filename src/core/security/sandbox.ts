@@ -218,19 +218,20 @@ function commonGitBashPaths(): string[] {
   ]
 }
 
-/** win32 探测链：PATH bash → PATH sh → where git 反查 → 常见路径；全 miss 返回 null */
+/** win32 探测链：Git for Windows → PATH bash → PATH sh；全 miss 返回 null */
 function probeWindowsPosixShell(): { executable: string } | null {
   if (cachedWindowsPosixShell !== undefined) return cachedWindowsPosixShell
   let found: { executable: string } | null = null
-  if (available('bash', ['-c', 'true'])) {
+  // System32 的 bash.exe 是 WSL 启动器，不能继承 Windows 命令环境；优先使用 Git Bash。
+  const gitPath = probeWhereFirst('git')
+  const gitBash = gitPath ? findBashNearGit(gitPath) : null
+  const candidate = gitBash ?? commonGitBashPaths().find((p) => existsSync(p)) ?? null
+  if (candidate && available(candidate, ['-c', 'true'])) {
+    found = { executable: candidate }
+  } else if (available('bash', ['-c', 'true'])) {
     found = { executable: 'bash' }
   } else if (available('sh', ['-c', 'true'])) {
     found = { executable: 'sh' }
-  } else {
-    const gitPath = probeWhereFirst('git')
-    const gitBash = gitPath ? findBashNearGit(gitPath) : null
-    const candidate = gitBash ?? commonGitBashPaths().find((p) => existsSync(p)) ?? null
-    if (candidate && available(candidate, ['-c', 'true'])) found = { executable: candidate }
   }
   cachedWindowsPosixShell = found
   return found
