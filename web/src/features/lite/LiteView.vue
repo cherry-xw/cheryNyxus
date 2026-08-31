@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useLiteViewController, type LiteViewControllerProps } from './useLiteViewController'
+import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
 import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 const props = defineProps<LiteViewControllerProps>()
@@ -19,7 +20,6 @@ const {
   answering,
   approvalArguments,
   approvalDetailNodeId,
-  approvalPresentation,
   approvalRiskSummary,
   autoGrowInput,
   closeDetail,
@@ -409,31 +409,11 @@ const {
                   </span>
                 </span>
               </header>
-              <section class="lite-approval-overview">
-                <h3>{{ approvalPresentation(activeInteraction).title }}</h3>
-                <p>{{ approvalPresentation(activeInteraction).summary }}</p>
-                <dl>
-                  <div>
-                    <dt>能力</dt>
-                    <dd>{{ approvalPresentation(activeInteraction).toolLabel }}</dd>
-                  </div>
-                  <div>
-                    <dt>行为</dt>
-                    <dd>{{ approvalPresentation(activeInteraction).operationLabel }}</dd>
-                  </div>
-                  <div v-if="approvalPresentation(activeInteraction).target">
-                    <dt>对象</dt>
-                    <dd>{{ approvalPresentation(activeInteraction).target }}</dd>
-                  </div>
-                  <div
-                    v-for="change in approvalPresentation(activeInteraction).changes"
-                    :key="change.label + ':' + change.detail"
-                  >
-                    <dt>{{ change.label }}</dt>
-                    <dd>{{ change.detail }}</dd>
-                  </div>
-                </dl>
-              </section>
+              <ApprovalSummary
+                class="lite-approval-overview"
+                :sense-name="activeInteraction.payload?.senseName"
+                :args="approvalArguments(activeInteraction)"
+              />
               <p class="lite-risk-summary">
                 <span aria-hidden="true">!</span>{{ approvalRiskSummary(activeInteraction) }}
               </p>

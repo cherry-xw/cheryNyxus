@@ -20,13 +20,11 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(source).toContain(':aria-pressed="paperMode"')
     expect(source).toContain('data-view-action="layout"')
     const sideTools = source.indexOf('class="nyxus-side-tools"')
-    const pinnedLayout = source.indexOf('nyxus-pinned-layout-action', sideTools)
-    const layoutAction = source.indexOf('data-view-action="layout"', pinnedLayout)
-    const scrollColumn = source.indexOf('<div class="nyxus-tool-column">', layoutAction)
+    const scrollColumn = source.indexOf('<div class="nyxus-tool-column">', sideTools)
+    const layoutAction = source.indexOf('data-view-action="layout"', scrollColumn)
     expect(sideTools).toBeGreaterThan(-1)
-    expect(pinnedLayout).toBeGreaterThan(sideTools)
-    expect(layoutAction).toBeGreaterThan(pinnedLayout)
-    expect(scrollColumn).toBeGreaterThan(layoutAction)
+    expect(scrollColumn).toBeGreaterThan(sideTools)
+    expect(layoutAction).toBeGreaterThan(scrollColumn)
     expect(source).toContain('max-height: calc(100% - 37px)')
     expect(source).toContain(
       `:class="{ 'has-open-popout': roleListOpen || sessionListOpen }"`,

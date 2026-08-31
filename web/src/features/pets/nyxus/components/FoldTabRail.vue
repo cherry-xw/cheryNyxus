@@ -558,6 +558,12 @@ onBeforeUnmount(() => {
     monospace;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .fold-wheel-card {
+    transition: none;
+  }
+}
+
 // 深色主题：沿用现行深蓝青轮盘（浅色默认已用白底深字）。
 [data-theme='dark'] {
   .fold-wheel-navigation:focus-visible .fold-wheel-stage {

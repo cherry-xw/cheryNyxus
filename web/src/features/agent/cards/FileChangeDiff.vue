@@ -1,67 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { parseArgs } from '@/utils/parseArgs'
+import { diffFileLines, fileChangePreview } from './fileChangeDiff'
 
 const props = withDefaults(defineProps<{ args: unknown; embedded?: boolean }>(), {
   embedded: false,
 })
-type Preview = { path: string; before: string; after: string; kind: 'create' | 'modify' | 'delete' }
-type PreviewPayload = { files?: Preview[]; error?: string }
-
-const preview = computed<PreviewPayload | null>(() => {
-  const value = parseArgs(props.args).parsed?.entries.find(
-    (entry) => entry.key === '__filePreview',
-  )?.value
-  if (!value || typeof value !== 'object') return null
-  const payload = value as Partial<PreviewPayload & Preview>
-  const files = Array.isArray(payload.files) ? payload.files : [payload]
-  const valid = files
-    .filter(
-      (item): item is Preview =>
-        typeof item?.path === 'string' &&
-        typeof item.before === 'string' &&
-        typeof item.after === 'string',
-    )
-    .map((item): Preview => ({
-      ...item,
-      kind: item.kind === 'create' || item.kind === 'delete' ? item.kind : 'modify',
-    }))
-  return valid.length || typeof payload.error === 'string'
-    ? { files: valid, error: payload.error }
-    : null
-})
-
-type DiffLine = { kind: 'add' | 'remove' | 'same'; text: string }
-function diffLines(beforeText: string, afterText: string): DiffLine[] {
-  const before = beforeText.split('\n')
-  const after = afterText.split('\n')
-  const table = Array.from({ length: before.length + 1 }, () => new Uint32Array(after.length + 1))
-  for (let row = before.length - 1; row >= 0; row--) {
-    for (let col = after.length - 1; col >= 0; col--) {
-      table[row]![col] =
-        before[row] === after[col]
-          ? table[row + 1]![col + 1]! + 1
-          : Math.max(table[row + 1]![col]!, table[row]![col + 1]!)
-    }
-  }
-  const output: DiffLine[] = []
-  let row = 0
-  let col = 0
-  while (row < before.length || col < after.length) {
-    if (row < before.length && col < after.length && before[row] === after[col]) {
-      output.push({ kind: 'same', text: before[row++]! })
-      col++
-    } else if (
-      col < after.length &&
-      (row === before.length || table[row]![col + 1]! >= table[row + 1]![col]!)
-    ) {
-      output.push({ kind: 'add', text: after[col++]! })
-    } else {
-      output.push({ kind: 'remove', text: before[row++]! })
-    }
-  }
-  return output
-}
+const preview = computed(() => fileChangePreview(props.args))
 </script>
 
 <template>
@@ -79,7 +23,7 @@ function diffLines(beforeText: string, afterText: string): DiffLine[] {
         >{{ file.kind === 'create' ? '新增' : file.kind === 'delete' ? '归档' : '修改' }}
         <code>{{ file.path }}</code></strong
       >
-      <pre><span v-for="(line, index) in diffLines(file.before, file.after)" :key="index" :class="line.kind">{{ line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' ' }}{{ line.text }}
+      <pre><span v-for="(line, index) in diffFileLines(file.before, file.after)" :key="index" :class="line.kind">{{ line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' ' }}{{ line.text }}
 </span></pre>
     </section>
   </component>

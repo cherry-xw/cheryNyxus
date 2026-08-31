@@ -7,7 +7,6 @@
  */
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startService, type ServiceHandle } from '@/service/index.js'
 import { closeAllConnections } from '@/service/websocket/index.js'
@@ -55,10 +54,8 @@ export async function bootFlowService(options?: BootFlowOptions): Promise<FlowSe
     await bootstrapAgentRuntime()
     runtimeBootstrapped = true
   }
-  // per-process 隔离 DB 目录：config.global.db_dir 改到临时目录（process.pid 唯一），
-  // 避免多 Tier 2 文件并行跑时跨进程共享 fixtures DB 致 SQLITE_BUSY。
-  // config.yaml/mock 仍读 CHERY_DIR(fixtures)，仅 DB 隔离；须在首次 DB 访问前设置。
-  config.global.db_dir = join(tmpdir(), `cheryNyxus-flow-${process.pid}`)
+  // setupFiles 已为每个测试文件复制独立 fixtures，DB 直接落在该副本中。
+  config.global.db_dir = join(process.env.CHERY_DIR!, '.chery', 'db')
   if (options?.disconnectGraceMs !== undefined) {
     config.global.disconnect_grace_ms = options.disconnectGraceMs
   }

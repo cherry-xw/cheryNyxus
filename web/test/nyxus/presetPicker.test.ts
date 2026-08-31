@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 describe('Nyxus preset picker regressions', () => {
   it('loads bootstrap config through the Electron-safe platform channel', async () => {
-    const api = await readFile(resolve('src/services/agentApi.ts'), 'utf8')
+    const api = await readFile(resolve('web/src/services/agentApi.ts'), 'utf8')
     const fetchConfig = api.slice(
       api.indexOf('export async function fetchServerConfig'),
       api.indexOf('\n}', api.indexOf('export async function fetchServerConfig')) + 2,
@@ -16,11 +16,11 @@ describe('Nyxus preset picker regressions', () => {
 
   it('never turns a missing or failed preset catalog into an invalid brain-only chat', async () => {
     const picker = await readFile(
-      resolve('src/features/agent/toolbar/PresetPicker.vue'),
+      resolve('web/src/features/agent/toolbar/PresetPicker.vue'),
       'utf8',
     )
     const core = await readFile(
-      resolve('src/features/pets/nyxus/components/NyxusCore.vue'),
+      resolve('web/src/features/pets/nyxus/components/NyxusCore.vue'),
       'utf8',
     )
 

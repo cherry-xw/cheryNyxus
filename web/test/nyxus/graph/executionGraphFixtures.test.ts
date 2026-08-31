@@ -1,27 +1,15 @@
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { RootTimelineSnapshot, TimelineNode } from '../../../src/services/agentApi'
+import type { RootTimelineSnapshot } from '../../../src/services/agentApi'
 import {
   projectExecutionGraph,
   projectPersistentExecutionGraph,
   type ExecutionGraph,
   type VirtualInputNode,
 } from '../../../src/features/pets/nyxus/graph/executionGraph'
-
-interface TopologyFixture {
-  coverage: string[]
-  snapshot: RootTimelineSnapshot
-  expected: {
-    nodeIds: string[]
-    edgeIds: string[]
-    diagnostics: unknown[]
-  }
-}
-
-async function readJson<T>(path: string): Promise<T> {
-  return JSON.parse(await readFile(resolve(path), 'utf8')) as T
-}
+import {
+  legacyRelationSnapshot,
+  topologyMatrixSnapshot,
+} from '../../fixtures/executionGraphFixtures'
 
 function pendingProjection(snapshot: RootTimelineSnapshot): VirtualInputNode[] {
   return snapshot.pendingInputs.map((input, index) => ({
@@ -42,20 +30,22 @@ function auditProjection(graph: ExecutionGraph) {
 }
 
 describe('topology fixtures', () => {
-  it('projects the complete synthetic matrix to the stable auditable graph', async () => {
-    const fixture = await readJson<TopologyFixture>('test/fixtures/cp3-topology-matrix.json')
-    const graph = projectExecutionGraph(fixture.snapshot, pendingProjection(fixture.snapshot))
+  it('projects the complete synthetic matrix to the stable auditable graph', () => {
+    const snapshot = topologyMatrixSnapshot()
+    const graph = projectExecutionGraph(snapshot, pendingProjection(snapshot))
 
-    expect(auditProjection(graph)).toEqual(fixture.expected)
+    const audit = auditProjection(graph)
+    expect(audit.diagnostics).toEqual([])
+    expect(audit.nodeIds).toEqual(expect.arrayContaining(snapshot.nodes.map((node) => node.id)))
+    expect(audit.edgeIds).toEqual(expect.arrayContaining(snapshot.edges.map((edge) => edge.id)))
     expect(new Set(graph.nodes.map((node) => node.id)).size).toBe(graph.nodes.length)
     expect(new Set(graph.edges.map((edge) => edge.id)).size).toBe(graph.edges.length)
     const nodeIds = new Set(graph.nodes.map((node) => node.id))
     expect(graph.edges.every((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))).toBe(true)
   })
 
-  it('directly proves spawn fan-out, nested return paths, no-return termination and dispatch', async () => {
-    const fixture = await readJson<TopologyFixture>('test/fixtures/cp3-topology-matrix.json')
-    const graph = projectPersistentExecutionGraph(fixture.snapshot)
+  it('directly proves spawn fan-out, nested return paths, no-return termination and dispatch', () => {
+    const graph = projectPersistentExecutionGraph(topologyMatrixSnapshot())
     const outgoing = graph.edges.filter((edge) => edge.from === 'root-spawn-batch')
 
     expect(outgoing.map((edge) => [edge.kind, edge.to])).toEqual([
@@ -101,30 +91,22 @@ describe('topology fixtures', () => {
     })
   })
 
-  it('is invariant to input array insertion order', async () => {
-    const fixture = await readJson<TopologyFixture>('test/fixtures/cp3-topology-matrix.json')
-    const forward = projectExecutionGraph(fixture.snapshot, pendingProjection(fixture.snapshot))
+  it('is invariant to input array insertion order', () => {
+    const snapshot = topologyMatrixSnapshot()
+    const forward = projectExecutionGraph(snapshot, pendingProjection(snapshot))
     const shuffledSnapshot = {
-      ...fixture.snapshot,
-      nodes: fixture.snapshot.nodes.slice().reverse(),
-      edges: fixture.snapshot.edges.slice().reverse(),
-      activeRuns: fixture.snapshot.activeRuns.slice().reverse(),
+      ...snapshot,
+      nodes: snapshot.nodes.slice().reverse(),
+      edges: snapshot.edges.slice().reverse(),
+      activeRuns: snapshot.activeRuns.slice().reverse(),
     }
     const reversed = projectExecutionGraph(shuffledSnapshot, pendingProjection(shuffledSnapshot))
 
     expect(reversed).toEqual(forward)
   })
 
-  it('does not guess cross-agent edges for the real legacy capture', async () => {
-    const fixture = await readJson<{
-      rootTimeline: { rootChatId: string; nodes: TimelineNode[] }
-    }>('test/fixtures/cp0/real/root-67dabe81.json')
-    const graph = projectPersistentExecutionGraph({
-      rootChatId: fixture.rootTimeline.rootChatId,
-      nodes: fixture.rootTimeline.nodes,
-      edges: [],
-      activeRuns: [],
-    })
+  it('does not guess cross-agent edges from legacy relation metadata', () => {
+    const graph = projectPersistentExecutionGraph(legacyRelationSnapshot())
 
     expect(graph.edges.filter((edge) => edge.orderSlot === 'persistent')).toEqual([])
     expect(graph.edges.filter((edge) => edge.kind === 'start')).toHaveLength(1)

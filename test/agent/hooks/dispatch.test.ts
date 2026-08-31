@@ -84,7 +84,7 @@ describe('hooks dispatch PreLLMRequest', () => {
     setupHooksJson(
       JSON.stringify({
         PreLLMRequest: [
-          { command: `echo '{"decision":"block","reason":"被测试拦截"}'` },
+          { command: `echo '{"decision":"block","reason":"\\u88ab\\u6d4b\\u8bd5\\u62e6\\u622a"}'` },
         ],
       }),
     )

@@ -141,8 +141,9 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: "node",
       include: ["test/**/*.test.ts"],
-      exclude: ["node_modules", "dist"],
-      // test/flows 集成测试环境隔离：CHERY_DIR 指向 fixtures + 清理 DB
+      exclude: ["test/protocol-completeness/**", "node_modules", "dist"],
+      globalSetup: ["test/globalSetup.ts"],
+      // 普通后端测试使用每文件独立的 fixtures 副本，避免并行进程争用 DB/Mock 文件。
       // 必须在测试文件 import config 链之前执行（setup.ts 不 import config）
       setupFiles: ["test/flows/setup.ts"],
       testTimeout: 15000,

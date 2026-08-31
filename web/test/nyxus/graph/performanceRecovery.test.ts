@@ -2,10 +2,11 @@ import { readComponentSource } from '../../helpers/componentSource'
 import { performance } from 'node:perf_hooks'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { RootTimelineSnapshot, TimelineNode } from '../../../src/services/agentApi'
+import type { TimelineNode } from '../../../src/services/agentApi'
 import { projectPersistentExecutionGraph } from '../../../src/features/pets/nyxus/graph/executionGraph'
 import { createIncrementalExecutionLayout } from '../../../src/features/pets/nyxus/graph/executionLayout'
 import { selectVisibleCrtIds } from '../../../src/features/pets/nyxus/graph/crtLayout'
+import { invalidGraphSnapshot } from '../../fixtures/executionGraphFixtures'
 
 function node(index: number): TimelineNode {
   return {
@@ -93,16 +94,11 @@ describe('performance and recovery boundaries', () => {
     )
   })
 
-  it('renders a recoverable graph and reports captured dangling facts instead of throwing', async () => {
-    const fixture = JSON.parse(
-      await readComponentSource(resolve('test/fixtures/cp10-real-invalid-graph.json'), 'utf8'),
-    ) as { source: string; snapshot: RootTimelineSnapshot }
-
-    expect(fixture.source).toBe('captured-and-redacted')
-    const graph = projectPersistentExecutionGraph(fixture.snapshot)
+  it('renders a recoverable graph and reports dangling facts instead of throwing', () => {
+    const graph = projectPersistentExecutionGraph(invalidGraphSnapshot())
     expect(graph.nodes.some((item) => item.kind === 'start')).toBe(true)
     expect(graph.diagnostics).toEqual([
-      expect.objectContaining({ code: 'dangling-edge', factId: 'edge-redacted-missing-target' }),
+      expect.objectContaining({ code: 'dangling-edge', factId: 'edge-missing-target' }),
     ])
     expect(() => createIncrementalExecutionLayout().layout(graph)).not.toThrow()
   })

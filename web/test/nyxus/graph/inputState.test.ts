@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { RootTimelineSnapshot, TimelineNode } from '../../../src/services/agentApi'
 import {
@@ -20,6 +18,7 @@ import {
   installRootTimeline,
   readRootTimeline,
 } from '../../../src/stores/chats/read-model/rootTimeline'
+import { inputLifecycleFixture } from '../../fixtures/executionGraphFixtures'
 
 function node(id: string, orderKey: number, sourceChatId = 'root'): TimelineNode {
   return {
@@ -110,20 +109,9 @@ describe('main input state machine', () => {
   })
 })
 
-describe('real recovery fixture', () => {
-  it('keeps a consumed input until the canonical node with the same messageId arrives', async () => {
-    const fixture = JSON.parse(
-      await readFile(resolve('test/fixtures/cp5-real-input-lifecycle.json'), 'utf8'),
-    ) as {
-      pending: {
-        inputId: string
-        messageId: string
-        content: string
-        queueSequence: number
-        acceptedAt: number
-      }
-      entity: TimelineNode
-    }
+describe('canonical input recovery', () => {
+  it('keeps a consumed input until the canonical node with the same messageId arrives', () => {
+    const fixture = inputLifecycleFixture()
     expect(pendingInputAnchor(fixture.pending)).toBe(fixture.entity.id)
 
     const transient = createRootTransientState({

@@ -117,7 +117,7 @@ describe('paper game card model', () => {
     expect(result).toMatchObject({ kind: 'skill', icon: 'gear', selectedSkillId: 'call-read' })
     expect(result.skills).toHaveLength(2)
     expect(result.skills.map((skill) => skill.label)).toEqual(['搜索代码库', '读取文件'])
-    expect(result.title).toBe('读取文件')
+    expect(result.title).toBe('文件读取')
     expect(result.details.map((detail) => detail.kind)).toEqual([
       'content',
       'thinking',
@@ -200,8 +200,8 @@ describe('paper game card model', () => {
       ...stage.cardOptions,
       selectedCallId: 'read',
     })
-    expect(directCard.title).toBe('搜索代码库')
-    expect(readCard.title).toBe('读取文件')
+    expect(directCard.title).toBe('代码搜索')
+    expect(readCard.title).toBe('文件读取')
     expect(stage).not.toHaveProperty('nodeCard')
     expect(stage).not.toHaveProperty('nodeCardsByCallId')
   })

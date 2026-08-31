@@ -58,9 +58,9 @@ describe('toolToSense', () => {
   })
 
   it('sets supervisionLevel from context', () => {
-    const confirmCtx = mockContext({ defaultSupervision: SupervisionLevel.confirm })
-    const sense = toolToSense({ name: 't' }, confirmCtx)
-    expect(sense.supervisionLevel).toBe(SupervisionLevel.confirm)
+    const smartCtx = mockContext({ defaultSupervision: SupervisionLevel.smart })
+    const sense = toolToSense({ name: 't' }, smartCtx)
+    expect(sense.supervisionLevel).toBe(SupervisionLevel.smart)
   })
 
   it('executor calls client.callTool and returns text content', async () => {

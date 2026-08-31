@@ -83,15 +83,15 @@ describe("RuntimeResolver.resolve", () => {
     expect(r.senseTable.get("read_file")?.supervisionLevel).toBe(SupervisionLevel.auto);
   });
 
-  it("监管优先级：confirm_senses（write_file:confirm）→ confirm", () => {
+  it("监管优先级：confirm_senses（write_file:smart）→ smart", () => {
     const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "confirm_senses", mcpServers: [] });
-    expect(r.senseTable.get("write_file")?.supervisionLevel).toBe(SupervisionLevel.confirm);
+    expect(r.senseTable.get("write_file")?.supervisionLevel).toBe(SupervisionLevel.smart);
   });
 
-  it("监管优先级：mixed_confirm（多 sense :confirm）", () => {
+  it("监管优先级：mixed_confirm（多 sense :smart）", () => {
     const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "mixed_confirm", mcpServers: [] });
-    expect(r.senseTable.get("read_file")?.supervisionLevel).toBe(SupervisionLevel.confirm);
-    expect(r.senseTable.get("write_file")?.supervisionLevel).toBe(SupervisionLevel.confirm);
+    expect(r.senseTable.get("read_file")?.supervisionLevel).toBe(SupervisionLevel.smart);
+    expect(r.senseTable.get("write_file")?.supervisionLevel).toBe(SupervisionLevel.smart);
   });
 
   it("builtSenses 数量 = senseTable 大小", () => {
