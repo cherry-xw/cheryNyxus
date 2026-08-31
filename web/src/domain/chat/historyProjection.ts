@@ -41,11 +41,15 @@ export function dedupHistoryByMsgId(items: readonly HistoryItem[]): HistoryItem[
     }
     if (item.senseCalls?.length) {
       const calls = [...(existing.senseCalls ?? [])]
-      const fingerprints = new Set(calls.map(senseFingerprint))
+      const callByFingerprint = new Map(calls.map((call) => [senseFingerprint(call), call]))
       for (const call of item.senseCalls) {
         const fingerprint = senseFingerprint(call)
-        if (fingerprints.has(fingerprint)) continue
-        fingerprints.add(fingerprint)
+        const existingCall = callByFingerprint.get(fingerprint)
+        if (existingCall) {
+          if (!existingCall.security && call.security) existingCall.security = call.security
+          continue
+        }
+        callByFingerprint.set(fingerprint, call)
         calls.push(call)
       }
       existing.senseCalls = calls

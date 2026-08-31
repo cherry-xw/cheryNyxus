@@ -1711,6 +1711,8 @@ export interface CanonicalSenseCall {
   arguments: string
   result?: string
   status?: 'pending' | 'accepted' | 'rejected'
+  /** 工具调用的安全授权判定；按 call id 独立保存，旧数据可省略。 */
+  security?: ToolAuthorization
 }
 
 export interface CanonicalMessage {
@@ -1748,6 +1750,8 @@ export interface GraphToolCall {
   status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
   childChatId?: string
   targetChatId?: string
+  /** 工具调用的安全授权判定；按 callId 独立保存，旧节点可省略。 */
+  security?: ToolAuthorization
 }
 
 export type TerminationFact = ProtocolTerminationFact
@@ -2342,6 +2346,8 @@ export interface StagedChunkData {
   /** true 表示该 assistant 消息是 compact 摘要；历史 UI 据此显示上下文切换边界。 */
   contextCompaction?: boolean
   contextCompactionTokens?: number
+  /** sense_end 携带：工具调用的安全授权判定（checkpoint 从 trigger 透传，供历史回放渲染风险徽章） */
+  security?: ToolAuthorization
 }
 
 // ========== Notification Data ==========
@@ -2406,6 +2412,8 @@ export interface SenseStartedNotificationData {
   arguments: string
   /** 工具真正开始执行的时间戳（ms）；旧事件可省略。 */
   startedAt?: number
+  /** 本次执行的最终安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧客户端） */
+  security?: ToolAuthorization
 }
 
 export interface AcceptNotificationData {

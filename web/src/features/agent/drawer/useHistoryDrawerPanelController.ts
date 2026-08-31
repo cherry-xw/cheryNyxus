@@ -100,6 +100,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       args: c.arguments,
       result: c.result,
       status: c.status === 'rejected' ? 'error' : c.status === 'pending' ? 'running' : 'done',
+      security: c.security,
     }
   }
   /** Root timeline node -> legacy bubble view. All identity/direction decisions

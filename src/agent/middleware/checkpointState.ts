@@ -8,6 +8,7 @@ import type {
 } from '@/core/middleware/types'
 import type { SenseCallData } from '@/core/sense/adapter'
 import type { ThinkingBlock, ThinkingBlockDelta } from '@/core/message/adapter'
+import type { ToolAuthorization } from '@/core/security/index.js'
 import { SenseCallAssembler } from './senseCallAssembler.js'
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
 
@@ -34,7 +35,38 @@ export class CheckpointState {
   /** turn 起始时间戳，staged chunk 携此作为实时项 createdAt（reload 后由 DB 值替换）。 */
   private turnStartedAt = Date.now()
   /** 第一次 flush 时记录的 senseCalls（流结束后比对是否需要补充） */
-  private flushedAssistantSenseCalls: Array<{ id: string; name: string; arguments: string }> = []
+  private flushedAssistantSenseCalls: NonNullable<AgentMessage['senseCalls']> = []
+  /** callId → 安全授权判定（checkpoint 在 sense_end 收到 trigger 时注入；构造 senseCalls 落库用）。
+   *  callId 与 senseDelta 合并产出的 sc.id 同源（同一 SenseCallAssembler 处理同一条 delta 流）。 */
+  private readonly securityByCallId = new Map<string, ToolAuthorization>()
+
+  /**
+   * 记录某次 sense call 的安全授权判定（有值才存；缺省 = 无判定）。
+   * 调用方：checkpoint.ts 收到 sense_end trigger（trigger.security 已在）时注入，须先于 flushAssistant。
+   */
+  recordSecurity(callId: string, security?: ToolAuthorization): void {
+    if (!callId || !security) return
+    this.securityByCallId.set(callId, security)
+  }
+
+  /**
+   * 统一构造 senseCalls 落库形状（`{id, name, arguments}` + 有值才写 security）。
+   * 安全判定按 callId 从 securityByCallId 查（与 sense_end 触发同源 id），省略模式保证
+   * 无判定时字段不出现，现有 toEqual 全等断言不因新增可选字段而失败。
+   */
+  private buildSenseCalls(): Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }> {
+    return mergeSenseDeltas(this.senseDeltas)
+      .filter((sc) => sc.name)
+      .map((sc) => {
+        const security = this.securityByCallId.get(sc.id ?? '')
+        return {
+          id: sc.id,
+          name: sc.name!,
+          arguments: sc.arguments,
+          ...(security ? { security } : {}),
+        }
+      })
+  }
 
   /**
    * 摄入 chunk，更新内部状态
@@ -83,6 +115,7 @@ export class CheckpointState {
     this.assistantFlushed = false
     this.flushedAssistantId = null
     this.flushedAssistantSenseCalls = []
+    this.securityByCallId.clear()
     this.assistantId = randomUUID()
     this.turnStartedAt = Date.now()
     return previousAssistantId
@@ -106,9 +139,7 @@ export class CheckpointState {
     const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas)
     if (!this.content && !this.thinking && mergedSenseCalls.length === 0) return null
 
-    const senseCalls = mergedSenseCalls
-      .filter((sc) => sc.name)
-      .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }))
+    const senseCalls = this.buildSenseCalls()
     // 快照思考块（flush 后不再变化，供 reconcile 时引用）
     this.thinkingBlocks = this.thinkingBlockAssembler.toArray()
     const message = ctx.journal.appendAssistant(
@@ -138,10 +169,11 @@ export class CheckpointState {
    */
   reconcileAssistantSenseCalls(): CheckpointMessageMutation | null {
     if (!this.assistantFlushed || !this.flushedAssistantId) return null
-    const finalSenseCalls = mergeSenseDeltas(this.senseDeltas)
-      .filter((sc) => sc.name)
-      .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }))
-    if (finalSenseCalls.length === this.flushedAssistantSenseCalls.length) return null
+    const finalSenseCalls = this.buildSenseCalls()
+    // 同批多个工具调用时，首个 sense_end 可能已经 flush 了完整 call 数组，
+    // 后续 sense_end 只会补齐各自的 security。不能只比较长度，否则第 2 个及之后
+    // 的授权判定不会写回 assistant.senseCalls。
+    if (sameSenseCalls(finalSenseCalls, this.flushedAssistantSenseCalls)) return null
     return {
       type: 'updated',
       id: this.flushedAssistantId,
@@ -162,9 +194,7 @@ export class CheckpointState {
     // sense_call 流已在 sense_end 时 flush（assistantFlushed=true），此处跳过避免重复 push；
     // 仅纯 content/thinking 流（未触发 sense_end）在此构建。
     if (!this.assistantFlushed && (this.content || this.thinking || mergedSenseCalls.length > 0)) {
-      const senseCalls = mergedSenseCalls
-        .filter((sc) => sc.name)
-        .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }))
+      const senseCalls = this.buildSenseCalls()
       this.thinkingBlocks = this.thinkingBlockAssembler.toArray()
       const message = ctx.journal.appendAssistant(
         {
@@ -251,4 +281,21 @@ function mergeSenseDeltas(deltas: SenseCallData[]): SenseCallData[] {
   const asm = new SenseCallAssembler()
   for (const d of deltas) asm.push(d)
   return asm.toArray()
+}
+
+function sameSenseCalls(
+  left: NonNullable<AgentMessage['senseCalls']>,
+  right: NonNullable<AgentMessage['senseCalls']>,
+): boolean {
+  if (left.length !== right.length) return false
+  return left.every((call, index) => {
+    const previous = right[index]
+    return (
+      previous !== undefined &&
+      call.id === previous.id &&
+      call.name === previous.name &&
+      call.arguments === previous.arguments &&
+      JSON.stringify(call.security) === JSON.stringify(previous.security)
+    )
+  })
 }

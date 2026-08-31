@@ -21,11 +21,15 @@ export interface SenseCallRecord {
   result?: unknown
   status: 'running' | 'done' | 'error'
   mediaAssets?: MediaAssetRef[]
+  /** 工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
+  security?: ToolAuthorization
 }
 
 export interface RunningTool {
   id: string
   name: string
+  /** 本次执行的最终安全授权判定（缺省 = 无判定） */
+  security?: ToolAuthorization
 }
 
 export type { TerminationFact } from '@chery/protocol'
@@ -148,6 +152,8 @@ export interface StagedChunkData {
   msgId?: string
   messageIds?: ProtocolStagedReverseChunkData['messageIds']
   agentChatId?: string
+  /** sense_end 携带：工具调用的安全授权判定（历史回放渲染风险徽章） */
+  security?: ToolAuthorization
 }
 
 export interface ChunkMessage {

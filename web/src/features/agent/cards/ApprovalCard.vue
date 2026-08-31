@@ -19,6 +19,7 @@ import ParsedArgs from './ParsedArgs.vue'
 import ApprovalSummary from './ApprovalSummary.vue'
 import FileChangeDiff from './FileChangeDiff.vue'
 import { createApprovalPresentation } from '@/utils/approvalPresentation'
+import { riskLevelOf, RISK_LEVEL_LABEL } from '@/domain/chat/securityRisk'
 
 const props = defineProps<{
   approval: ApprovalState
@@ -57,13 +58,8 @@ const remainingSec = computed(() => Math.ceil(remainingMs.value / 1000))
 // 倒计时归零：后端超时 reject 已触发，按钮禁用等 rejected notification 卸载
 const expired = computed(() => showCountdown.value && remainingMs.value <= 0)
 const security = computed(() => props.approval.security)
-const riskLevel = computed(() => {
-  const findings = security.value?.findings ?? []
-  if (findings.some((item) => item.severity === 'unknown')) return '未知'
-  if (findings.some((item) => item.severity === 'high')) return '高风险'
-  if (findings.some((item) => item.severity === 'medium')) return '中风险'
-  return '低风险'
-})
+// 与全局风险语义一致（RiskBadge 共享判定）：未知 > 高 > 中 > 安全
+const riskLevel = computed(() => RISK_LEVEL_LABEL[riskLevelOf(security.value)])
 
 watch(expired, (value) => {
   if (value) chatSessions.expireApproval(props.chatId, props.approval.approvalId)

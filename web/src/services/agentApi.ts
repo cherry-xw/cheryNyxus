@@ -78,7 +78,7 @@ export interface CurrentStateData {
     createdAt: number
     security?: ToolAuthorizationDto
   }
-  runningTools: { id: string; senseName: string }[]
+  runningTools: { id: string; senseName: string; security?: ToolAuthorizationDto }[]
   /** 当前 run 的模型/工具计时事实；旧服务端可能省略。 */
   executionSteps?: ExecutionStep[]
   /** 当前活动 run 的持久开始时间；旧服务端可能省略。 */
@@ -554,6 +554,8 @@ export interface CanonicalSenseCall {
   arguments?: string
   result?: string
   status?: 'pending' | 'accepted' | 'rejected' | 'completed'
+  /** 工具调用的安全授权判定（历史时间线渲染风险徽章；缺省 = 无判定） */
+  security?: ToolAuthorizationDto
   [key: string]: unknown
 }
 
@@ -611,6 +613,8 @@ export interface GraphToolCall {
   status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
   childChatId?: string
   targetChatId?: string
+  /** 工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
+  security?: ToolAuthorizationDto
 }
 
 export type TerminationFact = ProtocolTerminationFact

@@ -157,8 +157,12 @@ export async function* checkpointMiddleware(
           id: trigger.id,
           msgId: state.getAssistantId(),
           createdAt: state.getTurnStartedAt(),
+          security: trigger.security,
         }
         yield senseStaged
+
+        // 记录 callId → 安全判定（flushAssistant/buildSenseCalls 落库 senseCalls 时查表；有值才存）。
+        state.recordSecurity(trigger.id, trigger.security)
 
         // 先 flush 本轮 assistant（content/thinking/senseCalls 已完整），在 pending sense 前 push，
         // 保证消息顺序 [user, assistant, sense]；sense_end 在 for-await 循环内，abort 时 effect 已被

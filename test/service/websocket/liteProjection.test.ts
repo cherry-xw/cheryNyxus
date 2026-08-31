@@ -990,6 +990,48 @@ describe('applyLiteResponse：node.get 精确帧预算与真实游标', () => {
     )
   })
 
+  it('toolCalls 分页保留当前调用自己的 security', () => {
+    const security = {
+      decision: 'ask',
+      roleType: 'workspace-developer',
+      policyHash: 'policy-1',
+      findings: [{
+        code: 'command.network',
+        category: 'network',
+        severity: 'high',
+        message: '会访问网络',
+      }],
+      assessmentHash: 'assessment-1',
+    }
+    const cursor = { callIndex: 0, field: 'arguments' as const, offset: 0 }
+    const raw = responseForNode(
+      {
+        toolCalls: [{
+          callId: 'call-risky',
+          index: 0,
+          name: 'execute_command',
+          status: 'pending',
+          arguments: '{"command":"curl example.com"}',
+          security,
+        }],
+      },
+      {
+        hasMore: false,
+        page: { section: 'toolCalls', cursor, consumed: 30 },
+      },
+    )
+
+    const out = applyLiteResponse(
+      { ...profile, maxFrameBytes: 4096 },
+      raw,
+      { sections: ['toolCalls'], limit: 256, toolCursor: cursor },
+      method,
+    ) as Record<string, unknown>
+    const node = ((out.data as Record<string, unknown>).node) as Record<string, unknown>
+    const call = (node.toolCalls as Array<Record<string, unknown>>)[0]
+    expect(call?.security).toEqual(security)
+  })
+
   it('node.get 失败响应在 512B 内精确收缩 message，并保留正常 correlation', () => {
     const constrained: LiteProfile = { ...profile, maxFrameBytes: 512 }
     const raw = {

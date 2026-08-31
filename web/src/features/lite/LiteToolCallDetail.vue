@@ -11,6 +11,7 @@ import type { GraphToolCall } from '@/application/backend/public'
 import type { LiteToolType } from './executionMonitor'
 import { toolTypeGlyph, toolTypeLabel } from './executionMonitor'
 import { formatApprovalArgumentScalar } from '@/utils/approvalPresentation'
+import RiskBadge from '@/components/RiskBadge.vue'
 import {
   isPrimaryField,
   isScalarValue,
@@ -146,6 +147,8 @@ const readable = computed(() =>
       <span class="lite-tool-call-status" :data-status="call.status">{{
         statusLabel(call.status)
       }}</span>
+      <!-- 工具调用的安全判定徽章（compact；缺省 = 未知） -->
+      <RiskBadge :auth="call.security" compact />
     </header>
 
     <section class="lite-tool-story" aria-label="执行说明">

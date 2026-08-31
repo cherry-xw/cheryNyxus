@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { senseMiddleware } from "@/agent/middleware/tool.js";
-import type { MiddlewareChunk, SensePendingChunk } from "@/core/middleware/types.js";
+import type { MiddlewareChunk, SensePendingChunk, SenseStartedChunk } from "@/core/middleware/types.js";
 import {
   bootstrapForTests,
   createAgent,
@@ -58,6 +58,20 @@ describe("senseMiddleware 集成：auto 执行", () => {
     expect(accept).toBeDefined();
     // read_file result 非空（执行结果或路径错误消息）
     expect(accept!.result.length).toBeGreaterThan(0);
+  });
+
+  it("auto sense_started 携带最终安全授权判定（authorizeToolCall 输出）", async () => {
+    const agent = createAgent({ brain: "mock_auto", senseGroup: "auto_senses" });
+    const chunks = await runSend(agent, "读文件");
+    const started = chunks.filter(
+      (chunk): chunk is SenseStartedChunk => chunk.type === "sense_started",
+    );
+    expect(started.length).toBeGreaterThanOrEqual(1);
+    // currentAuthorization 原样透传：decision/assessmentHash/policyHash 均有值（前端据此渲染风险徽章）
+    expect(started[0]?.security?.decision).toBeDefined();
+    expect(started[0]?.security?.assessmentHash).toBeTruthy();
+    expect(started[0]?.security?.policyHash).toBeTruthy();
+    expect(started[0]?.security?.roleType).toBeTruthy();
   });
 });
 

@@ -112,6 +112,26 @@ describe('checkpointMiddleware 集成', () => {
     expect(roles).toContain('sense')
   })
 
+  it('安全判定随工具协议透传：sense_end staged + assistant.senseCalls 均携带 security', async () => {
+    const agent = createAgent({ brain: 'mock_auto', senseGroup: 'auto_senses' })
+    const chunks = await runSend(agent, '读文件')
+
+    // checkpoint 从 trigger 收集 security → staged sense_end 透传（历史回放渲染风险徽章）
+    const senseEndStaged = filterType<StagedChunk>(chunks, 'staged').find(
+      (c) => c.stagedType === 'sense_end',
+    )
+    expect(senseEndStaged?.id).toBeTruthy()
+    expect(senseEndStaged?.security?.decision).toBeDefined()
+    expect(senseEndStaged?.security?.assessmentHash).toBeTruthy()
+
+    // recordSecurity → buildSenseCalls：message_created 的 assistant.senseCalls 落库携带 security
+    const assistantCreated = messageCreated(chunks).find((m) => m.message.role === 'assistant')
+    const senseCalls = assistantCreated?.message.senseCalls ?? []
+    expect(senseCalls.length).toBeGreaterThan(0)
+    expect(senseCalls[0]?.security?.decision).toBeDefined()
+    expect(senseCalls[0]?.security?.assessmentHash).toBeTruthy()
+  })
+
   it('纯 content 无 sense_end', async () => {
     const agent = createAgent({ brain: 'mock_content', senseGroup: 'auto_senses' })
     const chunks = await runSend(agent, '纯文本')

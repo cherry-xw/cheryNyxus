@@ -38,7 +38,7 @@ export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [
 
 | 层         | 职责                                                                                                                                                                            |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| checkpoint | 归纳所有 chunk；生成 `staged`（thinking_end/content_end/sense_end）；构建并维护 `ctx.soul.messages`；声明 `message_created`/`message_updated`/`sense_pending`/`consumed` effect |
+| checkpoint | 归纳所有 chunk；生成 `staged`（thinking_end/content_end/sense_end，sense_end 携 security）；维护 `callId→security` 映射使 senseCalls 落库携带判定；构建并维护 `ctx.soul.messages`；声明 `message_created`/`message_updated`/`sense_pending`/`consumed` effect |
 | sense      | 收集 sense_end，smart/manual 等审批，执行感官，yield `sense_accept`/`sense_reject`                                                                                              |
 | retry      | 捕获 LLM 调用错误，可恢复错误指数退避重试（最多 5 次尝试），不可恢复直接 yield ErrorChunk                                                                                       |
 | chat       | 调用 LLM（`llmAdapter.chatStream` 或 `chat`），yield `StreamChunk`（含 thinkingDelta/contentDelta/senseDelta）                                                                  |
@@ -83,11 +83,13 @@ sense 层     检测 index 变化/流结束 → buildSenseTrigger
              yield sense_end(id, name, args, supervision=auto)
                  ↓
 checkpoint  收到 sense_end：
-               ① yield staged(sense_end, ...)
-               ② flushAssistant → push assistant + yield message_created
-               ③ supervision=auto，不创建 pending sense 消息
+               ① yield staged(sense_end, ..., security=trigger.security)   ← 实时 staged 携带授权判定
+               ② state.recordSecurity(trigger.id, trigger.security)        ← 维护 callId→security，flush 落库用
+               ③ flushAssistant → push assistant + yield message_created    ← assistant.senseCalls 含 security
+               ④ supervision=auto，不创建 pending sense 消息
                  ↓
 sense 层     Phase 2：auto 直接执行 doExecuteSense
+             yield sense_started(id, name, args, security)                ← 真实执行边界携带最终授权
              yield sense_accept(id, name, result, hash)
                  ↓
 checkpoint  ingest(sense_accept) → 存入 senseResults（finally 落库）
@@ -117,8 +119,9 @@ sense 层 Phase 1：buildSenseTrigger(ctx, id, name, args)
   └─ yield sense_end(id, name, args, supervisionLevel)
        ↓（流回）
 checkpoint 收到 sense_end：
-  ├─ yield staged(sense_end, ...)                     ← 触发 web interrupt notification
-  ├─ flushAssistant（push assistant + message_created effect）
+  ├─ yield staged(sense_end, ..., security=trigger.security)   ← 触发 web interrupt notification（security 原样透传，ApprovalCard 渲染危险性）
+  ├─ state.recordSecurity(trigger.id, trigger.security)
+  ├─ flushAssistant（push assistant + message_created effect；senseCalls 含 security 落库）
   ├─ supervision > 0：
   │    ├─ pending sense 消息不存在 → push 空 content 的 sense 消息 + message_created
   │    └─ yield sense_pending(approvalId, ...) effect  ← observer 注册 ApprovalManager
@@ -214,6 +217,8 @@ for (const delta of deltas) {
 ```
 
 sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../src/agent/middleware/tool.ts)）做同样的事，但**以 index 变化作为「上一个 call 已完整」的信号**触发 `sense_end`，剩余的最后一个 call 在流结束后统一触发。
+
+**安全判定随 senseCalls 落库**：checkpoint 收到 `sense_end` trigger（携带 `security`）时调 `state.recordSecurity(callId, security)` 维护 `callId → ToolAuthorization` 映射；`flushAssistant` / `reconcileAssistantSenseCalls` / `appendResponseMessages` 构造 `assistant.senseCalls` 时经统一 `buildSenseCalls()` 按 call id 附上对应 `security`（有值才写字段，`senseCalls[i].security`）。同批多个调用的后续 trigger 会触发内容级 reconcile，即使调用数量未变化也会补写各自的 security；`retry_reset` 会清空映射，避免复用 call id 时串入上次尝试的判定。该映射随 `message_created` / `message_updated` effect 由 observer 写入 `messages.sense_calls`（TEXT JSON，round-trip 无需 migration），历史回放 staged `sense_end` 由此携带 security。
 
 ### E. loop 的停止判定
 
@@ -396,7 +401,7 @@ if (needsApproval.length > 0) {
 
 **流式多 sense_call reconcile（90ecacf2 案例）：** OpenAI 流式 tool_calls delta 分散到达——首个 sense_end 触发 `flushAssistant` 时 `state.senseDeltas` 未累积完整（yield trigger 早于 ingest chunk），assistant 的 `senseCalls` 字段可能只记部分 trigger。LLM 下一轮 buildMessages 重建 OpenAI `tool_calls` 字段会丢失 trigger，对应 tool result 成"孤儿"，上下文错乱。
 
-修复：CheckpointState 暴露 `flushedAssistantId` + `flushedAssistantSenseCalls`；流结束后（[checkpoint.ts finally](../../src/agent/middleware/checkpoint.ts)）调 `state.reconcileAssistantSenseCalls()` 比对「flush 时」与「最终 `mergeSenseDeltas`」，有新增则 **双写**：① `ctx.journal.updateAssistantSenseCalls` 回写**内存 journal**；② yield `message_updated` patch（`kind:"content"` + `senseCalls`）由 [observer.ts](../../src/service/chat/observer.ts) 调 `updateAssistantSenseCalls` 持久化到 DB（独立 UPDATE `sense_calls` 列）。保留"assistant 在 sense 之前入库"语义（[checkpoint.ts:122-124](../../src/agent/middleware/checkpoint.ts#L122-L124)），仅 in-place 补充 senseCalls 字段。
+修复：CheckpointState 暴露 `flushedAssistantId` + `flushedAssistantSenseCalls`；流结束后（[checkpoint.ts finally](../../src/agent/middleware/checkpoint.ts)）调 `state.reconcileAssistantSenseCalls()` 比对「flush 时」与最终调用内容（含逐调用 `security`），有新增或判定补齐则 **双写**：① `ctx.journal.updateAssistantSenseCalls` 回写**内存 journal**；② yield `message_updated` patch（`kind:"content"` + `senseCalls`）由 [observer.ts](../../src/service/chat/observer.ts) 调 `updateAssistantSenseCalls` 持久化到 DB（独立 UPDATE `sense_calls` 列）。保留"assistant 在 sense 之前入库"语义（[checkpoint.ts:122-124](../../src/agent/middleware/checkpoint.ts#L122-L124)），仅 in-place 补充 senseCalls 字段。
 
 **回写内存 journal 必不可少（a684b 案例）：** loop 下一轮 `buildMessages` 从**内存 journal**（非 DB）组装请求——只落库不回写时，内存中 assistant.senseCalls 永远停留在 flush 时刻的部分集合，下一轮请求 tool result 数多于 assistant.tool_calls，上游（MiniMax/GLM 2013）报 `tool result's tool id(...) not found` 400，且 4xx 归 validation 隐藏「继续」按钮形成死局。触发条件：单轮 ≥2 个 sense call 且首个 sense_end 早于流结束（单 sense call 无差异不触发）。纵深防御见 [provider.md 共享件](./provider.md#共享件openaicompatts) 的 `validateToolResultPairing`。
 

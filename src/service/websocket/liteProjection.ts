@@ -544,7 +544,7 @@ function projectLiteNodeDetailResponse(
       ? String(sourceCall[cursor.field])
       : ''
   const callMeta: UnknownRecord | undefined = sourceCall
-    ? pick(sourceCall, ['callId', 'index', 'name', 'status'])
+    ? pick(sourceCall, ['callId', 'index', 'name', 'status', 'security'])
     : undefined
   const build = (end: number): UnknownRecord => {
     const consumed = safePrefixEnd(source, end)

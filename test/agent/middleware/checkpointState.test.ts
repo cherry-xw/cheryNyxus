@@ -16,6 +16,27 @@ import type {
   SenseRejectChunk,
 } from "@/core/middleware/types.js";
 import { createMockContext } from "../helpers/fakeContext.js";
+import type { ToolAuthorization } from "@/core/security/index.js";
+
+function authorization(
+  decision: ToolAuthorization["decision"],
+  assessmentHash: string,
+): ToolAuthorization {
+  return {
+    decision,
+    roleType: "workspace-developer",
+    policyHash: "policy",
+    findings: decision === "allow"
+      ? []
+      : [{
+          code: `risk.${decision}`,
+          category: "unknown",
+          severity: decision === "deny" ? "high" : "medium",
+          message: decision,
+        }],
+    assessmentHash,
+  };
+}
 
 function stream(opts: {
   thinking?: string;
@@ -100,6 +121,49 @@ describe("CheckpointState.flushAssistant", () => {
     const msg = s.flushAssistant(ctx);
     expect(msg!.senseCalls?.length).toBe(1);
     expect(msg!.senseCalls?.[0]?.name).toBe("read_file");
+  });
+
+  it("同批多个调用在后续 sense_end 到达时分别补齐 security", () => {
+    const s = new CheckpointState();
+    s.ingest(stream({
+      senseDelta: [
+        { index: 0, id: "t0", name: "read_file", arguments: "{}" },
+        { index: 1, id: "t1", name: "write_file", arguments: "{}" },
+      ],
+    }));
+    s.recordSecurity("t0", authorization("allow", "assessment-0"));
+
+    const ctx = createMockContext({ messages: [] });
+    const flushed = s.flushAssistant(ctx);
+    expect(flushed?.senseCalls?.[0]?.security?.decision).toBe("allow");
+    expect(flushed?.senseCalls?.[1]?.security).toBeUndefined();
+
+    s.recordSecurity("t1", authorization("ask", "assessment-1"));
+    const reconciled = s.reconcileAssistantSenseCalls();
+    expect(reconciled).toMatchObject({
+      type: "updated",
+      patch: {
+        senseCalls: [
+          { id: "t0", security: { decision: "allow", assessmentHash: "assessment-0" } },
+          { id: "t1", security: { decision: "ask", assessmentHash: "assessment-1" } },
+        ],
+      },
+    });
+  });
+
+  it("retry reset 不沿用上一次尝试的 security", () => {
+    const s = new CheckpointState();
+    s.ingest(stream({
+      senseDelta: [{ index: 0, id: "reused-id", name: "read_file", arguments: "{}" }],
+    }));
+    s.recordSecurity("reused-id", authorization("deny", "old-assessment"));
+    s.resetAttempt();
+    s.ingest(stream({
+      senseDelta: [{ index: 0, id: "reused-id", name: "read_file", arguments: "{}" }],
+    }));
+
+    const msg = s.flushAssistant(createMockContext({ messages: [] }));
+    expect(msg?.senseCalls?.[0]?.security).toBeUndefined();
   });
 });
 

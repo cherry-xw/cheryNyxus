@@ -68,7 +68,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | `retainUntil` | number | `done` (+20s) / `error` (+30s) | `PetBubbles`（气泡保留期） |
 | `approval` / `approvalQueue` | `ApprovalState` / `[]` | `interrupt` 设 / `accept`/`rejected` 清 / `sendMessage` 移 queue | `ApprovalCard` / `PetIcons` |
 | `questionBatches` | `QuestionBatchState[]` | `question_batch_requested` upsert / `completed` 移除 / `applyQuestionSnapshot` replace | `QuestionCard` / `PetIcons`（问号 chip） |
-| `runningTools` | `RunningTool[]` | `sense_started` push / `accept` filter / `done` 清 / `applyCurrentState` replace | `RunningTools`（pet bar 右侧 icon） |
+| `runningTools` | `RunningTool[]` | `sense_started` push（含 `security`）/ `accept` filter / `done` 清 / `applyCurrentState` replace | `RunningTools`（pet bar 右侧 icon，RiskBadge） |
 | `currentTodo` | unknown[] | `applyCurrentState`（来自 `currentState.currentTodo`） | `TodoPanel`（F5 收口后改读） |
 | `error` | string | `routeNotification(error)` / `sendMessage`/`resumeAgent` 终态 | `PetSprite`（error-bubble） |
 | `replaying` | boolean | `syncOneChat('replay')` 期间 | 路由层副作用抑制（UI 不读） |
@@ -143,7 +143,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 |------|---------|---------|---------|
 | `HistoryDrawer.vue` | `manager.stack` | — | `manager.closeTop()`（点遮罩 / ESC）|
 | `HistoryDrawerPanel.vue` | `stream.history` / `stream.historyLoaded` / `stream.historyDirty` / `pet.parentChatId`（layout=group/direct 切换）/ `allChatsCache`（找父/子 pet）/ `agents.subagentDisplay`（show/collapse/round 三态）/ `agents.senseCallsCollapsed`（工具调用折叠为 tag + hover 悬浮详情） | — | `agents.getHistory(chatId)`（drawer 打开时）→ 内部 `syncOneChat('loadHistory')` + 并行拉所有子 chat |
-| `MessageBubble.vue` | `item.role`（5 种）/ `item.thinking` / `item.content` / `item.senseCalls` / `item.senseCalls[].result` / `item.runtime` / `item.msgId` / `item.createdAt` / `item.contextCompaction` / `item.spawnSenseCallId` / `masterPetName` / `subPetName/Face/Type`（从 pets 查） | `showThinking` ref | — |
+| `MessageBubble.vue` | `item.role`（5 种）/ `item.thinking` / `item.content` / `item.senseCalls` / `item.senseCalls[].result` / `item.senseCalls[].security`（→ RiskBadge）/ `item.runtime` / `item.msgId` / `item.createdAt` / `item.contextCompaction` / `item.spawnSenseCallId` / `masterPetName` / `subPetName/Face/Type`（从 pets 查） | `showThinking` ref | — |
 | `MessageAvatar.vue` | `item.role` / `item.runtime`（hover 详情面板 brain/senseGroup/mcpServers）/ `item.petName`（注入式 role fallback）/ `item.spawnSenseCallId` | — | `@click` 触发 `emit('jumpToSpawn')` → 上抛到 drawer |
 
 **关键字段对照**（HistoryItem role 分流 → MessageBubble 渲染）：
@@ -203,6 +203,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 **RunningTools**（[types.ts:33-36](../../web/src/stores/agents/types.ts#L33) `RunningTool`）：
 - `id` ← `sense_started.data.id`（= sense call id）→ `accept.data.approvalId` 命中即 filter 移除
 - `name` ← `sense_started.data.senseName` → `agents.iconForTool(name)`（查 `senseTools[]`，fallback ⚙）
+- `security` ← `sense_started.data.security`（= `authorizeToolCall` 输出原样透传，缺省 undefined）→ `RunningTools.vue` 渲染 `RiskBadge`（运行态显危险性；旧协议/旧数据缺省 → 灰色「未知」，不会误标为安全）
 
 **TodoPanel**（[renderers/types.ts:14-32](../../web/src/features/agent/renderers/types.ts#L14)）：
 - 当前实现走 `walk back history` 找最近一次 `update_todo` senseCall 的 `args.todos`（[TodoPanel.vue:19-39](../../web/src/features/agent/cards/TodoPanel.vue#L19)）
@@ -226,9 +227,10 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | `QuestionRenderer.vue` | `ask_user_question` | （旧协议，已被 question_batch 替代） | `src/agent/sense/ask.ts` |
 
 **关键字段**（[renderers/types.ts:164-171](../../web/src/features/agent/renderers/types.ts#L164) `RendererProps`）：
-- `call: SenseCallRecord` ← `accumulateStaged` + `accept` 写入的 `args` + `result`
+- `call: SenseCallRecord` ← `accumulateStaged` + `accept` 写入的 `args` + `result` + `security`
 - `parsedArgs?` ← 渲染器分发器预处理（[registry.ts](../../web/src/features/agent/renderers/registry.ts)）
 - 渲染器**只渲染，不发 RPC、不改 store**（types.ts 注释硬约束）
+- **风险徽章**：`SenseCallRenderer` 分发层（[renderers/index.ts](../../web/src/features/agent/renderers/index.ts)）在 `call.security` 存在时包一层 `RiskBadge`（`riskLevelOf` 判定安全/中/高/未知），**一处覆盖** MessageBubble 折叠 popover 与展开列表两条路径；历史回放 staged `sense_end` 携带 security → 同一渲染器自动显示
 
 ### 2.7 续跑 + 中止 + 压缩（`PetToolbar` → store）
 

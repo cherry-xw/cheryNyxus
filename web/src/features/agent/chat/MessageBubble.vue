@@ -23,6 +23,7 @@ import MessageAvatar from './MessageAvatar.vue'
 import { MediaInlineRenderer } from '../composer/public'
 import { terminationDisplay } from '@/features/pets/nyxus/graph/termination'
 import { toSenseNameZh } from '@/utils/senseName'
+import RiskBadge from '@/components/RiskBadge.vue'
 
 const props = defineProps<{
   item: HistoryItem
@@ -246,6 +247,7 @@ function removeDelivery(): void {
                 <span class="sense-tag-status" aria-hidden="true">{{
                   senseStatusGlyph(call)
                 }}</span>
+                <RiskBadge :auth="call.security" compact />
               </button>
             </template>
             <!-- 悬浮详情 = 原渲染器完整内容（专用渲染器优先，参数/结果默认展开） -->

@@ -1,4 +1,5 @@
 import type { MediaKind } from '@/service/media/index.js'
+import type { ToolAuthorization } from '@/core/security/index.js'
 
 /**
  * Role 类型
@@ -12,6 +13,8 @@ export interface SenseCallInfo {
   id: string
   name: string
   arguments: string
+  /** 该工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
+  security?: ToolAuthorization
 }
 
 /**

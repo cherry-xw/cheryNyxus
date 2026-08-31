@@ -32,12 +32,16 @@ export interface SenseCallRecord {
   status: 'running' | 'done' | 'error'
   /** sense 执行结果内嵌的媒体资产（从 result 字符串解析） */
   mediaAssets?: MediaAssetRef[]
+  /** 工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
+  security?: ToolAuthorizationDto
 }
 
 /** 运行中工具（sense_started push；accept 按 id 移除；done/error 清空）。id=sense 调用 id。 */
 export interface RunningTool {
   id: string
   name: string
+  /** 本次执行的最终安全授权判定（缺省 = 无判定） */
+  security?: ToolAuthorizationDto
 }
 
 /**
@@ -278,6 +282,8 @@ export interface StagedChunkData {
    * 旧消息（写入早于本字段）时为 undefined；前端按当前 chatId 兜底。
    */
   agentChatId?: string
+  /** sense_end 携带：工具调用的安全授权判定（历史回放渲染风险徽章） */
+  security?: ToolAuthorizationDto
 }
 
 export interface ChunkMessage {

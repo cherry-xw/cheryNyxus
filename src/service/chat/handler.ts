@@ -529,6 +529,7 @@ export function messagesToStagedEvents(chatId: string): Chunk[] {
               arguments: sc.arguments,
               id: sc.id,
               agentChatId: chatId,
+              ...(sc.security ? { security: sc.security } : {}),
             },
             { chatId },
           ),
@@ -789,6 +790,7 @@ export function buildRootTimeline(
             arguments: call.arguments,
             ...(result ? { result: result.content ?? '' } : {}),
             ...(childMatches.length === 1 ? { childChatId: childMatches[0] } : {}),
+            ...(call.security ? { security: call.security } : {}),
             status:
               result?.revoked || result?.content?.startsWith('被拒绝:')
                 ? ('rejected' as const)

@@ -129,7 +129,7 @@ export interface AgentMessage {
   thinking?: string
   /** Anthropic 扩展：thinking blocks 完整列表（含 signature / redacted）。UI 不读；仅供 provider round-trip。 */
   thinkingBlocks?: ThinkingBlock[]
-  senseCalls?: Array<{ id: string; name: string; arguments: string }>
+  senseCalls?: Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }>
   /** 消息创建时间（consumed 实时投影使用；内部 effect 可省略）。 */
   createdAt?: number
   /** 消息更新时间（内部 effect 可省略）。 */
@@ -160,7 +160,7 @@ export type AgentMessagePatch =
       kind?: 'content'
       content?: string
       thinking?: string
-      senseCalls?: Array<{ id: string; name: string; arguments: string }>
+      senseCalls?: Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }>
       hash?: string
     }
   | {
@@ -270,6 +270,8 @@ export interface SenseStartedChunk {
   arguments: string
   /** 真正开始执行的时间戳（ms） */
   startedAt: number
+  /** 本次执行的最终安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧调用方） */
+  security?: ToolAuthorization
 }
 
 /**
@@ -325,6 +327,8 @@ export interface StagedChunk {
   role?: string
   /** turn 起始时间戳（全部 assistant staged 携带；reload 后由 DB created_at 替换）。 */
   createdAt: number
+  /** sense 调用的安全授权判定（仅 sense_end 携带；checkpoint 从 trigger.security 透传，供历史回放渲染风险徽章） */
+  security?: ToolAuthorization
 }
 
 /**

@@ -188,7 +188,14 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
     // 幂等：同 id 已存在于任意 assistant item 的 senseCalls → 跳过。
     // 防回放重入 / WS 重投递致同一 sense call 被处理两次（skill-box 翻倍）。user content_end 无去重也未翻倍
     // 说明非均匀整流重放，故按 id 精确去重（而非按 msgId 重放级去重）。
-    if (d.id && history.some((h) => h.senseCalls?.some((s) => s.id === d.id))) return
+    if (d.id) {
+      for (const item of history) {
+        const existing = item.senseCalls?.find((call) => call.id === d.id)
+        if (!existing) continue
+        if (!existing.security && d.security) existing.security = d.security
+        return
+      }
+    }
     // 挂当前 assistant item；若无（仅 sense 无 assistant 行——异常序），fail loud warn
     const last = history[history.length - 1]
     if (!last || last.role !== 'assistant') {
@@ -207,6 +214,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       name: d.senseName ?? '',
       args: d.arguments,
       status: 'done',
+      security: d.security,
     })
     return
   }
