@@ -67,6 +67,29 @@ afterEach(() => {
 })
 
 describe('syncCheryTemplate', () => {
+  it('ships one generic setup brain and an empty matching env key', () => {
+    const template = yaml.load(readFileSync('.chery.template/config.yaml', 'utf8')) as any
+    const brains = template.llm.brain
+
+    expect(Object.keys(brains)).toEqual(['default'])
+    expect(brains.default).toMatchObject({
+      provider: 'openai',
+      url: '<YOUR_LLM_URL>',
+      model: '<YOUR_MODEL_NAME>',
+      key: '$LLM_API_KEY',
+    })
+    expect(Object.values(template.roles).every((role: any) => role.brain === 'default')).toBe(true)
+    expect(template.presets).toEqual(
+      expect.objectContaining({
+        cheryNyxus: expect.objectContaining({ leader: 'cheryNyxus' }),
+      }),
+    )
+
+    const envExample = readFileSync('.env.example', 'utf8')
+    expect(envExample).toMatch(/^LLM_API_KEY=\s*$/m)
+    expect(envExample).not.toMatch(/LONGCAT_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY/)
+  })
+
   it('creates a fresh runtime copy and records managed hashes', () => {
     const root = tempRoot()
     const templateDir = writeTemplate(root)

@@ -1469,7 +1469,7 @@ export function rollbackConfig(backupName?: string): { backup: string } {
  * 不碰运行时内存单例（重启生效）。失败 fail loud 返回 errors，不写盘。
  * 返回分离 errors（硬错误）+ warnings（软错误：workspace 路径无效），供 UI 分层展示。
  * workspace 路径校验仅在保存期做（启动期不关心 workspace 数据正确性）。
- * 写回保留盘上 server 段不动，js-yaml dump 无注释（注释文档备份在 config.yaml.example）。
+ * 写回保留盘上 server 段不动，js-yaml dump 无注释；字段说明见 .chery.template/docs/config.md。
  * 写盘前自动备份旧配置到 .chery/backups/（保留最近 10 份，见 backupConfig），出错可 rollbackConfig 回滚。
  */
 export function saveRawConfig(

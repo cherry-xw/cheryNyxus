@@ -137,7 +137,7 @@ export function validateLoadable(raw: ConfigRaw): { ok: true; warnings: string[]
 - `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP
 - **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）。前端 `env.list` 返回的密钥下拉按**后缀过滤**——任何以 `KEY` / `TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `ACCESS_KEY_ID` 结尾的变量名都视为可作密钥占位（放宽：不再强制 `API_` 前缀，兼容手写命名如 `AP1I_KEY`），运行时配置（`CHERY_DIR` / `*_HOST` / `*_URL` 等）不进入下拉。
 
-写回保留盘上 `server` 段不动（端口/传输不通过面板编辑），`js-yaml` dump 无注释；完整注释文档备份在 [.chery/config.yaml.example](../../.chery/config.yaml.example)。
+写回保留盘上 `server` 段不动（端口/传输不通过面板编辑），`js-yaml` dump 无注释；完整字段说明见 [.chery.template/docs/config.md](../../.chery.template/docs/config.md)。
 
 ### hash.ts
 

@@ -71,69 +71,34 @@ pnpm install
 
 ---
 
-## 3. 配置密钥与本机路径（🔧 人工必做，最关键）
+## 3. 配置一颗大脑（🔧 首次启动必做）
 
-依赖装好后，**还跑不起来**——`.chery/config.yaml` 里是占位符，`.env` 里是假 key。这两处必须人手填。
+发行模板只保留一颗名为 `default` 的占位大脑。后端可以带占位配置启动；首次对话前，在设置页完成以下配置即可使用。
 
-### 3.1 LLM API Key
+### 3.1 配置 LLM API Key
 
-CheryNyxus 至少需要一个可用 Brain（LLM）。Key 有三种等价写法，**任选其一**：
-
-**方式 A：写进 `.env`（推荐，不入库）**
-
-编辑 [.env](../.env)（由 `.env.example` 拷贝而来），填入真实 key，**变量名必须与 `config.yaml` 中 `$XXX` 占位符一致**：
+编辑 [.env](../.env)（由 `.env.example` 首次复制，已有文件不会覆盖）：
 
 ```bash
-# .env
-LONGCAT_API_KEY=sk-你的真实key
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+LLM_API_KEY=你的真实密钥
 ```
 
-`config.yaml` 里 `key: $LONGCAT_API_KEY` 运行时会从此注入。优先级：**系统环境变量 > `.env` 文件**。
+也可以设置同名系统环境变量；优先级为 **系统环境变量 > `.env` 文件**。设置页大脑卡片的密钥下拉选择 `LLM_API_KEY`，磁盘配置保存为 `key: $LLM_API_KEY`，不会把真实值写入 `config.yaml`。
 
-**方式 B：系统环境变量**
+### 3.2 在设置页完成 default 大脑
 
-直接 `export LONGCAT_API_KEY=...`（或 Windows 系统变量），效果同 A，且优先级更高。
+打开「设置 → 大脑 → default」，依次填写：
 
-**方式 C：`config.yaml` 直写字面量（不推荐，易泄密）**
+1. 适配器：模板默认 `openai`，按实际服务切换。
+2. 地址：包含服务要求的版本段，例如 `https://api.openai.com/v1`。
+3. 模型：可手填模型 id，或先填写地址与密钥后刷新模型列表选择。
+4. 密钥：选择 `LLM_API_KEY`，测试连接成功后保存。
 
-```yaml
-key: sk-你的真实key   # 不走 $ 占位符，直接写死
-```
+模板中的 `<YOUR_LLM_URL>` 与 `<YOUR_MODEL_NAME>` 在设置页按空值显示，不会冒充真实配置。保存后服务受控重启，`cheryNyxus` 以及其内置辅助角色统一使用这颗大脑。
 
-> ⚠️ 方式 C 会把密钥写进本地 `.chery/`。虽不入库，但属于明文存储，仅限本地调试临时使用。
+### 3.3 后续配置
 
-### 3.2 `.chery/config.yaml` 必改项
-
-打开 [.chery/config.yaml](../.chery/config.yaml)（结构与 [.chery.template/config.yaml](../.chery.template/config.yaml) 一致），改这三类占位符：
-
-1. **Brain 的 url / model**（`llm.brain.<name>`）：
-
-   ```yaml
-   my-brain:
-     url: https://api.openai.com/v1   # 占位符 <YOUR_OPENAI_COMPATIBLE_URL> 改成真实端点
-     model: gpt-4o                     # <YOUR_MODEL_NAME> 改成真实模型 id
-     key: $OPENAI_API_KEY              # 与 .env 变量名对齐
-   ```
-
-   > `key` 字段**必须非空**：`assertChatOptions` 会拦截空 key。本地不校验 key 的服务（如 LM Studio / Ollama OpenAI 模式）也填任意非空串。
-
-2. **预设的 workspace 路径**（`presets.<name>.workspace`）：
-
-   ```yaml
-   presets:
-     默认:
-       workspace: /home/you/projects/my-workspace   # <YOUR_WORKSPACE_PATH> 改成本机绝对路径
-   ```
-
-   这是 agent 实际干活的工作目录，必须真实存在。
-
-3. **（可选）监管等级 / 端口**等：见 [config.yaml 注释](../.chery.template/config.yaml)，按需调。
-
-### 3.3 零配置离线启动（🤖 免 Key 快速验证）
-
-只想验证环境能不能跑、不想配 key？用 **mock provider**——无需网络、无需 key。`config.yaml` 已内置 `mock_test` brain 示例（`.chery/mock/` 脚本驱动），把预设的 `leader` brain 指向 `mock_test` 即可离线走通 send/resume/loop 全流程。详见 [mock.md](./mock.md)。
+大脑可用后，直接告诉 CheryNyxus 修改角色、预设、感官组、监管等级等配置。它通过 `config_manage` 完成候选校验、备份和受控重启；字段参考见 [.chery.template/docs/config.md](../.chery.template/docs/config.md)。Mock 调试仍受支持，但不再进入发行默认配置，使用方法见 [mock.md](./mock.md)。
 
 ---
 

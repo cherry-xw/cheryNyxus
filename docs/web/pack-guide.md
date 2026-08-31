@@ -160,7 +160,7 @@ afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)�
 4. **升级**：`.env` 不覆盖；`.chery/.template-manifest.json` 记录官方哈希，只更新未修改的内置资产。替换前备份到 `.chery/backups/template/<timestamp>/`，`config.yaml` 只做缺失内置资源迁移。
 5. **UX 入口**：设置面板「打开配置目录」按钮通过后端 `utils.openConfigDir` RPC 打开后端主机的 `<CHERY_DIR>/.chery`。
 
-**`.env` 用法**：填入 `LONGCAT_API_KEY` 等占位符值。`config.yaml` 中用 `$KEY` 引用这些变量，运行时由 [src/utils/config.ts](../../src/utils/config.ts) 替换（[优先级：OS env > `.env`](../utils/README.md)）。
+**`.env` 用法**：首次启动填写 `LLM_API_KEY`，再在设置页完成 `default` 大脑的地址和模型。`config.yaml` 以 `$LLM_API_KEY` 引用真实值，运行时由 [src/utils/config.ts](../../src/utils/config.ts) 替换（[优先级：OS env > `.env`](../utils/README.md)）。
 
 ## 四、增量构建对照表
 
