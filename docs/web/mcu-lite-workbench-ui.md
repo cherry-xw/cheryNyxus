@@ -113,6 +113,7 @@
 - 点击任意节点状态行 / 摘要 → 面板抽屉：chat.timeline.node.get({rootChatId, nodeId, sections:['content','thinking','toolCalls'], offset, limit})。
 - 单响应 ≤32KB 分段；超长字段附 contentHash 引用 → 前端展示截断 + 「加载更多」续拉。
 - 详情抽屉内可查看 toolCalls（工具名+参数摘要）、thinking（可选开关）。
+- **工具调用风险展示**：toolCalls 中每项 toolCall 携带 `security?`（该工具 `authorizeToolCall` 判定原样透传，与审批 interrupt 同源；缺省 undefined 兼容旧数据）→ `LiteToolCallDetail` 在工具状态旁渲染 `RiskBadge compact`（安全=绿/中=黄/高=红/未知或未评估=灰）。
 
 ### 4.5 发送
 - **自适应多行输入框**（v0.4.2）：默认单行，换行 / 长内容自动增高（上限内滚动）；发送按钮为**主色实心短小按钮**；**v1.0**：发送按钮高度与单行输入框对齐（同高，消除底部输入区左右错位）。

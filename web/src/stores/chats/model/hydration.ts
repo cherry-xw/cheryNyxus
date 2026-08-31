@@ -82,11 +82,16 @@ export function applyCurrentState(
       args: pa.arguments,
       waitTime: pa.waitTime,
       createdAt: pa.createdAt,
+      security: pa.security,
     }
   } else {
     inter.approval = undefined
   }
-  inter.runningTools = (cs?.runningTools ?? []).map((t) => ({ id: t.id, name: t.senseName }))
+  inter.runningTools = (cs?.runningTools ?? []).map((t) => ({
+    id: t.id,
+    name: t.senseName,
+    security: t.security,
+  }))
   if (cs?.executionSteps !== undefined) {
     session.executionSteps = cs.executionSteps.map((step) => ({ ...step }))
   }

@@ -105,10 +105,15 @@ export function selectCurrentState(session: ChatSession): CurrentStateData | und
             supervisionLevel: 0,
             waitTime: approval.waitTime,
             createdAt: approval.createdAt,
+            security: approval.security,
           },
         }
       : {}),
-    runningTools: s.runningTools.map((t) => ({ id: t.id, senseName: t.name })),
+    runningTools: s.runningTools.map((t) => ({
+      id: t.id,
+      senseName: t.name,
+      security: t.security,
+    })),
     executionSteps: session.executionSteps.map((step) => ({ ...step })),
     ...(session.activeRun?.runId && typeof session.activeRun.startedAt === 'number'
       ? {

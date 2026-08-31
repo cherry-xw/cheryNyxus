@@ -4,6 +4,7 @@ import type { Logger } from '@/utils/logger/types'
 import { LogLevel } from '@/utils/logger/types'
 import { estimateTokens } from '@/utils/token.js'
 import type { AgentMessage, AgentMessagePatch, SoulGroup, UserInputEntry } from './types'
+import type { ToolAuthorization } from '../security/rolePolicy.js'
 
 /**
  * 消息变更结果（Journal 写操作的返回，供 checkpoint yield message_created/message_updated effect）。
@@ -187,7 +188,7 @@ export class MessageJournal {
       thinking: string
       /** Anthropic 扩展：完整 thinking blocks（含 signature）。落库 + 下轮 buildMessages 原样回传。 */
       thinkingBlocks?: ThinkingBlock[]
-      senseCalls: Array<{ id: string; name: string; arguments: string }>
+      senseCalls: Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }>
     },
     id?: string,
   ): AgentMessage {
@@ -245,7 +246,7 @@ export class MessageJournal {
    */
   updateAssistantSenseCalls(
     id: string,
-    senseCalls: Array<{ id: string; name: string; arguments: string }>,
+    senseCalls: Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }>,
   ): void {
     const messages = this.soul.messages ?? []
     const existing = messages.find((message) => message.id === id)

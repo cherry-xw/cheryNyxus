@@ -219,6 +219,9 @@ export async function* streamAgentChunks(
         if (staged.createdAt) {
           stagedData.createdAt = staged.createdAt
         }
+        if (staged.security) {
+          stagedData.security = staged.security
+        }
         logger.event('staged', {
           stagedType: staged.stagedType,
           senseName: staged.senseName,
@@ -283,6 +286,7 @@ export async function* streamAgentChunks(
             senseName: sc.name,
             arguments: sc.arguments,
             startedAt: sc.startedAt,
+            security: sc.security,
           },
           { chatId, runId },
         )

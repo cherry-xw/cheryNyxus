@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { QuestionItemState, RunningTool } from '@/domain/chat/projectionTypes'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
+import RiskBadge from '@/components/RiskBadge.vue'
 
 defineProps<{
   tools: RunningTool[]
@@ -58,10 +59,13 @@ function runningToolTip(name: string): string {
     <span
       v-for="tool in tools"
       :key="tool.id"
-      class="run-icon"
+      class="run-tool"
       :title="runningToolTip(tool.name)"
-      >{{ agents.iconForTool(tool.name) }}</span
     >
+      <span class="run-icon">{{ agents.iconForTool(tool.name) }}</span>
+      <!-- 运行中工具的安全判定徽章（compact；缺省 = 未知） -->
+      <RiskBadge :auth="tool.security" compact />
+    </span>
   </div>
 </template>
 
@@ -70,6 +74,13 @@ function runningToolTip(name: string): string {
   'Noto Sans Symbols', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
 
 .running-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex-wrap: wrap;
+}
+
+.run-tool {
   display: inline-flex;
   align-items: center;
   gap: 1px;

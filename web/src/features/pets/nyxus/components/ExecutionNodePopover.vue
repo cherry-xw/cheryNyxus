@@ -2,6 +2,7 @@
 import { useExecutionNodePopoverController, type ExecutionNodePopoverControllerProps, type ExecutionNodePopoverControllerEmits } from './useExecutionNodePopoverController'
 import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
+import RiskBadge from '@/components/RiskBadge.vue'
 const props = defineProps<ExecutionNodePopoverControllerProps>()
 const emit = defineEmits<ExecutionNodePopoverControllerEmits>()
 const controller = useExecutionNodePopoverController(props, emit)
@@ -108,6 +109,7 @@ const {
         >
           <span class="tool-tab-icon" aria-hidden="true">{{ toolGlyph(call.name) }}</span>
           <span class="tool-tab-label">{{ toolLabel(call.name) }}</span>
+          <RiskBadge :auth="call.security" compact />
         </button>
       </div>
     </div>
@@ -228,6 +230,8 @@ const {
           <section v-if="selectedCall" :key="selectedCall.callId" class="tool-detail">
             <div class="single-tool-status">
               <span :class="`status-${selectedCall.status}`">{{ selectedStatus }}</span>
+              <!-- 该工具调用的安全判定徽章（缺省 = 未知） -->
+              <RiskBadge :auth="selectedCall.security" />
             </div>
             <section v-if="toolPresentation" class="actual-description detail-field">
               <small class="detail-label">本次操作</small>

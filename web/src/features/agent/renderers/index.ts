@@ -10,6 +10,7 @@
 import { defineComponent, defineAsyncComponent, type PropType, h } from 'vue'
 import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 import { registerRenderer, getRenderer, hasRenderer } from './registry'
+import RiskBadge from '@/components/RiskBadge.vue'
 
 // ============== 注册内置工具渲染器 ==============
 // 每个内置工具一行声明，易于维护
@@ -51,24 +52,36 @@ export const SenseCallRenderer = defineComponent({
   },
   setup(props) {
     // 快速路径：未注册工具直接用通用渲染器（避免异步开销）
+    let innerRenderer: () => ReturnType<typeof h>
     if (!hasRenderer(props.call.name)) {
-      return () =>
+      innerRenderer = () =>
         h(SenseCallBox, { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded })
+    } else {
+      // 注册工具：异步加载专用渲染器
+      const asyncComponent = defineAsyncComponent({
+        loader: async () => {
+          const renderer = await getRenderer(props.call.name)
+          return renderer ?? SenseCallBox
+        },
+        loadingComponent: SenseCallBox, // 加载中显示通用渲染器（避免闪烁）
+        errorComponent: SenseCallBox, // 加载失败降级
+        delay: 0, // 立即显示 loading
+      })
+
+      innerRenderer = () =>
+        h(asyncComponent, { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded })
     }
 
-    // 注册工具：异步加载专用渲染器
-    const asyncComponent = defineAsyncComponent({
-      loader: async () => {
-        const renderer = await getRenderer(props.call.name)
-        return renderer ?? SenseCallBox
-      },
-      loadingComponent: SenseCallBox, // 加载中显示通用渲染器（避免闪烁）
-      errorComponent: SenseCallBox, // 加载失败降级
-      delay: 0, // 立即显示 loading
-    })
-
-    return () =>
-      h(asyncComponent, { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded })
+    // 每次工具调用都渲染独立风险徽章；旧数据缺少判定时显示「未知」。
+    // 一处覆盖 MessageBubble 折叠 popover 与展开列表两条路径。
+    return () => {
+      const inner = innerRenderer()
+      return h(
+        'div',
+        { class: 'sense-call-wrap', style: { display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' } },
+        [h(RiskBadge, { auth: props.call.security }), inner],
+      )
+    }
   },
 })
 

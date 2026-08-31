@@ -32,6 +32,7 @@ import type {
   PendingInput,
   RunSnapshot,
   ChatSessionEvent,
+  ToolAuthorizationDto,
 } from '@/services/agentApi'
 import { extractMediaUrls } from '@/utils/markdown'
 import type { QuestionBatchPayload } from '@/domain/chat/projectionTypes'
@@ -205,11 +206,19 @@ function upsertMessage(session: ChatSession, item: Partial<ChatMessage> & { msgI
 function mergeSenseCalls(msg: ChatMessage, calls: ChatMessage['senseCalls']): void {
   if (!calls.length) return
   const merged = [...(msg.senseCalls ?? [])]
-  const fp = new Set(merged.map(senseFingerprint))
+  const indexByFingerprint = new Map(
+    merged.map((call, index) => [senseFingerprint(call), index] as const),
+  )
   for (const c of calls) {
     const k = senseFingerprint(c)
-    if (fp.has(k)) continue
-    fp.add(k)
+    const existingIndex = indexByFingerprint.get(k)
+    if (existingIndex !== undefined) {
+      const existing = merged[existingIndex]!
+      // 实时 staged 与权威 timeline 可能先后到达；同 id 去重时仍需补齐逐调用安全判定。
+      if (!existing.security && c.security) existing.security = c.security
+      continue
+    }
+    indexByFingerprint.set(k, merged.length)
     merged.push({ ...c })
   }
   msg.senseCalls = merged
@@ -440,13 +449,13 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
   }
 
   if (d.type === 'sense_end') {
-    if (
-      d.id &&
-      session.messageOrder.some((id) =>
-        session.messagesById[id]?.senseCalls?.some((s) => s.id === d.id),
-      )
-    ) {
-      return
+    if (d.id) {
+      for (const messageId of session.messageOrder) {
+        const existing = session.messagesById[messageId]?.senseCalls?.find((s) => s.id === d.id)
+        if (!existing) continue
+        if (!existing.security && d.security) existing.security = d.security
+        return
+      }
     }
     const lastId = session.messageOrder[session.messageOrder.length - 1]
     const last = lastId ? session.messagesById[lastId] : undefined
@@ -466,6 +475,7 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
       name: d.senseName ?? '',
       args: d.arguments,
       status: 'done',
+      security: d.security,
     })
     return
   }
@@ -772,6 +782,7 @@ function reduceNotification(
       args: d.arguments,
       waitTime: typeof d.waitTime === 'number' ? d.waitTime : 0,
       createdAt: typeof d.createdAt === 'number' ? d.createdAt : ctx.now,
+      security: d.security as ToolAuthorizationDto | undefined,
     }
     if (session.interaction.approval) session.interaction.approvalQueue.push(newApproval)
     else session.interaction.approval = newApproval
@@ -782,8 +793,13 @@ function reduceNotification(
     const id = d.id as string | undefined
     const senseName = d.senseName as string | undefined
     if (!id || !senseName) return
-    if (!session.interaction.runningTools.some((t) => t.id === id)) {
-      session.interaction.runningTools.push({ id, name: senseName })
+    const existing = session.interaction.runningTools.find((tool) => tool.id === id)
+    if (existing) {
+      if (!existing.security && d.security) {
+        existing.security = d.security as ToolAuthorizationDto
+      }
+    } else {
+      session.interaction.runningTools.push({ id, name: senseName, security: d.security as ToolAuthorizationDto | undefined })
     }
     return
   }
@@ -967,6 +983,7 @@ function canonicalToChatMessage(m: CanonicalMessage, chatId: string): ChatMessag
       : c.status === 'pending'
         ? 'running'
         : 'done') as SenseCallRecord['status'],
+    security: c.security,
   }))
   return {
     msgId: m.id,

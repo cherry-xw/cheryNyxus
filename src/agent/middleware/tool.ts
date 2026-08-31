@@ -519,6 +519,7 @@ async function* doExecuteSense(
       name,
       arguments: argsJson,
       startedAt: Date.now(),
+      security: currentAuthorization,
     }
     const result = await senseEntry.execute(args, ctx.soul.senseSharedData, {
       chatId: ctx.soul.chatId,

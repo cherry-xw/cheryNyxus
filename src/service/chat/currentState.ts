@@ -256,7 +256,7 @@ export function computeCurrentState(
 
   // 迭代近期事件（升序）：跟踪最近未决 interrupt + 未决 sense 调用 + 最近 todo
   let pendingInterrupt: InterruptInfo | undefined
-  const runningToolsMap = new Map<string, { id: string; senseName: string }>()
+  const runningToolsMap = new Map<string, { id: string; senseName: string; security?: ToolAuthorization }>()
   let currentTodo: unknown[] | undefined
 
   for (const ev of events) {
@@ -278,7 +278,11 @@ export function computeCurrentState(
             createdAt: (data.createdAt as number) ?? 0,
             security: data.security as ToolAuthorization | undefined,
           }
-          runningToolsMap.set(id, { id, senseName: (data.senseName as string) ?? '' })
+          runningToolsMap.set(id, {
+            id,
+            senseName: (data.senseName as string) ?? '',
+            security: data.security as ToolAuthorization | undefined,
+          })
         }
       } else if (type === 'accept' || type === 'rejected') {
         const id = data.approvalId as string | undefined
@@ -289,13 +293,25 @@ export function computeCurrentState(
       } else if (type === 'sense_started') {
         // auto 工具运行信号（id 与 accept.approvalId 同源，accept 时移除）
         const id = data.id as string | undefined
-        if (id) runningToolsMap.set(id, { id, senseName: (data.senseName as string) ?? '' })
+        if (id) {
+          runningToolsMap.set(id, {
+            id,
+            senseName: (data.senseName as string) ?? '',
+            security: data.security as ToolAuthorization | undefined,
+          })
+        }
       }
     } else if (kind === 'chunk' && type === 'staged') {
       if (data.type === 'sense_end') {
         const id = data.id as string | undefined
         const senseName = (data.senseName as string) ?? ''
-        if (id) runningToolsMap.set(id, { id, senseName })
+        if (id) {
+          runningToolsMap.set(id, {
+            id,
+            senseName,
+            security: data.security as ToolAuthorization | undefined,
+          })
+        }
         if (senseName === 'update_todo') {
           const parsed = safeJsonParse<{ todos?: unknown[] }>((data.arguments as string) ?? '', {})
           if (Array.isArray(parsed?.todos)) currentTodo = parsed.todos

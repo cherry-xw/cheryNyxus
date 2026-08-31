@@ -2,6 +2,7 @@ import { getSoulDb, getMonthlyDb } from './index.js'
 import { safeJsonParse } from '@/utils/json.js'
 import config from '@/utils/config.js'
 import type { ThinkingBlock } from '@/core/message/adapter.js'
+import type { ToolAuthorization } from '@/core/security/index.js'
 
 export interface ChatRow {
   id: string
@@ -55,6 +56,8 @@ export interface MessageData {
     id: string
     name: string
     arguments: string
+    /** 该工具调用的安全授权判定（authorizeToolCall 输出原样 JSON round-trip；缺省 = 旧数据无判定） */
+    security?: ToolAuthorization
   }>
   hash?: string
   replace?: {

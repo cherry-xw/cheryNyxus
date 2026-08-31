@@ -3,7 +3,7 @@ import { applyRoleAvatar, generatePet } from '@/domain/pets/presetsFactory'
 import { findSpawnPosition } from '@/domain/pets/motion/movement'
 import { createPetInstance } from '@/domain/pets/factory'
 import type { PetInstance } from '@/domain/pets/types'
-import type { ChatSummary, ContextBreakdown } from '@/services/agentApi'
+import type { ChatSummary, ContextBreakdown, ToolAuthorizationDto } from '@/services/agentApi'
 import type {
   StreamState,
   StreamChunkData,
@@ -473,7 +473,11 @@ export function createStreamRouter(
     if (type === 'sense_started') {
       // auto 工具开始执行（streamMapper sense_end auto 分支）。维护「运行中工具」列表，pet bar 显 icon。
       // id=sense 调用 id，accept（approvalId=id）到达时移除。
-      const d = (n.data ?? {}) as { id?: string; senseName?: string }
+      const d = (n.data ?? {}) as {
+        id?: string
+        senseName?: string
+        security?: ToolAuthorizationDto
+      }
       if (!d.id || !d.senseName) {
         console.warn('[agents] sense_started: 字段残缺', d)
         return
@@ -481,8 +485,11 @@ export function createStreamRouter(
       if (chatId) {
         const stream = ensureStream(streams, chatId)
         // 不再 skip 'sync' 回放：runningTools 由 currentState 权威给定，回放期事件流推进与快照一致即可。
-        if (!stream.runningTools.some((t) => t.id === d.id)) {
-          stream.runningTools.push({ id: d.id, name: d.senseName })
+        const existing = stream.runningTools.find((tool) => tool.id === d.id)
+        if (existing) {
+          if (!existing.security && d.security) existing.security = d.security
+        } else {
+          stream.runningTools.push({ id: d.id, name: d.senseName, security: d.security })
         }
       }
       return
