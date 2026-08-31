@@ -1,144 +1,45 @@
-# ============================================================
-# CheryNyxus 配置模板
-# 复制本文件到 .chery/config.yaml 后按注释修改
-# $ENV_VAR 语法：运行时从环境变量注入（推荐用于 API Key）
-# ============================================================
-
-# ------------------------------------------------------------
-# global：全局运行参数
-# 可选字段已标注 [可选]，未标注为必填
-# ------------------------------------------------------------
+# 首次启动只需在「设置 → 大脑」中配置 default；完整字段见 docs/config.md。
 global:
-  thinking: true # 是否启用 LLM 思考模式（true/false）
-  supervision: manual # Sense 监管等级：auto | smart | manual
-  stream: true # 是否流式返回（true/false）
-  sense_execute_timeout: 10000 # [可选] 单次 Sense 执行超时(ms)，默认 10000
-  approval_timeout: 300000 # [可选] 审批业务截止时间(ms)，默认 300000(5min)；到期拒绝本次工具并继续 Agent；0=无业务截止时间
-  approval_hard_timeout: 1800000 # [可选] 内存运行资源上限(ms)，默认 1800000(30min)；到点只暂停运行，持久审批仍可恢复
-  disconnect_grace_ms: 15000 # [可选] WS 断连后等待重连(ms)，默认 15000；到期后当前输出结束即暂停
-  watchdog: # [可选] 子 agent 看门狗（feed-dog 运行时监控，子无产出超时判定卡死）
-    timeout_ms: 300000 # [可选] 子无产出超时(ms)，默认 300000(5min)；子每产出 chunk 重置计时
-    wake_on_timeout:
-      false # [可选] 超时行为，默认 false / true
-      # true：子判定卡死 → 标记 abandoned 为 ghost → 唤主告知「任务已结束，无法完成」，
-      #       清唤醒链 + 清子 runtime；用户无法再对子 Agent 做任何操作（chat.send/resume 拒绝）。
-      #       主决策后续补救（spawn 新子 / 改 prompt / 告知用户）。
-      # false：主无限等待，不被超时唤醒；清子 runtime 但保留唤醒链 — 用户可手动 resume 子，
-      #       子最终完成仍走 child_done → wakeParent 正常唤主（不依赖 timeout 通知路径）。
-  bash_log_retention_hours: 24 # [可选] bash 日志保留时长(小时)，默认 24
-  tree_full_render_threshold: 500 # [可选] 节点树全量渲染阈值(节点数≤此值跳过视口裁剪避免平移卡顿)，默认 500；0=始终裁剪
-  history_recall: # [可选] history_recall 感官（长会话历史回忆，只读）配置
-    max_output_chars: 4000 # [可选] 单次返回硬字符上限，默认 4000；超限截断并提示缩小范围
-  textEditor: notepad # [可选] 文本编辑器命令，默认 notepad
+  thinking: true
+  supervision: manual
+  stream: true
+  sense_execute_timeout: 10000
+  approval_timeout: 300000
+  approval_hard_timeout: 1800000
+  disconnect_grace_ms: 15000
+  history_recall:
+    max_output_chars: 4000
+  watchdog:
+    timeout_ms: 300000
+    wake_on_timeout: false
+  bash_log_retention_hours: 24
+  textEditor: notepad
   file_compression:
-    truncate_threshold: 50000 # [可选] 文件截断阈值(bytes)，默认 50000
-    truncate_preview_lines: 100 # [可选] 截断前预览行数，默认 100
-    log_file_extensions: # [可选] 视为日志文件的扩展名
+    truncate_threshold: 50000
+    truncate_preview_lines: 100
+    log_file_extensions:
       - .log
       - .txt
       - .out
       - .err
-    drain_preview_count: 3 # [可选] drain 预览文件数，默认 3
+    drain_preview_count: 3
   logger:
-    level: info # [可选] 日志等级：debug|info|warn|error，默认 info
-    output: # [可选] 日志输出方式，默认 [file]
+    level: info
+    output:
       - file
-    timestamp: true # [可选] 日志是否带时间戳，默认 true
-    location: true # [可选] 日志是否带文件位置，默认 true
-    format: plain # [可选] 日志格式：plain|json，默认 plain
-
-# ------------------------------------------------------------
-# llm.brain：LLM 大脑配置
-# 每个 key 为 brain 名称，可配置多个；至少配置一个
-# provider 支持：openai | deepseek | ollama | mock | bigmodel | anthropic
-# ------------------------------------------------------------
+    timestamp: true
+    location: true
+    format: plain
 llm:
   brain:
-    # ---- 示例 1：OpenAI 兼容 provider ----
-    my-brain:
-      url: <YOUR_OPENAI_COMPATIBLE_URL> # 例如 https://api.openai.com/v1
-      model: <YOUR_MODEL_NAME> # 例如 gpt-4o, glm-5.2
-      key: $API_KEY # 通过环境变量注入，或直写字面量
+    default:
+      url: <YOUR_LLM_URL>
+      model: <YOUR_MODEL_NAME>
+      key: $LLM_API_KEY
       provider: openai
-      thinking: high # [可选] 思考强度：off|low|medium|high，仅推理模型支持多档
-      contextLimit: 128000 # 模型上下文窗口(tokens)
-      capabilities: # [可选] 模型能力声明
-        input:
-          image: false # 是否支持图像输入
-        generate: {}
-    # ---- 示例 2：Mock provider（本地离线测试）----
-    # 无需网络，适合开发调试；mock 脚本见 .chery/mock/
-    mock_test:
-      model: mock_test
-      provider: mock
-      thinking: 'off'
-      mock:
-        enabled: true
-        file: mock/read_file.yaml # mock 响应脚本文件路径（相对于 .chery/）
-      contextLimit: 8192
-      capabilities:
-        input: {}
-        generate: {}
-    # ---- 示例 3：Anthropic provider ----
-    # 原生 fetch → POST {url}/messages（version 前缀 /v1 由 url 自己负责），
-    # header x-api-key + anthropic-version: 2023-06-01
-    # thinking 参数（thinking:{type:'adaptive'} + output_config.effort）可通过 .chery/hooks/hooks.json 的
-    # PreLLMRequest 钩子按端点适配改写（详见 docs/agent/hooks.md）
-    anthropic_main:
-      url: https://api.anthropic.com/v1 # 完整 base URL（必须含版本前缀 /v1）
-      model: claude-sonnet-4-5 # 官方模型 id（无 anthropic. 前缀）
-      key: $ANTHROPIC_API_KEY
-      provider: anthropic
-      thinking: high # off|on|low|medium|high
-      rpm: 60 # [可选] RPM 限流
-      contextLimit: 200000
-      capabilities:
-        input:
-          image: true # 支持 image 多模态
-        generate: {}
-      anthropicCompat:
-        official: true # 官方 Anthropic API：true=保留 redacted_thinking 原样回传
-      #                                     # 第三方 anthropic 模式端点（coding-plan 代理）通常不实现 redacted_thinking，保持 false
-      # hooks: hooks/anthropic-main.json   # [可选] brain 级 hooks.json 路径（相对 .chery/）
-      #                                     # 与全局 .chery/hooks/hooks.json 合并（brain 级在全局后追加）
-    # ---- 示例 4：OpenAI 兼容本地服务（LM Studio / Ollama OpenAI 模式 / vLLM / LocalAI 等）----
-    # 端口：LM Studio 1234；Ollama 启用 OpenAI 兼容层 11434；vLLM / LocalAI 按各自配置
-    # key 必填非空（任意字符串即可），CheryNyxus assertChatOptions 会拦截空 key；
-    # thinking 多数本地模型不识别 reasoning_effort，建议 'off'
-    lmstudio_remote:
-      url: http://192.168.68.169:1234/v1 # 远端 LM Studio，确保防火墙放行 + LM Studio 启 CORS
-      model: qwen2.5-7b-instruct # 远端 LM Studio 实际加载的模型 id
-      key: lm-studio # 任意非空串；LM Studio 不校验
-      provider: openai
-      thinking: 'off'
-      contextLimit: 32000
-      capabilities:
-        input: {}
-        generate: {}
-
-# ------------------------------------------------------------
-# media：媒体文件配置
-# [可选] 当前为空，按需扩展
-# ------------------------------------------------------------
 media: {}
-
-# ------------------------------------------------------------
-# sense_groups：感官分组
-# 将 Sense 分组，角色通过 senseGroup 引用
-# 内置 Sense：read_file / write_file / execute_command /
-#   search_codebase / spawn_role / update_todo / skill / role_acceptance
-# ------------------------------------------------------------
 sense_groups:
-  leader: # 纯组长组（coordinator 等）：不配配置管理感官，配置需交 Cherry Nexus
-    - read_file
-    - skill
-    - write_file
-    - execute_command
-    - search_codebase
-    - spawn_role
-    - ask_user_question
-    - history_recall
-  chery_nexus: # Cherry Nexus 专属组：组长能力 + 配置管理（install_skill/config_manage 独占）
+  chery_nexus:
     - read_file
     - skill
     - write_file
@@ -150,69 +51,74 @@ sense_groups:
     - install_skill
     - config_manage
     - role_acceptance
-  plan:
-    - update_todo
-    - skill
-    - read_file
-    - search_codebase
-    - ask_user_question
-  coder:
-    - execute_command
-    - write_file
-    - read_file
-    - skill
-    - search_codebase
-    - ask_user_question
-  reviewer:
-    - read_file
-    - search_codebase
-    - skill
-  role_architect: # 任意岗位研究与角色蓝图；不具备配置写入能力
-    - skill
-    - read_file
-    - search_codebase
-    - ask_user_question
-  role_acceptance: # 隐藏独立评估角色；服务执行时仍强制无工具
-    - skill
-  detail_diagnostics: # 解释分支专用：允许核对项目与执行诊断，禁止修改/派发
+  detail_diagnostics:
     - read_file
     - search_codebase
     - execute_command
-  curator: # 记忆维护角色：Extract（每轮提取）/ Dream（定期整理）
+  curator:
     - memory_manage
     - read_file
     - search_codebase
     - ask_user_question
-  conversation_routing: # Shadow 专用终止工具组；不得添加其他 Sense/MCP
+  conversation_routing:
     - select_conversation:auto
-
-# ------------------------------------------------------------
-# roles：角色定义
-# 每个角色绑定一个 brain + senseGroup + systemPrompt
-# systemPrompt 路径相对于 .chery/
-# ------------------------------------------------------------
+  role_architect:
+    - skill
+    - read_file
+    - search_codebase
+    - ask_user_question
+  role_acceptance:
+    - skill
 roles:
   cheryNyxus:
-    brain: my-brain
-    avatar: '🐈‍'
+    brain: default
+    avatar: 🐈‍⬛
+    description: Chery Nyxus：系统配置管理核心角色（管理所有角色配置）+ 桌宠组长
     senseGroup: chery_nexus
     mcpServers: []
     systemPrompt: prompt/cheryNyxus/cheryNyxus.md
-    description: Chery Nyxus：系统配置管理核心角色（管理所有角色配置）+ 桌宠组长
     lock: true
+    id: role-c93be74de4d4aba9
+  curator:
+    brain: default
+    description: 记忆维护：每轮提取记忆、定期整理（Extract/Dream）
+    mentionable: true
+    senseGroup: curator
+    mcpServers: []
+    systemPrompt: prompt/curator/curator.md
+    lock: true
+    id: role-253976855f08111c
+  explanation:
+    brain: default
+    description: 只解释所选节点的概念与因果，不执行项目任务
+    mentionable: false
+    senseGroup: detail_diagnostics
+    mcpServers: []
+    id: role-f78fcae67d4aa998
+  conversation_router:
+    kind: shadow
+    brain: default
+    description: 在发送后选择应继续的历史会话或新建会话，不进入节点树
+    senseGroup: conversation_routing
+    mcpServers: []
+    id: role-4dd18552fe5839d7
   roleArchitect:
-    brain: my-brain
-    avatar: '🧩'
+    avatar: 🧩
+    brain: default
+    description: 角色架构师：研究任意岗位并输出职责、风险、能力诉求与验收蓝图；不修改配置
+    id: role-rolearchitect0001
+    mentionable: false
     senseGroup: role_architect
     mcpServers: []
     systemPrompt: prompt/roleArchitect/roleArchitect.md
     skills:
       - role-design
-    description: 角色架构师：研究任意岗位并输出职责、风险、能力诉求与验收蓝图；不修改配置
-    mentionable: false
   roleAcceptance:
-    brain: my-brain
-    avatar: '🧪'
+    avatar: 🧪
+    brain: default
+    description: 独立角色验收器：只依据隔离执行证据判定，不修改配置或执行目标任务
+    id: role-roleacceptance001
+    mentionable: false
     senseGroup: role_acceptance
     mcpServers: []
     systemPrompt: prompt/roleAcceptance/roleAcceptance.md
@@ -220,145 +126,29 @@ roles:
       - role-acceptance
     permissions:
       template: read-only
-    description: 独立角色验收器：只依据隔离执行证据判定，不修改配置或执行目标任务
-    mentionable: false
-  coordinator:
-    brain: my-brain # 引用 llm.brain 中的 key
-    avatar: '🧭' # [可选] 角色头像；缺省按角色名稳定生成，也可在设置页切换 Emoji
-    senseGroup: leader
-    mcpServers: [] # [可选] MCP 服务器列表
-    systemPrompt: prompt/prefebMain/leader.md
-    description: 协调者：组长角色，负责任务分发、子角色调度与结果汇总
-  plan:
-    brain: my-brain
-    senseGroup: plan
-    mcpServers: []
-    systemPrompt: prompt/prefebMain/planner.md
-    description: 规划者：拆解任务、管理 todo 清单、规划实现路径
-    mentionable: true
-  coder:
-    brain: my-brain
-    senseGroup: coder
-    mcpServers: []
-    systemPrompt: prompt/prefebMain/coder.md
-    description: 编码者：执行代码编写与文件修改
-    mentionable: true
-  reviewer:
-    brain: my-brain
-    senseGroup: reviewer
-    mcpServers: []
-    systemPrompt: prompt/prefebMain/reviewer.md
-    description: 审查者：只读评审代码与实现，不修改文件
-    mentionable: true
-  curator: # 记忆维护：Extract（每轮提取）/ Dream（定时整理）
-    brain: my-brain
-    senseGroup: curator
-    mcpServers: []
-    systemPrompt: prompt/curator/curator.md
-    description: 记忆维护：每轮提取记忆、定期整理（Extract/Dream）
-    mentionable: true
-    lock: true # 锁定禁止删除（保护记忆维护能力）
-  # 解释角色仍走普通角色配置；被 preset.detailRole 引用后会从 spawn_role/@角色候选排除。
-  explanation:
-    brain: my-brain
-    senseGroup: detail_diagnostics
-    mcpServers: []
-    description: 只解释所选节点的概念与因果，不执行项目任务
-    mentionable: false
-  conversation_router:
-    kind: shadow
-    brain: my-brain
-    senseGroup: conversation_routing
-    mcpServers: []
-    description: 在发送后选择应继续的历史会话或新建会话，不进入节点树
-
-# ------------------------------------------------------------
-# presets：预设配置
-# key 为预设名，"默认" 为启动时自动加载的预设
-# workspace：工作目录路径（必填，按实际环境修改）
-# rule：smart 监管规则覆盖文件名（.chery/rule/ 下，不含 base.yaml），与基准 base.yaml 深合并；缺省仅用基准
-# ------------------------------------------------------------
 presets:
   cheryNyxus:
-    leader: cheryNyxus
+    id: preset-c93be74de4d4aba9
+    shadows:
+      conversationRouting: conversation_router
     detailRole: explanation
+    leader: cheryNyxus
     roles:
       - cheryNyxus
       - roleArchitect
       - roleAcceptance
       - curator
       - explanation
-    shadows:
-      conversationRouting: conversation_router
-  默认:
-    leader: coordinator # 主角色（leader brain）
-    detailRole: explanation
-    roles:
-      - plan
-      - coder
-      - coordinator
-      - reviewer
-      - cheryNyxus # 配置管理核心角色（改配置/装技能专用，主 agent 可 spawn）
-      - explanation # 专用解释角色，不可由主 agent 派发
-    shadows:
-      conversationRouting: conversation_router
-    workspace: <YOUR_WORKSPACE_PATH> # 修改为你的实际工作目录
-    # rule: strict.yaml # 可选：smart 监管规则覆盖（.chery/rule/strict.yaml，与 base.yaml 深合并）
-  维护: # 记忆维护预设：定时触发 curator 做 Dream
-    leader: curator # curator 角色（记忆维护者）
-    roles:
-      - curator
-    workspace: <YOUR_WORKSPACE_PATH> # 与默认预设同一工作区，整理 workspace 层记忆
-    schedule: # 定时触发器（后端 cron scheduler，见 src/service/schedule/scheduler.ts）
-      cron: '0 3 * * *' # 每天 03:00（本地时区）触发 Dream
-      task: 'Dream：扫描记忆目录，合并重复/删除过时/精简 main.md 索引。逐层处理 scope=global 与 scope=workspace。'
-
-# ------------------------------------------------------------
-# server：服务监听配置
-# [可选] 以下为默认值，按需修改
-# ------------------------------------------------------------
-server:
-  port: 8182 # WebSocket 端口
-  webPort: 8183 # HTTP 端口（登录 /api/auth + 静态资源）；优先级 WEB_PORT 环境变量 > 本字段 > 默认 8183
-  transport: binary # 传输格式：binary|json
-  host: 127.0.0.1 # 监听地址（0.0.0.0 或局域网 IP 可允许非本地前端访问）
-  # 是否由后端 HTTP 服务托管前端 SPA（web/dist/）。开启则用单一 origin 解决跨域，
-  # 浏览器访问 http://<host>:8183/ 同时拿到 UI 与 API，避免 vite proxy 与 cookie 跨域边界。
-  # 默认 true：仅在 web/dist/ 存在时实际托管，缺失则日志警告并退化为仅 API。
-  # 反向代理（nginx/caddy）已托管 SPA 时设为 false，避免重复 serve。
-  serve_frontend: true
-  # [可选] 自定义前端构建产物绝对路径，覆盖默认 <repo>/web/dist。
-  # 典型：独立部署把 dist/ 拷到 /opt/chery/dist，或容器挂载点。
-  # static_dir_override: /opt/chery/dist
-  # 用户名/密码认证（可选）：设置 username 后启用。远端访问需登录，本地 loopback 信任豁免。
-  # password 可写明文（启动时自动改写为 scrypt 哈希并重启），也可直接写哈希（scrypt$<salt>$<hash>）。
-  # auth:
-  #   username: admin
-  #   password: your-password
-  # 文件夹浏览协议（config.workspace.browse.*，设置页工作区「浏览」弹层）：[可选] 以下为默认值
-  # 默认全盘可浏览（POSIX 从 /、win32 全部盘符），权限由系统对后端的实际访问报错把关
-  # （无权限目录 → 前端提示「下级无法加载（无权限）」）；.chery 系统配置目录恒不可浏览。
-  # 配置 roots 白名单可收窄浏览范围（~ 展开；缺省不设 = 全盘）。
-  # default_include_files 是"是否允许返回文件"的硬上限：admin 置 true 后调用方才可能取到文件。
-  # workspace_browse:
-  #   roots:
-  #     - '~'
-  #   default_include_files: false
-  #   show_hidden: false
-  #   max_depth: 10
-  #   session_ttl_ms: 600000
-  #   rpm: 60
-  #   max_sessions: 20
-
-# ------------------------------------------------------------
-# memory：长期记忆参数
-# [可选] 双层模型（global 跨 chat 共享 / workspace per chat）
-# 分类四类闭合：user / feedback / project / reference
-# ------------------------------------------------------------
 memory:
-  global: # 全局层（跨 chat 共享）
-    max_count: 30 # 活跃记忆最大条数（超限触发淘汰）
-    max_chars: 500 # 单条记忆正文字数上限
-  workspace: # workspace 层（per chat / per 项目）
+  global:
+    max_count: 30
+    max_chars: 500
+  workspace:
     max_count: 15
     max_chars: 500
+server:
+  port: 8182
+  webPort: 8183
+  transport: binary
+  host: 127.0.0.1
+  serve_frontend: true

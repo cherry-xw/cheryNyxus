@@ -3,10 +3,11 @@
  * 契约见 docs/agent/config-manage.md「重启前预检（dry-run）」。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import yaml from 'js-yaml'
 import { validateLoadable } from '@/utils/config.js'
 import type { ConfigRaw } from '@/utils/config.js'
 
@@ -33,6 +34,21 @@ describe('validateLoadable 重启前预检', () => {
 
   it('正常配置 → ok（无软告警）', () => {
     expect(validateLoadable(validRaw())).toEqual({ ok: true, warnings: [] })
+  })
+
+  it('发行模板只缺真实大脑参数时仍可启动', () => {
+    cpSync('.chery.template', join(tempDir, '.chery'), { recursive: true })
+    const raw = yaml.load(readFileSync(join(tempDir, '.chery', 'config.yaml'), 'utf8')) as ConfigRaw
+    const previousKey = process.env.LLM_API_KEY
+    delete process.env.LLM_API_KEY
+    try {
+      const result = validateLoadable(raw)
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.warnings).toContain('环境变量未配置: LLM_API_KEY')
+    } finally {
+      if (previousKey === undefined) delete process.env.LLM_API_KEY
+      else process.env.LLM_API_KEY = previousKey
+    }
   })
 
   it('llm.brain 为空 → errors（loadConfig 阶段会 throw）', () => {

@@ -2,7 +2,7 @@
 
 > 本目录是 `.chery.template/` 的**字段参考手册**——每个子模块（子目录 / 配置文件）对应一份独立文档，按「字段参考表 + 关联」的格式组织，**机器可读**（供 AI 自动解析/修改配置）。
 >
-> 同步规则：`.chery/config.yaml` 改动必须先在 `.chery.template/` 同步（运行时目录 gitignored）。
+> 同步规则：`.chery.template/` 是新 workspace 的发行基线；已有 `.chery/config.yaml` 由用户与 CheryNyxus 独立管理，不反向改写模板。
 
 ## 文件清单
 
@@ -100,4 +100,4 @@ cherryNyxus 角色：
 - 项目根：[../README.md](../README.md)
 - 配置加载：[../../docs/utils/config.md](../../docs/utils/config.md)
 - 提示词系统：[../../docs/system-prompt.md](../../docs/system-prompt.md)
-- 同步规则：[.chery/config.yaml](../../.chery/config.yaml) 改动 → [.chery.template/](../)
+- 同步规则：[.chery.template/](../) 单向初始化/升级内置资产；已有 [`.chery/config.yaml`](../../.chery/config.yaml) 不做整文件覆盖
