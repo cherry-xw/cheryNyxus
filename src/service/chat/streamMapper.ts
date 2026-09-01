@@ -468,7 +468,12 @@ export async function* streamAgentChunks(
         const raw = info?.message
         logger.event(
           'chat.run.error',
-          { message: raw, category: info?.category, source: info?.source },
+          {
+            errorId: info?.errorId,
+            message: raw,
+            category: info?.category,
+            source: info?.source,
+          },
           LogLevel.error,
         )
         // 合规（已前置 tracingId，如终态 throwUserFacing 错误）→ 原样；否则按 userMessage / friendlyMessage 出，前置 tracingId。
@@ -488,6 +493,7 @@ export async function* streamAgentChunks(
         }
         const canResume = computeCanResume(chatId)
         const presentation = runFailureFeedback({
+          ...(info?.errorId ? { errorId: info.errorId } : {}),
           category,
           source: info?.source ?? 'system',
           description: info?.userMessage ?? friendlyMessage(category, info?.source ?? 'system'),
@@ -524,7 +530,7 @@ export async function* streamAgentChunks(
           'error',
           rid,
           {
-            code: presentation.reasonCode,
+            code: presentation.feedback.code,
             message,
             ...(presentation.feedback.detail !== undefined
               ? { detail: presentation.feedback.detail }
@@ -767,7 +773,15 @@ export async function* streamAgentChunks(
     // isAgentAbortError 覆盖 AgentParkError（park extends abort），两者都抑制 error 通知。
     if (!isAgentAbortError(error)) {
       const raw = error.message
-      logger.event('chat.run.error', { message: raw, source: 'generator-throw' }, LogLevel.error)
+      logger.event(
+        'chat.run.error',
+        {
+          errorId: error instanceof ClassifiedError ? error.errorId : undefined,
+          message: raw,
+          source: 'generator-throw',
+        },
+        LogLevel.error,
+      )
       // 与 error chunk 分支同款友好文案（前置 tracingId；ClassifiedError 取其分类，否则 unknown/system）。
       // 注意：此处绝不 recordTerminationFact / 发 timeline.patch——observer.ts 已在 catch 里对
       // park/未预期记过终止事实并发 patch，重复会双发。
@@ -780,6 +794,7 @@ export async function* streamAgentChunks(
         message += `（详情见日志，检索 [${tracingId}]）`
       }
       const presentation = runFailureFeedback({
+        ...(classified?.errorId ? { errorId: classified.errorId } : {}),
         category,
         source,
         description: classified?.userMessage ?? friendlyMessage(category, source),
@@ -805,7 +820,7 @@ export async function* streamAgentChunks(
         'error',
         rid,
         {
-          code: presentation.reasonCode,
+          code: presentation.feedback.code,
           message,
           ...(presentation.feedback.detail !== undefined
             ? { detail: presentation.feedback.detail }

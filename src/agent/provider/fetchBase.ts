@@ -1,11 +1,7 @@
 import type { LLMOptions } from '@/core/llm/adapter'
 import { getProviderUrlPattern, type ProviderUrlKind } from '@/core/llm/urlPattern'
-import {
-  throwUserFacing,
-  ClassifiedError,
-  classifyError,
-  type ErrorCategory,
-} from '@/utils/error.js'
+import { ErrorId, type ErrorId as ErrorIdValue } from '@chery/protocol'
+import { ClassifiedError, classifyError, type ErrorCategory } from '@/utils/error.js'
 import { envPlaceholderFormatError, isMalformedEnvPlaceholder } from '@/utils/envPlaceholder.js'
 
 /**
@@ -17,9 +13,9 @@ import { envPlaceholderFormatError, isMalformedEnvPlaceholder } from '@/utils/en
  * controller.abort() 切断 HTTP 连接（与现有 openai SDK 路径行为一致）。
  *
  * 错误约定（[docs/error-conventions.md](../../../docs/error-conventions.md)）：
- * - 终态配置错误（缺 key/model/url）→ throwUserFacing（不重试，前置 tracingId）；
- * - 可重试错误（网络/上游非2xx）→ ClassifiedError（携带 category+userMessage+source=brain），
- *   retry 据 category 判重试，表层出口（streamMapper/compose）取 userMessage 作用户面。
+ * - 已知配置错误（缺 key/model/url）→ ClassifiedError(validation/brain)，保留错误身份且不重试；
+ * - 网络/上游非 2xx → ClassifiedError（携带 category+userMessage+source=brain），retry 据
+ *   category 判重试，表层出口（streamMapper/compose）取 userMessage 作用户面。
  *
  * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) 「fetch 基座」。
  */
@@ -146,6 +142,26 @@ function brainFriendly(category: ErrorCategory): string {
 // ========== 必填项校验 ==========
 
 /**
+ * 确定性的 AI 服务配置错误必须保留 validation/brain 身份。
+ *
+ * 若在这里抛带追踪码的普通 Error，retry 只能从中文 message 猜分类，最终会落入
+ * unknown/system，让界面把配置缺失误报为“系统出了点小问题”。
+ */
+export function brainConfigurationError(
+  errorId: ErrorIdValue,
+  message: string,
+  userMessage: string,
+): ClassifiedError {
+  return new ClassifiedError({
+    errorId,
+    message,
+    userMessage,
+    category: 'validation',
+    source: 'brain',
+  })
+}
+
+/**
  * 校验 LLM 调用必填项：model/url 必填、key 非空且非 $ENV 占位符。
  * 占位符 $VAR（env 未配置时 replaceEnvVars 原样返回）必须也视为缺失——
  * 不然会作为 token 发出 → 后端 401，错误信息毫无指引。
@@ -158,14 +174,24 @@ export function assertChatOptions(options?: LLMOptions): {
   const model = options?.model
   const url = options?.url
   const key = options?.key
-  if (!model || !url) {
-    throwUserFacing('llm.options.missing', '大脑没配好（缺 model 或地址），请在设置里检查', {
-      reason: 'missing_model_or_url',
-    })
+  if (!model) {
+    throw brainConfigurationError(
+      ErrorId.BRAIN_CONFIG_MODEL_MISSING,
+      'missing LLM model',
+      '大脑没配好（缺 model），请在设置里检查',
+    )
+  }
+  if (!url) {
+    throw brainConfigurationError(
+      ErrorId.BRAIN_CONFIG_URL_MISSING,
+      `missing LLM URL for model ${model}`,
+      '大脑没配好（缺服务地址），请在设置里检查',
+    )
   }
   const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/)
   if (isMalformedEnvPlaceholder(key)) {
     throw new ClassifiedError({
+      errorId: ErrorId.BRAIN_CONFIG_KEY_ENV_INVALID,
       message: `invalid LLM key environment placeholder for model ${model}`,
       userMessage: envPlaceholderFormatError('AI 服务密钥'),
       category: 'validation',
@@ -174,17 +200,18 @@ export function assertChatOptions(options?: LLMOptions): {
   }
   if (placeholderMatch) {
     const envName = placeholderMatch[1]!
-    throwUserFacing('llm.key.missing', `大脑的钥匙没配好（${model}），请在设置里检查`, {
-      model,
-      envName,
-      reason: 'placeholder_unresolved',
-    })
+    throw brainConfigurationError(
+      ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED,
+      `missing LLM key environment variable ${envName} for model ${model}`,
+      `大脑的钥匙没配好（${model}），请在设置里检查`,
+    )
   }
   if (!key) {
-    throwUserFacing('llm.key.missing', `大脑的钥匙没配好（${model}），请在设置里检查`, {
-      model,
-      reason: 'key_empty',
-    })
+    throw brainConfigurationError(
+      ErrorId.BRAIN_CONFIG_KEY_MISSING,
+      `missing LLM key for model ${model}`,
+      `大脑的钥匙没配好（${model}），请在设置里检查`,
+    )
   }
   return { model, url, key: key as string }
 }

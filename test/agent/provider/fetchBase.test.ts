@@ -8,6 +8,7 @@ import {
 } from '@/agent/provider/fetchBase.js'
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern.js'
 import { ClassifiedError } from '@/utils/error.js'
+import { ErrorId } from '@chery/protocol'
 
 /**
  * fetchBase 的 URL 端点拼接与流完整性校验（docs/agent/provider.md）：
@@ -37,6 +38,38 @@ function asClassified(err: unknown): ClassifiedError {
 }
 
 describe('assertChatOptions 密钥占位符校验', () => {
+  it.each([
+    [
+      '缺 model',
+      { url: 'https://gw.example/v1', key: 'secret' },
+      ErrorId.BRAIN_CONFIG_MODEL_MISSING,
+    ],
+    ['缺地址', { model: 'MiniMax-M3', key: 'secret' }, ErrorId.BRAIN_CONFIG_URL_MISSING],
+    [
+      '缺 key',
+      { model: 'MiniMax-M3', url: 'https://gw.example/v1' },
+      ErrorId.BRAIN_CONFIG_KEY_MISSING,
+    ],
+    [
+      '环境变量未解析',
+      { model: 'MiniMax-M3', url: 'https://gw.example/v1', key: '$API_KEY' },
+      ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED,
+    ],
+  ])('%s → 携带稳定错误 ID 和 validation/brain 身份', (_name, options, errorId) => {
+    let error: unknown
+    try {
+      assertChatOptions(options)
+    } catch (caught) {
+      error = caught
+    }
+
+    const classified = asClassified(error)
+    expect(classified.errorId).toBe(errorId)
+    expect(classified.category).toBe('validation')
+    expect(classified.source).toBe('brain')
+    expect(classified.userMessage).toMatch(/大脑.*没配好/)
+  })
+
   it('格式错误的 $ENV 占位符 → validation，不会进入上游认证流程', () => {
     expect(() =>
       assertChatOptions({ model: 'MiniMax-M3', url: 'https://gw.example/v1', key: '$APq_KEY' }),
@@ -45,6 +78,7 @@ describe('assertChatOptions 密钥占位符校验', () => {
       assertChatOptions({ model: 'MiniMax-M3', url: 'https://gw.example/v1', key: '$APq_KEY' })
     } catch (error) {
       const classified = asClassified(error)
+      expect(classified.errorId).toBe(ErrorId.BRAIN_CONFIG_KEY_ENV_INVALID)
       expect(classified.category).toBe('validation')
       expect(classified.source).toBe('brain')
       expect(classified.userMessage).toContain('环境变量占位符格式错误')

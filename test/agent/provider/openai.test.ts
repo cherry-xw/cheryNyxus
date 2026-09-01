@@ -16,6 +16,7 @@ import { getSenseAdapter, senseAdapterRegistry } from "@/core/sense/adapter.js";
 import type { LLMResponse } from "@/core/message/adapter.js";
 import type { Sense, SenseFunction } from "@/core/sense/index.js";
 import type { ZodType } from "zod";
+import { ErrorId } from "@chery/protocol";
 
 vi.mock("openai", () => {
   const mockCreate = vi.fn().mockImplementation(async (options: { stream?: boolean }) => {
@@ -236,12 +237,20 @@ describe("OpenAI LLM adapter", () => {
 
   it("chat model 缺失 → throw", async () => {
     const llm = getLLMAdapter("openai")!;
-    await expect(llm.chat([], [], { url: "https://x" })).rejects.toThrow("大脑没配好");
+    await expect(llm.chat([], [], { url: "https://x" })).rejects.toMatchObject({
+      errorId: ErrorId.BRAIN_CONFIG_MODEL_MISSING,
+      category: "validation",
+      source: "brain",
+    });
   });
 
   it("chat url 缺失 → throw", async () => {
     const llm = getLLMAdapter("openai")!;
-    await expect(llm.chat([], [], { model: "gpt-4" })).rejects.toThrow("大脑没配好");
+    await expect(llm.chat([], [], { model: "gpt-4" })).rejects.toMatchObject({
+      errorId: ErrorId.BRAIN_CONFIG_URL_MISSING,
+      category: "validation",
+      source: "brain",
+    });
   });
 
   it("chatStream 返回可迭代 + content", async () => {
@@ -256,7 +265,11 @@ describe("OpenAI LLM adapter", () => {
 
   it("chatStream model 缺失 → throw", async () => {
     const llm = getLLMAdapter("openai")!;
-    await expect(llm.chatStream([], [], { url: "https://x" })).rejects.toThrow("大脑没配好");
+    await expect(llm.chatStream([], [], { url: "https://x" })).rejects.toMatchObject({
+      errorId: ErrorId.BRAIN_CONFIG_MODEL_MISSING,
+      category: "validation",
+      source: "brain",
+    });
   });
 
   it("thinking 选项 + senses 传入不抛错", async () => {

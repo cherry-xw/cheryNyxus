@@ -10,11 +10,11 @@ import {
 } from '@/core/sense'
 import type { ZodType } from 'zod'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
+import { ErrorId } from '@chery/protocol'
 import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
-import { throwUserFacing } from '@/utils/error.js'
-import { classifyBrainError, wrapBrainStream } from './fetchBase.js'
+import { brainConfigurationError, classifyBrainError, wrapBrainStream } from './fetchBase.js'
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -93,10 +93,11 @@ const ollamaLLMAdapter: LLMAdapter = {
     const msgArray = messages as Message[]
     const model = options?.model
     if (!model) {
-      throwUserFacing('llm.options.missing', '大脑没配好（缺 model），请在设置里检查', {
-        provider: 'ollama',
-        reason: 'missing_model',
-      })
+      throw brainConfigurationError(
+        ErrorId.BRAIN_CONFIG_MODEL_MISSING,
+        'missing Ollama model',
+        '大脑没配好（缺 model），请在设置里检查',
+      )
     }
     try {
       const client = createOllamaClient(options)
@@ -117,10 +118,11 @@ const ollamaLLMAdapter: LLMAdapter = {
     const msgArray = messages as Message[]
     const model = options?.model
     if (!model) {
-      throwUserFacing('llm.options.missing', '大脑没配好（缺 model），请在设置里检查', {
-        provider: 'ollama',
-        reason: 'missing_model',
-      })
+      throw brainConfigurationError(
+        ErrorId.BRAIN_CONFIG_MODEL_MISSING,
+        'missing Ollama model',
+        '大脑没配好（缺 model），请在设置里检查',
+      )
     }
     // P1-2：Ollama 流式不稳定返回 tool_calls，感官调用可能不触发；建议非流式 chat() 路径。
     if (senses.length > 0) {

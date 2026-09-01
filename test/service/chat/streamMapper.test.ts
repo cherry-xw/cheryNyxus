@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { NotificationEnvelopeSchema } from '@chery/protocol'
+import { ErrorId, NotificationEnvelopeSchema } from '@chery/protocol'
 import type { MiddlewareChunk } from '@/core/middleware/types.js'
 import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
 import { createChat, deleteChat } from '@/db/chat.js'
@@ -125,6 +125,57 @@ describe('streamAgentChunks run lifecycle', () => {
     expect(typed.at(-1)?.[1]).toMatchObject({ status: 'paused' })
     expect(typed.filter(([type]) => type === 'run.outcome')).toHaveLength(1)
     expect(typed.some(([type]) => type === 'done')).toBe(false)
+  })
+
+  it('uses the stable error ID to query the concrete configuration response', async () => {
+    const chatId = 'chat-config-error-id'
+    cleanup.push(chatId)
+    createChat(chatId)
+    async function* failed(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      yield {
+        type: 'error',
+        errors: [
+          {
+            attempt: 1,
+            timestamp: Date.now(),
+            errorId: ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED,
+            message: 'missing LLM key environment variable API_KEY',
+            userMessage: '核心层兜底文案不应覆盖错误目录',
+            source: 'brain',
+            recoverable: false,
+            category: 'validation',
+          },
+        ],
+      }
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentChunks(
+      failed(),
+      'request-config-error-id',
+      chatId,
+      'run-config-error-id',
+    )) {
+      events.push(event)
+    }
+
+    const typed = notifications(events)
+    const outcome = typed.find(([type]) => type === 'run.outcome')?.[1]
+    const legacyError = typed.find(([type]) => type === 'error')?.[1]
+    expect(outcome).toMatchObject({
+      status: 'failed',
+      reasonCode: 'RUN_VALIDATION_FAILED',
+      feedback: {
+        code: ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED,
+        title: 'AI 服务配置不完整',
+        description: '密钥引用的环境变量尚未配置。',
+        guidance: '请配置对应环境变量，或在设置中改用可用密钥后重新发送。',
+      },
+    })
+    expect(legacyError).toMatchObject({
+      code: ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED,
+      feedback: { code: ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED },
+    })
   })
 
   it('normalizes long multiline error details before emitting terminal notifications', async () => {

@@ -111,6 +111,21 @@ export const ErrorCode = {
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
 
+/**
+ * Stable domain error identifiers. Unlike tracingId (one failure instance),
+ * these values identify a concrete, catalogued cause and are safe to use for
+ * response presentation, analytics, and client-side branching.
+ */
+export const ErrorId = {
+  BRAIN_CONFIG_MODEL_MISSING: 'BRAIN_CONFIG_MODEL_MISSING',
+  BRAIN_CONFIG_URL_MISSING: 'BRAIN_CONFIG_URL_MISSING',
+  BRAIN_CONFIG_KEY_MISSING: 'BRAIN_CONFIG_KEY_MISSING',
+  BRAIN_CONFIG_KEY_ENV_UNRESOLVED: 'BRAIN_CONFIG_KEY_ENV_UNRESOLVED',
+  BRAIN_CONFIG_KEY_ENV_INVALID: 'BRAIN_CONFIG_KEY_ENV_INVALID',
+} as const
+
+export type ErrorId = (typeof ErrorId)[keyof typeof ErrorId]
+
 export const ErrorSourceSchema = z.enum([
   'brain',
   'sense',

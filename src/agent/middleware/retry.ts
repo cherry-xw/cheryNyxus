@@ -53,6 +53,7 @@ function createErrorInfo(attempt: number, error: unknown): ErrorChunk['errors'][
     // detail 一并透传（上游技术摘要），供前端 error-bubble 折叠展示。
     ...(error instanceof ClassifiedError
       ? {
+          ...(error.errorId !== undefined ? { errorId: error.errorId } : {}),
           userMessage: error.userMessage,
           source: error.source,
           ...(error.detail !== undefined ? { detail: error.detail } : {}),
@@ -124,6 +125,7 @@ export async function* retryMiddleware(
         'retry.attempt',
         {
           attempt,
+          errorId: errorInfo.errorId,
           category: errorInfo.category,
           recoverable: errorInfo.recoverable,
           message: error instanceof Error ? error.message : String(error),
