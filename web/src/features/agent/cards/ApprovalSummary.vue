@@ -55,7 +55,7 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
   padding: 9px 10px;
   border: 1px solid color-mix(in srgb, #d88a26 32%, var(--border));
   border-radius: 8px;
-  background: color-mix(in srgb, #f6b73c 8%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
 .approval-summary h3 {
   margin: 0;
@@ -79,7 +79,7 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
   color: color-mix(in srgb, var(--el-color-primary) 82%, var(--ink));
 }
 .approval-badges .approval {
-  background: color-mix(in srgb, #f6b73c 18%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
   color: color-mix(in srgb, #9a5b00 82%, var(--ink));
 }
 .approval-summary dl {

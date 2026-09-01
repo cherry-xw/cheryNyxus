@@ -20,7 +20,6 @@ import {
   ref,
   watch,
 } from 'vue'
-import { AnimatePresence, motion } from 'motion-v'
 import { ArrowLeft, ArrowRight, Close } from '@element-plus/icons-vue'
 import { useAgentsStore, useConnectionStore } from '@/application/public'
 import {
@@ -69,7 +68,6 @@ const SETTINGS_TAB_BY_SECTION: Record<SettingsSection, TabKey> = {
 }
 
 export function useSettingsDialogController(props: SettingsDialogControllerProps) {
-  const MotionDiv = motion.div
   const agents = useAgentsStore()
   const connection = useConnectionStore()
   /** Electron 原生设置窗面（WindowFrame 外壳内）：铺满窗、去自绘拖拽/三键、关闭走 windowControl；
@@ -126,7 +124,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const panelStyle = computed(() => ({
     transform: maximized.value ? undefined : `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
   }))
-  /** 面板合并样式：主题色变量 + 拖动 transform（motion-v 的 style 不接受 Vue 数组语法，展开合并）。 */
+  /** 面板合并样式：主题色变量 + 拖动 transform。 */
   const panelStyles = computed(() => ({
     ...settingsThemeStyle.value,
     ...panelStyle.value,
@@ -781,7 +779,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   }
 
   return {
-    AnimatePresence,
     ArrowLeft,
     ArrowRight,
     BrainsTab,
@@ -791,7 +788,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     HooksTab,
     McpTab,
     MediaTab,
-    MotionDiv,
     OVERLAY_Z_INDEX,
     OpenConfigDirButton,
     PluginsTab,

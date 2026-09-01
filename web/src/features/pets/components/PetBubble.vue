@@ -7,20 +7,12 @@
  * 气泡内部 .work-text/.error-text 等内容样式仍由 PetBubbles 通过 scoped + 组件根 data-v 继承匹配。
  */
 import { computed } from 'vue'
-import { motion } from 'motion-v'
-import type { VariantType } from 'motion-v'
-
-const MotionDiv = motion.div
+import type { PetMotionDescriptor } from '@/domain/pets/motion/animation'
 
 const props = defineProps<{
   variant: 'question' | 'approval' | 'error' | 'feedback' | 'work' | 'speech'
   tone?: 'info' | 'warning' | 'error'
-  speech: {
-    initial: VariantType
-    animate: VariantType
-    exit: VariantType
-    transition: VariantType['transition']
-  }
+  speech: PetMotionDescriptor & { initial?: unknown; exit?: unknown }
   style?: Record<string, string>
   isThinking?: boolean
   isSub?: boolean
@@ -51,19 +43,15 @@ const bubbleClass = computed(() => {
 </script>
 
 <template>
-  <MotionDiv
+  <div
     class="speech"
     :class="bubbleClass"
     :style="style"
-    :initial="speech.initial"
-    :animate="speech.animate"
-    :exit="speech.exit"
-    :transition="speech.transition"
     @pointerenter="emit('enter')"
     @pointerleave="emit('leave')"
   >
     <slot />
-  </MotionDiv>
+  </div>
 </template>
 
 <style scoped lang="less">

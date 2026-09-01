@@ -78,7 +78,7 @@ function presetAttentionCount(pet: PetInstance): number {
 function activeRoot(pet: PetInstance): string {
   return agents.activeRootForPet(pet)
 }
-const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = usePetWorld(stageRef, agents.pets)
+const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet, registerPetElement } = usePetWorld(stageRef, agents.pets)
 
 /**
  * 主 pet 点击 → 打开 AgentDialog（设 activeDialogChatId）。
@@ -241,6 +241,7 @@ async function handleResume(pet: PetInstance): Promise<void> {
       :stream="visibleStreams[activeRoot(pet)]"
       :stream-chat-id="activeRoot(pet)"
       :attention-count="presetAttentionCount(pet)"
+      :position-ref="(element) => registerPetElement(pet.instanceId, element)"
       @start-drag="handleStartDrag"
       @drag="handleDrag"
       @end-drag="handleEndDrag"
@@ -268,15 +269,15 @@ async function handleResume(pet: PetInstance): Promise<void> {
   min-width: 320px;
   min-height: 420px;
   background:
-    linear-gradient(color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 18% 18%, rgba(255, 196, 87, 0.34), transparent 28%),
-    radial-gradient(circle at 82% 28%, rgba(88, 196, 189, 0.28), transparent 30%),
-    radial-gradient(circle at 50% 80%, rgba(151, 122, 255, 0.26), transparent 34%), var(--bg);
+    linear-gradient(color-mix(in srgb, var(--accent) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 18% 18%, var(--stage-glow-a), transparent 30%),
+    radial-gradient(circle at 82% 26%, var(--stage-glow-b), transparent 34%),
+    linear-gradient(135deg, transparent 0 49.9%, color-mix(in srgb, var(--accent) 4%, transparent) 50%, transparent 50.1%),
+    var(--bg);
   background-size:
     42px 42px,
     42px 42px,
-    auto,
     auto,
     auto,
     auto;
@@ -288,8 +289,8 @@ async function handleResume(pet: PetInstance): Promise<void> {
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 55%, transparent), transparent 22%),
-      linear-gradient(0deg, color-mix(in srgb, var(--ink) 8%, transparent), transparent 34%);
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 42%, transparent), transparent 20%),
+      linear-gradient(0deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 32%);
   }
 
   // desktop surface：背景全清（含 ::before），透明窗下只保留 sprite 实体

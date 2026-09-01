@@ -7,7 +7,6 @@
  * 历史抽屉仍为全局单例（HistoryDrawer 单例渲染），openHistory/锚点写全局 agents.historyDrawer*。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AnimatePresence, motion } from 'motion-v'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RoleConfigPopover } from '../runtime/public'
 import { AgentComposer, useAgentDialogOptions, useComposerMenuPosition } from '../composer/public'
@@ -77,7 +76,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     if (isNative.value) return
     workbenchWindow.onTitlePointerDown(e)
   }
-  const MotionDiv = motion.div
   const {
     chatId,
     pet,
@@ -753,14 +751,12 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
 
   return {
     AgentComposer,
-    AnimatePresence,
     ConnectionStatusChip,
     ContextUsageBar,
     FOLD_ICONS,
     FOLD_TIPS,
     LiteView,
     MessageBranchTree,
-    MotionDiv,
     NYXUS_WORKBENCH_Z_INDEX,
     NyxusPianoStrip,
     NyxusSessionList,

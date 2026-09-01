@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, onMounted, onScopeDispose, shallowRef } from 'vue'
 import type { Ref } from 'vue'
 import type { StreamState } from '@/application/public'
 import { useAgentsStore, useThemeStore } from '@/application/public'
@@ -11,6 +11,7 @@ import {
   spriteMotion,
 } from '@/domain/pets/motion/animation'
 import type { PetInstance } from '@/domain/pets/types'
+import { frameCoordinator } from '@/utils/frameCoordinator'
 
 /**
  * PetSprite 视觉计算 composable：所有 computed style / motion config / 辅助函数。
@@ -41,6 +42,17 @@ export function usePetStyles(
 ) {
   const agents = useAgentsStore()
   const themeStore = useThemeStore()
+  const pose = shallowRef({ x: pet().x, y: pet().y })
+  let unsubscribePose: (() => void) | undefined
+  let lastPoseAt = 0
+  onMounted(() => {
+    unsubscribePose = frameCoordinator.subscribe(({ now }) => {
+      if (now - lastPoseAt < 50) return
+      lastPoseAt = now
+      pose.value = { x: pet().x, y: pet().y }
+    })
+  })
+  onScopeDispose(() => unsubscribePose?.())
 
   // === 气泡 offset：恒为 base（running-row absolute 不再顶动脸位） ===
   const bubbleOffsetY = computed(() => BUBBLE_OFFSET_Y_BASE)
@@ -62,7 +74,6 @@ export function usePetStyles(
 
   // === style computeds ===
   const style = computed(() => ({
-    transform: `translate3d(${pet().x}px, ${pet().y}px, 0)`,
     zIndex: String(petBodyZIndex(pet(), petHover.value)),
     '--pet-color': pet().color,
     '--pet-accent': themeStore.theme === 'dark' ? lightenAccent(pet().accent) : pet().accent,
@@ -72,8 +83,8 @@ export function usePetStyles(
   }))
 
   const speechStyle = computed(() => ({
-    left: `${pet().x + pet().width / 2}px`,
-    top: `${pet().y + bubbleOffsetY.value}px`,
+    left: `${pose.value.x + pet().width / 2}px`,
+    top: `${pose.value.y + bubbleOffsetY.value}px`,
     zIndex: String(speechZIndex(pet())),
   }))
 
@@ -81,8 +92,8 @@ export function usePetStyles(
   // 交互窗口归属由「接力棒」仲裁（workbenchConsumesChat）：工作台打开时 pet 气泡隐藏、工作台消费，
   // 关闭后交还 pet 兜底；本 style 仅负责坐标与层级，显隐由 PetBubbles 门控。
   const approvalStyle = computed(() => ({
-    left: `${pet().x + pet().width / 2}px`,
-    top: `${pet().y + bubbleOffsetY.value}px`,
+    left: `${pose.value.x + pet().width / 2}px`,
+    top: `${pose.value.y + bubbleOffsetY.value}px`,
     zIndex: String(speechZIndex(pet())),
   }))
 
@@ -101,15 +112,15 @@ export function usePetStyles(
   })
   const todoPanelStyle = computed(() => ({
     position: 'absolute' as const,
-    left: `${pet().x + pet().width + 8}px`,
-    top: `${pet().y + bubbleOffsetY.value}px`,
+    left: `${pose.value.x + pet().width + 8}px`,
+    top: `${pose.value.y + bubbleOffsetY.value}px`,
     zIndex: String(speechZIndex(pet())),
   }))
 
   const petIconsStyle = computed(() => ({
     position: 'absolute' as const,
-    left: `${pet().x + pet().width}px`,
-    top: `${pet().y + 16}px`,
+    left: `${pose.value.x + pet().width}px`,
+    top: `${pose.value.y + 16}px`,
     zIndex: String(speechZIndex(pet()) - 1),
   }))
 

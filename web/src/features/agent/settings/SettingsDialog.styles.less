@@ -331,6 +331,38 @@
   // 滚动交给各 tab 内部的 TabShell.shell-scroll；本层只做容器。
 }
 
+.motion-preference {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control, 6px);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  font-family: var(--font-mono, monospace);
+}
+.motion-preference-label {
+  padding: 0 6px;
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+.motion-preference button {
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  font: 10px/20px var(--font-ui, sans-serif);
+  cursor: pointer;
+}
+.motion-preference button:hover,
+.motion-preference button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 // v-if 分支的真实 DOM pane 继续把完整可用高度传给 TabShell，
 // 同一时刻只存在一个 pane，非活动 Tab 不保留 DOM、监听器和渲染开销。
 .tab-pane {

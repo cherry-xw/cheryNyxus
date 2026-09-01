@@ -17,17 +17,9 @@ function manualChunks(id: string): string | undefined {
   if (id.includes('element-plus') || id.includes('@element-plus')) {
     return 'vendor-ui'
   }
-  // 动画：GSAP 核心（motion-v 退役中，分支保留至迁移完成后随 S7 删除）
+  // 动画：GSAP 是唯一 DOM 动画运行时。
   if (id.includes('gsap')) {
     return 'vendor-gsap'
-  }
-  // 动画与底层 hooks
-  if (id.includes('motion-v') || id.includes('@vueuse')) {
-    return 'vendor-motion'
-  }
-  // Markdown / 代码高亮
-  if (id.includes('highlight.js') || id.includes('markdown-it')) {
-    return 'vendor-markdown'
   }
   // Vue 生态核心：vue / vue-router / pinia
   if (

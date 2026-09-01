@@ -24,6 +24,19 @@
   --surface-hover: #f8fafd;
   --surface-soft: rgba(255, 255, 255, 0.72); /* 半透明白表面（icon-btn / 浅卡） */
 
+  /* 精密控制台：排版、密度、几何与低成本环境光 */
+  --font-ui: Inter, 'Segoe UI Variable', 'PingFang SC', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --space-control: 8px;
+  --space-panel: 14px;
+  --stage-glow-a: rgba(79, 70, 229, 0.1);
+  --stage-glow-b: rgba(8, 145, 178, 0.08);
+
   /* 边框 / 遮罩 */
   --border: rgba(27, 35, 55, 0.14);
   --border-strong: rgba(27, 35, 55, 0.22);
@@ -50,20 +63,20 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* ── nyxus CRT 终端调色板（浅色变体，保持既有独立身份） ── */
-  --nx-bg: rgba(252, 251, 248, 0.98);
-  --nx-border: rgba(52, 60, 56, 0.68);
-  --nx-border-soft: rgba(52, 60, 56, 0.34);
-  --nx-text: #1f2421;
-  --nx-text-dim: #2c332e;
-  --nx-text-faint: rgba(31, 36, 33, 0.7);
-  --nx-code-bg: rgba(0, 0, 0, 0.09);
-  --nx-code-bg-soft: rgba(0, 0, 0, 0.07);
-  --nx-green: #0f7a52;
-  --nx-yellow: #9c6413;
-  --nx-red: #c02e47;
-  --nx-blue: #2d55ad;
-  --nx-cyan: #0c7890;
-  --nx-purple: #6240b8;
+  --nx-bg: rgba(247, 249, 255, 0.98);
+  --nx-border: rgba(67, 56, 202, 0.68);
+  --nx-border-soft: rgba(67, 56, 202, 0.26);
+  --nx-text: #182238;
+  --nx-text-dim: #33415c;
+  --nx-text-faint: rgba(24, 34, 56, 0.66);
+  --nx-code-bg: rgba(79, 70, 229, 0.08);
+  --nx-code-bg-soft: rgba(79, 70, 229, 0.05);
+  --nx-green: #15803d;
+  --nx-yellow: #a16207;
+  --nx-red: #b91c1c;
+  --nx-blue: #3730a3;
+  --nx-cyan: #0e7490;
+  --nx-purple: #6d28d9;
   --nx-hljs-keyword: #b45309;
   --nx-hljs-string: #15803d;
   --nx-hljs-comment: #64748b;
@@ -85,6 +98,8 @@
   --surface: #161d38;
   --surface-hover: #1b2444;
   --surface-soft: rgba(140, 152, 230, 0.08);
+  --stage-glow-a: rgba(34, 211, 238, 0.14);
+  --stage-glow-b: rgba(99, 102, 241, 0.13);
 
   /* 边框 / 遮罩 */
   --border: rgba(148, 163, 216, 0.14);
@@ -105,14 +120,14 @@
   --neon-magenta: #d946ef;
 
   /* ── nyxus CRT 终端调色板（深色变体 = 既有深灰绿，保持不动） ── */
-  --nx-bg: rgba(37, 43, 41, 0.98);
-  --nx-border: rgba(210, 224, 213, 0.88);
-  --nx-border-soft: rgba(210, 224, 213, 0.5);
-  --nx-text: #f0f5f1;
-  --nx-text-dim: #e0e9e2;
-  --nx-text-faint: rgba(235, 244, 237, 0.7);
-  --nx-code-bg: rgba(0, 0, 0, 0.46);
-  --nx-code-bg-soft: rgba(16, 21, 20, 0.56);
+  --nx-bg: rgba(9, 15, 31, 0.98);
+  --nx-border: rgba(103, 232, 249, 0.72);
+  --nx-border-soft: rgba(129, 140, 248, 0.34);
+  --nx-text: #eef6ff;
+  --nx-text-dim: #c8d6ef;
+  --nx-text-faint: rgba(200, 214, 239, 0.68);
+  --nx-code-bg: rgba(3, 7, 18, 0.64);
+  --nx-code-bg-soft: rgba(15, 23, 42, 0.7);
   --nx-green: #7bf5c8;
   --nx-yellow: #ffe18b;
   --nx-red: #ff8ba3;
@@ -123,7 +138,15 @@
   --nx-hljs-string: #a8e7a1;
   --nx-hljs-comment: #89a4ad;
   --nx-hljs-number: #a9c8ff;
-  --nx-ts: 0.55px 0 rgba(228, 239, 230, 0.44), -0.55px 0 rgba(15, 21, 19, 0.72);
+  --nx-ts: 0.45px 0 rgba(103, 232, 249, 0.34), -0.45px 0 rgba(129, 140, 248, 0.38);
+}
+
+[data-motion='reduced'] *,
+[data-motion='reduced'] *::before,
+[data-motion='reduced'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
 }
 
 /* ── Element Plus 深色语义色覆盖（主题色调统一） ─────────────────────────
@@ -215,7 +238,7 @@ html.dark {
 :root .hljs-name,
 :root .hljs-attribute { color: var(--success); }
 :root .hljs-symbol,
-:root .hljs-bullet { color: var(--accent-ink); }
+:root .hljs-bullet { color: var(--accent); }
 :root .hljs-meta { color: var(--info); }
 :root .hljs-deletion { color: var(--danger); }
 :root .hljs-addition { color: var(--success); }

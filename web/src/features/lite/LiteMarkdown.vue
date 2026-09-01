@@ -5,8 +5,7 @@
  * - plain：纯文本（用户消息），保留换行 / 空格，不解释 # / * 等语法。
  * 样式按 lite 的 --el-* 变量与 400 字重收敛（不复用 pets 主题的 --ink 系 mixin）。
  */
-import { computed } from 'vue'
-import { renderMarkdown } from '@/utils/markdown'
+import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 
 const props = defineProps<{
   text: string
@@ -14,7 +13,8 @@ const props = defineProps<{
   plain?: boolean
 }>()
 
-const rendered = computed(() => renderMarkdown(props.text ?? ''))
+// 流式 markdown 节流渲染（leading + 240ms trailing，超长截断 12000）
+const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: 'preview' })
 </script>
 
 <template>

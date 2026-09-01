@@ -1,4 +1,6 @@
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
+import { frameCoordinator, type DisplayFrame } from '@/utils/frameCoordinator'
+import { gsap } from 'gsap'
 import {
   createNyxusPointerDrift,
   nyxusAvoidanceTarget,
@@ -59,11 +61,12 @@ export function useStandaloneNyxusMotion(
   onDragStart?: () => void,
   obstacles: () => readonly NyxusAvoidanceObstacle[] = () => [],
 ) {
-  const position = reactive<ViewportPoint>({ x: 0, y: 0 })
+  const position: ViewportPoint = { x: 0, y: 0 }
   const dragging = ref(false)
 
-  let raf = 0
-  let lastFrameAt = 0
+  let unsubscribeFrame: (() => void) | undefined
+  let setAnchorLeft: ReturnType<typeof gsap.quickSetter> | undefined
+  let setAnchorTop: ReturnType<typeof gsap.quickSetter> | undefined
   let target: ViewportPoint = { x: 0, y: 0 }
   let pointer: ViewportPoint | undefined
   let pointerDrift = createNyxusPointerDrift()
@@ -86,6 +89,22 @@ export function useStandaloneNyxusMotion(
       }
     | undefined
   let suppressClick = false
+
+  function writePosition(): void {
+    setAnchorLeft?.(position.x)
+    setAnchorTop?.(position.y)
+  }
+
+  function anchorRef(element: Element | ComponentPublicInstance | null): void {
+    if (!(element instanceof HTMLElement)) {
+      setAnchorLeft = undefined
+      setAnchorTop = undefined
+      return
+    }
+    setAnchorLeft = gsap.quickSetter(element, 'left', 'px')
+    setAnchorTop = gsap.quickSetter(element, 'top', 'px')
+    writePosition()
+  }
 
   function chooseTarget(now: number): void {
     if (pointer) {
@@ -123,12 +142,11 @@ export function useStandaloneNyxusMotion(
     const bounded = clampNyxusPoint(position, window.innerWidth, window.innerHeight)
     position.x = bounded.x
     position.y = bounded.y
+    writePosition()
   }
 
-  function step(now: number): void {
-    if (lastFrameAt === 0) lastFrameAt = now
-    const dt = Math.min(0.04, Math.max(0, (now - lastFrameAt) / 1000))
-    lastFrameAt = now
+  function step(frame: DisplayFrame): void {
+    const { now, deltaSeconds: dt } = frame
 
     if (active() && !dragging.value) {
       const avoidance = nyxusAvoidanceTarget(position, obstacles())
@@ -174,7 +192,6 @@ export function useStandaloneNyxusMotion(
         }
       }
     }
-    raf = requestAnimationFrame(step)
   }
 
   function trackPointer(event: PointerEvent): void {
@@ -257,16 +274,16 @@ export function useStandaloneNyxusMotion(
     const initial = randomPoint(window.innerWidth, window.innerHeight)
     position.x = initial.x
     position.y = initial.y
+    writePosition()
     target = randomPoint(window.innerWidth, window.innerHeight)
     restUntil = performance.now() + 2500 + Math.random() * 2500
-    lastFrameAt = performance.now()
     window.addEventListener('resize', onResize)
     window.addEventListener('pointermove', trackPointer, { passive: true })
-    raf = requestAnimationFrame(step)
+    unsubscribeFrame = frameCoordinator.subscribe(step)
   })
 
   onBeforeUnmount(() => {
-    cancelAnimationFrame(raf)
+    unsubscribeFrame?.()
     window.removeEventListener('resize', onResize)
     window.removeEventListener('pointermove', trackPointer)
     if (longPressTimer) clearTimeout(longPressTimer)
@@ -279,5 +296,6 @@ export function useStandaloneNyxusMotion(
     onPointerMove,
     endPointer,
     consumeSuppressedClick,
+    anchorRef,
   }
 }

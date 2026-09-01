@@ -1,6 +1,6 @@
 # Pet 桌宠模块
 
-> 源码 [web/src/features/pets/](../../../web/src/features/pets/) ｜ 上级 [web](../README.md) ｜ 动画库 [motion-v](https://motion-v.com) ｜ agent 接入 [./agent-integration.md](./agent-integration.md) ｜ 跨前后端设计 [../../agent-pet.md](../../agent-pet.md)
+> 源码 [web/src/features/pets/](../../../web/src/features/pets/) ｜ 上级 [web](../README.md) ｜ 动画库 GSAP ｜ agent 接入 [./agent-integration.md](./agent-integration.md) ｜ 跨前后端设计 [../../agent-pet.md](../../agent-pet.md)
 
 ## 职责
 
@@ -15,7 +15,7 @@
 | [model.md](./model.md) | 核心模型：PetPreset（程序化生成）+ PetInstance 字段（含 runtime） |
 | [state.md](./state.md) | 状态系统：emotion/fatigue + Mood/Action/触发 + 休息机制 |
 | [movement.md](./movement.md) | 主/子 pet 与部落 + 运动学 + 抚摸光标 |
-| [motion.md](./motion.md) | 动画 motion-v（sprite/hand/face/speech variant） |
+| [motion.md](./motion.md) | GSAP 动画（sprite/hand/face/speech 描述符） |
 | [rendering.md](./rendering.md) | 渲染分层 PetSprite + z-index + 4 tier 气泡 + PetIcons slot + 闪烁逻辑 |
 | [nyxus-galaxy-roadmap.md](./nyxus-galaxy-roadmap.md) | Nyxus 星系结构、双星系合并、断连黑洞与鼠标交互的实施路线 |
 | [style.md](./style.md) | 样式 less（变量/mixin/嵌套） |
@@ -69,7 +69,7 @@
 | [nyxus/components/NyxusToolRing.vue](../../../web/src/features/pets/nyxus/components/NyxusToolRing.vue) | 创建、聊天和设置工具环；单击 Nyxus 入口时显示 |
 | [nyxus/components/MessageBranchTree.vue](../../../web/src/features/pets/nyxus/components/MessageBranchTree.vue) | canonical graph 画布编排：节点、连线、pan/zoom、输入、Fold、popover 与锚定 CRT |
 | [nyxus/components/NodePaperStack.vue](../../../web/src/features/pets/nyxus/components/NodePaperStack.vue) | 卡牌阅读模式（工作台 paperMode）：按时间排列的纸牌堆 + 滑块选卡，当前卡渲染 PaperGameCard |
-| [nyxus/components/PaperGameCard.vue](../../../web/src/features/pets/nyxus/components/PaperGameCard.vue) | 单张卡牌渲染。普通节点卡自上而下：记录摘要 → 属性行（状态/技能/关联，`秘法推演` thinking 存在时追加一格，满 3 格时第 4 格自动换行；点击/悬浮仍弹侧边卡）→ 情报栏（**专做正文内联 markdown 渲染**，复用 2 万字截断，不再走弹窗）→ 技能槽 → 技能实录栏（技能铭文/技能产物按钮，悬浮预览/点击钉住弹侧边卡）。冒险者卡正文内联、Fold 卡过程阶段不变 |
+| [nyxus/components/PaperGameCard.vue](../../../web/src/features/pets/nyxus/components/PaperGameCard.vue) | 单张卡牌渲染。普通节点卡自上而下：记录摘要 → 属性行（状态/技能/关联，`秘法推演` thinking 存在时追加一格，满 3 格时第 4 格自动换行；点击/悬浮仍弹侧边卡）→ 情报栏（**专做正文内联 markdown 渲染**，复用共享 `useRenderedMarkdown`（Worker 解析、240ms trailing）与 1.2 万字截断（`MARKDOWN_PREVIEW_LIMIT` 12000），不再走弹窗）→ 技能槽 → 技能实录栏（技能铭文/技能产物按钮，悬浮预览/点击钉住弹侧边卡）。冒险者卡正文内联、Fold 卡过程阶段不变 |
 | [nyxus/components/FiberPulseLine.vue](../../../web/src/features/pets/nyxus/components/FiberPulseLine.vue) | 分支树轴突连线：低亮纤维、前沿波与渐隐尾焰 |
 | [nyxus/composables/useNyxusWorkState.ts](../../../web/src/features/pets/nyxus/composables/useNyxusWorkState.ts) | chatSessions→Nyxus `working` Loading 布尔投影 |
 | [nyxus/graph/executionGraph.ts](../../../web/src/features/pets/nyxus/graph/executionGraph.ts) | canonical graph facts 的唯一 UI-neutral 投影；不按时间、正文或角色猜测跨 Agent 关系 |
@@ -145,8 +145,8 @@ group 视图（主 chat drawer）合流主+子 chat 历史时，「同一回复�
 - **加角色形态**：在 [petPresets.ts](../../../web/src/features/pets/petPresets.ts) 加 face 部件（`Record<PetMood,string>`）到 `KAOMOJI_FACES`（主池）或 `EMOJI_FACES`（子池）即可被 `generatePet` 随机刷出；无需定义完整 preset（color/talks/hands 由各自部件池随机组合）。池容量 = face 去重上限（主 8 / 子 15），加 face 即放宽不撞脸上限。
 - **加手部配对**：在 `HAND_PAIRS[mood]` 加 `PetHands` 配对（颜文字手臂/装饰或 emoji 动效）。
 - **加台词/颜色/名字**：扩 `TALK_PARTS` / `COLOR_PARTS` / `NAME_POOL`。
-- **加 mood**：扩 `PetMood` → 补全各角色 `face`/`hands` 该 mood → 在 [petMotion.ts](../../../web/src/features/pets/petMotion.ts) 加 face variant → 在 `usePetWorld` 加触发条件。详见 [motion.md](./motion.md)。
-- **加动作**：扩 `PetAction` → 在 [petMotion.ts](../../../web/src/features/pets/petMotion.ts) 加 sprite/hand variant → 在 `usePetWorld` 加行为逻辑。
+- **加 mood**：扩 `PetMood` → 补全各角色 `face`/`hands` 该 mood → 在 `domain/pets/motion/animation.ts` 增加描述符 → 在 `usePetWorld` 加触发条件。详见 [motion.md](./motion.md)。
+- **加动作**：扩 `PetAction` → 在 `domain/pets/motion/animation.ts` 增加 sprite/hand 描述符 → 在 `usePetWorld` 加行为逻辑。
 - **加工具**：扩 `PetTool` 列表 → 在 `invokeTool` 加 case（含 emotion 增量）。
 - **调状态**：改 [petStatus.ts](../../../web/src/features/pets/petStatus.ts) 的 `DEFAULT_STATUS_CONFIG`（速率/阈值/增量默认值），或在 `usePetWorld` 模块级 `resolveStatus(overrides)` 传覆盖。详见 [state.md](./state.md)。
 - **接入 agent**：CP1-CP8 已落地，详见 [agent-integration.md](./agent-integration.md) 与跨前后端设计 [agent-pet.md](../../agent-pet.md)。`contextUsage` 由后端 token 估算驱动（[src/utils/token.ts](../../../src/utils/token.ts)）；pet 工具栏/气泡/对话均已在 [features/agent/](../../../web/src/features/agent/) 实现。后续唯一扩展点：替换 `estimateTokens` 为 tokenizer、补 compact RPC。

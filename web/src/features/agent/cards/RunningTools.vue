@@ -95,7 +95,7 @@ function runningToolTip(name: string): string {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: rgba(255, 196, 87, 0.4);
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
   font-family: @glyph-fonts;
   line-height: 1;
   font-size: 11px;

@@ -5,9 +5,9 @@
  * 节点树工作台已抽到 WorkbenchDialog（多窗口），此处不再承载 .workbench-shell 子树。
  * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaPreviewBar。
  */
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { AnimatePresence, motion } from 'motion-v'
+import { computed, onBeforeUnmount, reactive, ref, watch, type CSSProperties } from 'vue'
 import { ElPopover, ElTooltip } from 'element-plus'
+import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import { RoleConfigPopover } from '../runtime/public'
 import {
   AgentComposer,
@@ -36,7 +36,7 @@ const isTopMask = computed(
     agents.activeDialogSource !== 'nyxus',
 )
 
-const MotionDiv = motion.div
+const overlayMotion = useOverlayTransitionHooks('dialog')
 
 // desktop surface（Electron 全工作区透明窗）：pet/nyxus 来源为无遮罩浮动窗，overlay 的
 // 全屏 DOM 不能拦截命中测试——置 pointer-events:none 让穿透判定只认 panel 实体，
@@ -287,7 +287,7 @@ function onPanelPointerUp(): void {
   window.removeEventListener('pointermove', onPanelPointerMove)
   window.removeEventListener('pointerup', onPanelPointerUp)
 }
-const panelStyle = computed(() =>
+const panelStyle = computed<CSSProperties>(() =>
   panelPos.value
     ? {
         position: 'fixed',
@@ -518,28 +518,27 @@ defineExpose({
 </script>
 
 <template>
-  <AnimatePresence>
-    <MotionDiv
+  <Transition
+    :css="false"
+    @before-enter="overlayMotion.onBeforeEnter"
+    @enter="overlayMotion.onEnter"
+    @leave="overlayMotion.onLeave"
+    @enter-cancelled="overlayMotion.onEnterCancelled"
+    @leave-cancelled="overlayMotion.onLeaveCancelled"
+  >
+    <div
       v-if="dialogVisible"
       key="overlay"
       class="dialog-overlay"
       :class="{ 'is-top-mask': isTopMask, 'is-floating': isFloatingOverlay, 'is-native': native }"
-      :initial="{ opacity: 0 }"
-      :animate="{ opacity: 1 }"
-      :exit="{ opacity: 0 }"
-      :transition="{ duration: 0.16 }"
     >
       <!-- 快速发送 composer 弹窗 panel（header + 角色编制 + composer + 待处理抽屉） -->
-      <MotionDiv
+      <div
         key="panel"
         :ref="bindPanelEl"
         class="dialog-panel"
         data-desktop-hit
         :style="panelStyle"
-        :initial="{ opacity: 0, y: 16, scale: 0.96 }"
-        :animate="{ opacity: 1, y: 0, scale: 1 }"
-        :exit="{ opacity: 0, y: 12, scale: 0.97 }"
-        :transition="{ duration: 0.18, ease: 'easeOut' }"
         role="dialog"
         aria-modal="true"
         :aria-label="`向 ${pet?.name ?? '智能体'} 发送消息`"
@@ -759,7 +758,7 @@ defineExpose({
             @update:active-role-index="activeRoleIndex = $event"
           />
         </div>
-      </MotionDiv>
+      </div>
 
       <!-- 拖拽占位框：拖动中仅此边框跟随鼠标（transform 驱动），松开后面板整体瞬移到位 -->
       <div
@@ -778,8 +777,8 @@ defineExpose({
         :thinking="routeStatus.thinking"
         :content="routeStatus.content"
       />
-    </MotionDiv>
-  </AnimatePresence>
+    </div>
+  </Transition>
 </template>
 
 <style scoped lang="less" src="./AgentDialog.scoped.less"></style>

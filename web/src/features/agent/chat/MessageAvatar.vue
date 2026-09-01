@@ -269,13 +269,13 @@ function onAvatarClick(): void {
 
   // assistant 单头像：暖橙
   &.role-assistant {
-    background: linear-gradient(135deg, #ffd27a, #f6b73c);
-    color: #3b2b12;
+    background: linear-gradient(135deg, var(--accent), var(--neon-indigo));
+    color: var(--accent-ink);
   }
   // 主 pet 头像（master 发言者大 / role 对方小徽章）：米色
   &.pet-master {
-    background: linear-gradient(135deg, #ffd27a, #f6b73c);
-    color: #3b2b12;
+    background: linear-gradient(135deg, var(--accent), var(--neon-indigo));
+    color: var(--accent-ink);
   }
   // 子 pet 头像（role 发言者大 / master 对方小徽章）：紫色
   &.pet-sub {
@@ -416,11 +416,11 @@ function onAvatarClick(): void {
   padding: 0 2px;
   border-radius: 6px;
   background: var(--panel);
-  color: #f6b73c;
+  color: var(--accent);
   font-weight: 800;
   line-height: 12px;
   text-align: center;
-  border: 1px solid rgba(246, 183, 60, 0.4);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 

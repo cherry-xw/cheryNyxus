@@ -6,9 +6,9 @@
  * 主pet 禁翻转：--pet-direction 锁 1（身体不镜像）+ 脸绕过 3D card 渲染单一静态 .face（无背面重叠）；子pet 保留翻转。
  * 所有 drag/hover/click handler 由父组件传入（usePetDrag）。
  */
-import { computed } from 'vue'
-import { motion } from 'motion-v'
-import type { VariantType } from 'motion-v'
+import { computed, ref, toRef } from 'vue'
+import type { PetMotionDescriptor } from '@/domain/pets/motion/animation'
+import { usePetMotion } from '../composables/usePetMotion'
 import PetToolbar from '@/features/agent/toolbar/PetToolbar.vue'
 import RunningTools from '@/features/agent/cards/RunningTools.vue'
 import type { StreamState } from '@/application/public'
@@ -20,8 +20,6 @@ import PetDivineHalo from './PetDivineHalo.vue'
 import PetFaceFlip from './PetFaceFlip.vue'
 import PetNameTag from './PetNameTag.vue'
 
-const MotionSpan = motion.span
-
 const props = defineProps<{
   pet: PetInstance
   paused: boolean
@@ -31,14 +29,24 @@ const props = defineProps<{
   leftHand: string
   rightHand: string
   nameChars: string[]
-  sprite: { animate: VariantType; transition: VariantType['transition'] }
-  face: { animate: VariantType; transition: VariantType['transition'] }
-  leftHandMotion: { animate: VariantType; transition: VariantType['transition'] }
-  rightHandMotion: { animate: VariantType; transition: VariantType['transition'] }
+  sprite: PetMotionDescriptor
+  face: PetMotionDescriptor
+  leftHandMotion: PetMotionDescriptor
+  rightHandMotion: PetMotionDescriptor
   runningTools: RunningTool[]
   isBusy: boolean
   stream?: StreamState
+  positionRef?: (element: HTMLElement | null) => void
 }>()
+
+const spriteRef = ref<HTMLElement | null>(null)
+const faceRef = ref<HTMLElement | null>(null)
+const leftHandRef = ref<HTMLElement | null>(null)
+const rightHandRef = ref<HTMLElement | null>(null)
+usePetMotion(spriteRef, toRef(props, 'sprite'))
+usePetMotion(faceRef, toRef(props, 'face'))
+usePetMotion(leftHandRef, toRef(props, 'leftHandMotion'))
+usePetMotion(rightHandRef, toRef(props, 'rightHandMotion'))
 
 const questionItems = () => flattenQuestionItems(props.stream)
 
@@ -69,14 +77,17 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="pet" :class="classes" :style="style">
+  <div
+    :ref="(element) => positionRef?.(element as HTMLElement | null)"
+    class="pet"
+    :class="classes"
+    :style="style"
+  >
     <span class="shadow" />
     <span class="dir">
-      <MotionSpan
+      <span
+        ref="spriteRef"
         class="sprite"
-        :initial="false"
-        :animate="sprite.animate"
-        :transition="sprite.transition"
       >
         <PetStatusBar
           v-if="!pet.isGhost"
@@ -100,34 +111,28 @@ const emit = defineEmits<{
           @dblclick.stop="emit('doubleClickPet', pet)"
           @keydown.enter.space.prevent="emit('clickPet', pet)"
         >
-          <MotionSpan
+          <span
             v-if="!pet.isGhost"
+            ref="leftHandRef"
             class="hand hand-left"
             aria-hidden="true"
-            :initial="false"
-            :animate="leftHandMotion.animate"
-            :transition="leftHandMotion.transition"
-            >{{ leftHand }}</MotionSpan
+            >{{ leftHand }}</span
           >
           <span v-if="pet.isMaster" class="face-shell">
             <PetDivineHalo :active="isBusy" />
-            <MotionSpan
+            <span
+              ref="faceRef"
               class="face"
-              :initial="false"
-              :animate="face.animate"
-              :transition="face.transition"
-              >{{ faceGlyph }}</MotionSpan
+              >{{ faceGlyph }}</span
             >
           </span>
           <PetFaceFlip v-else :face-glyph="faceGlyph" :face-motion="face" :active="isBusy" />
-          <MotionSpan
+          <span
             v-if="!pet.isGhost"
+            ref="rightHandRef"
             class="hand hand-right"
             aria-hidden="true"
-            :initial="false"
-            :animate="rightHandMotion.animate"
-            :transition="rightHandMotion.transition"
-            >{{ rightHand }}</MotionSpan
+            >{{ rightHand }}</span
           >
         </span>
         <div class="meta-row">
@@ -161,7 +166,7 @@ const emit = defineEmits<{
             />
           </div>
         </div>
-      </MotionSpan>
+      </span>
     </span>
     <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{
       pet.sleep?.zzz ?? 'zZ'
@@ -179,7 +184,7 @@ const emit = defineEmits<{
 }
 
 .pet {
-  --pet-color: #f6b73c;
+  --pet-color: var(--accent);
   --pet-accent: var(--ink);
   // 浅色主题使用深靛光晕承托浅色颜文字。
   --aura-center: rgba(55, 48, 163, 0.96);
@@ -233,18 +238,18 @@ const emit = defineEmits<{
   }
 }
 
-// 深色主题使用象牙金光背；颜文字与手部必须切为深紫，避免浅底浅字失去轮廓。
+// 深色主题使用冷青/靛蓝信标光，保持精密控制台语言。
 [data-theme='dark'] .pet {
-  --aura-center: rgba(255, 255, 248, 0.98);
-  --aura-mid: rgba(255, 244, 188, 0.72);
-  --aura-edge: rgba(103, 232, 249, 0.14);
-  --aura-ray: rgba(255, 247, 199, 0.7);
-  --aura-vein: #ffffff;
+  --aura-center: rgba(14, 116, 144, 0.96);
+  --aura-mid: rgba(34, 211, 238, 0.64);
+  --aura-edge: rgba(99, 102, 241, 0.18);
+  --aura-ray: rgba(103, 232, 249, 0.72);
+  --aura-vein: #cffafe;
   --aura-secondary: #67e8f9;
-  --aura-shadow: rgba(253, 230, 138, 0.5);
-  --pet-face-ink: #241443;
-  --pet-face-outline: rgba(255, 255, 255, 0.55);
-  --pet-face-glow: rgba(36, 20, 67, 0.18);
+  --aura-shadow: rgba(34, 211, 238, 0.38);
+  --pet-face-ink: #eefcff;
+  --pet-face-outline: rgba(3, 7, 18, 0.78);
+  --pet-face-glow: rgba(103, 232, 249, 0.28);
   --pet-console-bg: color-mix(in srgb, var(--surface) 94%, #10162b 6%);
   --pet-console-border: color-mix(in srgb, var(--aura-secondary) 24%, var(--border-strong));
   --pet-console-ink: #eef2ff;
@@ -288,10 +293,7 @@ const emit = defineEmits<{
   }
 
   &:hover {
-    cursor:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='23' viewBox='0 0 26 30'%3E%3Cpath d='M10 3a2 2 0 0 1 2 2v9l3-1a2 2 0 0 1 2 4l-5 2H8l-3-3v-6a2 2 0 0 1 2-2h1V5a2 2 0 0 1 2-2z' fill='%23f6b73c' stroke='%233b2b12' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E")
-        6 3,
-      pointer;
+    cursor: grab;
   }
 }
 

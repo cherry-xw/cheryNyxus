@@ -6,16 +6,16 @@
  * - PetStage openRoot / SpawnRenderer drillChild / jumpToSpawn 等经 manager 改栈
  * - 内容：v-for HistoryDrawerPanel（每层一个 chatId，绝对定位叠加，z-index 递增）
  * - 关闭：✕（panel 内，仅栈顶）/ 点遮罩 / ESC → manager.closeTop（逐层返回）
- * motion-v：AnimatePresence + MotionDiv overlay 控制进出（inline 字面量，同 AgentDialog 风格）。
+ * Vue Transition + GSAP overlay hooks 控制可取消进出。
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { AnimatePresence, motion } from 'motion-v'
+import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import { useHistoryDrawerManager } from './useHistoryDrawerManager'
 import { useAgentsStore } from '@/application/public'
 import HistoryDrawerPanel from './HistoryDrawerPanel.vue'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 
-const MotionDiv = motion.div
+const drawerMotion = useOverlayTransitionHooks('drawer')
 
 const manager = useHistoryDrawerManager()
 const agents = useAgentsStore()
@@ -82,17 +82,20 @@ watch(
 </script>
 
 <template>
-  <AnimatePresence>
-    <MotionDiv
+  <Transition
+    :css="false"
+    @before-enter="drawerMotion.onBeforeEnter"
+    @enter="drawerMotion.onEnter"
+    @leave="drawerMotion.onLeave"
+    @enter-cancelled="drawerMotion.onEnterCancelled"
+    @leave-cancelled="drawerMotion.onLeaveCancelled"
+  >
+    <div
       v-if="stack.length > 0"
       v-show="drawerVisible"
       key="history-overlay"
-      :initial="{ opacity: 0 }"
-      :animate="{ opacity: 1 }"
-      :exit="{ opacity: 0 }"
-      :transition="{ duration: 0.16 }"
     >
-      <!-- ref 绑在原生 div 上（MotionDiv 是组件，ref 拿不到 DOM，.focus 不存在）。 -->
+      <!-- ref 绑在原生 div 上，用于打开后聚焦。 -->
       <div
         ref="overlayRef"
         class="drawer-overlay"
@@ -113,8 +116,8 @@ watch(
           :z-index="BASE_Z + i * 10 + 1"
         />
       </div>
-    </MotionDiv>
-  </AnimatePresence>
+    </div>
+  </Transition>
 </template>
 
 <style scoped lang="less">

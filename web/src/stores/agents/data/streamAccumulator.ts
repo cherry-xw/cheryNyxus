@@ -9,7 +9,7 @@
 import type { RuntimeSelection } from '@/services/agentApi'
 import type { StageBounds } from '@/domain/pets/types'
 import type { HistoryItem, StreamState, StagedChunkData } from '../types'
-import { extractMediaUrls } from '@/utils/markdown'
+import { extractMediaUrls } from '@/utils/mediaUrls'
 
 export function defaultBounds(): StageBounds {
   return {

@@ -93,27 +93,25 @@ popover 内所有 renderer 折叠区（命令输出/搜索结果/参数/结果/�
 
 ```text
 div.pet-wrap                                                            // 根容器（无 z-index/position → 不创建 stacking context，气泡 z-index 跨 pet 比较）
-  AnimatePresence > Motion.speech[:style=approvalStyle z=400]           // 主气泡 tier 1：审批卡片（CP5；优先级最高；z-index 单独提到 400 高过 AgentDialog/HistoryDrawer/FAB 防遮挡；✕ 移队列 + auto-pop 下一个；详见 §PetIcons）
-  AnimatePresence > Motion.speech[:style=speechStyle z=100+]            // 主气泡 tier 2/3/4：error → work-main → 默认装饰气泡（v-if 互斥，key 切换；锚点=pet 顶部中心下移 BUBBLE_OFFSET_Y 贴 status-row 上方 16px；motion x:"-50%" y:"-100%" 居中+上移自身高度）
-  AnimatePresence > Motion.speech.side[:style=sideBubbleStyle]          // 左侧 thinking 副气泡（CP2；同尺寸浅色，顶部齐平主气泡；仅 hasContent && thinking 非空时显；approval 时抑制）
-  Motion.todo-panel[:style=todoPanelStyle]  (v-if petHasTodo)            // 右侧 todo 侧栏（能力驱动：pet senseGroup 含 update_todo 才显；checklist 读自己 chat 最近 update_todo args.todos；只读）
+  Transition(:css=false, mode=out-in) > PetBubble                       // question → approval → feedback → error → work-main → speech 互斥气泡；GSAP 钩子处理进退场
+  div.todo-panel[:style=todoPanelStyle]  (v-if petHasTodo)               // 右侧 todo 侧栏（能力驱动：pet senseGroup 含 update_todo 才显；checklist 读自己 chat 最近 update_todo args.todos；只读）
   div.pet-icons[:style=petIconsStyle]                                    // pet 头部右侧 icon slot（CP5 扩展）：两列布局
     .col.history-col                                                    //   history 列：本 chat 最近 5 条 HistoryItem 小圆点（role 配色），hover 气泡显 preview
     .col.approval-col                                                   //   approval 列：当前 approval（实心高亮）+ approvalQueue（闪烁，频率=remainingSec）
   div.pet[:class=classes :style=translate3d(x,y)+zIndex(petBodyZIndex) + --pet-direction + --pet-scale + --tribe-hue]  // RAF 位置容器（无交互）
     span.shadow (CSS 呼吸，随 --pet-scale 缩)
     span.dir[CSS scaleX(--pet-direction)]                               // 朝向瞬切
-      Motion.sprite[:animate=spriteMotion(action)]                      // grid-template-columns:100% 修复展开抖动
+      span.sprite[ref + usePetMotion(spriteMotion(action))]             // grid-template-columns:100% 修复展开抖动
         div.status-row: span.stat.emotion .fill + ContextBar            // 状态条（头顶，固定尺寸，不触发交互）：emotion 条 + contextUsage bar（取代原 fatigue bar）；2px track 底色不透明（不再半透明，深色桌面可辨）
         span.head-row[role=button + 长按拖拽/短按抚摸 + keydown + cursor + touch-action + transform:scale(--pet-scale)]  // 命中区=身体（face+hands）；ghost 时 `.pet` pointer-events:none、head-row 收缩到 face emoji ~26px（命中区=emoji，消队列重叠遮挡）
-          Motion.hand.left[:animate=handMotion(action,'left')]          hands[mood].left
+          span.hand.left[ref + usePetMotion]                            hands[mood].left
           span.face-flip[scaleX(--pet-direction) 抵消父 .dir]           // 朝向翻转容器：脱离 .dir 整树镜像，face 自管朝向
             span.face-rotate[rotateY(反向:dir1→180°镜像/dir-1→0°正向)+transition 420ms]  //   翻转动画层（人物emoji默认朝左，反向使朝向跟随移动）
               span.face-side.front[backface-hidden, position:relative]  //   正面占位（撑 face-rotate 尺寸）
-                Motion.face[:animate=faceMotion(mood)/ghostFaceMotion] face[mood]/ghostFace
+                span.face[ref + usePetMotion]                          face[mood]/ghostFace
               span.face-side.back[rotateY(180°)+scaleX(-1)+backface-hidden] //   背面定位+预镜像（容器转 180° 显镜像；非 360° 抵消正向）
-                Motion.face[:animate=同上]                              face（镜像背面）
-          Motion.hand.right[:animate=handMotion(action,'right')]        hands[mood].right
+                span.face[ref + usePetMotion]                          face（镜像背面）
+          span.hand.right[ref + usePetMotion]                           hands[mood].right
         div.meta-row: PetNameTag + PetToolbar                 // 共享实色控制台：名字常驻且省略长名；工具栏 hover/focus 展开，触屏常显；仅外壳有边框，按钮以 hover 底色和危险色分区表达命中区
         span.zzz (v-if action=sleep)                                    // 休息浮字
     span.busy-indicator (v-if isBusy)                                   // 忙碌指示：思考中三点紫脉冲（PetStatusBar 内 .status-stack 右端）。去背景框（无 surface-soft 底 + 无紫虚线边框），深色场景不再显突兀
@@ -141,26 +139,22 @@ div.pet-wrap                                                            // 根�
 ## 对话框 slot 与 4 tier 气泡
 
 ```vue
-<AnimatePresence>
-  <MotionDiv v-if="stream?.approval" :key="`approval-${stream.approval.approvalId}`" class="speech approval-bubble" :style="approvalStyle" ...>
-    <ApprovalCard :approval="stream!.approval!" :chat-id="pet.chatId" />
-  </MotionDiv>
-  <MotionDiv v-else-if="stream?.error" key="work-error" class="speech work-bubble error-bubble" ...>
-    <div class="work-text error-text">⚠ {{ stream.error }}</div>
-  </MotionDiv>
-  <MotionDiv v-else-if="showWorkMain" key="work-main" class="speech work-bubble" ...>
-    <div class="work-text" :class="{ 'is-thinking': thinkingOnly }">
-      <span v-if="hasContent" class="md" v-html="renderedContent" />   <!-- content md（renderMarkdown）-->
-      <template v-else>{{ stream?.thinking }}</template>               <!-- thinking 纯文本 -->
-    </div>
-  </MotionDiv>
-  <MotionDiv v-else-if="pet.speech || $slots.dialog" :key="pet.speechUntil" class="speech" ...>
-    <slot name="dialog" :pet="pet">{{ pet.speech }}</slot>
-  </MotionDiv>
-</AnimatePresence>
+<Transition mode="out-in" :css="false" v-bind="bubbleMotionHooks">
+  <PetBubble v-if="activeQuestion" key="question" variant="question" ...>
+    <QuestionCard ... />
+  </PetBubble>
+  <PetBubble v-else-if="stream?.approval" key="approval" variant="approval" ...>
+    <ApprovalCard ... />
+  </PetBubble>
+  <PetBubble v-else-if="stream?.error" key="work-error" variant="error" ... />
+  <PetBubble v-else-if="showWorkMain" key="work-main" variant="work" ...>
+    <span v-if="hasContent" class="md" v-html="renderedContent" />
+  </PetBubble>
+  <PetBubble v-else-if="pet.speech || $slots.dialog" key="speech" variant="speech" ... />
+</Transition>
 ```
 
-主气泡 4 tier 由 `AnimatePresence` 互斥切换（优先级：提问 > 审批 > error > work-main > 装饰）：⓪ ChatSession 当前提问（`activeQuestion`）显 `variant="question"` 气泡内嵌 `QuestionCard`；① ChatSession 当前 approval 显 ApprovalCard；② run error 显 error-bubble；③ active message 满足 working/retain/hover 门控时显工作气泡；④默认装饰气泡。thinking 阶段显示 `activeMessage.thinking`，content 到达后主气泡显示 `activeMessage.content`，thinking 收入副气泡。done 后 presentation selector 用 `retainUntil` 保留最后消息 20 秒；新 `msgId` 到达时立即切换到新空消息。pet 身体 hover 不复现已过期历史气泡。
+主气泡由 Vue `<Transition :css="false" mode="out-in">` 互斥切换（优先级：提问 > 审批 > feedback > error > work-main > 装饰），进退场统一由 `usePetBubbleTransition` 的可中断 GSAP 钩子处理。ChatSession 当前提问渲染 `QuestionCard`；当前 approval 渲染 `ApprovalCard`；active message 满足 working/retain/hover 门控时显示工作气泡。thinking 阶段显示 `activeMessage.thinking`，content 到达后显示 `activeMessage.content`。done 后 presentation selector 用 `retainUntil` 保留最后消息 20 秒；新 `msgId` 到达时立即切换到新空消息。pet 身体 hover 不复现已过期历史气泡。
 
 **提问气泡**：`QuestionCard` 以 `variant="bubble"` 渲染在 `.speech.question-bubble` 内——`is-bubble` 样式去除卡片自身边框/背景/圆角/阴影/`min-width`（`width:100%`、`max-width:none`、padding 归零，由气泡统一承载框架与 6px 9px 内边距），避免双层边框与内层溢出外层；气泡 `max-width: 320px`（比 approval 220px / work 180px 略宽以容纳选项卡排版），`::after` 尾箭头背景与边框对齐 neon-indigo 气泡色（同 `.approval-bubble` 覆写模式）。
 
@@ -187,7 +181,7 @@ ApprovalCard 的参数内容默认展开。每条审批使用 approvalId 作为�
 
 **与气泡的协调**：审批在 `approval` 时气泡展示（z-index 400 不被遮挡）；用户点 ✕ 移入队列后气泡卸载，icon 出现并闪烁；点击闪烁 icon → `resummonApproval` 把该项移到 `approval` 重新唤起气泡。Accept/Reject → `dismissApproval` 清空 + 自动从 queue head pop 下一个进 `approval`（多审批连续推进）。
 
-侧气泡（`.speech.side`）独立 `AnimatePresence`，仅在 `showWorkSide`（hasContent && thinking 非空 && 无 approval）时显，motion `x:"-100%" y:"-100%"`（顶部齐平主气泡），同尺寸（max 180×140）+ 复用 is-thinking 浅灰虚线 + 斜体灰字（与主气泡 content 白底实线区分），定位 `sideBubbleStyle`（`top` 同主气泡，`left=pet.x-60` 向左展开）。
+正文开始后，历史 thinking 由工作气泡内的 `ThinkingTrigger` 按需展开，不再维护独立侧气泡动画实例。
 
 历史抽屉直接渲染 ChatSession timeline。实时 stream delta 携稳定 `msgId`，reducer 首次看到该 id 时建立 streaming message，后续 staged/done/sync 只补全同一对象。MessageBubble 的 key 始终为 `msgId`，content/thinking 更新即产生与 Pet 相同的实时打字效果。主抽屉通过 selector 动态聚合后代 ChatSession，不保存 child 副本；整轮结束不再延迟 300ms 重载。
 
@@ -195,7 +189,7 @@ Ghost 不再复用 PetBody。已完成子 Agent 使用独立的发光点渲染�
 
 ## Busy indicator
 
-> 源码派生 [useStreamBubble.ts](../../../web/src/features/pets/useStreamBubble.ts) `isBusy` ｜ 渲染 [PetSprite.vue](../../../web/src/features/pets/PetSprite.vue) 模板 + `.busy-indicator` 样式
+> 源码派生 [useStreamBubble.ts](../../../web/src/features/pets/composables/useStreamBubble.ts) `isBusy` ｜ 渲染 [PetSprite.vue](../../../web/src/features/pets/PetSprite.vue) 模板 + `.busy-indicator` 样式
 
 **与气泡显示解耦**：busy-indicator 显隐走 `isBusy`（独立 computed），不再绑 `hasStream`。hasStream 复合条件（content/thinking 非空 + working/retain/hover）负责气泡显示生命周期；isBusy 仅表达"还在做事"。
 

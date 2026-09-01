@@ -7,7 +7,7 @@ import {
 } from '@/features/agent/renderers/core/questionDisplay'
 import { useNyxusHost } from '../application/host'
 import type { ApprovalState } from '@/domain/chat/projectionTypes'
-import { renderMarkdown } from '@/utils/markdown'
+import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 import { formatTime } from '@/utils/formatTime'
 import { createToolRunPresentation } from '@/utils/approvalPresentation'
 import { toSenseNameZh } from '@/utils/senseName'
@@ -447,7 +447,7 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   
   )
   
-  const renderedResult = computed(() => {
+  const resultMarkdownSource = computed(() => {
   
     const result = selectedCall.value?.result ?? ''
   
@@ -459,10 +459,12 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   
         : result
   
-    return renderMarkdown(preview)
+    return preview
   
   })
   
+  const { html: renderedResult } = useRenderedMarkdown(resultMarkdownSource, { mode: 'full' })
+
   const resultFields = computed(() => parseFieldViews(selectedCall.value?.result))
   
   const resultTruncated = computed(
@@ -515,7 +517,7 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   
   const nodeContentSegments = computed(() => splitCommandPrompt(nodeContent.value || ''))
   
-  const renderedNodeContent = computed(() => renderMarkdown(nodeContent.value || ''))
+  const { html: renderedNodeContent } = useRenderedMarkdown(nodeContent, { mode: 'full' })
   
   /** 持久图投影已把同源 message 的 thinking 合并进 tool-batch。 */
   
@@ -524,6 +526,17 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
     () => props.node.thinking?.trim() || props.node.sourceFact?.thinking?.trim() || '',
   
   )
+
+  const { html: renderedNodeThinking } = useRenderedMarkdown(nodeThinking, { mode: 'full' })
+  const { html: renderedNodeDescription } = useRenderedMarkdown(nodeDescription, { mode: 'full' })
+  const { html: renderedActualDescription } = useRenderedMarkdown(actualDescription, { mode: 'full' })
+  const { html: renderedSpawnPrompt } = useRenderedMarkdown(spawnPrompt, { mode: 'full' })
+  const skillMarkdownSource = computed(() => skillResult.value.content)
+  const { html: renderedSkillContent } = useRenderedMarkdown(skillMarkdownSource, { mode: 'full' })
+  const instructionMarkdownSource = computed(() => primaryInstruction.value?.value ?? '')
+  const { html: renderedPrimaryInstruction } = useRenderedMarkdown(instructionMarkdownSource, {
+    mode: 'full',
+  })
   
   const thinkingOpen = ref(false)
   
@@ -764,7 +777,9 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
     nodeContentSegments, nodeDescription, nodeStatus, nodeTermination, nodeThinking, nodeTime,
     nodeTitle, onHeaderPointerDown, onHeaderPointerMove, onHeaderPointerUp, primaryInstruction,
     questionAnswer, questionArgs, readFileContent, readFileLineCount, readFilePath, readFilePreview,
-    readFileRange, renderMarkdown, renderedNodeContent, renderedResult, resultFields,
+    readFileRange, renderedActualDescription, renderedNodeContent, renderedNodeDescription,
+    renderedNodeThinking, renderedPrimaryInstruction, renderedResult, renderedSkillContent,
+    renderedSpawnPrompt, resultFields,
     resultTruncated, searchConfiguration, searchMode, searchPath, searchQuery, searchResult,
     secondaryFields, selectedCall, selectedStatus, skillResult, skinForNode, spawnPrompt, spawnRole,
     spawnWake, terminationDisplay, thinkingOpen, toolBatchUsesTabs, toolGlyph, toolIcon, toolLabel,

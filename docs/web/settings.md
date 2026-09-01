@@ -17,7 +17,7 @@
 
 ## 动效降级约定
 
-应用**不跟随**客户端 OS 的 `prefers-reduced-motion: reduce` 判定，动效恒开。原因：本项目以浏览器访问 headless 服务端为主，客户端（如 Windows/RDP 会话默认关闭系统动画）的 reduce 判定不可靠，曾导致全站 `animation/transition` 被无障碍兜底规则灭活。代码中不新增 `@media (prefers-reduced-motion: reduce)` 块与 `matchMedia('(prefers-reduced-motion: reduce)')` 门控；motion-v 保持默认 `reducedMotion: "never"`。
+动效偏好提供“跟随系统 / 完整 / 精简”三档，默认跟随客户端 `prefers-reduced-motion`。选择会写入 `chery-motion`，并通过 storage event 与 BroadcastChannel 同步到同源窗口；精简档保留必要的透明度反馈，关闭循环装饰、位移和 stagger。
 
 ## 角色图鉴与装备
 

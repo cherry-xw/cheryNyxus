@@ -627,7 +627,7 @@ article header small .countdown.is-expired {
 .kind {
   padding: 3px 7px;
   border-radius: 999px;
-  background: #f6b73c;
+  background: var(--accent);
   color: #fff;
   font-size: 12px;
   font-weight: 400;
@@ -696,7 +696,7 @@ fieldset > small {
 }
 .options button.selected {
   border-color: #c98224;
-  background: color-mix(in srgb, #f6b73c 20%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
 }
 .options span {
   font-size: 12px;

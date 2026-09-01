@@ -9,7 +9,6 @@ const controller = useHistoryDrawerPanelController(props)
 const {
   ContextUsageBar,
   MessageBubble,
-  MotionDiv,
   PromptSnapshotTip,
   VirtualScroll,
   activateCurrentBranch,
@@ -81,12 +80,9 @@ const {
 </script>
 
 <template>
-  <MotionDiv
+  <div
     class="drawer-panel"
     :style="panelFullStyle"
-    :initial="{ x: '100%' }"
-    :animate="{ x: 0 }"
-    :transition="{ duration: 0.24, ease: 'easeOut' }"
     role="dialog"
     aria-modal="true"
     :aria-label="titleText"
@@ -422,7 +418,7 @@ const {
         </VirtualScroll>
       </div>
     </div>
-  </MotionDiv>
+  </div>
 </template>
 
 <style scoped lang="less" src="./HistoryDrawerPanel.styles.less"></style>

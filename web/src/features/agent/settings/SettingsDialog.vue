@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { useSettingsDialogController, type SettingsDialogControllerProps } from './useSettingsDialogController'
+import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
+import { useMotionPreference, type MotionPreference } from '@/composables/useMotionPreference'
 const props = defineProps<SettingsDialogControllerProps>()
 const controller = useSettingsDialogController(props)
+const settingsMotion = useOverlayTransitionHooks('dialog')
+const { preference: motionPreference, setMotionPreference } = useMotionPreference()
+const motionOptions: ReadonlyArray<{ value: MotionPreference; label: string }> = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'full', label: '完整' },
+  { value: 'reduced', label: '精简' },
+]
 const {
-  AnimatePresence, ArrowLeft, ArrowRight, BrainsTab, Close, CommandsTab, GlobalTab, HooksTab,
-  McpTab, MediaTab, MotionDiv, OVERLAY_Z_INDEX, OpenConfigDirButton, PluginsTab, PresetsTab,
+  ArrowLeft, ArrowRight, BrainsTab, Close, CommandsTab, GlobalTab, HooksTab,
+  McpTab, MediaTab, OVERLAY_Z_INDEX, OpenConfigDirButton, PluginsTab, PresetsTab,
   RolesTab, SensesTab, SkeletonTab, SkillsTab, TABS, activeTab, agents, canLeft, canRight, close,
   draft, dragging, envVars, error, errorLines, gotoErrorTab, hintLines, hooksState, indexCount,
   isNative, isWaitingReconnect, loading, maximized, onError, onTitlePointerDown, overflowed,
@@ -18,28 +27,27 @@ const {
 </script>
 
 <template>
-  <AnimatePresence>
-    <MotionDiv
+  <Transition
+    :css="false"
+    @before-enter="settingsMotion.onBeforeEnter"
+    @enter="settingsMotion.onEnter"
+    @leave="settingsMotion.onLeave"
+    @enter-cancelled="settingsMotion.onEnterCancelled"
+    @leave-cancelled="settingsMotion.onLeaveCancelled"
+  >
+    <div
       v-if="isNative || agents.settingsOpen"
       key="overlay"
       class="settings-overlay"
       :class="{ 'is-native': isNative }"
       :style="{ zIndex: OVERLAY_Z_INDEX.modal }"
-      :initial="{ opacity: 0 }"
-      :animate="{ opacity: 1 }"
-      :exit="{ opacity: 0 }"
-      :transition="{ duration: 0.16 }"
     >
-      <MotionDiv
+      <div
         key="panel"
         :ref="setPanelEl"
         class="settings-panel"
         :class="{ 'is-maximized': maximized, 'is-dragging': dragging, 'is-native': isNative }"
         :style="panelStyles"
-        :initial="{ opacity: 0 }"
-        :animate="{ opacity: 1 }"
-        :exit="{ opacity: 0 }"
-        :transition="{ duration: 0.18, ease: 'easeOut' }"
         role="dialog"
         aria-modal="true"
         aria-label="设置"
@@ -50,6 +58,19 @@ const {
             <OpenConfigDirButton @error="onError" />
           </div>
           <div v-if="!isNative" class="head-actions">
+            <div class="motion-preference" aria-label="界面动效强度">
+              <span class="motion-preference-label">MOTION</span>
+              <button
+                v-for="option in motionOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: motionPreference === option.value }"
+                @pointerdown.stop
+                @click="setMotionPreference(option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
             <button
               type="button"
               class="close-btn"
@@ -259,9 +280,9 @@ const {
             </button>
           </div>
         </footer>
-      </MotionDiv>
-    </MotionDiv>
-  </AnimatePresence>
+      </div>
+    </div>
+  </Transition>
 </template>
 
 <style scoped lang="less" src="./SettingsDialog.styles.less"></style>

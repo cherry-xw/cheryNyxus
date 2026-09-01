@@ -1,52 +1,48 @@
 # 前端动效规范（GSAP）
 
-> **状态**：强制执行（2026-09-01 随「深空电光」重构阶段1 确立）。
-> **适用范围**：`web/src/**` 所有 JS 驱动的 DOM 动效。
-> **配套**：视觉条款见 [ui-visual-and-interaction.md](../standards/ui-visual-and-interaction.md)；动效恒开（不跟随 `prefers-reduced-motion`）约定见 [settings.md](./settings.md) 动效降级约定；实施计划见 [plan/ui-deep-space-electro-stage1.md](../plan/ui-deep-space-electro-stage1.md)。
+> **状态**：强制执行（2026-09-01 随“深空电光”重构确立）。
+> **适用范围**：`web/src/**` 中所有 JS 驱动的 DOM 动效。
+> **配套**：视觉条款见 [ui-visual-and-interaction.md](../standards/ui-visual-and-interaction.md)，用户偏好见 [settings.md](./settings.md)。
 
 ## 1. 引擎与装配
 
-1. **GSAP 是唯一 JS DOM 动画引擎**（裁决见 [decisions.md](../standards/decisions.md)）：新增动效一律 GSAP 或 CSS；`motion-v` 已退役。pixi.js（执行图 canvas）与 CSS `@keyframes` 不属 DOM 动画栈，维持各自体系。
-2. **应用级单例装配**：`web/src/utils/gsapCore.ts` 由 `main.ts` import 一次——设置 `gsap.defaults`、将 `gsap.ticker` 接入 `reportDisplayFrame`（`composables/renderQuality.ts` 的自适应调速器）。插件（Flip/Observer/ScrambleText/SplitText 等）只在应用级注册一次，按需懒加载，不在组件体内注册。
-3. **组件内一律经 `composables/useGsap.ts`**：`useGsap(setup, scope?)` 在 `onMounted` 创建 `gsap.context`（选择器 scope 隔离），`onUnmounted` `ctx.revert()`。禁止在 setup 同步顶层或 DOM 未挂载时创建 tween；禁止绕过 context 创建不被 revert 追踪的 tween。
-4. **高频更新用 `quickTo` / `quickSetter`**：鼠标跟随、拖拽预览、宠物位置等每帧写入场景，必须复用单 tween 直写 style（`useQuickTo` composable 自带清理），禁止每帧新建 tween、禁止高频写入 Vue 响应式状态触发每帧 patch。
+1. **GSAP 是唯一 JS DOM 动画引擎**。新增动效一律使用 GSAP 或 CSS；`motion-v` 已退役。Pixi.js 执行图和 CSS `@keyframes` 维持各自体系。
+2. **核心配置只执行一次**。`utils/gsapCore.ts` 仅设置 `autoSleep`、`force3D` 等运行参数并提供语义时长/缓动常量；禁止写全局 `gsap.defaults()`，避免无关 tween 被隐式配置污染。
+3. **显示帧统一协调**。持续物理更新通过 `utils/frameCoordinator.ts` 订阅：首个订阅者出现时接入 `gsap.ticker`，最后一个订阅者退出后停止，页面隐藏时暂停。质量采样每个显示帧只执行一次，使用真实 `performance.now()` delta。
+4. **组件内必须可回收**。普通组件经 `useGsap(setup, scope?)` 建立 scoped `gsap.context()`；overlay 经 `useOverlayTransitionHooks()` 接入 Vue `<Transition :css="false">`。卸载、取消和反向切换必须 kill/revert，并确保 Vue 的 `done()` 只调用一次。
+5. **高频写入使用 `quickTo` / `quickSetter`**。鼠标跟随、拖拽、宠物位置不得每帧创建 tween 或写 Vue 响应式状态触发 patch。
 
-## 2. 性能铁律（≥30fps 硬约束）
+## 2. 性能铁律
 
-1. **只动 transform 与 opacity**：`x/y/scale/rotation/xPercent/yPercent` + `autoAlpha`（代替 opacity 做显隐）。禁止动画 `width/height/top/left/margin/padding` 布局属性。
-2. **遮罩禁 backdrop-blur**：rAF 动效下 blur 每帧全屏重采样（既有约定）；遮罩一律 `var(--scrim)` 纯色。
-3. **装饰性循环动画克制**：常驻循环（呼吸/脉冲/扫描）优先静态渐变纹理表达；确需循环时控制参与合成的小面积元素。大面积扫描线用静态 `repeating-linear-gradient`，不做循环位移。
-4. **stagger 优于多 tween**：同构元素编组动画用 `stagger`；长列表只动可见项。
-5. **不可见即停**：overlay 关闭、组件卸载、`document.hidden` 时暂停/杀死相关 tween。
-6. **`will-change` 只挂在真正持续动效的元素**，不全局滥用。
+1. 动画优先只改变 `transform` 与 `opacity/autoAlpha`；避免动画 `width/height/top/left/margin/padding/filter` 等布局或高成本绘制属性。
+2. 遮罩不使用 `backdrop-filter`；大面积扫描纹理保持静态，小面积装饰才允许受控循环。
+3. `will-change` 只在真实持续运动的元素上使用，不做全局铺设。
+4. 不可见即停：overlay 关闭、组件卸载或 `document.hidden` 时不得保留无意义帧任务。
+5. 宠物舞台边界由 `ResizeObserver` 缓存；tick 内禁止 `getBoundingClientRect()`。
+6. 正常场景目标 p95 帧间隔 ≤20ms，压力场景 p95 ≤33ms；降级优先减少装饰、DPR 与挂载数量，不人为降低交互反馈帧率。
 
-## 3. 质量三档映射（降复杂度不降帧率）
+## 3. 动效偏好与渲染质量
 
-动效复杂度挂接 `useRenderQuality().tier`（`composables/useMotionTier.ts`），**不降低帧率、不设 ticker.fps 上限**，只裁效果：
+用户偏好为 `'system' | 'full' | 'reduced'`，默认 `system`：
 
-| 档 | 入场动画 | 装饰（辉光/扫描/流光） | stagger | 消息进入 |
-|---|---|---|---|---|
-| high | opacity+y+scale 全量 | 全开 | 0.04 逐元素 | 开 |
-| balanced | opacity+y | 幅度减半（CSS var 控制） | 批内 0.02 | 开 |
-| low | 仅 opacity | 装饰层 `display:none` | 0（整组单 tween） | 关 |
+- `system`：跟随客户端 `prefers-reduced-motion`。
+- `full`：完整位移、缩放、stagger 与受控装饰。
+- `reduced`：保留即时状态反馈和短透明度过渡，取消非必要位移、弹性、stagger 与循环装饰。
 
-Pixi 执行图既有 12..30fps 钳制独立存在，不与本映射耦合。流式渲染节流（`useThrottledMarkdown` 240ms）独立于本映射恒定生效。
+偏好写入 `chery-motion`，由 storage event 与 BroadcastChannel 同步，并投影为根节点 `data-motion`。动效偏好与自适应渲染质量彼此独立：前者表达用户意图，后者依据帧预算在 high / balanced / low 间带迟滞升降级。
 
-## 4. 生命周期与清理
+## 4. 流式 Markdown
 
-1. 组件卸载：`ctx.revert()`（经 `useGsap` 自动完成）；`quickTo/quickSetter` 注册表（如宠物元素注册）卸载时必须反注册。
-2. overlay 进出场：统一走 `composables/useOverlayAnimation.ts` 的 `useOverlayTransitionHooks(kind)`（Vue `<Transition :css="false">` + JS 钩子），不各写各的。
-3. 动效时长/缓动走 token：`--dur-1/-2/-3`（0.16/0.18/0.24s）与 `--ease-out/--ease-spring`；CSS 侧与 GSAP 侧共用同一组数值（GSAP 里用等价秒数与 cubic-bezier）。
+所有实时 Markdown 使用 `useRenderedMarkdown()`：首个非空结果立即调度，随后以 240ms trailing 合并；预览默认截断到 `MARKDOWN_PREVIEW_LIMIT`（12000 字符），终态或流结束强制 flush。解析在共享 Worker 中执行，结果以 revision 丢弃过时响应，并带字符预算 LRU；Worker 不可用时才动态导入主线程解析器。
 
-## 5. 动效恒开约定（继承）
+禁止在流式 delta watch 中同步调用 `renderMarkdown()`。当前覆盖 MessageBubble、宠物气泡、AnchoredRunCrt、LiteMarkdown、PaperGameCard 与 ExecutionNodePopover。
 
-应用**不跟随** `prefers-reduced-motion`：不新增 `@media (prefers-reduced-motion: reduce)` 块与 `matchMedia` 门控；GSAP 默认行为即不跟随，无需配置。存量个别 reduced-motion 覆盖块不扩散、不新增。
+## 5. Review 清单
 
-## 6. Review 清单
-
-- [ ] 新动效是否只动 transform/opacity？有无布局属性动画？
-- [ ] 是否经 `useGsap`/`useQuickTo` 创建？卸载是否 revert/反注册？
-- [ ] 高频更新是否 quickTo/quickSetter 直写（无每帧响应式 patch）？
-- [ ] 循环装饰是否克制？遮罩是否无 backdrop-blur？
-- [ ] 是否接入 motion tier 三档（复杂装饰有 low 档裁剪路径）？
-- [ ] 时长/缓动是否走 token 数值？
+- [ ] 是否只动画 transform/opacity，且没有 tick 内布局读取？
+- [ ] tween、context、Transition `done()` 与帧订阅是否能在取消/卸载时完整回收？
+- [ ] 高频更新是否用 quickSetter/quickTo 直写，避免每帧响应式 patch？
+- [ ] 完整/精简/跟随系统三种偏好是否都可用？
+- [ ] 装饰是否接入 render quality，低档时能关闭或降采样？
+- [ ] 流式 Markdown 是否走 Worker、节流与终态 flush？
+- [ ] 新重型表面是否保持异步加载，不进入首屏 chunk？

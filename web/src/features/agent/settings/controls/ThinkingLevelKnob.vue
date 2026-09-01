@@ -42,7 +42,7 @@ const META: Record<string, LevelMeta> = {
   off: { value: 'off', label: 'off', accent: '#5b6271', textOnAccent: '#fff' },
   on: { value: 'on', label: 'on', accent: '#9a7eaf', textOnAccent: '#fff' },
   low: { value: 'low', label: 'low', accent: '#e3a548', textOnAccent: '#3a2406' },
-  medium: { value: 'medium', label: 'medium', accent: '#f6b73c', textOnAccent: '#3a2406' },
+  medium: { value: 'medium', label: 'medium', accent: '#22d3ee', textOnAccent: '#04202b' },
   high: { value: 'high', label: 'high', accent: '#d99717', textOnAccent: '#fff7e6' },
   xhigh: { value: 'xhigh', label: 'xhigh', accent: '#c66b12', textOnAccent: '#fff7e6' },
   max: { value: 'max', label: 'max', accent: '#a9470c', textOnAccent: '#fff7e6' },

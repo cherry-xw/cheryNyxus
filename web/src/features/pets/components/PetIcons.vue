@@ -220,7 +220,7 @@ function clickApproval(a: ApprovalState): void {
   }
 
   &.role-user .dot {
-    background: #f6b73c;
+    background: var(--accent);
   }
   &.role-assistant .dot {
     background: #7c3aed;
@@ -229,7 +229,7 @@ function clickApproval(a: ApprovalState): void {
     background: #7c3aed;
   }
   &.role-role .dot {
-    background: #f6b73c;
+    background: var(--accent);
   }
   &.role-master .dot {
     background: #ffffff;
@@ -287,7 +287,7 @@ function clickApproval(a: ApprovalState): void {
   color: var(--ink);
 
   &.role-user {
-    background: #f6b73c;
+    background: var(--accent);
   }
   &.role-assistant {
     background: #7c3aed;
@@ -296,11 +296,11 @@ function clickApproval(a: ApprovalState): void {
     color: #3b2b12;
   &.role-subagent,
   &.role-role {
-    background: #f6b73c;
+    background: var(--accent);
   }
   &.role-master {
-    background: #f6b73c;
-    color: #3b2b12;
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
