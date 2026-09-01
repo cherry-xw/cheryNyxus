@@ -93,7 +93,7 @@ function closePreview() {
 
 <style scoped lang="less">
 @ink: var(--ink);
-@accent: #f6b73c;
+@accent: var(--accent);
 
 .media-inline-group {
   display: flex;

@@ -39,15 +39,15 @@ S0 read-proof + 文档先行 → S1 token 体系 → S2 GSAP 基建 → S3 markd
 
 ## S1 深空电光 token 体系（独立 commit）
 
-- [ ] `web/src/styles/theme.css` 重写：深浅双套新色值（骨架与块序不变——EP dark css-vars 先于 theme.css、hljs 浅块先于深块）
-- [ ] `web/src/styles/element/index.scss`：primary `#4f46e5` + 语义色浅色值
-- [ ] theme.css `html.dark` 块：primary `#22d3ee` + light-3..9 重导 + 新增 `--el-bg-color`/`--el-bg-color-overlay`
-- [ ] hljs 深色块整组换冷色系（Tokyo-night 方向）；浅色块删过时注释
-- [ ] `web/electron/main.ts` 托管窗 `backgroundColor: '#16181d'` → `'#0b1020'`
-- [ ] JS 侧 `f6b73c` 清扫：`useSettingsDialogController.ts:96`、`useThemeTokens.ts`、`useLiteNodeTones.ts`、`App.vue` attention 样式
-- [ ] `docs/web/workbench-multi-window.md:126` 暖橙 attention 描述同步
-- [ ] 新增动效 token：`--dur-1/-2/-3`、`--ease-out`、`--ease-spring`、`--accent-glow`
-- [ ] **不动**：`--nx-*` CRT 14 token、`AnchoredRunCrt.vue` 局部变量、PaperGameCard 纸牌调色板、Import 霓虹弹窗、QuestionCard:379-391
+- [x] `web/src/styles/theme.css` 重写：深浅双套新色值（骨架与块序不变——EP dark css-vars 先于 theme.css、hljs 浅块先于深块）
+- [x] `web/src/styles/element/index.scss`：primary `#4f46e5` + 语义色浅色值
+- [x] theme.css `html.dark` 块：primary `#22d3ee` + light-3..9 重导 + 新增 `--el-bg-color`/`--el-bg-color-overlay`
+- [x] hljs 深色块整组换冷色系（Tokyo-night 方向）；浅色块删过时注释
+- [x] `web/electron/main.ts` 托管窗 `backgroundColor: '#16181d'` → `'#0b1020'`（+ 托盘图标换电光青）
+- [x] JS 侧 `f6b73c` 清扫：`useSettingsDialogController.ts`、settings `constants.ts`、`LabelTip.vue`、`MediaInlineRenderer.vue`、`useThemeTokens.ts`、`App.vue` attention 样式；另收敛 Workbench/Capsule/WindowFrame attention 荧光边 keyframes（`rgba(246,183,60,…)` → `var(--accent-glow)`/`color-mix`）
+- [x] `docs/web/workbench-multi-window.md:126` 暖橙 attention 描述同步
+- [x] 新增动效 token：`--dur-1/-2/-3`、`--ease-out`、`--ease-spring`、`--accent-glow`
+- [x] **不动**：`--nx-*` CRT 14 token、`AnchoredRunCrt.vue` 局部变量、PaperGameCard 纸牌调色板、Import 霓虹弹窗、QuestionCard:379-391、`useLiteNodeTones.ts`（lite 面阶段2+）、MessageAvatar 金渐变（S6 触碰时收敛）
 
 token 主表（深色 / 浅色）：
 

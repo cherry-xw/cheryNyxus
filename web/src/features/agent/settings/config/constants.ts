@@ -23,7 +23,7 @@ export const SETTINGS_ACTIVE_TAB_KEY = Symbol('settings-active-tab') as Injectio
 >
 
 export const TABS: { key: TabKey; icon: string; label: string; color: string }[] = [
-  { key: 'presets', icon: '📦', label: '预设', color: '#f6b73c' },
+  { key: 'presets', icon: '📦', label: '预设', color: '#22d3ee' },
   { key: 'roles', icon: '🎭', label: '角色', color: '#fb7185' },
   { key: 'brains', icon: '🧠', label: '大脑', color: '#5ee7ff' },
   { key: 'senses', icon: '👂', label: '器官', color: '#34d399' },

@@ -153,11 +153,11 @@ onMounted(() => {
 @keyframes window-frame-box-blink {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(246, 183, 60, 0);
+    box-shadow: 0 0 0 0 transparent;
     border-bottom-color: color-mix(in srgb, var(--ink) 12%, transparent);
   }
   50% {
-    box-shadow: 0 0 16px 1px rgba(246, 183, 60, 0.55);
+    box-shadow: 0 0 16px 1px color-mix(in srgb, var(--accent) 55%, transparent);
     border-bottom-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
 }

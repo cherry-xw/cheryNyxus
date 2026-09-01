@@ -42,7 +42,7 @@
   transition: background-color 100ms ease;
 
   &:hover {
-    background: rgba(246, 183, 60, 0.12);
+    background: var(--accent-soft);
   }
 
   span:first-child {
@@ -56,8 +56,8 @@
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(246, 183, 60, 0.15);
-  color: #9a7422;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: color-mix(in srgb, var(--accent) 62%, var(--ink));
   &.missing {
     background: rgba(180, 30, 30, 0.08);
     color: #b04040;

@@ -93,7 +93,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const activeTabColor = computed(() =>
     activeTab.value === 'roles' && rolesShadowMode.value
       ? '#64748b'
-      : (TABS.find((t) => t.key === activeTab.value)?.color ?? '#f6b73c'),
+      : (TABS.find((t) => t.key === activeTab.value)?.color ?? '#22d3ee'),
   )
   const activeTabHighlight = computed(() =>
     activeTab.value === 'roles' && rolesShadowMode.value ? '#cbd5e1' : activeTabColor.value,

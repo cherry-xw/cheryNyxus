@@ -267,8 +267,8 @@ function onPointerDown(e: PointerEvent): void {
     border-color: color-mix(in srgb, var(--nx-text) 16%, transparent);
   }
   50% {
-    box-shadow: 0 0 16px 1px rgba(246, 183, 60, 0.6);
-    border-color: rgba(246, 183, 60, 0.6);
+    box-shadow: 0 0 16px 1px color-mix(in srgb, var(--accent) 60%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   }
 }
 .workbench-capsule:focus-visible {

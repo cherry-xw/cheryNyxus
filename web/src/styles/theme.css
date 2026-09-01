@@ -1,46 +1,55 @@
 /**
- * 全局深浅色主题 token。
+ * 全局深浅色主题 token（深空电光系，v2.0，2026-09-01 随 ui-visual-and-interaction.md v1.4 改版）。
  *
  * 语义 CSS 变量在 :root（浅）与 [data-theme="dark"]（深）各定义一套。
+ * 深 = 深空蓝紫基底 + 电光青强调；浅 = 冷白基底 + 靛蓝强调（电光青在浅底对比度不足，见规范 §4.1）。
  * 组件 <style scoped lang="less"> 一律改引用 var(--token)，不再硬编码 hex / 重复声明 @ink/@accent。
  * 文字透明度用 color-mix(in srgb, var(--ink) X%, transparent) 内联，不建大量 alpha token。
- * nyxus CRT 弹窗（--nx-*）随主题翻转：深色沿用深灰绿终端风，浅色取浅灰绿变体。
+ * nyxus CRT 弹窗（--nx-*）保持既有深灰绿终端调色板不动（独立视觉身份，阶段2+ 再议融合）。
  * 由 main.ts 在 createApp 前 import。
  */
 
 :root {
   /* 文字 */
-  --ink: #1f2328;
-  --accent: #f6b73c; /* 暖橙强调：box-shadow / border / hover 描边共用 */
-  --accent-ink: #8c6114; /* 强调色上的文字（gold 深字） */
-  --accent-soft: rgba(246, 183, 60, 0.18); /* 强调色淡底 chip */
+  --ink: #1b2337;
+  --accent: #4f46e5; /* 靛蓝强调（浅色极）：box-shadow / border / hover 描边共用 */
+  --accent-ink: #f5f3ff; /* 强调色上的文字（靛蓝上浅字） */
+  --accent-soft: rgba(79, 70, 229, 0.1); /* 强调色淡底 chip */
+  --accent-glow: rgba(79, 70, 229, 0.18); /* 强调色辉光（box-shadow 外发光 / 描边光晕） */
 
   /* 表面 */
-  --bg: #f5f3ee; /* 页面底 */
-  --panel: #fbf9f4; /* 弹窗 / 面板底 */
+  --bg: #f5f7fc; /* 页面底（冷白） */
+  --panel: #fbfcff; /* 弹窗 / 面板底 */
   --surface: #ffffff; /* 卡片底 */
-  --surface-hover: #fffdf8;
-  --surface-soft: rgba(255, 255, 255, 0.7); /* 半透明白表面（icon-btn / 浅卡） */
+  --surface-hover: #f8fafd;
+  --surface-soft: rgba(255, 255, 255, 0.72); /* 半透明白表面（icon-btn / 浅卡） */
 
   /* 边框 / 遮罩 */
-  --border: rgba(36, 38, 45, 0.2);
-  --border-strong: rgba(36, 38, 45, 0.28);
-  --scrim: rgba(15, 17, 22, 0.42); /* overlay 遮罩 */
+  --border: rgba(27, 35, 55, 0.14);
+  --border-strong: rgba(27, 35, 55, 0.22);
+  --scrim: rgba(15, 23, 42, 0.42); /* overlay 遮罩 */
 
   /* 语义色 */
-  --success: #166534;
-  --danger: #991b1b;
-  --warning: #80560a;
-  --info: #8c8980;
+  --success: #15803d;
+  --danger: #b91c1c;
+  --warning: #a16207;
+  --info: #64748b;
   --violet: #6d28d9; /* ask_user_question 紫色系文字（浅色 violet-700） */
-  --violet-soft: rgba(124, 58, 237, 0.09); /* 选中项淡紫底（浅色，不抢眼） */
+  --violet-soft: rgba(124, 58, 237, 0.08); /* 选中项淡紫底（浅色，不抢眼） */
 
   /* 霓虹装饰三色（settings neon 签名） */
   --neon-cyan: #5ee7ff;
   --neon-indigo: #6366f1;
   --neon-magenta: #d946ef;
 
-  /* ── nyxus CRT 终端调色板（浅色变体） ── */
+  /* 动效 token（GSAP 与 CSS 共用同一组数值） */
+  --dur-1: 0.16s; /* overlay 遮罩 */
+  --dur-2: 0.18s; /* dialog 面板 */
+  --dur-3: 0.24s; /* drawer / 大面板 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── nyxus CRT 终端调色板（浅色变体，保持既有独立身份） ── */
   --nx-bg: rgba(252, 251, 248, 0.98);
   --nx-border: rgba(52, 60, 56, 0.68);
   --nx-border-soft: rgba(52, 60, 56, 0.34);
@@ -64,37 +73,38 @@
 
 [data-theme='dark'] {
   /* 文字 */
-  --ink: #eceef2;
-  --accent: #f6b73c;
-  --accent-ink: #f7d98a;
-  --accent-soft: rgba(246, 183, 60, 0.2);
+  --ink: #e8ecf8;
+  --accent: #22d3ee; /* 电光青强调（深色极） */
+  --accent-ink: #04202b; /* 强调色上的文字（青上深字） */
+  --accent-soft: rgba(34, 211, 238, 0.16);
+  --accent-glow: rgba(34, 211, 238, 0.25);
 
-  /* 表面 */
-  --bg: #16181d;
-  --panel: #1c1f26;
-  --surface: #23262e;
-  --surface-hover: #2a2e37;
-  --surface-soft: rgba(255, 255, 255, 0.09);
+  /* 表面（深空蓝紫梯度） */
+  --bg: #0b1020;
+  --panel: #10162e;
+  --surface: #161d38;
+  --surface-hover: #1b2444;
+  --surface-soft: rgba(140, 152, 230, 0.08);
 
   /* 边框 / 遮罩 */
-  --border: rgba(255, 255, 255, 0.16);
-  --border-strong: rgba(255, 255, 255, 0.26);
-  --scrim: rgba(15, 17, 22, 0.42);
+  --border: rgba(148, 163, 216, 0.14);
+  --border-strong: rgba(148, 163, 216, 0.24);
+  --scrim: rgba(5, 8, 20, 0.55);
 
   /* 语义色 */
   --success: #4ade80;
   --danger: #f87171;
   --warning: #fbbf24;
-  --info: #9ca3af;
+  --info: #94a3b8;
   --violet: #c4b5fd; /* ask_user_question 紫色系文字（深色 violet-300，浅紫可读） */
-  --violet-soft: rgba(139, 92, 246, 0.22); /* 选中项紫色底（深色，可见但不刺眼） */
+  --violet-soft: rgba(129, 140, 248, 0.16); /* 选中项紫色底（深色，可见但不刺眼） */
 
   /* 霓虹装饰三色沿用 */
   --neon-cyan: #5ee7ff;
   --neon-indigo: #6366f1;
   --neon-magenta: #d946ef;
 
-  /* ── nyxus CRT 终端调色板（深色变体 = 现行深灰绿） ── */
+  /* ── nyxus CRT 终端调色板（深色变体 = 既有深灰绿，保持不动） ── */
   --nx-bg: rgba(37, 43, 41, 0.98);
   --nx-border: rgba(210, 224, 213, 0.88);
   --nx-border-soft: rgba(210, 224, 213, 0.5);
@@ -118,18 +128,18 @@
 
 /* ── Element Plus 深色语义色覆盖（主题色调统一） ─────────────────────────
  * element-plus/theme-chalk/dark/css-vars.css 硬编码 html.dark 默认蓝 #409eff，
- * 特异性 html.dark(0,1,1) 高于 :root(0,1,0)，会覆盖 SCSS 配置的金色主题。
+ * 特异性 html.dark(0,1,1) 高于 :root(0,1,0)，会覆盖 SCSS 配置的主题色。
  * main.ts 已将该文件 import 提前到 theme.css 之前，这里以同特异性块显式覆盖为
- * 主题色调（暖金 #f6b73c）+ 深色语义色（--success/--warning/--danger/--info）。
- * 深色模式 light-N 派生方向与浅色相反：向暗底 #141414 混色（见 EP dark/var.scss）。 */
+ * 深空电光主题色（电光青 #22d3ee）+ 深色语义色（--success/--warning/--danger/--info）。
+ * 深色模式 light-N 派生方向与浅色相反：向深空基底 #0b1020 混色（见 EP dark/var.scss）。 */
 html.dark {
-  --el-color-primary: #f6b73c;
-  --el-color-primary-light-3: #b28630;
-  --el-color-primary-light-5: #856628;
-  --el-color-primary-light-7: #584520;
-  --el-color-primary-light-8: #41351c;
-  --el-color-primary-light-9: #2b2418;
-  --el-color-primary-dark-2: #f8c563;
+  --el-color-primary: #22d3ee;
+  --el-color-primary-light-3: #1b98b0;
+  --el-color-primary-light-5: #167287;
+  --el-color-primary-light-7: #124b5e;
+  --el-color-primary-light-8: #103749;
+  --el-color-primary-light-9: #0d2435;
+  --el-color-primary-dark-2: #4edcf1;
   --el-color-success: #4ade80;
   --el-color-success-light-3: #3aa160;
   --el-color-success-light-5: #2f794a;
@@ -158,21 +168,23 @@ html.dark {
   --el-color-error-light-8: #422727;
   --el-color-error-light-9: #2b1d1d;
   --el-color-error-dark-2: #f98d8d;
-  --el-color-info: #9ca3af;
+  --el-color-info: #94a3b8;
   --el-color-info-light-3: #737881;
   --el-color-info-light-5: #585c62;
   --el-color-info-light-7: #3d3f43;
   --el-color-info-light-8: #2f3133;
   --el-color-info-light-9: #222224;
-  --el-color-info-dark-2: #b0b5bf;
+  --el-color-info-dark-2: #a9b4c6;
+  --el-bg-color: #10162e;
+  --el-bg-color-overlay: #161d38;
 }
 
-/* ── 代码高亮浅色暖色调（v1.0，ui-visual-and-interaction.md §4.4）────────────
- * 浅色默认引入 highlight.js 官方 github.css（蓝系、非主题色调），此处以同特异性
- * `:root .hljs-*` 覆盖为主题暖色系；该块必须位于深色块之前——深色模式两块同特异性，
+/* ── 代码高亮浅色（走语义 token 自动跟随）────────────
+ * 浅色默认引入 highlight.js 官方 github.css，此处以同特异性
+ * `:root .hljs-*` 覆盖为语义 token 派生（v1.4 起冷色系，允许蓝系）；
+ * 该块必须位于深色块之前——深色模式两块同特异性，
  * 后加载的 [data-theme='dark'] 块胜出（顺序决定），浅色模式仅本块生效。
- * 调色板全部走主题语义 token（不含蓝，规范 §4）：关键词红 / 数字与变量金 /
- * 字符串绿 / 标题紫 / 标签绿 / 符号橙 / 注释灰。背景透明，随宿主 pre 底色。 */
+ * 背景 transparent，随宿主 pre 底色。 */
 :root .hljs {
   background: transparent;
   color: var(--ink);
@@ -212,44 +224,45 @@ html.dark {
 
 /* ── 代码高亮（highlight.js github 浅色主题）深色翻转 ──────────────────
  * main.ts 全局 import github.css（浅底深字）。深色下必须整组覆盖 token 色，
- * 否则 markdown 代码块白底黑字。背景置透明，随宿主 pre 底色。
- * 调色板为暖色系、不含蓝（主题色调规范 ui-visual-and-interaction.md §4）：
- * 关键词红 / 数字与变量金 / 字符串绿 / 标题紫 / 标签绿 / 符号橙 / 注释灰。 */
+ * 否则 markdown 代码块白底黑字。背景 transparent，随宿主 pre 底色。
+ * 调色板为深空电光冷色系（Tokyo-night 方向，v1.4 允许蓝系）：
+ * 关键词紫 / 数字橙 / 字符串绿 / 标题青 / 标签绿 / 符号电光青 / 注释灰蓝。 */
 [data-theme='dark'] .hljs {
   background: transparent;
-  color: #e6edf3;
+  color: #dbe4ff;
 }
 [data-theme='dark'] .hljs-comment,
-[data-theme='dark'] .hljs-quote { color: #8b949e; }
+[data-theme='dark'] .hljs-quote { color: #5b6785; }
 [data-theme='dark'] .hljs-keyword,
 [data-theme='dark'] .hljs-selector-tag,
-[data-theme='dark'] .hljs-subst { color: #ff7b72; }
+[data-theme='dark'] .hljs-subst { color: #c792ea; }
 [data-theme='dark'] .hljs-number,
 [data-theme='dark'] .hljs-literal,
 [data-theme='dark'] .hljs-variable,
 [data-theme='dark'] .hljs-template-variable,
-[data-theme='dark'] .hljs-tag .hljs-attr { color: #f2cc60; }
+[data-theme='dark'] .hljs-tag .hljs-attr { color: #f78c6c; }
 [data-theme='dark'] .hljs-string,
-[data-theme='dark'] .hljs-doctag { color: #8ee6a8; }
+[data-theme='dark'] .hljs-doctag { color: #9ece6a; }
 [data-theme='dark'] .hljs-title,
 [data-theme='dark'] .hljs-section,
 [data-theme='dark'] .hljs-selector-id,
-[data-theme='dark'] .hljs-class .hljs-title { color: #d2a8ff; }
+[data-theme='dark'] .hljs-class .hljs-title { color: #7dcfff; }
 [data-theme='dark'] .hljs-type,
-[data-theme='dark'] .hljs-class .hljs-title.class_ { color: #ff7b72; }
+[data-theme='dark'] .hljs-class .hljs-title.class_ { color: #82aaff; }
 [data-theme='dark'] .hljs-tag,
 [data-theme='dark'] .hljs-name,
-[data-theme='dark'] .hljs-attribute { color: #7ee787; }
+[data-theme='dark'] .hljs-attribute { color: #9ece6a; }
 [data-theme='dark'] .hljs-regexp,
-[data-theme='dark'] .hljs-link { color: #8ee6a8; }
+[data-theme='dark'] .hljs-link { color: #9ece6a; }
 [data-theme='dark'] .hljs-symbol,
-[data-theme='dark'] .hljs-bullet { color: #ffa657; }
+[data-theme='dark'] .hljs-bullet { color: #22d3ee; }
 [data-theme='dark'] .hljs-built_in,
-[data-theme='dark'] .hljs-builtin-name { color: #f2cc60; }
-[data-theme='dark'] .hljs-meta { color: #8b949e; }
+[data-theme='dark'] .hljs-builtin-name { color: #82aaff; }
+[data-theme='dark'] .hljs-meta { color: #5b6785; }
 [data-theme='dark'] .hljs-deletion { color: #ffa198; }
 [data-theme='dark'] .hljs-addition { color: #aff5b4; }
 [data-theme='dark'] .hljs-emphasis { font-style: italic; }
+[data-theme='dark'] .hljs-strong { font-weight: bold; }
 
 /* 全局删除原生滚动条上下箭头按钮（含滚动条角），降低多层滚动视图的视觉负担。
  * 主滚动条（VirtualScroll 自定义 thumb / 设置面板）与本规则不冲突，仅去装饰性箭头。 */
@@ -261,7 +274,6 @@ html.dark {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
-[data-theme='dark'] .hljs-strong { font-weight: bold; }
 
 /* ── Electron 原生窗（settings/workbench）灰边兜底 ─────────────────────────
  * 深色模式灰边根因：html.dark → element-plus dark css-vars → color-scheme:dark →

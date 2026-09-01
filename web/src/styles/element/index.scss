@@ -1,29 +1,29 @@
 /**
  * Element Plus 主题覆盖（SCSS @forward 法，按实际使用组件导入）。
  * 仅覆盖 $colors 各 base；var.scss 内 @each 自动派生 light-1..9 / dark-2。
- * 色值源自 settings/shared.less 暖橙调：
- *   primary #f6b73c / success #166534 / warning #92590a / danger #991b1b / info #8c8980
+ * 深空电光浅色极（v1.4）：primary 靛蓝 #4f46e5 / success #15803d / warning #a16207 / danger #b91c1c / info #64748b；
+ * 深色极由 theme.css 的 html.dark 块以电光青 #22d3ee 显式覆盖。
  * main.ts 引入本文件替代 element-plus/dist/index.css。
  */
 @forward 'element-plus/theme-chalk/src/common/var.scss' with (
   $colors: (
     'primary': (
-      'base': #f6b73c,
+      'base': #4f46e5,
     ),
     'success': (
-      'base': #166534,
+      'base': #15803d,
     ),
     'warning': (
-      'base': #92590a,
+      'base': #a16207,
     ),
     'danger': (
-      'base': #991b1b,
+      'base': #b91c1c,
     ),
     'error': (
-      'base': #991b1b,
+      'base': #b91c1c,
     ),
     'info': (
-      'base': #8c8980,
+      'base': #64748b,
     ),
   )
 );
