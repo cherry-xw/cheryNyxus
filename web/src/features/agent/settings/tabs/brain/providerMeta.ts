@@ -15,6 +15,8 @@ import ollamaIcon from '@/assets/ai-icons/ollama.png'
 import anthropicIcon from '@/assets/ai-icons/anthropic.png'
 import zhipuIcon from '@/assets/ai-icons/zhipu.png'
 import deepseekIcon from '@/assets/ai-icons/deepseek.png'
+import minimaxIcon from '@/assets/ai-icons/minimax.png'
+import newapiIcon from '@/assets/ai-icons/newapi.png'
 
 export type ProviderId = (typeof PROVIDERS)[number]
 
@@ -36,6 +38,9 @@ export const PROVIDER_META: Record<ProviderId, ProviderMeta> = {
   bigmodel: { value: 'bigmodel', label: '智谱', icon: zhipuIcon },
   // 深度求索 = DeepSeek 品牌名 → 中文品牌在前，英文品牌名后缀
   deepseek: { value: 'deepseek', label: '深度求索', icon: deepseekIcon },
+  minimax: { value: 'minimax', label: 'MiniMax 官方', icon: minimaxIcon },
+  newapi: { value: 'newapi', label: 'New API 中转', icon: newapiIcon },
+  custom: { value: 'custom', label: '自定义服务', icon: '🔌' },
 }
 
 /** 模板里判断同名折叠：label 与 value 实质指向同义 → 仅渲染 label。

@@ -1,9 +1,5 @@
 <script setup lang="ts">
-/**
- * BrainCard：单颗 brain 名片。
- * 从 BrainsTab 拆出，承载连接字段 + 运行能力 + 媒体能力矩阵。
- * 改名/复制/删除需操作 draft.llm.brain 全量（保序重建 + 迁移角色引用），故 prop 传 draft。
- */
+/** Brain editor card; every setting change mutates the parent draft only. */
 import { CopyDocument, Delete, Refresh, Document } from '@element-plus/icons-vue'
 import { ref, computed, watch, toRaw } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -12,7 +8,6 @@ import {
   type BrainConfigDto,
   type ConfigDto,
   type MediaCapabilitiesDto,
-  type ThinkingLevel,
 } from '@/application/backend/public'
 import { PROVIDERS } from '../../config/constants'
 import { PROVIDER_META, isProviderLabelRedundant, isProviderIconAsset } from './providerMeta'
@@ -21,6 +16,14 @@ import EditableTitle from '@/features/agent/settings/controls/EditableTitle.vue'
 import LabelTip from '../config/LabelTip.vue'
 import ThinkingLevelKnob from '../../controls/ThinkingLevelKnob.vue'
 import MediaCapabilityGrid from '../config/MediaCapabilityGrid.vue'
+import { useModelRecommendation } from './useModelRecommendation'
+import {
+  LLM_PROTOCOL_CATALOG,
+  findLlmProviderDefinition,
+  legacyProtocolForProvider,
+  resolveLlmProviderDefaultUrl,
+  type LlmProtocol,
+} from '@chery/protocol'
 
 // Chevron icon (element-plus doesn't export a small one, use inline SVG)
 const ChevronIcon = {
@@ -42,7 +45,54 @@ const emit = defineEmits<{
   (e: 'duplicated', name: string): void
 }>()
 
-const CONTEXT_LIMIT_OPTIONS = [128, 256, 512, 1024] as const
+const CONTEXT_LIMIT_OPTIONS = [128, 250, 256, 512, 1024] as const
+
+const providerDefinition = computed(() => findLlmProviderDefinition(props.cfg.provider))
+const supportedProtocols = computed(() => providerDefinition.value?.protocols ?? [])
+const effectiveProtocol = computed<LlmProtocol | undefined>(
+  () =>
+    props.cfg.protocol ??
+    legacyProtocolForProvider(props.cfg.provider) ??
+    providerDefinition.value?.defaultProtocol,
+)
+const protocolModel = computed<LlmProtocol | undefined>({
+  get: () => effectiveProtocol.value,
+  set: (value) => {
+    const previousDefault = resolveLlmProviderDefaultUrl(
+      props.cfg.provider,
+      effectiveProtocol.value,
+    )
+    const shouldReplaceUrl =
+      !props.cfg.url || isTemplatePlaceholder(props.cfg.url) || props.cfg.url === previousDefault
+    props.cfg.protocol = value
+    const nextDefault = resolveLlmProviderDefaultUrl(props.cfg.provider, value)
+    if (shouldReplaceUrl && nextDefault) props.cfg.url = nextDefault
+  },
+})
+function protocolLabel(protocol: LlmProtocol): string {
+  return LLM_PROTOCOL_CATALOG.find((entry) => entry.id === protocol)?.label ?? protocol
+}
+
+watch(
+  () => props.cfg.provider,
+  (provider, previous) => {
+    if (provider === previous) return
+    const definition = findLlmProviderDefinition(provider)
+    if (!definition) return
+    const previousDefinition = findLlmProviderDefinition(previous)
+    const previousDefaults = new Set(
+      [
+        previousDefinition?.defaultUrl,
+        ...Object.values(previousDefinition?.protocolUrls ?? {}),
+      ].filter((url): url is string => typeof url === 'string'),
+    )
+    const shouldReplaceUrl =
+      !props.cfg.url || isTemplatePlaceholder(props.cfg.url) || previousDefaults.has(props.cfg.url)
+    props.cfg.protocol = definition.defaultProtocol
+    const nextDefault = resolveLlmProviderDefaultUrl(provider, definition.defaultProtocol)
+    if (shouldReplaceUrl && nextDefault) props.cfg.url = nextDefault
+  },
+)
 
 const removeImpact = computed(() => {
   const referringRoles = Object.entries(props.draft.roles ?? {})
@@ -94,7 +144,7 @@ async function refreshKeyOptions(): Promise<void> {
 type ConnectionTestState = 'idle' | 'pending' | 'success' | 'error'
 const connectionTestState = ref<ConnectionTestState>('idle')
 const connectionTestMessage = ref('')
-const isMockProvider = computed(() => props.cfg.provider === 'mock')
+const isMockProvider = computed(() => effectiveProtocol.value === 'mock')
 let connectionTestReqId = 0
 
 /**
@@ -103,7 +153,8 @@ let connectionTestReqId = 0
  */
 const connectionBlockedBy = computed<string | null>(() => {
   if (isMockProvider.value) return '离线模拟无需测试'
-  if (!props.cfg.provider) return '请先填写适配器'
+  if (!props.cfg.provider) return '请先选择服务'
+  if (!effectiveProtocol.value) return '请先选择 API 协议'
   // url/model 可能是模板占位符（<YOUR_...>）：UI 显示为空但字符串非空，须归一后判断
   if (!props.cfg.url || isTemplatePlaceholder(props.cfg.url)) return '请先填写地址'
   if (!props.cfg.key) return '请先填写密钥'
@@ -123,7 +174,8 @@ const connectionTestTip = computed(() => {
 /** 刷新模型按钮禁用原因（null=可点）：mock 无需拉取模型；缺失前置字段置灰 + 悬停引导。 */
 const refreshModelsBlockedBy = computed<string | null>(() => {
   if (isMockProvider.value) return '离线模拟无需刷新模型'
-  if (!props.cfg.provider) return '请先填写适配器'
+  if (!props.cfg.provider) return '请先选择服务'
+  if (!effectiveProtocol.value) return '请先选择 API 协议'
   if (!props.cfg.url || isTemplatePlaceholder(props.cfg.url)) return '请先填写地址'
   if (!props.cfg.key) return '请先填写密钥'
   return null
@@ -137,7 +189,14 @@ const refreshTip = computed(() => {
 })
 
 watch(
-  () => [props.cfg.provider, props.cfg.url, props.cfg.key, props.cfg.model] as const,
+  () =>
+    [
+      props.cfg.provider,
+      props.cfg.protocol,
+      props.cfg.url,
+      props.cfg.key,
+      props.cfg.model,
+    ] as const,
   () => {
     connectionTestReqId += 1
     connectionTestState.value = 'idle'
@@ -145,57 +204,33 @@ watch(
   },
 )
 
-// ── 深度思考档位（按 model 后端查） ────────────────────────────────
-/** 当前 brain 的 model 支持的 ThinkingLevel 子集；未拉取或失败时 = ["off","on"] 兜底。 */
-const thinkingLevels = ref<readonly ThinkingLevel[]>(['off', 'on'])
-let thinkingLevelsReqId = 0
-
-async function refreshThinkingLevels(): Promise<void> {
-  const model = props.cfg.model
-  if (!model) {
-    thinkingLevels.value = ['off', 'on']
-    return
-  }
-  // 简易 debounce：取消在途请求（每次自增 reqId，回包时校验）
-  const reqId = ++thinkingLevelsReqId
-  try {
-    const levels = await agentApi.getThinkingLevels([model])
-    if (reqId !== thinkingLevelsReqId) return // 被新请求覆盖
-    const got = levels[model]
-    if (got && got.length > 0) {
-      thinkingLevels.value = got
-      // 若当前 cfg.thinking 不在新档位列表里，重置为第一个（不静默保存，留给用户感知）
-      if (!got.includes(props.cfg.thinking ?? 'off')) {
-        props.cfg.thinking = got[0]
-      }
-    } else {
-      thinkingLevels.value = ['off', 'on']
-    }
-  } catch {
-    if (reqId !== thinkingLevelsReqId) return
-    thinkingLevels.value = ['off', 'on']
-  }
-}
-
-// 监听 model 变化重新拉档位；首次挂载也拉一次
-watch(
-  () => props.cfg.model,
-  () => {
-    void refreshThinkingLevels()
+// ── 模型目录识别、推荐与 thinking wire 档位 ───────────────────────
+const { contextLimitTip, modelRuleNotice, thinkingLevels } = useModelRecommendation({
+  cfg: props.cfg,
+  effectiveProtocol: () => effectiveProtocol.value,
+  supportedProtocols: () => supportedProtocols.value,
+  setProtocol: (protocol) => {
+    protocolModel.value = protocol
   },
-  { immediate: true },
-)
+  isPlaceholderModel: isTemplatePlaceholder,
+})
 
 async function refreshModels(): Promise<void> {
   const { provider, url, key } = props.cfg
   if (!provider || !url) {
     connectionTestState.value = 'error'
-    connectionTestMessage.value = '请先填写适配器和地址'
+    connectionTestMessage.value = '请先选择服务、协议并填写地址'
     return
   }
   modelLoading.value = true
   try {
-    const res = await agentApi.fetchModels(provider, url, key || undefined, props.cfg.fullUrl === true)
+    const res = await agentApi.fetchModels(
+      provider,
+      url,
+      key || undefined,
+      props.cfg.fullUrl === true,
+      effectiveProtocol.value,
+    )
     if (res.error) {
       connectionTestState.value = 'error'
       connectionTestMessage.value = res.error
@@ -218,7 +253,7 @@ async function testConnection(): Promise<void> {
   if (provider === 'mock') return
   if (!provider || !url || !model) {
     connectionTestState.value = 'error'
-    connectionTestMessage.value = '请先填写适配器、地址和模型'
+    connectionTestMessage.value = '请先选择服务、协议并填写地址和模型'
     return
   }
 
@@ -232,6 +267,7 @@ async function testConnection(): Promise<void> {
       key || undefined,
       model,
       props.cfg.fullUrl === true,
+      effectiveProtocol.value,
     )
     if (reqId !== connectionTestReqId) return
     if (result.ok) {
@@ -275,13 +311,13 @@ const modelModel = computed({
 })
 
 // ── info tip 文案（结构化多行，.label-tip-popper pre-line 渲染，\n 分点） ──
-const ADAPTER_TIP = [
-  'provider：决定 API 方言，支持：',
-  '· openai / deepseek / ollama —— OpenAI 兼容协议',
-  '· 智谱 / anthropic —— 各自原生协议',
-  '· mock —— 离线模拟，无需网络',
-  '',
-  '选 anthropic 时右侧「官方」勾选框开启 redacted_thinking 完整回传协议；关闭则按兼容模式处理。',
+const PROVIDER_TIP = [
+  '服务：请求实际发往的官方厂商、中转站或自定义入口。',
+  '它只提供默认地址和可选协议，不再决定消息解析方式。',
+].join('\n')
+const PROTOCOL_TIP = [
+  'API 协议：决定请求体、流事件、工具调用与思考内容的解析方式。',
+  '协议应匹配服务入口实际暴露的端点。',
 ].join('\n')
 const KEY_TIP = [
   'key：API 密钥，从 .env 变量中选择（$ENV 占位符）。',
@@ -292,7 +328,7 @@ const KEY_TIP = [
 ].join('\n')
 const URL_TIP = [
   'url：请求地址，支持 $ENV 占位从环境变量注入。',
-  '· 未勾选「完整 URL」：版本段（/v1 等）由你填写，后端自动拼端点——openai/deepseek/bigmodel → …/v1/chat/completions，anthropic → …/v1/messages',
+  '· 未勾选「完整 URL」：版本段（/v1 等）由你填写，后端按所选协议拼 /chat/completions、/responses 或 /messages',
   '· 勾选「完整 URL」：后端不拼接任何字符串，请求地址即你填写的整个 URL（须含版本段与端点，如 https://api.openai.com/v1/chat/completions）',
   '· ollama 填 host（如 http://localhost:11434），无版本段概念',
 ].join('\n')
@@ -353,25 +389,37 @@ function setToolCall(cfg: BrainConfigDto, value: unknown): void {
 /** 当前 brain 是否官方 Anthropic（影响 redacted_thinking 回传策略）；
  *  仅 provider=anthropic 时生效；其它 provider 始终 false。 */
 function anthropicOfficial(cfg: BrainConfigDto): boolean {
-  return cfg.provider === 'anthropic' && cfg.anthropicCompat?.official === true
+  if (cfg.provider === 'deepseek') return false
+  return (
+    cfg.anthropicCompat?.official ??
+    (cfg.protocol === 'anthropic-messages' &&
+      (cfg.provider === 'anthropic' || cfg.provider === 'minimax'))
+  )
 }
 function setAnthropicOfficial(cfg: BrainConfigDto, value: unknown): void {
-  if (cfg.provider !== 'anthropic') return
+  if (effectiveProtocol.value !== 'anthropic-messages' || cfg.provider === 'deepseek') return
   if (!cfg.anthropicCompat) cfg.anthropicCompat = {}
   cfg.anthropicCompat.official = value === true
 }
 
 /** 地址输入框示例（随 provider 变化）：未勾选填 base（须含版本段，端点自动拼接）；勾选「完整 URL」填完整请求地址 */
 const urlPlaceholder = computed(() => {
-  if (props.cfg.provider === 'ollama') return '如 http://localhost:11434'
-  if (props.cfg.provider === 'mock') return 'mock 无需真实地址'
+  if (effectiveProtocol.value === 'ollama-chat') return '如 http://localhost:11434'
+  if (effectiveProtocol.value === 'mock') return 'mock 无需真实地址'
   if (props.cfg.fullUrl === true) {
-    return props.cfg.provider === 'anthropic'
-      ? '完整 URL，如 https://api.anthropic.com/v1/messages'
-      : '完整 URL，如 https://api.openai.com/v1/chat/completions'
+    if (effectiveProtocol.value === 'anthropic-messages') {
+      return '完整 URL，如 https://api.anthropic.com/v1/messages'
+    }
+    if (effectiveProtocol.value === 'openai-responses') {
+      return '完整 URL，如 https://api.openai.com/v1/responses'
+    }
+    return '完整 URL，如 https://api.openai.com/v1/chat/completions'
   }
-  if (props.cfg.provider === 'anthropic') {
+  if (effectiveProtocol.value === 'anthropic-messages') {
     return '须含版本段，如 https://api.anthropic.com/v1 → 自动拼 /messages'
+  }
+  if (effectiveProtocol.value === 'openai-responses') {
+    return '须含版本段，如 https://api.openai.com/v1 → 自动拼 /responses'
   }
   return '须含版本段，如 https://api.openai.com/v1 → 自动拼 /chat/completions'
 })
@@ -485,7 +533,12 @@ async function openEnvFile(): Promise<void> {
       <section class="brain-section">
         <div class="section-heading connection-heading">
           <span class="heading-text">连接<small>模型与服务</small></span>
-          <el-tooltip :content="connectionTestTip" placement="top" :show-after="120" popper-class="brain-action-tip">
+          <el-tooltip
+            :content="connectionTestTip"
+            placement="top"
+            :show-after="120"
+            popper-class="brain-action-tip"
+          >
             <span class="connection-test-btn-wrap">
               <button
                 type="button"
@@ -537,14 +590,9 @@ async function openEnvFile(): Promise<void> {
           </el-tooltip>
         </div>
         <div class="brain-fields connection-fields">
-          <label class="field field-wide">
-            <LabelTip label="地址" :tip="URL_TIP" />
-            <div class="url-input-row">
-              <el-input
-                v-model="urlModel"
-                class="mono-input"
-                :placeholder="urlPlaceholder"
-              />
+          <div class="field priority-url">
+            <div class="label-with-action">
+              <LabelTip label="地址" :tip="URL_TIP" />
               <el-tooltip
                 content="勾选=后端不拼接任何字符串，请求地址即填写的整个 URL（须含版本段与端点）；未勾选=填版本段（如 /v1），后端自动拼端点"
                 placement="top"
@@ -559,81 +607,9 @@ async function openEnvFile(): Promise<void> {
                 </el-checkbox>
               </el-tooltip>
             </div>
-          </label>
-          <label class="field">
-            <LabelTip label="适配器" :tip="ADAPTER_TIP" />
-            <div class="provider-row">
-              <el-select v-model="cfg.provider" size="small" class="provider-select">
-                <el-option v-for="p in PROVIDERS" :key="p" :value="p">
-                  <template #default>
-                    <span class="provider-option">
-                      <img
-                        v-if="isProviderIconAsset(p)"
-                        class="provider-icon-img"
-                        :src="PROVIDER_META[p].icon"
-                        :alt="PROVIDER_META[p].label"
-                      />
-                      <span v-else class="provider-icon-emoji" aria-hidden="true">{{
-                        PROVIDER_META[p].icon
-                      }}</span>
-                      <!-- 中文在前、英文在后；同名折叠：openai/OpenAI、ollama/Ollama、anthropic/Anthropic 折叠为仅 label；mock / bigmodel 显示「value · label」 -->
-                      <template v-if="isProviderLabelRedundant(p)">
-                        <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
-                      </template>
-                      <template v-else>
-                        <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
-                        <span class="provider-sep">·</span>
-                        <span class="provider-value">{{ p }}</span>
-                      </template>
-                    </span>
-                  </template>
-                </el-option>
-              </el-select>
-              <el-checkbox
-                v-if="cfg.provider === 'anthropic'"
-                :model-value="anthropicOfficial(cfg)"
-                class="official-checkbox"
-                @change="(v: unknown) => setAnthropicOfficial(cfg, v)"
-              >
-                官方
-              </el-checkbox>
-            </div>
-          </label>
-          <label class="field">
-            <span class="lbl">模型 *</span>
-            <div class="model-input-row">
-              <el-select
-                v-model="modelModel"
-                filterable
-                allow-create
-                default-first-option
-                class="mono-input model-select"
-                placeholder="gpt-3.5-turbo"
-                size="small"
-              >
-                <el-option
-                  v-for="m in modelOptions"
-                  :key="m.id"
-                  :label="m.name ?? m.id"
-                  :value="m.id"
-                />
-              </el-select>
-              <el-tooltip :content="refreshTip" placement="top" :show-after="120" popper-class="brain-action-tip">
-                <span class="icon-btn-wrap">
-                  <button
-                    type="button"
-                    class="icon-btn refresh-btn"
-                    aria-label="刷新模型列表"
-                    :disabled="refreshModelsDisabled"
-                    @click="refreshModels"
-                  >
-                    <Refresh class="ico" :class="{ spinning: modelLoading }" />
-                  </button>
-                </span>
-              </el-tooltip>
-            </div>
-          </label>
-          <div class="field">
+            <el-input v-model="urlModel" class="mono-input" :placeholder="urlPlaceholder" size="small" />
+          </div>
+          <div class="field priority-key">
             <div class="label-with-action">
               <LabelTip label="密钥" :tip="KEY_TIP" />
               <button
@@ -668,22 +644,115 @@ async function openEnvFile(): Promise<void> {
               <el-option v-for="v in keyOptions" :key="v" :value="`$${v}`" :label="v" />
             </el-select>
           </div>
+          <label class="field priority-model">
+            <span class="lbl">模型 *</span>
+            <div class="model-input-row">
+              <el-select
+                v-model="modelModel"
+                filterable
+                allow-create
+                default-first-option
+                class="mono-input model-select"
+                placeholder="gpt-3.5-turbo"
+                size="small"
+              >
+                <el-option
+                  v-for="m in modelOptions"
+                  :key="m.id"
+                  :label="m.name ?? m.id"
+                  :value="m.id"
+                />
+              </el-select>
+              <el-tooltip
+                :content="refreshTip"
+                placement="top"
+                :show-after="120"
+                popper-class="brain-action-tip"
+              >
+                <span class="icon-btn-wrap">
+                  <button
+                    type="button"
+                    class="icon-btn refresh-btn"
+                    aria-label="刷新模型列表"
+                    :disabled="refreshModelsDisabled"
+                    @click="refreshModels"
+                  >
+                    <Refresh class="ico" :class="{ spinning: modelLoading }" />
+                  </button>
+                </span>
+              </el-tooltip>
+            </div>
+          </label>
+          <label class="field secondary-field">
+            <LabelTip label="服务" :tip="PROVIDER_TIP" />
+            <div class="provider-row">
+              <el-select v-model="cfg.provider" size="small" class="provider-select">
+                <el-option v-for="p in PROVIDERS" :key="p" :value="p">
+                  <template #default>
+                    <span class="provider-option">
+                      <img
+                        v-if="isProviderIconAsset(p)"
+                        class="provider-icon-img"
+                        :src="PROVIDER_META[p].icon"
+                        :alt="PROVIDER_META[p].label"
+                      />
+                      <span v-else class="provider-icon-emoji" aria-hidden="true">{{
+                        PROVIDER_META[p].icon
+                      }}</span>
+                      <!-- 中文在前、英文在后；同名折叠：openai/OpenAI、ollama/Ollama、anthropic/Anthropic 折叠为仅 label；mock / bigmodel 显示「value · label」 -->
+                      <template v-if="isProviderLabelRedundant(p)">
+                        <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
+                      </template>
+                      <template v-else>
+                        <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
+                        <span class="provider-sep">·</span>
+                        <span class="provider-value">{{ p }}</span>
+                      </template>
+                    </span>
+                  </template>
+                </el-option>
+              </el-select>
+              <el-checkbox
+                v-if="effectiveProtocol === 'anthropic-messages' && cfg.provider !== 'deepseek'"
+                :model-value="anthropicOfficial(cfg)"
+                class="official-checkbox"
+                @change="(v: unknown) => setAnthropicOfficial(cfg, v)"
+              >
+                完整思考块
+              </el-checkbox>
+            </div>
+          </label>
+          <label class="field secondary-field">
+            <LabelTip label="API 协议" :tip="PROTOCOL_TIP" />
+            <el-select v-model="protocolModel" size="small" class="provider-select">
+              <el-option
+                v-for="protocol in supportedProtocols"
+                :key="protocol"
+                :value="protocol"
+                :label="protocolLabel(protocol)"
+              />
+            </el-select>
+          </label>
+          <div class="model-rule-note field-wide" role="note">
+            <span class="model-rule-note-icon" aria-hidden="true">i</span>
+            <span>{{ modelRuleNotice }}</span>
+          </div>
         </div>
       </section>
 
-      <section class="brain-section runtime-capability-section">
+      <section class="brain-section">
         <div class="section-heading">
           <span>运行与能力</span><small>上下文、推理、工具与媒体</small>
         </div>
         <div class="runtime-controls">
           <label class="field">
-            <LabelTip label="记忆容量" tip="默认单位为 K；下拉可选常用容量，也可直接输入数值。" />
+            <LabelTip label="上下文上限" :tip="contextLimitTip" />
             <el-select
               filterable
               allow-create
               default-first-option
               :model-value="displayContextLimit(cfg.contextLimit)"
-              placeholder="128"
+              placeholder="未设置（未知）"
               @update:model-value="(value: unknown) => updateContextLimit(cfg, value)"
             >
               <el-option

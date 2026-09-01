@@ -37,8 +37,7 @@ interface LevelMeta {
   textOnAccent: string
 }
 
-/** 已知档位的样式表（off/on/low/medium/high/xhigh）。其它 YAML 自定义档位（如 DeepSeek 的 `max`）
- *  在 `metaFor()` 里以「label=原字符串 + 中性灰配色」兜底，原样显示。 */
+/** 已知档位的样式表。其它 YAML 自定义档位在 `metaFor()` 中原样显示。 */
 const META: Record<string, LevelMeta> = {
   off: { value: 'off', label: 'off', accent: '#5b6271', textOnAccent: '#fff' },
   on: { value: 'on', label: 'on', accent: '#9a7eaf', textOnAccent: '#fff' },
@@ -46,6 +45,7 @@ const META: Record<string, LevelMeta> = {
   medium: { value: 'medium', label: 'medium', accent: '#f6b73c', textOnAccent: '#3a2406' },
   high: { value: 'high', label: 'high', accent: '#d99717', textOnAccent: '#fff7e6' },
   xhigh: { value: 'xhigh', label: 'xhigh', accent: '#c66b12', textOnAccent: '#fff7e6' },
+  max: { value: 'max', label: 'max', accent: '#a9470c', textOnAccent: '#fff7e6' },
 }
 
 /** 兜底样式：未知档位走中性灰 + 原字符串 label。 */
@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
-  <div v-else class="thinking-knob-empty">—</div>
+  <div v-else class="thinking-knob-empty">跟随服务默认</div>
 </template>
 
 <style scoped lang="less">

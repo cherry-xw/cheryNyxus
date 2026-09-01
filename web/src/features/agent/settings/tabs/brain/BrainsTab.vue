@@ -16,10 +16,10 @@ function isProviderId(value: string): value is ProviderId {
   return value in PROVIDER_META
 }
 
-/** 容量按 1024 进位显示（K → M → G）；旧 config 无 contextLimit 时按 add() 默认 128K 兜底。 */
-const DEFAULT_CONTEXT_LIMIT = 128000
+/** 容量按 1024 进位显示（K → M → G）；未知上限不再伪造 128K。 */
 function formatContextLimit(value: number | undefined): string {
-  const v = value ?? DEFAULT_CONTEXT_LIMIT
+  if (!value) return '—'
+  const v = value
   const k = v / 1000
   if (k < 1024) return `${trim(k)}K`
   const m = k / 1024
@@ -57,7 +57,11 @@ function add(): void {
     emit('error', `大脑 "${name}" 已存在`)
     return
   }
-  props.draft.llm.brain[name] = { model: '', provider: 'openai', contextLimit: 128000 }
+  props.draft.llm.brain[name] = {
+    model: '',
+    provider: 'openai',
+    protocol: 'openai-responses',
+  }
   newName.value = ''
   selected.value = name
 }

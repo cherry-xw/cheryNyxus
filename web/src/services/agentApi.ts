@@ -18,6 +18,7 @@ import type {
   ChatTimelineResponse,
   ProtocolError,
   TerminationFact as ProtocolTerminationFact,
+  LlmProtocol,
 } from '@chery/protocol'
 import type { ContextBreakdown } from '@/domain/chat/context'
 import type {
@@ -250,7 +251,7 @@ export type ApprovalAction = 'accept' | 'reject'
  */
 export interface BrainInfo {
   name: string
-  contextLimit: number
+  contextLimit?: number
   /** 是否为 config.default.brain（AgentDialog 无 runtime 时预选） */
   default?: boolean
   capabilities?: BrainCapabilitiesDto
@@ -266,6 +267,33 @@ export interface BrainCapabilitiesDto {
   toolCall?: boolean
   input?: MediaCapabilitiesDto
   generate?: MediaCapabilitiesDto
+}
+
+export interface ModelRecommendationDto {
+  matched: boolean
+  id?: string
+  confidence: 'exact' | 'pattern' | 'unknown'
+  facts?: {
+    contextWindow?: number
+    protocols?: LlmProtocol[]
+    capabilities?: BrainCapabilitiesDto
+  }
+  recommend?: {
+    protocol?: LlmProtocol
+    contextLimit?: number
+    thinking?: ThinkingLevel
+    capabilities?: BrainCapabilitiesDto
+  }
+  thinkingLevels: ThinkingLevel[]
+  unknown: {
+    recommend?: {
+      protocol?: LlmProtocol
+      contextLimit?: number
+      thinking?: ThinkingLevel
+      capabilities?: BrainCapabilitiesDto
+    }
+    capabilities?: BrainCapabilitiesDto
+  }
 }
 
 /** brain.list 响应形状。 */
@@ -922,7 +950,7 @@ export type InputAccepted = ChatInputSubmitResponse
  * - off：关闭
  * - on：由模型/服务端决定（不传参）
  * - low/medium/high/xhigh：强度递增
- * - 任意字符串：来自 `.chery/model-thinking.yaml` 的原样档位（如 DeepSeek 的 `max`）。
+ * - 任意字符串：来自 `.chery/model-catalog.yaml` wire 的原样档位（如 DeepSeek 的 `max`）。
  *   `(string & {})` 保留自动补全又允许任何 string 通过编译。
  */
 export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | (string & {})
@@ -934,6 +962,7 @@ export interface BrainConfigDto {
   key?: string
   thinking?: ThinkingLevel
   provider: string
+  protocol?: LlmProtocol
   rpm?: number
   /** true=URL 已含版本段（如 /v1），provider 只拼 endpoint 不自动补全；缺省自动补全（无路径时补 /v1） */
   fullUrl?: boolean
@@ -1948,10 +1977,11 @@ export const agentApi = {
     url: string,
     key?: string,
     fullUrl?: boolean,
+    protocol?: LlmProtocol,
   ): Promise<{ models: Array<{ id: string; name?: string }>; error?: string }> {
     return await call<{ models: Array<{ id: string; name?: string }>; error?: string }>(
       'utils.models',
-      { provider, url, key, fullUrl },
+      { provider, protocol, url, key, fullUrl },
     )
   },
 
@@ -1962,10 +1992,11 @@ export const agentApi = {
     key: string | undefined,
     model: string,
     fullUrl?: boolean,
+    protocol?: LlmProtocol,
   ): Promise<{ ok: true; error?: never } | { ok: false; error: string }> {
     return await call<{ ok: true; error?: never } | { ok: false; error: string }>(
       'utils.testConnection',
-      { provider, url, key, model, fullUrl },
+      { provider, protocol, url, key, model, fullUrl },
     )
   },
 
@@ -1997,18 +2028,18 @@ export const agentApi = {
   },
 
   /**
-   * utils.thinkingLevels：按模型名批量查 ThinkingLevel 档位列表。
-   * 后端读 `.chery/model-thinking.yaml` 配置，**原样返回文件中 thinking 数组**（按 YAML 顺序），
-   * elements 含任意字符串（如 DeepSeek 的 `max`）。未命中兜底为 ["off", "on"]。
-   * models 去重 + 过滤空串；返回 `Record<model, ThinkingLevel[]>`。
+   * utils.modelRecommendation：模型识别、事实、推荐与当前协议 thinking 档位。
    */
-  async getThinkingLevels(models: string[]): Promise<Record<string, ThinkingLevel[]>> {
-    const unique = Array.from(new Set(models.filter((m) => typeof m === 'string' && m.length > 0)))
-    if (unique.length === 0) return {}
-    const data = await call<{ levels: Record<string, ThinkingLevel[]> }>('utils.thinkingLevels', {
-      models: unique,
+  async getModelRecommendation(
+    model: string,
+    provider?: string,
+    protocol?: LlmProtocol,
+  ): Promise<ModelRecommendationDto> {
+    return await call<ModelRecommendationDto>('utils.modelRecommendation', {
+      model,
+      provider,
+      protocol,
     })
-    return data?.levels ?? {}
   },
 
   // ========== 内置命令管理（settings 「指令」tab） ==========
