@@ -1,5 +1,6 @@
 import { gsap } from 'gsap'
 import { reportDisplayFrame } from '@/composables/renderQuality'
+import { recordPerformanceFrame } from '@/utils/performanceDiagnostics'
 
 export interface DisplayFrame {
   now: number
@@ -27,6 +28,7 @@ function tick(): void {
   lastNow = now
   if (deltaMs <= 0) return
   reportDisplayFrame(deltaMs, now)
+  recordPerformanceFrame(deltaMs)
   const frame = { now, deltaMs, deltaSeconds: Math.min(0.04, deltaMs / 1000) }
   for (const subscriber of subscribers) subscriber(frame)
 }

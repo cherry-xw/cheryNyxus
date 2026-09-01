@@ -247,10 +247,13 @@ onBeforeUnmount(() => {
 
 .nyxus-entry {
   position: fixed;
+  left: 0;
+  top: 0;
   z-index: 250;
   width: 1px;
   height: 1px;
   user-select: none;
+  will-change: transform;
 }
 
 .nyxus-entry-button {

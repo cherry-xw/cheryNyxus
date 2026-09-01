@@ -65,8 +65,8 @@ export function useStandaloneNyxusMotion(
   const dragging = ref(false)
 
   let unsubscribeFrame: (() => void) | undefined
-  let setAnchorLeft: ReturnType<typeof gsap.quickSetter> | undefined
-  let setAnchorTop: ReturnType<typeof gsap.quickSetter> | undefined
+  let setAnchorX: ReturnType<typeof gsap.quickSetter> | undefined
+  let setAnchorY: ReturnType<typeof gsap.quickSetter> | undefined
   let target: ViewportPoint = { x: 0, y: 0 }
   let pointer: ViewportPoint | undefined
   let pointerDrift = createNyxusPointerDrift()
@@ -91,18 +91,18 @@ export function useStandaloneNyxusMotion(
   let suppressClick = false
 
   function writePosition(): void {
-    setAnchorLeft?.(position.x)
-    setAnchorTop?.(position.y)
+    setAnchorX?.(position.x)
+    setAnchorY?.(position.y)
   }
 
   function anchorRef(element: Element | ComponentPublicInstance | null): void {
     if (!(element instanceof HTMLElement)) {
-      setAnchorLeft = undefined
-      setAnchorTop = undefined
+      setAnchorX = undefined
+      setAnchorY = undefined
       return
     }
-    setAnchorLeft = gsap.quickSetter(element, 'left', 'px')
-    setAnchorTop = gsap.quickSetter(element, 'top', 'px')
+    setAnchorX = gsap.quickSetter(element, 'x', 'px')
+    setAnchorY = gsap.quickSetter(element, 'y', 'px')
     writePosition()
   }
 
