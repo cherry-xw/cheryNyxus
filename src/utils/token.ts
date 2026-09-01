@@ -13,8 +13,8 @@ import { getMessages, type MessageRow } from '@/db/chat.js'
 import { getChatRuntimeSelection } from '@/db/chat.js'
 import config from '@/utils/config'
 
-/** contextLimit 兜底值（token）：brain 未配 contextLimit 时使用 */
-const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192
+/** 上限未知时 total=0；不再用通用 8192 伪造模型上下文百分比。 */
+const UNKNOWN_CONTEXT_LIMIT_TOKENS = 0
 
 /**
  * 估算文本 token 数（简化：字符数 / 4，向上取整）。
@@ -144,8 +144,8 @@ export function computeContextUsage(chatId: string): ContextUsageDetail {
     const used = sumChatTokens(chatId)
     const selection = getChatRuntimeSelection(chatId)
     const brainName = selection?.brain
-    const limitTokens =
-      (brainName && config.llm.brain[brainName]?.contextLimit) || DEFAULT_CONTEXT_LIMIT_TOKENS
+    const brain = brainName ? config.llm.brain[brainName] : undefined
+    const limitTokens = brain?.contextLimit ?? 0
     if (limitTokens <= 0) return { usage: 0, used, total: 0 }
     return {
       usage: Math.min(1, used / limitTokens),
@@ -157,6 +157,6 @@ export function computeContextUsage(chatId: string): ContextUsageDetail {
       `[token] computeContextUsage(${chatId}) failed, fallback 0:`,
       (err as Error).message,
     )
-    return { usage: 0, used: 0, total: DEFAULT_CONTEXT_LIMIT_TOKENS }
+    return { usage: 0, used: 0, total: UNKNOWN_CONTEXT_LIMIT_TOKENS }
   }
 }
