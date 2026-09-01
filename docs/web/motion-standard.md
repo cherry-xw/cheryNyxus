@@ -20,6 +20,7 @@
 4. 不可见即停：overlay 关闭、组件卸载或 `document.hidden` 时不得保留无意义帧任务。
 5. 宠物舞台边界由 `ResizeObserver` 缓存；tick 内禁止 `getBoundingClientRect()`。
 6. 正常场景目标 p95 帧间隔 ≤20ms，压力场景 p95 ≤33ms；降级优先减少装饰、DPR 与挂载数量，不人为降低交互反馈帧率。
+7. 开发态性能验收先调用 `__CHERY_PERF__.reset()`，完成单一场景的连续交互后读取 `__CHERY_PERF__.snapshot().frames`；快照至少包含有界样本的 `sampleCount`、`p95Ms` 与 `maxMs`，禁止以最近一帧或主观观感代替 p95。
 
 ## 3. 动效偏好与渲染质量
 

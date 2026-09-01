@@ -21,4 +21,4 @@ back 使用 `rotateY(180deg) scaleX(-1)` 预镜像内容，并配合 `backface-v
 
 PetBubbles 使用 Vue `<Transition :css="false" mode="out-in">`，钩子由 `usePetBubbleTransition()` 提供。进入/离开只改变 autoAlpha、scale 与百分比位移；反向或取消时先 kill 旧 tween，避免竞态与残留。
 
-所有持续帧更新共用 `frameCoordinator`；位置由 `quickSetter` 直写，气泡与图标锚点使用 20Hz pose 快照，避免每帧 Vue patch。
+所有持续帧更新共用 `frameCoordinator`；位置由 `quickSetter` 直写 transform `x/y`，包括 Pet 舞台主体与 standalone Nyxus 锚点，禁止在 tick 内写 `left/top`。气泡与图标锚点使用 20Hz pose 快照，避免每帧 Vue patch。

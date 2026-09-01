@@ -41,7 +41,6 @@ log/
 .agent-teams/
 .workbuddy/
 docs/plan/*
-!docs/plan/ui-deep-space-electro-stage1.md
 
 # 读规范凭证（AI 每任务写入，用户抽查，不入仓）
 .claude/read-proof/
