@@ -4,6 +4,7 @@ import { registerMockAdapter } from './mock'
 import { registerBigmodelAdapter } from './bigmodel'
 import { registerAnthropicAdapter } from './anthropic'
 import { registerDeepseekAdapter } from './deepseek'
+import { registerOpenAIResponsesAdapter } from './openaiResponses.js'
 
 let builtinProvidersRegistered = false
 
@@ -22,5 +23,6 @@ export function registerBuiltinProviders(): void {
   registerBigmodelAdapter()
   registerAnthropicAdapter()
   registerDeepseekAdapter()
+  registerOpenAIResponsesAdapter()
   builtinProvidersRegistered = true
 }
