@@ -266,7 +266,7 @@ export async function readErrorSnippet(res: Response): Promise<string> {
 }
 
 /**
- * 非流式 POST JSON 请求（OpenAI 兼容 /chat/completions）。
+ * 非流式 POST JSON 请求（缺省 /chat/completions，可由协议 adapter 覆盖 endpoint）。
  * !res.ok 或网络错误 → 抛 ClassifiedError（可重试，retry 据 category 判重试）；
  * 伪 200（content-type 非 JSON / 响应体非法 JSON，如网关 SPA 回退）→ validation 配置错误。
  */
@@ -275,9 +275,12 @@ export async function jsonRequest(
   body: unknown,
   key: string,
   signal?: AbortSignal,
-  opts?: { fullUrl?: boolean },
+  opts?: { fullUrl?: boolean; endpoint?: string },
 ): Promise<Record<string, unknown>> {
-  const endpoint = buildEndpointUrl(url, { fullUrl: opts?.fullUrl, endpoint: '/chat/completions' })
+  const endpoint = buildEndpointUrl(url, {
+    fullUrl: opts?.fullUrl,
+    endpoint: opts?.endpoint ?? '/chat/completions',
+  })
   let res: Response
   try {
     res = await fetch(endpoint, {
@@ -305,7 +308,7 @@ export async function jsonRequest(
 }
 
 /**
- * 流式 SSE 请求（OpenAI 兼容 /chat/completions，stream:true）：yield 每个 `data:` 事件的解析后 JSON。
+ * 流式 SSE 请求（缺省 /chat/completions，协议 adapter 可覆盖 endpoint）。
  *
  * - 内部自建 AbortController（不暴露给上层）。
  * - getReader() + TextDecoder 跨 TCP chunk 行缓冲，按 \n 切行。
@@ -323,9 +326,12 @@ export async function* streamSSE(
   body: unknown,
   key: string,
   signal?: AbortSignal,
-  opts?: { fullUrl?: boolean },
+  opts?: { fullUrl?: boolean; endpoint?: string },
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
-  const endpoint = buildEndpointUrl(url, { fullUrl: opts?.fullUrl, endpoint: '/chat/completions' })
+  const endpoint = buildEndpointUrl(url, {
+    fullUrl: opts?.fullUrl,
+    endpoint: opts?.endpoint ?? '/chat/completions',
+  })
   const controller = new AbortController()
   const abortFromParent = () => controller.abort()
   if (signal?.aborted) controller.abort()
