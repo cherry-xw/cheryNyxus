@@ -205,7 +205,9 @@ const validResponses: Record<Method, unknown> = {
   [Method.UTILS_OPEN_FILE]: {},
   [Method.UTILS_OPEN_CONFIG_DIR]: {},
   [Method.UTILS_EDITORS]: { editors: [] },
-  [Method.UTILS_THINKING_LEVELS]: { levels: {} },
+  [Method.UTILS_MODEL_RECOMMENDATION]: {
+    matched: false, confidence: 'unknown', thinkingLevels: [], unknown: {},
+  },
   [Method.COMMAND_LIST]: { commands: [] },
   [Method.PLUGINS_LIST]: { plugins: [plugin] },
   [Method.PLUGINS_PRE_IMPORT_URL]: {

@@ -27,7 +27,7 @@
 | [json.ts](../../src/utils/json.ts) | `safeJsonParse(raw, fallback)` — 失败返回 fallback 不抛错 |
 | [generator.ts](../../src/utils/generator.ts) | `isAsyncGenerator(value)` — 类型守卫，判断值是否为 `AsyncGenerator` |
 | [rateLimiter.ts](../../src/utils/rateLimiter.ts) | `getRateLimiter(url, key, rpm)` — 按 `(url,key)` 共享的滑动窗口 RPM 限流器单例注册表 |
-| [modelThinking.ts](../../src/utils/modelThinking.ts) | 模型 → 思考档位映射：加载 `.chery/model-thinking.yaml`（display 显示词 + params 请求参数片段），按 model 别名匹配；供 RPC 查显示词、chat middleware 查参数片段（详见「modelThinking 配置」章节） |
+| [modelCatalog.ts](../../src/utils/modelCatalog.ts) | 模型目录：精确/glob/正则匹配，提供事实、编辑器推荐和按协议分组的 thinking wire 映射 |
 
 ### 子模块（目录）
 
@@ -169,60 +169,18 @@ export function resetRateLimiters(): void;  // 测试 / 热更清残留
 
 详见 [./logger.md 中 rateLimiter 与 logger 的协作](./logger.md)（rateLimiter 内部调 `logger.info` 打印限流等待）。算法细节见下文「关键流程」。
 
-### modelThinking.ts — 模型档位映射
+### modelCatalog.ts — 模型目录与协议映射
 
-`ThinkingLevel`（[core/llm](../core/llm.md)）是档位**显示词**：`off` / `on` / `low` / `medium` / `high` / `xhigh` + `(string & {})` 任意自定义词（来自 `.chery/model-thinking.yaml`，如 DeepSeek 的 `max`）。显示词本身不进请求体——每个显示词在 YAML 中显式声明对应的**请求参数片段**，由 chat middleware 统一翻译（见下），provider 只做 spread 直传、不再内置映射。
-
-`modelThinking` 解决三件事：
-
-1. **配置加载**：读取 `.chery/model-thinking.yaml`，声明模型别名 → 档位规格数组（`{display, params}`；**数组顺序 = UI 弱→强顺序**；`params` 空对象 = 不发任何思考参数；旧版纯字符串数组格式不兼容，按非法条目丢弃）。
-2. **显示词查询**：给定 model 名（精确/前缀/通配 `*` 匹配），按文件原顺序返回该模型可用的显示词列表，供前端 settings 渲染「深度思考」旋钮。
-3. **参数翻译**：`resolveThinkingParams(model, display)` 把显示词翻译成请求参数片段，供 chat middleware 注入 `LLMOptions.thinkingParams`。
+`modelCatalog` 加载 `.chery/model-catalog.yaml`，并将模型数据分为三类：只读事实 `facts`、仅由设置页写入草稿的 `recommend`、运行时序列化使用的 `wire`。匹配支持精确值、glob 和结构化正则，优先级为精确 > 正则 > glob。
 
 ```ts
-// 加载（启动期一次性，in-memory 缓存；YAML 不存在则返回空配置，全量走兜底）
-export function loadModelThinking(): ModelThinkingConfig;
-
-// 按 model 名查显示词（精确 > 前缀 > 通配 `*` > 兜底 ["off","on"]）
-export function resolveThinkingLevels(model: string): ThinkingLevel[];
-
-// 显示词 → 请求参数片段（空片段 / 未命中条目 / 未命中显示词 / 文件缺失 → undefined = 不发参）
-export function resolveThinkingParams(model: string, display: string | undefined): Record<string, unknown> | undefined;
-
-// 批量查询显示词（RPC utils.thinkingLevels 用）
-export function resolveThinkingLevelsBatch(models: string[]): Record<string, ThinkingLevel[]>;
+export function loadModelCatalog(): ModelCatalogConfig;
+export function resolveModelCatalog(input): ResolvedModelCatalogEntry;
+export function resolveCatalogThinkingParams(input): Record<string, unknown> | undefined;
+export function resolveCatalogReasoningHistory(input): ReasoningHistoryMode | undefined;
 ```
 
-**配置格式（`.chery/model-thinking.yaml`）：**
-
-```yaml
-# thinking 数组元素：{display: UI显示词, params: 请求参数片段}。数组顺序 = UI 弱→强顺序。
-# params 空对象 = 不发任何思考参数；片段由 provider 原样 spread 进请求体（协议字段直接写，
-# 如 MiniMax 的 thinking:{type:...} / reasoning_split，OpenAI 系的 reasoning_effort）。
-# 匹配顺序：精确 > 最长前缀 > 通配 "*"；未命中返回 ["off","on"]（片段均为空）兜底
-models:
-  - aliases: [gpt-4o, gpt-4o-mini, gpt-4-turbo]
-    thinking:
-      - {display: off, params: {}}
-      - {display: low, params: {reasoning_effort: low}}
-      - {display: medium, params: {reasoning_effort: medium}}
-      - {display: high, params: {reasoning_effort: high}}
-  - aliases: [MiniMax-M3, MiniMax]
-    thinking:
-      - {display: off, params: {thinking: {type: disabled}}}
-      - {display: on,  params: {thinking: {type: adaptive}, reasoning_split: true}}
-  - aliases: [deepseek-v4-pro]
-    thinking:
-      - {display: off, params: {thinking: {type: disabled}}}
-      - {display: on,  params: {thinking: {type: enabled}}}
-      - {display: max, params: {thinking: {type: enabled}, reasoning_effort: max}}
-  - aliases: ["*"]
-    thinking:
-      - {display: off, params: {}}
-      - {display: on,  params: {}}
-```
-
-**RPC 暴露：** `utils.thinkingLevels({ models: string[] })` → `{ levels: Record<string, ThinkingLevel[]> }`（**显示词**，不含 params）。前端 BrainCard 在 model 字段变化时调用，渲染「深度思考」选择器。未在 RPC 返回中的 model 后端兜底为 `["off","on"]`。
+前端通过 `utils.modelRecommendation({model, provider, protocol})` 同时取得识别结果、推荐、事实和当前协议的 thinking 档位。推荐只有被写入编辑草稿并保存到 `config.yaml` 后才生效；未知模型写入 `unknown.recommend` 中的保守草稿，但仍返回空思考档位，UI 显示“跟随服务默认”，后端不发送猜测的思考参数。完整格式见 [模型目录](../model-catalog.md)。
 
 **前端交互：** ThinkingLevelKnob 采用「真放大镜」设计——上方固定 `84×36px` 的长方形视窗（带边缘扭曲效果），下方是一条优先使用的可拖动小轨道。轨道和视窗共用居中的 `50px` 分段连线与月相图标：以完整序列 `🌑 🌒 🌓 🌔 🌕` 为标尺，按当前模型实际暴露的档位数量等距取样，不依赖档位名称。故 2 档为 `🌑 → 🌕`、3 档为 `🌑 → 🌓 → 🌕`、4 档为 `🌑 → 🌒 → 🌔 → 🌕`、5 档使用完整序列。视窗内隐藏一条与下方轨道共用同一 `T = baseOffset(activeIndex) + dragDelta` 的大轨道（缩放约 2.2x），被 `overflow:hidden` 裁剪后呈现精准放大效果：视窗正中显示的内容与小轨道中线的内容始终一致。当前档位标签直接显示后端值 `off` / `on` / `low` / `medium` / `high`，居中置于视窗上方；无边框的细线 chevron 前后档按钮位于控件底部左右边，仅作为拖拽之外的备用入口，到达首尾时禁用。详见 [ThinkingLevelKnob](../../web/src/features/agent/settings/components/ThinkingLevelKnob.vue) 及 [../service/chat.md §5 工具与设置类 RPC](../service/chat.md)。
 

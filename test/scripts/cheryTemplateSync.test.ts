@@ -162,6 +162,35 @@ describe('syncCheryTemplate', () => {
     expect(report.warnings).toEqual([])
   })
 
+  it('upgrades the legacy empty model catalog without overwriting real user rules', () => {
+    const root = tempRoot()
+    const templateDir = writeTemplate(root)
+    const runtimeRoot = join(root, 'runtime')
+    write(join(templateDir, 'model-catalog.yaml'), 'version: 1\nmodels:\n  - id: glm-5.3\n')
+    write(
+      join(runtimeRoot, '.chery', 'model-catalog.yaml'),
+      [
+        'version: 1',
+        '',
+        'unknown:',
+        '  capabilities:',
+        '    toolCall: true',
+        '    input: { image: false, video: false, audio: false }',
+        '    generate: { image: false, video: false, audio: false }',
+        '',
+        'models: []',
+        '',
+      ].join('\n'),
+    )
+
+    const report = syncCheryTemplate({ templateDir, runtimeRoot })
+
+    expect(report.updated).toContain('model-catalog.yaml')
+    expect(readFileSync(join(runtimeRoot, '.chery', 'model-catalog.yaml'), 'utf8')).toContain(
+      'id: glm-5.3',
+    )
+  })
+
   it.runIf(process.platform !== 'win32')('refuses a symlinked runtime .chery root', () => {
     const root = tempRoot()
     const templateDir = writeTemplate(root)

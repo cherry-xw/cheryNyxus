@@ -65,13 +65,14 @@
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| `provider` | enum | ✅ | — | Adapter 名：`openai` / `ollama` / `mock` / `bigmodel` / `anthropic`；详见 [docs/agent/provider.md](../../docs/agent/provider.md) |
+| `provider` | enum/string | ✅ | — | 服务入口：官方厂商、中转站或 `custom`；不再直接表示消息协议 |
+| `protocol` | enum | ❌ | 从旧 provider 推断 | `openai-chat-completions` / `openai-responses` / `anthropic-messages` / `ollama-chat` / `mock` |
 | `model` | string | ✅ | — | 模型 id；初始模板用 `<YOUR_MODEL_NAME>` 占位，设置页按未配置展示 |
 | `url` | string | ❌ | provider 默认 | API base URL；未启用 `fullUrl` 时应自行包含 `/v1` 等版本段 |
 | `key` | string / `$ENV` | ❌ | — | API Key；推荐 `$ENV_VAR` 形式从环境变量注入；缺失运行期 provider 调用时抛错响应前端 |
-| `thinking` | enum | ❌ | provider 默认 | 思考强度：`off` / `on` / `low` / `medium` / `high`；可选档位受 [model-thinking.yaml](model-thinking.md) 约束 |
+| `thinking` | enum | ❌ | 服务默认 | 思考强度；可选档位和请求映射来自 [model-catalog.yaml](model-catalog.md)，未知模型不发送推断参数 |
 | `rpm` | number | ❌ | 不限流 | 每分钟最大请求数（仅 OpenAI 兼容 provider 生效，60s 滑动窗口） |
-| `contextLimit` | number (tokens) | ❌ | provider 默认 | 模型上下文窗口；前端「剩余上下文」显示依据 |
+| `contextLimit` | number (tokens) | ❌ | 未知 | 唯一运行时上下文上限；保存后用于工作台百分比，目录推荐不会在后端暗中兜底 |
 | `capabilities` | object | ❌ | Tool Call 开 / 媒体关 | 模型能力声明 |
 | `mock` | object | ❌ | — | mock provider 专用（`provider: mock` 时必填） |
 | `hooks` | string | ❌ | — | brain 级 hooks.json 路径（相对 `.chery/`，如 `hooks/anthropic-main.json`）；与全局 `.chery/hooks/hooks.json` 合并（全局在前，brain 级在后；brain 级覆盖全局） |

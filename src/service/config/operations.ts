@@ -19,6 +19,15 @@ export const brainConfigOperationSchema = z.object({
   key: z.string().optional(),
   thinking: nonEmptyString.optional(),
   provider: nonEmptyString,
+  protocol: z
+    .enum([
+      'openai-chat-completions',
+      'openai-responses',
+      'anthropic-messages',
+      'ollama-chat',
+      'mock',
+    ])
+    .optional(),
   rpm: z.number().positive().optional(),
   fullUrl: z.boolean().optional(),
   mock: z

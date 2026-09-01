@@ -5,7 +5,7 @@
  * [openaiCompat](./openaiCompat.js)（自动获得 reasoning_content 解析 + image 多模态 + tool_calls）。
  *
  * 思考参数：provider 不内置档位词映射——chat middleware 统一翻译 `options.thinkingParams`
- * 片段（翻译表 .chery/model-thinking.yaml），此处只原样 spread 进请求体。
+ * 片段（模型目录 wire），此处只原样 spread 进请求体。
  * base_url 默认 https://open.bigmodel.cn/api/paas/v4/（可配，也能指向聚合端点）。
  *
  * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) 「bigmodel provider」。

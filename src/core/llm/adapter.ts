@@ -1,9 +1,10 @@
 import type { SenseFunction } from '../sense/adapter'
+import type { LlmProtocol } from '@chery/protocol'
 
 /** 思考档位「显示词」。
- * - off/on/low/medium/high/xhigh + 任意字符串（来自 `.chery/model-thinking.yaml` 的自定义档位，如 DeepSeek 的 `max`）。
+ * - off/on/low/medium/high/xhigh + 任意字符串（来自模型目录 wire 的自定义档位，如 DeepSeek 的 `max`）。
  * - 仅用于日志与 PreLLMRequest hook payload；**不进请求体**。
- * - 请求参数由 `thinkingParams` 承载：显示词 → 参数片段的映射在 model-thinking.yaml 显式声明，
+ * - 请求参数由 `thinkingParams` 承载：显示词 → 参数片段的映射在 model-catalog.yaml 显式声明，
  *   chat middleware 统一翻译（resolveThinkingParams），provider 只 spread 直传。
  */
 export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | (string & {})
@@ -14,6 +15,10 @@ export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' |
  */
 export interface LLMOptions {
   model: string
+  /** 服务入口（官方厂商/中转/custom），不参与 adapter 选择。 */
+  provider?: string
+  /** 实际线协议；adapter 与模型能力映射均以此为准。 */
+  protocol?: LlmProtocol
   /** Internal execution identity used by deterministic providers and tracing. */
   chatId?: string
   runId?: string
@@ -21,7 +26,7 @@ export interface LLMOptions {
   key?: string
   /** 思考档位显示词（见 ThinkingLevel）；仅日志 / hook payload 用，不进请求体 */
   thinking?: ThinkingLevel
-  /** thinking 显示词翻译出的请求参数片段（来自 `.chery/model-thinking.yaml`）。
+  /** thinking 显示词翻译出的请求参数片段（来自 `.chery/model-catalog.yaml`）。
    *  由 chat middleware 统一翻译注入；provider 原样 spread 进请求 body，不内置映射。
    *  undefined / 空对象 = 不追加任何思考参数。 */
   thinkingParams?: Record<string, unknown>

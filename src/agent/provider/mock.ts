@@ -20,6 +20,7 @@ import config, {
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { ClassifiedError } from '@/utils/error.js'
+import { LlmProtocol } from '@chery/protocol'
 
 // ========== mock raw 格式（自定义，不接真实 API）==========
 
@@ -331,10 +332,12 @@ function toStreamChunk(item: MockScriptChunk): MockStreamChunk {
 // ========== 注册函数 ==========
 
 export function registerMockAdapter(): void {
-  registerMessageAdapter<MockResponse, MockStreamChunk, LLMResponse>(
-    'mock',
-    mockMessageAdapterConfig,
-  )
-  registerSenseAdapter<MockResponse>('mock', mockSenseAdapterConfig)
-  registerLLMAdapter('mock', mockLLMAdapter)
+  for (const key of ['mock', LlmProtocol.MOCK]) {
+    registerMessageAdapter<MockResponse, MockStreamChunk, LLMResponse>(
+      key,
+      mockMessageAdapterConfig,
+    )
+    registerSenseAdapter<MockResponse>(key, mockSenseAdapterConfig)
+    registerLLMAdapter(key, mockLLMAdapter)
+  }
 }

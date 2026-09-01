@@ -5,6 +5,11 @@ import type { RuntimeSelection, RuntimeProvenance } from '@/agent/runtimeResolve
 import type { ConfigRaw } from '@/utils/config.js'
 import type { ContextBreakdown } from '@/utils/token.js'
 import type { ThinkingBlockDelta } from '@/core/message/adapter.js'
+import type {
+  ModelCatalogFacts,
+  ModelCatalogRecommendation,
+  ModelCatalogUnknownPolicy,
+} from '@/utils/modelCatalog.js'
 import type { ToolAuthorization } from '@/core/security/rolePolicy.js'
 import type {
   ChatInputSubmitRequest,
@@ -821,6 +826,7 @@ export interface HooksEventsResponseData {
  */
 export interface UtilsModelsRequestData {
   provider: string
+  protocol?: import('@chery/protocol').LlmProtocol
   url: string
   key?: string
   /** true=URL 已含完整端点，后端不补全、原样访问（与正式 chat 同规则） */
@@ -833,6 +839,7 @@ export interface UtilsModelsRequestData {
  */
 export interface UtilsTestConnectionRequestData {
   provider: string
+  protocol?: import('@chery/protocol').LlmProtocol
   url: string
   key?: string
   model: string
@@ -841,13 +848,12 @@ export interface UtilsTestConnectionRequestData {
 }
 
 /**
- * utils.thinkingLevels：按模型名批量查询 ThinkingLevel 档位列表。
- * 用于前端 settings 渲染「深度思考」旋钮（不同模型暴露不同档位）。
- * 后端按 `.chery/model-thinking.yaml` 配置匹配，未命中返回 `["off", "on"]` 兜底。
- * models：1~N 个模型名（数组去重由调用方负责；空数组返回 `{}`）。
+ * utils.modelRecommendation：查询单个模型的目录匹配、推荐、事实与 thinking 档位。
  */
-export interface UtilsThinkingLevelsRequestData {
-  models: string[]
+export interface UtilsModelRecommendationRequestData {
+  model: string
+  provider?: string
+  protocol?: import('@chery/protocol').LlmProtocol
 }
 
 // ---------- Env 环境变量 ----------
@@ -914,6 +920,7 @@ export interface BrainListResponseData {
   brains: Array<{
     name: string
     provider: string
+    protocol?: import('@chery/protocol').LlmProtocol
     model: string
     thinking?: import('@/core/llm/adapter.js').ThinkingLevel
     capabilities?: import('@/utils/config.js').BrainCapabilities
@@ -2262,12 +2269,16 @@ export interface EnvListResponseData {
 }
 
 /**
- * utils.thinkingLevels 响应：model → ThinkingLevel 列表。
- * 每个 model 一定有 entries（未命中兜底为 `["off", "on"]`）；空 models 入参返回 `levels: {}`。
- * ThinkingLevel 含 `(string & {})`，故 elements 可为任意字符串（如 `.chery/model-thinking.yaml` 里的 `max`）。
+ * utils.modelRecommendation 响应。未知模型的 thinkingLevels 为空，不伪造可用档位。
  */
-export interface UtilsThinkingLevelsResponseData {
-  levels: Record<string, import('@/core/llm/adapter.js').ThinkingLevel[]>
+export interface UtilsModelRecommendationResponseData {
+  matched: boolean
+  id?: string
+  confidence: 'exact' | 'pattern' | 'unknown'
+  facts?: ModelCatalogFacts
+  recommend?: ModelCatalogRecommendation
+  thinkingLevels: import('@/core/llm/adapter.js').ThinkingLevel[]
+  unknown: ModelCatalogUnknownPolicy
 }
 
 /** utils.openFile 响应：空（成功即打开，失败返 RpcError） */
@@ -2748,7 +2759,7 @@ export const Method = {
   UTILS_EDITORS: 'utils.editors',
 
   // 模型档位（按 model 名批量查 ThinkingLevel，前端旋钮用）
-  UTILS_THINKING_LEVELS: 'utils.thinkingLevels',
+  UTILS_MODEL_RECOMMENDATION: 'utils.modelRecommendation',
 
   // 内置命令管理（settings 「指令」tab 后端；只读枚举 .chery/command/*.md，不可增删改）
   COMMAND_LIST: 'command.list',
@@ -2969,9 +2980,9 @@ export interface RpcMethodMap {
     result: UtilsOpenConfigDirResponseData
   }
   [Method.UTILS_EDITORS]: { params: UtilsEditorsRequestData; result: UtilsEditorsResponseData }
-  [Method.UTILS_THINKING_LEVELS]: {
-    params: UtilsThinkingLevelsRequestData
-    result: UtilsThinkingLevelsResponseData
+  [Method.UTILS_MODEL_RECOMMENDATION]: {
+    params: UtilsModelRecommendationRequestData
+    result: UtilsModelRecommendationResponseData
   }
   [Method.COMMAND_LIST]: { params: EmptyObjectData; result: CommandListResponseData }
   [Method.PLUGINS_LIST]: { params: PluginsListRequestData; result: PluginsListResponseData }

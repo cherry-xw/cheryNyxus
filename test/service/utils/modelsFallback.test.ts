@@ -59,9 +59,7 @@ describe('utils.models anthropic 双尝试', () => {
       key: 'test-key',
     })
     expect(res.error).toBeUndefined()
-    expect(res.models).toEqual([
-      { id: 'MiniMax-M2.7', name: 'MiniMax-M2.7', ownedBy: 'minimax' },
-    ])
+    expect(res.models).toEqual([{ id: 'MiniMax-M2.7', name: 'MiniMax-M2.7', ownedBy: 'minimax' }])
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const [fallbackUrl, init] = fetchMock.mock.calls[1] as [string, RequestInit]
     expect(fallbackUrl).toBe('https://gw.example.com/v1/models')
@@ -153,5 +151,34 @@ describe('utils.models openai SDK 路径空列表提示', () => {
     })
     expect(res.error).toBeUndefined()
     expect(res.models).toEqual([{ id: 'gpt-4o', name: 'gpt-4o', ownedBy: 'system' }])
+  })
+})
+
+describe('utils.models DeepSeek Anthropic 协议', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', fetchMock)
+    registerAnthropicAdapter()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('模型列表使用官方根地址 /models，而不是 /anthropic/models', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: [{ id: 'deepseek-v4-pro', owned_by: 'deepseek' }] }),
+    )
+    const res = await handleUtilsModels(ctx, {
+      provider: 'deepseek',
+      protocol: 'anthropic-messages',
+      url: 'https://api.deepseek.com/anthropic',
+      key: 'sk-test',
+    })
+
+    expect(res.models).toEqual([
+      { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', ownedBy: 'deepseek' },
+    ])
+    expect(fetchMock).toHaveBeenCalledWith('https://api.deepseek.com/models', expect.anything())
   })
 })

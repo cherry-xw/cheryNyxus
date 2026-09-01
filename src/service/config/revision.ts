@@ -16,7 +16,7 @@ import {
 
 const SENSITIVE_KEY = /(?:key|token|secret|password|passwd|credential|authorization|auth)/i
 const INCLUDED_ROOTS = ['prompt', 'skills', 'senses', 'plugins', 'rule', 'command', 'hooks']
-const INCLUDED_FILES = ['config.yaml', 'model-thinking.yaml']
+const INCLUDED_FILES = ['config.yaml', 'model-catalog.yaml']
 let processRevision: ConfigRevisionRecord | undefined
 const handledCandidateFingerprints = new Set<string>()
 
@@ -65,6 +65,7 @@ const CONNECTION_BRAIN_FIELDS = new Set([
   'fullUrl',
   'contextLimit',
   'thinking',
+  'protocol',
   'anthropicCompat',
 ])
 
@@ -97,7 +98,7 @@ function extractSemanticConfig(snapshot: Record<string, unknown>): Record<string
 
 /**
  * fingerprint 用资源清单：剔除 `config.yaml` 条目（其文件哈希随连接面变化），
- * `model-thinking.yaml` 与资源目录（prompt/skills/...）保留——均属语义面。
+ * `model-catalog.yaml` 与资源目录（prompt/skills/...）保留——均属语义面。
  */
 function semanticResourceManifest(resources: Record<string, unknown>): Record<string, unknown> {
   const entries = Array.isArray(resources.entries)

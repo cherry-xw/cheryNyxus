@@ -73,7 +73,7 @@ export const Method = {
   UTILS_OPEN_FILE: 'utils.openFile',
   UTILS_OPEN_CONFIG_DIR: 'utils.openConfigDir',
   UTILS_EDITORS: 'utils.editors',
-  UTILS_THINKING_LEVELS: 'utils.thinkingLevels',
+  UTILS_MODEL_RECOMMENDATION: 'utils.modelRecommendation',
   COMMAND_LIST: 'command.list',
   PLUGINS_LIST: 'plugins.list',
   PLUGINS_PRE_IMPORT_URL: 'plugins.preImportUrl',

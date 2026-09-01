@@ -17,14 +17,11 @@
  * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) + [docs/agent/hooks.md](../../../docs/agent/hooks.md)。
  */
 import type { SenseFunction } from '@/core/sense'
-import {
-  registerLLMAdapter,
-  type LLMAdapter,
-  type LLMOptions,
-} from '@/core/llm/adapter'
+import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import {
   registerMessageAdapter,
+  type BuildMessagesOptions,
   type LLMResponse,
   type LLMAttachment,
   type MessageProviderAdapterConfig,
@@ -50,6 +47,7 @@ import {
 } from './fetchBase.js'
 import { acquireRpm } from './openaiCompat.js'
 import { dispatch, type HookPayloadMap } from '@/agent/hooks/index.js'
+import { LlmProtocol } from '@chery/protocol'
 
 // ========== 常量 ==========
 
@@ -77,7 +75,7 @@ interface AnthropicMsg {
 }
 
 /** Anthropic 顶层请求体。带 index signature 以直传 thinkingParams 片段（thinking/output_config 等
- *  协议字段由 .chery/model-thinking.yaml 声明，provider 不内置映射）。 */
+ *  协议字段由 model-catalog wire 声明，provider 不内置映射）。 */
 interface AnthropicBody {
   [key: string]: unknown
   model: string
@@ -85,8 +83,8 @@ interface AnthropicBody {
   system?: string
   messages: AnthropicMsg[]
   tools?: AnthropicTool[]
-  thinking?: { type: 'adaptive' }
-  output_config?: { effort: 'low' | 'medium' | 'high' }
+  thinking?: { type: 'adaptive' | 'enabled' | 'disabled' }
+  output_config?: { effort: 'low' | 'medium' | 'high' | 'max' }
   stream?: boolean
 }
 
@@ -221,7 +219,7 @@ const anthropicMessageAdapterConfig = {
   buildMessages: (
     history: LLMResponse[],
     attachments?: LLMAttachment[],
-    buildOptions?: { anthropicOfficial?: boolean },
+    buildOptions?: BuildMessagesOptions,
   ): AnthropicSplitResult => {
     let system: string | null = null
     const filtered: LLMResponse[] = []
@@ -237,7 +235,12 @@ const anthropicMessageAdapterConfig = {
 
     const normalized = ensureAlternatingUserFirst(filtered)
     const official = buildOptions?.anthropicOfficial === true
-    const messages = normalized.map((m) => buildAnthropicMessage(m, attachments, { official }))
+    const messages = normalized.map((m) =>
+      buildAnthropicMessage(m, attachments, {
+        official,
+        includeReasoning: buildOptions?.reasoningHistory !== 'omit',
+      }),
+    )
     return { system, messages }
   },
 }
@@ -289,12 +292,17 @@ function ensureAlternatingUserFirst(history: LLMResponse[]): LLMResponse[] {
 function pushThinkingBlocks(
   blocks: AnthropicContentBlock[],
   m: LLMResponse,
-  options?: { official?: boolean },
+  options?: { official?: boolean; includeReasoning?: boolean },
 ): void {
+  if (options?.includeReasoning === false) return
   if (m.thinkingBlocks && m.thinkingBlocks.length > 0) {
     for (const tb of m.thinkingBlocks) {
       if (tb.type === 'thinking') {
-        blocks.push({ type: 'thinking', thinking: tb.thinking, signature: tb.signature })
+        blocks.push({
+          type: 'thinking',
+          thinking: tb.thinking,
+          ...(tb.signature ? { signature: tb.signature } : {}),
+        })
       } else if (tb.type === 'redacted_thinking') {
         // 非官方 Anthropic：strip redacted_thinking（3rd-party 端点不支持）
         if (options?.official === true) {
@@ -313,7 +321,7 @@ function pushThinkingBlocks(
 function buildAnthropicMessage(
   m: LLMResponse,
   attachments?: LLMAttachment[],
-  buildOptions?: { official?: boolean },
+  buildOptions?: { official?: boolean; includeReasoning?: boolean },
 ): AnthropicMsg {
   // case 1: sense → user 消息含 tool_result block
   if (m.role === 'sense') {
@@ -587,12 +595,16 @@ async function anthropicFetch(
   }
   const contentType = res.headers.get('content-type') ?? ''
   if (!contentType.includes('json')) {
-    throw brainInvalidStream(`端点返回的不是 JSON 响应（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`)
+    throw brainInvalidStream(
+      `端点返回的不是 JSON 响应（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`,
+    )
   }
   try {
     return (await res.json()) as AnthropicResponse
   } catch (err) {
-    throw brainInvalidStream(`响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`)
+    throw brainInvalidStream(
+      `响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`,
+    )
   }
 }
 
@@ -641,7 +653,9 @@ async function* anthropicStreamSSE(
   if (!contentType.includes('event-stream')) {
     controller.abort()
     signal?.removeEventListener('abort', abortFromParent)
-    throw brainInvalidStream(`端点返回的不是事件流（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`)
+    throw brainInvalidStream(
+      `端点返回的不是事件流（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`,
+    )
   }
 
   const reader = res.body.getReader()
@@ -691,22 +705,23 @@ async function* anthropicStreamSSE(
 // ========== 注册 ==========
 
 export function registerAnthropicAdapter(): void {
-  registerMessageAdapter<AnthropicResponse, AnthropicSSEEvent, AnthropicSplitResult>(
-    'anthropic',
-    anthropicMessageAdapterConfig as unknown as MessageProviderAdapterConfig<
-      AnthropicResponse,
-      AnthropicSSEEvent,
-      AnthropicSplitResult
-    >,
-  )
-  registerSenseAdapter<AnthropicResponse>(
-    'anthropic',
-    anthropicSenseAdapterConfig as unknown as SenseAdapter<AnthropicResponse>,
-  )
-  registerLLMAdapter('anthropic', anthropicLLMAdapter as unknown as LLMAdapter)
-  // URL 端点声明：chat 拼 /messages；models 拼 /models?limit=1000
-  registerProviderUrlPattern('anthropic', {
-    chatEndpoint: '/messages',
-    modelsEndpoint: '/models?limit=1000',
-  })
+  for (const key of ['anthropic', LlmProtocol.ANTHROPIC_MESSAGES]) {
+    registerMessageAdapter<AnthropicResponse, AnthropicSSEEvent, AnthropicSplitResult>(
+      key,
+      anthropicMessageAdapterConfig as unknown as MessageProviderAdapterConfig<
+        AnthropicResponse,
+        AnthropicSSEEvent,
+        AnthropicSplitResult
+      >,
+    )
+    registerSenseAdapter<AnthropicResponse>(
+      key,
+      anthropicSenseAdapterConfig as unknown as SenseAdapter<AnthropicResponse>,
+    )
+    registerLLMAdapter(key, anthropicLLMAdapter as unknown as LLMAdapter)
+    registerProviderUrlPattern(key, {
+      chatEndpoint: '/messages',
+      modelsEndpoint: '/models?limit=1000',
+    })
+  }
 }

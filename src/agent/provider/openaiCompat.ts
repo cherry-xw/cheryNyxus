@@ -13,7 +13,7 @@ import type {
   ChatCompletionMessageParam,
 } from 'openai/resources/chat/completions'
 import type { ZodType } from 'zod'
-import type { LLMResponse, LLMAttachment } from '@/core/message/adapter'
+import type { LLMResponse, LLMAttachment, BuildMessagesOptions } from '@/core/message/adapter'
 import { ClassifiedError } from '@/utils/error.js'
 import type { Sense, SenseCallData, SenseFunction } from '@/core/sense'
 import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
@@ -131,6 +131,28 @@ export function buildOpenAICompatibleMessages(
   return validateToolResultPairing(messages)
 }
 
+/** OpenAI 兼容生态常见 reasoning 字段归一化。reasoning_details 保持宽松读取以兼容中转。 */
+function extractReasoningText(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const message = value as { reasoning_content?: unknown; reasoning_details?: unknown }
+  if (typeof message.reasoning_content === 'string' && message.reasoning_content) {
+    return message.reasoning_content
+  }
+  if (!Array.isArray(message.reasoning_details)) return undefined
+  const text = message.reasoning_details
+    .map((detail) => {
+      if (typeof detail === 'string') return detail
+      if (!detail || typeof detail !== 'object') return ''
+      const item = detail as { text?: unknown; content?: unknown; reasoning?: unknown }
+      if (typeof item.text === 'string') return item.text
+      if (typeof item.content === 'string') return item.content
+      if (typeof item.reasoning === 'string') return item.reasoning
+      return ''
+    })
+    .join('')
+  return text || undefined
+}
+
 /**
  * 逐条校验 tool result 的 tool_call_id 能否在前置 assistant.tool_calls 中找到；
  * 找不到抛 ClassifiedError（category=unknown、source=system，detail 携带缺失 id），
@@ -163,10 +185,7 @@ export const openaiMessageAdapterConfig = {
 
   thinking: (raw: ChatCompletion) => {
     const msg = raw.choices[0]?.message
-    if (msg && 'reasoning_content' in msg && msg.reasoning_content) {
-      return msg.reasoning_content as string
-    }
-    return undefined
+    return extractReasoningText(msg)
   },
 
   extractStreamDelta: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) =>
@@ -174,14 +193,18 @@ export const openaiMessageAdapterConfig = {
 
   extractStreamThinking: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) => {
     const delta = chunk.choices[0]?.delta
-    if (delta && 'reasoning_content' in delta && delta.reasoning_content) {
-      return delta.reasoning_content as string
-    }
-    return undefined
+    return extractReasoningText(delta)
   },
 
-  buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]) =>
-    buildOpenAICompatibleMessages(history, attachments, (message) => message.role === 'assistant'),
+  buildMessages: (
+    history: LLMResponse[],
+    attachments?: LLMAttachment[],
+    options?: BuildMessagesOptions,
+  ) =>
+    buildOpenAICompatibleMessages(history, attachments, (message) => {
+      if (options?.reasoningHistory === 'omit') return false
+      return message.role === 'assistant'
+    }),
 }
 
 // ========== Sense Adapter ==========

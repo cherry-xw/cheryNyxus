@@ -330,15 +330,21 @@ const schemas = {
       runningTools: objectArray,
       executionSteps: objectArray,
       roles: objectArray,
-      run: z.looseObject({
-        runId: id,
-        state: z.enum(['running', 'paused', 'completed', 'failed']),
-      }).optional(),
-      runs: z.array(z.looseObject({
-        chatId: id,
-        runId: id,
-        state: z.enum(['running', 'paused', 'completed', 'failed']),
-      })).optional(),
+      run: z
+        .looseObject({
+          runId: id,
+          state: z.enum(['running', 'paused', 'completed', 'failed']),
+        })
+        .optional(),
+      runs: z
+        .array(
+          z.looseObject({
+            chatId: id,
+            runId: id,
+            state: z.enum(['running', 'paused', 'completed', 'failed']),
+          }),
+        )
+        .optional(),
     }),
   }),
   [Method.CHAT_CLOSE]: z.looseObject({
@@ -398,8 +404,11 @@ const schemas = {
   [Method.UTILS_OPEN_FILE]: emptyResult,
   [Method.UTILS_OPEN_CONFIG_DIR]: emptyResult,
   [Method.UTILS_EDITORS]: z.looseObject({ editors: objectArray }),
-  [Method.UTILS_THINKING_LEVELS]: z.looseObject({
-    levels: z.record(z.string(), stringArray),
+  [Method.UTILS_MODEL_RECOMMENDATION]: z.looseObject({
+    matched: z.boolean(),
+    confidence: z.enum(['exact', 'pattern', 'unknown']),
+    thinkingLevels: stringArray,
+    unknown: object,
   }),
   [Method.COMMAND_LIST]: z.looseObject({ commands: objectArray }),
   [Method.PLUGINS_LIST]: z.looseObject({ plugins: z.array(pluginInfoSchema) }),

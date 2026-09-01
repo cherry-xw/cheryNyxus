@@ -6,7 +6,12 @@ import type {
 } from '@/core/middleware/types'
 import type { SenseFunction, SenseCallData } from '@/core/sense/adapter'
 import type { LLMOptions, ThinkingLevel } from '@/core/llm/adapter'
-import { resolveThinkingParams } from '@/utils/modelThinking.js'
+import {
+  resolveCatalogReasoningHistory,
+  resolveCatalogThinkingParams,
+} from '@/utils/modelCatalog.js'
+import { resolveLlmProviderDefaultUrl } from '@chery/protocol'
+import { resolveBrainProtocol } from '@/core/llm/routing.js'
 import { logger, LogLevel } from '@/utils/logger/index.js'
 import type { LLMResponse, LLMAttachment, ThinkingBlockDelta } from '@/core/message/adapter'
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
@@ -86,25 +91,46 @@ export async function* chatMiddleware(
   const thinkingLevel: ThinkingLevel = ctx.global.thinking
     ? (ctx.runtime.brain.thinking ?? 'off')
     : 'off'
+  const protocol = resolveBrainProtocol(ctx.runtime.brain)
   const options: LLMOptions = {
     model: ctx.runtime.brain.model,
+    provider: ctx.runtime.brain.provider,
+    ...(protocol ? { protocol } : {}),
     chatId: ctx.soul.chatId,
-    url: ctx.runtime.brain.url,
+    url:
+      ctx.runtime.brain.url ?? resolveLlmProviderDefaultUrl(ctx.runtime.brain.provider, protocol),
     key: ctx.runtime.brain.key,
     thinking: thinkingLevel,
-    // 统一翻译点：显示词 → 请求参数片段（.chery/model-thinking.yaml）；provider 只 spread 直传
-    thinkingParams: resolveThinkingParams(ctx.runtime.brain.model, thinkingLevel),
+    // 统一翻译点：显示词 → wire 参数片段；provider 只 spread 直传
+    thinkingParams: resolveCatalogThinkingParams({
+      model: ctx.runtime.brain.model,
+      provider: ctx.runtime.brain.provider,
+      protocol,
+      display: thinkingLevel,
+    }),
     ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
     // URL 完整性开关：true=url 已含版本段（/v1 等），provider 只拼 endpoint 不自动补全
     fullUrl: ctx.runtime.brain.fullUrl === true,
     // Anthropic 官方开关：brain.anthropicCompat.official=true 时保留 redacted_thinking 原样回传；
     // 默认 false → strip（兼容 3rd-party coding-plan 代理）。
-    anthropicOfficial: ctx.runtime.brain.anthropicCompat?.official === true,
+    anthropicOfficial:
+      ctx.runtime.brain.provider === 'deepseek'
+        ? false
+        : (ctx.runtime.brain.anthropicCompat?.official ??
+          (ctx.runtime.brain.protocol === 'anthropic-messages' &&
+            (ctx.runtime.brain.provider === 'anthropic' ||
+              ctx.runtime.brain.provider === 'minimax'))),
     signal: ctx.pipeline?.getAbortSignal(),
   }
 
   const messages = messageAdapter.buildMessages(historyForBuild, enriched.attachments, {
     anthropicOfficial: options.anthropicOfficial,
+    protocol: options.protocol,
+    reasoningHistory: resolveCatalogReasoningHistory({
+      model: options.model,
+      provider: options.provider,
+      protocol: options.protocol,
+    }),
   })
 
   // ========== 空上下文守卫 ==========
@@ -115,10 +141,16 @@ export async function* chatMiddleware(
   const hasUserContent =
     (enriched.attachments?.length ?? 0) > 0 ||
     historyForBuild.some(
-      (m) => (m.role === 'user' || m.role === 'role' || m.role === 'subagent') && m.content.trim() !== '',
+      (m) =>
+        (m.role === 'user' || m.role === 'role' || m.role === 'subagent') &&
+        m.content.trim() !== '',
     )
   if (!hasUserContent) {
-    logger.event('llm.empty_context', { chatId: ctx.soul.chatId, msgCount: messages.length }, LogLevel.error)
+    logger.event(
+      'llm.empty_context',
+      { chatId: ctx.soul.chatId, msgCount: messages.length },
+      LogLevel.error,
+    )
     throw new ClassifiedError({
       message: `empty context: no user content for chat ${ctx.soul.chatId} (${messages.length} system-only messages)`,
       userMessage: '该会话当前纪元没有可延续的用户消息，请重新发送',
@@ -131,6 +163,8 @@ export async function* chatMiddleware(
   logger.event('llm.req', {
     chatId: ctx.soul.chatId,
     provider: ctx.runtime.brain.provider || 'unknown',
+    protocol: options.protocol ?? 'legacy',
+    modelRule: 'auto',
     model: options.model,
     thinking: options.thinking ?? 'off',
     thinkingParams: Object.keys(options.thinkingParams ?? {}),
