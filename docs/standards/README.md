@@ -22,5 +22,6 @@
 | [Vue 3 视图与 Controller 规范 v2.0](./vue3-page-building-standard.md) | ✅ 强制执行 | Vue SFC、controller、presenter、样式与 UI 测试 |
 | [前端 UI 视觉与交互规范 v1.4](./ui-visual-and-interaction.md) | ✅ 强制执行 | 前端字重 400/600 规则、动作按钮前置禁用（先选后测）、圆角规则（默认全直角）、主题色调（深空电光双极） |
 | [AI 协作与工作流规范 v1.0](./ai-collaboration.md) | ✅ 强制执行 | 未验收不提交、图片验证交用户、文档先行 |
+| [Plan 操作方案 v1.0](./plan-operation.md) | ✅ 强制执行 | `docs/plan/` 内的总任务拆分、小任务执行、批次综合测试、用户审批与计划删除 |
 | [Provider URL 端点拼接与解析规范 v1.0](./provider-url-resolution.md) | ✅ 强制执行 | provider 注册的 URL 端点模式、统一入口、版本段/fullUrl 语义 |
 | [裁决记录](./decisions.md) | 追加中 | 规范冲突与边界裁决 |
