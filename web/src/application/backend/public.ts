@@ -87,6 +87,7 @@ export type {
   SkillStageResult,
   TerminationFact,
   ThinkingLevel,
+  ModelRecommendationDto,
   ThresholdDto,
   TimelineActor,
   TimelineDirection,

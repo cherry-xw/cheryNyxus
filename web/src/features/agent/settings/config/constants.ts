@@ -2,6 +2,7 @@
  * Settings 面板共享常量。各 tab 组件按需 import。
  */
 import type { InjectionKey, Ref } from 'vue'
+import { LLM_PROVIDER_CATALOG, LLM_PROTOCOL_CATALOG } from '@chery/protocol'
 
 export type TabKey =
   | 'brains'
@@ -35,7 +36,8 @@ export const TABS: { key: TabKey; icon: string; label: string; color: string }[]
   { key: 'global', icon: '⚙️', label: '全局', color: '#06b6d4' },
 ]
 
-export const PROVIDERS = ['openai', 'ollama', 'mock', 'bigmodel', 'anthropic', 'deepseek'] as const
+export const PROVIDERS = LLM_PROVIDER_CATALOG.map((provider) => provider.id)
+export const PROTOCOLS = LLM_PROTOCOL_CATALOG.map((protocol) => protocol.id)
 export const SUPERVISIONS = ['auto', 'smart', 'manual'] as const
 /** 监管等级中文展示名（下拉 label 用；value 仍存英文枚举，对应后端 SupervisionLevel）。 */
 export const SUPERVISION_LABEL: Record<(typeof SUPERVISIONS)[number], string> = {

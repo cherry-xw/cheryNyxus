@@ -259,7 +259,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | 组件 | 读取字段 | 写入字段 | 调用 RPC |
 |------|---------|---------|---------|
 | `SettingsDialog.vue` | `agents.settingsOpen` | local `draft: ConfigDto` / `workspaceWarnings` / `hooksTabRef.draft` | `agentApi.getConfig()` / `agentApi.saveConfig(draft)` / `agentApi.saveHooks(handlers)` / `agentApi.openConfigDir()` |
-| `BrainsTab.vue` | `llm.brain` / `default.brain` / `envVars`（密钥下拉） / `utils.thinkingLevels()` | — | `agentApi.testConnection({..., fullUrl})` / `agentApi.fetchModels({..., fullUrl})`（`fullUrl` 由 `props.cfg.fullUrl` 透传：true=后端不补全 URL，直接用用户填写地址访问） |
+| `BrainsTab.vue` | `llm.brain` / `default.brain` / `envVars`（密钥下拉） / `utils.modelRecommendation()` | — | 模型推荐先写设置草稿，保存后才生效；`agentApi.testConnection({..., fullUrl})` / `agentApi.fetchModels({..., fullUrl})` |
 | `SensesTab.vue` | `senseGroups` / `senseTools` / 内置工具元信息 | — | `agentApi.listSenseTools()`（已 cache）/ `agentApi.listSenseGroups()` |
 | `RolesTab.vue` | `roles.*` / `presets.*` / `plugins` / `skillNames` | — | `agentApi.listPlugins()` / `agentApi.listSkillNames()` |
 | `PresetsTab.vue` | `presets` / `workspaceWarnings` | — | `agentApi.validateWorkspace(workspace)`（每次输入即时校验，seq 守卫） |
