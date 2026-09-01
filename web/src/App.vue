@@ -411,9 +411,9 @@ body {
   }
 }
 .composer-title-action.is-active {
-  border-color: #7c3aed;
-  color: #6d28d9;
-  background: rgba(124, 58, 237, 0.1);
+  border-color: var(--violet);
+  color: var(--violet);
+  background: var(--violet-soft);
 }
 .composer-title-attention b {
   position: absolute;
@@ -423,22 +423,22 @@ body {
   height: 14px;
   padding: 0 3px;
   border-radius: 999px;
-  background: #dc2626;
+  background: var(--danger);
   color: #fff;
   font-size: 8px;
   line-height: 14px;
 }
-// 有待处理交互时充能高亮：accent 金底白字 + 徽标脉动光晕（与 accept 按钮金底同风格，突出入口）。
-// has-attention 声明在 is-active 之后 → 有待处理时金底优先于紫色选中态，避免两色叠加混淆。
+// 有待处理交互时充能高亮：accent 底 + accent-ink 文字 + 徽标脉动光晕（与 accept 按钮同风格，突出入口）。
+// has-attention 声明在 is-active 之后 → 有待处理时 accent 底优先于紫色选中态，避免两色叠加混淆。
 .composer-title-attention.has-attention {
-  border-color: #d88a26;
-  background: #d88a26;
-  color: #fff;
-  box-shadow: 0 1px 6px color-mix(in srgb, #d88a26 55%, transparent);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 1px 6px var(--accent-glow);
 
   &:hover {
-    background: #c97b1f;
-    color: #fff;
+    background: color-mix(in srgb, var(--accent) 86%, #000);
+    color: var(--accent-ink);
   }
 }
 .composer-title-attention.has-attention b {
@@ -449,11 +449,11 @@ body {
 @keyframes composer-attention-badge-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 50%, transparent);
     transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(220, 38, 38, 0);
+    box-shadow: 0 0 0 4px transparent;
     transform: scale(1.12);
   }
 }

@@ -26,22 +26,22 @@ export interface PixiCanvasPalette {
 
 const PALETTES: Record<'light' | 'dark', PixiCanvasPalette> = {
   light: {
-    nodeFill: 0xf2f0ea,
+    nodeFill: 0xf5f7fc,
     ringNeutral: 0x7a5cff,
     stateError: 0xd6455d,
     stateRevoked: 0x9aa0a6,
     statePaused: 0xb7791f,
-    title: 0x2a2f2c,
+    title: 0x1b2337,
     termination: 0xd6455d,
-    foldCount: 0x2a2f2c,
+    foldCount: 0x1b2337,
   },
   dark: {
-    nodeFill: 0x081925,
+    nodeFill: 0x0b1020,
     ringNeutral: 0x7a5cff,
     stateError: 0xff718c,
     stateRevoked: 0x8b8f99,
     statePaused: 0xf6c85f,
-    title: 0xdce9ff,
+    title: 0xe8ecf8,
     termination: 0xffb6c4,
     foldCount: 0xffffff,
   },

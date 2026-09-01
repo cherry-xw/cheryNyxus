@@ -468,7 +468,7 @@ function createManagedWindow(
     frame: false,
     show: false,
     // 首帧兜底：深色主题 bg（渲染层 theme apply 后按主题回写 window:set-background）
-    backgroundColor: '#16181d',
+    backgroundColor: '#0b1020',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -614,7 +614,7 @@ function quitApplication(): void {
 }
 
 /**
- * 程序化托盘图标：16x16 RGBA 位图（暖橙圆点 + 透明底）。
+ * 程序化托盘图标：16x16 RGBA 位图（电光青圆点 + 透明底，深空电光品牌色）。
  * 仓库无磁盘图标资源，embedded data URL 在 Windows 缩放下几乎不可见；
  * 逐像素绘制保证任何环境托盘区都有可见锚点（打包后可替换为品牌图标资源）。
  */
@@ -629,9 +629,9 @@ function createTrayIcon(): Electron.NativeImage {
       const alpha = Math.max(0, Math.min(1, R - 0.5 - (dist - 0.5)))
       const idx = (y * SIZE + x) * 4
       if (alpha > 0) {
-        data[idx] = 246 // r
-        data[idx + 1] = 183 // g
-        data[idx + 2] = 60 // b（品牌暖橙 #f6b73c）
+        data[idx] = 34 // r
+        data[idx + 1] = 211 // g
+        data[idx + 2] = 238 // b（品牌电光青 #22d3ee）
         data[idx + 3] = Math.round(alpha * 255)
       }
     }
