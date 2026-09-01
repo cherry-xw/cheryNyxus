@@ -116,12 +116,17 @@ export class ClassifiedError extends Error {
 
 retry 读 `ClassifiedError.category`（不再靠 message 关键词）；表层出口（streamMapper / compose 最外层兜底）优先用 `userMessage`，否则 `friendlyMessage(category, source)`。**注意：** compose 的 `executeChain` 对 `ClassifiedError` **原样上浮**（保留分类身份供 retry 判重试），仅未被任何中间件处理时在最外层兜底转用户面——见 [middleware.md「调整 retry 策略」](./agent/middleware.md#调整-retry-策略)。
 
+`ClassifiedError.errorId` 用于定位稳定、具体的错误种类；`tracingId` 只标识某一次失败。已知
+`errorId` 到达 service 响应层后，必须从 `errorCatalog` 查询 title、description、guidance 和
+actions，不再依据异常 message 猜测用户文案。`run.outcome.reasonCode` 保留聚合分类，
+`feedback.code` 和兼容 `error` 通知的 `code` 携带具体 `errorId`。
+
 ### throwUserFacing()
 
 ```ts
 /**
- * 抛用户面错误：message 短直观，tracingId **前置**，日志面含完整上下文。
- * 仅用于终态配置错误（缺 key/model 等，本就不重试）；可重试错误用 ClassifiedError。
+ * 抛最外层兜底用户面错误：message 短直观，tracingId **前置**，日志面含完整上下文。
+ * 抛错点已知 category/source 时（包括不可重试的配置校验错误）使用 ClassifiedError。
  */
 export function throwUserFacing(scope, userMessage, context = {}): never {
   const tracingId = newTracingId()
@@ -133,10 +138,13 @@ export function throwUserFacing(scope, userMessage, context = {}): never {
 ### 用法示例
 
 ```ts
-// 终态配置错误（不重试）—— throwUserFacing
-throwUserFacing('llm.key.missing', `${model} 缺少 key，请在设置里检查`, {
-  model,
-  reason: 'key_empty',
+// 终态配置错误（validation 不重试）——仍保留 brain 身份
+throw new ClassifiedError({
+  errorId: ErrorId.BRAIN_CONFIG_KEY_MISSING,
+  message: `missing LLM key for model ${model}`,
+  userMessage: `${model} 缺少 key，请在设置里检查`,
+  category: 'validation',
+  source: 'brain',
 })
 
 // 可重试错误 —— ClassifiedError（provider 捕 SDK/fetch 错误）

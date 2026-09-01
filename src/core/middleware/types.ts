@@ -407,6 +407,8 @@ export interface ErrorChunk {
   errors: Array<{
     attempt: number
     timestamp: number
+    /** 稳定错误 ID；响应层据此查询错误目录。 */
+    errorId?: import('@chery/protocol').ErrorId
     message: string
     /** 友好文案（ClassifiedError 携带）；表层出口优先用此作用户面，tracingId 由出口前置 */
     userMessage?: string

@@ -18,6 +18,7 @@ import {
 } from "@/agent/middleware/retry.js";
 import { AgentAbortError } from "@/core/middleware/errors.js";
 import { ClassifiedError } from "@/utils/error.js";
+import { ErrorId } from "@chery/protocol";
 import type { MiddlewareChunk, ErrorChunk, StreamChunk } from "@/core/middleware/types.js";
 import { createMockContext } from "../helpers/fakeContext.js";
 import { collectChunks } from "../helpers/chunkAssert.js";
@@ -255,6 +256,33 @@ describe("retryMiddleware 错误分类", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("ClassifiedError 实例（配置缺失）→ 保留 errorId 和 validation/brain 且不重试", async () => {
+    const ctx = createMockContext({ messages: [] });
+    let callCount = 0;
+    const next = async function* (): AsyncGenerator<MiddlewareChunk> {
+      callCount++;
+      throw new ClassifiedError({
+        errorId: ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED,
+        message: "missing LLM key environment variable API_KEY",
+        userMessage: "大脑的钥匙没配好，请在设置里检查",
+        category: "validation",
+        source: "brain",
+      });
+    };
+
+    const out = await collectChunks(retryMiddleware(ctx, next));
+    const err = firstError(out);
+    expect(callCount).toBe(1);
+    expect(err!.errors).toHaveLength(1);
+    expect(err!.errors[0]).toMatchObject({
+      errorId: ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED,
+      category: "validation",
+      source: "brain",
+      recoverable: false,
+      userMessage: "大脑的钥匙没配好，请在设置里检查",
+    });
   });
 
   it("unknown: 其他", async () => {

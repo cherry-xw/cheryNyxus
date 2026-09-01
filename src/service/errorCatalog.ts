@@ -1,6 +1,8 @@
 import {
   ErrorCode,
+  ErrorId,
   RunOutcomeReasonCode,
+  type ErrorId as ErrorIdValue,
   type ErrorSource,
   type FeedbackAction,
   type RunOutcomeReasonCode as RunOutcomeReasonCodeValue,
@@ -133,10 +135,15 @@ const RUN_REASON_BY_CATEGORY: Record<ErrorCategory, RunOutcomeReasonCodeValue> =
   unknown: RunOutcomeReasonCode.UNKNOWN_FAILED,
 }
 
-const RUN_PRESENTATION: Record<
-  ErrorCategory,
-  { title: string; guidance: string; fallbackGuidance?: string; actions: FeedbackAction[] }
-> = {
+type RunPresentation = {
+  title: string
+  description?: string
+  guidance: string
+  fallbackGuidance?: string
+  actions: FeedbackAction[]
+}
+
+const RUN_PRESENTATION: Record<ErrorCategory, RunPresentation> = {
   auth: {
     title: 'AI 服务凭证不可用',
     guidance: '请在设置中检查服务地址、模型和密钥。',
@@ -174,14 +181,52 @@ const RUN_PRESENTATION: Record<
   },
 }
 
-const BRAIN_CONFIGURATION_VALIDATION_PRESENTATION = {
+const BRAIN_CONFIGURATION_VALIDATION_PRESENTATION: RunPresentation = {
   title: 'AI 服务配置有误',
   guidance: '请在设置中修正模型地址、模型或密钥配置后，再继续运行。',
   fallbackGuidance: undefined,
   actions: [{ type: 'open_settings' as const, section: 'provider' as const }],
 }
 
+/**
+ * 具体错误 ID → 用户响应。核心层只负责提供稳定 ID；这里集中决定文案与动作。
+ * category/source 目录仍作为旧错误和未知错误 ID 的兼容兜底。
+ */
+const RUN_PRESENTATION_BY_ERROR_ID: Record<ErrorIdValue, RunPresentation> = {
+  [ErrorId.BRAIN_CONFIG_MODEL_MISSING]: {
+    title: 'AI 服务配置不完整',
+    description: '当前 AI 服务没有配置模型。',
+    guidance: '请在设置中为当前 AI 服务选择模型后，再重新发送。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.BRAIN_CONFIG_URL_MISSING]: {
+    title: 'AI 服务配置不完整',
+    description: '当前 AI 服务没有配置服务地址。',
+    guidance: '请在设置中填写服务地址后，再重新发送。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.BRAIN_CONFIG_KEY_MISSING]: {
+    title: 'AI 服务配置不完整',
+    description: '当前 AI 服务没有配置密钥。',
+    guidance: '请在设置中填写密钥或环境变量后，再重新发送。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.BRAIN_CONFIG_KEY_ENV_UNRESOLVED]: {
+    title: 'AI 服务配置不完整',
+    description: '密钥引用的环境变量尚未配置。',
+    guidance: '请配置对应环境变量，或在设置中改用可用密钥后重新发送。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.BRAIN_CONFIG_KEY_ENV_INVALID]: {
+    title: 'AI 服务配置有误',
+    description: '密钥的环境变量占位符格式不正确。',
+    guidance: '请将占位符改成 $API_KEY 这类全大写格式后，再重新发送。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+}
+
 export function runFailureFeedback(input: {
+  errorId?: ErrorIdValue
   category: ErrorCategory
   source: ErrorSource
   description: string
@@ -189,8 +234,9 @@ export function runFailureFeedback(input: {
   detail?: string
   canResume: boolean
 }): { reasonCode: RunOutcomeReasonCodeValue; feedback: UserFeedback } {
-  const preset =
-    input.category === 'validation' && input.source === 'brain'
+  const preset = input.errorId
+    ? RUN_PRESENTATION_BY_ERROR_ID[input.errorId]
+    : input.category === 'validation' && input.source === 'brain'
       ? BRAIN_CONFIGURATION_VALIDATION_PRESENTATION
       : RUN_PRESENTATION[input.category]
   const detail = normalizeDetail(input.detail)
@@ -199,14 +245,15 @@ export function runFailureFeedback(input: {
   )
   const actions: FeedbackAction[] =
     applicableActions.length > 0 ? applicableActions : [{ type: 'resend_input' }]
+  const reasonCode = RUN_REASON_BY_CATEGORY[input.category]
   return {
-    reasonCode: RUN_REASON_BY_CATEGORY[input.category],
+    reasonCode,
     feedback: {
-      code: RUN_REASON_BY_CATEGORY[input.category],
+      code: input.errorId ?? reasonCode,
       severity: 'error',
       source: input.source,
       title: preset.title,
-      description: withoutTrace(input.description) || preset.title,
+      description: preset.description ?? (withoutTrace(input.description) || preset.title),
       guidance: input.canResume ? preset.guidance : (preset.fallbackGuidance ?? preset.guidance),
       actions: appendDetailsAction(actions, detail ?? input.tracingId),
       retention: 'history',

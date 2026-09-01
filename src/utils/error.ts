@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { ErrorId } from '@chery/protocol'
 import { logger } from './logger/index.js'
 import { LogLevel } from './logger/types.js'
 
@@ -8,7 +9,7 @@ import { LogLevel } from './logger/types.js'
  * 提供 `newTracingId` / `throwUserFacing` / `ClassifiedError` / `classifyError` / `friendlyMessage`：
  * - `newTracingId`：8 位 hex（UUID v4 前 8 位），用户面 + 日志面抄录用
  * - `throwUserFacing`：抛**终态**用户面错误（缺 key/model 等，不重试），tracingId 前置
- * - `ClassifiedError`：抛**可重试**错误，携带 category/source/userMessage，供 retry 判重试、表层出口取友好文案
+ * - `ClassifiedError`：抛已知分类/来源的错误，携带 category/source/userMessage，供 retry 判重试、表层出口取友好文案
  * - `classifyError`：按 message 关键词分类（retry 与 compose 兜底共用）
  * - `friendlyMessage`：按 category+source 查带来源直观文案
  *
@@ -46,16 +47,18 @@ export const COMPLIANT_TRACE_PATTERN = /^\[[0-9a-f]{8}\] /
 // ========== ClassifiedError ==========
 
 /**
- * 可重试/带分类的用户面错误。
+ * 带分类和来源的用户面错误。
  *
  * 抛错点已知分类与来源时使用（如 provider 捕 SDK/fetch 错误）：
  * - retry 中间件读 `category` 判重试（不依赖 message 关键词）；
  * - 表层出口（compose catch / streamMapper）优先取 `userMessage` 作用户面，tracingId 由出口前置；
  * - `message`（super.message）保留原始技术文本，供日志还原。
  *
- * 终态错误（缺 key/model，不重试）仍用 `throwUserFacing`。
+ * 是否重试由 category 决定；配置缺失等 validation 错误同样应使用本类型，以免丢失错误身份。
  */
 export class ClassifiedError extends Error {
+  /** 稳定错误 ID：响应层据此查询错误目录；不同于标识单次失败的 tracingId。 */
+  readonly errorId?: ErrorId
   readonly category: ErrorCategory
   readonly source: ErrorSource
   readonly userMessage: string
@@ -66,6 +69,7 @@ export class ClassifiedError extends Error {
    */
   readonly detail?: string
   constructor(opts: {
+    errorId?: ErrorId
     message: string
     userMessage: string
     category: ErrorCategory
@@ -75,6 +79,7 @@ export class ClassifiedError extends Error {
   }) {
     super(opts.message, opts.cause !== undefined ? { cause: opts.cause } : undefined)
     this.name = 'ClassifiedError'
+    this.errorId = opts.errorId
     this.category = opts.category
     this.source = opts.source
     this.userMessage = opts.userMessage
@@ -176,8 +181,8 @@ export function friendlyMessage(category: ErrorCategory, source: ErrorSource): s
 /**
  * 抛**终态**用户面错误：message 短直观，tracingId **前置**，日志面含完整上下文。
  *
- * 仅用于终态配置错误（缺 key/model、参数非法等，本就不重试）。
- * 可重试错误（网络/超时/provider）用 `ClassifiedError`，由表层出口前置 tracingId。
+ * 仅用于没有可保留业务分类身份的最外层用户面兜底。
+ * 抛错点已知 category/source 时使用 `ClassifiedError`，由表层出口前置 tracingId。
  *
  * @param scope        logger event type（模块前缀，如 "llm.key.missing" / "compose.handler"）
  * @param userMessage  用户面 message（不含 tracingId，函数自动前置 `[tracingId] `）

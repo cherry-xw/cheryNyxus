@@ -15,6 +15,26 @@ import { getSenseAdapter, senseAdapterRegistry } from "@/core/sense/adapter.js";
 import type { LLMResponse } from "@/core/message/adapter.js";
 import type { Sense, SenseFunction } from "@/core/sense/index.js";
 import type { ZodType } from "zod";
+import { ClassifiedError } from "@/utils/error.js";
+import { ErrorId, type ErrorId as ErrorIdValue } from "@chery/protocol";
+
+async function expectBrainConfigurationError(
+  promise: Promise<unknown>,
+  errorId: ErrorIdValue,
+) {
+  try {
+    await promise;
+    throw new Error("expected provider call to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ClassifiedError);
+    expect(error).toMatchObject({
+      errorId,
+      category: "validation",
+      source: "brain",
+      userMessage: expect.stringContaining("大脑没配好"),
+    });
+  }
+}
 
 const { mockChat, constructorHosts } = vi.hoisted(() => ({
   constructorHosts: [] as Array<string | undefined>,
@@ -163,7 +183,10 @@ describe("Ollama LLM adapter", () => {
 
   it("chat model 缺失 → throw", async () => {
     const llm = getLLMAdapter("ollama")!;
-    await expect(llm.chat([], [], {})).rejects.toThrow("大脑没配好");
+    await expectBrainConfigurationError(
+      llm.chat([], [], {}),
+      ErrorId.BRAIN_CONFIG_MODEL_MISSING,
+    );
   });
 
   it("chatStream 使用配置 URL 并返回可迭代", async () => {
@@ -182,7 +205,10 @@ describe("Ollama LLM adapter", () => {
 
   it("chatStream model 缺失 → throw", async () => {
     const llm = getLLMAdapter("ollama")!;
-    await expect(llm.chatStream([], [], {})).rejects.toThrow("大脑没配好");
+    await expectBrainConfigurationError(
+      llm.chatStream([], [], {}),
+      ErrorId.BRAIN_CONFIG_MODEL_MISSING,
+    );
   });
 
   it("senses 传入不抛错（warn 流式 tool_call 不可靠）", async () => {
