@@ -43,7 +43,7 @@
 | [web/src/services/http.ts](../../web/src/services/http.ts) | `httpUrl` 转发层（实现见 [platform.ts](../../web/src/services/platform.ts)），仅做 import 兼容 |
 | [web/src/stores/index.ts](../../web/src/stores/index.ts) | Pinia store 汇集（脚手架空） |
 | [web/src/views/HomeView.vue](../../web/src/views/HomeView.vue) | 示例视图 |
-| [web/src/features/pets/](../../web/src/features/pets/) | Pet 模块：桌面小宠物状态、预设、motion-v 动画与渲染，详见 [./pet/](./pet/) |
+| [web/src/features/pets/](../../web/src/features/pets/) | Pet 模块：桌面智能体状态、预设、GSAP 动画与渲染，详见 [./pet/](./pet/) |
 | [web/src/features/agent/settings/tabs/BrainsTab.vue](../../web/src/features/agent/settings/tabs/BrainsTab.vue) | 「AI 大脑」配置：按连接、运行参数与能力分区编辑模型，媒体服务独立成卡片。 |
 | [settings.md](./settings.md) | 设置中心资源工作台、角色头像与装备、大量技能分页和仓库检查交互。 |
 | [frontend-protocol-binding.md](./frontend-protocol-binding.md) | 前端协议消费手册：RPC / Notification / Chunk 字段映射到 store / StreamState / UI 组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口 |
@@ -143,7 +143,7 @@ App.vue → RouterView（router 路由表）
 - **扩展 WebSocket RPC**：在 [web/src/services/ws.ts](../../web/src/services/ws.ts) 增加更高层业务封装；底层帧编解码在 [web/src/services/transport.ts](../../web/src/services/transport.ts)，协议见 [protocol.md](../protocol.md)。
 - **加路由 / 页面**：[web/src/router/index.ts](../../web/src/router/index.ts) 加路由；`web/src/views/` 下加 `.vue`。Electron 下**必须** `createWebHashHistory`（`file://` 不支持 history API）。
 - **加 Pinia store**：`web/src/stores/` 下定义，[stores/index.ts](../../web/src/stores/index.ts) 汇出。
-- **扩展 Pet 角色 / 动画**：角色数据集中在 [petPresets.ts](../../web/src/features/pets/petPresets.ts)，共享 motion-v variant 在 [petMotion.ts](../../web/src/features/pets/petMotion.ts)，设计见 [./pet/](./pet/)。
+- **扩展 Pet 角色 / 动画**：角色数据集中在 Pet preset 模块，框架中立描述符位于 `domain/pets/motion/animation.ts`，GSAP 执行器位于 `features/pets/composables/usePetMotion.ts`。
 - **加 Electron IPC**：[electron/main.ts](../../web/electron/main.ts) 启用 preload；新增 `web/electron/preload.ts`（`contextBridge` 暴露安全 API）；[tsconfig.node.json](../../web/tsconfig.node.json) `include` 加 preload。详见 [./electron.md](./electron.md#扩展点)。
 - **Electron 打包**：[./electron.md](./electron.md) 集成 + [./pack-guide.md](./pack-guide.md) 操作手册；构建脚本 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs)（下载 Node 22 LTS + 拉 better-sqlite3 预编译）+ [web/electron-builder.yml](../../web/electron-builder.yml)。
 - **Element Plus 按需引入**：当前全量注册（`app.use(ElementPlus)`）；换 `unplugin-vue-components` + `unplugin-auto-import` 减包体。

@@ -143,7 +143,7 @@ onBeforeUnmount(() => {
   width: min(720px, 92vw);
   border-radius: 12px;
   overflow: hidden;
-  background: #f6b73c;
+  background: var(--accent);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
@@ -180,7 +180,7 @@ onBeforeUnmount(() => {
 
   &:hover {
     background: rgba(255, 255, 255, 0.12);
-    color: #f6b73c;
+    color: var(--accent);
   }
 }
 
@@ -216,7 +216,7 @@ onBeforeUnmount(() => {
 
 .vp-progress-fill {
   height: 100%;
-  background: #f6b73c;
+  background: var(--accent);
   transition: width 80ms linear;
 }
 

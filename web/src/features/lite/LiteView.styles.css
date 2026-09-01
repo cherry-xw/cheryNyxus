@@ -4,8 +4,12 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--el-bg-color);
-  color: var(--el-text-color-primary);
+  background:
+    linear-gradient(color-mix(in srgb, var(--accent) 4%, transparent) 1px, transparent 1px),
+    var(--panel);
+  background-size: 100% 28px;
+  color: var(--ink);
+  font-family: var(--font-ui, sans-serif);
   font-size: 13px;
   /* 字重基线 400（用户强制规则）：lite 全部内容继承 400，杜绝任何加粗继承。 */
   font-weight: 400;
@@ -26,7 +30,10 @@
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.015em;
   color: var(--el-text-color-regular);
   font-size: 12px;
 }

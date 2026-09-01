@@ -15,7 +15,7 @@
 import { computed, ref } from 'vue'
 import type { HistoryItem } from '@/domain/chat/projectionTypes'
 import type { RuntimeSelection } from '@/application/backend/public'
-import { renderMarkdown } from '@/utils/markdown'
+import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 import { formatTime } from '@/utils/formatTime'
 import { splitCommandPrompt } from '../composables/commands'
 import { SenseCallRenderer } from '../renderers/index'
@@ -91,7 +91,9 @@ const senseStatusGlyph = (call: NonNullable<HistoryItem['senseCalls']>[number]):
       return '?'
   }
 }
-const renderedContent = computed(() => renderMarkdown(props.item.content ?? ''))
+const { html: renderedContent } = useRenderedMarkdown(() => props.item.content ?? '', {
+  mode: 'full',
+})
 const userContentSegments = computed(() => splitCommandPrompt(props.item.content ?? ''))
 
 // 气泡底部时间戳常显：同天 HH:MM / 跨天 MM-DD HH:MM / 跨年 YYYY-MM-DD HH:MM；缺失不渲染
@@ -367,7 +369,7 @@ function removeDelivery(): void {
 
   &.role-user {
     background: color-mix(in srgb, var(--surface) 90%, var(--accent));
-    border-color: rgba(246, 183, 60, 0.32);
+    border-color: color-mix(in srgb, var(--accent) 32%, transparent);
   }
   &.is-compact-trigger {
     background: color-mix(in srgb, var(--surface) 90%, var(--accent));
@@ -483,7 +485,7 @@ function removeDelivery(): void {
   border-radius: 5px;
   // 主题自适应 tag：随 --surface-soft 深/浅翻转，文字随 --ink 抬亮
   // （原白→透明渐变 + 固定深褐字，深色下成白→黑过渡、两主题都不对）
-  background: color-mix(in srgb, #f6b73c 18%, var(--surface-soft));
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-soft));
   color: color-mix(in srgb, #b67c1c 72%, var(--ink));
   font-size: 10.5px;
   font-weight: 600;

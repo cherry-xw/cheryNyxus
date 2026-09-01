@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * PetBubbles：所有气泡 AnimatePresence 块（question / approval / error / work-main / speech / side-thinking）。
+ * PetBubbles：所有气泡 Transition 块（question / approval / error / work-main / speech / side-thinking）。
  * 接收 useStreamBubble 的展示状态 + usePetStyles 的样式/motion 计算值。
  * 支持可选 dialog 插槽透传（speech 气泡内）。
  *
@@ -11,9 +11,9 @@
  * 委托 PetBubble；思考按钮 + flyout 委托 ThinkingTrigger；本组件保留 .work-text/.error-text 等内容样式
  * （通过组件根 data-v 继承，PetBubble 根匹配 .work-bubble 后下行命中 slot 内 .work-text）。
  */
-import { AnimatePresence } from 'motion-v'
 import { computed } from 'vue'
-import type { VariantType } from 'motion-v'
+import type { PetMotionDescriptor } from '@/domain/pets/motion/animation'
+import { usePetBubbleTransition } from '../composables/usePetMotion'
 import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import { useAgentsStore, type StreamState } from '@/application/public'
@@ -48,12 +48,7 @@ const props = defineProps<{
   speechStyle: Record<string, string>
   approvalStyle: Record<string, string>
   // motion configs
-  speech: {
-    initial: VariantType
-    animate: VariantType
-    exit: VariantType
-    transition: VariantType['transition']
-  }
+  speech: PetMotionDescriptor & { initial?: unknown; exit?: unknown }
   // scroll handler (from useStreamBubble, bound via workTextRef setter)
   workTextRef: (el: HTMLElement | null) => void
   onWorkTextScroll: (e: Event) => void
@@ -64,6 +59,7 @@ defineSlots<{
 }>()
 
 const agents = useAgentsStore()
+const bubbleMotion = usePetBubbleTransition()
 
 function dismissOutcome(): void {
   if (!props.stream) return
@@ -103,7 +99,15 @@ const batchInfo = computed(() => {
 </script>
 
 <template>
-  <AnimatePresence>
+  <Transition
+    mode="out-in"
+    :css="false"
+    @before-enter="bubbleMotion.onBeforeEnter"
+    @enter="bubbleMotion.onEnter"
+    @leave="bubbleMotion.onLeave"
+    @enter-cancelled="bubbleMotion.onCancelled"
+    @leave-cancelled="bubbleMotion.onCancelled"
+  >
     <PetBubble
       v-if="activeQuestion && !consumedByWorkbench"
       key="question"
@@ -191,7 +195,7 @@ const batchInfo = computed(() => {
     >
       <slot name="dialog" :pet="pet">{{ pet.speech }}</slot>
     </PetBubble>
-  </AnimatePresence>
+  </Transition>
 </template>
 
 <style scoped lang="less">

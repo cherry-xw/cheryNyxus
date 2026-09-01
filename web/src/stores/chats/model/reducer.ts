@@ -34,7 +34,7 @@ import type {
   ChatSessionEvent,
   ToolAuthorizationDto,
 } from '@/services/agentApi'
-import { extractMediaUrls } from '@/utils/markdown'
+import { extractMediaUrls } from '@/utils/mediaUrls'
 import type { QuestionBatchPayload } from '@/domain/chat/projectionTypes'
 import { applyExecutionTimingEvent } from '../read-model/executionTiming'
 import type { TurnCancelledNotificationData } from '@chery/protocol'

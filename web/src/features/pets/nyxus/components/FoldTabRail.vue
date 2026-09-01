@@ -421,7 +421,7 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 .fold-wheel-navigation:focus-visible .fold-wheel-stage {
-  filter: drop-shadow(0 0 6px rgba(246, 183, 60, 0.32));
+  filter: drop-shadow(0 0 6px var(--accent-glow));
 }
 .fold-wheel-stage {
   position: absolute;
@@ -462,16 +462,16 @@ onBeforeUnmount(() => {
 }
 .fold-wheel-card.is-real:hover {
   color: #000;
-  border-color: rgba(246, 183, 60, 0.9);
+  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
   filter: brightness(1.02);
 }
 .fold-wheel-card.is-selected {
   cursor: default;
-  border-color: #f6b73c;
+  border-color: var(--accent);
   box-shadow:
     0 9px 22px rgba(31, 35, 40, 0.14),
-    0 0 0 1px rgba(246, 183, 60, 0.32),
-    0 0 16px rgba(246, 183, 60, 0.16);
+    0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent),
+    0 0 16px var(--accent-glow);
 }
 .fold-wheel-card.is-ghost {
   display: grid;

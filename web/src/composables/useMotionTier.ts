@@ -1,5 +1,6 @@
 import { computed, type CSSProperties, type ComputedRef } from 'vue'
 import { useRenderQuality, type RenderQualityTier } from '@/composables/renderQuality'
+import { useMotionPreference, type EffectiveMotionMode } from './useMotionPreference'
 
 /**
  * 动效质量三档效果映射（docs/web/motion-standard.md §3）：
@@ -7,6 +8,7 @@ import { useRenderQuality, type RenderQualityTier } from '@/composables/renderQu
  */
 export interface MotionTierSpec {
   tier: RenderQualityTier
+  mode: EffectiveMotionMode
   /** 入场动画形态：full = opacity+y+scale 全量；reduced = opacity+y；opacityOnly = 仅 opacity */
   enter: 'full' | 'reduced' | 'opacityOnly'
   /** 位移/缩放幅度缩放系数（balanced 减半由 CSS var `--motion-amplitude` 控制） */
@@ -22,6 +24,7 @@ export interface MotionTierSpec {
 const MOTION_TIER_SPECS: Readonly<Record<RenderQualityTier, MotionTierSpec>> = {
   high: {
     tier: 'high',
+    mode: 'full',
     enter: 'full',
     amplitude: 1,
     decoration: 'on',
@@ -30,6 +33,7 @@ const MOTION_TIER_SPECS: Readonly<Record<RenderQualityTier, MotionTierSpec>> = {
   },
   balanced: {
     tier: 'balanced',
+    mode: 'full',
     enter: 'reduced',
     amplitude: 0.5,
     decoration: 'half',
@@ -38,6 +42,7 @@ const MOTION_TIER_SPECS: Readonly<Record<RenderQualityTier, MotionTierSpec>> = {
   },
   low: {
     tier: 'low',
+    mode: 'full',
     enter: 'opacityOnly',
     amplitude: 0,
     decoration: 'off',
@@ -54,7 +59,20 @@ export interface MotionTierState {
 
 export function useMotionTier(): MotionTierState {
   const { tier } = useRenderQuality()
-  const spec = computed(() => MOTION_TIER_SPECS[tier.value])
+  const { effectiveMode } = useMotionPreference()
+  const spec = computed<MotionTierSpec>(() => {
+    const quality = MOTION_TIER_SPECS[tier.value]
+    if (effectiveMode.value === 'full') return { ...quality, mode: 'full' }
+    return {
+      ...quality,
+      mode: 'reduced',
+      enter: 'opacityOnly',
+      amplitude: 0,
+      decoration: 'off',
+      stagger: 0,
+      messageEnter: false,
+    }
+  })
   const decorationStyle = computed<CSSProperties>(() => {
     switch (spec.value.decoration) {
       case 'off':

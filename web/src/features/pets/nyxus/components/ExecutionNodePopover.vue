@@ -13,7 +13,9 @@ const {
   nodeContentSegments, nodeDescription, nodeStatus, nodeTermination, nodeThinking, nodeTime,
   nodeTitle, onHeaderPointerDown, onHeaderPointerMove, onHeaderPointerUp, primaryInstruction,
   questionAnswer, questionArgs, readFileContent, readFileLineCount, readFilePath, readFilePreview,
-  readFileRange, renderMarkdown, renderedNodeContent, renderedResult, resultFields, resultTruncated,
+  readFileRange, renderedActualDescription, renderedNodeContent, renderedNodeDescription,
+  renderedNodeThinking, renderedPrimaryInstruction, renderedResult, renderedSkillContent,
+  renderedSpawnPrompt, resultFields, resultTruncated,
   searchConfiguration, searchMode, searchPath, searchQuery, searchResult, secondaryFields,
   selectedCall, selectedStatus, skillResult, skinForNode, spawnPrompt, spawnRole, spawnWake,
   terminationDisplay, thinkingOpen, toolBatchUsesTabs, toolGlyph, toolIcon, toolLabel, toolPresentation,
@@ -158,13 +160,13 @@ const {
               </span>
             </button>
             <div v-if="thinkingOpen" class="thinking-body">
-              <div class="markdown-body thinking-copy" v-html="renderMarkdown(nodeThinking)" />
+              <div class="markdown-body thinking-copy" v-html="renderedNodeThinking" />
             </div>
           </section>
           <section v-if="nodeDescription" class="actual-description detail-field">
             <small class="detail-label">说明</small>
             <div class="detail-value">
-              <div class="markdown-body" v-html="renderMarkdown(nodeDescription)" />
+              <div class="markdown-body" v-html="renderedNodeDescription" />
             </div>
           </section>
           <div
@@ -209,13 +211,13 @@ const {
             </span>
           </button>
           <div v-if="thinkingOpen" class="thinking-body">
-            <div class="markdown-body thinking-copy" v-html="renderMarkdown(nodeThinking)" />
+            <div class="markdown-body thinking-copy" v-html="renderedNodeThinking" />
           </div>
         </section>
         <section v-if="nodeDescription" class="actual-description detail-field">
           <small class="detail-label">说明</small>
           <div class="detail-value">
-            <div class="markdown-body" v-html="renderMarkdown(nodeDescription)" />
+            <div class="markdown-body" v-html="renderedNodeDescription" />
           </div>
         </section>
         <div
@@ -248,7 +250,7 @@ const {
             <section v-if="actualDescription" class="actual-description detail-field">
               <small class="detail-label">说明</small>
               <div class="detail-value">
-                <div class="markdown-body" v-html="renderMarkdown(actualDescription)" />
+                <div class="markdown-body" v-html="renderedActualDescription" />
               </div>
             </section>
 
@@ -286,7 +288,7 @@ const {
               <div class="spawn-field detail-field is-prompt">
                 <small class="detail-label">派遣提示词</small>
                 <div class="detail-value is-copyable">
-                  <div class="markdown-body" v-html="renderMarkdown(spawnPrompt)" />
+                  <div class="markdown-body" v-html="renderedSpawnPrompt" />
                   <button
                     type="button"
                     class="field-copy-button"
@@ -502,7 +504,7 @@ const {
                 <div v-if="skillResult.content && !skillResult.error" class="detail-field">
                   <small class="detail-label">技能指令 · {{ skillResult.lineCount }} 行</small>
                   <div class="detail-value is-copyable is-multiline skill-instructions">
-                    <div class="markdown-body" v-html="renderMarkdown(skillResult.content)" />
+                    <div class="markdown-body" v-html="renderedSkillContent" />
                     <button
                       type="button"
                       class="field-copy-button"
@@ -533,7 +535,7 @@ const {
                     <div
                       v-else
                       class="markdown-body instruction-copy"
-                      v-html="renderMarkdown(primaryInstruction.value)"
+                      v-html="renderedPrimaryInstruction"
                     />
                     <button
                       type="button"
@@ -622,13 +624,13 @@ const {
             <span class="thinking-toggle-hint" aria-hidden="true">{{ thinkingOpen ? '−' : '+' }}</span>
           </button>
           <div v-if="thinkingOpen" class="thinking-body">
-            <div class="markdown-body thinking-copy" v-html="renderMarkdown(nodeThinking)" />
+            <div class="markdown-body thinking-copy" v-html="renderedNodeThinking" />
           </div>
         </section>
         <section v-if="nodeDescription" class="actual-description detail-field">
           <small class="detail-label">说明</small>
           <div class="detail-value">
-            <div class="markdown-body" v-html="renderMarkdown(nodeDescription)" />
+            <div class="markdown-body" v-html="renderedNodeDescription" />
           </div>
         </section>
         <template v-if="nodeContent">

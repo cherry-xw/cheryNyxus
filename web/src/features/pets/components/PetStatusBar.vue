@@ -86,7 +86,7 @@ defineProps<{
   }
 
   &.emotion .fill {
-    background: #f6b73c;
+    background: var(--accent);
   }
 }
 

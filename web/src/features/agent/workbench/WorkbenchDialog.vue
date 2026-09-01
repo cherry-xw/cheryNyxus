@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { useWorkbenchDialogController, type FoldMode, type WorkbenchDialogControllerProps } from './useWorkbenchDialogController'
+import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 const props = defineProps<WorkbenchDialogControllerProps>()
 const controller = useWorkbenchDialogController(props)
+const workbenchMotion = useOverlayTransitionHooks('dialog')
+const rolePopoutMotion = useOverlayTransitionHooks('panel')
+const sessionPopoutMotion = useOverlayTransitionHooks('panel')
 const {
-  AgentComposer, AnimatePresence, ConnectionStatusChip, ContextUsageBar, FOLD_ICONS, FOLD_TIPS,
-  LiteView, MessageBranchTree, MotionDiv, NYXUS_WORKBENCH_Z_INDEX, NyxusPianoStrip,
+  AgentComposer, ConnectionStatusChip, ContextUsageBar, FOLD_ICONS, FOLD_TIPS,
+  LiteView, MessageBranchTree, NYXUS_WORKBENCH_Z_INDEX, NyxusPianoStrip,
   NyxusSessionList, OVERLAY_Z_INDEX, PendingOperationsPanel, PromptSnapshotTip, RoleConfigPopover,
   activateNyxusInput, activeCommandIndex, activeCommandTab, activeRoleIndex, agents, brains,
   branchTarget, branchTreeRef, cancelNyxusInput, chatId, closePiano,
@@ -34,7 +38,15 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
 </script>
 
 <template>
-  <MotionDiv
+  <Transition
+    :css="false"
+    @before-enter="workbenchMotion.onBeforeEnter"
+    @enter="workbenchMotion.onEnter"
+    @leave="workbenchMotion.onLeave"
+    @enter-cancelled="workbenchMotion.onEnterCancelled"
+    @leave-cancelled="workbenchMotion.onLeaveCancelled"
+  >
+  <div
     v-if="win"
     v-show="!win.minimized"
     class="dialog-overlay is-nyxus-layout"
@@ -56,9 +68,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
       '--nx-z-side-popover': NYXUS_WORKBENCH_Z_INDEX.sidePopover,
       '--nx-z-connection-mask': NYXUS_WORKBENCH_Z_INDEX.connectionMask,
     }"
-    :initial="{ opacity: 0 }"
-    :animate="{ opacity: 1 }"
-    :transition="{ duration: 0.16 }"
   >
     <section
       ref="workbenchShellRef"
@@ -657,15 +666,18 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </div>
           </div>
         </div>
-        <AnimatePresence>
-          <MotionDiv
+        <Transition
+          :css="false"
+          @before-enter="rolePopoutMotion.onBeforeEnter"
+          @enter="rolePopoutMotion.onEnter"
+          @leave="rolePopoutMotion.onLeave"
+          @enter-cancelled="rolePopoutMotion.onEnterCancelled"
+          @leave-cancelled="rolePopoutMotion.onLeaveCancelled"
+        >
+          <div
             v-if="roleListOpen"
             key="role-popout"
             class="nyxus-role-popout"
-            :initial="{ opacity: 0, transform: 'translateX(18px) translateY(-50%) scale(0.96)' }"
-            :animate="{ opacity: 1, transform: 'translateX(0) translateY(-50%) scale(1)' }"
-            :exit="{ opacity: 0, transform: 'translateX(14px) translateY(-50%) scale(0.97)' }"
-            :transition="{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }"
             @pointerenter="showRoleList()"
             @pointerleave="scheduleRoleListClose()"
             @pointerdown="roleListPinned = true"
@@ -691,17 +703,20 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 />
               </template>
             </div>
-          </MotionDiv>
-        </AnimatePresence>
-        <AnimatePresence>
-          <MotionDiv
+          </div>
+        </Transition>
+        <Transition
+          :css="false"
+          @before-enter="sessionPopoutMotion.onBeforeEnter"
+          @enter="sessionPopoutMotion.onEnter"
+          @leave="sessionPopoutMotion.onLeave"
+          @enter-cancelled="sessionPopoutMotion.onEnterCancelled"
+          @leave-cancelled="sessionPopoutMotion.onLeaveCancelled"
+        >
+          <div
             v-if="sessionListOpen"
             key="session-popout"
             class="nyxus-session-popout"
-            :initial="{ opacity: 0, transform: 'translateX(18px) translateY(-50%) scale(0.96)' }"
-            :animate="{ opacity: 1, transform: 'translateX(0) translateY(-50%) scale(1)' }"
-            :exit="{ opacity: 0, transform: 'translateX(14px) translateY(-50%) scale(0.97)' }"
-            :transition="{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }"
             @pointerenter="showSessionList()"
             @pointerleave="scheduleSessionListClose()"
           >
@@ -712,8 +727,8 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               @select="(id) => void switchSession(id)"
               @delete="onSessionDelete"
             />
-          </MotionDiv>
-        </AnimatePresence>
+          </div>
+        </Transition>
       </nav>
       <!-- 断连遮罩：仅 disconnected（数据不可用）时阻断操作；connecting 只亮标题栏状态不遮罩。
            native 面关闭三键在 WindowFrame 层，不受遮罩影响。 -->
@@ -738,7 +753,8 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
         />
       </template>
     </section>
-  </MotionDiv>
+  </div>
+  </Transition>
 </template>
 
 <style scoped lang="less" src="./WorkbenchDialog.scoped.less"></style>

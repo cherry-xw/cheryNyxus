@@ -65,17 +65,17 @@ const isLocal = computed(() => {
 const errorIcon = computed(() => {
   switch (error.value?.kind) {
     case 'network':
-      return '🔌'
+      return 'LINK'
     case 'cors':
-      return '🚫'
+      return 'CORS'
     case 'timeout':
-      return '⏱️'
+      return 'TIME'
     case 'credential':
-      return '🔑'
+      return 'AUTH'
     case 'http':
-      return '⚠️'
+      return 'HTTP'
     default:
-      return '❗'
+      return 'ERR'
   }
 })
 
@@ -232,12 +232,14 @@ function disconnectLocal(): void {
           <div class="glass-card-inner">
             <header class="glass-titlebar" @pointerdown="onTitlePointerDown">
               <div class="glass-head">
-                <div class="glass-logo" aria-hidden="true">🐾</div>
+                <div class="glass-logo" aria-hidden="true"><span>CC</span></div>
                 <h2 class="glass-title">{{ isLocal ? '连接本地服务' : '连接后端服务' }}</h2>
                 <p class="glass-sub">{{ isLocal ? 'loopback 直连，无需登录' : '请完成远端服务登录' }}</p>
               </div>
               <button type="button" class="glass-close" aria-label="关闭" title="关闭" @click="close">
-                ✕
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M3 3l10 10M13 3L3 13" />
+                </svg>
               </button>
             </header>
 
@@ -403,35 +405,23 @@ function disconnectLocal(): void {
   position: relative;
   width: 400px;
   max-width: calc(100vw - 32px);
-  border-radius: 6px;
+  border-radius: var(--radius-panel, 10px);
   padding: 1px;
-  background: linear-gradient(
-    150deg,
-    rgba(255, 255, 255, 0.55),
-    rgba(255, 255, 255, 0.12) 40%,
-    rgba(255, 255, 255, 0.4)
-  );
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
+  background: linear-gradient(135deg, var(--accent), var(--border) 34% 72%, var(--accent));
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.34), 0 0 28px var(--accent-glow);
 }
 :global(html.dark) .glass-card {
-  background: linear-gradient(
-    150deg,
-    rgba(255, 255, 255, 0.22),
-    rgba(255, 255, 255, 0.05) 40%,
-    rgba(255, 255, 255, 0.16)
-  );
+  background: linear-gradient(135deg, var(--accent), var(--border) 34% 72%, var(--accent));
 }
 .glass-card-inner {
-  border-radius: 5px;
+  border-radius: calc(var(--radius-panel, 10px) - 1px);
   padding: 0 28px 22px;
-  background: rgba(236, 240, 255, 0.55);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  color: #232a45;
+  background: var(--panel);
+  color: var(--ink);
 }
 :global(html.dark) .glass-card-inner {
-  background: rgba(24, 28, 50, 0.55);
-  color: #e8ecff;
+  background: var(--panel);
+  color: var(--ink);
 }
 
 /* —— 标题栏（拖动 + 关闭） —— */
@@ -453,7 +443,16 @@ function disconnectLocal(): void {
   margin-bottom: 18px;
 }
 .glass-logo {
-  font-size: 26px;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 4px var(--accent-soft), 0 0 16px var(--accent-glow);
+  font: 600 10px/1 var(--font-mono, monospace);
+  letter-spacing: 0.1em;
   margin-bottom: 4px;
 }
 .glass-title {
@@ -466,6 +465,8 @@ function disconnectLocal(): void {
   margin: 4px 0 0;
   font-size: 12.5px;
   opacity: 0.55;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.04em;
 }
 .glass-close {
   flex: none;
@@ -490,6 +491,14 @@ function disconnectLocal(): void {
     background: rgba(120, 140, 255, 0.16);
   }
 }
+.glass-close svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
 
 /* —— 表单 —— */
 .glass-form {
@@ -512,16 +521,16 @@ function disconnectLocal(): void {
   box-sizing: border-box;
   padding: 11px 13px;
   border-radius: 4px;
-  border: 1px solid rgba(120, 140, 255, 0.28);
-  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--border);
+  background: var(--surface);
   color: inherit;
   font-size: 14px;
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 :global(html.dark) .input {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(180, 196, 255, 0.24);
+  background: var(--surface);
+  border-color: var(--border);
 }
 .input::placeholder {
   color: rgba(90, 100, 140, 0.5);
@@ -530,12 +539,12 @@ function disconnectLocal(): void {
   color: rgba(200, 210, 255, 0.4);
 }
 .input:focus {
-  border-color: rgba(130, 150, 255, 0.7);
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 0 0 3px rgba(130, 150, 255, 0.2);
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 :global(html.dark) .input:focus {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--surface-hover);
 }
 
 /* —— 记住密码开关 —— */
@@ -562,7 +571,7 @@ function disconnectLocal(): void {
   transition: background 0.22s ease;
 }
 .switch--on {
-  background: linear-gradient(135deg, #6d8bff, #b06bff);
+  background: var(--accent);
 }
 .switch-knob {
   position: absolute;

@@ -4,17 +4,20 @@
  * 从 PetBody 拆出（纯展示）。主 pet 单 face 路径不在本组件。
  * 翻转方向由 CSS var --pet-direction 控制（DOM 继承自父）。
  */
-import { motion } from 'motion-v'
-import type { VariantType } from 'motion-v'
+import { ref, toRef } from 'vue'
+import type { PetMotionDescriptor } from '@/domain/pets/motion/animation'
+import { usePetMotion } from '../composables/usePetMotion'
 import PetDivineHalo from './PetDivineHalo.vue'
 
-const MotionSpan = motion.span
-
-defineProps<{
+const props = defineProps<{
   faceGlyph: string
-  faceMotion: { animate: VariantType; transition: VariantType['transition'] }
+  faceMotion: PetMotionDescriptor
   active?: boolean
 }>()
+const frontRef = ref<HTMLElement | null>(null)
+const backRef = ref<HTMLElement | null>(null)
+usePetMotion(frontRef, toRef(props, 'faceMotion'))
+usePetMotion(backRef, toRef(props, 'faceMotion'))
 </script>
 
 <template>
@@ -22,21 +25,17 @@ defineProps<{
     <PetDivineHalo :active="active" />
     <span class="face-rotate">
       <span class="face-side front">
-        <MotionSpan
+        <span
+          ref="frontRef"
           class="face"
-          :initial="false"
-          :animate="faceMotion.animate"
-          :transition="faceMotion.transition"
-          >{{ faceGlyph }}</MotionSpan
+          >{{ faceGlyph }}</span
         >
       </span>
       <span class="face-side back">
-        <MotionSpan
+        <span
+          ref="backRef"
           class="face"
-          :initial="false"
-          :animate="faceMotion.animate"
-          :transition="faceMotion.transition"
-          >{{ faceGlyph }}</MotionSpan
+          >{{ faceGlyph }}</span
         >
       </span>
     </span>

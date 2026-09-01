@@ -17,29 +17,29 @@ export interface RenderQualityProfile {
 export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQualityProfile>> = {
   high: {
     tier: 'high',
-    particleCountAt112: 500,
-    particleDpr: 2,
+    particleCountAt112: 420,
+    particleDpr: 1.75,
     particleIdleFps: 45,
     particleActiveFps: 45,
     particleAtmosphereFps: 20,
-    graphDpr: 2,
-    graphLabelResolution: 2,
+    graphDpr: 1.75,
+    graphLabelResolution: 1.75,
     graphMotionFps: 30,
   },
   balanced: {
     tier: 'balanced',
-    particleCountAt112: 360,
-    particleDpr: 1.5,
+    particleCountAt112: 300,
+    particleDpr: 1.25,
     particleIdleFps: 30,
     particleActiveFps: 45,
     particleAtmosphereFps: 15,
-    graphDpr: 1.5,
-    graphLabelResolution: 1.5,
+    graphDpr: 1.25,
+    graphLabelResolution: 1.25,
     graphMotionFps: 24,
   },
   low: {
     tier: 'low',
-    particleCountAt112: 220,
+    particleCountAt112: 180,
     particleDpr: 1,
     particleIdleFps: 20,
     particleActiveFps: 24,
@@ -71,11 +71,14 @@ interface FrameSample {
 }
 
 const DOWNGRADE_WINDOW_MS = 3_000
-const UPGRADE_WINDOW_MS = 10_000
-const DOWNGRADE_P95_MS = 22
-const UPGRADE_P95_MS = 14
-const MIN_DOWNGRADE_SAMPLES = 45
-const MIN_UPGRADE_SAMPLES = 180
+const LOW_DOWNGRADE_WINDOW_MS = 2_000
+const BALANCED_UPGRADE_WINDOW_MS = 10_000
+const HIGH_UPGRADE_WINDOW_MS = 12_000
+const HIGH_DOWNGRADE_P95_MS = 24
+const LOW_DOWNGRADE_P95_MS = 33
+const BALANCED_UPGRADE_P95_MS = 20
+const HIGH_UPGRADE_P95_MS = 18.5
+const MAX_SAMPLE_WINDOW_MS = HIGH_UPGRADE_WINDOW_MS
 
 function percentile95(samples: readonly FrameSample[], since: number): number {
   const values = samples
@@ -126,29 +129,32 @@ export function createAdaptiveQualityGovernor(
       lastTransitionAt ??= now
       // 后台恢复由调用方过滤；真正的长帧应计入压力，而不是因过慢被忽略。
       samples.push({ at: now, intervalMs: Math.min(intervalMs, 250) })
-      const oldest = now - UPGRADE_WINDOW_MS
+      const oldest = now - MAX_SAMPLE_WINDOW_MS
       const firstLive = samples.findIndex((sample) => sample.at >= oldest)
       if (firstLive > 0) samples = samples.slice(firstLive)
 
-      const downgradeSince = now - DOWNGRADE_WINDOW_MS
-      if (
-        currentTier !== 'low' &&
-        now - lastTransitionAt >= DOWNGRADE_WINDOW_MS &&
-        sampleCount(samples, downgradeSince) >= MIN_DOWNGRADE_SAMPLES &&
-        percentile95(samples, downgradeSince) > DOWNGRADE_P95_MS
-      ) {
+      const downgradeWindow = currentTier === 'balanced' ? LOW_DOWNGRADE_WINDOW_MS : DOWNGRADE_WINDOW_MS
+      const downgradeSince = now - downgradeWindow
+      const downgradeThreshold =
+        currentTier === 'balanced' ? LOW_DOWNGRADE_P95_MS : HIGH_DOWNGRADE_P95_MS
+      const minimumDowngradeSamples = Math.max(30, Math.floor(downgradeWindow / 34))
+      if (currentTier !== 'low' && now - lastTransitionAt >= downgradeWindow &&
+        sampleCount(samples, downgradeSince) >= minimumDowngradeSamples &&
+        percentile95(samples, downgradeSince) > downgradeThreshold) {
         currentTier = lowerTier(currentTier)
         lastTransitionAt = now
         samples = samples.filter((sample) => sample.at >= downgradeSince)
         return currentTier
       }
 
-      if (
-        currentTier !== 'high' &&
-        now - lastTransitionAt >= UPGRADE_WINDOW_MS &&
-        sampleCount(samples, oldest) >= MIN_UPGRADE_SAMPLES &&
-        percentile95(samples, oldest) < UPGRADE_P95_MS
-      ) {
+      const upgradeWindow = currentTier === 'low' ? BALANCED_UPGRADE_WINDOW_MS : HIGH_UPGRADE_WINDOW_MS
+      const upgradeSince = now - upgradeWindow
+      const upgradeThreshold =
+        currentTier === 'low' ? BALANCED_UPGRADE_P95_MS : HIGH_UPGRADE_P95_MS
+      const minimumUpgradeSamples = Math.floor(upgradeWindow / 34)
+      if (currentTier !== 'high' && now - lastTransitionAt >= upgradeWindow &&
+        sampleCount(samples, upgradeSince) >= minimumUpgradeSamples &&
+        percentile95(samples, upgradeSince) <= upgradeThreshold) {
         currentTier = higherTier(currentTier)
         lastTransitionAt = now
         samples = []

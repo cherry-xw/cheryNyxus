@@ -1,9 +1,25 @@
 import type { PetAction, PetMood } from '../types'
 
+export type PetMotionValue = number | string | readonly (number | string)[] | undefined
+export type PetMotionState = Readonly<Record<string, PetMotionValue>>
+export interface PetMotionTransition {
+  duration?: number
+  repeat?: number
+  repeatType?: 'reverse' | 'loop' | 'mirror'
+  ease?: string
+  type?: 'spring'
+  stiffness?: number
+  damping?: number
+  times?: readonly number[]
+}
+export interface PetMotionDescriptor {
+  animate: PetMotionState
+  transition: PetMotionTransition
+}
+
 /**
- * motion-v variant helpers。返回 { animate, transition }，由 PetSprite 绑定到
- * <Motion :animate :transition>。不导入 motion-v 类型——返回类型全靠字面量推断，
- * ease/repeatType 用 as const 保证 Easing/RepeatType 字面量兼容。
+ * 框架中立的 Pet 动效描述符，由 usePetMotion 的 GSAP 执行器消费。
+ * domain 层不依赖任何 DOM 动画库。
  */
 
 type Side = 'left' | 'right'
@@ -102,7 +118,6 @@ export function faceMotion(mood: PetMood) {
       return {
         animate: {
           scale: [1, 1.1, 1],
-          filter: ['brightness(1)', 'brightness(1.22)', 'brightness(1)'],
         },
         transition: tLoop(1.4),
       }
@@ -110,7 +125,6 @@ export function faceMotion(mood: PetMood) {
       return {
         animate: {
           rotate: [-3, 3, -3],
-          filter: ['brightness(1)', 'brightness(1.35)', 'brightness(1)'],
         },
         transition: tLoop(0.6),
       }
@@ -118,7 +132,6 @@ export function faceMotion(mood: PetMood) {
       return {
         animate: {
           rotate: [-4, 4, -4],
-          filter: ['hue-rotate(0deg)', 'hue-rotate(40deg)', 'hue-rotate(0deg)'],
         },
         transition: tLoop(0.5),
       }
@@ -126,7 +139,6 @@ export function faceMotion(mood: PetMood) {
       return {
         animate: {
           scale: [1, 1.12, 1],
-          filter: ['brightness(1)', 'brightness(1.5)', 'brightness(1)'],
         },
         transition: tLoop(0.4),
       }
@@ -135,7 +147,6 @@ export function faceMotion(mood: PetMood) {
         animate: {
           scale: [1, 0.98, 1],
           opacity: [1, 0.6, 1],
-          filter: ['brightness(1)', 'brightness(0.72)', 'brightness(1)'],
         },
         transition: tLoop(2.4),
       }

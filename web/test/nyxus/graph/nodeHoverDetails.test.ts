@@ -163,7 +163,7 @@ describe('execution node hover details', () => {
     expect(source).toContain('v-else-if="isSkillTool" class="skill-detail"')
     expect(source).toContain('<small class="detail-label">技能名称</small>')
     expect(source).toContain('技能指令 · {{ skillResult.lineCount }} 行')
-    expect(source).toContain('renderMarkdown(skillResult.content)')
+    expect(source).toContain('v-html="renderedSkillContent"')
     expect(source).toContain("copyField('skill-content', skillResult.content)")
     expect(source).toContain('未找到技能“${missing[1]}”。')
     expect(source).not.toContain('<SkillRenderer')

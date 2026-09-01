@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { renderMarkdown } from '@/utils/markdown'
+import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 import type { RunCrtModel } from '../graph/crtModel'
 
 type CrtTab = 'output' | 'thinking'
@@ -50,6 +50,24 @@ const tabs = computed<Array<{ id: CrtTab; label: string }>>(() => [
   { id: 'output', label: '正文' },
   ...(props.card.thinking ? [{ id: 'thinking' as const, label: '思考' }] : []),
 ])
+// 流式 markdown 节流渲染（leading + 240ms trailing，超长截断 12000）；空源保留原占位文案
+const { html: renderedOutput, flush: flushOutput } = useRenderedMarkdown(
+  () => props.card.content || '等待响应…',
+  { mode: 'preview' },
+)
+const { html: renderedThinking, flush: flushThinking } = useRenderedMarkdown(
+  () => props.card.thinking || '等待思考内容…',
+  { mode: 'preview' },
+)
+watch(
+  () => props.card.status,
+  (status) => {
+    if (status !== 'running') {
+      flushOutput()
+      flushThinking()
+    }
+  },
+)
 const statusLabel = computed(() => {
   const labels: Record<RunCrtModel['status'], string> = {
     completed: '已完成',
@@ -188,7 +206,7 @@ function onEscape(event: KeyboardEvent): void {
         role="tabpanel"
         :aria-labelledby="`${card.id}:output:tab`"
         @scroll="onBodyScroll"
-        v-html="renderMarkdown(card.content || '等待响应…')"
+        v-html="renderedOutput"
       />
       <section
         v-else
@@ -199,7 +217,7 @@ function onEscape(event: KeyboardEvent): void {
         role="tabpanel"
         :aria-labelledby="`${card.id}:thinking:tab`"
         @scroll="onBodyScroll"
-        v-html="renderMarkdown(card.thinking || '等待思考内容…')"
+        v-html="renderedThinking"
       />
     </Transition>
 

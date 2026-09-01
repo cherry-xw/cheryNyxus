@@ -446,7 +446,7 @@ export const HAND_PAIRS: Record<PetMood, PetHands[]> = {
 export const COLOR_PARTS: { color: string; accent: string }[] = [
   { color: '#5b6b8c', accent: '#2b3550' },
   { color: '#ff8aa6', accent: '#54162a' },
-  { color: '#f6b73c', accent: '#3b2b12' },
+  { color: '#22d3ee', accent: '#04202b' },
   { color: '#63c7b2', accent: '#0b3d36' },
   { color: '#9e8cff', accent: '#261d57' },
   { color: '#b8e0ff', accent: '#1f4a6b' },

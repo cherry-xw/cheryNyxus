@@ -12,7 +12,7 @@
 import { computed, ref } from 'vue'
 import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 import { formatArgValue, formatValue, parseArgs } from '@/utils/parseArgs'
-import { extractMediaUrls } from '@/utils/markdown'
+import { extractMediaUrls } from '@/utils/mediaUrls'
 import { toSenseNameZh } from '@/utils/senseName'
 import { MediaInlineRenderer } from '../composer/public'
 

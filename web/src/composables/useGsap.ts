@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onScopeDispose, onUnmounted, type Ref } from 'vue'
 import { gsap } from 'gsap'
 import { MOTION } from '@/utils/gsapCore'
 
@@ -11,12 +11,13 @@ import { MOTION } from '@/utils/gsapCore'
  * 禁止绕过 context 创建不被 revert 追踪的 tween。
  */
 export function useGsap(
+  scope: Readonly<Ref<Element | null>>,
   setup: (ctx: gsap.Context) => void,
-  scope?: { value: Element | null },
 ): void {
   let ctx: gsap.Context | undefined
   onMounted(() => {
-    ctx = gsap.context((self) => setup(self), scope?.value ?? undefined)
+    if (!scope.value) return
+    ctx = gsap.context((self) => setup(self), scope.value)
   })
   onUnmounted(() => {
     ctx?.revert()
@@ -40,15 +41,34 @@ export function useQuickTo(
   let quickTo: gsap.QuickToFunc | undefined
   const fn: QuickToFn = (value) => {
     quickTo ??= gsap.quickTo(target(), property, {
-      duration: MOTION.dur2,
-      ease: MOTION.easeOut,
+      duration: MOTION.control,
+      ease: MOTION.easePanel,
       ...vars,
     })
     return quickTo(value)
   }
-  onUnmounted(() => {
+  onScopeDispose(() => {
     quickTo?.tween?.kill()
     quickTo = undefined
+  })
+  return fn
+}
+
+export type QuickSetterFn = (value: number | string) => void
+
+/** 1:1 拖拽/物理位置写入：无追随 tween、无 Vue 每帧 patch。 */
+export function useQuickSetter(
+  target: () => gsap.TweenTarget,
+  property: string,
+  unit?: string,
+): QuickSetterFn {
+  let setter: ReturnType<typeof gsap.quickSetter> | undefined
+  const fn: QuickSetterFn = (value) => {
+    setter ??= gsap.quickSetter(target(), property, unit)
+    setter(value)
+  }
+  onScopeDispose(() => {
+    setter = undefined
   })
   return fn
 }

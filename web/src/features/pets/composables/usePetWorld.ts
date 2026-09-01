@@ -13,6 +13,8 @@ import { rand, pick, clamp, moodForAction, actionTalk } from '@/domain/pets/fact
 import { retarget } from '@/domain/pets/motion/targeting'
 import { useGhostQueue } from './useGhostQueue'
 import type { PetAction, PetInstance, StageBounds } from '@/domain/pets/types'
+import { gsap } from 'gsap'
+import { frameCoordinator, type DisplayFrame } from '@/utils/frameCoordinator'
 
 const RAPID_CLICK_WINDOW = 1200
 const RAPID_CLICK_THRESHOLD = 3
@@ -49,15 +51,49 @@ export function usePetWorld(
   const activePets = (): PetInstance[] => pets.filter(includePet)
   const isPaused = ref(false)
   const bounds = reactive<StageBounds>({ width: 960, height: 640 })
-  let raf = 0
-  let lastTime = 0
+  let unsubscribeFrame: (() => void) | undefined
+  let boundsObserver: ResizeObserver | undefined
+  let stageLeft = 0
+  let stageTop = 0
+  const positionSetters = new Map<
+    string,
+    { x: ReturnType<typeof gsap.quickSetter>; y: ReturnType<typeof gsap.quickSetter> }
+  >()
   const ghostQueue = useGhostQueue(pets)
 
   function readBounds(): StageBounds {
     const rect = stageRef.value?.getBoundingClientRect()
     bounds.width = rect?.width ?? window.innerWidth
     bounds.height = rect?.height ?? window.innerHeight
+    stageLeft = rect?.left ?? 0
+    stageTop = rect?.top ?? 0
     return bounds
+  }
+
+  function registerPetElement(instanceId: string, element: HTMLElement | null): void {
+    if (!element) {
+      positionSetters.delete(instanceId)
+      return
+    }
+    const setters = {
+      x: gsap.quickSetter(element, 'x', 'px'),
+      y: gsap.quickSetter(element, 'y', 'px'),
+    }
+    positionSetters.set(instanceId, setters)
+    const pet = pets.find((candidate) => candidate.instanceId === instanceId)
+    if (pet) {
+      setters.x(pet.x)
+      setters.y(pet.y)
+    }
+  }
+
+  function writePetPositions(worldPets: readonly PetInstance[]): void {
+    for (const pet of worldPets) {
+      const setters = positionSetters.get(pet.instanceId)
+      if (!setters) continue
+      setters.x(pet.x)
+      setters.y(pet.y)
+    }
   }
 
   function showSpeech(pet: PetInstance, text: string, duration = 1800): void {
@@ -238,12 +274,10 @@ export function usePetWorld(
     }
   }
 
-  function loop(now: number): void {
-    const currentBounds = readBounds()
-    const dt = Math.min(0.04, Math.max(0, (now - lastTime) / 1000) || 0)
-    lastTime = now
+  function loop(frame: DisplayFrame): void {
+    const { now, deltaSeconds: dt } = frame
 
-    if (!isPaused.value && currentBounds.width > 0 && currentBounds.height > 0) {
+    if (!isPaused.value && bounds.width > 0 && bounds.height > 0) {
       // 装饰 chatting（maybeTriggerChats）已移除；agent 工作态 chatting 由 store 触发（CP2）
       const worldPets = activePets()
       for (const pet of worldPets) {
@@ -251,16 +285,14 @@ export function usePetWorld(
       }
       // 每个 tribe 以主 Agent 为队首并采样轨迹；主 Agent 拖拽时也持续记录。
       if (worldPets.some((pet) => pet.isGhost)) ghostQueue.sampleLeaders()
+      writePetPositions(worldPets)
     }
-
-    raf = requestAnimationFrame(loop)
   }
 
   function pointerPosition(event: PointerEvent): { x: number; y: number } {
-    const rect = stageRef.value?.getBoundingClientRect()
     return {
-      x: event.clientX - (rect?.left ?? 0),
-      y: event.clientY - (rect?.top ?? 0),
+      x: event.clientX - stageLeft,
+      y: event.clientY - stageTop,
     }
   }
 
@@ -373,13 +405,18 @@ export function usePetWorld(
   onMounted(() => {
     readBounds()
     // 不再自动 resetPets：pets 由 agents store initFromChats 驱动（调用方注入或外部填充）
-    lastTime = performance.now()
-    raf = requestAnimationFrame(loop)
+    unsubscribeFrame = frameCoordinator.subscribe(loop)
+    if (stageRef.value && typeof ResizeObserver !== 'undefined') {
+      boundsObserver = new ResizeObserver(readBounds)
+      boundsObserver.observe(stageRef.value)
+    }
     window.addEventListener('resize', readBounds)
   })
 
   onUnmounted(() => {
-    cancelAnimationFrame(raf)
+    unsubscribeFrame?.()
+    boundsObserver?.disconnect()
+    positionSetters.clear()
     window.removeEventListener('resize', readBounds)
   })
 
@@ -393,5 +430,6 @@ export function usePetWorld(
     endDrag,
     hoverPet,
     clickPet,
+    registerPetElement,
   }
 }

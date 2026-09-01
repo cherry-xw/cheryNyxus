@@ -73,13 +73,16 @@ function drawWaveform(): void {
   const gap = w / barCount - barWidth
   const playedRatio = duration.value > 0 ? currentTime.value / duration.value : 0
   const playedX = playedRatio * w
+  const styles = getComputedStyle(document.documentElement)
+  const playedColor = styles.getPropertyValue('--accent').trim() || '#22d3ee'
+  const idleColor = styles.getPropertyValue('--border-strong').trim() || 'rgba(148,163,216,.24)'
 
   for (let i = 0; i < barCount; i++) {
     const peakVal = peaks.value[Math.floor(i * step)] ?? 0
     const barH = Math.max(2, peakVal * (h - 4))
     const x = i * (barWidth + gap) + gap / 2
     const y = (h - barH) / 2
-    ctx.fillStyle = x < playedX ? '#f6b73c' : '&'
+    ctx.fillStyle = x < playedX ? playedColor : idleColor
     ctx.beginPath()
     ctx.roundRect(x, y, barWidth, barH, 1)
     ctx.fill()
@@ -252,8 +255,8 @@ watch(
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: rgba(246, 183, 60, 0.16);
-  color: #f6b73c;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 15px;
 }
 
@@ -313,7 +316,7 @@ watch(
 
   &:hover {
     background: rgba(255, 255, 255, 0.1);
-    color: #f6b73c;
+    color: var(--accent);
   }
 }
 
@@ -321,7 +324,7 @@ watch(
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #f6b73c;
+  background: var(--accent);
   color: #1e2028;
 
   &:hover {
@@ -349,7 +352,7 @@ watch(
 
 .ap-progress-fill {
   height: 100%;
-  background: #f6b73c;
+  background: var(--accent);
   border-radius: 2px;
   transition: width 80ms linear;
 }

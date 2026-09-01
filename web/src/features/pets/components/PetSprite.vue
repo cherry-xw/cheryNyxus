@@ -23,6 +23,7 @@ const props = defineProps<{
   /** 气泡 stream 对应 chatId（master=活跃根 / 子=自身）；接力棒判定用。缺省回退 pet.chatId。 */
   streamChatId?: string
   attentionCount?: number
+  positionRef?: (element: HTMLElement | null) => void
 }>()
 
 const emit = defineEmits<{
@@ -110,7 +111,8 @@ function setWorkTextRef(el: HTMLElement | null): void {
     <PetBubbles
       :pet="pet"
       :chat-id="streamChatId ?? pet.chatId"
-      :stream="stream"
+    :stream="stream"
+    :position-ref="positionRef"
       :has-stream="true"
       :is-busy="isBusy"
       :show-work-main="showWorkMain"

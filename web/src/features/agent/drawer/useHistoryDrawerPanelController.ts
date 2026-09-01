@@ -13,7 +13,6 @@
  * 错误显性化（规则 12）：stream 不存在时显 loading 而非崩（getHistory ensureStream，理论不达）。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
-import { motion } from 'motion-v'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
 import type { HistoryItem } from '@/domain/chat/projectionTypes'
 import VirtualScroll from '@/components/VirtualScroll.vue'
@@ -55,7 +54,6 @@ export type HistoryDrawerPanelControllerProps = {
 }
 
 export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControllerProps) {
-  const MotionDiv = motion.div
   /** 按消息内容估算未量测项的高度，量测完成后由 VirtualScroll 替换。
    *  senseCollapsed=true 时 senseCalls 折叠为一行小 tag（~22px），不再按逐个 box 叠高度。 */
   function estimateHeight(item: HistoryItem | undefined, senseCollapsed = false): number {
@@ -972,7 +970,6 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   return {
     ContextUsageBar,
     MessageBubble,
-    MotionDiv,
     PromptSnapshotTip,
     VirtualScroll,
     activateCurrentBranch,

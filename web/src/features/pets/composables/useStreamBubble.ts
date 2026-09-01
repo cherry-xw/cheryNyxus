@@ -8,7 +8,7 @@ import {
   type MaybeRefOrGetter,
 } from 'vue'
 import type { StreamState } from '@/application/public'
-import { renderMarkdown } from '@/utils/markdown'
+import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 
 /**
  * 工作气泡 composable：双气泡显隐 + retainUntil 保留 + 流式 auto-scroll。
@@ -79,7 +79,13 @@ export function useStreamBubble(props: StreamBubbleProps) {
   // 显示单次响应全部内容（不截取）
   const displayThinking = computed(() => stream.value?.thinking ?? '')
   const displayContent = computed(() => stream.value?.content ?? '')
-  const renderedContent = computed(() => renderMarkdown(displayContent.value))
+  // 流式 markdown 节流渲染（leading + 240ms trailing，不截断）
+  const { html: renderedContent, flush: flushRenderedContent } = useRenderedMarkdown(displayContent, {
+    mode: 'full',
+  })
+  watch(isWorking, (working, previous) => {
+    if (previous && !working) flushRenderedContent()
+  })
 
   // === 流式滚动保持底部 ===
   const workTextRef = ref<HTMLElement | null>(null)
@@ -98,16 +104,37 @@ export function useStreamBubble(props: StreamBubbleProps) {
     },
   )
   // 流式追加 -> 自动滚到底部（用户手动上滚时暂停）
-  watch(
-    () => [stream.value?.thinking, stream.value?.content],
-    () => {
-      if (userScrolledUp.value) return
-      nextTick(() => {
-        const el = workTextRef.value
-        if (el) el.scrollTop = el.scrollHeight
-      })
-    },
-  )
+  // renderedContent 已由 useRenderedMarkdown 240ms 节流（重渲 ≤4Hz）；
+  // thinking 纯文本不经 markdown 渲染，调度层自带 240ms 节流兜底，避免每 delta 触发滚动。
+  const FOLLOW_INTERVAL_MS = 240
+  let lastFollowAt = 0
+  let followTimer: ReturnType<typeof setTimeout> | undefined
+  function followNow(): void {
+    if (userScrolledUp.value) return
+    nextTick(() => {
+      const el = workTextRef.value
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }
+  function scheduleFollow(): void {
+    const elapsed = Date.now() - lastFollowAt
+    if (elapsed >= FOLLOW_INTERVAL_MS) {
+      if (followTimer) {
+        clearTimeout(followTimer)
+        followTimer = undefined
+      }
+      lastFollowAt = Date.now()
+      followNow()
+      return
+    }
+    followTimer ??= setTimeout(() => {
+      followTimer = undefined
+      lastFollowAt = Date.now()
+      followNow()
+    }, FOLLOW_INTERVAL_MS - elapsed)
+  }
+  watch(renderedContent, scheduleFollow)
+  watch(displayThinking, scheduleFollow)
   function onWorkTextScroll(): void {
     const el = workTextRef.value
     if (!el) return
@@ -124,6 +151,7 @@ export function useStreamBubble(props: StreamBubbleProps) {
 
   onBeforeUnmount(() => {
     if (retainTimer !== undefined) clearInterval(retainTimer)
+    if (followTimer !== undefined) clearTimeout(followTimer)
   })
 
   return {

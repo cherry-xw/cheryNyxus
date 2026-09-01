@@ -18,19 +18,18 @@ const loginOpen = ref(false)
 const error = ref<string | null>(null)
 const { working } = useNyxusWorkState()
 const {
-  position,
   dragging: standaloneDragging,
   onPointerDown: onStandalonePointerDown,
   onPointerMove: onStandalonePointerMove,
   endPointer: endStandalonePointer,
   consumeSuppressedClick,
+  anchorRef,
 } = useStandaloneNyxusMotion(
   () => true,
   () => nyxusMenuOpen.value,
   closeNyxusMenu,
 )
 const dragging = computed(() => standaloneDragging.value)
-const anchorStyle = computed(() => ({ left: `${position.x}px`, top: `${position.y}px` }))
 const disabled = computed(
   () => creating.value || openingChat.value || connection.status !== 'connected',
 )
@@ -191,9 +190,9 @@ onBeforeUnmount(() => {
     @click="closeNyxusMenu"
   />
   <aside
+    :ref="anchorRef"
     class="nyxus-entry"
     :class="{ 'is-dragging': dragging, 'is-open': nyxusMenuOpen }"
-    :style="anchorStyle"
     data-desktop-hit
     aria-label="Cherry Nyxus 入口"
   >

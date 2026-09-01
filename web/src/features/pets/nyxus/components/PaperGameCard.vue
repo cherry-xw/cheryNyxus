@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { renderMarkdown } from '@/utils/markdown'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 import type { ExecutionNode } from '../graph/executionGraph'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
 import type { ApprovalState } from '@/domain/chat/projectionTypes'
@@ -15,8 +15,6 @@ import ToolFieldTree from './ToolFieldTree.vue'
 import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 
-const DETAIL_PREVIEW_LIMIT = 12_000
-const MARKDOWN_UPDATE_INTERVAL_MS = 240
 const props = defineProps<{
   model: PaperGameCardModel
   maxHeight: number
@@ -47,14 +45,13 @@ const copied = ref(false)
 let previewTimer: ReturnType<typeof setTimeout> | undefined
 let closeTimer: ReturnType<typeof setTimeout> | undefined
 let copyTimer: ReturnType<typeof setTimeout> | undefined
-const markdownTimers = new Set<ReturnType<typeof setTimeout>>()
 
 const isAdventurer = computed(() => props.model.kind === 'adventurer')
 const inlineMessageDetail = computed(() =>
   isAdventurer.value ? props.model.details.find((detail) => detail.kind === 'content') : undefined,
 )
 const inlineMessageSource = computed(() => inlineMessageDetail.value?.content ?? '')
-const renderedInlineMessage = useThrottledMarkdown(inlineMessageSource, false)
+const { html: renderedInlineMessage } = useRenderedMarkdown(inlineMessageSource, { mode: 'full' })
 /** 普通节点卡：秘法推演入住属性行空位格，交互仍走侧边卡。 */
 const thinkingDetail = computed(() =>
   props.model.details.find((detail) => detail.kind === 'thinking'),
@@ -67,7 +64,7 @@ const inlineContentSource = computed(() => {
   const detail = inlineContentDetail.value
   return detail?.format === 'markdown' ? detail.content : ''
 })
-const renderedInlineContent = useThrottledMarkdown(inlineContentSource)
+const { html: renderedInlineContent } = useRenderedMarkdown(inlineContentSource, { mode: 'full' })
 /** 技能实录栏：铭文/产物保留按钮 + 侧边卡弹窗交互。 */
 const popupDetails = computed(() =>
   props.model.details.filter((detail) => detail.kind !== 'content' && detail.kind !== 'thinking'),
@@ -103,7 +100,7 @@ const detailMarkdownSource = computed(() => {
   const detail = activeDetail.value
   return detail?.format === 'markdown' ? detail.content : ''
 })
-const renderedDetail = useThrottledMarkdown(detailMarkdownSource)
+const { html: renderedDetail } = useRenderedMarkdown(detailMarkdownSource, { mode: 'full' })
 const activeApproval = computed(() =>
   props.chatId && props.approval && props.approvalNodeId === props.node?.id ? props.approval : undefined,
 )
@@ -134,50 +131,12 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   clearTimers()
-  for (const timer of markdownTimers) clearTimeout(timer)
-  markdownTimers.clear()
   window.removeEventListener('pointerdown', onWindowPointerDown)
   window.removeEventListener('keydown', onWindowKeydown)
 })
 
 function safeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '-')
-}
-
-/** 超长 markdown 截断到预览上限后渲染，弹窗与内联正文共用。 */
-function renderMarkdownCapped(content: string): string {
-  const capped =
-    content.length > DETAIL_PREVIEW_LIMIT
-      ? `${content.slice(0, DETAIL_PREVIEW_LIMIT)}\n\n> 内容较长，当前展示前半部分。`
-      : content
-  return renderMarkdown(capped)
-}
-
-/** Keep markdown parsing/DOM replacement well outside the 16.7ms interaction budget. */
-function useThrottledMarkdown(source: ComputedRef<string>, capped = true): Ref<string> {
-  const rendered = ref('')
-  let latest = ''
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const render = (): void => {
-    if (timer) markdownTimers.delete(timer)
-    timer = undefined
-    rendered.value = latest ? (capped ? renderMarkdownCapped(latest) : renderMarkdown(latest)) : ''
-  }
-  watch(
-    source,
-    (content) => {
-      latest = content
-      if (!rendered.value && content) {
-        render()
-        return
-      }
-      if (timer) return
-      timer = setTimeout(render, MARKDOWN_UPDATE_INTERVAL_MS)
-      markdownTimers.add(timer)
-    },
-    { immediate: true },
-  )
-  return rendered
 }
 
 function clearTimers(): void {
