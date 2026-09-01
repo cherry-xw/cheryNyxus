@@ -17,6 +17,10 @@ function manualChunks(id: string): string | undefined {
   if (id.includes('element-plus') || id.includes('@element-plus')) {
     return 'vendor-ui'
   }
+  // 动画：GSAP 核心（motion-v 退役中，分支保留至迁移完成后随 S7 删除）
+  if (id.includes('gsap')) {
+    return 'vendor-gsap'
+  }
   // 动画与底层 hooks
   if (id.includes('motion-v') || id.includes('@vueuse')) {
     return 'vendor-motion'

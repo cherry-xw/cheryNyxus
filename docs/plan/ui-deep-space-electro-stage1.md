@@ -64,11 +64,11 @@ token 主表（深色 / 浅色）：
 
 ## S2 GSAP 基建
 
-- [ ] `web/` workspace `pnpm add gsap`（^3.13，阶段1 只引核心不注册插件）
-- [ ] 新 `web/src/utils/gsapCore.ts`：`gsap.defaults` + `gsap.ticker.add` 接 `reportDisplayFrame`；不设 ticker.fps 上限（≥30fps 约束，降级走效果裁剪）
-- [ ] 新 `web/src/composables/useGsap.ts`：`useGsap(setup, scope?)`（onMounted → gsap.context；onUnmounted → ctx.revert）+ `useQuickTo`
-- [ ] 新 `web/src/composables/useMotionTier.ts`：三档效果映射（high 全量 / balanced 幅度减半 / low 仅 opacity + 装饰 display:none）
-- [ ] `web/vite.config.ts` manualChunks：motion-v 分支改 gsap（vendor-gsap）
+- [x] `web/` workspace `pnpm add gsap`（声明 ^3.13，pnpm 解析落地 ^3.15.0；阶段1 只引核心不注册插件）
+- [x] 新 `web/src/utils/gsapCore.ts`：`gsap.defaults`（dur-2/expo.out 默认）+ `setupGsapCore()` 由 `main.ts` 调用一次 + `gsap.ticker.add` 接 `reportDisplayFrame`；不设 ticker.fps 上限（≥30fps 约束，降级走效果裁剪）；`MOTION` 常量镜像 `--dur-*`/`--ease-*` token
+- [x] 新 `web/src/composables/useGsap.ts`：`useGsap(setup, scope?)`（onMounted → gsap.context；onUnmounted → ctx.revert）+ `useQuickTo`（懒创建 quickTo，卸载 kill 内部 tween）
+- [x] 新 `web/src/composables/useMotionTier.ts`：三档效果映射（high 全量 / balanced 幅度减半 + CSS var `--motion-amplitude` / low 仅 opacity + 装饰 display:none；stagger 0.04/0.02/0；messageEnter true/true/false）
+- [x] `web/vite.config.ts` manualChunks：新增 gsap 分支（vendor-gsap）；motion-v 分支保留至 S4 迁移完成后随 S7 删除，避免迁移完成前 motion-v 落入主包
 
 ## S3 markdown 流式节流治理
 
