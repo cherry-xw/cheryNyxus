@@ -23,9 +23,16 @@ describe('DeepSeek provider', () => {
     expect(getSenseAdapter('deepseek')).toBeDefined()
   })
 
-  it('仅为带工具调用的 assistant 回传 reasoning_content', () => {
+  it('普通多轮与工具调用 assistant 都回传 reasoning_content', () => {
     const history: LLMResponse[] = [
-      { id: 'plain', role: 'assistant', content: '普通回复', thinking: '无需拼接', createdAt: 0, updateAt: 0 },
+      {
+        id: 'plain',
+        role: 'assistant',
+        content: '普通回复',
+        thinking: '必须保留',
+        createdAt: 0,
+        updateAt: 0,
+      },
       {
         id: 'tool',
         role: 'assistant',
@@ -45,7 +52,10 @@ describe('DeepSeek provider', () => {
       tool_calls?: unknown[]
     }>
 
-    expect(messages[0]).not.toHaveProperty('reasoning_content')
+    expect(messages[0]).toMatchObject({
+      role: 'assistant',
+      reasoning_content: '必须保留',
+    })
     expect(messages[1]).toMatchObject({
       role: 'assistant',
       reasoning_content: '必须保留',

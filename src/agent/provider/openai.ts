@@ -5,7 +5,7 @@
  * 复用 [openaiCompat](./openaiCompat.js) 与 [fetchBase](./fetchBase.js)。
  *
  * thinking 参数：provider 不内置档位词映射——chat middleware 统一把显示词翻译成
- * `options.thinkingParams` 片段（翻译表 .chery/model-thinking.yaml），此处只原样 spread 进请求体。
+ * `options.thinkingParams` 片段（模型目录 wire），此处只原样 spread 进请求体。
  *
  * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md)。
  */
@@ -17,6 +17,7 @@ import { registerMessageAdapter } from '@/core/message/adapter'
 import { registerSenseAdapter, type SenseFunction } from '@/core/sense'
 import { openaiMessageAdapterConfig, openaiSenseAdapterConfig, acquireRpm } from './openaiCompat.js'
 import { assertChatOptions, jsonRequest, resolveProviderUrl, streamSSE, classifyBrainError, wrapBrainStream } from './fetchBase.js'
+import { LlmProtocol } from '@chery/protocol'
 
 // ========== LLM Adapter 定义 ==========
 
@@ -114,13 +115,14 @@ const openaiLLMAdapter: LLMAdapter = {
 
 // ========== 注册函数 ==========
 export function registerOpenAIAdapter(): void {
-  registerMessageAdapter<
-    ChatCompletion,
-    OpenAI.Chat.Completions.ChatCompletionChunk,
-    ChatCompletionMessageParam
-  >('openai', openaiMessageAdapterConfig)
-  registerSenseAdapter<ChatCompletion>('openai', openaiSenseAdapterConfig)
-  registerLLMAdapter('openai', openaiLLMAdapter)
-  // URL 端点声明：SDK 自拼端点，base 原样（''）；chat/models 同规则
-  registerProviderUrlPattern('openai', { chatEndpoint: '', modelsEndpoint: '' })
+  for (const key of ['openai', LlmProtocol.OPENAI_CHAT_COMPLETIONS]) {
+    registerMessageAdapter<
+      ChatCompletion,
+      OpenAI.Chat.Completions.ChatCompletionChunk,
+      ChatCompletionMessageParam
+    >(key, openaiMessageAdapterConfig)
+    registerSenseAdapter<ChatCompletion>(key, openaiSenseAdapterConfig)
+    registerLLMAdapter(key, openaiLLMAdapter)
+    registerProviderUrlPattern(key, { chatEndpoint: '', modelsEndpoint: '' })
+  }
 }

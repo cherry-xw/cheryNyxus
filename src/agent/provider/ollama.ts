@@ -10,7 +10,7 @@ import {
 } from '@/core/sense'
 import type { ZodType } from 'zod'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
-import { ErrorId } from '@chery/protocol'
+import { ErrorId, LlmProtocol } from '@chery/protocol'
 import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
@@ -149,7 +149,9 @@ const ollamaLLMAdapter: LLMAdapter = {
 
 // ========== 注册函数 ==========
 export function registerOllamaAdapter(): void {
-  registerMessageAdapter<ChatResponse, ChatResponse, Message>('ollama', ollamaMessageAdapterConfig)
-  registerSenseAdapter<ChatResponse>('ollama', ollamaSenseAdapterConfig)
-  registerLLMAdapter('ollama', ollamaLLMAdapter)
+  for (const key of ['ollama', LlmProtocol.OLLAMA_CHAT]) {
+    registerMessageAdapter<ChatResponse, ChatResponse, Message>(key, ollamaMessageAdapterConfig)
+    registerSenseAdapter<ChatResponse>(key, ollamaSenseAdapterConfig)
+    registerLLMAdapter(key, ollamaLLMAdapter)
+  }
 }

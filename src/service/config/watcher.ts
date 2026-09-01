@@ -21,7 +21,7 @@ import {
 } from './roleLifecycle.js'
 
 const WATCHED_DIRS = ['prompt', 'skills', 'senses', 'plugins', 'rule', 'command', 'hooks']
-const WATCHED_ROOT_FILES = new Set(['config.yaml', 'model-thinking.yaml'])
+const WATCHED_ROOT_FILES = new Set(['config.yaml', 'model-catalog.yaml'])
 
 export interface ConfigWatcherHandle {
   close(): void

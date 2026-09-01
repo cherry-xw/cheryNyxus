@@ -72,6 +72,28 @@ describe('Anthropic Provider Hook 控制', () => {
     expect(mockDispatch).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledOnce()
   })
+
+  it('DeepSeek thinking 与 output_config 字段原样进入 Anthropic 请求体', async () => {
+    const llm = getLLMAdapter('anthropic')!
+    await llm.chat(buildProbeMessages(), [], {
+      ...options,
+      model: 'deepseek-v4-pro',
+      url: 'https://api.deepseek.com/anthropic',
+      skipHooks: true,
+      thinkingParams: {
+        thinking: { type: 'enabled' },
+        output_config: { effort: 'max' },
+      },
+    })
+
+    const [calledUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(calledUrl).toBe('https://api.deepseek.com/anthropic/messages')
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      model: 'deepseek-v4-pro',
+      thinking: { type: 'enabled' },
+      output_config: { effort: 'max' },
+    })
+  })
 })
 
 describe('Anthropic Provider URL 解析与流完整性', () => {
@@ -133,10 +155,7 @@ describe('Anthropic Provider URL 解析与流完整性', () => {
   it('fullUrl=true 完全不拼接（URL 原样访问，仅去尾斜杠）', async () => {
     fetchMock.mockResolvedValue(sseResponse([]))
     await consumeChatStream('https://gw.example.com:11411', true).catch(() => undefined)
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://gw.example.com:11411',
-      expect.anything(),
-    )
+    expect(fetchMock).toHaveBeenCalledWith('https://gw.example.com:11411', expect.anything())
   })
 
   it('伪 200（text/html 网关 SPA 回退）→ validation 配置错误', async () => {
@@ -174,7 +193,10 @@ describe('Anthropic Provider URL 解析与流完整性', () => {
       ]),
     )
     const events = await consumeChatStream('https://gw.example.com:11411/v1')
-    expect(events.map((e) => (e as { type: string }).type)).toEqual(['message_start', 'message_stop'])
+    expect(events.map((e) => (e as { type: string }).type)).toEqual([
+      'message_start',
+      'message_stop',
+    ])
   })
 
   it('非流式 content-type 非 JSON → validation 配置错误', async () => {
@@ -373,7 +395,9 @@ describe('Anthropic extractStreamThinkingBlocks', () => {
   it('其它事件（message_start/ping/message_delta）→ []', () => {
     const adapter = getMessageAdapter('anthropic')!
     expect(adapter.extractStreamThinkingBlocks?.({ type: 'ping' } as never)).toEqual([])
-    expect(adapter.extractStreamThinkingBlocks?.({ type: 'message_start', message: {} } as never)).toEqual([])
+    expect(
+      adapter.extractStreamThinkingBlocks?.({ type: 'message_start', message: {} } as never),
+    ).toEqual([])
   })
 
   it('input_json_delta → []（不是 thinking）', () => {
@@ -544,7 +568,9 @@ describe('Anthropic buildMessages — thinking blocks round-trip', () => {
       { type: 'text', text: 'visible' },
     ])
     // redacted_thinking 应被 strip
-    expect(assistant.content.find((b: { type?: string }) => b.type === 'redacted_thinking')).toBeUndefined()
+    expect(
+      assistant.content.find((b: { type?: string }) => b.type === 'redacted_thinking'),
+    ).toBeUndefined()
   })
 
   it('official=true → 保留 redacted_thinking 块（完整 Anthropic 协议）', () => {
@@ -610,7 +636,7 @@ describe('Anthropic buildMessages — thinking blocks round-trip', () => {
     ])
   })
 
-  it('assistant 纯空（无 content/thinking/blocks）→ [{text:\'\'}] 兜底', () => {
+  it("assistant 纯空（无 content/thinking/blocks）→ [{text:''}] 兜底", () => {
     const adapter = getMessageAdapter('anthropic')!
     const history: LLMResponse[] = [
       { id: 'u1', role: 'user', content: 'hi', createdAt: 0, updateAt: 0 },
@@ -630,13 +656,29 @@ describe('ThinkingBlockAssembler + extractStreamThinkingBlocks 端到端', () =>
     const assembler = new ThinkingBlockAssembler()
     const events: unknown[] = [
       { type: 'content_block_start', index: 0, content_block: { type: 'thinking' } },
-      { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Hello ' } },
-      { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'world' } },
-      { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-X' } },
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: 'Hello ' },
+      },
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: 'world' },
+      },
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'signature_delta', signature: 'sig-X' },
+      },
       { type: 'content_block_stop', index: 0 },
       // 第二块：redacted_thinking
       { type: 'content_block_start', index: 1, content_block: { type: 'redacted_thinking' } },
-      { type: 'content_block_delta', index: 1, delta: { type: 'thinking_delta', thinking: 'opaque' } },
+      {
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'thinking_delta', thinking: 'opaque' },
+      },
       { type: 'content_block_stop', index: 1 },
     ]
     for (const ev of events) {

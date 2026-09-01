@@ -20,15 +20,19 @@ import {
   type UtilsOpenConfigDirResponseData,
   type UtilsEditorsRequestData,
   type UtilsEditorsResponseData,
-  type UtilsThinkingLevelsRequestData,
-  type UtilsThinkingLevelsResponseData,
+  type UtilsModelRecommendationRequestData,
+  type UtilsModelRecommendationResponseData,
 } from '../message/types.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { replaceEnvVars, listEnvVarNames, reloadEnvFile, getCheryDir } from '@/utils/config.js'
 import { resetEnvVarCache } from '@/utils/envGuard.js'
 import config from '@/utils/config.js'
-import { resolveThinkingLevelsBatch } from '@/utils/modelThinking.js'
+import {
+  resolveCatalogReasoningHistory,
+  resolveCatalogThinkingParams,
+  resolveModelCatalog,
+} from '@/utils/modelCatalog.js'
 import {
   ClassifiedError,
   COMPLIANT_TRACE_PATTERN,
@@ -38,8 +42,14 @@ import {
 import { getLLMAdapter } from '@/core/llm/adapter.js'
 import { getMessageAdapter, type LLMResponse } from '@/core/message/adapter.js'
 import { openWithSystem } from './openWithSystem.js'
-import { readErrorSnippet, resolveProviderUrl, buildEndpointUrl } from '@/agent/provider/fetchBase.js'
+import {
+  readErrorSnippet,
+  resolveProviderUrl,
+  buildEndpointUrl,
+} from '@/agent/provider/fetchBase.js'
 import { ANTHROPIC_VERSION } from '@/agent/provider/anthropic.js'
+import { LlmProtocol } from '@chery/protocol'
+import { resolveBrainAdapterKey, resolveBrainProtocol } from '@/core/llm/routing.js'
 
 const exec = promisify(execCallback)
 
@@ -52,22 +62,38 @@ export async function handleUtilsModels(
   data: UtilsModelsRequestData,
 ): Promise<UtilsModelsResponseData> {
   const provider = data.provider
+  const protocol = resolveBrainProtocol(data)
   const url = replaceEnvVars(data.url) as string
   const key = data.key ? (replaceEnvVars(data.key) as string) : undefined
 
   try {
-    switch (provider) {
-      case 'openai':
-      case 'deepseek':
-        return await fetchOpenAIModels(url, key, provider, data.fullUrl === true)
-      case 'ollama':
+    switch (protocol) {
+      case LlmProtocol.OPENAI_CHAT_COMPLETIONS:
+      case LlmProtocol.OPENAI_RESPONSES:
+        return await fetchOpenAIModels(
+          url,
+          key,
+          resolveBrainAdapterKey(data),
+          data.fullUrl === true,
+        )
+      case LlmProtocol.OLLAMA_CHAT:
         return await fetchOllamaModels(url)
-      case 'anthropic':
+      case LlmProtocol.ANTHROPIC_MESSAGES:
+        // DeepSeek 的 Anthropic chat base 是 /anthropic，但模型目录仍走官方 OpenAI
+        // 兼容根地址的 /models；不要错误请求 /anthropic/models。
+        if (provider === 'deepseek' && data.fullUrl !== true) {
+          return await fetchOpenAIModels(
+            url.replace(/\/anthropic\/?$/i, ''),
+            key,
+            'deepseek',
+            false,
+          )
+        }
         return await fetchAnthropicModels(url, key, data.fullUrl === true)
       default:
         return {
           models: [],
-          error: `不支持的 provider: ${provider}（当前支持 openai / ollama / anthropic）`,
+          error: `不支持 provider=${provider} protocol=${data.protocol ?? 'legacy'}`,
         }
     }
   } catch (err) {
@@ -90,12 +116,14 @@ export async function handleUtilsTestConnection(
   data: UtilsTestConnectionRequestData,
 ): Promise<UtilsTestConnectionResponseData> {
   const { provider, model } = data
-  if (provider === 'mock') {
+  const protocol = resolveBrainProtocol(data)
+  if (provider === 'mock' || protocol === LlmProtocol.MOCK) {
     return { ok: false, error: 'mock 是离线模拟，无需测试连接' }
   }
 
-  const llmAdapter = getLLMAdapter(provider)
-  const messageAdapter = getMessageAdapter(provider)
+  const adapterKey = resolveBrainAdapterKey(data)
+  const llmAdapter = getLLMAdapter(adapterKey)
+  const messageAdapter = getMessageAdapter(adapterKey)
   if (!llmAdapter || !messageAdapter) {
     return { ok: false, error: `不支持的 provider: ${provider}` }
   }
@@ -112,13 +140,28 @@ export async function handleUtilsTestConnection(
   }
 
   try {
-    const messages = messageAdapter.buildMessages([probeMessage])
+    const messages = messageAdapter.buildMessages([probeMessage], undefined, {
+      protocol,
+      reasoningHistory: resolveCatalogReasoningHistory({
+        model,
+        provider,
+        protocol,
+      }),
+    })
     await llmAdapter.chat(messages, [], {
       model,
+      provider,
+      protocol,
       url,
       key,
       fullUrl: data.fullUrl === true,
       thinking: 'off',
+      thinkingParams: resolveCatalogThinkingParams({
+        model,
+        provider,
+        protocol,
+        display: 'off',
+      }),
       skipHooks: true,
     })
     return { ok: true }
@@ -127,7 +170,13 @@ export async function handleUtilsTestConnection(
     const error = connectionErrorMessage(err)
     logger.event(
       'utils.testConnection.error',
-      { provider, model, error: technicalMessage, category: classifyError(err) },
+      {
+        provider,
+        protocol: protocol ?? 'legacy',
+        model,
+        error: technicalMessage,
+        category: classifyError(err),
+      },
       LogLevel.warn,
     )
     return { ok: false, error }
@@ -196,7 +245,8 @@ async function fetchOpenAIModels(
   if (models.length === 0) {
     return {
       models: [],
-      error: '未获取到任何模型：若地址缺少版本段（如 /v1），请在地址末尾补上后重试；也可直接手填模型名',
+      error:
+        '未获取到任何模型：若地址缺少版本段（如 /v1），请在地址末尾补上后重试；也可直接手填模型名',
     }
   }
   return { models }
@@ -397,7 +447,10 @@ async function fetchOpenAICompatModelsFallback(
       { provider: 'anthropic', url, error: `fallback json parse: ${msg}`, category: 'unknown' },
       LogLevel.warn,
     )
-    return { models: [], error: `返回了非 JSON 内容（GET ${modelsUrl}；url 可能缺版本段，请在地址末尾补上（如 /v1）后重试）` }
+    return {
+      models: [],
+      error: `返回了非 JSON 内容（GET ${modelsUrl}；url 可能缺版本段，请在地址末尾补上（如 /v1）后重试）`,
+    }
   }
   return {
     models: (json.data ?? []).map((m) => ({
@@ -555,32 +608,29 @@ export async function handleUtilsEditors(
 }
 
 /**
- * utils.thinkingLevels：按模型名批量查询 ThinkingLevel 档位列表。
- * 来源：[modelThinking.ts](../../utils/modelThinking.ts) 加载的 `.chery/model-thinking.yaml`。
- * 未命中或配置缺失 → 兜底返回 `["off", "on"]`。
- * 失败不抛错（仍返回部分结果 + 全量兜底），前端总能拿到有效档位。
+ * utils.modelRecommendation：返回模型规则识别、事实、编辑器推荐和当前协议的 thinking 档位。
+ * 未命中时档位为空；推荐只由前端写入草稿，运行时不会直接继承。
  */
-export async function handleUtilsThinkingLevels(
+export async function handleUtilsModelRecommendation(
   _ctx: HandlerContext,
-  data: UtilsThinkingLevelsRequestData,
-): Promise<UtilsThinkingLevelsResponseData> {
+  data: UtilsModelRecommendationRequestData,
+): Promise<UtilsModelRecommendationResponseData> {
   try {
-    const levels = resolveThinkingLevelsBatch(data.models ?? [])
-    // 展开 readonly → 可变数组（响应 DTO 用 mutable ThinkingLevel[]）
-    const mutable: Record<string, import('@/core/llm/adapter.js').ThinkingLevel[]> = {}
-    for (const [k, v] of Object.entries(levels)) {
-      mutable[k] = [...v]
-    }
-    return { levels: mutable }
+    const resolved = resolveModelCatalog({
+      model: data.model,
+      provider: data.provider,
+      protocol: data.protocol,
+    })
+    return { ...resolved, thinkingLevels: [...resolved.thinkingLevels] }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    logger.event('utils.thinkingLevels.error', { error: message }, LogLevel.warn)
-    // 兜底：所有 model 给 ["off", "on"]
-    const fallback: Record<string, import('@/core/llm/adapter.js').ThinkingLevel[]> = {}
-    for (const m of data.models ?? []) {
-      if (typeof m === 'string' && m.length > 0) fallback[m] = ['off', 'on']
+    logger.event('utils.modelRecommendation.error', { error: message }, LogLevel.warn)
+    return {
+      matched: false,
+      confidence: 'unknown',
+      thinkingLevels: [],
+      unknown: { capabilities: { toolCall: true } },
     }
-    return { levels: fallback }
   }
 }
 
@@ -594,5 +644,5 @@ export function registerUtilsHandlers(router: import('../message/router.js').Rpc
   router.register(Method.UTILS_OPEN_FILE, handleUtilsOpenFile)
   router.register(Method.UTILS_OPEN_CONFIG_DIR, handleUtilsOpenConfigDir)
   router.register(Method.UTILS_EDITORS, handleUtilsEditors)
-  router.register(Method.UTILS_THINKING_LEVELS, handleUtilsThinkingLevels)
+  router.register(Method.UTILS_MODEL_RECOMMENDATION, handleUtilsModelRecommendation)
 }

@@ -6,6 +6,7 @@ import type { ZodType } from 'zod'
 import config from '@/utils/config'
 import { SupervisionLevel } from '@/core/config'
 import { getLLMAdapter } from '@/core/llm/adapter'
+import { resolveBrainAdapterKey } from '@/core/llm/routing.js'
 import { getMessageAdapter } from '@/core/message/adapter'
 import { getSenseAdapter } from '@/core/sense/adapter'
 import { getSense, loadMergedRuleSet } from '@/core/sense'
@@ -238,13 +239,15 @@ export class RuntimeResolver {
       throw new Error(`大脑 "${name}" 不存在，请在设置里检查`)
     }
 
-    const provider = brain.provider
-    const llmAdapter = getLLMAdapter(provider)
-    const messageAdapter = getMessageAdapter(provider)
-    const senseAdapter = getSenseAdapter(provider)
+    const adapterKey = resolveBrainAdapterKey(brain)
+    const llmAdapter = getLLMAdapter(adapterKey)
+    const messageAdapter = getMessageAdapter(adapterKey)
+    const senseAdapter = getSenseAdapter(adapterKey)
 
     if (!llmAdapter || !messageAdapter || !senseAdapter) {
-      throw new Error(`不支持 "${provider}" 这类大脑`)
+      throw new Error(
+        `不支持 provider=${brain.provider} protocol=${brain.protocol ?? 'legacy'} 这类大脑`,
+      )
     }
 
     return {

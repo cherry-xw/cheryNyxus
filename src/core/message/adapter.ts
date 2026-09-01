@@ -1,5 +1,6 @@
 import type { MediaKind } from '@/service/media/index.js'
 import type { ToolAuthorization } from '@/core/security/index.js'
+import type { LlmProtocol } from '@chery/protocol'
 
 /**
  * Role 类型
@@ -98,6 +99,9 @@ export interface LLMAttachment {
 export interface BuildMessagesOptions {
   /** Anthropic：true=完整协议（保留 redacted_thinking）；false=strip（默认） */
   anthropicOfficial?: boolean
+  protocol?: LlmProtocol
+  /** 当前模型按该协议回传历史思考内容的编码方式。 */
+  reasoningHistory?: 'assistant-field' | 'reasoning-item' | 'thinking-block' | 'omit'
 }
 
 /**

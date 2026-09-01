@@ -14,6 +14,7 @@ import { SupervisionLevel } from '@/core/config'
 import type { OAuth2Config } from '@/service/auth/index.js'
 import type { ThinkingLevel } from '@/core/llm/adapter'
 import { validateRoleAvatar } from '@/utils/roleAvatar.js'
+import { findLlmProviderDefinition, isLlmProtocol, type LlmProtocol } from '@chery/protocol'
 
 // .env 路径：源码运行时 __dirname = src/utils/（需 ../..），打包产物 __dirname = dist/（需 ..）。
 // dotenv.config() 不覆盖已存在的 process.env 变量，故开发/生产均可安全调用：
@@ -162,8 +163,10 @@ interface BrainConfig {
   key?: string
   /** 思考强度档位（ThinkingLevel）：off=关闭，low/medium/high/xhigh=强度递增。legacy boolean 兼容（loadConfig/readRawConfig 归一）。 */
   thinking?: ThinkingLevel
-  /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
+  /** 服务入口预设（官方厂商、中转站或 custom）。旧配置中也兼作 adapter 名。 */
   provider: string
+  /** HTTP 线协议；缺省时从旧 provider 推断，保证历史配置兼容。 */
+  protocol?: LlmProtocol
   /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
   rpm?: number
   /** true=URL 已含完整端点（如 /v1/messages），provider 完全不拼接、原样访问；
@@ -188,8 +191,8 @@ interface BrainConfig {
 /**
  * 把 brain.thinking 归一化为 ThinkingLevel（档位「显示词」）。
  * - legacy boolean：true→"on"、false→"off"
- * - undefined/缺省 → "off"（各模型在 model-thinking.yaml 中声明自己的档位，缺省一律不发参）
- * - 任意非空字符串（显示词，含自定义档位如 `max`）→ 原样；请求参数由 model-thinking.yaml 翻译
+ * - undefined/缺省 → "off"（模型目录未声明 wire 时一律不发思考参数）
+ * - 任意非空字符串（显示词，含自定义档位如 `max`）→ 原样；请求参数由 model-catalog.yaml 翻译
  * - 空串/其他非法值 → "off"（兜底）
  *
  * 在 loadConfig（运行时）和 readRawConfig（RPC 读，前端拿到的就是显示词）两处调用，
@@ -935,7 +938,18 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   for (const [name, cfg] of brainEntries) {
     if (!cfg?.model) errors.push(`llm.brain.${name}.model 必填`)
     if (!cfg?.provider) errors.push(`llm.brain.${name}.provider 必填`)
-    // thinking：接受 legacy boolean（true/false）或任意非空字符串显示词（由 model-thinking.yaml 翻译）；非法 fail loud
+    if (cfg?.protocol !== undefined && !isLlmProtocol(cfg.protocol)) {
+      errors.push(`llm.brain.${name}.protocol 不受支持：${String(cfg.protocol)}`)
+    }
+    if (cfg?.protocol && cfg?.provider) {
+      const providerDefinition = findLlmProviderDefinition(cfg.provider)
+      if (providerDefinition && !providerDefinition.protocols.includes(cfg.protocol)) {
+        errors.push(
+          `llm.brain.${name}.provider(${cfg.provider}) 不支持 protocol(${cfg.protocol})`,
+        )
+      }
+    }
+    // thinking：接受 legacy boolean（true/false）或任意非空字符串显示词（由 model-catalog wire 翻译）；非法 fail loud
     // cfg.thinking 类型已为 ThinkingLevel，运行时值可能是 legacy boolean/字符串，用 unknown 比较避开类型冲突
     const t = cfg?.thinking as unknown
     if (

@@ -31,12 +31,12 @@ export interface LLMOptions {
   url?: string;
   key?: string;
   thinking?: ThinkingLevel;              // 思考档位「显示词」：仅用于日志与 PreLLMRequest hook payload，不进请求体
-  thinkingParams?: Record<string, unknown>; // 显示词翻译出的请求参数片段（翻译表 .chery/model-thinking.yaml）；provider 原样 spread 进 body
+  thinkingParams?: Record<string, unknown>; // 显示词翻译出的 wire 参数片段（.chery/model-catalog.yaml）；provider 原样 spread
   rpm?: number;             // 每分钟最大请求数，provider 层滑动窗口限流，未配置则不限流
 }
 
 /** 思考档位「显示词」。off/on/low/medium/high/xhigh + 任意自定义词（YAML 声明）。
- *  显示词 → 请求参数的映射在 .chery/model-thinking.yaml 显式声明，chat middleware 统一翻译（见下）。 */
+ *  显示词 → 请求参数的映射在 .chery/model-catalog.yaml 的 wire 中声明，chat middleware 统一翻译。 */
 export type ThinkingLevel = "off" | "on" | "low" | "medium" | "high" | "xhigh" | (string & {});
 ```
 
@@ -54,7 +54,7 @@ config.yaml brain.<name>.thinking (显示词)
               → provider 只做 ...(options?.thinkingParams ?? {}) 直传，不内置映射
 ```
 
-**模型级档位（settings 渲染 + 请求翻译用）**：`.chery/model-thinking.yaml` 声明模型别名 → 档位规格数组（`{display: 显示词, params: 请求参数片段}`，数组顺序 = UI 弱→强顺序）；前端 BrainCard 经 `utils.thinkingLevels` RPC 查询当前 model 的可选**显示词**渲染「深度思考」旋钮（前端无感知 params）。未配置或未命中 → 兜底 `["off", "on"]`（片段均为空）。详见 [../utils/README.md#modelThinkingts--模型档位映射](../utils/README.md)。
+**模型级档位（settings 渲染 + 请求翻译用）**：`.chery/model-catalog.yaml` 的 `wire.<protocol>.thinking` 声明档位和参数片段；BrainCard 经 `utils.modelRecommendation` 获取档位。未知模型返回空档位并跟随服务默认。详见 [模型目录](../model-catalog.md)。
 
 **global.thinking AND 闸**：`config.yaml` 另有 `global.thinking: boolean`（全局总开关）。`chatMiddleware` 构造 `LLMOptions` 时做 AND：`global.thinking` 为 false 时强制 `"off"`，为 true 时取 `brain.thinking`。即全局开关关闭则一律不思考（`off` 显示词的 params 片段生效——若 YAML 为该模型声明了显式关闭片段如 `thinking:{type:disabled}`，总闸关闭也会显式下发）。
 

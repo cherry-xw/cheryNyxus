@@ -71,7 +71,7 @@ const brainSchema = z.object({
   url: z.string().optional(),
   model: z.string(),
   key: z.string().optional(),
-  /** thinking 显示词（任意非空字符串，由 model-thinking.yaml 翻译成请求参数）；兼容 legacy boolean，由 normalizeBrainThinking 归一。对齐 BrainConfig.thinking */
+  /** thinking 显示词（任意非空字符串，由 model-catalog wire 翻译）；兼容 legacy boolean。 */
   thinking: z.union([z.string().min(1), z.boolean()]).optional(),
   provider: z.string(),
   rpm: z.number().optional(),
@@ -298,35 +298,39 @@ export const requestSchemas = {
     primary: runtimeSelectionSchema,
     roles: z.record(nonEmptyString, runtimeSelectionSchema),
   }),
-  [Method.CHAT_CREATE]: z.object({
-    chatId: nonEmptyString.optional(),
-    /** T6 预设：给出则从 config.presets 解析编制，忽略 brain/senseGroup */
-    preset: nonEmptyString.optional(),
-    brain: nonEmptyString.optional(),
-    senseGroup: z.string().optional(),
-    mcpServers: mcpServersSchema,
-    parentChatId: nonEmptyString.optional(),
-    /** 空白复用检查开关（缺省 false = 启用检查）；true 强制新建 */
-    skipBlankReuse: z.boolean().optional(),
-  }).superRefine((value, ctx) => {
-    if (!value.preset && !value.brain) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['brain'],
-        message: 'preset 或 brain 至少提供一个',
-      })
-    }
-    if (
-      value.preset &&
-      (value.brain !== undefined || value.senseGroup !== undefined || value.mcpServers !== undefined)
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['preset'],
-        message: 'preset 与显式 runtime 字段互斥',
-      })
-    }
-  }),
+  [Method.CHAT_CREATE]: z
+    .object({
+      chatId: nonEmptyString.optional(),
+      /** T6 预设：给出则从 config.presets 解析编制，忽略 brain/senseGroup */
+      preset: nonEmptyString.optional(),
+      brain: nonEmptyString.optional(),
+      senseGroup: z.string().optional(),
+      mcpServers: mcpServersSchema,
+      parentChatId: nonEmptyString.optional(),
+      /** 空白复用检查开关（缺省 false = 启用检查）；true 强制新建 */
+      skipBlankReuse: z.boolean().optional(),
+    })
+    .superRefine((value, ctx) => {
+      if (!value.preset && !value.brain) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['brain'],
+          message: 'preset 或 brain 至少提供一个',
+        })
+      }
+      if (
+        value.preset &&
+        (value.brain !== undefined ||
+          value.senseGroup !== undefined ||
+          value.mcpServers !== undefined)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['preset'],
+          message: 'preset 与显式 runtime 字段互斥',
+        })
+      }
+    }),
   [Method.CHAT_LIST]: z
     .object({
       scope: z.enum(['stage', 'preset', 'history']),
@@ -570,6 +574,15 @@ export const requestSchemas = {
   // Utils 工具：provider/url 必填，key 可选（ollama 通常无需）
   [Method.UTILS_MODELS]: z.object({
     provider: nonEmptyString,
+    protocol: z
+      .enum([
+        'openai-chat-completions',
+        'openai-responses',
+        'anthropic-messages',
+        'ollama-chat',
+        'mock',
+      ])
+      .optional(),
     url: nonEmptyString,
     key: z.string().optional(),
     fullUrl: z.boolean().optional(),
@@ -577,6 +590,15 @@ export const requestSchemas = {
   // 真实最小 Provider 请求：使用未保存的 provider/url/key/model，不持久化
   [Method.UTILS_TEST_CONNECTION]: z.object({
     provider: z.string().min(1),
+    protocol: z
+      .enum([
+        'openai-chat-completions',
+        'openai-responses',
+        'anthropic-messages',
+        'ollama-chat',
+        'mock',
+      ])
+      .optional(),
     url: z.string().min(1),
     key: z.string().optional(),
     model: z.string().min(1),
@@ -593,8 +615,18 @@ export const requestSchemas = {
   // 编辑器列表：空参，返回系统可用的文本编辑器
   [Method.UTILS_EDITORS]: emptySchema,
   // 模型档位查询：1~N 个模型名，返回每模型支持的 ThinkingLevel 列表
-  [Method.UTILS_THINKING_LEVELS]: z.object({
-    models: z.array(z.string().min(1)),
+  [Method.UTILS_MODEL_RECOMMENDATION]: z.object({
+    model: z.string().min(1),
+    provider: z.string().min(1).optional(),
+    protocol: z
+      .enum([
+        'openai-chat-completions',
+        'openai-responses',
+        'anthropic-messages',
+        'ollama-chat',
+        'mock',
+      ])
+      .optional(),
   }),
   // 内置命令管理（settings 「指令」tab 后端；只读枚举）
   [Method.COMMAND_LIST]: emptySchema,

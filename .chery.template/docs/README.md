@@ -9,7 +9,7 @@
 | 子模块 | 文档 | 模板文件 | 一句话 |
 |--------|------|----------|--------|
 | 主配置 | [./config.md](./config.md) | [../config.yaml](../config.yaml) | LLM brain / sense_groups / roles / presets / server 全字段 |
-| 模型思考档位 | [./model-thinking.md](./model-thinking.md) | [../model-thinking.yaml](../model-thinking.yaml) | 模型 → 支持的 ThinkingLevel 子集映射 |
+| 模型目录 | [./model-catalog.md](./model-catalog.md) | [../model-catalog.yaml](../model-catalog.yaml) | 模型匹配、事实、推荐与 thinking wire 映射 |
 | 事件钩子 | [./hooks.md](./hooks.md) | [../hooks/](../hooks/) | 事件驱动 handler 配置（hooks.json + .sh） |
 | 错误排查 | [./error-troubleshooting.md](./error-troubleshooting.md) | — | AI 给用户报错时的「错误消息 → 设置项」对照表 |
 | Mock Provider 脚本 | [./mock.md](./mock.md) | [../mock/](../mock/) | 离线 LLM 响应脚本（content + senseCalls） |
@@ -45,7 +45,7 @@ cherryNyxus 角色：
 
 | 修改目标 | 必读 | 关联 |
 |----------|------|------|
-| 改 LLM brain | [./config.md#llmbrain-name-字段](./config.md#llmbrain-name-字段) + [./model-thinking.md](./model-thinking.md) | [../../docs/agent/provider.md](../../docs/agent/provider.md) |
+| 改 LLM brain | [./config.md#llmbrain-name-字段](./config.md#llmbrain-name-字段) + [./model-catalog.md](./model-catalog.md) | [../../docs/agent/provider.md](../../docs/agent/provider.md) |
 | 改感官监管等级 | [./config.md#sense_groupsgroup-字段](./config.md#sense_groupsgroup-字段) | [../../docs/core/sense.md](../../docs/core/sense.md) |
 | 加 / 改角色 | [./config.md#rolesrole-字段](./config.md#rolesrole-字段) + [./prompt.md](./prompt.md) | [../../docs/system-prompt.md](../../docs/system-prompt.md) |
 | 研究任意岗位并创建角色 | [./role-design.md](./role-design.md) + [./config.md#rolesrole-字段](./config.md#rolesrole-字段) | [../../docs/agent/role-design.md](../../docs/agent/role-design.md) |
@@ -54,7 +54,7 @@ cherryNyxus 角色：
 | 创建、重建或删除完整预设 | [../skills/preset-lifecycle/SKILL.md](../skills/preset-lifecycle/SKILL.md) | [../../docs/agent/config-manage.md](../../docs/agent/config-manage.md) |
 | 改服务端口 | [./config.md#server-字段](./config.md#server-字段) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 改文件夹浏览白名单 / 文件可见性 | [./config.md#workspace_browse-字段文件夹浏览协议](./config.md#workspace_browse-字段文件夹浏览协议) | [../../docs/protocol.md](../../docs/protocol.md) |
-| 加 model 档位映射 | [./model-thinking.md](./model-thinking.md) | — |
+| 加模型规则或 thinking 映射 | [./model-catalog.md](./model-catalog.md) | — |
 | 加 / 改钩子 | [./hooks.md](./hooks.md) | [../../docs/agent/hooks.md](../../docs/agent/hooks.md) |
 | 排查错误 / 用户报错 | [./error-troubleshooting.md](./error-troubleshooting.md) | [../../docs/error-conventions.md](../../docs/error-conventions.md) |
 | 加 mock 脚本 | [./mock.md](./mock.md) | [../../docs/mock.md](../../docs/mock.md) |

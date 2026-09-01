@@ -178,6 +178,6 @@ persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../.chery.templat
 
 ### 其他配置文件的备份
 
-`config_manage` 的配置动作管理 `config.yaml`；资产动作 `asset_get` / `asset_save` / `asset_archive` 另外管理 `prompt/*.md`、`skills/<name>/**` 和 `rule/*.yaml`。资产保存会把旧版本移到 `.chery/backups/assets/`，归档前检查当前配置引用并采用可恢复移动。`model-thinking.yaml` / `hooks/hooks.json` 当前由配置修订监控器纳入指纹与重启边界，但尚未作为 `config_manage` 资产写入目标。
+`config_manage` 的配置动作管理 `config.yaml`；资产动作 `asset_get` / `asset_save` / `asset_archive` 另外管理 `prompt/*.md`、`skills/<name>/**` 和 `rule/*.yaml`。资产保存会把旧版本移到 `.chery/backups/assets/`，归档前检查当前配置引用并采用可恢复移动。`model-catalog.yaml` / `hooks/hooks.json` 当前由配置修订监控器纳入指纹与重启边界，但尚未作为 `config_manage` 资产写入目标。
 
 配置修订、历史上下文纪元、角色/预设删除和维护模式的完整语义见 [配置修订、上下文纪元与删除生命周期](../context-epochs.md)。

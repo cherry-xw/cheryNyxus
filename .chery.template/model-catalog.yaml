@@ -1,0 +1,301 @@
+# 模型目录：匹配规则、事实信息、编辑器推荐，以及 thinking 协议映射。
+# 默认规则覆盖 MiniMax M2.7/M3、DeepSeek V3.2/R1/V4、GLM 5.3、GPT 5.5/5.6 系列。
+# 所有具体模型规则都在本文件中，可直接增删改；程序代码不内置厂商规则。
+# 默认规则按“主体模型名 + 版本”正则匹配，可兼容中转前缀和变体/日期后缀。
+version: 1
+
+# 未匹配具体规则时写入保守草稿：128K、关闭显式思考、保持工具兼容、关闭媒体；协议保持当前选择。
+unknown:
+  recommend:
+    contextLimit: 128000
+    thinking: off
+    capabilities:
+      toolCall: true
+      input: { image: false, video: false, audio: false }
+      generate: { image: false, video: false, audio: false }
+  capabilities:
+    toolCall: true
+    input: { image: false, video: false, audio: false }
+    generate: { image: false, video: false, audio: false }
+
+models:
+  - id: minimax-m3
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])minimax[-_.]?m3(?:$|[-_/:])', flags: i }
+    facts:
+      contextWindow: 1000000
+      protocols: [openai-responses, openai-chat-completions, anthropic-messages]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-responses
+      contextLimit: 250000
+      thinking: on
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-chat-completions:
+        thinking:
+          - { display: off, params: { thinking: { type: disabled }, reasoning_split: true } }
+          - { display: on, params: { thinking: { type: adaptive }, reasoning_split: true } }
+      openai-responses:
+        thinking:
+          - { display: off, params: { reasoning: { effort: none } } }
+          - { display: on, params: { reasoning: { effort: medium } } }
+      anthropic-messages:
+        thinking:
+          - { display: off, params: {} }
+          - { display: on, params: { thinking: { type: adaptive } } }
+
+  - id: minimax-m2.7
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])minimax[-_.]?m2[._-]?7(?:$|[-_/:])', flags: i }
+    facts:
+      contextWindow: 1000000
+      protocols: [openai-responses, openai-chat-completions, anthropic-messages]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-responses
+      contextLimit: 250000
+      thinking: on
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-chat-completions:
+        thinking:
+          - { display: off, params: { thinking: { type: disabled }, reasoning_split: true } }
+          - { display: on, params: { thinking: { type: adaptive }, reasoning_split: true } }
+      openai-responses:
+        thinking:
+          - { display: off, params: { reasoning: { effort: none } } }
+          - { display: on, params: { reasoning: { effort: medium } } }
+      anthropic-messages:
+        thinking:
+          - { display: off, params: {} }
+          - { display: on, params: { thinking: { type: adaptive } } }
+
+  - id: deepseek-v4
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])deepseek[-_.]?v4(?:$|[-_/:])', flags: i }
+    facts:
+      contextWindow: 1000000
+      protocols: [openai-chat-completions, openai-responses, anthropic-messages]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 250000
+      thinking: high
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - { display: off, params: { thinking: { type: disabled } } }
+          - { display: on, params: { thinking: { type: enabled } } }
+          - { display: low, params: { thinking: { type: enabled }, reasoning_effort: low } }
+          - { display: high, params: { thinking: { type: enabled }, reasoning_effort: high } }
+          - { display: max, params: { thinking: { type: enabled }, reasoning_effort: max } }
+      openai-responses:
+        reasoningHistory: reasoning-item
+        thinking:
+          - { display: off, params: { reasoning: { effort: none } } }
+          - { display: on, params: { reasoning: { effort: high } } }
+          - { display: low, params: { reasoning: { effort: low } } }
+          - { display: high, params: { reasoning: { effort: high } } }
+          - { display: max, params: { reasoning: { effort: max } } }
+      anthropic-messages:
+        reasoningHistory: thinking-block
+        thinking:
+          - { display: off, params: { thinking: { type: disabled } } }
+          - { display: on, params: { thinking: { type: enabled } } }
+          - { display: low, params: { thinking: { type: enabled }, output_config: { effort: low } } }
+          - { display: high, params: { thinking: { type: enabled }, output_config: { effort: high } } }
+          - { display: max, params: { thinking: { type: enabled }, output_config: { effort: max } } }
+
+  - id: deepseek-v3.2
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])deepseek[-_.]?v3[._-]?2(?:$|[-_/:])', flags: i }
+    facts:
+      contextWindow: 128000
+      protocols: [openai-chat-completions]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 128000
+      thinking: on
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - { display: off, params: { thinking: { type: disabled } } }
+          - { display: on, params: { thinking: { type: enabled } } }
+
+  - id: deepseek-r1
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])deepseek[-_.]?(?:reasoner|r1)(?:$|[-_/:])', flags: i }
+    facts:
+      contextWindow: 128000
+      protocols: [openai-chat-completions]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 128000
+      thinking: on
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - { display: on, params: {} }
+
+  - id: zhipu-glm-5.3
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])glm[-_.]?5[._-]?3(?:$|[-_/:])', flags: i }
+    facts:
+      protocols: [openai-chat-completions]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 128000
+      thinking: on
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - { display: off, params: { thinking: { type: disabled } } }
+          - { display: on, params: { thinking: { type: enabled } } }
+
+  - id: openai-gpt-5.5
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])gpt[-_.]?5[._-]?5(?:$|[-_/:])', flags: i }
+    facts:
+      protocols: [openai-responses, openai-chat-completions]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-responses
+      contextLimit: 128000
+      thinking: medium
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-responses:
+        thinking:
+          - { display: off, params: { reasoning: { effort: none } } }
+          - { display: low, params: { reasoning: { effort: low } } }
+          - { display: medium, params: { reasoning: { effort: medium } } }
+          - { display: high, params: { reasoning: { effort: high } } }
+          - { display: xhigh, params: { reasoning: { effort: xhigh } } }
+      openai-chat-completions:
+        thinking:
+          - { display: off, params: { reasoning_effort: none } }
+          - { display: low, params: { reasoning_effort: low } }
+          - { display: medium, params: { reasoning_effort: medium } }
+          - { display: high, params: { reasoning_effort: high } }
+          - { display: xhigh, params: { reasoning_effort: xhigh } }
+
+  - id: openai-gpt-5.6
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])gpt[-_.]?5[._-]?6(?:$|[-_/:])', flags: i }
+    facts:
+      protocols: [openai-responses, openai-chat-completions]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-responses
+      contextLimit: 128000
+      thinking: medium
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-responses:
+        thinking:
+          - { display: off, params: { reasoning: { effort: none } } }
+          - { display: low, params: { reasoning: { effort: low } } }
+          - { display: medium, params: { reasoning: { effort: medium } } }
+          - { display: high, params: { reasoning: { effort: high } } }
+          - { display: xhigh, params: { reasoning: { effort: xhigh } } }
+      openai-chat-completions:
+        thinking:
+          - { display: off, params: { reasoning_effort: none } }
+          - { display: low, params: { reasoning_effort: low } }
+          - { display: medium, params: { reasoning_effort: medium } }
+          - { display: high, params: { reasoning_effort: high } }
+          - { display: xhigh, params: { reasoning_effort: xhigh } }
+
+# 自定义规则示例（取消注释后追加到上面的 models 列表）：
+#   - id: private-model
+#     match:
+#       models:
+#         - { exact: private-model }
+#         - { glob: 'private-model-*' }
+#         - { regex: '^relay-(alpha|beta)-\\d+$', flags: i }
+#       providers: [newapi]
+#     facts:
+#       contextWindow: 1000000
+#       protocols: [openai-chat-completions]
+#       capabilities:
+#         toolCall: true
+#     recommend:
+#       protocol: openai-chat-completions
+#       contextLimit: 250000
+#       thinking: on
+#       capabilities:
+#         toolCall: true
+#     wire:
+#       openai-chat-completions:
+#         reasoningHistory: assistant-field
+#         thinking:
+#           - { display: off, params: { thinking: { type: disabled } } }
+#           - { display: on, params: { thinking: { type: enabled } } }

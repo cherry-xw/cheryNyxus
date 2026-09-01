@@ -23,6 +23,12 @@ const UNMANAGED_TEMPLATE_FILES = new Set(['config.yaml', MANIFEST_NAME])
 // Cherry Nexus prompts shipped by earlier releases, so replacing them is safe.
 // Any other existing content is treated as user-modified and preserved.
 const LEGACY_MANAGED_HASHES = {
+  // Early model-catalog adoption created this empty official seed before its
+  // template hash was tracked consistently. It is safe to upgrade; any file
+  // containing user rules has a different hash and remains preserved.
+  'model-catalog.yaml': new Set([
+    'd80f28437c18fae404a3d5ecd2d883dd4b2deec125174b32e6347c47bfb23b31',
+  ]),
   'prompt/cheryNyxus/cheryNyxus.md': new Set([
     '34e035f44692fbd6ad8d3af100e6cb8700b8fc4f2d3bc85f0e2923d8dc96345a',
     'faa58ce638570401d2c3e37799be6cae56e4400d8d1bce653357a55ecdc55eca',

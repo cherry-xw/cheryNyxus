@@ -37,6 +37,7 @@ llm:
       model: <YOUR_MODEL_NAME>
       key: $LLM_API_KEY
       provider: openai
+      protocol: openai-chat-completions
 media: {}
 sense_groups:
   chery_nexus:
