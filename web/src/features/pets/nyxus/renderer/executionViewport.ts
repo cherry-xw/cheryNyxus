@@ -28,6 +28,7 @@ export interface VisibleExecutionItems {
 export interface ExecutionViewportIndex {
   layout: Readonly<ExecutionLayout>
   nodeById: ReadonlyMap<string, PositionedExecutionNode>
+  primaryAxis: 'x' | 'y'
   edgeBuckets: ReadonlyMap<number, readonly PositionedExecutionEdge[]>
   longEdges: readonly PositionedExecutionEdge[]
   edgesByNode: ReadonlyMap<string, readonly PositionedExecutionEdge[]>
@@ -65,12 +66,16 @@ export function viewportSelectionContainsCamera(
   )
 }
 
-function firstNodeAtOrBelow(nodes: readonly PositionedExecutionNode[], minY: number): number {
+function firstNodeAtOrBelow(
+  nodes: readonly PositionedExecutionNode[],
+  axis: 'x' | 'y',
+  minimum: number,
+): number {
   let low = 0
   let high = nodes.length
   while (low < high) {
     const middle = (low + high) >>> 1
-    if (nodes[middle]!.y < minY) low = middle + 1
+    if (nodes[middle]![axis] < minimum) low = middle + 1
     else high = middle
   }
   return low
@@ -91,6 +96,7 @@ export function executionWorldBoundsIntersect(
 export function createExecutionViewportIndex(
   layout: Readonly<ExecutionLayout>,
 ): ExecutionViewportIndex {
+  const primaryAxis = layout.presentation === 'horizontal-signal' ? 'x' : 'y'
   const edgeBuckets = new Map<number, PositionedExecutionEdge[]>()
   const longEdges: PositionedExecutionEdge[] = []
   const edgesByNode = new Map<string, PositionedExecutionEdge[]>()
@@ -100,8 +106,15 @@ export function createExecutionViewportIndex(
       connected.push(edge)
       edgesByNode.set(nodeId, connected)
     }
-    const firstBucket = Math.floor(Math.min(edge.from.y, edge.to.y) / EXECUTION_EDGE_BUCKET_SIZE)
-    const lastBucket = Math.floor(Math.max(edge.from.y, edge.to.y) / EXECUTION_EDGE_BUCKET_SIZE)
+    const corridor = primaryAxis === 'x' ? edge.routeX : edge.routeY
+    const firstBucket = Math.floor(
+      Math.min(edge.from[primaryAxis], edge.to[primaryAxis], corridor ?? Number.POSITIVE_INFINITY) /
+        EXECUTION_EDGE_BUCKET_SIZE,
+    )
+    const lastBucket = Math.floor(
+      Math.max(edge.from[primaryAxis], edge.to[primaryAxis], corridor ?? Number.NEGATIVE_INFINITY) /
+        EXECUTION_EDGE_BUCKET_SIZE,
+    )
     if (lastBucket - firstBucket > MAX_EDGE_BUCKET_SPAN) {
       longEdges.push(edge)
       continue
@@ -114,6 +127,7 @@ export function createExecutionViewportIndex(
   }
   return {
     layout,
+    primaryAxis,
     nodeById: new Map(layout.nodes.map((node) => [node.id, node] as const)),
     edgeBuckets,
     longEdges,
@@ -143,13 +157,21 @@ export function selectVisibleExecutionItems(
   const bounds = cameraWorldBounds(camera, overscan)
   const index =
     suppliedIndex?.layout === layout ? suppliedIndex : createExecutionViewportIndex(layout)
-  const start = Math.max(0, firstNodeAtOrBelow(layout.nodes, bounds.minY) - 1)
+  const axis = index.primaryAxis
+  const minimum = axis === 'x' ? bounds.minX : bounds.minY
+  const maximum = axis === 'x' ? bounds.maxX : bounds.maxY
+  const start = Math.max(0, firstNodeAtOrBelow(layout.nodes, axis, minimum) - 1)
   const selected: PositionedExecutionNode[] = []
   const selectedIds = new Set<string>()
   for (let index = start; index < layout.nodes.length; index += 1) {
     const node = layout.nodes[index]!
-    if (node.y > bounds.maxY) break
-    if (node.x >= bounds.minX && node.x <= bounds.maxX) {
+    if (node[axis] > maximum) break
+    if (
+      node.x >= bounds.minX &&
+      node.x <= bounds.maxX &&
+      node.y >= bounds.minY &&
+      node.y <= bounds.maxY
+    ) {
       selected.push(node)
       selectedIds.add(node.id)
     }
@@ -164,8 +186,8 @@ export function selectVisibleExecutionItems(
   }
 
   const edgeCandidates = new Set<PositionedExecutionEdge>(index.longEdges)
-  const firstBucket = Math.floor(bounds.minY / EXECUTION_EDGE_BUCKET_SIZE)
-  const lastBucket = Math.floor(bounds.maxY / EXECUTION_EDGE_BUCKET_SIZE)
+  const firstBucket = Math.floor(minimum / EXECUTION_EDGE_BUCKET_SIZE)
+  const lastBucket = Math.floor(maximum / EXECUTION_EDGE_BUCKET_SIZE)
   for (let bucket = firstBucket; bucket <= lastBucket; bucket += 1) {
     for (const edge of index.edgeBuckets.get(bucket) ?? []) edgeCandidates.add(edge)
   }
@@ -174,9 +196,9 @@ export function selectVisibleExecutionItems(
   }
   const edges = [...edgeCandidates].filter((edge) => {
     const minX = Math.min(edge.from.x, edge.to.x, edge.routeX ?? Number.POSITIVE_INFINITY)
-    const minY = Math.min(edge.from.y, edge.to.y)
+    const minY = Math.min(edge.from.y, edge.to.y, edge.routeY ?? Number.POSITIVE_INFINITY)
     const maxX = Math.max(edge.from.x, edge.to.x, edge.routeX ?? Number.NEGATIVE_INFINITY)
-    const maxY = Math.max(edge.from.y, edge.to.y)
+    const maxY = Math.max(edge.from.y, edge.to.y, edge.routeY ?? Number.NEGATIVE_INFINITY)
     return (
       selectedIds.has(edge.from.id) ||
       selectedIds.has(edge.to.id) ||

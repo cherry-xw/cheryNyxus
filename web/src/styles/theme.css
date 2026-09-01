@@ -36,6 +36,12 @@
   --space-panel: 14px;
   --stage-glow-a: rgba(79, 70, 229, 0.1);
   --stage-glow-b: rgba(8, 145, 178, 0.08);
+  --cyber-desktop-bg: #eef2fa;
+  --cyber-window-bg: rgba(251, 252, 255, 0.97);
+  --cyber-title-bg: rgba(236, 241, 252, 0.96);
+  --cyber-bar-bg: rgba(241, 245, 253, 0.96);
+  --cyber-line: #4f46e5;
+  --cyber-line-soft: rgba(79, 70, 229, 0.24);
 
   /* 边框 / 遮罩 */
   --border: rgba(27, 35, 55, 0.14);
@@ -100,6 +106,12 @@
   --surface-soft: rgba(140, 152, 230, 0.08);
   --stage-glow-a: rgba(34, 211, 238, 0.14);
   --stage-glow-b: rgba(99, 102, 241, 0.13);
+  --cyber-desktop-bg: #070b17;
+  --cyber-window-bg: rgba(10, 16, 34, 0.97);
+  --cyber-title-bg: rgba(13, 22, 44, 0.96);
+  --cyber-bar-bg: rgba(7, 11, 24, 0.96);
+  --cyber-line: #22d3ee;
+  --cyber-line-soft: rgba(34, 211, 238, 0.25);
 
   /* 边框 / 遮罩 */
   --border: rgba(148, 163, 216, 0.14);

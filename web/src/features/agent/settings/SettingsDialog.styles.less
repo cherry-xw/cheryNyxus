@@ -62,7 +62,8 @@
 // ⚠ 定位必须改 absolute（相对 WindowFrame body 的 position:relative 铺满），不能保留基类的
 //   fixed inset:0 —— 否则透明遮罩覆盖整个窗口，拦截标题栏（-webkit-app-region: drag 拖拽 +
 //   最小化/最大化/关闭三键）的鼠标事件，三键灰色暗淡、无法点击。
-.settings-overlay.is-native {
+.settings-overlay.is-native,
+.settings-overlay.is-embedded {
   position: absolute;
   inset: 0;
   padding: 0;
@@ -70,13 +71,21 @@
   backdrop-filter: none;
 }
 // native 面：panel 100% 铺满（不再居中 1040px），去阴影/圆角/边框/transform 过渡
-.settings-panel.is-native {
+.settings-panel.is-native,
+.settings-panel.is-embedded {
   width: 100%;
+  max-width: none;
   height: 100%;
+  max-height: none;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
   border: 0;
   border-radius: 0;
   box-shadow: none;
   transition: none;
+  transform: none !important;
+  overflow: hidden;
 }
 .settings-error-detail {
   margin: 0;

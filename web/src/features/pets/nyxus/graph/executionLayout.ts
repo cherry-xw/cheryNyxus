@@ -14,6 +14,11 @@ export interface PositionedExecutionNode extends ExecutionNode {
   x: number
   y: number
   lane: number
+  visualBounds?: { left: number; top: number; right: number; bottom: number }
+  presentationPriority?: 'hero-user' | 'hero-final' | 'hero-error' | 'fold' | 'process'
+  protocolCode?: string
+  summary?: string
+  effect?: 'projection' | 'convergence' | 'corruption' | 'orbit' | 'trail'
 }
 
 export interface PositionedExecutionEdge extends Omit<ExecutionEdge, 'from' | 'to'> {
@@ -21,6 +26,8 @@ export interface PositionedExecutionEdge extends Omit<ExecutionEdge, 'from' | 't
   to: PositionedExecutionNode
   /** Lateral corridor reserved for this edge by the tree layout. */
   routeX?: number
+  /** Horizontal Signal presentation branch corridor. */
+  routeY?: number
 }
 
 export interface ExecutionLayout {
@@ -33,6 +40,8 @@ export interface ExecutionLayout {
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
   /** Reuse as hints on the next incremental layout to avoid branch side changes. */
   laneByChat: Map<string, number>
+  /** Omitted on legacy callers and interpreted as vertical-classic. */
+  presentation?: import('./executionPresentation').ExecutionPresentationMode
 }
 
 export interface ExecutionLayoutOptions {

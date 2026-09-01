@@ -7,3 +7,13 @@ export type {
   SubagentDisplayMode,
   WorkbenchWindowState,
 } from '@/stores/workspace/uiState'
+export type {
+  DiagnosticSeverity,
+  OpenWorkspaceWindowInput,
+  WorkspaceLayoutSnapshot,
+  WorkspaceWindowContext,
+  WorkspaceWindowGeometry,
+  WorkspaceWindowKind,
+  WorkspaceWindowLifecycle,
+  WorkspaceWindowState,
+} from '@/stores/workspace/windowModel'

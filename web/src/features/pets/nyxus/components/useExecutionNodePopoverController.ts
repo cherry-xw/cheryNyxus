@@ -40,12 +40,14 @@ export type ExecutionNodePopoverControllerProps = {
   variant?: 'popover' | 'paper'
   /** 标题栏可拖动（常驻弹窗）。拖动通过 drag emit 上报增量位移。 */
   draggable?: boolean
+  wrap?: boolean
 }
 export type ExecutionNodePopoverControllerEmits = {
   close: []
   selectCall: [callId: string]
   branch: [type: 'detail' | 'continuation', nodeId: string]
   drag: [delta: { x: number; y: number }]
+  toggleWrap: []
 }
 type ControllerEmit<T> = <K extends keyof T>(event: K, ...args: T[K] extends unknown[] ? T[K] : never) => void
 

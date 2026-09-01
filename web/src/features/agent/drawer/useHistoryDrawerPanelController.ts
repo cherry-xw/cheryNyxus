@@ -49,6 +49,10 @@ export type HistoryDrawerPanelControllerProps = {
   chatId: string
   /** 是否栈顶（唯一可交互层；仅栈顶显 ✕）。 */
   isTop: boolean
+  /** 嵌入 CyberWindow 时由外层拥有窗口外框，本面板仅保留内容工具栏。 */
+  embedded?: boolean
+  /** 嵌入态存在更深历史栈时，顶层按钮作为返回而非关闭窗口。 */
+  canGoBack?: boolean
   /** 层叠 z-index（280 + N×10 + 1，确保栈顶在上）。 */
   zIndex: number
 }

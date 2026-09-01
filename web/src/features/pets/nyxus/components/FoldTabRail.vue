@@ -1,13 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
+import { gsap } from 'gsap'
 import { useNyxusHost } from '../application/host'
 import type { ExecutionFoldMember } from '../graph/executionGraph'
-import {
-  FOLD_WHEEL_LAYER_CAPACITY,
-  foldTabForMember,
-  foldWheelView,
-  type FoldWheelSlot,
-} from '../graph/foldTabs'
+import { foldTabForMember } from '../graph/foldTabs'
 import { toolBatchDetail } from '../graph/toolBatchDetails'
 
 const props = defineProps<{
@@ -21,597 +17,294 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [memberId: string]
   interaction: [active: boolean]
+  overflow: [hidden: number]
 }>()
 const { agents, theme: themeStore } = useNyxusHost()
+const root = ref<HTMLElement | null>(null)
+const pinned = ref(false)
+const expanded = ref(false)
+const orbitPhase = ref(0)
+let context: gsap.Context | undefined
+let orbitTween: gsap.core.Tween | undefined
+let wiggleTween: gsap.core.Tween | undefined
+let selectionTween: gsap.core.Tween | undefined
+let pluginPromise: Promise<void> | undefined
+let wheelAccumulator = 0
+let stepActive = false
+const queuedSteps: number[] = []
 
-const WHEEL_THRESHOLD = 46
-const ANIMATION_MS = 220
-const LAYER_SWITCH_MS = 110
-const CARD_WIDTH = 144
-const CARD_HEIGHT = 38
-const STAGE_WIDTH = 216
-const STAGE_HEIGHT = 180
-const NODE_GAP = 18
+const RINGS = [
+  { capacity: 6, radius: 66 },
+  { capacity: 8, radius: 104 },
+  { capacity: 10, radius: 142 },
+] as const
+const WHEEL_THRESHOLD = 34
+const capacity = RINGS.reduce((sum, ring) => sum + ring.capacity, 0)
 
-type MemberSlot = FoldWheelSlot<ExecutionFoldMember>
-type FoldTab = ReturnType<typeof foldTabForMember>
-
-function displayTab(member: ExecutionFoldMember): FoldTab {
+function displayTab(member: ExecutionFoldMember) {
   const tab = foldTabForMember(member, themeStore.theme)
   const call = toolBatchDetail(member.displayNode)?.calls[0]
   if (!call) return tab
   const meta = agents.senseTools.find((tool) => tool.name === call.name)
+  return { ...tab, glyph: meta?.icon || tab.glyph, label: meta?.label?.trim() || call.name }
+}
+
+const visibleMembers = computed(() => {
+  const visible = props.members.slice(0, capacity)
+  const selected = props.members.find((member) => member.id === props.selectedMemberId)
+  if (selected && !visible.some((member) => member.id === selected.id)) visible[capacity - 1] = selected
+  return visible
+})
+const overflow = computed(() => Math.max(0, props.members.length - capacity))
+
+function seamPoint(angle: number, radius: number): { left: number; top: number } {
   return {
-    ...tab,
-    glyph: meta?.icon || tab.glyph,
-    label: meta?.label?.trim() || call.name,
+    left: 156 + Math.cos(angle) * radius - 21,
+    top: 166 + Math.sin(angle) * radius - 14,
   }
 }
 
-interface RenderedWheelCard {
-  key: string
-  item: ExecutionFoldMember
-  itemIndex: number
-  source?: MemberSlot
-  target?: MemberSlot
-  slot: MemberSlot
-  tab?: FoldTab
-  interactive: boolean
-}
-
-const dragging = ref(false)
-const animating = ref(false)
-const motionAtTarget = ref(false)
-const layersAtTarget = ref(false)
-const selectedIndex = computed(() => {
-  const index = props.members.findIndex((member) => member.id === props.selectedMemberId)
-  return index >= 0 ? index : Math.max(0, props.members.length - 1)
-})
-const visualIndex = ref(selectedIndex.value)
-const animationFromIndex = ref(visualIndex.value)
-const animationToIndex = ref(visualIndex.value)
-const animationDirection = ref<1 | -1>(1)
-const wheel = computed(() =>
-  foldWheelView(props.members, animating.value ? animationToIndex.value : visualIndex.value),
-)
-const renderedCards = computed<RenderedWheelCard[]>(() => {
-  const from = foldWheelView(
-    props.members,
-    animating.value ? animationFromIndex.value : visualIndex.value,
-  )
-  const to = foldWheelView(
-    props.members,
-    animating.value ? animationToIndex.value : visualIndex.value,
-  )
-  const sourceById = new Map(from.slots.map((slot) => [slot.item.id, slot]))
-  const targetById = new Map(to.slots.map((slot) => [slot.item.id, slot]))
-  const itemIds = [...sourceById.keys()]
-  for (const id of targetById.keys()) if (!sourceById.has(id)) itemIds.push(id)
-
-  return itemIds.flatMap((id) => {
-    const source = sourceById.get(id)
-    const target = targetById.get(id)
-    const slot = animating.value
-      ? layersAtTarget.value
-        ? (target ?? source)
-        : (source ?? target)
-      : target
-    const item = target?.item ?? source?.item
-    if (!slot || !item) return []
-    const realContent = slot.realContent && !!source && !!target
-    return [
-      {
-        key: id,
-        item,
-        itemIndex: target?.itemIndex ?? source?.itemIndex ?? 0,
-        source,
-        target,
-        slot,
-        tab: realContent ? displayTab(item) : undefined,
-        interactive: !animating.value && realContent && slot.interactive,
-      },
-    ]
+const satellites = computed(() => {
+  let cursor = 0
+  return RINGS.flatMap((ring, ringIndex) => {
+    const group = visibleMembers.value.slice(cursor, cursor + ring.capacity)
+    cursor += ring.capacity
+    return group.map((member, slot) => {
+      const angle =
+        -Math.PI / 2 +
+        (slot / Math.max(1, group.length)) * Math.PI * 2 +
+        ringIndex * 0.18 +
+        orbitPhase.value * (ringIndex % 2 ? -1 : 1)
+      const point = seamPoint(angle, ring.radius)
+      return {
+        member,
+        tab: displayTab(member),
+        ring: ringIndex,
+        style: {
+          left: `${point.left}px`,
+          top: `${point.top}px`,
+          '--sat-delay': `${ringIndex * 0.04 + slot * 0.018}s`,
+        } as CSSProperties,
+      }
+    })
   })
 })
 const navigationStyle = computed<CSSProperties>(() => ({
-  left: `${
-    props.side === 'right' ? props.anchorX + NODE_GAP : props.anchorX - STAGE_WIDTH - NODE_GAP
-  }px`,
-  top: `${props.anchorY - STAGE_HEIGHT / 2}px`,
+  left: `${props.side === 'right' ? props.anchorX + 18 : props.anchorX - 330}px`,
+  top: `${props.anchorY - 166}px`,
 }))
-// rail 在节点右侧时，stage 左缘朝向节点，active 卡仍落在 +x（右缘）会背对节点；
-// 水平取反后 active 落左缘贴节点，上方按钮随之到最左，与左侧渲染对称。
-const mirrorX = computed(() => (props.side === 'right' ? -1 : 1))
 
-let wheelAccumulator = 0
-let wheelResetTimer: ReturnType<typeof setTimeout> | undefined
-let layerTimer: ReturnType<typeof setTimeout> | undefined
-let finishTimer: ReturnType<typeof setTimeout> | undefined
-let animationFrame: number | undefined
-let dragStartY = 0
-let emitSelectionAtFinish = true
-let queuedTarget: { index: number; emitSelection: boolean } | undefined
-const queuedSteps: Array<1 | -1> = []
-
-function circularIndex(index: number): number {
-  const length = props.members.length
-  return length ? ((index % length) + length) % length : 0
+async function loadWiggle(): Promise<void> {
+  pluginPromise ??= Promise.all([import('gsap/CustomEase'), import('gsap/CustomWiggle')]).then(
+    ([easeModule, wiggleModule]) => {
+      gsap.registerPlugin(easeModule.CustomEase, wiggleModule.CustomWiggle)
+      wiggleModule.CustomWiggle.create('nyxus-orbit-wiggle', { wiggles: 7, type: 'random' })
+    },
+  )
+  return pluginPromise
 }
 
-function normalizedIndex(index: number, wrap: boolean): number {
-  if (props.members.length === 0) return 0
-  return wrap ? circularIndex(index) : Math.max(0, Math.min(index, props.members.length - 1))
-}
-
-function clearAnimationTimers(): void {
-  if (animationFrame !== undefined) cancelAnimationFrame(animationFrame)
-  if (layerTimer) clearTimeout(layerTimer)
-  if (finishTimer) clearTimeout(finishTimer)
-  animationFrame = undefined
-  layerTimer = undefined
-  finishTimer = undefined
-}
-
-function processQueue(): void {
-  if (animating.value || props.members.length === 0) return
-  if (queuedTarget) {
-    const target = queuedTarget
-    queuedTarget = undefined
-    beginTransition(target.index, target.index >= visualIndex.value ? 1 : -1, target.emitSelection)
-    return
-  }
-  const delta = queuedSteps.shift()
-  if (delta) beginTransition(circularIndex(visualIndex.value + delta), delta, true)
-}
-
-function finishTransition(): void {
-  clearAnimationTimers()
-  visualIndex.value = normalizedIndex(animationToIndex.value, false)
-  animationFromIndex.value = visualIndex.value
-  animating.value = false
-  motionAtTarget.value = false
-  layersAtTarget.value = false
-  const member = props.members[visualIndex.value]
-  if (emitSelectionAtFinish && member) emit('select', member.id)
-  void nextTick(processQueue)
-}
-
-function beginTransition(targetIndex: number, direction: 1 | -1, shouldEmit: boolean): void {
-  const target = normalizedIndex(targetIndex, false)
-  if (target === visualIndex.value) {
-    const member = props.members[target]
-    if (shouldEmit && member) emit('select', member.id)
-    void nextTick(processQueue)
-    return
-  }
-  clearAnimationTimers()
-  animationFromIndex.value = visualIndex.value
-  animationToIndex.value = target
-  animationDirection.value = direction
-  emitSelectionAtFinish = shouldEmit
-  motionAtTarget.value = false
-  layersAtTarget.value = false
-  animating.value = true
-
-  void nextTick(() => {
-    animationFrame = requestAnimationFrame(() => {
-      animationFrame = undefined
-      motionAtTarget.value = true
-      layerTimer = setTimeout(() => {
-        layerTimer = undefined
-        layersAtTarget.value = true
-      }, LAYER_SWITCH_MS)
-      finishTimer = setTimeout(finishTransition, ANIMATION_MS)
-    })
+function setExpanded(value: boolean): void {
+  expanded.value = value || pinned.value
+  emit('interaction', expanded.value)
+  if (!expanded.value || !root.value || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  void loadWiggle().then(() => {
+    const nodes = root.value?.querySelectorAll('.orbit-satellite')
+    if (nodes?.length) {
+      wiggleTween?.kill()
+      wiggleTween = gsap.fromTo(
+        nodes,
+        { x: 0 },
+        { x: 2, duration: 0.34, stagger: 0.012, ease: 'nyxus-orbit-wiggle', clearProps: 'transform' },
+      )
+    }
   })
 }
 
-function enqueueStep(delta: 1 | -1): void {
-  if (!animating.value) {
-    beginTransition(circularIndex(visualIndex.value + delta), delta, true)
-    return
-  }
-  const previous = queuedSteps.at(-1)
-  if (previous === -delta) queuedSteps.pop()
-  else queuedSteps.push(delta)
+function togglePinned(): void {
+  pinned.value = !pinned.value
+  setExpanded(pinned.value)
 }
 
-function requestIndex(index: number, wrap = true): void {
-  const target = normalizedIndex(index, wrap)
-  queuedSteps.splice(0)
-  if (animating.value) {
-    queuedTarget = { index: target, emitSelection: true }
-    return
-  }
-  beginTransition(target, target >= visualIndex.value ? 1 : -1, true)
+function select(memberId: string): void {
+  pinned.value = true
+  expanded.value = true
+  emit('interaction', true)
+  emit('select', memberId)
 }
 
-function selectCard(card: RenderedWheelCard): void {
-  if (!card.interactive || card.slot.role === 'active') return
-  enqueueStep(card.slot.id === 'C' ? -1 : 1)
+function flushStep(): void {
+  const direction = queuedSteps.shift()
+  if (!direction || props.members.length === 0) {
+    stepActive = false
+    return
+  }
+  stepActive = true
+  const current = Math.max(0, props.members.findIndex((member) => member.id === props.selectedMemberId))
+  const next = props.members[(current + direction + props.members.length) % props.members.length]
+  orbitTween?.kill()
+  orbitTween = gsap.to(orbitPhase, {
+    value: orbitPhase.value + direction * 0.28,
+    duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.34,
+    ease: 'power3.out',
+    onComplete: () => {
+      if (next) select(next.id)
+      stepActive = false
+      flushStep()
+    },
+  })
+}
+
+function enqueueStep(direction: number): void {
+  queuedSteps.push(direction)
+  if (!stepActive) flushStep()
 }
 
 function onWheel(event: WheelEvent): void {
-  event.preventDefault()
-  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1
-  wheelAccumulator += event.deltaY * unit
-  if (wheelResetTimer) clearTimeout(wheelResetTimer)
-  wheelResetTimer = setTimeout(() => (wheelAccumulator = 0), 160)
+  wheelAccumulator += Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
   if (Math.abs(wheelAccumulator) < WHEEL_THRESHOLD) return
+  event.preventDefault()
   const direction = wheelAccumulator > 0 ? 1 : -1
   wheelAccumulator = 0
   enqueueStep(direction)
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  const base = animating.value ? animationToIndex.value : visualIndex.value
-  const actions: Partial<Record<string, () => void>> = {
-    ArrowUp: () => enqueueStep(-1),
-    ArrowLeft: () => enqueueStep(-1),
-    ArrowDown: () => enqueueStep(1),
-    ArrowRight: () => enqueueStep(1),
-    PageUp: () => requestIndex(base - FOLD_WHEEL_LAYER_CAPACITY, false),
-    PageDown: () => requestIndex(base + FOLD_WHEEL_LAYER_CAPACITY, false),
-    Home: () => requestIndex(0, false),
-    End: () => requestIndex(props.members.length - 1, false),
-  }
-  const action = actions[event.key]
-  if (!action) return
+  const direction = ['ArrowRight', 'ArrowDown', 'PageDown'].includes(event.key)
+    ? 1
+    : ['ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key)
+      ? -1
+      : 0
+  if (!direction && event.key !== 'Escape' && event.key !== 'Enter' && event.key !== ' ') return
   event.preventDefault()
-  action()
-}
-
-function startDrag(event: PointerEvent): void {
-  if (event.button !== 0) return
-  dragging.value = true
-  dragStartY = event.clientY
-  ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
-  emit('interaction', true)
-}
-
-function drag(event: PointerEvent): void {
-  if (!dragging.value) return
-  const delta = event.clientY - dragStartY
-  if (Math.abs(delta) < 28) return
-  enqueueStep(delta < 0 ? 1 : -1)
-  dragStartY = event.clientY
-}
-
-function endDrag(event: PointerEvent): void {
-  dragging.value = false
-  const target = event.currentTarget as HTMLElement
-  if (target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId)
-  emit('interaction', false)
-}
-
-function leaveWheel(): void {
-  if (!dragging.value) emit('interaction', false)
-}
-
-function onFocusOut(event: FocusEvent): void {
-  const current = event.currentTarget as HTMLElement
-  if (event.relatedTarget instanceof Node && current.contains(event.relatedTarget)) return
-  emit('interaction', false)
-}
-
-function seamPoint(): { x: number; y: number } {
-  return { x: -42 * mirrorX.value, y: animationDirection.value > 0 ? 16 : -16 }
-}
-
-function cardPoint(card: RenderedWheelCard): { x: number; y: number; opacity: number } {
-  const slot = motionAtTarget.value ? card.target : card.source
-  if (slot) return { x: slot.x * mirrorX.value, y: slot.y, opacity: slot.opacity }
-  return { ...seamPoint(), opacity: 0 }
-}
-
-function cardStyle(card: RenderedWheelCard): CSSProperties {
-  const point = cardPoint(card)
-  return {
-    left: `${STAGE_WIDTH / 2 + point.x - CARD_WIDTH / 2}px`,
-    top: `${STAGE_HEIGHT / 2 + point.y - CARD_HEIGHT / 2}px`,
-    zIndex: card.slot.zIndex,
-    opacity: point.opacity,
+  if (event.key === 'Escape') {
+    pinned.value = false
+    setExpanded(false)
+  } else if (event.key === 'Enter' || event.key === ' ') {
+    togglePinned()
+  } else {
+    enqueueStep(direction)
   }
 }
 
-watch(selectedIndex, (index) => {
-  if (index === visualIndex.value || (animating.value && index === animationToIndex.value)) return
-  if (animating.value) {
-    queuedSteps.splice(0)
-    queuedTarget = { index, emitSelection: false }
-    return
-  }
-  beginTransition(index, index >= visualIndex.value ? 1 : -1, false)
+function showOverflow(): void {
+  pinned.value = true
+  setExpanded(true)
+  emit('overflow', overflow.value)
+}
+
+onMounted(() => {
+  if (!root.value) return
+  const media = gsap.matchMedia()
+  context = gsap.context(() => {
+    media.add('(prefers-reduced-motion: no-preference)', () => {
+      gsap.to('.orbit-ring-visual', {
+        rotation: (index) => (index % 2 ? -360 : 360),
+        duration: (index) => 22 + index * 8,
+        ease: 'none',
+        repeat: -1,
+        transformOrigin: '50% 50%',
+      })
+      gsap.to('.orbit-core-scan', { xPercent: 220, duration: 1.8, ease: 'none', repeat: -1 })
+    })
+  }, root.value)
+  context.add(() => media.revert())
 })
 
 watch(
-  () => props.members.length,
+  () => props.selectedMemberId,
   () => {
-    visualIndex.value = normalizedIndex(visualIndex.value, false)
-    animationFromIndex.value = normalizedIndex(animationFromIndex.value, false)
-    animationToIndex.value = normalizedIndex(animationToIndex.value, false)
+    if (!root.value || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const selected = root.value.querySelector('.is-selected')
+    if (selected) {
+      selectionTween?.kill()
+      selectionTween = gsap.fromTo(
+        selected,
+        { scale: 0.78, filter: 'brightness(2)' },
+        { scale: 1, filter: 'brightness(1)', duration: 0.42, ease: 'back.out(2.4)', clearProps: 'transform,filter' },
+      )
+    }
   },
 )
 
+onBeforeUnmount(() => context?.revert())
 onBeforeUnmount(() => {
-  if (wheelResetTimer) clearTimeout(wheelResetTimer)
-  clearAnimationTimers()
+  orbitTween?.kill()
+  wiggleTween?.kill()
+  selectionTween?.kill()
+  queuedSteps.length = 0
 })
 </script>
 
 <template>
   <nav
-    class="fold-wheel-navigation"
-    :class="{ 'is-dragging': dragging, 'is-animating': animating }"
+    ref="root"
+    class="fold-orbit-navigation"
+    :class="{ 'is-expanded': expanded, 'is-pinned': pinned }"
     :style="navigationStyle"
-    aria-label="过程组页签轮盘"
+    aria-label="折叠过程卫星轨道"
     tabindex="0"
-    @pointerenter="emit('interaction', true)"
-    @pointerleave="leaveWheel"
-    @focusin="emit('interaction', true)"
-    @focusout="onFocusOut"
+    @pointerenter="setExpanded(true)"
+    @pointerleave="setExpanded(false)"
+    @focusin="setExpanded(true)"
+    @focusout="setExpanded(false)"
+    @wheel="onWheel"
     @keydown="onKeydown"
-    @wheel.stop="onWheel"
   >
-    <div
-      class="fold-wheel-stage"
-      @pointerdown="startDrag"
-      @pointermove="drag"
-      @pointerup="endDrag"
-      @pointercancel="endDrag"
+    <button class="orbit-core" type="button" :aria-pressed="pinned" @click.stop="togglePinned">
+      <span class="orbit-core-scan" aria-hidden="true" />
+      <strong>FOLD</strong>
+      <small aria-label="折叠密度"><i v-for="ring in Math.min(5, Math.ceil(members.length / 5))" :key="ring" /></small>
+    </button>
+    <span
+      v-for="(ring, index) in RINGS"
+      :key="ring.capacity"
+      class="orbit-ring-visual"
+      :class="`ring-${index}`"
+      :style="{ width: `${ring.radius * 2}px`, height: `${ring.radius * 2}px` }"
+      aria-hidden="true"
+    />
+    <button
+      v-for="satellite in satellites"
+      :key="satellite.member.id"
+      type="button"
+      class="orbit-satellite"
+      :class="[`ring-${satellite.ring}`, { 'is-selected': satellite.member.id === selectedMemberId }]"
+      :style="satellite.style"
+      :aria-current="satellite.member.id === selectedMemberId ? 'page' : undefined"
+      :title="`${satellite.tab.label} · ${satellite.tab.status}`"
+      @click.stop="select(satellite.member.id)"
     >
-      <button
-        v-for="card in renderedCards"
-        :key="card.key"
-        type="button"
-        class="fold-wheel-card"
-        :class="[
-          `slot-${card.slot.id}`,
-          `role-${card.slot.role}`,
-          card.tab ? `kind-${card.tab.kind}` : undefined,
-          {
-            'is-real': !!card.tab,
-            'is-ghost': !card.tab,
-            'is-selected': card.slot.role === 'active',
-          },
-        ]"
-        :style="cardStyle(card)"
-        :disabled="!card.interactive"
-        :aria-hidden="card.tab ? undefined : true"
-        :aria-current="card.slot.role === 'active' ? 'page' : undefined"
-        :title="card.tab ? `${card.tab.label} · ${card.tab.status}` : undefined"
-        @pointerdown.stop
-        @click.stop="selectCard(card)"
-      >
-        <template v-if="card.tab">
-          <span class="wheel-card-glyph" :style="{ color: card.tab.accent }">
-            {{ card.tab.glyph }}
-          </span>
-          <span class="wheel-card-copy">
-            <strong>{{ card.tab.label }}</strong>
-            <small>{{ card.tab.status }}</small>
-          </span>
-          <span class="wheel-card-status" :style="{ background: card.tab.accent }" />
-          <span v-if="card.slot.role === 'active' && unreadCount" class="wheel-card-unread">
-            +{{ unreadCount }}
-          </span>
-        </template>
-        <template v-else>
-          <span class="ghost-index">{{ card.itemIndex + 1 }}</span>
-          <span class="ghost-line" />
-        </template>
-      </button>
-    </div>
-    <div class="fold-wheel-position" aria-live="polite">
-      <span>{{ wheel.selectedIndex + 1 }}/{{ wheel.itemCount }}</span>
-      <span v-if="wheel.layerCount > 1">
-        层 {{ wheel.layerIndex + 1 }}/{{ wheel.layerCount }}
-      </span>
-    </div>
+      <span :style="{ color: satellite.tab.accent }">{{ satellite.tab.glyph }}</span>
+      <b>{{ satellite.tab.label }}</b>
+      <i :style="{ background: satellite.tab.accent }" />
+    </button>
+    <button v-if="overflow" class="orbit-overflow" type="button" @click.stop="showOverflow">
+      <span>INSPECTOR</span><b>OVERFLOW</b>
+    </button>
+    <span v-if="unreadCount" class="orbit-unread">NEW SIGNAL</span>
   </nav>
 </template>
 
 <style scoped lang="less">
-.fold-wheel-navigation {
-  position: absolute;
-  z-index: 3;
-  width: 216px;
-  height: 204px;
-  outline: none;
-  user-select: none;
-}
-.fold-wheel-navigation:focus-visible .fold-wheel-stage {
-  filter: drop-shadow(0 0 6px var(--accent-glow));
-}
-.fold-wheel-stage {
-  position: absolute;
-  inset: 0 0 24px;
-  cursor: ns-resize;
-  touch-action: none;
-}
-.fold-wheel-navigation.is-dragging .fold-wheel-stage {
-  cursor: grabbing;
-}
-.fold-wheel-card {
-  position: absolute;
-  width: 144px;
-  height: 38px;
-  box-sizing: border-box;
-  margin: 0;
-  appearance: none;
-  border: 1px solid rgba(60, 68, 64, 0.18);
-  border-radius: 7px;
-  transition:
-    left 340ms cubic-bezier(0.22, 0.68, 0.2, 1),
-    top 340ms cubic-bezier(0.22, 0.68, 0.2, 1),
-    opacity 260ms ease,
-    border-color 160ms ease,
-    filter 160ms ease;
-}
-.fold-wheel-card.is-real {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 5px;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
-  color: #1f2328;
-  background: linear-gradient(100deg, rgba(255, 255, 255, 0.98), rgba(247, 244, 237, 0.96));
-  box-shadow: 0 7px 16px rgba(31, 35, 40, 0.12);
-  text-align: left;
-  cursor: pointer;
-}
-.fold-wheel-card.is-real:hover {
-  color: #000;
-  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
-  filter: brightness(1.02);
-}
-.fold-wheel-card.is-selected {
-  cursor: default;
-  border-color: var(--accent);
-  box-shadow:
-    0 9px 22px rgba(31, 35, 40, 0.14),
-    0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent),
-    0 0 16px var(--accent-glow);
-}
-.fold-wheel-card.is-ghost {
-  display: grid;
-  grid-template-columns: 22px 1fr;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 9px;
-  color: rgba(31, 35, 40, 0.42);
-  background: linear-gradient(100deg, rgba(255, 255, 255, 0.9), rgba(247, 244, 237, 0.74));
-  box-shadow: 0 5px 12px rgba(31, 35, 40, 0.1);
-  pointer-events: none;
-}
-.fold-wheel-card.role-transition {
-  border-color: rgba(60, 68, 64, 0.12);
-}
-.fold-wheel-card.role-back {
-  border-color: rgba(60, 68, 64, 0.08);
-}
-.wheel-card-glyph {
-  font:
-    700 13px/1 ui-monospace,
-    monospace;
-  text-align: center;
-}
-.wheel-card-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.wheel-card-copy strong,
-.wheel-card-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wheel-card-copy strong {
-  font:
-    700 9px/1.1 system-ui,
-    sans-serif;
-}
-.wheel-card-copy small {
-  color: rgba(31, 35, 40, 0.55);
-  font:
-    8px/1 ui-monospace,
-    monospace;
-}
-.wheel-card-status {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-}
-.wheel-card-unread {
-  position: absolute;
-  right: -5px;
-  top: -6px;
-  padding: 2px 4px;
-  color: #fff;
-  border-radius: 5px;
-  background: #d85b27;
-  font:
-    700 8px/1 ui-monospace,
-    monospace;
-}
-.ghost-index {
-  font:
-    700 8px/1 ui-monospace,
-    monospace;
-  text-align: center;
-}
-.ghost-line {
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, rgba(31, 35, 40, 0.28), transparent);
-}
-.fold-wheel-position {
-  position: absolute;
-  right: 3px;
-  bottom: 0;
-  display: flex;
-  gap: 8px;
-  color: rgba(31, 35, 40, 0.56);
-  font:
-    700 8px/1 ui-monospace,
-    monospace;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fold-wheel-card {
-    transition: none;
-  }
-}
-
-// 深色主题：沿用现行深蓝青轮盘（浅色默认已用白底深字）。
-[data-theme='dark'] {
-  .fold-wheel-navigation:focus-visible .fold-wheel-stage {
-    filter: drop-shadow(0 0 6px rgba(181, 255, 242, 0.32));
-  }
-  .fold-wheel-card {
-    border-color: rgba(107, 207, 247, 0.28);
-  }
-  .fold-wheel-card.is-real {
-    color: rgba(221, 244, 252, 0.82);
-    background: linear-gradient(100deg, rgba(8, 26, 39, 0.99), rgba(12, 38, 52, 0.96));
-    box-shadow: 0 7px 16px rgba(0, 0, 0, 0.3);
-  }
-  .fold-wheel-card.is-real:hover {
-    color: #fff;
-    border-color: rgba(181, 255, 242, 0.82);
-    filter: brightness(1.14);
-  }
-  .fold-wheel-card.is-selected {
-    border-color: #b5fff2;
-    box-shadow:
-      0 9px 22px rgba(0, 0, 0, 0.4),
-      0 0 0 1px rgba(181, 255, 242, 0.34),
-      0 0 16px rgba(107, 207, 247, 0.26);
-  }
-  .fold-wheel-card.is-ghost {
-    color: rgba(157, 216, 238, 0.44);
-    background: linear-gradient(100deg, rgba(6, 18, 29, 0.88), rgba(12, 31, 43, 0.72));
-    box-shadow: 0 5px 12px rgba(0, 0, 0, 0.22);
-  }
-  .fold-wheel-card.role-transition {
-    border-color: rgba(107, 207, 247, 0.2);
-  }
-  .fold-wheel-card.role-back {
-    border-color: rgba(107, 207, 247, 0.12);
-  }
-  .wheel-card-copy small {
-    color: rgba(202, 231, 244, 0.52);
-  }
-  .wheel-card-unread {
-    color: #07131e;
-    background: #ffca73;
-  }
-  .ghost-line {
-    background: linear-gradient(90deg, rgba(157, 216, 238, 0.35), transparent);
-  }
-  .fold-wheel-position {
-    color: rgba(157, 216, 238, 0.56);
-  }
-}
+.fold-orbit-navigation { position:absolute; z-index:3; width:312px; height:332px; outline:none; pointer-events:none; user-select:none; }
+.orbit-core { position:absolute; z-index:8; left:132px; top:142px; width:48px; height:48px; overflow:hidden; border:1px solid var(--accent); clip-path:polygon(22% 0,78% 0,100% 22%,100% 78%,78% 100%,22% 100%,0 78%,0 22%); background:color-mix(in srgb,var(--nx-bg) 88%,var(--accent) 12%); color:var(--accent); box-shadow:0 0 18px var(--accent-glow),inset 0 0 16px var(--accent-soft); font-family:var(--font-mono); pointer-events:auto; cursor:pointer; }
+.orbit-core strong,.orbit-core small { display:block; position:relative; z-index:1; }
+.orbit-core strong { font-size:9px; letter-spacing:.12em; }
+.orbit-core small { display:flex; justify-content:center; gap:2px; margin-top:5px; }
+.orbit-core small i { width:3px; height:3px; background:currentcolor; box-shadow:0 0 4px currentcolor; }
+.orbit-core-scan { position:absolute; inset:0 auto 0 -60%; width:45%; background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--accent) 55%,transparent),transparent); transform:skewX(-18deg); }
+.orbit-ring-visual { position:absolute; left:156px; top:166px; translate:-50% -50%; border:1px solid color-mix(in srgb,var(--accent) 28%,transparent); border-radius:50%; background:repeating-conic-gradient(from 0deg,color-mix(in srgb,var(--accent) 44%,transparent) 0 1deg,transparent 1deg 14deg); mask:radial-gradient(transparent calc(50% - 2px),#000 calc(50% - 1px) 50%,transparent calc(50% + 1px)); opacity:.38; pointer-events:none; }
+.orbit-satellite { position:absolute; z-index:6; width:42px; height:28px; display:grid; grid-template-columns:16px 1fr 3px; align-items:center; gap:3px; padding:3px 4px; border:1px solid color-mix(in srgb,var(--accent) 32%,var(--nx-border)); border-radius:0; background:color-mix(in srgb,var(--nx-bg) 92%,transparent); color:var(--nx-text); opacity:.18; scale:.72; pointer-events:none; transition:left 340ms cubic-bezier(.2,.8,.2,1),top 340ms cubic-bezier(.2,.8,.2,1),opacity .24s ease,scale .38s cubic-bezier(.2,.8,.2,1),filter .18s ease; transition-delay:var(--sat-delay); cursor:pointer; }
+.is-expanded .orbit-satellite,.is-pinned .orbit-satellite { opacity:1; scale:1; pointer-events:auto; }
+.orbit-satellite:hover { z-index:9; scale:1.18; filter:drop-shadow(0 0 8px var(--accent-glow)); }
+.orbit-satellite.is-selected { border-color:var(--accent); background:color-mix(in srgb,var(--nx-bg) 78%,var(--accent) 22%); box-shadow:0 0 12px var(--accent-glow); }
+.orbit-satellite span { font:700 10px/1 var(--font-mono); }
+.orbit-satellite b { overflow:hidden; color:var(--nx-text); text-overflow:ellipsis; white-space:nowrap; font:600 7px/1 var(--font-mono); }
+.orbit-satellite i { width:3px; height:12px; }
+.orbit-overflow,.orbit-unread { position:absolute; z-index:10; right:0; bottom:5px; font:700 8px/1 var(--font-mono); letter-spacing:.08em; }
+.orbit-overflow { display:flex; gap:7px; padding:6px 8px; border:1px solid var(--warning); background:var(--nx-bg); color:var(--warning); pointer-events:auto; cursor:pointer; }
+.orbit-unread { top:8px; right:8px; bottom:auto; color:var(--warning); text-shadow:0 0 8px currentcolor; }
+.fold-orbit-navigation:focus-visible .orbit-core { outline:2px solid var(--accent); outline-offset:3px; }
+@media (prefers-reduced-motion: reduce) { .orbit-satellite { transition:none; } }
 </style>

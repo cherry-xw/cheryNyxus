@@ -15,6 +15,8 @@ import { useAgentsStore } from '@/application/public'
 import HistoryDrawerPanel from './HistoryDrawerPanel.vue'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 
+const props = defineProps<{ embedded?: boolean }>()
+
 const drawerMotion = useOverlayTransitionHooks('drawer')
 
 const manager = useHistoryDrawerManager()
@@ -30,6 +32,7 @@ const drawerVisible = computed(
   () => !(drawerMode.value === 'workbench-docked' && agents.workbenchMinimized),
 )
 const overlayStyle = computed(() => {
+  if (props.embedded) return { zIndex: 1 }
   const anchor = agents.historyDrawerAnchor
   if (drawerMode.value !== 'workbench-docked' || !anchor) return { zIndex: BASE_Z }
   return {
@@ -90,18 +93,15 @@ watch(
     @enter-cancelled="drawerMotion.onEnterCancelled"
     @leave-cancelled="drawerMotion.onLeaveCancelled"
   >
-    <div
-      v-if="stack.length > 0"
-      v-show="drawerVisible"
-      key="history-overlay"
-    >
+    <div v-if="stack.length > 0" v-show="drawerVisible" key="history-overlay">
       <!-- ref 绑在原生 div 上，用于打开后聚焦。 -->
       <div
         ref="overlayRef"
         class="drawer-overlay"
         data-desktop-hit
         :class="{
-          'is-top-mask': isTopMask,
+          'is-top-mask': isTopMask && !embedded,
+          'is-embedded': embedded,
           'is-workbench-docked': drawerMode === 'workbench-docked',
         }"
         :style="overlayStyle"
@@ -113,6 +113,8 @@ watch(
           :key="i"
           :chat-id="cid"
           :is-top="i === stack.length - 1"
+          :embedded="embedded"
+          :can-go-back="embedded && i > 0"
           :z-index="BASE_Z + i * 10 + 1"
         />
       </div>
@@ -136,5 +138,11 @@ watch(
 .drawer-overlay.is-workbench-docked {
   overflow: hidden;
   border-radius: inherit;
+}
+
+.drawer-overlay.is-embedded {
+  position: absolute;
+  overflow: hidden;
+  background: transparent;
 }
 </style>

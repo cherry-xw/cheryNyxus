@@ -68,6 +68,45 @@
 .node-popover.is-actionable {
   border-color: color-mix(in srgb, var(--nx-cyan) 68%, transparent);
 }
+.node-popover.is-pinned {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+.node-popover.is-pinned:not(.is-wrap) :is(pre, code, .command-line, .file-path-line) {
+  overflow-wrap: normal;
+  white-space: pre;
+  word-break: normal;
+}
+.node-popover.is-pinned:not(.is-wrap) .popover-body {
+  overflow: auto;
+}
+.wrap-button {
+  margin-left: auto;
+  color: var(--nx-cyan);
+}
+@supports (color: contrast-color(red)) {
+  .question-symbol {
+    --nx-control-fill: color-mix(in srgb, var(--nx-purple) 56%, var(--nx-bg));
+    color: contrast-color(var(--nx-control-fill));
+    background: var(--nx-control-fill);
+  }
+  .node-command-token-kind {
+    --nx-control-fill: color-mix(in srgb, var(--nx-yellow) 48%, var(--nx-bg));
+    color: contrast-color(var(--nx-control-fill));
+    background: var(--nx-control-fill);
+  }
+}
+@media (forced-colors: active) {
+  .node-popover,
+  .status-pill,
+  .branch-head-action {
+    border: 1px solid CanvasText;
+    color: CanvasText;
+    background: Canvas;
+    forced-color-adjust: auto;
+  }
+}
 .popover-chrome {
   flex: 0 0 auto;
   box-shadow: 0 1px color-mix(in srgb, var(--nx-text) 5%, transparent);

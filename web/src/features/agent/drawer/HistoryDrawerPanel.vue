@@ -59,7 +59,6 @@ const {
   previewTooltip,
   previewTooltipStyle,
   promptSnap,
-  ref,
   removeOutgoing,
   retryOutgoing,
   runFeedbacks,
@@ -82,12 +81,14 @@ const {
 <template>
   <div
     class="drawer-panel"
+    :class="{ 'is-embedded': embedded }"
     :style="panelFullStyle"
     role="dialog"
     aria-modal="true"
     :aria-label="titleText"
   >
     <div
+      v-if="!embedded"
       class="resize-handle"
       role="separator"
       aria-orientation="vertical"
@@ -182,8 +183,15 @@ const {
             🎯
           </button>
         </div>
-        <button type="button" class="close-btn" aria-label="Close" @click="manager.closeTop()">
-          ✕
+        <button
+          v-if="!embedded || canGoBack"
+          type="button"
+          class="close-btn"
+          :aria-label="embedded ? '返回上一层历史' : '关闭历史'"
+          :title="embedded ? '返回上一层' : '关闭'"
+          @click="manager.closeTop()"
+        >
+          {{ embedded ? '←' : '✕' }}
         </button>
       </div>
     </header>

@@ -29,6 +29,10 @@ import {
   createIncrementalExecutionLayout,
   type ExecutionLayoutMode,
 } from '../graph/executionLayout'
+import {
+  projectExecutionPresentation,
+  type ExecutionPresentationMode,
+} from '../graph/executionPresentation'
 import { DETAIL_BRANCH_COLOR, edgeStyle } from '../graph/edgeStyles'
 import {
   accentForTheme,
@@ -76,6 +80,7 @@ export type MessageBranchTreeControllerProps = {
   detailBranchAvailable?: boolean
   detailBranchUnavailableReason?: string
   layoutMode?: ExecutionLayoutMode
+  presentationMode?: ExecutionPresentationMode
   foldMode?: 'none' | 'partial' | 'full' | 'participant'
   focusSourceChatId?: string
   focusInteractionId?: string
@@ -100,6 +105,7 @@ export type MessageBranchTreeControllerEmits = {
   interactionFocus: [focus: { chatId: string; interactionId?: string; anchorNodeId?: string }]
   /** 钢琴彩蛋连点序列触发 → 父级（工作台）打开钢琴浮层。 */
   'easter-egg': []
+  'presentation-fallback': [message: string]
 }
 type ControllerEmit<T> = <K extends keyof T>(
   event: K,
@@ -331,21 +337,30 @@ export function useMessageBranchTreeController(
   const layoutEngine = createIncrementalExecutionLayout()
   const endpointLayoutEngine = createIncrementalExecutionLayout()
   const layout = computed(() =>
-    layoutEngine.layout(graph.value, {
-      mode: props.layoutMode,
-      branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
-    }),
+    projectExecutionPresentation(
+      layoutEngine.layout(graph.value, {
+        mode: props.layoutMode,
+        branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
+      }),
+      props.presentationMode ?? 'horizontal-signal',
+    ),
   )
   const endpointLayout = computed(() =>
-    endpointLayoutEngine.layout(endpointGraph.value, {
-      mode: props.layoutMode,
-      branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
-    }),
+    projectExecutionPresentation(
+      endpointLayoutEngine.layout(endpointGraph.value, {
+        mode: props.layoutMode,
+        branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
+      }),
+      props.presentationMode ?? 'horizontal-signal',
+    ),
   )
   const canvas = useTreeCanvas({
     viewport: () => viewportRef.value,
     contentBounds: () => layout.value.bounds,
-    initialFocus: () => ({ x: 0, y: layout.value.bounds.minY }),
+    initialFocus: () =>
+      layout.value.presentation === 'horizontal-signal'
+        ? { x: layout.value.bounds.minX, y: layout.value.nodes[0]?.y ?? 0 }
+        : { x: 0, y: layout.value.bounds.minY },
     minScale: 0.32,
     maxScale: 2.2,
     padding: 18,
@@ -525,7 +540,7 @@ export function useMessageBranchTreeController(
         return [
           {
             id: card.id,
-            anchor: canvas.worldToScreen(node),
+            anchor: nodeScreenAnchor(node),
             panel: { width: 360, height: Math.min(heightLimit, 476) },
             anchorClearance: 23 * canvas.scale.value + 10,
             main: card.main,
@@ -583,7 +598,7 @@ export function useMessageBranchTreeController(
       const node = positioned.get(card.anchorNodeId)
       const state = crtWindowState.value.get(card.id)
       if (!node || !state) return []
-      const anchor = canvas.worldToScreen(node)
+      const anchor = nodeScreenAnchor(node)
       const panel = {
         width: 360,
         height: Math.min(Math.max(160, viewportSize.value.height - 96), 476),
@@ -690,7 +705,7 @@ export function useMessageBranchTreeController(
     return defaultNodePopovers.value.flatMap((model, order) => {
       const node = positioned.get(model.anchorNodeId)
       if (!node) return []
-      const anchor = canvas.worldToScreen(node)
+      const anchor = nodeScreenAnchor(node)
       const measured = actionPopoverHeights.value.get(model.id)
       const auto = anchoredPopoverPosition({
         anchor,
@@ -831,19 +846,33 @@ export function useMessageBranchTreeController(
     ].filter(Boolean)
     return `${nodeTitle(node)}，${skinForNode(node).label}${states.length ? `，${states.join('，')}` : ''}`
   }
-  function focusRelativeNode(nodeId: string, direction: -1 | 1 | 'first' | 'last'): void {
-    const ids = layout.value.nodes.filter(isInteractiveNode).map((node) => node.id)
-    if (ids.length === 0) return
-    const current = Math.max(0, ids.indexOf(nodeId))
-    const index =
-      direction === 'first'
-        ? 0
-        : direction === 'last'
-          ? ids.length - 1
-          : Math.min(ids.length - 1, Math.max(0, current + direction))
-    const nextId = ids[index]!
-    const node = layout.value.nodes.find((candidate) => candidate.id === nextId)
+  function focusRelativeNode(
+    nodeId: string,
+    direction: -1 | 1 | 'first' | 'last' | 'up' | 'down' | 'left' | 'right',
+  ): void {
+    const nodes = layout.value.nodes.filter(isInteractiveNode)
+    if (nodes.length === 0) return
+    const currentIndex = Math.max(0, nodes.findIndex((node) => node.id === nodeId))
+    const current = nodes[currentIndex]!
+    let node
+    if (direction === 'first') node = nodes[0]
+    else if (direction === 'last') node = nodes.at(-1)
+    else if (layout.value.presentation === 'horizontal-signal' && (direction === 'up' || direction === 'down')) {
+      const sign = direction === 'up' ? -1 : 1
+      node = nodes
+        .filter((candidate) => (candidate.y - current.y) * sign > 0)
+        .sort(
+          (a, b) =>
+            Math.abs(a.y - current.y) - Math.abs(b.y - current.y) ||
+            Math.abs(a.x - current.x) - Math.abs(b.x - current.x),
+        )[0]
+    } else {
+      const delta =
+        direction === -1 || direction === 'left' || direction === 'up' ? -1 : 1
+      node = nodes[Math.min(nodes.length - 1, Math.max(0, currentIndex + delta))]
+    }
     if (!node) return
+    const nextId = node.id
     const focusTarget = (): boolean => {
       const target = viewportRef.value?.querySelector<HTMLButtonElement>(
         `[data-execution-node-id="${CSS.escape(nextId)}"]`,
@@ -1158,6 +1187,15 @@ export function useMessageBranchTreeController(
   })
   /** pinned 详情弹窗被用户拖动后的手动位置；null = 跟随自动定位（贴节点右侧）。hover 临时详情不参与拖拽。 */
   const detailManualPos = ref<{ left: number; top: number } | null>(null)
+  const detailSize = ref({ width: 640, height: 520 })
+  const detailWrap = ref(false)
+  function nodeScreenAnchor(node: (typeof layout.value.nodes)[number]) {
+    const centre = canvas.worldToScreen(node)
+    const bounds = node.visualBounds
+    if (!bounds) return centre
+    const worldX = centre.x <= viewportSize.value.width / 2 ? bounds.right : bounds.left
+    return canvas.worldToScreen({ x: worldX, y: node.y })
+  }
   function dragDetailPopover(delta: { x: number; y: number }): void {
     const current = detailPlacement.value
     if (!current) return
@@ -1168,32 +1206,82 @@ export function useMessageBranchTreeController(
     const headerVisible = 32
     const left = Math.min(
       viewportSize.value.width - headerVisible,
-      Math.max(-480 + headerVisible, base.left + delta.x),
+      Math.max(-detailSize.value.width + headerVisible, base.left + delta.x),
     )
     const top = Math.min(viewportSize.value.height - headerVisible, Math.max(0, base.top + delta.y))
     detailManualPos.value = { left, top }
+  }
+  function startDetailResize(
+    direction: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
+    event: PointerEvent,
+  ): void {
+    if (!detailPinned.value || event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const placement = detailPlacement.value
+    if (!placement) return
+    const start = {
+      x: event.clientX,
+      y: event.clientY,
+      left: parseFloat(placement.style.left),
+      top: parseFloat(placement.style.top),
+      ...detailSize.value,
+    }
+    const move = (next: PointerEvent) => {
+      const dx = next.clientX - start.x
+      const dy = next.clientY - start.y
+      const west = direction.includes('w')
+      const north = direction.includes('n')
+      const maxWidth = Math.max(360, viewportSize.value.width - 24)
+      const maxHeight = Math.max(240, viewportSize.value.height - 24)
+      const width = Math.min(maxWidth, Math.max(360, start.width + (west ? -dx : direction.includes('e') ? dx : 0)))
+      const height = Math.min(maxHeight, Math.max(240, start.height + (north ? -dy : direction.includes('s') ? dy : 0)))
+      const left = Math.min(viewportSize.value.width - 32, Math.max(24 - width, west ? start.left + start.width - width : start.left))
+      const top = Math.min(viewportSize.value.height - 32, Math.max(0, north ? start.top + start.height - height : start.top))
+      detailSize.value = { width, height }
+      detailManualPos.value = { left, top }
+    }
+    const end = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', end)
+      window.removeEventListener('pointercancel', end)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end)
+    window.addEventListener('pointercancel', end)
+  }
+  function toggleDetailWrap(): void {
+    detailWrap.value = !detailWrap.value
   }
   const detailPlacement = computed(() => {
     const node = detailNode.value
     const viewport = viewportRef.value
     if (!node || !viewport) return undefined
-    const anchor = canvas.worldToScreen(node)
+    const anchor = nodeScreenAnchor(node)
     const auto = anchoredPopoverPosition({
       anchor,
       viewport: viewportSize.value,
-      panel: { width: 480, height: measuredDetailHeight.value || POPOVER_INITIAL_HEIGHT },
+      panel: detailPinned.value
+        ? detailSize.value
+        : { width: 480, height: measuredDetailHeight.value || POPOVER_INITIAL_HEIGHT },
       margin: 12,
     })
     const manual = detailPinned.value ? detailManualPos.value : undefined
     const left = manual?.left ?? auto.left
     const top = manual?.top ?? auto.top
     const placement = manual
-      ? anchor.x <= left + 480 / 2
+        ? anchor.x <= left + (detailPinned.value ? detailSize.value.width : 480) / 2
         ? ('left' as const)
         : ('right' as const)
       : auto.placement
     return {
-      style: { left: `${left}px`, top: `${top}px` },
+      style: {
+        left: `${left}px`,
+        top: `${top}px`,
+        ...(detailPinned.value
+          ? { width: `${detailSize.value.width}px`, height: `${detailSize.value.height}px` }
+          : {}),
+      },
       nodeOffset: { x: anchor.x - left, y: anchor.y - top },
       placement,
     }
@@ -1203,6 +1291,7 @@ export function useMessageBranchTreeController(
     detailPlacement.value ? oppositePopoverPlacement(detailPlacement.value.placement) : 'left',
   )
   const pixiScene = computed<PixiExecutionScene>(() => ({
+    presentation: layout.value.presentation ?? 'vertical-classic',
     nodes: visibleExecutionItems.value.nodes.map((node) => {
       const skin = skinForNode(node)
       return {
@@ -1212,6 +1301,12 @@ export function useMessageBranchTreeController(
         accent: accentForTheme(themeStore.theme, skin.key),
         glyph: skin.glyph,
         title: compactNodeTitle(node),
+        priority: node.presentationPriority,
+        protocolCode: node.protocolCode,
+        summary: node.summary,
+        effect: node.effect,
+        width: node.visualBounds ? node.visualBounds.right - node.visualBounds.left : undefined,
+        height: node.visualBounds ? node.visualBounds.bottom - node.visualBounds.top : undefined,
         ...(node.sourceFact?.termination
           ? { termination: terminationDisplay(node.sourceFact.termination).label }
           : {}),
@@ -1228,6 +1323,22 @@ export function useMessageBranchTreeController(
         revoked: node.status === 'revoked',
         deemphasized: !coreFlowProjection.value.coreNodeIds.has(node.id),
         detailBranch: coreFlowProjection.value.detailNodeIds.has(node.id),
+        shape:
+          node.kind === 'start'
+            ? 'start'
+            : node.kind === 'input'
+              ? 'command'
+              : node.kind === 'tool-batch'
+                ? 'chip'
+                : node.kind === 'spawn' || node.kind === 'dispatch'
+                  ? 'fork'
+                  : node.kind === 'return'
+                    ? 'merge'
+                    : node.kind === 'fold' || node.kind === 'pack'
+                      ? 'stack'
+                      : node.actor.kind === 'agent'
+                        ? 'core'
+                        : 'system',
       }
     }),
     edges: visibleExecutionItems.value.edges.map((edge) => {
@@ -1246,16 +1357,32 @@ export function useMessageBranchTreeController(
           !coreFlowProjection.value.coreNodeIds.has(edge.to.id),
         detailBranch,
         ...(edge.routeX === undefined ? {} : { routeX: edge.routeX }),
+        ...(edge.routeY === undefined ? {} : { routeY: edge.routeY }),
+        horizontal: layout.value.presentation === 'horizontal-signal',
+        fromHalfWidth: edge.from.visualBounds
+          ? (edge.from.visualBounds.right - edge.from.visualBounds.left) / 2
+          : undefined,
+        toHalfWidth: edge.to.visualBounds
+          ? (edge.to.visualBounds.right - edge.to.visualBounds.left) / 2
+          : undefined,
       }
     }),
   }))
   function gpuNodeHitStyle(node: (typeof layout.value.nodes)[number]): Record<string, string> {
     const position = canvas.worldToScreen(node)
-    const size = Math.max(30, 46 * canvas.scale.value)
+    const signal = layout.value.presentation === 'horizontal-signal'
+    const visualWidth = node.visualBounds
+      ? node.visualBounds.right - node.visualBounds.left + 12
+      : signal ? 104 : 46
+    const visualHeight = node.visualBounds
+      ? node.visualBounds.bottom - node.visualBounds.top + 12
+      : signal ? 56 : 46
+    const width = Math.max(30, visualWidth * canvas.scale.value)
+    const height = Math.max(30, visualHeight * canvas.scale.value)
     return {
-      width: `${size}px`,
-      height: `${size}px`,
-      transform: `translate3d(${position.x - size / 2}px, ${position.y - size / 2}px, 0)`,
+      width: `${width}px`,
+      height: `${height}px`,
+      transform: `translate3d(${position.x - width / 2}px, ${position.y - height / 2}px, 0)`,
     }
   }
   function defaultPopoverNodes(
@@ -1449,6 +1576,18 @@ export function useMessageBranchTreeController(
       void nextTick(resetLayout)
     },
   )
+  watch(
+    () => props.presentationMode,
+    () => {
+      closeNodeDetail()
+      void nextTick(resetLayout)
+      if (gpuRenderError.value) {
+        gpuRenderer?.destroy()
+        gpuRenderer = undefined
+        void nextTick(mountGpuRenderer)
+      }
+    },
+  )
   // 用户拖离后末尾真正追加了「新」节点（id 此前未出现在图中）才显示「回到底部」浮标。
   // 排除 transient 占位增删 / 投影折叠重排造成的末节点 id 抖动：新尾若是旧节点则不置位。
   // 首次 / 切根后 knownTailIds 为空，先建档不置位，避免把根节点误判为「新尾」。
@@ -1464,7 +1603,8 @@ export function useMessageBranchTreeController(
   )
   function returnToBottom(): void {
     hasNewTail.value = false
-    canvas.fitToView({ animate: true, duration: 460 })
+    const latest = layout.value.nodes.at(-1)
+    if (latest) canvas.panToPoint(latest)
   }
   function syncGpuScene(scene = pixiScene.value): void {
     if (props.suspended) return
@@ -1515,6 +1655,9 @@ export function useMessageBranchTreeController(
     } catch (error) {
       if (generation === gpuMountGeneration) {
         gpuRenderError.value = error instanceof Error ? error.message : 'GPU 渲染器初始化失败'
+        if (props.presentationMode === 'horizontal-signal') {
+          emit('presentation-fallback', gpuRenderError.value)
+        }
       }
       return
     }
@@ -1578,11 +1721,14 @@ export function useMessageBranchTreeController(
     detailMaxHeight,
     detailNode,
     detailPinned,
+    detailWrap,
     detailPlacement,
     detailRelatedEdges,
     dragActionPopover,
     dragCrt,
     dragDetailPopover,
+    startDetailResize,
+    toggleDetailWrap,
     focusCrt,
     focusNode,
     focusRelativeNode,

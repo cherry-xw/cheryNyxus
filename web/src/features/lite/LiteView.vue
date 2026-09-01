@@ -104,9 +104,9 @@ const {
   <div class="lite-view" :data-window="props.windowId" :style="nodeToneVars">
     <header class="lite-statusbar">
       <span class="lite-status-dot" :data-tone="liteStatus.tone" aria-hidden="true" />
-      <span class="lite-status-text">轻量状态：{{ liteStatus.text }}</span>
+      <span class="lite-status-text">LITE // {{ liteStatus.text }}</span>
       <span v-if="hydrationLabel" class="lite-hydration">{{ hydrationLabel }}</span>
-      <span class="lite-node-count">{{ history.nodes.length }} 节点</span>
+      <span class="lite-node-count">NODE {{ history.nodes.length.toString().padStart(3, '0') }}</span>
       <!-- v0.5.3 链路标签栏迁入状态条：顶层直接展示多个 Agent（主 Agent ✧ + 各子 Agent ◆ 角色名），
            点击切换 activeLane，与轨迹行头角色名按钮联动 -->
       <nav v-if="laneTabs.length > 1" class="lite-lane-bar" aria-label="切换链路">

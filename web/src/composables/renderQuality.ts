@@ -12,6 +12,10 @@ export interface RenderQualityProfile {
   graphDpr: number
   graphLabelResolution: number
   graphMotionFps: number
+  desktopNoiseOpacity: number
+  windowGlitchPixels: number
+  graphPulseSegments: number
+  graphEffectNodes: number
 }
 
 export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQualityProfile>> = {
@@ -25,6 +29,10 @@ export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQ
     graphDpr: 1.75,
     graphLabelResolution: 1.75,
     graphMotionFps: 30,
+    desktopNoiseOpacity: 0.2,
+    windowGlitchPixels: 5,
+    graphPulseSegments: 7,
+    graphEffectNodes: 48,
   },
   balanced: {
     tier: 'balanced',
@@ -36,6 +44,10 @@ export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQ
     graphDpr: 1.25,
     graphLabelResolution: 1.25,
     graphMotionFps: 24,
+    desktopNoiseOpacity: 0.12,
+    windowGlitchPixels: 3,
+    graphPulseSegments: 5,
+    graphEffectNodes: 28,
   },
   low: {
     tier: 'low',
@@ -47,6 +59,10 @@ export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQ
     graphDpr: 1,
     graphLabelResolution: 1,
     graphMotionFps: 18,
+    desktopNoiseOpacity: 0.04,
+    windowGlitchPixels: 1,
+    graphPulseSegments: 3,
+    graphEffectNodes: 12,
   },
 }
 

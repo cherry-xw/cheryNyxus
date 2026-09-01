@@ -38,6 +38,26 @@ function layoutWithNodes(count: number, withEdges = false): ExecutionLayout {
 }
 
 describe('GPU execution viewport selection', () => {
+  it('bounds a horizontal ten-thousand-node Signal scene by x', () => {
+    const layout = layoutWithNodes(10_000, true)
+    layout.presentation = 'horizontal-signal'
+    layout.nodes.forEach((node, index) => {
+      node.x = 76 + index * 136
+      node.y = 72
+    })
+    layout.nodes.sort((a, b) => a.x - b.x)
+    const visible = selectVisibleExecutionItems(
+      layout,
+      { scale: 0.32, x: -320_000, y: 100, width: 800, height: 600 },
+      new Set(),
+      createExecutionViewportIndex(layout),
+    )
+
+    expect(visible.nodes.length).toBeGreaterThan(0)
+    expect(visible.nodes.length).toBeLessThan(80)
+    expect(visible.edges.length).toBeLessThan(80)
+  })
+
   it('keeps mounted primitives bounded for a ten-thousand-node graph', () => {
     const visible = selectVisibleExecutionItems(layoutWithNodes(10_000), {
       scale: 0.32,

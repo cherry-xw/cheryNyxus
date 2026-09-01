@@ -74,7 +74,7 @@
 /* v0.4.2 修复：非 native 面 titlebar 为 absolute（inset:0 0 auto; height:40px）悬浮于 shell 顶部，
    且 .is-lite 未隐藏它（⚡ 切换钮/窗口控制在其上）——lite 内容必须从 titlebar 下方开始，
    否则 .lite-view 顶部被标题栏遮挡（lite-body 与 title 重叠、上下不对称的根因）。native 面无 titlebar，保持从顶。 */
-.workbench-shell.is-lite:not(.is-native) {
+.workbench-shell.is-lite:not(.is-shellless) {
   padding-top: 40px;
 }
 
@@ -107,6 +107,24 @@
   align-items: stretch;
   background: transparent;
   backdrop-filter: none;
+}
+.dialog-overlay.is-embedded {
+  position: absolute;
+  inset: 0;
+  align-items: stretch;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+.workbench-shell.is-shellless .nyxus-branch-top {
+  inset: 0;
+}
+.workbench-shell.is-shellless .workbench-ctx-bar {
+  top: 0;
+}
+.workbench-shell.is-shellless :deep(.pending-panel) {
+  top: 8px;
+  max-height: min(560px, calc(100% - 8px));
 }
 .workbench-shell.is-native .nyxus-branch-top {
   inset: 0;

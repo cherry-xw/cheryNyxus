@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { useSettingsDialogController, type SettingsDialogControllerProps } from './useSettingsDialogController'
+import {
+  useSettingsDialogController,
+  type SettingsDialogControllerProps,
+} from './useSettingsDialogController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import { useMotionPreference, type MotionPreference } from '@/composables/useMotionPreference'
 const props = defineProps<SettingsDialogControllerProps>()
@@ -12,17 +15,76 @@ const motionOptions: ReadonlyArray<{ value: MotionPreference; label: string }> =
   { value: 'reduced', label: '精简' },
 ]
 const {
-  ArrowLeft, ArrowRight, BrainsTab, Close, CommandsTab, GlobalTab, HooksTab,
-  McpTab, MediaTab, OVERLAY_Z_INDEX, OpenConfigDirButton, PluginsTab, PresetsTab,
-  RolesTab, SensesTab, SkeletonTab, SkillsTab, TABS, activeTab, agents, canLeft, canRight, close,
-  draft, dragging, envVars, error, errorLines, gotoErrorTab, hintLines, hooksState, indexCount,
-  isNative, isWaitingReconnect, loading, maximized, onError, onTitlePointerDown, overflowed,
-  panelStyles, plugins, prompts, ref, refreshPlugins, refreshRules, refreshSkillSources,
-  refreshSkills, renderedTab, rolesShadowMode, rules, save, savedHint, savedWarnings, saving,
+  ArrowLeft,
+  ArrowRight,
+  BrainsTab,
+  Close,
+  CommandsTab,
+  GlobalTab,
+  HooksTab,
+  McpTab,
+  MediaTab,
+  OVERLAY_Z_INDEX,
+  OpenConfigDirButton,
+  PluginsTab,
+  PresetsTab,
+  RolesTab,
+  SensesTab,
+  SkeletonTab,
+  SkillsTab,
+  TABS,
+  activeTab,
+  agents,
+  canLeft,
+  canRight,
+  close,
+  draft,
+  dragging,
+  envVars,
+  error,
+  errorLines,
+  gotoErrorTab,
+  hintLines,
+  hooksState,
+  indexCount,
+  isEmbedded,
+  isNative,
+  isShellless,
+  isWaitingReconnect,
+  loading,
+  maximized,
+  onError,
+  onTitlePointerDown,
+  overflowed,
+  panelStyles,
+  plugins,
+  prompts,
+  refreshPlugins,
+  refreshRules,
+  refreshSkillSources,
+  refreshSkills,
+  renderedTab,
+  rolesShadowMode,
+  rules,
+  save,
+  savedHint,
+  savedWarnings,
+  saving,
   scrollTabBar,
-  senseDocs, senseTools, setPanelEl, settingsThemeStyle, skillNames, skillSources, skills,
-  tabBarRef, tabSwitching, toggleMaximize, updateHooksHandlers, validatePresetWorkspace,
-  waitElapsed, workspaceWarnings,
+  senseDocs,
+  senseTools,
+  setPanelEl,
+  settingsThemeStyle,
+  skillNames,
+  skillSources,
+  skills,
+  tabBarRef,
+  tabSwitching,
+  toggleMaximize,
+  updateHooksHandlers,
+  validatePresetWorkspace,
+  waitElapsed,
+  workspaceWarnings,
 } = controller
 </script>
 
@@ -39,25 +101,30 @@ const {
       v-if="isNative || agents.settingsOpen"
       key="overlay"
       class="settings-overlay"
-      :class="{ 'is-native': isNative }"
+      :class="{ 'is-native': isNative, 'is-embedded': isEmbedded }"
       :style="{ zIndex: OVERLAY_Z_INDEX.modal }"
     >
       <div
         key="panel"
         :ref="setPanelEl"
         class="settings-panel"
-        :class="{ 'is-maximized': maximized, 'is-dragging': dragging, 'is-native': isNative }"
+        :class="{
+          'is-maximized': maximized,
+          'is-dragging': dragging,
+          'is-native': isNative,
+          'is-embedded': isEmbedded,
+        }"
         :style="panelStyles"
         role="dialog"
         aria-modal="true"
         aria-label="设置"
       >
-        <header v-if="!isNative" class="head" @pointerdown="onTitlePointerDown">
+        <header v-if="!isShellless" class="head" @pointerdown="onTitlePointerDown">
           <div class="title-row">
             <span class="title">设置</span>
             <OpenConfigDirButton @error="onError" />
           </div>
-          <div v-if="!isNative" class="head-actions">
+          <div class="head-actions">
             <div class="motion-preference" aria-label="界面动效强度">
               <span class="motion-preference-label">MOTION</span>
               <button
@@ -205,11 +272,7 @@ const {
               />
             </div>
             <div v-else-if="renderedTab === 'plugins'" class="tab-pane">
-              <PluginsTab
-                :plugins="plugins"
-                @error="onError"
-                @refresh-plugins="refreshPlugins"
-              />
+              <PluginsTab :plugins="plugins" @error="onError" @refresh-plugins="refreshPlugins" />
             </div>
           </template>
         </div>

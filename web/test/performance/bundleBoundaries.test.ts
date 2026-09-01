@@ -12,9 +12,19 @@ describe('frontend cold-start bundle boundaries', () => {
     expect(source).toContain("import('@/features/agent/workbench/WorkbenchDialog.vue')")
     expect(source).toContain("import('@/features/agent/drawer/HistoryDrawer.vue')")
     expect(source).toContain("import('@/features/agent/settings/SettingsDialog.vue')")
-    expect(source).toContain('<AgentDialog v-if="workspace.activeDialogChatId" />')
-    expect(source).toContain('<HistoryDrawer v-if="workspace.historyDrawerStack.length > 0" />')
-    expect(source).toContain('<SettingsDialog v-if="workspace.settingsOpen" />')
+    expect(source).toContain(
+      "defineAsyncComponent(() => import('@/features/desktop/CyberWindow.vue'))",
+    )
+    expect(source).toMatch(
+      /<CyberWindow[\s\S]*?v-if="browserSessionWindow"[\s\S]*?<AgentDialog v-if="workspace\.activeDialogChatId" embedded \/>[\s\S]*?<\/CyberWindow>/,
+    )
+    expect(source).toMatch(
+      /<CyberWindow[\s\S]*?v-if="browserHistoryWindow && workspace\.historyDrawerMode === 'overlay'"[\s\S]*?<HistoryDrawer embedded \/>[\s\S]*?<\/CyberWindow>/,
+    )
+    expect(source).toMatch(
+      /<CyberWindow[\s\S]*?v-if="browserSettingsWindow"[\s\S]*?<SettingsDialog v-if="workspace\.settingsOpen" embedded \/>[\s\S]*?<\/CyberWindow>/,
+    )
+    expect(source).toContain("workspace.historyDrawerMode === 'workbench-docked'")
     expect(source).not.toContain("from '@/features/pets/nyxus/public'")
   })
 

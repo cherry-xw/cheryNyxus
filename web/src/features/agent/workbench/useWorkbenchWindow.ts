@@ -103,6 +103,7 @@ export interface WorkbenchInitialGeometry {
 export function useWorkbenchWindow(options: {
   windowId?: string
   initialGeometry?: WorkbenchInitialGeometry
+  managed?: boolean
 } = {}): {
   shellRef: Ref<HTMLElement | null>
   mode: Ref<WorkbenchMode>
@@ -116,7 +117,8 @@ export function useWorkbenchWindow(options: {
   onResizePointerDown: (direction: ResizeDirection, event: PointerEvent) => void
 } {
   const windowId = options.windowId ?? 'default'
-  const persisted = readLayout(windowId)
+  const managed = options.managed ?? true
+  const persisted = managed ? readLayout(windowId) : undefined
   const initialSize = defaultWorkbenchSize(window.innerWidth, window.innerHeight)
   const centered = {
     x: (window.innerWidth - initialSize.width) / 2,
@@ -156,6 +158,7 @@ export function useWorkbenchWindow(options: {
   )
 
   function persist(): void {
+    if (!managed) return
     writeLayout(windowId, { mode: mode.value, ...position.value })
   }
 
@@ -222,8 +225,12 @@ export function useWorkbenchWindow(options: {
   }
 
   function onTitlePointerDown(event: PointerEvent): void {
-    if (mode.value !== 'window' || event.button !== 0) return
-    if ((event.target as Element | null)?.closest('button')) return
+    if (!managed || mode.value !== 'window' || event.button !== 0) return
+    if (
+      (event.target as Element | null)?.closest(
+        '[data-window-interactive],button,input,select,textarea,a,[role="button"],[role="switch"]',
+      )
+    ) return
     event.preventDefault()
     const start = { ...position.value }
     const startPointer = { x: event.clientX, y: event.clientY }
@@ -297,7 +304,9 @@ export function useWorkbenchWindow(options: {
     if (mode.value === 'window') persist()
   }
 
-  onMounted(() => window.addEventListener('resize', onViewportResize))
+  onMounted(() => {
+    if (managed) window.addEventListener('resize', onViewportResize)
+  })
   onBeforeUnmount(() => {
     window.removeEventListener('resize', onViewportResize)
     cleanupPointerInteraction?.()

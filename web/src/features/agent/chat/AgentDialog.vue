@@ -23,7 +23,11 @@ import { fmtTokens } from '../toolbar/contextBreakdown'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { useAgentsStore, useInteractionsStore } from '@/application/public'
 
-const props = withDefaults(defineProps<{ native?: boolean }>(), { native: false })
+const props = withDefaults(defineProps<{ native?: boolean; embedded?: boolean }>(), {
+  native: false,
+  embedded: false,
+})
+const shellless = computed(() => props.native || props.embedded)
 const agents = useAgentsStore()
 const interactions = useInteractionsStore()
 // 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 且非 pet/nyxus 来源时其蒙层带 blur，否则透明。
@@ -86,7 +90,6 @@ const {
   selectCommand,
   selectCommandTab,
   selectRoleMention,
-  resetEditor,
   removeMedia,
   onMediaSelected,
   senseEntries,
@@ -334,16 +337,15 @@ watch(chatId, (v) => {
 })
 
 // AgentComposer 的 3 个 DOM ref 桥接回 useAgentDialogOptions（selectCommand / commandMenuStyle 等依赖）。
-const { commandMenuStyle, editorRefFn, commandMenuRefFn, roleMenuRefFn } =
-  useComposerMenuPosition({
-    editorRef,
-    commandMenuRef,
-    roleMenuRef,
-    showCommandMenu,
-    showRoleMenu,
-    activeCommandIndex,
-    layoutDependencies: [activeCommandTab, commandOptions],
-  })
+const { commandMenuStyle, editorRefFn, commandMenuRefFn, roleMenuRefFn } = useComposerMenuPosition({
+  editorRef,
+  commandMenuRef,
+  roleMenuRef,
+  showCommandMenu,
+  showRoleMenu,
+  activeCommandIndex,
+  layoutDependencies: [activeCommandTab, commandOptions],
+})
 
 function selectQuickTarget(selection: QuickTargetSelection): void {
   if (quickTarget.value?.source === 'user' && selection.source === 'ai') return
@@ -530,7 +532,12 @@ defineExpose({
       v-if="dialogVisible"
       key="overlay"
       class="dialog-overlay"
-      :class="{ 'is-top-mask': isTopMask, 'is-floating': isFloatingOverlay, 'is-native': native }"
+      :class="{
+        'is-top-mask': isTopMask,
+        'is-floating': isFloatingOverlay,
+        'is-native': native,
+        'is-embedded': embedded,
+      }"
     >
       <!-- 快速发送 composer 弹窗 panel（header + 角色编制 + composer + 待处理抽屉） -->
       <div
@@ -543,7 +550,7 @@ defineExpose({
         aria-modal="true"
         :aria-label="`向 ${pet?.name ?? '智能体'} 发送消息`"
       >
-        <header v-if="!native" class="dialog-head" @pointerdown="onHeaderPointerDown">
+        <header v-if="!shellless" class="dialog-head" @pointerdown="onHeaderPointerDown">
           <span class="title">
             <span class="title-row">
               <el-tooltip
@@ -604,7 +611,7 @@ defineExpose({
         <WorkspaceSessionBrowser
           v-show="dialogView === 'attention'"
           :preset-id="quickPresetId"
-          :native="native"
+          :native="shellless"
           @tree="openWorkspaceTree"
         />
 

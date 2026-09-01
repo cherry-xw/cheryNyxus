@@ -18,7 +18,7 @@
 import { onMounted } from 'vue'
 import { useWindowFrame, lockWindowRootColorScheme } from './useWindowFrame'
 
-const props = defineProps<{
+defineProps<{
   title?: string
   /** 需用户操作（审批/提问）时标题栏闪烁；非聚焦窗由 store 置位，点击标题栏熄灭。 */
   attention?: boolean
@@ -103,10 +103,11 @@ onMounted(() => {
   inset: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--cyber-desktop-bg);
   color: var(--ink);
   // 主题边框：独立窗以暖橙 22% 描边区分窗与桌面
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border: 1px solid var(--cyber-line-soft);
+  border-radius: 0;
 }
 
 .window-frame-titlebar {
@@ -117,7 +118,9 @@ onMounted(() => {
   justify-content: space-between;
   padding-left: 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-  background: var(--panel);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 13%, transparent), transparent 38%),
+    var(--cyber-title-bg);
   user-select: none;
   // 系统级拖拽移动 + 双击最大化（Windows 惯例）；按钮区下方 no-drag 恢复点击
   -webkit-app-region: drag;
@@ -140,9 +143,11 @@ onMounted(() => {
 }
 
 .window-frame-title {
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
+  letter-spacing: 0.06em;
 }
 
 // 需用户操作（审批/提问）时标题栏暖橙外发光闪烁（与 WorkbenchDialog has-attention 同语义，
@@ -159,6 +164,13 @@ onMounted(() => {
   50% {
     box-shadow: 0 0 16px 1px color-mix(in srgb, var(--accent) 55%, transparent);
     border-bottom-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .window-frame-titlebar.has-attention {
+    animation: none;
+    border-bottom-color: var(--accent);
   }
 }
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useWorkbenchDialogController, type FoldMode, type WorkbenchDialogControllerProps } from './useWorkbenchDialogController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
+import WorkbenchViewToggle from './WorkbenchViewToggle.vue'
 const props = defineProps<WorkbenchDialogControllerProps>()
 const controller = useWorkbenchDialogController(props)
 const workbenchMotion = useOverlayTransitionHooks('dialog')
@@ -15,21 +16,21 @@ const {
   closeWorkbench, comboCommandGroups, commandMenuRefFn, commandMenuStyle, commandOptions,
   commandTabs, composerBranchDescription, composerBranchTitle, config, connection, createSession,
   creating, detailBranchAvailability, editorRefFn,
-  effectiveMode, error, executeSessionControl, fmtTokens, foldMode, foldToolOpen,
-  isNative, liteViewEnabled, liteViewVisible, loading, locateInteraction,
+  effectiveMode, error, executeSessionControl, fallbackToClassic, fmtTokens, foldMode, foldToolOpen,
+  isEmbedded, isNative, isShellless, liteViewVisible, loading, locateInteraction,
   matchingRoleMentions, maxControlState, mediaAttachments, mediaHint, mediaServicesByType,
   minimizeWorkbench, nyxusDraftActive, onDialogEditorKeydown, onEasterEgg, onEditorInput,
   onEditorPaste, onEditorSelectionChange, onMaximizeClick, onMediaSelected, onSessionDelete,
   onTitlePointerDown, onTreeEpochChange, onTreeInteractionFocus, onTreePromptSnapShow, openHistory,
-  orderedRoleSelections, paperMode, pauseWholeTask, pianoOpen, presetName, primaryRole,
-  primarySelection, ref, removeMedia, resizeDirections, roleListOpen, roleListPinned,
+  orderedRoleSelections, paperMode, pauseWholeTask, pianoOpen, presentationMode, presetName, primaryRole,
+  primarySelection, removeMedia, resizeDirections, roleListOpen, roleListPinned,
   roleMenuRefFn, roleSelections, roleUsages, rootSessions, scheduleFoldToolClose,
   scheduleRoleListClose, scheduleSessionListClose, selectBranchTarget, selectCommand,
   selectCommandTab, selectFoldMode, selectRoleMention, sendFromComposer, sending, senseEntries,
   senseGroups, senseTool, senseTools, sessionControl, sessionControlPending, sessionListLoading,
   sessionListOpen, showCommandMenu, showFoldTool, showRoleList, showRoleMenu, showSessionList,
   supportsTools, switchSession, taskControlPending, taskHasRunningBranches, taskTimeline, text,
-  toggleLiteView, toggleRoleList, toggleSessionList, topologyLayout, treeBreakdown,
+  toggleRoleList, toggleSessionList, topologyLayout, treeBreakdown,
   treeFocusInteractionId, treeFocusSourceChatId, treeFocusedInteraction, treeLoading,
   treePromptSnap, treeRootChatId, treeUsage, treeUsagePct, uploading, usageClass, win, windowBlink,
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
@@ -53,6 +54,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
     :class="{
       'is-windowed-workbench': effectiveMode === 'window',
       'is-native': isNative,
+      'is-embedded': isEmbedded,
     }"
     :style="{
       zIndex: OVERLAY_Z_INDEX.composer + (win.zOrder ?? 0),
@@ -73,7 +75,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
       ref="workbenchShellRef"
       class="workbench-shell"
       :class="
-        `is-${effectiveMode}` + (isNative ? ' is-native' : '') + (liteViewVisible ? ' is-lite' : '')
+        `is-${effectiveMode}` + (isShellless ? ' is-shellless' : '') + (isNative ? ' is-native' : '') + (liteViewVisible ? ' is-lite' : '')
       "
       :style="workbenchShellStyle"
       aria-label="节点树工作台"
@@ -86,6 +88,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           :root-chat-id="treeRootChatId"
           :timeline-override="taskTimeline"
           :layout-mode="topologyLayout ? 'topology' : 'timeline'"
+          :presentation-mode="presentationMode"
           :fold-mode="foldMode"
           :paper-mode="paperMode"
           :suspended="win.minimized"
@@ -99,6 +102,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           @branch="selectBranchTarget"
           @interaction-focus="onTreeInteractionFocus"
           @easter-egg="onEasterEgg"
+          @presentation-fallback="fallbackToClassic"
         />
         <div v-else class="workbench-empty-state" aria-live="polite">
           <span>暂无历史会话</span>
@@ -113,7 +117,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
       </div>
 
       <header
-        v-if="!isNative"
+        v-if="!isShellless"
         class="workbench-titlebar"
         :class="{
           'is-draggable': effectiveMode === 'window',
@@ -127,15 +131,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台'
         }}</small>
         <ConnectionStatusChip class="workbench-conn-chip" />
-        <!-- v1.0 切换入口改 el-switch：原 ⚡ 字符按钮存在 icon 歪斜、active 不突出问题，
-             开关选中态实心主色轨 + 白色滑块，激活/未激活一目了然（§2.1） -->
-        <el-switch
-          :model-value="liteViewEnabled"
-          class="workbench-lite-switch"
-          aria-label="切换极简 lite 视图"
-          title="切换极简 lite 视图"
-          @change="toggleLiteView"
-        />
+        <WorkbenchViewToggle :window-id="windowId" />
         <div class="workbench-window-actions" role="group" aria-label="窗口控制">
           <button
             type="button"
@@ -536,6 +532,26 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </el-tooltip>
           </div>
           <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
+            <el-tooltip
+              :content="presentationMode === 'horizontal-signal' ? '切换纵向 Classic 节点树' : '切换水平 Signal Grid'"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action is-presentation-action"
+                  data-view-action="presentation"
+                  :class="{ 'is-active': presentationMode === 'horizontal-signal' }"
+                  :aria-label="presentationMode === 'horizontal-signal' ? '当前水平 Signal Grid，点击切换 Classic' : '当前纵向 Classic，点击切换 Signal Grid'"
+                  :aria-pressed="presentationMode === 'horizontal-signal'"
+                  @click="presentationMode = presentationMode === 'horizontal-signal' ? 'vertical-classic' : 'horizontal-signal'"
+                >
+                  <span aria-hidden="true">⇥</span>
+                </button>
+              </span>
+            </el-tooltip>
             <!-- v1.0 布局切换从 nav 顶部移入视图与配置组，作为组内第一个按钮
                  （三组方案：主操作 / 会话 / 视图与配置，见 workbench-multi-window.md） -->
             <el-tooltip
