@@ -59,7 +59,11 @@ import SkeletonTab from './tabs/SkeletonTab.vue'
 import OpenConfigDirButton from './components/OpenConfigDirButton.vue'
 import type { SettingsSection } from '@/domain/shell/desktopBridge'
 
-export type SettingsDialogControllerProps = { native?: boolean; initialSection?: SettingsSection }
+export type SettingsDialogControllerProps = {
+  native?: boolean
+  embedded?: boolean
+  initialSection?: SettingsSection
+}
 
 const SETTINGS_TAB_BY_SECTION: Record<SettingsSection, TabKey> = {
   provider: 'brains',
@@ -73,6 +77,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   /** Electron 原生设置窗面（WindowFrame 外壳内）：铺满窗、去自绘拖拽/三键、关闭走 windowControl；
    *  浏览器 overlay 路径（native=false）逐字节不变。 */
   const isNative = computed(() => !!props.native && !!desktopBridge())
+  const isEmbedded = computed(() => !!props.embedded)
+  const isShellless = computed(() => isNative.value || isEmbedded.value)
   const bridge = desktopBridge()
   const draft = ref<ConfigDto | null>(null)
   const initialTab = props.initialSection
@@ -127,11 +133,11 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   /** 面板合并样式：主题色变量 + 拖动 transform。 */
   const panelStyles = computed(() => ({
     ...settingsThemeStyle.value,
-    ...panelStyle.value,
+    ...(isShellless.value ? {} : panelStyle.value),
   }))
   function onTitlePointerDown(e: PointerEvent): void {
     // native 面拖拽归 WindowFrame（-webkit-app-region: drag），本面板不做 pointer 拖
-    if (isNative.value) return
+    if (isShellless.value) return
     if (e.button !== 0) return
     if ((e.target as Element | null)?.closest('button')) return
     e.preventDefault()
@@ -812,6 +818,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     hooksState,
     indexCount,
     isNative,
+    isEmbedded,
+    isShellless,
     isWaitingReconnect,
     loading,
     maximized,

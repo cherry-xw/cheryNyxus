@@ -1,4 +1,6 @@
 .lite-view {
+  position: relative;
+  isolation: isolate;
   flex: 1;
   min-height: 0;
   height: 100%;
@@ -13,6 +15,49 @@
   font-size: 13px;
   /* 字重基线 400（用户强制规则）：lite 全部内容继承 400，杜绝任何加粗继承。 */
   font-weight: 400;
+}
+.lite-view::before,
+.lite-view::after {
+  content: '';
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+}
+.lite-view::before {
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent 0 3px, color-mix(in srgb, var(--accent) 4%, transparent) 4px);
+  mix-blend-mode: screen;
+}
+.lite-view::after {
+  top: -20%;
+  right: 0;
+  left: 0;
+  height: 18%;
+  background: linear-gradient(transparent, color-mix(in srgb, var(--accent) 12%, transparent), transparent);
+  animation: lite-crt-scan 5.4s linear infinite;
+}
+@keyframes lite-crt-scan { to { transform: translateY(700%); } }
+.lite-history-row.is-round-start,
+.lite-history-row.is-agent:last-child {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.lite-cluster-node {
+  position: relative;
+  overflow: visible;
+}
+.lite-cluster-node::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 1px solid currentColor;
+  opacity: 0;
+  transition: opacity .15s ease, transform .18s ease;
+}
+.lite-cluster-node:hover::after { opacity: .32; transform: translate(3px,-2px); }
+@media (prefers-reduced-motion: reduce) {
+  .lite-view::after { display: none; }
+  .lite-cluster-node::after { transition: none; }
 }
 
 /* 字重收敛：lite 视图内 <strong>（审批标题/历史 label 等）一律 400——lite 为轻量界面，

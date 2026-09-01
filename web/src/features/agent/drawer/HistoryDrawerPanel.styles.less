@@ -11,7 +11,24 @@
   flex-direction: column;
   background: var(--panel);
   border-left: 1px solid color-mix(in srgb, var(--accent) 46%, var(--border));
-  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18), -12px 0 28px var(--accent-glow);
+  box-shadow:
+    -12px 0 32px rgba(0, 0, 0, 0.18),
+    -12px 0 28px var(--accent-glow);
+}
+
+.drawer-panel.is-embedded {
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  box-shadow: none;
+
+  .drawer-head {
+    background: transparent;
+    box-shadow: none;
+  }
 }
 
 .resize-handle {
@@ -292,7 +309,8 @@
 }
 
 // 滚动顶部 / 底部按钮：堆叠在 drawer-body 右下角（绝对定位，不挤压列表布局）
-.scroll-actions {  position: absolute;
+.scroll-actions {
+  position: absolute;
   right: 14px;
   bottom: 18px;
   display: flex;

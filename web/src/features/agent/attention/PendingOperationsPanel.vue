@@ -19,6 +19,18 @@ import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
 import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 import { createApprovalPresentation } from '@/utils/approvalPresentation'
+import { gsap } from 'gsap'
+
+type FlipPlugin = (typeof import('gsap/Flip'))['Flip']
+let flipPluginPromise: Promise<FlipPlugin> | undefined
+
+function loadFlipPlugin(): Promise<FlipPlugin> {
+  flipPluginPromise ??= import('gsap/Flip').then(({ Flip }) => {
+    gsap.registerPlugin(Flip)
+    return Flip
+  })
+  return flipPluginPromise
+}
 
 const props = defineProps<{
   /** 当前工作台窗口的根会话 id（「当前树」范围判定；缺省则默认全部）。 */
@@ -42,6 +54,9 @@ export interface PendingInteractionFocus {
 const interactions = useInteractionsStore()
 const scope = ref<'tree' | 'all'>('tree')
 const expanded = ref(false)
+const panelRoot = ref<HTMLElement | null>(null)
+let flipTimeline: gsap.core.Timeline | undefined
+let flipLoading = false
 /** 当前选中（active）的交互 id：左栏按钮点击切换；一次只选一个。 */
 const activeId = ref<string>()
 const submitError = ref('')
@@ -165,8 +180,30 @@ watch(
   { immediate: true },
 )
 
-function toggleExpanded(): void {
-  expanded.value = !expanded.value
+async function toggleExpanded(): Promise<void> {
+  const element = panelRoot.value
+  if (!element || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    expanded.value = !expanded.value
+    return
+  }
+  if (flipLoading) return
+  flipLoading = true
+  try {
+    const Flip = await loadFlipPlugin()
+    const state = Flip.getState(element)
+    expanded.value = !expanded.value
+    requestAnimationFrame(() => {
+      flipTimeline?.kill()
+      flipTimeline = Flip.from(state, {
+        duration: 0.42,
+        ease: 'power3.inOut',
+        absolute: false,
+        simple: true,
+      })
+    })
+  } finally {
+    flipLoading = false
+  }
 }
 
 /** 工具能力解释（后端注入 sense 定义 description）。缺失时不展示。 */
@@ -360,11 +397,13 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   if (countdownTimer !== undefined) clearInterval(countdownTimer)
+  flipTimeline?.kill()
 })
 </script>
 
 <template>
   <section
+    ref="panelRoot"
     class="pending-panel"
     :class="{ 'is-expanded': expanded, 'has-tasks': scopedPending.length > 0 }"
     aria-label="待操作任务"
@@ -379,7 +418,7 @@ onBeforeUnmount(() => {
       >
         <span class="pending-panel-title">
           <span class="pending-panel-glyph" aria-hidden="true">!</span>
-          <strong>待操作</strong>
+          <strong>INTERRUPT // 待操作</strong>
           <b v-if="scopedPending.length" class="pending-panel-count">{{ scopedPending.length }}</b>
         </span>
         <span class="pending-panel-toggle-icon" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>

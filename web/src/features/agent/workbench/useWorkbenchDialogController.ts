@@ -33,11 +33,13 @@ import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
 import NyxusSessionList from './NyxusSessionList.vue'
 import { useWorkbenchViewPreferences, type FoldMode } from './useWorkbenchViewPreferences'
+import { visualEventWindow } from '@/features/desktop/visualEvents'
 
 export type WorkbenchDialogControllerProps = {
   windowId: string
   presetId: string
   native?: boolean
+  embedded?: boolean
 }
 export type { FoldMode } from './useWorkbenchViewPreferences'
 
@@ -58,11 +60,13 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
    *  保留自身 .workbench-titlebar 逐像素外观，只换驱动层（OS 拖拽 + windowControl 三键）。
    *  浏览器 overlay 路径（native=false）逐字节不变。 */
   const isNative = computed(() => !!props.native && !!desktopBridge())
+  const isEmbedded = computed(() => !!props.embedded && !isNative.value)
+  const isShellless = computed(() => isNative.value || isEmbedded.value)
   /** 原生窗最大化态回推（双击标题栏 / Win+↑ / 拖边缘）；非 Electron 下恒 false（no-op）。 */
   const { maximized: nativeMaximized, control: nativeWindowControl } = useWindowFrame()
   /** 生效窗口模式：native 恒全屏（窗口即画布）；浏览器跟随 useWorkbenchWindow 持久化模式。 */
   const effectiveMode = computed<WorkbenchMode>(() =>
-    isNative.value ? 'fullscreen' : workbenchMode.value,
+    isShellless.value ? 'fullscreen' : workbenchMode.value,
   )
   /** 最大化键显示态：native 跟随原生窗最大化回推，浏览器跟随 workbench 模式。 */
   const maxControlState = computed(() => {
@@ -130,7 +134,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     presetName: () => win.value?.presetName ?? null,
   })
   const isNyxus = computed(() => presetName.value === CHERY_NYXUS_PRESET)
-  const workbenchWindow = useWorkbenchWindow({ windowId: props.windowId })
+  const workbenchWindow = useWorkbenchWindow({
+    windowId: props.windowId,
+    managed: !isShellless.value,
+  })
   const {
     shellRef: workbenchShellRef,
     mode: workbenchMode,
@@ -150,7 +157,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     ],
     () => {
       // native 面几何由原生窗管理（main 进程持久化 bounds），本窗 store 记录不写
-      if (isNative.value) return
+      if (isShellless.value) return
       agents.setWorkbenchWindowGeometry(props.windowId, {
         mode: workbenchMode.value,
         position: { x: workbenchPosition.value.x, y: workbenchPosition.value.y },
@@ -167,7 +174,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     // 从标题栏下方起始、铺满内容区全宽，使历史抽屉盖住右侧 rail 按钮；标题栏窗口控制按钮保持可用。
     // native 面（Electron 原生窗）标题栏由 WindowFrame 外壳承载在 shell 之外，shell 顶部即内容区
     // 顶部，不再偏移；浏览器面自绘标题栏（40px）在 shell 内，需下移标题栏高。
-    const TITLEBAR_H = isNative.value ? 0 : 40
+    const TITLEBAR_H = isShellless.value ? 0 : 40
     return {
       top: rect.top + TITLEBAR_H,
       left: rect.left,
@@ -226,7 +233,20 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   )
   const nyxusDraftActive = ref(false)
   /** 当前预设的工作台布局与折叠偏好；右侧按钮选择写入前端本地存储。 */
-  const { topologyLayout, foldMode, paperMode } = useWorkbenchViewPreferences(props.presetId)
+  const { topologyLayout, foldMode, paperMode, presentationMode } =
+    useWorkbenchViewPreferences(props.presetId)
+  function fallbackToClassic(message: string): void {
+    if (presentationMode.value !== 'horizontal-signal') return
+    presentationMode.value = 'vertical-classic'
+    agents.openOrFocusWindow(
+      visualEventWindow({
+        type: 'business',
+        event: 'graph.fallback',
+        message: `Signal Grid 初始化失败，已回退 Classic：${message}`,
+        chatId: chatId.value ?? undefined,
+      }),
+    )
+  }
   const branchTarget = ref<{
     type: 'detail' | 'continuation'
     nodeId: string
@@ -795,8 +815,11 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     executeSessionControl,
     fmtTokens,
     foldMode,
+    fallbackToClassic,
     foldToolOpen,
     isNative,
+    isEmbedded,
+    isShellless,
     isNyxus,
     liteViewEnabled,
     liteViewVisible,
@@ -826,6 +849,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     openHistory,
     orderedRoleSelections,
     paperMode,
+    presentationMode,
     pauseWholeTask,
     pianoOpen,
     presetName,

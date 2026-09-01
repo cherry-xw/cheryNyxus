@@ -1,4 +1,5 @@
-.dialog-overlay.is-native {
+.dialog-overlay.is-native,
+.dialog-overlay.is-embedded {
   // 铺满 WindowFrame body（position:relative），不盖标题栏；绝对定位避免 fixed 覆盖整个 viewport。
   // 保持 flex（对齐 settings/workbench native 先例：仅 center→stretch）——display:block 会摧毁
   // 内部 flex 布局链，导致 .dialog-composer-content（角色编制/发送区）塌缩不可见。
@@ -26,12 +27,21 @@
     max-width: none;
     height: 100%;
     max-height: none;
+    min-width: 0;
+    min-height: 0;
+    box-sizing: border-box;
     margin: 0 !important;
     border: 0;
     border-radius: 0;
     box-shadow: none;
     // 与 WindowFrame 统一：内容区底色 --bg（标题栏 --panel 对比清晰），panel 卡片底色让位
     background: var(--bg);
+    overflow: hidden;
+  }
+
+  .dialog-panel::before,
+  .dialog-panel::after {
+    display: none;
   }
 
   // 发送内容区铺满剩余空间（角色编制在上、发送区占满），超高时内部滚动
@@ -43,5 +53,8 @@
     flex-direction: column;
     gap: 10px;
   }
+}
 
+.dialog-overlay.is-embedded .dialog-panel {
+  background: transparent;
 }

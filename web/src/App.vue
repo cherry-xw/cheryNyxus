@@ -10,7 +10,6 @@ import {
 } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
-import { useLiteViewToggle } from '@/features/agent/workbench/useLiteViewToggle'
 import { ElMessage, ElTooltip } from 'element-plus'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import {
@@ -28,6 +27,7 @@ import {
 import { startApplicationRuntime } from '@/application/runtime/startApplicationRuntime'
 import { renderQualityTier } from '@/composables/renderQuality'
 import { installPerformanceDiagnostics } from '@/utils/performanceDiagnostics'
+import { visualEventWindow } from '@/features/desktop/visualEvents'
 
 // Electron 的每种 surface 与浏览器 overlay 互斥。重界面按实际状态下载，避免冷启动时
 // 同时解析设置、历史、会话和 Pixi 工作台，并确保关闭后组件实例及其图形资源可回收。
@@ -37,12 +37,22 @@ const WindowFrame = defineAsyncComponent(() => import('@/features/desktop/Window
 const ConnectionStatusChip = defineAsyncComponent(
   () => import('@/features/desktop/ConnectionStatusChip.vue'),
 )
+const CyberDesktopHost = defineAsyncComponent(
+  () => import('@/features/desktop/CyberDesktopHost.vue'),
+)
+const CyberWindow = defineAsyncComponent(() => import('@/features/desktop/CyberWindow.vue'))
+const CyberCapabilityPanel = defineAsyncComponent(
+  () => import('@/features/desktop/CyberCapabilityPanel.vue'),
+)
 const AgentDialog = defineAsyncComponent(() => import('@/features/agent/chat/AgentDialog.vue'))
 const WorkbenchDialog = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchDialog.vue'),
 )
 const WorkbenchCapsule = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchCapsule.vue'),
+)
+const WorkbenchViewToggle = defineAsyncComponent(
+  () => import('@/features/agent/workbench/WorkbenchViewToggle.vue'),
 )
 const HistoryDrawer = defineAsyncComponent(
   () => import('@/features/agent/drawer/HistoryDrawer.vue'),
@@ -74,12 +84,42 @@ const surfaceSettingsSection = query.get('settingsSection') as
 const surfaceSource = query.get('source') as 'pet' | 'history' | 'nyxus' | null
 const surfaceView = query.get('view') as 'composer' | 'attention' | 'tree' | null
 
+const reportedRunFailures = new Set<string>()
+watch(
+  () =>
+    Object.values(chatSessions.sessionsById).flatMap((session) => {
+      const failure = session.run.errorFact
+      if (!failure) return []
+      return [
+        {
+          key: `${session.chatId}:${failure.tracingId ?? failure.code}:${failure.message}`,
+          chatId: session.chatId,
+          failure,
+        },
+      ]
+    }),
+  (failures) => {
+    if (surface) return
+    for (const { key, chatId, failure } of failures) {
+      if (reportedRunFailures.has(key)) continue
+      reportedRunFailures.add(key)
+      workspace.openOrFocusWindow(
+        visualEventWindow({
+          type: 'failure',
+          source: String(failure.source ?? 'run'),
+          message: failure.message,
+          code: failure.code,
+          chatId,
+        }),
+      )
+    }
+  },
+  { deep: true },
+)
+
 /** workbench 原生窗 lite 极简视图切换（§2.1）：标题栏 ⚡ 与 WorkbenchDialog 共享 useLiteViewToggle，
  * 保证 Electron 面（surface=workbench）与浏览器面状态一致。非 workbench 面 windowId 兜底无害。
  * 顶层解构为 ref 变量以便模板自动 unwrap（对象属性访问不自动 unwrap）。 */
-const { liteViewEnabled: workbenchLiteEnabled, toggleLiteView: toggleWorkbenchLiteView } =
-  useLiteViewToggle(surfacePresetId ?? 'workbench')
-
 // 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
 provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager())
 
@@ -114,6 +154,118 @@ const composerAttentionActive = computed(() => agentDialogRef.value?.isAttention
 const composerAttentionCount = computed(
   () => agentDialogRef.value?.getWorkspaceAttentionCount() ?? 0,
 )
+
+watch(
+  () => workspace.activeDialogChatId,
+  (chatId, previous) => {
+    if (chatId) {
+      workspace.openOrFocusWindow({
+        resourceKey: `session:${chatId}`,
+        title: composerTitle.value,
+        context: { kind: 'session', chatId },
+        geometry: { width: 860, height: 680 },
+      })
+    } else if (previous) {
+      workspace.beginWorkspaceWindowClose(`window:session:${previous}`)
+    }
+  },
+  { immediate: true },
+)
+watch(
+  () => workspace.settingsOpen,
+  (open) => {
+    if (open) {
+      workspace.openOrFocusWindow({
+        resourceKey: 'settings',
+        title: 'SYSTEM CONFIGURATION',
+        context: { kind: 'settings', section: workspace.settingsSection ?? undefined },
+        geometry: { width: 1120, height: 760 },
+      })
+    } else {
+      workspace.beginWorkspaceWindowClose('window:settings')
+    }
+  },
+  { immediate: true },
+)
+watch(
+  [() => workspace.topHistoryChatId, () => workspace.historyDrawerMode],
+  ([chatId, mode], previous) => {
+    const previousChatId = previous?.[0]
+    if (chatId && mode === 'overlay') {
+      workspace.openOrFocusWindow({
+        resourceKey: `history:${chatId}`,
+        title: 'ARCHIVE // CONVERSATION TRACE',
+        context: { kind: 'history', rootChatId: chatId },
+        geometry: { width: 1040, height: 760 },
+      })
+    } else if (previousChatId) {
+      workspace.beginWorkspaceWindowClose(`window:history:${previousChatId}`)
+    }
+  },
+  { immediate: true },
+)
+
+const browserSessionWindow = computed(() =>
+  [...workspace.workspaceWindowsList]
+    .reverse()
+    .find(
+      (window) =>
+        window.context.kind === 'session' &&
+        (window.context.chatId === workspace.activeDialogChatId || window.lifecycle === 'closing'),
+    ),
+)
+const browserSettingsWindow = computed(() => workspace.workspaceWindows['window:settings'])
+const browserHistoryWindow = computed(() =>
+  [...workspace.workspaceWindowsList]
+    .reverse()
+    .find(
+      (window) =>
+        window.context.kind === 'history' &&
+        (window.context.rootChatId === workspace.topHistoryChatId ||
+          window.lifecycle === 'closing'),
+    ),
+)
+const browserCapabilityWindows = computed(() =>
+  workspace.workspaceWindowsList.filter((window) =>
+    ['attention', 'routing', 'roles'].includes(window.context.kind),
+  ),
+)
+const browserWorkbenchWindows = computed(() =>
+  workspace.workbenchWindowsList.flatMap((workbench) => {
+    const window = workspace.workspaceWindows[`window:graph:${workbench.id}`]
+    return window ? [{ workbench, window }] : []
+  }),
+)
+
+function requestCyberWindowClose(id: string): void {
+  workspace.beginWorkspaceWindowClose(id)
+}
+
+function minimizeCyberWindow(id: string): void {
+  const window = workspace.workspaceWindows[id]
+  if (window?.context.kind === 'graph') {
+    workspace.setWorkbenchWindowMinimized(window.context.presetId, true)
+    return
+  }
+  workspace.minimizeWorkspaceWindow(id)
+}
+
+function finishCyberWindowClose(id: string): void {
+  const window = workspace.workspaceWindows[id]
+  if (
+    window?.context.kind === 'session' &&
+    workspace.activeDialogChatId === window.context.chatId
+  ) {
+    workspace.activeDialogChatId = null
+  }
+  if (window?.context.kind === 'settings') workspace.settingsOpen = false
+  if (window?.context.kind === 'history') workspace.closeAllHistory()
+  if (window?.context.kind === 'graph') {
+    workspace.closeWorkbenchWindow(window.context.presetId)
+    return
+  }
+  workspace.removeWorkspaceWindow(id)
+}
 /** composer 窗内按需水合会话树（与 PetStage 点击路径同语义；desktop 面不再负责）。 */
 function hydrateComposerChat(chatId: string): void {
   void chatSessions
@@ -294,7 +446,9 @@ async function bootstrap(): Promise<void> {
     <AgentDialog ref="agentDialogRef" native />
   </WindowFrame>
   <div v-else-if="surface === 'history'" class="history-native"><HistoryDrawer /></div>
-  <LoginSurface v-else-if="surface === 'login'" />
+  <WindowFrame v-else-if="surface === 'login'" title="ACCESS CONTROL // NYXUS_OS">
+    <LoginSurface />
+  </WindowFrame>
   <WindowFrame v-else-if="surface === 'settings'" title="设置">
     <!-- 标题位置扩展点：title-actions slot（标题右侧、三键左侧）——settings 面放「打开配置文件夹」 -->
     <template #title-actions>
@@ -317,13 +471,7 @@ async function bootstrap(): Promise<void> {
       <!-- lite 极简视图切换（§2.1）：native 面 WorkbenchDialog 内部 titlebar 被 v-if="!isNative"
            隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useLiteViewToggle；
            v1.0 改 el-switch（原 ⚡ 按钮 icon 歪斜、active 不突出） -->
-      <el-switch
-        :model-value="workbenchLiteEnabled"
-        class="workbench-lite-switch"
-        aria-label="切换极简 lite 视图"
-        title="切换极简 lite 视图"
-        @change="toggleWorkbenchLiteView"
-      />
+      <WorkbenchViewToggle :window-id="surfacePresetId ?? 'workbench'" />
     </template>
     <WorkbenchDialog
       ref="wbRef"
@@ -335,20 +483,94 @@ async function bootstrap(): Promise<void> {
   </WindowFrame>
   <template v-else>
     <!-- 浏览器完整单页（不受 Electron 迁移影响）：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉 -->
-    <PetStage />
-    <NyxusCore />
-    <AgentDialog v-if="workspace.activeDialogChatId" />
-    <WorkbenchDialog
-      v-for="win in workspace.workbenchWindowsList"
-      :key="win.id"
-      :window-id="win.id"
-      :preset-id="win.presetId"
-    />
-    <template v-for="win in workspace.workbenchWindowsList" :key="`capsule-${win.id}`">
-      <WorkbenchCapsule v-if="win.minimized" :window-id="win.id" />
-    </template>
-    <HistoryDrawer v-if="workspace.historyDrawerStack.length > 0" />
-    <SettingsDialog v-if="workspace.settingsOpen" />
+    <CyberDesktopHost>
+      <PetStage transparent />
+      <NyxusCore />
+      <CyberWindow
+        v-if="browserSessionWindow"
+        :window="browserSessionWindow"
+        @focus="workspace.focusWorkspaceWindow"
+        @opened="workspace.markWorkspaceWindowOpen"
+        @minimize="minimizeCyberWindow"
+        @request-close="requestCyberWindowClose"
+        @closed="finishCyberWindowClose"
+        @geometry="workspace.setWorkspaceWindowGeometry"
+        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+      >
+        <AgentDialog v-if="workspace.activeDialogChatId" embedded />
+      </CyberWindow>
+      <CyberWindow
+        v-for="window in browserCapabilityWindows"
+        :key="window.id"
+        :window="window"
+        @focus="workspace.focusWorkspaceWindow"
+        @opened="workspace.markWorkspaceWindowOpen"
+        @minimize="minimizeCyberWindow"
+        @request-close="requestCyberWindowClose"
+        @closed="finishCyberWindowClose"
+        @geometry="workspace.setWorkspaceWindowGeometry"
+        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+      >
+        <CyberCapabilityPanel :window="window" />
+      </CyberWindow>
+      <CyberWindow
+        v-if="browserHistoryWindow && workspace.historyDrawerMode === 'overlay'"
+        :window="browserHistoryWindow"
+        @focus="workspace.focusWorkspaceWindow"
+        @opened="workspace.markWorkspaceWindowOpen"
+        @minimize="minimizeCyberWindow"
+        @request-close="requestCyberWindowClose"
+        @closed="finishCyberWindowClose"
+        @geometry="workspace.setWorkspaceWindowGeometry"
+        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+      >
+        <HistoryDrawer embedded />
+      </CyberWindow>
+      <CyberWindow
+        v-if="browserSettingsWindow"
+        :window="browserSettingsWindow"
+        @focus="workspace.focusWorkspaceWindow"
+        @opened="workspace.markWorkspaceWindowOpen"
+        @minimize="minimizeCyberWindow"
+        @request-close="requestCyberWindowClose"
+        @closed="finishCyberWindowClose"
+        @geometry="workspace.setWorkspaceWindowGeometry"
+        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+      >
+        <SettingsDialog v-if="workspace.settingsOpen" embedded />
+      </CyberWindow>
+      <CyberWindow
+        v-for="entry in browserWorkbenchWindows"
+        :key="entry.window.id"
+        :window="entry.window"
+        @focus="workspace.focusWorkbenchWindow(entry.workbench.id)"
+        @opened="workspace.markWorkspaceWindowOpen"
+        @minimize="minimizeCyberWindow"
+        @request-close="requestCyberWindowClose"
+        @closed="finishCyberWindowClose"
+        @geometry="workspace.setWorkspaceWindowGeometry"
+        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+      >
+        <template #title-actions>
+          <ConnectionStatusChip />
+          <WorkbenchViewToggle :window-id="entry.workbench.id" />
+        </template>
+        <WorkbenchDialog
+          :window-id="entry.workbench.id"
+          :preset-id="entry.workbench.presetId"
+          embedded
+        />
+      </CyberWindow>
+      <template v-for="win in workspace.workbenchWindowsList" :key="`capsule-${win.id}`">
+        <WorkbenchCapsule v-if="win.minimized" :window-id="win.id" />
+      </template>
+      <HistoryDrawer
+        v-if="
+          workspace.historyDrawerStack.length > 0 &&
+          workspace.historyDrawerMode === 'workbench-docked'
+        "
+      />
+    </CyberDesktopHost>
   </template>
 </template>
 

@@ -27,7 +27,7 @@ const {
     class="node-popover"
     :class="[
       `is-${variant ?? 'popover'}`,
-      { 'is-pinned': pinned, 'is-actionable': approval || question },
+      { 'is-pinned': pinned, 'is-actionable': approval || question, 'is-wrap': wrap },
     ]"
     :style="{ maxHeight: `${maxHeight}px` }"
     role="dialog"
@@ -83,6 +83,16 @@ const {
             </ElTooltip>
           </span>
         </div>
+        <button
+          v-if="pinned"
+          type="button"
+          class="icon-button wrap-button"
+          :aria-pressed="wrap"
+          :title="wrap ? '保持长行并横向滚动' : '自动换行'"
+          @click="emit('toggleWrap')"
+        >
+          {{ wrap ? '↔' : '¶' }}
+        </button>
         <button
           v-if="pinned"
           type="button"

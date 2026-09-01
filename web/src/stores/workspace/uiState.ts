@@ -1,5 +1,15 @@
 import { computed, ref, type ComputedRef } from 'vue'
 import type { SettingsSection } from '@/domain/shell/desktopBridge'
+import { loadWorkspaceLayout, saveWorkspaceLayout } from './windowPersistence'
+import {
+  clampWorkspaceGeometry,
+  createWorkspaceWindow,
+  maximizedWorkspaceGeometry,
+  type OpenWorkspaceWindowInput,
+  type WorkspaceWindowGeometry,
+  type WorkspaceWindowState,
+  type WorkspaceStageSize,
+} from './windowModel'
 
 /** 历史抽屉栈最大深度（防多级 spawn 递归下钻失控）。 */
 const HISTORY_STACK_MAX = 5
@@ -76,6 +86,170 @@ export function createUiState() {
   // 工具调用折叠开关：开启后 MessageBubble 的 senseCalls 折叠为一行小 tag，hover tag 悬浮显完整渲染器内容。
   // 与 subagentDisplay 同款内存态（离屏销毁丢 local 态，故放 store）。
   const senseCallsCollapsed = ref(false)
+
+  // Generic UI-only cyber desktop windows. Canonical chat/run/interaction data
+  // remains in its existing owners and is referenced here only by stable ids.
+  const workspaceWindows = ref<Record<string, WorkspaceWindowState>>({})
+  const workspaceWindowOrder = ref<string[]>([])
+  const focusedWorkspaceWindowId = ref<string | null>(null)
+  const workspaceStageSize = ref<WorkspaceStageSize>({ width: 1920, height: 1010 })
+
+  function persistWorkspaceWindows(): void {
+    saveWorkspaceLayout(workspaceWindows.value, workspaceWindowOrder.value)
+  }
+
+  function focusWorkspaceWindow(id: string): void {
+    const target = workspaceWindows.value[id]
+    if (!target) return
+    const order = workspaceWindowOrder.value
+    const current = order.indexOf(id)
+    if (current >= 0) order.splice(current, 1)
+    order.push(id)
+    order.forEach((windowId, index) => {
+      const window = workspaceWindows.value[windowId]
+      if (!window) return
+      window.focused = windowId === id
+      window.zOrder = index
+    })
+    target.attention = false
+    focusedWorkspaceWindowId.value = id
+    persistWorkspaceWindows()
+  }
+
+  function openOrFocusWindow(input: OpenWorkspaceWindowInput): string {
+    const id = `window:${input.resourceKey}`
+    const existing = workspaceWindows.value[id]
+    if (existing) {
+      existing.lifecycle = 'open'
+      existing.title = input.title
+      existing.context = input.context
+      existing.kind = input.context.kind
+      focusWorkspaceWindow(id)
+      return id
+    }
+    for (const window of Object.values(workspaceWindows.value)) window.focused = false
+    const window = createWorkspaceWindow(
+      input,
+      workspaceWindowOrder.value.length,
+      workspaceStageSize.value,
+    )
+    workspaceWindows.value[window.id] = window
+    workspaceWindowOrder.value.push(window.id)
+    focusedWorkspaceWindowId.value = window.id
+    persistWorkspaceWindows()
+    return window.id
+  }
+
+  function markWorkspaceWindowOpen(id: string): void {
+    const window = workspaceWindows.value[id]
+    if (window?.lifecycle === 'opening') window.lifecycle = 'open'
+  }
+
+  function minimizeWorkspaceWindow(id: string): void {
+    const window = workspaceWindows.value[id]
+    if (!window) return
+    window.lifecycle = 'minimized'
+    window.focused = false
+    const next = workspaceWindowOrder.value
+      .map((windowId) => workspaceWindows.value[windowId])
+      .findLast((candidate) => candidate && candidate.lifecycle !== 'minimized' && candidate.id !== id)
+    focusedWorkspaceWindowId.value = next?.id ?? null
+    if (next) focusWorkspaceWindow(next.id)
+    else persistWorkspaceWindows()
+  }
+
+  function restoreWorkspaceWindow(id: string): void {
+    const window = workspaceWindows.value[id]
+    if (!window) return
+    window.lifecycle = 'open'
+    focusWorkspaceWindow(id)
+  }
+
+  function beginWorkspaceWindowClose(id: string): void {
+    const window = workspaceWindows.value[id]
+    if (window) window.lifecycle = 'closing'
+  }
+
+  function removeWorkspaceWindow(id: string): void {
+    if (!workspaceWindows.value[id]) return
+    delete workspaceWindows.value[id]
+    workspaceWindowOrder.value = workspaceWindowOrder.value.filter((windowId) => windowId !== id)
+    const nextId = workspaceWindowOrder.value.at(-1) ?? null
+    focusedWorkspaceWindowId.value = nextId
+    if (nextId) focusWorkspaceWindow(nextId)
+    else persistWorkspaceWindows()
+  }
+
+  function setWorkspaceWindowGeometry(id: string, geometry: WorkspaceWindowGeometry): void {
+    const window = workspaceWindows.value[id]
+    if (!window || window.maximized) return
+    window.geometry = clampWorkspaceGeometry(geometry, workspaceStageSize.value)
+    persistWorkspaceWindows()
+  }
+
+  function setWorkspaceStageSize(stage: WorkspaceStageSize): void {
+    if (stage.width <= 0 || stage.height <= 0) return
+    workspaceStageSize.value = stage
+    for (const window of Object.values(workspaceWindows.value)) {
+      window.geometry = window.maximized
+        ? maximizedWorkspaceGeometry(stage)
+        : clampWorkspaceGeometry(window.geometry, stage)
+      if (window.restoreGeometry) {
+        window.restoreGeometry = clampWorkspaceGeometry(window.restoreGeometry, stage)
+      }
+    }
+  }
+
+  function maximizeWorkspaceWindow(id: string): void {
+    const window = workspaceWindows.value[id]
+    if (!window || window.maximized) return
+    window.restoreGeometry = { ...window.geometry }
+    window.geometry = maximizedWorkspaceGeometry(workspaceStageSize.value)
+    window.maximized = true
+    focusWorkspaceWindow(id)
+  }
+
+  function unmaximizeWorkspaceWindow(id: string): void {
+    const window = workspaceWindows.value[id]
+    if (!window || !window.maximized) return
+    window.maximized = false
+    window.geometry = clampWorkspaceGeometry(
+      window.restoreGeometry ?? window.geometry,
+      workspaceStageSize.value,
+    )
+    delete window.restoreGeometry
+    focusWorkspaceWindow(id)
+  }
+
+  function toggleWorkspaceWindowMaximized(id: string): void {
+    const window = workspaceWindows.value[id]
+    if (!window) return
+    if (window.maximized) unmaximizeWorkspaceWindow(id)
+    else maximizeWorkspaceWindow(id)
+  }
+
+  function restoreWorkspaceLayout(
+    valid: (window: WorkspaceWindowState) => boolean = () => true,
+  ): void {
+    const snapshot = loadWorkspaceLayout()
+    if (!snapshot) return
+    const restored = snapshot.windows.filter(valid)
+    const transient = Object.values(workspaceWindows.value).filter((window) => !window.persistent)
+    workspaceWindows.value = Object.fromEntries(
+      [...restored, ...transient].map((window) => [window.id, window]),
+    )
+    workspaceWindowOrder.value = [
+      ...snapshot.order.filter((id) => !!workspaceWindows.value[id]),
+      ...transient.map((window) => window.id),
+    ]
+    focusedWorkspaceWindowId.value = null
+  }
+
+  const workspaceWindowsList = computed(() =>
+    workspaceWindowOrder.value
+      .map((id) => workspaceWindows.value[id])
+      .filter((window): window is WorkspaceWindowState => !!window),
+  )
 
   /** 栈顶 chatId（无抽屉时 null）。供仅需“当前焦点”的旧调用方读。 */
   const topHistoryChatId: ComputedRef<string | null> = computed(() => {
@@ -187,9 +361,16 @@ export function createUiState() {
    *  presetName 为入口携带的预设名（非 presetId）；已存在窗口时防御性补写（入口解析失败
    *  留下的旧窗 presetName 恒 null 也可被后续打开纠正）。 */
   function openWorkbenchWindow(presetId: string, presetName?: string): string {
+    const genericId = openOrFocusWindow({
+      resourceKey: `graph:${presetId}`,
+      title: presetName?.trim() || 'SIGNAL GRID',
+      context: { kind: 'graph', presetId },
+      geometry: { width: 1280, height: 780 },
+    })
     const existing = workbenchWindows.value[presetId]
     if (existing) {
       if (presetName && existing.presetName !== presetName) existing.presetName = presetName
+      markWorkspaceWindowOpen(genericId)
       focusWorkbenchWindow(existing.id)
       return existing.id
     }
@@ -216,6 +397,7 @@ export function createUiState() {
     workbenchWindows.value[id] = window
     order.push(id)
     focusedWorkbenchWindowId.value = id
+    markWorkspaceWindowOpen(genericId)
     return id
   }
 
@@ -230,6 +412,7 @@ export function createUiState() {
       const last = order[order.length - 1]
       focusedWorkbenchWindowId.value = last ?? null
     }
+    removeWorkspaceWindow(`window:graph:${id}`)
   }
 
   /** 置焦点：该 id 移到 order 末尾，其它窗口 focused=false。 */
@@ -245,6 +428,7 @@ export function createUiState() {
       w.focused = w.id === id
     }
     focusedWorkbenchWindowId.value = id
+    focusWorkspaceWindow(`window:graph:${id}`)
   }
 
   /** 守卫后写单个窗口字段的通用 setter。 */
@@ -259,6 +443,8 @@ export function createUiState() {
 
   function setWorkbenchWindowMinimized(id: string, minimized: boolean): void {
     setWorkbenchWindowField(id, 'minimized', minimized)
+    if (minimized) minimizeWorkspaceWindow(`window:graph:${id}`)
+    else restoreWorkspaceWindow(`window:graph:${id}`)
   }
 
   function setWorkbenchWindowChat(id: string, chatId: string | null): void {
@@ -282,6 +468,14 @@ export function createUiState() {
     win.mode = geometry.mode
     win.position = geometry.position
     win.size = geometry.size
+    if (geometry.mode === 'window' && geometry.size.width > 0 && geometry.size.height > 0) {
+      setWorkspaceWindowGeometry(`window:graph:${id}`, {
+        x: geometry.position.x,
+        y: geometry.position.y,
+        width: geometry.size.width,
+        height: geometry.size.height,
+      })
+    }
   }
 
   function setWorkbenchWindowCapsulePos(id: string, pos: { x: number; y: number }): void {
@@ -379,6 +573,18 @@ export function createUiState() {
         window.historyDrawerAnchor = null
       }
     }
+    for (const window of Object.values(workspaceWindows.value)) {
+      const context = window.context
+      const chatId =
+        context.kind === 'session' || context.kind === 'routing'
+          ? context.chatId
+          : context.kind === 'history'
+            ? context.rootChatId
+            : context.kind === 'graph' || context.kind === 'diagnostic'
+              ? context.chatId
+              : undefined
+      if (chatId && removed.has(chatId)) removeWorkspaceWindow(window.id)
+    }
   }
 
   return {
@@ -412,6 +618,24 @@ export function createUiState() {
     setSubagentDisplay,
     senseCallsCollapsed,
     setSenseCallsCollapsed,
+    workspaceWindows,
+    workspaceStageSize,
+    workspaceWindowOrder,
+    focusedWorkspaceWindowId,
+    workspaceWindowsList,
+    openOrFocusWindow,
+    focusWorkspaceWindow,
+    markWorkspaceWindowOpen,
+    minimizeWorkspaceWindow,
+    restoreWorkspaceWindow,
+    beginWorkspaceWindowClose,
+    removeWorkspaceWindow,
+    setWorkspaceWindowGeometry,
+    setWorkspaceStageSize,
+    maximizeWorkspaceWindow,
+    unmaximizeWorkspaceWindow,
+    toggleWorkspaceWindowMaximized,
+    restoreWorkspaceLayout,
     workbenchWindows,
     workbenchWindowOrder,
     focusedWorkbenchWindowId,

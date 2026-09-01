@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
-import { frameCoordinator, type DisplayFrame } from '@/utils/frameCoordinator'
+import { frameCoordinator, type DisplayFrame } from '../../../../utils/frameCoordinator'
 import { gsap } from 'gsap'
 import {
   createNyxusPointerDrift,

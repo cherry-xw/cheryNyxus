@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('Nyxus workbench preferences and entry regressions', () => {
-  it('defaults to timeline with the third fold level and persists both selections', async () => {
+  it('defaults to the horizontal signal timeline and persists every view selection', async () => {
     const source = await readComponentSource(
       resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
       'utf8',
@@ -14,8 +14,10 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(source).toContain("const WORKBENCH_VIEW_STORAGE_PREFIX = 'nx-workbench-view:'")
     expect(source).toContain('paperMode: false')
     expect(source).toContain('paperMode: value?.paperMode === true')
+    expect(source).toContain("presentationMode: 'horizontal-signal'")
+    expect(source).toContain("value?.presentationMode === 'vertical-classic'")
     expect(source).toContain(
-      'watch([topologyLayout, foldMode, paperMode], saveWorkbenchViewPreference)',
+      'watch([topologyLayout, foldMode, paperMode, presentationMode], saveWorkbenchViewPreference)',
     )
     expect(source).toContain(':aria-pressed="paperMode"')
     expect(source).toContain('data-view-action="layout"')

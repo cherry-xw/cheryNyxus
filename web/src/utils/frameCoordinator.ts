@@ -1,6 +1,6 @@
 import { gsap } from 'gsap'
-import { reportDisplayFrame } from '@/composables/renderQuality'
-import { recordPerformanceFrame } from '@/utils/performanceDiagnostics'
+import { reportDisplayFrame } from '../composables/renderQuality'
+import { recordPerformanceFrame } from './performanceDiagnostics'
 
 export interface DisplayFrame {
   now: number

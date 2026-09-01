@@ -164,11 +164,12 @@ describe('workbench Lite single-connection integration', () => {
   })
 
   it('keeps Lite integration free of a private client, hydration and root guessing', async () => {
-    const [store, adapter, toggle, workbench] = await Promise.all([
+    const [store, adapter, toggle, workbench, viewToggle] = await Promise.all([
       readComponentSource(resolve('src/features/lite/liteStore.ts'), 'utf8'),
       readComponentSource(resolve('src/features/lite/useLiteCanonicalView.ts'), 'utf8'),
       readComponentSource(resolve('src/features/agent/workbench/useLiteViewToggle.ts'), 'utf8'),
       readComponentSource(resolve('src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/agent/workbench/WorkbenchViewToggle.vue'), 'utf8'),
     ])
     const productionLite = `${store}\n${adapter}\n${toggle}`
 
@@ -181,7 +182,9 @@ describe('workbench Lite single-connection integration', () => {
     expect(adapter).toContain('chats.rootTimeline(root()')
     expect(adapter).not.toContain('chat.list')
     expect(workbench).toContain(':root-chat-id="treeRootChatId"')
-    expect(workbench).toContain('@change="toggleLiteView"')
+    expect(workbench).toContain('<WorkbenchViewToggle :window-id="windowId" />')
+    expect(viewToggle).toContain('@click="liteViewEnabled && toggleLiteView()"')
+    expect(viewToggle).toContain('@click="!liteViewEnabled && toggleLiteView()"')
     expect(workbench).toContain(
       'const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)',
     )

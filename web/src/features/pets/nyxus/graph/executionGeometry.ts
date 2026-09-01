@@ -44,3 +44,31 @@ export function executionEdgeGeometry(
     path: `M ${from.x} ${from.y} C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${to.x} ${to.y}`,
   }
 }
+
+/** Left-to-right sibling of executionEdgeGeometry used by Signal Grid. */
+export function horizontalExecutionEdgeGeometry(
+  source: CanvasPoint,
+  target: CanvasPoint,
+  sourceHalfWidth: number,
+  routeY?: number,
+  targetHalfWidth = sourceHalfWidth,
+): ExecutionEdgeGeometry {
+  const direction = target.x >= source.x ? 1 : -1
+  const from = { x: source.x + sourceHalfWidth * direction, y: source.y }
+  const to = { x: target.x - targetHalfWidth * direction, y: target.y }
+  const horizontalSpan = Math.abs(to.x - from.x)
+  const verticalSpan = Math.abs(to.y - from.y)
+  const bend = Math.min(
+    horizontalSpan / 2,
+    Math.max(Math.min(sourceHalfWidth, targetHalfWidth) * 0.75, horizontalSpan * 0.38 + verticalSpan * 0.12),
+  )
+  const control1 = { x: from.x + bend * direction, y: routeY ?? from.y }
+  const control2 = { x: to.x - bend * direction, y: routeY ?? to.y }
+  return {
+    from,
+    to,
+    control1,
+    control2,
+    path: `M ${from.x} ${from.y} C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${to.x} ${to.y}`,
+  }
+}

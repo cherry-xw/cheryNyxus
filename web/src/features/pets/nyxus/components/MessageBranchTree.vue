@@ -1,22 +1,22 @@
 <script setup lang="ts">
 import { useMessageBranchTreeController, type MessageBranchTreeControllerProps, type MessageBranchTreeControllerEmits } from './useMessageBranchTreeController'
-const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), { foldMode: 'partial', layoutMode: 'timeline' })
+const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), { foldMode: 'partial', layoutMode: 'timeline', presentationMode: 'horizontal-signal' })
 const emit = defineEmits<MessageBranchTreeControllerEmits>()
 const controller = useMessageBranchTreeController(props, emit)
 const {
   AnchoredRunCrt, ExecutionNodePopover, FoldTabRail, GenerationTreeDialog, NodePaperStack,
   activateNode, activePaperApprovalPopover, activePaperQuestionPopover, agents, canvas, closeCrt, closeNodeDetail, crtById,
   crtPlacements, crtVisibility, defaultPopoverAnchorIds, defaultPopoverViews, detailAnchorEl,
-  detailAnchorStyle, detailDisplayNode, detailFoldMember, detailMaxHeight, detailNode, detailPinned,
+  detailAnchorStyle, detailDisplayNode, detailFoldMember, detailMaxHeight, detailNode, detailPinned, detailWrap,
   detailPlacement, detailRelatedEdges, dragActionPopover, dragCrt, dragDetailPopover, focusCrt,
   focusNode, focusRelativeNode, foldRailSide, generationDialogIndex, gpuNodeHitStyle,
-  gpuRenderError, graph, hasNewTail, hideNodeDetail, keepNodeDetailOpen, leaveNodeDetail,
+  gpuRenderError, hasNewTail, hideNodeDetail, keepNodeDetailOpen, leaveNodeDetail,
   nodeAriaLabel, nodeTitle, onFoldRailInteraction, onNodePointerDown, overlayPlacements,
   paperCurrentIndex, paperEntries, paperGraph, paperHasNewTail, persistentGraph, pinCrt,
   pinnedCrtIds, pixiMountRef, recordActionPopoverHeight, recoverGraph, recoveringGraph,
-  recoveryError, ref, requestBranch, resetLayout, returnToBottom, returnToLatestPaper,
+  recoveryError, requestBranch, resetLayout, returnToBottom, returnToLatestPaper,
   selectActionCall, selectFoldMember, selectPaperIndex, selectedActionCall, selectedCallId,
-  showNodeDetail, unpinCrt, unreadFoldMembers, vMeasureHeight, viewportRef, viewportSize,
+  showNodeDetail, startDetailResize, toggleDetailWrap, unpinCrt, unreadFoldMembers, vMeasureHeight, viewportRef, viewportSize,
   visibleInteractiveNodes,
 } = controller
 defineExpose({ resetLayout: controller.resetLayout })
@@ -67,7 +67,6 @@ defineExpose({ resetLayout: controller.resetLayout })
             class="gpu-node-hit-target"
             :style="gpuNodeHitStyle(node)"
             :aria-label="nodeAriaLabel(node)"
-            :data-execution-node-id="node.id"
             v-memo="[
               node.id,
               node.x,
@@ -78,6 +77,7 @@ defineExpose({ resetLayout: controller.resetLayout })
               canvas.offsetX.value,
               canvas.offsetY.value,
             ]"
+            :data-execution-node-id="node.id"
             @pointerdown="onNodePointerDown($event, node)"
             @pointerenter="showNodeDetail(node)"
             @pointerleave="hideNodeDetail(node)"
@@ -85,10 +85,10 @@ defineExpose({ resetLayout: controller.resetLayout })
             @blur="hideNodeDetail(node)"
             @keydown.enter.prevent.stop="activateNode(node)"
             @keydown.space.prevent.stop="activateNode(node)"
-            @keydown.down.prevent.stop="focusRelativeNode(node.id, 1)"
-            @keydown.right.prevent.stop="focusRelativeNode(node.id, 1)"
-            @keydown.up.prevent.stop="focusRelativeNode(node.id, -1)"
-            @keydown.left.prevent.stop="focusRelativeNode(node.id, -1)"
+            @keydown.down.prevent.stop="focusRelativeNode(node.id, 'down')"
+            @keydown.right.prevent.stop="focusRelativeNode(node.id, 'right')"
+            @keydown.up.prevent.stop="focusRelativeNode(node.id, 'up')"
+            @keydown.left.prevent.stop="focusRelativeNode(node.id, 'left')"
             @keydown.home.prevent.stop="focusRelativeNode(node.id, 'first')"
             @keydown.end.prevent.stop="focusRelativeNode(node.id, 'last')"
             @click.stop="activateNode(node)"
@@ -237,11 +237,22 @@ defineExpose({ resetLayout: controller.resetLayout })
               :detail-branch-available="detailBranchAvailable"
               :detail-branch-unavailable-reason="detailBranchUnavailableReason"
               :draggable="detailPinned"
+              :wrap="detailWrap"
               @select-call="selectedCallId = $event"
               @branch="requestBranch"
               @close="closeNodeDetail"
               @drag="dragDetailPopover"
+              @toggle-wrap="toggleDetailWrap"
             />
+            <template v-if="detailPinned">
+              <span
+                v-for="direction in ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const"
+                :key="direction"
+                class="detail-resize-handle"
+                :class="`is-${direction}`"
+                @pointerdown="startDetailResize(direction, $event)"
+              />
+            </template>
           </div>
         </Transition>
       </div>

@@ -7,6 +7,7 @@ import type { PixiExecutionScene } from './ExecutionGraphPixiRenderer'
 export function executionSceneSignature(scene: PixiExecutionScene, visibleKey = ''): string {
   return [
     visibleKey,
+    scene.presentation ?? 'vertical-classic',
     ...scene.nodes.map((node) =>
       [
         node.id,
@@ -15,6 +16,12 @@ export function executionSceneSignature(scene: PixiExecutionScene, visibleKey = 
         node.accent,
         node.glyph,
         node.title,
+        node.priority ?? '',
+        node.protocolCode ?? '',
+        node.summary ?? '',
+        node.effect ?? '',
+        node.width ?? '',
+        node.height ?? '',
         node.termination ?? '',
         node.foldCount ?? '',
         Number(node.running),
@@ -36,11 +43,14 @@ export function executionSceneSignature(scene: PixiExecutionScene, visibleKey = 
         edge.to.x,
         edge.to.y,
         edge.routeX ?? '',
+        edge.routeY ?? '',
         edge.color,
         Number(edge.active),
         edge.phaseSeconds,
         Number(edge.deemphasized),
         Number(edge.detailBranch),
+        edge.fromHalfWidth ?? '',
+        edge.toHalfWidth ?? '',
       ].join('\u0001'),
     ),
   ].join('\u0000')

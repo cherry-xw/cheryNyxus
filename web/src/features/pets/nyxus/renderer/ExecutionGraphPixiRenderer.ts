@@ -5,8 +5,17 @@ import {
   type ExecutionCamera,
   type ExecutionWorldBounds,
 } from './executionViewport'
-import { executionEdgeGeometry, type ExecutionEdgeGeometry } from '../graph/executionGeometry'
+import {
+  executionEdgeGeometry,
+  horizontalExecutionEdgeGeometry,
+  type ExecutionEdgeGeometry,
+} from '../graph/executionGeometry'
 import { EXECUTION_ICON_RADIUS } from '../graph/executionLayout'
+import {
+  SIGNAL_NODE_HEIGHT,
+  SIGNAL_NODE_WIDTH,
+  type ExecutionPresentationMode,
+} from '../graph/executionPresentation'
 import {
   EXECUTION_EDGE_PULSE_LENGTH,
   EXECUTION_EDGE_PULSE_PERIOD,
@@ -36,6 +45,13 @@ export interface PixiExecutionNode {
   revoked: boolean
   deemphasized: boolean
   detailBranch: boolean
+  shape?: 'start' | 'command' | 'core' | 'chip' | 'fork' | 'merge' | 'stack' | 'system'
+  priority?: 'hero-user' | 'hero-final' | 'hero-error' | 'fold' | 'process'
+  protocolCode?: string
+  summary?: string
+  effect?: 'projection' | 'convergence' | 'corruption' | 'orbit' | 'trail'
+  width?: number
+  height?: number
 }
 
 export interface PixiExecutionEdge {
@@ -48,11 +64,16 @@ export interface PixiExecutionEdge {
   deemphasized: boolean
   detailBranch: boolean
   routeX?: number
+  routeY?: number
+  horizontal?: boolean
+  fromHalfWidth?: number
+  toHalfWidth?: number
 }
 
 export interface PixiExecutionScene {
   nodes: PixiExecutionNode[]
   edges: PixiExecutionEdge[]
+  presentation?: ExecutionPresentationMode
 }
 
 interface SampledEdge extends PixiExecutionEdge {
@@ -90,7 +111,16 @@ function pointOnCubic(geometry: ExecutionEdgeGeometry, t: number): { x: number; 
 }
 
 function sampleEdge(edge: PixiExecutionEdge): SampledEdge {
-  const geometry = executionEdgeGeometry(edge.from, edge.to, EXECUTION_ICON_RADIUS, edge.routeX)
+  const geometry =
+    edge.horizontal
+      ? horizontalExecutionEdgeGeometry(
+          edge.from,
+          edge.to,
+          edge.fromHalfWidth ?? SIGNAL_NODE_WIDTH / 2,
+          edge.routeY,
+          edge.toHalfWidth,
+        )
+      : executionEdgeGeometry(edge.from, edge.to, EXECUTION_ICON_RADIUS, edge.routeX)
   const controlLength =
     Math.hypot(geometry.control1.x - geometry.from.x, geometry.control1.y - geometry.from.y) +
     Math.hypot(
@@ -254,6 +284,7 @@ export class ExecutionGraphPixiRenderer {
   private canvasPalette: PixiCanvasPalette = PIXI_CANVAS_PALETTES.dark
   /** 标签纹理分辨率。随相机缩放逐档提升，避免放大后文字（含数字角标）糊。 */
   private labelResolution = 1
+  private labelLod: 'near' | 'mid' | 'far' = 'near'
   backend: 'webgpu' | 'webgl' | 'uninitialized' = 'uninitialized'
 
   /** 主题切换时更新画布调色板并重画静态层。 */
@@ -383,6 +414,11 @@ export class ExecutionGraphPixiRenderer {
       this.labelResolution = needed
       this.rebuildLabels()
     }
+    const nextLod = camera.scale < 0.5 ? 'far' : camera.scale < 0.86 ? 'mid' : 'near'
+    if (nextLod !== this.labelLod) {
+      this.labelLod = nextLod
+      this.rebuildLabels()
+    }
     this.refreshMotionItems()
     this.boostInteractionFrameRate()
     this.renderWhenTickerStopped()
@@ -420,9 +456,22 @@ export class ExecutionGraphPixiRenderer {
   }
 
   setScene(scene: PixiExecutionScene): void {
+    const presentation = scene.presentation ?? 'vertical-classic'
     const geometrySignature = scene.edges
       .map((edge) =>
-        [edge.id, edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.routeX ?? ''].join(':'),
+        [
+          presentation,
+          edge.id,
+          edge.from.x,
+          edge.from.y,
+          edge.to.x,
+          edge.to.y,
+          edge.routeX ?? '',
+          edge.routeY ?? '',
+          edge.fromHalfWidth ?? '',
+          edge.toHalfWidth ?? '',
+          Number(edge.horizontal),
+        ].join(':'),
       )
       .join('|')
     const staticSignature = [
@@ -439,6 +488,12 @@ export class ExecutionGraphPixiRenderer {
           node.branchAnchorKind ?? '',
           node.detailBranch,
           node.deemphasized,
+          node.shape ?? '',
+          node.priority ?? '',
+          node.effect ?? '',
+          node.width ?? '',
+          node.height ?? '',
+          presentation,
         ].join(':'),
       ),
       ...scene.edges.map((edge) =>
@@ -458,6 +513,13 @@ export class ExecutionGraphPixiRenderer {
           node.foldCount ?? '',
           node.detailBranch,
           node.deemphasized,
+          node.shape ?? '',
+          node.priority ?? '',
+          node.protocolCode ?? '',
+          node.summary ?? '',
+          node.width ?? '',
+          node.height ?? '',
+          presentation,
         ].join(':'),
       )
       .join('|')
@@ -502,26 +564,34 @@ export class ExecutionGraphPixiRenderer {
     this.motionSelectionKey = key
     this.visibleMotionEdges.length = 0
     this.visibleMotionNodes.length = 0
+    const effectBudget = renderQualityProfile(this.qualityTier).graphEffectNodes
+    const selectMotionNodes = (nodes: readonly PixiExecutionNode[]) =>
+      nodes
+        .filter((node) => node.running || node.detailActive)
+        .sort(
+          (left, right) =>
+            Number(right.detailActive) - Number(left.detailActive) ||
+            Number(right.priority?.startsWith('hero')) - Number(left.priority?.startsWith('hero')) ||
+            left.id.localeCompare(right.id),
+        )
+        .slice(0, effectBudget)
     if (!this.camera) {
       this.visibleMotionEdges.push(...this.sampledEdges)
-      this.visibleMotionNodes.push(...this.scene.nodes.filter((node) => node.running))
+      this.visibleMotionNodes.push(...selectMotionNodes(this.scene.nodes))
       return
     }
     const bounds = cameraWorldBounds(this.camera, MOTION_VIEWPORT_OVERSCAN)
     for (const edge of this.sampledEdges) {
       if (executionWorldBoundsIntersect(bounds, edge.bounds)) this.visibleMotionEdges.push(edge)
     }
-    for (const node of this.scene.nodes) {
-      if (
-        node.running &&
+    const visibleNodes = this.scene.nodes.filter(
+      (node) =>
         node.x >= bounds.minX &&
         node.x <= bounds.maxX &&
         node.y >= bounds.minY &&
-        node.y <= bounds.maxY
-      ) {
-        this.visibleMotionNodes.push(node)
-      }
-    }
+        node.y <= bounds.maxY,
+    )
+    this.visibleMotionNodes.push(...selectMotionNodes(visibleNodes))
   }
 
   private clearMotion(): void {
@@ -549,9 +619,14 @@ export class ExecutionGraphPixiRenderer {
 
     this.staticNodes.clear()
     const p = this.canvasPalette
+    const signal = this.scene.presentation === 'horizontal-signal'
     for (const node of this.scene.nodes) {
       const accent = colorNumber(node.accent)
       const alpha = emphasisAlpha(node.deemphasized, node.detailBranch)
+      if (signal) {
+        this.drawSignalNode(node, accent, alpha)
+        continue
+      }
       this.staticNodes.circle(node.x, node.y, 15).fill({ color: p.nodeFill, alpha: 0.88 * alpha })
       this.staticNodes.circle(node.x, node.y, 15).stroke({ color: accent, width: 1.4, alpha })
       this.staticNodes
@@ -592,6 +667,105 @@ export class ExecutionGraphPixiRenderer {
     }
   }
 
+  private drawSignalNode(node: PixiExecutionNode, accent: number, alpha: number): void {
+    const graphics = this.staticNodes
+    const p = this.canvasPalette
+    const halfW = (node.width ?? SIGNAL_NODE_WIDTH) / 2
+    const halfH = (node.height ?? SIGNAL_NODE_HEIGHT) / 2
+    const cut = 9
+    const shell = [
+      node.x - halfW + cut,
+      node.y - halfH,
+      node.x + halfW - cut,
+      node.y - halfH,
+      node.x + halfW,
+      node.y - halfH + cut,
+      node.x + halfW,
+      node.y + halfH - cut,
+      node.x + halfW - cut,
+      node.y + halfH,
+      node.x - halfW + cut,
+      node.y + halfH,
+      node.x - halfW,
+      node.y + halfH - cut,
+      node.x - halfW,
+      node.y - halfH + cut,
+    ]
+
+    if (node.shape === 'start' || node.shape === 'fork' || node.shape === 'merge') {
+      graphics
+        .poly([
+          node.x,
+          node.y - halfH,
+          node.x + halfW,
+          node.y,
+          node.x,
+          node.y + halfH,
+          node.x - halfW,
+          node.y,
+        ])
+        .fill({ color: p.nodeFill, alpha: 0.9 * alpha })
+        .stroke({ color: accent, width: 1.5, alpha })
+    } else if (node.shape === 'chip') {
+      graphics.poly(shell).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.5, alpha })
+      for (const offset of [-12, 0, 12]) {
+        graphics.moveTo(node.x - halfW - 5, node.y + offset).lineTo(node.x - halfW, node.y + offset).stroke({ color: accent, width: 1, alpha: 0.72 * alpha })
+        graphics.moveTo(node.x + halfW, node.y + offset).lineTo(node.x + halfW + 5, node.y + offset).stroke({ color: accent, width: 1, alpha: 0.72 * alpha })
+      }
+    } else if (node.shape === 'stack') {
+      graphics.poly(shell.map((value, index) => value + (index % 2 === 0 ? -5 : 5))).stroke({ color: accent, width: 1, alpha: 0.3 * alpha })
+      graphics.poly(shell).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.5, alpha })
+    } else if (node.shape === 'core') {
+      graphics.poly(shell).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.7, alpha })
+      graphics.rect(node.x - 19, node.y - 13, 38, 26).stroke({ color: accent, width: 1, alpha: 0.38 * alpha })
+    } else {
+      graphics.rect(node.x - halfW, node.y - halfH, halfW * 2, halfH * 2).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.4, alpha })
+      graphics.rect(node.x - halfW + 4, node.y - halfH + 4, 3, halfH * 2 - 8).fill({ color: accent, alpha: 0.68 * alpha })
+    }
+
+    graphics.circle(node.x - halfW, node.y, 2.5).fill({ color: accent, alpha })
+    graphics.circle(node.x + halfW, node.y, 2.5).fill({ color: accent, alpha })
+    if (node.paused || node.error || node.revoked) {
+      const stateColor = node.error ? p.stateError : node.revoked ? p.stateRevoked : p.statePaused
+      graphics.poly(shell).stroke({ color: stateColor, width: 2.2, alpha: 0.92 * alpha })
+    }
+    if (node.detailActive || node.branchAnchorKind || node.detailBranch) {
+      const stateColor = node.branchAnchorKind
+        ? colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
+        : node.detailBranch
+          ? colorNumber(DETAIL_BRANCH_COLOR)
+          : accent
+      graphics
+        .rect(node.x - halfW - 4, node.y - halfH - 4, halfW * 2 + 8, halfH * 2 + 8)
+        .stroke({ color: stateColor, width: 1.4, alpha: 0.82 * alpha })
+    }
+    if (node.priority?.startsWith('hero')) {
+      graphics
+        .moveTo(node.x - halfW + 12, node.y - halfH - 5)
+        .lineTo(node.x + halfW - 12, node.y - halfH - 5)
+        .stroke({ color: accent, width: 1, alpha: 0.38 * alpha })
+      graphics
+        .moveTo(node.x - halfW + 12, node.y + halfH + 5)
+        .lineTo(node.x + halfW - 12, node.y + halfH + 5)
+        .stroke({ color: accent, width: 1, alpha: 0.24 * alpha })
+    }
+    if (node.foldCount) {
+      const density = Math.min(10, Math.max(3, Math.ceil(Math.log2(node.foldCount + 1) * 2)))
+      for (let layer = 1; layer <= 3; layer += 1) {
+        graphics
+          .moveTo(node.x + halfW - 22 + layer * 3, node.y - halfH - layer * 3)
+          .lineTo(node.x + halfW - 3 + layer * 3, node.y - halfH - layer * 3)
+          .stroke({ color: accent, width: 1, alpha: (0.18 + layer * 0.1) * alpha })
+      }
+      for (let tick = 0; tick < density; tick += 1) {
+        const height = 3 + (tick % 3) * 2
+        graphics
+          .rect(node.x + halfW - 8 - tick * 3, node.y + halfH - 5 - height, 1.5, height)
+          .fill({ color: accent, alpha: (0.38 + tick / density / 2) * alpha })
+      }
+    }
+  }
+
   /** 重建全部标签（glyph/title/termination/数字角标）。分辨率用当前档位，随相机缩放逐档重渲。 */
   private rebuildLabels(): void {
     if (!this.app) return
@@ -603,6 +777,7 @@ export class ExecutionGraphPixiRenderer {
     this.labelsReleased = false
     const p = this.canvasPalette
     const resolution = this.labelResolution
+    const signal = this.scene.presentation === 'horizontal-signal'
     for (const node of this.scene.nodes) {
       const accent = colorNumber(node.accent)
       const glyph = new Text({
@@ -612,20 +787,21 @@ export class ExecutionGraphPixiRenderer {
         style: {
           fill: accent,
           fontFamily: '"Segoe UI Symbol", "Noto Sans Symbols 2", system-ui, sans-serif',
-          fontSize: 19,
-          fontWeight: '700',
+          fontSize: signal ? 14 : 19,
+          fontWeight: '600',
           trim: true,
         },
         resolution,
       })
+      if (signal) glyph.position.set(node.x - (node.width ?? SIGNAL_NODE_WIDTH) / 2 + 16, node.y)
       const title = new Text({
-        text: node.title,
-        anchor: { x: 0.5, y: 0 },
-        position: { x: node.x, y: node.y + 23 },
+        text: signal ? (this.labelLod === 'near' && node.summary ? node.summary : node.protocolCode ?? node.title) : node.title,
+        anchor: signal ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 },
+        position: signal ? { x: node.x - (node.width ?? SIGNAL_NODE_WIDTH) / 2 + 30, y: node.y - (node.termination ? 6 : 0) } : { x: node.x, y: node.y + 23 },
         style: {
           fill: p.title,
           fontFamily: 'ui-monospace, monospace',
-          fontSize: 10,
+          fontSize: signal && node.priority?.startsWith('hero') ? 11 : 10,
           fontWeight: '600',
         },
         resolution,
@@ -633,28 +809,18 @@ export class ExecutionGraphPixiRenderer {
       const alpha = emphasisAlpha(node.deemphasized, node.detailBranch)
       glyph.alpha = alpha
       title.alpha = alpha
-      this.labels.addChild(glyph, title)
-      if (node.termination) {
+      this.labels.addChild(glyph)
+      if (this.labelLod !== 'far') this.labels.addChild(title)
+      if (node.termination && (!signal || this.labelLod === 'near')) {
         const termination = new Text({
           text: node.termination,
-          anchor: { x: 0.5, y: 0 },
-          position: { x: node.x, y: node.y + 38 },
+          anchor: signal ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 },
+          position: signal ? { x: node.x - (node.width ?? SIGNAL_NODE_WIDTH) / 2 + 30, y: node.y + 13 } : { x: node.x, y: node.y + 38 },
           style: { fill: p.termination, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
           resolution,
         })
         termination.alpha = alpha
         this.labels.addChild(termination)
-      }
-      if (node.foldCount) {
-        const foldCount = new Text({
-          text: String(node.foldCount),
-          anchor: 0.5,
-          position: { x: node.x + 12, y: node.y - 12 },
-          style: { fill: p.foldCount, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
-          resolution,
-        })
-        foldCount.alpha = alpha
-        this.labels.addChild(foldCount)
       }
     }
     setPerformanceMetric('pixi.labels', this.labels.children.length)
@@ -685,7 +851,9 @@ export class ExecutionGraphPixiRenderer {
         head - EXECUTION_EDGE_PULSE_LENGTH < edge.length;
         head += EXECUTION_EDGE_PULSE_PERIOD
       ) {
+        const segmentBudget = renderQualityProfile(this.qualityTier).graphPulseSegments
         EXECUTION_EDGE_PULSE_SEGMENTS.forEach((segment, index) => {
+          if (index >= segmentBudget) return
           const visible = edgePulseVisibleInterval(edge.length, head, segment.length)
           if (!visible) return
           const alpha =
@@ -704,11 +872,82 @@ export class ExecutionGraphPixiRenderer {
       const accent = colorNumber(node.accent)
       const emphasis = emphasisAlpha(node.deemphasized, node.detailBranch)
       const phase = ((seconds + (node.x + node.y) * 0.0007) % 1.2) / 1.2
-      this.motionNodes.circle(node.x, node.y, 19 * (1 + 0.8 * phase)).stroke({
-        color: accent,
-        width: 3,
-        alpha: 0.85 * (1 - phase) * emphasis,
-      })
+      if (this.scene.presentation === 'horizontal-signal') {
+        const grow = 3 + phase * 12
+        const nodeWidth = node.width ?? SIGNAL_NODE_WIDTH
+        const nodeHeight = node.height ?? SIGNAL_NODE_HEIGHT
+        this.motionNodes
+          .rect(
+            node.x - nodeWidth / 2 - grow,
+            node.y - nodeHeight / 2 - grow / 2,
+            nodeWidth + grow * 2,
+            nodeHeight + grow,
+          )
+          .stroke({ color: accent, width: 2, alpha: 0.72 * (1 - phase) * emphasis })
+        if (node.effect === 'corruption') {
+          const jitter = Math.sin(seconds * 52 + node.x) * 5
+          this.motionNodes
+            .rect(node.x - nodeWidth / 2 + jitter - 5, node.y - nodeHeight / 2 + 5, nodeWidth, 8)
+            .stroke({ color: 0xff315f, width: 2, alpha: 0.72 * emphasis })
+          this.motionNodes
+            .rect(node.x - nodeWidth / 2 - jitter + 4, node.y + 4, nodeWidth, 6)
+            .stroke({ color: 0x21e6ff, width: 2, alpha: 0.58 * emphasis })
+          for (let shard = 0; shard < 4; shard += 1) {
+            const offset = ((seconds * 70 + shard * 29 + node.x) % nodeWidth) - nodeWidth / 2
+            this.motionNodes
+              .moveTo(node.x + offset, node.y - nodeHeight / 2 - 7)
+              .lineTo(node.x + offset + jitter, node.y + nodeHeight / 2 + 7)
+              .stroke({ color: shard % 2 ? 0xff315f : 0x21e6ff, width: 1, alpha: 0.38 })
+          }
+        } else if (node.effect === 'projection') {
+          for (let echo = 1; echo <= 3; echo += 1) {
+            const shift = echo * (5 + phase * 3)
+            this.motionNodes
+              .rect(node.x - nodeWidth / 2 - shift, node.y - nodeHeight / 2 + shift / 2, nodeWidth, nodeHeight)
+              .stroke({ color: accent, width: 1, alpha: (0.3 / echo) * (1 - phase) })
+          }
+        } else if (node.effect === 'convergence') {
+          const reach = 18 + (1 - phase) * 36
+          for (const side of [-1, 1]) {
+            const x = node.x + side * (nodeWidth / 2 + reach)
+            this.motionNodes
+              .moveTo(x, node.y - nodeHeight / 3)
+              .lineTo(x - side * 12, node.y)
+              .lineTo(x, node.y + nodeHeight / 3)
+              .stroke({ color: accent, width: 1.5, alpha: 0.65 * (1 - phase) })
+          }
+        } else if (node.effect === 'orbit') {
+          for (let ring = 0; ring < 3; ring += 1) {
+            const radius = nodeHeight / 2 + 7 + ring * 6
+            this.motionNodes.circle(node.x, node.y, radius).stroke({
+              color: accent,
+              width: 1,
+              alpha: (0.26 - ring * 0.05) * (0.5 + 0.5 * Math.sin(seconds * 2 + ring)),
+            })
+            const angle = seconds * (0.8 - ring * 0.16) + ring * 2.1
+            this.motionNodes
+              .circle(node.x + Math.cos(angle) * radius, node.y + Math.sin(angle) * radius, 2)
+              .fill({ color: accent, alpha: 0.86 })
+          }
+        } else if (node.effect === 'trail') {
+          for (let echo = 1; echo <= 3; echo += 1) {
+            this.motionNodes
+              .rect(
+                node.x - nodeWidth / 2 - echo * 5,
+                node.y - nodeHeight / 2 + echo * 2,
+                nodeWidth,
+                nodeHeight,
+              )
+              .stroke({ color: accent, width: 1, alpha: 0.12 / echo })
+          }
+        }
+      } else {
+        this.motionNodes.circle(node.x, node.y, 19 * (1 + 0.8 * phase)).stroke({
+          color: accent,
+          width: 3,
+          alpha: 0.85 * (1 - phase) * emphasis,
+        })
+      }
       const breathe = 0.3 + 0.4 * (0.5 + Math.sin((seconds * Math.PI * 2) / 0.9) * 0.5)
       this.motionNodes
         .circle(node.x + 11, node.y - 11, 3)

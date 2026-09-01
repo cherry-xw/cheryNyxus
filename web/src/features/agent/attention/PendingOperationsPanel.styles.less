@@ -39,6 +39,35 @@
     border-color: color-mix(in srgb, var(--nx-green) 34%, transparent);
   }
 }
+
+.pending-panel-head::before {
+  content: 'IRQ';
+  flex: none;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in srgb, var(--nx-red) 54%, transparent);
+  color: var(--nx-red);
+  font: 700 8px/1 var(--font-mono);
+  letter-spacing: .12em;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--nx-red) 18%, transparent);
+}
+.pending-panel-body {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  background-image:
+    linear-gradient(90deg, color-mix(in srgb, var(--nx-cyan) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--nx-cyan) 5%, transparent) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.pending-panel.has-tasks .pending-panel-glyph {
+  animation: interrupt-glitch 1.8s steps(2, jump-none) infinite;
+}
+@keyframes interrupt-glitch {
+  0%, 88%, 100% { translate: 0; filter: none; }
+  90% { translate: -2px 1px; filter: drop-shadow(2px 0 var(--nx-red)); }
+  94% { translate: 2px -1px; filter: drop-shadow(-2px 0 var(--nx-cyan)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pending-panel.has-tasks .pending-panel-glyph { animation: none; }
+}
 .pending-panel.has-tasks .pending-panel-head {
   border-color: color-mix(in srgb, var(--nx-green) 42%, transparent);
   box-shadow:
@@ -183,8 +212,8 @@
   margin: 0 0 8px;
   padding: 8px;
   border-radius: 8px;
-  background: color-mix(in srgb, #e35a49 13%, var(--nx-bg));
-  color: #ff8d7e;
+  background: color-mix(in srgb, var(--nx-red) 13%, var(--nx-bg));
+  color: var(--nx-red);
   font-size: 12px;
 }
 
@@ -304,8 +333,8 @@
       color: var(--accent);
     }
     &.is-question {
-      background: color-mix(in srgb, #9d6bff 20%, transparent);
-      color: #b794ff;
+      background: color-mix(in srgb, var(--nx-purple) 20%, transparent);
+      color: var(--nx-purple);
     }
   }
   .nav-text {
@@ -720,5 +749,27 @@ input {
     button {
       flex: 0 0 158px;
     }
+  }
+}
+
+@supports (color: contrast-color(red)) {
+  .pending-panel-count,
+  .current-task-actions .accept {
+    color: contrast-color(var(--nx-green));
+  }
+}
+
+@media (forced-colors: active) {
+  .pending-panel,
+  .pending-panel-head,
+  .pending-panel-body,
+  .panel-main,
+  .task-nav-btn,
+  fieldset,
+  .options button {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+    forced-color-adjust: auto;
   }
 }
