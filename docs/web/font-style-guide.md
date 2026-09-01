@@ -48,6 +48,18 @@
 
 `web/src/styles/markdown.less` 已是规范结构范本：正文 `p/li/th/td` = 400，标题 `h1-h6` = 600。
 
+## 等宽 HUD 字体（2026-09-01 补）
+
+科技感 HUD 点缀场景（状态微文本 / 坐标 / 计数 / 时间戳 / 会话标识等）使用等宽字体栈：
+
+```css
+font-family: ui-monospace, 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace;
+```
+
+- **仅用于点缀性微文本**，不用于正文、按钮文字或表单控件；与既有 Nyxus CRT 等宽栈（`nyxusPopoverTheme.less`）语义一致但面向通用 UI。
+- 字重规则不变：默认 400，强调 600。
+- 建议小字号（10-12px）+ `letter-spacing` 微调，配合语义 token 弱化色使用。
+
 ## 注意事项
 
 - 项目当前**无字号/字重 CSS token**（`theme.css` 仅颜色 token），字重全部硬编码。本次只收敛字重数值，不引入 token 体系。
