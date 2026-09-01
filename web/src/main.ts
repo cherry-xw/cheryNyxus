@@ -32,8 +32,10 @@ import {
 import App from './App.vue'
 import { useAuthStore, useThemeStore } from '@/stores'
 import { configureServiceAuth } from '@/services/authContext'
+import { setupGsapCore } from '@/utils/gsapCore'
 
 const app = createApp(App)
+setupGsapCore()
 const pinia = createPinia()
 app.use(pinia)
 app.use(ElLoading)
