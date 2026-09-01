@@ -56,8 +56,7 @@ export function isCompactEnabled(chatId: string): boolean {
   // 无 brain（罕见：DB 行 metadata.runtime 缺失）→ 视为不可用。
   if (!brainName) return false
 
-  // resolveRuntime 已 normalize；contextLimit 缺省由 computeContextUsage 兜底（8K），
-  // 但兜底值常小于 min_context_limit，故这里直接读 config 避免误开。
+  // contextLimit 缺省时保持未知（0），不伪造模型容量；这里直接读取显式 brain 配置。
   const brain = config.llm.brain[brainName]
   const limit = brain?.contextLimit ?? 0
   if (limit <= 0) return false

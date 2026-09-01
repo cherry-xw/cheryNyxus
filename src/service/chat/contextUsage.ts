@@ -30,8 +30,8 @@ import config from '@/utils/config'
 import { getChatMentionableRoles } from './roleMentions.js'
 import { computeHistoryGenerationInfos } from './generations.js'
 
-/** contextLimit 兜底值（token）：brain 未配 contextLimit 时使用（与 utils/token 一致）。 */
-const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192
+/** 上限未知时 total=0；未知分母不得伪装成百分比。 */
+const UNKNOWN_CONTEXT_LIMIT_TOKENS = 0
 
 /** 单段快捷构造：count 缺省则仅 tokens。 */
 function seg(tokens: number, count?: number): Segment {
@@ -47,7 +47,7 @@ function zeroBreakdown(): ContextBreakdown {
     skills: z,
     tools: z,
     conversation: z,
-    total: DEFAULT_CONTEXT_LIMIT_TOKENS,
+    total: UNKNOWN_CONTEXT_LIMIT_TOKENS,
     usage: 0,
   }
 }
@@ -59,7 +59,7 @@ function zeroBreakdown(): ContextBreakdown {
  *   injectMemoryManage 据是否子 agent（parent_chat_id）决定，与 init 期一致。
  * - 段 6（用户对话）：DB 行 role∈user/assistant/role/subagent/sense（含感官调用结果）。
  *
- * limit 来源：chat runtime 的 brain → config.llm.brain[brain].contextLimit；缺失 → DEFAULT 兜底。
+ * limit 来源：chat runtime 的 brain → config.llm.brain[brain].contextLimit；缺失时保持未知（0）。
  * 异常（chat 不存在 / DB 读失败）→ 兜底 zeroBreakdown + console.warn（不阻塞调用方）。
  */
 export function computeContextBreakdown(
@@ -125,8 +125,8 @@ export function computeContextBreakdown(
       tools.tokens +
       conversation.tokens
     const brainName = executionSelection?.brain
-    const limitTokens =
-      (brainName && config.llm.brain[brainName]?.contextLimit) || DEFAULT_CONTEXT_LIMIT_TOKENS
+    const brain = brainName ? config.llm.brain[brainName] : undefined
+    const limitTokens = brain?.contextLimit ?? 0
     const total = limitTokens > 0 ? limitTokens : 0
     const usage = total > 0 ? Math.min(1, used / total) : 0
 
