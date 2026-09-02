@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted, type Ref } from 'vue'
 import { gsap } from 'gsap'
 import { MOTION } from '@/utils/gsapCore'
+import { useMotionPreference } from '@/composables/useMotionPreference'
 import { renderQualityProfile, renderQualityTier } from '@/composables/renderQuality'
 
 export interface CyberWindowMotion {
@@ -15,10 +16,13 @@ export function useCyberWindowMotion(
 ): CyberWindowMotion {
   let context: gsap.Context | undefined
   let closing = false
+  // 动效偏好统一走 useMotionPreference（响应式），不再各自裸查 matchMedia。
+  const { effectiveMode } = useMotionPreference()
+  const reduced = () => effectiveMode.value === 'reduced'
 
   onMounted(() => {
     if (!root.value) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (reduced()) {
       gsap.set(root.value, { autoAlpha: 1, x: 0, scale: 1 })
       opened()
       return
@@ -50,7 +54,7 @@ export function useCyberWindowMotion(
     close(done) {
       if (!root.value || closing) return
       closing = true
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (reduced()) {
         done()
         return
       }
@@ -63,7 +67,7 @@ export function useCyberWindowMotion(
     },
     focus() {
       if (!root.value || closing) return
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      if (reduced()) return
       context?.add(() => {
         gsap.fromTo(
           root.value,
@@ -74,7 +78,7 @@ export function useCyberWindowMotion(
     },
     glitch() {
       if (!root.value || closing) return
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      if (reduced()) return
       context?.add(() => {
         const pixels = renderQualityProfile(renderQualityTier.value).windowGlitchPixels
         gsap

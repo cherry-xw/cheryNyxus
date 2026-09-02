@@ -233,14 +233,6 @@
 .detail-resize-handle.is-se { right:-5px; bottom:-5px; cursor:nwse-resize; }
 .detail-resize-handle.is-sw { bottom:-5px; left:-5px; cursor:nesw-resize; }
 .detail-resize-handle.is-nw { top:-5px; left:-5px; cursor:nwse-resize; }
-.node-detail-enter-active,
-.node-detail-leave-active {
-  transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-.node-detail-enter-from,
-.node-detail-leave-to {
-  opacity: 0;
-}
 .node-halo {
   fill: none;
   stroke-width: 8;
@@ -486,10 +478,4 @@
   stroke: url(#nx-neon);
   stroke-width: 1.5;
   opacity: 0.4;
-}
-@media (prefers-reduced-motion: reduce) {
-  .node-detail-enter-active,
-  .node-detail-leave-active {
-    transition: opacity 100ms linear;
-  }
 }

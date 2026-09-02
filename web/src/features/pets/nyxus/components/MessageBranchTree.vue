@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { useMessageBranchTreeController, type MessageBranchTreeControllerProps, type MessageBranchTreeControllerEmits } from './useMessageBranchTreeController'
+import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), { foldMode: 'partial', layoutMode: 'timeline', presentationMode: 'horizontal-signal' })
 const emit = defineEmits<MessageBranchTreeControllerEmits>()
 const controller = useMessageBranchTreeController(props, emit)
+const detailMotion = useOverlayTransitionHooks('panel')
 const {
   AnchoredRunCrt, ExecutionNodePopover, FoldTabRail, GenerationTreeDialog, NodePaperStack,
   activateNode, activePaperApprovalPopover, activePaperQuestionPopover, agents, canvas, closeCrt, closeNodeDetail, crtById,
   crtPlacements, crtVisibility, defaultPopoverAnchorIds, defaultPopoverViews, detailAnchorEl,
   detailAnchorStyle, detailDisplayNode, detailFoldMember, detailMaxHeight, detailNode, detailPinned, detailWrap,
-  detailPlacement, detailRelatedEdges, dragActionPopover, dragCrt, dragDetailPopover, focusCrt,
+  detailPlacement, detailRelatedEdges, dragActionPopover, dragCrt, dragDetailPopover, finishDetailDrag, focusCrt,
   focusNode, focusRelativeNode, foldRailSide, generationDialogIndex, gpuNodeHitStyle,
   gpuRenderError, hasNewTail, hideNodeDetail, keepNodeDetailOpen, leaveNodeDetail,
   nodeAriaLabel, nodeTitle, onFoldRailInteraction, onNodePointerDown, overlayPlacements,
@@ -201,7 +203,14 @@ defineExpose({ resetLayout: controller.resetLayout })
             @drag="dragActionPopover(view.model.id, $event)"
           />
         </div>
-        <Transition name="node-detail">
+        <Transition
+          :css="false"
+          @before-enter="detailMotion.onBeforeEnter"
+          @enter="detailMotion.onEnter"
+          @leave="detailMotion.onLeave"
+          @enter-cancelled="detailMotion.onEnterCancelled"
+          @leave-cancelled="detailMotion.onLeaveCancelled"
+        >
           <div
             v-if="detailNode && detailAnchorStyle && !defaultPopoverAnchorIds.has(detailNode.id)"
             ref="detailAnchorEl"
@@ -242,6 +251,7 @@ defineExpose({ resetLayout: controller.resetLayout })
               @branch="requestBranch"
               @close="closeNodeDetail"
               @drag="dragDetailPopover"
+              @drag-end="finishDetailDrag"
               @toggle-wrap="toggleDetailWrap"
             />
             <template v-if="detailPinned">

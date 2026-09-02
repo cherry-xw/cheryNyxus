@@ -6,6 +6,7 @@
  * and visual skin. Later checkpoints add termination controls and CRT anchoring.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { gsap } from 'gsap'
 import { renderQualityTier } from '@/composables/renderQuality'
 import { useNyxusHost } from '../application/host'
 import { useThemeTokens } from '@/composables/useThemeTokens'
@@ -1196,21 +1197,62 @@ export function useMessageBranchTreeController(
     const worldX = centre.x <= viewportSize.value.width / 2 ? bounds.right : bounds.left
     return canvas.worldToScreen({ x: worldX, y: node.y })
   }
+  /**
+   * pinned 详情弹窗拖拽（2026-09-02 返工契约）：pointermove 期间 quickSetter 直写
+   * transform x/y（与树平移的 CSS `translate` 属性分属不同通道，可叠加），不触发
+   * 每帧响应式 patch；`finishDetailDrag`（弹窗 dragEnd）才把终值一次性落回
+   * `detailManualPos` 并清除直写 transform——落回与清写同帧完成，无闪烁。
+   */
+  let detailDragState: { baseLeft: number; baseTop: number; left: number; top: number } | null = null
+  let detailDragSetters: { x: ReturnType<typeof gsap.quickSetter>; y: ReturnType<typeof gsap.quickSetter> } | undefined
   function dragDetailPopover(delta: { x: number; y: number }): void {
     const current = detailPlacement.value
     if (!current) return
-    const base = detailManualPos.value ?? {
-      left: parseFloat(current.style.left),
-      top: parseFloat(current.style.top),
+    if (!detailDragState) {
+      const baseLeft = parseFloat(current.style.left)
+      const baseTop = parseFloat(current.style.top)
+      detailDragState = { baseLeft, baseTop, left: baseLeft, top: baseTop }
     }
     const headerVisible = 32
-    const left = Math.min(
+    detailDragState.left = Math.min(
       viewportSize.value.width - headerVisible,
-      Math.max(-detailSize.value.width + headerVisible, base.left + delta.x),
+      Math.max(-detailSize.value.width + headerVisible, detailDragState.left + delta.x),
     )
-    const top = Math.min(viewportSize.value.height - headerVisible, Math.max(0, base.top + delta.y))
-    detailManualPos.value = { left, top }
+    detailDragState.top = Math.min(
+      viewportSize.value.height - headerVisible,
+      Math.max(0, detailDragState.top + delta.y),
+    )
+    const element = detailAnchorEl.value
+    if (element) {
+      detailDragSetters ??= {
+        x: gsap.quickSetter(element, 'x', 'px'),
+        y: gsap.quickSetter(element, 'y', 'px'),
+      }
+      detailDragSetters.x(detailDragState.left - detailDragState.baseLeft)
+      detailDragSetters.y(detailDragState.top - detailDragState.baseTop)
+    }
   }
+  function finishDetailDrag(): void {
+    if (!detailDragState) return
+    detailManualPos.value = { left: detailDragState.left, top: detailDragState.top }
+    detailDragState = null
+    detailDragSetters = undefined
+    const element = detailAnchorEl.value
+    if (element) gsap.set(element, { x: 0, y: 0, clearProps: 'transform' })
+  }
+  /**
+   * pinned 8 向 resize：与拖拽同契约——pointermove 期间 quickSetter 直写
+   * width/height/left/top，pointerup 才把终值落回 detailSize/detailManualPos。
+   */
+  let detailResizeState: {
+    width: number
+    height: number
+    left: number
+    top: number
+  } | null = null
+  let detailResizeSetters:
+    | { width: ReturnType<typeof gsap.quickSetter>; height: ReturnType<typeof gsap.quickSetter>; left: ReturnType<typeof gsap.quickSetter>; top: ReturnType<typeof gsap.quickSetter> }
+    | undefined
   function startDetailResize(
     direction: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
     event: PointerEvent,
@@ -1227,24 +1269,46 @@ export function useMessageBranchTreeController(
       top: parseFloat(placement.style.top),
       ...detailSize.value,
     }
+    detailResizeState = { width: start.width, height: start.height, left: start.left, top: start.top }
+    const element = detailAnchorEl.value
+    detailResizeSetters = element
+      ? {
+          width: gsap.quickSetter(element, 'width', 'px'),
+          height: gsap.quickSetter(element, 'height', 'px'),
+          left: gsap.quickSetter(element, 'left', 'px'),
+          top: gsap.quickSetter(element, 'top', 'px'),
+        }
+      : undefined
     const move = (next: PointerEvent) => {
+      if (!detailResizeState) return
       const dx = next.clientX - start.x
       const dy = next.clientY - start.y
       const west = direction.includes('w')
       const north = direction.includes('n')
       const maxWidth = Math.max(360, viewportSize.value.width - 24)
       const maxHeight = Math.max(240, viewportSize.value.height - 24)
-      const width = Math.min(maxWidth, Math.max(360, start.width + (west ? -dx : direction.includes('e') ? dx : 0)))
-      const height = Math.min(maxHeight, Math.max(240, start.height + (north ? -dy : direction.includes('s') ? dy : 0)))
-      const left = Math.min(viewportSize.value.width - 32, Math.max(24 - width, west ? start.left + start.width - width : start.left))
-      const top = Math.min(viewportSize.value.height - 32, Math.max(0, north ? start.top + start.height - height : start.top))
-      detailSize.value = { width, height }
-      detailManualPos.value = { left, top }
+      detailResizeState.width = Math.min(maxWidth, Math.max(360, start.width + (west ? -dx : direction.includes('e') ? dx : 0)))
+      detailResizeState.height = Math.min(maxHeight, Math.max(240, start.height + (north ? -dy : direction.includes('s') ? dy : 0)))
+      detailResizeState.left = Math.min(viewportSize.value.width - 32, Math.max(24 - detailResizeState.width, west ? start.left + start.width - detailResizeState.width : start.left))
+      detailResizeState.top = Math.min(viewportSize.value.height - 32, Math.max(0, north ? start.top + start.height - detailResizeState.height : start.top))
+      if (detailResizeSetters) {
+        detailResizeSetters.width(detailResizeState.width)
+        detailResizeSetters.height(detailResizeState.height)
+        detailResizeSetters.left(detailResizeState.left)
+        detailResizeSetters.top(detailResizeState.top)
+      }
     }
     const end = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', end)
       window.removeEventListener('pointercancel', end)
+      if (detailResizeState) {
+        detailSize.value = { width: detailResizeState.width, height: detailResizeState.height }
+        detailManualPos.value = { left: detailResizeState.left, top: detailResizeState.top }
+        detailResizeState = null
+      }
+      detailResizeSetters = undefined
+      if (element) gsap.set(element, { clearProps: 'width,height,left,top' })
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', end)
@@ -1727,6 +1791,7 @@ export function useMessageBranchTreeController(
     dragActionPopover,
     dragCrt,
     dragDetailPopover,
+    finishDetailDrag,
     startDetailResize,
     toggleDetailWrap,
     focusCrt,
