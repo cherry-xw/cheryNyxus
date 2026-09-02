@@ -677,7 +677,6 @@ export class ExecutionGraphPixiRenderer {
       cy: node.y,
       halfW,
       halfH,
-      fill: colorNumber(p.nodeFill),
       accent,
       alpha,
       ...(node.foldCount

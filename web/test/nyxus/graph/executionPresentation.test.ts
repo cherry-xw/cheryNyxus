@@ -85,6 +85,20 @@ function toolNode(name: string): PositionedExecutionNode {
   } as PositionedExecutionNode
 }
 
+/** signalVisualKindFor 的完整定位节点探针（actor/direction/kind 可定制）。 */
+function badgeNode(
+  kind: ExecutionNode['kind'],
+  actor: 'user' | 'agent' | 'system' = 'agent',
+  direction: ExecutionNode['direction'] = 'agent-to-user',
+): PositionedExecutionNode {
+  return {
+    ...node('probe', 1),
+    kind,
+    actor: { kind: actor } as ExecutionNode['actor'],
+    direction,
+  } as PositionedExecutionNode
+}
+
 describe('horizontal Signal Grid presentation', () => {
   it('rotates progress to x while preserving canonical node and edge facts', () => {
     const classic = projectExecutionPresentation(layoutExecutionGraph(graph()), 'vertical-classic')
@@ -139,19 +153,19 @@ describe('horizontal Signal Grid presentation', () => {
   })
 
   it('maps every node to its badge visual kind (zero-text principle)', () => {
-    expect(signalVisualKindFor({ kind: 'start', actor: { kind: 'system' }, direction: 'internal' }, 'process')).toBe('start')
-    expect(signalVisualKindFor({ kind: 'fold', actor: { kind: 'agent' }, direction: 'internal' }, 'fold')).toBe('fold')
-    expect(signalVisualKindFor({ kind: 'pack', actor: { kind: 'agent' }, direction: 'internal' }, 'fold')).toBe('fold')
-    expect(signalVisualKindFor({ kind: 'spawn', actor: { kind: 'agent' }, direction: 'internal' }, 'process')).toBe('dispatch')
-    expect(signalVisualKindFor({ kind: 'dispatch', actor: { kind: 'agent' }, direction: 'internal' }, 'process')).toBe('dispatch')
-    expect(signalVisualKindFor({ kind: 'return', actor: { kind: 'agent' }, direction: 'agent-to-user' }, 'process')).toBe('return')
-    expect(signalVisualKindFor({ kind: 'system', actor: { kind: 'system' }, direction: 'internal' }, 'process')).toBe('system')
-    expect(signalVisualKindFor({ kind: 'input', actor: { kind: 'user' }, direction: 'user-to-agent' }, 'hero-user')).toBe('input')
-    expect(signalVisualKindFor({ kind: 'message', actor: { kind: 'user' }, direction: 'user-to-agent' }, 'hero-user')).toBe('input')
-    expect(signalVisualKindFor({ kind: 'message', actor: { kind: 'agent' }, direction: 'agent-to-user' }, 'hero-final')).toBe('reply')
-    expect(signalVisualKindFor({ kind: 'message', actor: { kind: 'agent' }, direction: 'agent-to-user' }, 'hero-error')).toBe('error')
-    expect(signalVisualKindFor({ kind: 'message', actor: { kind: 'agent' }, direction: 'agent-to-user' }, 'process')).toBe('process')
-    expect(signalVisualKindFor({ kind: 'tool-batch', actor: { kind: 'agent' }, direction: 'internal' }, 'process')).toBe('tool-generic')
+    expect(signalVisualKindFor(badgeNode('start', 'system', 'internal'), 'process')).toBe('start')
+    expect(signalVisualKindFor(badgeNode('fold', 'agent', 'internal'), 'fold')).toBe('fold')
+    expect(signalVisualKindFor(badgeNode('pack', 'agent', 'internal'), 'fold')).toBe('fold')
+    expect(signalVisualKindFor(badgeNode('spawn', 'agent', 'internal'), 'process')).toBe('dispatch')
+    expect(signalVisualKindFor(badgeNode('dispatch', 'agent', 'internal'), 'process')).toBe('dispatch')
+    expect(signalVisualKindFor(badgeNode('return'), 'process')).toBe('return')
+    expect(signalVisualKindFor(badgeNode('system', 'system', 'internal'), 'process')).toBe('system')
+    expect(signalVisualKindFor(badgeNode('input', 'user', 'user-to-agent'), 'hero-user')).toBe('input')
+    expect(signalVisualKindFor(badgeNode('message', 'user', 'user-to-agent'), 'hero-user')).toBe('input')
+    expect(signalVisualKindFor(badgeNode('message'), 'hero-final')).toBe('reply')
+    expect(signalVisualKindFor(badgeNode('message'), 'hero-error')).toBe('error')
+    expect(signalVisualKindFor(badgeNode('message'), 'process')).toBe('process')
+    expect(signalVisualKindFor(badgeNode('tool-batch'), 'process')).toBe('tool-generic')
   })
 
   it('classifies tool batches into built-in tool visual kinds', () => {
