@@ -4,6 +4,7 @@ import {
   type PositionedExecutionEdge,
   type PositionedExecutionNode,
 } from './executionLayout'
+import { toolBatchDetail } from './toolBatchDetails'
 
 export type ExecutionPresentationMode = 'horizontal-signal' | 'vertical-classic'
 
@@ -14,59 +15,92 @@ export interface ExecutionNodeVisualBounds {
   bottom: number
 }
 
-export const SIGNAL_LANE_GAP = 112
-export const SIGNAL_NODE_WIDTH = 104
-export const SIGNAL_NODE_HEIGHT = 40
+export const SIGNAL_LANE_GAP = 72
+/** 所有 Signal 节点统一固定尺寸（零文本徽记，2026-09-02 二轮返工）。 */
+export const SIGNAL_NODE_SIZE = { width: 56, height: 40 } as const
 export const SIGNAL_ORIGIN_X = 76
-/** 相邻两列节点矩形之间的最小走线净距（列距自适应的下限组成项）。 */
+/** 相邻两列节点矩形之间的最小走线净距。 */
 export const SIGNAL_MIN_WIRE_GAP = 64
-/** mono 10-11px 标签的每字符像素宽度（截断预算公式项）。 */
-export const SIGNAL_LABEL_CHAR_PX = 6.6
-/** 标签横向预留：左图标区 30px + 右余量 12px。 */
-export const SIGNAL_LABEL_RESERVED_PX = 42
+/** 统一尺寸下的列步进：节点宽 + 净距。 */
+export const SIGNAL_COLUMN_STRIDE = SIGNAL_NODE_SIZE.width + SIGNAL_MIN_WIRE_GAP
 
-export const SIGNAL_NODE_SIZES = {
-  'hero-user': { width: 192, height: 64 },
-  'hero-final': { width: 192, height: 64 },
-  'hero-error': { width: 192, height: 58 },
-  fold: { width: 128, height: 44 },
-  process: { width: 104, height: 40 },
-} as const
+export type ExecutionPresentationPriority =
+  | 'hero-user'
+  | 'hero-final'
+  | 'hero-error'
+  | 'fold'
+  | 'process'
 
-export type ExecutionPresentationPriority = keyof typeof SIGNAL_NODE_SIZES
+/** tool-batch 的内建工具徽记细分（数据层判定，渲染器只消费）。 */
+export type SignalToolVisualKind =
+  | 'tool-command'
+  | 'tool-read'
+  | 'tool-write'
+  | 'tool-search'
+  | 'tool-skill'
+  | 'tool-spawn'
+  | 'tool-media'
+  | 'tool-question'
+  | 'tool-todo'
+  | 'tool-generic'
 
-/**
- * Signal 标签截断预算：按节点宽度推导每档可用字符数，process 只保留协议码。
- * 纯静态计算（不逐帧测量）；summary 变化经 labelSignature 自然触发标签重建。
- */
-export function signalLabelBudget(priority: ExecutionPresentationPriority): number {
-  const byWidth = Math.floor(
-    (SIGNAL_NODE_SIZES[priority].width - SIGNAL_LABEL_RESERVED_PX) / SIGNAL_LABEL_CHAR_PX,
-  )
-  const cap = priority === 'process' ? 0 : priority === 'fold' ? 10 : 22
-  return Math.min(cap, byWidth)
+/** Signal 节点徽记类型：基础类型 + 工具细分，每个类型一个独特 canvas 图形。 */
+export type SignalNodeVisualKind =
+  | 'start'
+  | 'input'
+  | 'reply'
+  | 'error'
+  | 'fold'
+  | 'process'
+  | 'dispatch'
+  | 'return'
+  | 'system'
+  | SignalToolVisualKind
+
+/** Signal 投影节点：在布局节点上附加徽记类型（2026-09-02 二轮返工）。 */
+export interface PositionedSignalNode extends PositionedExecutionNode {
+  visualKind: SignalNodeVisualKind
 }
 
-function protocolCode(node: PositionedExecutionNode): string {
-  if (node.kind === 'fold' || node.kind === 'pack') return 'FOLD'
-  if (node.kind === 'tool-batch') return 'TOOL'
-  if (node.kind === 'spawn' || node.kind === 'dispatch') return 'FORK'
-  if (node.kind === 'return') return 'RET'
-  if (node.actor.kind === 'user') return 'USR'
-  if (node.actor.kind === 'agent') return 'LLM'
-  if (node.kind === 'start') return 'BOOT'
-  return 'SYS'
+/** tool-batch → 内建工具徽记：按首个工具调用名关键词归类（同工具元数据命名习惯）。 */
+export function toolVisualKindFor(node: PositionedExecutionNode): SignalToolVisualKind {
+  const call = toolBatchDetail(node)?.calls[0]
+  if (!call) return 'tool-generic'
+  const name = call.name.toLowerCase()
+  if (/skill/.test(name)) return 'tool-skill'
+  if (/read|cat|view|open/.test(name)) return 'tool-read'
+  if (/write|edit|create|mkdir|move|delete|remove/.test(name)) return 'tool-write'
+  if (/search|grep|find|glob|list/.test(name)) return 'tool-search'
+  if (/question|ask|input|approval/.test(name)) return 'tool-question'
+  if (/spawn|dispatch|delegate|agent/.test(name)) return 'tool-spawn'
+  if (/media|image|audio|video|screenshot/.test(name)) return 'tool-media'
+  if (/todo|plan|task/.test(name)) return 'tool-todo'
+  if (/command|exec|run|bash|shell|terminal/.test(name)) return 'tool-command'
+  return 'tool-generic'
 }
 
-function summarize(content: string): string {
-  const value = content.replace(/\s+/g, ' ').trim()
-  return value.length > 56 ? `${value.slice(0, 55)}…` : value
+/** 节点 → 徽记类型：形状即类型语义（零文本原则），错误消息节点独立断框徽记。 */
+export function signalVisualKindFor(
+  node: Pick<PositionedExecutionNode, 'kind' | 'actor' | 'direction'>,
+  priority: ExecutionPresentationPriority,
+): SignalNodeVisualKind {
+  if (node.kind === 'start') return 'start'
+  if (node.kind === 'fold' || node.kind === 'pack') return 'fold'
+  if (node.kind === 'tool-batch') return toolVisualKindFor(node)
+  if (node.kind === 'spawn' || node.kind === 'dispatch') return 'dispatch'
+  if (node.kind === 'return') return 'return'
+  if (node.kind === 'system') return 'system'
+  if (node.kind === 'input') return 'input'
+  if (priority === 'hero-error') return 'error'
+  if (priority === 'hero-user') return 'input'
+  if (priority === 'hero-final') return 'reply'
+  return 'process'
 }
 
 /** UI-only priority projection. Canonical nodes and folding remain untouched. */
 export function projectExecutionNodePriorities(
   nodes: readonly PositionedExecutionNode[],
-): PositionedExecutionNode[] {
+): PositionedSignalNode[] {
   const orderedByChat = new Map<string, PositionedExecutionNode[]>()
   for (const node of nodes) {
     const list = orderedByChat.get(node.sourceChatId) ?? []
@@ -106,16 +140,10 @@ export function projectExecutionNodePriorities(
           : finalAgentIds.has(node.id)
             ? 'hero-final'
             : 'process'
-    // 标签预算内截断（超限加 …）；process 预算为 0，仅由协议码标签呈现。
-    const budget = signalLabelBudget(priority)
-    const summary = summarize(node.content)
-    const label =
-      summary.length > budget ? `${summary.slice(0, Math.max(1, budget - 1))}…` : summary
     return {
       ...node,
       presentationPriority: priority,
-      protocolCode: protocolCode(node),
-      summary: budget > 0 ? label : '',
+      visualKind: signalVisualKindFor(node, priority),
       effect:
         priority === 'hero-error'
           ? 'corruption'
@@ -130,15 +158,13 @@ export function projectExecutionNodePriorities(
   })
 }
 
-function signalNodeBounds(
-  node: Pick<PositionedExecutionNode, 'x' | 'y' | 'presentationPriority'>,
-): ExecutionNodeVisualBounds {
-  const size = SIGNAL_NODE_SIZES[node.presentationPriority ?? 'process']
+/** 统一固定尺寸：所有 Signal 节点共用同一矩形（零文本徽记不再分级）。 */
+function signalNodeBounds(node: Pick<PositionedExecutionNode, 'x' | 'y'>): ExecutionNodeVisualBounds {
   return {
-    left: node.x - size.width / 2,
-    top: node.y - size.height / 2,
-    right: node.x + size.width / 2,
-    bottom: node.y + size.height / 2,
+    left: node.x - SIGNAL_NODE_SIZE.width / 2,
+    top: node.y - SIGNAL_NODE_SIZE.height / 2,
+    right: node.x + SIGNAL_NODE_SIZE.width / 2,
+    bottom: node.y + SIGNAL_NODE_SIZE.height / 2,
   }
 }
 
@@ -157,30 +183,18 @@ export function projectExecutionPresentation(
 
   const minLane = Math.min(0, ...layout.nodes.map((node) => node.lane))
   const laneOriginY = 72 - minLane * SIGNAL_LANE_GAP
-  const nodeById = new Map<string, PositionedExecutionNode>()
+  const nodeById = new Map<string, PositionedSignalNode>()
   const priorityNodes = projectExecutionNodePriorities(layout.nodes)
   const rows = [...new Set(priorityNodes.map((node) => node.y))].sort((a, b) => a - b)
   const rowIndexByY = new Map(rows.map((row, index) => [row, index] as const))
-  // 单次分桶：每列最宽半宽，避免 O(列 × 节点) 的逐行 filter。
-  const columnHalfWidths = rows.map(() => 0)
-  for (const node of priorityNodes) {
-    const columnIndex = rowIndexByY.get(node.y)!
-    const halfWidth = SIGNAL_NODE_SIZES[node.presentationPriority ?? 'process'].width / 2
-    if (halfWidth > columnHalfWidths[columnIndex]!) columnHalfWidths[columnIndex] = halfWidth
-  }
-  // 列距自适应：相邻列矩形净距 ≥ SIGNAL_MIN_WIRE_GAP，由两列最宽节点半宽共同决定。
+  // 统一固定尺寸：列心按固定步进排布（节点宽 + 走线净距），不再按节点宽度自适应。
   const rowCenters: number[] = []
   rows.forEach((_, index) => {
     rowCenters[index] =
-      index === 0
-        ? SIGNAL_ORIGIN_X + columnHalfWidths[index]!
-        : rowCenters[index - 1]! +
-          columnHalfWidths[index - 1]! +
-          SIGNAL_MIN_WIRE_GAP +
-          columnHalfWidths[index]!
+      SIGNAL_ORIGIN_X + index * SIGNAL_COLUMN_STRIDE + SIGNAL_NODE_SIZE.width / 2
   })
   const nodes = priorityNodes
-    .map((node): PositionedExecutionNode => {
+    .map((node) => {
       const columnIndex = rowIndexByY.get(node.y)!
       const projected = {
         ...node,
