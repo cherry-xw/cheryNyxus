@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
-import { gsap } from 'gsap'
-import { useGsap } from '@/composables/useGsap'
 import { useNyxusHost } from '../application/host'
 import type { ExecutionFoldMember } from '../graph/executionGraph'
 import {
@@ -12,13 +10,6 @@ import {
 } from '../graph/foldTabs'
 import { toolBatchDetail } from '../graph/toolBatchDetails'
 
-/**
- * 过程组左轮（弹链轮盘，2026-09-02 返工）：
- * 行为复用 143af38 之前的 fold-wheel（拖拽转轮 / 滚轮步进阈值 / 键盘三路导航 /
- * foldWheelView 8 槽位分层翻页），视觉按无圆角科幻风重做为类型化子弹芯片。
- * 动效走 useGsap scoped：步进/翻层只动 transform 与 autoAlpha（180-220ms
- * power2.out），hover 用 CSS ≤200ms，入场 stagger 总时长 ≤240ms，无常驻循环。
- */
 const props = defineProps<{
   members: ExecutionFoldMember[]
   selectedMemberId?: string
@@ -33,33 +24,14 @@ const emit = defineEmits<{
 }>()
 const { agents, theme: themeStore } = useNyxusHost()
 
-const WHEEL_THRESHOLD = 40
-const STEP_MS = 0.2
-const CHIP_WIDTH = 128
-const CHIP_HEIGHT = 30
-const ACTIVE_WIDTH = 148
-const ACTIVE_HEIGHT = 36
-const STAGE_WIDTH = 272
-const STAGE_HEIGHT = 168
-
-const root = ref<HTMLElement | null>(null)
-let gsapContext: gsap.Context | undefined
-
-useGsap(root, (context) => {
-  gsapContext = context
-  // 入场 stagger：芯片由 0 淡入就位，总时长 = stagger×7 + duration ≈ 224ms ≤ 240ms。
-  context.add(() => {
-    if (reducedMotion()) return
-    const chips = root.value?.querySelectorAll('.fold-wheel-chip')
-    if (chips?.length) {
-      gsap.from(chips, { autoAlpha: 0, duration: 0.14, stagger: 0.012, ease: 'power2.out', clearProps: 'transform' })
-    }
-  })
-})
-
-function reducedMotion(): boolean {
-  return matchMedia('(prefers-reduced-motion: reduce)').matches
-}
+const WHEEL_THRESHOLD = 46
+const ANIMATION_MS = 220
+const LAYER_SWITCH_MS = 110
+const CARD_WIDTH = 144
+const CARD_HEIGHT = 38
+const STAGE_WIDTH = 216
+const STAGE_HEIGHT = 180
+const NODE_GAP = 18
 
 type MemberSlot = FoldWheelSlot<ExecutionFoldMember>
 type FoldTab = ReturnType<typeof foldTabForMember>
@@ -76,7 +48,7 @@ function displayTab(member: ExecutionFoldMember): FoldTab {
   }
 }
 
-interface RenderedWheelChip {
+interface RenderedWheelCard {
   key: string
   item: ExecutionFoldMember
   itemIndex: number
@@ -89,6 +61,8 @@ interface RenderedWheelChip {
 
 const dragging = ref(false)
 const animating = ref(false)
+const motionAtTarget = ref(false)
+const layersAtTarget = ref(false)
 const selectedIndex = computed(() => {
   const index = props.members.findIndex((member) => member.id === props.selectedMemberId)
   return index >= 0 ? index : Math.max(0, props.members.length - 1)
@@ -100,7 +74,7 @@ const animationDirection = ref<1 | -1>(1)
 const wheel = computed(() =>
   foldWheelView(props.members, animating.value ? animationToIndex.value : visualIndex.value),
 )
-const renderedChips = computed<RenderedWheelChip[]>(() => {
+const renderedCards = computed<RenderedWheelCard[]>(() => {
   const from = foldWheelView(
     props.members,
     animating.value ? animationFromIndex.value : visualIndex.value,
@@ -117,7 +91,11 @@ const renderedChips = computed<RenderedWheelChip[]>(() => {
   return itemIds.flatMap((id) => {
     const source = sourceById.get(id)
     const target = targetById.get(id)
-    const slot = target ?? source
+    const slot = animating.value
+      ? layersAtTarget.value
+        ? (target ?? source)
+        : (source ?? target)
+      : target
     const item = target?.item ?? source?.item
     if (!slot || !item) return []
     const realContent = slot.realContent && !!source && !!target
@@ -130,23 +108,26 @@ const renderedChips = computed<RenderedWheelChip[]>(() => {
         target,
         slot,
         tab: realContent ? displayTab(item) : undefined,
-        interactive: realContent && slot.interactive,
+        interactive: !animating.value && realContent && slot.interactive,
       },
     ]
   })
 })
-/** rail 在节点右侧时水平取反，active 芯片仍落在贴节点一侧（与旧轮盘一致）。 */
-const mirrorX = computed(() => (props.side === 'right' ? -1 : 1))
 const navigationStyle = computed<CSSProperties>(() => ({
   left: `${
-    props.side === 'right' ? props.anchorX + 18 : props.anchorX - STAGE_WIDTH - 18
+    props.side === 'right' ? props.anchorX + NODE_GAP : props.anchorX - STAGE_WIDTH - NODE_GAP
   }px`,
   top: `${props.anchorY - STAGE_HEIGHT / 2}px`,
 }))
+// rail 在节点右侧时，stage 左缘朝向节点，active 卡仍落在 +x（右缘）会背对节点；
+// 水平取反后 active 落左缘贴节点，上方按钮随之到最左，与左侧渲染对称。
+const mirrorX = computed(() => (props.side === 'right' ? -1 : 1))
 
 let wheelAccumulator = 0
 let wheelResetTimer: ReturnType<typeof setTimeout> | undefined
+let layerTimer: ReturnType<typeof setTimeout> | undefined
 let finishTimer: ReturnType<typeof setTimeout> | undefined
+let animationFrame: number | undefined
 let dragStartY = 0
 let emitSelectionAtFinish = true
 let queuedTarget: { index: number; emitSelection: boolean } | undefined
@@ -163,85 +144,12 @@ function normalizedIndex(index: number, wrap: boolean): number {
 }
 
 function clearAnimationTimers(): void {
+  if (animationFrame !== undefined) cancelAnimationFrame(animationFrame)
+  if (layerTimer) clearTimeout(layerTimer)
   if (finishTimer) clearTimeout(finishTimer)
+  animationFrame = undefined
+  layerTimer = undefined
   finishTimer = undefined
-}
-
-/** 槽位 → 芯片 transform 目标（translate3d + scale，全部走 GSAP 可动属性）。 */
-function chipTransform(slot: MemberSlot, active: boolean): gsap.TweenVars {
-  const width = active ? ACTIVE_WIDTH : CHIP_WIDTH
-  const height = active ? ACTIVE_HEIGHT : CHIP_HEIGHT
-  const depth = (slot.z + 112) / 224
-  return {
-    x: STAGE_WIDTH / 2 + slot.x * mirrorX.value - width / 2,
-    y: STAGE_HEIGHT / 2 + slot.y - height / 2,
-    scale: 0.78 + depth * 0.22,
-    autoAlpha: slot.opacity,
-  }
-}
-
-/** 新进入槽窗的芯片从垂直缝位淡入（旧轮盘 seam 行为）。 */
-function seamTransform(direction: number): gsap.TweenVars {
-  return {
-    x: STAGE_WIDTH / 2 - CHIP_WIDTH / 2,
-    y: STAGE_HEIGHT / 2 + (direction > 0 ? 16 : -16),
-    scale: 0.78,
-    autoAlpha: 0,
-  }
-}
-
-function applyChipTransforms(leaving: boolean): void {
-  const chips = root.value?.querySelectorAll<HTMLElement>('.fold-wheel-chip[data-key]')
-  if (!chips?.length) return
-  gsapContext?.add(() => {
-    const duration = reducedMotion() ? 0 : animating.value ? STEP_MS : 0.16
-    chips.forEach((element) => {
-      const chip = renderedChips.value.find((entry) => entry.key === element.dataset.key)
-      if (!chip) return
-      const active = chip.slot.role === 'active'
-      if (leaving && !chip.target) {
-        gsap.to(element, { ...seamTransform(animationDirection.value), duration, ease: 'power2.out', overwrite: 'auto' })
-        return
-      }
-      const initial = animating.value && !chip.source ? seamTransform(animationDirection.value) : undefined
-      const target = chipTransform(chip.slot, active)
-      if (initial) {
-        gsap.fromTo(element, initial, { ...target, duration, ease: 'power2.out', overwrite: 'auto' })
-      } else {
-        gsap.to(element, { ...target, duration, ease: 'power2.out', overwrite: 'auto' })
-      }
-    })
-  })
-}
-
-function finishTransition(): void {
-  clearAnimationTimers()
-  visualIndex.value = normalizedIndex(animationToIndex.value, false)
-  animationFromIndex.value = visualIndex.value
-  animating.value = false
-  const member = props.members[visualIndex.value]
-  if (emitSelectionAtFinish && member) emit('select', member.id)
-  void nextTick(() => {
-    applyChipTransforms(false)
-    processQueue()
-  })
-}
-
-function beginTransition(targetIndex: number, direction: 1 | -1, shouldEmit: boolean): void {
-  const target = normalizedIndex(targetIndex, false)
-  if (target === visualIndex.value) {
-    const member = props.members[target]
-    if (shouldEmit && member) emit('select', member.id)
-    return
-  }
-  clearAnimationTimers()
-  animationFromIndex.value = visualIndex.value
-  animationToIndex.value = target
-  animationDirection.value = direction
-  emitSelectionAtFinish = shouldEmit
-  animating.value = true
-  void nextTick(() => applyChipTransforms(true))
-  finishTimer = setTimeout(finishTransition, reducedMotion() ? 0 : 220)
 }
 
 function processQueue(): void {
@@ -254,6 +162,48 @@ function processQueue(): void {
   }
   const delta = queuedSteps.shift()
   if (delta) beginTransition(circularIndex(visualIndex.value + delta), delta, true)
+}
+
+function finishTransition(): void {
+  clearAnimationTimers()
+  visualIndex.value = normalizedIndex(animationToIndex.value, false)
+  animationFromIndex.value = visualIndex.value
+  animating.value = false
+  motionAtTarget.value = false
+  layersAtTarget.value = false
+  const member = props.members[visualIndex.value]
+  if (emitSelectionAtFinish && member) emit('select', member.id)
+  void nextTick(processQueue)
+}
+
+function beginTransition(targetIndex: number, direction: 1 | -1, shouldEmit: boolean): void {
+  const target = normalizedIndex(targetIndex, false)
+  if (target === visualIndex.value) {
+    const member = props.members[target]
+    if (shouldEmit && member) emit('select', member.id)
+    void nextTick(processQueue)
+    return
+  }
+  clearAnimationTimers()
+  animationFromIndex.value = visualIndex.value
+  animationToIndex.value = target
+  animationDirection.value = direction
+  emitSelectionAtFinish = shouldEmit
+  motionAtTarget.value = false
+  layersAtTarget.value = false
+  animating.value = true
+
+  void nextTick(() => {
+    animationFrame = requestAnimationFrame(() => {
+      animationFrame = undefined
+      motionAtTarget.value = true
+      layerTimer = setTimeout(() => {
+        layerTimer = undefined
+        layersAtTarget.value = true
+      }, LAYER_SWITCH_MS)
+      finishTimer = setTimeout(finishTransition, ANIMATION_MS)
+    })
+  })
 }
 
 function enqueueStep(delta: 1 | -1): void {
@@ -276,9 +226,9 @@ function requestIndex(index: number, wrap = true): void {
   beginTransition(target, target >= visualIndex.value ? 1 : -1, true)
 }
 
-function selectChip(chip: RenderedWheelChip): void {
-  if (!chip.interactive || chip.slot.role === 'active') return
-  enqueueStep(chip.slot.id === 'C' ? -1 : 1)
+function selectCard(card: RenderedWheelCard): void {
+  if (!card.interactive || card.slot.role === 'active') return
+  enqueueStep(card.slot.id === 'C' ? -1 : 1)
 }
 
 function onWheel(event: WheelEvent): void {
@@ -344,12 +294,23 @@ function onFocusOut(event: FocusEvent): void {
   emit('interaction', false)
 }
 
-function chipInlineStyle(chip: RenderedWheelChip): CSSProperties {
-  const active = chip.slot.role === 'active'
+function seamPoint(): { x: number; y: number } {
+  return { x: -42 * mirrorX.value, y: animationDirection.value > 0 ? 16 : -16 }
+}
+
+function cardPoint(card: RenderedWheelCard): { x: number; y: number; opacity: number } {
+  const slot = motionAtTarget.value ? card.target : card.source
+  if (slot) return { x: slot.x * mirrorX.value, y: slot.y, opacity: slot.opacity }
+  return { ...seamPoint(), opacity: 0 }
+}
+
+function cardStyle(card: RenderedWheelCard): CSSProperties {
+  const point = cardPoint(card)
   return {
-    width: `${active ? ACTIVE_WIDTH : CHIP_WIDTH}px`,
-    height: `${active ? ACTIVE_HEIGHT : CHIP_HEIGHT}px`,
-    zIndex: chip.slot.zIndex,
+    left: `${STAGE_WIDTH / 2 + point.x - CARD_WIDTH / 2}px`,
+    top: `${STAGE_HEIGHT / 2 + point.y - CARD_HEIGHT / 2}px`,
+    zIndex: card.slot.zIndex,
+    opacity: point.opacity,
   }
 }
 
@@ -372,14 +333,6 @@ watch(
   },
 )
 
-// 静止态槽位漂移（成员增减 / mirror 变化）也走 GSAP，保持 transform 单一动效通道。
-watch(
-  () => [renderedChips.value.length, mirrorX.value] as const,
-  () => {
-    if (!animating.value) void nextTick(() => applyChipTransforms(false))
-  },
-)
-
 onBeforeUnmount(() => {
   if (wheelResetTimer) clearTimeout(wheelResetTimer)
   clearAnimationTimers()
@@ -388,11 +341,10 @@ onBeforeUnmount(() => {
 
 <template>
   <nav
-    ref="root"
     class="fold-wheel-navigation"
     :class="{ 'is-dragging': dragging, 'is-animating': animating }"
     :style="navigationStyle"
-    aria-label="过程组弹链轮盘"
+    aria-label="过程组页签轮盘"
     tabindex="0"
     @pointerenter="emit('interaction', true)"
     @pointerleave="leaveWheel"
@@ -409,50 +361,52 @@ onBeforeUnmount(() => {
       @pointercancel="endDrag"
     >
       <button
-        v-for="chip in renderedChips"
-        :key="chip.key"
+        v-for="card in renderedCards"
+        :key="card.key"
         type="button"
-        class="fold-wheel-chip"
+        class="fold-wheel-card"
         :class="[
-          `slot-${chip.slot.id}`,
-          `role-${chip.slot.role}`,
-          chip.tab ? `kind-${chip.tab.bulletKind}` : undefined,
+          `slot-${card.slot.id}`,
+          `role-${card.slot.role}`,
+          card.tab ? `kind-${card.tab.kind}` : undefined,
           {
-            'is-real': !!chip.tab,
-            'is-ghost': !chip.tab,
-            'is-active': chip.slot.role === 'active',
+            'is-real': !!card.tab,
+            'is-ghost': !card.tab,
+            'is-selected': card.slot.role === 'active',
           },
         ]"
-        :data-key="chip.key"
-        :style="chipInlineStyle(chip)"
-        :disabled="!chip.interactive"
-        :aria-hidden="chip.tab ? undefined : true"
-        :aria-current="chip.slot.role === 'active' ? 'page' : undefined"
-        :title="chip.tab ? `${chip.tab.label} · ${chip.tab.status}` : undefined"
+        :style="cardStyle(card)"
+        :disabled="!card.interactive"
+        :aria-hidden="card.tab ? undefined : true"
+        :aria-current="card.slot.role === 'active' ? 'page' : undefined"
+        :title="card.tab ? `${card.tab.label} · ${card.tab.status}` : undefined"
         @pointerdown.stop
-        @click.stop="selectChip(chip)"
+        @click.stop="selectCard(card)"
       >
-        <template v-if="chip.tab">
-          <span class="chip-band" :style="{ background: chip.tab.accent }" />
-          <span class="chip-bullet" :style="{ background: chip.tab.accent }" aria-hidden="true" />
-          <span class="chip-copy">
-            <strong>{{ chip.tab.label }}</strong>
-            <small>{{ chip.tab.status }}</small>
+        <template v-if="card.tab">
+          <span class="wheel-card-glyph" :style="{ color: card.tab.accent }">
+            {{ card.tab.glyph }}
           </span>
-          <span v-if="chip.slot.role === 'active' && unreadCount" class="chip-unread">
+          <span class="wheel-card-copy">
+            <strong>{{ card.tab.label }}</strong>
+            <small>{{ card.tab.status }}</small>
+          </span>
+          <span class="wheel-card-status" :style="{ background: card.tab.accent }" />
+          <span v-if="card.slot.role === 'active' && unreadCount" class="wheel-card-unread">
             +{{ unreadCount }}
           </span>
         </template>
         <template v-else>
-          <span class="ghost-index">{{ chip.itemIndex + 1 }}</span>
+          <span class="ghost-index">{{ card.itemIndex + 1 }}</span>
           <span class="ghost-line" />
         </template>
       </button>
     </div>
     <div class="fold-wheel-position" aria-live="polite">
-      <span>过程 {{ wheel.selectedIndex + 1 }}/{{ wheel.itemCount }}</span>
-      <span v-if="wheel.layerCount > 1">层 {{ wheel.layerIndex + 1 }}/{{ wheel.layerCount }}</span>
-      <span v-if="unreadCount" class="position-unread">新动态</span>
+      <span>{{ wheel.selectedIndex + 1 }}/{{ wheel.itemCount }}</span>
+      <span v-if="wheel.layerCount > 1">
+        层 {{ wheel.layerIndex + 1 }}/{{ wheel.layerCount }}
+      </span>
     </div>
   </nav>
 </template>
@@ -461,8 +415,8 @@ onBeforeUnmount(() => {
 .fold-wheel-navigation {
   position: absolute;
   z-index: 3;
-  width: 272px;
-  height: 192px;
+  width: 216px;
+  height: 204px;
   outline: none;
   user-select: none;
 }
@@ -478,147 +432,115 @@ onBeforeUnmount(() => {
 .fold-wheel-navigation.is-dragging .fold-wheel-stage {
   cursor: grabbing;
 }
-
-/* 弹壳芯片：全直角、1px token 描边 + nx-bg 底；位移动效全部走 GSAP transform。 */
-.fold-wheel-chip {
+.fold-wheel-card {
   position: absolute;
-  left: 0;
-  top: 0;
+  width: 144px;
+  height: 38px;
   box-sizing: border-box;
   margin: 0;
   appearance: none;
+  border: 1px solid rgba(60, 68, 64, 0.18);
+  transition:
+    left 340ms cubic-bezier(0.22, 0.68, 0.2, 1),
+    top 340ms cubic-bezier(0.22, 0.68, 0.2, 1),
+    opacity 260ms ease,
+    border-color 160ms ease,
+    filter 160ms ease;
+}
+.fold-wheel-card.is-real {
   display: grid;
-  grid-template-columns: 4px 12px minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr) 5px;
   align-items: center;
   gap: 6px;
-  padding: 0 8px 0 0;
-  border: 1px solid var(--nx-border);
-  border-radius: 0;
-  background: var(--nx-bg);
-  color: var(--nx-text);
-  font-family: var(--font-mono);
+  padding: 5px 8px;
+  color: #1f2328;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.98), rgba(247, 244, 237, 0.96));
+  box-shadow: 0 7px 16px rgba(31, 35, 40, 0.12);
   text-align: left;
-  will-change: transform, opacity;
-}
-.fold-wheel-chip.is-real {
   cursor: pointer;
 }
-.fold-wheel-chip.is-ghost {
-  grid-template-columns: 4px 12px minmax(0, 1fr);
-  color: color-mix(in srgb, var(--nx-text) 42%, transparent);
-  background: color-mix(in srgb, var(--nx-bg) 74%, transparent);
-  border-color: color-mix(in srgb, var(--nx-border) 36%, transparent);
+.fold-wheel-card.is-real:hover {
+  color: #000;
+  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
+  filter: brightness(1.02);
+}
+.fold-wheel-card.is-selected {
+  cursor: default;
+  border-color: var(--accent);
+  box-shadow:
+    0 9px 22px rgba(31, 35, 40, 0.14),
+    0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent),
+    0 0 16px var(--accent-glow);
+}
+.fold-wheel-card.is-ghost {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  color: rgba(31, 35, 40, 0.42);
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.9), rgba(247, 244, 237, 0.74));
+  box-shadow: 0 5px 12px rgba(31, 35, 40, 0.1);
   pointer-events: none;
 }
-.fold-wheel-chip.is-active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--nx-bg) 82%, var(--accent) 18%);
+.fold-wheel-card.role-transition {
+  border-color: rgba(60, 68, 64, 0.12);
 }
-.fold-wheel-chip.is-real:hover {
-  border-color: var(--accent);
-  filter: brightness(1.08);
-  /* hover 反馈 ≤200ms（motion-standard §5） */
-  transition: border-color 160ms ease, filter 160ms ease;
+.fold-wheel-card.role-back {
+  border-color: rgba(60, 68, 64, 0.08);
 }
-.fold-wheel-chip.is-active:hover {
-  cursor: default;
+.wheel-card-glyph {
+  font:
+    700 13px/1 ui-monospace,
+    monospace;
+  text-align: center;
 }
-
-/* 左 4px 色带：与弹形双编码（色弱可辨） */
-.chip-band {
-  width: 4px;
-  height: 100%;
-  align-self: stretch;
-}
-/* 12×16 弹头图标：形状 = 直角多边形 clip-path（弹头朝右），颜色同色带 */
-.chip-bullet {
-  width: 12px;
-  height: 16px;
-  justify-self: center;
-}
-.kind-tool .chip-bullet {
-  /* 尖头弹 */
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%);
-}
-.kind-file .chip-bullet {
-  /* 双切角平头弹：平头 + 上下 6px 对称切角 */
-  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
-}
-.kind-skill .chip-bullet {
-  /* 阶梯尾弹：尾部两级台阶 */
-  clip-path: polygon(4px 0, 100% 0, 100% 100%, 4px 100%, 4px 62%, 0 62%, 0 38%, 4px 38%);
-}
-.kind-question .chip-bullet {
-  /* 空尖弹：弹体中部 6px 开槽 */
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%, 4px 62%, 38% 62%, 38% 38%, 4px 38%);
-}
-.kind-interaction .chip-bullet {
-  /* 半芯弹：描边壳 + 半透明内芯 */
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%);
-  background: transparent !important;
-  box-shadow: inset 0 0 0 1px var(--warning);
-}
-.kind-interaction .chip-bullet::after {
-  content: '';
-  display: block;
-  width: 100%;
-  height: 100%;
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%);
-  background: color-mix(in srgb, var(--warning) 42%, transparent);
-}
-.kind-error .chip-bullet {
-  /* 断壳曳光弹：尾部 V 缺口 */
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 6px 50%);
-}
-.kind-error .chip-bullet::after {
-  /* 1px 裂纹线 */
-  content: '';
-  display: block;
-  width: 100%;
-  height: 1px;
-  margin-top: 7px;
-  background: color-mix(in srgb, var(--nx-bg) 72%, transparent);
-}
-.kind-agent .chip-bullet {
-  /* 平头凹槽弹：尾部 6px 凹槽 */
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 38%, 6px 38%, 6px 62%, 0 62%);
-}
-
-.chip-copy {
+.wheel-card-copy {
   min-width: 0;
   display: grid;
-  gap: 1px;
+  gap: 2px;
 }
-.chip-copy strong,
-.chip-copy small {
+.wheel-card-copy strong,
+.wheel-card-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chip-copy strong {
-  font: 600 10px/1.1 var(--font-mono);
+.wheel-card-copy strong {
+  font:
+    700 9px/1.1 system-ui,
+    sans-serif;
 }
-.chip-copy small {
-  color: color-mix(in srgb, var(--nx-text) 58%, transparent);
-  font: 400 8px/1 var(--font-mono);
+.wheel-card-copy small {
+  color: rgba(31, 35, 40, 0.55);
+  font:
+    8px/1 ui-monospace,
+    monospace;
 }
-.chip-unread {
+.wheel-card-status {
+  width: 4px;
+  height: 4px;
+}
+.wheel-card-unread {
   position: absolute;
-  right: -6px;
-  top: -7px;
+  right: -5px;
+  top: -6px;
   padding: 2px 4px;
-  border-radius: 0;
-  color: var(--nx-bg);
-  background: var(--warning);
-  font: 600 8px/1 var(--font-mono);
+  color: #fff;
+  background: #d85b27;
+  font:
+    700 8px/1 ui-monospace,
+    monospace;
 }
 .ghost-index {
-  font: 400 8px/1 var(--font-mono);
+  font:
+    700 8px/1 ui-monospace,
+    monospace;
   text-align: center;
 }
 .ghost-line {
   height: 2px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--nx-border) 40%, transparent), transparent);
+  background: linear-gradient(90deg, rgba(31, 35, 40, 0.28), transparent);
 }
 .fold-wheel-position {
   position: absolute;
@@ -626,17 +548,125 @@ onBeforeUnmount(() => {
   bottom: 0;
   display: flex;
   gap: 8px;
-  color: color-mix(in srgb, var(--nx-text) 56%, transparent);
-  font: 400 9px/1 var(--font-mono);
+  color: rgba(31, 35, 40, 0.56);
+  font:
+    700 8px/1 ui-monospace,
+    monospace;
 }
-.position-unread {
-  color: var(--warning);
-  text-shadow: 0 0 8px currentcolor;
+
+// 二轮返工适配（2026-09-02）：卡内事件驱动动效——步进时新 active 卡「通电」
+// （accent 边框扫入 + glyph 闪烁 220ms），hover 点亮状态点，unread pop 入场；
+// 全部事件驱动无常驻循环，reduced-motion 下关闭。
+@keyframes fold-wheel-glyph-flicker {
+  0%,
+  39%,
+  79% {
+    opacity: 1;
+  }
+  20%,
+  60% {
+    opacity: 0.15;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes fold-wheel-power-on {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  45% {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 14px var(--accent-glow);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+@keyframes fold-wheel-unread-pop {
+  0% {
+    transform: scale(0.4);
+  }
+  70% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.fold-wheel-navigation.is-animating .fold-wheel-card.is-selected {
+  animation: fold-wheel-power-on 220ms ease-out;
+}
+.fold-wheel-navigation.is-animating .fold-wheel-card.is-selected .wheel-card-glyph {
+  animation: fold-wheel-glyph-flicker 220ms steps(1, end);
+}
+.fold-wheel-card.is-real:hover .wheel-card-status {
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+.wheel-card-unread {
+  animation: fold-wheel-unread-pop 220ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fold-wheel-chip.is-real:hover {
+  .fold-wheel-card {
     transition: none;
+  }
+  .fold-wheel-navigation.is-animating .fold-wheel-card.is-selected,
+  .fold-wheel-navigation.is-animating .fold-wheel-card.is-selected .wheel-card-glyph,
+  .wheel-card-unread {
+    animation: none;
+  }
+}
+
+// 深色主题：沿用现行深蓝青轮盘（浅色默认已用白底深字）。
+[data-theme='dark'] {
+  .fold-wheel-navigation:focus-visible .fold-wheel-stage {
+    filter: drop-shadow(0 0 6px rgba(181, 255, 242, 0.32));
+  }
+  .fold-wheel-card {
+    border-color: rgba(107, 207, 247, 0.28);
+  }
+  .fold-wheel-card.is-real {
+    color: rgba(221, 244, 252, 0.82);
+    background: linear-gradient(100deg, rgba(8, 26, 39, 0.99), rgba(12, 38, 52, 0.96));
+    box-shadow: 0 7px 16px rgba(0, 0, 0, 0.3);
+  }
+  .fold-wheel-card.is-real:hover {
+    color: #fff;
+    border-color: rgba(181, 255, 242, 0.82);
+    filter: brightness(1.14);
+  }
+  .fold-wheel-card.is-selected {
+    border-color: #b5fff2;
+    box-shadow:
+      0 9px 22px rgba(0, 0, 0, 0.4),
+      0 0 0 1px rgba(181, 255, 242, 0.34),
+      0 0 16px rgba(107, 207, 247, 0.26);
+  }
+  .fold-wheel-card.is-ghost {
+    color: rgba(157, 216, 238, 0.44);
+    background: linear-gradient(100deg, rgba(6, 18, 29, 0.88), rgba(12, 31, 43, 0.72));
+    box-shadow: 0 5px 12px rgba(0, 0, 0, 0.22);
+  }
+  .fold-wheel-card.role-transition {
+    border-color: rgba(107, 207, 247, 0.2);
+  }
+  .fold-wheel-card.role-back {
+    border-color: rgba(107, 207, 247, 0.12);
+  }
+  .wheel-card-copy small {
+    color: rgba(202, 231, 244, 0.52);
+  }
+  .wheel-card-unread {
+    color: #07131e;
+    background: #ffca73;
+  }
+  .ghost-line {
+    background: linear-gradient(90deg, rgba(157, 216, 238, 0.35), transparent);
+  }
+  .fold-wheel-position {
+    color: rgba(157, 216, 238, 0.56);
   }
 }
 </style>
