@@ -21,7 +21,7 @@ export interface ToolBatchCallDetail extends GraphToolCall {
 export interface AnchoredPopoverPosition {
   left: number
   top: number
-  placement: 'left' | 'right'
+  placement: 'left' | 'right' | 'below'
 }
 
 export function oppositePopoverPlacement(placement: 'left' | 'right'): 'left' | 'right' {
@@ -203,5 +203,36 @@ export function anchoredPopoverPosition(input: {
     left: Math.min(maxLeft, Math.max(margin, idealLeft)),
     top: Math.min(maxTop, Math.max(margin, input.anchor.y - POPOVER_TITLE_BAR_OFFSET)),
     placement,
+  }
+}
+
+/**
+ * Below-first variant for the horizontal Signal presentation: nodes flow left → right, so a
+ * side-attached panel covers the next node and blocks pointer travel. The panel centers under
+ * the node's bottom edge and falls back to the side placement when there is no room below.
+ */
+export function anchoredPopoverPositionBelow(input: {
+  anchor: { x: number; y: number }
+  viewport: { width: number; height: number }
+  panel: { width: number; height: number }
+  gap?: number
+  margin?: number
+  reservedBottom?: number
+}): AnchoredPopoverPosition {
+  const gap = input.gap ?? 14
+  const margin = input.margin ?? 10
+  const usableBottom = Math.max(
+    margin,
+    input.viewport.height - (input.reservedBottom ?? 0) - margin,
+  )
+  if (input.anchor.y + gap + input.panel.height > usableBottom) {
+    return anchoredPopoverPosition(input)
+  }
+  const idealLeft = input.anchor.x - input.panel.width / 2
+  const maxLeft = Math.max(margin, input.viewport.width - margin - input.panel.width)
+  return {
+    left: Math.min(maxLeft, Math.max(margin, idealLeft)),
+    top: input.anchor.y + gap,
+    placement: 'below',
   }
 }

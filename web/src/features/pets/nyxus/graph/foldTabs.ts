@@ -58,6 +58,12 @@ const FOLD_WHEEL_SLOT_SPECS: readonly FoldWheelSlotSpec[] = [
   { id: 'D', angle: 180, offset: -4, role: 'back' },
 ]
 export const FOLD_WHEEL_LAYER_CAPACITY = FOLD_WHEEL_SLOT_SPECS.length
+/** 左轮导航外框宽度（FoldTabRail `.fold-wheel-navigation`），弹窗旁并排定位共用。 */
+export const FOLD_WHEEL_STAGE_WIDTH = 216
+/** 左轮轮盘舞台高度（不含 24px 底部计数条），侧贴锚点垂直居中用。 */
+export const FOLD_WHEEL_STAGE_HEIGHT = 180
+/** 左轮与弹窗/节点边缘的净距。 */
+export const FOLD_WHEEL_NODE_GAP = 18
 
 export function foldTabForMember(member: ExecutionFoldMember, theme: 'light' | 'dark' = 'dark'): FoldTabView {
   const node = member.displayNode
