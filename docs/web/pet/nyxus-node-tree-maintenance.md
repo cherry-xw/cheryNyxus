@@ -57,7 +57,7 @@
 
 Signal（横向）模式是在 `executionLayout.ts` 纵向布局**之后**的纯展示投影（`executionPresentation.ts`），只做坐标旋转与视觉增强，不改 lane/行事实。返工后生效的投影契约：
 
-- **二次路由走廊**：投影后必须执行 `resolveSignalEdgeCorridors` 横向路由消解——每条边按其跨越的列间隙分组，组内按来源 y 排序分配互不重叠的 `routeY` 槽位（最小间隔 14px），走廊 y 值用相邻列节点的 `visualBounds` 钳制，**禁止穿过任何节点矩形**；跨多列的长边优先分配外侧走廊，减少与短边交叉。几何消费沿用 `horizontalExecutionEdgeGeometry` 的 `routeY` 参数，几何函数本身不改。
+- **端口直连（2026-09-02 二轮返工）**：撤除走廊二次路由——`resolveSignalEdgeCorridors` 与 `SIGNAL_ROUTE_SLOT_GAP`/`SIGNAL_CORRIDOR_MARGIN` 删除，投影不再分配 `routeY`，连线回到最初方案：`horizontalExecutionEdgeGeometry` 收到 `routeY=undefined` 后从来源/目标节点左右边缘中点直接拉三次贝塞尔（"简单直接也够好看"）。**列距自适应保留**（相邻列矩形净距 ≥ `SIGNAL_MIN_WIRE_GAP`=64px，由两列最宽节点半宽共同决定），保证直连线互不挤压；几何函数本身不改（`routeY` 参数保留可选）。全边 `to.x > from.x` 不变量不变。
 - **禁止水平因果连线**在 Signal 下等价为：任何直接连线的目标列必须严格在来源列右侧（`to.x > from.x`）；投影保持"纵向行序→横向列序"映射，该不变量恒成立。
 - **自适应列距**：列间距不再使用全局常量，逐列计算 `gap[i] = max(前列节点半宽) + max(后列节点半宽) + SIGNAL_MIN_WIRE_GAP(64px)`；纵向行距（lane）下限保持 `SIGNAL_LANE_GAP=112`。
 - **节点分级尺寸**：宽度差收敛至约 1.85×——hero-user/hero-final 192×64、hero-error 192×58、fold 128×44、process 104×40（`SIGNAL_NODE_SIZES` 单点定义；bounds、端口、命中区均由 `visualBounds` 派生）。
