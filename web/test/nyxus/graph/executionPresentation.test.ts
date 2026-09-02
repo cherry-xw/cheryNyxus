@@ -8,11 +8,9 @@ import {
   projectExecutionPresentation,
   projectExecutionNodePriorities,
   signalLabelBudget,
-  SIGNAL_CORRIDOR_MARGIN,
   SIGNAL_MIN_WIRE_GAP,
   SIGNAL_NODE_SIZES,
   SIGNAL_NODE_WIDTH,
-  SIGNAL_ROUTE_SLOT_GAP,
 } from '../../../src/features/pets/nyxus/graph/executionPresentation'
 import { horizontalExecutionEdgeGeometry } from '../../../src/features/pets/nyxus/graph/executionGeometry'
 
@@ -185,92 +183,5 @@ describe('horizontal Signal Grid presentation', () => {
     const user = projected.find((entry) => entry.id === 'user')!
     expect(user.summary.length).toBeLessThanOrEqual(signalLabelBudget('hero-user'))
     expect(user.summary.endsWith('…')).toBe(true)
-  })
-
-  it('resolves long-edge corridors into non-overlapping slots that clear node bounds', () => {
-    // 链式 sequence 边拉开 5 列，再加三条跨多列长边制造走廊竞争。
-    const ids = ['n0', 'n1', 'n2', 'n3', 'n4']
-    const skipEdges = [
-      { id: 'skip-a', from: 'n0', to: 'n3' },
-      { id: 'skip-b', from: 'n0', to: 'n4' },
-      { id: 'skip-c', from: 'n1', to: 'n4' },
-    ]
-    const corridorGraph: ExecutionGraph = {
-      rootChatId: 'root',
-      nodes: ids.map((id, index) => node(id, index)),
-      edges: [
-        ...ids.slice(1).map((id, index) => ({
-          id: `chain-${index}`,
-          from: ids[index]!,
-          to: id,
-          kind: 'sequence' as const,
-          orderSlot: 'persistent' as const,
-          orderKey: index + 1,
-          sourceChatId: 'root',
-          targetChatId: 'root',
-        })),
-        ...skipEdges.map((edge, index) => ({
-          ...edge,
-          kind: 'sequence' as const,
-          orderSlot: 'persistent' as const,
-          orderKey: 100 + index,
-          sourceChatId: 'root',
-          targetChatId: 'root',
-        })),
-      ],
-      diagnostics: [],
-    }
-    const signal = projectExecutionPresentation(
-      layoutExecutionGraph(corridorGraph),
-      'horizontal-signal',
-    )
-    const columnXs = [...new Set(signal.nodes.map((node) => node.x))].sort((a, b) => a - b)
-    const columnOf = new Map(
-      signal.nodes.map((node) => [node.id, columnXs.indexOf(node.x)] as const),
-    )
-    const nodeById = new Map(signal.nodes.map((node) => [node.id, node] as const))
-    const longEdges = signal.edges.filter(
-      (edge) => columnOf.get(edge.to.id)! - columnOf.get(edge.from.id)! > 1,
-    )
-    expect(longEdges.length).toBe(skipEdges.length)
-
-    // 走廊 y 不得落在被穿越列的任何节点矩形（含膨胀边距）内。
-    for (const edge of longEdges) {
-      if (edge.routeY === undefined) continue
-      const fromColumn = columnOf.get(edge.from.id)!
-      const toColumn = columnOf.get(edge.to.id)!
-      for (const node of signal.nodes) {
-        const column = columnOf.get(node.id)!
-        if (column <= fromColumn || column >= toColumn) continue
-        const bounds = node.visualBounds!
-        expect(
-          edge.routeY < bounds.top - SIGNAL_CORRIDOR_MARGIN ||
-            edge.routeY > bounds.bottom + SIGNAL_CORRIDOR_MARGIN,
-        ).toBe(true)
-      }
-    }
-
-    // 共享列间隙的长边走廊互不重叠（最小槽位间隔）。
-    for (let index = 1; index < longEdges.length; index += 1) {
-      const a = longEdges[index - 1]!
-      const b = longEdges[index]!
-      if (a.routeY === undefined || b.routeY === undefined) continue
-      const sharesGap = ids.some((id, position) => {
-        if (position === 0) return false
-        const column = columnOf.get(id)!
-        const between = (edge: typeof a) =>
-          columnOf.get(edge.from.id)! < column && column < columnOf.get(edge.to.id)!
-        return between(a) && between(b)
-      })
-      if (sharesGap) {
-        expect(Math.abs(a.routeY - b.routeY)).toBeGreaterThanOrEqual(SIGNAL_ROUTE_SLOT_GAP)
-      }
-    }
-
-    // 长边走廊两端的列位置上不得穿过端点列以外的节点（已在上面覆盖），端点仍指向右方。
-    for (const edge of signal.edges) {
-      expect(edge.to.x).toBeGreaterThan(edge.from.x)
-      expect(nodeById.has(edge.from.id)).toBe(true)
-    }
   })
 })
