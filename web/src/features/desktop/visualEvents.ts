@@ -29,7 +29,7 @@ export function visualEventWindow(event: WorkspaceVisualEvent): OpenWorkspaceWin
     const fingerprint = shortHash(`${event.source}\u0000${event.code ?? ''}\u0000${event.message}`)
     return {
       resourceKey: `diagnostic:error:${fingerprint}`,
-      title: `ERROR // ${event.code ?? 'UNHANDLED'}`,
+      title: `错误 // ${event.code ?? 'UNHANDLED'}`,
       context: {
         kind: 'diagnostic',
         severity: 'error',
@@ -47,10 +47,7 @@ export function visualEventWindow(event: WorkspaceVisualEvent): OpenWorkspaceWin
   const fingerprint = shortHash(`${event.event}\u0000${event.message}`)
   return {
     resourceKey: `diagnostic:event:${fingerprint}`,
-    title:
-      event.event === 'graph.fallback'
-        ? 'WARNING // GRAPH FALLBACK'
-        : 'DIAGNOSTIC // SYSTEM EVENT',
+    title: event.event === 'graph.fallback' ? '警告 // 图谱回退' : '诊断 // 系统事件',
     context: {
       kind: 'diagnostic',
       severity: event.event === 'graph.fallback' ? 'warning' : 'diagnostic',

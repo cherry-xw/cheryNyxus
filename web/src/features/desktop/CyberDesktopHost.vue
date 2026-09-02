@@ -19,6 +19,14 @@ let stageResizeObserver: ResizeObserver | undefined
 const activeWindows = computed(() =>
   workspace.workspaceWindowsList.filter((window) => window.lifecycle !== 'minimized'),
 )
+const connectionLabel = computed(
+  () =>
+    ({
+      connected: '已连接',
+      connecting: '重连中',
+      disconnected: '离线',
+    })[connection.status] ?? connection.status,
+)
 const diagnosticWindows = computed(() =>
   workspace.workspaceWindowsList
     .filter((window) => window.context.kind === 'diagnostic')
@@ -42,7 +50,7 @@ function openCapability(kind: 'attention' | 'routing' | 'roles' | 'settings'): v
   if (kind === 'attention') {
     workspace.openOrFocusWindow({
       resourceKey: 'attention',
-      title: 'ATTENTION // INTERRUPT QUEUE',
+      title: '待操作 // 中断队列',
       context: { kind: 'attention', presetId: activeSummary.value?.presetId },
       geometry: { width: 720, height: 520 },
     })
@@ -51,7 +59,7 @@ function openCapability(kind: 'attention' | 'routing' | 'roles' | 'settings'): v
   if (kind === 'routing' && activeSummary.value) {
     workspace.openOrFocusWindow({
       resourceKey: `routing:${activeSummary.value.chatId}`,
-      title: 'ROUTING // SESSION TRACE',
+      title: '路由 // 会话追踪',
       context: { kind: 'routing', chatId: activeSummary.value.chatId },
       geometry: { width: 760, height: 560 },
     })
@@ -60,7 +68,7 @@ function openCapability(kind: 'attention' | 'routing' | 'roles' | 'settings'): v
   if (kind === 'roles' && activeSummary.value?.presetId) {
     workspace.openOrFocusWindow({
       resourceKey: `roles:${activeSummary.value.presetId}`,
-      title: 'ROLES // ACTIVE ROSTER',
+      title: '角色 // 在编名单',
       context: { kind: 'roles', presetId: activeSummary.value.presetId },
       geometry: { width: 720, height: 560 },
     })
@@ -174,7 +182,7 @@ onMounted(() => {
       publish({
         type: 'business',
         event: 'workspace.boot',
-        message: 'NYXUS_OS visual shell online. Protocol plane remains canonical.',
+        message: 'NYXUS_OS 视觉外壳已上线，协议层保持规范态。',
       })
     }
   } catch {
@@ -221,19 +229,19 @@ function activate(window: WorkspaceWindowState): void {
       <span class="cyber-brand">CHERY // NYXUS_OS</span>
       <span class="cyber-coordinate" aria-hidden="true">GRID 1920·1080 / SECTOR 07</span>
       <nav class="cyber-launcher" aria-label="系统功能">
-        <button type="button" @click="openCapability('attention')">ATTN</button>
-        <button type="button" :disabled="!activeSummary" @click="openCapability('routing')">ROUTE</button>
-        <button type="button" :disabled="!activeSummary?.presetId" @click="openCapability('roles')">ROLES</button>
-        <button type="button" :disabled="!chats.catalogSummaries.length" @click="openArchive">ARCHIVE</button>
-        <button type="button" @click="openCapability('settings')">CONFIG</button>
+        <button type="button" @click="openCapability('attention')">待操作</button>
+        <button type="button" :disabled="!activeSummary" @click="openCapability('routing')">路由</button>
+        <button type="button" :disabled="!activeSummary?.presetId" @click="openCapability('roles')">角色</button>
+        <button type="button" :disabled="!chats.catalogSummaries.length" @click="openArchive">档案</button>
+        <button type="button" @click="openCapability('settings')">设置</button>
       </nav>
       <span class="cyber-link" :class="`is-${connection.status}`">
-        <i /> LINK {{ connection.status.toUpperCase() }}
+        <i /> 链路 {{ connectionLabel }}
       </span>
-      <span class="cyber-window-count">WIN {{ activeWindows.length.toString().padStart(2, '0') }}</span>
+      <span class="cyber-window-count">窗口 {{ activeWindows.length.toString().padStart(2, '0') }}</span>
     </header>
     <aside class="cyber-telemetry" aria-hidden="true">
-      <span>SYS/TRACE</span><b>/////</b><span>MEM CANONICAL</span><b>///////</b><span>GPU ADAPTIVE</span>
+      <span>系统 / 追踪</span><b>/////</b><span>内存 规范态</span><b>///////</b><span>渲染 自适应</span>
     </aside>
     <main ref="stage" class="cyber-desktop-stage">
       <slot />
@@ -253,7 +261,7 @@ function activate(window: WorkspaceWindowState): void {
       </CyberWindow>
     </main>
     <footer class="cyber-taskbar" aria-label="窗口任务栏">
-      <span class="cyber-taskbar-mark">◫ ACTIVE CHANNELS</span>
+      <span class="cyber-taskbar-mark">◫ 活动窗口</span>
       <button
         v-for="window in workspace.workspaceWindowsList"
         :key="window.id"
@@ -263,7 +271,7 @@ function activate(window: WorkspaceWindowState): void {
       >
         <i>{{ window.kind.slice(0, 3).toUpperCase() }}</i>{{ window.title }}
       </button>
-      <span class="cyber-taskbar-tail">FPS/ADAPT · {{ new Date().getFullYear() }}</span>
+      <span class="cyber-taskbar-tail">自适应渲染 · {{ new Date().getFullYear() }}</span>
     </footer>
   </div>
 </template>
@@ -332,7 +340,7 @@ function activate(window: WorkspaceWindowState): void {
 }
 
 .cyber-coordinate {
-  color: color-mix(in srgb, var(--ink) 48%, transparent);
+  color: color-mix(in srgb, var(--ink) 32%, transparent);
 }
 
 .cyber-link {
@@ -352,8 +360,8 @@ function activate(window: WorkspaceWindowState): void {
   border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font: 600 8px/1 var(--font-mono);
-  letter-spacing: 0.08em;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.04em;
   cursor: pointer;
 }
 
@@ -419,7 +427,7 @@ function activate(window: WorkspaceWindowState): void {
 .cyber-taskbar-tail {
   padding: 0 7px;
   color: color-mix(in srgb, var(--ink) 48%, transparent);
-  font-size: 8px;
+  font-size: 9px;
   letter-spacing: 0.1em;
 }
 

@@ -68,7 +68,7 @@ function openSettings(): void {
 <template>
   <div class="cyber-capability">
     <template v-if="window.context.kind === 'attention'">
-      <header><span>PENDING OPERATIONS</span><b>{{ attentionSessions.length }}</b></header>
+      <header><span>待处理操作</span><b>{{ attentionSessions.length }}</b></header>
       <button
         v-for="session in attentionSessions"
         :key="session.chatId"
@@ -76,20 +76,20 @@ function openSettings(): void {
         class="capability-row"
         @click="openAttention(session.chatId)"
       >
-        <span>{{ session.preset ?? 'UNBOUND SESSION' }}</span>
+        <span>{{ session.preset ?? '未绑定会话' }}</span>
         <strong>{{ session.preview ?? session.chatId }}</strong>
         <small>
-          {{ session.pendingApproval ? 'APPROVAL' : 'QUESTION' }} /
+          {{ session.pendingApproval ? '审批' : '提问' }} /
           {{ session.pendingQuestionCount ?? (session.pendingApproval ? 1 : 0) }}
         </small>
       </button>
-      <div v-if="!attentionSessions.length" class="capability-empty">NO PENDING INTERRUPTS</div>
+      <div v-if="!attentionSessions.length" class="capability-empty">暂无待处理中断</div>
     </template>
 
     <template v-else-if="window.context.kind === 'routing'">
-      <header><span>SESSION ROUTE TRACE</span><b>LIVE</b></header>
+      <header><span>会话路由追踪</span><b>实时</b></header>
       <section class="route-current">
-        <small>CURRENT CHANNEL</small>
+        <small>当前通道</small>
         <strong>{{ routeSummary?.preview ?? routeChatId }}</strong>
         <code>{{ routeChatId }}</code>
       </section>
@@ -100,24 +100,24 @@ function openSettings(): void {
         class="capability-row"
         @click="switchRoute(session.chatId)"
       >
-        <span>{{ session.preset ?? 'ROUTE CANDIDATE' }}</span>
+        <span>{{ session.preset ?? '候选路由' }}</span>
         <strong>{{ session.preview ?? session.chatId }}</strong>
-        <small>{{ session.messageCount ?? session.turnCount ?? 0 }} FACTS</small>
+        <small>{{ session.messageCount ?? session.turnCount ?? 0 }} 事实</small>
       </button>
-      <div v-if="!routeCandidates.length" class="capability-empty">NO ALTERNATE ROUTES</div>
+      <div v-if="!routeCandidates.length" class="capability-empty">暂无其他路由</div>
     </template>
 
     <template v-else-if="window.context.kind === 'roles'">
-      <header><span>ROLE ROSTER / {{ rolePreset?.[0] ?? 'UNKNOWN' }}</span><b>{{ roleEntries.length }}</b></header>
+      <header><span>角色编制 / {{ rolePreset?.[0] ?? '未知' }}</span><b>{{ roleEntries.length }}</b></header>
       <article v-for="(role, index) in roleEntries" :key="role.name" class="role-row">
         <i>{{ String(index + 1).padStart(2, '0') }}</i>
         <div>
           <strong>{{ role.name }}</strong>
-          <span>{{ index === 0 ? 'LEADER CORE' : 'COLLABORATION NODE' }}</span>
+          <span>{{ index === 0 ? '主脑核心' : '协作节点' }}</span>
         </div>
-        <code>{{ role.config?.brain ?? 'NO BRAIN' }} / {{ role.config?.senseGroup ?? 'NO SENSE' }}</code>
+        <code>{{ role.config?.brain ?? '未配置大脑' }} / {{ role.config?.senseGroup ?? '未配置感官' }}</code>
       </article>
-      <button type="button" class="configure-action" @click="openSettings">OPEN ROLE CONFIGURATION ⇥</button>
+      <button type="button" class="configure-action" @click="openSettings">打开角色配置 ⇥</button>
     </template>
   </div>
 </template>

@@ -13,7 +13,7 @@ const { liteViewEnabled, toggleLiteView } = useLiteViewToggle(props.windowId)
       :aria-pressed="!liteViewEnabled"
       @click="liteViewEnabled && toggleLiteView()"
     >
-      <i aria-hidden="true">⌘</i><span>TREE</span>
+      <i aria-hidden="true">⌘</i><span>树</span>
     </button>
     <button
       type="button"
@@ -21,7 +21,7 @@ const { liteViewEnabled, toggleLiteView } = useLiteViewToggle(props.windowId)
       :aria-pressed="liteViewEnabled"
       @click="!liteViewEnabled && toggleLiteView()"
     >
-      <i aria-hidden="true">▤</i><span>LITE</span>
+      <i aria-hidden="true">▤</i><span>精简</span>
     </button>
   </div>
 </template>

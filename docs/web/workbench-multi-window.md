@@ -303,3 +303,12 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 | `web/src/styles/theme.css` | `html.window-surface` 兜底背景 |
 
 浏览器面（无 surface）不受影响：`uiState.ts` workbenchWindows 注册表 / capsule / 几何 / `settingsOpen` 全部保留（浏览器多窗口模式照常），Electron 原生面下这些字段自然休眠。
+
+## 卡牌阅读与图谱方向联动（2026-09-02 返工）
+
+工作台图谱展示模式由**卡牌阅读开关单一入口**决定，不再提供独立的方向切换按钮：
+
+- `useWorkbenchViewPreferences.ts`：`presentationMode` 改为由 `paperMode` **派生**（卡牌开 → `vertical-classic`，卡牌关 → `horizontal-signal`），不再独立持久化；load 时忽略旧持久化字段完成迁移（存量 `presentationMode='vertical-classic' && paperMode=false` 迁移为横向）。
+- `WorkbenchDialog.vue`：删除独立 ⇥ 方向切换按钮；卡牌按钮是唯一方向入口，tooltip/aria 为「切换卡牌纵向视图 / 切换信号横向视图」。两种展示模式（纵向 Classic 渲染 / 横向 Signal Grid）共存，随卡牌开关切换。
+- **fallback 豁免**：Signal 投影初始化失败自动回退 `vertical-classic`（`presentation-fallback`）时置 `signalFallback` 标志，`paperMode` watch 在该标志下**不反向翻转**卡牌状态；用户下次手动切换卡牌或重载后清除标志，并以轻提示告知「信号投影初始化失败，已回退纵向渲染」。
+- 投影/渲染契约见 [pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约](./pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约)。
