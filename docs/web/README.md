@@ -45,6 +45,7 @@
 | [web/src/views/HomeView.vue](../../web/src/views/HomeView.vue) | 示例视图 |
 | [web/src/features/pets/](../../web/src/features/pets/) | Pet 模块：桌面智能体状态、预设、GSAP 动画与渲染，详见 [./pet/](./pet/) |
 | [web/src/features/agent/settings/tabs/BrainsTab.vue](../../web/src/features/agent/settings/tabs/BrainsTab.vue) | 「AI 大脑」配置：按连接、运行参数与能力分区编辑模型，媒体服务独立成卡片。 |
+| [desktop-cyber-workspace.md](./desktop-cyber-workspace.md) | 浏览器赛博桌面：workspace 窗口模型、任务栏展示序契约（与 z 序分离）、桌面文案语言契约。多窗口工作台/胶囊/Electron 原生窗见 [./workbench-multi-window.md](./workbench-multi-window.md)。 |
 | [settings.md](./settings.md) | 设置中心资源工作台、角色头像与装备、大量技能分页和仓库检查交互。 |
 | [frontend-protocol-binding.md](./frontend-protocol-binding.md) | 前端协议消费手册：RPC / Notification / Chunk 字段映射到 store / StreamState / UI 组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口 |
 | [frontend-refactor-handoff.md](./frontend-refactor-handoff.md) | F1-F5 重构执行手册（transient，F4 落地后归档/并入 [pet/](./pet/) 等永久架构文档） |

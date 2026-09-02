@@ -177,7 +177,7 @@ watch(
     if (open) {
       workspace.openOrFocusWindow({
         resourceKey: 'settings',
-        title: 'SYSTEM CONFIGURATION',
+        title: '系统配置',
         context: { kind: 'settings', section: workspace.settingsSection ?? undefined },
         geometry: { width: 1120, height: 760 },
       })
@@ -194,7 +194,7 @@ watch(
     if (chatId && mode === 'overlay') {
       workspace.openOrFocusWindow({
         resourceKey: `history:${chatId}`,
-        title: 'ARCHIVE // CONVERSATION TRACE',
+        title: '档案 // 会话追踪',
         context: { kind: 'history', rootChatId: chatId },
         geometry: { width: 1040, height: 760 },
       })

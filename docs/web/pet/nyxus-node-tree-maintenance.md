@@ -52,6 +52,20 @@
 - 工作台历史入口在任务含分支时固定打开 `activeBranchId`；标题栏按活动主干、其他继续分支、解释分支排序。`original` 仅表示最初分支，不再永久标记为“主流程”。用户可把任一 original/continuation 直接设为主干；该操作只切换身份与节点树 lane，不复制消息或启动执行。分支标题取该分支第一条用户消息。工作台会话列表不随主干切换增减条目：列表恒只列 `original` 分支（复用 `isPianoRootSession`，约定见 [rendering.md#工作台会话列表nyxussessionlist](./rendering.md#工作台会话列表nyxussessionlist)），continuation/detail 一律经工作台标题栏访问。
 - continuation 的首条用户消息之前必须展示一个持久“结果汇总”系统节点：其前方由来源锚点的 `fork-continuation` 连线接入，继承的已完成任务返回连入该节点；后方再连接新用户消息。迟到的继承任务结果分别显示为独立返回节点并连接到当前活动主干，不合并进旧汇总节点。
 
+## Signal Grid 展示投影（2026-09-02 返工契约）
+
+Signal（横向）模式是在 `executionLayout.ts` 纵向布局**之后**的纯展示投影（`executionPresentation.ts`），只做坐标旋转与视觉增强，不改 lane/行事实。返工后生效的投影契约：
+
+- **二次路由走廊**：投影后必须执行 `resolveSignalEdgeCorridors` 横向路由消解——每条边按其跨越的列间隙分组，组内按来源 y 排序分配互不重叠的 `routeY` 槽位（最小间隔 14px），走廊 y 值用相邻列节点的 `visualBounds` 钳制，**禁止穿过任何节点矩形**；跨多列的长边优先分配外侧走廊，减少与短边交叉。几何消费沿用 `horizontalExecutionEdgeGeometry` 的 `routeY` 参数，几何函数本身不改。
+- **禁止水平因果连线**在 Signal 下等价为：任何直接连线的目标列必须严格在来源列右侧（`to.x > from.x`）；投影保持"纵向行序→横向列序"映射，该不变量恒成立。
+- **自适应列距**：列间距不再使用全局常量，逐列计算 `gap[i] = max(前列节点半宽) + max(后列节点半宽) + SIGNAL_MIN_WIRE_GAP(64px)`；纵向行距（lane）下限保持 `SIGNAL_LANE_GAP=112`。
+- **节点分级尺寸**：宽度差收敛至约 1.85×——hero-user/hero-final 192×64、hero-error 192×58、fold 128×44、process 104×40（`SIGNAL_NODE_SIZES` 单点定义；bounds、端口、命中区均由 `visualBounds` 派生）。
+- **标签截断预算**（`signalLabelBudget(priority)`，presentation 纯函数）：hero near 档摘要 ≤28 字符、fold ≤10 字符、process 不显示 summary 仅显示协议码；预算按 10px mono ~6.2px/字符 ×（节点宽 − 图标区 30px − 余量）计算，超限以 `…` 结尾。渲染器不做逐帧测量，标签签名变化自然触发重建。
+- **过程组节点视觉**：删除双层错位 ghost 轮廓与三环公转动效（"飞碟"）；stack 形状保留单 shell + 填充，动效降为与 Classic 同构的**单环脉冲**，消费同一 `graphPulseSegments`/`graphEffectNodes` 预算。
+- **过程组交互（左轮回归）**：折叠过程组的展开导航回归"左轮"形态，复用 `foldTabs.ts` 的 `foldWheelView`/`FOLD_WHEEL_SLOT_SPECS`（8 槽位侧视椭圆、`FOLD_WHEEL_LAYER_CAPACITY=8` 分层翻页），视觉按直角科幻风重做为弹链轮盘、按内容类型区分子弹样式——规格见 [rendering.md#过程组左轮弹链轮盘foldtabrail](./rendering.md#过程组左轮弹链轮盘foldtabrail)。旧三环卫星轨道（orbit-ring-visual 等）全部移除。
+- **回退**：Signal 投影初始化异常仍走 `presentation-fallback` 自动回退 Classic；该回退不受卡牌/方向联动（见 [workbench-multi-window.md](../workbench-multi-window.md)）反向翻转。
+- 经典（Classic 纵向）渲染分支与本投影互不影响；本章节任何规则不适用于 Classic 分支。
+
 ## 节点树钢琴彩蛋
 
 钢琴降级为纯键盘弹奏彩蛋后，入口完全藏在节点树内（无任何 rail/工具栏按钮）。触发为**多节点连点序列**，整段流程须在 8 秒时间窗内完成，错步或超时立即复位：

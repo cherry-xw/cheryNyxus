@@ -15,13 +15,13 @@ defineProps<{ window: WorkspaceWindowState }>()
       <span>{{ window.context.code ?? window.context.source }}</span>
     </div>
     <div class="diagnostic-copy">
-      <span>ORIGIN / {{ window.context.source.toUpperCase() }}</span>
+      <span>来源 / {{ window.context.source.toUpperCase() }}</span>
       <strong>{{ window.context.message }}</strong>
       <small>
         {{ window.context.severity === 'error' ? '真实运行故障已捕获，核心流程未被自动重试。' : '这是诊断事件，不代表协议或任务执行失败。' }}
       </small>
     </div>
-    <footer><span>TRACE LOCKED</span><i /><span>NON-PERSISTENT SURFACE</span></footer>
+    <footer><span>追踪已锁定</span><i /><span>非持久化表面</span></footer>
   </article>
 </template>
 

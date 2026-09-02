@@ -55,6 +55,24 @@ Nyxus 消息输入不再投影 `input:draft:*` 虚拟节点，也不 Teleport �
 
 工作台画布从标题栏（窗口控制一栏）下方开始：节点树视口不覆盖标题栏，`fitToView` 在标题栏之下的可视区内居中/锚定，复位或最大化后起始节点不会滑到标题栏下方。
 
+### Signal Grid 渲染分支（2026-09-02 返工）
+
+横向 Signal 模式的 renderer 规则（投影契约见 [nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约](./nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约)）：
+
+- **节点轮廓**：统一切角八边形 shell（四角各切 9px）+ 填充；工具 chip 保留左右各 3 根 5px 引脚线；hero 节点上下各一条 12px 内缩水平细线；左右边缘各一个 r2.5 accent 端口圆点。**过程组（stack）不再绘制 ±5px 错位 ghost 轮廓**，只有单 shell + 填充。
+- **标签 LOD**：沿用 `near/mid/far` 三档（scale <0.5 far 不画标题、<0.86 mid 显示协议码、否则 near）；near 档标签宽度受 `signalLabelBudget` 预算约束并 `…` 截断，标签纹理分辨率随缩放逐档。process 节点 near 档也只显示协议码，不排正文摘要。
+- **连线**：左→右三次贝塞尔，`routeY` 走 `resolveSignalEdgeCorridors` 分配的互不重叠走廊；脉冲仍消费 `edgeMotion.ts` 的 7 段嵌套规格（head 72px / tail 48px、空间周期 240px、周期 2.4s、100px/s 线性传播，与历史光束量化规格一致）。
+- **节点动效**：hero-error `corruption`（红青双色错位横条 + 斜向 shard）、hero-user `projection` / process `trail`（3 层错位矩形残影）、hero-final `convergence`（左右收束箭头）保留；**fold 的 `orbit` 三环公转动效删除**，降为单环呼吸脉冲（与 Classic `drawMotion` L944-950 同构），消费同一 `graphEffectNodes` 预算。动效帧率与效果节点数继续受 `renderQualityProfile()`（graphMotionFps/graphEffectNodes/graphPulseSegments）约束，装饰 30fps、交互 boost 120ms 内 60fps 不变。
+
+### 过程组左轮（弹链轮盘 FoldTabRail）
+
+过程组（fold）展开导航回归**左轮**形态（复用 `foldTabs.ts` 的 `foldWheelView`：8 槽位 A–H 侧视椭圆分布、E=active、C/G=adjacent、A/H=transition、B/F/D=back，`FOLD_WHEEL_LAYER_CAPACITY=8` 分层翻页），视觉按直角科幻风重做为**弹链轮盘**，替换已删除的三环卫星轨道：
+
+- **芯片**：弹壳形芯片常态 128×30、active（E 槽）148×36，按槽位坐标绝对定位，`z` 映射 scale/opacity；1px `var(--nx-border)` 描边 + `var(--nx-bg)` 底，**全直角**；标签 10-11px mono 单行省略。
+- **子弹样式（内容类型化）**：每枚芯片带左 4px 色带 + 12×16 弹头图标（clip-path 直角多边形，弹头朝右），色带与弹形双编码保证色弱可辨——`tool`=尖头弹/`--nx-cyan`、`file`=双切角平头弹/`--nx-green`、`skill`=阶梯尾弹/`--nx-purple`、`question`=空尖弹（中部开槽）/`--nx-yellow`、`interaction`=半芯弹（描边壳+半透明内芯）/`--warning`、`error`=断壳曳光弹（尾部 V 缺口+1px 裂纹线）/`--nx-red`、`agent`=平头凹槽弹/`--accent`。类型判定在数据层 `foldTabForMember.bulletKind`，组件只消费。
+- **动效**：`useGsap` scoped——滚轮/拖拽步进 transform/autoAlpha 180-220ms `power2.out`、hover ≤200ms（scale 1.06 + accent 描边）、入场 stagger 总时长 ≤240ms；**无常驻循环动画**；reduced 档只留 opacity 反馈。
+- **文案**：`FOLD`→「过程」、`OVERFLOW`→「更多 N 项」、`NEW SIGNAL`→「新动态」、`INSPECTOR`→「检查器」；导航语义（拖拽转轮、滚轮步进阈值 ~40px、键盘方向键/Enter/Esc、分层翻页）与 143af38 之前的 fold-wheel 行为一致。
+
 ### Nyxus 弹窗渲染主题
 
 节点树三类弹窗（hover 预览 popover / 常驻审批气泡 / 提问气泡）统一使用一套 CRT 终端风渲染主题，集中管理在独立的 [nyxusPopoverTheme.less](../../../web/src/features/pets/nyxus/styles/nyxusPopoverTheme.less)，由 `MessageBranchTree.vue` 的 `<style scoped lang="less">` 经 `@import` 引入。主题覆盖所有节点类型的弹窗内容：
