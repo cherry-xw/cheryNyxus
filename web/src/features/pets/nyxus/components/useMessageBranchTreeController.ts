@@ -45,9 +45,14 @@ import {
 } from '../graph/nodeSkins'
 import {
   anchoredPopoverPosition,
-  oppositePopoverPlacement,
+  anchoredPopoverPositionBelow,
   toolBatchDetail,
 } from '../graph/toolBatchDetails'
+import {
+  FOLD_WHEEL_NODE_GAP,
+  FOLD_WHEEL_STAGE_HEIGHT,
+  FOLD_WHEEL_STAGE_WIDTH,
+} from '../graph/foldTabs'
 import { useTreeCanvas, type CanvasTransform } from '../composables/useTreeCanvas'
 import { pendingInputAnchor, pendingInputPhase } from '../composables/mainInputState'
 import { usePianoEasterEgg } from '../composables/usePianoEasterEgg'
@@ -365,7 +370,8 @@ export function useMessageBranchTreeController(
         ? { x: layout.value.bounds.minX, y: layout.value.nodes[0]?.y ?? 0 }
         : { x: 0, y: layout.value.bounds.minY },
     minScale: 0.32,
-    maxScale: 2.2,
+    // 2026-09-02 调整：2.2 放大后节点超出阅读尺度，上限收敛到 1.6。
+    maxScale: 1.6,
     padding: 18,
     deferDragCommit: true,
     onDragStart: startGpuDrag,
@@ -1204,6 +1210,13 @@ export function useMessageBranchTreeController(
     const worldX = centre.x <= viewportSize.value.width / 2 ? bounds.right : bounds.left
     return canvas.worldToScreen({ x: worldX, y: node.y })
   }
+  /** 悬浮窗下方锚点：节点底沿中点的屏幕坐标（弹窗出现在节点正下方，横竖排版通用）。 */
+  function nodeScreenAnchorBelow(node: (typeof layout.value.nodes)[number]) {
+    const centre = canvas.worldToScreen(node)
+    const bounds = node.visualBounds
+    if (!bounds) return { x: centre.x, y: centre.y + 28 }
+    return canvas.worldToScreen({ x: node.x, y: bounds.bottom })
+  }
   /**
    * pinned 详情弹窗拖拽（2026-09-02 返工契约）：pointermove 期间 quickSetter 直写
    * transform x/y（与树平移的 CSS `translate` 属性分属不同通道，可叠加），不触发
@@ -1355,8 +1368,9 @@ export function useMessageBranchTreeController(
     const node = detailNode.value
     const viewport = viewportRef.value
     if (!node || !viewport) return undefined
-    const anchor = nodeScreenAnchor(node)
-    const auto = anchoredPopoverPosition({
+    // 悬浮窗优先出现在节点正下方（横竖排版一致）；下方放不下才回退右侧优先的侧贴逻辑。
+    const anchor = nodeScreenAnchorBelow(node)
+    const auto = anchoredPopoverPositionBelow({
       anchor,
       viewport: viewportSize.value,
       panel: detailPinned.value
@@ -1372,6 +1386,24 @@ export function useMessageBranchTreeController(
         ? ('left' as const)
         : ('right' as const)
       : auto.placement
+    // 左轮与弹窗并排、顶对齐（统一落在节点下方区域）：默认贴弹窗左侧，左侧视口
+    // 空间不足改贴弹窗右侧，两侧都放不下时钳制在视口内。锚点为弹窗容器相对坐标，
+    // 左轮随弹窗容器移动（pinned 拖动时保持相对位置）。
+    const panelWidth = detailPinned.value ? detailSize.value.width : 480
+    let railSide: 'left' | 'right' = 'left'
+    let railAnchorX = 0 // side='left' 时 nav 左缘 = railAnchorX - STAGE_WIDTH - NODE_GAP
+    if (left - FOLD_WHEEL_STAGE_WIDTH - FOLD_WHEEL_NODE_GAP < 12) {
+      railSide = 'right'
+      railAnchorX = panelWidth // side='right' 时 nav 左缘 = railAnchorX + NODE_GAP
+      if (
+        left + panelWidth + FOLD_WHEEL_NODE_GAP + FOLD_WHEEL_STAGE_WIDTH >
+        viewportSize.value.width - 12
+      ) {
+        // 两侧都放不下（极窄视口）：钳回左侧贴视口边距，允许与弹窗轻微重叠。
+        railSide = 'left'
+        railAnchorX = Math.max(0, 12 - left + FOLD_WHEEL_STAGE_WIDTH + FOLD_WHEEL_NODE_GAP)
+      }
+    }
     return {
       style: {
         left: `${left}px`,
@@ -1380,14 +1412,17 @@ export function useMessageBranchTreeController(
           ? { width: `${detailSize.value.width}px`, height: `${detailSize.value.height}px` }
           : {}),
       },
-      nodeOffset: { x: anchor.x - left, y: anchor.y - top },
+      nodeOffset: { x: railAnchorX, y: FOLD_WHEEL_STAGE_HEIGHT / 2 },
+      railSide,
       placement,
     }
   })
   const detailAnchorStyle = computed(() => detailPlacement.value?.style)
-  const foldRailSide = computed(() =>
-    detailPlacement.value ? oppositePopoverPlacement(detailPlacement.value.placement) : 'left',
-  )
+  const foldRailSide = computed<'left' | 'right'>(() => {
+    const placement = detailPlacement.value
+    if (!placement) return 'left'
+    return placement.railSide
+  })
   const pixiScene = computed<PixiExecutionScene>(() => ({
     presentation: layout.value.presentation ?? 'vertical-classic',
     nodes: visibleExecutionItems.value.nodes.map((node) => {

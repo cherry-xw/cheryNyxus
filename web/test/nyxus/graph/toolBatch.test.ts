@@ -5,6 +5,7 @@ import type { GraphToolCall, TimelineNode } from '../../../src/services/agentApi
 import { projectPersistentExecutionGraph } from '../../../src/features/pets/nyxus/graph/executionGraph'
 import {
   anchoredPopoverPosition,
+  anchoredPopoverPositionBelow,
   graphToolCallToSenseCall,
   orderedToolCalls,
   toolBatchDetail,
@@ -88,6 +89,46 @@ describe('tool batch detail projection', () => {
     // 否则 maxTop = viewport - 640 会把矮窗顶到视口顶部（「飘高」）。
     expect(
       anchoredPopoverPosition({
+        anchor: { x: 400, y: 600 },
+        viewport: { width: 1000, height: 700 },
+        panel: { width: 480, height: 200 },
+        margin: 12,
+      }),
+    ).toEqual({ left: 424, top: 488, placement: 'right' })
+  })
+
+  it('places the horizontal-signal panel centered below the node when there is room', () => {
+    // Signal 横向模式：节点右侧即下一个节点，弹窗须出现在节点正下方并水平居中。
+    expect(
+      anchoredPopoverPositionBelow({
+        anchor: { x: 400, y: 300 },
+        viewport: { width: 1000, height: 700 },
+        panel: { width: 480, height: 200 },
+        margin: 12,
+      }),
+    ).toEqual({ left: 160, top: 314, placement: 'below' })
+  })
+
+  it('clamps the below panel to the viewport edges', () => {
+    const nearLeft = anchoredPopoverPositionBelow({
+      anchor: { x: 40, y: 300 },
+      viewport: { width: 1000, height: 700 },
+      panel: { width: 480, height: 200 },
+      margin: 12,
+    })
+    expect(nearLeft).toMatchObject({ left: 12, placement: 'below' })
+    const nearRight = anchoredPopoverPositionBelow({
+      anchor: { x: 960, y: 300 },
+      viewport: { width: 1000, height: 700 },
+      panel: { width: 480, height: 200 },
+      margin: 12,
+    })
+    expect(nearRight).toMatchObject({ left: 1000 - 12 - 480, placement: 'below' })
+  })
+
+  it('falls back to the side placement when the node sits too low for a below panel', () => {
+    expect(
+      anchoredPopoverPositionBelow({
         anchor: { x: 400, y: 600 },
         viewport: { width: 1000, height: 700 },
         panel: { width: 480, height: 200 },

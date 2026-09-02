@@ -4,6 +4,9 @@ import { useNyxusHost } from '../application/host'
 import type { ExecutionFoldMember } from '../graph/executionGraph'
 import {
   FOLD_WHEEL_LAYER_CAPACITY,
+  FOLD_WHEEL_NODE_GAP,
+  FOLD_WHEEL_STAGE_HEIGHT,
+  FOLD_WHEEL_STAGE_WIDTH,
   foldTabForMember,
   foldWheelView,
   type FoldWheelSlot,
@@ -29,9 +32,9 @@ const ANIMATION_MS = 220
 const LAYER_SWITCH_MS = 110
 const CARD_WIDTH = 144
 const CARD_HEIGHT = 38
-const STAGE_WIDTH = 216
-const STAGE_HEIGHT = 180
-const NODE_GAP = 18
+const STAGE_WIDTH = FOLD_WHEEL_STAGE_WIDTH
+const STAGE_HEIGHT = FOLD_WHEEL_STAGE_HEIGHT
+const NODE_GAP = FOLD_WHEEL_NODE_GAP
 
 type MemberSlot = FoldWheelSlot<ExecutionFoldMember>
 type FoldTab = ReturnType<typeof foldTabForMember>

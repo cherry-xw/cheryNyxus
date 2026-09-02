@@ -456,6 +456,10 @@ describe('Agent-local Fold projection', () => {
     expect(railSource).not.toContain('while (Math.abs(wheelAccumulator)')
     expect(railSource).toContain('wheelAccumulator = 0\n  enqueueStep(direction)')
     expect(treeSource).toContain(':anchor-x="detailPlacement.nodeOffset.x"')
+    // 左轮与弹窗并排、顶对齐（2026-09-02 调整）：默认贴弹窗左侧，空间不足换右侧。
+    expect(treeSource).toContain(':side="foldRailSide"')
+    expect(railSource).toContain("props.side === 'right' ? props.anchorX + NODE_GAP")
+    expect(railSource).toContain('FOLD_WHEEL_STAGE_HEIGHT')
     expect(dialogSource).toContain(':fold-mode="foldMode"')
     expect(dialogSource).toContain('selectFoldMode')
   })
