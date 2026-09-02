@@ -63,7 +63,7 @@ Signal（横向）模式是在 `executionLayout.ts` 纵向布局**之后**的纯
 - **节点分级尺寸**：宽度差收敛至约 1.85×——hero-user/hero-final 192×64、hero-error 192×58、fold 128×44、process 104×40（`SIGNAL_NODE_SIZES` 单点定义；bounds、端口、命中区均由 `visualBounds` 派生）。
 - **标签截断预算**（`signalLabelBudget(priority)`，presentation 纯函数）：hero near 档摘要 ≤22 字符、fold ≤10 字符、process 不显示 summary 仅显示协议码；预算按 mono 10-11px ~6.6px/字符 ×（节点宽 − 图标区 30px − 右余量 12px）计算并取各档上限（hero 22 / fold 10 / process 0），超限以 `…` 结尾。渲染器不做逐帧测量，标签签名变化自然触发重建。
 - **过程组节点视觉**：删除双层错位 ghost 轮廓与三环公转动效（"飞碟"）；stack 形状保留单 shell + 填充，动效降为与 Classic 同构的**单环脉冲**，消费同一 `graphPulseSegments`/`graphEffectNodes` 预算。
-- **过程组交互（左轮回归）**：折叠过程组的展开导航回归"左轮"形态，复用 `foldTabs.ts` 的 `foldWheelView`/`FOLD_WHEEL_SLOT_SPECS`（8 槽位侧视椭圆、`FOLD_WHEEL_LAYER_CAPACITY=8` 分层翻页），视觉按直角科幻风重做为弹链轮盘、按内容类型区分子弹样式——规格见 [rendering.md#过程组左轮弹链轮盘foldtabrail](./rendering.md#过程组左轮弹链轮盘foldtabrail)。旧三环卫星轨道（orbit-ring-visual 等）全部移除。
+- **过程组交互（左轮原样回归，2026-09-02 二轮返工）**：折叠过程组的展开导航原样回归 143af38 之前的"左轮"形态——`FoldTabRail.vue`/`foldTabs.ts` 整体回退至 143af38~1 版本（弹链轮盘重做与 `bulletKind` 判定废弃），行为排版零改动；仅两项样式适配：卡项全直角（组件内无任何 `border-radius`）与卡内事件驱动动效（步进通电 220ms / hover ≤160ms / unread pop 220ms，无常驻循环）。规格见 [rendering.md#过程组左轮foldtabrail-原样回归2026-09-02-二轮返工](./rendering.md#过程组左轮foldtabrail-原样回归2026-09-02-二轮返工)。旧三环卫星轨道（orbit-ring-visual 等）保持移除。
 - **回退**：Signal 投影初始化异常仍走 `presentation-fallback` 自动回退 Classic；该回退不受卡牌/方向联动（见 [workbench-multi-window.md](../workbench-multi-window.md)）反向翻转。
 - 经典（Classic 纵向）渲染分支与本投影互不影响；本章节任何规则不适用于 Classic 分支。
 

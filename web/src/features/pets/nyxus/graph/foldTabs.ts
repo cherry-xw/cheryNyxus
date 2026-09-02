@@ -1,29 +1,12 @@
-import type { GraphToolCall } from '@/application/backend/public'
 import type { ExecutionFoldMember } from './executionGraph'
 import { accentForTheme, skinForNode } from './nodeSkins'
 import { toolBatchDetail } from './toolBatchDetails'
 
 export type FoldTabKind = 'agent' | 'tool' | 'question' | 'interaction' | 'error'
 
-/**
- * 弹链轮盘（FoldTabRail）子弹样式判定（2026-09-02 返工，判定收敛在数据层可测，
- * 组件只消费）：kind 之上的内容类型细分——tool 尖头弹 / file 双切角平头弹 /
- * skill 阶梯尾弹 / question 空尖弹 / interaction 半芯弹 / error 断壳曳光弹 /
- * agent 平头凹槽弹。规格见 docs/web/pet/rendering.md「过程组左轮」。
- */
-export type FoldBulletKind =
-  | 'tool'
-  | 'file'
-  | 'skill'
-  | 'question'
-  | 'interaction'
-  | 'error'
-  | 'agent'
-
 export interface FoldTabView {
   memberId: string
   kind: FoldTabKind
-  bulletKind: FoldBulletKind
   glyph: string
   accent: string
   label: string
@@ -56,34 +39,6 @@ export interface FoldWheelView<T> {
 }
 
 const QUESTION_TOOLS = new Set(['ask_user_question', 'request_user_input'])
-
-/** 与 toolArgumentFields 的 path 字段判定同源：出现路径参数即视为文件类工具。 */
-const PATH_ARGUMENT_KEY = /^(path|cwd|file|filePath|root)$/i
-
-function argumentsRecord(call: GraphToolCall | undefined): Record<string, unknown> {
-  if (!call || typeof call.arguments !== 'string') return {}
-  try {
-    const parsed: unknown = JSON.parse(call.arguments)
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
-  } catch {
-    return {}
-  }
-}
-
-function bulletKindFor(
-  kind: FoldTabKind,
-  call: GraphToolCall | undefined,
-): FoldBulletKind {
-  if (kind === 'error') return 'error'
-  if (kind === 'question') return 'question'
-  if (kind === 'interaction') return 'interaction'
-  if (kind === 'agent' || !call) return 'agent'
-  if (call.name === 'skill') return 'skill'
-  if (/file|read|write/i.test(call.name)) return 'file'
-  const args = argumentsRecord(call)
-  if (Object.keys(args).some((key) => PATH_ARGUMENT_KEY.test(key))) return 'file'
-  return 'tool'
-}
 
 interface FoldWheelSlotSpec {
   id: FoldWheelSlotId
@@ -128,7 +83,6 @@ export function foldTabForMember(member: ExecutionFoldMember, theme: 'light' | '
   return {
     memberId: member.id,
     kind,
-    bulletKind: bulletKindFor(kind, firstCall),
     glyph: error ? '!' : question ? '?' : interaction ? '◷' : skin.glyph,
     accent: error
       ? statusAccent.error

@@ -64,14 +64,15 @@ Nyxus 消息输入不再投影 `input:draft:*` 虚拟节点，也不 Teleport �
 - **连线**：左→右三次贝塞尔，`routeY` 走 `resolveSignalEdgeCorridors` 分配的互不重叠走廊；脉冲仍消费 `edgeMotion.ts` 的 7 段嵌套规格（head 72px / tail 48px、空间周期 240px、周期 2.4s、100px/s 线性传播，与历史光束量化规格一致）。
 - **节点动效**：hero-error `corruption`（红青双色错位横条 + 斜向 shard）、hero-user `projection` / process `trail`（3 层错位矩形残影）、hero-final `convergence`（左右收束箭头）保留；**fold 的 `orbit` 三环公转动效删除**，降为单环呼吸脉冲（与 Classic `drawMotion` L944-950 同构），消费同一 `graphEffectNodes` 预算。动效帧率与效果节点数继续受 `renderQualityProfile()`（graphMotionFps/graphEffectNodes/graphPulseSegments）约束，装饰 30fps、交互 boost 120ms 内 60fps 不变。
 
-### 过程组左轮（弹链轮盘 FoldTabRail）
+### 过程组左轮（FoldTabRail 原样回归，2026-09-02 二轮返工）
 
-过程组（fold）展开导航回归**左轮**形态（复用 `foldTabs.ts` 的 `foldWheelView`：8 槽位 A–H 侧视椭圆分布、E=active、C/G=adjacent、A/H=transition、B/F/D=back，`FOLD_WHEEL_LAYER_CAPACITY=8` 分层翻页），视觉按直角科幻风重做为**弹链轮盘**，替换已删除的三环卫星轨道：
+过程组（fold）展开导航**原样回归** 143af38 之前的左轮形态：`FoldTabRail.vue`、`foldTabs.ts` 整体回退至 143af38~1 版本（弹链轮盘重做废弃，`bulletKind` 数据层随之移除）。行为与排版零改动——`foldWheelView` 8 槽位 A–H 侧视椭圆分布（E=active、C/G=adjacent、A/H=transition、B/F/D=back）、`FOLD_WHEEL_LAYER_CAPACITY=8` 分层翻页、卡项 144×38 按槽位坐标经 340ms `cubic-bezier(0.22, 0.68, 0.2, 1)` CSS 过渡轮转、拖拽转轮（28px 阈值）、滚轮步进（46px 阈值/160ms 重置）、键盘方向键/PageUp/Down/Home/End、seam 缝位进出动画——全部保持旧版原样。
 
-- **芯片**：弹壳形芯片常态 128×30、active（E 槽）148×36，按槽位坐标绝对定位，`z` 映射 scale/opacity；1px `var(--nx-border)` 描边 + `var(--nx-bg)` 底，**全直角**；标签 10-11px mono 单行省略。
-- **子弹样式（内容类型化）**：每枚芯片带左 4px 色带 + 12×16 弹头图标（clip-path 直角多边形，弹头朝右），色带与弹形双编码保证色弱可辨——`tool`=尖头弹/`--nx-cyan`、`file`=双切角平头弹/`--nx-green`、`skill`=阶梯尾弹/`--nx-purple`、`question`=空尖弹（中部开槽）/`--nx-yellow`、`interaction`=半芯弹（描边壳+半透明内芯）/`--warning`、`error`=断壳曳光弹（尾部 V 缺口+1px 裂纹线）/`--nx-red`、`agent`=平头凹槽弹/`--accent`。类型判定在数据层 `foldTabForMember.bulletKind`，组件只消费。
-- **动效**：`useGsap` scoped——滚轮/拖拽步进 transform/autoAlpha 180-220ms `power2.out`、hover ≤200ms（scale 1.06 + accent 描边）、入场 stagger 总时长 ≤240ms；**无常驻循环动画**；reduced 档只留 opacity 反馈。
-- **文案**：`FOLD`→「过程」、`OVERFLOW`→「更多 N 项」、`NEW SIGNAL`→「新动态」、`INSPECTOR`→「检查器」；导航语义（拖拽转轮、滚轮步进阈值 ~40px、键盘方向键/Enter/Esc、分层翻页）与 143af38 之前的 fold-wheel 行为一致。
+仅两项样式适配（用户指定范围）：
+
+- **全直角**：`.fold-wheel-card` 7px→0、状态点 `border-radius: 50%`→方形、unread 徽标 5px→0、ghost-line 2px→0；组件内不得再出现任何 `border-radius`。
+- **卡内动效**（事件驱动、无常驻循环、`prefers-reduced-motion` 全关）：步进轮转时新 active 卡「通电」——accent 边框扫入 + glyph 闪烁 220ms（`nav.is-animating × .is-selected` 类驱动，纯 CSS）；hover 状态点点亮 ≤160ms；unread 徽标 pop 入场 220ms。
+- 配色保持旧版两主题原样（浅色白卡 / 深蓝青赛博卡），随原样回归豁免 token 化；旧 340ms CSS 过渡属回归豁免，不受 220ms 动效上限约束。
 
 ### Nyxus 弹窗渲染主题
 
