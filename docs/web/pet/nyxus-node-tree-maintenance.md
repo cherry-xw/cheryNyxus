@@ -58,12 +58,12 @@
 Signal（横向）模式是在 `executionLayout.ts` 纵向布局**之后**的纯展示投影（`executionPresentation.ts`），只做坐标旋转与视觉增强，不改 lane/行事实。返工后生效的投影契约：
 
 - **零文本原则（二轮返工）**：节点上不渲染任何文字（协议码/摘要/标题/glyph 全部不上节点），类型辨识 100% 靠图形；用户看到节点即知类型。
-- **统一固定尺寸（二轮返工）**：所有节点在同一个固定尺寸（`SIGNAL_NODE_SIZE` 56×40）内，不再做 hero/fold/process 尺寸分级；`SIGNAL_NODE_SIZES` 分级表删除，`presentationPriority` 仅驱动动效选择（effect）不再影响尺寸。
-- **类型徽记矩阵（二轮返工）**：每个类型一个独特徽记图形（预设 canvas 图形库 `signalNodeIcons.ts`，纯 Graphics path 不用 SVG）——基础类型 `start`/`input`/`reply`/`error`/`fold`/`dispatch`/`return`/`system`/`process` 各一徽记；tool-batch 按内建工具细分为 `tool-command`/`tool-read`/`tool-write`/`tool-search`/`tool-skill`/`tool-spawn`/`tool-media`/`tool-question`/`tool-todo`/`tool-generic`，判定在数据层 `toolVisualKindFor`（从 `toolBatchDetails().calls[0].name` 关键词归类，组件只消费）。全矩阵规格见 [rendering.md](./rendering.md#signal-grid-渲染分支2026-09-02-返工)。
-- **颜色双通道（二轮返工）**：类型色走 `skinForNode`→`accentForTheme` 现链路；危险程度覆盖优先于类型色（error 红 > paused 琥珀 > revoked 灰），running/detailActive 提亮描边。
-- **端口直连（2026-09-02 二轮返工）**：撤除走廊二次路由——`resolveSignalEdgeCorridors` 与 `SIGNAL_ROUTE_SLOT_GAP`/`SIGNAL_CORRIDOR_MARGIN` 删除，投影不再分配 `routeY`，连线回到最初方案：`horizontalExecutionEdgeGeometry` 收到 `routeY=undefined` 后从来源/目标节点左右边缘中点直接拉三次贝塞尔（"简单直接也够好看"）。统一尺寸下列距为固定步进 `SIGNAL_COLUMN_STRIDE`（= 节点宽 + `SIGNAL_MIN_WIRE_GAP`=64px 净距）；几何函数本身不改（`routeY` 参数保留可选）。全边 `to.x > from.x` 不变量不变。
+- **统一紧凑方框（三轮重构）**：所有节点固定为 40×40 方框和 24×24 icon；主体外扩 4px 的完整外框、内缩细框和端口座共同形成参考图的双层线框。节点内不渲染任何文字。边框按语义分为角线、上下导轨、分段顶边和侧缺口四种克制变体，节点尺寸保持不变。
+- **类型图标矩阵（三轮重构）**：基础 9 类和工具 20 类均映射到 `vue-icons-plus/lu` 的独立 Lucide 图标。图标组件只在纹理初始化时渲染一次，节点实例复用 Pixi Sprite；未知或单图标加载失败降级到 `LuWrench`。
+- **颜色双通道（三轮重构）**：Signal 的 29 类使用独立深浅主题色；危险程度覆盖优先于类型色（error 红 > paused 琥珀 > revoked 灰），running/detailActive 提亮描边。
+- **正交总线（三轮重构）**：同 lane 从端口水平直连；跨 lane 使用 8px 圆角 `H-Q-V-Q-H` 路径。普通分叉共享来源侧干线，return 共享目标侧汇合干线，接点由小圆点标识。路由存入 `routeX`，`routeY` 在 Signal 投影清空，全边保持 `to.x > from.x`。
 - **禁止水平因果连线**在 Signal 下等价为：任何直接连线的目标列必须严格在来源列右侧（`to.x > from.x`）；投影保持"纵向行序→横向列序"映射，该不变量恒成立。
-- **纵向行距**：投影行距 `SIGNAL_LANE_GAP` 收紧至 72（统一小尺寸下适配；该值为展示投影行距，与 `EXECUTION_LANE_GAP`=110px 红线无关）。
+- **间距**：列间净距为 72px，投影 lane 间距 `SIGNAL_LANE_GAP` 为 88px；这些值只属于 Signal 展示，与 `EXECUTION_LANE_GAP`=110px 的 canonical 红线无关。
 - **标签**：Signal 模式不创建任何 Text 标签（`rebuildLabels` signal 分支空转），`signalLabelBudget`/`SIGNAL_LABEL_*`/`protocolCode`/`summary` 投影链摘除；可访问性文本由 HTML `aria-label` 承载。
 - **过程组交互（左轮原样回归，2026-09-02 二轮返工）**：折叠过程组的展开导航原样回归 143af38 之前的"左轮"形态——`FoldTabRail.vue`/`foldTabs.ts` 整体回退至 143af38~1 版本（弹链轮盘重做与 `bulletKind` 判定废弃），行为排版零改动；仅两项样式适配：卡项全直角（组件内无任何 `border-radius`）与卡内事件驱动动效（步进通电 220ms / hover ≤160ms / unread pop 220ms，无常驻循环）。规格见 [rendering.md#过程组左轮foldtabrail-原样回归2026-09-02-二轮返工](./rendering.md#过程组左轮foldtabrail-原样回归2026-09-02-二轮返工)。旧三环卫星轨道（orbit-ring-visual 等）保持移除。
 - **回退**：Signal 投影初始化异常仍走 `presentation-fallback` 自动回退 Classic；该回退不受卡牌/方向联动（见 [workbench-multi-window.md](../workbench-multi-window.md)）反向翻转。

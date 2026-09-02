@@ -59,13 +59,12 @@ Nyxus 消息输入不再投影 `input:draft:*` 虚拟节点，也不 Teleport �
 
 横向 Signal 模式的 renderer 规则（投影契约见 [nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约](./nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约)）：
 
-- **节点轮廓（2026-09-02 二轮返工：类型徽记矩阵）**：**所有节点统一固定尺寸**（`SIGNAL_NODE_SIZE` 56×40，不再做 hero/fold/process 尺寸分级），**节点上零文本**（协议码/摘要/标题/glyph 全部不上节点，类型辨识 100% 靠图形），每个类型一个独特徽记图形。徽记以**预设 canvas 图形库**实现（`renderer/signalNodeIcons.ts` 导出 `SIGNAL_NODE_ICONS: Record<SignalNodeVisualKind, 绘制函数>`，纯 Graphics path，不用 SVG），`drawSignalNode` 按 `visualKind` 取用。
-- **类型徽记矩阵**（全直角；基础类型 + 工具细分，形状即类型语义）：
-  - `start` 任务起点＝右向双线 chevron 箭标；`input` 我的指令＝面板 + 左侧粗立柱 + 单条指令行横杠；`reply` 最终回复＝面板 + 右缘 chevron 缺口 + 底部基线；`error` 错误＝四段式断续边框 + 内部 X 刻痕；`fold` 过程组＝三片层叠背板 + foldCount 密度格（N 个 2px 方块，无数字）；`dispatch` 任务委派＝一分二分叉箭标；`return` 结果返回＝二合一汇流箭标；`system` 系统事件＝方框内栅格刻线；`process` 协作过程＝单框 + 中心竖杠。
-  - 工具徽记（tool-batch 按内建工具细分，判定在数据层 `toolVisualKindFor`）：`tool-command` 终端括号（`>` 刻痕 + 底线）、`tool-read` 文件框 + 外向读取箭头、`tool-write` 文件框 + 落笔刻线、`tool-search` 四角取景准星 + 中点、`tool-skill` 阶梯纹、`tool-spawn` 大框套小框芯点分形、`tool-media` 播放三角框、`tool-question` 开槽方框、`tool-todo` 勾选格阵、`tool-generic` 通用芯片 + 引脚。
-- **颜色双通道（危险程度 + 节点类型）**：类型色沿用 `skinForNode` → `accentForTheme` 链路（深浅主题自适应）；危险程度覆盖优先于类型色——error 红（`stateError`）> paused 琥珀（`statePaused`）> revoked 灰（`stateRevoked`），running/detailActive 在类型色上提亮描边。左右边缘中点各一个 3×8 accent 实心端口座 + 6px 引脚横线。
+- **节点轮廓（2026-09-02 三轮重构）**：所有节点统一为 40×40 紧凑方框、24×24 图标；主框使用 2px 小圆角、主体外扩 4px 的完整高对比外框、3px 内缩细框和左右端口座。边框按语义分成角线、上下导轨、分段顶边、侧缺口四种轻量变体，不改变节点尺寸。节点内严格零文字，类型只由 icon、边框和颜色辨识，完整语义继续由 hover 详情和 HTML `aria-label` 提供。
+- **类型图标矩阵**：基础 9 类与工具 20 类全部使用 `vue-icons-plus/lu` 的 Lucide 线性图标。`signalNodeIcons.ts` 只保存 `SignalNodeVisualKind → Vue icon component` 注册表；renderer 将组件一次性渲染为白色 SVG/Pixi 纹理，节点 Sprite 复用纹理并按主题 tint，不再维护手绘 Graphics path。
+- **工具细分**：tool-batch 仍按首个工具名归类，但矩阵扩充为 command/read/write/search/skill/spawn/child/question/media/todo/memory/config/navigate/role/web/data/git/time/notify/generic 共 20 类；先匹配明确内建工具名，再按有序关键词匹配，未知工具使用 `LuWrench`。
+- **颜色双通道（危险程度 + 节点类型）**：Signal 使用独立的 29 类深浅主题色；危险程度覆盖优先于类型色——error 红（`stateError`）> paused 琥珀（`statePaused`）> revoked 灰（`stateRevoked`），running/detailActive 在类型色上提亮描边。
 - **标签**：Signal 模式**不创建任何 Text 标签**（`rebuildLabels` 的 signal 分支为空转），`signalLabelBudget`/`SIGNAL_LABEL_*`/`protocolCode`/`summary` 投影链整体摘除；可访问性文本由 HTML `aria-label` 承载不受影响。Classic 分支标签系统不动。
-- **连线（2026-09-02 二轮返工）**：撤除走廊二次路由（`resolveSignalEdgeCorridors` 已删除），左→右三次贝塞尔**端口直连**（`horizontalExecutionEdgeGeometry` 收到 `routeY=undefined`，从来源/目标节点边缘中点直接拉线）——最初方案"简单直接也够好看"；统一尺寸下列距为固定步进（`SIGNAL_COLUMN_STRIDE` = 节点宽 + 64px 净距）。脉冲仍消费 `edgeMotion.ts` 的 7 段嵌套规格（head 72px / tail 48px、空间周期 240px、周期 2.4s、100px/s 线性传播，与历史光束量化规格一致）。
+- **连线（2026-09-02 三轮重构）**：水平边从节点左右端口出入；同 lane 使用直线，跨 lane 使用 `H-Q-V-Q-H` 的 8px 圆角正交线。普通分叉按来源节点共享出线干线，return 按目标节点共享汇合干线，转折点绘制小型接点；列间净距 72px、lane 间距 88px。静态线与 7 段嵌套流光消费同一份采样几何，脉冲可连续通过圆角。
 - **节点动效**：hero-error `corruption`（红青双色错位横条 + 斜向 shard）、hero-user `projection` / process `trail`（3 层错位矩形残影）、hero-final `convergence`（左右收束箭头）保留；**fold 的 `orbit` 三环公转动效删除**，降为单环呼吸脉冲（与 Classic `drawMotion` L944-950 同构），消费同一 `graphEffectNodes` 预算。动效帧率与效果节点数继续受 `renderQualityProfile()`（graphMotionFps/graphEffectNodes/graphPulseSegments）约束，装饰 30fps、交互 boost 120ms 内 60fps 不变。
 
 ### 过程组左轮（FoldTabRail 原样回归，2026-09-02 二轮返工）

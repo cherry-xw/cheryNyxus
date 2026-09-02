@@ -180,6 +180,17 @@ describe('Nyxus tree motion contract', () => {
     expect(source).not.toContain('position: { x: node.x, y: node.y + 1 }')
   })
 
+  it('keeps horizontal Signal nodes icon-only', async () => {
+    const source = await rendererSource()
+    const signalLabels = source.slice(
+      source.indexOf('private rebuildLabels'),
+      source.indexOf('private releaseLabels'),
+    )
+
+    expect(signalLabels).toMatch(/if \(signal\) \{\s*continue\s*\}/)
+    expect(source).not.toContain('signalNodeLabelFor')
+  })
+
   it('uses a 120px head-tail pulse on one fixed 2.4s generation interval', () => {
     expect(EXECUTION_EDGE_PULSE_SPEED).toBe(100)
     expect(EXECUTION_EDGE_PULSE_INTERVAL).toBe(2.4)
@@ -213,8 +224,8 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('glyph.alpha = alpha')
     expect(source).toContain('title.alpha = alpha')
     expect(source).toContain('termination.alpha = alpha')
-    // 2026-09-02 二轮返工：fold 密度格移入类型徽记（signalNodeIcons），仍由 foldCount 派生。
-    expect(source).toContain('Math.min(8, Math.max(3, Math.ceil(Math.log2(node.foldCount + 1) * 2)))')
+    // 新 Signal 外框用底部密度短格表达 foldCount，不在图标或文字层绘制数字。
+    expect(source).toContain('Math.min(6, Math.max(2, Math.ceil(Math.log2(node.foldCount + 1))))')
     expect(source).not.toContain('foldCount.alpha = alpha')
     expect(source).toContain('const emphasis = emphasisAlpha(edge.deemphasized, edge.detailBranch)')
     expect(source).toContain('const emphasis = emphasisAlpha(node.deemphasized, node.detailBranch)')
