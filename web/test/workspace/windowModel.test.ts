@@ -65,4 +65,37 @@ describe('cyber workspace window model', () => {
     delete legacy.windows[0].restoreGeometry
     expect(parseWorkspaceLayout(legacy)?.windows).toHaveLength(1)
   })
+
+  it('assigns a stable creation sequence separate from the z order', () => {
+    const first = createWorkspaceWindow(
+      { resourceKey: 'session:a', title: 'A', context: { kind: 'session', chatId: 'a' } },
+      0,
+    )
+    const second = createWorkspaceWindow(
+      { resourceKey: 'session:b', title: 'B', context: { kind: 'session', chatId: 'b' } },
+      1,
+      undefined,
+      7,
+    )
+    expect(first.sequence).toBe(0)
+    expect(second.sequence).toBe(7)
+
+    const snapshot = serializeWorkspaceLayout(
+      { [first.id]: first, [second.id]: second },
+      [second.id, first.id],
+    )
+    expect(snapshot.order).toEqual([second.id, first.id])
+    // windows 按 z 序输出；sequence 字段保持创建序不变（7 仍是后创建的 second）。
+    expect(snapshot.windows.map((window) => window.sequence)).toEqual([7, 0])
+  })
+
+  it('keeps accepting persisted windows without a sequence field', () => {
+    const window = createWorkspaceWindow(
+      { resourceKey: 'session:legacy', title: 'Legacy', context: { kind: 'session', chatId: 'legacy' } },
+      0,
+    )
+    const legacy = JSON.parse(JSON.stringify({ version: 1, order: [window.id], windows: [window] }))
+    delete legacy.windows[0].sequence
+    expect(parseWorkspaceLayout(legacy)?.windows).toHaveLength(1)
+  })
 })

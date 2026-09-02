@@ -93,6 +93,8 @@ export function createUiState() {
   const workspaceWindowOrder = ref<string[]>([])
   const focusedWorkspaceWindowId = ref<string | null>(null)
   const workspaceStageSize = ref<WorkspaceStageSize>({ width: 1920, height: 1010 })
+  /** 窗口创建序计数器（sequence 单调递增；restore 后取已有最大值 +1 续号）。 */
+  let workspaceWindowSequence = 0
 
   function persistWorkspaceWindows(): void {
     saveWorkspaceLayout(workspaceWindows.value, workspaceWindowOrder.value)
@@ -132,6 +134,7 @@ export function createUiState() {
       input,
       workspaceWindowOrder.value.length,
       workspaceStageSize.value,
+      workspaceWindowSequence++,
     )
     workspaceWindows.value[window.id] = window
     workspaceWindowOrder.value.push(window.id)
@@ -233,10 +236,18 @@ export function createUiState() {
   ): void {
     const snapshot = loadWorkspaceLayout()
     if (!snapshot) return
-    const restored = snapshot.windows.filter(valid)
+    // 旧持久化无 sequence 字段：按快照数组下标兜底，保证任务栏展示序稳定。
+    const restored = snapshot.windows.filter(valid).map((window, index) => ({
+      ...window,
+      sequence: Number.isFinite(window.sequence) ? window.sequence : index,
+    }))
     const transient = Object.values(workspaceWindows.value).filter((window) => !window.persistent)
     workspaceWindows.value = Object.fromEntries(
       [...restored, ...transient].map((window) => [window.id, window]),
+    )
+    workspaceWindowSequence = [...restored, ...transient].reduce(
+      (max, window) => Math.max(max, window.sequence + 1),
+      0,
     )
     workspaceWindowOrder.value = [
       ...snapshot.order.filter((id) => !!workspaceWindows.value[id]),
@@ -249,6 +260,14 @@ export function createUiState() {
     workspaceWindowOrder.value
       .map((id) => workspaceWindows.value[id])
       .filter((window): window is WorkspaceWindowState => !!window),
+  )
+
+  /** 任务栏展示序：按创建序（sequence）稳定排序，与 z 序（workspaceWindowsList）分离——
+   *  聚焦/切换窗口不改变任务栏排列，当前窗口仅以高亮标记。 */
+  const workspaceWindowsTaskbarList = computed(() =>
+    Object.values(workspaceWindows.value)
+      .filter((window): window is WorkspaceWindowState => !!window)
+      .sort((a, b) => a.sequence - b.sequence || a.id.localeCompare(b.id)),
   )
 
   /** 栈顶 chatId（无抽屉时 null）。供仅需“当前焦点”的旧调用方读。 */
@@ -363,7 +382,7 @@ export function createUiState() {
   function openWorkbenchWindow(presetId: string, presetName?: string): string {
     const genericId = openOrFocusWindow({
       resourceKey: `graph:${presetId}`,
-      title: presetName?.trim() || 'SIGNAL GRID',
+      title: presetName?.trim() || '节点树工作台',
       context: { kind: 'graph', presetId },
       geometry: { width: 1280, height: 780 },
     })
@@ -623,6 +642,7 @@ export function createUiState() {
     workspaceWindowOrder,
     focusedWorkspaceWindowId,
     workspaceWindowsList,
+    workspaceWindowsTaskbarList,
     openOrFocusWindow,
     focusWorkspaceWindow,
     markWorkspaceWindowOpen,
