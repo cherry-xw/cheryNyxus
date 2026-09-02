@@ -713,7 +713,7 @@ export class ExecutionGraphPixiRenderer {
         graphics.moveTo(node.x + halfW, node.y + offset).lineTo(node.x + halfW + 5, node.y + offset).stroke({ color: accent, width: 1, alpha: 0.72 * alpha })
       }
     } else if (node.shape === 'stack') {
-      graphics.poly(shell.map((value, index) => value + (index % 2 === 0 ? -5 : 5))).stroke({ color: accent, width: 1, alpha: 0.3 * alpha })
+      // 2026-09-02 返工：删除 ±5 错位 ghost 轮廓（"飞碟"），保留单 shell + 填充。
       graphics.poly(shell).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.5, alpha })
     } else if (node.shape === 'core') {
       graphics.poly(shell).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.7, alpha })
@@ -917,18 +917,13 @@ export class ExecutionGraphPixiRenderer {
               .stroke({ color: accent, width: 1.5, alpha: 0.65 * (1 - phase) })
           }
         } else if (node.effect === 'orbit') {
-          for (let ring = 0; ring < 3; ring += 1) {
-            const radius = nodeHeight / 2 + 7 + ring * 6
-            this.motionNodes.circle(node.x, node.y, radius).stroke({
-              color: accent,
-              width: 1,
-              alpha: (0.26 - ring * 0.05) * (0.5 + 0.5 * Math.sin(seconds * 2 + ring)),
-            })
-            const angle = seconds * (0.8 - ring * 0.16) + ring * 2.1
-            this.motionNodes
-              .circle(node.x + Math.cos(angle) * radius, node.y + Math.sin(angle) * radius, 2)
-              .fill({ color: accent, alpha: 0.86 })
-          }
+          // 2026-09-02 返工：三环公转（"飞碟"动效）降为与 Classic 同构的单环脉冲，
+          // 共享同一条 phase 曲线与 graphEffectNodes 预算。
+          this.motionNodes.circle(node.x, node.y, nodeHeight / 2 + 7 + 19 * phase).stroke({
+            color: accent,
+            width: 2,
+            alpha: 0.8 * (1 - phase) * emphasis,
+          })
         } else if (node.effect === 'trail') {
           for (let echo = 1; echo <= 3; echo += 1) {
             this.motionNodes

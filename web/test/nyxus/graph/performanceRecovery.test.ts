@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { TimelineNode } from '../../../src/services/agentApi'
 import { projectPersistentExecutionGraph } from '../../../src/features/pets/nyxus/graph/executionGraph'
 import { createIncrementalExecutionLayout } from '../../../src/features/pets/nyxus/graph/executionLayout'
+import { projectExecutionPresentation } from '../../../src/features/pets/nyxus/graph/executionPresentation'
 import { selectVisibleCrtIds } from '../../../src/features/pets/nyxus/graph/crtLayout'
 import { invalidGraphSnapshot } from '../../fixtures/executionGraphFixtures'
 
@@ -72,6 +73,39 @@ describe('performance and recovery boundaries', () => {
     )
     expect(crtVisibility.visible.size).toBe(5)
     expect(crtVisibility.hiddenPassive).toBe(3)
+  })
+
+  it('keeps the signal corridor projection inside the streaming budget at 2k nodes', () => {
+    // v1 走廊消解每帧全量重算；2000 节点/1999 边下 120 次投影必须留在 1500ms 门禁内。
+    const snapshot = {
+      rootChatId: 'root-performance',
+      nodes: Array.from({ length: 2_000 }, (_, index) => node(index)),
+      edges: Array.from({ length: 1_999 }, (_, index) => ({
+        id: `edge:${index}`,
+        rootChatId: 'root-performance',
+        fromNodeId: `message:${index}`,
+        toNodeId: `message:${index + 1}`,
+        kind: 'sequence' as const,
+        orderKey: 4_000 + index,
+        sourceChatId: 'root-performance',
+        targetChatId: 'root-performance',
+      })),
+      activeRuns: [],
+    }
+    const graph = projectPersistentExecutionGraph(snapshot)
+    const engine = createIncrementalExecutionLayout()
+    engine.layout(graph)
+    const startedAt = performance.now()
+    for (let index = 0; index < 120; index += 1) {
+      const last = graph.nodes.at(-1)!
+      const layout = engine.layout({
+        ...graph,
+        nodes: [...graph.nodes.slice(0, -1), { ...last, content: `stream patch ${index}` }],
+      })
+      const signal = projectExecutionPresentation(layout, 'horizontal-signal')
+      expect(signal.edges.every((edge) => edge.to.x > edge.from.x)).toBe(true)
+    }
+    expect(performance.now() - startedAt).toBeLessThan(1_500)
   })
 
   it('recomputes once when topology grows and preserves existing coordinates', () => {
