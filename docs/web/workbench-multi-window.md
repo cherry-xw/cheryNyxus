@@ -310,5 +310,5 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 
 - `useWorkbenchViewPreferences.ts`：`presentationMode` 改为由 `paperMode` **派生**（卡牌开 → `vertical-classic`，卡牌关 → `horizontal-signal`），不再独立持久化；load 时忽略旧持久化字段完成迁移（存量 `presentationMode='vertical-classic' && paperMode=false` 迁移为横向）。
 - `WorkbenchDialog.vue`：删除独立 ⇥ 方向切换按钮；卡牌按钮是唯一方向入口，tooltip/aria 为「切换卡牌纵向视图 / 切换信号横向视图」。两种展示模式（纵向 Classic 渲染 / 横向 Signal Grid）共存，随卡牌开关切换。
-- **fallback 豁免**：Signal 投影初始化失败自动回退 `vertical-classic`（`presentation-fallback`）时置 `signalFallback` 标志，`paperMode` watch 在该标志下**不反向翻转**卡牌状态；用户下次手动切换卡牌或重载后清除标志，并以轻提示告知「信号投影初始化失败，已回退纵向渲染」。
+- **fallback 豁免（实现结论：无需额外守卫）**：`fallbackToClassic`（`useWorkbenchDialogController.ts`）直接写 `presentationMode.value = 'vertical-classic'`，而联动 `watch` 只监听 `paperMode`，回退值不会被反向翻转；用户下次手动切换卡牌时联动按派生规则恢复，重载后派生值按 `paperMode` 重算（自然重试 Signal）。回退提示由既有 `graph.fallback` 视觉事件承担（「警告 // 图谱回退：Signal Grid 初始化失败，已回退 Classic」）。
 - 投影/渲染契约见 [pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约](./pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约)。

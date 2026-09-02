@@ -14,11 +14,14 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(source).toContain("const WORKBENCH_VIEW_STORAGE_PREFIX = 'nx-workbench-view:'")
     expect(source).toContain('paperMode: false')
     expect(source).toContain('paperMode: value?.paperMode === true')
-    expect(source).toContain("presentationMode: 'horizontal-signal'")
-    expect(source).toContain("value?.presentationMode === 'vertical-classic'")
+    // 2026-09-02 返工：presentationMode 由 paperMode 派生，不再独立持久化（load 忽略旧字段）
+    expect(source).toContain("initial.paperMode ? 'vertical-classic' : 'horizontal-signal'")
+    expect(source).toContain('presentationMode.value = paper ?')
+    expect(source).toContain('watch(paperMode, (paper) =>')
     expect(source).toContain(
-      'watch([topologyLayout, foldMode, paperMode, presentationMode], saveWorkbenchViewPreference)',
+      'watch([topologyLayout, foldMode, paperMode], saveWorkbenchViewPreference)',
     )
+    expect(source).not.toContain('value?.presentationMode')
     expect(source).toContain(':aria-pressed="paperMode"')
     expect(source).toContain('data-view-action="layout"')
     const sideTools = source.indexOf('class="nyxus-side-tools"')
@@ -28,9 +31,7 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(scrollColumn).toBeGreaterThan(sideTools)
     expect(layoutAction).toBeGreaterThan(scrollColumn)
     expect(source).toContain('max-height: calc(100% - 37px)')
-    expect(source).toContain(
-      `:class="{ 'has-open-popout': roleListOpen || sessionListOpen }"`,
-    )
+    expect(source).toContain(`:class="{ 'has-open-popout': roleListOpen || sessionListOpen }"`)
     expect(source).toContain('z-index: var(--nx-z-side-popover)')
     expect(source).toContain('z-index: var(--nx-z-connection-mask)')
     expect(source).toContain("topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'")

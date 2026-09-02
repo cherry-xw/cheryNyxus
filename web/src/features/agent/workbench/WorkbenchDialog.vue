@@ -532,26 +532,8 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </el-tooltip>
           </div>
           <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
-            <el-tooltip
-              :content="presentationMode === 'horizontal-signal' ? '切换纵向 Classic 节点树' : '切换水平 Signal Grid'"
-              placement="left"
-              :show-after="200"
-              :hide-after="0"
-            >
-              <span class="nyxus-tool-tip-anchor">
-                <button
-                  type="button"
-                  class="nyxus-rail-action is-presentation-action"
-                  data-view-action="presentation"
-                  :class="{ 'is-active': presentationMode === 'horizontal-signal' }"
-                  :aria-label="presentationMode === 'horizontal-signal' ? '当前水平 Signal Grid，点击切换 Classic' : '当前纵向 Classic，点击切换 Signal Grid'"
-                  :aria-pressed="presentationMode === 'horizontal-signal'"
-                  @click="presentationMode = presentationMode === 'horizontal-signal' ? 'vertical-classic' : 'horizontal-signal'"
-                >
-                  <span aria-hidden="true">⇥</span>
-                </button>
-              </span>
-            </el-tooltip>
+            <!-- 2026-09-02 返工：独立 ⇥ 方向切换按钮已删除——卡牌阅读开关是唯一方向入口
+                 （卡牌开 → 纵向 Classic，关 → 横向 Signal），见 workbench-multi-window.md -->
             <!-- v1.0 布局切换从 nav 顶部移入视图与配置组，作为组内第一个按钮
                  （三组方案：主操作 / 会话 / 视图与配置，见 workbench-multi-window.md） -->
             <el-tooltip
@@ -581,7 +563,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </span>
             </el-tooltip>
             <el-tooltip
-              :content="paperMode ? '关闭卡牌阅读模式' : '打开卡牌阅读模式'"
+              :content="paperMode ? '切换信号横向视图' : '切换卡牌纵向视图'"
               placement="left"
               :show-after="200"
               :hide-after="0"
@@ -592,7 +574,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                   class="nyxus-rail-action"
                   data-view-action="paper"
                   :class="{ 'is-active': paperMode }"
-                  :aria-label="paperMode ? '关闭卡牌阅读模式' : '打开卡牌阅读模式'"
+                  :aria-label="paperMode ? '切换信号横向视图' : '切换卡牌纵向视图'"
                   :aria-pressed="paperMode"
                   @click="paperMode = !paperMode"
                 >
