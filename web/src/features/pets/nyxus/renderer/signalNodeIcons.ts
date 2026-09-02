@@ -19,7 +19,6 @@ export interface SignalIconContext {
   cy: number
   halfW: number
   halfH: number
-  fill: number
   accent: number
   alpha: number
   /** fold 徽记密度格数量（由 foldCount 派生，其余类型忽略）。 */

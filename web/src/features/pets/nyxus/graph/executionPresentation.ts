@@ -81,7 +81,7 @@ export function toolVisualKindFor(node: PositionedExecutionNode): SignalToolVisu
 
 /** 节点 → 徽记类型：形状即类型语义（零文本原则），错误消息节点独立断框徽记。 */
 export function signalVisualKindFor(
-  node: Pick<PositionedExecutionNode, 'kind' | 'actor' | 'direction'>,
+  node: PositionedExecutionNode,
   priority: ExecutionPresentationPriority,
 ): SignalNodeVisualKind {
   if (node.kind === 'start') return 'start'
