@@ -117,7 +117,8 @@ describe('Nyxus tree motion contract', () => {
     expect(drawMotion).not.toContain('this.scene.nodes')
     expect(source).toContain('.filter((node) => node.running || node.detailActive)')
     expect(source).toContain('renderQualityProfile(this.qualityTier).graphEffectNodes')
-    expect(source).toContain("Number(right.priority?.startsWith('hero'))")
+    // 2026-09-02 二轮返工：priority 分级随类型徽记矩阵移除，motion 预算按 detailActive 排序。
+    expect(source).toContain('Number(right.detailActive) - Number(left.detailActive)')
     expect(source).toContain('if (node.detailActive)')
     expect(source).toContain('const MOTION_FRAME_INTERVAL = 1000 / 30')
   })
@@ -212,8 +213,8 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('glyph.alpha = alpha')
     expect(source).toContain('title.alpha = alpha')
     expect(source).toContain('termination.alpha = alpha')
-    expect(source).toContain('const density = Math.min(10, Math.max(3, Math.ceil(Math.log2(node.foldCount + 1) * 2)))')
-    expect(source).toContain('alpha: (0.38 + tick / density / 2) * alpha')
+    // 2026-09-02 二轮返工：fold 密度格移入类型徽记（signalNodeIcons），仍由 foldCount 派生。
+    expect(source).toContain('Math.min(8, Math.max(3, Math.ceil(Math.log2(node.foldCount + 1) * 2)))')
     expect(source).not.toContain('foldCount.alpha = alpha')
     expect(source).toContain('const emphasis = emphasisAlpha(edge.deemphasized, edge.detailBranch)')
     expect(source).toContain('const emphasis = emphasisAlpha(node.deemphasized, node.detailBranch)')

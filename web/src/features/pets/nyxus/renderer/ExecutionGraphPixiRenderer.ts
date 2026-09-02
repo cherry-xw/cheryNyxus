@@ -12,10 +12,10 @@ import {
 } from '../graph/executionGeometry'
 import { EXECUTION_ICON_RADIUS } from '../graph/executionLayout'
 import {
-  SIGNAL_NODE_HEIGHT,
-  SIGNAL_NODE_WIDTH,
+  SIGNAL_NODE_SIZE,
   type ExecutionPresentationMode,
 } from '../graph/executionPresentation'
+import { SIGNAL_NODE_ICONS } from './signalNodeIcons'
 import {
   EXECUTION_EDGE_PULSE_LENGTH,
   EXECUTION_EDGE_PULSE_PERIOD,
@@ -26,6 +26,7 @@ import {
 import { PIXI_CANVAS_PALETTES, type PixiCanvasPalette } from '@/composables/useThemeTokens'
 import { DETAIL_BRANCH_COLOR } from '../graph/edgeStyles'
 import { renderQualityProfile, type RenderQualityTier } from '@/composables/renderQuality'
+import type { SignalNodeVisualKind } from '../graph/executionPresentation'
 import { incrementPerformanceCounter, setPerformanceMetric } from '@/utils/performanceDiagnostics'
 
 export interface PixiExecutionNode {
@@ -45,13 +46,9 @@ export interface PixiExecutionNode {
   revoked: boolean
   deemphasized: boolean
   detailBranch: boolean
-  shape?: 'start' | 'command' | 'core' | 'chip' | 'fork' | 'merge' | 'stack' | 'system'
-  priority?: 'hero-user' | 'hero-final' | 'hero-error' | 'fold' | 'process'
-  protocolCode?: string
-  summary?: string
+  /** Signal 徽记类型（horizontal-signal 专用；Classic 分支不消费）。 */
+  visualKind?: SignalNodeVisualKind
   effect?: 'projection' | 'convergence' | 'corruption' | 'orbit' | 'trail'
-  width?: number
-  height?: number
 }
 
 export interface PixiExecutionEdge {
@@ -116,7 +113,7 @@ function sampleEdge(edge: PixiExecutionEdge): SampledEdge {
       ? horizontalExecutionEdgeGeometry(
           edge.from,
           edge.to,
-          edge.fromHalfWidth ?? SIGNAL_NODE_WIDTH / 2,
+          edge.fromHalfWidth ?? SIGNAL_NODE_SIZE.width / 2,
           edge.routeY,
           edge.toHalfWidth,
         )
@@ -488,11 +485,8 @@ export class ExecutionGraphPixiRenderer {
           node.branchAnchorKind ?? '',
           node.detailBranch,
           node.deemphasized,
-          node.shape ?? '',
-          node.priority ?? '',
+          node.visualKind ?? '',
           node.effect ?? '',
-          node.width ?? '',
-          node.height ?? '',
           presentation,
         ].join(':'),
       ),
@@ -513,12 +507,6 @@ export class ExecutionGraphPixiRenderer {
           node.foldCount ?? '',
           node.detailBranch,
           node.deemphasized,
-          node.shape ?? '',
-          node.priority ?? '',
-          node.protocolCode ?? '',
-          node.summary ?? '',
-          node.width ?? '',
-          node.height ?? '',
           presentation,
         ].join(':'),
       )
@@ -571,7 +559,6 @@ export class ExecutionGraphPixiRenderer {
         .sort(
           (left, right) =>
             Number(right.detailActive) - Number(left.detailActive) ||
-            Number(right.priority?.startsWith('hero')) - Number(left.priority?.startsWith('hero')) ||
             left.id.localeCompare(right.id),
         )
         .slice(0, effectBudget)
@@ -667,67 +654,45 @@ export class ExecutionGraphPixiRenderer {
     }
   }
 
+  /**
+   * Signal 节点（2026-09-02 二轮返工·类型徽记矩阵）：统一直角底板 + 左右端口方块
+   * + 按视觉类型取 `SIGNAL_NODE_ICONS` 预设徽记。节点上零文本；危险程度覆盖类型色
+   * （error 红 / paused 琥珀 / revoked 灰），detailActive / 分支锚点画外扩框。
+   */
   private drawSignalNode(node: PixiExecutionNode, accent: number, alpha: number): void {
     const graphics = this.staticNodes
     const p = this.canvasPalette
-    const halfW = (node.width ?? SIGNAL_NODE_WIDTH) / 2
-    const halfH = (node.height ?? SIGNAL_NODE_HEIGHT) / 2
-    const cut = 9
-    const shell = [
-      node.x - halfW + cut,
-      node.y - halfH,
-      node.x + halfW - cut,
-      node.y - halfH,
-      node.x + halfW,
-      node.y - halfH + cut,
-      node.x + halfW,
-      node.y + halfH - cut,
-      node.x + halfW - cut,
-      node.y + halfH,
-      node.x - halfW + cut,
-      node.y + halfH,
-      node.x - halfW,
-      node.y + halfH - cut,
-      node.x - halfW,
-      node.y - halfH + cut,
-    ]
+    const halfW = SIGNAL_NODE_SIZE.width / 2
+    const halfH = SIGNAL_NODE_SIZE.height / 2
+    const left = node.x - halfW
+    const top = node.y - halfH
 
-    if (node.shape === 'start' || node.shape === 'fork' || node.shape === 'merge') {
-      graphics
-        .poly([
-          node.x,
-          node.y - halfH,
-          node.x + halfW,
-          node.y,
-          node.x,
-          node.y + halfH,
-          node.x - halfW,
-          node.y,
-        ])
-        .fill({ color: p.nodeFill, alpha: 0.9 * alpha })
-        .stroke({ color: accent, width: 1.5, alpha })
-    } else if (node.shape === 'chip') {
-      graphics.poly(shell).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.5, alpha })
-      for (const offset of [-12, 0, 12]) {
-        graphics.moveTo(node.x - halfW - 5, node.y + offset).lineTo(node.x - halfW, node.y + offset).stroke({ color: accent, width: 1, alpha: 0.72 * alpha })
-        graphics.moveTo(node.x + halfW, node.y + offset).lineTo(node.x + halfW + 5, node.y + offset).stroke({ color: accent, width: 1, alpha: 0.72 * alpha })
-      }
-    } else if (node.shape === 'stack') {
-      // 2026-09-02 返工：删除 ±5 错位 ghost 轮廓（"飞碟"），保留单 shell + 填充。
-      graphics.poly(shell).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.5, alpha })
-    } else if (node.shape === 'core') {
-      graphics.poly(shell).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.7, alpha })
-      graphics.rect(node.x - 19, node.y - 13, 38, 26).stroke({ color: accent, width: 1, alpha: 0.38 * alpha })
-    } else {
-      graphics.rect(node.x - halfW, node.y - halfH, halfW * 2, halfH * 2).fill({ color: p.nodeFill, alpha: 0.9 * alpha }).stroke({ color: accent, width: 1.4, alpha })
-      graphics.rect(node.x - halfW + 4, node.y - halfH + 4, 3, halfH * 2 - 8).fill({ color: accent, alpha: 0.68 * alpha })
-    }
+    graphics
+      .rect(left, top, SIGNAL_NODE_SIZE.width, SIGNAL_NODE_SIZE.height)
+      .fill({ color: p.nodeFill, alpha: 0.9 * alpha })
+      .stroke({ color: accent, width: 1.5, alpha })
+    const painter = SIGNAL_NODE_ICONS[node.visualKind ?? 'process']
+    painter(graphics, {
+      cx: node.x,
+      cy: node.y,
+      halfW,
+      halfH,
+      fill: colorNumber(p.nodeFill),
+      accent,
+      alpha,
+      ...(node.foldCount
+        ? { density: Math.min(8, Math.max(3, Math.ceil(Math.log2(node.foldCount + 1) * 2))) }
+        : {}),
+    })
 
-    graphics.circle(node.x - halfW, node.y, 2.5).fill({ color: accent, alpha })
-    graphics.circle(node.x + halfW, node.y, 2.5).fill({ color: accent, alpha })
+    graphics.rect(left - 3, node.y - 2, 3, 4).fill({ color: accent, alpha })
+    graphics.rect(left + SIGNAL_NODE_SIZE.width, node.y - 2, 3, 4).fill({ color: accent, alpha })
+
     if (node.paused || node.error || node.revoked) {
       const stateColor = node.error ? p.stateError : node.revoked ? p.stateRevoked : p.statePaused
-      graphics.poly(shell).stroke({ color: stateColor, width: 2.2, alpha: 0.92 * alpha })
+      graphics
+        .rect(left, top, SIGNAL_NODE_SIZE.width, SIGNAL_NODE_SIZE.height)
+        .stroke({ color: stateColor, width: 2.2, alpha: 0.92 * alpha })
     }
     if (node.detailActive || node.branchAnchorKind || node.detailBranch) {
       const stateColor = node.branchAnchorKind
@@ -736,33 +701,8 @@ export class ExecutionGraphPixiRenderer {
           ? colorNumber(DETAIL_BRANCH_COLOR)
           : accent
       graphics
-        .rect(node.x - halfW - 4, node.y - halfH - 4, halfW * 2 + 8, halfH * 2 + 8)
+        .rect(left - 4, top - 4, SIGNAL_NODE_SIZE.width + 8, SIGNAL_NODE_SIZE.height + 8)
         .stroke({ color: stateColor, width: 1.4, alpha: 0.82 * alpha })
-    }
-    if (node.priority?.startsWith('hero')) {
-      graphics
-        .moveTo(node.x - halfW + 12, node.y - halfH - 5)
-        .lineTo(node.x + halfW - 12, node.y - halfH - 5)
-        .stroke({ color: accent, width: 1, alpha: 0.38 * alpha })
-      graphics
-        .moveTo(node.x - halfW + 12, node.y + halfH + 5)
-        .lineTo(node.x + halfW - 12, node.y + halfH + 5)
-        .stroke({ color: accent, width: 1, alpha: 0.24 * alpha })
-    }
-    if (node.foldCount) {
-      const density = Math.min(10, Math.max(3, Math.ceil(Math.log2(node.foldCount + 1) * 2)))
-      for (let layer = 1; layer <= 3; layer += 1) {
-        graphics
-          .moveTo(node.x + halfW - 22 + layer * 3, node.y - halfH - layer * 3)
-          .lineTo(node.x + halfW - 3 + layer * 3, node.y - halfH - layer * 3)
-          .stroke({ color: accent, width: 1, alpha: (0.18 + layer * 0.1) * alpha })
-      }
-      for (let tick = 0; tick < density; tick += 1) {
-        const height = 3 + (tick % 3) * 2
-        graphics
-          .rect(node.x + halfW - 8 - tick * 3, node.y + halfH - 5 - height, 1.5, height)
-          .fill({ color: accent, alpha: (0.38 + tick / density / 2) * alpha })
-      }
     }
   }
 
@@ -779,6 +719,10 @@ export class ExecutionGraphPixiRenderer {
     const resolution = this.labelResolution
     const signal = this.scene.presentation === 'horizontal-signal'
     for (const node of this.scene.nodes) {
+      // 2026-09-02 二轮返工·零文本原则：Signal 节点不创建任何 Text（协议码/摘要/
+      // glyph 全不上节点，类型辨识 100% 靠徽记图形），可访问性文本由 HTML aria-label
+      // 承载；Classic 分支标签行为不变。
+      if (signal) continue
       const accent = colorNumber(node.accent)
       const glyph = new Text({
         text: node.glyph,
@@ -787,21 +731,20 @@ export class ExecutionGraphPixiRenderer {
         style: {
           fill: accent,
           fontFamily: '"Segoe UI Symbol", "Noto Sans Symbols 2", system-ui, sans-serif',
-          fontSize: signal ? 14 : 19,
+          fontSize: 19,
           fontWeight: '600',
           trim: true,
         },
         resolution,
       })
-      if (signal) glyph.position.set(node.x - (node.width ?? SIGNAL_NODE_WIDTH) / 2 + 16, node.y)
       const title = new Text({
-        text: signal ? (this.labelLod === 'near' && node.summary ? node.summary : node.protocolCode ?? node.title) : node.title,
-        anchor: signal ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 },
-        position: signal ? { x: node.x - (node.width ?? SIGNAL_NODE_WIDTH) / 2 + 30, y: node.y - (node.termination ? 6 : 0) } : { x: node.x, y: node.y + 23 },
+        text: node.title,
+        anchor: { x: 0.5, y: 0 },
+        position: { x: node.x, y: node.y + 23 },
         style: {
           fill: p.title,
           fontFamily: 'ui-monospace, monospace',
-          fontSize: signal && node.priority?.startsWith('hero') ? 11 : 10,
+          fontSize: 10,
           fontWeight: '600',
         },
         resolution,
@@ -811,11 +754,11 @@ export class ExecutionGraphPixiRenderer {
       title.alpha = alpha
       this.labels.addChild(glyph)
       if (this.labelLod !== 'far') this.labels.addChild(title)
-      if (node.termination && (!signal || this.labelLod === 'near')) {
+      if (node.termination) {
         const termination = new Text({
           text: node.termination,
-          anchor: signal ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 },
-          position: signal ? { x: node.x - (node.width ?? SIGNAL_NODE_WIDTH) / 2 + 30, y: node.y + 13 } : { x: node.x, y: node.y + 38 },
+          anchor: { x: 0.5, y: 0 },
+          position: { x: node.x, y: node.y + 38 },
           style: { fill: p.termination, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
           resolution,
         })
@@ -874,8 +817,8 @@ export class ExecutionGraphPixiRenderer {
       const phase = ((seconds + (node.x + node.y) * 0.0007) % 1.2) / 1.2
       if (this.scene.presentation === 'horizontal-signal') {
         const grow = 3 + phase * 12
-        const nodeWidth = node.width ?? SIGNAL_NODE_WIDTH
-        const nodeHeight = node.height ?? SIGNAL_NODE_HEIGHT
+        const nodeWidth = SIGNAL_NODE_SIZE.width
+        const nodeHeight = SIGNAL_NODE_SIZE.height
         this.motionNodes
           .rect(
             node.x - nodeWidth / 2 - grow,

@@ -32,6 +32,7 @@ import {
 } from '../graph/executionLayout'
 import {
   projectExecutionPresentation,
+  signalVisualKindFor,
   type ExecutionPresentationMode,
 } from '../graph/executionPresentation'
 import { DETAIL_BRANCH_COLOR, edgeStyle } from '../graph/edgeStyles'
@@ -1365,12 +1366,8 @@ export function useMessageBranchTreeController(
         accent: accentForTheme(themeStore.theme, skin.key),
         glyph: skin.glyph,
         title: compactNodeTitle(node),
-        priority: node.presentationPriority,
-        protocolCode: node.protocolCode,
-        summary: node.summary,
         effect: node.effect,
-        width: node.visualBounds ? node.visualBounds.right - node.visualBounds.left : undefined,
-        height: node.visualBounds ? node.visualBounds.bottom - node.visualBounds.top : undefined,
+        visualKind: signalVisualKindFor(node, node.presentationPriority ?? 'process'),
         ...(node.sourceFact?.termination
           ? { termination: terminationDisplay(node.sourceFact.termination).label }
           : {}),
@@ -1387,22 +1384,6 @@ export function useMessageBranchTreeController(
         revoked: node.status === 'revoked',
         deemphasized: !coreFlowProjection.value.coreNodeIds.has(node.id),
         detailBranch: coreFlowProjection.value.detailNodeIds.has(node.id),
-        shape:
-          node.kind === 'start'
-            ? 'start'
-            : node.kind === 'input'
-              ? 'command'
-              : node.kind === 'tool-batch'
-                ? 'chip'
-                : node.kind === 'spawn' || node.kind === 'dispatch'
-                  ? 'fork'
-                  : node.kind === 'return'
-                    ? 'merge'
-                    : node.kind === 'fold' || node.kind === 'pack'
-                      ? 'stack'
-                      : node.actor.kind === 'agent'
-                        ? 'core'
-                        : 'system',
       }
     }),
     edges: visibleExecutionItems.value.edges.map((edge) => {
