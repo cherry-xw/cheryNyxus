@@ -4,6 +4,7 @@ import { gsap } from 'gsap'
 import { useChatSessionsStore, useConnectionStore, useWorkspaceStore } from '@/application/public'
 import type { WorkspaceWindowState } from '@/application/shell/public'
 import { renderQualityProfile, renderQualityTier } from '@/composables/renderQuality'
+import { useMotionTier } from '@/composables/useMotionTier'
 import { MOTION } from '@/utils/gsapCore'
 import CyberWindow from './CyberWindow.vue'
 import CyberDiagnosticPanel from './CyberDiagnosticPanel.vue'
@@ -14,6 +15,7 @@ const connection = useConnectionStore()
 const chats = useChatSessionsStore()
 const root = ref<HTMLElement | null>(null)
 const stage = ref<HTMLElement | null>(null)
+const { spec: motionSpec } = useMotionTier()
 let motionContext: gsap.Context | undefined
 let stageResizeObserver: ResizeObserver | undefined
 const activeWindows = computed(() =>
@@ -118,7 +120,8 @@ function syncStageSize(): void {
 }
 
 async function animateBootTelemetry(): Promise<void> {
-  if (!root.value || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  // 坐标行文字扰动属装饰级效果：仅在 full 入场档（high tier + full 偏好）运行。
+  if (!root.value || motionSpec.value.enter !== 'full') return
   const label = root.value.querySelector<HTMLElement>('.cyber-coordinate')
   if (!label) return
   const finalText = label.textContent ?? ''
@@ -166,15 +169,27 @@ onMounted(async () => {
 onMounted(() => {
   window.addEventListener('error', reportWindowError)
   window.addEventListener('unhandledrejection', reportUnhandledRejection)
-  if (root.value && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  // 系统栏/任务栏入场统一挂接 useMotionTier 三档（motion-standard §3）：
+  // full = opacity+y+scale 全量、reduced = 仅 opacity+y（幅度减半）、opacityOnly = 仅淡入。
+  const enter = motionSpec.value.enter
+  if (root.value && enter !== 'opacityOnly') {
+    const amplitude = motionSpec.value.amplitude
+    const stagger = motionSpec.value.stagger
     motionContext = gsap.context(() => {
       gsap
         .timeline({ defaults: { ease: 'power2.out' } })
-        .from('.cyber-system-bar', { autoAlpha: 0, y: -18, duration: MOTION.panel })
-        .from('.cyber-taskbar', { autoAlpha: 0, y: 20, duration: MOTION.panel }, '<0.05')
-        .from('.cyber-grid', { autoAlpha: 0, scale: 1.04, duration: MOTION.sweep }, 0)
+        .from('.cyber-grid', { autoAlpha: 0, scale: 1 + 0.04 * amplitude, duration: MOTION.sweep }, 0)
+        .from('.cyber-system-bar', { autoAlpha: 0, y: -18 * amplitude, duration: MOTION.panel }, stagger)
+        .from('.cyber-taskbar', { autoAlpha: 0, y: 20 * amplitude, duration: MOTION.panel }, stagger * 2)
     }, root.value)
     void animateBootTelemetry()
+  } else if (root.value) {
+    motionContext = gsap.context(() => {
+      gsap.from('.cyber-system-bar, .cyber-taskbar, .cyber-grid', {
+        autoAlpha: 0,
+        duration: MOTION.control,
+      })
+    }, root.value)
   }
   try {
     if (sessionStorage.getItem('chery.workspace.boot-diagnostic.v1') !== '1') {

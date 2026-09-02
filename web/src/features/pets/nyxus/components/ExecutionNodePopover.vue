@@ -1,5 +1,10 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+import { gsap } from 'gsap'
 import { useExecutionNodePopoverController, type ExecutionNodePopoverControllerProps, type ExecutionNodePopoverControllerEmits } from './useExecutionNodePopoverController'
+import { useGsap } from '@/composables/useGsap'
+import { useMotionPreference } from '@/composables/useMotionPreference'
+import { MOTION } from '@/utils/gsapCore'
 import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import RiskBadge from '@/components/RiskBadge.vue'
@@ -20,10 +25,34 @@ const {
   selectedCall, selectedStatus, skillResult, skinForNode, spawnPrompt, spawnRole, spawnWake,
   terminationDisplay, thinkingOpen, toolBatchUsesTabs, toolGlyph, toolIcon, toolLabel, toolPresentation,
 } = controller
+
+/**
+ * 入场时间线（2026-09-02 返工契约，docs/web/pet/nyxus-node-tree-maintenance.md）：
+ * 标题栏 → 页签 → 正文 stagger，总时长 ≤320ms，只动 transform/autoAlpha。
+ * 仅组件挂载时执行一次——hover 链上切换节点复用同一实例，不重放。
+ */
+const popoverRoot = ref<HTMLElement | null>(null)
+const { effectiveMode } = useMotionPreference()
+useGsap(popoverRoot, (context) => {
+  context.add(() => {
+    if (effectiveMode.value === 'reduced') return
+    const head = popoverRoot.value?.querySelector('.popover-chrome')
+    const tabs = popoverRoot.value?.querySelector('.tool-tabs')
+    const body = popoverRoot.value?.querySelectorAll('.popover-body > *')
+    const timeline = gsap.timeline({ defaults: { ease: 'power2.out', overwrite: 'auto' } })
+    if (head) timeline.from(head, { autoAlpha: 0, y: -6, duration: MOTION.control }, 0)
+    if (tabs) timeline.from(tabs, { autoAlpha: 0, y: -4, duration: MOTION.control }, 0.04)
+    if (body?.length) {
+      const stagger = Math.min(0.02, 0.08 / Math.max(1, body.length - 1))
+      timeline.from(body, { autoAlpha: 0, y: 8, duration: MOTION.control, stagger }, 0.08)
+    }
+  })
+})
 </script>
 
 <template>
   <aside
+    ref="popoverRoot"
     class="node-popover"
     :class="[
       `is-${variant ?? 'popover'}`,

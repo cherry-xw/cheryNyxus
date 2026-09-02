@@ -47,6 +47,8 @@ export type ExecutionNodePopoverControllerEmits = {
   selectCall: [callId: string]
   branch: [type: 'detail' | 'continuation', nodeId: string]
   drag: [delta: { x: number; y: number }]
+  /** 标题栏拖拽结束（pointerup/cancel）。消费端此刻才把直写位移落回持久定位。 */
+  dragEnd: []
   toggleWrap: []
 }
 type ControllerEmit<T> = <K extends keyof T>(event: K, ...args: T[K] extends unknown[] ? T[K] : never) => void
@@ -175,7 +177,9 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
     if (target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId)
   
     dragPointerId = -1
-  
+
+    emit('dragEnd')
+
   }
   
   const nodeTermination = computed(() =>
