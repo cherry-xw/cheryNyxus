@@ -404,6 +404,94 @@ describe('Agent-local Fold projection', () => {
     ])
   })
 
+  it('derives bullet kinds for the seven rail cartridge styles', () => {
+    const canonical = graph([
+      batch('plain', 1),
+      batch('read', 2, rootChatId, {
+        toolCalls: [
+          {
+            callId: 'call:read',
+            index: 0,
+            name: 'read_file',
+            arguments: '{}',
+            result: 'ok',
+            status: 'completed',
+          },
+        ],
+      }),
+      batch('path', 3, rootChatId, {
+        toolCalls: [
+          {
+            callId: 'call:path',
+            index: 0,
+            name: 'custom_tool',
+            arguments: '{"path":"a.txt"}',
+            result: 'ok',
+            status: 'completed',
+          },
+        ],
+      }),
+      batch('skill', 4, rootChatId, {
+        toolCalls: [
+          {
+            callId: 'call:skill',
+            index: 0,
+            name: 'skill',
+            arguments: '{}',
+            result: 'ok',
+            status: 'completed',
+          },
+        ],
+      }),
+      batch('question', 5, rootChatId, {
+        toolCalls: [
+          {
+            callId: 'call:question',
+            index: 0,
+            name: 'request_user_input',
+            arguments: '{}',
+            result: 'answer',
+            status: 'completed',
+          },
+        ],
+      }),
+      batch('interaction', 6, rootChatId, {
+        toolCalls: [
+          {
+            callId: 'call:interaction',
+            index: 0,
+            name: 'approval_tool',
+            arguments: '{}',
+            status: 'pending',
+          },
+        ],
+      }),
+      batch('error', 7, rootChatId, {
+        toolCalls: [
+          {
+            callId: 'call:error',
+            index: 0,
+            name: 'broken_tool',
+            arguments: '{}',
+            status: 'error',
+          },
+        ],
+      }),
+      message('agent', 8),
+    ])
+    const displayNodes = canonical.nodes.filter((node) => node.orderSlot === 'persistent')
+    expect(displayNodes.map((node) => foldTabForMember(member(node)).bulletKind)).toEqual([
+      'tool',
+      'file',
+      'file',
+      'skill',
+      'question',
+      'interaction',
+      'error',
+      'agent',
+    ])
+  })
+
   it('preserves a selected secondary tool tab and otherwise picks active then first', () => {
     const calls = [
       { callId: 'done', index: 0, name: 'done', arguments: '{}', status: 'completed' as const },
@@ -439,19 +527,24 @@ describe('Agent-local Fold projection', () => {
     expect(rendererSource).toContain('if (node.foldCount)')
     expect(treeSource).toContain('<FoldTabRail')
     expect(railSource).not.toContain('fold-spine')
-    expect(railSource).toContain('fold-orbit-navigation')
-    expect(railSource).toContain('{ capacity: 6, radius: 66 }')
-    expect(railSource).toContain('{ capacity: 8, radius: 104 }')
-    expect(railSource).toContain('{ capacity: 10, radius: 142 }')
-    expect(railSource).toContain("gsap.matchMedia()")
-    expect(railSource).toContain("onBeforeUnmount(() => context?.revert())")
-    expect(railSource).not.toContain('translate3d(')
-    expect(railSource).not.toContain('scale(')
-    expect(railSource).not.toContain('perspective:')
-    expect(railSource).toContain('left 340ms cubic-bezier')
-    expect(railSource).toContain('top 340ms cubic-bezier')
+    // 左轮回工（2026-09-02）：槽位坐标弹壳芯片 + GSAP transform 步进。
+    expect(railSource).toContain('fold-wheel-navigation')
+    expect(railSource).toContain('foldWheelView')
+    expect(railSource).toContain('FOLD_WHEEL_LAYER_CAPACITY')
+    expect(railSource).toContain('bulletKind')
     expect(railSource).toContain('queuedSteps')
-    expect(railSource).toContain('seamPoint')
+    expect(railSource).toContain('WHEEL_THRESHOLD')
+    expect(railSource).toContain('PageDown')
+    expect(railSource).toContain('@media (prefers-reduced-motion: reduce)')
+    // 旧飞碟视觉（三环卫星 / 自旋锥形渐变 / wiggle 插件）不回潮。
+    expect(railSource).not.toContain('fold-orbit-navigation')
+    expect(railSource).not.toContain('CustomWiggle')
+    expect(railSource).not.toContain('repeating-conic-gradient')
+    expect(railSource).not.toContain('seamPoint')
+    // 动效红线：GSAP 只动 transform/opacity——无 left/top 过渡、无 3d 轨道。
+    expect(railSource).not.toContain('cubic-bezier')
+    expect(railSource).not.toContain('translate3d(')
+    expect(railSource).not.toContain('perspective:')
     expect(railSource).not.toContain('while (Math.abs(wheelAccumulator)')
     expect(railSource).toContain('wheelAccumulator = 0\n  enqueueStep(direction)')
     expect(treeSource).toContain(':anchor-x="detailPlacement.nodeOffset.x"')
