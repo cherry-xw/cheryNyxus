@@ -17,7 +17,7 @@
   width: min(1040px, 96vw);
   height: min(760px, 92vh);
   padding: 14px 16px 12px;
-  border-radius: 12px;
+  border-radius: 0;
   background:
     radial-gradient(
       circle at 8% 18%,
@@ -41,7 +41,9 @@
     0 4px 8px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  // 三段（header / tab-bar-wrap / tab-body）零 gap 贴合：标题栏↔页签行↔内容区间距
+  // 由 .head padding-bottom 与 .tab-body padding-top 显式控制，页签才能压在内容区顶边线上。
+  gap: 0;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
@@ -52,11 +54,11 @@
 .settings-panel.is-dragging {
   transition: none;
 }
-// 最大化：铺满 overlay（overlay 自带 16px padding），仅留圆角收边。
+// 最大化：铺满 overlay（overlay 自带 16px padding），全直角收边。
 .settings-panel.is-maximized {
   width: 100%;
   height: 100%;
-  border-radius: 10px;
+  border-radius: 0;
 }
 // native 面（Electron 原生设置窗，WindowFrame 外壳内）：overlay 去蒙层/居中内边距/模糊。
 // ⚠ 定位必须改 absolute（相对 WindowFrame body 的 position:relative 铺满），不能保留基类的
@@ -148,6 +150,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  // 面板 gap:0 后，标题栏与页签行的呼吸间距由这里给出
+  padding-bottom: 8px;
   cursor: grab;
   user-select: none;
   .title-row {
@@ -221,14 +225,27 @@
   cursor: grabbing;
 }
 
+// Win95/98 属性页式页签行：本层不再自绘底部分隔线，改由 ::after 画「内容区顶边线」，
+// 页签三边框无下边框压在线上——选中页签下探 1px 盖线，与内容区视觉连通（文档页签翻开感）。
 .tab-bar-wrap {
   position: relative;
-  padding-bottom: 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  &::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: color-mix(in srgb, var(--ink) 12%, transparent);
+  }
 }
 
 .tab-bar {
   display: flex;
+  // 底端对齐 + 1px 内衬：未选中页签底边停在顶边线上方，选中页签 top:1px 下探恰好
+  // 盖住这 1px 内衬与线（下探量在 padding-box 内，不触发 overflow 滚动/裁剪）
+  align-items: flex-end;
+  padding-bottom: 1px;
   flex-wrap: nowrap;
   gap: 4px;
   overflow-x: auto;
@@ -242,14 +259,14 @@
 .tab-arrow {
   position: absolute;
   top: 0;
-  // bottom = .tab-bar-wrap padding-bottom，让 arrow 拉伸对齐 tab-bar 全高；
+  // bottom = 页签行底 1px 顶边线之上，让 arrow 拉伸对齐页签全高；
   // icon 用 flex 居中 → 与 tab 自动水平对齐，不依赖固定高度
-  bottom: 8px;
+  bottom: 1px;
   z-index: 2;
   width: 22px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   color: color-mix(in srgb, var(--ink) 82%, transparent);
   cursor: pointer;
@@ -282,14 +299,17 @@
 
 .tab {
   position: relative;
+  z-index: 1;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 9px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
+  // 按下态（未选中）：矮一档、暗一档，三边框无下边框，底边停在内容区顶边线上方
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-size: 12px;
   white-space: nowrap;
@@ -301,17 +321,23 @@
     background: color-mix(in srgb, var(--tab-color, @accent) 8%, transparent);
   }
   &.active {
-    background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
+    // 弹起态：top:1px 下探盖住顶边线（文档页签翻开），加高 1px 使顶边上探——物理弹起感；
+    // 底色须不透明（混 --panel 而非 transparent），否则盖线 1px 内会透出顶边线破坏连通
+    top: 1px;
+    z-index: 2;
+    padding: 5px 12px;
+    background: color-mix(in srgb, var(--tab-color, @accent) 12%, var(--panel));
     color: color-mix(in srgb, var(--tab-color, @accent) 80%, @ink);
     font-weight: 600;
     box-shadow: 0 0 12px color-mix(in srgb, var(--tab-color, @accent) 28%, transparent);
-    // conic 转圈边框：伪元素 mask 镂空，只让 1px 边框显 conic 渐变并旋转
+    // conic 转圈边框：伪元素 mask 镂空，只让 1px 边框显 conic 渐变并旋转；
+    // padding 底边为 0 → 不画底边霓虹线，保住页签与内容区的连通点
     &::before {
       content: '';
       position: absolute;
       inset: 0;
       border-radius: inherit;
-      padding: 1px;
+      padding: 1px 1px 0;
       background: conic-gradient(
         from var(--neon-angle, 0deg),
         var(--tab-color, @accent),
@@ -337,6 +363,8 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  // 面板 gap:0 后补回原 10px 呼吸间距（页签行与首张卡片之间）；pane 为 content-box 高度，不受影响
+  padding-top: 10px;
   // 滚动交给各 tab 内部的 TabShell.shell-scroll；本层只做容器。
 }
 
