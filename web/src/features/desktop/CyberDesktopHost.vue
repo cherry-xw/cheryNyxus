@@ -263,7 +263,7 @@ function activate(window: WorkspaceWindowState): void {
     <footer class="cyber-taskbar" aria-label="窗口任务栏">
       <span class="cyber-taskbar-mark">◫ 活动窗口</span>
       <button
-        v-for="window in workspace.workspaceWindowsList"
+        v-for="window in workspace.workspaceWindowsTaskbarList"
         :key="window.id"
         type="button"
         :class="{ active: window.focused, attention: window.attention }"
@@ -461,7 +461,7 @@ function activate(window: WorkspaceWindowState): void {
 .cyber-taskbar button.active {
   border-color: var(--accent);
   color: var(--ink);
-  box-shadow: inset 0 -2px var(--accent);
+  box-shadow: inset 2px 0 var(--accent), inset 0 -2px var(--accent);
 }
 
 .cyber-taskbar button.attention {

@@ -51,6 +51,8 @@ export interface WorkspaceWindowState {
   geometry: WorkspaceWindowGeometry
   restoreGeometry?: WorkspaceWindowGeometry
   zOrder: number
+  /** 创建序（任务栏展示序）：单调递增、创建后不变，与 z 序（zOrder）分离——聚焦窗口只改 z 序，不改任务栏排列。 */
+  sequence: number
   focused: boolean
   maximized: boolean
   attention: boolean
@@ -115,6 +117,7 @@ export function createWorkspaceWindow(
   input: OpenWorkspaceWindowInput,
   index: number,
   viewport: WorkspaceStageSize = { width: 1920, height: 1080 },
+  sequence: number = index,
 ): WorkspaceWindowState {
   const offset = (index % 9) * CASCADE_STEP
   const geometry = clampWorkspaceGeometry(
@@ -135,6 +138,7 @@ export function createWorkspaceWindow(
     title: input.title,
     geometry,
     zOrder: index,
+    sequence,
     focused: true,
     maximized: false,
     attention: input.attention ?? false,
