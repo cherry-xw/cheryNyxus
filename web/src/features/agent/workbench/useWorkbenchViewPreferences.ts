@@ -7,14 +7,12 @@ type WorkbenchViewPreference = {
   layout: 'timeline' | 'topology'
   foldMode: FoldMode
   paperMode: boolean
-  presentationMode: WorkbenchPresentationMode
 }
 
 const DEFAULT_WORKBENCH_VIEW: WorkbenchViewPreference = {
   layout: 'timeline',
   foldMode: 'participant',
   paperMode: false,
-  presentationMode: 'horizontal-signal',
 }
 const WORKBENCH_VIEW_STORAGE_PREFIX = 'nx-workbench-view:'
 const FOLD_MODES = new Set<FoldMode>(['none', 'partial', 'participant', 'full'])
@@ -32,10 +30,6 @@ function loadPreference(presetId: string): WorkbenchViewPreference {
           ? (value.foldMode as FoldMode)
           : DEFAULT_WORKBENCH_VIEW.foldMode,
       paperMode: value?.paperMode === true,
-      presentationMode:
-        value?.presentationMode === 'vertical-classic'
-          ? 'vertical-classic'
-          : 'horizontal-signal',
     }
   } catch {
     return DEFAULT_WORKBENCH_VIEW
@@ -47,7 +41,11 @@ export function useWorkbenchViewPreferences(presetId: string) {
   const topologyLayout = ref(initial.layout === 'topology')
   const foldMode = ref<FoldMode>(initial.foldMode)
   const paperMode = ref(initial.paperMode)
-  const presentationMode = ref<WorkbenchPresentationMode>(initial.presentationMode)
+  // 2026-09-02 返工：图谱方向由卡牌阅读开关单一派生（卡牌开 → 纵向 Classic，关 → 横向 Signal），
+  // 不再独立持久化——load 时忽略旧持久化的 presentationMode 字段完成迁移（见 workbench-multi-window.md）。
+  const presentationMode = ref<WorkbenchPresentationMode>(
+    initial.paperMode ? 'vertical-classic' : 'horizontal-signal',
+  )
 
   function saveWorkbenchViewPreference(): void {
     if (typeof localStorage === 'undefined') return
@@ -58,14 +56,19 @@ export function useWorkbenchViewPreferences(presetId: string) {
           layout: topologyLayout.value ? 'topology' : 'timeline',
           foldMode: foldMode.value,
           paperMode: paperMode.value,
-          presentationMode: presentationMode.value,
         } satisfies WorkbenchViewPreference),
       )
     } catch {
       // Storage may be unavailable in privacy mode; keep the in-memory selection usable.
     }
   }
-  watch([topologyLayout, foldMode, paperMode, presentationMode], saveWorkbenchViewPreference)
+  // 卡牌开关是唯一方向入口。Signal 投影初始化失败回退（fallbackToClassic 直接写
+  // presentationMode，不经本 watch）后，用户下一次手动切换卡牌时重新按派生规则联动；
+  // 重载后派生值自然重置为按 paperMode 推导（即重试 Signal）。
+  watch(paperMode, (paper) => {
+    presentationMode.value = paper ? 'vertical-classic' : 'horizontal-signal'
+  })
+  watch([topologyLayout, foldMode, paperMode], saveWorkbenchViewPreference)
 
   return { topologyLayout, foldMode, paperMode, presentationMode }
 }
