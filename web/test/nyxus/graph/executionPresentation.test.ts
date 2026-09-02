@@ -8,12 +8,16 @@ import { layoutExecutionGraph } from '../../../src/features/pets/nyxus/graph/exe
 import {
   projectExecutionPresentation,
   projectExecutionNodePriorities,
+  SIGNAL_NODE_SIZES,
+  SIGNAL_NODE_VISUAL_KINDS,
+  signalNodeFrameVariantFor,
   signalVisualKindFor,
+  signalNodeSizeFor,
+  signalNodeTierFor,
   toolVisualKindFor,
-  SIGNAL_COLUMN_STRIDE,
   SIGNAL_MIN_WIRE_GAP,
-  SIGNAL_NODE_SIZE,
 } from '../../../src/features/pets/nyxus/graph/executionPresentation'
+import { SIGNAL_NODE_ICONS } from '../../../src/features/pets/nyxus/renderer/signalNodeIcons'
 import { horizontalExecutionEdgeGeometry } from '../../../src/features/pets/nyxus/graph/executionGeometry'
 
 function node(id: string, order: number, chatId = 'root'): ExecutionNode {
@@ -75,6 +79,73 @@ function graph(): ExecutionGraph {
   }
 }
 
+function forkMergeGraph(): ExecutionGraph {
+  const nodes = [
+    node('start', 0),
+    node('hub', 1),
+    node('child-a', 2, 'child-a'),
+    node('child-b', 3, 'child-b'),
+    node('tail', 4),
+  ]
+  return {
+    rootChatId: 'root',
+    nodes,
+    edges: [
+      {
+        id: 'start-hub',
+        from: 'start',
+        to: 'hub',
+        kind: 'sequence',
+        orderSlot: 'persistent',
+        orderKey: 1,
+        sourceChatId: 'root',
+        targetChatId: 'root',
+      },
+      {
+        id: 'fork-a',
+        from: 'hub',
+        to: 'child-a',
+        kind: 'spawn',
+        orderSlot: 'persistent',
+        orderKey: 2,
+        sourceChatId: 'root',
+        targetChatId: 'child-a',
+      },
+      {
+        id: 'fork-b',
+        from: 'hub',
+        to: 'child-b',
+        kind: 'spawn',
+        orderSlot: 'persistent',
+        orderKey: 3,
+        sourceChatId: 'root',
+        targetChatId: 'child-b',
+      },
+      {
+        id: 'merge-a',
+        from: 'child-a',
+        to: 'tail',
+        kind: 'return',
+        orderSlot: 'persistent',
+        orderKey: 4,
+        sourceChatId: 'child-a',
+        targetChatId: 'root',
+      },
+      {
+        id: 'merge-b',
+        from: 'child-b',
+        to: 'tail',
+        kind: 'return',
+        orderSlot: 'persistent',
+        orderKey: 5,
+        sourceChatId: 'child-b',
+        targetChatId: 'root',
+      },
+    ],
+    diagnostics: [],
+  }
+}
+
 function toolNode(name: string): PositionedExecutionNode {
   return {
     ...node('tool', 1),
@@ -111,31 +182,54 @@ describe('horizontal Signal Grid presentation', () => {
     ).toEqual(
       classic.edges.map(({ id, from, to, kind }) => ({ id, from: from.id, to: to.id, kind })),
     )
-    expect(signal.nodes.every((entry, index, all) => index === 0 || entry.x >= all[index - 1]!.x)).toBe(true)
-    // R2 直连回退：Signal 投影不再分配 routeY；canonical 绕行边的 routeX→routeY 映射保留。
-    expect(signal.edges.some((edge) => edge.routeY !== undefined)).toBe(true)
-    expect(signal.edges.every((edge) => edge.routeX === undefined)).toBe(true)
+    expect(
+      signal.nodes.every((entry, index, all) => index === 0 || entry.x >= all[index - 1]!.x),
+    ).toBe(true)
+    expect(signal.edges.some((edge) => edge.routeX !== undefined)).toBe(true)
+    expect(signal.edges.every((edge) => edge.routeY === undefined)).toBe(true)
   })
 
-  it('terminates horizontal fibers at the rectangular node ports', () => {
-    const halfWidth = SIGNAL_NODE_SIZE.width / 2
+  it('terminates rounded orthogonal fibers at the rectangular node ports', () => {
+    const halfWidth = SIGNAL_NODE_SIZES.structural.width / 2
     const geometry = horizontalExecutionEdgeGeometry(
       { x: 100, y: 40 },
       { x: 300, y: 150 },
       halfWidth,
-      90,
+      190,
     )
 
     expect(geometry.from.x).toBe(100 + halfWidth)
     expect(geometry.to.x).toBe(300 - halfWidth)
-    expect(geometry.control1.y).toBe(90)
-    expect(geometry.control2.y).toBe(90)
+    expect(geometry.control1.x).toBe(190)
+    expect(geometry.control2.x).toBe(190)
+    expect(geometry.path).toContain(' Q ')
+    expect(geometry.samples!.length).toBeGreaterThan(6)
+  })
+
+  it('reuses one routing trunk for sibling forks and sibling returns', () => {
+    const signal = projectExecutionPresentation(
+      layoutExecutionGraph(forkMergeGraph()),
+      'horizontal-signal',
+    )
+    const forks = signal.edges.filter((edge) => edge.id === 'fork-a' || edge.id === 'fork-b')
+    const returns = signal.edges.filter((edge) => edge.id === 'merge-a' || edge.id === 'merge-b')
+
+    expect(forks).toHaveLength(2)
+    expect(returns).toHaveLength(2)
+    expect(forks.every((edge) => edge.routeX !== undefined)).toBe(true)
+    expect(returns.every((edge) => edge.routeX !== undefined)).toBe(true)
+    expect(new Set(forks.map((edge) => edge.routeX)).size).toBe(1)
+    expect(new Set(returns.map((edge) => edge.routeX)).size).toBe(1)
   })
 
   it('promotes user prompts, final replies and errors without changing canonical facts', () => {
     const nodes = [
       node('start', 0),
-      { ...node('user', 1), actor: { kind: 'user' as const, actorId: 'human' }, direction: 'user-to-agent' as const },
+      {
+        ...node('user', 1),
+        actor: { kind: 'user' as const, actorId: 'human' },
+        direction: 'user-to-agent' as const,
+      },
       node('draft', 2),
       node('final', 3),
       {
@@ -152,16 +246,22 @@ describe('horizontal Signal Grid presentation', () => {
     expect(projected.find((entry) => entry.id === 'draft')?.presentationPriority).toBe('process')
   })
 
-  it('maps every node to its badge visual kind (zero-text principle)', () => {
+  it('maps every base node to its visual kind', () => {
     expect(signalVisualKindFor(badgeNode('start', 'system', 'internal'), 'process')).toBe('start')
     expect(signalVisualKindFor(badgeNode('fold', 'agent', 'internal'), 'fold')).toBe('fold')
     expect(signalVisualKindFor(badgeNode('pack', 'agent', 'internal'), 'fold')).toBe('fold')
     expect(signalVisualKindFor(badgeNode('spawn', 'agent', 'internal'), 'process')).toBe('dispatch')
-    expect(signalVisualKindFor(badgeNode('dispatch', 'agent', 'internal'), 'process')).toBe('dispatch')
+    expect(signalVisualKindFor(badgeNode('dispatch', 'agent', 'internal'), 'process')).toBe(
+      'dispatch',
+    )
     expect(signalVisualKindFor(badgeNode('return'), 'process')).toBe('return')
     expect(signalVisualKindFor(badgeNode('system', 'system', 'internal'), 'process')).toBe('system')
-    expect(signalVisualKindFor(badgeNode('input', 'user', 'user-to-agent'), 'hero-user')).toBe('input')
-    expect(signalVisualKindFor(badgeNode('message', 'user', 'user-to-agent'), 'hero-user')).toBe('input')
+    expect(signalVisualKindFor(badgeNode('input', 'user', 'user-to-agent'), 'hero-user')).toBe(
+      'input',
+    )
+    expect(signalVisualKindFor(badgeNode('message', 'user', 'user-to-agent'), 'hero-user')).toBe(
+      'input',
+    )
     expect(signalVisualKindFor(badgeNode('message'), 'hero-final')).toBe('reply')
     expect(signalVisualKindFor(badgeNode('message'), 'hero-error')).toBe('error')
     expect(signalVisualKindFor(badgeNode('message'), 'process')).toBe('process')
@@ -176,30 +276,53 @@ describe('horizontal Signal Grid presentation', () => {
     expect(toolVisualKindFor(toolNode('activate_skill'))).toBe('tool-skill')
     expect(toolVisualKindFor(toolNode('ask_user_question'))).toBe('tool-question')
     expect(toolVisualKindFor(toolNode('spawn_agent'))).toBe('tool-spawn')
+    expect(toolVisualKindFor(toolNode('send_to_child'))).toBe('tool-child')
+    expect(toolVisualKindFor(toolNode('memory_manage'))).toBe('tool-memory')
+    expect(toolVisualKindFor(toolNode('history_recall'))).toBe('tool-memory')
+    expect(toolVisualKindFor(toolNode('config_manage'))).toBe('tool-config')
+    expect(toolVisualKindFor(toolNode('select_conversation'))).toBe('tool-navigate')
+    expect(toolVisualKindFor(toolNode('role_acceptance'))).toBe('tool-role')
+    expect(toolVisualKindFor(toolNode('fetch_web_url'))).toBe('tool-web')
+    expect(toolVisualKindFor(toolNode('query_database'))).toBe('tool-data')
+    expect(toolVisualKindFor(toolNode('git_commit'))).toBe('tool-git')
+    expect(toolVisualKindFor(toolNode('schedule_timer'))).toBe('tool-time')
+    expect(toolVisualKindFor(toolNode('notify_user'))).toBe('tool-notify')
     expect(toolVisualKindFor(toolNode('custom_unknown'))).toBe('tool-generic')
   })
 
-  it('renders every node inside one uniform fixed-size badge', () => {
-    const signal = projectExecutionPresentation(layoutExecutionGraph(graph()), 'horizontal-signal')
-    expect(signal.nodes.length).toBeGreaterThan(0)
-    for (const entry of signal.nodes) {
-      expect(entry.visualBounds!.right - entry.visualBounds!.left).toBe(SIGNAL_NODE_SIZE.width)
-      expect(entry.visualBounds!.bottom - entry.visualBounds!.top).toBe(SIGNAL_NODE_SIZE.height)
-    }
+  it('registers all 29 icon kinds and keeps every icon in one compact square frame', () => {
+    expect(SIGNAL_NODE_VISUAL_KINDS).toHaveLength(29)
+    expect(Object.keys(SIGNAL_NODE_ICONS).sort()).toEqual([...SIGNAL_NODE_VISUAL_KINDS].sort())
+    expect(signalNodeTierFor('start')).toBe('hero')
+    expect(signalNodeTierFor('fold')).toBe('structural')
+    expect(signalNodeTierFor('tool-command')).toBe('tool')
+    expect(signalNodeSizeFor('start')).toEqual(SIGNAL_NODE_SIZES.hero)
+    expect(signalNodeSizeFor('process')).toEqual(SIGNAL_NODE_SIZES.structural)
+    expect(signalNodeSizeFor('tool-generic')).toEqual(SIGNAL_NODE_SIZES.tool)
+    expect(
+      new Set(Object.values(SIGNAL_NODE_SIZES).map(({ width, height }) => `${width}x${height}`)),
+    ).toEqual(new Set(['40x40']))
+    expect(new Set(SIGNAL_NODE_VISUAL_KINDS.map(signalNodeFrameVariantFor))).toEqual(
+      new Set(['signal-corners', 'flow-rails', 'action-split', 'reference-notch']),
+    )
   })
 
-  it('lays out columns at a fixed stride with the minimum wire gap', () => {
+  it('lays out variable-width columns with the minimum wire gap', () => {
     const signal = projectExecutionPresentation(layoutExecutionGraph(graph()), 'horizontal-signal')
     const columns = [...new Set(signal.nodes.map((entry) => entry.x))].sort((a, b) => a - b)
     expect(columns.length).toBeGreaterThan(1)
     for (let index = 1; index < columns.length; index += 1) {
-      expect(columns[index]! - columns[index - 1]!).toBe(SIGNAL_COLUMN_STRIDE)
-    }
-    for (let index = 1; index < signal.nodes.length; index += 1) {
-      const previous = signal.nodes[index - 1]!
-      const current = signal.nodes[index]!
-      if (previous.x === current.x) continue
-      expect(current.visualBounds!.left - previous.visualBounds!.right).toBe(SIGNAL_MIN_WIRE_GAP)
+      const previousRight = Math.max(
+        ...signal.nodes
+          .filter((node) => node.x === columns[index - 1])
+          .map((node) => node.visualBounds!.right),
+      )
+      const currentLeft = Math.min(
+        ...signal.nodes
+          .filter((node) => node.x === columns[index])
+          .map((node) => node.visualBounds!.left),
+      )
+      expect(currentLeft - previousRight).toBe(SIGNAL_MIN_WIRE_GAP)
     }
   })
 

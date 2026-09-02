@@ -1,4 +1,5 @@
-import { Application, Container, Graphics, Text } from 'pixi.js'
+import { h, render } from 'vue'
+import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import {
   cameraWorldBounds,
   executionWorldBoundsIntersect,
@@ -12,8 +13,10 @@ import {
 } from '../graph/executionGeometry'
 import { EXECUTION_ICON_RADIUS } from '../graph/executionLayout'
 import {
-  SIGNAL_NODE_SIZE,
+  signalNodeFrameVariantFor,
+  signalNodeSizeFor,
   type ExecutionPresentationMode,
+  type SignalNodeVisualKind,
 } from '../graph/executionPresentation'
 import { SIGNAL_NODE_ICONS } from './signalNodeIcons'
 import {
@@ -26,7 +29,6 @@ import {
 import { PIXI_CANVAS_PALETTES, type PixiCanvasPalette } from '@/composables/useThemeTokens'
 import { DETAIL_BRANCH_COLOR } from '../graph/edgeStyles'
 import { renderQualityProfile, type RenderQualityTier } from '@/composables/renderQuality'
-import type { SignalNodeVisualKind } from '../graph/executionPresentation'
 import { incrementPerformanceCounter, setPerformanceMetric } from '@/utils/performanceDiagnostics'
 
 export interface PixiExecutionNode {
@@ -108,38 +110,47 @@ function pointOnCubic(geometry: ExecutionEdgeGeometry, t: number): { x: number; 
 }
 
 function sampleEdge(edge: PixiExecutionEdge): SampledEdge {
-  const geometry =
-    edge.horizontal
-      ? horizontalExecutionEdgeGeometry(
-          edge.from,
-          edge.to,
-          edge.fromHalfWidth ?? SIGNAL_NODE_SIZE.width / 2,
-          edge.routeY,
-          edge.toHalfWidth,
+  const geometry = edge.horizontal
+    ? horizontalExecutionEdgeGeometry(
+        edge.from,
+        edge.to,
+        edge.fromHalfWidth ?? signalNodeSizeFor('process').width / 2,
+        edge.routeX,
+        edge.toHalfWidth,
+      )
+    : executionEdgeGeometry(edge.from, edge.to, EXECUTION_ICON_RADIUS, edge.routeX)
+  const sourcePoints = geometry.samples
+  const controlLength = sourcePoints
+    ? sourcePoints
+        .slice(1)
+        .reduce(
+          (sum, point, index) =>
+            sum + Math.hypot(point.x - sourcePoints[index]!.x, point.y - sourcePoints[index]!.y),
+          0,
         )
-      : executionEdgeGeometry(edge.from, edge.to, EXECUTION_ICON_RADIUS, edge.routeX)
-  const controlLength =
-    Math.hypot(geometry.control1.x - geometry.from.x, geometry.control1.y - geometry.from.y) +
-    Math.hypot(
-      geometry.control2.x - geometry.control1.x,
-      geometry.control2.y - geometry.control1.y,
-    ) +
-    Math.hypot(geometry.to.x - geometry.control2.x, geometry.to.y - geometry.control2.y)
+    : Math.hypot(geometry.control1.x - geometry.from.x, geometry.control1.y - geometry.from.y) +
+      Math.hypot(
+        geometry.control2.x - geometry.control1.x,
+        geometry.control2.y - geometry.control1.y,
+      ) +
+      Math.hypot(geometry.to.x - geometry.control2.x, geometry.to.y - geometry.control2.y)
   const steps = Math.min(
     MAX_SAMPLE_STEPS,
     Math.max(MIN_SAMPLE_STEPS, Math.ceil(controlLength / 24)),
   )
   const samples: SampledEdge['samples'] = []
-  let previous = geometry.from
+  let previous = sourcePoints?.[0] ?? geometry.from
   let distance = 0
   samples.push({ ...previous, distance })
-  for (let index = 1; index <= steps; index += 1) {
-    const point = pointOnCubic(geometry, index / steps)
+  const sampledPoints =
+    sourcePoints ??
+    Array.from({ length: steps }, (_, index) => pointOnCubic(geometry, (index + 1) / steps))
+  for (const point of sampledPoints.slice(sourcePoints ? 1 : 0)) {
     distance += Math.hypot(point.x - previous.x, point.y - previous.y)
     samples.push({ ...point, distance })
     previous = point
   }
-  const points = [geometry.from, geometry.control1, geometry.control2, geometry.to]
+  const points = sourcePoints ?? [geometry.from, geometry.control1, geometry.control2, geometry.to]
   return {
     ...edge,
     geometry,
@@ -189,6 +200,11 @@ function pointAtDistance(edge: SampledEdge, distance: number): { x: number; y: n
 }
 
 function drawCurve(graphics: Graphics, geometry: ExecutionEdgeGeometry): Graphics {
+  if (geometry.samples) {
+    graphics.moveTo(geometry.samples[0]!.x, geometry.samples[0]!.y)
+    for (const point of geometry.samples.slice(1)) graphics.lineTo(point.x, point.y)
+    return graphics
+  }
   return graphics
     .moveTo(geometry.from.x, geometry.from.y)
     .bezierCurveTo(
@@ -245,6 +261,38 @@ async function initializeApplication(
   return { app, backend: 'webgl' }
 }
 
+let signalIconTexturePromise: Promise<ReadonlyMap<SignalNodeVisualKind, Texture>> | undefined
+
+function signalIconSvg(kind: SignalNodeVisualKind): string {
+  const host = document.createElement('span')
+  render(h(SIGNAL_NODE_ICONS[kind], { size: 64, color: '#ffffff' }), host)
+  const svg = host.querySelector('svg')
+  if (!svg) throw new Error(`Signal icon ${kind} did not render an SVG root`)
+  svg.setAttribute('width', '64')
+  svg.setAttribute('height', '64')
+  const markup = new XMLSerializer().serializeToString(svg)
+  render(null, host)
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`
+}
+
+function signalIconTextures(): Promise<ReadonlyMap<SignalNodeVisualKind, Texture>> {
+  signalIconTexturePromise ??= (async () => {
+    const fallback = await Assets.load<Texture>(signalIconSvg('tool-generic'))
+    const entries = await Promise.all(
+      (Object.keys(SIGNAL_NODE_ICONS) as SignalNodeVisualKind[]).map(async (kind) => {
+        if (kind === 'tool-generic') return [kind, fallback] as const
+        try {
+          return [kind, await Assets.load<Texture>(signalIconSvg(kind))] as const
+        } catch {
+          return [kind, fallback] as const
+        }
+      }),
+    )
+    return new Map(entries)
+  })()
+  return signalIconTexturePromise
+}
+
 /** GPU graph surface: one static batch and one motion batch, driven by one ticker. */
 export class ExecutionGraphPixiRenderer {
   private app?: Application
@@ -252,8 +300,11 @@ export class ExecutionGraphPixiRenderer {
   private readonly staticEdges = new Graphics()
   private readonly motionEdges = new Graphics()
   private readonly staticNodes = new Graphics()
+  private readonly signalIcons = new Container()
   private readonly motionNodes = new Graphics()
   private readonly labels = new Container()
+  private readonly signalIconSprites = new Map<string, Sprite>()
+  private signalTextures: ReadonlyMap<SignalNodeVisualKind, Texture> = new Map()
   private scene = EMPTY_SCENE
   private sampledEdges: SampledEdge[] = []
   private readonly visibleMotionEdges: SampledEdge[] = []
@@ -301,10 +352,12 @@ export class ExecutionGraphPixiRenderer {
     this.app.canvas.setAttribute('aria-hidden', 'true')
     host.dataset.rendererBackend = this.backend
     host.replaceChildren(this.app.canvas)
+    this.signalTextures = await signalIconTextures()
     this.world.addChild(
       this.staticEdges,
       this.motionEdges,
       this.staticNodes,
+      this.signalIcons,
       this.motionNodes,
       this.labels,
     )
@@ -602,6 +655,10 @@ export class ExecutionGraphPixiRenderer {
         width: 1.35,
         alpha: (edge.active ? 0.52 : 0.38) * alpha,
       })
+      if (edge.horizontal && edge.routeX !== undefined && edge.from.y !== edge.to.y) {
+        this.staticEdges.circle(edge.routeX, edge.from.y, 2.4).fill({ color, alpha: 0.82 * alpha })
+        this.staticEdges.circle(edge.routeX, edge.to.y, 2.4).fill({ color, alpha: 0.82 * alpha })
+      }
     }
 
     this.staticNodes.clear()
@@ -652,46 +709,82 @@ export class ExecutionGraphPixiRenderer {
           .stroke({ color: accent, width: 1, alpha })
       }
     }
+    this.rebuildSignalIcons()
   }
 
   /**
-   * Signal 节点（2026-09-02 二轮返工·类型徽记矩阵）：统一直角底板 + 左右端口方块
-   * + 按视觉类型取 `SIGNAL_NODE_ICONS` 预设徽记。节点上零文本；危险程度覆盖类型色
-   * （error 红 / paused 琥珀 / revoked 灰），detailActive / 分支锚点画外扩框。
+   * Signal nodes use a compact neon card system inspired by the reference: a
+   * clear outer frame, translucent face, inset hairline and centered ports.
+   * Icons are separate tinted sprites so the frame can stay in the static batch.
    */
   private drawSignalNode(node: PixiExecutionNode, accent: number, alpha: number): void {
     const graphics = this.staticNodes
     const p = this.canvasPalette
-    const halfW = SIGNAL_NODE_SIZE.width / 2
-    const halfH = SIGNAL_NODE_SIZE.height / 2
+    const kind = node.visualKind ?? 'process'
+    const size = signalNodeSizeFor(kind)
+    const halfW = size.width / 2
+    const halfH = size.height / 2
     const left = node.x - halfW
     const top = node.y - halfH
+    const stateAccent = node.error
+      ? p.stateError
+      : node.revoked
+        ? p.stateRevoked
+        : node.paused
+          ? p.statePaused
+          : accent
 
     graphics
-      .rect(left, top, SIGNAL_NODE_SIZE.width, SIGNAL_NODE_SIZE.height)
-      .fill({ color: p.nodeFill, alpha: 0.9 * alpha })
-      .stroke({ color: accent, width: 1.5, alpha })
-    const painter = SIGNAL_NODE_ICONS[node.visualKind ?? 'process']
-    painter(graphics, {
-      cx: node.x,
-      cy: node.y,
-      halfW,
-      halfH,
-      accent,
-      alpha,
-      ...(node.foldCount
-        ? { density: Math.min(8, Math.max(3, Math.ceil(Math.log2(node.foldCount + 1) * 2))) }
-        : {}),
-    })
+      .roundRect(left - 4, top - 4, size.width + 8, size.height + 8, 2)
+      .stroke({ color: stateAccent, width: 1.25, alpha: 0.58 * alpha })
+    graphics
+      .roundRect(left, top, size.width, size.height, 2)
+      .fill({ color: p.nodeFill, alpha: 0.92 * alpha })
+      .stroke({ color: stateAccent, width: 1.7, alpha })
+    graphics
+      .roundRect(left + 3, top + 3, size.width - 6, size.height - 6, 1)
+      .stroke({ color: stateAccent, width: 0.75, alpha: 0.22 * alpha })
 
-    graphics.rect(left - 3, node.y - 2, 3, 4).fill({ color: accent, alpha })
-    graphics.rect(left + SIGNAL_NODE_SIZE.width, node.y - 2, 3, 4).fill({ color: accent, alpha })
+    const frameVariant = signalNodeFrameVariantFor(kind)
+    if (frameVariant === 'signal-corners') {
+      graphics
+        .moveTo(left + 5, top)
+        .lineTo(left + 16, top)
+        .moveTo(left + size.width - 16, top + size.height)
+        .lineTo(left + size.width - 5, top + size.height)
+        .stroke({ color: stateAccent, width: 2.6, alpha: 0.94 * alpha })
+    } else if (frameVariant === 'flow-rails') {
+      graphics
+        .moveTo(left + 13, top)
+        .lineTo(left + size.width - 13, top)
+        .moveTo(left + 13, top + size.height)
+        .lineTo(left + size.width - 13, top + size.height)
+        .stroke({ color: stateAccent, width: 2.4, alpha: 0.92 * alpha })
+    } else if (frameVariant === 'action-split') {
+      graphics
+        .moveTo(left + 5, top)
+        .lineTo(left + 12, top)
+        .moveTo(left + size.width - 12, top)
+        .lineTo(left + size.width - 5, top)
+        .stroke({ color: stateAccent, width: 2.4, alpha: 0.9 * alpha })
+    } else {
+      graphics
+        .moveTo(left + 7, top)
+        .lineTo(left + 18, top)
+        .moveTo(left, top + 7)
+        .lineTo(left, top + 15)
+        .stroke({ color: stateAccent, width: 2.2, alpha: 0.88 * alpha })
+    }
+
+    graphics.roundRect(left - 6, node.y - 3.5, 4, 7, 1).fill({ color: stateAccent, alpha })
+    graphics
+      .roundRect(left + size.width + 2, node.y - 3.5, 4, 7, 1)
+      .fill({ color: stateAccent, alpha })
 
     if (node.paused || node.error || node.revoked) {
-      const stateColor = node.error ? p.stateError : node.revoked ? p.stateRevoked : p.statePaused
       graphics
-        .rect(left, top, SIGNAL_NODE_SIZE.width, SIGNAL_NODE_SIZE.height)
-        .stroke({ color: stateColor, width: 2.2, alpha: 0.92 * alpha })
+        .roundRect(left, top, size.width, size.height, 2)
+        .stroke({ color: stateAccent, width: 2.2, alpha: 0.92 * alpha })
     }
     if (node.detailActive || node.branchAnchorKind || node.detailBranch) {
       const stateColor = node.branchAnchorKind
@@ -700,8 +793,55 @@ export class ExecutionGraphPixiRenderer {
           ? colorNumber(DETAIL_BRANCH_COLOR)
           : accent
       graphics
-        .rect(left - 4, top - 4, SIGNAL_NODE_SIZE.width + 8, SIGNAL_NODE_SIZE.height + 8)
+        .roundRect(left - 6, top - 6, size.width + 12, size.height + 12, 3)
         .stroke({ color: stateColor, width: 1.4, alpha: 0.82 * alpha })
+    }
+    if (node.foldCount) {
+      const ticks = Math.min(6, Math.max(2, Math.ceil(Math.log2(node.foldCount + 1))))
+      for (let index = 0; index < ticks; index += 1) {
+        graphics.rect(left + 8 + index * 5, top + size.height - 7, 3, 2).fill({
+          color: stateAccent,
+          alpha: (0.35 + index / ticks / 2) * alpha,
+        })
+      }
+    }
+  }
+
+  private rebuildSignalIcons(): void {
+    const signal = this.scene.presentation === 'horizontal-signal'
+    const active = new Set<string>()
+    if (signal) {
+      for (const node of this.scene.nodes) {
+        const kind = node.visualKind ?? 'process'
+        const texture = this.signalTextures.get(kind) ?? this.signalTextures.get('tool-generic')
+        if (!texture) continue
+        active.add(node.id)
+        let sprite = this.signalIconSprites.get(node.id)
+        if (!sprite) {
+          sprite = new Sprite(texture)
+          sprite.anchor.set(0.5)
+          this.signalIconSprites.set(node.id, sprite)
+          this.signalIcons.addChild(sprite)
+        } else if (sprite.texture !== texture) sprite.texture = texture
+        const size = signalNodeSizeFor(kind)
+        sprite.position.set(node.x, node.y)
+        sprite.width = size.icon
+        sprite.height = size.icon
+        sprite.tint = node.error
+          ? this.canvasPalette.stateError
+          : node.revoked
+            ? this.canvasPalette.stateRevoked
+            : node.paused
+              ? this.canvasPalette.statePaused
+              : colorNumber(node.accent)
+        sprite.alpha = emphasisAlpha(node.deemphasized, node.detailBranch)
+      }
+    }
+    for (const [id, sprite] of this.signalIconSprites) {
+      if (active.has(id)) continue
+      this.signalIconSprites.delete(id)
+      this.signalIcons.removeChild(sprite)
+      sprite.destroy()
     }
   }
 
@@ -718,10 +858,9 @@ export class ExecutionGraphPixiRenderer {
     const resolution = this.labelResolution
     const signal = this.scene.presentation === 'horizontal-signal'
     for (const node of this.scene.nodes) {
-      // 2026-09-02 二轮返工·零文本原则：Signal 节点不创建任何 Text（协议码/摘要/
-      // glyph 全不上节点，类型辨识 100% 靠徽记图形），可访问性文本由 HTML aria-label
-      // 承载；Classic 分支标签行为不变。
-      if (signal) continue
+      if (signal) {
+        continue
+      }
       const accent = colorNumber(node.accent)
       const glyph = new Text({
         text: node.glyph,
@@ -816,8 +955,9 @@ export class ExecutionGraphPixiRenderer {
       const phase = ((seconds + (node.x + node.y) * 0.0007) % 1.2) / 1.2
       if (this.scene.presentation === 'horizontal-signal') {
         const grow = 3 + phase * 12
-        const nodeWidth = SIGNAL_NODE_SIZE.width
-        const nodeHeight = SIGNAL_NODE_SIZE.height
+        const size = signalNodeSizeFor(node.visualKind ?? 'process')
+        const nodeWidth = size.width
+        const nodeHeight = size.height
         this.motionNodes
           .rect(
             node.x - nodeWidth / 2 - grow,
@@ -845,7 +985,12 @@ export class ExecutionGraphPixiRenderer {
           for (let echo = 1; echo <= 3; echo += 1) {
             const shift = echo * (5 + phase * 3)
             this.motionNodes
-              .rect(node.x - nodeWidth / 2 - shift, node.y - nodeHeight / 2 + shift / 2, nodeWidth, nodeHeight)
+              .rect(
+                node.x - nodeWidth / 2 - shift,
+                node.y - nodeHeight / 2 + shift / 2,
+                nodeWidth,
+                nodeHeight,
+              )
               .stroke({ color: accent, width: 1, alpha: (0.3 / echo) * (1 - phase) })
           }
         } else if (node.effect === 'convergence') {
@@ -886,8 +1031,12 @@ export class ExecutionGraphPixiRenderer {
         })
       }
       const breathe = 0.3 + 0.4 * (0.5 + Math.sin((seconds * Math.PI * 2) / 0.9) * 0.5)
+      const stateSize =
+        this.scene.presentation === 'horizontal-signal'
+          ? signalNodeSizeFor(node.visualKind ?? 'process')
+          : { width: 22, height: 22 }
       this.motionNodes
-        .circle(node.x + 11, node.y - 11, 3)
+        .circle(node.x + stateSize.width / 2 - 3, node.y - stateSize.height / 2 + 3, 3)
         .fill({ color: accent, alpha: (0.55 + breathe * 0.45) * emphasis })
     }
   }
@@ -910,6 +1059,8 @@ export class ExecutionGraphPixiRenderer {
     this.sampledEdges = []
     this.visibleMotionEdges.length = 0
     this.visibleMotionNodes.length = 0
+    this.signalIconSprites.clear()
+    this.signalTextures = new Map()
     this.geometrySignature = ''
     this.staticSignature = ''
     this.labelSignature = ''

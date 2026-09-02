@@ -6,6 +6,8 @@ export interface ExecutionEdgeGeometry {
   control1: CanvasPoint
   control2: CanvasPoint
   path: string
+  /** Optional renderer-ready polyline samples for rounded orthogonal Signal routes. */
+  samples?: CanvasPoint[]
 }
 
 /**
@@ -45,30 +47,82 @@ export function executionEdgeGeometry(
   }
 }
 
-/** Left-to-right sibling of executionEdgeGeometry used by Signal Grid. */
+function quadraticPoint(
+  from: CanvasPoint,
+  control: CanvasPoint,
+  to: CanvasPoint,
+  t: number,
+): CanvasPoint {
+  const inverse = 1 - t
+  return {
+    x: inverse * inverse * from.x + 2 * inverse * t * control.x + t * t * to.x,
+    y: inverse * inverse * from.y + 2 * inverse * t * control.y + t * t * to.y,
+  }
+}
+
+function appendQuadraticSamples(
+  samples: CanvasPoint[],
+  from: CanvasPoint,
+  control: CanvasPoint,
+  to: CanvasPoint,
+): void {
+  for (let step = 1; step <= 4; step += 1) {
+    samples.push(quadraticPoint(from, control, to, step / 4))
+  }
+}
+
+/** Rounded, orthogonal left-to-right edge used by Signal Grid. */
 export function horizontalExecutionEdgeGeometry(
   source: CanvasPoint,
   target: CanvasPoint,
   sourceHalfWidth: number,
-  routeY?: number,
+  routeX?: number,
   targetHalfWidth = sourceHalfWidth,
 ): ExecutionEdgeGeometry {
   const direction = target.x >= source.x ? 1 : -1
   const from = { x: source.x + sourceHalfWidth * direction, y: source.y }
   const to = { x: target.x - targetHalfWidth * direction, y: target.y }
   const horizontalSpan = Math.abs(to.x - from.x)
-  const verticalSpan = Math.abs(to.y - from.y)
-  const bend = Math.min(
-    horizontalSpan / 2,
-    Math.max(Math.min(sourceHalfWidth, targetHalfWidth) * 0.75, horizontalSpan * 0.38 + verticalSpan * 0.12),
+  const controlX = Math.max(
+    Math.min(routeX ?? (from.x + to.x) / 2, Math.max(from.x, to.x) - 1),
+    Math.min(from.x, to.x) + 1,
   )
-  const control1 = { x: from.x + bend * direction, y: routeY ?? from.y }
-  const control2 = { x: to.x - bend * direction, y: routeY ?? to.y }
+  const control1 = { x: controlX, y: from.y }
+  const control2 = { x: controlX, y: to.y }
+
+  if (Math.abs(to.y - from.y) < 0.001 || horizontalSpan < 4) {
+    return {
+      from,
+      to,
+      control1,
+      control2,
+      path: `M ${from.x} ${from.y} L ${to.x} ${to.y}`,
+      samples: [from, to],
+    }
+  }
+
+  const verticalDirection = Math.sign(to.y - from.y)
+  const radius = Math.min(
+    8,
+    Math.abs(to.y - from.y) / 2,
+    Math.abs(controlX - from.x),
+    Math.abs(to.x - controlX),
+  )
+  const firstLineEnd = { x: controlX - radius * direction, y: from.y }
+  const firstCurveEnd = { x: controlX, y: from.y + radius * verticalDirection }
+  const secondLineEnd = { x: controlX, y: to.y - radius * verticalDirection }
+  const secondCurveEnd = { x: controlX + radius * direction, y: to.y }
+  const samples: CanvasPoint[] = [from, firstLineEnd]
+  appendQuadraticSamples(samples, firstLineEnd, control1, firstCurveEnd)
+  samples.push(secondLineEnd)
+  appendQuadraticSamples(samples, secondLineEnd, control2, secondCurveEnd)
+  samples.push(to)
   return {
     from,
     to,
     control1,
     control2,
-    path: `M ${from.x} ${from.y} C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${to.x} ${to.y}`,
+    path: `M ${from.x} ${from.y} H ${firstLineEnd.x} Q ${control1.x} ${control1.y} ${firstCurveEnd.x} ${firstCurveEnd.y} V ${secondLineEnd.y} Q ${control2.x} ${control2.y} ${secondCurveEnd.x} ${secondCurveEnd.y} H ${to.x}`,
+    samples,
   }
 }

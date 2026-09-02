@@ -32,6 +32,7 @@ import {
 } from '../graph/executionLayout'
 import {
   projectExecutionPresentation,
+  signalAccentForTheme,
   signalVisualKindFor,
   type ExecutionPresentationMode,
 } from '../graph/executionPresentation'
@@ -854,12 +855,18 @@ export function useMessageBranchTreeController(
   ): void {
     const nodes = layout.value.nodes.filter(isInteractiveNode)
     if (nodes.length === 0) return
-    const currentIndex = Math.max(0, nodes.findIndex((node) => node.id === nodeId))
+    const currentIndex = Math.max(
+      0,
+      nodes.findIndex((node) => node.id === nodeId),
+    )
     const current = nodes[currentIndex]!
     let node
     if (direction === 'first') node = nodes[0]
     else if (direction === 'last') node = nodes.at(-1)
-    else if (layout.value.presentation === 'horizontal-signal' && (direction === 'up' || direction === 'down')) {
+    else if (
+      layout.value.presentation === 'horizontal-signal' &&
+      (direction === 'up' || direction === 'down')
+    ) {
       const sign = direction === 'up' ? -1 : 1
       node = nodes
         .filter((candidate) => (candidate.y - current.y) * sign > 0)
@@ -869,8 +876,7 @@ export function useMessageBranchTreeController(
             Math.abs(a.x - current.x) - Math.abs(b.x - current.x),
         )[0]
     } else {
-      const delta =
-        direction === -1 || direction === 'left' || direction === 'up' ? -1 : 1
+      const delta = direction === -1 || direction === 'left' || direction === 'up' ? -1 : 1
       node = nodes[Math.min(nodes.length - 1, Math.max(0, currentIndex + delta))]
     }
     if (!node) return
@@ -1204,8 +1210,10 @@ export function useMessageBranchTreeController(
    * 每帧响应式 patch；`finishDetailDrag`（弹窗 dragEnd）才把终值一次性落回
    * `detailManualPos` 并清除直写 transform——落回与清写同帧完成，无闪烁。
    */
-  let detailDragState: { baseLeft: number; baseTop: number; left: number; top: number } | null = null
-  let detailDragSetters: { x: ReturnType<typeof gsap.quickSetter>; y: ReturnType<typeof gsap.quickSetter> } | undefined
+  let detailDragState: { baseLeft: number; baseTop: number; left: number; top: number } | null =
+    null
+  let detailDragSetters:
+    { x: ReturnType<typeof gsap.quickSetter>; y: ReturnType<typeof gsap.quickSetter> } | undefined
   function dragDetailPopover(delta: { x: number; y: number }): void {
     const current = detailPlacement.value
     if (!current) return
@@ -1252,7 +1260,12 @@ export function useMessageBranchTreeController(
     top: number
   } | null = null
   let detailResizeSetters:
-    | { width: ReturnType<typeof gsap.quickSetter>; height: ReturnType<typeof gsap.quickSetter>; left: ReturnType<typeof gsap.quickSetter>; top: ReturnType<typeof gsap.quickSetter> }
+    | {
+        width: ReturnType<typeof gsap.quickSetter>
+        height: ReturnType<typeof gsap.quickSetter>
+        left: ReturnType<typeof gsap.quickSetter>
+        top: ReturnType<typeof gsap.quickSetter>
+      }
     | undefined
   function startDetailResize(
     direction: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
@@ -1270,7 +1283,12 @@ export function useMessageBranchTreeController(
       top: parseFloat(placement.style.top),
       ...detailSize.value,
     }
-    detailResizeState = { width: start.width, height: start.height, left: start.left, top: start.top }
+    detailResizeState = {
+      width: start.width,
+      height: start.height,
+      left: start.left,
+      top: start.top,
+    }
     const element = detailAnchorEl.value
     detailResizeSetters = element
       ? {
@@ -1288,10 +1306,25 @@ export function useMessageBranchTreeController(
       const north = direction.includes('n')
       const maxWidth = Math.max(360, viewportSize.value.width - 24)
       const maxHeight = Math.max(240, viewportSize.value.height - 24)
-      detailResizeState.width = Math.min(maxWidth, Math.max(360, start.width + (west ? -dx : direction.includes('e') ? dx : 0)))
-      detailResizeState.height = Math.min(maxHeight, Math.max(240, start.height + (north ? -dy : direction.includes('s') ? dy : 0)))
-      detailResizeState.left = Math.min(viewportSize.value.width - 32, Math.max(24 - detailResizeState.width, west ? start.left + start.width - detailResizeState.width : start.left))
-      detailResizeState.top = Math.min(viewportSize.value.height - 32, Math.max(0, north ? start.top + start.height - detailResizeState.height : start.top))
+      detailResizeState.width = Math.min(
+        maxWidth,
+        Math.max(360, start.width + (west ? -dx : direction.includes('e') ? dx : 0)),
+      )
+      detailResizeState.height = Math.min(
+        maxHeight,
+        Math.max(240, start.height + (north ? -dy : direction.includes('s') ? dy : 0)),
+      )
+      detailResizeState.left = Math.min(
+        viewportSize.value.width - 32,
+        Math.max(
+          24 - detailResizeState.width,
+          west ? start.left + start.width - detailResizeState.width : start.left,
+        ),
+      )
+      detailResizeState.top = Math.min(
+        viewportSize.value.height - 32,
+        Math.max(0, north ? start.top + start.height - detailResizeState.height : start.top),
+      )
       if (detailResizeSetters) {
         detailResizeSetters.width(detailResizeState.width)
         detailResizeSetters.height(detailResizeState.height)
@@ -1335,7 +1368,7 @@ export function useMessageBranchTreeController(
     const left = manual?.left ?? auto.left
     const top = manual?.top ?? auto.top
     const placement = manual
-        ? anchor.x <= left + (detailPinned.value ? detailSize.value.width : 480) / 2
+      ? anchor.x <= left + (detailPinned.value ? detailSize.value.width : 480) / 2
         ? ('left' as const)
         : ('right' as const)
       : auto.placement
@@ -1359,15 +1392,19 @@ export function useMessageBranchTreeController(
     presentation: layout.value.presentation ?? 'vertical-classic',
     nodes: visibleExecutionItems.value.nodes.map((node) => {
       const skin = skinForNode(node)
+      const visualKind = signalVisualKindFor(node, node.presentationPriority ?? 'process')
       return {
         id: node.id,
         x: node.x,
         y: node.y,
-        accent: accentForTheme(themeStore.theme, skin.key),
+        accent:
+          layout.value.presentation === 'horizontal-signal'
+            ? signalAccentForTheme(themeStore.theme, visualKind)
+            : accentForTheme(themeStore.theme, skin.key),
         glyph: skin.glyph,
         title: compactNodeTitle(node),
         effect: node.effect,
-        visualKind: signalVisualKindFor(node, node.presentationPriority ?? 'process'),
+        visualKind,
         ...(node.sourceFact?.termination
           ? { termination: terminationDisplay(node.sourceFact.termination).label }
           : {}),
@@ -1418,15 +1455,20 @@ export function useMessageBranchTreeController(
     const signal = layout.value.presentation === 'horizontal-signal'
     const visualWidth = node.visualBounds
       ? node.visualBounds.right - node.visualBounds.left + 12
-      : signal ? 104 : 46
+      : signal
+        ? 104
+        : 46
     const visualHeight = node.visualBounds
       ? node.visualBounds.bottom - node.visualBounds.top + 12
-      : signal ? 56 : 46
+      : signal
+        ? 56
+        : 46
     const width = Math.max(30, visualWidth * canvas.scale.value)
     const height = Math.max(30, visualHeight * canvas.scale.value)
     return {
       width: `${width}px`,
       height: `${height}px`,
+      borderRadius: signal ? '3px' : '50%',
       transform: `translate3d(${position.x - width / 2}px, ${position.y - height / 2}px, 0)`,
     }
   }
