@@ -1183,8 +1183,8 @@ export function useMessageBranchTreeController(
   const detailMaxHeight = computed(() => {
     return Math.min(640, Math.max(160, viewportSize.value.height - 96))
   })
-  /** 实际渲染的详情弹窗高度。定位用真实高度而非上限，否则弹窗被按上限钳制到视口顶部、
-   *  低处节点 hover 时弹窗停在顶部不跟随节点（「游离」）。未测到前回退到上限。 */
+  /** 详情弹窗实测高度。冻结契约（2026-09-02）下仅在冻结决策前已测得时参与定位，
+   *  否则用初始回退值；会话内不随实测回填重排。切节点时清零，旧节点高度不串位。 */
   const detailAnchorEl = ref<HTMLElement>()
   const measuredDetailHeight = ref(0)
   let detailHeightRO: ResizeObserver | undefined
@@ -1364,10 +1364,43 @@ export function useMessageBranchTreeController(
   function toggleDetailWrap(): void {
     detailWrap.value = !detailWrap.value
   }
-  const detailPlacement = computed(() => {
+  /**
+   * 详情弹窗定位冻结契约（2026-09-02）：一次显示会话只求值一次位置。
+   * 显示会话 = hover 换到新节点，或弹窗关闭后重新显示；会话内实测高度回填、
+   * 画布缩放/平移、视口 resize 均不改变弹窗位置（屏幕坐标完全冻结）。
+   * hover → pinned 切换不算新会话；pinned 拖拽/resize 仍经
+   * `detailManualPos`/`detailSize` 覆盖冻结位置。
+   */
+  interface DetailPlacementDecision {
+    left: number
+    top: number
+    anchorX: number
+    placement: 'left' | 'right' | 'below'
+    railSide: 'left' | 'right'
+    nodeOffset: { x: number; y: number }
+  }
+  let frozenDetailPlacement: DetailPlacementDecision | null = null
+  watch(
+    () => detailNode.value?.id,
+    () => {
+      frozenDetailPlacement = null
+      // 冻结决策只用本次会话的初始高度：上个节点的实测高度不参与新节点定位。
+      measuredDetailHeight.value = 0
+    },
+  )
+  /** 一次性求值自动定位决策：优先节点正下方，下方放不下回退侧贴；左轮默认贴弹窗左侧。 */
+  function decideDetailPlacement(): DetailPlacementDecision {
     const node = detailNode.value
-    const viewport = viewportRef.value
-    if (!node || !viewport) return undefined
+    if (!node) {
+      return {
+        left: 0,
+        top: 0,
+        anchorX: 0,
+        placement: 'below',
+        railSide: 'left',
+        nodeOffset: { x: 0, y: FOLD_WHEEL_STAGE_HEIGHT / 2 },
+      }
+    }
     // 悬浮窗优先出现在节点正下方（横竖排版一致）；下方放不下才回退右侧优先的侧贴逻辑。
     const anchor = nodeScreenAnchorBelow(node)
     const auto = anchoredPopoverPositionBelow({
@@ -1378,32 +1411,48 @@ export function useMessageBranchTreeController(
         : { width: 480, height: measuredDetailHeight.value || POPOVER_INITIAL_HEIGHT },
       margin: 12,
     })
-    const manual = detailPinned.value ? detailManualPos.value : undefined
-    const left = manual?.left ?? auto.left
-    const top = manual?.top ?? auto.top
-    const placement = manual
-      ? anchor.x <= left + (detailPinned.value ? detailSize.value.width : 480) / 2
-        ? ('left' as const)
-        : ('right' as const)
-      : auto.placement
+    const panelWidth = detailPinned.value ? detailSize.value.width : 480
     // 左轮与弹窗并排、顶对齐（统一落在节点下方区域）：默认贴弹窗左侧，左侧视口
     // 空间不足改贴弹窗右侧，两侧都放不下时钳制在视口内。锚点为弹窗容器相对坐标，
     // 左轮随弹窗容器移动（pinned 拖动时保持相对位置）。
-    const panelWidth = detailPinned.value ? detailSize.value.width : 480
     let railSide: 'left' | 'right' = 'left'
     let railAnchorX = 0 // side='left' 时 nav 左缘 = railAnchorX - STAGE_WIDTH - NODE_GAP
-    if (left - FOLD_WHEEL_STAGE_WIDTH - FOLD_WHEEL_NODE_GAP < 12) {
+    if (auto.left - FOLD_WHEEL_STAGE_WIDTH - FOLD_WHEEL_NODE_GAP < 12) {
       railSide = 'right'
       railAnchorX = panelWidth // side='right' 时 nav 左缘 = railAnchorX + NODE_GAP
       if (
-        left + panelWidth + FOLD_WHEEL_NODE_GAP + FOLD_WHEEL_STAGE_WIDTH >
+        auto.left + panelWidth + FOLD_WHEEL_NODE_GAP + FOLD_WHEEL_STAGE_WIDTH >
         viewportSize.value.width - 12
       ) {
         // 两侧都放不下（极窄视口）：钳回左侧贴视口边距，允许与弹窗轻微重叠。
         railSide = 'left'
-        railAnchorX = Math.max(0, 12 - left + FOLD_WHEEL_STAGE_WIDTH + FOLD_WHEEL_NODE_GAP)
+        railAnchorX = Math.max(0, 12 - auto.left + FOLD_WHEEL_STAGE_WIDTH + FOLD_WHEEL_NODE_GAP)
       }
     }
+    return {
+      left: auto.left,
+      top: auto.top,
+      anchorX: anchor.x,
+      placement: auto.placement,
+      railSide,
+      nodeOffset: { x: railAnchorX, y: FOLD_WHEEL_STAGE_HEIGHT / 2 },
+    }
+  }
+  const detailPlacement = computed(() => {
+    const node = detailNode.value
+    const viewport = viewportRef.value
+    if (!node || !viewport) return undefined
+    frozenDetailPlacement ??= decideDetailPlacement()
+    const decision = frozenDetailPlacement
+    const manual = detailPinned.value ? detailManualPos.value : undefined
+    const left = manual?.left ?? decision.left
+    const top = manual?.top ?? decision.top
+    const panelWidth = detailPinned.value ? detailSize.value.width : 480
+    const placement = manual
+      ? decision.anchorX <= left + panelWidth / 2
+        ? ('left' as const)
+        : ('right' as const)
+      : decision.placement
     return {
       style: {
         left: `${left}px`,
@@ -1412,8 +1461,8 @@ export function useMessageBranchTreeController(
           ? { width: `${detailSize.value.width}px`, height: `${detailSize.value.height}px` }
           : {}),
       },
-      nodeOffset: { x: railAnchorX, y: FOLD_WHEEL_STAGE_HEIGHT / 2 },
-      railSide,
+      nodeOffset: decision.nodeOffset,
+      railSide: decision.railSide,
       placement,
     }
   })
