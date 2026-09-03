@@ -8,7 +8,7 @@
 
 - **每预设一窗**：窗口内经**会话列表**切换根会话（钢琴已降级为节点树彩蛋，切换语义由会话列表承接，见 [pet/rendering.md#工作台会话列表nyxussessionlist](./pet/rendering.md#工作台会话列表nyxussessionlist)）。
 - **多窗口布局**：窗口模式可拖动/缩放，多窗口层叠/平铺同时可见，后开的盖前开的。
-- **最小化**：缩成「小胶囊」——可拖摆放、多胶囊**层叠**（后缩盖前缩，前一个只露标题）、hover 调整 z 轴悬浮最上、可关闭或还原。
+- **最小化**：**（2026-09-03 起废弃胶囊，改为赛博桌面底部任务栏 tag）**最小化窗从桌面消失、仅任务栏保留 tag；点击 tag 按 Windows 交互三态切换——最小化窗还原+聚焦 / 当前聚焦窗最小化 / 打开未聚焦窗聚焦。详见文末 [最小化任务栏化与胶囊移除（2026-09-03）](#最小化任务栏化与胶囊移除2026-09-03)。（历史方案：缩成「小胶囊」可拖摆放、层叠——已移除。）
 - **标题栏高亮**：收到需用户操作的通知时，窗口标题栏 + 胶囊加高亮闪烁。
 
 ## 架构
@@ -191,6 +191,52 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 - **最大高度固定上限**：`.pending-panel { max-height: min(560px, calc(100% - 44px)) }`——固定上限 560px 叠加窗口可用空间约束（`min()` 取小者）：任务满一页（8 个）+ 操作区 + 头部也能完整容纳，且窗口过小时不溢出。任务再多由左栏 `.task-detail` / 右栏 `.task-nav-list` 内部滚动承接。
 - **native 面同步**：`.workbench-shell.is-native :deep(.pending-panel)` 同步为 `max-height: min(560px, calc(100% - 8px))` + `min-height: 280px`（仅保留其 `top: 8px` 定位差异），原生窗与浏览器 overlay 视觉一致。
 
+## 待操作面板聚焦流水线重构（2026-09-02）
+
+> 本节取代上方「左右分栏重构（2026-08-23）」「二次优化（2026-08-23）」「内容撑开与空状态可见（2026-08-24 修复）」「高度上下限约束（2026-08-24）」四节的**布局描述**（后两节的 flex-basis/高度约束结论仍适用，详见下方「保留契约」）；旧节仅存档。注意旧节「宽度 600px」记载与实现失真：重构前实际已是 820px。
+
+用例驱动：旧结构「右栏任务列表 + 左栏详情 + 左栏内嵌问题两栏 + 栏底操作」形成之字形动线、两套选择范式混用、选项下弹出输入框破坏选择的原子性，且样式未随全仓直角化收敛。参照队列决策类交互的市场范式（Linear triage / macOS 弹窗队列）重构为**「Interrupt Queue 聚焦流水线」**——单层无嵌套，屏上永远只有一张聚焦工作卡：
+
+### 新结构
+
+- **状态头** `.pending-panel-head`（收起/展开入口行保留）：IRQ 徽记 + 「待操作队列」+ `N 项 · X/Y` 进度 + 范围切换（当前树/全部）+ 刷新；展开/收起动画沿用 gsap Flip（`Flip.getState` → 改状态 → rAF 内 `Flip.from`，`MOTION.sweep`）。
+- **FOCUS CARD** `article.focus-card`（主体，唯一工作对象，全宽）：
+  - 任务头行：kind 徽记（确认/回答）+ 标题（`createApprovalPresentation`）+ 倒计时 + 「在节点树中查看」定位；
+  - approval：ApprovalSummary / 能力解释折叠块 / `<details>` 技术详情（ParsedArgs + FileChangeDiff）**全宽**展示；
+  - question_batch：**步进器** `QuestionStepper.vue`——横向进度点 ●─○─○ + `Q1/3` + 题标题，一次只渲染一个问题；选项为**选项卡**（整卡按钮）；选中后备注输入行**内嵌选项卡内部**以 gsap Flip 展开（对整个 `.options` 容器取 getState，nextTick 后 `Flip.from`，兄弟行位移被补偿；数据结构 `optionNotes` 不变）；「上一题/下一题」翻题；**不自动跳题**（每个选中选项都带可选备注输入，选中即跳会打断备注输入，翻题一律走步进器手动）；
+  - **底部动作栏两类任务同位** `footer.action-bar`：approval = [拒绝][接受]；question_batch = [提交回答]（`canSubmitOf` 前置禁用 + 已答 X/Y 进度文案）。
+- **QUEUE 队列缩略带** `PendingQueueStrip.vue`（面板底部）：横向 chips（kind 徽记 + 标题 + 倒计时/状态），点击切换聚焦任务；键盘 ←/→ 循环（roving tabindex）；`flex-wrap: nowrap` + `overflow-x: auto`，active chip 变化 `scrollIntoView({block:'nearest', inline:'nearest'})` 跟随；定高 + `flex-shrink: 0` 防塌陷。**废除 `PAGE_SIZE` ▲/▼ 分页**（`page`/`pageItems`/`syncPageToActive` 移除）。
+
+### 组件拆分
+
+- `PendingOperationsPanel.vue`：状态头 + FocusCard + 全部有状态逻辑（drafts、activeId、activeQuestion、倒计时 tick、scope、expanded、decide/answer/校验）——`interactionSurfaceWiring.test.ts` 以源码字符串断言 `await interactions.decide(item, action)` / `await interactions.answer(item, submit)` / `countdownOf(item).expired` / `'已超时'` 必须留在本文件，且 `PendingInteractionFocus` 接口必须从此文件导出。
+- `PendingQueueStrip.vue` / `QuestionStepper.vue`：纯展示子组件（props/emits），内联 scoped 样式（无伴生 less），不触 store、不 import gsap（动画由父级 `useGsap` context 统一调度）。OptionCard 不拆——备注行 Flip 须在选项列表层级取 getState 且直接读写 draft。
+
+### 动效（GSAP）
+
+- 全部经 `useGsap(panelRoot, setup)` 建立的 `gsap.Context`；事后触发的 tween（任务切换/题切换/Flip/stagger）一律 `ctx.add(fn)`，卸载 revert 全回收。
+- 时长/缓动取 `utils/gsapCore.ts` 的 `MOTION`（sweep/panel/view/micro + easePanel）；只动画 transform/opacity；布局变化（展开、备注行）用 Flip 插件补偿；body `<Transition>` 只保留 opacity。
+- 任务切换 crossfade+slide、题切换方向感知 slide、chips stagger 入场；`useMotionTier().spec.enter === 'opacityOnly'` 时位移/Flip 全部退化为 opacity，另保留 `matchMedia('(prefers-reduced-motion: reduce)')` 兜底。
+- 倒计时 tick 改 `interactions.calibratedNow()`（serverClockOffsetMs 校准；首次 refresh 前偏移为 0，expired 翻转可能随校准跳变数秒，属预期）。
+
+### 样式收敛
+
+全直角 `border-radius: 0`（含 chips/选项卡/输入框/徽记，禁 999px 胶囊）；**移除 `backdrop-filter`**（实色 `color-mix` 补偿层级感）；字重 400（标题/主按钮上限 600）；中文阅读内容 ≥12px；颜色全部 `var(--nx-*)` / `var(--accent)` / `color-mix` 派生；hover 只用 transform/opacity。保留根定位（`top:44px; right:52px; width:820px; max-height:min(620px, calc(100% - 44px))`）、`.is-expanded { min-height: 280px }`、clip-path 切角与网格纹理、`.has-tasks` 徽记脉冲 keyframes（reduced 关闭）、light 主题 `:global(html[data-theme='light'] …)` 覆盖。
+
+### 保留契约
+
+props `rootChatId`/`focusedInteraction`、emit `locate`、挂载点 `WorkbenchDialog.vue` 签名与根类名 `pending-panel` + `is-expanded`（`WorkbenchDialog.scoped.less` 四处 `:deep(.pending-panel)` 依赖）；stores/interactions 的 pending/decide/answer/refresh；drafts 跨刷新；`canSubmitOf`/`questionAnsweredOf` 前置禁用、单选与 freeText 互斥、提交前完整性校验跳第一未答题；双向定位（focusedInteraction watch → 展开选中）；有任务自动展开/无任务自动收起、active 移除自动激活下一个（`pickNextActive`）；纵向 flex 链 `flex-basis: auto` + `min-height: 0` 结论（防塌陷，见旧节 2026-08-24 修复）。
+
+### 本次改动文件
+
+| 文件 | 变更 |
+|------|------|
+| `web/src/features/agent/attention/PendingOperationsPanel.vue` | 重写：状态头 + FocusCard 单层结构 + GSAP/Flip 动效 |
+| `web/src/features/agent/attention/PendingOperationsPanel.styles.less` | 重写：全直角、去 backdrop-filter、token 色收敛 |
+| `web/src/features/agent/attention/PendingQueueStrip.vue` | 新：底部队列缩略带（键盘循环 + scrollIntoView） |
+| `web/src/features/agent/attention/QuestionStepper.vue` | 新：问题步进器（进度点 + 上/下题） |
+| `web/test/agents/pendingOperationsLayout.test.ts` | 重写：旧 DOM 断言 → 聚焦流水线结构断言 |
+
 ## 改动文件清单
 
 | 文件 | 变更 |
@@ -303,6 +349,20 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 | `web/src/styles/theme.css` | `html.window-surface` 兜底背景 |
 
 浏览器面（无 surface）不受影响：`uiState.ts` workbenchWindows 注册表 / capsule / 几何 / `settingsOpen` 全部保留（浏览器多窗口模式照常），Electron 原生面下这些字段自然休眠。
+
+## 最小化任务栏化与胶囊移除（2026-09-03）
+
+> 本节取代上文 Phase D「`WorkbenchCapsule.vue` 胶囊最小化 UI」章节及「目标」中的胶囊描述。胶囊组件与配套字段已删除。
+
+赛博桌面（`CyberDesktopHost`）底部任务栏（「◫ 活动窗口」）本就展示全部 workspace 窗（`workspaceWindowsTaskbarList` 不滤 `lifecycle==='minimized'`），工作台最小化后旧胶囊与之重复，故统一收敛：
+
+- **`WorkbenchCapsule.vue` 删除**：App.vue 不再渲染胶囊；`WorkbenchWindowState.capsulePos` 字段与 `setWorkbenchWindowCapsulePos` action 移除。
+- **`minimizeWorkbench` 去掉缩后置焦**：旧逻辑缩后 `focusWorkbenchWindow` 让胶囊处于层叠最上层，任务栏化后最小化窗不应保持 focused（否则任务栏 tag 的 `active` 高亮失真），直接 `setWorkbenchWindowMinimized(id, true)` 即可（该 action 内部已联动 `minimizeWorkspaceWindow` 转移焦点到下一个可见窗）。
+- **任务栏 tag 点击 = Windows 三态**（`CyberDesktopHost.activate`）：
+  - `lifecycle === 'minimized'` → 还原+聚焦（graph 类经 `setWorkbenchWindowMinimized(presetId, false)`，其余经 `restoreWorkspaceWindow`）；
+  - 已聚焦 → 最小化（graph 经 `setWorkbenchWindowMinimized(presetId, true)`，其余经 `minimizeWorkspaceWindow`）；
+  - 打开未聚焦 → 仅聚焦（沿用原 activate 的会话/设置/历史/树定位副作用）。
+- **不涉及 Electron 原生工作台面**：native 窗最小化走 OS 三键/任务栏，无胶囊也无 web 任务栏，本变更不触达。
 
 ## 卡牌阅读与图谱方向联动（2026-09-02 返工）
 
