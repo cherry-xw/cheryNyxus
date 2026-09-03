@@ -43,7 +43,6 @@ export interface WorkbenchWindowState {
   mode: 'fullscreen' | 'window'
   position: { x: number; y: number }
   size: { width: number; height: number }
-  capsulePos: { x: number; y: number } // 胶囊摆放位置
   historyDrawerStack: string[]
   historyDrawerMode: 'overlay' | 'workbench-docked'
   historyDrawerAnchor: HistoryDrawerAnchor | null
@@ -405,7 +404,6 @@ export function createUiState() {
       mode: 'fullscreen',
       position: { x: 0, y: 0 },
       size: { width: 0, height: 0 },
-      capsulePos: { x: 16, y: 16 },
       historyDrawerStack: [],
       historyDrawerMode: 'overlay',
       historyDrawerAnchor: null,
@@ -495,10 +493,6 @@ export function createUiState() {
         height: geometry.size.height,
       })
     }
-  }
-
-  function setWorkbenchWindowCapsulePos(id: string, pos: { x: number; y: number }): void {
-    setWorkbenchWindowField(id, 'capsulePos', pos)
   }
 
   function setWorkbenchWindowBlink(id: string, blink: boolean): void {
@@ -667,7 +661,6 @@ export function createUiState() {
     setWorkbenchWindowChat,
     setWorkbenchWindowView,
     setWorkbenchWindowGeometry,
-    setWorkbenchWindowCapsulePos,
     setWorkbenchWindowBlink,
     setWorkbenchWindowFocus,
     setWorkbenchWindowDrawer,

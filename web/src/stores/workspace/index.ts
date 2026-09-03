@@ -41,7 +41,6 @@ export function useWorkspacePort() {
     setWorkbenchWindowChat: store.setWorkbenchWindowChat,
     setWorkbenchWindowView: store.setWorkbenchWindowView,
     setWorkbenchWindowGeometry: store.setWorkbenchWindowGeometry,
-    setWorkbenchWindowCapsulePos: store.setWorkbenchWindowCapsulePos,
     setWorkbenchWindowBlink: store.setWorkbenchWindowBlink,
     setWorkbenchWindowFocus: store.setWorkbenchWindowFocus,
     setWorkbenchWindowDrawer: store.setWorkbenchWindowDrawer,

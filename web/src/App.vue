@@ -48,9 +48,6 @@ const AgentDialog = defineAsyncComponent(() => import('@/features/agent/chat/Age
 const WorkbenchDialog = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchDialog.vue'),
 )
-const WorkbenchCapsule = defineAsyncComponent(
-  () => import('@/features/agent/workbench/WorkbenchCapsule.vue'),
-)
 const WorkbenchViewToggle = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchViewToggle.vue'),
 )
@@ -561,9 +558,6 @@ async function bootstrap(): Promise<void> {
           embedded
         />
       </CyberWindow>
-      <template v-for="win in workspace.workbenchWindowsList" :key="`capsule-${win.id}`">
-        <WorkbenchCapsule v-if="win.minimized" :window-id="win.id" />
-      </template>
       <HistoryDrawer
         v-if="
           workspace.historyDrawerStack.length > 0 &&

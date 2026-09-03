@@ -718,9 +718,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       nativeWindowControl('minimize')
       return
     }
+    // 最小化不改焦点（2026-09-03 胶囊移除）：缩后窗不保持 focused，任务栏 tag 高亮才不失真；
+    // setWorkbenchWindowMinimized 内部联动 minimizeWorkspaceWindow 把焦点转移给下一个可见窗。
     agents.setWorkbenchWindowMinimized(props.windowId, true)
-    // 后缩的胶囊盖前缩的：把本窗提升到 z 序末尾，胶囊层叠时处于最上层。
-    agents.focusWorkbenchWindow(props.windowId)
   }
   /** 最大化/还原：native 走原生窗（main 处理，回推更新图标）；浏览器切 workbench 模式。 */
   function onMaximizeClick(): void {

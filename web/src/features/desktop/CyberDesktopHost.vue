@@ -217,8 +217,33 @@ onUnmounted(() => {
   stageResizeObserver = undefined
 })
 
+/**
+ * 任务栏 tag 点击（Windows 三态，2026-09-03 胶囊移除后为最小化窗唯一还原入口）：
+ * 最小化窗 → 还原+聚焦；当前聚焦窗 → 最小化；打开未聚焦窗 → 仅聚焦（带定位副作用）。
+ */
 function activate(window: WorkspaceWindowState): void {
-  workspace.restoreWorkspaceWindow(window.id)
+  if (window.lifecycle === 'minimized') {
+    if (window.context.kind === 'graph') {
+      workspace.setWorkbenchWindowMinimized(window.context.presetId, false)
+      workspace.focusWorkbenchWindow(window.context.presetId)
+    } else {
+      workspace.restoreWorkspaceWindow(window.id)
+    }
+    return
+  }
+  if (window.focused) {
+    if (window.context.kind === 'graph') {
+      workspace.setWorkbenchWindowMinimized(window.context.presetId, true)
+    } else {
+      workspace.minimizeWorkspaceWindow(window.id)
+    }
+    return
+  }
+  if (window.context.kind === 'graph') {
+    workspace.focusWorkbenchWindow(window.context.presetId)
+    return
+  }
+  workspace.focusWorkspaceWindow(window.id)
   switch (window.context.kind) {
     case 'session':
       workspace.activeDialogChatId = window.context.chatId
@@ -228,9 +253,6 @@ function activate(window: WorkspaceWindowState): void {
       break
     case 'history':
       workspace.openHistoryRoot(window.context.rootChatId)
-      break
-    case 'graph':
-      workspace.setWorkbenchWindowMinimized(window.context.presetId, false)
       break
   }
 }
