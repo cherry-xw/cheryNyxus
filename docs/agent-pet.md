@@ -566,6 +566,13 @@ agentApi.ts → wsClient.rpc → 后端
 wsClient.onChunk/onNotification → agents.ts 路由 → 更新 pet 气泡/contextUsage/工作状态
 ```
 
+**渲染订阅守卫（2026-09-02 性能修复约定）**：
+
+- **位置写入分两条路径，互不经过 Vue 渲染**：`usePetWorld` RAF 循环经 `gsap.quickSetter` 直写 sprite DOM transform；`usePetStyles` 的 pose 订阅（50ms 节流）驱动气泡/图标/todo 面板的 `left/top` 跟随。`tickPet` 每帧直写 store 的 x/y/fatigue 等字段**没有响应式渲染消费方**（pet 组件模板不读这些字段）。
+- pose 订阅必须带**变化守卫**：x/y 均未变化时跳过 `pose.value` 赋值。否则 pet 静止时仍以 20Hz 用新对象替换 pose → `speechStyle/approvalStyle/todoPanelStyle/petIconsStyle` 全部重算 → PetBubbles/PetIcons/TodoPanel 空转重渲染（DevTools 表现为样式持续重算抖动而 CSS 值无变化）。
+- 新增依赖 pose 或 pet 高频字段的样式 computed 时，沿用同一模式：**值比较在赋值前**，不让「相同值的新对象」进入响应式系统；禁止在 60Hz 帧循环内对响应式对象做逐帧 diff 包裹（热路径开销为负收益）。
+- **函数 ref 必须身份稳定**（2026-09-02 第二轮）：`:ref`/ref-prop 禁止内联箭头（`(el) => ...`）——每次父级重渲染都产出新函数身份，Vue 视为 ref 变更重触发（旧 ref 收 `null`、新 ref 收 element），且新 prop 身份强制子组件级联重渲染。`usePetWorld.positionRefFor(pet)` 按 instanceId 缓存稳定回调；PetBody 根元素 ref 用 script setup 内的具名函数（读 `props.positionRef` 保持响应）。任何 store 写入（弹窗开启、轮询、流式）都会触发 PetStage 重渲染，ref 身份不稳时整棵 pet 子树随任意弹窗开关空转重建 quickSetter 并直写 DOM。
+
 ### 6.3 pet 模块改造清单（[web/pet/](./web/pet/) 同步）
 
 **删除**：

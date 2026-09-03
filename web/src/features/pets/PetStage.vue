@@ -78,7 +78,7 @@ function presetAttentionCount(pet: PetInstance): number {
 function activeRoot(pet: PetInstance): string {
   return agents.activeRootForPet(pet)
 }
-const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet, registerPetElement } = usePetWorld(stageRef, agents.pets)
+const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet, positionRefFor } = usePetWorld(stageRef, agents.pets)
 
 /**
  * 主 pet 点击 → 打开 AgentDialog（设 activeDialogChatId）。
@@ -241,7 +241,7 @@ async function handleResume(pet: PetInstance): Promise<void> {
       :stream="visibleStreams[activeRoot(pet)]"
       :stream-chat-id="activeRoot(pet)"
       :attention-count="presetAttentionCount(pet)"
-      :position-ref="(element) => registerPetElement(pet.instanceId, element)"
+      :position-ref="positionRefFor(pet)"
       @start-drag="handleStartDrag"
       @drag="handleDrag"
       @end-drag="handleEndDrag"

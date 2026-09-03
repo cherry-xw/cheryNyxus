@@ -7,6 +7,7 @@
  * 所有 drag/hover/click handler 由父组件传入（usePetDrag）。
  */
 import { computed, ref, toRef } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import type { PetMotionDescriptor } from '@/domain/pets/motion/animation'
 import { usePetMotion } from '../composables/usePetMotion'
 import PetToolbar from '@/features/agent/toolbar/PetToolbar.vue'
@@ -74,11 +75,20 @@ const emit = defineEmits<{
   clickPet: [pet: PetInstance]
   doubleClickPet: [pet: PetInstance]
 }>()
+
+/**
+ * 根元素函数 ref（docs/agent-pet.md §6.2）：必须用具名函数保持身份稳定——
+ * 模板内联箭头每次重渲染都换新身份，Vue 重触发 ref（旧收 null 新收 element），
+ * 经 props.positionRef 级联 registerPetElement 重建 quickSetter 并直写 transform。
+ */
+function setRootRef(element: Element | ComponentPublicInstance | null): void {
+  props.positionRef?.(element instanceof HTMLElement ? element : null)
+}
 </script>
 
 <template>
   <div
-    :ref="(element) => positionRef?.(element as HTMLElement | null)"
+    :ref="setRootRef"
     class="pet"
     :class="classes"
     :style="style"
