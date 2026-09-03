@@ -1,22 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import {
-  diffFileLines,
-  fileChangePreview,
-} from '../../src/features/agent/cards/fileChangeDiff'
+import { diffFileLines, fileChangePreview } from '../../src/features/agent/cards/fileChangeDiff'
 
 describe('file change diff', () => {
   it('parses create, modify and delete previews while preserving preview errors', () => {
-    const preview = fileChangePreview(JSON.stringify({
-      path: 'original argument',
-      __filePreview: {
-        files: [
-          { path: 'new.txt', before: '', after: 'new', kind: 'create' },
-          { path: 'edit.txt', before: 'old', after: 'new', kind: 'modify' },
-          { path: 'old.txt', before: 'old', after: '', kind: 'delete' },
-        ],
-        error: 'one target could not be previewed',
-      },
-    }))
+    const preview = fileChangePreview(
+      JSON.stringify({
+        path: 'original argument',
+        __filePreview: {
+          files: [
+            { path: 'new.txt', before: '', after: 'new', kind: 'create' },
+            { path: 'edit.txt', before: 'old', after: 'new', kind: 'modify' },
+            { path: 'old.txt', before: 'old', after: '', kind: 'delete' },
+          ],
+          error: 'one target could not be previewed',
+        },
+      }),
+    )
 
     expect(preview).toEqual({
       files: [

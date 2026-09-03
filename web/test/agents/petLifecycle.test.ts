@@ -48,10 +48,9 @@ describe('selectRefreshRecoveryChats', () => {
     ]
 
     expect(
-      selectRefreshRecoveryChats(
-        chats,
-        new Set(chats.map((chat) => chat.chatId)),
-      ).map((chat) => chat.chatId),
+      selectRefreshRecoveryChats(chats, new Set(chats.map((chat) => chat.chatId))).map(
+        (chat) => chat.chatId,
+      ),
     ).toEqual(['ordinary-root', 'ordinary-child', 'hidden-root'])
 
     expect(

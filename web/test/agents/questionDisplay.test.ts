@@ -31,11 +31,7 @@ describe('question history display', () => {
 
   it('keeps selected labels and an other answer as separate display data', () => {
     expect(
-      parseQuestionAnswer(
-        '用户回答: 文件, 路径, 执行结果, 其他: 还要保留\n原始换行',
-        'done',
-        args,
-      ),
+      parseQuestionAnswer('用户回答: 文件, 路径, 执行结果, 其他: 还要保留\n原始换行', 'done', args),
     ).toEqual({
       kind: 'answered',
       labels: ['文件, 路径', '执行结果'],

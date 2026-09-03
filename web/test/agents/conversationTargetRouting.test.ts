@@ -13,10 +13,12 @@ describe('conversation target routing', () => {
     expect(conversationTargetVisualState('automatic', 'automatic', 'ai', ['automatic'])).toBe(
       'ai-selected',
     )
-    expect(conversationTargetVisualState('recommended', undefined, undefined, ['recommended'])).toBe(
-      'recommended',
+    expect(
+      conversationTargetVisualState('recommended', undefined, undefined, ['recommended']),
+    ).toBe('recommended')
+    expect(conversationTargetVisualState('idle', undefined, undefined, ['recommended'])).toBe(
+      'idle',
     )
-    expect(conversationTargetVisualState('idle', undefined, undefined, ['recommended'])).toBe('idle')
   })
 
   it('treats a manual half-selected session as recommended (half) visual state', () => {
@@ -43,15 +45,9 @@ describe('conversation target routing', () => {
       { chatId: 'selected', lastUserActivityAt: 1 },
     ]
 
-    expect(visibleConversationTargetSessions(sessions, 'selected').map(({ chatId }) => chatId)).toEqual([
-      'first',
-      'second',
-      'third',
-      'fourth',
-      'fifth',
-      'sixth',
-      'selected',
-    ])
+    expect(
+      visibleConversationTargetSessions(sessions, 'selected').map(({ chatId }) => chatId),
+    ).toEqual(['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'selected'])
   })
 
   it('does not duplicate a selected conversation already visible or append the new control', () => {
