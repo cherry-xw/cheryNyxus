@@ -70,10 +70,11 @@ const {
   moveQuestion,
   openNodeDetail,
   operationBlockReason,
-  pendingTab,
+  pendingCollapsed,
   pendingTabs,
   questionAnswered,
   questionsOf,
+  selectPendingTab,
   remainingLabel,
   resetTrajectoryZoom,
   resuming,
@@ -91,6 +92,7 @@ const {
   textDraftOf,
   tipPos,
   toggleOption,
+  togglePendingCollapsed,
   canAnswerBatch,
   toolTypeGlyph,
   trajectoryBarStyle,
@@ -356,7 +358,12 @@ const {
         </button>
       </div>
 
-      <section v-if="activeInteraction" class="lite-pending-panel" aria-label="待处理详情">
+      <section
+        v-if="activeInteraction"
+        class="lite-pending-panel"
+        :class="{ 'is-collapsed': pendingCollapsed }"
+        aria-label="待处理详情"
+      >
         <div v-if="pendingTabs.length" class="lite-pending-tabs-bar" role="tablist">
           <button
             v-for="tab in pendingTabs"
@@ -370,7 +377,7 @@ const {
             ]"
             :aria-selected="tab.id === activePendingTabId"
             :title="tab.label"
-            @click="pendingTab = tab.id"
+            @click="selectPendingTab(tab.id)"
           >
             <span class="lite-pending-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
             <span class="lite-pending-tab-label">{{ tab.label }}</span>
@@ -378,7 +385,19 @@ const {
               {{ tab.countdown }}
             </span>
           </button>
+          <!-- v1.2 收起/展开（▲=收起 / ▼=展开）：带边框方形按钮，绝对定位挂在面板右上角、
+               相对标签栏垂直居中；收起态内容区高度过渡到 0，仅保留标签栏 -->
+          <button
+            type="button"
+            class="lite-pending-collapse"
+            :aria-expanded="!pendingCollapsed"
+            :title="pendingCollapsed ? '展开待处理面板' : '收起待处理面板'"
+            @click="togglePendingCollapsed"
+          >
+            {{ pendingCollapsed ? '▼' : '▲' }}
+          </button>
         </div>
+        <!-- v1.2：内容区常驻渲染——收起由高度过渡驱动（visibility 隐藏防聚焦），避免 v-if 卸载导致高度跳变 -->
         <div class="lite-pending-content">
           <div
             v-if="activeInteraction.kind === 'approval'"

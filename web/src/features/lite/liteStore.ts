@@ -36,6 +36,10 @@ export interface LiteRootUiState {
   commandError: { code: string; message: string; interactionId?: string } | null
   /** 顶部待操作 tab：激活的 interactionId（null=收起）。 */
   pendingTab: string | null
+  /** 待处理面板收起态（v1.1）：true=仅保留标签栏；按窗口 × 根会话隔离。 */
+  pendingCollapsed: boolean
+  /** 详情抽屉拖拽宽度（v1.2，px）：null=默认 min(460px, 92%)；按窗口 × 根会话隔离。 */
+  detailDrawerWidth: number | null
 }
 
 interface LiteStoreState {
@@ -58,6 +62,8 @@ export function createLiteRootUiState(): LiteRootUiState {
     interactionDrafts: {},
     commandError: null,
     pendingTab: null,
+    pendingCollapsed: false,
+    detailDrawerWidth: null,
   }
 }
 

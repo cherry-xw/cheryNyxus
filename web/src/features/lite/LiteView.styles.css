@@ -16,27 +16,7 @@
   /* 字重基线 400（用户强制规则）：lite 全部内容继承 400，杜绝任何加粗继承。 */
   font-weight: 400;
 }
-.lite-view::before,
-.lite-view::after {
-  content: '';
-  position: absolute;
-  z-index: 20;
-  pointer-events: none;
-}
-.lite-view::before {
-  inset: 0;
-  background: repeating-linear-gradient(0deg, transparent 0 3px, color-mix(in srgb, var(--accent) 4%, transparent) 4px);
-  mix-blend-mode: screen;
-}
-.lite-view::after {
-  top: -20%;
-  right: 0;
-  left: 0;
-  height: 18%;
-  background: linear-gradient(transparent, color-mix(in srgb, var(--accent) 12%, transparent), transparent);
-  animation: lite-crt-scan 5.4s linear infinite;
-}
-@keyframes lite-crt-scan { to { transform: translateY(700%); } }
+/* v1.2：CRT 扫描光效整体删除（::before 扫描线纹理 + ::after 全屏扫光带）——光带压在内容上干扰阅读。 */
 .lite-history-row.is-round-start,
 .lite-history-row.is-agent:last-child {
   border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
@@ -46,18 +26,20 @@
   position: relative;
   overflow: visible;
 }
-.lite-cluster-node::after {
+/* v1.2：hover 描边框改用 ::before——::after 已被相邻节点的 `|` 分隔线占用，
+   同用 ::after 时分隔线规则（更高特异性）会覆盖描边框，导致 hover 框错乱。 */
+.lite-cluster-node::before {
   content: '';
   position: absolute;
-  inset: -3px;
+  inset: -2px;
   border: 1px solid currentColor;
+  pointer-events: none;
   opacity: 0;
-  transition: opacity .15s ease, transform .18s ease;
+  transition: opacity .15s ease;
 }
-.lite-cluster-node:hover::after { opacity: .32; transform: translate(3px,-2px); }
+.lite-cluster-node:hover::before { opacity: .32; }
 @media (prefers-reduced-motion: reduce) {
-  .lite-view::after { display: none; }
-  .lite-cluster-node::after { transition: none; }
+  .lite-cluster-node::before { transition: none; }
 }
 
 /* 字重收敛：lite 视图内 <strong>（审批标题/历史 label 等）一律 400——lite 为轻量界面，
@@ -121,7 +103,7 @@
 .lite-node-count {
   flex: none;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--el-fill-color-light);
   color: var(--el-text-color-regular);
   font-size: 11px;
@@ -151,7 +133,7 @@
   cursor: pointer;
   font-size: 12px;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: 0;
 }
 .lite-inline-action:hover:not(:disabled) {
   border-color: var(--el-color-primary-light-5);
@@ -198,7 +180,7 @@
   border: none;
   background: color-mix(in srgb, var(--el-color-primary) 14%, transparent);
   color: var(--el-color-primary);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 1px 6px;
   font-size: 10.5px;
   line-height: 1.4;
@@ -393,7 +375,7 @@
    独立于历史列表（不进时间轴/轮次排序），打开子 Agent 链路即可看到其任务 ── */
 .lite-entry-dispatch {
   border: 1px solid color-mix(in srgb, var(--lite-tone-dispatch) 55%, var(--el-border-color));
-  border-radius: 8px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--lite-tone-dispatch) 7%, var(--el-bg-color));
   overflow: hidden;
 }
@@ -439,10 +421,26 @@
   min-height: 0;
   overflow-y: auto;
   padding: 10px 14px 12px;
-  scrollbar-width: none;
+  /* v1.2：滚动链隔离——正文区滚到边界后不再把滚轮串扰到外层容器（消除「到底后整页跳顶」观感） */
+  overscroll-behavior: contain;
+  /* v1.2：恢复主题化细滚动条（此前隐藏，长内容无法拖拽快速滚动） */
+  scrollbar-width: thin;
+  scrollbar-color: var(--el-border-color-darker) transparent;
 }
 .lite-monitor::-webkit-scrollbar {
-  display: none;
+  width: 8px;
+  height: 8px;
+}
+.lite-monitor::-webkit-scrollbar-track {
+  background: transparent;
+}
+.lite-monitor::-webkit-scrollbar-thumb {
+  background: var(--el-border-color-darker);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.lite-monitor::-webkit-scrollbar-thumb:hover {
+  background-color: var(--el-text-color-placeholder);
 }
 .lite-history {
   list-style: none;
@@ -452,7 +450,7 @@
 .lite-history-row {
   margin-top: 6px;
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  border-radius: 0;
   overflow: hidden;
 }
 .lite-history-row.is-round-start {
@@ -556,15 +554,17 @@
   gap: 6px;
   padding: 4px 10px;
 }
-/* v1.0 浅色可读性：cluster 小按钮 icon 由 secondary 提为 regular（icon 比状态线更清晰） */
+/* v1.2 对齐修正：icon 在盒内垂直居中（去掉 2px 底部 padding 挤压导致的偏上），
+   hover 背景即按钮盒本身，底部 2px 状态条绝对定位叠加、不参与布局。 */
 .lite-cluster-node {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 17px;
-  padding: 0 2px 2px;
+  box-sizing: border-box;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -590,7 +590,7 @@
   position: absolute;
   top: 50%;
   right: -5px;
-  transform: translateY(-55%);
+  transform: translateY(-50%);
   color: var(--el-border-color);
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 9px;
@@ -632,7 +632,7 @@
   transform: translate(10px, 12px);
   max-width: 280px;
   padding: 6px 9px;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--el-border-color);
   background: var(--el-bg-color-overlay, var(--el-bg-color));
   color: var(--el-text-color-regular);
@@ -758,9 +758,10 @@
 .lite-pending-tab.is-active {
   /* 当前展示页签不挤压 */
   flex: 0 0 auto;
-  /* 激活 tab：底部 padding 更厚 → 更高盖过非激活；亮背景与内容区同色连体、主色边框与文字 */
+  /* 激活 tab：底部 padding 更厚 → 更高盖过非激活；背景与所有 tab 一样完全透明，
+     仅以主色边框 + 主色文字区分激活态（v1.2：不加任何背景层） */
   padding: 6px 14px 9px;
-  background: var(--el-bg-color);
+  background: transparent;
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
 }
@@ -798,66 +799,105 @@
   color: var(--el-color-danger);
 }
 /* ── 待处理工作区：外层任务 tab + 内层问题导航，正文独立滚动，操作区固定。── */
+/* v1.2：面板高度改 auto——收起/展开由内容区显式高度过渡驱动（200ms，无高度跳变） */
+/* v1.2：面板容器**完全透明、无阴影**——它不是卡片，只是一块占位，
+   按钮行区域与页面背景完全一致（透到 .lite-view 底色）；无边框，
+   边框从按钮下一行开始（bar 底线横线 + 内容区左/右/下三边）；
+   亮色只存在于内容区卡片与按钮自身 */
 .lite-pending-panel {
   flex: none;
   display: flex;
   flex-direction: column;
-  height: clamp(270px, 44%, 440px);
-  max-height: 52%;
   margin: 4px 10px 0;
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px 8px 0 0;
-  background: var(--el-bg-color);
-  box-shadow: 0 -6px 20px color-mix(in srgb, var(--el-text-color-primary) 6%, transparent);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   overflow: hidden;
 }
+/* v1.2 标签栏净化：**完全透明**——无底色、无任何背景层；唯一的一条线是 bar 底部的
+   border-bottom（位于按钮下一行，即内容区顶线）；按钮直接从最左边开始依次排列，
+   右侧 padding 仅为收起按钮预留 */
 .lite-pending-tabs-bar {
   flex: none;
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  padding: 7px 10px 0;
+  padding: 7px 44px 0 0;
   border-bottom: 1px solid var(--el-border-color);
-  background: var(--el-fill-color-lighter);
+  background: transparent;
   overflow-x: auto;
   scrollbar-width: none;
 }
 .lite-pending-tabs-bar::-webkit-scrollbar {
   display: none;
 }
+/* v1.2 收起/展开按钮：24×24 方形按钮，绝对定位挂在面板右上角、相对标签栏垂直居中
+   （▲=收起 / ▼=展开）；背景完全透明，仅按钮自身（边框 + 箭头）可见，hover 主色 */
+.lite-pending-collapse {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--el-border-color);
+  border-radius: 0;
+  background: transparent;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+.lite-pending-collapse:hover,
+.lite-pending-collapse:focus-visible {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+/* v1.2 收起态：内容区高度过渡到 0（面板自然塌为标签栏高）；visibility 延迟翻转，
+   收起后内部不可聚焦；`prefers-reduced-motion` 直切 */
 .lite-pending-content {
-  flex: 1;
-  min-height: 0;
+  flex: none;
+  height: clamp(260px, 42vh, 430px);
   overflow: hidden;
   background: var(--el-bg-color);
+  /* v1.2：面板无边框后，边框由内容区承担（左/右/下三边；顶线 = bar 的 border-bottom） */
+  border-left: 1px solid var(--el-border-color);
+  border-right: 1px solid var(--el-border-color);
+  border-bottom: 1px solid var(--el-border-color);
+  transition:
+    height 200ms ease,
+    visibility 200ms;
+}
+.lite-pending-panel.is-collapsed .lite-pending-content {
+  height: 0;
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lite-pending-content {
+    transition: none;
+  }
 }
 
-:global(html[data-theme='light'] .lite-pending-panel) {
-  border-color: color-mix(in srgb, var(--nx-cyan) 56%, var(--el-border-color));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--nx-cyan) 3%, transparent) 1px, transparent 1px)
-      0 0 / 24px 24px,
-    linear-gradient(color-mix(in srgb, var(--nx-cyan) 3%, transparent) 1px, transparent 1px) 0 0 /
-      24px 24px,
-    var(--el-bg-color);
-  box-shadow:
-    0 -8px 24px color-mix(in srgb, var(--nx-cyan) 10%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--nx-cyan) 16%, transparent);
-}
+/* v1.2：面板容器已完全透明（无背景/无阴影），浅色主题同理——
+   边框色仅作用于实际载体（bar 底线 + 内容区三边） */
 :global(html[data-theme='light'] .lite-pending-tabs-bar) {
   border-bottom-color: color-mix(in srgb, var(--nx-cyan) 38%, var(--el-border-color));
-  background:
-    repeating-linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--nx-cyan) 5%, transparent) 0 1px,
-      transparent 1px 18px
-    ),
-    color-mix(in srgb, var(--nx-cyan) 5%, var(--el-fill-color-lighter));
+}
+:global(html[data-theme='light'] .lite-pending-content) {
+  border-color: color-mix(in srgb, var(--nx-cyan) 56%, var(--el-border-color));
 }
 :global(html[data-theme='light'] .lite-pending-tab.is-active) {
   border-color: var(--nx-cyan);
   color: var(--nx-cyan);
-  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--nx-cyan) 58%, transparent);
 }
 
 .lite-interaction {
@@ -871,8 +911,21 @@
   min-height: 0;
   overflow-y: auto;
   padding: 12px 14px;
+  /* v1.2：滚动链隔离 + 主题化 webkit 滚动条（待处理内容也可能很长） */
+  overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: var(--el-border-color) transparent;
+  scrollbar-color: var(--el-border-color-darker) transparent;
+}
+.lite-interaction-body::-webkit-scrollbar {
+  width: 8px;
+}
+.lite-interaction-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.lite-interaction-body::-webkit-scrollbar-thumb {
+  background: var(--el-border-color-darker);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 .lite-interaction-head {
   display: flex;
@@ -922,7 +975,7 @@
 .lite-status-pill {
   padding: 0 7px;
   border: 1px solid var(--el-border-color);
-  border-radius: 999px;
+  border-radius: 0;
   color: var(--el-text-color-secondary);
   font-size: 10.5px;
   line-height: 16px;
@@ -1038,7 +1091,7 @@
   min-width: 84px;
   padding: 6px 14px;
   border: 1px solid var(--el-border-color);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--el-bg-color);
   color: var(--el-text-color-primary);
   cursor: pointer;
@@ -1088,7 +1141,7 @@
   min-width: 0;
   padding: 7px 8px;
   border: 1px solid var(--el-border-color);
-  border-radius: 5px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--el-fill-color-light) 55%, transparent);
   color: var(--el-text-color-regular);
   text-align: left;
@@ -1143,7 +1196,7 @@
   margin: 0;
   padding: 12px;
   border: 1px solid var(--el-border-color);
-  border-radius: 6px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--el-bg-color) 96%, var(--el-fill-color));
 }
 .lite-followup-question legend {
@@ -1180,7 +1233,7 @@
   gap: 8px;
   padding: 8px 9px;
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 5px;
+  border-radius: 0;
   background: var(--el-bg-color);
   cursor: pointer;
 }
@@ -1204,7 +1257,7 @@
   box-sizing: border-box;
   padding: 5px 8px;
   border: 1px solid var(--el-border-color);
-  border-radius: 5px;
+  border-radius: 0;
   background: var(--el-fill-color-blank);
   color: inherit;
   resize: vertical;
@@ -1216,7 +1269,7 @@
   margin-top: 0;
   padding: 8px 10px;
   border: 1px solid var(--el-border-color);
-  border-radius: 5px;
+  border-radius: 0;
   background: var(--el-fill-color-blank);
   color: inherit;
 }
@@ -1235,7 +1288,7 @@
 .lite-question-pager button {
   padding: 4px 8px;
   border: 1px solid var(--el-border-color);
-  border-radius: 4px;
+  border-radius: 0;
   background: var(--el-bg-color);
   color: var(--el-text-color-regular);
   cursor: pointer;

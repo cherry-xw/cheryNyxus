@@ -173,7 +173,7 @@ onBeforeUnmount(() => {
 .lite-scrollbar-track {
   position: relative;
   flex: none;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--lite-track-bg, color-mix(in srgb, var(--el-border-color) 35%, transparent));
   opacity: 0;
   transition: opacity 140ms ease;
@@ -195,7 +195,7 @@ onBeforeUnmount(() => {
   left: 0;
   top: 0;
   border: none;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(
     --lite-thumb-bg,
     color-mix(in srgb, var(--el-text-color-secondary) 60%, transparent)

@@ -34,9 +34,11 @@
 
 ## 4. 流式 Markdown
 
-所有实时 Markdown 使用 `useRenderedMarkdown()`：首个非空结果立即调度，随后以 240ms trailing 合并；预览默认截断到 `MARKDOWN_PREVIEW_LIMIT`（12000 字符），终态或流结束强制 flush。解析在共享 Worker 中执行，结果以 revision 丢弃过时响应，并带字符预算 LRU；Worker 不可用时才动态导入主线程解析器。
+所有实时 Markdown 使用 `useRenderedMarkdown()`：首个非空结果立即调度，随后以 240ms trailing 合并；默认 preview 模式截断到 `MARKDOWN_PREVIEW_LIMIT`（12000 字符），full 模式全文渲染；终态或流结束强制 flush。解析在共享 Worker 中执行，结果以 revision 丢弃过时响应，并带字符预算 LRU；Worker 不可用时才动态导入主线程解析器。
 
 禁止在流式 delta watch 中同步调用 `renderMarkdown()`。当前覆盖 MessageBubble、宠物气泡、AnchoredRunCrt、LiteMarkdown、PaperGameCard 与 ExecutionNodePopover。
+
+**模式选用（v1.1）**：`preview`（12000 字符截断）仅限流式气泡与嵌入式小卡等次要预览面（宠物气泡、AnchoredRunCrt）；主要阅读面一律 `full` 全文渲染——MessageBubble、LiteMarkdown（lite 简洁模式正文/详情抽屉，v1.1 起由 preview 改 full，协议层 `chat.timeline.node.get` 的 32KB 单响应硬上限由分页续拉兜底，渲染层不再截断）等。
 
 ## 5. Review 清单
 
