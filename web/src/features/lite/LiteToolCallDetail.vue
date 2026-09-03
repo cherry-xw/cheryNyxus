@@ -263,7 +263,7 @@ const readable = computed(() =>
   margin-bottom: 10px;
   padding: 10px 12px;
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--el-fill-color-lighter);
 }
 .lite-tool-call.is-focused {
@@ -295,7 +295,7 @@ const readable = computed(() =>
   align-items: center;
   gap: 4px;
   padding: 0 7px;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 10.5px;
   line-height: 17px;
   border: 1px solid var(--el-border-color);
@@ -337,7 +337,7 @@ const readable = computed(() =>
   font-size: 10.5px;
   color: var(--el-text-color-secondary);
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--el-border-color);
 }
 .lite-tool-call-status[data-status='accepted'],
@@ -360,7 +360,7 @@ const readable = computed(() =>
   margin: 8px 0;
   padding: 8px 10px;
   border-left: 3px solid var(--el-color-primary);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0;
   background: var(--el-fill-color-blank);
 }
 .lite-tool-story p {
@@ -384,7 +384,7 @@ const readable = computed(() =>
   padding: 3px 6px;
   overflow: auto;
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 4px;
+  border-radius: 0;
   background: var(--el-fill-color-lighter);
   color: var(--el-text-color-primary);
   font-family: var(--el-font-family-mono);
@@ -481,7 +481,7 @@ const readable = computed(() =>
 .lite-field-code {
   display: block;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--el-fill-color-blank);
   border: 1px solid var(--el-border-color-lighter);
   font-family: var(--el-font-family-mono);
@@ -511,7 +511,7 @@ const readable = computed(() =>
   padding: 8px 10px;
   background: var(--el-fill-color-blank);
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px;
+  border-radius: 0;
   font-family: var(--el-font-family-mono);
   font-size: 11.5px;
   line-height: 1.6;

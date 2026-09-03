@@ -49,6 +49,51 @@ const sectionLoading = ref<Record<string, boolean>>({})
 // 数据放宽（需求：适当放宽一次响应回来的内容数据量；其余交互不放开）
 const DETAIL_PAGE_LIMIT = 30000
 
+// ── v1.2 抽屉宽度可拖拽：左缘手柄横向拖拽，宽度 clamp(320px, 拖拽值, 92% 容器)，
+// 拖拽中走本地 ref（不逐帧打 store），松手时持久化到 rootUi（按窗口 × 会话记忆）。 ──
+const DRAWER_MIN_WIDTH = 320
+const DRAWER_DEFAULT_WIDTH = 460
+const drawerLayerRef = ref<HTMLElement | null>(null)
+const dragWidth = ref<number | null>(null)
+const resizing = ref(false)
+const savedDrawerWidth = computed<number | null>(
+  () => liteUi.rootUi(props.windowId, props.rootChatId)?.detailDrawerWidth ?? null,
+)
+const drawerStyle = computed(() => {
+  const width = dragWidth.value ?? savedDrawerWidth.value
+  return width ? { width: width + 'px' } : undefined
+})
+function onResizeStart(event: PointerEvent): void {
+  const layer = drawerLayerRef.value
+  const handle = event.currentTarget
+  if (!layer || !(handle instanceof HTMLElement) || event.button !== 0) return
+  const startX = event.clientX
+  const startWidth =
+    savedDrawerWidth.value ?? Math.min(DRAWER_DEFAULT_WIDTH, Math.floor(layer.clientWidth * 0.92))
+  const maxWidth = Math.max(DRAWER_MIN_WIDTH, Math.floor(layer.clientWidth * 0.92))
+  resizing.value = true
+  handle.setPointerCapture(event.pointerId)
+  const onMove = (move: PointerEvent): void => {
+    dragWidth.value = Math.min(
+      maxWidth,
+      Math.max(DRAWER_MIN_WIDTH, startWidth + (startX - move.clientX)),
+    )
+  }
+  const onEnd = (): void => {
+    resizing.value = false
+    handle.removeEventListener('pointermove', onMove)
+    handle.removeEventListener('pointerup', onEnd)
+    handle.removeEventListener('pointercancel', onEnd)
+    if (dragWidth.value !== null) {
+      liteUi.patchRootUi(props.windowId, props.rootChatId, { detailDrawerWidth: dragWidth.value })
+      dragWidth.value = null
+    }
+  }
+  handle.addEventListener('pointermove', onMove)
+  handle.addEventListener('pointerup', onEnd)
+  handle.addEventListener('pointercancel', onEnd)
+}
+
 function runStatusLabel(status: LiteRunNodeStatus): string {
   switch (status) {
     case 'running':
@@ -254,17 +299,20 @@ watch(
 </script>
 
 <template>
-  <div v-if="props.node" class="lite-drawer-layer">
+  <div v-if="props.node" ref="drawerLayerRef" class="lite-drawer-layer" :class="{ 'is-resizing': resizing }">
     <div class="lite-drawer-mask" aria-hidden="true" @click="requestClose" />
     <aside
       ref="dialogRef"
       class="lite-drawer"
+      :style="drawerStyle"
       role="dialog"
       aria-modal="true"
       aria-labelledby="lite-detail-title"
       tabindex="-1"
       @keydown="onDialogKeydown"
     >
+      <!-- v1.2：左缘拖拽手柄——横向拖拽调整抽屉宽度 -->
+      <div class="lite-drawer-resize" aria-hidden="true" @pointerdown="onResizeStart" />
       <header class="lite-drawer-head">
         <span class="lite-drawer-icon" aria-hidden="true">{{ props.node.icon }}</span>
         <strong id="lite-detail-title">{{ props.node.label }}</strong>
@@ -393,6 +441,10 @@ watch(
   inset: 0;
   background: color-mix(in srgb, #0b0b0f 42%, transparent);
 }
+.lite-drawer-layer.is-resizing {
+  cursor: ew-resize;
+  user-select: none;
+}
 .lite-drawer {
   position: absolute;
   top: 0;
@@ -406,6 +458,19 @@ watch(
   box-shadow: -10px 0 28px rgba(0, 0, 0, 0.18);
   outline: none;
   color: var(--el-text-color-primary);
+}
+/* v1.2：左缘拖拽手柄（ew-resize），hover 主色提示可拖拽 */
+.lite-drawer-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+.lite-drawer-resize:hover {
+  background: color-mix(in srgb, var(--el-color-primary) 24%, transparent);
 }
 .lite-drawer-head {
   display: flex;
@@ -431,7 +496,7 @@ watch(
 .lite-drawer-status {
   flex: none;
   padding: 0 7px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--el-border-color);
   font-size: 10.5px;
   line-height: 16px;
@@ -466,7 +531,7 @@ watch(
   width: 24px;
   height: 24px;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   background: transparent;
   color: var(--el-text-color-secondary);
   cursor: pointer;
@@ -481,10 +546,24 @@ watch(
   min-height: 0;
   overflow: auto;
   padding: 12px 14px 20px;
-  scrollbar-width: none;
+  /* v1.2：滚动链隔离 + 恢复主题化细滚动条（工具详情可能超长，纯滚轮太慢） */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--el-border-color-darker) transparent;
 }
 .lite-drawer-body::-webkit-scrollbar {
-  display: none;
+  width: 8px;
+}
+.lite-drawer-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.lite-drawer-body::-webkit-scrollbar-thumb {
+  background: var(--el-border-color-darker);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.lite-drawer-body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--el-text-color-placeholder);
 }
 .lite-node-detail-block {
   margin-bottom: 16px;
@@ -502,7 +581,7 @@ watch(
   align-items: center;
   gap: 4px;
   padding: 0 7px;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 10.5px;
   line-height: 17px;
   border: 1px solid var(--el-border-color);
@@ -536,7 +615,7 @@ watch(
 .lite-drawer-error {
   margin: 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
   color: var(--el-color-danger);
   font-size: 12px;
@@ -544,7 +623,7 @@ watch(
 .lite-drawer-hint {
   margin: 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--el-fill-color-lighter);
   color: var(--el-text-color-secondary);
   font-size: 12px;
@@ -557,7 +636,7 @@ watch(
   margin-top: 6px;
   padding: 3px 10px;
   border: 1px solid var(--el-border-color);
-  border-radius: 999px;
+  border-radius: 0;
   background: transparent;
   color: var(--el-text-color-secondary);
   font-size: 11.5px;

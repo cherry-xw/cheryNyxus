@@ -13,8 +13,9 @@ const props = defineProps<{
   plain?: boolean
 }>()
 
-// 流式 markdown 节流渲染（leading + 240ms trailing，超长截断 12000）
-const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: 'preview' })
+// 流式 markdown 节流渲染（leading + 240ms trailing）；full 模式全文渲染，
+// 不做 12000 字符截断（数据侧 32KB 分页续拉兜底，渲染层保持完整内容）。
+const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: 'full' })
 </script>
 
 <template>
@@ -75,13 +76,13 @@ const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: '
   font-family: var(--el-font-family-mono);
   font-size: 11.5px;
   padding: 1px 4px;
-  border-radius: 4px;
+  border-radius: 0;
   background: var(--el-fill-color-light);
 }
 .lite-md :deep(pre) {
   margin: 6px 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--el-fill-color-lighter);
   border: 1px solid var(--el-border-color-lighter);
   overflow-x: auto;
@@ -100,7 +101,7 @@ const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: '
 }
 .lite-md :deep(img) {
   max-width: 100%;
-  border-radius: 4px;
+  border-radius: 0;
 }
 .lite-md :deep(table) {
   border-collapse: collapse;

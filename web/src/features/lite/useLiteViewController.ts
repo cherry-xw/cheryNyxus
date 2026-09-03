@@ -175,12 +175,49 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     set: (value: boolean) =>
       liteUi.patchRootUi(props.windowId, props.rootChatId, { autoScroll: value }),
   })
+  /** v1.2：scrollTop 回写节流（rAF）——原实现每个 scroll 事件都整包替换 rootUi，
+      滚动期间持续触发全视图重渲染，与自动滚动互相打架。 */
+  let scrollTopPatchQueued = false
+  function queueScrollTopPatch(): void {
+    if (scrollTopPatchQueued) return
+    scrollTopPatchQueued = true
+    requestAnimationFrame(() => {
+      scrollTopPatchQueued = false
+      const element = monitorEl.value
+      if (!element) return
+      liteUi.patchRootUi(props.windowId, props.rootChatId, { scrollTop: element.scrollTop })
+    })
+  }
   function onMonitorScroll(): void {
     const element = monitorEl.value
     if (!element) return
-    autoScroll.value = element.scrollHeight - element.scrollTop - element.clientHeight < 40
-    liteUi.patchRootUi(props.windowId, props.rootChatId, { scrollTop: element.scrollTop })
+    const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 40
+    // 仅在越过边界时写回，避免每次滚动帧都触发 store 替换。
+    if (autoScroll.value !== atBottom) autoScroll.value = atBottom
+    queueScrollTopPatch()
   }
+  /** v1.2：内容塌陷防护——运行中投影重建使列表短暂清空时，滚动容器高度塌为 0、
+      scrollTop 被浏览器钳到 0（「滚到底突然闪回顶部、像无限滚动」的根源）；
+      行恢复后若用户没有主动回到顶部，则还原塌陷前记录的位置。 */
+  let collapsedScrollTop: number | null = null
+  watch(
+    () => visibleRows.value.length,
+    async (length, previous) => {
+      if (previous && previous > 0 && length === 0) {
+        collapsedScrollTop = monitorEl.value?.scrollTop ?? rootUi.value.scrollTop
+        return
+      }
+      if (previous === 0 && length > 0 && collapsedScrollTop !== null) {
+        const restore = collapsedScrollTop
+        collapsedScrollTop = null
+        if (restore > 0) {
+          await nextTick()
+          const element = monitorEl.value
+          if (element && element.scrollTop <= 1) element.scrollTop = restore
+        }
+      }
+    },
+  )
   async function scrollToBottom(): Promise<void> {
     if (!autoScroll.value) return
     await nextTick()
@@ -321,6 +358,20 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     set: (value: string | null) =>
       liteUi.patchRootUi(props.windowId, props.rootChatId, { pendingTab: value }),
   })
+  /** 待处理面板收起态（v1.1）：收起仅保留标签栏；按窗口 × 根会话隔离存 rootUi。 */
+  const pendingCollapsed = computed({
+    get: () => rootUi.value.pendingCollapsed,
+    set: (value: boolean) =>
+      liteUi.patchRootUi(props.windowId, props.rootChatId, { pendingCollapsed: value }),
+  })
+  function togglePendingCollapsed(): void {
+    pendingCollapsed.value = !pendingCollapsed.value
+  }
+  /** 点标签：收起态下先展开再切换到该交互；展开态即普通切换。 */
+  function selectPendingTab(id: string): void {
+    if (pendingCollapsed.value) pendingCollapsed.value = false
+    pendingTab.value = id
+  }
   /** 激活的待处理交互 id：null=收起；无有效 pendingTab 时自动回退到第一个 Tab（保持「有新交互即展示」）。 */
   const activePendingTabId = computed<string | null>(() => {
     if (pendingTab.value && pendingTabs.value.some((tab) => tab.id === pendingTab.value)) {
@@ -1012,9 +1063,11 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     openNodeDetail,
     operationBlockReason,
     pendingTab,
+    pendingCollapsed,
     pendingTabs,
     questionAnswered,
     questionsOf,
+    selectPendingTab,
     remainingLabel,
     resetTrajectoryZoom,
     resuming,
@@ -1032,6 +1085,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     textDraftOf,
     tipPos,
     toggleOption,
+    togglePendingCollapsed,
     canAnswerBatch,
     toolTypeGlyph,
     trajectoryBarStyle,
