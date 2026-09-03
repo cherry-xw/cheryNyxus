@@ -446,7 +446,7 @@ async function bootstrap(): Promise<void> {
     <AgentDialog ref="agentDialogRef" native />
   </WindowFrame>
   <div v-else-if="surface === 'history'" class="history-native"><HistoryDrawer /></div>
-  <WindowFrame v-else-if="surface === 'login'" title="ACCESS CONTROL // NYXUS_OS">
+  <WindowFrame v-else-if="surface === 'login'" channel="AUTH" title="ACCESS CONTROL // NYXUS_OS">
     <LoginSurface />
   </WindowFrame>
   <WindowFrame v-else-if="surface === 'settings'" title="设置">
