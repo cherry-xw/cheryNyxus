@@ -49,7 +49,12 @@ export function usePetStyles(
     unsubscribePose = frameCoordinator.subscribe(({ now }) => {
       if (now - lastPoseAt < 50) return
       lastPoseAt = now
-      pose.value = { x: pet().x, y: pet().y }
+      const x = pet().x
+      const y = pet().y
+      // 变化守卫（docs/agent-pet.md §6.2）：静止时跳过赋值，避免 20Hz 空转重算
+      // speechStyle/approvalStyle/todoPanelStyle/petIconsStyle → PetBubbles/PetIcons/TodoPanel 重渲染抖动
+      if (pose.value.x === x && pose.value.y === y) return
+      pose.value = { x, y }
     })
   })
   onScopeDispose(() => unsubscribePose?.())
