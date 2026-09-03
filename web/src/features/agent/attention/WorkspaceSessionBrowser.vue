@@ -122,7 +122,9 @@ function toggleOption(
       draft.selectedLabels = [label]
       draft.freeText = ''
       // 单选切选项：丢弃其他选项的补充描述
-      draft.optionNotes = { ...(draft.optionNotes[label] ? { [label]: draft.optionNotes[label] } : {}) }
+      draft.optionNotes = {
+        ...(draft.optionNotes[label] ? { [label]: draft.optionNotes[label] } : {}),
+      }
     }
   } else if (draft.selectedLabels.includes(label)) {
     draft.selectedLabels = draft.selectedLabels.filter((value) => value !== label)
@@ -362,15 +364,11 @@ onBeforeUnmount(() => {
                     ><span v-if="option.description">{{ option.description }}</span>
                   </button>
                   <input
-                    v-if="
-                      draftOf(item, question.questionId).selectedLabels.includes(option.label)
-                    "
+                    v-if="draftOf(item, question.questionId).selectedLabels.includes(option.label)"
                     class="option-note-input"
                     :value="draftOf(item, question.questionId).optionNotes[option.label] ?? ''"
                     placeholder="为这个选项补充描述（可选）"
-                    @input="
-                      onOptionNoteInput(item, question.questionId, option.label, $event)
-                    "
+                    @input="onOptionNoteInput(item, question.questionId, option.label, $event)"
                   />
                 </div>
               </div>

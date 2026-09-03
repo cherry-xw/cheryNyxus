@@ -1,11 +1,16 @@
+// PendingOperationsPanel —— Interrupt Queue 聚焦流水线（2026-09-02 重构）。
+// 全直角（border-radius: 0）、无毛玻璃遮罩属性（motion-standard §2.2，实色 color-mix 补偿）、
+// 颜色全走 --nx-* / --accent token + color-mix 派生；只保留 opacity CSS 过渡，
+// 布局变化全部交由 GSAP Flip（见面板组件）。
+
 .pending-panel {
   position: absolute;
   z-index: var(--nx-z-drawer);
   top: 44px;
   right: 52px; // 位于右侧 rail 左侧，避免盖住 rail 按钮
-  width: 820px; // 宽屏工作台优先给任务详情与内层问题导航足够空间
+  width: 820px; // 宽屏工作台优先给聚焦卡与内嵌参数/diff 足够空间
   max-width: calc(100% - 120px);
-  // 最大高度固定上限 560px，叠加窗口可用空间约束（min 取小者）：任务再多也保持适中尺寸，窗口过小不溢出
+  // 最大高度固定上限 620px，叠加窗口可用空间约束（min 取小者）：任务再多也保持适中尺寸，窗口过小不溢出
   max-height: min(620px, calc(100% - 44px));
   display: flex;
   flex-direction: column;
@@ -15,11 +20,12 @@
   pointer-events: auto;
   overflow: hidden; // 兜底：任何子栏未及时收缩时也不让内容溢出工作台窗口
 }
-// 展开态最小高度保底：内容少（仅 1 个短任务）时也保证 1-2 任务按钮 + 操作区 + 头部可容纳，不局促。
+// 展开态最小高度保底：内容少（仅 1 个短任务）时也保证聚焦卡 + 队列带 + 头部可容纳，不局促。
 .pending-panel.is-expanded {
   min-height: 280px;
 }
-// 入口行：标题 toggle + 范围切换 + 刷新同一行。
+
+// ── 状态头：标题 toggle + 进度 + 范围切换 + 刷新同一行。 ──
 .pending-panel-head {
   display: flex;
   align-items: center;
@@ -27,9 +33,8 @@
   flex-shrink: 0; // 入口行固定，不随 body 滚动区收缩
   padding: 7px 10px;
   border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--nx-bg) 86%, var(--nx-text) 8%);
-  backdrop-filter: blur(9px) saturate(115%);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--nx-bg) 90%, var(--nx-text) 8%);
   color: inherit;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
   transition:
@@ -46,10 +51,11 @@
   padding: 3px 5px;
   border: 1px solid color-mix(in srgb, var(--nx-red) 54%, transparent);
   color: var(--nx-red);
-  font: 700 8px/1 var(--font-mono);
+  font: 700 9px/1 var(--font-mono);
   letter-spacing: .12em;
   box-shadow: 0 0 10px color-mix(in srgb, var(--nx-red) 18%, transparent);
 }
+
 .pending-panel-body {
   clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
   background-image:
@@ -57,6 +63,7 @@
     linear-gradient(color-mix(in srgb, var(--nx-cyan) 5%, transparent) 1px, transparent 1px);
   background-size: 20px 20px;
 }
+
 .pending-panel.has-tasks .pending-panel-glyph {
   animation: interrupt-glitch 1.8s steps(2, jump-none) infinite;
 }
@@ -68,6 +75,7 @@
 @media (prefers-reduced-motion: reduce) {
   .pending-panel.has-tasks .pending-panel-glyph { animation: none; }
 }
+
 .pending-panel.has-tasks .pending-panel-head {
   border-color: color-mix(in srgb, var(--nx-green) 42%, transparent);
   box-shadow:
@@ -84,6 +92,7 @@
     0 0 0 1px color-mix(in srgb, var(--nx-cyan) 16%, transparent),
     0 5px 18px color-mix(in srgb, var(--nx-cyan) 12%, transparent);
 }
+
 .pending-panel-toggle {
   display: flex;
   align-items: center;
@@ -113,17 +122,17 @@
   place-items: center;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
+  border-radius: 0;
   background: color-mix(in srgb, var(--nx-green) 26%, transparent);
   color: var(--nx-green);
   font-size: 12px;
-  font-weight: 400;
   line-height: 1;
 }
+// 计数徽标：数字徽标豁免小字号字重限制（font-style-guide 豁免清单）。
 .pending-panel-count {
   min-width: 20px;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--nx-green);
   color: var(--nx-bg);
   font-size: 11px;
@@ -135,31 +144,37 @@
   color: color-mix(in srgb, var(--nx-text) 64%, transparent);
   font-size: 12px;
 }
+.head-progress {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .segmented {
   display: inline-flex;
   flex-shrink: 0;
   gap: 2px;
   padding: 2px;
-  border-radius: 9px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--nx-text) 8%, transparent);
 }
 .segmented button,
 .refresh {
   border: 0;
-  border-radius: 7px;
+  border-radius: 0;
   padding: 5px 11px;
   background: transparent;
   color: color-mix(in srgb, var(--nx-text) 66%, transparent);
   font-size: 12px;
-  font-weight: 400;
   cursor: pointer;
+  transition: color 120ms ease;
   &:hover:not(:disabled) {
     color: var(--nx-text);
   }
   &.active {
     background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 8%);
     color: var(--nx-text);
-    box-shadow: 0 1px 4px color-mix(in srgb, var(--nx-text) 12%, transparent);
   }
   &:disabled {
     opacity: 0.4;
@@ -170,6 +185,7 @@
   flex-shrink: 0;
 }
 
+// ── 面板主体：聚焦卡 + 队列缩略带，纵向单列无嵌套。 ──
 .pending-panel-body {
   margin-top: 6px;
   padding: 10px;
@@ -177,11 +193,10 @@
   flex: 1 1 auto; // basis auto：高度由内容自然撑开（空状态也可见）；面板被 max-height 截断为确定高度时才收缩
   display: flex;
   flex-direction: column;
-  overflow: hidden; // 滚动交由左栏 task-detail 内部承载
+  overflow: hidden; // 滚动交由聚焦卡内部承载
   border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 6%);
-  backdrop-filter: blur(12px) saturate(115%);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--nx-bg) 96%, var(--nx-text) 4%);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 }
 :global(html[data-theme='light'] .pending-panel-body) {
@@ -196,222 +211,106 @@
     0 14px 38px rgba(13, 54, 62, 0.18),
     inset 0 1px 0 color-mix(in srgb, var(--nx-cyan) 18%, transparent);
 }
+// Transition 只保留 opacity：布局变化（展开/收起）全交 GSAP Flip，避免双重插值。
 .pending-panel-body-enter-active,
 .pending-panel-body-leave-active {
-  transition:
-    opacity 140ms ease,
-    transform 140ms ease;
+  transition: opacity 140ms ease;
 }
 .pending-panel-body-enter-from,
 .pending-panel-body-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
 }
 
 .pending-panel-error {
   margin: 0 0 8px;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--nx-red) 13%, var(--nx-bg));
   color: var(--nx-red);
   font-size: 12px;
 }
 
-// 左右两栏：左栏任务详情 + 右栏任务导航/操作；两栏各自内部滚动（超高不出工作台窗口）。
-.panel-main {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  box-sizing: border-box;
-  flex: 1 1 auto; // basis auto：高度由两栏内容中较高者撑开；面板被 max-height 截断时收缩，两栏在其内各自滚动
+// ── FOCUS CARD：唯一工作对象，全宽；超高时卡内滚动。 ──
+.focus-card {
+  flex: 1 1 auto; // basis auto：高度由内容撑开；面板被限高时收缩，卡内滚动（防 flex-basis:0 塌陷）
   min-width: 0;
   min-height: 0;
-  padding: 8px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--nx-text) 22%, transparent);
-  border-radius: 11px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 20%, transparent);
+  border-radius: 0;
   background: color-mix(in srgb, var(--nx-bg) 96%, var(--nx-text) 4%);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--nx-text) 30%, transparent) transparent;
 }
-:global(html[data-theme='light'] .panel-main) {
+:global(html[data-theme='light'] .focus-card) {
   border-color: color-mix(in srgb, var(--nx-cyan) 34%, transparent);
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--nx-cyan) 2.5%, transparent) 1px,
-      transparent 1px
-    )
-    0 0 / 24px 24px,
-    color-mix(in srgb, var(--nx-cyan) 2%, var(--nx-bg));
 }
 
-// ── 右栏：一级任务导航（▲/▼ 分页、中间列表内部滚动）──
-.side-col {
+.focus-head {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  box-sizing: border-box;
-  width: 190px;
-  flex-shrink: 0;
-  align-self: stretch;
-  min-height: 0; // 允许随面板限高收缩，超高时任务列表内部滚动而非撑破面板
-  padding-left: 10px;
-  border-left: 1px solid color-mix(in srgb, var(--nx-text) 18%, transparent);
-}
-.task-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 1 1 auto; // basis auto：高度由内容撑开；右栏超高（side-col 高度受限）时收缩，列表内部滚动
-  min-height: 0;
-}
-:global(html[data-theme='light'] .side-col) {
-  border-left-color: color-mix(in srgb, var(--nx-cyan) 24%, transparent);
-}
-.page-nav {
-  border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
-  border-radius: 8px;
-  padding: 3px 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-  &:hover:not(:disabled) {
-    color: var(--nx-text);
-    border-color: color-mix(in srgb, var(--nx-green) 40%, transparent);
-  }
-  &:disabled {
-    opacity: 0.35;
-    cursor: default;
-  }
-}
-.task-nav-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 1 1 auto; // basis auto：高度由任务按钮内容撑开；超高时随 task-nav 收缩、列表内部滚动
-  min-height: 0;
-  overflow-y: auto; // 任务按钮超高时仅右栏列表滚动，▲/▼、meta 与底部操作按钮固定可见
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--nx-text) 30%, transparent) transparent;
-}
-.task-nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--nx-text) 13%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--nx-bg) 90%, var(--nx-text) 6%);
-  color: var(--nx-text);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 120ms ease,
-    background 120ms ease;
-  &:hover {
-    background: color-mix(in srgb, var(--nx-text) 7%, transparent);
-  }
-  &.is-active {
-    border-color: color-mix(in srgb, var(--nx-green) 66%, transparent);
-    background: color-mix(in srgb, var(--nx-green) 16%, transparent);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--nx-green) 30%, transparent);
-  }
-  &.is-focused:not(.is-active) {
-    border-color: color-mix(in srgb, var(--nx-green) 55%, transparent);
-  }
-  .nav-kind {
-    flex-shrink: 0;
-    padding: 2px 6px;
-    border-radius: 999px;
-    font-size: 11px;
-    line-height: 1.4;
-    &.is-approval {
-      background: var(--accent-soft);
-      color: var(--accent);
-    }
-    &.is-question {
-      background: color-mix(in srgb, var(--nx-purple) 20%, transparent);
-      color: var(--nx-purple);
-    }
-  }
-  .nav-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    strong {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 12px;
-      font-weight: 400;
-    }
-    .nav-countdown {
-      color: var(--nx-green);
-      font-size: 11px;
-      &.is-expired {
-        color: var(--nx-red);
-      }
-    }
-  }
-}
-:global(html[data-theme='light'] .task-nav-btn.is-active) {
-  border-color: color-mix(in srgb, var(--nx-cyan) 70%, transparent);
-  background: color-mix(in srgb, var(--nx-cyan) 9%, var(--nx-bg));
-  box-shadow: 0 0 12px color-mix(in srgb, var(--nx-cyan) 10%, transparent);
-}
-.task-nav-meta {
-  text-align: center;
-  color: color-mix(in srgb, var(--nx-text) 48%, transparent);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-// ── 左栏：任务详情（节点树中查看 / 工具能力解释 / 参数 整区内部滚动，最高不超工作台可用空间） ──
-.task-detail {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto; // 左半边整区内部滚动：内容超高时仅左栏滚动，不撑出工作台窗口
-  padding: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--nx-text) 30%, transparent) transparent;
-}
-.detail-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: baseline;
   gap: 8px;
   margin-bottom: 8px;
-  .locate {
-    border: 0;
-    padding: 0;
-    background: transparent;
-    color: color-mix(in srgb, var(--nx-text) 72%, transparent);
-    font-size: 12px;
-    cursor: pointer;
-    &:hover {
-      color: var(--nx-text);
-      text-decoration: underline;
-    }
+  min-width: 0;
+}
+.focus-kind {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 2px 6px;
+  border-radius: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  &.is-approval {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
-  .detail-status {
-    color: color-mix(in srgb, var(--nx-text) 62%, transparent);
-    font-size: 12px;
+  &.is-question {
+    background: color-mix(in srgb, var(--nx-purple) 20%, transparent);
+    color: var(--nx-purple);
+  }
+}
+.focus-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--nx-text);
+  font-size: 14px;
+  font-weight: 600; // 标题级：字重规范允许 600
+}
+.focus-countdown {
+  flex-shrink: 0;
+  color: var(--nx-green);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  &.is-expired {
+    color: var(--nx-red);
+  }
+}
+.focus-status {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
+  font-size: 12px;
+}
+.locate {
+  flex-shrink: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--nx-text) 72%, transparent);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 120ms ease;
+  &:hover {
+    color: var(--nx-text);
+    text-decoration: underline;
   }
 }
 
-.detail-kicker {
-  color: color-mix(in srgb, var(--nx-text) 54%, transparent);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-}
 .approval-overview {
   display: grid;
   gap: 7px;
@@ -423,6 +322,7 @@
   h3 {
     color: var(--nx-text);
     font-size: 16px;
+    font-weight: 600; // 标题级
     line-height: 1.4;
   }
   p {
@@ -447,7 +347,7 @@
   }
   dt {
     color: color-mix(in srgb, var(--nx-text) 54%, transparent);
-    font-size: 10px;
+    font-size: 12px;
   }
   dd {
     margin: 2px 0 0;
@@ -455,31 +355,13 @@
     overflow-wrap: anywhere;
   }
 }
-.technical-details {
-  margin-top: 4px;
-  border-top: 1px solid color-mix(in srgb, var(--nx-text) 18%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 18%, transparent);
-  > summary {
-    padding: 8px 2px;
-    color: color-mix(in srgb, var(--nx-text) 78%, transparent);
-    cursor: pointer;
-  }
-}
-.technical-details-body {
-  display: grid;
-  gap: 10px;
-  padding: 2px 0 10px 15px;
-}
-.technical-details :deep(.args-body) {
-  padding-left: 0;
-}
 
-// ── 左栏详情分块折叠头（工具能力解释 / 每个问题块） ──
+// 能力解释折叠块
 .detail-block {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 10px;
+  margin-top: 8px;
 }
 .detail-block-toggle {
   display: inline-flex;
@@ -490,8 +372,8 @@
   background: transparent;
   color: color-mix(in srgb, var(--nx-text) 74%, transparent);
   font-size: 13px;
-  font-weight: 400;
   cursor: pointer;
+  transition: color 120ms ease;
   &:hover {
     color: var(--nx-text);
   }
@@ -504,13 +386,12 @@
   font-size: 11px;
   line-height: 1;
 }
-
-// 工具能力解释（config_manage 等）：主题色左条 + 正常排版。间距由 .detail-block 承担。
+// 工具能力解释：主题色左条 + 正常排版。
 .sense-desc {
   margin: 0;
   padding: 9px 11px;
   border-left: 2px solid color-mix(in srgb, var(--nx-green) 58%, transparent);
-  border-radius: 0 7px 7px 0;
+  border-radius: 0;
   background: color-mix(in srgb, var(--nx-code-bg) 40%, transparent);
   color: var(--nx-text);
   font-size: 13px;
@@ -518,158 +399,114 @@
   white-space: pre-line;
 }
 
+.technical-details {
+  margin-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--nx-text) 18%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 18%, transparent);
+  > summary {
+    padding: 8px 2px;
+    color: color-mix(in srgb, var(--nx-text) 78%, transparent);
+    font-size: 13px;
+    cursor: pointer;
+  }
+}
+.technical-details-body {
+  display: grid;
+  gap: 10px;
+  padding: 2px 0 10px 15px;
+}
 // ParsedArgs（浅色基组件）在深色 CRT 面板内需反相：调用共享主题 override 命名空间。
-.task-detail :deep(.args) {
+.focus-card :deep(.args) {
   margin: 6px 0;
   color: var(--nx-text);
 }
 
-.questions {
-  display: grid;
-  grid-template-columns: minmax(160px, 34%) minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
+// ── 提问批次：步进器 + 一次一题的选项卡。 ──
+.question-stage {
   min-width: 0;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--nx-text) 3%, transparent);
-}
-.question-step-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  button {
-    display: grid;
-    grid-template-columns: 26px minmax(0, 1fr);
-    gap: 2px 7px;
-    width: 100%;
-    min-width: 0;
-    padding: 7px 8px;
-    border: 1px solid color-mix(in srgb, var(--nx-text) 20%, transparent);
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 6%);
-    color: var(--nx-text);
-    text-align: left;
-    cursor: pointer;
-    &:hover {
-      border-color: color-mix(in srgb, var(--nx-text) 38%, transparent);
-    }
-    &.is-active {
-      border-color: color-mix(in srgb, var(--nx-green) 66%, transparent);
-      background: color-mix(in srgb, var(--nx-green) 12%, var(--nx-bg));
-    }
-    &.is-answered .question-state {
-      color: var(--nx-green);
-    }
-  }
-}
-:global(html[data-theme='light'] .question-step-nav button.is-active) {
-  border-color: color-mix(in srgb, var(--nx-cyan) 70%, transparent);
-  background: color-mix(in srgb, var(--nx-cyan) 8%, var(--nx-bg));
-  box-shadow: 0 0 10px color-mix(in srgb, var(--nx-cyan) 9%, transparent);
-}
-.question-index {
-  grid-row: 1 / span 2;
-  align-self: center;
-  color: color-mix(in srgb, var(--nx-text) 54%, transparent);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10px;
-}
-.question-nav-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  strong,
-  small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  strong {
-    font-size: 12px;
-    font-weight: 400;
-  }
-  small {
-    color: color-mix(in srgb, var(--nx-text) 60%, transparent);
-    font-size: 10px;
-  }
-}
-.question-state {
-  grid-column: 2;
-  color: color-mix(in srgb, var(--nx-text) 48%, transparent);
-  font-size: 9px;
+  flex: 1 1 auto;
 }
 fieldset {
   margin: 0;
   min-width: 0;
-  padding: 11px;
-  border: 1px solid color-mix(in srgb, var(--nx-text) 30%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 4%);
+  padding: 10px 2px 0;
+  border: 0;
   &:disabled {
     opacity: 0.6;
   }
-  legend {
-    padding: 0 4px;
-    font-size: 13px;
-    font-weight: 400;
-    color: var(--nx-text);
-  }
-  > small {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 12px;
-    opacity: 0.88;
-  }
 }
-// 单选/多选提示行：明确告知「单选可再次点击取消」（此前用户误以为选项与补充会叠加）。
+.question-text {
+  display: block;
+  margin-bottom: 6px;
+  color: color-mix(in srgb, var(--nx-text) 82%, transparent);
+  font-size: 13px;
+}
+// 单选/多选提示行：明确告知「单选可再次点击取消」与「其他补充」互斥语义。
 .options-hint {
-  margin: 0 0 6px;
-  font-size: 11px;
+  margin: 0 0 8px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--nx-text) 52%, transparent);
 }
 .options {
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
-.option-row {
-  display: grid;
-  gap: 5px;
-}
-.options button {
-  display: grid;
-  gap: 2px;
-  padding: 7px;
+// 选项卡：整卡按钮；选中态整卡高亮；备注行内嵌卡内（Flip 补偿展开）。
+.option-card {
   border: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
-  border-radius: 8px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 4%);
+  &.is-selected {
+    border-color: color-mix(in srgb, var(--nx-green) 64%, transparent);
+    background: color-mix(in srgb, var(--nx-green) 14%, transparent);
+  }
+}
+.option-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 2px 6px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
   background: transparent;
   color: var(--nx-text);
   text-align: left;
   cursor: pointer;
-  &:hover {
-    background: color-mix(in srgb, var(--nx-text) 7%, transparent);
+  &:hover .option-copy b {
+    color: color-mix(in srgb, var(--nx-text) 100%, transparent);
   }
-  &.selected {
-    border-color: color-mix(in srgb, var(--nx-green) 64%, transparent);
-    background: color-mix(in srgb, var(--nx-green) 20%, transparent);
-  }
+}
+// 勾选标记占固定列宽：出现/消失不引起文本位移。
+.option-mark {
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--nx-green);
+  font-size: 12px;
+  text-align: center;
+}
+.option-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
   b {
     font-size: 13px;
     font-weight: 400;
   }
-  span {
+  > span {
     font-size: 12px;
     opacity: 0.72;
   }
 }
+.option-note {
+  padding: 0 8px 8px 32px; // 与 option-copy 文本列对齐
+}
 input {
   box-sizing: border-box;
   width: 100%;
-  margin-top: 6px;
   padding: 7px;
   border: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
-  border-radius: 7px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 8%);
   color: var(--nx-text);
   font-size: 13px;
@@ -677,15 +514,15 @@ input {
     color: color-mix(in srgb, var(--nx-text) 48%, transparent);
   }
 }
-.option-note-input {
-  margin-top: 0;
+.other-input {
+  margin-top: 8px;
 }
 
-// 当前一级任务的操作区：位于该任务内容内部，避免被误解为批量提交所有任务。
-.current-task-actions {
+// ── 底部动作栏：两类任务同位；sticky 贴卡底，滚动时始终可见。 ──
+.action-bar {
   position: sticky;
   z-index: 1;
-  bottom: -2px;
+  bottom: -10px; // 抵消聚焦卡 padding，贴卡底可见
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -695,25 +532,25 @@ input {
   padding: 9px 2px 2px;
   border-top: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
   background: color-mix(in srgb, var(--nx-bg) 96%, var(--nx-text) 4%);
-  .side-progress {
+  .action-progress {
     margin-right: auto;
     color: color-mix(in srgb, var(--nx-text) 58%, transparent);
-    font-size: 10px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
   button {
     min-width: 86px;
     padding: 6px 11px;
     border: 0;
-    border-radius: 8px;
+    border-radius: 0;
     font-size: 13px;
-    font-weight: 400;
     cursor: pointer;
+    // hover 只动 transform/opacity（motion-standard §2.1）
     transition:
       transform 120ms ease,
-      filter 120ms ease;
+      opacity 120ms ease;
     &:hover:not(:disabled) {
       transform: translateY(-1px);
-      filter: brightness(1.04);
     }
     &:disabled {
       opacity: 0.5;
@@ -728,7 +565,6 @@ input {
   .accept {
     background: var(--nx-green);
     color: var(--nx-bg);
-    font-weight: 400;
   }
 }
 
@@ -739,22 +575,9 @@ input {
   font-size: 13px;
 }
 
-@media (max-width: 850px) {
-  .questions {
-    grid-template-columns: 1fr;
-  }
-  .question-step-nav {
-    flex-direction: row;
-    overflow-x: auto;
-    button {
-      flex: 0 0 158px;
-    }
-  }
-}
-
 @supports (color: contrast-color(red)) {
   .pending-panel-count,
-  .current-task-actions .accept {
+  .action-bar .accept {
     color: contrast-color(var(--nx-green));
   }
 }
@@ -763,10 +586,9 @@ input {
   .pending-panel,
   .pending-panel-head,
   .pending-panel-body,
-  .panel-main,
-  .task-nav-btn,
-  fieldset,
-  .options button {
+  .focus-card,
+  .option-card,
+  input {
     border-color: CanvasText;
     background: Canvas;
     color: CanvasText;
