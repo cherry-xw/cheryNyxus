@@ -44,42 +44,17 @@ const activeSummary = computed(() => {
   return chats.catalogSummaries.find((summary) => summary.chatId === chatId)
 })
 
-function openCapability(kind: 'attention' | 'routing' | 'roles' | 'settings'): void {
+function openCapability(kind: 'attention' | 'settings'): void {
   if (kind === 'settings') {
     workspace.settingsOpen = true
     return
   }
-  if (kind === 'attention') {
-    workspace.openOrFocusWindow({
-      resourceKey: 'attention',
-      title: '待操作 // 中断队列',
-      context: { kind: 'attention', presetId: activeSummary.value?.presetId },
-      geometry: { width: 720, height: 520 },
-    })
-    return
-  }
-  if (kind === 'routing' && activeSummary.value) {
-    workspace.openOrFocusWindow({
-      resourceKey: `routing:${activeSummary.value.chatId}`,
-      title: '路由 // 会话追踪',
-      context: { kind: 'routing', chatId: activeSummary.value.chatId },
-      geometry: { width: 760, height: 560 },
-    })
-    return
-  }
-  if (kind === 'roles' && activeSummary.value?.presetId) {
-    workspace.openOrFocusWindow({
-      resourceKey: `roles:${activeSummary.value.presetId}`,
-      title: '角色 // 在编名单',
-      context: { kind: 'roles', presetId: activeSummary.value.presetId },
-      geometry: { width: 720, height: 560 },
-    })
-  }
-}
-
-function openArchive(): void {
-  const chatId = activeSummary.value?.chatId ?? chats.catalogSummaries[0]?.chatId
-  if (chatId) workspace.openHistoryRoot(chatId)
+  workspace.openOrFocusWindow({
+    resourceKey: 'attention',
+    title: '待操作 // 中断队列',
+    context: { kind: 'attention', presetId: activeSummary.value?.presetId },
+    geometry: { width: 720, height: 520 },
+  })
 }
 
 function publish(event: WorkspaceVisualEvent): void {
@@ -155,11 +130,12 @@ onMounted(async () => {
   }
   const validChatIds = new Set(chats.catalogSummaries.map((chat) => chat.chatId))
   workspace.restoreWorkspaceLayout((window) => {
+    // 旧持久化布局可能残留已移除的 routing/roles 能力窗：直接丢弃，不渲染无内容的空窗。
+    const kind: string = window.context.kind
+    if (kind === 'routing' || kind === 'roles') return false
     if (!catalogKnown) return true
     const context = window.context
-    if (context.kind === 'session' || context.kind === 'routing') {
-      return validChatIds.has(context.chatId)
-    }
+    if (context.kind === 'session') return validChatIds.has(context.chatId)
     if (context.kind === 'history') return validChatIds.has(context.rootChatId)
     if (context.kind === 'graph' && context.chatId) return validChatIds.has(context.chatId)
     return true
@@ -267,9 +243,6 @@ function activate(window: WorkspaceWindowState): void {
       <span class="cyber-coordinate" aria-hidden="true">GRID 1920·1080 / SECTOR 07</span>
       <nav class="cyber-launcher" aria-label="系统功能">
         <button type="button" @click="openCapability('attention')">待操作</button>
-        <button type="button" :disabled="!activeSummary" @click="openCapability('routing')">路由</button>
-        <button type="button" :disabled="!activeSummary?.presetId" @click="openCapability('roles')">角色</button>
-        <button type="button" :disabled="!chats.catalogSummaries.length" @click="openArchive">档案</button>
         <button type="button" @click="openCapability('settings')">设置</button>
       </nav>
       <span class="cyber-link" :class="`is-${connection.status}`">

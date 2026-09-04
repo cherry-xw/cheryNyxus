@@ -589,7 +589,7 @@ export function createUiState() {
     for (const window of Object.values(workspaceWindows.value)) {
       const context = window.context
       const chatId =
-        context.kind === 'session' || context.kind === 'routing'
+        context.kind === 'session'
           ? context.chatId
           : context.kind === 'history'
             ? context.rootChatId

@@ -223,9 +223,7 @@ const browserHistoryWindow = computed(() =>
     ),
 )
 const browserCapabilityWindows = computed(() =>
-  workspace.workspaceWindowsList.filter((window) =>
-    ['attention', 'routing', 'roles'].includes(window.context.kind),
-  ),
+  workspace.workspaceWindowsList.filter((window) => window.context.kind === 'attention'),
 )
 const browserWorkbenchWindows = computed(() =>
   workspace.workbenchWindowsList.flatMap((workbench) => {

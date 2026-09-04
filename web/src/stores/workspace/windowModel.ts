@@ -3,8 +3,6 @@ export type WorkspaceWindowKind =
   | 'graph'
   | 'attention'
   | 'history'
-  | 'routing'
-  | 'roles'
   | 'settings'
   | 'diagnostic'
 
@@ -22,8 +20,6 @@ export type WorkspaceWindowContext =
   | { kind: 'graph'; presetId: string; chatId?: string }
   | { kind: 'attention'; presetId?: string }
   | { kind: 'history'; rootChatId: string }
-  | { kind: 'routing'; chatId: string }
-  | { kind: 'roles'; presetId: string }
   | { kind: 'settings'; section?: string }
   | {
       kind: 'diagnostic'
