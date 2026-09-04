@@ -5,7 +5,7 @@ import { readComponentSource } from '../helpers/componentSource'
 /**
  * 登录窗 2026-09 重置 v5（CyberWindow 一致壳 + bug 修复）设计契约：
  * 源码字符串断言（套件惯例，无 jsdom），锁定 CyberWindow 同款标题栏三键、
- * 密文常态隐藏、is-light 黑光切换（无 :global(html:not(.dark))）、细长光束溢出、
+ * 密文默认使用原生 password input、is-light 黑光切换（无 :global(html:not(.dark))）、细长光束溢出、
  * 全直角、token 派生配色、双形态（native / 浮动）与状态机保留。
  */
 describe('login surface redesign contract', () => {
@@ -13,14 +13,12 @@ describe('login surface redesign contract', () => {
     const source = await readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue'))
 
     expect(source).toContain('<div class="rift-panel" :class="{ \'is-error\': !!error }">')
-    // CyberWindow 同款标题栏：AUTH channel 徽记 + signal + 文字三键 + 角括号/扫描线
+    // CyberWindow 同款标题栏：AUTH channel 徽记 + signal + 文字三键 + 角括号
     expect(source).toContain('class="rift-channel">AUTH</span>')
     expect(source).toContain('class="rift-signal"')
     expect(source).toContain('aria-label="最小化"')
     expect(source).toContain('aria-label="关闭"')
     expect(source).toContain('cyber-corners')
-    expect(source).toContain('cyber-scan')
-    expect(source).toContain('cyber-sweep')
     // 三键状态：卷帘最小化 / 最大化，每次打开复位
     expect(source).toContain('const minimized = ref(false)')
     expect(source).toContain('const maximized = ref(false)')
@@ -41,17 +39,24 @@ describe('login surface redesign contract', () => {
     expect(source).toContain('v-if="!native" type="button" class="btn btn--ghost"')
   })
 
-  it('hides the plaintext layer by default and reveals it only under the beam', async () => {
-    const lamp = await readComponentSource(resolve('web/src/features/auth/LampPasswordField.vue'))
+  it('uses one native input and only switches its type when the lamp is toggled', async () => {
+    const [lamp, dialog] = await Promise.all([
+      readComponentSource(resolve('web/src/features/auth/LampPasswordField.vue')),
+      readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue')),
+    ])
 
-    // v5 修复：原文层常态 opacity 0，is-lit 才显形（密文不得常显明文）
-    const plain = lamp.slice(lamp.indexOf('.lamp-plain'), lamp.indexOf('/* —— 锥形显字'))
-    expect(plain).toContain('opacity: 0;')
-    expect(lamp).toContain('.is-lit .lamp-plain {\n  opacity: 1;')
-    // v9 修复：显字层 / caret / label 浮出光柱之上（z 3003，井 overflow 裁在井内），
-    // 深色显形底恢复常态 surface（光色底为 v8 误改）
+    expect(lamp.match(/<input\b/g)).toHaveLength(1)
+    expect(lamp).toContain('v-model="password"')
+    expect(lamp).toContain(":type=\"lit ? 'text' : 'password'\"")
+    expect(lamp).not.toContain(':value=')
+    expect(lamp).not.toContain('{{ modelValue }}')
+    expect(lamp).not.toContain('lamp-plain')
+    expect(lamp).not.toContain('lamp-dots')
+    expect(dialog).toContain("if (!local) return\n  lampLit.value = false\n  password.value = ''")
+    expect(dialog).toContain("lampLit.value = false\n      password.value = ''\n      stopLight()")
+    expect(dialog).toContain("password.value = isLocal.value ? '' : await auth.savedPasswordPlain()")
+    // 亮灯时 input / caret 浮出光柱之上。
     expect(lamp).toContain('z-index: 3003;')
-    expect(lamp).not.toContain('var(--lamp-warm, var(--surface))')
   })
 
   it('switches black light via theme-driven is-light class instead of :global hacks', async () => {
@@ -66,12 +71,11 @@ describe('login surface redesign contract', () => {
     expect(dialog).toContain(':theme="themeStore.theme"')
     expect(dialog).toContain('.is-light .light-cone')
     expect(lamp).toContain("'is-light': props.theme === 'light'")
-    // v8/v9 分层：浅色显形底与黑光同色（ink）；标题栏 z 3004 浮出光上，
-    // body 不设 z-index（避免 stacking context 困住显字层）
-    expect(lamp).toContain('.is-light.is-lit .lamp-plain')
-    expect(lamp).toContain('background: var(--ink);')
+    // 浅色显字与黑光对比；标题栏 z 3004 浮出光上，body 不创建 stacking context。
+    expect(lamp).toContain('.is-light.is-lit .lamp-input')
+    expect(dialog).toContain('background: linear-gradient(to left, var(--ink) 72%, transparent 98%)')
     expect(dialog).toContain('z-index: 3004;')
-    expect(dialog).toContain('不设 z-index（避免创建 stacking context 困住内部显字层）')
+    expect(dialog).toContain('不设 z-index（避免创建 stacking context 困住密码 input）')
     // 不可靠的 :global(html:not(.dark)) 黑光 hack 不得回归
     expect(dialog).not.toContain(':global(html:not(.dark))')
     expect(lamp).not.toContain(':global(html:not(.dark))')
@@ -84,18 +88,18 @@ describe('login surface redesign contract', () => {
     expect(source).toContain('requestAnimationFrame')
     // 光源 = 手电 icon 灯头口（按钮左缘 +14px）
     expect(source).toContain('switchElement')
-    expect(source).toContain('swRect.left - stageRect.left + 14 + trembleX')
-    // 手持抖动（双正弦叠加）+ 光束上下晃动
-    expect(source).toContain('Math.sin(now * 0.013)')
-    expect(source).toContain('Math.sin(now * 0.011)')
-    expect(source).toContain('9 * Math.sin(now * 0.0011)')
-    // 实体光柱：独立光束盒，长度 = 面板宽 ×1.5（--beam-len，右端锚 icon 灯头口），
-    // 不透明段拉过面板左缘（72% 起衰减，窗口内全程实亮）、细长锥形 ±4 → ±34px、低虚化 blur(3px)
+    expect(source).toContain('swRect.left - stageRect.left + 14')
+    // 锚点旋转摆动 + 手电整体轻微浮动
+    expect(source).toContain('Math.sin(now * 0.0002)')
+    expect(source).toContain('Math.sin(now * 0.005)')
+    expect(source).toContain('Math.sin(now * 0.0013)')
+    expect(source).toContain('Math.sin(now * 0.00017)')
+    // 实体光柱：长度和粗细从输入井、按钮尺寸派生，右端锚 icon 灯头口。
     expect(source).toContain('--beam-len')
-    expect(source).toContain('stageRect.width * 1.5')
+    expect(source).toContain('wellRect.width * 0.75')
     expect(source).toContain('linear-gradient(to left, var(--lamp-warm) 72%, transparent 98%)')
-    expect(source).toContain('50% - 34px),')
-    expect(source).toContain('50% + 34px),')
+    expect(source).toContain('50% - var(--beam-half-far, 34px)')
+    expect(source).toContain('50% + var(--beam-half-far, 34px)')
     expect(source).toContain('filter: blur(3px);')
     expect(source).toContain('mix-blend-mode: normal;')
     // 卷帘时暂停光束

@@ -2,7 +2,7 @@
 /**
  * ServerLoginDialog：后端服务对接窗（登录窗 2026-09 重置 v5：「暗房 + 灯」CyberWindow 一致壳）。
  * 视觉规格见 docs/web/auth-login.md；浮动形态窗口 chrome 与 desktop/CyberWindow 完全一致
- * （AUTH channel 徽记 + signal + 文字三键 + 角括号/扫描线装饰层）+ LampPasswordField（显字层）
+ * （AUTH channel 徽记 + signal + 文字三键 + 角括号装饰层）+ LampPasswordField（原生密码框）
  * + rift-light（面板级手电光束覆盖层，光源 = 手电 icon 灯头口）。
  * 三键（弹窗自包含）：最小化 = 卷帘收缩（标题栏恢复）；最大化 = 铺满视口；关闭 = close()。
  * 输入后端服务地址 + 用户名/密码。
@@ -77,6 +77,13 @@ const displayServer = computed(() => auth.serverAddress || address.value || defa
 const isLocal = computed(() => {
   const host = hostOf(normalizeAddress(address.value))
   return host !== '' ? isLoopbackHost(host) : true
+})
+
+// 密码字段离开界面时恢复安全默认值，避免再次切回远端地址后仍以明文类型挂载。
+watch(isLocal, (local) => {
+  if (!local) return
+  lampLit.value = false
+  password.value = ''
 })
 
 /** 先选后测（渲染期前置禁用）：地址必填；远端还需用户名/密码。点击校验保留作纵深防御。 */
@@ -165,12 +172,13 @@ watch(
   async (open) => {
     if (!open) {
       lampLit.value = false
+      password.value = ''
       stopLight()
       return
     }
     address.value = auth.serverAddress || defaultAddress.value
     username.value = auth.savedUsername
-    password.value = await auth.savedPasswordPlain()
+    password.value = isLocal.value ? '' : await auth.savedPasswordPlain()
     rememberPw.value = auth.rememberPassword
     error.value = null
     showRaw.value = false
@@ -268,7 +276,7 @@ function stopLight(): void {
   }
 }
 
-/** 每帧更新光束几何：stage 局部坐标 + 光层偏移注入；显字坐标换算到输入框局部。
+/** 每帧更新光束几何：stage 局部坐标 + 光层偏移注入。
  *  v11 运动学：发射点（灯头口）完全锚定——唯一运动自由度为绕灯头的角度摆动，
  *  只有尾部上下动，无整体平移；粗细/长度从控件实测派生（近端=灯头口、
  *  远端=井高×0.8、长度=灯头至面板左缘+0.75×井宽），浮动/最大化两形态自适应。 */
@@ -284,16 +292,14 @@ function updateLight(now: number): void {
   const well = lampField.value?.wellElement ?? null
   const wellRect = well?.getBoundingClientRect() ?? null
   const style = stage.style
-  const wellTopLocal = wellRect ? wellRect.top - stageRect.top : stageRect.height * 0.55
-
   // 发射点 = 手电 icon 灯头口（按钮内灯头朝左，x ≈ 按钮左缘 +14px）：锚定不随动画移动
   const sw = lampField.value?.switchElement ?? null
   const swRect = sw?.getBoundingClientRect() ?? null
   const srcX = swRect ? swRect.left - stageRect.left + 14 : stageRect.width
   const srcY = swRect ? swRect.top + swRect.height / 2 - stageRect.top : stageRect.height * 0.5
   // 上下角度摆动（唯一旋转动态）：绕灯头 rotate，灯与光同角度刚体旋转（icon 不放大，
-  // 角度零偏差）——±1.5° 慢摆（≈31s）+ 高频角度微抖，幅度上限受显字带文字安全区约束
-  // （井左缘位移 = 井距×tanθ < ±19px；reduced-motion 下静止）。CSS 正角 = 顺时针 = 远端（左）上抬
+  // 角度零偏差）——±1.5° 慢摆（≈31s）+ 高频角度微抖；reduced-motion 下静止。
+  // CSS 正角 = 顺时针 = 远端（左）上抬
   const tiltDeg = prefersReducedMotion
     ? 0
     : 1.5 * Math.sin(now * 0.0002) + 0.4 * Math.sin(now * 0.005) + 0.3 * Math.sin(now * 0.0013)
@@ -312,12 +318,6 @@ function updateLight(now: number): void {
   // 长度派生：从灯头延伸至面板左缘外 0.75×井宽——可见光贯穿窗口并溢出
   const spill = wellRect ? wellRect.width * 0.75 : stageRect.width * 0.6
   style.setProperty('--beam-len', `${Math.round(srcX + spill)}px`)
-  // 显字带坐标：右缘（近灯头）中线 = 发射点高度；左缘（远端）随倾角
-  // （光束中线在井左缘处 y = srcY - d·tanθ）换算到井局部
-  const tiltRad = (tiltDeg * Math.PI) / 180
-  const dLeft = swRect && wellRect ? swRect.left + 14 - wellRect.left : 0
-  style.setProperty('--reveal-y-far', `${srcY + bobY - dLeft * Math.tan(tiltRad) - wellTopLocal}px`)
-  style.setProperty('--reveal-y', `${srcY + bobY - wellTopLocal}px`)
 }
 
 function startLight(): void {
@@ -656,7 +656,7 @@ onBeforeUnmount(stopLight)
   mix-blend-mode: normal;
 }
 
-/* —— CyberWindow 一致壳：--cyber-line 描边 + 辉光 + 角括号 + 扫描线 —— */
+/* —— CyberWindow 一致壳：--cyber-line 描边 + 辉光 + 角括号 —— */
 .rift-panel {
   position: relative;
   /* 显式文字色（v10）：Teleport 到 body 后无 body 级继承来源，深色模式下
@@ -769,16 +769,16 @@ onBeforeUnmount(stopLight)
 }
 .rift-body {
   position: relative;
-  /* 不设 z-index（避免创建 stacking context 困住内部显字层）：
+  /* 不设 z-index（避免创建 stacking context 困住密码 input）：
      光柱（z 3001）压住 body 常规内容（光不被输入框遮挡），
-     仅显字层 / caret / label / 标题栏（z 3003+/3004）浮出光上 */
+     仅密码 input / caret / label / 标题栏（z 3003+/3004）浮出光上 */
   padding: 14px 16px 16px;
   display: flex;
   flex-direction: column;
 }
 
 /* 开灯时（v10 对称显字）：光柱只作背景光层——所有会阅读的内容（字段 label /
-   普通输入框 / 记住密码行 / 按钮 / 错误卡片）整体浮出光柱之上（z 3003，同显字层
+   普通输入框 / 记住密码行 / 按钮 / 错误卡片）整体浮出光柱之上（z 3003，同密码 input
    待遇），任意区域可读；井底 / 面板底仍被光压住（光不被框体遮挡） */
 .is-lit .rift-form .field-label,
 .is-lit .rift-form .rift-input,
