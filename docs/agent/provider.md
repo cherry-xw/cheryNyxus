@@ -207,7 +207,9 @@ resolveProviderUrl(provider, url, { fullUrl, kind }) // kind ∈ 'chat' | 'model
 - ⚠️ 已知边界：anthropic 勾选 fullUrl 后，「刷新模型」请求地址 = 用户填写的完整 URL（须含 `/models` 端点），与 chat 的 `…/v1/messages` 同用一个 `url` 字段**不可兼得**——fullUrl「完全自负责」语义的固有张力，填完整 URL 时按需取舍。
 - ⚠️ 兼容性（2026-08 简化）：**不再自动补版本段**——url 未含版本段的旧配置会失效（如 openai 填 `https://x:11411` 未勾选会请求到 `https://x:11411/chat/completions` 而非 `…/v1/chat/completions`），需在 url 中补上版本段（如 `https://x:11411/v1`）。placeholder 已提示。
 
-- ⚠️ `utils.models` openai SDK 路径的空列表提示（2026-08-28）：openai-node v6 对伪 200（200 + 非 JSON，如网关 SPA 回退页）**不抛错**——`src/internal/parse.ts` 把非 JSON 体原样当文本返回，分页层 `body.data || []` 兜成空数组，与「真返回空列表」不可区分。因此 SDK 路径拿到空列表时返回 error 文案，提示**地址末尾补版本段（如 /v1）后重试**（也可手填模型名）。
+- ⚠️ `utils.models` openai SDK 路径的端点兼容、200 错误与空列表提示（2026-09-04）：用户填写的 URL 已以 `/models` 结尾时，无论 `fullUrl` 是否勾选，均以原生 fetch 原样请求，避免 SDK 再次拼接为 `/models/models`。其余非完整 URL 仍由 SDK 拼端点，并通过 `asResponse()` 读取原始 2xx 响应：若网关以 HTTP 200 返回 `error.message`、字符串 `error` 或顶层 `message`，返回「原始错误；排查建议」供前端同时展示；真空 `data` 仍提示**地址末尾补版本段（如 /v1）后重试**（也可手填模型名），并附实际请求地址；非 JSON 响应也附带不超过 200 字符的原文摘要。
+
+- ⚠️ `utils.models` 错误透传——「猜测说明 + 原始错误」（2026-09-04）：诊断接口 Fail Loud，`handleUtilsModels` 外层 catch 不再把原始错误只丢进日志、给前端仅返回 `friendlyMessage` 泛化文案，改为**拼装透传**：`{猜测说明}（原始错误：{err.message}）`——前半是按 `classifyError` 类别映射的中文猜测说明，括号内保留原始错误内容（openai-node v6 的 `APIError.message` 本身已含 `status + 上游 error.message`，见其 `core/error.mjs` 的 `makeMessage`；ollama 连接错误为英文原文）。配套两处补齐：openai **fullUrl 分支非 2xx** 从 `upstream {status}`（丢弃响应体）改为 `接口返回 {status}：{readErrorSnippet 200 字符摘要}`，与 anthropic 原生路径同款格式；snippet 拼装前压平换行，避免前端 tooltip 多行渲染异常。原始 message 仍照旧写日志（`utils.models.error`）供 tracingId 检索。
 
 #### anthropic 模型列表双尝试（2026-08-28）
 

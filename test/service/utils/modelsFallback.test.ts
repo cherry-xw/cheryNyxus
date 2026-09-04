@@ -140,6 +140,47 @@ describe('utils.models openai SDK 路径空列表提示', () => {
     expect(res.models).toEqual([])
     expect(res.error).toContain('未获取到任何模型')
     expect(res.error).toContain('/v1')
+    expect(res.error).toContain('实际请求地址：https://gw.example.com/models')
+  })
+
+  it('地址已包含 /models 且 fullUrl=false → 原样请求，不重复拼接端点', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: 'zhimou-model' }] }))
+    const res = await handleUtilsModels(ctx, {
+      provider: 'openai',
+      url: 'http://zhimoupre.gildata.com:8882/v1/models',
+      key: 'resolved-api-key',
+    })
+
+    expect(res.error).toBeUndefined()
+    expect(res.models).toEqual([{ id: 'zhimou-model', name: 'zhimou-model', ownedBy: undefined }])
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://zhimoupre.gildata.com:8882/v1/models',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer resolved-api-key' },
+      }),
+    )
+  })
+
+  it('SDK 收到 200 错误对象 → 同时返回原始错误与空列表排查建议', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        error: {
+          message: '分组 智眸 已被弃用 (request id: 202609040608370991724578268d9d6XpdAVxH3)',
+        },
+      }),
+    )
+    const res = await handleUtilsModels(ctx, {
+      provider: 'openai',
+      url: 'https://gw.example.com/v1',
+      key: 'sk-test',
+    })
+    expect(res.models).toEqual([])
+    expect(res.error).toContain(
+      '请求发生错误: 分组 智眸 已被弃用 (request id: 202609040608370991724578268d9d6XpdAVxH3)',
+    )
+    expect(res.error).toContain('排查建议：未获取到任何模型')
+    expect(res.error).toContain('/v1')
   })
 
   it('SDK 返回非空列表 → 正常返回，无提示', async () => {
@@ -151,6 +192,67 @@ describe('utils.models openai SDK 路径空列表提示', () => {
     })
     expect(res.error).toBeUndefined()
     expect(res.models).toEqual([{ id: 'gpt-4o', name: 'gpt-4o', ownedBy: 'system' }])
+  })
+
+  it('成功响应带顶层 message 字段 → 不误报错误，正常返回列表', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ object: 'list', data: [{ id: 'm1' }], message: 'ok' }),
+    )
+    const res = await handleUtilsModels(ctx, {
+      provider: 'openai',
+      url: 'https://api.openai.com/v1',
+      key: 'sk-test',
+    })
+    expect(res.error).toBeUndefined()
+    expect(res.models).toEqual([{ id: 'm1', name: 'm1', ownedBy: undefined }])
+  })
+})
+
+describe('utils.models 错误透传（猜测说明 + 原始错误）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('openai fullUrl 非 2xx → 猜测说明 + 接口状态 + 响应体片段（换行压平）', async () => {
+    // 响应体含换行：验证外层 catch 拼装前压平（docs/agent/provider.md「utils.models 错误透传」）
+    fetchMock.mockResolvedValue(
+      new Response('{\n  "error": {\n    "message": "Incorrect API key"\n  }\n}', {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    const res = await handleUtilsModels(ctx, {
+      provider: 'openai',
+      url: 'https://gw.example.com/v1/chat/completions',
+      key: 'sk-test',
+      fullUrl: true,
+    })
+    expect(res.models).toEqual([])
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(res.error).toContain('大脑的钥匙不对')
+    expect(res.error).toContain('原始错误')
+    expect(res.error).toContain('接口返回 401')
+    expect(res.error).toContain('Incorrect API key')
+    expect(res.error).not.toContain('\n')
+  })
+
+  it('openai SDK 路径非 2xx → 猜测说明 + SDK 原始错误（status + 上游 message）', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: { message: 'Incorrect API key provided' } }, 401),
+    )
+    const res = await handleUtilsModels(ctx, {
+      provider: 'openai',
+      url: 'https://api.openai.com/v1',
+      key: 'sk-bad',
+    })
+    expect(res.models).toEqual([])
+    expect(res.error).toContain('大脑的钥匙不对')
+    expect(res.error).toContain('原始错误：401 Incorrect API key provided')
   })
 })
 
