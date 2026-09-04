@@ -1,17 +1,13 @@
 <script setup lang="ts">
 /**
- * LampPasswordField：密码显字层（登录窗 2026-09 重置 v3）。
- * 面板级手电光束（rift-light）由 ServerLoginDialog 驱动，光源即本组件右侧的
- * 手电筒开关按钮；本组件只保留显字三层：透明文字 input（caret 可见）→ 圆点层
- * → 原文层（灯光区域经锥形 clip-path 显形，中线随父级注入的 var(--reveal-y) 晃动）。
- * 配色（v10 对称显字：暗底浅光深字 ↔ 亮底黑光浅字）：显字层无自带底块——
- * 光柱本体即显字底，深色模式显字 = 暖光柱上反深字（--bg）；浅色黑光上反白字（ink 派生）。
+ * LampPasswordField：带手电开关的原生密码输入框。
+ * 灯灭时 input 为 password，灯亮时才切换为 text；使用 v-model 更新 input property，
+ * 不把密码写进 value 属性，也不复制到普通 DOM 文本层。
  */
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 
 const props = withDefaults(
   defineProps<{
-    modelValue: string
     lit?: boolean
     disabled?: boolean
     autocomplete?: string
@@ -20,20 +16,14 @@ const props = withDefaults(
   }>(),
   { lit: false, disabled: false, autocomplete: 'current-password', theme: 'dark' },
 )
+const password = defineModel<string>({ required: true })
 const emit = defineEmits<{
-  (e: 'update:modelValue', v: string): void
   (e: 'update:lit', v: boolean): void
 }>()
 
 const wellRef = ref<HTMLElement | null>(null)
 const switchRef = ref<HTMLButtonElement | null>(null)
 const focused = ref(false)
-
-const dots = computed(() => '•'.repeat([...props.modelValue].length))
-
-function onInput(e: Event): void {
-  emit('update:modelValue', (e.target as HTMLInputElement).value)
-}
 
 defineExpose({ wellElement: wellRef, switchElement: switchRef })
 </script>
@@ -46,17 +36,15 @@ defineExpose({ wellElement: wellRef, switchElement: switchRef })
     <span class="lamp-label">密码</span>
     <div class="lamp-row">
       <div ref="wellRef" class="lamp-well">
-        <div class="lamp-layer lamp-dots" aria-hidden="true">{{ dots }}</div>
-        <div class="lamp-layer lamp-plain" aria-hidden="true">{{ modelValue }}</div>
         <input
+          v-model="password"
           class="lamp-input"
-          type="text"
-          :value="modelValue"
+          :type="lit ? 'text' : 'password'"
           :disabled="disabled"
           :autocomplete="autocomplete"
           aria-label="密码"
+          autocapitalize="none"
           spellcheck="false"
-          @input="onInput"
           @focus="focused = true"
           @blur="focused = false"
         />
@@ -126,51 +114,7 @@ defineExpose({ wellElement: wellRef, switchElement: switchRef })
   border-color: var(--border-strong);
 }
 
-/* —— 文字层（与 input 严格同字体同内边距，mono 保证逐字符对齐） —— */
-.lamp-layer {
-  position: absolute;
-  inset: 0;
-  padding: 10px 12px;
-  font: 400 15px/22px var(--font-mono, monospace);
-  white-space: pre;
-  overflow: hidden;
-  pointer-events: none;
-}
-.lamp-dots {
-  color: color-mix(in srgb, var(--ink) 45%, transparent);
-}
-/* 原文层：常态不可见（v5 修复——此前漏了默认隐藏导致密文常显明文）。
-   亮灯时整层提到光柱之上（z 3003 > rift-light 3001，被井 overflow 裁在井内）。
-   v10：无自带底块——光柱本体即显字底（废弃 surface 深色底块，消除"浅光上叠深光"
-   且底块被井边硬裁成"光被输入框遮挡"的伪影）；深色模式 = 暖光柱上反深字（--bg），
-   浅色模式由 .is-light 反白 */
-.lamp-plain {
-  color: var(--bg);
-  opacity: 0;
-  z-index: 1;
-  transition: opacity 0.2s ease;
-}
-
-/* —— 锥形显字：右细左粗；右缘（近灯头）中线随 var(--reveal-y)、半高随光束近端
-   var(--beam-half-near)，左缘（远端）中线随 var(--reveal-y-far)、半高随光束远端
-   var(--beam-half-far)（父级 rAF 注入，局部坐标）——摆动/缩放时显字带均不脱节 —— */
-.is-lit .lamp-plain {
-  opacity: 1;
-  z-index: 3003;
-  clip-path: polygon(
-    100% calc(var(--reveal-y, 22px) - var(--beam-half-near, 4px)),
-    0 calc(var(--reveal-y-far, var(--reveal-y, 22px)) - var(--beam-half-far, 34px) * 0.88),
-    0 calc(var(--reveal-y-far, var(--reveal-y, 22px)) + var(--beam-half-far, 34px) * 0.88),
-    100% calc(var(--reveal-y, 22px) + var(--beam-half-near, 4px))
-  );
-}
-
-/* —— 浅色模式：黑光——白字直接浮在黑光柱上（theme prop 驱动，纯 scoped；v10 起同样无底块） —— */
-.is-light.is-lit .lamp-plain {
-  color: color-mix(in srgb, white 92%, var(--accent));
-}
-
-/* —— 真实 input：文字透明仅 caret，置顶接收交互；开灯时同层提到光上，caret 不被光吞 —— */
+/* —— 单一原生 input：灯开关只切换 type=password/text —— */
 .lamp-input {
   position: absolute;
   inset: 0;
@@ -181,13 +125,17 @@ defineExpose({ wellElement: wellRef, switchElement: switchRef })
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: transparent;
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
   caret-color: var(--accent);
   font: 400 15px/22px var(--font-mono, monospace);
   outline: none;
 }
 .is-lit .lamp-input {
   z-index: 3003;
+  color: var(--bg);
+}
+.is-light.is-lit .lamp-input {
+  color: color-mix(in srgb, white 92%, var(--accent));
 }
 .lamp-input::placeholder {
   color: color-mix(in srgb, var(--ink) 38%, transparent);
