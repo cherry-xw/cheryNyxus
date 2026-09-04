@@ -125,6 +125,21 @@
   border-bottom: 4px solid;
 }
 
+/* 过程组含隐藏错误（containsHiddenError）：亮色外圈层换错误红 + 光晕，角饰同步变红；深棕内框与纸面不变。 */
+.paper-game-card.is-error-group .game-card-face {
+  --card-accent-bright: #ff8fa3;
+  box-shadow:
+    0 0 0 2px #ff8fa3,
+    0 0 12px color-mix(in srgb, #ff718c 60%, transparent),
+    0 0 0 6px #2b1b0f,
+    inset 0 0 0 4px color-mix(in srgb, var(--card-paper-dark) 56%, transparent),
+    inset 0 0 38px rgba(58, 32, 14, 0.22);
+}
+.paper-game-card.is-error-group .game-card-face::before,
+.paper-game-card.is-error-group .game-card-face::after {
+  border-color: #ff8fa3;
+}
+
 .scroll-roller {
   position: absolute;
   z-index: 9;

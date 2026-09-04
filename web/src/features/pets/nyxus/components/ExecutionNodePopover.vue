@@ -5,7 +5,6 @@ import { useExecutionNodePopoverController, type ExecutionNodePopoverControllerP
 import { useGsap } from '@/composables/useGsap'
 import { useMotionPreference } from '@/composables/useMotionPreference'
 import { MOTION } from '@/utils/gsapCore'
-import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import RiskBadge from '@/components/RiskBadge.vue'
 const props = defineProps<ExecutionNodePopoverControllerProps>()
@@ -56,7 +55,7 @@ useGsap(popoverRoot, (context) => {
     class="node-popover"
     :class="[
       `is-${variant ?? 'popover'}`,
-      { 'is-pinned': pinned, 'is-actionable': approval || question, 'is-wrap': wrap },
+      { 'is-pinned': pinned, 'is-actionable': question, 'is-wrap': wrap },
     ]"
     :style="{ maxHeight: `${maxHeight}px` }"
     role="dialog"
@@ -79,7 +78,7 @@ useGsap(popoverRoot, (context) => {
         <span v-if="!batch" class="status-pill" :class="`status-${node.status}`">
           {{ nodeStatus }}
         </span>
-        <div v-if="canBranch && !approval && !question" class="branch-head-actions" role="group" aria-label="从此节点发起对话">
+        <div v-if="canBranch && !question" class="branch-head-actions" role="group" aria-label="从此节点发起对话">
           <span class="branch-action-wrap">
             <button
               type="button"
@@ -156,7 +155,6 @@ useGsap(popoverRoot, (context) => {
     </div>
 
     <div class="popover-body">
-      <ApprovalCard v-if="approval && chatId" :approval="approval" :chat-id="chatId" />
       <!-- 询问节点（question 场景）：标题 → 思考 → 正文 → tabs(指示器) → 选项区+操作。
            tabs 高亮由当前活动问题（activeQuestionCall）联动，"下一步"推进后高亮跟走；
            点击 tab 不切换问题内容（问题只由"下一步"实质切换）。 -->

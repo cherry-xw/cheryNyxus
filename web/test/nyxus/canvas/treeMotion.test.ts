@@ -224,9 +224,8 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('glyph.alpha = alpha')
     expect(source).toContain('title.alpha = alpha')
     expect(source).toContain('termination.alpha = alpha')
-    // 新 Signal 外框用底部密度短格表达 foldCount，不在图标或文字层绘制数字。
-    expect(source).toContain('Math.min(6, Math.max(2, Math.ceil(Math.log2(node.foldCount + 1))))')
-    expect(source).not.toContain('foldCount.alpha = alpha')
+    expect(source).toContain('text: String(node.foldCount)')
+    expect(source).toContain('foldCount.alpha = alpha')
     expect(source).toContain('const emphasis = emphasisAlpha(edge.deemphasized, edge.detailBranch)')
     expect(source).toContain('const emphasis = emphasisAlpha(node.deemphasized, node.detailBranch)')
   })

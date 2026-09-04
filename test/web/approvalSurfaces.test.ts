@@ -30,4 +30,30 @@ describe('approval presentation surfaces', () => {
       /approval_timeout\s*!==\s*undefined\s*\?\s*config\.global\.approval_timeout\s*:\s*300000/,
     )
   })
+
+  it('keeps pending decisions out of node-tree popovers and paper cards', () => {
+    const nodeTreeSurfaces = [
+      'web/src/features/pets/nyxus/components/ExecutionNodePopover.vue',
+      'web/src/features/pets/nyxus/components/NodePaperStack.vue',
+      'web/src/features/pets/nyxus/components/PaperGameCard.vue',
+    ]
+    for (const file of nodeTreeSurfaces) {
+      const view = source(file)
+      expect(view, file).not.toContain('ApprovalCard')
+      expect(view, file).not.toMatch(/\bapprovalNodeId\b/)
+    }
+    for (const file of nodeTreeSurfaces.slice(1)) {
+      const view = source(file)
+      expect(view, file).not.toContain('QuestionCard')
+      expect(view, file).not.toMatch(/\bquestionNodeId\b/)
+    }
+
+    const controller = source(
+      'web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts',
+    )
+    expect(controller).toContain('if (model.approval || model.question) return []')
+    expect(source('web/src/features/pets/nyxus/components/MessageBranchTree.vue')).not.toContain(
+      'activePaperQuestionPopover',
+    )
+  })
 })

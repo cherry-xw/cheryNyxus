@@ -16,6 +16,7 @@ function scene(): PixiExecutionScene {
         detailActive: false,
         paused: false,
         error: false,
+        containsErrorMessage: false,
         revoked: false,
         deemphasized: false,
         detailBranch: false,
@@ -77,6 +78,14 @@ describe('Pixi execution scene signature', () => {
 
     expect(executionSceneSignature(detailNode)).not.toBe(executionSceneSignature(before))
     expect(executionSceneSignature(detailEdge)).not.toBe(executionSceneSignature(before))
+  })
+
+  it('changes when a process group gains an error-message outline', () => {
+    const before = scene()
+    const after = scene()
+    after.nodes[0]!.containsErrorMessage = true
+
+    expect(executionSceneSignature(after)).not.toBe(executionSceneSignature(before))
   })
 
   it('stays stable for equivalent scenes', () => {

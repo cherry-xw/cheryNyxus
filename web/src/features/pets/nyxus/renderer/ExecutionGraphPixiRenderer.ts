@@ -45,6 +45,8 @@ export interface PixiExecutionNode {
   branchAnchorKind?: 'detail' | 'continuation'
   paused: boolean
   error: boolean
+  /** The process group contains a hidden error message; only its outer frame turns red. */
+  containsErrorMessage: boolean
   revoked: boolean
   deemphasized: boolean
   detailBranch: boolean
@@ -533,6 +535,7 @@ export class ExecutionGraphPixiRenderer {
           node.accent,
           node.paused,
           node.error,
+          node.containsErrorMessage,
           node.revoked,
           node.detailActive,
           node.branchAnchorKind ?? '',
@@ -682,6 +685,15 @@ export class ExecutionGraphPixiRenderer {
           .circle(node.x, node.y, 19)
           .stroke({ color: stateColor, width: 2, alpha: 0.9 * alpha })
       }
+      if (node.containsErrorMessage) {
+        // 过程组含隐藏错误：加粗红圈 + 外圈低幅光晕，让折叠后的故障一眼可辨。
+        this.staticNodes
+          .circle(node.x, node.y, 19)
+          .stroke({ color: p.stateError, width: 3.2, alpha: 0.95 * alpha })
+        this.staticNodes
+          .circle(node.x, node.y, 23)
+          .stroke({ color: p.stateError, width: 1.5, alpha: 0.38 * alpha })
+      }
       if (node.branchAnchorKind) {
         const markerColor = colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
         this.staticNodes
@@ -733,10 +745,21 @@ export class ExecutionGraphPixiRenderer {
         : node.paused
           ? p.statePaused
           : accent
+    const outerFrameAccent = node.containsErrorMessage ? p.stateError : stateAccent
 
+    // 含隐藏错误的过程组：外框加粗拉满并附加一圈低幅光晕；常规节点维持细外框。
     graphics
       .roundRect(left - 4, top - 4, size.width + 8, size.height + 8, 2)
-      .stroke({ color: stateAccent, width: 1.25, alpha: 0.58 * alpha })
+      .stroke({
+        color: outerFrameAccent,
+        width: node.containsErrorMessage ? 2.6 : 1.25,
+        alpha: (node.containsErrorMessage ? 1 : 0.9) * alpha,
+      })
+    if (node.containsErrorMessage) {
+      graphics
+        .roundRect(left - 8, top - 8, size.width + 16, size.height + 16, 2)
+        .stroke({ color: outerFrameAccent, width: 1.4, alpha: 0.38 * alpha })
+    }
     graphics
       .roundRect(left, top, size.width, size.height, 2)
       .fill({ color: p.nodeFill, alpha: 0.92 * alpha })
@@ -797,13 +820,10 @@ export class ExecutionGraphPixiRenderer {
         .stroke({ color: stateColor, width: 1.4, alpha: 0.82 * alpha })
     }
     if (node.foldCount) {
-      const ticks = Math.min(6, Math.max(2, Math.ceil(Math.log2(node.foldCount + 1))))
-      for (let index = 0; index < ticks; index += 1) {
-        graphics.rect(left + 8 + index * 5, top + size.height - 7, 3, 2).fill({
-          color: stateAccent,
-          alpha: (0.35 + index / ticks / 2) * alpha,
-        })
-      }
+      const badgeX = left + size.width - 2
+      const badgeY = top + 2
+      graphics.circle(badgeX, badgeY, 8).fill({ color: p.nodeFill, alpha: 0.95 * alpha })
+      graphics.circle(badgeX, badgeY, 8).stroke({ color: accent, width: 1, alpha })
     }
   }
 
@@ -858,6 +878,27 @@ export class ExecutionGraphPixiRenderer {
     const resolution = this.labelResolution
     const signal = this.scene.presentation === 'horizontal-signal'
     for (const node of this.scene.nodes) {
+      const alpha = emphasisAlpha(node.deemphasized, node.detailBranch)
+      if (node.foldCount) {
+        const size = signal ? signalNodeSizeFor(node.visualKind ?? 'fold') : undefined
+        const foldCount = new Text({
+          text: String(node.foldCount),
+          anchor: 0.5,
+          position: {
+            x: signal ? node.x + size!.width / 2 - 2 : node.x + 12,
+            y: signal ? node.y - size!.height / 2 + 2 : node.y - 12,
+          },
+          style: {
+            fill: p.foldCount,
+            fontFamily: 'ui-monospace, monospace',
+            fontSize: String(node.foldCount).length > 2 ? 7 : 9,
+            fontWeight: '700',
+          },
+          resolution,
+        })
+        foldCount.alpha = alpha
+        this.labels.addChild(foldCount)
+      }
       if (signal) {
         continue
       }
@@ -887,7 +928,6 @@ export class ExecutionGraphPixiRenderer {
         },
         resolution,
       })
-      const alpha = emphasisAlpha(node.deemphasized, node.detailBranch)
       glyph.alpha = alpha
       title.alpha = alpha
       this.labels.addChild(glyph)

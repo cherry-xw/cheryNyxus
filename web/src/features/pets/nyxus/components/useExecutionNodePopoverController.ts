@@ -6,7 +6,6 @@ import {
   parseQuestionArgs,
 } from '@/features/agent/renderers/core/questionDisplay'
 import { useNyxusHost } from '../application/host'
-import type { ApprovalState } from '@/domain/chat/projectionTypes'
 import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 import { formatTime } from '@/utils/formatTime'
 import { createToolRunPresentation } from '@/utils/approvalPresentation'
@@ -33,7 +32,6 @@ export type ExecutionNodePopoverControllerProps = {
   maxHeight: number
   selectedCallId?: string
   chatId?: string
-  approval?: ApprovalState
   question?: NodePopoverQuestion
   detailBranchAvailable?: boolean
   detailBranchUnavailableReason?: string
@@ -134,23 +132,37 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   
   const copiedFieldKey = ref('')
   
-  // ── 标题栏拖拽（常驻弹窗）：pointer-capture 模式，drag emit 上报增量位移 ──
+  // ── 标题栏拖拽：pointer-capture 模式，超过阈值后才上报位移 ──
   
   let dragPointerId = -1
   
+  let dragStartX = 0
+
+  let dragStartY = 0
+
   let dragX = 0
   
   let dragY = 0
+
+  let dragStarted = false
+
+  const DRAG_START_DISTANCE = 4
   
   function onHeaderPointerDown(event: PointerEvent): void {
   
-    if (!props.draggable) return
+    if (!props.draggable || event.button !== 0) return
+
+    const target = event.target as Element | null
+
+    if (target?.closest('button, a, input, textarea, select, [role="button"]')) return
   
     dragPointerId = event.pointerId
   
-    dragX = event.clientX
+    dragStartX = dragX = event.clientX
   
-    dragY = event.clientY
+    dragStartY = dragY = event.clientY
+
+    dragStarted = false
   
     ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
   
@@ -159,6 +171,16 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   function onHeaderPointerMove(event: PointerEvent): void {
   
     if (event.pointerId !== dragPointerId) return
+
+    if (
+
+      !dragStarted &&
+
+      Math.hypot(event.clientX - dragStartX, event.clientY - dragStartY) < DRAG_START_DISTANCE
+
+    ) return
+
+    dragStarted = true
   
     emit('drag', { x: event.clientX - dragX, y: event.clientY - dragY })
   
@@ -178,7 +200,9 @@ export function useExecutionNodePopoverController(props: ExecutionNodePopoverCon
   
     dragPointerId = -1
 
-    emit('dragEnd')
+    if (dragStarted) emit('dragEnd')
+
+    dragStarted = false
 
   }
   
