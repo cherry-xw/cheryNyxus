@@ -75,7 +75,7 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
 工作台历史抽屉（`openHistory` 经 `openHistoryRoot(id, 'workbench-docked', anchor)` 打开）标题栏的级联下拉与「设为主流程」按钮（`HistoryDrawerPanel.vue`）：
 
 - **级联下拉结构与显示条件**（`cascadeOptions` / `dropdownAsTitle`，`HistoryDrawerPanel.vue`）按 `historyDrawerMode` 分家：
-  - **workbench-docked（工作台）**：下拉**恒显示**（`dropdownAsTitle` 恒 true，即使单分支）；选项平铺当前任务分支为**一级**（`orderedTaskBranches` 按 `branchOptionLabel` 打标：主流程/继续/解释，`checkStrictly` 可点解释分支切换查看）。解释分支对话仅经此一级选项可达。**无任务分支的会话**（非任务会话 / 分支已清空）仅显示当前会话单选项，绝不退化两级跨任务；`taskBranches` 注入值按 `branch.taskId` 归属过滤（`switchSession` 切会话不更新全局 `historyDrawerTaskBranches`，残留分支不泄漏到别的任务）。
+  - **workbench-docked（工作台）**：下拉**恒显示**（`dropdownAsTitle` 恒 true，即使单分支）；打开时优先选中 `activeBranchId` 对应的主流程，选项平铺当前任务分支为**一级**（`orderedTaskBranches` 按 `branchOptionLabel` 打标：主流程/继续/解释，`checkStrictly` 可点解释分支切换查看）。解释分支对话仅经此一级选项可达。任务身份优先取 `ChatSummary.taskId`，当精简会话目录未包含当前分支时，从工作台注入的 `historyDrawerTaskBranches` 按 `chatId` 恢复，避免错误退化为日期时间标签。**无任务分支的会话**（非任务会话 / 分支已清空）仅显示当前会话单选项，绝不退化两级跨任务；`taskBranches` 注入值按 `branch.taskId` 归属过滤（`switchSession` 切会话不更新全局 `historyDrawerTaskBranches`，残留分支不泄漏到别的任务）。
   - **overlay（全局抽屉）**：保持**两级**（一级=任务组、二级=分支会话）；**二级去除解释分支**——当前任务二级 `orderedTaskBranches` 过滤 `kind !== 'detail'`，其他任务二级过滤 `branchKind !== 'detail'`。解释分支对话不在此入口显示，仍可经节点树 / 工作台等入口访问。
   - **显示条件**：dock 恒显；overlay 为 `layout === 'group'` 且（同 preset 可切换 root 会话 >1 **或** 任务分支数 >1），且当前 chat 非解释分支（overlay 打开解释分支会话时值不在二级选项中，降为静态标题 `titleText`）。
 - **下拉切换保持锚定**：`onSwitchCascade` 切根时透传当前 `historyDrawerMode` + `historyDrawerAnchor`（`manager.openRoot(cid, mode, anchor)`），dock 抽屉切分支后仍保持 dock 锚定，不回退 overlay。

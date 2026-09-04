@@ -34,6 +34,7 @@ import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
 import NyxusSessionList from './NyxusSessionList.vue'
 import { useWorkbenchViewPreferences, type FoldMode } from './useWorkbenchViewPreferences'
 import { visualEventWindow } from '@/features/desktop/visualEvents'
+import { resolveTaskDrawerChatId } from '../drawer/historyBranchSelection'
 
 export type WorkbenchDialogControllerProps = {
   windowId: string
@@ -652,11 +653,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     await handleSend(targetChatId, { keepOpen: true })
     if (text.value) nyxusDraftActive.value = true
   }
-  /** 查看 Nyxus 会话完整对话历史：打开根历史抽屉（与 PetStage 同款；panel 挂载自动 loadHistory）。 */
+  /** 查看档案（Nyxus 会话完整对话历史）：打开根历史抽屉（与 PetStage 同款；panel 挂载自动 loadHistory）。 */
   function openHistory(): void {
-    const id =
-      taskTimeline.value?.branches?.find((branch) => branch.kind === 'original')?.chatId ??
-      chatId.value
+    const id = resolveTaskDrawerChatId(taskTimeline.value, chatId.value)
     if (!id) return
     agents.historyDrawerTaskBranches = taskTimeline.value?.branches ?? []
     agents.openHistoryRoot(id, 'workbench-docked', workbenchDrawerAnchor())

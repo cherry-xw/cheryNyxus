@@ -43,6 +43,7 @@ import { agentApi } from '@/application/backend/public'
 import type { GenerationPayload } from '@/application/chat/public'
 import { useChatSessionData, toHistoryItem } from '@/application/chat/public'
 import { detailBranchContextNodes } from './detailBranchContext'
+import { resolveHistoryTaskId } from './historyBranchSelection'
 
 export type HistoryDrawerPanelControllerProps = {
   /** 本面板要展示的 chat。 */
@@ -210,7 +211,13 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   }
   const taskBranches = ref<ConversationBranchSummary[]>([])
   const taskTimeline = ref<RootTimelineSnapshot>()
-  const taskId = computed(() => agents.summaryForChat(props.chatId)?.taskId)
+  const taskId = computed(() =>
+    resolveHistoryTaskId(
+      props.chatId,
+      agents.summaryForChat(props.chatId)?.taskId,
+      agents.historyDrawerTaskBranches,
+    ),
+  )
   watch(
     taskId,
     (id) => {
