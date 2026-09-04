@@ -89,7 +89,19 @@ describe('modelCatalog', () => {
       recommend: { contextLimit: 128_000, thinking: 'on' },
       thinkingLevels: ['off', 'on'],
     })
+    expect(
+      catalog.resolveModelCatalog({
+        model: 'xxx-glm-5.2',
+        protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+      }),
+    ).toMatchObject({
+      id: 'zhipu-glm-5.2',
+      recommend: { contextLimit: 128_000, thinking: 'on' },
+      thinkingLevels: ['off', 'on'],
+    })
+    expect(catalog.resolveModelCatalog({ model: 'glm5_1-relay' }).id).toBe('zhipu-glm-5.1')
     expect(catalog.resolveModelCatalog({ model: 'deepseek-v4.1' }).matched).toBe(false)
+    expect(catalog.resolveModelCatalog({ model: 'glm-5.10' }).matched).toBe(false)
     expect(catalog.resolveModelCatalog({ model: 'gpt-5.60' }).matched).toBe(false)
   })
 
