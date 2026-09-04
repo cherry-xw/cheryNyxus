@@ -97,13 +97,19 @@ export async function handleUtilsModels(
         }
     }
   } catch (err) {
-    // 复用 chat 路径的分类 + 中文友好文案（不要把 OpenAI SDK 抛的英文 'Connection error.'
-    // 透传给前端）。日志面保留原始 message 供 tracingId 检索。
-    const message = err instanceof Error ? err.message : String(err)
+    // 诊断接口 Fail Loud：前半是分类后的中文猜测说明（friendlyMessage），括号内透传原始错误
+    // （openai-node v6 的 APIError.message 已含 status + 上游 error.message；ollama 为连接错误原文），
+    // 不再只给前端泛化文案、把原始错误丢进日志。换行压平，避免前端 tooltip 多行渲染异常；
+    // 日志面仍保留原始 message 供 tracingId 检索。
+    const raw = err instanceof Error ? err.message : String(err)
+    const message = raw.replace(/\s+/g, ' ').trim()
     const category = classifyError(err)
     const userMessage = friendlyMessage(category, 'brain')
     logger.event('utils.models.error', { provider, url, error: message, category }, LogLevel.warn)
-    return { models: [], error: userMessage }
+    return {
+      models: [],
+      error: message ? `${userMessage}（原始错误：${message}）` : userMessage,
+    }
   }
 }
 
@@ -211,45 +217,119 @@ async function fetchOpenAIModels(
         '未配置密钥（OpenAI 兼容服务一般需要 Authorization Bearer 头；本地 LM Studio / vLLM / Ollama OpenAI 模式等服务不校验，填任意非空字符串即可，如 `lm-studio`）',
     }
   }
-  if (fullUrl) {
-    // fullUrl=true：绕开 SDK（SDK 会拼 /models），原生 fetch 直接请求用户填写的 URL——
-    // 实际请求 = 用户值本身，与 chat 的 fullUrl 语义一致（docs/agent/provider.md「URL 解析与端点拼接」）。
+  if (fullUrl || isModelsEndpointUrl(url)) {
+    // fullUrl=true，或用户已经明确填写 /models 端点：绕开会再次拼 /models 的 SDK，原样请求。
+    // 后一种兼容避免 https://host/v1/models 被错误请求成 https://host/v1/models/models。
     const res = await fetch(url, {
       headers: key ? { Authorization: `Bearer ${key}` } : undefined,
     })
-    if (!res.ok) throw new Error(`upstream ${res.status}`)
-    const json = (await res.json()) as { data?: Array<{ id: string; owned_by?: string }> }
-    return {
-      models: (json.data ?? []).map((m) => ({
-        id: m.id,
-        name: m.id,
-        ownedBy: m.owned_by,
-      })),
+    if (!res.ok) {
+      // 非 2xx：带上响应体摘要再抛（此前只抛 status、丢弃上游错误响应体），外层 catch 统一拼装透传
+      const snippet = await readErrorSnippet(res)
+      throw new Error(`接口返回 ${res.status}：${snippet}`)
     }
+    return await parseOpenAIModelsResponse(res, url)
   }
   // 未勾选：SDK 自拼 /models，baseURL 原样（版本段由用户填写，见 resolveProviderUrl）
+  const baseUrl = resolveProviderUrl(provider, url, { fullUrl: false, kind: 'models' })
   const client = new OpenAI({
-    baseURL: resolveProviderUrl(provider, url, { fullUrl: false, kind: 'models' }),
+    baseURL: baseUrl,
     apiKey: key,
   })
-  const response = await client.models.list()
-  const models = response.data.map((m) => ({
-    id: m.id,
-    name: m.id,
-    ownedBy: m.owned_by,
-  }))
-  // openai-node v6 对伪 200（200 + 非 JSON，如网关 SPA 回退页）不抛错：parse 层把非 JSON 体
-  // 原样当文本返回，分页层 body.data || [] 兜成空数组，与「真返回空列表」不可区分
-  // （docs/agent/provider.md「utils.models openai SDK 路径的空列表提示」）。空列表时显式提示
-  // 最常见原因（地址缺版本段），让用户可自查；真返回空 data 的网关同样收到此提示，属可接受歧义。
-  if (models.length === 0) {
+  // 取 SDK 已完成 URL、鉴权与非 2xx 校验后的原始 Response，自行解析 2xx 响应体。
+  // openai-node 的分页层会把 200 错误对象兜成空 data，导致上游原始 message 被空列表建议覆盖。
+  const response = await client.models.list().asResponse()
+  const requestedUrl = response.url || buildEndpointUrl(baseUrl, { endpoint: '/models' })
+  return await parseOpenAIModelsResponse(response, requestedUrl)
+}
+
+const EMPTY_MODELS_SUGGESTION =
+  '未获取到任何模型：若地址缺少版本段（如 /v1），请在地址末尾补上后重试；也可直接手填模型名'
+
+/**
+ * 解析 OpenAI 兼容模型响应，并保留 2xx 错误响应里的原始信息。
+ * 部分中转服务错误时仍返回 HTTP 200；若交给 openai-node 的分页层解析，错误对象会被当成
+ * 空列表。这里将「原始错误」与「排查建议」合并，让前端能够同时渲染二者。
+ */
+async function parseOpenAIModelsResponse(
+  res: Response,
+  requestedUrl: string,
+): Promise<UtilsModelsResponseData> {
+  const raw = await res.text()
+  let payload: unknown
+  try {
+    payload = JSON.parse(raw)
+  } catch {
+    const original = raw.replace(/\s+/g, ' ').trim().slice(0, 200)
     return {
       models: [],
-      error:
-        '未获取到任何模型：若地址缺少版本段（如 /v1），请在地址末尾补上后重试；也可直接手填模型名',
+      error: original
+        ? combineModelsError(`接口返回了非 JSON 内容：${original}`, requestedUrl)
+        : emptyModelsSuggestion(requestedUrl),
     }
   }
-  return { models }
+
+  // 先解析 data：部分兼容网关成功响应带顶层 message（如 {data:[...], message:'ok'}），
+  // 若先走错误提取会把正常列表清空误报；列表非空时直接返回，错误检查只兜空 data。
+  const data = isRecord(payload) && Array.isArray(payload.data) ? payload.data : []
+  const models = data.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== 'string') return []
+    return [
+      {
+        id: item.id,
+        name: item.id,
+        ownedBy: typeof item.owned_by === 'string' ? item.owned_by : undefined,
+      },
+    ]
+  })
+  if (models.length > 0) return { models }
+
+  const upstreamError = extractModelsResponseError(payload)
+  if (upstreamError) {
+    return { models: [], error: combineModelsError(upstreamError, requestedUrl) }
+  }
+  return { models: [], error: emptyModelsSuggestion(requestedUrl) }
+}
+
+function isModelsEndpointUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, '').toLowerCase().endsWith('/models')
+  } catch {
+    return /\/models\/?(?:[?#]|$)/i.test(url)
+  }
+}
+
+function extractModelsResponseError(payload: unknown): string | undefined {
+  if (typeof payload === 'string') return normalizeModelsError(payload)
+  if (!isRecord(payload)) return undefined
+
+  const error = payload.error
+  const message =
+    typeof error === 'string'
+      ? error
+      : isRecord(error) && typeof error.message === 'string'
+        ? error.message
+        : typeof payload.message === 'string'
+          ? payload.message
+          : undefined
+  return message ? normalizeModelsError(message) : undefined
+}
+
+function normalizeModelsError(message: string): string {
+  const normalized = message.replace(/\s+/g, ' ').trim()
+  return /^请求发生错误\s*[:：]/.test(normalized) ? normalized : `请求发生错误: ${normalized}`
+}
+
+function emptyModelsSuggestion(requestedUrl: string): string {
+  return `${EMPTY_MODELS_SUGGESTION}；实际请求地址：${requestedUrl}`
+}
+
+function combineModelsError(original: string, requestedUrl: string): string {
+  return `${original}；排查建议：${emptyModelsSuggestion(requestedUrl)}`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 async function fetchOllamaModels(url: string): Promise<UtilsModelsResponseData> {
