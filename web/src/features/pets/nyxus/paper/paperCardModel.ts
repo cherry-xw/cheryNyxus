@@ -5,6 +5,7 @@ import { toSenseNameZh } from '@/utils/senseName'
 import type { ExecutionEdge, ExecutionNode, ExecutionFoldMember } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'
 import { terminationDisplay } from '../graph/termination'
+import { foldContainsErrorMessage } from '../graph/executionPresentation'
 import { selectedToolCall, toolBatchDetail } from '../graph/toolBatchDetails'
 import {
   displayValue,
@@ -111,6 +112,8 @@ export interface PaperGameCardModel {
   skills: PaperSkillSlot[]
   selectedSkillId?: string
   termination?: { label: string; tone: string }
+  /** 过程组折叠成员含隐藏错误消息；卡牌外框转红。 */
+  containsHiddenError?: boolean
   canBranch: boolean
 }
 
@@ -363,6 +366,8 @@ export function buildPaperGameCard(
   const termination = node.sourceFact?.termination
     ? terminationDisplay(node.sourceFact.termination)
     : undefined
+  // 过程组折叠成员含错误消息时外框转红；非 fold 节点恒为 false。
+  const containsHiddenError = foldContainsErrorMessage(options.foldNode ?? node)
   const summarySource = nodeParts.description || nodeParts.content || thinking
   const stats: PaperCardStat[] = [
     { id: 'status', icon: 'shield', label: '状态', value: statusLabel(status) },
@@ -408,6 +413,7 @@ export function buildPaperGameCard(
     skills,
     ...(selectedCall ? { selectedSkillId: selectedCall.callId } : {}),
     ...(termination ? { termination } : {}),
+    ...(containsHiddenError ? { containsHiddenError: true } : {}),
     canBranch: canBranchFrom(node),
   }
 }

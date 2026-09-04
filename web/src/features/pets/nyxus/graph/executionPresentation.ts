@@ -4,6 +4,7 @@ import {
   type PositionedExecutionEdge,
   type PositionedExecutionNode,
 } from './executionLayout'
+import type { ExecutionNode } from './executionGraph'
 import { toolBatchDetail } from './toolBatchDetails'
 
 export type ExecutionPresentationMode = 'horizontal-signal' | 'vertical-classic'
@@ -196,6 +197,17 @@ const SIGNAL_ACCENTS_LIGHT: Record<SignalNodeVisualKind, string> = {
 
 export function signalAccentForTheme(theme: 'light' | 'dark', kind: SignalNodeVisualKind): string {
   return (theme === 'light' ? SIGNAL_ACCENTS_LIGHT : SIGNAL_ACCENTS_DARK)[kind]
+}
+
+/** A Fold keeps its canonical members, so visual summaries can surface hidden failures. */
+export function foldContainsErrorMessage(node: ExecutionNode): boolean {
+  return (
+    node.kind === 'fold' &&
+    !!node.fold?.projectionNodes.some(
+      (member) =>
+        member.kind === 'message' && member.sourceFact?.termination?.code === 'error',
+    )
+  )
 }
 
 const EXACT_TOOL_KINDS: Readonly<Record<string, SignalToolVisualKind>> = {

@@ -6,6 +6,7 @@ import type {
 } from '../../../src/features/pets/nyxus/graph/executionGraph'
 import { layoutExecutionGraph } from '../../../src/features/pets/nyxus/graph/executionLayout'
 import {
+  foldContainsErrorMessage,
   projectExecutionPresentation,
   projectExecutionNodePriorities,
   SIGNAL_NODE_SIZES,
@@ -244,6 +245,33 @@ describe('horizontal Signal Grid presentation', () => {
     expect(projected.find((entry) => entry.id === 'final')?.presentationPriority).toBe('hero-final')
     expect(projected.find((entry) => entry.id === 'error')?.presentationPriority).toBe('hero-error')
     expect(projected.find((entry) => entry.id === 'draft')?.presentationPriority).toBe('process')
+  })
+
+  it('detects an error message hidden inside a process group', () => {
+    const errorMessage = {
+      ...node('error', 2),
+      sourceFact: { termination: { code: 'error' } } as ExecutionNode['sourceFact'],
+    }
+    const regularMessage = node('regular', 1)
+    const fold = {
+      ...node('fold', 3),
+      kind: 'fold' as const,
+      fold: {
+        firstNodeId: regularMessage.id,
+        lastNodeId: errorMessage.id,
+        members: [],
+        projectionNodes: [regularMessage, errorMessage],
+      },
+    }
+
+    expect(foldContainsErrorMessage(fold)).toBe(true)
+    expect(foldContainsErrorMessage(regularMessage)).toBe(false)
+    expect(
+      foldContainsErrorMessage({
+        ...fold,
+        fold: { ...fold.fold, projectionNodes: [regularMessage] },
+      }),
+    ).toBe(false)
   })
 
   it('maps every base node to its visual kind', () => {

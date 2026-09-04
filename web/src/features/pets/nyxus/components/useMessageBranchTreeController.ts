@@ -31,6 +31,7 @@ import {
   type ExecutionLayoutMode,
 } from '../graph/executionLayout'
 import {
+  foldContainsErrorMessage,
   projectExecutionPresentation,
   signalAccentForTheme,
   signalVisualKindFor,
@@ -316,18 +317,6 @@ export function useMessageBranchTreeController(
   const defaultNodePopovers = computed(() =>
     buildDefaultNodePopovers(graph.value.nodes, chatSessions.sessionsById),
   )
-  const activePaperQuestionPopover = computed(() => {
-    if (!props.paperMode || !activePaperNodeId.value) return undefined
-    return defaultNodePopovers.value.find(
-      (model) => model.question && model.anchorNodeId === activePaperNodeId.value,
-    )
-  })
-  const activePaperApprovalPopover = computed(() => {
-    if (!props.paperMode || !activePaperNodeId.value) return undefined
-    return defaultNodePopovers.value.find(
-      (model) => model.approval && model.anchorNodeId === activePaperNodeId.value,
-    )
-  })
   const defaultPopoverById = computed(
     () => new Map(defaultNodePopovers.value.map((model) => [model.id, model] as const)),
   )
@@ -712,6 +701,9 @@ export function useMessageBranchTreeController(
     const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
     const heightLimit = Math.max(160, viewportSize.value.height - 96)
     return defaultNodePopovers.value.flatMap((model, order) => {
+      // Approval and question decisions live in the persistent operations panel.
+      // Keep their models only for node focus/highlight linkage; never create a tree popover.
+      if (model.approval || model.question) return []
       const node = positioned.get(model.anchorNodeId)
       if (!node) return []
       const anchor = nodeScreenAnchor(node)
@@ -1199,7 +1191,7 @@ export function useMessageBranchTreeController(
     })
     detailHeightRO.observe(el)
   })
-  /** pinned 详情弹窗被用户拖动后的手动位置；null = 跟随自动定位（贴节点右侧）。hover 临时详情不参与拖拽。 */
+  /** 详情弹窗被用户拖动后的手动位置；null = 跟随自动定位。hover 窗口首次拖动时会升级为常驻窗口。 */
   const detailManualPos = ref<{ left: number; top: number } | null>(null)
   const detailSize = ref({ width: 640, height: 520 })
   const detailWrap = ref(false)
@@ -1218,7 +1210,8 @@ export function useMessageBranchTreeController(
     return canvas.worldToScreen({ x: node.x, y: bounds.bottom })
   }
   /**
-   * pinned 详情弹窗拖拽（2026-09-02 返工契约）：pointermove 期间 quickSetter 直写
+   * 详情弹窗拖拽（2026-09-02 返工契约）：hover 窗口首次产生有效位移时
+   * 立即升级为常驻窗口，此后鼠标移出不再自动关闭；pointermove 期间 quickSetter 直写
    * transform x/y（与树平移的 CSS `translate` 属性分属不同通道，可叠加），不触发
    * 每帧响应式 patch；`finishDetailDrag`（弹窗 dragEnd）才把终值一次性落回
    * `detailManualPos` 并清除直写 transform——落回与清写同帧完成，无闪烁。
@@ -1234,6 +1227,13 @@ export function useMessageBranchTreeController(
       const baseLeft = parseFloat(current.style.left)
       const baseTop = parseFloat(current.style.top)
       detailDragState = { baseLeft, baseTop, left: baseLeft, top: baseTop }
+      const node = detailNode.value
+      if (!pinnedDetailNodeId.value && node) {
+        cancelDetailHide()
+        pinnedDetailNodeId.value = node.id
+        hoveredDetailNodeId.value = node.id
+        detailManualPos.value = { left: baseLeft, top: baseTop }
+      }
     }
     const headerVisible = 32
     detailDragState.left = Math.min(
@@ -1502,6 +1502,7 @@ export function useMessageBranchTreeController(
         branchAnchorKind: containsBranchAnchor(node) ? props.branchAnchorKind : undefined,
         paused: isPaused(node),
         error: isError(node),
+        containsErrorMessage: foldContainsErrorMessage(node),
         revoked: node.status === 'revoked',
         deemphasized: !coreFlowProjection.value.coreNodeIds.has(node.id),
         detailBranch: coreFlowProjection.value.detailNodeIds.has(node.id),
@@ -1577,7 +1578,6 @@ export function useMessageBranchTreeController(
     defaultPopoverPlacements.value.flatMap((placement) => {
       const model = defaultPopoverById.value.get(placement.id)
       if (!model) return []
-      if (activePaperQuestionPopover.value?.id === model.id) return []
       const nodes = defaultPopoverNodes(model)
       if (!nodes) return []
       return [
@@ -1874,8 +1874,6 @@ export function useMessageBranchTreeController(
     GenerationTreeDialog,
     NodePaperStack,
     activateNode,
-    activePaperQuestionPopover,
-    activePaperApprovalPopover,
     agents,
     canvas,
     closeCrt,

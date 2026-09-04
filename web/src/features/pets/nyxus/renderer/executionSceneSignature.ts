@@ -25,6 +25,7 @@ export function executionSceneSignature(scene: PixiExecutionScene, visibleKey = 
         node.branchAnchorKind ?? '',
         Number(node.paused),
         Number(node.error),
+        Number(node.containsErrorMessage),
         Number(node.revoked),
         Number(node.deemphasized),
         Number(node.detailBranch),

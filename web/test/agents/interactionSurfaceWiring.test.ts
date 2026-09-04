@@ -7,23 +7,22 @@ async function source(path: string): Promise<string> {
 }
 
 describe('approval and question surface wiring', () => {
-  it('renders the shared interaction cards in node popovers and paper cards', async () => {
-    const [popover, paper, tree] = await Promise.all([
+  it('keeps approval/question interactions out of node-tree surfaces (pending panel owns them)', async () => {
+    const [popover, stack, paper, tree] = await Promise.all([
       source('features/pets/nyxus/components/ExecutionNodePopover.vue'),
+      source('features/pets/nyxus/components/NodePaperStack.vue'),
       source('features/pets/nyxus/components/PaperGameCard.vue'),
       source('features/pets/nyxus/components/MessageBranchTree.vue'),
     ])
 
-    for (const surface of [popover, paper]) {
-      expect(surface).toContain('ApprovalCard')
-      expect(surface).toContain('QuestionCard')
-      expect(surface).toContain('<ApprovalCard')
-      expect(surface).toContain('<QuestionCard')
+    // 审批交互全部收敛到待操作面板；提问交互仅节点弹窗保留（纸牌/树不再内嵌）
+    expect(popover).not.toContain('ApprovalCard')
+    for (const surface of [stack, paper]) {
+      expect(surface).not.toContain('ApprovalCard')
+      expect(surface).not.toContain('QuestionCard')
     }
-    expect(tree).toContain(':approval="activePaperApprovalPopover?.approval"')
-    expect(tree).toContain(':approval-node-id="activePaperApprovalPopover?.displayNodeId"')
-    expect(tree).toContain(':question="activePaperQuestionPopover?.question"')
-    expect(tree).toContain(':question-node-id="activePaperQuestionPopover?.displayNodeId"')
+    expect(tree).not.toContain('activePaperApprovalPopover')
+    expect(tree).not.toContain('activePaperQuestionPopover')
   })
 
   it('routes cards, Lite and the pending panel through the one interaction store', async () => {

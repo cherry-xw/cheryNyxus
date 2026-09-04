@@ -212,4 +212,36 @@ describe('paper game card model', () => {
     expect(card(node({ kind: 'system', actor: { kind: 'system' } })).kind).toBe('notice')
     expect(card(node({ kind: 'fold' })).kind).toBe('journal')
   })
+
+  it('flags a fold card whose hidden members contain an error message', () => {
+    const errorMember = node({
+      id: 'hidden-error',
+      sourceFact: sourceFact({
+        id: 'hidden-error-fact',
+        termination: { actor: 'agent', code: 'error', at: 1_700_000_000_000 },
+      }),
+    })
+    const fold = node({
+      id: 'fold',
+      kind: 'fold',
+      fold: {
+        firstNodeId: errorMember.id,
+        lastNodeId: errorMember.id,
+        members: [{ id: 'stage', displayNode: errorMember, nodes: [errorMember] }],
+        projectionNodes: [errorMember],
+      },
+    })
+    const result = buildPaperGameCard(fold, {
+      title: '过程组',
+      index: 0,
+      total: 1,
+      foldNode: fold,
+      senseTools,
+    })
+
+    expect(result.containsHiddenError).toBe(true)
+
+    const plain = card(node())
+    expect(plain.containsHiddenError).toBeUndefined()
+  })
 })

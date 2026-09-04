@@ -31,8 +31,7 @@ describe('paper stack workbench integration', () => {
     expect(tree).not.toContain("'has-composer'")
     expect(tree).not.toContain('composerOpen ? 390')
     expect(tree).toContain(':sense-tools="agents.senseTools"')
-    expect(tree).toContain(':question="activePaperQuestionPopover?.question"')
-    expect(tree).toContain('if (activePaperQuestionPopover.value?.id === model.id) return []')
+    expect(tree).not.toContain('activePaperQuestionPopover')
   })
 
   it('keeps the foreground reader and exposes clickable chronological title strips', async () => {
@@ -78,8 +77,8 @@ describe('paper stack workbench integration', () => {
     expect(card).toContain('class="process-name-viewport"')
     expect(card).toContain('animation: process-name-loop 11s linear infinite')
     expect(card).toContain('animation-play-state: paused')
-    expect(card).toContain('<QuestionCard')
-    expect(card).toContain('v-if="activeQuestion && chatId"')
+    expect(card).not.toContain('QuestionCard')
+    expect(card).not.toContain('activeQuestion')
     expect(card.match(/<PaperGameCard/g)).toHaveLength(1)
     expect(card).toContain(':model="activeStageCard!"')
     expect(card).not.toContain('PaperSkillPopover')

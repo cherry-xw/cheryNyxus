@@ -7,7 +7,7 @@ const controller = useMessageBranchTreeController(props, emit)
 const detailMotion = useOverlayTransitionHooks('panel')
 const {
   AnchoredRunCrt, ExecutionNodePopover, FoldTabRail, GenerationTreeDialog, NodePaperStack,
-  activateNode, activePaperApprovalPopover, activePaperQuestionPopover, agents, canvas, closeCrt, closeNodeDetail, crtById,
+  activateNode, agents, canvas, closeCrt, closeNodeDetail, crtById,
   crtPlacements, crtVisibility, defaultPopoverAnchorIds, defaultPopoverViews, detailAnchorEl,
   detailAnchorStyle, detailDisplayNode, detailFoldMember, detailMaxHeight, detailNode, detailPinned, detailWrap,
   detailPlacement, detailRelatedEdges, dragActionPopover, dragCrt, dragDetailPopover, finishDetailDrag, focusCrt,
@@ -40,11 +40,6 @@ defineExpose({ resetLayout: controller.resetLayout })
       :detail-branch-available="detailBranchAvailable"
       :detail-branch-unavailable-reason="detailBranchUnavailableReason"
       :sense-tools="agents.senseTools"
-      :chat-id="activePaperApprovalPopover?.chatId ?? activePaperQuestionPopover?.chatId"
-      :approval="activePaperApprovalPopover?.approval"
-      :approval-node-id="activePaperApprovalPopover?.displayNodeId"
-      :question="activePaperQuestionPopover?.question"
-      :question-node-id="activePaperQuestionPopover?.displayNodeId"
       @select="selectPaperIndex"
       @latest="returnToLatestPaper"
       @branch="requestBranch"
@@ -196,7 +191,6 @@ defineExpose({ resetLayout: controller.resetLayout })
             :max-height="view.placement.panel.height"
             :selected-call-id="selectedActionCall(view.model)"
             :chat-id="view.model.chatId"
-            :approval="view.model.approval"
             :question="view.model.question"
             :draggable="true"
             @select-call="selectActionCall(view.model.id, $event)"
@@ -245,7 +239,7 @@ defineExpose({ resetLayout: controller.resetLayout })
               :selected-call-id="selectedCallId"
               :detail-branch-available="detailBranchAvailable"
               :detail-branch-unavailable-reason="detailBranchUnavailableReason"
-              :draggable="detailPinned"
+              :draggable="true"
               :wrap="detailWrap"
               @select-call="selectedCallId = $event"
               @branch="requestBranch"
