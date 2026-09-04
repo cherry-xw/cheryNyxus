@@ -1,11 +1,19 @@
-/** Shared application overlay contract. Feature-local layers use their own stacking context. */
+/** Browser workspace windows establish the top-level window stacking range from this value. */
+export const WORKSPACE_WINDOW_Z_INDEX_BASE = 500
+
+/**
+ * Shared application overlay contract. Feature-local layers use their own stacking context.
+ *
+ * Application-wide drawers and modals must stay above browser workspace windows. Keep a wide
+ * gap here because window z-order is added to WORKSPACE_WINDOW_Z_INDEX_BASE at runtime.
+ */
 export const OVERLAY_Z_INDEX = {
   canvas: 250,
   composer: 300,
   composerMenu: 320,
-  historyDrawer: 360,
-  modal: 380,
-  approval: 400,
+  historyDrawer: 10_000,
+  modal: 10_100,
+  approval: 10_200,
 } as const
 
 /** Layers inside the Nyxus workbench. They never compete with application overlays directly. */

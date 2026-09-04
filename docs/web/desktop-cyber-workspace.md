@@ -24,6 +24,12 @@
 - 保留英文白名单：品牌（`CHERY // NYXUS_OS`）、协议码（`FOLD/USR/LLM/TOOL/FORK/RET/BOOT/SYS`、`WINDOW_ERROR` 等）、坐标行装饰（降透明度处理）、状态 class 键（代码标识，非展示文案）。
 - 视觉事件标题模板：`错误 // ${code}`（code 保留英文协议码）。
 
+## 系统栏 launcher 收敛（2026-09-04）
+
+- 系统栏 `cyber-launcher` 仅保留「待操作」「设置」两个入口；「路由」「角色」入口及其能力窗移除（路由会话追踪无实际用途；角色在编名单与设置中心 RolesTab 重复）。
+- 同步清理：`WorkspaceWindowKind`/`WorkspaceWindowContext` 不再含 `routing`/`roles`；`CyberCapabilityPanel` 仅剩 attention 分支；`browserCapabilityWindows` 只匹配 `attention`。
+- 旧持久化布局兼容：布局恢复回调对运行时残留的 `routing`/`roles` 窗口直接丢弃（`restoreWorkspaceLayout(valid)` 过滤），不渲染空窗。
+
 ## 约束
 
 - 桌面 chrome 动效遵循 [motion-standard.md](./motion-standard.md)：GSAP 只管 DOM（`useGsap` scoped）；入场/切换只动 transform/opacity；系统栏/任务栏入场接 `useMotionTier`（full 档 stagger、reduced 档仅淡入）。

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { WorkspaceWindowGeometry, WorkspaceWindowState } from '@/application/shell/public'
 import { useQuickSetter } from '@/composables/useGsap'
+import { WORKSPACE_WINDOW_Z_INDEX_BASE } from '@/styles/overlayLayers'
 import { useCyberWindowMotion } from './useCyberWindowMotion'
 
 const props = defineProps<{ window: WorkspaceWindowState }>()
@@ -34,7 +35,7 @@ const style = computed(() => ({
   top: `${props.window.geometry.y}px`,
   width: `${props.window.geometry.width}px`,
   height: `${props.window.geometry.height}px`,
-  zIndex: 500 + props.window.zOrder,
+  zIndex: WORKSPACE_WINDOW_Z_INDEX_BASE + props.window.zOrder,
 }))
 
 watch(

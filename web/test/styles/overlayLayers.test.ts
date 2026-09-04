@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '../../src/styles/overlayLayers'
+import {
+  NYXUS_WORKBENCH_Z_INDEX,
+  OVERLAY_Z_INDEX,
+  WORKSPACE_WINDOW_Z_INDEX_BASE,
+} from '../../src/styles/overlayLayers'
 
 describe('overlay layer contract', () => {
   it('keeps workbench menus below drawers and true modals', () => {
@@ -8,6 +12,10 @@ describe('overlay layer contract', () => {
     expect(OVERLAY_Z_INDEX.composerMenu).toBeLessThan(OVERLAY_Z_INDEX.historyDrawer)
     expect(OVERLAY_Z_INDEX.historyDrawer).toBeLessThan(OVERLAY_Z_INDEX.modal)
     expect(OVERLAY_Z_INDEX.historyDrawer).toBeLessThan(OVERLAY_Z_INDEX.approval)
+  })
+
+  it('keeps application drawers above browser workspace windows', () => {
+    expect(OVERLAY_Z_INDEX.historyDrawer).toBeGreaterThan(WORKSPACE_WINDOW_Z_INDEX_BASE)
   })
 
   it('keeps passive Nyxus information below input and blocking interactions', () => {
