@@ -478,13 +478,13 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </button>
             </div>
             <!-- v1.0 icon 区分：历史 ↺（回看）vs 上下文 ❐（内容快照），原 ◷/◍ 双圆点过似 -->
-            <el-tooltip content="对话历史" placement="left" :show-after="200" :hide-after="0">
+            <el-tooltip content="档案" placement="left" :show-after="200" :hide-after="0">
               <span class="nyxus-tool-tip-anchor">
                 <button
                   type="button"
                   class="nyxus-rail-action"
                   :disabled="!chatId"
-                  aria-label="对话历史"
+                  aria-label="档案"
                   @click="openHistory"
                 >
                   <span aria-hidden="true">↺</span>
