@@ -72,6 +72,7 @@
 // 连接 section 标题：左侧标题、右侧测试连接按钮（与大脑模块同色调）
 .connection-heading {
   align-items: center;
+  flex-wrap: wrap;
 
   .heading-text {
     display: inline-flex;
@@ -146,11 +147,27 @@
   min-width: 0;
   max-width: 280px;
 
+  &.error {
+    flex: 0 0 100%;
+    align-items: flex-start;
+    max-width: none;
+    margin-left: 0;
+    padding: 7px 8px;
+    border: 1px solid color-mix(in srgb, var(--el-color-danger) 18%, transparent);
+    border-radius: 6px;
+    color: var(--el-color-danger);
+    background: color-mix(in srgb, var(--el-color-danger) 4%, transparent);
+
+    .message-text {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+      overflow-wrap: anywhere;
+    }
+  }
+
   &.success {
     color: var(--el-color-success);
-  }
-  &.error {
-    color: var(--el-color-danger);
   }
   &.muted {
     color: color-mix(in srgb, var(--ink) 62%, transparent);
@@ -164,6 +181,44 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+
+  &.formatted-text {
+    display: grid;
+    gap: 5px;
+    white-space: normal;
+    overflow: visible;
+  }
+}
+
+.message-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  line-height: 1.45;
+}
+
+.message-label {
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--el-color-danger);
+  background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.message-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.suggestion-row {
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+
+  .message-label {
+    color: color-mix(in srgb, var(--tab-color, @accent) 82%, @ink);
+    background: color-mix(in srgb, var(--tab-color, @accent) 10%, transparent);
+  }
 }
 
 .copy-btn {
@@ -346,10 +401,16 @@
   gap: 6px;
   padding: 6px 8px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.45;
   background: color-mix(in srgb, var(--tab-color, @accent) 5%, transparent);
-  border-radius: 5px;
+  border-radius: 0;
+
+  // 未匹配任何目录规则：转警示态，暴露状态并引导去规则文件补充匹配规则
+  &.is-unmatched {
+    color: color-mix(in srgb, var(--el-color-warning) 72%, @ink);
+    background: color-mix(in srgb, var(--el-color-warning) 8%, transparent);
+  }
 }
 
 .model-rule-note-icon {
@@ -362,9 +423,31 @@
   margin-top: 1px;
   color: color-mix(in srgb, var(--tab-color, @accent) 78%, @ink);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
   border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 38%, transparent);
   border-radius: 50%;
+
+  .is-unmatched & {
+    color: var(--el-color-warning);
+    border-color: color-mix(in srgb, var(--el-color-warning) 45%, transparent);
+  }
+}
+
+.model-rule-edit-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px 8px;
+  color: color-mix(in srgb, var(--el-color-warning) 80%, @ink);
+  font-size: 12px;
+  font-weight: 400;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--el-color-warning) 45%, transparent);
+  border-radius: 0;
+  cursor: pointer;
+
+  &:hover {
+    background: color-mix(in srgb, var(--el-color-warning) 14%, transparent);
+  }
 }
 
 .model-input-row {

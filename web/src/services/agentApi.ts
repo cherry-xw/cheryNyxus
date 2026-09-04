@@ -36,17 +36,6 @@ export type {
 } from '@/domain/chat/runtime'
 export type { CommandConfigDataDto, CommandConfigDto, ThresholdDto } from '@/domain/chat/commands'
 
-/**
- * 凭据类 .env 变量名后缀过滤：任何以 KEY / TOKEN / SECRET / PASSWORD / PASSWD /
- * ACCESS_KEY_ID 结尾的变量名都视为可作密钥占位（`$VAR`）的凭据。
- * 放宽后缀匹配（不再强制 API_ 前缀）——兼容 AP1I_KEY 这类手写命名，避免用户新加的密钥
- * 因名字不含标准前缀而被吞掉。运行时配置（CHERY_DIR / *_HOST / *_URL / PORT 等）仍被排除。
- */
-const SECRET_SUFFIX = /KEY$|TOKEN$|SECRET$|PASSWORD$|PASSWD$|ACCESS_KEY_ID$/
-function isSecretEnvVarName(name: string): boolean {
-  return SECRET_SUFFIX.test(name)
-}
-
 /** 上下文用量单段（镜像后端 utils/token.ts Segment）：tokens = 段 token 估算；count = 条目数（记忆/技能/工具/消息）；thinking = 用户对话段思考拆分（仅 conversation，已含在 tokens 内）。 */
 /** 单个工具定义快照（镜像后端 PromptSnapshotTool；统一 OpenAI 形状，剥离 provider 差异）。 */
 export interface PromptSnapshotTool {
@@ -2002,13 +1991,12 @@ export const agentApi = {
 
   /**
    * env.list：读取 .env 文件中的变量名列表（供密钥下拉选择）。
-   * 前端再按密钥后缀白名单过滤，只把凭据类变量名透出给下拉（CHERY_DIR / HOST / URL 等
-   * 运行时配置不进下拉，避免误选）。后端 redactEnvKeys 现改为仅遮蔽敏感 key 的值（key 名保留），与下拉无耦合。
+   * 前端不做二次过滤、原样透出——变量名合法性由后端 listEnvVarNames 的
+   * /^[A-Za-z_][A-Za-z0-9_]*$/ 命名校验单一兜底（旧的后缀白名单会吞掉 API_KEY1 这类命名，已取消）。
    */
   async listEnvVars(): Promise<string[]> {
     const data = await call<{ vars: string[] }>('env.list', {})
-    const all = data?.vars ?? []
-    return all.filter(isSecretEnvVarName)
+    return data?.vars ?? []
   },
 
   /** utils.openFile：打开指定文件（用配置的编辑器或系统默认）。 */

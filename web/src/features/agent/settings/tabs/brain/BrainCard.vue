@@ -47,6 +47,12 @@ const emit = defineEmits<{
 
 const CONTEXT_LIMIT_OPTIONS = [128, 250, 256, 512, 1024] as const
 
+/** 模板占位符（如 <YOUR_OPENAI_COMPATIBLE_URL>）视为空：不渲染占位文本，仅显示 placeholder。 */
+const PLACEHOLDER_PATTERN = /^<[^>]*>$/
+function isTemplatePlaceholder(value: string | undefined): boolean {
+  return !!value && PLACEHOLDER_PATTERN.test(value.trim())
+}
+
 const providerDefinition = computed(() => findLlmProviderDefinition(props.cfg.provider))
 const supportedProtocols = computed(() => providerDefinition.value?.protocols ?? [])
 const effectiveProtocol = computed<LlmProtocol | undefined>(
@@ -147,6 +153,17 @@ const connectionTestMessage = ref('')
 const isMockProvider = computed(() => effectiveProtocol.value === 'mock')
 let connectionTestReqId = 0
 
+const MODELS_SUGGESTION_MARKER = '；排查建议：'
+const connectionTestMessageView = computed(() => {
+  const message = connectionTestMessage.value
+  const markerIndex = message.indexOf(MODELS_SUGGESTION_MARKER)
+  if (markerIndex < 0) return { original: message, suggestion: '' }
+  return {
+    original: message.slice(0, markerIndex),
+    suggestion: message.slice(markerIndex + MODELS_SUGGESTION_MARKER.length),
+  }
+})
+
 /**
  * 测试连接按钮禁用原因（null=可测）：前置字段缺失时按钮置灰 + 悬停引导缺什么，
  * 而非可点后报错——交互上先选后测。
@@ -205,7 +222,8 @@ watch(
 )
 
 // ── 模型目录识别、推荐与 thinking wire 档位 ───────────────────────
-const { contextLimitTip, modelRuleNotice, thinkingLevels } = useModelRecommendation({
+const { contextLimitTip, modelRuleNotice, modelUnmatched, thinkingLevels, thinkingTip } =
+  useModelRecommendation({
   cfg: props.cfg,
   effectiveProtocol: () => effectiveProtocol.value,
   supportedProtocols: () => supportedProtocols.value,
@@ -290,11 +308,6 @@ function onError(msg: string): void {
   emit('error', msg)
 }
 
-/** 模板占位符（如 <YOUR_OPENAI_COMPATIBLE_URL>）视为空：不渲染占位文本，仅显示 placeholder。 */
-const PLACEHOLDER_PATTERN = /^<[^>]*>$/
-function isTemplatePlaceholder(value: string | undefined): boolean {
-  return !!value && PLACEHOLDER_PATTERN.test(value.trim())
-}
 /** 地址输入框模型：模板占位符显示为空（placeholder 呈现），写入时按真实值落草稿。 */
 const urlModel = computed({
   get: () => (isTemplatePlaceholder(props.cfg.url) ? '' : (props.cfg.url ?? '')),
@@ -469,7 +482,8 @@ function duplicateBrain(): void {
  * 使用 utils.openFile RPC，让后端用配置的编辑器或系统默认打开。
  * 未配置编辑器时弹出提示，告知将使用系统默认编辑器。
  */
-async function openEnvFile(): Promise<void> {
+/** 用配置的文本编辑器（或系统默认）打开 CHERY_DIR 相对路径文件；未配置编辑器时先提示一次。 */
+async function openConfigFile(path: string, fallbackError: string): Promise<void> {
   // 检查是否已配置编辑器
   if (!props.draft.global.textEditor) {
     try {
@@ -487,10 +501,19 @@ async function openEnvFile(): Promise<void> {
   }
 
   try {
-    await agentApi.openFile('.env')
+    await agentApi.openFile(path)
   } catch (err) {
-    onError(err instanceof Error ? err.message : '打开文件失败')
+    onError(err instanceof Error ? err.message : fallbackError)
   }
+}
+
+async function openEnvFile(): Promise<void> {
+  await openConfigFile('.env', '打开文件失败')
+}
+
+/** 模型未匹配目录规则时，从规则提示行一键打开模型目录规则文件补充匹配规则。 */
+async function openModelRuleFile(): Promise<void> {
+  await openConfigFile('.chery/model-catalog.yaml', '打开模型规则文件失败')
 }
 </script>
 
@@ -561,33 +584,37 @@ async function openEnvFile(): Promise<void> {
               </button>
             </span>
           </el-tooltip>
-          <el-tooltip
+          <div
             v-if="
               isMockProvider || connectionTestState === 'success' || connectionTestState === 'error'
             "
-            :content="isMockProvider ? '离线模拟无需测试' : connectionTestMessage"
-            placement="top"
-            :show-after="120"
+            class="connection-test-message"
+            :class="connectionTestState === 'idle' ? 'muted' : connectionTestState"
           >
-            <div
-              class="connection-test-message"
-              :class="connectionTestState === 'idle' ? 'muted' : connectionTestState"
+            <span v-if="connectionTestMessageView.suggestion" class="message-text formatted-text">
+              <span class="message-row">
+                <span class="message-label">原始错误</span>
+                <span class="message-value">{{ connectionTestMessageView.original }}</span>
+              </span>
+              <span class="message-row suggestion-row">
+                <span class="message-label">排查建议</span>
+                <span class="message-value">{{ connectionTestMessageView.suggestion }}</span>
+              </span>
+            </span>
+            <span v-else class="message-text">{{
+              isMockProvider ? '离线模拟无需测试' : connectionTestMessageView.original
+            }}</span>
+            <button
+              v-if="!isMockProvider"
+              type="button"
+              class="copy-btn"
+              aria-label="复制消息"
+              title="复制完整消息"
+              @click.stop="copyMessage(connectionTestMessage)"
             >
-              <span class="message-text">{{
-                isMockProvider ? '离线模拟无需测试' : connectionTestMessage
-              }}</span>
-              <button
-                v-if="!isMockProvider"
-                type="button"
-                class="copy-btn"
-                aria-label="复制消息"
-                title="复制完整消息"
-                @click.stop="copyMessage(connectionTestMessage)"
-              >
-                <CopyDocument class="ico" />
-              </button>
-            </div>
-          </el-tooltip>
+              <CopyDocument class="ico" />
+            </button>
+          </div>
         </div>
         <div class="brain-fields connection-fields">
           <div class="field priority-url">
@@ -733,9 +760,23 @@ async function openEnvFile(): Promise<void> {
               />
             </el-select>
           </label>
-          <div class="model-rule-note field-wide" role="note">
-            <span class="model-rule-note-icon" aria-hidden="true">i</span>
+          <div
+            class="model-rule-note field-wide"
+            :class="{ 'is-unmatched': modelUnmatched }"
+            role="note"
+          >
+            <span class="model-rule-note-icon" aria-hidden="true">{{
+              modelUnmatched ? '!' : 'i'
+            }}</span>
             <span>{{ modelRuleNotice }}</span>
+            <button
+              v-if="modelUnmatched"
+              type="button"
+              class="model-rule-edit-btn"
+              @click="openModelRuleFile"
+            >
+              编辑规则
+            </button>
           </div>
         </div>
       </section>
@@ -775,10 +816,7 @@ async function openEnvFile(): Promise<void> {
             />
           </div>
           <div class="thinking-field">
-            <LabelTip
-              label="深度思考"
-              tip="推理模型的思考强度档位（按当前 model 暴露不同档位）。off=关闭；on=由模型决定；low/medium/high/xhigh 由 provider 映射，需在「⚙ 全局」开启思考总闸。"
-            />
+            <LabelTip label="深度思考" :tip="thinkingTip" />
             <ThinkingLevelKnob v-model="cfg.thinking" :levels="thinkingLevels" />
           </div>
         </div>
