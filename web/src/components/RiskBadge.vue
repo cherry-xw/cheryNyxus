@@ -72,7 +72,7 @@ function toggle(): void {
   border-radius: 0;
   background: var(--surface);
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   cursor: default;
   transition:
@@ -160,13 +160,13 @@ function toggle(): void {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
 .finding-severity {
   color: var(--danger);
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -177,6 +177,6 @@ function toggle(): void {
 .finding-fragment {
   white-space: pre-wrap;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
-  font-size: 10px;
+  font-size: 12px;
 }
 </style>
