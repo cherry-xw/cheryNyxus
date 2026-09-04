@@ -1,5 +1,5 @@
 # 模型目录：匹配规则、事实信息、编辑器推荐，以及 thinking 协议映射。
-# 默认规则覆盖 MiniMax M2.7/M3、DeepSeek V3.2/R1/V4、GLM 5.3、GPT 5.5/5.6 系列。
+# 默认规则覆盖 MiniMax M2.7/M3、DeepSeek V3.2/R1/V4、GLM 5.1/5.2/5.3、GPT 5.5/5.6 系列。
 # 所有具体模型规则都在本文件中，可直接增删改；程序代码不内置厂商规则。
 # 默认规则按“主体模型名 + 版本”正则匹配，可兼容中转前缀和变体/日期后缀。
 version: 1
@@ -180,6 +180,56 @@ models:
         reasoningHistory: assistant-field
         thinking:
           - { display: on, params: {} }
+
+  - id: zhipu-glm-5.1
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])glm[-_.]?5[._-]?1(?:$|[-_/:])', flags: i }
+    facts:
+      protocols: [openai-chat-completions]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 128000
+      thinking: on
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - { display: off, params: { thinking: { type: disabled } } }
+          - { display: on, params: { thinking: { type: enabled } } }
+
+  - id: zhipu-glm-5.2
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])glm[-_.]?5[._-]?2(?:$|[-_/:])', flags: i }
+    facts:
+      protocols: [openai-chat-completions]
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 128000
+      thinking: on
+      capabilities:
+        toolCall: true
+        input: { image: false, video: false, audio: false }
+        generate: { image: false, video: false, audio: false }
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - { display: off, params: { thinking: { type: disabled } } }
+          - { display: on, params: { thinking: { type: enabled } } }
 
   - id: zhipu-glm-5.3
     match:
