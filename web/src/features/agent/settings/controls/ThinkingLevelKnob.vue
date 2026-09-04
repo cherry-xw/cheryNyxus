@@ -83,15 +83,24 @@ const validLevels = computed<readonly string[]>(() => {
   return out
 })
 
-/** 当前档位在 validLevels 中的下标；缺省/无效 → 0。 */
+/**
+ * 未匹配模型规则时后端不会伪造可用档位。此时仍保留完整控件，并以当前
+ * 生效值（配置缺省即 off）呈现为禁用态，避免用提示文字替换整个功能模块。
+ */
+const isDisabled = computed(() => validLevels.value.length === 0)
+const displayLevels = computed<readonly string[]>(() =>
+  isDisabled.value ? [model.value || 'off'] : validLevels.value,
+)
+
+/** 当前档位在 displayLevels 中的下标；缺省/无效 → 0。 */
 const activeIndex = computed(() => {
-  const idx = validLevels.value.indexOf(model.value)
+  const idx = displayLevels.value.indexOf(model.value)
   return idx < 0 ? 0 : idx
 })
 
 /** 当前档位的 meta（视窗用）。未知档位走 metaFor 兜底。 */
 const activeMeta = computed<LevelMeta>(() => {
-  const cur = validLevels.value[activeIndex.value]
+  const cur = displayLevels.value[activeIndex.value]
   return cur ? metaFor(cur) : FALLBACK_META
 })
 
@@ -176,6 +185,7 @@ const magnifiedTrackStyle = computed(() => {
 // ── 行为 ──────────────────────────────────────────────────────────
 
 function selectAt(idx: number): void {
+  if (isDisabled.value) return
   const v = validLevels.value[idx]
   if (v) model.value = v
 }
@@ -211,6 +221,7 @@ function measure(): void {
 // ── 拖动事件 ──────────────────────────────────────────────────────
 
 function onPointerDown(e: PointerEvent): void {
+  if (isDisabled.value) return
   // 仅主键（左键或 touch）
   if (e.pointerType === 'mouse' && e.button !== 0) return
   dragState = {
@@ -264,6 +275,7 @@ function onTileClick(idx: number): void {
 }
 
 function onKeydown(e: KeyboardEvent): void {
+  if (isDisabled.value) return
   const n = validLevels.value.length
   if (n === 0) return
   if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
@@ -320,11 +332,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    v-if="validLevels.length > 0"
     class="thinking-knob"
+    :class="{ 'is-disabled': isDisabled }"
     role="radiogroup"
     aria-label="思考强度"
-    tabindex="0"
+    :aria-disabled="isDisabled"
+    :tabindex="isDisabled ? -1 : 0"
     @keydown="onKeydown"
   >
     <div ref="containerRef" class="knob-inner">
@@ -335,13 +348,13 @@ onBeforeUnmount(() => {
       <div ref="magnifierRef" class="magnifier-box" aria-hidden="true">
         <div class="magnified-track" :style="magnifiedTrackStyle">
           <span
-            v-for="(lvl, i) in validLevels"
+            v-for="(lvl, i) in displayLevels"
             :key="lvl"
             class="mag-level"
             :class="{ current: i === activeIndex }"
           >
             <span v-if="i > 0" class="mag-connector" :class="{ active: i <= activeIndex }" />
-            <span class="moon-icon">{{ moonFor(i, validLevels.length) }}</span>
+            <span class="moon-icon">{{ moonFor(i, displayLevels.length) }}</span>
           </span>
         </div>
         <!-- 边缘扭曲效果层（叠加在视窗内容之上，营造镜头感） -->
@@ -351,7 +364,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="knob-step-button knob-step-button--previous"
-        :disabled="activeIndex === 0"
+        :disabled="isDisabled || activeIndex === 0"
         aria-label="上一个思考档位"
         @click="selectRelative(-1)"
       >
@@ -360,7 +373,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="knob-step-button knob-step-button--next"
-        :disabled="activeIndex === validLevels.length - 1"
+        :disabled="isDisabled || activeIndex === displayLevels.length - 1"
         aria-label="下一个思考档位"
         @click="selectRelative(1)"
       >
@@ -380,25 +393,25 @@ onBeforeUnmount(() => {
         @pointercancel="onPointerCancel"
       >
         <button
-          v-for="(lvl, i) in validLevels"
+          v-for="(lvl, i) in displayLevels"
           :key="lvl"
           type="button"
           class="point-item"
           :class="{ current: i === activeIndex }"
           :aria-checked="i === activeIndex"
           :aria-label="metaFor(lvl).label"
+          :disabled="isDisabled"
           role="radio"
           @click.stop="onTileClick(i)"
         >
           <!-- 连线（点之间） -->
           <span v-if="i > 0" class="point-connector" :class="{ active: i <= activeIndex }" />
           <!-- 与放大镜共用的按档位数等距取样的月相 emoji -->
-          <span class="moon-icon" aria-hidden="true">{{ moonFor(i, validLevels.length) }}</span>
+          <span class="moon-icon" aria-hidden="true">{{ moonFor(i, displayLevels.length) }}</span>
         </button>
       </div>
     </div>
   </div>
-  <div v-else class="thinking-knob-empty">跟随服务默认</div>
 </template>
 
 <style scoped lang="less">
@@ -422,13 +435,12 @@ onBeforeUnmount(() => {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
     border-radius: 6px;
   }
-}
 
-.thinking-knob-empty {
-  color: color-mix(in srgb, var(--ink) 36%, transparent);
-  font-size: 11px;
-  text-align: center;
-  padding: 6px 0;
+  &.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    touch-action: auto;
+  }
 }
 
 // ── 内部容器 ──────────────────────────────────────────────────────
@@ -607,6 +619,10 @@ onBeforeUnmount(() => {
   }
 }
 
+.thinking-knob.is-disabled .track {
+  cursor: not-allowed;
+}
+
 .point-item {
   position: relative;
   display: flex;
@@ -621,6 +637,10 @@ onBeforeUnmount(() => {
   outline: none;
   width: 66px; // 与 STEP_GAP 保持一致，保证吸附位置与视觉点位重合
   height: 14px;
+
+  &:disabled {
+    cursor: not-allowed;
+  }
 }
 
 // 连线（点之间）
@@ -651,21 +671,14 @@ onBeforeUnmount(() => {
 }
 
 // 下方小轨道月球：比分轨道放大一档（10px→13px），但整体压暗、去饱和，
-// 与放大镜内高亮的选中月拉开前后对比，突出「镜头里才是亮的」。
+// 与放大镜内按 emoji 原始明暗呈现的月相拉开层级。
 .point-item .moon-icon {
   font-size: 13px;
   filter: grayscale(45%) brightness(0.7);
 }
-// 小轨道上当前选中位：比其余小月稍亮以标示位置，但仍明显暗于放大镜内的选中月。
+// 小轨道上当前选中位：比其余小月稍亮以标示位置，但仍保持压暗。
 .point-item.current .moon-icon {
   filter: grayscale(18%) brightness(0.9);
 }
 
-// 放大镜内选中的月球：月相 emoji 本体是暗月（🌔 大部分为黑），仅 brightness/光晕救不亮它。
-// 故先用 sepia→saturate→hue-rotate 把暗月重新染成暖金色，再 brightness 提亮 + 光晕，
-// 让月亮本体发光变亮，而不是只在外圈加一圈光。
-.mag-level.current .moon-icon {
-  filter: sepia(1) saturate(3.2) hue-rotate(-12deg) brightness(1.5)
-    drop-shadow(0 0 4px rgba(255, 200, 90, 0.75));
-}
 </style>
