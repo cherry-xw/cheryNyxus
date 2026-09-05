@@ -11,7 +11,7 @@ import {
   type HooksEventsResponseData,
   type HooksHandlerDTO,
 } from '../message/types.js'
-import { readGlobalHooks, readBrainHooksMap, writeGlobalHooks } from '@/agent/hooks/registry.js'
+import { readGlobalHooks, readBrainHooksMap } from '@/agent/hooks/registry.js'
 import { describePosixShell } from '@/core/security/sandbox.js'
 import type { HookEvent } from '@/agent/hooks/types.js'
 import type { HookHandlerConfig } from '@/agent/hooks/matcher.js'
@@ -24,20 +24,6 @@ import { logger } from '@/utils/logger/index.js'
  * hooks.save：校验 + 写回 hooks.json，清缓存（dispatcher 下次 dispatch 重新加载）。
  * hooks.events：返回 10 事件的静态元数据（名称/描述/实现状态）。
  */
-
-/** 合法事件名集合（与 agent/hooks/types.ts HookEvent 同步）*/
-const VALID_EVENTS = new Set<string>([
-  'SessionStart',
-  'SessionEnd',
-  'UserPromptSubmit',
-  'PreLLMRequest',
-  'PostLLMResponse',
-  'PreToolUse',
-  'PostToolUse',
-  'Stop',
-  'PreCompact',
-  'PostCompact',
-])
 
 /**
  * 事件能力标签：前端用 chip 展示该事件 handler 能改什么。
@@ -132,16 +118,6 @@ function toDTO(h: HookHandlerConfig): HooksHandlerDTO {
   }
 }
 
-/** HooksHandlerDTO → HookHandlerConfig */
-function fromDTO(d: HooksHandlerDTO): HookHandlerConfig {
-  return {
-    matcher: d.matcher,
-    if: d.if,
-    command: d.command,
-    timeout: d.timeout,
-  }
-}
-
 /** hooks.get：读全局 + brain 级 hooks */
 async function handleHooksGet(_ctx: HandlerContext): Promise<HooksGetResponseData> {
   const global = readGlobalHooks()
@@ -176,47 +152,20 @@ async function handleHooksGet(_ctx: HandlerContext): Promise<HooksGetResponseDat
   return { handlers, brainHooks, shellInfo }
 }
 
-/** hooks.save：校验 + 写回 */
+/** Legacy split writes cannot participate in revision-checked combined saves. */
 async function handleHooksSave(
   ctx: HandlerContext,
-  data: HooksSaveRequestData,
+  _data: HooksSaveRequestData,
 ): Promise<HooksSaveResponseData | Response> {
-  const rid = ctx.requestId ?? ''
-
-  // 校验事件名
-  const invalidEvents = Object.keys(data.handlers).filter((e) => !VALID_EVENTS.has(e))
-  if (invalidEvents.length > 0) {
-    return createResponse(
-      rid,
-      false,
-      undefined,
-      createError(ErrorCode.INVALID_PARAMS, `未知事件: ${invalidEvents.join(', ')}`),
-    )
-  }
-
-  // 校验每个 handler 有 command
-  for (const [event, list] of Object.entries(data.handlers)) {
-    for (let i = 0; i < list.length; i++) {
-      if (!list[i]?.command?.trim()) {
-        return createResponse(
-          rid,
-          false,
-          undefined,
-          createError(ErrorCode.INVALID_PARAMS, `${event}[${i}]: command 不能为空`),
-        )
-      }
-    }
-  }
-
-  // 转换为内部类型并写入
-  const handlerMap: Partial<Record<HookEvent, HookHandlerConfig[]>> = {}
-  for (const [event, list] of Object.entries(data.handlers)) {
-    handlerMap[event as HookEvent] = list.map(fromDTO)
-  }
-  writeGlobalHooks(handlerMap)
-
-  logger.event('hooks.save', { eventCount: Object.keys(data.handlers).length })
-  return { ok: true }
+  return createResponse(
+    ctx.requestId ?? '',
+    false,
+    undefined,
+    createError(
+      ErrorCode.INVALID_PARAMS,
+      'Hooks 保存协议已升级，请刷新客户端，通过 config.save v2 一并保存 Hooks 草稿',
+    ),
+  )
 }
 
 /** hooks.events：返回静态事件元数据 */

@@ -2,7 +2,7 @@
  * SettingsDialog：后端 config 设置面板外壳（居中 tab 弹窗）。
  * 触发：agents.settingsOpen（AgentFab ⚙️ 入口）。
  * 打开 -> config.get 读 .chery/config.yaml 原文（除 server 段）-> 深拷贝为 draft 编辑。
- * 保存 -> config.save 校验 + 写回（保留 server 段、无注释），重启生效；失败 error 红框列出。
+ * 保存 -> config.save v2 原子保存配置与 Hooks 草稿，显示独立生效状态；错误在红框列出。
  *
  * 外壳只管 overlay / tab 切换 / draft 加载保存；各 tab 内容拆到 ./tabs/，删除二次确认见 ConfirmPopover。
  *
@@ -33,7 +33,6 @@ import {
   type HookHandlerDTO,
   type HooksShellInfo,
 } from '@/application/backend/public'
-import { wsClient } from '@/application/transport/public'
 import {
   TABS,
   HINT_LINES,
@@ -182,37 +181,9 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const workspaceWarnings = ref<Record<string, string>>({})
   /** 每个预设独立的最新校验序号，丢弃输入已变化后的迟到响应。 */
   const workspaceValidationSeq = new Map<string, number>()
-  /** immediate 重启时等待重连的上限（ms）；到点仍连不上 → 隐藏 savedHint。 */
-  const RECONNECT_TIMEOUT_MS = 60000
-  /** 重连成功后"已保存，服务已更新"的展示时长（ms）；到点隐藏。 */
-  const SUCCESS_HINT_TIMEOUT_MS = 5000
-  /** 重连等待计时器显示：已等待秒数（immediate 时每秒 +1，重连成功停止）。 */
   const waitElapsed = ref(0)
   const isWaitingReconnect = ref(false)
-  let reconnectWatcher: { promise: Promise<void>; cancel: () => void } | null = null
-  let waitInterval: ReturnType<typeof setInterval> | null = null
-  let waitTimeout: ReturnType<typeof setTimeout> | null = null
-  let closeTimeout: ReturnType<typeof setTimeout> | null = null
-  /** 停止等待计时器显示（不动超时句柄）。 */
-  function clearWaitInterval(): void {
-    if (waitInterval) {
-      clearInterval(waitInterval)
-      waitInterval = null
-    }
-  }
-  /** 清理全部重启等待资源（计时器 + 重连上限 + 成功展示 + reconnectWatcher）。关闭/出错/超时统一调用。 */
   function clearRestartWait(): void {
-    clearWaitInterval()
-    if (waitTimeout) {
-      clearTimeout(waitTimeout)
-      waitTimeout = null
-    }
-    if (closeTimeout) {
-      clearTimeout(closeTimeout)
-      closeTimeout = null
-    }
-    reconnectWatcher?.cancel()
-    reconnectWatcher = null
     isWaitingReconnect.value = false
   }
   /** sense.tools 返回的内置工具清单（缓存，SensesTab 下拉建议 + label/description 显示用）。失败置 []。 */
@@ -353,7 +324,9 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     savedWarnings.value = null
     workspaceWarnings.value = {}
     try {
-      const data = await agentApi.getConfig()
+      const { baseRevision: revision, ...data } = await agentApi.getConfig()
+      baseRevision = revision
+      pendingPreview = null
       draft.value = structuredClone(data)
       // 打开设置时立即校验现有每个预设，避免历史无效路径要等编辑后才暴露。
       for (const [presetName, preset] of Object.entries(data.presets ?? {})) {
@@ -557,6 +530,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       },
     )
   }
+  let baseRevision = ''
+  let pendingPreview: { fingerprint: string; token: string } | null = null
   async function save(): Promise<void> {
     if (!draft.value || saving.value) return
     saving.value = true
@@ -567,86 +542,50 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     clearRestartWait()
     try {
       sanitizeSenseGroups(draft.value)
-      // 并行保存 config.yaml + hooks.json
-      const savePromises: Promise<unknown>[] = [agentApi.saveConfig(draft.value)]
-      const saveHooks = hooksState.dirty
-      if (saveHooks) {
-        // 过滤掉 command 为空的 handler（前端可能留空行）
-        const cleaned: Record<string, HookHandlerDTO[]> = {}
-        for (const [event, list] of Object.entries(hooksState.handlers)) {
-          const valid = list.filter((h) => h.command?.trim())
-          if (valid.length > 0) cleaned[event] = valid
-        }
-        // 空对象同样需要保存，表示用户删除了最后一个全局 Hook。
-        savePromises.push(agentApi.saveHooks(cleaned))
-      }
-      // 在 worker 关闭前登记等待者，避免它已开始重启时漏掉这一次重连。
-      reconnectWatcher = wsClient.watchNextReconnect()
-      const results = await Promise.all(savePromises)
-      if (saveHooks) hooksState.dirty = false
-      const result = results[0] as
-        | {
-            needRestart: true
-            restart: 'immediate' | 'scheduled' | 'manual'
-            warnings?: string[]
-          }
-        | {
-            needRestart: false
-            restart: 'manual'
-            validationErrors: string[]
-            validationWarnings: string[]
-            rollbackBackup: string
-          }
-      if (!result.needRestart) {
-        // 重启前预检失败：后端已自动回滚到备份，未重启（避免坏配置 crash-loop）。
-        reconnectWatcher?.cancel()
-        reconnectWatcher = null
-        error.value = `配置预检未通过，已自动回滚到 ${result.rollbackBackup}，未重启。\n${result.validationErrors.join('\n')}`
-        clearRestartWait()
-        return
-      }
-      if (result.restart === 'immediate') {
-        savedHint.value = '服务正在更新…'
-        isWaitingReconnect.value = true
-        waitElapsed.value = 0
-        waitInterval = setInterval(() => {
-          waitElapsed.value += 1
-        }, 1000)
-        // 超时从保存后立即起算：到点仍重连未成功 → 隐藏提示条。
-        waitTimeout = setTimeout(() => {
-          clearRestartWait()
-          savedHint.value = null
-        }, RECONNECT_TIMEOUT_MS)
-        const watcher = reconnectWatcher
-        if (watcher) {
-          // 重连成功：切文案、停计时器；清掉重连等待上限，起 5s 成功展示计时后隐藏。
-          void watcher.promise.then(() => {
-            clearWaitInterval()
-            isWaitingReconnect.value = false
-            savedHint.value = '✓ 已保存，服务已更新'
-            if (waitTimeout) {
-              clearTimeout(waitTimeout)
-              waitTimeout = null
+      const payload = {
+        protocolVersion: 2 as const,
+        expectedBaseRevision: baseRevision,
+        candidate: JSON.parse(JSON.stringify(draft.value)) as ConfigDto,
+        ...(hooksState.dirty
+          ? {
+              hooks: JSON.parse(
+                JSON.stringify(hooksState.handlers),
+              ) as import('@chery/protocol').HooksDraft,
             }
-            closeTimeout = setTimeout(() => {
-              closeTimeout = null
-              reconnectWatcher?.cancel()
-              reconnectWatcher = null
-              savedHint.value = null
-            }, SUCCESS_HINT_TIMEOUT_MS)
-          })
-        }
-      } else if (result.restart === 'scheduled') {
-        reconnectWatcher?.cancel()
-        reconnectWatcher = null
-        savedHint.value = '✓ 已保存，将在当前任务完成后自动重启'
-      } else {
-        reconnectWatcher?.cancel()
-        reconnectWatcher = null
-        savedHint.value = '✓ 已保存，需重启后端生效'
+          : {}),
       }
-      // 软告警（如 $ENV 缺失变量）：已写盘并正常重启，不阻塞，仅提示。
-      savedWarnings.value = result.warnings?.length ? result.warnings : null
+      const fingerprint = JSON.stringify(payload)
+      if (!pendingPreview || pendingPreview.fingerprint !== fingerprint) {
+        const preview = await agentApi.previewConfig(payload)
+        pendingPreview = { fingerprint, token: preview.previewToken }
+        if (preview.destructiveTargets.length) {
+          savedHint.value =
+            '尚未保存：此次删除将影响以下角色或预设。再次点击保存确认；当前任务和待审批项会保留，等待安全边界后生效。'
+          savedWarnings.value = preview.destructiveTargets
+          return
+        }
+      }
+      const result = await agentApi.saveConfig({
+        ...payload,
+        requestId: crypto.randomUUID(),
+        previewToken: pendingPreview.token,
+        policy: 'wait',
+      })
+      baseRevision = result.baseRevision
+      pendingPreview = null
+      hooksState.dirty = false
+      savedHint.value =
+        result.status === 'applied'
+          ? '✓ 已保存并生效'
+          : result.status === 'failed'
+            ? '已保存，但部分设置生效失败；当前任务继续使用可用配置。'
+            : '✓ 已保存，部分设置待生效；当前任务继续使用原配置。'
+      savedWarnings.value = [
+        ...result.warnings,
+        ...result.impacts
+          .filter((i) => i.status !== 'applied')
+          .map((i) => i.paths.join(', ') + '：' + i.reason),
+      ]
     } catch (e) {
       const msg = (e as Error).message
       error.value = msg

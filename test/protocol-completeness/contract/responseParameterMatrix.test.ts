@@ -197,14 +197,16 @@ const validResponses: Record<Method, unknown> = {
   [Method.MCP_CONNECT]: { server: {} },
   [Method.MCP_DISCONNECT]: { server: {} },
   [Method.MCP_RELOAD]: { servers: [], connected: 0, failed: 0, totalSenses: 0 },
-  [Method.CONFIG_GET]: config,
+  [Method.CONFIG_GET]: { ...config, baseRevision: 'config-1' },
   [Method.CONFIG_WORKSPACE_VALIDATE]: { valid: true },
   [Method.CONFIG_WORKSPACE_BROWSE_START]: {
     sessionId: 'session-1', ttlMs: 1000, platform: 'win32', sep: '\\', roots: [],
     initialPath: '', includeFiles: false,
   },
   [Method.CONFIG_WORKSPACE_BROWSE_LIST]: { nonce: '0123456789abcdef', encData: '' },
-  [Method.CONFIG_SAVE]: { needRestart: true, restart: 'immediate' },
+  [Method.CONFIG_SAVE]: { protocolVersion: 2, savedRevision: 'config-1', appliedRevision: 'config-1', status: 'applied', impacts: [], restart: { required: false, status: 'none' }, baseRevision: 'config-1', candidateRevisionId: 'revision-1', warnings: [] },
+  [Method.CONFIG_APPLY_STATUS]: { protocolVersion: 2, savedRevision: 'config-1', appliedRevision: 'config-1', status: 'applied', impacts: [], restart: { required: false, status: 'none' } },
+  [Method.CONFIG_PREVIEW]: { protocolVersion: 2, baseRevision: 'config-1', previewToken: 'preview-1', impacts: [], destructiveTargets: [], policy: 'wait' },
   [Method.HOOKS_GET]: { handlers: {}, brainHooks: {}, shellInfo: {} },
   [Method.HOOKS_SAVE]: { ok: true },
   [Method.HOOKS_EVENTS]: { events: [] },
@@ -247,7 +249,7 @@ const explicitlyEmpty = new Set<Method>([
 ])
 
 describe('public RPC response parameter matrix', () => {
-  it('defines a valid minimal response for all 80 public methods', () => {
+  it('defines a valid minimal response for all 82 public methods', () => {
     expect(Object.keys(validResponses).sort()).toEqual([...PUBLIC_METHODS].sort())
   })
 

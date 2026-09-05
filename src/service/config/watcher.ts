@@ -1,11 +1,9 @@
 import fs from 'node:fs'
+import { isStructuredConfigImageHandled } from './commit.js'
 import path from 'node:path'
 import config, { readRawConfig, validateLoadable } from '@/utils/config.js'
 import { logger, LogLevel } from '@/utils/logger/index.js'
-import {
-  consumeHandledConfigRevision,
-  createConfigRevision,
-} from './revision.js'
+import { consumeHandledConfigRevision, createConfigRevision } from './revision.js'
 import { requestRestartWhenIdle } from '@/service/restartCoordinator.js'
 import {
   enterMaintenanceMode,
@@ -58,11 +56,7 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
       fs.writeFileSync(candidatePath, acceptedConfigText, 'utf8')
       fs.renameSync(candidatePath, configPath)
       suppressRecoveredWrite = true
-      logger.event(
-        'config.manual.recovered',
-        { rejectedPath, reason: message },
-        LogLevel.warn,
-      )
+      logger.event('config.manual.recovered', { rejectedPath, reason: message }, LogLevel.warn)
       return rejectedPath
     } catch (error) {
       if (fs.existsSync(candidatePath)) fs.rmSync(candidatePath, { force: true })
@@ -107,11 +101,7 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
           : []),
       ])
       abortAllChatRuntimes()
-      logger.event(
-        'config.manual.invalid',
-        { errors: [message], rejectedPath },
-        LogLevel.error,
-      )
+      logger.event('config.manual.invalid', { errors: [message], rejectedPath }, LogLevel.error)
       return
     }
     const validation = validateLoadable(raw)
@@ -134,14 +124,15 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
 
     const candidate = createConfigRevision({ raw, source: 'manual' })
     const candidateText = fs.readFileSync(path.join(cheryRoot, 'config.yaml'), 'utf8')
-    const alreadyHandled = consumeHandledConfigRevision(candidate.fingerprint)
+    const structured = isStructuredConfigImageHandled()
+    const alreadyHandled = consumeHandledConfigRevision(candidate.fingerprint) || structured
     const unchanged = candidate.fingerprint === acceptedRevision.fingerprint
     if (alreadyHandled || unchanged) {
       acceptedRaw = raw
       acceptedConfigText = candidateText
       acceptedRevision = candidate
       const recovering = getMaintenanceState().active
-      if (recovering) {
+      if (recovering && !structured) {
         leaveMaintenanceMode()
         process.send?.({ type: 'maintenance-cleared' })
         requestRestartWhenIdle()
@@ -167,10 +158,7 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
       acceptedRaw.presets as unknown as Record<string, Record<string, unknown>>,
       raw.presets as unknown as Record<string, Record<string, unknown>>,
     )
-    archivePresetRoots(
-      removedPresetIds,
-      `预设在手工配置修订 ${candidate.revisionId} 中被删除`,
-    )
+    archivePresetRoots(removedPresetIds, `预设在手工配置修订 ${candidate.revisionId} 中被删除`)
     acceptedRaw = raw
     acceptedConfigText = candidateText
     acceptedRevision = candidate
@@ -195,11 +183,7 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
       schedule()
     })
     watcher.on('error', (error) => {
-      logger.event(
-        'config.watcher.error',
-        { target, error: error.message },
-        LogLevel.warn,
-      )
+      logger.event('config.watcher.error', { target, error: error.message }, LogLevel.warn)
     })
     watchers.push(watcher)
   }

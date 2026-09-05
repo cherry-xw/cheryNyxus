@@ -10,10 +10,13 @@ import {
 import {
   applyConfigOperations,
   configOperationsSchema,
-  getConfigBaseRevision,
   type ConfigOperation,
 } from '@/service/config/operations.js'
-import { commitConfigCandidate } from '@/service/config/commit.js'
+import {
+  commitConfigCandidate,
+  getSavedBaseRevision,
+  readConfigImage,
+} from '@/service/config/commit.js'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -87,7 +90,8 @@ function assetReferences(relative: string): string[] {
   const references: string[] = []
   if (relative.startsWith('prompt/')) {
     for (const [name, role] of Object.entries(raw.roles ?? {})) {
-      if (role.systemPrompt?.replaceAll('\\', '/') === relative) references.push(`roles.${name}.systemPrompt`)
+      if (role.systemPrompt?.replaceAll('\\', '/') === relative)
+        references.push(`roles.${name}.systemPrompt`)
     }
   } else if (relative.startsWith('rule/')) {
     const file = relative.slice('rule/'.length)
@@ -98,7 +102,8 @@ function assetReferences(relative: string): string[] {
     const skillName = relative.split('/')[1]!
     for (const [name, role] of Object.entries(raw.roles ?? {})) {
       // undefined means all skills are enabled, so it is an explicit live reference.
-      if (role.skills === undefined || role.skills.includes(skillName)) references.push(`roles.${name}.skills`)
+      if (role.skills === undefined || role.skills.includes(skillName))
+        references.push(`roles.${name}.skills`)
     }
   }
   return references
@@ -116,7 +121,10 @@ function doAssetGet(assetPath: string): SenseResult {
     if (!fs.existsSync(asset.absolute) || !fs.statSync(asset.absolute).isFile()) {
       throw new Error(`资产不存在或不是文件：${asset.relative}`)
     }
-    return { content: `资产 ${asset.relative}：\n${fs.readFileSync(asset.absolute, 'utf8')}`, hash: '' }
+    return {
+      content: `资产 ${asset.relative}：\n${fs.readFileSync(asset.absolute, 'utf8')}`,
+      hash: '',
+    }
   } catch (error) {
     return { content: `读取资产失败：${(error as Error).message}`, hash: '' }
   }
@@ -182,9 +190,10 @@ function doAssetArchive(assetPath: string): SenseResult {
 
 /** get：读盘返回完整脱敏配置、乐观并发 revision 与 backups 回滚点。 */
 function doGet(): SenseResult {
-  const raw = readRawConfig()
+  const image = readConfigImage()
+  const raw = image.config
   const config = redactConfigSecrets(raw)
-  const baseRevision = getConfigBaseRevision(raw)
+  const baseRevision = getSavedBaseRevision(image)
   const backups = listConfigBackups()
   return {
     content:
@@ -227,11 +236,10 @@ function doPatch(baseRevision: string, operations: readonly ConfigOperation[]): 
     content:
       `配置候选已通过完整校验并保存；候选修订 ${result.candidateRevisionId}，` +
       `新 baseRevision ${result.baseRevision}。旧配置已自动备份。` +
-      (result.restart === 'manual'
-        ? '当前没有守护进程，请手动重启后生效。'
-        : result.restart === 'immediate'
-          ? '当前没有运行中的会话任务，已安排立即受控重启。'
-          : '已安排在所有运行中的会话任务结束后受控重启；不会中断当前任务。') +
+      `生效状态：${result.status}。${result.impacts
+        .filter((i) => i.status !== 'applied')
+        .map((i) => `${i.paths.join(', ')}：${i.reason}`)
+        .join('；')}` +
       (result.warnings.length ? `\n警告：\n${result.warnings.join('\n')}` : ''),
     hash: '',
   }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ConfigApplyStateSchema } from './configApply'
 
 /**
  * Canonical public RPC surface.
@@ -66,6 +67,8 @@ export const Method = {
   CONFIG_WORKSPACE_BROWSE_START: 'config.workspace.browse.start',
   CONFIG_WORKSPACE_BROWSE_LIST: 'config.workspace.browse.list',
   CONFIG_SAVE: 'config.save',
+  CONFIG_PREVIEW: 'config.preview',
+  CONFIG_APPLY_STATUS: 'config.apply.status',
   HOOKS_GET: 'hooks.get',
   HOOKS_SAVE: 'hooks.save',
   HOOKS_EVENTS: 'hooks.events',
@@ -300,7 +303,9 @@ export const NotificationEnvelopeSchema = z
             ? NoticeNotificationDataSchema
             : notification.type === 'turn.cancelled'
               ? TurnCancelledNotificationDataSchema
-              : undefined
+              : notification.type === 'config.apply.changed'
+                ? ConfigApplyStateSchema
+                : undefined
     if (schema) {
       const parsed = schema.safeParse(notification.data)
       if (parsed.success) return

@@ -1,11 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import config, {
-  readRawConfig,
-  redactConfigSecrets,
-  type ConfigRaw,
-} from '@/utils/config.js'
+import config, { readRawConfig, redactConfigSecrets, type ConfigRaw } from '@/utils/config.js'
 import {
   activateConfigRevision,
   getActiveConfigRevision,
@@ -65,7 +61,6 @@ const CONNECTION_BRAIN_FIELDS = new Set([
   'fullUrl',
   'contextLimit',
   'thinking',
-  'protocol',
   'anthropicCompat',
 ])
 
@@ -202,7 +197,7 @@ export function ensureCurrentConfigRevision(): ConfigRevisionRecord {
 }
 
 /**
- * Structured saves already applied lifecycle effects and scheduled a restart.
+ * Structured saves are owned by the apply coordinator, including pending effects.
  * The filesystem watcher consumes this one-shot acknowledgement so the same
  * disk write is not misclassified and applied again as a manual edit.
  */

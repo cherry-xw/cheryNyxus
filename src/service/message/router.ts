@@ -103,6 +103,17 @@ export class RpcRouter {
       )
     }
 
+    if (
+      request.method === 'config.save' &&
+      (request.params as { protocolVersion?: number } | undefined)?.protocolVersion !== 2
+    ) {
+      return createResponse(
+        request.id,
+        false,
+        undefined,
+        createError(ErrorCode.INVALID_PARAMS, '配置保存协议已升级到 v2，请刷新或升级客户端后重试'),
+      )
+    }
     // P1-5：zod 校验 params，非法 → INVALID_PARAMS（替代旧 handler 内 `as` 强转静默穿透）。
     // schema 存在性与 handler 同步注册（requestSchemas 覆盖全部 Method）。
     const schema = requestSchemaFor(request.method)

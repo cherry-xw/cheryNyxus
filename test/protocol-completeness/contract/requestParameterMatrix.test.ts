@@ -269,7 +269,7 @@ const minimalConfig = {
 const externalBoundaryMatrices: MethodMatrix[] = [
   {
     method: Method.CONFIG_SAVE,
-    valid: [value('minimal complete config', minimalConfig)],
+    valid: [value('minimal complete config', { protocolVersion: 2, requestId: 'save-1', expectedBaseRevision: 'config-1', candidate: minimalConfig })],
     invalid: [
       value('missing global', { llm: minimalConfig.llm }),
       value('invalid supervision enum', { ...minimalConfig, global: { ...minimalConfig.global, supervision: 'root' } }),

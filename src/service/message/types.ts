@@ -122,6 +122,7 @@ export interface EventContext {
 }
 
 export type NotificationType =
+  | 'config.apply.changed'
   | 'interrupt' // 感官审批请求（sense_end，仅 smart/manual）
   | 'sense_started' // 感官开始执行（sense_end，仅 auto；前端维护「运行中工具」列表）
   | 'accept' // 感官执行成功（全工具；approvalId=sense id，前端移除运行中工具同 id 项）
@@ -764,7 +765,7 @@ export interface McpReloadRequestData {
 export type ConfigGetRequestData = EmptyObjectData
 
 /** config.save 入参：除 server 外全部字段（结构同 ConfigRaw，supervision 为字符串、key 为 $ENV 占位符） */
-export type ConfigSaveRequestData = ConfigRaw
+export type ConfigSaveRequestData = import('@chery/protocol').ConfigSaveRequest<ConfigRaw>
 
 /** config.workspace.validate：只读校验后端主机上的预设工作区目录。空值表示未限定，为有效值。 */
 export interface ConfigWorkspaceValidateRequestData {
@@ -1874,12 +1875,7 @@ export interface RootTimelineSnapshot {
 export type TaskOverviewStatus = 'needs_user' | 'running' | 'paused' | 'failed' | 'completed'
 
 export type TaskAgentOverviewStatus =
-  | 'needs_user'
-  | 'running'
-  | 'paused'
-  | 'failed'
-  | 'completed'
-  | 'idle'
+  'needs_user' | 'running' | 'paused' | 'failed' | 'completed' | 'idle'
 
 export interface TaskAgentOverview {
   chatId: string
@@ -2233,31 +2229,14 @@ export interface McpReloadResponseData {
  * config.get 响应：.chery/config.yaml 原文（除 server 段）。
  * supervision 为字符串、key 仍为 $ENV 占位符、无路径补全（供设置面板编辑）。
  */
-export type ConfigGetResponseData = ConfigRaw
+export type ConfigGetResponseData = ConfigRaw & { baseRevision: string }
 
 /**
- * config.save 响应：校验通过已写盘，需重启后端生效。
+ * config.save v2：保存修订、运行修订与逐项生效状态。
  * 校验失败走 error（INVALID_PARAMS + errors 列表），不返此 data。
- * 预检失败（needRestart:false）：已自动回滚，未重启（避免坏配置 crash-loop）。
+ * 写盘前失败走 RPC error；写盘后应用失败通过 failed 明确表达。
  */
-export type ConfigSaveResponseData =
-  | {
-      needRestart: true
-      /** immediate=当前空闲、即将替换 worker；scheduled=等待 chat 空闲；manual=当前 worker 未受守护。 */
-      restart: 'immediate' | 'scheduled' | 'manual'
-      /** 软告警（如 $ENV 缺失变量）：已写盘并正常重启，仅供提示，不阻塞。 */
-      warnings?: string[]
-    }
-  | {
-      needRestart: false
-      restart: 'manual'
-      /** 预检（模拟 loadConfig）硬错误列表 */
-      validationErrors: string[]
-      /** 预检软警告列表 */
-      validationWarnings: string[]
-      /** 已回滚到的备份文件名（.chery/backups/ 下） */
-      rollbackBackup: string
-    }
+export type ConfigSaveResponseData = import('@chery/protocol').ConfigSaveResult
 
 /** config.workspace.validate 响应：无副作用的后端目录校验结果。 */
 export interface ConfigWorkspaceValidateResponseData {
@@ -2437,6 +2416,7 @@ export interface StagedChunkData {
 // ========== Notification Data ==========
 
 export type NotificationData =
+  | import('@chery/protocol').ConfigApplyState
   | InterruptNotificationData
   | SenseStartedNotificationData
   | AcceptNotificationData
@@ -2823,6 +2803,8 @@ export const Method = {
   CONFIG_WORKSPACE_BROWSE_START: 'config.workspace.browse.start',
   CONFIG_WORKSPACE_BROWSE_LIST: 'config.workspace.browse.list',
   CONFIG_SAVE: 'config.save',
+  CONFIG_PREVIEW: 'config.preview',
+  CONFIG_APPLY_STATUS: 'config.apply.status',
 
   // Hooks 管理（读写 .chery/hooks/hooks.json，独立于 config.yaml）
   HOOKS_GET: 'hooks.get',
@@ -3060,6 +3042,14 @@ export interface RpcMethodMap {
     result: ConfigWorkspaceBrowseListResponseData
   }
   [Method.CONFIG_SAVE]: { params: ConfigSaveRequestData; result: ConfigSaveResponseData }
+  [Method.CONFIG_PREVIEW]: {
+    params: import('@chery/protocol').ConfigApplyRequest<ConfigRaw>
+    result: import('@chery/protocol').ConfigPreview
+  }
+  [Method.CONFIG_APPLY_STATUS]: {
+    params: Record<string, never>
+    result: import('@chery/protocol').ConfigApplyState
+  }
   [Method.HOOKS_GET]: { params: HooksGetRequestData; result: HooksGetResponseData }
   [Method.HOOKS_SAVE]: { params: HooksSaveRequestData; result: HooksSaveResponseData }
   [Method.HOOKS_EVENTS]: { params: HooksEventsRequestData; result: HooksEventsResponseData }

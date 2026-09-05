@@ -15,7 +15,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import configManageSense from '@/agent/sense/configManage.js'
 import { backupConfig, listConfigBackups, readRawConfig } from '@/utils/config.js'
-import { getConfigBaseRevision } from '@/service/config/operations.js'
+import { getSavedBaseRevision } from '@/service/config/commit.js'
 
 const exec = configManageSense.executor.execute.bind(configManageSense.executor)
 const sharedData = new Map<string, Map<string, unknown>>()
@@ -111,7 +111,7 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
   })
 
   it('action="patch" 通过 revision 应用增量候选，写盘前自动备份', async () => {
-    const baseRevision = getConfigBaseRevision(readRawConfig())
+    const baseRevision = getSavedBaseRevision()
     const r = await exec(
       {
         action: 'patch',
@@ -128,15 +128,15 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
       sharedData,
     )
     expect(r.content).toContain('候选已通过完整校验')
-    expect(r.content).toContain('重启')
+    expect(r.content).toContain('生效状态：pending')
     expect(readRawConfig().sense_groups?.leader).toEqual(['read_file'])
     expect(listConfigBackups()).toHaveLength(1)
     const returnedRevision = r.content.match(/新 baseRevision (config-[a-f0-9]+)/)?.[1]
-    expect(returnedRevision).toBe(getConfigBaseRevision(readRawConfig()))
+    expect(returnedRevision).toBe(getSavedBaseRevision())
   })
 
   it('过期 baseRevision 被拒绝且不落盘', async () => {
-    const stale = getConfigBaseRevision(readRawConfig())
+    const stale = getSavedBaseRevision()
     writeFileSync(
       join(tempCheryDir, '.chery', 'config.yaml'),
       `${minimalConfigYaml()}sense_groups:\n  changed:\n    - read_file\n`,
@@ -156,7 +156,7 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
   })
 
   it('增量操作产生不可加载候选时在写盘前拒绝', async () => {
-    const baseRevision = getConfigBaseRevision(readRawConfig())
+    const baseRevision = getSavedBaseRevision()
     const r = await exec(
       {
         action: 'patch',

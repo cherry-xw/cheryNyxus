@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CONFIG_APPLY_VERSION, HooksDraftSchema } from '@chery/protocol'
 import { Method, type Method as MethodName, type ParamsOf } from './types.js'
 import {
   ChatInputSubmitRequestSchema,
@@ -37,7 +38,7 @@ const runtimeSelectionSchema = z.object({
 
 const supervisionNameSchema = z.enum(['auto', 'smart', 'manual'])
 const permissionEffectSchema = z.enum(['inherit', 'allow', 'ask', 'deny'])
-const rolePermissionSchema = z.object({
+const rolePermissionSchema = z.looseObject({
   template: z.enum(['read-only', 'workspace-developer', 'supervised', 'trusted']),
   tools: z.record(z.string(), permissionEffectSchema).optional(),
   filesystem: z
@@ -67,13 +68,22 @@ const rolePermissionSchema = z.object({
     .optional(),
 })
 
-const brainSchema = z.object({
+const brainSchema = z.looseObject({
   url: z.string().optional(),
   model: z.string(),
   key: z.string().optional(),
   /** thinking 显示词（任意非空字符串，由 model-catalog wire 翻译）；兼容 legacy boolean。 */
   thinking: z.union([z.string().min(1), z.boolean()]).optional(),
   provider: z.string(),
+  protocol: z
+    .enum([
+      'openai-chat-completions',
+      'openai-responses',
+      'anthropic-messages',
+      'ollama-chat',
+      'mock',
+    ])
+    .optional(),
   rpm: z.number().optional(),
   fullUrl: z.boolean().optional(),
   mock: z
@@ -105,10 +115,10 @@ const brainSchema = z.object({
     })
     .optional(),
   hooks: z.string().optional(),
-  anthropicCompat: z.object({ official: z.boolean().optional() }).optional(),
+  anthropicCompat: z.looseObject({ official: z.boolean().optional() }).optional(),
 })
 
-const mediaServiceSchema = z.object({
+const mediaServiceSchema = z.looseObject({
   type: z.enum(['image', 'video', 'audio']),
   url: z.string(),
   model: z.string().optional(),
@@ -122,20 +132,20 @@ const mediaSchema = z.record(z.string(), mediaServiceSchema).optional()
 
 /** 项目记忆双层配置（global 跨 chat 共享 · workspace per chat）；字段均 optional。沿用 utils/config.ts MemoryLimits/MemoryConfig 形状 */
 const memoryLimitsSchema = z
-  .object({
+  .looseObject({
     max_count: z.number().min(1).optional(),
     max_chars: z.number().min(1).optional(),
   })
   .optional()
 
 const memorySchema = z
-  .object({
+  .looseObject({
     global: memoryLimitsSchema,
     workspace: memoryLimitsSchema,
   })
   .optional()
 
-const loggerSchema = z.object({
+const loggerSchema = z.looseObject({
   level: z.enum(['debug', 'info', 'warn', 'error', 'silent']).optional(),
   output: z.array(z.enum(['console', 'file'])).optional(),
   timestamp: z.boolean().optional(),
@@ -143,7 +153,7 @@ const loggerSchema = z.object({
   format: z.enum(['plain', 'json']).optional(),
 })
 
-const fileCompressionSchema = z.object({
+const fileCompressionSchema = z.looseObject({
   truncate_threshold: z.number().optional(),
   truncate_preview_lines: z.number().optional(),
   log_file_extensions: z.array(z.string()).optional(),
@@ -152,19 +162,19 @@ const fileCompressionSchema = z.object({
 
 /** Threshold{unit,value}：percent value ∈ [0,1]、tokens value ≥ 0（对齐 utils/config.ts Threshold） */
 const thresholdSchema = z.discriminatedUnion('unit', [
-  z.object({ unit: z.literal('tokens'), value: z.number().nonnegative() }),
-  z.object({ unit: z.literal('percent'), value: z.number().min(0).max(1) }),
+  z.looseObject({ unit: z.literal('tokens'), value: z.number().nonnegative() }),
+  z.looseObject({ unit: z.literal('percent'), value: z.number().min(0).max(1) }),
 ])
 
 /** command 配置（compact 阈值等）；对齐 utils/config.ts CommandConfig */
-const commandConfigSchema = z.object({
+const commandConfigSchema = z.looseObject({
   warn: thresholdSchema.optional(),
   auto: thresholdSchema.optional(),
   min_context_limit: z.number().optional(),
   safety_margin: z.number().optional(),
 })
 
-const globalSchema = z.object({
+const globalSchema = z.looseObject({
   thinking: z.boolean(),
   supervision: supervisionNameSchema,
   stream: z.boolean(),
@@ -194,7 +204,7 @@ const globalSchema = z.object({
   command: commandConfigSchema.optional(),
 })
 
-const mcpServerConfigSchema = z.object({
+const mcpServerConfigSchema = z.looseObject({
   transport: z.enum(['stdio', 'streamable-http']),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
@@ -204,17 +214,17 @@ const mcpServerConfigSchema = z.object({
 })
 
 /** config.save 入参：除 server 外全部字段；顶层 strict 拒 server 等多余键 */
-export const configSaveSchema = z
-  .object({
+export const configRawSchema = z
+  .looseObject({
     global: globalSchema,
-    llm: z.object({ brain: z.record(z.string(), brainSchema) }),
+    llm: z.looseObject({ brain: z.record(z.string(), brainSchema) }),
     media: mediaSchema,
     sense_groups: z.record(z.string(), z.array(z.string())).optional(),
     mcp_servers: z.record(z.string(), mcpServerConfigSchema).optional(),
     roles: z
       .record(
         z.string(),
-        z.object({
+        z.looseObject({
           id: z
             .string()
             .regex(/^role-[a-zA-Z0-9_-]{8,}$/)
@@ -237,7 +247,7 @@ export const configSaveSchema = z
     presets: z
       .record(
         z.string(),
-        z.object({
+        z.looseObject({
           id: z
             .string()
             .regex(/^preset-[a-zA-Z0-9_-]{8,}$/)
@@ -270,6 +280,20 @@ export const configSaveSchema = z
     memory: memorySchema,
   })
   .strict()
+
+export const configPreviewSchema = z
+  .object({
+    protocolVersion: z.literal(CONFIG_APPLY_VERSION),
+    expectedBaseRevision: nonEmptyString,
+    candidate: configRawSchema,
+    hooks: HooksDraftSchema.optional(),
+  })
+  .strict()
+export const configSaveSchema = configPreviewSchema.extend({
+  requestId: nonEmptyString,
+  previewToken: nonEmptyString.optional(),
+  policy: z.literal('wait').optional(),
+})
 
 export const requestSchemas = {
   [Method.BRAIN_LIST]: emptySchema,
@@ -559,6 +583,8 @@ export const requestSchemas = {
     })
     .strict(),
   [Method.CONFIG_SAVE]: configSaveSchema,
+  [Method.CONFIG_PREVIEW]: configPreviewSchema,
+  [Method.CONFIG_APPLY_STATUS]: emptySchema,
   // Hooks 管理（读写 .chery/hooks/hooks.json，独立于 config.yaml）
   [Method.HOOKS_GET]: emptySchema,
   [Method.HOOKS_SAVE]: z.object({

@@ -1892,8 +1892,8 @@ export const agentApi = {
   },
 
   /** config.get：读 .chery/config.yaml 原文（除 server 段），供设置面板编辑。supervision 为字符串、key 仍为 $ENV 占位符。 */
-  async getConfig(): Promise<ConfigDto> {
-    return call<ConfigDto>('config.get', {})
+  async getConfig(): Promise<ConfigDto & { baseRevision: string }> {
+    return call<ConfigDto & { baseRevision: string }>('config.get', {})
   },
 
   /** config.workspace.validate：只读检查后端主机上的工作区目录，不保存配置。 */
@@ -1924,20 +1924,22 @@ export const agentApi = {
 
   /**
    * config.save：校验（brain 引用/supervision 合法/`:level` 合法/必填）+ 写回（保留 server 段、无注释）。
-   * 不碰内存单例，重启生效。校验失败 throw（error.message 含全部错误，设置面板红框展示）。
+   * v2 返回已保存/已生效修订与等待或失败项；校验失败 throw，设置面板展示。
    */
-  async saveConfig(payload: ConfigDto): Promise<{
-    needRestart: true
-    restart: 'immediate' | 'scheduled' | 'manual'
-    warnings?: string[]
-  }> {
-    const result = await call<{
-      needRestart: true
-      restart: 'immediate' | 'scheduled' | 'manual'
-      warnings?: string[]
-    }>('config.save', payload)
+  async saveConfig(
+    payload: import('@chery/protocol').ConfigSaveRequest<ConfigDto>,
+  ): Promise<import('@chery/protocol').ConfigSaveResult> {
+    const result = await call<import('@chery/protocol').ConfigSaveResult>('config.save', payload)
     serverConfigCache = null
     return result
+  },
+  async previewConfig(
+    payload: import('@chery/protocol').ConfigApplyRequest<ConfigDto>,
+  ): Promise<import('@chery/protocol').ConfigPreview> {
+    return call<import('@chery/protocol').ConfigPreview>('config.preview', payload)
+  },
+  async getConfigApplyState(): Promise<import('@chery/protocol').ConfigApplyState> {
+    return call<import('@chery/protocol').ConfigApplyState>('config.apply.status', {})
   },
 
   /** hooks.get：读全局 hooks.json + brain 级 hooks（只读展示）*/

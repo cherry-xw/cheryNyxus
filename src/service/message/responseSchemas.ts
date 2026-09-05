@@ -1,6 +1,11 @@
 import { z } from 'zod'
+import {
+  ConfigApplyStateSchema,
+  ConfigSaveResultSchema,
+  ConfigPreviewSchema,
+} from '@chery/protocol'
 import { Method, type Method as MethodName } from '@chery/protocol'
-import { configSaveSchema } from './schemas.js'
+import { configRawSchema } from './schemas.js'
 import type { ResultOf } from './types.js'
 
 // Response schemas intentionally keep objects loose so additive server fields
@@ -190,20 +195,7 @@ const importStageSchema = {
   candidates: objectArray,
 }
 
-const configSaveResponseSchema = z.discriminatedUnion('needRestart', [
-  z.looseObject({
-    needRestart: z.literal(true),
-    restart: z.enum(['immediate', 'scheduled', 'manual']),
-    warnings: stringArray.optional(),
-  }),
-  z.looseObject({
-    needRestart: z.literal(false),
-    restart: z.literal('manual'),
-    validationErrors: stringArray,
-    validationWarnings: stringArray,
-    rollbackBackup: id,
-  }),
-])
+const configSaveResponseSchema = ConfigSaveResultSchema
 
 const testConnectionResponseSchema = z.discriminatedUnion('ok', [
   z.looseObject({ ok: z.literal(true), error: z.never().optional() }),
@@ -431,7 +423,7 @@ const schemas = {
     failed: nonNegativeInt,
     totalSenses: nonNegativeInt,
   }),
-  [Method.CONFIG_GET]: configSaveSchema,
+  [Method.CONFIG_GET]: configRawSchema.extend({ baseRevision: z.string() }),
   [Method.CONFIG_WORKSPACE_VALIDATE]: z.looseObject({ valid: z.boolean() }),
   [Method.CONFIG_WORKSPACE_BROWSE_START]: z.looseObject({
     sessionId: id,
@@ -444,6 +436,8 @@ const schemas = {
   }),
   [Method.CONFIG_WORKSPACE_BROWSE_LIST]: z.looseObject({ nonce: id, encData: z.string() }),
   [Method.CONFIG_SAVE]: configSaveResponseSchema,
+  [Method.CONFIG_PREVIEW]: ConfigPreviewSchema,
+  [Method.CONFIG_APPLY_STATUS]: ConfigApplyStateSchema,
   [Method.HOOKS_GET]: z.looseObject({
     handlers: z.record(z.string(), objectArray),
     brainHooks: z.record(z.string(), z.record(z.string(), objectArray)),
