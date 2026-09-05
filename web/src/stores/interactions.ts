@@ -114,6 +114,12 @@ export const useInteractionsStore = defineStore('interactions', () => {
     records.value = next
   }
 
+  function upsert(item: InteractionRecord): void {
+    const current = records.value[item.interactionId]
+    if (current && current.revision > item.revision) return
+    records.value = { ...records.value, [item.interactionId]: item }
+  }
+
   async function refresh(): Promise<void> {
     loading.value = true
     try {
@@ -299,6 +305,7 @@ export const useInteractionsStore = defineStore('interactions', () => {
     errorsById,
     questionErrorsById,
     serverClockOffsetMs,
+    upsert,
     refresh,
     decide,
     answer,

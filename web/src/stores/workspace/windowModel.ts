@@ -1,7 +1,7 @@
 export type WorkspaceWindowKind =
   | 'session'
   | 'graph'
-  | 'attention'
+  | 'task-center'
   | 'history'
   | 'settings'
   | 'diagnostic'
@@ -18,7 +18,7 @@ export type DiagnosticSeverity = 'error' | 'warning' | 'diagnostic'
 export type WorkspaceWindowContext =
   | { kind: 'session'; chatId: string; presetId?: string }
   | { kind: 'graph'; presetId: string; chatId?: string }
-  | { kind: 'attention'; presetId?: string }
+  | { kind: 'task-center' }
   | { kind: 'history'; rootChatId: string }
   | { kind: 'settings'; section?: string }
   | {
@@ -184,6 +184,7 @@ function isWorkspaceWindowState(value: unknown): value is WorkspaceWindowState {
     typeof window.resourceKey === 'string' &&
     typeof window.title === 'string' &&
     typeof context?.kind === 'string' &&
+    ['session', 'graph', 'task-center', 'history', 'settings', 'diagnostic'].includes(context.kind) &&
     !!window.geometry &&
     Number.isFinite(window.geometry.x) &&
     Number.isFinite(window.geometry.y) &&

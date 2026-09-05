@@ -4,10 +4,16 @@ import { connectionManager } from '../websocket/connection.js'
 import { transport } from '../websocket/transport.js'
 import { applyLiteEvent } from '../websocket/liteProjection.js'
 import { logger } from '@/utils/logger/index.js'
+import { publishOverviewForChat } from '../chat/overview.js'
 
 /** Inbox state is global, so every connected client receives a lightweight invalidation. */
 export function broadcastInteractionChanged(record: InteractionRecord | undefined): void {
   if (!record) return
+  publishOverviewForChat(record.chatId, {
+    kind: record.status === 'pending' ? 'waiting_user' : 'resumed',
+    label: record.status === 'pending' ? '等待用户处理' : '用户操作已更新',
+    at: record.updatedAt,
+  })
   for (const ws of connectionManager.getAllOutputs()) {
     try {
       const profile = connectionManager.get(ws)?.profile
@@ -27,6 +33,7 @@ export function broadcastInteractionChanged(record: InteractionRecord | undefine
         interactionId: record.interactionId,
         status: record.status,
         revision: record.revision,
+        interaction: record,
       })
       ws.send(transport.encode(notification))
     } catch (cause) {

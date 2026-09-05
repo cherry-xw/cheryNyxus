@@ -39,21 +39,16 @@ const desktopStyle = computed(() => ({
     renderQualityProfile(renderQualityTier.value).desktopNoiseOpacity,
   ),
 }))
-const activeSummary = computed(() => {
-  const chatId = workspace.activeDialogChatId ?? workspace.activeNyxusChatId
-  return chats.catalogSummaries.find((summary) => summary.chatId === chatId)
-})
-
-function openCapability(kind: 'attention' | 'settings'): void {
+function openCapability(kind: 'settings' | 'task-center'): void {
   if (kind === 'settings') {
     workspace.settingsOpen = true
     return
   }
   workspace.openOrFocusWindow({
-    resourceKey: 'attention',
-    title: '待操作 // 中断队列',
-    context: { kind: 'attention', presetId: activeSummary.value?.presetId },
-    geometry: { width: 720, height: 520 },
+    resourceKey: 'task-center',
+    title: '任务中心 // 多 Agent',
+    context: { kind: 'task-center' },
+    geometry: { width: 1320, height: 780 },
   })
 }
 
@@ -242,7 +237,7 @@ function activate(window: WorkspaceWindowState): void {
       <span class="cyber-brand">CHERY // NYXUS_OS</span>
       <span class="cyber-coordinate" aria-hidden="true">GRID 1920·1080 / SECTOR 07</span>
       <nav class="cyber-launcher" aria-label="系统功能">
-        <button type="button" @click="openCapability('attention')">待操作</button>
+        <button type="button" @click="openCapability('task-center')">任务中心</button>
         <button type="button" @click="openCapability('settings')">设置</button>
       </nav>
       <span class="cyber-link" :class="`is-${connection.status}`">
@@ -370,7 +365,7 @@ function activate(window: WorkspaceWindowState): void {
   border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font: 600 10px/1 var(--font-mono);
+  font: 400 12px/1 var(--font-mono);
   letter-spacing: 0.04em;
   cursor: pointer;
 }

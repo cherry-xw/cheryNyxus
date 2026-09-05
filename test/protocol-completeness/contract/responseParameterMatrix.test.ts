@@ -176,6 +176,15 @@ const validResponses: Record<Method, unknown> = {
     },
   },
   [Method.CHAT_CLOSE]: { subscriptionId: 'subscription-1', chatId: 'chat-1', closed: true },
+  [Method.CHAT_OVERVIEW_OPEN]: {
+    subscriptionId: 'subscription-1',
+    revision: 0,
+    tasks: [{
+      rootChatId: 'chat-1', title: 'Task', status: 'running', updatedAt: 1,
+      pendingCount: 0, hasFailure: false, agents: [], recentEvents: [],
+    }],
+  },
+  [Method.CHAT_OVERVIEW_CLOSE]: { subscriptionId: 'subscription-1', closed: true },
   [Method.CHAT_STOP_CHILD]: { rootChatId: 'chat-1', commandId: 'command-1', results: [childResult] },
   [Method.CHAT_ABORT]: { chatId: 'chat-1', aborted: true },
   [Method.INTERACTION_LIST]: { interactions: [interaction] },
@@ -238,7 +247,7 @@ const explicitlyEmpty = new Set<Method>([
 ])
 
 describe('public RPC response parameter matrix', () => {
-  it('defines a valid minimal response for all 78 public methods', () => {
+  it('defines a valid minimal response for all 80 public methods', () => {
     expect(Object.keys(validResponses).sort()).toEqual([...PUBLIC_METHODS].sort())
   })
 
@@ -277,6 +286,11 @@ describe('public RPC response parameter matrix', () => {
     }).success).toBe(false)
     expect(responseSchemas[Method.CHAT_EPOCH_LIST].safeParse({
       chatId: 'chat-1', rootChatId: 'chat-1', epochs: [{ ...epoch, ordinal: -1 }],
+    }).success).toBe(false)
+    expect(responseSchemas[Method.CHAT_OVERVIEW_OPEN].safeParse({
+      subscriptionId: 'subscription-1', revision: 0,
+      tasks: [{ rootChatId: 'chat-1', title: 'Task', status: 'unknown', updatedAt: 1,
+        pendingCount: 0, hasFailure: false, agents: [], recentEvents: [] }],
     }).success).toBe(false)
   })
 

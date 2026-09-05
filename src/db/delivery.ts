@@ -30,6 +30,19 @@ export type DeliverableChatEvent = Record<string, unknown> & {
   transient?: boolean
 }
 
+type PreparedChatEventListener = (chatId: string, event: DeliverableChatEvent) => void
+const preparedChatEventListeners = new Set<PreparedChatEventListener>()
+
+/** Lightweight observers may project control-plane state after an event is prepared. */
+export function onPreparedChatEvent(listener: PreparedChatEventListener): () => void {
+  preparedChatEventListeners.add(listener)
+  return () => preparedChatEventListeners.delete(listener)
+}
+
+function notifyPreparedChatEvent(chatId: string, event: DeliverableChatEvent): void {
+  for (const listener of preparedChatEventListeners) listener(chatId, event)
+}
+
 export interface SpawnTask {
   taskId: string
   childChatId: string
@@ -188,9 +201,11 @@ export function prepareChatEventForDelivery(
   if (isTransientChatEvent(event)) {
     event.rootChatId = rootChatIdOf(chatId)
     event.transient = true
+    notifyPreparedChatEvent(chatId, event)
     return
   }
   event.seq = appendChatEvent(chatId, event)
+  notifyPreparedChatEvent(chatId, event)
 }
 
 function rootChatIdOf(chatId: string): string {

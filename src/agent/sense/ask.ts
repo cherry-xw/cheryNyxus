@@ -30,13 +30,15 @@ const Option = z.object({
 const AskUserQuestionSchema = z.object({
   question: z.string().min(1).describe('要问用户的问题'),
   header: z.string().max(12).optional().describe('简短标题（≤12 字），UI 顶部展示'),
+  rationale: z.string().min(1).max(240).describe('为什么此时需要用户决定，以及正在权衡什么'),
+  nextStep: z.string().min(1).max(240).describe('用户回答后 Agent 将采取的下一步'),
   options: z.array(Option).min(2).max(4).describe('2-4 个选项'),
   multiSelect: z.boolean().default(false).describe('是否多选；默认 false（单选）'),
 })
 
 export default sense(
   'ask_user_question',
-  `向用户提问并等待回答。返回值为用户选择的 label（或「其他」自由文本）。`,
+  `向用户提问并等待回答。必须简述提问原因与回答后的下一步；返回值为用户选择的 label（或「其他」自由文本）。`,
   AskUserQuestionSchema,
   async (_input, _shared, ctx): Promise<SenseResult> => {
     // yield-turn：请求 loop 本轮后结束，释放 turn 等待用户回答。

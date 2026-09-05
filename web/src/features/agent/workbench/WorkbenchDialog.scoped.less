@@ -49,7 +49,6 @@
 /* T33 lite 视图：隐藏完整视图主体（树/ctx/面板/composer），由 LiteView 接管。 */
 .workbench-shell.is-lite .nyxus-branch-top,
 .workbench-shell.is-lite .workbench-ctx-bar,
-.workbench-shell.is-lite :deep(.pending-panel),
 .workbench-shell.is-lite .nyxus-composer-dock {
   display: none;
 }
@@ -122,23 +121,11 @@
 .workbench-shell.is-shellless .workbench-ctx-bar {
   top: 0;
 }
-.workbench-shell.is-shellless :deep(.pending-panel) {
-  top: 8px;
-  max-height: min(560px, calc(100% - 8px));
-}
 .workbench-shell.is-native .nyxus-branch-top {
   inset: 0;
 }
 .workbench-shell.is-native .workbench-ctx-bar {
   top: 0;
-}
-// native 面无标题栏（branch-top 从顶开始）→ 待操作面板贴顶，高度约束同步浏览器面（仅 top:8px 定位余量不同）。
-.workbench-shell.is-native :deep(.pending-panel) {
-  top: 8px;
-  max-height: min(560px, calc(100% - 8px));
-}
-.workbench-shell.is-native :deep(.pending-panel.is-expanded) {
-  min-height: 280px;
 }
 .workbench-shell.is-fullscreen {
   inset: 0;

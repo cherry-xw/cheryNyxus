@@ -10,18 +10,18 @@ const sessionPopoutMotion = useOverlayTransitionHooks('panel')
 const {
   AgentComposer, ConnectionStatusChip, ContextUsageBar, FOLD_ICONS, FOLD_TIPS,
   LiteView, MessageBranchTree, NYXUS_WORKBENCH_Z_INDEX, NyxusPianoStrip,
-  NyxusSessionList, OVERLAY_Z_INDEX, PendingOperationsPanel, PromptSnapshotTip, RoleConfigPopover,
+  NyxusSessionList, OVERLAY_Z_INDEX, PromptSnapshotTip, RoleConfigPopover,
   activateNyxusInput, activeCommandIndex, activeCommandTab, activeRoleIndex, agents, brains,
   branchTarget, branchTreeRef, cancelNyxusInput, chatId, closePiano,
   closeWorkbench, comboCommandGroups, commandMenuRefFn, commandMenuStyle, commandOptions,
   commandTabs, composerBranchDescription, composerBranchTitle, config, connection, createSession,
   creating, detailBranchAvailability, editorRefFn,
   effectiveMode, error, executeSessionControl, fallbackToClassic, fmtTokens, foldMode, foldToolOpen,
-  isEmbedded, isNative, isShellless, liteViewVisible, loading, locateInteraction,
+  isEmbedded, isNative, isShellless, liteViewVisible, loading,
   matchingRoleMentions, maxControlState, mediaAttachments, mediaHint, mediaServicesByType,
   minimizeWorkbench, nyxusDraftActive, onDialogEditorKeydown, onEasterEgg, onEditorInput,
   onEditorPaste, onEditorSelectionChange, onMaximizeClick, onMediaSelected, onSessionDelete,
-  onTitlePointerDown, onTreeEpochChange, onTreeInteractionFocus, onTreePromptSnapShow, openHistory,
+  onTitlePointerDown, onTreeEpochChange, onTreePromptSnapShow, openHistory,
   orderedRoleSelections, paperMode, pauseWholeTask, pianoOpen, presentationMode, presetName, primaryRole,
   primarySelection, removeMedia, resizeDirections, roleListOpen, roleListPinned,
   roleMenuRefFn, roleSelections, roleUsages, rootSessions, scheduleFoldToolClose,
@@ -31,7 +31,7 @@ const {
   sessionListOpen, showCommandMenu, showFoldTool, showRoleList, showRoleMenu, showSessionList,
   supportsTools, switchSession, taskControlPending, taskHasRunningBranches, taskTimeline, text,
   toggleRoleList, toggleSessionList, topologyLayout, treeBreakdown,
-  treeFocusInteractionId, treeFocusSourceChatId, treeFocusedInteraction, treeLoading,
+  treeFocusInteractionId, treeFocusSourceChatId, treeLoading,
   treePromptSnap, treeRootChatId, treeUsage, treeUsagePct, uploading, usageClass, win, windowBlink,
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
 } = controller
@@ -100,7 +100,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           :detail-branch-available="detailBranchAvailability.available"
           :detail-branch-unavailable-reason="detailBranchAvailability.reason"
           @branch="selectBranchTarget"
-          @interaction-focus="onTreeInteractionFocus"
           @easter-egg="onEasterEgg"
           @presentation-fallback="fallbackToClassic"
         />
@@ -178,14 +177,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
       <div v-if="treeRootChatId" class="workbench-ctx-bar">
         <ContextUsageBar :usage="treeUsage" :breakdown="treeBreakdown" variant="divider" />
       </div>
-
-      <!-- 待操作任务面板：常驻右上（rail 左侧），收敛全部待处理交互入口（审批 + 提问）。 -->
-      <PendingOperationsPanel
-        v-if="treeRootChatId"
-        :root-chat-id="treeRootChatId"
-        :focused-interaction="treeFocusedInteraction"
-        @locate="locateInteraction"
-      />
 
       <Transition name="nyxus-composer">
         <section

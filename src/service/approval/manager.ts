@@ -8,6 +8,7 @@ import {
 } from '@/db/interaction.js'
 import { broadcastInteractionChanged } from '../interaction/events.js'
 import type { ToolAuthorization } from '@/core/security/rolePolicy.js'
+import { approvalInteractionContext } from '../interaction/context.js'
 
 /**
  * 审批管理器（极简版）
@@ -83,6 +84,7 @@ export class ApprovalManager {
           arguments: payload.arguments,
           supervisionLevel: payload.supervisionLevel,
           security: payload.security,
+          context: approvalInteractionContext(payload.chatId, payload),
         },
         ...(deadlineAt !== undefined ? { deadlineAt } : {}),
       })

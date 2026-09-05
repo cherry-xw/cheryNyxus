@@ -85,6 +85,7 @@ export interface ConnectionState {
  */
 export class ConnectionManager {
   private connections = new Map<WebSocket, ConnectionState>()
+  private closeListeners = new Set<(connectionId: string) => void>()
   /** chatId → 最近一次启动该 chat run 的 connectionId（仅供 eager spawn 取 fallback ws）。 */
   private activeChatConnections = new Map<string, string>()
   /**
@@ -120,6 +121,11 @@ export class ConnectionManager {
     }
     this.connections.set(ws, state)
     return state
+  }
+
+  onClose(listener: (connectionId: string) => void): () => void {
+    this.closeListeners.add(listener)
+    return () => this.closeListeners.delete(listener)
   }
 
   /**
@@ -524,6 +530,7 @@ export class ConnectionManager {
     this.mutedRootsByConnection.delete(state.id)
 
     this.connections.delete(ws)
+    for (const listener of this.closeListeners) listener(state.id)
   }
 
   /**

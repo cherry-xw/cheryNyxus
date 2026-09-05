@@ -76,6 +76,50 @@ const interactionSchema = z.looseObject({
   updatedAt: z.number(),
 })
 
+const taskAgentOverviewSchema = z.looseObject({
+  chatId: id,
+  role: z.string().min(1),
+  status: z.enum(['needs_user', 'running', 'paused', 'failed', 'completed', 'idle']),
+  currentStep: z.string().optional(),
+  startedAt: z.number().optional(),
+})
+
+const taskActivityEventSchema = z.looseObject({
+  id,
+  rootChatId: id,
+  chatId: id,
+  kind: z.enum([
+    'run_started',
+    'model_started',
+    'tool_started',
+    'tool_completed',
+    'agent_spawned',
+    'agent_completed',
+    'waiting_user',
+    'resumed',
+    'paused',
+    'failed',
+    'completed',
+  ]),
+  label: z.string().min(1),
+  at: z.number(),
+})
+
+const taskOverviewSchema = z.looseObject({
+  rootChatId: id,
+  taskId: id.optional(),
+  presetId: id.optional(),
+  preset: z.string().min(1).optional(),
+  title: z.string().min(1),
+  status: z.enum(['needs_user', 'running', 'paused', 'failed', 'completed']),
+  startedAt: z.number().optional(),
+  updatedAt: z.number(),
+  pendingCount: nonNegativeInt,
+  hasFailure: z.boolean(),
+  agents: z.array(taskAgentOverviewSchema),
+  recentEvents: z.array(taskActivityEventSchema),
+})
+
 const timelineNodeSchema = z.looseObject({
   id,
   rootChatId: id,
@@ -350,6 +394,15 @@ const schemas = {
   [Method.CHAT_CLOSE]: z.looseObject({
     subscriptionId: id,
     chatId: id.optional(),
+    closed: z.boolean(),
+  }),
+  [Method.CHAT_OVERVIEW_OPEN]: z.looseObject({
+    subscriptionId: id,
+    revision: nonNegativeInt,
+    tasks: z.array(taskOverviewSchema),
+  }),
+  [Method.CHAT_OVERVIEW_CLOSE]: z.looseObject({
+    subscriptionId: id,
     closed: z.boolean(),
   }),
   [Method.CHAT_STOP_CHILD]: z.looseObject({

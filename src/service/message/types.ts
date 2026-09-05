@@ -150,6 +150,7 @@ export type NotificationType =
   | 'input.updated'
   | 'run.updated'
   | 'interaction.changed'
+  | 'chat.overview.changed'
 
 // ========== Request Data ==========
 
@@ -1870,6 +1871,78 @@ export interface RootTimelineSnapshot {
   capturedEventSeq: number
 }
 
+export type TaskOverviewStatus = 'needs_user' | 'running' | 'paused' | 'failed' | 'completed'
+
+export type TaskAgentOverviewStatus =
+  | 'needs_user'
+  | 'running'
+  | 'paused'
+  | 'failed'
+  | 'completed'
+  | 'idle'
+
+export interface TaskAgentOverview {
+  chatId: string
+  role: string
+  status: TaskAgentOverviewStatus
+  currentStep?: string
+  startedAt?: number
+}
+
+export interface TaskActivityEvent {
+  id: string
+  rootChatId: string
+  chatId: string
+  kind:
+    | 'run_started'
+    | 'model_started'
+    | 'tool_started'
+    | 'tool_completed'
+    | 'agent_spawned'
+    | 'agent_completed'
+    | 'waiting_user'
+    | 'resumed'
+    | 'paused'
+    | 'failed'
+    | 'completed'
+  label: string
+  at: number
+}
+
+export interface TaskOverview {
+  rootChatId: string
+  taskId?: string
+  presetId?: string
+  preset?: string
+  title: string
+  status: TaskOverviewStatus
+  startedAt?: number
+  updatedAt: number
+  pendingCount: number
+  hasFailure: boolean
+  agents: TaskAgentOverview[]
+  recentEvents: TaskActivityEvent[]
+}
+
+export interface ChatOverviewOpenRequestData {
+  completedSince?: number
+}
+
+export interface ChatOverviewOpenResponseData {
+  subscriptionId: string
+  revision: number
+  tasks: TaskOverview[]
+}
+
+export interface ChatOverviewCloseRequestData {
+  subscriptionId: string
+}
+
+export interface ChatOverviewCloseResponseData {
+  subscriptionId: string
+  closed: boolean
+}
+
 export interface ChatTimelineGetResponseData {
   chatId: string
   revision: number
@@ -2391,12 +2464,24 @@ export type NotificationData =
   | InputUpdatedNotificationData
   | RunUpdatedNotificationData
   | InteractionChangedNotificationData
+  | ChatOverviewChangedNotificationData
   | null
 
 export interface InteractionChangedNotificationData {
   interactionId: string
   status: InteractionData['status']
   revision: number
+  presetId?: string
+  interaction?: InteractionData
+}
+
+export interface ChatOverviewChangedNotificationData {
+  subscriptionId: string
+  revision: number
+  changes: Array<
+    | { type: 'upsert'; rootChatId: string; task: TaskOverview }
+    | { type: 'remove'; rootChatId: string }
+  >
 }
 
 export interface InterruptNotificationData {
@@ -2708,6 +2793,8 @@ export const Method = {
   CHAT_RESUME_TREE: 'chat.resumeTree',
   CHAT_OPEN: 'chat.open',
   CHAT_CLOSE: 'chat.close',
+  CHAT_OVERVIEW_OPEN: 'chat.overview.open',
+  CHAT_OVERVIEW_CLOSE: 'chat.overview.close',
   CHAT_STOP_CHILD: 'chat.stopChild',
 
   // Sense 审批
@@ -2906,6 +2993,14 @@ export interface RpcMethodMap {
   [InternalCommand.CHAT_SYNC]: { params: ChatSyncRequestData; result: ChatSyncResponseData }
   [Method.CHAT_OPEN]: { params: ChatOpenRequestData; result: ChatOpenResponseData }
   [Method.CHAT_CLOSE]: { params: ChatCloseRequestData; result: ChatCloseResponseData }
+  [Method.CHAT_OVERVIEW_OPEN]: {
+    params: ChatOverviewOpenRequestData
+    result: ChatOverviewOpenResponseData
+  }
+  [Method.CHAT_OVERVIEW_CLOSE]: {
+    params: ChatOverviewCloseRequestData
+    result: ChatOverviewCloseResponseData
+  }
   [InternalCommand.CHAT_START_SPAWN]: {
     params: ChatStartSpawnRequestData
     result: ChatStartSpawnResponseData

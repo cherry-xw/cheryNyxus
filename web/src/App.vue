@@ -41,9 +41,6 @@ const CyberDesktopHost = defineAsyncComponent(
   () => import('@/features/desktop/CyberDesktopHost.vue'),
 )
 const CyberWindow = defineAsyncComponent(() => import('@/features/desktop/CyberWindow.vue'))
-const CyberCapabilityPanel = defineAsyncComponent(
-  () => import('@/features/desktop/CyberCapabilityPanel.vue'),
-)
 const AgentDialog = defineAsyncComponent(() => import('@/features/agent/chat/AgentDialog.vue'))
 const WorkbenchDialog = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchDialog.vue'),
@@ -59,6 +56,9 @@ const SettingsDialog = defineAsyncComponent(
 )
 const OpenConfigDirButton = defineAsyncComponent(
   () => import('@/features/agent/settings/components/OpenConfigDirButton.vue'),
+)
+const TaskCenterPanel = defineAsyncComponent(
+  () => import('@/features/agent/task-center/TaskCenterPanel.vue'),
 )
 
 // 鉴权非强制：本地直连不鉴权；远端由 cheryNyxus 登录弹窗对接（token 存 auth store）。
@@ -222,9 +222,7 @@ const browserHistoryWindow = computed(() =>
           window.lifecycle === 'closing'),
     ),
 )
-const browserCapabilityWindows = computed(() =>
-  workspace.workspaceWindowsList.filter((window) => window.context.kind === 'attention'),
-)
+const browserTaskCenterWindow = computed(() => workspace.workspaceWindows['window:task-center'])
 const browserWorkbenchWindows = computed(() =>
   workspace.workbenchWindowsList.flatMap((workbench) => {
     const window = workspace.workspaceWindows[`window:graph:${workbench.id}`]
@@ -243,6 +241,11 @@ function minimizeCyberWindow(id: string): void {
     return
   }
   workspace.minimizeWorkspaceWindow(id)
+}
+
+function focusTaskCenterWindow(id: string): void {
+  workspace.setWorkspaceWindowAttention(id, false)
+  workspace.focusWorkspaceWindow(id)
 }
 
 function finishCyberWindowClose(id: string): void {
@@ -348,7 +351,10 @@ if (surface === 'workbench' && surfacePresetId) {
   if (bridge) {
     // main 下发「打开节点树」定位 / 会话切换 → 写本窗 store
     workbenchBridgeCleanup.push(
-      bridge.onWorkbenchFocus((focus) => workspace.setWorkbenchWindowFocus(wbId, focus)),
+      bridge.onWorkbenchFocus((focus) => {
+        workspace.setWorkbenchWindowView(wbId, 'tree')
+        workspace.setWorkbenchWindowFocus(wbId, focus)
+      }),
     )
     workbenchBridgeCleanup.push(
       bridge.onOpenChat((chatId) => workspace.setWorkbenchWindowChat(wbId, chatId)),
@@ -451,6 +457,9 @@ async function bootstrap(): Promise<void> {
     </template>
     <SettingsDialog native :initial-section="surfaceSettingsSection ?? undefined" />
   </WindowFrame>
+  <WindowFrame v-else-if="surface === 'task-center'" title="任务中心 // 多 Agent">
+    <TaskCenterPanel />
+  </WindowFrame>
   <!-- workbench 面同用 WindowFrame 公共外壳：标题=预设名，attentionBlink→标题栏闪烁，
        关闭经 closeWorkbench（先释放根时间线订阅再交 main hide 保活）；
        title-actions 放常驻连接状态 chip（断连遮罩由 WorkbenchDialog 内部渲染） -->
@@ -495,10 +504,9 @@ async function bootstrap(): Promise<void> {
         <AgentDialog v-if="workspace.activeDialogChatId" embedded />
       </CyberWindow>
       <CyberWindow
-        v-for="window in browserCapabilityWindows"
-        :key="window.id"
-        :window="window"
-        @focus="workspace.focusWorkspaceWindow"
+        v-if="browserTaskCenterWindow"
+        :window="browserTaskCenterWindow"
+        @focus="focusTaskCenterWindow"
         @opened="workspace.markWorkspaceWindowOpen"
         @minimize="minimizeCyberWindow"
         @request-close="requestCyberWindowClose"
@@ -506,7 +514,7 @@ async function bootstrap(): Promise<void> {
         @geometry="workspace.setWorkspaceWindowGeometry"
         @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
       >
-        <CyberCapabilityPanel :window="window" />
+        <TaskCenterPanel />
       </CyberWindow>
       <CyberWindow
         v-if="browserHistoryWindow && workspace.historyDrawerMode === 'overlay'"

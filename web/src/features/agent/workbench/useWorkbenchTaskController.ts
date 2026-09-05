@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref, watch, type MaybeRefOrGetter, toValue } from 'vue'
+import { computed, ref, type MaybeRefOrGetter, toValue } from 'vue'
 import { ElMessage } from 'element-plus'
 import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
@@ -15,38 +15,17 @@ export function useWorkbenchTaskController(options: {
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
   const taskTimeline = ref<RootTimelineSnapshot>()
-  let refreshTimer: ReturnType<typeof setInterval> | undefined
 
-  watch(
-    () => taskTimeline.value?.taskId,
-    (taskId) => {
-      if (refreshTimer) clearInterval(refreshTimer)
-      refreshTimer = undefined
-      if (!taskId) return
-      refreshTimer = setInterval(() => {
-        void agentApi
-          .getTaskTimeline({ taskId, view: 'tree' })
-          .then((snapshot) => {
-            if (taskTimeline.value?.taskId === taskId) taskTimeline.value = snapshot
-          })
-          .catch(() => undefined)
-      }, 1200)
-    },
-  )
-  onScopeDispose(() => {
-    if (refreshTimer) clearInterval(refreshTimer)
+  const controlTimeline = computed(() => {
+    const chatId = toValue(options.chatId)
+    return chatId ? (chatSessions.rootTimeline(chatId, 'tree') ?? taskTimeline.value) : undefined
   })
-
   const taskHasRunningBranches = computed(
     () =>
-      taskTimeline.value?.activeRuns.some(
+      controlTimeline.value?.activeRuns.some(
         (run) => run.status === 'running' || run.status === 'waiting',
       ) ?? false,
   )
-  const controlTimeline = computed(() => {
-    const chatId = toValue(options.chatId)
-    return chatId ? (taskTimeline.value ?? chatSessions.rootTimeline(chatId, 'tree')) : undefined
-  })
   const sessionControl = computed<{ mode: WorkbenchControlMode; label: string } | undefined>(() => {
     const chatId = toValue(options.chatId)
     if (!chatId) return undefined

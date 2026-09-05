@@ -1,9 +1,8 @@
 import { computed, onScopeDispose, ref, watch, type MaybeRefOrGetter, type Ref, toValue } from 'vue'
 import { ElMessage } from 'element-plus'
-import { agentApi, type InteractionRecord, type RootTimelineSnapshot } from '@/application/backend/public'
+import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useAgentsStore, useChatSessionsStore, useConnectionStore } from '@/application/public'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
-import type { PendingInteractionFocus } from '../attention/public'
 
 export function useWorkbenchTreeSession(options: {
   windowId: string
@@ -23,7 +22,6 @@ export function useWorkbenchTreeSession(options: {
   const treeRootChatId = ref('')
   const treeFocusSourceChatId = ref<string>()
   const treeFocusInteractionId = ref<string>()
-  const treeFocusedInteraction = ref<PendingInteractionFocus>()
   const rootSubscriptionOwner = `workbench:${options.windowId}`
 
   function releaseCurrentRoot(): void {
@@ -147,35 +145,6 @@ export function useWorkbenchTreeSession(options: {
       console.error('[WorkbenchDialog] switch session failed:', cause)
     }
   }
-  async function openWorkspaceTree(
-    rootChatId: string,
-    sourceChatId?: string,
-    interactionId?: string,
-    anchorNodeId?: string,
-  ): Promise<void> {
-    treeFocusSourceChatId.value = sourceChatId
-    treeFocusInteractionId.value = anchorNodeId ?? interactionId
-    agents.setWorkbenchWindowView(options.windowId, 'tree')
-    await switchSession(rootChatId)
-  }
-  function locateInteraction(item: InteractionRecord): void {
-    const rootChatId = item.rootChatId
-    treeFocusedInteraction.value = {
-      chatId: item.chatId,
-      interactionId: item.interactionId,
-      anchorNodeId: item.anchorNodeId,
-    }
-    if (rootChatId && rootChatId === treeRootChatId.value) {
-      treeFocusSourceChatId.value = item.chatId
-      treeFocusInteractionId.value = item.anchorNodeId ?? item.interactionId
-      agents.setWorkbenchWindowView(options.windowId, 'tree')
-      return
-    }
-    void openWorkspaceTree(rootChatId, item.chatId, item.interactionId, item.anchorNodeId)
-  }
-  function onTreeInteractionFocus(focus: PendingInteractionFocus): void {
-    treeFocusedInteraction.value = focus
-  }
   async function deletePresetSession(chatId: string): Promise<void> {
     if (!chatId) return
     try {
@@ -229,11 +198,8 @@ export function useWorkbenchTreeSession(options: {
     deleteNyxusSession,
     deletePresetSession,
     historyLoading,
-    locateInteraction,
-    onTreeInteractionFocus,
     releaseCurrentRoot,
     switchSession,
-    treeFocusedInteraction,
     treeFocusInteractionId,
     treeFocusSourceChatId,
     treeLoading,

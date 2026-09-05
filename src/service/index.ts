@@ -15,6 +15,7 @@ import { registerSessionRuntimeHandlers } from './runtime/session.js'
 import { registerChatHandlers } from './chat/send.js'
 import { rebuildWaitedChildren } from './chat/wake.js'
 import { registerChatManageHandlers } from './chat/handler.js'
+import { registerChatOverviewHandlers } from './chat/overview.js'
 import { registerConversationRouterHandlers } from './chat/conversationRouter.js'
 import { registerConversationBranchHandlers } from './chat/conversationBranch.js'
 import { registerInteractionHandlers } from './interaction/handler.js'
@@ -54,6 +55,7 @@ export function registerAllHandlers(router: ReturnType<typeof createRouter>): vo
   registerSessionRuntimeHandlers(router)
   registerChatHandlers(router)
   registerChatManageHandlers(router)
+  registerChatOverviewHandlers(router)
   registerConversationRouterHandlers(router)
   registerConversationBranchHandlers(router)
   registerInteractionHandlers(router)

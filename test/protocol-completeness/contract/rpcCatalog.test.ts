@@ -24,8 +24,8 @@ function sorted(values: readonly string[]): string[] {
 }
 
 describe('public RPC catalog completeness', () => {
-  it('has one canonical set of 78 unique current methods', () => {
-    expect(PUBLIC_METHODS).toHaveLength(78)
+  it('has one canonical set of 80 unique current methods', () => {
+    expect(PUBLIC_METHODS).toHaveLength(80)
     expect(new Set(PUBLIC_METHODS).size).toBe(PUBLIC_METHODS.length)
     expect(sorted(Object.values(ProtocolMethod))).toEqual(sorted(PUBLIC_METHODS))
     expect(sorted(Object.values(ServiceMethod))).toEqual(sorted(PUBLIC_METHODS))

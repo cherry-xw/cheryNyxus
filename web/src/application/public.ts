@@ -8,6 +8,7 @@ export {
   useChatSessionsStore,
   useConnectionStore,
   useInteractionsStore,
+  useTaskOverviewStore,
   usePetPresentationStore,
   useThemeStore,
   useWorkspaceStore,

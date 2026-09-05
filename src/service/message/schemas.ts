@@ -453,6 +453,10 @@ export const requestSchemas = {
   }),
   [Method.CHAT_OPEN]: ChatOpenRequestSchema,
   [Method.CHAT_CLOSE]: ChatCloseRequestSchema,
+  [Method.CHAT_OVERVIEW_OPEN]: z.object({
+    completedSince: z.number().int().nonnegative().optional(),
+  }),
+  [Method.CHAT_OVERVIEW_CLOSE]: z.object({ subscriptionId: z.string().min(1) }),
   [InternalCommand.CHAT_START_SPAWN]: z.object({ taskId: z.string() }),
   [Method.CHAT_STOP_CHILD]: z.object({
     rootChatId: z.string().min(1),

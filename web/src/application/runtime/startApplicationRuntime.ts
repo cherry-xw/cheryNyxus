@@ -4,7 +4,11 @@ import {
   useChatSessionsStore,
   useConnectionStore,
   useInteractionsStore,
+  useTaskOverviewStore,
+  useWorkspaceStore,
 } from '@/stores'
+import type { InteractionRecord } from '@/services/agentApi'
+import type { TaskOverviewChangedData } from '@/stores/taskOverview'
 import { wsClient } from '@/services/ws'
 
 /** Composition root for transport subscriptions and application projections. */
@@ -13,6 +17,8 @@ export function startApplicationRuntime(): () => void {
   const agents = useAgentsStore()
   const chats = useChatSessionsStore()
   const interactions = useInteractionsStore()
+  const taskOverview = useTaskOverviewStore()
+  const workspace = useWorkspaceStore()
 
   chats.bindWsClient()
   chats.bindEffects({
@@ -38,11 +44,27 @@ export function startApplicationRuntime(): () => void {
   )
 
   const offNotification = wsClient.onNotification((notification) => {
-    const event = notification as { background?: boolean; type?: string; chatId?: string } | null
+    const event = notification as {
+      background?: boolean
+      type?: string
+      chatId?: string
+      data?: { interaction?: InteractionRecord } | TaskOverviewChangedData
+    } | null
     if (event?.type === 'interaction.changed') {
-      void interactions
-        .refresh()
-        .catch((cause) => console.warn('[runtime] refresh interactions failed:', cause))
+      const interaction = (event.data as { interaction?: InteractionRecord } | undefined)?.interaction
+      if (interaction) interactions.upsert(interaction)
+      else {
+        void interactions
+          .refresh()
+          .catch((cause) => console.warn('[runtime] refresh interactions failed:', cause))
+      }
+    }
+    if (event?.type === 'chat.overview.changed') {
+      const previousPending = taskOverview.pendingCount
+      taskOverview.applyChanged(event.data as TaskOverviewChangedData)
+      if (taskOverview.pendingCount > previousPending) {
+        workspace.setWorkspaceWindowAttention('window:task-center', true)
+      }
     }
     if (event?.background) {
       void chats
@@ -63,9 +85,6 @@ export function startApplicationRuntime(): () => void {
         'done',
       ].includes(event.type)
     ) {
-      void interactions
-        .refresh()
-        .catch((cause) => console.warn('[runtime] refresh interactions failed:', cause))
       void chats
         .refreshCatalog()
         .catch((cause) => console.warn('[runtime] refresh foreground catalog failed:', cause))
@@ -75,6 +94,7 @@ export function startApplicationRuntime(): () => void {
   let previousStatus: string | null = null
   const offStatus = wsClient.onStatus((status) => {
     if (status === 'connected') {
+      void taskOverview.reopen().catch((cause) => console.warn('[taskOverview] open failed:', cause))
       void interactions
         .refresh()
         .catch((cause) => console.warn('[interactions] refresh failed:', cause))
@@ -97,6 +117,7 @@ export function startApplicationRuntime(): () => void {
     stopPetProjection()
     offNotification()
     offStatus()
+    void taskOverview.close().catch(() => undefined)
     chats.unbindWsClient()
   }
 }

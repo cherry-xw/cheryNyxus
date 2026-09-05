@@ -20,7 +20,7 @@ interface BackendConfig {
 /**
  * desktop renderer → main 的独立原生窗打开请求（与 main.ts 的 OpenWindowRequest 保持一致）。
  */
-export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
+export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login' | 'task-center'
 export type SettingsSection = 'provider' | 'runtime' | 'limits'
 export interface OpenWindowRequest {
   kind: WindowKind

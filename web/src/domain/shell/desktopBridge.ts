@@ -1,4 +1,4 @@
-export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
+export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login' | 'task-center'
 export type SettingsSection = 'provider' | 'runtime' | 'limits'
 
 export interface OpenWindowRequest {

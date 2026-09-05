@@ -49,7 +49,7 @@ function recordGpuSafeMode(reason: string): void {
  * desktop renderer → main 请求打开独立原生窗的目标。
  * 仅 desktop 窗可发起；main 惰性创建 / show+focus 复用（工作台窗 hide 保活）。
  */
-export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
+export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login' | 'task-center'
 export type SettingsSection = 'provider' | 'runtime' | 'limits'
 export interface OpenWindowRequest {
   kind: WindowKind
@@ -78,7 +78,7 @@ function isValidOpenRequest(value: unknown): value is OpenWindowRequest {
       req.settingsSection === 'limits'
     )
   }
-  if (req.kind === 'login') return true
+  if (req.kind === 'login' || req.kind === 'task-center') return true
   if (req.kind === 'history') return typeof req.chatId === 'string'
   if (req.kind === 'composer') {
     return (
@@ -403,7 +403,7 @@ const SETTINGS_MIN_SIZE = { width: 900, height: 640 }
 const WORKBENCH_DEFAULT_SIZE = { width: 1200, height: 800 }
 const COMMON_MIN_SIZE = { width: 640, height: 480 }
 const AUX_WINDOW_SIZES: Record<
-  'composer' | 'history' | 'login',
+  'composer' | 'history' | 'login' | 'task-center',
   {
     defaultSize: { width: number; height: number }
     minSize: { width: number; height: number }
@@ -412,6 +412,7 @@ const AUX_WINDOW_SIZES: Record<
   composer: { defaultSize: { width: 420, height: 640 }, minSize: { width: 380, height: 520 } },
   history: { defaultSize: { width: 620, height: 760 }, minSize: { width: 420, height: 520 } },
   login: { defaultSize: { width: 440, height: 620 }, minSize: { width: 420, height: 520 } },
+  'task-center': { defaultSize: { width: 1380, height: 820 }, minSize: { width: 960, height: 620 } },
 }
 
 /** 依 kind 计算窗口默认/最小尺寸：屏幕够则取标称值，不够则收敛到主屏 workArea。 */
@@ -421,7 +422,7 @@ function managedWindowSizes(kind: WindowKind): {
 } {
   const workArea = screen.getPrimaryDisplay().workArea
   const aux =
-    kind === 'composer' || kind === 'history' || kind === 'login'
+    kind === 'composer' || kind === 'history' || kind === 'login' || kind === 'task-center'
       ? AUX_WINDOW_SIZES[kind]
       : undefined
   const nominal =
@@ -445,7 +446,7 @@ function createManagedWindow(
     kind: WindowKind
     presetId?: string
     title: string
-    surface: 'settings' | 'workbench' | 'composer' | 'history' | 'login'
+    surface: 'settings' | 'workbench' | 'composer' | 'history' | 'login' | 'task-center'
     extraParams?: Record<string, string>
     keepAlive: boolean
   },
@@ -647,6 +648,7 @@ function rebuildTrayMenu(): void {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '打开设置', click: () => openSettingsWindow() },
+      { label: '打开任务中心', click: () => openAuxWindow({ kind: 'task-center' }) },
       { type: 'separator' },
       {
         label: '显示桌面',
@@ -684,7 +686,7 @@ function createTray(): void {
   rebuildTrayMenu()
 }
 
-function openAuxWindow(req: OpenWindowRequest & { kind: 'composer' | 'history' | 'login' }): void {
+function openAuxWindow(req: OpenWindowRequest & { kind: 'composer' | 'history' | 'login' | 'task-center' }): void {
   const key = req.kind
   const existing = managedWindows.get(key)
   if (existing && !existing.win.isDestroyed()) {
@@ -707,12 +709,14 @@ function openAuxWindow(req: OpenWindowRequest & { kind: 'composer' | 'history' |
       ? 'CheryNyxus 会话'
       : req.kind === 'history'
         ? 'CheryNyxus 历史'
-        : '连接服务'
+        : req.kind === 'task-center'
+          ? 'CheryNyxus 任务中心'
+          : '连接服务'
   createManagedWindow(key, {
     kind: req.kind,
     title,
     surface: req.kind,
-    keepAlive: req.kind === 'composer',
+    keepAlive: req.kind === 'composer' || req.kind === 'task-center',
     extraParams: {
       ...(req.chatId ? { chatId: req.chatId } : {}),
       ...(req.source ? { source: req.source } : {}),
@@ -857,7 +861,7 @@ app.whenReady().then(async () => {
     } else if (req.kind === 'workbench') {
       openWorkbenchWindow(req as OpenWindowRequest & { kind: 'workbench' })
     } else {
-      openAuxWindow(req as OpenWindowRequest & { kind: 'composer' | 'history' | 'login' })
+      openAuxWindow(req as OpenWindowRequest & { kind: 'composer' | 'history' | 'login' | 'task-center' })
     }
   })
 

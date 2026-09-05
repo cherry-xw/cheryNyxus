@@ -10,7 +10,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RoleConfigPopover } from '../runtime/public'
 import { AgentComposer, useAgentDialogOptions, useComposerMenuPosition } from '../composer/public'
-import { PendingOperationsPanel } from '../attention/public'
 import ContextUsageBar from '../drawer/ContextUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
@@ -666,11 +665,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     creating,
     deleteNyxusSession,
     deletePresetSession,
-    locateInteraction,
-    onTreeInteractionFocus,
     releaseCurrentRoot,
     switchSession,
-    treeFocusedInteraction,
     treeFocusInteractionId,
     treeFocusSourceChatId,
     treeLoading,
@@ -780,7 +776,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     NyxusPianoStrip,
     NyxusSessionList,
     OVERLAY_Z_INDEX,
-    PendingOperationsPanel,
     PromptSnapshotTip,
     RoleConfigPopover,
     activateNyxusInput,
@@ -823,7 +818,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     liteViewEnabled,
     liteViewVisible,
     loading,
-    locateInteraction,
     matchingRoleMentions,
     maxControlState,
     mediaAttachments,
@@ -842,7 +836,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onEasterEgg,
     onSessionDelete,
     onTitlePointerDown,
-    onTreeInteractionFocus,
     onTreeEpochChange,
     onTreePromptSnapShow,
     openHistory,
@@ -900,7 +893,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     treeBreakdown,
     treeFocusInteractionId,
     treeFocusSourceChatId,
-    treeFocusedInteraction,
     treeLoading,
     treePromptSnap,
     treeRootChatId,

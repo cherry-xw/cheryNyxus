@@ -24,6 +24,7 @@ import { upsertPendingInteraction } from '@/db/interaction.js'
 import { broadcastInteractionChanged } from '../interaction/events.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 import { recordTerminationFact } from './executionFacts.js'
+import { questionInteractionContext } from '../interaction/context.js'
 
 function unexpectedTerminationContent(error: unknown): string {
   if (error instanceof ClassifiedError) {
@@ -184,6 +185,10 @@ export async function* observeAgentChunks(
           payload: {
             assistantMessageId: batch.assistantMessageId,
             questions: batch.questions,
+            context: questionInteractionContext(chatId, {
+              rationale: chunk.questions.map((question) => question.rationale).filter(Boolean).join('；'),
+              nextStep: chunk.questions.map((question) => question.nextStep).filter(Boolean).join('；'),
+            }),
           },
         })
         broadcastInteractionChanged(interaction)

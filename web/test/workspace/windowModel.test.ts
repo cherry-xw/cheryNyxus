@@ -6,6 +6,7 @@ import {
   parseWorkspaceLayout,
   serializeWorkspaceLayout,
 } from '../../src/stores/workspace/windowModel'
+import { createUiState } from '../../src/stores/workspace/uiState'
 
 describe('cyber workspace window model', () => {
   it('cascades new windows and keeps the titlebar reachable', () => {
@@ -97,5 +98,42 @@ describe('cyber workspace window model', () => {
     const legacy = JSON.parse(JSON.stringify({ version: 1, order: [window.id], windows: [window] }))
     delete legacy.windows[0].sequence
     expect(parseWorkspaceLayout(legacy)?.windows).toHaveLength(1)
+  })
+
+  it('discards retired attention windows while preserving the task center layout', () => {
+    const taskCenter = createWorkspaceWindow(
+      { resourceKey: 'task-center', title: '任务中心', context: { kind: 'task-center' } },
+      0,
+    )
+    const retired = {
+      ...taskCenter,
+      id: 'window:attention',
+      resourceKey: 'attention',
+      kind: 'attention',
+      context: { kind: 'attention' },
+    }
+    const layout = parseWorkspaceLayout({
+      version: 1,
+      order: [retired.id, taskCenter.id],
+      windows: [retired, taskCenter],
+    })
+
+    expect(layout?.windows).toEqual([taskCenter])
+    expect(layout?.order).toEqual([taskCenter.id])
+  })
+
+  it('keeps the global task center as one browser workspace window', () => {
+    const state = createUiState()
+    const input = {
+      resourceKey: 'task-center',
+      title: '任务中心',
+      context: { kind: 'task-center' as const },
+    }
+    const first = state.openOrFocusWindow(input)
+    const second = state.openOrFocusWindow(input)
+
+    expect(first).toBe('window:task-center')
+    expect(second).toBe(first)
+    expect(state.workspaceWindowsList.value).toHaveLength(1)
   })
 })

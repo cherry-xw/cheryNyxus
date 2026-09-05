@@ -47,6 +47,8 @@ export const Method = {
   CHAT_RESUME_TREE: 'chat.resumeTree',
   CHAT_OPEN: 'chat.open',
   CHAT_CLOSE: 'chat.close',
+  CHAT_OVERVIEW_OPEN: 'chat.overview.open',
+  CHAT_OVERVIEW_CLOSE: 'chat.overview.close',
   CHAT_STOP_CHILD: 'chat.stopChild',
   CHAT_ABORT: 'chat.abort',
   INTERACTION_LIST: 'interaction.list',

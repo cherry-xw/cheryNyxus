@@ -307,6 +307,14 @@ describe('canonical command and interaction lifecycle', () => {
     expect(store.records[item.interactionId]).toMatchObject({ status: 'completed', revision: 3 })
   })
 
+  it('upserts embedded interaction notifications without replacing newer revisions', () => {
+    const store = useInteractionsStore()
+    const current = interaction('approval', { revision: 3, status: 'completed' })
+    store.upsert(current)
+    store.upsert(interaction('approval', { revision: 2, status: 'pending' }))
+    expect(store.records[current.interactionId]).toMatchObject({ revision: 3, status: 'completed' })
+  })
+
   it('maps ALREADY_RESOLVED and RATE_LIMITED to the correct interaction only', async () => {
     readyRoot()
     const store = useInteractionsStore()

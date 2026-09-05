@@ -26,7 +26,7 @@ const COMPANIONS: Record<string, string[]> = {
   PaperGameCard: ['PaperGameCard.styles.less'],
   NodePaperStack: ['NodePaperStack.styles.less'],
   NyxusPianoStrip: ['NyxusPianoStrip.styles.less'],
-  PendingOperationsPanel: ['PendingOperationsPanel.styles.less'],
+  TaskCenterAttentionWorkspace: ['TaskCenterAttentionWorkspace.styles.less'],
   BrainCard: ['BrainCard.styles.less'],
   PluginImportDialog: ['PluginImportDialog.styles.less'],
 }

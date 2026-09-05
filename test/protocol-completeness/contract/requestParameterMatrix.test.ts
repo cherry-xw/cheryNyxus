@@ -191,6 +191,16 @@ const chatMatrices: MethodMatrix[] = [
     invalid: [value('missing subscription', {}), value('empty subscription', { subscriptionId: '' })],
   },
   {
+    method: Method.CHAT_OVERVIEW_OPEN,
+    valid: [value('current session', {}), value('completed window', { completedSince: 1 })],
+    invalid: [value('negative completed window', { completedSince: -1 }), value('fractional completed window', { completedSince: 1.5 })],
+  },
+  {
+    method: Method.CHAT_OVERVIEW_CLOSE,
+    valid: [value('close overview subscription', { subscriptionId: 'subscription-1' })],
+    invalid: [value('missing subscription', {}), value('empty subscription', { subscriptionId: '' })],
+  },
+  {
     method: Method.CHAT_STOP_CHILD,
     valid: [value('recursive stop', { rootChatId: 'root-1', childChatId: 'child-1', commandId: 'command-1', recursive: true })],
     invalid: [value('missing child', { rootChatId: 'root-1', commandId: 'command-1' }), value('wrong recursive type', { rootChatId: 'root-1', childChatId: 'child-1', commandId: 'command-1', recursive: 'yes' })],
@@ -315,9 +325,9 @@ function flatten(
 }
 
 describe('core request parameter matrix', () => {
-  it('enumerates all 21 public chat methods', () => {
-    expect(chatMatrices).toHaveLength(21)
-    expect(new Set(chatMatrices.map((matrix) => matrix.method)).size).toBe(21)
+  it('enumerates all 23 public chat methods', () => {
+    expect(chatMatrices).toHaveLength(23)
+    expect(new Set(chatMatrices.map((matrix) => matrix.method)).size).toBe(23)
   })
 
   it.each(flatten(chatMatrices, 'valid'))('$method accepts $label', ({ method, value }) => {

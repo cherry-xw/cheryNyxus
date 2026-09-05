@@ -1,5 +1,5 @@
 /**
- * sense 英文名 → 中文显示名（待确认/审批标题共用；PendingOperationsPanel / WorkspaceSessionBrowser）。
+ * sense 英文名 → 中文显示名（待确认/审批标题与会话浏览共用）。
  * 未知工具回退原名；缺失回退「工具调用」。
  */
 export const SENSE_NAME_ZH: Record<string, string> = {

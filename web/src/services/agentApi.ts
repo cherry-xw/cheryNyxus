@@ -203,6 +203,57 @@ export interface InteractionRecord {
   completedAt?: number
 }
 
+export type TaskOverviewStatus = 'needs_user' | 'running' | 'paused' | 'failed' | 'completed'
+
+export interface TaskAgentOverview {
+  chatId: string
+  role: string
+  status: TaskOverviewStatus | 'idle'
+  currentStep?: string
+  startedAt?: number
+}
+
+export interface TaskActivityEvent {
+  id: string
+  rootChatId: string
+  chatId: string
+  kind:
+    | 'run_started'
+    | 'model_started'
+    | 'tool_started'
+    | 'tool_completed'
+    | 'agent_spawned'
+    | 'agent_completed'
+    | 'waiting_user'
+    | 'resumed'
+    | 'paused'
+    | 'failed'
+    | 'completed'
+  label: string
+  at: number
+}
+
+export interface TaskOverview {
+  rootChatId: string
+  taskId?: string
+  presetId?: string
+  preset?: string
+  title: string
+  status: TaskOverviewStatus
+  startedAt?: number
+  updatedAt: number
+  pendingCount: number
+  hasFailure: boolean
+  agents: TaskAgentOverview[]
+  recentEvents: TaskActivityEvent[]
+}
+
+export interface TaskOverviewSubscription {
+  subscriptionId: string
+  revision: number
+  tasks: TaskOverview[]
+}
+
 /** chat.create 参数。预设路径（T6）：preset 给出则后端从预设解析编制，brain/senseGroup 可省；
  * 显式路径：主 agent brain + senseGroup（+ mcpServers?）；子 agent：额外 parentChatId。 */
 export interface CreateAgentOptions {
@@ -1205,6 +1256,16 @@ async function call<T>(
 }
 
 export const agentApi = {
+  async openTaskOverview(completedSince: number): Promise<TaskOverviewSubscription> {
+    return call<TaskOverviewSubscription>('chat.overview.open', { completedSince })
+  },
+
+  async closeTaskOverview(
+    subscriptionId: string,
+  ): Promise<{ subscriptionId: string; closed: boolean }> {
+    return call('chat.overview.close', { subscriptionId })
+  },
+
   async listInteractionPage(params?: {
     presetId?: string
     includeActivity?: boolean

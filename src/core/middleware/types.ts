@@ -393,6 +393,8 @@ export interface QuestionBatchPendingChunk {
     position: number
     question: string
     header?: string
+    rationale?: string
+    nextStep?: string
     options: Array<{ label: string; description?: string }>
     multiSelect: boolean
     createdAt: number

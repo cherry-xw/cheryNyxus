@@ -189,6 +189,11 @@ export function createUiState() {
     persistWorkspaceWindows()
   }
 
+  function setWorkspaceWindowAttention(id: string, attention: boolean): void {
+    const window = workspaceWindows.value[id]
+    if (window) window.attention = attention
+  }
+
   function setWorkspaceStageSize(stage: WorkspaceStageSize): void {
     if (stage.width <= 0 || stage.height <= 0) return
     workspaceStageSize.value = stage
@@ -645,6 +650,7 @@ export function createUiState() {
     beginWorkspaceWindowClose,
     removeWorkspaceWindow,
     setWorkspaceWindowGeometry,
+    setWorkspaceWindowAttention,
     setWorkspaceStageSize,
     maximizeWorkspaceWindow,
     unmaximizeWorkspaceWindow,

@@ -110,8 +110,6 @@ export type MessageBranchTreeControllerEmits = {
       ordinary?: boolean
     },
   ]
-  /** 用户激活了带待处理交互（审批/提问）的节点 → 父级同步到待操作面板聚焦。 */
-  interactionFocus: [focus: { chatId: string; interactionId?: string; anchorNodeId?: string }]
   /** 钢琴彩蛋连点序列触发 → 父级（工作台）打开钢琴浮层。 */
   'easter-egg': []
   'presentation-fallback': [message: string]
@@ -1082,16 +1080,6 @@ export function useMessageBranchTreeController(
       return
     }
     if (defaultPopoverAnchorIds.value.has(node.id)) {
-      const model = defaultNodePopovers.value.find(
-        (candidate) => candidate.anchorNodeId === node.id,
-      )
-      if (model && (model.approval || model.question)) {
-        emit('interactionFocus', {
-          chatId: model.chatId,
-          interactionId: model.approval?.approvalId ?? model.question?.batch.batchId,
-          anchorNodeId: model.anchorNodeId,
-        })
-      }
       return
     } else if (crtsByAnchor.value.has(node.id)) {
       for (const card of crtsByAnchor.value.get(node.id) ?? []) pinCrt(card.id)

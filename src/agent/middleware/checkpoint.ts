@@ -62,6 +62,8 @@ export async function* checkpointMiddleware(
     questionId: string
     question: string
     header?: string
+    rationale?: string
+    nextStep?: string
     options: Array<{ label: string; description?: string }>
     multiSelect: boolean
     createdAt: number
@@ -206,6 +208,8 @@ export async function* checkpointMiddleware(
           const args = safeJsonParse<Record<string, unknown>>(trigger.arguments, {}) as {
             question?: string
             header?: string
+            rationale?: string
+            nextStep?: string
             options?: Array<{ label: string; description?: string }>
             multiSelect?: boolean
           }
@@ -213,6 +217,8 @@ export async function* checkpointMiddleware(
             questionId: trigger.id,
             question: args.question ?? '',
             ...(args.header ? { header: args.header } : {}),
+            ...(args.rationale ? { rationale: args.rationale } : {}),
+            ...(args.nextStep ? { nextStep: args.nextStep } : {}),
             options: args.options ?? [],
             multiSelect: args.multiSelect ?? false,
             createdAt: Date.now(),
