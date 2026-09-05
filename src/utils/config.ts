@@ -210,11 +210,7 @@ interface LLMConfig {
   brain: Record<string, BrainConfig>
 }
 
-export type RolePermissionTemplate =
-  | 'read-only'
-  | 'workspace-developer'
-  | 'supervised'
-  | 'trusted'
+export type RolePermissionTemplate = 'read-only' | 'workspace-developer' | 'supervised' | 'trusted'
 
 export type RolePermissionEffect = 'inherit' | 'allow' | 'ask' | 'deny'
 export type CommandRiskCategory =
@@ -659,23 +655,18 @@ export interface ConfigRaw {
   memory?: MemoryConfig
 }
 
-// 同一变量可能被多个字段引用（如 4 个 brain 都用 $API_KEY），
-// 用 Set 去重，避免控制台刷出 "API_KEY, API_KEY, API_KEY, API_KEY"。
-const missingEnvVars = new Set<string>()
-
-export function replaceEnvVars(value: unknown): unknown {
+function resolveEnvVars(
+  value: unknown,
+  environment: Readonly<Record<string, string | undefined>>,
+  missing: Set<string>,
+): unknown {
   if (typeof value === 'string') {
     const envVarMatch = value.match(/^\$([A-Z_][A-Z0-9_]*)$/)
     if (envVarMatch && envVarMatch[1]) {
       const envVarName = envVarMatch[1]
-      let envValue = process.env[envVarName]
+      const envValue = environment[envVarName]
       if (!envValue) {
-        // 运行期新增的 .env 变量未进 process.env：重读 .env 补充一次（不覆盖 OS env 既有值）
-        reloadEnvFile(false)
-        envValue = process.env[envVarName]
-      }
-      if (!envValue) {
-        missingEnvVars.add(envVarName)
+        missing.add(envVarName)
         return value // 原样返回
       }
       return envValue
@@ -684,13 +675,13 @@ export function replaceEnvVars(value: unknown): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.map(replaceEnvVars)
+    return value.map((entry) => resolveEnvVars(entry, environment, missing))
   }
 
   if (typeof value === 'object' && value !== null) {
     const result: Record<string, unknown> = {}
     for (const [key, val] of Object.entries(value)) {
-      result[key] = replaceEnvVars(val)
+      result[key] = resolveEnvVars(val, environment, missing)
     }
     return result
   }
@@ -698,34 +689,44 @@ export function replaceEnvVars(value: unknown): unknown {
   return value
 }
 
-function loadConfig(): Config {
-  // .chery 目录路径（从环境变量读取，默认 process.cwd()）
-  const cheryDir = process.env.CHERY_DIR || process.cwd()
-
-  // 从 .chery/config.yaml 读取配置（运行时配置，不走打包）
-  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
-
-  if (!fs.existsSync(configPath)) {
-    console.error(`✗ 配置文件不存在: ${configPath}`)
-    console.error(`  请确认 CHERY_DIR 环境变量指向正确的项目根目录（当前: ${cheryDir}）`)
-    process.exit(1)
+function readRuntimeEnvironment(): Record<string, string | undefined> {
+  let fileEnvironment: Record<string, string> = {}
+  try {
+    fileEnvironment = dotenv.parse(fs.readFileSync(rootEnvPath, 'utf8'))
+  } catch {
+    // .env is optional; process.env remains authoritative.
   }
+  return { ...fileEnvironment, ...process.env }
+}
 
-  const configFile = fs.readFileSync(configPath, 'utf8')
-  const rawConfig = yaml.load(configFile) as Config
+export function replaceEnvVars(value: unknown): unknown {
+  return resolveEnvVars(value, readRuntimeEnvironment(), new Set())
+}
 
-  const config = replaceEnvVars(rawConfig) as Config
+export type RuntimeConfigSource = ConfigRaw & { server?: Partial<ServerConfig> }
+
+export interface RuntimeConfigNormalizationContext {
+  cheryDir: string
+  dbDir?: string
+  webPort?: string
+  environment: Readonly<Record<string, string | undefined>>
+  server?: Partial<ServerConfig>
+}
+
+/** Pure conversion shared by startup and hot apply. The input remains the raw
+ * placeholder-bearing source; paths and environment values exist only in the result. */
+export function normalizeRuntimeConfig(
+  raw: RuntimeConfigSource,
+  context: RuntimeConfigNormalizationContext,
+): Config {
+  const source = structuredClone(raw)
+  const rawErrors = validateRawConfig(source)
+  if (rawErrors.length > 0) throw new Error(`配置校验失败:\n${rawErrors.join('\n')}`)
+
+  const config = resolveEnvVars(source, context.environment, new Set()) as Config
 
   ensurePresetIds(config.presets)
   ensureRoleIds(config.roles)
-
-  // 业务校验（raw 形态：supervision 仍为字符串）。启动期 fail loud（规则12）。
-  // brain 引用 / supervision 合法值 / sense :level / brain 必填项均在此（原内联块抽出共用）。
-  // workspace 不在此校验：启动期不关心（workspace 是环境配置非服务必需）。
-  const rawErrors = validateRawConfig(config as unknown as ConfigRaw)
-  if (rawErrors.length > 0) {
-    throw new Error(`配置校验失败:\n${rawErrors.join('\n')}`)
-  }
 
   // 将字符串转换为枚举（校验已保证 supervision 为合法值）
   if (typeof config.global.supervision === 'string') {
@@ -747,10 +748,9 @@ function loadConfig(): Config {
   // spawn sense 存 metadata.systemPromptFile（绝对），buildFirstSystemPrompt 实时读取；
   // 预设 leader 编制取 config.roles[leader]，其 systemPrompt 在此统一解析，预设无需再单独补全。
   if (config.roles) {
-    const roleCheryDir = process.env.CHERY_DIR || process.cwd()
     for (const cfg of Object.values(config.roles)) {
       if (cfg.systemPrompt && !path.isAbsolute(cfg.systemPrompt)) {
-        cfg.systemPrompt = path.join(roleCheryDir, '.chery', cfg.systemPrompt)
+        cfg.systemPrompt = path.join(context.cheryDir, '.chery', cfg.systemPrompt)
       }
     }
   }
@@ -764,13 +764,13 @@ function loadConfig(): Config {
   }
 
   // 自动补全 .chery 目录路径
-  config.global.skills_dir = path.join(cheryDir, '.chery', 'skills')
-  config.global.plugins_dir = path.join(cheryDir, '.chery', 'plugins')
-  config.global.senses_dir = path.join(cheryDir, '.chery', 'senses')
-  config.global.prompts_dir = path.join(cheryDir, '.chery', 'prompt')
-  config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, '.chery', 'db')
-  config.global.memory_dir = path.join(cheryDir, '.chery', 'memory')
-  config.global.rule_dir = path.join(cheryDir, '.chery', 'rule')
+  config.global.skills_dir = path.join(context.cheryDir, '.chery', 'skills')
+  config.global.plugins_dir = path.join(context.cheryDir, '.chery', 'plugins')
+  config.global.senses_dir = path.join(context.cheryDir, '.chery', 'senses')
+  config.global.prompts_dir = path.join(context.cheryDir, '.chery', 'prompt')
+  config.global.db_dir = context.dbDir ?? path.join(context.cheryDir, '.chery', 'db')
+  config.global.memory_dir = path.join(context.cheryDir, '.chery', 'memory')
+  config.global.rule_dir = path.join(context.cheryDir, '.chery', 'rule')
 
   // 断连宽限期默认值：15000ms（与 .chery.template 同步；缺省 15s）
   config.global.disconnect_grace_ms =
@@ -814,10 +814,10 @@ function loadConfig(): Config {
 
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 server.webPort，
   // 优先级 WEB_PORT 环境变量 > server.webPort > 默认 8183）
-  const serverRaw = config.server as Partial<ServerConfig> | undefined
+  const serverRaw = context.server ?? config.server
   config.server = {
     port: serverRaw?.port ?? 8182,
-    webPort: Number(process.env.WEB_PORT ?? serverRaw?.webPort ?? 8183),
+    webPort: Number(context.webPort ?? serverRaw?.webPort ?? 8183),
     transport: serverRaw?.transport === 'json' ? 'json' : 'binary',
     host: serverRaw?.host ?? '127.0.0.1',
     // 默认托管前端 SPA：仅在 dev/prod 产物存在时实际生效；缺失时日志警告并退化为仅 API
@@ -827,19 +827,85 @@ function loadConfig(): Config {
     workspace_browse: serverRaw?.workspace_browse,
   }
 
-  // 添加环境变量缺失警告
-  if (!process.env.CHERY_DIR) {
-    console.warn(`⚠️ 环境变量 CHERY_DIR 未配置，使用默认路径: ${cheryDir}`)
-  }
-
-  if (missingEnvVars.size > 0) {
-    console.warn(`⚠️ 环境变量未配置: ${Array.from(missingEnvVars).join(', ')}`)
-  }
-
   return config
 }
 
-const config = loadConfig()
+/** Disk parsing has no startup policy: callers receive errors instead of exiting. */
+export function readRuntimeConfigSource(cheryDir: string): RuntimeConfigSource {
+  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
+  return yaml.load(fs.readFileSync(configPath, 'utf8')) as RuntimeConfigSource
+}
+
+function readStartupConfigSource(): RuntimeConfigSource {
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
+  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
+  try {
+    return readRuntimeConfigSource(cheryDir)
+  } catch (error) {
+    if (!fs.existsSync(configPath)) {
+      console.error(`✗ 配置文件不存在: ${configPath}`)
+      console.error(`  请确认 CHERY_DIR 环境变量指向正确的项目根目录（当前: ${cheryDir}）`)
+      process.exit(1)
+    }
+    throw error
+  }
+}
+
+const startupSource = readStartupConfigSource()
+const runtimeContext: Omit<RuntimeConfigNormalizationContext, 'environment'> = {
+  cheryDir: process.env.CHERY_DIR || process.cwd(),
+  dbDir: process.env.DB_DIR,
+  webPort: process.env.WEB_PORT,
+  server: structuredClone(startupSource.server),
+}
+if (!process.env.CHERY_DIR) {
+  console.warn(`⚠️ 环境变量 CHERY_DIR 未配置，使用默认路径: ${runtimeContext.cheryDir}`)
+}
+const startupEnvironment = readRuntimeEnvironment()
+const startupMissingEnvVars = new Set<string>()
+collectEnvPlaceholders(startupSource, startupMissingEnvVars)
+const unresolvedStartupEnvVars = [...startupMissingEnvVars].filter(
+  (name) => !startupEnvironment[name],
+)
+if (unresolvedStartupEnvVars.length > 0) {
+  console.warn(`⚠️ 环境变量未配置: ${unresolvedStartupEnvVars.join(', ')}`)
+}
+let appliedConfig = normalizeRuntimeConfig(startupSource, {
+  ...runtimeContext,
+  environment: startupEnvironment,
+})
+
+/** Build without publishing. Server/root/database values always come from startup context. */
+export function createRuntimeConfigCandidate(raw: ConfigRaw): Config {
+  return normalizeRuntimeConfig(raw, {
+    ...runtimeContext,
+    environment: readRuntimeEnvironment(),
+  })
+}
+
+export function getRuntimeConfig(): Config {
+  return appliedConfig
+}
+
+/** Normalize first; a failed candidate cannot change the published object. */
+export function replaceRuntimeConfig(raw: ConfigRaw): Config {
+  const next = createRuntimeConfigCandidate(raw)
+  appliedConfig = next
+  return next
+}
+
+// Compatibility view for consumers migrated in later chapters. Nested values are
+// resolved against the latest published object; no existing object is mutated on swap.
+const config = new Proxy({} as Config, {
+  get: (_target, property) => Reflect.get(appliedConfig, property),
+  set: (_target, property, value) => Reflect.set(appliedConfig, property, value),
+  has: (_target, property) => Reflect.has(appliedConfig, property),
+  ownKeys: () => Reflect.ownKeys(appliedConfig),
+  getOwnPropertyDescriptor: (_target, property) => {
+    const descriptor = Reflect.getOwnPropertyDescriptor(appliedConfig, property)
+    return descriptor ? { ...descriptor, configurable: true } : undefined
+  },
+})
 
 /**
  * 重读 .chery/config.yaml 的 mcp_servers 段，跑 replaceEnvVars + supervision 解析，
@@ -944,9 +1010,7 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     if (cfg?.protocol && cfg?.provider) {
       const providerDefinition = findLlmProviderDefinition(cfg.provider)
       if (providerDefinition && !providerDefinition.protocols.includes(cfg.protocol)) {
-        errors.push(
-          `llm.brain.${name}.provider(${cfg.provider}) 不支持 protocol(${cfg.protocol})`,
-        )
+        errors.push(`llm.brain.${name}.provider(${cfg.provider}) 不支持 protocol(${cfg.protocol})`)
       }
     }
     // thinking：接受 legacy boolean（true/false）或任意非空字符串显示词（由 model-catalog wire 翻译）；非法 fail loud
@@ -1039,7 +1103,8 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         errors.push(`presets.${pname}.id 非法（必须以 preset- 开头且至少包含 8 位标识）`)
       } else if (pcfg.id !== undefined) {
         const duplicate = presetNameById.get(pcfg.id)
-        if (duplicate) errors.push(`presets.${pname}.id 与 presets.${duplicate}.id 重复：${pcfg.id}`)
+        if (duplicate)
+          errors.push(`presets.${pname}.id 与 presets.${duplicate}.id 重复：${pcfg.id}`)
         else presetNameById.set(pcfg.id, pname)
       }
       const members = pcfg?.roles ?? []
@@ -1404,7 +1469,8 @@ export function restoreRedactedSecrets(partial: ConfigRaw, disk: ConfigRaw): Con
       const diskSrv = disk.mcp_servers[name]
       if (srv.env && diskSrv?.env) {
         for (const k of Object.keys(srv.env)) {
-          if (srv.env[k] === '[REDACTED]' && diskSrv.env[k] !== undefined) srv.env[k] = diskSrv.env[k]
+          if (srv.env[k] === '[REDACTED]' && diskSrv.env[k] !== undefined)
+            srv.env[k] = diskSrv.env[k]
         }
       }
       if (typeof srv.url === 'string' && typeof diskSrv?.url === 'string') {
@@ -1638,12 +1704,5 @@ export function getCheryDir(): string {
   return process.env.CHERY_DIR || process.cwd()
 }
 
-export type {
-  Config,
-  BrainConfig,
-  GlobalConfig,
-  LoggerConfig,
-  McpServerConfig,
-  ServerConfig,
-}
+export type { Config, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig, ServerConfig }
 export default config
