@@ -80,6 +80,8 @@ const {
   resuming,
   rootUi,
   rowKey,
+  runDetailOpen,
+  runDetailText,
   runStatusLabel,
   selectedOf,
   sending,
@@ -93,6 +95,7 @@ const {
   tipPos,
   toggleOption,
   togglePendingCollapsed,
+  toggleRunDetail,
   canAnswerBatch,
   toolTypeGlyph,
   trajectoryBarStyle,
@@ -356,6 +359,21 @@ const {
         >
           刷新
         </button>
+      </div>
+
+      <div v-if="lite.runError" class="lite-run-error" role="alert">
+        <div class="lite-run-error-title">
+          <span>{{ lite.runError.message }}</span>
+          <button
+            v-if="lite.runError.detail || lite.runError.tracingId"
+            type="button"
+            class="lite-error-action"
+            @click="toggleRunDetail"
+          >
+            {{ runDetailOpen ? '收起' : '查看详情' }}
+          </button>
+        </div>
+        <p v-if="runDetailOpen" class="lite-run-error-detail">{{ runDetailText }}</p>
       </div>
 
       <section

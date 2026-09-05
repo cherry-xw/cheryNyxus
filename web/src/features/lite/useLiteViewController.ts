@@ -250,6 +250,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     try {
       const sent = await lite.submitInput(content)
       if (sent) {
+        // 新运行已开始：清掉可能残留的命令错误 banner（成功发送是新一轮开始）
+        lite.lastCommandError = null
         inputText.value = ''
         // v0.4.2 多行输入：清空后等 DOM 更新，把 textarea 高度重置回单行
         await nextTick()
@@ -636,6 +638,27 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     await lite.refreshInteractions()
     lite.lastCommandError = null
   }
+  // 运行错误条「查看详情」展开态（§4.14）：runError 消失时复位收起。
+  const runDetailOpen = ref(false)
+  function toggleRunDetail(): void {
+    runDetailOpen.value = !runDetailOpen.value
+  }
+  /** 详情行文案：有 detail 显示上游摘要，否则给 tracingId 日志检索指引（error-conventions 一行内）。 */
+  const runDetailText = computed(() => {
+    const runError = lite.runError
+    if (!runError) return ''
+    return runError.detail
+      ? `${runError.detail}${runError.tracingId ? `（检索 ${runError.tracingId}）` : ''}`
+      : runError.tracingId
+        ? `详情见日志，检索 ${runError.tracingId}`
+        : ''
+  })
+  watch(
+    () => lite.runError,
+    (runError) => {
+      if (!runError) runDetailOpen.value = false
+    },
+  )
   const detailReturnFocus = ref<HTMLElement | null>(null)
   function rememberDetailTrigger(event?: Event): void {
     detailReturnFocus.value =
@@ -1073,6 +1096,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     resuming,
     rootUi,
     rowKey,
+    runDetailOpen,
+    runDetailText,
     runStatusLabel,
     selectedOf,
     sending,
@@ -1086,6 +1111,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     tipPos,
     toggleOption,
     togglePendingCollapsed,
+    toggleRunDetail,
     canAnswerBatch,
     toolTypeGlyph,
     trajectoryBarStyle,

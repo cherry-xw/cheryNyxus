@@ -7,6 +7,7 @@
 
 | 版本 | 变更 |
 |---|---|
+| v1.4（增量） | **发送/运行失败错误信息展示（§4.14）**：与节点树/完整视图同步覆盖全部错误类型——**发送失败**（发送即被拒/命令报错，`submitInput`/`retryInput` 捕获异常写入 `commandError`）→ `.lite-error-banner` 显示（沿用 §4.10 六码分支文案），与 `.lite-failed-inputs`（失败消息行 + 重试/移除，既有行为）并存；重试成功或移除全部失败消息后 banner 清除（`removeFailedInput` 同步清空）；**运行失败**（消息已发出、本轮运行中断，`session.run.status='failed'`）→ 对话流末尾新增 `.lite-run-error` 条展示 `run.error` 一行 + 可选「查看详情」折叠 `errorFact.detail`/tracingId（error-conventions detail 通道）；「继续」沿用状态条 §4.6（canResume 驱动）。互斥与去重：run 错误条仅在无 `commandError` 时显示（banner 优先）；发送失败落 `run.status='paused'` 不被 run 错误条捕获，避免重复展示 |
 | v1.3（增量） | **简洁模式全文渲染**：LiteMarkdown 渲染模式由 `preview`（`MARKDOWN_PREVIEW_LIMIT` 12000 字符截断 + 截断提示）改为 `full` 全文渲染（`useRenderedMarkdown` 240ms 节流保留）——正文列表行内容（§4.1）与详情抽屉（§4.4）超 12000 字符不再被渲染层截断。数据侧不变：正文来自 canonical timeline 全文；node.get 仍受 32KB 单响应硬上限（协议层 §3.5/§3.7），由既有分页续拉（30KB/页 + hasMore + 「加载更多」）兜底取全文。`preview` 模式保留给流式气泡等次要预览面（宠物气泡 / AnchoredRunCrt），见 motion-standard.md §4 模式选用 |
 | v1.2（增量） | **简洁模式交互/视觉回归修正（实测）**：①**CRT 扫描光效删除**——`.lite-view::before` 扫描线纹理与 `::after` 全屏扫光带整体移除（光带 z-index 压在内容上干扰阅读，用户确认直接删除）；②**待处理面板标签栏净化**——**面板容器完全透明且无阴影**（不是卡片：无背景、无边框、无投影，按钮行区域与 .lite-view 页面背景完全一致）；**边框从按钮下一行开始**（bar 底部横线 + 内容区左/右/下三边，亮色只存在于内容区卡片与按钮自身）；tab 按钮从最左边开始依次排列，按钮自身（边框+文字）保留、**背景全透明**（激活态仅主色边框+主色文字，不加背景层；浅色主题 box-shadow 内线同步移除）；③**收起/展开按钮重做**——改为带边框 24×24 方形按钮，绝对定位挂在面板右上角、相对标签栏垂直居中（▲ 收起 / ▼ 展开）；④**收起/展开高度动画**——内容区高度 200ms 过渡（visibility 兜底防隐藏后聚焦），`prefers-reduced-motion` 直切；⑤**详情抽屉宽度可拖拽**——抽屉左缘拖拽手柄，宽度 clamp(320px, 拖拽值, 92% 容器宽)，按窗口 × 会话持久于 LiteRootUiState（`detailDrawerWidth`）；⑥**滚动条恢复**——正文区（lite-monitor）与抽屉体（lite-drawer-body）恢复主题化细滚动条（此前隐藏导致长内容只能滚轮慢滚）；⑦**滚动跳顶修复**——滚动链隔离（`overscroll-behavior: contain`）+ 内容塌陷后 scrollTop 恢复 + scrollTop 回写节流，消除「滚到底闪回顶部/无限滚动」观感；⑧**cluster 工具 tag hover 对齐修正**——icon 垂直居中（去掉 2px 底部 padding 挤压）、hover 描边框不再位移、`\|` 分隔线垂直居中；⑨**直角化收尾**——lite 剩余盒类圆角全部清零（状态药丸/按钮/面板/输入框/详情抽屉徽标的 999px/8px/6px/5px/4px → 0），状态点正圆（`border-radius: 50%`）保留 |
 | v1.1（增量） | **待处理面板可收起（§4.3）**：标签栏右侧新增 ▲/▼ 收起/展开按钮，收起态仅保留标签栏（高度自适应）贴在输入区上方，内容区隐藏；收起态点击任意标签 = 展开并切换到该交互；**新审批/提问到达不自动展开**（保持收起，激活 tab 的倒计时徽章照常跳动提示）；收起状态按**窗口 × 根会话**隔离存于 LiteRootUiState（`pendingCollapsed`，与 `pendingTab` 同套），切会话互不影响 |
@@ -192,6 +193,15 @@ lite 视图对话流上方的多流水线运行轨迹。**一轴 = 一个 Agent 
 - **状态条**：高 `2px`，绝对定位在字符底部、不占横向空间；取消灰、完成绿、运行中绿闪、失败/拒绝红。`prefers-reduced-motion` 下运行条保持绿色常亮。**v1.0 弱化**：状态条不再喧宾夺主——降低对比/透明度并收窄，icon 为主、状态线为辅；icon 字号加大保证清晰（浅色下 icon 清晰度不再低于状态线）。
 - **外观**：无边框、无圆角、无常驻底色；hover 仅给极淡背景，选中态用底部 1px 主题色线，键盘聚焦保留 1px 点状轮廓。单 tag 的常规可见内容约 5–7 个等宽字符，可在极小屏完整显示。
 - **一致性**：正文 cluster、轨迹提示、工具详情头部与审批工具标记共用 `toolTypeGlyph()`，不得各自维护另一套图标。
+
+### 4.14 发送 / 运行失败的错误展示（v1.4 新增）
+
+与节点树/完整视图同步，lite 覆盖全部错误类型（发送失败 + 运行失败两条路径，数据均来自 canonical store，复用 error-conventions 用户面一行中文 + detail 通道）：
+
+- **发送失败（发送即被拒 / 命令报错）**：`submitInput` / `retryInput` 捕获异常后写入 `commandError` → `.lite-error-banner` 显示（沿用 §4.10 六码分支：INTERACTION_STALE 刷新 / ALREADY_RESOLVED 已处理 / COMMAND_CONFLICT 处理中 / INPUT_QUEUE_FULL 稍候 / RATE_LIMITED 稍后再试 / 其余原样显示 message）；同时 `.lite-failed-inputs` 保留失败消息行（错误文案 + 【重试】【移除】，既有行为）。**清除时机**：重试成功、或移除全部失败消息后 banner 一并清除（`removeFailedInput` 同步清空 `commandError`）。
+- **运行失败（消息已发出、本轮运行中断）**：后端 error 通知写入 `session.run.status='failed'` + `run.error`/`run.errorFact`（见 error-conventions detail 通道）→ 对话流末尾渲染 `.lite-run-error` 条：一行 `run.error` 文案 + 可选【查看详情】展开 `errorFact.detail`（带 `[tracingId]` 检索指引，error-conventions §错误详情通道）；「继续运行」入口沿用状态条 §4.6（canResume 驱动，不重复放置按钮）。
+
+**互斥与去重**：run 错误条仅在无 `commandError` 时显示（命令错误 banner 优先）；发送失败落 `run.status='paused'`（rollbackPreparedInput）不会被 run 错误条捕获——发送失败由 failed-inputs + banner 承载，不重复展示；run 错误保留至下次运行（新流首 chunk / done 时 reducer 清除）。
 
 ---
 

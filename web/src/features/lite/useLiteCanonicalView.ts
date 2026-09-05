@@ -250,6 +250,24 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     set lastCommandError(value) {
       setCommandError(value)
     },
+    /** 运行失败（消息已发出、本轮中断）：run.status='failed' 且 run.error 存在时暴露（§4.14）。
+     * 命令错误 banner 优先（commandError 存在时不显示）；发送失败落 run.status='paused' 不被捕获。
+     * 「继续运行」入口由状态条 canResume 驱动，不在此重复。 */
+    get runError(): {
+      message: string
+      detail?: string
+      tracingId?: string
+    } | null {
+      if (rootUi().commandError) return null
+      const session = chats.sessionsById[root()]
+      if (!session || session.run.status !== 'failed' || !session.run.error) return null
+      const fact = session.run.errorFact
+      return {
+        message: session.run.error,
+        ...(fact?.detail ? { detail: fact.detail } : {}),
+        ...(fact?.tracingId ? { tracingId: fact.tracingId } : {}),
+      }
+    },
     async loadOlder(): Promise<boolean> {
       return false
     },
@@ -261,20 +279,33 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
         const prepared = chats.prepareInput(root(), content)
         await chats.submitInput(root(), content, undefined, prepared)
         return true
-      } catch {
+      } catch (cause) {
+        // 发送失败同样写入 commandError 驱动 .lite-error-banner（§4.14）；
+        // 失败消息行由 rollbackPreparedInput 的 delivery.status='failed' 承载。
+        setCommandError(errorFact(cause, '发送失败'))
         return false
       }
     },
     async retryInput(messageId: string): Promise<boolean> {
+      setCommandError(null)
       try {
         await chats.retryInput(root(), messageId)
         return true
-      } catch {
+      } catch (cause) {
+        setCommandError(errorFact(cause, '重试失败'))
         return false
       }
     },
     removeFailedInput(messageId: string): boolean {
-      return chats.removeFailedInput(root(), messageId)
+      const removed = chats.removeFailedInput(root(), messageId)
+      if (removed) {
+        const session = chats.sessionsById[root()]
+        const hasFailed = (session?.messageOrder ?? []).some(
+          (id) => session?.messagesById[id]?.delivery?.status === 'failed',
+        )
+        if (!hasFailed) setCommandError(null)
+      }
+      return removed
     },
     interactionError(interactionId: string) {
       return interactions.errorsById[interactionId] ?? null
