@@ -2216,9 +2216,11 @@ export interface McpDisconnectResponseData {
 /**
  * mcp.reload 返回：全量 server 列表 + 本次操作汇总。
  * - 全量重载：connected/failed/totalSenses 覆盖所有 server。
- * - 单 server 重载：connected∈{0,1}、failed∈{0,1}、totalSenses 为该 server 注册数；servers 为重载后全量列表。
+ * - connected 统计当前可用连接，failed 包含候选生效失败；旧连接可用且新配置失败时两者可同时计数。
+ * - 单 server 重载也返回全量连接汇总；实际生效结果以 apply 和各 server.applyStatus 为准。
  */
 export interface McpReloadResponseData {
+  apply?: import('@chery/protocol').ConfigApplyState
   servers: McpServerInfo[]
   connected: number
   failed: number
@@ -2318,6 +2320,7 @@ export type UtilsTestConnectionResponseData =
 /** env.list 响应：.env 文件中的变量名列表 */
 export interface EnvListResponseData {
   vars: string[]
+  apply?: import('@chery/protocol').ConfigApplyState
 }
 
 /**

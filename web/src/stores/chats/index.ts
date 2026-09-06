@@ -815,7 +815,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     data?: unknown
   }): boolean {
     if (typeof event.rootChatId === 'string' && evictedRoots.has(event.rootChatId)) return true
-    if (typeof event.rootChatId !== 'string' || typeof event.subscriptionId !== 'string') return false
+    if (typeof event.rootChatId !== 'string' || typeof event.subscriptionId !== 'string')
+      return false
     const subscription = rootSubscriptions.value[event.rootChatId]
     if (!subscription || subscription.subscriptionId !== event.subscriptionId) return false
     // turn.delta 只属于当前实时订阅，不写事件日志，也不推进持久 cursor。

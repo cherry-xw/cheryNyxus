@@ -134,7 +134,11 @@ export function useNyxusParticleInput(opts: {
     }
     if (local.distance >= props.size * 0.22 && local.distance <= props.size * 1.22) {
       if (previousOrbitPoint) {
-        armPhaseOffset = clamp(armPhaseOffset + nyxusAngularDelta(previousOrbitPoint, local.point) * 0.11, -0.72, 0.72)
+        armPhaseOffset = clamp(
+          armPhaseOffset + nyxusAngularDelta(previousOrbitPoint, local.point) * 0.11,
+          -0.72,
+          0.72,
+        )
       }
       previousOrbitPoint = local.point
     } else {
@@ -218,7 +222,11 @@ export function useNyxusParticleInput(opts: {
       pointerSpeed < 72 &&
       now - lastPointerAt < 1300
     if (canDwell) {
-      if (!dwellPoint || Math.hypot(pointer.point.x - dwellPoint.x, pointer.point.y - dwellPoint.y) > props.size * 0.1) {
+      if (
+        !dwellPoint ||
+        Math.hypot(pointer.point.x - dwellPoint.x, pointer.point.y - dwellPoint.y) >
+          props.size * 0.1
+      ) {
         dwellStartedAt = now
         dwellPoint = pointer.point
       } else if (now - dwellStartedAt > 900 && !starFormationPoint) {
@@ -264,15 +272,17 @@ export function useNyxusParticleInput(opts: {
     const forcedCosmic = nyxusForcedCosmicState(serviceState, props.working)
     if (serviceState === 'disconnected') cosmicScheduler.cancel(now, false)
     else if (props.working) cosmicScheduler.update(now, false, false, false)
-    const cosmic = forcedCosmic ?? cosmicScheduler.update(
-      now,
-      serviceState === 'connected' &&
-        (props.action === 'idle' || props.action === 'walk') &&
-        !nyxusMenuOpen.value &&
-        !props.reaction,
-      pointerNear,
-      false,
-    )
+    const cosmic =
+      forcedCosmic ??
+      cosmicScheduler.update(
+        now,
+        serviceState === 'connected' &&
+          (props.action === 'idle' || props.action === 'walk') &&
+          !nyxusMenuOpen.value &&
+          !props.reaction,
+        pointerNear,
+        false,
+      )
     const releaseAge = Math.max(0, (now - releaseStartedAt) / 1000)
     const releaseStrength = releaseAge < 5 ? Math.exp(-releaseAge / 1.25) : 0
 

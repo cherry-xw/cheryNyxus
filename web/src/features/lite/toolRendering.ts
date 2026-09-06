@@ -278,7 +278,18 @@ export const TOOL_TYPE_PRIMARY_FIELDS: Readonly<Record<LiteToolType, readonly st
     'error',
     'message',
   ],
-  dispatch: ['role', 'type', 'target', 'prompt', 'wake', 'status', 'result', 'message', 'error', 'task'],
+  dispatch: [
+    'role',
+    'type',
+    'target',
+    'prompt',
+    'wake',
+    'status',
+    'result',
+    'message',
+    'error',
+    'task',
+  ],
   other: [],
 }
 
@@ -342,7 +353,10 @@ function resultSummary(type: LiteToolType, result: unknown): string | undefined 
       const lines = rawContent.split(/\r?\n/).length
       return `已读取 ${lines} 行内容`
     }
-    return countSummary(valueOf(record, 'matches', 'results', 'files', 'total', 'count'), '找到结果')
+    return countSummary(
+      valueOf(record, 'matches', 'results', 'files', 'total', 'count'),
+      '找到结果',
+    )
   }
   if (type === 'exec') {
     const code = valueOf(record, 'exit_code', 'exitCode')
@@ -356,7 +370,10 @@ function resultSummary(type: LiteToolType, result: unknown): string | undefined 
     return shortText(valueOf(record, 'message', 'result'))
   }
   if (type === 'web') {
-    return countSummary(valueOf(record, 'results', 'matches', 'items', 'total', 'count'), '获得结果')
+    return countSummary(
+      valueOf(record, 'results', 'matches', 'items', 'total', 'count'),
+      '获得结果',
+    )
   }
   if (type === 'dispatch') {
     return shortText(valueOf(record, 'agent', 'role', 'task', 'message', 'result'))
@@ -382,7 +399,9 @@ export function readableToolRun(
   const query = shortText(valueOf(args, 'query', 'pattern', 'search', 'keyword'))
   const url = shortText(valueOf(args, 'url'))
   const command = shortText(valueOf(args, 'command', 'cmd'))
-  const description = shortText(valueOf(args, 'description', 'explanation', 'instruction', 'prompt', 'task'))
+  const description = shortText(
+    valueOf(args, 'description', 'explanation', 'instruction', 'prompt', 'task'),
+  )
   const role = shortText(valueOf(args, 'role', 'agent', 'target'))
   const isSearch = /search|grep|find|query/i.test(name)
   const fallbackAction =
@@ -403,7 +422,13 @@ export function readableToolRun(
               : description
                 ? '执行工具步骤'
                 : `运行“${label || name || '工具'}”`
-  const target = presentation.target ?? path ?? (type === 'web' ? url ?? query : undefined) ?? (type === 'exec' ? command : undefined) ?? (type === 'dispatch' ? role ?? description : undefined) ?? (isSearch ? query : undefined)
+  const target =
+    presentation.target ??
+    path ??
+    (type === 'web' ? (url ?? query) : undefined) ??
+    (type === 'exec' ? command : undefined) ??
+    (type === 'dispatch' ? (role ?? description) : undefined) ??
+    (isSearch ? query : undefined)
   const prefix = status === 'accepted' ? '正在' : status === 'pending' ? '准备' : '已'
   const operationLabel = presentation.operationLabel.startsWith('执行「')
     ? fallbackAction
@@ -411,10 +436,11 @@ export function readableToolRun(
   const parsedResult = parseJsonValue(resultText)
   const rawResult = shortText(resultText)
   const completedSummary =
-    status === 'completed' ? resultSummary(type, parsedResult) ?? rawResult : undefined
-  const failure = status === 'error' || status === 'rejected'
-    ? resultSummary(type, parsedResult) ?? rawResult
-    : undefined
+    status === 'completed' ? (resultSummary(type, parsedResult) ?? rawResult) : undefined
+  const failure =
+    status === 'error' || status === 'rejected'
+      ? (resultSummary(type, parsedResult) ?? rawResult)
+      : undefined
   return {
     toolLabel: presentation.toolLabel || label || name,
     intent: `${prefix}${operationLabel || fallbackAction}`,
@@ -429,7 +455,11 @@ export function readableToolRun(
             : status === 'rejected'
               ? '本次操作已被拒绝'
               : '工具执行失败',
-    ...(failure ? { resultSummary: failure } : completedSummary ? { resultSummary: completedSummary } : {}),
+    ...(failure
+      ? { resultSummary: failure }
+      : completedSummary
+        ? { resultSummary: completedSummary }
+        : {}),
     changes: presentation.changes,
   }
 }

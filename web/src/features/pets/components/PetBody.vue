@@ -87,18 +87,10 @@ function setRootRef(element: Element | ComponentPublicInstance | null): void {
 </script>
 
 <template>
-  <div
-    :ref="setRootRef"
-    class="pet"
-    :class="classes"
-    :style="style"
-  >
+  <div :ref="setRootRef" class="pet" :class="classes" :style="style">
     <span class="shadow" />
     <span class="dir">
-      <span
-        ref="spriteRef"
-        class="sprite"
-      >
+      <span ref="spriteRef" class="sprite">
         <PetStatusBar
           v-if="!pet.isGhost"
           :emotion="pet.emotion"
@@ -121,29 +113,17 @@ function setRootRef(element: Element | ComponentPublicInstance | null): void {
           @dblclick.stop="emit('doubleClickPet', pet)"
           @keydown.enter.space.prevent="emit('clickPet', pet)"
         >
-          <span
-            v-if="!pet.isGhost"
-            ref="leftHandRef"
-            class="hand hand-left"
-            aria-hidden="true"
-            >{{ leftHand }}</span
-          >
+          <span v-if="!pet.isGhost" ref="leftHandRef" class="hand hand-left" aria-hidden="true">{{
+            leftHand
+          }}</span>
           <span v-if="pet.isMaster" class="face-shell">
             <PetDivineHalo :active="isBusy" />
-            <span
-              ref="faceRef"
-              class="face"
-              >{{ faceGlyph }}</span
-            >
+            <span ref="faceRef" class="face">{{ faceGlyph }}</span>
           </span>
           <PetFaceFlip v-else :face-glyph="faceGlyph" :face-motion="face" :active="isBusy" />
-          <span
-            v-if="!pet.isGhost"
-            ref="rightHandRef"
-            class="hand hand-right"
-            aria-hidden="true"
-            >{{ rightHand }}</span
-          >
+          <span v-if="!pet.isGhost" ref="rightHandRef" class="hand hand-right" aria-hidden="true">{{
+            rightHand
+          }}</span>
         </span>
         <div class="meta-row">
           <PetNameTag

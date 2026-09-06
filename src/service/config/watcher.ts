@@ -1,22 +1,21 @@
 import fs from 'node:fs'
-import { isStructuredConfigImageHandled } from './commit.js'
+import {
+  consumeHandledConfigImage,
+  getConfigApplyCoordinator,
+  readConfigImage,
+  submitDiskConfigImage,
+} from './commit.js'
 import path from 'node:path'
 import config, { readRawConfig, validateLoadable } from '@/utils/config.js'
 import { logger, LogLevel } from '@/utils/logger/index.js'
-import { consumeHandledConfigRevision, createConfigRevision } from './revision.js'
-import { requestRestartWhenIdle } from '@/service/restartCoordinator.js'
+import { createConfigRevision } from './revision.js'
+import { imageRevision } from './impact.js'
 import {
   enterMaintenanceMode,
   getMaintenanceState,
   leaveMaintenanceMode,
 } from '@/service/maintenanceMode.js'
 import { abortAllChatRuntimes } from '@/service/chat/runtime.js'
-import {
-  applyRetiredRoles,
-  archivePresetRoots,
-  detectRemovedPresetIds,
-  detectRetiredRoleIdentities,
-} from './roleLifecycle.js'
 
 const WATCHED_DIRS = ['prompt', 'skills', 'senses', 'plugins', 'rule', 'command', 'hooks']
 const WATCHED_ROOT_FILES = new Set(['config.yaml', 'model-catalog.yaml'])
@@ -33,12 +32,14 @@ export interface ConfigWatcherHandle {
  * maintenance mode and stop every Agent runtime.
  */
 export function startConfigRevisionWatcher(): ConfigWatcherHandle {
+  getConfigApplyCoordinator()
   const cheryRoot = path.resolve(config.global.prompts_dir, '..')
-  const watchers: fs.FSWatcher[] = []
+  const watchers = new Map<string, fs.FSWatcher>()
   let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false
-  let acceptedRaw = readRawConfig()
+  const acceptedRaw = readRawConfig()
   let acceptedConfigText = fs.readFileSync(path.join(cheryRoot, 'config.yaml'), 'utf8')
+  let acceptedImageRevision = imageRevision(readConfigImage())
   let acceptedRevision = createConfigRevision({ raw: acceptedRaw, source: 'startup' })
   let suppressRecoveredWrite = false
 
@@ -83,10 +84,13 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
     if (closed) return
     if (suppressRecoveredWrite) {
       suppressRecoveredWrite = false
-      logger.event('config.manual.recovery_held', {
-        revisionId: acceptedRevision.revisionId,
-      })
-      return
+      const currentText = fs.readFileSync(path.join(cheryRoot, 'config.yaml'), 'utf8')
+      if (currentText === acceptedConfigText) {
+        logger.event('config.manual.recovery_held', {
+          revisionId: acceptedRevision.revisionId,
+        })
+        return
+      }
     }
     let raw: ReturnType<typeof readRawConfig>
     try {
@@ -122,20 +126,39 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
       return
     }
 
-    const candidate = createConfigRevision({ raw, source: 'manual' })
+    let image: ReturnType<typeof readConfigImage>
+    try {
+      image = readConfigImage()
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      const revision = createConfigRevision({
+        raw,
+        source: 'manual',
+        status: 'rejected',
+        validationError: message,
+      })
+      enterMaintenanceMode('手工资源候选版本无法解析', [message])
+      abortAllChatRuntimes()
+      logger.event(
+        'config.manual.invalid',
+        { revisionId: revision.revisionId, errors: [message] },
+        LogLevel.error,
+      )
+      return
+    }
+    const candidate = createConfigRevision({ raw: image.config, source: 'manual' })
     const candidateText = fs.readFileSync(path.join(cheryRoot, 'config.yaml'), 'utf8')
-    const structured = isStructuredConfigImageHandled()
-    const alreadyHandled = consumeHandledConfigRevision(candidate.fingerprint) || structured
-    const unchanged = candidate.fingerprint === acceptedRevision.fingerprint
+    const nextImageRevision = imageRevision(image)
+    const alreadyHandled = consumeHandledConfigImage(image)
+    const unchanged = nextImageRevision === acceptedImageRevision
     if (alreadyHandled || unchanged) {
-      acceptedRaw = raw
       acceptedConfigText = candidateText
+      acceptedImageRevision = nextImageRevision
       acceptedRevision = candidate
       const recovering = getMaintenanceState().active
-      if (recovering && !structured) {
+      if (recovering) {
         leaveMaintenanceMode()
         process.send?.({ type: 'maintenance-cleared' })
-        requestRestartWhenIdle()
       }
       logger.event('config.watcher.candidate.acknowledged', {
         revisionId: candidate.revisionId,
@@ -145,47 +168,38 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
       })
       return
     }
-    const retired = detectRetiredRoleIdentities(
-      acceptedRaw.roles as unknown as Record<string, Record<string, unknown>>,
-      raw.roles as unknown as Record<string, Record<string, unknown>>,
-    )
-    applyRetiredRoles({
-      roleIds: retired.ids,
-      roleNames: retired.names,
-      reason: `角色在手工配置修订 ${candidate.revisionId} 中被删除或语义修改`,
-    })
-    const removedPresetIds = detectRemovedPresetIds(
-      acceptedRaw.presets as unknown as Record<string, Record<string, unknown>>,
-      raw.presets as unknown as Record<string, Record<string, unknown>>,
-    )
-    archivePresetRoots(removedPresetIds, `预设在手工配置修订 ${candidate.revisionId} 中被删除`)
-    acceptedRaw = raw
+    const state = submitDiskConfigImage('manual')
     acceptedConfigText = candidateText
+    acceptedImageRevision = nextImageRevision
     acceptedRevision = candidate
     const recovering = getMaintenanceState().active
     leaveMaintenanceMode()
     if (recovering) process.send?.({ type: 'maintenance-cleared' })
-    const restart = requestRestartWhenIdle()
     logger.event('config.manual.candidate', {
       revisionId: candidate.revisionId,
-      restart,
+      status: state.status,
+      restart: state.restart,
       recoveredFromMaintenance: recovering,
       warnings: validation.warnings,
     })
   }
 
   const watch = (target: string, recursive = false): void => {
-    if (!fs.existsSync(target)) return
+    if (!fs.existsSync(target) || watchers.has(target)) return
     const watcher = fs.watch(target, { recursive }, (_event, filename) => {
       if (!filename) return schedule()
       const normalized = filename.toString().replaceAll('\\', '/')
-      if (target === cheryRoot && !WATCHED_ROOT_FILES.has(normalized)) return
+      if (target === cheryRoot) {
+        const rootName = normalized.split('/')[0]!
+        if (WATCHED_DIRS.includes(rootName)) watch(path.join(cheryRoot, rootName), true)
+        if (!WATCHED_ROOT_FILES.has(normalized) && !WATCHED_DIRS.includes(rootName)) return
+      }
       schedule()
     })
     watcher.on('error', (error) => {
       logger.event('config.watcher.error', { target, error: error.message }, LogLevel.warn)
     })
-    watchers.push(watcher)
+    watchers.set(target, watcher)
   }
 
   watch(cheryRoot)
@@ -195,7 +209,7 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
     close(): void {
       closed = true
       if (timer) clearTimeout(timer)
-      for (const watcher of watchers) watcher.close()
+      for (const watcher of watchers.values()) watcher.close()
     },
     validateNow: schedule,
   }

@@ -14,6 +14,7 @@ import {
   unregisterBashProcess,
   killBashProcess,
   listBashProcesses,
+  getBashProcessActivity,
 } from '@/agent/sense/processRegistry.js'
 
 /** 构造 mock ChildProcess */
@@ -29,6 +30,32 @@ function mockProc(pid: number) {
 }
 
 describe('processRegistry register', () => {
+  it('keeps killed handles in the global restart summary until close unregisters them', () => {
+    const proc = mockProc(78901)
+    registerBashProcess('blocked-chat', proc, {
+      command: 'background',
+      description: 'work',
+      startedAt: 0,
+    })
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      killBashProcess('blocked-chat', 78901)
+      expect(getBashProcessActivity()).toContainEqual({
+        chatId: 'blocked-chat',
+        pid: 78901,
+        command: 'background',
+        description: 'work',
+        startedAt: 0,
+        killed: true,
+      })
+      expect(getBashProcessActivity().some((entry) => 'proc' in entry)).toBe(false)
+      unregisterBashProcess('blocked-chat', 78901)
+      expect(getBashProcessActivity().some((entry) => entry.pid === 78901)).toBe(false)
+    } finally {
+      kill.mockRestore()
+      unregisterBashProcess('blocked-chat', 78901)
+    }
+  })
   it('正常注册 → listBashProcesses 可查', () => {
     const proc = mockProc(12345)
     registerBashProcess('chat-1', proc, {

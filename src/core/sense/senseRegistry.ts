@@ -11,6 +11,7 @@ import type { Sense } from './senseCreator'
  * 解析时实现（决定可见感官子集与监管等级），而非此注册表本身。
  */
 const senseRegistry: Record<string, Sense<ZodType>> = {}
+let localSenseNames = new Set<string>()
 
 /**
  * 注册表版本号：每次变更（register/reset/unregister）递增。
@@ -18,6 +19,19 @@ const senseRegistry: Record<string, Sense<ZodType>> = {}
  * 不一致说明 registry 被 mcp.reload/重编译改动，需重建 senseTable（见 runtime.ts ensureChat）。
  */
 let senseRegistryVersion = 0
+
+/** Transaction rollback keeps executor objects and their version unchanged. */
+export function captureSenseRegistryRestore(): () => void {
+  const senses = { ...senseRegistry }
+  const local = new Set(localSenseNames)
+  const version = senseRegistryVersion
+  return () => {
+    for (const name of Object.keys(senseRegistry)) delete senseRegistry[name]
+    Object.assign(senseRegistry, senses)
+    localSenseNames = local
+    senseRegistryVersion = version
+  }
+}
 
 /** 取当前注册表版本号（用于 stale 比对）。 */
 export function getSenseRegistryVersion(): number {
@@ -45,6 +59,29 @@ export function resetSenses(): void {
     delete senseRegistry[name]
   }
   senseRegistryVersion++
+  localSenseNames = new Set()
+}
+
+/** Atomically replace built-in/compiled senses without touching MCP registrations. */
+export function prepareLocalSenseReplacement(senses: Sense<ZodType>[]): () => void {
+  const next = new Map<string, Sense<ZodType>>()
+  for (const item of senses) {
+    const name = item?.definition?.function?.name
+    if (!name) throw new Error('本地感官缺少名称')
+    if (name.startsWith('mcp__')) throw new Error(`本地感官不得使用 MCP 命名空间: ${name}`)
+    if (next.has(name)) throw new Error(`本地感官名称重复: ${name}`)
+    next.set(name, item)
+  }
+  return () => {
+    for (const name of localSenseNames) delete senseRegistry[name]
+    for (const [name, item] of next) senseRegistry[name] = item
+    localSenseNames = new Set(next.keys())
+    senseRegistryVersion++
+  }
+}
+
+export function replaceLocalSenses(senses: Sense<ZodType>[]): void {
+  prepareLocalSenseReplacement(senses)()
 }
 
 /**

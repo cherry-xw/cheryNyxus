@@ -224,14 +224,14 @@ watch(
 // ── 模型目录识别、推荐与 thinking wire 档位 ───────────────────────
 const { contextLimitTip, modelRuleNotice, modelUnmatched, thinkingLevels, thinkingTip } =
   useModelRecommendation({
-  cfg: props.cfg,
-  effectiveProtocol: () => effectiveProtocol.value,
-  supportedProtocols: () => supportedProtocols.value,
-  setProtocol: (protocol) => {
-    protocolModel.value = protocol
-  },
-  isPlaceholderModel: isTemplatePlaceholder,
-})
+    cfg: props.cfg,
+    effectiveProtocol: () => effectiveProtocol.value,
+    supportedProtocols: () => supportedProtocols.value,
+    setProtocol: (protocol) => {
+      protocolModel.value = protocol
+    },
+    isPlaceholderModel: isTemplatePlaceholder,
+  })
 
 async function refreshModels(): Promise<void> {
   const { provider, url, key } = props.cfg
@@ -634,7 +634,12 @@ async function openModelRuleFile(): Promise<void> {
                 </el-checkbox>
               </el-tooltip>
             </div>
-            <el-input v-model="urlModel" class="mono-input" :placeholder="urlPlaceholder" size="small" />
+            <el-input
+              v-model="urlModel"
+              class="mono-input"
+              :placeholder="urlPlaceholder"
+              size="small"
+            />
           </div>
           <div class="field priority-key">
             <div class="label-with-action">

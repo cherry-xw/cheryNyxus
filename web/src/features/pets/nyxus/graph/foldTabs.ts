@@ -65,7 +65,10 @@ export const FOLD_WHEEL_STAGE_HEIGHT = 180
 /** 左轮与弹窗/节点边缘的净距。 */
 export const FOLD_WHEEL_NODE_GAP = 18
 
-export function foldTabForMember(member: ExecutionFoldMember, theme: 'light' | 'dark' = 'dark'): FoldTabView {
+export function foldTabForMember(
+  member: ExecutionFoldMember,
+  theme: 'light' | 'dark' = 'dark',
+): FoldTabView {
   const node = member.displayNode
   const skin = skinForNode(node)
   const batch = toolBatchDetail(node)

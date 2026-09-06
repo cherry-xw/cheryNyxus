@@ -154,7 +154,9 @@ export function createUiState() {
     window.focused = false
     const next = workspaceWindowOrder.value
       .map((windowId) => workspaceWindows.value[windowId])
-      .findLast((candidate) => candidate && candidate.lifecycle !== 'minimized' && candidate.id !== id)
+      .findLast(
+        (candidate) => candidate && candidate.lifecycle !== 'minimized' && candidate.id !== id,
+      )
     focusedWorkspaceWindowId.value = next?.id ?? null
     if (next) focusWorkspaceWindow(next.id)
     else persistWorkspaceWindows()

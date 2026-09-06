@@ -200,6 +200,7 @@ export async function* checkpointMiddleware(
             senseName: trigger.name,
             arguments: trigger.arguments,
             supervisionLevel: trigger.supervisionLevel,
+            approvalTimeoutMs: trigger.approvalTimeoutMs,
             security: trigger.security,
           } as MiddlewareChunk
         } else if (trigger.name === 'ask_user_question') {

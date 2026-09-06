@@ -447,7 +447,7 @@ const schemas = {
   [Method.HOOKS_EVENTS]: z.looseObject({ events: objectArray }),
   [Method.UTILS_MODELS]: z.looseObject({ models: objectArray }),
   [Method.UTILS_TEST_CONNECTION]: testConnectionResponseSchema,
-  [Method.ENV_LIST]: z.looseObject({ vars: stringArray }),
+  [Method.ENV_LIST]: z.looseObject({ vars: stringArray, apply: ConfigApplyStateSchema.optional() }),
   [Method.UTILS_OPEN_FILE]: emptyResult,
   [Method.UTILS_OPEN_CONFIG_DIR]: emptyResult,
   [Method.UTILS_EDITORS]: z.looseObject({ editors: objectArray }),

@@ -158,7 +158,7 @@ export async function* observeAgentChunks(
           senseName: chunk.senseName,
           // 工具能力解释（config_manage 等）：待确认面板小字展示。来源 sense 定义，缺失时 undefined。
           senseDescription: getSense(chunk.senseName)?.definition?.function?.description,
-          waitTime: config.global.approval_timeout ?? 0,
+          waitTime: chunk.approvalTimeoutMs ?? config.global.approval_timeout ?? 0,
           createdAt: Date.now(),
           arguments: chunk.arguments,
           supervisionLevel: chunk.supervisionLevel,
@@ -186,8 +186,14 @@ export async function* observeAgentChunks(
             assistantMessageId: batch.assistantMessageId,
             questions: batch.questions,
             context: questionInteractionContext(chatId, {
-              rationale: chunk.questions.map((question) => question.rationale).filter(Boolean).join('；'),
-              nextStep: chunk.questions.map((question) => question.nextStep).filter(Boolean).join('；'),
+              rationale: chunk.questions
+                .map((question) => question.rationale)
+                .filter(Boolean)
+                .join('；'),
+              nextStep: chunk.questions
+                .map((question) => question.nextStep)
+                .filter(Boolean)
+                .join('；'),
             }),
           },
         })

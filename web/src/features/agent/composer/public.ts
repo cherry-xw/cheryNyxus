@@ -3,10 +3,7 @@ export { default as ConversationTargetPicker } from './ConversationTargetPicker.
 export { default as RoutingTraceWindow } from './RoutingTraceWindow.vue'
 export { default as MediaInlineRenderer } from './media/MediaInlineRenderer.vue'
 export { useAgentDialogOptions } from './useAgentDialogOptions'
-export type {
-  MediaAttachment,
-  UseAgentDialogOptionsOptions,
-} from './useAgentDialogOptions'
+export type { MediaAttachment, UseAgentDialogOptionsOptions } from './useAgentDialogOptions'
 export { useComposerMenuPosition } from './useComposerMenuPosition'
 export {
   conversationTargetVisualState,

@@ -45,11 +45,7 @@ export default sense(
       return { content: JSON.stringify(report, null, 2), hash: '' }
     } catch (error) {
       return {
-        content: JSON.stringify(
-          { passed: false, error: (error as Error).message },
-          null,
-          2,
-        ),
+        content: JSON.stringify({ passed: false, error: (error as Error).message }, null, 2),
         hash: '',
       }
     }

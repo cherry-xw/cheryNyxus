@@ -55,9 +55,7 @@ async function waitForApproval(interactionId: string, timeoutMs = 8000): Promise
 const PAYLOAD_FIELD_BUDGET_BYTES = 2048
 
 /** lite（P0，R7）：对 approval payload 的超长字符串字段做字节截断，返回截断引用。 */
-function boundApprovalPayload(
-  payload: Record<string, unknown>,
-): {
+function boundApprovalPayload(payload: Record<string, unknown>): {
   payload: Record<string, unknown>
   truncations: Array<{ field: string; contentLength: number; contentHash: string }>
 } {

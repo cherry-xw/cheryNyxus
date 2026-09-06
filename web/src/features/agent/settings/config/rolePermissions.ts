@@ -9,13 +9,16 @@ import type { RolePermissionPolicyDto } from '@/application/backend/public'
 export type PermissionTemplateValue = RolePermissionPolicyDto['template']
 
 /** 模板默认策略：与后端 defaultPolicy 逐字段对应。 */
-const TEMPLATE_DEFAULTS: Record<PermissionTemplateValue, {
-  read: string
-  write: string
-  maxSandboxMode: NonNullable<NonNullable<RolePermissionPolicyDto['commands']>['maxSandboxMode']>
-  mcpDefault: 'inherit' | 'allow' | 'ask' | 'deny'
-  spawnEffect: 'inherit' | 'allow' | 'ask' | 'deny'
-}> = {
+const TEMPLATE_DEFAULTS: Record<
+  PermissionTemplateValue,
+  {
+    read: string
+    write: string
+    maxSandboxMode: NonNullable<NonNullable<RolePermissionPolicyDto['commands']>['maxSandboxMode']>
+    mcpDefault: 'inherit' | 'allow' | 'ask' | 'deny'
+    spawnEffect: 'inherit' | 'allow' | 'ask' | 'deny'
+  }
+> = {
   'read-only': {
     read: 'workspace',
     write: 'deny',

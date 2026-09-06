@@ -38,7 +38,8 @@ function start(): void {
   active = true
   lastNow = performance.now()
   gsap.ticker.add(tick)
-  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange)
+  if (typeof document !== 'undefined')
+    document.addEventListener('visibilitychange', onVisibilityChange)
 }
 
 function stop(): void {

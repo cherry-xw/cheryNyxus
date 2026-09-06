@@ -293,7 +293,7 @@ function clickApproval(a: ApprovalState): void {
     background: #7c3aed;
     color: var(--ink);
   }
-    color: #3b2b12;
+  color: #3b2b12;
   &.role-subagent,
   &.role-role {
     background: var(--accent);

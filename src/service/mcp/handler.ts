@@ -21,11 +21,10 @@ import {
   getMcpServer,
   connectMcpServerByName,
   disconnectMcpServer,
-  reloadOneServer,
-  reloadMcpServers,
   McpServerError,
 } from '@/core/mcp'
 import { logger } from '@/utils/logger/index.js'
+import { reloadMcpConfiguration } from '@/service/config/commit.js'
 
 /**
  * MCP 管理 RPC handler（连接层）。
@@ -123,19 +122,9 @@ async function handleMcpReload(
 ): Promise<McpReloadResponseData | Response> {
   const rid = ctx.requestId ?? ''
   try {
-    if (data.name) {
-      const server = await reloadOneServer(data.name)
-      logger.event('mcp.reload', { name: data.name, senseCount: server.senseNames.length })
-      return {
-        servers: listMcpServers(),
-        connected: 1,
-        failed: 0,
-        totalSenses: server.senseNames.length,
-      }
-    }
-    const result = await reloadMcpServers()
+    const result = await reloadMcpConfiguration(data.name)
     logger.event('mcp.reload', {
-      full: true,
+      full: !data.name,
       connected: result.connected,
       failed: result.failed,
       totalSenses: result.totalSenses,

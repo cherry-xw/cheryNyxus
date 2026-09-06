@@ -256,7 +256,10 @@ export function computeCurrentState(
 
   // 迭代近期事件（升序）：跟踪最近未决 interrupt + 未决 sense 调用 + 最近 todo
   let pendingInterrupt: InterruptInfo | undefined
-  const runningToolsMap = new Map<string, { id: string; senseName: string; security?: ToolAuthorization }>()
+  const runningToolsMap = new Map<
+    string,
+    { id: string; senseName: string; security?: ToolAuthorization }
+  >()
   let currentTodo: unknown[] | undefined
 
   for (const ev of events) {

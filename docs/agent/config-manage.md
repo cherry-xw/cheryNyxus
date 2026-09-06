@@ -4,7 +4,7 @@
 
 ## 职责
 
-Cherry Nexus（`cheryNyxus`）是**唯一**被授权直接管理 `.chery/` 配置的角色。AI 不再回传整份配置，而是提交带 `baseRevision` 的强类型资源级增量操作。服务端从当前磁盘快照构造候选，完成全量校验后才备份、写盘，并在运行任务全部空闲时重启。
+Cherry Nexus（`cheryNyxus`）是**唯一**被授权直接管理 `.chery/` 配置的角色。AI 不再回传整份配置，而是提交带 `baseRevision` 的强类型资源级增量操作。服务端从当前磁盘快照构造候选，完成全量校验后才备份、写盘，再由统一协调器按资源边界采用；只有进程级影响才进入受控重启流程。
 
 用户诉求（核心定位）：「Cherry Nexus 是一个核心角色，主要任务是管理所有角色配置相关的任务」「在修改完配置并生效之前，需要对历史配置做一份备份。如果修改出错，可以及时回滚到旧的配置项」。
 
@@ -54,9 +54,9 @@ z.object({
 | action             | 行为                                                                                                                 | 返回                                                                     |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `get`              | 读盘并脱敏                                                                                                           | 完整配置（只用于定位资源）+ 覆盖全部可编辑字段的 `baseRevision` + 回滚点 |
-| `patch`            | 校验 revision → 在磁盘副本上应用 1–50 个资源操作 → 全量校验候选 → 备份并写盘 → 登记候选修订与生命周期 → 请求空闲重启 | 候选修订号、新 baseRevision、重启状态与软警告；任一步失败均不落盘        |
+| `patch`            | 校验 revision → 在磁盘副本上应用 1–50 个资源操作 → 全量校验候选 → 备份并写盘 → 提交统一生效协调器 | 候选修订号、新 baseRevision、生效状态/影响项与软警告；任一步失败均不落盘 |
 | `save`             | 不执行                                                                                                               | 明确说明全量 save 已停用，要求重新 get 后改用 patch                      |
-| `rollback`         | 从 `.chery/backups/` 恢复指定/最近备份到 `config.yaml`                                                               | 恢复文件名；后续由配置监控器验证并安排重启                               |
+| `rollback`         | 校验 baseRevision → 将指定/最近备份作为候选全量校验 → 通过统一提交入口保存与应用                                      | 恢复文件名、新 baseRevision 与实际生效状态                               |
 | （缺/未知 action） | 不执行任何操作                                                                                                       | get/patch/rollback 用法引导                                              |
 
 ### 敏感字段脱敏
@@ -76,7 +76,18 @@ z.object({
 2. **确认**：用 `ask_user_question` 把变更呈现给用户确认（含改动前后对比、影响范围）
 3. **patch**：原样传回 revision，只提交目标资源的 `put/remove`；删除 role/preset 时带 `expectedId`
 4. **失败处理**：类型/引用/锁定/workspace/revision 任一失败均不落盘；revision 过期重新 get 后重新核对
-5. **重启提示**：有运行任务时等待全部空闲再重启；重启恢复将孤儿运行标记为 paused，由用户显式继续
+5. **生效提示**：局部设置按操作/运行/资源边界应用；语义变化等待受影响节点树安全边界；只有进程级影响显示重启待办
+
+### 保存结果与失败边界
+
+`patch` 和 `rollback` 的成功结果同时包含 `baseRevision`（已保存候选）、`candidateRevisionId`、`savedRevision`、`appliedRevision`、逐项 `impacts` 与 `warnings`。不得把 `ok: true` 简化为“全部已生效”：
+
+- `status=applied` 表示所有已登记资源已采用候选；`pending` 表示至少一项仍在等待安全边界；`failed` 表示至少一项未采用。
+- 每项 impact 的 `boundary` 表示采用位置：`operation`、`run`、`resource`、`tree`、`restart` 或 `unsupported`；`reason` 和 `affectedRootChatIds` 解释等待或失败的对象。
+- 校验、过期 revision、预览令牌、写盘失败会使请求失败且不应宣称保存成功。写盘后审计登记或资源应用失败则可能出现“已保存但未生效”；旧运行态仍可用，不伪造整体回滚。
+- 删除 role 或 preset 前必须先用 preview 获得未过期令牌，并采用 `wait` 策略。AI 不得为了尽快生效自动取消提问、审批、子任务或后台命令。
+
+收到 revision 过期响应时，重新执行 `get`，重新展示当前状态与预期变更，再由用户确认后提交；不得用旧 `baseRevision` 重试覆盖其他窗口或手工编辑。
 
 ### 重启前预检（dry-run）
 
@@ -86,7 +97,7 @@ z.object({
 - `$ENV` 占位符指向缺失变量 → **软警告，不阻塞**（与启动期 `loadConfig` 一致只 warn）：缺失 key 不破坏配置结构，运行期实际调用该 brain 时由 `assertChatOptions` 抛用户可见的 `llm.key.missing`；未使用的 brain key 缺失更不应卡住整个保存/重启流程。软警告随保存成功响应（`warnings`）与日志（`config.save.warnings` / `config.restart.warnings`）带出，仅提示。
 - `validateConfigCandidate` 校验结构、凭证占位符、workspace、锁定角色和固定预设；`validateLoadable` 模拟启动加载。两者都在备份/写盘之前运行。
 - 预检通过才写盘；结构失败不需要回滚，因为候选从未替换活动配置。
-- 被"提问挂起 / 审批挂起 / running"中断的任务，重启后由 `reconcileOrphanedExecutionRuns` 恢复为 paused（可经现有「继续」按钮续跑）。
+- 被"提问挂起 / 审批挂起 / running"中断的任务，重启后由 `reconcileOrphanedExecutionRuns` 恢复为 paused（可经现有「继续」按钮续跑）。后台 shell/MCP 子进程不承诺被透明重新接管；它们仍存活时会成为重启 blocker，必须结束、终止或由用户自行管理。
 
 ## 自动备份回滚（[saveRawConfig](../../src/utils/config.ts) 写盘层）
 

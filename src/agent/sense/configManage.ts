@@ -3,7 +3,7 @@ import { sense, type SenseResult } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
 import {
   readRawConfig,
-  rollbackConfig,
+  readConfigBackup,
   listConfigBackups,
   redactConfigSecrets,
 } from '@/utils/config.js'
@@ -16,6 +16,7 @@ import {
   commitConfigCandidate,
   getSavedBaseRevision,
   readConfigImage,
+  submitDiskConfigImage,
 } from '@/service/config/commit.js'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -50,7 +51,7 @@ const ConfigManageSchema = z.object({
     .string()
     .optional()
     .describe(
-      'patch 必填：必须原样使用最近一次 get 返回的 baseRevision；磁盘配置变化后旧值会被拒绝',
+      'patch/rollback 必填：必须原样使用最近一次 get 返回的 baseRevision；磁盘配置变化后旧值会被拒绝',
     ),
   operations: configOperationsSchema
     .optional()
@@ -152,8 +153,9 @@ function doAssetSave(assetPath: string, content: string): SenseResult {
     }
     fs.renameSync(temp, asset.absolute)
     temp = undefined
+    const apply = submitDiskConfigImage('structured')
     return {
-      content: `资产已原子保存：.chery/${asset.relative}。磁盘变化将由配置修订监控器验证并在安全边界激活。`,
+      content: `资产已原子保存：.chery/${asset.relative}。生效状态：${apply.status}。`,
       hash: '',
     }
   } catch (error) {
@@ -177,10 +179,11 @@ function doAssetArchive(assetPath: string): SenseResult {
     const backup = assetBackupPath(asset.relative)
     fs.mkdirSync(path.dirname(backup), { recursive: true })
     fs.renameSync(asset.absolute, backup)
+    const apply = submitDiskConfigImage('structured')
     return {
       content:
         `资产已从活动目录移出：.chery/${asset.relative}。` +
-        `可从 ${backup} 恢复；未执行不可恢复删除。`,
+        `可从 ${backup} 恢复；未执行不可恢复删除。生效状态：${apply.status}。`,
       hash: '',
     }
   } catch (error) {
@@ -208,7 +211,7 @@ function doGet(): SenseResult {
   }
 }
 
-/** patch：检查 baseRevision，增量构造候选，全量校验后持久化并安排空闲重启。 */
+/** patch：检查 baseRevision，增量构造候选，全量校验后持久化并统一应用。 */
 function doPatch(baseRevision: string, operations: readonly ConfigOperation[]): SenseResult {
   const disk = readRawConfig()
   const applied = applyConfigOperations(disk, operations)
@@ -246,13 +249,24 @@ function doPatch(baseRevision: string, operations: readonly ConfigOperation[]): 
 }
 
 /** rollback：从 .chery/backups/ 恢复指定（或缺省最近）备份到 config.yaml。无备份时返回可行动报错而非抛异常。 */
-function doRollback(backup: string | undefined): SenseResult {
+function doRollback(baseRevision: string, backup: string | undefined): SenseResult {
   try {
-    const { backup: restored } = rollbackConfig(backup)
+    const { backup: restored, raw } = readConfigBackup(backup)
+    const result = commitConfigCandidate({ candidate: raw, expectedBaseRevision: baseRevision })
+    if (!result.ok) {
+      const retry =
+        result.kind === 'stale'
+          ? `\n请重新调用 action="get" 获取最新配置与 baseRevision。当前 revision：${result.currentRevision}`
+          : '\n备份未写回，请选择其他回滚点或修复候选。'
+      return {
+        content: `回滚候选被拒绝，未落盘：\n${result.errors.join('\n')}${retry}`,
+        hash: '',
+      }
+    }
     return {
       content:
-        `已从 .chery/backups/${restored} 恢复到 .chery/config.yaml（回滚完成）。` +
-        '注意：配置不热更，需要重启进程才能生效；若回滚后仍需调整，可基于当前配置继续 save。',
+        `已从 .chery/backups/${restored} 恢复配置候选；` +
+        `新 baseRevision ${result.baseRevision}，生效状态：${result.status}。`,
       hash: '',
     }
   } catch (error) {
@@ -268,8 +282,8 @@ function doRollback(backup: string | undefined): SenseResult {
 const configManageDescription = `管理 .chery/config.yaml 配置（配置管理核心角色 cheryNyxus 专用）。配置采用强类型增量候选流程（get 读 / patch 改 / rollback 恢复）。
 ⚠️ action 参数必填。配置操作取 get / patch / rollback；旧 action="save" 已停用；资产操作取 asset_get / asset_save / asset_archive：
 1. action="get"：读取完整脱敏配置、baseRevision 和回滚点。任何配置变更的第一步，必须先调用。
-2. action="patch" + baseRevision + operations：只提交目标 brain/role/preset/senseGroup 的强类型 put/remove 操作。服务端基于当前磁盘配置构造候选，全量校验通过后才写盘；revision 过期或任一校验失败均不落盘。成功后仅在所有会话任务空闲时受控重启。
-3. action="rollback"（+ 可选 backup 文件名）：从 .chery/backups/ 恢复指定（或缺省最近）备份，撤销之前的保存。
+2. action="patch" + baseRevision + operations：只提交目标 brain/role/preset/senseGroup 的强类型 put/remove 操作。服务端基于当前磁盘配置构造候选，全量校验通过后才写盘；revision 过期或任一校验失败均不落盘。成功后返回实际生效状态。
+3. action="rollback" + baseRevision（+ 可选 backup 文件名）：将 .chery/backups/ 中指定（或缺省最近）备份作为候选校验并应用。
 4. asset_get/asset_save/asset_archive + assetPath：管理角色提示词、技能和规则文件。archive 会先检查当前引用并移动到 backups/assets，不做不可恢复删除；仍被引用时严格拒绝。
 使用流程：先 get → 核对字段与稳定 id → 用 ask_user_question 向用户确认变更（含前后对比、影响范围）→ patch。不得猜测类型，不得回传完整配置。
 禁止用 execute_command（cat/type/grep/head 等读取内容）或 write_file 直接读取/修改 .chery 配置（会被拦截，且绕过脱敏层）；获取 .chery 目录信息类命令（ls/dir/find/stat 列目录）不受影响。`
@@ -299,7 +313,17 @@ export default sense(
         hash: '',
       }
     }
-    if (args.action === 'rollback') return doRollback(args.backup)
+    if (args.action === 'rollback') {
+      if (!args.baseRevision) {
+        return {
+          content:
+            '错误：config_manage action="rollback" 需要 baseRevision。\n' +
+            '请先调用 action="get"，确认回滚点后原样传回 revision。',
+          hash: '',
+        }
+      }
+      return doRollback(args.baseRevision, args.backup)
+    }
     if (args.action === 'asset_get') {
       return args.assetPath
         ? doAssetGet(args.assetPath)
@@ -323,7 +347,7 @@ export default sense(
         '用法：\n' +
         '  1. action="get"：读取 .chery/config.yaml 完整脱敏配置（任何配置操作的第一步）。\n' +
         '  2. action="patch" + baseRevision + operations：提交强类型增量候选。\n' +
-        '  3. action="rollback"（+ 可选 backup 文件名）：从 .chery/backups/ 恢复指定（或缺省最近）备份。\n' +
+        '  3. action="rollback" + baseRevision（+ 可选 backup 文件名）：校验并应用指定（或缺省最近）备份。\n' +
         '请先调用 config_manage(action="get") 获取当前配置。',
       hash: '',
     }

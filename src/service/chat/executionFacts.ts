@@ -16,10 +16,13 @@ const DEFAULT_TERMINATION_CONTENT: Record<TerminationFact['code'], string> = {
   watchdog: '任务长时间没有新的输出，系统已暂停运行。\n\n下一步：检查任务或连接状态后，继续运行。',
   error: '本轮运行未完成。\n\n下一步：可以尝试继续运行；若持续出现，请检查服务设置或查看日志。',
   agent_redirect: '任务已交由其他 Agent 继续处理。\n\n下一步：等待该任务的后续结果。',
-  limit_reached: '已达到本轮循环上限，系统已安全暂停。\n\n下一步：检查是否在重复执行；确认后可继续运行。',
+  limit_reached:
+    '已达到本轮循环上限，系统已安全暂停。\n\n下一步：检查是否在重复执行；确认后可继续运行。',
 }
 
-function terminationNodeContent(input: Pick<TerminationFact, 'code'> & { content?: string }): string {
+function terminationNodeContent(
+  input: Pick<TerminationFact, 'code'> & { content?: string },
+): string {
   return input.content?.trim() || DEFAULT_TERMINATION_CONTENT[input.code]
 }
 

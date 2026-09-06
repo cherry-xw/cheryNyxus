@@ -34,13 +34,7 @@ export const LITE_EXECUTION_PRESENTATION: Readonly<ExecutionPresentationOptions>
 })
 
 export type ExecutionRootStatus =
-  | 'idle'
-  | 'running'
-  | 'waiting'
-  | 'paused'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
+  'idle' | 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | 'cancelled'
 
 export interface ExecutionQuestion {
   id: string
@@ -164,7 +158,12 @@ function selectTimelineQuestion(
     .sort((a, b) => a.orderKey - b.orderKey || a.id.localeCompare(b.id))
     .at(-1)
   return node
-    ? { id: node.sourceMessageId ?? node.id, content: node.content, createdAt: node.createdAt, orderKey: node.orderKey }
+    ? {
+        id: node.sourceMessageId ?? node.id,
+        content: node.content,
+        createdAt: node.createdAt,
+        orderKey: node.orderKey,
+      }
     : undefined
 }
 
@@ -173,9 +172,7 @@ function selectSessionQuestion(session: ChatSession | undefined): OrderedQuestio
   const message = Object.values(session.messagesById)
     .filter(
       (item): item is ChatMessage =>
-        item.role === 'user' &&
-        item.status !== 'revoked' &&
-        item.agentChatId === session.chatId,
+        item.role === 'user' && item.status !== 'revoked' && item.agentChatId === session.chatId,
     )
     .sort((a, b) => a.createdAt - b.createdAt || a.msgId.localeCompare(b.msgId))
     .at(-1)
@@ -193,7 +190,8 @@ function selectQuestion(source: ExecutionReadModelSource): OrderedQuestion | und
   const committed =
     selectTimelineQuestion(source.timeline, source.rootChatId) ??
     selectSessionQuestion(source.sessionsById[source.rootChatId])
-  const inputs = source.transient?.pendingInputs ?? source.sessionsById[source.rootChatId]?.pendingInputs ?? []
+  const inputs =
+    source.transient?.pendingInputs ?? source.sessionsById[source.rootChatId]?.pendingInputs ?? []
   const committedMessageIds = new Set(
     source.timeline?.nodes
       .filter((node) => node.sourceChatId === source.rootChatId && node.sourceMessageId)
@@ -277,8 +275,11 @@ function selectSessionFinal(
 function runStatus(run: ReadRunFact | undefined): ExecutionRootStatus | undefined {
   const status = run && ('status' in run ? run.status : undefined)
   const normalized = status ?? (run && 'state' in run ? run.state : undefined)
-  return normalized === 'running' || normalized === 'waiting' || normalized === 'paused' ||
-    normalized === 'completed' || normalized === 'failed'
+  return normalized === 'running' ||
+    normalized === 'waiting' ||
+    normalized === 'paused' ||
+    normalized === 'completed' ||
+    normalized === 'failed'
     ? normalized
     : normalized === 'cancelled'
       ? 'cancelled'
@@ -319,7 +320,10 @@ function selectRunFacts(source: ExecutionReadModelSource): Map<string, ReadRunFa
   return runs
 }
 
-function selectSteps(source: ExecutionReadModelSource, startedAt: number | undefined): ExecutionReadStep[] {
+function selectSteps(
+  source: ExecutionReadModelSource,
+  startedAt: number | undefined,
+): ExecutionReadStep[] {
   const steps = new Map<string, ExecutionStep>()
   const observed = source.transient?.observedChatIds ?? new Set<string>()
   for (const session of Object.values(source.sessionsById)) {
@@ -365,7 +369,8 @@ function deriveOverallStatus(
   hasFinal: boolean,
 ): ExecutionRootStatus {
   const statuses = [...runs].map(runStatus)
-  if (statuses.includes('running') || steps.some((step) => step.status === 'running')) return 'running'
+  if (statuses.includes('running') || steps.some((step) => step.status === 'running'))
+    return 'running'
   // A completed final response is stronger evidence than a stale waiting run
   // snapshot. Without this, Lite keeps its clock and Stop button alive after a
   // round has already finished.
@@ -374,12 +379,16 @@ function deriveOverallStatus(
   const rootStatus = runStatus(rootRun)
   if (rootStatus) return rootStatus
   if (statuses.includes('failed') || steps.some((step) => step.status === 'failed')) return 'failed'
-  if (statuses.includes('paused') || steps.some((step) => step.status === 'cancelled')) return 'paused'
+  if (statuses.includes('paused') || steps.some((step) => step.status === 'cancelled'))
+    return 'paused'
   if (steps.length > 0) return 'completed'
   return 'idle'
 }
 
-function agentStatus(run: ReadRunFact | undefined, steps: readonly ExecutionReadStep[]): ExecutionRootStatus {
+function agentStatus(
+  run: ReadRunFact | undefined,
+  steps: readonly ExecutionReadStep[],
+): ExecutionRootStatus {
   if (steps.some((step) => step.status === 'running')) return 'running'
   const status = runStatus(run)
   if (status) return status
@@ -393,7 +402,11 @@ function selectAgents(
   runs: Map<string, ReadRunFact>,
   steps: readonly ExecutionReadStep[],
 ): ExecutionAgentActivity[] {
-  const chatIds = new Set<string>([source.rootChatId, ...runs.keys(), ...steps.map((step) => step.chatId)])
+  const chatIds = new Set<string>([
+    source.rootChatId,
+    ...runs.keys(),
+    ...steps.map((step) => step.chatId),
+  ])
   return [...chatIds]
     .filter((chatId) => belongsToSourceRoot(chatId, source))
     .map((chatId) => {
@@ -418,7 +431,12 @@ function selectAgents(
         stepIds: ownSteps.map((step) => executionStepKey(step)),
       }
     })
-    .sort((a, b) => Number(b.isRoot) - Number(a.isRoot) || (a.startedAt ?? 0) - (b.startedAt ?? 0) || a.chatId.localeCompare(b.chatId))
+    .sort(
+      (a, b) =>
+        Number(b.isRoot) - Number(a.isRoot) ||
+        (a.startedAt ?? 0) - (b.startedAt ?? 0) ||
+        a.chatId.localeCompare(b.chatId),
+    )
 }
 
 /** Pure projection shared by the complete workbench and Lite presentation. */
@@ -443,8 +461,7 @@ export function selectExecutionReadModel(source: ExecutionReadModelSource): Exec
     selectSessionFinal(source.sessionsById[source.rootChatId], question?.createdAt ?? -Infinity)
   const status = deriveOverallStatus(rootRun, runs.values(), steps, !!terminalCandidate)
   const finalResponse = status === 'completed' ? terminalCandidate : undefined
-  const startedAt =
-    provisionalStartedAt ?? earliestTime(steps.map((step) => step.startedAt))
+  const startedAt = provisionalStartedAt ?? earliestTime(steps.map((step) => step.startedAt))
   const completedAt =
     status === 'running' || status === 'waiting' || status === 'idle'
       ? undefined

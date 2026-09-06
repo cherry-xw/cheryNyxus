@@ -267,7 +267,10 @@ function buildProcessStages(
           ? createToolRunPresentation(calls[0]!.call.name, calls[0]!.call.arguments).operationLabel
           : calls.length
             ? calls
-                .map((call) => createToolRunPresentation(call.call.name, call.call.arguments).operationLabel)
+                .map(
+                  (call) =>
+                    createToolRunPresentation(call.call.name, call.call.arguments).operationLabel,
+                )
                 .join('；')
             : plainSummary(node.content || node.thinking || '', skinForNode(node).label),
       calls,

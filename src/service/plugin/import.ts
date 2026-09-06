@@ -52,6 +52,7 @@ import {
 import { isGitAvailable, resolveAuth, resolveInlineAuth } from '../skill/credentials.js'
 import { buildPluginInfo, listPluginSkills, handlePluginsList } from './list.js'
 import { readManifest, writeManifest, pluginDir } from './registry.js'
+import { submitDiskConfigImage } from '@/service/config/commit.js'
 
 interface PluginStagingMeta {
   repoDir: string
@@ -214,6 +215,7 @@ export async function handlePluginsCommit(
   const meta = readPluginStaging(stagingId)
   const plugin = installPlugin(meta, overwrite)
   removeStaging(stagingId)
+  submitDiskConfigImage('structured')
   return { plugin }
 }
 
@@ -383,6 +385,7 @@ export async function handlePluginsUpdate(
   }
   const plugin = installPlugin(meta, true, m.installedAt)
   removeStaging(id)
+  submitDiskConfigImage('structured')
   return { plugin }
 }
 
@@ -394,6 +397,7 @@ export async function handlePluginsUninstall(
   if (!NAME_PATTERN.test(name)) throw new Error(`插件名 "${name}" 非法（仅允许 [a-zA-Z0-9_-]）`)
   if (!pluginDirExists(name)) throw new Error(`插件 "${name}" 不存在`)
   removeCherySubdir(pluginDir(name))
+  submitDiskConfigImage('structured')
   return { ok: true }
 }
 

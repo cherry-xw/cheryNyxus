@@ -107,11 +107,12 @@ export function mergeDetailSectionPage(
   const append = section === 'toolCalls' ? current.loaded : requestedOffset > 0
   const chunkText = section === 'content' ? (node.content ?? '') : (node.thinking ?? '')
   const incomingCalls = section === 'toolCalls' ? (node.toolCalls ?? []) : []
-  const consumed = section === 'toolCalls'
-    ? response.page?.section === 'toolCalls'
-      ? response.page.consumed
-      : toolChunkLength(incomingCalls)
-    : chunkText.length
+  const consumed =
+    section === 'toolCalls'
+      ? response.page?.section === 'toolCalls'
+        ? response.page.consumed
+        : toolChunkLength(incomingCalls)
+      : chunkText.length
   const stalled = response.hasMore && consumed === 0
   // Older node.get implementations do not set hasMore when `limit` itself
   // performed the slice. A full page is therefore treated as resumable; an
@@ -124,7 +125,9 @@ export function mergeDetailSectionPage(
     toolCalls:
       section === 'toolCalls' ? mergeToolCalls(current.toolCalls, incomingCalls, append) : [],
     offset: requestedOffset + consumed,
-    ...(section === 'toolCalls' && response.page?.section === 'toolCalls' && response.page.nextCursor
+    ...(section === 'toolCalls' &&
+    response.page?.section === 'toolCalls' &&
+    response.page.nextCursor
       ? { toolCursor: response.page.nextCursor }
       : {}),
     hasMore: (response.hasMore || fullPage) && !stalled,

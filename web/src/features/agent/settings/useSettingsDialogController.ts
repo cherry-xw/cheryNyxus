@@ -21,7 +21,8 @@ import {
   watch,
 } from 'vue'
 import { ArrowLeft, ArrowRight, Close } from '@element-plus/icons-vue'
-import { useAgentsStore, useConnectionStore } from '@/application/public'
+import { useAgentsStore, useConfigApplyStore, useConnectionStore } from '@/application/public'
+import type { ConfigPreview } from '@chery/protocol'
 import {
   agentApi,
   type ConfigDto,
@@ -57,6 +58,8 @@ import HooksTab from './tabs/hooks/HooksTab.vue'
 import SkeletonTab from './tabs/SkeletonTab.vue'
 import OpenConfigDirButton from './components/OpenConfigDirButton.vue'
 import type { SettingsSection } from '@/domain/shell/desktopBridge'
+import { externalRevisionAction, isRevisionConflict } from './config/revisionSync'
+import { previewRequiresConfirmation } from './config/applyPresentation'
 
 export type SettingsDialogControllerProps = {
   native?: boolean
@@ -72,6 +75,7 @@ const SETTINGS_TAB_BY_SECTION: Record<SettingsSection, TabKey> = {
 
 export function useSettingsDialogController(props: SettingsDialogControllerProps) {
   const agents = useAgentsStore()
+  const configApply = useConfigApplyStore()
   const connection = useConnectionStore()
   /** Electron 原生设置窗面（WindowFrame 外壳内）：铺满窗、去自绘拖拽/三键、关闭走 windowControl；
    *  浏览器 overlay 路径（native=false）逐字节不变。 */
@@ -114,6 +118,9 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const error = ref<string | null>(null)
   const savedHint = ref<string | null>(null)
   const savedWarnings = ref<string[] | null>(null)
+  const externalChange = ref(false)
+  const revisionConflict = ref(false)
+  const destructivePreview = ref<ConfigPreview | null>(null)
   // ── 窗口拖动最大化：拖标题栏到屏幕顶部边缘 → 最大化；最大化后标题栏按钮还原 ──
   const maximized = ref(false)
   /** 面板 DOM 元素（motion.div 经 $el 解包；函数 ref 统一取底层 div）。 */
@@ -181,11 +188,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const workspaceWarnings = ref<Record<string, string>>({})
   /** 每个预设独立的最新校验序号，丢弃输入已变化后的迟到响应。 */
   const workspaceValidationSeq = new Map<string, number>()
-  const waitElapsed = ref(0)
-  const isWaitingReconnect = ref(false)
-  function clearRestartWait(): void {
-    isWaitingReconnect.value = false
-  }
   /** sense.tools 返回的内置工具清单（缓存，SensesTab 下拉建议 + label/description 显示用）。失败置 []。 */
   const senseTools = ref<SenseToolInfo[]>([])
   /** sense.tools.docs 返回的内置工具完整说明文档（缓存，SensesTab hover 展示用；一次拉取按需取用）。失败置 []。 */
@@ -327,7 +329,11 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       const { baseRevision: revision, ...data } = await agentApi.getConfig()
       baseRevision = revision
       pendingPreview = null
+      destructivePreview.value = null
       draft.value = structuredClone(data)
+      configBaseline = JSON.stringify(draft.value)
+      externalChange.value = false
+      revisionConflict.value = false
       // 打开设置时立即校验现有每个预设，避免历史无效路径要等编辑后才暴露。
       for (const [presetName, preset] of Object.entries(data.presets ?? {})) {
         validatePresetWorkspace(presetName, preset.workspace)
@@ -384,11 +390,13 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       // 浏览器设置改为按需挂载后，组件创建时 settingsOpen 已经为 true，必须立即执行本监听。
       if (isNative.value) return
       if (!open) {
-        clearRestartWait()
         draft.value = null
         error.value = null
         savedHint.value = null
         savedWarnings.value = null
+        externalChange.value = false
+        revisionConflict.value = false
+        destructivePreview.value = null
         workspaceWarnings.value = {}
         workspaceValidationSeq.clear()
         resetHooksState()
@@ -531,7 +539,12 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     )
   }
   let baseRevision = ''
-  let pendingPreview: { fingerprint: string; token: string } | null = null
+  let configBaseline = ''
+  const configDirty = computed(
+    () => !!draft.value && JSON.stringify(draft.value) !== configBaseline,
+  )
+  const hasUnsavedChanges = computed(() => configDirty.value || hooksState.dirty)
+  let pendingPreview: { fingerprint: string; preview: ConfigPreview } | null = null
   async function save(): Promise<void> {
     if (!draft.value || saving.value) return
     saving.value = true
@@ -539,7 +552,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     savedHint.value = null
     savedWarnings.value = null
     workspaceWarnings.value = {}
-    clearRestartWait()
+    revisionConflict.value = false
     try {
       sanitizeSenseGroups(draft.value)
       const payload = {
@@ -557,38 +570,34 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       const fingerprint = JSON.stringify(payload)
       if (!pendingPreview || pendingPreview.fingerprint !== fingerprint) {
         const preview = await agentApi.previewConfig(payload)
-        pendingPreview = { fingerprint, token: preview.previewToken }
-        if (preview.destructiveTargets.length) {
-          savedHint.value =
-            '尚未保存：此次删除将影响以下角色或预设。再次点击保存确认；当前任务和待审批项会保留，等待安全边界后生效。'
-          savedWarnings.value = preview.destructiveTargets
+        pendingPreview = { fingerprint, preview }
+        if (previewRequiresConfirmation(preview)) {
+          destructivePreview.value = preview
           return
         }
       }
       const result = await agentApi.saveConfig({
         ...payload,
         requestId: crypto.randomUUID(),
-        previewToken: pendingPreview.token,
+        previewToken: pendingPreview.preview.previewToken,
         policy: 'wait',
       })
       baseRevision = result.baseRevision
       pendingPreview = null
+      destructivePreview.value = null
       hooksState.dirty = false
-      savedHint.value =
-        result.status === 'applied'
-          ? '✓ 已保存并生效'
-          : result.status === 'failed'
-            ? '已保存，但部分设置生效失败；当前任务继续使用可用配置。'
-            : '✓ 已保存，部分设置待生效；当前任务继续使用原配置。'
-      savedWarnings.value = [
-        ...result.warnings,
-        ...result.impacts
-          .filter((i) => i.status !== 'applied')
-          .map((i) => i.paths.join(', ') + '：' + i.reason),
-      ]
+      configBaseline = JSON.stringify(draft.value)
+      externalChange.value = false
+      configApply.apply(result)
+      savedHint.value = '设置已保存，详细生效状态见下方。'
+      savedWarnings.value = result.warnings
     } catch (e) {
       const msg = (e as Error).message
-      error.value = msg
+      revisionConflict.value = isRevisionConflict(msg)
+      externalChange.value ||= revisionConflict.value
+      error.value = revisionConflict.value
+        ? '另一窗口或外部程序已经保存了更新版本。你的草稿仍然保留，请关闭此提示后选择重新载入，再决定如何处理差异。'
+        : msg
       // 提取 workspace 校验告警按 presetName 分发到 PresetsTab 输入框下
       const warnings: Record<string, string> = {}
       for (const line of msg.split('\n')) {
@@ -598,12 +607,36 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
         if (presetName && warning) warnings[presetName] = warning
       }
       workspaceWarnings.value = warnings
-      clearRestartWait()
       console.error('[SettingsDialog] saveConfig failed:', e)
     } finally {
       saving.value = false
     }
   }
+
+  async function reloadServerVersion(): Promise<void> {
+    resetHooksState()
+    await loadSettingsData()
+    if (activeTab.value === 'hooks') await loadHooksData()
+  }
+
+  watch(
+    () => configApply.savedRevision,
+    (revision) => {
+      if (!isNative.value && !agents.settingsOpen) return
+      const action = externalRevisionAction({
+        revision,
+        baseRevision,
+        dirty: hasUnsavedChanges.value,
+        saving: saving.value,
+      })
+      if (action === 'ignore') return
+      if (action === 'preserve') {
+        externalChange.value = true
+        return
+      }
+      void reloadServerVersion()
+    },
+  )
   /**
    * native 面数据加载：settings 窗 renderer 的 WS 是独立异步建连（bootstrap() 在 App.vue onMounted
    * 才执行，而 SettingsDialog 作为子组件先挂载）——若挂载立即 RPC，`config.get` 会因 wsClient 未
@@ -643,7 +676,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     nativeConnectWatch?.()
     nativeSectionCleanup?.()
     dragCleanup?.()
-    clearRestartWait()
     teardownTabScroll()
   })
   /**
@@ -748,10 +780,12 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     canRight,
     close,
     draft,
+    destructivePreview,
     dragging,
     envVars,
     error,
     errorLines,
+    externalChange,
     gotoErrorTab,
     hintLines,
     hooksState,
@@ -759,7 +793,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     isNative,
     isEmbedded,
     isShellless,
-    isWaitingReconnect,
     loading,
     maximized,
     onError,
@@ -773,6 +806,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     refreshRules,
     refreshSkillSources,
     refreshSkills,
+    reloadServerVersion,
     renderedTab,
     rolesShadowMode,
     rules,
@@ -793,7 +827,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     toggleMaximize,
     updateHooksHandlers,
     validatePresetWorkspace,
-    waitElapsed,
     workspaceWarnings,
   }
 }

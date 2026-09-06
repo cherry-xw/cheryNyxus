@@ -1,12 +1,4 @@
-import {
-  onScopeDispose,
-  readonly,
-  ref,
-  toValue,
-  watch,
-  type MaybeRefOrGetter,
-  type Ref,
-} from 'vue'
+import { onScopeDispose, readonly, ref, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue'
 import { renderMarkdownAsync } from '@/utils/markdownClient'
 
 export const MARKDOWN_PREVIEW_LIMIT = 12_000

@@ -11,20 +11,6 @@ export interface RoleLifecycleChangeResult {
   affectedRootChatIds: string[]
 }
 
-function roleSemanticProjection(role: Record<string, unknown>): Record<string, unknown> {
-  const keys = [
-    'brain',
-    'senseGroup',
-    'mcpServers',
-    'systemPrompt',
-    'skills',
-    'plugins',
-    'permissions',
-    'kind',
-  ]
-  return Object.fromEntries(keys.filter((key) => key in role).map((key) => [key, role[key]]))
-}
-
 export function detectRetiredRoleIdentities(
   before: Record<string, Record<string, unknown>> = {},
   after: Record<string, Record<string, unknown>> = {},
@@ -39,11 +25,7 @@ export function detectRetiredRoleIdentities(
   for (const [name, role] of Object.entries(before)) {
     if (typeof role.id !== 'string') continue
     const next = afterById.get(role.id)
-    if (
-      !next ||
-      JSON.stringify(roleSemanticProjection(role)) !==
-        JSON.stringify(roleSemanticProjection(next.role))
-    ) {
+    if (!next) {
       ids.push(role.id)
       names.push(name)
     }
@@ -56,9 +38,7 @@ export function detectRemovedPresetIds(
   after: Record<string, Record<string, unknown>> = {},
 ): string[] {
   const nextIds = new Set(
-    Object.values(after).flatMap((preset) =>
-      typeof preset.id === 'string' ? [preset.id] : [],
-    ),
+    Object.values(after).flatMap((preset) => (typeof preset.id === 'string' ? [preset.id] : [])),
   )
   return Object.values(before).flatMap((preset) =>
     typeof preset.id === 'string' && !nextIds.has(preset.id) ? [preset.id] : [],
@@ -83,9 +63,8 @@ function rootFor(chatId: string): string {
   const db = getSoulDb()
   let current = chatId
   for (let depth = 0; depth < 64; depth += 1) {
-    const row = db
-      .prepare('SELECT parent_chat_id FROM chats WHERE id = ?')
-      .get(current) as { parent_chat_id: string | null } | undefined
+    const row = db.prepare('SELECT parent_chat_id FROM chats WHERE id = ?').get(current) as
+      { parent_chat_id: string | null } | undefined
     if (!row?.parent_chat_id) return current
     current = row.parent_chat_id
   }
@@ -151,11 +130,13 @@ export function abandonChatSubtree(chatId: string, reason: string): string[] {
     const chat = getChat(row.id)
     if (!chat?.parent_chat_id || chat.lifecycle === 'abandoned') return []
     const type = getChatMetadata(row.id).type
-    return [{
-      parentChatId: chat.parent_chat_id,
-      childChatId: row.id,
-      type: typeof type === 'string' ? type : 'unknown',
-    }]
+    return [
+      {
+        parentChatId: chat.parent_chat_id,
+        childChatId: row.id,
+        type: typeof type === 'string' ? type : 'unknown',
+      },
+    ]
   })
   const placeholders = ids.map(() => '?').join(',')
   const now = Date.now()
@@ -190,11 +171,7 @@ function isFinishedBranch(rows: Array<{ id: string }>): boolean {
     const task = db
       .prepare('SELECT status FROM spawn_tasks WHERE child_chat_id = ?')
       .get(row.id) as { status: string } | undefined
-    return (
-      metadata.finished === true ||
-      task?.status === 'finished' ||
-      task?.status === 'timed_out'
-    )
+    return metadata.finished === true || task?.status === 'finished' || task?.status === 'timed_out'
   })
 }
 
@@ -218,9 +195,9 @@ function retireCompletedSubtree(chatId: string, reason: string): string[] {
 }
 
 /**
- * Retire every historical child whose stable role identity disappeared or
- * changed semantically. Completed branches stay readable; unfinished branches
- * and every descendant are recursively abandoned and can never resume.
+ * Explicit retirement/cancellation operation. Configuration saves must use the
+ * tree-boundary coordinator instead. Unfinished branches are irreversibly
+ * abandoned; completed branches remain readable as retired history.
  */
 export function applyRetiredRoles(input: {
   roleIds: readonly string[]
@@ -245,9 +222,9 @@ export function applyRetiredRoles(input: {
   })
   const matchedIds = new Set(matched.map((row) => row.id))
   const topLevelMatches = matched.filter((row) => {
-    const parent = db
-      .prepare('SELECT parent_chat_id FROM chats WHERE id = ?')
-      .get(row.id) as { parent_chat_id: string | null }
+    const parent = db.prepare('SELECT parent_chat_id FROM chats WHERE id = ?').get(row.id) as {
+      parent_chat_id: string | null
+    }
     return !parent.parent_chat_id || !matchedIds.has(parent.parent_chat_id)
   })
 
@@ -274,9 +251,9 @@ export function archivePresetRoots(presetIds: readonly string[], reason: string)
   if (presetIds.length === 0) return []
   const ids = new Set(presetIds)
   const db = getSoulDb()
-  const roots = db
-    .prepare('SELECT id FROM chats WHERE parent_chat_id IS NULL')
-    .all() as Array<{ id: string }>
+  const roots = db.prepare('SELECT id FROM chats WHERE parent_chat_id IS NULL').all() as Array<{
+    id: string
+  }>
   const archived: string[] = []
   for (const root of roots) {
     const metadata = getChatMetadata(root.id)

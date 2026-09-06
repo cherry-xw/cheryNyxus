@@ -41,7 +41,7 @@ async function handleConfigGet(
   _data: ConfigGetRequestData,
 ): Promise<ConfigGetResponseData> {
   const image = readConfigImage()
-  const raw = image.config
+  const { server: _server, ...raw } = image.config
   logger.event('config.get', { brains: Object.keys(raw.llm?.brain ?? {}).length })
   return { ...raw, baseRevision: getSavedBaseRevision(image) }
 }

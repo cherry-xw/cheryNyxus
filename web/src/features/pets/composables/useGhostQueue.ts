@@ -6,7 +6,12 @@
  * 数据 + 目标计算 + 每帧首领轨迹采样；ghost 的弹簧物理仍归 usePetWorld.tickPet。
  * 零行为变更。
  */
-import { pushTrail, pointAtArc, ghostTrailDistance, type GhostTrail } from '@/domain/pets/motion/movement'
+import {
+  pushTrail,
+  pointAtArc,
+  ghostTrailDistance,
+  type GhostTrail,
+} from '@/domain/pets/motion/movement'
 import { findMaster } from '@/domain/pets/motion/targeting'
 import type { PetInstance } from '@/domain/pets/types'
 

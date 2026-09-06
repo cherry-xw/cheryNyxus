@@ -303,8 +303,7 @@ function ringGalaxyTarget(
     input.time * direction * (0.09 + particle.orbit * 0.025 + ringIndex * 0.012) +
     particle.phase * 0.055
   const tilt =
-    input.time * (0.018 + ringIndex * 0.006) +
-    (ringCount === 1 ? 0.42 : 0.18 + ringIndex * 0.62)
+    input.time * (0.018 + ringIndex * 0.006) + (ringCount === 1 ? 0.42 : 0.18 + ringIndex * 0.62)
   const flattening = ringCount === 1 ? 0.52 : 0.48 + ringIndex * 0.09
   const ring = rotatePoint(
     { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * flattening },
@@ -348,9 +347,7 @@ export function nyxusBinaryGeometry(input: NyxusParticleInput): NyxusBinaryGeome
     dualStrength,
     displayStrength: dualStrength * transitionStrength,
     bridgeStrength:
-      smoothstep(0.48, 0.68, progress) *
-      (1 - smoothstep(0.78, 0.94, progress)) *
-      dualStrength,
+      smoothstep(0.48, 0.68, progress) * (1 - smoothstep(0.78, 0.94, progress)) * dualStrength,
   }
 }
 
@@ -387,17 +384,11 @@ function binaryTarget(particle: NyxusParticle, body: Vec2, input: NyxusParticleI
 }
 
 /** 两个星系在一段模式周期内完成靠近、潮汐桥/尾、双核并合、局部星暴与再次拆分。 */
-function mergerTarget(
-  particle: NyxusParticle,
-  body: Vec2,
-  input: NyxusParticleInput,
-): Vec2 {
+function mergerTarget(particle: NyxusParticle, body: Vec2, input: NyxusParticleInput): Vec2 {
   const progress = clamp(input.cosmicProgress, 0, 1)
   const approaching = 1 - smoothstep(0.08, 0.48, progress)
   const separating = smoothstep(0.64, 0.94, progress)
-  const separation =
-    input.size *
-    (0.055 + (approaching + separating) * 0.2)
+  const separation = input.size * (0.055 + (approaching + separating) * 0.2)
   const axis = input.time * 0.09 + Math.sin(input.time * 0.035) * 0.34
   const side = particle.galaxyArm % 2 === 0 ? 1 : -1
   const core = rotatePoint({ x: side * separation, y: side * input.size * 0.035 }, axis)
@@ -412,8 +403,7 @@ function mergerTarget(
   )
   const galaxyPoint = { x: core.x + localDisk.x, y: core.y + localDisk.y }
 
-  const bridgeAmount =
-    smoothstep(0.14, 0.42, progress) * (1 - smoothstep(0.68, 0.88, progress))
+  const bridgeAmount = smoothstep(0.14, 0.42, progress) * (1 - smoothstep(0.68, 0.88, progress))
   const bridgeRank = 1 - smoothstep(0.1, 0.34, particle.armRank)
   const bridge = curvePoint(
     rotatePoint({ x: -separation, y: -input.size * 0.035 }, axis),

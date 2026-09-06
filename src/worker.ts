@@ -17,7 +17,7 @@ import { clearAllApprovals } from '@/core/sense'
 import { clearAllWaitedChildren } from '@/agent/spawnBroker.js'
 import { closeAllConnections } from '@/service/websocket/index.js'
 import { initLogger, logger, LogLevel } from '@/utils/logger/index.js'
-import config, { readRawConfig, validateLoadable, rollbackConfig } from '@/utils/config.js'
+import config, { readRawConfig } from '@/utils/config.js'
 import { hashPassword, isHashed } from '@/utils/password.js'
 import { hasRunningChats } from '@/service/chat/runtime.js'
 import { reconcileOrphanedExecutionRuns } from '@/service/chat/runRecovery.js'
@@ -25,7 +25,14 @@ import { sweepOrphanQuestionBatchesAcrossRoots } from '@/db/question.js'
 import {
   configureRestartCoordinator,
   requestRestartWhenIdle,
+  cancelPendingRestart,
+  subscribeRestartState,
 } from '@/service/restartCoordinator.js'
+import { getBashProcessActivity } from '@/agent/sense/processRegistry.js'
+import { activeRootIds, treeBoundaryReason } from '@/service/config/treeBoundary.js'
+import { getConfigApplyCoordinator } from '@/service/config/commit.js'
+import { validateRestartCandidate } from '@/service/config/restartPreflight.js'
+import { stopScheduleService } from '@/service/schedule/scheduler.js'
 import fs from 'node:fs'
 import yaml from 'js-yaml'
 import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
@@ -67,35 +74,33 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
 
   configureRestartCoordinator({
     isIdle: () => !hasRunningChats(),
-    onRestartReady: process.send ? () => process.send?.({ type: 'restart-ready' }) : undefined,
-    // 重启前 dry-run 兜底预检（config.save handler 已同步预检；此处防 save 后到空闲前配置被改）。
-    // 仅结构硬错误阻塞：失败 → 自动回滚最近备份 + 事件日志，不通知守护进程（进程保持运行，前端已在 save 响应得知）。
-    // 软告警（$ENV 缺失等）不阻塞，仅记录日志。
-    validateBeforeRestart: () => {
-      const raw = readRawConfig()
-      const loadable = validateLoadable(raw)
-      if (loadable.ok) {
-        if (loadable.warnings.length > 0) {
-          logger.event('config.restart.warnings', { warnings: loadable.warnings }, LogLevel.warn)
+    blockers: () => [
+      ...getBashProcessActivity().map(({ chatId, pid, description }) => ({
+        kind: 'process',
+        chatId,
+        pid,
+        description,
+      })),
+      ...(restartEngine
+        ? activeRootIds().flatMap((chatId) => {
+            const description = treeBoundaryReason(chatId, true)
+            return description ? [{ kind: 'tree', chatId, description }] : []
+          })
+        : []),
+      ...(restartEngine?.isApplying() ? [{ kind: 'config', description: '等待配置应用完成' }] : []),
+    ],
+    onRestartReady: process.send
+      ? () => {
+          if (!process.connected) throw new Error('Guardian disconnected')
+          return new Promise<void>((resolve, reject) => {
+            process.send?.({ type: 'restart-ready' }, (error: Error | null) =>
+              error ? reject(error) : resolve(),
+            )
+          })
         }
-        return { ok: true }
-      }
-      try {
-        const backup = rollbackConfig()
-        logger.event(
-          'config.restart.validation_failed',
-          { errors: loadable.errors, warnings: loadable.warnings, rollback: backup.backup },
-          LogLevel.warn,
-        )
-      } catch (err) {
-        logger.event(
-          'config.restart.rollback_failed',
-          { error: (err as Error).message },
-          LogLevel.error,
-        )
-      }
-      return { ok: false, error: loadable.errors.join('\n') }
-    },
+      : undefined,
+    // Preserve later disk edits. Failed preflight must never restore an unrelated backup.
+    validateBeforeRestart: () => validateRestartCandidate(restartEngine?.getState().savedRevision),
   })
 
   const subcommand = args[0]
@@ -118,8 +123,7 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
     ensurePasswordHashedOnDisk(hashed)
     logger.info('检测到 server.auth.password 为明文，已改写为 scrypt 哈希，正在自动重启...')
     // 启动期无 chat 在跑 → isIdle()=true → 立即通知守护进程替换 worker。
-    requestRestartWhenIdle()
-    return
+    if (requestRestartWhenIdle() !== 'manual') return
   }
 
   getSoulDb()
@@ -169,6 +173,12 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   if (sweptQuestionBatches > 0) {
     logger.event('chat.questions.swept', { count: sweptQuestionBatches }, LogLevel.warn)
   }
+  restartEngine = getConfigApplyCoordinator()
+  subscribeRestartState((state) => restartEngine?.setRestartState(state))
+  restartEngine.configureRestart((required) => {
+    if (required) requestRestartWhenIdle()
+    else cancelPendingRestart()
+  })
 
   // 启动自检：文件夹浏览协议（config.workspace.browse.*）根白名单有效性（rule12 fail loud）
   const browseRootWarnings = validateBrowseRoots()
@@ -204,6 +214,7 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
     clearAllApprovals()
     clearAllWaitedChildren()
     configWatcher.close()
+    stopScheduleService()
     try {
       await Promise.race([
         Promise.all([
@@ -226,7 +237,13 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   process.once('SIGTERM', () => {
     void gracefulShutdown('SIGTERM')
   })
+  process.on('message', (message: unknown) => {
+    if ((message as { type?: string } | null)?.type === 'shutdown')
+      void gracefulShutdown('guardian')
+  })
 }
+
+let restartEngine: ReturnType<typeof getConfigApplyCoordinator> | undefined
 
 /** 将已哈希的 server.auth.password 写回盘上 config.yaml（保留字符串原文，含 $ 无需引号由 yaml 处理）。 */
 function ensurePasswordHashedOnDisk(hashed: string): void {

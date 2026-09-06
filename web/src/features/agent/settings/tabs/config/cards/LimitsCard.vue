@@ -49,7 +49,8 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
 
 <template>
   <div class="block-kicker">
-    <span class="kicker-no">{{ no }}</span>LIMIT MATRIX
+    <span class="kicker-no">{{ no }}</span
+    >LIMIT MATRIX
   </div>
   <div class="limit-grid">
     <NeonNumberControl
@@ -112,15 +113,12 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
       :class="{ active: global.watchdog.wake_on_timeout === true }"
       :aria-pressed="global.watchdog.wake_on_timeout === true"
       :title="
-        global.watchdog.wake_on_timeout
-          ? '超时将通知主 agent'
-          : '超时仅暂停子 agent（主不受影响）'
+        global.watchdog.wake_on_timeout ? '超时将通知主 agent' : '超时仅暂停子 agent（主不受影响）'
       "
       @click="global.watchdog.wake_on_timeout = !global.watchdog.wake_on_timeout"
     >
-      <span>⏰</span><b>超时唤主</b><small>{{
-        global.watchdog.wake_on_timeout ? '通知主' : '仅暂停子'
-      }}</small>
+      <span>⏰</span><b>超时唤主</b
+      ><small>{{ global.watchdog.wake_on_timeout ? '通知主' : '仅暂停子' }}</small>
     </button>
   </div>
 </template>

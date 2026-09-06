@@ -56,11 +56,7 @@ export function nyxusCloudColor(particle: NyxusParticle, time: number, cohesion 
     (1 - smoothstep(0.3, 0.66, particle.armRank)) *
     smoothstep(0.34, 0.76, knotSeed)
   const formation = STAR_FORMING_COLORS[particle.galaxyArm % STAR_FORMING_COLORS.length]!
-  return mixHexColor(
-    mixHexColor(coolDisk, formation, knot * 0.66),
-    WARM_NUCLEUS,
-    nucleus * 0.72,
-  )
+  return mixHexColor(mixHexColor(coolDisk, formation, knot * 0.66), WARM_NUCLEUS, nucleus * 0.72)
 }
 
 /** 恒星核心始终纯白，保证在鲜艳星云中清晰可辨。 */

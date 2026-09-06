@@ -246,7 +246,10 @@ function evaluatorPrompt(scenario: RoleAcceptanceScenario, evidence: ScenarioEvi
 }
 
 export function parseAcceptanceEvaluatorVerdict(content: string): EvaluatorVerdict {
-  const trimmed = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  const trimmed = content
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
   const parsed = JSON.parse(trimmed) as Partial<EvaluatorVerdict>
   if (!['pass', 'fail', 'needs_review'].includes(parsed.verdict ?? '')) {
     throw new Error('独立评估器返回了无效 verdict')
@@ -257,7 +260,9 @@ export function parseAcceptanceEvaluatorVerdict(content: string): EvaluatorVerdi
   return {
     verdict: parsed.verdict as EvaluatorVerdict['verdict'],
     summary: parsed.summary.slice(0, 2_000),
-    evidence: parsed.evidence.filter((item): item is string => typeof item === 'string').slice(0, 20),
+    evidence: parsed.evidence
+      .filter((item): item is string => typeof item === 'string')
+      .slice(0, 20),
   }
 }
 
@@ -299,7 +304,8 @@ export async function runRoleAcceptance(
   const target = config.roles?.[request.role]
   const evaluator = config.roles?.[ROLE_ACCEPTANCE_EVALUATOR]
   if (!isOrdinaryRole(target)) throw new Error(`目标角色不存在或不可验收：${request.role}`)
-  if (!isOrdinaryRole(evaluator)) throw new Error(`独立评估角色未配置：${ROLE_ACCEPTANCE_EVALUATOR}`)
+  if (!isOrdinaryRole(evaluator))
+    throw new Error(`独立评估角色未配置：${ROLE_ACCEPTANCE_EVALUATOR}`)
   if (request.role === ROLE_ACCEPTANCE_EVALUATOR) throw new Error('独立评估角色不能验收自己')
 
   const reports: RoleAcceptanceScenarioReport[] = []
@@ -310,7 +316,9 @@ export async function runRoleAcceptance(
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'chery-role-acceptance-'))
     try {
       await materializeAcceptanceFixtures(workspaceRoot, scenario.fixtures)
-      const fixturePaths = new Set((scenario.fixtures ?? []).map((item) => item.path.replaceAll('\\', '/')))
+      const fixturePaths = new Set(
+        (scenario.fixtures ?? []).map((item) => item.path.replaceAll('\\', '/')),
+      )
       const evidence = await runTarget(request.role, target, scenario, workspaceRoot)
       const expected = scenario.expectedArtifacts ?? []
       const missingArtifacts = expected.filter((item) => {
@@ -334,11 +342,12 @@ export async function runRoleAcceptance(
       const blockedForbiddenTool = evidence.toolCalls.some(
         (call) => call.decision === 'deny' || call.outcome === 'blocked',
       )
-      const status = missingArtifacts.length > 0
-        ? 'fail'
-        : verdict.verdict === 'pass' && blockedForbiddenTool
-          ? 'needs_review'
-          : verdict.verdict
+      const status =
+        missingArtifacts.length > 0
+          ? 'fail'
+          : verdict.verdict === 'pass' && blockedForbiddenTool
+            ? 'needs_review'
+            : verdict.verdict
       reports.push({
         name: scenario.name,
         status,

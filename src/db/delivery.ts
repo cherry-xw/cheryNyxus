@@ -194,10 +194,7 @@ export function isTransientChatEvent(event: Record<string, unknown>): boolean {
  * root routing metadata, so current subscribers still see them without consuming durable cursors
  * or writing two SQLite journals for every provider token.
  */
-export function prepareChatEventForDelivery(
-  chatId: string,
-  event: DeliverableChatEvent,
-): void {
+export function prepareChatEventForDelivery(chatId: string, event: DeliverableChatEvent): void {
   if (isTransientChatEvent(event)) {
     event.rootChatId = rootChatIdOf(chatId)
     event.transient = true

@@ -21,8 +21,5 @@ export function resolveBrainProtocol(brain: BrainRoutingInput): LlmProtocol | un
  * 这是迁移边界：旧 deepseek/bigmodel 的细分行为不会因升级立即改变。
  */
 export function resolveBrainAdapterKey(brain: BrainRoutingInput): string {
-  return isLlmProtocol(brain.protocol)
-    ? adapterKeyForProtocol(brain.protocol)
-    : brain.provider
+  return isLlmProtocol(brain.protocol) ? adapterKeyForProtocol(brain.protocol) : brain.provider
 }
-

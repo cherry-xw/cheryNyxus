@@ -134,13 +134,15 @@ export function layoutAnchoredCrts(
   const placed: CrtPlacement[] = []
   const mainCards = cards.filter((card) => card.main).sort((a, b) => a.order - b.order)
   const mainIndex = new Map(mainCards.map((card, index) => [card.id, index]))
-  const ordered = cards.slice().sort(
-    (a, b) =>
-      Number(b.actionable) - Number(a.actionable) ||
-      Number(b.pinned) - Number(a.pinned) ||
-      a.order - b.order ||
-      a.id.localeCompare(b.id),
-  )
+  const ordered = cards
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.actionable) - Number(a.actionable) ||
+        Number(b.pinned) - Number(a.pinned) ||
+        a.order - b.order ||
+        a.id.localeCompare(b.id),
+    )
 
   for (const card of ordered) {
     const preferred: 'left' | 'right' = card.main
@@ -152,14 +154,11 @@ export function layoutAnchoredCrts(
         : 'right'
     const sides: Array<'left' | 'right'> = [preferred, preferred === 'left' ? 'right' : 'left']
     let best:
-      | { left: number; top: number; placement: 'left' | 'right'; penalty: number }
-      | undefined
+      { left: number; top: number; placement: 'left' | 'right'; penalty: number } | undefined
     for (const placement of sides) {
       for (const dy of verticalOffsets(viewport.height)) {
         const rawLeft =
-          placement === 'right'
-            ? card.anchor.x + GAP
-            : card.anchor.x - GAP - card.panel.width
+          placement === 'right' ? card.anchor.x + GAP : card.anchor.x - GAP - card.panel.width
         const rawTop = card.anchor.y - card.panel.height / 2 + dy
         const left = Math.max(margin, Math.min(viewport.width - card.panel.width - margin, rawLeft))
         const top = Math.max(margin, Math.min(viewport.height - card.panel.height - margin, rawTop))

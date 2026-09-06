@@ -5,7 +5,11 @@ import {
   type SenseToolInfo,
   type TimelineNode,
 } from '@/application/backend/public'
-import { useChatSessionsStore, useConnectionStore, useInteractionsStore } from '@/application/public'
+import {
+  useChatSessionsStore,
+  useConnectionStore,
+  useInteractionsStore,
+} from '@/application/public'
 import { selectCanResume } from '@/application/chat/public'
 import type { ExecutionReadModel } from '@/application/chat/public'
 import type { LiteToolMeta } from './executionMonitor'

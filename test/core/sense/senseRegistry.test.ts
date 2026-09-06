@@ -110,6 +110,31 @@ describe("senseRegistry", () => {
     });
   });
 
+  describe("replaceLocalSenses", () => {
+    it("replaces local entries and preserves MCP entries", async () => {
+      const { registerSenses, replaceLocalSenses, getSense } = await getRegistry();
+      const first = createSense("local_old");
+      const mcp = createSense("mcp__server__tool");
+      replaceLocalSenses([first]);
+      registerSenses([mcp]);
+
+      replaceLocalSenses([createSense("local_new")]);
+
+      expect(getSense("local_old")).toBeUndefined();
+      expect(getSense("local_new")).toBeDefined();
+      expect(getSense("mcp__server__tool")).toBe(mcp);
+    });
+
+    it("rejects MCP namespace before changing the old local table", async () => {
+      const { replaceLocalSenses, getSense } = await getRegistry();
+      const old = createSense("local_old");
+      replaceLocalSenses([old]);
+
+      expect(() => replaceLocalSenses([createSense("mcp__bad__tool")])).toThrow();
+      expect(getSense("local_old")).toBe(old);
+    });
+  });
+
   describe("getSenseRegistryVersion", () => {
     it("starts at 0 and increments on register", async () => {
       const { registerSenses, getSenseRegistryVersion } = await getRegistry();

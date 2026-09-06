@@ -1,7 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import config, { readRawConfig, redactConfigSecrets, type ConfigRaw } from '@/utils/config.js'
+import config, {
+  getAppliedRawConfig,
+  readRawConfig,
+  redactConfigSecrets,
+  type ConfigRaw,
+} from '@/utils/config.js'
 import {
   activateConfigRevision,
   getActiveConfigRevision,
@@ -14,6 +19,7 @@ const SENSITIVE_KEY = /(?:key|token|secret|password|passwd|credential|authorizat
 const INCLUDED_ROOTS = ['prompt', 'skills', 'senses', 'plugins', 'rule', 'command', 'hooks']
 const INCLUDED_FILES = ['config.yaml', 'model-catalog.yaml']
 let processRevision: ConfigRevisionRecord | undefined
+let startupBoundary = true
 const handledCandidateFingerprints = new Set<string>()
 
 function redact(value: unknown, key = ''): unknown {
@@ -68,10 +74,22 @@ const CONNECTION_BRAIN_FIELDS = new Set([
  * 从脱敏 snapshot 提取语义面子集：剔除连接面顶层 roots 与 llm.brain.<n> 的连接面字段，
  * 其余全部保留（未登记字段默认语义面）。
  */
-function extractSemanticConfig(snapshot: Record<string, unknown>): Record<string, unknown> {
+export function extractSemanticConfig(snapshot: Record<string, unknown>): Record<string, unknown> {
   const semantic: Record<string, unknown> = {}
   for (const [root, value] of Object.entries(snapshot)) {
     if ((CONNECTION_ROOTS as readonly string[]).includes(root)) continue
+    if (root === 'roles' || root === 'presets') {
+      const excluded = root === 'roles' ? ['avatar', 'description', 'mentionable'] : ['schedule']
+      semantic[root] = Object.fromEntries(
+        Object.entries((value ?? {}) as Record<string, Record<string, unknown>>).map(
+          ([name, item]) => [
+            name,
+            Object.fromEntries(Object.entries(item).filter(([key]) => !excluded.includes(key))),
+          ],
+        ),
+      )
+      continue
+    }
     if (root === 'llm') {
       const brains = (value as { brain?: Record<string, unknown> } | undefined)?.brain
       if (brains && typeof brains === 'object') {
@@ -97,11 +115,16 @@ function extractSemanticConfig(snapshot: Record<string, unknown>): Record<string
  */
 function semanticResourceManifest(resources: Record<string, unknown>): Record<string, unknown> {
   const entries = Array.isArray(resources.entries)
-    ? resources.entries.filter(
-        (entry) =>
-          !(entry as { path?: string } | null)?.path ||
-          (entry as { path: string }).path !== 'config.yaml',
-      )
+    ? resources.entries
+        .filter(
+          (entry) =>
+            !(entry as { path?: string } | null)?.path ||
+            (entry as { path: string }).path !== 'config.yaml',
+        )
+        .map((entry) => {
+          const { path, sha256 } = entry as { path: string; sha256: string }
+          return { path, sha256 }
+        })
     : resources.entries
   return { ...resources, entries }
 }
@@ -144,10 +167,11 @@ export function createConfigRevision(input: {
   source: ConfigRevisionRecord['source']
   status?: 'candidate' | 'active' | 'rejected'
   validationError?: string
+  resourceManifest?: Record<string, unknown>
 }): ConfigRevisionRecord {
   const raw = input.raw ?? readRawConfig()
   const snapshot = redact(redactConfigSecrets(raw)) as Record<string, unknown>
-  const resources = collectRuntimeResourceManifest()
+  const resources = input.resourceManifest ?? collectRuntimeResourceManifest()
   // fingerprint 只覆盖语义面（连接面变更不产生新修订、不切纪元）；snapshot/resources 仍存全量供审计
   const semanticImage = {
     snapshot: extractSemanticConfig(snapshot),
@@ -187,13 +211,23 @@ export function createConfigRevision(input: {
  */
 export function ensureCurrentConfigRevision(): ConfigRevisionRecord {
   if (processRevision) return processRevision
-  const current = createConfigRevision({ source: 'startup' })
+  const current = createConfigRevision({ source: 'startup', raw: getAppliedRawConfig() })
   const active = getActiveConfigRevision()
   processRevision =
     active?.fingerprint === current.fingerprint
       ? active
       : activateConfigRevision(current.revisionId)
   return processRevision
+}
+
+/** Called only after the tree boundary transaction has committed. */
+export function publishProcessRevision(revision: ConfigRevisionRecord): void {
+  processRevision = revision
+  startupBoundary = false
+}
+
+export function isStartupConfigBoundary(): boolean {
+  return startupBoundary
 }
 
 /**
@@ -212,5 +246,6 @@ export function consumeHandledConfigRevision(fingerprint: string): boolean {
 /** Tests and a future maintenance worker may force a fresh disk fingerprint. */
 export function clearProcessRevisionCache(): void {
   processRevision = undefined
+  startupBoundary = true
   handledCandidateFingerprints.clear()
 }

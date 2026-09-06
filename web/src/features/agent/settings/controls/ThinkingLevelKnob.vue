@@ -680,5 +680,4 @@ onBeforeUnmount(() => {
 .point-item.current .moon-icon {
   filter: grayscale(18%) brightness(0.9);
 }
-
 </style>

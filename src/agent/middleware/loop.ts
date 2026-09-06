@@ -16,11 +16,12 @@ import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
  * 创建 agent 层循环策略
  * 包装单次 chain 执行，实现 sense 循环 + maxLoop 超限处理
  */
-export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareChunk> {
+export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk> {
   return async function* loopHandler(
     ctx: MiddlewareContext,
     runChain: () => AsyncGenerator<MiddlewareChunk, void, unknown>,
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
+    const runLimit = maxLoop ?? ctx.global.maxLoopCount ?? 30
     let times = 0
     let stopped = false // 区分 break（正常停止）vs while 条件耗尽（避免误报）
     let failed = false // runChain 内 yield ErrorChunk（retry 重试耗尽等）→ 跳过末尾 done yield
@@ -30,9 +31,9 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
     // 否则已回传的 role 会在首轮 LLM 调用后再次被旧标记直接截断。
     ctx.soul.yieldTurn = false
 
-    logger.event('loop.start', { max: maxLoop })
+    logger.event('loop.start', { max: runLimit })
 
-    while (times < maxLoop) {
+    while (times < runLimit) {
       // watchdog/user abort 的 durable fence：即使 compose.throw 在前一轮 stream 的
       // yield* 边界被吞掉，旧 run 也绝不能据 last-sense 开启下一轮 LLM。
       if (ctx.pipeline?.isAbortRequested()) throw new AgentAbortError()
@@ -155,13 +156,13 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
 
     // 仅当 while 条件耗尽（非 break）才触发保护性暂停。
     // 旧实现 `times >= maxLoop` 在第 maxLoop 轮正常 break 时（times===maxLoop）会误报。
-    if (!stopped && !failed && times >= maxLoop) {
-      logger.event('loop.max', { max: maxLoop }, LogLevel.warn)
+    if (!stopped && !failed && times >= runLimit) {
+      logger.event('loop.max', { max: runLimit }, LogLevel.warn)
       const pausedChunk: RunPausedChunk = {
         type: 'run_paused',
         reason: 'loop_limit',
         iterations: times,
-        limit: maxLoop,
+        limit: runLimit,
       }
       yield pausedChunk
       paused = true

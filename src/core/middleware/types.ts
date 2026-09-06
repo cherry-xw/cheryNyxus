@@ -160,7 +160,12 @@ export type AgentMessagePatch =
       kind?: 'content'
       content?: string
       thinking?: string
-      senseCalls?: Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }>
+      senseCalls?: Array<{
+        id: string
+        name: string
+        arguments: string
+        security?: ToolAuthorization
+      }>
       hash?: string
     }
   | {
@@ -238,6 +243,8 @@ export interface SenseTriggerChunk {
   arguments: string
   /** 监管等级 */
   supervisionLevel: SupervisionLevel
+  /** This run's approval window; service notifications must not reread live config. */
+  approvalTimeoutMs?: number
   /** 角色策略与语义分析产生的可审计裁决。 */
   security?: ToolAuthorization
   // P1-11：approvalResolve/approvalReject 移除，审批 Promise 由 core approvalRegistry 管理，
@@ -374,6 +381,8 @@ export interface SensePendingChunk {
   senseName: string
   arguments: string
   supervisionLevel: SupervisionLevel
+  /** Copied from the trigger so persistence and UI use the same run snapshot. */
+  approvalTimeoutMs?: number
   /** 审批展示与持久化所需的确定性安全判定。 */
   security?: ToolAuthorization
 }

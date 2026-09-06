@@ -71,13 +71,9 @@ export function effectiveRunFacts(
     (transientRuns ?? []).map((run) => run.chatId).filter((chatId): chatId is string => !!chatId),
   )
   const retainedSnapshot = transientRuns
-    ? eligibleSnapshot.filter(
-        (run) => run.status === 'paused' && !transientChatIds.has(run.chatId),
-      )
+    ? eligibleSnapshot.filter((run) => run.status === 'paused' && !transientChatIds.has(run.chatId))
     : eligibleSnapshot
-  const byRun = new Map(
-    retainedSnapshot.map((run) => [runKey(run.chatId, run.runId), run]),
-  )
+  const byRun = new Map(retainedSnapshot.map((run) => [runKey(run.chatId, run.runId), run]))
   for (const run of transientRuns ?? []) {
     if (!run.chatId) continue
     const status = runStatus(run)
@@ -96,12 +92,7 @@ export function effectiveRunFacts(
     })
   }
   for (const turn of activeTurns) {
-    if (
-      !turn.chatId ||
-      !turn.runId ||
-      turn.status === 'completed' ||
-      turn.status === 'error'
-    )
+    if (!turn.chatId || !turn.runId || turn.status === 'completed' || turn.status === 'error')
       continue
     const key = runKey(turn.chatId, turn.runId)
     if (terminalSnapshotRuns.has(key)) continue
@@ -176,12 +167,7 @@ export function buildRunCrtModels(input: BuildRunCrtModelsInput): RunCrtModel[] 
   )
   const runs = new Map(input.runs.map((run) => [runKey(run.chatId, run.runId), run]))
   for (const turn of input.activeTurns ?? []) {
-    if (
-      !turn.chatId ||
-      !turn.runId ||
-      turn.status === 'completed' ||
-      turn.status === 'error'
-    )
+    if (!turn.chatId || !turn.runId || turn.status === 'completed' || turn.status === 'error')
       continue
     const key = runKey(turn.chatId, turn.runId)
     if (runs.has(key)) continue
@@ -210,8 +196,7 @@ export function buildRunCrtModels(input: BuildRunCrtModelsInput): RunCrtModel[] 
           candidate.status !== 'error',
       )
       .sort(
-        (a, b) =>
-          (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.messageId.localeCompare(b.messageId),
+        (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.messageId.localeCompare(b.messageId),
       )
     for (const turn of turns) {
       // turn.started normally creates an exact transient node immediately. The
@@ -220,7 +205,8 @@ export function buildRunCrtModels(input: BuildRunCrtModelsInput): RunCrtModel[] 
       const canonical =
         input.visibleNodes.find((node) => node.id === turn.messageId) ??
         input.canonicalNodes.find(
-          (node) => node.id === turn.messageId || node.sourceFact?.sourceMessageId === turn.messageId,
+          (node) =>
+            node.id === turn.messageId || node.sourceFact?.sourceMessageId === turn.messageId,
         ) ??
         (explicit?.kind === 'message' || explicit?.kind === 'input' ? explicit : undefined) ??
         latestChatAnchor(run, input.canonicalNodes) ??

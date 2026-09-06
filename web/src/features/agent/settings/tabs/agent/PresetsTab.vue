@@ -288,11 +288,7 @@ const indexItems = computed<IndexItem[]>(() => {
                 class="member-picker-trigger"
                 aria-label="选择团队成员"
                 :disabled="isFixedPreset(pname as string)"
-                :title="
-                  isFixedPreset(pname as string)
-                    ? '固定预设：成员不可修改'
-                    : '选择团队成员'
-                "
+                :title="isFixedPreset(pname as string) ? '固定预设：成员不可修改' : '选择团队成员'"
               >
                 <span>选择成员</span>
                 <ArrowDown class="picker-arrow" />
@@ -365,9 +361,7 @@ const indexItems = computed<IndexItem[]>(() => {
                   :disabled="isFixedPreset(pname as string)"
                   :aria-pressed="rolePickerMode(pname as string) === 'leader'"
                   :title="
-                    isFixedPreset(pname as string)
-                      ? '固定预设的组长不可调整'
-                      : '切换为设置组长'
+                    isFixedPreset(pname as string) ? '固定预设的组长不可调整' : '切换为设置组长'
                   "
                   @click="setRolePickerMode(pname as string, 'leader')"
                 >
@@ -381,9 +375,7 @@ const indexItems = computed<IndexItem[]>(() => {
                   :disabled="isFixedPreset(pname as string)"
                   :aria-pressed="rolePickerMode(pname as string) === 'detail'"
                   :title="
-                    isFixedPreset(pname as string)
-                      ? '固定预设：成员不可修改'
-                      : '切换为设置解释'
+                    isFixedPreset(pname as string) ? '固定预设：成员不可修改' : '切换为设置解释'
                   "
                   @click="setRolePickerMode(pname as string, 'detail')"
                 >
@@ -578,7 +570,8 @@ const indexItems = computed<IndexItem[]>(() => {
                 placeholder="项目根目录绝对路径（留空则不限定）"
                 size="small"
                 :suffix-icon="
-                  props.workspaceWarnings?.[pname as string] || workspaceFormatErrors[pname as string]
+                  props.workspaceWarnings?.[pname as string] ||
+                  workspaceFormatErrors[pname as string]
                     ? WarningFilled
                     : undefined
                 "
@@ -603,10 +596,7 @@ const indexItems = computed<IndexItem[]>(() => {
               </button>
             </div>
             <!-- 校验告警紧跟工作区输入框（后端 config.save 返 warnings / 前端格式错误），不再放整个三列块底部 -->
-            <span
-              v-if="props.workspaceWarnings?.[pname as string]"
-              class="ws-warning"
-            >
+            <span v-if="props.workspaceWarnings?.[pname as string]" class="ws-warning">
               {{ props.workspaceWarnings[pname as string] }}
             </span>
             <span v-else-if="workspaceFormatErrors[pname as string]" class="ws-warning">
@@ -656,10 +646,7 @@ const indexItems = computed<IndexItem[]>(() => {
     </div>
   </TabShell>
 
-  <WorkspaceDirBrowser
-    v-model:open="browserOpen"
-    @select="onBrowserSelect"
-  />
+  <WorkspaceDirBrowser v-model:open="browserOpen" @select="onBrowserSelect" />
 </template>
 
 <style scoped lang="less">
@@ -766,7 +753,10 @@ const indexItems = computed<IndexItem[]>(() => {
   font: inherit;
   font-size: 10px;
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    color 0.15s;
   svg {
     width: 10px;
     height: 10px;

@@ -18,7 +18,11 @@ defineProps<{ window: WorkspaceWindowState }>()
       <span>来源 / {{ window.context.source.toUpperCase() }}</span>
       <strong>{{ window.context.message }}</strong>
       <small>
-        {{ window.context.severity === 'error' ? '真实运行故障已捕获，核心流程未被自动重试。' : '这是诊断事件，不代表协议或任务执行失败。' }}
+        {{
+          window.context.severity === 'error'
+            ? '真实运行故障已捕获，核心流程未被自动重试。'
+            : '这是诊断事件，不代表协议或任务执行失败。'
+        }}
       </small>
     </div>
     <footer><span>追踪已锁定</span><i /><span>非持久化表面</span></footer>
@@ -32,7 +36,11 @@ defineProps<{ window: WorkspaceWindowState }>()
   grid-template-columns: 118px 1fr;
   grid-template-rows: 1fr 32px;
   background:
-    repeating-linear-gradient(0deg, transparent 0 5px, color-mix(in srgb, var(--danger) 4%, transparent) 6px),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 5px,
+      color-mix(in srgb, var(--danger) 4%, transparent) 6px
+    ),
     var(--cyber-window-bg);
   font-family: var(--font-mono);
 }

@@ -93,6 +93,12 @@ export function startService(options: { port: number; webPort: number; staticDir
 
 Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返回 `AsyncGenerator` → `wrapStreamingHandler` 迭代 yield Chunk/Notification、最终 return ResponseData 包装成 Response（详见 [./message.md](./message.md)「关键流程」）。
 
+### 配置生效通知与客户端兼容
+
+`config.save` 的 Response 只确认候选已保存，并返回逐资源 `ConfigApplyState`；服务端还向每个已连接客户端广播 `config.apply.changed`，使其他设置窗口刷新状态而不覆盖本地未保存草稿。客户端必须识别协议版本 2 的 `savedRevision`、`appliedRevision`、`impacts` 和 `restart`。无法解析该状态的旧客户端应提示升级或刷新，不能把未知结果显示为“已生效”。
+
+设置保存不会关闭 WebSocket。仅 worker 实际重启后，客户端才按既有重连流程获取新的连接配置；重连期间应重新查询 `config.apply.status`。后台命令、MCP 调用和正在运行的 Agent 是重启 blocker，服务不会自动终止它们或承诺在重启后透明恢复。
+
 ## Handler 总览
 
 | RPC 方法 | Handler | 文件 | 流式 | 一句话 |
@@ -133,10 +139,10 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `mcp.reload` | `handleMcpReload` | 同上 | 否 | 重载单个或全部 MCP server |
 | `subagent.result` | `handleSubagentResult` | [subagent/index.ts](../../src/service/subagent/index.ts) | 否 | 子 agent 结果回传（唤醒主 agent 挂起的 spawn） |
 | `config.get` | `handleConfigGet` | [config/handler.ts](../../src/service/config/handler.ts) | 否 | 读 .chery/config.yaml 原文（除 server 段） |
-| `config.save` | `handleConfigSave` | 同上 | 否 | 校验 + 写回 config.yaml（除 server，重启生效） |
+| `config.save` | `handleConfigSave` | 同上 | 否 | 校验 + 写回 config.yaml（除 server），返回统一生效状态与影响项 |
 | `utils.models` | `handleUtilsModels` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 基于 provider/url/key/fullUrl 拉取可用模型列表（fullUrl=true 不补全 URL，与正式 chat 同规则）。anthropic 为双尝试：主尝试原生 `/models?limit=1000`，失败且未勾选 fullUrl 时回退 OpenAI 兼容 `GET /models`（Bearer），两边均无产出则 error 聚合两段原因（见 [provider.md「anthropic 模型列表双尝试」](../agent/provider.md)） |
 | `utils.testConnection` | `handleUtilsTestConnection` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 用未保存配置执行真实最小 Provider 请求（透传 fullUrl），不持久化、不重试 |
-| `env.list` | `handleEnvList` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 列 .env 文件变量名供密钥下拉（**每次实时读盘**；调用前触发 `reloadEnvFile(true)` 把 .env 新变量/新值同步进 `process.env`，前端点「刷新密钥」即重载生效，无需重启。前端 agentApi.listEnvVars 原样透出、不再二次过滤——变量名合法性由后端 `listEnvVarNames` 的 `/^[A-Za-z_][A-Za-z0-9_]*$/` 命名校验单一兜底） |
+| `env.list` | `handleEnvList` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 实时列出 .env 变量名；新增/轮换/删除会重新解析引用资源并返回 apply 状态，`CHERY_DIR`/`DB_DIR`/`WEB_PORT`/认证初始化变量保持启动绑定并登记重启待办 |
 | `utils.openFile` | `handleUtilsOpenFile` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 打开指定文件（用配置编辑器或系统默认）；win32 以 `detached:true` 新进程组拉起编辑器，**不带 `windowsHide`**（GUI 编辑器如 notepad 需显示窗口；spawn 失败仅记 error 日志，不弹窗） |
 | `utils.openConfigDir` | `handleUtilsOpenConfigDir` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 固定打开后端主机的 `CHERY_DIR/.chery` 配置目录 |
 | `utils.editors` | `handleUtilsEditors` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 检测后端主机可用的文本编辑器 |

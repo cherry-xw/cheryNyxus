@@ -17,11 +17,12 @@ const scopeCfg = computed(() => props.memory[props.scope] ?? {})
 
 <template>
   <div class="block-kicker">
-    <span class="kicker-no">{{ no }}</span>{{ isGlobal ? 'SHARED MEMORY' : 'LOCAL MEMORY' }}
+    <span class="kicker-no">{{ no }}</span
+    >{{ isGlobal ? 'SHARED MEMORY' : 'LOCAL MEMORY' }}
   </div>
-  <h3 class="sub-title">{{
-    isGlobal ? '全局记忆（所有 chat 共享）' : 'Workspace 记忆（per 项目 / 单 chat）'
-  }}</h3>
+  <h3 class="sub-title">
+    {{ isGlobal ? '全局记忆（所有 chat 共享）' : 'Workspace 记忆（per 项目 / 单 chat）' }}
+  </h3>
   <p class="block-summary">
     <code>{{ scope }}</code> · {{ isGlobal ? '跨会话共享' : '项目隔离' }} · 超限自动归档
   </p>

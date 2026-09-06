@@ -160,7 +160,8 @@ const readable = computed(() =>
       </p>
       <ul v-if="readable.changes.length" class="lite-tool-story-changes" aria-label="本次变更">
         <li v-for="change in readable.changes" :key="`${change.label}:${change.detail}`">
-          <small>{{ change.label }}</small><span>{{ change.detail }}</span>
+          <small>{{ change.label }}</small
+          ><span>{{ change.detail }}</span>
         </li>
       </ul>
     </section>

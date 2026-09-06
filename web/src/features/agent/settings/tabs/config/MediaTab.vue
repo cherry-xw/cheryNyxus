@@ -178,7 +178,7 @@ const indexItems = computed<IndexItem[]>(() => {
             class="mono-input"
             placeholder="选择 .env 变量"
           >
-            <el-option v-for="v in envVars" :key="v" :value="`$${v}`" :label="`$${v}`" />
+            <el-option v-for="v in envVars" :key="v" :value="`$${v}`" :label="v" />
           </el-select>
         </label>
       </div>

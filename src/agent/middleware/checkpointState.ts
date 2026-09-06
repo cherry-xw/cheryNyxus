@@ -54,7 +54,12 @@ export class CheckpointState {
    * 安全判定按 callId 从 securityByCallId 查（与 sense_end 触发同源 id），省略模式保证
    * 无判定时字段不出现，现有 toEqual 全等断言不因新增可选字段而失败。
    */
-  private buildSenseCalls(): Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }> {
+  private buildSenseCalls(): Array<{
+    id: string
+    name: string
+    arguments: string
+    security?: ToolAuthorization
+  }> {
     return mergeSenseDeltas(this.senseDeltas)
       .filter((sc) => sc.name)
       .map((sc) => {

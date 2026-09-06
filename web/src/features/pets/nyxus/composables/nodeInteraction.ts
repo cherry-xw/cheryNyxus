@@ -1,4 +1,8 @@
-import type { ApprovalState, QuestionItemState, SenseCallRecord } from '@/domain/chat/projectionTypes'
+import type {
+  ApprovalState,
+  QuestionItemState,
+  SenseCallRecord,
+} from '@/domain/chat/projectionTypes'
 
 export type NodeInteractionState =
   | 'idle'

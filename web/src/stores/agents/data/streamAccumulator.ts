@@ -218,7 +218,6 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
     })
     return
   }
-
 }
 
 /**

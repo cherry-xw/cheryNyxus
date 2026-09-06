@@ -396,6 +396,14 @@ function onScrubberKeydown(event: KeyboardEvent): void {
         <button
           v-for="{ entry, index, layer, placement } in renderedEntries"
           :key="entry.id"
+          v-memo="[
+            entry,
+            index === currentIndex,
+            layer.role,
+            layer.opacity,
+            placement.offset,
+            titleRail.height,
+          ]"
           type="button"
           class="paper-title-strip"
           :class="[
@@ -412,14 +420,6 @@ function onScrubberKeydown(event: KeyboardEvent): void {
           }"
           :aria-label="`阅读第 ${index + 1} 张：${entry.title}`"
           :aria-current="index === currentIndex ? 'true' : undefined"
-          v-memo="[
-            entry,
-            index === currentIndex,
-            layer.role,
-            layer.opacity,
-            placement.offset,
-            titleRail.height,
-          ]"
           @click="selectIndex(index)"
         >
           <span class="paper-title-strip-content">

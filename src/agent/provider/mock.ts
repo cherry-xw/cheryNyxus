@@ -160,7 +160,10 @@ function toResponse(item: MockScriptResponse): MockResponse {
  * 无状态、天然 per-chat；撤回 revoked 被过滤 → 索引自动回退。
  * 耗尽后 repeat:last 时重复最后一条，否则返回空。
  */
-function pickScriptItem(options: LLMOptions | undefined, messages: LLMResponse[]): MockScriptResponse {
+function pickScriptItem(
+  options: LLMOptions | undefined,
+  messages: LLMResponse[],
+): MockScriptResponse {
   const model = options?.model ?? ''
   const chatId = options?.chatId ?? 'unscoped'
   const file = findMockFile(model)
@@ -214,7 +217,8 @@ function pickScriptItem(options: LLMOptions | undefined, messages: LLMResponse[]
     outcome: resolved.error || resolved.chunks?.some((chunk) => chunk.error) ? 'error' : 'response',
     toolNames: [
       ...(resolved.senseCalls?.map((call) => call.name) ?? []),
-      ...(resolved.chunks?.flatMap((chunk) => chunk.senseCalls?.map((call) => call.name) ?? []) ?? []),
+      ...(resolved.chunks?.flatMap((chunk) => chunk.senseCalls?.map((call) => call.name) ?? []) ??
+        []),
     ],
   })
   return resolved

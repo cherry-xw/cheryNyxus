@@ -80,9 +80,12 @@ export function useStreamBubble(props: StreamBubbleProps) {
   const displayThinking = computed(() => stream.value?.thinking ?? '')
   const displayContent = computed(() => stream.value?.content ?? '')
   // 流式 markdown 节流渲染（leading + 240ms trailing，不截断）
-  const { html: renderedContent, flush: flushRenderedContent } = useRenderedMarkdown(displayContent, {
-    mode: 'full',
-  })
+  const { html: renderedContent, flush: flushRenderedContent } = useRenderedMarkdown(
+    displayContent,
+    {
+      mode: 'full',
+    },
+  )
   watch(isWorking, (working, previous) => {
     if (previous && !working) flushRenderedContent()
   })

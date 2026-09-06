@@ -45,12 +45,7 @@ import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
 import { isAgentAbortError, isAgentParkError } from '@/core/middleware/errors.js'
 import config from '@/utils/config.js'
 import { recordRunFact, recordTerminationFact } from './executionFacts.js'
-import {
-  appendLiveTurnDelta,
-  clearLiveRun,
-  completeLiveTurn,
-  startLiveTurn,
-} from './liveTurns.js'
+import { appendLiveTurnDelta, clearLiveRun, completeLiveTurn, startLiveTurn } from './liveTurns.js'
 import { loopLimitFeedback, runFailureFeedback } from '../errorCatalog.js'
 import { RunOutcomeReasonCode } from '@chery/protocol'
 import type {
@@ -59,7 +54,9 @@ import type {
   UserFeedback,
 } from '@chery/protocol'
 
-function terminationContent(feedback: Pick<UserFeedback, 'title' | 'description' | 'guidance'>): string {
+function terminationContent(
+  feedback: Pick<UserFeedback, 'title' | 'description' | 'guidance'>,
+): string {
   return [
     feedback.title,
     feedback.description,
@@ -254,7 +251,7 @@ export async function* streamAgentChunks(
               arguments: sc.arguments,
               supervisionLevel: sc.supervisionLevel,
               needsApproval,
-              waitTime: config.global.approval_timeout ?? 0,
+              waitTime: sc.approvalTimeoutMs ?? config.global.approval_timeout ?? 0,
               createdAt: Date.now(),
               security: sc.security,
             },

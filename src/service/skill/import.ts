@@ -43,6 +43,7 @@ import {
 import { cloneRepo, listRemoteBranches, GitNotInstalledError } from './gitClone.js'
 import { isGitAvailable, resolveAuth, resolveInlineAuth } from './credentials.js'
 import { upsertSource, removeSkillFromSource, type SkillManifestSource } from './sources.js'
+import { submitDiskConfigImage } from '@/service/config/commit.js'
 
 /** staging manifest 单项（含 rawFolder 内部路径，commit 时用）。 */
 interface SkillManifestItem {
@@ -215,6 +216,7 @@ export async function handleSkillsCommit(
     upsertSource(manifest.source, imported)
   }
   removeStaging(stagingId)
+  submitDiskConfigImage('structured')
   return { imported, skipped }
 }
 
@@ -231,6 +233,7 @@ export async function handleSkillsDelete(
   }
   removeCherySubdir(join(skillsDir(), name))
   removeSkillFromSource(name)
+  submitDiskConfigImage('structured')
   return { ok: true }
 }
 

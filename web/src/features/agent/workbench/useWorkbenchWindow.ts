@@ -1,11 +1,4 @@
-import {
-  computed,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  type ComputedRef,
-  type Ref,
-} from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 
 export type WorkbenchMode = 'fullscreen' | 'window'
 export type ResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
@@ -41,8 +34,16 @@ export function defaultWorkbenchSize(viewportWidth: number, viewportHeight: numb
   const availableWidth = Math.max(320, viewportWidth - VIEWPORT_GAP * 2)
   const availableHeight = Math.max(280, viewportHeight - VIEWPORT_GAP * 2)
   return {
-    width: Math.min(availableWidth, Math.max(Math.min(MIN_WIDTH, availableWidth), viewportWidth * 0.82), 1440),
-    height: Math.min(availableHeight, Math.max(Math.min(MIN_HEIGHT, availableHeight), viewportHeight * 0.82), 960),
+    width: Math.min(
+      availableWidth,
+      Math.max(Math.min(MIN_WIDTH, availableWidth), viewportWidth * 0.82),
+      1440,
+    ),
+    height: Math.min(
+      availableHeight,
+      Math.max(Math.min(MIN_HEIGHT, availableHeight), viewportHeight * 0.82),
+      960,
+    ),
   }
 }
 
@@ -76,7 +77,9 @@ export function clampWorkbenchGeometry(
 function readLayout(windowId: string): PersistedWorkbenchLayout | undefined {
   if (typeof localStorage === 'undefined') return undefined
   try {
-    const value = JSON.parse(localStorage.getItem(storageKey(windowId)) ?? 'null') as Partial<PersistedWorkbenchLayout> | null
+    const value = JSON.parse(
+      localStorage.getItem(storageKey(windowId)) ?? 'null',
+    ) as Partial<PersistedWorkbenchLayout> | null
     if (!value || (value.mode !== 'fullscreen' && value.mode !== 'window')) return undefined
     if (!finite(value.x) || !finite(value.y)) return undefined
     return { mode: value.mode, x: value.x, y: value.y }
@@ -100,11 +103,13 @@ export interface WorkbenchInitialGeometry {
   size: WorkbenchSize
 }
 
-export function useWorkbenchWindow(options: {
-  windowId?: string
-  initialGeometry?: WorkbenchInitialGeometry
-  managed?: boolean
-} = {}): {
+export function useWorkbenchWindow(
+  options: {
+    windowId?: string
+    initialGeometry?: WorkbenchInitialGeometry
+    managed?: boolean
+  } = {},
+): {
   shellRef: Ref<HTMLElement | null>
   mode: Ref<WorkbenchMode>
   position: Ref<WorkbenchPoint>
@@ -142,7 +147,9 @@ export function useWorkbenchWindow(options: {
   })()
 
   const shellRef = ref<HTMLElement | null>(null)
-  const mode = ref<WorkbenchMode>(options.initialGeometry ? options.initialGeometry.mode : (persisted?.mode ?? 'fullscreen'))
+  const mode = ref<WorkbenchMode>(
+    options.initialGeometry ? options.initialGeometry.mode : (persisted?.mode ?? 'fullscreen'),
+  )
   const position = ref(initial.position)
   const size = ref(initial.size)
 
@@ -230,7 +237,8 @@ export function useWorkbenchWindow(options: {
       (event.target as Element | null)?.closest(
         '[data-window-interactive],button,input,select,textarea,a,[role="button"],[role="switch"]',
       )
-    ) return
+    )
+      return
     event.preventDefault()
     const start = { ...position.value }
     const startPointer = { x: event.clientX, y: event.clientY }

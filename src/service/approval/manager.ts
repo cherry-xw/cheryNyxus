@@ -54,7 +54,8 @@ export class ApprovalManager {
       // core promise observes it. Replay that terminal decision; never expose
       // an invisible in-memory approval or revive the inbox row.
       const action = existing.result?.action === 'accept' ? 'accept' : 'reject'
-      const reason = typeof existing.result?.reason === 'string' ? existing.result.reason : undefined
+      const reason =
+        typeof existing.result?.reason === 'string' ? existing.result.reason : undefined
       const previousSecurity = existing.payload.security as ToolAuthorization | undefined
       const sameGrant =
         action !== 'accept' ||
@@ -143,10 +144,15 @@ export class ApprovalManager {
       resolveApproval(approvalId, action, reason)
       this.approvals.delete(approvalId)
       this.clearExpiry(approvalId)
-      const interaction = transitionInteraction(approvalId, ['pending', 'resolving', 'blocked'], 'completed', {
-        action,
-        ...(reason ? { reason } : {}),
-      })
+      const interaction = transitionInteraction(
+        approvalId,
+        ['pending', 'resolving', 'blocked'],
+        'completed',
+        {
+          action,
+          ...(reason ? { reason } : {}),
+        },
+      )
       broadcastInteractionChanged(interaction)
       return true
     }
@@ -157,12 +163,10 @@ export class ApprovalManager {
   /** Business deadline: reject this tool and let the Agent continue. */
   expire(approvalId: string): void {
     if (!this.approvals.has(approvalId)) return
-    const interaction = transitionInteraction(
-      approvalId,
-      ['pending', 'resolving'],
-      'expired',
-      { action: 'reject', reason: '审批超时，工具未执行' },
-    )
+    const interaction = transitionInteraction(approvalId, ['pending', 'resolving'], 'expired', {
+      action: 'reject',
+      reason: '审批超时，工具未执行',
+    })
     if (!interaction) return
     broadcastInteractionChanged(interaction)
     resolveApproval(approvalId, 'reject', '审批超时，工具未执行')

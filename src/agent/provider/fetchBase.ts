@@ -298,12 +298,16 @@ export async function jsonRequest(
   }
   const contentType = res.headers.get('content-type') ?? ''
   if (!contentType.includes('json')) {
-    throw brainInvalidStream(`端点返回的不是 JSON 响应（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`)
+    throw brainInvalidStream(
+      `端点返回的不是 JSON 响应（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`,
+    )
   }
   try {
     return (await res.json()) as Record<string, unknown>
   } catch (err) {
-    throw brainInvalidStream(`响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`)
+    throw brainInvalidStream(
+      `响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`,
+    )
   }
 }
 
@@ -364,7 +368,9 @@ export async function* streamSSE(
   if (!contentType.includes('event-stream')) {
     controller.abort()
     signal?.removeEventListener('abort', abortFromParent)
-    throw brainInvalidStream(`端点返回的不是事件流（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`)
+    throw brainInvalidStream(
+      `端点返回的不是事件流（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`,
+    )
   }
   const reader = res.body.getReader()
   const decoder = new TextDecoder()

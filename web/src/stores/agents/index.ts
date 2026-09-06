@@ -340,6 +340,22 @@ export const useAgentsStore = defineStore('agents', () => {
     reconcilePetsFromSessions(chats.sessionsById)
   }
 
+  async function refreshPresentationConfig(): Promise<void> {
+    const previous = globalConfig.value
+    const next = await agentApi.getConfig()
+    globalConfig.value = next
+    for (const pet of pets.value) {
+      if (!pet.agentType) continue
+      const before = previous?.roles?.[pet.agentType]?.avatar
+      const after = next.roles?.[pet.agentType]?.avatar
+      if (before === after) continue
+      const visual = applyRoleAvatar(generatePet('emoji', new Set(), pet.chatId), after)
+      pet.faceType = visual.faceType
+      pet.face = visual.face
+    }
+    await loadSenseMeta()
+  }
+
   async function fetchHistoryList(): Promise<void> {
     await chats.refreshCatalog()
   }
@@ -391,6 +407,7 @@ export const useAgentsStore = defineStore('agents', () => {
     ...lifecycle,
     createMasterPet,
     initFromChats,
+    refreshPresentationConfig,
     fetchHistoryList,
     loadSenseMeta,
     iconForTool,

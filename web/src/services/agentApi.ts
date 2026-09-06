@@ -1941,6 +1941,9 @@ export const agentApi = {
   async getConfigApplyState(): Promise<import('@chery/protocol').ConfigApplyState> {
     return call<import('@chery/protocol').ConfigApplyState>('config.apply.status', {})
   },
+  async killBackgroundProcess(chatId: string, pid: number): Promise<{ killed: boolean }> {
+    return call<{ killed: boolean }>('bash.kill', { chatId, pid })
+  },
 
   /** hooks.get：读全局 hooks.json + brain 级 hooks（只读展示）*/
   async getHooks(): Promise<HooksGetResult> {

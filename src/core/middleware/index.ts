@@ -76,8 +76,9 @@ export default class AgentSession<T = unknown> {
    * 原子配置运行时（每轮可换）。
    * brain/adapters/builtSenses/senseTable 必须来自同一次上层解析，避免 provider 与工具定义混用。
    */
-  configureRuntime(runtime: RuntimeConfig): void {
+  configureRuntime(runtime: RuntimeConfig, global: GlobalConfig = this.ctx.global): void {
     this.runtime = runtime
+    this.ctx.global = global
     this.ctx.runtime = runtime
     this.senseTableVersion = getSenseRegistryVersion()
   }

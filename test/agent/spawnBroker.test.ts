@@ -1,7 +1,8 @@
 /**
  * spawnBroker 单元测试：broadcaster + wait 唤醒链 + 看门狗。
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import config from '@/utils/config.js'
 import {
   setSpawnBroadcaster,
   emitRoleCreated,
@@ -14,135 +15,158 @@ import {
   clearAllWaitedChildren,
   type RoleCreatedData,
   type RoleDestroyedData,
-} from "@/agent/spawnBroker.js";
+} from '@/agent/spawnBroker.js'
 
-describe("spawnBroker broadcaster", () => {
-  const broadcaster = vi.fn();
+describe('spawnBroker broadcaster', () => {
+  const broadcaster = vi.fn()
 
   beforeEach(() => {
-    broadcaster.mockClear();
-    setSpawnBroadcaster(broadcaster);
-  });
+    broadcaster.mockClear()
+    setSpawnBroadcaster(broadcaster)
+  })
 
   afterEach(() => {
-    setSpawnBroadcaster(null as any);
-  });
+    setSpawnBroadcaster(null)
+  })
 
   it("emitRoleCreated → broadcaster('created')", () => {
     const data: RoleCreatedData = {
-      taskId: "t1",
-      chatId: "c1",
-      parentChatId: "p1",
-      type: "reviewer",
-      avatar: "🦉",
-      prompt: "review",
-      brain: "mock",
-      senseGroup: "auto",
+      taskId: 't1',
+      chatId: 'c1',
+      parentChatId: 'p1',
+      type: 'reviewer',
+      avatar: '🦉',
+      prompt: 'review',
+      brain: 'mock',
+      senseGroup: 'auto',
       wait: true,
-    };
-    emitRoleCreated(data);
-    expect(broadcaster).toHaveBeenCalledWith("p1", "created", data);
-  });
+    }
+    emitRoleCreated(data)
+    expect(broadcaster).toHaveBeenCalledWith('p1', 'created', data)
+  })
 
   it("emitRoleDestroyed → broadcaster('destroyed')", () => {
-    const data: RoleDestroyedData = { chatId: "c1" };
-    emitRoleDestroyed("p1", data);
-    expect(broadcaster).toHaveBeenCalledWith("p1", "destroyed", data);
-  });
+    const data: RoleDestroyedData = { chatId: 'c1' }
+    emitRoleDestroyed('p1', data)
+    expect(broadcaster).toHaveBeenCalledWith('p1', 'destroyed', data)
+  })
 
-  it("broadcaster 未注入 → warn 不抛错", () => {
-    setSpawnBroadcaster(null as any);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it('broadcaster 未注入 → warn 不抛错', () => {
+    setSpawnBroadcaster(null)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     emitRoleCreated({
-      taskId: "t1",
-      chatId: "c1",
-      parentChatId: "p1",
-      type: "x",
-      avatar: "",
-      prompt: "",
-      brain: "",
-      senseGroup: "",
+      taskId: 't1',
+      chatId: 'c1',
+      parentChatId: 'p1',
+      type: 'x',
+      avatar: '',
+      prompt: '',
+      brain: '',
+      senseGroup: '',
       wait: false,
-    });
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
-  });
-});
+    })
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+})
 
-describe("spawnBroker wait 唤醒链", () => {
+describe('spawnBroker wait 唤醒链', () => {
   beforeEach(() => {
-    clearAllWaitedChildren();
-  });
+    clearAllWaitedChildren()
+  })
 
-  it("registerWaitedChild + getWaitedParent", () => {
-    registerWaitedChild("c1", "p1", "reviewer");
-    const entry = getWaitedParent("c1");
-    expect(entry).toEqual({ parentChatId: "p1", type: "reviewer" });
-  });
+  it('registerWaitedChild + getWaitedParent', () => {
+    registerWaitedChild('c1', 'p1', 'reviewer')
+    const entry = getWaitedParent('c1')
+    expect(entry).toEqual({ parentChatId: 'p1', type: 'reviewer' })
+  })
 
-  it("重复注册 → throw", () => {
-    registerWaitedChild("c1", "p1", "reviewer");
-    expect(() => registerWaitedChild("c1", "p1", "reviewer")).toThrow("waitedChild 已存在");
-  });
+  it('重复注册 → throw', () => {
+    registerWaitedChild('c1', 'p1', 'reviewer')
+    expect(() => registerWaitedChild('c1', 'p1', 'reviewer')).toThrow('waitedChild 已存在')
+  })
 
-  it("clearWaitedChild → 清除记录", () => {
-    registerWaitedChild("c1", "p1", "reviewer");
-    clearWaitedChild("c1");
-    expect(getWaitedParent("c1")).toBeUndefined();
-  });
+  it('clearWaitedChild → 清除记录', () => {
+    registerWaitedChild('c1', 'p1', 'reviewer')
+    clearWaitedChild('c1')
+    expect(getWaitedParent('c1')).toBeUndefined()
+  })
 
-  it("clearWaitedChild 幂等", () => {
-    clearWaitedChild("nonexistent"); // 不抛错
-  });
+  it('clearWaitedChild 幂等', () => {
+    clearWaitedChild('nonexistent') // 不抛错
+  })
 
-  it("clearWaitedChildrenByParent → 清除该主的所有子", () => {
-    registerWaitedChild("c1", "p1", "a");
-    registerWaitedChild("c2", "p1", "b");
-    registerWaitedChild("c3", "p2", "c");
-    clearWaitedChildrenByParent("p1");
-    expect(getWaitedParent("c1")).toBeUndefined();
-    expect(getWaitedParent("c2")).toBeUndefined();
-    expect(getWaitedParent("c3")).toBeDefined();
-  });
+  it('clearWaitedChildrenByParent → 清除该主的所有子', () => {
+    registerWaitedChild('c1', 'p1', 'a')
+    registerWaitedChild('c2', 'p1', 'b')
+    registerWaitedChild('c3', 'p2', 'c')
+    clearWaitedChildrenByParent('p1')
+    expect(getWaitedParent('c1')).toBeUndefined()
+    expect(getWaitedParent('c2')).toBeUndefined()
+    expect(getWaitedParent('c3')).toBeDefined()
+  })
 
-  it("clearAllWaitedChildren → 清空全部", () => {
-    registerWaitedChild("c1", "p1", "a");
-    registerWaitedChild("c2", "p2", "b");
-    clearAllWaitedChildren();
-    expect(getWaitedParent("c1")).toBeUndefined();
-    expect(getWaitedParent("c2")).toBeUndefined();
-  });
-});
+  it('clearAllWaitedChildren → 清空全部', () => {
+    registerWaitedChild('c1', 'p1', 'a')
+    registerWaitedChild('c2', 'p2', 'b')
+    clearAllWaitedChildren()
+    expect(getWaitedParent('c1')).toBeUndefined()
+    expect(getWaitedParent('c2')).toBeUndefined()
+  })
+})
 
-describe("spawnBroker 看门狗", () => {
+describe('spawnBroker 看门狗', () => {
+  const originalWatchdog = structuredClone(config.global.watchdog)
+
   beforeEach(() => {
-    clearAllWaitedChildren();
-    vi.useFakeTimers();
-  });
+    clearAllWaitedChildren()
+    vi.useFakeTimers()
+  })
 
   afterEach(() => {
-    clearAllWaitedChildren();
-    vi.useRealTimers();
-  });
+    clearAllWaitedChildren()
+    config.global.watchdog = structuredClone(originalWatchdog)
+    vi.useRealTimers()
+  })
 
-  it("超时 → asyncWakeHandler 调用", () => {
-    const handler = vi.fn();
-    setAsyncWakeHandler(handler);
-    registerWaitedChild("c1", "p1", "reviewer");
-    vi.advanceTimersByTime(5 * 60 * 1000);
+  it('超时 → asyncWakeHandler 调用', () => {
+    const handler = vi.fn()
+    setAsyncWakeHandler(handler)
+    registerWaitedChild('c1', 'p1', 'reviewer')
+    vi.advanceTimersByTime(5 * 60 * 1000)
     expect(handler).toHaveBeenCalledWith({
-      childChatId: "c1",
-      parentChatId: "p1",
-      type: "reviewer",
-    });
-  });
+      childChatId: 'c1',
+      parentChatId: 'p1',
+      type: 'reviewer',
+      timeoutMs: 5 * 60 * 1000,
+      wakeOnTimeout: false,
+    })
+  })
 
-  it("正常清除 → 看门狗不触发", () => {
-    const handler = vi.fn();
-    setAsyncWakeHandler(handler);
-    registerWaitedChild("c1", "p1", "reviewer");
-    clearWaitedChild("c1");
-    vi.advanceTimersByTime(5 * 60 * 1000);
-    expect(handler).not.toHaveBeenCalled();
-  });
-});
+  it('正常清除 → 看门狗不触发', () => {
+    const handler = vi.fn()
+    setAsyncWakeHandler(handler)
+    registerWaitedChild('c1', 'p1', 'reviewer')
+    clearWaitedChild('c1')
+    vi.advanceTimersByTime(5 * 60 * 1000)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('已创建计时器保持创建时的超时与唤醒策略', () => {
+    const handler = vi.fn()
+    setAsyncWakeHandler(handler)
+    config.global.watchdog = { timeout_ms: 1000, wake_on_timeout: true }
+    registerWaitedChild('snapshot-child', 'snapshot-parent', 'reviewer')
+
+    config.global.watchdog = { timeout_ms: 10, wake_on_timeout: false }
+    vi.advanceTimersByTime(1000)
+
+    expect(handler).toHaveBeenCalledWith({
+      childChatId: 'snapshot-child',
+      parentChatId: 'snapshot-parent',
+      type: 'reviewer',
+      timeoutMs: 1000,
+      wakeOnTimeout: true,
+    })
+  })
+})

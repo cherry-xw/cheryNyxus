@@ -252,7 +252,7 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     await closeAndDelete(service, chatId, subscriptionId)
   })
 
-  it('retires completed history, rotates model/tool/role context, and dispatches a new child in the new epoch', async () => {
+  it('preserves completed children, rotates model/tool/role context, and dispatches a new child in the new epoch', async () => {
     const { chatId, subscriptionId } = await createRoot(service, 'protocol_spawn_reader')
     const firstHandle = service.client.request(
       Method.CHAT_INPUT_SUBMIT,
@@ -286,7 +286,7 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     })
     expect(changed.success).toBe(true)
     expect((changed.data as SessionRuntimeSetResponseData).applied).toContain(oldChild.chatId)
-    expect(getChat(oldChild.chatId)?.lifecycle).toBe('retired')
+    expect(getChat(oldChild.chatId)?.lifecycle).toBe('active')
 
     const afterEpochsResponse = await service.client.call(Method.CHAT_EPOCH_LIST, { chatId })
     const afterEpochs = afterEpochsResponse.data as ChatEpochListResponseData
@@ -310,11 +310,13 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     })
     expect(oldPrompt.success).toBe(true)
     const listed = await service.client.call(Method.CHAT_LIST, { scope: 'stage' })
-    const retiredChild = (listed.data as ChatListResponseData).chats.find(
+    const preservedChild = (listed.data as ChatListResponseData).chats.find(
       (chat) => chat.chatId === oldChild.chatId,
     )
-    expect(retiredChild).toMatchObject({ lifecycle: 'retired' })
-    expect(retiredChild).not.toHaveProperty('activeEpochId')
+    expect(preservedChild).toMatchObject({
+      lifecycle: 'active',
+      activeEpochId: afterEpochs.activeEpochId,
+    })
 
     resetMockProviderState()
     const nextHandle = service.client.request(
@@ -345,7 +347,7 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     await closeAndDelete(service, chatId, subscriptionId)
   })
 
-  it('abandons a running child subtree when its role is deleted and refuses to resume it', async () => {
+  it('abandons a running child subtree after explicit cancellation and refuses to resume it', async () => {
     const { chatId, subscriptionId } = await createRoot(service, 'protocol_spawn_slow')
     const submitHandle = service.client.request(
       Method.CHAT_INPUT_SUBMIT,

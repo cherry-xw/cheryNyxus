@@ -11,9 +11,6 @@ import {
   spawnSandboxedCommand,
 } from '@/core/security/sandbox.js'
 
-const DEFAULT_TIMEOUT = config.global.sense_execute_timeout ?? 30000
-const LOG_RETENTION_HOURS = config.global.bash_log_retention_hours ?? 24
-
 /** Bash 工具执行结果结构 */
 interface BashResult {
   status: 'success' | 'timeout' | 'error'
@@ -72,8 +69,10 @@ export default sense(
 
     const startTime = Date.now()
     const hash = ''
+    const timeoutMs = config.global.sense_execute_timeout ?? 30000
+    const logRetentionHours = config.global.bash_log_retention_hours ?? 24
 
-    logger.tools.cleanOldBashLogs(LOG_RETENTION_HOURS)
+    logger.tools.cleanOldBashLogs(logRetentionHours)
 
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案）；
     // 测试场景（无 ctx）为 undefined → register 跳过，执行不受影响
@@ -90,7 +89,8 @@ export default sense(
     }
     if (!senseCtx.security?.requiredSandboxMode) {
       return {
-        content: '状态: error\n说明: 缺少已复核的沙箱授权，已拒绝执行命令。请通过统一工具门的审批后重试。',
+        content:
+          '状态: error\n说明: 缺少已复核的沙箱授权，已拒绝执行命令。请通过统一工具门的审批后重试。',
       }
     }
 
@@ -158,7 +158,7 @@ export default sense(
         }
 
         resolve({ content: formatBashResult(result), hash })
-      }, DEFAULT_TIMEOUT)
+      }, timeoutMs)
 
       proc.on('close', (code) => {
         clearTimeout(timer)

@@ -163,6 +163,27 @@ models:
     ).toEqual({ thinking: { type: 'enabled' }, budget: 9 })
   })
 
+  it('adopts a changed catalog only after cache reset', async () => {
+    const catalog = await loadProjectCatalog(`models:
+  - id: old
+    match: { models: [target] }
+`)
+    const file = path.join(process.env.CHERY_DIR!, '.chery', 'model-catalog.yaml')
+    expect(catalog.resolveModelCatalog({ model: 'target' }).id).toBe('old')
+    writeFileSync(
+      file,
+      `models:
+  - id: new
+    match: { models: [target] }
+`,
+      'utf8',
+    )
+
+    expect(catalog.resolveModelCatalog({ model: 'target' }).id).toBe('old')
+    catalog.resetModelCatalogCache()
+    expect(catalog.resolveModelCatalog({ model: 'target' }).id).toBe('new')
+  })
+
   it('keeps DeepSeek reasoning history protocol-specific', async () => {
     const catalog = await loadDefaultCatalog()
     expect(

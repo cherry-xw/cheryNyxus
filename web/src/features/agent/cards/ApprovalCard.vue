@@ -92,11 +92,7 @@ function closeToQueue(): void {
 </script>
 
 <template>
-  <div
-    class="approval-card"
-    role="group"
-    :aria-label="presentation.title"
-  >
+  <div class="approval-card" role="group" :aria-label="presentation.title">
     <div class="header">
       <span class="indicator" aria-hidden="true" />
       <span class="sense-name" :title="approval.senseName">待审批</span>

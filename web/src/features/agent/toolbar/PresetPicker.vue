@@ -101,11 +101,7 @@ function pickPreset(name: string): void {
       </div>
     </transition>
     <div v-if="pickerOpen" class="picker-backdrop" @click="pickerOpen = false" />
-    <span
-      v-if="showTrigger"
-      class="picker-trigger"
-      @click="handleClick"
-    >
+    <span v-if="showTrigger" class="picker-trigger" @click="handleClick">
       <slot />
     </span>
   </div>

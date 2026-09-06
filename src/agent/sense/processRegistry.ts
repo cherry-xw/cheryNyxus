@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'child_process'
 import { logger } from '@/utils/logger/index.js'
+import { notifyRestartActivityChanged } from '@/service/restartCoordinator.js'
 
 /**
  * Bash 子进程注册表（execute_command sense 生命周期管理）。
@@ -66,6 +67,7 @@ export function registerBashProcess(
     killed: false,
   }
   getChatMap(chatId).set(proc.pid, record)
+  notifyRestartActivityChanged()
   logger.event('bash.proc.register', { chatId, pid: proc.pid, cmd: meta.command })
 }
 
@@ -83,6 +85,14 @@ export function unregisterBashProcess(chatId: string | undefined, pid: number): 
   if (m.size === 0) {
     registry.delete(chatId)
   }
+  notifyRestartActivityChanged()
+}
+
+/** Live handles, including timed-out and explicitly killed processes awaiting close. */
+export function getBashProcessActivity(): Array<BashProcessEntry & { chatId: string }> {
+  return [...registry].flatMap(([chatId, entries]) =>
+    [...entries.values()].map(({ proc: _proc, ...entry }) => ({ chatId, ...entry })),
+  )
 }
 
 /**

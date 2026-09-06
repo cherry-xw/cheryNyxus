@@ -1,217 +1,356 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { ZodType } from 'zod'
-import config, { reloadMcpServersConfig, type McpServerConfig } from '@/utils/config.js'
+import config, { type McpServerConfig } from '@/utils/config.js'
 import { registerSenses, unregisterSenses } from '@/core/sense'
+import { captureSenseRegistryRestore } from '@/core/sense/senseRegistry.js'
 import type { Sense } from '@/core/sense'
-import { logger } from '@/utils/logger/index.js'
 import { connectMcpServer } from './client.js'
 import { toolToSense, resourceToSense, promptToSense } from './convert.js'
-import type { McpClientHandle, McpSenseContext, McpServerInfo } from './types.js'
+import type { McpSenseContext, McpServerInfo } from './types.js'
 import { McpServerError } from './types.js'
+import {
+  McpLifetime,
+  trackMcpSenses,
+  collectRetiredMcpClients,
+  hasRetiredMcpProcess,
+} from './lifetime.js'
 
-/** 已连接 server 的注册条目：句柄 + 该 server 注册的 sense 名清单 */
 interface ConnectedEntry {
-  handle: McpClientHandle
+  disconnected?: boolean
+  lifetime: McpLifetime
+  cfg: McpServerConfig
+  senses: Sense<ZodType>[]
   senseNames: string[]
 }
-
-/**
- * 已连接 MCP server 状态机：name → {handle, senseNames}。
- * 替代原 handles 数组，支持按 name 精确管理（connect/disconnect/reload）。
- */
 const connectedServers = new Map<string, ConnectedEntry>()
-
-/** 最近一次 connect/reload 失败原因（name → message），供 list 的 failed 状态展示 */
 const lastError = new Map<string, string>()
+let operation: Promise<void> = Promise.resolve()
+let coordinatedReload: ((name?: string) => Promise<McpReloadResult>) | undefined
+let applyStatus: ((name: string) => Pick<McpServerInfo, 'applyStatus' | 'applyReason'>) | undefined
 
-/**
- * 连接单个 MCP server，按其声明的能力（tools/resources/prompts）转成 Sense 列表。
- * 返回句柄 + senses + senseNames（供调用方注册与状态追踪）。不注册、不存状态——纯构建。
- */
-async function buildSensesForServer(
-  name: string,
-  cfg: McpServerConfig,
-): Promise<{ handle: McpClientHandle; senses: Sense<ZodType>[]; senseNames: string[] }> {
-  const handle = await connectMcpServer(name, cfg)
-
-  const ctx: McpSenseContext = {
-    client: handle.client,
-    serverName: name,
-    defaultSupervision: cfg.supervision,
-  }
-
-  const senses: Sense<ZodType>[] = []
-  const caps = handle.client.getServerCapabilities()
-
-  // tools：每个 tool 一个 sense
-  if (caps?.tools) {
-    const { tools } = await handle.client.listTools()
-    senses.push(...tools.map((t) => toolToSense(t, ctx)))
-  }
-
-  // resources：整个 server 合并为单个 read_resource sense
-  if (caps?.resources) {
-    let resources: Array<{ uri: string; name?: string; description?: string }> = []
-    try {
-      resources = (await handle.client.listResources()).resources
-    } catch {
-      // server 声明 resources 能力但 list 失败：保留空列表，sense 仍注册（按 uri 读）
-    }
-    senses.push(resourceToSense(resources, ctx))
-  }
-
-  // prompts：整个 server 合并为单个 get_prompt sense
-  if (caps?.prompts) {
-    let prompts: Array<{ name: string; description?: string }> = []
-    try {
-      prompts = (await handle.client.listPrompts()).prompts
-    } catch {
-      // 同上：声明能力但 list 失败，保留空列表
-    }
-    senses.push(promptToSense(prompts, ctx))
-  }
-
-  const senseNames = senses.map((s) => s.definition.function.name)
-  return { handle, senses, senseNames }
+export function setMcpReloadCoordinator(
+  reload: (name?: string) => Promise<McpReloadResult>,
+  status?: typeof applyStatus,
+): void {
+  coordinatedReload = reload
+  applyStatus = status
 }
 
-/** 构造单个 server 的 McpServerInfo（config + 状态合并）。cfg 必须存在。 */
+export function classifyMcpChange(before?: McpServerConfig, after?: McpServerConfig) {
+  if (!before) return after ? 'added' : 'unchanged'
+  if (!after) return 'removed'
+  if (isDeepStrictEqual(before, after)) return 'unchanged'
+  const { supervision: _a, ...a } = before
+  const { supervision: _b, ...b } = after
+  return isDeepStrictEqual(a, b) ? 'supervision' : 'connection'
+}
+
+async function buildSensesForServer(name: string, cfg: McpServerConfig): Promise<ConnectedEntry> {
+  const lifetime = new McpLifetime(await connectMcpServer(name, cfg), cfg.transport === 'stdio')
+  try {
+    const ctx: McpSenseContext = {
+      get client() {
+        return lifetime.handle.client
+      },
+      serverName: name,
+      defaultSupervision: cfg.supervision,
+    }
+    const senses: Sense<ZodType>[] = []
+    const client = lifetime.handle.client
+    const caps = client.getServerCapabilities()
+    if (caps?.tools) {
+      const { tools } = await client.listTools()
+      senses.push(...tools.map((tool) => toolToSense(tool, ctx)))
+    }
+    if (caps?.resources) {
+      const resources = await client
+        .listResources()
+        .then((result) => result.resources)
+        .catch(() => [])
+      senses.push(resourceToSense(resources, ctx))
+    }
+    if (caps?.prompts) {
+      const prompts = await client
+        .listPrompts()
+        .then((result) => result.prompts)
+        .catch(() => [])
+      senses.push(promptToSense(prompts, ctx))
+    }
+    trackMcpSenses(senses, lifetime)
+    return {
+      lifetime,
+      cfg: structuredClone(cfg),
+      senses,
+      senseNames: senses.map((s) => s.definition.function.name),
+    }
+  } catch (error) {
+    lifetime.retire()
+    await lifetime.collect()
+    throw error
+  }
+}
+
+/** Only selected servers are touched. The caller publishes within its tree transaction. */
+export async function prepareMcpChanges(
+  configs: Record<string, McpServerConfig>,
+  names: string[],
+  disconnect = false,
+) {
+  const previous = operation
+  let unlock!: () => void
+  operation = new Promise<void>((resolve) => {
+    unlock = resolve
+  })
+  await previous
+  await collectRetiredMcpClients()
+  const old = new Map(names.map((name) => [name, connectedServers.get(name)]))
+  const next = new Map<string, ConnectedEntry | undefined>()
+  const stopped = new Set<ConnectedEntry>()
+  let published = false
+  let committed = false
+  let disposed = false
+  let restoreRegistry: (() => void) | undefined
+  const unsafe = () =>
+    names.some((name) => {
+      const entry = old.get(name)
+      if (hasRetiredMcpProcess(name, entry?.lifetime)) return true
+      if (entry?.disconnected && classifyMcpChange(entry.cfg, configs[name]) === 'unchanged')
+        return false
+      return (
+        entry &&
+        (entry.cfg.transport === 'stdio' || configs[name]?.transport === 'stdio') &&
+        entry.lifetime.busy()
+      )
+    })
+      ? '等待 MCP 旧执行器或在途调用释放；stdio 服务不能同时启动两份'
+      : undefined
+
+  async function restoreStopped() {
+    for (const [name, entry] of old) {
+      if (!entry || !stopped.has(entry)) continue
+      if (hasRetiredMcpProcess(name)) {
+        lastError.set(name, 'MCP 临时进程未能确认关闭，暂缓恢复旧连接，请重试')
+        continue
+      }
+      try {
+        entry.lifetime.handle = await connectMcpServer(name, entry.cfg)
+        entry.lifetime.closed = false
+        entry.lifetime.suspended = false
+      } catch {
+        lastError.set(name, 'MCP 新连接失败，旧参数连接也未能恢复，请重试')
+      }
+    }
+    stopped.clear()
+  }
+
+  try {
+    if (!unsafe()) {
+      for (const name of names) {
+        const cfg = configs[name]
+        const entry = old.get(name)
+        if (!cfg) {
+          next.set(name, disconnect && entry ? { ...entry, disconnected: true } : undefined)
+          continue
+        }
+        if (
+          entry?.disconnected &&
+          !entry.lifetime.closed &&
+          !entry.lifetime.suspended &&
+          classifyMcpChange(entry.cfg, cfg) === 'unchanged'
+        ) {
+          next.set(name, { ...entry, disconnected: false })
+          continue
+        }
+        if (
+          entry &&
+          !entry.lifetime.suspended &&
+          !entry.lifetime.closed &&
+          classifyMcpChange(entry.cfg, cfg) === 'supervision'
+        ) {
+          next.set(name, {
+            ...entry,
+            disconnected: false,
+            cfg: structuredClone(cfg),
+            senses: entry.senses.map((sense) => ({ ...sense, supervisionLevel: cfg.supervision })),
+          })
+          continue
+        }
+        if (entry && (entry.cfg.transport === 'stdio' || cfg.transport === 'stdio')) {
+          const wasOpen = !entry.lifetime.closed
+          entry.lifetime.suspended = true
+          try {
+            await entry.lifetime.close()
+          } catch (error) {
+            lastError.set(name, 'MCP 旧连接未能确认关闭，已停止重载，请重试')
+            throw error
+          }
+          if (wasOpen) stopped.add(entry)
+        }
+        try {
+          next.set(name, await buildSensesForServer(name, cfg))
+        } catch (error) {
+          lastError.set(name, 'MCP 候选连接或工具探测失败，配置尚未生效')
+          throw error
+        }
+      }
+    }
+  } catch (error) {
+    for (const [name, entry] of next)
+      if (entry && entry.lifetime !== old.get(name)?.lifetime) {
+        entry.lifetime.retire()
+        await entry.lifetime.collect()
+      }
+    await restoreStopped()
+    unlock()
+    throw error
+  }
+
+  return {
+    unsafe,
+    contracts: () =>
+      Object.fromEntries(
+        [...next].map(([name, entry]) => [
+          name,
+          entry?.senses.map((sense) => ({
+            definition: sense.definition,
+            supervision: sense.supervisionLevel,
+          })),
+        ]),
+      ),
+    apply() {
+      if (unsafe() || next.size !== names.length) throw new Error(unsafe() ?? 'MCP 尚未准备完成')
+      restoreRegistry = captureSenseRegistryRestore()
+      published = true
+      for (const [name, entry] of next) {
+        if (entry) {
+          if (!entry.disconnected) {
+            if (entry.lifetime.retired && !entry.lifetime.revive())
+              throw new Error('MCP 旧连接正在关闭，请重试')
+            registerSenses(entry.senses)
+          }
+          connectedServers.set(name, entry)
+        } else connectedServers.delete(name)
+        const dropped =
+          old
+            .get(name)
+            ?.senseNames.filter(
+              (sense) => entry?.disconnected || !entry?.senseNames.includes(sense),
+            ) ?? []
+        if (dropped.length) unregisterSenses(dropped)
+      }
+    },
+    rollback() {
+      if (!published) return
+      restoreRegistry?.()
+      for (const [name, entry] of old) {
+        if (entry) {
+          connectedServers.set(name, entry)
+          if (entry.disconnected) entry.lifetime.retire()
+        } else connectedServers.delete(name)
+      }
+      published = false
+    },
+    commit() {
+      committed = true
+      for (const [name, entry] of old) {
+        if (entry && (entry.lifetime !== next.get(name)?.lifetime || next.get(name)?.disconnected))
+          entry.lifetime.retire()
+        lastError.delete(name)
+      }
+      stopped.clear()
+    },
+    async dispose() {
+      if (disposed) return
+      disposed = true
+      try {
+        if (!committed) {
+          this.rollback()
+          for (const [name, entry] of next)
+            if (entry && entry.lifetime !== old.get(name)?.lifetime) entry.lifetime.retire()
+          await collectRetiredMcpClients()
+          await restoreStopped()
+        }
+        await collectRetiredMcpClients()
+      } finally {
+        unlock()
+      }
+    },
+  }
+}
+
 function buildServerInfo(name: string, cfg: McpServerConfig): McpServerInfo {
   const entry = connectedServers.get(name)
-  if (entry) {
-    return {
-      name,
-      status: 'connected',
-      transport: cfg.transport,
-      supervision: cfg.supervision,
-      senseNames: entry.senseNames,
-    }
-  }
-  const err = lastError.get(name)
-  if (err) {
-    return {
-      name,
-      status: 'failed',
-      transport: cfg.transport,
-      supervision: cfg.supervision,
-      senseNames: [],
-      error: err,
-    }
-  }
+  const available =
+    entry && !entry.disconnected && !entry.lifetime.closed && !entry.lifetime.suspended
+  const error = lastError.get(name)
   return {
     name,
-    status: 'disconnected',
-    transport: cfg.transport,
-    supervision: cfg.supervision,
-    senseNames: [],
+    status: available ? 'connected' : error ? 'failed' : 'disconnected',
+    transport: entry?.cfg.transport ?? cfg.transport,
+    supervision: entry ? entry.cfg.supervision : cfg.supervision,
+    senseNames: available ? entry.senseNames : [],
+    ...(error ? { error } : {}),
+    ...applyStatus?.(name),
   }
 }
 
-/** mcp.list：列出所有 config 中声明的 server 及其运行期状态 */
 export function listMcpServers(): McpServerInfo[] {
-  const cfgs = config.mcp_servers ?? {}
-  return Object.entries(cfgs).map(([name, cfg]) => buildServerInfo(name, cfg))
+  const names = new Set([...Object.keys(config.mcp_servers ?? {}), ...connectedServers.keys()])
+  return [...names].map((name) =>
+    buildServerInfo(name, config.mcp_servers?.[name] ?? connectedServers.get(name)!.cfg),
+  )
 }
 
-/** mcp.get：单个 server 详情。不在 config → NOT_FOUND */
 export function getMcpServer(name: string): McpServerInfo {
-  const cfg = config.mcp_servers?.[name]
-  if (!cfg) {
-    throw new McpServerError(`扩展工具 "${name}" 没配置`, 'NOT_FOUND')
-  }
+  const cfg = config.mcp_servers?.[name] ?? connectedServers.get(name)?.cfg
+  if (!cfg) throw new McpServerError(`扩展工具 "${name}" 没配置`, 'NOT_FOUND')
   return buildServerInfo(name, cfg)
 }
 
-/**
- * mcp.connect：按 config.mcp_servers[name] 连接。
- * 已连接→幂等 no-op；不在 config→NOT_FOUND；连接失败→记 lastError 并抛出（不阻断其他 server）。
- */
+async function applyStandalone(
+  configs: Record<string, McpServerConfig>,
+  names: string[],
+  disconnect = false,
+) {
+  const prepared = await prepareMcpChanges(configs, names, disconnect)
+  try {
+    const reason = prepared.unsafe()
+    if (reason) throw new Error(reason)
+    prepared.apply()
+    prepared.commit()
+  } finally {
+    await prepared.dispose()
+  }
+}
+
 export async function connectMcpServerByName(name: string): Promise<McpServerInfo> {
-  const cfg = config.mcp_servers?.[name]
-  if (!cfg) {
-    throw new McpServerError(`扩展工具 "${name}" 没配置`, 'NOT_FOUND')
-  }
-  if (connectedServers.has(name)) {
-    return buildServerInfo(name, cfg) // 幂等
-  }
+  getMcpServer(name)
+  if (getMcpServer(name).status === 'connected') return getMcpServer(name)
   try {
-    const { handle, senses, senseNames } = await buildSensesForServer(name, cfg)
-    registerSenses(senses)
-    connectedServers.set(name, { handle, senseNames })
-    lastError.delete(name)
-    logger.info(`✓ MCP server "${name}" 已连接，注册 ${senses.length} 个 sense`)
-    return buildServerInfo(name, cfg)
-  } catch (err) {
-    const msg = (err as Error).message
-    lastError.set(name, msg)
-    logger.warn(`⚠ MCP server "${name}" 连接失败: ${msg}`)
-    throw err
+    await applyStandalone(config.mcp_servers ?? {}, [name])
+  } catch (error) {
+    lastError.set(name, 'MCP 连接失败，请检查服务配置并重试')
+    throw error
   }
+  return getMcpServer(name)
 }
 
-/**
- * mcp.disconnect：断开单个 server。
- * config 无名→NOT_FOUND；未连接→幂等返回 disconnected；已连接→反注册其 sense + close。
- */
 export async function disconnectMcpServer(name: string): Promise<McpServerInfo> {
-  const cfg = config.mcp_servers?.[name]
-  if (!cfg) {
-    throw new McpServerError(`扩展工具 "${name}" 没配置`, 'NOT_FOUND')
-  }
-  const entry = connectedServers.get(name)
-  if (!entry) {
-    return buildServerInfo(name, cfg) // 幂等：已断开
-  }
-  unregisterSenses(entry.senseNames)
-  await entry.handle.close().catch(() => {})
-  connectedServers.delete(name)
-  logger.info(`✓ MCP server "${name}" 已断开`)
-  return buildServerInfo(name, cfg)
+  const info = getMcpServer(name)
+  await applyStandalone({}, [name], true)
+  return { ...info, status: 'disconnected', senseNames: [] }
 }
 
-/**
- * 原子重载单个 server（mcp.reload {name}）：
- * 先建新连接（失败则旧态保留）→ 同步 register 新 + unregister 旧差集 → close 旧 client。
- * 注册表在任意时刻对同名 sense 都有效（无缺失窗口）。不在 config → NOT_FOUND。
- */
 export async function reloadOneServer(name: string): Promise<McpServerInfo> {
-  const cfg = config.mcp_servers?.[name]
-  if (!cfg) {
-    throw new McpServerError(`扩展工具 "${name}" 没配置`, 'NOT_FOUND')
+  if (coordinatedReload) {
+    await coordinatedReload(name)
+    return getMcpServer(name)
   }
-  const oldEntry = connectedServers.get(name)
-
-  // 1. 建新连接（async 边界）。失败 → 旧连接与旧 sense 原封不动（原子保留）
-  let built: { handle: McpClientHandle; senses: Sense<ZodType>[]; senseNames: string[] }
-  try {
-    built = await buildSensesForServer(name, cfg)
-  } catch (err) {
-    const msg = (err as Error).message
-    lastError.set(name, msg)
-    logger.warn(`⚠ MCP server "${name}" 重载失败（保留旧态）: ${msg}`)
-    throw err
-  }
-
-  // 2. 同步交换（同 tick，无 await）：register 新（同名覆盖）→ unregister 旧差集
-  registerSenses(built.senses)
-  if (oldEntry) {
-    const dropped = oldEntry.senseNames.filter((n) => !built.senseNames.includes(n))
-    if (dropped.length > 0) {
-      unregisterSenses(dropped)
-    }
-  }
-
-  // 3. close 旧 client（注册表已指向新，旧 sense 已被覆盖/移除）
-  if (oldEntry) {
-    await oldEntry.handle.close().catch(() => {})
-  }
-
-  connectedServers.set(name, { handle: built.handle, senseNames: built.senseNames })
-  lastError.delete(name)
-  logger.info(`✓ MCP server "${name}" 已原子重载，注册 ${built.senses.length} 个 sense`)
-  return buildServerInfo(name, cfg)
+  getMcpServer(name)
+  await applyStandalone(config.mcp_servers ?? {}, [name])
+  return getMcpServer(name)
 }
 
-/** mcp.reload 返回结构（servers + 汇总计数） */
 export interface McpReloadResult {
   servers: McpServerInfo[]
   connected: number
@@ -219,86 +358,67 @@ export interface McpReloadResult {
   totalSenses: number
 }
 
-/**
- * mcp.reload（全量）：重读 config → 断开已移除的 server → 对每个仍存在的 server 原子重载（逐个容忍）。
- * 返回 summary。
- */
-export async function reloadMcpServers(): Promise<McpReloadResult> {
-  reloadMcpServersConfig()
-
-  const newNames = new Set(Object.keys(config.mcp_servers ?? {}))
-
-  // 断开已从 config 移除的 server
-  const removed = [...connectedServers.keys()].filter((n) => !newNames.has(n))
-  await Promise.all(removed.map((n) => disconnectMcpServer(n).catch(() => {})))
-
-  // 原子重载每个仍存在的 server（未连的会被 reloadOneServer 建连）
-  let connected = 0
-  let failed = 0
-  let totalSenses = 0
-  for (const name of newNames) {
-    try {
-      const info = await reloadOneServer(name)
-      connected++
-      totalSenses += info.senseNames.length
-    } catch {
-      failed++
-    }
+export function mcpReloadSummary(): McpReloadResult {
+  const servers = listMcpServers()
+  return {
+    servers,
+    connected: servers.filter((server) => server.status === 'connected').length,
+    failed: servers.filter(
+      (server) => server.error || server.status === 'failed' || server.applyStatus === 'failed',
+    ).length,
+    totalSenses: servers.reduce((sum, server) => sum + server.senseNames.length, 0),
   }
-
-  logger.info(`MCP 重载完成：${connected} 成功 / ${failed} 失败，共注册 ${totalSenses} 个 sense`)
-  return { servers: listMcpServers(), connected, failed, totalSenses }
 }
 
-/**
- * 取已连 server 注册的 sense 名清单。供 runtimeResolver 把 enabled MCP server 的
- * tools 合并进 chat schema。未连→NOT_FOUND（fail loud：chat 启用了未连的 server）。
- */
+export async function reloadMcpServers(): Promise<McpReloadResult> {
+  if (coordinatedReload) return coordinatedReload()
+  const configs = config.mcp_servers ?? {}
+  const names = new Set([...Object.keys(configs), ...connectedServers.keys()])
+  for (const name of names) {
+    if (
+      !connectedServers.get(name)?.disconnected &&
+      classifyMcpChange(connectedServers.get(name)?.cfg, configs[name]) === 'unchanged'
+    )
+      continue
+    try {
+      await applyStandalone(configs, [name])
+    } catch {
+      /* Each server reports its own error. */
+    }
+  }
+  return mcpReloadSummary()
+}
+
 export function getConnectedServerSenseNames(name: string): string[] {
   const entry = connectedServers.get(name)
-  if (!entry) {
-    const cfg = config.mcp_servers?.[name]
-    if (!cfg) {
-      throw new McpServerError(`扩展工具 "${name}" 没配置`, 'NOT_FOUND')
-    }
+  if (!entry || entry.disconnected || entry.lifetime.closed || entry.lifetime.suspended) {
+    getMcpServer(name)
     throw new McpServerError(`扩展工具 "${name}" 没连上`, 'NOT_FOUND')
   }
   return entry.senseNames
 }
 
-/** 已连 server 名清单（brain.list 供前端渲染开关） */
 export function listConnectedServerNames(): string[] {
-  return [...connectedServers.keys()]
+  return listMcpServers()
+    .filter((server) => server.status === 'connected')
+    .map((server) => server.name)
 }
 
-/**
- * 启动期加载所有 MCP server（bootstrap 调用）。
- * 收敛为遍历 connectMcpServerByName；单个失败 warn 跳过，不阻断启动；无配置时直接返回。
- */
 export async function loadMcpSenses(): Promise<void> {
-  const cfgs = config.mcp_servers
-  if (!cfgs || Object.keys(cfgs).length === 0) return
-
-  let ok = 0
-  let failed = 0
-  let totalSenses = 0
-
-  for (const name of Object.keys(cfgs)) {
+  for (const name of Object.keys(config.mcp_servers ?? {})) {
     try {
-      const info = await connectMcpServerByName(name)
-      ok++
-      totalSenses += info.senseNames.length
+      await connectMcpServerByName(name)
     } catch {
-      failed++
+      /* Startup isolates unavailable servers. */
     }
   }
-
-  logger.info(`MCP 加载完成：${ok} 成功 / ${failed} 失败，共注册 ${totalSenses} 个 sense`)
 }
 
-/** 进程关闭时关闭所有 MCP client（index.ts SIGINT/SIGTERM 钩子） */
 export async function closeMcpClients(): Promise<void> {
-  await Promise.all(
-    [...connectedServers.keys()].map((name) => disconnectMcpServer(name).catch(() => {})),
-  )
+  for (const entry of connectedServers.values()) {
+    unregisterSenses(entry.senseNames)
+    entry.lifetime.retire()
+  }
+  connectedServers.clear()
+  await collectRetiredMcpClients()
 }

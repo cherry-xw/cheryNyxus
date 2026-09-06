@@ -204,9 +204,8 @@ export function getRootChatIdForEpoch(chatId: string): string {
   for (let depth = 0; depth < 64; depth += 1) {
     if (seen.has(current)) throw new Error(`会话父链存在循环：${chatId}`)
     seen.add(current)
-    const row = db
-      .prepare('SELECT parent_chat_id FROM chats WHERE id = ?')
-      .get(current) as { parent_chat_id: string | null } | undefined
+    const row = db.prepare('SELECT parent_chat_id FROM chats WHERE id = ?').get(current) as
+      { parent_chat_id: string | null } | undefined
     if (!row) throw new Error(`会话不存在：${chatId}`)
     if (!row.parent_chat_id) return current
     current = row.parent_chat_id
@@ -290,9 +289,8 @@ function insertEpoch(input: {
 }
 
 export function getChatEpoch(epochId: string): ChatEpochRecord | undefined {
-  const row = getSoulDb()
-    .prepare('SELECT * FROM chat_epochs WHERE epoch_id = ?')
-    .get(epochId) as ChatEpochRow | undefined
+  const row = getSoulDb().prepare('SELECT * FROM chat_epochs WHERE epoch_id = ?').get(epochId) as
+    ChatEpochRow | undefined
   return row ? toEpoch(row) : undefined
 }
 
@@ -421,7 +419,9 @@ export function rotateActiveChatEpoch(input: {
       "UPDATE chat_epochs SET status = 'historical', closed_at = ? WHERE epoch_id = ? AND status = 'active'",
     ).run(now, active.epochId)
     const max = db
-      .prepare('SELECT COALESCE(MAX(ordinal), -1) AS ordinal FROM chat_epochs WHERE root_chat_id = ?')
+      .prepare(
+        'SELECT COALESCE(MAX(ordinal), -1) AS ordinal FROM chat_epochs WHERE root_chat_id = ?',
+      )
       .get(rootChatId) as { ordinal: number }
     next = insertEpoch({
       rootChatId,
@@ -525,9 +525,7 @@ export function getFrozenChatSnapshot(
     lifecycle: row.lifecycle,
     systemPrompt: typeof prompt.systemPrompt === 'string' ? prompt.systemPrompt : '',
     tools: Array.isArray(prompt.tools) ? (prompt.tools as FrozenChatSnapshot['tools']) : [],
-    ...(row.runtime_snapshot_json
-      ? { runtime: parseObject(row.runtime_snapshot_json) }
-      : {}),
+    ...(row.runtime_snapshot_json ? { runtime: parseObject(row.runtime_snapshot_json) } : {}),
     resources: parseObject(row.resource_manifest_json),
     ...(row.invalidation_reason ? { invalidationReason: row.invalidation_reason } : {}),
     createdAt: row.created_at,
@@ -552,9 +550,8 @@ export function assertEpochExecutable(chatId: string, epochId?: string): ChatEpo
   if (!active || (epochId && active.epochId !== epochId)) {
     throw new Error('历史纪元为只读，不能执行或恢复')
   }
-  const chat = getSoulDb()
-    .prepare('SELECT lifecycle FROM chats WHERE id = ?')
-    .get(chatId) as { lifecycle: ChatLifecycle } | undefined
+  const chat = getSoulDb().prepare('SELECT lifecycle FROM chats WHERE id = ?').get(chatId) as
+    { lifecycle: ChatLifecycle } | undefined
   if (!chat || chat.lifecycle !== 'active') {
     throw new Error(`会话已${chat?.lifecycle === 'abandoned' ? '废弃' : '归档'}，不能执行或恢复`)
   }

@@ -28,12 +28,9 @@ const MEMORY_DRIFT_GUIDE = `
 
 /**
  * 全局 system prompt 固定路径：config.global.prompts_dir + "/system.md"（统一目录源）。
- * 模块加载期读取一次并缓存（override 走实时读取，支持每子 agent 不同文件）。
+ * 在新提示词快照构建时读取；已运行的节点使用冻结快照。
  */
 const globalSystemPromptPath = path.join(config.global.prompts_dir, 'system.md')
-const systemPrompt = existsSync(globalSystemPromptPath)
-  ? readFileSync(globalSystemPromptPath, 'utf-8').trim()
-  : ''
 
 interface EnvInfo {
   os: string
@@ -223,7 +220,9 @@ function buildPromptPieces(
   }
 
   return {
-    globalBase: systemPrompt,
+    globalBase: existsSync(globalSystemPromptPath)
+      ? readFileSync(globalSystemPromptPath, 'utf-8').trim()
+      : '',
     userSystem,
     envBlock,
     workspaceSection,

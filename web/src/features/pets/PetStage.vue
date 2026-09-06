@@ -67,9 +67,7 @@ const visibleStreams = computed<Record<string, StreamState>>(() => {
 })
 function presetAttentionCount(pet: PetInstance): number {
   return agents.historyList
-    .filter((chat) =>
-      pet.presetId ? chat.presetId === pet.presetId : chat.preset === pet.name,
-    )
+    .filter((chat) => (pet.presetId ? chat.presetId === pet.presetId : chat.preset === pet.name))
     .reduce(
       (count, chat) => count + (chat.pendingApproval ? 1 : 0) + (chat.pendingQuestionCount ?? 0),
       0,
@@ -78,7 +76,10 @@ function presetAttentionCount(pet: PetInstance): number {
 function activeRoot(pet: PetInstance): string {
   return agents.activeRootForPet(pet)
 }
-const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet, positionRefFor } = usePetWorld(stageRef, agents.pets)
+const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet, positionRefFor } = usePetWorld(
+  stageRef,
+  agents.pets,
+)
 
 /**
  * 主 pet 点击 → 打开 AgentDialog（设 activeDialogChatId）。
@@ -97,9 +98,11 @@ async function handleClick(pet: PetInstance): Promise<void> {
       agents.activeDialogSource = 'pet'
       agents.activeDialogView = 'composer'
     }
-    void agents.fetchHistoryList().catch((e) =>
-      console.warn(`[PetStage] fetchHistoryList ${pet.presetId ?? pet.chatId} 失败:`, e),
-    )
+    void agents
+      .fetchHistoryList()
+      .catch((e) =>
+        console.warn(`[PetStage] fetchHistoryList ${pet.presetId ?? pet.chatId} 失败:`, e),
+      )
     // startup 仅 hydrate running root；非运行会话点开时按需加载，AgentDialog 数据渐进填充。
     void chatSessions
       .hydrateTree(activeRoot(pet))
@@ -232,7 +235,12 @@ async function handleResume(pet: PetInstance): Promise<void> {
 </script>
 
 <template>
-  <main ref="stageRef" class="pet-stage" :class="{ 'is-transparent': transparent }" aria-label="Interactive desktop pets">
+  <main
+    ref="stageRef"
+    class="pet-stage"
+    :class="{ 'is-transparent': transparent }"
+    aria-label="Interactive desktop pets"
+  >
     <PetSprite
       v-for="pet in visiblePets"
       :key="pet.instanceId"
@@ -273,7 +281,12 @@ async function handleResume(pet: PetInstance): Promise<void> {
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent) 1px, transparent 1px),
     radial-gradient(circle at 18% 18%, var(--stage-glow-a), transparent 30%),
     radial-gradient(circle at 82% 26%, var(--stage-glow-b), transparent 34%),
-    linear-gradient(135deg, transparent 0 49.9%, color-mix(in srgb, var(--accent) 4%, transparent) 50%, transparent 50.1%),
+    linear-gradient(
+      135deg,
+      transparent 0 49.9%,
+      color-mix(in srgb, var(--accent) 4%, transparent) 50%,
+      transparent 50.1%
+    ),
     var(--bg);
   background-size:
     42px 42px,
@@ -289,7 +302,11 @@ async function handleResume(pet: PetInstance): Promise<void> {
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 42%, transparent), transparent 20%),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-soft) 42%, transparent),
+        transparent 20%
+      ),
       linear-gradient(0deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 32%);
   }
 

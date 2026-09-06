@@ -1,19 +1,71 @@
 <script setup lang="ts">
-import { useRolesTabController, type RolesTabControllerProps, type RolesTabControllerEmits } from './useRolesTabController'
+import {
+  useRolesTabController,
+  type RolesTabControllerProps,
+  type RolesTabControllerEmits,
+} from './useRolesTabController'
 const props = defineProps<RolesTabControllerProps>()
 const emit = defineEmits<RolesTabControllerEmits>()
 const controller = useRolesTabController(props, emit)
 const vFocus = { mounted: (el: HTMLElement) => el.querySelector('input')?.focus() }
 const {
-  AvatarPicker, ConfirmPopover, CopyDocument, Delete, EditableTitle, EquipmentEditor,
-  EquipmentPicker, LabelTip, Lock, Plus, ResourceWorkbench, TEMPLATE_CARDS, activeEquipment,
-  addRole, allowedShells, brainNames, cancelDescEdit, checkOverflow, closeEquipment, commitDescEdit,
-  copiedRole, current, descEditValue, descEditing, duplicateRole, effectivePermission,
-  equipmentEditor, isFixedRole, isOverflowing, mcpNames, mcpTokens, newRoleType, openEquipment,
-  permissionPreview, permissionTemplate, promptOptions, railItems, ref, removeImpact, removeRole,
-  renameRole, roleMode, roleTokens, roles, selectedRole, senseNames, setBrain, setOverflowRef,
-  setPermissionSection, startDescEdit, supportsTools, swapping, systemPromptModel, titleRef,
-  toggleRoleMode, updateEquipment, validateRename,
+  AvatarPicker,
+  ConfirmPopover,
+  CopyDocument,
+  Delete,
+  EditableTitle,
+  EquipmentEditor,
+  EquipmentPicker,
+  LabelTip,
+  Lock,
+  Plus,
+  ResourceWorkbench,
+  TEMPLATE_CARDS,
+  activeEquipment,
+  addRole,
+  allowedShells,
+  brainNames,
+  cancelDescEdit,
+  checkOverflow,
+  closeEquipment,
+  commitDescEdit,
+  copiedRole,
+  current,
+  descEditValue,
+  descEditing,
+  duplicateRole,
+  effectivePermission,
+  equipmentEditor,
+  isFixedRole,
+  isOverflowing,
+  mcpNames,
+  mcpTokens,
+  newRoleType,
+  openEquipment,
+  permissionPreview,
+  permissionTemplate,
+  promptOptions,
+  railItems,
+  ref,
+  removeImpact,
+  removeRole,
+  renameRole,
+  roleMode,
+  roleTokens,
+  roles,
+  selectedRole,
+  senseNames,
+  setBrain,
+  setOverflowRef,
+  setPermissionSection,
+  startDescEdit,
+  supportsTools,
+  swapping,
+  systemPromptModel,
+  titleRef,
+  toggleRoleMode,
+  updateEquipment,
+  validateRename,
 } = controller
 </script>
 
@@ -252,7 +304,9 @@ const {
 
         <section class="detail-section permission-section">
           <h3>行为权限</h3>
-          <p class="permission-hint">器官套装决定角色能看到哪些工具；这里决定每次调用时直接放行、弹审批卡还是拒绝。修改从下一次调用生效。</p>
+          <p class="permission-hint">
+            器官套装决定角色能看到哪些工具；这里决定每次调用时直接放行、弹审批卡还是拒绝。修改从下一次调用生效。
+          </p>
           <div class="perm-board-head">
             <LabelTip
               label="策略模板"
@@ -269,7 +323,8 @@ const {
               @click="permissionTemplate = card.value"
             >
               <b class="tpl-name"
-                ><i class="risk-dot" />{{ card.label }}<em v-if="card.isDefault" class="tpl-default">默认</em></b
+                ><i class="risk-dot" />{{ card.label
+                }}<em v-if="card.isDefault" class="tpl-default">默认</em></b
               >
               <small class="tpl-tagline">{{ card.tagline }}</small>
               <small class="tpl-summary">{{ card.summary }}</small>
@@ -278,7 +333,10 @@ const {
           <div class="permission-groups">
             <div class="perm-group">
               <h4>文件</h4>
-              <label class="perm-field" :class="{ customized: effectivePermission.customized.read }">
+              <label
+                class="perm-field"
+                :class="{ customized: effectivePermission.customized.read }"
+              >
                 <span class="perm-field-head">
                   <LabelTip
                     label="读取范围"
@@ -286,11 +344,25 @@ const {
                   />
                   <em v-if="effectivePermission.customized.read">已自定义</em>
                 </span>
-                <el-select :model-value="current.permissions?.filesystem?.read" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('filesystem', 'read', v)">
-                  <el-option label="禁止" value="deny" /><el-option label="仅工作区" value="workspace" /><el-option label="任意路径" value="any" />
+                <el-select
+                  :model-value="current.permissions?.filesystem?.read"
+                  placeholder="继承模板"
+                  clearable
+                  size="small"
+                  @update:model-value="
+                    (v: string | undefined) => setPermissionSection('filesystem', 'read', v)
+                  "
+                >
+                  <el-option label="禁止" value="deny" /><el-option
+                    label="仅工作区"
+                    value="workspace"
+                  /><el-option label="任意路径" value="any" />
                 </el-select>
               </label>
-              <label class="perm-field" :class="{ customized: effectivePermission.customized.write }">
+              <label
+                class="perm-field"
+                :class="{ customized: effectivePermission.customized.write }"
+              >
                 <span class="perm-field-head">
                   <LabelTip
                     label="写入范围"
@@ -298,14 +370,28 @@ const {
                   />
                   <em v-if="effectivePermission.customized.write">已自定义</em>
                 </span>
-                <el-select :model-value="current.permissions?.filesystem?.write" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('filesystem', 'write', v)">
-                  <el-option label="禁止" value="deny" /><el-option label="仅工作区内" value="workspace" /><el-option label="区内直写 · 区外需审核" value="any-with-approval" />
+                <el-select
+                  :model-value="current.permissions?.filesystem?.write"
+                  placeholder="继承模板"
+                  clearable
+                  size="small"
+                  @update:model-value="
+                    (v: string | undefined) => setPermissionSection('filesystem', 'write', v)
+                  "
+                >
+                  <el-option label="禁止" value="deny" /><el-option
+                    label="仅工作区内"
+                    value="workspace"
+                  /><el-option label="区内直写 · 区外需审核" value="any-with-approval" />
                 </el-select>
               </label>
             </div>
             <div class="perm-group">
               <h4>命令</h4>
-              <label class="perm-field" :class="{ customized: effectivePermission.customized.maxSandboxMode }">
+              <label
+                class="perm-field"
+                :class="{ customized: effectivePermission.customized.maxSandboxMode }"
+              >
                 <span class="perm-field-head">
                   <LabelTip
                     label="最大沙箱权限"
@@ -313,11 +399,25 @@ const {
                   />
                   <em v-if="effectivePermission.customized.maxSandboxMode">已自定义</em>
                 </span>
-                <el-select :model-value="current.permissions?.commands?.maxSandboxMode" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('commands', 'maxSandboxMode', v)">
-                  <el-option label="只读沙箱" value="read-only" /><el-option label="工作区可写" value="workspace-write" /><el-option label="完全访问（仍经 OS 沙箱）" value="danger-full-access" />
+                <el-select
+                  :model-value="current.permissions?.commands?.maxSandboxMode"
+                  placeholder="继承模板"
+                  clearable
+                  size="small"
+                  @update:model-value="
+                    (v: string | undefined) => setPermissionSection('commands', 'maxSandboxMode', v)
+                  "
+                >
+                  <el-option label="只读沙箱" value="read-only" /><el-option
+                    label="工作区可写"
+                    value="workspace-write"
+                  /><el-option label="完全访问（仍经 OS 沙箱）" value="danger-full-access" />
                 </el-select>
               </label>
-              <div class="perm-field" :class="{ customized: effectivePermission.customized.shells }">
+              <div
+                class="perm-field"
+                :class="{ customized: effectivePermission.customized.shells }"
+              >
                 <span class="perm-field-head">
                   <LabelTip
                     label="允许脚本方言"
@@ -325,12 +425,18 @@ const {
                   />
                   <em v-if="effectivePermission.customized.shells">已自定义</em>
                 </span>
-                <el-checkbox-group v-model="allowedShells"><el-checkbox value="bash">Bash</el-checkbox><el-checkbox value="powershell">PowerShell</el-checkbox></el-checkbox-group>
+                <el-checkbox-group v-model="allowedShells"
+                  ><el-checkbox value="bash">Bash</el-checkbox
+                  ><el-checkbox value="powershell">PowerShell</el-checkbox></el-checkbox-group
+                >
               </div>
             </div>
             <div class="perm-group">
               <h4>集成</h4>
-              <label class="perm-field" :class="{ customized: effectivePermission.customized.mcpDefault }">
+              <label
+                class="perm-field"
+                :class="{ customized: effectivePermission.customized.mcpDefault }"
+              >
                 <span class="perm-field-head">
                   <LabelTip
                     label="MCP 默认"
@@ -338,11 +444,28 @@ const {
                   />
                   <em v-if="effectivePermission.customized.mcpDefault">已自定义</em>
                 </span>
-                <el-select :model-value="current.permissions?.mcp?.default" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('mcp', 'default', v)">
-                  <el-option label="继承（按模板监管）" value="inherit" /><el-option label="允许" value="allow" /><el-option label="每次审核" value="ask" /><el-option label="拒绝" value="deny" />
+                <el-select
+                  :model-value="current.permissions?.mcp?.default"
+                  placeholder="继承模板"
+                  clearable
+                  size="small"
+                  @update:model-value="
+                    (v: string | undefined) => setPermissionSection('mcp', 'default', v)
+                  "
+                >
+                  <el-option label="继承（按模板监管）" value="inherit" /><el-option
+                    label="允许"
+                    value="allow"
+                  /><el-option label="每次审核" value="ask" /><el-option
+                    label="拒绝"
+                    value="deny"
+                  />
                 </el-select>
               </label>
-              <label class="perm-field" :class="{ customized: effectivePermission.customized.spawnEffect }">
+              <label
+                class="perm-field"
+                :class="{ customized: effectivePermission.customized.spawnEffect }"
+              >
                 <span class="perm-field-head">
                   <LabelTip
                     label="派遣角色"
@@ -350,8 +473,22 @@ const {
                   />
                   <em v-if="effectivePermission.customized.spawnEffect">已自定义</em>
                 </span>
-                <el-select :model-value="current.permissions?.spawn?.effect" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('spawn', 'effect', v)">
-                  <el-option label="继承（按模板）" value="inherit" /><el-option label="允许" value="allow" /><el-option label="每次审核" value="ask" /><el-option label="拒绝" value="deny" />
+                <el-select
+                  :model-value="current.permissions?.spawn?.effect"
+                  placeholder="继承模板"
+                  clearable
+                  size="small"
+                  @update:model-value="
+                    (v: string | undefined) => setPermissionSection('spawn', 'effect', v)
+                  "
+                >
+                  <el-option label="继承（按模板）" value="inherit" /><el-option
+                    label="允许"
+                    value="allow"
+                  /><el-option label="每次审核" value="ask" /><el-option
+                    label="拒绝"
+                    value="deny"
+                  />
                 </el-select>
               </label>
             </div>

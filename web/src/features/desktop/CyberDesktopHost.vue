@@ -30,9 +30,7 @@ const connectionLabel = computed(
     })[connection.status] ?? connection.status,
 )
 const diagnosticWindows = computed(() =>
-  workspace.workspaceWindowsList
-    .filter((window) => window.context.kind === 'diagnostic')
-    .slice(-3),
+  workspace.workspaceWindowsList.filter((window) => window.context.kind === 'diagnostic').slice(-3),
 )
 const desktopStyle = computed(() => ({
   '--cyber-noise-opacity': String(
@@ -149,9 +147,21 @@ onMounted(() => {
     motionContext = gsap.context(() => {
       gsap
         .timeline({ defaults: { ease: 'power2.out' } })
-        .from('.cyber-grid', { autoAlpha: 0, scale: 1 + 0.04 * amplitude, duration: MOTION.sweep }, 0)
-        .from('.cyber-system-bar', { autoAlpha: 0, y: -18 * amplitude, duration: MOTION.panel }, stagger)
-        .from('.cyber-taskbar', { autoAlpha: 0, y: 20 * amplitude, duration: MOTION.panel }, stagger * 2)
+        .from(
+          '.cyber-grid',
+          { autoAlpha: 0, scale: 1 + 0.04 * amplitude, duration: MOTION.sweep },
+          0,
+        )
+        .from(
+          '.cyber-system-bar',
+          { autoAlpha: 0, y: -18 * amplitude, duration: MOTION.panel },
+          stagger,
+        )
+        .from(
+          '.cyber-taskbar',
+          { autoAlpha: 0, y: 20 * amplitude, duration: MOTION.panel },
+          stagger * 2,
+        )
     }, root.value)
     void animateBootTelemetry()
   } else if (root.value) {
@@ -243,10 +253,13 @@ function activate(window: WorkspaceWindowState): void {
       <span class="cyber-link" :class="`is-${connection.status}`">
         <i /> 链路 {{ connectionLabel }}
       </span>
-      <span class="cyber-window-count">窗口 {{ activeWindows.length.toString().padStart(2, '0') }}</span>
+      <span class="cyber-window-count"
+        >窗口 {{ activeWindows.length.toString().padStart(2, '0') }}</span
+      >
     </header>
     <aside class="cyber-telemetry" aria-hidden="true">
-      <span>系统 / 追踪</span><b>/////</b><span>内存 规范态</span><b>///////</b><span>渲染 自适应</span>
+      <span>系统 / 追踪</span><b>/////</b><span>内存 规范态</span><b>///////</b
+      ><span>渲染 自适应</span>
     </aside>
     <main ref="stage" class="cyber-desktop-stage">
       <slot />
@@ -274,7 +287,8 @@ function activate(window: WorkspaceWindowState): void {
         :class="{ active: window.focused, attention: window.attention }"
         @click="activate(window)"
       >
-        <i>{{ window.kind.slice(0, 3).toUpperCase() }}</i>{{ window.title }}
+        <i>{{ window.kind.slice(0, 3).toUpperCase() }}</i
+        >{{ window.title }}
       </button>
       <span class="cyber-taskbar-tail">自适应渲染 · {{ new Date().getFullYear() }}</span>
     </footer>
@@ -307,13 +321,21 @@ function activate(window: WorkspaceWindowState): void {
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent) 1px, transparent 1px),
     linear-gradient(color-mix(in srgb, var(--accent) 3%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 3%, transparent) 1px, transparent 1px);
-  background-size: 48px 48px, 48px 48px, 12px 12px, 12px 12px;
+  background-size:
+    48px 48px,
+    48px 48px,
+    12px 12px,
+    12px 12px;
   mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
 }
 
 .cyber-noise {
   opacity: var(--cyber-noise-opacity, 0.12);
-  background: repeating-linear-gradient(0deg, transparent 0 3px, color-mix(in srgb, var(--ink) 4%, transparent) 4px);
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0 3px,
+    color-mix(in srgb, var(--ink) 4%, transparent) 4px
+  );
 }
 
 .cyber-system-bar,
@@ -466,7 +488,9 @@ function activate(window: WorkspaceWindowState): void {
 .cyber-taskbar button.active {
   border-color: var(--accent);
   color: var(--ink);
-  box-shadow: inset 2px 0 var(--accent), inset 0 -2px var(--accent);
+  box-shadow:
+    inset 2px 0 var(--accent),
+    inset 0 -2px var(--accent);
 }
 
 .cyber-taskbar button.attention {

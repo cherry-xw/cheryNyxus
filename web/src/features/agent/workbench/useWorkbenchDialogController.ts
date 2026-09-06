@@ -17,7 +17,11 @@ import { agentApi, type ChatSummary } from '@/application/backend/public'
 import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './useWorkbenchWindow'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
-import { MessageBranchTree, NyxusPianoStrip, isPianoRootSession } from '@/features/pets/nyxus/public'
+import {
+  MessageBranchTree,
+  NyxusPianoStrip,
+  isPianoRootSession,
+} from '@/features/pets/nyxus/public'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import {
   ConnectionStatusChip,
@@ -233,8 +237,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   )
   const nyxusDraftActive = ref(false)
   /** 当前预设的工作台布局与折叠偏好；右侧按钮选择写入前端本地存储。 */
-  const { topologyLayout, foldMode, paperMode, presentationMode } =
-    useWorkbenchViewPreferences(props.presetId)
+  const { topologyLayout, foldMode, paperMode, presentationMode } = useWorkbenchViewPreferences(
+    props.presetId,
+  )
   function fallbackToClassic(message: string): void {
     if (presentationMode.value !== 'horizontal-signal') return
     presentationMode.value = 'vertical-classic'

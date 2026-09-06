@@ -10,7 +10,8 @@ defineProps<{ global: GlobalConfigDto; no: number }>()
   <div class="block-heading">
     <div>
       <div class="block-kicker">
-        <span class="kicker-no">{{ no }}</span>GUARD MODE
+        <span class="kicker-no">{{ no }}</span
+        >GUARD MODE
       </div>
       <h3>默认监管</h3>
     </div>
@@ -20,9 +21,7 @@ defineProps<{ global: GlobalConfigDto; no: number }>()
       :class="{ active: global.stream }"
       :aria-pressed="global.stream"
       :title="
-        global.stream
-          ? '流式输出已开启，点击改为完整返回'
-          : '流式输出已关闭，点击改为边生成边返回'
+        global.stream ? '流式输出已开启，点击改为完整返回' : '流式输出已关闭，点击改为边生成边返回'
       "
       @click="global.stream = !global.stream"
     >
@@ -100,7 +99,11 @@ defineProps<{ global: GlobalConfigDto; no: number }>()
 [data-theme='dark'] .supervision-deck button.active {
   border-color: rgba(96, 165, 250, 0.6);
   color: #a5b4fc;
-  background: linear-gradient(145deg, color-mix(in srgb, #6366f1 22%, var(--surface)), color-mix(in srgb, #a855f7 16%, var(--surface)));
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, #6366f1 22%, var(--surface)),
+    color-mix(in srgb, #a855f7 16%, var(--surface))
+  );
 }
 .deck-note {
   position: relative;

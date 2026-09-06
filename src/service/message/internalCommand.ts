@@ -16,4 +16,3 @@ export const InternalCommand = {
 } as const
 
 export type InternalCommand = (typeof InternalCommand)[keyof typeof InternalCommand]
-

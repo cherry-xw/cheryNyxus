@@ -5,7 +5,7 @@
  * restartCoordinator 的待重启状态（restartRequested/restartNotified）为模块私有且跨测试残留，
  * 故每用例 vi.resetModules 重建模块实例隔离。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 type RestartCoordinatorMod = typeof import('@/service/restartCoordinator.js')
 let mod: RestartCoordinatorMod
@@ -19,6 +19,70 @@ beforeEach(async () => {
   vi.resetModules()
   mod = await import('@/service/restartCoordinator.js')
   mod.configureRestartCoordinator({ isIdle: () => true })
+})
+afterEach(() => mod.cancelPendingRestart())
+
+describe('restart drain safety', () => {
+  it('blocks new work, preserves existing work, and notifies once after actual release', async () => {
+    const onReady = vi.fn()
+    mod.configureRestartCoordinator({ isIdle: () => true, onRestartReady: onReady })
+    const release = mod.trackRestartActivity({
+      kind: 'process',
+      chatId: 'chat',
+      pid: 42,
+      description: 'background',
+    })
+    expect(mod.requestRestartWhenIdle()).toBe('scheduled')
+    await flush()
+    expect(mod.getRestartState()).toMatchObject({
+      status: 'blocked',
+      blockers: [{ pid: 42, chatId: 'chat' }],
+    })
+    expect(() => mod.assertRestartAdmission()).toThrow()
+    expect(() => mod.assertRestartAdmission(true)).not.toThrow()
+    expect(onReady).not.toHaveBeenCalled()
+    release()
+    release()
+    await flush()
+    expect(onReady).toHaveBeenCalledTimes(1)
+    expect(() => mod.assertRestartAdmission(true)).toThrow()
+    mod.notifyRestartActivityChanged()
+    await flush()
+    expect(onReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('publishes asynchronous read failures and reopens admission until another request', async () => {
+    const onReady = vi.fn()
+    const changed = vi.fn()
+    mod.subscribeRestartState(changed)
+    mod.configureRestartCoordinator({
+      isIdle: () => true,
+      onRestartReady: onReady,
+      validateBeforeRestart: () => {
+        throw new Error('secret disk data')
+      },
+    })
+    mod.requestRestartWhenIdle()
+    await flush()
+    expect(mod.getRestartState().status).toBe('failed')
+    expect(JSON.stringify(changed.mock.calls)).not.toContain('secret disk data')
+    expect(() => mod.assertRestartAdmission()).not.toThrow()
+    expect(onReady).not.toHaveBeenCalled()
+  })
+
+  it('manual mode and cancellation leave work admissible', async () => {
+    expect(mod.requestRestartWhenIdle()).toBe('manual')
+    expect(mod.getRestartState().status).toBe('manual')
+    expect(() => mod.assertRestartAdmission()).not.toThrow()
+    const onReady = vi.fn()
+    mod.configureRestartCoordinator({ isIdle: () => false, onRestartReady: onReady })
+    mod.requestRestartWhenIdle()
+    mod.cancelPendingRestart()
+    await flush()
+    expect(mod.getRestartState().status).toBe('none')
+    expect(() => mod.assertRestartAdmission()).not.toThrow()
+    expect(onReady).not.toHaveBeenCalled()
+  })
 })
 
 describe('restartCoordinator 重启前预检', () => {

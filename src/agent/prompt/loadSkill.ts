@@ -122,6 +122,11 @@ interface SkillCatalogEntry {
 const SKILL_HEADER_BYTES = 64 * 1024
 const catalogCache = new Map<string, SkillCatalogEntry>()
 
+/** Drop only discovery metadata; existing prompts keep their captured skill content. */
+export function resetSkillCatalogCache(): void {
+  catalogCache.clear()
+}
+
 function readSkillHeader(filePath: string, size: number): string {
   const fd = openSync(filePath, 'r')
   try {

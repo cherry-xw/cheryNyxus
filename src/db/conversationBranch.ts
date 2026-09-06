@@ -84,7 +84,14 @@ export function ensureConversationTask(
        VALUES (?, ?, ?, 'original', ?, ?, ?)`,
     ).run(branchId, taskId, rootChatId, JSON.stringify(runtimeSnapshot), now, now)
     const created: { task: ConversationTaskRow; branch: ConversationBranchRow } = {
-      task: { taskId, originalChatId: rootChatId, activeBranchId: branchId, deliveryGeneration: 0, createdAt: now, updatedAt: now },
+      task: {
+        taskId,
+        originalChatId: rootChatId,
+        activeBranchId: branchId,
+        deliveryGeneration: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
       branch: {
         branchId,
         taskId,
@@ -131,9 +138,9 @@ export function listConversationBranches(taskId: string): ConversationBranchRow[
 }
 
 export function getConversationTask(taskId: string): ConversationTaskRow | undefined {
-  const row = getSoulDb().prepare('SELECT * FROM conversation_tasks WHERE task_id = ?').get(taskId) as
-    | Record<string, unknown>
-    | undefined
+  const row = getSoulDb()
+    .prepare('SELECT * FROM conversation_tasks WHERE task_id = ?')
+    .get(taskId) as Record<string, unknown> | undefined
   return row ? taskFromRow(row) : undefined
 }
 
@@ -144,14 +151,12 @@ export function insertConversationBranch(
   const now = Date.now()
   const db = getSoulDb()
   return db.transaction(() => {
-  db
-    .prepare(
+    db.prepare(
       `INSERT INTO conversation_branches
        (branch_id, task_id, chat_id, kind, source_branch_id, anchor_root_chat_id, anchor_node_id,
         context_snapshot_json, runtime_snapshot_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
+    ).run(
       input.branchId,
       input.taskId,
       input.chatId,
@@ -164,24 +169,33 @@ export function insertConversationBranch(
       now,
       now,
     )
-  if (options.activate) {
-    if (input.kind === 'detail') throw new Error('解释分支不能设为主流程')
-    db.prepare(
-      `UPDATE conversation_tasks SET active_branch_id = ?, delivery_generation = delivery_generation + 1,
-       updated_at = ? WHERE task_id = ?`,
-    ).run(input.branchId, now, input.taskId)
-    if (options.deliveryTaskIds?.length) {
-      const placeholders = options.deliveryTaskIds.map(() => '?').join(',')
-      const task = getConversationTask(input.taskId)!
+    if (options.activate) {
+      if (input.kind === 'detail') throw new Error('解释分支不能设为主流程')
       db.prepare(
-        `UPDATE spawn_tasks SET delivery_chat_id = ?, delivery_branch_id = ?, delivery_generation = ?, updated_at = ?
+        `UPDATE conversation_tasks SET active_branch_id = ?, delivery_generation = delivery_generation + 1,
+       updated_at = ? WHERE task_id = ?`,
+      ).run(input.branchId, now, input.taskId)
+      if (options.deliveryTaskIds?.length) {
+        const placeholders = options.deliveryTaskIds.map(() => '?').join(',')
+        const task = getConversationTask(input.taskId)!
+        db.prepare(
+          `UPDATE spawn_tasks SET delivery_chat_id = ?, delivery_branch_id = ?, delivery_generation = ?, updated_at = ?
          WHERE task_id IN (${placeholders}) AND status IN ('pending', 'started')`,
-      ).run(input.chatId, input.branchId, task.deliveryGeneration, now, ...options.deliveryTaskIds)
+        ).run(
+          input.chatId,
+          input.branchId,
+          task.deliveryGeneration,
+          now,
+          ...options.deliveryTaskIds,
+        )
+      }
+    } else {
+      db.prepare('UPDATE conversation_tasks SET updated_at = ? WHERE task_id = ?').run(
+        now,
+        input.taskId,
+      )
     }
-  } else {
-    db.prepare('UPDATE conversation_tasks SET updated_at = ? WHERE task_id = ?').run(now, input.taskId)
-  }
-  return { ...input, createdAt: now, updatedAt: now }
+    return { ...input, createdAt: now, updatedAt: now }
   })()
 }
 
@@ -190,14 +204,17 @@ export function deleteConversationBranch(branchId: string): void {
 }
 
 export function getConversationBranch(branchId: string): ConversationBranchRow | undefined {
-  const row = getSoulDb().prepare('SELECT * FROM conversation_branches WHERE branch_id = ?').get(branchId) as
-    | Record<string, unknown>
-    | undefined
+  const row = getSoulDb()
+    .prepare('SELECT * FROM conversation_branches WHERE branch_id = ?')
+    .get(branchId) as Record<string, unknown> | undefined
   return row ? branchFromRow(row) : undefined
 }
 
 /** Switch the unique active mainline and return its monotonic delivery fence. */
-export function activateConversationBranch(branchId: string, deliveryTaskIds: readonly string[] = []): {
+export function activateConversationBranch(
+  branchId: string,
+  deliveryTaskIds: readonly string[] = [],
+): {
   task: ConversationTaskRow
   branch: ConversationBranchRow
 } {

@@ -10,7 +10,7 @@
 
 | 层 | 职责 | 入口 |
 |----|------|------|
-| **连接层**（global registry） | 哪些 server 连着、sense 在 registry；支持运行期 connect/disconnect/reload，不重启 | `core/mcp/loader` 状态机；`mcp.*` RPC（[service/mcp/handler](../../src/service/mcp/handler.ts)） |
+| **连接层**（global registry） | 哪些 server 连着、sense 在 registry；支持运行期 connect/disconnect/reload，配置保存经统一协调器在安全边界切换 | `core/mcp/loader` 状态机；`mcp.*` RPC（[service/mcp/handler](../../src/service/mcp/handler.ts)） |
 | **挂载层**（per-chat schema） | chat 启用哪些**已连** server → 其全部 `mcp__<server>__*` 合并进该 chat schema，**不走 sense_groups** | [runtimeResolver](../../src/agent/runtimeResolver.ts) `RuntimeSelection.mcpServers` |
 
 与 [compiler.md](./compiler.md)（编译本地 `.chery/senses/*.ts` 外部感官）并列——两者都往 senseRegistry 注入 Sense：compiler 注入本地源码产物，mcp 注入远程/子进程 server 的能力。mcp/ 是 core/ 第二个带 I/O 的子模块（网络 / 子进程）。
@@ -129,10 +129,10 @@ mcp.get     → getMcpServer(name)              单个详情
 mcp.connect → connectMcpServerByName(name)    已连幂等;建连+register
 mcp.disconnect → disconnectMcpServer(name)    未连幂等;unregister+close
 mcp.reload  → reloadOneServer(name) | reloadMcpServers()
-  原子交换(单 server):
-    1. buildSensesForServer(新连接, async)   ← 失败保留旧态
-    2. registerSenses(新) + unregisterSenses(旧差集)   同 tick 无 await
-    3. oldHandle.close()                     注册表已指向新
+  受控交换(单 server):
+    1. 准备新连接和 Senses；失败保留旧态
+    2. 可并行的连接先发布新 registry；旧调用和节点树持有的 client 释放后再回收旧连接
+    3. stdio 等不能双开的资源先等待安全边界，确认旧连接关闭后再启动新连接
   全量 reload: reloadMcpServersConfig() 重读 yaml → 断开已移除 server → 逐个原子重载
 
 ─── 关闭期（src/index.ts SIGINT/SIGTERM 钩子） ──────────────────
@@ -154,7 +154,7 @@ closeMcpClients() → 各 disconnectMcpServer (unregister + handle.close)
   - [`agent/bootstrap.ts`](../../src/agent/bootstrap.ts) —— `loadMcpSenses()`（启动期）。
   - [`agent/runtimeResolver.ts`](../../src/agent/runtimeResolver.ts) —— `getConnectedServerSenseNames` / `listConnectedServerNames`（挂载层合并进 schema）。
   - [`service/mcp/handler.ts`](../../src/service/mcp/handler.ts) —— `mcp.*` RPC（连接层管理）。
-  - [`service/brain/list.ts`](../../src/service/brain/list.ts) / [`chat/handler.ts`](../../src/service/chat/handler.ts) / [`runtime/set.ts`](../../src/runtime/set.ts) —— `mcpServers` 透传。
+  - [`service/brain/list.ts`](../../src/service/brain/list.ts) / [`chat/handler.ts`](../../src/service/chat/handler.ts) / [`runtime/set.ts`](../../src/service/runtime/set.ts) —— `mcpServers` 透传。
   - [`src/index.ts`](../../src/index.ts) —— `closeMcpClients()`（SIGINT/SIGTERM 钩子）。
 - **横切参考**：[sense.md](./sense.md)（senseRegistry / 监管等级 / `doExecuteSense` 执行路径）、[compiler.md](./compiler.md)（另一个 sense 注入源）、[agent/middleware.md](../agent/middleware.md)（sense 中间件复用）、[protocol.md](../protocol.md)「MCP 管理 API」。
 
@@ -163,9 +163,7 @@ closeMcpClients() → 各 disconnectMcpServer (unregister + handle.close)
 ### 加一个 MCP server
 
 1. 在 `.chery/config.yaml` 顶层 `mcp_servers` 加一项（name → transport + 参数 + 可选 supervision）。
-2. 接入 registry（二选一）：
-   - 重启服务 → `bootstrapAgentRuntime` → `loadMcpSenses` 自动连接；
-   - 或运行期 `mcp.reload`（全量重读 config 拾取新 server，不重启）。
+2. 接入 registry：保存设置会请求对应 MCP 资源重载，或运行期调用 `mcp.reload`。两者均返回/发布生效状态；新连接失败时旧连接继续服务，不能双开的 stdio 连接会等待安全边界。重启只在进程级配置另有待办时需要。
 3. 挂载到 chat：`chat.create` / `runtime.set` 的 `mcpServers` 加该 server 名 → 其全部 `mcp__<server>__*` 自动进 schema（**无须写进 sense_groups**）。
 
 ### 加 transport 类型

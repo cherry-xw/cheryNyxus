@@ -69,15 +69,23 @@ function sourceIdentity(rootChatId: string) {
 }
 
 function eligibleAnchor(node: TimelineNode | undefined): node is TimelineNode {
-  if (!node || node.status !== 'committed' || !node.content && !node.toolCalls?.length) return false
+  if (!node || node.status !== 'committed' || (!node.content && !node.toolCalls?.length))
+    return false
   if (node.kind === 'system') return false
-  return !(node.toolCalls ?? []).some((call) => call.status === 'pending' || call.status === 'accepted')
+  return !(node.toolCalls ?? []).some(
+    (call) => call.status === 'pending' || call.status === 'accepted',
+  )
 }
 
-function ancestors(nodes: TimelineNode[], edges: ExecutionEdgeFact[], anchorNodeId: string): TimelineNode[] {
+function ancestors(
+  nodes: TimelineNode[],
+  edges: ExecutionEdgeFact[],
+  anchorNodeId: string,
+): TimelineNode[] {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const incoming = new Map<string, string[]>()
-  for (const edge of edges) incoming.set(edge.toNodeId, [...(incoming.get(edge.toNodeId) ?? []), edge.fromNodeId])
+  for (const edge of edges)
+    incoming.set(edge.toNodeId, [...(incoming.get(edge.toNodeId) ?? []), edge.fromNodeId])
   const seen = new Set<string>()
   const stack = [anchorNodeId]
   while (stack.length) {
@@ -94,38 +102,47 @@ function ancestors(nodes: TimelineNode[], edges: ExecutionEdgeFact[], anchorNode
 
 function snapshotText(path: TimelineNode[], anchor: TimelineNode, detail: boolean): string {
   const lines = path.map((node) => {
-    const actor = node.actor.kind === 'user'
-      ? '用户'
-      : node.actor.kind === 'agent'
-        ? `角色 ${node.actor.roleType ?? node.actor.chatId}`
-        : node.actor.kind === 'tool'
-          ? `工具 ${node.actor.toolName}`
-          : '系统'
+    const actor =
+      node.actor.kind === 'user'
+        ? '用户'
+        : node.actor.kind === 'agent'
+          ? `角色 ${node.actor.roleType ?? node.actor.chatId}`
+          : node.actor.kind === 'tool'
+            ? `工具 ${node.actor.toolName}`
+            : '系统'
     const content = node.content.trim()
-    const tools = (node.toolCalls ?? []).map((call) =>
-      `[工具 ${call.name}] 参数: ${call.arguments}${call.result ? `\n结果: ${call.result}` : ''}`,
+    const tools = (node.toolCalls ?? []).map(
+      (call) =>
+        `[工具 ${call.name}] 参数: ${call.arguments}${call.result ? `\n结果: ${call.result}` : ''}`,
     )
     return [`[${actor}] ${content}`, ...tools].filter(Boolean).join('\n')
   })
   return [
-    detail ? DETAIL_PROMPT : '以下是从原任务根到所选节点的不可变因果历史。请从该状态继续完成用户的新指令，不要假设历史节点之后的其他分支内容。',
+    detail
+      ? DETAIL_PROMPT
+      : '以下是从原任务根到所选节点的不可变因果历史。请从该状态继续完成用户的新指令，不要假设历史节点之后的其他分支内容。',
     `来源节点: ${anchor.id}`,
     ...lines,
   ].join('\n\n')
 }
 
-function sideEffects(snapshot: ReturnType<typeof buildRootTimeline>, anchor: TimelineNode): BranchSideEffect[] {
+function sideEffects(
+  snapshot: ReturnType<typeof buildRootTimeline>,
+  anchor: TimelineNode,
+): BranchSideEffect[] {
   const effects = snapshot.nodes
     .filter((node) => node.orderKey > anchor.orderKey)
-    .flatMap((node) => (node.toolCalls ?? [])
-      .filter((call) => call.status === 'completed')
-      .map((call) => ({
-        nodeId: node.id,
-        callId: call.callId,
-        toolName: call.name,
-        arguments: call.arguments,
-        ...(call.result ? { result: call.result } : {}),
-      })))
+    .flatMap((node) =>
+      (node.toolCalls ?? [])
+        .filter((call) => call.status === 'completed')
+        .map((call) => ({
+          nodeId: node.id,
+          callId: call.callId,
+          toolName: call.name,
+          arguments: call.arguments,
+          ...(call.result ? { result: call.result } : {}),
+        })),
+    )
   const byCall = new Map<string, BranchSideEffect>()
   for (const effect of effects) {
     const previous = byCall.get(effect.callId)
@@ -146,7 +163,10 @@ function inheritedTasks(
 ): SpawnTask[] {
   const causalChats = new Set<string>([snapshot.rootChatId])
   const selected: SpawnTask[] = []
-  const all = listSpawnTasksByParents([snapshot.rootChatId, ...collectDescendantsChatIds(snapshot.rootChatId)])
+  const all = listSpawnTasksByParents([
+    snapshot.rootChatId,
+    ...collectDescendantsChatIds(snapshot.rootChatId),
+  ])
   const nodeOrder = new Map(snapshot.nodes.map((node) => [node.id, node.orderKey]))
   let changed = true
   while (changed) {
@@ -162,8 +182,12 @@ function inheritedTasks(
     }
   }
   return selected.sort((a, b) => {
-    const ao = a.owningBatchId ? (nodeOrder.get(a.owningBatchId) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
-    const bo = b.owningBatchId ? (nodeOrder.get(b.owningBatchId) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
+    const ao = a.owningBatchId
+      ? (nodeOrder.get(a.owningBatchId) ?? Number.MAX_SAFE_INTEGER)
+      : Number.MAX_SAFE_INTEGER
+    const bo = b.owningBatchId
+      ? (nodeOrder.get(b.owningBatchId) ?? Number.MAX_SAFE_INTEGER)
+      : Number.MAX_SAFE_INTEGER
     return ao - bo || a.taskId.localeCompare(b.taskId)
   })
 }
@@ -224,8 +248,12 @@ export async function handleChatBranchPreview(
     ...(!eligible ? { reason: '该节点没有稳定的可分支内容' } : {}),
     sideEffects: effects,
     effectDigest: digest(effects),
-    inheritedCompletedTasks: inherited.filter((task) => task.status === 'finished').map(inheritedTaskView),
-    inheritedPausedTasks: inherited.filter((task) => task.status === 'pending' || task.status === 'started').map(inheritedTaskView),
+    inheritedCompletedTasks: inherited
+      .filter((task) => task.status === 'finished')
+      .map(inheritedTaskView),
+    inheritedPausedTasks: inherited
+      .filter((task) => task.status === 'pending' || task.status === 'started')
+      .map(inheritedTaskView),
   }
 }
 
@@ -242,7 +270,8 @@ export async function handleChatBranchCreate(
   data: ChatBranchCreateRequestData,
 ): Promise<ChatBranchCreateResponseData> {
   const claimed = claimRequest(data.commandId, Method.CHAT_BRANCH_CREATE, data)
-  if (claimed.state === 'completed') return JSON.parse(claimed.responseJson) as ChatBranchCreateResponseData
+  if (claimed.state === 'completed')
+    return JSON.parse(claimed.responseJson) as ChatBranchCreateResponseData
   if (claimed.state === 'active') throw new Error('该分支创建命令正在处理中')
   if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
   let chatId: string | undefined
@@ -253,8 +282,10 @@ export async function handleChatBranchCreate(
     const preview = await handleChatBranchPreview(ctx, data)
     if (!preview.eligible) throw new Error(preview.reason)
     if (data.branchType === 'continuation') {
-      if (!taskIsIdle(preview.taskId)) throw new Error('任务仍在运行，请先暂停任务后再从历史节点继续')
-      if (data.effectDigest !== preview.effectDigest) throw new Error('节点后的工具副作用已变化，请重新确认')
+      if (!taskIsIdle(preview.taskId))
+        throw new Error('任务仍在运行，请先暂停任务后再从历史节点继续')
+      if (data.effectDigest !== preview.effectDigest)
+        throw new Error('节点后的工具副作用已变化，请重新确认')
     }
     const source = getConversationBranchByChat(data.rootChatId) ?? sourceIdentity(data.rootChatId)
     previousActiveBranchId = getConversationTask(preview.taskId)?.activeBranchId
@@ -267,7 +298,8 @@ export async function handleChatBranchCreate(
     const fallback = getChatRuntimeSelection(data.rootChatId)
     if (!fallback) throw new Error('来源会话缺少运行时快照')
     let selection: RuntimeSelection = fallback
-    let systemPromptFile = typeof sourceMeta.systemPromptFile === 'string' ? sourceMeta.systemPromptFile : undefined
+    let systemPromptFile =
+      typeof sourceMeta.systemPromptFile === 'string' ? sourceMeta.systemPromptFile : undefined
     let skillFilter = sourceMeta.skillFilter
     if (data.branchType === 'detail') {
       const preset = typeof sourceMeta.preset === 'string' ? sourceMeta.preset : undefined
@@ -279,9 +311,12 @@ export async function handleChatBranchCreate(
     }
     chatId = randomUUID()
     branchId = randomUUID()
-    const inheritedContext = typeof sourceMeta.branchContext === 'string' ? sourceMeta.branchContext : ''
+    const inheritedContext =
+      typeof sourceMeta.branchContext === 'string' ? sourceMeta.branchContext : ''
     const localContext = snapshotText(path, anchor, data.branchType === 'detail')
-    const context = inheritedContext ? `${inheritedContext}\n\n--- 后续分叉 ---\n\n${localContext}` : localContext
+    const context = inheritedContext
+      ? `${inheritedContext}\n\n--- 后续分叉 ---\n\n${localContext}`
+      : localContext
     const metadata = {
       ...sourceMeta,
       runtime: selection,
@@ -295,29 +330,33 @@ export async function handleChatBranchCreate(
     createChat(chatId, metadata)
     const inherited = data.branchType === 'continuation' ? inheritedTasks(timeline, anchor) : []
     inheritedForRollback = inherited
-    insertConversationBranch({
-      branchId,
-      taskId: preview.taskId,
-      chatId,
-      kind: data.branchType,
-      sourceBranchId: source.branchId,
-      anchorRootChatId: data.rootChatId,
-      anchorNodeId: anchor.id,
-      contextSnapshot: path,
-      runtimeSnapshot: {
-        metadata,
-        runtime: selection,
-        ...(data.branchType === 'continuation'
-          ? { inheritedTaskIds: inherited.map((task) => task.taskId) }
-          : {}),
+    insertConversationBranch(
+      {
+        branchId,
+        taskId: preview.taskId,
+        chatId,
+        kind: data.branchType,
+        sourceBranchId: source.branchId,
+        anchorRootChatId: data.rootChatId,
+        anchorNodeId: anchor.id,
+        contextSnapshot: path,
+        runtimeSnapshot: {
+          metadata,
+          runtime: selection,
+          ...(data.branchType === 'continuation'
+            ? { inheritedTaskIds: inherited.map((task) => task.taskId) }
+            : {}),
+        },
       },
-    }, {
-      activate: data.branchType === 'continuation',
-      deliveryTaskIds: inherited.map((task) => task.taskId),
-    })
+      {
+        activate: data.branchType === 'continuation',
+        deliveryTaskIds: inherited.map((task) => task.taskId),
+      },
+    )
     if (data.branchType === 'continuation') {
       const merged = mergeContent(inherited)
-      if (merged) addMessage(`branch-merge:${branchId}`, chatId, { role: 'system', content: merged })
+      if (merged)
+        addMessage(`branch-merge:${branchId}`, chatId, { role: 'system', content: merged })
     }
     await ensureChat(chatId, selection)
     const input = await handleChatInputSubmit(ctx, {
@@ -340,14 +379,25 @@ export async function handleChatBranchCreate(
     }
     completeRequest(data.commandId, response)
     if (data.branchType === 'continuation') {
-      for (const task of inherited.filter((item) => item.status === 'pending' || item.status === 'started')) {
+      for (const task of inherited.filter(
+        (item) => item.status === 'pending' || item.status === 'started',
+      )) {
         if (!computeCanResume(task.childChatId)) continue
-        void launchDetachedResume(ctx, task.childChatId, `branch-resume:${branchId}:${task.taskId}`).catch(() => {})
+        void launchDetachedResume(
+          ctx,
+          task.childChatId,
+          `branch-resume:${branchId}:${task.taskId}`,
+        ).catch(() => {})
       }
     }
     return response
   } catch (error) {
-    if (previousActiveBranchId && branchId && getConversationTask(getConversationBranchByChat(chatId ?? '')?.taskId ?? '')?.activeBranchId === branchId) {
+    if (
+      previousActiveBranchId &&
+      branchId &&
+      getConversationTask(getConversationBranchByChat(chatId ?? '')?.taskId ?? '')
+        ?.activeBranchId === branchId
+    ) {
       const restored = activateConversationBranch(previousActiveBranchId)
       rerouteSpawnTasks(
         inheritedForRollback.map((task) => task.taskId),
@@ -370,22 +420,29 @@ export async function handleChatBranchActivate(
   data: ChatBranchActivateRequestData,
 ): Promise<ChatBranchActivateResponseData> {
   const claimed = claimRequest(data.commandId, Method.CHAT_BRANCH_ACTIVATE, data)
-  if (claimed.state === 'completed') return JSON.parse(claimed.responseJson) as ChatBranchActivateResponseData
+  if (claimed.state === 'completed')
+    return JSON.parse(claimed.responseJson) as ChatBranchActivateResponseData
   if (claimed.state === 'active') throw new Error('主流程切换命令正在处理中')
   if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
   try {
     const branch = getConversationBranch(data.branchId)
     if (!branch) throw new Error('分支不存在')
     const snapshotNodes = Array.isArray(branch.contextSnapshot)
-      ? branch.contextSnapshot as TimelineNode[]
+      ? (branch.contextSnapshot as TimelineNode[])
       : []
     const causalParents = new Set([
       branch.chatId,
       ...collectDescendantsChatIds(branch.chatId),
       ...snapshotNodes.map((node) => node.sourceChatId),
     ])
-    const inheritedTaskIds: Set<string> | undefined = Array.isArray(branch.runtimeSnapshot.inheritedTaskIds)
-      ? new Set((branch.runtimeSnapshot.inheritedTaskIds as unknown[]).filter((id): id is string => typeof id === 'string'))
+    const inheritedTaskIds: Set<string> | undefined = Array.isArray(
+      branch.runtimeSnapshot.inheritedTaskIds,
+    )
+      ? new Set(
+          (branch.runtimeSnapshot.inheritedTaskIds as unknown[]).filter(
+            (id): id is string => typeof id === 'string',
+          ),
+        )
       : undefined
     const openTaskIds = inheritedTaskIds
       ? [...inheritedTaskIds]
@@ -412,14 +469,18 @@ export async function handleChatAbortTask(
   data: ChatAbortTaskRequestData,
 ): Promise<ChatAbortTaskResponseData> {
   const claimed = claimRequest(data.commandId, Method.CHAT_ABORT_TASK, data)
-  if (claimed.state === 'completed') return JSON.parse(claimed.responseJson) as ChatAbortTaskResponseData
+  if (claimed.state === 'completed')
+    return JSON.parse(claimed.responseJson) as ChatAbortTaskResponseData
   if (claimed.state === 'active') throw new Error('该任务暂停命令正在处理中')
   if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
   try {
     if (!getConversationTask(data.taskId)) throw new Error('任务不存在')
     const abortedBranches: string[] = []
     for (const branch of listConversationBranches(data.taskId)) {
-      await handleChatAbort(ctx, { chatId: branch.chatId, commandId: `${data.commandId}:${branch.branchId}` })
+      await handleChatAbort(ctx, {
+        chatId: branch.chatId,
+        commandId: `${data.commandId}:${branch.branchId}`,
+      })
       abortedBranches.push(branch.branchId)
     }
     const response = { taskId: data.taskId, abortedBranches }
@@ -431,7 +492,9 @@ export async function handleChatAbortTask(
   }
 }
 
-export function registerConversationBranchHandlers(router: import('../message/router.js').RpcRouter): void {
+export function registerConversationBranchHandlers(
+  router: import('../message/router.js').RpcRouter,
+): void {
   router.register(Method.CHAT_BRANCH_PREVIEW, handleChatBranchPreview)
   router.register(Method.CHAT_BRANCH_CREATE, handleChatBranchCreate)
   router.register(Method.CHAT_BRANCH_ACTIVATE, handleChatBranchActivate)

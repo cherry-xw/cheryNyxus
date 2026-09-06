@@ -131,11 +131,14 @@ export function parseTestCases(sourceContent: string): TestCase[] {
   return []
 }
 
-export async function compileSenses(): Promise<SenseCompileSummary> {
+export async function compileSenses(options?: {
+  outputDir?: string
+  tempDir?: string
+}): Promise<SenseCompileSummary> {
   const sensesDir = config.global.senses_dir
 
-  const outputDir = join(process.cwd(), 'dist', 'senses')
-  const tempDir = join(process.cwd(), 'dist', '.sense-temp')
+  const outputDir = options?.outputDir ?? join(process.cwd(), 'dist', 'senses')
+  const tempDir = options?.tempDir ?? join(process.cwd(), 'dist', '.sense-temp')
 
   if (!existsSync(sensesDir)) {
     return { succeeded: [], failed: [] }

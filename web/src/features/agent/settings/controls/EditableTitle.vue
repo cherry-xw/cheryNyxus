@@ -75,7 +75,7 @@ defineExpose({ start, cancel })
       @click="start"
       >{{ modelValue }}</span
     >
-    <div class="flex-1"></div>
+    <div class="flex-1" />
     <span class="card-actions">
       <template v-if="editing">
         <button type="button" class="icon-btn ok" aria-label="确认改名" @click="commit">
@@ -95,6 +95,5 @@ defineExpose({ start, cancel })
 .card-title {
   display: flex;
   align-items: center;
-
 }
 </style>

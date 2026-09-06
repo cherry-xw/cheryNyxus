@@ -8,9 +8,7 @@ export interface ExecutionTimingEvent {
 }
 
 function dataOf(event: ExecutionTimingEvent): Record<string, unknown> {
-  return event.data && typeof event.data === 'object'
-    ? (event.data as Record<string, unknown>)
-    : {}
+  return event.data && typeof event.data === 'object' ? (event.data as Record<string, unknown>) : {}
 }
 
 function runIdOf(event: ExecutionTimingEvent, data: Record<string, unknown>): string | undefined {

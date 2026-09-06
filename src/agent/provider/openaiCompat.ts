@@ -33,7 +33,7 @@ export async function acquireRpm(options?: {
   const rpm = options?.rpm
   const url = options?.url
   if (!rpm || rpm <= 0 || !url) return
-  await getRateLimiter(url, options.key, rpm).acquire()
+  await getRateLimiter(url, options.key).acquire(rpm)
 }
 
 // ========== Message Adapter ==========

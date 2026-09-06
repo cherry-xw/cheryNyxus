@@ -15,6 +15,21 @@
 - 全局 Tab 使用无空洞的响应式拼贴模块墙：监管、编辑器、限制、日志、压缩和记忆块按信息量拥有不同宽高。普通下拉和数字框替换为分段卡、属性调节器、编辑器卡片与标签弹匣；紫蓝玻璃光晕表达选中与聚焦，暖色只用于警告。
 - 技能与插件导入统一使用“霓虹开卡包”交互：选择 Git/ZIP 来源对应挑选卡包，读取阶段表现为拆封与洗牌，候选确认使用可选择的卡牌阵列，提交后集中收牌并揭晓导入结果。视觉使用青绿、亮粉、橙黄、电蓝与酸性绿的多色霓虹，不以紫色或魔法阵作为主视觉；弹窗底色允许青红通道错位和间歇色块抖动，但表单、文字与操作控件保持稳定。高表现力动效只表达当前状态；应用不实现 `prefers-reduced-motion` 静态退化（见「动效降级约定」）。
 
+## 保存与生效状态
+
+点击保存只表示候选配置和 Hooks 草稿已通过校验并写入磁盘；它不承诺所有运行中的模块已采用新值。保存结果和后续的 `config.apply.changed` 通知都会显示：保存版本、当前已应用版本、每个受影响资源的状态，以及必要时的重启状态。状态含义如下：
+
+| 状态 | 用户应如何理解 | 下一步 |
+|---|---|---|
+| 已生效 | 该资源已在对应边界完成替换 | 后续操作使用新值；当前已发出的请求不重写。 |
+| 等待生效 | 配置已保存，但在等待受影响节点树、资源或安全边界 | 完成或暂停受影响任务后查看状态；无需断开 WebSocket。 |
+| 生效失败 | 配置已保存，但资源准备、切换或清理失败 | 系统保留最后可用运行态；查看原因并修正后重新保存。 |
+| 需要重启 | 进程级配置尚未采用 | 等待任务和后台进程结束，或按界面提示手动管理进程后重启。 |
+
+同一时间只有一个保存会基于当前 `baseRevision` 提交。其他窗口或外部编辑已经保存时，本窗口会保留未保存草稿并提示冲突；重新读取、核对差异后再保存，不会静默覆盖。删除角色或预设会先展示受影响对象，确认后按“等待”策略提交。
+
+普通设置不会让客户端主动断开或要求重新连接。运行参数、编辑器、日志、媒体和内存限制在下一次对应操作采用；大脑连接参数在下一次请求采用；语义、角色、预设、感官组、MCP 和非 Hooks 资产等待受影响节点树的安全边界。端口、host、transport、认证初始化、根路径和数据库等进程级绑定仍需要重启。
+
 ## 动效降级约定
 
 动效偏好提供“跟随系统 / 完整 / 精简”三档，默认跟随客户端 `prefers-reduced-motion`。选择会写入 `chery-motion`，并通过 storage event 与 BroadcastChannel 同步到同源窗口；精简档保留必要的透明度反馈，关闭循环装饰、位移和 stagger。
@@ -46,7 +61,9 @@
 
 大脑卡片的地址输入框不渲染模板占位符（如 `<YOUR_OPENAI_COMPATIBLE_URL>`、`<YOUR_MODEL_NAME>`）：此类尖括号占位符在展示层视为空值，输入框仅呈现中文 placeholder「LLM URL 或大模型地址」，避免把模板默认占位文本当成真实配置展示；占位符本身仍保留在草稿中，用户填写真实地址后正常回显。
 
-密钥下拉的选项来自 `.env` 变量名（`env.list`）。选项 label 直接显示变量名（如 `OPENAI_API_KEY`），不渲染 `$` 前缀——存储值仍带 `$` 前缀（供后端 `$ENV` 占位注入），仅是展示层去掉了 `$`。密钥行提供「刷新」按钮：点击重拉 `env.list`，后端每次实时读盘并**顺带把 `.env` 新增/修改的变量覆盖同步进 `process.env`**，因此运行期编辑 `.env` 后点一下刷新，新密钥变量名立即出现在下拉、且被 `$VAR` 引用的新值无需重启即可生效。刷新期间按钮转圈并禁用。下拉不做业务过滤——凡 `.env` 中符合变量命名规范的变量名（后端 `listEnvVarNames` 按 `/^[A-Za-z_][A-Za-z0-9_]*$/` 校验）全部进入，`API_KEY1` 这类数字尾缀命名与运行时配置变量（如 `CHERY_DIR`）也会出现。
+密钥下拉的选项来自 `.env` 变量名（`env.list`）。选项 label 直接显示变量名（如 `OPENAI_API_KEY`），不渲染 `$` 前缀——存储值仍带 `$` 前缀（供后端 `$ENV` 占位注入），仅是展示层去掉了 `$`。密钥行提供「刷新」按钮：点击重拉 `env.list`，后端实时处理 `.env` 的新增、轮换和删除，并让引用该变量的后续 LLM、媒体或 MCP 运行采用新解析值；删除变量不会继续使用旧文件值。`CHERY_DIR`、`DB_DIR`、`WEB_PORT` 和认证初始化变量属于进程级绑定，刷新时保持当前值并在统一 apply 状态中登记重启待办。刷新期间按钮转圈并禁用。下拉不做业务过滤——凡 `.env` 中符合变量命名规范的变量名（后端 `listEnvVarNames` 按 `/^[A-Za-z_][A-Za-z0-9_]*$/` 校验）全部进入。
+
+Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册表会在成功准备后局部替换；脚本本身在下一次 dispatch 时按需执行。保存 Hooks 不会重启 worker，也不会重新执行已经触发的维护任务。若 Hooks 资源未能准备，状态会说明失败且现有注册表继续工作。
 
 连接配置只保存服务、API 协议和模型等最终值。全部具体模型规则保存在用户可编辑的 `.chery/model-catalog.yaml`，程序代码不隐藏厂商规则。模型目录根据精确/glob/正则规则展示识别结果，并在选择模型时把推荐协议、上下文、thinking 和能力写入当前编辑草稿；未命中时写入 `unknown.recommend` 的保守草稿，用户保存后才生效。
 
@@ -90,7 +107,7 @@
 
 **Cherry Nexus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（模板默认为 roles=[cheryNyxus, roleArchitect, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。`roleArchitect` 只研究任意岗位并返回蓝图，具体工具映射与配置写入仍由 Cherry Nexus 完成。前端「选择成员」下拉禁用、「设置解释」禁用、成员卡全部禁用；成员配置本身不在设置页改动。
 
-**审批规则**：原「规则文件」改名为「审批规则」。下拉选择 `.chery/rule/` 下覆盖文件（`presets.<name>.rule`），与基准 `base.yaml` 深合并（详见 docs/core/sense.md「smart 规则表」）。右侧「刷新」按钮重新拉取 `rules.list`——手动新建或与 Cherry Nexus 对话生成规则文件后立即可见。tip 含机制（命中危险拦截/未命中放行）+ 操作方案（与 Cherry Nexus 对话生成 / 手动编辑 `.chery/rule/` + 保存重启）。
+**审批规则**：原「规则文件」改名为「审批规则」。下拉选择 `.chery/rule/` 下覆盖文件（`presets.<name>.rule`），与基准 `base.yaml` 深合并（详见 docs/core/sense.md「smart 规则表」）。右侧「刷新」按钮重新拉取 `rules.list`——手动新建或与 Cherry Nexus 对话生成规则文件后立即可见。tip 含机制（命中危险拦截/未命中放行）+ 操作方案（与 Cherry Nexus 对话生成 / 手动编辑 `.chery/rule/` + 保存；实际采用时间以设置页生效状态为准）。
 
 **tip 排版与配色**：`.label-tip-popper`（web/src/styles/element/index.scss）全局 `pre-line` 换行（content 内 `\n` 分节）+ 配色随主题——背景 `var(--panel)` / 文字 `var(--ink)`（深色黑底白字、浅色白底黑字）；`.el-popper.is-dark.label-tip-popper` 抬特异性覆盖 el-tooltip 默认黑底。影响所有 LabelTip（编辑器/插件导入/指令/大脑/技能导入/预设）。
 
@@ -99,6 +116,7 @@
 ## 依赖与关联
 
 - `web/src/features/agent/settings/SettingsDialog.vue`：一级 Tab、保存和错误弹窗。
+- `web/src/features/agent/settings/components/ConfigApplyStatus.vue`：保存后的生效状态、等待原因和重启待办。
 - `web/src/features/agent/settings/components/TabShell.vue`：统一资源导航。
 - `web/src/features/agent/settings/tabs/RolesTab.vue`：角色图鉴与装备。
 - `src/agent/prompt/loadSkill.ts`：技能目录缓存与分页元数据。

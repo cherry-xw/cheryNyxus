@@ -299,7 +299,12 @@ watch(
 </script>
 
 <template>
-  <div v-if="props.node" ref="drawerLayerRef" class="lite-drawer-layer" :class="{ 'is-resizing': resizing }">
+  <div
+    v-if="props.node"
+    ref="drawerLayerRef"
+    class="lite-drawer-layer"
+    :class="{ 'is-resizing': resizing }"
+  >
     <div class="lite-drawer-mask" aria-hidden="true" @click="requestClose" />
     <aside
       ref="dialogRef"

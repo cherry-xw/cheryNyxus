@@ -287,9 +287,11 @@ export async function handleAsyncWakeTimeout(child: {
   childChatId: string
   parentChatId: string
   type: string
+  timeoutMs: number
+  wakeOnTimeout: boolean
 }): Promise<void> {
-  const wakeOnTimeout = config.global.watchdog?.wake_on_timeout ?? false
-  const timeoutSec = (config.global.watchdog?.timeout_ms ?? 5 * 60 * 1000) / 1000
+  const { wakeOnTimeout } = child
+  const timeoutSec = child.timeoutMs / 1000
   if (wakeOnTimeout) {
     const timeout = timeoutSpawnTask(child.childChatId)
     if (!timeout.task) {

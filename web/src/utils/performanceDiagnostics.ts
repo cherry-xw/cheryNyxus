@@ -54,10 +54,7 @@ export function recordPerformanceFrame(intervalMs: number): void {
 }
 
 function frameIntervalSnapshot(): FrameIntervalSummary {
-  const values = Array.from(
-    { length: frameSampleCount },
-    (_, index) => frameIntervals[index]!,
-  )
+  const values = Array.from({ length: frameSampleCount }, (_, index) => frameIntervals[index]!)
   return summarizeFrameIntervals(values)
 }
 

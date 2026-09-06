@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { McpServerConfig } from '@/utils/config.js'
 import type { McpClientHandle } from './types.js'
+import { McpLifetime } from './lifetime.js'
 
 /** 客户端自我声明，MCP 握手时上报给 server */
 const CLIENT_INFO = { name: 'cherynyxus', version: '1.0.0' }
@@ -33,6 +34,28 @@ export async function connectMcpServer(
 ): Promise<McpClientHandle> {
   const transport = buildTransport(cfg)
   const client = new Client(CLIENT_INFO, { capabilities: {} })
-  await client.connect(transport)
+  try {
+    await client.connect(transport)
+  } catch (error) {
+    // A failed handshake can still own a live stdio process. Retain failed
+    // cleanup handles so the loader cannot start a second process beside it.
+    const failed = new McpLifetime(
+      {
+        name,
+        client,
+        close: async () => {
+          try {
+            await client.close()
+          } finally {
+            await transport.close()
+          }
+        },
+      },
+      cfg.transport === 'stdio',
+    )
+    failed.retire()
+    await failed.collect()
+    throw error
+  }
   return { name, client, close: () => client.close() }
 }

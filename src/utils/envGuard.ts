@@ -72,10 +72,7 @@ export function redactSensitiveValues(
 ): string {
   const entries = Object.entries(envMap).filter(
     ([key, value]) =>
-      SENSITIVE_KEY_RE.test(key) &&
-      value &&
-      value !== placeholder &&
-      !placeholder.includes(value),
+      SENSITIVE_KEY_RE.test(key) && value && value !== placeholder && !placeholder.includes(value),
   )
   if (entries.length === 0) return content
 

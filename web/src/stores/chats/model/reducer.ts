@@ -799,7 +799,11 @@ function reduceNotification(
         existing.security = d.security as ToolAuthorizationDto
       }
     } else {
-      session.interaction.runningTools.push({ id, name: senseName, security: d.security as ToolAuthorizationDto | undefined })
+      session.interaction.runningTools.push({
+        id,
+        name: senseName,
+        security: d.security as ToolAuthorizationDto | undefined,
+      })
     }
     return
   }

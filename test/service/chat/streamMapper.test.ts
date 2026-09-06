@@ -82,6 +82,36 @@ function notifications(events: unknown[]): Array<[string, unknown]> {
 }
 
 describe('streamAgentChunks run lifecycle', () => {
+  it('uses the approval window captured by the run', async () => {
+    const chatId = 'chat-approval-snapshot'
+    cleanup.push(chatId)
+    createChat(chatId)
+    async function* pending(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      yield {
+        type: 'sense_end',
+        id: 'approval-1',
+        name: 'write_file',
+        arguments: '{}',
+        supervisionLevel: 2,
+        approvalTimeoutMs: 4321,
+      }
+    }
+    const events: unknown[] = []
+    for await (const event of streamAgentChunks(
+      pending(),
+      'request-approval-snapshot',
+      chatId,
+      'run-approval-snapshot',
+    )) {
+      events.push(event)
+    }
+
+    expect(notifications(events).find(([type]) => type === 'interrupt')?.[1]).toMatchObject({
+      approvalId: 'approval-1',
+      waitTime: 4321,
+    })
+  })
+
   it('maps loop limit to a warning pause before the legacy compatibility error', async () => {
     const chatId = 'chat-loop-limit'
     cleanup.push(chatId)
@@ -480,7 +510,10 @@ describe('streamAgentChunks run lifecycle', () => {
       .map(([type, data]) => [type, data as Record<string, unknown>] as const)
       .filter(([type]) => type === 'turn.completed' || type === 'sense_started')
     expect(handoff).toEqual([
-      ['turn.completed', expect.objectContaining({ turnId: 'turn-before-tool', completedAt: 1234 })],
+      [
+        'turn.completed',
+        expect.objectContaining({ turnId: 'turn-before-tool', completedAt: 1234 }),
+      ],
       ['sense_started', expect.objectContaining({ id: 'tool-timed', startedAt: 1234 })],
       ['turn.completed', expect.objectContaining({ turnId: 'turn-timed' })],
     ])

@@ -43,9 +43,7 @@ const md = new MarkdownIt({
   breaks: false,
   highlight(source: string, languageName: string): string {
     const language = languageName && hljs.getLanguage(languageName) ? languageName : ''
-    const code = language
-      ? hljs.highlight(source, { language }).value
-      : md.utils.escapeHtml(source)
+    const code = language ? hljs.highlight(source, { language }).value : md.utils.escapeHtml(source)
     return `<pre class="hljs"><code>${code}</code></pre>`
   },
 })

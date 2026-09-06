@@ -50,12 +50,7 @@ async function onClick(): Promise<void> {
 </script>
 
 <template>
-  <el-tooltip
-    v-if="variant === 'icon'"
-    content="打开配置文件夹"
-    placement="top"
-    :show-after="120"
-  >
+  <el-tooltip v-if="variant === 'icon'" content="打开配置文件夹" placement="top" :show-after="120">
     <span class="tooltip-trigger">
       <button
         type="button"

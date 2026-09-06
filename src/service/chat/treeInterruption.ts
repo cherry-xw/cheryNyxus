@@ -22,16 +22,13 @@ export function buildTreeInterruptionNotice(
   const control = getActiveTreeControl(rootChatId)
   const interruptedChildren = control?.targets.filter(
     (target) =>
-      target.chatId !== rootChatId &&
-      (target.status === 'paused' || target.status === 'failed'),
+      target.chatId !== rootChatId && (target.status === 'paused' || target.status === 'failed'),
   )
   if (!control || !interruptedChildren || interruptedChildren.length === 0) return undefined
 
   const childLines = interruptedChildren.map((target) => {
     const child = getChat(target.chatId)
-    const metadata = child?.metadata
-      ? (safeJsonParse(child.metadata, {}) as { type?: string })
-      : {}
+    const metadata = child?.metadata ? (safeJsonParse(child.metadata, {}) as { type?: string }) : {}
     return `- ${metadata.type ?? '协作节点'} (chatId: ${target.chatId})`
   })
   return {

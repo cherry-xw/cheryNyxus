@@ -276,12 +276,14 @@ function onEscape(event: KeyboardEvent): void {
   cursor: grab;
   touch-action: none;
 }
-.crt-head:active { cursor: grabbing; }
+.crt-head:active {
+  cursor: grabbing;
+}
 .crt-head strong {
   min-width: 0;
   overflow: hidden;
-    color: #edf5f7;
-      font:
+  color: #edf5f7;
+  font:
     650 10px/1.2 system-ui,
     sans-serif;
   text-overflow: ellipsis;

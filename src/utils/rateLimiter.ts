@@ -25,15 +25,8 @@ class SlidingWindowRateLimiter {
   /** 放行时刻数组（单调递增，含已预约的未来时刻） */
   private slots: number[] = []
 
-  constructor(private readonly rpm: number) {
+  async acquire(rpm: number): Promise<void> {
     if (rpm <= 0) throw new Error(`rpm must be positive, got: ${rpm}`)
-  }
-
-  /**
-   * 预约一个放行名额，必要时阻塞等待。
-   * 超出限额时 await sleep 到 slot 时刻，对调用方透明。
-   */
-  async acquire(): Promise<void> {
     // ===== 同步段：清理 + 预约（首个 await 前，原子不交错） =====
     const now = Date.now()
 
@@ -43,13 +36,13 @@ class SlidingWindowRateLimiter {
     }
 
     let slot: number
-    if (this.slots.length < this.rpm) {
+    if (this.slots.length < rpm) {
       // 窗口内未满，立即放行
       slot = now
     } else {
       // 排在当前请求前第 rpm 个的放行时刻 + 60s
       // pivotIndex >= 0（因 length >= rpm）；?? now 仅防御 noUncheckedIndexedAccess
-      const pivot = this.slots[this.slots.length - this.rpm] ?? now
+      const pivot = this.slots[this.slots.length - rpm] ?? now
       slot = pivot + WINDOW_MS
     }
     this.slots.push(slot)
@@ -58,7 +51,7 @@ class SlidingWindowRateLimiter {
 
     // ===== 让出点：必要时等待 =====
     if (waitMs > 0) {
-      logger.event('rateLimit.wait', { rpm: this.rpm, waitMs }, LogLevel.debug)
+      logger.event('rateLimit.wait', { rpm, waitMs }, LogLevel.debug)
       await sleep(waitMs)
     }
   }
@@ -80,19 +73,14 @@ function limiterKey(url: string, key?: string): string {
 }
 
 /**
- * 获取（或创建）(url, key) 对应的限流器。
- * rpm 仅在首次创建时生效；已存在的限流器忽略后续 rpm 参数
- * （同一账号以首次声明的 rpm 为准）。
+ * 获取（或创建）(url, key) 对应的限流器。窗口按账号持续保留；每次 acquire
+ * 传入该运行快照的 rpm，因此更新限额不会清空窗口或改写已预约请求。
  */
-export function getRateLimiter(
-  url: string,
-  key: string | undefined,
-  rpm: number,
-): SlidingWindowRateLimiter {
+export function getRateLimiter(url: string, key: string | undefined): SlidingWindowRateLimiter {
   const k = limiterKey(url, key)
   let limiter = limiterRegistry.get(k)
   if (!limiter) {
-    limiter = new SlidingWindowRateLimiter(rpm)
+    limiter = new SlidingWindowRateLimiter()
     limiterRegistry.set(k, limiter)
   }
   return limiter

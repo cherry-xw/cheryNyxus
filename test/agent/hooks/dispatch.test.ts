@@ -9,7 +9,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { dispatch } from '@/agent/hooks/dispatch.js'
-import { clearHookRegistry } from '@/agent/hooks/registry.js'
+import {
+  clearHookRegistry,
+  prepareHookRegistry,
+  publishHookRegistry,
+} from '@/agent/hooks/registry.js'
 import { ClassifiedError } from '@/utils/error.js'
 import type { PreLLMRequestPayload, PreToolUsePayload } from '@/agent/hooks/types.js'
 
@@ -161,6 +165,35 @@ describe('hooks dispatch PreLLMRequest', () => {
     const payload = makePreLLMRequestPayload()
     await dispatch('PreLLMRequest', payload, { brain: '' })
     expect(payload.body.step).toBe(2) // 第二个 handler 覆盖
+  })
+
+  it('发布新表时在途 dispatch 继续使用启动时 handlers', async () => {
+    publishHookRegistry(
+      prepareHookRegistry(
+        {
+          PreLLMRequest: [
+            {
+              command: `node -e "setTimeout(()=>process.stdout.write('{\\"body\\":{\\"model\\":\\"old\\"}}'),100)"`,
+            },
+          ],
+        },
+        {},
+      ),
+    )
+    const inFlightPayload = makePreLLMRequestPayload()
+    const inFlight = dispatch('PreLLMRequest', inFlightPayload, { brain: '' })
+    publishHookRegistry(
+      prepareHookRegistry(
+        { PreLLMRequest: [{ command: `echo '{"body":{"model":"new"}}'` }] },
+        {},
+      ),
+    )
+
+    await inFlight
+    expect(inFlightPayload.body.model).toBe('old')
+    const nextPayload = makePreLLMRequestPayload()
+    await dispatch('PreLLMRequest', nextPayload, { brain: '' })
+    expect(nextPayload.body.model).toBe('new')
   })
 
   it('handler stdout 非法 JSON -> 跳过该 handler，不阻断', async () => {

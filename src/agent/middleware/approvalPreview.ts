@@ -29,7 +29,8 @@ function readText(file: string): string | undefined {
   if (!fs.existsSync(file)) return undefined
   const stat = fs.statSync(file)
   if (!stat.isFile()) throw new Error('目标不是文件')
-  if (stat.size > MAX_PREVIEW_BYTES) throw new Error(`文件超过 ${MAX_PREVIEW_BYTES / 1024}KB，无法生成完整差异`)
+  if (stat.size > MAX_PREVIEW_BYTES)
+    throw new Error(`文件超过 ${MAX_PREVIEW_BYTES / 1024}KB，无法生成完整差异`)
   return fs.readFileSync(file, 'utf8')
 }
 
@@ -46,7 +47,10 @@ function stableJson(value: unknown): string {
 
 function assetFile(assetPath: string): string {
   const relative = assetPath.replaceAll('\\', '/').replace(/^\.chery\//, '')
-  if (!/^(?:prompt\/.+\.md|skills\/[^/]+(?:\/.+)?|rule\/[^/]+\.ya?ml)$/i.test(relative) || relative.split('/').includes('..')) {
+  if (
+    !/^(?:prompt\/.+\.md|skills\/[^/]+(?:\/.+)?|rule\/[^/]+\.ya?ml)$/i.test(relative) ||
+    relative.split('/').includes('..')
+  ) {
     throw new Error('资产路径不在允许范围内')
   }
   const root = path.resolve(process.env.CHERY_DIR || process.cwd(), '.chery')
@@ -69,7 +73,10 @@ function writeFilePreview(args: Record<string, unknown>): ApprovalPreviewFile | 
 }
 
 /** Builds display-only approval data. The returned JSON must never be used to execute the tool. */
-export function approvalPreview(name: string, argsJson: string): { arguments: string; snapshot?: ApprovalSnapshot } {
+export function approvalPreview(
+  name: string,
+  argsJson: string,
+): { arguments: string; snapshot?: ApprovalSnapshot } {
   const args = safeJsonParse(argsJson, {}) as Record<string, unknown>
   try {
     let files: ApprovalPreviewFile[] | undefined
@@ -86,32 +93,62 @@ export function approvalPreview(name: string, argsJson: string): { arguments: st
       const before = stableJson(redactConfigSecrets(readRawConfig()))
       const applied = applyConfigOperations(readRawConfig(), operations.data)
       if (!applied.ok) throw new Error(applied.errors.join('；'))
-      files = [{ path: '.chery/config.yaml', before, after: stableJson(redactConfigSecrets(applied.candidate)), kind: 'modify' }]
+      files = [
+        {
+          path: '.chery/config.yaml',
+          before,
+          after: stableJson(redactConfigSecrets(applied.candidate)),
+          kind: 'modify',
+        },
+      ]
     } else if (name === 'config_manage' && args.action === 'asset_save') {
-      if (typeof args.assetPath !== 'string' || typeof args.content !== 'string') return { arguments: argsJson }
+      if (typeof args.assetPath !== 'string' || typeof args.content !== 'string')
+        return { arguments: argsJson }
       const absolute = assetFile(args.assetPath)
       const before = readText(absolute) ?? ''
-      files = [{ path: `.chery/${args.assetPath.replace(/^\.chery\//, '')}`, before, after: args.content, kind: before ? 'modify' : 'create' }]
+      files = [
+        {
+          path: `.chery/${args.assetPath.replace(/^\.chery\//, '')}`,
+          before,
+          after: args.content,
+          kind: before ? 'modify' : 'create',
+        },
+      ]
       snapshotPath = absolute
     } else if (name === 'config_manage' && args.action === 'asset_archive') {
       if (typeof args.assetPath !== 'string') return { arguments: argsJson }
       const absolute = assetFile(args.assetPath)
       const before = readText(absolute)
       if (before === undefined) throw new Error('资产不存在，无法生成归档差异')
-      files = [{ path: `.chery/${args.assetPath.replace(/^\.chery\//, '')}`, before, after: '', kind: 'delete' }]
+      files = [
+        {
+          path: `.chery/${args.assetPath.replace(/^\.chery\//, '')}`,
+          before,
+          after: '',
+          kind: 'delete',
+        },
+      ]
       snapshotPath = absolute
     }
     if (!files) return { arguments: argsJson }
-    const snapshotFile = files.length === 1 && (name === 'write_file' || args.action === 'asset_save' || args.action === 'asset_archive') ? files[0] : undefined
+    const snapshotFile =
+      files.length === 1 &&
+      (name === 'write_file' || args.action === 'asset_save' || args.action === 'asset_archive')
+        ? files[0]
+        : undefined
     return {
       arguments: JSON.stringify({ ...args, __filePreview: { files } satisfies ApprovalPreview }),
-      snapshot: snapshotFile && snapshotPath
-        ? { path: snapshotPath, contentHash: hash(snapshotFile.before) }
-        : undefined,
+      snapshot:
+        snapshotFile && snapshotPath
+          ? { path: snapshotPath, contentHash: hash(snapshotFile.before) }
+          : undefined,
     }
   } catch (error) {
     return {
-      arguments: JSON.stringify({ ...args, __filePreview: { error: (error as Error).message } satisfies ApprovalPreview }),
+      arguments: JSON.stringify({
+        ...args,
+        __filePreview: { error: (error as Error).message } satisfies ApprovalPreview,
+      }),
     }
   }
 }

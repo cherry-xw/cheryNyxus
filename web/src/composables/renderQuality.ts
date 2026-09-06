@@ -149,28 +149,35 @@ export function createAdaptiveQualityGovernor(
       const firstLive = samples.findIndex((sample) => sample.at >= oldest)
       if (firstLive > 0) samples = samples.slice(firstLive)
 
-      const downgradeWindow = currentTier === 'balanced' ? LOW_DOWNGRADE_WINDOW_MS : DOWNGRADE_WINDOW_MS
+      const downgradeWindow =
+        currentTier === 'balanced' ? LOW_DOWNGRADE_WINDOW_MS : DOWNGRADE_WINDOW_MS
       const downgradeSince = now - downgradeWindow
       const downgradeThreshold =
         currentTier === 'balanced' ? LOW_DOWNGRADE_P95_MS : HIGH_DOWNGRADE_P95_MS
       const minimumDowngradeSamples = Math.max(30, Math.floor(downgradeWindow / 34))
-      if (currentTier !== 'low' && now - lastTransitionAt >= downgradeWindow &&
+      if (
+        currentTier !== 'low' &&
+        now - lastTransitionAt >= downgradeWindow &&
         sampleCount(samples, downgradeSince) >= minimumDowngradeSamples &&
-        percentile95(samples, downgradeSince) > downgradeThreshold) {
+        percentile95(samples, downgradeSince) > downgradeThreshold
+      ) {
         currentTier = lowerTier(currentTier)
         lastTransitionAt = now
         samples = samples.filter((sample) => sample.at >= downgradeSince)
         return currentTier
       }
 
-      const upgradeWindow = currentTier === 'low' ? BALANCED_UPGRADE_WINDOW_MS : HIGH_UPGRADE_WINDOW_MS
+      const upgradeWindow =
+        currentTier === 'low' ? BALANCED_UPGRADE_WINDOW_MS : HIGH_UPGRADE_WINDOW_MS
       const upgradeSince = now - upgradeWindow
-      const upgradeThreshold =
-        currentTier === 'low' ? BALANCED_UPGRADE_P95_MS : HIGH_UPGRADE_P95_MS
+      const upgradeThreshold = currentTier === 'low' ? BALANCED_UPGRADE_P95_MS : HIGH_UPGRADE_P95_MS
       const minimumUpgradeSamples = Math.floor(upgradeWindow / 34)
-      if (currentTier !== 'high' && now - lastTransitionAt >= upgradeWindow &&
+      if (
+        currentTier !== 'high' &&
+        now - lastTransitionAt >= upgradeWindow &&
         sampleCount(samples, upgradeSince) >= minimumUpgradeSamples &&
-        percentile95(samples, upgradeSince) <= upgradeThreshold) {
+        percentile95(samples, upgradeSince) <= upgradeThreshold
+      ) {
         currentTier = higherTier(currentTier)
         lastTransitionAt = now
         samples = []

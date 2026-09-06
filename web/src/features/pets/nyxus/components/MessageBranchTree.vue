@@ -1,24 +1,93 @@
 <script setup lang="ts">
-import { useMessageBranchTreeController, type MessageBranchTreeControllerProps, type MessageBranchTreeControllerEmits } from './useMessageBranchTreeController'
+import {
+  useMessageBranchTreeController,
+  type MessageBranchTreeControllerProps,
+  type MessageBranchTreeControllerEmits,
+} from './useMessageBranchTreeController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
-const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), { foldMode: 'partial', layoutMode: 'timeline', presentationMode: 'horizontal-signal' })
+const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), {
+  foldMode: 'partial',
+  layoutMode: 'timeline',
+  presentationMode: 'horizontal-signal',
+})
 const emit = defineEmits<MessageBranchTreeControllerEmits>()
 const controller = useMessageBranchTreeController(props, emit)
 const detailMotion = useOverlayTransitionHooks('panel')
 const {
-  AnchoredRunCrt, ExecutionNodePopover, FoldTabRail, GenerationTreeDialog, NodePaperStack,
-  activateNode, agents, canvas, closeCrt, closeNodeDetail, crtById,
-  crtPlacements, crtVisibility, defaultPopoverAnchorIds, defaultPopoverViews, detailAnchorEl,
-  detailAnchorStyle, detailDisplayNode, detailFoldMember, detailMaxHeight, detailNode, detailPinned, detailWrap,
-  detailPlacement, detailRelatedEdges, dragActionPopover, dragCrt, dragDetailPopover, finishDetailDrag, focusCrt,
-  focusNode, focusRelativeNode, foldRailSide, generationDialogIndex, gpuNodeHitStyle,
-  gpuRenderError, hasNewTail, hideNodeDetail, keepNodeDetailOpen, leaveNodeDetail,
-  nodeAriaLabel, nodeTitle, onFoldRailInteraction, onNodePointerDown, overlayPlacements,
-  paperCurrentIndex, paperEntries, paperGraph, paperHasNewTail, persistentGraph, pinCrt,
-  pinnedCrtIds, pixiMountRef, recordActionPopoverHeight, recoverGraph, recoveringGraph,
-  recoveryError, requestBranch, resetLayout, returnToBottom, returnToLatestPaper,
-  selectActionCall, selectFoldMember, selectPaperIndex, selectedActionCall, selectedCallId,
-  showNodeDetail, startDetailResize, toggleDetailWrap, unpinCrt, unreadFoldMembers, vMeasureHeight, viewportRef, viewportSize,
+  AnchoredRunCrt,
+  ExecutionNodePopover,
+  FoldTabRail,
+  GenerationTreeDialog,
+  NodePaperStack,
+  activateNode,
+  agents,
+  canvas,
+  closeCrt,
+  closeNodeDetail,
+  crtById,
+  crtPlacements,
+  crtVisibility,
+  defaultPopoverAnchorIds,
+  defaultPopoverViews,
+  detailAnchorEl,
+  detailAnchorStyle,
+  detailDisplayNode,
+  detailFoldMember,
+  detailMaxHeight,
+  detailNode,
+  detailPinned,
+  detailWrap,
+  detailPlacement,
+  detailRelatedEdges,
+  dragActionPopover,
+  dragCrt,
+  dragDetailPopover,
+  finishDetailDrag,
+  focusCrt,
+  focusNode,
+  focusRelativeNode,
+  foldRailSide,
+  generationDialogIndex,
+  gpuNodeHitStyle,
+  gpuRenderError,
+  hasNewTail,
+  hideNodeDetail,
+  keepNodeDetailOpen,
+  leaveNodeDetail,
+  nodeAriaLabel,
+  nodeTitle,
+  onFoldRailInteraction,
+  onNodePointerDown,
+  overlayPlacements,
+  paperCurrentIndex,
+  paperEntries,
+  paperGraph,
+  paperHasNewTail,
+  persistentGraph,
+  pinCrt,
+  pinnedCrtIds,
+  pixiMountRef,
+  recordActionPopoverHeight,
+  recoverGraph,
+  recoveringGraph,
+  recoveryError,
+  requestBranch,
+  resetLayout,
+  returnToBottom,
+  returnToLatestPaper,
+  selectActionCall,
+  selectFoldMember,
+  selectPaperIndex,
+  selectedActionCall,
+  selectedCallId,
+  showNodeDetail,
+  startDetailResize,
+  toggleDetailWrap,
+  unpinCrt,
+  unreadFoldMembers,
+  vMeasureHeight,
+  viewportRef,
+  viewportSize,
   visibleInteractiveNodes,
 } = controller
 defineExpose({ resetLayout: controller.resetLayout })
@@ -60,10 +129,6 @@ defineExpose({ resetLayout: controller.resetLayout })
           <button
             v-for="node in visibleInteractiveNodes"
             :key="`${node.id}:hit-target`"
-            type="button"
-            class="gpu-node-hit-target"
-            :style="gpuNodeHitStyle(node)"
-            :aria-label="nodeAriaLabel(node)"
             v-memo="[
               node.id,
               node.x,
@@ -74,6 +139,10 @@ defineExpose({ resetLayout: controller.resetLayout })
               canvas.offsetX.value,
               canvas.offsetY.value,
             ]"
+            type="button"
+            class="gpu-node-hit-target"
+            :style="gpuNodeHitStyle(node)"
+            :aria-label="nodeAriaLabel(node)"
             :data-execution-node-id="node.id"
             @pointerdown="onNodePointerDown($event, node)"
             @pointerenter="showNodeDetail(node)"

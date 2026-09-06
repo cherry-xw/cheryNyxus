@@ -1,9 +1,8 @@
 import type { AdaptersGroup, RuntimeConfig, SenseEntry } from '@/core/middleware/types'
 import type { Sense, SenseFunction } from '@/core/sense'
 import type { SenseAdapter } from '@/core/sense/adapter'
-import { isOrdinaryRole, type BrainConfig } from '@/utils/config'
+import { captureRuntimeConfig, isOrdinaryRole, type BrainConfig, type Config } from '@/utils/config'
 import type { ZodType } from 'zod'
-import config from '@/utils/config'
 import { SupervisionLevel } from '@/core/config'
 import { getLLMAdapter } from '@/core/llm/adapter'
 import { resolveBrainAdapterKey } from '@/core/llm/routing.js'
@@ -11,6 +10,7 @@ import { getMessageAdapter } from '@/core/message/adapter'
 import { getSenseAdapter } from '@/core/sense/adapter'
 import { getSense, loadMergedRuleSet } from '@/core/sense'
 import { getConnectedServerSenseNames } from '@/core/mcp'
+import { bindMcpExecutor } from '@/core/mcp/lifetime.js'
 import { getSense as getBuiltinSense } from '@/core/sense'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
 import { buildSpawnRoleSense } from './sense/spawn.js'
@@ -49,6 +49,7 @@ export interface RuntimeIssue {
  * 空数组 = 全部有效。mcpServers 不在此校验（连接态由 resolveSense 运行时判定）。
  */
 export function resolveSelectionIssues(selection: RuntimeSelection): RuntimeIssue[] {
+  const config = captureRuntimeConfig()
   const issues: RuntimeIssue[] = []
   if (!selection.brain || !config.llm.brain[selection.brain]) {
     issues.push({ kind: 'brain', name: selection.brain })
@@ -67,10 +68,11 @@ export function resolveSelectionIssues(selection: RuntimeSelection): RuntimeIssu
 export function parseRuntimeSelection(
   params: { brain?: string; senseGroup?: string; mcpServers?: string[] },
   _methodName: string,
+  configSnapshot: Config = captureRuntimeConfig(),
 ): RuntimeSelection {
   if (!params.brain) throw new Error('必须选择一颗大脑')
   const mcpServers = Array.isArray(params.mcpServers) ? params.mcpServers : []
-  const brain = config.llm.brain[params.brain]
+  const brain = configSnapshot.llm.brain[params.brain]
   if (!brain) throw new Error(`大脑 "${params.brain}" 不存在，请在设置里检查`)
   if (brain.capabilities?.toolCall === false) {
     if (params.senseGroup || mcpServers.length)
@@ -104,6 +106,7 @@ export function resolvePresetSelection(presetName: string): {
   /** smart 监管规则覆盖文件名（chat.create 快照入 metadata.rule，resolve 期与 base.yaml 深合并） */
   rule?: string
 } {
+  const config = captureRuntimeConfig()
   const preset = config.presets?.[presetName]
   if (!preset?.leader) {
     throw new Error(
@@ -120,6 +123,7 @@ export function resolvePresetSelection(presetName: string): {
   const selection = parseRuntimeSelection(
     { brain: leader.brain, senseGroup: leader.senseGroup, mcpServers: leader.mcpServers ?? [] },
     `presets.${presetName}.leader(${preset.leader})`,
+    config,
   )
   // per-role 技能组/插件组：任一维度显式设置（含 []）→ 构造 filter；二者皆 undefined → undefined（全部 skill）
   const skillFilter: SkillFilter | undefined =
@@ -145,6 +149,7 @@ export function resolveDetailSelection(presetName: string): {
   description?: string
   skillFilter?: SkillFilter
 } {
+  const config = captureRuntimeConfig()
   const preset = config.presets?.[presetName]
   if (!preset?.detailRole) throw new Error(`预设 "${presetName}" 未配置解释角色`)
   if (!(preset.roles ?? []).includes(preset.detailRole)) {
@@ -156,6 +161,7 @@ export function resolveDetailSelection(presetName: string): {
   const selection = parseRuntimeSelection(
     { brain: detail.brain, senseGroup: detail.senseGroup, mcpServers: detail.mcpServers ?? [] },
     'detail role',
+    config,
   )
   const skillFilter =
     detail.skills !== undefined || detail.plugins !== undefined
@@ -188,11 +194,13 @@ export class RuntimeResolver {
       roleName?: string
       acceptance?: AcceptanceExecutionPolicy
     },
+    config: Config = captureRuntimeConfig(),
   ): RuntimeConfig {
-    this.validateSelection(selection)
+    this.validateSelection(selection, config)
 
-    const { brain, adapters } = this.resolveBrain(selection.brain)
+    const { brain, adapters } = this.resolveBrain(selection.brain, config)
     let { builtSenses, senseTable } = this.resolveSense(
+      config,
       adapters.senseAdapter,
       selection.senseGroup,
       selection.mcpServers,
@@ -219,7 +227,7 @@ export class RuntimeResolver {
     }
   }
 
-  private validateSelection(selection: RuntimeSelection): void {
+  private validateSelection(selection: RuntimeSelection, config: Config): void {
     if (!selection.brain || selection.brain.trim().length === 0) {
       throw new Error('必须选择一颗大脑')
     }
@@ -233,7 +241,10 @@ export class RuntimeResolver {
   /**
    * resolve brain 名称 -> brain 配置 + provider adapters。
    */
-  private resolveBrain(name: string): { brain: BrainConfig; adapters: AdaptersGroup } {
+  private resolveBrain(
+    name: string,
+    config: Config,
+  ): { brain: BrainConfig; adapters: AdaptersGroup } {
     const brain = config.llm.brain[name]
     if (!brain) {
       throw new Error(`大脑 "${name}" 不存在，请在设置里检查`)
@@ -266,6 +277,7 @@ export class RuntimeResolver {
    * （无 :level 覆盖）。未连 server 由 getConnectedServerSenseNames 抛 NOT_FOUND（fail loud）。
    */
   private resolveSense(
+    config: Config,
     senseAdapter: SenseAdapter<unknown>,
     senseGroup: string,
     mcpServers: string[],
@@ -283,6 +295,13 @@ export class RuntimeResolver {
 
     for (const entry of group) {
       const { senseName, supervisionLevel } = this.parseSenseGroupEntry(entry)
+      if (
+        senseName.startsWith('mcp__') &&
+        !Object.keys(config.mcp_servers ?? {}).some((name) =>
+          senseName.startsWith(`mcp__${name}__`),
+        )
+      )
+        continue
       const mediaKind = senseName.match(/^generate_(image|video|audio)$/)?.[1] as
         'image' | 'video' | 'audio' | undefined
       if (mediaKind && !generateCapabilities?.[mediaKind]) continue
@@ -306,6 +325,7 @@ export class RuntimeResolver {
 
     // MCP server 的全部 sense 合并进 schema（绕过 sense_groups，监管用 server 级默认）
     for (const serverName of mcpServers) {
+      if (!config.mcp_servers?.[serverName]) continue
       for (const senseName of getConnectedServerSenseNames(serverName)) {
         const original = getSense(senseName)
         if (!original) continue // registry 中已不存在（理论上不应发生，连接时注册）
@@ -329,7 +349,7 @@ export class RuntimeResolver {
     const senses = [...resolved.values()]
     return {
       builtSenses: senseAdapter.buildSenses(senses),
-      senseTable: this.buildSenseTable(senses),
+      senseTable: this.buildSenseTable(senses, config),
     }
   }
 
@@ -362,7 +382,7 @@ export class RuntimeResolver {
     return { senseName, supervisionLevel }
   }
 
-  private buildSenseTable(senses: Sense<ZodType>[]): Map<string, SenseEntry> {
+  private buildSenseTable(senses: Sense<ZodType>[], config: Config): Map<string, SenseEntry> {
     const senseTable = new Map<string, SenseEntry>()
     for (const s of senses) {
       const name = s.definition.function.name
@@ -373,6 +393,7 @@ export class RuntimeResolver {
         // 透传 schema 供 senseMiddleware 执行前 safeParse（运行时校验拦截缺参调用）
         schema: s.executor.schema,
       })
+      bindMcpExecutor(s.executor, senseTable.get(name)!)
     }
     return senseTable
   }

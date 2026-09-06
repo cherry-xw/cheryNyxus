@@ -68,7 +68,13 @@ export interface MessageData {
   originalContent?: string
   revoked?: boolean
   /** 仅 user 消息传（发送时配置，记入 messages.runtime）；assistant/sense 不传。brainModel/brainProvider 为溯源快照（展示用）。 */
-  runtime?: { brain: string; senseGroup: string; mcpServers: string[]; brainModel?: string; brainProvider?: string }
+  runtime?: {
+    brain: string
+    senseGroup: string
+    mcpServers: string[]
+    brainModel?: string
+    brainProvider?: string
+  }
   contextCompaction?: boolean
   contextCompactionTokens?: number
   /** Cross-chat provenance used by the root timeline projector. */
@@ -153,9 +159,10 @@ export function createChat(
   const now = Date.now()
   const messagesMonth = formatYearMonth(now)
   const parentEpoch = parentChatId
-    ? ((db.prepare('SELECT active_epoch_id FROM chats WHERE id = ?').get(parentChatId) as
-        | { active_epoch_id: string | null }
-        | undefined)?.active_epoch_id ?? null)
+    ? ((
+        db.prepare('SELECT active_epoch_id FROM chats WHERE id = ?').get(parentChatId) as
+          { active_epoch_id: string | null } | undefined
+      )?.active_epoch_id ?? null)
     : null
 
   const stmt = db.prepare(`
@@ -578,8 +585,7 @@ export function deleteChat(chatId: string): void {
   // 1. 查询 messages_month
   const chatStmt = soulDb.prepare('SELECT messages_month, active_epoch_id FROM chats WHERE id = ?')
   const chat = chatStmt.get(chatId) as
-    | { messages_month: string; active_epoch_id: string | null }
-    | undefined
+    { messages_month: string; active_epoch_id: string | null } | undefined
 
   if (!chat) return
   const executionRootId = getRootChat(chatId).id
@@ -600,7 +606,9 @@ export function deleteChat(chatId: string): void {
     })
     clear()
   } finally {
-    soulDb.prepare('DELETE FROM interactions WHERE chat_id = ? OR root_chat_id = ?').run(chatId, chatId)
+    soulDb
+      .prepare('DELETE FROM interactions WHERE chat_id = ? OR root_chat_id = ?')
+      .run(chatId, chatId)
     soulDb
       .prepare(
         'DELETE FROM tree_control_targets WHERE chat_id = ? OR pause_id IN (SELECT pause_id FROM tree_control_operations WHERE root_chat_id = ?)',
@@ -784,8 +792,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
   const soulDb = getSoulDb()
   const chatStmt = soulDb.prepare('SELECT messages_month, active_epoch_id FROM chats WHERE id = ?')
   const chat = chatStmt.get(chatId) as
-    | { messages_month: string; active_epoch_id: string | null }
-    | undefined
+    { messages_month: string; active_epoch_id: string | null } | undefined
 
   if (!chat) throw new Error(`Chat ${chatId} not found`)
 

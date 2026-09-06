@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch, type ComponentPublicInstance, type Ref } from 'vue'
-import { agentApi, type ChatSummary, type ConversationRouteTrace } from '@/application/backend/public'
+import {
+  agentApi,
+  type ChatSummary,
+  type ConversationRouteTrace,
+} from '@/application/backend/public'
 import { formatTime } from '@/utils/formatTime'
 import {
   conversationTargetVisualState,

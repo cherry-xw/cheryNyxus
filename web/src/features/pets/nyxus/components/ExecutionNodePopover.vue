@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { gsap } from 'gsap'
-import { useExecutionNodePopoverController, type ExecutionNodePopoverControllerProps, type ExecutionNodePopoverControllerEmits } from './useExecutionNodePopoverController'
+import {
+  useExecutionNodePopoverController,
+  type ExecutionNodePopoverControllerProps,
+  type ExecutionNodePopoverControllerEmits,
+} from './useExecutionNodePopoverController'
 import { useGsap } from '@/composables/useGsap'
 import { useMotionPreference } from '@/composables/useMotionPreference'
 import { MOTION } from '@/utils/gsapCore'
@@ -11,18 +15,72 @@ const props = defineProps<ExecutionNodePopoverControllerProps>()
 const emit = defineEmits<ExecutionNodePopoverControllerEmits>()
 const controller = useExecutionNodePopoverController(props, emit)
 const {
-  ElTooltip, RESULT_PREVIEW_LIMIT, ToolFieldTree, activeQuestionCall, actualDescription, batch,
-  batchInfo, canBranch, copiedFieldKey, copyField, isQuestionOptionSelected, isQuestionTool,
-  isReadFileTool, isSearchTool, isSkillTool, isSpawnTool, isUserNode, nodeContent,
-  nodeContentSegments, nodeDescription, nodeStatus, nodeTermination, nodeThinking, nodeTime,
-  nodeTitle, onHeaderPointerDown, onHeaderPointerMove, onHeaderPointerUp, primaryInstruction,
-  questionAnswer, questionArgs, readFileContent, readFileLineCount, readFilePath, readFilePreview,
-  readFileRange, renderedActualDescription, renderedNodeContent, renderedNodeDescription,
-  renderedNodeThinking, renderedPrimaryInstruction, renderedResult, renderedSkillContent,
-  renderedSpawnPrompt, resultFields, resultTruncated,
-  searchConfiguration, searchMode, searchPath, searchQuery, searchResult, secondaryFields,
-  selectedCall, selectedStatus, skillResult, skinForNode, spawnPrompt, spawnRole, spawnWake,
-  terminationDisplay, thinkingOpen, toolBatchUsesTabs, toolGlyph, toolIcon, toolLabel, toolPresentation,
+  ElTooltip,
+  RESULT_PREVIEW_LIMIT,
+  ToolFieldTree,
+  activeQuestionCall,
+  actualDescription,
+  batch,
+  batchInfo,
+  canBranch,
+  copiedFieldKey,
+  copyField,
+  isQuestionOptionSelected,
+  isQuestionTool,
+  isReadFileTool,
+  isSearchTool,
+  isSkillTool,
+  isSpawnTool,
+  isUserNode,
+  nodeContent,
+  nodeContentSegments,
+  nodeDescription,
+  nodeStatus,
+  nodeTermination,
+  nodeThinking,
+  nodeTime,
+  nodeTitle,
+  onHeaderPointerDown,
+  onHeaderPointerMove,
+  onHeaderPointerUp,
+  primaryInstruction,
+  questionAnswer,
+  questionArgs,
+  readFileContent,
+  readFileLineCount,
+  readFilePath,
+  readFilePreview,
+  readFileRange,
+  renderedActualDescription,
+  renderedNodeContent,
+  renderedNodeDescription,
+  renderedNodeThinking,
+  renderedPrimaryInstruction,
+  renderedResult,
+  renderedSkillContent,
+  renderedSpawnPrompt,
+  resultFields,
+  resultTruncated,
+  searchConfiguration,
+  searchMode,
+  searchPath,
+  searchQuery,
+  searchResult,
+  secondaryFields,
+  selectedCall,
+  selectedStatus,
+  skillResult,
+  skinForNode,
+  spawnPrompt,
+  spawnRole,
+  spawnWake,
+  terminationDisplay,
+  thinkingOpen,
+  toolBatchUsesTabs,
+  toolGlyph,
+  toolIcon,
+  toolLabel,
+  toolPresentation,
 } = controller
 
 /**
@@ -78,18 +136,27 @@ useGsap(popoverRoot, (context) => {
         <span v-if="!batch" class="status-pill" :class="`status-${node.status}`">
           {{ nodeStatus }}
         </span>
-        <div v-if="canBranch && !question" class="branch-head-actions" role="group" aria-label="从此节点发起对话">
+        <div
+          v-if="canBranch && !question"
+          class="branch-head-actions"
+          role="group"
+          aria-label="从此节点发起对话"
+        >
           <span class="branch-action-wrap">
             <button
               type="button"
               class="branch-head-action is-detail"
               :disabled="detailBranchAvailable === false"
               @click="emit('branch', 'detail', node.sourceFact!.id)"
-            ><span aria-hidden="true">◉</span>解释此处</button>
+            >
+              <span aria-hidden="true">◉</span>解释此处
+            </button>
             <ElTooltip
-              :content="detailBranchAvailable === false
-                ? (detailBranchUnavailableReason || '当前预设未配置解释角色')
-                : '创建独立解释分支，使用专用诊断角色；可读取、搜索并运行诊断命令，不修改原任务。'"
+              :content="
+                detailBranchAvailable === false
+                  ? detailBranchUnavailableReason || '当前预设未配置解释角色'
+                  : '创建独立解释分支，使用专用诊断角色；可读取、搜索并运行诊断命令，不修改原任务。'
+              "
               placement="top"
               :show-after="180"
             >
@@ -101,7 +168,9 @@ useGsap(popoverRoot, (context) => {
               type="button"
               class="branch-head-action is-continuation"
               @click="emit('branch', 'continuation', node.sourceFact!.id)"
-            ><span aria-hidden="true">⑂</span>从此处继续</button>
+            >
+              <span aria-hidden="true">⑂</span>从此处继续
+            </button>
             <ElTooltip
               content="从该历史状态创建并列任务分支并继承原角色；节点之后已经发生的工具副作用不会撤销。"
               placement="top"
@@ -166,7 +235,8 @@ useGsap(popoverRoot, (context) => {
           :batch-info="{
             batchId: question.batch.batchId,
             total: question.batch.questions.length,
-            readyCount: question.batch.questions.filter((item) => item.localStatus === 'ready').length,
+            readyCount: question.batch.questions.filter((item) => item.localStatus === 'ready')
+              .length,
             currentIndex: question.currentIndex,
             isLast: question.currentIndex === question.batch.questions.length - 1,
           }"
@@ -278,7 +348,10 @@ useGsap(popoverRoot, (context) => {
                 <p>{{ toolPresentation.operationLabel }}</p>
                 <code v-if="toolPresentation.target">{{ toolPresentation.target }}</code>
                 <ul v-if="toolPresentation.changes.length">
-                  <li v-for="change in toolPresentation.changes" :key="`${change.label}:${change.detail}`">
+                  <li
+                    v-for="change in toolPresentation.changes"
+                    :key="`${change.label}:${change.detail}`"
+                  >
                     {{ change.detail }}
                   </li>
                 </ul>
@@ -658,7 +731,9 @@ useGsap(popoverRoot, (context) => {
           >
             <span class="thinking-glyph" aria-hidden="true">✦</span>
             <span>思考</span>
-            <span class="thinking-toggle-hint" aria-hidden="true">{{ thinkingOpen ? '−' : '+' }}</span>
+            <span class="thinking-toggle-hint" aria-hidden="true">{{
+              thinkingOpen ? '−' : '+'
+            }}</span>
           </button>
           <div v-if="thinkingOpen" class="thinking-body">
             <div class="markdown-body thinking-copy" v-html="renderedNodeThinking" />

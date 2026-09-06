@@ -1,9 +1,4 @@
-import {
-  createHash,
-  createHmac,
-  randomBytes,
-  timingSafeEqual,
-} from 'node:crypto'
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isHashed, verifyPassword } from '@/utils/password.js'
 import { xorDecrypt } from '@/utils/obfuscate.js'
@@ -235,12 +230,11 @@ export class OAuth2Auth {
         return true
       }
       const body = await readJsonBody<{ challengeId?: string; cipher?: string }>(req)
-      const creds = body?.challengeId && body?.cipher
-        ? this.decryptCredentials(body.challengeId, body.cipher)
-        : null
-      const tokens =
-        creds &&
-        this.authenticate(creds.username ?? '', creds.password ?? '')
+      const creds =
+        body?.challengeId && body?.cipher
+          ? this.decryptCredentials(body.challengeId, body.cipher)
+          : null
+      const tokens = creds && this.authenticate(creds.username ?? '', creds.password ?? '')
       if (!tokens) {
         writeJson(res, 401, { error: 'Invalid credentials' })
         return true

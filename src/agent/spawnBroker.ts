@@ -82,7 +82,7 @@ let broadcaster: SpawnBroadcaster | null = null
 /**
  * 注入 ws 推送实现（service/index.ts 启动期调用）。
  */
-export function setSpawnBroadcaster(fn: SpawnBroadcaster): void {
+export function setSpawnBroadcaster(fn: SpawnBroadcaster | null): void {
   broadcaster = fn
 }
 
@@ -172,6 +172,8 @@ export type AsyncWakeHandler = (child: {
   childChatId: string
   parentChatId: string
   type: string
+  timeoutMs: number
+  wakeOnTimeout: boolean
 }) => void | Promise<void>
 
 /** 看门狗超时阈值：读 config.global.watchdog.timeout_ms（默认 5min；feed-dog 每条 chunk 重置） */
@@ -198,6 +200,7 @@ export function setAsyncWakeHandler(fn: AsyncWakeHandler): void {
  */
 function startWatchdog(childChatId: string): void {
   const timeoutMs = getWatchdogTimeoutMs()
+  const wakeOnTimeout = config.global.watchdog?.wake_on_timeout ?? false
   const timer = setTimeout(() => {
     const entry = waitedChildren.get(childChatId)
     if (!entry) return // 已被正常消费清除（clearWaitedChild）
@@ -205,7 +208,13 @@ function startWatchdog(childChatId: string): void {
       `[spawnBroker] 看门狗超时 ${timeoutMs / 1000}s（childChatId=${childChatId}），触发 asyncWakeHandler`,
     )
     void Promise.resolve(
-      asyncWakeHandler?.({ childChatId, parentChatId: entry.parentChatId, type: entry.type }),
+      asyncWakeHandler?.({
+        childChatId,
+        parentChatId: entry.parentChatId,
+        type: entry.type,
+        timeoutMs,
+        wakeOnTimeout,
+      }),
     ).catch((error) => {
       console.error(
         `[spawnBroker] 看门狗处理失败（childChatId=${childChatId}）:`,

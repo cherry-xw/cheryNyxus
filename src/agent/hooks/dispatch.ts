@@ -12,6 +12,7 @@
 
 import { spawn } from 'node:child_process'
 import { logger, LogLevel } from '@/utils/logger/index.js'
+import { trackRestartActivity } from '@/service/restartCoordinator.js'
 import { ClassifiedError } from '@/utils/error.js'
 import { POSIX_SHELL_HINT, resolvePosixShell } from '@/core/security/sandbox.js'
 import { loadHookRegistry } from './registry.js'
@@ -286,6 +287,11 @@ async function runHandler<TDecision>(
       return
     }
 
+    const release = trackRestartActivity({
+      kind: 'hook',
+      description: '等待 Hook 进程退出',
+      pid: child.pid,
+    })
     // stdin 异步 error（如 EPIPE：handler 进程已退出，stdin 写入失败）→ 吞掉，不阻断
     child.stdin?.on?.('error', () => {
       // handler 已读 stdin 或已退出，写入端关闭属正常
@@ -314,6 +320,7 @@ async function runHandler<TDecision>(
     })
 
     child.on('error', (err) => {
+      release()
       clearTimeout(timer)
       logger.event(
         'hook.failed',
@@ -341,6 +348,7 @@ async function runHandler<TDecision>(
     })
 
     child.on('close', (code) => {
+      release()
       clearTimeout(timer)
       if (timedOut) return // 已 resolve
 

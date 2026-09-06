@@ -27,6 +27,25 @@ function adapter(
   return { prepare: vi.fn(async () => ({ apply, unsafe, dispose: vi.fn() })) }
 }
 describe('config apply coordinator', () => {
+  it('requests restart only for process changes and publishes later failure over saved pending', async () => {
+    const initial = image()
+    initial.config.server = { port: 8001 }
+    const engine = new ConfigApplyCoordinator(initial)
+    const restart = vi.fn()
+    engine.configureRestart(restart)
+    engine.submit(initial)
+    expect(restart).toHaveBeenLastCalledWith(false)
+    const next = structuredClone(initial)
+    next.config.server = { port: 8002 }
+    expect(engine.submit(next).status).toBe('pending')
+    expect(restart).toHaveBeenLastCalledWith(true)
+    engine.setRestartState({ required: true, status: 'failed', reason: 'preflight' })
+    await engine.retry()
+    expect(engine.getState().status).toBe('failed')
+    expect(ConfigApplyStateSchema.safeParse(engine.getState()).success).toBe(true)
+    engine.submit(initial)
+    expect(restart).toHaveBeenLastCalledWith(false)
+  })
   it('keeps cleanup failures visible even after the resource was swapped', async () => {
     const engine = new ConfigApplyCoordinator(image()),
       after = image()

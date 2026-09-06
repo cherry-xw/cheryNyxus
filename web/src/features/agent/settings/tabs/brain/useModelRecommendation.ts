@@ -108,7 +108,9 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
       '推理模型的思考强度档位（按当前 model 暴露不同档位）。off=关闭；on=由模型决定；low/medium/high/xhigh 由 provider 映射，需在「⚙ 全局」开启思考总闸。',
     ]
     if (modelUnmatched.value) {
-      lines.push('档位来自模型目录 wire 映射；当前模型未匹配任何目录规则，无可用档位，需在规则文件中补充。')
+      lines.push(
+        '档位来自模型目录 wire 映射；当前模型未匹配任何目录规则，无可用档位，需在规则文件中补充。',
+      )
     }
     return lines.join('\n')
   })

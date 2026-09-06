@@ -16,6 +16,7 @@ import config from '@/utils/config.js'
 import { resolvePosixShell } from '@/core/security/sandbox.js'
 import type { HookEvent } from './types.js'
 import type { HookHandlerConfig } from './matcher.js'
+import { HooksDraftSchema } from '@chery/protocol'
 
 /** 事件 → handler 列表（保留声明顺序）*/
 export type HookHandlerMap = Partial<Record<HookEvent, HookHandlerConfig[]>>
@@ -39,13 +40,24 @@ export function loadHookRegistry(): HookHandlerMap {
   const cheryDir = process.env.CHERY_DIR || process.cwd()
   const globalPath = join(cheryDir, '.chery', GLOBAL_HOOKS_FILE)
   const global = loadHooksFile(globalPath, 'global')
+  handlersCache = buildHookRegistry(global ?? {}, config.llm.brain)
+  logRegistryLoaded(handlersCache, !!global)
+  return handlersCache
+}
+
+function buildHookRegistry(
+  global: HookHandlerMap,
+  brains: Record<string, { hooks?: string }>,
+  strict = false,
+): HookHandlerMap {
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
 
   // 合并 brain 级：每个 brain 的 hooks 路径独立加载
-  const merged: HookHandlerMap = global ? { ...global } : {}
-  for (const [brainName, brainCfg] of Object.entries(config.llm.brain)) {
+  const merged: HookHandlerMap = { ...global }
+  for (const [brainName, brainCfg] of Object.entries(brains)) {
     if (!brainCfg.hooks) continue
     const brainPath = join(cheryDir, '.chery', brainCfg.hooks)
-    const brainHooks = loadHooksFile(brainPath, brainName)
+    const brainHooks = loadHooksFile(brainPath, brainName, strict)
     if (!brainHooks) continue
     // 合并：brain 级 handler 追加到全局同事件列表后
     for (const ev of Object.keys(brainHooks) as HookEvent[]) {
@@ -56,7 +68,10 @@ export function loadHookRegistry(): HookHandlerMap {
     }
   }
 
-  handlersCache = merged
+  return merged
+}
+
+function logRegistryLoaded(merged: HookHandlerMap, globalExists: boolean): void {
   // 启动期健康检查（先例：git 导入的 gitNotInstalled 预探测）：注册了 handler 但
   // POSIX shell 不可用 → 显著 warn 提前暴露（Windows 无 sh 会阻断每次 dispatch，
   // 见 docs/agent/hooks.md「跨平台执行」失败语义表），而非在会话中反复撞墙。
@@ -73,16 +88,31 @@ export function loadHookRegistry(): HookHandlerMap {
     }
   }
   logger.event('hooks.registry.loaded', {
-    globalExists: !!global,
+    globalExists,
     eventCount: Object.keys(merged).length,
     handlerCount: Object.values(merged).reduce((sum, list) => sum + (list?.length ?? 0), 0),
   })
-  return merged
+}
+
+/** Build a candidate table first; callers publish it only after every source validates. */
+export function prepareHookRegistry(
+  global: HookHandlerMap,
+  brains: Record<string, { hooks?: string }> = config.llm.brain,
+): HookHandlerMap {
+  const checked = HooksDraftSchema.safeParse(global)
+  if (!checked.success) throw new Error('Hooks 候选无效')
+  return buildHookRegistry(checked.data as HookHandlerMap, brains, true)
+}
+
+export function publishHookRegistry(candidate: HookHandlerMap): void {
+  handlersCache = candidate
+  logRegistryLoaded(candidate, true)
 }
 
 /** 读取单个 hooks.json，schema 校验，失败返回 null（不阻断）*/
-function loadHooksFile(absPath: string, source: string): HookHandlerMap | null {
+function loadHooksFile(absPath: string, source: string, strict = false): HookHandlerMap | null {
   if (!existsSync(absPath)) {
+    if (strict) throw new Error(`Hooks 文件不存在: ${absPath}`)
     if (source === 'global') {
       // 全局 hooks.json 不存在是正常（用户未配置）→ DEBUG 级静默
       logger.event('hooks.registry.global_missing', { absPath }, LogLevel.debug)
@@ -94,6 +124,7 @@ function loadHooksFile(absPath: string, source: string): HookHandlerMap | null {
   try {
     raw = readFileSync(absPath, 'utf8')
   } catch (err) {
+    if (strict) throw err
     logger.event(
       'hooks.registry.read_failed',
       { absPath, source, error: (err as Error).message },
@@ -106,6 +137,7 @@ function loadHooksFile(absPath: string, source: string): HookHandlerMap | null {
   try {
     parsed = JSON.parse(raw)
   } catch (err) {
+    if (strict) throw err
     logger.event(
       'hooks.registry.parse_failed',
       { absPath, source, error: (err as Error).message },
@@ -115,10 +147,16 @@ function loadHooksFile(absPath: string, source: string): HookHandlerMap | null {
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    if (strict) throw new Error(`Hooks 文件结构无效: ${absPath}`)
     logger.event('hooks.registry.invalid_shape', { absPath, source }, LogLevel.warn)
     return null
   }
 
+  if (strict) {
+    const checked = HooksDraftSchema.safeParse(parsed)
+    if (!checked.success) throw new Error(`Hooks 文件校验失败: ${absPath}`)
+    return checked.data as HookHandlerMap
+  }
   const validated = validateHooksConfig(parsed as Record<string, unknown>)
   return validated
 }

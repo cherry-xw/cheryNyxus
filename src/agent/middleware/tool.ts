@@ -15,10 +15,19 @@ import { checkCheryGuard } from '@/utils/pathGuard.js'
 import { SenseCallAssembler } from './senseCallAssembler.js'
 import { dispatch } from '@/agent/hooks/index.js'
 import { ClassifiedError } from '@/utils/error.js'
-import { authorizeToolCall, compileRoleSecurity, type ToolAuthorization } from '@/core/security/index.js'
+import { trackRestartActivity } from '@/service/restartCoordinator.js'
+import {
+  authorizeToolCall,
+  compileRoleSecurity,
+  type ToolAuthorization,
+} from '@/core/security/index.js'
 import { getChatWorkspace } from '@/db/chat.js'
 import config from '@/utils/config.js'
-import { approvalPreview, approvalSnapshotMatches, type ApprovalSnapshot } from './approvalPreview.js'
+import {
+  approvalPreview,
+  approvalSnapshotMatches,
+  type ApprovalSnapshot,
+} from './approvalPreview.js'
 
 /**
  * 待批量执行的 sense call
@@ -142,7 +151,9 @@ async function* executeCollectedCalls(
         type: 'sense_reject',
         id: call.id,
         name: call.name,
-        reason: call.authorization.findings.map((finding) => finding.message).join('；') || '角色策略禁止执行',
+        reason:
+          call.authorization.findings.map((finding) => finding.message).join('；') ||
+          '角色策略禁止执行',
       }
       continue
     }
@@ -334,6 +345,7 @@ function buildSenseTrigger(
         name,
         arguments: argsJson,
         supervisionLevel: SupervisionLevel.auto,
+        approvalTimeoutMs: ctx.global.approval_timeout ?? 0,
         security: deniedAuth,
       }
       return {
@@ -350,9 +362,10 @@ function buildSenseTrigger(
     }
   }
 
-  const legacySafe = configuredLevel === SupervisionLevel.smart
-    ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
-    : undefined
+  const legacySafe =
+    configuredLevel === SupervisionLevel.smart
+      ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
+      : undefined
   const roleSecurity = ctx.runtime.roleSecurity ?? compileRoleSecurity(undefined, undefined)
   const workspace = ctx.runtime.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId)
   const authorization = authorizeToolCall({
@@ -363,17 +376,19 @@ function buildSenseTrigger(
     configuredLevel,
     legacySafe,
     // 配置管理核心角色读放行：read_file/search_codebase 绕过 filesystem workspace 校验
-    filesystemRead: !ctx.runtime.acceptance && isConfigManager(ctx.runtime.senseTable) ? 'any' : undefined,
+    filesystemRead:
+      !ctx.runtime.acceptance && isConfigManager(ctx.runtime.senseTable) ? 'any' : undefined,
     acceptance: ctx.runtime.acceptance,
   })
   const preDenied = authorization.decision === 'deny'
-  const effectiveLevel = preDenied ||
+  const effectiveLevel =
+    preDenied ||
     authorization.decision === 'allow' ||
     ctx.runtime.acceptance?.preapproveSafeRequests
-    ? SupervisionLevel.auto
-    : configuredLevel === SupervisionLevel.manual
-      ? SupervisionLevel.manual
-      : SupervisionLevel.smart
+      ? SupervisionLevel.auto
+      : configuredLevel === SupervisionLevel.manual
+        ? SupervisionLevel.manual
+        : SupervisionLevel.smart
 
   let approvalPromise: Promise<{ action: 'accept' | 'reject'; reason?: string }> | undefined
 
@@ -381,20 +396,18 @@ function buildSenseTrigger(
     // P1-11：审批 Promise 由 core approvalRegistry 管理，resolve/reject 不再随 chunk 传 service。
     //   service ApprovalManager.confirm/abort 调 resolveApproval/rejectApproval 触发本 await。
     // G2：approval_timeout=0（不限时）时 hardTimeoutMs（global.approval_hard_timeout）兜底释放。
-    approvalPromise = createApproval(
-      id,
-      0,
-      ctx.global.approval_hard_timeout,
-    )
+    approvalPromise = createApproval(id, 0, ctx.global.approval_hard_timeout)
   }
 
-  const preview = effectiveLevel > SupervisionLevel.auto ? approvalPreview(name, argsJson) : undefined
+  const preview =
+    effectiveLevel > SupervisionLevel.auto ? approvalPreview(name, argsJson) : undefined
   const trigger: SenseTriggerChunk = {
     type: 'sense_end',
     id,
     name,
     arguments: preview?.arguments ?? argsJson,
     supervisionLevel: effectiveLevel,
+    approvalTimeoutMs: ctx.global.approval_timeout ?? 0,
     security: authorization,
   }
 
@@ -423,12 +436,16 @@ async function* doExecuteSense(
   id: string,
   authorization: ToolAuthorization,
   approvalSnapshot?: ApprovalSnapshot,
-): AsyncGenerator<SenseStartedChunk, {
-  content: string
-  hash?: string
-  rejected?: string
-  replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }>
-}, unknown> {
+): AsyncGenerator<
+  SenseStartedChunk,
+  {
+    content: string
+    hash?: string
+    rejected?: string
+    replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }>
+  },
+  unknown
+> {
   const replaced: Array<{
     id: string
     content: string
@@ -521,16 +538,26 @@ async function* doExecuteSense(
       startedAt: Date.now(),
       security: currentAuthorization,
     }
-    const result = await senseEntry.execute(args, ctx.soul.senseSharedData, {
+    const release = trackRestartActivity({
+      kind: 'tool',
+      description: `等待工具 ${name} 完成`,
       chatId: ctx.soul.chatId,
-      yieldTurn: () => {
-        ctx.soul.yieldTurn = true
-      },
-      // 透传当前 sense call id（= sense message.id）。spawn_role 等需用此 id 回写 metadata 关联。
-      messageId: id,
-      security: currentAuthorization,
-      workspaceRoot: ctx.runtime.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId),
     })
+    const result = await Promise.resolve()
+      .then(() =>
+        senseEntry.execute(args, ctx.soul.senseSharedData, {
+          chatId: ctx.soul.chatId,
+          yieldTurn: () => {
+            ctx.soul.yieldTurn = true
+          },
+          // 透传当前 sense call id（= sense message.id）。spawn_role 等需用此 id 回写 metadata 关联。
+          messageId: id,
+          security: currentAuthorization,
+          workspaceRoot:
+            ctx.runtime?.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId),
+        }),
+      )
+      .finally(release)
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
     // 旧 sense 内容重复且冗长 → 替换为短说明（告知 AI 已被新读取取代），长内容移至 originalContent 折叠溯源。

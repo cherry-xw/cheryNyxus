@@ -69,7 +69,11 @@ export const SenseCallRenderer = defineComponent({
       })
 
       innerRenderer = () =>
-        h(asyncComponent, { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded })
+        h(asyncComponent, {
+          call: props.call,
+          id: props.id,
+          defaultExpanded: props.defaultExpanded,
+        })
     }
 
     // 每次工具调用都渲染独立风险徽章；旧数据缺少判定时显示「未知」。
@@ -78,7 +82,10 @@ export const SenseCallRenderer = defineComponent({
       const inner = innerRenderer()
       return h(
         'div',
-        { class: 'sense-call-wrap', style: { display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' } },
+        {
+          class: 'sense-call-wrap',
+          style: { display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' },
+        },
         [h(RiskBadge, { auth: props.call.security }), inner],
       )
     }

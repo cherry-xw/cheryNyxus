@@ -16,7 +16,8 @@ function toggleLoggerOutput(value: 'console' | 'file'): void {
 
 <template>
   <div class="block-kicker">
-    <span class="kicker-no">{{ no }}</span>TRACE CONSOLE
+    <span class="kicker-no">{{ no }}</span
+    >TRACE CONSOLE
   </div>
   <h3 class="sub-title">应用日志</h3>
   <div class="logger-console">

@@ -116,9 +116,7 @@ const showTypeField = computed(
   () => props.mergedChildToMaster || props.item.role === 'subagent' || props.item.role === 'role',
 )
 
-const brainText = computed(
-  () => props.item.runtime?.brain ?? props.fallbackRuntime?.brain ?? '—',
-)
+const brainText = computed(() => props.item.runtime?.brain ?? props.fallbackRuntime?.brain ?? '—')
 const senseGroupsText = computed(() => {
   const sg = props.item.runtime?.senseGroup ?? props.fallbackRuntime?.senseGroup
   return sg && sg.length > 0 ? sg : '-'
@@ -234,10 +232,12 @@ function onAvatarClick(): void {
           <span class="field-label">🧠 大脑：</span><span class="field-value">{{ brainText }}</span>
         </div>
         <div class="field">
-          <span class="field-label">📡 感官组：</span><span class="field-value">{{ senseGroupsText }}</span>
+          <span class="field-label">📡 感官组：</span
+          ><span class="field-value">{{ senseGroupsText }}</span>
         </div>
         <div class="field">
-          <span class="field-label">🔌 MCP：</span><span class="field-value">{{ mcpServersText }}</span>
+          <span class="field-label">🔌 MCP：</span
+          ><span class="field-value">{{ mcpServersText }}</span>
         </div>
       </div>
     </div>

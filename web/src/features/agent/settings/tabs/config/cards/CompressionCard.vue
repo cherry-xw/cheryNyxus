@@ -14,8 +14,7 @@ function addLogExtension(): void {
   const value = newLogExtension.value.trim()
   if (!value) return
   const current = props.compression.log_file_extensions ?? []
-  if (!current.includes(value))
-    props.compression.log_file_extensions = [...current, value]
+  if (!current.includes(value)) props.compression.log_file_extensions = [...current, value]
   newLogExtension.value = ''
 }
 function removeLogExtension(value: string): void {
@@ -27,7 +26,8 @@ function removeLogExtension(value: string): void {
 
 <template>
   <div class="block-kicker">
-    <span class="kicker-no">{{ no }}</span>FILE SIGNAL
+    <span class="kicker-no">{{ no }}</span
+    >FILE SIGNAL
   </div>
   <h3 class="sub-title">读取大文件内容压缩</h3>
   <p class="block-summary"><code>read_file</code> 返回层压缩；不修改磁盘文件。</p>

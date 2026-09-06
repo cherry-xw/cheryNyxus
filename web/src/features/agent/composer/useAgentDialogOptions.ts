@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { UploadFile } from 'element-plus'
-import { useAgentsStore, useChatSessionsStore } from '@/application/public'
+import { useAgentsStore, useChatSessionsStore, useConfigApplyStore } from '@/application/public'
 import { wsClient } from '@/application/transport/public'
 import {
   agentApi,
@@ -67,6 +67,7 @@ export interface UseAgentDialogOptionsOptions {
 export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
+  const configApply = useConfigApplyStore()
 
   const chatId: Ref<string | null> =
     typeof options?.chatId === 'function'
@@ -258,6 +259,15 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       }
     },
     { immediate: true },
+  )
+
+  watch(
+    () => configApply.savedRevision,
+    (revision, previous) => {
+      if (!revision || !previous || revision === previous || !chatId.value) return
+      loaded.value = false
+      void loadOptions()
+    },
   )
 
   /** 切会话：同预设已加载时仅重建角色编制（读 chat runtime），不重拉全局选项、不置 loading。 */

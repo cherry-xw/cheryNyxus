@@ -66,7 +66,12 @@ watch(
           @click="emit('update:modelValue', item.key)"
         >
           <span class="resource-avatar" aria-hidden="true">
-            <img v-if="item.avatarIcon" :src="item.avatarIcon" :alt="item.label" class="avatar-img" />
+            <img
+              v-if="item.avatarIcon"
+              :src="item.avatarIcon"
+              :alt="item.label"
+              class="avatar-img"
+            />
             <template v-else>{{ item.avatar || item.label.slice(0, 1) }}</template>
           </span>
           <span class="resource-copy">

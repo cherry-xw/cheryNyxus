@@ -5,6 +5,7 @@ import { observeAgentChunks } from '../chat/observer.js'
 import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import type { SkillFilter } from '@/agent/prompt/loadSkill.js'
 import { logger } from '@/utils/logger/index.js'
+import { isRestartDraining } from '@/service/restartCoordinator.js'
 
 /**
  * 独立维护 chat 后台运行（脱离 RPC ctx / 无 parent ws，参考 spawnEager 但无父 ws 路径）。
@@ -47,6 +48,7 @@ export interface MaintenanceChatOptions {
  * 不抛错：内部 try/catch 包外层，失败仅 logger.error。
  */
 export async function runMaintenanceChat(opts: MaintenanceChatOptions): Promise<void> {
+  if (isRestartDraining()) return
   const chatId = randomUUID()
   const metadata: Record<string, unknown> = {
     runtime: opts.selection,

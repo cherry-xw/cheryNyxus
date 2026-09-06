@@ -148,7 +148,8 @@ function restartWorker(): void {
   const child = worker
   if (!child || intentionalRestart || stopping) return
   intentionalRestart = true
-  child.kill('SIGTERM')
+  // Node on Windows cannot deliver SIGTERM gracefully; use the existing IPC channel.
+  child.send({ type: 'shutdown' })
   setTimeout(() => {
     if (worker === child && child.exitCode === null) child.kill('SIGKILL')
   }, 5000).unref()

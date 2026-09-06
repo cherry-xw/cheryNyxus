@@ -11,6 +11,8 @@ import { tmpdir } from 'node:os'
 import {
   loadHookRegistry,
   clearHookRegistry,
+  prepareHookRegistry,
+  publishHookRegistry,
 } from '@/agent/hooks/registry.js'
 
 let tempCheryDir: string
@@ -152,5 +154,30 @@ describe('hooks registry', () => {
     expect(registry.PreLLMRequest?.[0]?.matcher).toBeUndefined()
     expect(registry.PreLLMRequest?.[0]?.if).toBeUndefined()
     expect(existsSync(tempCheryDir)).toBe(true)
+  })
+
+  it('候选源全部验证成功后才替换旧表', () => {
+    const old = prepareHookRegistry({ Stop: [{ command: 'old.sh' }] }, {})
+    publishHookRegistry(old)
+    const brainPath = join(tempCheryDir, '.chery', 'hooks', 'brain.json')
+    mkdirSync(join(tempCheryDir, '.chery', 'hooks'), { recursive: true })
+    writeFileSync(brainPath, '{ invalid')
+
+    expect(() =>
+      prepareHookRegistry({ Stop: [{ command: 'new.sh' }] }, { main: { hooks: 'hooks/brain.json' } }),
+    ).toThrow()
+    expect(loadHookRegistry()).toBe(old)
+    expect(loadHookRegistry().Stop?.[0]?.command).toBe('old.sh')
+  })
+
+  it('brain hook 路径变化在发布后采用新文件', () => {
+    const hooksDir = join(tempCheryDir, '.chery', 'hooks')
+    mkdirSync(hooksDir, { recursive: true })
+    writeFileSync(join(hooksDir, 'new.json'), JSON.stringify({ Stop: [{ command: 'new.sh' }] }))
+
+    const candidate = prepareHookRegistry({}, { main: { hooks: 'hooks/new.json' } })
+    publishHookRegistry(candidate)
+
+    expect(loadHookRegistry().Stop?.[0]?.command).toBe('new.sh')
   })
 })

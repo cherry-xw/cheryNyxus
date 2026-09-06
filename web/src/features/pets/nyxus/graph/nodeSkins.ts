@@ -50,7 +50,10 @@ export const NODE_ACCENT_LIGHT: Record<NodeSkinKey, string> = {
 
 /** 按主题取某类节点的强调色（浅色用 NODE_ACCENT_LIGHT，否则用 NODE_SKINS 深色版）。 */
 export function accentForTheme(theme: 'light' | 'dark', key: NodeSkinKey): string {
-  return (theme === 'light' ? NODE_ACCENT_LIGHT[key] : NODE_SKINS[key].accent) ?? NODE_SKINS.unknown.accent
+  return (
+    (theme === 'light' ? NODE_ACCENT_LIGHT[key] : NODE_SKINS[key].accent) ??
+    NODE_SKINS.unknown.accent
+  )
 }
 
 /** Interactive execution-node kinds that open a read-only hover detail surface.

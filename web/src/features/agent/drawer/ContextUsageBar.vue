@@ -7,11 +7,7 @@
  * 依赖共享工具 contextBreakdown.ts（breakdownSegments/fmtTokens/segmentThinkingNote）+ BREAKDOWN_SEGMENTS 段元数据。
  */
 import { computed } from 'vue'
-import {
-  breakdownSegments,
-  fmtTokens,
-  segmentThinkingNote,
-} from '../toolbar/contextBreakdown'
+import { breakdownSegments, fmtTokens, segmentThinkingNote } from '../toolbar/contextBreakdown'
 import type { BreakdownKey } from '../toolbar/contextBreakdown'
 import type { ContextBreakdown } from '@/application/backend/public'
 
@@ -61,10 +57,7 @@ function shortLabel(key: BreakdownKey): string {
 </script>
 
 <template>
-  <div
-    class="ctx-usage-bar"
-    :class="[usageClass(usage), `is-${variant}`]"
-  >
+  <div class="ctx-usage-bar" :class="[usageClass(usage), `is-${variant}`]">
     <div class="ctx-usage-row">
       <slot name="label" />
       <div v-if="allSegs.length" class="ctx-usage-legend">
@@ -101,11 +94,7 @@ function shortLabel(key: BreakdownKey): string {
           :style="{ width: `${seg.pct}%`, background: seg.color }"
         />
       </template>
-      <div
-        v-else
-        class="ctx-usage-fill"
-        :style="{ width: `${Math.min(100, usagePct)}%` }"
-      />
+      <div v-else class="ctx-usage-fill" :style="{ width: `${Math.min(100, usagePct)}%` }" />
     </div>
   </div>
 </template>
@@ -163,12 +152,24 @@ function shortLabel(key: BreakdownKey): string {
     }
   }
   // 图例标签类别色（加深版，区别于色块条鲜艳色：amber/green 原色在浅底对比不足）。
-  .label-system { color: #4338ca; }
-  .label-userSystem { color: #7e22ce; }
-  .label-memory { color: #be185d; }
-  .label-skills { color: #b45309; }
-  .label-tools { color: #047857; }
-  .label-conversation { color: #1d4ed8; }
+  .label-system {
+    color: #4338ca;
+  }
+  .label-userSystem {
+    color: #7e22ce;
+  }
+  .label-memory {
+    color: #be185d;
+  }
+  .label-skills {
+    color: #b45309;
+  }
+  .label-tools {
+    color: #047857;
+  }
+  .label-conversation {
+    color: #1d4ed8;
+  }
   .ctx-legend-thinking {
     opacity: 0.55;
   }
@@ -289,11 +290,25 @@ function shortLabel(key: BreakdownKey): string {
 @vue/compiler-sfc 编译成裸 [data-theme='dark'] { … }，丢弃全部后代选择器导致不生效。
 unscoped 块原样输出，specificity 用 .ctx-legend-item 抬高到 (0,5,0)，必然盖过带 [data-v] 的基础规则。 -->
 <style lang="less">
-[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-system { color: #a5b4fc; }
-[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-userSystem { color: #d8b4fe; }
-[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-memory { color: #f9a8d4; }
-[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-skills { color: #fcd34d; }
-[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-tools { color: #34d399; }
-[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-conversation { color: #93c5fd; }
-[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.is-zero { color: rgba(234, 236, 240, 0.55); }
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-system {
+  color: #a5b4fc;
+}
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-userSystem {
+  color: #d8b4fe;
+}
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-memory {
+  color: #f9a8d4;
+}
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-skills {
+  color: #fcd34d;
+}
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-tools {
+  color: #34d399;
+}
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-conversation {
+  color: #93c5fd;
+}
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.is-zero {
+  color: rgba(234, 236, 240, 0.55);
+}
 </style>

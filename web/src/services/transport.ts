@@ -63,9 +63,7 @@ function decodeStreamFrame(buf: ArrayBuffer, view: Uint8Array): unknown {
     ...(isEnvelope && typeof payload.chatId === 'string' ? { chatId: payload.chatId } : {}),
     ...(isEnvelope && typeof payload.runId === 'string' ? { runId: payload.runId } : {}),
     ...(isEnvelope && typeof payload.seq === 'number' ? { seq: payload.seq } : {}),
-    ...(isEnvelope && typeof payload.eventSeq === 'number'
-      ? { eventSeq: payload.eventSeq }
-      : {}),
+    ...(isEnvelope && typeof payload.eventSeq === 'number' ? { eventSeq: payload.eventSeq } : {}),
     ...(isEnvelope && typeof payload.subscriptionId === 'string'
       ? { subscriptionId: payload.subscriptionId }
       : {}),

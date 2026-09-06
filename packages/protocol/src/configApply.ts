@@ -10,6 +10,7 @@ export const ConfigImpactSchema = z.object({
   boundary: z.enum(['operation', 'run', 'tree', 'resource', 'restart', 'unsupported']),
   status: z.enum(['applied', 'pending', 'failed']),
   reason: z.string().optional(),
+  affectedRootChatIds: z.array(z.string()).optional(),
   appliedRevision: z.string(),
 })
 export const ConfigApplyStateSchema = z.object({
@@ -18,7 +19,21 @@ export const ConfigApplyStateSchema = z.object({
   appliedRevision: z.string(),
   status: z.enum(['applied', 'pending', 'failed']),
   impacts: z.array(ConfigImpactSchema),
-  restart: z.object({ required: z.boolean(), status: z.enum(['none', 'pending', 'manual']) }),
+  restart: z.object({
+    required: z.boolean(),
+    status: z.enum(['none', 'pending', 'manual', 'blocked', 'ready', 'failed']),
+    reason: z.string().optional(),
+    blockers: z
+      .array(
+        z.object({
+          kind: z.string(),
+          description: z.string(),
+          chatId: z.string().optional(),
+          pid: z.number().optional(),
+        }),
+      )
+      .optional(),
+  }),
 })
 export const ConfigSaveResultSchema = ConfigApplyStateSchema.extend({
   baseRevision: z.string(),

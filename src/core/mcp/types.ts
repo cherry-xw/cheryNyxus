@@ -55,6 +55,9 @@ export interface McpServerInfo {
   senseNames: string[]
   /** status === "failed" 时的失败原因。 */
   error?: string
+  /** Connection availability and candidate adoption are independent. */
+  applyStatus?: 'applied' | 'pending' | 'failed'
+  applyReason?: string
 }
 
 /**

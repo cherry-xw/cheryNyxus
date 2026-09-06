@@ -1,17 +1,7 @@
 export type WorkspaceWindowKind =
-  | 'session'
-  | 'graph'
-  | 'task-center'
-  | 'history'
-  | 'settings'
-  | 'diagnostic'
+  'session' | 'graph' | 'task-center' | 'history' | 'settings' | 'diagnostic'
 
-export type WorkspaceWindowLifecycle =
-  | 'opening'
-  | 'open'
-  | 'minimizing'
-  | 'minimized'
-  | 'closing'
+export type WorkspaceWindowLifecycle = 'opening' | 'open' | 'minimizing' | 'minimized' | 'closing'
 
 export type DiagnosticSeverity = 'error' | 'warning' | 'diagnostic'
 
@@ -90,12 +80,21 @@ export function clampWorkspaceGeometry(
   geometry: WorkspaceWindowGeometry,
   viewport: WorkspaceStageSize = { width: 1920, height: 1080 },
 ): WorkspaceWindowGeometry {
-  const width = Math.max(360, Math.min(geometry.width, Math.max(360, viewport.width - SAFE_MARGIN * 2)))
-  const height = Math.max(260, Math.min(geometry.height, Math.max(260, viewport.height - SAFE_MARGIN * 2)))
+  const width = Math.max(
+    360,
+    Math.min(geometry.width, Math.max(360, viewport.width - SAFE_MARGIN * 2)),
+  )
+  const height = Math.max(
+    260,
+    Math.min(geometry.height, Math.max(260, viewport.height - SAFE_MARGIN * 2)),
+  )
   return {
     width,
     height,
-    x: Math.max(SAFE_MARGIN - width + TITLEBAR_VISIBLE_HEIGHT, Math.min(geometry.x, viewport.width - TITLEBAR_VISIBLE_HEIGHT)),
+    x: Math.max(
+      SAFE_MARGIN - width + TITLEBAR_VISIBLE_HEIGHT,
+      Math.min(geometry.x, viewport.width - TITLEBAR_VISIBLE_HEIGHT),
+    ),
     y: Math.max(SAFE_MARGIN, Math.min(geometry.y, viewport.height - TITLEBAR_VISIBLE_HEIGHT)),
   }
 }
@@ -157,13 +156,21 @@ export function serializeWorkspaceLayout(
       attention: false,
       zOrder: index,
     }))
-  return { version: 1, order: persistentWindows.map((window) => window.id), windows: persistentWindows }
+  return {
+    version: 1,
+    order: persistentWindows.map((window) => window.id),
+    windows: persistentWindows,
+  }
 }
 
 export function parseWorkspaceLayout(value: unknown): WorkspaceLayoutSnapshot | undefined {
   if (!value || typeof value !== 'object') return undefined
   const candidate = value as Partial<WorkspaceLayoutSnapshot>
-  if (candidate.version !== 1 || !Array.isArray(candidate.windows) || !Array.isArray(candidate.order)) {
+  if (
+    candidate.version !== 1 ||
+    !Array.isArray(candidate.windows) ||
+    !Array.isArray(candidate.order)
+  ) {
     return undefined
   }
   const windows = candidate.windows.filter(isWorkspaceWindowState)
@@ -184,7 +191,9 @@ function isWorkspaceWindowState(value: unknown): value is WorkspaceWindowState {
     typeof window.resourceKey === 'string' &&
     typeof window.title === 'string' &&
     typeof context?.kind === 'string' &&
-    ['session', 'graph', 'task-center', 'history', 'settings', 'diagnostic'].includes(context.kind) &&
+    ['session', 'graph', 'task-center', 'history', 'settings', 'diagnostic'].includes(
+      context.kind,
+    ) &&
     !!window.geometry &&
     Number.isFinite(window.geometry.x) &&
     Number.isFinite(window.geometry.y) &&

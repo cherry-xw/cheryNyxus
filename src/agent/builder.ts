@@ -4,7 +4,7 @@ import AgentSession, {
   type MiddlewareChunk,
 } from './middleware/index'
 import type { LLMResponse } from '@/core/message/adapter'
-import config from '@/utils/config'
+import { captureRuntimeConfig } from '@/utils/config'
 import buildFirstSystemPrompt from '@/agent/prompt/index'
 import type { HistoryGenerationInfo, RoleMentionInfo } from '@/agent/prompt/index'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
@@ -12,6 +12,7 @@ import type { UserInputEntry } from '@/core/middleware/types'
 import { randomUUID } from 'crypto'
 import { RuntimeResolver, type RuntimeSelection } from './runtimeResolver.js'
 import type { AcceptanceExecutionPolicy } from '@/core/security/rolePolicy.js'
+import { retainMcpExecutors } from '@/core/mcp/lifetime.js'
 
 /**
  * AgentBuilder - RuntimeConfig 工厂 + Middleware 工厂
@@ -25,16 +26,23 @@ export class AgentBuilder {
   /** 构建的 AgentSession 实例（build 后持有，门面方法转发） */
   private agent?: AgentSession<MiddlewareChunk>
   private readonly runtimeResolver = new RuntimeResolver()
+  private releaseMcp?: () => void
+
+  dispose(): void {
+    this.releaseMcp?.()
+    this.releaseMcp = undefined
+  }
 
   /**
    * 创建空 Middleware 实例（service 层每 chat 一个，跨轮不重建）
    * 构造只注入跨轮不变项：global + handlers + loopHandler
    */
   build(options?: { maxLoopCount?: number }): this {
+    const config = captureRuntimeConfig()
     this.agent = new AgentSession<MiddlewareChunk>(
       config.global,
       defaultHandlers,
-      createLoopHandler(options?.maxLoopCount ?? config.global.maxLoopCount),
+      createLoopHandler(options?.maxLoopCount),
     )
     return this
   }
@@ -52,14 +60,22 @@ export class AgentBuilder {
     roleName?: string,
     acceptance?: AcceptanceExecutionPolicy,
   ): this {
-    const runtime = this.runtimeResolver.resolve(selection, {
-      injectMemoryManage,
-      ruleName,
-      chatId,
-      roleName,
-      acceptance,
-    })
-    this.requireAgent().configureRuntime(runtime)
+    const config = captureRuntimeConfig()
+    const runtime = this.runtimeResolver.resolve(
+      selection,
+      {
+        injectMemoryManage,
+        ruleName,
+        chatId,
+        roleName,
+        acceptance,
+      },
+      config,
+    )
+    this.requireAgent().configureRuntime(runtime, config.global)
+    const release = retainMcpExecutors(runtime.senseTable.values(), this, !!chatId)
+    this.releaseMcp?.()
+    this.releaseMcp = release
     return this
   }
 

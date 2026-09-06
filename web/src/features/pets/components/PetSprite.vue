@@ -107,12 +107,18 @@ function setWorkTextRef(el: HTMLElement | null): void {
 
 <template>
   <GhostDot v-if="pet.isGhost" :pet="pet" :style="style" />
-  <div v-else class="pet-wrap" data-desktop-hit @pointerenter="onPetEnter" @pointerleave="onPointerLeave">
+  <div
+    v-else
+    class="pet-wrap"
+    data-desktop-hit
+    @pointerenter="onPetEnter"
+    @pointerleave="onPointerLeave"
+  >
     <PetBubbles
       :pet="pet"
       :chat-id="streamChatId ?? pet.chatId"
-    :stream="stream"
-    :position-ref="positionRef"
+      :stream="stream"
+      :position-ref="positionRef"
       :has-stream="true"
       :is-busy="isBusy"
       :show-work-main="showWorkMain"

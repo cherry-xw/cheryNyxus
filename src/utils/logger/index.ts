@@ -274,13 +274,17 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
     },
     close() {
       _fileStream?.end()
+      _fileStream = undefined
     },
     getConfig() {
       return _config
     },
     setConfig(config: Partial<ConfigLoggerConfig>) {
       _config = { ..._config, ...loadLoggerConfig(config) }
-      if (config.output && !_fileStream && config.output.includes('file')) {
+      if (!_config.output.includes('file') && _fileStream) {
+        _fileStream.end()
+        _fileStream = undefined
+      } else if (_config.output.includes('file') && !_fileStream) {
         initFileStream()
       }
     },

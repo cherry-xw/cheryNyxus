@@ -7,6 +7,12 @@
  */
 
 export { dispatch } from './dispatch.js'
-export { loadHookRegistry, clearHookRegistry, type HookHandlerMap } from './registry.js'
+export {
+  loadHookRegistry,
+  prepareHookRegistry,
+  publishHookRegistry,
+  clearHookRegistry,
+  type HookHandlerMap,
+} from './registry.js'
 export type { HookEvent, HookDispatchContext, HookPayloadMap, HookDecisionMap } from './types.js'
 export type { HookHandlerConfig } from './matcher.js'

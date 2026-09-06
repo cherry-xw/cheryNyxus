@@ -4,6 +4,7 @@ import {
   type SettingsDialogControllerProps,
 } from './useSettingsDialogController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
+import ConfigApplyStatus from './components/ConfigApplyStatus.vue'
 import { useMotionPreference, type MotionPreference } from '@/composables/useMotionPreference'
 const props = defineProps<SettingsDialogControllerProps>()
 const controller = useSettingsDialogController(props)
@@ -39,10 +40,12 @@ const {
   canRight,
   close,
   draft,
+  destructivePreview,
   dragging,
   envVars,
   error,
   errorLines,
+  externalChange,
   gotoErrorTab,
   hintLines,
   hooksState,
@@ -50,7 +53,6 @@ const {
   isEmbedded,
   isNative,
   isShellless,
-  isWaitingReconnect,
   loading,
   maximized,
   onError,
@@ -63,6 +65,7 @@ const {
   refreshRules,
   refreshSkillSources,
   refreshSkills,
+  reloadServerVersion,
   renderedTab,
   rolesShadowMode,
   rules,
@@ -83,7 +86,6 @@ const {
   toggleMaximize,
   updateHooksHandlers,
   validatePresetWorkspace,
-  waitElapsed,
   workspaceWarnings,
 } = controller
 </script>
@@ -312,14 +314,24 @@ const {
             </div>
           </template>
         </el-dialog>
-        <div
-          v-if="savedHint"
-          class="saved-row"
-          :class="{ waiting: isWaitingReconnect }"
-          role="status"
-        >
+        <div v-if="externalChange" class="external-change" role="alert">
+          <span
+            >其他窗口或外部程序保存了新设置。当前未保存草稿仍保留，继续保存会被拒绝，以免覆盖新值。</span
+          >
+          <el-popconfirm
+            title="重新载入会放弃此窗口内尚未保存的配置和 Hooks 草稿。"
+            confirm-button-text="放弃草稿并载入"
+            cancel-button-text="保留草稿"
+            :width="300"
+            @confirm="reloadServerVersion"
+          >
+            <template #reference>
+              <button type="button" class="ghost-btn">重新载入服务器版本</button>
+            </template>
+          </el-popconfirm>
+        </div>
+        <div v-if="savedHint" class="saved-row" role="status">
           <span class="saved-text">{{ savedHint }}</span>
-          <span v-if="isWaitingReconnect" class="wait-elapsed">已等待 {{ waitElapsed }}s</span>
         </div>
         <div v-if="savedWarnings?.length" class="saved-row saved-warnings-row" role="status">
           <span class="saved-text"
@@ -330,6 +342,7 @@ const {
           </ul>
         </div>
 
+        <ConfigApplyStatus :preview="destructivePreview" />
         <footer class="foot">
           <div
             id="settings-footer-nav"

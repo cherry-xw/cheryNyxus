@@ -47,9 +47,12 @@ const BACKGROUND_CONTROL_TYPES = new Set([
   'child_abandoned',
 ])
 
-function backgroundControlEvent(event: Record<string, unknown>): Record<string, unknown> | undefined {
+function backgroundControlEvent(
+  event: Record<string, unknown>,
+): Record<string, unknown> | undefined {
   if (event.kind !== 'notification' || !BACKGROUND_CONTROL_TYPES.has(String(event.type))) return
-  const data = event.data && typeof event.data === 'object' ? (event.data as Record<string, unknown>) : {}
+  const data =
+    event.data && typeof event.data === 'object' ? (event.data as Record<string, unknown>) : {}
   const type = String(event.type)
   const compactData: Record<string, unknown> = {}
   for (const key of ['approvalId', 'batchId', 'childChatId', 'senseName']) {

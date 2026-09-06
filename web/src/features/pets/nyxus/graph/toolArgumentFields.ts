@@ -41,15 +41,7 @@ export const FIELD_LABELS: Record<string, string> = {
 }
 
 export type FieldKind =
-  | 'command'
-  | 'path'
-  | 'url'
-  | 'group'
-  | 'list'
-  | 'boolean'
-  | 'scalar'
-  | 'multiline'
-  | 'text'
+  'command' | 'path' | 'url' | 'group' | 'list' | 'boolean' | 'scalar' | 'multiline' | 'text'
 
 export interface FieldView {
   /** Stable full path, suitable for keys/copy state. */

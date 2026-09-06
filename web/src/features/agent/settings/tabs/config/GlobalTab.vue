@@ -82,52 +82,52 @@ const { ready, isActive, activeAnchor, cardNumber, raise } = scatter
     </template>
 
     <div ref="canvasRef" class="global-canvas" :class="{ 'is-ready': ready }">
-      <ScatterCard anchor="default" accent="#d946ef" radius="16px 9px 13px 8px" v-slot="{ no }">
+      <ScatterCard v-slot="{ no }" anchor="default" accent="#d946ef" radius="16px 9px 13px 8px">
         <SupervisionCard :global="draft.global" :no="no" />
       </ScatterCard>
 
-      <ScatterCard anchor="editor" accent="#60a5fa" radius="9px 16px 8px 13px" v-slot="{ no }">
+      <ScatterCard v-slot="{ no }" anchor="editor" accent="#60a5fa" radius="9px 16px 8px 13px">
         <EditorCard :global="draft.global" :no="no" />
       </ScatterCard>
 
-      <ScatterCard anchor="limits" accent="#38bdf8" radius="14px 8px 15px 9px" v-slot="{ no }">
+      <ScatterCard v-slot="{ no }" anchor="limits" accent="#38bdf8" radius="14px 8px 15px 9px">
         <LimitsCard :global="draft.global" :no="no" />
       </ScatterCard>
 
       <ScatterCard
         v-if="draft.global.logger"
+        v-slot="{ no }"
         anchor="logger"
         accent="#2dd4bf"
         radius="8px 14px 10px 16px"
-        v-slot="{ no }"
       >
         <LoggerCard :logger="draft.global.logger!" :no="no" />
       </ScatterCard>
 
       <ScatterCard
         v-if="draft.global.file_compression"
+        v-slot="{ no }"
         anchor="compression"
         accent="#8b5cf6"
         radius="15px 9px 17px 8px"
-        v-slot="{ no }"
       >
         <CompressionCard :compression="draft.global.file_compression!" :no="no" />
       </ScatterCard>
 
       <ScatterCard
+        v-slot="{ no }"
         anchor="memory-global"
         accent="#34d399"
         radius="8px 15px 9px 13px"
-        v-slot="{ no }"
       >
         <MemoryCard scope="global" :memory="draft.memory!" :no="no" />
       </ScatterCard>
 
       <ScatterCard
+        v-slot="{ no }"
         anchor="memory-workspace"
         accent="#06b6d4"
         radius="13px 8px 15px 10px"
-        v-slot="{ no }"
       >
         <MemoryCard scope="workspace" :memory="draft.memory!" :no="no" />
       </ScatterCard>

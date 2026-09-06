@@ -231,10 +231,7 @@ function confirm(): void {
           <div class="browser-crumbs">
             <template v-for="(c, i) in breadcrumb" :key="`${c.path}-${i}`">
               <!-- 段间分隔符：POSIX 首段 '/' 本身已是分隔符，紧跟其后不再重复（避免 // 双斜杠） -->
-              <span
-                v-if="i > 0 && (sep !== '/' || i > 1)"
-                class="crumb-sep"
-              >{{ sep }}</span>
+              <span v-if="i > 0 && (sep !== '/' || i > 1)" class="crumb-sep">{{ sep }}</span>
               <button
                 type="button"
                 class="crumb"
@@ -282,12 +279,7 @@ function confirm(): void {
     </div>
     <template #footer>
       <el-button size="small" @click="emit('update:open', false)">取消</el-button>
-      <el-button
-        type="primary"
-        size="small"
-        :disabled="!canConfirm"
-        @click="confirm"
-      >
+      <el-button type="primary" size="small" :disabled="!canConfirm" @click="confirm">
         选择此文件夹
       </el-button>
     </template>

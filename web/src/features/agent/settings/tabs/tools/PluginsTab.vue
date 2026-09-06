@@ -166,7 +166,10 @@ const TAG_PALETTE: Array<{ background: string; color: string; dark: string }> = 
 ]
 function skillTagStyle(i: number): { background: string; color: string } {
   const tag = TAG_PALETTE[i % TAG_PALETTE.length]!
-  return { background: tag.background, color: useThemeStore().theme === 'dark' ? tag.dark : tag.color }
+  return {
+    background: tag.background,
+    color: useThemeStore().theme === 'dark' ? tag.dark : tag.color,
+  }
 }
 </script>
 

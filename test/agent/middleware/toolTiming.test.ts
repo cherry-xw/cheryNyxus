@@ -83,6 +83,7 @@ describe('senseMiddleware 工具真实执行边界', () => {
     )
     const approvedCtx = createMockContext({
       runtime: createMockRuntime({ senses: [approvedTool] }),
+      global: { approval_timeout: 1234 },
     })
     const approvedChunks = await collectWithOrder(
       senseMiddleware(
@@ -97,15 +98,12 @@ describe('senseMiddleware 工具真实执行边界', () => {
       (chunk) => {
         if (chunk.type === 'sense_end') {
           expect(approvedOrder).not.toContain('started:approved-1')
+          expect(chunk.approvalTimeoutMs).toBe(1234)
           approve(chunk.id, 'accept')
         }
       },
     )
-    expect(approvedOrder).toEqual([
-      'started:approved-1',
-      'execute:approved',
-      'accepted:approved-1',
-    ])
+    expect(approvedOrder).toEqual(['started:approved-1', 'execute:approved', 'accepted:approved-1'])
     expect(approvedChunks.some((chunk) => chunk.type === 'sense_started')).toBe(true)
 
     const rejectedOrder: string[] = []

@@ -204,8 +204,7 @@ export function foldContainsErrorMessage(node: ExecutionNode): boolean {
   return (
     node.kind === 'fold' &&
     !!node.fold?.projectionNodes.some(
-      (member) =>
-        member.kind === 'message' && member.sourceFact?.termination?.code === 'error',
+      (member) => member.kind === 'message' && member.sourceFact?.termination?.code === 'error',
     )
   )
 }

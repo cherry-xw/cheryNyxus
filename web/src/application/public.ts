@@ -6,6 +6,7 @@ export {
   useAgentsStore,
   useAuthStore,
   useChatSessionsStore,
+  useConfigApplyStore,
   useConnectionStore,
   useInteractionsStore,
   useTaskOverviewStore,

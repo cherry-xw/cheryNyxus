@@ -4,7 +4,12 @@
  * 每段：色块·标签·(条数)·tokens·占比。scoped 样式随组件实例生效（popper 内仍生效）。
  */
 import type { ContextBreakdown } from '@/application/backend/public'
-import { breakdownSegments, fmtTokens, segmentCountText, segmentThinkingNote } from './contextBreakdown'
+import {
+  breakdownSegments,
+  fmtTokens,
+  segmentCountText,
+  segmentThinkingNote,
+} from './contextBreakdown'
 
 defineProps<{ breakdown?: ContextBreakdown }>()
 </script>

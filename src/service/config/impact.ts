@@ -3,7 +3,8 @@ import type { ConfigImpact, HooksDraft } from '@chery/protocol'
 import type { ConfigRaw } from '@/utils/config.js'
 
 export interface ConfigImage {
-  config: ConfigRaw
+  /** server is retained for complete disk diffing even though settings do not edit it. */
+  config: ConfigRaw & { server?: unknown }
   hooks: HooksDraft
   /** Relative resource filename -> content hash; executable content is never exported. */
   assets?: Record<string, string>
@@ -25,10 +26,19 @@ export interface ConfigResource {
   path: string[]
   value: unknown
 }
+export function isTreeImpact(impact: ConfigImpact): boolean {
+  const [root, name] = JSON.parse(impact.resource) as string[]
+  return (
+    impact.boundary === 'tree' ||
+    (impact.boundary === 'resource' &&
+      (root === 'mcp_servers' || (root === 'assets' && !name?.startsWith('hooks/'))))
+  )
+}
 export function resources(image: ConfigImage): Map<string, ConfigResource> {
   const result = new Map<string, ConfigResource>()
   for (const [root, value] of Object.entries(image.config)) {
     const entries = root === 'llm' ? (value as ConfigRaw['llm']).brain : value
+    if (root === 'mcp_servers' && (!entries || !Object.keys(entries).length)) continue
     const prefix = root === 'llm' ? ['llm', 'brain'] : [root]
     if (root === 'llm') {
       for (const [key, entry] of Object.entries(value))
@@ -42,7 +52,20 @@ export function resources(image: ConfigImage): Map<string, ConfigResource> {
         result.set(JSON.stringify(prefix), { path: prefix, value: entries })
       for (const [name, entry] of Object.entries(entries)) {
         const path = [...prefix, name]
-        result.set(JSON.stringify(path), { path, value: entry })
+        if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+          const separated = { ...entry } as Record<string, unknown>
+          const localField = root === 'llm' ? 'hooks' : root === 'presets' ? 'schedule' : undefined
+          if (localField) {
+            const localPath = [...path, localField]
+            if (localField in separated)
+              result.set(JSON.stringify(localPath), {
+                path: localPath,
+                value: separated[localField],
+              })
+            delete separated[localField]
+          }
+          result.set(JSON.stringify(path), { path, value: separated })
+        } else result.set(JSON.stringify(path), { path, value: entry })
       }
     } else result.set(JSON.stringify(prefix), { path: prefix, value: entries })
   }
@@ -177,6 +200,8 @@ function boundary(path: string[]): { boundary: ConfigImpact['boundary']; semanti
     }
   if (root === 'llm' && name !== 'brain') return { boundary: 'unsupported', semantic: true }
   if (root === 'hooks') return { boundary: 'resource', semantic: true }
+  if (root === 'llm' && path[3] === 'hooks') return { boundary: 'resource', semantic: true }
+  if (root === 'presets' && path[2] === 'schedule') return { boundary: 'resource', semantic: false }
   if (root === 'server') return { boundary: 'restart', semantic: false }
   if (root === 'sense_groups') return { boundary: 'tree', semantic: true }
   const offset = root === 'global' ? 1 : root === 'llm' ? 3 : 2

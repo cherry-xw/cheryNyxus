@@ -6,11 +6,23 @@
  * - reset 后 reload 恢复
  * - runSenseTests：全过 / 部分失败 / execute 抛错
  */
-import { describe, it, expect } from "vitest";
-import { reloadSenses, runSenseTests } from "@/agent/sense/index.js";
-import { getSense, resetSenses } from "@/core/sense/index.js";
+import { afterEach, describe, it, expect } from "vitest";
+import { prepareSenseSourceReload, reloadSenses, runSenseTests } from "@/agent/sense/index.js";
+import { getSense, registerSenses, replaceLocalSenses, resetSenses } from "@/core/sense/index.js";
 import { createTestSense } from "../helpers/fakeContext.js";
 import type { TestCase } from "@/core/sense/compiler/types.js";
+import config from '@/utils/config.js'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 describe("reloadSenses", () => {
   it("注册 4 个内置 senses", async () => {
@@ -36,6 +48,89 @@ describe("reloadSenses", () => {
     expect(getSense("read_file")).toBeDefined();
   });
 });
+
+describe('prepareSenseSourceReload', () => {
+  const originalSensesDir = config.global.senses_dir
+  const temporaryDirectories: string[] = []
+
+  function createWorkspace() {
+    const root = mkdtempSync(join(tmpdir(), 'chery-sense-hot-'))
+    const sourceDir = join(root, 'source')
+    const distDir = join(root, 'dist')
+    mkdirSync(sourceDir, { recursive: true })
+    mkdirSync(join(distDir, 'senses'), { recursive: true })
+    temporaryDirectories.push(root)
+    config.global.senses_dir = sourceDir
+    return { sourceDir, distDir }
+  }
+
+  function registerExistingSenses() {
+    const local = createTestSense('local_old')
+    const mcp = createTestSense('mcp__server__tool')
+    replaceLocalSenses([local])
+    registerSenses([mcp])
+    return { local, mcp }
+  }
+
+  afterEach(() => {
+    config.global.senses_dir = originalSensesDir
+    resetSenses()
+    for (const directory of temporaryDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps artifacts and local/MCP registrations when compilation fails', async () => {
+    const { sourceDir, distDir } = createWorkspace()
+    const { local, mcp } = registerExistingSenses()
+    const oldArtifact = join(distDir, 'senses', 'old.js')
+    writeFileSync(oldArtifact, 'old artifact', 'utf-8')
+    writeFileSync(join(sourceDir, 'broken.ts'), 'const value = ;', 'utf-8')
+
+    await expect(prepareSenseSourceReload({ distDir })).rejects.toThrow()
+
+    expect(getSense('local_old')).toBe(local)
+    expect(getSense('mcp__server__tool')).toBe(mcp)
+    expect(readFileSync(oldArtifact, 'utf-8')).toBe('old artifact')
+    expect(readdirSync(distDir).some((name) => name.startsWith('.sense-candidate-'))).toBe(false)
+  })
+
+  it('publishes staged artifacts and local registrations only on apply', async () => {
+    const { sourceDir, distDir } = createWorkspace()
+    const { local, mcp } = registerExistingSenses()
+    const oldArtifact = join(distDir, 'senses', 'old.js')
+    writeFileSync(oldArtifact, 'old artifact', 'utf-8')
+    writeFileSync(
+      join(sourceDir, 'hot_custom.ts'),
+      `const Schema = z.object({});
+export default sense("hot_custom", "hot custom", Schema, async () => ({ content: "ok", hash: "" }));`,
+      'utf-8',
+    )
+
+    const candidate = await prepareSenseSourceReload({ distDir })
+
+    expect(getSense('local_old')).toBe(local)
+    expect(getSense('hot_custom')).toBeUndefined()
+    expect(getSense('mcp__server__tool')).toBe(mcp)
+    expect(readFileSync(oldArtifact, 'utf-8')).toBe('old artifact')
+    expect(existsSync(join(distDir, 'senses', 'hot_custom.js'))).toBe(false)
+
+    candidate.apply()
+
+    expect(getSense('local_old')).toBeUndefined()
+    expect(getSense('hot_custom')).toBeDefined()
+    expect(getSense('mcp__server__tool')).toBe(mcp)
+    expect(existsSync(oldArtifact)).toBe(false)
+    expect(existsSync(join(distDir, 'senses', 'hot_custom.js'))).toBe(true)
+    candidate.rollback()
+    expect(getSense('local_old')).toBe(local)
+    expect(getSense('hot_custom')).toBeUndefined()
+    expect(getSense('mcp__server__tool')).toBe(mcp)
+    expect(readFileSync(oldArtifact, 'utf-8')).toBe('old artifact')
+    candidate.dispose()
+    expect(readdirSync(distDir).some((name) => name.startsWith('.sense-'))).toBe(false)
+  })
+})
 
 describe("runSenseTests", () => {
   it("全过 → passed true", async () => {

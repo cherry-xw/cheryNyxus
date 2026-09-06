@@ -8,7 +8,12 @@ import type {
   RolePermissionPolicy,
   RolePermissionTemplate,
 } from '@/utils/config.js'
-import { assessCommandRisk, sandboxModeRank, type SandboxMode, type SecurityFinding } from './commandRisk.js'
+import {
+  assessCommandRisk,
+  sandboxModeRank,
+  type SandboxMode,
+  type SecurityFinding,
+} from './commandRisk.js'
 
 export interface CompiledRoleSecurity {
   roleType: string
@@ -50,12 +55,24 @@ const ACCEPTANCE_DENIED_COMMAND_CATEGORIES = new Set([
 ])
 
 const MUTATING_TOOLS = new Set([
-  'write_file', 'memory_manage', 'install_skill', 'generate_image', 'generate_video',
-  'generate_audio', 'destroy_role',
+  'write_file',
+  'memory_manage',
+  'install_skill',
+  'generate_image',
+  'generate_video',
+  'generate_audio',
+  'destroy_role',
 ])
 const HARMLESS_TOOLS = new Set([
-  'read_file', 'search_codebase', 'history_recall', 'ask_user_question', 'update_todo',
-  'select_conversation', 'send_to_child', 'stop_child', 'role_acceptance',
+  'read_file',
+  'search_codebase',
+  'history_recall',
+  'ask_user_question',
+  'update_todo',
+  'select_conversation',
+  'send_to_child',
+  'stop_child',
+  'role_acceptance',
 ])
 
 function defaultPolicy(template: RolePermissionTemplate): RolePermissionPolicy {
@@ -114,7 +131,10 @@ function mergePolicy(policy?: RolePermissionPolicy): RolePermissionPolicy {
   }
 }
 
-export function compileRoleSecurity(roleType: string | undefined, role?: RoleConfig): CompiledRoleSecurity {
+export function compileRoleSecurity(
+  roleType: string | undefined,
+  role?: RoleConfig,
+): CompiledRoleSecurity {
   const resolvedType = roleType || 'unassigned'
   const policy = mergePolicy(role?.permissions)
   const policyHash = createHash('sha256')
@@ -123,10 +143,16 @@ export function compileRoleSecurity(roleType: string | undefined, role?: RoleCon
   return { roleType: resolvedType, policy, policyHash }
 }
 
-function matchingEffect(rules: Record<string, RolePermissionEffect> | undefined, name: string): RolePermissionEffect {
+function matchingEffect(
+  rules: Record<string, RolePermissionEffect> | undefined,
+  name: string,
+): RolePermissionEffect {
   if (!rules) return 'inherit'
   const candidates = Object.entries(rules)
-    .filter(([pattern]) => pattern === name || (pattern.endsWith('*') && name.startsWith(pattern.slice(0, -1))))
+    .filter(
+      ([pattern]) =>
+        pattern === name || (pattern.endsWith('*') && name.startsWith(pattern.slice(0, -1))),
+    )
     .sort(([a], [b]) => b.length - a.length)
   return candidates[0]?.[1] ?? 'inherit'
 }
@@ -200,13 +226,26 @@ export function authorizeToolCall(input: {
   if (name.startsWith('mcp__')) {
     decision = addEffect(decision, matchingEffect(policy.mcp?.tools, name))
     decision = addEffect(decision, policy.mcp?.default ?? 'inherit')
-    if (decision !== 'allow') findings.push({
-      code: 'role.mcp-policy', category: 'unknown', severity: 'unknown',
-      message: `角色 ${security.roleType} 的 MCP 默认策略为 ${decision}`,
-    })
-  } else if (!HARMLESS_TOOLS.has(name) && !MUTATING_TOOLS.has(name) && name !== 'execute_command' && name !== 'spawn_role') {
+    if (decision !== 'allow')
+      findings.push({
+        code: 'role.mcp-policy',
+        category: 'unknown',
+        severity: 'unknown',
+        message: `角色 ${security.roleType} 的 MCP 默认策略为 ${decision}`,
+      })
+  } else if (
+    !HARMLESS_TOOLS.has(name) &&
+    !MUTATING_TOOLS.has(name) &&
+    name !== 'execute_command' &&
+    name !== 'spawn_role'
+  ) {
     if (policy.template !== 'trusted') decision = addEffect(decision, 'ask')
-    findings.push({ code: 'role.unknown-tool', category: 'unknown', severity: 'unknown', message: `工具 ${name} 未声明副作用，按未知工具监管` })
+    findings.push({
+      code: 'role.unknown-tool',
+      category: 'unknown',
+      severity: 'unknown',
+      message: `工具 ${name} 未声明副作用，按未知工具监管`,
+    })
   }
 
   if (name === 'write_file' || name === 'read_file' || name === 'search_codebase') {
@@ -214,18 +253,21 @@ export function authorizeToolCall(input: {
     const write = name === 'write_file'
     const scope = write
       ? policy.filesystem?.write
-        : !input.acceptance && input.filesystemRead === 'any'
+      : !input.acceptance && input.filesystemRead === 'any'
         ? 'any'
         : policy.filesystem?.read
     if (scope === 'deny') decision = 'deny'
     else if (scope === 'workspace' && !contained(workspace, path)) decision = 'deny'
-    else if (write && scope === 'any-with-approval' && !contained(workspace, path)) decision = addEffect(decision, 'ask')
-    if (decision !== 'allow') findings.push({
-      code: `role.filesystem-${write ? 'write' : 'read'}`,
-      category: 'filesystem', severity: write ? 'high' : 'medium',
-      message: `角色 ${security.roleType} 的${write ? '写入' : '读取'}范围不允许直接访问该路径`,
-      fragment: typeof path === 'string' ? path : undefined,
-    })
+    else if (write && scope === 'any-with-approval' && !contained(workspace, path))
+      decision = addEffect(decision, 'ask')
+    if (decision !== 'allow')
+      findings.push({
+        code: `role.filesystem-${write ? 'write' : 'read'}`,
+        category: 'filesystem',
+        severity: write ? 'high' : 'medium',
+        message: `角色 ${security.roleType} 的${write ? '写入' : '读取'}范围不允许直接访问该路径`,
+        fragment: typeof path === 'string' ? path : undefined,
+      })
   }
 
   if (MUTATING_TOOLS.has(name)) {
@@ -237,7 +279,13 @@ export function authorizeToolCall(input: {
     decision = addEffect(decision, policy.spawn?.effect ?? 'inherit')
     const target = typeof args.type === 'string' ? args.type : ''
     if (policy.spawn?.allowedRoles && !policy.spawn.allowedRoles.includes(target)) decision = 'deny'
-    if (decision !== 'allow') findings.push({ code: 'role.spawn-policy', category: 'process', severity: 'medium', message: `角色 ${security.roleType} 不可直接派遣 ${target || '未知角色'}` })
+    if (decision !== 'allow')
+      findings.push({
+        code: 'role.spawn-policy',
+        category: 'process',
+        severity: 'medium',
+        message: `角色 ${security.roleType} 不可直接派遣 ${target || '未知角色'}`,
+      })
   }
 
   let commandAssessment: ReturnType<typeof assessCommandRisk> | undefined
@@ -246,22 +294,40 @@ export function authorizeToolCall(input: {
     const command = args.command
     if ((shell !== 'bash' && shell !== 'powershell') || typeof command !== 'string') {
       decision = 'deny'
-      findings.push({ code: 'shell.invalid-arguments', category: 'unknown', severity: 'unknown', message: 'execute_command 必须明确提供 bash 或 powershell 方言' })
+      findings.push({
+        code: 'shell.invalid-arguments',
+        category: 'unknown',
+        severity: 'unknown',
+        message: 'execute_command 必须明确提供 bash 或 powershell 方言',
+      })
     } else if (!(policy.commands?.shells ?? []).includes(shell)) {
       decision = 'deny'
-      findings.push({ code: 'role.shell-denied', category: 'system', severity: 'high', message: `角色 ${security.roleType} 不允许使用 ${shell}` })
+      findings.push({
+        code: 'role.shell-denied',
+        category: 'system',
+        severity: 'high',
+        message: `角色 ${security.roleType} 不允许使用 ${shell}`,
+      })
     } else {
       if (typeof args.workdir === 'string' && !contained(workspace, args.workdir)) {
         decision = 'deny'
-        findings.push({ code: 'role.workdir-denied', category: 'filesystem', severity: 'high', message: '命令工作目录越出会话工作区', fragment: args.workdir })
+        findings.push({
+          code: 'role.workdir-denied',
+          category: 'filesystem',
+          severity: 'high',
+          message: '命令工作目录越出会话工作区',
+          fragment: args.workdir,
+        })
       }
       commandAssessment = assessCommandRisk(shell, command, workspace)
       findings.push(...commandAssessment.findings)
       requiredSandboxMode = commandAssessment.requiredMode
       const maxMode = policy.commands?.maxSandboxMode ?? 'read-only'
       if (sandboxModeRank(requiredSandboxMode) > sandboxModeRank(maxMode)) decision = 'deny'
-      else if (commandAssessment.decision === 'approval-required') decision = addEffect(decision, 'ask')
-      else if (policy.template === 'supervised' && requiredSandboxMode !== 'read-only') decision = addEffect(decision, 'ask')
+      else if (commandAssessment.decision === 'approval-required')
+        decision = addEffect(decision, 'ask')
+      else if (policy.template === 'supervised' && requiredSandboxMode !== 'read-only')
+        decision = addEffect(decision, 'ask')
       for (const finding of commandAssessment.findings) {
         decision = addEffect(decision, policy.commands?.categories?.[finding.category] ?? 'inherit')
       }
@@ -290,7 +356,12 @@ export function authorizeToolCall(input: {
 
   // manual 永远要求审批；smart 继续消费非命令 Sense 的既有确定性规则。
   if (input.configuredLevel === SupervisionLevel.manual) decision = addEffect(decision, 'ask')
-  else if (input.configuredLevel === SupervisionLevel.smart && name !== 'execute_command' && input.legacySafe === false) decision = addEffect(decision, 'ask')
+  else if (
+    input.configuredLevel === SupervisionLevel.smart &&
+    name !== 'execute_command' &&
+    input.legacySafe === false
+  )
+    decision = addEffect(decision, 'ask')
 
   const assessmentHash = hashAuthorization({
     version: 2,

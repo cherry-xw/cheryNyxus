@@ -285,7 +285,8 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  background: linear-gradient(
+  background:
+    linear-gradient(
       115deg,
       color-mix(in srgb, var(--accent) 20%, transparent),
       color-mix(in srgb, var(--accent) 4%, transparent)

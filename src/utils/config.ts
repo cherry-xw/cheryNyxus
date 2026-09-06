@@ -21,6 +21,7 @@ import { findLlmProviderDefinition, isLlmProtocol, type LlmProtocol } from '@che
 // 生产部署通常无 .env 文件，existsSync 短路；有 .env 时也只填充未设置的变量。
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+const inheritedEnvironment = { ...process.env }
 const isSourceRuntime = path.basename(path.dirname(__dirname)) === 'src'
 const rootEnvPath = isSourceRuntime
   ? path.join(__dirname, '..', '..', '.env')
@@ -32,6 +33,7 @@ if (fs.existsSync(rootEnvPath)) {
 // 会话签名密钥持久化：确保后端同级的 .env（rootEnvPath）存在 CHERY_AUTH_SESSION_SECRET，跨重启复用。
 // 必须在 config.yaml 加载前注入 process.env，供 server.auth 鉴权（OAuth2Auth）读取。
 ensureAuthSessionSecret()
+let managedEnvFileValues = listEnvVarMap()
 
 /**
  * 生成/复用会话签名密钥（CHERY_AUTH_SESSION_SECRET），写入根 .env（rootEnvPath）持久化。
@@ -713,6 +715,11 @@ export interface RuntimeConfigNormalizationContext {
   server?: Partial<ServerConfig>
 }
 
+export interface PreparedRuntimeConfig {
+  raw: ConfigRaw
+  config: Config
+}
+
 /** Pure conversion shared by startup and hot apply. The input remains the raw
  * placeholder-bearing source; paths and environment values exist only in the result. */
 export function normalizeRuntimeConfig(
@@ -870,28 +877,61 @@ const unresolvedStartupEnvVars = [...startupMissingEnvVars].filter(
 if (unresolvedStartupEnvVars.length > 0) {
   console.warn(`⚠️ 环境变量未配置: ${unresolvedStartupEnvVars.join(', ')}`)
 }
-let appliedConfig = normalizeRuntimeConfig(startupSource, {
+const initialConfig = normalizeRuntimeConfig(startupSource, {
   ...runtimeContext,
   environment: startupEnvironment,
 })
+runtimeContext.server = structuredClone(initialConfig.server)
+const { server: _startupServer, ...initialRawConfig } = structuredClone(startupSource)
+let appliedRawConfig = initialRawConfig
+let appliedConfig = initialConfig
 
 /** Build without publishing. Server/root/database values always come from startup context. */
+export function prepareRuntimeConfig(raw: ConfigRaw): PreparedRuntimeConfig {
+  const workspace = validateCandidateWorkspaces(raw)
+  if (workspace.errors.length > 0) throw new Error(`配置校验失败:\n${workspace.errors.join('\n')}`)
+  const source = structuredClone(raw)
+  return {
+    raw: source,
+    config: normalizeRuntimeConfig(source, {
+      ...runtimeContext,
+      environment: readRuntimeEnvironment(),
+    }),
+  }
+}
+
 export function createRuntimeConfigCandidate(raw: ConfigRaw): Config {
-  return normalizeRuntimeConfig(raw, {
-    ...runtimeContext,
-    environment: readRuntimeEnvironment(),
-  })
+  return prepareRuntimeConfig(raw).config
+}
+
+export function getAppliedRawConfig(): ConfigRaw {
+  return structuredClone(appliedRawConfig)
+}
+
+/** A run owns this reference; later publications replace instead of mutating it. */
+export function captureRuntimeConfig(): Config {
+  return appliedConfig
 }
 
 export function getRuntimeConfig(): Config {
   return appliedConfig
 }
 
+/** Publish an already prepared pair; parsing and validation cannot fail here. */
+export function publishRuntimeConfig(candidate: PreparedRuntimeConfig): Config {
+  appliedRawConfig = structuredClone(candidate.raw)
+  appliedConfig = candidate.config
+  return appliedConfig
+}
+
 /** Normalize first; a failed candidate cannot change the published object. */
 export function replaceRuntimeConfig(raw: ConfigRaw): Config {
-  const next = createRuntimeConfigCandidate(raw)
-  appliedConfig = next
-  return next
+  return publishRuntimeConfig(prepareRuntimeConfig(raw))
+}
+
+/** Re-resolve retained placeholders after process.env has been rotated. */
+export function refreshRuntimeConfigEnvironment(): Config {
+  return replaceRuntimeConfig(appliedRawConfig)
 }
 
 // Compatibility view for consumers migrated in later chapters. Nested values are
@@ -1522,8 +1562,21 @@ export function listConfigBackups(): string[] {
  * 返回 { backup: 文件名 }；备份目录不存在时自愈创建（避免"目录不存在"误导性报错），为空时抛错。
  */
 export function rollbackConfig(backupName?: string): { backup: string } {
+  const { backup, path: backupPath } = readConfigBackup(backupName)
   const cheryDir = process.env.CHERY_DIR || process.cwd()
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
+  fs.copyFileSync(backupPath, configPath)
+  return { backup }
+}
+
+/** Read a rollback point without mutating disk so callers can revision-check
+ * and validate it through the normal commit path. */
+export function readConfigBackup(backupName?: string): {
+  backup: string
+  raw: ConfigRaw
+  path: string
+} {
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
   const backupsDir = path.join(cheryDir, '.chery', 'backups')
   // 自愈：确保备份目录存在；缺省回滚目标由候选备份决定。
   fs.mkdirSync(backupsDir, { recursive: true })
@@ -1532,7 +1585,10 @@ export function rollbackConfig(backupName?: string): { backup: string } {
     .filter((f) => /^config-\d{8}-\d{6}\.yaml$/.test(f))
     .sort()
     .reverse()
-  const target = backupName && candidates.includes(backupName) ? backupName : candidates[0]
+  if (backupName && !candidates.includes(backupName)) {
+    throw new Error(`回滚点不存在：${backupName}`)
+  }
+  const target = backupName ?? candidates[0]
   if (!target) throw new Error('备份目录为空，尚无可用备份（首次成功 action="patch" 后才会生成）')
   const targetPath = path.join(backupsDir, target)
   const backupRaw = yaml.load(fs.readFileSync(targetPath, 'utf8')) as ConfigRaw
@@ -1540,8 +1596,8 @@ export function rollbackConfig(backupName?: string): { backup: string } {
   if (errors.length > 0) {
     throw new Error(`备份配置校验失败，未恢复：\n${errors.join('\n')}`)
   }
-  fs.copyFileSync(targetPath, configPath)
-  return { backup: target }
+  const { server: _server, ...raw } = (backupRaw ?? {}) as ConfigRaw & { server?: unknown }
+  return { backup: target, raw, path: targetPath }
 }
 
 /**
@@ -1586,7 +1642,23 @@ export function validateConfigCandidate(
   disk: ConfigRaw = readRawConfig(),
 ): { ok: true; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] } {
   const errors = [...validateRawConfig(candidate), ...validateCredentialEnvPlaceholders(candidate)]
-  // workspace 单独校验（启动期不参与；保存期非绝对路径 → 硬错误；其他无效目录 → 软警告）
+  const workspace = validateCandidateWorkspaces(candidate)
+  errors.push(...workspace.errors)
+  const warnings = workspace.warnings
+  errors.push(...validateLockedRoleEdits(disk.roles, candidate.roles))
+  errors.push(...validateFixedPresetEdits(disk.presets, candidate.presets))
+  return errors.length > 0 || warnings.length > 0
+    ? { ok: false, errors, warnings }
+    : { ok: true, warnings }
+}
+
+/** Shared save/hot-apply workspace validation. Startup remains tolerant so a
+ * stale optional project path cannot prevent the service from starting. */
+function validateCandidateWorkspaces(candidate: ConfigRaw): {
+  errors: string[]
+  warnings: string[]
+} {
+  const errors: string[] = []
   const warnings: string[] = []
   if (candidate.presets) {
     for (const [pname, pcfg] of Object.entries(candidate.presets)) {
@@ -1601,11 +1673,7 @@ export function validateConfigCandidate(
       }
     }
   }
-  errors.push(...validateLockedRoleEdits(disk.roles, candidate.roles))
-  errors.push(...validateFixedPresetEdits(disk.presets, candidate.presets))
-  return errors.length > 0 || warnings.length > 0
-    ? { ok: false, errors, warnings }
-    : { ok: true, warnings }
+  return { errors, warnings }
 }
 
 /**
@@ -1685,15 +1753,53 @@ export function listEnvVarMap(): Record<string, string> {
  *  - override=true：以 .env 为准覆盖既有值（用户明确「重载文件」意图，如点击密钥刷新）。
  * .env 不存在或不可读时静默忽略，保持现有 process.env。
  */
-export function reloadEnvFile(override = false): void {
+export interface EnvFileChanges {
+  added: string[]
+  changed: string[]
+  removed: string[]
+}
+
+const RESTART_BOUND_ENV = new Set(['CHERY_DIR', 'DB_DIR', 'WEB_PORT', 'CHERY_AUTH_SESSION_SECRET'])
+
+export function reloadEnvFile(override = false): EnvFileChanges {
+  let parsed: Record<string, string> = {}
   try {
-    const parsed = dotenv.parse(fs.readFileSync(rootEnvPath, 'utf8'))
-    for (const [key, value] of Object.entries(parsed)) {
-      if (override || !(key in process.env)) process.env[key] = value
-    }
+    parsed = dotenv.parse(fs.readFileSync(rootEnvPath, 'utf8'))
   } catch {
-    // .env 缺失/不可读：保持现状
+    // A missing file means all values previously owned by it were removed.
   }
+  return applyEnvFileSnapshot(parsed, override)
+}
+
+/** Reconcile one parsed .env snapshot with process.env. Exported so refresh
+ * semantics can be verified without writing the host's real .env file. */
+export function applyEnvFileSnapshot(
+  parsed: Record<string, string>,
+  override = false,
+): EnvFileChanges {
+  const added = Object.keys(parsed)
+    .filter((key) => !(key in managedEnvFileValues))
+    .sort()
+  const changed = Object.keys(parsed)
+    .filter((key) => key in managedEnvFileValues && parsed[key] !== managedEnvFileValues[key])
+    .sort()
+  const removed = Object.keys(managedEnvFileValues)
+    .filter((key) => !(key in parsed))
+    .sort()
+  for (const [key, value] of Object.entries(parsed)) {
+    if (RESTART_BOUND_ENV.has(key)) continue
+    if (override || !(key in process.env)) process.env[key] = value
+  }
+  if (override) {
+    for (const key of removed) {
+      if (RESTART_BOUND_ENV.has(key)) continue
+      const inherited = inheritedEnvironment[key]
+      if (inherited === undefined) delete process.env[key]
+      else process.env[key] = inherited
+    }
+  }
+  managedEnvFileValues = parsed
+  return { added, changed, removed }
 }
 
 /**

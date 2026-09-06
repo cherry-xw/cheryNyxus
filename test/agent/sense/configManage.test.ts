@@ -172,7 +172,10 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
   })
 
   it('action="rollback" 无备份时返回可行动报错（自愈创建目录，不抛异常）', async () => {
-    const r = await exec({ action: 'rollback' } as never, sharedData)
+    const r = await exec(
+      { action: 'rollback', baseRevision: getSavedBaseRevision() } as never,
+      sharedData,
+    )
     expect(r.content).toContain('回滚失败')
     expect(r.content).toContain('尚无可用备份')
     expect(r.content).toContain('action="patch"')
@@ -183,9 +186,23 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
     const configPath = join(tempCheryDir, '.chery', 'config.yaml')
     backupConfig(configPath)
     writeFileSync(configPath, `${minimalConfigYaml()}sense_groups:\n  changed: []\n`)
-    const r = await exec({ action: 'rollback' } as never, sharedData)
-    expect(r.content).toContain('已从 .chery/backups/')
-    expect(r.content).toContain('恢复')
+    const r = await exec(
+      { action: 'rollback', baseRevision: getSavedBaseRevision() } as never,
+      sharedData,
+    )
+    expect(r.content).toContain('恢复配置候选')
+    expect(r.content).toContain('生效状态：')
+    expect(r.content).toContain('新 baseRevision')
+  })
+
+  it('action="rollback" 拒绝过期 baseRevision 且不覆盖当前配置', async () => {
+    const configPath = join(tempCheryDir, '.chery', 'config.yaml')
+    backupConfig(configPath)
+    const stale = getSavedBaseRevision()
+    writeFileSync(configPath, `${minimalConfigYaml()}sense_groups:\n  current: []\n`)
+    const r = await exec({ action: 'rollback', baseRevision: stale } as never, sharedData)
+    expect(r.content).toContain('已过期')
+    expect(readRawConfig().sense_groups?.current).toEqual([])
   })
 
   it('asset_save 原子创建提示词，asset_archive 可恢复归档零引用资产', async () => {

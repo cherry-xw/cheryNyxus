@@ -118,7 +118,11 @@ onBeforeUnmount(() => {
 <template>
   <transition name="ring">
     <div v-if="nyxusMenuOpen" class="tool-ring">
-      <span class="tool-slot tool-create" :style="toolStyle(toolPositions.create)" v-show="hasCreate">
+      <span
+        v-show="hasCreate"
+        class="tool-slot tool-create"
+        :style="toolStyle(toolPositions.create)"
+      >
         <PresetPicker
           :disabled="props.disabled"
           :excluded="props.excludedPresets"

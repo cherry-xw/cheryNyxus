@@ -38,7 +38,11 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
         <dt>对象</dt>
         <dd>{{ presentation.target }}</dd>
       </div>
-      <div v-for="change in presentation.changes" :key="`${change.label}:${change.detail}`" class="change">
+      <div
+        v-for="change in presentation.changes"
+        :key="`${change.label}:${change.detail}`"
+        class="change"
+      >
         <dt>{{ change.label }}</dt>
         <dd>{{ change.detail }}</dd>
       </div>

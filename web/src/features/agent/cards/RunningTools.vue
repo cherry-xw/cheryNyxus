@@ -16,12 +16,12 @@ function isDrafted(question: QuestionItemState): boolean {
     question.localStatus === 'pending' &&
     Boolean(
       question.draftAnswer?.selectedLabels.length ||
-        (question.draftAnswer?.optionNotes &&
-          Object.keys(question.draftAnswer.optionNotes).some(
-            (label) => question.draftAnswer!.optionNotes![label]?.trim(),
-          )) ||
-        question.draftAnswer?.freeText?.trim() ||
-        question.draftAnswer?.cancelled,
+      (question.draftAnswer?.optionNotes &&
+        Object.keys(question.draftAnswer.optionNotes).some((label) =>
+          question.draftAnswer!.optionNotes![label]?.trim(),
+        )) ||
+      question.draftAnswer?.freeText?.trim() ||
+      question.draftAnswer?.cancelled,
     )
   )
 }
@@ -56,12 +56,7 @@ function runningToolTip(name: string): string {
         {{ question.localStatus === 'ready' ? '👌' : '✍️' }}
       </button>
     </el-tooltip>
-    <span
-      v-for="tool in tools"
-      :key="tool.id"
-      class="run-tool"
-      :title="runningToolTip(tool.name)"
-    >
+    <span v-for="tool in tools" :key="tool.id" class="run-tool" :title="runningToolTip(tool.name)">
       <span class="run-icon">{{ agents.iconForTool(tool.name) }}</span>
       <!-- 运行中工具的安全判定徽章（compact；缺省 = 未知） -->
       <RiskBadge :auth="tool.security" compact />

@@ -87,7 +87,7 @@ export async function handleChatPromptSnapshot(
   if (!chat) throw new Error('这个会话不见了')
   try {
     const activeEpoch =
-      chat.lifecycle === 'active'
+      chat.lifecycle === 'active' && !getActiveChatEpoch(chatId)
         ? ensureActiveChatEpoch({
             chatId,
             revisionId: ensureCurrentConfigRevision().revisionId,
@@ -127,8 +127,7 @@ export async function handleChatPromptSnapshot(
           epochId: requestedEpochId,
           epochOrdinal: epoch.ordinal,
           epochStatus: epoch.status,
-          snapshotQuality:
-            epoch.snapshotQuality === 'exact' ? 'partial' : epoch.snapshotQuality,
+          snapshotQuality: epoch.snapshotQuality === 'exact' ? 'partial' : epoch.snapshotQuality,
           systemPrompt:
             epoch.snapshotQuality === 'reconstructed'
               ? '此历史纪元来自旧数据重建，无法可靠还原当时的完整系统提示词与工具定义。'
@@ -164,7 +163,7 @@ export async function handleChatEpochList(
   if (!getChat(data.chatId)) throw new Error('这个会话不见了')
   const chat = getChat(data.chatId)!
   const active =
-    chat.lifecycle === 'active'
+    chat.lifecycle === 'active' && !getActiveChatEpoch(data.chatId)
       ? ensureActiveChatEpoch({
           chatId: data.chatId,
           revisionId: ensureCurrentConfigRevision().revisionId,
@@ -179,10 +178,7 @@ export async function handleChatEpochList(
     epochs: epochs.map((epoch) => ({
       epochId: epoch.epochId,
       ordinal: epoch.ordinal,
-      label:
-        epoch.transitionReason === 'legacy-migration'
-          ? 'legacy-0'
-          : `纪元 ${epoch.ordinal}`,
+      label: epoch.transitionReason === 'legacy-migration' ? 'legacy-0' : `纪元 ${epoch.ordinal}`,
       status: epoch.status,
       snapshotQuality: epoch.snapshotQuality,
       transitionReason: epoch.transitionReason,

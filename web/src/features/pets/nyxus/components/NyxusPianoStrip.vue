@@ -6,11 +6,7 @@
  * - 浮层自包含关闭：点外部 / ✕ / Esc 触发 `close`，父级 v-if 移除。
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import {
-  layoutPianoKeys,
-  noteName,
-  type PianoKeyGeom,
-} from '../composables/pianoNotes'
+import { layoutPianoKeys, noteName, type PianoKeyGeom } from '../composables/pianoNotes'
 import { usePianoAudio } from '../composables/usePianoAudio'
 import { usePianoKeyboard, PIANO_KEY_MAP } from '../composables/usePianoKeyboard'
 

@@ -21,7 +21,11 @@ import config from '@/utils/config'
 import { ErrorCode } from '@/service/message/types.js'
 import type { LLMResponse } from '@/core/message/adapter'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
-import { notifyRestartActivityChanged } from '@/service/restartCoordinator.js'
+import {
+  assertRestartAdmission,
+  isRestartDraining,
+  notifyRestartActivityChanged,
+} from '@/service/restartCoordinator.js'
 import { getChatMentionableRoles } from './roleMentions.js'
 import { computeHistoryGenerationInfos } from './generations.js'
 import { buildTreeInterruptionNotice } from './treeInterruption.js'
@@ -34,9 +38,16 @@ import {
   rotateActiveChatEpoch,
   type ChatEpochRecord,
 } from '@/db/epoch.js'
-import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
+import { ensureCurrentConfigRevision, isStartupConfigBoundary } from '@/service/config/revision.js'
 import { buildLivePromptSnapshot } from './promptSnapshot.js'
 import { assertAgentExecutionAllowed } from '@/service/maintenanceMode.js'
+import { getSoulDb } from '@/db/index.js'
+import {
+  awaitTreeConfigBoundary,
+  notifyTreeConfigBoundary,
+  treeBoundaryReason,
+  treeChatIds,
+} from '@/service/config/treeBoundary.js'
 
 /**
  * Chat 运行时缓存：chatId → builder + runtime 选择（单 chat 绑定，跨轮不重建）
@@ -110,7 +121,9 @@ export function isChatRunning(chatId: string): boolean {
 
 /** 守护进程待重启时，用于判定所有 chat 是否已安全空闲。 */
 export function hasRunningChats(): boolean {
-  return [...chatRuntimes.values()].some((runtime) => runtime.builder.isRunning())
+  return [...chatRuntimes.values()].some(
+    (runtime) => runtime.activeRunId || runtime.builder.isRunning(),
+  )
 }
 
 /** 获取当前活跃运行，用于 queued send 回包与带条件的 chat.abort。 */
@@ -120,6 +133,7 @@ export function getActiveChatRunId(chatId: string): string | undefined {
 
 /** 在启动 send/resume 前登记运行；同一 chat 同时至多一个活跃运行。 */
 export function activateChatRun(chatId: string, runId: string): void {
+  assertRestartAdmission(isRestartDraining() && !!treeBoundaryReason(chatId, true))
   const runtime = chatRuntimes.get(chatId)
   if (!runtime) {
     throw new Error(`Chat runtime not initialized: ${chatId}`)
@@ -134,6 +148,7 @@ export function releaseChatRun(chatId: string, runId: string): void {
     runtime.activeRunId = undefined
   }
   notifyRestartActivityChanged()
+  notifyTreeConfigBoundary()
 }
 
 /**
@@ -258,24 +273,37 @@ export async function setSessionRoleRuntimes(
   options: SessionRoleRuntimeOptions = {},
 ): Promise<SessionRoleRuntimeResult> {
   const current = await ensureChat(chatId)
-  if (current.isRunning()) {
+  if (current.isRunning() || treeBoundaryReason(chatId)) {
     throw new Error('主 Agent 正在运行，必须先到达安全检查点再修改角色编制')
   }
+  const previous = sessionRoleRuntimes.get(chatId)
   sessionRoleRuntimes.set(chatId, { primary, roles })
   if (!options.rotateEpoch) return { applied: [], deferredRunning: [] }
-
-  rotateActiveChatEpoch({
-    chatId,
-    transitionReason: 'session-runtime-changed',
-    handoffSummary:
-      '用户调整了主 Agent 或子角色的会话级运行配置。' +
-      '仅系统提示词与工具契约更换为当前版本，历史对话完整保留并继续参与上下文；' +
-      '旧纪元工具调用仅作为历史事实，后续子任务按当前角色编制派发。',
-  })
-  chatRuntimes.delete(chatId)
-  ephemeralChatRuntimes.delete(chatId)
-  await ensureChat(chatId)
-  return { applied: [], deferredRunning: [] }
+  let prepared: ReturnType<typeof prepareTreeRuntimeRefresh>
+  let epoch: ChatEpochRecord
+  try {
+    getSoulDb().transaction(() => {
+      prepared = prepareTreeRuntimeRefresh(chatId)
+      epoch = rotateActiveChatEpoch({
+        chatId,
+        transitionReason: 'session-runtime-changed',
+        handoffSummary: '会话级运行配置已在节点树安全边界更新；历史对话与子任务保留。',
+      })
+      for (const snapshot of prepared.snapshots)
+        freezeChatEpochSnapshot({
+          ...snapshot,
+          epochId: epoch.epochId,
+          runtime: snapshot.selection as unknown as Record<string, unknown>,
+          resources: ensureCurrentConfigRevision().resources,
+        })
+    })()
+  } catch (error) {
+    if (previous) sessionRoleRuntimes.set(chatId, previous)
+    else sessionRoleRuntimes.delete(chatId)
+    throw error
+  }
+  prepared!.publish(epoch!.epochId)
+  return { applied: prepared!.snapshots.map((snapshot) => snapshot.chatId), deferredRunning: [] }
 }
 
 /** Exact root-session override, without walking ancestor chats. */
@@ -283,9 +311,25 @@ export function getSessionRoleConfiguration(
   chatId: string,
 ): { primary: RuntimeSelection; roles: Record<string, RuntimeSelection> } | undefined {
   const value = sessionRoleRuntimes.get(chatId)
-  return value
-    ? { primary: value.primary, roles: { ...value.roles } }
-    : undefined
+  return value ? { primary: value.primary, roles: { ...value.roles } } : undefined
+}
+
+export function renameSessionRoles(renames: Array<{ from: string; to: string }>): () => void {
+  const names = new Map(renames.map(({ from, to }) => [from, to]))
+  const previous = [...sessionRoleRuntimes.values()].map((session) => ({
+    session,
+    roles: session.roles,
+  }))
+  for (const session of sessionRoleRuntimes.values())
+    session.roles = Object.fromEntries(
+      Object.entries(session.roles).map(([name, selection]) => [
+        names.get(name) ?? name,
+        selection,
+      ]),
+    )
+  return () => {
+    for (const { session, roles } of previous) session.roles = roles
+  }
 }
 
 /** 返回祖先主会话的某角色临时编制，供 spawn_role 使用。 */
@@ -411,11 +455,22 @@ export async function ensureChat(
   selection?: RuntimeSelection,
 ): Promise<AgentBuilder> {
   assertAgentExecutionAllowed()
+  await awaitTreeConfigBoundary(chatId)
+  assertRestartAdmission(isRestartDraining() && !!treeBoundaryReason(chatId, true))
   const revision = ensureCurrentConfigRevision()
   const previousEpoch = getActiveChatEpoch(chatId)
+  const revisionId = isStartupConfigBoundary()
+    ? revision.revisionId
+    : (previousEpoch?.revisionId ?? revision.revisionId)
+  if (previousEpoch && previousEpoch.revisionId !== revisionId) {
+    const reason = treeBoundaryReason(chatId)
+    if (reason) throw new Error(reason)
+  }
+  // Existing epochs are advanced by the tree transaction, never by a read/send
+  // on one member while a sibling still owns the previous contract.
   const transition = ensureActiveChatEpoch({
     chatId,
-    revisionId: revision.revisionId,
+    revisionId,
     transitionReason: previousEpoch ? 'configuration-changed' : 'created',
     ...(previousEpoch && previousEpoch.revisionId !== revision.revisionId
       ? {
@@ -432,14 +487,17 @@ export async function ensureChat(
   let existing = chatRuntimes.get(chatId)
   if (existing?.epochId && existing.epochId !== epoch.epochId) {
     if (existing.builder.isRunning()) {
-      existing.builder.requestParkAfterTurn()
-      throw new Error('配置纪元正在切换；当前调用已停靠，请在安全边界后重试')
+      throw new Error('配置纪元正在切换，请在节点树安全边界后重试')
     }
+    existing.builder.dispose()
     chatRuntimes.delete(chatId)
     ephemeralChatRuntimes.delete(chatId)
     existing = undefined
   }
   if (existing) {
+    // A queued input joins the active generator. Reconfiguring here would mutate
+    // its global/runtime snapshot halfway through the run.
+    if (existing.builder.isRunning()) return existing.builder
     if (selection) {
       configureRuntime(existing, chatId, selection)
     } else {
@@ -553,6 +611,7 @@ export async function ensureChat(
   } catch (err) {
     // 半初始化清理：configureRuntime 深校验或 init 抛错时，移除刚 set 的 map 项，
     // 避免留半配置 runtime（无 brain/sense）被后续 send 误用。DB 行由调用方清理。
+    builder.dispose()
     chatRuntimes.delete(chatId)
     throw err
   }
@@ -566,7 +625,7 @@ export async function ensureChat(
  */
 export async function setRuntime(chatId: string, selection: RuntimeSelection): Promise<void> {
   const runtime = await ensureRuntime(chatId)
-  if (runtime.builder.isRunning()) {
+  if (runtime.builder.isRunning() || treeBoundaryReason(chatId)) {
     throw new Error('Agent 正在运行，必须先到达安全检查点再修改运行配置')
   }
   if (JSON.stringify(runtime.selection) === JSON.stringify(selection)) return
@@ -578,15 +637,112 @@ export async function setRuntime(chatId: string, selection: RuntimeSelection): P
       '仅系统提示词与工具契约更换为当前版本，历史对话完整保留并继续参与上下文；' +
       '旧纪元工具调用仅作为历史事实。',
   })
+  runtime.builder.dispose()
   chatRuntimes.delete(chatId)
   ephemeralChatRuntimes.delete(chatId)
   await ensureChat(chatId, selection)
+}
+
+/** Build replacement engines without touching the live map. Caller owns the
+ * synchronous config/metadata transaction and publishes only after all succeed. */
+export function prepareTreeRuntimeRefresh(rootId: string): {
+  snapshots: Array<{
+    chatId: string
+    selection: RuntimeSelection
+    systemPrompt: string
+    tools: ReturnType<typeof buildLivePromptSnapshot>['tools']
+  }>
+  publish(epochId: string): void
+  dispose(): void
+} {
+  const replacements = new Map<string, ChatRuntime>()
+  const snapshots: Array<{
+    chatId: string
+    selection: RuntimeSelection
+    systemPrompt: string
+    tools: ReturnType<typeof buildLivePromptSnapshot>['tools']
+  }> = []
+  const builders: AgentBuilder[] = []
+  try {
+    for (const chatId of treeChatIds(rootId)) {
+      if (getChat(chatId)?.lifecycle !== 'active') continue
+      const old = chatRuntimes.get(chatId)
+      let effective = resolveEffectiveSelection(chatId)
+      const metadata = getChatMetadata(chatId)
+      if (
+        (!effective || effective.status === 'invalid') &&
+        old?.selection &&
+        !metadata.roleId &&
+        !metadata.type &&
+        !metadata.presetId &&
+        !metadata.preset &&
+        !resolveSelectionIssues(old.selection).length
+      ) {
+        effective = { status: 'followed', selection: old.selection, issues: [] }
+      }
+      if (!effective || effective.status === 'invalid') {
+        if (old) throw new Error('受影响会话无法关联新运行配置')
+        continue
+      }
+      const builder = new AgentBuilder().build()
+      builders.push(builder)
+      const runtime: ChatRuntime = { builder }
+      configureRuntime(runtime, chatId, effective.selection, false)
+      const live = buildLivePromptSnapshot(chatId, effective.selection)
+      const epoch = getActiveChatEpoch(chatId)
+      builder.init(
+        chatId,
+        epoch ? loadHistory(chatId, epoch) : undefined,
+        getChatSystemPromptFile(chatId),
+        getChatWorkspace(chatId),
+        getChatSkillFilter(chatId),
+        getChatMentionableRoles(chatId),
+        computeHistoryGenerationInfos(chatId),
+        live.systemPrompt,
+      )
+      const pendingIds = new Set<string>()
+      for (const entry of old?.builder.getPendingInputs() ?? []) {
+        builder.enqueueInput(entry.content, entry)
+        if (entry.inputId) pendingIds.add(entry.inputId)
+      }
+      const messageIds = new Set(getMessages(chatId).map((message) => message.id))
+      for (const entry of listPendingInputs(chatId)) {
+        if (pendingIds.has(entry.input_id) || messageIds.has(entry.message_id)) continue
+        builder.enqueueInput(entry.content, {
+          inputId: entry.input_id,
+          messageId: entry.message_id,
+          clientMessageId: entry.client_message_id ?? undefined,
+          commandId: entry.command_id,
+        })
+      }
+      snapshots.push({ chatId, selection: effective.selection, ...live })
+      if (old) replacements.set(chatId, runtime)
+      else builder.dispose()
+    }
+  } catch (error) {
+    for (const builder of builders) builder.dispose()
+    throw error
+  }
+  return {
+    snapshots,
+    dispose() {
+      for (const builder of builders) builder.dispose()
+    },
+    publish(epochId) {
+      for (const [chatId, runtime] of replacements) {
+        runtime.epochId = epochId
+        chatRuntimes.get(chatId)?.builder.dispose()
+        chatRuntimes.set(chatId, runtime)
+      }
+    },
+  }
 }
 
 /**
  * 将 chatId 从运行时缓存移除（删除 chat 时调用）
  */
 export function clearChatRuntime(chatId: string): void {
+  chatRuntimes.get(chatId)?.builder.dispose()
   chatRuntimes.delete(chatId)
   sessionRoleRuntimes.delete(chatId)
   ephemeralChatRuntimes.delete(chatId)

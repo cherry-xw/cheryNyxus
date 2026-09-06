@@ -39,7 +39,11 @@ function available(command: string, args: string[]): boolean {
   return !probe.error && probe.status === 0
 }
 
-function windowsPlan(spec: SandboxedCommand): { command: string; args: string[]; cleanup: () => void } {
+function windowsPlan(spec: SandboxedCommand): {
+  command: string
+  args: string[]
+  cleanup: () => void
+} {
   const require = createRequire(import.meta.url)
   const runner = require.resolve('@deepseek-ai/dsh-sandbox-windows-acl/runner')
   const privateTemp = mkdtempSync(join(tmpdir(), 'chery-sandbox-'))
@@ -50,33 +54,57 @@ function windowsPlan(spec: SandboxedCommand): { command: string; args: string[];
     command: process.execPath,
     args: [
       runner,
-      '--workspace', spec.cwd,
-      '--temp', privateTemp,
-      '--mode', aclMode,
-      '--', spec.executable, ...spec.args,
+      '--workspace',
+      spec.cwd,
+      '--temp',
+      privateTemp,
+      '--mode',
+      aclMode,
+      '--',
+      spec.executable,
+      ...spec.args,
     ],
     cleanup: () => {
       if (!existsSync(privateTemp)) return
       const base = realpathSync.native(tmpdir())
       const target = realpathSync.native(privateTemp)
       const rel = relative(base, target)
-      if (!rel.startsWith('..') && !isAbsolute(rel)) rmSync(target, { recursive: true, force: true })
+      if (!rel.startsWith('..') && !isAbsolute(rel))
+        rmSync(target, { recursive: true, force: true })
     },
   }
 }
 
-function linuxPlan(spec: SandboxedCommand): { command: string; args: string[]; cleanup: () => void } {
+function linuxPlan(spec: SandboxedCommand): {
+  command: string
+  args: string[]
+  cleanup: () => void
+} {
   if (!available('bwrap', ['--version'])) {
     throw new Error('SANDBOX_UNAVAILABLE: Linux 需要 bubblewrap (bwrap)，拒绝退回裸命令执行')
   }
-  const rootMount = spec.mode === 'danger-full-access' ? ['--bind', '/', '/'] : ['--ro-bind', '/', '/']
+  const rootMount =
+    spec.mode === 'danger-full-access' ? ['--bind', '/', '/'] : ['--ro-bind', '/', '/']
   const writeMount = spec.mode === 'workspace-write' ? ['--bind', spec.cwd, spec.cwd] : []
   return {
     command: 'bwrap',
     args: [
-      '--die-with-parent', '--new-session', '--unshare-all',
-      ...rootMount, '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
-      ...writeMount, '--chdir', spec.cwd, '--', spec.executable, ...spec.args,
+      '--die-with-parent',
+      '--new-session',
+      '--unshare-all',
+      ...rootMount,
+      '--dev',
+      '/dev',
+      '--proc',
+      '/proc',
+      '--tmpfs',
+      '/tmp',
+      ...writeMount,
+      '--chdir',
+      spec.cwd,
+      '--',
+      spec.executable,
+      ...spec.args,
     ],
     cleanup: () => {},
   }
@@ -86,15 +114,20 @@ function escapeSeatbelt(path: string): string {
   return path.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
-function macosPlan(spec: SandboxedCommand): { command: string; args: string[]; cleanup: () => void } {
+function macosPlan(spec: SandboxedCommand): {
+  command: string
+  args: string[]
+  cleanup: () => void
+} {
   if (!existsSync('/usr/bin/sandbox-exec')) {
     throw new Error('SANDBOX_UNAVAILABLE: macOS sandbox-exec 不可用，拒绝退回裸命令执行')
   }
-  const writes = spec.mode === 'read-only'
-    ? ''
-    : spec.mode === 'workspace-write'
-      ? `(allow file-write* (subpath "${escapeSeatbelt(spec.cwd)}"))`
-      : '(allow file-write*)'
+  const writes =
+    spec.mode === 'read-only'
+      ? ''
+      : spec.mode === 'workspace-write'
+        ? `(allow file-write* (subpath "${escapeSeatbelt(spec.cwd)}"))`
+        : '(allow file-write*)'
   const profile = `(version 1)(deny default)(allow process*)(allow sysctl-read)(allow file-read*)${writes}`
   return {
     command: '/usr/bin/sandbox-exec',
@@ -113,13 +146,16 @@ export function spawnSandboxedCommand(
   const workspace = canonicalExistingDirectory(input.workspaceRoot)
   const cwd = assertInside(workspace, input.cwd)
   const spec = { ...input, cwd }
-  const plan = process.platform === 'win32'
-    ? windowsPlan(spec)
-    : process.platform === 'linux'
-      ? linuxPlan(spec)
-      : process.platform === 'darwin'
-        ? macosPlan(spec)
-        : (() => { throw new Error(`SANDBOX_UNAVAILABLE: 不支持的平台 ${process.platform}`) })()
+  const plan =
+    process.platform === 'win32'
+      ? windowsPlan(spec)
+      : process.platform === 'linux'
+        ? linuxPlan(spec)
+        : process.platform === 'darwin'
+          ? macosPlan(spec)
+          : (() => {
+              throw new Error(`SANDBOX_UNAVAILABLE: 不支持的平台 ${process.platform}`)
+            })()
   try {
     const child = spawn(plan.command, plan.args, {
       cwd,
@@ -150,7 +186,10 @@ export function resolveWorkdir(workspaceRoot: string, workdir?: string): string 
 }
 
 let cachedPowerShell: { executable: string; args: string[] } | null | undefined
-export function resolveShellExecutable(shell: 'bash' | 'powershell'): { executable: string; args: string[] } {
+export function resolveShellExecutable(shell: 'bash' | 'powershell'): {
+  executable: string
+  args: string[]
+} {
   // bash 方言：非 win32 保持 bash -lc（AI 写的是 bash 语义脚本，不能用 sh 跑 bashism）；
   // win32 走 POSIX 探测链（bash 优先），解析不到由 resolvePosixShell 抛指引错误。
   if (shell === 'bash') {
@@ -160,14 +199,25 @@ export function resolveShellExecutable(shell: 'bash' | 'powershell'): { executab
     if (cachedPowerShell) return cachedPowerShell
     throw new Error('SANDBOX_UNAVAILABLE: 未找到 pwsh 或 Windows PowerShell')
   }
-  if (process.platform !== 'win32' || available('pwsh', ['-NoLogo', '-NoProfile', '-Command', '$null'])) {
-    cachedPowerShell = { executable: 'pwsh', args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'] }
+  if (
+    process.platform !== 'win32' ||
+    available('pwsh', ['-NoLogo', '-NoProfile', '-Command', '$null'])
+  ) {
+    cachedPowerShell = {
+      executable: 'pwsh',
+      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
+    }
     return cachedPowerShell
   }
   const systemRoot = process.env.SystemRoot
-  const legacy = systemRoot ? join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') : ''
+  const legacy = systemRoot
+    ? join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    : ''
   if (legacy && existsSync(legacy)) {
-    cachedPowerShell = { executable: legacy, args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'] }
+    cachedPowerShell = {
+      executable: legacy,
+      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
+    }
     return cachedPowerShell
   }
   cachedPowerShell = null
@@ -192,7 +242,12 @@ function probeWhereFirst(name: string): string | null {
     encoding: 'utf8',
   })
   if (probe.error || probe.status !== 0 || !probe.stdout) return null
-  return probe.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0] ?? null
+  return (
+    probe.stdout
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)[0] ?? null
+  )
 }
 
 /** git.exe 同仓向上找 usr/bin/bash.exe（Git for Windows 布局：cmd/ bin/ mingw64/bin/ 三种放置均 ≤3 级可达根） */
@@ -253,7 +308,8 @@ export function resolvePosixShell(bashFirst = false): { executable: string } {
 }
 
 /** hooks.get 展示用（不抛版）：available=false 时返回安装指引 */
-export function describePosixShell(): { available: true; executable: string } | { available: false; hint: string } {
+export function describePosixShell():
+  { available: true; executable: string } | { available: false; hint: string } {
   try {
     return { available: true, executable: resolvePosixShell().executable }
   } catch {

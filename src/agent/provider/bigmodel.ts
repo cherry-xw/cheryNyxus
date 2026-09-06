@@ -15,11 +15,7 @@ import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import { registerMessageAdapter, type MessageProviderAdapterConfig } from '@/core/message/adapter'
 import { registerSenseAdapter, type SenseAdapter } from '@/core/sense'
-import {
-  openaiMessageAdapterConfig,
-  openaiSenseAdapterConfig,
-  acquireRpm,
-} from './openaiCompat.js'
+import { openaiMessageAdapterConfig, openaiSenseAdapterConfig, acquireRpm } from './openaiCompat.js'
 import { assertChatOptions, jsonRequest, streamSSE } from './fetchBase.js'
 
 // ========== LLM Adapter 定义 ==========

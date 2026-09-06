@@ -262,7 +262,12 @@ export const useAuthStore = defineStore('auth', () => {
     let res: Response
     try {
       const challenge = await fetchChallenge(base)
-      const sealed = await encryptCredentials(challenge.challengeId, challenge.nonce, user, password)
+      const sealed = await encryptCredentials(
+        challenge.challengeId,
+        challenge.nonce,
+        user,
+        password,
+      )
       res = await fetch(`${base}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -277,7 +282,11 @@ export const useAuthStore = defineStore('auth', () => {
       err.backendMessage = body?.error
       throw err
     }
-    const data = (await res.json()) as { username?: string; accessToken: string; refreshToken: string }
+    const data = (await res.json()) as {
+      username?: string
+      accessToken: string
+      refreshToken: string
+    }
     serverAddress.value = base
     username.value = data.username ?? ''
     accessToken.value = data.accessToken

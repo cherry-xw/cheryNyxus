@@ -68,11 +68,10 @@ function paramFields(
       </select>
       <span v-if="selectedEpochId !== activeEpochId" class="ps-readonly">只读历史</span>
     </div>
-    <div
-      v-if="snapshotQuality && snapshotQuality !== 'exact'"
-      class="ps-quality-warning"
-    >
-      此纪元为{{ snapshotQuality === 'reconstructed' ? '重建' : '部分' }}快照，无法保证还原当时的完整配置。
+    <div v-if="snapshotQuality && snapshotQuality !== 'exact'" class="ps-quality-warning">
+      此纪元为{{
+        snapshotQuality === 'reconstructed' ? '重建' : '部分'
+      }}快照，无法保证还原当时的完整配置。
     </div>
     <div v-if="status === 'loading' || status === 'idle'" class="ps-status">重建系统提示词…</div>
     <div v-else-if="status === 'error'" class="ps-status ps-error">{{ error ?? '加载失败' }}</div>
@@ -109,11 +108,9 @@ function paramFields(
               <span class="ps-param-name">{{ f.name }}</span>
               <span class="ps-param-type">{{ f.type }}</span>
               <span v-if="f.required" class="ps-param-req">required</span>
-              <span
-                v-if="f.description"
-                class="ps-param-desc"
-                :title="f.description"
-              >{{ f.description }}</span>
+              <span v-if="f.description" class="ps-param-desc" :title="f.description">{{
+                f.description
+              }}</span>
             </div>
           </div>
         </div>

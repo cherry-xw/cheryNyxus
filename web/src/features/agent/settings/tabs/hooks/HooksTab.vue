@@ -83,7 +83,6 @@ const brainList = computed(() =>
       handlerCount: Object.values(hooks).reduce((sum, list) => sum + list.length, 0),
     })),
 )
-
 </script>
 
 <template>
@@ -127,7 +126,11 @@ const brainList = computed(() =>
 
     <template v-else>
       <!-- Handler 执行器平台状态（POSIX shell 解析结果；不可用时每次 dispatch 会被阻断）-->
-      <div v-if="shellInfo" class="neu-card shell-status" :class="shellInfo.available ? 'ok' : 'bad'">
+      <div
+        v-if="shellInfo"
+        class="neu-card shell-status"
+        :class="shellInfo.available ? 'ok' : 'bad'"
+      >
         <span class="shell-icon">{{ shellInfo.available ? '✅' : '⚠️' }}</span>
         <span class="shell-text">
           <template v-if="shellInfo.available">
@@ -148,7 +151,9 @@ const brainList = computed(() =>
           <span class="guide-title">使用 Cherry Nexus 配置钩子</span>
         </header>
         <div class="guide-body">
-          <p class="guide-text">钩子需要编写 shell 脚本，建议通过 Cherry Nexus（配置管理核心角色）自动配置：</p>
+          <p class="guide-text">
+            钩子需要编写 shell 脚本，建议通过 Cherry Nexus（配置管理核心角色）自动配置：
+          </p>
           <ol class="guide-steps">
             <li>对话中输入 <code>@CherryNexus</code>（或让它接管配置需求）</li>
             <li>告诉它你要配置哪个事件的钩子（如 PreLLMRequest 改 body）</li>
@@ -322,8 +327,14 @@ const brainList = computed(() =>
     color: color-mix(in srgb, var(--ink) 68%, transparent);
   }
 }
-[data-theme='dark'] .cap-chip.action { background: rgba(139, 92, 246, 0.18); color: #c4b5fd; }
-[data-theme='dark'] .cap-chip.info { background: rgba(37, 99, 235, 0.2); color: #60a5fa; }
+[data-theme='dark'] .cap-chip.action {
+  background: rgba(139, 92, 246, 0.18);
+  color: #c4b5fd;
+}
+[data-theme='dark'] .cap-chip.info {
+  background: rgba(37, 99, 235, 0.2);
+  color: #60a5fa;
+}
 
 // ============ 事件行（左右两列布局）============
 
@@ -480,10 +491,20 @@ const brainList = computed(() =>
     }
   }
 }
-[data-theme='dark'] .cond-chip.matcher { background: rgba(139, 92, 246, 0.16); color: #c4b5fd; }
-[data-theme='dark'] .cond-chip.matcher code { color: #c4b5fd; }
-[data-theme='dark'] .cond-chip.if { background: rgba(37, 99, 235, 0.18); color: #60a5fa; }
-[data-theme='dark'] .cond-chip.if code { color: #60a5fa; }
+[data-theme='dark'] .cond-chip.matcher {
+  background: rgba(139, 92, 246, 0.16);
+  color: #c4b5fd;
+}
+[data-theme='dark'] .cond-chip.matcher code {
+  color: #c4b5fd;
+}
+[data-theme='dark'] .cond-chip.if {
+  background: rgba(37, 99, 235, 0.18);
+  color: #60a5fa;
+}
+[data-theme='dark'] .cond-chip.if code {
+  color: #60a5fa;
+}
 
 .handler-cmd {
   flex: 1 1 0;

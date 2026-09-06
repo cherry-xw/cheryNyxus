@@ -15,7 +15,6 @@ import { describe, it, expect } from 'vitest'
 import { createLoopHandler } from '@/agent/middleware/loop.js'
 import { AgentAbortError } from '@/core/middleware/errors.js'
 import type { MiddlewareContext, MiddlewareChunk, RunPausedChunk } from '@/core/middleware/types.js'
-import { SupervisionLevel } from '@/core/config.js'
 import { createMockContext } from '../helpers/fakeContext.js'
 import { collectChunks, firstError, hasDone } from '../helpers/chunkAssert.js'
 
@@ -215,6 +214,23 @@ describe('createLoopHandler revoked 与 userInputs', () => {
 })
 
 describe('createLoopHandler maxLoop', () => {
+  it('未显式覆盖时，每次运行采用该次 global 快照的限制', async () => {
+    const ctx = createMockContext({
+      messages: [],
+      userInputs: [{ content: 'queued', time: 0 }],
+    })
+    const handler = createLoopHandler()
+    const run = async function* (): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      yield { type: 'stream', thinkingDelta: '', contentDelta: '' } as MiddlewareChunk
+    }
+
+    ctx.global.maxLoopCount = 1
+    expect(firstPause(await collectChunks(handler(ctx, run)))?.limit).toBe(1)
+
+    ctx.global.maxLoopCount = 2
+    expect(firstPause(await collectChunks(handler(ctx, run)))?.limit).toBe(2)
+  })
+
   it('持续 sense 不停止 → 到 maxLoop yield RunPausedChunk（抑制 done）', async () => {
     const ctx = createMockContext({ messages: [] })
     let calls = 0

@@ -58,13 +58,10 @@ import { LogLevel } from '@/utils/logger/types.js'
 import { isAgentAbortError } from '@/core/middleware/errors.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { randomUUID } from 'crypto'
+import { assertRestartAdmission } from '@/service/restartCoordinator.js'
 import { recordTerminationFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
-import {
-  claimRequest,
-  completeRequest,
-  prepareChatEventForDelivery,
-} from '@/db/delivery.js'
+import { claimRequest, completeRequest, prepareChatEventForDelivery } from '@/db/delivery.js'
 import type { ChatRunResumeRequest } from '@chery/protocol'
 import { getExecutionActiveRun } from '@/db/executionGraph.js'
 import { transport } from '../websocket/transport.js'
@@ -115,7 +112,9 @@ export function attachmentsToPromptMarkers(
 export async function* handleChatSend(
   ctx: HandlerContext,
   data: ChatSendRequestData,
+  existingWork = false,
 ): AsyncGenerator<Chunk | Notification, ChatSendResponseData | RpcResponse, unknown> {
+  assertRestartAdmission(existingWork)
   const chatId = data.chatId
   // runId 与启动该运行的 RPC id 同源；脱离 WS 的单元调用使用 UUID 兜底。
   const runId = ctx.requestId ?? randomUUID()
@@ -136,6 +135,7 @@ export async function* handleChatSend(
   })
 
   const agent = await ensureChat(chatId)
+  assertRestartAdmission(existingWork)
   const rid = ctx.requestId ?? runId
 
   // P4：结构化 attachments → [[media:<filename>]] 文本标记追加到 prompt。

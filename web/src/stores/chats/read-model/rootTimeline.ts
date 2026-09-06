@@ -141,9 +141,7 @@ export function effectiveRootLiveState(
 
   return {
     activeTurns: [...turns.values()].sort(
-      (a, b) =>
-        (a.createdAt ?? 0) - (b.createdAt ?? 0) ||
-        a.messageId.localeCompare(b.messageId),
+      (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.messageId.localeCompare(b.messageId),
     ),
     activeRuns: [...runs.values()].sort(
       (a, b) =>
@@ -217,7 +215,8 @@ export function applyRootPatch(
       runsById.set(`${operation.run.chatId}:${operation.run.runId}`, operation.run)
     else if (operation.type === 'remove-run')
       runsById.delete(`${operation.chatId}:${operation.runId}`)
-    else if (operation.type === 'upsert-input') inputsById.set(operation.input.inputId, operation.input)
+    else if (operation.type === 'upsert-input')
+      inputsById.set(operation.input.inputId, operation.input)
     else inputsById.delete(operation.inputId)
   }
   const persistentNodeIds = new Set(byId.keys())
@@ -238,15 +237,13 @@ export function applyRootPatch(
   return 'applied'
 }
 
-export function createRootTransientState(
-  state?: {
-    pendingInputs?: PendingInput[]
-    activeTurns?: ActiveTurnSnapshot[]
-    run?: RunSnapshot
-    runs?: RunSnapshot[]
-    executionSteps?: ExecutionStep[]
-  },
-): RootTimelineTransientState {
+export function createRootTransientState(state?: {
+  pendingInputs?: PendingInput[]
+  activeTurns?: ActiveTurnSnapshot[]
+  run?: RunSnapshot
+  runs?: RunSnapshot[]
+  executionSteps?: ExecutionStep[]
+}): RootTimelineTransientState {
   const pendingInputs = [...(state?.pendingInputs ?? [])]
   const activeTurns = [...(state?.activeTurns ?? [])]
   const runStates = [...(state?.runs ?? []), ...(state?.run ? [state.run] : [])].map((run) => ({
@@ -317,7 +314,11 @@ export function applyRootTransientEvent(
     return
   }
 
-  if (event.type === 'turn.started' && typeof data.turnId === 'string' && typeof data.messageId === 'string') {
+  if (
+    event.type === 'turn.started' &&
+    typeof data.turnId === 'string' &&
+    typeof data.messageId === 'string'
+  ) {
     if (!state.activeTurns.some((turn) => turn.turnId === data.turnId)) {
       state.activeTurns.push({
         chatId,
@@ -336,7 +337,8 @@ export function applyRootTransientEvent(
   if (event.type === 'turn.delta' && typeof data.turnId === 'string') {
     const turn = state.activeTurns.find((item) => item.turnId === data.turnId)
     if (!turn || typeof data.delta !== 'string' || typeof data.offset !== 'number') return
-    const channel = data.channel === 'thinking' ? 'thinking' : data.channel === 'content' ? 'content' : undefined
+    const channel =
+      data.channel === 'thinking' ? 'thinking' : data.channel === 'content' ? 'content' : undefined
     if (!channel) return
     const current = turn[channel]
     if (data.offset === current.length) turn[channel] += data.delta
@@ -386,11 +388,7 @@ export function applyRootTransientEvent(
         chatId,
         runId: latestRunId,
         status:
-          event.type === 'error'
-            ? 'failed'
-            : data.canResume === true
-              ? 'paused'
-              : 'completed',
+          event.type === 'error' ? 'failed' : data.canResume === true ? 'paused' : 'completed',
         ...(completedAt !== undefined ? { at: completedAt, completedAt } : {}),
       })
     }

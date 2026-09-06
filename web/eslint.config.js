@@ -37,6 +37,11 @@ export default tseslint.config(
       },
     },
     rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+      '@typescript-eslint/no-explicit-any': 'warn',
       'vue/html-self-closing': [
         'error',
         {
@@ -50,6 +55,9 @@ export default tseslint.config(
       'vue/multiline-html-element-content-newline': 'off',
       'vue/require-default-prop': 'off',
       'vue/no-v-html': 'off',
+      // Settings components edit fields on a parent-owned reactive draft by design.
+      // Keep direct prop replacement forbidden while allowing nested draft updates.
+      'vue/no-mutating-props': ['error', { shallowOnly: true }],
     },
   },
 

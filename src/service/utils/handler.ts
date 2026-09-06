@@ -27,6 +27,7 @@ import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { replaceEnvVars, listEnvVarNames, reloadEnvFile, getCheryDir } from '@/utils/config.js'
 import { resetEnvVarCache } from '@/utils/envGuard.js'
+import { readConfigImage, submitEnvironmentRefresh } from '@/service/config/commit.js'
 import config from '@/utils/config.js'
 import {
   resolveCatalogReasoningHistory,
@@ -550,10 +551,12 @@ export async function handleEnvList(
   _ctx: HandlerContext,
   _data: EnvListRequestData,
 ): Promise<EnvListResponseData> {
-  reloadEnvFile(true)
+  const image = readConfigImage()
+  const changes = reloadEnvFile(true)
   // .env 已覆盖重载 → 失效 envGuard 模块级缓存（否则运行期新增/轮换的 key 与新值不被脱敏）
   resetEnvVarCache()
-  return { vars: listEnvVarNames() }
+  const names = [...changes.added, ...changes.changed, ...changes.removed]
+  return { vars: listEnvVarNames(), apply: submitEnvironmentRefresh(image, names) }
 }
 
 /**

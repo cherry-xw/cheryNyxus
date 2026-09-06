@@ -105,11 +105,13 @@ async function dispatch<TIn, TOut>(
      - exit 2 → 阻断（stderr 喂回上游）
 4. 任一 handler 异常（非 0/2）：log `logger.event("hook.failed",...)`，**继续下一个**
 
-### 5. 加载策略：mtime 重读
+### 5. 加载策略与保存生效
 
-- `bootstrapAgentRuntime` 启动期读 `.chery/hooks/hooks.json` + 各 brain 级 hooks.json，校验 schema
-- **handler 进程不预热**（仿 mock 哲学：每次 dispatch 按需 read+spawn→dev 改 hooks.json 免重启）
-- `.chery/hooks/*.sh` 是脚本，按需 `cat`/`exec`；不是闭包，不需缓存
+- `bootstrapAgentRuntime` 启动期读 `.chery/hooks/hooks.json` + 各 brain 级 hooks.json，校验 schema。
+- 设置页保存 Hooks 时，统一配置协调器先准备新注册表，再在资源边界局部发布；不会请求 worker 重启，也不会由 watcher 再次触发一轮重启。
+- 资源准备失败时保留现有注册表，设置状态显示失败原因；已经开始的 handler 或维护任务不重新执行。
+- **handler 进程不预热**：每次 dispatch 按需 read+spawn；脚本的下一次触发可采用已保存内容。
+- `.chery/hooks/*.sh` 是脚本，按需 `cat`/`exec`；不是闭包，不需缓存。
 
 ### 6. 跨平台执行（POSIX shell 解析）
 

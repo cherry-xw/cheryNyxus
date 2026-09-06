@@ -1,10 +1,12 @@
 import type { ZodType } from 'zod'
 import type { Sense } from '@/core/sense'
 import type { TestCase } from '@/core/sense/compiler/types.js'
-import { registerSenses, resetSenses } from '@/core/sense'
-import { readdirSync, existsSync, readFileSync } from 'fs'
+import { prepareLocalSenseReplacement } from '@/core/sense'
+import { captureSenseRegistryRestore } from '@/core/sense/senseRegistry.js'
+import { readdirSync, existsSync, readFileSync, mkdirSync, renameSync, rmSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { sense } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
@@ -27,6 +29,7 @@ import childControlSenses from './childControl'
 import selectConversationSense from './selectConversation'
 import roleAcceptanceSense from './roleAcceptance'
 import { logger } from '@/utils/logger/index.js'
+import { compileSenses } from '@/core/sense/compiler/core.js'
 
 /**
  * 内置工具元信息（供 sense.tools API 返回，设置面板感官分组下拉用）。
@@ -266,8 +269,8 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
 /**
  * 注册内置感官。
  */
-function registerBuiltinSenses(): void {
-  registerSenses([
+function builtinSenses(): Sense<ZodType>[] {
+  return [
     bashSense,
     readSense,
     writeSense,
@@ -284,7 +287,7 @@ function registerBuiltinSenses(): void {
     selectConversationSense,
     ...childControlSenses,
     ...mediaSenses,
-  ])
+  ]
 }
 
 /**
@@ -346,7 +349,17 @@ const runtimeContext = {
   z,
   sense,
   SupervisionLevel,
-  registerSenses,
+  registerSenses: () => {
+    throw new Error('编译感官不得在准备阶段直接修改注册表')
+  },
+}
+
+function removeStagingDirectory(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true })
+  } catch (error) {
+    logger.warn(`清理感官暂存目录失败: ${path}`, error)
+  }
 }
 
 /** Evaluate the compiler's function-body artifact with the same runtime context used in production. */
@@ -370,33 +383,104 @@ export function loadCompiledSense(filePath: string): Sense<ZodType> {
  * 动态加载自定义感官（从编译产物目录）
  * 使用 new Function() 在当前上下文执行，无需 import
  */
-async function loadCustomSenses(): Promise<void> {
+async function loadCustomSenses(compiledPaths?: string[]): Promise<Sense<ZodType>[]> {
   const sensesDir = join(dirname(fileURLToPath(import.meta.url)), 'senses')
 
-  if (!existsSync(sensesDir)) {
+  if (!compiledPaths && !existsSync(sensesDir)) {
     logger.warn(
       '⚠ 未找到编译产物目录，自定义感官未加载。请先运行 compile:senses 命令编译外部感官。',
     )
-    return
+    return []
   }
 
-  const files = readdirSync(sensesDir)
-  const jsFiles = files.filter((f) => f.endsWith('.js'))
+  const paths =
+    compiledPaths ??
+    readdirSync(sensesDir)
+      .filter((file) => file.endsWith('.js'))
+      .map((file) => join(sensesDir, file))
 
-  if (jsFiles.length === 0) {
+  if (paths.length === 0) {
     logger.warn('⚠ 未找到编译产物，自定义感官未加载。请先运行 compile:senses 命令编译外部感官。')
-    return
+    return []
   }
 
-  for (const file of jsFiles) {
-    const filePath = join(sensesDir, file)
-    try {
-      const result = loadCompiledSense(filePath)
-      registerSenses([result])
-      logger.info(`✓ 自定义感官已加载: ${result.definition.function.name}`)
-    } catch (err) {
-      logger.warn(`⚠ 自定义感官加载失败: ${file}`, (err as Error).message)
+  const loaded: Sense<ZodType>[] = []
+  for (const filePath of paths) {
+    const result = loadCompiledSense(filePath)
+    loaded.push(result)
+    logger.info(`✓ 自定义感官已加载: ${result.definition.function.name}`)
+  }
+  return loaded
+}
+
+/** Prepare the full local table without publishing it. */
+export async function prepareSenseReload(compiledPaths?: string[]): Promise<() => void> {
+  const candidate = [...builtinSenses(), ...(await loadCustomSenses(compiledPaths))]
+  return prepareLocalSenseReplacement(candidate)
+}
+
+/** Compile source files in isolation, then publish artifacts and the registry together. */
+export async function prepareSenseSourceReload(options?: { distDir?: string }): Promise<{
+  apply(): void
+  rollback(): void
+  dispose(): void
+}> {
+  const distDir = options?.distDir ?? join(process.cwd(), 'dist')
+  const candidateDir = join(distDir, `.sense-candidate-${randomUUID()}`)
+  const outputDir = join(candidateDir, 'senses')
+  mkdirSync(outputDir, { recursive: true })
+  let publishRegistry: () => void
+  try {
+    const summary = await compileSenses({ outputDir, tempDir: join(candidateDir, 'temp') })
+    if (summary.failed.length) {
+      throw new Error(summary.failed.map((failure) => failure.message).join('\n'))
     }
+    publishRegistry = await prepareSenseReload(summary.succeeded.map((entry) => entry.compiledPath))
+  } catch (error) {
+    removeStagingDirectory(candidateDir)
+    throw error
+  }
+  const destination = join(distDir, 'senses')
+  const previous = join(distDir, `.sense-previous-${randomUUID()}`)
+  let adopted = false
+  let restoreRegistry: (() => void) | undefined
+  return {
+    apply(): void {
+      if (adopted) return
+      restoreRegistry = captureSenseRegistryRestore()
+      let movedPrevious = false
+      let movedCandidate = false
+      try {
+        if (existsSync(destination)) {
+          renameSync(destination, previous)
+          movedPrevious = true
+        }
+        renameSync(outputDir, destination)
+        movedCandidate = true
+        publishRegistry()
+        adopted = true
+      } catch (error) {
+        if (movedCandidate && existsSync(destination)) {
+          rmSync(destination, { recursive: true, force: true })
+        }
+        if (movedPrevious) {
+          renameSync(previous, destination)
+        }
+        throw error
+      }
+      removeStagingDirectory(candidateDir)
+    },
+    rollback(): void {
+      if (!adopted) return
+      restoreRegistry?.()
+      if (existsSync(destination)) removeStagingDirectory(destination)
+      if (existsSync(previous)) renameSync(previous, destination)
+      adopted = false
+    },
+    dispose(): void {
+      if (!adopted) removeStagingDirectory(candidateDir)
+      if (existsSync(previous)) removeStagingDirectory(previous)
+    },
   }
 }
 
@@ -407,7 +491,6 @@ async function loadCustomSenses(): Promise<void> {
  * 长运行服务的热重载可复用该函数，但触发机制另行实现。
  */
 export async function reloadSenses(): Promise<void> {
-  resetSenses()
-  registerBuiltinSenses()
-  await loadCustomSenses()
+  const apply = await prepareSenseReload()
+  apply()
 }

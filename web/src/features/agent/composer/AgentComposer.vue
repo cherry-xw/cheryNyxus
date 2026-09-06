@@ -88,10 +88,7 @@ const emit = defineEmits<{
     class="composer-wrap"
     :class="{ 'is-nyxus-composer': isNyxus }"
   >
-    <MediaPreviewBar
-      :attachments="mediaAttachments"
-      @remove="(a) => emit('removeMedia', a)"
-    />
+    <MediaPreviewBar :attachments="mediaAttachments" @remove="(a) => emit('removeMedia', a)" />
     <div v-if="mediaHint" class="media-hint-row">
       {{ mediaHint }}
     </div>

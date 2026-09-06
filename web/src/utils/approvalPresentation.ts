@@ -178,7 +178,12 @@ function configChanges(args: Record<string, unknown>): ToolChangePresentation[] 
       case 'putRole': {
         const role = argumentRecord(operation.role)
         const brain = shortValue(role.brain)
-        return [{ label: '角色配置', detail: `将角色“${name}”${brain ? `使用模型“${brain}”` : '更新为本次提交的配置'}` }]
+        return [
+          {
+            label: '角色配置',
+            detail: `将角色“${name}”${brain ? `使用模型“${brain}”` : '更新为本次提交的配置'}`,
+          },
+        ]
       }
       case 'removeRole':
         return [{ label: '角色配置', detail: `删除角色“${name}”` }]
@@ -187,11 +192,15 @@ function configChanges(args: Record<string, unknown>): ToolChangePresentation[] 
       case 'removePreset':
         return [{ label: '预设配置', detail: `删除预设“${name}”` }]
       case 'putSenseGroup': {
-        const senses = Array.isArray(operation.senses) ? operation.senses.filter((item): item is string => typeof item === 'string') : []
-        return [{
-          label: '工具组',
-          detail: `将工具组“${name}”设置为：${senses.map(toSenseNameZh).join('、') || '空'}`,
-        }]
+        const senses = Array.isArray(operation.senses)
+          ? operation.senses.filter((item): item is string => typeof item === 'string')
+          : []
+        return [
+          {
+            label: '工具组',
+            detail: `将工具组“${name}”设置为：${senses.map(toSenseNameZh).join('、') || '空'}`,
+          },
+        ]
       }
       case 'removeSenseGroup':
         return [{ label: '工具组', detail: `删除工具组“${name}”` }]
@@ -212,14 +221,20 @@ export function createToolRunPresentation(
   const target = tool.targetKeys
     ?.map((key) => shortValue(args[key]))
     .find((value): value is string => value !== undefined)
-  const genericTarget = target ??
-    shortValue(args.path) ?? shortValue(args.assetPath) ?? shortValue(args.query) ??
-    shortValue(args.command) ?? shortValue(args.task) ?? shortValue(args.prompt)
-  const changes = senseName === 'config_manage' && args.action === 'patch'
-    ? configChanges(args)
-    : senseName === 'write_file' && typeof args.path === 'string'
-      ? [{ label: '文件变更', detail: `写入文件“${args.path}”` }]
-      : []
+  const genericTarget =
+    target ??
+    shortValue(args.path) ??
+    shortValue(args.assetPath) ??
+    shortValue(args.query) ??
+    shortValue(args.command) ??
+    shortValue(args.task) ??
+    shortValue(args.prompt)
+  const changes =
+    senseName === 'config_manage' && args.action === 'patch'
+      ? configChanges(args)
+      : senseName === 'write_file' && typeof args.path === 'string'
+        ? [{ label: '文件变更', detail: `写入文件“${args.path}”` }]
+        : []
   return {
     toolLabel: tool.label,
     operationLabel: tool.operation,

@@ -25,18 +25,10 @@ usePetMotion(backRef, toRef(props, 'faceMotion'))
     <PetDivineHalo :active="active" />
     <span class="face-rotate">
       <span class="face-side front">
-        <span
-          ref="frontRef"
-          class="face"
-          >{{ faceGlyph }}</span
-        >
+        <span ref="frontRef" class="face">{{ faceGlyph }}</span>
       </span>
       <span class="face-side back">
-        <span
-          ref="backRef"
-          class="face"
-          >{{ faceGlyph }}</span
-        >
+        <span ref="backRef" class="face">{{ faceGlyph }}</span>
       </span>
     </span>
   </span>

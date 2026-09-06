@@ -2,6 +2,7 @@ import { watch } from 'vue'
 import {
   useAgentsStore,
   useChatSessionsStore,
+  useConfigApplyStore,
   useConnectionStore,
   useInteractionsStore,
   useTaskOverviewStore,
@@ -14,6 +15,7 @@ import { wsClient } from '@/services/ws'
 /** Composition root for transport subscriptions and application projections. */
 export function startApplicationRuntime(): () => void {
   const connection = useConnectionStore()
+  const configApply = useConfigApplyStore()
   const agents = useAgentsStore()
   const chats = useChatSessionsStore()
   const interactions = useInteractionsStore()
@@ -48,10 +50,14 @@ export function startApplicationRuntime(): () => void {
       background?: boolean
       type?: string
       chatId?: string
-      data?: { interaction?: InteractionRecord } | TaskOverviewChangedData
+      data?:
+        | { interaction?: InteractionRecord }
+        | TaskOverviewChangedData
+        | import('@chery/protocol').ConfigApplyState
     } | null
     if (event?.type === 'interaction.changed') {
-      const interaction = (event.data as { interaction?: InteractionRecord } | undefined)?.interaction
+      const interaction = (event.data as { interaction?: InteractionRecord } | undefined)
+        ?.interaction
       if (interaction) interactions.upsert(interaction)
       else {
         void interactions
@@ -65,6 +71,11 @@ export function startApplicationRuntime(): () => void {
       if (taskOverview.pendingCount > previousPending) {
         workspace.setWorkspaceWindowAttention('window:task-center', true)
       }
+    }
+    if (event?.type === 'config.apply.changed' && configApply.apply(event.data)) {
+      void agents
+        .refreshPresentationConfig()
+        .catch((cause) => console.warn('[runtime] refresh presentation config failed:', cause))
     }
     if (event?.background) {
       void chats
@@ -94,7 +105,10 @@ export function startApplicationRuntime(): () => void {
   let previousStatus: string | null = null
   const offStatus = wsClient.onStatus((status) => {
     if (status === 'connected') {
-      void taskOverview.reopen().catch((cause) => console.warn('[taskOverview] open failed:', cause))
+      void configApply.refresh()
+      void taskOverview
+        .reopen()
+        .catch((cause) => console.warn('[taskOverview] open failed:', cause))
       void interactions
         .refresh()
         .catch((cause) => console.warn('[interactions] refresh failed:', cause))

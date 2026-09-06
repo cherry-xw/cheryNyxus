@@ -44,7 +44,9 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
     }),
   )
   const pendingCount = computed(() => tasks.value.reduce((sum, task) => sum + task.pendingCount, 0))
-  const runningCount = computed(() => tasks.value.filter((task) => task.status === 'running').length)
+  const runningCount = computed(
+    () => tasks.value.filter((task) => task.status === 'running').length,
+  )
 
   async function open(): Promise<void> {
     if (opening) return opening
@@ -54,7 +56,9 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
         const snapshot = await agentApi.openTaskOverview(sessionStartedAt)
         subscriptionId.value = snapshot.subscriptionId
         revision.value = snapshot.revision
-        tasksByRoot.value = Object.fromEntries(snapshot.tasks.map((task) => [task.rootChatId, task]))
+        tasksByRoot.value = Object.fromEntries(
+          snapshot.tasks.map((task) => [task.rootChatId, task]),
+        )
         error.value = undefined
       } catch (cause) {
         error.value = cause instanceof Error ? cause.message : '任务概览加载失败'

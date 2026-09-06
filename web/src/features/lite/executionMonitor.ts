@@ -556,7 +556,7 @@ export function projectLiteHistory(
       nodeId: node.id,
       kind,
       label:
-        kind === 'tool' ? (toolNames.join(', ') || LITE_NODE_LABELS.tool) : LITE_NODE_LABELS[kind],
+        kind === 'tool' ? toolNames.join(', ') || LITE_NODE_LABELS.tool : LITE_NODE_LABELS[kind],
       icon: kind === 'tool' ? toolTypeGlyph(toolType) : LITE_NODE_GLYPHS[kind],
       content: kind === 'tool' ? '' : node.content,
       toolNames,
@@ -642,7 +642,8 @@ export function projectLiteHistory(
   for (const step of model.steps) {
     if (step.status !== 'running' || matchedStepIds.has(step.id)) continue
     const isModel = step.kind === 'model'
-    const modelKind: LiteRunNodeKind = step.chatId === model.rootChatId ? 'root-agent' : 'child-agent'
+    const modelKind: LiteRunNodeKind =
+      step.chatId === model.rootChatId ? 'root-agent' : 'child-agent'
     const toolLabel = toolMetaOf(step.name)?.label?.trim() || toSenseNameZh(step.name)
     nodesOut.push({
       key: `inflight:${step.id}`,

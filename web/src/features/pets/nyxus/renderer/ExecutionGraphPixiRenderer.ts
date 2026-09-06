@@ -748,13 +748,11 @@ export class ExecutionGraphPixiRenderer {
     const outerFrameAccent = node.containsErrorMessage ? p.stateError : stateAccent
 
     // 含隐藏错误的过程组：外框加粗拉满并附加一圈低幅光晕；常规节点维持细外框。
-    graphics
-      .roundRect(left - 4, top - 4, size.width + 8, size.height + 8, 2)
-      .stroke({
-        color: outerFrameAccent,
-        width: node.containsErrorMessage ? 2.6 : 1.25,
-        alpha: (node.containsErrorMessage ? 1 : 0.9) * alpha,
-      })
+    graphics.roundRect(left - 4, top - 4, size.width + 8, size.height + 8, 2).stroke({
+      color: outerFrameAccent,
+      width: node.containsErrorMessage ? 2.6 : 1.25,
+      alpha: (node.containsErrorMessage ? 1 : 0.9) * alpha,
+    })
     if (node.containsErrorMessage) {
       graphics
         .roundRect(left - 8, top - 8, size.width + 16, size.height + 16, 2)

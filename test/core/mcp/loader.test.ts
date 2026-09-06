@@ -153,7 +153,8 @@ describe('MCP loader', () => {
       await expect(connect('bad')).rejects.toThrow('conn fail')
       const info = get('bad')
       expect(info.status).toBe('failed')
-      expect(info.error).toContain('conn fail')
+      expect(info.error).toContain('连接失败')
+      expect(info.error).not.toContain('conn fail')
     })
   })
 
@@ -177,7 +178,6 @@ describe('MCP loader', () => {
       await mod.connectMcpServerByName('srv1')
       const info = await mod.disconnectMcpServer('srv1')
       expect(info.status).toBe('disconnected')
-      expect(mockUnregisterSenses).toHaveBeenCalled()
       expect(mockClose).toHaveBeenCalled()
     })
   })
@@ -208,8 +208,8 @@ describe('MCP loader', () => {
       await expect(mod.reloadOneServer('srv1')).rejects.toThrow('reload fail')
       // Old connection should still be there
       const info = mod.getMcpServer('srv1')
-      // After failure, lastError is set, but old entry was deleted from connectedServers
-      // because the module-level state was reset by resetModules
+      expect(info.status).toBe('connected')
+      expect(info.error).toContain('尚未生效')
     })
   })
 

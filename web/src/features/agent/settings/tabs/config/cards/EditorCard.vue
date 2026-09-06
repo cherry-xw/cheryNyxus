@@ -29,7 +29,8 @@ onMounted(loadEditors)
 
 <template>
   <div class="block-kicker">
-    <span class="kicker-no">{{ no }}</span>WORKBENCH
+    <span class="kicker-no">{{ no }}</span
+    >WORKBENCH
   </div>
   <div class="field">
     <LabelTip label="文本编辑器" tip="点击可用编辑器直接切换；留空使用系统默认" />
@@ -68,10 +69,7 @@ onMounted(loadEditors)
             v-model="customEditor"
             placeholder="编辑器命令"
             @keydown.enter="global.textEditor = customEditor.trim() || undefined"
-          /><button
-            type="button"
-            @click="global.textEditor = customEditor.trim() || undefined"
-          >
+          /><button type="button" @click="global.textEditor = customEditor.trim() || undefined">
             使用
           </button>
         </div>

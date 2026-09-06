@@ -188,7 +188,12 @@ export class MessageJournal {
       thinking: string
       /** Anthropic 扩展：完整 thinking blocks（含 signature）。落库 + 下轮 buildMessages 原样回传。 */
       thinkingBlocks?: ThinkingBlock[]
-      senseCalls: Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }>
+      senseCalls: Array<{
+        id: string
+        name: string
+        arguments: string
+        security?: ToolAuthorization
+      }>
     },
     id?: string,
   ): AgentMessage {
@@ -246,7 +251,12 @@ export class MessageJournal {
    */
   updateAssistantSenseCalls(
     id: string,
-    senseCalls: Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }>,
+    senseCalls: Array<{
+      id: string
+      name: string
+      arguments: string
+      security?: ToolAuthorization
+    }>,
   ): void {
     const messages = this.soul.messages ?? []
     const existing = messages.find((message) => message.id === id)

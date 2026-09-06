@@ -126,6 +126,7 @@ import {
 } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
 import { handleChatResume, handleChatSend, attachmentsToPromptMarkers } from './send.js'
+import { assertRestartAdmission } from '@/service/restartCoordinator.js'
 import { getLiveTurns } from './liveTurns.js'
 import { computeCanResume } from './canResume.js'
 import { computeCurrentState, limitExecutionSteps } from './currentState.js'
@@ -208,7 +209,9 @@ export async function handleChatCreate(
           senseGroup: reusedMeta.runtime?.senseGroup ?? selection.senseGroup,
           mcpServers: reusedMeta.runtime?.mcpServers ?? [...selection.mcpServers],
           reused: true,
-          ...(workspace ? { workspace, workspaceValid: validateWorkspacePath(workspace).valid } : {}),
+          ...(workspace
+            ? { workspace, workspaceValid: validateWorkspacePath(workspace).valid }
+            : {}),
         }
       }
     }
@@ -265,7 +268,9 @@ export async function handleChatCreate(
  * turnCount 口径与 chat.list includePreview 完全一致；presetId/preset 双字段关联与
  * handleChatList 的 stage 归属判定同源（覆盖预设改名与旧 name-only 数据）。
  */
-function findBlankPresetRootChat(preset: string): ReturnType<typeof listRootChatsForPresets>[number] | undefined {
+function findBlankPresetRootChat(
+  preset: string,
+): ReturnType<typeof listRootChatsForPresets>[number] | undefined {
   const presetId = config.presets?.[preset]?.id
   const association = presetId ? { presetId, preset } : { preset }
   const roots = listRootChatsForPresets([association])
@@ -1153,12 +1158,14 @@ export async function handleChatInputSubmit(
   if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
 
   try {
+    assertRestartAdmission()
     const chat = getChat(data.chatId)
     if (!chat) throw new Error('这个会话不见了')
     if (chat.parent_chat_id && data.controlRootChatId !== getRootChatId(data.chatId)) {
       throw new Error('用户输入只能提交到主 Agent')
     }
     const agent = await ensureChat(data.chatId)
+    assertRestartAdmission()
     const running = agent.isRunning()
     const pending = getPendingChatInputs(data.chatId)
     if (pending.length >= 16) throw new UserInputQueueFullError()
@@ -1266,14 +1273,12 @@ export async function handleChatInputSubmit(
               commandId: data.commandId,
             },
           },
+          true,
         )
         for await (const item of generator) {
           const event = item as Chunk | Notification
           if (event.chatId) {
-            prepareChatEventForDelivery(
-              event.chatId,
-              event as unknown as Record<string, unknown>,
-            )
+            prepareChatEventForDelivery(event.chatId, event as unknown as Record<string, unknown>)
           }
           for (const ws of connectionManager.getChatOutputs(data.chatId)) {
             if (ws.readyState !== ws.OPEN) continue
@@ -1742,7 +1747,11 @@ export async function* handleChatStartSpawn(
   }
 
   if (claimed.firstStart) {
-    const result = yield* handleChatSend(ctx, { chatId: task.childChatId, prompt: task.prompt })
+    const result = yield* handleChatSend(
+      ctx,
+      { chatId: task.childChatId, prompt: task.prompt },
+      true,
+    )
     // A yielded child can end this RPC without producing its own assistant
     // message (for example, while waiting on a descendant). Keep the task
     // `started` in that case so a reconnect can resume the persisted prompt;
