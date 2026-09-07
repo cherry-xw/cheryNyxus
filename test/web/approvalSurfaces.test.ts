@@ -10,7 +10,7 @@ describe('approval presentation surfaces', () => {
   it('uses the shared semantic summary and structured arguments in every approval entry', () => {
     const surfaces = [
       'web/src/features/agent/cards/ApprovalCard.vue',
-      'web/src/features/agent/attention/PendingOperationsPanel.vue',
+      'web/src/features/agent/task-center/TaskCenterAttentionWorkspace.vue',
       'web/src/features/agent/attention/WorkspaceSessionBrowser.vue',
       'web/src/features/lite/LiteView.vue',
     ]
