@@ -1,7 +1,7 @@
 /**
  * envGuard 敏感值遮蔽单测：redactSensitiveValues（纯函数，无 IO）。
  *
- * 契约（docs/utils/README.md「envGuard.ts — 环境变量敏感值脱敏」）：
+ * 契约（docs/backend/utils/README.md「envGuard.ts — 环境变量敏感值脱敏」）：
  *  - key 名保留、值替换为 [REDACTED]（行内 KEY=value + 裸值子串两段式）
  *  - 敏感 key 按 /KEY|SECRET|TOKEN|PASSWORD|AUTH/i 匹配；非敏感 key 名与值完全不动
  *  - 裸值仅值长 ≥ MIN_BARE_VALUE_LENGTH（8）时替换，避免短值误伤

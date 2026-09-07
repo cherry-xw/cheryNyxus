@@ -13,7 +13,7 @@
  * 只读 → 内置 SupervisionLevel.auto（同 read_file / search_codebase 惯例），
  * smart 规则表无需登记（fail-open 未登记 = 放行，内置 auto 根本不进表）。
  *
- * 详见 docs/core/sense.md「内置感官：history_recall」。
+ * 详见 docs/backend/core/sense.md「内置感官：history_recall」。
  */
 import { z } from 'zod'
 import { sense, type SenseResult, type SenseSharedData } from '@/core/sense'

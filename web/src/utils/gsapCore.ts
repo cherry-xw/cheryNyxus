@@ -4,7 +4,7 @@ import { gsap } from 'gsap'
  * 动效时长 / 缓动 token 的 GSAP 侧等价数值。
  *
  * 与 `styles/theme.css` 的 `--dur-1/-2/-3`、`--ease-out/--ease-spring` 共用同一组
- * 语义（见 docs/web/motion-standard.md §4.3）：CSS 侧写 bezier，GSAP 侧用等价命名
+ * 语义（见 docs/frontend/motion-standard.md §4.3）：CSS 侧写 bezier，GSAP 侧用等价命名
  * 缓动——`expo.out` ≈ cubic-bezier(0.16,1,0.3,1)，`back.out(1.7)` ≈ cubic-bezier(0.34,1.56,0.64,1)。
  */
 export const MOTION = {

@@ -12,18 +12,18 @@ import { envPlaceholderFormatError, isMalformedEnvPlaceholder } from '@/utils/en
  * 外层 for-await 被 compose.ts 的 generator.throw() 打断时，本 generator 的 finally 自动跑，
  * controller.abort() 切断 HTTP 连接（与现有 openai SDK 路径行为一致）。
  *
- * 错误约定（[docs/error-conventions.md](../../../docs/error-conventions.md)）：
+ * 错误约定（[docs/shared/protocol/errors.md](../../../docs/shared/protocol/errors.md)）：
  * - 已知配置错误（缺 key/model/url）→ ClassifiedError(validation/brain)，保留错误身份且不重试；
  * - 网络/上游非 2xx → ClassifiedError（携带 category+userMessage+source=brain），retry 据
  *   category 判重试，表层出口（streamMapper/compose）取 userMessage 作用户面。
  *
- * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) 「fetch 基座」。
+ * 详见 [docs/backend/agent/provider.md](../../../docs/backend/agent/provider.md) 「fetch 基座」。
  */
 
 // ========== 大脑错误的友好映射（fetch 路径与 openai SDK 路径共用） ==========
 
 /** 伪 200（非事件流/JSON 响应，典型如网关对未知路径回退 Web 控制台 SPA）→ 配置类错误：
- *  不重试（validation），文案指引检查 brain 的 url。见 docs/agent/provider.md「流完整性校验」。 */
+ *  不重试（validation），文案指引检查 brain 的 url。见 docs/backend/agent/provider.md「流完整性校验」。 */
 export function brainInvalidStream(summary: string): ClassifiedError {
   return new ClassifiedError({
     message: `invalid stream: ${summary}`,
@@ -219,7 +219,7 @@ export function assertChatOptions(options?: LLMOptions): {
 // ========== fetch 工具 ==========
 
 /**
- * URL 端点拼接（[docs/agent/provider.md「URL 解析与端点拼接」](../../../docs/agent/provider.md)）：
+ * URL 端点拼接（[docs/backend/agent/provider.md「URL 解析与端点拼接」](../../../docs/backend/agent/provider.md)）：
  * - fullUrl=true：URL 原样使用，不做任何拼接（请求地址须含完整端点）
  * - 否则：base + endpoint（版本段 /v1 由用户填写，后端只拼端点，不再自动补 /v1）
  * endpoint 传空串时 base 原样（openai SDK baseURL 场景：SDK 自拼 endpoint）。
@@ -235,7 +235,7 @@ export function buildEndpointUrl(
 }
 
 /**
- * Provider URL 统一解析入口（docs/agent/provider.md「URL 解析与端点拼接」）。
+ * Provider URL 统一解析入口（docs/backend/agent/provider.md「URL 解析与端点拼接」）。
  * 查 provider 注册的 URL 模式表（core/llm/urlPattern.ts，注册 provider 必须提供的能力）取该
  * kind 的端点声明：
  * - 未注册或该 kind 未声明（undefined）→ host 模式：URL 原样去尾斜杠，不拼接；
@@ -318,7 +318,7 @@ export async function jsonRequest(
  * - getReader() + TextDecoder 跨 TCP chunk 行缓冲，按 \n 切行。
  * - 跳过空行（SSE 事件分隔）与 `:` 开头（SSE 注释 / keep-alive 心跳）。
  * - 剥离 `data:` 前缀；`[DONE]` 主动结束。
- * - 流完整性校验（docs/agent/provider.md「流完整性校验」）：伪 200（content-type 非
+ * - 流完整性校验（docs/backend/agent/provider.md「流完整性校验」）：伪 200（content-type 非
  *   event-stream，如网关 SPA 回退）→ validation；流结束 0 有效事件 → provider（空流）。
  * - finally 必跑 controller.abort() + reader.cancel()：正常结束或 generator.throw() 注入的
  *   abort 都会切断 HTTP 连接（对接现有 abort 机制，避免 socket hang up 堆栈泄漏）。

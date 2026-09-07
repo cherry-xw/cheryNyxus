@@ -461,7 +461,7 @@ export async function* streamAgentChunks(
       } else if (chunk.type === 'error') {
         const e = chunk as ErrorChunk
         const info = e.errors[0]
-        // 原始 message 进日志；用户面按友好文案出（见 [docs/error-conventions.md](../../../docs/error-conventions.md)）。
+        // 原始 message 进日志；用户面按友好文案出（见 [docs/shared/protocol/errors.md](../../../docs/shared/protocol/errors.md)）。
         const raw = info?.message
         logger.event(
           'chat.run.error',

@@ -23,7 +23,7 @@ export type TargetCycleState = 'idle' | 'half' | 'full'
 
 // TODO(architecture): product must confirm `idle → full → half` and the default
 // visible limit of 6 versus the legacy test baseline before either side changes.
-// See docs/architecture-issues.md TODO-A04.
+// See docs/shared/architecture/issues.md TODO-A04.
 /** 单击循环：未选 → 指定（full）→ 半指定（half）→ 取消（未选）。 */
 export function nextTargetCycleState(state: TargetCycleState): TargetCycleState {
   if (state === 'idle') return 'full'

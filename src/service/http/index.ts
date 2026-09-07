@@ -51,7 +51,7 @@ export interface CreateHttpServerOptions {
  * - 其余 `/api/*` → 业务端点（auth、media、skills）
  * - 非 API 路径 → 静态 serve `staticDir`（提供且存在）/ JSON 404（未提供）
  *
- * 协议规范见 docs/protocol.md「HTTP API」段。
+ * 协议规范见 docs/shared/protocol/websocket.md「HTTP API」段。
  */
 export function createHttpServer({
   webPort,
@@ -79,7 +79,7 @@ export function createHttpServer({
   })
 
   server.listen(webPort, host)
-  // 端口监听失败（EADDRINUSE）→ fatal 上报（guardian 停止重试，见 docs/service/README.md）。
+  // 端口监听失败（EADDRINUSE）→ fatal 上报（guardian 停止重试，见 docs/backend/service/README.md）。
   // 无监听会直接崩溃 worker；挂上后 EADDRINUSE 走报告路径，其他错误仅日志。
   server.on('error', (err) => {
     const code = (err as NodeJS.ErrnoException).code
@@ -164,7 +164,7 @@ async function handleRequest(
   }
 
   // POST /api/skills/import —— ZIP 上传导入（raw bytes，鉴权同 media）→ stage 候选 + 冲突
-  // 协议规范见 docs/protocol.md；两阶段：前端拿到 stagingId+candidates 后用 skills.commit 落盘。
+  // 协议规范见 docs/shared/protocol/websocket.md；两阶段：前端拿到 stagingId+candidates 后用 skills.commit 落盘。
   if (url === '/api/skills/import' && req.method === 'POST') {
     const authorized = auth?.enabled
       ? !!auth.getUser(req)

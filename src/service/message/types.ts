@@ -755,7 +755,7 @@ export interface McpReloadRequestData {
 }
 
 /**
- * subagent.result RPC 已于 2026-07-09 废弃（wait=true 改后端注入唤醒，见 docs/agent-pet.md §5.4）。
+ * subagent.result RPC 已于 2026-07-09 废弃（wait=true 改后端注入唤醒，见 docs/shared/architecture/agent-orchestration.md §5.4）。
  * 原前端→后端结果回传通道移除：SubagentResultRequestData / SubagentResultResponseData / Method.SUBAGENT_RESULT / handler / schema 全删。
  */
 
@@ -2277,7 +2277,7 @@ export interface ConfigWorkspaceBrowseListResponseData {
 export interface HooksShellInfo {
   /** 服务进程平台（process.platform，如 win32/linux/darwin） */
   platform: string
-  /** 是否解析到可用 POSIX shell（handler 执行器，见 docs/agent/hooks.md 跨平台执行） */
+  /** 是否解析到可用 POSIX shell（handler 执行器，见 docs/backend/agent/hooks.md 跨平台执行） */
   available: boolean
   /** available=true 时解析到的 shell（PATH 名或绝对路径，如 Git Bash bash.exe） */
   executable?: string
@@ -2608,7 +2608,7 @@ export interface ReplacedNotificationData {
 
 /**
  * 角色派发（spawn_role sense 执行时推送）。
- * 前端据 type+prompt 创建子 pet 并驱动子 chat（前端驱动架构，见 docs/agent-pet.md §2/§5.1）。
+ * 前端据 type+prompt 创建子 pet 并驱动子 chat（前端驱动架构，见 docs/shared/architecture/agent-orchestration.md §2/§5.1）。
  * 此类异步事件没有 requestId；外层 chatId 为 parentChatId，前端按 chatId 路由。
  */
 export interface RoleCreatedNotificationData {
@@ -2633,7 +2633,7 @@ export interface RoleCreatedNotificationData {
 }
 
 /**
- * 唤醒策略唤主（见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+ * 唤醒策略唤主（见 docs/shared/architecture/agent-orchestration.md §5.4 唤醒策略调度器）。
  * wake=immediate 子完成 / 策略满足（wakeScheduler shouldWake=true）时后端推：已把子结果以 role:role 注入主 chat DB，
  * 前端收此 notification → 自动 chat.resume(parentChatId) 跑唤醒轮。deferred/barrier silent 路径不推（静默暂存）。
  * 外层 chatId = parentChatId。

@@ -1,7 +1,7 @@
 /**
  * question 僵尸批清扫单测：batch pending 但零 pending item → 读时自愈标 completed。
  *
- * 契约（docs/interaction.md「提问态与继续的关系」）：
+ * 契约（docs/shared/protocol/interactions.md「提问态与继续的关系」）：
  *  - 孤立 pending 批（status='pending' 但零 status='pending' 的 item）视为僵尸，
  *    会被读时自愈清扫标 completed，不再阻塞 canResume（防"无卡片无按钮"硬死锁）。
  *  - 健康批（有 pending item）不被清扫。

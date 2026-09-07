@@ -1,7 +1,7 @@
 /**
  * 流程测试 Tier 2：流式中断刷新续跑 S8（service+WS 级）。
  *
- * 规约见 [docs/flow-test.md](../../../docs/flow-test.md) §3.B。回应用户原始问题：
+ * 规约见 [docs/quality/testing/flows.md](../../../docs/quality/testing/flows.md) §3.B。回应用户原始问题：
  * 「流式中断 → 重连 → 打字机内容完整重建」。flow_stream.yaml 的 chunkDelayMs=2000 制造
  * 可靠断连窗口（首 stream chunk 后断连，余下 content + done 经 liveOutput 到新 ws）。
  *

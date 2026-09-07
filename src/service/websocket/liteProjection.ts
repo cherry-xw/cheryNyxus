@@ -1,7 +1,7 @@
 /**
  * lite profile 发送端投影（MCU 精简 API，Track 1）
  *
- * 契约：docs/multi-agent-canonical-timeline.md §3.6 + docs/mcu-lite-api.md（v3.1 定稿）。
+ * 契约：docs/shared/architecture/canonical-timeline.md §3.6 + docs/shared/protocol/profiles/mcu-lite.md（v3.1 定稿）。
  * 设计红线：
  * - 单一事件产生面（streamMapper 等）不改写；裁剪只发生在发送端三出口
  *   （prepareSessionEvent 主收口 / interaction.changed 广播旁路 / RPC Response 帧）。

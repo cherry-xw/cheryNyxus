@@ -189,7 +189,7 @@ function configureRuntime(
  * 解析 chat 的有效 runtime selection（快照投影，只读，不写回）。
  *
  * 配置演化（brain/感官组/预设/角色增删改）是常态，持久化快照（metadata.runtime）引用的名称可能已失效——
- * 这是预期状态而非 bug。三态（见 docs/service/chat.md「配置演化与 runtime 快照失效」）：
+ * 这是预期状态而非 bug。三态（见 docs/backend/service/chat.md「配置演化与 runtime 快照失效」）：
  * 历史 metadata.runtime 仅供展示，不参与此处解析。显式会话选择优先；否则主会话按当前
  * presetId/旧 preset 名关联 leader，子会话按当前 metadata.type 关联角色。关联缺失时返回
  * invalid，由执行入口要求用户显式选择当前运行配置。
@@ -405,7 +405,7 @@ export function setEphemeralChatRuntime(chatId: string, selection: RuntimeSelect
  * 从 DB 加载历史消息，交给 builder.init 注入 middleware 内存。
  * 仅 ensureChat 创建时调用一次，send/resume 不再重复加载。
  *
- * 跨纪元全量加载（docs/context-epochs.md「历史连续性与兼容投影」）：
+ * 跨纪元全量加载（docs/shared/architecture/context-epochs.md「历史连续性与兼容投影」）：
  * 历史消息是会话的完整事实，不按 epoch_id 过滤；配置变更只更换系统提示词与工具契约，
  * 对话内容一个字不动。过渡期 v1 纪元隔离实现落库的 <epoch_carryover> 消息在加载时过滤
  * （其内容是旧纪元投影摘要，与全量加载的原文冗余；DB 行保留供审计）。

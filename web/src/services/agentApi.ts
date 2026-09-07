@@ -3,7 +3,7 @@
  * CP1 骨架：方法签名定好，错误抛出由调用方（agents store）处理。
  * 长耗时路由建议仍可通过 rpcTrack 暴露 requestId。
  *
- * 协议见 docs/protocol.md。方法：chat.* / runtime.set / sense.approval / brain.list。
+ * 协议见 docs/shared/protocol/websocket.md。方法：chat.* / runtime.set / sense.approval / brain.list。
  */
 import { wsClient } from './ws'
 import type { RpcResponse } from './ws'

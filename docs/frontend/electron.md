@@ -1,0 +1,300 @@
+# Electron 集成详解
+
+> 源码 [web/electron/](../../web/electron/) ｜ 上级 [README.md](README.md) ｜ 相关 [deployment.md](deployment.md)、[web/vite.config.ts](../../web/vite.config.ts)、[web/scripts/electron-dev.mjs](../../web/scripts/electron-dev.mjs)、[web/scripts/electron-dev.sh](../../web/scripts/electron-dev.sh)、[./env.md](env.md)（环境抽象层）
+
+## 职责
+
+记录 `web/` 接入 Electron 43(桌面 shell)的集成方式与运行环境坑。web/ 通过 `vite-plugin-electron` 把 Electron 主进程编译与 Vite 渲染构建串联,开发期 HMR、生产期 `loadFile` 加载 `dist/`。**模式 2(Electron 一体)下,main 进程 spawn 后端子进程**,preload 注入端口配置。本文档是 [README.md](README.md) 的 Electron 专题展开,部署模式见 [deployment.md](deployment.md)。
+
+## 集成方式
+
+[vite.config.ts](../../web/vite.config.ts) 经 `vite-plugin-electron/simple` 挂载:
+
+```ts
+electron({
+  main: { entry: 'electron/main.ts' },
+  preload: { input: 'electron/preload.ts' },  // IPC 注入后端配置
+  renderer: {},
+})
+```
+
+- **主进程 ESM**:`web/package.json` `"type":"module"` → 产出 `dist-electron/main.js`,Electron ≥28 原生支持 ESM。
+- **路径解析**:用 `import.meta.url` / `import.meta.dirname`,无 esmShim。
+- **preload**:[electron/preload.ts](../../web/electron/preload.ts) 经 `contextBridge.exposeInMainWorld` 注入 `window.__BACKEND_CONFIG__`。
+- **`base:'./'`**:生产 `loadFile` 相对路径必需。
+- **vue-router `createWebHashHistory`**:Electron `file://` 必需。
+
+## 多 surface 模型（桌面宠物 + 独立原生窗）
+
+Electron 模式包含多个职责分离的 renderer，均直连后端 WebSocket（后端 `liveOutputByChat: Map<chatId, Set<WebSocket>>` 原生支持多连接订阅同一 chat，chunk/notification 按连接扇出）：
+
+- **desktop 窗口**（`?surface=desktop`）：启动即创建的**全工作区透明覆盖窗**（尺寸取 `screen.getPrimaryDisplay().workArea`，`frame:false / transparent / alwaysOnTop('floating') / skipTaskbar / hasShadow:false / thickFrame:false`）。`thickFrame:false`（win32）关闭 DWM 对 frameless 透明窗绘制的粗边框（`WS_THICKFRAME`）。**深色白边根因**：transparent 窗的 `backgroundColor` 选项在部分 Electron/Windows 组合下不生效，窗口背景回退为默认白色 → 内容未铺满的边缘 1px 露白边（浅色模式与浅内容/浅壁纸融合不明显，深色模式深内容旁显眼；`thickFrame`/`setShape`/CSS 均管不到背景色填充）——创建后运行时 `win.setBackgroundColor('#00000000')` 强制全透明兜底。承载 PetStage（透明模式，无网格背景）、NyxusCore 星系、HistoryDrawer、ServerLoginDialog（浮动模式）。宠物与星系直接渲染在桌面上，可随意拖动，空区域鼠标点击穿透到桌面。**发消息 / 待处理交互入口**：点击宠物（单击/双击）与 `!` 待处理交互在 Electron 下统一打开 **composer 原生窗**（见下），desktop 面不再承载 AgentDialog 浮动面板——`pet.isMaster` 点击路径里 `desktopBridge()` 存在即 `openWindow({ kind:'composer' })`，浏览器单页仍走原浮动面板。**ServerLoginDialog 连接态**：本地 loopback 直连成功后（`!auth.isRemote && connection.status === 'connected'`）显示「已连接」信息面板（地址 + 状态 + 断开连接），不再可重新连接；远端登录成功显示登录用户 + 登出。
+
+> 2026-08 单窗合并：此前短暂存在 pet / nyxus **两个独立透明小窗**（pet 在窗内移动导致只能在 360×300~640×420 小范围拖拽、漂移/teleport 动画、`surface:set-state` / `surface:drag-start/move/end` IPC、`floatingGeometry.ts` 边界工具），已合并回本单窗模型——pet 以全屏舞台为边界完整拖拽、CheryNyxus 入口窗内 standalone 自由拖拽，两小窗 / 浮窗 IPC / 漂移动画 / 浮窗边界工具全部删除（仅保留本单窗 + 设置/工作台/composer managed 窗）。
+
+### 颜文字对比描边（desktop 透明窗）
+
+pet 颜文字（face + 左右手 hand，同为 emoji 字符体系）的颜色不随主题深浅色单一决定，而是叠加**多重 `text-shadow` 对比描边**：保留 `--pet-accent`（深色主题下 `lightenAccent` 提亮的浅色 / 浅色主题原色）作基色，再叠深色描边环 + 亮色内光晕。透明窗中 pet 拖到浅色 / 深色桌面区域时，描边保证颜文字始终高对比度可见——**无需采样桌面像素，零 IPC 零性能成本**（`mix-blend-mode` 方案在透明窗内无法与窗外桌面混合，已弃）。实现位于 [PetBody.vue](../../web/src/features/pets/components/PetBody.vue)（`.face` / `.hand`）与 [PetFaceFlip.vue](../../web/src/features/pets/components/PetFaceFlip.vue)（子 pet 3D 脸卡）。
+
+### 全屏隐藏（win32）
+
+desktop 透明窗默认 `alwaysOnTop('floating')` 全工作区置顶，全屏视频 / 游戏会与之冲突（pet 覆盖在全屏应用上面）。主进程经 **koffi（N-API 兼容 FFI）加载 user32.dll**，定时（1s）`EnumWindows` 枚举顶层可见窗口，判定**前台窗口**（`GetForegroundWindow`）的 `GetWindowRect` 是否完全覆盖主屏 `bounds`（含任务栏区域）——即视为全屏覆盖：
+
+- 检测到全屏 → `desktopWin.hide()`（彻底隐藏，不渲染不占资源）；
+- 退出全屏（前台窗口不再全屏覆盖）→ 延迟 500ms `showInactive()` 恢复（防窗口切换抖动）。
+
+**必须锚定前台窗口**：后台 / 最小化的最大化窗口 `GetWindowRect` 也可能恰好等于屏幕 bounds（最小化窗口返回还原矩形），仅按 rect 判定会误报导致 pet 被误藏；另排除 desktop 窗自身 hwnd（防任务栏隐藏时 workArea==bounds 误判自身为全屏）。koffi 回调参数经 `koffi.pointer(proto)` 声明、`GetWindowRect` 输出参数经 `koffi.out()` 标记（Koffi 2.0+ 迁移要求）。
+
+实现位于 [fullscreenGuard.ts](../../web/electron/fullscreenGuard.ts)，`app.whenReady` 后启动，koffi 加载失败 / 枚举异常时**静默降级为不启用**（不阻塞主流程）。koffi 为 N-API 兼容原生模块，二进制经主包 `optionalDependencies` 平台分发包 `@koromix/koffi-<platform>-<arch>` 分发（pnpm 需 `allowBuilds: koffi: true`），electron-builder 打包时 `asarUnpack`（见 [electron-builder.yml](../../web/electron-builder.yml)）。
+- **settings 窗口**（`?surface=settings`）：**原生独立设置窗**（`frame:false`，无边框自绘标题栏）。惰性创建（desktop 工具环 ⚙ / 托盘点击 / `app.activate` / `second-instance` 首次触发），关闭即 **destroy**（无运行状态，重开重载 config）。外壳由 `WindowFrame.vue` 提供（40px 标题栏 + 三键 + 主题边框；2026-09 标题栏视觉对齐浏览器面 `CyberWindow`：channel 徽记（可选 `channel` prop，如登录窗 `AUTH`）+ signal `01 ▰▰▰` + 文字三键 `_ □ ×`，行为仍走 `window:control` IPC），内嵌 `<SettingsDialog native/>`——`SettingsDialog` 自身 header（「设置」标题 + 打开配置文件夹）在 native 面**隐藏**（`v-if="!isNative"`），标题由 `WindowFrame` 承载、「打开配置文件夹」按钮经 `title-actions` slot 并入标题栏（公共组件 `OpenConfigDirButton`，浏览器路径 header 内同款复用）；其遮罩须定位在 `WindowFrame` body 内（`.settings-overlay.is-native` 为 `position:absolute; inset:0`，相对 `position:relative` 的 body 铺满），**不可** fixed 铺满整个窗口，否则透明遮罩会拦截标题栏（拖拽 + 三键）的鼠标事件导致三键灰色暗淡、无法点击。**尺寸**：默认按设置内容所需最小尺寸（`minWidth/minHeight` 约束，见 `createManagedWindow`），屏幕 workArea 小于该值时取屏幕最大可用尺寸；bounds 持久化于 `userData/window-state.json`。**数据加载时序**：settings 窗 renderer 的 WS 是独立连接（`bootstrap()` 异步建连），`SettingsDialog` native 面**等待 `connection.status === 'connected'` 后再 `loadSettingsData()`**（watch 连接状态，避免建连前 `config.get` RPC 报「还没连上服务器」）。
+- **workbench 窗口**（`?surface=workbench&presetId=xx&chatId=xx&presetName=xx`）：**每预设一原生工作台窗**（key = `wb:<presetId>`）。惰性创建；**也用 `WindowFrame` 公共外壳**（与 settings 统一）——标题显示预设名（App.vue 从 store 读）、`attentionBlink` → 标题栏暖橙闪烁、三键走 `windowControl`；`WorkbenchDialog` native 面隐藏自身 `.workbench-titlebar`（`v-if="!isNative"`，浏览器路径逐字节不变），其 `closeWorkbench`（先释放根时间线订阅再 `windowControl('close')`）经 `defineExpose` 由 WindowFrame 的 `close` handler 接管，overlay 同 settings 改为 relative 父级内 `position:absolute`（不遮挡标题栏），另渲染 `HistoryDrawer`。**点 X 关闭 = hide 不销毁**——`disconnectGrace` 按「发起连接」跟踪 run，hide 保持 WS 存活、run 继续；重开同 preset → show+focus 还原。最小化 = 原生任务栏（run 继续）。`attentionBlink` → `flashFrame`（任务栏闪烁）。`presetName`（入口经 `OpenWindowRequest` 携带 → main `extraParams` 拼 URL → App.vue 读入写 `win.presetName`）是空白工作台角色编制解析的预设名来源——入口一律携带，不靠会话数据推导（详见 [workbench-multi-window.md#入口统一携带预设名2026-08-21](workbench-multi-window.md#入口统一携带预设名2026-08-21)）。
+  - **连接状态常驻标题栏**：公共组件 `ConnectionStatusChip.vue`（`useConnectionStore` 自取状态，绿点已连接 / 黄点转圈连接中 / 红点未连接）——native 面经 App.vue 的 `WindowFrame` `title-actions` slot 放标题右侧，浏览器面放 `WorkbenchDialog` 自绘 titlebar。**仅 `disconnected`（影响功能）时全幅遮罩**阻断操作：spinner + 「未连接服务器，正在自动重连…」+ 「立即重试」按钮（`connection.reconnect()`，refresh token 直连）；`connecting` 只亮标题栏状态不遮罩（本地后端启动瞬时即连，避免闪遮罩）。
+  - **连接就绪数据初始化**（`WorkbenchDialog` watch `connection.status`，connected 触发）：workbench 面 renderer 是独立 WS 连接且组件 setup 早于 `bootstrap()` 建连——初始 `acquireRootTimeline` RPC 必失败（catch 仅 log，此前无重试 → 树只剩合成起点、初始 fit 卡默认相机渲染在左上角），且该面不渲染 PetStage、无人调 `fetchHistoryList` → 会话列表恒空。connected 后依次幂等执行：① `fetchHistoryList()`（会话列表数据源，`historyLoading` 态传 `NyxusSessionList` `loading` prop 显「会话加载中…」占位）；② `win.chatId` 为空时 `latestRootInPreset(presetId, presetName)` 兜底自动定位最近 root 会话（对齐浏览器「恢复活跃会话」语义；`latestRootInPreset` 支持 `presetId ? : presetName` 双参，2026-08-21 起 `presetName` 由窗口携带——Nyxus 窗口此前以预设名作 presetId 且 presetName 推导不到导致永不命中，冷启动恢复最近会话失效，现随 `win.presetName` 修复）；③ `rootTimeline` 缓存缺失时重试 `acquireRootTimeline`（owner Set 去重幂等）。数据到达后 MessageBranchTree 既有 revision/bounds watch 触发 `tryInitialFit`，初始视图自动居中。树区域在「有 rootChatId 但 rootTimeline 未就绪」时显「节点树加载中…」轻提示。
+  - rail 的「返回快速发送窗口」按钮（`v-if="!isNyxus"` 的 ↙，closeWorkbench）已移除——关闭工作台统一走标题栏三键，浏览器面胶囊还原入口不变。
+- **composer 窗口**（`?surface=composer&chatId=xx&source=pet|history&view=composer|attention`）：**发消息 / 待处理交互原生窗**（key = `composer`，单实例）。**开启路径**：desktop 面点击宠物（单击 / 双击）与 `!` 待处理交互经 `bridge.openWindow({ kind:'composer', chatId, source, view })` 打开（见 [PetStage.vue](../../web/src/features/pets/PetStage.vue)）——统一由 main 建窗/聚焦，会话经 `surface:retarget` 下发切换，浏览器单页不受影响。**外壳复用全局 `WindowFrame` 公共组件**（与 settings/workbench 统一）：`App.vue` 在 `surface==='composer'` 分支渲染 `<WindowFrame :title="composerTitle">` 包裹 `<AgentDialog native/>`——标题 = 当前会话 pet 名（回退该会话历史 summary 预设名 / URL presetId / 「发消息」），随 main `surface:retarget` 切换会话时经 `agents.activeDialogChatId` 响应更新；**🌳 节点树 / `!` 待处理交互能力按钮经 `title-actions` slot 放在靠左标题后**（与三键 space-between 分离），操作与状态经 `AgentDialog` `defineExpose` 暴露（`openWorkbenchForChat` / `toggleAttention` / `getWorkspaceAttentionCount` / `isAttentionView`）由 App.vue 以 computed 包装读取；`AgentDialog` native 面自身隐藏自绘 `.dialog-head`（`v-if="!native"`，浏览器路径不变），overlay 同 settings/workbench 改为 `position:absolute` 铺满 WindowFrame body（不遮挡标题栏）。**keepAlive 保活**：`close` = hide（keep WS/run），重开同会话 show+focus 还原并重定位会话。
+- 浏览器单页（无 surface）：应用内多工作台窗 + 胶囊 + overlay 设置，**不受迁移影响**。
+
+> 2026-08 迁移：此前「console 窗（`?surface=console`）承载全部大界面」的模型已废弃——设置 / 工作台改为各自的原生独立窗（详见 [workbench-multi-window.md#electron-原生独立窗迁移part-3](workbench-multi-window.md#electron-原生独立窗迁移part-3)），`ConsoleShell.vue` 与 `console:*` IPC 删除。
+
+### 深色灰边修复（全部窗口）
+
+Element Plus dark css-vars 会设 `html.dark { color-scheme: dark }`，Chromium 在 dark color-scheme 下给根画布（`html`/`body` 底色）绘制系统默认深色底，窗口四周表现为灰边。三层统一修复（Electron 全部窗 + 浏览器不受影响）：
+
+1. **color-scheme 锁定**：`lockWindowRootColorScheme()`（settings / workbench 面统一由 `WindowFrame.vue` onMounted 调，`WorkbenchDialog` native 自身的调用保留作兼容）对 settings / workbench 面 mount 时对 `document.documentElement` 强制 inline `color-scheme: light`（主题 token 仍正常切换，只锁画布底色）；DesktopSurface 既有机制不变。
+2. **根画布兜底**（`theme.css`）：`html.window-surface, html.window-surface body, html.window-surface #app { background: var(--bg); }` —— 窗口边缘 / 圆角 / 拖拽残影显示主题底色而非系统灰/白（`window-surface` class 由 `lockWindowRootColorScheme` 加到 `<html>`）。
+3. **main 层 backgroundColor**：`theme.ts apply()` 在 Electron 面读当前主题 bg（`#16181d` 暗 / 亮色值）→ `bridge.setBackgroundColor()` → `window:set-background` IPC → `win.setBackgroundColor()`，兜底首帧与 resize 边缘。
+
+**跨窗主题同步**：任一窗 `theme.toggle()` 成功后 `bridge.emitThemeChanged()` → main `theme:changed` 广播 `theme:set` → 各 Electron 面订阅 `onThemeSet` → `applyFrom(theme)` + 重设 backgroundColor。此前各窗只在启动读 localStorage 不互相同步。**范围边界**：广播仅发 managedWindows（settings / workbench）；desktop 透明窗**不接主题桥**——`bindElectronThemeBridge()` 对 `surface==='desktop'` 直接 return（避免 `setBackgroundColor` 给透明窗铺不透明底色），其主题独立于原生窗，与迁移前一致。
+
+### 硬件加速(GPU)
+
+工作台默认启用 Electron 硬件合成；Pixi 在 Electron 中固定使用 WebGL，浏览器版仍可优先使用 WebGPU。这样既避免整页软件栅格化造成的桌面版低帧率，也绕开多窗口场景下 WebGPU device 初始化的不稳定路径。
+
+> 2026-08-20 曾实证：恢复 GPU 且让 Pixi 优先创建 WebGPU device 后，新开的非透明受管窗（workbench / composer / settings）出现过渲染进程崩溃。当前策略不再直接组合这两条路径：Electron Pixi 固定走 WebGL；main 若观察到 GPU 子进程异常退出，会写入 `userData/gpu-safe-mode.json`，下次启动在创建任何窗口前自动调用 `app.disableHardwareAcceleration()` 进入软件安全模式。
+>
+> 历史背景（此前长期禁用的原因）：Electron 43 / Windows 透明窗在 GPU 路径下，鼠标穿透的 `forward pointermove` 偶发不回送，导致 desktop 窗从 ignore 状态无法在宠物/Chery Nyxus 上恢复命中。
+
+手动覆盖方式：进程环境变量 `CHERY_GRAPHICS_MODE=hardware|software`；命令行可用 `--chery-force-gpu` 或 `--chery-software-rendering`。GPU 故障修复后，可先用 `--chery-force-gpu` 验证，确认稳定后删除 `gpu-safe-mode.json` 恢复默认硬件模式。图形模式必须重启应用才能切换；启动日志中的 `[graphics] mode=...` 与 Chromium feature status 可用于确认实际路径。
+
+### 渲染进程崩溃观测
+
+main 对全部窗口（desktop + 受管窗）注册三类事件日志（`web/electron/main.ts`）：
+
+| 事件 | 级别 | 触发场景 |
+| ---- | ---- | ---- |
+| `webContents.on('render-process-gone')` | error | 渲染进程崩溃/被杀（`details.reason`：`gpu-process-crashed` / `oom` 等）——窗口只剩 backgroundColor 兜底色、DevTools 打不开时先查这里 |
+| `app.on('child-process-gone')` | warn | GPU 进程等工具子进程异常退出 |
+| `webContents.on('did-fail-load')` | error | 页面加载失败（dev server 未起 / 产物路径缺失） |
+
+定位新窗黑屏类问题时：开 dev 终端看 main 日志输出——`render-process-gone` 命中即渲染进程层问题（GPU / 崩溃），`did-fail-load` 命中即加载层问题（URL / 产物），两者皆无再查渲染层自身（Vue 报错需 DevTools）。
+
+### 鼠标穿透（win32）
+
+desktop 窗口默认整体 `setIgnoreMouseEvents(true, { forward: true })`——Windows 在忽略鼠标时仍转发 move 事件。渲染层 [web/src/features/desktop/useDesktopPassthrough.ts](../../web/src/features/desktop/useDesktopPassthrough.ts) 在 forwarded `pointermove` 中做 `document.elementFromPoint(x,y)?.closest(DESKTOP_HIT_SELECTOR)` 命中测试：
+
+- 命中交互根（`[data-desktop-hit]` 标记的宠物/星系/工具环/弹窗面板，及 ElementPlus teleport 弹层 `.el-popper` 等）→ 撤销穿透；
+- 离开交互根后等待 120ms，并在最近命中矩形外保留 6px 滞回；宽限期内重新进入会取消切换，避免鼠标在 pet 边缘来回移动时频繁触发整屏透明窗重合成与闪白；
+- pointerdown 命中后 `lockInteractive()` 锁定 non-passthrough 直到 pointerup——防止拖拽/长按中途穿透丢事件；
+- 状态变化才发 IPC（rAF 节流），避免每次 move 刷 IPC。
+
+### IPC 通道清单
+
+| 通道 | 方向 | 载荷 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `get-backend-config` | renderer→main sendSync | — | preload 取后端端口配置 |
+| `backend:refresh-config` | renderer→main invoke | → `ServerConfig` | 刷新后端配置（Electron 下 `getServerConfig({refresh:true})` 走此 IPC，main 进程 fetch `/api/config`——Node 无 CORS 限制；渲染进程直接 fetch 会被后端缺 CORS 头的响应拦截，见 [env.md#会话-token-轮换与重连刷新](env.md#会话-token-轮换与重连刷新)） |
+| `dialog:pickDirectory` | renderer→main invoke | → `string\|null` | 原生目录选择 |
+| `desktop:mouse-passthrough` | desktop→main | `{ ignore: boolean }` | 仅 win32 生效，sender 校验 desktop 窗 |
+| `window:open` | desktop→main | `OpenWindowRequest` | 仅 desktop 窗可发起；`kind:'settings'` → 设置窗，`kind:'workbench'` → 工作台窗，`kind:'composer'` → 发消息窗（均惰性创建 / show+focus / `workbench:open-chat` / `workbench:focus`）。workbench 载荷含 `presetId`/`chatId`/`presetName`（presetName 由入口携带，经 `extraParams` 拼 URL 供 App.vue 读 `?presetName=`） |
+| `window:control` | 任一窗→main | `'minimize'\|'maximize'\|'restore'\|'close'` | 按 `BrowserWindow.fromWebContents(event.sender)` 定位窗口的原生控制；工作台窗 `close` = hide（hide 不销毁，run 继续），设置窗 close = destroy |
+| `window:maximized` | main→窗 | `boolean` | 原生最大化态回推（双击标题栏 / Win+↑ / 拖边缘），标题栏图标切换 |
+| `window:focused` | main→窗 | `boolean` | 焦点态回推（工作台标题栏高亮等） |
+| `window:set-background` | 任一窗→main | `string` | `win.setBackgroundColor()`（主题底色，首帧 / resize 边缘兜底） |
+| `window:flash` | 任一窗→main | `boolean` | `win.flashFrame()`（workbench `attentionBlink` 映射） |
+| `workbench:open-chat` | main→workbench 窗 | `string` | 已存在的工作台窗收到新 chatId（重开同 preset 带会话切换） |
+| `workbench:focus` | main→workbench 窗 | `{ sourceChatId?; interactionId?; anchorNodeId? }` | 待处理抽屉「打开节点树」的定位参数下发 |
+| `theme:changed` | 任一窗→main | `'light'\|'dark'` | 本窗主题切换广播（main 转发全部 managed 窗） |
+| `theme:set` | main→全部窗 | `'light'\|'dark'` | 跨窗主题同步：`applyFrom(theme)` + 重设 backgroundColor |
+
+### 开机自启（托盘可选项）
+
+托盘菜单 checkbox：`checked: app.isPackaged && app.getLoginItemSettings().openAtLogin`；点击切换 `app.setLoginItemSettings({ openAtLogin: !current })` 后 rebuild 菜单。状态直接读系统注册表，无需自建持久化。开发期（未打包）该项 `enabled:false`——避免把 electron.exe dev 路径写进注册表。
+
+### 托盘
+
+- **图标**：无磁盘图标资源时用 `nativeImage.createEmpty()` + `tray.setImage` 兜底不可靠（Windows 空图标不渲染），故用**程序化绘制**的 16x16 RGBA 位图（`nativeImage.createFromBuffer`，两位一像素的暖橙圆点 + 透明底），保证任何环境托盘区都有可见图标；打包后如需品牌图标，在 `createTray()` 里替换为 `nativeImage.createFromPath` 加载打包资源。
+- **菜单**：显示桌面宠物（toggle，checked 跟随 desktop 窗可见态）/ 开机自启（checkbox，仅打包可用）/ 退出。点击托盘图标 / `app.activate` / `second-instance` = 打开**设置窗**（应用主界面锚点）；所有路径都可到达「退出」，无死局。
+
+### 显示器自适应
+
+main 监听 `screen` 的 `display-metrics-changed` / `display-added` / `display-removed`，desktop 窗口 `setBounds(新 workArea)`。渲染层自愈：`usePetWorld` 监听 `resize` 重读 bounds 并 clamp 宠物目标；`useStandaloneNyxusMotion` 以 `window.innerWidth/innerHeight` clamp 星系位置。
+
+退出必须走托盘“退出”或应用 quit 流程，随后停止后端子进程。任一窗口隐藏都不释放 WebSocket，避免丢失 Agent 通知（尤其工作台窗发起 run 后点 X 关闭——hide 保持连接，run 不被 park，重开还原可见）。
+
+依赖版本:Vite 8 + `@vitejs/plugin-vue` 6 + `vite-plugin-electron` 1.1 + `electron` 43。`pnpm-workspace.yaml` `allowBuilds` 含 `electron:true`。[turbo.json](../../turbo.json) build outputs 含 `dist-electron/**`。[web/package.json](../../web/package.json) `"main":"dist-electron/main.js"` + `"electron":"electron ."`。
+
+## 主进程路径解析
+
+[electron/main.ts](../../web/electron/main.ts) 加载渲染入口:
+
+```ts
+if (process.env.VITE_DEV_SERVER_URL) {
+  void win.loadURL(process.env.VITE_DEV_SERVER_URL)   // vite serve 时插件注入
+} else {
+  void win.loadFile(join(import.meta.dirname, '..', 'dist', 'index.html'))  // 生产
+}
+```
+
+**关键坑**:不能用 `fileURLToPath(new URL('../dist/index.html', import.meta.url))`——vite-plugin-electron build 时 vite 静态分析 `new URL(literal, import.meta.url)`,把 `index.html` 内联成 data URL → `ERR_INVALID_URL_SCHEME`。改用 `join(import.meta.dirname, '..', 'dist', 'index.html')`(运行时构造,绕开静态分析)。`import.meta.dirname` Node 20.11+ / Electron 43 支持,rollup 保留不转换。
+
+## Electron spawn 后端(模式 2)
+
+[electron/main.ts](../../web/electron/main.ts) `startBackend()` 用**系统 node** spawn 后端 bundle(`node + index.js`):
+
+```ts
+ensureEnvSeed(...);                         // 1. 仅在缺失时由 resources/.env.example 创建 .env
+loadEnvFile();                              // 2. 加载 .env → process.env（不覆盖 OS env，空值不灌）
+const cheryDir = getRuntimeRoot();          // 3. CHERY_DIR 父目录（默认 CheryNyxus.exe 同级）
+spawn(getNodeExecutable(), [getBackendBundle()], {
+  env: { ...process.env, CHERY_DIR, ...(app.isPackaged ? { DB_DIR } : {}) },
+  stdio: ['ignore', 'pipe', 'pipe'],
+  windowsHide: true,  // Windows: 主进程是 GUI 进程无控制台，缺省 spawn 控制台子进程会闪 cmd 窗
+})
+// delete env.ELECTRON_RUN_AS_NODE  // 防 shell 注入污染
+```
+
+- **`windowsHide: true` 约定**：Electron main 进程（GUI 子系统、无控制台）spawn 控制台子系统程序（node.exe 等）时，Windows 默认会给子进程分配新控制台窗口（一闪而逝）。须显式 `windowsHide: true`（CREATE_NO_WINDOW）隐藏。**所有 `spawn`/`execFile` 一律显式加 `windowsHide: true`**（`exec`/`execSync` 默认已隐藏）；同约定适用于后端 guardian 双进程模型（[service/README.md](../backend/service/README.md#guardian)）与 utils.openFile 编辑器 spawn（[handler.ts](../../src/service/utils/handler.ts)）。
+
+- **`getNodeExecutable()`**:优先打包的 node(extraResources 内 `../node`),否则系统 PATH `node`。用系统 node 跑后端,better-sqlite3 用系统 Node ABI,与后端 build 一致,**无跨 ABI 问题**(弃用 `ELECTRON_RUN_AS_NODE`,因 Electron 内嵌 node ABI ≠ 系统 node ABI)。
+- **后端 bundle 路径**:`join(app.getAppPath(), '..', 'dist', 'index.js')`。开发期 `<root>/dist/index.js`;打包后 `resources/dist/index.js`。
+- **`.env` 初始化与加载**:
+  - `ensureEnvSeed()` 在 `loadEnvFile()` 前运行，仅当目标 `.env` 缺失时从 `resources/.env.example` 创建；已有文件和密钥永不覆盖。
+  - 运行时读取 `dirname(process.execPath)/.env`；模板缺失或创建失败时记录告警并继续。
+  - 解析 `KEY=VALUE` / `KEY="VALUE"`,跳过 `#` 注释;
+  - **空值不灌**(`CHERY_DIR=` → 不写入 process.env,让默认推断生效);
+  - **不覆盖已有**(`process.env` 已设的优先于 `.env`,OS env 优先级最高)。
+- **`.chery` 用户位置与升级(`getRuntimeRoot()`)**:
+  - 后端 guardian 启动 worker 或维护命令前，用 `resources/.chery.template/` 初始化或增量同步运行时 `.chery/`。
+  - 用户修改或主动删除的资产不覆盖；官方原版更新前创建恢复副本；`config.yaml` 只迁移缺失的内置资源。
+  - `CHERY_DIR = process.env.CHERY_DIR || dirname(process.execPath)`——`.env` 中 `CHERY_DIR` 留空时默认 `CheryNyxus.exe` 同级,用户可显式覆盖。
+  - 开发期:`CHERY_DIR = process.env.CHERY_DIR || <项目根>`。
+- **`CHERY_DIR`**:打包后默认 `dirname(process.execPath)/`(exe 同级,`.chery/` 在这下面)。
+- **`DB_DIR`**:仅打包时注入 `app.getPath('userData')/.chery/db`(始终可写,跨 Program Files 权限问题);开发期沿用 `CHERY_DIR/.chery/db`。
+- **`waitForBackend()`**:轮询 `http://localhost:<WEB_PORT>/api/config`(超时 30s),就绪后 `createWindow()`。
+- **退出**:`before-quit` → `backend.kill('SIGTERM')`;单实例锁 `requestSingleInstanceLock()`。
+- **UX 入口**:设置面板调用后端 `utils.openConfigDir` WebSocket RPC，由后端进程通过系统默认打开器打开 `CHERY_DIR/.chery`；不再维护专用 Electron IPC。
+
+> ⚠ 发行版已解决:[scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 下载 Node 22 LTS 二进制到 `extraResources`,并用其 ABI 重生 better-sqlite3 预编译(详见 [native addon ABI](#native-addon-abi模式-2))。
+
+## preload 注入配置
+
+[electron/preload.ts](../../web/electron/preload.ts):
+
+```ts
+const config = ipcRenderer.sendSync('get-backend-config') as BackendConfig | null;
+if (config) {
+  contextBridge.exposeInMainWorld('__BACKEND_CONFIG__', config);
+  // P5c：同步注入 HTTP base URL（http://localhost:<webPort>），前端 fetch /api/* 用
+  contextBridge.exposeInMainWorld('__BACKEND_HTTP_URL__', `http://localhost:${config.webPort}`);
+}
+```
+
+- main `ipcMain.on('get-backend-config')` 返回 `serverConfig`(由 `waitForBackend` 从 `/api/config` 取得,或 fallback 常量)。
+- `sendSync` 同步:preload 加载时同步取配置,渲染进程加载时 `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__` 已就绪,无竞态。
+- **`__REFRESH_BACKEND_CONFIG__()`**(invoke `backend:refresh-config`):渲染进程**不能**直接 `fetch('/api/config')` 刷新配置——后端 `/api/config` 响应无 `Access-Control-Allow-Origin` 头,Chromium 会因 CORS 拦截跨源请求(Electron 渲染进程 origin 为 `file://` 或 dev `:5173`,均与 `:8183` 跨源;vite proxy 只对相对路径生效,`httpUrl()` 返回绝对 URL 不走 proxy)。故刷新下沉到 main 进程:`backend:refresh-config` handler 用 Node 全局 fetch(无 CORS 限制)拉当前 worker 的 `/api/config`(带 5s 超时),返回含最新 `sessionToken` 的配置。worker 重启轮换 token 后,重连必须经此 IPC 拿新值,否则旧 token 被 WS `verifyClient` 401 拒绝。
+- 渲染进程**不直接读**两个 `window.__*` 全局——全部经 [web/src/services/platform.ts](../../web/src/services/platform.ts) 抽象层消费:
+  - `__BACKEND_CONFIG__` → `getServerConfig()` / `wsUrl()` / `isElectron`
+  - `__BACKEND_HTTP_URL__` → `httpUrl()`
+  详见 [./env.md](env.md)。设置面板的配置目录入口属于后端 RPC，不经过 preload IPC。原 [ws.ts](../../web/src/services/ws.ts) `connect()` 优先读 `window.__BACKEND_CONFIG__`,无需 `fetch('/api/config')`(`file://` 下无法 fetch 相对地址);[http.ts](../../web/src/services/http.ts) `httpUrl(path)` 读 `__BACKEND_HTTP_URL__` 拼完整 HTTP 端点(`/api/auth/me`、`/api/media/upload` 等)。
+
+## electron-builder 打包
+
+[electron-builder.yml](../../web/electron-builder.yml):
+
+```yaml
+files: [dist/**, dist-electron/**]              # 渲染 + 主进程
+extraResources:
+  - { from: ../dist, to: dist }                 # 后端 bundle
+  - { from: ../.env.example, to: .env.example } # 不可变 .env 种子
+  - { from: ../.chery.template, to: .chery.template }  # 不可变 workspace 模板
+  - { from: ../build/node, to: node }           # Node 22 LTS 二进制
+afterPack: ./scripts/post-pack.mjs              # 验证模板并清理旧构建残留的运行时副本
+npmRebuild: true                                # native rebuild(注:不解决 root better-sqlite3,见下)
+```
+
+- **`.env` 模板分发**：`.env.example` 作为不含 API Key 的种子打入 `resources/.env.example`。主进程启动时只补缺失目标，不会覆盖用户值。
+- **`.chery` 模板分发**：`resources/.chery.template/` 是只读模板，guardian 负责初始化和增量升级用户副本。开发期由 [scripts/setup-env.mjs](../../scripts/setup-env.mjs) 执行同一同步器。官方文件哈希记录在 `.chery/.template-manifest.json`，恢复副本位于 `.chery/backups/template/`。
+- `appId` / `productName` / win/mac/linux targets 配置。
+- 打包命令:`pnpm electron:pack`(一键全量)/ `pnpm electron:pack:fast`(增量,跳过依赖安装 + Node 22 LTS + SQLite 预编译 + 类型检查,假定缓存已就绪;Node/better-sqlite3 升版本后需先跑全量重建缓存)。
+- native rebuild:`pnpm --filter web rebuild`(`electron-builder install-app-deps`)—— **仅 rebuild web/ deps,不触及 root better-sqlite3**。
+
+## native addon ABI(模式 2)
+
+**开发期已解决**:弃用 `ELECTRON_RUN_AS_NODE`,改用系统 node spawn 后端。better-sqlite3 用系统 Node ABI,与后端 build 时一致,无跨 ABI 问题。
+
+**原因**:`ELECTRON_RUN_AS_NODE` 用 Electron 内嵌 node(ABI ≈ Node 20),后端 `better_sqlite3.node` 针对系统 node(Node 24,ABI 137),跨 ABI 崩溃。系统 node spawn 用同 ABI,匹配。
+
+**发行版已解决**:统一打包脚本完成:
+
+1. 下载 Node 22 LTS(ABI 127)二进制到 [build/node/](../../build/node/);[electron-builder.yml](../../web/electron-builder.yml) `extraResources` 把它打入 `resources/node[.exe]`。`getNodeExecutable()` 优先用它,无则 fallback 系统 node。
+2. 用下载的 Node 22 从 GitHub release 直下 better-sqlite3 Node 22 ABI 预编译,覆盖到 `node_modules/better-sqlite3/build/Release/`。下一次后端 build,vite-plugin-native-modules 复制新 ABI 的 `.node` 到 `dist/lib/`。
+3. 打包配置(Node 版本/代理/镜像)统一在 [package.json](../../package.json) `packConfig` 字段,由 [scripts/pack-config.mjs](../../scripts/pack-config.mjs) 读取。一键打包:`pnpm electron:pack`。
+
+详见 [deployment.md#native-addon-abi模式-2](deployment.md#native-addon-abi模式-2)。
+
+## 构建产物
+
+| 产物 | 产出方 | 内容 |
+| ------ | -------- | ------ |
+| `web/dist/` | Vite 渲染构建 | `index.html` + assets |
+| [web/dist-electron/main.js](../../web/dist-electron/) | rollup 经 `vite-plugin-electron` | 主进程 ESM |
+| [web/dist-electron/preload.mjs](../../web/dist-electron/) | rollup 经 `vite-plugin-electron` | preload(`contextBridge`) |
+
+`vite-plugin-electron` 在 `vite build` 时经 rollup 产出 main + preload,**不执行 electron**,故 headless 下 type-check/build 正常。
+
+## 双运行模式
+
+详见 [README.md#双运行模式浏览器--electron](README.md#双运行模式浏览器--electron)。要点:
+
+| 命令 | 实现 | X 依赖 |
+| ------ | ------ | -------- |
+| `dev:web` | `ELECTRON_ENABLED=false vite` | 无 |
+| `dev:electron` | `node scripts/electron-dev.mjs`（Windows: `vite`；其他: `bash electron-dev.sh` → `exec vite`） | Windows 无 / 其他有 |
+| `electron` | `electron .`(spawn 后端 + loadFile) | 有 |
+
+## 运行环境坑（xrdp）
+
+[scripts/electron-dev.mjs](../../web/scripts/electron-dev.mjs) 做平台分发:
+
+- **Windows**:无 X server,直接启动 `vite`——[vite.config.ts](../../web/vite.config.ts) 的 `vite-plugin-electron` 自动编译 `electron/main.ts` 并拉起 electron 窗口;启动前 `delete ELECTRON_RUN_AS_NODE`,防止 agent shell 注入的 `ELECTRON_RUN_AS_NODE=1` 让 electron 当 node 跑不开窗。
+- **Linux/macOS(xrdp)**:转发 [scripts/electron-dev.sh](../../web/scripts/electron-dev.sh),其自动解决每次手敲 env 问题:
+
+  1. **选最新可用 xrdp display**:`ls /tmp/.X11-unix` 去前缀倒序 + `xset -display :N q` 验活,取第一个通的。
+  2. **`unset ELECTRON_RUN_AS_NODE`**:agent shell 注入 `ELECTRON_RUN_AS_NODE=1` 会让 electron 当 node 跑不开窗。main.ts spawn 后端用系统 node(非 `ELECTRON_RUN_AS_NODE`),并 `delete env.ELECTRON_RUN_AS_NODE` 防污染子进程;dev:electron 是 vite HMR 模式,不 spawn 后端。
+  3. **`export XAUTHORITY=$HOME/.Xauthority`**:xrdp Xorg `-auth .Xauthority` 相对 home。
+  4. 无 display 时退回提示 `web:dev`。
+
+### xrdp display 特性
+
+- 每会话覆盖同一 `~/.Xauthority`,mtime = 最新会话启动时间。
+- 新 RDP 连接递增 display 号(:10→:11→…)。故"选最新"= 选用户当前 RDP 会话。
+
+### electron 43 sandbox 坑
+
+`chrome-sandbox` 需 `root:root` + `4755`(pnpm 装的默认非 root)。已 `sudo chown root:root + chmod 4755` 修。`--no-sandbox` 被 safety classifier 拦,走正规 SUID 配置。
+
+## 依赖与关联
+
+- **依赖**:`vite-plugin-electron` 1.1 + `vite-plugin-electron-renderer` 1.0 + `electron` 43 + `electron-builder` 25;经 Vite 8 + `@vitejs/plugin-vue` 6。
+- **被依赖**:被 [web/package.json](../../web/package.json) scripts(`dev:electron` / `electron` / `pack` / `dist` / `rebuild`)触发。
+- **后端关联**:main spawn 后端 bundle([src/index.ts](../../src/index.ts) 产物),协议 [protocol.md](../shared/protocol/websocket.md),HTTP `/api/config` 见 [service/http.md](../backend/service/http.md)。
+- **关联文档**:[README.md](README.md)(web 总览)、[deployment.md](deployment.md)(部署模式 + native ABI 详解)、[web/vite.config.ts](../../web/vite.config.ts)。
+
+## 扩展点
+
+- **IPC 扩展**：当前 `ipcMain` 注册 `get-backend-config`（同步，preload 取后端端口配置）、`dialog:pickDirectory`（invoke）、`window:open/control/set-background/flash`、`theme:changed` 等（见上文「IPC 通道清单」）。业务能力优先通过现有 WebSocket RPC 扩展；只有必须在 Electron main 进程执行、且后端进程无法承担的能力，才新增 `ipcMain.handle` + preload bridge。
+- **后端原生能力扩展**:配置目录打开等能力按 [../service/message.md](../backend/service/message.md) 的 RPC 扩展流程实现，Electron 与浏览器共用；远程浏览器调用作用于后端主机。
+- **`.env` / `.chery` 用户位置扩展**:主进程用 `getWritableCheryRoot()` 返回 `cheryDir`,内部已统一探测 `exeRoot` 可写性 + 降级逻辑。若需新增可维护文件,放在 `cheryDir` 下并复用同一探测函数(避免绕过降级逻辑)。
+- **native ABI 解决**:已通过 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs)(Node 22 LTS + prebuild-install)实现,见 [native addon ABI](#native-addon-abi模式-2)。
+- **electron-builder 打包验证**:`pnpm --filter web dist` 产安装包;GUI 运行验证需 xrdp(见 [运行环境坑](#运行环境坑xrdp))。
+- **窗口行为定制**:[main.ts](../../web/electron/main.ts) `createWindow` 的 `BrowserWindow` 选项;macOS `activate` 重建窗口逻辑已就位。

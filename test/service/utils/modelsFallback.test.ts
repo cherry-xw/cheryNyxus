@@ -4,7 +4,7 @@ import { registerAnthropicAdapter } from '@/agent/provider/anthropic.js'
 import type { HandlerContext } from '@/service/message/router.js'
 
 /**
- * utils.models anthropic 双尝试（docs/agent/provider.md「anthropic 模型列表双尝试」）：
+ * utils.models anthropic 双尝试（docs/backend/agent/provider.md「anthropic 模型列表双尝试」）：
  * 主尝试 Anthropic 原生 GET {url}/models?limit=1000（x-api-key + anthropic-version）；
  * 无产出且未勾选 fullUrl → 回退 OpenAI 兼容 GET {url}/models（仅 Bearer）；
  * 两边均无产出 → error 聚合两段原因。
@@ -219,7 +219,7 @@ describe('utils.models 错误透传（猜测说明 + 原始错误）', () => {
   })
 
   it('openai fullUrl 非 2xx → 猜测说明 + 接口状态 + 响应体片段（换行压平）', async () => {
-    // 响应体含换行：验证外层 catch 拼装前压平（docs/agent/provider.md「utils.models 错误透传」）
+    // 响应体含换行：验证外层 catch 拼装前压平（docs/backend/agent/provider.md「utils.models 错误透传」）
     fetchMock.mockResolvedValue(
       new Response('{\n  "error": {\n    "message": "Incorrect API key"\n  }\n}', {
         status: 401,

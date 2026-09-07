@@ -291,7 +291,7 @@ function readPendingQuestionBatches(
   chatId: string,
 ): PendingQuestionBatchSnapshot[] {
   // 读时自愈：pending 但零 pending item 的僵尸批标 completed，避免 hasPendingQuestionBatches
-  // 长期短路 canResume 造成"无卡片无按钮"硬死锁（见 docs/interaction.md 工作台树级暂停与续接）。
+  // 长期短路 canResume 造成"无卡片无按钮"硬死锁（见 docs/shared/protocol/interactions.md 工作台树级暂停与续接）。
   sweepOrphanQuestionBatchesIn(db, chatId)
   const batches = db
     .prepare(

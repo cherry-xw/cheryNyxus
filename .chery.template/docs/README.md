@@ -45,22 +45,22 @@ cherryNyxus 角色：
 
 | 修改目标 | 必读 | 关联 |
 |----------|------|------|
-| 改 LLM brain | [./config.md#llmbrain-name-字段](./config.md#llmbrain-name-字段) + [./model-catalog.md](./model-catalog.md) | [../../docs/agent/provider.md](../../docs/agent/provider.md) |
+| 改 LLM brain | [./config.md#llmbrain-name-字段](./config.md#llmbrain-name-字段) + [./model-catalog.md](./model-catalog.md) | [../../docs/agent/provider.md](../../docs/backend/agent/provider.md) |
 | 改感官监管等级 | [./config.md#sense_groupsgroup-字段](./config.md#sense_groupsgroup-字段) | [../../docs/core/sense.md](../../docs/core/sense.md) |
-| 加 / 改角色 | [./config.md#rolesrole-字段](./config.md#rolesrole-字段) + [./prompt.md](./prompt.md) | [../../docs/system-prompt.md](../../docs/system-prompt.md) |
+| 加 / 改角色 | [./config.md#rolesrole-字段](./config.md#rolesrole-字段) + [./prompt.md](./prompt.md) | [../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md) |
 | 研究任意岗位并创建角色 | [./role-design.md](./role-design.md) + [./config.md#rolesrole-字段](./config.md#rolesrole-字段) | [../../docs/agent/role-design.md](../../docs/agent/role-design.md) |
 | 对已激活角色做端到端验收 | [./role-acceptance.md](./role-acceptance.md) | [../../docs/agent/role-acceptance.md](../../docs/agent/role-acceptance.md) |
 | 改预设 | [./config.md#presetsname-字段](./config.md#presetsname-字段) | — |
-| 创建、重建或删除完整预设 | [../skills/preset-lifecycle/SKILL.md](../skills/preset-lifecycle/SKILL.md) | [../../docs/agent/config-manage.md](../../docs/agent/config-manage.md) |
+| 创建、重建或删除完整预设 | [../skills/preset-lifecycle/SKILL.md](../skills/preset-lifecycle/SKILL.md) | [../../docs/agent/config-manage.md](../../docs/backend/agent/config-manage.md) |
 | 改服务端口 | [./config.md#server-字段](./config.md#server-字段) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 改文件夹浏览白名单 / 文件可见性 | [./config.md#workspace_browse-字段文件夹浏览协议](./config.md#workspace_browse-字段文件夹浏览协议) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 加模型规则或 thinking 映射 | [./model-catalog.md](./model-catalog.md) | — |
 | 加 / 改钩子 | [./hooks.md](./hooks.md) | [../../docs/agent/hooks.md](../../docs/agent/hooks.md) |
 | 排查错误 / 用户报错 | [./error-troubleshooting.md](./error-troubleshooting.md) | [../../docs/error-conventions.md](../../docs/error-conventions.md) |
-| 加 mock 脚本 | [./mock.md](./mock.md) | [../../docs/mock.md](../../docs/mock.md) |
-| 加自定义感官 | [./senses.md](./senses.md) | [../../docs/core/sense.md](../../docs/core/sense.md) + [../../docs/core/compiler.md](../../docs/core/compiler.md) |
+| 加 mock 脚本 | [./mock.md](./mock.md) | [../../docs/mock.md](../docs/mock.md) |
+| 加自定义感官 | [./senses.md](./senses.md) | [../../docs/core/sense.md](../../docs/core/sense.md) + [../../docs/core/compiler.md](../../docs/backend/core/compiler.md) |
 | 加 / 改技能 | [./skills.md](./skills.md) | [../../docs/agent/prompt.md](../../docs/agent/prompt.md) |
-| 加 / 改指令 | [./command.md](./command.md) | [../../docs/system-prompt.md](../../docs/system-prompt.md) |
+| 加 / 改指令 | [./command.md](./command.md) | [../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md) |
 
 ### 前置条件
 
@@ -97,7 +97,7 @@ cherryNyxus 角色：
 
 ## 关联
 
-- 项目根：[../README.md](../README.md)
+- 项目根：[../README.md](README.md)
 - 配置加载：[../../docs/utils/config.md](../../docs/utils/config.md)
-- 提示词系统：[../../docs/system-prompt.md](../../docs/system-prompt.md)
+- 提示词系统：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)
 - 同步规则：[.chery.template/](../) 单向初始化/升级内置资产；已有 [`.chery/config.yaml`](../../.chery/config.yaml) 不做整文件覆盖

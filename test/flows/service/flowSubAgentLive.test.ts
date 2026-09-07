@@ -1,7 +1,7 @@
 /**
  * 流程测试 Tier 2：子 agent eager 后台启动 + live stream（S14b/S15b/S16b）。
  *
- * 规约见 [docs/flow-test.md](../../../docs/flow-test.md) §3.D 增补 + [docs/web/frontend-refactor-handoff.md](../../../docs/web/frontend-refactor-handoff.md)。
+ * 规约见 [docs/quality/testing/flows.md](../../../docs/quality/testing/flows.md) §3.D 增补 + [docs/frontend/frontend-refactor-handoff.md](../../../docs/frontend/frontend-refactor-handoff.md)。
  *
  * 锁住 spawn_role sense 内 eager 启动（spawnEager + startChildEager）的 WS 行为：
  * - T1：spawn_role 完成 → 后端 fire-and-forget 启动子 chat → 子 stream chunks 通过 ws.send 到 parent ws

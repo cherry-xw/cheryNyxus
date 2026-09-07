@@ -1,7 +1,7 @@
 /**
  * 前端传输层 —— 镜像后端 src/service/websocket/transport.ts 编解码。
  *
- * 协议（docs/protocol.md）：
+ * 协议（docs/shared/protocol/websocket.md）：
  * - Request/Response：纯 JSON 字符串
  * - Chunk/Notification：
  *   - binary 模式：stream chunk 二进制帧 0x01，staged/notification JSON 帧 0x02

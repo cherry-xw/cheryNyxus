@@ -1,104 +1,24 @@
-# CheryNyxus 文档索引
+# CheryClaw 文档中心
 
-> CheryNyxus 是多 LLM Agent 框架（**Brain**=AI 服务 / **Sense**=受监管的感官工具 / **Chat**=消息通道，三者解耦）。本目录是项目的 **AI 知识地图**——按源码模块组织实现细节，目标是：针对某个开发目标，读最少上下文即可定位并理解所需模块。
+本文档是仓库文档的总入口。详细内容按运行边界和信息职责归档；根目录不直接堆放专题文档。
 
-## 怎么用这套文档（给 AI / 开发者）
+## 文档领域
 
-## 开发准则：文档先行
+| 领域 | 入口 | 对应范围 |
+| --- | --- | --- |
+| 后端 | [backend/](./backend/README.md) | `src/` 中的 Agent、Core、数据库、记忆、服务与工具模块 |
+| 前端 | [frontend/](./frontend/README.md) | `web/` 应用、工作台、设置、桌宠与 Electron 平台能力 |
+| 跨端共享 | [shared/](./shared/README.md) | 前后端共同遵守的架构、协议、状态机与设备 profile |
+| 质量 | [quality/](./quality/README.md) | 测试基线、流程测试与测试工具 |
+| 指南 | [guides/](./guides/README.md) | 面向开发者和维护者的操作指南 |
+| 开发规范 | [standards/](./standards/README.md) | 全局、后端、前端及模块级强制约束 |
 
-凡是新增、调整或删除功能模块，**在下达代码修改任务之前**，必须先更新对应模块文档：说明职责、公开配置或接口、关键数据流、依赖关系与用户可见行为。文档与实现不一致时，先修正文档并确认边界，再开始代码修改；仅格式化、纯重命名等不改变功能语义的改动可例外。
+临时实施计划统一位于被 Git 忽略的 `docs/plan/`，不属于持久文档，也不得加入版本控制。
 
-1. **定位模块**：按下面「按模块」找到目标模块文档。
-2. **读模块文档**：每篇自包含——职责 / 文件清单 / 核心导出 / 关键流程 / 依赖与关联 / 扩展点。
-3. **按「依赖与关联」扩展**：每篇末尾的「依赖与关联」列出**真实**的依赖与被依赖关系。只顺藤读真正相关的文档，不要全读。
-4. **跨模块的协议 / 交互 / 数据流**：查「按主题」横切文档。
+## 阅读路径
 
-## 开发规范（强制执行）
+1. 从上表选择问题所属领域。
+2. 阅读该目录的 `README.md`，确认模块职责与权威文档。
+3. 只展开当前任务需要的专题文件；跨领域事实以 `shared/` 中的契约为准。
 
-> **强制规范操作准则声明**：所有开发与评审（含 AI 协作工具）必须遵守 [standards/](./standards/README.md) 下的开发规范，违反即 Review 不通过。规范以「文档先行 + 唯一归集」管理：新增/修订规范先落文档后改代码；所有规范细节一律归入 `docs/standards/`，禁止散落他处。当前规范清单见 [standards/ 索引](./standards/README.md)。
-
-## 按模块（镜像 `src/`）
-
-### [core/](./core/README.md) — 框架抽象层
-> 类型、Adapter 注册表（LLM/Message/Sense）、AgentSession / MiddlewarePipeline、Sense 工厂。不含具体实现，被 agent/ 大量依赖。
-
-- [core/README.md](./core/README.md) — 总览
-- [llm.md](./core/llm.md) — `LLMAdapter`（chat/chatStream）+ 注册表
-- [message.md](./core/message.md) — `MessageAdapter`、统一响应、`SenseCallInfo`
-- [middleware.md](./core/middleware.md) — `compose()` 洋葱组合器、`AgentSession` / `MiddlewarePipeline` / `MessageJournal`、Context/Chunk 类型
-- [sense.md](./core/sense.md) — `sense()` 工厂、感官/审批注册表、**监管等级 auto/smart/manual**
-- [compiler.md](./core/compiler.md) — 外部感官编译器（`.chery/senses/*.ts`）
-- [mcp.md](./core/mcp.md) — MCP server 接入：tools/resources/prompts → Sense
-
-### [agent/](./agent/README.md) — 具体实现层
-> bootstrap（启动注册）/ builder（装配）/ runtimeResolver（原子解析）+ 中间件链 + 内置感官 + Provider。
-
-- [agent/README.md](./agent/README.md) — 总览
-- [middleware.md](./agent/middleware.md) — checkpoint / sense / retry / chat / loop 五中间件 + 审批（**核心文档**）
-- [prompt.md](./agent/prompt.md) — system prompt 构建 + skill / plugin 加载
-- [prompt-guide.md](./agent/prompt-guide.md) — **提示词编写规范 + 问题排查清单**（感官/schema/提示词踩坑要点 + 历史 bug 诊断库，新增感官前必读）
-- [provider.md](./agent/provider.md) — openai / ollama / mock 三 Adapter（URL 端点拼接强制规范见 [standards/provider-url-resolution.md](./standards/provider-url-resolution.md)）
-- [sense.md](./agent/sense.md) — 内置感官 bash / read / write / skill
-- [curator.md](./agent/curator.md) — curator 角色（记忆维护者：Extract / Dream）
-
-### [service/](./service/README.md) — 服务层
-> WebSocket 服务 + RPC 路由 + chat 流式 + observer 副作用 + 各 RPC handler。
-
-- [service/README.md](./service/README.md) — 总览（含 approval/bash/brain/runtime/sense 5 个单文件 handler）
-- [chat.md](./service/chat.md) — chat.send/resume 流式、observer、streamMapper、审批 service 侧
-- [message.md](./service/message.md) — RpcRouter 方法路由 + RPC 类型
-- [websocket.md](./service/websocket.md) — 连接管理 + 二进制帧编解码
-- [http.md](./service/http.md) — HTTP `/api/config` + 静态 serve（前端自动构建 WS 地址）
-
-### [db.md](./db.md) — 持久化
-> 多 sqlite 实例（soul.db.chats + 按月分片 YYYY-MM.db.messages）、CRUD、表结构、状态判定（pending/revoked）。
-
-### [memory/](./memory/README.md) — 项目记忆
-> Markdown 文件存储的跨会话记忆系统：双层（global/workspace）+ 四类闭合分类（user/feedback/project/reference）+ 淘汰归档 + 漂移防护；curator 角色 Extract（每轮）/ Dream（定时）。
-
-- [memory/README.md](./memory/README.md) — 存储结构、记忆格式、配置、管理器 API、漂移防护、curator、定时触发器
-
-### [utils/](./utils/README.md) — 工具层
-> config 加载 / drain 模板挖掘 / logger / hash / json / generator / rateLimiter。被各层依赖，不反向依赖业务。
-
-- [utils/README.md](./utils/README.md) — 总览
-- [drain.md](./utils/drain.md) — Drain 日志模板挖掘算法
-- [logger.md](./utils/logger.md) — 统一日志（文件 / bash）
-
-### [web/](./web/README.md) — 前端工作区
-> pnpm workspace + Turborepo monorepo 的一个 package（Vue3 + Vite 8 + Electron 43），与后端同仓不同包。通过 `/api/config` + WebSocket 消费 [protocol.md](./protocol.md) RPC。
-
-- [web/README.md](./web/README.md) — 总览：技术栈、双运行模式（浏览器/Electron）、构建产物、monorepo 定位、依赖关联
-- [web/frontend-protocol-binding.md](./web/frontend-protocol-binding.md) — **前端协议消费手册**：RPC/Notification/Chunk 字段映射到 store / StreamState / 视图组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口
-- [standards/web-frontend-architecture.md](./standards/web-frontend-architecture.md) — **前端强制架构与目录规范**：owner、依赖矩阵、公开面、目录与迁移门禁
-- [standards/ui-visual-and-interaction.md](./standards/ui-visual-and-interaction.md) — **前端 UI 视觉与交互规范**：字重 400/600 规则、动作按钮前置禁用（先选后测）、圆角规则（默认全直角）
-- [standards/ai-collaboration.md](./standards/ai-collaboration.md) — **AI 协作与工作流规范**：未验收不提交、图片验证交用户、文档先行
-- [web/frontend-refactor-handoff.md](./web/frontend-refactor-handoff.md) — 前端 canonical owner、协议生命周期与迁移状态交接
-- [web/electron.md](./web/electron.md) — Electron 集成详解：主进程路径解析坑、xrdp 运行环境、sandbox SUID
-- [web/deployment.md](./web/deployment.md) — 前后端连接与部署模式：后端独立 / Electron 一体 / Web 浏览器三模式 + 实现路线 + 关键坑
-
-## 按主题（横切参考）
-
-协议 V2 与多 Agent 根时间线的当前实现，以 [multi-agent-canonical-timeline.md](./multi-agent-canonical-timeline.md) 为最终落实规范；`protocol.md`、`interaction.md` 和前端绑定手册中的旧 `chat.get/chat.sync/chat.attach` 流程仅描述兼容期行为。
-
-| 文档 | 内容 |
-|------|------|
-| [system-prompt.md](./system-prompt.md) | **提示词来源汇总入口**：主 system message 组装、额外 system/user 消息、Tools 边界、缓存与生效时机 |
-| [context-epochs.md](./context-epochs.md) | **配置修订与上下文纪元**：语义/连接面分层、纪元=配置快照边界（历史跨纪元完整保留）、删除/重建生命周期、历史只读快照、维护模式、RPC 与验收边界 |
-| [protocol.md](./protocol.md) | WebSocket 协议规范：传输帧格式、消息结构、方法列表、HTTP API、错误码 |
-| [interaction.md](./interaction.md) | 各 RPC 方法完整交互序列、端到端流程、错误路径 |
-| [web/frontend-protocol-binding.md](./web/frontend-protocol-binding.md) | 前端协议消费手册：逐 RPC/Chunk/Notification 字段映射 + 端到端数据通路 + StreamState 契约；协议契约的「消费侧索引」 |
-| [agent-pet.md](./agent-pet.md) | 主从 Agent 桌宠系统：pet↔chat 绑定、spawn_role 前端驱动架构、CP0-CP7 分阶段 |
-| [model-capabilities.md](./model-capabilities.md) | Brain 的 Tool Call/多模态能力、角色与运行时约束、媒体资产和媒体网关 |
-| [mock.md](./mock.md) | Mock Provider 脚本化离线测试（send/resume/revoke/loop） |
-| [flow-test.md](./flow-test.md) | 流程测试规约：S1–S16 场景矩阵（步骤/检查/功能点）+ 原始需求 24 条分支覆盖清单；刷新重连改造 G1/G3/G8 验收点 |
-| [error-conventions.md](./error-conventions.md) | 错误信息分层规范：用户面（直白中文 + tracingId） vs 日志面（结构化 JSON），所有错误出口的硬约束 |
-
-## 项目入口与配置
-
-| 资源 | 内容 |
-|------|------|
-| [setup.md](./setup.md) | **开发环境搭建**：前置依赖（Node/pnpm/git/native 工具链）→ install → 密钥与 config 配置 → 启动验证；🔧 人工必做 vs 🤖 AI 可执行 分级 |
-| [根 README](../README.md) | 项目综述、隐喻体系、启动指令、配置文件清单 |
-| [.chery/config.yaml](../.chery/config.yaml) | LLM 客户端 + Sense 分组 + 全局配置 + 服务端口 |
-| [.claude/CLAUDE.md](../.claude/CLAUDE.md) | AI 协作规范（极简索引） |
+新增或移动文档时遵守 [文档层级规范](./standards/global/documentation-hierarchy.md)。

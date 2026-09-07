@@ -40,7 +40,7 @@ const parsedResult = computed<ExecuteCommandResult | null>(() => {
   try {
     const text = props.call.result as string
 
-    // 正则提取字段（key 与后端 bash.ts formatBashResult 中文文案严格一致，见 docs/web/renderer.md）
+    // 正则提取字段（key 与后端 bash.ts formatBashResult 中文文案严格一致，见 docs/frontend/renderer.md）
     const statusMatch = text.match(/状态:\s*(\w+)/)
     const pidMatch = text.match(/进程ID:\s*(\d+)/)
     const exitCodeMatch = text.match(/退出码:\s*(\d+)/)

@@ -45,7 +45,7 @@ function broadcastChatNotification(chatId: string, notification: unknown): boole
 }
 
 /**
- * 唤醒主 chat（唤醒策略调度器调用，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+ * 唤醒主 chat（唤醒策略调度器调用，见 docs/shared/architecture/agent-orchestration.md §5.4 唤醒策略调度器）。
  *
  * wakeParent：子完成 / 出错 / 看门狗超时 → 注入角色回复到主 chat（内存 journal + DB 双写）
  * + 推 role_reply notification → 前端 chat.resume 续跑主新一轮。
@@ -371,7 +371,7 @@ export async function handleAsyncWakeTimeout(child: {
 }
 
 /**
- * 后端启动重建唤醒链（T9.10 重启容错，见 docs/agent-pet.md §5.8）。
+ * 后端启动重建唤醒链（T9.10 重启容错，见 docs/shared/architecture/agent-orchestration.md §5.8）。
  * 扫所有子 chat（parent_chat_id 非空）按 wake 策略分流：
  * - spawn task timed_out 且尚未 roleInjected → 以稳定 termination 因果补写超时回传。
  * - abandoned=true（已处理的 ghost）→ 跳过，避免重启后重复唤主。

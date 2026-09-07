@@ -114,7 +114,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
         : undefined,
   })
 
-  // 端口监听失败（EADDRINUSE）→ fatal 上报（guardian 停止重试，见 docs/service/README.md）。
+  // 端口监听失败（EADDRINUSE）→ fatal 上报（guardian 停止重试，见 docs/backend/service/README.md）。
   // ws 库把底层 _server 的 error 转发到 wss 实例的 'error' 事件（见 ws lib/websocket-server.js
   // addListeners: `error: this.emit.bind(this, 'error')`）；若 wss 无 error listener，
   // Node 视为 unhandled 'error' 直接 throw crash worker。挂上后 EADDRINUSE 走报告路径，

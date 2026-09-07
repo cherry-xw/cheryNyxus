@@ -2,7 +2,7 @@
  * Transitional backend capability port for feature migration.
  *
  * TODO(architecture): replace this service-shaped surface with capability-specific
- * command/query ports, then remove it (docs/architecture-issues.md TODO-A01).
+ * command/query ports, then remove it (docs/shared/architecture/issues.md TODO-A01).
  * Exports stay explicit so new service members do not become UI API accidentally.
  */
 export { agentApi, fetchServerConfig } from '@/services/agentApi'

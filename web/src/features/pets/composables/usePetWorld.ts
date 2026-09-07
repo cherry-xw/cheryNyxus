@@ -59,7 +59,7 @@ export function usePetWorld(
     string,
     { x: ReturnType<typeof gsap.quickSetter>; y: ReturnType<typeof gsap.quickSetter> }
   >()
-  // 稳定 ref 回调缓存（docs/agent-pet.md §6.2）：ref 函数身份必须跨渲染稳定——
+  // 稳定 ref 回调缓存（docs/shared/architecture/agent-orchestration.md §6.2）：ref 函数身份必须跨渲染稳定——
   // 内联箭头每次 PetStage 重渲染都产出新函数 → Vue 强制 PetSprite 级联重渲染并重触发
   // registerPetElement（delete + 重建 quickSetter + 直写 transform），弹窗开关/轮询即触发全量空转。
   const positionRefCache = new Map<string, (element: HTMLElement | null) => void>()

@@ -11,7 +11,7 @@
  * 副作用（pet 创建/resume/toast/working）经 `bindEffects()` 注入，默认 no-op；
  * Pet 领域分离（#9）后由 pet store 注入，保持数据层与展示层单向依赖。
  *
- * 详见 [docs/web/pet/agent-integration.md](../../../docs/web/pet/agent-integration.md)。
+ * 详见 [docs/frontend/pet/agent-integration.md](../../../docs/frontend/pet/agent-integration.md)。
  */
 
 import { defineStore } from 'pinia'
@@ -135,7 +135,7 @@ export function beginLiveRun(
   return started
 }
 
-/** run.status 写者收敛（阶段 3.3，docs/web/pet/agent-integration.md）：
+/** run.status 写者收敛（阶段 3.3，docs/frontend/pet/agent-integration.md）：
  * 快照/投影类写者（chat.list / chat.open / chat.attach）不得把已终态的会话
  * 回滚为 running —— 否则「暂停」后迟到的快照会让「停止」按钮复现。
  * 乐观操作（beginLiveRun 等）与严格 seq 序的 reducer 事件不走本函数。

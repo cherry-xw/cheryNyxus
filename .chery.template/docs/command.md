@@ -1,7 +1,7 @@
 # command — 用户指令（Command）
 
 > 模板目录：`.chery.template/command/` ｜ 运行位置：`.chery/command/`
-> 详细文档：[../../docs/system-prompt.md](../../docs/system-prompt.md)
+> 详细文档：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)
 
 ## 用途
 
@@ -76,4 +76,4 @@ description: <一句话描述>        # 出现在前端指令列表
 
 - 触发机制：[../prompt/system.md](../prompt/system.md)（「用户消息中的指令标记」段）
 - 模板示例：[../command/compact.md](../command/compact.md)
-- 提示词系统：[../../docs/system-prompt.md](../../docs/system-prompt.md)
+- 提示词系统：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)

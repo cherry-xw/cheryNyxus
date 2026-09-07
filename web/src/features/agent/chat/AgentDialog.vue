@@ -123,7 +123,7 @@ function enableAiQuickTarget(): void {
 }
 // 切会话清残留目标：钢琴键/历史列表/retarget 等外部切换不经过 picker，旧会话的选择
 // （尤其 'new'）对新会话无意义；composer 原生窗 keepAlive 不销毁组件，残留 'new' 会在
-// 下次发送时静默 chat.create 新会话。生命周期约定见 docs/interaction.md chat.route.suggest。
+// 下次发送时静默 chat.create 新会话。生命周期约定见 docs/shared/protocol/interactions.md chat.route.suggest。
 watch(chatId, () => {
   quickTarget.value = undefined
 })

@@ -4,18 +4,18 @@ import { safeJsonParse } from '@/utils/json.js'
 import { logger } from '@/utils/logger/index.js'
 
 /**
- * 幂等终态化 spawn 子 chat（防御性兜底，见 docs/service/chat.md chat.resume 流程）。
+ * 幂等终态化 spawn 子 chat（防御性兜底，见 docs/backend/service/chat.md chat.resume 流程）。
  *
  * 子 loop 真实故障归 failed，但 canResume 可独立为 true；故障本身不应把子任务误标 finished。
  * 用户续跑后若自然完成，再由末条 assistant 无 senseCalls 的判据终态化。
  * 子可能多次暂停-resume，最终一次 chat.resume 跑完时（末条 assistant 无 senseCalls）即为真正完成，必须标 finished。
  *
- * 主路径：wait=true/false 子 loop 结束均 yield child_done → observer 设 finished + wakeParent（docs/agent-pet.md §5.4）。
+ * 主路径：wait=true/false 子 loop 结束均 yield child_done → observer 设 finished + wakeParent（docs/shared/architecture/agent-orchestration.md §5.4）。
  * 本 helper 兜底 child_done 未走的边界（如 startSpawn RPC 中断后前端改发独立 chat.resume），与 handleChatStartSpawn
  * 的 4 处标记逻辑对齐，幂等不重复唤主。
  *
  * 判定权威：末条 assistant 且无 sense_calls（真正完成的唯一标志，与 computeCanResume ended 同源，
- * 见 docs/agent/middleware.md 统一暂停语义）。带 sense_calls 的末条 assistant 是 yield-turn 子
+ * 见 docs/backend/agent/middleware.md 统一暂停语义）。带 sense_calls 的末条 assistant 是 yield-turn 子
  * （spawn 孙后等待）或 AI 尚未基于工具结果回复，不标 finished。
  * 不调 wakeParent——observer.child_done 路径已唤主，此处仅补持久态。
  *

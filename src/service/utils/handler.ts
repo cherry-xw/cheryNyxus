@@ -345,7 +345,7 @@ async function fetchOllamaModels(url: string): Promise<UtilsModelsResponseData> 
 }
 
 /**
- * Anthropic 模型列表：双尝试（docs/agent/provider.md「anthropic 模型列表双尝试」）。
+ * Anthropic 模型列表：双尝试（docs/backend/agent/provider.md「anthropic 模型列表双尝试」）。
  * 主尝试 Anthropic 原生 GET {url}/models?limit=1000，header x-api-key + anthropic-version
  * （同 anthropic.ts 的 chat 路径鉴权方式）；版本前缀（如 /v1）由用户在 url 自己提供，
  * 与 joinAnthropicUrl 约定一致。非流式、无第三方 SDK。
@@ -401,7 +401,7 @@ async function fetchAnthropicModelsNative(
   fullUrl: boolean,
 ): Promise<UtilsModelsResponseData> {
   // models 端点走统一入口（拼 /models?limit=1000；fullUrl=true 原样访问，须含 /models，见
-  // docs/agent/provider.md「URL 解析与端点拼接」）
+  // docs/backend/agent/provider.md「URL 解析与端点拼接」）
   const modelsUrl = resolveProviderUrl('anthropic', url, { fullUrl, kind: 'models' })
   let res: Response
   try {
@@ -480,7 +480,7 @@ async function fetchAnthropicModelsNative(
 /**
  * OpenAI 兼容回退尝试：GET {base}/models（仅 Authorization Bearer）。
  * `/models` 为 openai 兼容协议常量（与 /chat/completions 同款豁免，buildEndpointUrl 直拼，
- * 见 docs/standards/provider-url-resolution.md §4）。失败就地返回 {models:[], error}，不抛。
+   * 见 docs/standards/modules/agent/provider-url-resolution.md §4）。失败就地返回 {models:[], error}，不抛。
  */
 async function fetchOpenAICompatModelsFallback(
   url: string,

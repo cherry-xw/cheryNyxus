@@ -5,7 +5,7 @@ import { safeJsonParse } from '@/utils/json.js'
 import { logger } from '@/utils/logger/index.js'
 
 /**
- * 唤醒策略调度器（见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+ * 唤醒策略调度器（见 docs/shared/architecture/agent-orchestration.md §5.4 唤醒策略调度器）。
  *
  * 介于 observer.child_done 与 wakeParent 之间：child_done 不再直调 wakeParent，
  * 而是经本调度器按子 wake_policy 决定 silent 暂存（deferred/barrier）/ resume 唤主（immediate 或策略满足）。

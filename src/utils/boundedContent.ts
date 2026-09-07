@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 
 /**
- * MCU lite profile 有界负载工具（docs/mcu-lite-api.md §3.7）。
+ * MCU lite profile 有界负载工具（docs/shared/protocol/profiles/mcu-lite.md §3.7）。
  * 字节定义的截断 + 内容引用，供 node.get 分段、interaction.list payload 截断、
  * lite 事件投影共用。截断责任在服务端（先例：chat.list preview 40 字符、generations
  * summary 500 字符——db/chat.ts getChatPreviews、generations.ts）。

@@ -96,7 +96,7 @@ interface PromptPieces {
   roleMentionsSection: string
   historyGenerationsSection: string
   // 注意：内置命令（/.chery/command/*.md）不再预注入 system prompt；trigger 时由 send 路径临时附注。
-  // 详见 docs/agent/command.md。
+  // 详见 docs/backend/agent/command.md。
 }
 
 /**
@@ -128,7 +128,7 @@ function buildPromptPieces(
     time: dayjs().toISOString(),
   }
   // .chery 配置目录绝对路径（恒注入：即使 preset 未配 workspace，LLM 也至少持有一个绝对路径锚点，
-  // 避免"要求绝对路径却无任何路径信息"导致 LLM 猜相对路径 / 执行 pwd 自救——历史事故见 docs/agent/prompt-guide.md 案例 25c894db）
+  // 避免"要求绝对路径却无任何路径信息"导致 LLM 猜相对路径 / 执行 pwd 自救——历史事故见 docs/backend/agent/prompt-guide.md 案例 25c894db）
   const cheryDir = path.resolve(process.env.CHERY_DIR || process.cwd(), '.chery')
   const envBlock = `<environment>
 操作系统: ${envInfo.os}
@@ -196,9 +196,9 @@ function buildPromptPieces(
           )}\n\n用户消息中的 [[role:@名称]] 是选择器插入的结构化角色标记，不是普通文本。它表示用户已明确点名该角色参与本次协作——这是一个强信号：用户期望由该专职角色承担相关任务，而非你亲自代劳。你作为 coordinator，核心价值在于编排与交付而非独揽执行；把专业任务交给专职角色是本协作模式的立身之本，随手自办会浪费编制、削弱产出质量。你仍需结合任务依赖，自主决定是否派发、并行或串行顺序、是否补充其他角色以及 wake 策略；但权衡时应把「交给被 @ 的角色」作为首选倾向，仅当确有理由自办时才不派发。实际派发只能通过 spawn_role，且必须遵守其可用角色限制。不要把标记原样当作用户任务内容回复。\n</role-mentions>`
       : ''
   // 内置命令（/.chery/command/*.md）不在默认 system prompt 注入；trigger 时由 autoCompact / manual
-  // 路径临时附注到 user prompt 末尾。详见 docs/agent/command.md。
+  // 路径临时附注到 user prompt 末尾。详见 docs/backend/agent/command.md。
 
-  // LLM 历史回忆 L0 索引（docs/agent/prompt.md「<history_generations> 段」）：
+  // LLM 历史回忆 L0 索引（docs/backend/agent/prompt.md「<history_generations> 段」）：
   // 仅当该 chat 存在已定稿 compact 代际时注入（每代一行摘要），无 compact 历史零开销。
   // 注入时机为 chat 初始化（system 消息构造时一次性）；进程内新增 compact 后索引滞后一代，
   // 重启 / 切回 chat 重建时刷新，细粒度回忆由 history_recall 感官承担。

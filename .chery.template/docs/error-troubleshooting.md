@@ -137,7 +137,7 @@ grep -r '"tracingId":"1c538629"' .chery/
 grep -r "compose.unhandled\|llm.key.missing\|req.invalid_params" .chery/logs/ | grep "1c538629"
 ```
 
-日志格式与查询详见 [../../docs/utils/logger.md](../../docs/utils/logger.md)。
+日志格式与查询详见 [../../docs/utils/logger.md](../../docs/backend/utils/logger.md)。
 
 **让用户提供 tracingId 的标准话术**：
 

@@ -50,7 +50,7 @@ function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
-// ========== 语义面 / 连接面分层（见 docs/context-epochs.md「配置修订的语义面与连接面」） ==========
+// ========== 语义面 / 连接面分层（见 docs/shared/architecture/context-epochs.md「配置修订的语义面与连接面」） ==========
 //
 // fingerprint 只覆盖语义面：影响发往 LLM 的消息内容或工具契约的字段属语义面；
 // 只影响请求目标、请求参数或执行策略的字段属连接面（url/key/rpm/超时等），变更仅热更新运行配置。

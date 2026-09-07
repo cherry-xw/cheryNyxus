@@ -6,7 +6,7 @@
  * - handler 进程不预热（仿 mock 哲学：每次 dispatch 按需 spawn，dev 改 hooks.json 免重启）
  * - 文件不存在或解析失败 → log + 空表（graceful degradation：不阻断启动）
  *
- * 详见 [docs/agent/hooks.md](../../../../docs/agent/hooks.md)。
+ * 详见 [docs/backend/agent/hooks.md](../../../../docs/backend/agent/hooks.md)。
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
@@ -74,7 +74,7 @@ function buildHookRegistry(
 function logRegistryLoaded(merged: HookHandlerMap, globalExists: boolean): void {
   // 启动期健康检查（先例：git 导入的 gitNotInstalled 预探测）：注册了 handler 但
   // POSIX shell 不可用 → 显著 warn 提前暴露（Windows 无 sh 会阻断每次 dispatch，
-  // 见 docs/agent/hooks.md「跨平台执行」失败语义表），而非在会话中反复撞墙。
+  // 见 docs/backend/agent/hooks.md「跨平台执行」失败语义表），而非在会话中反复撞墙。
   const handlerCount = Object.values(merged).reduce((sum, list) => sum + (list?.length ?? 0), 0)
   if (handlerCount > 0) {
     try {

@@ -161,7 +161,7 @@ export function useWorkbenchTreeSession(options: {
     if (creating.value) return
     creating.value = true
     try {
-      // 空白复用判定在后端（chat.create 默认启用，契约见 docs/interaction.md）：命中同预设
+      // 空白复用判定在后端（chat.create 默认启用，契约见 docs/shared/protocol/interactions.md）：命中同预设
       // turnCount===0 的 root 会话直接返回其 chatId（reused:true），前端无须区分，直接跳转。
       // 此前前端曾以 stage 目录的 turnCount 自行判空——stage lean 响应恒无 turnCount，判定恒真，
       // 导致「新建会话」永远复用当前会话而不发创建请求（2026-08-29 修复，判定移交后端）。

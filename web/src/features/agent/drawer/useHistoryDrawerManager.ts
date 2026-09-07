@@ -16,7 +16,7 @@ import type { HistoryDrawerAnchor, HistoryDrawerMode } from '@/application/workb
  * 3. 历史加载 + 缓存预留：loadHistory 透传 store.getHistory；historyCache 接口预留命中逻辑，
  *    实时对话一致性需脏标记/版本号失效配合，当前一律全量，避免陈旧。
  *
- * 详见 docs/web/pet/agent-integration.md CP4、docs/web/renderer.md「跨层服务」。
+ * 详见 docs/frontend/pet/agent-integration.md CP4、docs/frontend/renderer.md「跨层服务」。
  */
 
 /** 缓存条目结构（预留，当前 loadHistory 不启用命中）。 */

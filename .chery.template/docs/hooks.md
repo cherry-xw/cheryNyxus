@@ -174,5 +174,5 @@ dispatch(event, payload, ctx)
 ## 关联
 
 - 详细契约：[../../docs/agent/hooks.md](../../docs/agent/hooks.md)
-- Anthropic provider：[docs/agent/provider.md](../../docs/agent/provider.md)
+- Anthropic provider：[docs/agent/provider.md](../../docs/backend/agent/provider.md)
 - 模板示例：[../hooks/anthropic-thinking.sh](../hooks/anthropic-thinking.sh)

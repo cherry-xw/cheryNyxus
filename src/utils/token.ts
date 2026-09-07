@@ -46,7 +46,7 @@ export function sumChatTokens(chatId: string): number {
   return total
 }
 
-/** 用户对话段计入的 role（sense 调用结果按设计计入用户对话，见 docs/agent/prompt.md 分段表）。 */
+/** 用户对话段计入的 role（sense 调用结果按设计计入用户对话，见 docs/backend/agent/prompt.md 分段表）。 */
 const CONVERSATION_ROLES = new Set(['user', 'assistant', 'role', 'subagent', 'sense'])
 
 /**

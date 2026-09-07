@@ -5,7 +5,7 @@ import { logger } from '@/utils/logger/index.js'
  *
  * worker 监听端口失败（EADDRINUSE）时调用：先经 IPC 通知 guardian 该错误**不可重试**，
  * 再记录错误日志并退出进程。guardian 收到 `{type:"fatal", code, port}` 后停止重启循环
- * 并给出端口占用提示（见 docs/service/README.md「守护进程（guardian）双进程模型」）。
+ * 并给出端口占用提示（见 docs/backend/service/README.md「守护进程（guardian）双进程模型」）。
  *
  * 直接运行（无 guardian IPC 通道，`process.send` 为 undefined）时仅走日志 + 退出路径。
  */

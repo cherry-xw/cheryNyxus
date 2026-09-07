@@ -3,7 +3,7 @@
  *
  * 启动期调用 `loadHookRegistry()` 一次性解析到内存；dispatch 时按需 spawn handler。
  *
- * 详见 [docs/agent/hooks.md](../../../../docs/agent/hooks.md)。
+ * 详见 [docs/backend/agent/hooks.md](../../../../docs/backend/agent/hooks.md)。
  */
 
 export { dispatch } from './dispatch.js'

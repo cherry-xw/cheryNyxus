@@ -4,7 +4,7 @@ import { logger } from './logger/index.js'
 import { LogLevel } from './logger/types.js'
 
 /**
- * 错误信息分层工具（见 [docs/error-conventions.md](../../docs/error-conventions.md)）。
+ * 错误信息分层工具（见 [docs/shared/protocol/errors.md](../../docs/shared/protocol/errors.md)）。
  *
  * 提供 `newTracingId` / `throwUserFacing` / `ClassifiedError` / `classifyError` / `friendlyMessage`：
  * - `newTracingId`：8 位 hex（UUID v4 前 8 位），用户面 + 日志面抄录用
@@ -30,7 +30,7 @@ export type ErrorSource = 'brain' | 'sense' | 'media' | 'mcp' | 'chat' | 'system
  * 8 位 hex tracingId：UUID v4 前 8 位，理论 16^8 ≈ 42 亿组合，足够全局唯一。
  *
  * 用户面消息**前置**此 id，开发者凭 id 全文检索日志还原上下文。
- * 检索示例（见 [error-conventions.md 日志检索约定](../../docs/error-conventions.md#日志检索约定)）：
+ * 检索示例（见 [error-conventions.md 日志检索约定](../../docs/shared/protocol/errors.md#日志检索约定)）：
  *   grep "1c538629" .chery/logs/
  *   grep -r '"tracingId":"1c538629"' .chery/
  */

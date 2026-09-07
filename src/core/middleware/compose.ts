@@ -88,7 +88,7 @@ async function* executeChain<T>(
     const message = err instanceof Error ? err.message : String(err)
 
     // 合规错误：message 开头已有 `[8hex] `（throwUserFacing / 上游 ClassifiedError 出口产出）
-    // → 原样上浮，不二次包装（[docs/error-conventions.md](../../docs/error-conventions.md)）
+    // → 原样上浮，不二次包装（[docs/shared/protocol/errors.md](../../docs/shared/protocol/errors.md)）
     if (COMPLIANT_TRACE_PATTERN.test(message)) {
       throw err
     }

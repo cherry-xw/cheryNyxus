@@ -29,7 +29,7 @@ afterEach(() => {
 /**
  * chat.create 空白复用（默认启用，skipBlankReuse 显式关闭）：预设路径 + 主 chat + 未显式
  * 指定 chatId 时，命中同预设 turnCount===0 的最近 root 会话直接返回其 chatId（reused:true）。
- * 契约见 docs/interaction.md「chat.create」与 docs/protocol.md 方法表。
+ * 契约见 docs/shared/protocol/interactions.md「chat.create」与 docs/shared/protocol/websocket.md 方法表。
  */
 describe('chat.create blank root reuse', () => {
   it('reuses blank root of the same preset, creates fresh once non-blank or opt-out', async () => {

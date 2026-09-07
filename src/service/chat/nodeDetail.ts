@@ -20,7 +20,7 @@ import { truncateByBytes, contentRef, utf8ByteLength } from '@/utils/boundedCont
  * 在此 handler 顶部接入。
  */
 
-/** 单响应硬上限：32KB（docs/mcu-lite-api.md §3.5/§3.7）。 */
+/** 单响应硬上限：32KB（docs/shared/protocol/profiles/mcu-lite.md §3.5/§3.7）。 */
 const MAX_RESPONSE_BYTES = 32 * 1024
 
 /** 32KB 减去 JSON 结构/其余字段的安全余量后，正文文本的可用预算。 */

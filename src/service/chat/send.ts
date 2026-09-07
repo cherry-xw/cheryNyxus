@@ -320,7 +320,7 @@ export async function* handleChatResume(
 
   // pending 提问批守卫：提问占位期间禁止 resume，答案必须走 chat.answerQuestionBatch
   // （批完成 → 置 resumePending → 返回 shouldResume，前端批完成后才调 resume）。
-  // 防御前端竞态/绕过带着未答问题跑 Case2 死循环；见 docs/interaction.md 工作台树级暂停与续接。
+  // 防御前端竞态/绕过带着未答问题跑 Case2 死循环；见 docs/shared/protocol/interactions.md 工作台树级暂停与续接。
   if (hasPendingQuestionBatches(chatId)) {
     throw new Error('该会话有待回答的问题，请先完成提问')
   }
@@ -392,7 +392,7 @@ export async function* handleChatResume(
   }
 
   // 防御性 finalize：子 chat（parent_chat_id 非空）经独立 resume 跑完时兜底标 finished
-  // （主路径 wait=true/false 子 loop 结束均经 child_done 设 finished，见 docs/agent-pet.md §5.4；
+  // （主路径 wait=true/false 子 loop 结束均经 child_done 设 finished，见 docs/shared/architecture/agent-orchestration.md §5.4；
   //   此处兜底 child_done 未走边界，与 handleChatStartSpawn 对齐，幂等，不唤主）。
   if (chat.parent_chat_id) finalizeSpawnChildIfDone(chatId)
 

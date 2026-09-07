@@ -5,7 +5,7 @@ import {
 } from "@/core/llm/urlPattern";
 
 /**
- * Provider URL 模式注册表（docs/agent/provider.md「URL 解析与自动补全」）：
+ * Provider URL 模式注册表（docs/backend/agent/provider.md「URL 解析与自动补全」）：
  * 纯数据注册表，只验证注册/获取/覆盖三态语义；解析行为由 resolveProviderUrl
  * （agent/provider/fetchBase.ts）消费，见 fetchBase.test.ts「resolveProviderUrl 统一入口」。
  */

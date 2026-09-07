@@ -28,7 +28,7 @@ export function sessionPianoKeyCount(historyCount: number): number {
  * `branchKind` 缺省或 'original'（剔延续/解释分支）。分支会话（chat.branch.create
  * 产物）本身是无 parentChatId 的独立 root chat，仅靠 `!parentChatId` 过滤不掉，
  * 必须按 branchKind 显式剔除；被激活为主干的 continuation 也不占琴键
- * （约定见 docs/web/pet/rendering.md NyxusPianoStrip 章节）。
+ * （约定见 docs/frontend/pet/rendering.md NyxusPianoStrip 章节）。
  */
 export function isPianoRootSession(c: {
   parentChatId?: string | null

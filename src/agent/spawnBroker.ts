@@ -1,7 +1,7 @@
 /**
  * Spawn Broker（主从 Agent 桌宠系统 CP3 / wait=true 唤醒链）
  *
- * 职责（2026-07-09 重构：废除阻塞心跳，改 yield turn + 子完成唤醒，见 docs/agent-pet.md §5.4）：
+ * 职责（2026-07-09 重构：废除阻塞心跳，改 yield turn + 子完成唤醒，见 docs/shared/architecture/agent-orchestration.md §5.4）：
  * 1. 唤醒链 `waitedChildren`（childChatId → {parentChatId, type}）：spawn 时注册（覆盖 wait=true/false），
  *    子完成/出错/超时由 service 层 wakeParent 消费并 clearWaitedChild。递归天然支持（任何 agent 的 spawn 子都在此 Map）。
  * 2. `asyncWatchdogs`：每 wait-子 5min 看门狗；超时触发 service 注入的 asyncWakeHandler（wakeParent 超时 content + abortChatRuntime）。
@@ -19,7 +19,7 @@
 import config from '@/utils/config.js'
 
 /**
- * 唤醒策略（取代旧 wait:boolean，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+ * 唤醒策略（取代旧 wait:boolean，见 docs/shared/architecture/agent-orchestration.md §5.4 唤醒策略调度器）。
  * - immediate：子完成立即唤主（聚合所有已完成子结果）
  * - deferred：子完成静默暂存（落主 DB 不唤主）；全 deferred 集最后一个完成隐式唤主（兜底）
  * - barrier：声明栅栏，主 chat 进入 all 模式 → 所有未完成子完成才唤主（期间 immediate 子也暂存）

@@ -168,7 +168,7 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   }
 
   // 启动期清扫僵尸提问批（batch pending 但零 pending item），防重启后 hasPendingQuestionBatches
-  // 长期短路 canResume 造成"无卡片无按钮"硬死锁（见 docs/interaction.md 工作台树级暂停与续接）。
+  // 长期短路 canResume 造成"无卡片无按钮"硬死锁（见 docs/shared/protocol/interactions.md 工作台树级暂停与续接）。
   const sweptQuestionBatches = sweepOrphanQuestionBatchesAcrossRoots()
   if (sweptQuestionBatches > 0) {
     logger.event('chat.questions.swept', { count: sweptQuestionBatches }, LogLevel.warn)

@@ -1,7 +1,7 @@
 /**
  * ChatSession 单写者 reducer（纯数据变更，唯一领域写入入口）。
  *
- * 不变量（见 [docs/web/pet/agent-integration.md](../../../../docs/web/pet/agent-integration.md)）：
+ * 不变量（见 [docs/frontend/pet/agent-integration.md](../../../../docs/frontend/pet/agent-integration.md)）：
  * - 纯函数：相同 `(session, event, ctx)` 输入产出相同结果；不调用 Date.now/random/不发 RPC/不碰 DOM。
  *   时间相关字段（retainUntil/createdAt）由 `ctx.now` 注入，store 层传 `Date.now()`。
  * - 幂等：重复应用相同 `seq`/`msgId`/`senseId` 不改变结果（WS seq + msgId 双轴去重）。
