@@ -1,7 +1,7 @@
 /**
  * ChatSession 单一数据层类型契约（canonical per-chatId 实体）。
  *
- * 设计目标见 [docs/web/pet/agent-integration.md](../../../../docs/web/pet/agent-integration.md)：
+ * 设计目标见 [docs/frontend/pet/agent-integration.md](../../../../docs/frontend/pet/agent-integration.md)：
  * - 每个 chatId 只对应一个 `ChatSession`；所有领域写入只经 reducer（`applyEvent`）或快照替换（`replaceSnapshot`）。
  * - Pet 气泡与 HistoryDrawer 共享同一 `ChatMessage`（`messagesById` 唯一实例），实时打字机即同一消息 delta 持续更新。
  * - 主/子群聊时间线由 selector 动态聚合，不把子消息复制进父实体。

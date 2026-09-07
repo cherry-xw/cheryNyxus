@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * ServerLoginDialog：后端服务对接窗（登录窗 2026-09 重置 v5：「暗房 + 灯」CyberWindow 一致壳）。
- * 视觉规格见 docs/web/auth-login.md；浮动形态窗口 chrome 与 desktop/CyberWindow 完全一致
+ * 视觉规格见 docs/frontend/auth-login.md；浮动形态窗口 chrome 与 desktop/CyberWindow 完全一致
  * （AUTH channel 徽记 + signal + 文字三键 + 角括号装饰层）+ LampPasswordField（原生密码框）
  * + rift-light（面板级手电光束覆盖层，光源 = 手电 icon 灯头口）。
  * 三键（弹窗自包含）：最小化 = 卷帘收缩（标题栏恢复）；最大化 = 铺满视口；关闭 = close()。

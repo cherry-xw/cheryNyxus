@@ -1,7 +1,7 @@
 /**
  * config_manage 敏感字段脱敏/还原 单测：redactConfigSecrets / restoreRedactedSecrets。
  *
- * 契约见 docs/agent/config-manage.md「敏感字段脱敏」：
+ * 契约见 docs/backend/agent/config-manage.md「敏感字段脱敏」：
  *  - $ENV 占位符原样保留；明文 key → [REDACTED]；mcp env 值同理；mcp url 内联凭证段脱敏。
  *  - save 侧把 [REDACTED] 还原为盘上原值；新明文 / $ENV 直通。
  * 纯函数测试（无 IO），不需要临时 CHERY_DIR。

@@ -129,7 +129,7 @@ export class RpcRouter {
     }
     const parsed = schema.safeParse(request.params)
     if (!parsed.success) {
-      // 两层错误（docs/error-conventions.md）：用户面一行中文 + 前置 tracingId；
+      // 两层错误（docs/shared/protocol/errors.md）：用户面一行中文 + 前置 tracingId；
       // 完整 Zod issues（path/code/expected/received 机读细节）走 logger.event 落盘，不进 message。
       const tracingId = newTracingId()
       logger.event(

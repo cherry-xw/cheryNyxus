@@ -11,7 +11,7 @@ Apply these corrections by default. If the surrounding context clearly conflicts
 
 ## Plan operation
 
-All implementation plans must be written under `docs/plan/` and follow [`docs/standards/plan-operation.md`](docs/standards/plan-operation.md).
+All implementation plans must be written under `docs/plan/` and follow [`docs/standards/global/plan-operation.md`](docs/standards/global/plan-operation.md).
 
 ## Interaction-design comprehension
 

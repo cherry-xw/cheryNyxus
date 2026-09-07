@@ -60,7 +60,7 @@ export interface SoulGroup {
   roleReplyPending?: boolean
   /**
    * yield turn 标志：spawn_role wait=true 置位，请求 loop 本轮 runChain 后立即结束本 turn
-   * （子完成后后端注入角色回复唤起新一轮，见 docs/agent-pet.md §5.4）。loop stop-decision 读取。
+   * （子完成后后端注入角色回复唤起新一轮，见 docs/shared/architecture/agent-orchestration.md §5.4）。loop stop-decision 读取。
    */
   yieldTurn?: boolean
 }
@@ -461,7 +461,7 @@ export interface ChildYieldChunk {
 }
 
 /**
- * 角色完成信号（wait=true 唤醒链，见 docs/agent-pet.md §5.4）。
+ * 角色完成信号（wait=true 唤醒链，见 docs/shared/architecture/agent-orchestration.md §5.4）。
  * 子 loop 正常结束时，若 getWaitedParent 命中（本 chat 是被 wait 的子）→ yield 此 chunk；
  * service observer 消费 → wakeParent 注入角色回复 + 推 role_reply 唤主。
  */

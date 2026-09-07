@@ -29,7 +29,7 @@ export function toTreeControlState(rootChatId: string): TreeControlState | undef
   if (!operation) return undefined
   // 目标回落（视图层）：resumed 目标若最新 run 已回到 paused 且 computeCanResume
   // （续跑失败/再次暂停），投影为 paused，前端「继续」按钮重现。
-  // 语义见 docs/interaction.md 工作台树级暂停与续接「目标可续语义（回落）」。
+  // 语义见 docs/shared/protocol/interactions.md 工作台树级暂停与续接「目标可续语义（回落）」。
   const latestRuns = new Map(listLatestExecutionRuns(rootChatId).map((run) => [run.chatId, run]))
   return {
     pauseId: operation.pauseId,

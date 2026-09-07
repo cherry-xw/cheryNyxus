@@ -5,7 +5,7 @@
  * 本文件仅提供确定性数据变换，便于单测与复用。
  *
  * 启动/加载/重连共用同一变换：snapshot 在 `snapshotSeq` 边界做权威 replace（currentState/question/context），
- * 边界后缓冲事件由 wsClient gap buffer 按 seq 排出再经 reducer 应用（见 [docs/web/pet/agent-integration.md](../../../../docs/web/pet/agent-integration.md)）。
+ * 边界后缓冲事件由 wsClient gap buffer 按 seq 排出再经 reducer 应用（见 [docs/frontend/pet/agent-integration.md](../../../../docs/frontend/pet/agent-integration.md)）。
  */
 
 import type { ChatSession, ChatSessionSnapshot, ChatMetadata, ChatInteractionState } from '../types'

@@ -226,7 +226,7 @@ export function resolveShellExecutable(shell: 'bash' | 'powershell'): {
 
 // ============ POSIX shell 解析（hooks 执行器 / execute_command bash 方言共用）============
 
-/** 解析不到 POSIX shell 时的统一指引（userMessage 直出，见 docs/agent/hooks.md 跨平台执行） */
+/** 解析不到 POSIX shell 时的统一指引（userMessage 直出，见 docs/backend/agent/hooks.md 跨平台执行） */
 export const POSIX_SHELL_HINT =
   '未找到可用的 POSIX shell（bash/sh）。Windows 请安装 Git for Windows（探测链会自动定位其 bash），或删除/改写对应 handler'
 

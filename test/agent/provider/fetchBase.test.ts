@@ -11,7 +11,7 @@ import { ClassifiedError } from '@/utils/error.js'
 import { ErrorId } from '@chery/protocol'
 
 /**
- * fetchBase 的 URL 端点拼接与流完整性校验（docs/agent/provider.md）：
+ * fetchBase 的 URL 端点拼接与流完整性校验（docs/backend/agent/provider.md）：
  * - buildEndpointUrl：base + endpoint（版本段由用户填写，不自动补 /v1）、fullUrl 原样返回
  * - streamSSE/jsonRequest：伪 200（非事件流/JSON，如网关 SPA 回退）→ validation；
  *   空流（0 有效事件）→ provider。

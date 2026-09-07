@@ -3,7 +3,7 @@ import { useRenderQuality, type RenderQualityTier } from '@/composables/renderQu
 import { useMotionPreference, type EffectiveMotionMode } from './useMotionPreference'
 
 /**
- * 动效质量三档效果映射（docs/web/motion-standard.md §3）：
+ * 动效质量三档效果映射（docs/frontend/motion-standard.md §3）：
  * 复杂度挂接 `useRenderQuality().tier`，降复杂度不降帧率——不设 ticker.fps 上限，只裁效果。
  */
 export interface MotionTierSpec {

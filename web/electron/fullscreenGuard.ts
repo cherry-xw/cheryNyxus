@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
  * 「最大化窗口」区分开。
  *
  * 检测到全屏 → 隐藏 desktop 窗（不渲染不占资源，pet/CheryNyxus 让位给全屏应用）；
- * 退出全屏 → 延迟恢复（防窗口切换抖动）。见 docs/web/electron.md「全屏隐藏」。
+ * 退出全屏 → 延迟恢复（防窗口切换抖动）。见 docs/frontend/electron.md「全屏隐藏」。
  *
  * 降级策略：koffi 加载 / user32.dll 加载 / 枚举异常 → console.warn 后返回空操作，
  * 不阻塞主流程。仅 win32 有语义，其他平台直接 no-op。

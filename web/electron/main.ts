@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } from 'electron'
 import { ensureEnvSeed } from '../../scripts/lib/chery-template-sync.mjs'
-// 桌面单窗：pet / nyxus 两独立浮窗体系（FloatingWindow / 漂移 / teleport / surface:* IPC）已废弃，见 docs/web/electron.md「2026-08 单窗合并」。
+// 桌面单窗：pet / nyxus 两独立浮窗体系（FloatingWindow / 漂移 / teleport / surface:* IPC）已废弃，见 docs/frontend/electron.md「2026-08 单窗合并」。
 // 全屏覆盖检测：外部全屏视频 / 游戏出现时隐藏 desktop 窗（koffi + user32，失败降级不阻塞）。
 import { startFullscreenGuard } from './fullscreenGuard'
 
@@ -324,7 +324,7 @@ function loadRenderer(win: BrowserWindow, params: Record<string, string> = {}): 
 }
 
 /**
- * 渲染进程诊断日志（全部窗口注册）：黑屏类问题先看这里（详见 docs/web/electron.md「渲染进程崩溃观测」）。
+ * 渲染进程诊断日志（全部窗口注册）：黑屏类问题先看这里（详见 docs/frontend/electron.md「渲染进程崩溃观测」）。
  * - render-process-gone：渲染进程崩溃/被杀——GPU 崩溃时窗口只剩 backgroundColor 兜底色、DevTools 打不开。
  * - did-fail-load：主帧加载失败——dev server 未起 / 产物路径缺失。
  */

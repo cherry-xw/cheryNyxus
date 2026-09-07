@@ -221,7 +221,7 @@ export class AgentBuilder {
   }
 
   /**
-   * 门面：注入角色回复消息（子完成唤醒主用，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+   * 门面：注入角色回复消息（子完成唤醒主用，见 docs/shared/architecture/agent-orchestration.md §5.4 唤醒策略调度器）。
    * 守单一写者：经 journal.appendRoleReply 写 soul.messages（内存）；DB 落库由 service wakeParent addMessage。
    * @param options.silent deferred/barrier 暂存注入不置 roleReplyPending
    * @returns 新消息 id（供 wakeParent addMessage 落库）

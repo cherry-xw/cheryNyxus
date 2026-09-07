@@ -16,7 +16,7 @@ const COMMAND_FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
  *
  * 不再被默认 system prompt 注入（避免占用 token 预算）；
  * 在 autoCompact / 手动 /compact 触发时由 service 层实时 readFile 拿正文，
- * 临时附注到该轮 user prompt 末尾。详见 docs/agent/command.md。
+ * 临时附注到该轮 user prompt 末尾。详见 docs/backend/agent/command.md。
  */
 export function getSystemCommand(name: string): SystemCommand | undefined {
   const filePath = join(process.env.CHERY_DIR || process.cwd(), '.chery', 'command', `${name}.md`)

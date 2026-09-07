@@ -4,7 +4,7 @@
  * - matcher：仿 Claude Code 规则（exact / `|`/`,` 分隔集合 / 正则）
  * - if 谓词：jq-lite 子集（仅支持字段访问、字面量比较、truthy）
  *
- * 详见 [docs/agent/hooks.md](../../../../docs/agent/hooks.md)。
+ * 详见 [docs/backend/agent/hooks.md](../../../../docs/backend/agent/hooks.md)。
  */
 
 /** Handler 配置：含 matcher / if 谓词 / command / timeout */

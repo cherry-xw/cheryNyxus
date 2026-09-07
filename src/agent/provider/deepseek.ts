@@ -40,7 +40,7 @@ const deepseekLLMAdapter: LLMAdapter = {
         model,
         messages,
         stream: false,
-        // thinking 片段直传（翻译在 chat middleware，见 docs/agent/provider.md）
+        // thinking 片段直传（翻译在 chat middleware，见 docs/backend/agent/provider.md）
         ...(options?.thinkingParams ?? {}),
         ...(senses.length > 0 && { tools: senses }),
       },

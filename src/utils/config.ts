@@ -172,7 +172,7 @@ interface BrainConfig {
   /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
   rpm?: number
   /** true=URL 已含完整端点（如 /v1/messages），provider 完全不拼接、原样访问；
-   * 缺省 false=只拼端点（版本段 /v1 由用户填写）。规则见 docs/agent/provider.md「URL 解析与端点拼接」。 */
+   * 缺省 false=只拼端点（版本段 /v1 由用户填写）。规则见 docs/backend/agent/provider.md「URL 解析与端点拼接」。 */
   fullUrl?: boolean
   /** mock provider 专用：脚本化响应 */
   mock?: MockConfig
@@ -338,7 +338,7 @@ export interface PresetConfig {
   schedule?: PresetSchedule
   /**
    * smart 监管规则覆盖文件名（.chery/rule/ 下，不含 base.yaml）。
-   * 与基准 base.yaml 深合并（dangerPatterns 追加去重；详见 docs/core/sense.md「smart 规则表」）。
+   * 与基准 base.yaml 深合并（dangerPatterns 追加去重；详见 docs/backend/core/sense.md「smart 规则表」）。
    * chat.create 选预设时快照入 metadata.rule（子 agent 继承父）；缺省 → 仅用基准。
    */
   rule?: string
@@ -523,7 +523,7 @@ interface GlobalConfig {
   textEditor?: string // 文本编辑器路径（如 vscode、notepad、记事本等），用于打开配置文件
   command?: CommandConfig // 内置命令（compact 等）触发与可见性配置
   /**
-   * 看门狗配置（子 agent 运行时监控，见 docs/agent-pet.md §5.4 feed-dog 看门狗）。
+   * 看门狗配置（子 agent 运行时监控，见 docs/shared/architecture/agent-orchestration.md §5.4 feed-dog 看门狗）。
    * - timeout_ms：子无产出（observer for-await 无 chunk 喂狗）超过此值判定卡死，默认 300000（5min）。
    * - wake_on_timeout：超时是否唤主。true=通知主（注入超时说明）；false=仅暂停子（abort+clear），主不受影响，默认 false。
    *   统一暂停语义下子 chat 保持末条派生 canResume，用户可 resume 续跑。
@@ -1437,7 +1437,7 @@ export function readRawConfig(): ConfigRaw {
 
 /**
  * 配置敏感字段脱敏（供 config_manage get 返回 / 前端 config.get 前过滤）。
- * 规则（对照 docs/agent/config-manage.md「敏感字段脱敏」）：
+ * 规则（对照 docs/backend/agent/config-manage.md「敏感字段脱敏」）：
  *  - `$ENV` 占位符（/^\$[A-Z_][A-Z0-9_]*$/）原样保留——运行时由 replaceEnvVars 注入，占位符本身非敏感。
  *  - `llm.brain.*.key` / `media.*.key`：非 $ENV 明文 → `[REDACTED]`。
  *  - `mcp_servers.*.env`：每个值非 $ENV → `[REDACTED]`。

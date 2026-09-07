@@ -90,7 +90,7 @@ function startWorker(): void {
       return
     }
     // worker 报告不可重试的启动失败（如端口被占用）→ 停止守护循环并提示。
-    // 端口占用属环境问题，重试无效：不进入重启循环（见 docs/service/README.md）。
+    // 端口占用属环境问题，重试无效：不进入重启循环（见 docs/backend/service/README.md）。
     if (m.type === 'fatal') {
       stopping = true
       if (m.code === 'EADDRINUSE') {

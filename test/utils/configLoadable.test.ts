@@ -1,6 +1,6 @@
 /**
  * 配置可加载性预检 单测：validateLoadable（重启前 dry-run，防坏配置 crash-loop 永不恢复）。
- * 契约见 docs/agent/config-manage.md「重启前预检（dry-run）」。
+ * 契约见 docs/backend/agent/config-manage.md「重启前预检（dry-run）」。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'

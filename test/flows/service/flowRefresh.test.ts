@@ -1,7 +1,7 @@
 /**
  * 流程测试 Tier 2：刷新重连 S8–S12（service+WS 级，真实断连/重连）。
  *
- * 规约见 [docs/flow-test.md](../../../docs/flow-test.md) §3.B。G1/G3/G8 验收主战场：
+ * 规约见 [docs/quality/testing/flows.md](../../../docs/quality/testing/flows.md) §3.B。G1/G3/G8 验收主战场：
  * - S9 审批中断刷新续跑【原 approvalId】：chat.open 恢复持久 interaction，原 id 命中。
  *
  * 复用 serviceHarness（真实 startService）+ RpcClient（binary 帧解码 + reconnect）+ eventsAssert。

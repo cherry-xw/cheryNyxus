@@ -64,7 +64,7 @@ export function selectRunStatus(session: ChatSession): ChatSession['run']['statu
  * 可显式继续（统一暂停语义：paused 显继续按钮；ended 无按钮）。
  * 显式三段（不 `??` 退化）：context.canResume 权威（后端 chat.list/chat.get 投影 +
  * 前端操作方维护），undefined 时才回退 run.status。stale false 会错误隐藏「继续」按钮。
- * 消费方（agents store / hydration）必须复用本函数，消除三处漂移（docs/web/pet/agent-integration.md）。
+ * 消费方（agents store / hydration）必须复用本函数，消除三处漂移（docs/frontend/pet/agent-integration.md）。
  */
 export function resolveCanResume(session: ChatSession): boolean {
   // 「继续」显隐由服务端 canResume 权威判定（error 通知 / chat.list 投影），原样尊重；

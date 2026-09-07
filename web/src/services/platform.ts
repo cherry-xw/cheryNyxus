@@ -12,7 +12,7 @@
  * - `httpUrl` 行为兼容旧 API（[http.ts] 转发层保留 5 处旧 import 路径不变）
  * - `ServerConfig` 是后端配置契约的唯一类型源，ws.ts 通过 `import type` 消费
  *
- * 详细：[docs/web/env.md](../../../docs/web/env.md)
+ * 详细：[docs/frontend/env.md](../../../docs/frontend/env.md)
  */
 
 import { hostOf } from '@/domain/auth/serverAddress'

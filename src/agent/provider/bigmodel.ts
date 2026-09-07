@@ -8,7 +8,7 @@
  * 片段（模型目录 wire），此处只原样 spread 进请求体。
  * base_url 默认 https://open.bigmodel.cn/api/paas/v4/（可配，也能指向聚合端点）。
  *
- * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) 「bigmodel provider」。
+ * 详见 [docs/backend/agent/provider.md](../../../docs/backend/agent/provider.md) 「bigmodel provider」。
  */
 import type { SenseFunction } from '@/core/sense'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
@@ -28,7 +28,7 @@ const bigmodelLLMAdapter: LLMAdapter = {
       model,
       messages,
       stream: false,
-      // thinking 片段直传（翻译在 chat middleware，见 docs/agent/provider.md）
+      // thinking 片段直传（翻译在 chat middleware，见 docs/backend/agent/provider.md）
       ...(options?.thinkingParams ?? {}),
       ...(senses.length > 0 && { tools: senses }),
     }

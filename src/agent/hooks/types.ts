@@ -4,7 +4,7 @@
  * 仿 Claude Code hooks 的事件驱动扩展点。事件载荷喂给 handler（stdin JSON），
  * handler 返回的决策（stdout JSON）由 dispatcher 解析并应用到运行时。
  *
- * 详见 [docs/agent/hooks.md](../../../../docs/agent/hooks.md)。
+ * 详见 [docs/backend/agent/hooks.md](../../../../docs/backend/agent/hooks.md)。
  */
 
 import type { ThinkingBlock } from '@/core/message/adapter.js'

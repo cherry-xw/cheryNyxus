@@ -122,6 +122,6 @@ tool_decisions:
 # 关联文档
 
 - 字段参考：[.chery.template/docs/](../../docs/)（总索引 [README.md](../../docs/README.md)「AI 自动修改配置」章节）
-- 配置管理感官：[docs/agent/config-manage.md](../../../docs/agent/config-manage.md)
-- 技能安装：[docs/agent/skill-install.md](../../../docs/agent/skill-install.md)
-- 提示词系统：[docs/system-prompt.md](../../../docs/system-prompt.md)
+- 配置管理感官：[docs/agent/config-manage.md](../../../docs/backend/agent/config-manage.md)
+- 技能安装：[docs/agent/skill-install.md](../../../docs/backend/agent/skill-install.md)
+- 提示词系统：[docs/system-prompt.md](../../../docs/backend/agent/system-prompt.md)

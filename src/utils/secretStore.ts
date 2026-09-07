@@ -8,7 +8,7 @@
  *   - 主密钥派生自 .chery/.secret-key（32 字节随机）+ 主机名/用户名盐值（scrypt）。
  *   - 这是「混淆级」保护，**不是 OS keychain 级别**：任何能读 .chery/ 且能跑 node 的进程都能恢复明文。
  *   - 防护目标：偶然窥探、日志泄漏、配置文件误传；不防护本机恶意进程。
- *   - 真正的 secret 管理推荐 OS keychain（keytar）或外部 vault——见 docs/utils/secretStore.md。
+ *   - 真正的 secret 管理推荐 OS keychain（keytar）或外部 vault——见 docs/backend/utils/secretStore.md。
  *
  * 边界：
  *   - getCredentialSecret 仅在后端进程内调用（gitClone 拿口令拼 Basic 头），**永不通过 RPC 返回**。

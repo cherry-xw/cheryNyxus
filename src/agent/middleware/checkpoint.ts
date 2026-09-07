@@ -288,7 +288,7 @@ export async function* checkpointMiddleware(
     const reconcile = state.reconcileAssistantSenseCalls()
     if (reconcile && reconcile.type === 'updated' && 'senseCalls' in reconcile.patch) {
       // 双写①：回写内存 journal——loop 下一轮 buildMessages 从内存 journal 组装 tool_calls，
-      // 只落库不回写会让 tool result 成"孤儿"（上游 400 2013，见 docs/agent/middleware.md reconcile 段）。
+      // 只落库不回写会让 tool result 成"孤儿"（上游 400 2013，见 docs/backend/agent/middleware.md reconcile 段）。
       ctx.journal.updateAssistantSenseCalls(reconcile.id, reconcile.patch.senseCalls ?? [])
       // 双写②：yield effect 由 observer 落库（DB sense_calls 列）。
       yield {

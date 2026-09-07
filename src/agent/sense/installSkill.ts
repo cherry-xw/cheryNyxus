@@ -26,7 +26,7 @@ import { analyzeSkillStaging } from '@/service/skill/import.js'
  * 三态确定性（规则 5）：按 URL 形状 + 内容魔数机器识别，不交 LLM 自由解析。
  * 监管 smart（写 .chery/ = prompt 注入面）。.chery/ 路径守卫豁免（GUARD_EXEMPT）。
  *
- * 详见 docs/agent/skill-install.md。
+ * 详见 docs/backend/agent/skill-install.md。
  */
 
 const stageSchema = z.object({

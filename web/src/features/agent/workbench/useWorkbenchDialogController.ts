@@ -220,7 +220,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     confidence?: number
   }
   const quickTarget = ref<QuickTargetSelection>()
-  // 切会话清残留目标（与 AgentDialog 同约定，见 docs/interaction.md chat.route.suggest）。
+  // 切会话清残留目标（与 AgentDialog 同约定，见 docs/shared/protocol/interactions.md chat.route.suggest）。
   // 当前 quickTarget 无 UI 写入口恒 undefined，纯防御未来接入目标选择器时不复现残留 bug。
   watch(chatId, () => {
     quickTarget.value = undefined
@@ -638,7 +638,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
         try {
           targetChatId = await agents.createMasterPet({ preset: presetName.value })
           // 'new' 一次性消费：会话已创建即清空，防残留导致下次发送再建（AgentDialog 同约定，
-          // 见 docs/interaction.md chat.route.suggest）。当前 quickTarget 无 UI 写入口，纯防御。
+          // 见 docs/shared/protocol/interactions.md chat.route.suggest）。当前 quickTarget 无 UI 写入口，纯防御。
           quickTarget.value = undefined
           await agents.fetchHistoryList()
         } catch (cause) {
@@ -698,7 +698,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)
   function closeWorkbench(): void {
     // 关闭工作台即关闭其 docked 历史抽屉：HistoryDrawer 读全局单例，不清理则抽屉及遮罩残留页面
-    // （见 docs/web/workbench-multi-window.md「关闭工作台清理 docked 抽屉」）。overlay 全局抽屉保留。
+    // （见 docs/frontend/workbench-multi-window.md「关闭工作台清理 docked 抽屉」）。overlay 全局抽屉保留。
     if (agents.historyDrawerMode === 'workbench-docked') agents.closeAllHistory()
     resetMedia()
     error.value = null

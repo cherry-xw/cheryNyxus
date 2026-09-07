@@ -285,7 +285,7 @@ export class MessageJournal {
   }
 
   /**
-   * 追加角色消息（子完成注入的回复，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+   * 追加角色消息（子完成注入的回复，见 docs/shared/architecture/agent-orchestration.md §5.4 唤醒策略调度器）。
    * 由 service wakeParent 调（守单一写者）：写 soul.messages（内存），DB 落库由 wakeParent 直接 addMessage
    * （主 observer 未运行，不走 message_created effect 路径）。
    * @param content 回复内容（caller 已格式化，如 `[角色 type] result`）

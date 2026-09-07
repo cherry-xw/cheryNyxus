@@ -84,7 +84,7 @@ const {
 } = controller
 
 /**
- * 入场时间线（2026-09-02 返工契约，docs/web/pet/nyxus-node-tree-maintenance.md）：
+ * 入场时间线（2026-09-02 返工契约，docs/frontend/pet/nyxus-node-tree-maintenance.md）：
  * 标题栏 → 页签 → 正文 stagger，总时长 ≤320ms，只动 transform/autoAlpha。
  * 仅组件挂载时执行一次——hover 链上切换节点复用同一实例，不重放。
  */

@@ -4,7 +4,7 @@
  * 供 openai.ts（SDK 实现）和 bigmodel.ts（fetch 实现）复用，保证 OpenAI 兼容协议的行为一致。
  * thinking 参数翻译不在此层：chat middleware 统一解析 `thinkingParams` 片段，provider 直传。
  *
- * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) 「共享件」。
+ * 详见 [docs/backend/agent/provider.md](../../../docs/backend/agent/provider.md) 「共享件」。
  */
 import OpenAI from 'openai'
 import type {

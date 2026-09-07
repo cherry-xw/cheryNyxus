@@ -50,7 +50,7 @@ async function waitForApproval(interactionId: string, timeoutMs = 8000): Promise
 /**
  * approval payload 的 arguments 字段级截断预算（T4-D3：保留键名与短字段全文，
  * 仅超长单字段截断；write_file 类 {path 短, content 长} 决策结构保持完整）。
- * docs/mcu-lite-api.md §3.7-2 / §3.5 R7。
+ * docs/shared/protocol/profiles/mcu-lite.md §3.7-2 / §3.5 R7。
  */
 const PAYLOAD_FIELD_BUDGET_BYTES = 2048
 

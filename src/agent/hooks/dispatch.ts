@@ -7,7 +7,7 @@
  * - 单 handler 异常（非 0/2）→ log + 继续；exit 2 → 阻断
  * - PreLLMRequest 完整实现；其它 9 事件 stub（logger.event + 返回 undefined）
  *
- * 详见 [docs/agent/hooks.md](../../../../docs/agent/hooks.md)。
+ * 详见 [docs/backend/agent/hooks.md](../../../../docs/backend/agent/hooks.md)。
  */
 
 import { spawn } from 'node:child_process'
@@ -235,7 +235,7 @@ async function runHandler<TDecision>(
   const expandedCommand = expandCommandTemplate(handler.command, env)
   const timeoutMs = (handler.timeout ?? 10) * 1000
 
-  // 平台解析（Windows 无裸 sh，探测链见 docs/agent/hooks.md「跨平台执行」）。
+  // 平台解析（Windows 无裸 sh，探测链见 docs/backend/agent/hooks.md「跨平台执行」）。
   // 解析失败 fail-loud 阻断——静默跳过安全类 handler 等于 fail-open；userMessage 带安装指引。
   let shellExecutable: string
   try {
@@ -263,7 +263,7 @@ async function runHandler<TDecision>(
     try {
       child = spawn(shellExecutable, ['-c', expandedCommand], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true, // Windows: 隐藏控制台窗口（约定见 docs/web/electron.md）
+        windowsHide: true, // Windows: 隐藏控制台窗口（约定见 docs/frontend/electron.md）
       })
     } catch (err) {
       logger.event(

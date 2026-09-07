@@ -7,7 +7,7 @@
  * 经 persistedContent 剥离不落库，token 扫描会漏检自动压缩），nodeCount 从
  * `execution_nodes` 按 orderKey 区间统计。无新表，每次查询现算。
  *
- * 详见 docs/multi-agent-canonical-timeline.md §3.5 与 docs/service/chat.md「长会话代际分割」。
+ * 详见 docs/shared/architecture/canonical-timeline.md §3.5 与 docs/backend/service/chat.md「长会话代际分割」。
  */
 import { getChat, getMessages } from '@/db/chat.js'
 import { listExecutionEdges, listExecutionNodes } from '@/db/executionGraph.js'

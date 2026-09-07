@@ -2,7 +2,7 @@
  * Anthropic Provider（适配 Anthropic Messages API，原生 fetch）。
  *
  * 三层 adapter：
- * - LLM：POST {url}/messages（url 拼接规则见 docs/agent/provider.md「URL 解析与端点拼接」：版本段 /v1 由用户填写、后端只拼 /messages；fullUrl=true 完全不拼接），header x-api-key + anthropic-version + content-type
+ * - LLM：POST {url}/messages（url 拼接规则见 docs/backend/agent/provider.md「URL 解析与端点拼接」：版本段 /v1 由用户填写、后端只拼 /messages；fullUrl=true 完全不拼接），header x-api-key + anthropic-version + content-type
  * - Message：buildMessages 返回 {system, messages} 元组（system 顶层分离）；content/thinking 来自 content blocks
  * - Sense：tool_use → {id, name, arguments:JSON.stringify(input)}；流式 delta 经 SenseCallAssembler 累积
  *
@@ -14,7 +14,7 @@
  *
  * 不可复用 fetchBase 的 jsonRequest/streamSSE（硬编码 /chat/completions + Bearer + [DONE]）。
  *
- * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) + [docs/agent/hooks.md](../../../docs/agent/hooks.md)。
+ * 详见 [docs/backend/agent/provider.md](../../../docs/backend/agent/provider.md) + [docs/backend/agent/hooks.md](../../../docs/backend/agent/hooks.md)。
  */
 import type { SenseFunction } from '@/core/sense'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
@@ -487,7 +487,7 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
         ...(messages.system ? { system: messages.system } : {}),
         messages: messages.messages,
         ...(sensesAsAnthropic.length > 0 ? { tools: sensesAsAnthropic } : {}),
-        // thinking 片段直传（翻译在 chat middleware，见 docs/agent/provider.md）
+        // thinking 片段直传（翻译在 chat middleware，见 docs/backend/agent/provider.md）
         ...(options?.thinkingParams ?? {}),
       }
 
@@ -512,7 +512,7 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
         ...(messages.system ? { system: messages.system } : {}),
         messages: messages.messages,
         ...(sensesAsAnthropic.length > 0 ? { tools: sensesAsAnthropic } : {}),
-        // thinking 片段直传（翻译在 chat middleware，见 docs/agent/provider.md）
+        // thinking 片段直传（翻译在 chat middleware，见 docs/backend/agent/provider.md）
         ...(options?.thinkingParams ?? {}),
         stream: true,
       }
@@ -553,7 +553,7 @@ async function applyPreLLMRequest(
 
 // ========== fetch + SSE ==========
 
-/** 拼接 base URL + /messages（规则见 docs/agent/provider.md「URL 解析与端点拼接」，走统一入口 resolveProviderUrl）。
+/** 拼接 base URL + /messages（规则见 docs/backend/agent/provider.md「URL 解析与端点拼接」，走统一入口 resolveProviderUrl）。
  * - fullUrl=true：URL 原样使用，不拼接（仅去尾斜杠）
  * - 否则：base + /messages（版本段 /v1 由用户填写，后端只拼端点；url 未含版本段时请求落点缺 /v1）
  */
@@ -614,7 +614,7 @@ async function anthropicFetch(
  * 仿 fetchBase.ts 的行缓冲骨架，但改：
  * - endpoint /messages（url 解析规则见 joinAnthropicUrl）
  * - 终止 message_stop（非 [DONE]）
- * - 流完整性校验（docs/agent/provider.md「流完整性校验」）：伪 200（content-type
+ * - 流完整性校验（docs/backend/agent/provider.md「流完整性校验」）：伪 200（content-type
  *   非 event-stream，如网关 SPA 回退）→ validation；流结束 0 有效事件 → provider（空流）
  * - finally 必跑 controller.abort() + reader.cancel()
  */

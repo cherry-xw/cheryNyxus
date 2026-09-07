@@ -18,7 +18,7 @@ export type { MiddlewareChunk }
  * retry（第2层）：捕获 LLM 调用错误并重试
  * chat（第3层/内层）：调用 LLM，yield StreamChunk
  *
- * 2026-07-09 移除 heartbeat middleware：wait=true 重构为 yield turn + 子完成唤醒（见 docs/agent-pet.md §5.4），
+ * 2026-07-09 移除 heartbeat middleware：wait=true 重构为 yield turn + 子完成唤醒（见 docs/shared/architecture/agent-orchestration.md §5.4），
  * 不再阻塞心跳（running ping 无阻塞主可保活；子 error 改由 observer catch 唤主）。
  */
 export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [

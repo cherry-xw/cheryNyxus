@@ -72,4 +72,4 @@
 
 - 字段参考：[.chery.template/docs/](../../docs/)
 - 管家入口索引：[.chery.template/docs/README.md](../../docs/README.md)「AI 自动修改配置」章节
-- 加载入口：[src/agent/prompt/](../../../src/agent/prompt/) ｜ 提示词系统：[../../../docs/system-prompt.md](../../../docs/system-prompt.md)
+- 加载入口：[src/agent/prompt/](../../../src/agent/prompt/) ｜ 提示词系统：[../../../docs/system-prompt.md](../../../docs/backend/agent/system-prompt.md)

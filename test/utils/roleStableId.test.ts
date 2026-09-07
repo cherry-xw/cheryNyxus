@@ -1,5 +1,5 @@
 /**
- * 角色稳定身份 id（docs/utils/README.md「稳定身份 id」）单测：
+ * 角色稳定身份 id（docs/backend/utils/README.md「稳定身份 id」）单测：
  * - legacyRoleId 确定性生成（同 preset 模式）
  * - ensureRoleIds 补全 / 保留已有
  * - detectRoleRenames 同 id 不同名判定

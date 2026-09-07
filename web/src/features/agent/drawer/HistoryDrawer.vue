@@ -125,7 +125,7 @@ watch(
 <style scoped lang="less">
 // 遮罩容器：fixed 全屏。默认透明（非栈顶），仅 .is-top-mask 纯半透明盖住下层（共用单蒙层）。
 // 面板绝对定位其内右侧（见 HistoryDrawerPanel）。
-// 注意：禁用 backdrop-filter blur——桌面 pet/Nyxus 持续 rAF 动画下，blur 每帧重采样底层导致整屏持续重绘闪烁（见 docs/web/renderer.md 遮罩实现约束）
+// 注意：禁用 backdrop-filter blur——桌面 pet/Nyxus 持续 rAF 动画下，blur 每帧重采样底层导致整屏持续重绘闪烁（见 docs/frontend/renderer.md 遮罩实现约束）
 .drawer-overlay {
   position: fixed;
   inset: 0;

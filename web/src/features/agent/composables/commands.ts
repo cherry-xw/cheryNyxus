@@ -116,7 +116,7 @@ export function splitCommandPrompt(content: string): CommandPromptSegment[] {
 /**
  * 历史快捷入口与发送窗口共用：消息正文已经包含指令 token，无需按发送重复注入提示词。
  *
- * **token 形态语义**（由后端 `injectCommands` 处理，详见 docs/agent/command.md）：
+ * **token 形态语义**（由后端 `injectCommands` 处理，详见 docs/backend/agent/command.md）：
  * - `[[command:/<skillName>]]`：AI 通过 system prompt `<skills>` 段自行加载；
  * - `[[command:/<builtinName>]]`：后端从 `.chery/command/<builtinName>.md` 加载正文作为**独立
  *   user message** 追加到主 prompt 之前；不在此处做任何后处理。

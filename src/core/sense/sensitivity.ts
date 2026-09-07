@@ -7,7 +7,7 @@
  *
  * ruleSet 来源：ctx.runtime.sensitivityRules，由 ruleLoader.loadMergedRuleSet 在 resolve 期
  *   从 .chery/rule/（base.yaml 基准 + 预设 rule 覆盖文件）深合并编译冻结。详见
- *   docs/core/sense.md「smart 规则表」。
+ *   docs/backend/core/sense.md「smart 规则表」。
  *
  * 黑名单 fail-open 语义（命中危险才拦截，其余放行）：
  *   - ruleSet[name] === false      → false（硬开关：破坏性 sense 无条件需确认）

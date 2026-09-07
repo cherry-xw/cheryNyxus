@@ -1,7 +1,7 @@
 /**
  * pathGuard allowConfigRead 单测：checkCheryGuard 读放行语义。
  *
- * 契约（docs/agent/middleware.md「路径守卫」）：
+ * 契约（docs/backend/agent/middleware.md「路径守卫」）：
  *  - allowConfigRead = 配置管理核心角色（senseTable 含 config_manage/install_skill）对 read_file/
  *    search_codebase 读 .chery/ 全树放行（按工具名旁路）
  *  - write_file/execute_command 不受影响（写仍拦）；allowRuleDir 豁免 .chery/rule/ 不回归

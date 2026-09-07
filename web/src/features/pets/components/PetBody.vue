@@ -77,7 +77,7 @@ const emit = defineEmits<{
 }>()
 
 /**
- * 根元素函数 ref（docs/agent-pet.md §6.2）：必须用具名函数保持身份稳定——
+ * 根元素函数 ref（docs/shared/architecture/agent-orchestration.md §6.2）：必须用具名函数保持身份稳定——
  * 模板内联箭头每次重渲染都换新身份，Vue 重触发 ref（旧收 null 新收 element），
  * 经 props.positionRef 级联 registerPetElement 重建 quickSetter 并直写 transform。
  */

@@ -1,7 +1,7 @@
 # mock — 离线 Provider 脚本
 
 > 模板目录：`.chery.template/mock/` ｜ 运行位置：`.chery/mock/`
-> 加载入口：[src/agent/provider/mock/](../../src/agent/provider/mock/) ｜ 详细文档：[../../docs/mock.md](../../docs/mock.md)
+> 加载入口：[src/agent/provider/mock/](../../src/agent/provider/mock/) ｜ 详细文档：[../../docs/mock.md](../docs/mock.md)
 
 ## 用途
 
@@ -112,6 +112,6 @@ llm:
 
 ## 关联
 
-- Provider 文档：[docs/agent/provider.md](../../docs/agent/provider.md)
-- Mock 详细说明：[../../docs/mock.md](../../docs/mock.md)
+- Provider 文档：[docs/agent/provider.md](../../docs/backend/agent/provider.md)
+- Mock 详细说明：[../../docs/mock.md](../docs/mock.md)
 - Provider Adapter 入口：[src/agent/provider/mock/](../../src/agent/provider/mock/)

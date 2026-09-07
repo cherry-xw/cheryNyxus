@@ -1,7 +1,7 @@
 /**
  * 流程测试 Tier 1：标准对话 S1–S7（中间件级，agentHarness 驱动）。
  *
- * 规约见 [docs/flow-test.md](../../../docs/flow-test.md) §3.A。每场景沿四维断言
+ * 规约见 [docs/quality/testing/flows.md](../../../docs/quality/testing/flows.md) §3.A。每场景沿四维断言
  * （事件序列 / 内存消息 / 审批态 / 交互功能）。不走 service/WS/DB，故 canResume/
  * chat_events 等服务层派生留 Tier 2；此处断言其充要条件（末条 assistant 无 senseCalls）。
  *

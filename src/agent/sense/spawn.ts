@@ -110,7 +110,7 @@ export function resolveSpawnRoster(chatId: string): string[] {
  * 由给定 roster 构造 spawn_role Sense（定义随 roster 裁剪，「可见即可选」）。
  * roster 为空 → type 回退 z.string()（z.enum([]) 构造抛错），执行期 gate 兜底全部拒绝。
  *
- * spawn_role 架构（主从 Agent 桌宠系统 CP3，前端驱动，见 docs/agent-pet.md §2/§5.1/§5.4）：
+ * spawn_role 架构（主从 Agent 桌宠系统 CP3，前端驱动，见 docs/shared/architecture/agent-orchestration.md §2/§5.1/§5.4）：
  *   1. 后端创建子 chat 行（parent_chat_id 关联主 chat）+ 推 role_created notification
  *   2. 前端收 notification → 创建子 pet + 调 chat.startSpawn 原子领取任务（同 WS 连接按 chatId 路由 chunk）
  *   3. registerWaitedChild（带 wake 策略）+ yieldTurn（主 loop 本轮结束停等）；子完成后后端注入角色回复
@@ -364,7 +364,7 @@ async function spawnHandler(
   })
 
   // 4. 注册唤醒链 + 启动看门狗（带唤醒策略 wake）。子完成后经 child_done → wakeScheduler 按 wake 策略
-  //    决定 silent 暂存（deferred/barrier）/ resume 唤主（immediate/策略满足），见 docs/agent-pet.md §5.4。
+  //    决定 silent 暂存（deferred/barrier）/ resume 唤主（immediate/策略满足），见 docs/shared/architecture/agent-orchestration.md §5.4。
   registerWaitedChild(childChatId, parentChatId, type, wake)
 
   // 5. eager 启动子 chat 后台运行（fire-and-forget）：用户原设计要求「子 agent 与主 agent 走同一 API」，

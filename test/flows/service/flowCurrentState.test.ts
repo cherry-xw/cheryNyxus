@@ -1,7 +1,7 @@
 /**
  * 流程测试 Tier 2：刷新 currentState 快照 S12（G8 验收点，service+WS 级）。
  *
- * 规约见 [docs/flow-test.md](../../../docs/flow-test.md) §3.B S12。canonical chat.open state
+ * 规约见 [docs/quality/testing/flows.md](../../../docs/quality/testing/flows.md) §3.B S12。canonical chat.open state
  * 权威给出 pendingApproval / runningTools；已完成的 todo 从
  * chat.timeline.get 的 update_todo sense call 恢复（不引入第二套 currentTurnContent 水源）。
  *

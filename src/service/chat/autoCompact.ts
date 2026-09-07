@@ -17,7 +17,7 @@
  * - 失败闭降：触发但 <name>.md 缺失 → console.warn + 不入队该正文，LLM 失去详细指令但行为不退化
  *   （system prompt 通用 instruction 兜底）。
  *
- * 详见 docs/agent/command.md。
+ * 详见 docs/backend/agent/command.md。
  */
 import { getSystemCommand } from '@/agent/prompt/loadCommand.js'
 import { computeContextUsage } from '@/utils/token.js'

@@ -7,7 +7,7 @@
  * thinking 参数：provider 不内置档位词映射——chat middleware 统一把显示词翻译成
  * `options.thinkingParams` 片段（模型目录 wire），此处只原样 spread 进请求体。
  *
- * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md)。
+ * 详见 [docs/backend/agent/provider.md](../../../docs/backend/agent/provider.md)。
  */
 import OpenAI from 'openai'
 import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions'
@@ -36,7 +36,7 @@ const openaiLLMAdapter: LLMAdapter = {
     const fullUrl = options?.fullUrl === true
     if (fullUrl) {
       // fullUrl=true：绕开 SDK（SDK 强制拼 /chat/completions），原生 fetch 直接请求用户填写的
-      // URL——实际请求 = 用户值本身，与 bigmodel/deepseek 的 fetch 路径一致（docs/agent/provider.md）。
+      // URL——实际请求 = 用户值本身，与 bigmodel/deepseek 的 fetch 路径一致（docs/backend/agent/provider.md）。
       return jsonRequest(
         url,
         {

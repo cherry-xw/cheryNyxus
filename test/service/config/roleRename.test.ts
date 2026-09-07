@@ -1,5 +1,5 @@
 /**
- * 角色改名迁移 + chat metadata ID 优先读取（docs/db.md「角色改名迁移」「chat metadata 字段语义」）单测。
+ * 角色改名迁移 + chat metadata ID 优先读取（docs/backend/db/README.md「角色改名迁移」「chat metadata 字段语义」）单测。
  *
  * 覆盖：
  * - migrateRoleRename：spawn_tasks.type + chats.metadata（type / spawnTypes）旧名原子改写

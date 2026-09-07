@@ -1,7 +1,7 @@
 /**
  * 流程测试 Tier 2：子 agent spawn 全链路 S14–S16（service+WS 级）。
  *
- * 规约见 [docs/flow-test.md](../../../docs/flow-test.md) §3.D / FP-F。主子 agent 唤醒策略调度器端到端：
+ * 规约见 [docs/quality/testing/flows.md](../../../docs/quality/testing/flows.md) §3.D / FP-F。主子 agent 唤醒策略调度器端到端：
  * - S14 immediate：spawn_role → role_created → eager 子 done → role_reply → 主 canonical resume。
  * - S15 deferred：多子 deferred，wakeScheduler silent 暂存，全完成兜底唤主（仅 1 条 role_reply）。
  * - S16 子刷新重连：子 running 断连 → open(child) 续跑（机制继承 S8/S9）。

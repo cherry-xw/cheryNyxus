@@ -23,7 +23,7 @@ const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
 // 渲染全部 pets（含 ghost 灵魂点）：PetSprite 模板按 isGhost 走 GhostDot 分支，
 // ghost 天然无交互（不绑 pointer/hover/click，无 toolbar/气泡）。过滤会让
-// GhostDot 分支成为死代码，与 docs/agent-pet.md §5.6 灵魂点语义不符。
+// GhostDot 分支成为死代码，与 docs/shared/architecture/agent-orchestration.md §5.6 灵魂点语义不符。
 const visiblePets = computed(() => agents.pets)
 /**
  * Transitional presentation bridge: Pet widgets still accept legacy StreamState,

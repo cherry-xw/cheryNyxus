@@ -6,7 +6,7 @@
  * 不持久化 breakdown——系统消息不入库，memory 按设计仅 init 一次性注入，recompute 偏差可忽略。
  *
  * 段：系统提示词 / 用户系统提示词 / 记忆 / 技能 / 工具定义 / 用户对话（含 sense 调用结果）。
- * 详见 docs/agent/prompt.md「上下文分段计量」。
+ * 详见 docs/backend/agent/prompt.md「上下文分段计量」。
  *
  * 放 service 层（非 utils/token）：需依赖 agent/prompt + agent/runtimeResolver，避免 utils→agent 反向依赖。
  */

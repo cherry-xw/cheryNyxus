@@ -168,7 +168,7 @@ describe('checkpointMiddleware 集成', () => {
     await collectChunks(checkpointMiddleware(ctx, next))
 
     // 内存 journal 的 assistant.senseCalls 必须完整——loop 下一轮 buildMessages 从这里
-    // 组装 tool_calls，缺失会造出孤儿 tool result（上游 400 2013，见 docs/agent/middleware.md）
+    // 组装 tool_calls，缺失会造出孤儿 tool result（上游 400 2013，见 docs/backend/agent/middleware.md）
     const assistant = ctx.soul.messages?.find((message) => message.role === 'assistant')
     expect(assistant?.senseCalls?.map((sc) => sc.id)).toEqual(['t0', 't1'])
   })

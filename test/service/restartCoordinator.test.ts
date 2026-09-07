@@ -1,6 +1,6 @@
 /**
  * 受控重启协调器 单测：validateBeforeRestart 预检失败 → 不通知重启 + 待重启状态复位。
- * 见 docs/agent/config-manage.md「重启前预检（dry-run）」。
+ * 见 docs/backend/agent/config-manage.md「重启前预检（dry-run）」。
  *
  * restartCoordinator 的待重启状态（restartRequested/restartNotified）为模块私有且跨测试残留，
  * 故每用例 vi.resetModules 重建模块实例隔离。

@@ -3,7 +3,7 @@ import { logger } from '@/utils/logger/index.js'
 import config from '@/utils/config.js'
 
 /**
- * 断连宽限调度器（见 docs/service/websocket.md「断连宽限」）。
+ * 断连宽限调度器（见 docs/backend/service/websocket.md「断连宽限」）。
  *
  * 监听 owner WebSocket 关闭事件：
  * - 宽限期内同 requestId 在新 ws 重连 → rebind output target，继续当前 loop，不暂停。

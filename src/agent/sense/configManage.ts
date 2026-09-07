@@ -35,12 +35,12 @@ import path from 'node:path'
  * 监管 smart：写配置 = 高影响操作，需规则表放行（默认确认）。
  * 缺/未知 action → fail-loud 返回用法引导（绝不静默兜底为 rollback，避免误报"备份目录不存在"）。
  *
- * 详见 docs/agent/config-manage.md。
+ * 详见 docs/backend/agent/config-manage.md。
  */
 
 // 注意：不可用 z.discriminatedUnion（转 JSON Schema 顶层 required/properties 丢失 → 模型端
 // required=[] → action 不被强制，LLM 会漏传）。必须普通 object + enum，保证 required 含 action。
-// 详见 docs/agent/prompt-guide.md 规范 #3。
+// 详见 docs/backend/agent/prompt-guide.md 规范 #3。
 const ConfigManageSchema = z.object({
   action: z
     .enum(['get', 'patch', 'save', 'rollback', 'asset_get', 'asset_save', 'asset_archive'])

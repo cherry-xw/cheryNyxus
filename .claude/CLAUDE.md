@@ -16,7 +16,7 @@
 | DB | `src/db/` | [docs/db.md](../docs/db.md) | 持久化：多 sqlite 实例、soul.db + 按月分片 YYYY-MM.db |
 | Utils | `src/utils/` | [docs/utils/](../docs/utils/) | 工具：config、drain、logger、hash/json/generator |
 | 配置 | `.chery/` + `.chery/db/` | — | 运行时配置 + 数据库（不走打包，运行时读取） |
-| 打包 | `scripts/` | [docs/web/pack-guide.md](../docs/web/pack-guide.md) | Electron 打包：`pnpm electron:pack` |
+| 打包 | `scripts/` | [docs/web/pack-guide.md](../docs/frontend/pack-guide.md) | Electron 打包：`pnpm electron:pack` |
 
 > 前端 `web/`（pnpm workspace 独立 package，Vue3 + Vite 8 + Electron 43）架构说明见 [docs/web/](../docs/web/)。
 
@@ -34,14 +34,14 @@ pnpm test             # vitest（套件有预存问题，开发期仅关注 TSC 
 
 - **Middleware 洋葱链**（外→内）：`checkpoint → sense → retry → chat`，`loop` 循环到无 senseCalls。详见 [agent/middleware.md](../docs/agent/middleware.md)。
 - **Sense 监管等级**：`auto`(0) / `smart`(1) / `manual`(2)；smart 按规则表判定（危险操作需确认、其余含未知 sense 自动执行，黑名单 fail-open 默认放行；破坏性 sense 须显式 `false` 兜底）；优先级：感官配置覆盖 > 感官内置声明 > `global.supervision`。详见 [core/sense.md](../docs/core/sense.md)。
-- **审批**：core `approvalRegistry` 创建 Promise 并 await，service `ApprovalManager` 仅登记 id、转调 core 触发。详见 [agent/middleware.md](../docs/agent/middleware.md) + [service/chat.md](../docs/service/chat.md)。
-- **主数据流**：`chat.send` → RPC router → `AgentBuilder.run` → Middleware 链 → LLM 流式 → service observer（DB 持久化 + 审批注册）→ WebSocket 推送。详见 [service/chat.md](../docs/service/chat.md)。
-- **插件 Git 导入**：`git clone --depth 1`（系统 git 为硬性前提）+ `http.extraheader` 注入鉴权（不嵌 URL 避免 argv 泄露）；分支选择 → 整仓安装（subpath 忽略）；凭据 AES-256-GCM 存 `.chery/.secrets/`（obfuscation 级）。详见 [docs/agent/plugin.md](../docs/agent/plugin.md)。
+- **审批**：core `approvalRegistry` 创建 Promise 并 await，service `ApprovalManager` 仅登记 id、转调 core 触发。详见 [agent/middleware.md](../docs/agent/middleware.md) + [service/chat.md](../docs/backend/service/chat.md)。
+- **主数据流**：`chat.send` → RPC router → `AgentBuilder.run` → Middleware 链 → LLM 流式 → service observer（DB 持久化 + 审批注册）→ WebSocket 推送。详见 [service/chat.md](../docs/backend/service/chat.md)。
+- **插件 Git 导入**：`git clone --depth 1`（系统 git 为硬性前提）+ `http.extraheader` 注入鉴权（不嵌 URL 避免 argv 泄露）；分支选择 → 整仓安装（subpath 忽略）；凭据 AES-256-GCM 存 `.chery/.secrets/`（obfuscation 级）。详见 [docs/agent/plugin.md](../docs/backend/agent/plugin.md)。
 
 ## 配置入口
 
 - [.chery/config.yaml](../.chery/config.yaml)：`llm.brain.<name>`（provider/model/url/key）+ `sense_groups`（感官分组，`:level` 后缀覆盖监管等级）+ `global`（thinking/supervision/stream 等）+ `server`（port/web_port/transport）。`$ENV` 占位符从环境变量注入。
-- [package.json](../package.json) `packConfig`：打包相关配置（Node 版本、代理、镜像），由 `scripts/pack-config.mjs` 读取，环境变量可覆盖。详见 [docs/web/pack-guide.md](../docs/web/pack-guide.md)。
+- [package.json](../package.json) `packConfig`：打包相关配置（Node 版本、代理、镜像），由 `scripts/pack-config.mjs` 读取，环境变量可覆盖。详见 [docs/web/pack-guide.md](../docs/frontend/pack-guide.md)。
 - 配置目录由 `CHERY_DIR` 指定（默认 `.chery`）；WebSocket / Web 端口与传输格式以 `config.server` 为准（详见 [utils/README.md](../docs/utils/README.md)）。
 
 ## 文档导航
@@ -57,11 +57,11 @@ pnpm test             # vitest（套件有预存问题，开发期仅关注 TSC 
 ## 约定
 
 - **文档先于实现（Doc-First）**：每次修改代码前，先更新涉及的 `docs/` 模块文档，保证文档先于实现。先改代码后补文档视为违规；纯重构、格式化、修复 typo 可豁免。
-- **规范强制 + 读规范凭证**：[docs/standards/](../docs/standards/README.md) 操作声明为强制门禁（字重 400 / 全直角 / 未验收不提交 / 图片验证交用户等，见 [操作声明](../docs/standards/README.md)）。**每个写入型任务动手前必须先读操作声明 + 相关规范，并在 `.claude/read-proof/` 写入带时分秒命名的读后凭证（一句话：读了什么 + 将如何按规范执行）；缺失凭证 = 未读规范，操作不受认可。** 纯阅读/搜索/解释类任务（无写入）不触发。详见 [ai-collaboration.md §4](../docs/standards/ai-collaboration.md)。
+- **规范强制 + 读规范凭证**：[docs/standards/](../docs/standards/README.md) 操作声明为强制门禁（字重 400 / 全直角 / 未验收不提交 / 图片验证交用户等，见 [操作声明](../docs/standards/README.md)）。**每个写入型任务动手前必须先读操作声明 + 相关规范，并在 `.claude/read-proof/` 写入带时分秒命名的读后凭证（一句话：读了什么 + 将如何按规范执行）；缺失凭证 = 未读规范，操作不受认可。** 纯阅读/搜索/解释类任务（无写入）不触发。详见 [ai-collaboration.md §4](../docs/standards/global/ai-collaboration.md)。
 - **TypeScript**：ESM（`"type":"module"`）、严格模式（`noUncheckedIndexedAccess`）、bundler 模块解析（Vite 8）、路径别名 `@/*`→`src/*`、`@test/*`→`test/*`。`interface`/`type` 用 `import type`，`class`/`enum`/函数用 `import`。
 - **扩展**：新增 Provider / Sense（内置 / 外部）/ Middleware / Skill 的步骤，见对应模块文档的「扩展点」章节：
-  - Provider → [agent/provider.md](../docs/agent/provider.md)
-  - Sense → [core/sense.md](../docs/core/sense.md)（内置）/ [core/compiler.md](../docs/core/compiler.md)（外部）
+  - Provider → [agent/provider.md](../docs/backend/agent/provider.md)
+  - Sense → [core/sense.md](../docs/core/sense.md)（内置）/ [core/compiler.md](../docs/backend/core/compiler.md)（外部）
   - Middleware → [agent/middleware.md](../docs/agent/middleware.md)
   - Skill → [agent/prompt.md](../docs/agent/prompt.md)
 

@@ -108,7 +108,7 @@ export default class AgentSession<T = unknown> {
    * @param options.extraUserMessages 可选，命令正文（来自 .chery/command/<name>.md 正文）
    *   作为独立 user message 入队，顺序为 extra[0] → extra[1] → ... → 主 input；
    *   LLM 看到「先命令正文、再用户实际消息」按序消费。compact token 自动触发时 compact 正文会
-   *   被调用方 unshift 到此数组顶部。详见 docs/agent/command.md。
+   *   被调用方 unshift 到此数组顶部。详见 docs/backend/agent/command.md。
    */
   async *send(
     input: string,
@@ -153,7 +153,7 @@ export default class AgentSession<T = unknown> {
   }
 
   /**
-   * 注入角色回复消息（子完成唤醒主，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+   * 注入角色回复消息（子完成唤醒主，见 docs/shared/architecture/agent-orchestration.md §5.4 唤醒策略调度器）。
    * 委托 MessageJournal（守单一写者）。DB 落库由 service wakeParent addMessage。
    * @param options.silent deferred/barrier 暂存注入不置 roleReplyPending
    * @returns 新消息 id
@@ -211,7 +211,7 @@ export default class AgentSession<T = unknown> {
 
   /**
    * 标记当前运行的 generator 在“下一轮决策前”抛 `AgentParkError`。
-   * 用于断连宽限期到期的安全边界（见 docs/service/websocket.md「断连宽限」）：
+   * 用于断连宽限期到期的安全边界（见 docs/backend/service/websocket.md「断连宽限」）：
    * 不立即中断 provider stream，等当前 `runChain()` 输出结束后由 loop 在
    * 下一轮决策前抛 park；observer 归 paused、不写 finished、不唤父。
    * 若 loop 已在自然停止分支（`stopped=true`）则不必再 park，下次 `send/resume`

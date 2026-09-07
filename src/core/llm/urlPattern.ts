@@ -6,7 +6,7 @@
  * agent/provider/fetchBase.ts）查表完成拼接。本文件只持类型 + Map（零 import），
  * 解析逻辑放 agent 层——core 不反向依赖 agent。
  *
- * 语义与各 provider 注册值见 docs/agent/provider.md「URL 解析与端点拼接」。
+ * 语义与各 provider 注册值见 docs/backend/agent/provider.md「URL 解析与端点拼接」。
  */
 
 /** URL 用途种类：chat 会话请求 / models 模型列表拉取 */

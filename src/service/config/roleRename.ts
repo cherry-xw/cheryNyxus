@@ -4,7 +4,7 @@ import type { RoleConfig } from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
 
 /**
- * 角色改名迁移（config.save 触点，见 docs/db.md「角色改名迁移」）。
+ * 角色改名迁移（config.save 触点，见 docs/backend/db/README.md「角色改名迁移」）。
  *
  * 前提：角色带稳定 id（ensureRoleIds），设置页改名移动整个 value 对象（id 随行），
  * 故「同 id 不同名」即改名。DB 中按名字引用角色的位置只有两处：
