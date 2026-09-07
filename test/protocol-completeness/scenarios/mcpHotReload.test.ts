@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 import { Method } from '@chery/protocol'
 import { bootProtocolService, type ProtocolService } from '../helpers/serviceHarness.js'
 import { connectMcpServer } from '@/core/mcp/client.js'
-import { closeMcpClients } from '@/core/mcp/loader.js'
+import { closeMcpClients, mcpReloadSummary } from '@/core/mcp/loader.js'
 import { getConfigApplyCoordinator } from '@/service/config/commit.js'
 import type { ConfigGetResponseData, McpReloadResponseData } from '@/service/message/types.js'
 
@@ -14,6 +14,56 @@ beforeAll(async () => {
 afterAll(async () => {
   await closeMcpClients()
   await service?.close()
+})
+
+it('clears candidate failure after saving the original URL without reconnecting', async () => {
+  const start = (await service.client.call(Method.CONFIG_GET, {})).data as ConfigGetResponseData
+  const { baseRevision: startRevision, ...initial } = start
+  initial.mcp_servers = { 'protocol-hot': { transport: 'streamable-http', url: 'http://original' } }
+  vi.mocked(connectMcpServer).mockResolvedValueOnce({
+    name: 'protocol-hot',
+    close: vi.fn().mockResolvedValue(undefined),
+    client: {
+      getServerCapabilities: () => ({ tools: {} }),
+      listTools: async () => ({ tools: [] }),
+    },
+  } as never)
+  await service.client.call(Method.CONFIG_SAVE, {
+    protocolVersion: 2,
+    requestId: 'recover-initial',
+    expectedBaseRevision: startRevision,
+    candidate: initial,
+  })
+  await getConfigApplyCoordinator().retry()
+  expect(getConfigApplyCoordinator().getState().status).toBe('applied')
+  const original = (await service.client.call(Method.CONFIG_GET, {})).data as ConfigGetResponseData
+  const { baseRevision, ...candidate } = original
+  const broken = structuredClone(candidate)
+  broken.mcp_servers!['protocol-hot']!.url = 'http://broken-candidate'
+  vi.mocked(connectMcpServer).mockRejectedValueOnce(new Error('candidate unavailable'))
+  const failed = await service.client.call(Method.CONFIG_SAVE, {
+    protocolVersion: 2,
+    requestId: 'failed-url',
+    expectedBaseRevision: baseRevision,
+    candidate: broken,
+  })
+  expect(failed.error).toBeUndefined()
+  await getConfigApplyCoordinator().retry()
+  expect(getConfigApplyCoordinator().getState().status).toBe('failed')
+  const current = (await service.client.call(Method.CONFIG_GET, {})).data as ConfigGetResponseData
+  const calls = vi.mocked(connectMcpServer).mock.calls.length
+  const restored = await service.client.call(Method.CONFIG_SAVE, {
+    protocolVersion: 2,
+    requestId: 'restore-url',
+    expectedBaseRevision: current.baseRevision,
+    candidate,
+  })
+  expect(restored.error).toBeUndefined()
+  await getConfigApplyCoordinator().retry()
+  expect(getConfigApplyCoordinator().getState().status).toBe('applied')
+  expect(mcpReloadSummary().failed).toBe(0)
+  expect(mcpReloadSummary().servers[0]?.error).toBeUndefined()
+  expect(connectMcpServer).toHaveBeenCalledTimes(calls)
 })
 
 it('keeps the same WS connection during MCP preparation and reports failed adoption with the old connection available', async () => {

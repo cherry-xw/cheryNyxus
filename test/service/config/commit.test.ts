@@ -185,6 +185,27 @@ describe('serialized config commit', () => {
     expect(spy.mock.calls.filter(([p]) => String(p) === filename)).toHaveLength(0)
     expect(fs.readFileSync(filename)).toEqual(original)
   })
+  it('accepts template Hooks comments without rewriting the Hooks file', () => {
+    const templateHooks = `${JSON.stringify(
+      {
+        _comment: 'Hooks help',
+        _events: { SessionStart: 'runs before the first turn' },
+        SessionStart: [{ _comment: 'test handler', command: "echo '{}'", timeout: 10 }],
+      },
+      null,
+      2,
+    )}\n`
+    fs.mkdirSync(path.dirname(hooksFile), { recursive: true })
+    fs.writeFileSync(hooksFile, templateHooks)
+
+    const request = input()
+    request.candidate.global.textEditor = 'comment-compatible-editor'
+    expect(api.commitConfigCandidate(request)).toMatchObject({ ok: true, status: 'pending' })
+    expect(api.readConfigImage().hooks).toEqual({
+      SessionStart: [{ command: "echo '{}'", timeout: 10 }],
+    })
+    expect(fs.readFileSync(hooksFile, 'utf8')).toBe(templateHooks)
+  })
   it('rejects invalid config and Hooks before either file is written', () => {
     const request = input()
     request.candidate.global.textEditor = 'never saved'

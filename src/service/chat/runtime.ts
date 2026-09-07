@@ -17,7 +17,7 @@ import {
   markPendingInputsConsumed,
   getChatMetadata,
 } from '@/db/chat.js'
-import config from '@/utils/config'
+import config, { type ConfigRaw } from '@/utils/config'
 import { ErrorCode } from '@/service/message/types.js'
 import type { LLMResponse } from '@/core/message/adapter'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
@@ -312,6 +312,50 @@ export function getSessionRoleConfiguration(
 ): { primary: RuntimeSelection; roles: Record<string, RuntimeSelection> } | undefined {
   const value = sessionRoleRuntimes.get(chatId)
   return value ? { primary: value.primary, roles: { ...value.roles } } : undefined
+}
+
+/** Repair removed brain references only when they followed the associated role.
+ * The caller owns the safe-boundary transaction and must restore on failure. */
+export function reconcileSessionBrains(
+  rootIds: string[],
+  before: ConfigRaw,
+  next: ConfigRaw,
+): () => void {
+  const sessions = new Map(sessionRoleRuntimes)
+  const ephemeral = new Map(ephemeralChatRuntimes)
+  const follow = (selection: RuntimeSelection, roleName: string | undefined): RuntimeSelection => {
+    const oldRole = roleName ? before.roles?.[roleName] : undefined
+    const newRole = oldRole?.id
+      ? Object.values(next.roles ?? {}).find((role) => role.id === oldRole.id)
+      : roleName
+        ? next.roles?.[roleName]
+        : undefined
+    if (
+      !next.llm.brain[selection.brain] &&
+      oldRole?.brain === selection.brain &&
+      newRole?.brain &&
+      next.llm.brain[newRole.brain]
+    )
+      return { ...selection, brain: newRole.brain }
+    return selection
+  }
+  for (const chatId of new Set(rootIds.flatMap(treeChatIds))) {
+    const roleName = getChatType(chatId)
+    const session = sessionRoleRuntimes.get(chatId)
+    if (session)
+      sessionRoleRuntimes.set(chatId, {
+        primary: follow(session.primary, roleName),
+        roles: Object.fromEntries(
+          Object.entries(session.roles).map(([name, selection]) => [name, follow(selection, name)]),
+        ),
+      })
+    const selection = ephemeralChatRuntimes.get(chatId)
+    if (selection) ephemeralChatRuntimes.set(chatId, follow(selection, roleName))
+  }
+  return () => {
+    for (const [id, session] of sessions) sessionRoleRuntimes.set(id, session)
+    for (const [id, selection] of ephemeral) ephemeralChatRuntimes.set(id, selection)
+  }
 }
 
 export function renameSessionRoles(renames: Array<{ from: string; to: string }>): () => void {

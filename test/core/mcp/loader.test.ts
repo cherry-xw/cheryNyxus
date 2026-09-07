@@ -58,10 +58,52 @@ import {
 } from '@/core/mcp/loader.js'
 import { McpServerError } from '@/core/mcp/types.js'
 
-const stdioCfg: McpServerConfig = { transport: 'stdio', command: 'node', supervision: SupervisionLevel.auto }
+const stdioCfg: McpServerConfig = {
+  transport: 'stdio',
+  command: 'node',
+  supervision: SupervisionLevel.auto,
+}
 const httpCfg: McpServerConfig = { transport: 'streamable-http', url: 'http://localhost/mcp' }
 
 describe('MCP loader', () => {
+  it('clears a failed candidate error after restoring applied config without reconnecting', async () => {
+    mockConfig.mcp_servers = { srv1: httpCfg }
+    const loader = await import('@/core/mcp/loader.js')
+    const { connectMcpServer } = await import('@/core/mcp/client.js')
+    await loader.connectMcpServerByName('srv1')
+    const status = { applyStatus: 'failed' as 'failed' | 'applied' }
+    loader.setMcpReloadCoordinator(vi.fn(), () => status)
+    vi.mocked(connectMcpServer).mockRejectedValueOnce(new Error('candidate failed'))
+    await expect(
+      loader.prepareMcpChanges({ srv1: { ...httpCfg, url: 'http://broken' } }, ['srv1']),
+    ).rejects.toThrow()
+    expect(loader.getMcpServer('srv1').error).toBeTruthy()
+    expect(loader.mcpReloadSummary().failed).toBe(1)
+    const calls = vi.mocked(connectMcpServer).mock.calls.length
+    status.applyStatus = 'applied'
+    expect(loader.getMcpServer('srv1')).toMatchObject({
+      status: 'connected',
+      applyStatus: 'applied',
+    })
+    expect(loader.getMcpServer('srv1').error).toBeUndefined()
+    expect(loader.mcpReloadSummary().failed).toBe(0)
+    expect(connectMcpServer).toHaveBeenCalledTimes(calls)
+    expect(mockClose).not.toHaveBeenCalled()
+    await loader.closeMcpClients()
+  })
+
+  it('keeps real connection failures visible even when config is applied', async () => {
+    mockConfig.mcp_servers = { srv1: httpCfg }
+    const loader = await import('@/core/mcp/loader.js')
+    const { connectMcpServer } = await import('@/core/mcp/client.js')
+    loader.setMcpReloadCoordinator(vi.fn(), () => ({ applyStatus: 'applied' }))
+    vi.mocked(connectMcpServer).mockRejectedValueOnce(new Error('unreachable'))
+    await expect(loader.connectMcpServerByName('srv1')).rejects.toThrow()
+    expect(loader.getMcpServer('srv1')).toMatchObject({ status: 'failed' })
+    expect(loader.getMcpServer('srv1').error).toBeTruthy()
+    expect(loader.mcpReloadSummary().failed).toBe(1)
+  })
+
   beforeEach(async () => {
     vi.clearAllMocks()
     // Reset module state by re-importing (loader has module-level Maps)
@@ -127,7 +169,8 @@ describe('MCP loader', () => {
 
     it('connects and registers senses', async () => {
       mockConfig.mcp_servers = { srv1: stdioCfg }
-      const { connectMcpServerByName: connect, listMcpServers: list } = await import('@/core/mcp/loader.js')
+      const { connectMcpServerByName: connect, listMcpServers: list } =
+        await import('@/core/mcp/loader.js')
       const info = await connect('srv1')
       expect(info.status).toBe('connected')
       expect(mockRegisterSenses).toHaveBeenCalled()
@@ -149,7 +192,8 @@ describe('MCP loader', () => {
       const { connectMcpServer } = await import('@/core/mcp/client.js')
       vi.mocked(connectMcpServer).mockRejectedValueOnce(new Error('conn fail'))
       mockConfig.mcp_servers = { bad: stdioCfg }
-      const { connectMcpServerByName: connect, getMcpServer: get } = await import('@/core/mcp/loader.js')
+      const { connectMcpServerByName: connect, getMcpServer: get } =
+        await import('@/core/mcp/loader.js')
       await expect(connect('bad')).rejects.toThrow('conn fail')
       const info = get('bad')
       expect(info.status).toBe('failed')
@@ -348,7 +392,9 @@ describe('MCP loader', () => {
       })
       await mod.connectMcpServerByName('resSrv')
       const registered = mockRegisterSenses.mock.calls[0][0] as any[]
-      expect(registered.some((s: any) => s.definition.function.name.includes('read_resource'))).toBe(true)
+      expect(
+        registered.some((s: any) => s.definition.function.name.includes('read_resource')),
+      ).toBe(true)
     })
 
     it('registers prompt sense when server has prompts capability', async () => {
@@ -372,7 +418,9 @@ describe('MCP loader', () => {
       })
       await mod.connectMcpServerByName('promptSrv')
       const registered = mockRegisterSenses.mock.calls[0][0] as any[]
-      expect(registered.some((s: any) => s.definition.function.name.includes('get_prompt'))).toBe(true)
+      expect(registered.some((s: any) => s.definition.function.name.includes('get_prompt'))).toBe(
+        true,
+      )
     })
 
     it('tolerates listResources failure when capability declared', async () => {

@@ -21,11 +21,7 @@ import {
 } from '@/db/epoch.js'
 import { upsertPendingInteraction } from '@/db/interaction.js'
 import { upsertExecutionActiveRun } from '@/db/executionGraph.js'
-import {
-  createSpawnTask,
-  finishSpawnTask,
-  getSpawnTaskByChild,
-} from '@/db/delivery.js'
+import { createSpawnTask, finishSpawnTask, getSpawnTaskByChild } from '@/db/delivery.js'
 import { ConfigApplyCoordinator } from '@/service/config/applyCoordinator.js'
 import { registerRuntimeConfigAdapters } from '@/service/config/runtimeApply.js'
 import {
@@ -40,7 +36,11 @@ import {
   clearChatRuntime,
   ensureChat,
   getChatSelection,
+  getSessionRoleConfiguration,
+  resolveEffectiveSelection,
   releaseChatRun,
+  setEphemeralChatRuntime,
+  setSessionRoleRuntimes,
 } from '@/service/chat/runtime.js'
 import { handleChatEpochList } from '@/service/chat/promptSnapshot.js'
 import { captureRuntimeConfig, getAppliedRawConfig, replaceRuntimeConfig } from '@/utils/config.js'
@@ -93,6 +93,78 @@ function setup(change: (image: ConfigImage) => void) {
 }
 
 describe('tree semantic publication', () => {
+  it('adopts a renamed brain when an idle session still selects its removed name', async () => {
+    const id = await root()
+    await setSessionRoleRuntimes(
+      id,
+      { brain: 'mock_content', senseGroup: 'auto_senses', mcpServers: [] },
+      {},
+    )
+    const child = randomUUID()
+    chats.push(child)
+    createChat(child, { type: 'hot_a', roleId: 'role-hottest-a' }, id)
+    setEphemeralChatRuntime(child, {
+      brain: 'mock_content',
+      senseGroup: 'auto_senses',
+      mcpServers: [],
+    })
+    await ensureChat(child)
+    const engine = setup((image) => {
+      image.config.llm.brain.renamed_mock = image.config.llm.brain.mock_content!
+      delete image.config.llm.brain.mock_content
+      for (const role of Object.values(image.config.roles ?? {})) {
+        if (role.brain === 'mock_content') role.brain = 'renamed_mock'
+      }
+    })
+    await engine.retry()
+    expect(engine.getState().status).toBe('applied')
+    expect(getChatSelection(id)?.brain).toBe('renamed_mock')
+    expect(getChatSelection(child)?.brain).toBe('renamed_mock')
+    expect(resolveEffectiveSelection(child)?.selection.brain).toBe('renamed_mock')
+  })
+  it('preserves valid explicit brains when a role changes its brain', async () => {
+    const id = await root()
+    const selection = { brain: 'mock_content', senseGroup: 'auto_senses', mcpServers: [] }
+    await setSessionRoleRuntimes(id, selection, { hot_a: selection })
+    const engine = setup((image) => {
+      image.config.roles!.hot_a!.brain = 'mock_auto'
+    })
+    await engine.retry()
+    expect(engine.getState().status).toBe('applied')
+    expect(getChatSelection(id)?.brain).toBe('mock_content')
+    expect(getSessionRoleConfiguration(id)).toEqual({
+      primary: selection,
+      roles: { hot_a: selection },
+    })
+  })
+  it('restores repaired session brains when publication fails and can retry', async () => {
+    const id = await root()
+    const selection = { brain: 'mock_content', senseGroup: 'auto_senses', mcpServers: [] }
+    await setSessionRoleRuntimes(id, selection, { hot_a: selection })
+    const oldEpoch = getActiveChatEpoch(id)!.epochId
+    const engine = setup((image) => {
+      image.config.llm.brain.renamed_mock = image.config.llm.brain.mock_content!
+      delete image.config.llm.brain.mock_content
+      for (const role of Object.values(image.config.roles ?? {})) {
+        if (role.brain === 'mock_content') role.brain = 'renamed_mock'
+      }
+    })
+    const initialize = vi.spyOn(AgentBuilder.prototype, 'init').mockImplementationOnce(() => {
+      throw new Error('injected replacement initialization failure')
+    })
+    await engine.retry()
+    expect(engine.getState().status).toBe('failed')
+    expect(initialize).toHaveBeenCalled()
+    expect(getActiveChatEpoch(id)!.epochId).toBe(oldEpoch)
+    expect(getSessionRoleConfiguration(id)).toEqual({
+      primary: selection,
+      roles: { hot_a: selection },
+    })
+    initialize.mockRestore()
+    await engine.retry()
+    expect(engine.getState().status).toBe('applied')
+    expect(getSessionRoleConfiguration(id)?.roles.hot_a?.brain).toBe('renamed_mock')
+  })
   it('waits for durable running work and preserves a deliberately paused run during adoption', async () => {
     const id = await root()
     const runId = randomUUID()

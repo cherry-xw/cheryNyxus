@@ -17,6 +17,7 @@ import {
 import {
   clearChatRuntime,
   prepareTreeRuntimeRefresh,
+  reconcileSessionBrains,
   renameSessionRoles,
 } from '@/service/chat/runtime.js'
 import type { ConfigTreeAdapter } from './applyCoordinator.js'
@@ -174,6 +175,7 @@ export const prepareSessionLifecycle: ConfigTreeAdapter = async ({ impacts, targ
       }> = []
       const retired: string[] = []
       const preparedRuntimes: Array<ReturnType<typeof prepareTreeRuntimeRefresh>> = []
+      const restoreSessionBrains = reconcileSessionBrains(roots, before, next)
       const restoreSessionNames = renameSessionRoles(renames)
       let active: ReturnType<typeof activateConfigRevision> | undefined
       try {
@@ -285,6 +287,7 @@ export const prepareSessionLifecycle: ConfigTreeAdapter = async ({ impacts, targ
       } catch (error) {
         publishRuntimeConfig(previous)
         restoreSessionNames()
+        restoreSessionBrains()
         mcp?.rollback()
         senses?.rollback()
         for (const prepared of preparedRuntimes) prepared.dispose()

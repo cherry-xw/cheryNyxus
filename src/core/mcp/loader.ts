@@ -23,7 +23,7 @@ interface ConnectedEntry {
   senseNames: string[]
 }
 const connectedServers = new Map<string, ConnectedEntry>()
-const lastError = new Map<string, string>()
+const lastError = new Map<string, { message: string; candidate?: boolean }>()
 let operation: Promise<void> = Promise.resolve()
 let coordinatedReload: ((name?: string) => Promise<McpReloadResult>) | undefined
 let applyStatus: ((name: string) => Pick<McpServerInfo, 'applyStatus' | 'applyReason'>) | undefined
@@ -129,7 +129,7 @@ export async function prepareMcpChanges(
     for (const [name, entry] of old) {
       if (!entry || !stopped.has(entry)) continue
       if (hasRetiredMcpProcess(name)) {
-        lastError.set(name, 'MCP 临时进程未能确认关闭，暂缓恢复旧连接，请重试')
+        lastError.set(name, { message: 'MCP 临时进程未能确认关闭，暂缓恢复旧连接，请重试' })
         continue
       }
       try {
@@ -137,7 +137,7 @@ export async function prepareMcpChanges(
         entry.lifetime.closed = false
         entry.lifetime.suspended = false
       } catch {
-        lastError.set(name, 'MCP 新连接失败，旧参数连接也未能恢复，请重试')
+        lastError.set(name, { message: 'MCP 新连接失败，旧参数连接也未能恢复，请重试' })
       }
     }
     stopped.clear()
@@ -181,7 +181,7 @@ export async function prepareMcpChanges(
           try {
             await entry.lifetime.close()
           } catch (error) {
-            lastError.set(name, 'MCP 旧连接未能确认关闭，已停止重载，请重试')
+            lastError.set(name, { message: 'MCP 旧连接未能确认关闭，已停止重载，请重试' })
             throw error
           }
           if (wasOpen) stopped.add(entry)
@@ -189,7 +189,10 @@ export async function prepareMcpChanges(
         try {
           next.set(name, await buildSensesForServer(name, cfg))
         } catch (error) {
-          lastError.set(name, 'MCP 候选连接或工具探测失败，配置尚未生效')
+          lastError.set(name, {
+            message: 'MCP 候选连接或工具探测失败，配置尚未生效',
+            candidate: true,
+          })
           throw error
         }
       }
@@ -282,7 +285,12 @@ function buildServerInfo(name: string, cfg: McpServerConfig): McpServerInfo {
   const entry = connectedServers.get(name)
   const available =
     entry && !entry.disconnected && !entry.lifetime.closed && !entry.lifetime.suspended
-  const error = lastError.get(name)
+  const adoption = applyStatus?.(name)
+  // Restoring the already applied config is a no-op, so commit() will not run.
+  // Only discard obsolete candidate errors; real connection failures survive.
+  if (available && adoption?.applyStatus === 'applied' && lastError.get(name)?.candidate)
+    lastError.delete(name)
+  const error = lastError.get(name)?.message
   return {
     name,
     status: available ? 'connected' : error ? 'failed' : 'disconnected',
@@ -290,7 +298,7 @@ function buildServerInfo(name: string, cfg: McpServerConfig): McpServerInfo {
     supervision: entry ? entry.cfg.supervision : cfg.supervision,
     senseNames: available ? entry.senseNames : [],
     ...(error ? { error } : {}),
-    ...applyStatus?.(name),
+    ...adoption,
   }
 }
 
@@ -329,7 +337,7 @@ export async function connectMcpServerByName(name: string): Promise<McpServerInf
   try {
     await applyStandalone(config.mcp_servers ?? {}, [name])
   } catch (error) {
-    lastError.set(name, 'MCP 连接失败，请检查服务配置并重试')
+    lastError.set(name, { message: 'MCP 连接失败，请检查服务配置并重试' })
     throw error
   }
   return getMcpServer(name)

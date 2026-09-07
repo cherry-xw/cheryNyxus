@@ -18,7 +18,7 @@ import {
   type ConfigRaw,
   getAppliedRawConfig,
 } from '@/utils/config.js'
-import { loadHookRegistry } from '@/agent/hooks/registry.js'
+import { loadHookRegistry, readGlobalHooks } from '@/agent/hooks/registry.js'
 import {
   createConfigRevision,
   markConfigRevisionHandled,
@@ -81,8 +81,7 @@ export function readConfigImage(): ConfigImage {
   const source = readRuntimeConfigSource(root)
   const raw = readRawConfig() as ConfigImage['config']
   raw.server = structuredClone(source.server ?? { port: 8182, transport: 'binary' })
-  const hooksPath = configPaths().hooks
-  const hooks = fs.existsSync(hooksPath) ? JSON.parse(fs.readFileSync(hooksPath, 'utf8')) : {}
+  const hooks = readGlobalHooks()
   const manifest = collectRuntimeResourceManifest().entries as Array<{
     path: string
     sha256: string
