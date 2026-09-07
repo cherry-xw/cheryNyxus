@@ -42,5 +42,5 @@ log/
 .workbuddy/
 docs/plan/*
 
-# 读规范凭证（AI 每任务写入，用户抽查，不入仓）
+# 历史本地协作记录（已停止生成，避免误提交）
 .claude/read-proof/

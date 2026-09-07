@@ -1,26 +1,42 @@
-# Project Instructions
+# 项目说明
 
-## Voice-input corrections
+## 语音输入纠正
 
-The user commonly uses voice input. Interpret the following likely speech-recognition substitutions throughout this project:
+用户经常使用语音输入。在整个项目中，请按以下规则理解可能出现的语音识别替换：
 
-- “绘画” usually means “会话”.
-- “节点数” means “节点树”.
+- “绘画”通常指“会话”。
+- “节点数”指“节点树”。
+- “nexus”就是“nyxus”
 
-Apply these corrections by default. If the surrounding context clearly conflicts with a correction, ask the user to confirm the intended term.
+默认应用这些纠正。如果上下文明确与纠正后的含义冲突，请向用户确认其真实意图。
 
-## Plan operation
+## 计划操作
 
-All implementation plans must be written under `docs/plan/` and follow [`docs/standards/global/plan-operation.md`](docs/standards/global/plan-operation.md).
+所有实施计划必须写入 `docs/plan/`，并遵循 [`docs/standards/global/plan-operation.md`](docs/standards/global/plan-operation.md) 中的规定。
 
-## Interaction-design comprehension
+## 文档操作
 
-Before implementing an interaction, evaluate it from the perspective of a first-time user who has no prior knowledge of the system. Aim for “what is visible is enough to understand.”
+以下全局文档规则会通过本文件自动加载：
 
-For every information or action area, make sure the interface either explains or provides an obvious way to learn:
+- 修改代码前，先评估文档影响。如果契约、边界、稳定入口、关键流程、扩展方式或验证入口发生变化，先更新权威文档；否则不要制造文档变更。
+- 按照“任务意图 -> 权威模块文档 -> 代码入口和关键符号 -> 验证入口”组织导航。
+- 保持导航用的 `README.md` 简洁：说明边界，为常见修改意图提供路径，并链接到直接子文档，不要复制子文档内容。
+- 每个稳定模块入口都必须说明：职责与非职责、常见任务的跳转路径、稳定代码入口、关键符号、依赖与影响、扩展点以及验证入口。
+- 使用“仓库相对路径 + 符号 + 测试或命令”引用代码；不要只使用行号作为定位方式。
+- 每个契约、状态机、规则或流程只能有一个维护者。其他文档应链接到该维护者文档，而不是重复维护副本。
+- 不要复制可以直接阅读的源代码，不要枚举易变的文件树，也不要在当前参考文档中积累按时间顺序排列的实现或修复日志。
+- 文档发生变化时，更新最近的导航索引，并验证本地链接、引用的源文件路径、孤立文档以及 `docs/plan/` 的跟踪状态。
 
-- what the content means and what its hidden system implications are;
-- all context the user needs to make the intended decision;
-- all information and inputs required to complete the interaction.
+详细模板、评审标准和迁移规则以 [`docs/standards/global/llm-readable-documentation.md`](docs/standards/global/llm-readable-documentation.md) 为准。
 
-When this information should not be shown inline, provide a clear, reachable detail or help entry so the user can finish the workflow without guessing.
+## 交互设计理解
+
+实现交互前，应从完全不了解系统的首次用户角度进行评估。目标是“界面上可见的信息足以让用户理解”。
+
+对于每个信息区域或操作区域，确保界面能够直接说明相关内容，或提供明显易用的了解途径：
+
+- 内容代表什么，以及它隐藏的系统影响；
+- 用户做出预期决策所需的全部上下文；
+- 完成交互所需的全部信息和输入。
+
+如果这些信息不适合直接展示在页面中，请提供清晰且容易找到的详情入口或帮助入口，确保用户无需猜测即可完成流程。
