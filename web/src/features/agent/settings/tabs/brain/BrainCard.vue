@@ -3,12 +3,7 @@
 import { CopyDocument, Delete, Refresh, Document } from '@element-plus/icons-vue'
 import { ref, computed, watch, toRaw } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  agentApi,
-  type BrainConfigDto,
-  type ConfigDto,
-  type MediaCapabilitiesDto,
-} from '@/application/backend/public'
+import { agentApi, type BrainConfigDto, type ConfigDto } from '@/application/backend/public'
 import { PROVIDERS } from '../../config/constants'
 import { PROVIDER_META, isProviderLabelRedundant, isProviderIconAsset } from './providerMeta'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
@@ -17,6 +12,19 @@ import LabelTip from '../config/LabelTip.vue'
 import ThinkingLevelKnob from '../../controls/ThinkingLevelKnob.vue'
 import MediaCapabilityGrid from '../config/MediaCapabilityGrid.vue'
 import { useModelRecommendation } from './useModelRecommendation'
+import {
+  PROVIDER_TIP,
+  PROTOCOL_TIP,
+  KEY_TIP,
+  URL_TIP,
+  displayContextLimit,
+  updateContextLimit,
+  mediaCapabilities,
+  toggleMediaCapability,
+  toolCallEnabled,
+  setToolCall,
+  anthropicOfficial,
+} from './brainFormHelpers'
 import {
   LLM_PROTOCOL_CATALOG,
   findLlmProviderDefinition,
@@ -323,29 +331,6 @@ const modelModel = computed({
   },
 })
 
-// ── info tip 文案（结构化多行，.label-tip-popper pre-line 渲染，\n 分点） ──
-const PROVIDER_TIP = [
-  '服务：请求实际发往的官方厂商、中转站或自定义入口。',
-  '它只提供默认地址和可选协议，不再决定消息解析方式。',
-].join('\n')
-const PROTOCOL_TIP = [
-  'API 协议：决定请求体、流事件、工具调用与思考内容的解析方式。',
-  '协议应匹配服务入口实际暴露的端点。',
-].join('\n')
-const KEY_TIP = [
-  'key：API 密钥，从 .env 变量中选择（$ENV 占位符）。',
-  '· 本地服务（LM Studio / vLLM / Ollama OpenAI 模式）不校验 key，可直接输入任意字符串（如 lm-studio）',
-  '· 留空会触发运行期鉴权失败',
-  '',
-  '修改 .env 后点右侧「刷新」按钮，新密钥立即可选并生效，无需重启。',
-].join('\n')
-const URL_TIP = [
-  'url：请求地址，支持 $ENV 占位从环境变量注入。',
-  '· 未勾选「完整 URL」：版本段（/v1 等）由你填写，后端按所选协议拼 /chat/completions、/responses 或 /messages',
-  '· 勾选「完整 URL」：后端不拼接任何字符串，请求地址即你填写的整个 URL（须含版本段与端点，如 https://api.openai.com/v1/chat/completions）',
-  '· ollama 填 host（如 http://localhost:11434），无版本段概念',
-].join('\n')
-
 /** 复制文本到剪贴板（非 HTTPS / 旧 Electron 走 execCommand 降级）。 */
 async function copyMessage(text: string): Promise<void> {
   try {
@@ -367,48 +352,6 @@ async function copyMessage(text: string): Promise<void> {
   }
 }
 
-/** 设置页默认以 K 为单位编辑，配置仍保存完整数值。 */
-function displayContextLimit(value: number | undefined): number | undefined {
-  return value === undefined ? undefined : value / 1000
-}
-function updateContextLimit(cfg: { contextLimit?: number }, value: unknown): void {
-  const limit = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(limit) || limit <= 0) return
-  cfg.contextLimit = limit * 1000
-}
-function capabilities(cfg: BrainConfigDto) {
-  return (cfg.capabilities ??= {})
-}
-function mediaCapabilities(cfg: BrainConfigDto, key: 'input' | 'generate') {
-  const caps = capabilities(cfg)
-  return (caps[key] ??= {})
-}
-function toggleMediaCapability(
-  cfg: BrainConfigDto,
-  group: 'input' | 'generate',
-  kind: keyof MediaCapabilitiesDto,
-): void {
-  const media = mediaCapabilities(cfg, group)
-  media[kind] = media[kind] !== true
-}
-function toolCallEnabled(cfg: BrainConfigDto): boolean {
-  return cfg.capabilities?.toolCall !== false
-}
-function setToolCall(cfg: BrainConfigDto, value: unknown): void {
-  capabilities(cfg).toolCall = value as boolean
-  if (value === false) capabilities(cfg).generate = {}
-}
-
-/** 当前 brain 是否官方 Anthropic（影响 redacted_thinking 回传策略）；
- *  仅 provider=anthropic 时生效；其它 provider 始终 false。 */
-function anthropicOfficial(cfg: BrainConfigDto): boolean {
-  if (cfg.provider === 'deepseek') return false
-  return (
-    cfg.anthropicCompat?.official ??
-    (cfg.protocol === 'anthropic-messages' &&
-      (cfg.provider === 'anthropic' || cfg.provider === 'minimax'))
-  )
-}
 function setAnthropicOfficial(cfg: BrainConfigDto, value: unknown): void {
   if (effectiveProtocol.value !== 'anthropic-messages' || cfg.provider === 'deepseek') return
   if (!cfg.anthropicCompat) cfg.anthropicCompat = {}

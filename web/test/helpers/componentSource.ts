@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 const COMPANIONS: Record<string, string[]> = {
   WorkbenchDialog: [
+    'WorkbenchFoldTool.vue',
+    'WorkbenchWindowControls.vue',
     'useWorkbenchDialogController.ts',
     'useWorkbenchContextInspector.ts',
     'useWorkbenchTaskController.ts',
@@ -27,7 +29,8 @@ const COMPANIONS: Record<string, string[]> = {
   NodePaperStack: ['NodePaperStack.styles.less'],
   NyxusPianoStrip: ['NyxusPianoStrip.styles.less'],
   TaskCenterAttentionWorkspace: ['TaskCenterAttentionWorkspace.styles.less'],
-  BrainCard: ['BrainCard.styles.less'],
+  BrainCard: ['BrainCard.styles.less', 'brainFormHelpers.ts'],
+  ServerLoginDialog: ['ServerLoginDialog.styles.less'],
   PluginImportDialog: ['PluginImportDialog.styles.less'],
 }
 

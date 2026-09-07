@@ -1,0 +1,595 @@
+/* 浮动窗（无全屏遮罩）：fixed 定位，初始位于视口偏上中心；拖动 offset 经内联 transform
+   注入（translate(offset)），负 margin（-50% 卡宽 / -240px 约半卡高）保持初始中心点。 */
+.rift-float {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 3000;
+  margin-left: -200px;
+  margin-top: -240px;
+}
+.rift-float.is-native {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 16px;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: var(--bg);
+}
+/* 卷帘最小化：窗体缩为只剩标题栏（38px），锚点同步上移保持居中观感 */
+.rift-float.is-min {
+  margin-top: -19px;
+}
+/* 最大化：铺满视口（内容区滚动） */
+.rift-float.is-max {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 16px;
+  display: grid;
+}
+.rift-float.is-max .rift-stage {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+.rift-float.is-max .rift-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rift-float.is-max .rift-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.rift-stage {
+  position: relative;
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  /* 暖黄光锚点：用户明确指定的"白偏黄"手电光色（本模块唯一硬编码色相，已获确认） */
+  --lamp-warm: color-mix(in srgb, white 55%, #ffcf7a);
+}
+
+.rift-fade-enter-active,
+.rift-fade-leave-active {
+  transition: opacity 0.26s ease;
+}
+.rift-fade-enter-from,
+.rift-fade-leave-to {
+  opacity: 0;
+}
+.rift-fade-enter-active .rift-panel,
+.rift-fade-leave-active .rift-panel {
+  transition:
+    transform 0.34s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.26s ease;
+}
+.rift-fade-enter-from .rift-panel,
+.rift-fade-leave-to .rift-panel {
+  transform: translateY(16px) scale(0.96);
+  opacity: 0;
+}
+
+/* —— 面板级手电光束覆盖层（fixed + viewport 坐标变量，pointer-events none） —— */
+.rift-light {
+  position: fixed;
+  inset: 0;
+  z-index: 3001;
+  pointer-events: none;
+}
+.rift-light > div {
+  position: absolute;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.rift-light.is-on > div {
+  opacity: 1;
+}
+/* 手电光束：独立光束盒（长度 = 面板宽 ×1.5，右端锚在 icon 灯头口），细长锥形实体光柱。
+   不透明段拉过面板左缘（72% 起）——窗口内全程实亮不虚化，大胆直接超出去，远端才衰减 */
+.light-cone {
+  top: calc(var(--beam-src-y, -200px) - var(--beam-half-far, 34px));
+  left: calc(var(--beam-src-x, -200px) - var(--beam-len, 600px));
+  width: var(--beam-len, 600px);
+  height: calc(var(--beam-half-far, 34px) * 2);
+  background: linear-gradient(to left, var(--lamp-warm) 72%, transparent 98%);
+  clip-path: polygon(
+    100% calc(50% - var(--beam-half-near, 4px)),
+    0 calc(50% - var(--beam-half-far, 34px)),
+    0 calc(50% + var(--beam-half-far, 34px)),
+    100% calc(50% + var(--beam-half-near, 4px))
+  );
+  /* 上下角度摆动（唯一动态）：绕灯头口（光束盒右端中点 = srcX/srcY）rotate，
+     发射点锚定、只有尾部动；半高/长度由 JS 从按钮/井 rect 实测注入（v11） */
+  transform: rotate(var(--beam-tilt, 0deg));
+  transform-origin: 100% 50%;
+  filter: blur(3px);
+  mix-blend-mode: normal;
+}
+/* 浅色模式：黑光——光束本体近黑（ink 派生）、高不透明压住背景，光斑内文字反白
+   （is-light 由 theme store 驱动，纯 scoped 规则，替代不可靠的 html 级 :global 选择器） */
+.is-light .light-cone {
+  background: linear-gradient(to left, var(--ink) 72%, transparent 98%);
+  mix-blend-mode: normal;
+}
+
+/* —— CyberWindow 一致壳：--cyber-line 描边 + 辉光 + 角括号 —— */
+.rift-panel {
+  position: relative;
+  /* 显式文字色（v10）：Teleport 到 body 后无 body 级继承来源，深色模式下
+     标题/label/记住密码/错误卡片/信息面板会继承浏览器默认黑而不可读 */
+  color: var(--ink);
+  background:
+    radial-gradient(120% 60% at 50% 0%, var(--accent-glow), transparent 62%), var(--panel);
+  border: 1px solid color-mix(in srgb, var(--cyber-line) 76%, transparent);
+  border-radius: 0;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.34),
+    0 0 28px var(--accent-glow);
+}
+.rift-panel.is-error {
+  border-color: color-mix(in srgb, var(--el-color-danger) 70%, transparent);
+}
+
+/* 角括号标记（CyberWindow 同语法，四角对称） */
+.cyber-corners {
+  position: absolute;
+  inset: 5px;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--accent), var(--accent)) left top / 18px 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) left top / 1px 18px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) right top / 18px 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) right top / 1px 18px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) left bottom / 18px 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) left bottom / 1px 18px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) right bottom / 18px 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) right bottom / 1px 18px no-repeat;
+  opacity: 0.62;
+}
+
+/* —— CyberWindow 同款标题栏（channel + 标题 + signal + 文字三键） —— */
+.rift-head {
+  position: relative;
+  /* 高于光柱（rift-light z 3001）：光柱任意扫过都不吞标题栏文字 */
+  z-index: 3004;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--cyber-line) 64%, transparent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 15%, transparent), transparent 42%),
+    var(--cyber-title-bg);
+  cursor: grab;
+  user-select: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+.rift-channel,
+.rift-signal {
+  flex: none;
+  color: var(--accent);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+.rift-channel {
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 46%, transparent);
+}
+.rift-signal {
+  margin-left: auto;
+  opacity: 0.64;
+}
+.rift-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.rift-actions {
+  align-self: stretch;
+  display: flex;
+}
+.rift-actions button {
+  width: 38px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--cyber-line) 44%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+.rift-actions button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.rift-actions button:last-child:hover {
+  background: color-mix(in srgb, var(--danger) 76%, transparent);
+  color: white;
+}
+.rift-body {
+  position: relative;
+  /* 不设 z-index（避免创建 stacking context 困住密码 input）：
+     光柱（z 3001）压住 body 常规内容（光不被输入框遮挡），
+     仅密码 input / caret / label / 标题栏（z 3003+/3004）浮出光上 */
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 开灯时（v10 对称显字）：光柱只作背景光层——所有会阅读的内容（字段 label /
+   普通输入框 / 记住密码行 / 按钮 / 错误卡片）整体浮出光柱之上（z 3003，同密码 input
+   待遇），任意区域可读；井底 / 面板底仍被光压住（光不被框体遮挡） */
+.is-lit .rift-form .field-label,
+.is-lit .rift-form .rift-input,
+.is-lit .rift-form .remember,
+.is-lit .rift-form .actions,
+.is-lit .rift-form .rift-error {
+  position: relative;
+  z-index: 3003;
+}
+
+/* —— 表单 —— */
+.rift-form {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+/* 输入井（非密码字段）：聚焦点亮 */
+.rift-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 400;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.rift-input::placeholder {
+  color: color-mix(in srgb, var(--ink) 38%, transparent);
+}
+.rift-input:focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 12px var(--accent-glow);
+}
+/* 深色模式框体描边提档（v10）：深底上 --border（α0.14）过淡，框体不可辨 */
+.rift-float:not(.is-light) .rift-input {
+  border-color: var(--border-strong);
+}
+
+/* —— 记住密码开关（直角滑块，开 = accent 底亮灯方块） —— */
+.remember {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+  font-weight: 400;
+}
+.remember-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.switch {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  flex: none;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  transition:
+    background 0.22s ease,
+    border-color 0.22s ease;
+}
+.switch--on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+  transition:
+    transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.22s ease;
+}
+.switch--on .switch-knob {
+  transform: translateX(16px);
+  background: var(--bg);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+.remember-label {
+  opacity: 0.8;
+}
+
+/* —— 错误卡片（赛博告警报告） —— */
+.rift-error {
+  padding: 11px 13px;
+  border-radius: 0;
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 45%, transparent);
+  border-left-width: 3px;
+  background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
+  animation: errorIn 0.3s ease;
+}
+.error-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.error-icon {
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  color: var(--el-color-danger);
+}
+.error-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.error-detail {
+  margin: 7px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  opacity: 0.85;
+}
+.error-backend,
+.error-status {
+  margin: 5px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+.error-label {
+  opacity: 0.7;
+}
+.error-toggle {
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 400;
+  text-decoration: underline;
+}
+.error-raw {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
+}
+@keyframes errorIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* —— 已登录信息面板 —— */
+.info-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.info-label {
+  flex: none;
+  width: 64px;
+  opacity: 0.6;
+  font-size: 12px;
+}
+.info-value {
+  word-break: break-all;
+  font-weight: 600;
+  font-size: 13px;
+}
+.info-ok {
+  color: var(--el-color-success);
+}
+
+/* —— 按钮（全直角；hover 光扫高光） —— */
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 16px;
+}
+.btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 17px;
+  border-radius: 0;
+  border: none;
+  font-size: 13.5px;
+  font-weight: 400;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    filter 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+/* 光扫：一道高光从左到右掠过（呼应灯主题） */
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 42%,
+    color-mix(in srgb, white 26%, transparent) 50%,
+    transparent 58%
+  );
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+.btn:hover::after {
+  transform: translateX(130%);
+  transition: transform 0.45s ease;
+}
+.btn:active {
+  transform: translateY(1px) scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn--ghost {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink);
+}
+.btn--ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.btn--primary {
+  background: var(--accent);
+  color: var(--surface);
+}
+:global(html.dark) .btn--primary {
+  color: var(--bg);
+}
+.btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+.btn--primary:disabled {
+  filter: none;
+}
+.btn--busy {
+  opacity: 0.75;
+  cursor: wait;
+  transform: none !important;
+}
+.btn--danger {
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--el-color-danger) 12%, transparent);
+  color: var(--el-color-danger);
+}
+.btn--danger:hover {
+  background: color-mix(in srgb, var(--el-color-danger) 22%, transparent);
+}
+
+/* —— toast —— */
+.rift-toast {
+  position: absolute;
+  top: -44px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 9px 18px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  white-space: nowrap;
+}
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn::after {
+    display: none;
+  }
+  .rift-fade-enter-active .rift-panel,
+  .rift-fade-leave-active .rift-panel {
+    transition: opacity 0.26s ease;
+  }
+  .rift-fade-enter-from .rift-panel,
+  .rift-fade-leave-to .rift-panel {
+    transform: none;
+  }
+  .rift-light > div {
+    transition: none;
+  }
+}

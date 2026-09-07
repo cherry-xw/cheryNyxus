@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import {
   useWorkbenchDialogController,
-  type FoldMode,
   type WorkbenchDialogControllerProps,
 } from './useWorkbenchDialogController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import WorkbenchViewToggle from './WorkbenchViewToggle.vue'
+import WorkbenchFoldTool from './WorkbenchFoldTool.vue'
+import WorkbenchWindowControls from './WorkbenchWindowControls.vue'
 const props = defineProps<WorkbenchDialogControllerProps>()
 const controller = useWorkbenchDialogController(props)
 const workbenchMotion = useOverlayTransitionHooks('dialog')
@@ -244,39 +245,12 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           }}</small>
           <ConnectionStatusChip class="workbench-conn-chip" />
           <WorkbenchViewToggle :window-id="windowId" />
-          <div class="workbench-window-actions" role="group" aria-label="窗口控制">
-            <button
-              type="button"
-              class="window-control is-minimize"
-              aria-label="最小化工作台"
-              title="最小化"
-              @click="minimizeWorkbench"
-            >
-              <span class="window-control-icon is-minimize" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              class="window-control is-maximize"
-              :aria-label="maxControlState === 'restore' ? '还原窗口' : '最大化窗口'"
-              :title="maxControlState === 'restore' ? '还原' : '最大化'"
-              @click="onMaximizeClick"
-            >
-              <span
-                class="window-control-icon"
-                :class="maxControlState === 'restore' ? 'is-restore' : 'is-maximize'"
-                aria-hidden="true"
-              />
-            </button>
-            <button
-              type="button"
-              class="window-control is-close"
-              aria-label="关闭节点树工作台"
-              title="关闭"
-              @click="closeWorkbench"
-            >
-              <span class="window-control-icon is-close" aria-hidden="true" />
-            </button>
-          </div>
+          <WorkbenchWindowControls
+            :max-control-state="maxControlState"
+            @minimize="minimizeWorkbench"
+            @maximize="onMaximizeClick"
+            @close="closeWorkbench"
+          />
         </header>
 
         <!-- lite 极简视图（T33 L0）：激活时替代完整视图主体（CSS .is-lite 隐藏富 UI 元素） -->
@@ -691,66 +665,15 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                   </button>
                 </span>
               </el-tooltip>
-              <div
-                class="nyxus-fold-tool"
-                :class="{ 'is-open': foldToolOpen }"
-                @pointerenter="showFoldTool"
-                @focusin="showFoldTool"
-                @pointerleave="scheduleFoldToolClose"
-              >
-                <el-tooltip
-                  v-for="mode in ['none', 'partial', 'participant', 'full'] as FoldMode[]"
-                  :key="mode"
-                  :content="FOLD_TIPS[mode]"
-                  placement="top"
-                  :show-after="200"
-                  :hide-after="0"
-                >
-                  <button
-                    type="button"
-                    class="nyxus-fold-part"
-                    :class="{ 'is-selected': foldMode === mode }"
-                    :aria-label="FOLD_TIPS[mode]"
-                    :aria-pressed="foldMode === mode"
-                    @click="selectFoldMode(mode)"
-                  >
-                    <svg class="nyxus-fold-icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        v-for="path in FOLD_ICONS[mode].paths"
-                        :key="path"
-                        class="nyxus-fold-icon-edge"
-                        :d="path"
-                      />
-                      <circle
-                        v-for="([cx, cy], index) in FOLD_ICONS[mode].nodes"
-                        :key="`${cx}-${cy}-${index}`"
-                        class="nyxus-fold-icon-node"
-                        :cx="cx"
-                        :cy="cy"
-                        r="1.65"
-                      />
-                    </svg>
-                  </button>
-                </el-tooltip>
-                <span class="nyxus-fold-current" aria-hidden="true">
-                  <svg class="nyxus-fold-icon" viewBox="0 0 24 24">
-                    <path
-                      v-for="path in FOLD_ICONS[foldMode].paths"
-                      :key="path"
-                      class="nyxus-fold-icon-edge"
-                      :d="path"
-                    />
-                    <circle
-                      v-for="([cx, cy], index) in FOLD_ICONS[foldMode].nodes"
-                      :key="`${cx}-${cy}-${index}`"
-                      class="nyxus-fold-icon-node"
-                      :cx="cx"
-                      :cy="cy"
-                      r="1.65"
-                    />
-                  </svg>
-                </span>
-              </div>
+              <WorkbenchFoldTool
+                :fold-mode="foldMode"
+                :fold-tool-open="foldToolOpen"
+                :icons="FOLD_ICONS"
+                :tips="FOLD_TIPS"
+                @show="showFoldTool"
+                @schedule-close="scheduleFoldToolClose"
+                @select="selectFoldMode"
+              />
               <div
                 class="nyxus-role-tool"
                 @pointerenter="showRoleList"
