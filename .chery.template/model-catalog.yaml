@@ -25,13 +25,13 @@ models:
         - { regex: '(?:^|[/_.:-])minimax[-_.]?m3(?:$|[-_/:])', flags: i }
     facts:
       contextWindow: 1000000
-      protocols: [openai-responses, openai-chat-completions, anthropic-messages]
+      protocols: [openai-chat-completions, openai-responses, anthropic-messages]
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
         generate: { image: false, video: false, audio: false }
     recommend:
-      protocol: openai-responses
+      protocol: openai-chat-completions
       contextLimit: 250000
       thinking: on
       capabilities:
@@ -58,13 +58,13 @@ models:
         - { regex: '(?:^|[/_.:-])minimax[-_.]?m2[._-]?7(?:$|[-_/:])', flags: i }
     facts:
       contextWindow: 1000000
-      protocols: [openai-responses, openai-chat-completions, anthropic-messages]
+      protocols: [openai-chat-completions, openai-responses, anthropic-messages]
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
         generate: { image: false, video: false, audio: false }
     recommend:
-      protocol: openai-responses
+      protocol: openai-chat-completions
       contextLimit: 250000
       thinking: on
       capabilities:

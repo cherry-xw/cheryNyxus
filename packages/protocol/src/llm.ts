@@ -90,10 +90,10 @@ export const LLM_PROVIDER_CATALOG: readonly LlmProviderDefinition[] = [
     id: LlmProvider.MINIMAX,
     label: 'MiniMax 官方',
     official: true,
-    defaultProtocol: LlmProtocol.OPENAI_RESPONSES,
+    defaultProtocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
     protocols: [
-      LlmProtocol.OPENAI_RESPONSES,
       LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+      LlmProtocol.OPENAI_RESPONSES,
       LlmProtocol.ANTHROPIC_MESSAGES,
     ],
     defaultUrl: 'https://api.minimaxi.com/v1',
