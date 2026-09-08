@@ -17,6 +17,7 @@
 | 新增、移动、删除或重新分类文档 | [目录与生命周期规范](docs/standards/documentation/structure.md) |
 | 建立、维护或恢复实施计划 | [计划规范](docs/standards/documentation/plans.md)及[项目计划政策](docs/standards/global/project-documentation.md#2-计划政策) |
 | 给其他项目采用本方案 | [采用指南](docs/standards/documentation/adoption-guide.md)及[入口模板](docs/standards/documentation/entry-template.md) |
+| 老项目没有文档，或现有文档无法可靠定位 | [存量项目梳理指南](docs/standards/documentation/existing-project-guide.md) |
 
 ## 项目配置：CheryClaw
 

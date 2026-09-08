@@ -20,11 +20,13 @@
 | 编写持久文档或代码变更影响持久事实 | [内容规范](docs/standards/documentation/content.md) |
 | 新增、移动、删除或重新分类文档 | [结构规范](docs/standards/documentation/structure.md) |
 | 建立、维护或恢复计划 | [计划规范](docs/standards/documentation/plans.md) |
+| 项目尚无文档入口，或现有文档无法可靠定位 | [存量项目梳理指南](docs/standards/documentation/existing-project-guide.md) |
 
 ## 项目配置
 
 在此直接列出“任务范围 → 领域 README”真实链接，省去首次目录探测。配置源由本区维护，文档总索引只提供对应导航。
 
 补充项目协作政策的直接链接与读取触发条件，明确实际源码和测试根、验证命令入口、审批人及审批开关、人工验收边界、台账保留和产物忽略策略。业务和工具专有规则放在项目配置或模块文档，不能写入通用规则包。
-```
 
+如果项目路由尚未建立或已经失效，先按存量项目梳理指南进行一次受控探测并建立最小入口；完成后再按正常路由工作。
+```

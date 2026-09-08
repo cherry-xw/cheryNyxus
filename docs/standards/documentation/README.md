@@ -18,6 +18,7 @@
 | 新增、移动、删除或重新分类文档 | [structure.md](./structure.md) |
 | 建立、维护或恢复实施计划 | [plans.md](./plans.md) |
 | 给新项目配置统一入口 | [entry-template.md](./entry-template.md) |
+| 老项目无文档或现有文档混乱 | [existing-project-guide.md](./existing-project-guide.md) |
 | 复制、部署、迁移或升级本方案 | [adoption-guide.md](./adoption-guide.md) |
 
 | 文件 | 作用 |
@@ -28,5 +29,6 @@
 | [plans.md](./plans.md) | 实施计划、恢复、验证和收口 |
 | [entry-template.md](./entry-template.md) | 根 `AGENTS.md` 可复制模板 |
 | [adoption-guide.md](./adoption-guide.md) | 迁移、检查、评估和升级步骤 |
+| [existing-project-guide.md](./existing-project-guide.md) | 无文档或文档混乱的存量项目梳理流程 |
 
 内容规范维护事实归属与写作验证规则，结构规范维护目录角色，计划规范维护任务状态；其他位置引用这些 owner。验证采用 Markdown 链接、锚点、路径与索引可达性检查，实际命令由项目提供。
