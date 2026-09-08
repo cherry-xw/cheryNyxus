@@ -12,6 +12,8 @@
 
 ## 计划操作
 
+小型、立即执行且能一次完成的任务不需要写计划文档，例如一次性的文档整理或局部修正；适用边界与中途扩大范围的处理见 [Plan 适用范围](docs/standards/global/plan-operation.md#0-是否需要建立计划)。
+
 所有实施计划必须写入 `docs/plan/`，并遵循 [`docs/standards/global/plan-operation.md`](docs/standards/global/plan-operation.md) 中的规定。查找或恢复计划时先读 `docs/plan/README.md`，再读目标任务目录的 `README.md`；不得先枚举整个 Plan 文件树代替入口导航。
 
 ## 文档操作

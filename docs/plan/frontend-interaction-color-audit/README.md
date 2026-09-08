@@ -1,6 +1,6 @@
 # 前端交互与颜色逻辑修正
 
-状态：待综合验证，可形成阶段性提交。基准：提交 `a10802e9` 加当前工作区修改。
+**状态：** 待综合验证
 
 ## 目标与边界
 
@@ -26,52 +26,25 @@
 | B    | 02 主题与颜色                               | 已完成 | 主题、颜色和 Canvas 传播修正及定向测试完成         |
 | B    | 03 设置与关键操作                           | 已完成 | 保存关闭、附件、连接和反馈修正及定向测试完成       |
 | C    | 04 可发现性与可操作性                       | 已完成 | 键盘、导航和小视口修正及定向测试完成               |
-| D    | [05 综合验证与用户验收](05-verification.md) | 进行中 | 提交前自动验证和用户最终 UI 验收                   |
 | E    | 06 已知问题目录与详情                       | 已完成 | 持久短目录、模块详情和导航已建立                   |
+| F    | [05 综合验证与用户验收](05-verification.md) | 进行中 | 提交前自动验证和用户最终 UI 验收                   |
+
+依赖：01 → 02/03 → 04；06 已完成并在最终 05 前汇总。02/03 涉及共享前端入口时按文件串行集成。
 
 ## 当前恢复检查点
 
 - 当前小任务：05 综合验证与用户验收。
 - 已完成：产品代码、正式测试、权威文档和计划/提交规范调整。
 - 剩余工作：由用户按统一手册执行 UI 验收；根据结论创建修正小任务或进入审批。
-- 工作区状态：所有产品和规范修改仍基于 `a10802e9`，尚未提交；切换到不共享工作区的环境前应先形成下面的恢复点提交。
+- 工作区基准：本次整理为 `b50f439`；原 `a10802e9` 是历史实现基线，旧“尚未提交”说明已过期。
+- 下一条验证命令：`pnpm test:web --reporter=dot`，仅在产品变更或未解决问题需要复核时运行。
 - 下一入口：[05 综合验证与用户验收](05-verification.md)。
-
-## 提交边界
-
-当前工作区适合拆成两个逻辑提交，均不需要等待最终人工验收：
-
-| 顺序 | 建议主题                                   | 范围                                        | 提交后状态                                              |
-| ---- | ------------------------------------------ | ------------------------------------------- | ------------------------------------------------------- |
-| 1    | `fix(web): 修正前端交互可靠性与主题可读性` | `web/src/`、`web/test/`、前端与质量权威文档 | 代码和自动回归形成可恢复产品检查点，05 继续等待人工验收 |
-| 2    | `docs: 简化计划生命周期与阶段性提交规则`   | `docs/standards/global/` 中本轮三份规范     | 新计划生命周期和阶段性提交规则生效                      |
-
-建议暂存范围：
-
-```powershell
-git add -- web docs/frontend docs/quality docs/standards/frontend/ui-visual-and-interaction.md
-git commit -m "fix(web): 修正前端交互可靠性与主题可读性"
-
-git add -- docs/standards/global/ai-collaboration.md docs/standards/global/documentation-hierarchy.md docs/standards/global/plan-operation.md
-git commit -m "docs: 简化计划生命周期与阶段性提交规则"
-```
-
-即使计划入口随 Git 提交，每个提交说明仍应包含以下恢复信息：
-
-```text
-Plan: frontend-interaction-color-audit
-Current subtask: 05 综合验证与用户验收
-Completed: 产品修改、正式测试和权威文档已完成
-Remaining: 用户执行最终人工 UI 验收；失败则创建修正小任务
-Validation: web tests 100/566 pass; web type-check pass; production build pass;
-changed-file ESLint 0 errors/3 existing warnings; Prettier pass; docs links 107 pass
-```
 
 ## 最终综合验证
 
 ### 自动验证（已完成）
 
-最新结果见 [05 综合验证与用户验收](05-verification.md)：前端测试 100 个文件 / 566 项通过，类型检查和生产构建通过；改动文件 ESLint 为 0 error，仅节点树控制器保留 3 条既有 warning；Prettier 检查通过；17 份变更文档的 107 个本地链接有效。生产构建仍报告现有的大 chunk 提示，不影响构建成功；`verify/out/` 仅保留本地可重建产物。
+历史结果见 [05 综合验证与用户验收](05-verification.md)：前端测试 100 个文件 / 566 项通过，类型检查和生产构建通过；改动文件 ESLint 为 0 error，仅节点树控制器保留 3 条既有 warning；Prettier 检查通过；17 份变更文档的 107 个本地链接有效。生产构建仍报告现有的大 chunk 提示，不影响构建成功；`verify/out/` 仅保留本地可重建产物。
 
 ### 人工验证
 
