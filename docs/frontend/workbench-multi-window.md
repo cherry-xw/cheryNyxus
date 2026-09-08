@@ -62,7 +62,9 @@ interface WorkbenchWindowState {
 
 ### 分支创建后的工作台切换契约（2026-08-24）
 
-composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat（`WorkbenchDialog.sendFromComposer`），创建成功后的切换行为**按分支类型区分**：
+输入草稿由 [useAgentDialogOptions.ts](../../web/src/features/agent/composer/useAgentDialogOptions.ts) 按输入面板与会话保存在当前 renderer 内存中；切换会话、收起和重新打开面板不清空文本或已上传附件。刷新或原生窗口销毁前提示未提交内容，草稿不写入服务器或持久存储。上传绑定当前草稿代次，切换后迟到结果不进入新会话；发送期间及上传期间禁止重复提交，只有输入 ACK 成功才移除本次提交的文本和附件，失败可直接重试。运行配置选择仍即时同步，输入面板显示同步中、已应用、等待运行边界或失败反馈。
+
+composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat（`WorkbenchDialog.sendFromComposer`）；现有分支协议不接收附件，因此分支模式禁用附件添加，已有附件必须移除或返回普通输入后发送。创建 ACK 与后续时间线刷新分开处理，刷新失败不可提示重新创建。创建成功后的切换行为**按分支类型区分**：
 
 - **`continuation`（从此处继续）**：切换工作台到新分支——`setWorkbenchWindowChat(windowId, created.chatId)` + `treeRootChatId = created.chatId`，新分支成为当前主流程，后续发送/交互落在新分支。
 - **`detail`（解释该节点）**：**不切换**工作台会话/树——`setWorkbenchWindowChat` 与 `treeRootChatId` 均不更新，解释分支只作为轻量子分支渲染在当前树上（与子分支同级），核心主流程保持不变。

@@ -28,7 +28,7 @@ const drafts = reactive<
   >
 >({})
 /** 审批倒计时驱动：now 每 250ms 刷新，重算各卡剩余秒。 */
-const now = ref(Date.now())
+const now = ref(interactions.calibratedNow())
 let countdownTimer: ReturnType<typeof setInterval> | undefined
 
 const scoped = computed(() => {
@@ -223,7 +223,7 @@ async function answer(item: InteractionRecord): Promise<void> {
 onMounted(() => {
   void interactions.refresh().catch(() => undefined)
   countdownTimer = setInterval(() => {
-    now.value = Date.now()
+    now.value = interactions.calibratedNow()
   }, 250)
 })
 onBeforeUnmount(() => {

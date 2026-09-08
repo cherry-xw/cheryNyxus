@@ -109,6 +109,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     activeRoleIndex,
     uploading,
     mediaHint,
+    runtimeHint,
+    runtimeError,
     mediaAttachments,
     sending,
     loading,
@@ -133,6 +135,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     brainConfig,
     supportsTools,
   } = useAgentDialogOptions({
+    draftScope: `workbench:${props.windowId}`,
     chatId: () => win.value?.chatId ?? null,
     // 入口携带的预设名：空白工作台/会话未水合时角色编制、Nyxus 判定据此解析（不靠会话推导）
     presetName: () => win.value?.presetName ?? null,
@@ -583,6 +586,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     error.value = null
   }
   async function sendFromComposer(): Promise<void> {
+    if (sending.value || uploading.value || loading.value) return
     if (quickTargetRequired.value && quickRoutingPending.value) await waitForQuickRouting()
     if (quickTargetRequired.value && !quickTarget.value) {
       error.value = '请选择消息指向的目标后继续'
@@ -590,6 +594,11 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     }
     nyxusDraftActive.value = false
     if (branchTarget.value) {
+      if (mediaAttachments.value.length) {
+        error.value = '分支暂不支持附件，请移除附件或返回普通输入后发送。'
+        nyxusDraftActive.value = true
+        return
+      }
       const target = branchTarget.value
       const prompt = text.value.trim()
       if (!prompt) {
@@ -597,6 +606,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
         nyxusDraftActive.value = true
         return
       }
+      sending.value = true
       try {
         const created = await agentApi.createBranch({
           rootChatId: target.sourceRootChatId,
@@ -616,16 +626,22 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
           agents.setWorkbenchWindowChat(props.windowId, created.chatId)
           treeRootChatId.value = created.chatId
         }
-        taskTimeline.value = await agentApi.getTaskTimeline({
-          taskId: created.taskId,
-          view: 'tree',
-        })
+        try {
+          taskTimeline.value = await agentApi.getTaskTimeline({
+            taskId: created.taskId,
+            view: 'tree',
+          })
+        } catch (cause) {
+          ElMessage.warning(`分支已创建，但时间线刷新失败：${(cause as Error).message}`)
+        }
         await chatSessions.openSession(created.chatId).catch(() => undefined)
         return
       } catch (cause) {
         error.value = cause instanceof Error ? cause.message : '创建分支失败'
         nyxusDraftActive.value = true
         return
+      } finally {
+        sending.value = false
       }
     }
     let targetChatId = chatId.value ?? undefined
@@ -697,10 +713,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   /** 无 root 时继续展示工作台既有的「新建会话」入口；创建后自动进入 Lite。 */
   const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)
   function closeWorkbench(): void {
+    if (sending.value) return
     // 关闭工作台即关闭其 docked 历史抽屉：HistoryDrawer 读全局单例，不清理则抽屉及遮罩残留页面
     // （见 docs/frontend/workbench-multi-window.md「关闭工作台清理 docked 抽屉」）。overlay 全局抽屉保留。
     if (agents.historyDrawerMode === 'workbench-docked') agents.closeAllHistory()
-    resetMedia()
     error.value = null
     // 只清理本窗口的 Lite 草稿/展开/滚动等 UI state；canonical root 数据与其它窗口不动。
     liteUi.clearWindow(props.windowId)
@@ -827,6 +843,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     maxControlState,
     mediaAttachments,
     mediaHint,
+    runtimeHint,
+    runtimeError,
     mediaServicesByType,
     minimizeWorkbench,
     nyxusDraftActive,

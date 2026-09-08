@@ -67,6 +67,8 @@ const {
   maxControlState,
   mediaAttachments,
   mediaHint,
+  runtimeHint,
+  runtimeError,
   mediaServicesByType,
   minimizeWorkbench,
   nyxusDraftActive,
@@ -409,6 +411,9 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               :error="error"
               :media-attachments="mediaAttachments"
               :media-hint="mediaHint"
+              :runtime-hint="runtimeHint"
+              :runtime-error="runtimeError"
+              :attachments-disabled="!!branchTarget"
               :uploading="uploading"
               :primary-selection="primarySelection"
               :supports-tools="supportsTools"

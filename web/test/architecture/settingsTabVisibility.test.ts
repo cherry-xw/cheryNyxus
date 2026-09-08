@@ -19,9 +19,7 @@ describe('settings tab visibility', () => {
   it('mounts exactly one tab through a v-if chain', async () => {
     const source = await readFile(SETTINGS_DIALOG, 'utf8')
     const paneTabs = [
-      ...source.matchAll(
-        /<div v-(?:if|else-if)="renderedTab === '([^']+)'" class="tab-pane">/g,
-      ),
+      ...source.matchAll(/<div v-(?:if|else-if)="renderedTab === '([^']+)'" class="tab-pane">/g),
     ].map((match) => match[1])
 
     expect(paneTabs).toEqual([
@@ -77,5 +75,14 @@ describe('settings tab visibility', () => {
     expect(settingsOpenWatch).not.toBeNull()
     expect(settingsOpenWatch?.[1]).toContain('if (isNative.value) return')
     expect(settingsOpenWatch?.[1]).toContain('await loadSettingsData()')
+  })
+
+  it('replays tab selection feedback unless reduced motion is active', async () => {
+    const dialog = await readFile(SETTINGS_DIALOG, 'utf8')
+
+    expect(dialog).toContain('@click="selectTab(t.key, $event)"')
+    expect(dialog).toContain("if (effectiveMode.value === 'reduced') return")
+    expect(dialog).toContain('gsap.killTweensOf(button)')
+    expect(dialog).toContain('gsap.fromTo(')
   })
 })

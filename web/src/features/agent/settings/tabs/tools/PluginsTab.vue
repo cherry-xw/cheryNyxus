@@ -112,12 +112,6 @@ async function onUpdate(name: string): Promise<void> {
     updatingName.value = ''
   }
 }
-function onCardClick(p: PluginInfo): void {
-  if (!p.updateAvailable) return
-  if (updatingName.value) return
-  if (checkingAll.value) return
-  void onUpdate(p.name)
-}
 async function onUninstall(name: string): Promise<void> {
   try {
     await agentApi.uninstallPlugin(name)
@@ -232,14 +226,7 @@ function skillTagStyle(i: number): { background: string; color: string } {
       </div>
     </template>
 
-    <article
-      v-for="(p, i) in pagedPlugins"
-      :key="p.name"
-      class="card"
-      :class="p.updateAvailable ? 'clickable' : ''"
-      :data-anchor="p.name"
-      @click="onCardClick(p)"
-    >
+    <article v-for="(p, i) in pagedPlugins" :key="p.name" class="card" :data-anchor="p.name">
       <span class="card-idx">{{ i + 1 }}</span>
       <header class="card-head">
         <span class="card-title">{{ p.name }}</span>
@@ -255,7 +242,7 @@ function skillTagStyle(i: number): { background: string; color: string } {
               type="button"
               class="icon-btn update-btn"
               aria-label="拉取最新"
-              :disabled="!!updatingName"
+              :disabled="!!updatingName || checkingAll"
               @click.stop="onUpdate(p.name)"
             >
               <Refresh class="ico" :class="{ spinning: updatingName === p.name }" />
@@ -413,7 +400,7 @@ code {
   color: color-mix(in srgb, var(--ink) 65%, transparent);
   &.branch {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--accent-ink);
+    color: var(--accent);
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   }
   &.ok {

@@ -5,7 +5,9 @@
  * 本组件仅 UI + emit；3 个 DOM ref 经函数 ref 桥接回 composable（selectCommand/commandMenuStyle 等依赖）。
  */
 import type { ComponentPublicInstance, CSSProperties } from 'vue'
-import { ElPopover, ElUpload } from 'element-plus'
+import { computed } from 'vue'
+import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
+import { Plus, Promotion } from '@element-plus/icons-vue'
 import type { UploadFile } from 'element-plus'
 import MediaPreviewBar from './media/MediaPreviewBar.vue'
 import {
@@ -27,6 +29,9 @@ const props = defineProps<{
   error: string | null
   mediaAttachments: MediaAttachment[]
   mediaHint: string
+  runtimeHint?: string
+  runtimeError?: boolean
+  attachmentsDisabled?: boolean
   uploading: boolean
   primarySelection: RuntimeSelection | undefined
   supportsTools: (brain: string) => boolean
@@ -45,6 +50,31 @@ const props = defineProps<{
   commandMenuRefFn: (el: HTMLElement | null) => void
   roleMenuRefFn: (el: HTMLElement | null) => void
 }>()
+
+const mediaKinds = [
+  { kind: 'image', label: '图片' },
+  { kind: 'video', label: '视频' },
+  { kind: 'audio', label: '音频' },
+] as const
+const mediaDisabledReason = computed(() => {
+  if (props.attachmentsDisabled) return '分支暂不支持附件'
+  if (props.sending) return '消息正在发送'
+  if (props.uploading) return '附件正在上传'
+  if (!props.primarySelection?.brain) return '请先选择主角色大脑'
+  return ''
+})
+const sendDisabledReason = computed(() => {
+  if (props.sending) return '消息正在发送'
+  if (props.loading) return '正在加载运行配置'
+  if (props.uploading) return '请等待附件上传完成'
+  if (!props.primarySelection?.brain) return '请先选择主角色大脑'
+  if (props.supportsTools(props.primarySelection.brain) && !props.primarySelection.senseGroup)
+    return '请先选择感官组'
+  if (props.attachmentsDisabled && props.mediaAttachments.length)
+    return '分支不支持附件，请移除后再发送'
+  if (!props.text.trim()) return '请输入消息'
+  return ''
+})
 
 type TemplateRefValue = Element | ComponentPublicInstance | null
 
@@ -91,6 +121,9 @@ const emit = defineEmits<{
     <MediaPreviewBar :attachments="mediaAttachments" @remove="(a) => emit('removeMedia', a)" />
     <div v-if="mediaHint" class="media-hint-row">
       {{ mediaHint }}
+    </div>
+    <div v-if="runtimeHint" :class="runtimeError ? 'error-row' : 'runtime-hint'" role="status">
+      {{ runtimeHint }}
     </div>
     <div class="textarea-row">
       <div
@@ -218,104 +251,66 @@ const emit = defineEmits<{
           popper-style="padding: 4px;"
         >
           <template #reference>
-            <button
-              type="button"
-              class="add-media-btn"
-              :disabled="uploading || !primarySelection?.brain"
-              :title="uploading ? '上传中…' : '添加媒体'"
-              aria-label="添加媒体附件"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                width="16"
-                height="16"
-              >
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
+            <ElTooltip :content="mediaDisabledReason || '添加媒体'" popper-class="label-tip-popper">
+              <span>
+                <button
+                  type="button"
+                  class="add-media-btn"
+                  :disabled="!!mediaDisabledReason"
+                  aria-label="添加媒体附件"
+                >
+                  <Plus width="16" height="16" />
+                </button>
+              </span>
+            </ElTooltip>
           </template>
           <div class="add-media-menu" @click.stop>
-            <ElUpload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept="image/*"
-              :disabled="uploading || !primarySelection?.brain"
-              :on-change="(f: any) => emit('mediaSelected', f)"
-              class="add-media-upload"
+            <ElTooltip
+              v-for="item in mediaKinds"
+              :key="item.kind"
+              :content="
+                mediaDisabledReason ||
+                (mediaServicesByType[item.kind]
+                  ? item.label
+                  : `当前大脑及媒体服务均不支持${item.label}`)
+              "
+              popper-class="label-tip-popper"
             >
-              <div class="add-media-item">
-                <span>🖼️</span><span>图片</span
-                ><span v-if="mediaServicesByType.image" class="media-svc-tag">{{
-                  mediaServicesByType.image
-                }}</span
-                ><span v-else class="media-svc-tag missing">未配置</span>
-              </div>
-            </ElUpload>
-            <ElUpload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept="video/*"
-              :disabled="uploading || !primarySelection?.brain"
-              :on-change="(f: any) => emit('mediaSelected', f)"
-              class="add-media-upload"
-            >
-              <div class="add-media-item">
-                <span>🎬</span><span>视频</span
-                ><span v-if="mediaServicesByType.video" class="media-svc-tag">{{
-                  mediaServicesByType.video
-                }}</span
-                ><span v-else class="media-svc-tag missing">未配置</span>
-              </div>
-            </ElUpload>
-            <ElUpload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept="audio/*"
-              :disabled="uploading || !primarySelection?.brain"
-              :on-change="(f: any) => emit('mediaSelected', f)"
-              class="add-media-upload"
-            >
-              <div class="add-media-item">
-                <span>🎵</span><span>音频</span
-                ><span v-if="mediaServicesByType.audio" class="media-svc-tag">{{
-                  mediaServicesByType.audio
-                }}</span
-                ><span v-else class="media-svc-tag missing">未配置</span>
-              </div>
-            </ElUpload>
+              <span>
+                <ElUpload
+                  :auto-upload="false"
+                  :show-file-list="false"
+                  :accept="`${item.kind}/*`"
+                  :disabled="!!mediaDisabledReason || !mediaServicesByType[item.kind]"
+                  :on-change="(file: UploadFile) => emit('mediaSelected', file)"
+                  class="add-media-upload"
+                >
+                  <div class="add-media-item">
+                    <span>{{ item.label }}</span
+                    ><span
+                      class="media-svc-tag"
+                      :class="{ missing: !mediaServicesByType[item.kind] }"
+                      >{{ mediaServicesByType[item.kind] || '不可用' }}</span
+                    >
+                  </div>
+                </ElUpload>
+              </span>
+            </ElTooltip>
           </div>
         </ElPopover>
-        <button
-          type="button"
-          class="send-btn"
-          :disabled="
-            !text.trim() ||
-            sending ||
-            loading ||
-            !primarySelection?.brain ||
-            (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)
-          "
-          aria-label="发送消息"
-          @click="emit('send')"
-        >
-          <svg
-            class="send-icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
-          </svg>
-        </button>
+        <ElTooltip :content="sendDisabledReason || '发送消息'" popper-class="label-tip-popper">
+          <span>
+            <button
+              type="button"
+              class="send-btn"
+              :disabled="!!sendDisabledReason"
+              aria-label="发送消息"
+              @click="emit('send')"
+            >
+              <Promotion class="send-icon" aria-hidden="true" />
+            </button>
+          </span>
+        </ElTooltip>
       </div>
     </div>
     <div v-if="error" class="error-row" :class="{ 'node-composer-error': isNyxus }" role="alert">
@@ -329,6 +324,13 @@ const emit = defineEmits<{
 
 .composer-wrap {
   position: relative;
+}
+.runtime-hint {
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  margin-bottom: 6px;
 }
 
 .composer-wrap.is-nyxus-composer {

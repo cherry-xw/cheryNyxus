@@ -1,5 +1,5 @@
 import { nextTick, onBeforeUnmount, reactive, watch, type Ref, type WatchSource } from 'vue'
-import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
+import { OVERLAY_Z_INDEX, ownerOverlayZIndex } from '@/styles/overlayLayers'
 
 interface ComposerMenuPositionOptions {
   editorRef: Ref<HTMLElement | null>
@@ -14,7 +14,7 @@ interface ComposerMenuPositionOptions {
 /** Keeps the teleported composer menus anchored above their editor. */
 export function useComposerMenuPosition(options: ComposerMenuPositionOptions) {
   const commandMenuStyle = reactive({
-    zIndex: OVERLAY_Z_INDEX.composerMenu,
+    zIndex: OVERLAY_Z_INDEX.composerMenu as number,
     bottom: '0px',
     left: '0px',
     width: '390px',
@@ -26,15 +26,20 @@ export function useComposerMenuPosition(options: ComposerMenuPositionOptions) {
     const menu = options.commandMenuRef.value ?? options.roleMenuRef.value
     if (!editor || !menu) return
     const editorRect = editor.getBoundingClientRect()
+    commandMenuStyle.zIndex = ownerOverlayZIndex(editor)
     const margin = 8
     const minWidth = 280
     const maxWidth = Math.min(420, window.innerWidth - margin * 2)
-    const width = Math.max(minWidth, Math.min(maxWidth, editorRect.width))
+    const width = Math.min(maxWidth, Math.max(minWidth, editorRect.width))
     const left = Math.max(margin, Math.min(editorRect.left, window.innerWidth - width - margin))
-    commandMenuStyle.bottom = `${window.innerHeight - editorRect.top + 6}px`
+    const above = editorRect.top - margin - 6
+    const below = window.innerHeight - editorRect.bottom - margin - 6
+    const useAbove = above >= 160 || above >= below
+    commandMenuStyle.bottom = useAbove ? `${window.innerHeight - editorRect.top + 6}px` : 'auto'
+    Object.assign(commandMenuStyle, { top: useAbove ? 'auto' : `${editorRect.bottom + 6}px` })
     commandMenuStyle.left = `${left}px`
     commandMenuStyle.width = `${width}px`
-    commandMenuStyle.maxHeight = `${Math.min(280, Math.max(0, editorRect.top - margin - 6))}px`
+    commandMenuStyle.maxHeight = `${Math.min(280, Math.max(0, useAbove ? above : below))}px`
   }
 
   watch(options.showCommandMenu, async (open) => {
@@ -59,11 +64,17 @@ export function useComposerMenuPosition(options: ComposerMenuPositionOptions) {
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', positionCommandMenu)
     window.addEventListener('scroll', positionCommandMenu, true)
+    window.addEventListener('pointerdown', onOwnerFocus, true)
+  }
+  function onOwnerFocus(): void {
+    if (options.showCommandMenu.value || options.showRoleMenu.value)
+      void nextTick(positionCommandMenu)
   }
   onBeforeUnmount(() => {
     if (typeof window === 'undefined') return
     window.removeEventListener('resize', positionCommandMenu)
     window.removeEventListener('scroll', positionCommandMenu, true)
+    window.removeEventListener('pointerdown', onOwnerFocus, true)
   })
 
   return {

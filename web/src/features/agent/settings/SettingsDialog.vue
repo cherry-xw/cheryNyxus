@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { onBeforeUnmount } from 'vue'
+import { gsap } from 'gsap'
 import {
   useSettingsDialogController,
   type SettingsDialogControllerProps,
@@ -6,10 +8,13 @@ import {
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import ConfigApplyStatus from './components/ConfigApplyStatus.vue'
 import { useMotionPreference, type MotionPreference } from '@/composables/useMotionPreference'
+import type { TabKey } from './config/constants'
+import { MOTION } from '@/utils/gsapCore'
 const props = defineProps<SettingsDialogControllerProps>()
 const controller = useSettingsDialogController(props)
+defineExpose({ confirmClose: controller.confirmClose, close: controller.close })
 const settingsMotion = useOverlayTransitionHooks('dialog')
-const { preference: motionPreference, setMotionPreference } = useMotionPreference()
+const { preference: motionPreference, effectiveMode, setMotionPreference } = useMotionPreference()
 const motionOptions: ReadonlyArray<{ value: MotionPreference; label: string }> = [
   { value: 'system', label: '跟随系统' },
   { value: 'full', label: '完整' },
@@ -49,6 +54,7 @@ const {
   gotoErrorTab,
   hintLines,
   hooksState,
+  hasUnsavedChanges,
   indexCount,
   isEmbedded,
   isNative,
@@ -88,6 +94,52 @@ const {
   validatePresetWorkspace,
   workspaceWarnings,
 } = controller
+
+const animatedTabButtons = new Set<HTMLElement>()
+
+function selectTab(key: TabKey, event: MouseEvent): void {
+  activeTab.value = key
+  if (effectiveMode.value === 'reduced') return
+  const button = event.currentTarget
+  if (!(button instanceof HTMLElement)) return
+  animatedTabButtons.add(button)
+  gsap.killTweensOf(button)
+  gsap.fromTo(
+    button,
+    { y: 2, scale: 0.97 },
+    {
+      y: 0,
+      scale: 1,
+      duration: MOTION.control,
+      ease: MOTION.easeAgent,
+      clearProps: 'transform',
+      onComplete: () => animatedTabButtons.delete(button),
+    },
+  )
+}
+
+function onTabKeydown(event: KeyboardEvent, key: TabKey): void {
+  const index = TABS.findIndex((tab) => tab.key === key)
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? TABS.length - 1
+        : event.key === 'ArrowRight'
+          ? (index + 1) % TABS.length
+          : event.key === 'ArrowLeft'
+            ? (index - 1 + TABS.length) % TABS.length
+            : -1
+  if (next < 0) return
+  event.preventDefault()
+  activeTab.value = TABS[next]!.key
+  tabBarRef.value?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+}
+
+onBeforeUnmount(() => {
+  gsap.killTweensOf([...animatedTabButtons])
+  animatedTabButtons.clear()
+})
 </script>
 
 <template>
@@ -118,7 +170,7 @@ const {
         }"
         :style="panelStyles"
         role="dialog"
-        aria-modal="true"
+        :aria-modal="isShellless ? undefined : true"
         aria-label="设置"
       >
         <header v-if="!isShellless" class="head" @pointerdown="onTitlePointerDown">
@@ -127,19 +179,6 @@ const {
             <OpenConfigDirButton @error="onError" />
           </div>
           <div class="head-actions">
-            <div class="motion-preference" aria-label="界面动效强度">
-              <span class="motion-preference-label">MOTION</span>
-              <button
-                v-for="option in motionOptions"
-                :key="option.value"
-                type="button"
-                :class="{ active: motionPreference === option.value }"
-                @pointerdown.stop
-                @click="setMotionPreference(option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
             <button
               type="button"
               class="close-btn"
@@ -167,15 +206,20 @@ const {
           >
             <ArrowLeft class="tab-arrow-ico" />
           </button>
-          <div ref="tabBarRef" class="tab-bar">
+          <div ref="tabBarRef" class="tab-bar" role="tablist" aria-label="设置分类">
             <button
               v-for="t in TABS"
+              :id="`settings-tab-${t.key}`"
               :key="t.key"
               type="button"
               class="tab"
               :class="{ active: activeTab === t.key }"
-              :style="{ '--tab-color': t.color }"
-              @click="activeTab = t.key"
+              role="tab"
+              :aria-selected="activeTab === t.key"
+              aria-controls="settings-tab-panel"
+              :tabindex="activeTab === t.key ? 0 : -1"
+              @click="selectTab(t.key, $event)"
+              @keydown="onTabKeydown($event, t.key)"
             >
               <span class="tab-icon">{{ t.icon }}</span>
               <span class="tab-label">{{ t.label }}</span>
@@ -194,7 +238,13 @@ const {
           </button>
         </nav>
 
-        <div class="tab-body" :aria-busy="loading || tabSwitching">
+        <div
+          id="settings-tab-panel"
+          class="tab-body"
+          role="tabpanel"
+          :aria-labelledby="`settings-tab-${activeTab}`"
+          :aria-busy="loading || tabSwitching"
+        >
           <SkeletonTab
             v-if="loading || tabSwitching"
             :sect-hints="hintLines.sect"
@@ -326,7 +376,9 @@ const {
             @confirm="reloadServerVersion"
           >
             <template #reference>
-              <button type="button" class="ghost-btn">重新载入服务器版本</button>
+              <button type="button" class="ghost-btn" :disabled="saving || loading">
+                重新载入服务器版本
+              </button>
             </template>
           </el-popconfirm>
         </div>
@@ -344,6 +396,19 @@ const {
 
         <ConfigApplyStatus :preview="destructivePreview" />
         <footer class="foot">
+          <div class="motion-preference" role="group" aria-label="界面动效强度">
+            <span class="motion-preference-label">动效</span>
+            <button
+              v-for="option in motionOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: motionPreference === option.value }"
+              :aria-pressed="motionPreference === option.value"
+              @click="setMotionPreference(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
           <div
             id="settings-footer-nav"
             class="foot-left"
@@ -351,7 +416,13 @@ const {
             aria-live="polite"
           />
           <div class="foot-right">
-            <button type="button" class="primary-btn" :disabled="!draft || saving" @click="save">
+            <span v-if="hasUnsavedChanges" role="status">有未保存修改</span>
+            <button
+              type="button"
+              class="primary-btn"
+              :disabled="!draft || saving || loading"
+              @click="save"
+            >
               {{ saving ? '保存中…' : '保存' }}
             </button>
           </div>

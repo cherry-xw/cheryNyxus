@@ -21,6 +21,7 @@ import {
   watch,
 } from 'vue'
 import { ArrowLeft, ArrowRight, Close } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
 import { useAgentsStore, useConfigApplyStore, useConnectionStore } from '@/application/public'
 import type { ConfigPreview } from '@chery/protocol'
 import {
@@ -84,6 +85,10 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const isShellless = computed(() => isNative.value || isEmbedded.value)
   const bridge = desktopBridge()
   const draft = ref<ConfigDto | null>(null)
+  const configBaseline = ref('')
+  let settingsLoadSeq = 0
+  let allowNativeUnload = false
+  let closeConfirmation: Promise<boolean> | null = null
   const initialTab = props.initialSection
     ? SETTINGS_TAB_BY_SECTION[props.initialSection]
     : agents.settingsSection
@@ -95,19 +100,10 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const tabSwitching = ref(false)
   const rolesShadowMode = ref(false)
   provide(SETTINGS_ACTIVE_TAB_KEY, readonly(activeTab))
-  /** 当前激活 tab 的主题色：提升到 panel 根作为 --tab-color，让保存按钮/序号/卡片强调点/panel 背景/边框随 tab 整体变色。
-   *  tab 按钮仍各自绑自己的 color（hover/active 显示对应 tab 色），与此处全局基调互不冲突。 */
-  const activeTabColor = computed(() =>
-    activeTab.value === 'roles' && rolesShadowMode.value
-      ? '#64748b'
-      : (TABS.find((t) => t.key === activeTab.value)?.color ?? '#22d3ee'),
-  )
-  const activeTabHighlight = computed(() =>
-    activeTab.value === 'roles' && rolesShadowMode.value ? '#cbd5e1' : activeTabColor.value,
-  )
+  /** 文字、焦点与主操作统一消费深浅主题强调色；分类装饰不驱动交互前景。 */
   const settingsThemeStyle = computed(() => ({
-    '--tab-color': activeTabColor.value,
-    '--tab-highlight': activeTabHighlight.value,
+    '--tab-color': 'var(--accent)',
+    '--tab-highlight': 'var(--accent)',
   }))
   /** 当前 tab 的 hints 段落拆分（sect + warn），渲染与真实 hints 像素级一致。 */
   const hintLines = computed(() => HINT_LINES[activeTab.value] ?? { sect: 1, warn: 0 })
@@ -319,7 +315,10 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
 
   /** 打开设置时拉取全量数据（config + 工具/角色/规则/env/技能/插件清单）。
    *  浏览器路径每次打开调用；native 面挂载即调用（settingsOpen 永不翻转）。 */
-  async function loadSettingsData(): Promise<void> {
+  async function loadSettingsData(resetHooks = false): Promise<void> {
+    const seq = ++settingsLoadSeq
+    const initialDraft = JSON.stringify(draft.value)
+    const initialHooks = JSON.stringify(hooksState.handlers)
     loading.value = true
     error.value = null
     savedHint.value = null
@@ -327,11 +326,21 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     workspaceWarnings.value = {}
     try {
       const { baseRevision: revision, ...data } = await agentApi.getConfig()
+      if (seq !== settingsLoadSeq) return
+      if (
+        JSON.stringify(draft.value) !== initialDraft ||
+        JSON.stringify(hooksState.handlers) !== initialHooks
+      ) {
+        externalChange.value = true
+        loading.value = false
+        return
+      }
       baseRevision = revision
       pendingPreview = null
       destructivePreview.value = null
       draft.value = structuredClone(data)
-      configBaseline = JSON.stringify(draft.value)
+      configBaseline.value = JSON.stringify(draft.value)
+      if (resetHooks) resetHooksState()
       externalChange.value = false
       revisionConflict.value = false
       // 打开设置时立即校验现有每个预设，避免历史无效路径要等编辑后才暴露。
@@ -339,8 +348,11 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
         validatePresetWorkspace(presetName, preset.workspace)
       }
     } catch (e) {
+      if (seq !== settingsLoadSeq) return
       error.value = (e as Error).message
       console.error('[SettingsDialog] getConfig failed:', e)
+      if (seq === settingsLoadSeq) loading.value = false
+      return
     }
     // 工具列表静态缓存：失败不阻塞编辑（下拉仍可自由输入）
     if (!senseTools.value.length) {
@@ -381,7 +393,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     await refreshPlugins()
     await refreshSkillSources()
     // config 与所有父级依赖均就绪后才揭示初始 Tab，避免空选项逐段跳入。
-    loading.value = false
+    if (seq === settingsLoadSeq) loading.value = false
   }
   watch(
     () => agents.settingsOpen,
@@ -390,6 +402,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       // 浏览器设置改为按需挂载后，组件创建时 settingsOpen 已经为 true，必须立即执行本监听。
       if (isNative.value) return
       if (!open) {
+        settingsLoadSeq += 1
         draft.value = null
         error.value = null
         savedHint.value = null
@@ -458,14 +471,48 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       plugins.value = []
     }
   }
-  function close(): void {
+  function confirmClose(): Promise<boolean> {
+    if (saving.value) {
+      error.value = '设置正在保存，请等待结果后再关闭。'
+      return Promise.resolve(false)
+    }
+    if (!hasUnsavedChanges.value) return Promise.resolve(true)
+    if (closeConfirmation) return closeConfirmation
+    closeConfirmation = ElMessageBox.confirm(
+      '尚有未保存的配置或 Hooks 修改，关闭后将丢弃这些草稿。',
+      '关闭设置？',
+      {
+        confirmButtonText: '放弃修改并关闭',
+        cancelButtonText: '继续编辑',
+        type: 'warning',
+        modalClass: 'settings-close-confirm',
+      },
+    )
+      .then(
+        () => true,
+        () => false,
+      )
+      .finally(() => {
+        closeConfirmation = null
+      })
+    return closeConfirmation
+  }
+  async function close(): Promise<void> {
+    if (!(await confirmClose())) return
     if (isNative.value) {
+      allowNativeUnload = true
       // 原生设置窗关闭由 main 进程统一处理（默认销毁；工作台窗才是 hide 保活）
       bridge?.windowControl('close')
       return
     }
     agents.settingsSection = null
     agents.settingsOpen = false
+  }
+  function onBeforeUnload(event: BeforeUnloadEvent): void {
+    if (allowNativeUnload || (!saving.value && !hasUnsavedChanges.value)) return
+    event.preventDefault()
+    event.returnValue = ''
+    if (isNative.value) void close()
   }
   function onError(msg: string): void {
     error.value = msg || null
@@ -539,14 +586,13 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     )
   }
   let baseRevision = ''
-  let configBaseline = ''
   const configDirty = computed(
-    () => !!draft.value && JSON.stringify(draft.value) !== configBaseline,
+    () => !!draft.value && JSON.stringify(draft.value) !== configBaseline.value,
   )
   const hasUnsavedChanges = computed(() => configDirty.value || hooksState.dirty)
   let pendingPreview: { fingerprint: string; preview: ConfigPreview } | null = null
   async function save(): Promise<void> {
-    if (!draft.value || saving.value) return
+    if (!draft.value || saving.value || loading.value) return
     saving.value = true
     error.value = null
     savedHint.value = null
@@ -585,11 +631,15 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       baseRevision = result.baseRevision
       pendingPreview = null
       destructivePreview.value = null
-      hooksState.dirty = false
-      configBaseline = JSON.stringify(draft.value)
+      if (payload.hooks) {
+        hooksState.dirty = JSON.stringify(hooksState.handlers) !== JSON.stringify(payload.hooks)
+      }
+      configBaseline.value = JSON.stringify(payload.candidate)
       externalChange.value = false
       configApply.apply(result)
-      savedHint.value = '设置已保存，详细生效状态见下方。'
+      savedHint.value = hasUnsavedChanges.value
+        ? '本次提交已保存；保存期间的新修改仍未保存。'
+        : '设置已保存，详细生效状态见下方。'
       savedWarnings.value = result.warnings
     } catch (e) {
       const msg = (e as Error).message
@@ -614,8 +664,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   }
 
   async function reloadServerVersion(): Promise<void> {
-    resetHooksState()
-    await loadSettingsData()
+    if (saving.value || loading.value) return
+    await loadSettingsData(true)
     if (activeTab.value === 'hooks') await loadHooksData()
   }
 
@@ -663,6 +713,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     )
   }
   onMounted(() => {
+    window.addEventListener('beforeunload', onBeforeUnload)
     if (isNative.value) {
       nativeSectionCleanup = bridge?.onSettingsSection((section) => {
         activeTab.value = SETTINGS_TAB_BY_SECTION[section]
@@ -673,6 +724,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     loadNativeSettings()
   })
   onUnmounted(() => {
+    settingsLoadSeq += 1
+    window.removeEventListener('beforeunload', onBeforeUnload)
     nativeConnectWatch?.()
     nativeSectionCleanup?.()
     dragCleanup?.()
@@ -779,6 +832,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     canLeft,
     canRight,
     close,
+    confirmClose,
     draft,
     destructivePreview,
     dragging,
@@ -789,6 +843,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     gotoErrorTab,
     hintLines,
     hooksState,
+    hasUnsavedChanges,
     indexCount,
     isNative,
     isEmbedded,

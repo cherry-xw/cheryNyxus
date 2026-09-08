@@ -21,6 +21,7 @@ import { WorkspaceSessionBrowser } from '../attention/public'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
+import { ownerOverlayZIndex } from '@/styles/overlayLayers'
 import { useAgentsStore, useInteractionsStore } from '@/application/public'
 
 const props = withDefaults(defineProps<{ native?: boolean; embedded?: boolean }>(), {
@@ -74,6 +75,8 @@ const {
   activeRoleIndex,
   uploading,
   mediaHint,
+  runtimeHint,
+  runtimeError,
   mediaAttachments,
   sending,
   loading,
@@ -320,7 +323,11 @@ const traceWindowPos = computed(() => {
   const panel = panelEl.value
   if (!panel) return { left: '0px', top: '0px' }
   const rect = panel.getBoundingClientRect()
-  return { left: `${rect.right + 10}px`, top: `${Math.max(8, rect.top)}px` }
+  return {
+    left: `${Math.max(8, Math.min(rect.right + 10, window.innerWidth - 304))}px`,
+    top: `${Math.max(8, rect.top)}px`,
+    zIndex: ownerOverlayZIndex(panel),
+  }
 })
 watch(chatId, (v) => {
   if (!v) {
@@ -458,7 +465,6 @@ function closeDialog(): void {
   closeAgentDialog()
 }
 
-/** 待处理交互视图切换（非 native 面由 dialog-head 内按钮触发；native 面经 defineExpose 由 WindowFrame title-actions 调用）。 */
 function toggleAttention(): void {
   dialogView.value = dialogView.value === 'attention' ? 'composer' : 'attention'
 }
@@ -467,7 +473,6 @@ function onDialogEditorKeydown(e: KeyboardEvent): void {
   onEditorKeydown(e, () => void sendFromComposer())
 }
 
-// ── 斜杠指令菜单定位（Teleport 到 body 后用 fixed 定位；锚定 .msg-input 顶部，向上展开） ──
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('pointermove', onPanelPointerMove)
@@ -505,10 +510,7 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
 /** dialog-head 工作区模式：workspace 有值时 pet name 前 📁（路径失效改 ⚠ 红色），hover 显全路径。无 workspace 纯文本。 */
 const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 
-// native 面（Electron composer 原生窗，WindowFrame 外壳）：AgentDialog 自绘标题栏隐藏，
-// 标题 / 能力按钮 / 三键全部由 WindowFrame 承载。能力按钮经 title-actions slot 渲染，
-// 操作与状态经此暴露给 App.vue（🌳 节点树 / ! 待处理交互）。计数与视图态用函数返回
-// 响应式值（App.vue 以 computed 包装读取，保持追踪）。
+// WindowFrame consumes the native title actions and their reactive state.
 defineExpose({
   openWorkbenchForChat,
   openWorkspaceTree,
@@ -547,7 +549,7 @@ defineExpose({
         data-desktop-hit
         :style="panelStyle"
         role="dialog"
-        aria-modal="true"
+        :aria-modal="!shellless && isTopMask ? true : undefined"
         :aria-label="`向 ${pet?.name ?? '智能体'} 发送消息`"
       >
         <header v-if="!shellless" class="dialog-head" @pointerdown="onHeaderPointerDown">
@@ -734,6 +736,8 @@ defineExpose({
             :error="error"
             :media-attachments="mediaAttachments"
             :media-hint="mediaHint"
+            :runtime-hint="runtimeHint"
+            :runtime-error="runtimeError"
             :uploading="uploading"
             :primary-selection="primarySelection"
             :supports-tools="supportsTools"

@@ -47,49 +47,55 @@ watch(
 
 <template>
   <div class="resource-workbench" :class="{ 'glow-rail-enabled': glowRail }">
-    <aside class="resource-rail">
-      <div class="resource-rail-tools">
-        <el-input v-model="search" clearable size="small" :placeholder="searchPlaceholder">
-          <template #prefix><Search class="rail-search-icon" /></template>
-        </el-input>
-        <slot name="rail-actions" />
-      </div>
-      <div class="resource-rail-list" role="listbox">
-        <button
-          v-for="(item, i) in filtered"
-          :key="item.key"
-          type="button"
-          class="resource-rail-card"
-          :class="{ active: item.key === modelValue, danger: item.danger }"
-          :style="{ '--rail-i': i }"
-          :aria-selected="item.key === modelValue"
-          @click="emit('update:modelValue', item.key)"
-        >
-          <span class="resource-avatar" aria-hidden="true">
-            <img
-              v-if="item.avatarIcon"
-              :src="item.avatarIcon"
-              :alt="item.label"
-              class="avatar-img"
-            />
-            <template v-else>{{ item.avatar || item.label.slice(0, 1) }}</template>
-          </span>
-          <span class="resource-copy">
-            <b>{{ item.label }}</b>
-            <small v-if="item.meta || item.capacity" class="resource-meta">
-              <span v-if="item.capacity" class="resource-capacity">{{ item.capacity }}</span>
-              <span v-if="item.capacity && item.meta" class="resource-meta-sep">·</span>
-              <span v-if="item.meta">{{ item.meta }}</span>
-            </small>
-          </span>
-          <span v-if="item.badge" class="resource-badge">{{ item.badge }}</span>
-        </button>
-        <div v-if="!filtered.length" class="resource-rail-empty">没有匹配项</div>
-      </div>
-    </aside>
-    <main class="resource-detail">
-      <slot />
-    </main>
+    <div class="resource-layout">
+      <aside class="resource-rail">
+        <div class="resource-rail-tools">
+          <el-input v-model="search" clearable size="small" :placeholder="searchPlaceholder">
+            <template #prefix><Search class="rail-search-icon" /></template>
+          </el-input>
+          <slot name="rail-actions" />
+        </div>
+        <div class="resource-rail-list" role="listbox" aria-label="资源列表">
+          <button
+            v-for="(item, i) in filtered"
+            :key="item.key"
+            type="button"
+            role="option"
+            :aria-label="
+              [item.label, item.meta, item.capacity, item.badge].filter(Boolean).join('，')
+            "
+            class="resource-rail-card"
+            :class="{ active: item.key === modelValue, danger: item.danger }"
+            :style="{ '--rail-i': i }"
+            :aria-selected="item.key === modelValue"
+            @click="emit('update:modelValue', item.key)"
+          >
+            <span class="resource-avatar" aria-hidden="true">
+              <img
+                v-if="item.avatarIcon"
+                :src="item.avatarIcon"
+                :alt="item.label"
+                class="avatar-img"
+              />
+              <template v-else>{{ item.avatar || item.label.slice(0, 1) }}</template>
+            </span>
+            <span class="resource-copy">
+              <b>{{ item.label }}</b>
+              <small v-if="item.meta || item.capacity" class="resource-meta">
+                <span v-if="item.capacity" class="resource-capacity">{{ item.capacity }}</span>
+                <span v-if="item.capacity && item.meta" class="resource-meta-sep">·</span>
+                <span v-if="item.meta">{{ item.meta }}</span>
+              </small>
+            </span>
+            <span v-if="item.badge" class="resource-badge">{{ item.badge }}</span>
+          </button>
+          <div v-if="!filtered.length" class="resource-rail-empty">没有匹配项</div>
+        </div>
+      </aside>
+      <main class="resource-detail">
+        <slot />
+      </main>
+    </div>
   </div>
 </template>
 
@@ -98,8 +104,14 @@ watch(
 .resource-workbench {
   min-height: 0;
   height: 100%;
+  container-type: inline-size;
+  container-name: resource-workbench;
+}
+.resource-layout {
+  min-height: 0;
+  height: 100%;
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr);
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
   gap: 10px;
 }
 .resource-rail {
@@ -195,7 +207,7 @@ watch(
     rgba(168, 85, 247, 0.035) 54%,
     transparent 84%
   );
-  color: #4338ca;
+  color: var(--accent);
 }
 .resource-rail-card.active::before {
   opacity: 1;
@@ -213,11 +225,11 @@ watch(
 }
 .resource-rail-card.active .resource-copy b {
   position: relative;
-  color: #4338ca;
+  color: var(--accent);
   text-shadow: 0 0 9px rgba(99, 102, 241, 0.3);
 }
 [data-theme='dark'] .resource-rail-card.active .resource-copy b {
-  color: #a5b4fc;
+  color: var(--accent);
 }
 .resource-rail-card.active .resource-copy b::after {
   content: '';
@@ -260,7 +272,7 @@ watch(
   display: flex;
   align-items: baseline;
   gap: 4px;
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -293,9 +305,10 @@ watch(
 }
 .resource-copy b {
   font-size: 12px;
+  font-weight: 400;
 }
 .resource-copy small {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .resource-badge {
@@ -303,8 +316,8 @@ watch(
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  font-size: 9px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
 }
 .resource-detail {
   min-width: 0;
@@ -354,26 +367,20 @@ watch(
 .resource-rail-empty {
   padding: 24px 8px;
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 .rail-search-icon {
   width: 12px;
 }
-@media (max-width: 820px) {
-  .resource-workbench {
-    grid-template-columns: 72px minmax(0, 1fr);
+@container resource-workbench (max-width: 600px) {
+  .resource-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 190px) minmax(0, 1fr);
   }
-  .resource-copy,
-  .resource-badge {
-    display: none;
-  }
-  .resource-rail-tools :deep(.el-input__inner) {
-    width: 0;
-  }
-  .resource-rail-card {
-    grid-template-columns: 1fr;
-    justify-items: center;
+  .resource-rail-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
 }
 @keyframes rail-neon-ignite {

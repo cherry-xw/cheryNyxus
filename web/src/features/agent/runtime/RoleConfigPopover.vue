@@ -330,7 +330,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 }
 
 .identity-kind {
-  color: var(--accent-ink);
+  color: var(--accent);
   font-weight: 600;
 }
 /* v1.0 只读标（workbench rail 角色 popout）：暖金小 chip，与 identity-kind 同排。 */
@@ -341,7 +341,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent-ink);
+  color: var(--accent);
   font-size: 10px;
   line-height: 16px;
   font-weight: 600;
@@ -506,7 +506,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   &.selected {
     border-color: color-mix(in srgb, var(--accent) 33%, transparent);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
-    color: var(--accent-ink);
+    color: var(--accent);
     font-weight: 400;
 
     &:hover {

@@ -8,7 +8,7 @@ import { computed } from 'vue'
 import type { ConversationRouteTrace } from '@/application/backend/public'
 
 const props = defineProps<{
-  pos: { left: string; top: string }
+  pos: { left: string; top: string; zIndex?: number }
   routing: boolean
   trace?: ConversationRouteTrace
   thinking: string
@@ -29,12 +29,7 @@ const selectedLabel = computed(() => {
 </script>
 
 <template>
-  <section
-    class="routing-trace-window"
-    :style="{ left: pos.left, top: pos.top }"
-    role="status"
-    aria-live="polite"
-  >
+  <section class="routing-trace-window" :style="pos" role="status" aria-live="polite">
     <header class="routing-trace-head">
       <span class="routing-trace-title">AI 会话路由</span>
       <span class="routing-trace-status" :class="{ 'is-routing': routing }">
@@ -86,6 +81,7 @@ const selectedLabel = computed(() => {
   position: fixed;
   z-index: 310;
   width: 280px;
+  max-width: calc(100vw - 40px);
   max-height: 70vh;
   overflow: auto;
   padding: 10px 12px;
@@ -94,7 +90,7 @@ const selectedLabel = computed(() => {
   background: var(--panel);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--ink) 20%, transparent);
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -110,22 +106,22 @@ const selectedLabel = computed(() => {
 .routing-trace-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent-ink);
+  color: var(--accent);
 }
 .routing-trace-status {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 400;
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
   &.is-routing {
-    color: var(--accent-ink);
+    color: var(--accent);
   }
 }
 
 .routing-trace-section-title {
   margin-bottom: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--ink) 48%, transparent);
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
 }
 
 .routing-trace-list {
@@ -144,7 +140,7 @@ const selectedLabel = computed(() => {
   color: color-mix(in srgb, var(--ink) 78%, transparent);
   &.is-selected {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--accent-ink);
+    color: var(--accent);
     font-weight: 400;
   }
 }
@@ -166,7 +162,7 @@ const selectedLabel = computed(() => {
   padding: 4px 6px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent-ink);
+  color: var(--accent);
   font-weight: 400;
 }
 

@@ -4,7 +4,9 @@
  * 滚动加载（数据一次拉全、滚动容器全量渲染）+ 点击选择 + 当前高亮 + hover 放大删除（二次确认）。
  * 不依赖任何 store / nyxus 内部上下文，数据与动作全部经 props/emits 由父级注入。
  */
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
+import { Delete } from '@element-plus/icons-vue'
+import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import type { ChatSummary } from '@/application/backend/public'
 
 const props = withDefaults(
@@ -42,34 +44,6 @@ watch(
   { immediate: true, flush: 'post' },
 )
 
-/** 每行删除二次确认：点删除原位变「确认？」红字 2s，再点才 emit('delete')。 */
-const confirmId = ref<string | null>(null)
-let confirmTimer: ReturnType<typeof setTimeout> | undefined
-
-function onDeleteRequest(chatId: string): void {
-  if (confirmId.value === chatId) return
-  confirmId.value = chatId
-  if (confirmTimer) clearTimeout(confirmTimer)
-  confirmTimer = setTimeout(() => {
-    confirmId.value = null
-    confirmTimer = undefined
-  }, 2000)
-}
-
-function onDeleteConfirm(chatId: string): void {
-  if (confirmId.value !== chatId) return
-  if (confirmTimer) {
-    clearTimeout(confirmTimer)
-    confirmTimer = undefined
-  }
-  confirmId.value = null
-  emit('delete', chatId)
-}
-
-onBeforeUnmount(() => {
-  if (confirmTimer) clearTimeout(confirmTimer)
-})
-
 /** 末次时间：当天 HH:mm，否则 M/d（复用旧钢琴 formatTime 规则）。 */
 function formatTime(ts?: number): string {
   if (!ts) return ''
@@ -102,35 +76,46 @@ function previewOf(s: ChatSummary): string {
           :ref="(el) => bindRowEl(s.chatId, el)"
           class="session-row"
           :class="{ 'is-active': s.chatId === activeChatId }"
-          @click="emit('select', s.chatId)"
         >
-          <span class="session-row-index" aria-hidden="true">{{ index + 1 }}</span>
-          <span class="session-row-body">
-            <span class="session-row-preview" :title="previewOf(s)">{{ previewOf(s) }}</span>
-            <span class="session-row-meta">
-              <span class="session-row-time">{{ formatTime(s.updatedAt ?? s.createdAt) }}</span>
-              <span v-if="s.turnCount != null" class="session-row-turns">{{ s.turnCount }} 轮</span>
-            </span>
-          </span>
           <button
             type="button"
-            class="session-row-del"
-            :class="{ 'is-confirming': confirmId === s.chatId }"
-            :disabled="s.running === true"
-            :aria-label="confirmId === s.chatId ? '确认删除该会话' : '删除该会话'"
-            :title="
-              s.running
-                ? '运行中的会话不可删除'
-                : confirmId === s.chatId
-                  ? '再次点击确认删除'
-                  : '删除该会话'
-            "
-            @click.stop="
-              confirmId === s.chatId ? onDeleteConfirm(s.chatId) : onDeleteRequest(s.chatId)
-            "
+            class="session-row-select"
+            :aria-current="s.chatId === activeChatId ? 'true' : undefined"
+            @click="emit('select', s.chatId)"
           >
-            {{ confirmId === s.chatId ? '确认？' : '✕' }}
+            <span class="session-row-index" aria-hidden="true">{{ index + 1 }}</span>
+            <span class="session-row-body">
+              <span class="session-row-preview" :title="previewOf(s)">{{ previewOf(s) }}</span>
+              <span class="session-row-meta">
+                <span class="session-row-time">{{ formatTime(s.updatedAt ?? s.createdAt) }}</span>
+                <span v-if="s.turnCount != null" class="session-row-turns"
+                  >{{ s.turnCount }} 轮</span
+                >
+              </span>
+            </span>
           </button>
+          <ConfirmPopover
+            :title="`删除会话「${previewOf(s)}」？`"
+            impact="会话记录将被删除。"
+            @confirm="!s.running && emit('delete', s.chatId)"
+          >
+            <template #trigger>
+              <el-tooltip
+                :content="s.running ? '运行中的会话不可删除' : '删除会话'"
+                popper-class="label-tip-popper"
+              >
+                <span
+                  ><button
+                    type="button"
+                    class="session-row-del"
+                    :disabled="s.running === true"
+                    aria-label="删除该会话"
+                  >
+                    <Delete width="14" height="14" /></button
+                ></span>
+              </el-tooltip>
+            </template>
+          </ConfirmPopover>
         </li>
       </ul>
       <div v-else class="session-list-empty">该预设暂无会话，可用右侧新建会话按钮</div>
@@ -172,7 +157,7 @@ function previewOf(s: ChatSummary): string {
   &.is-active {
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     .session-row-preview {
-      color: var(--accent-ink);
+      color: var(--accent);
     }
   }
 }
@@ -187,6 +172,24 @@ function previewOf(s: ChatSummary): string {
     Consolas,
     monospace;
   color: color-mix(in srgb, var(--ink) 40%, transparent);
+}
+.session-row-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.session-row-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .session-row-body {
   flex: 1 1 auto;
@@ -237,7 +240,8 @@ function previewOf(s: ChatSummary): string {
     color 120ms ease,
     border-color 120ms ease,
     background 120ms ease;
-  .session-row:hover & {
+  .session-row:hover &,
+  .session-row:focus-within & {
     opacity: 1;
   }
   &:hover:not(:disabled) {
@@ -261,6 +265,11 @@ function previewOf(s: ChatSummary): string {
   &:disabled {
     cursor: not-allowed;
     opacity: 0.35;
+  }
+}
+@media (hover: none) {
+  .session-row-del {
+    opacity: 1;
   }
 }
 .session-list-loading,

@@ -13,6 +13,7 @@
  * 错误显性化（规则 12）：stream 不存在时显 loading 而非崩（getHistory ensureStream，理论不达）。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
 import type { HistoryItem } from '@/domain/chat/projectionTypes'
 import VirtualScroll from '@/components/VirtualScroll.vue'
@@ -886,8 +887,11 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   const copied = ref(false)
   let copyResetTimer: ReturnType<typeof setTimeout> | null = null
   async function copyChatId(): Promise<void> {
+    copied.value = false
+    let success = false
     try {
       await navigator.clipboard.writeText(props.chatId)
+      success = true
     } catch {
       // 降级：非 secure context 或权限拒绝时用 execCommand 兜底
       const ta = document.createElement('textarea')
@@ -897,11 +901,15 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       document.body.appendChild(ta)
       ta.select()
       try {
-        document.execCommand('copy')
+        success = document.execCommand('copy')
       } catch {
         /* 复制失败静默：icon 不切换，用户可重试 */
       }
       document.body.removeChild(ta)
+    }
+    if (!success) {
+      ElMessage.error('复制失败，请检查剪贴板权限后重试。')
+      return
     }
     copied.value = true
     if (copyResetTimer) clearTimeout(copyResetTimer)

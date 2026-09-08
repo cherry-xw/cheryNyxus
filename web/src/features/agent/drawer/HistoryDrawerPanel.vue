@@ -84,7 +84,7 @@ const {
     :class="{ 'is-embedded': embedded }"
     :style="panelFullStyle"
     role="dialog"
-    aria-modal="true"
+    :aria-modal="embedded ? undefined : true"
     :aria-label="titleText"
   >
     <div

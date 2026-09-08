@@ -22,7 +22,7 @@ describe('frontend cold-start bundle boundaries', () => {
       /<CyberWindow[\s\S]*?v-if="browserHistoryWindow && workspace\.historyDrawerMode === 'overlay'"[\s\S]*?<HistoryDrawer embedded \/>[\s\S]*?<\/CyberWindow>/,
     )
     expect(source).toMatch(
-      /<CyberWindow[\s\S]*?v-if="browserSettingsWindow"[\s\S]*?<SettingsDialog v-if="workspace\.settingsOpen" embedded \/>[\s\S]*?<\/CyberWindow>/,
+      /<CyberWindow[\s\S]*?v-if="browserSettingsWindow"[\s\S]*?<SettingsDialog\b[^>]*v-if="workspace\.settingsOpen"[^>]*embedded\s*\/>[\s\S]*?<\/CyberWindow>/,
     )
     expect(source).toContain("workspace.historyDrawerMode === 'workbench-docked'")
     expect(source).not.toContain("from '@/features/pets/nyxus/public'")

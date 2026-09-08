@@ -39,11 +39,11 @@ const pending = ref<'accept' | 'reject' | null>(null)
 const submitError = ref('')
 
 // 倒计时：now 每 250ms 刷新驱动 remaining 重算。waitTime=0 不超时不启动定时器。
-const now = ref(Date.now())
+const now = ref(interactions.calibratedNow())
 let timer: ReturnType<typeof setInterval> | undefined
 if (props.approval.waitTime > 0) {
   timer = setInterval(() => {
-    now.value = Date.now()
+    now.value = interactions.calibratedNow()
   }, 250)
 }
 onBeforeUnmount(() => {

@@ -234,7 +234,7 @@ const { ready, isActive, activeAnchor, cardNumber, raise } = scatter
 .global-card-no.active {
   background: color-mix(in srgb, var(--tab-color, #06b6d4) 22%, var(--surface));
   border-color: color-mix(in srgb, var(--tab-color, #06b6d4) 60%, transparent);
-  color: color-mix(in srgb, var(--accent-ink) 85%, transparent);
+  color: var(--accent);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--tab-color, #06b6d4) 30%, transparent);
 }
 </style>

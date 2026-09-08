@@ -545,7 +545,7 @@ onBeforeUnmount(() => {
 }
 .target-state {
   flex: none;
-  color: var(--accent-ink);
+  color: var(--accent);
   font-size: 8px;
   font-weight: 600;
 }
@@ -581,7 +581,7 @@ onBeforeUnmount(() => {
 }
 .target-label-tag.is-command {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent-ink);
+  color: var(--accent);
 }
 .target-label-tag.is-role {
   background: rgba(70, 126, 202, 0.16);
@@ -601,7 +601,7 @@ onBeforeUnmount(() => {
     margin-bottom: 4px;
     font-size: 11px;
     font-weight: 600;
-    color: var(--accent-ink);
+    color: var(--accent);
   }
   .target-tip-content {
     font-size: 11.5px;
@@ -632,7 +632,7 @@ onBeforeUnmount(() => {
     display: block;
     margin-bottom: 4px;
     font-size: 10.5px;
-    color: var(--accent-ink);
+    color: var(--accent);
   }
   .target-tip-section p {
     margin: 0;

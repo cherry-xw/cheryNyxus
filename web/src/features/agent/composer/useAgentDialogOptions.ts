@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { UploadFile } from 'element-plus'
 import { useAgentsStore, useChatSessionsStore, useConfigApplyStore } from '@/application/public'
@@ -14,6 +14,8 @@ import {
 } from '@/application/backend/public'
 import type { PetInstance } from '@/domain/pets/types'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
+import { desktopBridge } from '@/features/desktop/desktopBridge'
+import { ownerOverlayZIndex } from '@/styles/overlayLayers'
 import {
   COMPACT_COMMAND,
   composeCommandPrompt,
@@ -42,6 +44,16 @@ export interface MediaAttachment {
   previewUrl: string
 }
 
+// Renderer-local drafts survive browser panel unmounts without persisting private input.
+const composerDrafts = new Map<string, { text: string; media: MediaAttachment[] }>()
+// Keep refresh protection after the last browser panel has unmounted.
+if (typeof window !== 'undefined')
+  window.addEventListener('beforeunload', (event) => {
+    if (!composerDrafts.size || desktopBridge()) return
+    event.preventDefault()
+    event.returnValue = ''
+  })
+
 export type CommandTab = 'builtin' | 'skill' | 'combo'
 
 export interface CommandTabOption {
@@ -56,6 +68,7 @@ export interface ComboCommandGroup {
 }
 
 export interface UseAgentDialogOptionsOptions {
+  draftScope?: string
   /** 本实例的 chatId 来源。传入时优先使用（Ref 直接复用，函数包成 computed）；未传入回退全局单例 activeDialogChatId。 */
   chatId?: Ref<string | null> | (() => string | null)
   /** 本实例的 presetName 入口来源（工作台窗口携带的预设名；空白工作台/会话未水合时据此解析）。
@@ -112,6 +125,10 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   const mediaHint = ref('')
   const uploadQueue = ref<import('element-plus').UploadUserFile[]>([])
   const mediaAttachments = ref<MediaAttachment[]>([])
+  let draftGeneration = 0
+  let activeDraftKey = ''
+  const runtimeHint = ref('')
+  const runtimeError = ref(false)
   const sending = ref(false)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -246,14 +263,23 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   watch(
     chatId,
     (v) => {
+      stashDraft()
+      draftGeneration += 1
+      uploading.value = false
+      uploadQueue.value = []
+      activeDraftKey = `${options?.draftScope ?? 'quick'}:${v ?? entryPresetName.value ?? 'new'}`
+      const saved = composerDrafts.get(activeDraftKey)
+      text.value = saved?.text ?? ''
+      mediaAttachments.value = saved?.media.slice() ?? []
+      mediaHint.value = ''
+      runtimeHint.value = ''
+      void nextTick(restoreEditor)
       // chatId 有值但全局选项未加载 → 可能 WS 尚未建连（composer 原生窗 onMounted 才 conn.init，
       // 远晚于 setup 的 immediate watch），RPC 首拉全失败。订阅连接状态，connected 后再补拉。
       if (v && !loaded.value) {
         armRetryOnConnect()
       }
       if (v) {
-        resetEditor()
-        resetMedia()
         error.value = null
         void refreshForChat()
       }
@@ -447,14 +473,66 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   }
 
   function close(): void {
-    resetMedia()
+    if (sending.value) return
+    stashDraft()
     agents.activeDialogChatId = null
   }
+
+  function stashDraft(): void {
+    if (!activeDraftKey) return
+    if (text.value || mediaAttachments.value.length) {
+      composerDrafts.set(activeDraftKey, {
+        text: text.value,
+        media: mediaAttachments.value.slice(),
+      })
+    } else composerDrafts.delete(activeDraftKey)
+  }
+
+  function restoreEditor(): void {
+    const editor = editorRef.value
+    if (!editor) return
+    const nodes = text.value.split(/(\[\[(?:command:|role:@)[^\]]+\]\])/g).map((part) => {
+      const command = /^\[\[command:(.+)\]\]$/.exec(part)?.[1]
+      const role = /^\[\[role:@(.+)\]\]$/.exec(part)?.[1]
+      if (!command && !role) return document.createTextNode(part)
+      const token = document.createElement('span')
+      token.className = `instruction-token${role ? ' role-mention-token' : ''}`
+      token.contentEditable = 'false'
+      if (command) token.dataset.commandName = command
+      if (role) token.dataset.roleName = role
+      token.textContent = role ? `@${role}` : command!.replace(/^\//, '')
+      return token
+    })
+    editor.replaceChildren(...nodes)
+    caretPrefix.value = ''
+  }
+  watch(
+    editorRef,
+    () => {
+      if (text.value) restoreEditor()
+    },
+    { flush: 'post' },
+  )
+
+  function guardDraftUnload(event: BeforeUnloadEvent): void {
+    stashDraft()
+    if (!composerDrafts.size && !uploading.value && !sending.value) return
+    if (
+      desktopBridge() &&
+      !sending.value &&
+      window.confirm('有未提交的输入或附件。退出窗口并放弃这些草稿？')
+    )
+      return
+    event.preventDefault()
+    event.returnValue = ''
+  }
+  window.addEventListener('beforeunload', guardDraftUnload)
 
   // brain 选择即时生效：监听 roleSelections（主+子角色）变化，debounce 后立即调 setSessionRuntime，
   // 不等 handleSend 提交。这样点击 plan 角色名片的 brain radio → 后端立即回灌已派发的同 type 子
   // （含 running 子，下一轮 loop 自动取新 brain）。initialized 前不触发（避免误推空编制）。
   let propagateTimer: ReturnType<typeof setTimeout> | undefined
+  let propagateSeq = 0
   watch(
     () => ({
       primary: primarySelection.value,
@@ -462,17 +540,26 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       ready: loaded.value && !!chatId.value,
     }),
     ({ primary, roles, ready }) => {
+      const seq = ++propagateSeq
+      if (propagateTimer) clearTimeout(propagateTimer)
       if (!ready || !primary?.brain) return
       const safeRoles: Record<string, RuntimeSelection> = {}
       for (const [k, v] of Object.entries(roles)) {
         if (v.brain) safeRoles[k] = v
       }
-      if (propagateTimer) clearTimeout(propagateTimer)
+      const targetId = chatId.value!
+      const runtime = JSON.parse(JSON.stringify({ primary, roles: safeRoles }))
+      runtimeError.value = false
+      runtimeHint.value = '正在同步运行配置…'
       propagateTimer = setTimeout(() => {
-        if (!chatId.value) return
+        if (targetId !== chatId.value) return
         agents
-          .setSessionRuntime(chatId.value, { primary, roles: safeRoles })
+          .setSessionRuntime(targetId, runtime)
           .then(({ applied, deferredRunning }) => {
+            if (seq !== propagateSeq || targetId !== chatId.value) return
+            runtimeHint.value = deferredRunning.length
+              ? `配置已同步；${deferredRunning.length} 个运行中节点将在下一轮采用。`
+              : '运行配置已同步，后续请求使用新配置。'
             if (deferredRunning.length > 0)
               console.info(
                 `[AgentDialog] brain 切换即时生效：${applied.length} 子已更新，${deferredRunning.length} 运行中子将在下一轮 loop 自动取新 brain`,
@@ -480,7 +567,11 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
             else if (applied.length > 0)
               console.info(`[AgentDialog] brain 切换即时生效：${applied.length} 个已派发的子已更新`)
           })
-          .catch((e) => console.warn('[AgentDialog] 即时 brain 同步失败：', e))
+          .catch((e) => {
+            if (seq !== propagateSeq || targetId !== chatId.value) return
+            runtimeError.value = true
+            runtimeHint.value = `运行配置同步失败：${(e as Error).message}。发送时将重试。`
+          })
       }, 150)
     },
     { deep: true, flush: 'post' },
@@ -496,6 +587,11 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   window.addEventListener('keydown', onGlobalKeydown)
   window.addEventListener('scroll', hideInstructionPopover, true)
   onBeforeUnmount(() => {
+    stashDraft()
+    draftGeneration += 1
+    propagateSeq += 1
+    if (propagateTimer) clearTimeout(propagateTimer)
+    window.removeEventListener('beforeunload', guardDraftUnload)
     window.removeEventListener('keydown', onGlobalKeydown)
     window.removeEventListener('scroll', hideInstructionPopover, true)
     hideInstructionPopover()
@@ -506,7 +602,13 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     options: { keepOpen?: boolean } = {},
   ): Promise<boolean> {
     const targetChatId = targetOverride ?? chatId.value
-    if (!targetChatId || !text.value.trim() || sending.value) return false
+    if (!targetChatId || !text.value.trim() || sending.value || uploading.value || loading.value)
+      return false
+    const submittedText = text.value
+    const submittedMedia = mediaAttachments.value.slice()
+    const submittedKey = activeDraftKey
+    const submittedGeneration = draftGeneration
+    const submittedPreset = presetName.value
     sending.value = true
     error.value = null
     let preparedInput: ReturnType<typeof chatSessions.prepareInput> | undefined
@@ -525,8 +627,11 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
           `主角色 brain 为空（${primaryRole.value}），roleSelections=${JSON.stringify(roleSelections.value)}`,
         )
       }
-      const prompt = composeCommandPrompt(text.value)
-      if (presetName.value === CHERY_NYXUS_PRESET) {
+      if (supportsTools(primarySelection.value.brain) && !primarySelection.value.senseGroup) {
+        throw new Error('请先为主角色选择器官组。')
+      }
+      const prompt = composeCommandPrompt(submittedText)
+      if (submittedPreset === CHERY_NYXUS_PRESET) {
         preparedInput = chatSessions.prepareInput(targetChatId, prompt)
       }
       // session.runtime.set 返回 applied/deferredRunning：回灌已存在子 chat 的反馈。
@@ -543,7 +648,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
             ? `（已应用到 ${applied.length} 个已派发的子）`
             : ''
       if (propagationHint) console.info('[AgentDialog] session.runtime.set 回灌:', propagationHint)
-      const attachments = mediaAttachments.value.map((m) => ({
+      const attachments = submittedMedia.map((m) => ({
         assetId: m.assetId,
         kind: m.kind,
         mimeType: m.mimeType,
@@ -553,7 +658,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       // observed by the authoritative ChatSession reducer. Nyxus additionally
       // depends on the root tree subscription for its node/CRT projection, so its
       // first command must not race that subscription's initial tree snapshot.
-      if (presetName.value === CHERY_NYXUS_PRESET) {
+      if (submittedPreset === CHERY_NYXUS_PRESET) {
         await chatSessions.acquireRootTimeline(targetChatId, 'agent-dialog-submit', 'tree')
       } else {
         await chatSessions.openSession(targetChatId)
@@ -562,23 +667,45 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       // The server has acknowledged this command. From this point onward a UI
       // cleanup failure must never roll the committed message back to failed.
       preparedInput = undefined
-      if (presetName.value === CHERY_NYXUS_PRESET) {
+      if (submittedPreset === CHERY_NYXUS_PRESET) {
         await chatSessions
           .releaseRootTimeline(targetChatId, 'agent-dialog-submit')
           .catch((cause) =>
             console.warn('[AgentDialog] release submit timeline failed after commit:', cause),
           )
       }
-      resetEditor()
+      if (submittedKey === activeDraftKey) {
+        if (text.value === submittedText) resetEditor()
+        for (const attachment of submittedMedia) removeMedia(attachment)
+        stashDraft()
+      } else {
+        const draft = composerDrafts.get(submittedKey)
+        if (draft) {
+          if (draft.text === submittedText) draft.text = ''
+          draft.media = draft.media.filter(
+            (item) => !submittedMedia.some((sent) => sent.assetId === item.assetId),
+          )
+          if (!draft.text && !draft.media.length) composerDrafts.delete(submittedKey)
+        }
+        for (const attachment of submittedMedia) URL.revokeObjectURL(attachment.previewUrl)
+      }
       // Nyxus 是持续会话工作台：提交后保留输入窗口，等待下一轮指令；其他预设维持原关闭行为。
-      if (presetName.value !== CHERY_NYXUS_PRESET && !options.keepOpen) close()
+      if (
+        submittedGeneration === draftGeneration &&
+        submittedPreset !== CHERY_NYXUS_PRESET &&
+        !options.keepOpen &&
+        !text.value &&
+        !mediaAttachments.value.length
+      ) {
+        agents.activeDialogChatId = null
+      }
       return true
     } catch (e) {
-      if (targetChatId && presetName.value === CHERY_NYXUS_PRESET) {
+      if (targetChatId && submittedPreset === CHERY_NYXUS_PRESET) {
         void chatSessions.releaseRootTimeline(targetChatId, 'agent-dialog-submit')
       }
       if (preparedInput) chatSessions.rollbackPreparedInput(preparedInput, e)
-      error.value = (e as Error).message
+      if (submittedGeneration === draftGeneration) error.value = (e as Error).message
       // 历史 runtime 仅供展示。无法关联当前 preset/type 时保留后端错误，
       // 用户可直接在上方角色编制中选择当前运行配置后再次提交。
       if ((e as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {
@@ -688,6 +815,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
 
   function resetEditor(): void {
     text.value = ''
+    stashDraft()
     if (editorRef.value) editorRef.value.replaceChildren()
   }
 
@@ -840,6 +968,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     hideInstructionPopover()
     const popover = document.createElement('div')
     popover.className = 'instruction-token-floating-popover'
+    popover.style.zIndex = String(ownerOverlayZIndex(anchor))
     popover.setAttribute('role', 'tooltip')
 
     const title = document.createElement('div')
@@ -883,6 +1012,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     hideInstructionPopover()
     const popover = document.createElement('div')
     popover.className = 'instruction-token-floating-popover'
+    popover.style.zIndex = String(ownerOverlayZIndex(anchor))
     popover.setAttribute('role', 'tooltip')
     const title = document.createElement('div')
     title.className = 'instruction-token-floating-title'
@@ -936,15 +1066,19 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   }
 
   function resetMedia(): void {
+    draftGeneration += 1
+    uploading.value = false
     for (const attachment of mediaAttachments.value) URL.revokeObjectURL(attachment.previewUrl)
     mediaAttachments.value = []
     uploadQueue.value = []
     mediaHint.value = ''
+    stashDraft()
   }
 
   function removeMedia(attachment: MediaAttachment): void {
     URL.revokeObjectURL(attachment.previewUrl)
     mediaAttachments.value = mediaAttachments.value.filter((item) => item !== attachment)
+    stashDraft()
     mediaHint.value = mediaAttachments.value.length
       ? `已附加 ${mediaAttachments.value.length} 个媒体文件`
       : ''
@@ -953,7 +1087,8 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   async function onMediaSelected(uploadFile: UploadFile): Promise<void> {
     const file = uploadFile.raw
     uploadQueue.value = []
-    if (!file || !primarySelection.value) return
+    if (!file || !primarySelection.value || uploading.value || sending.value) return
+    const generation = draftGeneration
     const category = mediaKind(file)
     if (!category) return
     // 检查媒体服务 OR brain 原生能力，任一满足即可上传
@@ -973,6 +1108,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     mediaHint.value = '上传媒体中…'
     try {
       const asset = await agentApi.uploadMedia(file)
+      if (generation !== draftGeneration) return
       mediaAttachments.value.push({
         assetId: asset.id,
         filename: asset.filename,
@@ -983,9 +1119,9 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       })
       mediaHint.value = `${file.name} 已附加`
     } catch (err) {
-      mediaHint.value = (err as Error).message
+      if (generation === draftGeneration) mediaHint.value = (err as Error).message
     } finally {
-      uploading.value = false
+      if (generation === draftGeneration) uploading.value = false
     }
   }
 
@@ -1037,11 +1173,16 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   /** 各媒体类型对应的已启用服务名（AgentDialog 媒体菜单显示用）。 */
   const mediaServicesByType = computed<Record<MediaKind, string | null>>(() => {
     const result: Record<string, string | null> = { image: null, video: null, audio: null }
-    if (!config.value?.media) return result as Record<MediaKind, string | null>
-    for (const [name, svc] of Object.entries(config.value.media)) {
+    for (const [name, svc] of Object.entries(config.value?.media ?? {})) {
       if (svc.enabled && svc.url && !result[svc.type]) {
         result[svc.type] = name
       }
+    }
+    const capability = primarySelection.value
+      ? brainConfig(primarySelection.value.brain)?.capabilities?.input
+      : undefined
+    for (const kind of ['image', 'video', 'audio'] as const) {
+      if (!result[kind] && capability?.[kind]) result[kind] = '模型原生支持'
     }
     return result as Record<MediaKind, string | null>
   })
@@ -1072,6 +1213,8 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     activeRoleIndex,
     uploading,
     mediaHint,
+    runtimeHint,
+    runtimeError,
     uploadQueue,
     mediaAttachments,
     sending,

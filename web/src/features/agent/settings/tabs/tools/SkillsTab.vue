@@ -29,6 +29,7 @@ const pageSize = 50
 const totalSkills = ref(0)
 const skills = ref<SkillInfo[]>(props.initialSkills)
 const loading = ref(false)
+const loadError = ref('')
 
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
 let fetchSeq = 0
@@ -36,6 +37,7 @@ let fetchSeq = 0
 async function fetchSkills(): Promise<void> {
   const seq = ++fetchSeq
   loading.value = true
+  loadError.value = ''
   try {
     const result = await agentApi.listSkills({
       page: currentPage.value,
@@ -47,6 +49,10 @@ async function fetchSkills(): Promise<void> {
     skills.value = result.skills
     totalSkills.value = result.total
   } catch (e) {
+    if (seq !== fetchSeq) return
+    skills.value = []
+    totalSkills.value = 0
+    loadError.value = `技能加载失败：${(e as Error).message}`
     console.error('[SkillsTab] listSkills failed:', e)
   } finally {
     if (seq === fetchSeq) loading.value = false
@@ -54,6 +60,9 @@ async function fetchSkills(): Promise<void> {
 }
 
 function onSearchInput(value: string): void {
+  fetchSeq += 1
+  skills.value = []
+  loading.value = true
   searchQuery.value = value
   if (searchDebounce) clearTimeout(searchDebounce)
   searchDebounce = setTimeout(() => {
@@ -181,6 +190,7 @@ onMounted(() => {
   void fetchSkills()
 })
 onBeforeUnmount(() => {
+  fetchSeq += 1
   if (searchDebounce) clearTimeout(searchDebounce)
 })
 
@@ -233,7 +243,9 @@ function formatDateTime(iso: string | undefined): string {
         >
           <template #prefix><Search class="ico" /></template>
         </el-input>
-        <span class="search-status">{{ loading ? '扫描中…' : `${totalSkills} 个技能` }}</span>
+        <span class="search-status">{{
+          loading ? '扫描中…' : loadError ? '加载失败' : `${totalSkills} 个技能`
+        }}</span>
       </div>
     </template>
 
@@ -327,6 +339,12 @@ function formatDateTime(iso: string | undefined): string {
         <h3 class="sect-title">技能列表</h3>
         <button type="button" class="ghost-btn" @click="openNewImport">+ 导入技能</button>
       </div>
+      <div v-if="loadError" role="alert" class="load-error">
+        {{ loadError }}
+        <button type="button" class="ghost-btn" :disabled="loading" @click="fetchSkills">
+          <Refresh class="ico" />重试
+        </button>
+      </div>
       <div class="standalone-grid">
         <article v-for="(s, i) in standalone" :key="s.name" class="card" :data-anchor="s.name">
           <span class="card-idx">{{ (currentPage - 1) * pageSize + i + 1 }}</span>
@@ -365,7 +383,7 @@ function formatDateTime(iso: string | undefined): string {
             <span v-if="s.trigger"> <span class="k">触发：</span>{{ s.trigger }}</span>
           </div>
         </article>
-        <article v-if="!standalone.length && !loading" class="card empty-card">
+        <article v-if="!standalone.length && !loading && !loadError" class="card empty-card">
           <span class="card-idx">·</span>
           <header class="card-head"><span class="empty-title">没有独立技能</span></header>
           <p class="empty-hint">通过 ZIP 或 GitHub URL 导入技能。</p>
@@ -391,6 +409,12 @@ function formatDateTime(iso: string | undefined): string {
 
 <style scoped lang="less">
 @import '../../config/shared.less';
+
+.load-error {
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 
 // 技能列表网格：卡结构一致，grid 比 columns 整齐；套霓虹玻璃底 + hover 渐变描边。
 .standalone-grid {
@@ -566,16 +590,16 @@ code {
   }
   &.content {
     background: color-mix(in srgb, var(--accent) 18%, transparent);
-    color: var(--accent-ink);
+    color: var(--accent);
   }
   &.branch {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--accent-ink);
+    color: var(--accent);
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   }
   &.warn {
     background: color-mix(in srgb, var(--accent) 20%, transparent);
-    color: var(--accent-ink);
+    color: var(--accent);
     border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   }
   &.ok {
