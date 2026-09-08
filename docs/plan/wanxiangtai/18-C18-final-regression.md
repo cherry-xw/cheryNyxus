@@ -1,10 +1,10 @@
 # C18 综合验证与用户验收
 
-**所属总任务：** [万象台](README.md)  
-**状态：** 未开始  
-**复杂度：** 复杂，核心实现 Agent  
-**批次：** F  
-**步骤进度：** 0/4  
+**所属总任务：** [万象台](README.md)
+**状态：** 未开始
+**复杂度：** 复杂，核心实现 Agent
+**批次：** F
+**步骤进度：** 0/4
 **依赖：** [C01](01-C01-contracts.md)、[C02](02-C02-project-config.md)、[C03](03-C03-source-snapshots.md)、[C04](04-C04-instance-workspaces.md)、[C05](05-C05-team-creation.md)、[C06](06-C06-state-projection.md)、[C07](07-C07-discussion-storage.md)、[C08](08-C08-discussion-scheduler.md)、[C09](09-C09-decision-routing.md)、[C10](10-C10-context-management.md)、[C11](11-C11-deliverables.md)、[C12](12-C12-integration.md)、[C13](13-C13-publish.md)、[C14](14-C14-lifecycle-recovery.md)、[C15](15-C15-desktop-foundation.md)、[C16](16-C16-scenes-and-skins.md)、[C17](17-C17-interaction-panels.md)、[S01](19-S01-requirement-coverage.md)、[S02](20-S02-project-config-examples.md)、[S03](21-S03-sample-data.md)、[S04](22-S04-skin-vocabularies.md)、[S05](23-S05-scene-template-data.md)、[S06](24-S06-instance-details-view.md)、[S07](25-S07-workspace-status-view.md)、[S08](26-S08-decision-record-view.md)、[S09](27-S09-delivery-list-view.md)、[S10](28-S10-user-guide.md)
 
 ## 目标

@@ -1,11 +1,11 @@
 # S08 决策记录展示组件
 
-**所属总任务：** [万象台](README.md)  
-**状态：** 未开始  
-**复杂度：** 简单，快速执行 Agent  
-**批次：** C  
-**步骤进度：** 0/4  
-**依赖：** [C09](09-C09-decision-routing.md)、[C15](15-C15-desktop-foundation.md)  
+**所属总任务：** [万象台](README.md)
+**状态：** 未开始
+**复杂度：** 简单，快速执行 Agent
+**批次：** C
+**步骤进度：** 0/4
+**依赖：** [C09](09-C09-decision-routing.md)、[C15](15-C15-desktop-foundation.md)
 **交接对象：** C17
 
 ## 目标

@@ -1,10 +1,10 @@
 # C14 生命周期与统一恢复
 
-**所属总任务：** [万象台](README.md)  
-**状态：** 未开始  
-**复杂度：** 复杂，核心实现 Agent  
-**批次：** E  
-**步骤进度：** 0/4  
+**所属总任务：** [万象台](README.md)
+**状态：** 未开始
+**复杂度：** 复杂，核心实现 Agent
+**批次：** E
+**步骤进度：** 0/4
 **依赖：** [C06](06-C06-state-projection.md)、[C07](07-C07-discussion-storage.md)、[C08](08-C08-discussion-scheduler.md)、[C09](09-C09-decision-routing.md)、[C10](10-C10-context-management.md)、[C11](11-C11-deliverables.md)、[C12](12-C12-integration.md)、[C13](13-C13-publish.md)
 
 ## 目标

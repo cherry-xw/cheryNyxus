@@ -1,10 +1,10 @@
 # C17 会议、待办与成果的业务交互连接
 
-**所属总任务：** [万象台](README.md)  
-**状态：** 未开始  
-**复杂度：** 复杂，核心实现 Agent  
-**批次：** E  
-**步骤进度：** 0/4  
+**所属总任务：** [万象台](README.md)
+**状态：** 未开始
+**复杂度：** 复杂，核心实现 Agent
+**批次：** E
+**步骤进度：** 0/4
 **依赖：** [C09](09-C09-decision-routing.md)、[C13](13-C13-publish.md)、[C14](14-C14-lifecycle-recovery.md)、[C15](15-C15-desktop-foundation.md)、[C16](16-C16-scenes-and-skins.md)、[S05](23-S05-scene-template-data.md)、[S06](24-S06-instance-details-view.md)、[S07](25-S07-workspace-status-view.md)、[S08](26-S08-decision-record-view.md)、[S09](27-S09-delivery-list-view.md)
 
 ## 目标
