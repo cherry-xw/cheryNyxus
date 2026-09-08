@@ -260,6 +260,44 @@ export function createUiState() {
       ...transient.map((window) => window.id),
     ]
     focusedWorkspaceWindowId.value = null
+
+    const graphWindows = workspaceWindowOrder.value
+      .map((id) => workspaceWindows.value[id])
+      .filter(
+        (
+          window,
+        ): window is WorkspaceWindowState & {
+          context: Extract<WorkspaceWindowState['context'], { kind: 'graph' }>
+        } => window?.context.kind === 'graph',
+      )
+    workbenchWindows.value = Object.fromEntries(
+      graphWindows.map((window, index) => {
+        const { presetId, chatId } = window.context
+        const workbench: WorkbenchWindowState = {
+          id: presetId,
+          presetId,
+          presetName: window.title || null,
+          chatId: chatId ?? null,
+          view: 'tree',
+          minimized: window.lifecycle === 'minimized',
+          mode: window.maximized ? 'fullscreen' : 'window',
+          position: { x: window.geometry.x, y: window.geometry.y },
+          size: { width: window.geometry.width, height: window.geometry.height },
+          historyDrawerStack: [],
+          historyDrawerMode: 'overlay',
+          historyDrawerAnchor: null,
+          focused: false,
+          zOrder: index,
+          attentionBlink: false,
+        }
+        return [presetId, workbench]
+      }),
+    )
+    workbenchWindowOrder.value = graphWindows.map((window) => window.context.presetId)
+    focusedWorkbenchWindowId.value = null
+    settingsOpen.value = restored.some(
+      (window) => window.context.kind === 'settings' && window.lifecycle !== 'minimized',
+    )
   }
 
   const workspaceWindowsList = computed(() =>
@@ -386,13 +424,17 @@ export function createUiState() {
    *  presetName 为入口携带的预设名（非 presetId）；已存在窗口时防御性补写（入口解析失败
    *  留下的旧窗 presetName 恒 null 也可被后续打开纠正）。 */
   function openWorkbenchWindow(presetId: string, presetName?: string): string {
+    const existing = workbenchWindows.value[presetId]
     const genericId = openOrFocusWindow({
       resourceKey: `graph:${presetId}`,
       title: presetName?.trim() || '节点树工作台',
-      context: { kind: 'graph', presetId },
+      context: {
+        kind: 'graph',
+        presetId,
+        ...(existing?.chatId ? { chatId: existing.chatId } : {}),
+      },
       geometry: { width: 1280, height: 780 },
     })
-    const existing = workbenchWindows.value[presetId]
     if (existing) {
       if (presetName && existing.presetName !== presetName) existing.presetName = presetName
       markWorkspaceWindowOpen(genericId)
@@ -472,7 +514,16 @@ export function createUiState() {
   }
 
   function setWorkbenchWindowChat(id: string, chatId: string | null): void {
-    setWorkbenchWindowField(id, 'chatId', chatId)
+    if (!guardWorkbenchWindow(id)) return
+    workbenchWindows.value[id]!.chatId = chatId
+    const generic = workspaceWindows.value[`window:graph:${id}`]
+    if (generic?.context.kind !== 'graph') return
+    generic.context = {
+      kind: 'graph',
+      presetId: generic.context.presetId,
+      ...(chatId ? { chatId } : {}),
+    }
+    persistWorkspaceWindows()
   }
 
   function setWorkbenchWindowView(id: string, view: 'composer' | 'attention' | 'tree'): void {

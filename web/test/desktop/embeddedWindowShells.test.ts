@@ -9,7 +9,10 @@ describe('cyber window embedded shell ownership', () => {
 
     expect(browser).toContain('<AgentDialog v-if="workspace.activeDialogChatId" embedded />')
     expect(browser).toContain('<HistoryDrawer embedded />')
-    expect(browser).toContain('<SettingsDialog v-if="workspace.settingsOpen" embedded />')
+    expect(browser).toMatch(
+      /<SettingsDialog\b[^>]*v-if="workspace.settingsOpen"[^>]*embedded\s*\/>/,
+    )
+    expect(browser).toContain('ref="settingsDialogRef"')
     expect(browser).toContain('v-for="entry in browserWorkbenchWindows"')
     expect(browser).toContain(':window-id="entry.workbench.id"')
     expect(browser).toContain('embedded')

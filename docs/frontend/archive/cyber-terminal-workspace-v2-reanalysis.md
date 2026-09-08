@@ -1,6 +1,6 @@
 # 故障工业赛博工作区 V2：需求、实现路径与复盘结论
 
-> 用途：作为重新分析的事实基线。本文总结已提交的实现和已知验证结果，不替代仍保留在 `docs/plan/cyber-terminal-workspace-v2.md` 的执行计划。
+> 用途：作为重新分析的事实基线。本文总结已提交的实现和已知验证结果，不替代仍保留在 `docs/plan/cyber-terminal-workspace-v2/README.md` 的执行计划。
 
 ## 1. 任务概述
 
@@ -118,7 +118,7 @@ Web 工作台迁入通用 `CyberWindow`，并使 TREE/LITE、待操作 Interrupt
 
 ## 8. 关联材料
 
-- 原执行计划：`docs/plan/cyber-terminal-workspace-v2.md`（临时计划已删除）
+- 当前执行计划：`docs/plan/cyber-terminal-workspace-v2/README.md`（可跨环境恢复的活动计划入口；验证产物仍在 `verify/out/` 中忽略）
 - 节点树模块说明：[`docs/frontend/pet/README.md`](../pet/README.md)
 - 视觉与交互规范：[`docs/standards/ui-visual-and-interaction.md`](../../standards/frontend/ui-visual-and-interaction.md)
 - 动效规范：[`docs/frontend/motion-standard.md`](../motion-standard.md)

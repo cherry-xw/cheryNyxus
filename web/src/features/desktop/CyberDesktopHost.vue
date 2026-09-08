@@ -16,6 +16,7 @@ const connection = useConnectionStore()
 const chats = useChatSessionsStore()
 const root = ref<HTMLElement | null>(null)
 const stage = ref<HTMLElement | null>(null)
+const stageDimensions = ref({ width: 0, height: 0 })
 const { spec: motionSpec } = useMotionTier()
 let motionContext: gsap.Context | undefined
 let stageResizeObserver: ResizeObserver | undefined
@@ -85,6 +86,7 @@ function removeDiagnostic(id: string): void {
 function syncStageSize(): void {
   const rect = stage.value?.getBoundingClientRect()
   if (!rect) return
+  stageDimensions.value = { width: Math.round(rect.width), height: Math.round(rect.height) }
   workspace.setWorkspaceStageSize({ width: rect.width, height: rect.height })
 }
 
@@ -173,18 +175,6 @@ onMounted(() => {
       })
     }, root.value)
   }
-  try {
-    if (sessionStorage.getItem('chery.workspace.boot-diagnostic.v1') !== '1') {
-      sessionStorage.setItem('chery.workspace.boot-diagnostic.v1', '1')
-      publish({
-        type: 'business',
-        event: 'workspace.boot',
-        message: 'NYXUS_OS 视觉外壳已上线，协议层保持规范态。',
-      })
-    }
-  } catch {
-    // A blocked sessionStorage must not prevent the desktop from starting.
-  }
   stageResizeObserver = new ResizeObserver(syncStageSize)
   if (stage.value) stageResizeObserver.observe(stage.value)
   void nextTick(syncStageSize)
@@ -209,6 +199,13 @@ function activate(window: WorkspaceWindowState): void {
       workspace.setWorkbenchWindowMinimized(window.context.presetId, false)
       workspace.focusWorkbenchWindow(window.context.presetId)
     } else {
+      if (window.context.kind === 'session') {
+        workspace.activeDialogChatId = window.context.chatId
+      } else if (window.context.kind === 'settings') {
+        workspace.settingsOpen = true
+      } else if (window.context.kind === 'history') {
+        workspace.openHistoryRoot(window.context.rootChatId)
+      }
       workspace.restoreWorkspaceWindow(window.id)
     }
     return
@@ -246,11 +243,25 @@ function activate(window: WorkspaceWindowState): void {
     <div class="cyber-noise" aria-hidden="true" />
     <header class="cyber-system-bar">
       <span class="cyber-brand">CHERY // NYXUS_OS</span>
-      <span class="cyber-coordinate" aria-hidden="true">GRID 1920·1080 / SECTOR 07</span>
+      <span class="cyber-coordinate" aria-hidden="true"
+        >GRID {{ stageDimensions.width }} / {{ stageDimensions.height }}</span
+      >
       <nav class="cyber-launcher" aria-label="系统功能">
         <ArchiveVerification />
         <button type="button" @click="openCapability('task-center')">任务中心</button>
         <button type="button" @click="openCapability('settings')">设置</button>
+        <button
+          type="button"
+          @click="
+            publish({
+              type: 'business',
+              event: 'workspace.status',
+              message: `连接${connectionLabel}；打开窗口 ${activeWindows.length} 个。`,
+            })
+          "
+        >
+          诊断
+        </button>
       </nav>
       <span class="cyber-link" :class="`is-${connection.status}`">
         <i /> 链路 {{ connectionLabel }}
@@ -259,10 +270,6 @@ function activate(window: WorkspaceWindowState): void {
         >窗口 {{ activeWindows.length.toString().padStart(2, '0') }}</span
       >
     </header>
-    <aside class="cyber-telemetry" aria-hidden="true">
-      <span>系统 / 追踪</span><b>/////</b><span>内存 规范态</span><b>///////</b
-      ><span>渲染 自适应</span>
-    </aside>
     <main ref="stage" class="cyber-desktop-stage">
       <slot />
       <CyberWindow

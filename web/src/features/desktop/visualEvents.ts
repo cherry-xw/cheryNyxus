@@ -10,7 +10,7 @@ export type WorkspaceVisualEvent =
     }
   | {
       type: 'business'
-      event: 'workspace.boot' | 'quality.downgraded' | 'graph.fallback'
+      event: 'workspace.boot' | 'workspace.status' | 'quality.downgraded' | 'graph.fallback'
       message: string
       chatId?: string
     }

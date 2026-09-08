@@ -44,7 +44,7 @@ onMounted(() => {
     <header
       class="window-frame-titlebar"
       :class="{ 'has-attention': attention }"
-      @dblclick="toggleMaximize"
+      @dblclick="maximize ? maximize() : toggleMaximize()"
       @pointerdown="titlePointerDown?.($event)"
     >
       <div class="window-frame-title-group">
@@ -62,7 +62,7 @@ onMounted(() => {
           class="window-control is-minimize"
           aria-label="最小化"
           title="最小化"
-          @click="minimize?.() ?? control('minimize')"
+          @click="minimize ? minimize() : control('minimize')"
         >
           _
         </button>
@@ -71,7 +71,7 @@ onMounted(() => {
           class="window-control is-maximize"
           :aria-label="maximized ? '还原窗口' : '最大化窗口'"
           :title="maximized ? '还原' : '最大化'"
-          @click="maximize?.() ?? toggleMaximize()"
+          @click="maximize ? maximize() : toggleMaximize()"
         >
           {{ maximized ? '❐' : '□' }}
         </button>
@@ -80,7 +80,7 @@ onMounted(() => {
           class="window-control is-close"
           aria-label="关闭"
           title="关闭"
-          @click="close?.() ?? control('close')"
+          @click="close ? close() : control('close')"
         >
           ×
         </button>

@@ -1,5 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createUiState } from '../../src/stores/workspace/uiState'
+
+const STORAGE_KEY = 'chery.workspace.cyber-layout.v1'
+
+function stubLayoutStorage(snapshot: unknown): Map<string, string> {
+  const values = new Map<string, string>([[STORAGE_KEY, JSON.stringify(snapshot)]])
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  })
+  return values
+}
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('workspace taskbar stable ordering', () => {
   it('keeps the taskbar order stable while focusing windows', () => {
@@ -44,5 +57,78 @@ describe('workspace taskbar stable ordering', () => {
       context: { kind: 'session', chatId: 'a' },
     })
     expect(ui.workspaceWindowsTaskbarList.value.map((window) => window.id)).toEqual([id])
+  })
+
+  it('rebuilds renderable graph and settings state from a persisted layout', () => {
+    stubLayoutStorage({
+      version: 1,
+      order: ['window:graph:preset-a', 'window:settings'],
+      windows: [
+        {
+          id: 'window:graph:preset-a',
+          resourceKey: 'graph:preset-a',
+          kind: 'graph',
+          lifecycle: 'minimized',
+          title: 'preset-a',
+          geometry: { x: 80, y: 60, width: 1200, height: 760 },
+          zOrder: 0,
+          sequence: 0,
+          focused: false,
+          maximized: false,
+          attention: false,
+          persistent: true,
+          context: { kind: 'graph', presetId: 'preset-a', chatId: 'chat-a' },
+        },
+        {
+          id: 'window:settings',
+          resourceKey: 'settings',
+          kind: 'settings',
+          lifecycle: 'open',
+          title: '系统配置',
+          geometry: { x: 120, y: 90, width: 1120, height: 760 },
+          zOrder: 1,
+          sequence: 1,
+          focused: false,
+          maximized: false,
+          attention: false,
+          persistent: true,
+          context: { kind: 'settings' },
+        },
+      ],
+    })
+    const ui = createUiState()
+
+    ui.restoreWorkspaceLayout(() => true)
+
+    expect(ui.workbenchWindowOrder.value).toEqual(['preset-a'])
+    expect(ui.workbenchWindows.value['preset-a']).toMatchObject({
+      presetId: 'preset-a',
+      presetName: 'preset-a',
+      chatId: 'chat-a',
+      view: 'tree',
+      minimized: true,
+    })
+    expect(ui.settingsOpen.value).toBe(true)
+
+    ui.setWorkbenchWindowMinimized('preset-a', false)
+    expect(ui.workspaceWindows.value['window:graph:preset-a']).toMatchObject({
+      lifecycle: 'open',
+      focused: true,
+    })
+  })
+
+  it('persists the active graph chat so refresh can restore its tree', () => {
+    const values = stubLayoutStorage(undefined)
+    const ui = createUiState()
+    const id = ui.openWorkbenchWindow('preset-a', 'preset-a')
+
+    ui.setWorkbenchWindowChat(id, 'chat-a')
+
+    const snapshot = JSON.parse(values.get(STORAGE_KEY) ?? '{}')
+    expect(snapshot.windows[0].context).toEqual({
+      kind: 'graph',
+      presetId: 'preset-a',
+      chatId: 'chat-a',
+    })
   })
 })

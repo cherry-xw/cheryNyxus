@@ -230,7 +230,15 @@ const browserWorkbenchWindows = computed(() =>
   }),
 )
 
-function requestCyberWindowClose(id: string): void {
+const settingsDialogRef = ref<{
+  confirmClose: () => Promise<boolean>
+  close: () => Promise<void>
+} | null>(null)
+
+async function requestCyberWindowClose(id: string): Promise<void> {
+  if (workspace.workspaceWindows[id]?.context.kind === 'settings') {
+    if (!(await settingsDialogRef.value?.confirmClose())) return
+  }
   workspace.beginWorkspaceWindowClose(id)
 }
 
@@ -450,12 +458,24 @@ async function bootstrap(): Promise<void> {
   <WindowFrame v-else-if="surface === 'login'" channel="AUTH" title="ACCESS CONTROL // NYXUS_OS">
     <LoginSurface />
   </WindowFrame>
-  <WindowFrame v-else-if="surface === 'settings'" title="设置">
+  <WindowFrame
+    v-else-if="surface === 'settings'"
+    title="设置"
+    :close="
+      () => {
+        void settingsDialogRef?.close()
+      }
+    "
+  >
     <!-- 标题位置扩展点：title-actions slot（标题右侧、三键左侧）——settings 面放「打开配置文件夹」 -->
     <template #title-actions>
       <OpenConfigDirButton @error="onSettingsOpenDirError" />
     </template>
-    <SettingsDialog native :initial-section="surfaceSettingsSection ?? undefined" />
+    <SettingsDialog
+      ref="settingsDialogRef"
+      native
+      :initial-section="surfaceSettingsSection ?? undefined"
+    />
   </WindowFrame>
   <WindowFrame v-else-if="surface === 'task-center'" title="任务中心 // 多 Agent">
     <TaskCenterPanel />
@@ -540,7 +560,7 @@ async function bootstrap(): Promise<void> {
         @geometry="workspace.setWorkspaceWindowGeometry"
         @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
       >
-        <SettingsDialog v-if="workspace.settingsOpen" embedded />
+        <SettingsDialog v-if="workspace.settingsOpen" ref="settingsDialogRef" embedded />
       </CyberWindow>
       <CyberWindow
         v-for="entry in browserWorkbenchWindows"

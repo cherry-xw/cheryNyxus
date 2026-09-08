@@ -26,11 +26,18 @@
 
 ## 系统栏 launcher 收敛（2026-09-04）
 
-- 系统栏 `cyber-launcher` 仅保留「待操作」「设置」两个入口；「路由」「角色」入口及其能力窗移除（路由会话追踪无实际用途；角色在编名单与设置中心 RolesTab 重复）。
+- 系统栏 `cyber-launcher` 提供任务中心、设置、验证和显式诊断入口；启动不自动打开业务诊断，不把固定装饰值当作内存或系统遥测。真实异常仍沿视觉事件入口报告。「路由」「角色」能力窗不恢复。
 - 同步清理：`WorkspaceWindowKind`/`WorkspaceWindowContext` 不再含 `routing`/`roles`；`CyberCapabilityPanel` 仅剩 attention 分支；`browserCapabilityWindows` 只匹配 `attention`。
 - 旧持久化布局兼容：布局恢复回调对运行时残留的 `routing`/`roles` 窗口直接丢弃（`restoreWorkspaceLayout(valid)` 过滤），不渲染空窗。
 
 ## 约束
+
+桌面只拥有窗口与可见状态，不拥有业务草稿；设置关闭先经 [App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose` 调用内容的 `confirmClose`，具体保存与丢弃语义归 [settings.md](settings.md)。非模态内嵌内容不声明 `aria-modal`。
+
+| 修改意图 | 代码入口与关键符号 | 验证入口 |
+| --- | --- | --- |
+| 启动入口与真实状态 | [CyberDesktopHost.vue](../../web/src/features/desktop/CyberDesktopHost.vue) 的 `openCapability`、`publish` | `web/test/workspace/uiStateTaskbar.test.ts`、`pnpm web:type-check` |
+| 窗口关闭与菜单层级 | [App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose`；[overlayLayers.ts](../../web/src/styles/overlayLayers.ts) 的 `ownerOverlayZIndex` | `web/test/styles/overlayLayers.test.ts`；多窗叠放验收 |
 
 - 桌面 chrome 动效遵循 [motion-standard.md](motion-standard.md)：GSAP 只管 DOM（`useGsap` scoped）；入场/切换只动 transform/opacity；系统栏/任务栏入场接 `useMotionTier`（full 档 stagger、reduced 档仅淡入）。
 - 视觉红线遵循 [../standards/ui-visual-and-interaction.md](../standards/frontend/ui-visual-and-interaction.md)：全直角、字重 400/600 规则、色走 token。
