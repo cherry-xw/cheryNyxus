@@ -51,6 +51,7 @@ docs/plan/*
 !docs/plan/*/verify/*.md
 !docs/plan/*/verify/*.mjs
 !docs/plan/*/verify/*.cjs
+!docs/plan/*/verify/*.ts
 docs/plan/*/verify/out/
 docs/plan/*/verify/out/**
 

@@ -73,7 +73,7 @@ sense_groups:
 roles:
   cheryNyxus:
     brain: default
-    avatar: 🐈‍⬛
+    avatar: 🐈
     description: Chery Nyxus：系统配置管理核心角色（管理所有角色配置）+ 桌宠组长
     senseGroup: chery_nexus
     mcpServers: []

@@ -49,6 +49,26 @@ export function previewRequiresConfirmation(preview: ConfigPreview): boolean {
   )
 }
 
+export function previewConfirmationMessage(preview: ConfigPreview): string {
+  return [
+    preview.destructiveTargets.length
+      ? '删除生效后，相关任务不能再使用已删除的角色或预设。'
+      : '当前任务暂时保留已有设置和能力，到达安全切换位置后采用新设置。',
+    ...preview.destructiveTargets.map((target) => `删除：${destructiveTargetLabel(target)}`),
+    ...preview.impacts.map((impact) =>
+      [
+        `${impactLabel(impact)}：${impact.reason || impactNextStep(impact)}`,
+        impact.affectedRootChatIds?.length
+          ? `受影响会话：${impact.affectedRootChatIds.join('、')}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    ),
+    '确认后直接保存，不会终止当前任务。',
+  ].join('\n\n')
+}
+
 export function applyHeadline(state: ConfigApplyState): string {
   if (state.status === 'failed') return '设置已保存，部分内容生效失败'
   if (state.status === 'pending') return '设置已保存，正在等待生效'

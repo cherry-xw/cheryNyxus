@@ -1,22 +1,70 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
-import type { ConfigPreview } from '@chery/protocol'
 import { useAgentsStore, useConfigApplyStore } from '@/application/public'
 import { agentApi } from '@/application/backend/public'
-import {
-  applyHeadline,
-  destructiveTargetLabel,
-  impactLabel,
-  impactNextStep,
-} from '../config/applyPresentation'
+import { impactNextStep } from '../config/applyPresentation'
+import { settingsNotices, type NoticeKind } from '../model/settingsNotices'
+import { useTransientNotices } from './useTransientNotices'
 
-defineProps<{ preview?: ConfigPreview | null }>()
+const props = defineProps<{
+  sequence: number
+  savedHint?: string | null
+  warnings?: string[] | null
+  error?: string | null
+  externalChange?: boolean
+  busy?: boolean
+}>()
+const emit = defineEmits<{ reload: [] }>()
+const kinds: { key: NoticeKind; label: string }[] = [
+  { key: 'warning', label: '警告' },
+  { key: 'error', label: '错误' },
+]
 const applyStore = useConfigApplyStore()
 const agents = useAgentsStore()
 const busyPid = ref<number>()
 const actionError = ref('')
 const state = computed(() => applyStore.state)
+const feedback = useTransientNotices()
+const messages = computed(() =>
+  feedback.notices.value.filter((notice) => notice.kind === 'message'),
+)
+const groups = computed(() =>
+  kinds
+    .map((kind) => ({
+      ...kind,
+      notices: feedback.notices.value.filter((notice) => notice.kind === kind.key),
+    }))
+    .filter((group) => group.notices.length),
+)
+let followingSave = false
+function publish(includeState = followingSave): void {
+  feedback.show(
+    settingsNotices({
+      ...props,
+      state: includeState ? state.value : undefined,
+      applyError: includeState ? applyStore.error : undefined,
+      actionError: actionError.value,
+    }),
+  )
+}
+// No immediate watcher: existing persistent state is never replayed on opening settings.
+watch(
+  () => props.sequence,
+  () => {
+    followingSave = !!props.savedHint
+    publish()
+  },
+)
+watch(
+  () => JSON.stringify([state.value, applyStore.error]),
+  () => {
+    if (followingSave && !props.busy) publish()
+  },
+)
+watch(actionError, (value) => {
+  if (value) publish()
+})
 
 async function kill(chatId: string, pid: number) {
   busyPid.value = pid
@@ -35,136 +83,191 @@ function chatLabel(chatId: string): string {
   const chat = agents.historyList.find((item) => item.chatId === chatId)
   return chat?.preview ? `${chat.preview}（${chatId}）` : chatId
 }
-
-onMounted(() => void applyStore.refresh())
 </script>
 
 <template>
-  <section class="apply-status" aria-live="polite">
-    <template v-if="preview">
-      <strong>
-        {{
-          preview.destructiveTargets.length
-            ? '尚未保存：请确认删除影响'
-            : '尚未保存：请确认运行影响'
-        }}
-      </strong>
-      <p v-if="preview.destructiveTargets.length">
-        再次点击保存才会提交。保存不会终止当前任务；删除生效后，相关任务不能再从已删除的角色或预设继续。
-      </p>
-      <p v-else>再次点击保存才会提交。当前任务会保留已有能力，等待可安全切换时再采用新权限。</p>
-      <ul v-if="preview.destructiveTargets.length" class="impact-list">
-        <li v-for="target in preview.destructiveTargets" :key="target">
-          {{ destructiveTargetLabel(target) }}
-        </li>
-      </ul>
-      <details v-if="preview.impacts.length">
-        <summary>查看服务器计算的影响（{{ preview.impacts.length }}）</summary>
-        <article v-for="impact in preview.impacts" :key="impact.resource">
-          <b>{{ impactLabel(impact) }}</b>
-          <span>{{ impact.reason || impactNextStep(impact) }}</span>
-          <small v-if="impact.affectedRootChatIds?.length">
-            受影响会话：{{ impact.affectedRootChatIds.map(chatLabel).join('、') }}
-          </small>
-        </article>
-      </details>
-    </template>
-    <template v-else-if="state">
-      <strong>{{ applyHeadline(state) }}</strong>
-      <p v-if="state.status === 'applied' && !state.impacts.length">所有已保存内容均已生效。</p>
-      <details v-if="state.impacts.length" :open="state.status !== 'applied'">
-        <summary>查看生效明细（{{ state.impacts.length }}）</summary>
-        <article v-for="impact in state.impacts" :key="impact.resource">
-          <b
-            >{{ impactLabel(impact) }} ·
-            {{
-              impact.status === 'applied'
-                ? '已生效'
-                : impact.status === 'failed'
-                  ? '失败'
-                  : '待生效'
-            }}</b
+  <section
+    v-if="feedback.notices.value.length"
+    class="status-capsules"
+    aria-label="设置消息"
+    aria-live="polite"
+    @mouseenter="feedback.pause('hover')"
+    @mouseleave="feedback.resume('hover')"
+    @focusin="feedback.pause('focus')"
+    @focusout="feedback.resume('focus')"
+  >
+    <span v-for="message in messages" :key="message.id" class="status-message">{{
+      message.text
+    }}</span>
+    <el-popover
+      v-for="group in groups"
+      :key="group.key"
+      trigger="hover"
+      :show-after="0"
+      :hide-after="200"
+      :enterable="true"
+      placement="top-end"
+      :width="520"
+      :disabled="!group.notices.length"
+      popper-class="label-tip-popper"
+      :popper-style="{ maxWidth: 'calc(100vw - 32px)' }"
+      @show="feedback.pause(group.key)"
+      @hide="feedback.resume(group.key)"
+    >
+      <template #reference>
+        <button
+          type="button"
+          class="status-capsule"
+          :class="group.key"
+          :disabled="!group.notices.length"
+          :aria-label="`${group.label} ${group.notices.length} 条，悬停查看详情`"
+        >
+          {{ group.label }} <span>{{ group.notices.length }}</span>
+        </button>
+      </template>
+      <div class="status-notices">
+        <h3>{{ group.label }} · {{ group.notices.length }}</h3>
+        <article v-for="notice in group.notices" :key="notice.id">
+          <p>{{ notice.text }}</p>
+          <template v-if="notice.impact">
+            <small>{{ impactNextStep(notice.impact) }}</small>
+            <small v-if="notice.impact.affectedRootChatIds?.length">
+              受影响会话：{{ notice.impact.affectedRootChatIds.map(chatLabel).join('、') }}
+            </small>
+          </template>
+          <el-popconfirm
+            v-if="notice.id === 'external'"
+            title="重新载入会放弃此窗口内尚未保存的配置和 Hooks 草稿。"
+            confirm-button-text="放弃草稿并载入"
+            cancel-button-text="保留草稿"
+            :width="300"
+            @confirm="emit('reload')"
           >
-          <span v-if="impact.reason">{{ impact.reason }}</span>
-          <small>{{ impactNextStep(impact) }}</small>
-          <small v-if="impact.affectedRootChatIds?.length">
-            受影响会话：{{ impact.affectedRootChatIds.map(chatLabel).join('、') }}
-          </small>
+            <template #reference>
+              <button type="button" class="notice-action" :disabled="busy">
+                重新载入服务器版本
+              </button>
+            </template>
+          </el-popconfirm>
+          <div v-if="notice.id === 'restart' && state" class="restart-block">
+            <b>{{
+              state.restart.status === 'failed'
+                ? '重启未完成'
+                : state.restart.status === 'ready'
+                  ? '正在重启'
+                  : '等待重启生效'
+            }}</b>
+            <span>{{ state.restart.reason || '正在等待任务与后台程序安全结束' }}</span>
+            <ul v-if="state.restart.blockers?.length" class="blocker-list">
+              <li v-for="(item, index) in state.restart.blockers" :key="index">
+                <span>
+                  {{ item.description }}
+                  <small v-if="item.chatId">会话：{{ item.chatId }}</small>
+                  <small v-if="item.pid">PID {{ item.pid }}</small>
+                </span>
+                <el-popconfirm
+                  v-if="item.kind === 'process' && item.chatId && item.pid"
+                  title="终止后，程序中未完成的工作可能丢失；所有阻塞解除后将自动重启。"
+                  confirm-button-text="终止程序"
+                  cancel-button-text="继续等待"
+                  :width="300"
+                  @confirm="kill(item.chatId!, item.pid!)"
+                >
+                  <template #reference>
+                    <button
+                      type="button"
+                      :disabled="busyPid === item.pid"
+                      aria-label="终止后台程序"
+                    >
+                      <Delete />
+                    </button>
+                  </template>
+                </el-popconfirm>
+              </li>
+            </ul>
+          </div>
         </article>
-      </details>
-      <div v-if="state.restart.required" class="restart-block">
-        <b>{{
-          state.restart.status === 'failed'
-            ? '重启未完成'
-            : state.restart.status === 'ready'
-              ? '正在重启'
-              : '等待重启生效'
-        }}</b>
-        <span>{{ state.restart.reason || '正在等待任务与后台程序安全结束' }}</span>
-        <ul v-if="state.restart.blockers?.length" class="blocker-list">
-          <li v-for="(item, index) in state.restart.blockers" :key="index">
-            <span>
-              {{ item.description }}
-              <small v-if="item.chatId">会话：{{ item.chatId }}</small>
-              <small v-if="item.pid">PID {{ item.pid }}</small>
-            </span>
-            <el-popconfirm
-              v-if="item.kind === 'process' && item.chatId && item.pid"
-              title="终止后，程序中未完成的工作可能丢失；所有阻塞解除后将自动重启。"
-              confirm-button-text="终止程序"
-              cancel-button-text="继续等待"
-              :width="300"
-              @confirm="kill(item.chatId!, item.pid!)"
-            >
-              <template #reference>
-                <button type="button" :disabled="busyPid === item.pid" aria-label="终止后台程序">
-                  <Delete />
-                </button>
-              </template>
-            </el-popconfirm>
-          </li>
-        </ul>
       </div>
-    </template>
-    <p v-if="actionError || applyStore.error" role="alert">
-      {{ actionError || applyStore.error }}
-    </p>
+    </el-popover>
   </section>
 </template>
 
 <style scoped>
-.apply-status {
-  flex-shrink: 0;
-  max-height: 240px;
-  overflow: auto;
-  padding: 8px 16px;
-  border-top: 1px solid var(--el-border-color);
-  font-size: 12px;
+.status-capsules {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 0;
 }
-p {
-  margin: 4px 0;
+.status-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font: 400 12px/20px var(--font-ui, sans-serif);
 }
-summary {
+.status-capsule {
+  --notice-color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--notice-color);
+  font: 400 12px/28px var(--font-ui, sans-serif);
   cursor: pointer;
 }
-.impact-list,
-.blocker-list {
-  margin: 6px 0;
-  padding-left: 18px;
+.status-capsule.warning {
+  --notice-color: var(--warning);
 }
-article,
+.status-capsule.error {
+  --notice-color: var(--danger);
+}
+.status-capsule:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.status-capsule:focus-visible {
+  outline: 2px solid var(--notice-color);
+  outline-offset: 2px;
+}
+.status-notices {
+  max-height: 55vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+article {
+  display: grid;
+  gap: 5px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+small,
+b,
+p {
+  font-size: 12px;
+  font-weight: 400;
+}
 .restart-block {
   display: grid;
-  gap: 3px;
-  margin: 7px 0;
-  padding-left: 10px;
-  border-left: 2px solid var(--tab-color, var(--el-color-primary));
+  gap: 5px;
 }
-article span,
-article small,
-.restart-block span,
-.restart-block small {
-  overflow-wrap: anywhere;
+.blocker-list {
+  margin: 0;
+  padding-left: 18px;
 }
 .blocker-list li {
   display: flex;
@@ -177,14 +280,18 @@ article small,
   flex: 1;
   min-width: 0;
 }
-button {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
+.notice-action,
+.blocker-list button {
+  justify-self: start;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font: 400 12px/24px var(--font-ui, sans-serif);
+  cursor: pointer;
 }
 button svg {
   width: 16px;
+  height: 16px;
 }
 </style>

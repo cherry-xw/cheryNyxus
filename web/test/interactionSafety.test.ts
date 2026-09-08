@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import ts from 'typescript'
 import * as vue from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as applyPresentation from '../src/features/agent/settings/config/applyPresentation'
 
 function deferred<T = any>() {
   let resolve!: (value: T) => void
@@ -50,11 +51,15 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function settingsFixture() {
+function settingsFixture(requiresConfirmation = false) {
   const pending = deferred()
   const confirm = vi.fn().mockRejectedValue('cancel')
   const api = {
-    previewConfig: vi.fn().mockResolvedValue({ previewToken: 'preview' }),
+    previewConfig: vi.fn().mockResolvedValue({
+      previewToken: 'preview',
+      destructiveTargets: requiresConfirmation ? ['roles/reviewer'] : [],
+      impacts: [],
+    }),
     saveConfig: vi.fn(() => pending.promise),
   }
   const agents = { settingsOpen: true, settingsSection: null }
@@ -74,7 +79,7 @@ function settingsFixture() {
       INDEX_COUNT: {},
       SETTINGS_ACTIVE_TAB_KEY: Symbol(),
     },
-    './config/applyPresentation': { previewRequiresConfirmation: () => false },
+    './config/applyPresentation': applyPresentation,
     './config/revisionSync': {
       externalRevisionAction: () => 'ignore',
       isRevisionConflict: () => false,
@@ -87,6 +92,44 @@ function settingsFixture() {
 }
 
 describe('settings save and close safety', () => {
+  it('submits once after explicit confirmation without a second save click', async () => {
+    const { controller: c, pending, api, confirm } = settingsFixture(true)
+    const approval = deferred()
+    confirm.mockReturnValue(approval.promise)
+    const save = c.save()
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalledOnce())
+    expect(api.saveConfig).not.toHaveBeenCalled()
+    await c.save()
+    expect(api.previewConfig).toHaveBeenCalledOnce()
+    c.draft.value.global.value = 'new edit'
+    approval.resolve('confirm')
+    await vi.waitFor(() => expect(api.saveConfig).toHaveBeenCalledOnce())
+    expect(api.saveConfig.mock.calls[0]![0]).toMatchObject({
+      candidate: { global: { value: 'A' } },
+      previewToken: 'preview',
+      policy: 'wait',
+    })
+    pending.resolve({ baseRevision: 'r1', warnings: [] })
+    await save
+    expect(c.hasUnsavedChanges.value).toBe(true)
+  })
+
+  it('cancels without saving and requests confirmation again on retry', async () => {
+    const { controller: c, pending, api, confirm } = settingsFixture(true)
+    await c.save()
+    expect(api.saveConfig).not.toHaveBeenCalled()
+    expect(c.saving.value).toBe(false)
+    expect(c.error.value).toBeNull()
+    expect(c.hasUnsavedChanges.value).toBe(true)
+    confirm.mockResolvedValue('confirm')
+    pending.resolve({ baseRevision: 'r1', warnings: [] })
+    await c.save()
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(api.previewConfig).toHaveBeenCalledTimes(2)
+    expect(api.saveConfig).toHaveBeenCalledOnce()
+    expect(c.hasUnsavedChanges.value).toBe(false)
+  })
+
   it('runs exactly one WindowFrame action, including void overrides', () => {
     const source = readFileSync('web/src/features/desktop/WindowFrame.vue', 'utf8')
     for (const name of ['minimize', 'maximize', 'close']) {
@@ -114,7 +157,7 @@ describe('settings save and close safety', () => {
     const { controller: c, pending, api } = settingsFixture()
     c.updateHooksHandlers({ before: [{ value: 'hook A' }] })
     const save = c.save()
-    await Promise.resolve()
+    await vi.waitFor(() => expect(api.saveConfig).toHaveBeenCalledOnce())
     expect(api.saveConfig.mock.calls[0]![0].candidate.global.value).toBe('A')
     c.draft.value.global.value = 'B'
     c.updateHooksHandlers({ before: [{ value: 'hook B' }] })

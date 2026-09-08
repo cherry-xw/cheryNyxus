@@ -12,47 +12,29 @@ import {
   type Ref,
 } from 'vue'
 import { SETTINGS_ACTIVE_TAB_KEY } from '../config/constants'
+import { initialScatterPosition } from '../model/cardScatterLayout'
+import { useMotionPreference } from '@/composables/useMotionPreference'
 
-/**
- * useCardScatter：GlobalTab 散落浮动玻璃卡片的布局 + 拖拽 + 置顶 + 入场动画。
- *
- * 设计要点（见 plans/1-2-floating-willow.md §7）：
- *  - 锚点（anchor）键控的散落表，百分比 + 静态旋转，pinwheel 式部分重叠。
- *  - Pointer Events 拖拽；惰性 setPointerCapture（移动超阈值才捕获，保护卡内 el-input 选文）。
- *  - pointerdown 即 raise（含左下数字标冒泡）；topZ 单调递增；BASE_Z=10 避开 hover/modal 层。
- *  - SHIELD_PX=8 内缩 clamp，配合 canvas padding:6px + shell-scroll overflow:hidden 防 box-shadow 裁切。
- *  - ready flag：布局成功后不再重算，避免覆盖用户拖拽。
- *  - 坠落入场动画：每次进入 global tab（activeTab === 'global'）触发。
- *
- * v-show 切换 tab 时组件不卸载，clientWidth 在隐藏时为 0 → 三重兜底：
- *  onMounted nextTick(layout) / ResizeObserver(layout) / watch(activeTab → nextTick(layout))。
- *  SettingsDialog 整体 v-if 卸载重建 → 每次重开弹窗即重算 → 天然「每次打开重置散落」。
- */
-
-/** GlobalTab 7 张卡的 anchor 键（与 data-anchor 对齐）。 */
+/** Single-canvas scatter; initial random offsets remain stable for this visit. */
 export type GlobalCardAnchor =
-  'default' | 'editor' | 'limits' | 'logger' | 'compression' | 'memory-global' | 'memory-workspace'
-
-/** 散落表项：x/y 为画布内容盒的百分比；r 为静态旋转角度。 */
-interface ScatterEntry {
-  x: number
-  y: number
-  r: number
-}
-
-/**
- * Pinwheel 散落表：故意部分重叠以呈现玻璃遮挡。
- * 顺序即 cardNumber 的 1-based 编号顺序（与 visibleAnchors 默认序一致）。
- */
-const SCATTER_TABLE: Record<GlobalCardAnchor, ScatterEntry> = {
-  default: { x: 3, y: 2, r: -3 },
-  editor: { x: 47, y: 5, r: 4 },
-  limits: { x: 8, y: 33, r: 2 },
-  logger: { x: 52, y: 35, r: -2 },
-  compression: { x: 4, y: 62, r: -4 },
-  'memory-global': { x: 49, y: 64, r: 3 },
-  'memory-workspace': { x: 26, y: 82, r: -2 },
-}
+  | 'default'
+  | 'editor'
+  | 'limits'
+  | 'logger'
+  | 'compression'
+  | 'memory-global'
+  | 'memory-workspace'
+  | 'motion'
+const ANCHORS: GlobalCardAnchor[] = [
+  'default',
+  'editor',
+  'limits',
+  'logger',
+  'compression',
+  'memory-global',
+  'memory-workspace',
+  'motion',
+]
 
 /** 长按阈值（ms）：按下保持超过此时长才进入拖拽；短按只置顶，避免一点即拖。 */
 const LONG_PRESS_MS = 320
@@ -61,7 +43,7 @@ const SHIELD_PX = 8
 /** z-index 地板：避开 hover 2/3 与 modal 270-320 层。 */
 const BASE_Z = 10
 
-/** 卡片运行时状态：pos（px）+ z。旋转由 SCATTER_TABLE 静态给定（不进 reactive）。 */
+/** 卡片运行时位置与层级。 */
 interface CardRuntime {
   x: number
   y: number
@@ -72,15 +54,14 @@ interface CardRuntime {
 export interface CardStyle {
   '--cx': string
   '--cy': string
-  '--cr': string
   '--i': string
   zIndex: number
 }
 
-/** 构建 7 张卡的初始状态（全部贴在 0,0 + BASE_Z）。 */
+/** 初始化卡片；测量完成前由 ready 隐藏。 */
 function initialCards(): Record<GlobalCardAnchor, CardRuntime> {
   const out = {} as Record<GlobalCardAnchor, CardRuntime>
-  ;(Object.keys(SCATTER_TABLE) as GlobalCardAnchor[]).forEach((k) => {
+  ANCHORS.forEach((k) => {
     out[k] = { x: 0, y: 0, z: BASE_Z }
   })
   return out
@@ -108,6 +89,11 @@ export function useCardScatter(
 } {
   // activeTab inject：v-show 切换时 RO 可能错过（同一帧大小未变），watch 是兜底。
   const activeTab = inject(SETTINGS_ACTIVE_TAB_KEY)
+  const { effectiveMode } = useMotionPreference()
+  const random = Object.fromEntries(
+    ANCHORS.map((anchor) => [anchor, [Math.random(), Math.random()]]),
+  )
+  let layoutSignature = ''
   /** 本 tab 是否处于激活（控制左下角数字索引 Teleport 的显隐）。 */
   const isActive = computed(() => !!activeTab && activeTab.value === 'global')
 
@@ -159,23 +145,44 @@ export function useCardScatter(
   let ro: ResizeObserver | undefined
   let stopActiveTabWatch: (() => void) | undefined
 
-  /**
-   * 按 SCATTER_TABLE 把百分比换算成 px 写入 cards。
-   * 幂等：ready=true 后早返（保留用户拖拽位置）。
-   */
   function layout(): void {
-    if (ready.value) return
     const el = canvasRef.value
-    if (!el) return
-    const w = el.clientWidth
-    const h = el.clientHeight
-    if (w === 0 || h === 0) return // v-show 隐藏中，等下次 RO/watch 触发
-    const usableW = Math.max(0, w - SHIELD_PX * 2)
-    const usableH = Math.max(0, h - SHIELD_PX * 2)
-    ;(Object.keys(SCATTER_TABLE) as GlobalCardAnchor[]).forEach((anchor) => {
-      const e = SCATTER_TABLE[anchor]
-      cards[anchor].x = SHIELD_PX + (e.x / 100) * usableW
-      cards[anchor].y = SHIELD_PX + (e.y / 100) * usableH
+    if (!el || !el.clientWidth || !el.clientHeight) return
+    const width = el.clientWidth
+    const height = el.clientHeight
+    el.style.setProperty('--card-width', `${Math.min(360, width * 0.48, width - 24)}px`)
+    el.style.setProperty('--card-max-height', `${Math.max(1, height - 24)}px`)
+    const elements = visibleAnchors.value
+      .map((anchor) => ({
+        anchor,
+        element: el.querySelector<HTMLElement>(`[data-anchor="${anchor}"]`)!,
+      }))
+      .filter((item) => item.element)
+    const signature = JSON.stringify([
+      width,
+      height,
+      elements.map(({ element }) => [element.offsetWidth, element.offsetHeight]),
+    ])
+    if (signature === layoutSignature) return
+    layoutSignature = signature
+    elements.forEach(({ anchor, element }, index) => {
+      const card = { width: element.offsetWidth, height: element.offsetHeight }
+      if (!ready.value) {
+        Object.assign(
+          cards[anchor],
+          initialScatterPosition(
+            { width, height },
+            card,
+            index,
+            random[anchor]![0]!,
+            random[anchor]![1]!,
+          ),
+        )
+      } else {
+        // Resizing only clamps existing positions; it never reshuffles a user's arrangement.
+        cards[anchor].x = Math.max(12, Math.min(width - card.width - 12, cards[anchor].x))
+        cards[anchor].y = Math.max(12, Math.min(height - card.height - 12, cards[anchor].y))
+      }
     })
     ready.value = true
     if (pendingEntry) {
@@ -190,7 +197,6 @@ export function useCardScatter(
     return {
       '--cx': `${c.x}px`,
       '--cy': `${c.y}px`,
-      '--cr': `${SCATTER_TABLE[anchor].r}deg`,
       '--i': String(idx >= 0 ? idx : 0),
       zIndex: c.z,
     }
@@ -222,6 +228,12 @@ export function useCardScatter(
     // 仅主键响应（右键 / 中键放过，交给原生菜单）
     if (e.button !== 0) return
     raise(anchor)
+    if (
+      (e.target as Element | null)?.closest(
+        'input, textarea, button, select, a, [role="combobox"], [contenteditable="true"]',
+      )
+    )
+      return
     pressedAnchor.value = anchor
     downX = e.clientX
     downY = e.clientY
@@ -255,10 +267,12 @@ export function useCardScatter(
     const dx = e.clientX - downX
     const dy = e.clientY - downY
     const el = canvasRef.value
-    const maxX = el ? el.clientWidth - SHIELD_PX : Number.POSITIVE_INFINITY
-    const maxY = el ? el.clientHeight - SHIELD_PX : Number.POSITIVE_INFINITY
-    cards[anchor].x = Math.max(SHIELD_PX, Math.min(maxX, downCardX + dx))
-    cards[anchor].y = Math.max(SHIELD_PX, Math.min(maxY, downCardY + dy))
+    if (!el || !activePointerTarget) return
+    const width = activePointerTarget.offsetWidth
+    const height = activePointerTarget.offsetHeight
+    const x = Math.max(SHIELD_PX, Math.min(el.clientWidth - width - SHIELD_PX, downCardX + dx))
+    const y = Math.max(SHIELD_PX, Math.min(el.clientHeight - height - SHIELD_PX, downCardY + dy))
+    Object.assign(cards[anchor], { x, y })
   }
 
   function endPointer(e: PointerEvent): void {
@@ -279,6 +293,7 @@ export function useCardScatter(
   }
 
   function playEntry(): void {
+    if (effectiveMode.value === 'reduced') return
     // 准入：未 ready 时延后到 layout 成功后再放（cards 此时无位置，坠落无意义）。
     if (!ready.value) {
       pendingEntry = true
@@ -305,11 +320,14 @@ export function useCardScatter(
   }
 
   onMounted(() => {
+    window.addEventListener('pointerup', endPointer)
+    window.addEventListener('pointercancel', endPointer)
     // 主路径：ResizeObserver 在 v-show 由 hidden → visible 时会触发（clientWidth 0 → 非 0）。
     const el = canvasRef.value
     if (el && typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(() => layout())
       ro.observe(el)
+      el.querySelectorAll<HTMLElement>('[data-anchor]').forEach((card) => ro!.observe(card))
     }
     // 兜底 1：mount 时若已可见（非默认 tab 切到 global 而后又重开等边缘路径），nextTick 直接尝试。
     nextTick(layout)
@@ -333,6 +351,8 @@ export function useCardScatter(
   })
 
   onBeforeUnmount(() => {
+    window.removeEventListener('pointerup', endPointer)
+    window.removeEventListener('pointercancel', endPointer)
     ro?.disconnect()
     ro = undefined
     stopActiveTabWatch?.()

@@ -107,17 +107,19 @@ describe('settings revision synchronization', () => {
 
   it('wires server notifications, draft protection and explicit reload controls', async () => {
     const root = resolve(import.meta.dirname, '../../src')
-    const [runtime, controller, dialog] = await Promise.all([
+    const [runtime, controller, dialog, status] = await Promise.all([
       readFile(resolve(root, 'application/runtime/startApplicationRuntime.ts'), 'utf8'),
       readFile(resolve(root, 'features/agent/settings/useSettingsDialogController.ts'), 'utf8'),
       readFile(resolve(root, 'features/agent/settings/SettingsDialog.vue'), 'utf8'),
+      readFile(resolve(root, 'features/agent/settings/components/ConfigApplyStatus.vue'), 'utf8'),
     ])
     expect(runtime).toContain("event?.type === 'config.apply.changed'")
     expect(runtime).toContain('configApply.refresh()')
     expect(controller).toContain('hasUnsavedChanges.value')
     expect(controller).toContain('externalChange.value = true')
-    expect(dialog).toContain('当前未保存草稿仍保留')
-    expect(dialog).toContain('重新载入服务器版本')
-    expect(dialog).toContain('<ConfigApplyStatus :preview="destructivePreview" />')
+    expect(status).toContain('重新载入服务器版本')
+    expect(dialog).toContain(':external-change="externalChange"')
+    expect(dialog).toContain('@reload="reloadServerVersion"')
+    expect(dialog).toContain('<ConfigApplyStatus')
   })
 })

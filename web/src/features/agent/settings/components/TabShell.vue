@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * TabShell：设置面板各 tab 的通用外壳。
- * 顶部固定区：hints slot（sect-hint / warn-hint 说明行）+ 序号按钮行（indexItems 驱动）。
+ * 顶部固定区：说明浮层入口与工具栏；序号导航由 indexItems 驱动并挂到底栏。
  * 序号按钮：hover 触发自定义 popper（通过 popper scoped slot 由 tab 自填 mini 卡面），点击滚到对应卡片。
  * 下方 scroll-area：默认 slot，放一列卡片（每张卡片加 :data-anchor="item.anchor"）。
  *
@@ -50,7 +50,18 @@ function scrollTo(item: IndexItem, i: number): void {
     <section class="sect shell-sect">
       <div class="shell-sticky">
         <div v-if="$slots.hints" class="shell-hints">
-          <slot name="hints" />
+          <el-popover
+            trigger="click"
+            placement="bottom-start"
+            :width="480"
+            popper-class="label-tip-popper"
+            :popper-style="{ maxWidth: 'calc(100vw - 32px)' }"
+          >
+            <template #reference>
+              <button type="button" class="shell-help">ⓘ 本页说明</button>
+            </template>
+            <div class="shell-help-content"><slot name="hints" /></div>
+          </el-popover>
         </div>
         <div v-if="$slots.toolbar" class="shell-toolbar">
           <slot name="toolbar" />
@@ -83,6 +94,23 @@ function scrollTo(item: IndexItem, i: number): void {
 .tab-shell-root {
   height: 100%;
   min-height: 0;
+}
+.shell-help {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--accent);
+  background: var(--surface-soft);
+  font: 400 12px/26px var(--font-ui, sans-serif);
+  cursor: pointer;
+}
+.shell-help-content {
+  max-height: 50vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 </style>
 

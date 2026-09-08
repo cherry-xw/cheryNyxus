@@ -12,12 +12,10 @@ import { inject, computed } from 'vue'
 import { SCATTER_KEY, type GlobalCardAnchor } from '../../useCardScatter'
 
 const props = defineProps<{
-  /** 锚点键：与 SCATTER_TABLE / visibleAnchors 对齐，键控散落位置与编号。 */
+  /** 锚点键：与 visibleAnchors 对齐，键控散落位置与编号。 */
   anchor: GlobalCardAnchor
   /** 卡片主色（--block-neon）：驱动 ::before/::after 光晕颜色。 */
   accent: string
-  /** 圆角变体（如 '16px 9px 13px 8px'）；缺省回退 .neon-block 默认 12px。 */
-  radius?: string
 }>()
 
 // 编排器（GlobalTab）必 provide SCATTER_KEY；缺失即用错上下文，显性失败优于 undefined 运行时报错。
@@ -30,7 +28,6 @@ if (!scatter) {
 const sectionStyle = computed(() => ({
   ...scatter.cardStyle(props.anchor),
   '--block-neon': props.accent,
-  ...(props.radius ? { borderRadius: props.radius } : {}),
 }))
 </script>
 
@@ -58,6 +55,10 @@ const sectionStyle = computed(() => ({
 .neon-block {
   .neon-glass();
   position: absolute;
+  box-sizing: border-box;
+  width: var(--card-width, 320px);
+  min-width: 0;
+  max-height: var(--card-max-height);
   left: var(--cx, 0);
   top: var(--cy, 0);
   transition:
@@ -71,14 +72,65 @@ const sectionStyle = computed(() => ({
   backdrop-filter: blur(16px) saturate(1.06);
   // 后卡轻微去饱和，让 .is-top 的 filter:none 凸显层次
   filter: saturate(0.96);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
   gap: 7px;
   padding: 9px;
   border: 1px solid rgba(129, 140, 248, 0.17);
-  border-radius: 12px;
+  border-radius: 0;
   cursor: grab;
+}
+.neon-block > :deep(*) {
+  min-width: 0;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+// Reflow content to the card width; hiding the scrollbar alone would truncate controls.
+.neon-block :deep(.limit-grid),
+.neon-block :deep(.neon-grid) {
+  grid-template-columns: repeat(auto-fit, minmax(min(145px, 100%), 1fr));
+}
+.neon-block :deep(.supervision-deck) {
+  grid-template-columns: repeat(auto-fit, minmax(min(90px, 100%), 1fr));
+}
+.neon-block :deep(.watchdog-row),
+.neon-block :deep(.block-heading) {
+  flex-wrap: wrap;
+}
+.neon-block :deep(.block-summary),
+.neon-block :deep(.neon-number-label),
+.neon-block :deep(.number-readout b) {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.neon-block :deep(.neon-number-console) {
+  height: auto;
+  min-height: 29px;
+}
+.neon-block :deep(.number-readout) {
+  min-width: 0;
+  flex-wrap: wrap;
+  padding: 4px;
+}
+.neon-block :deep(.segment-deck),
+.neon-block :deep(.editor-deck),
+.neon-block :deep(.signal-deck) {
+  min-width: 0;
+}
+.neon-block :deep(.extension-magazine button) {
+  max-width: 100%;
+  height: auto;
+  min-height: 24px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .neon-block::before {
   content: '';
@@ -113,18 +165,20 @@ const sectionStyle = computed(() => ({
 
 // ── 状态变体 ──
 .neon-block.is-top {
+  transform: scale(1.03);
   // 顶卡：放大（悬浮感）+ 更深模糊 + saturate 凸显 + 边光（玻璃遮挡后卡的视觉机制）
   backdrop-filter: blur(20px) saturate(1.12);
   filter: none;
-  transform: scale(1.03);
+
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
     0 18px 38px rgba(67, 56, 202, 0.18),
     0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 .neon-block.is-pressed {
+  transform: scale(1.03);
   // 「拿起」：放大 1.045 + 加深阴影（长按 / 拖拽中持续保持）
-  transform: scale(1.045);
+
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
     0 22px 44px rgba(67, 56, 202, 0.22);
@@ -156,7 +210,7 @@ const sectionStyle = computed(() => ({
 .neon-block :deep(.block-kicker) {
   position: relative;
   font:
-    800 9px/1 ui-monospace,
+    400 12px/1 ui-monospace,
     SFMono-Regular,
     monospace;
   letter-spacing: 0.14em;
@@ -180,7 +234,7 @@ const sectionStyle = computed(() => ({
   gap: 2px;
 }
 .neon-block :deep(.lbl) {
-  font-size: 10px;
+  font-size: 12px;
 }
 .neon-block :deep(.el-input__wrapper),
 .neon-block :deep(.el-select__wrapper) {
@@ -191,7 +245,7 @@ const sectionStyle = computed(() => ({
 .neon-block :deep(.el-input__inner),
 .neon-block :deep(.el-select__selected-item),
 .neon-block :deep(.el-select__placeholder) {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 18px;
 }
 .neon-block :deep(.el-input__inner) {
@@ -210,15 +264,9 @@ const sectionStyle = computed(() => ({
   user-select: text;
 }
 
-// ── 窄屏兜底：散落失效，卡回退静态流 ──
-@media (max-width: 760px) {
-  .neon-block {
-    position: static;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
-  }
+:global(html[data-motion='reduced']) .neon-block {
+  animation: none;
+  transition: none;
+  transform: none;
 }
-
-// 应用不跟随 prefers-reduced-motion（见 docs/frontend/settings.md 动效降级约定），动效恒开。
 </style>

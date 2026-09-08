@@ -11,6 +11,7 @@
  */
 import {
   computed,
+  h,
   nextTick,
   onMounted,
   onUnmounted,
@@ -23,7 +24,6 @@ import {
 import { ArrowLeft, ArrowRight, Close } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import { useAgentsStore, useConfigApplyStore, useConnectionStore } from '@/application/public'
-import type { ConfigPreview } from '@chery/protocol'
 import {
   agentApi,
   type ConfigDto,
@@ -60,7 +60,7 @@ import SkeletonTab from './tabs/SkeletonTab.vue'
 import OpenConfigDirButton from './components/OpenConfigDirButton.vue'
 import type { SettingsSection } from '@/domain/shell/desktopBridge'
 import { externalRevisionAction, isRevisionConflict } from './config/revisionSync'
-import { previewRequiresConfirmation } from './config/applyPresentation'
+import { previewConfirmationMessage, previewRequiresConfirmation } from './config/applyPresentation'
 
 export type SettingsDialogControllerProps = {
   native?: boolean
@@ -116,7 +116,19 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const savedWarnings = ref<string[] | null>(null)
   const externalChange = ref(false)
   const revisionConflict = ref(false)
-  const destructivePreview = ref<ConfigPreview | null>(null)
+  const noticeError = ref<string | null>(null)
+  const noticeSequence = ref(0)
+  watch([savedHint, savedWarnings, noticeError, externalChange], (values) => {
+    if (values.some((value) => (Array.isArray(value) ? value.length : !!value)))
+      noticeSequence.value += 1
+  })
+  watch(
+    error,
+    (value) => {
+      if (value) noticeError.value = value
+    },
+    { flush: 'sync' },
+  )
   // ── 窗口拖动最大化：拖标题栏到屏幕顶部边缘 → 最大化；最大化后标题栏按钮还原 ──
   const maximized = ref(false)
   /** 面板 DOM 元素（motion.div 经 $el 解包；函数 ref 统一取底层 div）。 */
@@ -320,6 +332,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     const initialDraft = JSON.stringify(draft.value)
     const initialHooks = JSON.stringify(hooksState.handlers)
     loading.value = true
+    noticeError.value = null
     error.value = null
     savedHint.value = null
     savedWarnings.value = null
@@ -336,8 +349,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
         return
       }
       baseRevision = revision
-      pendingPreview = null
-      destructivePreview.value = null
       draft.value = structuredClone(data)
       configBaseline.value = JSON.stringify(draft.value)
       if (resetHooks) resetHooksState()
@@ -405,11 +416,11 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
         settingsLoadSeq += 1
         draft.value = null
         error.value = null
+        noticeError.value = null
         savedHint.value = null
         savedWarnings.value = null
         externalChange.value = false
         revisionConflict.value = false
-        destructivePreview.value = null
         workspaceWarnings.value = {}
         workspaceValidationSeq.clear()
         resetHooksState()
@@ -590,16 +601,17 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     () => !!draft.value && JSON.stringify(draft.value) !== configBaseline.value,
   )
   const hasUnsavedChanges = computed(() => configDirty.value || hooksState.dirty)
-  let pendingPreview: { fingerprint: string; preview: ConfigPreview } | null = null
   async function save(): Promise<void> {
     if (!draft.value || saving.value || loading.value) return
     saving.value = true
+    noticeError.value = null
     error.value = null
     savedHint.value = null
     savedWarnings.value = null
     workspaceWarnings.value = {}
     revisionConflict.value = false
     try {
+      await nextTick()
       sanitizeSenseGroups(draft.value)
       const payload = {
         protocolVersion: 2 as const,
@@ -613,24 +625,41 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
             }
           : {}),
       }
-      const fingerprint = JSON.stringify(payload)
-      if (!pendingPreview || pendingPreview.fingerprint !== fingerprint) {
-        const preview = await agentApi.previewConfig(payload)
-        pendingPreview = { fingerprint, preview }
-        if (previewRequiresConfirmation(preview)) {
-          destructivePreview.value = preview
-          return
-        }
+      const preview = await agentApi.previewConfig(payload)
+      if (previewRequiresConfirmation(preview)) {
+        const confirmed = await ElMessageBox.confirm(
+          h(
+            'div',
+            {
+              style: {
+                whiteSpace: 'pre-wrap',
+                maxHeight: '50vh',
+                overflow: 'auto',
+                overflowWrap: 'anywhere',
+              },
+            },
+            previewConfirmationMessage(preview),
+          ),
+          preview.destructiveTargets.length ? '确认删除并保存？' : '确认影响并保存？',
+          {
+            confirmButtonText: '确认并保存',
+            cancelButtonText: '继续编辑',
+            type: 'warning',
+            closeOnClickModal: false,
+          },
+        ).then(
+          () => true,
+          () => false,
+        )
+        if (!confirmed) return
       }
       const result = await agentApi.saveConfig({
         ...payload,
         requestId: crypto.randomUUID(),
-        previewToken: pendingPreview.preview.previewToken,
+        previewToken: preview.previewToken,
         policy: 'wait',
       })
       baseRevision = result.baseRevision
-      pendingPreview = null
-      destructivePreview.value = null
       if (payload.hooks) {
         hooksState.dirty = JSON.stringify(hooksState.handlers) !== JSON.stringify(payload.hooks)
       }
@@ -639,7 +668,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       configApply.apply(result)
       savedHint.value = hasUnsavedChanges.value
         ? '本次提交已保存；保存期间的新修改仍未保存。'
-        : '设置已保存，详细生效状态见下方。'
+        : '设置已保存。'
       savedWarnings.value = result.warnings
     } catch (e) {
       const msg = (e as Error).message
@@ -834,7 +863,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     close,
     confirmClose,
     draft,
-    destructivePreview,
+    noticeError,
+    noticeSequence,
     dragging,
     envVars,
     error,

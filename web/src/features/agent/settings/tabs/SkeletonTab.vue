@@ -27,19 +27,8 @@ withDefaults(
 <template>
   <section class="sect shell-sect" role="status" aria-label="正在加载设置内容">
     <div class="shell-sticky">
-      <div class="shell-hints">
-        <p
-          v-for="n in sectHints"
-          :key="`sec${n}`"
-          class="sect-hint skel-shimmer"
-          aria-hidden="true"
-        />
-        <p
-          v-for="n in warnHints"
-          :key="`wn${n}`"
-          class="warn-hint skel-shimmer"
-          aria-hidden="true"
-        />
+      <div class="shell-hints" aria-hidden="true" style="height: 28px">
+        <span class="skel-line" style="width: 96px; height: 28px" />
       </div>
     </div>
     <div class="shell-scroll">

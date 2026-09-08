@@ -7,19 +7,14 @@ import {
 } from './useSettingsDialogController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import ConfigApplyStatus from './components/ConfigApplyStatus.vue'
-import { useMotionPreference, type MotionPreference } from '@/composables/useMotionPreference'
+import { useMotionPreference } from '@/composables/useMotionPreference'
 import type { TabKey } from './config/constants'
 import { MOTION } from '@/utils/gsapCore'
 const props = defineProps<SettingsDialogControllerProps>()
 const controller = useSettingsDialogController(props)
 defineExpose({ confirmClose: controller.confirmClose, close: controller.close })
 const settingsMotion = useOverlayTransitionHooks('dialog')
-const { preference: motionPreference, effectiveMode, setMotionPreference } = useMotionPreference()
-const motionOptions: ReadonlyArray<{ value: MotionPreference; label: string }> = [
-  { value: 'system', label: '跟随系统' },
-  { value: 'full', label: '完整' },
-  { value: 'reduced', label: '精简' },
-]
+const { effectiveMode } = useMotionPreference()
 const {
   ArrowLeft,
   ArrowRight,
@@ -45,7 +40,8 @@ const {
   canRight,
   close,
   draft,
-  destructivePreview,
+  noticeError,
+  noticeSequence,
   dragging,
   envVars,
   error,
@@ -364,57 +360,24 @@ onBeforeUnmount(() => {
             </div>
           </template>
         </el-dialog>
-        <div v-if="externalChange" class="external-change" role="alert">
-          <span
-            >其他窗口或外部程序保存了新设置。当前未保存草稿仍保留，继续保存会被拒绝，以免覆盖新值。</span
-          >
-          <el-popconfirm
-            title="重新载入会放弃此窗口内尚未保存的配置和 Hooks 草稿。"
-            confirm-button-text="放弃草稿并载入"
-            cancel-button-text="保留草稿"
-            :width="300"
-            @confirm="reloadServerVersion"
-          >
-            <template #reference>
-              <button type="button" class="ghost-btn" :disabled="saving || loading">
-                重新载入服务器版本
-              </button>
-            </template>
-          </el-popconfirm>
-        </div>
-        <div v-if="savedHint" class="saved-row" role="status">
-          <span class="saved-text">{{ savedHint }}</span>
-        </div>
-        <div v-if="savedWarnings?.length" class="saved-row saved-warnings-row" role="status">
-          <span class="saved-text"
-            >⚠️ 已保存，但存在软告警（不阻塞运行，相关功能使用时可能报错）：</span
-          >
-          <ul class="saved-warnings">
-            <li v-for="w in savedWarnings" :key="w">{{ w }}</li>
-          </ul>
-        </div>
-
-        <ConfigApplyStatus :preview="destructivePreview" />
         <footer class="foot">
-          <div class="motion-preference" role="group" aria-label="界面动效强度">
-            <span class="motion-preference-label">动效</span>
-            <button
-              v-for="option in motionOptions"
-              :key="option.value"
-              type="button"
-              :class="{ active: motionPreference === option.value }"
-              :aria-pressed="motionPreference === option.value"
-              @click="setMotionPreference(option.value)"
-            >
-              {{ option.label }}
-            </button>
+          <div class="foot-left">
+            <div
+              id="settings-footer-nav"
+              class="foot-nav"
+              :style="settingsThemeStyle"
+              aria-live="polite"
+            />
+            <ConfigApplyStatus
+              :sequence="noticeSequence"
+              :saved-hint="savedHint"
+              :warnings="savedWarnings"
+              :error="noticeError"
+              :external-change="externalChange"
+              :busy="saving || loading"
+              @reload="reloadServerVersion"
+            />
           </div>
-          <div
-            id="settings-footer-nav"
-            class="foot-left"
-            :style="settingsThemeStyle"
-            aria-live="polite"
-          />
           <div class="foot-right">
             <span v-if="hasUnsavedChanges" role="status">有未保存修改</span>
             <button
