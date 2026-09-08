@@ -50,6 +50,7 @@
 @use 'element-plus/theme-chalk/src/message-box.scss' as *;
 @use 'element-plus/theme-chalk/src/option.scss' as *;
 @use 'element-plus/theme-chalk/src/overlay.scss' as *;
+@use 'element-plus/theme-chalk/src/popconfirm.scss' as *;
 @use 'element-plus/theme-chalk/src/popover.scss' as *;
 @use 'element-plus/theme-chalk/src/popper.scss' as *;
 @use 'element-plus/theme-chalk/src/scrollbar.scss' as *;
@@ -59,6 +60,22 @@
 @use 'element-plus/theme-chalk/src/tag.scss' as *;
 @use 'element-plus/theme-chalk/src/tooltip.scss' as *;
 @use 'element-plus/theme-chalk/src/upload.scss' as *;
+
+// Solid primary controls need the theme's on-accent foreground, including dark mode.
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link) {
+  --el-button-text-color: var(--accent-ink);
+  --el-button-hover-text-color: var(--accent-ink);
+  --el-button-active-text-color: var(--accent-ink);
+  --el-button-disabled-text-color: var(--accent-ink);
+  --el-button-bg-color: var(--accent);
+  --el-button-hover-bg-color: var(--accent);
+  --el-button-active-bg-color: var(--accent);
+}
+
+// Settings' standalone overlay occupies 10100; close confirmation must clear it.
+.el-overlay.settings-close-confirm {
+  z-index: 10200 !important;
+}
 
 // el-popconfirm 删除二次确认样式修正：
 // 1. 名字（标题）不换行 → white-space: nowrap
@@ -99,12 +116,12 @@
 }
 
 // 全局字重规则：所有 tooltip/popover 弹出内容默认一律 400（不随宿主继承加粗）；
-// tip 内强调词（b/strong，如技能名加粗）上限 600。teleport 到 body，故置全局非 scoped。
+// tip 内强调词（b/strong）同为 400。teleport 到 body，故置全局非 scoped。
 .el-popper {
   font-weight: 400;
 
   b,
   strong {
-    font-weight: 600;
+    font-weight: 400;
   }
 }

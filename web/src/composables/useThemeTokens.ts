@@ -6,6 +6,10 @@ import { useThemeStore } from '@/application/public'
  * 返回对当前主题响应式的 Pixi 节点树调色板；主题切换时宿主据此重画。
  */
 export interface PixiCanvasPalette {
+  edgeAlpha: number
+  activeEdgeAlpha: number
+  detailBranch: number
+  continuationBranch: number
   /** 节点圆底 */
   nodeFill: number
   /** 节点外圈中性环 */
@@ -26,6 +30,10 @@ export interface PixiCanvasPalette {
 
 const PALETTES: Record<'light' | 'dark', PixiCanvasPalette> = {
   light: {
+    edgeAlpha: 0.8,
+    activeEdgeAlpha: 0.95,
+    detailBranch: 0x0369a1,
+    continuationBranch: 0x92400e,
     nodeFill: 0xf5f7fc,
     ringNeutral: 0x7a5cff,
     stateError: 0xd6455d,
@@ -36,6 +44,10 @@ const PALETTES: Record<'light' | 'dark', PixiCanvasPalette> = {
     foldCount: 0x1b2337,
   },
   dark: {
+    edgeAlpha: 0.65,
+    activeEdgeAlpha: 0.85,
+    detailBranch: 0x38bdf8,
+    continuationBranch: 0xf59e0b,
     nodeFill: 0x0b1020,
     ringNeutral: 0x7a5cff,
     stateError: 0xff718c,

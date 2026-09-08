@@ -62,15 +62,13 @@ function onCancel(): void {
   --confirm-pop-bg: var(--panel);
   --confirm-pop-border: var(--border);
   padding: 12px 14px;
-  border: none;
-  border-radius: 12px;
-  min-width: 240px;
-  max-width: 340px;
+  border: 1px solid var(--confirm-pop-border);
+  border-radius: 0;
+  min-width: min(240px, calc(100vw - 24px));
+  max-width: min(340px, calc(100vw - 24px));
   background: var(--confirm-pop-bg);
   // 外阴影（右下暗）+ 反向外阴影（左上亮）= popper 从背景凸出
-  box-shadow:
-    8px 8px 16px rgba(0, 0, 0, 0.15),
-    -8px -8px 16px rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 24px var(--scrim);
 }
 .confirm-popover-popper.el-popper .el-popper__arrow::before {
   border-color: var(--confirm-pop-border);
@@ -84,7 +82,7 @@ function onCancel(): void {
 .confirm-pop-title {
   margin: 0;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 84%, transparent);
   white-space: normal;
@@ -93,10 +91,10 @@ function onCancel(): void {
 .confirm-pop-impact {
   padding: 7px 8px;
   border: 1px solid var(--confirm-pop-border);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.28);
-  color: color-mix(in srgb, var(--ink) 64%, transparent);
-  font-size: 11px;
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
   line-height: 1.5;
   p {
     margin: 0;
@@ -111,24 +109,19 @@ function onCancel(): void {
 }
 .cp-btn {
   padding: 5px 14px;
-  border: none;
-  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
   background: var(--confirm-pop-bg);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
   cursor: pointer;
   // 凸出态：外阴影（右下暗 + 左上亮）
-  box-shadow:
-    3px 3px 6px rgba(0, 0, 0, 0.12),
-    -3px -3px 6px rgba(255, 255, 255, 0.6);
   transition:
     box-shadow 0.15s ease,
     color 0.15s ease;
   &:hover {
     // 凹陷态：内阴影（按下效果）
-    box-shadow:
-      inset 2px 2px 4px rgba(0, 0, 0, 0.1),
-      inset -2px -2px 4px rgba(255, 255, 255, 0.5);
+    background: var(--surface-hover);
   }
   &.cancel {
     color: color-mix(in srgb, var(--ink) 70%, transparent);
@@ -137,7 +130,7 @@ function onCancel(): void {
     // danger 保留红色文字标识，按钮本体仍 neumorphism 凸出
     color: var(--danger);
     &:hover {
-      color: #dc2626;
+      color: var(--danger);
     }
   }
 }

@@ -1,5 +1,6 @@
 /** Browser workspace windows establish the top-level window stacking range from this value. */
 export const WORKSPACE_WINDOW_Z_INDEX_BASE = 500
+export const WORKSPACE_WINDOW_Z_INDEX_STEP = 2
 
 /**
  * Shared application overlay contract. Feature-local layers use their own stacking context.
@@ -15,6 +16,18 @@ export const OVERLAY_Z_INDEX = {
   modal: 10_100,
   approval: 10_200,
 } as const
+
+/** A teleported menu follows its owner, below the next window and application modal. */
+export function ownerOverlayZIndex(anchor: HTMLElement): number {
+  const window = anchor.closest<HTMLElement>('.cyber-window')
+  if (window) return Number.parseInt(getComputedStyle(window).zIndex, 10) + 1
+  let zIndex: number = OVERLAY_Z_INDEX.composerMenu
+  for (let element: HTMLElement | null = anchor; element; element = element.parentElement) {
+    const value = Number.parseFloat(getComputedStyle(element).zIndex)
+    if (Number.isFinite(value)) zIndex = Math.max(zIndex, value)
+  }
+  return zIndex + 1
+}
 
 /** Layers inside the Nyxus workbench. They never compete with application overlays directly. */
 export const NYXUS_WORKBENCH_Z_INDEX = {

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { onScopeDispose, ref } from 'vue'
 
 export type ThemeMode = 'light' | 'dark'
 
@@ -29,6 +29,22 @@ function readStoredTheme(): ThemeMode {
 export const useThemeStore = defineStore('theme', () => {
   const theme = ref<ThemeMode>(readStoredTheme())
   const listeners = new Set<(t: ThemeMode) => void>()
+  const channel =
+    typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
+      ? new BroadcastChannel('chery-theme')
+      : null
+  function receive(next: unknown): void {
+    if ((next === 'light' || next === 'dark') && next !== theme.value) applyFrom(next)
+  }
+  function onStorage(event: StorageEvent): void {
+    if (event.key === THEME_KEY) receive(event.newValue)
+  }
+  if (channel) channel.onmessage = (event) => receive(event.data)
+  if (typeof window !== 'undefined') window.addEventListener('storage', onStorage)
+  onScopeDispose(() => {
+    if (typeof window !== 'undefined') window.removeEventListener('storage', onStorage)
+    channel?.close()
+  })
 
   function apply(): void {
     const root = document.documentElement
@@ -54,6 +70,7 @@ export const useThemeStore = defineStore('theme', () => {
     persist()
     apply()
     notifyChanged()
+    channel?.postMessage(theme.value)
   }
 
   /** 接收跨窗广播：应用外部主题（不 notify，防广播回环）。 */

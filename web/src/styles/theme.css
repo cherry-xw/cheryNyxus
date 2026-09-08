@@ -225,37 +225,63 @@ html.dark {
   color: var(--ink);
 }
 :root .hljs-comment,
-:root .hljs-quote { color: var(--info); }
+:root .hljs-quote {
+  color: var(--info);
+}
 :root .hljs-keyword,
 :root .hljs-selector-tag,
-:root .hljs-subst { color: var(--danger); }
+:root .hljs-subst {
+  color: var(--danger);
+}
 :root .hljs-number,
 :root .hljs-literal,
 :root .hljs-variable,
 :root .hljs-template-variable,
 :root .hljs-tag .hljs-attr,
 :root .hljs-built_in,
-:root .hljs-builtin-name { color: var(--warning); }
+:root .hljs-builtin-name {
+  color: var(--warning);
+}
 :root .hljs-string,
 :root .hljs-doctag,
 :root .hljs-regexp,
-:root .hljs-link { color: var(--success); }
+:root .hljs-link {
+  color: var(--success);
+}
 :root .hljs-title,
 :root .hljs-section,
 :root .hljs-selector-id,
-:root .hljs-class .hljs-title { color: var(--violet); }
+:root .hljs-class .hljs-title {
+  color: var(--violet);
+}
 :root .hljs-type,
-:root .hljs-class .hljs-title.class_ { color: var(--danger); }
+:root .hljs-class .hljs-title.class_ {
+  color: var(--danger);
+}
 :root .hljs-tag,
 :root .hljs-name,
-:root .hljs-attribute { color: var(--success); }
+:root .hljs-attribute {
+  color: var(--success);
+}
 :root .hljs-symbol,
-:root .hljs-bullet { color: var(--accent); }
-:root .hljs-meta { color: var(--info); }
-:root .hljs-deletion { color: var(--danger); }
-:root .hljs-addition { color: var(--success); }
-:root .hljs-emphasis { font-style: italic; }
-:root .hljs-strong { font-weight: bold; }
+:root .hljs-bullet {
+  color: var(--accent);
+}
+:root .hljs-meta {
+  color: var(--info);
+}
+:root .hljs-deletion {
+  color: var(--danger);
+}
+:root .hljs-addition {
+  color: var(--success);
+}
+:root .hljs-emphasis {
+  font-style: italic;
+}
+:root .hljs-strong {
+  font-weight: bold;
+}
 
 /* ── 代码高亮（highlight.js github 浅色主题）深色翻转 ──────────────────
  * main.ts 全局 import github.css（浅底深字）。深色下必须整组覆盖 token 色，
@@ -267,37 +293,67 @@ html.dark {
   color: #dbe4ff;
 }
 [data-theme='dark'] .hljs-comment,
-[data-theme='dark'] .hljs-quote { color: #5b6785; }
+[data-theme='dark'] .hljs-quote {
+  color: var(--info);
+}
 [data-theme='dark'] .hljs-keyword,
 [data-theme='dark'] .hljs-selector-tag,
-[data-theme='dark'] .hljs-subst { color: #c792ea; }
+[data-theme='dark'] .hljs-subst {
+  color: #c792ea;
+}
 [data-theme='dark'] .hljs-number,
 [data-theme='dark'] .hljs-literal,
 [data-theme='dark'] .hljs-variable,
 [data-theme='dark'] .hljs-template-variable,
-[data-theme='dark'] .hljs-tag .hljs-attr { color: #f78c6c; }
+[data-theme='dark'] .hljs-tag .hljs-attr {
+  color: #f78c6c;
+}
 [data-theme='dark'] .hljs-string,
-[data-theme='dark'] .hljs-doctag { color: #9ece6a; }
+[data-theme='dark'] .hljs-doctag {
+  color: #9ece6a;
+}
 [data-theme='dark'] .hljs-title,
 [data-theme='dark'] .hljs-section,
 [data-theme='dark'] .hljs-selector-id,
-[data-theme='dark'] .hljs-class .hljs-title { color: #7dcfff; }
+[data-theme='dark'] .hljs-class .hljs-title {
+  color: #7dcfff;
+}
 [data-theme='dark'] .hljs-type,
-[data-theme='dark'] .hljs-class .hljs-title.class_ { color: #82aaff; }
+[data-theme='dark'] .hljs-class .hljs-title.class_ {
+  color: #82aaff;
+}
 [data-theme='dark'] .hljs-tag,
 [data-theme='dark'] .hljs-name,
-[data-theme='dark'] .hljs-attribute { color: #9ece6a; }
+[data-theme='dark'] .hljs-attribute {
+  color: #9ece6a;
+}
 [data-theme='dark'] .hljs-regexp,
-[data-theme='dark'] .hljs-link { color: #9ece6a; }
+[data-theme='dark'] .hljs-link {
+  color: #9ece6a;
+}
 [data-theme='dark'] .hljs-symbol,
-[data-theme='dark'] .hljs-bullet { color: #22d3ee; }
+[data-theme='dark'] .hljs-bullet {
+  color: #22d3ee;
+}
 [data-theme='dark'] .hljs-built_in,
-[data-theme='dark'] .hljs-builtin-name { color: #82aaff; }
-[data-theme='dark'] .hljs-meta { color: #5b6785; }
-[data-theme='dark'] .hljs-deletion { color: #ffa198; }
-[data-theme='dark'] .hljs-addition { color: #aff5b4; }
-[data-theme='dark'] .hljs-emphasis { font-style: italic; }
-[data-theme='dark'] .hljs-strong { font-weight: bold; }
+[data-theme='dark'] .hljs-builtin-name {
+  color: #82aaff;
+}
+[data-theme='dark'] .hljs-meta {
+  color: var(--info);
+}
+[data-theme='dark'] .hljs-deletion {
+  color: #ffa198;
+}
+[data-theme='dark'] .hljs-addition {
+  color: #aff5b4;
+}
+[data-theme='dark'] .hljs-emphasis {
+  font-style: italic;
+}
+[data-theme='dark'] .hljs-strong {
+  font-weight: bold;
+}
 
 /* 全局删除原生滚动条上下箭头按钮（含滚动条角），降低多层滚动视图的视觉负担。
  * 主滚动条（VirtualScroll 自定义 thumb / 设置面板）与本规则不冲突，仅去装饰性箭头。 */
