@@ -53,8 +53,9 @@ describe('login surface redesign contract', () => {
     expect(lamp).not.toContain('lamp-plain')
     expect(lamp).not.toContain('lamp-dots')
     expect(dialog).toContain("if (!local) return\n  lampLit.value = false\n  password.value = ''")
-    expect(dialog).toContain("lampLit.value = false\n      password.value = ''\n      stopLight()")
-    expect(dialog).toContain("password.value = isLocal.value ? '' : await auth.savedPasswordPlain()")
+    expect(dialog).toContain("lampLit.value = false\n      password.value = ''")
+    expect(dialog).toMatch(/seq === passwordLoadSeq\s*&&\s*props\.visible/)
+    expect(dialog).toContain('await auth.savedPasswordPlain()')
     // 亮灯时 input / caret 浮出光柱之上。
     expect(lamp).toContain('z-index: 3003;')
   })
@@ -73,7 +74,9 @@ describe('login surface redesign contract', () => {
     expect(lamp).toContain("'is-light': props.theme === 'light'")
     // 浅色显字与黑光对比；标题栏 z 3004 浮出光上，body 不创建 stacking context。
     expect(lamp).toContain('.is-light.is-lit .lamp-input')
-    expect(dialog).toContain('background: linear-gradient(to left, var(--ink) 72%, transparent 98%)')
+    expect(dialog).toContain(
+      'background: linear-gradient(to left, var(--ink) 72%, transparent 98%)',
+    )
     expect(dialog).toContain('z-index: 3004;')
     expect(dialog).toContain('不设 z-index（避免创建 stacking context 困住密码 input）')
     // 不可靠的 :global(html:not(.dark)) 黑光 hack 不得回归
@@ -132,7 +135,10 @@ describe('login surface redesign contract', () => {
     expect(source).toContain('auth.logout()')
     expect(source).toContain('disconnectLocal()')
     expect(source).toContain('emitAuthChanged({ serverAddress: base })')
-    expect(source).toContain('void conn.reconnect()')
+    expect(source).toContain('await conn.reconnect({ waitUntilConnected: true })')
+    expect(source.indexOf('await conn.reconnect({ waitUntilConnected: true })')).toBeLessThan(
+      source.indexOf('emitAuthChanged({ serverAddress: base })'),
+    )
   })
 
   it('stays sharp-cornered with token-derived colors only', async () => {

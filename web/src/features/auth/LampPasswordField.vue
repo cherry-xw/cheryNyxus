@@ -125,7 +125,7 @@ defineExpose({ wellElement: wellRef, switchElement: switchRef })
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: color-mix(in srgb, var(--ink) 45%, transparent);
+  color: var(--ink);
   caret-color: var(--accent);
   font: 400 15px/22px var(--font-mono, monospace);
   outline: none;

@@ -43,15 +43,33 @@ export const useConnectionStore = defineStore('connection', () => {
    * 登录/登出后重建连接：重新拉取 /api/config（带新 token）+ 建立 WS。
    * bootstrap 首次 connect 因 401 失败后 serverConfig 仍为空，再次 connect 会重拉配置。
    */
-  async function reconnect(): Promise<void> {
+  async function reconnect(options: { waitUntilConnected?: boolean } = {}): Promise<void> {
     // 已连接则跳过，避免创建重复 WS（本地直连场景登录面板重按时）。
     if (status.value === 'connected') return
+    let stopWaiting: (() => void) | undefined
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    error.value = null
     try {
       // refresh:true：手动重连必须拿最新 token（worker 重启会轮换 sessionToken），
       // 复用缓存的旧 token 会被服务端 401 拒绝——这是「断开后手动重连也失败」的根因。
-      await wsClient.connect({ refresh: true })
+      const connected = options.waitUntilConnected
+        ? new Promise<void>((resolve, reject) => {
+            stopWaiting = wsClient.onStatus((next) => {
+              status.value = next
+              if (next === 'connected') resolve()
+              else if (next === 'disconnected')
+                reject(new Error('连接服务器失败，请检查地址或网络。'))
+            })
+            timeout = setTimeout(() => reject(new Error('连接服务器超时，请重试。')), 15_000)
+          })
+        : Promise.resolve()
+      await Promise.all([wsClient.connect({ refresh: true }), connected])
     } catch (e) {
       error.value = (e as Error).message
+      if (options.waitUntilConnected) disconnect()
+    } finally {
+      stopWaiting?.()
+      if (timeout) clearTimeout(timeout)
     }
   }
 

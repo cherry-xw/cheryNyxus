@@ -57,9 +57,16 @@
 - 记住密码：直角滑块，开 = `--accent` 底亮灯方块。
 - 中文文本字号 ≥12px；600 仅用于标题。
 
-## 状态机（保留不变）
+## 状态机
 
-`地址 → (非 loopback: 用户名/密码/记住密码) → 提交`；成功后进已连接态（远端：用户信息 + 登出；本地：状态 + 断开连接）；错误卡片保留 kind 图标、backendMessage、HTTP status、原始错误展开。提交期 busy 态。
+`地址 → (非 loopback: 用户名/密码/记住密码) → 鉴权 → WebSocket 连接完成`；只有实际连接成功才关闭或进入已连接态。鉴权成功但连接失败仍保留表单与重试入口，不能仅凭 token 或地址保存提示成功。提交期禁止重复提交、编辑及内部关闭。
+
+首次挂载即为可见的原生面和后续打开的浮动面共用初始化；记住密码的异步读取在关闭、切地址、重新打开或用户开始输入后失效。浮动面为非模态窗口，不声明 `aria-modal`。错误卡片保留 kind、backendMessage、HTTP status 和原始错误。
+
+| 修改意图 | 稳定入口与关键符号 | 验证 |
+| --- | --- | --- |
+| 初始化、提交与重试 | [ServerLoginDialog.vue](../../web/src/features/auth/ServerLoginDialog.vue) 的 `submit`、`visible` 监听 | `pnpm test:web`、`pnpm web:type-check`；原生首次打开与断连重试 |
+| 连接结果 | [connection.ts](../../web/src/stores/connection.ts) 的 `reconnect` | 同上；仅连接状态归 store，鉴权归 auth store |
 
 ## 验收清单（视觉项交用户截图确认）
 

@@ -68,9 +68,11 @@ let dragCleanup: (() => void) | undefined
 const lampLit = ref(false)
 
 /** 远端已登录 → 显示用户信息 + 登出；否则显示表单。 */
-const loggedIn = computed(() => auth.isRemote && auth.loggedIn)
+const loggedIn = computed(
+  () => auth.isRemote && auth.loggedIn && conn.status === 'connected' && !busy.value,
+)
 /** 本地 loopback 已连接成功 → 显示「已连接」态（地址 + 状态 + 断开连接），不再可重新连接。 */
-const localConnected = computed(() => !auth.isRemote && conn.status === 'connected')
+const localConnected = computed(() => !auth.isRemote && conn.status === 'connected' && !busy.value)
 /** 信息面板展示的服务地址（远端已登录 / 本地已连接共用）。 */
 const displayServer = computed(() => auth.serverAddress || address.value || defaultAddress.value)
 
@@ -118,6 +120,7 @@ const errorIcon = computed(() => {
 })
 
 function close(): void {
+  if (busy.value) return
   emit('update:visible', false)
 }
 
@@ -164,21 +167,23 @@ watch(
     if (open) window.addEventListener('keydown', onKeydown)
     else window.removeEventListener('keydown', onKeydown)
   },
+  { immediate: true },
 )
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
+let passwordLoadSeq = 0
 watch(
   () => props.visible,
   async (open) => {
+    const seq = ++passwordLoadSeq
     if (!open) {
       lampLit.value = false
       password.value = ''
-      stopLight()
       return
     }
     address.value = auth.serverAddress || defaultAddress.value
     username.value = auth.savedUsername
-    password.value = isLocal.value ? '' : await auth.savedPasswordPlain()
+    password.value = ''
     rememberPw.value = auth.rememberPassword
     error.value = null
     showRaw.value = false
@@ -187,8 +192,24 @@ watch(
     offset.y = 0
     minimized.value = false
     maximized.value = false
+    if (!isLocal.value) {
+      const requestedAddress = address.value
+      const savedPassword = await auth.savedPasswordPlain().catch(() => '')
+      if (
+        seq === passwordLoadSeq &&
+        props.visible &&
+        address.value === requestedAddress &&
+        !password.value
+      ) {
+        password.value = savedPassword
+      }
+    }
   },
+  { immediate: true },
 )
+onBeforeUnmount(() => {
+  passwordLoadSeq += 1
+})
 
 function notify(msg: string): void {
   toast.value = msg
@@ -198,6 +219,7 @@ function notify(msg: string): void {
 }
 
 async function submit(): Promise<void> {
+  if (busy.value) return
   const base = normalizeAddress(address.value)
   if (!base) {
     error.value = {
@@ -224,12 +246,15 @@ async function submit(): Promise<void> {
     } else {
       await auth.login(base, username.value, password.value, rememberPw.value)
     }
-    notify(isLocal.value ? '连接成功' : '登录成功')
+    conn.disconnect()
+    await conn.reconnect({ waitUntilConnected: true })
+    if (conn.status !== 'connected')
+      throw new Error(conn.error || '未能连接服务器，请检查地址后重试。')
+    notify(isLocal.value ? '连接成功' : '登录并连接成功')
     desktopBridge()?.emitAuthChanged({ serverAddress: base })
     emit('update:visible', false)
     // 应用内重建连接（替代 reload）：bootstrap 首次连 401 后 serverConfig 为空，
     // reconnect 会带新 token 重拉 /api/config + 重连 WS，App.vue 顶层 onStatus 自动恢复。
-    void conn.reconnect()
   } catch (cause) {
     error.value =
       cause && typeof cause === 'object' && 'kind' in cause
@@ -358,7 +383,6 @@ onBeforeUnmount(stopLight)
         }"
         data-desktop-hit
         role="dialog"
-        aria-modal="true"
         aria-label="连接后端服务"
         :style="native ? undefined : { transform: `translate(${offset.x}px, ${offset.y}px)` }"
       >
@@ -436,9 +460,11 @@ onBeforeUnmount(stopLight)
                   <span class="field-label">后端服务地址</span>
                   <input
                     v-model="address"
+                    :disabled="busy"
                     class="rift-input"
                     placeholder="http://127.0.0.1:8183"
                     spellcheck="false"
+                    @input="passwordLoadSeq += 1"
                   />
                 </label>
 
@@ -447,17 +473,21 @@ onBeforeUnmount(stopLight)
                     <span class="field-label">用户名</span>
                     <input
                       v-model="username"
+                      :disabled="busy"
                       class="rift-input"
                       autocomplete="username"
                       spellcheck="false"
+                      @input="passwordLoadSeq += 1"
                     />
                   </label>
                   <LampPasswordField
                     ref="lampField"
                     v-model="password"
                     v-model:lit="lampLit"
+                    :disabled="busy"
                     :theme="themeStore.theme"
                     autocomplete="current-password"
+                    @update:model-value="passwordLoadSeq += 1"
                   />
 
                   <label class="remember">
@@ -466,9 +496,9 @@ onBeforeUnmount(stopLight)
                     </span>
                     <input
                       v-model="rememberPw"
+                      :disabled="busy"
                       class="remember-input"
                       type="checkbox"
-                      aria-hidden="true"
                     />
                     <span class="remember-label">记住密码（本地加密存储）</span>
                   </label>
