@@ -6,6 +6,7 @@
 - `web/src/features/pets/nyxus/graph/executionGraph.ts` 只把显式节点、边和 active run facts 投影为 UI-neutral graph，不读取数据库结构，不按正文、时间相邻或角色名称推断关系。`projectActiveTurnNodes` 的 transient 锚点：`dispatch`/`spawn` 节点优先作为其 `target.chatId` 子 chat 的前驱（子 chat 流式回复从派发点连出），普通消息节点按 `createdAt` 取该 chat 最新（不依赖持久图数组遍历顺序）；同 chat 连续 stream 节点在单次投影内串联成链；子 chat 无任何持久/stream 节点时才 `?? start` 兜底。
 - `web/src/features/pets/nyxus/graph/executionLayout.ts` 只处理稳定 lane、全局纵向顺序和坐标缓存；流式正文变化复用坐标，拓扑变化才重算。
 - `web/src/features/pets/nyxus/graph/nodeSkins.ts`、`edgeStyles.ts`、`termination.ts` 和 `web/src/styles/overlayLayers.ts` 分别集中 skin、edge、termination 文案和 overlay 层级。
+- 连线语义色由 [edgeStyles.ts](../../../web/src/features/pets/nyxus/graph/edgeStyles.ts) 的 `edgeStyle(kind, theme)` 维护深浅两套；[useThemeTokens.ts](../../../web/src/composables/useThemeTokens.ts) 的 `PIXI_CANVAS_PALETTES` 提供边线透明度和分支标记色，沿现有 `setPalette` 重绘入口应用。改变颜色不改变节点、边、布局或聚焦弱化规则；验证用 `pnpm test:web` 加双主题画布截图，关注实际混合后边线对比度。
 - `MessageBranchTree.vue` 只编排画布、HTML overlay、输入和可访问性交互，不重新构造 canonical relation。
 - `MessageBranchTree.vue` 向 Pixi 同步场景时，去重签名必须覆盖节点坐标及边的起点、终点和路由坐标；切换折叠或同行布局即使不改变节点 ID，也必须把新的几何位置提交给 GPU 渲染器。
 - 同行布局按 lane 感知的最早可用行压缩，但任何直接连线的目标节点都必须比来源节点至少低一行；该规则不区分同列、跨列、派遣、分叉、返回或汇合。只有彼此之间不存在因果约束的节点才允许同行，禁止渲染水平因果连线。

@@ -16,6 +16,20 @@ export const EXECUTION_EDGE_STYLES: Partial<Record<ExecutionEdgeKind, ExecutionE
   'fork-detail': { color: DETAIL_BRANCH_COLOR },
 }
 
-export function edgeStyle(kind: ExecutionEdgeKind): ExecutionEdgeStyle {
+const LIGHT_EDGE_STYLES: Partial<Record<ExecutionEdgeKind, ExecutionEdgeStyle>> = {
+  start: { color: '#92400e' },
+  spawn: { color: '#7e22ce' },
+  dispatch: { color: '#7e22ce' },
+  return: { color: '#166534' },
+  'return-continuation': { color: '#166534' },
+  'fork-detail': { color: '#0369a1' },
+}
+const LIGHT_DEFAULT_EDGE_STYLE: ExecutionEdgeStyle = { color: '#0369a1' }
+
+export function edgeStyle(
+  kind: ExecutionEdgeKind,
+  theme: 'light' | 'dark' = 'dark',
+): ExecutionEdgeStyle {
+  if (theme === 'light') return LIGHT_EDGE_STYLES[kind] ?? LIGHT_DEFAULT_EDGE_STYLE
   return EXECUTION_EDGE_STYLES[kind] ?? DEFAULT_EDGE_STYLE
 }

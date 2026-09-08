@@ -118,7 +118,6 @@ function setWorkTextRef(el: HTMLElement | null): void {
       :pet="pet"
       :chat-id="streamChatId ?? pet.chatId"
       :stream="stream"
-      :position-ref="positionRef"
       :has-stream="true"
       :is-busy="isBusy"
       :show-work-main="showWorkMain"
@@ -153,6 +152,7 @@ function setWorkTextRef(el: HTMLElement | null): void {
     <PetBody
       :pet="pet"
       :paused="paused"
+      :position-ref="positionRef"
       :classes="classes"
       :style="style"
       :face-glyph="faceGlyph"

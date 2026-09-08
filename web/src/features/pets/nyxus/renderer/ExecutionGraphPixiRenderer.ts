@@ -27,7 +27,6 @@ import {
   edgePulseVisibleInterval,
 } from '../graph/edgeMotion'
 import { PIXI_CANVAS_PALETTES, type PixiCanvasPalette } from '@/composables/useThemeTokens'
-import { DETAIL_BRANCH_COLOR } from '../graph/edgeStyles'
 import { renderQualityProfile, type RenderQualityTier } from '@/composables/renderQuality'
 import { incrementPerformanceCounter, setPerformanceMetric } from '@/utils/performanceDiagnostics'
 
@@ -656,7 +655,8 @@ export class ExecutionGraphPixiRenderer {
       drawCurve(this.staticEdges, edge.geometry).stroke({
         color,
         width: 1.35,
-        alpha: (edge.active ? 0.52 : 0.38) * alpha,
+        alpha:
+          (edge.active ? this.canvasPalette.activeEdgeAlpha : this.canvasPalette.edgeAlpha) * alpha,
       })
       if (edge.horizontal && edge.routeX !== undefined && edge.from.y !== edge.to.y) {
         this.staticEdges.circle(edge.routeX, edge.from.y, 2.4).fill({ color, alpha: 0.82 * alpha })
@@ -695,14 +695,15 @@ export class ExecutionGraphPixiRenderer {
           .stroke({ color: p.stateError, width: 1.5, alpha: 0.38 * alpha })
       }
       if (node.branchAnchorKind) {
-        const markerColor = colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
+        const markerColor =
+          node.branchAnchorKind === 'detail' ? p.detailBranch : p.continuationBranch
         this.staticNodes
           .circle(node.x, node.y, 22)
           .stroke({ color: markerColor, width: 2.4, alpha: 0.95 * alpha })
       }
       if (node.detailBranch) {
         this.staticNodes.circle(node.x, node.y, 25).stroke({
-          color: colorNumber(DETAIL_BRANCH_COLOR),
+          color: p.detailBranch,
           width: 1.8,
           alpha: 0.82 * alpha,
         })
@@ -811,7 +812,7 @@ export class ExecutionGraphPixiRenderer {
       const stateColor = node.branchAnchorKind
         ? colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
         : node.detailBranch
-          ? colorNumber(DETAIL_BRANCH_COLOR)
+          ? p.detailBranch
           : accent
       graphics
         .roundRect(left - 6, top - 6, size.width + 12, size.height + 12, 3)

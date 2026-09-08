@@ -211,7 +211,7 @@ describe('Nyxus tree motion contract', () => {
 
     expect(source).toContain('alpha: 0.07 * alpha')
     expect(source).toContain('width: 1.35')
-    expect(source).toContain('(edge.active ? 0.52 : 0.38) * alpha')
+    expect(source).toContain('this.canvasPalette.activeEdgeAlpha : this.canvasPalette.edgeAlpha')
     expect(source).toContain('[0.12, 0.16, 0.22, 0.3, 0.48, 0.3, 0.55]')
     expect(source).toContain('const DEEMPHASIZED_ALPHA = 0.3')
   })
@@ -237,7 +237,9 @@ describe('Nyxus tree motion contract', () => {
     expect(renderer).toContain('detailBranch ? DETAIL_BRANCH_ALPHA : DEEMPHASIZED_ALPHA')
     expect(renderer).toContain('if (node.detailBranch)')
     expect(renderer).toContain('width: 1.8')
-    expect(component).toContain('color: detailBranch ? DETAIL_BRANCH_COLOR')
+    expect(component).toContain(
+      "edgeStyle(detailBranch ? 'fork-detail' : edge.kind, themeStore.theme).color",
+    )
     expect(component).toContain('detailBranch: coreFlowProjection.value.detailNodeIds.has(node.id)')
   })
 })

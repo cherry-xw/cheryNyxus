@@ -37,7 +37,7 @@ import {
   signalVisualKindFor,
   type ExecutionPresentationMode,
 } from '../graph/executionPresentation'
-import { DETAIL_BRANCH_COLOR, edgeStyle } from '../graph/edgeStyles'
+import { edgeStyle } from '../graph/edgeStyles'
 import {
   accentForTheme,
   canPinNodeDetail,
@@ -1504,7 +1504,7 @@ export function useMessageBranchTreeController(
         id: edge.id,
         from: edge.from,
         to: edge.to,
-        color: detailBranch ? DETAIL_BRANCH_COLOR : edgeStyle(edge.kind).color,
+        color: edgeStyle(detailBranch ? 'fork-detail' : edge.kind, themeStore.theme).color,
         active: runningTailIds.value.has(edge.from.id) || runningTailIds.value.has(edge.to.id),
         phaseSeconds: (edge.to.createdAt % 1300) / 1000,
         deemphasized:
