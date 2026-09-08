@@ -7,10 +7,10 @@
 | 模块 | 文档 | 内容 |
 | --- | --- | --- |
 | 桌宠与 Nyxus | [pet/](./pet/README.md) | 桌宠领域模型、状态、运动、渲染及节点树工作台 |
-| 身份认证 | [auth-login.md](./auth-login.md) | 服务端登录界面与交互状态 |
-| 桌面工作区 | [desktop-cyber-workspace.md](./desktop-cyber-workspace.md) | 浏览器桌面和窗口组织 |
-| 多窗口工作台 | [workbench-multi-window.md](./workbench-multi-window.md) | 工作台窗口模型与 Electron 协作 |
-| 设置中心 | [settings.md](./settings.md) | 设置界面的信息架构和交互 |
+| 身份认证 | [auth-login.md](./auth-login.md) | 修改首次登录、连接完成反馈与失败重试 |
+| 桌面工作区 | [desktop-cyber-workspace.md](./desktop-cyber-workspace.md) | 修改窗口组织、关闭保护、菜单层级与诊断入口 |
+| 多窗口工作台 | [workbench-multi-window.md](./workbench-multi-window.md) | 修改会话草稿、附件提交、分支与 Electron 多窗协作 |
+| 设置中心 | [settings.md](./settings.md) | 修改保存与重载、未保存提示、标签导航和动效偏好 |
 | 协议绑定 | [frontend-protocol-binding.md](./frontend-protocol-binding.md) | RPC、通知和流式数据到前端状态的映射 |
 | 工具渲染 | [renderer.md](./renderer.md) | Agent 工具调用的前端渲染机制 |
 | MCU Lite 工作台 | [mcu-lite-workbench-ui.md](./mcu-lite-workbench-ui.md) | MCU Lite profile 的工作台界面 |
@@ -23,6 +23,8 @@
 | [electron.md](./electron.md) | Electron 主进程、preload 与窗口管理 |
 | [deployment.md](./deployment.md) | Web 前端部署拓扑 |
 | [pack-guide.md](./pack-guide.md) | Electron 打包操作 |
+
+当前仍开放的前端问题、待用户人工复核项和明确暂缓的小问题统一见 [已知问题目录](../quality/known-issues/README.md)；模块文档不重复维护问题状态。
 
 ## 局部设计约定
 

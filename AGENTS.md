@@ -12,7 +12,7 @@
 
 ## 计划操作
 
-所有实施计划必须写入 `docs/plan/`，并遵循 [`docs/standards/global/plan-operation.md`](docs/standards/global/plan-operation.md) 中的规定。
+所有实施计划必须写入 `docs/plan/`，并遵循 [`docs/standards/global/plan-operation.md`](docs/standards/global/plan-operation.md) 中的规定。查找或恢复计划时先读 `docs/plan/README.md`，再读目标任务目录的 `README.md`；不得先枚举整个 Plan 文件树代替入口导航。
 
 ## 文档操作
 

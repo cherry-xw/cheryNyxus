@@ -40,7 +40,19 @@ log/
 /test/flows/**/*.db
 .agent-teams/
 .workbuddy/
+# Plan navigation, active task ledgers, unfinished subtasks and reusable
+# verification instructions are committed for cross-environment recovery.
+# Generated verification output remains local-only.
 docs/plan/*
+!docs/plan/README.md
+!docs/plan/*/
+!docs/plan/*/*.md
+!docs/plan/*/verify/
+!docs/plan/*/verify/*.md
+!docs/plan/*/verify/*.mjs
+!docs/plan/*/verify/*.cjs
+docs/plan/*/verify/out/
+docs/plan/*/verify/out/**
 
 # 历史本地协作记录（已停止生成，避免误提交）
 .claude/read-proof/

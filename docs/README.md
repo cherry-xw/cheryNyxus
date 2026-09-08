@@ -13,7 +13,7 @@
 | 指南 | [guides/](./guides/README.md) | 面向开发者和维护者的操作指南 |
 | 开发规范 | [standards/](./standards/README.md) | 全局、后端、前端及模块级强制约束 |
 
-临时实施计划统一位于被 Git 忽略的 `docs/plan/`，不属于持久文档，也不得加入版本控制。
+实施计划统一位于 `docs/plan/`。根入口、任务 README、未完成子计划和可复用验证说明纳入版本控制，以便跨环境恢复；`verify/out/` 下的构建物、截图、日志和测试产物继续由 Git 忽略。存在活动计划时，`docs/plan/README.md` 是唯一总入口，每个任务以 `<task-id>/README.md` 作为任务清单与恢复入口。
 
 ## 阅读路径
 
