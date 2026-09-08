@@ -1,2 +1,52 @@
-# Shell 脚本统一 LF 行尾，避免 CRLF 在 bash 解析时破坏 set 选项（如 `set -o pipefail` 报“无效的选项名”）。
+# 全仓文本文件统一 LF 行尾：
+# - text=auto 由 Git 自动识别文本/二进制，仅对文本做归一化
+# - eol=lf 保证 checkout 到工作区时也是 LF（覆盖 core.autocrlf）
+# - 显式 binary 豁免避免误判破坏二进制文件
+* text=auto eol=lf
+
+# ---- 显式文本类型（确保被识别并归一化为 LF）----
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.vue text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.css text eol=lf
+*.less text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.xml text eol=lf
+*.svg text eol=lf
+*.sql text eol=lf
 *.sh text eol=lf
+*.ps1 text eol=lf
+
+# ---- 二进制类型（禁止任何转换与 diff）----
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.db binary
+*.sqlite binary
+*.exe binary
+*.dll binary
+*.node binary
+*.wasm binary
+*.zip binary
+*.pdf binary
+*.asar binary
+*.mp3 binary
+*.mp4 binary
