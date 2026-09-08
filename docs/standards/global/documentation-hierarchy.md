@@ -1,52 +1,23 @@
-# 文档层级规范 v1.2
+# 文档层级规范入口
 
-> 状态：强制执行。
->
-> 适用范围：`docs/` 下所有持久文档及临时实施计划。
-
-文档的必备内容、任务路由、代码符号定位和压缩规则统一遵守 [大型项目可定位文档规范](./llm-readable-documentation.md)。本文件只定义目录层级与生命周期。
+规则正文已统一到[通用规范](../documentation/structure.md)。本页保留历史路径与章节锚点，不维护规则副本。执行操作前读取通用规则及[项目配置](./project-documentation.md)。
 
 ## 1. 一级分类
 
-```text
-docs/
-├── README.md       # 全局导航
-├── backend/        # 后端，映射 src/
-├── frontend/       # 前端，映射 web/
-├── shared/         # 跨端架构与协议
-├── quality/        # 测试和质量证据
-├── guides/         # 操作指南
-├── standards/      # 可复用强制规范
-└── plan/           # 实施计划，README 总导航；活动入口与未完成清单纳入 Git，产物忽略
-```
-
-根目录除 `README.md` 外不放专题文档。每个一级目录必须有 `README.md`，负责说明领域边界并索引直接子目录。
+见[通用规范](../documentation/structure.md)及[项目配置](./project-documentation.md)。
 
 ## 2. 模块层级
 
-1. 大模块使用独立目录，目录内必须有 `README.md` 作为综述，其余文件分别说明具体主题。
-2. 小模块可以直接使用所属领域目录下的单一 Markdown 文件；当它出现多个独立主题时再升级为目录。
-3. 后端模块优先映射稳定的 `src/<module>/`；前端模块优先映射 `web/src/features/` 和 Electron、应用装配等稳定边界，不机械复制每个源码文件夹。
-4. 跨前后端共同遵守的状态机、消息、数据模型和交互顺序只能放在 `shared/`，不得分别在前后端维护两份定义。
+见[通用规范](../documentation/structure.md)及[项目配置](./project-documentation.md)。
 
 ## 3. 文档类型与生命周期
 
-1. `README` 只做职责说明、阅读路径和直接子项索引，不复制专题正文。
-2. 当前参考文档只描述现行事实；标题不得使用 `plan`、`progress` 或 `handoff` 冒充当前规范。
-3. 活动实施计划必须遵守 [Plan 操作方案](./plan-operation.md)，只存在于 `docs/plan/`；根 README、任务 README、未完成子计划和可复用验证说明纳入 Git，`verify/out/` 产物忽略。`docs/plan/README.md` 索引任务目录；每个任务目录必须以 `README.md` 作为任务清单和恢复入口，详细小任务按需放在同目录的独立文件中。禁止在 `docs/plan/` 根目录散放任务专题文件。
-4. 小任务完成后立即删除；总任务完成后标记为 `已完成` 并按 [Plan 操作方案](./plan-operation.md) 保留轻量结果台账，只有用户明确要求时才删除。确有审计价值的过程记录应迁入所属模块的 `archive/`，并明确标记非权威状态。
-5. Git 历史已经能够恢复的过程信息，不重复建立长期文档墓地。
+见[通用规范](../documentation/structure.md)及[项目配置](./project-documentation.md)。
 
 ## 4. 单一事实来源
 
-每项事实必须有唯一权威文档。其他位置使用链接引用，不复制可独立演进的字段表、状态机或规则。冲突时先确定 owner，再合并或删除重复内容。
+见[通用规范](../documentation/structure.md)及[项目配置](./project-documentation.md)。
 
 ## 5. 变更要求
 
-新增、移动或删除文档时必须同时：
-
-1. 更新最近一级目录的 `README.md`。
-2. 一级领域变化时更新 `docs/README.md`。
-3. 修复仓库内所有引用。
-4. 检查本地 Markdown 链接、孤儿文档和 `docs/plan/` 跟踪状态。
-5. 按 [大型项目可定位文档规范](./llm-readable-documentation.md) 检查任务路由、代码入口、关键符号和验证入口。
+见[通用规范](../documentation/structure.md)及[项目配置](./project-documentation.md)。
