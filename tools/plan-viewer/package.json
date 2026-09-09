@@ -1,0 +1,17 @@
+{
+  "name": "plan-viewer",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "独立开发工具：docs/plan 计划追踪页面。源码 + 单文件产物双形态，与主项目构建/依赖体系零关联。",
+  "scripts": {
+    "start": "node plan-viewer.mjs",
+    "dev": "node server.mjs",
+    "build": "node build.mjs",
+    "lint": "node lint.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
