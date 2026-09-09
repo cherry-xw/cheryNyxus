@@ -77,7 +77,6 @@ const {
           >
         </ConfirmPopover>
       </div>
-      <p class="archive-note">已归档 · 仅供查看。删除操作立即生效，无需保存设置。</p>
     </template>
     <div class="archive-body" :aria-busy="busy">
       <p v-if="error" class="archive-error" role="alert">
@@ -199,7 +198,6 @@ select:focus-visible {
 .danger {
   color: var(--el-color-danger);
 }
-.archive-note,
 .archive-reason,
 header > span {
   font-size: 12px;
