@@ -57,3 +57,12 @@ docs/plan/*/verify/out/**
 
 # 历史本地协作记录（已停止生成，避免误提交）
 .claude/read-proof/
+
+# plan-viewer 构建产物（tools/plan-viewer/build.mjs 生成，含发布到规则包的副本，可随时重建）
+tools/plan-viewer/plan-viewer.mjs
+tools/plan-viewer/lint.mjs
+docs/standards/documentation/tools/plan-viewer.mjs
+docs/standards/documentation/tools/lint.mjs
+
+# 文档规则包本地分发包（由 documentation/ 目录打包生成）
+plan-management-kit.zip
