@@ -25,6 +25,17 @@ import { broadcastInteractionChanged } from '../interaction/events.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 import { recordTerminationFact } from './executionFacts.js'
 import { questionInteractionContext } from '../interaction/context.js'
+import { annotateExecutionNode } from '@/db/executionGraph.js'
+import { skillActivation } from './workflowEvidence.js'
+import { refreshWorkflowContext } from './workflow.js'
+
+function annotateWorkflow(id: string, workflow: Record<string, unknown>): void {
+  try {
+    annotateExecutionNode(id, { workflow })
+  } catch {
+    /* Optional evidence cannot interrupt execution. */
+  }
+}
 
 function unexpectedTerminationContent(error: unknown): string {
   if (error instanceof ClassifiedError) {
@@ -53,6 +64,10 @@ export async function* observeAgentChunks(
 ): AsyncGenerator<MiddlewareChunk, void, unknown> {
   // 历史消息（loadHistory 注入）视为已落库，避免 abort flush 时重复 INSERT 触发 UNIQUE 冲突。
   const syncedIds = new Set<string>(getMessages().map((m) => m.id))
+  const initialSummaryId = getMessages().findLast(
+    (message) => message.role === 'system' && message.contextCompaction,
+  )?.id
+  const injectedCommands: string[] = []
   try {
     for await (const chunk of generator) {
       // feed-dog：每条 chunk 到达 = 子 agent generator 仍活着 = 未卡死，重置看门狗计时。
@@ -60,6 +75,10 @@ export async function* observeAgentChunks(
       feedWatchdog(chatId)
       if (chunk.type === 'message_created') {
         if (chunk.message.ephemeral) {
+          const command = /^以下是 `\[\[command:\/([^\]]+)\]\]` 的完整指令正文/.exec(
+            chunk.message.content ?? '',
+          )?.[1]
+          if (command) injectedCommands.push(command)
           // 命令正文等模型专用上下文不属于用户历史，也不应产生 timeline fact。
           syncedIds.add(chunk.message.id)
           continue
@@ -83,6 +102,10 @@ export async function* observeAgentChunks(
           })
           syncedIds.add(chunk.message.id)
           emitTimelinePatch(chatId, baseRevision)
+          if (chunk.message.role === 'user' && injectedCommands.length) {
+            annotateWorkflow(chunk.message.id, { commands: [...new Set(injectedCommands)] })
+            injectedCommands.length = 0
+          }
           // user 消息落库后回调（send.ts 据此回 userMsgId 给前端做实时 push + msgId dedup）
           if (chunk.message.role === 'user' && onUserMessageCreated) {
             onUserMessageCreated(chunk.message.id)
@@ -238,6 +261,27 @@ export async function* observeAgentChunks(
         continue
       }
 
+      if (chunk.type === 'sense_accept' && chunk.name === 'skill') {
+        const name = skillActivation(chunk.result)
+        const owner = getMessages().find((message) =>
+          message.senseCalls?.some((call) => call.id === chunk.id),
+        )
+        if (owner && name)
+          annotateWorkflow(owner.id, {
+            skillActivation: { callId: chunk.id, name, bodyLoaded: true },
+          })
+      }
+      if (chunk.type === 'done') {
+        const last = getMessages().findLast(
+          (message) => !message.revoked && message.role === 'assistant',
+        )
+        if (last)
+          annotateWorkflow(last.id, {
+            outcome: chunk.waitingForChild ? 'waiting' : 'completed',
+            outcomeRunId: getActiveChatRunId(chatId),
+            outcomeAt: Date.now(),
+          })
+      }
       yield chunk
     }
   } catch (err) {
@@ -312,6 +356,17 @@ export async function* observeAgentChunks(
       })
       syncedIds.add(m.id)
       emitTimelinePatch(chatId, baseRevision)
+    }
+    const summary = getMessages().findLast(
+      (message) => message.role === 'system' && message.contextCompaction,
+    )
+    if (summary && summary.id !== initialSummaryId) {
+      annotateWorkflow(summary.id, { compaction: { applied: true, summaryMessageId: summary.id } })
+    }
+    try {
+      refreshWorkflowContext(chatId)
+    } catch {
+      /* Observation is optional. */
     }
   }
 }

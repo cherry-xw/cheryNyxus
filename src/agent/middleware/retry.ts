@@ -1,5 +1,6 @@
 import type { MiddlewareContext, ErrorChunk } from '@/core/middleware/types'
 import { AgentAbortError, isAgentAbortError } from '@/core/middleware/errors.js'
+import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { classifyError, ClassifiedError, type ErrorCategory } from '@/utils/error.js'
@@ -93,6 +94,7 @@ export async function* retryMiddleware(
   const errors: ErrorChunk['errors'] = []
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    reportWorkflow(ctx.soul.chatId, { attempt })
     // 快照本轮 chain 起始的 messages 长度：chat 流中途失败时，外层 checkpoint 已 append 半截 assistant message，
     // 重试前回滚到本轮起始状态，避免重复 append 污染历史（P0-5）。
     // 注：已 yield 的 StreamChunk 无法撤回（retry 固有表现），仅回滚内存 messages。
@@ -139,6 +141,12 @@ export async function* retryMiddleware(
 
       // 非最后一次且可恢复：指数退避等待后继续
       if (attempt < MAX_RETRIES && errorInfo.recoverable) {
+        reportWorkflow(ctx.soul.chatId, {
+          activeNodeId: 'retry',
+          phaseLabel: '退避后重试',
+          waitReason: 'retry',
+          attempt,
+        })
         await delayWithBackoff(attempt)
         continue
       }

@@ -33,7 +33,11 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(source).toContain('max-height: calc(100% - 37px)')
     expect(source).toContain(`:class="{ 'has-open-popout': roleListOpen || sessionListOpen }"`)
     expect(source).toContain('z-index: var(--nx-z-side-popover)')
-    expect(source).toContain('z-index: var(--nx-z-connection-mask)')
+    const offlineMask = await readComponentSource(
+      resolve('src/features/agent/workbench/WorkbenchOfflineMask.vue'),
+      'utf8',
+    )
+    expect(offlineMask).toContain('z-index: var(--nx-z-connection-mask)')
     expect(source).toContain("topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'")
   })
 
@@ -63,7 +67,7 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(openWorkbench).not.toContain('fetchHistoryList')
   })
 
-  it('allows deleting the final session and gives the user an explicit result', async () => {
+  it('allows archiving the final session and explains where it remains accessible', async () => {
     const source = await readComponentSource(
       resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
       'utf8',
@@ -82,7 +86,7 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(deleteNyxus).toContain('await deletePresetSession(chatId)')
     expect(deleteNyxus).not.toContain("treeRootChatId.value = ''")
     expect(deleteNyxus).not.toContain('await switchSession(')
-    expect(deletePreset).toContain("ElMessage.success('会话已删除')")
+    expect(deletePreset).toContain("ElMessage.success('会话已归档，可在设置 → 归档中查看')")
     expect(deletePreset).toContain('options.setError(message)')
   })
 

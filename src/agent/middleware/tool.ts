@@ -6,6 +6,7 @@ import type {
   StreamChunk,
 } from '@/core/middleware/types'
 import type { ReplaceInfo } from '@/core/message/adapter'
+import { reportWorkflow, hasWorkflowObserver } from '@/core/middleware/workflowObservation.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { SupervisionLevel } from '@/core/config'
 import { createApproval, isSafeSenseCall } from '@/core/sense'
@@ -88,6 +89,11 @@ export async function* senseMiddleware(
   // 同默认审批流一致；工具不在当前 senseTable 静默写「无此工具」结果。
   if (ctx.soul.resumePending) {
     ctx.soul.resumePending = false
+    reportWorkflow(ctx.soul.chatId, {
+      activeNodeId: 'input',
+      status: 'running',
+      phaseLabel: '续接待执行工具',
+    })
     yield* executeResumePending(ctx)
     return
   }
@@ -143,6 +149,28 @@ async function* executeCollectedCalls(
   ctx: MiddlewareContext,
   calls: PendingSenseCall[],
 ): AsyncGenerator<MiddlewareChunk> {
+  if (hasWorkflowObserver(ctx.soul.chatId)) {
+    const owner = ctx.soul.messages?.findLast(
+      (message) =>
+        message.role === 'assistant' &&
+        message.senseCalls?.some((call) => call.id === calls[0]!.id),
+    )
+    const pendingIds = new Set(calls.map((call) => call.id))
+    reportWorkflow(ctx.soul.chatId, {
+      activeNodeId: 'tools',
+      phaseLabel: '调用清单已就绪',
+      status: 'running',
+      batch: {
+        id: `batch:${owner?.id ?? calls[0]!.id}`,
+        complete: true,
+        calls: (owner?.senseCalls ?? calls).map((call) => ({
+          id: call.id,
+          name: call.name,
+          status: pendingIds.has(call.id) ? 'pending' : 'unknown',
+        })),
+      },
+    })
+  }
   // Auto sense 先执行（不等待审批）
   const autoCalls = calls.filter((c) => c.supervisionLevel === SupervisionLevel.auto)
   for (const call of autoCalls) {

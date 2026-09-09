@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { ArchiveListResponseSchema } from '@chery/protocol'
 import {
+  WorkflowOpenResponseSchema,
+  WorkflowCloseResponseSchema,
+  WorkflowHistoryResponseSchema,
+} from '@chery/protocol'
+import {
   ConfigApplyStateSchema,
   ConfigSaveResultSchema,
   ConfigPreviewSchema,
@@ -356,6 +361,9 @@ const schemas = {
     status: treeControlStatusSchema,
     results: z.array(treeControlTargetSchema),
   }),
+  [Method.CHAT_WORKFLOW_OPEN]: WorkflowOpenResponseSchema,
+  [Method.CHAT_WORKFLOW_CLOSE]: WorkflowCloseResponseSchema,
+  [Method.CHAT_WORKFLOW_HISTORY]: WorkflowHistoryResponseSchema,
   [Method.CHAT_OPEN]: z.looseObject({
     chatId: id,
     subscriptionId: id,

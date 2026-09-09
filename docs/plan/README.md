@@ -4,7 +4,7 @@
 
 | 任务 | 状态 | 范围 |
 | --- | --- | --- |
-| [主 Agent 运行流程图](main-agent-runtime-diagram/README.md) | 规划中 | 工作台基础流程图、主 Agent 实时高亮、粗粒度回放与卡片布局共存 |
+| [主 Agent 运行流程图](main-agent-runtime-diagram/README.md) | 待综合验证 | 流程观察与回放已实现，自动验证通过，人工验收待执行 |
 | [会话归档管理](session-archive/README.md) | 待综合验证 | 设置内主子会话归档与整组永久删除 |
 | [故障工业赛博工作区 V2](cyber-terminal-workspace-v2/README.md) | 待综合验证 | 赛博桌面、工作台、会话、节点树和全局动效 |
 | [前端交互与颜色逻辑修正](frontend-interaction-color-audit/README.md) | 待综合验证 | 主题可读性、设置与窗口生命周期、输入和导航可靠性 |

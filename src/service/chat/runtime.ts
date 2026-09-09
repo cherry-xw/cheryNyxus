@@ -1,4 +1,7 @@
 import { AgentBuilder } from '@/agent/builder.js'
+import { hasWorkflowObserver, reportWorkflow } from '@/core/middleware/workflowObservation.js'
+import { effectiveSkillCount, memoryRows } from './workflowEvidence.js'
+import { workflowResources, workflowStageId } from './workflowHistory.js'
 import type { RuntimeSelection, RuntimeProvenance } from '@/agent/runtimeResolver.js'
 import { resolveSelectionIssues, type RuntimeIssue } from '@/agent/runtimeResolver.js'
 import {
@@ -129,6 +132,11 @@ export function hasRunningChats(): boolean {
 /** 获取当前活跃运行，用于 queued send 回包与带条件的 chat.abort。 */
 export function getActiveChatRunId(chatId: string): string | undefined {
   return chatRuntimes.get(chatId)?.activeRunId
+}
+
+/** Observation must never initialize a runtime. */
+export function peekChatMessages(chatId: string) {
+  return chatRuntimes.get(chatId)?.builder.getMessages()
 }
 
 /** 在启动 send/resume 前登记运行；同一 chat 同时至多一个活跃运行。 */
@@ -603,7 +611,7 @@ export async function ensureChat(
         systemPrompt: live.systemPrompt,
         tools: live.tools,
         runtime: selectionForSnapshot as unknown as Record<string, unknown>,
-        resources: revision.resources,
+        resources: { ...revision.resources, workflow: live.resourceSummary },
       })
     }
     const history = loadHistory(chatId, epoch)
@@ -617,6 +625,20 @@ export async function ensureChat(
       computeHistoryGenerationInfos(chatId),
       frozen.systemPrompt,
     )
+    if (hasWorkflowObserver(chatId)) {
+      const messages = builder.getMessages()
+      reportWorkflow(chatId, {
+        activeNodeId: 'context',
+        phaseLabel: history?.length ? '上下文已恢复' : '上下文已准备',
+        epochId: epoch.epochId,
+        contextStageId: workflowStageId(
+          chatId,
+          messages.findLast((message) => message.role === 'system' && message.contextCompaction)
+            ?.id,
+        ),
+        resources: { ...workflowResources(chatId), ...effectiveSkillCount(memoryRows(messages)) },
+      })
+    }
     // Restore accepted command-plane inputs that were acknowledged before a
     // process restart. If the user message already reached the durable history,
     // mark it consumed instead of enqueueing a duplicate.
@@ -695,6 +717,7 @@ export function prepareTreeRuntimeRefresh(rootId: string): {
     selection: RuntimeSelection
     systemPrompt: string
     tools: ReturnType<typeof buildLivePromptSnapshot>['tools']
+    resourceSummary: ReturnType<typeof buildLivePromptSnapshot>['resourceSummary']
   }>
   publish(epochId: string): void
   dispose(): void
@@ -705,6 +728,7 @@ export function prepareTreeRuntimeRefresh(rootId: string): {
     selection: RuntimeSelection
     systemPrompt: string
     tools: ReturnType<typeof buildLivePromptSnapshot>['tools']
+    resourceSummary: ReturnType<typeof buildLivePromptSnapshot>['resourceSummary']
   }> = []
   const builders: AgentBuilder[] = []
   try {

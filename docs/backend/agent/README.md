@@ -19,6 +19,8 @@ chat.send → AgentBuilder.run(input)
 
 ## 子模块导航
 
+主 Agent 流程图的可选边界报告与最终结果观察见[服务观察专题](../service/workflow.md)。中间件仅报告真实边界，不为展示改变执行顺序；提示词资源摘要复用同次构建结果。
+
 | 文档 | 对应源码 | 内容 |
 |------|----------|------|
 | [./middleware.md](middleware.md) | [middleware/](../../../src/agent/middleware/) | 5 个中间件 + loopHandler + 洋葱执行顺序 + Chunk 流向 + 审批流程（agent 侧） |

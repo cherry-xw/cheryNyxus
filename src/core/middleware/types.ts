@@ -343,6 +343,8 @@ export interface StagedChunk {
  */
 export interface DoneChunk {
   type: 'done'
+  /** Existing Loop yield decision, exposed only as a result annotation. */
+  waitingForChild?: boolean
 }
 
 /**

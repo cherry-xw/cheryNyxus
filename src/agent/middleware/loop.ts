@@ -11,6 +11,7 @@ import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { getWaitedParent } from '@/agent/spawnBroker.js'
 import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
+import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 
 /**
  * 创建 agent 层循环策略
@@ -38,6 +39,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
       // yield* 边界被吞掉，旧 run 也绝不能据 last-sense 开启下一轮 LLM。
       if (ctx.pipeline?.isAbortRequested()) throw new AgentAbortError()
       times++
+      reportWorkflow(ctx.soul.chatId, { newIteration: true, iteration: times, status: 'running' })
 
       logger.event('loop.iter', { n: times })
 
@@ -59,6 +61,8 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
         throw err
       }
       if (failed) break
+
+      reportWorkflow(ctx.soul.chatId, { activeNodeId: 'decision', phaseLabel: '判断是否继续' })
 
       // runChain 在 abort 后自然返回（例如 provider 流被 AbortSignal 关闭）时，
       // 同样必须终止，不能落入 last-sense → continue。
@@ -215,7 +219,18 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
     // loop 结束后 yield done（表示整个流程完成）。真实失败与保护性暂停都已有各自终态，
     // 因此跳过 done，防止覆盖 ErrorChunk 或 RunPausedChunk 的具体原因。
     if (!failed && !paused) {
-      const doneChunk: DoneChunk = { type: 'done' }
+      const doneChunk: DoneChunk = { type: 'done', waitingForChild: Boolean(ctx.soul.yieldTurn) }
+      reportWorkflow(
+        ctx.soul.chatId,
+        ctx.soul.yieldTurn
+          ? {
+              activeNodeId: 'decision',
+              status: 'running',
+              waitReason: 'child',
+              phaseLabel: '等待子任务返回',
+            }
+          : { activeNodeId: 'result', status: 'completed', phaseLabel: '本轮完成' },
+      )
       yield doneChunk
     } else if (paused) {
       logger.event('loop.end.paused', { iterations: times, reason: 'loop_limit' }, LogLevel.warn)

@@ -282,6 +282,7 @@ export default function buildFirstSystemPrompt(
   skillFilter?: SkillFilter,
   roleMentions?: RoleMentionInfo[],
   historyGenerations?: HistoryGenerationInfo[],
+  onResources?: (summary: { memoryCount: number; skillCount: number }) => void,
 ): string {
   const p = buildPromptPieces(
     systemPromptFile,
@@ -290,6 +291,7 @@ export default function buildFirstSystemPrompt(
     roleMentions,
     historyGenerations,
   )
+  onResources?.({ memoryCount: p.memoryCount, skillCount: p.skillsCount })
   // 合并：全局 base 在前为基础，override 在后为补充
   const base = `${p.globalBase}${p.roleMentionsSection}`
   const body = p.userSystem ? `${base}\n\n${p.userSystem}` : base

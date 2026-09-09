@@ -10,6 +10,8 @@
 
 ## 文件清单（顶层）
 
+可选的 `middleware/workflowObservation.ts` 提供只读边界回调；不持有执行权、不访问数据库或传输。服务端绑定、释放和验证见[流程观察](../service/workflow.md)。
+
 | 文件 / 目录 | 职责 |
 |------|------|
 | [config.ts](../../../src/core/config.ts) | `SupervisionLevel` 枚举（auto/smart/manual），core 唯一的运行时常量定义 |

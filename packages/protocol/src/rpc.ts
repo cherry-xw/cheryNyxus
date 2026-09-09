@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ConfigApplyStateSchema } from './configApply'
 import { ChatLifecycleChangedSchema } from './archive'
+import { WorkflowUpdatedSchema } from './workflow'
 
 /**
  * Canonical public RPC surface.
@@ -50,6 +51,9 @@ export const Method = {
   CHAT_RUN_RESUME: 'chat.run.resume',
   CHAT_RESUME_TREE: 'chat.resumeTree',
   CHAT_OPEN: 'chat.open',
+  CHAT_WORKFLOW_OPEN: 'chat.workflow.open',
+  CHAT_WORKFLOW_CLOSE: 'chat.workflow.close',
+  CHAT_WORKFLOW_HISTORY: 'chat.workflow.history',
   CHAT_CLOSE: 'chat.close',
   CHAT_OVERVIEW_OPEN: 'chat.overview.open',
   CHAT_OVERVIEW_CLOSE: 'chat.overview.close',
@@ -310,7 +314,9 @@ export const NotificationEnvelopeSchema = z
                 ? ConfigApplyStateSchema
                 : notification.type === 'chat.lifecycle.changed'
                   ? ChatLifecycleChangedSchema
-                : undefined
+                  : notification.type === 'workflow.updated'
+                    ? WorkflowUpdatedSchema
+                    : undefined
     if (schema) {
       const parsed = schema.safeParse(notification.data)
       if (parsed.success) return

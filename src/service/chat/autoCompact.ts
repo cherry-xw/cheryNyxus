@@ -20,6 +20,7 @@
  * 详见 docs/backend/agent/command.md。
  */
 import { getSystemCommand } from '@/agent/prompt/loadCommand.js'
+import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { computeContextUsage } from '@/utils/token.js'
 import { resolveChatRuntimeSelection } from '@/service/chat/runtime.js'
 import { getSkillMetas } from '@/agent/prompt/loadSkill.js'
@@ -151,12 +152,20 @@ export function injectCommands(chatId: string, userPrompt: string): CommandInjec
   for (const name of builtinNames) {
     const body = loadCommandBody(name)
     if (!body) {
+      reportWorkflow(chatId, {
+        activeNodeId: 'command',
+        phaseLabel: `${name} 正文加载失败`.slice(0, 200),
+      })
       console.warn(
         `[injectCommands] .chery/command/${name}.md 缺失或为空，token 触发但无指令正文（chat=${chatId}）`,
       )
       continue
     }
     extraUserMessages.push(formatCommandBody(name, body))
+    reportWorkflow(chatId, {
+      activeNodeId: 'command',
+      phaseLabel: `${name} 正文已加载`.slice(0, 200),
+    })
   }
 
   // 2. 自动 compact 触发判定（独立于 userPrompt 是否含 compact token）
@@ -178,7 +187,9 @@ export function injectCommands(chatId: string, userPrompt: string): CommandInjec
       const compactBody = loadCommandBody('compact')
       if (compactBody) {
         extraUserMessages.unshift(formatCommandBody('compact', compactBody))
+        reportWorkflow(chatId, { activeNodeId: 'command', phaseLabel: 'compact 正文已加载' })
       } else {
+        reportWorkflow(chatId, { activeNodeId: 'command', phaseLabel: 'compact 正文加载失败' })
         console.warn(
           `[injectCommands] .chery/command/compact.md 缺失或为空，自动触发 ${r} 但无 compact 指令正文（chat=${chatId}）`,
         )

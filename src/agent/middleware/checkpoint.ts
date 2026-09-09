@@ -7,6 +7,7 @@ import type {
 } from '@/core/middleware/types'
 import { CheckpointState } from './checkpointState.js'
 import { safeJsonParse } from '@/utils/json.js'
+import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 
 /**
  * Checkpoint Middleware
@@ -25,6 +26,12 @@ export async function* checkpointMiddleware(
 ): AsyncGenerator<MiddlewareChunk> {
   // === 先处理 userInputs：转为 messages（在 next() 调用前）===
   const { messages: consumedMessages, consumedCount } = ctx.journal.appendUserMessages()
+  if (consumedCount > 0)
+    reportWorkflow(ctx.soul.chatId, {
+      activeNodeId: 'input',
+      phaseLabel: '输入已接入',
+      status: 'running',
+    })
 
   if (consumedCount > 0) {
     for (const message of consumedMessages) {
@@ -266,6 +273,7 @@ export async function* checkpointMiddleware(
       contentActive = false
     }
   } finally {
+    reportWorkflow(ctx.soul.chatId, { activeNodeId: 'checkpoint', phaseLabel: '记录汇总' })
     // === 追加消息 + yield effect，由外层 observer 统一处理副作用 ===
     const mutations = state.appendResponseMessages(ctx)
     for (const mutation of mutations) {

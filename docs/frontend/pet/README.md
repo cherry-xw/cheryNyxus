@@ -14,6 +14,7 @@
 | [style.md](./style.md) | Pet 样式组织方式 |
 | [agent-integration.md](./agent-integration.md) | Pet 与 Agent 会话、通知及历史的集成 |
 | [nyxus-node-tree-maintenance.md](./nyxus-node-tree-maintenance.md) | Nyxus 节点树的边界、迁移和维护约束 |
+| [运行流程图](../runtime-diagram.md) | 工作台只读流程、双视口布局和历史回放 |
 
 ## 源码边界
 

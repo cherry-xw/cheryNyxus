@@ -153,6 +153,7 @@ export type NotificationType =
   | 'interaction.changed'
   | 'chat.lifecycle.changed'
   | 'chat.overview.changed'
+  | 'workflow.updated'
 
 // ========== Request Data ==========
 
@@ -2420,6 +2421,7 @@ export interface StagedChunkData {
 // ========== Notification Data ==========
 
 export type NotificationData =
+  | import('@chery/protocol').WorkflowUpdated
   | import('@chery/protocol').ChatLifecycleChanged
   | import('@chery/protocol').ConfigApplyState
   | InterruptNotificationData
@@ -2779,6 +2781,9 @@ export const Method = {
   CHAT_RUN_RESUME: 'chat.run.resume',
   CHAT_RESUME_TREE: 'chat.resumeTree',
   CHAT_OPEN: 'chat.open',
+  CHAT_WORKFLOW_OPEN: 'chat.workflow.open',
+  CHAT_WORKFLOW_CLOSE: 'chat.workflow.close',
+  CHAT_WORKFLOW_HISTORY: 'chat.workflow.history',
   CHAT_CLOSE: 'chat.close',
   CHAT_OVERVIEW_OPEN: 'chat.overview.open',
   CHAT_OVERVIEW_CLOSE: 'chat.overview.close',
@@ -2928,8 +2933,14 @@ export interface RpcMethodMap {
   }
   [InternalCommand.CHAT_GET]: { params: ChatGetRequestData; result: ChatGetResponseData }
   [Method.CHAT_DELETE]: { params: ChatDeleteRequestData; result: ChatDeleteResponseData }
-  [Method.CHAT_ARCHIVE]: { params: ChatDeleteRequestData; result: { chatId: string; archivedChatIds: string[] } }
-  [Method.CHAT_ARCHIVE_LIST]: { params: import('@chery/protocol').ArchiveListRequest; result: import('@chery/protocol').ArchiveListResponse }
+  [Method.CHAT_ARCHIVE]: {
+    params: ChatDeleteRequestData
+    result: { chatId: string; archivedChatIds: string[] }
+  }
+  [Method.CHAT_ARCHIVE_LIST]: {
+    params: import('@chery/protocol').ArchiveListRequest
+    result: import('@chery/protocol').ArchiveListResponse
+  }
   [Method.CHAT_BRANCH_PREVIEW]: {
     params: ChatBranchPreviewRequestData
     result: ChatBranchPreviewResponseData
@@ -2983,6 +2994,18 @@ export interface RpcMethodMap {
   }
   [InternalCommand.CHAT_SYNC]: { params: ChatSyncRequestData; result: ChatSyncResponseData }
   [Method.CHAT_OPEN]: { params: ChatOpenRequestData; result: ChatOpenResponseData }
+  [Method.CHAT_WORKFLOW_OPEN]: {
+    params: import('@chery/protocol').WorkflowOpenRequest
+    result: import('@chery/protocol').WorkflowOpenResponse
+  }
+  [Method.CHAT_WORKFLOW_CLOSE]: {
+    params: import('@chery/protocol').WorkflowCloseRequest
+    result: import('@chery/protocol').WorkflowCloseResponse
+  }
+  [Method.CHAT_WORKFLOW_HISTORY]: {
+    params: import('@chery/protocol').WorkflowHistoryRequest
+    result: import('@chery/protocol').WorkflowHistoryResponse
+  }
   [Method.CHAT_CLOSE]: { params: ChatCloseRequestData; result: ChatCloseResponseData }
   [Method.CHAT_OVERVIEW_OPEN]: {
     params: ChatOverviewOpenRequestData

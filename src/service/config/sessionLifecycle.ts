@@ -258,7 +258,7 @@ export const prepareSessionLifecycle: ConfigTreeAdapter = async ({ impacts, targ
                 roleId: typeof meta.roleId === 'string' ? meta.roleId : undefined,
                 roleName: typeof meta.type === 'string' ? meta.type : undefined,
                 runtime: snapshot.selection as unknown as Record<string, unknown>,
-                resources: revision.resources,
+                resources: { ...revision.resources, workflow: snapshot.resourceSummary },
               })
             }
             if (oldEpoch) {

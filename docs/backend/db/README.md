@@ -24,6 +24,8 @@
 
 ## 文件清单
 
+运行流程复用冻结资源清单及执行节点 JSON，不增加表；`upsertExecutionNode` 保留独立 workflow 结果附注。字段写者与恢复口径见[流程观察](../service/workflow.md)，跨端定义见[workflow 契约](../../shared/protocol/workflow.md)。
+
 | 文件 | 一句话 |
 |------|--------|
 | [src/db/index.ts](../../../src/db/index.ts) | 多 SQLite 实例管理：`getSoulDb`/`getMonthlyDb` 单例缓存、chats/messages 建表、列迁移、`closeAllDbs` |

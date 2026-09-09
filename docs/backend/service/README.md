@@ -4,6 +4,8 @@
 
 ## 职责
 
+主 Agent 运行流程的专用观察与长期事实投影归 `chat/workflow.ts` 与 `chat/workflowHistory.ts`；任务定位、写者、恢复与验证见[流程观察](workflow.md)，跨端字段见[workflow 契约](../../shared/protocol/workflow.md)。
+
 service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket 上的 RPC 请求路由到对应 handler，把 agent 的流式 `MiddlewareChunk` 流映射成协议层 Chunk/Notification 推回客户端，并集中处理 DB 持久化与审批副作用。
 
 - **启动装配**（[index.ts](../../../src/service/index.ts)）：`startService({port, webPort, staticDir})` 创建 Router → 注册全部 handler → 启动 WebSocketServer + HTTP 服务器。

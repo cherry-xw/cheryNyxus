@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { Connection } from '@element-plus/icons-vue'
+import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
+import { useWorkbenchWorkflow } from './runtime-diagram/useWorkbenchWorkflow'
+import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
 import {
   useWorkbenchDialogController,
   type WorkbenchDialogControllerProps,
@@ -149,6 +153,7 @@ const {
   workbenchWindow,
 } = controller
 defineExpose({ closeWorkbench: controller.closeWorkbench })
+const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowComposer, workflowStyle } = useWorkbenchWorkflow(controller)
 </script>
 
 <template>
@@ -191,12 +196,17 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           `is-${effectiveMode}` +
           (isShellless ? ' is-shellless' : '') +
           (isNative ? ' is-native' : '') +
-          (liteViewVisible ? ' is-lite' : '')
+          (liteViewVisible ? ' is-lite' : '') +
+          (workflowEnabled ? ' is-workflow-on' : '') +
+          (workflowVertical ? ' is-workflow-vertical' : '')
         "
         :style="workbenchShellStyle"
         aria-label="节点树工作台"
       >
-        <div class="nyxus-branch-top">
+        <div ref="workflowHost" class="nyxus-branch-top" :style="workflowStyle">
+          <div class="workflow-split">
+          <div class="workflow-tracks">
+          <div class="workflow-tree-frame">
           <MessageBranchTree
             v-if="treeRootChatId"
             ref="branchTreeRef"
@@ -222,6 +232,10 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           <div v-else class="workbench-empty-state" aria-live="polite">
             <span>暂无历史会话</span>
             <button type="button" @click="createSession">新建会话</button>
+          </div>
+          </div>
+          <RuntimeDiagram v-if="workflowEnabled && treeRootChatId" :chat-id="treeRootChatId" :vertical="workflowVertical" :suspended="win.minimized" />
+          </div>
           </div>
           <div v-if="treeLoading" class="workbench-tree-loading" aria-live="polite">
             <span class="workbench-spinner" aria-hidden="true" />
@@ -255,7 +269,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           />
         </header>
 
-        <!-- lite 极简视图（T33 L0）：激活时替代完整视图主体（CSS .is-lite 隐藏富 UI 元素） -->
         <LiteView
           v-if="liteViewVisible"
           :window-id="windowId"
@@ -270,6 +283,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
         <Transition name="nyxus-composer">
           <section
             v-if="nyxusDraftActive"
+            ref="workflowComposer"
             id="nyxus-message-composer"
             class="nyxus-composer-dock"
             role="dialog"
@@ -617,10 +631,11 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </el-tooltip>
             </div>
             <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
-              <!-- 2026-09-02 返工：独立 ⇥ 方向切换按钮已删除——卡牌阅读开关是唯一方向入口
-                 （卡牌开 → 纵向 Classic，关 → 横向 Signal），见 workbench-multi-window.md -->
-              <!-- v1.0 布局切换从 nav 顶部移入视图与配置组，作为组内第一个按钮
-                 （三组方案：主操作 / 会话 / 视图与配置，见 workbench-multi-window.md） -->
+              <el-tooltip v-if="!liteViewVisible" :content="treeRootChatId ? '运行流程' : '选择主会话后查看运行流程'" placement="left" :show-after="200">
+                <span class="nyxus-tool-tip-anchor">
+                  <button type="button" class="nyxus-rail-action" :class="{ 'is-active': workflowEnabled }" :disabled="!treeRootChatId" aria-label="运行流程" :aria-pressed="workflowEnabled" @click="workflowOpen = !workflowOpen"><Connection style="width: 20px; height: 20px" aria-hidden="true" /></button>
+                </span>
+              </el-tooltip>
               <el-tooltip
                 :content="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
                 placement="left"
@@ -717,8 +732,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               <div class="nyxus-role-card-list" aria-label="Nyxus 角色列表">
                 <div v-if="loading" class="nyxus-role-loading">角色加载中…</div>
                 <template v-else>
-                  <!-- v1.0 rail 角色 popout 只读展示（🔒 只读 chip，隐藏大脑/器官组选择区）：
-                     编制操作统一在发送消息角色卡（RoleConfigPopover 不传 readonly 保持可操作） -->
                   <RoleConfigPopover
                     v-for="[role, selection] in orderedRoleSelections"
                     :key="role"
@@ -762,22 +775,10 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </div>
           </Transition>
         </nav>
-        <!-- 断连遮罩：仅 disconnected（数据不可用）时阻断操作；connecting 只亮标题栏状态不遮罩。
-           native 面关闭三键在 WindowFrame 层，不受遮罩影响。 -->
-        <div
+        <WorkbenchOfflineMask
           v-if="connection.status === 'disconnected'"
-          class="workbench-offline-mask"
-          role="alert"
-        >
-          <div class="offline-panel">
-            <span class="workbench-spinner is-large" aria-hidden="true" />
-            <strong>未连接到服务器</strong>
-            <span>部分功能不可用，正在自动重连…</span>
-            <button type="button" class="offline-retry" @click="connection.reconnect()">
-              立即重试
-            </button>
-          </div>
-        </div>
+          @retry="connection.reconnect()"
+        />
         <template v-if="effectiveMode === 'window'">
           <span
             v-for="direction in resizeDirections"

@@ -1,4 +1,5 @@
 import { MiddlewarePipeline } from './middlewarePipeline'
+import { reportWorkflow } from './workflowObservation.js'
 import { MessageJournal } from './messageJournal'
 import type {
   MiddlewareContext,
@@ -122,6 +123,7 @@ export default class AgentSession<T = unknown> {
     this.requireRuntime()
 
     const compactRequested = /\[\[command:\/compact\]\]/.test(input)
+    reportWorkflow(this.ctx.soul.chatId, { compactRequested })
     // 命令正文入队顺序：extra[0] 先入队 → 主 input 最后入队 → LLM 按 FIFO 消费
     const extras = options?.extraUserMessages
     if (extras && extras.length > 0) {

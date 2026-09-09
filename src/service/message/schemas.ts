@@ -1,5 +1,10 @@
 import { z } from 'zod'
 import { ArchiveListRequestSchema } from '@chery/protocol'
+import {
+  WorkflowOpenRequestSchema,
+  WorkflowCloseRequestSchema,
+  WorkflowHistoryRequestSchema,
+} from '@chery/protocol'
 import { CONFIG_APPLY_VERSION, HooksDraftSchema } from '@chery/protocol'
 import { Method, type Method as MethodName, type ParamsOf } from './types.js'
 import {
@@ -479,6 +484,9 @@ export const requestSchemas = {
     afterSeq: z.number().int().min(0),
   }),
   [Method.CHAT_OPEN]: ChatOpenRequestSchema,
+  [Method.CHAT_WORKFLOW_OPEN]: WorkflowOpenRequestSchema,
+  [Method.CHAT_WORKFLOW_CLOSE]: WorkflowCloseRequestSchema,
+  [Method.CHAT_WORKFLOW_HISTORY]: WorkflowHistoryRequestSchema,
   [Method.CHAT_CLOSE]: ChatCloseRequestSchema,
   [Method.CHAT_OVERVIEW_OPEN]: z.object({
     completedSince: z.number().int().nonnegative().optional(),

@@ -6,6 +6,7 @@
  * Exports stay explicit so new service members do not become UI API accidentally.
  */
 export { agentApi, fetchServerConfig } from '@/services/agentApi'
+export { workflowApi } from '@/services/workflowApi'
 export type {
   ActiveRunFact,
   ActiveTurnSnapshot,

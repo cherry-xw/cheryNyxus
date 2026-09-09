@@ -24,6 +24,7 @@ import {
 import config, { isOrdinaryRole } from '@/utils/config.js'
 import { dispatch } from '@/agent/hooks/index.js'
 import { ClassifiedError } from '@/utils/error.js'
+import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 
 /**
  * Chat Middleware
@@ -39,6 +40,11 @@ export async function* chatMiddleware(
   if (!ctx.runtime)
     throw new Error('Runtime not configured. Call configureRuntime() before send().')
   const { llmAdapter, messageAdapter, senseAdapter } = ctx.runtime.adapters
+  reportWorkflow(ctx.soul.chatId, {
+    activeNodeId: 'model',
+    phaseLabel: '准备请求',
+    status: 'running',
+  })
 
   // 从 ctx.soul.messages 构建 provider 格式消息
   // P5b：enrichMediaInputs 改为双轨——脑 input.image=true 时走多模态（marker 移除 + 临时 attachments），
@@ -198,7 +204,13 @@ async function* handleStream(
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
+  reportWorkflow(ctx.soul.chatId, {
+    activeNodeId: 'model',
+    phaseLabel: '调用中',
+    waitReason: 'model',
+  })
   const streamIterator = await llmAdapter.chatStream(messages, senses, options)
+  reportWorkflow(ctx.soul.chatId, { activeNodeId: 'model', phaseLabel: '处理响应' })
 
   let chunkCount = 0
   let thinkingAccumulated = ''
@@ -281,7 +293,13 @@ async function* handleNonStream(
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
+  reportWorkflow(ctx.soul.chatId, {
+    activeNodeId: 'model',
+    phaseLabel: '调用中',
+    waitReason: 'model',
+  })
   const response = await llmAdapter.chat(messages, senses, options)
+  reportWorkflow(ctx.soul.chatId, { activeNodeId: 'model', phaseLabel: '处理响应' })
 
   // 提取内容和思考
   const content = messageAdapter.content(response)

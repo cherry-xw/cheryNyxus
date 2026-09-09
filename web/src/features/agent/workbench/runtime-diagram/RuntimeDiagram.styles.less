@@ -1,0 +1,239 @@
+.runtime-diagram {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 400;
+  button,
+  select,
+  input {
+    font: inherit;
+    font-weight: 400;
+    color: inherit;
+    border-radius: 0;
+  }
+  button,
+  select {
+    min-height: 28px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 3px 6px;
+  }
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled),
+  button[aria-pressed='true'] {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  :is(button, select, input, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+  }
+}
+.workflow-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 8px;
+  flex-wrap: wrap;
+}
+.workflow-toolbar h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.workflow-overall {
+  flex: 1;
+}
+.workflow-mode {
+  display: flex;
+}
+.workflow-information {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 3px 8px;
+  min-height: 24px;
+  border-block: 1px solid var(--border);
+}
+.workflow-information span {
+  white-space: nowrap;
+}
+.workflow-playback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+}
+.workflow-playback input {
+  flex: 1;
+  min-width: 70px;
+  width: 100px;
+  accent-color: var(--accent);
+}
+.workflow-playback select {
+  max-width: 160px;
+}
+.workflow-notice {
+  padding: 5px 8px;
+  line-height: 1.5;
+}
+.workflow-viewport {
+  flex: 1;
+  min-height: 80px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--accent) var(--surface);
+}
+.workflow-canvas {
+  position: relative;
+}
+.runtime-diagram .workflow-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  color: var(--ink);
+}
+.workflow-lines > path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+.workflow-lines .is-conditional {
+  stroke-dasharray: 4 4;
+}
+.workflow-node {
+  position: absolute;
+  height: 56px;
+  padding: 5px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.workflow-node-title,
+.workflow-node-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  white-space: nowrap;
+}
+.workflow-node-status > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workflow-node.is-conditional {
+  border-style: dashed;
+}
+.workflow-node.state-running {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.workflow-node.state-completed {
+  border-color: var(--success, var(--accent));
+}
+.workflow-node.state-failed {
+  border-color: var(--danger, var(--accent));
+}
+.workflow-hooks {
+  position: absolute;
+  display: flex;
+  justify-content: space-between;
+  left: 0;
+  right: 0;
+  top: 56px;
+  height: 16px;
+}
+.workflow-calls {
+  position: absolute;
+}
+.workflow-calls-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+}
+.workflow-calls-head button {
+  min-height: 24px;
+  padding: 2px;
+}
+.workflow-calls ol,
+.workflow-dispatches {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 84px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.workflow-calls ol li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+}
+.workflow-call-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.workflow-calls .call-running,
+.workflow-calls .call-waiting {
+  color: var(--accent);
+}
+.workflow-dispatches {
+  max-height: 88px;
+}
+.workflow-dispatches li {
+  min-height: 28px;
+  line-height: 22px;
+}
+.is-vertical .workflow-information {
+  gap: 4px 8px;
+}
+.is-vertical .workflow-information > span:first-child {
+  white-space: normal;
+}
+.workflow-active-icon {
+  animation: workflow-spin 1.2s linear infinite;
+}
+.is-suspended .workflow-active-icon {
+  animation: none;
+}
+@keyframes workflow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workflow-active-icon {
+    animation: none;
+  }
+}

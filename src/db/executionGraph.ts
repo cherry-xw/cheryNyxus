@@ -79,7 +79,19 @@ export function upsertExecutionNode(input: ExecutionNodeInput): PersistedExecuti
       : undefined
     // Regenerated message projection updates canonical fields while retaining
     // lifecycle annotations (termination/run/turn) written independently.
-    const node = { ...previous, ...input, orderKey } as PersistedExecutionNode
+    const node = {
+      ...previous,
+      ...input,
+      orderKey,
+      ...(previous?.workflow || input.workflow
+        ? {
+            workflow: {
+              ...(previous?.workflow as Record<string, unknown> | undefined),
+              ...(input.workflow as Record<string, unknown> | undefined),
+            },
+          }
+        : {}),
+    } as PersistedExecutionNode
     db.prepare(
       `INSERT INTO execution_nodes
         (node_id, root_chat_id, source_chat_id, source_message_id, kind, order_key, payload_json, created_at, updated_at)

@@ -1,5 +1,6 @@
 export * from './chat'
 export * from './rpc'
 export * from './archive'
+export * from './workflow'
 export * from './llm'
 export * from './configApply'

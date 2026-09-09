@@ -50,20 +50,25 @@ export function buildLivePromptSnapshot(
 ): {
   systemPrompt: string
   tools: PromptSnapshotTool[]
+  resourceSummary: { memoryCount: number; skillCount: number }
 } {
   const systemPromptFile = getChatSystemPromptFile(chatId)
   const workspace = getChatWorkspace(chatId)
   const skillFilter = getChatSkillFilter(chatId)
+  let resourceSummary = { memoryCount: 0, skillCount: 0 }
   const systemPrompt = buildFirstSystemPrompt(
     systemPromptFile,
     workspace,
     skillFilter,
     getChatMentionableRoles(chatId),
     computeHistoryGenerationInfos(chatId),
+    (summary) => {
+      resourceSummary = summary
+    },
   )
 
   const selection = selectionOverride ?? getChatRuntimeSelection(chatId)
-  if (!selection) return { systemPrompt, tools: [] }
+  if (!selection) return { systemPrompt, tools: [], resourceSummary }
 
   const isSubagent = !!getChat(chatId)?.parent_chat_id
   const runtime = new RuntimeResolver().resolve(selection, {
@@ -75,7 +80,7 @@ export function buildLivePromptSnapshot(
     description: fn.function.description,
     parameters: fn.function.parameters,
   }))
-  return { systemPrompt, tools }
+  return { systemPrompt, tools, resourceSummary }
 }
 
 export async function handleChatPromptSnapshot(
