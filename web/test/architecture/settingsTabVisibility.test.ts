@@ -34,6 +34,7 @@ describe('settings tab visibility', () => {
       'hooks',
       'skills',
       'plugins',
+      'archive',
     ])
     expect(source).not.toContain('v-show=')
   })

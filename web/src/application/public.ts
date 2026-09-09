@@ -15,3 +15,4 @@ export {
   useWorkspaceStore,
 } from '@/stores'
 export type { StreamState } from '@/stores'
+export { archiveRevision } from './archiveChanges'

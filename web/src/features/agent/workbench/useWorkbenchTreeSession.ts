@@ -149,10 +149,10 @@ export function useWorkbenchTreeSession(options: {
     if (!chatId) return
     try {
       await agents.deleteSession(chatId)
-      ElMessage.success('会话已删除')
+      ElMessage.success('会话已归档，可在设置 → 归档中查看')
     } catch (cause) {
       console.error('[WorkbenchDialog] deletePresetSession failed:', cause)
-      const message = '删除会话失败，请重试'
+      const message = cause instanceof Error ? cause.message : '归档会话失败，请重试'
       options.setError(message)
       ElMessage.error(message)
     }

@@ -6,6 +6,8 @@
 
 ## 通用交互
 
+「归档」为独立一级 Tab，只管理会话历史。每组上方显示主 Agent，下方按实际父子关系展示子 Agent 的只读对话入口；同任务继续/解释分支并入同组并标明类型。只有组主会话可勾选、彻底删除，删除覆盖全部关联会话。搜索命中子项保留父级路径，预设筛选与每页 20 组分页只作用于组；跨页或筛选变化清空选择。归档长期保留，不恢复、不自动清空；操作即时生效，不依赖配置保存。查看对话保留设置草稿与列表位置。协议见[会话归档契约](../shared/protocol/websocket.md#会话归档管理)。
+
 - `TabShell` 顶部通过固定高度的「本页说明」入口展开提示，详细说明在浮层内滚动；搜索和批量操作仍固定在工具栏。保存底栏左侧在序号导航之后展示本轮操作的临时反馈（靠近保存按钮左下方），不另占提示行、无消息时不占位：普通结果直接显示文字，5 秒后消失；警告和错误用紧凑分类计数收纳，鼠标悬停立即显示详情，无需点击；允许移入浮层继续阅读和操作。10 秒后消失，悬停、键盘聚焦或查看详情时暂停计时。零条不显示分类，关闭设置清空本轮反馈，重新打开不回放持久生效状态；后续操作或本轮操作的新生效通知才再次显示。提示不改变编辑区高度。
 - 一级 Tab 内容使用互斥的 `v-if / v-else-if` 分支，同一时刻只挂载当前页；非活动页不保留 DOM、监听器和动画实例。切换时先提交一帧 `SkeletonTab` 骨架屏，目标页准备好后再挂载揭示；快速连续切换使用请求序号丢弃过期揭示。`config.yaml` 的未保存编辑统一保存在 `SettingsDialog` 的父级 `draft`，独立的 Hooks 草稿也由父级受控持有并在首次进入 Hooks 页时懒加载，因此切换卸载子页不会丢失待保存数据。
 - 卡片锚点与分页导航通过 Vue Teleport 挂到设置弹窗底栏左侧：少量项显示可点击序号，大量项显示窗口化序号、范围和前后翻页；保存固定在右侧（关闭入口收敛到右上角窗口控制三键 / 自绘关闭键）。
@@ -125,6 +127,7 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 | --- | --- | --- |
 | 保存竞态与关闭保护 | [useSettingsDialogController.ts](../../web/src/features/agent/settings/useSettingsDialogController.ts) 的 `save`、`confirmClose`；[App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose` | `pnpm test:web`、`pnpm web:type-check`；浏览器与原生关闭验收 |
 | 设置入口、动效偏好与标签导航 | [SettingsDialog.vue](../../web/src/features/agent/settings/SettingsDialog.vue) 的 `controller`、`selectTab` | `web/test/architecture/settingsTabVisibility.test.ts` |
+| 会话归档、筛选与整组永久删除 | [ArchiveTab.vue](../../web/src/features/agent/settings/tabs/archive/ArchiveTab.vue) 与 `useArchiveTab`；跨窗口失效入口为 [startApplicationRuntime.ts](../../web/src/application/runtime/startApplicationRuntime.ts) | `web/test/settings/archive.test.ts`、`pnpm web:type-check`；浏览器与 Electron 人工验收 |
 
 新增配置域从 `config/constants.ts` 的 `TABS` 和 `SettingsDialog.vue` 内容分支接入；保存继续统一经过父级控制器，子页不得自行重置保存基线。
 

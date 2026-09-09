@@ -1813,7 +1813,15 @@ export const agentApi = {
     return call<TreeResumeResponse>('chat.resumeTree', { rootChatId, pauseId, commandId })
   },
 
-  /** chat.delete：真删 chat（CP8 仅会话列表 ✕ deleteSession 调用；主 chat 后端级联删子 chat）。stage 隐藏走 store.hide，不调本方法。 */
+  async archiveChat(chatId: string): Promise<{ chatId: string; archivedChatIds: string[] }> {
+    return call('chat.archive', { chatId })
+  },
+
+  async listArchives(params: import('@chery/protocol').ArchiveListRequest = {}): Promise<import('@chery/protocol').ArchiveListResponse> {
+    return call('chat.archive.list', params)
+  },
+
+  /** Permanent deletion is restricted to archived family roots. */
   async destroyAgent(chatId: string): Promise<{ chatId: string; deletedChatIds: string[] }> {
     return call<{ chatId: string; deletedChatIds: string[] }>('chat.delete', { chatId })
   },

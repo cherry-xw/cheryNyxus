@@ -10,7 +10,7 @@
 
 - **多实例管理**：`soul.db`（全局 chats 表）+ 按月分片的 `YYYY-MM.db`（messages 表），实例缓存单例。
 - **按创建月固定分片**：chat 创建时固化 `messages_month`，该 chat 全生命周期所有消息写入同一月份库，跨月不迁移。
-- **chat 生命周期 CRUD**：创建、查询、列出（含冗余 `message_count`）、更新时间戳、metadata JSON merge、删除（跨库）。
+- **chat 生命周期 CRUD**：创建、查询、列出（含冗余 `message_count`）、更新时间戳、metadata JSON merge、归档和跨库永久删除。
 - **message CRUD**：路由到对应月份库的插入、查询、审批结果回填、批量撤回、感官去重 replace 标记。
 - **消息级 runtime 溯源**：仅 user 消息落库时记 `messages.runtime`（发送时 selection + 当时 brain 的 model/provider 快照）；回答「历史这一轮当时用的是什么模型」，与 chat 级 metadata 快照互补。
 - **问题批次投影**：`question_batches` + `question_items` 持久化 ask_user_question 批次；支持旧消息回填、事件游标快照和整批原子回答。
@@ -28,6 +28,7 @@
 |------|--------|
 | [src/db/index.ts](../../../src/db/index.ts) | 多 SQLite 实例管理：`getSoulDb`/`getMonthlyDb` 单例缓存、chats/messages 建表、列迁移、`closeAllDbs` |
 | [src/db/chat.ts](../../../src/db/chat.ts) | chats 表 CRUD + messages 表按月路由 CRUD、`MessageRow`/`MessageData` 类型、`parseMessageRow` |
+| [src/db/chatFamily.ts](../../../src/db/chatFamily.ts) | `listChatFamilies` / `getChatFamily`：把父子 Agent 与同任务分支归并到唯一组主会话 |
 | [src/db/question.ts](../../../src/db/question.ts) | QuestionBatch/QuestionItem 持久化、旧占位消息回填、权威快照与原子批量回答 |
 
 ## 核心概念 / 导出
@@ -65,7 +66,8 @@ CREATE TABLE chats (
   updated_at     INTEGER NOT NULL,          -- 每条消息更新
   metadata       TEXT,                      -- JSON 字符串，含 runtime: { brain, senseGroup }
   message_count  INTEGER NOT NULL DEFAULT 0,-- 冗余计数（P1-8，chatList 免 N+1）
-  parent_chat_id TEXT                       -- 子 agent 关联主 chat 的 chatId；主 chat 为 NULL（主从 Agent 桌宠系统 CP1）
+  parent_chat_id TEXT,                      -- 子 agent 关联主 chat 的 chatId；主 chat 为 NULL（主从 Agent 桌宠系统 CP1）
+  lifecycle     TEXT NOT NULL DEFAULT 'active' -- active / retired / abandoned / archived
 );
 
 -- YYYY-MM.db.messages
@@ -127,7 +129,7 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 | `updateChatMetadata(chatId, patch)` | → void | JSON 浅合并到现有 metadata（保留其他 key） |
 | `getChatRuntimeSelection(chatId)` | → `{brain, senseGroup, mcpServers} \| undefined` | 读 `metadata.runtime`，重启后恢复用；兼容旧 `senseGroups[]`，缺失的 `mcpServers` 视为 `[]` |
 | `getChatSkillFilter(chatId)` | → `{skills?, plugins?} \| undefined` | 读 `metadata.skillFilter`（per-role 技能组/插件组白名单快照，`getChatSystemPromptFile`/`getChatWorkspace` 同类）。任一维度缺省 = 该维度全部通过；二者皆缺省 → 返 `undefined`（全部 skill，向后兼容） |
-| `deleteChat(chatId)` | → void | 跨库 try/finally：先删 messages 再删 chat，崩溃仅留孤儿 chat（指向已空月库） |
+| `deleteChats(chatIds)` / `deleteChat(chatId)` | → void | 先逐分片清理消息、问题和事件，再由主库事务删除会话及直接依赖；分片失败保留主库记录，可重试，不承诺跨分片原子回滚 |
 | `addMessage(messageId, chatId, data)` | → `MessageRow` | messageId 调用方传入；`message_count++`；更新 `updated_at`；`data.runtime` 仅 user 消息传（发送时配置，记入 messages.runtime） |
 | `getMessages(chatId)` | → `MessageRow[]` | 按 `created_at ASC` |
 | `fillApprovalResult(chatId, messageId, {content?, hash?})` | → void | 按路由定位月库 UPDATE（**不依赖 messageId 月份前缀**） |

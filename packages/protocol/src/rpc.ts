@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ConfigApplyStateSchema } from './configApply'
+import { ChatLifecycleChangedSchema } from './archive'
 
 /**
  * Canonical public RPC surface.
@@ -33,6 +34,8 @@ export const Method = {
   CHAT_LIST: 'chat.list',
   CHAT_ROUTE_SUGGEST: 'chat.route.suggest',
   CHAT_DELETE: 'chat.delete',
+  CHAT_ARCHIVE: 'chat.archive',
+  CHAT_ARCHIVE_LIST: 'chat.archive.list',
   CHAT_BRANCH_PREVIEW: 'chat.branch.preview',
   CHAT_BRANCH_CREATE: 'chat.branch.create',
   CHAT_BRANCH_ACTIVATE: 'chat.branch.activate',
@@ -305,6 +308,8 @@ export const NotificationEnvelopeSchema = z
               ? TurnCancelledNotificationDataSchema
               : notification.type === 'config.apply.changed'
                 ? ConfigApplyStateSchema
+                : notification.type === 'chat.lifecycle.changed'
+                  ? ChatLifecycleChangedSchema
                 : undefined
     if (schema) {
       const parsed = schema.safeParse(notification.data)

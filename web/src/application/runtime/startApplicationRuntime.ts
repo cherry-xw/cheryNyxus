@@ -11,6 +11,8 @@ import {
 import type { InteractionRecord } from '@/services/agentApi'
 import type { TaskOverviewChangedData } from '@/stores/taskOverview'
 import { wsClient } from '@/services/ws'
+import { ChatLifecycleChangedSchema } from '@chery/protocol'
+import { invalidateArchives } from '../archiveChanges'
 
 /** Composition root for transport subscriptions and application projections. */
 export function startApplicationRuntime(): () => void {
@@ -55,6 +57,17 @@ export function startApplicationRuntime(): () => void {
         | TaskOverviewChangedData
         | import('@chery/protocol').ConfigApplyState
     } | null
+    if (event?.type === 'chat.lifecycle.changed') {
+      const parsed = ChatLifecycleChangedSchema.safeParse(event.data)
+      if (!parsed.success) return
+      const { chatIds, action } = parsed.data
+      agents.removePetsOnly(chatIds)
+      void chats.evictSessions(chatIds, action === 'deleted')
+        .then(() => chats.refreshCatalog())
+        .catch((cause) => console.warn('[archive] refresh failed:', cause))
+      invalidateArchives()
+      void interactions.refresh().catch((cause) => console.warn('[archive] interactions:', cause))
+    }
     if (event?.type === 'interaction.changed') {
       const interaction = (event.data as { interaction?: InteractionRecord } | undefined)
         ?.interaction
@@ -105,6 +118,7 @@ export function startApplicationRuntime(): () => void {
   let previousStatus: string | null = null
   const offStatus = wsClient.onStatus((status) => {
     if (status === 'connected') {
+      invalidateArchives()
       void configApply.refresh()
       void taskOverview
         .reopen()

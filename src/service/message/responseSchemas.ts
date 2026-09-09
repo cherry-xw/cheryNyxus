@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ArchiveListResponseSchema } from '@chery/protocol'
 import {
   ConfigApplyStateSchema,
   ConfigSaveResultSchema,
@@ -280,6 +281,8 @@ const schemas = {
     }),
   }),
   [Method.CHAT_DELETE]: z.looseObject({ chatId: id, deletedChatIds: z.array(id) }),
+  [Method.CHAT_ARCHIVE]: z.looseObject({ chatId: id, archivedChatIds: z.array(id) }),
+  [Method.CHAT_ARCHIVE_LIST]: ArchiveListResponseSchema,
   [Method.CHAT_BRANCH_PREVIEW]: z.looseObject({
     taskId: id,
     sourceBranchId: id,

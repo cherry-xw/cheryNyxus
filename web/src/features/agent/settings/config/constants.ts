@@ -5,6 +5,7 @@ import type { InjectionKey, Ref } from 'vue'
 import { LLM_PROVIDER_CATALOG, LLM_PROTOCOL_CATALOG } from '@chery/protocol'
 
 export type TabKey =
+  | 'archive'
   | 'brains'
   | 'media'
   | 'senses'
@@ -34,6 +35,7 @@ export const TABS: { key: TabKey; icon: string; label: string; color: string }[]
   { key: 'mcp', icon: '🔌', label: 'MCP', color: '#8b5cf6' },
   { key: 'media', icon: '🖼️', label: '多媒体', color: '#f97316' },
   { key: 'global', icon: '⚙️', label: '全局', color: '#06b6d4' },
+  { key: 'archive', icon: '🗃️', label: '归档', color: 'var(--accent)' },
 ]
 
 export const PROVIDERS = LLM_PROVIDER_CATALOG.map((provider) => provider.id)
@@ -54,6 +56,7 @@ export const DANGEROUS_SENSES = ['execute_command', 'write_file', 'destroy_role'
  *  - warn：.warn-hint 段落数（行高 11×1.4 = 15.4 + padding 5×2 = 25.4px）
  */
 export const HINT_LINES: Record<TabKey, { sect: number; warn: number }> = {
+  archive: { sect: 1, warn: 0 },
   presets: { sect: 1, warn: 0 },
   brains: { sect: 1, warn: 1 },
   media: { sect: 1, warn: 0 },
@@ -72,6 +75,7 @@ export const HINT_LINES: Record<TabKey, { sect: number; warn: number }> = {
  * SkeletonTab 用此值在设置底栏左侧渲染 .skel-dot，占住导航区域直到真实 Tab 就绪。
  */
 export const INDEX_COUNT: Record<TabKey, number> = {
+  archive: 0,
   presets: 2, // 典型 1-3 个预设
   brains: 3, // 典型 2-5 颗 brain
   media: 2, // 典型 0-4 个媒体服务

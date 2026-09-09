@@ -308,7 +308,7 @@ export function listRootChatsForPresets(
   return getSoulDb()
     .prepare(
       `SELECT * FROM chats
-       WHERE parent_chat_id IS NULL AND (${clauses.join(' OR ')})
+       WHERE parent_chat_id IS NULL AND lifecycle != 'archived' AND (${clauses.join(' OR ')})
        ORDER BY updated_at DESC`,
     )
     .all(...params) as ChatRow[]
@@ -574,24 +574,14 @@ export function getChatRule(chatId: string): string | undefined {
   return typeof r === 'string' && r.length > 0 ? r : undefined
 }
 
-/**
- * 删除聊天（手动清理 messages）
- * 跨库无事务：先删 messages 再删 chat，try/finally 保证 chat 行删除，
- * 崩溃风险仅留 chat 行未删的孤儿（指向已空 messages 库），可接受。
- */
-export function deleteChat(chatId: string): void {
+/** Clear monthly data first; failure retains ownership records for retry. */
+export function deleteChats(chatIds: readonly string[]): void {
   const soulDb = getSoulDb()
-
-  // 1. 查询 messages_month
-  const chatStmt = soulDb.prepare('SELECT messages_month, active_epoch_id FROM chats WHERE id = ?')
-  const chat = chatStmt.get(chatId) as
-    { messages_month: string; active_epoch_id: string | null } | undefined
-
-  if (!chat) return
-  const executionRootId = getRootChat(chatId).id
-
-  // 2. 先删 messages（跨库），finally 删 chat 行避免中途崩溃留孤儿 chat 指向空库
-  try {
+  const targets = chatIds.flatMap((chatId) => {
+    const chat = getChat(chatId)
+    return chat ? [{ chatId, chat, executionRootId: getRootChat(chatId).id }] : []
+  })
+  for (const { chatId, chat } of targets) {
     const monthlyDb = getMonthlyDb(chat.messages_month)
     const clear = monthlyDb.transaction(() => {
       monthlyDb
@@ -605,7 +595,9 @@ export function deleteChat(chatId: string): void {
       monthlyDb.prepare('DELETE FROM messages WHERE chat_id = ?').run(chatId)
     })
     clear()
-  } finally {
+  }
+  soulDb.transaction(() => {
+    for (const { chatId, executionRootId } of targets) {
     soulDb
       .prepare('DELETE FROM interactions WHERE chat_id = ? OR root_chat_id = ?')
       .run(chatId, chatId)
@@ -662,7 +654,13 @@ export function deleteChat(chatId: string): void {
     }
     const stmt = soulDb.prepare('DELETE FROM chats WHERE id = ?')
     stmt.run(chatId)
-  }
+    }
+  })()
+}
+
+/** Internal rollback primitive; public deletion requires an archived family. */
+export function deleteChat(chatId: string): void {
+  deleteChats([chatId])
 }
 
 /**

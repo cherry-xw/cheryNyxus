@@ -7,6 +7,7 @@ import {
 } from './useSettingsDialogController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import ConfigApplyStatus from './components/ConfigApplyStatus.vue'
+import ArchiveTab from './tabs/archive/ArchiveTab.vue'
 import { useMotionPreference } from '@/composables/useMotionPreference'
 import type { TabKey } from './config/constants'
 import { MOTION } from '@/utils/gsapCore'
@@ -321,6 +322,9 @@ onBeforeUnmount(() => {
             </div>
             <div v-else-if="renderedTab === 'plugins'" class="tab-pane">
               <PluginsTab :plugins="plugins" @error="onError" @refresh-plugins="refreshPlugins" />
+            </div>
+            <div v-else-if="renderedTab === 'archive'" class="tab-pane">
+              <ArchiveTab />
             </div>
           </template>
         </div>

@@ -37,6 +37,7 @@ export function createEmptySession(chatId: string, meta?: Partial<ChatMetadata>)
 /** chat.list 摘要 -> catalog 实体（未 hydration；meta 投影自 ChatSummary）。 */
 export function createCatalogEntity(summary: ChatSummary): ChatSession {
   const session = createEmptySession(summary.chatId, {
+    lifecycle: summary.lifecycle,
     chatId: summary.chatId,
     parentChatId: summary.parentChatId ?? undefined,
     agentType: summary.agentType,

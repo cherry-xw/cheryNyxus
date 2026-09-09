@@ -335,6 +335,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const existing = sessionsById.value[summary.chatId]
     if (existing) {
       Object.assign(existing.meta, {
+        lifecycle: summary.lifecycle ?? existing.meta.lifecycle,
         parentChatId: summary.parentChatId ?? existing.meta.parentChatId,
         agentType: summary.agentType ?? existing.meta.agentType,
         avatar: summary.avatar ?? existing.meta.avatar,
@@ -409,7 +410,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
    * This is intentionally stronger than closeSession/closeRootTimeline: deleted
    * history must not be able to reappear from a durable or transient cache.
    */
-  async function evictSessions(chatIds: readonly string[]): Promise<void> {
+  async function evictSessions(chatIds: readonly string[], permanent = true): Promise<void> {
     const removed = new Set(chatIds)
     if (removed.size === 0) return
     catalogSummaries.value = catalogSummaries.value.filter((chat) => !removed.has(chat.chatId))
@@ -453,6 +454,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     for (const [requestId, chatId] of requestMap) {
       if (!removed.has(chatId)) continue
       requestMap.delete(requestId)
+    }
+    if (!permanent) {
+      for (const rootChatId of affectedRoots) evictedRoots.delete(rootChatId)
     }
   }
 

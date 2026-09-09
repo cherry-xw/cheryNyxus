@@ -151,6 +151,7 @@ export type NotificationType =
   | 'input.updated'
   | 'run.updated'
   | 'interaction.changed'
+  | 'chat.lifecycle.changed'
   | 'chat.overview.changed'
 
 // ========== Request Data ==========
@@ -2419,6 +2420,7 @@ export interface StagedChunkData {
 // ========== Notification Data ==========
 
 export type NotificationData =
+  | import('@chery/protocol').ChatLifecycleChanged
   | import('@chery/protocol').ConfigApplyState
   | InterruptNotificationData
   | SenseStartedNotificationData
@@ -2758,6 +2760,8 @@ export const Method = {
   CHAT_LIST: 'chat.list',
   CHAT_ROUTE_SUGGEST: 'chat.route.suggest',
   CHAT_DELETE: 'chat.delete',
+  CHAT_ARCHIVE: 'chat.archive',
+  CHAT_ARCHIVE_LIST: 'chat.archive.list',
   CHAT_BRANCH_PREVIEW: 'chat.branch.preview',
   CHAT_BRANCH_CREATE: 'chat.branch.create',
   CHAT_BRANCH_ACTIVATE: 'chat.branch.activate',
@@ -2924,6 +2928,8 @@ export interface RpcMethodMap {
   }
   [InternalCommand.CHAT_GET]: { params: ChatGetRequestData; result: ChatGetResponseData }
   [Method.CHAT_DELETE]: { params: ChatDeleteRequestData; result: ChatDeleteResponseData }
+  [Method.CHAT_ARCHIVE]: { params: ChatDeleteRequestData; result: { chatId: string; archivedChatIds: string[] } }
+  [Method.CHAT_ARCHIVE_LIST]: { params: import('@chery/protocol').ArchiveListRequest; result: import('@chery/protocol').ArchiveListResponse }
   [Method.CHAT_BRANCH_PREVIEW]: {
     params: ChatBranchPreviewRequestData
     result: ChatBranchPreviewResponseData

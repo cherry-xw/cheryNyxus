@@ -8,7 +8,6 @@ import { useMotionTier } from '@/composables/useMotionTier'
 import { MOTION } from '@/utils/gsapCore'
 import CyberWindow from './CyberWindow.vue'
 import CyberDiagnosticPanel from './CyberDiagnosticPanel.vue'
-import ArchiveVerification from './ArchiveVerification.vue'
 import { visualEventWindow, type WorkspaceVisualEvent } from './visualEvents'
 
 const workspace = useWorkspaceStore()
@@ -247,7 +246,6 @@ function activate(window: WorkspaceWindowState): void {
         >GRID {{ stageDimensions.width }} / {{ stageDimensions.height }}</span
       >
       <nav class="cyber-launcher" aria-label="系统功能">
-        <ArchiveVerification />
         <button type="button" @click="openCapability('task-center')">任务中心</button>
         <button type="button" @click="openCapability('settings')">设置</button>
         <button

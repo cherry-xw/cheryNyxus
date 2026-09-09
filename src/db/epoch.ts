@@ -342,6 +342,8 @@ export function ensureActiveChatEpoch(input: {
   handoffSummary?: string
 }): { epoch: ChatEpochRecord; created: boolean; legacyEpoch?: ChatEpochRecord } {
   const db = getSoulDb()
+  const lifecycle = db.prepare('SELECT lifecycle FROM chats WHERE id = ?').get(input.chatId) as { lifecycle: string } | undefined
+  if (lifecycle?.lifecycle === 'archived') throw new Error('归档会话为只读，不能创建执行纪元')
   const rootChatId = getRootChatIdForEpoch(input.chatId)
   const existing = getActiveChatEpoch(input.chatId)
   if (existing?.revisionId === input.revisionId) {

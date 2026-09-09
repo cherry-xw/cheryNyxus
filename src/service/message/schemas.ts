@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ArchiveListRequestSchema } from '@chery/protocol'
 import { CONFIG_APPLY_VERSION, HooksDraftSchema } from '@chery/protocol'
 import { Method, type Method as MethodName, type ParamsOf } from './types.js'
 import {
@@ -372,6 +373,8 @@ export const requestSchemas = {
   }),
   [InternalCommand.CHAT_GET]: chatIdSchema,
   [Method.CHAT_DELETE]: chatIdSchema,
+  [Method.CHAT_ARCHIVE]: chatIdSchema,
+  [Method.CHAT_ARCHIVE_LIST]: ArchiveListRequestSchema,
   [Method.CHAT_BRANCH_PREVIEW]: z.object({
     rootChatId: z.string().min(1),
     anchorNodeId: z.string().min(1),

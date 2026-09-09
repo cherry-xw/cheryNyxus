@@ -1,5 +1,15 @@
 # WebSocket 协议规范
 
+## 会话归档管理
+
+- `chat.archive`：`{chatId}` → `{chatId,archivedChatIds}`。只接受主会话组，归档同任务所有分支和后代；运行中拒绝。归档保留历史并禁止继续执行，重复归档幂等。
+- `chat.archive.list`：`{query?,presetId?,page?,pageSize?}` → `{groups,total,page,pageSize,presets}`。按主会话组筛选、分页，默认 20 组、最多 50 组；组包含 `rootChatId`、`archivedAt?`、`archiveReason?` 和 `chats`（完整组内会话摘要，含父子关系及分支类型）。同任务以 original 根为主；旧无任务会话以自身根为主。搜索匹配预设、角色、摘要或 ID，命中子项返回完整组。预设选项包含已删除预设。
+- `chat.delete` 保持 `{chatId}` → `{chatId,deletedChatIds}`，但只允许已归档的组主会话，禁止子会话、组内分支和未归档会话直接删除。范围与归档列表相同。不存在时幂等返回空集合；运行中或组内存在未归档会话时拒绝。
+- `chat.lifecycle.changed` 通知携带 `{action:'archived'|'deleted',chatIds}`，用于各窗口刷新目录、清理失效执行状态及历史窗口；通知丢失由重连重读收敛。
+- 新归档时间及原因存于会话 metadata；历史记录缺时间时不回填猜测值。归档列表按时间倒序，未知时间排后。归档数据不进入普通舞台及预设会话目录，完整 history 目录保留兼容。
+
+永久清理先完成全部消息分片清理，再通过主库事务删除会话及直接依赖。分片清理失败保留主库记录并返回错误，允许重试；跨分片不承诺原子回滚。共享文件、外部产物和跨会话语义引用不在此接口回收。
+
 > Canonical Chat 协议说明（2026-08）：`chat.list`、`chat.open/close`、
 > `chat.timeline.*`、`chat.input.submit`、`chat.run.resume` 与显式 tree/abort control
 > 是当前公开会话 API。请求 schema 和跨端 envelope 类型以 `packages/protocol` 为唯一来源。

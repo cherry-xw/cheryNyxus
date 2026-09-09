@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
  * NyxusSessionList：工作台会话列表（纯展示组件）。
- * 滚动加载（数据一次拉全、滚动容器全量渲染）+ 点击选择 + 当前高亮 + hover 放大删除（二次确认）。
+ * 滚动加载（数据一次拉全、滚动容器全量渲染）+ 点击选择 + 当前高亮 + hover 归档（二次确认）。
  * 不依赖任何 store / nyxus 内部上下文，数据与动作全部经 props/emits 由父级注入。
  */
 import { ref, watch } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { Box } from '@element-plus/icons-vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import type { ChatSummary } from '@/application/backend/public'
 
@@ -95,13 +95,14 @@ function previewOf(s: ChatSummary): string {
             </span>
           </button>
           <ConfirmPopover
-            :title="`删除会话「${previewOf(s)}」？`"
-            impact="会话记录将被删除。"
+            :title="`归档会话「${previewOf(s)}」？`"
+            confirm-text="归档会话"
+            impact="主会话、子 Agent 和关联分支将一起归档。待处理任务将关闭，历史保留在设置 → 归档中，只能查看，不能继续执行。"
             @confirm="!s.running && emit('delete', s.chatId)"
           >
             <template #trigger>
               <el-tooltip
-                :content="s.running ? '运行中的会话不可删除' : '删除会话'"
+                :content="s.running ? '运行中的会话不可归档，请先停止' : '归档会话'"
                 popper-class="label-tip-popper"
               >
                 <span
@@ -109,9 +110,9 @@ function previewOf(s: ChatSummary): string {
                     type="button"
                     class="session-row-del"
                     :disabled="s.running === true"
-                    aria-label="删除该会话"
+                    aria-label="归档该会话"
                   >
-                    <Delete width="14" height="14" /></button
+                    <Box width="14" height="14" /></button
                 ></span>
               </el-tooltip>
             </template>

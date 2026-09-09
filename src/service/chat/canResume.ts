@@ -17,6 +17,7 @@ import { safeJsonParse } from '@/utils/json.js'
 export function computeCanResume(chatId: string): boolean {
   // abandoned 子（看门狗 wake_on_timeout=true 判定）→ ghost，无交互面
   const chat = getChat(chatId)
+  if (chat?.lifecycle === 'archived') return false
   if (chat?.metadata) {
     const meta = safeJsonParse<{ abandoned?: boolean }>(chat.metadata, {})
     if (meta.abandoned === true) return false

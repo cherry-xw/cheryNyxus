@@ -1,3 +1,5 @@
+import { handleChatArchive, handleArchiveList, handleChatDelete } from './archive.js'
+export { handleChatDelete } from './archive.js'
 import type { HandlerContext } from '../message/router.js'
 import {
   createChunk,
@@ -10,8 +12,6 @@ import {
   type ChatCreateResponseData,
   type ChatGetRequestData,
   type ChatGetResponseData,
-  type ChatDeleteRequestData,
-  type ChatDeleteResponseData,
   type ChatListRequestData,
   type ChatListResponseData,
   type ChatContextUsageRequestData,
@@ -61,7 +61,6 @@ import {
   getLastMessage,
   updateChatMetadata,
   parseMessageRow,
-  findChatsByParent,
   getChatPreviews,
   getChatWorkspace,
   getChatPreset,
@@ -93,7 +92,6 @@ import {
 import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
 import { getPendingQuestionAttention, getQuestionStateSnapshot } from '@/db/question.js'
-import { listBranchFamilyChatIds } from '@/db/conversationBranch.js'
 import { randomUUID } from 'crypto'
 import {
   parseRuntimeSelection,
@@ -148,7 +146,6 @@ import {
 import { handleChatTimelineNodeGet } from './nodeDetail.js'
 import { handleChatResumeTree, toTreeControlState } from './treeControl.js'
 import { getActiveChatEpoch, getChatEpochStats } from '@/db/epoch.js'
-import { clearWaitedChild, clearWaitedChildrenByParent } from '@/agent/spawnBroker.js'
 import { abandonChatSubtree } from '@/service/config/roleLifecycle.js'
 import {
   getConversationBranchByChat,
@@ -1789,76 +1786,6 @@ export async function* handleChatStartSpawn(
 }
 
 /**
- * 删除聊天
- * CP8：目标为主 chat（无 parent_chat_id）时级联删其全部后代 chat + 各自消息 + 清内存 runtime，
- *   避免多级 spawn 留下孤儿 chat。子 chat 自身删除不级联。
- * 分支链路：主 chat 属 conversation_branches.task_id 家族时，同 task 下的所有分支根
- *   （continuation/detail，parent 为 NULL）连同各自后代一并级联删除，杜绝孤儿分支根。
- */
-export async function handleChatDelete(
-  _ctx: HandlerContext,
-  data: ChatDeleteRequestData,
-): Promise<ChatDeleteResponseData> {
-  const p = data
-
-  const chat = getChat(p.chatId)
-  if (!chat) {
-    throw new Error('这个会话不见了')
-  }
-
-  // 主 chat 级联全部后代：后序删除保证孙级先于父级，容忍异常 parent 环。
-  const isMaster = !chat.parent_chat_id
-  let cascaded = 0
-  const deletedChatIds: string[] = []
-  const deletionOrder: Array<{ id: string }> = []
-  if (isMaster) {
-    const descendants: Array<{ id: string }> = []
-    const seen = new Set<string>([p.chatId])
-    const visit = (parentChatId: string): void => {
-      for (const child of findChatsByParent(parentChatId)) {
-        if (seen.has(child.id)) continue
-        seen.add(child.id)
-        visit(child.id)
-        descendants.push(child)
-      }
-    }
-    visit(p.chatId)
-    // 分支链路级联：同 task（conversation_branches.task_id）下的其他分支根一并删除 + 各自后代。
-    // 否则分支根（parent 为 NULL 的 continuation/detail）脱离会话列表却残留内容，重开工作台被
-    // 自动选中造成「列表为空但内容仍在」。从未分支的普通根 listBranchFamilyChatIds 返 []，无副作用。
-    for (const familyChatId of listBranchFamilyChatIds(p.chatId)) {
-      if (seen.has(familyChatId)) continue
-      seen.add(familyChatId)
-      visit(familyChatId)
-      descendants.push({ id: familyChatId })
-    }
-    cascaded = descendants.length
-    deletionOrder.push(...descendants)
-  }
-  deletionOrder.push({ id: p.chatId })
-
-  const running = deletionOrder.filter((candidate) => isChatRunning(candidate.id))
-  if (running.length > 0) {
-    const error = new Error(
-      `会话仍在运行，不能直接删除：${running.map((candidate) => candidate.id).join(', ')}。请先停止运行。`,
-    ) as Error & { code: string }
-    error.code = ErrorCode.CONFLICT
-    throw error
-  }
-
-  for (const target of deletionOrder) {
-    clearWaitedChild(target.id)
-    clearWaitedChildrenByParent(target.id)
-    clearChatRuntime(target.id)
-    deleteChat(target.id)
-    deletedChatIds.push(target.id)
-  }
-
-  logger.event('chat.delete', { chatId: p.chatId, cascaded, deletedChatIds })
-  return { chatId: p.chatId, deletedChatIds }
-}
-
-/**
  * chat.contextUsage：仅对已建立当前执行 runtime 的活跃会话计算上下文用量。
  * 历史浏览不得调用此接口，避免为展示历史而解析运行配置。
  */
@@ -2280,6 +2207,8 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_CLOSE, handleChatClose)
   router.register(Method.CHAT_STOP_CHILD, handleChatStopChild)
   router.register(Method.CHAT_DELETE, handleChatDelete)
+  router.register(Method.CHAT_ARCHIVE, handleChatArchive)
+  router.register(Method.CHAT_ARCHIVE_LIST, handleArchiveList)
   router.register(Method.CHAT_CONTEXT_USAGE, handleChatContextUsage)
   registerPromptSnapshotHandler(router)
 }

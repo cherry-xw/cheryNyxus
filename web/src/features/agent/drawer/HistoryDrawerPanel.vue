@@ -12,6 +12,7 @@ const {
   PromptSnapshotTip,
   VirtualScroll,
   activateCurrentBranch,
+  archived,
   activatingBranch,
   activeGenerationIndex,
   agents,
@@ -114,7 +115,7 @@ const {
         />
         <button
           v-if="
-            currentTaskBranch &&
+            !archived && currentTaskBranch &&
             currentTaskBranch.kind !== 'detail' &&
             currentTaskBranch.branchId !== taskTimeline?.activeBranchId
           "

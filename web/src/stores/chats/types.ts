@@ -105,6 +105,7 @@ export interface ChatMessage {
 
 /** chat 元数据（catalog 与 hydrated 实体共享；来自 ChatSummary）。 */
 export interface ChatMetadata {
+  lifecycle?: 'active' | 'retired' | 'abandoned' | 'archived'
   chatId: string
   parentChatId?: string | null
   agentType?: string

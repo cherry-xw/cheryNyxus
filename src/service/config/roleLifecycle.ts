@@ -4,6 +4,8 @@ import { markChatEpochSnapshotLifecycle } from '@/db/epoch.js'
 import { abortChatRuntime, clearChatRuntime } from '@/service/chat/runtime.js'
 import { emitChildAbandoned } from '@/service/chat/wake.js'
 import { clearWaitedChild, clearWaitedChildrenByParent } from '@/agent/spawnBroker.js'
+import { listChatFamilies } from '@/db/chatFamily.js'
+import { broadcastChatLifecycle } from '../chat/lifecycleEvents.js'
 
 export interface RoleLifecycleChangeResult {
   retiredChatIds: string[]
@@ -250,28 +252,37 @@ export function applyRetiredRoles(input: {
 export function archivePresetRoots(presetIds: readonly string[], reason: string): string[] {
   if (presetIds.length === 0) return []
   const ids = new Set(presetIds)
-  const db = getSoulDb()
-  const roots = db.prepare('SELECT id FROM chats WHERE parent_chat_id IS NULL').all() as Array<{
-    id: string
-  }>
   const archived: string[] = []
-  for (const root of roots) {
-    const metadata = getChatMetadata(root.id)
+  for (const family of listChatFamilies()) {
+    const metadata = getChatMetadata(family.rootChatId)
     if (typeof metadata.presetId !== 'string' || !ids.has(metadata.presetId)) continue
-    const rows = descendantRows(root.id)
-    closeSubtreeActivity(rows, reason)
-    for (const row of rows) {
-      db.prepare("UPDATE chats SET lifecycle = 'archived', updated_at = ? WHERE id = ?").run(
-        Date.now(),
-        row.id,
-      )
-      updateChatMetadata(row.id, { archived: true, archiveReason: reason })
-      markChatEpochSnapshotLifecycle(row.id, 'archived', reason)
-    }
-    db.prepare(
-      "UPDATE chat_epochs SET status = 'archived', closed_at = COALESCE(closed_at, ?) WHERE root_chat_id = ?",
-    ).run(Date.now(), root.id)
-    archived.push(root.id)
+    archiveChatRows(family.chats, reason)
+    broadcastChatLifecycle({ action: 'archived', chatIds: family.chats.map((row) => row.id) })
+    archived.push(family.rootChatId)
   }
   return archived
+}
+
+/** Runtime callers establish a safe boundary before archiving. */
+export function archiveChatRows(
+  rows: Array<{ id: string; messages_month: string }>,
+  reason: string,
+): void {
+  closeSubtreeActivity(rows, reason)
+  const db = getSoulDb()
+  const now = Date.now()
+  db.transaction(() => {
+    for (const row of rows) {
+      const chat = getChat(row.id)
+      if (!chat || chat.lifecycle === 'archived') continue
+      db.prepare(
+        "UPDATE chats SET lifecycle = 'archived', active_epoch_id = NULL, updated_at = ? WHERE id = ?",
+      ).run(now, row.id)
+      updateChatMetadata(row.id, { archived: true, archivedAt: now, archiveReason: reason })
+      markChatEpochSnapshotLifecycle(row.id, 'archived', reason)
+      db.prepare(
+        "UPDATE chat_epochs SET status = 'archived', closed_at = COALESCE(closed_at, ?) WHERE root_chat_id = ?",
+      ).run(now, row.id)
+    }
+  })()
 }

@@ -130,7 +130,6 @@ export function createPetLifecycle(
   getRuntime: (chatId: string) => RuntimeSelection | undefined,
   setWorking: (pet: PetInstance | undefined, working: boolean, freezeUntil?: number) => void,
   removePetsOnly: (removeIds: string[]) => void,
-  purgeDeletedChats: (removeIds: readonly string[]) => Promise<void>,
   activeNyxusChatId: Ref<string | null>,
 ) {
   /**
@@ -315,9 +314,8 @@ export function createPetLifecycle(
    * 前端同步移除 historyList + pets（若在 stage）+ active 焦点。
    */
   async function deleteSession(chatId: string): Promise<void> {
-    const result = await agentApi.destroyAgent(chatId)
-    const removeIds = result.deletedChatIds.length > 0 ? result.deletedChatIds : [chatId]
-    await purgeDeletedChats(removeIds)
+    const result = await agentApi.archiveChat(chatId)
+    removePetsOnly(result.archivedChatIds)
   }
 
   /**

@@ -193,7 +193,6 @@ export const useAgentsStore = defineStore('agents', () => {
     getRuntime,
     setWorking,
     removePetsOnly,
-    purgeDeletedChats,
     ui.activeNyxusChatId,
   )
 
@@ -233,6 +232,7 @@ export const useAgentsStore = defineStore('agents', () => {
       return (a.meta.createdAt ?? 0) - (b.meta.createdAt ?? 0)
     })
     for (const session of ordered) {
+      if (session.meta.lifecycle === 'archived') continue
       let pet = pets.value.find((candidate) => candidate.chatId === session.chatId)
       if (!session.meta.parentChatId) {
         if (pet) {

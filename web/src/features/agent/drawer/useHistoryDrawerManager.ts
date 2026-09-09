@@ -1,5 +1,6 @@
 import { computed, inject, type ComputedRef, type InjectionKey } from 'vue'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
+import { agentApi } from '@/application/backend/public'
 import type { HistoryItem } from '@/domain/chat/projectionTypes'
 import type { HistoryDrawerAnchor, HistoryDrawerMode } from '@/application/workbench/types'
 
@@ -85,6 +86,12 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
       release(open)
     },
     async loadHistory(chatId: string) {
+      // A native history window starts without the archived catalog. Resolve
+      // ancestry before selecting root vs direct conversation loading.
+      if (!chatSessions.sessionsById[chatId]?.meta.lifecycle) {
+        const summaries = await agentApi.listChats({ scope: 'history' })
+        for (const summary of summaries) chatSessions.ensureCatalogEntity(summary)
+      }
       const isChild = Boolean(chatSessions.sessionsById[chatId]?.meta.parentChatId)
       if (isChild) {
         // Direct drill-down remains a per-chat compatibility view during CP1.
