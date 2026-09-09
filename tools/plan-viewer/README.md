@@ -18,7 +18,7 @@
 ## 启动
 
 ```bash
-# 仓库根快捷指令（推荐，运行单文件产物）
+# 仓库根快捷指令（推荐；产物缺失时自动构建后启动）
 pnpm plan
 
 # 运行单文件产物
@@ -65,7 +65,7 @@ tools/plan-viewer/
 ## Plan Lint（文档规则校验）
 
 ```bash
-pnpm plan:lint        # 仓库根（或 node tools/plan-viewer/lint.mjs）
+pnpm plan:lint        # 仓库根（产物缺失时自动构建；或 node tools/plan-viewer/lint.mjs）
 ```
 
 规则刻意保持最少，仅检查以下两条，不将通过结果解释为计划完整合规：
@@ -79,7 +79,7 @@ pnpm plan:lint        # 仓库根（或 node tools/plan-viewer/lint.mjs）
 
 共享 Markdown 解析位于 [public/markdown.js](public/markdown.js)（`findTables`、`extractLinks`、`metadataValue`）；HTTP 入口为 [server.mjs](server.mjs)，lint 源码为 [lint-source.mjs](lint-source.mjs)。路由和请求有效期由 [public/navigation.js](public/navigation.js) 维护，页面渲染从 [public/app.js](public/app.js) 进入。
 
-修改后运行 `node tools/plan-viewer/build.mjs`，再运行 `node --test tools/plan-viewer/tests/*.test.mjs` 和 `pnpm plan:lint`。独立测试只使用 Node 内置模块、隔离临时数据及 HTTP，不启动浏览器，也不使用 DOM/CSS 检查替代界面验收。真实导航与滚动由用户手动验收。
+修改后运行 `node tools/plan-viewer/build.mjs`（无条件重建；`--if-missing` 仅在产物缺失时构建），再运行 `node --test tools/plan-viewer/tests/*.test.mjs` 和 `pnpm plan:lint`。独立测试只使用 Node 内置模块、隔离临时数据及 HTTP，不启动浏览器，也不使用 DOM/CSS 检查替代界面验收。真实导航与滚动由用户手动验收。
 
 ## 边界
 

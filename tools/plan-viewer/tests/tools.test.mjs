@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, renameSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -113,6 +113,25 @@ for (const entry of [path.join(tool, 'server.mjs'), path.join(tool, 'plan-viewer
     assert.equal(updated.plans[0].progress.total, 2);
   });
 }
+
+test('build --if-missing skips when artifacts exist and rebuilds when missing', () => {
+  const local = path.join(tool, 'plan-viewer.mjs');
+  const before = readFileSync(local, 'utf8');
+  const skip = spawnSync(process.execPath, [path.join(tool, 'build.mjs'), '--if-missing'], { encoding: 'utf8', windowsHide: true });
+  assert.equal(skip.status, 0, skip.stderr);
+  assert.match(skip.stdout, /跳过构建/);
+  assert.equal(readFileSync(local, 'utf8'), before);
+  const bak = local + '.bak';
+  try {
+    renameSync(local, bak);
+    const rebuild = spawnSync(process.execPath, [path.join(tool, 'build.mjs'), '--if-missing'], { encoding: 'utf8', windowsHide: true });
+    assert.equal(rebuild.status, 0, rebuild.stderr);
+    assert.match(rebuild.stdout, /构建完成/);
+    assert.equal(readFileSync(local, 'utf8'), before);
+  } finally {
+    if (existsSync(bak)) renameSync(bak, local);
+  }
+});
 
 test('both portable scripts match their generated local copies and current source', () => {
   for (const name of ['plan-viewer.mjs', 'lint.mjs']) assert.equal(readFileSync(path.join(tool, name), 'utf8'), readFileSync(path.join(portable, name), 'utf8'));

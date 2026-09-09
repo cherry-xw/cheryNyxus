@@ -3,7 +3,10 @@
  * Plan Viewer 构建：将 public/ Web 源码压缩(gzip+base64)注入 server.mjs 占位符，
  * 生成可直接 node 启动的单文件产物 plan-viewer.mjs（可拷贝到任意位置独立使用）。
  *
- * 用法：node build.mjs   （或 pnpm --dir tools/plan-viewer build）
+ * 用法：node build.mjs [--if-missing]   （或 pnpm --dir tools/plan-viewer build）
+ *
+ * --if-missing：产物齐全时跳过（无写入），任一产物缺失时全量重建；
+ *               根目录 `pnpm plan` / `pnpm plan:lint` 借此在产物缺失时自愈。
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -52,6 +55,12 @@ if (existsSync(PORTABLE_DIR)) {
   outputs.push([path.join(PORTABLE_DIR, 'plan-viewer.mjs'), out], [path.join(PORTABLE_DIR, 'lint.mjs'), lint]);
 }
 const check = process.argv.includes('--check');
+const ifMissing = process.argv.includes('--if-missing');
+if (check && ifMissing) throw new Error('--if-missing 不能与 --check 同用');
+if (ifMissing && outputs.every(([file]) => existsSync(file))) {
+  console.log(`产物已存在，跳过构建: ${outputs.length} 个文件`);
+  process.exit(0);
+}
 for (const [file, content] of outputs) {
   if (check) {
     if (!existsSync(file) || readFileSync(file, 'utf8') !== content) throw new Error(`产物未同步：${file}`);
