@@ -11,8 +11,8 @@
   "scripts": {
     "postinstall": "node scripts/setup-env.mjs",
     "kill:ports": "node scripts/kill-ports.mjs",
-    "plan": "node tools/plan-viewer/build.mjs --if-missing && node tools/plan-viewer/plan-viewer.mjs",
-    "plan:lint": "node tools/plan-viewer/build.mjs --if-missing && node tools/plan-viewer/lint.mjs",
+    "plan": "node tools/plan-viewer/server.mjs",
+    "plan:lint": "node tools/plan-viewer/lint-source.mjs",
     "prebuild": "pnpm type-check",
     "build": "vite build --ssr --mode dev",
     "build:test": "vite build --ssr --mode test",

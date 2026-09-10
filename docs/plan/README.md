@@ -4,7 +4,7 @@
 
 | 任务 | 状态 | 范围 |
 | --- | --- | --- |
-| [主 Agent 运行流程图](main-agent-runtime-diagram/README.md) | 待综合验证 | 流程观察与回放已实现，自动验证通过，人工验收待执行 |
+| [统一 Agent 执行生长图](main-agent-runtime-diagram/README.md) | 规划中 | Vue Flow 完整主头部、简略子头部、详细历史与生长动效 |
 | [会话归档管理](session-archive/README.md) | 待综合验证 | 设置内主子会话归档与整组永久删除 |
 | [故障工业赛博工作区 V2](cyber-terminal-workspace-v2/README.md) | 待综合验证 | 赛博桌面、工作台、会话、节点树和全局动效 |
 | [前端交互与颜色逻辑修正](frontend-interaction-color-audit/README.md) | 待综合验证 | 主题可读性、设置与窗口生命周期、输入和导航可靠性 |
@@ -21,4 +21,6 @@
 - 每个任务目录的 `README.md` 是该任务唯一恢复入口，详细小任务与验证资产只从那里进入。
 - 新建或维护任务文档时，按[创建时间规则](../standards/documentation/plans.md#11-文档创建时间)在任务名称下记录文档创建时间。
 - 完成的小任务删除独立文档，结果摘要保留在任务 README；人工/UI 验证只放在最后的综合验证子计划。
+- 台账新增、删除或改变小任务范围时，同步重建最后综合验证子计划的自动/手动清单与 `verify/manual-final.md`，不留失效验证项。
+- 任务经用户批准后整目录删除：移除本页任务行并删掉整个 `docs/plan/<task-id>/`（含 `verify/` 与产物），长期价值内容先迁入 `docs/` 权威文档，不保留归档台账。
 - 新建、完成、暂停或恢复任务时同步本页状态。所有内容遵守 [Plan 操作方案](../standards/global/plan-operation.md)。

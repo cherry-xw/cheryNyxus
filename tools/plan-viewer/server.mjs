@@ -130,7 +130,8 @@ function toPosix(p) {
 const TASK_STATUS = { 已完成: 'done', 进行中: 'doing', 未开始: 'todo', 待开始: 'todo' };
 
 function normalizeTaskStatus(raw) {
-  return TASK_STATUS[stripMd(raw || '')] || 'other';
+  const status = stripMd(raw || '').split(/[。;；,，]/)[0].trim();
+  return TASK_STATUS[status] || 'other';
 }
 
 function isRelMd(href) {
@@ -216,6 +217,17 @@ function collectMdLinks(md, dir, refs) {
     }
   }
   return [...seen.values()];
+}
+
+/** 文档正文首个一级标题，供侧栏目录树第二行展示；无标题或读取失败返回 null */
+function firstHeading(md) {
+  for (const line of withoutFencedCode(md).split('\n')) {
+    const m = line.match(/^#\s+(.*)$/);
+    if (!m) continue;
+    const text = stripMd(m[1].replace(/\s+#+\s*$/, '')).trim();
+    if (text) return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+  }
+  return null;
 }
 
 /** 解析单个计划 README：状态行 / 进度行 / 台账表 / checkbox / 文件引用 */
@@ -306,6 +318,14 @@ async function buildPlanData() {
       continue;
     }
     plans.push({ ...entry, exists: true, ...parsePlanReadme(md, entry.dir), markdown: md });
+  }
+  // 侧栏目录树第二行：逐个读取计划内关联文档的一级标题（文件数少，本地实时读盘）
+  for (const plan of plans) {
+    for (const file of plan.files || []) {
+      if (!file.inside) continue;
+      const doc = await readPlanFile(path.join(plan.dir, file.file));
+      file.title = doc ? firstHeading(doc) : null;
+    }
   }
   const summary = {};
   for (const plan of plans) {

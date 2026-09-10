@@ -106,11 +106,13 @@ for (const entry of [path.join(tool, 'server.mjs'), path.join(tool, 'plan-viewer
       assert.equal(res.status, 200);
       assert.equal(await res.text(), readFileSync(path.join(tool, 'public', file), 'utf8'));
     }
-    writeFileSync(path.join(dir, 'a', 'README.md'), '**状态：** 执行中\n\n| 任务 | 状态 |\n| --- | --- |\n| One | **已完成** |\n| Two | 未开始 |');
+    writeFileSync(path.join(dir, 'a', 'README.md'), '**状态：** 执行中\n\n| 任务 | 状态 |\n| --- | --- |\n| One | **已完成；** 实现已迁入 |\n| Two | 进行中；等待验证 |\n| Three | 未开始；等待依赖 |');
     const updated = await (await fetch(base + '/api/plan')).json();
     assert.equal(updated.plans[0].progress.done, 1);
+    assert.equal(updated.plans[0].progress.doing, 1);
     assert.equal(updated.plans[0].progress.todo, 1);
-    assert.equal(updated.plans[0].progress.total, 2);
+    assert.equal(updated.plans[0].progress.other, 0);
+    assert.equal(updated.plans[0].progress.total, 3);
   });
 }
 

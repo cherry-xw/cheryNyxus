@@ -75,7 +75,20 @@ a:hover {
 
 /* ---------- 布局 ---------- */
 
+/* 侧栏存在时两栏（侧栏固定宽 + 正文自适应），总览等无侧栏视图退回单列居中 */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.layout:has(> .sidebar:not([hidden])) {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
 #app {
+  min-width: 0;
   max-width: 1080px;
   margin: 0 auto;
   padding: 20px 24px 40px;
@@ -362,46 +375,82 @@ a:hover {
   font-size: 20px;
 }
 
-.file-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  margin: 14px 0;
-  padding: 10px 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+/* ---------- 侧栏目录树 ---------- */
+
+.sidebar {
+  padding: 20px 4px 40px 20px;
+  border-right: 1px solid var(--border);
+  align-self: start;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 
-.file-row-label {
+.sidebar[hidden] {
+  display: none;
+}
+
+.tree-head {
   color: var(--gray);
   font-size: 12px;
-  padding-top: 3px;
+  padding: 0 8px 8px;
+  letter-spacing: 0.4px;
 }
 
-.file-chip {
-  display: inline-block;
-  padding: 2px 10px;
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tree-item {
+  display: block;
+  padding: 6px 10px;
   border-radius: 6px;
-  font-size: 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
+  border-left: 2px solid var(--border);
   color: var(--text);
+  line-height: 1.35;
 }
 
-.file-chip:hover {
-  border-color: var(--blue);
-  color: var(--blue);
+.tree-item:hover {
+  background: var(--panel-2);
+  border-left-color: var(--blue);
   text-decoration: none;
 }
 
-.file-chip.active {
-  color: var(--blue);
-  border-color: var(--blue);
-  background: rgba(88, 166, 255, 0.08);
+.tree-item.active {
+  background: rgba(88, 166, 255, 0.1);
+  border-left-color: var(--blue);
   cursor: default;
 }
+
+.tree-file {
+  display: block;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: var(--blue);
+  word-break: break-all;
+}
+
+.tree-item.active .tree-file {
+  color: var(--text);
+}
+
+.tree-title {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.tree-empty {
+  color: var(--gray);
+  font-size: 12px;
+  padding: 0 10px;
+}
+
 
 /* ---------- Markdown 渲染 ---------- */
 
@@ -568,6 +617,19 @@ a:hover {
 @media (max-width: 640px) {
   #app {
     padding: 14px 12px 30px;
+  }
+
+  /* 窄屏收回单列：目录树置于正文之上，不再固定占位 */
+  .layout:has(> .sidebar:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: static;
+    max-height: none;
+    padding: 14px 12px 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
   }
 
   .md {

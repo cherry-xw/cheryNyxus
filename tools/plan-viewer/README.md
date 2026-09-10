@@ -18,12 +18,10 @@
 ## 启动
 
 ```bash
-# 仓库根快捷指令（推荐；产物缺失时自动构建后启动）
+# 仓库根快捷指令（推荐；直接以源码模式启动，不依赖构建产物）
 pnpm plan
 
-# 运行单文件产物
-node tools/plan-viewer/plan-viewer.mjs
-# 或
+# 等价的目录内指令
 pnpm --dir tools/plan-viewer start
 
 # 自定义端口（默认 4173）
@@ -46,16 +44,17 @@ tools/plan-viewer/
 └── README.md
 ```
 
-- **改页面**：修改 `public/` → `node build.mjs` 重新生成产物（`pnpm --dir tools/plan-viewer build`）。
-- **调试**：`pnpm --dir tools/plan-viewer dev` 以源码模式启动（读 `public/`，无需重新构建）。
+- **本地运行只走源码**：`pnpm plan` / `pnpm plan:lint` 直接执行 `server.mjs` / `lint-source.mjs`，改 `public/` 后刷新页面即生效，无需构建。
+- **改页面**：修改 `public/` 后直接刷新；只有要更新可分发产物时才 `node build.mjs`（`pnpm --dir tools/plan-viewer build`）。
 - **分发**：产物 `plan-viewer.mjs` 是唯一需要的文件；`docs/plan` 定位：`--plan-dir` > 环境变量 `PLAN_DIR` > 从脚本位置向上逐级查找。
-- **同步可迁移包**：仓库内构建同时生成本目录及 `docs/standards/documentation/tools/` 的查看器和 lint 单文件产物。`lint-source.mjs`、`server.mjs` 和 `public/` 是源码；不要手改生成脚本。构建不更新 ZIP。
+- **同步可迁移包**：发布新通用包时运行构建，同时生成本目录及 `docs/standards/documentation/tools/` 的查看器和 lint 单文件产物。`lint-source.mjs`、`server.mjs` 和 `public/` 是源码；不要手改生成脚本。构建不更新 ZIP。
 
 ## 功能
 
-- **总览**：对总入口中当前登记的活动计划做状态统计并展示计划卡片（进度条、子任务完成数、范围摘要）；总入口已登记但目录缺失的旧计划灰显提示。查看器仍能兼容历史文档中的 `已完成` 状态，但按当前规范批准完成的计划应从总入口和计划目录删除。
-- **任务详情**：渲染计划 README（台账表格带状态徽标、checkbox 勾选态），并列出关联文档。
-- **子任务文件**：点开台账/正文中引用的任意 `.md`（含 `verify/` 手册），文档内相对链接可继续跳转。章节定位使用 `#/file/<path>?anchor=<章节>` 或 `#/plan/<dir>?anchor=<章节>`，刷新、前进和后退保留文档与章节；旧请求不得覆盖当前路由。
+- **总览**：对总入口中当前登记的活动计划做状态统计并展示计划卡片（进度条、子任务完成数、范围摘要）；总入口已登记但目录缺失的计划灰显提示。按当前规范批准完成的计划应从总入口和计划目录删除。
+- **任务详情**：渲染计划 README（台账表格带状态徽标、checkbox 勾选态），关联文档以左侧目录树列出。
+- **子任务文件**：点开左侧目录树或台账/正文中引用的任意 `.md`（含 `verify/` 手册），文档内相对链接可继续跳转。章节定位使用 `#/file/<path>?anchor=<章节>` 或 `#/plan/<dir>?anchor=<章节>`，刷新、前进和后退保留文档与章节；旧请求不得覆盖当前路由。
+- **左侧目录树**：只列当前计划目录内的关联文档（排除计划自身 README），每项两行——第一行文件名，第二行取该文档正文首个一级标题（缺标题时退回 README 中的链接文字）。当前打开的文档高亮且不可点；总览视图不显示侧栏。
 - 数据每次请求实时读盘，无缓存无构建。
 
 ## 进度统计口径
@@ -65,7 +64,7 @@ tools/plan-viewer/
 ## Plan Lint（文档规则校验）
 
 ```bash
-pnpm plan:lint        # 仓库根（产物缺失时自动构建；或 node tools/plan-viewer/lint.mjs）
+pnpm plan:lint        # 仓库根，直接跑源码 lint-source.mjs
 ```
 
 规则刻意保持最少，仅检查以下两条，不将通过结果解释为计划完整合规：
@@ -79,7 +78,7 @@ pnpm plan:lint        # 仓库根（产物缺失时自动构建；或 node tools
 
 共享 Markdown 解析位于 [public/markdown.js](public/markdown.js)（`findTables`、`extractLinks`、`metadataValue`）；HTTP 入口为 [server.mjs](server.mjs)，lint 源码为 [lint-source.mjs](lint-source.mjs)。路由和请求有效期由 [public/navigation.js](public/navigation.js) 维护，页面渲染从 [public/app.js](public/app.js) 进入。
 
-修改后运行 `node tools/plan-viewer/build.mjs`（无条件重建；`--if-missing` 仅在产物缺失时构建），再运行 `node --test tools/plan-viewer/tests/*.test.mjs` 和 `pnpm plan:lint`。独立测试只使用 Node 内置模块、隔离临时数据及 HTTP，不启动浏览器，也不使用 DOM/CSS 检查替代界面验收。真实导航与滚动由用户手动验收。
+修改 `public/` 后刷新页面即可在本地看到变化，无需构建。改 `server.mjs` / `lint-source.mjs` 时同步跑一次 `node tools/plan-viewer/build.mjs` 重生成 `plan-viewer.mjs` / `lint.mjs` 与 `docs/standards/documentation/tools/` 下同名产物（发布新通用包前必须做此同步，仓库提交中这三份产物应保持一致）。再运行 `node --test tools/plan-viewer/tests/*.test.mjs` 和 `pnpm plan:lint`。独立测试只使用 Node 内置模块、隔离临时数据及 HTTP，不启动浏览器，也不使用 DOM/CSS 检查替代界面验收。真实导航与滚动由用户手动验收。
 
 ## 边界
 

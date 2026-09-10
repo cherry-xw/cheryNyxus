@@ -6,6 +6,7 @@ import { extractLinks, collectReferences, isReferenceDefinition, createHeadingSl
 import { posixJoin, documentHref, parseRoute, createNavigation, loadCurrentFile } from './navigation.js';
 
 const $app = document.getElementById('app');
+const $sidebar = document.getElementById('sidebar');
 const state = { data: null, error: null };
 const navigation = createNavigation();
 
@@ -302,6 +303,7 @@ function planCard(plan) {
 }
 
 function viewHome() {
+  renderSidebar(null);
   if (state.error) {
     $app.innerHTML = `<div class="error-panel">数据加载失败：${escapeHtml(state.error)}<br>请确认服务已启动且 docs/plan 目录可访问，然后刷新重试。</div>`;
     return;
@@ -315,31 +317,54 @@ function viewHome() {
     <section class="plan-list">${plans.map(planCard).join('')}</section>`;
 }
 
-/* ---------------- 视图：任务详情 ---------------- */
+/* ---------------- 视图：侧栏目录树 ---------------- */
 
-/** 关联文档 chips（activeRel 相同的文件高亮不可点，用于子层级视图定位当前文件） */
-function docChipsHtml(plan, activeRel) {
+/** 计划内可跳转的关联文档（排除计划自身 README 与计划目录外的链接） */
+function planDocs(plan) {
+  return (plan.files || []).filter((f) => f.inside && !/readme\.md$/i.test(f.file));
+}
+
+/**
+ * 渲染左侧目录树：仅列当前计划的关联文档，每项两行（文件名 + 文档一级标题）。
+ * activeRel 命中的文档高亮且不可点，用于子任务视图定位当前文件；无计划上下文时隐藏侧栏。
+ */
+function renderSidebar(plan, activeRel) {
+  if (!plan) {
+    $sidebar.hidden = true;
+    $sidebar.innerHTML = '';
+    return;
+  }
   const active = activeRel ? String(activeRel).replace(/\\/g, '/') : '';
-  return (plan.files || [])
-    .filter((f) => f.inside && !/readme\.md$/i.test(f.file))
+  const docs = planDocs(plan);
+  const items = docs
     .map((f) => {
       const full = posixJoin(plan.dir, f.file);
-      const label = escapeHtml(f.name || f.file);
+      const fileLabel = escapeHtml(f.file);
+      // 第二行优先取文档正文一级标题；缺标题时退回 README 中的链接文字
+      const title = f.title || f.name || '';
+      const titleLine = title ? `<span class="tree-title">${escapeHtml(title)}</span>` : '';
+      const inner = `<span class="tree-file">${fileLabel}</span>${titleLine}`;
       if (active && full === active) {
-        return `<span class="file-chip active" title="当前文件">${label}</span>`;
+        return `<span class="tree-item active" title="当前文件">${inner}</span>`;
       }
-      return `<a class="file-chip" href="#/file/${encodeURIComponent(full)}">${label}</a>`;
+      return `<a class="tree-item" href="#/file/${encodeURIComponent(full)}">${inner}</a>`;
     })
     .join('');
+  $sidebar.innerHTML = `<div class="tree-head">关联文档 · ${escapeHtml(plan.name)}</div>
+    ${items ? `<nav class="tree">${items}</nav>` : '<div class="tree-empty">该计划暂无关联文档</div>'}`;
+  $sidebar.hidden = false;
 }
+
+/* ---------------- 视图：任务详情 ---------------- */
 
 function viewPlan(dir) {
   const plan = state.data.plans.find((p) => p.dir === dir);
   if (!plan || !plan.exists) {
+    renderSidebar(null);
     $app.innerHTML = `<nav class="crumbs"><a href="#/">← 总览</a></nav><div class="error-panel">计划目录不存在：${escapeHtml(dir)}</div>`;
     return;
   }
-  const docChips = docChipsHtml(plan);
+  renderSidebar(plan);
   $app.innerHTML = `
     <nav class="crumbs"><a href="#/">← 总览</a><span class="sep">/</span><span>${escapeHtml(plan.name)}</span></nav>
     <header class="plan-head">
@@ -348,7 +373,6 @@ function viewPlan(dir) {
       ${plan.readmeStatus && plan.readmeStatus !== plan.status ? statusBadge(plan.readmeStatus) : ''}
     </header>
     ${progressBar(plan.progress)}
-    ${docChips ? `<section class="file-row"><span class="file-row-label">关联文档</span>${docChips}</section>` : ''}
     <article class="md">${mdToHtml(plan.markdown, `${plan.dir}/README.md`)}</article>`;
 }
 
@@ -363,12 +387,11 @@ async function viewFile(rel, ticket) {
     ? `<nav class="crumbs"><a href="#/">← 总览</a><span class="sep">/</span><a href="#/plan/${encodeURIComponent(plan.dir)}">${escapeHtml(plan.name)}</a><span class="sep">/</span><span>${escapeHtml(fileName)}</span></nav>`
     : `<nav class="crumbs"><a href="#/">← 总览</a><span class="sep">/</span><span>${escapeHtml(norm)}</span></nav>`;
   $app.innerHTML = '<div class="loading">加载中…</div>';
+  renderSidebar(plan || null, norm);
   try {
     const body = await loadCurrentFile(norm, ticket);
     if (!body || !ticket.isCurrent()) return;
-    const docChips = plan ? docChipsHtml(plan, norm) : '';
     $app.innerHTML = `${crumbs}
-      ${docChips ? `<section class="file-row"><span class="file-row-label">关联文档</span>${docChips}</section>` : ''}
       <article class="md">${mdToHtml(body.markdown, norm)}</article>`;
   } catch (err) {
     if (!ticket.isCurrent()) return;
@@ -385,6 +408,7 @@ async function route() {
   if (!state.data) return;
   const target = parseRoute(location.hash);
   if (target.kind === 'invalid') {
+    renderSidebar(null);
     $app.innerHTML = '<nav class="crumbs"><a href="#/">← 总览</a></nav><div class="error-panel">无法识别文档地址，请从总览重新打开。</div>';
     return;
   }
