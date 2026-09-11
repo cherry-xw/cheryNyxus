@@ -1,16 +1,8 @@
 <script setup lang="ts">
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
-import {
-  Back,
-  Box,
-  ChatDotRound,
-  Collection,
-  Monitor,
-  Promotion,
-  Tools,
-  User,
-} from '@element-plus/icons-vue'
 import type { WorkflowGraphNodeData } from './graphModel'
+import WorkflowMorphIcon from './WorkflowMorphIcon.vue'
+import { statusIcon, visualStyle } from './workflowVisuals'
 
 type ContentData = Extract<WorkflowGraphNodeData, { kind: 'content' }>
 const props = defineProps<NodeProps<ContentData>>()
@@ -25,7 +17,9 @@ const emit = defineEmits<{ select: [data: ContentData] }>()
       `status-${data.presentation.statusTone}`,
       { 'is-revoked': data.node.status === 'revoked' },
     ]"
+    :style="visualStyle(data.visual)"
     data-workflow-highlight-target
+    :data-workflow-content-id="id"
   >
     <Handle id="result-in" type="target" :position="Position.Left" />
     <button
@@ -35,20 +29,17 @@ const emit = defineEmits<{ select: [data: ContentData] }>()
       :title="data.preview"
       @click.stop="emit('select', props.data)"
     >
-      <span class="workflow-result-glyph" aria-hidden="true">
-        <User v-if="data.presentation.visualKind === 'input'" />
-        <ChatDotRound v-else-if="data.presentation.visualKind === 'message'" />
-        <Tools v-else-if="data.presentation.visualKind === 'tool'" />
-        <Promotion v-else-if="data.presentation.visualKind === 'branch'" />
-        <Back v-else-if="data.presentation.visualKind === 'return'" />
-        <Collection v-else-if="data.presentation.visualKind === 'group'" />
-        <Monitor v-else-if="data.presentation.visualKind === 'system'" />
-        <Box v-else />
+      <span class="workflow-result-glyph" :class="`skin-${data.visual.shape}`" aria-hidden="true">
+        <WorkflowMorphIcon
+          :icon="data.visual.icon"
+          :status-icon="statusIcon(data.presentation.statusTone)"
+          :size="25"
+        />
         <span v-if="data.presentation.toolCount > 1" class="workflow-result-count">
           {{ data.presentation.toolCount }}
         </span>
       </span>
-      <span class="workflow-result-copy">
+      <span class="workflow-result-copy" data-workflow-node-visual>
         <strong>{{ data.title }}</strong>
         <span class="workflow-result-status">
           <i aria-hidden="true" />

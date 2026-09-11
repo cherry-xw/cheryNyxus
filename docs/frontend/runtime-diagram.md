@@ -4,7 +4,7 @@
 
 ## 1. 当前实现与重建边界
 
-当前纯投影已将 canonical 结果树、运行头部状态和场景组合分离，结果区不再生成 occurrence 节点。结果节点与事实边使用新版 Vue Flow 绘制；完整头部采用版本化步骤子图、条件路径、外绕回边和共享调用链。步骤分页详情与工作台固定回放已经接通，官网参照业务动效仍按活动计划完善；代码级验证不代表后续视觉契约已经通过实机验收。
+当前纯投影已将 canonical 结果树、运行头部状态和场景组合分离，结果区不再生成 occurrence 节点。结果节点与事实边使用新版 Vue Flow 绘制；完整头部采用版本化步骤子图、条件路径、外绕回边和共享调用链。步骤分页详情、工作台固定回放、官网参照业务动效、Morphicons 状态图标、能力视觉和模型 live CRT 已完成代码级实现；真实视觉与帧率仍由活动计划 T07 实机验收。
 
 最新决定：节点逻辑沿用当前新版继续完善，节点树用 Vue Flow 重绘，不恢复旧 Pixi 实现、旧布局算法或旧外观。结果树保留消息、工具、协作与分支等任务产物，内部步骤留在头部及步骤详情。当前卡牌模式的样式、交互、数据读取、开关与偏好保持不动。
 
@@ -84,7 +84,7 @@ flowchart LR
 | 协作        | 派发、子执行、回传、接收、唤醒                    | dispatch/child-run/child-return/parent-receive/wake，分别判断                |
 | 压缩        | 请求、生成、采用                                  | compact-request/compact-summary/compact-applied；仅采用改变阶段              |
 
-完整骨架默认全展开，状态与详情不能撑大节点。未发生、执行中、等待、成功、失败、拒绝、中断、取消、未记录分别用文字/图标表达，颜色只辅助。静态拓扑边表示可走路径，只有显式运行事实支持的路径才显示执行强调。
+完整骨架默认全展开，状态与详情不能撑大节点。未发生、执行中、等待、成功、失败、拒绝、中断、取消、未记录分别用文字、可变形图标和颜色共同表达，颜色不能成为唯一线索。节点同时表达“能力身份”和“当前状态”：输入、上下文、模型、工具、控制、协作、压缩及结果节点使用各自稳定的图标、强调色和边框结构，避免所有节点只靠标题区分。静态拓扑边表示可走路径，只有显式运行事实支持的路径才显示执行强调。
 
 同一模板可以对应多个 occurrence。本轮槽位保留已完成状态，不能仅查询 active 数组导致完成后立即显示“尚未发生”。按 chat/run/iteration/attempt/callId 选择正确实例；重复实例在步骤详情中逐条读取，不新增结果树节点。
 
@@ -121,7 +121,7 @@ flowchart LR
 
 这些类型是内部展示接口，不是 RPC 或持久 schema。现有 chat.workflow.open/close/history、workflow.updated 与 journal 不变。不存在细粒度证据时静态解释即可，本次不为填满流程图新增后端事件或数据迁移。
 
-头部模板入口为 [headerTemplate.ts](../../web/src/features/agent/workbench/runtime-diagram/headerTemplate.ts) 的 `WORKFLOW_HEADER_TEMPLATE`：固定尺寸分组、步骤端口、条件与外绕回边由纯数据定义。[headerState.ts](../../web/src/features/agent/workbench/runtime-diagram/headerState.ts) 的 `projectHeaderState` 从完整 occurrence 集合选择 run/iteration/attempt/call，保留终态并区分尚未发生、未单独记录和记录不完整；当前协议没有独立 phase 字段，细化匹配只使用实际 kind、reason、waitReason 及显式 anchor，不能匹配自由文本 label。没有 runId 的接收、唤醒等事实可从“未归属运行的记录”读取，不归入邻近 run。批次或消息锚点可展开 canonical 调用清单，但调用摘要状态不替代步骤证据。
+头部模板入口为 [headerTemplate.ts](../../web/src/features/agent/workbench/runtime-diagram/headerTemplate.ts) 的 `WORKFLOW_HEADER_TEMPLATE`：固定尺寸分组、步骤端口、条件与外绕回边由纯数据定义。每个步骤的 Info 图标是简要说明入口：只在该图标 hover、键盘 focus 或触摸点按时，于节点上方显示模板 `detail`，不要求 hover 整个节点；节点点击仍打开实例详情。浮层不参与 Vue Flow 布局且不遮蔽触发图标，触发控件提供可访问名称、展开状态和可见焦点。[headerState.ts](../../web/src/features/agent/workbench/runtime-diagram/headerState.ts) 的 `projectHeaderState` 从完整 occurrence 集合选择 run/iteration/attempt/call，保留终态并区分尚未发生、未单独记录和记录不完整；当前协议没有独立 phase 字段，细化匹配只使用实际 kind、reason、waitReason 及显式 anchor，不能匹配自由文本 label。没有 runId 的接收、唤醒等事实可从“未归属运行的记录”读取，不归入邻近 run。批次或消息锚点可展开 canonical 调用清单，但调用摘要状态不替代步骤证据。
 
 [headerGraph.ts](../../web/src/features/agent/workbench/runtime-diagram/headerGraph.ts) 的 `buildHeaderNodes` 将模板转换为同一 Vue Flow 的 parent/相对坐标节点，`placeHeader` 先固定结果位置再向右避让头部，`absoluteGraphPosition` 供显式步骤定位使用。`headerNodePorts` 从模板边生成实际使用的分离端口，`headerHandleId` 保持渲染 Handle 与边 endpoint 一致，`headerEdgeLabelPoint` 维护标签路段锚点。`RuntimeDiagram` 发出 `selectStep`（`HeaderSelection`）与 `selectHeaderScope`（`HeaderScopeEvent`）；步骤详情经固定边界分页读取 occurrence、gap 和 legacy 状态，只允许显式且在当前图中可解析的内容锚点进入现有阅读器，关闭后恢复原步骤焦点。边的 `points` 和 `labelPoint` 是预计算世界坐标，只有显式 cause 关系可产生 `evidenced` 静态强调；步骤内层和路径标记供后续动效消费，不使用模拟执行计时器。
 
@@ -150,6 +150,10 @@ Vue Flow 官网示例效果是本轮明确验收参照：正常窗口、full 档
 
 产品中用主题化执行光点/结果标记替代示例的卡车 emoji；不用示例的圆形节点外观覆盖项目直角约束。效果等价，业务驱动与实现引擎按项目约束适配：不引入随机成功/失败，不等待动画完成才推进业务，不复制 WAAPI/VueUse 动画 ticker，不自动跟随每个实时事件移动相机。
 
+步骤与结果节点图标使用 [Morphicons](https://www.morphicons.com/) 的 Vue 绑定，在能力图标和状态图标之间进行可中断的 SVG 路径过渡。图标数据使用同版本的 Lucide 数据包；按需导入，不以 Element Plus 组件或 Unicode 字符模拟 morph。Morphicons 自身只允许其库内共享的一条 `requestAnimationFrame` 驱动图标路径；业务路径、节点内层和相机动画仍由项目 GSAP 管理。reduced、低质量、后台、最小化和断线状态必须让图标直接落到最新形态，不保留弹性循环。
+
+模型步骤运行时，在该节点下方显示头部专用的紧凑 CRT 实时打印区，读取当前 root timeline 的 `activeTurns` 正文与可用思考增量。CRT 复用既有终端视觉、流式 Markdown 节流、自动跟随和“用户上滚后暂停跟随”语义，但不是旧 Pixi 节点树的恢复，也不修改或复用冻结卡牌交互。CRT 只在对应模型步骤确实运行且 turn/run/chat 范围匹配时出现；终态、回放、断线、切 root 或卸载立即收束。CRT 内容不生成第二个结果节点，不承担审批或其他操作。
+
 | 触发                     | 完整动效                                                                                     | 精简/低质量                  |
 | ------------------------ | -------------------------------------------------------------------------------------------- | ---------------------------- |
 | 头部实际路径变化         | 可辨执行标记沿完整边路径移动，源节点完成/目标节点运行联动；并行分支分别推进                  | 即时文字、图标和静态路径强调 |
@@ -162,6 +166,8 @@ Vue Flow 官网示例效果是本轮明确验收参照：正常窗口、full 档
 状态反馈默认 160–220ms，结果入场 240–320ms，近距离产物关联 320–480ms；官网式沿边执行标记按路径长度计时，full 档采用 clamp(路径长度 × 10ms, 1500ms, 3000ms)。用户显式路径定位采用同一时长规则，结束后 500ms 内收束到目标可读视野；无关联路径时直接平滑定位，不造线。集中为语义 token。不强制每次步骤完成播放“沉淀”，不生成第二个可选节点。业务事实先更新；后续状态提前到达时取消或收束旧标记，不能为了播放时长显示过期执行位置。
 
 Vue Flow 独占外层坐标/transform 和相机，GSAP 只控制内部视觉层及不可交互效果层；路径位置预计算，tick 不测量 DOM 或触发响应式布局。最多 12 个可见一次性反馈与 8 个可见持续效果；超预算直接显示最新静态结果，不积压播放队列。
+
+运行中的节点使用能力色的有限呼吸、扫描或状态图标反馈；已证据化且正在推进的连线同时显示方向性轨迹和沿完整折线路径运动的标记。终态颜色在事实到达时立即切换：成功、等待、失败、拒绝和中断各有稳定语义色，文字与图标同步更新。结果节点按内容类型保留独立能力色和结构差异，不能回退为同形同色的矩形列表。
 
 仅已同步 live 增量播放生长。hydrate、翻页、重连、旧历史、gap 和回放 seek 不补播；回放以离散状态还原流程，不伪装实时生长。后台、最小化、断线、切 root/模式或卸载取消持续效果。复用现有 system/full/reduced 与质量控制，不改全局设置或卡牌动效。
 

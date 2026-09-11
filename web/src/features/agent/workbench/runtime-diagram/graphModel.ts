@@ -1,6 +1,6 @@
 import { MarkerType, Position, type Edge, type Node } from '@vue-flow/core'
 import type { WorkflowOccurrence } from '@chery/protocol'
-import type { RootTimelineSnapshot } from '@/application/backend/public'
+import type { ActiveTurnSnapshot, RootTimelineSnapshot } from '@/application/backend/public'
 import type { NyxusContentSelection, NyxusReaderFoldMode } from '@/features/pets/nyxus/public'
 import type { WorkflowClientState } from './workflowState'
 import {
@@ -16,7 +16,9 @@ import {
   presentResultNode,
   resultEdgeLabel,
   type ResultNodePresentation,
+  type ResultNodeStatusTone,
 } from './resultTreePresentation'
+import { resultVisual, type WorkflowVisualIdentity } from './workflowVisuals'
 import {
   WORKFLOW_HEADER_SECTIONS,
   WORKFLOW_HEADER_TEMPLATE_VERSION,
@@ -57,6 +59,7 @@ export type WorkflowGraphNodeData =
       title: string
       preview: string
       presentation: ResultNodePresentation
+      visual: WorkflowVisualIdentity
     }
   | {
       kind: 'header'
@@ -84,6 +87,11 @@ export type WorkflowGraphEdge = Edge<{
   points?: HeaderPoint[]
   labelPoint?: HeaderPoint
   evidenced?: boolean
+  sourceOccurrenceId?: string
+  targetOccurrenceId?: string
+  targetStatus?: WorkflowOccurrence['status'] | ResultNodeStatusTone
+  targetSequence?: number
+  accent?: string
 }>
 
 export interface WorkflowGraphProjection {
@@ -108,8 +116,12 @@ export const WORKFLOW_GRAPH_LAYOUT = {
   headerGap: 72,
 } as const
 
-function graphEdge(edge: WorkflowProjectionEdge): WorkflowGraphEdge {
+function graphEdge(
+  edge: WorkflowProjectionEdge,
+  targets: ReadonlyMap<string, Extract<WorkflowGraphNodeData, { kind: 'content' }>>,
+): WorkflowGraphEdge {
   const relationLabel = resultEdgeLabel(edge.relation)
+  const target = targets.get(edge.targetId)
   return {
     id: edge.id,
     source: edge.sourceId,
@@ -118,7 +130,18 @@ function graphEdge(edge: WorkflowProjectionEdge): WorkflowGraphEdge {
     markerEnd: MarkerType.ArrowClosed,
     selectable: false,
     focusable: false,
-    data: { relation: edge.relation, relationLabel, semantic: edge.semantic },
+    data: {
+      relation: edge.relation,
+      relationLabel,
+      semantic: edge.semantic,
+      ...(target
+        ? {
+            accent: target.visual.accent,
+            targetStatus: target.presentation.statusTone,
+            targetSequence: target.node.orderKey ?? 0,
+          }
+        : {}),
+    },
     sourceHandle: 'result-out',
     targetHandle: edge.semantic === 'fact' ? 'result-in' : 'header-in',
     class: `workflow-edge relation-${edge.semantic}`,
@@ -131,6 +154,7 @@ export function projectWorkflowGraph(
   timeline: RootTimelineSnapshot | undefined,
   foldMode: NyxusReaderFoldMode = 'none',
   headerSelections: Readonly<Record<string, HeaderScopeSelection>> = {},
+  activeTurns: readonly ActiveTurnSnapshot[] = [],
 ): WorkflowGraphProjection {
   const scene = projectWorkflowScene(workflow, timeline, foldMode)
   const laneIndex = new Map(scene.headerFlow.headers.map((header, index) => [header.laneId, index]))
@@ -160,6 +184,7 @@ export function projectWorkflowGraph(
         title: item.title,
         preview: item.preview,
         presentation,
+        visual: resultVisual(presentation.visualKind),
       },
     }
   })
@@ -169,6 +194,13 @@ export function projectWorkflowGraph(
     width: Number(node.width),
     height: Number(node.height),
   }))
+  const contentTargets = new Map<
+    string,
+    Extract<WorkflowGraphNodeData, { kind: 'content' }>
+  >()
+  for (const node of nodes) {
+    if (node.data?.kind === 'content') contentTargets.set(node.id, node.data)
+  }
   const headerEdges: WorkflowGraphEdge[] = []
   let activeOccurrenceId: string | undefined
   // Place the full head first, then compact heads in stable branch order.
@@ -217,6 +249,7 @@ export function projectWorkflowGraph(
         !!workflow?.historyComplete &&
         !workflow?.hasEarlier &&
         !workflow?.gaps.some((gap) => !gap.chatId || gap.chatId === header.chatId),
+      activeTurns,
     })
     nodes.push(...built.nodes)
     headerEdges.push(...built.edges)
@@ -234,7 +267,7 @@ export function projectWorkflowGraph(
 
   return {
     nodes,
-    edges: [...scene.edges.map(graphEdge), ...headerEdges],
+    edges: [...scene.edges.map((edge) => graphEdge(edge, contentTargets)), ...headerEdges],
     activeHeaderId: scene.headerFlow.activeHeaderId,
     activeOccurrenceId,
     scene,

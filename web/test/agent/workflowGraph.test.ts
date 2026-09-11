@@ -6,6 +6,7 @@ import type {
   WorkflowUpdated,
 } from '@chery/protocol'
 import type {
+  ActiveTurnSnapshot,
   ConversationBranchSummary,
   RootTimelineSnapshot,
   TimelineNode,
@@ -396,6 +397,69 @@ describe('workflow occurrence reducer', () => {
 })
 
 describe('unified workflow graph projection', () => {
+  it('attaches only the latest matching live turn to a running model step', () => {
+    const activeModel = occurrence('live-model', {
+      branchId: 'main',
+      runId: 'run-root',
+      status: 'running',
+      endedAt: undefined,
+    })
+    const turns: ActiveTurnSnapshot[] = [
+      {
+        chatId: 'root',
+        turnId: 'older',
+        runId: 'run-root',
+        messageId: 'older-message',
+        thinking: 'older',
+        content: '',
+        status: 'running',
+        createdAt: 1,
+      },
+      {
+        chatId: 'root',
+        turnId: 'latest',
+        runId: 'run-root',
+        messageId: 'latest-message',
+        thinking: '',
+        content: 'live response',
+        status: 'running',
+        createdAt: 2,
+      },
+      {
+        chatId: 'root',
+        turnId: 'wrong-run',
+        runId: 'other-run',
+        messageId: 'wrong-message',
+        thinking: '',
+        content: 'must not leak',
+        status: 'running',
+        createdAt: 3,
+      },
+    ]
+    const projection = projectWorkflowGraph(workflow([activeModel]), timeline(), 'participant', {}, turns)
+    const steps = projection.nodes.filter(
+      (node): node is typeof node & {
+        data: Extract<WorkflowGraphNodeData, { kind: 'header-step' }>
+      } => node.data?.kind === 'header-step',
+    )
+    const model = steps.find((node) => node.data.template.id === 'model')
+
+    expect(model?.data.liveTurn).toMatchObject({ turnId: 'latest', content: 'live response' })
+    expect(steps.filter((node) => node.data.template.id !== 'model').every((node) => !node.data.liveTurn))
+      .toBe(true)
+
+    const settled = projectWorkflowGraph(
+      workflow([{ ...activeModel, status: 'succeeded', endedAt: 200 }]),
+      timeline(),
+      'participant',
+      {},
+      turns,
+    )
+    expect(
+      settled.nodes.some((node) => node.data?.kind === 'header-step' && !!node.data.liveTurn),
+    ).toBe(false)
+  })
+
   it('uses stable content IDs and keeps missing anchors out of the result tree', () => {
     const input = workflow(graphOccurrences())
     const first = projectWorkflowGraph(input, timeline())

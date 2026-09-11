@@ -21,16 +21,19 @@ import {
   Warning,
 } from '@element-plus/icons-vue'
 import type { RootTimelineSnapshot } from '@/application/backend/public'
+import { useChatSessionsStore } from '@/application/public'
 import type { NyxusContentSelection, NyxusReaderFoldMode } from '@/features/pets/nyxus/public'
 import {
   projectWorkflowGraph,
   resolveWorkflowGraphSelection,
   type WorkflowGraphNode,
   type WorkflowGraphNodeData,
+  type WorkflowGraphEdge,
   type WorkflowGraphProjection,
 } from './graphModel'
 import { useWorkflowController } from './useWorkflowController'
 import { useRuntimeMotion } from './useRuntimeMotion'
+import { orthogonalPathBetween } from './motionPolicy'
 import { useWorkflowPointerHighlight } from './useWorkflowPointerHighlight'
 import WorkflowContentNode from './WorkflowContentNode.vue'
 import WorkflowHeaderNode from './WorkflowHeaderNode.vue'
@@ -39,8 +42,14 @@ import WorkflowHeaderStepNode from './WorkflowHeaderStepNode.vue'
 import WorkflowHeaderGroupNode from './WorkflowHeaderGroupNode.vue'
 import WorkflowHeaderCallsNode from './WorkflowHeaderCallsNode.vue'
 import WorkflowHeaderEdge from './WorkflowHeaderEdge.vue'
+import WorkflowFocusEdge from './WorkflowFocusEdge.vue'
 import WorkflowStepDetails from './WorkflowStepDetails.vue'
-import { absoluteGraphPosition, type HeaderSelection, type HeaderScopeEvent } from './headerGraph'
+import {
+  absoluteGraphPosition,
+  headerTemplateNodeId,
+  type HeaderSelection,
+  type HeaderScopeEvent,
+} from './headerGraph'
 import type { HeaderScopeSelection } from './headerState'
 import { projectReplayTimeline, projectWorkflowStepDetails } from './workflowStepDetails'
 
@@ -64,6 +73,7 @@ const emit = defineEmits<{
   selectStep: [payload: HeaderSelection]
   selectHeaderScope: [payload: HeaderScopeEvent]
 }>()
+const chatSessions = useChatSessionsStore()
 
 const controller = useWorkflowController(toRef(props, 'chatId'), toRef(props, 'suspended'))
 const replayTimeline = shallowRef<RootTimelineSnapshot>()
@@ -99,12 +109,25 @@ function selectHeaderScope(event: HeaderScopeEvent): void {
   headerSelections.value = { ...headerSelections.value, [event.headerId]: event.scope }
   emit('selectHeaderScope', event)
 }
+const liveTurns = computed(() => {
+  if (controller.replay.value) return []
+  const chatIds = new Set([
+    props.chatId,
+    ...(displayTimeline.value?.branches?.map((branch) => branch.chatId) ?? []),
+    ...(displayTimeline.value?.nodes.map((node) => node.sourceChatId) ?? []),
+    ...(displayTimeline.value?.activeRuns.map((run) => run.chatId).filter(Boolean) ?? []),
+  ])
+  return [...chatIds].flatMap((chatId) =>
+    chatId ? chatSessions.sessionsById[chatId]?.activeTurns ?? [] : [],
+  )
+})
 const baseProjection = computed(() =>
   projectWorkflowGraph(
     controller.workflowState.value,
     displayTimeline.value,
     props.foldMode,
     headerSelections.value,
+    liveTurns.value,
   ),
 )
 const selectedGraphNodeId = computed(() => {
@@ -113,6 +136,8 @@ const selectedGraphNodeId = computed(() => {
   const resolution = resolveWorkflowGraphSelection(baseProjection.value, selection)
   return resolution.status === 'available' ? resolution.graphNodeId : undefined
 })
+const focusTransition = shallowRef<{ id: string; edge: WorkflowGraphEdge }>()
+let focusSerial = 0
 function projectNodeSelection(node: WorkflowGraphNode): WorkflowGraphNode {
   const data = node.data
   const className = [node.class, { selected: node.id === selectedGraphNodeId.value }]
@@ -132,6 +157,9 @@ function projectNodeSelection(node: WorkflowGraphNode): WorkflowGraphNode {
 const projection = computed<WorkflowGraphProjection>(() => ({
   ...baseProjection.value,
   nodes: baseProjection.value.nodes.map(projectNodeSelection),
+  edges: focusTransition.value
+    ? [...baseProjection.value.edges, focusTransition.value.edge]
+    : baseProjection.value.edges,
 }))
 const stepDetailHistory = computed(() => {
   if (!controller.replay.value || !controller.history.value) return controller.detailHistory.value
@@ -164,10 +192,15 @@ const cameraRootId = computed(
   () =>
     displayTimeline.value?.rootChatId ?? controller.workflowState.value?.rootChatId ?? props.chatId,
 )
-const { refreshVisibility: refreshMotionVisibility } = useRuntimeMotion({
+const {
+  refreshVisibility: refreshMotionVisibility,
+  focusAlongPath,
+  cancelFocusMotion,
+} = useRuntimeMotion({
   scope: flowHostRef,
   projection,
   rootChatId: cameraRootId,
+  timelineRevision: computed(() => displayTimeline.value?.capturedEventSeq ?? 0),
   change: controller.workflowChange,
   replay: controller.replay,
   suspended: toRef(props, 'suspended'),
@@ -197,6 +230,28 @@ function focusNode(nodeId: string | undefined): void {
     zoom: 1,
     duration: 180,
   })
+}
+
+function cancelFocusTransition(): void {
+  cancelFocusMotion()
+  focusTransition.value = undefined
+}
+
+function centerOnWorldPoint(point: { x: number; y: number }): void {
+  const zoom = currentViewport()?.zoom ?? 1
+  void flow.value?.setCenter(point.x, point.y, { zoom, duration: 0 })
+}
+
+function nodeCenter(node: WorkflowGraphNode): { x: number; y: number } {
+  const position = absoluteGraphPosition(node, baseProjection.value.nodes)
+  return {
+    x: position.x + Number(node.width ?? 184) / 2,
+    y: position.y + Number(node.height ?? 82) / 2,
+  }
+}
+
+function relationshipPath(source: WorkflowGraphNode, target: WorkflowGraphNode) {
+  return orthogonalPathBetween(nodeCenter(source), nodeCenter(target))
 }
 
 function onPaneReady(store: VueFlowStore): void {
@@ -249,7 +304,48 @@ function retryStepDetails(): void {
 }
 
 function selectStepContent(selection: NyxusContentSelection, graphNodeId: string): void {
-  focusNode(graphNodeId)
+  const step = selectedStep.value
+  const sourceId = step ? headerTemplateNodeId(step.headerId, step.templateNodeId) : undefined
+  const source = sourceId
+    ? baseProjection.value.nodes.find((node) => node.id === sourceId)
+    : undefined
+  const target = baseProjection.value.nodes.find((node) => node.id === graphNodeId)
+  cancelFocusTransition()
+  if (source && target) {
+    const points = relationshipPath(source, target)
+    const id = `workflow-focus:${++focusSerial}`
+    focusTransition.value = {
+      id,
+      edge: {
+        id,
+        source: source.id,
+        target: target.id,
+        type: 'focus',
+        selectable: false,
+        focusable: false,
+        class: 'workflow-edge workflow-focus-relation',
+        data: {
+          relation: '显式内容锚点',
+          semantic: 'template',
+          points,
+          evidenced: true,
+          accent: source.data?.kind === 'header-step' ? source.data.visual.accent : undefined,
+        },
+      },
+    }
+    void nextTick(() => {
+      focusAlongPath({
+        id,
+        points,
+        onProgress: centerOnWorldPoint,
+        onComplete: () => {
+          if (focusTransition.value?.id === id) focusTransition.value = undefined
+        },
+      })
+    })
+  } else {
+    focusNode(graphNodeId)
+  }
   emit('selectContent', selection)
 }
 
@@ -266,6 +362,7 @@ function returnLive(): void {
 }
 
 watch(cameraRootId, (rootChatId, previousRootChatId) => {
+  cancelFocusTransition()
   headerSelections.value = {}
   const viewport = currentViewport()
   if (previousRootChatId && viewport) cameraByRoot.set(previousRootChatId, viewport)
@@ -330,6 +427,7 @@ watch(
 watch(
   [() => controller.replay.value, displayTimeline],
   ([replay, timeline]) => {
+    cancelFocusTransition()
     emit('replayTimelineChange', { replay, timeline: replay ? timeline : undefined })
   },
   { flush: 'sync' },
@@ -345,10 +443,14 @@ watch(
 watch(
   () => props.suspended,
   (suspended) => {
-    if (suspended) closeStepDetails(false)
+    if (suspended) {
+      cancelFocusTransition()
+      closeStepDetails(false)
+    }
   },
 )
 onBeforeUnmount(() => {
+  cancelFocusTransition()
   if (resizeFrame) cancelAnimationFrame(resizeFrame)
   const viewport = currentViewport()
   if (viewport) cameraByRoot.set(cameraRootId.value, viewport)
@@ -509,6 +611,8 @@ defineExpose({
       ref="flowHostRef"
       class="workflow-flow-host"
       :aria-busy="controller.loading.value || controller.historyLoading.value"
+      @pointerdown.capture="cancelFocusTransition"
+      @wheel.passive.capture="cancelFocusTransition"
     >
       <VueFlow
         aria-label="执行拓扑画布"
@@ -546,6 +650,9 @@ defineExpose({
         </template>
         <template #edge-result="edgeProps">
           <WorkflowResultEdge v-bind="edgeProps" />
+        </template>
+        <template #edge-focus="edgeProps">
+          <WorkflowFocusEdge v-bind="edgeProps" />
         </template>
       </VueFlow>
       <WorkflowStepDetails

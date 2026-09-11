@@ -18,6 +18,15 @@ const path = computed(() =>
     offset: 28,
   }),
 )
+const edgeColor = computed(() => {
+  const status = props.data?.targetStatus
+  if (status === 'waiting') return 'var(--warning)'
+  if (status === 'succeeded' || status === 'success') return 'var(--success)'
+  if (status === 'failed' || status === 'rejected' || status === 'danger') return 'var(--danger)'
+  if (status === 'cancelled' || status === 'interrupted' || status === 'muted')
+    return 'var(--workflow-muted)'
+  return props.data?.accent ?? 'var(--accent)'
+})
 </script>
 
 <template>
@@ -25,8 +34,14 @@ const path = computed(() =>
     :id="id"
     :path="path[0]"
     :marker-end="markerEnd"
-    :style="style"
+    :style="[style, { stroke: edgeColor }]"
     :interaction-width="18"
+  />
+  <path
+    :d="path[0]"
+    class="workflow-result-edge-signal"
+    :data-workflow-result-edge="id"
+    :style="{ stroke: edgeColor }"
   />
   <EdgeLabelRenderer v-if="data?.relationLabel">
     <span
@@ -53,6 +68,14 @@ const path = computed(() =>
   font-weight: 400;
   letter-spacing: 0;
   line-height: 18px;
+  pointer-events: none;
+}
+.workflow-result-edge-signal {
+  fill: none;
+  stroke: var(--accent);
+  stroke-dasharray: 8 12;
+  stroke-width: 2.5;
+  opacity: 0;
   pointer-events: none;
 }
 </style>

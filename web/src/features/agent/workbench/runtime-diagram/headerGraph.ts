@@ -1,4 +1,5 @@
 import { MarkerType, type Node } from '@vue-flow/core'
+import type { ActiveTurnSnapshot } from '@/application/backend/public'
 import type { HeaderLaneProjection } from './workflowProjection'
 import {
   WORKFLOW_HEADER_TEMPLATE,
@@ -15,6 +16,7 @@ import {
   type HeaderSlotState,
 } from './headerState'
 import type { WorkflowGraphNodeData, WorkflowGraphEdge, WorkflowGraphNode } from './graphModel'
+import { headerVisual, type WorkflowVisualIdentity } from './workflowVisuals'
 
 export type HeaderSelection = {
   headerId: string
@@ -40,6 +42,8 @@ export type HeaderChildData =
       recorded: boolean
       complete: boolean
       selected?: boolean
+      visual: WorkflowVisualIdentity
+      liveTurn?: ActiveTurnSnapshot
     }
   | { kind: 'header-calls'; headerId: string; state: HeaderStateProjection }
 
@@ -82,6 +86,7 @@ export function buildHeaderNodes(input: {
   currentRunId?: string
   recorded: boolean
   complete: boolean
+  activeTurns?: readonly ActiveTurnSnapshot[]
 }): { nodes: WorkflowGraphNode[]; edges: WorkflowGraphEdge[]; state: HeaderStateProjection } {
   const { header } = input
   const state = projectHeaderState({
@@ -140,6 +145,20 @@ export function buildHeaderNodes(input: {
     })
   for (const template of WORKFLOW_HEADER_TEMPLATE.nodes) {
     const group = WORKFLOW_HEADER_TEMPLATE.groups.find((item) => item.id === template.group)!
+    const slot = state.slots[template.id]!
+    const liveTurn =
+      template.id === 'model' && slot.status === 'running'
+        ? input.activeTurns
+            ?.filter(
+              (turn) =>
+                (turn.chatId ?? header.chatId) === header.chatId &&
+                turn.status !== 'completed' &&
+                turn.status !== 'error' &&
+                (!slot.occurrence?.runId || !turn.runId || turn.runId === slot.occurrence.runId),
+            )
+            .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+            .at(-1)
+        : undefined
     nodes.push({
       id: headerTemplateNodeId(header.id, template.id),
       type: 'header-step',
@@ -156,7 +175,9 @@ export function buildHeaderNodes(input: {
         headerId: header.id,
         chatId: header.chatId,
         template,
-        slot: state.slots[template.id]!,
+        slot,
+        visual: headerVisual(template),
+        ...(liveTurn ? { liveTurn } : {}),
         scope: state.scope,
         recorded: input.recorded,
         complete: input.complete,
@@ -177,6 +198,7 @@ export function buildHeaderNodes(input: {
     data: { kind: 'header-calls', headerId: header.id, state },
   })
   const edges: WorkflowGraphEdge[] = WORKFLOW_HEADER_TEMPLATE.edges.map((edge) => {
+    const targetTemplate = WORKFLOW_HEADER_TEMPLATE.nodes.find((node) => node.id === edge.target)!
     const source = state.slots[edge.source]?.occurrence
     const target = state.slots[edge.target]?.occurrence
     // Sequence adjacency does not prove a path. Only explicit cause links do.
@@ -209,6 +231,11 @@ export function buildHeaderNodes(input: {
         labelPoint: { x: labelPoint.x + input.position.x, y: labelPoint.y + input.position.y },
         points,
         evidenced,
+        sourceOccurrenceId: source?.occurrenceId,
+        targetOccurrenceId: target?.occurrenceId,
+        targetStatus: target?.status,
+        targetSequence: target?.lastSequence,
+        accent: headerVisual(targetTemplate).accent,
       },
     }
   })

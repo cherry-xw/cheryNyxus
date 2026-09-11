@@ -1,29 +1,52 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   planWorkflowMotion,
+  orthogonalPathBetween,
+  pointAtPolylineProgress,
+  polylineLength,
   selectWorkflowMotionLoops,
-  shouldLoopWorkflowMotion,
+  workflowPathDurationMs,
   WorkflowMotionRegistry,
   type WorkflowMotionContext,
-  type WorkflowMotionItem,
+  type WorkflowMotionEdge,
+  type WorkflowMotionFrame,
+  type WorkflowMotionNode,
 } from '../../src/features/agent/workbench/runtime-diagram/motionPolicy'
 
-function item(
-  occurrenceId: string,
-  overrides: Partial<WorkflowMotionItem> = {},
-): WorkflowMotionItem {
+function node(id: string, overrides: Partial<WorkflowMotionNode> = {}): WorkflowMotionNode {
   return {
-    occurrenceId,
+    id,
     rootChatId: 'root',
-    sourceHeaderId: 'header:main',
-    kind: 'model',
+    family: 'header',
     status: 'running',
+    occurrenceId: `occurrence:${id}`,
+    sequence: 1,
     live: true,
-    orderQuality: 'exact',
-    firstSequence: 1,
-    lastSequence: 1,
     ...overrides,
   }
+}
+
+function edge(
+  id: string,
+  target: WorkflowMotionNode,
+  overrides: Partial<WorkflowMotionEdge> = {},
+): WorkflowMotionEdge {
+  return {
+    id,
+    sourceId: 'source',
+    targetId: target.id,
+    family: target.family,
+    points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }],
+    evidenced: true,
+    targetOccurrenceId: target.occurrenceId,
+    targetStatus: target.status,
+    sequence: target.sequence,
+    ...overrides,
+  }
+}
+
+function frame(nodes: WorkflowMotionNode[], edges: WorkflowMotionEdge[] = []): WorkflowMotionFrame {
+  return { nodes, edges }
 }
 
 function context(overrides: Partial<WorkflowMotionContext> = {}): WorkflowMotionContext {
@@ -41,23 +64,40 @@ function context(overrides: Partial<WorkflowMotionContext> = {}): WorkflowMotion
 }
 
 describe('workflow runtime motion policy', () => {
-  it('animates only exact live changes for the current root', () => {
+  it('moves only along an evidenced template path for the exact occurrence', () => {
+    const target = node('target')
     const decisions = planWorkflowMotion(
-      [],
-      [
-        item('current'),
-        item('other-root', { rootChatId: 'other' }),
-        item('legacy', { orderQuality: 'reconstructed' }),
-        item('gap', { status: 'unknown', live: false }),
-      ],
+      frame([]),
+      frame([target], [
+        edge('exact', target),
+        edge('inferred', target, { evidenced: false }),
+        edge('wrong-occurrence', target, { targetOccurrenceId: 'other' }),
+      ]),
       context(),
     )
-    expect(decisions).toEqual([
-      expect.objectContaining({
-        item: expect.objectContaining({ occurrenceId: 'current' }),
-        phase: 'enter',
-      }),
-    ])
+
+    expect(
+      decisions.map((decision) =>
+        `${decision.kind}:${decision.kind === 'node' ? decision.node.id : decision.edge.id}`,
+      ),
+    ).toEqual(['node:target', 'path:exact'])
+  })
+
+  it('animates a canonical result and its explicit incoming fact edge once', () => {
+    const result = node('result', {
+      family: 'result',
+      occurrenceId: undefined,
+      status: 'success',
+      live: false,
+      sequence: 8,
+    })
+    expect(planWorkflowMotion(frame([]), frame([result], [edge('fact', result)]), context()))
+      .toMatchObject([
+        { kind: 'node', node: { id: 'result' }, phase: 'settle' },
+        { kind: 'result-edge', edge: { id: 'fact' }, node: { id: 'result' } },
+      ])
+    expect(planWorkflowMotion(frame([result]), frame([result], [edge('fact', result)]), context()))
+      .toEqual([])
   })
 
   it.each([
@@ -67,86 +107,87 @@ describe('workflow runtime motion policy', () => {
     ['minimized', { suspended: true }],
     ['disconnected', { synced: false }],
   ])('keeps %s snapshots static', (_label, overrides) => {
-    expect(planWorkflowMotion([], [item('new')], context(overrides))).toEqual([])
+    expect(planWorkflowMotion(frame([]), frame([node('new')]), context(overrides))).toEqual([])
   })
 
-  it('settles a rapid terminal occurrence and cancels no-op repeats', () => {
-    expect(
-      planWorkflowMotion([], [item('fast', { status: 'succeeded', live: false })], context()),
-    ).toEqual([
-      expect.objectContaining({
-        item: expect.objectContaining({ occurrenceId: 'fast' }),
-        phase: 'settle',
-      }),
-    ])
-    const waiting = item('same', { status: 'waiting' })
-    expect(planWorkflowMotion([waiting], [waiting], context())).toEqual([])
-  })
-
-  it('distinguishes waiting, resume and terminal transitions without changing identity', () => {
-    const running = item('same')
-    const waiting = item('same', { status: 'waiting', lastSequence: 2 })
-    const resumed = item('same', { lastSequence: 3 })
-    const failed = item('same', { status: 'failed', live: false, lastSequence: 4 })
-
-    expect(planWorkflowMotion([running], [waiting], context())[0]).toMatchObject({
-      item: { occurrenceId: 'same' },
-      phase: 'status',
+  it('settles rapid terminal replacement and ignores identical snapshots', () => {
+    const running = node('same')
+    const failed = node('same', { status: 'failed', live: false, sequence: 2 })
+    expect(planWorkflowMotion(frame([running]), frame([failed]), context())[0]).toMatchObject({
+      kind: 'node',
+      node: { id: 'same' },
+      phase: 'settle',
     })
-    expect(planWorkflowMotion([waiting], [resumed], context())[0]?.phase).toBe('status')
-    expect(planWorkflowMotion([resumed], [failed], context())[0]?.phase).toBe('settle')
+    expect(planWorkflowMotion(frame([failed]), frame([failed]), context())).toEqual([])
   })
 
-  it('removes spatial motion for reduced mode and bounds work to visible newest items', () => {
-    const values = Array.from({ length: 5 }, (_, index) =>
-      item(`item-${index}`, { firstSequence: index, lastSequence: index }),
+  it('isolates roots, visibility and the twelve-effect one-shot budget', () => {
+    const values = Array.from({ length: 14 }, (_, index) =>
+      node(`node-${index}`, { sequence: index }),
     )
-    const visible = new Set(['item-1', 'item-3', 'item-4'])
-    expect(
-      planWorkflowMotion(
-        [],
-        values,
-        context({ spatial: false, visibleOccurrenceIds: visible, limit: 2 }),
-      ).map((decision) => ({ id: decision.item.occurrenceId, spatial: decision.spatial })),
-    ).toEqual([
-      { id: 'item-3', spatial: false },
-      { id: 'item-4', spatial: false },
+    values.push(node('other-root', { rootChatId: 'other', sequence: 99 }))
+    const visibleNodeIds = new Set(
+      values.filter((item) => item.rootChatId === 'root').map((item) => item.id),
+    )
+    const decisions = planWorkflowMotion(
+      frame([]),
+      frame(values),
+      context({ visibleNodeIds, limit: 12 }),
+    )
+    expect(decisions).toHaveLength(12)
+    expect(decisions.map((decision) => decision.node.id)).toEqual(
+      Array.from({ length: 12 }, (_, index) => `node-${index + 2}`),
+    )
+  })
+
+  it('limits continuous motion to the newest visible running nodes', () => {
+    const values = Array.from({ length: 10 }, (_, index) =>
+      node(`loop-${index}`, { sequence: index }),
+    )
+    values.push(node('waiting', { status: 'waiting', sequence: 20 }))
+    expect(selectWorkflowMotionLoops(frame(values), context(), 3).map((item) => item.id))
+      .toEqual(['loop-9', 'loop-8', 'loop-7'])
+    expect(selectWorkflowMotionLoops(frame(values), context({ loops: false }), 8)).toEqual([])
+    expect(selectWorkflowMotionLoops(frame(values), context({ replay: true }), 8)).toEqual([])
+  })
+
+  it('interpolates every orthogonal segment and clamps path timing', () => {
+    const points = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }]
+    expect(polylineLength(points)).toBe(70)
+    expect(pointAtPolylineProgress(points, 20 / 70)).toEqual({ x: 20, y: 0 })
+    expect(pointAtPolylineProgress(points, 55 / 70)).toEqual({ x: 40, y: 15 })
+    expect(pointAtPolylineProgress(points, -1)).toEqual({ x: 0, y: 0 })
+    expect(pointAtPolylineProgress(points, 2)).toEqual({ x: 40, y: 30 })
+    expect(workflowPathDurationMs(points)).toBe(1500)
+    expect(workflowPathDurationMs([{ x: 0, y: 0 }, { x: 220, y: 0 }])).toBe(2200)
+    expect(workflowPathDurationMs([{ x: 0, y: 0 }, { x: 500, y: 0 }])).toBe(3000)
+  })
+
+  it('builds a deterministic orthogonal relationship path in either direction', () => {
+    expect(orthogonalPathBetween({ x: 100, y: 20 }, { x: 20, y: 80 })).toEqual([
+      { x: 100, y: 20 },
+      { x: 60, y: 20 },
+      { x: 60, y: 80 },
+      { x: 20, y: 80 },
     ])
   })
 
-  it('runs continuous feedback only for visible active nodes in full motion', () => {
-    const active = item('active', { status: 'waiting' })
-    expect(
-      shouldLoopWorkflowMotion(active, context({ visibleOccurrenceIds: new Set(['active']) })),
-    ).toBe(true)
-    expect(shouldLoopWorkflowMotion(active, context({ loops: false }))).toBe(false)
-    expect(shouldLoopWorkflowMotion(active, context({ visibleOccurrenceIds: new Set() }))).toBe(
-      false,
-    )
-    expect(shouldLoopWorkflowMotion(active, context({ replay: true }))).toBe(false)
-
-    const values = Array.from({ length: 10 }, (_, index) =>
-      item(`loop-${index}`, { firstSequence: index, lastSequence: index }),
-    )
-    expect(
-      selectWorkflowMotionLoops(values, context(), 3).map((candidate) => candidate.occurrenceId),
-    ).toEqual(['loop-9', 'loop-8', 'loop-7'])
-  })
-
-  it('cancels stale handles on replace and all handles on teardown', () => {
+  it('replaces stale handles atomically and clears teardown work', () => {
     const registry = new WorkflowMotionRegistry()
     const first = vi.fn()
     const latest = vi.fn()
     const other = vi.fn()
-    const releaseLatest = registry.track('same', first)
-    registry.track('same', latest)
+    const releaseFirst = registry.track('same', first)
+    const releaseLatest = registry.track('same', latest)
     registry.track('other', other)
 
     expect(first).toHaveBeenCalledOnce()
-    releaseLatest()
+    releaseFirst()
     expect(registry.size).toBe(2)
+    releaseLatest()
+    expect(registry.size).toBe(1)
     registry.cancelAll()
-    expect(latest).toHaveBeenCalledOnce()
+    expect(latest).not.toHaveBeenCalled()
     expect(other).toHaveBeenCalledOnce()
     expect(registry.size).toBe(0)
   })

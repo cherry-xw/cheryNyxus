@@ -328,9 +328,11 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--workflow-capability) 38%, transparent);
   border-radius: 0;
-  background: transparent;
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--workflow-capability) 9%, transparent), transparent 62%),
+    transparent;
   padding: 6px;
   color: var(--ink);
   text-align: left;
@@ -342,14 +344,75 @@
   place-items: center;
   width: 52px;
   height: 52px;
-  border: 1px solid var(--workflow-node-border);
-  background: var(--surface);
-  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--workflow-capability) 70%, var(--workflow-node-border));
+  background: color-mix(in srgb, var(--workflow-capability-soft) 26%, var(--surface));
+  color: var(--workflow-capability);
+}
+/* 内容节点 icon 撑满外边框容器，使状态角标能压在外边框右上角 */
+:deep(.workflow-result-glyph .workflow-morph-icon) {
+  width: 100%;
+  height: 100%;
+}
+/* 状态角标骑在外边框线上（描边中线对齐边框线），覆盖右上角转角 */
+:deep(.workflow-result-glyph .workflow-morph-status) {
+  right: -7px;
+  top: -7px;
+}
+:deep(.workflow-result-glyph .workflow-morph-status svg) {
+  width: 12px;
+  height: 12px;
+  /* 保障：角标尺寸上限，与居中主 icon 保持 ≥5px 间隙 */
+  max-width: 16px;
+  max-height: 16px;
+}
+/* 角标背景色：仅角标内部圆形区域，遮挡骑线处透出的边框线；色值与状态绑定 */
+:deep(.workflow-result-node-root .workflow-morph-status) {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+}
+:deep(.workflow-result-node-root.status-running .workflow-morph-status) {
+  background: var(--workflow-capability);
+}
+:deep(.workflow-result-node-root.status-waiting .workflow-morph-status) {
+  background: var(--warning);
+  color: var(--ink);
+}
+:deep(.workflow-result-node-root.status-success .workflow-morph-status) {
+  background: var(--success);
+}
+:deep(.workflow-result-node-root.status-danger .workflow-morph-status) {
+  background: var(--danger);
+}
+:deep(.workflow-result-node-root.status-muted .workflow-morph-status) {
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
+  color: var(--ink);
+}
+:deep(.workflow-result-glyph.skin-tool) {
+  border-width: 3px;
+  border-style: double;
+}
+:deep(.workflow-result-glyph.skin-branch) {
+  border-block-width: 3px;
+  border-block-style: double;
+}
+:deep(.workflow-result-glyph.skin-gate) {
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+:deep(.workflow-result-glyph.skin-circuit) {
+  background-image: linear-gradient(135deg, transparent 44%, color-mix(in srgb, var(--workflow-capability) 20%, transparent) 45% 55%, transparent 56%);
+}
+:deep(.workflow-result-glyph.skin-archive) {
+  box-shadow: inset 0 -5px 0 color-mix(in srgb, var(--workflow-capability) 20%, transparent);
 }
 
 :deep(.workflow-result-glyph svg) {
   width: 22px;
   height: 22px;
+  /* 保障：主 icon 尺寸上限，与右上角状态角标保持间隙 */
+  max-width: 22px;
+  max-height: 22px;
   flex-basis: 22px;
 }
 
@@ -428,7 +491,7 @@
 }
 
 :deep(.workflow-result-node-root.status-running .workflow-result-status) {
-  color: var(--accent);
+  color: var(--workflow-capability);
 }
 
 :deep(.workflow-result-node-root.status-waiting .workflow-result-status) {
@@ -525,6 +588,8 @@
 }
 
 :deep(.workflow-occurrence-node.is-motion-target),
+:deep(.workflow-result-node-root.is-motion-target [data-workflow-node-visual]),
+:deep(.workflow-step-root.is-motion-target [data-workflow-node-visual]),
 :deep(.workflow-node-status-icon.is-motion-looping),
 :deep(.workflow-motion-ghost) {
   will-change: transform, opacity;
