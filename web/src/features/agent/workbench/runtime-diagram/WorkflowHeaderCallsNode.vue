@@ -8,6 +8,7 @@ const emit = defineEmits<{ selectScope: [event: HeaderScopeEvent] }>()
 <template>
   <section
     class="workflow-calls nodrag nopan nowheel"
+    data-workflow-layer="tools"
     aria-label="共享处理链的调用选择"
     @pointerdown.stop
     @wheel.stop

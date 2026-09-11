@@ -2,125 +2,49 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import type { ActiveTurnSnapshot } from '@/application/backend/public'
 import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
-
 const props = defineProps<{ turn: ActiveTurnSnapshot }>()
 const bodyRef = ref<HTMLElement | null>(null)
 const userScrolled = ref(false)
-const channel = computed(() => (props.turn.content ? '正文' : props.turn.thinking ? '思考' : '响应'))
-const source = computed(() => props.turn.content || props.turn.thinking || '等待首个响应片段…')
+const selectedChannel = ref<'content' | 'thinking'>('content')
+const channel = computed(() => selectedChannel.value === 'thinking' && props.turn.thinking ? 'thinking' : props.turn.content ? 'content' : 'thinking')
+const source = computed(() => props.turn[channel.value] || '等待首个响应片段…')
 const { html } = useRenderedMarkdown(() => source.value, { mode: 'preview' })
-
 function followTail(): void {
   if (userScrolled.value) return
-  void nextTick(() => {
-    const body = bodyRef.value
-    if (body) body.scrollTop = body.scrollHeight
-  })
+  void nextTick(() => { if (bodyRef.value) bodyRef.value.scrollTop = bodyRef.value.scrollHeight })
 }
 function onScroll(): void {
   const body = bodyRef.value
-  if (!body) return
-  userScrolled.value = body.scrollHeight - body.scrollTop - body.clientHeight > 16
+  if (body) userScrolled.value = body.scrollHeight - body.scrollTop - body.clientHeight > 16
 }
+function returnToLatest(): void { userScrolled.value = false; followTail() }
 watch(source, followTail, { immediate: true })
+watch(() => props.turn.turnId, () => { userScrolled.value = false; selectedChannel.value = 'content'; followTail() })
 </script>
-
 <template>
-  <aside class="workflow-live-crt nodrag nopan" role="status" aria-label="模型实时响应">
+  <aside class="workflow-live-crt nodrag nopan nowheel" aria-label="模型实时响应" @pointerdown.stop @wheel.stop>
     <header>
-      <span class="workflow-live-crt-dot" aria-hidden="true" />
-      <strong>LLM LIVE</strong>
-      <span>{{ channel }}</span>
+      <strong>实时响应</strong>
+      <button v-if="turn.content" type="button" :aria-pressed="channel === 'content'" @click.stop="selectedChannel = 'content'">正文</button>
+      <button v-if="turn.thinking" type="button" :aria-pressed="channel === 'thinking'" @click.stop="selectedChannel = 'thinking'">思考摘要</button>
     </header>
     <div ref="bodyRef" class="workflow-live-crt-body" @scroll="onScroll" v-html="html" />
-    <footer>{{ userScrolled ? '已暂停自动跟随' : '正在实时打印' }}</footer>
+    <footer>
+      <span>{{ userScrolled ? '已暂停自动跟随' : '正在实时输出' }}</span>
+      <button v-if="userScrolled" type="button" @click.stop="returnToLatest">回到最新</button>
+    </footer>
   </aside>
 </template>
-
 <style scoped lang="less">
-.workflow-live-crt {
-  position: absolute;
-  z-index: 18;
-  top: calc(100% + 9px);
-  left: 0;
-  display: grid;
-  grid-template-rows: 25px minmax(72px, 112px) 19px;
-  width: 258px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--workflow-capability) 72%, #82939b);
-  background: #091117;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38);
-  color: #d9e7eb;
-  font-family: ui-monospace, 'JetBrains Mono', monospace;
-  pointer-events: auto;
-}
-.workflow-live-crt::before {
-  position: absolute;
-  z-index: 1;
-  inset: 25px 0 19px;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0 3px,
-    rgba(126, 205, 217, 0.035) 3px 4px
-  );
-  content: '';
-  pointer-events: none;
-}
-.workflow-live-crt header,
-.workflow-live-crt footer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 7px;
-  background: #101b22;
-  color: #849aa3;
-  font-size: 9px;
-  letter-spacing: 0.04em;
-}
-.workflow-live-crt header {
-  border-bottom: 1px solid rgba(145, 183, 194, 0.18);
-}
-.workflow-live-crt header strong {
-  color: #e6f1f4;
-  font-size: 10px;
-}
-.workflow-live-crt header > :last-child {
-  margin-left: auto;
-}
-.workflow-live-crt footer {
-  border-top: 1px solid rgba(145, 183, 194, 0.18);
-}
-.workflow-live-crt-dot {
-  width: 5px;
-  height: 5px;
-  background: #63d59a;
-  box-shadow: 0 0 7px rgba(99, 213, 154, 0.65);
-}
-.workflow-live-crt-body {
-  position: relative;
-  overflow: auto;
-  padding: 7px 9px;
-  color: #cde0e5;
-  font-size: 10px;
-  line-height: 1.5;
-  overscroll-behavior: contain;
-  scrollbar-color: rgba(116, 157, 168, 0.55) transparent;
-  scrollbar-width: thin;
-  user-select: text;
-}
-.workflow-live-crt-body :deep(p) {
-  margin: 0 0 0.45em;
-}
-.workflow-live-crt-body :deep(p:last-child) {
-  margin-bottom: 0;
-}
-.workflow-live-crt-body :deep(pre) {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-@media (prefers-reduced-motion: reduce) {
-  .workflow-live-crt-dot {
-    box-shadow: none;
-  }
-}
+.workflow-live-crt { position: absolute; z-index: 18; top: calc(100% + 8px); left: 0; display: grid; grid-template-rows: 32px minmax(0, 1fr) 30px; width: 280px; height: 180px; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 0; background: var(--panel); color: var(--ink); pointer-events: auto; }
+header, footer { display: flex; align-items: center; gap: 8px; padding: 0 8px; font-size: 12px; font-weight: 400; background: var(--surface); }
+header { border-bottom: 1px solid var(--border); }
+header strong { font-weight: 600; margin-right: auto; }
+footer { justify-content: space-between; border-top: 1px solid var(--border); }
+button { padding: 3px; border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 400; cursor: pointer; }
+button[aria-pressed='true'] { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.workflow-live-crt-body { overflow: auto; padding: 8px 10px; font-size: 12px; line-height: 1.5; overscroll-behavior: contain; scrollbar-color: var(--border-strong) var(--panel); scrollbar-width: thin; user-select: text; }
+.workflow-live-crt-body :deep(p) { margin: 0 0 0.45em; }
+.workflow-live-crt-body :deep(pre) { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

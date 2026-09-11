@@ -64,15 +64,15 @@ const VISUALS: Record<WorkflowCapability, WorkflowVisualIdentity> = {
 
 export function headerVisual(template: HeaderTemplateNode): WorkflowVisualIdentity {
   const capability: WorkflowCapability =
-    template.group === 'intake'
-      ? 'input'
-      : template.group === 'request'
-        ? 'context'
-        : template.group === 'model'
+    template.id === 'context'
+      ? 'context'
+      : template.group === 'intake'
+        ? 'input'
+        : template.group === 'model-layer'
           ? 'model'
           : template.group === 'tools'
             ? 'tool'
-            : template.group === 'control'
+            : ['record', 'loop', 'retry-layer'].includes(template.group)
               ? 'control'
               : template.group === 'collaboration'
                 ? 'collaboration'

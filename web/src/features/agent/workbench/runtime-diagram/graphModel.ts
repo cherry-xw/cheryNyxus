@@ -9,8 +9,10 @@ import {
   headerTemplateNodeId,
   type HeaderChildData,
   type HeaderBounds,
+  type HeaderViewOptions,
 } from './headerGraph'
 import { WORKFLOW_HEADER_TEMPLATE, type HeaderPoint } from './headerTemplate'
+import { headerCrossingPath } from './headerPaths'
 import type { HeaderScopeSelection, HeaderStateProjection } from './headerState'
 import {
   presentResultNode,
@@ -66,6 +68,8 @@ export type WorkflowGraphNodeData =
       chatId: string
       title: string
       mode: 'full' | 'compact'
+      expandable?: boolean
+      collapsed?: boolean
       templateVersion: typeof WORKFLOW_HEADER_TEMPLATE_VERSION
       runStatus: string
       active: WorkflowOccurrence[]
@@ -86,8 +90,13 @@ export type WorkflowGraphEdge = Edge<{
   relation: string
   relationLabel?: string
   semantic: WorkflowProjectionEdge['semantic']
+  collector?: boolean
+  junction?: HeaderPoint
+  labelAnchor?: HeaderPoint
+  renderPath?: string
   points?: HeaderPoint[]
   labelPoint?: HeaderPoint
+  members?: Array<{ id: string; label: string; evidenced: boolean; sourceOccurrenceId?: string; targetOccurrenceId?: string; targetStatus?: WorkflowOccurrence['status']; targetSequence?: number }>
   evidenced?: boolean
   sourceOccurrenceId?: string
   targetOccurrenceId?: string
@@ -99,6 +108,9 @@ export type WorkflowGraphEdge = Edge<{
 export interface WorkflowGraphProjection {
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
+  representatives?: Record<string, string>
+  internalEdgeIds?: string[]
+  rawActiveOccurrenceId?: string
   activeHeaderId?: string
   activeOccurrenceId?: string
   /** 活跃 header 中正在执行/等待的 step 所属 group id 集合（驱动 group 自动展开） */
@@ -113,8 +125,8 @@ export const WORKFLOW_GRAPH_LAYOUT = {
   itemStride: 224,
   contentWidth: 176,
   contentHeight: 88,
-  compactHeaderWidth: 228,
-  compactHeaderHeight: 116,
+  compactHeaderWidth: 176,
+  compactHeaderHeight: 88,
   fullHeaderWidth: WORKFLOW_HEADER_TEMPLATE.width,
   fullHeaderHeight: WORKFLOW_HEADER_TEMPLATE.height,
   headerGap: 72,
@@ -159,6 +171,7 @@ export function projectWorkflowGraph(
   foldMode: NyxusReaderFoldMode = 'none',
   headerSelections: Readonly<Record<string, HeaderScopeSelection>> = {},
   activeTurns: readonly ActiveTurnSnapshot[] = [],
+  view: HeaderViewOptions = {},
 ): WorkflowGraphProjection {
   const scene = projectWorkflowScene(workflow, timeline, foldMode)
   const laneIndex = new Map(scene.headerFlow.headers.map((header, index) => [header.laneId, index]))
@@ -206,6 +219,8 @@ export function projectWorkflowGraph(
     if (node.data?.kind === 'content') contentTargets.set(node.id, node.data)
   }
   const headerEdges: WorkflowGraphEdge[] = []
+  const representatives: Record<string, string> = {}
+  const internalEdgeIds: string[] = []
   const activeGroupIds = new Set<string>()
   let activeOccurrenceId: string | undefined
   // Place the full head first, then compact heads in stable branch order.
@@ -225,37 +240,33 @@ export function projectWorkflowGraph(
         (lastColumn + 1) * WORKFLOW_GRAPH_LAYOUT.itemStride +
         WORKFLOW_GRAPH_LAYOUT.headerGap,
     )
-    const bounds = placeHeader(
-      {
-        x,
-        y:
-          WORKFLOW_GRAPH_LAYOUT.originY +
-          (laneIndex.get(header.laneId) ?? 0) * WORKFLOW_GRAPH_LAYOUT.laneStride,
-        width:
-          header.mode === 'full'
-            ? WORKFLOW_GRAPH_LAYOUT.fullHeaderWidth
-            : WORKFLOW_GRAPH_LAYOUT.compactHeaderWidth,
-        height:
-          header.mode === 'full'
-            ? WORKFLOW_GRAPH_LAYOUT.fullHeaderHeight
-            : WORKFLOW_GRAPH_LAYOUT.compactHeaderHeight,
-      },
-      obstacles,
-      WORKFLOW_GRAPH_LAYOUT.headerGap,
-    )
-    obstacles.push(bounds)
     const built = buildHeaderNodes({
-      header,
-      position: { x: bounds.x, y: bounds.y },
+      header, position: { x: 0, y: 0 }, view,
       selection: headerSelections[header.id],
       currentRunId: timeline?.activeRuns.find((run) => run.chatId === header.chatId)?.runId,
       recorded: !!workflow,
-      complete:
-        !!workflow?.historyComplete &&
-        !workflow?.hasEarlier &&
-        !workflow?.gaps.some((gap) => !gap.chatId || gap.chatId === header.chatId),
+      complete: !!workflow?.historyComplete && !workflow?.hasEarlier && !workflow?.gaps.some((gap) => !gap.chatId || gap.chatId === header.chatId),
       activeTurns,
     })
+    const root = built.nodes[0]!
+    const bounds = placeHeader({ x, y: WORKFLOW_GRAPH_LAYOUT.originY + (laneIndex.get(header.laneId) ?? 0) * WORKFLOW_GRAPH_LAYOUT.laneStride, width: Number(root.width), height: Number(root.height) }, obstacles, WORKFLOW_GRAPH_LAYOUT.headerGap)
+    obstacles.push(bounds)
+    root.position = { x: bounds.x, y: bounds.y }
+    for (const edge of built.edges) {
+      if (!edge.data) continue
+      edge.data.points = edge.data.points?.map((point) => ({ x: point.x + bounds.x, y: point.y + bounds.y }))
+      if (edge.data.junction) edge.data.junction = { x: edge.data.junction.x + bounds.x, y: edge.data.junction.y + bounds.y }
+      if (edge.data.labelAnchor) edge.data.labelAnchor = { x: edge.data.labelAnchor.x + bounds.x, y: edge.data.labelAnchor.y + bounds.y }
+      if (edge.data.labelPoint) edge.data.labelPoint = { x: edge.data.labelPoint.x + bounds.x, y: edge.data.labelPoint.y + bounds.y }
+    }
+    Object.assign(representatives, built.representatives)
+    internalEdgeIds.push(...built.internalEdgeIds)
+    const previousPaths: Array<{ points: HeaderPoint[]; collector?: boolean }> = []
+    for (const edge of built.edges) {
+      if (!edge.data?.points) continue
+      edge.data.renderPath = headerCrossingPath(edge.data.points, previousPaths.filter(path => !(path.collector && edge.data?.collector)).map(path => path.points))
+      previousPaths.push({ points: edge.data.points, collector: edge.data.collector })
+    }
     nodes.push(...built.nodes)
     headerEdges.push(...built.edges)
     const activeSlot = Object.values(built.state.slots)
@@ -281,7 +292,9 @@ export function projectWorkflowGraph(
     nodes,
     edges: [...scene.edges.map((edge) => graphEdge(edge, contentTargets)), ...headerEdges],
     activeHeaderId: scene.headerFlow.activeHeaderId,
-    activeOccurrenceId,
+    activeOccurrenceId: activeOccurrenceId ? representatives[activeOccurrenceId] ?? activeOccurrenceId : undefined,
+    rawActiveOccurrenceId: activeOccurrenceId,
+    representatives, internalEdgeIds,
     activeGroupIds,
     scene,
   }
