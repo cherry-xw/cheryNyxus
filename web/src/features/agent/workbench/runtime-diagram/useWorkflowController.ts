@@ -1,30 +1,62 @@
 import { computed, onBeforeUnmount, ref, shallowRef, watch, type Ref } from 'vue'
 import type {
   WorkflowHistoryResponse,
+  WorkflowHistoryRequest,
   WorkflowOpenResponse,
   WorkflowUpdated,
 } from '@chery/protocol'
 import { workflowApi } from '@/application/backend/public'
 import { acceptWorkflow, replayFrames, replaySnapshot } from './model'
+import { readWorkflowHistoryPages } from './workflowHistoryLoader'
+import {
+  applyWorkflowUpdate,
+  buildWorkflowReplayState,
+  installWorkflowSnapshot,
+  workflowReplayLength,
+  type WorkflowClientState,
+} from './workflowState'
+import type { WorkflowMotionSource } from './motionPolicy'
+
+export interface WorkflowChangeSignal {
+  serial: number
+  source: WorkflowMotionSource
+  rootChatId: string
+}
+
+export type WorkflowDetailHistoryTarget = Pick<
+  WorkflowHistoryRequest,
+  'sourceChatId' | 'runId' | 'contextStageId'
+>
 
 export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolean>) {
   const observerId = crypto.randomUUID()
   const live = shallowRef<WorkflowUpdated>()
+  const workflowState = shallowRef<WorkflowClientState>()
   const history = shallowRef<WorkflowHistoryResponse>()
+  const detailHistory = shallowRef<WorkflowHistoryResponse>()
   const loading = ref(false)
   const historyLoading = ref(false)
+  const detailHistoryLoading = ref(false)
   const error = ref('')
   const historyError = ref('')
+  const detailHistoryError = ref('')
   const synced = ref(workflowApi.connected())
   const replay = ref(false)
   const playing = ref(false)
   const speed = ref(1)
   const cursor = ref(0)
+  const workflowChange = shallowRef<WorkflowChangeSignal>({
+    serial: 0,
+    source: 'reset',
+    rootChatId: chatId.value,
+  })
+  let workflowChangeSerial = 0
   let generation = 0
   let historyGeneration = 0
+  let detailHistoryGeneration = 0
   let lease: WorkflowOpenResponse | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
-  let early = new Map<string, WorkflowUpdated>()
+  const early = new Map<string, WorkflowUpdated[]>()
   let opening = Promise.resolve()
   const hidden = ref(typeof document !== 'undefined' && document.hidden)
   const onVisibility = () => {
@@ -33,6 +65,7 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
   }
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
   const frames = computed(() => replayFrames(history.value?.facts ?? []))
+  const replayLength = computed(() => workflowReplayLength(history.value))
   const snapshot = computed(() => {
     if (!replay.value || !history.value) return live.value?.snapshot
     const page = history.value
@@ -57,6 +90,13 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
       cursor.value,
     )
   })
+  const projectedWorkflowState = computed(() => {
+    if (!replay.value || !history.value) return workflowState.value
+    return buildWorkflowReplayState(history.value, cursor.value)
+  })
+  function publishWorkflowChange(source: WorkflowMotionSource, rootChatId = chatId.value): void {
+    workflowChange.value = { serial: ++workflowChangeSerial, source, rootChatId }
+  }
   function clearTimer() {
     if (timer) clearTimeout(timer)
     timer = undefined
@@ -67,14 +107,14 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
   }
   function seek(index: number) {
     pause()
-    cursor.value = Math.max(0, Math.min(frames.value.length - 1, index))
+    cursor.value = Math.max(0, Math.min(replayLength.value - 1, index))
   }
   function tick() {
     clearTimer()
     if (!playing.value || suspended.value || hidden.value || !replay.value || historyLoading.value)
       return
     timer = setTimeout(() => {
-      if (cursor.value >= frames.value.length - 1) {
+      if (cursor.value >= replayLength.value - 1) {
         pause()
         return
       }
@@ -83,12 +123,12 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
     }, 700 / speed.value)
   }
   function play() {
-    if (!frames.value.length || historyLoading.value || suspended.value || hidden.value) return
+    if (!replayLength.value || historyLoading.value || suspended.value || hidden.value) return
     if (playing.value) {
       pause()
       return
     }
-    if (cursor.value >= frames.value.length - 1) cursor.value = 0
+    if (cursor.value >= replayLength.value - 1) cursor.value = 0
     playing.value = true
     tick()
   }
@@ -123,10 +163,20 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
       }
       lease = response
       live.value = response
-      const buffered = early.get(response.subscriptionId)
-      if (buffered && acceptWorkflow(live.value, buffered, response, target)) live.value = buffered
+      workflowState.value = response.steps ? installWorkflowSnapshot(response.steps) : undefined
+      let reload = false
+      for (const buffered of early.get(response.subscriptionId) ?? []) {
+        if (acceptWorkflow(live.value, buffered, response, target)) live.value = buffered
+        if (buffered.baseRevision !== undefined || buffered.invalidated) {
+          const decision = applyWorkflowUpdate(workflowState.value, buffered, response)
+          if (decision.kind === 'applied') workflowState.value = decision.state
+          else if (decision.kind === 'reload') reload = true
+        }
+      }
       early.clear()
+      publishWorkflowChange('hydrate', target)
       synced.value = true
+      if (reload) void open()
     } catch (cause) {
       if (token === generation) {
         error.value = cause instanceof Error ? cause.message : '流程加载失败，请重试'
@@ -137,18 +187,21 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
     }
   }
   const offUpdate = workflowApi.onUpdate((event) => {
-    if (event.snapshot.chatId !== chatId.value) return
     if (!lease) {
-      const previous = early.get(event.subscriptionId)
-      if (
-        !previous ||
-        event.streamId !== previous.streamId ||
-        event.snapshot.revision > previous.snapshot.revision
-      )
-        early.set(event.subscriptionId, event)
+      const buffered = early.get(event.subscriptionId) ?? []
+      if (buffered.length < 200) buffered.push(event)
+      early.set(event.subscriptionId, buffered)
       return
     }
     if (acceptWorkflow(live.value, event, lease, chatId.value)) live.value = event
+    if (event.subscriptionId !== lease.subscriptionId || event.streamId !== lease.streamId) return
+    if (event.baseRevision !== undefined || event.invalidated) {
+      const decision = applyWorkflowUpdate(workflowState.value, event, lease)
+      if (decision.kind === 'applied') {
+        workflowState.value = decision.state
+        publishWorkflowChange('live', decision.state.rootChatId)
+      } else if (decision.kind === 'reload') void open()
+    }
   })
   const offStatus = workflowApi.onStatus((connected) => {
     synced.value = false
@@ -157,6 +210,7 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
       ++generation
       lease = undefined
       loading.value = false
+      clearDetailHistory()
       pause()
     }
   })
@@ -170,22 +224,12 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
     history.value = undefined
     const target = chatId.value
     try {
-      let page = await workflowApi.history({ chatId: target, contextStageId: stage })
-      const facts = [...page.facts]
-      const seen = new Set<string>()
-      while (!page.complete) {
-        if (!page.nextCursor || seen.has(page.nextCursor))
-          throw new Error('历史分页未完成，请重新加载回放')
-        seen.add(page.nextCursor)
-        if (token !== historyGeneration) return
-        page = await workflowApi.history({
-          chatId: target,
-          contextStageId: page.contextStageId,
-          cursor: page.nextCursor,
-        })
-        facts.push(...page.facts)
-      }
-      if (token === historyGeneration) history.value = { ...page, facts }
+      const loaded = await readWorkflowHistoryPages(
+        { chatId: target, contextStageId: stage },
+        workflowApi.history,
+        () => token !== historyGeneration,
+      )
+      if (loaded && token === historyGeneration) history.value = loaded
     } catch (cause) {
       if (token === historyGeneration)
         historyError.value = cause instanceof Error ? cause.message : '历史加载失败，请重试'
@@ -193,32 +237,66 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
       if (token === historyGeneration) historyLoading.value = false
     }
   }
+  async function loadDetailHistory(filters: WorkflowDetailHistoryTarget = {}) {
+    const token = ++detailHistoryGeneration
+    detailHistoryLoading.value = true
+    detailHistoryError.value = ''
+    detailHistory.value = undefined
+    const target = chatId.value
+    try {
+      const loaded = await readWorkflowHistoryPages(
+        { chatId: target, ...filters },
+        workflowApi.history,
+        () => token !== detailHistoryGeneration || target !== chatId.value,
+      )
+      if (loaded && token === detailHistoryGeneration) detailHistory.value = loaded
+    } catch (cause) {
+      if (token === detailHistoryGeneration)
+        detailHistoryError.value =
+          cause instanceof Error ? cause.message : '步骤记录加载失败，请重试'
+    } finally {
+      if (token === detailHistoryGeneration) detailHistoryLoading.value = false
+    }
+  }
+  function clearDetailHistory() {
+    ++detailHistoryGeneration
+    detailHistoryLoading.value = false
+    detailHistoryError.value = ''
+    detailHistory.value = undefined
+  }
   function returnLive() {
     ++historyGeneration
     historyLoading.value = false
     replay.value = false
     pause()
-    if (!synced.value && workflowApi.connected()) void open()
+    if (workflowApi.connected()) void open()
   }
   watch(
     chatId,
     () => {
       ++historyGeneration
+      clearDetailHistory()
       pause()
       history.value = undefined
       live.value = undefined
+      workflowState.value = undefined
       replay.value = false
+      publishWorkflowChange('reset')
       void open()
     },
     { immediate: true },
   )
   watch(speed, tick)
   watch(suspended, (value) => {
-    if (value) pause()
+    if (value) {
+      pause()
+      clearDetailHistory()
+    }
   })
   onBeforeUnmount(() => {
     ++generation
     ++historyGeneration
+    ++detailHistoryGeneration
     pause()
     offUpdate()
     offStatus()
@@ -228,23 +306,32 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
   })
   return {
     snapshot,
+    workflowState: projectedWorkflowState,
     live,
     loading,
     historyLoading,
+    detailHistoryLoading,
     error,
     historyError,
+    detailHistoryError,
     synced,
     replay,
     playing,
     speed,
     cursor,
     frames,
+    replayLength,
     history,
+    detailHistory,
+    hidden,
+    workflowChange,
     play,
     pause,
     seek,
     open,
     loadHistory,
+    loadDetailHistory,
+    clearDetailHistory,
     returnLive,
   }
 }

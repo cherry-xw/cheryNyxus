@@ -17,16 +17,20 @@ export type WorkflowBoundary = Partial<
   >
 > & { newIteration?: boolean }
 
-const observers = new Map<string, (boundary: WorkflowBoundary) => void>()
+const observers = new Map<string, Set<(boundary: WorkflowBoundary) => void>>()
 
 /** Read-only, optional observer. It is never an execution owner. */
 export function observeWorkflow(
   chatId: string,
   observer: (boundary: WorkflowBoundary) => void,
 ): () => void {
-  observers.set(chatId, observer)
+  const listeners = observers.get(chatId) ?? new Set()
+  listeners.add(observer)
+  observers.set(chatId, listeners)
   return () => {
-    if (observers.get(chatId) === observer) observers.delete(chatId)
+    const current = observers.get(chatId)
+    current?.delete(observer)
+    if (!current?.size) observers.delete(chatId)
   }
 }
 
@@ -35,9 +39,11 @@ export function hasWorkflowObserver(chatId: string): boolean {
 }
 
 export function reportWorkflow(chatId: string, boundary: WorkflowBoundary): void {
-  try {
-    observers.get(chatId)?.(boundary)
-  } catch {
-    /* Observation cannot interrupt execution. */
+  for (const observer of observers.get(chatId) ?? []) {
+    try {
+      observer(boundary)
+    } catch {
+      /* Observation cannot interrupt execution or another observer. */
+    }
   }
 }

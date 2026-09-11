@@ -3,7 +3,6 @@ import {
   acceptWorkflow,
   replayFrames,
   replaySnapshot,
-  workflowLayout,
 } from '../../src/features/agent/workbench/runtime-diagram/model'
 import type { WorkflowFact, WorkflowSnapshot, WorkflowUpdated } from '@chery/protocol'
 const base: WorkflowSnapshot = {
@@ -18,7 +17,7 @@ const base: WorkflowSnapshot = {
   phaseKnown: false,
   historyComplete: false,
 }
-describe('workflow playback and viewport budgets', () => {
+describe('workflow playback', () => {
   it('rejects stale, wrong window and old-stream frames', () => {
     const current: WorkflowUpdated = { subscriptionId: 'one', streamId: 'stream', snapshot: base }
     expect(acceptWorkflow(current, current, current, 'root')).toBe(false)
@@ -52,24 +51,6 @@ describe('workflow playback and viewport budgets', () => {
     expect(replaySnapshot(base, frames, 4)).toEqual(final)
     expect(base.batch).toBeUndefined()
     expect(replayFrames([{ ...fact, batch: { ...fact.batch!, complete: false } }])).toEqual([])
-  })
-  it('retains readable tracks for small windows and allocates surplus proportionally', () => {
-    expect(workflowLayout(1000, 440, false, false)).toMatchObject({
-      height: 480,
-      flowHeight: 232,
-      treeHeight: 240,
-    })
-    expect(workflowLayout(1216, 600, true, true)).toMatchObject({
-      width: 1224,
-      paperWidth: 460,
-      treeWidth: 892,
-    })
-    expect(workflowLayout(1376, 600, true, true)).toMatchObject({ width: 1376, paperWidth: 520.8 })
-    expect(workflowLayout(700, 600, true, false)).toMatchObject({
-      width: 752,
-      paperWidth: 0,
-      treeWidth: 420,
-    })
   })
   it('reveals skill resources only after the matching result and preserves all child boundaries', () => {
     const facts: WorkflowFact[] = [

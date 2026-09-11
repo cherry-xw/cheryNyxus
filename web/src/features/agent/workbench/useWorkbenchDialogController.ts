@@ -6,21 +6,21 @@
  *   - useAgentDialogOptions 传 per-window chatId；useWorkbenchWindow 传 windowId（per-window localStorage key）
  * 历史抽屉仍为全局单例（HistoryDrawer 单例渲染），openHistory/锚点写全局 agents.historyDrawer*。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RoleConfigPopover } from '../runtime/public'
 import { AgentComposer, useAgentDialogOptions, useComposerMenuPosition } from '../composer/public'
 import ContextUsageBar from '../drawer/ContextUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
-import { agentApi, type ChatSummary } from '@/application/backend/public'
+import { agentApi, type ChatSummary, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './useWorkbenchWindow'
-import { useAgentsStore, useChatSessionsStore } from '@/application/public'
+import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/application/public'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 import {
-  MessageBranchTree,
-  NyxusPianoStrip,
+  NyxusContentReader,
   isPianoRootSession,
+  type NyxusContentSelection,
 } from '@/features/pets/nyxus/public'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import {
@@ -36,7 +36,6 @@ import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
 import NyxusSessionList from './NyxusSessionList.vue'
 import { useWorkbenchViewPreferences, type FoldMode } from './useWorkbenchViewPreferences'
-import { visualEventWindow } from '@/features/desktop/visualEvents'
 import { resolveTaskDrawerChatId } from '../drawer/historyBranchSelection'
 
 export type WorkbenchDialogControllerProps = {
@@ -50,6 +49,7 @@ export type { FoldMode } from './useWorkbenchViewPreferences'
 export function useWorkbenchDialogController(props: WorkbenchDialogControllerProps) {
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
+  const interactions = useInteractionsStore()
   /** lite 极简视图（T33 L0 + native 入口修复）：标题栏 ⚡ 切换，per-window 持久化（§2.1）。
    * Electron 面（surface=workbench）标题栏由 WindowFrame title-actions 承载，与 App.vue
    * 共用 useLiteViewToggle 保证两模式状态一致（native 模式 WorkbenchDialog 内部 titlebar
@@ -173,8 +173,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     },
     { immediate: true },
   )
-  /** 节点树实例 ref：最大化/窗口切换时显式触发复位，确保画布按新视口重排（RO 对瞬时全屏切换并不可靠）。 */
-  const branchTreeRef = ref<{ resetLayout: () => void } | null>(null)
   function workbenchDrawerAnchor() {
     const rect = workbenchShellRef.value?.getBoundingClientRect()
     if (!rect) return null
@@ -211,11 +209,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     ],
     () => void nextTick(syncWorkbenchDrawerAnchor),
   )
-  // 最大化/窗口切换（shell 尺寸瞬时变化）显式复位节点树画布，避免相机停留在旧视口导致画布未铺满/下边截断。
-  watch(
-    [workbenchMode, () => workbenchSize.value.width, () => workbenchSize.value.height],
-    () => void nextTick(() => branchTreeRef.value?.resetLayout()),
-  )
   // ── quick target（Pet 打开非 Nyxus 工作台需显式目标；Nyxus 恒 false） ──
   interface QuickTargetSelection {
     target: string | 'new'
@@ -239,22 +232,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     () => agents.activeDialogSource === 'pet' && !isNyxus.value && !!presetName.value,
   )
   const nyxusDraftActive = ref(false)
-  /** 当前预设的工作台布局与折叠偏好；右侧按钮选择写入前端本地存储。 */
-  const { topologyLayout, foldMode, paperMode, presentationMode } = useWorkbenchViewPreferences(
-    props.presetId,
-  )
-  function fallbackToClassic(message: string): void {
-    if (presentationMode.value !== 'horizontal-signal') return
-    presentationMode.value = 'vertical-classic'
-    agents.openOrFocusWindow(
-      visualEventWindow({
-        type: 'business',
-        event: 'graph.fallback',
-        message: `Signal Grid 初始化失败，已回退 Classic：${message}`,
-        chatId: chatId.value ?? undefined,
-      }),
-    )
-  }
+  /** 当前预设仅持久化阅读器开关与折叠档位；Vue Flow 方向和布局不是用户事实。 */
+  const { foldMode, readerOpen } = useWorkbenchViewPreferences(props.presetId)
+  const selectedContent = ref<NyxusContentSelection>()
+  const replayTimeline = shallowRef<RootTimelineSnapshot>()
   const branchTarget = ref<{
     type: 'detail' | 'continuation'
     nodeId: string
@@ -262,6 +243,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     effectDigest?: string
   }>()
   const {
+    controlTimeline: liveTimeline,
     executeSessionControl,
     pauseWholeTask,
     sessionControl,
@@ -270,6 +252,19 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     taskHasRunningBranches,
     taskTimeline,
   } = useWorkbenchTaskController({ chatId, windowId: props.windowId })
+  const readerTimeline = computed(() => replayTimeline.value ?? liveTimeline.value)
+
+  function selectWorkflowContent(selection: NyxusContentSelection): void {
+    selectedContent.value = selection
+    readerOpen.value = true
+  }
+
+  function updateReplayTimeline(payload: {
+    replay: boolean
+    timeline?: RootTimelineSnapshot
+  }): void {
+    replayTimeline.value = payload.replay ? payload.timeline : undefined
+  }
   const detailBranchAvailability = computed(() => {
     const loaded = config.value
     const preset = presetName.value ? loaded?.presets?.[presetName.value] : undefined
@@ -413,7 +408,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   function selectFoldMode(mode: FoldMode): void {
     foldMode.value = mode
   }
-  const pianoOpen = ref(false)
   const roleListOpen = ref(false)
   /** 角色列表配置交互期间锁定：点击内部控件（select 等）时置位，防 hover 误关。 */
   const roleListPinned = ref(false)
@@ -433,20 +427,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       layoutDependencies: [activeCommandTab, commandOptions],
     })
 
-  /** 彩蛋浮层打开：收起会话/角色 popout + 历史抽屉，置位浮层可见性。 */
-  function openPiano(): void {
-    closeSessionList()
-    closeRoleList()
-    agents.closeAllHistory()
-    pianoOpen.value = true
-  }
-  function closePiano(): void {
-    pianoOpen.value = false
-  }
-  /** 节点树彩蛋连点序列触发 → 打开钢琴浮层。 */
-  function onEasterEgg(): void {
-    openPiano()
-  }
   // ── 角色列表（参照钢琴 popout：hover/click 展开、延迟关闭、交互期间锁定） ──
   function showRoleList(): void {
     if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
@@ -675,9 +655,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   }
   /** 查看档案（Nyxus 会话完整对话历史）：打开根历史抽屉（与 PetStage 同款；panel 挂载自动 loadHistory）。 */
   function openHistory(): void {
-    const id = resolveTaskDrawerChatId(taskTimeline.value, chatId.value)
+    const id = resolveTaskDrawerChatId(liveTimeline.value, chatId.value)
     if (!id) return
-    agents.historyDrawerTaskBranches = taskTimeline.value?.branches ?? []
+    agents.historyDrawerTaskBranches = liveTimeline.value?.branches ?? []
     agents.openHistoryRoot(id, 'workbench-docked', workbenchDrawerAnchor())
   }
   const {
@@ -689,6 +669,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     releaseCurrentRoot,
     switchSession,
     treeFocusInteractionId,
+    treeFocusNonce,
     treeFocusSourceChatId,
     treeLoading,
     treeRootChatId,
@@ -710,6 +691,54 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       error.value = message
     },
   })
+  const workspaceBrowserOpen = computed(() => win.value?.workspaceBrowserMode === 'attention')
+  const attentionCount = computed(
+    () => interactions.pending.filter((item) => item.presetId === props.presetId).length,
+  )
+
+  function closeWorkspaceBrowser(): void {
+    agents.setWorkbenchWindowWorkspaceBrowser(props.windowId, undefined)
+  }
+
+  function toggleWorkspaceBrowser(): void {
+    const open = !workspaceBrowserOpen.value
+    agents.setWorkbenchWindowWorkspaceBrowser(props.windowId, open ? 'attention' : undefined)
+    agents.setWorkbenchWindowBlink(props.windowId, false)
+    if (open) void interactions.refresh().catch(() => undefined)
+  }
+
+  async function focusAttentionTree(
+    rootChatId: string,
+    sourceChatId?: string,
+    interactionId?: string,
+    anchorNodeId?: string,
+  ): Promise<void> {
+    closeWorkspaceBrowser()
+    if (rootChatId !== treeRootChatId.value) await switchSession(rootChatId)
+    const targetId = anchorNodeId ?? interactionId
+    if (!targetId) return
+    treeFocusSourceChatId.value = sourceChatId ?? rootChatId
+    treeFocusInteractionId.value = targetId
+    treeFocusNonce.value++
+    selectWorkflowContent({ nodeId: targetId, sourceChatId: sourceChatId ?? rootChatId })
+  }
+
+  function openGeneration(generationIndex: number): void {
+    openHistory()
+    agents.openHistoryGeneration(
+      liveTimeline.value?.rootChatId ?? treeRootChatId.value,
+      generationIndex,
+    )
+  }
+
+  watch(
+    () => readerTimeline.value?.rootChatId,
+    (rootChatId, previousRootChatId) => {
+      if (!rootChatId || !previousRootChatId || rootChatId === previousRootChatId) return
+      selectedContent.value = undefined
+      replayTimeline.value = undefined
+    },
+  )
   /** 无 root 时继续展示工作台既有的「新建会话」入口；创建后自动进入 Lite。 */
   const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)
   function closeWorkbench(): void {
@@ -762,8 +791,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   })
   onBeforeUnmount(() => {
     workbenchResizeObserver?.disconnect()
-    if (typeof window !== 'undefined') {
-    }
     if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
     if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
     if (foldCloseTimer) clearTimeout(foldCloseTimer)
@@ -792,9 +819,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     FOLD_ICONS,
     FOLD_TIPS,
     LiteView,
-    MessageBranchTree,
     NYXUS_WORKBENCH_Z_INDEX,
-    NyxusPianoStrip,
+    NyxusContentReader,
     NyxusSessionList,
     OVERLAY_Z_INDEX,
     PromptSnapshotTip,
@@ -804,11 +830,12 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     activeCommandTab,
     activeRoleIndex,
     agents,
+    attentionCount,
     brains,
     branchTarget,
-    branchTreeRef,
     cancelNyxusInput,
     chatId,
+    closeWorkspaceBrowser,
     closeWorkbench,
     comboCommandGroups,
     commandMenuRefFn,
@@ -830,7 +857,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     executeSessionControl,
     fmtTokens,
     foldMode,
-    fallbackToClassic,
     foldToolOpen,
     isNative,
     isEmbedded,
@@ -838,6 +864,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     isNyxus,
     liteViewEnabled,
     liteViewVisible,
+    liveTimeline,
     loading,
     matchingRoleMentions,
     maxControlState,
@@ -854,19 +881,15 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onEditorSelectionChange,
     onMaximizeClick,
     onMediaSelected,
-    closePiano,
     closeSessionList,
-    onEasterEgg,
     onSessionDelete,
     onTitlePointerDown,
     onTreeEpochChange,
     onTreePromptSnapShow,
     openHistory,
+    openGeneration,
     orderedRoleSelections,
-    paperMode,
-    presentationMode,
     pauseWholeTask,
-    pianoOpen,
     presetName,
     primaryRole,
     primarySelection,
@@ -882,10 +905,15 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     roleMenuRefFn,
     roleSelections,
     roleUsages,
+    readerOpen,
+    readerTimeline,
+    replayTimeline,
     scheduleFoldToolClose,
     scheduleSessionListClose,
     scheduleRoleListClose,
     selectBranchTarget,
+    selectedContent,
+    selectWorkflowContent,
     selectCommand,
     selectCommandTab,
     selectFoldMode,
@@ -912,19 +940,23 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     toggleLiteView,
     toggleRoleList,
     toggleSessionList,
-    topologyLayout,
+    toggleWorkspaceBrowser,
     treeBreakdown,
     treeFocusInteractionId,
+    treeFocusNonce,
     treeFocusSourceChatId,
     treeLoading,
     treePromptSnap,
     treeRootChatId,
     treeUsage,
     treeUsagePct,
+    updateReplayTimeline,
     uploading,
     usageClass,
     win,
     windowBlink,
+    workspaceBrowserOpen,
+    focusAttentionTree,
     workbenchShellRef,
     workbenchShellStyle,
     workbenchWindow,

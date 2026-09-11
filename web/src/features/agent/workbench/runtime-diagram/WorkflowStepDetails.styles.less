@@ -1,0 +1,183 @@
+.workflow-step-detail {
+  position: absolute;
+  z-index: 6;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 18px 42px color-mix(in srgb, var(--ink) 18%, transparent);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.workflow-step-detail > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workflow-step-detail > header > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.workflow-step-detail strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.workflow-step-detail small,
+.workflow-step-detail p {
+  font-weight: 400;
+}
+
+.workflow-step-detail > header small,
+.workflow-step-instance-scope,
+.workflow-step-detail-coverage {
+  color: var(--workflow-muted);
+}
+
+.workflow-step-detail > header button {
+  flex: 0 0 30px;
+  width: 30px;
+  margin-left: auto;
+  padding: 0;
+}
+
+.workflow-step-detail-description,
+.workflow-step-detail-coverage {
+  margin: 0;
+  padding: 10px 12px 0;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.workflow-step-detail-coverage {
+  padding-top: 5px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workflow-step-detail-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: color-mix(in srgb, var(--accent) 42%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.workflow-step-detail-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 12px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  background: var(--workflow-faint);
+  line-height: 1.45;
+}
+
+.workflow-step-detail-state.is-error {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--border));
+  color: var(--danger);
+}
+
+.workflow-step-detail-state button {
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 7px;
+}
+
+.workflow-step-instance-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-step-instance-list > li {
+  min-width: 0;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workflow-step-instance-list > li:last-child {
+  border-bottom: 0;
+}
+
+.workflow-step-instance-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-step-instance-head > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workflow-step-instance-head > small {
+  flex: 0 0 auto;
+  color: var(--workflow-muted);
+  white-space: nowrap;
+}
+
+.workflow-step-instance-head > .state-running,
+.workflow-step-instance-head > .state-waiting {
+  color: var(--accent);
+}
+
+.workflow-step-instance-head > .state-failed,
+.workflow-step-instance-head > .state-rejected {
+  color: var(--danger);
+}
+
+.workflow-step-instance-scope {
+  display: block;
+  margin-top: 4px;
+}
+
+.workflow-step-anchor-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.workflow-step-anchor-tip {
+  display: inline-flex;
+}
+
+.workflow-step-anchor-list button {
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 7px;
+}
+
+.workflow-step-instance-list p {
+  margin: 8px 0 0;
+  color: var(--workflow-muted);
+  line-height: 1.45;
+}
+
+@media (max-width: 720px) {
+  .workflow-step-detail {
+    inset: 8px;
+    width: auto;
+    max-height: calc(100% - 16px);
+  }
+}

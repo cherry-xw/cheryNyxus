@@ -7,6 +7,11 @@ import type {
   WorkflowCloseResponse,
   WorkflowCall,
 } from '@chery/protocol'
+import {
+  onWorkflowJournalCommit,
+  readWorkflowStepSnapshot,
+  type WorkflowJournalCommit,
+} from '@/db/workflowJournal.js'
 import { onPreparedChatEvent } from '@/db/delivery.js'
 import { getChat, getMessages, getChatRuntimeSelection, getMessageLinksForRoot } from '@/db/chat.js'
 import { listLatestExecutionRuns, listExecutionNodes } from '@/db/executionGraph.js'
@@ -23,6 +28,7 @@ import { effectiveSkillCount, memoryRows, workflowCallStatus } from './workflowE
 import {
   readWorkflowHistory,
   requireWorkflowRoot,
+  resolveWorkflowRootScope,
   workflowResources,
   workflowStageId,
 } from './workflowHistory.js'
@@ -41,7 +47,9 @@ interface Projection {
 interface Lease {
   connectionId: string
   observerId: string
-  chatId: string
+  requestedChatId: string
+  rootChatId: string
+  revision: number
 }
 const projections = new Map<string, Projection>()
 const leases = new Map<string, Lease>()
@@ -199,9 +207,9 @@ function release(subscriptionId: string): void {
   const lease = leases.get(subscriptionId)
   if (!lease) return
   leases.delete(subscriptionId)
-  if (![...leases.values()].some((item) => item.chatId === lease.chatId)) {
-    projections.get(lease.chatId)?.stop()
-    projections.delete(lease.chatId)
+  if (![...leases.values()].some((item) => item.rootChatId === lease.rootChatId)) {
+    projections.get(lease.rootChatId)?.stop()
+    projections.delete(lease.rootChatId)
   }
 }
 
@@ -209,56 +217,81 @@ connectionManager.onClose((connectionId) => {
   for (const [id, lease] of leases) if (lease.connectionId === connectionId) release(id)
 })
 
-onChatLifecycle((data) => {
-  for (const chatId of data.chatIds) {
-    const projection = projections.get(chatId)
-    if (!projection) continue
-    const chat = getChat(chatId)
-    if (chat?.lifecycle === 'active') continue
-    projection.stop()
-    if (chat) {
-      const revision = projection.snapshot.revision
-      projection.snapshot = initialWorkflowSnapshot(chatId)
-      projection.snapshot.revision = revision
-      publish(chatId)
-    } else {
-      projection.snapshot.status = 'cancelled'
-      projection.snapshot.phaseKnown = false
-      projection.snapshot.activeNodeId = undefined
-      projection.snapshot.waitReason = undefined
-      projection.snapshot.phaseLabel = '会话已删除'
-      publish(chatId)
-      for (const [id, lease] of leases) if (lease.chatId === chatId) release(id)
-    }
-  }
-})
-
-function publish(chatId: string): void {
-  const projection = projections.get(chatId)
+function sendUpdate(
+  subscriptionId: string,
+  lease: Lease,
+  data: Omit<WorkflowJournalCommit, 'rootChatId'> & { invalidated?: boolean },
+): void {
+  const projection = projections.get(lease.rootChatId)
   if (!projection) return
-  projection.snapshot.revision++
-  for (const [subscriptionId, lease] of leases) {
-    if (lease.chatId !== chatId) continue
-    const ws = connectionManager.getWsByConnectionId(lease.connectionId)
-    if (!ws || ws.readyState !== ws.OPEN) {
-      release(subscriptionId)
-      continue
-    }
-    try {
+  const ws = connectionManager.getWsByConnectionId(lease.connectionId)
+  if (!ws || ws.readyState !== ws.OPEN) {
+    release(subscriptionId)
+    return
+  }
+  const payload = {
+    subscriptionId,
+    streamId: projection.streamId,
+    ...data,
+  }
+  try {
+    if (JSON.stringify(payload).length > 128 * 1024) {
       ws.send(
         transport.encode(
           createNotification('workflow.updated', undefined, {
             subscriptionId,
             streamId: projection.streamId,
-            snapshot: projection.snapshot,
+            baseRevision: lease.revision,
+            revision: data.revision,
+            invalidated: true,
           }),
         ),
       )
-    } catch {
-      release(subscriptionId)
+    } else {
+      ws.send(transport.encode(createNotification('workflow.updated', undefined, payload)))
     }
+    lease.revision = data.revision
+  } catch {
+    release(subscriptionId)
   }
 }
+
+onWorkflowJournalCommit((commit) => {
+  for (const [subscriptionId, lease] of leases) {
+    if (lease.rootChatId !== commit.rootChatId) continue
+    if (lease.revision !== commit.baseRevision) {
+      sendUpdate(subscriptionId, lease, {
+        baseRevision: lease.revision,
+        revision: commit.revision,
+        events: [],
+        gaps: [],
+        invalidated: true,
+      })
+      continue
+    }
+    sendUpdate(subscriptionId, lease, commit)
+  }
+})
+
+onChatLifecycle((data) => {
+  const changed = new Set(data.chatIds)
+  for (const [subscriptionId, lease] of leases) {
+    if (!changed.has(lease.requestedChatId) && !changed.has(lease.rootChatId)) continue
+    const chat = getChat(lease.requestedChatId)
+    if (chat) {
+      if (chat.lifecycle !== 'active') projections.get(lease.rootChatId)?.stop()
+      continue
+    }
+    sendUpdate(subscriptionId, lease, {
+      baseRevision: lease.revision,
+      revision: lease.revision,
+      events: [],
+      gaps: [],
+      invalidated: true,
+    })
+    release(subscriptionId)
+  }
+})
 
 function updateBoundary(chatId: string, boundary: WorkflowBoundary): void {
   const projection = projections.get(chatId)
@@ -293,7 +326,6 @@ function updateBoundary(chatId: string, boundary: WorkflowBoundary): void {
   }
   Object.assign(snapshot, patch)
   snapshot.runId = getActiveChatRunId(chatId) ?? snapshot.runId
-  publish(chatId)
 }
 
 export function refreshWorkflowContext(chatId: string): void {
@@ -318,45 +350,57 @@ export function refreshWorkflowContext(chatId: string): void {
     resources,
     epochId: getActiveChatEpoch(chatId)?.epochId,
   })
-  publish(chatId)
 }
 
 export async function openWorkflow(
   ctx: HandlerContext,
   data: WorkflowOpenRequest,
 ): Promise<WorkflowOpenResponse> {
-  requireWorkflowRoot(data.chatId)
+  const scope = resolveWorkflowRootScope(data.chatId)
   for (const [id, lease] of leases) {
     if (lease.connectionId !== ctx.connectionId || lease.observerId !== data.observerId) continue
-    if (lease.chatId === data.chatId) {
-      const projection = projections.get(data.chatId)!
+    if (lease.requestedChatId === data.chatId) {
+      const projection = projections.get(scope.rootChatId)!
+      const steps = readWorkflowStepSnapshot(scope.rootChatId)
+      lease.revision = steps.revision
       return {
         subscriptionId: id,
         streamId: projection.streamId,
         snapshot: structuredClone(projection.snapshot),
+        steps,
       }
     }
     release(id)
   }
-  let projection = projections.get(data.chatId)
+  let projection = projections.get(scope.rootChatId)
   if (!projection) {
+    const snapshot = initialWorkflowSnapshot(data.chatId)
+    snapshot.rootChatId = scope.rootChatId
     projection = {
       streamId: randomUUID(),
-      snapshot: initialWorkflowSnapshot(data.chatId),
+      snapshot,
       stop: () => {},
     }
-    projections.set(data.chatId, projection)
+    projections.set(scope.rootChatId, projection)
     if (getChat(data.chatId)?.lifecycle === 'active')
       projection.stop = observeWorkflow(data.chatId, (boundary) =>
-        updateBoundary(data.chatId, boundary),
+        updateBoundary(scope.rootChatId, boundary),
       )
   }
+  const steps = readWorkflowStepSnapshot(scope.rootChatId)
   const subscriptionId = randomUUID()
-  leases.set(subscriptionId, { ...data, connectionId: ctx.connectionId })
+  leases.set(subscriptionId, {
+    observerId: data.observerId,
+    connectionId: ctx.connectionId,
+    requestedChatId: data.chatId,
+    rootChatId: scope.rootChatId,
+    revision: steps.revision,
+  })
   return {
     subscriptionId,
     streamId: projection.streamId,
     snapshot: structuredClone(projection.snapshot),
+    steps,
   }
 }
 
@@ -439,11 +483,9 @@ onPreparedChatEvent((chatId, event) => {
       const id = String(data.childChatId ?? '')
       if (id && !snapshot.dispatches.some((item) => item.id === id))
         snapshot.dispatches.push({ id, name: String(data.type ?? '子 Agent'), status: 'waiting' })
-      publish(chatId)
     } else if (type === 'role_reply' || type === 'child_abandoned') {
       const dispatch = snapshot.dispatches.find((item) => item.id === data.childChatId)
       if (dispatch) dispatch.status = type === 'role_reply' ? 'returned' : 'cancelled'
-      publish(chatId)
     } else if (type === 'replaced' || type === 'timeline.patch') refreshWorkflowContext(chatId)
   } catch {
     /* Observer errors cannot affect the task. */

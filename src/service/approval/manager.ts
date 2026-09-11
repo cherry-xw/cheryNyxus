@@ -9,6 +9,7 @@ import {
 import { broadcastInteractionChanged } from '../interaction/events.js'
 import type { ToolAuthorization } from '@/core/security/rolePolicy.js'
 import { approvalInteractionContext } from '../interaction/context.js'
+import { finishActiveWorkflowSteps } from '../chat/workflowStepWriter.js'
 
 /**
  * 审批管理器（极简版）
@@ -141,6 +142,7 @@ export class ApprovalManager {
    */
   confirm(approvalId: string, action: 'accept' | 'reject', reason?: string): boolean {
     if (this.approvals.has(approvalId)) {
+      const payload = this.approvals.get(approvalId)
       resolveApproval(approvalId, action, reason)
       this.approvals.delete(approvalId)
       this.clearExpiry(approvalId)
@@ -154,6 +156,14 @@ export class ApprovalManager {
         },
       )
       broadcastInteractionChanged(interaction)
+      if (payload?.chatId)
+        finishActiveWorkflowSteps(payload.chatId, {
+          kind: 'tool-approval',
+          callId: approvalId,
+          status: action === 'accept' ? 'succeeded' : 'rejected',
+          reason: action === 'accept' ? 'approval' : 'policy',
+          eventKey: `decision:${approvalId}:${action}`,
+        })
       return true
     }
     logger.event('approval.confirm.unknown', { approvalId, action })
@@ -163,6 +173,7 @@ export class ApprovalManager {
   /** Business deadline: reject this tool and let the Agent continue. */
   expire(approvalId: string): void {
     if (!this.approvals.has(approvalId)) return
+    const payload = this.approvals.get(approvalId)
     const interaction = transitionInteraction(approvalId, ['pending', 'resolving'], 'expired', {
       action: 'reject',
       reason: '审批超时，工具未执行',
@@ -172,6 +183,14 @@ export class ApprovalManager {
     resolveApproval(approvalId, 'reject', '审批超时，工具未执行')
     this.approvals.delete(approvalId)
     this.clearExpiry(approvalId)
+    if (payload?.chatId)
+      finishActiveWorkflowSteps(payload.chatId, {
+        kind: 'tool-approval',
+        callId: approvalId,
+        status: 'rejected',
+        reason: 'timeout',
+        eventKey: `decision:${approvalId}:expired`,
+      })
   }
 
   /**
@@ -197,6 +216,7 @@ export class ApprovalManager {
    */
   abort(approvalId: string, reason = '用户停止运行'): boolean {
     if (!this.approvals.has(approvalId)) return false
+    const payload = this.approvals.get(approvalId)
     const interaction = transitionInteraction(
       approvalId,
       ['pending', 'resolving', 'blocked'],
@@ -207,6 +227,14 @@ export class ApprovalManager {
     rejectApproval(approvalId, new AgentAbortError())
     this.approvals.delete(approvalId)
     this.clearExpiry(approvalId)
+    if (payload?.chatId)
+      finishActiveWorkflowSteps(payload.chatId, {
+        kind: 'tool-approval',
+        callId: approvalId,
+        status: 'cancelled',
+        reason: 'user',
+        eventKey: `decision:${approvalId}:cancelled`,
+      })
     return true
   }
 

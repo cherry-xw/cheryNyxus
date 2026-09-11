@@ -28,6 +28,7 @@ import { questionInteractionContext } from '../interaction/context.js'
 import { annotateExecutionNode } from '@/db/executionGraph.js'
 import { skillActivation } from './workflowEvidence.js'
 import { refreshWorkflowContext } from './workflow.js'
+import { startWorkflowRunRecorder, type WorkflowRunRecorder } from './workflowRecorder.js'
 
 function annotateWorkflow(id: string, workflow: Record<string, unknown>): void {
   try {
@@ -62,6 +63,16 @@ export async function* observeAgentChunks(
   getMessages: () => LLMResponse[],
   onUserMessageCreated?: (msgId: string) => void,
 ): AsyncGenerator<MiddlewareChunk, void, unknown> {
+  let workflowRecorder: WorkflowRunRecorder
+  try {
+    workflowRecorder = startWorkflowRunRecorder(chatId)
+  } catch {
+    workflowRecorder = {
+      recordCommittedMessage: () => {},
+      recordChunk: () => {},
+      finish: () => {},
+    }
+  }
   // 历史消息（loadHistory 注入）视为已落库，避免 abort flush 时重复 INSERT 触发 UNIQUE 冲突。
   const syncedIds = new Set<string>(getMessages().map((m) => m.id))
   const initialSummaryId = getMessages().findLast(
@@ -70,6 +81,7 @@ export async function* observeAgentChunks(
   const injectedCommands: string[] = []
   try {
     for await (const chunk of generator) {
+      workflowRecorder.recordChunk(chunk)
       // feed-dog：每条 chunk 到达 = 子 agent generator 仍活着 = 未卡死，重置看门狗计时。
       // 主 chat（非注册唤醒子）feedWatchdog 内部自动忽略（waitedChildren 无此 chatId）。
       feedWatchdog(chatId)
@@ -100,6 +112,7 @@ export async function* observeAgentChunks(
               ? { link: { relation: chunk.message.linkRelation } }
               : {}),
           })
+          workflowRecorder.recordCommittedMessage(chunk.message)
           syncedIds.add(chunk.message.id)
           emitTimelinePatch(chatId, baseRevision)
           if (chunk.message.role === 'user' && injectedCommands.length) {
@@ -291,6 +304,7 @@ export async function* observeAgentChunks(
     // child_done 正常完成路径不触发此处（throw 跳过 loop 末尾 child_done yield）。
     const activeRunId = getActiveChatRunId(chatId)
     if (isAgentParkError(err)) {
+      workflowRecorder.finish('interrupted', 'disconnect')
       if (activeRunId) {
         const baseRevision = getTimelineRevision(chatId)
         recordTerminationFact({
@@ -304,8 +318,10 @@ export async function* observeAgentChunks(
       }
       logger.event('agent.paused', { chatId, kind: 'park' })
     } else if (isAgentAbortError(err)) {
+      workflowRecorder.finish('interrupted', 'user')
       logger.event('agent.paused', { chatId, kind: 'abort' })
     } else {
+      workflowRecorder.finish('failed', 'error')
       if (activeRunId) {
         const baseRevision = getTimelineRevision(chatId)
         recordTerminationFact({
@@ -354,6 +370,7 @@ export async function* observeAgentChunks(
         // 仅 user 消息记 runtime（发送时配置 + brain model/provider 溯源快照）
         runtime: m.role === 'user' ? getChatRuntimeProvenance(chatId) : undefined,
       })
+      workflowRecorder.recordCommittedMessage(m)
       syncedIds.add(m.id)
       emitTimelinePatch(chatId, baseRevision)
     }
@@ -368,5 +385,6 @@ export async function* observeAgentChunks(
     } catch {
       /* Observation is optional. */
     }
+    workflowRecorder.finish()
   }
 }

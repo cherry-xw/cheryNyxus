@@ -19,6 +19,8 @@ const fixture = vi.hoisted(() => ({
   archived: false,
   deleted: false,
   pending: [] as any[],
+  workflowCommits: [] as Array<(commit: any) => void>,
+  workflowRevision: 0,
 }))
 vi.mock('@/db/chat.js', () => ({
   getChat: (id: string) =>
@@ -43,6 +45,40 @@ vi.mock('@/db/epoch.js', () => ({
   listChatEpochs: () => [],
 }))
 vi.mock('@/db/interaction.js', () => ({ listInteractions: () => fixture.pending }))
+vi.mock('@/db/conversationBranch.js', () => ({
+  getConversationBranchByChat: () => undefined,
+  getConversationTask: () => undefined,
+}))
+vi.mock('@/db/workflowJournal.js', () => ({
+  onWorkflowJournalCommit: (callback: (commit: any) => void) => {
+    fixture.workflowCommits.push(callback)
+    return () => {
+      const index = fixture.workflowCommits.indexOf(callback)
+      if (index >= 0) fixture.workflowCommits.splice(index, 1)
+    }
+  },
+  readWorkflowStepSnapshot: (rootChatId: string) => ({
+    rootChatId,
+    revision: fixture.workflowRevision,
+    upperSequence: 0,
+    active: [],
+    recentEvents: [],
+    gaps: [],
+    hasEarlier: false,
+    historyComplete: true,
+  }),
+  readWorkflowJournalPage: () => ({
+    revision: fixture.workflowRevision,
+    historyGeneration: 0,
+    upperSequence: 0,
+    events: [],
+    occurrences: [],
+    gaps: [],
+    complete: true,
+    historyComplete: true,
+  }),
+  listWorkflowJournalStages: () => [],
+}))
 vi.mock('@/db/delivery.js', () => ({
   onPreparedChatEvent: (callback: any) => fixture.events.push(callback),
 }))
@@ -111,6 +147,7 @@ beforeEach(() => {
   fixture.archived = false
   fixture.deleted = false
   fixture.pending = []
+  fixture.workflowRevision = 0
   for (const id of ['one', 'two'])
     fixture.outputs.set(id, {
       OPEN: 1,
@@ -139,13 +176,23 @@ describe('workflow contract and observation isolation', () => {
       }).success,
     ).toBe(true)
   })
-  it('shares projection, preserves complete repeated calls, closes only the owning window', async () => {
+  it('shares projection and sends only committed journal updates to owning windows', async () => {
     const first = await openWorkflow(ctx('one'), { chatId: 'root', observerId: 'window-a' })
     const duplicate = await openWorkflow(ctx('one'), { chatId: 'root', observerId: 'window-a' })
     const second = await openWorkflow(ctx('two'), { chatId: 'root', observerId: 'window-b' })
     expect(duplicate.subscriptionId).toBe(first.subscriptionId)
     expect(second.streamId).toBe(first.streamId)
     expect(hasWorkflowObserver('child')).toBe(false)
+    fixture.workflowRevision = 1
+    fixture.workflowCommits[0]!({
+      rootChatId: 'root',
+      baseRevision: 0,
+      revision: 1,
+      events: [],
+      gaps: [],
+    })
+    expect(fixture.notifications.map((notification) => notification.id)).toEqual(['one', 'two'])
+    fixture.notifications = []
     reportWorkflow('root', {
       activeNodeId: 'tools',
       batch: {
@@ -157,19 +204,31 @@ describe('workflow contract and observation isolation', () => {
         ],
       },
     })
-    expect(fixture.notifications.at(-1).data.snapshot.batch.calls).toHaveLength(2)
+    expect(fixture.notifications).toEqual([])
     expect((await closeWorkflow(ctx('two'), { subscriptionId: first.subscriptionId })).closed).toBe(
       false,
     )
     await closeWorkflow(ctx('one'), { subscriptionId: first.subscriptionId })
-    fixture.notifications = []
-    reportWorkflow('root', { activeNodeId: 'tools', waitReason: 'approval', status: 'running' })
+    fixture.workflowRevision = 2
+    fixture.workflowCommits[0]!({
+      rootChatId: 'root',
+      baseRevision: 1,
+      revision: 2,
+      events: [],
+      gaps: [],
+    })
     expect(fixture.notifications.map((n) => n.id)).toEqual(['two'])
-    expect(fixture.notifications[0].data.snapshot.status).toBe('running')
     fixture.close.forEach((close) => close('two'))
     expect(hasWorkflowObserver('root')).toBe(false)
     const count = fixture.notifications.length
-    reportWorkflow('root', { activeNodeId: 'model' })
+    fixture.workflowRevision = 3
+    fixture.workflowCommits[0]!({
+      rootChatId: 'root',
+      baseRevision: 2,
+      revision: 3,
+      events: [],
+      gaps: [],
+    })
     expect(fixture.notifications).toHaveLength(count)
     const reopened = await openWorkflow(ctx('one'), { chatId: 'root', observerId: 'window-a' })
     expect(reopened.streamId).not.toBe(first.streamId)
@@ -179,11 +238,17 @@ describe('workflow contract and observation isolation', () => {
       openWorkflow(ctx('one'), { chatId: 'child', observerId: 'a' }),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' })
     expect(() => readWorkflowHistory({ chatId: 'missing' })).toThrow()
+    const observed: string[] = []
     const stop = observeWorkflow('throwing', () => {
       throw new Error('observer broken')
     })
+    const stopSecond = observeWorkflow('throwing', (boundary) => {
+      if (boundary.activeNodeId) observed.push(boundary.activeNodeId)
+    })
     expect(() => reportWorkflow('throwing', { activeNodeId: 'input' })).not.toThrow()
+    expect(observed).toEqual(['input'])
     stop()
+    stopSecond()
   })
   it('releases active callbacks on archive and all leases on deletion', async () => {
     await openWorkflow(ctx('one'), { chatId: 'root', observerId: 'a' })
@@ -193,7 +258,7 @@ describe('workflow contract and observation isolation', () => {
     expect(readWorkflowHistory({ chatId: 'root' }).facts).toEqual([])
     fixture.deleted = true
     fixture.lifecycle.forEach((callback) => callback({ action: 'deleted', chatIds: ['root'] }))
-    expect(fixture.notifications.at(-1).data.snapshot.status).toBe('cancelled')
+    expect(fixture.notifications.at(-1).data.invalidated).toBe(true)
     await expect(
       openWorkflow(ctx('one'), { chatId: 'root', observerId: 'a' }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
@@ -226,7 +291,9 @@ describe('workflow contract and observation isolation', () => {
         data: { runId: 'run', status: 'paused' },
       }),
     )
-    expect(fixture.notifications.at(-1).data.snapshot).toMatchObject({
+    expect(fixture.notifications).toEqual([])
+    const refreshed = await openWorkflow(ctx('one'), { chatId: 'root', observerId: 'a' })
+    expect(refreshed.snapshot).toMatchObject({
       status: 'paused',
       activeNodeId: 'result',
     })

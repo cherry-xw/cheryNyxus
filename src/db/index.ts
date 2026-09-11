@@ -314,6 +314,92 @@ function initSoulTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_execution_active_runs_root_status
       ON execution_active_runs(root_chat_id, status, updated_at);
 
+    /* Detailed workflow history is an append-only journal. Indexed identity
+       columns keep root snapshots and filtered history bounded; payload JSON
+       contains only the protocol-safe event/occurrence projection. */
+    CREATE TABLE IF NOT EXISTS workflow_journal_roots (
+      root_chat_id TEXT PRIMARY KEY,
+      next_sequence INTEGER NOT NULL,
+      revision INTEGER NOT NULL,
+      history_generation INTEGER NOT NULL DEFAULT 0,
+      history_complete INTEGER NOT NULL DEFAULT 1,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_occurrences (
+      occurrence_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      source_chat_id TEXT NOT NULL,
+      task_id TEXT,
+      branch_id TEXT,
+      context_stage_id TEXT NOT NULL,
+      run_id TEXT,
+      iteration INTEGER,
+      attempt INTEGER,
+      batch_id TEXT,
+      call_id TEXT,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      first_sequence INTEGER NOT NULL,
+      last_sequence INTEGER NOT NULL,
+      payload_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(root_chat_id, first_sequence)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_occurrences_root_tail
+      ON workflow_occurrences(root_chat_id, last_sequence DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_occurrences_chat_run
+      ON workflow_occurrences(root_chat_id, source_chat_id, run_id, first_sequence);
+    CREATE INDEX IF NOT EXISTS idx_workflow_occurrences_branch_stage
+      ON workflow_occurrences(root_chat_id, branch_id, context_stage_id, first_sequence);
+    CREATE INDEX IF NOT EXISTS idx_workflow_occurrences_call
+      ON workflow_occurrences(root_chat_id, batch_id, call_id, first_sequence);
+
+    CREATE TABLE IF NOT EXISTS workflow_step_events (
+      event_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      root_sequence INTEGER NOT NULL,
+      revision INTEGER NOT NULL,
+      occurrence_id TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      source_chat_id TEXT NOT NULL,
+      branch_id TEXT,
+      context_stage_id TEXT NOT NULL,
+      run_id TEXT,
+      event_kind TEXT NOT NULL,
+      order_quality TEXT NOT NULL DEFAULT 'exact',
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(root_chat_id, root_sequence),
+      UNIQUE(root_chat_id, source_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_events_root_sequence
+      ON workflow_step_events(root_chat_id, root_sequence);
+    CREATE INDEX IF NOT EXISTS idx_workflow_events_chat_run
+      ON workflow_step_events(root_chat_id, source_chat_id, run_id, root_sequence);
+    CREATE INDEX IF NOT EXISTS idx_workflow_events_branch_stage
+      ON workflow_step_events(root_chat_id, branch_id, context_stage_id, root_sequence);
+    CREATE INDEX IF NOT EXISTS idx_workflow_events_occurrence
+      ON workflow_step_events(occurrence_id, root_sequence);
+
+    CREATE TABLE IF NOT EXISTS workflow_journal_gaps (
+      gap_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      from_sequence INTEGER NOT NULL,
+      to_sequence INTEGER NOT NULL,
+      source_chat_id TEXT,
+      run_id TEXT,
+      context_stage_id TEXT,
+      reason TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_gaps_root_sequence
+      ON workflow_journal_gaps(root_chat_id, from_sequence, to_sequence);
+
     /* Immutable semantic configuration revisions. Secret values are never
        stored in snapshot_json; callers persist only a redacted projection. */
     CREATE TABLE IF NOT EXISTS config_revisions (
@@ -392,6 +478,13 @@ function initSoulTables(db: Database.Database): void {
   ensureTableColumn(db, 'spawn_tasks', 'role_id', 'TEXT')
   ensureTableColumn(db, 'conversation_tasks', 'active_branch_id', 'TEXT')
   ensureTableColumn(db, 'conversation_tasks', 'delivery_generation', 'INTEGER NOT NULL DEFAULT 0')
+  ensureTableColumn(
+    db,
+    'workflow_journal_roots',
+    'history_generation',
+    'INTEGER NOT NULL DEFAULT 0',
+  )
+  ensureTableColumn(db, 'workflow_step_events', 'order_quality', "TEXT NOT NULL DEFAULT 'exact'")
   db.exec(`UPDATE spawn_tasks SET delivery_chat_id = parent_chat_id WHERE delivery_chat_id IS NULL`)
   db.exec(`UPDATE conversation_tasks
     SET active_branch_id = (

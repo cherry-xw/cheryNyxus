@@ -428,7 +428,8 @@ export async function handleChatBranchActivate(
   try {
     const branch = getConversationBranch(data.branchId)
     if (!branch) throw new Error('分支不存在')
-    if (getChat(branch.chatId)?.lifecycle === 'archived') throw new Error('归档会话为只读，不能切换主流程')
+    if (getChat(branch.chatId)?.lifecycle === 'archived')
+      throw new Error('归档会话为只读，不能切换主流程')
     const snapshotNodes = Array.isArray(branch.contextSnapshot)
       ? (branch.contextSnapshot as TimelineNode[])
       : []

@@ -62,7 +62,8 @@ export function startApplicationRuntime(): () => void {
       if (!parsed.success) return
       const { chatIds, action } = parsed.data
       agents.removePetsOnly(chatIds)
-      void chats.evictSessions(chatIds, action === 'deleted')
+      void chats
+        .evictSessions(chatIds, action === 'deleted')
         .then(() => chats.refreshCatalog())
         .catch((cause) => console.warn('[archive] refresh failed:', cause))
       invalidateArchives()

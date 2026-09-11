@@ -17,55 +17,37 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('useWorkbenchViewPreferences 卡牌/方向联动（2026-09-02 返工）', () => {
-  it('默认横向 Signal，关闭卡牌保持 horizontal-signal', () => {
+describe('useWorkbenchViewPreferences unified canvas migration', () => {
+  it('defaults to participant folding with the content reader closed', () => {
     const prefs = useWorkbenchViewPreferences('preset-a')
-    expect(prefs.paperMode.value).toBe(false)
-    expect(prefs.presentationMode.value).toBe('horizontal-signal')
+    expect(prefs.foldMode.value).toBe('participant')
+    expect(prefs.readerOpen.value).toBe(false)
   })
 
-  it('卡牌开 → 纵向 Classic，关回 → 横向 Signal（双向联动）', async () => {
-    const prefs = useWorkbenchViewPreferences('preset-a')
-    prefs.paperMode.value = true
-    await nextTick()
-    expect(prefs.presentationMode.value).toBe('vertical-classic')
-    prefs.paperMode.value = false
-    await nextTick()
-    expect(prefs.presentationMode.value).toBe('horizontal-signal')
-  })
-
-  it('迁移：忽略存量持久化的 presentationMode 字段，按 paperMode 重新派生', async () => {
+  it('migrates legacy paper mode once and ignores obsolete layout directions', () => {
     storageValues.set(
       STORAGE_KEY,
       JSON.stringify({
-        layout: 'timeline',
+        layout: 'topology',
         foldMode: 'none',
-        paperMode: false,
+        paperMode: true,
         presentationMode: 'vertical-classic',
       }),
     )
     const prefs = useWorkbenchViewPreferences('preset-a')
-    expect(prefs.presentationMode.value).toBe('horizontal-signal')
+    expect(prefs.foldMode.value).toBe('none')
+    expect(prefs.readerOpen.value).toBe(true)
+  })
 
+  it('persists only the fold and reader owners', async () => {
+    const prefs = useWorkbenchViewPreferences('preset-a')
     prefs.foldMode.value = 'partial'
+    prefs.readerOpen.value = true
     await nextTick()
     const saved = JSON.parse(storageValues.get(STORAGE_KEY) ?? '{}') as Record<string, unknown>
-    expect(saved.paperMode).toBe(false)
-    expect(saved.presentationMode).toBeUndefined()
-  })
-
-  it('持久化不写 presentationMode：切换卡牌后落盘仅含三项字段', async () => {
-    const prefs = useWorkbenchViewPreferences('preset-a')
-    prefs.paperMode.value = true
-    await nextTick()
-    const saved = JSON.parse(storageValues.get(STORAGE_KEY) ?? '{}') as Record<string, unknown>
-    expect(saved).toEqual({ layout: 'timeline', foldMode: 'participant', paperMode: true })
-  })
-
-  it('fallback 豁免：直接写 presentationMode（fallbackToClassic 路径）不被 paperMode watch 翻转', () => {
-    const prefs = useWorkbenchViewPreferences('preset-a')
-    prefs.presentationMode.value = 'vertical-classic'
-    expect(prefs.paperMode.value).toBe(false)
-    expect(prefs.presentationMode.value).toBe('vertical-classic')
+    expect(saved).toEqual({ foldMode: 'partial', readerOpen: true })
+    expect(saved).not.toHaveProperty('layout')
+    expect(saved).not.toHaveProperty('paperMode')
+    expect(saved).not.toHaveProperty('presentationMode')
   })
 })

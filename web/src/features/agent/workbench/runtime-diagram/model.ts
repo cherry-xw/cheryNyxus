@@ -48,12 +48,14 @@ export function acceptWorkflow(
   lease: Pick<WorkflowUpdated, 'subscriptionId' | 'streamId'>,
   chatId: string,
 ): boolean {
+  if (!event.snapshot) return false
   return (
     event.subscriptionId === lease.subscriptionId &&
     event.streamId === lease.streamId &&
     event.snapshot.chatId === chatId &&
     (!current ||
       current.streamId !== event.streamId ||
+      !current.snapshot ||
       event.snapshot.revision > current.snapshot.revision)
   )
 }
@@ -156,30 +158,4 @@ export function replaySnapshot(
     }
   }
   return snapshot
-}
-
-export function workflowLayout(width: number, height: number, vertical: boolean, paper: boolean) {
-  if (!vertical) {
-    const available = Math.max(480, height)
-    const flowHeight = Math.max(232, Math.min(300, available * 0.28))
-    return {
-      width: Math.max(0, width),
-      height: available,
-      flowHeight,
-      treeHeight: available - flowHeight - 8,
-      treeWidth: Math.max(0, width),
-      paperWidth: 0,
-    }
-  }
-  const available = Math.max(paper ? 1224 : 752, width)
-  const extra = available - (paper ? 1224 : 752)
-  const paperWidth = paper ? 460 + extra * 0.4 : 0
-  return {
-    width: available,
-    height: Math.max(240, height),
-    flowHeight: Math.max(240, height),
-    treeHeight: Math.max(240, height),
-    treeWidth: available - 332,
-    paperWidth,
-  }
 }

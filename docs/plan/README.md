@@ -2,16 +2,16 @@
 
 本文件是当前实施计划的唯一总入口。先在下表选择任务，再进入对应目录的 `README.md`；只有执行具体小任务时才读取其详细文档。
 
-| 任务 | 状态 | 范围 |
-| --- | --- | --- |
-| [统一 Agent 执行生长图](main-agent-runtime-diagram/README.md) | 规划中 | Vue Flow 完整主头部、简略子头部、详细历史与生长动效 |
-| [会话归档管理](session-archive/README.md) | 待综合验证 | 设置内主子会话归档与整组永久删除 |
-| [故障工业赛博工作区 V2](cyber-terminal-workspace-v2/README.md) | 待综合验证 | 赛博桌面、工作台、会话、节点树和全局动效 |
-| [前端交互与颜色逻辑修正](frontend-interaction-color-audit/README.md) | 待综合验证 | 主题可读性、设置与窗口生命周期、输入和导航可靠性 |
-| [多 Agent 并行任务中心](parallel-agent-task-center/README.md) | 待综合验证 | 根会话任务聚合、待办上下文、增量同步和轮询移除 |
-| [任务中心 UI 修正与旧待操作退役](task-center-ui-correction/README.md) | 待综合验证 | 任务中心视觉修正和旧入口清理 |
-| [万象台](wanxiangtai/README.md) | 规划中 | 多 Agent 团队协作、独立工作区、交付集成与桌面呈现 |
-| [Web 桌面回归修复](web-desktop-regressions/README.md) | 待综合验证 | 工作区、设置及 Pet 既有交互契约恢复 |
+| 任务                                                                           | 状态       | 范围                                                           |
+| ------------------------------------------------------------------------------ | ---------- | -------------------------------------------------------------- |
+| [完整运行头部与 Vue Flow 结果节点树重建](main-agent-runtime-diagram/README.md) | 执行中     | 沿用新版节点逻辑、完整流程拓扑与官网参照动效；当前卡牌模式不动 |
+| [会话归档管理](session-archive/README.md)                                      | 待综合验证 | 设置内主子会话归档与整组永久删除                               |
+| [故障工业赛博工作区 V2](cyber-terminal-workspace-v2/README.md)                 | 待综合验证 | 赛博桌面、工作台、会话、节点树和全局动效                       |
+| [前端交互与颜色逻辑修正](frontend-interaction-color-audit/README.md)           | 待综合验证 | 主题可读性、设置与窗口生命周期、输入和导航可靠性               |
+| [多 Agent 并行任务中心](parallel-agent-task-center/README.md)                  | 待综合验证 | 根会话任务聚合、待办上下文、增量同步和轮询移除                 |
+| [任务中心 UI 修正与旧待操作退役](task-center-ui-correction/README.md)          | 待综合验证 | 任务中心视觉修正和旧入口清理                                   |
+| [万象台](wanxiangtai/README.md)                                                | 规划中     | 多 Agent 团队协作、独立工作区、交付集成与桌面呈现              |
+| [Web 桌面回归修复](web-desktop-regressions/README.md)                          | 待综合验证 | 工作区、设置及 Pet 既有交互契约恢复                            |
 
 ## 使用规则
 

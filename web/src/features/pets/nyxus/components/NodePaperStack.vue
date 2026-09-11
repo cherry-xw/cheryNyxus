@@ -25,6 +25,7 @@ const props = defineProps<{
   detailBranchAvailable?: boolean
   detailBranchUnavailableReason?: string
   senseTools?: SenseToolInfo[]
+  selectedCallId?: string
 }>()
 
 const emit = defineEmits<{
@@ -163,6 +164,17 @@ watch(
 watch(
   () => currentEntry.value?.id,
   () => void nextTick(observeTitleRail),
+)
+
+watch(
+  [() => currentEntry.value?.id, () => props.selectedCallId],
+  ([nodeId, callId]) => {
+    if (!nodeId || !callId) return
+    const next = new Map(selectedCalls.value)
+    next.set(nodeId, callId)
+    selectedCalls.value = next
+  },
+  { immediate: true },
 )
 
 onMounted(() => {

@@ -66,6 +66,7 @@ import type { ChatRunResumeRequest } from '@chery/protocol'
 import { getExecutionActiveRun } from '@/db/executionGraph.js'
 import { transport } from '../websocket/transport.js'
 import { addTreePauseTarget, createTreePause, refreshTreeControlStatus } from '@/db/treeControl.js'
+import { finishActiveWorkflowSteps } from './workflowStepWriter.js'
 
 // P2-1：runtime 缓存/observer/streamMapper 已按职责拆出。
 // runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
@@ -337,6 +338,13 @@ export async function* handleChatResume(
   if (agent.isRunning()) {
     return { chatId, runId: getActiveChatRunId(chatId) ?? runId, alreadyRunning: true }
   }
+
+  finishActiveWorkflowSteps(chatId, {
+    waitReason: 'child',
+    status: 'succeeded',
+    reason: 'restored',
+    eventKey: `resume:${runId}`,
+  })
 
   // 绑定 chatId 到当前连接，拒绝跨连接并发 resume（P0-3）
   try {

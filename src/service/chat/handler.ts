@@ -93,6 +93,7 @@ import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
 import { getPendingQuestionAttention, getQuestionStateSnapshot } from '@/db/question.js'
 import { randomUUID } from 'crypto'
+import { recordWorkflowStep } from './workflowStepWriter.js'
 import {
   parseRuntimeSelection,
   resolvePresetSelection,
@@ -1208,6 +1209,29 @@ export async function handleChatInputSubmit(
       queueSequence,
       state: running ? 'queued' : 'started',
       acceptedAt,
+    })
+    const inputAnchor = { kind: 'message' as const, id: messageId, chatId: data.chatId }
+    recordWorkflowStep(data.chatId, {
+      kind: 'submission',
+      key: inputId,
+      scope: 'chat',
+      runId,
+      status: 'succeeded',
+      reason: 'accepted',
+      eventKey: 'accepted',
+      anchor: inputAnchor,
+      at: acceptedAt,
+    })
+    recordWorkflowStep(data.chatId, {
+      kind: 'queue',
+      key: inputId,
+      scope: 'chat',
+      runId,
+      status: running ? 'waiting' : 'running',
+      ...(running ? { waitReason: 'queue' as const, reason: 'queued' as const } : {}),
+      eventKey: running ? 'queued' : 'started',
+      anchor: inputAnchor,
+      at: acceptedAt,
     })
 
     const response: ChatInputSubmitResponseData = {

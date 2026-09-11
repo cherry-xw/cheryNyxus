@@ -1,5 +1,4 @@
 @import '../composer/agentDialog.less';
-@import './runtime-diagram/WorkbenchWorkflow.styles.less';
 
 .role-usage-chip {
   flex-shrink: 0;
@@ -58,10 +57,8 @@
 .workbench-shell.is-lite .nyxus-rail-action.is-message {
   display: none;
 }
-/* v1.0 lite 视图下隐藏用不到的视图/任务树按钮（用户确认：保留「暂停/继续任务树」，
-   仅隐藏「暂停全部分支」）：布局切换、卡牌阅读、折叠工具、暂停全部分支。 */
-.workbench-shell.is-lite .nyxus-rail-action.is-layout-action,
-.workbench-shell.is-lite .nyxus-rail-action[data-view-action='paper'],
+/* Lite 视图保留任务控制与待处理入口，但不显示只作用于完整执行图的阅读和折叠操作。 */
+.workbench-shell.is-lite .nyxus-rail-action[data-view-action='reader'],
 .workbench-shell.is-lite .nyxus-fold-tool,
 .workbench-shell.is-lite .nyxus-rail-action[data-view-action='pause-whole'] {
   display: none;
@@ -409,25 +406,28 @@
 .nyxus-rail-action.is-resume {
   color: var(--nx-green);
 }
-.nyxus-layout-icon {
+.nyxus-rail-action > svg {
   width: 17px;
   height: 17px;
-  overflow: visible;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
-.nyxus-paper-icon {
-  width: 17px;
-  height: 17px;
-  overflow: visible;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.45;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.nyxus-rail-action.is-attention {
+  color: var(--nx-yellow);
+}
+.nyxus-attention-count {
+  position: absolute;
+  top: -5px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border: 1px solid var(--nx-bg);
+  border-radius: 8px;
+  color: #fff;
+  background: var(--nx-red);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 13px;
+  text-align: center;
 }
 /* 分组间用一条分割线切割，不做边框盒子；按钮与发送按钮同款 rail-action。 */
 .nyxus-tool-group {
@@ -479,13 +479,6 @@
   border-radius: 0;
   background: var(--nx-bg);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-}
-// 钢琴彩蛋浮层：作为 .nyxus-branch-top 的 flex 子元素自然居中于节点树视口中央。
-.nyxus-piano-flyout {
-  position: relative;
-  z-index: var(--nx-z-chrome);
-  pointer-events: auto;
-  border-radius: 0;
 }
 // 树数据加载指示：rootChatId 已定但 root timeline 快照未就绪时的居中轻提示。
 .workbench-tree-loading {
@@ -569,10 +562,26 @@
   position: absolute;
   inset: 40px 0 0;
   padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   pointer-events: none;
+}
+
+// Vue Flow 是工作台唯一拓扑表面；右侧预留 rail，阅读器只占画布外的相邻列。
+.workbench-runtime-frame {
+  position: absolute;
+  inset: 0 48px 0 0;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+  pointer-events: auto;
+}
+.workbench-runtime-frame.has-reader {
+  grid-template-columns: minmax(0, 1fr) clamp(340px, 34vw, 440px);
+}
+.workbench-content-reader {
+  min-width: 0;
+  min-height: 0;
 }
 
 // 节点树上下文占用条：定位容器（标题栏下方 40px 处，分割线位置）。
@@ -586,12 +595,11 @@
   left: 0;
 }
 
-.nyxus-branch-top :deep(.tree-viewport) {
-  pointer-events: auto;
-}
-
 .workbench-empty-state {
+  position: absolute;
+  inset: 0 48px 0 0;
   display: grid;
+  place-content: center;
   gap: 12px;
   justify-items: center;
   color: color-mix(in srgb, var(--nx-text) 62%, transparent);
@@ -777,6 +785,18 @@
   .nyxus-composer-title small,
   .nyxus-composer-hint span:first-child {
     display: none;
+  }
+}
+@media (max-width: 960px) {
+  .workbench-runtime-frame.has-reader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workbench-runtime-frame.has-reader .workbench-content-reader {
+    position: absolute;
+    z-index: var(--nx-z-node-overlay);
+    inset: 0;
+    width: 100%;
+    box-shadow: -14px 0 36px rgba(0, 0, 0, 0.32);
   }
 }
 @media (max-height: 520px) and (min-width: 721px) {

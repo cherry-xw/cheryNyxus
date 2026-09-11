@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
-import type { WorkflowOpenResponse, WorkflowUpdated } from '@chery/protocol'
+import type {
+  WorkflowHistoryResponse,
+  WorkflowOccurrence,
+  WorkflowOpenResponse,
+  WorkflowUpdated,
+} from '@chery/protocol'
 
 const fixture = vi.hoisted(() => ({
   cleanup: [] as Array<() => void>,
@@ -52,6 +57,34 @@ const response = (chatId = 'root', revision = 0): WorkflowOpenResponse => ({
     historyComplete: true,
   },
 })
+const historyResponse = (chatId = 'root') => ({
+  chatId,
+  contextStageId: `${chatId}:start`,
+  boundary: 1,
+  upperSequence: 1,
+  stages: [{ id: `${chatId}:start`, label: 'start', quality: 'exact' as const }],
+  facts: [],
+  complete: true,
+  historyComplete: true,
+  resources: { loadedSkillsComplete: true },
+  occurrences: [],
+  gaps: [],
+})
+const runningOccurrence: WorkflowOccurrence = {
+  occurrenceId: 'occurrence',
+  rootChatId: 'root',
+  chatId: 'root',
+  contextStageId: 'root:start',
+  kind: 'model',
+  label: '模型交互',
+  status: 'running',
+  anchors: [],
+  startedAt: 1,
+  updatedAt: 1,
+  firstSequence: 1,
+  lastSequence: 1,
+  orderQuality: 'exact',
+}
 const scopes: ReturnType<typeof effectScope>[] = []
 function controller(chatId = ref('root'), suspended = ref(false)) {
   const scope = effectScope()
@@ -71,6 +104,52 @@ afterEach(async () => {
 })
 
 describe('workflow controller without DOM or execution APIs', () => {
+  it('labels installed snapshots as hydration and committed deltas as live motion sources', async () => {
+    fixture.open.mockResolvedValue({
+      ...response(),
+      steps: {
+        rootChatId: 'root',
+        revision: 1,
+        upperSequence: 1,
+        active: [runningOccurrence],
+        recentEvents: [],
+        gaps: [],
+        hasEarlier: false,
+        historyComplete: true,
+      },
+    })
+    const state = controller()
+    await flush()
+    expect(state.workflowChange.value).toMatchObject({ source: 'hydrate', rootChatId: 'root' })
+
+    fixture.update?.({
+      subscriptionId: 'lease:root',
+      streamId: 'stream:root',
+      baseRevision: 1,
+      revision: 2,
+      events: [
+        {
+          eventId: 'terminal',
+          occurrenceId: 'occurrence',
+          rootChatId: 'root',
+          chatId: 'root',
+          sequence: 2,
+          revision: 2,
+          eventKind: 'status',
+          kind: 'model',
+          label: '模型交互',
+          contextStageId: 'root:start',
+          at: 2,
+          status: 'succeeded',
+          orderQuality: 'exact',
+        },
+      ],
+    })
+    await nextTick()
+    expect(state.workflowChange.value).toMatchObject({ source: 'live', rootChatId: 'root' })
+    expect(state.workflowState.value?.occurrences.occurrence?.status).toBe('succeeded')
+  })
+
   it('serializes rapid opens so a stale response cannot close the new lease', async () => {
     let resolveFirst!: (value: WorkflowOpenResponse) => void
     fixture.open.mockImplementationOnce(
@@ -116,6 +195,21 @@ describe('workflow controller without DOM or execution APIs', () => {
         orderKey: i,
         orderQuality: 'exact',
       })),
+      events: ['input', 'model', 'result'].map((kind, index) => ({
+        eventId: `event:${index}`,
+        occurrenceId: `occurrence:${index}`,
+        rootChatId: 'root',
+        chatId: 'root',
+        sequence: index + 1,
+        revision: index + 1,
+        eventKind: 'status' as const,
+        kind: kind as 'input' | 'model' | 'result',
+        label: kind,
+        contextStageId: 'root:start',
+        at: index + 1,
+        status: index === 2 ? ('succeeded' as const) : ('running' as const),
+        orderQuality: 'exact' as const,
+      })),
     })
     const suspended = ref(false)
     const state = controller(ref('root'), suspended)
@@ -123,7 +217,10 @@ describe('workflow controller without DOM or execution APIs', () => {
     expect(state.live.value?.snapshot.revision).toBe(2)
     await state.loadHistory()
     expect(state.snapshot.value?.resources.loadedSkillCount).toBe(0)
+    expect(state.replayLength.value).toBe(3)
     state.play()
+    expect(state.playing.value).toBe(true)
+    expect(vi.getTimerCount()).toBe(1)
     await vi.advanceTimersByTimeAsync(700)
     expect(state.cursor.value).toBe(1)
     fixture.update?.(response('root', 3))
@@ -161,5 +258,35 @@ describe('workflow controller without DOM or execution APIs', () => {
     await pendingHistory
     expect(state.history.value).toBeUndefined()
     expect(state.live.value?.snapshot.chatId).toBe('other')
+  })
+
+  it('loads cancellable step details without entering replay or mixing roots', async () => {
+    fixture.open.mockImplementation(async ({ chatId }) => response(chatId))
+    fixture.history.mockResolvedValue(historyResponse('root'))
+    const target = ref('root')
+    const state = controller(target)
+    await flush()
+    await state.loadDetailHistory({ sourceChatId: 'root', runId: 'run-1' })
+    expect(fixture.history).toHaveBeenCalledWith({
+      chatId: 'root',
+      sourceChatId: 'root',
+      runId: 'run-1',
+    })
+    expect(state.replay.value).toBe(false)
+    expect(state.detailHistory.value?.chatId).toBe('root')
+
+    let resolveDetail!: (value: WorkflowHistoryResponse) => void
+    fixture.history.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDetail = resolve
+        }),
+    )
+    const pending = state.loadDetailHistory({ sourceChatId: 'root' })
+    target.value = 'other'
+    await flush()
+    resolveDetail(historyResponse('root'))
+    await pending
+    expect(state.detailHistory.value).toBeUndefined()
   })
 })

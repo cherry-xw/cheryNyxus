@@ -6,7 +6,7 @@
 
 | 模块 | 文档 | 内容 |
 | --- | --- | --- |
-| 主 Agent 运行流程 | [runtime-diagram.md](./runtime-diagram.md) | 工作台流程观察、空间分配与历史回放 |
+| Agent 运行头部与结果节点树 | [runtime-diagram.md](./runtime-diagram.md) | Vue Flow 重建目标、新版节点逻辑、完整流程与动效；当前卡牌冻结边界 |
 | 桌宠与 Nyxus | [pet/](./pet/README.md) | 桌宠领域模型、状态、运动、渲染及节点树工作台 |
 | 身份认证 | [auth-login.md](./auth-login.md) | 修改首次登录、连接完成反馈与失败重试 |
 | 桌面工作区 | [desktop-cyber-workspace.md](./desktop-cyber-workspace.md) | 修改窗口组织、关闭保护、菜单层级与诊断入口 |

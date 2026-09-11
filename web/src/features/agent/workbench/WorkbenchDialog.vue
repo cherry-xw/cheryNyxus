@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Connection } from '@element-plus/icons-vue'
+import { BellFilled, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
-import { useWorkbenchWorkflow } from './runtime-diagram/useWorkbenchWorkflow'
+import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
 import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
 import {
   useWorkbenchDialogController,
@@ -23,9 +23,8 @@ const {
   FOLD_ICONS,
   FOLD_TIPS,
   LiteView,
-  MessageBranchTree,
   NYXUS_WORKBENCH_Z_INDEX,
-  NyxusPianoStrip,
+  NyxusContentReader,
   NyxusSessionList,
   OVERLAY_Z_INDEX,
   PromptSnapshotTip,
@@ -34,13 +33,12 @@ const {
   activeCommandIndex,
   activeCommandTab,
   activeRoleIndex,
-  agents,
+  attentionCount,
   brains,
   branchTarget,
-  branchTreeRef,
   cancelNyxusInput,
   chatId,
-  closePiano,
+  closeWorkspaceBrowser,
   closeWorkbench,
   comboCommandGroups,
   commandMenuRefFn,
@@ -58,7 +56,6 @@ const {
   effectiveMode,
   error,
   executeSessionControl,
-  fallbackToClassic,
   fmtTokens,
   foldMode,
   foldToolOpen,
@@ -66,6 +63,7 @@ const {
   isNative,
   isShellless,
   liteViewVisible,
+  liveTimeline,
   loading,
   matchingRoleMentions,
   maxControlState,
@@ -77,7 +75,6 @@ const {
   minimizeWorkbench,
   nyxusDraftActive,
   onDialogEditorKeydown,
-  onEasterEgg,
   onEditorInput,
   onEditorPaste,
   onEditorSelectionChange,
@@ -88,11 +85,9 @@ const {
   onTreeEpochChange,
   onTreePromptSnapShow,
   openHistory,
+  openGeneration,
   orderedRoleSelections,
-  paperMode,
   pauseWholeTask,
-  pianoOpen,
-  presentationMode,
   presetName,
   primaryRole,
   primarySelection,
@@ -103,11 +98,15 @@ const {
   roleMenuRefFn,
   roleSelections,
   roleUsages,
+  readerOpen,
+  readerTimeline,
   rootSessions,
   scheduleFoldToolClose,
   scheduleRoleListClose,
   scheduleSessionListClose,
   selectBranchTarget,
+  selectedContent,
+  selectWorkflowContent,
   selectCommand,
   selectCommandTab,
   selectFoldMode,
@@ -135,25 +134,28 @@ const {
   text,
   toggleRoleList,
   toggleSessionList,
-  topologyLayout,
+  toggleWorkspaceBrowser,
   treeBreakdown,
   treeFocusInteractionId,
+  treeFocusNonce,
   treeFocusSourceChatId,
   treeLoading,
   treePromptSnap,
   treeRootChatId,
   treeUsage,
   treeUsagePct,
+  updateReplayTimeline,
   uploading,
   usageClass,
   win,
   windowBlink,
+  workspaceBrowserOpen,
+  focusAttentionTree,
   workbenchShellRef,
   workbenchShellStyle,
   workbenchWindow,
 } = controller
 defineExpose({ closeWorkbench: controller.closeWorkbench })
-const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowComposer, workflowStyle } = useWorkbenchWorkflow(controller)
 </script>
 
 <template>
@@ -196,55 +198,62 @@ const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowC
           `is-${effectiveMode}` +
           (isShellless ? ' is-shellless' : '') +
           (isNative ? ' is-native' : '') +
-          (liteViewVisible ? ' is-lite' : '') +
-          (workflowEnabled ? ' is-workflow-on' : '') +
-          (workflowVertical ? ' is-workflow-vertical' : '')
+          (liteViewVisible ? ' is-lite' : '')
         "
         :style="workbenchShellStyle"
-        aria-label="节点树工作台"
+        aria-label="Agent 执行工作台"
       >
-        <div ref="workflowHost" class="nyxus-branch-top" :style="workflowStyle">
-          <div class="workflow-split">
-          <div class="workflow-tracks">
-          <div class="workflow-tree-frame">
-          <MessageBranchTree
+        <div class="nyxus-branch-top">
+          <div
             v-if="treeRootChatId"
-            ref="branchTreeRef"
-            :key="treeRootChatId"
-            :root-chat-id="treeRootChatId"
-            :timeline-override="taskTimeline"
-            :layout-mode="topologyLayout ? 'topology' : 'timeline'"
-            :presentation-mode="presentationMode"
-            :fold-mode="foldMode"
-            :paper-mode="paperMode"
-            :suspended="win.minimized"
-            :focus-source-chat-id="treeFocusSourceChatId"
-            :focus-interaction-id="treeFocusInteractionId"
-            :full-render-threshold="agents.globalConfig?.global.tree_full_render_threshold"
-            :branch-anchor-node-id="branchTarget?.nodeId"
-            :branch-anchor-kind="branchTarget?.type"
-            :detail-branch-available="detailBranchAvailability.available"
-            :detail-branch-unavailable-reason="detailBranchAvailability.reason"
-            @branch="selectBranchTarget"
-            @easter-egg="onEasterEgg"
-            @presentation-fallback="fallbackToClassic"
-          />
+            class="workbench-runtime-frame"
+            :class="{ 'has-reader': readerOpen }"
+          >
+            <RuntimeDiagram
+              :chat-id="treeRootChatId"
+              :timeline="liveTimeline"
+              :fold-mode="foldMode"
+              :reader-open="readerOpen"
+              :selection="selectedContent"
+              :focus-source-chat-id="treeFocusSourceChatId"
+              :focus-interaction-id="treeFocusInteractionId"
+              :focus-nonce="treeFocusNonce"
+              :suspended="win.minimized"
+              @select-content="selectWorkflowContent"
+              @replay-timeline-change="updateReplayTimeline"
+            />
+            <NyxusContentReader
+              v-if="readerOpen"
+              class="workbench-content-reader"
+              :root-chat-id="treeRootChatId"
+              :timeline="readerTimeline"
+              :fold-mode="foldMode"
+              :selection="selectedContent"
+              :detail-branch-available="detailBranchAvailability.available"
+              :detail-branch-unavailable-reason="detailBranchAvailability.reason"
+              :sense-tools="senseTools"
+              @close="readerOpen = false"
+              @select="selectWorkflowContent"
+              @branch="selectBranchTarget"
+              @generation="openGeneration"
+            />
+          </div>
           <div v-else class="workbench-empty-state" aria-live="polite">
             <span>暂无历史会话</span>
             <button type="button" @click="createSession">新建会话</button>
           </div>
-          </div>
-          <RuntimeDiagram v-if="workflowEnabled && treeRootChatId" :chat-id="treeRootChatId" :vertical="workflowVertical" :suspended="win.minimized" />
-          </div>
-          </div>
           <div v-if="treeLoading" class="workbench-tree-loading" aria-live="polite">
             <span class="workbench-spinner" aria-hidden="true" />
-            节点树加载中…
+            执行图加载中…
           </div>
-          <!-- 钢琴彩蛋浮层：节点树视口中央悬浮（✕/点外/Esc 关闭），flex 子元素自然居中。 -->
-          <NyxusPianoStrip v-if="pianoOpen" class="nyxus-piano-flyout" @close="closePiano" />
         </div>
-
+        <WorkbenchAttentionSurface
+          v-show="workspaceBrowserOpen"
+          :preset-id="presetId"
+          :native="isShellless"
+          @close="closeWorkspaceBrowser"
+          @tree="focusAttentionTree"
+        />
         <header
           v-if="!isShellless"
           class="workbench-titlebar"
@@ -268,7 +277,6 @@ const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowC
             @close="closeWorkbench"
           />
         </header>
-
         <LiteView
           v-if="liteViewVisible"
           :window-id="windowId"
@@ -283,7 +291,6 @@ const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowC
         <Transition name="nyxus-composer">
           <section
             v-if="nyxusDraftActive"
-            ref="workflowComposer"
             id="nyxus-message-composer"
             class="nyxus-composer-dock"
             role="dialog"
@@ -401,7 +408,6 @@ const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowC
                       </span>
                     </button>
                   </template>
-
                   <RoleConfigPopover
                     :role="role"
                     :selection="selection"
@@ -489,6 +495,33 @@ const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowC
                     @click="activateNyxusInput"
                   >
                     <span aria-hidden="true">↗</span>
+                  </button>
+                </span>
+              </el-tooltip>
+              <el-tooltip
+                :content="
+                  attentionCount ? `待处理审批与提问 · ${attentionCount}` : '待处理审批与提问'
+                "
+                placement="left"
+                :show-after="200"
+                :hide-after="0"
+              >
+                <span class="nyxus-tool-tip-anchor">
+                  <button
+                    type="button"
+                    class="nyxus-rail-action is-attention"
+                    data-view-action="attention"
+                    :class="{ 'is-active': workspaceBrowserOpen }"
+                    :aria-label="
+                      attentionCount ? `待处理审批与提问，${attentionCount} 项` : '待处理审批与提问'
+                    "
+                    :aria-pressed="workspaceBrowserOpen"
+                    @click="toggleWorkspaceBrowser"
+                  >
+                    <BellFilled aria-hidden="true" />
+                    <span v-if="attentionCount" class="nyxus-attention-count" aria-hidden="true">
+                      {{ attentionCount > 99 ? '99+' : attentionCount }}
+                    </span>
                   </button>
                 </span>
               </el-tooltip>
@@ -631,39 +664,8 @@ const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowC
               </el-tooltip>
             </div>
             <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
-              <el-tooltip v-if="!liteViewVisible" :content="treeRootChatId ? '运行流程' : '选择主会话后查看运行流程'" placement="left" :show-after="200">
-                <span class="nyxus-tool-tip-anchor">
-                  <button type="button" class="nyxus-rail-action" :class="{ 'is-active': workflowEnabled }" :disabled="!treeRootChatId" aria-label="运行流程" :aria-pressed="workflowEnabled" @click="workflowOpen = !workflowOpen"><Connection style="width: 20px; height: 20px" aria-hidden="true" /></button>
-                </span>
-              </el-tooltip>
               <el-tooltip
-                :content="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
-                placement="left"
-                :show-after="200"
-                :hide-after="0"
-              >
-                <span class="nyxus-tool-tip-anchor">
-                  <button
-                    type="button"
-                    class="nyxus-rail-action is-layout-action"
-                    data-view-action="layout"
-                    :class="{ 'is-active': topologyLayout }"
-                    :aria-label="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
-                    :aria-pressed="topologyLayout"
-                    @click="topologyLayout = !topologyLayout"
-                  >
-                    <svg class="nyxus-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 4v5M7 9h10M7 9v4M17 9v4" />
-                      <circle cx="12" cy="4" r="2" />
-                      <circle cx="7" cy="15" r="2" />
-                      <circle cx="17" cy="15" r="2" />
-                      <path d="M7 17v3M17 17v3" />
-                    </svg>
-                  </button>
-                </span>
-              </el-tooltip>
-              <el-tooltip
-                :content="paperMode ? '切换信号横向视图' : '切换卡牌纵向视图'"
+                :content="readerOpen ? '关闭所选内容阅读器' : '打开所选内容阅读器'"
                 placement="left"
                 :show-after="200"
                 :hide-after="0"
@@ -672,16 +674,14 @@ const { workflowOpen, workflowEnabled, workflowVertical, workflowHost, workflowC
                   <button
                     type="button"
                     class="nyxus-rail-action"
-                    data-view-action="paper"
-                    :class="{ 'is-active': paperMode }"
-                    :aria-label="paperMode ? '切换信号横向视图' : '切换卡牌纵向视图'"
-                    :aria-pressed="paperMode"
-                    @click="paperMode = !paperMode"
+                    data-view-action="reader"
+                    :class="{ 'is-active': readerOpen }"
+                    :disabled="!treeRootChatId"
+                    :aria-label="readerOpen ? '关闭所选内容阅读器' : '打开所选内容阅读器'"
+                    :aria-pressed="readerOpen"
+                    @click="readerOpen = !readerOpen"
                   >
-                    <svg class="nyxus-paper-icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M7 4h10l2 3v13H7z" />
-                      <path d="M5 7v13h11M9 9h7M9 12h7M9 15h5" />
-                    </svg>
+                    <Reading aria-hidden="true" />
                   </button>
                 </span>
               </el-tooltip>

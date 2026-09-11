@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 const COMPANIONS: Record<string, string[]> = {
   WorkbenchDialog: [
+    'WorkbenchAttentionSurface.vue',
+    'WorkbenchAttentionSurface.styles.less',
     'WorkbenchFoldTool.vue',
     'WorkbenchWindowControls.vue',
     'useWorkbenchDialogController.ts',

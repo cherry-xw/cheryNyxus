@@ -480,7 +480,7 @@ async function fetchAnthropicModelsNative(
 /**
  * OpenAI 兼容回退尝试：GET {base}/models（仅 Authorization Bearer）。
  * `/models` 为 openai 兼容协议常量（与 /chat/completions 同款豁免，buildEndpointUrl 直拼，
-   * 见 docs/standards/modules/agent/provider-url-resolution.md §4）。失败就地返回 {models:[], error}，不抛。
+ * 见 docs/standards/modules/agent/provider-url-resolution.md §4）。失败就地返回 {models:[], error}，不抛。
  */
 async function fetchOpenAICompatModelsFallback(
   url: string,

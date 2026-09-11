@@ -3,6 +3,7 @@ import type {
   WorkflowFact,
   WorkflowHistoryRequest,
   WorkflowHistoryResponse,
+  WorkflowOccurrence,
   WorkflowSnapshot,
 } from '@chery/protocol'
 import { getChat, getMessages, getMessageLinksForRoot } from '@/db/chat.js'
@@ -10,6 +11,12 @@ import { createHash } from 'node:crypto'
 import { listExecutionNodes } from '@/db/executionGraph.js'
 import { getActiveChatEpoch, getFrozenChatSnapshot, listChatEpochs } from '@/db/epoch.js'
 import { effectiveSkillCount, workflowCallStatus } from './workflowEvidence.js'
+import {
+  listWorkflowJournalStages,
+  readWorkflowJournalPage,
+  readWorkflowStepSnapshot,
+} from '@/db/workflowJournal.js'
+import { getConversationBranchByChat, getConversationTask } from '@/db/conversationBranch.js'
 
 export function requireWorkflowRoot(chatId: string) {
   const chat = getChat(chatId)
@@ -17,6 +24,23 @@ export function requireWorkflowRoot(chatId: string) {
   if (chat.parent_chat_id)
     throw Object.assign(new Error('运行流程仅支持主 Agent 会话'), { code: 'INVALID_PARAMS' })
   return chat
+}
+
+export function resolveWorkflowRootScope(chatId: string): {
+  requestedChatId: string
+  rootChatId: string
+  taskId?: string
+  branchId?: string
+} {
+  requireWorkflowRoot(chatId)
+  const branch = getConversationBranchByChat(chatId)
+  const task = branch ? getConversationTask(branch.taskId) : undefined
+  return {
+    requestedChatId: chatId,
+    rootChatId: task?.originalChatId ?? chatId,
+    ...(task ? { taskId: task.taskId } : {}),
+    ...(branch ? { branchId: branch.branchId } : {}),
+  }
 }
 
 export function workflowResources(chatId: string, epochId?: string): WorkflowSnapshot['resources'] {
@@ -46,8 +70,129 @@ const cursorSchema = z
   })
   .strict()
 
+const journalCursorSchema = z
+  .object({
+    version: z.literal(2),
+    rootChatId: z.string(),
+    requestedChatId: z.string(),
+    upperSequence: z.number().int().nonnegative(),
+    afterSequence: z.number().int().nonnegative(),
+    historyGeneration: z.number().int().nonnegative(),
+    branchId: z.string().nullable(),
+    sourceChatId: z.string().nullable(),
+    runId: z.string().nullable(),
+    contextStageId: z.string().nullable(),
+  })
+  .strict()
+
+function stepNodeId(kind: WorkflowOccurrence['kind']): WorkflowFact['nodeId'] {
+  if (kind === 'context') return 'context'
+  if (kind === 'command') return 'command'
+  if (kind === 'input' || kind === 'parent-receive' || kind === 'child-return') return 'input'
+  if (kind === 'request' || kind === 'model') return 'model'
+  if (kind === 'retry') return 'retry'
+  if (kind.startsWith('tool-') || kind === 'dispatch' || kind === 'child-run') return 'tools'
+  if (kind === 'checkpoint') return 'checkpoint'
+  if (kind === 'loop-decision' || kind === 'wake') return 'decision'
+  if (kind.startsWith('compact-')) return 'compact'
+  return 'result'
+}
+
+function legacyStepStatus(status: WorkflowOccurrence['status']): WorkflowFact['status'] {
+  if (status === 'succeeded') return 'completed'
+  if (status === 'waiting' || status === 'running') return 'running'
+  if (status === 'interrupted') return 'paused'
+  if (status === 'rejected') return 'failed'
+  return status
+}
+
+function readDetailedWorkflowHistory(
+  request: WorkflowHistoryRequest,
+  scope: ReturnType<typeof resolveWorkflowRootScope>,
+  decoded?: z.infer<typeof journalCursorSchema>,
+): WorkflowHistoryResponse {
+  const normalize = (value: string | undefined) => value ?? null
+  if (
+    decoded &&
+    (decoded.rootChatId !== scope.rootChatId ||
+      decoded.requestedChatId !== request.chatId ||
+      decoded.branchId !== normalize(request.branchId) ||
+      decoded.sourceChatId !== normalize(request.sourceChatId) ||
+      decoded.runId !== normalize(request.runId) ||
+      decoded.contextStageId !== normalize(request.contextStageId))
+  )
+    throw Object.assign(new Error('历史游标不属于当前任务或筛选范围'), {
+      code: 'INVALID_PARAMS',
+    })
+  const snapshot = decoded ? undefined : readWorkflowStepSnapshot(scope.rootChatId)
+  const page = readWorkflowJournalPage({
+    rootChatId: scope.rootChatId,
+    ...(decoded ? { upperSequence: decoded.upperSequence } : {}),
+    ...(decoded ? { afterSequence: decoded.afterSequence } : {}),
+    ...(decoded ? { historyGeneration: decoded.historyGeneration } : {}),
+    ...(request.limit ? { limit: request.limit } : {}),
+    ...(request.branchId ? { branchId: request.branchId } : {}),
+    ...(request.sourceChatId ? { chatId: request.sourceChatId } : {}),
+    ...(request.runId ? { runId: request.runId } : {}),
+    ...(request.contextStageId ? { contextStageId: request.contextStageId } : {}),
+  })
+  const stages = listWorkflowJournalStages(scope.rootChatId).map((stage, index) => ({
+    id: stage.id,
+    label: index === 0 ? '初始上下文' : `压缩后阶段 ${index}`,
+    quality: stage.quality,
+  }))
+  const contextStageId =
+    request.contextStageId ??
+    page.events.at(-1)?.contextStageId ??
+    stages.at(-1)?.id ??
+    `${request.chatId}:start`
+  const facts: WorkflowFact[] = page.occurrences.map((occurrence) => ({
+    id: occurrence.occurrenceId,
+    nodeId: stepNodeId(occurrence.kind),
+    label: occurrence.label,
+    status: legacyStepStatus(occurrence.status),
+    ...(occurrence.runId ? { runId: occurrence.runId } : {}),
+    ...(occurrence.callId ? { callId: occurrence.callId } : {}),
+    orderKey: occurrence.firstSequence,
+    orderQuality: occurrence.orderQuality,
+  }))
+  const upperSequence = decoded?.upperSequence ?? snapshot?.upperSequence ?? page.upperSequence
+  const nextCursor = !page.complete
+    ? Buffer.from(
+        JSON.stringify({
+          version: 2,
+          rootChatId: scope.rootChatId,
+          requestedChatId: request.chatId,
+          upperSequence,
+          afterSequence: page.events.at(-1)!.sequence,
+          historyGeneration: page.historyGeneration,
+          branchId: normalize(request.branchId),
+          sourceChatId: normalize(request.sourceChatId),
+          runId: normalize(request.runId),
+          contextStageId: normalize(request.contextStageId),
+        } satisfies z.infer<typeof journalCursorSchema>),
+      ).toString('base64url')
+    : undefined
+  return {
+    chatId: request.chatId,
+    contextStageId,
+    boundary: upperSequence,
+    stages,
+    facts,
+    complete: page.complete,
+    historyComplete: page.historyComplete,
+    resources: workflowResources(request.chatId),
+    revision: page.revision,
+    upperSequence,
+    events: page.events,
+    occurrences: page.occurrences,
+    gaps: page.gaps,
+    ...(nextCursor ? { nextCursor } : {}),
+  }
+}
+
 /** Pure read: never calls the canonical timeline repair path or ensureChat. */
-export function readWorkflowHistory(request: WorkflowHistoryRequest): WorkflowHistoryResponse {
+function readLegacyWorkflowHistory(request: WorkflowHistoryRequest): WorkflowHistoryResponse {
   requireWorkflowRoot(request.chatId)
   let cursor: z.infer<typeof cursorSchema> | undefined
   if (request.cursor) {
@@ -324,4 +469,31 @@ export function readWorkflowHistory(request: WorkflowHistoryRequest): WorkflowHi
         }
       : {}),
   }
+}
+
+/** Pure indexed journal read with an explicit legacy reconstruction fallback. */
+export function readWorkflowHistory(request: WorkflowHistoryRequest): WorkflowHistoryResponse {
+  const scope = resolveWorkflowRootScope(request.chatId)
+  let journalCursor: z.infer<typeof journalCursorSchema> | undefined
+  if (request.cursor) {
+    let decoded: unknown
+    try {
+      decoded = JSON.parse(Buffer.from(request.cursor, 'base64url').toString('utf8'))
+    } catch {
+      return readLegacyWorkflowHistory(request)
+    }
+    if ((decoded as { version?: unknown })?.version === 2) {
+      const parsed = journalCursorSchema.safeParse(decoded)
+      if (!parsed.success)
+        throw Object.assign(new Error('历史游标无效，请重新加载回放'), {
+          code: 'INVALID_PARAMS',
+        })
+      journalCursor = parsed.data
+    }
+  }
+  if (journalCursor) return readDetailedWorkflowHistory(request, scope, journalCursor)
+  const snapshot = readWorkflowStepSnapshot(scope.rootChatId)
+  if (snapshot.upperSequence > 0 || snapshot.gaps.length)
+    return readDetailedWorkflowHistory(request, scope)
+  return readLegacyWorkflowHistory(request)
 }

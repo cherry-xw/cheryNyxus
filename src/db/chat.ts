@@ -3,6 +3,7 @@ import { safeJsonParse } from '@/utils/json.js'
 import config from '@/utils/config.js'
 import type { ThinkingBlock } from '@/core/message/adapter.js'
 import type { ToolAuthorization } from '@/core/security/index.js'
+import { publishWorkflowJournalInvalidation } from './workflowJournal.js'
 
 export interface ChatRow {
   id: string
@@ -577,9 +578,26 @@ export function getChatRule(chatId: string): string | undefined {
 /** Clear monthly data first; failure retains ownership records for retry. */
 export function deleteChats(chatIds: readonly string[]): void {
   const soulDb = getSoulDb()
+  const workflowInvalidations = new Map<string, { baseRevision: number; revision: number }>()
+  const mutatedWorkflowRoots = new Set<string>()
   const targets = chatIds.flatMap((chatId) => {
     const chat = getChat(chatId)
-    return chat ? [{ chatId, chat, executionRootId: getRootChat(chatId).id }] : []
+    if (!chat) return []
+    const executionRootId = getRootChat(chatId).id
+    const task = soulDb
+      .prepare(
+        `SELECT t.original_chat_id FROM conversation_branches b
+         JOIN conversation_tasks t ON t.task_id = b.task_id WHERE b.chat_id = ?`,
+      )
+      .get(executionRootId) as { original_chat_id: string } | undefined
+    return [
+      {
+        chatId,
+        chat,
+        executionRootId,
+        workflowRootId: task?.original_chat_id ?? executionRootId,
+      },
+    ]
   })
   for (const { chatId, chat } of targets) {
     const monthlyDb = getMonthlyDb(chat.messages_month)
@@ -597,65 +615,111 @@ export function deleteChats(chatIds: readonly string[]): void {
     clear()
   }
   soulDb.transaction(() => {
-    for (const { chatId, executionRootId } of targets) {
-    soulDb
-      .prepare('DELETE FROM interactions WHERE chat_id = ? OR root_chat_id = ?')
-      .run(chatId, chatId)
-    soulDb
-      .prepare(
-        'DELETE FROM tree_control_targets WHERE chat_id = ? OR pause_id IN (SELECT pause_id FROM tree_control_operations WHERE root_chat_id = ?)',
-      )
-      .run(chatId, chatId)
-    soulDb.prepare('DELETE FROM tree_control_operations WHERE root_chat_id = ?').run(chatId)
-    soulDb
-      .prepare(
-        'DELETE FROM spawn_tasks WHERE child_chat_id = ? OR parent_chat_id = ? OR delivery_chat_id = ?',
-      )
-      .run(chatId, chatId, chatId)
-    soulDb
-      .prepare(
-        'DELETE FROM execution_edges WHERE root_chat_id = ? AND (? = ? OR from_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?) OR to_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?))',
-      )
-      .run(executionRootId, chatId, executionRootId, chatId, chatId)
-    soulDb
-      .prepare(
-        'DELETE FROM execution_nodes WHERE root_chat_id = ? AND (? = ? OR source_chat_id = ?)',
-      )
-      .run(executionRootId, chatId, executionRootId, chatId)
-    soulDb.prepare('DELETE FROM execution_active_runs WHERE chat_id = ?').run(chatId)
-    if (chatId === executionRootId) {
-      soulDb.prepare('DELETE FROM tool_call_owners WHERE root_chat_id = ?').run(executionRootId)
+    for (const { chatId, executionRootId, workflowRootId } of targets) {
       soulDb
-        .prepare('DELETE FROM execution_graph_counters WHERE root_chat_id = ?')
-        .run(executionRootId)
-    }
-    soulDb
-      .prepare(
-        'DELETE FROM message_links WHERE source_chat_id = ? OR root_chat_id = ? OR parent_chat_id = ?',
-      )
-      .run(chatId, chatId, chatId)
-    soulDb.prepare('DELETE FROM pending_inputs WHERE chat_id = ?').run(chatId)
-    soulDb.prepare('DELETE FROM chat_epoch_snapshots WHERE chat_id = ?').run(chatId)
-    if (chatId === executionRootId) {
-      soulDb.prepare('DELETE FROM root_events WHERE root_chat_id = ?').run(chatId)
-      soulDb.prepare('DELETE FROM chat_epochs WHERE root_chat_id = ?').run(chatId)
-    }
-    const branch = soulDb
-      .prepare('SELECT task_id FROM conversation_branches WHERE chat_id = ?')
-      .get(chatId) as { task_id: string } | undefined
-    soulDb.prepare('DELETE FROM conversation_branches WHERE chat_id = ?').run(chatId)
-    if (branch) {
-      const remaining = soulDb
-        .prepare('SELECT COUNT(*) AS count FROM conversation_branches WHERE task_id = ?')
-        .get(branch.task_id) as { count: number }
-      if (remaining.count === 0) {
-        soulDb.prepare('DELETE FROM conversation_tasks WHERE task_id = ?').run(branch.task_id)
+        .prepare('DELETE FROM interactions WHERE chat_id = ? OR root_chat_id = ?')
+        .run(chatId, chatId)
+      soulDb
+        .prepare(
+          'DELETE FROM tree_control_targets WHERE chat_id = ? OR pause_id IN (SELECT pause_id FROM tree_control_operations WHERE root_chat_id = ?)',
+        )
+        .run(chatId, chatId)
+      soulDb.prepare('DELETE FROM tree_control_operations WHERE root_chat_id = ?').run(chatId)
+      soulDb
+        .prepare(
+          'DELETE FROM spawn_tasks WHERE child_chat_id = ? OR parent_chat_id = ? OR delivery_chat_id = ?',
+        )
+        .run(chatId, chatId, chatId)
+      soulDb
+        .prepare(
+          'DELETE FROM execution_edges WHERE root_chat_id = ? AND (? = ? OR from_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?) OR to_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?))',
+        )
+        .run(executionRootId, chatId, executionRootId, chatId, chatId)
+      soulDb
+        .prepare(
+          'DELETE FROM execution_nodes WHERE root_chat_id = ? AND (? = ? OR source_chat_id = ?)',
+        )
+        .run(executionRootId, chatId, executionRootId, chatId)
+      soulDb.prepare('DELETE FROM execution_active_runs WHERE chat_id = ?').run(chatId)
+      if (chatId === workflowRootId) {
+        soulDb
+          .prepare('DELETE FROM workflow_step_events WHERE root_chat_id = ?')
+          .run(workflowRootId)
+        soulDb
+          .prepare('DELETE FROM workflow_occurrences WHERE root_chat_id = ?')
+          .run(workflowRootId)
+        soulDb
+          .prepare('DELETE FROM workflow_journal_gaps WHERE root_chat_id = ?')
+          .run(workflowRootId)
+        soulDb
+          .prepare('DELETE FROM workflow_journal_roots WHERE root_chat_id = ?')
+          .run(workflowRootId)
+      } else {
+        soulDb
+          .prepare('DELETE FROM workflow_step_events WHERE root_chat_id = ? AND source_chat_id = ?')
+          .run(workflowRootId, chatId)
+        soulDb
+          .prepare('DELETE FROM workflow_occurrences WHERE root_chat_id = ? AND source_chat_id = ?')
+          .run(workflowRootId, chatId)
+        soulDb
+          .prepare(
+            'DELETE FROM workflow_journal_gaps WHERE root_chat_id = ? AND source_chat_id = ?',
+          )
+          .run(workflowRootId, chatId)
+        mutatedWorkflowRoots.add(workflowRootId)
       }
+      if (chatId === executionRootId) {
+        soulDb.prepare('DELETE FROM tool_call_owners WHERE root_chat_id = ?').run(executionRootId)
+        soulDb
+          .prepare('DELETE FROM execution_graph_counters WHERE root_chat_id = ?')
+          .run(executionRootId)
+      }
+      soulDb
+        .prepare(
+          'DELETE FROM message_links WHERE source_chat_id = ? OR root_chat_id = ? OR parent_chat_id = ?',
+        )
+        .run(chatId, chatId, chatId)
+      soulDb.prepare('DELETE FROM pending_inputs WHERE chat_id = ?').run(chatId)
+      soulDb.prepare('DELETE FROM chat_epoch_snapshots WHERE chat_id = ?').run(chatId)
+      if (chatId === executionRootId) {
+        soulDb.prepare('DELETE FROM root_events WHERE root_chat_id = ?').run(chatId)
+        soulDb.prepare('DELETE FROM chat_epochs WHERE root_chat_id = ?').run(chatId)
+      }
+      const branch = soulDb
+        .prepare('SELECT task_id FROM conversation_branches WHERE chat_id = ?')
+        .get(chatId) as { task_id: string } | undefined
+      soulDb.prepare('DELETE FROM conversation_branches WHERE chat_id = ?').run(chatId)
+      if (branch) {
+        const remaining = soulDb
+          .prepare('SELECT COUNT(*) AS count FROM conversation_branches WHERE task_id = ?')
+          .get(branch.task_id) as { count: number }
+        if (remaining.count === 0) {
+          soulDb.prepare('DELETE FROM conversation_tasks WHERE task_id = ?').run(branch.task_id)
+        }
+      }
+      const stmt = soulDb.prepare('DELETE FROM chats WHERE id = ?')
+      stmt.run(chatId)
     }
-    const stmt = soulDb.prepare('DELETE FROM chats WHERE id = ?')
-    stmt.run(chatId)
+    for (const rootChatId of mutatedWorkflowRoots) {
+      const root = soulDb
+        .prepare('SELECT revision FROM workflow_journal_roots WHERE root_chat_id = ?')
+        .get(rootChatId) as { revision: number } | undefined
+      if (!root) continue
+      soulDb
+        .prepare(
+          `UPDATE workflow_journal_roots
+           SET revision = revision + 1, history_generation = history_generation + 1,
+               updated_at = ? WHERE root_chat_id = ?`,
+        )
+        .run(Date.now(), rootChatId)
+      workflowInvalidations.set(rootChatId, {
+        baseRevision: root.revision,
+        revision: root.revision + 1,
+      })
     }
   })()
+  for (const [rootChatId, revision] of workflowInvalidations)
+    publishWorkflowJournalInvalidation(rootChatId, revision.baseRevision, revision.revision)
 }
 
 /** Internal rollback primitive; public deletion requires an archived family. */

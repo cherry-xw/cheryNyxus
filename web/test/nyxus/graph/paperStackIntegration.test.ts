@@ -3,35 +3,35 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('paper stack workbench integration', () => {
-  it('connects the persistent toolbar mode to the execution tree', async () => {
+  it('connects the persistent reader to the one Vue Flow topology', async () => {
     const workbench = await readComponentSource(
       resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
       'utf8',
     )
-    expect(workbench).toContain('paperMode: false')
-    expect(workbench).toContain('paperMode: value?.paperMode === true')
-    expect(workbench).toContain(':paper-mode="paperMode"')
+    expect(workbench).toContain('value?.paperMode === true')
+    expect(workbench).toContain('<RuntimeDiagram')
+    expect(workbench).toContain('<NyxusContentReader')
+    expect(workbench).toContain(':timeline="liveTimeline"')
+    expect(workbench).toContain(':selection="selectedContent"')
     expect(workbench).not.toContain(':composer-open="nyxusDraftActive"')
-    expect(workbench).toContain(':aria-pressed="paperMode"')
+    expect(workbench).toContain(':aria-pressed="readerOpen"')
+    expect(workbench).not.toContain('<MessageBranchTree')
   })
 
-  it('suppresses hover details and bridges the current paper to GPU highlighting', async () => {
-    const tree = await readComponentSource(
-      resolve('src/features/pets/nyxus/components/MessageBranchTree.vue'),
+  it('projects the current selection into the external reader without another renderer', async () => {
+    const reader = await readComponentSource(
+      resolve('src/features/pets/nyxus/components/NyxusContentReader.vue'),
       'utf8',
     )
-    expect(tree).toContain('if (props.paperMode) return')
-    expect(tree).toContain('buildPaperStack(paperGraph.value.nodes, nodeTitle)')
-    expect(tree).toContain(':edges="paperGraph.edges"')
-    expect(tree).toContain('(props.paperMode && activePaperNodeId.value === node.id)')
-    expect(tree).toContain('@select="selectPaperIndex"')
-    expect(tree).toContain('@latest="returnToLatestPaper"')
-    expect(tree).not.toContain('canvas.panToPoint(target)')
-    expect(tree).toContain('viewportSize.height - 150')
-    expect(tree).not.toContain("'has-composer'")
-    expect(tree).not.toContain('composerOpen ? 390')
-    expect(tree).toContain(':sense-tools="agents.senseTools"')
-    expect(tree).not.toContain('activePaperQuestionPopover')
+    expect(reader).toContain('projectNyxusReaderGraph')
+    expect(reader).toContain('resolveNyxusReaderSelection')
+    expect(reader).toContain('<NodePaperStack')
+    expect(reader).toContain(':selected-call-id="resolvedSelection?.callId"')
+    expect(reader).toContain('@branch="requestBranch"')
+    expect(reader).toContain("emit('generation', generationIndex)")
+    expect(reader).toMatch(/\.content-reader-body\s*{[^}]*grid-row:\s*3;/s)
+    expect(reader).not.toContain('pixi.js')
+    expect(reader).not.toContain('TreeCanvas')
   })
 
   it('keeps the foreground reader and exposes clickable chronological title strips', async () => {

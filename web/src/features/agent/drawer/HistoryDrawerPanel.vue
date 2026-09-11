@@ -115,7 +115,8 @@ const {
         />
         <button
           v-if="
-            !archived && currentTaskBranch &&
+            !archived &&
+            currentTaskBranch &&
             currentTaskBranch.kind !== 'detail' &&
             currentTaskBranch.branchId !== taskTimeline?.activeBranchId
           "

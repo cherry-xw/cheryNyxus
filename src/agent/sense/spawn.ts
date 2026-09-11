@@ -18,12 +18,17 @@ import {
 } from '@/db/chat.js'
 import { emitRoleCreated, registerWaitedChild, startChildEager } from '@/agent/spawnBroker.js'
 import { logger } from '@/utils/logger/index.js'
-import { getSessionRoleRuntime, setEphemeralChatRuntime } from '@/service/chat/runtime.js'
+import {
+  getActiveChatRunId,
+  getSessionRoleRuntime,
+  setEphemeralChatRuntime,
+} from '@/service/chat/runtime.js'
 import { createSpawnTask, getSpawnTaskByChild, setSpawnTaskOwnership } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
 import { getToolCallOwner } from '@/db/executionGraph.js'
 import { recordSpawnEdgeFact, recordSpawnTargetFact } from '@/service/chat/executionFacts.js'
 import { getActiveChatEpoch } from '@/db/epoch.js'
+import { recordWorkflowStep } from '@/service/chat/workflowStepWriter.js'
 
 // tool 暴露面：让主 agent LLM 可见可用角色及能力（非盲串 type）。
 // - catalog = config.roles 全集（单一源，模块加载期冻结；预设按 type 引用，不在预设内重定义）。
@@ -327,6 +332,18 @@ async function spawnHandler(
     taskId: task.taskId,
     ...(spawnSenseCallId ? { callId: spawnSenseCallId } : {}),
     content: prompt,
+  })
+  const parentRunId = getActiveChatRunId(parentChatId)
+  recordWorkflowStep(parentChatId, {
+    kind: 'dispatch',
+    key: task.taskId,
+    scope: 'chat',
+    ...(parentRunId ? { runId: parentRunId } : {}),
+    status: 'succeeded',
+    reason: reusableChild ? 'reused' : 'normal',
+    eventKey: reusableChild ? 'reused' : 'dispatched',
+    ...(spawnSenseCallId ? { callId: spawnSenseCallId } : {}),
+    anchor: { kind: 'branch', id: childChatId, chatId: childChatId },
   })
 
   // 回写触发本次 spawn 的 sense call id 到子 chat metadata。

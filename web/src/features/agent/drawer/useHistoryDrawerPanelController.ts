@@ -157,7 +157,9 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   }
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
-  const archived = computed(() => chatSessions.sessionsById[props.chatId]?.meta.lifecycle === 'archived')
+  const archived = computed(
+    () => chatSessions.sessionsById[props.chatId]?.meta.lifecycle === 'archived',
+  )
   const manager = useHistoryDrawerManager()
   const sessionData = useChatSessionData(() => props.chatId)
   /** 估高入口：感知工具调用折叠开关（VirtualScroll 只在未量测时用估值，实测后自动替换）。 */
@@ -167,7 +169,11 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   const chatPetName = computed(() => pet.value?.name ?? '')
   // 布局：子 chat（ghost 自身面板，有 parentChatId）→ direct（master 右/ghost 左 1:1）；
   //        主 chat → group（群聊双头像样式）。
-  const layout = computed<'group' | 'direct'>(() => (pet.value?.parentChatId || chatSessions.sessionsById[props.chatId]?.meta.parentChatId ? 'direct' : 'group'))
+  const layout = computed<'group' | 'direct'>(() =>
+    pet.value?.parentChatId || chatSessions.sessionsById[props.chatId]?.meta.parentChatId
+      ? 'direct'
+      : 'group',
+  )
   const parentPet = computed(() =>
     pet.value?.parentChatId
       ? agents.pets.find((p) => p.chatId === pet.value!.parentChatId)

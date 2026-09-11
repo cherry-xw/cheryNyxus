@@ -2,7 +2,7 @@ import { computed, ref, type MaybeRefOrGetter, toValue } from 'vue'
 import { ElMessage } from 'element-plus'
 import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
-import { terminalActionMode } from '@/features/pets/nyxus/composables/nodeInteraction'
+import { terminalActionMode } from '@/features/pets/nyxus/public'
 import { selectCanResume } from '@/application/chat/public'
 import { desktopBridge } from '@/features/desktop/public'
 
@@ -18,7 +18,12 @@ export function useWorkbenchTaskController(options: {
 
   const controlTimeline = computed(() => {
     const chatId = toValue(options.chatId)
-    return chatId ? (chatSessions.rootTimeline(chatId, 'tree') ?? taskTimeline.value) : undefined
+    if (!chatId) return undefined
+    const live = chatSessions.rootTimeline(chatId, 'tree')
+    const fallback = taskTimeline.value
+    if (!live) return fallback
+    if (!fallback) return live
+    return live.revision >= fallback.revision ? live : fallback
   })
   const taskHasRunningBranches = computed(
     () =>
@@ -125,6 +130,7 @@ export function useWorkbenchTaskController(options: {
   }
 
   return {
+    controlTimeline,
     executeSessionControl,
     pauseWholeTask,
     sessionControl,

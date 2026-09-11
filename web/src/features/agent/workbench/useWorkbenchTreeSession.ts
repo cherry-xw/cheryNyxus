@@ -22,6 +22,7 @@ export function useWorkbenchTreeSession(options: {
   const treeRootChatId = ref('')
   const treeFocusSourceChatId = ref<string>()
   const treeFocusInteractionId = ref<string>()
+  const treeFocusNonce = ref(0)
   const rootSubscriptionOwner = `workbench:${options.windowId}`
 
   function releaseCurrentRoot(): void {
@@ -36,6 +37,7 @@ export function useWorkbenchTreeSession(options: {
       if (!focus) return
       treeFocusSourceChatId.value = focus.sourceChatId
       treeFocusInteractionId.value = focus.anchorNodeId ?? focus.interactionId
+      treeFocusNonce.value++
       agents.setWorkbenchWindowFocus(options.windowId, undefined)
     },
     { immediate: true },
@@ -201,6 +203,7 @@ export function useWorkbenchTreeSession(options: {
     releaseCurrentRoot,
     switchSession,
     treeFocusInteractionId,
+    treeFocusNonce,
     treeFocusSourceChatId,
     treeLoading,
     treeRootChatId,

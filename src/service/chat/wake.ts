@@ -32,6 +32,7 @@ import { emitTimelinePatch } from './rootGraphPatch.js'
 import { recordSpawnTerminationFact, recordTerminationFact } from './executionFacts.js'
 import { transitionInteraction } from '@/db/interaction.js'
 import { broadcastInteractionChanged } from '../interaction/events.js'
+import { finishActiveWorkflowSteps, recordWorkflowStep } from './workflowStepWriter.js'
 
 /** 向该 chat 的全部仍在线订阅者广播持久化 notification。 */
 function broadcastChatNotification(chatId: string, notification: unknown): boolean {
@@ -133,6 +134,17 @@ export async function wakeParent(
       causationNodeId: opts?.causationNodeId ?? childLastMessage?.id,
     },
   })
+  const parentRunId = getActiveChatRunId(parentChatId)
+  recordWorkflowStep(parentChatId, {
+    kind: 'parent-receive',
+    key: spawnTask?.taskId ?? `${childChatId}:${msgId}`,
+    scope: 'chat',
+    ...(parentRunId ? { runId: parentRunId } : {}),
+    status: 'succeeded',
+    reason: 'result',
+    eventKey: `received:${msgId}`,
+    anchor: { kind: 'message', id: msgId, chatId: parentChatId },
+  })
   emitTimelinePatch(parentChatId, baseRevision)
 
   // 持久幂等标记：子 chat metadata.roleInjected=true。重启后 rebuildWaitedChildren 据此跳过，
@@ -151,6 +163,16 @@ export async function wakeParent(
   // immediate（或策略满足唤主）：父不在运行时置 resumePending（前端 resume 续跑）；
   // 父正在运行时 loop 会检测并消费新 role，无需额外 resume。
   if (!parentWasRunning) updateChatMetadata(parentChatId, { resumePending: true })
+  recordWorkflowStep(parentChatId, {
+    kind: 'wake',
+    key: spawnTask?.taskId ?? childChatId,
+    scope: 'chat',
+    ...(parentRunId ? { runId: parentRunId } : {}),
+    status: 'succeeded',
+    reason: 'normal',
+    eventKey: `wake:${msgId}`,
+    anchor: { kind: 'message', id: msgId, chatId: parentChatId },
+  })
 
   // 读子 chat metadata.spawnSenseCallId（= 触发 spawn 的 sense call id）。
   let spawnSenseCallId: string | undefined
@@ -233,6 +255,14 @@ export async function resolveQuestionBatch(
     },
   )
   broadcastInteractionChanged(interaction)
+  finishActiveWorkflowSteps(chatId, {
+    kind: 'input',
+    waitReason: 'answer',
+    batchId,
+    status: 'succeeded',
+    reason: 'consumed',
+    eventKey: `answer:${batchId}`,
+  })
 
   updateChatMetadata(chatId, { resumePending: true })
   try {

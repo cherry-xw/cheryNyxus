@@ -1817,7 +1817,9 @@ export const agentApi = {
     return call('chat.archive', { chatId })
   },
 
-  async listArchives(params: import('@chery/protocol').ArchiveListRequest = {}): Promise<import('@chery/protocol').ArchiveListResponse> {
+  async listArchives(
+    params: import('@chery/protocol').ArchiveListRequest = {},
+  ): Promise<import('@chery/protocol').ArchiveListResponse> {
     return call('chat.archive.list', params)
   },
 
