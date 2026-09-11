@@ -33,6 +33,7 @@ import {
 } from './graphModel'
 import { useWorkflowController } from './useWorkflowController'
 import { useRuntimeMotion } from './useRuntimeMotion'
+import { useHeaderLayoutMotion } from './useHeaderLayoutMotion'
 import { orthogonalPathBetween } from './motionPolicy'
 import { useWorkflowPointerHighlight } from './useWorkflowPointerHighlight'
 import WorkflowContentNode from './WorkflowContentNode.vue'
@@ -52,6 +53,8 @@ import {
   type HeaderScopeEvent,
 } from './headerGraph'
 import type { HeaderScopeSelection } from './headerState'
+import { headerGroupKey, layerAncestors } from './headerLayout'
+import { WORKFLOW_HEADER_TEMPLATE } from './headerTemplate'
 import { projectReplayTimeline, projectWorkflowStepDetails } from './workflowStepDetails'
 
 const props = withDefaults(
@@ -86,27 +89,33 @@ const displayTimeline = computed(() =>
       : props.timeline,
 )
 const headerSelections = ref<Record<string, HeaderScopeSelection>>({})
-/** 用户手动展开的 group（key: `${headerId}:${groupId}`）。活跃 group 不受此约束。 */
-const userExpandedGroups = ref<Set<string>>(new Set())
-/** 是否启用「非活跃 group 自动收起」；关闭后所有 group 保持展开。 */
+const groupOverrides = ref<Record<string, boolean>>({})
 const autoCollapseEnabled = ref(true)
 const selectedStep = shallowRef<HeaderSelection>()
-
-function groupKey(headerId: string, groupId: string): string {
-  return `${headerId}:${groupId}`
-}
+const focusedLayer = ref<string>()
+const lastActiveLayers = ref<Record<string, readonly string[]>>({})
 function onToggleGroup(event: HeaderGroupToggleEvent): void {
-  const key = groupKey(event.headerId, event.groupId)
-  const next = new Set(userExpandedGroups.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  userExpandedGroups.value = next
+  const node = projection.value.nodes.find((n) => n.data?.kind === 'header-group' && n.data.headerId === event.headerId && n.data.groupId === event.groupId)
+  const collapsed = node?.data?.kind === 'header-group' ? node.data.collapsed : groupOverrides.value[headerGroupKey(event.headerId, event.groupId)] === true
+  groupOverrides.value = { ...groupOverrides.value, [headerGroupKey(event.headerId, event.groupId)]: !collapsed }
+  if (!collapsed && selectedStep.value) {
+    const group = WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => n.id === selectedStep.value?.templateNodeId)?.group
+    if (event.groupId === 'header' || (group && layerAncestors(group).includes(event.groupId))) closeStepDetails(false)
+  }
+  cancelFocusTransition()
 }
 function resetGroupOverrides(headerId: string): void {
-  const prefix = `${headerId}:`
-  userExpandedGroups.value = new Set(
-    [...userExpandedGroups.value].filter((key) => !key.startsWith(prefix)),
-  )
+  groupOverrides.value = Object.fromEntries(Object.entries(groupOverrides.value).filter(([key]) => !key.startsWith(`${headerId}:`)))
+  autoCollapseEnabled.value = true
+}
+function expandAll(): void {
+  const headerId = projection.value.activeHeaderId
+  if (headerId) resetGroupOverrides(headerId)
+  autoCollapseEnabled.value = false
+}
+function protectFocusedLayer(event: FocusEvent): void {
+  const target = event.target instanceof Element ? event.target : undefined
+  focusedLayer.value = target?.closest<HTMLElement>('[data-workflow-layer]')?.dataset.workflowLayer
 }
 function closeStepDetails(restoreFocus = true): void {
   const selection = selectedStep.value
@@ -150,8 +159,16 @@ const baseProjection = computed(() =>
     props.foldMode,
     headerSelections.value,
     liveTurns.value,
+    { overrides: groupOverrides.value, lastActiveLayers: lastActiveLayers.value, follow: autoCollapseEnabled.value, protectedLayers: new Set([
+      ...(focusedLayer.value ? [focusedLayer.value] : []),
+      ...WORKFLOW_HEADER_TEMPLATE.nodes.filter((n) => n.id === selectedStep.value?.templateNodeId).map((n) => n.group),
+    ]) },
   ),
 )
+watch(() => [...baseProjection.value.activeGroupIds].sort().join('|'), () => {
+  const { activeHeaderId, activeGroupIds } = baseProjection.value
+  if (activeHeaderId && activeGroupIds.size) lastActiveLayers.value = { ...lastActiveLayers.value, [activeHeaderId]: [...activeGroupIds] }
+})
 const selectedGraphNodeId = computed(() => {
   const selection = props.selection
   if (!selection) return undefined
@@ -176,106 +193,25 @@ function projectNodeSelection(node: WorkflowGraphNode): WorkflowGraphNode {
     },
   }
 }
-const activeGroupIds = computed(() => baseProjection.value.activeGroupIds)
-function groupCollapsed(headerId: string, groupId: string): boolean {
-  if (activeGroupIds.value.has(groupId)) return false
-  if (userExpandedGroups.value.has(groupKey(headerId, groupId))) return false
-  return autoCollapseEnabled.value
-}
-/** 收起态 group 的标题条高度（宽度不变，复用硬编码坐标） */
-const COLLAPSED_GROUP_HEIGHT = 44
-/** 节点左侧/右侧边界的中点（绝对坐标），用作收起态重路由边的端点 */
-function sideMidpoint(
-  node: WorkflowGraphNode,
-  side: 'left' | 'right',
-  nodes: WorkflowGraphNode[],
-): { x: number; y: number } {
-  const origin = absoluteGraphPosition(node, nodes)
-  const height = Number(node.height ?? 0)
-  return side === 'left'
-    ? { x: origin.x, y: origin.y + height / 2 }
-    : { x: origin.x + Number(node.width ?? 0), y: origin.y + height / 2 }
-}
-/**
- * 收起 group 的跨 group 连线重路由：把收起的一端改连到该 group 容器（边界中点），
- * 另一端保持；重算正交折线路径并清除旧 label 锚点。source/target 都收起时应由调用方直接舍弃。
- */
-function rerouteCollapsedEdge(
-  edge: WorkflowGraphEdge,
-  sourceCollapsed: boolean,
-  targetCollapsed: boolean,
-  nodes: WorkflowGraphNode[],
-  stepToGroup: ReadonlyMap<string, string>,
-): WorkflowGraphEdge | undefined {
-  if (!edge.data) return undefined
-  const groupId = stepToGroup.get(sourceCollapsed ? edge.source : edge.target)
-  const groupNode = groupId ? nodes.find((node) => node.id === groupId) : undefined
-  const keptNode = nodes.find((node) => node.id === (sourceCollapsed ? edge.target : edge.source))
-  if (!groupNode || !keptNode) return undefined
-  const start = sideMidpoint(groupNode, sourceCollapsed ? 'right' : 'left', nodes)
-  const end = sideMidpoint(
-    keptNode,
-    absoluteGraphPosition(keptNode, nodes).x < absoluteGraphPosition(groupNode, nodes).x
-      ? 'right'
-      : 'left',
-    nodes,
-  )
-  const points = orthogonalPathBetween(start, end)
-  const data = { ...edge.data, points, labelPoint: undefined }
-  return sourceCollapsed
-    ? { ...edge, source: groupNode.id, sourceHandle: undefined, data }
-    : { ...edge, target: groupNode.id, targetHandle: undefined, data }
-}
-const projection = computed<WorkflowGraphProjection>(() => {
-  const base = baseProjection.value
-  const collapsedStepIds = new Set<string>()
-  const stepToGroup = new Map<string, string>()
-  for (const node of base.nodes) {
-    const data = node.data
-    if (data?.kind !== 'header-step') continue
-    stepToGroup.set(node.id, `${data.headerId}:group:${data.template.group}`)
-    if (groupCollapsed(data.headerId, data.template.group)) collapsedStepIds.add(node.id)
+const projection = computed<WorkflowGraphProjection>(() => ({
+  ...baseProjection.value,
+  nodes: baseProjection.value.nodes.map(projectNodeSelection),
+  edges: focusTransition.value ? [...baseProjection.value.edges, focusTransition.value.edge] : baseProjection.value.edges,
+}))
+async function focusCurrentStep(): Promise<void> {
+  const rawId = projection.value.rawActiveOccurrenceId
+  const headerId = projection.value.activeHeaderId
+  if (rawId && headerId) {
+    const template = WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => headerTemplateNodeId(headerId, n.id) === rawId)
+    if (template) {
+      const next = { ...groupOverrides.value, [headerGroupKey(headerId, 'header')]: false }
+      for (const layer of layerAncestors(template.group)) next[headerGroupKey(headerId, layer)] = false
+      groupOverrides.value = next
+      await nextTick()
+    }
   }
-  const nodes = base.nodes.flatMap((node): WorkflowGraphNode[] => {
-    const data = node.data
-    if (data?.kind === 'header-step' && collapsedStepIds.has(node.id)) return []
-    if (data?.kind === 'header-group') {
-      const collapsed = groupCollapsed(data.headerId, data.groupId)
-      return [
-        {
-          ...node,
-          height: collapsed ? COLLAPSED_GROUP_HEIGHT : node.height,
-          data: {
-            ...data,
-            collapsed,
-            active: activeGroupIds.value.has(data.groupId),
-          },
-        },
-      ]
-    }
-    return [projectNodeSelection(node)]
-  })
-  const allEdges = focusTransition.value ? [...base.edges, focusTransition.value.edge] : base.edges
-  const edges = allEdges.flatMap((edge): WorkflowGraphEdge[] => {
-    const data = edge.data
-    if (data?.semantic !== 'template') return [edge]
-    const sourceCollapsed = collapsedStepIds.has(edge.source)
-    const targetCollapsed = collapsedStepIds.has(edge.target)
-    if (sourceCollapsed && targetCollapsed) return []
-    if (sourceCollapsed || targetCollapsed) {
-      const rerouted = rerouteCollapsedEdge(
-        edge,
-        sourceCollapsed,
-        targetCollapsed,
-        nodes,
-        stepToGroup,
-      )
-      return rerouted ? [rerouted] : []
-    }
-    return [edge]
-  })
-  return { ...base, nodes, edges }
-})
+  focusNode(rawId ?? projection.value.activeHeaderId)
+}
 const stepDetailHistory = computed(() => {
   if (!controller.replay.value || !controller.history.value) return controller.detailHistory.value
   const state = controller.workflowState.value
@@ -321,6 +257,9 @@ const {
   suspended: toRef(props, 'suspended'),
   synced: controller.synced,
   hidden: controller.hidden,
+})
+useHeaderLayoutMotion({ host: flowHostRef, projection, root: cameraRootId,
+  disabled: computed(() => props.suspended || controller.replay.value || controller.hidden.value || !controller.synced.value),
 })
 let resizeFrame = 0
 let resolvedFocusKey = ''
@@ -573,7 +512,7 @@ onBeforeUnmount(() => {
 
 defineExpose({
   focusActiveHeader: () => focusNode(projection.value.activeHeaderId),
-  focusCurrentOccurrence: () => focusNode(projection.value.activeOccurrenceId),
+  focusCurrentOccurrence: focusCurrentStep,
   fitView: () => flow.value?.fitView({ padding: 0.16, duration: 180 }),
 })
 </script>
@@ -639,7 +578,7 @@ defineExpose({
               type="button"
               aria-label="定位当前步骤"
               :disabled="!projection.activeOccurrenceId"
-              @click="focusNode(projection.activeOccurrenceId)"
+              @click="focusCurrentStep"
             >
               <Aim aria-hidden="true" />
             </button>
@@ -739,7 +678,9 @@ defineExpose({
         :min-zoom="0.35"
         :max-zoom="1.8"
         :fit-view-on-init="false"
+        @focusin="protectFocusedLayer"
         :pan-on-drag="true"
+        @focusout="focusedLayer = undefined"
         :zoom-on-scroll="true"
         @pane-ready="onPaneReady"
         @move-end="recordViewport"
@@ -753,6 +694,8 @@ defineExpose({
             v-bind="nodeProps"
             @select-scope="selectHeaderScope"
             @reset-group-overrides="resetGroupOverrides"
+            @toggle="onToggleGroup"
+            @expand-all="expandAll"
           />
         </template>
         <template #node-header-group="nodeProps">

@@ -78,18 +78,28 @@ function postBuildFix(): Plugin {
       }
 
       // 修正 addon 导出结构：nativeModules 包装成 { default: addon }
-      // 但 better-sqlite3 需要直接访问 addon.setErrorConstructor() 等方法
-      const addonPattern = /addon = DEFAULT_ADDON \|\| \(DEFAULT_ADDON = \(init_better_sqlite3\(\), __toCommonJS\(better_sqlite3_exports\)\)\)/;
+      // 但 better-sqlite3 需要直接访问 addon.setErrorConstructor() 等方法。
+      // 兼容两种产物形态（esbuild 互操作输出随版本漂移）：
+      //   旧：__toCommonJS(better_sqlite3_exports)      —— 包装对象，需剥壳
+      //   新：better_sqlite3_exports.default).default   —— default 双重取值得到 undefined
+      // 统一改写为直接引用 nativeModule（native .node 导出，含 isInitialized/setErrorConstructor）。
+      const addonPattern = /\(init_better_sqlite3\(\), (?:__toCommonJS\(better_sqlite3_exports\)|better_sqlite3_exports\.default)\)(\.default)?/;
       if (addonPattern.test(code)) {
-        code = code.replace(addonPattern, "addon = DEFAULT_ADDON || (DEFAULT_ADDON = (init_better_sqlite3(), nativeModule))");
+        code = code.replace(addonPattern, "(init_better_sqlite3(), nativeModule)");
         patched = true;
-      } else {
-        // 兜底：bundle 结构变化时精确正则可能失效，剥壳取 nativeModule 亦可
-        const fallback = /DEFAULT_ADDON = \(init_better_sqlite3\(\), __toCommonJS\(better_sqlite3_exports\)\)/;
-        if (fallback.test(code)) {
-          code = code.replace(fallback, "DEFAULT_ADDON = (init_better_sqlite3(), better_sqlite3_exports.default)");
-          patched = true;
-        }
+      } else if (code.includes("init_better_sqlite3")) {
+        // fail loud：better-sqlite3 已打包但补丁未命中 → 运行期 DEFAULT_ADDON=undefined，
+        // worker 启动即崩并陷入 guardian 重试循环。构建期直接报错，禁止静默失效。
+        throw new Error(
+          "[post-build-fix] better-sqlite3 addon 导出补丁未命中：bundle 结构再次变化，" +
+            "请更新 postBuildFix 中的 addonPattern 正则",
+        );
+      }
+
+      const doubleDefault = /\(init_better_sqlite3\(\), better_sqlite3_exports\.default\)\.default/g;
+      if (doubleDefault.test(code)) {
+        code = code.replace(doubleDefault, "(init_better_sqlite3(), better_sqlite3_exports.default)");
+        patched = true;
       }
 
       if (patched) {

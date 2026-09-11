@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
 import type { WorkflowGraphNodeData } from './graphModel'
-import type { HeaderScopeEvent } from './headerGraph'
+import type { HeaderScopeEvent, HeaderGroupToggleEvent } from './headerGraph'
 import { headerStatusText } from './headerState'
 
 type HeaderData = Extract<WorkflowGraphNodeData, { kind: 'header' }>
@@ -10,6 +10,8 @@ const props = defineProps<NodeProps<HeaderData>>()
 const emit = defineEmits<{
   selectScope: [event: HeaderScopeEvent]
   resetGroupOverrides: [headerId: string]
+  toggle: [event: HeaderGroupToggleEvent]
+  expandAll: []
 }>()
 const runStatusText = computed(
   () =>
@@ -52,18 +54,19 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
       id="header-in"
       type="target"
       :position="Position.Left"
-      :style="data.mode === 'full' ? { top: '600px' } : {}"
+      :style="data.mode === 'full' ? { top: '188px' } : {}"
     />
-    <header class="workflow-header-caption">
+    <button v-if="data.collapsed" type="button" class="workflow-collapsed-title nodrag nopan" aria-expanded="false" :aria-label="`展开${data.title}`" @pointerdown.stop @click.stop="emit('toggle', { headerId: id, groupId: 'header' })">{{ data.title }}</button>
+    <header v-else class="workflow-header-caption">
       <strong>{{ data.title }}</strong>
       <span
         v-if="data.mode === 'full' && data.iterationCount > 0"
         class="workflow-header-iteration"
         :title="`外层 Loop 共 ${data.iterationCount} 轮，当前第 ${data.currentIteration} 轮`"
-        >Loop {{ data.currentIteration }}/{{ data.iterationCount }}</span
+        >第 {{ data.currentIteration }} 轮</span
       >
       <span
-        >{{ data.mode === 'full' ? '完整运行流程' : '简略运行头部' }} · {{ runStatusText }}</span
+        >{{ runStatusText }}</span
       >
       <template v-if="data.mode === 'full'">
         <label
@@ -123,14 +126,16 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
           @pointerdown.stop
           @click.stop="emit('resetGroupOverrides', id)"
         >
-          重置分组
+          跟随运行层
         </button>
+        <button type="button" class="nodrag nopan" @pointerdown.stop @click.stop="emit('expandAll')">展开全部</button>
+        <button type="button" class="nodrag nopan" @pointerdown.stop @click.stop="emit('toggle', { headerId: id, groupId: 'header' })">收起头部</button>
         <span>{{ data.state.coverage }}</span>
         <span>箭头表示可走路径；选择步骤查看说明</span>
       </template>
     </header>
     <div
-      v-if="data.mode === 'compact'"
+      v-if="data.mode === 'compact' && !data.collapsed"
       class="workflow-header-summary"
       data-workflow-highlight-target
     >
@@ -151,14 +156,16 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   background: color-mix(in srgb, var(--panel) 86%, transparent);
   color: var(--ink);
 }
-.workflow-header-shell.is-compact {
-  border-style: dashed;
-}
+.workflow-header-shell.is-compact { background: var(--surface); }
+.workflow-collapsed-title { width: 100%; height: 100%; padding: 12px; background: transparent; color: var(--ink); border: 0; border-radius: 0; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-collapsed-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .workflow-header-caption {
   display: flex;
   align-items: center;
   gap: 16px;
-  height: 64px;
+  min-height: 64px;
+  flex-wrap: wrap;
+  align-content: center;
   padding: 0 24px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
@@ -182,7 +189,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   color: var(--accent);
   padding: 2px 8px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
 }
 .workflow-header-caption label {
@@ -213,7 +220,8 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   display: grid;
   align-content: center;
   gap: 4px;
-  height: 54px;
+  height: 40px;
+  min-height: 40px;
   padding: 0 12px;
 }
 .is-compact .workflow-header-caption strong {
@@ -222,7 +230,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
 .workflow-header-summary {
   display: grid;
   gap: 4px;
-  padding: 8px 12px;
+  padding: 4px 12px;
 }
 .workflow-header-summary span,
 .workflow-header-summary small {

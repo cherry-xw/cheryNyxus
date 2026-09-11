@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
 import { InfoFilled } from '@element-plus/icons-vue'
 import type { HeaderChildData, HeaderSelection } from './headerGraph'
-import { headerNodePorts } from './headerTemplate'
+
 import { statusIcon, visualStyle } from './workflowVisuals'
 import WorkflowLiveCrt from './WorkflowLiveCrt.vue'
 import WorkflowMorphIcon from './WorkflowMorphIcon.vue'
@@ -30,7 +30,7 @@ const positions = {
   top: Position.Top,
   bottom: Position.Bottom,
 }
-const ports = computed(() => headerNodePorts(props.data.template.id))
+const ports = computed(() => props.data.ports)
 const stateIcon = computed(() =>
   props.data.slot.status === 'idle' ? undefined : statusIcon(props.data.slot.status),
 )
@@ -62,6 +62,7 @@ function activateInfo(): void { infoOpen.value = true }
     :data-workflow-step-id="id"
     :data-workflow-occurrence-id="data.slot.occurrence?.occurrenceId"
     :data-iteration="data.iteration"
+    :data-workflow-layer="data.template.group"
   >
     <Handle
       v-for="port in ports"
@@ -103,6 +104,7 @@ function activateInfo(): void { infoOpen.value = true }
           </em>
         </span>
         <span class="workflow-step-state">{{ data.slot.statusText }}</span>
+        <span class="workflow-step-summary" :title="data.summary">{{ data.summary }}</span>
       </span>
     </button>
     <button
@@ -202,7 +204,7 @@ function activateInfo(): void { infoOpen.value = true }
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--workflow-capability) 62%, var(--border));
   background: var(--panel);
-  box-shadow: 0 10px 28px color-mix(in srgb, #000 22%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--ink) 16%, transparent);
   padding: 9px 10px;
   color: var(--ink);
   line-height: 1.45;
@@ -211,14 +213,17 @@ function activateInfo(): void { infoOpen.value = true }
 .workflow-step-info strong {
   color: var(--workflow-capability);
   font-size: 12px;
+  font-weight: 400;
 }
 .workflow-step-info span {
   color: color-mix(in srgb, var(--ink) 78%, transparent);
-  font-size: 11px;
+  font-size: 12px;
 }
 .workflow-step-title {
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .workflow-step-iteration {
@@ -228,11 +233,12 @@ function activateInfo(): void { infoOpen.value = true }
   background: color-mix(in srgb, var(--workflow-capability) 10%, var(--surface));
   color: color-mix(in srgb, var(--workflow-capability) 82%, var(--ink));
   padding: 0 5px;
-  font-size: 11px;
+  font-size: 12px;
   font-style: normal;
-  font-weight: 500;
+  font-weight: 400;
   vertical-align: 1px;
 }
+.workflow-step-summary { font-size: 12px; color: color-mix(in srgb, var(--ink) 72%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workflow-step-state {
   display: flex;
   align-items: center;

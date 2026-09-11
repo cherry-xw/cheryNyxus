@@ -16,7 +16,7 @@ export interface WorkflowHeaderSection {
   kinds: WorkflowStepKind[]
 }
 
-export const WORKFLOW_HEADER_TEMPLATE_VERSION = 2 as const
+export const WORKFLOW_HEADER_TEMPLATE_VERSION = 3 as const
 
 export const WORKFLOW_STEP_LABELS: Record<WorkflowStepKind, string> = {
   submission: '输入接收',

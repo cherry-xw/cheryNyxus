@@ -5,7 +5,7 @@ import type { WorkflowGraphEdge } from './graphModel'
 const props = defineProps<EdgeProps<NonNullable<WorkflowGraphEdge['data']>>>()
 const points = computed(() => props.data?.points ?? [])
 const path = computed(() =>
-  points.value.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' '),
+  props.data?.renderPath ?? points.value.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' '),
 )
 const edgeColor = computed(() => {
   const status = props.data?.targetStatus
@@ -30,11 +30,13 @@ const labelPosition = computed(() => {
 })
 </script>
 <template>
+  <g :data-workflow-layout-edge="id">
+  <title>{{ data?.members?.map((member) => member.label).join('；') || data?.relationLabel }}</title>
   <BaseEdge
     :id="id"
     :path="path"
     :marker-end="markerEnd"
-    :interaction-width="0"
+    :interaction-width="18"
     :data-workflow-path="id"
     :style="data?.evidenced ? { stroke: edgeColor } : undefined"
   />
@@ -53,7 +55,9 @@ const labelPosition = computed(() => {
     :transform="`translate(${points[0]!.x} ${points[0]!.y})`"
     :style="{ fill: edgeColor }"
   />
-  <EdgeLabelRenderer v-if="data?.relationLabel">
+  <circle v-if="data?.junction" :cx="data.junction.x" :cy="data.junction.y" r="3" fill="var(--border-strong)" />
+  <line v-if="data?.labelAnchor && data?.labelPoint" :x1="data.labelAnchor.x" :y1="data.labelAnchor.y" :x2="data.labelPoint.x" :y2="data.labelPoint.y" stroke="var(--border-strong)" stroke-width="1" />
+  <EdgeLabelRenderer v-if="data?.relationLabel && data?.labelPoint">
     <span
       class="workflow-header-edge-label"
       :style="{
@@ -62,6 +66,7 @@ const labelPosition = computed(() => {
       >{{ data.relationLabel }}</span
     >
   </EdgeLabelRenderer>
+  </g>
 </template>
 <style scoped lang="less">
 .workflow-header-edge-label {
