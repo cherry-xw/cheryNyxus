@@ -47,6 +47,7 @@ import WorkflowStepDetails from './WorkflowStepDetails.vue'
 import {
   absoluteGraphPosition,
   headerTemplateNodeId,
+  type HeaderGroupToggleEvent,
   type HeaderSelection,
   type HeaderScopeEvent,
 } from './headerGraph'
@@ -85,7 +86,28 @@ const displayTimeline = computed(() =>
       : props.timeline,
 )
 const headerSelections = ref<Record<string, HeaderScopeSelection>>({})
+/** 用户手动展开的 group（key: `${headerId}:${groupId}`）。活跃 group 不受此约束。 */
+const userExpandedGroups = ref<Set<string>>(new Set())
+/** 是否启用「非活跃 group 自动收起」；关闭后所有 group 保持展开。 */
+const autoCollapseEnabled = ref(true)
 const selectedStep = shallowRef<HeaderSelection>()
+
+function groupKey(headerId: string, groupId: string): string {
+  return `${headerId}:${groupId}`
+}
+function onToggleGroup(event: HeaderGroupToggleEvent): void {
+  const key = groupKey(event.headerId, event.groupId)
+  const next = new Set(userExpandedGroups.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  userExpandedGroups.value = next
+}
+function resetGroupOverrides(headerId: string): void {
+  const prefix = `${headerId}:`
+  userExpandedGroups.value = new Set(
+    [...userExpandedGroups.value].filter((key) => !key.startsWith(prefix)),
+  )
+}
 function closeStepDetails(restoreFocus = true): void {
   const selection = selectedStep.value
   selectedStep.value = undefined
@@ -154,13 +176,106 @@ function projectNodeSelection(node: WorkflowGraphNode): WorkflowGraphNode {
     },
   }
 }
-const projection = computed<WorkflowGraphProjection>(() => ({
-  ...baseProjection.value,
-  nodes: baseProjection.value.nodes.map(projectNodeSelection),
-  edges: focusTransition.value
-    ? [...baseProjection.value.edges, focusTransition.value.edge]
-    : baseProjection.value.edges,
-}))
+const activeGroupIds = computed(() => baseProjection.value.activeGroupIds)
+function groupCollapsed(headerId: string, groupId: string): boolean {
+  if (activeGroupIds.value.has(groupId)) return false
+  if (userExpandedGroups.value.has(groupKey(headerId, groupId))) return false
+  return autoCollapseEnabled.value
+}
+/** 收起态 group 的标题条高度（宽度不变，复用硬编码坐标） */
+const COLLAPSED_GROUP_HEIGHT = 44
+/** 节点左侧/右侧边界的中点（绝对坐标），用作收起态重路由边的端点 */
+function sideMidpoint(
+  node: WorkflowGraphNode,
+  side: 'left' | 'right',
+  nodes: WorkflowGraphNode[],
+): { x: number; y: number } {
+  const origin = absoluteGraphPosition(node, nodes)
+  const height = Number(node.height ?? 0)
+  return side === 'left'
+    ? { x: origin.x, y: origin.y + height / 2 }
+    : { x: origin.x + Number(node.width ?? 0), y: origin.y + height / 2 }
+}
+/**
+ * 收起 group 的跨 group 连线重路由：把收起的一端改连到该 group 容器（边界中点），
+ * 另一端保持；重算正交折线路径并清除旧 label 锚点。source/target 都收起时应由调用方直接舍弃。
+ */
+function rerouteCollapsedEdge(
+  edge: WorkflowGraphEdge,
+  sourceCollapsed: boolean,
+  targetCollapsed: boolean,
+  nodes: WorkflowGraphNode[],
+  stepToGroup: ReadonlyMap<string, string>,
+): WorkflowGraphEdge | undefined {
+  if (!edge.data) return undefined
+  const groupId = stepToGroup.get(sourceCollapsed ? edge.source : edge.target)
+  const groupNode = groupId ? nodes.find((node) => node.id === groupId) : undefined
+  const keptNode = nodes.find((node) => node.id === (sourceCollapsed ? edge.target : edge.source))
+  if (!groupNode || !keptNode) return undefined
+  const start = sideMidpoint(groupNode, sourceCollapsed ? 'right' : 'left', nodes)
+  const end = sideMidpoint(
+    keptNode,
+    absoluteGraphPosition(keptNode, nodes).x < absoluteGraphPosition(groupNode, nodes).x
+      ? 'right'
+      : 'left',
+    nodes,
+  )
+  const points = orthogonalPathBetween(start, end)
+  const data = { ...edge.data, points, labelPoint: undefined }
+  return sourceCollapsed
+    ? { ...edge, source: groupNode.id, sourceHandle: undefined, data }
+    : { ...edge, target: groupNode.id, targetHandle: undefined, data }
+}
+const projection = computed<WorkflowGraphProjection>(() => {
+  const base = baseProjection.value
+  const collapsedStepIds = new Set<string>()
+  const stepToGroup = new Map<string, string>()
+  for (const node of base.nodes) {
+    const data = node.data
+    if (data?.kind !== 'header-step') continue
+    stepToGroup.set(node.id, `${data.headerId}:group:${data.template.group}`)
+    if (groupCollapsed(data.headerId, data.template.group)) collapsedStepIds.add(node.id)
+  }
+  const nodes = base.nodes.flatMap((node): WorkflowGraphNode[] => {
+    const data = node.data
+    if (data?.kind === 'header-step' && collapsedStepIds.has(node.id)) return []
+    if (data?.kind === 'header-group') {
+      const collapsed = groupCollapsed(data.headerId, data.groupId)
+      return [
+        {
+          ...node,
+          height: collapsed ? COLLAPSED_GROUP_HEIGHT : node.height,
+          data: {
+            ...data,
+            collapsed,
+            active: activeGroupIds.value.has(data.groupId),
+          },
+        },
+      ]
+    }
+    return [projectNodeSelection(node)]
+  })
+  const allEdges = focusTransition.value ? [...base.edges, focusTransition.value.edge] : base.edges
+  const edges = allEdges.flatMap((edge): WorkflowGraphEdge[] => {
+    const data = edge.data
+    if (data?.semantic !== 'template') return [edge]
+    const sourceCollapsed = collapsedStepIds.has(edge.source)
+    const targetCollapsed = collapsedStepIds.has(edge.target)
+    if (sourceCollapsed && targetCollapsed) return []
+    if (sourceCollapsed || targetCollapsed) {
+      const rerouted = rerouteCollapsedEdge(
+        edge,
+        sourceCollapsed,
+        targetCollapsed,
+        nodes,
+        stepToGroup,
+      )
+      return rerouted ? [rerouted] : []
+    }
+    return [edge]
+  })
+  return { ...base, nodes, edges }
+})
 const stepDetailHistory = computed(() => {
   if (!controller.replay.value || !controller.history.value) return controller.detailHistory.value
   const state = controller.workflowState.value
@@ -634,10 +749,14 @@ defineExpose({
           <WorkflowContentNode v-bind="nodeProps" @select="selectContentNode" />
         </template>
         <template #node-header="nodeProps">
-          <WorkflowHeaderNode v-bind="nodeProps" @select-scope="selectHeaderScope" />
+          <WorkflowHeaderNode
+            v-bind="nodeProps"
+            @select-scope="selectHeaderScope"
+            @reset-group-overrides="resetGroupOverrides"
+          />
         </template>
         <template #node-header-group="nodeProps">
-          <WorkflowHeaderGroupNode v-bind="nodeProps" />
+          <WorkflowHeaderGroupNode v-bind="nodeProps" @toggle="onToggleGroup" />
         </template>
         <template #node-header-step="nodeProps">
           <WorkflowHeaderStepNode v-bind="nodeProps" @select-step="selectStep" />

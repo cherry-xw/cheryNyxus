@@ -124,6 +124,10 @@ export interface HeaderStepProjection {
   occurrence: WorkflowOccurrence
   statusText: string
   live: boolean
+  /** 所属 loop 轮次（后端 WorkflowOccurrence.iteration，缺省按 1） */
+  iteration: number
+  /** 该 lane 全部 occurrence 涉及的 loop 轮次总数 */
+  iterationCount: number
   contentTarget?: WorkflowContentSelectionResolution
 }
 
@@ -138,6 +142,10 @@ export interface HeaderLaneProjection {
   sections: WorkflowHeaderSection[]
   calls: Array<HeaderCallSource & { current: boolean }>
   steps: HeaderStepProjection[]
+  /** 该 lane 累计的 loop 轮次总数 */
+  iterationCount: number
+  /** 当前正在执行/等待的轮次（无活跃则取最后一轮） */
+  currentIteration: number
 }
 
 export interface HeaderFlowProjection {
@@ -401,6 +409,16 @@ export function projectWorkflowScene(
       (occurrence) =>
         nodeLane(occurrence.chatId, occurrence.branchId, context.branchByChat) === laneId,
     )
+    const iterations = [...new Set(laneOccurrences.map((item) => item.iteration ?? 1))].sort(
+      (a, b) => a - b,
+    )
+    const iterationCount = iterations.length
+    const activeIteration = laneOccurrences
+      .filter(
+        (occurrence) => occurrence.status === 'running' || occurrence.status === 'waiting',
+      )
+      .at(-1)?.iteration
+    const currentIteration = activeIteration ?? iterations.at(-1) ?? 1
     const chatId =
       branch?.chatId ??
       laneOccurrences[0]?.chatId ??
@@ -439,6 +457,8 @@ export function projectWorkflowScene(
         (active.length ? 'running' : 'idle'),
       sections: WORKFLOW_HEADER_SECTIONS,
       calls: [...tools.values()].map((call) => ({ ...call, current: call.id === currentCallId })),
+      iterationCount,
+      currentIteration,
       steps: laneOccurrences.map((occurrence) => {
         const contentTargets = occurrence.anchors.map((anchor) =>
           resolveSelection({
@@ -455,6 +475,8 @@ export function projectWorkflowScene(
           occurrence,
           statusText: statusText(occurrence.status, occurrence.waitReason),
           live: occurrence.status === 'running' || occurrence.status === 'waiting',
+          iteration: occurrence.iteration ?? 1,
+          iterationCount,
           ...(contentTarget ? { contentTarget } : {}),
         }
       }),

@@ -71,6 +71,8 @@ export type WorkflowGraphNodeData =
       active: WorkflowOccurrence[]
       sections: WorkflowHeaderSection[]
       calls: Array<{ id: string; name: string; status: string; current: boolean }>
+      iterationCount: number
+      currentIteration: number
       state: HeaderStateProjection
     }
   | {
@@ -99,6 +101,8 @@ export interface WorkflowGraphProjection {
   edges: WorkflowGraphEdge[]
   activeHeaderId?: string
   activeOccurrenceId?: string
+  /** 活跃 header 中正在执行/等待的 step 所属 group id 集合（驱动 group 自动展开） */
+  activeGroupIds: ReadonlySet<string>
   scene: WorkflowSceneProjection
 }
 
@@ -202,6 +206,7 @@ export function projectWorkflowGraph(
     if (node.data?.kind === 'content') contentTargets.set(node.id, node.data)
   }
   const headerEdges: WorkflowGraphEdge[] = []
+  const activeGroupIds = new Set<string>()
   let activeOccurrenceId: string | undefined
   // Place the full head first, then compact heads in stable branch order.
   const headers = [...scene.headerFlow.headers].sort(
@@ -256,6 +261,13 @@ export function projectWorkflowGraph(
     const activeSlot = Object.values(built.state.slots)
       .filter((slot) => slot.occurrence && ['running', 'waiting'].includes(slot.status))
       .at(-1)
+    if (header.id === scene.headerFlow.activeHeaderId) {
+      for (const slot of Object.values(built.state.slots)) {
+        if (!slot.occurrence || !['running', 'waiting'].includes(slot.status)) continue
+        const template = WORKFLOW_HEADER_TEMPLATE.nodes.find((node) => node.id === slot.nodeId)
+        if (template) activeGroupIds.add(template.group)
+      }
+    }
     if (header.id === scene.headerFlow.activeHeaderId && activeSlot)
       activeOccurrenceId = headerTemplateNodeId(header.id, activeSlot.nodeId)
     else if (
@@ -270,6 +282,7 @@ export function projectWorkflowGraph(
     edges: [...scene.edges.map((edge) => graphEdge(edge, contentTargets)), ...headerEdges],
     activeHeaderId: scene.headerFlow.activeHeaderId,
     activeOccurrenceId,
+    activeGroupIds,
     scene,
   }
 }

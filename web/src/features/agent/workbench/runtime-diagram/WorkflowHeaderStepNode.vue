@@ -61,6 +61,7 @@ function activateInfo(): void { infoOpen.value = true }
     data-workflow-highlight-target
     :data-workflow-step-id="id"
     :data-workflow-occurrence-id="data.slot.occurrence?.occurrenceId"
+    :data-iteration="data.iteration"
   >
     <Handle
       v-for="port in ports"
@@ -95,7 +96,12 @@ function activateInfo(): void { infoOpen.value = true }
         :size="25"
       />
       <span class="workflow-step-visual" data-workflow-node-visual>
-        <span class="workflow-step-title">{{ data.template.title }}</span>
+        <span class="workflow-step-title">
+          {{ data.template.title }}
+          <em v-if="data.iterationCount > 1" class="workflow-step-iteration">
+            轮 {{ data.iteration }}
+          </em>
+        </span>
         <span class="workflow-step-state">{{ data.slot.statusText }}</span>
       </span>
     </button>
@@ -214,6 +220,18 @@ function activateInfo(): void { infoOpen.value = true }
   font-size: 13px;
   font-weight: 400;
   white-space: nowrap;
+}
+.workflow-step-iteration {
+  display: inline-block;
+  margin-left: 6px;
+  border: 1px solid color-mix(in srgb, var(--workflow-capability) 40%, var(--border));
+  background: color-mix(in srgb, var(--workflow-capability) 10%, var(--surface));
+  color: color-mix(in srgb, var(--workflow-capability) 82%, var(--ink));
+  padding: 0 5px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  vertical-align: 1px;
 }
 .workflow-step-state {
   display: flex;

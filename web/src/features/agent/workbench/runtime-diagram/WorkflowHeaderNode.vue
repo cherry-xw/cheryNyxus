@@ -7,7 +7,10 @@ import { headerStatusText } from './headerState'
 
 type HeaderData = Extract<WorkflowGraphNodeData, { kind: 'header' }>
 const props = defineProps<NodeProps<HeaderData>>()
-const emit = defineEmits<{ selectScope: [event: HeaderScopeEvent] }>()
+const emit = defineEmits<{
+  selectScope: [event: HeaderScopeEvent]
+  resetGroupOverrides: [headerId: string]
+}>()
 const runStatusText = computed(
   () =>
     ({
@@ -53,6 +56,12 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
     />
     <header class="workflow-header-caption">
       <strong>{{ data.title }}</strong>
+      <span
+        v-if="data.mode === 'full' && data.iterationCount > 0"
+        class="workflow-header-iteration"
+        :title="`外层 Loop 共 ${data.iterationCount} 轮，当前第 ${data.currentIteration} 轮`"
+        >Loop {{ data.currentIteration }}/{{ data.iterationCount }}</span
+      >
       <span
         >{{ data.mode === 'full' ? '完整运行流程' : '简略运行头部' }} · {{ runStatusText }}</span
       >
@@ -107,6 +116,15 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
         >
           跟随当前运行
         </button>
+        <button
+          type="button"
+          class="nodrag nopan"
+          title="恢复分组按执行状态自动展开"
+          @pointerdown.stop
+          @click.stop="emit('resetGroupOverrides', id)"
+        >
+          重置分组
+        </button>
         <span>{{ data.state.coverage }}</span>
         <span>箭头表示可走路径；选择步骤查看说明</span>
       </template>
@@ -155,6 +173,17 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
 .workflow-header-caption select {
   font-size: 12px;
   font-weight: 400;
+}
+.workflow-header-iteration {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--accent);
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 .workflow-header-caption label {
   display: flex;

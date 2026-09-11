@@ -27,7 +27,7 @@
 
 ## 3. 完整头部必须是流程图
 
-头部以非交互分组边界和多个独立 Vue Flow 步骤节点组成；每个流程节点有明确端口、中文名称、状态和详情入口，路径用真实可见的箭头连接。不得再用一个 header 节点内部的标签网格替代拓扑。区域分隔只用留白、标题和浅底，不套多层功能卡。
+头部以可折叠分组容器和多个独立 Vue Flow 步骤节点组成；每个流程节点有明确端口、中文名称、状态和详情入口，路径用真实可见的箭头连接。不得再用一个 header 节点内部的标签网格替代拓扑。区域分隔只用留白、标题和浅底，不套多层功能卡。
 
 ```mermaid
 flowchart LR
@@ -84,7 +84,7 @@ flowchart LR
 | 协作        | 派发、子执行、回传、接收、唤醒                    | dispatch/child-run/child-return/parent-receive/wake，分别判断                |
 | 压缩        | 请求、生成、采用                                  | compact-request/compact-summary/compact-applied；仅采用改变阶段              |
 
-完整骨架默认全展开，状态与详情不能撑大节点。未发生、执行中、等待、成功、失败、拒绝、中断、取消、未记录分别用文字、可变形图标和颜色共同表达，颜色不能成为唯一线索。节点同时表达“能力身份”和“当前状态”：输入、上下文、模型、工具、控制、协作、压缩及结果节点使用各自稳定的图标、强调色和边框结构，避免所有节点只靠标题区分。静态拓扑边表示可走路径，只有显式运行事实支持的路径才显示执行强调。
+分组默认按执行状态展示：活跃分组自动展开、用户可手动展开/收起任意分组，其余分组收起为仅含标题与状态概览的标题条；分组标题可随时切换收起/展开。收起分组时其内部步骤随之隐藏、组内残留边舍弃、跨组连线重路由到分组边界并重算折线，不得悬空或保留悬垂线。状态与详情不能撑大节点。未发生、执行中、等待、成功、失败、拒绝、中断、取消、未记录分别用文字、可变形图标和颜色共同表达，颜色不能成为唯一线索。节点同时表达“能力身份”和“当前状态”：输入、上下文、模型、工具、控制、协作、压缩及结果节点使用各自稳定的图标、强调色和边框结构，避免所有节点只靠标题区分。静态拓扑边表示可走路径，只有显式运行事实支持的路径才显示执行强调。
 
 同一模板可以对应多个 occurrence。本轮槽位保留已完成状态，不能仅查询 active 数组导致完成后立即显示“尚未发生”。按 chat/run/iteration/attempt/callId 选择正确实例；重复实例在步骤详情中逐条读取，不新增结果树节点。
 
@@ -124,6 +124,8 @@ flowchart LR
 头部模板入口为 [headerTemplate.ts](../../web/src/features/agent/workbench/runtime-diagram/headerTemplate.ts) 的 `WORKFLOW_HEADER_TEMPLATE`：固定尺寸分组、步骤端口、条件与外绕回边由纯数据定义。每个步骤的 Info 图标是简要说明入口：只在该图标 hover、键盘 focus 或触摸点按时，于节点上方显示模板 `detail`，不要求 hover 整个节点；节点点击仍打开实例详情。浮层不参与 Vue Flow 布局且不遮蔽触发图标，触发控件提供可访问名称、展开状态和可见焦点。[headerState.ts](../../web/src/features/agent/workbench/runtime-diagram/headerState.ts) 的 `projectHeaderState` 从完整 occurrence 集合选择 run/iteration/attempt/call，保留终态并区分尚未发生、未单独记录和记录不完整；当前协议没有独立 phase 字段，细化匹配只使用实际 kind、reason、waitReason 及显式 anchor，不能匹配自由文本 label。没有 runId 的接收、唤醒等事实可从“未归属运行的记录”读取，不归入邻近 run。批次或消息锚点可展开 canonical 调用清单，但调用摘要状态不替代步骤证据。
 
 [headerGraph.ts](../../web/src/features/agent/workbench/runtime-diagram/headerGraph.ts) 的 `buildHeaderNodes` 将模板转换为同一 Vue Flow 的 parent/相对坐标节点，`placeHeader` 先固定结果位置再向右避让头部，`absoluteGraphPosition` 供显式步骤定位使用。`headerNodePorts` 从模板边生成实际使用的分离端口，`headerHandleId` 保持渲染 Handle 与边 endpoint 一致，`headerEdgeLabelPoint` 维护标签路段锚点。`RuntimeDiagram` 发出 `selectStep`（`HeaderSelection`）与 `selectHeaderScope`（`HeaderScopeEvent`）；步骤详情经固定边界分页读取 occurrence、gap 和 legacy 状态，只允许显式且在当前图中可解析的内容锚点进入现有阅读器，关闭后恢复原步骤焦点。边的 `points` 和 `labelPoint` 是预计算世界坐标，只有显式 cause 关系可产生 `evidenced` 静态强调；步骤内层和路径标记供后续动效消费，不使用模拟执行计时器。
+
+分组展示状态由 `RuntimeDiagram` 投影时注入：分组节点 data 携带 `collapsed`/`active`，收起态仅保留标题条并移除组内步骤节点；`activeGroupIds` 由当前活跃 header 的 running/waiting 步骤所属分组构成，判定顺序为活跃展开 > 用户覆盖 > 自动收起。`RuntimeDiagram` 发出 `toggleGroup`（`HeaderGroupToggleEvent`）与 `resetGroupOverrides`；跨组 `template` 边在分组收起时重路由到分组边界并重算正交折线，组内残留边直接舍弃，结果树 `fact` 边不连内部步骤，不受收起影响。Loop 轮次经 `iteration`/`iterationCount` 透出到步骤与 lane，步骤显示轮次角标、完整头部显示轮次徽标，重复实例仍按 run/iteration/attempt/call 在步骤详情逐条读取，不新增结果树节点。
 
 ## 6. 空间、相机与交互
 
@@ -181,4 +183,4 @@ workflow 未同步、无 journal、旧历史或观察失败时，内容树与当
 
 代码级验证由 web/test/agent 的 workflowGraph、workflowProjectionBoundary、workflowController、workflowMotion、workbenchReader、workflowStepDetails 及 Nyxus 内容/折叠回归承担；`workflowProjectionBoundary` 锁定结果树排除 occurrence、步骤与 gap 不改变内容排序和 lane、严格 chat/call 选择及纯模型依赖边界。[workflowHeaderTemplate.test.ts](../../web/test/agent/workflowHeaderTemplate.test.ts) 验证必备路径、正交端口、回边不穿步骤主体、parent 绝对位置和头部避让；[workflowHeaderState.test.ts](../../web/test/agent/workflowHeaderState.test.ts) 验证终态保留、run/轮次/尝试切换、调用隔离、无归属事实和缺证据降级；[workflowStepDetails.test.ts](../../web/test/agent/workflowStepDetails.test.ts) 验证固定分页边界、实例过滤、严格锚点、legacy/gap 与内容回放帧。架构与 SFC 预算、类型、lint、构建均按活动计划执行。
 
-首要人工验收：关闭动效仍是一张可读完整流程图；运行后留下用 Vue Flow 新绘制的结果树；新版节点逻辑延续；当前卡牌模式无变化。自动测试与源码检查不替代真实视觉验收，按[项目验证政策](../standards/global/project-documentation.md)由用户最终执行。
+首要人工验收：关闭动效仍是一张可读完整流程图；运行后留下用 Vue Flow 新绘制的结果树；新版节点逻辑延续；当前卡牌模式无变化；分组收起为标题条且跨组连线重路由不悬空、Loop 轮次徽标与步骤角标正确。自动测试与源码检查不替代真实视觉验收，按[项目验证政策](../standards/global/project-documentation.md)由用户最终执行。

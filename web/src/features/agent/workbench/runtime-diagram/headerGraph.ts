@@ -30,8 +30,31 @@ export type HeaderSelection = {
   detail: string
 }
 export type HeaderScopeEvent = { headerId: string; scope: HeaderScopeSelection }
+
+/** group 缩略态的步骤状态概览计数 */
+export interface HeaderGroupSummary {
+  running: number
+  waiting: number
+  succeeded: number
+  failed: number
+  rejected: number
+  idle: number
+}
+
+export type HeaderGroupToggleEvent = { headerId: string; groupId: string }
+
 export type HeaderChildData =
-  | { kind: 'header-group'; title: string }
+  | {
+      kind: 'header-group'
+      headerId: string
+      groupId: string
+      title: string
+      summary: HeaderGroupSummary
+      /** 是否缩略展示（仅标题+概览）。由 RuntimeDiagram 投影时注入。 */
+      collapsed: boolean
+      /** 该 group 是否含活跃（running/waiting）step。由 RuntimeDiagram 投影时注入。 */
+      active: boolean
+    }
   | {
       kind: 'header-step'
       headerId: string
@@ -44,6 +67,10 @@ export type HeaderChildData =
       selected?: boolean
       visual: WorkflowVisualIdentity
       liveTurn?: ActiveTurnSnapshot
+      /** 该 step 最近一次 occurrence 的 loop 轮次 */
+      iteration: number
+      /** 该 lane 累计 loop 轮次总数 */
+      iterationCount: number
     }
   | { kind: 'header-calls'; headerId: string; state: HeaderStateProjection }
 
@@ -77,6 +104,32 @@ export function placeHeader(
 
 export function headerTemplateNodeId(headerId: string, nodeId: string): string {
   return `${headerId}:template:${nodeId}`
+}
+
+/** 统计某 group 内各 step 的状态概览，供缩略态展示。 */
+function summarizeGroup(
+  slots: Record<string, HeaderSlotState>,
+  groupId: string,
+): HeaderGroupSummary {
+  const summary: HeaderGroupSummary = {
+    running: 0,
+    waiting: 0,
+    succeeded: 0,
+    failed: 0,
+    rejected: 0,
+    idle: 0,
+  }
+  for (const node of WORKFLOW_HEADER_TEMPLATE.nodes) {
+    if (node.group !== groupId) continue
+    const status = slots[node.id]?.status
+    if (status === 'running') summary.running += 1
+    else if (status === 'waiting') summary.waiting += 1
+    else if (status === 'succeeded') summary.succeeded += 1
+    else if (status === 'failed') summary.failed += 1
+    else if (status === 'rejected') summary.rejected += 1
+    else if (status === 'idle') summary.idle += 1
+  }
+  return summary
 }
 
 export function buildHeaderNodes(input: {
@@ -123,6 +176,8 @@ export function buildHeaderNodes(input: {
         ),
         sections: header.sections,
         calls: state.calls,
+        iterationCount: header.iterationCount,
+        currentIteration: header.currentIteration,
         state,
       },
     },
@@ -141,7 +196,16 @@ export function buildHeaderNodes(input: {
       selectable: false,
       focusable: false,
       zIndex: -1,
-      data: { kind: 'header-group', title: group.title },
+      data: {
+        kind: 'header-group',
+        headerId: header.id,
+        groupId: group.id,
+        title: group.title,
+        summary: summarizeGroup(state.slots, group.id),
+        // 视图态由 RuntimeDiagram 投影时决定；此处给默认值占位
+        collapsed: false,
+        active: false,
+      },
     })
   for (const template of WORKFLOW_HEADER_TEMPLATE.nodes) {
     const group = WORKFLOW_HEADER_TEMPLATE.groups.find((item) => item.id === template.group)!
@@ -177,6 +241,8 @@ export function buildHeaderNodes(input: {
         template,
         slot,
         visual: headerVisual(template),
+        iteration: slot.occurrence?.iteration ?? 1,
+        iterationCount: header.iterationCount,
         ...(liveTurn ? { liveTurn } : {}),
         scope: state.scope,
         recorded: input.recorded,
