@@ -82,3 +82,19 @@ pnpm type-check
 | 定向检查结果  | 未执行                       |
 | 未解决问题    | 无已执行发现；前置条件见依赖 |
 | 交接摘要      | 未交接                       |
+
+---
+
+## 评审调研结论（2026-09-12 整体评审落位）
+
+> 来源：[整体评审与强化方案](review/design-review.md)、[可行性缺陷分析](review/feasibility-findings.md)、[技术栈调研](review/tech-stack-research.md)、[渲染栈聚焦调研](review/rendering-stack-research.md)。本节是评审产出的执行提示，只补充信息，不修改本任务既有范围、步骤与验收标准；标注 U-xx 的事项未经用户裁定前不得视为已确认需求。
+
+### 1. 方案建议与调研结论建议
+- 「快照＋增量订阅」即事件溯源投影读模型（t2 领域 5）：SSE `Last-Event-ID` 游标重连，服务端保留有界事件日志，游标落后超窗时下发全量快照重建；单机形态无需消息中间件（design-review §2.2 子系统⑭、§4 领域 5）。
+
+### 2. 可能存在的问题点
+- F-13：组长为预设子会话（有 parent 无 metadata.type），在现有投影中显示为「子 Agent」、易归入 root 平铺列表，三视图聚合易误读组织层级。
+
+### 3. 优化建议
+- 增-14：投影按 teamId／instanceId 判定身份与层级，不以 `metadata.type` 推断；组长预设子会话不得回落为普通「子 Agent」投影。
+- 三视图一致性（工作台/任务中心/万象台）只共享业务事实、不建重复待办源：复用既有 chatId/rootChatId 待办来源，不形成两个执行控制源（t2 领域 5 读模型投影；design-review §2.2 子系统⑫）。

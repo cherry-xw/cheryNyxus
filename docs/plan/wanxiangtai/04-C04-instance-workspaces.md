@@ -82,3 +82,23 @@ pnpm type-check
 | 定向检查结果  | 未执行                       |
 | 未解决问题    | 无已执行发现；前置条件见依赖 |
 | 交接摘要      | 未交接                       |
+
+---
+
+## 评审调研结论（2026-09-12 整体评审落位）
+
+> 来源：[整体评审与强化方案](review/design-review.md)、[可行性缺陷分析](review/feasibility-findings.md)、[技术栈调研](review/tech-stack-research.md)、[渲染栈聚焦调研](review/rendering-stack-research.md)。本节是评审产出的执行提示，只补充信息，不修改本任务既有范围、步骤与验收标准；标注 U-xx 的事项未经用户裁定前不得视为已确认需求。
+
+### 1. 方案建议与调研结论建议
+- 隔离强度按 U-01 的裁定结果落 §5.4 条款与本任务验收口径；评审组建议②「写隔离＋读审计」：写路径严格限制在实例 work 及授权目录，快照基线（manifest 登记范围）之外路径的读事件记录审计日志并在桌面可见，对原项目目录与其他实例 work 的读取产生显式告警（F-01／增-01；design-review §6 U-01）。
+
+### 2. 可能存在的问题点
+- F-01（高）：读边界现有沙箱原语不可达——macOS profile 全局放行读、Linux bwrap `--ro-bind / /` 全局读、Windows ACL 仅写边界；「固定基线＋自身修改」只在文件工具层成立，shell 层不可达。
+- F-09：spawn 现状继承父 workspace，per-instance work 的接线面广（metadata、沙箱入参、文件工具、pathGuard），任一遗漏即共享工作区。
+- F-12：pathGuard 仅拦 `.chery` 路径段，实例可经文件工具/命令写快照与 manifest，破坏「manifest 不是第二套业务状态」（§4.2）。
+
+### 3. 优化建议
+- 增-11：建立实例 workspace 接线清单核对表——`metadata.workspace` 覆盖、沙箱 spawn 入参 workspaceRoot、read/search/execute 四工具基线、pathGuard 基准全部指向实例 work；定向测试含绝对路径逃逸用例。
+- 增-11：pathGuard 扩展 `.agent` 拦截段（服务自身通道豁免），防止实例改写快照与 manifest，纳入定向测试。
+- 增-08：普通复制实现为复制策略接口的默认实现，预留二期 COW 接入（探测失败回退），不动调用方。
+- 增-12：纯讨论实例的产出写入「讨论型交付目录」：仅进入集成评审、不声明验证结果，冻结规则与执行交付一致。

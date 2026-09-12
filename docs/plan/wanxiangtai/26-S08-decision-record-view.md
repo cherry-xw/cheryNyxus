@@ -84,3 +84,18 @@ pnpm web:type-check
 | 定向检查结果  | 未执行                       |
 | 未解决问题    | 无已执行发现；前置条件见依赖 |
 | 交接摘要      | 未交接                       |
+
+---
+
+## 评审调研结论（2026-09-12 整体评审落位）
+
+> 来源：[整体评审与强化方案](review/design-review.md)、[可行性缺陷分析](review/feasibility-findings.md)、[技术栈调研](review/tech-stack-research.md)、[渲染栈聚焦调研](review/rendering-stack-research.md)。本节是评审产出的执行提示，只补充信息，不修改本任务既有范围、步骤与验收标准；标注 U-xx 的事项未经用户裁定前不得视为已确认需求。
+
+### 1. 方案建议与调研结论建议
+- 展示 proposalId＋revision 与同意绑定语义：同意绑定 proposalId＋revision、新版本不继承旧同意；裁定记录展示裁定人／依据／范围／异议（design-and-history §7.3；design-review §2.1 子系统⑦）。
+
+### 2. 可能存在的问题点
+- F-02／F-08 关联：审批超时处置若按 U-03 改「升级提醒」（不再超时自动拒绝），记录视图须能区分「超时升级（保持挂起）」与「拒绝」两种状态，避免把升级中的审批误显示为已拒绝（design-review §3 F-02／F-08、§6 U-03；feasibility §5 F-02／F-08）。
+
+### 3. 优化建议
+- U-03 裁定结果回填后同步本组件状态枚举（候选 B：超时转「升级提醒＋保持挂起」）；任何候选项均保持「过期不转为允许」（R13 不稀释）（design-review §6 U-03；增-05 ③）。

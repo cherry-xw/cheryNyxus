@@ -84,3 +84,20 @@ pnpm web:type-check
 | 定向检查结果  | 未执行                       |
 | 未解决问题    | 无已执行发现；前置条件见依赖 |
 | 交接摘要      | 未交接                       |
+
+---
+
+## 评审调研结论（2026-09-12 整体评审落位）
+
+> 来源：[整体评审与强化方案](review/design-review.md)、[可行性缺陷分析](review/feasibility-findings.md)、[技术栈调研](review/tech-stack-research.md)、[渲染栈聚焦调研](review/rendering-stack-research.md)。本节是评审产出的执行提示，只补充信息，不修改本任务既有范围、步骤与验收标准；标注 U-xx 的事项未经用户裁定前不得视为已确认需求。
+
+### 1. 方案建议与调研结论建议
+- 详情浮层定位采用官方 `@floating-ui/vue`（`useFloating`＋`arrow` middleware，≈32.7k），样式继续复用 pet 组件；浮层挂在会移动的人物上，不建议 DOM 内自绘跟随（渲染栈 §5；增-15 ③）。
+- 身份显示用稳定 ID＋编号（团队／角色／实例编号），不做装饰性替换：显示名仅用于呈现，emit 与事件目标一律使用契约目标 ID（C15-view-v1 契约；S04 词表「显示名仅用于呈现」）。
+
+### 2. 可能存在的问题点
+- F-13 关联：详情身份字段应取 teamId／instanceId——C06 投影按 teamId／instanceId 判定身份与层级（增-14），不得以 `metadata.type` 推断，避免组长预设子会话被误读为普通「子 Agent」（feasibility §5 F-13；design-review §3 F-13、§5 增-14）。
+
+### 3. 优化建议
+- 增-15 ③：浮层定位统一走 `@floating-ui/vue`，样式层不改 pet 结构（渲染栈 §5.2）。
+- 详情字段与 C06 投影字段对齐（三视图按稳定身份聚合），组件随对应业务链语义完成排入后再与 C17 交互连接（design-review §2.2 子系统⑫、§7.3）。

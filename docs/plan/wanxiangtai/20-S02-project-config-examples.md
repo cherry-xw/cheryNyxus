@@ -78,3 +78,19 @@
 | 定向检查结果  | 未执行                       |
 | 未解决问题    | 无已执行发现；前置条件见依赖 |
 | 交接摘要      | 未交接                       |
+
+---
+
+## 评审调研结论（2026-09-12 整体评审落位）
+
+> 来源：[整体评审与强化方案](review/design-review.md)、[可行性缺陷分析](review/feasibility-findings.md)、[技术栈调研](review/tech-stack-research.md)、[渲染栈聚焦调研](review/rendering-stack-research.md)。本节是评审产出的执行提示，只补充信息，不修改本任务既有范围、步骤与验收标准；标注 U-xx 的事项未经用户裁定前不得视为已确认需求。
+
+### 1. 方案建议与调研结论建议
+- project.yaml 示例中的默认参数（预算、并发、来源排除等）与 design-and-history.md §10 默认参数表保持一致；评审为 §10 新增的增补行（上帝位离线阈值〔待 U-02〕、审批超时处置〔待 U-03〕、请求优先级序／退避上限／cooldown 阈值〔增-06〕）落地后同步示例说明（design-review §5 增-05／增-06）。
+
+### 2. 可能存在的问题点
+- F-12 关联：pathGuard 现仅拦 `.chery` 路径段，评审建议扩 `.agent` 拦截段（服务自身通道豁免，增-11）——示例配置中不得出现诱导实例写 `.agent`（快照与 manifest 所在系统目录）的路径配置，防止破坏「manifest 不是第二套业务状态」（feasibility §5 F-12；design-review §3 F-12、§5 增-11）。
+
+### 3. 优化建议
+- 增-08：平台 COW 能力探测列入 C02 来源预检（影响空间预估与提示文案；APFS clonefile／ReFS block cloning／Btrfs reflink，探测失败回退普通复制）——示例说明可预置该预检提示文案样例（design-review §5 增-08；t2 领域 2 §2.2b）。
+- 预算／皮肤默认值／并发参数示例随 §10 增补行同步修订，保持示例与默认参数一致、无隐藏新增规则（design-review §5 增-05／增-06）。
