@@ -2,9 +2,13 @@
 
 **文档创建时间：** 2026-09-11T02:09:12+08:00
 
-状态：未开始。所属[总任务](README.md)。复杂度 4/5：新版投影、完整头部、官网参照动效、卡牌冻结、恢复与真实性能。依赖 T20、T22、T21 完成并删除独立子计划后才进入。
+状态：进行中。所属[总任务](README.md)。复杂度 4/5：真实记录链路、完整头部、卡牌冻结、恢复与真实性能。T30 已完成自动检查，当前等待用户实机验收。
 
-这是既有最终验证文档的重建，只作预登记。旧自动通过事实保留在总任务，不能用于新版验收；以下清单全部重置。范围再变化时同步本清单与[手动手册](verify/manual-final.md)。
+自动验证已重跑；必要人工验收尚未执行。范围再变化时同步本清单与[手动手册](verify/manual-final.md)。
+
+## 反馈回填槽
+
+无。T30 已将 Vue Flow store 改为浅层响应式并补充真实包装路径回归；审批与 CRT 的实机可见性保留在 M03c。
 
 ## 范围与边界
 
@@ -14,15 +18,19 @@
 
 ## 自动验证清单
 
-| 编号 | 目标与命令                                                                                                                     | 通过标准                                                     | 状态   |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ | ------ |
-| A01  | `node tools/plan-viewer/lint.mjs`、`node docs/plan/main-agent-runtime-diagram/verify/check-doc-links.mjs`、`git diff --check`  | 入口、台账、链接、路径有效，无本轮空白错误                   | ✅ 3 命令均 exit 0 |
-| A02  | `pnpm type-check:all`                                                                                                          | 跨端类型通过，无新 RPC/schema 变化                           | ✅ exit 0 |
-| A03  | `pnpm lint`、`pnpm --filter web lint`                                                                                          | 退出 0；既有 warning 如实记录                                | ✅ 0 errors / 19 存量 warnings（依据 t2 修复） |
-| A04  | `pnpm build`、`pnpm web:build`                                                                                                 | 后端与 Web/Electron 构建退出 0，记录真实限制                 | ✅ 均 exit 0（仅插件耗时提示与 EBUSY 锁噪音） |
-| A05  | `pnpm test:web`                                                                                                                | Web 行为、架构、SFC、性能门禁通过，包含递归封装、接口追踪与导航回归       | ✅ 已执行（t1）；唯一失败项 paperStackIntegration 断言已随 t8 同步新基线（400 12px），复跑 7/7 通过 |
-| A06  | `pnpm exec vitest run --config docs/plan/main-agent-runtime-diagram/verify/vitest.config.ts`                                   | workflow 隔离 fixture 全通过，不访问用户数据                 | ✅ 5 文件 24 项全过（标准 vitest 4.1.9 与 .ignored_vitest 均验证） |
-| A07  | 复核 T13 基线到最终变更，检查 A05 中 workbenchReader、paperStackIntegration、useWorkbenchViewPreferences、workbenchPreferences | 卡牌组件、样式、阅读模型、开关与偏好无本轮改动，图端选择兼容 | ✅ 5 冻结文件 SHA 与上表重登记值一致（styles.less 按方案 B 新基线，其余 4 项不变） |
+下表保留 T25 历史结果；当前 T27 结果以本文末尾登记为准，不能用旧结果替代。用户数据库及根 test/ 不在执行范围，后端仅运行计划 verify 内隔离 fixture。
+
+| 编号 | 目标与命令 | 通过标准 | 状态 |
+| --- | --- | --- | --- |
+| A01 | `node tools/plan-viewer/lint-source.mjs`、`node docs/plan/main-agent-runtime-diagram/verify/check-doc-links.mjs`、`git diff --check` | 索引、链接与空白有效 | 2026-09-12 通过；T25 最终 Plan lint、54 个新增/变更链接与锚点及 diff 检查通过 |
+| A02 | `pnpm web:type-check` | Web 类型通过，无 RPC/schema 变化 | 2026-09-12 通过；实际用 `web/node_modules/.bin/vue-tsc.cmd -b web/tsconfig.json --noEmit` |
+| A03 | 受影响 Vue/TS 文件 ESLint | 零错误、零新增警告 | 2026-09-12 通过；ESLint 公开 API 检查本轮文件，0 errors / 0 warnings |
+| A04 | `pnpm web:build` | Web/Electron 构建成功 | 2026-09-12 通过 |
+| A05 | `pnpm test:web` | 包含所有展开组合、运行跟随、卡牌兼容、架构与 SFC 门禁 | 2026-09-12：115 文件 / 645 项通过；最终 info 恢复后 3 文件 / 9 项定向通过 |
+| A06 | 既有 workflow 隔离 fixture | 后端投影契约不变 | 本轮未改后端，保留 T22 历史结论，不记作本轮执行 |
+| A07 | A05 的 workbenchReader、paperStackIntegration、useWorkbenchViewPreferences、workbenchPreferences | 结果历史、卡牌和审批兼容 | 纳入 A05，2026-09-12 通过；5 个冻结文件 SHA-256 与下表一致 |
+
+当前 Windows 环境的 `pnpm exec` 未找到工具，但已安装的可执行入口可用。测试实际调用 `node_modules/.bin/vitest.cmd run --config web/vitest.config.ts --reporter=dot`；Vite 构建通过公开 API 在 `web/` 执行 `node -e "import('vite').then(v=>v.build({logLevel:'warn'}))"`。未读取第三方源码或打包产物，没有启动图形界面。
 
 A07 冻结基线按 `9f64fa3` 之后工作区重登记：用户已批准方案 B，`9f64fa3` 的卡牌改动正式登记为冻结范围变更（含标题字号提升至 12px）；`NodePaperStack.styles.less` 已按 t8 落地后的实际字节重登记（当前文件为 LF 行尾，LF 归一 = 工作区字节；旧记录 EF60E351… 为旧内容 CRLF 归一值，作废），其余 4 文件哈希不变。冻结文件 SHA-256 如下：
 
@@ -41,13 +49,14 @@ T14 定向回归发现的冻结基线内差异（`paperStackIntegration.test.ts`
 必须由新测试覆盖：
 
 - 结果树只含 canonical 业务内容，内部步骤增量不改变节点/计数/折叠/lane；流式到持久不重复。
-- `workflowHeaderLayout` / `workflowHeaderTemplate` / `workflowHeaderNavigation` / `workflowHeaderState`：全部 9 张板的原始关系守恒、内部/外部关系记账、独立引脚、零交叉/零重叠/T 接触/穿元件、标签和实时面板避让、接口双端追踪、逐层导航与相机恢复；主结果历史位置不变。完成状态保留，run/轮次/尝试和未归属事实隔离。定向通过不替代 A05 全量回归。
+- `workflowHeaderLayout` / `workflowHeaderTemplate` / `workflowHeaderNavigation` / `workflowHeaderState`：全部 256 种展开组合的关系守恒、递归包含与兄弟节点不重叠、四向引脚与法线、内外引脚共点、零交叉/无无关接触/无共线重叠/不穿元件、标签和实时面板避让、接口双端追踪、独立展开与运行跟随/暂停/取消；增加工具全展开及关键路径转弯上限、协作与消费/指令竖排、模型上置及宽度对齐，不用跨线桥作为合格结果。主结果历史位置不变。完成状态保留，run/轮次/尝试和未归属事实隔离。定向通过不替代 A05 全量回归。
 - 同名 call 隔离、拒绝后未发生槽位中性、子返回与父接收/继续分别表达。
 - anchor 缺失/晚到、同 ID 跨 chat、旧数据/gap、分页 conflict、重连/root 竞态、多 owner 租约与内容降级可读。
 - 卡牌契约与当前审批入口不变；固定回放上界及内容帧，seek/暂停无执行副作用。
 - 官网式路径方向/转折、并发隔离、去重、快速取消、真实结果生长、显式定位及手动打断。
 - 画布指针层作用域与清理、节点目标标记及 reduced/触摸/粗指针降级；视觉贴合和输入互不干扰仍由 M02 人工确认。
-- system/full/reduced、质量档、不可见/最小化/断线/回放/卸载清理；普通实时事件不抢相机。
+- system/full/reduced、质量档、不可见/最小化/断线/回放/卸载清理；正文增量不抢相机；仅开启跟随时活动身份或几何改变调整视野。
+- 审批与 CRT 分别从原始目标解析到最近可见代表，全部折叠时落到头部；不强制展开、不固定居中、不随缩放改变尺寸，同锚点按审批、12px、CRT 排列。
 - 新投影 2k 规模、正文增量不重排、缓存/动画有界；旧 Pixi 性能测试不能替代新图验证。
 
 ## 手动验证清单
@@ -59,15 +68,64 @@ T14 定向回归发现的冻结基线内差异（`paperStackIntegration.test.ts`
 | M03  | 官网参照动效               | 手册第 3 节 | full 档逐项达到官网参照效果，无静态/淡入替代     | 待执行 |
 | M03a | 节点身份、Morph 图标与颜色 | 手册第 3 节 | 能力与状态均可辨，图标过渡可中断且非仅靠颜色     | 待执行 |
 | M03b | 模型实时 CRT               | 手册第 3 节 | 运行时实时打印，终态/停用收束且不生成重复结果     | 待执行 |
-| M04  | 当前卡牌不变               | 手册第 4 节 | 外观、阅读、开关、偏好、动作不变，选择准确       | 待执行 |
+| M03c | 审批与 CRT 折叠锚定 | [手册 T29 操作卡](verify/manual-final.md#t29-审批与-crt-最近可见祖先操作卡) | 最近可见祖先、同锚点顺序、拖拽与缩放均符合契约 | 待执行 |
+| M04  | 卡牌内容与操作兼容               | 手册第 4 节 | 阅读区可调宽且历史按钮可点；内容、开关、偏好、动作兼容，选择准确       | 待执行 |
 | M05  | 工具、审批、分支、步骤详情 | 手册第 5 节 | call 独立，等待/拒绝准确，主干与动作正确         | 待执行 |
 | M06  | 恢复、回放、相机与可访问性 | 手册第 6 节 | 固定回放，无补播/抢相机，主题/窗口/键盘可用      | 待执行 |
 | M07  | 生命周期和性能             | 手册第 7 节 | 正常 p95 ≤20ms，压力 p95 ≤33ms，清理正确         | 待执行 |
-| M08 | 递归封装、接口和导航 | 手册第 8 节 | 芯片逐层进入，内部节点不泄露到外层；单板无交叉；接口可双端追踪；返回恢复视野与焦点，运行不自动切层 | 待执行 |
+| M08 | 递归封装、接口和导航 | 手册第 8 节 | 紧凑多层共存、四向连续引脚、全展开零交叉与无节点重叠，工具链短连无无意义折返；默认全展开、结束保持展开，手动浏览暂停跟随 | 待执行 |
 
 每项记录执行人、日期、环境及结论；失败给复现。M01–M04 不得以自动通过替代或标不适用；数据不足先准备可丢弃 fixture。
 
 ## 当前结果与完成标准
 
-本轮最终验证执行中：A01–A07 自动清单已全部 ✅（A05/A07 两项失败同源，用户批准方案 B 后由 t8 同步新基线：styles.less 标题 12px、测试预期 400 12px、SHA 重登记，复跑 7/7 通过）。自动通过而必要人工未完成，保持待综合验证；失败回到执行中登记新修正任务并同步清单。全部通过后删除本子计划，总任务进入待用户审批；用户明确批准后才按项目政策收口整个目录。当前无提交或部署授权。
+T25 的 A01–A05、A07 已通过，A06 明确未重跑。全展开 34 步骤 / 49 原始关系 / 84 段线路，零交叉，最大 4 次转弯；全部展开组合及标签、引脚、面板几何回归通过。必要人工未完成，保持待综合验证；失败回到执行中登记新修正任务并同步清单。全部通过后删除本子计划，总任务进入待用户审批；用户明确批准后才按项目政策收口整个目录。当前无提交或部署授权。
 
+## T25 验证更新
+
+T25 全量 115/645 通过；最后恢复原 info 样式后重跑 visuals/reader/SFC 3文件9项，最终类型、0错误0警告ESLint、Web/Electron构建通过。人工补验：层级色系、响应向下出线、info 不重复开侧栏、全文悬浮窗及双页切换、点击卡片和拖宽/键盘调宽、工具栏可点击、运行 loading/定向脉冲、CRT 累积滚动和独立工具/审批信息。按现有手册环境与证据方式记录；未执行不计通过。
+
+最终 info 验收必须确认原248px悬浮外观、最高层级、无点击固定；回放验收确认 reactive 时间线不抛 DataCloneError 且实时增量不污染回放。构建仅提示插件耗时。五个冻结文件哈希与 A07 表一致；卡片内容/动作/偏好兼容，不把本轮授权的阅读区尺寸调整认定为外观完全不变。
+
+## T26 自动检查与验收补充
+
+- Web 类型检查、受影响源文件 ESLint、Web/Electron 构建通过。
+- 定向 Vitest：头部因果路径、状态/布局/导航、motion、CRT/图投影、root 实时态、交互路由与架构预算；最终 14 文件 / 100 项全部通过（2026-09-12）。
+- 实机待验：按手册 T26 场景优先确认头部执行表现、跨层脉冲和 CRT；自动检查不替代视觉、交互或 p95 结论。
+
+## T27 验证范围
+
+2026-09-12 自动结果：`pnpm exec vitest run --config web/vitest.config.ts --reporter=dot` 为 118 文件 / 672 项通过；`pnpm exec vitest run --config docs/plan/main-agent-runtime-diagram/verify/vitest.config.ts` 为 5 文件 / 28 项通过。`pnpm type-check`、受影响 Vue/TS ESLint、`pnpm web:build`（含 Web 类型检查及 Web/Electron 构建）通过，构建仅有插件耗时提示。Plan lint、163 个新增/变更文档链接与锚点、`git diff --check` 通过。后端 fixture 全部使用 mock 数据库，不访问真实数据库；以上不替代实机验收。
+
+历史补验：清空可丢弃测试数据后，以更新后后端新建文本、审批、重试与多轮 run；回放与实时使用同一 occurrence 和路径投影，前后 seek 不引入未来路径。本轮不验收旧测试数据兼容或迁移。
+
+人工检查：使用更新后后端产生的新 run，默认全展开且运行结束不收起；输入、模型、工具、结果与下一轮构成完整高亮链路，跨层线段保持连贯。仅正在运行的节点做强强调动效，其他已参与节点保持较显眼的静态状态，等待使用静态警示。当前问答在事项出现时直接显示于审批节点正下方并水平居中，无摘要卡片、标题及关闭按钮；点击审批节点主体只聚焦操作面板，Info 点击或触摸点按无动作。手动折叠、回放和旧运行范围均不隐藏待处理面板，清空后恢复原折叠选择。在 35%、50%、100%、180% 缩放及平移时锚点跟随节点，面板文字与尺寸不变且处于工作台最高可操作层。长表单提交按钮可达，提交失败保留草稿；右侧数量、列表和左下角浮层仅含其他根会话。切 root 不遗留错误表单。模型面板与工具选择兼容、生命周期和性能仍按手册验证。全部人工项目待执行。
+
+## T28 自动验证记录
+
+| 编号 | 目标 | 命令 | 退出码 | 关键断言行 | 日期与产物路径 |
+| --- | --- | --- | --- | --- | --- |
+| T28-A01 | 新 run 主链、上下文供给、工具/审批/重试、跨 iteration、回放与等待态 | `pnpm exec vitest run --config web/vitest.config.ts web/test/agent/workflowHeaderTemplate.test.ts web/test/agent/workflowEdgeEvidence.test.ts web/test/agent/workflowHeaderLayout.test.ts web/test/agent/workflowHeaderNavigation.test.ts web/test/agent/workflowHeaderState.test.ts web/test/agent/workflowGraph.test.ts web/test/agent/workflowMotion.test.ts web/test/agent/workflowVisuals.test.ts` | 0 | `8 passed; 70 passed` | 2026-09-12；终端输出，未生成文件 |
+| T28-A02 | recorder 到 reducer 与嵌套边投影 | `pnpm exec vitest run --config docs/plan/main-agent-runtime-diagram/verify/vitest.config.ts docs/plan/main-agent-runtime-diagram/verify/workflowRecorder.test.ts` | 0 | `1 passed; 8 passed` | 2026-09-12；终端输出，未生成文件 |
+| T28-A03 | 全量 Web 回归 | `pnpm test:web -- --reporter=dot` | 0 | `118 passed; 673 passed` | 2026-09-12；终端输出，未生成文件 |
+| T28-A04 | 类型、受影响 lint 与 Web/Electron 构建 | `pnpm web:type-check && pnpm exec eslint web/src/features/agent/workbench/runtime-diagram/headerTemplate.ts web/src/features/agent/workbench/runtime-diagram/headerEdgeEvidence.ts web/src/features/agent/workbench/runtime-diagram/headerCircuitPlacement.ts web/src/features/agent/workbench/runtime-diagram/WorkflowHeaderNode.vue web/test/agent/workflowHeaderTemplate.test.ts web/test/agent/workflowEdgeEvidence.test.ts web/test/agent/workflowHeaderLayout.test.ts web/test/agent/workflowHeaderNavigation.test.ts web/test/agent/workflowVisuals.test.ts docs/plan/main-agent-runtime-diagram/verify/workflowRecorder.test.ts && pnpm web:build` | 0 | `vue-tsc -b --noEmit`; ESLint 0 errors; `built in 8.47s` | 2026-09-12；`dist/web/`、`web/dist-electron/` |
+| T28-A05 | 平面几何、计划与文档完整性 | `node docs/plan/main-agent-runtime-diagram/verify/analyze-circuit.cjs && node tools/plan-viewer/lint-source.mjs && node docs/plan/main-agent-runtime-diagram/verify/check-doc-links.mjs && git diff --check` | 0 | `34 vertices; 49 edges; 84 segments; 0 crossings`; `Passed: 3 new/changed documentation links and anchors` | 2026-09-12；终端输出，未生成文件 |
+
+自动部分通过。真实视觉、交互、跨窗口/设备可访问性与 p95 性能仍按[统一手册](verify/manual-final.md)由用户执行；旧测试数据兼容不属于本轮验收范围。
+
+## T29 自动验证记录
+
+| 编号 | 目标 | 命令 | 退出码 | 关键断言行 | 日期与产物路径 |
+| --- | --- | --- | --- | --- | --- |
+| T29-A01 | 审批/CRT 完整折叠链、平移缩放与渲染所有权 | `pnpm test:web -- workflowAttentionAnchor workflowGraph` | 0 | `2 passed; 35 passed` | 2026-09-13；终端输出，未生成文件 |
+| T29-A02 | 全量 Web 回归 | `pnpm test:web` | 0 | `118 passed; 691 passed` | 2026-09-13；终端输出，未生成文件 |
+| T29-A03 | 类型、受影响 lint 与 Web/Electron 构建 | `cmd /c "pnpm web:type-check && pnpm exec eslint web/src/features/agent/workbench/runtime-diagram/RuntimeDiagram.vue web/src/features/agent/workbench/runtime-diagram/WorkflowAnchoredOverlays.vue web/src/features/agent/workbench/runtime-diagram/WorkflowHeaderStepNode.vue web/src/features/agent/workbench/runtime-diagram/WorkflowLiveCrt.vue web/src/features/agent/workbench/runtime-diagram/graphModel.ts web/src/features/agent/workbench/runtime-diagram/headerGraph.ts web/src/features/agent/workbench/runtime-diagram/useWorkflowNodePresentation.ts web/test/agent/workflowAttentionAnchor.test.ts web/test/agent/workflowGraph.test.ts web/test/agent/workflowVisuals.test.ts && pnpm web:build"` | 0 | `vue-tsc -b --noEmit`; ESLint 0 errors / 0 warnings；Web/Electron `built` | 2026-09-13；`dist/web/`、`web/dist-electron/` |
+| T29-A04 | 文档、计划与空白完整性 | `cmd /c "node docs/plan/main-agent-runtime-diagram/verify/check-doc-links.mjs && pnpm plan:lint && git diff --check"` | 0 | 文档链接通过；`Plan Lint 通过`；diff 无错误 | 2026-09-13；终端输出，未生成文件 |
+
+## T30 自动验证记录
+
+| 编号 | 目标 | 命令 | 退出码 | 关键断言行 | 日期与产物路径 |
+| --- | --- | --- | --- | --- | --- |
+| T30-A01 | Vue Flow store 响应式容器与锚点/导航回归 | `pnpm test:web -- workflowAttentionAnchor workflowHeaderNavigation` | 0 | `2 passed; 30 passed` | 2026-09-13；终端输出，未生成文件 |
+| T30-A02 | Web 类型与受影响 ESLint | `pnpm web:type-check`；`pnpm exec eslint web/src/features/agent/workbench/runtime-diagram/RuntimeDiagram.vue web/test/agent/workflowAttentionAnchor.test.ts` | 0 | `vue-tsc -b --noEmit`；ESLint 0 errors / 0 warnings | 2026-09-13；终端输出，未生成文件 |
+| T30-A03 | 全量 Web 回归与 Web/Electron 构建 | `pnpm test:web`；`pnpm web:build` | 0 | `118 passed; 692 passed`；Web/Electron `built` | 2026-09-13；`dist/web/`、`web/dist-electron/` |
