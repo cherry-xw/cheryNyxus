@@ -40,6 +40,8 @@ log/
 /test/flows/**/*.db
 .agent-teams/
 .workbuddy/
+# 临时分析脚本与热应用测试配置（scratch，不入仓）
+.tmp/
 # Plan navigation, active task ledgers, unfinished subtasks and reusable
 # verification instructions are committed for cross-environment recovery.
 # Generated verification output remains local-only.
