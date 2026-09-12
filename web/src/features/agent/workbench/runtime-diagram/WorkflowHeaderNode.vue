@@ -56,7 +56,17 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
       :position="Position.Left"
       :style="data.mode === 'full' ? { top: '188px' } : {}"
     />
-    <button v-if="data.collapsed" type="button" class="workflow-collapsed-title nodrag nopan" aria-expanded="false" :aria-label="`展开${data.title}`" @pointerdown.stop @click.stop="emit('toggle', { headerId: id, groupId: 'header' })">{{ data.title }}</button>
+    <button
+      v-if="data.collapsed"
+      type="button"
+      class="workflow-collapsed-title nodrag nopan"
+      aria-expanded="false"
+      :aria-label="`展开${data.title}`"
+      @pointerdown.stop
+      @click.stop="emit('toggle', { headerId: id, groupId: 'header' })"
+    >
+      {{ data.title }}
+    </button>
     <header v-else class="workflow-header-caption">
       <strong>{{ data.title }}</strong>
       <span
@@ -65,9 +75,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
         :title="`外层 Loop 共 ${data.iterationCount} 轮，当前第 ${data.currentIteration} 轮`"
         >第 {{ data.currentIteration }} 轮</span
       >
-      <span
-        >{{ runStatusText }}</span
-      >
+      <span>{{ runStatusText }}</span>
       <template v-if="data.mode === 'full'">
         <label
           v-if="data.state.runs.length || data.state.hasUnassignedRun"
@@ -122,16 +130,30 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
         <button
           type="button"
           class="nodrag nopan"
-          title="恢复分组按执行状态自动展开"
+          title="进入当前执行步骤所在电路板"
           @pointerdown.stop
           @click.stop="emit('resetGroupOverrides', id)"
         >
-          跟随运行层
+          进入活动层
         </button>
-        <button type="button" class="nodrag nopan" @pointerdown.stop @click.stop="emit('expandAll')">展开全部</button>
-        <button type="button" class="nodrag nopan" @pointerdown.stop @click.stop="emit('toggle', { headerId: id, groupId: 'header' })">收起头部</button>
+        <button
+          type="button"
+          class="nodrag nopan"
+          @pointerdown.stop
+          @click.stop="emit('expandAll')"
+        >
+          封装总览
+        </button>
+        <button
+          type="button"
+          class="nodrag nopan"
+          @pointerdown.stop
+          @click.stop="emit('toggle', { headerId: id, groupId: 'header' })"
+        >
+          收起头部
+        </button>
         <span>{{ data.state.coverage }}</span>
-        <span>箭头表示可走路径；选择步骤查看说明</span>
+        <span>当前板显示直接元件；接口连接封装边界</span>
       </template>
     </header>
     <div
@@ -156,9 +178,29 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   background: color-mix(in srgb, var(--panel) 86%, transparent);
   color: var(--ink);
 }
-.workflow-header-shell.is-compact { background: var(--surface); }
-.workflow-collapsed-title { width: 100%; height: 100%; padding: 12px; background: transparent; color: var(--ink); border: 0; border-radius: 0; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workflow-collapsed-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.workflow-header-shell.is-compact {
+  background: var(--surface);
+}
+.workflow-collapsed-title {
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-collapsed-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
 .workflow-header-caption {
   display: flex;
   align-items: center;

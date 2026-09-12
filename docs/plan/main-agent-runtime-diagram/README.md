@@ -2,20 +2,20 @@
 
 **文档创建时间：** 2026-09-09T01:24:47+08:00（按首次 Git 收录时间补录，实际创建时间未记录）
 
-状态：执行中。T13 投影边界、T14 结果节点树、T15 完整头部、T18 布局整理、T16 工作台接线、T17 官网参照动效和 T19 头部分组收起与迭代展示均已完成，下一步为 T07 综合验证。复杂度 5/5：沿用现有跨端事实与新版节点逻辑，完成路径动效、Morphicons 状态图标、实时 CRT、节点能力视觉系统与分组真收起，并保证当前卡牌模式不受影响。各小任务开发前按项目规则确认执行者，不自动沿用其他任务的执行授权，不分配子 Agent。
+状态：执行中。T13 投影边界、T14 结果节点树、T15 完整头部、T18 布局整理、T16 工作台接线、T17 官网参照动效和 T19 头部分组收起与迭代展示均已完成，T22 递归封装已完成，后续为 T21 与 T07。复杂度 5/5：沿用现有跨端事实与新版节点逻辑，完成路径动效、Morphicons 状态图标、实时 CRT、节点能力视觉系统与分组真收起，并保证当前卡牌模式不受影响。各小任务开发前按项目规则确认执行者，不自动沿用其他任务的执行授权，不分配子 Agent。
 
 ## 本轮恢复检查点（优先于历史完成摘要）
 
-用户已批准阶梯轮廓的嵌套布局、递归折叠为仅标题单节点与全部跨层关系保留。当前 Codex Agent 串行执行，复杂度 4/5，不分配子 Agent。当前 T22（垂直金字塔 + 电路板通道布线 + 侧边外挂，T20 bc4e90c 之后的新一轮）；工作区既有 `vite.config.ts` 改动保留。下面旧流程图和标题条摘要仅为历史，目标以最新展示契约为准。
+用户已确认当前 GPT-6 Agent 串行实施 T23：多层共存、紧凑嵌套排版、完整引脚接续、信息精简与可暂停运行跟随。最新需求替代 T22 的单板切换，T21 未实施范围合并到 T23。保留工作区既有改动。T07 旧通过记录不代表本轮验证通过，需按最新契约重验。
 
 | ID | 任务 | 复杂度与依据 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- |
-| T20 | [嵌套层级、递归折叠与连线](20-nested-header.md) | 4：代表映射、边守恒、全局路由及适配 | 已批准设计 | 已完成 |
-| T22 | [垂直金字塔 + 电路板通道布线 + 侧边外挂](22-vertical-pyramid-layout.md) | 4：垂直层带、侧边外挂、零交叉通道布线、折叠紧凑与测试收紧 | T20 | 进行中 |
-| T21 | 标准节点信息、实时输出与可中断折叠动效 | 4：节点/边统一过渡、运行与焦点生命周期 | T22 | 未开始 |
-| T07 | 综合验证与用户验收 | 4：新关系与全部折叠组合、兼容和真实视觉 | T20、T22、T21 | 未开始 |
+| T20 | 嵌套层级、递归折叠与连线（bc4e90c，后由 T22 替代展示） | 4：代表映射、边守恒、全局路由及适配 | 已批准设计 | 已完成 |
+| T22 | 递归芯片封装与单板布线 | 4：逐板投影、稳定接口、零交叉短路径及导航恢复 | T20 | 已完成 |
+| T23 | [多层共存电路与运行跟随](23-nested-circuit.md) | 5：递归尺寸、引脚接续与运行生命周期 | T22；合并 T21 | 进行中 |
+| T07 | 综合验证与用户验收 | 4：新关系与全部折叠组合、兼容和真实视觉 | T23 | 未开始 |
 
-下一验证入口：`pnpm exec vitest run --config web/vitest.config.ts web/test/workflowHeaderTemplate.test.ts`（测试位置以实际文件为准）。人工检查统一在 T07，不以旧几何预算或旧标题条验收新实现。
+下一验证入口：`pnpm exec vitest run --config web/vitest.config.ts web/test/agent/workflowHeaderLayout.test.ts web/test/agent/workflowHeaderNavigation.test.ts`（标准 Vitest 4.1.9 已可用；早期链接失效时曾用已安装 `node node_modules/.ignored_vitest/vitest.mjs` 执行同一配置，此为历史过程注记）。人工检查统一在 T07。
 
 ## 目标与最新决定
 
@@ -48,9 +48,9 @@
 - [workflow 协议](../../shared/protocol/workflow.md)与[后端观察](../../backend/service/workflow.md)：保留的事实与失败边界。
 - [节点树维护](../../frontend/pet/nyxus-node-tree-maintenance.md)：其他调用方的现行实现与内容语义参考，不作为本轮旧渲染恢复清单。
 - [前端规范](../../standards/frontend/README.md)、[动效规范](../../frontend/motion-standard.md)、[项目计划/验证政策](../../standards/global/project-documentation.md)：实现及验证前读取。
-- 新小任务按 T13 → T14 → T15 → T18 → T16 → T17 → T07 串行执行；共享投影与工作台文件，不预设并行开发。每项完成后回写结果和最终回归目标，删除该独立子计划；旧已完成摘要保留事实，不重开旧任务。
+- 当前顺序以顶部台账为准，共享投影与工作台文件串行处理；旧已完成摘要只保留历史事实。
 
-## 新一轮台账
+## 历史已完成台账
 
 | ID  | 任务                                                      | 复杂度与依据                                | 依赖             | 状态   |
 | --- | --------------------------------------------------------- | ------------------------------------------- | ---------------- | ------ |
@@ -61,35 +61,31 @@
 | T16 | 工作台、步骤详情与回放接线                              | 4：双事实流、卡牌兼容、多窗及恢复           | T18              | 已完成 |
 | T17 | 官网参照动效与性能                                      | 5：路径动画、Morph 图标、实时 CRT、视觉系统和可取消生命周期 | T16 | 已完成 |
 | T19 | 头部分组真收起与 Loop 迭代展示                          | 4：跨投影/图模型/节点组件，改变分组展示契约并重路由跨组边     | T17（已完成）    | 已完成 |
-| T07 | [综合验证与用户验收](07-final-verification.md)            | 4：全量回归与真实视觉、交互、帧率验收       | T13–T19 全部完成 | 未开始 |
 
 T07 是已经存在的最终验证文档，本轮同步重建清单、撤销旧勾选，仅作预登记；其他实现任务全部完成并删除独立文档后才进入。任何新增、删除或范围变化同步复核 T07 和[手动手册](verify/manual-final.md)。
 
-## 当前恢复检查点
+## T22 完成摘要
 
-- 已锁定用户最新三项约束：Vue Flow 重绘、沿用新版节点逻辑、当前卡牌模式不动；官网动效效果是明确交付要求。
-- T13 已完成纯投影边界和代码级验证；未启动浏览器/Electron，真实视觉仍集中在 T07。
-- T17 已完成代码级实现与定向验证；恢复时直接进入 T07，不再恢复已删除的 T17 子计划。业务路径与显式定位由 GSAP 驱动，Morphicons 仅保留其库内共享 rAF；真实视觉与帧率结论仍由用户在 T07 验收。
-- T19 已完成头部分组真收起与 Loop 迭代展示的代码级实现与定向验证；恢复时直接进入 T07，真收起交互、迭代徽标与跨组边重路由的实机验收归 T07。
-- T22（垂直金字塔布局）为 T20（bc4e90c）之后用户批准的新一轮：核心 5 层垂直堆叠 + 侧边外挂 + PCB 式零交叉通道布线。当前 `layoutHeader()` 交叉 92 个，根因已全部定位（相邻带边误走母线、跨板横段穿中部、母线左右过载、fallback 静默放行、error:result 走错侧、execution:dispatch 穿 tools 带、useLeft 决策粗糙），实现状态与后续思路已登记于 [22-vertical-pyramid-layout.md](22-vertical-pyramid-layout.md)。工作区 headerLayout.ts 有未提交改动，不执行回滚。
-- 后端 test/ 冻结，不运行或修改，不访问用户数据库；已有任务隔离 fixture 可用。
-- 卡牌冻结意味着图端修复适配；若开发发现只有修改卡牌才能解决的问题，登记独立范围问题，不暗中扩展本轮。
-- 图形与动效最终由用户按手册验收；代码通过不能替代“完整流程图”和“官网参照动效”的结论。
-- T13 定向验证（2026-09-11）：workflowGraph、workflowController、workbenchReader、workflowProjectionBoundary 共 4 个文件 18 项通过；`pnpm web:type-check` 与受影响 ESLint 通过。该结论不代表 T14–T17 或最终验收通过。
+- `headerLayout` / `headerBoardRouting` 输出 9 张独立板；原始 49 条关系按可见、封装内部和板外完整记账。未进入的内层是芯片，独立引脚稳定；短路径必须通过障碍、接触与重叠检查，否则使用保留原始关系的成对 P 端子。没有过孔或跨线断口。
+- 芯片显示内部运行/等待/失败摘要；导航包含进入、返回、总览、面包屑、滚轮阈值及接口双端定位。root/header/板相机隔离，返回恢复原视野；运行增量不切板。实时窗口仅在模型板挂载，结果历史与审批接口不变；卡牌按重登记基线验收（M04）。
+- GSAP 继续处理封装收拢与展开；切层期间隐藏线路以避免中间几何交叉，元件到位恢复已验证路径。旧自动展开状态与垂直母线实现退役。
+- 2026-09-12：14 文件 76 项定向测试通过，覆盖所有板几何与关系守恒、导航恢复、状态、详情、阅读器、动效、依赖边界和 SFC 预算；受影响 ESLint、Web 类型与 Web/Electron 构建通过，构建仅插件耗时提示。Plan lint、文档链接与 diff 检查为收口验证入口。
+- Impeccable 引擎未安装（PATH/root/web .bin/package.json 均无），记录为环境限制，不计通过。没有启动图形界面、读取图片、运行后端测试或访问用户数据库。真实视觉、交互与 p95 由 T07 第 8 节及既有清单验收。
+- 本轮修正登记（2026-09-12，t5 同步）：① 代码审查通过无阻断缺陷，观察项（wheel 命中区、240ms 手势锁、navigate 竞态低风险）供 M08 实机确认；② t7 修复 `useHeaderBoardNavigation` wheel 缩放时 viewport 未就绪的 TypeError 崩溃并补回归测试；③ 标准 Vitest 4.1.9 已可用（A06 复核 5 文件 24 项全过），原 `.ignored_vitest` 用法降为历史过程注记；④ A03 web lint 修复落地（0 errors / 19 存量 warnings）；⑤ A05/A07 同源失败（NodePaperStack.styles.less 在 9f64fa3 被改动），用户批准方案 B（新样式=新基线 + 标题 12px），SHA 重登记与 ✅ 标记待 t8 落地；⑥ 删除旧待办遗留调试产物 `.dump-layout.mts` 与 `web/test/agent/dumplog.test.ts`（未跟踪、零引用）。
 
 ## T14 完成摘要
 
 - 结果树按 canonical 事实边计算稳定拓扑列，跨 lane 的派发、分支和返回只向后续列推进；正文增量不改变坐标，步骤 occurrence 不参与节点、边或布局。
 - 结果节点改为紧凑图标主体与外置中文名称、状态、受控详情，消息、工具、派发/创建协作、返回、过程组和系统节点具有独立视觉类型；自定义 Vue Flow 事实边使用明确输入/输出端口、直角路径、方向箭头及必要的分叉/汇入标签。
 - 画布内指针高亮参考 Vue Flow 官网首页的 Blobity 交互语义，以现有 GSAP 在图内跟随鼠标并按节点包围盒形变贴合；高亮层不接管命中，粗指针、触摸和 reduced 档降级为静态 hover/focus。
-- workflowGraph、workflowProjectionBoundary、workbenchReader、executionGraph、executionGraphFixtures 共 5 个文件 42 项通过；`pnpm web:type-check`、受影响 ESLint、`pnpm web:build` 和 Impeccable 检测通过。paperStackIntegration 的 7 项中 6 项通过；唯一失败是冻结基线已有的 NodePaperStack 字体断言与样式不一致，T14 未修改冻结文件且 SHA-256 与 A07 基线完全一致，该全量失败保留到 T07 处理。
+- workflowGraph、workflowProjectionBoundary、workbenchReader、executionGraph、executionGraphFixtures 共 5 个文件 42 项通过；`pnpm web:type-check`、受影响 ESLint、`pnpm web:build` 和 Impeccable 检测通过。paperStackIntegration 的 7 项中 6 项通过；唯一失败是冻结基线已有的 NodePaperStack 字体断言与样式不一致，T14 未修改冻结文件且 SHA-256 以 T07 A07 表为准，该全量失败保留到 T07 处理。
 
 ## T15 完成摘要
 
 - `headerTemplate.ts` 提供 v2 固定尺寸模板，独立步骤、分组、端口和正交边落在同一 Vue Flow；主流程、重试、条件审批/拒绝/失败、Loop、协作与压缩路径齐全。静态回边经过几何验证，不穿过其他步骤主体；旧 header sections 网格及其专属样式已退役。
 - `headerState.ts` 从完整 occurrence 集合按 run/iteration/attempt/call 投影，终态保留且新轮次/运行重置；未发生、未单独记录与记录不完整分别表达。工具按明确批次/消息/调用锚点列出，历史选择不随活动调用更新跳转。未归属运行的接收/唤醒事实单独可读，不猜测归属。
 - `headerGraph.ts` 先固定业务结果位置，再以完整包围盒向右避让头部；只认 activeBranchId，旧无 task root 使用兼容头部，其他分支/子 Agent 保持简略。步骤说明具备键盘入口与关闭后焦点恢复；RuntimeDiagram 输出 `selectStep` / `selectHeaderScope`，T16 继续接实例详情和内容选择，T17 使用静态路径 `points` 与步骤内层实现动效。
-- 2026-09-11 定向 Vitest：workflowHeaderTemplate、workflowHeaderState、workflowGraph、workflowController、workflowProjectionBoundary、workbenchReader、vueSfcSizeBudget 共 7 个文件 32 项通过；`pnpm web:type-check`、受影响 ESLint、`pnpm web:build`、Impeccable 静态检测、Plan lint 和文档链接检查通过。构建仅报告插件耗时提示。A07 五个冻结文件 SHA-256 全部与 T13 基线一致；未运行后端测试、访问用户数据库或启动图形界面。
+- 2026-09-11 定向 Vitest：workflowHeaderTemplate、workflowHeaderState、workflowGraph、workflowController、workflowProjectionBoundary、workbenchReader、vueSfcSizeBudget 共 7 个文件 32 项通过；`pnpm web:type-check`、受影响 ESLint、`pnpm web:build`、Impeccable 静态检测、Plan lint 和文档链接检查通过。构建仅报告插件耗时提示。A07 五个冻结文件 SHA-256 以 T07 A07 表为准；未运行后端测试、访问用户数据库或启动图形界面。
 - T07 继续验证真实箭头/回路可读性、跨主题窗口与键盘路径；T15 自动结论不替代 T16/T17 或最终人工验收。最终回归入口已写入展示契约与 T07，手册补充范围选择及未归属事实场景。
 
 ## T18 完成摘要
@@ -103,8 +99,8 @@ T07 是已经存在的最终验证文档，本轮同步重建清单、撤销旧�
 
 - 头部步骤改为打开画布内只读详情，按 chat/run/iteration/attempt/call 读取固定边界分页并展示重复实例、gap、legacy、加载、失败与重试状态；切 root、断线、最小化和卸载会取消过期详情请求，关闭详情恢复原步骤焦点。
 - 详情只通过显式内容锚点定位现有 canonical 结果节点与 Nyxus 阅读器；缺失或跨会话锚点保持禁用并说明原因，不回退到最近内容。回放冻结进入时的 canonical timeline，随步骤游标裁切对应内容帧；历史不完整、存在 gap 或加载失败时保留完整 canonical 内容，返回实时重新取快照。
-- 2026-09-11：workflowStepDetails、workflowController、workflowGraph、workflowHeaderState、workbenchReader 共 5 文件 28 项通过；完整 T16 定向集合 10 文件 52 项中 51 项通过，唯一失败仍是 T07 已登记的冻结卡片字体断言。`pnpm type-check:all`、受影响 ESLint、`pnpm web:build` 与 Impeccable 静态检测通过；检测器零项。五个冻结文件 SHA-256 与 T13 基线完全一致，未运行后端测试、访问用户数据库或启动图形界面。
-- T07 与手册现有清单已覆盖步骤实例、严格锚点、固定回放、键盘、宽窄窗口、多窗口和当前审批隔离，无需新增重复检查项。T17 已完成路径与节点动效的代码级实现，T07 最终实机确认卡牌不变及完整交互。
+- 2026-09-11：workflowStepDetails、workflowController、workflowGraph、workflowHeaderState、workbenchReader 共 5 文件 28 项通过；完整 T16 定向集合 10 文件 52 项中 51 项通过，唯一失败仍是 T07 已登记的冻结卡片字体断言。`pnpm type-check:all`、受影响 ESLint、`pnpm web:build` 与 Impeccable 静态检测通过；检测器零项。五个冻结文件 SHA-256 以 T07 A07 表为准，未运行后端测试、访问用户数据库或启动图形界面。
+- T07 与手册现有清单已覆盖步骤实例、严格锚点、固定回放、键盘、宽窄窗口、多窗口和当前审批隔离，无需新增重复检查项。T17 已完成路径与节点动效的代码级实现，T07 按重登记基线实机确认卡牌（M04）及完整交互。
 
 ## T17 完成摘要
 
@@ -113,7 +109,7 @@ T07 是已经存在的最终验证文档，本轮同步重建清单、撤销旧�
 - 运行中的模型步骤只挂载 chat/run 匹配的最新 `activeTurns` CRT，正文/思考按现有 Markdown 节流渲染并自动跟随；终态、回放或停用时立即移除。每个步骤的 Info 独立按钮仅在图标 hover/focus/触摸点按时于节点上方显示简要说明，节点主体仍打开 T16 实例详情。
 - 显式选择步骤锚点时创建不可交互关系边，光点沿确定性正交路径移动并通过 Vue Flow viewport 跟随到目标；无源/目标时直接定位，画布 pointer/wheel、root/回放/最小化和卸载会取消。普通实时增量不移动相机。
 - 2026-09-11 定向 Vitest 12 个文件 62 项通过，覆盖路径证据、方向/转折、快速取消、结果生长、能力身份、live CRT 投影、投影边界、详情、回放、2k 性能恢复和 SFC 预算；`pnpm web:type-check`、受影响 ESLint、`pnpm web:build` 与 Impeccable 检测通过，检测器零项。构建仅报告 Vite 插件耗时提示。
-- 五个冻结卡牌文件 SHA-256 与 T13 基线完全一致；未运行后端测试、访问用户数据库、启动图形界面或读取图片。代码级完成不代表达到官网实机效果，T07 继续验证真实视觉、交互和 p95 帧率。
+- 五个冻结卡牌文件 SHA-256 以 T07 A07 表为准；未运行后端测试、访问用户数据库、启动图形界面或读取图片。代码级完成不代表达到官网实机效果，T07 继续验证真实视觉、交互和 p95 帧率。
 
 ## T19 完成摘要
 
@@ -133,7 +129,7 @@ D00、T01–T06、T08、T12、T09、T11、T10、T07-F1、T07-F2 的原完成事�
 - [`workflowProjection.ts`](../../../web/src/features/agent/workbench/runtime-diagram/workflowProjection.ts) 以纯 TypeScript 输出 `ResultTreeProjection`、`HeaderFlowProjection` 和 `WorkflowSceneProjection`；canonical 内容独立决定结果节点、事实边、顺序与 lane，occurrence 和观察 gap 只进入头部步骤状态。
 - [`graphModel.ts`](../../../web/src/features/agent/workbench/runtime-diagram/graphModel.ts) 只适配 Vue Flow Node/Edge；内容、头部、步骤使用独立 ID 命名空间，`fact` 与 `template` 边语义分离。画布不再生成 occurrence 或未解析占位结果节点。
 - 图到阅读器的选择经 `resolveWorkflowSceneSelection` 严格按 `sourceChatId` 与节点/`callId` 解析；错会话和缺失锚点明确不可用，不回退到其他会话或最近节点。
-- 卡牌冻结基线取 HEAD `25c3c06a20760f343c776c38f7817ed8535a61b4` 上已有未提交工作区；T13 未修改 Nyxus public、readerProjection、NodePaperStack 组件/样式及工作台阅读偏好。精确 SHA-256 已登记到 T07 A07。
+- 卡牌冻结基线取 HEAD `25c3c06a20760f343c776c38f7817ed8535a61b4` 上已有未提交工作区；T13 未修改 Nyxus public、readerProjection、NodePaperStack 组件/样式及工作台阅读偏好。精确 SHA-256 已登记到 T07 A07（后按方案 B 重登记，以 A07 表现值为准）。
 - 定向 Vitest 4 个文件 18 项、`pnpm web:type-check` 和受影响 ESLint 通过；新增回归覆盖单轮内容、多同名工具、分支/子返回、重复事实、缺失 anchor、观察 gap 和纯模型依赖边界。
 
 ## T08 完成摘要

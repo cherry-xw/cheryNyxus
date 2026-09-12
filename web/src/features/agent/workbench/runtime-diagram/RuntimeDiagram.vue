@@ -41,6 +41,9 @@ import WorkflowHeaderNode from './WorkflowHeaderNode.vue'
 import WorkflowResultEdge from './WorkflowResultEdge.vue'
 import WorkflowHeaderStepNode from './WorkflowHeaderStepNode.vue'
 import WorkflowHeaderGroupNode from './WorkflowHeaderGroupNode.vue'
+import WorkflowHeaderTerminalNode from './WorkflowHeaderTerminalNode.vue'
+import WorkflowBoardNavigation from './WorkflowBoardNavigation.vue'
+import { useHeaderBoardNavigation } from './useHeaderBoardNavigation'
 import WorkflowHeaderCallsNode from './WorkflowHeaderCallsNode.vue'
 import WorkflowHeaderEdge from './WorkflowHeaderEdge.vue'
 import WorkflowFocusEdge from './WorkflowFocusEdge.vue'
@@ -53,7 +56,7 @@ import {
   type HeaderScopeEvent,
 } from './headerGraph'
 import type { HeaderScopeSelection } from './headerState'
-import { headerGroupKey, layerAncestors } from './headerLayout'
+import { headerGroupKey } from './headerLayout'
 import { WORKFLOW_HEADER_TEMPLATE } from './headerTemplate'
 import { projectReplayTimeline, projectWorkflowStepDetails } from './workflowStepDetails'
 
@@ -90,33 +93,25 @@ const displayTimeline = computed(() =>
 )
 const headerSelections = ref<Record<string, HeaderScopeSelection>>({})
 const groupOverrides = ref<Record<string, boolean>>({})
-const autoCollapseEnabled = ref(true)
+const boardByHeader = ref<Record<string, string>>({})
 const selectedStep = shallowRef<HeaderSelection>()
-const focusedLayer = ref<string>()
-const lastActiveLayers = ref<Record<string, readonly string[]>>({})
 function onToggleGroup(event: HeaderGroupToggleEvent): void {
-  const node = projection.value.nodes.find((n) => n.data?.kind === 'header-group' && n.data.headerId === event.headerId && n.data.groupId === event.groupId)
-  const collapsed = node?.data?.kind === 'header-group' ? node.data.collapsed : groupOverrides.value[headerGroupKey(event.headerId, event.groupId)] === true
-  groupOverrides.value = { ...groupOverrides.value, [headerGroupKey(event.headerId, event.groupId)]: !collapsed }
-  if (!collapsed && selectedStep.value) {
-    const group = WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => n.id === selectedStep.value?.templateNodeId)?.group
-    if (event.groupId === 'header' || (group && layerAncestors(group).includes(event.groupId))) closeStepDetails(false)
+  if (event.groupId !== 'header') {
+    void boardNavigation.navigate(event.headerId, event.groupId)
+    return
   }
+  const key = headerGroupKey(event.headerId, 'header')
+  groupOverrides.value = { ...groupOverrides.value, [key]: !groupOverrides.value[key] }
+  closeStepDetails(false)
   cancelFocusTransition()
 }
-function resetGroupOverrides(headerId: string): void {
-  groupOverrides.value = Object.fromEntries(Object.entries(groupOverrides.value).filter(([key]) => !key.startsWith(`${headerId}:`)))
-  autoCollapseEnabled.value = true
+function resetGroupOverrides(): void {
+  void focusCurrentStep()
 }
 function expandAll(): void {
-  const headerId = projection.value.activeHeaderId
-  if (headerId) resetGroupOverrides(headerId)
-  autoCollapseEnabled.value = false
+  boardNavigation.overview()
 }
-function protectFocusedLayer(event: FocusEvent): void {
-  const target = event.target instanceof Element ? event.target : undefined
-  focusedLayer.value = target?.closest<HTMLElement>('[data-workflow-layer]')?.dataset.workflowLayer
-}
+
 function closeStepDetails(restoreFocus = true): void {
   const selection = selectedStep.value
   selectedStep.value = undefined
@@ -149,7 +144,7 @@ const liveTurns = computed(() => {
     ...(displayTimeline.value?.activeRuns.map((run) => run.chatId).filter(Boolean) ?? []),
   ])
   return [...chatIds].flatMap((chatId) =>
-    chatId ? chatSessions.sessionsById[chatId]?.activeTurns ?? [] : [],
+    chatId ? (chatSessions.sessionsById[chatId]?.activeTurns ?? []) : [],
   )
 })
 const baseProjection = computed(() =>
@@ -159,16 +154,12 @@ const baseProjection = computed(() =>
     props.foldMode,
     headerSelections.value,
     liveTurns.value,
-    { overrides: groupOverrides.value, lastActiveLayers: lastActiveLayers.value, follow: autoCollapseEnabled.value, protectedLayers: new Set([
-      ...(focusedLayer.value ? [focusedLayer.value] : []),
-      ...WORKFLOW_HEADER_TEMPLATE.nodes.filter((n) => n.id === selectedStep.value?.templateNodeId).map((n) => n.group),
-    ]) },
+    {
+      boards: boardByHeader.value,
+      overrides: groupOverrides.value,
+    },
   ),
 )
-watch(() => [...baseProjection.value.activeGroupIds].sort().join('|'), () => {
-  const { activeHeaderId, activeGroupIds } = baseProjection.value
-  if (activeHeaderId && activeGroupIds.size) lastActiveLayers.value = { ...lastActiveLayers.value, [activeHeaderId]: [...activeGroupIds] }
-})
 const selectedGraphNodeId = computed(() => {
   const selection = props.selection
   if (!selection) return undefined
@@ -196,18 +187,22 @@ function projectNodeSelection(node: WorkflowGraphNode): WorkflowGraphNode {
 const projection = computed<WorkflowGraphProjection>(() => ({
   ...baseProjection.value,
   nodes: baseProjection.value.nodes.map(projectNodeSelection),
-  edges: focusTransition.value ? [...baseProjection.value.edges, focusTransition.value.edge] : baseProjection.value.edges,
+  edges: focusTransition.value
+    ? [...baseProjection.value.edges, focusTransition.value.edge]
+    : baseProjection.value.edges,
 }))
 async function focusCurrentStep(): Promise<void> {
   const rawId = projection.value.rawActiveOccurrenceId
   const headerId = projection.value.activeHeaderId
   if (rawId && headerId) {
-    const template = WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => headerTemplateNodeId(headerId, n.id) === rawId)
+    const template = WORKFLOW_HEADER_TEMPLATE.nodes.find(
+      (n) => headerTemplateNodeId(headerId, n.id) === rawId,
+    )
     if (template) {
       const next = { ...groupOverrides.value, [headerGroupKey(headerId, 'header')]: false }
-      for (const layer of layerAncestors(template.group)) next[headerGroupKey(headerId, layer)] = false
       groupOverrides.value = next
-      await nextTick()
+      await boardNavigation.navigate(headerId, template.group, template.id)
+      return
     }
   }
   focusNode(rawId ?? projection.value.activeHeaderId)
@@ -243,6 +238,21 @@ const cameraRootId = computed(
   () =>
     displayTimeline.value?.rootChatId ?? controller.workflowState.value?.rootChatId ?? props.chatId,
 )
+const boardNavigation = useHeaderBoardNavigation({
+  boards: boardByHeader,
+  root: cameraRootId,
+  flow,
+  host: flowHostRef,
+  projection,
+  disabled: computed(() => props.suspended || controller.hidden.value),
+  beforeNavigate: () => {
+    cancelFocusTransition()
+    closeStepDetails(false)
+    const header = projection.value.activeHeaderId
+    if (header)
+      groupOverrides.value = { ...groupOverrides.value, [headerGroupKey(header, 'header')]: false }
+  },
+})
 const {
   refreshVisibility: refreshMotionVisibility,
   focusAlongPath,
@@ -258,8 +268,17 @@ const {
   synced: controller.synced,
   hidden: controller.hidden,
 })
-useHeaderLayoutMotion({ host: flowHostRef, projection, root: cameraRootId,
-  disabled: computed(() => props.suspended || controller.replay.value || controller.hidden.value || !controller.synced.value),
+useHeaderLayoutMotion({
+  host: flowHostRef,
+  projection,
+  root: cameraRootId,
+  disabled: computed(
+    () =>
+      props.suspended ||
+      controller.replay.value ||
+      controller.hidden.value ||
+      !controller.synced.value,
+  ),
 })
 let resizeFrame = 0
 let resolvedFocusKey = ''
@@ -289,6 +308,10 @@ function focusNode(nodeId: string | undefined): void {
 function cancelFocusTransition(): void {
   cancelFocusMotion()
   focusTransition.value = undefined
+}
+function onBoardWheel(event: WheelEvent): void {
+  boardNavigation.onWheel(event)
+  cancelFocusTransition()
 }
 
 function centerOnWorldPoint(point: { x: number; y: number }): void {
@@ -661,12 +684,21 @@ defineExpose({
       这段历史存在记录缺口，未确认部分不会按成功显示。
     </div>
 
+    <WorkflowBoardNavigation
+      v-if="projection.activeHeaderId"
+      :board="boardNavigation.currentBoard.value"
+      :relation="boardNavigation.relation.value"
+      @navigate="boardNavigation.navigate(projection.activeHeaderId!, $event)"
+      @back="boardNavigation.back"
+      @trace-end="boardNavigation.traceEnd"
+      @close-relation="boardNavigation.relation.value = undefined"
+    />
     <div
       ref="flowHostRef"
       class="workflow-flow-host"
       :aria-busy="controller.loading.value || controller.historyLoading.value"
       @pointerdown.capture="cancelFocusTransition"
-      @wheel.passive.capture="cancelFocusTransition"
+      @wheel.capture="onBoardWheel"
     >
       <VueFlow
         aria-label="执行拓扑画布"
@@ -678,9 +710,7 @@ defineExpose({
         :min-zoom="0.35"
         :max-zoom="1.8"
         :fit-view-on-init="false"
-        @focusin="protectFocusedLayer"
         :pan-on-drag="true"
-        @focusout="focusedLayer = undefined"
         :zoom-on-scroll="true"
         @pane-ready="onPaneReady"
         @move-end="recordViewport"
@@ -700,6 +730,9 @@ defineExpose({
         </template>
         <template #node-header-group="nodeProps">
           <WorkflowHeaderGroupNode v-bind="nodeProps" @toggle="onToggleGroup" />
+        </template>
+        <template #node-header-terminal="nodeProps">
+          <WorkflowHeaderTerminalNode v-bind="nodeProps" @trace="boardNavigation.trace" />
         </template>
         <template #node-header-step="nodeProps">
           <WorkflowHeaderStepNode v-bind="nodeProps" @select-step="selectStep" />

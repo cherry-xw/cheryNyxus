@@ -12,7 +12,6 @@ import {
   type HeaderViewOptions,
 } from './headerGraph'
 import { WORKFLOW_HEADER_TEMPLATE, type HeaderPoint } from './headerTemplate'
-import { headerCrossingPath } from './headerPaths'
 import type { HeaderScopeSelection, HeaderStateProjection } from './headerState'
 import {
   presentResultNode,
@@ -68,6 +67,7 @@ export type WorkflowGraphNodeData =
       chatId: string
       title: string
       mode: 'full' | 'compact'
+      boardId?: string
       expandable?: boolean
       collapsed?: boolean
       templateVersion: typeof WORKFLOW_HEADER_TEMPLATE_VERSION
@@ -96,7 +96,15 @@ export type WorkflowGraphEdge = Edge<{
   renderPath?: string
   points?: HeaderPoint[]
   labelPoint?: HeaderPoint
-  members?: Array<{ id: string; label: string; evidenced: boolean; sourceOccurrenceId?: string; targetOccurrenceId?: string; targetStatus?: WorkflowOccurrence['status']; targetSequence?: number }>
+  members?: Array<{
+    id: string
+    label: string
+    evidenced: boolean
+    sourceOccurrenceId?: string
+    targetOccurrenceId?: string
+    targetStatus?: WorkflowOccurrence['status']
+    targetSequence?: number
+  }>
   evidenced?: boolean
   sourceOccurrenceId?: string
   targetOccurrenceId?: string
@@ -211,10 +219,7 @@ export function projectWorkflowGraph(
     width: Number(node.width),
     height: Number(node.height),
   }))
-  const contentTargets = new Map<
-    string,
-    Extract<WorkflowGraphNodeData, { kind: 'content' }>
-  >()
+  const contentTargets = new Map<string, Extract<WorkflowGraphNodeData, { kind: 'content' }>>()
   for (const node of nodes) {
     if (node.data?.kind === 'content') contentTargets.set(node.id, node.data)
   }
@@ -241,32 +246,57 @@ export function projectWorkflowGraph(
         WORKFLOW_GRAPH_LAYOUT.headerGap,
     )
     const built = buildHeaderNodes({
-      header, position: { x: 0, y: 0 }, view,
+      header,
+      position: { x: 0, y: 0 },
+      view,
       selection: headerSelections[header.id],
       currentRunId: timeline?.activeRuns.find((run) => run.chatId === header.chatId)?.runId,
       recorded: !!workflow,
-      complete: !!workflow?.historyComplete && !workflow?.hasEarlier && !workflow?.gaps.some((gap) => !gap.chatId || gap.chatId === header.chatId),
+      complete:
+        !!workflow?.historyComplete &&
+        !workflow?.hasEarlier &&
+        !workflow?.gaps.some((gap) => !gap.chatId || gap.chatId === header.chatId),
       activeTurns,
     })
     const root = built.nodes[0]!
-    const bounds = placeHeader({ x, y: WORKFLOW_GRAPH_LAYOUT.originY + (laneIndex.get(header.laneId) ?? 0) * WORKFLOW_GRAPH_LAYOUT.laneStride, width: Number(root.width), height: Number(root.height) }, obstacles, WORKFLOW_GRAPH_LAYOUT.headerGap)
+    const bounds = placeHeader(
+      {
+        x,
+        y:
+          WORKFLOW_GRAPH_LAYOUT.originY +
+          (laneIndex.get(header.laneId) ?? 0) * WORKFLOW_GRAPH_LAYOUT.laneStride,
+        width: Number(root.width),
+        height: Number(root.height),
+      },
+      obstacles,
+      WORKFLOW_GRAPH_LAYOUT.headerGap,
+    )
     obstacles.push(bounds)
     root.position = { x: bounds.x, y: bounds.y }
     for (const edge of built.edges) {
       if (!edge.data) continue
-      edge.data.points = edge.data.points?.map((point) => ({ x: point.x + bounds.x, y: point.y + bounds.y }))
-      if (edge.data.junction) edge.data.junction = { x: edge.data.junction.x + bounds.x, y: edge.data.junction.y + bounds.y }
-      if (edge.data.labelAnchor) edge.data.labelAnchor = { x: edge.data.labelAnchor.x + bounds.x, y: edge.data.labelAnchor.y + bounds.y }
-      if (edge.data.labelPoint) edge.data.labelPoint = { x: edge.data.labelPoint.x + bounds.x, y: edge.data.labelPoint.y + bounds.y }
+      edge.data.points = edge.data.points?.map((point) => ({
+        x: point.x + bounds.x,
+        y: point.y + bounds.y,
+      }))
+      if (edge.data.junction)
+        edge.data.junction = {
+          x: edge.data.junction.x + bounds.x,
+          y: edge.data.junction.y + bounds.y,
+        }
+      if (edge.data.labelAnchor)
+        edge.data.labelAnchor = {
+          x: edge.data.labelAnchor.x + bounds.x,
+          y: edge.data.labelAnchor.y + bounds.y,
+        }
+      if (edge.data.labelPoint)
+        edge.data.labelPoint = {
+          x: edge.data.labelPoint.x + bounds.x,
+          y: edge.data.labelPoint.y + bounds.y,
+        }
     }
     Object.assign(representatives, built.representatives)
     internalEdgeIds.push(...built.internalEdgeIds)
-    const previousPaths: Array<{ points: HeaderPoint[]; collector?: boolean }> = []
-    for (const edge of built.edges) {
-      if (!edge.data?.points) continue
-      edge.data.renderPath = headerCrossingPath(edge.data.points, previousPaths.filter(path => !(path.collector && edge.data?.collector)).map(path => path.points))
-      previousPaths.push({ points: edge.data.points, collector: edge.data.collector })
-    }
     nodes.push(...built.nodes)
     headerEdges.push(...built.edges)
     const activeSlot = Object.values(built.state.slots)
@@ -292,9 +322,12 @@ export function projectWorkflowGraph(
     nodes,
     edges: [...scene.edges.map((edge) => graphEdge(edge, contentTargets)), ...headerEdges],
     activeHeaderId: scene.headerFlow.activeHeaderId,
-    activeOccurrenceId: activeOccurrenceId ? representatives[activeOccurrenceId] ?? activeOccurrenceId : undefined,
+    activeOccurrenceId: activeOccurrenceId
+      ? (representatives[activeOccurrenceId] ?? activeOccurrenceId)
+      : undefined,
     rawActiveOccurrenceId: activeOccurrenceId,
-    representatives, internalEdgeIds,
+    representatives,
+    internalEdgeIds,
     activeGroupIds,
     scene,
   }

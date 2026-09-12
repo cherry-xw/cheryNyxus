@@ -436,17 +436,39 @@ describe('unified workflow graph projection', () => {
         createdAt: 3,
       },
     ]
-    const projection = projectWorkflowGraph(workflow([activeModel]), timeline(), 'participant', {}, turns)
+    const projection = projectWorkflowGraph(
+      workflow([activeModel]),
+      timeline(),
+      'participant',
+      {},
+      turns,
+      { boards: { 'header:main': 'model-layer' } },
+    )
+    const overview = projectWorkflowGraph(
+      workflow([activeModel]),
+      timeline(),
+      'participant',
+      {},
+      turns,
+    )
+    expect(
+      overview.nodes.some((node) => node.data.kind === 'header-step' && node.data.liveTurn),
+    ).toBe(false)
     const steps = projection.nodes.filter(
-      (node): node is typeof node & {
+      (
+        node,
+      ): node is typeof node & {
         data: Extract<WorkflowGraphNodeData, { kind: 'header-step' }>
       } => node.data?.kind === 'header-step',
     )
     const model = steps.find((node) => node.data.template.id === 'model')
 
     expect(model?.data.liveTurn).toMatchObject({ turnId: 'latest', content: 'live response' })
-    expect(steps.filter((node) => node.data.template.id !== 'model').every((node) => !node.data.liveTurn))
-      .toBe(true)
+    expect(
+      steps
+        .filter((node) => node.data.template.id !== 'model')
+        .every((node) => !node.data.liveTurn),
+    ).toBe(true)
 
     const settled = projectWorkflowGraph(
       workflow([{ ...activeModel, status: 'succeeded', endedAt: 200 }]),
@@ -454,6 +476,7 @@ describe('unified workflow graph projection', () => {
       'participant',
       {},
       turns,
+      { boards: { 'header:main': 'model-layer' } },
     )
     expect(
       settled.nodes.some((node) => node.data?.kind === 'header-step' && !!node.data.liveTurn),
