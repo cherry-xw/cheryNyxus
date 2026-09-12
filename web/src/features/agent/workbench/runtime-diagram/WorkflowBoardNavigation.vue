@@ -1,20 +1,28 @@
 <script setup lang="ts">
 import { boardPath, boardTitle } from './headerLayout'
 import type { HeaderTerminalEvent } from './headerGraph'
-defineProps<{ board: string; relation?: HeaderTerminalEvent }>()
+defineProps<{ board: string; relation?: HeaderTerminalEvent; following?: boolean }>()
 const emit = defineEmits<{
   navigate: [board: string]
   back: []
   closeRelation: []
   traceEnd: [end: 'source' | 'target']
+  toggleFollow: []
+  expandAll: []
+  collapseAll: []
 }>()
 </script>
 
 <template>
   <div class="workflow-board-navigation nodrag nopan nowheel" @pointerdown.stop @wheel.stop>
     <nav aria-label="芯片封装路径">
+      <button type="button" :aria-pressed="following" @click="emit('toggleFollow')">
+        {{ following ? '暂停跟随' : '跟随运行' }}
+      </button>
+      <button type="button" @click="emit('expandAll')">全部展开</button>
+      <button type="button" @click="emit('collapseAll')">全部收起</button>
       <button v-if="board !== 'overview'" type="button" data-board-back @click="emit('back')">
-        返回上层
+        收起当前层
       </button>
       <template v-for="(id, index) in boardPath(board)" :key="id">
         <span v-if="index" aria-hidden="true">/</span>
@@ -27,7 +35,9 @@ const emit = defineEmits<{
         </button>
       </template>
     </nav>
-    <p>芯片封装内部电路。点击「进入内部」或在芯片上放大；P 编号是接口，点击可追踪来源与去向。</p>
+    <p>
+      展开芯片可查看内部，外围电路始终保留。跟随时自动展开运行步骤、结束后收起；手动浏览会暂停跟随。节点位置已锁定。
+    </p>
     <section
       v-if="relation"
       class="workflow-board-relation"

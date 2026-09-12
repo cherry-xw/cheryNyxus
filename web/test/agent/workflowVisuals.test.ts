@@ -14,10 +14,12 @@ describe('workflow visual identity and interaction contracts', () => {
     const byCapability = new Map(identities.map((identity) => [identity.capability, identity]))
 
     expect(byCapability.size).toBeGreaterThanOrEqual(7)
-    expect(new Set([...byCapability.values()].map((identity) => identity.accent)).size)
-      .toBe(byCapability.size)
-    expect(new Set([...byCapability.values()].map((identity) => identity.shape)).size)
-      .toBe(byCapability.size)
+    expect(new Set([...byCapability.values()].map((identity) => identity.accent)).size).toBe(
+      byCapability.size,
+    )
+    expect(new Set([...byCapability.values()].map((identity) => identity.shape)).size).toBe(
+      byCapability.size,
+    )
   })
 
   it('keeps result capabilities and semantic states distinct', () => {
@@ -28,7 +30,7 @@ describe('workflow visual identity and interaction contracts', () => {
     expect(statusIcon('waiting')).not.toBe(statusIcon('failed'))
   })
 
-  it('uses Morphicons, an independent Info trigger and a live-only CRT mount', () => {
+  it('uses Morphicons, an independent Info trigger and an anchored CRT mount', () => {
     const directory = resolve('web/src/features/agent/workbench/runtime-diagram')
     const morph = readFileSync(resolve(directory, 'WorkflowMorphIcon.vue'), 'utf8')
     const step = readFileSync(resolve(directory, 'WorkflowHeaderStepNode.vue'), 'utf8')
@@ -36,10 +38,21 @@ describe('workflow visual identity and interaction contracts', () => {
     expect(morph).toContain("from 'morphicons/vue'")
     expect(morph).toContain("? 'user' : 'always'")
     expect(step).toContain('class="workflow-step-info-button nodrag nopan"')
+    expect(step).not.toContain('<el-tooltip')
+    expect(step).toContain('<Teleport to="body">')
     expect(step).toContain('@pointerenter="openInfo"')
-    expect(step).toContain('@focus="focusInfo"')
-    expect(step).toContain('bottom: calc(100% + 8px)')
-    expect(step).toContain('<WorkflowLiveCrt v-if="data.liveTurn"')
-    expect(step).toContain('@click.stop="selectStep"')
+    expect(step).toContain('@pointerleave="closeInfo"')
+    expect(step).toContain('OVERLAY_Z_INDEX.tooltip')
+    expect(step).not.toContain('infoOpen')
+    const header = readFileSync(resolve(directory, 'WorkflowHeaderNode.vue'), 'utf8')
+    const overlays = readFileSync(resolve(directory, 'WorkflowAnchoredOverlays.vue'), 'utf8')
+    expect(step).not.toContain('<WorkflowLiveCrt')
+    expect(header).not.toContain('<WorkflowLiveCrt')
+    expect(overlays).toContain('<WorkflowLiveCrt')
+    expect(header).toContain("completed: '等待用户输入'")
+    expect(header).toContain("idle: '等待用户输入'")
+    expect(step).toContain('@click.stop')
+    expect(step).toContain('data-workflow-loading')
+    expect(step).toContain('headerLayerColor(data.template.group)')
   })
 })

@@ -22,6 +22,7 @@ import {
   isPianoRootSession,
   type NyxusContentSelection,
 } from '@/features/pets/nyxus/public'
+import { resolveWorkspaceRootChatId } from '@/features/agent/attention/public'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import {
   ConnectionStatusChip,
@@ -691,20 +692,40 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       error.value = message
     },
   })
-  const workspaceBrowserOpen = computed(() => win.value?.workspaceBrowserMode === 'attention')
-  const attentionCount = computed(
-    () => interactions.pending.filter((item) => item.presetId === props.presetId).length,
+  const attentionRootChatId = computed(() =>
+    resolveWorkspaceRootChatId(liveTimeline.value?.rootChatId, treeRootChatId.value),
+  )
+  const workspacePending = computed(() =>
+    interactions.pending.filter((item) =>
+      !!attentionRootChatId.value && item.rootChatId === attentionRootChatId.value,
+    ),
+  )
+  const currentAttentionCount = computed(() => workspacePending.value.length)
+  const attentionCount = computed(() => interactions.pending.filter((item) =>
+    item.rootChatId !== attentionRootChatId.value,
+  ).length)
+  const workspaceBrowserOpen = ref(false)
+
+  watch(
+    [attentionRootChatId, () => connection.status],
+    ([rootChatId, status]) => {
+      if (!rootChatId || status !== 'connected') return
+      void interactions.refresh().catch((cause) =>
+        console.warn('[WorkbenchDialog] refresh interactions failed:', cause),
+      )
+    },
+    { immediate: true },
   )
 
   function closeWorkspaceBrowser(): void {
+    workspaceBrowserOpen.value = false
     agents.setWorkbenchWindowWorkspaceBrowser(props.windowId, undefined)
   }
 
   function toggleWorkspaceBrowser(): void {
-    const open = !workspaceBrowserOpen.value
-    agents.setWorkbenchWindowWorkspaceBrowser(props.windowId, open ? 'attention' : undefined)
+    workspaceBrowserOpen.value = !workspaceBrowserOpen.value
     agents.setWorkbenchWindowBlink(props.windowId, false)
-    if (open) void interactions.refresh().catch(() => undefined)
+    void interactions.refresh().catch(() => undefined)
   }
 
   async function focusAttentionTree(
@@ -812,7 +833,23 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     brainConfig,
   })
 
+  const runtimeDiagramProps = computed(() => ({
+    chatId: treeRootChatId.value,
+    timeline: liveTimeline.value,
+    foldMode: foldMode.value,
+    readerOpen: readerOpen.value,
+    selection: selectedContent.value,
+    focusSourceChatId: treeFocusSourceChatId.value,
+    focusInteractionId: treeFocusInteractionId.value,
+    focusNonce: treeFocusNonce.value,
+    suspended: win.value?.minimized ?? false,
+    pendingCount: currentAttentionCount.value,
+    onSelectContent: selectWorkflowContent,
+    onReplayTimelineChange: updateReplayTimeline,
+  }))
+
   return {
+    runtimeDiagramProps,
     AgentComposer,
     ConnectionStatusChip,
     ContextUsageBar,
@@ -830,12 +867,14 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     activeCommandTab,
     activeRoleIndex,
     agents,
+    attentionRootChatId,
     attentionCount,
+    currentAttentionCount,
+    closeWorkspaceBrowser,
     brains,
     branchTarget,
     cancelNyxusInput,
     chatId,
-    closeWorkspaceBrowser,
     closeWorkbench,
     comboCommandGroups,
     commandMenuRefFn,

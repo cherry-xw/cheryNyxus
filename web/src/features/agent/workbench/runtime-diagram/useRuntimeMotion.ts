@@ -9,7 +9,10 @@ import {
   planWorkflowMotion,
   pointAtPolylineProgress,
   selectWorkflowMotionLoops,
+  workflowEdgePulseOpacity,
+  workflowContinuousPulseTiming,
   workflowPathDurationMs,
+  workflowPulseTiming,
   WorkflowMotionRegistry,
   type WorkflowMotionContext,
   type WorkflowMotionDecision,
@@ -54,10 +57,10 @@ export function projectWorkflowMotionFrame(
         id: node.id,
         rootChatId,
         family: 'header',
-        status: data.slot.status,
+        status: data.liveTurn ? 'running' : data.slot.status,
         ...(occurrence ? { occurrenceId: occurrence.occurrenceId } : {}),
         sequence: occurrence?.lastSequence ?? -1,
-        live: data.slot.status === 'running',
+        live: ['running', 'waiting'].includes(data.slot.status) || !!data.liveTurn,
       })
       continue
     }
@@ -79,6 +82,7 @@ export function projectWorkflowMotionFrame(
     family: edge.data?.semantic === 'fact' ? 'result' : 'header',
     points: edge.data?.points ?? [],
     evidenced: !!edge.data?.evidenced,
+    sourceOccurrenceId: edge.data?.sourceOccurrenceId,
     ...(edge.data?.targetOccurrenceId ? { targetOccurrenceId: edge.data.targetOccurrenceId } : {}),
     ...(edge.data?.targetStatus ? { targetStatus: edge.data.targetStatus } : {}),
     sequence: edge.data?.targetSequence ?? 0,
@@ -211,21 +215,22 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
     )
     if (!runner || !signal) return
     const progress = { value: 0 }
-    const duration = workflowPathDurationMs(decision.edge.points) / 1000
+    const { delay, duration } = workflowPulseTiming(decision.edge, frame.value.edges)
     track(
       decision.key,
       (finish) => {
-        gsap.set(runner, { autoAlpha: 1 })
         return gsap
-          .timeline({ onComplete: finish, onInterrupt: finish })
+          .timeline({ delay, onComplete: finish, onInterrupt: finish })
+          .set(runner, { autoAlpha: 1, immediateRender: false }, 0)
           .fromTo(
             signal,
-            { strokeDashoffset: 32, autoAlpha: 0.28 },
+            { strokeDashoffset: 100, autoAlpha: 0.9 },
             {
               strokeDashoffset: 0,
               autoAlpha: 0.9,
-              duration: Math.min(0.3, duration * 0.2),
-              ease: 'power2.out',
+              duration,
+              ease: 'power1.inOut',
+              immediateRender: false,
             },
             0,
           )
@@ -234,7 +239,7 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
             {
               value: 1,
               duration,
-              ease: 'none',
+              ease: 'power1.inOut',
               onUpdate: () => {
                 const point = pointAtPolylineProgress(decision.edge.points, progress.value)
                 runner.setAttribute('transform', `translate(${point.x} ${point.y})`)
@@ -308,51 +313,75 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
     scheduleContinuousRefresh()
   }
 
+  function loopKey(node: WorkflowMotionNode): string {
+    return JSON.stringify([node.id, node.occurrenceId, node.status])
+  }
+
   function startContinuous(node: WorkflowMotionNode): void {
     const target = elementForNode(node)
     const visual = target?.querySelector<HTMLElement>('[data-workflow-node-visual]')
-    if (!target || !visual || continuous.keys().includes(node.id) || !context) return
-    const incoming = frame.value.edges.filter(
-      (edge) => edge.family === 'header' && edge.targetId === node.id && edge.evidenced,
-    )
-    const signals = incoming.flatMap((edge) => {
-      const signal = options.scope.value?.querySelector<SVGPathElement>(
-        `[data-workflow-edge-signal="${attr(edge.id)}"]`,
-      )
-      return signal ? [signal] : []
-    })
+    const beacon = target?.querySelector<HTMLElement>('[data-workflow-beacon]')
+    const loading = target?.querySelector<HTMLElement>('[data-workflow-loading]')
+    const key = loopKey(node)
+    if (!visual || continuous.keys().includes(key) || !context) return
     let animation: gsap.core.Timeline | undefined
-    let release = () => {}
-    const cleanup = () => {
+    continuous.track(key, () => {
       animation?.kill()
-      gsap.set([visual, ...signals], {
-        clearProps: 'transform,opacity,visibility,strokeDashoffset',
+      gsap.set([visual, ...(loading ? [loading] : []), ...(beacon ? [beacon] : [])], {
+        clearProps: 'transform,opacity,visibility',
       })
-      release()
-    }
-    release = continuous.track(node.id, cleanup)
+    })
     context.add(() => {
       animation = gsap.timeline()
-      animation.to(
-        visual,
-        {
-          scale: 1.025,
-          autoAlpha: 0.78,
-          duration: 0.72,
-          ease: 'sine.inOut',
-          repeat: -1,
-          yoyo: true,
-          overwrite: 'auto',
-        },
-        0,
-      )
-      for (const signal of signals)
-        animation.fromTo(
+      if (loading)
+        animation.to(loading, { rotation: 360, duration: 0.9, repeat: -1, ease: 'none' }, 0)
+      if (beacon) animation.fromTo(beacon,
+        { scale: 1, opacity: 0.9 },
+        { scale: 1.1, opacity: 0.12, duration: 0.8, repeat: -1, yoyo: true, ease: 'sine.inOut' }, 0)
+
+    })
+  }
+
+  function edgeLoopKey(edge: WorkflowMotionEdge): string {
+    return JSON.stringify([
+      'edge',
+      edge.id,
+      edge.targetStatus,
+      edge.points,
+      workflowContinuousPulseTiming(edge, frame.value.edges),
+    ])
+  }
+
+  function startEdgeLoop(edge: WorkflowMotionEdge): void {
+    const key = edgeLoopKey(edge)
+    const signal = options.scope.value?.querySelector<SVGPathElement>(
+      `[data-workflow-edge-loop="${attr(edge.id)}"]`,
+    )
+    if (!signal || !context || continuous.keys().includes(key)) return
+    let animation: gsap.core.Timeline | undefined
+    continuous.track(key, () => {
+      animation?.kill()
+      gsap.set(signal, { clearProps: 'opacity,visibility,strokeDashoffset' })
+    })
+    context.add(() => {
+      const { delay, duration, cycle } = workflowContinuousPulseTiming(edge, frame.value.edges)
+      animation = gsap
+        .timeline({ repeat: -1, repeatDelay: 0.35 })
+        .set(signal, { autoAlpha: 0 }, 0)
+        .fromTo(
           signal,
-          { strokeDashoffset: 38, autoAlpha: 0.28 },
-          { strokeDashoffset: 0, autoAlpha: 0.72, duration: 1.4, ease: 'none', repeat: -1 },
-          0,
+          { strokeDashoffset: 100, autoAlpha: workflowEdgePulseOpacity(edge) },
+          {
+            strokeDashoffset: 0,
+            autoAlpha: workflowEdgePulseOpacity(edge),
+            duration,
+            ease: 'none',
+            immediateRender: false,
+          },
+          delay,
         )
+        .set(signal, { autoAlpha: 0 }, delay + duration)
+        .set(signal, { autoAlpha: 0 }, cycle)
     })
   }
 
@@ -384,9 +413,17 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
       { ...current, visibleNodeIds: visible },
       MAX_CONTINUOUS,
     )
-    const desired = new Set(active.map((node) => node.id))
+    const visibleEdges = frame.value.edges.filter((edge) => {
+      if (!workflowEdgePulseOpacity(edge)) return false
+      const path = root.querySelector<SVGPathElement>(
+        `[data-workflow-edge-loop="${attr(edge.id)}"]`,
+      )
+      return !!path && intersects(path.getBoundingClientRect(), viewport)
+    })
+    const desired = new Set([...active.map(loopKey), ...visibleEdges.map(edgeLoopKey)])
     for (const key of continuous.keys()) if (!desired.has(key)) continuous.cancel(key)
     for (const node of active) startContinuous(node)
+    for (const edge of visibleEdges) startEdgeLoop(edge)
   }
 
   function scheduleContinuousRefresh(): void {
@@ -473,7 +510,7 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
       previousTimelineRevision = revision
       const token = ++generation
       if (liveWorkflow || liveTimeline) void nextTick(() => runOneShots(before, next, token))
-      else oneShots.cancelAll()
+      else if (signal.source !== 'live') oneShots.cancelAll()
       scheduleContinuousRefresh()
     },
     { flush: 'post' },
@@ -484,6 +521,7 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
     () => {
       ++generation
       oneShots.cancelAll()
+      continuous.cancelAll()
       cancelFocusMotion()
       scheduleContinuousRefresh()
     },

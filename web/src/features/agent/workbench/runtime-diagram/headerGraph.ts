@@ -18,6 +18,7 @@ import {
 } from './headerState'
 import type { WorkflowGraphNodeData, WorkflowGraphEdge, WorkflowGraphNode } from './graphModel'
 import { headerVisual, type WorkflowVisualIdentity } from './workflowVisuals'
+import { projectHeaderEdgeEvidence } from './headerEdgeEvidence'
 
 export type HeaderSelection = {
   headerId: string
@@ -33,6 +34,8 @@ export type HeaderSelection = {
 export type HeaderScopeEvent = { headerId: string; scope: HeaderScopeSelection }
 export type HeaderGroupToggleEvent = { headerId: string; groupId: string }
 export interface HeaderViewOptions {
+  live?: boolean
+  liveRuns?: readonly { chatId?: string; runId: string }[]
   boards?: Readonly<Record<string, string>>
   expanded?: Readonly<Record<string, readonly string[]>>
   follow?: boolean
@@ -65,10 +68,11 @@ export type HeaderChildData =
       selected?: boolean
       visual: WorkflowVisualIdentity
       liveTurn?: ActiveTurnSnapshot
+      participated?: boolean
+      call?: HeaderStateProjection['calls'][number]
       iteration: number
       iterationCount: number
       ports: HeaderNodePort[]
-      summary: string
     }
   | { kind: 'header-calls'; headerId: string; state: HeaderStateProjection }
 export type HeaderBounds = HeaderRect
@@ -107,6 +111,7 @@ export function buildHeaderNodes(input: {
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
   state: HeaderStateProjection
+  liveTurn?: ActiveTurnSnapshot
   representatives: Record<string, string>
   internalEdgeIds: string[]
 } {
@@ -120,17 +125,35 @@ export function buildHeaderNodes(input: {
     recorded: input.recorded,
     complete: input.complete,
   })
+  const wholeCollapsed = input.view?.overrides?.[`${header.id}:header`] === true
+  const full = header.mode === 'full' && !wholeCollapsed
+  const liveTurn =
+    input.view?.live !== false && !state.selection.unassignedRun
+      ? input.activeTurns
+          ?.filter(
+            (turn) =>
+              (turn.chatId ?? header.chatId) === header.chatId &&
+              (!turn.status || turn.status === 'running') &&
+              (!state.scope.runId || turn.runId === state.scope.runId) &&
+              (state.selection.iteration === undefined ||
+                state.selection.iteration === header.currentIteration) &&
+              (state.selection.attempt === undefined ||
+                state.selection.attempt === state.attempts.at(-1)),
+          )
+          .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+          .at(-1)
+      : undefined
   const active = new Set(
     WORKFLOW_HEADER_TEMPLATE.nodes
       .filter((n) => ['running', 'waiting'].includes(state.slots[n.id]?.status ?? ''))
       .map((n) => n.group),
   )
-  const wholeCollapsed = input.view?.overrides?.[`${header.id}:header`] === true
-  const full = header.mode === 'full' && !wholeCollapsed
+  if (liveTurn) active.add('model-layer')
   const expanded = input.view?.follow
-    ? [...new Set([...active].flatMap(layerAncestors))]
-    : input.view?.expanded?.[header.id] ?? input.view?.boards?.[header.id] ?? []
+    ? HEADER_LAYERS.map((layer) => layer.id)
+    : (input.view?.expanded?.[header.id] ?? input.view?.boards?.[header.id] ?? [])
   const layout = full ? layoutHeader(expanded) : undefined
+
   const idFor = (id: string) =>
     HEADER_LAYERS.some((g) => g.id === id)
       ? `${header.id}:group:${id}`
@@ -186,6 +209,7 @@ export function buildHeaderNodes(input: {
       nodes,
       edges: [],
       state,
+      liveTurn,
       representatives,
       internalEdgeIds: WORKFLOW_HEADER_TEMPLATE.edges.map((e) => `${header.id}:edge:${e.id}`),
     }
@@ -224,8 +248,8 @@ export function buildHeaderNodes(input: {
         .filter(Boolean)
         .sort(
           (a, b) =>
-            Number(['failed', 'rejected', 'waiting'].includes(b.status)) -
-            Number(['failed', 'rejected', 'waiting'].includes(a.status)),
+            Number(['running', 'waiting'].includes(b.status)) -
+            Number(['running', 'waiting'].includes(a.status)),
         )
         .find((s) => ['running', 'waiting', 'failed', 'rejected'].includes(s.status))
       nodes.push({
@@ -241,7 +265,19 @@ export function buildHeaderNodes(input: {
           active: descendantActive,
           ownActive,
           summary: slot ? `内部${slot.statusText}` : '已封装 · 进入查看内部',
-          status: slot?.status ?? (state.occurrences.some((o) => o.status === 'succeeded' && WORKFLOW_HEADER_TEMPLATE.nodes.some((n) => layerAncestors(n.group).includes(item.id) && state.slots[n.id]?.occurrence?.occurrenceId === o.occurrenceId)) ? 'succeeded' : 'idle'),
+          status:
+            slot?.status ??
+            (state.occurrences.some(
+              (o) =>
+                o.status === 'succeeded' &&
+                WORKFLOW_HEADER_TEMPLATE.nodes.some(
+                  (n) =>
+                    layerAncestors(n.group).includes(item.id) &&
+                    state.slots[n.id]?.occurrence?.occurrenceId === o.occurrenceId,
+                ),
+            )
+              ? 'succeeded'
+              : 'idle'),
           ports: layout.ports[item.id] ?? [],
         },
       })
@@ -257,29 +293,7 @@ export function buildHeaderNodes(input: {
     }
     const template = WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => n.id === item.id)!,
       slot = state.slots[item.id]!
-    const liveTurn =
-      template.id === 'model' && ['running', 'waiting'].includes(slot.status)
-        ? input.activeTurns
-            ?.filter(
-              (turn) =>
-                (turn.chatId ?? header.chatId) === header.chatId &&
-                !['completed', 'error'].includes(turn.status ?? '') &&
-                (!state.scope.runId || turn.runId === state.scope.runId),
-            )
-            .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
-            .at(-1)
-        : undefined
-    const call = state.calls.find((c) => c.id === state.selectedCallId)
-    const summary =
-      template.group === 'tools' && call
-        ? call.name
-        : template.group === 'retry-layer'
-          ? `第 ${state.scope.attempt ?? 1} 次尝试`
-          : slot.occurrence
-            ? `第 ${slot.occurrence.iteration ?? 1} 轮`
-            : template.match === 'unobserved'
-              ? '结构说明'
-              : state.coverage
+    const modelTurn = template.id === 'model' ? liveTurn : undefined
     nodes.push({
       ...common,
       type: 'header-step',
@@ -292,35 +306,40 @@ export function buildHeaderNodes(input: {
         visual: headerVisual(template),
         iteration: slot.occurrence?.iteration ?? 1,
         iterationCount: header.iterationCount,
-        liveTurn,
+        liveTurn: modelTurn,
+        call:
+          template.group === 'tools' && slot.occurrence?.callId
+            ? state.calls.find((call) => call.id === slot.occurrence?.callId)
+            : undefined,
         scope: state.scope,
         recorded: input.recorded,
         complete: input.complete,
         ports: layout.ports[item.id] ?? [],
-        summary,
       },
     })
   }
+  const edgeEvidence = projectHeaderEdgeEvidence(
+    state,
+    header.steps.map((step) => step.occurrence),
+  )
+  const visited = new Set([...edgeEvidence.keys()].flatMap((id) => {
+    const edge = WORKFLOW_HEADER_TEMPLATE.edges.find((item) => item.id === id)!
+    return [edge.source, edge.target]
+  }))
+  for (const node of nodes) {
+    if (node.data?.kind === 'header-step')
+      node.data.participated = !!node.data.slot.occurrence || visited.has(node.data.template.id)
+  }
   const edges: WorkflowGraphEdge[] = layout.edges.map((edge) => {
     const members = edge.memberIds.map((id) => {
-      const relation = WORKFLOW_HEADER_TEMPLATE.edges.find((e) => e.id === id)!,
-        source = state.slots[relation.source]?.occurrence,
-        target = state.slots[relation.target]?.occurrence
+      const relation = WORKFLOW_HEADER_TEMPLATE.edges.find((e) => e.id === id)!
       return {
         id: `${header.id}:edge:${id}`,
         label:
           relation.label ??
           `${WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => n.id === relation.source)!.title} → ${WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => n.id === relation.target)!.title}`,
-        sourceOccurrenceId: source?.occurrenceId,
-        targetOccurrenceId: target?.occurrenceId,
-        targetStatus: target?.status,
-        targetSequence: target?.lastSequence,
-        evidenced:
-          !!source &&
-          !!target &&
-          target.causeOccurrenceId === source.occurrenceId &&
-          source.orderQuality === 'exact' &&
-          target.orderQuality === 'exact',
+        ...edgeEvidence.get(id),
+        evidenced: edgeEvidence.has(id),
       }
     })
     const evidence = members
@@ -334,7 +353,10 @@ export function buildHeaderNodes(input: {
       sourceHandle: edge.sourceHandle,
       targetHandle: edge.targetHandle,
       type: 'header-flow',
-      markerEnd: MarkerType.ArrowClosed,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: evidence ? 'var(--accent)' : 'var(--border-strong)',
+      },
       selectable: false,
       focusable: false,
       class: 'workflow-edge relation-template',
@@ -359,6 +381,7 @@ export function buildHeaderNodes(input: {
     nodes,
     edges,
     state,
+    liveTurn,
     representatives,
     internalEdgeIds: [...layout.internalEdgeIds, ...layout.externalEdgeIds].map(
       (id) => `${header.id}:edge:${id}`,

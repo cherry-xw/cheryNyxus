@@ -12,6 +12,7 @@ describe('overlay layer contract', () => {
     expect(OVERLAY_Z_INDEX.composerMenu).toBeLessThan(OVERLAY_Z_INDEX.historyDrawer)
     expect(OVERLAY_Z_INDEX.historyDrawer).toBeLessThan(OVERLAY_Z_INDEX.modal)
     expect(OVERLAY_Z_INDEX.historyDrawer).toBeLessThan(OVERLAY_Z_INDEX.approval)
+    expect(OVERLAY_Z_INDEX.approval).toBeLessThan(OVERLAY_Z_INDEX.tooltip)
   })
 
   it('keeps application drawers above browser workspace windows', () => {
@@ -19,29 +20,15 @@ describe('overlay layer contract', () => {
   })
 
   it('keeps passive Nyxus information below input and blocking interactions', () => {
-    expect(NYXUS_WORKBENCH_Z_INDEX.canvas).toBeLessThan(
-      NYXUS_WORKBENCH_Z_INDEX.nodeHitTarget,
-    )
-    expect(NYXUS_WORKBENCH_Z_INDEX.nodeHitTarget).toBeLessThan(
-      NYXUS_WORKBENCH_Z_INDEX.nodeOverlay,
-    )
-    expect(NYXUS_WORKBENCH_Z_INDEX.runCrt).toBeLessThan(
-      NYXUS_WORKBENCH_Z_INDEX.nodeOverlay,
-    )
-    expect(NYXUS_WORKBENCH_Z_INDEX.nodeOverlay).toBeLessThan(
-      NYXUS_WORKBENCH_Z_INDEX.composer,
-    )
+    expect(NYXUS_WORKBENCH_Z_INDEX.canvas).toBeLessThan(NYXUS_WORKBENCH_Z_INDEX.nodeHitTarget)
+    expect(NYXUS_WORKBENCH_Z_INDEX.nodeHitTarget).toBeLessThan(NYXUS_WORKBENCH_Z_INDEX.nodeOverlay)
+    expect(NYXUS_WORKBENCH_Z_INDEX.runCrt).toBeLessThan(NYXUS_WORKBENCH_Z_INDEX.nodeOverlay)
+    expect(NYXUS_WORKBENCH_Z_INDEX.nodeOverlay).toBeLessThan(NYXUS_WORKBENCH_Z_INDEX.composer)
     expect(NYXUS_WORKBENCH_Z_INDEX.composer).toBeLessThan(
       NYXUS_WORKBENCH_Z_INDEX.blockingInteraction,
     )
-    expect(NYXUS_WORKBENCH_Z_INDEX.blockingInteraction).toBeLessThan(
-      NYXUS_WORKBENCH_Z_INDEX.chrome,
-    )
-    expect(NYXUS_WORKBENCH_Z_INDEX.drawer).toBeLessThan(
-      NYXUS_WORKBENCH_Z_INDEX.sidePopover,
-    )
-    expect(NYXUS_WORKBENCH_Z_INDEX.sidePopover).toBeLessThan(
-      NYXUS_WORKBENCH_Z_INDEX.connectionMask,
-    )
+    expect(NYXUS_WORKBENCH_Z_INDEX.blockingInteraction).toBeLessThan(NYXUS_WORKBENCH_Z_INDEX.chrome)
+    expect(NYXUS_WORKBENCH_Z_INDEX.drawer).toBeLessThan(NYXUS_WORKBENCH_Z_INDEX.sidePopover)
+    expect(NYXUS_WORKBENCH_Z_INDEX.sidePopover).toBeLessThan(NYXUS_WORKBENCH_Z_INDEX.connectionMask)
   })
 })

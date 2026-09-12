@@ -32,12 +32,13 @@ describe('complete header template', () => {
         'request',
         'model',
         'response',
+        'channels',
         'checkpoint',
         'decision',
         'result',
       ],
       [
-        'response',
+        'channels',
         'tool-list',
         'validation',
         'authorization',
@@ -62,6 +63,14 @@ describe('complete header template', () => {
       ['resume', 'tool-list', 'validation', 'authorization'],
     ])
       expect(adjacent(path), path.join(' → ')).toBe(true)
+    expect(
+      Object.fromEntries(template.nodes.map((node) => [node.id, node.title])),
+    ).toMatchObject({
+      request: '请求准备',
+      model: '模型请求',
+      response: '大模型响应',
+      channels: '响应分流',
+    })
     expect(template.edges.find((edge) => edge.id === 'retry:request')?.role).toBe('retry')
     expect(template.edges.find((edge) => edge.id === 'decision:entry')?.role).toBe('loop')
     expect(template.edges.find((edge) => edge.id === 'compact-applied:request')?.role).toBe(

@@ -10,6 +10,14 @@ import type { HeaderSelection } from './headerGraph'
 import { headerStatusText, projectHeaderState } from './headerState'
 import type { WorkflowClientState } from './workflowState'
 
+/** Timeline is a JSON transport DTO. Serialize through Vue proxies, including nested ones,
+ * and detach all content so later live deltas cannot change the fixed replay snapshot. */
+export function cloneReplayTimeline(
+  timeline: RootTimelineSnapshot | undefined,
+): RootTimelineSnapshot | undefined {
+  return timeline ? (JSON.parse(JSON.stringify(timeline)) as RootTimelineSnapshot) : undefined
+}
+
 export type StepAnchorResolution =
   | { status: 'available'; selection: NyxusContentSelection; graphNodeId: string }
   | {

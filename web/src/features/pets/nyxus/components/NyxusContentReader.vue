@@ -307,6 +307,17 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   min-width: 0;
 }
 
+// Reserve a real hit area for the history buttons instead of covering them with the card.
+:deep(.paper-title-strip),
+:deep(.paper-bundle) {
+  left: 84px;
+  width: 128px;
+}
+:deep(.paper-current) {
+  left: calc(50% + 84px);
+  width: calc(100% - 184px);
+}
+
 @media (max-width: 760px) {
   .generation-select {
     max-width: 126px;

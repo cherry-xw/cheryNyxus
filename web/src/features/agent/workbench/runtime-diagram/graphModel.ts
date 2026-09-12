@@ -1,8 +1,12 @@
 import { MarkerType, Position, type Edge, type Node } from '@vue-flow/core'
 import type { WorkflowOccurrence } from '@chery/protocol'
-import type { ActiveTurnSnapshot, RootTimelineSnapshot } from '@/application/backend/public'
+import type {
+  ActiveTurnSnapshot,
+  RootTimelineSnapshot,
+} from '@/application/backend/public'
 import type { NyxusContentSelection, NyxusReaderFoldMode } from '@/features/pets/nyxus/public'
 import type { WorkflowClientState } from './workflowState'
+import { headerPathString } from './headerPaths'
 import {
   buildHeaderNodes,
   placeHeader,
@@ -120,6 +124,7 @@ export interface WorkflowGraphProjection {
   internalEdgeIds?: string[]
   rawActiveOccurrenceId?: string
   activeHeaderId?: string
+  activeLiveTurn?: ActiveTurnSnapshot
   activeOccurrenceId?: string
   /** 活跃 header 中正在执行/等待的 step 所属 group id 集合（驱动 group 自动展开） */
   activeGroupIds: ReadonlySet<string>
@@ -228,6 +233,7 @@ export function projectWorkflowGraph(
   const internalEdgeIds: string[] = []
   const activeGroupIds = new Set<string>()
   let activeOccurrenceId: string | undefined
+  let activeLiveTurn: ActiveTurnSnapshot | undefined
   // Place the full head first, then compact heads in stable branch order.
   const headers = [...scene.headerFlow.headers].sort(
     (a, b) => Number(b.mode === 'full') - Number(a.mode === 'full'),
@@ -250,13 +256,16 @@ export function projectWorkflowGraph(
       position: { x: 0, y: 0 },
       view,
       selection: headerSelections[header.id],
-      currentRunId: timeline?.activeRuns.find((run) => run.chatId === header.chatId)?.runId,
+      currentRunId:
+        view?.liveRuns?.find((run) => run.chatId === header.chatId)?.runId ??
+        timeline?.activeRuns.find((run) => run.chatId === header.chatId)?.runId,
       recorded: !!workflow,
       complete:
         !!workflow?.historyComplete &&
         !workflow?.hasEarlier &&
         !workflow?.gaps.some((gap) => !gap.chatId || gap.chatId === header.chatId),
       activeTurns,
+
     })
     const root = built.nodes[0]!
     const bounds = placeHeader(
@@ -295,6 +304,8 @@ export function projectWorkflowGraph(
           y: edge.data.labelPoint.y + bounds.y,
         }
     }
+    for (const edge of built.edges)
+      if (edge.data?.points) edge.data.renderPath = headerPathString(edge.data.points)
     Object.assign(representatives, built.representatives)
     internalEdgeIds.push(...built.internalEdgeIds)
     nodes.push(...built.nodes)
@@ -303,14 +314,16 @@ export function projectWorkflowGraph(
       .filter((slot) => slot.occurrence && ['running', 'waiting'].includes(slot.status))
       .at(-1)
     if (header.id === scene.headerFlow.activeHeaderId) {
+      activeLiveTurn = built.liveTurn
       for (const slot of Object.values(built.state.slots)) {
         if (!slot.occurrence || !['running', 'waiting'].includes(slot.status)) continue
         const template = WORKFLOW_HEADER_TEMPLATE.nodes.find((node) => node.id === slot.nodeId)
         if (template) activeGroupIds.add(template.group)
       }
     }
-    if (header.id === scene.headerFlow.activeHeaderId && activeSlot)
-      activeOccurrenceId = headerTemplateNodeId(header.id, activeSlot.nodeId)
+    const liveModel = built.nodes.find((node) => node.data?.kind === 'header-step' && node.data.liveTurn)
+    if (header.id === scene.headerFlow.activeHeaderId && (liveModel || activeSlot))
+      activeOccurrenceId = liveModel?.id ?? headerTemplateNodeId(header.id, activeSlot!.nodeId)
     else if (
       !activeOccurrenceId &&
       header.steps.some((step) => step.id === scene.headerFlow.activeStepId)
@@ -322,6 +335,7 @@ export function projectWorkflowGraph(
     nodes,
     edges: [...scene.edges.map((edge) => graphEdge(edge, contentTargets)), ...headerEdges],
     activeHeaderId: scene.headerFlow.activeHeaderId,
+    activeLiveTurn,
     activeOccurrenceId: activeOccurrenceId
       ? (representatives[activeOccurrenceId] ?? activeOccurrenceId)
       : undefined,

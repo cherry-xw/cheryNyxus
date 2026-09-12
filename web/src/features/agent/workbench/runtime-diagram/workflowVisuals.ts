@@ -140,6 +140,21 @@ export function headerVisual(template: HeaderTemplateNode): WorkflowVisualIdenti
   return VISUALS[capability]
 }
 
+/** Stable layer identity; status is shown separately with icons and the execution trace. */
+export function headerLayerColor(group: string): string {
+  const layers: Record<string, WorkflowCapability> = {
+    intake: 'input',
+    loop: 'control',
+    record: 'return',
+    tools: 'tool',
+    'retry-layer': 'system',
+    'model-layer': 'model',
+    compact: 'compact',
+    collaboration: 'collaboration',
+  }
+  return VISUALS[layers[group] ?? 'group'].accent
+}
+
 export function resultVisual(kind: ResultNodeVisualKind): WorkflowVisualIdentity {
   return VISUALS[kind]
 }

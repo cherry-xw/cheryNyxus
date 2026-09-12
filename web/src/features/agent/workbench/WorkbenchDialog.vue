@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { BellFilled, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
+import WorkbenchReaderSplit from './WorkbenchReaderSplit.vue'
 import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
 import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
 import {
@@ -34,11 +35,13 @@ const {
   activeCommandTab,
   activeRoleIndex,
   attentionCount,
+  currentAttentionCount,
+  runtimeDiagramProps,
+  closeWorkspaceBrowser,
   brains,
   branchTarget,
   cancelNyxusInput,
   chatId,
-  closeWorkspaceBrowser,
   closeWorkbench,
   comboCommandGroups,
   commandMenuRefFn,
@@ -63,7 +66,6 @@ const {
   isNative,
   isShellless,
   liteViewVisible,
-  liveTimeline,
   loading,
   matchingRoleMentions,
   maxControlState,
@@ -136,15 +138,11 @@ const {
   toggleSessionList,
   toggleWorkspaceBrowser,
   treeBreakdown,
-  treeFocusInteractionId,
-  treeFocusNonce,
-  treeFocusSourceChatId,
   treeLoading,
   treePromptSnap,
   treeRootChatId,
   treeUsage,
   treeUsagePct,
-  updateReplayTimeline,
   uploading,
   usageClass,
   win,
@@ -203,41 +201,51 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
         :style="workbenchShellStyle"
         aria-label="Agent 执行工作台"
       >
+        <WorkbenchAttentionSurface
+          v-show="workspaceBrowserOpen"
+          :root-chat-id="controller.attentionRootChatId.value || undefined"
+          :count="attentionCount"
+          others
+          @close="closeWorkspaceBrowser"
+          @tree="focusAttentionTree"
+        />
+
         <div class="nyxus-branch-top">
-          <div
+          <WorkbenchReaderSplit
             v-if="treeRootChatId"
             class="workbench-runtime-frame"
-            :class="{ 'has-reader': readerOpen }"
+            :open="readerOpen"
           >
             <RuntimeDiagram
-              :chat-id="treeRootChatId"
-              :timeline="liveTimeline"
-              :fold-mode="foldMode"
-              :reader-open="readerOpen"
-              :selection="selectedContent"
-              :focus-source-chat-id="treeFocusSourceChatId"
-              :focus-interaction-id="treeFocusInteractionId"
-              :focus-nonce="treeFocusNonce"
-              :suspended="win.minimized"
-              @select-content="selectWorkflowContent"
-              @replay-timeline-change="updateReplayTimeline"
-            />
-            <NyxusContentReader
-              v-if="readerOpen"
-              class="workbench-content-reader"
-              :root-chat-id="treeRootChatId"
-              :timeline="readerTimeline"
-              :fold-mode="foldMode"
-              :selection="selectedContent"
-              :detail-branch-available="detailBranchAvailability.available"
-              :detail-branch-unavailable-reason="detailBranchAvailability.reason"
-              :sense-tools="senseTools"
-              @close="readerOpen = false"
-              @select="selectWorkflowContent"
-              @branch="selectBranchTarget"
-              @generation="openGeneration"
-            />
-          </div>
+              v-bind="runtimeDiagramProps"
+            >
+            <template #attention>
+              <WorkbenchAttentionSurface
+                v-if="currentAttentionCount"
+                :key="treeRootChatId"
+                class="runtime-attention-overlay"
+                embedded
+                :root-chat-id="controller.attentionRootChatId.value || undefined"
+                :count="currentAttentionCount"
+              />
+            </template>
+            </RuntimeDiagram>
+            <template #reader
+              ><NyxusContentReader
+                class="workbench-content-reader"
+                :root-chat-id="treeRootChatId"
+                :timeline="readerTimeline"
+                :fold-mode="foldMode"
+                :selection="selectedContent"
+                :detail-branch-available="detailBranchAvailability.available"
+                :detail-branch-unavailable-reason="detailBranchAvailability.reason"
+                :sense-tools="senseTools"
+                @close="readerOpen = false"
+                @select="selectWorkflowContent"
+                @branch="selectBranchTarget"
+                @generation="openGeneration"
+            /></template>
+          </WorkbenchReaderSplit>
           <div v-else class="workbench-empty-state" aria-live="polite">
             <span>暂无历史会话</span>
             <button type="button" @click="createSession">新建会话</button>
@@ -247,13 +255,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             执行图加载中…
           </div>
         </div>
-        <WorkbenchAttentionSurface
-          v-show="workspaceBrowserOpen"
-          :preset-id="presetId"
-          :native="isShellless"
-          @close="closeWorkspaceBrowser"
-          @tree="focusAttentionTree"
-        />
         <header
           v-if="!isShellless"
           class="workbench-titlebar"
@@ -500,7 +501,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </el-tooltip>
               <el-tooltip
                 :content="
-                  attentionCount ? `待处理审批与提问 · ${attentionCount}` : '待处理审批与提问'
+                  attentionCount ? `其他流程的审批与提问 · ${attentionCount}` : '其他流程的审批与提问'
                 "
                 placement="left"
                 :show-after="200"
@@ -513,7 +514,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                     data-view-action="attention"
                     :class="{ 'is-active': workspaceBrowserOpen }"
                     :aria-label="
-                      attentionCount ? `待处理审批与提问，${attentionCount} 项` : '待处理审批与提问'
+                      attentionCount ? `其他流程的审批与提问，${attentionCount} 项` : '其他流程的审批与提问'
                     "
                     :aria-pressed="workspaceBrowserOpen"
                     @click="toggleWorkspaceBrowser"

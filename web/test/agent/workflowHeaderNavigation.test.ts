@@ -9,6 +9,8 @@ import { topologyMatrixSnapshot } from '../fixtures/executionGraphFixtures'
 function setup() {
   const scope = effectScope(),
     boards = ref<Record<string, string>>({}),
+    expanded = ref<Record<string, readonly string[]>>({}),
+    follow = ref(false),
     root = ref('root-a'),
     disabled = ref(false)
   const viewport = ref({ x: 123, y: 456, zoom: 1.2 })
@@ -21,12 +23,15 @@ function setup() {
   const projection = computed(() =>
     projectWorkflowGraph(undefined, topologyMatrixSnapshot(), 'none', {}, [], {
       boards: boards.value,
+      expanded: expanded.value,
     }),
   )
   const beforeNavigate = vi.fn()
   const navigation = scope.run(() =>
     useHeaderBoardNavigation({
       boards,
+      expanded,
+      follow,
       root: computed(() => root.value),
       flow,
       host: ref(null),
@@ -38,6 +43,8 @@ function setup() {
   return {
     scope,
     boards,
+    expanded,
+    follow,
     root,
     disabled,
     viewport,
@@ -49,6 +56,54 @@ function setup() {
   }
 }
 describe('board navigation lifecycle', () => {
+  it('preserves siblings when opening and only removes the collapsed descendants', async () => {
+    const t = setup(),
+      header = t.projection.value.activeHeaderId!
+    await t.navigation.navigate(header, 'intake')
+    await t.navigation.navigate(header, 'model-layer')
+    expect(t.expanded.value[header]).toEqual(
+      expect.arrayContaining(['intake', 'loop', 'record', 'tools', 'retry-layer', 'model-layer']),
+    )
+    t.navigation.toggle(header, 'tools')
+    expect(t.expanded.value[header]).toEqual(expect.arrayContaining(['intake', 'loop', 'record']))
+    expect(t.expanded.value[header]).not.toContain('model-layer')
+    t.navigation.expandAll()
+    expect(t.expanded.value[header]).toHaveLength(8)
+    t.navigation.overview()
+    expect(t.expanded.value[header]).toEqual([])
+    t.scope.stop()
+  })
+  it('coalesces camera following and cancels it on manual browsing, suspension and disposal', async () => {
+    vi.useFakeTimers()
+    const t = setup()
+    try {
+      t.follow.value = true
+      await nextTick()
+      await vi.advanceTimersByTimeAsync(160)
+      expect(t.setCenter).toHaveBeenCalledOnce()
+      t.setCenter.mockClear()
+      t.follow.value = false
+      await nextTick()
+      t.follow.value = true
+      await nextTick()
+      t.navigation.pauseFollow()
+      await vi.advanceTimersByTimeAsync(200)
+      expect(t.setCenter).not.toHaveBeenCalled()
+      t.follow.value = true
+      await nextTick()
+      t.disabled.value = true
+      await vi.advanceTimersByTimeAsync(200)
+      expect(t.setCenter).not.toHaveBeenCalled()
+      t.disabled.value = false
+      await nextTick()
+      t.scope.stop()
+      await vi.advanceTimersByTimeAsync(200)
+      expect(t.setCenter).not.toHaveBeenCalled()
+    } finally {
+      t.scope.stop()
+      vi.useRealTimers()
+    }
+  })
   it('returns to the exact previous viewport and keeps roots independent', async () => {
     const test = setup(),
       header = test.projection.value.activeHeaderId!
@@ -81,7 +136,7 @@ describe('board navigation lifecycle', () => {
       header = test.projection.value.activeHeaderId!
     test.navigation.trace({
       headerId: header,
-      terminal: relationTerminal('response:checkpoint', 'checkpoint', true, 'out'),
+      terminal: relationTerminal('channels:checkpoint', 'checkpoint', true, 'out'),
     })
     await test.navigation.traceEnd('target')
     expect(test.boards.value[header]).toBe('record')

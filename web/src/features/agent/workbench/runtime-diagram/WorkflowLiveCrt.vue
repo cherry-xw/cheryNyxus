@@ -2,19 +2,28 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import type { ActiveTurnSnapshot } from '@/application/backend/public'
 import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
-const props = defineProps<{ turn: ActiveTurnSnapshot }>()
+const props = defineProps<{ turn?: ActiveTurnSnapshot }>()
 const bodyRef = ref<HTMLElement | null>(null)
 const userScrolled = ref(false)
 const selectedChannel = ref<'content' | 'thinking'>('content')
+const channels = computed(() => ({
+  content: props.turn?.content ?? '',
+  thinking: props.turn?.thinking ?? '',
+}))
 const channel = computed(() =>
-  selectedChannel.value === 'thinking' && props.turn.thinking
-    ? 'thinking'
-    : props.turn.content
+  channels.value[selectedChannel.value]
+    ? selectedChannel.value
+    : props.turn?.content
       ? 'content'
-      : 'thinking',
+      : props.turn?.thinking
+        ? 'thinking'
+        : 'content',
 )
-const source = computed(() => props.turn[channel.value] || '等待首个响应片段…')
-const { html } = useRenderedMarkdown(() => source.value, { mode: 'preview' })
+const source = computed(() => channels.value[channel.value] || (props.turn ? '等待首个响应片段…' : '暂无模型响应'))
+const { html: rendered } = useRenderedMarkdown(() => source.value, { mode: 'preview' })
+const characterCount = computed(() =>
+  Object.values(channels.value).reduce((total, value) => total + value.length, 0),
+)
 function followTail(): void {
   if (userScrolled.value) return
   void nextTick(() => {
@@ -31,7 +40,7 @@ function returnToLatest(): void {
 }
 watch(source, followTail, { immediate: true })
 watch(
-  () => props.turn.turnId,
+  () => props.turn?.turnId,
   () => {
     userScrolled.value = false
     selectedChannel.value = 'content'
@@ -42,14 +51,15 @@ watch(
 <template>
   <aside
     class="workflow-live-crt nodrag nopan nowheel"
+    :class="{ 'is-streaming': !!turn }"
     aria-label="模型实时响应"
     @pointerdown.stop
     @wheel.stop
   >
-    <header>
-      <strong>实时响应</strong>
+    <header v-if="false">
+      <strong>模型响应</strong>
       <button
-        v-if="turn.content"
+        v-if="turn?.content"
         type="button"
         :aria-pressed="channel === 'content'"
         @click.stop="selectedChannel = 'content'"
@@ -57,29 +67,34 @@ watch(
         正文
       </button>
       <button
-        v-if="turn.thinking"
+        v-if="turn?.thinking"
         type="button"
         :aria-pressed="channel === 'thinking'"
         @click.stop="selectedChannel = 'thinking'"
       >
-        思考摘要
+        思考
       </button>
+
     </header>
-    <div ref="bodyRef" class="workflow-live-crt-body" @scroll="onScroll" v-html="html" />
-    <footer>
-      <span>{{ userScrolled ? '已暂停自动跟随' : '正在实时输出' }}</span>
+    <div ref="bodyRef" class="workflow-live-crt-body" @scroll="onScroll">
+      <div class="markdown-body" v-html="rendered" />
+      <span v-if="turn" class="crt-caret" aria-hidden="true">▌</span>
+    </div>
+    <footer v-if="false">
+      <span
+        >{{ userScrolled ? '已暂停跟随' : source.length > 6000 ? '最新 6000 字符' : turn ? '实时累积' : '等待模型调用' }} ·
+        {{ characterCount }} 字符</span
+      >
       <button v-if="userScrolled" type="button" @click.stop="returnToLatest">回到最新</button>
     </footer>
   </aside>
 </template>
 <style scoped lang="less">
 .workflow-live-crt {
-  position: absolute;
+  position: relative;
   z-index: 18;
-  top: calc(100% + 8px);
-  left: 0;
   display: grid;
-  grid-template-rows: 32px minmax(0, 1fr) 30px;
+  grid-template-rows: minmax(0, 1fr);
   width: 280px;
   height: 180px;
   box-sizing: border-box;
@@ -90,6 +105,7 @@ watch(
   color: var(--ink);
   pointer-events: auto;
 }
+.is-streaming { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 header,
 footer {
   display: flex;
@@ -100,6 +116,7 @@ footer {
   font-weight: 400;
   background: var(--surface);
 }
+.workflow-live-crt > header[style], .workflow-live-crt > footer[style] { display: none; }
 header {
   border-bottom: 1px solid var(--border);
 }
@@ -138,6 +155,13 @@ button:focus-visible {
   scrollbar-color: var(--border-strong) var(--panel);
   scrollbar-width: thin;
   user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, monospace);
+  background: repeating-linear-gradient(
+    transparent 0 3px,
+    color-mix(in srgb, var(--accent) 5%, transparent) 3px 4px
+  );
 }
 .workflow-live-crt-body :deep(p) {
   margin: 0 0 0.45em;
@@ -145,5 +169,8 @@ button:focus-visible {
 .workflow-live-crt-body :deep(pre) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.crt-caret {
+  color: var(--accent);
 }
 </style>

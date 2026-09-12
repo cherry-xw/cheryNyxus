@@ -1,5 +1,7 @@
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { reactive, shallowReactive } from 'vue'
+import { cloneReplayTimeline } from '../../src/features/agent/workbench/runtime-diagram/workflowStepDetails'
 import type { RootTimelineSnapshot, TimelineNode } from '../../src/services/agentApi'
 import {
   buildNyxusReaderEntries,
@@ -7,6 +9,31 @@ import {
   resolveNyxusReaderSelection,
 } from '../../src/features/pets/nyxus/public'
 import { readComponentSource } from '../helpers/componentSource'
+
+describe('replay snapshot capture', () => {
+  it.each([reactive, shallowReactive])(
+    'detaches reactive timelines and nested tool content',
+    (wrap) => {
+      const source = timeline()
+      source.nodes = reactive(source.nodes)
+      const live = wrap(source)
+      const snapshot = cloneReplayTimeline(live)!
+      expect(snapshot).toEqual(JSON.parse(JSON.stringify(live)))
+      const body = snapshot.nodes[0]!.content
+      live.nodes[0]!.content = 'live delta after replay started'
+      live.nodes[2]!.toolCalls![0]!.result = 'new result'
+      live.capturedEventSeq += 1
+      expect(snapshot.nodes[0]!.content).toBe(body)
+      expect(snapshot.nodes[2]!.toolCalls![0]!.result).toBe('ok')
+      expect(snapshot.capturedEventSeq).not.toBe(live.capturedEventSeq)
+      snapshot.nodes[0]!.content = 'replay edit'
+      expect(live.nodes[0]!.content).toBe('live delta after replay started')
+    },
+  )
+  it('allows an absent timeline', () => {
+    expect(cloneReplayTimeline(undefined)).toBeUndefined()
+  })
+})
 
 function message(
   id: string,
@@ -142,10 +169,11 @@ describe('workbench content reader projection', () => {
     expect(workbench.match(/<RuntimeDiagram\b/g)).toHaveLength(1)
     expect(workbench).not.toContain('<MessageBranchTree')
     expect(workbench).toContain('v-show="workspaceBrowserOpen"')
-    expect(workbench).toContain(':reader-open="readerOpen"')
-    expect(workbench).toContain(':focus-nonce="treeFocusNonce"')
+    expect(workbench).toContain('v-bind="runtimeDiagramProps"')
+    expect(workbench).toContain('readerOpen: readerOpen.value')
+    expect(workbench).toContain('focusNonce: treeFocusNonce.value')
     expect(runtime).toContain('const worldCenter =')
-    expect(runtime).toContain('structuredClone(props.timeline)')
+    expect(runtime).toContain('cloneReplayTimeline(props.timeline)')
     expect(runtime).toContain('<WorkflowStepDetails')
     expect(runtime).toContain('@select-content="selectStepContent"')
     expect(reader).toContain('<NodePaperStack')

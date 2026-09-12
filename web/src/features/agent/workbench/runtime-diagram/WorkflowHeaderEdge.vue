@@ -9,14 +9,7 @@ const path = computed(
     props.data?.renderPath ??
     points.value.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' '),
 )
-const edgeColor = computed(() => {
-  const status = props.data?.targetStatus
-  if (status === 'waiting') return 'var(--warning)'
-  if (status === 'succeeded') return 'var(--success)'
-  if (status === 'failed' || status === 'rejected') return 'var(--danger)'
-  if (status === 'cancelled' || status === 'interrupted') return 'var(--workflow-muted)'
-  return props.data?.accent ?? 'var(--accent)'
-})
+const edgeColor = computed(() => 'var(--accent)')
 const labelPosition = computed(() => {
   if (props.data?.labelPoint) return props.data.labelPoint
   const pairs = points.value.slice(1).map((end, index) => ({ start: points.value[index]!, end }))
@@ -33,23 +26,33 @@ const labelPosition = computed(() => {
 </script>
 <template>
   <g :data-workflow-layout-edge="id">
-    <title>
-      {{ data?.members?.map((member) => member.label).join('；') || data?.relationLabel }}
-    </title>
     <BaseEdge
       :id="id"
       :path="path"
       :marker-end="markerEnd"
       :interaction-width="18"
       :data-workflow-path="id"
-      :style="data?.evidenced ? { stroke: edgeColor } : undefined"
+      :style="{
+        stroke: data?.evidenced ? edgeColor : 'var(--border-strong)',
+        strokeWidth: data?.evidenced ? 2.5 : 1,
+        strokeOpacity: data?.evidenced ? (data.targetStatus === 'running' ? 1 : 0.85) : 1,
+      }"
     />
     <path
       v-if="data?.evidenced"
       :d="path"
+      pathLength="100"
       class="workflow-header-edge-signal"
       :data-workflow-edge-signal="id"
       :style="{ stroke: edgeColor }"
+    />
+    <path
+      v-if="data?.evidenced"
+      :d="path"
+      pathLength="100"
+      class="workflow-header-edge-signal"
+      :data-workflow-edge-loop="id"
+      :style="{ stroke: edgeColor, strokeWidth: data.targetStatus === 'running' ? 5 : 4 }"
     />
     <circle
       v-if="data?.evidenced && points.length"
@@ -102,9 +105,9 @@ const labelPosition = computed(() => {
 .workflow-header-edge-signal {
   fill: none;
   stroke: var(--workflow-edge-accent, var(--accent));
-  stroke-dasharray: 7 11;
+  stroke-dasharray: 12 88;
   stroke-width: 2.4;
-  opacity: 0.34;
+  opacity: 0;
   pointer-events: none;
 }
 .workflow-header-edge-runner {
