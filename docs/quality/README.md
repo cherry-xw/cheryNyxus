@@ -3,7 +3,7 @@
 | 目录 | 内容 |
 | --- | --- |
 | [testing/](./testing/README.md) | 测试基线、流程规约和 Mock Provider |
-| [verification/](./verification/README.md) | 已执行验证的证据、限制和人工验收场景 |
+| [verification/](./verification/README.md) | 已结束实施计划的长期验收证据：按 `<task-id>/` 子目录组织，含自动输出、人工结论与批准记录 |
 | [known-issues/](./known-issues/README.md) | 当前开放问题的短目录、人工复核项和暂缓处理项 |
 
 质量文档说明验证边界和证据，不重复模块实现说明。查看仍需处理或复核的事项时先读已知问题短目录，只在需要复现、验收或修复时进入对应详情。
