@@ -81,3 +81,27 @@ pnpm web:type-check
 | 定向检查结果  | 未执行                       |
 | 未解决问题    | 无已执行发现；前置条件见依赖 |
 | 交接摘要      | 未交接                       |
+
+---
+
+## 评审调研结论（2026-09-12 整体评审落位）
+
+> 来源：[整体评审与强化方案](review/design-review.md)、[可行性缺陷分析](review/feasibility-findings.md)、[技术栈调研](review/tech-stack-research.md)、[渲染栈聚焦调研](review/rendering-stack-research.md)。本节是评审产出的执行提示，只补充信息，不修改本任务既有范围、步骤与验收标准；标注 U-xx 的事项未经用户裁定前不得视为已确认需求。
+
+### 1. 方案建议与调研结论建议
+- 人物移动（离席制：讨论聚拢、结束归锚点）采用 GSAP `timeline`（≈28.1k，2026-09 检索）：一个 timeline 实例承载「离席→聚拢→归锚点」整段序列，`pause()／resume()／timeScale()` 支持会议打断与快速归位；状态机只产出「目标位置＋移动意图」、GSAP 仅做投影动画，两者解耦（增-15 ①；渲染栈 §3；D15「业务不等待动画」）。
+- 锚点拖拽采用 moveable＋vue3-moveable（≈10.8k，对齐参考线／边界约束／吸附），最薄替代为 `@vueuse/useDraggable`，二者不冲突；自动移动（GSAP）只读目标坐标、锚点仅由拖拽独占写入，经「状态机唯一权威＋动画仅投影」解耦（增-15 ②；渲染栈 §3.2；D15）。
+- 氛围层（连线／粒子／涟漪／光效）一期维持原生 Canvas 2D＋单 rAF（U-07 候选 A【评审组建议】；候选 B 为引入 Konva＋vue-konva——官方 Vue 3 绑定、MIT、≈14.7k，由用户裁定），并借鉴 Konva「多层分离」思想，背景／连线／粒子分 canvas 层（design-review §6 U-07；渲染栈 §1.2；t2 领域 4 §4.3）。
+- 讨论连线端点同步一期自写约 100～200 行：绘制在 Canvas 氛围层完成（`ctx.beginPath/moveTo/lineTo`，可加渐变/发光），端点优先从状态机坐标直接取，需真实 DOM 值时缓存 `getBoundingClientRect` 并经 `ResizeObserver` 失效；单一 rAF 循环内「先批量读→再统一写 canvas」，防 layout thrashing（渲染栈 §2.2；增-15 ⑤；t2 领域 4 §4.2c）。
+- 工程通用规范进 C16 实现规范：单一 rAF 循环驱动整个场景、禁止两个循环各自写 canvas/DOM；canvas 用 `pointer-events: none` 让 DOM 人物层独占命中；`devicePixelRatio` 适配（canvas 尺寸＝CSS 尺寸×DPR，防高分屏模糊）；`visibilitychange`／组件卸载时 cancel rAF、清空粒子数组、移除 ResizeObserver（渲染栈「仍需自写」清单；t2 领域 4 §4.2c；design-review §7.3「visibilitychange 释放清单进 C16」）。
+
+### 2. 可能存在的问题点
+- 氛围层与连线端点同步业界无 ≥10k 达标库、必须自写：场景图引擎（Konva/PixiJS）属「交互画布」品类，命中/事件/序列化能力对「无交互、纯装饰、业务不等待动画」的本层是「为不需要的能力付包体税」，品类错配勿硬套；leader-line（≈5.5k、停维）与 jsPlumb（过重）不采用（渲染栈开篇结论、§1.2、§2.2）。
+- GSAP 为商业闭源产品（2024-11 Webflow 收购后全部插件免费商用，现行 Standard License no-charge 2025 版），条款可单方变更：采购时锁版本，实施前复核官方许可页；若不接受商业闭源，备选 anime.js v4（MIT）／Motion（MIT、官方 Vue 支持）（渲染栈 §3.1、§3.3、许可证与风险表）。
+- 自动移动覆盖拖拽锚点是 D15 明令禁止项：引入 GSAP 与 moveable 后仍须维持「锚点由拖拽独占写入、自动移动只读目标坐标」的读写分离，库只负责各自半场的执行（渲染栈 §3.2；增-15 ②；D15）。
+
+### 3. 优化建议
+- 增-15 全条逐元素落位本任务：一期新增依赖合计 gzip 约 40～60KB（GSAP 核心约 23KB、floating-ui 约 3-6KB、moveable 约 20KB+）；仍需自写 5 个 composable（氛围层循环、端点同步、状态机↔timeline 编排、场景模板落位、zoom 重排）合计约 600～1000 行，均在 C15/C16 既有职责内；正式实施前做一次实际 bundle 测量（增-15；渲染栈「推荐组合」「调研局限说明」）。
+- 一期不引入 Konva/PixiJS/Phaser/Fabric（省约 400KB+ min 与一整层引擎复杂度）；PixiJS 保留二期特效（WebGL 粒子/光效）演进位——届时人物层不动、仅换氛围层渲染器（design-review §6 U-07；渲染栈 §1.2；t2 领域 4 §4.3）。
+- U-07／U-08 裁定后回填实现规范：U-07 定氛围层一期路线（A 自写【评审组建议】／B Konva＋vue-konva）；U-08 定二期角色动效路线（lottie-web 首选【评审组建议】、Rive 备选、Live2D／Spine 因许可证陷阱与美术管线成本明确排除），一期人物动效继续复用 CSS pet（design-review §6 U-07／U-08；增-15 ⑥；渲染栈 §4）。
+- 场景模板落位／重排（C16 步骤 2）无现成组件，属场景模板数据驱动布局的自写部分；「模板数据 ↔ 渲染适配器」单向依赖，C16-scene-v1 模板保持纯数据、与渲染引擎解耦（渲染栈 §6.2；t2 领域 4 §4.2d）。

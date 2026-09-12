@@ -81,3 +81,22 @@ pnpm web:type-check
 | 定向检查结果  | 未执行                       |
 | 未解决问题    | 无已执行发现；前置条件见依赖 |
 | 交接摘要      | 未交接                       |
+
+---
+
+## 评审调研结论（2026-09-12 整体评审落位）
+
+> 来源：[整体评审与强化方案](review/design-review.md)、[可行性缺陷分析](review/feasibility-findings.md)、[技术栈调研](review/tech-stack-research.md)、[渲染栈聚焦调研](review/rendering-stack-research.md)。本节是评审产出的执行提示，只补充信息，不修改本任务既有范围、步骤与验收标准；标注 U-xx 的事项未经用户裁定前不得视为已确认需求。
+
+### 1. 方案建议与调研结论建议
+- 桌面数据面按「快照＋增量订阅」标准模式落地：wanxiang.desktop 快照＋增量订阅＝事件溯源投影读模型，SSE 重连以 `Last-Event-ID` 游标增量续传，游标落后超窗时回退全量快照重建；单机形态按标准模式自研，不引入消息中间件（t2 领域 5／4；design-review §2.2 子系统⑭、§4 领域 5）。
+- 气泡／审批／详情浮层定位引入官方 `@floating-ui/vue`（≈32.7k，2026-09 检索；只取 `useFloating`＋`arrow` middleware），样式与结构继续复用现有 pet 组件，不自造定位算法；tippy.js（维护模式）与 floating-vue（<5k）不采用（渲染栈 §5；增-15 ③）。
+- C15-view-v1 展示模型按稳定身份（teamId／instanceId）聚合投影数据；桌面链与主链并行推进，UI 契约依赖 C01 数据面与 C06 投影契约，联调排在 C06 完成后（design-review §2.2 子系统⑫、§7.3）。
+
+### 2. 可能存在的问题点
+- F-13：组长作为预设子会话（有 parent 无 metadata.type）在现有投影中显示为「子 Agent」，三视图聚合易误读；投影身份判定落点在 C06（增-14），本任务展示层须直接消费 teamId／instanceId，不得以 `metadata.type` 推断身份与层级（feasibility §5 F-13；design-review §3 F-13）。
+- 桌面链 UI 契约依赖 C01 数据面与 C06 投影契约：契约未定稿前仅可冻结 view 模型与交互事件，不得提前绑定未交付协议（design-review §7.3）。
+
+### 3. 优化建议
+- 增-15 ③：浮层定位统一走 `@floating-ui/vue`——气泡／审批／详情浮层挂在会移动的人物上，官方绑定成本低，建议一期直接采用而非 DOM 内自绘跟随（渲染栈 §5.2）。
+- 增-15 ④：平移缩放采用 CSS transform 统一 zoom 因子＋@vueuse 手势 composable（零新依赖），DOM 与 Canvas 同乘同一因子；panzoom（≈7k、MIT）作即用备选，d3-zoom 不推荐（增-15 ④；渲染栈 §6）。
