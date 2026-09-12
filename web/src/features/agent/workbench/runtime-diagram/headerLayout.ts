@@ -153,7 +153,9 @@ const cache = new Map<string, HeaderLayout>()
 /** A board name expands its ancestry; explicit sets allow independent sibling packages. */
 export function layoutHeader(expanded: readonly string[] | string = []): HeaderLayout {
   const layers = typeof expanded === 'string' ? layerAncestors(expanded) : expanded
-  const normalized = HEADER_LAYERS.filter((layer) => layers.includes(layer.id)).map((layer) => layer.id)
+  const normalized = HEADER_LAYERS.filter((layer) => layers.includes(layer.id)).map(
+    (layer) => layer.id,
+  )
   const key = normalized.join('|')
   let result = cache.get(key)
   if (!result) {

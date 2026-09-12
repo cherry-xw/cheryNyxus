@@ -6,17 +6,27 @@ import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
 import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 import { createApprovalPresentation } from '@/utils/approvalPresentation'
+import { belongsToWorkspace } from './interactionScope'
 
-const props = withDefaults(defineProps<{ presetId?: string; native?: boolean }>(), {
-  native: false,
-})
+const props = withDefaults(
+  defineProps<{
+    presetId?: string
+    rootChatId?: string
+    excludeRootChatId?: string
+    native?: boolean
+    pendingOnly?: boolean
+  }>(),
+  {
+    native: false,
+  },
+)
 const emit = defineEmits<{
   tree: [rootChatId: string, sourceChatId?: string, interactionId?: string, anchorNodeId?: string]
 }>()
 
 const agents = useAgentsStore()
 const interactions = useInteractionsStore()
-const scope = ref<'workspace' | 'all'>(props.presetId ? 'workspace' : 'all')
+const scope = ref<'workspace' | 'all'>(props.presetId || props.rootChatId ? 'workspace' : 'all')
 const section = ref<'pending' | 'activity'>('pending')
 const drafts = reactive<
   Record<
@@ -32,10 +42,18 @@ const now = ref(interactions.calibratedNow())
 let countdownTimer: ReturnType<typeof setInterval> | undefined
 
 const scoped = computed(() => {
-  const source = section.value === 'pending' ? interactions.pending : interactions.activity
-  if (scope.value === 'all' || !props.presetId) return source
-  return source.filter((item) => item.presetId === props.presetId)
+  const source =
+    props.pendingOnly || section.value === 'pending' ? interactions.pending : interactions.activity
+  if (props.excludeRootChatId) return source.filter((item) => item.rootChatId !== props.excludeRootChatId)
+  if (!props.pendingOnly && scope.value === 'all') return source
+  return source.filter((item) => belongsToWorkspace(item, props.presetId, props.rootChatId))
 })
+const pendingCount = computed(
+  () =>
+    interactions.pending.filter(
+      (item) => scope.value === 'all' || belongsToWorkspace(item, props.presetId, props.rootChatId),
+    ).length,
+)
 
 // ── native 整窗模式：按 rootChatId 会话分组（native 定位"待处理指向谁"） ──
 interface PendingGroup {
@@ -232,15 +250,19 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="interaction-inbox" :class="{ 'is-native': native }" aria-label="待处理交互">
-    <div class="inbox-toolbar">
+  <section
+    class="interaction-inbox"
+    :class="{ 'is-native': native, 'is-pending-prompt': pendingOnly }"
+    aria-label="待处理交互"
+  >
+    <div v-if="!pendingOnly" class="inbox-toolbar">
       <div class="segmented">
         <button
           type="button"
           :class="{ active: section === 'pending' }"
           @click="section = 'pending'"
         >
-          待处理 {{ interactions.pending.length }}
+          待处理 {{ pendingCount }}
         </button>
         <button
           type="button"
@@ -250,7 +272,7 @@ onBeforeUnmount(() => {
           最近活动
         </button>
       </div>
-      <div v-if="presetId" class="segmented">
+      <div v-if="presetId || rootChatId" class="segmented">
         <button
           type="button"
           :class="{ active: scope === 'workspace' }"
@@ -273,7 +295,11 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- native 分组导航：每会话一个 chip，点击滚动定位到对应分组；「全部」回列表顶部 -->
-    <nav v-if="native && groups.length > 1" class="inbox-nav" aria-label="待处理会话导航">
+    <nav
+      v-if="native && !pendingOnly && groups.length > 1"
+      class="inbox-nav"
+      aria-label="待处理会话导航"
+    >
       <button type="button" class="nav-chip" @click="scrollListTop">全部</button>
       <button
         v-for="g in groups"
@@ -298,7 +324,7 @@ onBeforeUnmount(() => {
         class="inbox-group"
       >
         <h4
-          v-if="native"
+          v-if="native && !pendingOnly"
           class="group-head"
           title="滚动定位到本会话"
           @click="scrollToGroup(group.id)"
@@ -315,7 +341,7 @@ onBeforeUnmount(() => {
             <span class="kind" :class="item.kind === 'approval' ? 'is-approval' : 'is-question'">{{
               item.kind === 'approval' ? '需确认' : '需回答'
             }}</span>
-            <strong>{{ titleOf(item) }}</strong>
+            <strong v-if="!pendingOnly || item.kind === 'approval'">{{ titleOf(item) }}</strong>
             <small>
               {{ statusOf(item) }} · {{ timeOf(item.createdAt) }}
               <!-- 审批倒计时：后端 deadlineAt，归零变红提示超时。 -->
@@ -338,12 +364,17 @@ onBeforeUnmount(() => {
           </template>
           <div v-else class="questions">
             <fieldset
-              v-for="question in questionsOf(item)"
+              v-for="(question, questionIndex) in questionsOf(item)"
               :key="question.questionId"
               :disabled="item.status !== 'pending'"
             >
-              <legend>{{ question.header || question.question }}</legend>
-              <small v-if="question.header">{{ question.question }}</small>
+              <legend>
+                <span v-if="questionsOf(item).length > 1">{{ questionIndex + 1 }}. </span
+                >{{ question.header || question.question }}
+              </legend>
+              <small v-if="question.header && question.header !== question.question">{{
+                question.question
+              }}</small>
               <p class="options-hint">
                 {{ question.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
               </p>

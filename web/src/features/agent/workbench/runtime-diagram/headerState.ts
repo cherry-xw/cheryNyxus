@@ -71,12 +71,16 @@ export function headerStatusText(status: HeaderSlotStatus, waitReason?: string):
   }[status]
 }
 
-function matches(node: HeaderTemplateNode, occurrence: WorkflowOccurrence): boolean {
+export function matchesHeaderNode(
+  node: HeaderTemplateNode,
+  occurrence: WorkflowOccurrence,
+): boolean {
   if (!node.kinds.includes(occurrence.kind)) return false
   if (node.match === 'response')
     return (
-      occurrence.reason === 'response' ||
-      occurrence.anchors.some((anchor) => anchor.kind === 'message')
+      !['running', 'waiting'].includes(occurrence.status) &&
+      (occurrence.reason === 'response' ||
+      occurrence.anchors.some((anchor) => anchor.kind === 'message'))
     )
   if (node.match === 'rejection')
     return occurrence.status === 'rejected' || occurrence.status === 'failed'
@@ -198,7 +202,7 @@ export function projectHeaderState(input: {
     WORKFLOW_HEADER_TEMPLATE.nodes.map((node) => {
       const occurrences = scoped
         .filter((item) => {
-          if (!matches(node, item)) return false
+          if (!matchesHeaderNode(node, item)) return false
           if (node.id === 'tool-list') return !selectedBatchId || item.batchId === selectedBatchId
           if (node.group === 'tools') return !!selectedCallId && item.callId === selectedCallId
           return true

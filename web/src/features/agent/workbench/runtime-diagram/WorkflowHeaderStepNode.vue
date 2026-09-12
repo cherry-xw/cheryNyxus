@@ -1,29 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
 import { InfoFilled } from '@element-plus/icons-vue'
-import type { HeaderChildData, HeaderSelection } from './headerGraph'
+import type { HeaderChildData } from './headerGraph'
 
-import { statusIcon, visualStyle } from './workflowVisuals'
-import WorkflowLiveCrt from './WorkflowLiveCrt.vue'
+import { statusIcon, visualStyle, headerLayerColor } from './workflowVisuals'
 import WorkflowMorphIcon from './WorkflowMorphIcon.vue'
 
 type StepData = Extract<HeaderChildData, { kind: 'header-step' }>
-const props = defineProps<NodeProps<StepData>>()
-const emit = defineEmits<{ selectStep: [event: HeaderSelection] }>()
-function selectStep(): void {
-  emit('selectStep', {
-    headerId: props.data.headerId,
-    chatId: props.data.chatId,
-    templateNodeId: props.data.template.id,
-    title: props.data.template.title,
-    scope: props.data.scope,
-    recorded: props.data.recorded,
-    complete: props.data.complete,
-    slot: props.data.slot,
-    detail: props.data.template.detail,
-  })
-}
+const props = defineProps<NodeProps<StepData> & { pendingCount?: number }>()
+const emit = defineEmits<{ select: []; attention: [] }>()
 const positions = {
   left: Position.Left,
   right: Position.Right,
@@ -32,40 +19,55 @@ const positions = {
 }
 const ports = computed(() => props.data.ports)
 const stateIcon = computed(() =>
-  props.data.slot.status === 'idle' ? undefined : statusIcon(props.data.slot.status),
+  props.data.liveTurn
+    ? statusIcon('running')
+    : props.data.slot.status === 'idle'
+      ? undefined
+      : statusIcon(props.data.slot.status),
 )
-const infoOpen = ref(false)
-const infoFocused = ref(false)
+const infoPosition = ref<{ left: number; top: number; below: boolean }>()
 const infoId = computed(() => `workflow-step-info-${props.id}`)
-function openInfo(event: PointerEvent): void {
-  if (event.pointerType === 'mouse' || event.pointerType === 'pen') infoOpen.value = true
+function openInfo(event: PointerEvent | FocusEvent): void {
+  if ('pointerType' in event && !['mouse', 'pen'].includes(event.pointerType)) return
+  const target = event.currentTarget as HTMLElement
+  if (event.type === 'focus' && !target.matches(':focus-visible')) return
+  const rect = target.parentElement!.getBoundingClientRect()
+  infoPosition.value = {
+    left: Math.max(8, Math.min(rect.right - 248, window.innerWidth - 256)),
+    top: rect.top < 200 ? rect.bottom + 8 : rect.top - 8,
+    below: rect.top < 200,
+  }
+  window.addEventListener('resize', closeInfo)
+  window.addEventListener('wheel', closeInfo, { capture: true, passive: true })
+  document.addEventListener('visibilitychange', closeInfo)
 }
 function closeInfo(): void {
-  if (!infoFocused.value) infoOpen.value = false
+  infoPosition.value = undefined
+  window.removeEventListener('resize', closeInfo)
+  window.removeEventListener('wheel', closeInfo, true)
+  document.removeEventListener('visibilitychange', closeInfo)
 }
-function focusInfo(): void {
-  infoFocused.value = true
-  infoOpen.value = true
-}
-function blurInfo(): void {
-  infoFocused.value = false
-  infoOpen.value = false
-}
-function activateInfo(): void {
-  infoOpen.value = !infoOpen.value
-}
+onBeforeUnmount(closeInfo)
 </script>
 
 <template>
   <div
     class="workflow-node-root workflow-step-root"
     :class="[
-      `state-${data.slot.status}`,
+      `state-${pendingCount ? 'waiting' : data.liveTurn ? 'running' : data.slot.status}`,
       `shape-${data.template.shape}`,
       `capability-${data.visual.capability}`,
       `skin-${data.visual.shape}`,
+      {
+        'is-traced': data.participated,
+        'is-unvisited': !data.participated && !data.slot.occurrence && !data.liveTurn,
+      },
     ]"
-    :style="visualStyle(data.visual)"
+    :style="{
+      ...visualStyle(data.visual),
+      '--workflow-capability':
+        headerLayerColor(data.template.group),
+    }"
     data-workflow-highlight-target
     :data-workflow-step-id="id"
     :data-workflow-occurrence-id="data.slot.occurrence?.occurrenceId"
@@ -85,18 +87,26 @@ function activateInfo(): void {
           : { left: `calc(50% + ${port.offset}px)` }
       "
     />
+      <span
+v-if="!pendingCount && (data.liveTurn || data.slot.status === 'running')"
+        class="workflow-step-beacon" data-workflow-beacon aria-hidden="true" />
     <button
       type="button"
       class="workflow-step-button nodrag nopan"
-      :aria-expanded="data.selected"
-      aria-controls="workflow-step-detail"
-      :aria-label="`${data.template.title}，${data.slot.statusText}，查看步骤详情`"
+      :aria-label="`${data.template.title}，${data.slot.statusText}`"
+      :aria-busy="data.slot.status === 'running' || !!data.liveTurn"
       :data-workflow-header-id="data.headerId"
       :data-workflow-slot-kind="data.template.kinds[0]"
       :data-workflow-template-node="data.template.id"
       @pointerdown.stop
-      @click.stop="selectStep"
+      @click.stop="data.template.id === 'approval' ? emit('attention') : emit('select')"
     >
+      <span
+        v-if="data.slot.status === 'running' || data.liveTurn"
+        class="workflow-step-loading"
+        data-workflow-loading
+        aria-label="正在运行"
+      />
       <WorkflowMorphIcon
         class="workflow-step-capability-icon"
         :icon="data.visual.icon"
@@ -108,29 +118,52 @@ function activateInfo(): void {
         <span class="workflow-step-title">
           {{ data.template.title }}
         </span>
+        <span
+          v-if="data.call"
+          class="workflow-step-call"
+          :aria-label="`${data.call.name}，${data.slot.statusText}`"
+          >{{ data.call.name }} · {{ data.slot.statusText }}</span
+        >
       </span>
     </button>
     <button
       type="button"
       class="workflow-step-info-button nodrag nopan"
-      aria-label="查看步骤说明"
-      :aria-expanded="infoOpen"
-      :aria-describedby="infoOpen ? infoId : undefined"
+      :aria-label="`${data.template.title}说明`"
+      :aria-describedby="infoPosition ? infoId : undefined"
       @pointerdown.stop
       @pointerenter="openInfo"
       @pointerleave="closeInfo"
-      @focus="focusInfo"
-      @blur="blurInfo"
-      @click.stop="activateInfo"
-      @keydown.esc.stop="infoOpen = false"
+      @focus="openInfo"
+      @blur="closeInfo"
+      @click.stop
+      @keydown.esc.stop="closeInfo"
     >
       <InfoFilled aria-hidden="true" />
     </button>
-    <aside v-if="infoOpen" :id="infoId" class="workflow-step-info" role="tooltip">
-      <strong>{{ data.template.title }}</strong>
-      <span>{{ data.template.detail }}</span>
-    </aside>
-    <WorkflowLiveCrt v-if="data.liveTurn" :turn="data.liveTurn" />
+    <Teleport to="body">
+      <aside
+        v-if="infoPosition"
+        :id="infoId"
+        class="workflow-step-info"
+        role="tooltip"
+        :style="{
+          left: `${infoPosition.left}px`,
+          top: `${infoPosition.top}px`,
+          transform: infoPosition.below ? undefined : 'translateY(-100%)',
+          zIndex: OVERLAY_Z_INDEX.tooltip,
+          '--workflow-capability':
+            headerLayerColor(data.template.group),
+        }"
+      >
+        <strong>{{ data.template.title }}</strong>
+        <span>{{ data.template.detail }}</span>
+        <template v-if="data.call">
+          <span>{{ data.call.name }} · {{ data.slot.statusText }}</span>
+          <span v-if="data.slot.occurrence?.label">{{ data.slot.occurrence.label }}</span>
+        </template>
+      </aside>
+    </Teleport>
   </div>
 </template>
 
@@ -147,8 +180,8 @@ function activateInfo(): void {
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  gap: 10px;
-  padding: 10px 34px 10px 10px;
+  gap: 6px;
+  padding: 6px 30px 6px 6px;
   border: 1px solid color-mix(in srgb, var(--workflow-capability) 58%, var(--border-strong));
   border-radius: 0;
   background:
@@ -157,7 +190,7 @@ function activateInfo(): void {
       color-mix(in srgb, var(--workflow-capability) 10%, transparent),
       transparent 58%
     ),
-    var(--surface);
+    color-mix(in srgb, var(--workflow-capability) 14%, var(--surface));
   color: var(--ink);
   cursor: pointer;
   font: inherit;
@@ -167,7 +200,7 @@ function activateInfo(): void {
 }
 .workflow-step-visual {
   display: grid;
-  gap: 6px;
+  gap: 2px;
   min-width: 0;
 }
 .workflow-step-capability-icon {
@@ -202,19 +235,19 @@ function activateInfo(): void {
   outline-offset: 2px;
 }
 .workflow-step-info {
-  position: absolute;
-  z-index: 20;
-  right: 0;
-  bottom: calc(100% + 8px);
+  position: fixed;
   display: grid;
   gap: 5px;
   width: 248px;
+  max-width: calc(100vw - 16px);
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--workflow-capability) 62%, var(--border));
   background: var(--panel);
   box-shadow: 0 10px 28px color-mix(in srgb, var(--ink) 16%, transparent);
   padding: 9px 10px;
   color: var(--ink);
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1.45;
   pointer-events: none;
 }
@@ -235,37 +268,15 @@ function activateInfo(): void {
   white-space: normal;
   line-height: 1.4;
 }
-.workflow-step-iteration {
-  display: inline-block;
-  margin-left: 6px;
-  border: 1px solid color-mix(in srgb, var(--workflow-capability) 40%, var(--border));
-  background: color-mix(in srgb, var(--workflow-capability) 10%, var(--surface));
-  color: color-mix(in srgb, var(--workflow-capability) 82%, var(--ink));
-  padding: 0 5px;
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 400;
-  vertical-align: 1px;
+.workflow-step-button:has(.workflow-step-call) .workflow-step-title {
+  white-space: nowrap;
 }
-.workflow-step-summary {
+.workflow-step-call {
   font-size: 12px;
-  color: color-mix(in srgb, var(--ink) 72%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.workflow-step-state {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 400;
-  white-space: nowrap;
-}
-.workflow-step-state svg,
-.workflow-step-detail-icon {
-  width: 16px;
-  height: 16px;
+  color: var(--ink);
 }
 .shape-condition .workflow-step-button {
   border-inline-style: double;
@@ -307,24 +318,36 @@ function activateInfo(): void {
   background: var(--panel);
 }
 .state-running .workflow-step-button {
-  border-color: var(--workflow-capability);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workflow-capability) 26%, transparent);
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 20px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .state-running [data-workflow-node-visual] {
   will-change: transform, opacity;
 }
 .state-waiting .workflow-step-button {
   border-color: var(--warning);
+  box-shadow: inset 0 0 0 1px var(--warning);
 }
-.state-succeeded .workflow-step-button {
-  border-color: var(--success);
+.state-waiting .workflow-step-capability-icon {
+  color: var(--warning);
 }
-.state-waiting .workflow-step-capability-icon { color: var(--warning); }
-.state-succeeded .workflow-step-capability-icon { color: var(--success); }
+.state-succeeded .workflow-step-capability-icon,
+.state-running .workflow-step-capability-icon {
+  color: var(--accent);
+}
+.is-traced .workflow-step-title {
+  color: var(--accent);
+}
+.is-traced :deep(.vue-flow__handle) {
+  border-color: var(--accent);
+  background: var(--accent);
+}
 .state-failed .workflow-step-capability-icon,
-.state-rejected .workflow-step-capability-icon { color: var(--danger); }
-.state-idle .workflow-step-button { border-color: var(--border-strong); }
-.state-idle .workflow-step-capability-icon { color: var(--ink); }
+.state-rejected .workflow-step-capability-icon {
+  color: var(--danger);
+}
 .state-failed .workflow-step-button,
 .state-rejected .workflow-step-button {
   border-color: var(--danger);
@@ -336,10 +359,31 @@ function activateInfo(): void {
 }
 .workflow-step-root:is(:hover, :focus-within, .is-pointer-highlighted) .workflow-step-button {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+
 }
 button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
+.workflow-step-loading {
+  position: absolute;
+  left: 7px;
+  bottom: 5px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+}
+
+.is-traced:not(.state-waiting):not(.state-failed):not(.state-rejected) .workflow-step-button { border-color: var(--accent); }
+.workflow-step-beacon {
+  position: absolute;
+  inset: -5px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.state-waiting .workflow-step-beacon { border-color: var(--warning); }
 </style>

@@ -177,7 +177,13 @@ describe('header instance state', () => {
     expect(
       state([occurrence('model', 'model', { reason: 'response', status: 'running' })]).slots
         .response?.status,
-    ).toBe('running')
+    ).toBe('idle')
+    expect(state([occurrence('model', 'model', {
+      status: 'running', anchors: [{ kind: 'message', id: 'streaming-message' }],
+    })]).slots.response?.status).toBe('idle')
+    expect(state([occurrence('model', 'model', {
+      reason: 'response', status: 'succeeded',
+    })]).slots.response?.status).toBe('succeeded')
     expect(
       state([occurrence('wait', 'loop-decision', { status: 'waiting', waitReason: 'child' })]).slots
         .wait?.statusText,

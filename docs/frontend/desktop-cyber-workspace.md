@@ -32,6 +32,8 @@
 
 ## 约束
 
+共享 `OVERLAY_Z_INDEX.tooltip` 为最高提示层；用于工作台 info 的短暂只读悬浮说明，不接收指针、不固定显示。其他窗口、审批与 owner 菜单层级保持原契约。
+
 桌面只拥有窗口与可见状态，不拥有业务草稿；设置关闭先经 [App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose` 调用内容的 `confirmClose`，具体保存与丢弃语义归 [settings.md](settings.md)。非模态内嵌内容不声明 `aria-modal`。
 
 | 修改意图 | 代码入口与关键符号 | 验证入口 |

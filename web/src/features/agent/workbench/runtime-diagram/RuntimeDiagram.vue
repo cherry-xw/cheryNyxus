@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWorkflowNodePresentation } from './useWorkflowNodePresentation'
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRef, watch } from 'vue'
 import {
   VueFlow,
@@ -22,6 +23,7 @@ import {
 } from '@element-plus/icons-vue'
 import type { RootTimelineSnapshot } from '@/application/backend/public'
 import { useChatSessionsStore } from '@/application/public'
+import { effectiveRootLiveState } from '@/application/chat/public'
 import type { NyxusContentSelection, NyxusReaderFoldMode } from '@/features/pets/nyxus/public'
 import {
   projectWorkflowGraph,
@@ -48,6 +50,7 @@ import WorkflowHeaderCallsNode from './WorkflowHeaderCallsNode.vue'
 import WorkflowHeaderEdge from './WorkflowHeaderEdge.vue'
 import WorkflowFocusEdge from './WorkflowFocusEdge.vue'
 import WorkflowStepDetails from './WorkflowStepDetails.vue'
+import WorkflowAnchoredOverlays from './WorkflowAnchoredOverlays.vue'
 import {
   absoluteGraphPosition,
   headerTemplateNodeId,
@@ -58,8 +61,7 @@ import {
 import type { HeaderScopeSelection } from './headerState'
 import { headerGroupKey } from './headerLayout'
 import { WORKFLOW_HEADER_TEMPLATE } from './headerTemplate'
-import { projectReplayTimeline, projectWorkflowStepDetails } from './workflowStepDetails'
-
+import { cloneReplayTimeline, projectReplayTimeline, projectWorkflowStepDetails } from './workflowStepDetails'
 const props = withDefaults(
   defineProps<{
     chatId: string
@@ -71,6 +73,7 @@ const props = withDefaults(
     focusSourceChatId?: string
     focusInteractionId?: string
     focusNonce?: number
+    pendingCount?: number
   }>(),
   { suspended: false, foldMode: 'participant', readerOpen: false, focusNonce: 0 },
 )
@@ -94,22 +97,26 @@ const displayTimeline = computed(() =>
 const headerSelections = ref<Record<string, HeaderScopeSelection>>({})
 const groupOverrides = ref<Record<string, boolean>>({})
 const boardByHeader = ref<Record<string, string>>({})
+const expandedByHeader = ref<Record<string, readonly string[]>>({})
+const followRunning = ref(true)
 const selectedStep = shallowRef<HeaderSelection>()
+function toggleFollow(): void {
+  if (followRunning.value) return boardNavigation.pauseFollow()
+  closeStepDetails(false)
+  headerSelections.value = {}
+  groupOverrides.value = {}
+  followRunning.value = true
+}
 function onToggleGroup(event: HeaderGroupToggleEvent): void {
   if (event.groupId !== 'header') {
-    void boardNavigation.navigate(event.headerId, event.groupId)
+    boardNavigation.toggle(event.headerId, event.groupId)
     return
   }
   const key = headerGroupKey(event.headerId, 'header')
+  boardNavigation.pauseFollow()
   groupOverrides.value = { ...groupOverrides.value, [key]: !groupOverrides.value[key] }
   closeStepDetails(false)
   cancelFocusTransition()
-}
-function resetGroupOverrides(): void {
-  void focusCurrentStep()
-}
-function expandAll(): void {
-  boardNavigation.overview()
 }
 
 function closeStepDetails(restoreFocus = true): void {
@@ -131,22 +138,21 @@ function closeStepDetails(restoreFocus = true): void {
   })
 }
 function selectHeaderScope(event: HeaderScopeEvent): void {
+  boardNavigation.pauseFollow()
   closeStepDetails(false)
   headerSelections.value = { ...headerSelections.value, [event.headerId]: event.scope }
   emit('selectHeaderScope', event)
 }
-const liveTurns = computed(() => {
-  if (controller.replay.value) return []
-  const chatIds = new Set([
-    props.chatId,
-    ...(displayTimeline.value?.branches?.map((branch) => branch.chatId) ?? []),
-    ...(displayTimeline.value?.nodes.map((node) => node.sourceChatId) ?? []),
-    ...(displayTimeline.value?.activeRuns.map((run) => run.chatId).filter(Boolean) ?? []),
-  ])
-  return [...chatIds].flatMap((chatId) =>
-    chatId ? (chatSessions.sessionsById[chatId]?.activeTurns ?? []) : [],
-  )
-})
+const liveState = computed(() =>
+  controller.replay.value
+    ? { activeTurns: [], activeRuns: [] }
+    : effectiveRootLiveState(
+        props.chatId,
+        chatSessions.rootTimelineStates[props.chatId],
+        chatSessions.sessionsById,
+      ),
+)
+const liveTurns = computed(() => liveState.value.activeTurns)
 const baseProjection = computed(() =>
   projectWorkflowGraph(
     controller.workflowState.value,
@@ -155,38 +161,26 @@ const baseProjection = computed(() =>
     headerSelections.value,
     liveTurns.value,
     {
+      live: !controller.replay.value,
+      liveRuns: liveState.value.activeRuns,
       boards: boardByHeader.value,
+      expanded: expandedByHeader.value,
+      follow: followRunning.value,
       overrides: groupOverrides.value,
     },
   ),
 )
-const selectedGraphNodeId = computed(() => {
-  const selection = props.selection
-  if (!selection) return undefined
-  const resolution = resolveWorkflowGraphSelection(baseProjection.value, selection)
-  return resolution.status === 'available' ? resolution.graphNodeId : undefined
-})
+const { nodes: presentedNodes, currentViewPendingCount, attentionOverlay, crtOverlay, focusPendingAttention } =
+  useWorkflowNodePresentation({
+    graph: () => baseProjection.value, selection: () => props.selection, step: () => selectedStep.value,
+    pendingCount: () => props.pendingCount,
+    viewport: () => flow.value?.viewport.value, host: () => flowHostRef.value,
+  })
 const focusTransition = shallowRef<{ id: string; edge: WorkflowGraphEdge }>()
 let focusSerial = 0
-function projectNodeSelection(node: WorkflowGraphNode): WorkflowGraphNode {
-  const data = node.data
-  const className = [node.class, { selected: node.id === selectedGraphNodeId.value }]
-  if (!data || data.kind !== 'header-step') {
-    return { ...node, class: className }
-  }
-  const step = selectedStep.value
-  return {
-    ...node,
-    class: className,
-    data: {
-      ...data,
-      selected: step?.headerId === data.headerId && step.templateNodeId === data.template.id,
-    },
-  }
-}
 const projection = computed<WorkflowGraphProjection>(() => ({
   ...baseProjection.value,
-  nodes: baseProjection.value.nodes.map(projectNodeSelection),
+  nodes: presentedNodes.value,
   edges: focusTransition.value
     ? [...baseProjection.value.edges, focusTransition.value.edge]
     : baseProjection.value.edges,
@@ -225,7 +219,7 @@ const stepDetailModel = computed(() => {
     resolveAnchor: graphSelection,
   })
 })
-const flow = ref<VueFlowStore>()
+const flow = shallowRef<VueFlowStore>()
 const flowHostRef = ref<HTMLElement | null>(null)
 const pointerHighlightRef = ref<HTMLElement | null>(null)
 useWorkflowPointerHighlight({
@@ -240,11 +234,16 @@ const cameraRootId = computed(
 )
 const boardNavigation = useHeaderBoardNavigation({
   boards: boardByHeader,
+  expanded: expandedByHeader,
+  follow: followRunning,
   root: cameraRootId,
   flow,
   host: flowHostRef,
   projection,
   disabled: computed(() => props.suspended || controller.hidden.value),
+  followDisabled: computed(
+    () => controller.replay.value || !controller.synced.value || !!selectedStep.value,
+  ),
   beforeNavigate: () => {
     cancelFocusTransition()
     closeStepDetails(false)
@@ -304,7 +303,6 @@ function focusNode(nodeId: string | undefined): void {
     duration: 180,
   })
 }
-
 function cancelFocusTransition(): void {
   cancelFocusMotion()
   focusTransition.value = undefined
@@ -367,6 +365,7 @@ function selectContentNode(data: Extract<WorkflowGraphNodeData, { kind: 'content
 }
 
 function selectStep(selection: HeaderSelection): void {
+  boardNavigation.pauseFollow()
   selectedStep.value = selection
   emit('selectStep', selection)
   if (controller.replay.value && controller.history.value) return
@@ -428,7 +427,7 @@ function selectStepContent(selection: NyxusContentSelection, graphNodeId: string
 
 async function loadHistory(): Promise<void> {
   closeStepDetails(false)
-  replayTimeline.value = props.timeline ? structuredClone(props.timeline) : undefined
+  replayTimeline.value = cloneReplayTimeline(props.timeline)
   await controller.loadHistory()
 }
 
@@ -441,6 +440,7 @@ function returnLive(): void {
 watch(cameraRootId, (rootChatId, previousRootChatId) => {
   cancelFocusTransition()
   headerSelections.value = {}
+  groupOverrides.value = {}
   const viewport = currentViewport()
   if (previousRootChatId && viewport) cameraByRoot.set(previousRootChatId, viewport)
   void nextTick(() => {
@@ -688,6 +688,10 @@ defineExpose({
       v-if="projection.activeHeaderId"
       :board="boardNavigation.currentBoard.value"
       :relation="boardNavigation.relation.value"
+      :following="followRunning"
+      @toggle-follow="toggleFollow"
+      @expand-all="boardNavigation.expandAll"
+      @collapse-all="boardNavigation.overview"
       @navigate="boardNavigation.navigate(projection.activeHeaderId!, $event)"
       @back="boardNavigation.back"
       @trace-end="boardNavigation.traceEnd"
@@ -697,7 +701,7 @@ defineExpose({
       ref="flowHostRef"
       class="workflow-flow-host"
       :aria-busy="controller.loading.value || controller.historyLoading.value"
-      @pointerdown.capture="cancelFocusTransition"
+      @pointerdown.capture="(cancelFocusTransition(), boardNavigation.pauseFollow())"
       @wheel.capture="onBoardWheel"
     >
       <VueFlow
@@ -723,9 +727,8 @@ defineExpose({
           <WorkflowHeaderNode
             v-bind="nodeProps"
             @select-scope="selectHeaderScope"
-            @reset-group-overrides="resetGroupOverrides"
+            @reset-group-overrides="focusCurrentStep"
             @toggle="onToggleGroup"
-            @expand-all="expandAll"
           />
         </template>
         <template #node-header-group="nodeProps">
@@ -735,7 +738,14 @@ defineExpose({
           <WorkflowHeaderTerminalNode v-bind="nodeProps" @trace="boardNavigation.trace" />
         </template>
         <template #node-header-step="nodeProps">
-          <WorkflowHeaderStepNode v-bind="nodeProps" @select-step="selectStep" />
+          <WorkflowHeaderStepNode
+            v-bind="nodeProps"
+            :pending-count="nodeProps.data.template.id === 'approval' ? currentViewPendingCount : undefined"
+            @attention="focusPendingAttention"
+            @select="selectStep({ headerId: nodeProps.data.headerId, chatId: nodeProps.data.chatId,
+              templateNodeId: nodeProps.data.template.id, title: nodeProps.data.template.title,
+              scope: nodeProps.data.scope, recorded: nodeProps.data.recorded, complete: nodeProps.data.complete,
+              slot: nodeProps.data.slot, detail: nodeProps.data.template.detail })" />
         </template>
         <template #node-header-calls="nodeProps">
           <WorkflowHeaderCallsNode v-bind="nodeProps" @select-scope="selectHeaderScope" />
@@ -750,6 +760,11 @@ defineExpose({
           <WorkflowFocusEdge v-bind="edgeProps" />
         </template>
       </VueFlow>
+      <WorkflowAnchoredOverlays
+        :attention="attentionOverlay"
+        :crt="crtOverlay"
+        :turn="projection.activeLiveTurn"
+      ><template #attention><slot name="attention" /></template></WorkflowAnchoredOverlays>
       <WorkflowStepDetails
         v-if="stepDetailModel"
         :model="stepDetailModel"

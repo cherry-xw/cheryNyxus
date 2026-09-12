@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
+import { headerLayerColor } from './workflowVisuals'
 import type { HeaderChildData, HeaderGroupToggleEvent } from './headerGraph'
 type GroupData = Extract<HeaderChildData, { kind: 'header-group' }>
 defineProps<NodeProps<GroupData>>()
@@ -17,9 +18,13 @@ const positions = {
     class="workflow-header-group"
     :class="{
       'is-collapsed': data.collapsed,
-      'is-active': data.active,
-      'is-own-active': data.ownActive,
-      [`state-${data.status}`]: true,
+      'is-active': data.collapsed && data.active,
+      'is-own-active': data.collapsed && data.ownActive,
+      [`state-${data.status}`]: data.collapsed,
+    }"
+    :style="{
+      '--workflow-layer-color':
+        headerLayerColor(data.groupId),
     }"
     :aria-label="`${data.title}，${data.summary}`"
     :data-board-chip="data.collapsed ? data.groupId : undefined"
@@ -61,9 +66,9 @@ const positions = {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--workflow-layer-color) 65%, var(--border));
   border-radius: 0;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--workflow-layer-color) 17%, var(--panel));
   color: var(--ink);
   pointer-events: none;
 }
@@ -72,9 +77,9 @@ const positions = {
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 44px;
+  height: 40px;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 0 8px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -107,25 +112,29 @@ const positions = {
   color: var(--accent);
 }
 .is-collapsed {
-  background: var(--surface);
-  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--workflow-layer-color) 17%, var(--surface));
+  border-color: var(--workflow-layer-color);
 }
 .is-collapsed .workflow-header-group-toggle {
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
   height: 100%;
-  padding: 12px;
+  padding: 8px;
 }
 .is-collapsed .workflow-layer-action {
   margin-left: 0;
   color: var(--accent);
 }
-.state-waiting { border-color: var(--warning); }
-.state-failed, .state-rejected { border-color: var(--danger); }
-.state-succeeded { border-color: var(--success); }
+.state-waiting {
+  border-color: var(--warning);
+}
+.state-failed,
+.state-rejected {
+  border-color: var(--danger);
+}
 .is-collapsed.is-active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+
 }
 .workflow-header-group-toggle:hover {
   background: color-mix(in srgb, var(--accent) 7%, transparent);

@@ -12,7 +12,11 @@ const emit = defineEmits<{ trace: [event: HeaderTerminalEvent] }>()
       :id="port.id"
       :key="port.id"
       :type="port.type"
-      :position="port.side === 'left' ? Position.Left : Position.Right"
+      :position="
+        { left: Position.Left, right: Position.Right, top: Position.Top, bottom: Position.Bottom }[
+          port.side
+        ]
+      "
       :connectable="false"
     />
     <button
@@ -40,9 +44,16 @@ const emit = defineEmits<{ trace: [event: HeaderTerminalEvent] }>()
 .workflow-terminal.is-boundary {
   border-color: var(--accent);
   border: 0;
-  background: none;
+  background: var(--accent);
 }
-.is-boundary button { position: absolute; width: 16px; height: 20px; left: -8px; top: -10px; font-size: 0; }
+.is-boundary button {
+  position: absolute;
+  width: 16px;
+  height: 20px;
+  left: -4px;
+  top: -6px;
+  font-size: 0;
+}
 button {
   display: block;
   width: 100%;

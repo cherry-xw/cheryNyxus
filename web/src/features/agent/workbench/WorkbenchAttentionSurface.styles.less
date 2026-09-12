@@ -1,105 +1,73 @@
 .workbench-attention-surface {
   position: absolute;
-  z-index: var(--nx-z-drawer);
-  inset: 40px 48px 0 0;
-  min-width: 0;
+  z-index: var(--nx-z-blocking-interaction);
+  left: 20px;
+  bottom: 24px;
+  width: min(640px, calc(100% - 88px));
+  max-height: min(680px, calc(100% - 96px));
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid var(--nx-border);
-  background: color-mix(in srgb, var(--nx-bg) 97%, var(--nx-text) 3%);
+  border: 1px solid var(--nx-border);
+  background: var(--nx-bg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--nx-bg) 45%, transparent);
   pointer-events: auto;
 }
-
-:global(.workbench-shell.is-shellless) .workbench-attention-surface {
-  top: 0;
-}
-
 .workbench-attention-head {
-  min-width: 0;
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 7px 10px 7px 14px;
+  flex: none;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--nx-border);
   color: var(--nx-text);
-  background: var(--nx-bg);
 }
-
 .workbench-attention-head > span {
-  min-width: 0;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
-  gap: 1px 8px;
+  gap: 4px 8px;
 }
-
-.workbench-attention-head > span > svg {
+.workbench-attention-head svg {
   grid-row: 1 / 3;
   width: 18px;
   height: 18px;
   color: var(--nx-yellow);
 }
-
-.workbench-attention-head strong,
-.workbench-attention-head small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workbench-attention-head strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.workbench-attention-head small {
-  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.workbench-attention-head > button {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  display: grid;
-  place-items: center;
-  margin-left: auto;
-  padding: 0;
-  border: 1px solid var(--nx-border);
-  border-radius: 0;
-  color: var(--nx-text);
-  background: var(--nx-bg);
-  cursor: pointer;
-}
-
-.workbench-attention-head > button svg {
-  width: 16px;
-  height: 16px;
-}
-
-.workbench-attention-head > button:focus-visible {
-  outline: 2px solid var(--nx-cyan);
-  outline-offset: 2px;
-}
-
+.workbench-attention-head strong { font-size: 13px; font-weight: 600; }
+.workbench-attention-head small { font-size: 12px; font-weight: 400; }
 .workbench-attention-browser {
   min-height: 0;
+  height: auto;
   display: flex;
   flex-direction: column;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
-
 .workbench-attention-browser :deep(.inbox-list) {
-  flex: 1;
   min-height: 0;
   max-height: none;
+  overflow: visible;
+}
+.workbench-attention-browser :deep(.interaction-card) {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.workbench-attention-surface.is-embedded { position: relative; left: auto; top: auto; bottom: auto; width: 640px; max-width: 72vw; max-height: 520px; z-index: 30; }
+.workbench-attention-surface.is-embedded .workbench-attention-head { display: none; }
+.workbench-attention-surface.is-embedded .workbench-attention-browser { padding: 14px; }
+.workbench-attention-surface.is-embedded :deep(.inbox-list) { padding-bottom: 70px; }
+.workbench-attention-surface.is-embedded :deep(article footer) { position: sticky; bottom: 0; z-index: 2; margin: 12px -14px -14px; padding: 12px 14px; background: var(--nx-bg); border-top: 1px solid var(--nx-border); }
+.workbench-attention-browser :deep(.interaction-card + .interaction-card) {
+  border-top: 1px solid var(--nx-border);
+  margin-top: 16px;
+  padding-top: 16px;
 }
 
-@media (max-width: 720px) {
-  .workbench-attention-head small {
-    display: none;
-  }
+.workbench-attention-head { display: flex; align-items: center; gap: 12px; }
+.workbench-attention-head > span { flex: 1; min-width: 0; }
+.workbench-attention-head button {
+  flex: none; padding: 6px 10px; border: 1px solid var(--border-strong);
+  border-radius: 0; background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 12px; cursor: pointer;
 }
+.workbench-attention-head button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

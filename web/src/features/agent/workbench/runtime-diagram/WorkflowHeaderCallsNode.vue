@@ -14,7 +14,7 @@ const emit = defineEmits<{ selectScope: [event: HeaderScopeEvent] }>()
     @wheel.stop
   >
     <header>
-      <span>{{ data.state.followingCurrent ? '跟随执行调用' : '正在查看历史调用' }}</span>
+      <span>工具调用 · {{ data.state.calls.length }} 项</span>
       <button
         v-if="!data.state.followingCurrent"
         type="button"
@@ -33,7 +33,6 @@ const emit = defineEmits<{ selectScope: [event: HeaderScopeEvent] }>()
         <button
           type="button"
           :aria-pressed="call.id === data.state.selectedCallId"
-          :title="call.name"
           @click.stop="
             emit('selectScope', {
               headerId: data.headerId,

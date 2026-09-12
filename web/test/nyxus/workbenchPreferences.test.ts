@@ -35,9 +35,17 @@ describe('Nyxus workbench preferences and entry regressions', () => {
       'utf8',
     )
     expect(offlineMask).toContain('z-index: var(--nx-z-connection-mask)')
-    expect(source).toContain('grid-template-columns: minmax(0, 1fr) clamp(340px, 34vw, 440px)')
+    expect(source).toContain('<WorkbenchReaderSplit')
+    const split = await readComponentSource(
+      resolve('src/features/agent/workbench/WorkbenchReaderSplit.vue'),
+      'utf8',
+    )
+    expect(split).toContain('role="separator"')
+    expect(split).toContain('@pointermove="move"')
+    expect(split).toContain('@keydown="key"')
+    expect(split).toContain('ref(560)')
     expect(source).toContain('v-show="workspaceBrowserOpen"')
-    expect(source).toContain('这里的操作始终针对当前待处理请求')
+    expect(source).toContain('其他流程的审批与提问')
   })
 
   it('refreshes only the lightweight catalog before opening from Cherry Nyxus', async () => {

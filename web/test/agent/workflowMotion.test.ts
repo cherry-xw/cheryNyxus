@@ -6,6 +6,7 @@ import {
   polylineLength,
   selectWorkflowMotionLoops,
   workflowPathDurationMs,
+  workflowPulseTiming,
   WorkflowMotionRegistry,
   type WorkflowMotionContext,
   type WorkflowMotionEdge,
@@ -36,7 +37,11 @@ function edge(
     sourceId: 'source',
     targetId: target.id,
     family: target.family,
-    points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }],
+    points: [
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+      { x: 40, y: 30 },
+    ],
     evidenced: true,
     targetOccurrenceId: target.occurrenceId,
     targetStatus: target.status,
@@ -64,21 +69,66 @@ function context(overrides: Partial<WorkflowMotionContext> = {}): WorkflowMotion
 }
 
 describe('workflow runtime motion policy', () => {
+  it('delays a pulse until its preceding cross-layer segment finishes, isolating other calls', () => {
+    const target = node('target')
+    const first = edge('first', target, {
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+    })
+    const second = edge('second', target, {
+      points: [
+        { x: 100, y: 0 },
+        { x: 100, y: 100 },
+      ],
+    })
+    const unrelated = edge('other', target, {
+      targetOccurrenceId: 'other-call',
+      points: [
+        { x: -100, y: 0 },
+        { x: 0, y: 0 },
+      ],
+    })
+    expect(workflowPulseTiming(first, [unrelated, second, first]).delay).toBe(0)
+    expect(workflowPulseTiming(second, [unrelated, second, first]).delay).toBe(
+      workflowPathDurationMs(first.points) / 1000,
+    )
+  })
+  it('animates all boundary segments for an occurrence rather than only the final node handle', () => {
+    const target = node('target')
+    const edges = [
+      edge('outer', target, { targetId: 'boundary:outer' }),
+      edge('inner', target, { targetId: 'boundary:inner' }),
+      edge('final', target),
+      edge('other-call', target, { targetOccurrenceId: 'another-call' }),
+    ]
+    const decisions = planWorkflowMotion(frame([]), frame([target], edges), context())
+    expect(decisions.filter((item) => item.kind === 'path').map((item) => item.edge.id)).toEqual([
+      'outer',
+      'inner',
+      'final',
+    ])
+  })
   it('moves only along an evidenced template path for the exact occurrence', () => {
     const target = node('target')
     const decisions = planWorkflowMotion(
       frame([]),
-      frame([target], [
-        edge('exact', target),
-        edge('inferred', target, { evidenced: false }),
-        edge('wrong-occurrence', target, { targetOccurrenceId: 'other' }),
-      ]),
+      frame(
+        [target],
+        [
+          edge('exact', target),
+          edge('inferred', target, { evidenced: false }),
+          edge('wrong-occurrence', target, { targetOccurrenceId: 'other' }),
+        ],
+      ),
       context(),
     )
 
     expect(
-      decisions.map((decision) =>
-        `${decision.kind}:${decision.kind === 'node' ? decision.node.id : decision.edge.id}`,
+      decisions.map(
+        (decision) =>
+          `${decision.kind}:${decision.kind === 'node' ? decision.node.id : decision.edge.id}`,
       ),
     ).toEqual(['node:target', 'path:exact'])
   })
@@ -91,13 +141,15 @@ describe('workflow runtime motion policy', () => {
       live: false,
       sequence: 8,
     })
-    expect(planWorkflowMotion(frame([]), frame([result], [edge('fact', result)]), context()))
-      .toMatchObject([
-        { kind: 'node', node: { id: 'result' }, phase: 'settle' },
-        { kind: 'result-edge', edge: { id: 'fact' }, node: { id: 'result' } },
-      ])
-    expect(planWorkflowMotion(frame([result]), frame([result], [edge('fact', result)]), context()))
-      .toEqual([])
+    expect(
+      planWorkflowMotion(frame([]), frame([result], [edge('fact', result)]), context()),
+    ).toMatchObject([
+      { kind: 'node', node: { id: 'result' }, phase: 'settle' },
+      { kind: 'result-edge', edge: { id: 'fact' }, node: { id: 'result' } },
+    ])
+    expect(
+      planWorkflowMotion(frame([result]), frame([result], [edge('fact', result)]), context()),
+    ).toEqual([])
   })
 
   it.each([
@@ -140,27 +192,44 @@ describe('workflow runtime motion policy', () => {
     )
   })
 
-  it('limits continuous motion to the newest visible running nodes', () => {
+  it('emphasizes only running nodes and leaves waiting or completed nodes static', () => {
     const values = Array.from({ length: 10 }, (_, index) =>
       node(`loop-${index}`, { sequence: index }),
     )
     values.push(node('waiting', { status: 'waiting', sequence: 20 }))
-    expect(selectWorkflowMotionLoops(frame(values), context(), 3).map((item) => item.id))
-      .toEqual(['loop-9', 'loop-8', 'loop-7'])
+    expect(selectWorkflowMotionLoops(frame(values), context(), 3).map((item) => item.id)).toEqual([
+      'loop-9',
+      'loop-8',
+      'loop-7',
+    ])
     expect(selectWorkflowMotionLoops(frame(values), context({ loops: false }), 8)).toEqual([])
     expect(selectWorkflowMotionLoops(frame(values), context({ replay: true }), 8)).toEqual([])
   })
 
   it('interpolates every orthogonal segment and clamps path timing', () => {
-    const points = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }]
+    const points = [
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+      { x: 40, y: 30 },
+    ]
     expect(polylineLength(points)).toBe(70)
     expect(pointAtPolylineProgress(points, 20 / 70)).toEqual({ x: 20, y: 0 })
     expect(pointAtPolylineProgress(points, 55 / 70)).toEqual({ x: 40, y: 15 })
     expect(pointAtPolylineProgress(points, -1)).toEqual({ x: 0, y: 0 })
     expect(pointAtPolylineProgress(points, 2)).toEqual({ x: 40, y: 30 })
     expect(workflowPathDurationMs(points)).toBe(1500)
-    expect(workflowPathDurationMs([{ x: 0, y: 0 }, { x: 220, y: 0 }])).toBe(2200)
-    expect(workflowPathDurationMs([{ x: 0, y: 0 }, { x: 500, y: 0 }])).toBe(3000)
+    expect(
+      workflowPathDurationMs([
+        { x: 0, y: 0 },
+        { x: 220, y: 0 },
+      ]),
+    ).toBe(2200)
+    expect(
+      workflowPathDurationMs([
+        { x: 0, y: 0 },
+        { x: 500, y: 0 },
+      ]),
+    ).toBe(3000)
   })
 
   it('builds a deterministic orthogonal relationship path in either direction', () => {

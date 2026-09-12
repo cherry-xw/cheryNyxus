@@ -1,8 +1,8 @@
-import { headerHandleId, type HeaderNodePort, type HeaderPoint } from './headerTemplate'
+import type { HeaderNodePort, HeaderPoint } from './headerTemplate'
+import { circuitRoute } from './headerCircuitRouting'
 import {
   portPoint,
   rectOverlaps,
-  relationTerminal,
   segmentHitsRect,
   segmentsCross,
   type BoardRelation,
@@ -11,13 +11,6 @@ import {
   type VisibleHeaderItem,
 } from './headerLayout'
 
-interface Endpoint {
-  point: HeaderPoint
-  escape: HeaderPoint
-  handle: string
-  reserve: HeaderRect
-  sign: number
-}
 const length = (points: HeaderPoint[]) =>
   points
     .slice(1)
@@ -36,149 +29,148 @@ function clean(points: HeaderPoint[]): HeaderPoint[] {
   }
   return result
 }
-
-/** Bounded short-route search. Every rejected route becomes explicit paired terminals, never a crossing. */
+/** Route all nets before placing labels; a label must never force an electrical detour. */
 export function routeBoardEdges(
   items: VisibleHeaderItem[],
   relations: BoardRelation[],
   ports: Record<string, HeaderNodePort[]>,
-  options: { minY?: number; compact?: boolean } = {},
+  options: { width: number; height: number },
 ): VisibleHeaderEdge[] {
-  const byId = new Map(items.map((item) => [item.id, item]))
-  const endpoints = new Map<string, Endpoint>()
+  const byId = new Map(items.map((n) => [n.id, n]))
+  const endpoints = new Map<string, { point: HeaderPoint; escape: HeaderPoint; handle: string }>()
   for (const edge of relations)
-    for (const end of ['source', 'target'] as const) {
-      const item = byId.get(edge[end])!,
-        peers = relations.filter((candidate) => candidate[end] === item.id)
-      const port = ports[item.id]!.filter((p) => p.type === end)[peers.indexOf(edge)]!
+    for (const type of ['source', 'target'] as const) {
+      const item = byId.get(edge[type])!,
+        peers = relations.filter((e) => e[type] === item.id),
+        port = ports[item.id]!.filter((p) => p.type === type)[peers.indexOf(edge)]!
       const point = portPoint(item, port.side, port.offset),
-        sign = port.side === 'right' ? 1 : -1
-      const escape = { x: point.x + sign * 24, y: point.y }
-      endpoints.set(`${edge.id}:${end}`, {
+        sign = item.terminal?.boundary ? -1 : 1
+      const normal = {
+        x: port.side === 'left' ? -1 : port.side === 'right' ? 1 : 0,
+        y: port.side === 'top' ? -1 : port.side === 'bottom' ? 1 : 0,
+      }
+      endpoints.set(`${edge.id}:${type}`, {
         point,
-        escape,
+        escape: { x: point.x + normal.x * sign * 24, y: point.y + normal.y * sign * 24 },
         handle: port.id,
-        sign,
-        reserve: { x: escape.x + (sign < 0 ? -44 : 0), y: escape.y - 8, width: 44, height: 16 },
       })
     }
   const obstacles: HeaderRect[] = [...items]
   const model = byId.get('model')
   if (model) obstacles.push({ x: model.x, y: model.y + model.height + 8, width: 280, height: 180 })
-  const used: HeaderPoint[][] = [],
-    edges: VisibleHeaderEdge[] = []
-  for (const edge of relations) {
-    const s = endpoints.get(`${edge.id}:source`)!,
-      t = endpoints.get(`${edge.id}:target`)!
-    const a = s.escape,
-      b = t.escape
-    const otherEndpoints = [...endpoints.values()].filter(
-      (endpoint) => endpoint !== s && endpoint !== t,
-    )
-    const blockers = [...obstacles, ...otherEndpoints.map((endpoint) => endpoint.reserve)]
-    const lines = [...used, ...otherEndpoints.map((endpoint) => [endpoint.point, endpoint.escape])]
-    const xs = [(a.x + b.x) / 2, a.x + 72, b.x - 72]
-    const ys = [(a.y + b.y) / 2, Math.min(a.y, b.y) - 76, Math.max(a.y, b.y) + 76]
-    const candidates: HeaderPoint[][] = [
-      ...(a.x === b.x || a.y === b.y ? [[a, b]] : []),
-      [a, { x: a.x, y: b.y }, b],
-      [a, { x: b.x, y: a.y }, b],
-      ...xs.map((x) => [a, { x, y: a.y }, { x, y: b.y }, b]),
-      ...ys.map((y) => [a, { x: a.x, y }, { x: b.x, y }, b]),
-    ]
-      .map(clean)
-      .sort((left, right) => left.length - right.length || length(left) - length(right))
-    let selected: HeaderPoint[] | undefined, labelPoint: HeaderPoint | undefined
-    for (const candidate of candidates) {
-      if (
-        candidate.some((p) => p.x < 8 || p.y < (options.minY ?? 140)) ||
-        length(candidate) > Math.max(160, length([a, b]) * 1.8)
+  let order = [...relations].sort((a, b) => {
+    const distance = (e: BoardRelation) =>
+      length([endpoints.get(`${e.id}:source`)!.point, endpoints.get(`${e.id}:target`)!.point])
+    return distance(a) - distance(b) || a.id.localeCompare(b.id)
+  })
+  let edges: VisibleHeaderEdge[] = []
+  const tried = new Set<string>()
+  for (let attempt = 0; attempt < relations.length * 2 + 1; attempt++) {
+    const key = order.map((e) => e.id).join('|')
+    if (tried.has(key)) break
+    tried.add(key)
+    edges = []
+    let failed: BoardRelation | undefined
+    for (const edge of order) {
+      const s = endpoints.get(`${edge.id}:source`)!,
+        t = endpoints.get(`${edge.id}:target`)!,
+        a = s.escape,
+        b = t.escape
+      const others = [...endpoints.values()].filter((p) => p !== s && p !== t)
+      // A boundary terminal is a measured 8px pin, and its own net passes through it.
+      const bodies = obstacles.filter(
+        (r) =>
+          r !== (byId.get(edge.source)?.terminal ? byId.get(edge.source) : undefined) &&
+          r !== (byId.get(edge.target)?.terminal ? byId.get(edge.target) : undefined),
       )
-        continue
-      if (
-        candidate.slice(1).some(
-          (p, i) =>
-            blockers.some((r) =>
-              segmentHitsRect(candidate[i]!, p, {
-                x: r.x - 6,
-                y: r.y - 6,
-                width: r.width + 12,
-                height: r.height + 12,
-              }),
-            ) ||
-            lines.some((line) =>
-              line.slice(1).some((q, j) => segmentsCross(candidate[i]!, p, line[j]!, q)),
-            ),
-        )
-      )
-        continue
-      const full = clean([s.point, ...candidate, t.point])
-      // A connector must leave its own package, not double back through it.
-      if (full.slice(1).some((p, i) => items.some((item) => segmentHitsRect(full[i]!, p, item))))
-        continue
-      if (edge.label) {
-        const labelWidth = edge.label.length * 12 + 20
-        const segment = full
+      const used = [...edges.map((e) => e.points), ...others.map((p) => [p.point, p.escape])]
+      const candidates = [
+        ...(a.x === b.x || a.y === b.y ? [[a, b]] : []),
+        [a, { x: a.x, y: b.y }, b],
+        [a, { x: b.x, y: a.y }, b],
+        ...[a.x, b.x, (a.x + b.x) / 2].map((x) => [a, { x, y: a.y }, { x, y: b.y }, b]),
+        ...[a.y, b.y, (a.y + b.y) / 2].map((y) => [a, { x: a.x, y }, { x: b.x, y }, b]),
+      ]
+        .map((p) => clean([s.point, ...p, t.point]))
+        .sort((a, b) => length(a) + 48 * a.length - length(b) - 48 * b.length)
+      const valid = (p: HeaderPoint[]) =>
+        p.every((q) => q.x >= 0 && q.y >= 0 && q.x <= options.width && q.y <= options.height) &&
+        p
           .slice(1)
-          .map((p, i) => [full[i]!, p] as const)
-          .find(([c, d]) => c.y === d.y && Math.abs(c.x - d.x) >= labelWidth + 16)
-        if (!segment) continue
-        const [c, d] = segment,
-          point = { x: (c.x + d.x) / 2, y: c.y - 22 }
-        const box = { x: point.x - labelWidth / 2, y: point.y - 12, width: labelWidth, height: 24 }
-        if (
-          blockers.some((r) => rectOverlaps(box, r, 6)) ||
-          [...lines, full].some((line) =>
-            line.slice(1).some((p, i) => segmentHitsRect(line[i]!, p, box)),
+          .every(
+            (b, i) =>
+              !bodies.some((r) => segmentHitsRect(p[i]!, b, r)) &&
+              !used.some((line) =>
+                line.slice(1).some((d, j) => segmentsCross(p[i]!, b, line[j]!, d)),
+              ),
           )
-        )
-          continue
-        labelPoint = point
-        obstacles.push(box)
+      let points = candidates.find(valid)
+      if (!points) {
+        try {
+          points = clean([
+            s.point,
+            ...circuitRoute(a, b, obstacles, used, options.width, options.height),
+            t.point,
+          ])
+        } catch {
+          failed = edge
+          break
+        }
       }
-      selected = full
-      break
-    }
-    const common = { memberIds: [edge.id], role: edge.role, collector: false }
-    if (selected) {
-      used.push(selected)
+      if (!valid(points)) {
+        failed = edge
+        break
+      }
       edges.push({
-        ...common,
         ...edge,
+        memberIds: [edge.id],
+        collector: false,
         sourceHandle: s.handle,
         targetHandle: t.handle,
-        points: selected,
-        labelPoint,
-      })
-      continue
-    }
-    for (const [end, endpoint] of [
-      ['source', s],
-      ['target', t],
-    ] as const) {
-      const outgoing = end === 'source',
-        id = `junction:${edge.id}:${end}`
-      const terminal = relationTerminal(edge.id, '', false, outgoing ? 'out' : 'in')
-      terminal.peerNodeId = outgoing ? terminal.target : terminal.source
-      const side = endpoint.sign > 0 ? 'left' : 'right',
-        type = outgoing ? 'target' : 'source'
-      const handle = headerHandleId(outgoing ? 'in' : 'out', side)
-      items.push({ id, kind: 'terminal', ...endpoint.reserve, terminal })
-      ports[id] = [{ id: handle, type, side, offset: 0 }]
-      const points = outgoing
-        ? [endpoint.point, endpoint.escape]
-        : [endpoint.escape, endpoint.point]
-      used.push(points)
-      edges.push({
-        ...common,
-        id: `${edge.id}:${end}`,
-        source: outgoing ? edge.source : id,
-        target: outgoing ? id : edge.target,
-        sourceHandle: outgoing ? endpoint.handle : handle,
-        targetHandle: outgoing ? handle : endpoint.handle,
         points,
       })
     }
+    if (!failed) break
+    order = [failed, ...order.filter((e) => e !== failed)]
+    if (attempt === relations.length * 2 || tried.has(order.map((e) => e.id).join('|')))
+      throw new Error(`Unroutable circuit relation ${failed.id}`)
   }
+  if (edges.length !== relations.length) throw new Error('Incomplete circuit')
+  const labels: HeaderRect[] = []
+  for (const edge of edges)
+    if (edge.label) {
+      const width = edge.label.length * 12 + 20
+      const candidates = edge.points.slice(1).flatMap((b, i) => {
+        const a = edge.points[i]!
+        return [0.5, 0.25, 0.75, 0, 1].flatMap((t) => {
+          const mid = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+          return [24, 48, 32, 64, 88, 112].flatMap((d) =>
+            a.x === b.x
+              ? [0, 24, -24, 48, -48].flatMap((shift) => [
+                  { x: mid.x + width / 2 + d, y: mid.y + shift },
+                  { x: mid.x - width / 2 - d, y: mid.y + shift },
+                ])
+              : [0, 24, -24, 48, -48].flatMap((shift) => [
+                  { x: mid.x + shift, y: mid.y - d },
+                  { x: mid.x + shift, y: mid.y + d },
+                ]),
+          )
+        })
+      })
+      const box = (p: HeaderPoint) => ({ x: p.x - width / 2, y: p.y - 12, width, height: 24 })
+      edge.labelPoint = candidates.find((p) => {
+        const r = box(p)
+        return (
+          r.x >= 8 &&
+          r.y >= 40 &&
+          r.x + r.width <= options.width - 8 &&
+          r.y + 24 <= options.height - 8 &&
+          ![...obstacles, ...labels].some((o) => rectOverlaps(r, o, 4)) &&
+          !edges.some((e) => e.points.slice(1).some((b, i) => segmentHitsRect(e.points[i]!, b, r)))
+        )
+      })
+      if (!edge.labelPoint) throw new Error(`No circuit label space for ${edge.id}`)
+      labels.push(box(edge.labelPoint))
+    }
   return edges
 }

@@ -15,6 +15,7 @@ export const OVERLAY_Z_INDEX = {
   historyDrawer: 10_000,
   modal: 10_100,
   approval: 10_200,
+  tooltip: 10_300,
 } as const
 
 /** A teleported menu follows its owner, below the next window and application modal. */

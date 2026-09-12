@@ -11,7 +11,6 @@ const emit = defineEmits<{
   selectScope: [event: HeaderScopeEvent]
   resetGroupOverrides: [headerId: string]
   toggle: [event: HeaderGroupToggleEvent]
-  expandAll: []
 }>()
 const runStatusText = computed(
   () =>
@@ -19,10 +18,10 @@ const runStatusText = computed(
       running: '运行中',
       waiting: '等待中',
       paused: '已暂停',
-      completed: '已完成',
+      completed: '等待用户输入',
       failed: '失败',
       cancelled: '已取消',
-      idle: '待命',
+      idle: '等待用户输入',
     })[props.data.runStatus] ?? '状态未知',
 )
 const current = computed(() => props.data.active.at(-1) ?? props.data.state.occurrences.at(-1))
@@ -69,10 +68,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
     </button>
     <header v-else class="workflow-header-caption">
       <strong>{{ data.title }}</strong>
-      <span
-        v-if="data.mode === 'full' && data.iterationCount > 0"
-        class="workflow-header-iteration"
-        :title="`外层 Loop 共 ${data.iterationCount} 轮，当前第 ${data.currentIteration} 轮`"
+      <span v-if="data.mode === 'full' && data.iterationCount > 0" class="workflow-header-iteration"
         >第 {{ data.currentIteration }} 轮</span
       >
       <span>{{ runStatusText }}</span>
@@ -125,24 +121,15 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
           @pointerdown.stop
           @click.stop="emit('selectScope', { headerId: id, scope: {} })"
         >
-          跟随当前运行
+          查看当前运行
         </button>
         <button
           type="button"
           class="nodrag nopan"
-          title="进入当前执行步骤所在电路板"
           @pointerdown.stop
           @click.stop="emit('resetGroupOverrides', id)"
         >
-          进入活动层
-        </button>
-        <button
-          type="button"
-          class="nodrag nopan"
-          @pointerdown.stop
-          @click.stop="emit('expandAll')"
-        >
-          封装总览
+          定位当前步骤
         </button>
         <button
           type="button"
@@ -152,8 +139,6 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
         >
           收起头部
         </button>
-        <span>{{ data.state.coverage }}</span>
-        <span>当前板显示直接元件；接口连接封装边界</span>
       </template>
     </header>
     <div
@@ -166,6 +151,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
         current ? headerStatusText(current.status, current.waitReason) : data.state.coverage
       }}</small>
     </div>
+
   </section>
 </template>
 
@@ -204,7 +190,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
 .workflow-header-caption {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
   min-height: 64px;
   flex-wrap: wrap;
   align-content: center;

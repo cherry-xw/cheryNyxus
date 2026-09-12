@@ -397,6 +397,51 @@ describe('workflow occurrence reducer', () => {
 })
 
 describe('unified workflow graph projection', () => {
+  it('keeps all layers expanded while following, including completed and replayed work', () => {
+    const model = occurrence('follow-model', {
+      branchId: 'main',
+      runId: 'run-root',
+      status: 'running',
+      endedAt: undefined,
+    })
+    const build = (items: WorkflowOccurrence[], follow = true) =>
+      projectWorkflowGraph(workflow(items), timeline(), 'participant', {}, [], {
+        follow,
+        expanded: { 'header:main': ['intake'] },
+      })
+    const active = build([model])
+    for (const edge of active.edges.filter((e) => e.type === 'header-flow')) {
+      const start = edge.data!.points![0]!
+      expect(edge.data!.renderPath).toMatch(new RegExp(`^M ${start.x} ${start.y}(?: |$)`))
+    }
+    const groups = (graph: WorkflowGraphProjection) =>
+      graph.nodes
+        .filter((n) => n.data?.kind === 'header-group' && !n.data.collapsed)
+        .map((n) => (n.data.kind === 'header-group' ? n.data.groupId : ''))
+    expect(groups(active)).toEqual(
+      expect.arrayContaining(['loop', 'record', 'tools', 'retry-layer', 'model-layer']),
+    )
+    expect(
+      active.nodes.some((n) => n.data?.kind === 'header-step' && n.data.template.id === 'input'),
+    ).toBe(true)
+    const input = occurrence('follow-input', {
+      kind: 'input',
+      branchId: 'main',
+      runId: 'run-root',
+      status: 'waiting',
+      endedAt: undefined,
+      firstSequence: 3,
+      lastSequence: 4,
+    })
+    const mixed = build([{ ...model, status: 'succeeded' }, input])
+    expect(groups(mixed)).toContain('record')
+    expect(groups(mixed)).toContain('model-layer')
+    expect(groups(build([{ ...model, status: 'succeeded' }]))).toHaveLength(8)
+    expect(groups(build([model], false))).toEqual(['intake'])
+    const positions = (graph: WorkflowGraphProjection) =>
+      graph.nodes.filter((n) => n.data?.kind === 'content').map((n) => [n.id, n.position])
+    expect(positions(mixed)).toEqual(positions(active))
+  })
   it('attaches only the latest matching live turn to a running model step', () => {
     const activeModel = occurrence('live-model', {
       branchId: 'main',
@@ -454,6 +499,13 @@ describe('unified workflow graph projection', () => {
     expect(
       overview.nodes.some((node) => node.data.kind === 'header-step' && node.data.liveTurn),
     ).toBe(false)
+    expect(overview.activeLiveTurn?.turnId).toBe('latest')
+    const liveHeader = overview.nodes.find((node) => node.data.kind === 'header')
+    expect(liveHeader?.data).not.toHaveProperty('liveTurn')
+    const withoutSteps = projectWorkflowGraph(workflow([]), timeline(), 'participant', {}, turns.filter((turn) => turn.runId === 'run-root'), { follow: true })
+    expect(withoutSteps.nodes.some((node) => node.data.kind === 'header-step' && node.data.template.id === 'model' && node.data.liveTurn?.turnId === 'latest')).toBe(true)
+    const replay = projectWorkflowGraph(workflow([activeModel]), timeline(), 'participant', {}, [], { live: false })
+    expect(replay.nodes.every((node) => node.data.kind !== 'header-step' || !node.data.liveTurn)).toBe(true)
     const steps = projection.nodes.filter(
       (
         node,
@@ -480,7 +532,27 @@ describe('unified workflow graph projection', () => {
     )
     expect(
       settled.nodes.some((node) => node.data?.kind === 'header-step' && !!node.data.liveTurn),
-    ).toBe(false)
+    ).toBe(true)
+  })
+
+  it('keeps tool calls independent of the model response and the outer header', () => {
+    const snapshot = timeline()
+    const call = snapshot.nodes[0]!.toolCalls![0]!
+    call.status = 'accepted'
+    call.arguments = '{"path":"example.ts"}'
+    const steps = workflow([occurrence('execution', {
+      kind: 'tool-execution', runId: 'run-root', callId: call.callId,
+      status: 'running', anchors: [{ kind: 'tool-call', id: call.callId, chatId: 'root' }],
+    })])
+    const project = (live: boolean, liveRuns: { chatId: string; runId: string }[]) =>
+      projectWorkflowGraph(steps, snapshot, 'participant', {}, [], { live, liveRuns })
+        .nodes.find((node) => node.data.kind === 'header' && node.data.chatId === 'root')!.data
+    const live = project(true, [{ chatId: 'root', runId: 'run-root' }])
+    expect(live).not.toHaveProperty('liveCalls')
+    expect(live.kind === 'header' && live.calls.some((item) => item.id === call.callId)).toBe(true)
+    for (const ended of [project(true, []), project(false, [{ chatId: 'root', runId: 'run-root' }])]) {
+      expect(ended).not.toHaveProperty('liveCalls')
+    }
   })
 
   it('uses stable content IDs and keeps missing anchors out of the result tree', () => {

@@ -37,7 +37,7 @@ export const HEADER_LAYERS: readonly HeaderLayer[] = [
   { id: 'tools', title: '工具处理', parent: 'record' },
   { id: 'retry-layer', title: '重试控制', parent: 'tools' },
   { id: 'model-layer', title: '模型调用', parent: 'retry-layer' },
-  { id: 'intake', title: '输入与资源' },
+  { id: 'intake', title: '输入与唤醒' },
   { id: 'compact', title: '上下文压缩', parent: 'model-layer' },
   { id: 'collaboration', title: '任务协作', parent: 'tools' },
 ]
@@ -77,7 +77,7 @@ const nodes = [
   n('queue', 'intake', '输入排队', ['queue'], '等待本轮消费的输入。'),
   n(
     'context',
-    'intake',
+    'model-layer',
     '上下文构建 / 恢复',
     ['context'],
     '角色、环境、记忆、技能和历史属于资源供给；细项没有独立事件。',
@@ -99,11 +99,11 @@ const nodes = [
     ['request'],
     '媒体、选项、消息转换和上下文守卫；这些细项不伪造独立运行态。',
   ),
-  n('model', 'model-layer', '模型请求与响应', ['model'], '展示当前运行、轮次与尝试的模型调用。'),
+  n('model', 'model-layer', '模型请求', ['model'], '展示当前运行、轮次与尝试的模型调用。'),
   n(
     'response',
     'model-layer',
-    '响应分流',
+    '大模型响应',
     ['model'],
     '文本、摘要和工具调用可交错流回外层。',
     'response',
@@ -111,7 +111,7 @@ const nodes = [
   n(
     'channels',
     'model-layer',
-    '文本 / 摘要 / 工具',
+    '响应分流',
     [],
     '通道可交错到达，不是三个串行执行步骤。',
     'unobserved',
@@ -222,9 +222,9 @@ const edges = [
   e('context', 'request', '资源供给', 'supply'),
   e('request', 'model'),
   e('model', 'response'),
-  e('model', 'channels', '交错通道', 'supply'),
-  e('response', 'checkpoint', '文本 / 摘要', 'condition'),
-  e('response', 'tool-list', '工具调用', 'condition'),
+  e('response', 'channels'),
+  e('channels', 'checkpoint', '文本 / 摘要', 'condition'),
+  e('channels', 'tool-list', '工具调用', 'condition'),
   e('model', 'error', '尝试失败', 'retry'),
   e('error', 'retry', '可恢复', 'retry'),
   e('retry', 'request', '再次尝试', 'retry'),
@@ -262,7 +262,7 @@ const edges = [
   e('compact-applied', 'request', '采用后准备', 'compact'),
 ]
 export const WORKFLOW_HEADER_TEMPLATE = {
-  version: 4 as const,
+  version: 6 as const,
   nodes,
   edges,
   groups: HEADER_LAYERS,

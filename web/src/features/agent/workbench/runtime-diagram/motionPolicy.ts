@@ -33,6 +33,7 @@ export interface WorkflowMotionEdge {
   family: 'header' | 'result'
   points: HeaderPoint[]
   evidenced: boolean
+  sourceOccurrenceId?: string
   targetOccurrenceId?: string
   targetStatus?: WorkflowMotionNodeStatus
   sequence: number
@@ -130,7 +131,13 @@ export function planWorkflowMotion(
     const group: WorkflowMotionDecision[] = [
       { key: `node:${node.id}`, kind: 'node', node, phase, spatial: context.spatial },
     ]
-    for (const edge of incoming.get(node.id) ?? []) {
+    const nodeEdges =
+      node.family === 'header' && node.occurrenceId
+        ? next.edges.filter(
+            (edge) => edge.family === 'header' && edge.targetOccurrenceId === node.occurrenceId,
+          )
+        : (incoming.get(node.id) ?? [])
+    for (const edge of nodeEdges) {
       if (node.family === 'header') {
         if (
           !edge.evidenced ||
@@ -220,6 +227,34 @@ export function workflowPathDurationMs(points: readonly HeaderPoint[]): number {
   return Math.max(1500, Math.min(3000, polylineLength(points) * 10))
 }
 
+/** Cross-layer segments of the same occurrence travel in physical endpoint order. */
+export function workflowPulseTiming(
+  edge: WorkflowMotionEdge,
+  edges: readonly WorkflowMotionEdge[],
+): { delay: number; duration: number } {
+  const visited = new Set([edge.id])
+  let current = edge
+  let delay = 0
+  while (current.points.length) {
+    const start = current.points[0]!
+    const previous = edges.find((candidate) => {
+      const end = candidate.points.at(-1)
+      return (
+        candidate.evidenced &&
+        candidate.targetOccurrenceId === edge.targetOccurrenceId &&
+        !visited.has(candidate.id) &&
+        end?.x === start.x &&
+        end.y === start.y
+      )
+    })
+    if (!previous) break
+    visited.add(previous.id)
+    delay += workflowPathDurationMs(previous.points) / 1000
+    current = previous
+  }
+  return { delay, duration: workflowPathDurationMs(edge.points) / 1000 }
+}
+
 /** Replaces effects atomically so rapid facts settle the latest state without a queue. */
 export class WorkflowMotionRegistry {
   private readonly entries = new Map<string, () => void>()
@@ -246,5 +281,38 @@ export class WorkflowMotionRegistry {
     const pending = [...this.entries.values()]
     this.entries.clear()
     for (const cancel of pending) cancel()
+  }
+}
+
+/** Continuous participation feedback is independent of a node's live loop. */
+export function workflowEdgePulseOpacity(edge: WorkflowMotionEdge): number {
+  if (edge.family !== 'header' || !edge.evidenced) return 0
+  return ['running', 'waiting'].includes(edge.targetStatus ?? '') ? 1 : 0.7
+}
+
+/** One shared cycle across physical segments, so the pulse crosses pins continuously. */
+export function workflowContinuousPulseTiming(
+  edge: WorkflowMotionEdge,
+  edges: readonly WorkflowMotionEdge[],
+) {
+  const related = edges.filter(
+    (candidate) =>
+      candidate.evidenced &&
+      candidate.sourceOccurrenceId === edge.sourceOccurrenceId &&
+      candidate.targetOccurrenceId === edge.targetOccurrenceId,
+  )
+  const timing = workflowPulseTiming(edge, related)
+  const total = Math.max(
+    timing.delay + timing.duration,
+    ...related.map((candidate) => {
+      const part = workflowPulseTiming(candidate, related)
+      return part.delay + part.duration
+    }),
+  )
+  const cycle = edge.targetStatus === 'running' ? 2.4 : 5.2
+  return {
+    delay: (timing.delay / total) * cycle,
+    duration: (timing.duration / total) * cycle,
+    cycle,
   }
 }
