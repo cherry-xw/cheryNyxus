@@ -103,7 +103,77 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
   const callOccurrences = new Map<string, string>()
   const keyedOccurrences = new Map<string, string>()
   const preflightCandidates = new Set<string>()
+  const latest = new Map<WorkflowStepKind, { id: string; iteration: number; attempt: number }>()
+  const callBatches = new Map<string, { id: string; occurrenceId: string }>()
   let childRunOccurrenceId: string | undefined
+
+  function current(kind: WorkflowStepKind, sameAttempt = false): string | undefined {
+    const item = latest.get(kind)
+    return item?.iteration === iteration && (!sameAttempt || item.attempt === attempt)
+      ? item.id
+      : undefined
+  }
+
+  function callKey(callId: string, kind: WorkflowStepKind): string {
+    return `${iteration}:${attempt}:${kind}:${callId}`
+  }
+
+  // These are execution dependencies, not the most recently observed event.
+  function predecessor(kind: WorkflowStepKind, callId?: string): string | undefined {
+    if (callId) {
+      const call = (step: WorkflowStepKind) => callOccurrences.get(callKey(callId, step))
+      switch (kind) {
+        case 'tool-validation':
+          return callBatches.get(callId)?.occurrenceId
+        case 'tool-authorization':
+          return call('tool-validation')
+        case 'tool-approval':
+          return call('tool-authorization')
+        case 'tool-preflight':
+          return call('tool-approval') ?? call('tool-authorization')
+        case 'tool-execution':
+          return call('tool-preflight')
+        case 'tool-result':
+          return (
+            call('tool-execution') ??
+            call('tool-preflight') ??
+            call('tool-approval') ??
+            call('tool-authorization') ??
+            call('tool-validation')
+          )
+      }
+    }
+    switch (kind) {
+      case 'input': {
+        const decision = latest.get('loop-decision')
+        return decision?.iteration === iteration - 1 ? decision.id : undefined
+      }
+      case 'command':
+        return current('input')
+      case 'request':
+        return current('retry') ?? current('command') ?? current('input') ?? current('context')
+      case 'model':
+        return current('request', true)
+      case 'retry':
+        return current('model', true)
+      case 'tool-list':
+        return current('model', true)
+      case 'checkpoint':
+        return current('model', true)
+      case 'loop-decision':
+        return current('checkpoint')
+      case 'result':
+        return current('loop-decision') ?? current('retry') ?? current('model', true)
+      case 'compact-request':
+        return current('request', true)
+      case 'compact-summary':
+        return current('compact-request')
+      case 'compact-applied':
+        return current('compact-summary')
+      default:
+        return undefined
+    }
+  }
 
   const common = () => ({
     ...identity,
@@ -155,6 +225,7 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
     fields: Partial<WorkflowJournalEventInput> = {},
   ): string {
     const id = occurrenceId(kind, key)
+    const causeOccurrenceId = fields.causeOccurrenceId ?? predecessor(kind, fields.callId)
     persist([
       {
         ...common(),
@@ -164,9 +235,11 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         kind,
         label: WORKFLOW_STEP_LABELS[kind],
         status: 'running',
+        ...(causeOccurrenceId ? { causeOccurrenceId } : {}),
         ...fields,
       },
     ])
+    latest.set(kind, { id, iteration, attempt })
     return id
   }
 
@@ -234,7 +307,7 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
     key: string,
     fields: Partial<WorkflowJournalEventInput> = {},
   ): string {
-    const mapKey = `${kind}:${key}`
+    const mapKey = `${iteration}:${attempt}:${kind}:${key}`
     const existing = keyedOccurrences.get(mapKey)
     if (existing) return existing
     const id = start(kind, key, fields)
@@ -248,8 +321,17 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
       finishActive()
       iteration = boundary.iteration ?? iteration + 1
       attempt = 0
+      // Loop has entered a new consumption round, even when it consumes tool results.
+      activeOccurrenceId = start('input')
+      activeKind = 'input'
+      callBatches.clear()
+      preflightCandidates.clear()
     }
-    if (boundary.attempt !== undefined) attempt = boundary.attempt
+    if (boundary.attempt !== undefined && boundary.attempt !== attempt) {
+      attempt = boundary.attempt
+      callBatches.clear()
+      preflightCandidates.clear()
+    }
     const previousStage = contextStageId
     if (boundary.compactRequested) {
       const compact = start('compact-request')
@@ -289,7 +371,7 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         sourceSuffix: 'response',
       })
     }
-    if (boundary.activeNodeId && !detailedModelBoundary) {
+    if (boundary.activeNodeId && boundary.activeNodeId !== 'tools' && !detailedModelBoundary) {
       const kind = NODE_KIND[boundary.activeNodeId] ?? 'unknown'
       const next = legacyStatus(boundary)
       if (activeKind !== kind || !activeOccurrenceId) {
@@ -307,6 +389,7 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         })
     }
     if (boundary.batch) {
+      if (activeKind === 'model') finishActive('succeeded', 'response')
       const list = startOnce('tool-list', boundary.batch.id, {
         batchId: boundary.batch.id,
       })
@@ -314,6 +397,17 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         reason: 'normal',
         batchId: boundary.batch.id,
       })
+      for (const call of boundary.batch.calls) {
+        callBatches.set(call.id, { id: boundary.batch.id, occurrenceId: list })
+        const validation = callOccurrences.get(callKey(call.id, 'tool-validation'))
+        if (validation)
+          addAnchor(
+            validation,
+            'tool-validation',
+            { kind: 'tool-call', id: call.id, chatId },
+            { callId: call.id, batchId: boundary.batch.id, causeOccurrenceId: list },
+          )
+      }
     }
     if (boundary.contextStageId && boundary.contextStageId !== previousStage) {
       contextStageId = boundary.contextStageId
@@ -331,14 +425,16 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
   }
 
   function callOccurrence(callId: string, kind: WorkflowStepKind): string {
-    const key = `${kind}:${callId}`
+    const key = callKey(callId, kind)
     const existing = callOccurrences.get(key)
     if (existing) return existing
     const id = startOnce(kind, callId, {
       callId,
-      anchor: { kind: 'tool-call', id: callId, chatId },
+      ...(callBatches.get(callId) ? { batchId: callBatches.get(callId)!.id } : {}),
     })
     callOccurrences.set(key, id)
+    // Validation may precede the final batch notification; its anchor is added there.
+    if (kind !== 'tool-validation') addAnchor(id, kind, { kind: 'tool-call', id: callId, chatId })
     return id
   }
 
@@ -347,7 +443,7 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
       const anchor: WorkflowContentAnchor = { kind: 'message', id: message.id, chatId }
       if (message.role === 'user') {
         const inputKey = message.inputId ?? message.id
-        recordWorkflowStep(chatId, {
+        const submission = recordWorkflowStep(chatId, {
           kind: 'submission',
           key: inputKey,
           scope: 'chat',
@@ -357,7 +453,7 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
           eventKey: 'accepted',
           anchor,
         })
-        recordWorkflowStep(chatId, {
+        const queue = recordWorkflowStep(chatId, {
           kind: 'queue',
           key: inputKey,
           scope: 'chat',
@@ -366,7 +462,10 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
           reason: 'consumed',
           eventKey: 'consumed',
           anchor,
+          causeOccurrenceId: submission,
         })
+        const input = current('input')
+        if (input) addAnchor(input, 'input', anchor, { causeOccurrenceId: queue })
       }
       if (message.role === 'role') {
         return
@@ -385,8 +484,20 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
       const kind: WorkflowStepKind =
         message.role === 'user' ? 'input' : message.role === 'sense' ? 'tool-result' : 'model'
       const linkedToolResult =
-        kind === 'tool-result' ? callOccurrences.get(`tool-result:${message.id}`) : undefined
-      if (linkedToolResult) addAnchor(linkedToolResult, kind, anchor)
+        kind === 'tool-result' ? callOccurrences.get(callKey(message.id, 'tool-result')) : undefined
+      if (linkedToolResult) {
+        addAnchor(linkedToolResult, kind, anchor)
+        const checkpoint = startOnce('checkpoint', `checkpoint:${message.id}`, {
+          callId: message.id,
+          causeOccurrenceId: linkedToolResult,
+        })
+        addAnchor(checkpoint, 'checkpoint', anchor)
+        status(checkpoint, 'checkpoint', 'succeeded', { reason: 'result' })
+      }
+      // A persisted pending placeholder is not a completed tool result.
+      else if (kind === 'tool-result') return
+      else if (kind === 'model' && current('model', true))
+        addAnchor(current('model', true)!, kind, anchor)
       else if (activeOccurrenceId && activeKind === kind)
         addAnchor(activeOccurrenceId, kind, anchor)
       else {
@@ -406,6 +517,7 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
           reason: invalidArguments ? 'validation' : 'normal',
           callId: chunk.id,
         })
+        if (invalidArguments) return
         const authorization = callOccurrence(chunk.id, 'tool-authorization')
         status(
           authorization,
@@ -427,6 +539,9 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         })
       } else if (chunk.type === 'sense_started') {
         const preflight = callOccurrence(chunk.id, 'tool-preflight')
+        const approval = callOccurrences.get(callKey(chunk.id, 'tool-approval'))
+        if (approval)
+          status(approval, 'tool-approval', 'succeeded', { reason: 'approval', callId: chunk.id })
         status(preflight, 'tool-preflight', 'succeeded', {
           reason: 'preflight',
           callId: chunk.id,
@@ -438,8 +553,10 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         })
       } else if (chunk.type === 'sense_accept' || chunk.type === 'sense_reject') {
         const finalStatus = chunk.type === 'sense_reject' ? 'rejected' : 'succeeded'
-        const approval = callOccurrences.get(`tool-approval:${chunk.id}`)
-        const execution = callOccurrences.get(`tool-execution:${chunk.id}`)
+        const approval = callOccurrences.get(callKey(chunk.id, 'tool-approval'))
+        const execution = callOccurrences.get(callKey(chunk.id, 'tool-execution'))
+        if (approval && !execution)
+          status(approval, 'tool-approval', finalStatus, { reason: 'approval', callId: chunk.id })
         if (
           chunk.type === 'sense_reject' &&
           !approval &&
