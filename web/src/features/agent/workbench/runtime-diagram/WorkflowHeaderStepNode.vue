@@ -43,9 +43,17 @@ function openInfo(event: PointerEvent): void {
 function closeInfo(): void {
   if (!infoFocused.value) infoOpen.value = false
 }
-function focusInfo(): void { infoFocused.value = true; infoOpen.value = true }
-function blurInfo(): void { infoFocused.value = false; infoOpen.value = false }
-function activateInfo(): void { infoOpen.value = true }
+function focusInfo(): void {
+  infoFocused.value = true
+  infoOpen.value = true
+}
+function blurInfo(): void {
+  infoFocused.value = false
+  infoOpen.value = false
+}
+function activateInfo(): void {
+  infoOpen.value = !infoOpen.value
+}
 </script>
 
 <template>
@@ -99,12 +107,7 @@ function activateInfo(): void { infoOpen.value = true }
       <span class="workflow-step-visual" data-workflow-node-visual>
         <span class="workflow-step-title">
           {{ data.template.title }}
-          <em v-if="data.iterationCount > 1" class="workflow-step-iteration">
-            轮 {{ data.iteration }}
-          </em>
         </span>
-        <span class="workflow-step-state">{{ data.slot.statusText }}</span>
-        <span class="workflow-step-summary" :title="data.summary">{{ data.summary }}</span>
       </span>
     </button>
     <button
@@ -119,6 +122,7 @@ function activateInfo(): void { infoOpen.value = true }
       @focus="focusInfo"
       @blur="blurInfo"
       @click.stop="activateInfo"
+      @keydown.esc.stop="infoOpen = false"
     >
       <InfoFilled aria-hidden="true" />
     </button>
@@ -148,7 +152,11 @@ function activateInfo(): void { infoOpen.value = true }
   border: 1px solid color-mix(in srgb, var(--workflow-capability) 58%, var(--border-strong));
   border-radius: 0;
   background:
-    linear-gradient(105deg, color-mix(in srgb, var(--workflow-capability) 10%, transparent), transparent 58%),
+    linear-gradient(
+      105deg,
+      color-mix(in srgb, var(--workflow-capability) 10%, transparent),
+      transparent 58%
+    ),
     var(--surface);
   color: var(--ink);
   cursor: pointer;
@@ -224,7 +232,8 @@ function activateInfo(): void { infoOpen.value = true }
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.4;
 }
 .workflow-step-iteration {
   display: inline-block;
@@ -238,7 +247,13 @@ function activateInfo(): void { infoOpen.value = true }
   font-weight: 400;
   vertical-align: 1px;
 }
-.workflow-step-summary { font-size: 12px; color: color-mix(in srgb, var(--ink) 72%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-step-summary {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .workflow-step-state {
   display: flex;
   align-items: center;
@@ -280,7 +295,11 @@ function activateInfo(): void { infoOpen.value = true }
 }
 .skin-archive .workflow-step-button {
   background:
-    repeating-linear-gradient(135deg, transparent 0 8px, color-mix(in srgb, var(--workflow-capability) 7%, transparent) 8px 9px),
+    repeating-linear-gradient(
+      135deg,
+      transparent 0 8px,
+      color-mix(in srgb, var(--workflow-capability) 7%, transparent) 8px 9px
+    ),
     var(--surface);
 }
 .shape-note .workflow-step-button {
@@ -300,6 +319,12 @@ function activateInfo(): void { infoOpen.value = true }
 .state-succeeded .workflow-step-button {
   border-color: var(--success);
 }
+.state-waiting .workflow-step-capability-icon { color: var(--warning); }
+.state-succeeded .workflow-step-capability-icon { color: var(--success); }
+.state-failed .workflow-step-capability-icon,
+.state-rejected .workflow-step-capability-icon { color: var(--danger); }
+.state-idle .workflow-step-button { border-color: var(--border-strong); }
+.state-idle .workflow-step-capability-icon { color: var(--ink); }
 .state-failed .workflow-step-button,
 .state-rejected .workflow-step-button {
   border-color: var(--danger);

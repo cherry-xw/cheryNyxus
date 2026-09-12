@@ -1,8 +1,8 @@
-﻿# T07 综合验证与用户验收
+# T07 综合验证与用户验收
 
 **文档创建时间：** 2026-09-11T02:09:12+08:00
 
-状态：未开始。所属[总任务](README.md)。复杂度 4/5：新版投影、完整头部、官网参照动效、卡牌冻结、恢复与真实性能。依赖 T20、T21 完成并删除独立子计划后才进入。
+状态：未开始。所属[总任务](README.md)。复杂度 4/5：新版投影、完整头部、官网参照动效、卡牌冻结、恢复与真实性能。依赖 T20、T22、T21 完成并删除独立子计划后才进入。
 
 这是既有最终验证文档的重建，只作预登记。旧自动通过事实保留在总任务，不能用于新版验收；以下清单全部重置。范围再变化时同步本清单与[手动手册](verify/manual-final.md)。
 
@@ -16,32 +16,32 @@
 
 | 编号 | 目标与命令                                                                                                                     | 通过标准                                                     | 状态   |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ | ------ |
-| A01  | `node tools/plan-viewer/lint.mjs`、`node docs/plan/main-agent-runtime-diagram/verify/check-doc-links.mjs`、`git diff --check`  | 入口、台账、链接、路径有效，无本轮空白错误                   | 待执行 |
-| A02  | `pnpm type-check:all`                                                                                                          | 跨端类型通过，无新 RPC/schema 变化                           | 待执行 |
-| A03  | `pnpm lint`、`pnpm --filter web lint`                                                                                          | 退出 0；既有 warning 如实记录                                | 待执行 |
-| A04  | `pnpm build`、`pnpm web:build`                                                                                                 | 后端与 Web/Electron 构建退出 0，记录真实限制                 | 待执行 |
-| A05  | `pnpm test:web`                                                                                                                | Web 行为、架构、SFC、性能门禁通过，包含 T13–T18 新测试       | 待执行 |
-| A06  | `pnpm exec vitest run --config docs/plan/main-agent-runtime-diagram/verify/vitest.config.ts`                                   | workflow 隔离 fixture 全通过，不访问用户数据                 | 待执行 |
-| A07  | 复核 T13 基线到最终变更，检查 A05 中 workbenchReader、paperStackIntegration、useWorkbenchViewPreferences、workbenchPreferences | 卡牌组件、样式、阅读模型、开关与偏好无本轮改动，图端选择兼容 | 待执行 |
+| A01  | `node tools/plan-viewer/lint.mjs`、`node docs/plan/main-agent-runtime-diagram/verify/check-doc-links.mjs`、`git diff --check`  | 入口、台账、链接、路径有效，无本轮空白错误                   | ✅ 3 命令均 exit 0 |
+| A02  | `pnpm type-check:all`                                                                                                          | 跨端类型通过，无新 RPC/schema 变化                           | ✅ exit 0 |
+| A03  | `pnpm lint`、`pnpm --filter web lint`                                                                                          | 退出 0；既有 warning 如实记录                                | ✅ 0 errors / 19 存量 warnings（依据 t2 修复） |
+| A04  | `pnpm build`、`pnpm web:build`                                                                                                 | 后端与 Web/Electron 构建退出 0，记录真实限制                 | ✅ 均 exit 0（仅插件耗时提示与 EBUSY 锁噪音） |
+| A05  | `pnpm test:web`                                                                                                                | Web 行为、架构、SFC、性能门禁通过，包含递归封装、接口追踪与导航回归       | ✅ 已执行（t1）；唯一失败项 paperStackIntegration 断言已随 t8 同步新基线（400 12px），复跑 7/7 通过 |
+| A06  | `pnpm exec vitest run --config docs/plan/main-agent-runtime-diagram/verify/vitest.config.ts`                                   | workflow 隔离 fixture 全通过，不访问用户数据                 | ✅ 5 文件 24 项全过（标准 vitest 4.1.9 与 .ignored_vitest 均验证） |
+| A07  | 复核 T13 基线到最终变更，检查 A05 中 workbenchReader、paperStackIntegration、useWorkbenchViewPreferences、workbenchPreferences | 卡牌组件、样式、阅读模型、开关与偏好无本轮改动，图端选择兼容 | ✅ 5 冻结文件 SHA 与上表重登记值一致（styles.less 按方案 B 新基线，其余 4 项不变） |
 
-A07 的 T13 开发前基线为 HEAD `25c3c06a20760f343c776c38f7817ed8535a61b4` 上的已有工作区，冻结文件 SHA-256 如下：
+A07 冻结基线按 `9f64fa3` 之后工作区重登记：用户已批准方案 B，`9f64fa3` 的卡牌改动正式登记为冻结范围变更（含标题字号提升至 12px）；`NodePaperStack.styles.less` 已按 t8 落地后的实际字节重登记（当前文件为 LF 行尾，LF 归一 = 工作区字节；旧记录 EF60E351… 为旧内容 CRLF 归一值，作废），其余 4 文件哈希不变。冻结文件 SHA-256 如下：
 
 | 文件                                                                | SHA-256                                                            |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `web/src/features/pets/nyxus/public.ts`                             | `88D2DF3864417CB392E02E30EC9B9CB6DB87EAB3212AEF605C20E9CED26856C5` |
 | `web/src/features/pets/nyxus/paper/readerProjection.ts`             | `AA83584F1785278023B9F9EC7A24B6CCB1495EDE6B80903CEA73F04589B220D7` |
 | `web/src/features/pets/nyxus/components/NodePaperStack.vue`         | `5D817E5955A960831F073D2BA8EDA27F0E3C5DC9306BDC0E78E966D1F6B2C020` |
-| `web/src/features/pets/nyxus/components/NodePaperStack.styles.less` | `EF60E35166A042900E698A8044DF2F2BD8C72883BFB94ED3238AD871F4849354` |
+| `web/src/features/pets/nyxus/components/NodePaperStack.styles.less` | `2DF9DDAFC89D8C2E9332A43E1E51A135EAAC82641CC5BCD82155A5DF4016505D`（LF 归一 = 工作区字节，方案 B 重登记） |
 | `web/src/features/agent/workbench/useWorkbenchViewPreferences.ts`   | `3575E8743C0F3402F8E5CF85CA79F88BC45FE5A987BC4E13392489677EBC559A` |
 
-T14 定向回归已发现一项冻结基线内的既有差异：`paperStackIntegration.test.ts` 期望 `700 13px/1.25 ui-monospace`，而冻结的 `NodePaperStack.styles.less` 当前为 `400 11px/1.25 ui-monospace`。T14 未修改上述冻结文件且 SHA-256 一致；A05 若再次报告该断言，须由 A05/A07 联合判定是修正测试预期还是另立卡牌范围，不能归因于结果树改动，也不能在图任务中改写冻结卡牌。
+T14 定向回归发现的冻结基线内差异（`paperStackIntegration.test.ts` 期望 `700 13px/1.25 ui-monospace`，而 `NodePaperStack.styles.less` 为 `400 11px/1.25 ui-monospace`）已由用户拍板采用方案 B：新卡牌样式（`9f64fa3` 改动 + 标题 12px）正式登记为冻结新基线，测试预期同步更新至新基线；不再还原旧样式，A05 断言按新基线通过，SHA 表按 t8 重登记值更新。该差异不归因于结果树改动，冻结卡牌样式仅由方案 B 授权变更。
 
 构建、全量测试与性能复跑串行执行，避免资源争用；失败先定位，不降低阈值。规划阶段文档检查不等于最终代码上的 A01 已完成。
 
 必须由新测试覆盖：
 
 - 结果树只含 canonical 业务内容，内部步骤增量不改变节点/计数/折叠/lane；流式到持久不重复。
-- `workflowHeaderTemplate` / `workflowHeaderState`：模板必备路径及 Loop/重试/压缩回边、正交路由不穿步骤主体、分离端口合法性、parent 绝对位置及完整/简略头部避让；T20 约束无含混交叉/重叠、无丢边，五层 32 种折叠全部验证，标签锚点在对应路段且标签包围盒不遮挡节点。完成状态保留、run/轮次/尝试切换与未归属运行事实读取。定向通过不替代 A05 全量回归。
+- `workflowHeaderLayout` / `workflowHeaderTemplate` / `workflowHeaderNavigation` / `workflowHeaderState`：全部 9 张板的原始关系守恒、内部/外部关系记账、独立引脚、零交叉/零重叠/T 接触/穿元件、标签和实时面板避让、接口双端追踪、逐层导航与相机恢复；主结果历史位置不变。完成状态保留，run/轮次/尝试和未归属事实隔离。定向通过不替代 A05 全量回归。
 - 同名 call 隔离、拒绝后未发生槽位中性、子返回与父接收/继续分别表达。
 - anchor 缺失/晚到、同 ID 跨 chat、旧数据/gap、分页 conflict、重连/root 竞态、多 owner 租约与内容降级可读。
 - 卡牌契约与当前审批入口不变；固定回放上界及内容帧，seek/暂停无执行副作用。
@@ -63,11 +63,11 @@ T14 定向回归已发现一项冻结基线内的既有差异：`paperStackInteg
 | M05  | 工具、审批、分支、步骤详情 | 手册第 5 节 | call 独立，等待/拒绝准确，主干与动作正确         | 待执行 |
 | M06  | 恢复、回放、相机与可访问性 | 手册第 6 节 | 固定回放，无补播/抢相机，主题/窗口/键盘可用      | 待执行 |
 | M07  | 生命周期和性能             | 手册第 7 节 | 正常 p95 ≤20ms，压力 p95 ≤33ms，清理正确         | 待执行 |
-| M08  | 头部分组真收起与迭代展示   | 手册第 1 节 | 父层收起仅显示标题，后代/清单/实时输出隐藏；手动收起优先；32 种折叠关系守恒、不同父层连接保留、线条清楚且同步过渡 | 待执行 |
+| M08 | 递归封装、接口和导航 | 手册第 8 节 | 芯片逐层进入，内部节点不泄露到外层；单板无交叉；接口可双端追踪；返回恢复视野与焦点，运行不自动切层 | 待执行 |
 
 每项记录执行人、日期、环境及结论；失败给复现。M01–M04 不得以自动通过替代或标不适用；数据不足先准备可丢弃 fixture。
 
 ## 当前结果与完成标准
 
-本轮最终验证尚未执行。自动通过而必要人工未完成，保持待综合验证；失败回到执行中登记新修正任务并同步清单。全部通过后删除本子计划，总任务进入待用户审批；用户明确批准后才按项目政策收口整个目录。当前无提交或部署授权。
+本轮最终验证执行中：A01–A07 自动清单已全部 ✅（A05/A07 两项失败同源，用户批准方案 B 后由 t8 同步新基线：styles.less 标题 12px、测试预期 400 12px、SHA 重登记，复跑 7/7 通过）。自动通过而必要人工未完成，保持待综合验证；失败回到执行中登记新修正任务并同步清单。全部通过后删除本子计划，总任务进入待用户审批；用户明确批准后才按项目政策收口整个目录。当前无提交或部署授权。
 

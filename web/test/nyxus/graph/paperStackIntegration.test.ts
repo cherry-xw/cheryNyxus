@@ -95,7 +95,7 @@ describe('paper stack workbench integration', () => {
     expect(card).toContain('--paper-font-title: 16px')
     expect(card).toContain('.side-card-body :deep(.tool-field > dd)')
     expect(stack).toContain('font-synthesis: none')
-    expect(stack).toContain('700 13px/1.25 ui-monospace')
+    expect(stack).toContain('400 12px/1.25 ui-monospace')
     expect(question).toContain('.question-card.is-paper {')
     expect(question).toContain('font-size: var(--paper-font-body, 13px)')
   })

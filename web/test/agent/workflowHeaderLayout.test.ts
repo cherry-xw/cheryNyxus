@@ -1,78 +1,127 @@
 import { describe, expect, it } from 'vitest'
-import { layoutHeader, layerAncestors, resolveCollapsedLayers, segmentHitsRect } from '../../src/features/agent/workbench/runtime-diagram/headerLayout'
-import { WORKFLOW_HEADER_TEMPLATE as template, HEADER_NODE_SIZE } from '../../src/features/agent/workbench/runtime-diagram/headerTemplate'
+import {
+  HEADER_BOARDS,
+  boardParent,
+  boardPath,
+  layoutHeader,
+  portPoint,
+  rectOverlaps,
+  segmentHitsRect,
+  segmentsCross,
+} from '../../src/features/agent/workbench/runtime-diagram/headerLayout'
+import { WORKFLOW_HEADER_TEMPLATE as template } from '../../src/features/agent/workbench/runtime-diagram/headerTemplate'
+import { boardZoomIntent } from '../../src/features/agent/workbench/runtime-diagram/useHeaderBoardNavigation'
 
-describe('recursive header projection', () => {
-  const core = ['loop', 'record', 'tools', 'retry-layer', 'model-layer']
-  it('preserves every relation for all 32 core collapse settings', () => {
-    for (let mask = 0; mask < 32; mask++) {
-      const collapsed = new Set(core.filter((_, i) => mask & (1 << i)))
-      const graph = layoutHeader(collapsed)
-      const accounted = [...graph.internalEdgeIds, ...graph.edges.flatMap((e) => e.memberIds)]
-      expect(accounted.sort()).toEqual(template.edges.map((e) => e.id).sort())
-      for (const item of graph.items) {
-        if (item.kind === 'step') expect(layerAncestors(template.nodes.find((n) => n.id === item.id)!.group).some((g) => collapsed.has(g))).toBe(false)
-        if (item.collapsed) expect([item.width, item.height]).toEqual([HEADER_NODE_SIZE.width, HEADER_NODE_SIZE.height])
-      }
-      for (const edge of graph.edges) {
-        expect(edge.source).not.toBe(edge.target)
-        expect(graph.ports[edge.source]?.some((p) => p.id === edge.sourceHandle)).toBe(true)
-        expect(graph.ports[edge.target]?.some((p) => p.id === edge.targetHandle)).toBe(true)
-        for (let i = 1; i < edge.points.length; i++) {
-          const a = edge.points[i - 1]!, b = edge.points[i]!
-          expect(a.x === b.x || a.y === b.y).toBe(true)
-          for (const item of graph.items) {
-            if ((item.kind === 'group' && !item.collapsed) || [edge.source, edge.target].includes(item.id)) continue
-            expect(segmentHitsRect(a, b, item), `${mask} ${edge.id} crosses ${item.id}`).toBe(false)
-          }
+describe('recursive circuit packages', () => {
+  for (const board of HEADER_BOARDS)
+    it(`${board}: conserves relations and routes isolated single-layer nets`, () => {
+      const graph = layoutHeader(board)
+      const visible = [...new Set(graph.edges.flatMap((edge) => edge.memberIds))]
+      expect([...visible, ...graph.internalEdgeIds, ...graph.externalEdgeIds].sort()).toEqual(
+        template.edges.map((edge) => edge.id).sort(),
+      )
+      for (const [i, item] of graph.items.entries()) {
+        expect([item.x, item.y, item.width, item.height].every(Number.isFinite)).toBe(true)
+        expect(item.x).toBeGreaterThanOrEqual(0)
+        expect(item.y).toBeGreaterThanOrEqual(0)
+        expect(item.x + item.width).toBeLessThanOrEqual(graph.width)
+        expect(item.y + item.height).toBeLessThanOrEqual(graph.height)
+        for (const other of graph.items.slice(i + 1))
+          expect(rectOverlaps(item, other), `${item.id} overlaps ${other.id}`).toBe(false)
+        if (item.kind === 'step')
+          expect(template.nodes.find((node) => node.id === item.id)?.group).toBe(board)
+        if (item.kind === 'group') expect(boardParent(item.id)).toBe(board)
+        for (const port of graph.ports[item.id] ?? []) {
+          expect(Math.abs(port.offset)).toBeLessThanOrEqual(item.height / 2 - 8)
+        }
+        if (item.terminal) {
+          expect(template.edges.find((e) => e.id === item.terminal!.relationId)).toMatchObject({
+            source: item.terminal.source,
+            target: item.terminal.target,
+          })
+          expect(template.nodes.some((node) => node.id === item.terminal!.peerNodeId)).toBe(true)
         }
       }
-    }
-  }, 120000)
-  it('retains edges between separately collapsed parents and hides nested panels', () => {
-    const graph = layoutHeader(new Set(['loop', 'intake', 'compact', 'collaboration']))
-    expect(graph.items.every((n) => n.kind === 'group')).toBe(true)
-    expect(graph.edges.some((e) => e.source === 'intake' && e.target === 'loop')).toBe(true)
-    expect(graph.edges.some((e) => e.source === 'loop' && e.target === 'compact')).toBe(true)
-    expect(graph.edges.some((e) => e.source === 'collaboration' && e.target === 'loop')).toBe(true)
+      for (const edge of graph.edges) {
+        for (const end of ['source', 'target'] as const) {
+          const item = graph.items.find((candidate) => candidate.id === edge[end])!
+          const port = graph.ports[item.id]?.find(
+            (candidate) => candidate.id === edge[`${end}Handle`],
+          )!
+          expect(port).toBeDefined()
+          expect(end === 'source' ? edge.points[0] : edge.points.at(-1)).toEqual(
+            portPoint(item, port.side, port.offset),
+          )
+        }
+        expect(edge.points.length).toBeLessThanOrEqual(6)
+        for (const [i, b] of edge.points.slice(1).entries()) {
+          const a = edge.points[i]!
+          expect(a.x === b.x || a.y === b.y).toBe(true)
+          for (const item of graph.items)
+            expect(segmentHitsRect(a, b, item), `${edge.id} penetrates ${item.id}`).toBe(false)
+        }
+        if (edge.label) expect(edge.labelPoint).toBeDefined()
+      }
+      const segments = graph.edges.flatMap((edge) =>
+        edge.points.slice(1).map((b, i) => ({ id: edge.id, a: edge.points[i]!, b })),
+      )
+      const model = graph.items.find((item) => item.id === 'model')
+      if (model)
+        for (const segment of segments) {
+          expect(
+            segmentHitsRect(segment.a, segment.b, {
+              x: model.x,
+              y: model.y + model.height + 8,
+              width: 280,
+              height: 180,
+            }),
+          ).toBe(false)
+        }
+      for (const edge of graph.edges.filter((e) => e.label && e.labelPoint)) {
+        const width = edge.label!.length * 12 + 20
+        const box = {
+          x: edge.labelPoint!.x - width / 2,
+          y: edge.labelPoint!.y - 12,
+          width,
+          height: 24,
+        }
+        for (const item of graph.items) expect(rectOverlaps(box, item)).toBe(false)
+        for (const segment of segments)
+          expect(segmentHitsRect(segment.a, segment.b, box)).toBe(false)
+      }
+      for (const [i, a] of segments.entries())
+        for (const b of segments.slice(i + 1)) {
+          if (a.id === b.id) continue
+          expect(segmentsCross(a.a, a.b, b.a, b.b), `${a.id} touches ${b.id}`).toBe(false)
+        }
+    })
+  it('encapsulates descendants and keeps architecture depth distinct from execution order', () => {
+    expect(HEADER_BOARDS.flatMap((board) => layoutHeader(board).items.filter((item) => item.kind === 'step').map((item) => item.id)).sort()).toEqual(template.nodes.map((node) => node.id).sort())
+    const top = layoutHeader()
+    expect(top.items.filter((item) => item.kind === 'group').map((item) => item.id)).toEqual([
+      'intake',
+      'loop',
+    ])
+    expect(top.items.some((item) => item.id === 'model')).toBe(false)
+    expect(top.representatives.model).toBe('loop')
+    expect(layoutHeader('record').representatives.model).toBe('tools')
+    expect(boardPath('model-layer')).toEqual([
+      'overview',
+      'loop',
+      'record',
+      'tools',
+      'retry-layer',
+      'model-layer',
+    ])
+    expect(layoutHeader('tools').items.some((item) => item.id === 'calls')).toBe(true)
+    expect(layoutHeader('loop').items.some((item) => item.id === 'calls')).toBe(false)
+    expect(layoutHeader('invalid')).toBe(top)
   })
-  it('respects manual collapse over running descendants and isolates header overrides', () => {
-    const active = new Set(['model-layer'])
-    expect(resolveCollapsedLayers({headerId: 'h', active, follow: true}).has('loop')).toBe(false)
-    expect(resolveCollapsedLayers({headerId: 'h', active, follow: true, overrides: {'h:tools': true}}).has('tools')).toBe(true)
-    expect(resolveCollapsedLayers({headerId: 'other', active, follow: true, overrides: {'h:tools': true}}).has('tools')).toBe(false)
+  it('keeps normal reading zoom separate from deliberate depth changes', () => {
+    expect(boardZoomIntent(1, -20, true, 'loop')).toBeUndefined()
+    expect(boardZoomIntent(1.5, -20, false, 'loop')).toBeUndefined()
+    expect(boardZoomIntent(1.5, -20, true, 'loop')).toBe('enter')
+    expect(boardZoomIntent(0.5, 20, false, 'loop')).toBe('back')
+    expect(boardZoomIntent(0.5, 20, false, 'overview')).toBeUndefined()
   })
-})
-
-it('reports layout route quality for the complete head', () => {
-  const graph = layoutHeader()
-  let crossings = 0, overlaps = 0
-
-  const segments = graph.edges.flatMap((e) => e.points.slice(1).map((b,i) => ({id:e.id,collector:e.collector,a:e.points[i]!,b})))
-  for (let i=0;i<segments.length;i++) for (let j=i+1;j<segments.length;j++) {
-    const a=segments[i]!,b=segments[j]!
-    if(a.id===b.id || (a.collector && b.collector)) continue
-    const ah=a.a.y===a.b.y,bh=b.a.y===b.b.y
-    if(ah===bh) {
-      const axis=ah?'x':'y'
-      if((ah?a.a.y===b.a.y:a.a.x===b.a.x)&&Math.min(Math.max(a.a[axis],a.b[axis]),Math.max(b.a[axis],b.b[axis]))>Math.max(Math.min(a.a[axis],a.b[axis]),Math.min(b.a[axis],b.b[axis]))) overlaps++
-    } else {
-      const h=ah?a:b,v=ah?b:a
-      if(v.a.x>Math.min(h.a.x,h.b.x)&&v.a.x<Math.max(h.a.x,h.b.x)&&h.a.y>Math.min(v.a.y,v.b.y)&&h.a.y<Math.max(v.a.y,v.b.y)) crossings++
-    }
-  }
-  expect(crossings).toBeLessThanOrEqual(4)
-  expect(graph.edges.filter(e => e.label && !e.labelPoint)).toEqual([])
-  expect(overlaps).toBe(0)
-})
-
-import { moveHeaderPath, headerCrossingPath } from '../../src/features/agent/workbench/runtime-diagram/headerPaths'
-it('keeps moving endpoints attached with orthogonal segments and distinguishes crossings', () => {
-  const source = {x: 20, y: 25}, target = {x: 260, y: 170}
-  const path = moveHeaderPath([{x:0,y:0},{x:100,y:0},{x:100,y:100},{x:200,y:100}], source, target)
-  expect(path[0]).toEqual(source)
-  expect(path.at(-1)).toEqual(target)
-  for(let i=1;i<path.length;i++) expect(path[i]!.x===path[i-1]!.x || path[i]!.y===path[i-1]!.y).toBe(true)
-  expect(headerCrossingPath([{x:0,y:50},{x:100,y:50}], [[{x:50,y:0},{x:50,y:100}]]))
-    .toBe('M 0 50 L 46 50 M 54 50 L 100 50')
 })

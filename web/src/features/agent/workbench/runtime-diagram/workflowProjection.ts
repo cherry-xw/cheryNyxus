@@ -16,7 +16,7 @@ export interface WorkflowHeaderSection {
   kinds: WorkflowStepKind[]
 }
 
-export const WORKFLOW_HEADER_TEMPLATE_VERSION = 3 as const
+export const WORKFLOW_HEADER_TEMPLATE_VERSION = 4 as const
 
 export const WORKFLOW_STEP_LABELS: Record<WorkflowStepKind, string> = {
   submission: '输入接收',
@@ -414,9 +414,7 @@ export function projectWorkflowScene(
     )
     const iterationCount = iterations.length
     const activeIteration = laneOccurrences
-      .filter(
-        (occurrence) => occurrence.status === 'running' || occurrence.status === 'waiting',
-      )
+      .filter((occurrence) => occurrence.status === 'running' || occurrence.status === 'waiting')
       .at(-1)?.iteration
     const currentIteration = activeIteration ?? iterations.at(-1) ?? 1
     const chatId =

@@ -4,34 +4,134 @@ import type { HeaderChildData, HeaderGroupToggleEvent } from './headerGraph'
 type GroupData = Extract<HeaderChildData, { kind: 'header-group' }>
 defineProps<NodeProps<GroupData>>()
 const emit = defineEmits<{ toggle: [event: HeaderGroupToggleEvent] }>()
-const positions = { left: Position.Left, right: Position.Right, top: Position.Top, bottom: Position.Bottom }
+const positions = {
+  left: Position.Left,
+  right: Position.Right,
+  top: Position.Top,
+  bottom: Position.Bottom,
+}
 </script>
 
 <template>
-  <section class="workflow-header-group" :class="{ 'is-collapsed': data.collapsed, 'is-active': data.active, 'is-own-active': data.ownActive }" :aria-label="`${data.title}，${data.summary}`" :data-workflow-layer="data.groupId" :data-workflow-group-id="id" :data-workflow-highlight-target="data.collapsed ? '' : undefined">
-    <Handle v-for="port in data.ports" :id="port.id" :key="port.id" :type="port.type" :position="positions[port.side]" :connectable="false" :style="port.side === 'left' || port.side === 'right' ? { top: `calc(50% + ${port.offset}px)` } : { left: `calc(50% + ${port.offset}px)` }" />
-    <button type="button" class="workflow-header-group-toggle nodrag nopan" :aria-expanded="!data.collapsed" :aria-label="`${data.collapsed ? '展开' : '收起'}${data.title}及全部内部节点`" @pointerdown.stop @click.stop="emit('toggle', { headerId: data.headerId, groupId: data.groupId })">
+  <section
+    class="workflow-header-group"
+    :class="{
+      'is-collapsed': data.collapsed,
+      'is-active': data.active,
+      'is-own-active': data.ownActive,
+      [`state-${data.status}`]: true,
+    }"
+    :aria-label="`${data.title}，${data.summary}`"
+    :data-board-chip="data.collapsed ? data.groupId : undefined"
+    :data-workflow-layer="data.groupId"
+    :data-workflow-group-id="id"
+    :data-workflow-highlight-target="data.collapsed ? '' : undefined"
+  >
+    <Handle
+      v-for="port in data.ports"
+      :id="port.id"
+      :key="port.id"
+      :type="port.type"
+      :position="positions[port.side]"
+      :connectable="false"
+      :style="
+        port.side === 'left' || port.side === 'right'
+          ? { top: `calc(50% + ${port.offset}px)` }
+          : { left: `calc(50% + ${port.offset}px)` }
+      "
+    />
+    <button
+      type="button"
+      class="workflow-header-group-toggle nodrag nopan"
+      :aria-expanded="!data.collapsed"
+      :aria-label="`${data.collapsed ? '展开' : '收起'}${data.title}内部电路，${data.summary}`"
+      @pointerdown.stop
+      @click.stop="emit('toggle', { headerId: data.headerId, groupId: data.groupId })"
+    >
       <span class="workflow-layer-title">{{ data.title }}</span>
-      <template v-if="!data.collapsed">
-        <span class="workflow-layer-summary">{{ data.summary }}</span>
-        <span class="workflow-layer-action">收起</span>
-      </template>
+      <span class="workflow-layer-action">{{ data.collapsed ? '展开' : '收起' }}</span>
     </button>
   </section>
 </template>
 
 <style scoped lang="less">
-.workflow-header-group { box-sizing: border-box; width: 100%; height: 100%; border: 1px solid var(--border); border-radius: 0; background: color-mix(in srgb, var(--panel) 34%, transparent); color: var(--ink); pointer-events: none; }
-.workflow-header-group-toggle { display: flex; align-items: center; gap: 18px; width: 100%; height: 44px; box-sizing: border-box; padding: 0 18px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; pointer-events: auto; }
-.workflow-layer-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workflow-layer-summary { font-size: 12px; font-weight: 400; color: color-mix(in srgb, var(--ink) 72%, transparent); }
-.workflow-layer-action { margin-left: auto; font-size: 12px; font-weight: 400; color: color-mix(in srgb, var(--ink) 72%, transparent); }
-.is-active { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)); }
-.is-own-active { border-color: var(--accent); }
-.is-own-active .workflow-layer-title { color: var(--accent); }
-.is-collapsed { background: var(--surface); border-color: var(--border-strong); }
-.is-collapsed .workflow-header-group-toggle { justify-content: center; height: 100%; padding: 12px; }
-.is-collapsed.is-active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
-.workflow-header-group-toggle:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
-.workflow-header-group-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.workflow-header-group {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink);
+  pointer-events: none;
+}
+.workflow-header-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.workflow-layer-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-layer-action {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+}
+.is-active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+}
+.is-own-active {
+  border-color: var(--accent);
+}
+.is-own-active .workflow-layer-title {
+  color: var(--accent);
+}
+.is-collapsed {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+.is-collapsed .workflow-header-group-toggle {
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  padding: 12px;
+}
+.is-collapsed .workflow-layer-action {
+  margin-left: 0;
+  color: var(--accent);
+}
+.state-waiting { border-color: var(--warning); }
+.state-failed, .state-rejected { border-color: var(--danger); }
+.state-succeeded { border-color: var(--success); }
+.is-collapsed.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+.workflow-header-group-toggle:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.workflow-header-group-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
 </style>

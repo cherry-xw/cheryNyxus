@@ -87,12 +87,19 @@ export function projectWorkflowMotionFrame(
 }
 
 function intersects(rect: DOMRect, viewport: DOMRect): boolean {
-  return rect.right > viewport.left && rect.left < viewport.right && rect.bottom > viewport.top && rect.top < viewport.bottom
+  return (
+    rect.right > viewport.left &&
+    rect.left < viewport.right &&
+    rect.bottom > viewport.top &&
+    rect.top < viewport.bottom
+  )
 }
 
 export function useRuntimeMotion(options: RuntimeMotionOptions) {
   const { spec } = useMotionTier()
-  const frame = computed(() => projectWorkflowMotionFrame(options.projection.value, options.rootChatId.value))
+  const frame = computed(() =>
+    projectWorkflowMotionFrame(options.projection.value, options.rootChatId.value),
+  )
   const oneShots = new WorkflowMotionRegistry()
   const continuous = new WorkflowMotionRegistry()
   const focusPaths = new WorkflowMotionRegistry()
@@ -103,7 +110,10 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
   let generation = 0
   let refreshGeneration = 0
 
-  function motionContext(source: WorkflowChangeSignal['source'], visibleNodeIds?: ReadonlySet<string>): WorkflowMotionContext {
+  function motionContext(
+    source: WorkflowChangeSignal['source'],
+    visibleNodeIds?: ReadonlySet<string>,
+  ): WorkflowMotionContext {
     const tier = spec.value
     return {
       source,
@@ -126,7 +136,11 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
     return root.querySelector<HTMLElement>(`[${name}="${attr(node.id)}"]`)
   }
 
-  function track(key: string, create: (finish: () => void) => gsap.core.Animation, cleanup: () => void): void {
+  function track(
+    key: string,
+    create: (finish: () => void) => gsap.core.Animation,
+    cleanup: () => void,
+  ): void {
     if (!context) return
     let active = true
     let animation: gsap.core.Animation | undefined
@@ -137,8 +151,13 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
       cleanup()
       release()
     }
-    release = oneShots.track(key, () => { animation?.kill(); finish() })
-    context.add(() => { animation = create(finish) })
+    release = oneShots.track(key, () => {
+      animation?.kill()
+      finish()
+    })
+    context.add(() => {
+      animation = create(finish)
+    })
   }
 
   function animateNode(decision: Extract<WorkflowMotionDecision, { kind: 'node' }>): void {
@@ -146,24 +165,50 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
     const visual = target?.querySelector<HTMLElement>('[data-workflow-node-visual]') ?? target
     if (!target || !visual) return
     target.classList.add('is-motion-target')
-    const failed = decision.node.status === 'failed' || decision.node.status === 'danger' || decision.node.status === 'rejected'
+    const failed =
+      decision.node.status === 'failed' ||
+      decision.node.status === 'danger' ||
+      decision.node.status === 'rejected'
     const spatial = decision.spatial && decision.phase === 'enter'
     track(
       decision.key,
-      (finish) => gsap.fromTo(
-        visual,
-        { x: failed ? -5 * spec.value.amplitude : 0, y: spatial ? 8 * spec.value.amplitude : 0, scale: spatial ? 0.92 : 0.98, autoAlpha: 0.55 },
-        { x: 0, y: 0, scale: 1, autoAlpha: 1, duration: decision.phase === 'enter' ? MOTION.view : MOTION.panel, ease: MOTION.easePanel, overwrite: true, onComplete: finish, onInterrupt: finish },
-      ),
-      () => { target.classList.remove('is-motion-target'); gsap.set(visual, { clearProps: 'transform,opacity,visibility' }) },
+      (finish) =>
+        gsap.fromTo(
+          visual,
+          {
+            x: failed ? -5 * spec.value.amplitude : 0,
+            y: spatial ? 8 * spec.value.amplitude : 0,
+            scale: spatial ? 0.92 : 0.98,
+            autoAlpha: 0.55,
+          },
+          {
+            x: 0,
+            y: 0,
+            scale: 1,
+            autoAlpha: 1,
+            duration: decision.phase === 'enter' ? MOTION.view : MOTION.panel,
+            ease: MOTION.easePanel,
+            overwrite: true,
+            onComplete: finish,
+            onInterrupt: finish,
+          },
+        ),
+      () => {
+        target.classList.remove('is-motion-target')
+        gsap.set(visual, { clearProps: 'transform,opacity,visibility' })
+      },
     )
   }
 
   function animatePath(decision: Extract<WorkflowMotionDecision, { kind: 'path' }>): void {
     if (!decision.spatial) return
     const root = options.scope.value
-    const runner = root?.querySelector<SVGCircleElement>(`[data-workflow-edge-runner="${attr(decision.edge.id)}"]`)
-    const signal = root?.querySelector<SVGPathElement>(`[data-workflow-edge-signal="${attr(decision.edge.id)}"]`)
+    const runner = root?.querySelector<SVGCircleElement>(
+      `[data-workflow-edge-runner="${attr(decision.edge.id)}"]`,
+    )
+    const signal = root?.querySelector<SVGPathElement>(
+      `[data-workflow-edge-signal="${attr(decision.edge.id)}"]`,
+    )
     if (!runner || !signal) return
     const progress = { value: 0 }
     const duration = workflowPathDurationMs(decision.edge.points) / 1000
@@ -171,37 +216,90 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
       decision.key,
       (finish) => {
         gsap.set(runner, { autoAlpha: 1 })
-        return gsap.timeline({ onComplete: finish, onInterrupt: finish })
-          .fromTo(signal, { strokeDashoffset: 32, autoAlpha: 0.28 }, { strokeDashoffset: 0, autoAlpha: 0.9, duration: Math.min(0.3, duration * 0.2), ease: 'power2.out' }, 0)
-          .to(progress, { value: 1, duration, ease: 'none', onUpdate: () => {
-            const point = pointAtPolylineProgress(decision.edge.points, progress.value)
-            runner.setAttribute('transform', `translate(${point.x} ${point.y})`)
-          } }, 0)
-          .to(runner, { autoAlpha: 0, duration: MOTION.control }, Math.max(0, duration - MOTION.control))
+        return gsap
+          .timeline({ onComplete: finish, onInterrupt: finish })
+          .fromTo(
+            signal,
+            { strokeDashoffset: 32, autoAlpha: 0.28 },
+            {
+              strokeDashoffset: 0,
+              autoAlpha: 0.9,
+              duration: Math.min(0.3, duration * 0.2),
+              ease: 'power2.out',
+            },
+            0,
+          )
+          .to(
+            progress,
+            {
+              value: 1,
+              duration,
+              ease: 'none',
+              onUpdate: () => {
+                const point = pointAtPolylineProgress(decision.edge.points, progress.value)
+                runner.setAttribute('transform', `translate(${point.x} ${point.y})`)
+              },
+            },
+            0,
+          )
+          .to(
+            runner,
+            { autoAlpha: 0, duration: MOTION.control },
+            Math.max(0, duration - MOTION.control),
+          )
       },
-      () => { gsap.set([runner, signal], { clearProps: 'opacity,visibility,strokeDashoffset' }) },
+      () => {
+        gsap.set([runner, signal], { clearProps: 'opacity,visibility,strokeDashoffset' })
+      },
     )
   }
 
-  function animateResultEdge(decision: Extract<WorkflowMotionDecision, { kind: 'result-edge' }>): void {
-    const signal = options.scope.value?.querySelector<SVGPathElement>(`[data-workflow-result-edge="${attr(decision.edge.id)}"]`)
+  function animateResultEdge(
+    decision: Extract<WorkflowMotionDecision, { kind: 'result-edge' }>,
+  ): void {
+    const signal = options.scope.value?.querySelector<SVGPathElement>(
+      `[data-workflow-result-edge="${attr(decision.edge.id)}"]`,
+    )
     if (!signal) return
     track(
       decision.key,
-      (finish) => gsap.fromTo(signal, { strokeDashoffset: 42, autoAlpha: 0.85 }, { strokeDashoffset: 0, autoAlpha: 0, duration: MOTION.sweep, ease: MOTION.easePanel, overwrite: true, onComplete: finish, onInterrupt: finish }),
-      () => { gsap.set(signal, { clearProps: 'opacity,visibility,strokeDashoffset' }) },
+      (finish) =>
+        gsap.fromTo(
+          signal,
+          { strokeDashoffset: 42, autoAlpha: 0.85 },
+          {
+            strokeDashoffset: 0,
+            autoAlpha: 0,
+            duration: MOTION.sweep,
+            ease: MOTION.easePanel,
+            overwrite: true,
+            onComplete: finish,
+            onInterrupt: finish,
+          },
+        ),
+      () => {
+        gsap.set(signal, { clearProps: 'opacity,visibility,strokeDashoffset' })
+      },
     )
   }
 
-  function runOneShots(before: WorkflowMotionFrame, next: WorkflowMotionFrame, token: number): void {
+  function runOneShots(
+    before: WorkflowMotionFrame,
+    next: WorkflowMotionFrame,
+    token: number,
+  ): void {
     if (token !== generation || !context) return
     const root = options.scope.value
     if (!root) return
     const viewport = root.getBoundingClientRect()
-    const visible = new Set(next.nodes.filter((node) => {
-      const element = elementForNode(node)
-      return element ? intersects(element.getBoundingClientRect(), viewport) : false
-    }).map((node) => node.id))
+    const visible = new Set(
+      next.nodes
+        .filter((node) => {
+          const element = elementForNode(node)
+          return element ? intersects(element.getBoundingClientRect(), viewport) : false
+        })
+        .map((node) => node.id),
+    )
     for (const decision of planWorkflowMotion(before, next, motionContext('live', visible))) {
       if (decision.kind === 'node') animateNode(decision)
       else if (decision.kind === 'path') animatePath(decision)
@@ -214,39 +312,78 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
     const target = elementForNode(node)
     const visual = target?.querySelector<HTMLElement>('[data-workflow-node-visual]')
     if (!target || !visual || continuous.keys().includes(node.id) || !context) return
-    const incoming = frame.value.edges.filter((edge) => edge.family === 'header' && edge.targetId === node.id && edge.evidenced)
+    const incoming = frame.value.edges.filter(
+      (edge) => edge.family === 'header' && edge.targetId === node.id && edge.evidenced,
+    )
     const signals = incoming.flatMap((edge) => {
-      const signal = options.scope.value?.querySelector<SVGPathElement>(`[data-workflow-edge-signal="${attr(edge.id)}"]`)
+      const signal = options.scope.value?.querySelector<SVGPathElement>(
+        `[data-workflow-edge-signal="${attr(edge.id)}"]`,
+      )
       return signal ? [signal] : []
     })
     let animation: gsap.core.Timeline | undefined
     let release = () => {}
     const cleanup = () => {
       animation?.kill()
-      gsap.set([visual, ...signals], { clearProps: 'transform,opacity,visibility,strokeDashoffset' })
+      gsap.set([visual, ...signals], {
+        clearProps: 'transform,opacity,visibility,strokeDashoffset',
+      })
       release()
     }
     release = continuous.track(node.id, cleanup)
     context.add(() => {
       animation = gsap.timeline()
-      animation.to(visual, { scale: 1.025, autoAlpha: 0.78, duration: 0.72, ease: 'sine.inOut', repeat: -1, yoyo: true, overwrite: 'auto' }, 0)
-      for (const signal of signals) animation.fromTo(signal, { strokeDashoffset: 38, autoAlpha: 0.28 }, { strokeDashoffset: 0, autoAlpha: 0.72, duration: 1.4, ease: 'none', repeat: -1 }, 0)
+      animation.to(
+        visual,
+        {
+          scale: 1.025,
+          autoAlpha: 0.78,
+          duration: 0.72,
+          ease: 'sine.inOut',
+          repeat: -1,
+          yoyo: true,
+          overwrite: 'auto',
+        },
+        0,
+      )
+      for (const signal of signals)
+        animation.fromTo(
+          signal,
+          { strokeDashoffset: 38, autoAlpha: 0.28 },
+          { strokeDashoffset: 0, autoAlpha: 0.72, duration: 1.4, ease: 'none', repeat: -1 },
+          0,
+        )
     })
   }
 
   function syncContinuous(): void {
     const root = options.scope.value
     const current = motionContext('live')
-    if (!root || !current.loops || !current.synced || current.replay || current.suspended || current.hidden) {
+    if (
+      !root ||
+      !current.loops ||
+      !current.synced ||
+      current.replay ||
+      current.suspended ||
+      current.hidden
+    ) {
       continuous.cancelAll()
       return
     }
     const viewport = root.getBoundingClientRect()
-    const visible = new Set(frame.value.nodes.filter((node) => {
-      const element = elementForNode(node)
-      return element ? intersects(element.getBoundingClientRect(), viewport) : false
-    }).map((node) => node.id))
-    const active = selectWorkflowMotionLoops(frame.value, { ...current, visibleNodeIds: visible }, MAX_CONTINUOUS)
+    const visible = new Set(
+      frame.value.nodes
+        .filter((node) => {
+          const element = elementForNode(node)
+          return element ? intersects(element.getBoundingClientRect(), viewport) : false
+        })
+        .map((node) => node.id),
+    )
+    const active = selectWorkflowMotionLoops(
+      frame.value,
+      { ...current, visibleNodeIds: visible },
+      MAX_CONTINUOUS,
+    )
     const desired = new Set(active.map((node) => node.id))
     for (const key of continuous.keys()) if (!desired.has(key)) continuous.cancel(key)
     for (const node of active) startContinuous(node)
@@ -254,7 +391,9 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
 
   function scheduleContinuousRefresh(): void {
     const token = ++refreshGeneration
-    void nextTick(() => { if (token === refreshGeneration) syncContinuous() })
+    void nextTick(() => {
+      if (token === refreshGeneration) syncContinuous()
+    })
   }
 
   function cancelFocusMotion(): void {
@@ -321,29 +460,40 @@ export function useRuntimeMotion(options: RuntimeMotionOptions) {
     })
   }
 
-  watch([frame, options.timelineRevision, options.change], ([next]) => {
-    const before = previousFrame
-    previousFrame = next
-    const revision = options.timelineRevision.value
-    const signal = options.change.value
-    const liveWorkflow = signal.serial > previousSignalSerial && signal.source === 'live'
-    const liveTimeline = previousTimelineRevision > 0 && revision > previousTimelineRevision
-    previousSignalSerial = signal.serial
-    previousTimelineRevision = revision
-    const token = ++generation
-    if (liveWorkflow || liveTimeline) void nextTick(() => runOneShots(before, next, token))
-    else oneShots.cancelAll()
-    scheduleContinuousRefresh()
-  }, { flush: 'post' })
+  watch(
+    [frame, options.timelineRevision, options.change],
+    ([next]) => {
+      const before = previousFrame
+      previousFrame = next
+      const revision = options.timelineRevision.value
+      const signal = options.change.value
+      const liveWorkflow = signal.serial > previousSignalSerial && signal.source === 'live'
+      const liveTimeline = previousTimelineRevision > 0 && revision > previousTimelineRevision
+      previousSignalSerial = signal.serial
+      previousTimelineRevision = revision
+      const token = ++generation
+      if (liveWorkflow || liveTimeline) void nextTick(() => runOneShots(before, next, token))
+      else oneShots.cancelAll()
+      scheduleContinuousRefresh()
+    },
+    { flush: 'post' },
+  )
 
-  watch([options.rootChatId, options.replay, options.suspended, options.synced, options.hidden, spec], () => {
-    ++generation
-    oneShots.cancelAll()
-    cancelFocusMotion()
-    scheduleContinuousRefresh()
-  }, { flush: 'post' })
+  watch(
+    [options.rootChatId, options.replay, options.suspended, options.synced, options.hidden, spec],
+    () => {
+      ++generation
+      oneShots.cancelAll()
+      cancelFocusMotion()
+      scheduleContinuousRefresh()
+    },
+    { flush: 'post' },
+  )
 
-  useGsap(options.scope, (gsapContext) => { context = gsapContext; scheduleContinuousRefresh() })
+  useGsap(options.scope, (gsapContext) => {
+    context = gsapContext
+    scheduleContinuousRefresh()
+  })
   onScopeDispose(() => {
     ++generation
     ++refreshGeneration
