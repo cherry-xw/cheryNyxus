@@ -163,6 +163,8 @@ export async function* observeAgentChunks(
           content: chunk.patch.content,
           hash: chunk.patch.hash,
         })
+        if (chunk.patch.content !== undefined && !chunk.patch.senseCalls)
+          workflowRecorder.recordCommittedMessage({ id: chunk.id, role: 'sense' })
         syncedIds.add(chunk.id)
         emitTimelinePatch(chatId, baseRevision)
         logger.event('message.updated', {

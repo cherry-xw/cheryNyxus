@@ -1211,7 +1211,7 @@ export async function handleChatInputSubmit(
       acceptedAt,
     })
     const inputAnchor = { kind: 'message' as const, id: messageId, chatId: data.chatId }
-    recordWorkflowStep(data.chatId, {
+    const submissionOccurrenceId = recordWorkflowStep(data.chatId, {
       kind: 'submission',
       key: inputId,
       scope: 'chat',
@@ -1224,6 +1224,7 @@ export async function handleChatInputSubmit(
     })
     recordWorkflowStep(data.chatId, {
       kind: 'queue',
+      causeOccurrenceId: submissionOccurrenceId,
       key: inputId,
       scope: 'chat',
       runId,
