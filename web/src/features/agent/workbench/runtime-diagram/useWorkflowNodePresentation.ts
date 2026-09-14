@@ -67,7 +67,11 @@ export function useWorkflowNodePresentation(options: {
   }
   const attentionOverlay = computed(() => currentViewPendingCount.value
     ? overlayPlacement('approval') : undefined)
-  const crtOverlay = computed(() => overlayPlacement('model'))
+  // 实时 CRT 属于“大模型响应”节点：只在该节点活动（存在正在返回数据的 live turn）时显示；
+  // 空闲、终态或回放不保留占位面板。
+  const crtOverlay = computed(() =>
+    options.graph().activeLiveTurn ? overlayPlacement('response') : undefined,
+  )
 
   function focusPendingAttention(): void {
     options.host()?.querySelector<HTMLElement>(

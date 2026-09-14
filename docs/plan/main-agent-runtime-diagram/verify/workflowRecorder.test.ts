@@ -197,10 +197,10 @@ describe('real recorder -> reducer -> nested execution paths', () => {
 
   it('links early validation to the final batch and keeps interleaved calls isolated', () => {
     const recorder = beginRound()
-    validateCall(recorder, 'a')
-    validateCall(recorder, 'b')
-    recorder.recordCommittedMessage({ id: 'a', role: 'sense' })
-    expect(recordedGraph('a').occurrences.some((o) => o.kind === 'tool-result')).toBe(false)
+    // 真实中间件流顺序：模型响应消息（含工具调用）先于 sense_pending/sense_end 提交，
+    // 因此模型在首个工具链事件前就已终态化（response 已完成）。
+    recorder.recordCommittedMessage({ id: 'assistant-batch', role: 'assistant' })
+    // sense_pending（审批注册）先于其所属调用的 sense_end（校验/授权）。
     recorder.recordChunk({
       type: 'sense_pending',
       approvalId: 'a',
@@ -208,6 +208,16 @@ describe('real recorder -> reducer -> nested execution paths', () => {
       arguments: '{}',
       supervisionLevel: 0,
     })
+    validateCall(recorder, 'a')
+    validateCall(recorder, 'b')
+    recorder.recordCommittedMessage({ id: 'a', role: 'sense' })
+    expect(recordedGraph('a').occurrences.some((o) => o.kind === 'tool-result')).toBe(false)
+    // 模型响应已终态：即使批次边界未到，model→response→channels→tool-list 前驱链已可证明，
+    // 与"调用清单"节点同批点亮，而不是等批次边界（旧行为下前驱连线滞后整个工具链）。
+    const early = recordedGraph('a')
+    expect(early.occurrences.find((o) => o.kind === 'model')?.status).toBe('succeeded')
+    for (const id of ['model:response', 'response:channels', 'channels:tool-list'])
+      expect(early.evidence.has(id), id).toBe(true)
     reportWorkflow('root', {
       activeNodeId: 'tools',
       batch: {
@@ -305,21 +315,21 @@ describe('workflow run recorder isolation', () => {
   it('records a descendant into the task root without a UI lease', () => {
     const recorder = startWorkflowRunRecorder('grandchild')
     expect(hasWorkflowObserver('grandchild')).toBe(true)
-    expect(fixture.appendCalls[0]![0]).toMatchObject({
+    // 上下文不再在 recorder 创建时抢占首个事件：loop 进入后首个事件是 input，
+    // context 延后到"准备请求"阶段随请求一起记录（记录顺序 = 模板链）。
+    reportWorkflow('grandchild', { newIteration: true, iteration: 1 })
+    expect(fixture.appendCalls.flat().find((item) => item.kind === 'input')).toMatchObject({
       rootChatId: 'root',
       chatId: 'grandchild',
       taskId: 'task',
       branchId: 'branch',
       runId: 'run',
-      kind: 'context',
     })
-
-    reportWorkflow('grandchild', {
-      newIteration: true,
-      iteration: 1,
-      activeNodeId: 'model',
-      status: 'running',
-    })
+    reportWorkflow('grandchild', { activeNodeId: 'model', phaseLabel: '准备请求' })
+    expect(
+      fixture.appendCalls.flat().some((item) => item.kind === 'context' && item.status === 'succeeded'),
+    ).toBe(true)
+    reportWorkflow('grandchild', { activeNodeId: 'model', phaseLabel: '调用中' })
     expect(fixture.appendCalls.flat().some((item) => item.kind === 'model')).toBe(true)
     recorder.finish('succeeded', 'normal')
     expect(hasWorkflowObserver('grandchild')).toBe(false)
@@ -329,6 +339,10 @@ describe('workflow run recorder isolation', () => {
     fixture.appendFailures = 1
     const recorder = startWorkflowRunRecorder('root')
     expect(() => reportWorkflow('root', { activeNodeId: 'input' })).not.toThrow()
+    // 第一次写失败发生在 input 事件；下一次持久化（准备请求→context）会补记 write-failed gap。
+    expect(() =>
+      reportWorkflow('root', { activeNodeId: 'model', phaseLabel: '准备请求' }),
+    ).not.toThrow()
     expect(fixture.gaps).toEqual([
       {
         rootChatId: 'root',

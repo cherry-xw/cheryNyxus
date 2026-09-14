@@ -8,7 +8,7 @@
 
 ## 反馈回填槽
 
-无。T30 已将 Vue Flow store 改为浅层响应式并补充真实包装路径回归；审批与 CRT 的实机可见性保留在 M03c。
+- 2026-09-14 用户反馈：模型节点 CRT 不应常驻/空闲占位，只在节点活动（有数据正在返回）时显示。已落地：`useWorkflowNodePresentation` 的 `crtOverlay` 仅在 `WorkflowGraphProjection.activeLiveTurn` 存在时挂载，权威文档与 M03b/M03c 手册同步，回归测试见 workflowAttentionAnchor。
 
 ## 范围与边界
 
@@ -57,6 +57,7 @@ T14 定向回归发现的冻结基线内差异（`paperStackIntegration.test.ts`
 - 画布指针层作用域与清理、节点目标标记及 reduced/触摸/粗指针降级；视觉贴合和输入互不干扰仍由 M02 人工确认。
 - system/full/reduced、质量档、不可见/最小化/断线/回放/卸载清理；正文增量不抢相机；仅开启跟随时活动身份或几何改变调整视野。
 - 审批与 CRT 分别从原始目标解析到最近可见代表，全部折叠时落到头部；不强制展开、不固定居中、不随缩放改变尺寸，同锚点按审批、12px、CRT 排列。
+- CRT 仅在模型节点活动（存在正在返回数据的 live turn）时挂载，空闲、终态与回放不显示占位面板；activeLiveTurn 生命周期与锚定一致。
 - 新投影 2k 规模、正文增量不重排、缓存/动画有界；旧 Pixi 性能测试不能替代新图验证。
 
 ## 手动验证清单
@@ -67,7 +68,7 @@ T14 定向回归发现的冻结基线内差异（`paperStackIntegration.test.ts`
 | M02  | Vue Flow 结果树与新版逻辑  | 手册第 2 节 | 新节点/边和结果正确，指针块贴合节点且不干扰操作  | 待执行 |
 | M03  | 官网参照动效               | 手册第 3 节 | full 档逐项达到官网参照效果，无静态/淡入替代     | 待执行 |
 | M03a | 节点身份、Morph 图标与颜色 | 手册第 3 节 | 能力与状态均可辨，图标过渡可中断且非仅靠颜色     | 待执行 |
-| M03b | 模型实时 CRT               | 手册第 3 节 | 运行时实时打印，终态/停用收束且不生成重复结果     | 待执行 |
+| M03b | 模型实时 CRT               | 手册第 3 节 | 运行时实时打印，终态/停用立即收束（空闲不保留占位）且不生成重复结果     | 待执行 |
 | M03c | 审批与 CRT 折叠锚定 | [手册 T29 操作卡](verify/manual-final.md#t29-审批与-crt-最近可见祖先操作卡) | 最近可见祖先、同锚点顺序、拖拽与缩放均符合契约 | 待执行 |
 | M04  | 卡牌内容与操作兼容               | 手册第 4 节 | 阅读区可调宽且历史按钮可点；内容、开关、偏好、动作兼容，选择准确       | 待执行 |
 | M05  | 工具、审批、分支、步骤详情 | 手册第 5 节 | call 独立，等待/拒绝准确，主干与动作正确         | 待执行 |
@@ -129,3 +130,31 @@ T25 全量 115/645 通过；最后恢复原 info 样式后重跑 visuals/reader/
 | T30-A01 | Vue Flow store 响应式容器与锚点/导航回归 | `pnpm test:web -- workflowAttentionAnchor workflowHeaderNavigation` | 0 | `2 passed; 30 passed` | 2026-09-13；终端输出，未生成文件 |
 | T30-A02 | Web 类型与受影响 ESLint | `pnpm web:type-check`；`pnpm exec eslint web/src/features/agent/workbench/runtime-diagram/RuntimeDiagram.vue web/test/agent/workflowAttentionAnchor.test.ts` | 0 | `vue-tsc -b --noEmit`；ESLint 0 errors / 0 warnings | 2026-09-13；终端输出，未生成文件 |
 | T30-A03 | 全量 Web 回归与 Web/Electron 构建 | `pnpm test:web`；`pnpm web:build` | 0 | `118 passed; 692 passed`；Web/Electron `built` | 2026-09-13；`dist/web/`、`web/dist-electron/` |
+
+## CRT 活动生命周期修正验证记录（2026-09-14 用户反馈）
+
+| 编号 | 目标 | 命令 | 退出码 | 关键断言行 | 日期与产物路径 |
+| --- | --- | --- | --- | --- | --- |
+| F01 | CRT 仅在 activeLiveTurn 时挂载的定向回归 | `pnpm test:web -- workflowAttentionAnchor workflowGraph workflowVisuals`（含 118 文件全量并发） | 1（仅 unrelated performanceRecovery 2k 性能预算 1858ms>1500ms，资源争用；单跑通过见 F02） | `workflowAttentionAnchor`「stays visible until pending work clears」「shows the CRT only while the active model node has a live streaming turn」均通过 | 2026-09-14；终端输出，未生成文件 |
+| F02 | performanceRecovery 单文件复跑（隔离负载） | `node_modules/.bin/vitest.cmd run --config web/vitest.config.ts web/test/nyxus/graph/performanceRecovery.test.ts --reporter=dot` | 0 | `1 passed; 5 passed` | 2026-09-14；终端输出，未生成文件 |
+| F03 | Web 类型检查 | `pnpm web:type-check` | 0 | `vue-tsc -b --noEmit` 无错误 | 2026-09-14；终端输出，未生成文件 |
+| F04 | 受影响 ESLint | `node_modules/.bin/eslint.cmd web/src/features/agent/workbench/runtime-diagram/useWorkflowNodePresentation.ts web/test/agent/workflowAttentionAnchor.test.ts` | 0 | 0 errors / 0 warnings | 2026-09-14；终端输出，未生成文件 |
+| F05 | 计划与文档完整性 | `node tools/plan-viewer/lint-source.mjs && node docs/plan/main-agent-runtime-diagram/verify/check-doc-links.mjs && git diff --check` | 0 | `Plan Lint 通过`；`Passed: 2 new/changed documentation links and anchors`；diff 无错误 | 2026-09-14；终端输出，未生成文件 |
+
+## 循环点亮顺序修正验证记录（2026-09-14 用户反馈：内容记录双入边时序 / 流程开始顺序 / 新 loop 灰色重置）
+
+| 编号 | 目标 | 命令 | 退出码 | 关键断言行 | 日期与产物路径 |
+| --- | --- | --- | --- | --- | --- |
+| G01 | recorder 回归：context 延后到准备请求、checkpoint 单一 occurrence | `PYTHONIOENCODING=utf-8 npx vitest run test/service/chat/workflowRecorder.test.ts` | 0 | `7 passed`（含「records context at request preparation, after the loop input, as a run-level fact」「shares one checkpoint occurrence between the boundary and the tool-result message commit」） | 2026-09-14；终端输出，未生成文件 |
+| G02 | 端到端点亮顺序（recorder→journal→state/evidence，含 loop2 灰化） | `PYTHONIOENCODING=utf-8 npx vitest run --config docs/plan/main-agent-runtime-diagram/verify/vitest.config.ts` | 0 | `6 passed; 29 passed`（新增 `workflowLightingOrder.test.ts`：context firstSequence 位于 input 后；checkpoint 单一 occurrence 且 channels:checkpoint 与 tool-result:checkpoint 指向同一 target；loop2 时上一轮工具链/内容记录/继续判断全部 idle 灰色） | 2026-09-14；终端输出，未生成文件 |
+| G03 | 前端证据/状态回归 | `PYTHONIOENCODING=utf-8 npx vitest run web/test/agent --config web/vitest.config.ts` | 0 | `39 passed; 183 passed`（含「proves both checkpoint inputs on one shared occurrence」「returns a previous loop chain to gray idle when the next loop starts」） | 2026-09-14；终端输出，未生成文件 |
+| G04 | 类型检查 | `pnpm type-check && pnpm web:type-check` | 0 | `tsc --noEmit` 与 `vue-tsc -b --noEmit` 无错误 | 2026-09-14；终端输出，未生成文件 |
+
+## CRT 归属与排版修正验证记录（用户反馈：CRT 属于大模型响应节点 / 加宽窗口 / 收敛字号与行距 / 段落空隙过大）
+
+| 编号 | 目标 | 命令 | 退出码 | 关键断言行 | 日期与产物路径 |
+| --- | --- | --- | --- | --- | --- |
+| H01 | CRT 锚点归属大模型响应节点与折叠代表链回归 | `PYTHONIOENCODING=utf-8 npx vitest run web/test/agent --config web/vitest.config.ts` | 0 | `39 passed; 190 passed`（新增 response 折叠代表链 6 例与「CRT 锚点落在 `visibleTemplateAnchor(graph,'response')` 可见代表」断言） | 2026-09-14；终端输出，未生成文件 |
+| H02 | Web 类型检查 | `pnpm web:type-check` | 0 | `vue-tsc -b --noEmit` 无错误 | 2026-09-14；终端输出，未生成文件 |
+| H03 | CRT 段落空隙修正（块间换行文本节点折叠） | `node_modules/.bin/eslint.cmd web/src/features/agent/workbench/runtime-diagram/WorkflowLiveCrt.vue`；`git diff --check` | 0 | ESLint 0 错误 / 0 警告；diff 无错误。pre-wrap 仅保留于 p/h1-h6/li/blockquote/th/td 文本块内部，块间 `</p>\n<p>` 空白文本节点不再渲染为空行，段落间距回落到 0.35em | 2026-09-14；终端输出，未生成文件 |
+| H04 | 大模型响应节点实时输出期间点亮 | `PYTHONIOENCODING=utf-8 npx vitest run web/test/agent/workflowGraph.test.ts web/test/agent/workflowAttentionAnchor.test.ts --config web/vitest.config.ts`；`pnpm web:type-check`；`node_modules/.bin/eslint.cmd web/src/features/agent/workbench/runtime-diagram/headerGraph.ts web/test/agent/workflowGraph.test.ts` | 0 | headerGraph.ts 将 liveTurn 同时挂到 model 与 response 节点：输出期间两节点均为 running（beacon/loading/脉冲），提交后由响应 occurrence 承接；workflowGraph 断言 response.liveTurn 与模型一致、其余节点仍无 liveTurn；类型检查与 ESLint 0 错误 | 2026-09-14；终端输出，未生成文件 |

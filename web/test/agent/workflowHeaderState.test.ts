@@ -170,6 +170,24 @@ describe('header instance state', () => {
     ).toBe('unrecorded')
   })
 
+  it('returns a previous loop chain to gray idle when the next loop starts', () => {
+    const loop1 = [
+      occurrence('request-1', 'request', { iteration: 1, attempt: 1, firstSequence: 1 }),
+      occurrence('model-1', 'model', { iteration: 1, attempt: 1, firstSequence: 2 }),
+    ]
+    const loop2 = [
+      occurrence('input-2', 'input', { iteration: 2, attempt: 0, status: 'running', firstSequence: 3 }),
+    ]
+    const result = state([...loop1, ...loop2], { complete: false })
+    expect(result.scope.iteration).toBe(2)
+    // 上一轮节点是确定性"不在本轮"事实：灰色 idle，而不是 dashed unknown。
+    expect(result.slots.request?.status).toBe('idle')
+    expect(result.slots.model?.status).toBe('idle')
+    // 本轮节点正常点亮；从未出现过的节点在记录未完成时仍是 unknown。
+    expect(result.slots.input?.status).toBe('running')
+    expect(result.slots.execution?.status).toBe('unknown')
+  })
+
   it('matches response and wait only from structured evidence, not labels', () => {
     expect(
       state([occurrence('model', 'model', { label: '处理响应' })]).slots.response?.status,

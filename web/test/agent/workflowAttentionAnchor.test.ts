@@ -88,7 +88,39 @@ describe('current-root question anchor', () => {
     graph.value = initial
     pending.value = 0
     expect(presentation.attentionOverlay.value).toBeUndefined()
+    expect(presentation.crtOverlay.value).toBeUndefined()
+  })
+
+  it('shows the CRT only while the active model node has a live streaming turn', () => {
+    const graph = shallowRef(projectWorkflowGraph(undefined, topologyMatrixSnapshot(), 'none'))
+    const viewport = ref({ x: 0, y: 0, zoom: 1 })
+    const presentation = useWorkflowNodePresentation({
+      graph: () => graph.value,
+      pendingCount: () => 0,
+      viewport: () => viewport.value,
+      selection: () => undefined,
+      step: () => undefined,
+      host: () => undefined,
+    })
+    expect(presentation.crtOverlay.value).toBeUndefined()
+    const liveTurn = {
+      chatId: 'root',
+      turnId: 'turn:live',
+      runId: 'run:live',
+      messageId: 'message:live',
+      thinking: 'planning',
+      content: 'streaming',
+      status: 'running' as const,
+      createdAt: 1,
+    }
+    graph.value = projectWorkflowGraph(undefined, topologyMatrixSnapshot(), 'none', {}, [liveTurn], { follow: true })
     expect(presentation.crtOverlay.value).toBeDefined()
+    // CRT 属于“大模型响应”节点，锚点应落在该节点的可见代表上
+    expect(visibleTemplateAnchor(graph.value, 'response')?.id).toBe(
+      presentation.crtOverlay.value!.anchorId,
+    )
+    graph.value = projectWorkflowGraph(undefined, topologyMatrixSnapshot(), 'none', {}, [], { follow: true })
+    expect(presentation.crtOverlay.value).toBeUndefined()
   })
 
   it('does not fall back to a page-fixed position before the viewport is ready', () => {
@@ -132,11 +164,17 @@ describe('current-root question anchor', () => {
     ['model', ['loop', 'record'], ':group:tools'],
     ['model', ['loop'], ':group:record'],
     ['model', [], ':group:loop'],
+    ['response', ['loop', 'record', 'tools', 'retry-layer', 'model-layer'], ':template:response'],
+    ['response', ['loop', 'record', 'tools', 'retry-layer'], ':group:model-layer'],
+    ['response', ['loop', 'record', 'tools'], ':group:retry-layer'],
+    ['response', ['loop', 'record'], ':group:tools'],
+    ['response', ['loop'], ':group:record'],
+    ['response', [], ':group:loop'],
   ])('anchors %s to its nearest visible representative for %j', (templateId, expanded, suffix) => {
     expect(visibleTemplateAnchor(projectedWith(expanded), templateId)?.id).toMatch(new RegExp(`${suffix}$`))
   })
 
-  it.each(['approval', 'model'])('anchors %s below the header when the whole header is collapsed', (templateId) => {
+  it.each(['approval', 'model', 'response'])('anchors %s below the header when the whole header is collapsed', (templateId) => {
     const graph = projectedWith([], true)
     expect(visibleTemplateAnchor(graph, templateId)?.id).toBe(graph.activeHeaderId)
   })

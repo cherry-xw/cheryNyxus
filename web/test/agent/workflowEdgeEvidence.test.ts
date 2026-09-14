@@ -31,6 +31,25 @@ describe('observed header execution paths', () => {
     expect(result.has('channels:tool-list')).toBe(false)
   })
 
+  it('proves both checkpoint inputs on one shared occurrence (boundary + tool-result commit)', () => {
+    const checkpoint = occurrence('checkpoint', 'checkpoint', {
+      causeOccurrenceId: 'model',
+      callId: 'call',
+      anchors: [{ kind: 'message', id: 'call', chatId: 'root' }],
+    })
+    const result = project([
+      occurrence('model', 'model', { reason: 'response' }),
+      occurrence('result', 'tool-result', { callId: 'call', firstSequence: 1 }),
+      checkpoint,
+    ])
+    // 边界（模型链）与工具结果消息提交指向同一 occurrence：两条入边同时点亮。
+    expect(result.has('channels:checkpoint')).toBe(true)
+    expect(result.has('tool-result:checkpoint')).toBe(true)
+    expect(result.get('channels:checkpoint')?.targetOccurrenceId).toBe(checkpoint.occurrenceId)
+    expect(result.get('tool-result:checkpoint')?.targetOccurrenceId).toBe(checkpoint.occurrenceId)
+    expect(result.get('tool-result:checkpoint')?.sourceOccurrenceId).toBe('result')
+  })
+
   it('shows exact context as a parallel request supply without replacing the input cause', () => {
     const result = project([
       occurrence('context', 'context', { iteration: undefined, attempt: undefined }),
