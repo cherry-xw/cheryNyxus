@@ -63,6 +63,14 @@
 
 运行中尚无消息节点时先写无 content anchor 的 occurrence；内容提交后按确定 ID 追加关联事件。`ToolCallOwner`、conversation branch、spawn task、child_return 和 compaction boundary 等现有明确关系应复用；禁止扫描最近消息或文本猜关联。
 
+工具链记录时机：`tool-list`（调用清单）在首个工具链事件（`sense_pending`/`sense_end`）到达时提前建立（running，收集中），批次边界只补真实 `batchId` 与 succeeded 终态；`tool-approval` 的 started 记录在 `sense_end`（授权之后），使清单→校验→授权→审批的 firstSequence 顺序与模板链一致。审批注册（`sense_pending`）本身仍在模型流中发生，仅记录时机延后，不改变审批 UI 与执行语义。
+
+模型 occurrence 的终态化时机：模型响应消息（含工具调用）在 checkpoint 中间件提交时（message_created，先于 sense_pending/sense_end）即 succeeded（reason=response），而不是拖到 Phase 2 批次边界。这样"大模型响应"节点与 model→response→channels→tool-list 前驱连线能随工具链同批点亮（前端 response 槽位要求模型已终态、前驱路径证明要求 cause.status === 'succeeded'）。纯文本轮（无工具）由 done 收口，仍以消息 anchor 点亮响应节点。
+
+上下文 occurrence 的时机：不在 recorder 创建时抢占首位（避免流程开始时"上下文构建"先于"消费与输入记录"点亮，与模板链不符）。整个 run 只建立一个 run 级 context occurrence（不携带 iteration/attempt），在第一个"准备请求"边界随 request 一并记录，firstSequence 位于 input 之后、request 之前，使点亮顺序与模板链一致。
+
+Checkpoint（内容记录）只建立一个 occurrence：checkpoint 边界（记录汇总）建立时立即挂接已完成工具结果的关系锚点（message anchor + causeOccurrenceId），工具结果消息提交复用同一 occurrence（current('checkpoint', true) 命中则复用，否则才新建）。前端因此能同时点亮两条入边（模型响应→响应分流→内容记录 与 工具结果→内容记录），不会出现一先一后的两个内容记录实例。
+
 ## 5. 存储与生命周期
 
 步骤事实使用 `workflow_occurrences`、`workflow_step_events`、`workflow_journal_roots` 与 `workflow_journal_gaps` 独立表，不把事件数组附着到 execution node JSON。索引支持按 root + sequence、chat/run、branch/context stage、occurrence 和 call 定向读取；单次追加或分页查询不先加载整段详细历史。

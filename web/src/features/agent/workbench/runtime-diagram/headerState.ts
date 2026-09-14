@@ -211,6 +211,10 @@ export function projectHeaderState(input: {
           (a, b) => a.lastSequence - b.lastSequence || a.occurrenceId.localeCompare(b.occurrenceId),
         )
       const occurrence = occurrences.at(-1)
+      // 节点在其他 loop/attempt/call 范围有记录、但当前范围没有时，属于"上一轮已运行"
+      // （确定性事实），显示为灰色 idle 而不是 dashed unknown；新 loop 开始时整条旧链
+      // 随之安全回到灰色，再随新 loop 的实时事件逐步点亮。
+      const seenOutsideScope = !occurrence && all.some((item) => matchesHeaderNode(node, item))
       const status: HeaderSlotStatus =
         node.match === 'unobserved'
           ? 'unrecorded'
@@ -218,7 +222,7 @@ export function projectHeaderState(input: {
             ? occurrence.orderQuality === 'exact'
               ? occurrence.status
               : 'unknown'
-            : input.recorded && input.complete
+            : seenOutsideScope || (input.recorded && input.complete)
               ? 'idle'
               : 'unknown'
       return [

@@ -293,7 +293,10 @@ export function buildHeaderNodes(input: {
     }
     const template = WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => n.id === item.id)!,
       slot = state.slots[item.id]!
-    const modelTurn = template.id === 'model' ? liveTurn : undefined
+    // 实时输出同时点亮“模型请求”与“大模型响应”：liveTurn 只表示正在返回数据的模型 turn，
+    // 不伪造已提交的 occurrence；提交后由响应 occurrence 承接 succeeded 状态。
+    const liveStepTurn =
+      template.id === 'model' || template.id === 'response' ? liveTurn : undefined
     nodes.push({
       ...common,
       type: 'header-step',
@@ -306,7 +309,7 @@ export function buildHeaderNodes(input: {
         visual: headerVisual(template),
         iteration: slot.occurrence?.iteration ?? 1,
         iterationCount: header.iterationCount,
-        liveTurn: modelTurn,
+        liveTurn: liveStepTurn,
         call:
           template.group === 'tools' && slot.occurrence?.callId
             ? state.calls.find((call) => call.id === slot.occurrence?.callId)

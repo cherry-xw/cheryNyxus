@@ -516,9 +516,14 @@ describe('unified workflow graph projection', () => {
     const model = steps.find((node) => node.data.template.id === 'model')
 
     expect(model?.data.liveTurn).toMatchObject({ turnId: 'latest', content: 'live response' })
+    const response = steps.find((node) => node.data.template.id === 'response')
+    // 实时输出期间“大模型响应”与“模型请求”一并点亮（同一 live turn）
+    expect(response?.data.liveTurn).toMatchObject({ turnId: 'latest', content: 'live response' })
     expect(
       steps
-        .filter((node) => node.data.template.id !== 'model')
+        .filter(
+          (node) => node.data.template.id !== 'model' && node.data.template.id !== 'response',
+        )
         .every((node) => !node.data.liveTurn),
     ).toBe(true)
 

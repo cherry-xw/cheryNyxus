@@ -317,6 +317,21 @@ v-if="!pendingCount && (data.liveTurn || data.slot.status === 'running')"
   border-style: dashed;
   background: var(--panel);
 }
+/* 灰色静止态：尚未运行 / 上一 loop 的旧链在新 loop 开始时安全回到灰色 */
+.state-idle .workflow-step-button {
+  border-color: color-mix(in srgb, var(--workflow-capability) 26%, var(--border-strong));
+  background: color-mix(in srgb, var(--workflow-capability) 5%, var(--surface));
+}
+.state-idle .workflow-step-capability-icon {
+  color: color-mix(in srgb, var(--workflow-capability) 34%, var(--workflow-muted));
+}
+.state-idle .workflow-step-title,
+.state-idle .workflow-step-call {
+  color: var(--workflow-muted);
+}
+.state-idle .workflow-step-beacon {
+  display: none;
+}
 .state-running .workflow-step-button {
   border-color: var(--accent);
   box-shadow:

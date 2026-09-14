@@ -103,8 +103,13 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
   const callOccurrences = new Map<string, string>()
   const keyedOccurrences = new Map<string, string>()
   const preflightCandidates = new Set<string>()
+  // 审批注册（sense_pending）在模型流中先于校验/授权到达；把 tool-approval 的 started
+  // 延后到 sense_end（授权之后）记录，使工具链记录顺序与模板链一致（清单→校验→授权→审批）。
+  const pendingApprovals = new Set<string>()
   const latest = new Map<WorkflowStepKind, { id: string; iteration: number; attempt: number }>()
   const callBatches = new Map<string, { id: string; occurrenceId: string }>()
+  // callId -> tool-result occurrenceId（用于 checkpoint 边界挂接工具结果关系）
+  const toolResultOccurrences = new Map<string, string>()
   let childRunOccurrenceId: string | undefined
 
   function current(kind: WorkflowStepKind, sameAttempt = false): string | undefined {
@@ -315,6 +320,43 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
     return id
   }
 
+  /** 首个工具链事件到来时提前建立"调用清单"（收集中），批次提交时再补终态与真实 batchId。 */
+  function pendingBatchList(): string {
+    return startOnce('tool-list', `pending-batch:${iteration}:${attempt}`)
+  }
+
+  /** run 级"上下文构建/恢复"：整个 run 只建立一个 occurrence，不携带 iteration/attempt。 */
+  function recordRunContext(): void {
+    if (latest.has('context')) return
+    const id = occurrenceId('context', 'context')
+    persist([
+      {
+        ...common(),
+        iteration: undefined,
+        attempt: undefined,
+        sourceKey: `${id}:started`,
+        occurrenceId: id,
+        eventKind: 'started',
+        kind: 'context',
+        label: WORKFLOW_STEP_LABELS['context'],
+        status: 'running',
+      },
+      {
+        ...common(),
+        iteration: undefined,
+        attempt: undefined,
+        sourceKey: `${id}:status:succeeded:normal`,
+        occurrenceId: id,
+        eventKind: 'status',
+        kind: 'context',
+        label: WORKFLOW_STEP_LABELS['context'],
+        status: 'succeeded',
+        reason: 'normal',
+      },
+    ])
+    latest.set('context', { id, iteration, attempt })
+  }
+
   function onBoundary(boundary: WorkflowBoundary): void {
     if (closed) return
     if (boundary.newIteration) {
@@ -326,11 +368,13 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
       activeKind = 'input'
       callBatches.clear()
       preflightCandidates.clear()
+      pendingApprovals.clear()
     }
     if (boundary.attempt !== undefined && boundary.attempt !== attempt) {
       attempt = boundary.attempt
       callBatches.clear()
       preflightCandidates.clear()
+      pendingApprovals.clear()
     }
     const previousStage = contextStageId
     if (boundary.compactRequested) {
@@ -340,6 +384,9 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
     let detailedModelBoundary = false
     if (boundary.activeNodeId === 'model' && boundary.phaseLabel === '准备请求') {
       detailedModelBoundary = true
+      // 上下文在"准备请求"阶段随请求一并记录（记录顺序 = 模板链：输入→请求准备+上下文供给），
+      // 使流程开始时的点亮顺序与连线一致；整个 run 只建立一个 run 级 context occurrence。
+      recordRunContext()
       if (activeKind !== 'request' || !activeOccurrenceId) {
         finishActive()
         activeOccurrenceId = start('request')
@@ -371,7 +418,14 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         sourceSuffix: 'response',
       })
     }
-    if (boundary.activeNodeId && boundary.activeNodeId !== 'tools' && !detailedModelBoundary) {
+    // 上下文边界不占用 active occurrence：context 延后到"准备请求"阶段记录，
+    // 保证记录顺序与模板链一致（输入 → 请求准备 + 上下文供给），避免流程开始时上下文先于输入点亮。
+    if (
+      boundary.activeNodeId &&
+      boundary.activeNodeId !== 'tools' &&
+      boundary.activeNodeId !== 'context' &&
+      !detailedModelBoundary
+    ) {
       const kind = NODE_KIND[boundary.activeNodeId] ?? 'unknown'
       const next = legacyStatus(boundary)
       if (activeKind !== kind || !activeOccurrenceId) {
@@ -388,9 +442,30 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
           ...(next.reason ? { reason: next.reason } : {}),
         })
     }
+    if (boundary.activeNodeId === 'checkpoint') {
+      // 边界建立的 checkpoint occurrence 立即挂接已完成工具结果的关系锚点：
+      // 与消息提交路径复用同一 occurrence，使"内容记录"的两条入边在同一帧点亮。
+      const checkpointId = activeOccurrenceId
+      if (checkpointId) {
+        for (const [callId, resultId] of toolResultOccurrences) {
+          addAnchor(
+            checkpointId,
+            'checkpoint',
+            { kind: 'message', id: callId, chatId },
+            { callId, causeOccurrenceId: resultId },
+          )
+        }
+      }
+    }
     if (boundary.batch) {
       if (activeKind === 'model') finishActive('succeeded', 'response')
-      const list = startOnce('tool-list', boundary.batch.id, {
+      // 清单已在首个工具链事件（sense_pending/sense_end）时提前建立（收集中）；
+      // 此处复用同一 occurrence，补真实 batchId 与终态，保证 firstSequence 早于校验/授权/审批。
+      const pendingKey = `pending-batch:${iteration}:${attempt}`
+      const pendingMapKey = `${iteration}:${attempt}:tool-list:${pendingKey}`
+      let list = keyedOccurrences.get(pendingMapKey)
+      if (list) keyedOccurrences.delete(pendingMapKey)
+      else list = startOnce('tool-list', boundary.batch.id, {
         batchId: boundary.batch.id,
       })
       status(list, 'tool-list', 'succeeded', {
@@ -415,8 +490,6 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
   }
 
   const stop = observeWorkflow(chatId, onBoundary)
-  activeOccurrenceId = start('context')
-  activeKind = 'context'
   const spawnTask = getSpawnTaskByChild(chatId)
   if (spawnTask) {
     childRunOccurrenceId = start('child-run', `child-run:${spawnTask.taskId}`, {
@@ -424,13 +497,18 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
     })
   }
 
-  function callOccurrence(callId: string, kind: WorkflowStepKind): string {
+  function callOccurrence(
+    callId: string,
+    kind: WorkflowStepKind,
+    fields: Partial<WorkflowJournalEventInput> = {},
+  ): string {
     const key = callKey(callId, kind)
     const existing = callOccurrences.get(key)
     if (existing) return existing
     const id = startOnce(kind, callId, {
       callId,
       ...(callBatches.get(callId) ? { batchId: callBatches.get(callId)!.id } : {}),
+      ...fields,
     })
     callOccurrences.set(key, id)
     // Validation may precede the final batch notification; its anchor is added there.
@@ -487,20 +565,35 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         kind === 'tool-result' ? callOccurrences.get(callKey(message.id, 'tool-result')) : undefined
       if (linkedToolResult) {
         addAnchor(linkedToolResult, kind, anchor)
-        const checkpoint = startOnce('checkpoint', `checkpoint:${message.id}`, {
+        // 复用本轮边界（activeNodeId 'checkpoint'）已建立的 checkpoint occurrence：
+        // 边界事件先于工具结果消息提交到达，两条输入线（模型响应→响应分流→内容记录、
+        // 工具结果→内容记录）因此指向同一个 occurrence，"内容记录"只点亮一次且入边同时点亮。
+        const checkpoint =
+          current('checkpoint', true) ??
+          startOnce('checkpoint', `checkpoint:${message.id}`, {
+            callId: message.id,
+            causeOccurrenceId: linkedToolResult,
+          })
+        addAnchor(checkpoint, 'checkpoint', anchor, {
           callId: message.id,
           causeOccurrenceId: linkedToolResult,
         })
-        addAnchor(checkpoint, 'checkpoint', anchor)
-        status(checkpoint, 'checkpoint', 'succeeded', { reason: 'result' })
+        status(checkpoint, 'checkpoint', 'succeeded', { reason: 'result', callId: message.id })
       }
       // A persisted pending placeholder is not a completed tool result.
       else if (kind === 'tool-result') return
-      else if (kind === 'model' && current('model', true))
-        addAnchor(current('model', true)!, kind, anchor)
-      else if (activeOccurrenceId && activeKind === kind)
+      else if (kind === 'model' && current('model', true)) {
+        const modelId = current('model', true)!
+        addAnchor(modelId, kind, anchor)
+        // 模型响应消息已提交（流已结束）：立即终态化 model occurrence，使"大模型响应"
+        // 在工具链（校验/授权/审批）之前点亮，并让前端能即时证明
+        // model→response→channels→tool-list 的前驱连线（记录时机 = 触发时机）。
+        if (activeOccurrenceId === modelId && activeKind === 'model')
+          finishActive('succeeded', 'response')
+      } else if (activeOccurrenceId && activeKind === kind) {
         addAnchor(activeOccurrenceId, kind, anchor)
-      else {
+        if (kind === 'model') finishActive('succeeded', 'response')
+      } else {
         const id = start(kind, `${kind}:message:${message.id}`)
         addAnchor(id, kind, anchor)
         status(id, kind, 'succeeded', { reason: 'result' })
@@ -509,16 +602,22 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
     recordChunk(chunk) {
       if (closed) return
       if (chunk.type === 'sense_end') {
+        // 首个工具链事件：提前建立"调用清单"（收集中），使清单 firstSequence 早于校验/授权/审批。
+        const list = pendingBatchList()
         const invalidArguments = chunk.security?.findings.some(
           (finding) => finding.code === 'schema.invalid-arguments',
         )
-        const validation = callOccurrence(chunk.id, 'tool-validation')
+        const validation = callOccurrence(chunk.id, 'tool-validation', {
+          causeOccurrenceId: list,
+        })
         status(validation, 'tool-validation', invalidArguments ? 'rejected' : 'succeeded', {
           reason: invalidArguments ? 'validation' : 'normal',
           callId: chunk.id,
         })
         if (invalidArguments) return
-        const authorization = callOccurrence(chunk.id, 'tool-authorization')
+        const authorization = callOccurrence(chunk.id, 'tool-authorization', {
+          causeOccurrenceId: validation,
+        })
         status(
           authorization,
           'tool-authorization',
@@ -530,13 +629,21 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
         )
         if (!invalidArguments && chunk.security?.decision !== 'deny')
           preflightCandidates.add(chunk.id)
+        // 审批注册（sense_pending）在模型流中先到；把 approval 的 started 放在授权之后，
+        // 使工具链记录顺序与模板链一致（清单→校验→授权→审批）。
+        if (pendingApprovals.delete(chunk.id)) {
+          const approval = callOccurrence(chunk.id, 'tool-approval', {
+            causeOccurrenceId: authorization,
+          })
+          status(approval, 'tool-approval', 'waiting', {
+            waitReason: 'approval',
+            reason: 'approval',
+            callId: chunk.id,
+          })
+        }
       } else if (chunk.type === 'sense_pending') {
-        const id = callOccurrence(chunk.approvalId, 'tool-approval')
-        status(id, 'tool-approval', 'waiting', {
-          waitReason: 'approval',
-          reason: 'approval',
-          callId: chunk.approvalId,
-        })
+        pendingApprovals.add(chunk.approvalId)
+        pendingBatchList()
       } else if (chunk.type === 'sense_started') {
         const preflight = callOccurrence(chunk.id, 'tool-preflight')
         const approval = callOccurrences.get(callKey(chunk.id, 'tool-approval'))
@@ -575,6 +682,7 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
             callId: chunk.id,
           })
         const result = callOccurrence(chunk.id, 'tool-result')
+        toolResultOccurrences.set(chunk.id, result)
         status(result, 'tool-result', finalStatus, {
           reason: 'result',
           callId: chunk.id,

@@ -79,6 +79,23 @@ export function projectHeaderEdgeEvidence(
     if (source && source.chatId === chatId && ['submission', 'queue'].includes(source.kind))
       participating.set(source.occurrenceId, source)
   }
+  // A checkpoint observed once (boundary and tool-result message commit reuse one
+  // occurrence) still proves both supply paths: the model stream through channels
+  // and the direct tool-result edge. The result relationship rides the message anchor.
+  for (const target of participating.values()) {
+    if (target.kind !== 'checkpoint') continue
+    const callIds = new Set<string>()
+    if (target.callId) callIds.add(target.callId)
+    for (const anchor of target.anchors)
+      if (anchor.kind === 'message') callIds.add(anchor.id)
+    if (!callIds.size) continue
+    for (const result of participating.values()) {
+      if (result.kind !== 'tool-result' || !result.callId || !callIds.has(result.callId)) continue
+      if (result.chatId !== target.chatId || (result.runId && result.runId !== target.runId))
+        continue
+      record(['tool-result:checkpoint'], result, target)
+    }
+  }
   for (const target of occurrences.values()) {
     if (target.callId && state.selection.callId && target.callId !== state.scope.callId) continue
     // A response/error/wait alias describes the same observed event.

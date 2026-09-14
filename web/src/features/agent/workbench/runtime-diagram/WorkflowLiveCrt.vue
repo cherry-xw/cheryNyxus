@@ -95,7 +95,7 @@ watch(
   z-index: 18;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  width: 280px;
+  width: 380px;
   height: 180px;
   box-sizing: border-box;
   overflow: hidden;
@@ -148,14 +148,13 @@ button:focus-visible {
 }
 .workflow-live-crt-body {
   overflow: auto;
-  padding: 8px 10px;
+  padding: 8px 12px;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.45;
   overscroll-behavior: contain;
   scrollbar-color: var(--border-strong) var(--panel);
   scrollbar-width: thin;
   user-select: text;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: var(--font-mono, monospace);
   background: repeating-linear-gradient(
@@ -163,12 +162,90 @@ button:focus-visible {
     color-mix(in srgb, var(--accent) 5%, transparent) 3px 4px
   );
 }
+/* 小窗口内统一 markdown 排版：收敛默认标题字号，收紧段落与列表行距 */
+/* 只保留文本块内部的源码换行（pre-wrap），块之间的空白换行文本节点折叠，
+   避免 markdown-it 输出的 </p>\n<p> 在 pre-wrap 下渲染成整行空隙。 */
+.workflow-live-crt-body :deep(p),
+.workflow-live-crt-body :deep(h1),
+.workflow-live-crt-body :deep(h2),
+.workflow-live-crt-body :deep(h3),
+.workflow-live-crt-body :deep(h4),
+.workflow-live-crt-body :deep(h5),
+.workflow-live-crt-body :deep(h6),
+.workflow-live-crt-body :deep(li),
+.workflow-live-crt-body :deep(blockquote),
+.workflow-live-crt-body :deep(th),
+.workflow-live-crt-body :deep(td) {
+  white-space: pre-wrap;
+}
 .workflow-live-crt-body :deep(p) {
-  margin: 0 0 0.45em;
+  margin: 0 0 0.35em;
+}
+.workflow-live-crt-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.workflow-live-crt-body :deep(h1),
+.workflow-live-crt-body :deep(h2),
+.workflow-live-crt-body :deep(h3),
+.workflow-live-crt-body :deep(h4),
+.workflow-live-crt-body :deep(h5),
+.workflow-live-crt-body :deep(h6) {
+  margin: 0.5em 0 0.25em;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.workflow-live-crt-body :deep(h1),
+.workflow-live-crt-body :deep(h2) {
+  font-size: 13px;
+}
+.workflow-live-crt-body :deep(ul),
+.workflow-live-crt-body :deep(ol) {
+  margin: 0 0 0.35em;
+  padding-left: 1.5em;
+}
+.workflow-live-crt-body :deep(li) {
+  margin: 0.1em 0;
 }
 .workflow-live-crt-body :deep(pre) {
+  margin: 0.35em 0;
+  padding: 5px 7px;
+  font-size: 11px;
+  line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.workflow-live-crt-body :deep(code) {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.workflow-live-crt-body :deep(blockquote) {
+  margin: 0.35em 0;
+  padding: 0 0 0 8px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--workflow-muted);
+}
+.workflow-live-crt-body :deep(hr) {
+  margin: 0.5em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.workflow-live-crt-body :deep(table) {
+  margin: 0.35em 0;
+  font-size: 11.5px;
+  border-collapse: collapse;
+}
+.workflow-live-crt-body :deep(th),
+.workflow-live-crt-body :deep(td) {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+}
+.workflow-live-crt-body :deep(img) {
+  max-width: 100%;
+  height: auto;
+}
+.workflow-live-crt-body :deep(a) {
+  color: var(--accent);
 }
 .crt-caret {
   color: var(--accent);
