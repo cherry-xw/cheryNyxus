@@ -3,7 +3,7 @@
   z-index: var(--nx-z-blocking-interaction);
   left: 20px;
   bottom: 24px;
-  width: min(640px, calc(100% - 88px));
+  width: min(600px, calc(100% - 88px));
   max-height: min(680px, calc(100% - 96px));
   min-height: 0;
   display: flex;
@@ -42,32 +42,52 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
-.workbench-attention-browser :deep(.inbox-list) {
-  min-height: 0;
-  max-height: none;
-  overflow: visible;
-}
-.workbench-attention-browser :deep(.interaction-card) {
-  border: 0;
-  padding: 0;
-  background: transparent;
-}
-.workbench-attention-surface.is-embedded { position: relative; left: auto; top: auto; bottom: auto; width: 640px; max-width: 72vw; max-height: 520px; z-index: 30; }
+.workbench-attention-surface.is-embedded { position: relative; left: auto; top: auto; bottom: auto; width: 600px; max-width: 88vw; max-height: 520px; z-index: 30; }
 .workbench-attention-surface.is-embedded .workbench-attention-head { display: none; }
 .workbench-attention-surface.is-embedded .workbench-attention-browser { padding: 14px; }
-.workbench-attention-surface.is-embedded :deep(.inbox-list) { padding-bottom: 70px; }
-.workbench-attention-surface.is-embedded :deep(article footer) { position: sticky; bottom: 0; z-index: 2; margin: 12px -14px -14px; padding: 12px 14px; background: var(--nx-bg); border-top: 1px solid var(--nx-border); }
-.workbench-attention-browser :deep(.interaction-card + .interaction-card) {
-  border-top: 1px solid var(--nx-border);
-  margin-top: 16px;
-  padding-top: 16px;
-}
 
+// 标题栏：关闭按钮已移除，右侧为决策队列 ← n/N → 切换（关闭走右侧铃铛入口）。
+// 新元素直角、400 字重，颜色走 nx token 派生。
 .workbench-attention-head { display: flex; align-items: center; gap: 12px; }
 .workbench-attention-head > span { flex: 1; min-width: 0; }
-.workbench-attention-head button {
-  flex: none; padding: 6px 10px; border: 1px solid var(--border-strong);
-  border-radius: 0; background: var(--surface); color: var(--ink);
-  font: inherit; font-size: 12px; cursor: pointer;
+.attention-pager {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--nx-border-soft);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--nx-bg) 72%, transparent);
 }
-.workbench-attention-head button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.attention-pager button {
+  flex: none;
+  min-width: 26px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--nx-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.attention-pager button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--nx-border) 24%, transparent);
+}
+.attention-pager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+.attention-pager button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.attention-pager-index {
+  min-width: 40px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--nx-text);
+}
