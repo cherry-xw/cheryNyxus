@@ -3,20 +3,20 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('paper stack workbench integration', () => {
-  it('connects the persistent reader to the one Vue Flow topology', async () => {
+  it('connects cards and reader as mutually exclusive Pixi tree companions', async () => {
     const workbench = await readComponentSource(
       resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
       'utf8',
     )
-    expect(workbench).toContain('value?.paperMode === true')
     expect(workbench).toContain('<RuntimeDiagram')
     expect(workbench).toContain('<NyxusContentReader')
     expect(workbench).toContain('v-bind="runtimeDiagramProps"')
     expect(workbench).toContain('timeline: liveTimeline.value')
     expect(workbench).toContain(':selection="selectedContent"')
     expect(workbench).not.toContain(':composer-open="nyxusDraftActive"')
-    expect(workbench).toContain(':aria-pressed="readerOpen"')
-    expect(workbench).not.toContain('<MessageBranchTree')
+    expect(workbench).toContain(":aria-pressed=\"sidePanel === 'reader'\"")
+    expect(workbench).toContain('<MessageBranchTree')
+    expect(workbench).toContain("paperMode: sidePanel.value === 'cards'")
   })
 
   it('projects the current selection into the external reader without another renderer', async () => {

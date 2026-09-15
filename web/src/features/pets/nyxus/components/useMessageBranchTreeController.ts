@@ -96,6 +96,8 @@ export type MessageBranchTreeControllerProps = {
   /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
   fullRenderThreshold?: number
   paperMode?: boolean
+  /** Auxiliary workbench panel occupies the left half while the tree remains primary. */
+  sidePanelOpen?: boolean
   /** Parent workbench is minimized/hidden; keep state but suspend GPU work. */
   suspended?: boolean
   /** 静态历史视图（代际二层弹窗）：挂断 live 投影（输入/流式/CRT），仅渲染 timelineOverride。 */
@@ -393,8 +395,8 @@ export function useMessageBranchTreeController(
   const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 150
   const fullRenderThreshold = computed(() => {
     const configured = props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT
-    // The reader leaves only half a viewport for the graph. Avoid keeping hundreds
-    // of offscreen text textures in the software-rendered Electron canvas.
+    // 卡牌模式把树压缩到右半区，避免在软件渲染的 Electron 画布上保留数百个屏外文字纹理；
+    // 流程图/阅读器抽屉覆盖画布、不改变视口尺寸，保持默认阈值。
     return props.paperMode ? Math.min(configured, 120) : configured
   })
   const fullRenderActive = computed(() => layout.value.nodes.length <= fullRenderThreshold.value)
@@ -1523,6 +1525,15 @@ export function useMessageBranchTreeController(
       }
     }),
   }))
+  function gpuNodeAccent(node: (typeof layout.value.nodes)[number]): string {
+    const signal = layout.value.presentation === 'horizontal-signal'
+    return signal
+      ? signalAccentForTheme(
+          themeStore.theme,
+          signalVisualKindFor(node, node.presentationPriority ?? 'process'),
+        )
+      : accentForTheme(themeStore.theme, skinForNode(node).key)
+  }
   function gpuNodeHitStyle(node: (typeof layout.value.nodes)[number]): Record<string, string> {
     const position = canvas.worldToScreen(node)
     const signal = layout.value.presentation === 'horizontal-signal'
@@ -1542,6 +1553,7 @@ export function useMessageBranchTreeController(
       width: `${width}px`,
       height: `${height}px`,
       borderRadius: signal ? '3px' : '50%',
+      '--tree-node-accent': gpuNodeAccent(node),
       transform: `translate3d(${position.x - width / 2}px, ${position.y - height / 2}px, 0)`,
     }
   }
@@ -1689,12 +1701,17 @@ export function useMessageBranchTreeController(
     () => props.paperMode,
     (enabled) => {
       closeNodeDetail()
-      if (enabled && !activePaperNodeId.value)
-        activePaperNodeId.value = paperEntries.value.at(-1)?.id
-      // 卡牌模式开关会让树视口在「全宽 ↔ 右半区」间切换，旧相机位置不再对齐新视口。
-      // 与折叠档位/布局模式一致：开关后重新 fit，使节点树在新视口内居中。
+      if (enabled && !activePaperNodeId.value) activePaperNodeId.value = paperEntries.value.at(-1)?.id
+      // 卡牌模式开关会让树视口在「全宽 ↔ 右半区」间切换，旧相机位置不再对齐新视口，
+      // 与折叠档位/布局模式一致：开关后重新 fit。流程图/阅读器抽屉覆盖画布但不改变
+      // 视口几何，开关抽屉不重新 fit，保留用户当前平移与缩放。
       void nextTick(resetLayout)
     },
+  )
+  // 抽屉开关只收拢节点详情，不重排画布相机。
+  watch(
+    () => props.sidePanelOpen,
+    () => closeNodeDetail(),
   )
   function tryInitialFit(): void {
     // 数据请求完成前 graph 可能已有占位边界，不能据此结束首次 fit，否则真实历史到达后仍是默认相机。
@@ -1892,6 +1909,7 @@ export function useMessageBranchTreeController(
     focusRelativeNode,
     foldRailSide,
     generationDialogIndex,
+    gpuNodeAccent,
     gpuNodeHitStyle,
     gpuRenderError,
     graph,

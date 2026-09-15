@@ -5,10 +5,13 @@ import {
   type MessageBranchTreeControllerEmits,
 } from './useMessageBranchTreeController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
+import { computed, ref, toRef } from 'vue'
+import { useTreePointerHighlight } from './useTreePointerHighlight'
 const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), {
   foldMode: 'partial',
   layoutMode: 'timeline',
   presentationMode: 'horizontal-signal',
+  suspended: false,
 })
 const emit = defineEmits<MessageBranchTreeControllerEmits>()
 const controller = useMessageBranchTreeController(props, emit)
@@ -48,6 +51,7 @@ const {
   focusRelativeNode,
   foldRailSide,
   generationDialogIndex,
+  gpuNodeAccent,
   gpuNodeHitStyle,
   gpuRenderError,
   hasNewTail,
@@ -90,15 +94,85 @@ const {
   viewportSize,
   visibleInteractiveNodes,
 } = controller
+const pointerHighlightRef = ref<HTMLElement | null>(null)
+useTreePointerHighlight({
+  host: viewportRef,
+  layer: pointerHighlightRef,
+  suspended: toRef(props, 'suspended'),
+})
+// 流程图/阅读器侧边抽屉：以 --tree-drawer-width 覆盖节点树，右缘拖拽/键盘调宽。
+// 宽度存百分比（相对画布容器），跨开关抽屉保留；切换会话重挂载后回到默认 50%。
+const DRAWER_MIN_PX = 300
+const DRAWER_MIN_PCT = 24
+const DRAWER_MAX_PCT = 88
+const drawerWidthPct = ref(50)
+const drawerWidthLimits = computed(() => {
+  const containerWidth = viewportSize.value.width
+  const minPct = containerWidth > 0 ? (DRAWER_MIN_PX / containerWidth) * 100 : DRAWER_MIN_PCT
+  return {
+    min: Math.min(DRAWER_MAX_PCT, Math.max(DRAWER_MIN_PCT, minPct)),
+    max: DRAWER_MAX_PCT,
+  }
+})
+function clampDrawerWidth(pct: number): number {
+  return Math.min(drawerWidthLimits.value.max, Math.max(drawerWidthLimits.value.min, pct))
+}
+let drawerDragStart: { x: number; pct: number } | null = null
+function onDrawerResizeDown(event: PointerEvent): void {
+  if (event.button !== 0) return
+  event.preventDefault()
+  event.stopPropagation()
+  drawerDragStart = { x: event.clientX, pct: drawerWidthPct.value }
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+function onDrawerResizeMove(event: PointerEvent): void {
+  if (!drawerDragStart) return
+  const containerWidth = viewportSize.value.width
+  if (containerWidth <= 0) return
+  const deltaPct = ((event.clientX - drawerDragStart.x) / containerWidth) * 100
+  drawerWidthPct.value = clampDrawerWidth(drawerDragStart.pct + deltaPct)
+}
+function onDrawerResizeEnd(): void {
+  drawerDragStart = null
+}
+function onDrawerResizeKeydown(event: KeyboardEvent): void {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const { min, max } = drawerWidthLimits.value
+  if (event.key === 'Home') drawerWidthPct.value = min
+  else if (event.key === 'End') drawerWidthPct.value = max
+  else drawerWidthPct.value = clampDrawerWidth(drawerWidthPct.value + (event.key === 'ArrowLeft' ? -5 : 5))
+}
 defineExpose({ resetLayout: controller.resetLayout })
 </script>
 
 <template>
   <section
     class="execution-tree"
-    :class="{ 'is-paper-mode': paperMode }"
+    :class="{ 'is-paper-mode': paperMode, 'has-side-panel': sidePanelOpen }"
+    :style="{ '--tree-drawer-width': `${clampDrawerWidth(drawerWidthPct)}%` }"
     aria-label="任务执行节点树"
   >
+    <div v-if="sidePanelOpen && !paperMode" class="tree-side-panel">
+      <slot name="side-panel" />
+    </div>
+    <span
+      v-if="sidePanelOpen && !paperMode"
+      class="tree-drawer-resize"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      aria-label="调整侧边面板宽度"
+      :aria-valuemin="Math.round(drawerWidthLimits.min)"
+      :aria-valuemax="Math.round(drawerWidthLimits.max)"
+      :aria-valuenow="Math.round(drawerWidthPct)"
+      @pointerdown="onDrawerResizeDown"
+      @pointermove="onDrawerResizeMove"
+      @pointerup="onDrawerResizeEnd"
+      @pointercancel="onDrawerResizeEnd"
+      @lostpointercapture="onDrawerResizeEnd"
+      @keydown="onDrawerResizeKeydown"
+    />
     <NodePaperStack
       v-if="paperMode"
       :entries="paperEntries"
@@ -125,6 +199,7 @@ defineExpose({ resetLayout: controller.resetLayout })
     >
       <div ref="pixiMountRef" class="tree-gpu-surface" role="img" aria-label="任务执行节点图" />
       <div class="tree-overlay" aria-live="polite">
+        <div ref="pointerHighlightRef" class="tree-pointer-highlight" aria-hidden="true" />
         <div class="gpu-node-hit-layer">
           <button
             v-for="node in visibleInteractiveNodes"
@@ -135,6 +210,7 @@ defineExpose({ resetLayout: controller.resetLayout })
               node.y,
               nodeTitle(node),
               node.status,
+              gpuNodeAccent(node),
               canvas.scale.value,
               canvas.offsetX.value,
               canvas.offsetY.value,
@@ -144,7 +220,7 @@ defineExpose({ resetLayout: controller.resetLayout })
             :style="gpuNodeHitStyle(node)"
             :aria-label="nodeAriaLabel(node)"
             :data-execution-node-id="node.id"
-            @pointerdown="onNodePointerDown($event, node)"
+            @pointerdown="onNodePointerDown($event, node); canvas.onPointerDown($event)"
             @pointerenter="showNodeDetail(node)"
             @pointerleave="hideNodeDetail(node)"
             @focus="focusNode(node)"

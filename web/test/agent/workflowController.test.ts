@@ -104,6 +104,25 @@ afterEach(async () => {
 })
 
 describe('workflow controller without DOM or execution APIs', () => {
+  it('releases the workflow lease while suspended and reopens it when visible', async () => {
+    fixture.open.mockResolvedValue(response())
+    const suspended = ref(false)
+    const state = controller(ref('root'), suspended)
+    await flush()
+    expect(fixture.open).toHaveBeenCalledTimes(1)
+    expect(state.live.value?.subscriptionId).toBe('lease:root')
+
+    suspended.value = true
+    await flush()
+    expect(fixture.close).toHaveBeenCalledWith('lease:root')
+    expect(state.live.value).toBeUndefined()
+
+    suspended.value = false
+    await flush()
+    expect(fixture.open).toHaveBeenCalledTimes(2)
+    expect(state.live.value?.subscriptionId).toBe('lease:root')
+  })
+
   it('labels installed snapshots as hydration and committed deltas as live motion sources', async () => {
     fixture.open.mockResolvedValue({
       ...response(),
@@ -228,10 +247,13 @@ describe('workflow controller without DOM or execution APIs', () => {
     suspended.value = true
     await nextTick()
     await vi.advanceTimersByTimeAsync(5000)
-    expect(state.cursor.value).toBe(1)
+    expect(state.cursor.value).toBe(0)
     expect(state.playing.value).toBe(false)
-    state.returnLive()
-    expect(state.snapshot.value?.revision).toBe(3)
+    expect(state.replay.value).toBe(false)
+    expect(state.snapshot.value).toBeUndefined()
+    suspended.value = false
+    await flush()
+    expect(state.snapshot.value?.revision).toBe(2)
   })
 
   it('rejects incomplete pagination and ignores history after target changes', async () => {

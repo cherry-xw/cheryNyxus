@@ -89,6 +89,35 @@ describe('Nyxus tree motion contract', () => {
     expect(controller).toContain('retainCameraSelection(camera)')
   })
 
+  it('keeps the mouse highlight in one non-interactive compositor layer', async () => {
+    const [component, controller, highlight] = await Promise.all([
+      treeComponentSource(),
+      treeControllerSource(),
+      readComponentSource(
+        resolve('web/src/features/pets/nyxus/components/useTreePointerHighlight.ts'),
+        'utf8',
+      ),
+    ])
+
+    expect(component).toContain('class="tree-pointer-highlight"')
+    expect(component).toContain('pointer-events: none')
+    expect(highlight).toContain("closest<HTMLElement>('[data-execution-node-id]')")
+    expect(highlight).toContain('const geometryFor')
+    expect(highlight).toContain("ease: 'elastic.out(1, 0.62)'")
+    expect(highlight).toContain("target.style.getPropertyValue('--tree-node-accent')")
+    expect(highlight).not.toContain('!options.dragging.value')
+    expect(highlight).toContain("target.classList.add('is-pointer-highlighted')")
+    expect(highlight).toContain("host.classList.add('is-pointer-highlight-active')")
+    expect(highlight).not.toContain('detailActive')
+    expect(component).toContain('@media (prefers-reduced-motion: reduce)')
+    expect(component).toContain('border: 4px solid')
+    expect(component).toContain('border-radius: 0')
+    expect(component).toContain(".tree-pointer-highlight[data-mode='node']")
+    expect(component).toContain('@media (hover: hover) and (pointer: fine)')
+    expect(component).toContain('.tree-viewport.is-panning,')
+    expect(controller).toContain("'--tree-node-accent': gpuNodeAccent(node)")
+  })
+
   it('retries the shared reset layout until initial timeline geometry is ready', async () => {
     const [component, controller] = await Promise.all([
       treeComponentSource(),
@@ -100,6 +129,7 @@ describe('Nyxus tree motion contract', () => {
     expect(controller).toContain('() => layout.value.bounds.maxY')
     expect(controller).toContain('() => viewportSize.value.height')
     expect(component).toContain('@click.stop="resetLayout"')
+    expect(component).toContain('@pointerdown="onNodePointerDown($event, node); canvas.onPointerDown($event)"')
   })
 
   it('keeps the enlarged static cache out of the per-frame animation loops', async () => {
@@ -189,6 +219,11 @@ describe('Nyxus tree motion contract', () => {
 
     expect(signalLabels).toMatch(/if \(signal\) \{\s*continue\s*\}/)
     expect(source).not.toContain('signalNodeLabelFor')
+    expect(source).toContain('width: node.containsErrorMessage ? 2.2 : 0.75')
+    expect(source).toContain('width: 1.05')
+    expect(source).toContain('width: 1.45')
+    expect(source).toContain('alpha: 0.12 * alpha')
+    expect(source).toContain('alpha: 0.94 * (1 - phase) * emphasis')
   })
 
   it('uses a 120px head-tail pulse on one fixed 2.4s generation interval', () => {
@@ -209,7 +244,7 @@ describe('Nyxus tree motion contract', () => {
   it('keeps the static line subdued while the pulse head and tail stay luminous', async () => {
     const source = await rendererSource()
 
-    expect(source).toContain('alpha: 0.07 * alpha')
+    expect(source).toContain('alpha: 0.12 * alpha')
     expect(source).toContain('width: 1.35')
     expect(source).toContain('this.canvasPalette.activeEdgeAlpha : this.canvasPalette.edgeAlpha')
     expect(source).toContain('[0.12, 0.16, 0.22, 0.3, 0.48, 0.3, 0.55]')

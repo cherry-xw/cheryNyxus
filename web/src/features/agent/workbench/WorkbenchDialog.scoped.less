@@ -565,20 +565,32 @@
   pointer-events: none;
 }
 
-// Vue Flow 是工作台唯一拓扑表面；右侧预留 rail，阅读器只占画布外的相邻列。
-.workbench-runtime-frame {
+// 流程图/阅读器以左侧抽屉覆盖节点树；内容铺满抽屉，右侧 14px 让位给抽屉右缘拖拽手柄。
+.workbench-side-panel {
   position: absolute;
-  inset: 0 48px 0 0;
+  inset: 0 14px 0 0;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   pointer-events: auto;
+}
+.workbench-side-panel :deep(.runtime-diagram) {
+  width: 100%;
+  height: 100%;
 }
 .workbench-content-reader {
   min-width: 0;
   min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+.workbench-current-attention {
+  position: absolute;
+  z-index: var(--nx-z-blocking-interaction);
+  left: max(20px, env(safe-area-inset-left));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  width: min(800px, calc(100% - 88px));
+  pointer-events: auto;
 }
 
 // 节点树上下文占用条：定位容器（标题栏下方 40px 处，分割线位置）。
@@ -782,18 +794,6 @@
   .nyxus-composer-title small,
   .nyxus-composer-hint span:first-child {
     display: none;
-  }
-}
-@media (max-width: 960px) {
-  .workbench-runtime-frame.has-reader {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .workbench-runtime-frame.has-reader .workbench-content-reader {
-    position: absolute;
-    z-index: var(--nx-z-node-overlay);
-    inset: 0;
-    width: 100%;
-    box-shadow: -14px 0 36px rgba(0, 0, 0, 0.32);
   }
 }
 @media (max-height: 520px) and (min-width: 721px) {

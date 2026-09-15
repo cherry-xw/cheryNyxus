@@ -15,14 +15,65 @@
   -webkit-user-select: none;
   contain: layout paint style;
 }
+// 精细鼠标在节点树空间始终由自定义方框反馈，避免首次 pointerenter 前短暂显示系统指针。
+@media (hover: hover) and (pointer: fine) {
+  .tree-viewport,
+  .tree-viewport.is-panning,
+  .tree-viewport .gpu-node-hit-target {
+    cursor: none;
+  }
+}
 .execution-tree.is-paper-mode .tree-viewport {
   left: 50%;
   width: 50%;
 }
-@media (max-width: 900px) {
-  .execution-tree.is-paper-mode .tree-viewport {
-    left: 54%;
-    width: 46%;
+.execution-tree.is-paper-mode .tree-viewport {
+  left: 50%;
+  width: 50%;
+}
+// 流程图/阅读器侧栏以左侧抽屉覆盖节点树：画布保持全宽，抽屉宽度由 --tree-drawer-width 控制。
+.execution-tree.has-side-panel:not(.is-paper-mode) .tree-viewport {
+  left: 0;
+  width: 100%;
+}
+.tree-side-panel {
+  position: absolute;
+  z-index: var(--nx-z-drawer);
+  inset: 0 auto 0 0;
+  width: var(--tree-drawer-width, 50%);
+  overflow: hidden;
+  background: var(--nx-bg);
+  border-right: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+  box-shadow: 12px 0 28px color-mix(in srgb, var(--nx-text) 22%, transparent);
+}
+// 抽屉右缘拖拽手柄：命中区骑跨抽屉边缘，hover/聚焦点亮高亮分割线。
+.tree-drawer-resize {
+  position: absolute;
+  z-index: var(--nx-z-drawer);
+  top: 0;
+  bottom: 0;
+  left: var(--tree-drawer-width, 50%);
+  width: 12px;
+  margin-left: -6px;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    margin-left: -1px;
+    background: color-mix(in srgb, var(--nx-text) 16%, transparent);
+    transition:
+      background-color 140ms ease,
+      opacity 140ms ease;
+  }
+  &:hover::after,
+  &:focus-visible::after {
+    background: var(--nx-cyan);
   }
 }
 .tree-viewport.is-panning {
@@ -45,6 +96,49 @@
   inset: 0;
   overflow: hidden;
   pointer-events: none;
+}
+.tree-pointer-highlight {
+  --tree-pointer-accent: var(--nx-cyan);
+  position: absolute;
+  z-index: calc(var(--nx-z-node-hit-target) - 1);
+  top: 0;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border: 4px solid color-mix(in srgb, var(--tree-pointer-accent) 94%, white 6%);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--tree-pointer-accent) 16%, transparent);
+  box-shadow:
+    0 7px 18px color-mix(in srgb, var(--nx-bg) 38%, transparent),
+    0 0 14px color-mix(in srgb, var(--tree-pointer-accent) 32%, transparent),
+    inset 0 0 8px color-mix(in srgb, var(--tree-pointer-accent) 18%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: top left;
+  will-change: transform, width, height, opacity;
+}
+.tree-pointer-highlight[data-mode='node'] {
+  border-radius: 0;
+  background: color-mix(in srgb, var(--tree-pointer-accent) 22%, transparent);
+}
+.tree-viewport.is-pointer-highlight-active,
+.tree-viewport.is-pointer-highlight-active .gpu-node-hit-target {
+  cursor: none;
+}
+@media (hover: none), (pointer: coarse) {
+  .tree-pointer-highlight {
+    display: none;
+  }
+  .tree-viewport.is-pointer-highlight-active,
+  .tree-viewport.is-pointer-highlight-active .gpu-node-hit-target {
+    cursor: pointer;
+  }
+}
+@media (prefers-reduced-motion: reduce) and (hover: hover) and (pointer: fine) {
+  .tree-pointer-highlight {
+    transition: none;
+  }
 }
 .gpu-node-hit-target {
   position: absolute;

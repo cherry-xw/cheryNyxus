@@ -650,7 +650,7 @@ export class ExecutionGraphPixiRenderer {
       drawCurve(this.staticEdges, edge.geometry).stroke({
         color,
         width: 4.5,
-        alpha: 0.07 * alpha,
+        alpha: 0.12 * alpha,
       })
       drawCurve(this.staticEdges, edge.geometry).stroke({
         color,
@@ -659,8 +659,8 @@ export class ExecutionGraphPixiRenderer {
           (edge.active ? this.canvasPalette.activeEdgeAlpha : this.canvasPalette.edgeAlpha) * alpha,
       })
       if (edge.horizontal && edge.routeX !== undefined && edge.from.y !== edge.to.y) {
-        this.staticEdges.circle(edge.routeX, edge.from.y, 2.4).fill({ color, alpha: 0.82 * alpha })
-        this.staticEdges.circle(edge.routeX, edge.to.y, 2.4).fill({ color, alpha: 0.82 * alpha })
+        this.staticEdges.circle(edge.routeX, edge.from.y, 2.4).fill({ color, alpha: 0.96 * alpha })
+        this.staticEdges.circle(edge.routeX, edge.to.y, 2.4).fill({ color, alpha: 0.96 * alpha })
       }
     }
 
@@ -751,8 +751,8 @@ export class ExecutionGraphPixiRenderer {
     // 含隐藏错误的过程组：外框加粗拉满并附加一圈低幅光晕；常规节点维持细外框。
     graphics.roundRect(left - 4, top - 4, size.width + 8, size.height + 8, 2).stroke({
       color: outerFrameAccent,
-      width: node.containsErrorMessage ? 2.6 : 1.25,
-      alpha: (node.containsErrorMessage ? 1 : 0.9) * alpha,
+      width: node.containsErrorMessage ? 2.2 : 0.75,
+      alpha,
     })
     if (node.containsErrorMessage) {
       graphics
@@ -762,10 +762,10 @@ export class ExecutionGraphPixiRenderer {
     graphics
       .roundRect(left, top, size.width, size.height, 2)
       .fill({ color: p.nodeFill, alpha: 0.92 * alpha })
-      .stroke({ color: stateAccent, width: 1.7, alpha })
+      .stroke({ color: stateAccent, width: 1.05, alpha })
     graphics
       .roundRect(left + 3, top + 3, size.width - 6, size.height - 6, 1)
-      .stroke({ color: stateAccent, width: 0.75, alpha: 0.22 * alpha })
+      .stroke({ color: stateAccent, width: 0.5, alpha: 0.34 * alpha })
 
     const frameVariant = signalNodeFrameVariantFor(kind)
     if (frameVariant === 'signal-corners') {
@@ -774,28 +774,28 @@ export class ExecutionGraphPixiRenderer {
         .lineTo(left + 16, top)
         .moveTo(left + size.width - 16, top + size.height)
         .lineTo(left + size.width - 5, top + size.height)
-        .stroke({ color: stateAccent, width: 2.6, alpha: 0.94 * alpha })
+        .stroke({ color: stateAccent, width: 1.45, alpha })
     } else if (frameVariant === 'flow-rails') {
       graphics
         .moveTo(left + 13, top)
         .lineTo(left + size.width - 13, top)
         .moveTo(left + 13, top + size.height)
         .lineTo(left + size.width - 13, top + size.height)
-        .stroke({ color: stateAccent, width: 2.4, alpha: 0.92 * alpha })
+        .stroke({ color: stateAccent, width: 1.35, alpha })
     } else if (frameVariant === 'action-split') {
       graphics
         .moveTo(left + 5, top)
         .lineTo(left + 12, top)
         .moveTo(left + size.width - 12, top)
         .lineTo(left + size.width - 5, top)
-        .stroke({ color: stateAccent, width: 2.4, alpha: 0.9 * alpha })
+        .stroke({ color: stateAccent, width: 1.35, alpha })
     } else {
       graphics
         .moveTo(left + 7, top)
         .lineTo(left + 18, top)
         .moveTo(left, top + 7)
         .lineTo(left, top + 15)
-        .stroke({ color: stateAccent, width: 2.2, alpha: 0.88 * alpha })
+        .stroke({ color: stateAccent, width: 1.25, alpha })
     }
 
     graphics.roundRect(left - 6, node.y - 3.5, 4, 7, 1).fill({ color: stateAccent, alpha })
@@ -816,7 +816,7 @@ export class ExecutionGraphPixiRenderer {
           : accent
       graphics
         .roundRect(left - 6, top - 6, size.width + 12, size.height + 12, 3)
-        .stroke({ color: stateColor, width: 1.4, alpha: 0.82 * alpha })
+        .stroke({ color: stateColor, width: 1, alpha: 0.96 * alpha })
     }
     if (node.foldCount) {
       const badgeX = left + size.width - 2
@@ -1048,7 +1048,7 @@ export class ExecutionGraphPixiRenderer {
           this.motionNodes.circle(node.x, node.y, nodeHeight / 2 + 7 + 19 * phase).stroke({
             color: accent,
             width: 2,
-            alpha: 0.8 * (1 - phase) * emphasis,
+            alpha: 0.94 * (1 - phase) * emphasis,
           })
         } else if (node.effect === 'trail') {
           for (let echo = 1; echo <= 3; echo += 1) {
@@ -1066,7 +1066,7 @@ export class ExecutionGraphPixiRenderer {
         this.motionNodes.circle(node.x, node.y, 19 * (1 + 0.8 * phase)).stroke({
           color: accent,
           width: 3,
-          alpha: 0.85 * (1 - phase) * emphasis,
+          alpha: 0.96 * (1 - phase) * emphasis,
         })
       }
       const breathe = 0.3 + 0.4 * (0.5 + Math.sin((seconds * Math.PI * 2) / 0.9) * 0.5)
