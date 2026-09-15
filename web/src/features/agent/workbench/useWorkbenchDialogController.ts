@@ -18,6 +18,7 @@ import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './
 import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/application/public'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 import {
+  MessageBranchTree,
   NyxusContentReader,
   isPianoRootSession,
   type NyxusContentSelection,
@@ -46,6 +47,7 @@ export type WorkbenchDialogControllerProps = {
   embedded?: boolean
 }
 export type { FoldMode } from './useWorkbenchViewPreferences'
+export type WorkbenchSidePanel = 'none' | 'cards' | 'workflow' | 'reader'
 
 export function useWorkbenchDialogController(props: WorkbenchDialogControllerProps) {
   const agents = useAgentsStore()
@@ -233,8 +235,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     () => agents.activeDialogSource === 'pet' && !isNyxus.value && !!presetName.value,
   )
   const nyxusDraftActive = ref(false)
-  /** 当前预设仅持久化阅读器开关与折叠档位；Vue Flow 方向和布局不是用户事实。 */
-  const { foldMode, readerOpen } = useWorkbenchViewPreferences(props.presetId)
+  /** 只持久化折叠档位；辅助侧栏每次进入工作台默认关闭，避免隐式建立 workflow lease。 */
+  const { foldMode } = useWorkbenchViewPreferences(props.presetId)
+  const sidePanel = ref<WorkbenchSidePanel>('none')
   const selectedContent = ref<NyxusContentSelection>()
   const replayTimeline = shallowRef<RootTimelineSnapshot>()
   const branchTarget = ref<{
@@ -257,7 +260,11 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
 
   function selectWorkflowContent(selection: NyxusContentSelection): void {
     selectedContent.value = selection
-    readerOpen.value = true
+    sidePanel.value = 'reader'
+  }
+
+  function toggleSidePanel(panel: Exclude<WorkbenchSidePanel, 'none'>): void {
+    sidePanel.value = sidePanel.value === panel ? 'none' : panel
   }
 
   function updateReplayTimeline(payload: {
@@ -696,23 +703,24 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     resolveWorkspaceRootChatId(liveTimeline.value?.rootChatId, treeRootChatId.value),
   )
   const workspacePending = computed(() =>
-    interactions.pending.filter((item) =>
-      !!attentionRootChatId.value && item.rootChatId === attentionRootChatId.value,
+    interactions.pending.filter(
+      (item) => !!attentionRootChatId.value && item.rootChatId === attentionRootChatId.value,
     ),
   )
   const currentAttentionCount = computed(() => workspacePending.value.length)
-  const attentionCount = computed(() => interactions.pending.filter((item) =>
-    item.rootChatId !== attentionRootChatId.value,
-  ).length)
+  const attentionCount = computed(
+    () =>
+      interactions.pending.filter((item) => item.rootChatId !== attentionRootChatId.value).length,
+  )
   const workspaceBrowserOpen = ref(false)
 
   watch(
     [attentionRootChatId, () => connection.status],
     ([rootChatId, status]) => {
       if (!rootChatId || status !== 'connected') return
-      void interactions.refresh().catch((cause) =>
-        console.warn('[WorkbenchDialog] refresh interactions failed:', cause),
-      )
+      void interactions
+        .refresh()
+        .catch((cause) => console.warn('[WorkbenchDialog] refresh interactions failed:', cause))
     },
     { immediate: true },
   )
@@ -837,7 +845,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     chatId: treeRootChatId.value,
     timeline: liveTimeline.value,
     foldMode: foldMode.value,
-    readerOpen: readerOpen.value,
     selection: selectedContent.value,
     focusSourceChatId: treeFocusSourceChatId.value,
     focusInteractionId: treeFocusInteractionId.value,
@@ -847,9 +854,28 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onSelectContent: selectWorkflowContent,
     onReplayTimelineChange: updateReplayTimeline,
   }))
+  const treeProps = computed(() => ({
+    rootChatId: treeRootChatId.value,
+    timelineOverride: taskTimeline.value,
+    layoutMode: 'timeline' as const,
+    presentationMode: 'horizontal-signal' as const,
+    foldMode: foldMode.value,
+    paperMode: sidePanel.value === 'cards',
+    sidePanelOpen: sidePanel.value !== 'none',
+    suspended: win.value?.minimized ?? false,
+    focusSourceChatId: treeFocusSourceChatId.value,
+    focusInteractionId: treeFocusInteractionId.value,
+    fullRenderThreshold: agents.globalConfig?.global.tree_full_render_threshold,
+    branchAnchorNodeId: branchTarget.value?.nodeId,
+    branchAnchorKind: branchTarget.value?.type,
+    detailBranchAvailable: detailBranchAvailability.value.available,
+    detailBranchUnavailableReason: detailBranchAvailability.value.reason,
+  }))
 
   return {
     runtimeDiagramProps,
+    treeProps,
+    MessageBranchTree,
     AgentComposer,
     ConnectionStatusChip,
     ContextUsageBar,
@@ -944,7 +970,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     roleMenuRefFn,
     roleSelections,
     roleUsages,
-    readerOpen,
+    sidePanel,
+    toggleSidePanel,
     readerTimeline,
     replayTimeline,
     scheduleFoldToolClose,

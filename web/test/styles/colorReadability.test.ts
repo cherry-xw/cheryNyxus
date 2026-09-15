@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { edgeStyle } from '../../src/features/pets/nyxus/graph/edgeStyles'
+import {
+  NODE_ACCENT_LIGHT,
+  NODE_SKINS,
+} from '../../src/features/pets/nyxus/graph/nodeSkins'
+import {
+  signalAccentForTheme,
+  type SignalNodeVisualKind,
+} from '../../src/features/pets/nyxus/graph/executionPresentation'
 import { ownerOverlayZIndex, WORKSPACE_WINDOW_Z_INDEX_STEP } from '../../src/styles/overlayLayers'
 
 function rgb(value: string): number[] {
@@ -27,6 +35,56 @@ function contrast(foreground: string, background: string, alpha = 1): number {
 }
 
 describe('theme foreground/background pairing', () => {
+  it('keeps every vivid tree-node accent distinguishable from its canvas', () => {
+    const signalKinds: SignalNodeVisualKind[] = [
+      'start',
+      'input',
+      'reply',
+      'error',
+      'fold',
+      'process',
+      'dispatch',
+      'return',
+      'system',
+      'tool-command',
+      'tool-read',
+      'tool-write',
+      'tool-search',
+      'tool-skill',
+      'tool-spawn',
+      'tool-child',
+      'tool-question',
+      'tool-media',
+      'tool-todo',
+      'tool-memory',
+      'tool-config',
+      'tool-navigate',
+      'tool-role',
+      'tool-web',
+      'tool-data',
+      'tool-git',
+      'tool-time',
+      'tool-notify',
+      'tool-generic',
+    ]
+    for (const theme of ['light', 'dark'] as const) {
+      const background = theme === 'light' ? '#f5f7fc' : '#0b1020'
+      const skinAccents =
+        theme === 'light'
+          ? NODE_ACCENT_LIGHT
+          : Object.fromEntries(Object.entries(NODE_SKINS).map(([key, skin]) => [key, skin.accent]))
+      for (const [key, accent] of Object.entries(skinAccents)) {
+        expect(contrast(accent, background), `${theme}/skin/${key}`).toBeGreaterThanOrEqual(3)
+      }
+      for (const kind of signalKinds) {
+        expect(
+          contrast(signalAccentForTheme(theme, kind), background),
+          `${theme}/signal/${kind}`,
+        ).toBeGreaterThanOrEqual(3)
+      }
+    }
+  })
+
   it('keeps semantic text and solid accent labels readable in both themes', () => {
     const css = readFileSync('web/src/styles/theme.css', 'utf8')
     for (const selector of [':root', "[data-theme='dark']"]) {

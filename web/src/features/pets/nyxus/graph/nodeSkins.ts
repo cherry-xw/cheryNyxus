@@ -11,20 +11,20 @@ export interface NodeSkin {
 
 /** Internal skin registry: rendering selects semantic keys, never hardcodes a theme in graph data. */
 export const NODE_SKINS: Record<NodeSkinKey, NodeSkin> = {
-  start: { key: 'start', glyph: '◉', accent: '#f6c85f', label: '任务起点' },
-  message: { key: 'message', glyph: '✦', accent: '#67d7ff', label: '对话内容' },
-  user: { key: 'user', glyph: '●', accent: '#58d7f0', label: '我' },
-  'root-agent': { key: 'root-agent', glyph: '✹', accent: '#7da7ff', label: 'Cherry Nyxus' },
-  'child-agent': { key: 'child-agent', glyph: '◆', accent: '#ed79bd', label: '协作节点' },
-  'tool-batch': { key: 'tool-batch', glyph: '⬡', accent: '#ffca73', label: '工具执行' },
-  fold: { key: 'fold', glyph: '⋯', accent: '#9dd8ee', label: '过程组' },
-  return: { key: 'return', glyph: '↩', accent: '#8bf0b1', label: '结果返回' },
-  dispatch: { key: 'dispatch', glyph: '⇢', accent: '#e29aff', label: '任务委派' },
-  spawn: { key: 'spawn', glyph: '⑂', accent: '#e29aff', label: '创建协作节点' },
-  system: { key: 'system', glyph: '◇', accent: '#b7a7ff', label: '系统事件' },
-  pack: { key: 'pack', glyph: '❒', accent: '#22d3ee', label: '打包历史' },
-  input: { key: 'input', glyph: '◌', accent: '#efc7ff', label: '我的指令' },
-  unknown: { key: 'unknown', glyph: '?', accent: '#ff809b', label: '未识别节点' },
+  start: { key: 'start', glyph: '◉', accent: '#ffd21f', label: '任务起点' },
+  message: { key: 'message', glyph: '✦', accent: '#00dcff', label: '对话内容' },
+  user: { key: 'user', glyph: '●', accent: '#00e5ff', label: '我' },
+  'root-agent': { key: 'root-agent', glyph: '✹', accent: '#4d8dff', label: 'Cherry Nyxus' },
+  'child-agent': { key: 'child-agent', glyph: '◆', accent: '#ff4fcb', label: '协作节点' },
+  'tool-batch': { key: 'tool-batch', glyph: '⬡', accent: '#ffb51f', label: '工具执行' },
+  fold: { key: 'fold', glyph: '⋯', accent: '#62dfff', label: '过程组' },
+  return: { key: 'return', glyph: '↩', accent: '#00f59b', label: '结果返回' },
+  dispatch: { key: 'dispatch', glyph: '⇢', accent: '#d867ff', label: '任务委派' },
+  spawn: { key: 'spawn', glyph: '⑂', accent: '#d867ff', label: '创建协作节点' },
+  system: { key: 'system', glyph: '◇', accent: '#9b7cff', label: '系统事件' },
+  pack: { key: 'pack', glyph: '❒', accent: '#00e7ff', label: '打包历史' },
+  input: { key: 'input', glyph: '◌', accent: '#f06bff', label: '我的指令' },
+  unknown: { key: 'unknown', glyph: '?', accent: '#ff4268', label: '未识别节点' },
 }
 
 /**
@@ -32,20 +32,20 @@ export const NODE_SKINS: Record<NodeSkinKey, NodeSkin> = {
  * NODE_SKINS 的 accent 是深色树所用；浅色树换用此表。
  */
 export const NODE_ACCENT_LIGHT: Record<NodeSkinKey, string> = {
-  start: '#b7791f',
-  message: '#0e9bb8',
-  user: '#0e6f88',
-  'root-agent': '#3b6fd4',
-  'child-agent': '#c026d3',
-  'tool-batch': '#b7791f',
-  fold: '#16789a',
-  return: '#1a9e6b',
-  dispatch: '#7a5bd6',
-  spawn: '#7a5bd6',
-  system: '#6d5bd6',
-  pack: '#b7791f',
-  input: '#b05bd6',
-  unknown: '#d6455d',
+  start: '#b88100',
+  message: '#008eaa',
+  user: '#007e99',
+  'root-agent': '#1762e8',
+  'child-agent': '#c000d8',
+  'tool-batch': '#b86b00',
+  fold: '#007d9f',
+  return: '#008d59',
+  dispatch: '#8a32df',
+  spawn: '#8a32df',
+  system: '#653ee0',
+  pack: '#008da8',
+  input: '#aa20d4',
+  unknown: '#d9003f',
 }
 
 /** 按主题取某类节点的强调色（浅色用 NODE_ACCENT_LIGHT，否则用 NODE_SKINS 深色版）。 */

@@ -64,6 +64,7 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
     if (hidden.value) pause()
   }
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
+  const observable = computed(() => !suspended.value && !hidden.value)
   const frames = computed(() => replayFrames(history.value?.facts ?? []))
   const replayLength = computed(() => workflowReplayLength(history.value))
   const snapshot = computed(() => {
@@ -143,18 +144,19 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
       }
   }
   function open() {
+    if (!observable.value) return opening
     const token = ++generation
     const target = chatId.value
     opening = opening.then(() => openTarget(token, target))
     return opening
   }
   async function openTarget(token: number, target: string) {
-    if (token !== generation) return
+    if (token !== generation || !observable.value) return
     early.clear()
     loading.value = true
     error.value = ''
     await closeLease()
-    if (token !== generation || !target) return
+    if (token !== generation || !target || !observable.value) return
     try {
       const response = await workflowApi.open({ chatId: target, observerId })
       if (token !== generation) {
@@ -187,6 +189,7 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
     }
   }
   const offUpdate = workflowApi.onUpdate((event) => {
+    if (!observable.value) return
     if (!lease) {
       const buffered = early.get(event.subscriptionId) ?? []
       if (buffered.length < 200) buffered.push(event)
@@ -205,7 +208,7 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
   })
   const offStatus = workflowApi.onStatus((connected) => {
     synced.value = false
-    if (connected) void open()
+    if (connected && observable.value) void open()
     else {
       ++generation
       lease = undefined
@@ -269,7 +272,7 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
     historyLoading.value = false
     replay.value = false
     pause()
-    if (workflowApi.connected()) void open()
+    if (workflowApi.connected() && observable.value) void open()
   }
   watch(
     chatId,
@@ -282,16 +285,28 @@ export function useWorkflowController(chatId: Ref<string>, suspended: Ref<boolea
       workflowState.value = undefined
       replay.value = false
       publishWorkflowChange('reset')
-      void open()
+      if (observable.value) void open()
     },
     { immediate: true },
   )
   watch(speed, tick)
-  watch(suspended, (value) => {
-    if (value) {
+  watch(observable, (active) => {
+    if (!active) {
+      ++generation
+      ++historyGeneration
       pause()
       clearDetailHistory()
+      early.clear()
+      live.value = undefined
+      workflowState.value = undefined
+      history.value = undefined
+      replay.value = false
+      cursor.value = 0
+      synced.value = false
+      void closeLease()
+      return
     }
+    if (workflowApi.connected()) void open()
   })
   onBeforeUnmount(() => {
     ++generation

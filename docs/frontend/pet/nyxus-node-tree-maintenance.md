@@ -1,5 +1,7 @@
 # Nyxus 节点树维护、迁移与回滚
 
+> **2026-09-15 主视图契约**：`MessageBranchTree` 是工作台核心主画布，默认使用 Pixi 横向 Signal 纯图标节点。流程图 `RuntimeDiagram` 只通过工作台互斥辅助侧栏按需挂载；卡牌与阅读器共享同一侧栏区域，不能同时显示。节点树侧栏打开时仍保持横向 Signal，不切换纵向 Classic。流程图与阅读器侧栏以左侧抽屉覆盖节点树打开（画布保持全宽、不压缩），抽屉宽度可拖拽及键盘调整（默认 50%，最小 300px 或 24% 容器宽，最大 88%）；卡牌模式仍为左右分栏。
+
 ## 模块边界
 
 - `web/src/stores/chats/read-model/rootTimeline.ts` 只维护 canonical snapshot、root transient plane 和 patch 原子应用；revision gap 由 store 触发 resync。
@@ -8,6 +10,7 @@
 - `web/src/features/pets/nyxus/graph/nodeSkins.ts`、`edgeStyles.ts`、`termination.ts` 和 `web/src/styles/overlayLayers.ts` 分别集中 skin、edge、termination 文案和 overlay 层级。
 - 连线语义色由 [edgeStyles.ts](../../../web/src/features/pets/nyxus/graph/edgeStyles.ts) 的 `edgeStyle(kind, theme)` 维护深浅两套；[useThemeTokens.ts](../../../web/src/composables/useThemeTokens.ts) 的 `PIXI_CANVAS_PALETTES` 提供边线透明度和分支标记色，沿现有 `setPalette` 重绘入口应用。改变颜色不改变节点、边、布局或聚焦弱化规则；验证用 `pnpm test:web` 加双主题画布截图，关注实际混合后边线对比度。
 - `MessageBranchTree.vue` 只编排画布、HTML overlay、输入和可访问性交互，不重新构造 canonical relation。
+- 节点树的指针高亮是单实例、非命中视觉层：精细鼠标进入画布后隐藏系统指针，空白处显示半透明直角方框和粗亮描边，进入节点后弹性吸附并完整包住节点，填充与描边均跟随节点语义色；不得抢占透明命中层、画布拖拽或 hover popover。节点本体使用比指针框更细、更亮的常态描边，错误、暂停和选中等状态仍保留更高视觉权重。
 - `MessageBranchTree.vue` 向 Pixi 同步场景时，去重签名必须覆盖节点坐标及边的起点、终点和路由坐标；切换折叠或同行布局即使不改变节点 ID，也必须把新的几何位置提交给 GPU 渲染器。
 - 同行布局按 lane 感知的最早可用行压缩，但任何直接连线的目标节点都必须比来源节点至少低一行；该规则不区分同列、跨列、派遣、分叉、返回或汇合。只有彼此之间不存在因果约束的节点才允许同行，禁止渲染水平因果连线。
 - 极致压缩的参与者过程组不得跨越任何保留的可见节点；用户输入、最终回复和分支锚点既是展示边界也是折叠区间边界，避免过程组同时位于同一锚点的前后两侧而形成投影环。

@@ -30,8 +30,8 @@ export interface PixiCanvasPalette {
 
 const PALETTES: Record<'light' | 'dark', PixiCanvasPalette> = {
   light: {
-    edgeAlpha: 0.8,
-    activeEdgeAlpha: 0.95,
+    edgeAlpha: 0.92,
+    activeEdgeAlpha: 1,
     detailBranch: 0x0369a1,
     continuationBranch: 0x92400e,
     nodeFill: 0xf5f7fc,
@@ -44,8 +44,8 @@ const PALETTES: Record<'light' | 'dark', PixiCanvasPalette> = {
     foldCount: 0x1b2337,
   },
   dark: {
-    edgeAlpha: 0.65,
-    activeEdgeAlpha: 0.85,
+    edgeAlpha: 0.82,
+    activeEdgeAlpha: 0.98,
     detailBranch: 0x38bdf8,
     continuationBranch: 0xf59e0b,
     nodeFill: 0x0b1020,

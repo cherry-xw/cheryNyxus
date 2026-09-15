@@ -49,8 +49,10 @@ function projectedWith(expanded: readonly string[], wholeCollapsed = false) {
 }
 
 describe('current-root question anchor', () => {
-  it('passes the actual form to RuntimeDiagram, not the reader layout', () => {
-    expect(slotOwners('web/src/features/agent/workbench/WorkbenchDialog.vue', 'attention')).toEqual(['RuntimeDiagram'])
+  it('keeps the actionable current-root form outside the optional workflow diagram', () => {
+    const file = 'web/src/features/agent/workbench/WorkbenchDialog.vue'
+    expect(slotOwners(file, 'attention')).toEqual([])
+    expect(templateSource(file)).toContain('class="workbench-current-attention"')
   })
 
   it.each([0.35, 0.5, 1, 1.8])('uses flow-host coordinates and a fixed-size panel at zoom %s', (zoom) => {

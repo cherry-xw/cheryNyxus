@@ -18,13 +18,12 @@ afterEach(() => {
 })
 
 describe('useWorkbenchViewPreferences unified canvas migration', () => {
-  it('defaults to participant folding with the content reader closed', () => {
+  it('defaults to participant folding', () => {
     const prefs = useWorkbenchViewPreferences('preset-a')
     expect(prefs.foldMode.value).toBe('participant')
-    expect(prefs.readerOpen.value).toBe(false)
   })
 
-  it('migrates legacy paper mode once and ignores obsolete layout directions', () => {
+  it('keeps folding while ignoring obsolete panel and layout preferences', () => {
     storageValues.set(
       STORAGE_KEY,
       JSON.stringify({
@@ -36,16 +35,14 @@ describe('useWorkbenchViewPreferences unified canvas migration', () => {
     )
     const prefs = useWorkbenchViewPreferences('preset-a')
     expect(prefs.foldMode.value).toBe('none')
-    expect(prefs.readerOpen.value).toBe(true)
   })
 
-  it('persists only the fold and reader owners', async () => {
+  it('persists only the fold owner', async () => {
     const prefs = useWorkbenchViewPreferences('preset-a')
     prefs.foldMode.value = 'partial'
-    prefs.readerOpen.value = true
     await nextTick()
     const saved = JSON.parse(storageValues.get(STORAGE_KEY) ?? '{}') as Record<string, unknown>
-    expect(saved).toEqual({ foldMode: 'partial', readerOpen: true })
+    expect(saved).toEqual({ foldMode: 'partial' })
     expect(saved).not.toHaveProperty('layout')
     expect(saved).not.toHaveProperty('paperMode')
     expect(saved).not.toHaveProperty('presentationMode')

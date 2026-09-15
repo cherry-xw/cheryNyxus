@@ -11,6 +11,7 @@
 - 2026-09-14 用户反馈：模型节点 CRT 不应常驻/空闲占位，只在节点活动（有数据正在返回）时显示。已落地：`useWorkflowNodePresentation` 的 `crtOverlay` 仅在 `WorkflowGraphProjection.activeLiveTurn` 存在时挂载，权威文档与 M03b/M03c 手册同步，回归测试见 workflowAttentionAnchor。
 - 2026-09-15 用户根据实机截图反馈：响应分流改到大模型响应下方并收紧模型层底部；移除与审批信息重复的“工具调用 · N 项”面板；本轮入口与消费记录下移对齐；工具结果、内容记录、继续判断竖直同列。状态：实现与自动验证已完成，等待用户实机视觉确认。
 - 2026-09-15 用户追加反馈：左移“错误判断”节点，释放其右侧被遮挡的垂直连线通道。状态：实现与自动验证已完成，等待用户实机视觉确认。
+- 2026-09-15 用户要求：流程图与阅读器侧栏改为左侧抽屉覆盖节点树（画布保持全宽、不压缩），宽度可拖拽及键盘调整。已落地：`MessageBranchTree` 抽屉 + 右缘拖拽手柄（默认 50%、最小 300px 或 24% 容器宽、最大 88%，支持 ←/→/Home/End），卡牌模式保持左右分栏；开关抽屉不再触发相机重新 fit。待用户实机确认。
 
 ## 范围与边界
 
@@ -63,6 +64,15 @@ T14 定向回归发现的冻结基线内差异（`paperStackIntegration.test.ts`
 - 新投影 2k 规模、正文增量不重排、缓存/动画有界；旧 Pixi 性能测试不能替代新图验证。
 
 ## 手动验证清单
+
+## 2026-09-15 Pixi 主树返工自动验证
+
+- `pnpm test:web`：并发运行时仅 2k 性能用例受资源竞争超时；随后保持 1500ms 门槛，以 `--no-file-parallelism` 串行复跑，118 个文件、704 项全部通过。
+- `pnpm exec vitest run test/service/chat/workflowRecorder.test.ts test/service/chat/flowSync.test.ts`：14 项通过，journal 记录语义与 root 事件流未改变。
+- `pnpm --filter web build`：Web、Electron main 与 preload 构建成功。
+- 定向 lease 测试确认隐藏/暂停时调用 `workflow.close`、清空 live/projection/replay，恢复可见后重新 `workflow.open`。
+- UI 机械检测只命中节点树既有弹性曲线；新增节点吸附弹性属于用户明确要求，且仅在 fine mouse + full motion 下启用。
+- 尚需用户实机确认 Pixi 节点树外观、CRT、hover 详情、左下角审批、侧栏覆盖和吸附手感；项目规范禁止 AI 代替用户读取截图作视觉结论。
 
 | 编号 | 目标                       | 操作入口    | 通过标准                                         | 状态   |
 | ---- | -------------------------- | ----------- | ------------------------------------------------ | ------ |

@@ -153,7 +153,7 @@ describe('workbench content reader projection', () => {
     ).toBeUndefined()
   })
 
-  it('keeps the topology mounted while the reader and attention surfaces change locally', async () => {
+  it('keeps the Pixi tree mounted while auxiliary panels change locally', async () => {
     const [workbench, runtime, reader] = await Promise.all([
       readComponentSource(resolve('web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
       readComponentSource(
@@ -167,16 +167,17 @@ describe('workbench content reader projection', () => {
     ])
 
     expect(workbench.match(/<RuntimeDiagram\b/g)).toHaveLength(1)
-    expect(workbench).not.toContain('<MessageBranchTree')
+    expect(workbench.match(/<MessageBranchTree\b/g)).toHaveLength(1)
     expect(workbench).toContain('v-show="workspaceBrowserOpen"')
     expect(workbench).toContain('v-bind="runtimeDiagramProps"')
-    expect(workbench).toContain('readerOpen: readerOpen.value')
+    expect(workbench).toContain("v-if=\"sidePanel === 'workflow'\"")
+    expect(workbench).toContain("v-else-if=\"sidePanel === 'reader'\"")
     expect(workbench).toContain('focusNonce: treeFocusNonce.value')
     expect(runtime).toContain('const worldCenter =')
     expect(runtime).toContain('cloneReplayTimeline(props.timeline)')
     expect(runtime).toContain('<WorkflowStepDetails')
     expect(runtime).toContain('@select-content="selectStepContent"')
     expect(reader).toContain('<NodePaperStack')
-    expect(`${workbench}\n${runtime}\n${reader}`).not.toContain("from 'pixi.js'")
+    expect(workbench).toContain('v-bind="treeProps"')
   })
 })

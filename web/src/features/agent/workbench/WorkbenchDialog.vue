@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { BellFilled, Reading } from '@element-plus/icons-vue'
+import { BellFilled, Connection, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
-import WorkbenchReaderSplit from './WorkbenchReaderSplit.vue'
 import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
 import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
 import {
@@ -17,65 +16,37 @@ const controller = useWorkbenchDialogController(props)
 const workbenchMotion = useOverlayTransitionHooks('dialog')
 const rolePopoutMotion = useOverlayTransitionHooks('panel')
 const sessionPopoutMotion = useOverlayTransitionHooks('panel')
+// Keep the controller surface grouped here so this orchestration SFC stays inside its line budget.
+// prettier-ignore
 const {
-  AgentComposer,
-  ConnectionStatusChip,
-  ContextUsageBar,
-  FOLD_ICONS,
-  FOLD_TIPS,
+  AgentComposer, ConnectionStatusChip, ContextUsageBar,
+  FOLD_ICONS, FOLD_TIPS,
   LiteView,
+  MessageBranchTree,
   NYXUS_WORKBENCH_Z_INDEX,
   NyxusContentReader,
   NyxusSessionList,
-  OVERLAY_Z_INDEX,
-  PromptSnapshotTip,
-  RoleConfigPopover,
-  activateNyxusInput,
-  activeCommandIndex,
-  activeCommandTab,
-  activeRoleIndex,
-  attentionCount,
-  currentAttentionCount,
-  runtimeDiagramProps,
+  OVERLAY_Z_INDEX, PromptSnapshotTip, RoleConfigPopover,
+  activateNyxusInput, activeCommandIndex, activeCommandTab, activeRoleIndex,
+  attentionCount, currentAttentionCount,
+  runtimeDiagramProps, treeProps,
   closeWorkspaceBrowser,
-  brains,
-  branchTarget,
-  cancelNyxusInput,
-  chatId,
-  closeWorkbench,
+  brains, branchTarget,
+  cancelNyxusInput, chatId, closeWorkbench,
   comboCommandGroups,
-  commandMenuRefFn,
-  commandMenuStyle,
-  commandOptions,
-  commandTabs,
-  composerBranchDescription,
-  composerBranchTitle,
-  config,
-  connection,
-  createSession,
-  creating,
-  detailBranchAvailability,
-  editorRefFn,
-  effectiveMode,
-  error,
-  executeSessionControl,
-  fmtTokens,
-  foldMode,
-  foldToolOpen,
-  isEmbedded,
-  isNative,
-  isShellless,
-  liteViewVisible,
-  loading,
+  commandMenuRefFn, commandMenuStyle,
+  commandOptions, commandTabs,
+  composerBranchDescription, composerBranchTitle,
+  config, connection,
+  createSession, creating, detailBranchAvailability,
+  editorRefFn, effectiveMode, error, executeSessionControl, fmtTokens,
+  foldMode, foldToolOpen,
+  isEmbedded, isNative, isShellless, liteViewVisible, loading,
   matchingRoleMentions,
   maxControlState,
-  mediaAttachments,
-  mediaHint,
-  runtimeHint,
-  runtimeError,
-  mediaServicesByType,
-  minimizeWorkbench,
-  nyxusDraftActive,
+  mediaAttachments, mediaHint,
+  runtimeHint, runtimeError,
+  mediaServicesByType, minimizeWorkbench, nyxusDraftActive,
   onDialogEditorKeydown,
   onEditorInput,
   onEditorPaste,
@@ -86,76 +57,30 @@ const {
   onTitlePointerDown,
   onTreeEpochChange,
   onTreePromptSnapShow,
-  openHistory,
-  openGeneration,
-  orderedRoleSelections,
-  pauseWholeTask,
-  presetName,
-  primaryRole,
-  primarySelection,
-  removeMedia,
-  resizeDirections,
-  roleListOpen,
-  roleListPinned,
-  roleMenuRefFn,
-  roleSelections,
-  roleUsages,
-  readerOpen,
-  readerTimeline,
-  rootSessions,
-  scheduleFoldToolClose,
-  scheduleRoleListClose,
-  scheduleSessionListClose,
-  selectBranchTarget,
-  selectedContent,
-  selectWorkflowContent,
-  selectCommand,
-  selectCommandTab,
-  selectFoldMode,
-  selectRoleMention,
-  sendFromComposer,
-  sending,
-  senseEntries,
-  senseGroups,
-  senseTool,
-  senseTools,
-  sessionControl,
-  sessionControlPending,
-  sessionListLoading,
-  sessionListOpen,
-  showCommandMenu,
-  showFoldTool,
-  showRoleList,
-  showRoleMenu,
-  showSessionList,
-  supportsTools,
-  switchSession,
-  taskControlPending,
-  taskHasRunningBranches,
-  taskTimeline,
-  text,
-  toggleRoleList,
-  toggleSessionList,
-  toggleWorkspaceBrowser,
-  treeBreakdown,
-  treeLoading,
-  treePromptSnap,
-  treeRootChatId,
-  treeUsage,
-  treeUsagePct,
-  uploading,
-  usageClass,
-  win,
-  windowBlink,
-  workspaceBrowserOpen,
-  focusAttentionTree,
-  workbenchShellRef,
-  workbenchShellStyle,
-  workbenchWindow,
+  openHistory, openGeneration, orderedRoleSelections, pauseWholeTask,
+  presetName, primaryRole, primarySelection, removeMedia, resizeDirections,
+  roleListOpen, roleListPinned, roleMenuRefFn,
+  roleSelections, roleUsages,
+  sidePanel, toggleSidePanel,
+  readerTimeline, rootSessions,
+  scheduleFoldToolClose, scheduleRoleListClose, scheduleSessionListClose,
+  selectBranchTarget, selectedContent, selectWorkflowContent,
+  selectCommand, selectCommandTab, selectFoldMode, selectRoleMention,
+  sendFromComposer, sending,
+  senseEntries, senseGroups, senseTool, senseTools,
+  sessionControl, sessionControlPending,
+  sessionListLoading, sessionListOpen,
+  showCommandMenu, showFoldTool, showRoleList, showRoleMenu, showSessionList,
+  supportsTools, switchSession,
+  taskControlPending, taskHasRunningBranches, taskTimeline,
+  text, toggleRoleList, toggleSessionList, toggleWorkspaceBrowser,
+  treeBreakdown, treeLoading, treePromptSnap, treeRootChatId,
+  treeUsage, treeUsagePct,
+  uploading, usageClass, win, windowBlink, workspaceBrowserOpen,
+  focusAttentionTree, workbenchShellRef, workbenchShellStyle, workbenchWindow,
 } = controller
 defineExpose({ closeWorkbench: controller.closeWorkbench })
 </script>
-
 <template>
   <Transition
     :css="false"
@@ -209,44 +134,42 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           @close="closeWorkspaceBrowser"
           @tree="focusAttentionTree"
         />
-
         <div class="nyxus-branch-top">
-          <WorkbenchReaderSplit
+          <MessageBranchTree
             v-if="treeRootChatId"
-            class="workbench-runtime-frame"
-            :open="readerOpen"
+            :key="treeRootChatId"
+            v-bind="treeProps"
+            @branch="selectBranchTarget"
           >
-            <RuntimeDiagram
-              v-bind="runtimeDiagramProps"
-            >
-            <template #attention>
-              <WorkbenchAttentionSurface
-                v-if="currentAttentionCount"
-                :key="treeRootChatId"
-                class="runtime-attention-overlay"
-                embedded
-                :root-chat-id="controller.attentionRootChatId.value || undefined"
-                :count="currentAttentionCount"
-              />
+            <template #side-panel>
+              <div class="workbench-side-panel">
+                <RuntimeDiagram v-if="sidePanel === 'workflow'" v-bind="runtimeDiagramProps" />
+                <NyxusContentReader
+                  v-else-if="sidePanel === 'reader'"
+                  class="workbench-content-reader"
+                  :root-chat-id="treeRootChatId"
+                  :timeline="readerTimeline"
+                  :fold-mode="foldMode"
+                  :selection="selectedContent"
+                  :detail-branch-available="detailBranchAvailability.available"
+                  :detail-branch-unavailable-reason="detailBranchAvailability.reason"
+                  :sense-tools="senseTools"
+                  @close="toggleSidePanel('reader')"
+                  @select="selectWorkflowContent"
+                  @branch="selectBranchTarget"
+                  @generation="openGeneration"
+                />
+              </div>
             </template>
-            </RuntimeDiagram>
-            <template #reader
-              ><NyxusContentReader
-                class="workbench-content-reader"
-                :root-chat-id="treeRootChatId"
-                :timeline="readerTimeline"
-                :fold-mode="foldMode"
-                :selection="selectedContent"
-                :detail-branch-available="detailBranchAvailability.available"
-                :detail-branch-unavailable-reason="detailBranchAvailability.reason"
-                :sense-tools="senseTools"
-                @close="readerOpen = false"
-                @select="selectWorkflowContent"
-                @branch="selectBranchTarget"
-                @generation="openGeneration"
-            /></template>
-          </WorkbenchReaderSplit>
-          <div v-else class="workbench-empty-state" aria-live="polite">
+          </MessageBranchTree>
+          <WorkbenchAttentionSurface
+            v-if="currentAttentionCount"
+            :key="treeRootChatId"
+            class="workbench-current-attention"
+            :root-chat-id="controller.attentionRootChatId.value || undefined"
+            :count="currentAttentionCount"
+          />
+          <div v-if="!treeRootChatId" class="workbench-empty-state" aria-live="polite">
             <span>暂无历史会话</span>
             <button type="button" @click="createSession">新建会话</button>
           </div>
@@ -501,7 +424,9 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </el-tooltip>
               <el-tooltip
                 :content="
-                  attentionCount ? `其他流程的审批与提问 · ${attentionCount}` : '其他流程的审批与提问'
+                  attentionCount
+                    ? `其他流程的审批与提问 · ${attentionCount}`
+                    : '其他流程的审批与提问'
                 "
                 placement="left"
                 :show-after="200"
@@ -514,7 +439,9 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                     data-view-action="attention"
                     :class="{ 'is-active': workspaceBrowserOpen }"
                     :aria-label="
-                      attentionCount ? `其他流程的审批与提问，${attentionCount} 项` : '其他流程的审批与提问'
+                      attentionCount
+                        ? `其他流程的审批与提问，${attentionCount} 项`
+                        : '其他流程的审批与提问'
                     "
                     :aria-pressed="workspaceBrowserOpen"
                     @click="toggleWorkspaceBrowser"
@@ -665,8 +592,40 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </el-tooltip>
             </div>
             <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
+              <el-tooltip content="卡牌模式" placement="left" :show-after="200" :hide-after="0">
+                <span class="nyxus-tool-tip-anchor">
+                  <button
+                    type="button"
+                    class="nyxus-rail-action"
+                    data-view-action="cards"
+                    :class="{ 'is-active': sidePanel === 'cards' }"
+                    :disabled="!treeRootChatId"
+                    aria-label="卡牌模式"
+                    :aria-pressed="sidePanel === 'cards'"
+                    @click="toggleSidePanel('cards')"
+                  >
+                    <span aria-hidden="true">▤</span>
+                  </button>
+                </span>
+              </el-tooltip>
+              <el-tooltip content="流程图" placement="left" :show-after="200" :hide-after="0">
+                <span class="nyxus-tool-tip-anchor">
+                  <button
+                    type="button"
+                    class="nyxus-rail-action"
+                    data-view-action="workflow"
+                    :class="{ 'is-active': sidePanel === 'workflow' }"
+                    :disabled="!treeRootChatId"
+                    aria-label="流程图"
+                    :aria-pressed="sidePanel === 'workflow'"
+                    @click="toggleSidePanel('workflow')"
+                  >
+                    <Connection aria-hidden="true" />
+                  </button>
+                </span>
+              </el-tooltip>
               <el-tooltip
-                :content="readerOpen ? '关闭所选内容阅读器' : '打开所选内容阅读器'"
+                :content="sidePanel === 'reader' ? '关闭所选内容阅读器' : '打开所选内容阅读器'"
                 placement="left"
                 :show-after="200"
                 :hide-after="0"
@@ -676,11 +635,13 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                     type="button"
                     class="nyxus-rail-action"
                     data-view-action="reader"
-                    :class="{ 'is-active': readerOpen }"
+                    :class="{ 'is-active': sidePanel === 'reader' }"
                     :disabled="!treeRootChatId"
-                    :aria-label="readerOpen ? '关闭所选内容阅读器' : '打开所选内容阅读器'"
-                    :aria-pressed="readerOpen"
-                    @click="readerOpen = !readerOpen"
+                    :aria-label="
+                      sidePanel === 'reader' ? '关闭所选内容阅读器' : '打开所选内容阅读器'
+                    "
+                    :aria-pressed="sidePanel === 'reader'"
+                    @click="toggleSidePanel('reader')"
                   >
                     <Reading aria-hidden="true" />
                   </button>

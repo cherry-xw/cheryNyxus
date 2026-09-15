@@ -3,24 +3,30 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('Nyxus workbench preferences and entry regressions', () => {
-  it('keeps one topology canvas and persists only folding plus the external reader', async () => {
+  it('keeps the Pixi tree primary and makes auxiliary views mutually exclusive', async () => {
     const source = await readComponentSource(
       resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
       'utf8',
     )
 
     expect(source).toContain("foldMode: 'participant'")
-    expect(source).toContain('readerOpen: false')
     expect(source).toContain("const WORKBENCH_VIEW_STORAGE_PREFIX = 'nx-workbench-view:'")
-    expect(source).toContain('value?.paperMode === true')
-    expect(source).toContain('watch([foldMode, readerOpen], saveWorkbenchViewPreference)')
+    expect(source).toContain('watch(foldMode, saveWorkbenchViewPreference)')
+    expect(source).toContain("type WorkbenchSidePanel = 'none' | 'cards' | 'workflow' | 'reader'")
+    expect(source).toContain("const sidePanel = ref<WorkbenchSidePanel>('none')")
     expect(source).toContain('<RuntimeDiagram')
     expect(source).toContain('<NyxusContentReader')
-    expect(source).not.toContain('<MessageBranchTree')
-    expect(source).toContain(':aria-pressed="readerOpen"')
+    expect(source).toContain('<MessageBranchTree')
+    expect(source).toContain('v-if="!treeRootChatId" class="workbench-empty-state"')
+    expect(source).toContain("v-if=\"sidePanel === 'workflow'\"")
+    expect(source).toContain("v-else-if=\"sidePanel === 'reader'\"")
+    expect(source).toContain("paperMode: sidePanel.value === 'cards'")
+    expect(source).toContain("presentationMode: 'horizontal-signal'")
+    expect(source).toContain(":aria-pressed=\"sidePanel === 'reader'\"")
     expect(source).toContain('data-view-action="reader"')
     expect(source).not.toContain('data-view-action="layout"')
-    expect(source).not.toContain('data-view-action="paper"')
+    expect(source).toContain('data-view-action="cards"')
+    expect(source).toContain('data-view-action="workflow"')
     const sideTools = source.indexOf('class="nyxus-side-tools"')
     const scrollColumn = source.indexOf('<div class="nyxus-tool-column">', sideTools)
     const readerAction = source.indexOf('data-view-action="reader"', scrollColumn)
@@ -35,15 +41,7 @@ describe('Nyxus workbench preferences and entry regressions', () => {
       'utf8',
     )
     expect(offlineMask).toContain('z-index: var(--nx-z-connection-mask)')
-    expect(source).toContain('<WorkbenchReaderSplit')
-    const split = await readComponentSource(
-      resolve('src/features/agent/workbench/WorkbenchReaderSplit.vue'),
-      'utf8',
-    )
-    expect(split).toContain('role="separator"')
-    expect(split).toContain('@pointermove="move"')
-    expect(split).toContain('@keydown="key"')
-    expect(split).toContain('ref(560)')
+    expect(source).not.toContain('<WorkbenchReaderSplit')
     expect(source).toContain('v-show="workspaceBrowserOpen"')
     expect(source).toContain('其他流程的审批与提问')
   })
