@@ -244,14 +244,15 @@ describe('coexisting nested circuit packages', () => {
   }, 30000)
   it('keeps the complete circuit compact with four-way ports and short orthogonal paths', () => {
     const graph = layoutHeader(HEADER_LAYERS.map((l) => l.id))
-    const response = graph.edges.find(
-      (edge) => edge.source === 'channels' && edge.memberIds.includes('channels:tool-list'),
+    const responseFlow = graph.edges.find(
+      (edge) => edge.memberIds[0] === 'response:channels',
     )!
-    expect(response.points[1]!.x).toBe(response.points[0]!.x)
-    expect(response.points[1]!.y).toBeGreaterThan(response.points[0]!.y)
+    expect(responseFlow.points).toHaveLength(2)
+    expect(responseFlow.points[1]!.x).toBe(responseFlow.points[0]!.x)
+    expect(responseFlow.points[1]!.y).toBeGreaterThan(responseFlow.points[0]!.y)
     expect(graph.items.filter((n) => n.kind === 'step')).toHaveLength(template.nodes.length)
     expect(graph.internalEdgeIds).toEqual([])
-    expect(graph.width).toBeLessThan(2500)
+    expect(graph.width).toBeLessThan(3000)
     expect(graph.height).toBeLessThan(2600)
     expect(
       new Set(
@@ -266,22 +267,45 @@ describe('coexisting nested circuit packages', () => {
     expect(input.x).toBe(command.x)
     expect(command.y).toBeGreaterThan(input.y + input.height)
     expect(graph.edges.find((e) => e.memberIds[0] === 'input:command')!.points).toHaveLength(2)
+    const entryInput = graph.edges.find((e) => e.memberIds[0] === 'entry:input')!
+    expect(entryInput.points).toHaveLength(2)
+    expect(entryInput.points[0]!.y).toBe(entryInput.points[1]!.y)
+    const modelLayer = graph.items.find((n) => n.id === 'model-layer')!
+    const channels = graph.items.find((n) => n.id === 'channels')!
+    expect(modelLayer.y + modelLayer.height - (channels.y + channels.height)).toBe(64)
     const upper = graph.items.find((n) => n.id === 'retry-layer')!
+    const error = graph.items.find((n) => n.id === 'error')!
     const left = graph.items.find((n) => n.id === 'collaboration')!
     const right = graph.items.find((n) => n.id === 'rejection')!
+    const toolResult = graph.items.find((n) => n.id === 'tool-result')!
     expect(upper.x).toBe(left.x)
-    expect(Math.abs(upper.width - (right.x + right.width - left.x))).toBeLessThanOrEqual(192)
-    expect(upper.y + upper.height).toBeLessThan(graph.items.find((n) => n.id === 'tool-list')!.y)
+    expect(upper.y + upper.height).toBeLessThan(left.y)
+    expect(right.x).toBeGreaterThan(upper.x + upper.width)
+    const checkpointDescent = graph.edges.find(
+      (edge) => edge.id === 'retry-layer:channels:checkpoint',
+    )!
+    expect(error.x + error.width).toBeLessThan(checkpointDescent.points[0]!.x)
+    expect(checkpointDescent.points).toHaveLength(2)
+    expect(graph.items.find((n) => n.id === 'calls')).toBeUndefined()
+    const checkpoint = graph.items.find((n) => n.id === 'checkpoint')!
+    const decision = graph.items.find((n) => n.id === 'decision')!
+    expect(toolResult.x + toolResult.width / 2).toBe(checkpoint.x + checkpoint.width / 2)
+    expect(checkpoint.x + checkpoint.width / 2).toBe(decision.x + decision.width / 2)
+    for (const memberId of ['tool-result:checkpoint', 'checkpoint:decision']) {
+      const edge = graph.edges.find((e) => e.memberIds[0] === memberId)!
+      expect(edge.points).toHaveLength(2)
+      expect(edge.points[0]!.x).toBe(edge.points[1]!.x)
+    }
     const collaboration = ['dispatch', 'child-run', 'child-return', 'parent-receive'].map((id) =>
       graph.items.find((n) => n.id === id)!,
     )
-    expect(new Set(collaboration.map((n) => n.x)).size).toBe(1)
-    expect(graph.items.find((n) => n.id === 'collaboration')!.width).toBeLessThan(320)
+    expect(new Set(collaboration.map((n) => n.y)).size).toBe(1)
+    expect(graph.items.find((n) => n.id === 'collaboration')!.width).toBeLessThan(900)
     for (const [i, node] of collaboration.slice(1).entries()) {
-      expect(node.y).toBeGreaterThan(collaboration[i]!.y + collaboration[i]!.height)
+      expect(node.x).toBeGreaterThan(collaboration[i]!.x + collaboration[i]!.width)
       const edge = graph.edges.find((e) => e.memberIds[0] === `${collaboration[i]!.id}:${node.id}`)!
       expect(edge.points).toHaveLength(2)
-      expect(edge.points[0]!.x).toBe(edge.points[1]!.x)
+      expect(edge.points[0]!.y).toBe(edge.points[1]!.y)
     }
     for (const edge of graph.edges) {
       expect(edge.points.length - 2, edge.id).toBeLessThanOrEqual(

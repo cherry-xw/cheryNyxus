@@ -63,14 +63,14 @@ export function placeCircuit(
     put('model', 336, row)
     put('response', 576, row)
     put('context', 96, row + 104)
-    put('channels', 816, row)
+    put('channels', 576, row + 104)
     link('request', 'model', 'right', 'left', -12, -12)
     link('model', 'response', 'right', 'left', 12, 12)
-    link('response', 'channels', 'right', 'left')
+    link('response', 'channels', 'bottom', 'top')
     link('context', 'request', 'top', 'bottom')
     end('model:error', 'model', 'right', -12)
-    end('channels:checkpoint', 'channels', 'top')
-    end('channels:tool-list', 'channels', 'bottom')
+    end('channels:checkpoint', 'channels', 'right', -12)
+    end('channels:tool-list', 'channels', 'right', 12)
     end('request:compact-request', 'request', 'top', -48)
     end('compact-applied:request', 'request', 'top', 48)
     for (const [edge, offset] of [
@@ -82,14 +82,21 @@ export function placeCircuit(
       pin(edge, 'left', cy('request') + offset)
     }
     pin('model:error', 'top', right('compact') + 32)
-    pin('channels:checkpoint', 'top', cx('channels'))
-    pin('channels:tool-list', 'bottom', cx('channels'))
-    height = Math.max(bottom('context'), bottom('model') + 204) + 64
+    pin('channels:checkpoint', 'top', right('channels') + 32)
+    pin('channels:tool-list', 'right', cy('channels') + 12)
+    height = Math.max(bottom('context'), bottom('channels')) + 64
   } else if (board === 'retry-layer') {
-    put('model-layer', Math.max(64, 520 - interfaces.get('model-layer')!['model:error']!.at), 200)
+    // The chip's x keeps the error node clear of the retry node (160..308). 408 is the
+    // tightest error pin bound for the folded compact state; the node keeps a 16px gap.
+    // folded-compact pin (model:error at 244): the chip lands at 164 and the retry board
+    // stays 1224 wide, so the tools column (right of it) keeps the whole chain under 3000.
+    // When compact is expanded its pin (740) exceeds 408 and the chip stays at 64.
+    put('model-layer', Math.max(64, 408 - interfaces.get('model-layer')!['model:error']!.at), 200)
     const errorX = childPin('model-layer', 'model:error').at
-    put('error', errorX - 84, 72)
     put('retry', 160, 72)
+    // Pull error left when the expanded model gives it room. This clears the nearby
+    // checkpoint descent while preserving the folded layout's retry separation.
+    put('error', Math.max(right('retry') + 16, errorX - 140), 72)
     link('error', 'retry', 'left', 'right')
     end('model:error', 'error', 'bottom')
     end('retry:request', 'retry', 'left')
@@ -103,34 +110,58 @@ export function placeCircuit(
     ])
       pass('model-layer', edge)
   } else if (board === 'collaboration') {
+    // One horizontal row; the parent returns exit the last node's top/bottom and hug the
+    // row's outer band back to the board's left face, so the folded chip keeps its
+    // left-face pins for the tools board.
     for (const [i, id] of ['dispatch', 'child-run', 'child-return', 'parent-receive'].entries())
-      put(id, 64, 72 + i * 88)
-    link('dispatch', 'child-run', 'bottom', 'top')
-    link('child-run', 'child-return', 'bottom', 'top')
-    link('child-return', 'parent-receive', 'bottom', 'top')
-    end('execution:dispatch', 'dispatch', 'right')
-    end('parent-receive:input', 'parent-receive', 'left', -12)
-    end('parent-receive:wake', 'parent-receive', 'left', 12)
-    pin('execution:dispatch', 'right', cy('dispatch'))
-    pin('parent-receive:input', 'left', cy('parent-receive') - 12)
-    pin('parent-receive:wake', 'left', cy('parent-receive') + 12)
+      put(id, 64 + i * 172, 72)
+    link('dispatch', 'child-run', 'right', 'left')
+    link('child-run', 'child-return', 'right', 'left')
+    link('child-return', 'parent-receive', 'right', 'left')
+    end('execution:dispatch', 'dispatch', 'top')
+    end('parent-receive:input', 'parent-receive', 'bottom', -40)
+    end('parent-receive:wake', 'parent-receive', 'top', 40)
+    pin('execution:dispatch', 'top', cx('dispatch'))
+    // Below the row, clear of the execution:dispatch column and the grid's bottom margin.
+    // Wake sits BELOW input on the left face (156 / 180): in the board's own routing the
+    // wake's target escape (0,180) sits below the input's y=156 lane, so the wake is forced
+    // around the right edge (x=744, y=180) and never seals the dispatch column (x=138, 0..72).
+    // The escape must stay within the router's sample axes (y <= height-16 = 184), which
+    // caps the pin at 180. In the expanded parent board the two labels still stack below
+    // the open chip (wake at 1452, input at 1492); the folded chip re-arranges them by peer
+    // order (input above wake), which stacks the labels at 1316 / 1356.
+    pin('parent-receive:input', 'left', 156)
+    pin('parent-receive:wake', 'left', 180)
   } else if (board === 'tools') {
-    // Keep the approval triangle inside the failure fan. Resume wraps outside that fan;
-    // collaboration leaves on the opposite side so its parent returns remain on the outer face.
-    put('retry-layer', 64, 64)
-    const x = 64 + n('collaboration').width + 64,
-      y = bottom('retry-layer') + 64
+    // Retry control (with the model layer inside) sits top-left so the cascade stacks
+    // vertically instead of growing the board height; the tool chain runs to its right
+    // with the failure collector as a straight wall on the far right. Collaboration keeps
+    // one compact horizontal row below the processing chain.
+    put('retry-layer', 64, 96)
+    // The chain starts below the retry chip's right flank so the collapsed top-pin
+    // labels (error:result at y 84..108, channels:checkpoint at y 36..60) keep a
+    // clear band; the tool-list row itself would block it at y=96.
+    // Keep a full routing lane between the expanded retry package and the approval chain.
+    // With compact open, channels:tool-list exits the package's right face inside this band;
+    // 64px leaves its 24px escape plus the router's clearance before the first node.
+    const x = right('retry-layer') + 64,
+      y = 148
     for (const [i, id] of ['tool-list', 'validation', 'authorization', 'approval-needed'].entries())
       put(id, x, y + i * 88)
-    put('approval', x + 232, n('approval-needed').y + 72)
+    put('approval', x + 172, n('approval-needed').y + 72)
     put('preflight', x, bottom('approval') + 28)
     put('execution', x, bottom('preflight') + 48)
-    put('collaboration', 64, Math.max(y + 244, n('execution').y - n('collaboration').height + 48))
-    put('tool-result', x, Math.max(bottom('execution') + 48, bottom('collaboration') + 32))
-    put('rejection', x + 472, n('validation').y)
+    put('rejection', x + 347, n('validation').y)
     // One semantic result component, with a separate pin level for every failure source.
     n('rejection').height = bottom('execution') - n('rejection').y
     put('resume', n('rejection').x, y)
+    put('tool-result', x, Math.max(bottom('execution') + 48, bottom('rejection') + 48))
+    const bottomRowY = Math.max(bottom('retry-layer') + 64, bottom('tool-result') + 48)
+    put(
+      'collaboration',
+      64,
+      bottomRowY,
+    )
     for (const [a, b] of [
       ['tool-list', 'validation'],
       ['validation', 'authorization'],
@@ -152,20 +183,44 @@ export function placeCircuit(
       )
     }
     link('rejection', 'tool-result', 'bottom', 'right')
-    link('resume', 'tool-list', 'left', 'right')
-    link('resume', 'tool-result', 'right', 'bottom')
-    end('channels:tool-list', 'tool-list', 'top')
+    link('resume', 'tool-list', 'top', 'top')
+    // Land the resume return on the tool-result's right flank instead of its bottom: the
+    // bottom face's two escapes (checkpoint at x=318, resume at x=358, y 832..856) wall the
+    // band the dispatch net must cross, forcing it to y=860 where it seals this net's own
+    // end. The right flank (y=844) stays clear of the checkpoint lane (y=840, x 0..318)
+    // and the dispatch lane (y=860, x 278..432) in every expansion state.
+    link('resume', 'tool-result', 'right', 'right', 0, 24)
+    end('channels:tool-list', 'tool-list', 'top', -40)
+    // Collaboration dispatch owns the left corridor. With the duplicate calls panel gone,
+    // the result can leave straight down and align with checkpoint and decision outside.
     end('execution:dispatch', 'execution', 'left')
-    end('tool-result:checkpoint', 'tool-result', 'left')
-    pin('tool-result:checkpoint', 'bottom', cx('tool-result') - 40)
-    for (const edge of ['command:request', 'input:request', 'error:result', 'channels:checkpoint'])
+    end('tool-result:checkpoint', 'tool-result', 'bottom')
+    pin('tool-result:checkpoint', 'bottom', cx('tool-result'))
+    for (const edge of [
+      'command:request',
+      'input:request',
+      'error:result',
+      'channels:checkpoint',
+      'channels:tool-list',
+    ])
       pass('retry-layer', edge)
+    // When retry-layer is folded, its chip top pins sit at 126 (error) / 150 (checkpoint);
+    // nudging the checkpoint pin right makes error:result route (and label) first: it claims
+    // the (150..278, 60..84) band and the checkpoint label falls left of the chip at
+    // (22..126, 60..84). When retry-layer is open, pass() already aligns the pin with its
+    // top port, so the override must not apply (it would cut across the error vertical).
+    if ((interfaces.get('retry-layer')?.['channels:checkpoint']?.at ?? 0) < 200)
+      pin('channels:checkpoint', 'top', 174)
     for (const edge of ['parent-receive:input', 'parent-receive:wake']) pass('collaboration', edge)
   } else if (board === 'record') {
     put('tools', 304, 96)
-    put('input', 48, childPin('tools', 'input:request').at - 32)
+    put('input', 48, childPin('tools', 'input:request').at - 28)
     put('command', 48, bottom('input') + 40)
-    put('checkpoint', childPin('tools', 'tool-result:checkpoint').at - 84, bottom('tools') + 48)
+    put(
+      'checkpoint',
+      childPin('tools', 'tool-result:checkpoint').at - n('checkpoint').width / 2,
+      bottom('tools') + 48,
+    )
     link('input', 'command', 'bottom', 'top')
     end('input:request', 'input', 'right')
     end('command:request', 'command', 'right')
@@ -182,11 +237,16 @@ export function placeCircuit(
       'left',
       Math.max(childPin('tools', 'parent-receive:wake').at, bottom('command') + 96),
     )
+    pass('tools', 'channels:tool-list')
   } else if (board === 'loop') {
     // The next-iteration return encloses the result path; wait/wake stay outside the cycle.
     put('record', 288, 144)
-    put('entry', 64, childPin('record', 'entry:input').at - 32)
-    put('decision', childPin('record', 'checkpoint:decision').at - 84, bottom('record') + 64)
+    put('entry', 64, childPin('record', 'entry:input').at - 28)
+    put(
+      'decision',
+      childPin('record', 'checkpoint:decision').at - n('decision').width / 2,
+      bottom('record') + 64,
+    )
     put('wait', 96, n('decision').y)
     put('result', right('record') - 168, 64)
     link('entry', 'input', 'right', 'left')
@@ -223,15 +283,19 @@ export function placeCircuit(
   }
   width ||= Math.max(...items.map((n) => n.x + n.width)) + 48
   height ||= Math.max(...items.map((n) => n.y + n.height)) + 48
-  if (board === 'tools') {
-    items.push({
-      id: 'calls',
-      kind: 'calls',
-      x: 64,
-      y: n('tool-list').y,
-      width: Math.min(720, n('tool-list').x - 128),
-      height: 196,
-    })
+  if (board === 'retry-layer') {
+    // The folded error:result label (不可恢复 / 耗尽, 128px wide) is walled on the right by
+    // the checkpoint's x=478 descent and on the left by the error:retry label + retry node,
+    // so it needs the d=88 slot at x=486 (board >= 622; 646 keeps the d=112 slot too).
+    // This only widens the FOLDED board (542 -> 646): the open states are driven by the
+    // open chip (>= 1124), and the folded states' tool chain stays narrow, so the width
+    // cascade in every affected mask stays far below the 3000 cap.
+    width = Math.max(width, 646)
+  }
+  if (board === 'collaboration') {
+    // The horizontal row is only 128px tall; the parent-return routes and their labels
+    // need the strip below it, so the board keeps a label-height bottom margin.
+    height = Math.max(height, 200)
   }
   return { width, height, boundary, ends }
 }
