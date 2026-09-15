@@ -262,7 +262,7 @@ const edges = [
   e('compact-applied', 'request', '采用后准备', 'compact'),
 ]
 export const WORKFLOW_HEADER_TEMPLATE = {
-  version: 6 as const,
+  version: 8 as const,
   nodes,
   edges,
   groups: HEADER_LAYERS,

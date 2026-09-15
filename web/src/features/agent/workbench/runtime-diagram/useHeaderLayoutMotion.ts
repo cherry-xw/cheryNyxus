@@ -25,7 +25,7 @@ interface Visual {
   height: number
 }
 const isHeaderNode = (node: WorkflowGraphNode) =>
-  ['header', 'header-group', 'header-step', 'header-calls', 'header-terminal'].includes(
+  ['header', 'header-group', 'header-step', 'header-terminal'].includes(
     node.data?.kind ?? '',
   )
 /** Only geometry changes trigger layout motion; content and status deltas do not. */

@@ -46,7 +46,6 @@ import WorkflowHeaderGroupNode from './WorkflowHeaderGroupNode.vue'
 import WorkflowHeaderTerminalNode from './WorkflowHeaderTerminalNode.vue'
 import WorkflowBoardNavigation from './WorkflowBoardNavigation.vue'
 import { useHeaderBoardNavigation } from './useHeaderBoardNavigation'
-import WorkflowHeaderCallsNode from './WorkflowHeaderCallsNode.vue'
 import WorkflowHeaderEdge from './WorkflowHeaderEdge.vue'
 import WorkflowFocusEdge from './WorkflowFocusEdge.vue'
 import WorkflowStepDetails from './WorkflowStepDetails.vue'
@@ -746,9 +745,6 @@ defineExpose({
               templateNodeId: nodeProps.data.template.id, title: nodeProps.data.template.title,
               scope: nodeProps.data.scope, recorded: nodeProps.data.recorded, complete: nodeProps.data.complete,
               slot: nodeProps.data.slot, detail: nodeProps.data.template.detail })" />
-        </template>
-        <template #node-header-calls="nodeProps">
-          <WorkflowHeaderCallsNode v-bind="nodeProps" @select-scope="selectHeaderScope" />
         </template>
         <template #edge-header-flow="edgeProps">
           <WorkflowHeaderEdge v-bind="edgeProps" />

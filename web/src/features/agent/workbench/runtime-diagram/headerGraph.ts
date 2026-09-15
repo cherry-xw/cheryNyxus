@@ -74,7 +74,6 @@ export type HeaderChildData =
       iterationCount: number
       ports: HeaderNodePort[]
     }
-  | { kind: 'header-calls'; headerId: string; state: HeaderStateProjection }
 export type HeaderBounds = HeaderRect
 export { rectOverlaps as boundsOverlap } from './headerLayout'
 export function placeHeader(
@@ -157,9 +156,7 @@ export function buildHeaderNodes(input: {
   const idFor = (id: string) =>
     HEADER_LAYERS.some((g) => g.id === id)
       ? `${header.id}:group:${id}`
-      : id === 'calls'
-        ? `${header.id}:calls`
-        : headerTemplateNodeId(header.id, id)
+      : headerTemplateNodeId(header.id, id)
   const nodes: WorkflowGraphNode[] = [
     {
       id: header.id,
@@ -283,14 +280,6 @@ export function buildHeaderNodes(input: {
       })
       continue
     }
-    if (item.kind === 'calls') {
-      nodes.push({
-        ...common,
-        type: 'header-calls',
-        data: { kind: 'header-calls', headerId: header.id, state },
-      })
-      continue
-    }
     const template = WORKFLOW_HEADER_TEMPLATE.nodes.find((n) => n.id === item.id)!,
       slot = state.slots[item.id]!
     // 实时输出同时点亮“模型请求”与“大模型响应”：liveTurn 只表示正在返回数据的模型 turn，
@@ -358,7 +347,7 @@ export function buildHeaderNodes(input: {
       type: 'header-flow',
       markerEnd: {
         type: MarkerType.ArrowClosed,
-        color: evidence ? 'var(--accent)' : 'var(--border-strong)',
+        color: evidence ? 'var(--accent)' : 'var(--workflow-edge-idle)',
       },
       selectable: false,
       focusable: false,

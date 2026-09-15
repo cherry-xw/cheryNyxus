@@ -33,7 +33,7 @@ const labelPosition = computed(() => {
       :interaction-width="18"
       :data-workflow-path="id"
       :style="{
-        stroke: data?.evidenced ? edgeColor : 'var(--border-strong)',
+        stroke: data?.evidenced ? edgeColor : 'var(--workflow-edge-idle)',
         strokeWidth: data?.evidenced ? 2.5 : 1,
         strokeOpacity: data?.evidenced ? (data.targetStatus === 'running' ? 1 : 0.85) : 1,
       }"
@@ -67,7 +67,7 @@ const labelPosition = computed(() => {
       :cx="data.junction.x"
       :cy="data.junction.y"
       r="3"
-      fill="var(--border-strong)"
+      fill="var(--workflow-edge-idle)"
     />
     <line
       v-if="data?.labelAnchor && data?.labelPoint"
@@ -75,7 +75,7 @@ const labelPosition = computed(() => {
       :y1="data.labelAnchor.y"
       :x2="data.labelPoint.x"
       :y2="data.labelPoint.y"
-      stroke="var(--border-strong)"
+      stroke="var(--workflow-edge-idle)"
       stroke-width="1"
     />
     <EdgeLabelRenderer v-if="data?.relationLabel && data?.labelPoint">

@@ -9,6 +9,8 @@
 ## 反馈回填槽
 
 - 2026-09-14 用户反馈：模型节点 CRT 不应常驻/空闲占位，只在节点活动（有数据正在返回）时显示。已落地：`useWorkflowNodePresentation` 的 `crtOverlay` 仅在 `WorkflowGraphProjection.activeLiveTurn` 存在时挂载，权威文档与 M03b/M03c 手册同步，回归测试见 workflowAttentionAnchor。
+- 2026-09-15 用户根据实机截图反馈：响应分流改到大模型响应下方并收紧模型层底部；移除与审批信息重复的“工具调用 · N 项”面板；本轮入口与消费记录下移对齐；工具结果、内容记录、继续判断竖直同列。状态：实现与自动验证已完成，等待用户实机视觉确认。
+- 2026-09-15 用户追加反馈：左移“错误判断”节点，释放其右侧被遮挡的垂直连线通道。状态：实现与自动验证已完成，等待用户实机视觉确认。
 
 ## 范围与边界
 
@@ -158,3 +160,30 @@ T25 全量 115/645 通过；最后恢复原 info 样式后重跑 visuals/reader/
 | H02 | Web 类型检查 | `pnpm web:type-check` | 0 | `vue-tsc -b --noEmit` 无错误 | 2026-09-14；终端输出，未生成文件 |
 | H03 | CRT 段落空隙修正（块间换行文本节点折叠） | `node_modules/.bin/eslint.cmd web/src/features/agent/workbench/runtime-diagram/WorkflowLiveCrt.vue`；`git diff --check` | 0 | ESLint 0 错误 / 0 警告；diff 无错误。pre-wrap 仅保留于 p/h1-h6/li/blockquote/th/td 文本块内部，块间 `</p>\n<p>` 空白文本节点不再渲染为空行，段落间距回落到 0.35em | 2026-09-14；终端输出，未生成文件 |
 | H04 | 大模型响应节点实时输出期间点亮 | `PYTHONIOENCODING=utf-8 npx vitest run web/test/agent/workflowGraph.test.ts web/test/agent/workflowAttentionAnchor.test.ts --config web/vitest.config.ts`；`pnpm web:type-check`；`node_modules/.bin/eslint.cmd web/src/features/agent/workbench/runtime-diagram/headerGraph.ts web/test/agent/workflowGraph.test.ts` | 0 | headerGraph.ts 将 liveTurn 同时挂到 model 与 response 节点：输出期间两节点均为 running（beacon/loading/脉冲），提交后由响应 occurrence 承接；workflowGraph 断言 response.liveTurn 与模型一致、其余节点仍无 liveTurn；类型检查与 ESLint 0 错误 | 2026-09-14；终端输出，未生成文件 |
+
+## 协作横排布局验证记录（2026-09-14 用户反馈：全展开头部过高，工具处理中节点移到重试控制右侧，协作节点水平摆放，连线弯折不增加）
+
+用户反馈两项合并执行：全展开高度收缩（工具链右移），并将协作板块四节点由竖排改为单行水平直连；硬约束为全展开高度 < 旧值 2576、宽度 < 3000、零交叉、各板弯折 ≤ 基线（tools ≤3、其他 ≤4）。
+
+| 编号 | 目标 | 命令 | 退出码 | 关键断言行 | 日期与产物路径 |
+| --- | --- | --- | --- | --- | --- |
+| K01 | 全 256 展开组合路由/标签回归 | `node docs/plan/main-agent-runtime-diagram/verify/debug-mask-sweep.cjs` | 0 | `failures: 0/256`（折叠 chip 态 error:result 标签冲突已修：retry-layer 折叠态最小宽度 646，标签落 d=88 槽 (486,42)，避开 checkpoint x=478 竖线与 error:retry 标签带） | 2026-09-14；终端输出，未生成文件 |
+| K02 | 端口 offset 越界扫描（全 256 组合） | `node docs/plan/main-agent-runtime-diagram/verify/debug-port-offset.cjs` | 0 | `violations: 0`（resume→tool-result 右面 offset 40→24，回到 56 高节点半高界内） | 2026-09-14；终端输出，未生成文件 |
+| K03 | 布局定向回归 | `pnpm vitest run test/agent/workflowHeaderLayout.test.ts`（web/） | 0 | `5 passed`（含全组合关系守恒/零交叉/弯折上限；collab 横排断言：四节点同 y、x 递增、内部连线水平 2 点；model-layer channels:tool-list 首段水平；全展开 width <3000） | 2026-09-14；终端输出，未生成文件 |
+| K04 | 尺寸与弯折抽查 | `node docs/plan/main-agent-runtime-diagram/verify/measure-masks.cjs` | 0 | mask-31 graph 2987×2280；mask-255 全展开 graph 2999×2280（宽 <3000、高 <2576 达标）；collab 776×200 横排，execution:dispatch 0 弯、parent-receive:input 1 弯、parent-receive:wake 3 弯；tools ≤3 弯、其余 ≤4 弯 | 2026-09-14；终端输出，未生成文件 |
+| K05 | 类型、受影响 lint 与 Web/Electron 构建 | `pnpm web:type-check`；`pnpm --filter web exec eslint --fix src/features/agent/workbench/runtime-diagram/headerCircuitPlacement.ts test/agent/workflowHeaderLayout.test.ts`；`pnpm web:build` | 0 | `vue-tsc -b --noEmit` 无错误；ESLint 0 errors / 0 warnings；Web/Electron `built` | 2026-09-14；`dist/web/`、`web/dist-electron/` |
+| K06 | 计划与文档完整性 | `node tools/plan-viewer/lint-source.mjs && node docs/plan/main-agent-runtime-diagram/verify/check-doc-links.mjs && git diff --check` | 0 | `Plan Lint 通过`；`Passed: 0 new/changed documentation links and anchors`；diff 无错误。前端契约第 42 行「任务协作四节点单列上下直连」更新为「单行水平直连」 | 2026-09-14；终端输出，未生成文件 |
+
+实现要点（`headerCircuitPlacement.ts`）：collaboration 分支四节点横排 `put(id, 64+i*172, 72)`、板高下限 200；`408-at` chip 锚定保留（mask-31 展开态宽度 2987 达标），折叠态最小宽度 646 只作用于 retry 板折叠态（展开态由芯片尺寸驱动 ≥1124，宽度连锁远低于 3000 上限）；`resume:tool-result` 右面端口回落到 24。人工视觉验收仍按 M08/M01 待用户执行。
+
+## 头部空间压缩与结果链对齐验证记录（2026-09-15 用户截图反馈）
+
+| 编号 | 目标 | 命令 | 退出码 | 关键断言 | 日期与产物路径 |
+| --- | --- | --- | --- | --- | --- |
+| L01 | 256 种展开组合路由与端口合法性 | `node docs/plan/main-agent-runtime-diagram/verify/debug-mask-sweep.cjs`；`node docs/plan/main-agent-runtime-diagram/verify/debug-port-offset.cjs` | 0 | `failures: 0/256`；`violations: 0` | 2026-09-15；终端输出与 `verify/out/debug-masks.json` |
+| L02 | 新布局契约与模板回归 | `pnpm test:web -- workflowHeaderLayout workflowHeaderTemplate` | 0 | `2 passed; 8 passed`；响应分流垂直下置、模型层底部 64px、入口水平直连、无 calls 面板、结果链同中心线直连、协作单行及 tools 连线最多 3 次弯折 | 2026-09-15；终端输出，未生成文件 |
+| L03 | Web 全量回归与性能隔离复跑 | `pnpm test:web -- --reporter=dot`；连续 5 次 `pnpm test:web -- performanceRecovery --reporter=dot` | 1；0 | 全量 `117 passed / 118 files`、`701 passed / 702 tests`，唯一失败为并发负载下既有 2k 性能预算；隔离连续 5 轮均 `1 file / 5 tests` 通过 | 2026-09-15；终端输出，未生成文件 |
+| L04 | 类型、受影响 lint 与 Web/Electron 构建 | `pnpm --filter web type-check`；受影响文件 `pnpm exec eslint ...`；`pnpm web:build` | 0 | `vue-tsc -b --noEmit` 无错误；ESLint 0 errors / 0 warnings；Web/Electron `built` | 2026-09-15；`dist/web/`、`web/dist-electron/` |
+| L05 | 错误判断左移与垂直通道拉直 | `pnpm test:web -- workflowHeaderLayout workflowHeaderTemplate`；`debug-mask-sweep.cjs`；`debug-port-offset.cjs`；`measure-masks.cjs`；类型检查与受影响 ESLint | 0 | 定向 `2 files / 8 tests`；`failures: 0/256`；`violations: 0`；`retry-layer:channels:checkpoint` 从 4 次弯折降为 0，错误判断与重试判断保持至少 16px 间距；全展开宽度 2823→2791 | 2026-09-15；终端输出，未生成文件 |
+
+实现要点：模型层把 channels 固定到 response 正下方并按实际内容底部加 64px 收高；删除 `header-calls` 图节点、渲染槽和组件；入口与消费记录按同一端口中心定位；工具结果、内容记录、继续判断均按上层边界引脚的真实中心定位。工具审批链与展开的 retry 封装之间保留 64px 路由带，使 `channels:tool-list` 在 compact 展开时仍可用 3 次弯折以内到达。错误判断在空间允许时左移 56px，并在折叠态保留与重试判断的 16px 最小间距，以释放 checkpoint 垂直通道。人工视觉验收继续按 M01/M08 执行。

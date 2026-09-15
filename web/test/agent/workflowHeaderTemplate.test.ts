@@ -93,7 +93,7 @@ describe('complete header template', () => {
         ).toBe(false)
       }
     const children = projection.nodes.filter(
-      (node) => node.data.kind === 'header-step' || node.data.kind === 'header-calls',
+      (node) => node.data.kind === 'header-step',
     )
     for (const [index, left] of children.entries())
       for (const right of children.slice(index + 1)) {

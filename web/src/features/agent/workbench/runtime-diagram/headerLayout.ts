@@ -24,7 +24,7 @@ export interface HeaderTerminal {
 export interface VisibleHeaderItem extends HeaderRect {
   id: string
   parent?: string
-  kind: 'group' | 'step' | 'calls' | 'terminal'
+  kind: 'group' | 'step' | 'terminal'
   collapsed?: boolean
   terminal?: HeaderTerminal
 }
