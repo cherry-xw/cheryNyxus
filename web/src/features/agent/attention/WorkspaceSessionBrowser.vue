@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useAgentsStore, useInteractionsStore } from '@/application/public'
 import type { InteractionRecord } from '@/application/backend/public'
-import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
-import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
-import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
-import { createApprovalPresentation } from '@/utils/approvalPresentation'
+import DecisionDeck from './DecisionDeck.vue'
+import InteractionCard from './InteractionCard.vue'
 import { belongsToWorkspace } from './interactionScope'
+import { questionsOf } from './interactionPresentation'
+import { allAnsweredOf, answeredCountOf, draftOf } from './useInteractionDrafts'
 
 const props = withDefaults(
   defineProps<{
@@ -15,28 +15,24 @@ const props = withDefaults(
     excludeRootChatId?: string
     native?: boolean
     pendingOnly?: boolean
+    /** 纸牌堆叠模式（工作台决策窗口）：多个事项批次同时堆叠，一次完整展示一张卡。 */
+    stepper?: boolean
   }>(),
   {
     native: false,
+    stepper: false,
   },
 )
 const emit = defineEmits<{
   tree: [rootChatId: string, sourceChatId?: string, interactionId?: string, anchorNodeId?: string]
+  /** stepper 模式的决策队列进度（分页 n/N 由标题栏消费）。 */
+  pager: [{ index: number; total: number }]
 }>()
 
 const agents = useAgentsStore()
 const interactions = useInteractionsStore()
 const scope = ref<'workspace' | 'all'>(props.presetId || props.rootChatId ? 'workspace' : 'all')
 const section = ref<'pending' | 'activity'>('pending')
-const drafts = reactive<
-  Record<
-    string,
-    Record<
-      string,
-      { selectedLabels: string[]; optionNotes: Record<string, string>; freeText: string }
-    >
-  >
->({})
 /** 审批倒计时驱动：now 每 250ms 刷新，重算各卡剩余秒。 */
 const now = ref(interactions.calibratedNow())
 let countdownTimer: ReturnType<typeof setInterval> | undefined
@@ -105,101 +101,6 @@ function scrollListTop(): void {
   listEl.value?.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-function payload(item: InteractionRecord): Record<string, unknown> {
-  return item.payload ?? {}
-}
-function questionsOf(item: InteractionRecord): Array<{
-  questionId: string
-  question: string
-  header?: string
-  options: Array<{ label: string; description?: string }>
-  multiSelect: boolean
-}> {
-  return Array.isArray(payload(item).questions)
-    ? (payload(item).questions as ReturnType<typeof questionsOf>)
-    : []
-}
-function draftOf(item: InteractionRecord, questionId: string) {
-  const group = (drafts[item.interactionId] ??= {})
-  return (group[questionId] ??= { selectedLabels: [], optionNotes: {}, freeText: '' })
-}
-function toggleOption(
-  item: InteractionRecord,
-  questionId: string,
-  label: string,
-  multi: boolean,
-): void {
-  const draft = draftOf(item, questionId)
-  if (!multi) {
-    // 单选：点已选 → 清空（可取消）；未选 → 替换，并与「其他」互斥（清空 freeText）
-    if (draft.selectedLabels.includes(label)) {
-      draft.selectedLabels = []
-      const { [label]: _removed, ...rest } = draft.optionNotes
-      draft.optionNotes = rest
-    } else {
-      draft.selectedLabels = [label]
-      draft.freeText = ''
-      // 单选切选项：丢弃其他选项的补充描述
-      draft.optionNotes = {
-        ...(draft.optionNotes[label] ? { [label]: draft.optionNotes[label] } : {}),
-      }
-    }
-  } else if (draft.selectedLabels.includes(label)) {
-    draft.selectedLabels = draft.selectedLabels.filter((value) => value !== label)
-    const { [label]: _removed, ...rest } = draft.optionNotes
-    draft.optionNotes = rest
-  } else draft.selectedLabels.push(label)
-}
-/** 某选项的补充描述输入（仅选中选项可编辑）。 */
-function onOptionNoteInput(
-  item: InteractionRecord,
-  questionId: string,
-  label: string,
-  event: Event,
-): void {
-  const draft = draftOf(item, questionId)
-  draft.optionNotes = { ...draft.optionNotes, [label]: (event.target as HTMLInputElement).value }
-}
-/** 「其他补充」输入：手动双向绑定；单选模式下输入即清空已选选项（与选项互斥，单选二选一）。 */
-function onOtherInput(item: InteractionRecord, questionId: string, event: Event): void {
-  const draft = draftOf(item, questionId)
-  draft.freeText = (event.target as HTMLInputElement).value
-  const question = questionsOf(item).find((q) => q.questionId === questionId)
-  if (question && !question.multiSelect && draft.freeText.trim()) draft.selectedLabels = []
-}
-function titleOf(item: InteractionRecord): string {
-  if (item.kind === 'approval')
-    return createApprovalPresentation(payload(item).senseName, payload(item).arguments).title
-  const questions = questionsOf(item)
-  return questions[0]?.header || questions[0]?.question || '回答 Agent 提问'
-}
-
-/** 审批倒计时：approval 且带 deadlineAt 时返回剩余毫秒与是否超时；否则 total=0（不显示）。 */
-function countdownOf(item: InteractionRecord): {
-  total: number
-  remaining: number
-  expired: boolean
-} {
-  const deadline = item.deadlineAt
-  if (item.kind !== 'approval' || typeof deadline !== 'number') {
-    return { total: 0, remaining: 0, expired: false }
-  }
-  const remaining = Math.max(0, deadline - now.value)
-  return { total: deadline, remaining, expired: remaining <= 0 }
-}
-function statusOf(item: InteractionRecord): string {
-  return {
-    pending: '待处理',
-    resolving: '处理中',
-    blocked: '恢复失败',
-    completed: '已完成',
-    expired: '审批超时，未执行',
-    cancelled: '已取消',
-  }[item.status]
-}
-function timeOf(timestamp?: number): string {
-  return timestamp ? new Date(timestamp).toLocaleString() : ''
-}
 async function decide(item: InteractionRecord, action: 'accept' | 'reject'): Promise<void> {
   try {
     await interactions.decide(item, action)
@@ -207,7 +108,7 @@ async function decide(item: InteractionRecord, action: 'accept' | 'reject'): Pro
     // The shared store binds the error to this interaction.
   }
 }
-/** 提交可点判定：单选恰好 1 项或有「其他补充」输入；多选 ≥1。无选择/输入时提交按钮禁用（灰）。 */
+/** 提交整批回答（纸牌堆叠底部栏与列表卡共用）；提交失败保留草稿，逐题错误由 store 渲染。 */
 async function answer(item: InteractionRecord): Promise<void> {
   const answers = questionsOf(item).map((question) => {
     const draft = draftOf(item, question.questionId)
@@ -238,6 +139,60 @@ async function answer(item: InteractionRecord): Promise<void> {
   }
 }
 
+// ── stepper（纸牌堆叠）模式：多个批次同时堆叠（每批次一张卡，左下角漏边堆叠、
+// 点击切换遮挡关系）；标题栏 ← 题目 n/N → 切换当前批次卡内的题目，全部答完才可提交。 ──
+const activeIndex = ref(0)
+/** 每批次卡内的题目游标（按 interactionId 独立记忆，切换卡片不丢位置）。 */
+const questionCursor = reactive<Record<string, number>>({})
+const activeItem = computed(() => scoped.value[activeIndex.value] ?? null)
+const questionIndex = computed(() => {
+  const item = activeItem.value
+  if (!item) return 0
+  const count = questionsOf(item).length
+  return Math.min(questionCursor[item.interactionId] ?? 0, Math.max(count - 1, 0))
+})
+/** 标题栏 ← → 切换当前批次卡内的题目（循环）。 */
+function step(delta: number): void {
+  const item = activeItem.value
+  if (!item) return
+  const count = questionsOf(item).length
+  if (count < 2) return
+  questionCursor[item.interactionId] = (questionIndex.value + delta + count) % count
+}
+function activate(index: number): void {
+  if (index >= 0 && index < scoped.value.length) activeIndex.value = index
+}
+/** 事项是否属于当前展示的节点树：属于则不显示「在节点树中查看」。 */
+function isCurrentTree(item: InteractionRecord): boolean {
+  return !!props.rootChatId && item.rootChatId === props.rootChatId
+}
+function emitTree(item: InteractionRecord): void {
+  emit('tree', item.rootChatId, item.chatId, item.interactionId, item.anchorNodeId)
+}
+// 事项被移除（提交/处理完成）后收缩索引，让下一张卡自然上位
+watch(
+  () => scoped.value.length,
+  (length) => {
+    if (activeIndex.value >= length) activeIndex.value = Math.max(0, length - 1)
+  },
+)
+// 标题栏题目进度上报：当前批次卡内 题目 n/N（审批无题目 → 0/0，标题栏不显示分页）
+watch(
+  () => [questionIndex.value, activeItem.value?.interactionId ?? ''],
+  () => {
+    if (!props.stepper) return
+    const item = activeItem.value
+    if (!item || item.kind !== 'question_batch') {
+      emit('pager', { index: 0, total: 0 })
+      return
+    }
+    const total = questionsOf(item).length
+    emit('pager', { index: questionIndex.value + 1, total })
+  },
+  { immediate: true },
+)
+defineExpose({ step })
+
 onMounted(() => {
   void interactions.refresh().catch(() => undefined)
   countdownTimer = setInterval(() => {
@@ -245,14 +200,14 @@ onMounted(() => {
   }, 250)
 })
 onBeforeUnmount(() => {
-  if (countdownTimer !== undefined) clearInterval(countdownTimer)
+  if (countdownTimer) clearInterval(countdownTimer)
 })
 </script>
 
 <template>
   <section
     class="interaction-inbox"
-    :class="{ 'is-native': native, 'is-pending-prompt': pendingOnly }"
+    :class="{ 'is-native': native, 'is-deck': stepper, 'is-pending-prompt': pendingOnly }"
     aria-label="待处理交互"
   >
     <div v-if="!pendingOnly" class="inbox-toolbar">
@@ -316,7 +271,66 @@ onBeforeUnmount(() => {
     <p v-if="interactions.error" class="error">
       {{ interactions.error }}
     </p>
-    <div ref="listEl" class="inbox-list">
+
+    <!-- stepper（纸牌堆叠）模式：工作台决策窗口。多个事项批次同时堆叠，一次完整展示一张卡；
+         非活动卡以缩略条错位露出，点击或标题栏 ← n/N → 切换；提交后卡片抽出消失。 -->
+    <template v-if="stepper">
+      <div class="decision-deck">
+        <DecisionDeck
+          :items="scoped"
+          :active-index="activeIndex"
+          :question-index="questionIndex"
+          :now="now"
+          @activate="activate"
+        />
+        <p v-if="scoped.length === 0" class="empty">
+          {{ interactions.loading ? '正在加载…' : '没有待处理交互' }}
+        </p>
+      </div>
+
+      <!-- 固定底部操作栏：单独一行；已是当前节点树的事项不显示「在节点树中查看」。 -->
+      <footer v-if="activeItem" class="decision-bar">
+        <button v-if="!isCurrentTree(activeItem)" type="button" class="locate" @click="emitTree(activeItem)">
+          在节点树中查看
+        </button>
+        <template v-if="activeItem.kind === 'approval'">
+          <span class="decision-spacer" />
+          <button
+            type="button"
+            class="reject"
+            :disabled="activeItem.status === 'resolving'"
+            @click="decide(activeItem, 'reject')"
+          >
+            拒绝
+          </button>
+          <button
+            type="button"
+            class="accept"
+            :disabled="activeItem.status === 'resolving'"
+            @click="decide(activeItem, 'accept')"
+          >
+            {{ activeItem.status === 'blocked' ? '重试并接受' : '接受' }}
+          </button>
+        </template>
+        <template v-else>
+          <span class="decision-progress"
+            >已完成 {{ answeredCountOf(activeItem) }}/{{ questionsOf(activeItem).length }} 题</span
+          >
+          <span class="decision-spacer" />
+          <button
+            type="button"
+            class="accept submit"
+            :disabled="activeItem.status !== 'pending' || !allAnsweredOf(activeItem)"
+            @click="answer(activeItem)"
+          >
+            {{ allAnsweredOf(activeItem) ? '提交回答' : '请完成全部问题' }}
+          </button>
+        </template>
+      </footer>
+    </template>
+
+    <!-- 列表模式（会话浏览器 / 待处理抽屉）：多卡列表 + 卡内操作 -->
+    <div v-else ref="listEl" class="inbox-list">
       <section
         v-for="group in displayGroups"
         :key="group.id"
@@ -331,139 +345,17 @@ onBeforeUnmount(() => {
         >
           {{ group.name }}<span class="group-count">{{ group.items.length }}</span>
         </h4>
-        <article
+        <InteractionCard
           v-for="item in group.items"
           :key="item.interactionId"
-          class="interaction-card"
-          :class="`is-${item.status}`"
-        >
-          <header>
-            <span class="kind" :class="item.kind === 'approval' ? 'is-approval' : 'is-question'">{{
-              item.kind === 'approval' ? '需确认' : '需回答'
-            }}</span>
-            <strong v-if="!pendingOnly || item.kind === 'approval'">{{ titleOf(item) }}</strong>
-            <small>
-              {{ statusOf(item) }} · {{ timeOf(item.createdAt) }}
-              <!-- 审批倒计时：后端 deadlineAt，归零变红提示超时。 -->
-              <template v-if="countdownOf(item).total">
-                <span v-if="countdownOf(item).expired" class="countdown is-expired">已超时</span>
-                <span v-else class="countdown"
-                  >剩余 {{ Math.ceil(countdownOf(item).remaining / 1000) }}s</span
-                >
-              </template>
-            </small>
-          </header>
-
-          <template v-if="item.kind === 'approval'">
-            <ApprovalSummary
-              :sense-name="payload(item).senseName"
-              :args="payload(item).arguments"
-            />
-            <ParsedArgs :args="payload(item).arguments" title="完整操作参数" />
-            <FileChangeDiff :args="payload(item).arguments" />
-          </template>
-          <div v-else class="questions">
-            <fieldset
-              v-for="(question, questionIndex) in questionsOf(item)"
-              :key="question.questionId"
-              :disabled="item.status !== 'pending'"
-            >
-              <legend>
-                <span v-if="questionsOf(item).length > 1">{{ questionIndex + 1 }}. </span
-                >{{ question.header || question.question }}
-              </legend>
-              <small v-if="question.header && question.header !== question.question">{{
-                question.question
-              }}</small>
-              <p class="options-hint">
-                {{ question.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
-              </p>
-              <div class="options">
-                <div v-for="option in question.options" :key="option.label" class="option-row">
-                  <button
-                    type="button"
-                    :class="{
-                      selected: draftOf(item, question.questionId).selectedLabels.includes(
-                        option.label,
-                      ),
-                    }"
-                    @click="
-                      toggleOption(item, question.questionId, option.label, question.multiSelect)
-                    "
-                  >
-                    <b>{{ option.label }}</b
-                    ><span v-if="option.description">{{ option.description }}</span>
-                  </button>
-                  <input
-                    v-if="draftOf(item, question.questionId).selectedLabels.includes(option.label)"
-                    class="option-note-input"
-                    :value="draftOf(item, question.questionId).optionNotes[option.label] ?? ''"
-                    placeholder="为这个选项补充描述（可选）"
-                    @input="onOptionNoteInput(item, question.questionId, option.label, $event)"
-                  />
-                </div>
-              </div>
-              <input
-                :value="draftOf(item, question.questionId).freeText"
-                placeholder="其他补充（可选）"
-                @input="onOtherInput(item, question.questionId, $event)"
-              />
-              <p
-                v-if="interactions.questionErrorsById[item.interactionId]?.[question.questionId]"
-                class="object-error"
-                role="alert"
-              >
-                {{
-                  interactions.questionErrorsById[item.interactionId]?.[question.questionId]
-                    ?.message
-                }}
-              </p>
-            </fieldset>
-          </div>
-
-          <p v-if="interactions.errorsById[item.interactionId]" class="object-error" role="alert">
-            {{ interactions.errorsById[item.interactionId]?.message }}
-          </p>
-
-          <footer>
-            <button
-              type="button"
-              class="locate"
-              @click="
-                emit('tree', item.rootChatId, item.chatId, item.interactionId, item.anchorNodeId)
-              "
-            >
-              在节点树中查看
-            </button>
-            <template v-if="section === 'pending' && item.kind === 'approval'">
-              <button
-                type="button"
-                class="reject"
-                :disabled="item.status === 'resolving'"
-                @click="decide(item, 'reject')"
-              >
-                拒绝
-              </button>
-              <button
-                type="button"
-                class="accept"
-                :disabled="item.status === 'resolving'"
-                @click="decide(item, 'accept')"
-              >
-                {{ item.status === 'blocked' ? '重试并接受' : '接受' }}
-              </button>
-            </template>
-            <button
-              v-else-if="section === 'pending' && item.kind === 'question_batch'"
-              type="button"
-              class="accept"
-              :disabled="item.status !== 'pending'"
-              @click="answer(item)"
-            >
-              提交回答
-            </button>
-          </footer>
-        </article>
+          :item="item"
+          :now="now"
+          :pending-only="pendingOnly"
+          :section="section"
+          @tree="emitTree(item)"
+          @decide="(action) => decide(item, action)"
+          @answer="answer(item)"
+        />
       </section>
       <p v-if="scoped.length === 0" class="empty">
         {{
@@ -518,268 +410,158 @@ onBeforeUnmount(() => {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 0 8px;
+  gap: 7px;
+  margin-bottom: 10px;
   overflow-x: auto;
-  .inner-scrollbar(14%, 28%, 3px);
+  .inner-scrollbar();
 }
-.is-native .nav-chip {
+.nav-chip {
   flex: none;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 5px;
   padding: 3px 9px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  background: transparent;
+  color: var(--ink);
   font-size: 12px;
   cursor: pointer;
-
-  &:hover {
-    background: color-mix(in srgb, var(--accent) 18%, var(--surface));
-    color: var(--ink);
-  }
 }
-.is-native .nav-chip b {
-  min-width: 15px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: #d88a26;
-  color: #fff;
-  font-size: 11px;
-  line-height: 15px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-// 分组头：会话名 + 计数，hover 提亮提示可点击定位
-.is-native .group-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 2px 2px 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--ink) 70%, transparent);
-  cursor: pointer;
-
-  &:hover {
-    color: color-mix(in srgb, var(--accent) 85%, var(--ink));
-  }
-}
-.is-native .group-count {
-  min-width: 16px;
+.nav-chip b {
   padding: 0 5px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
-  color: color-mix(in srgb, var(--ink) 58%, transparent);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  line-height: 16px;
-  text-align: center;
+  background: #d88a26;
+  color: white;
+  font-weight: 400;
 }
-.inbox-toolbar,
-.segmented,
-article header,
-article footer {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.group-head {
+  margin: 0 0 6px;
+  padding: 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.group-count {
+  margin-left: 4px;
+  opacity: 0.6;
 }
 .inbox-toolbar {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 7px;
   margin-bottom: 10px;
 }
 .segmented {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   padding: 2px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 999px;
 }
-.segmented button,
-.refresh {
+.segmented button {
+  padding: 3px 10px;
   border: 0;
-  border-radius: 7px;
-  padding: 5px 9px;
+  border-radius: 999px;
   background: transparent;
-  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  color: var(--ink);
   font-size: 12px;
-  font-weight: 400;
   cursor: pointer;
 }
 .segmented button.active {
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 10%, transparent);
-}
-.inbox-list {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  max-height: min(62vh, 580px);
-  overflow: auto;
-}
-.inbox-group {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-.interaction-card {
-  padding: 11px;
-  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
-  border-radius: 12px;
-  background: var(--surface);
-}
-.interaction-card.is-blocked {
-  border-color: #e59a35;
-}
-article header {
-  align-items: baseline;
-}
-article header strong {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 400;
-}
-article header small {
-  color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 12px;
-}
-article header small .countdown {
-  color: #1a7f52;
-}
-article header small .countdown.is-expired {
-  color: #c02e47;
-}
-// kind 标签双色高对比（需确认=金 / 需回答=紫）：实色底 + 白字，深/浅主题下对比度恒定，
-// native 与浮动窗全局统一（杜绝 color-mix 混主题色在深色下底色文字同色系看不清）
-.kind {
-  padding: 3px 7px;
-  border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font-size: 12px;
   font-weight: 400;
 }
-.kind.is-approval {
-  background: #d88a26;
-}
-.kind.is-question {
-  background: #7c3aed;
-}
-.arguments {
-  margin: 10px 0;
-  padding: 9px;
-  border-radius: 8px;
-  background: var(--surface-soft);
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 13px;
-  line-height: 1.5;
-  color: color-mix(in srgb, var(--ink) 88%, transparent);
-}
-fieldset {
-  margin: 10px 0;
-  padding: 9px;
-  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-  border-radius: 9px;
-}
-legend {
-  padding: 0 4px;
-  font-size: 13px;
-  font-weight: 400;
-}
-fieldset > small {
-  display: block;
-  margin-bottom: 7px;
-  font-size: 12px;
-  opacity: 0.88;
-}
-.options-hint {
-  margin: 0 0 6px;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--ink) 52%, transparent);
-}
-.options {
-  display: grid;
-  gap: 5px;
-}
-.option-row {
-  display: grid;
-  gap: 5px;
-}
-.options button {
-  display: grid;
-  gap: 2px;
-  padding: 7px;
-  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
-  border-radius: 8px;
+.refresh {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
   color: var(--ink);
   font-size: 13px;
-  text-align: left;
   cursor: pointer;
 }
-.options button b {
-  font-weight: 400;
+.refresh:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
-.options button.selected {
-  border-color: #c98224;
-  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
+.inbox-list {
+  height: 100%;
+  max-height: min(480px, 100%);
+  overflow: auto;
+  .inner-scrollbar();
 }
-.options span {
-  font-size: 12px;
-  opacity: 0.72;
+
+// ── stepper（纸牌堆叠）决策窗口：整窗布局（堆叠区滚动 + 底部操作栏固定） ──
+.interaction-inbox.is-deck {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
 }
-input {
-  box-sizing: border-box;
-  width: 100%;
-  margin-top: 6px;
-  padding: 7px;
-  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
-  border-radius: 7px;
+.decision-deck {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  .inner-scrollbar();
+}
+// 固定底部操作栏：单独一行高度，不随卡内容滚动。
+.decision-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 7px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   background: var(--surface);
-  color: var(--ink);
-  font-size: 13px;
 }
-.option-note-input {
-  margin-top: 0;
-}
-article footer {
-  justify-content: flex-end;
-  margin-top: 9px;
-}
-article footer button {
-  padding: 6px 11px;
+.decision-bar button {
+  padding: 6px 13px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   font-size: 13px;
   font-weight: 400;
   cursor: pointer;
 }
-.locate {
-  margin-right: auto;
+.decision-bar .locate {
+  margin-right: 0;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
-.reject {
+.decision-bar .reject {
   background: color-mix(in srgb, #e35a49 14%, var(--surface));
   color: #b74438;
 }
-.accept {
+.decision-bar .accept {
   background: #d88a26;
   color: white;
 }
+.decision-spacer {
+  flex: 1;
+}
+.decision-progress {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
+}
+.decision-bar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .error {
   padding: 7px;
   border-radius: 8px;
   background: color-mix(in srgb, #e35a49 13%, var(--surface));
   color: #b74438;
-  font-size: 12px;
-}
-.object-error {
-  margin: 6px 0 0;
-  color: var(--el-color-danger);
   font-size: 12px;
 }
 .empty {
