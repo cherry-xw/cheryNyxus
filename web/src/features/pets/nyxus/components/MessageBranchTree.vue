@@ -42,6 +42,8 @@ const {
   detailWrap,
   detailPlacement,
   detailRelatedEdges,
+  cycleDetailSize,
+  detailSizeLabel,
   dragActionPopover,
   dragCrt,
   dragDetailPopover,
@@ -85,7 +87,6 @@ const {
   selectedActionCall,
   selectedCallId,
   showNodeDetail,
-  startDetailResize,
   toggleDetailWrap,
   unpinCrt,
   unreadFoldMembers,
@@ -386,22 +387,15 @@ defineExpose({ resetLayout: controller.resetLayout })
               :detail-branch-unavailable-reason="detailBranchUnavailableReason"
               :draggable="true"
               :wrap="detailWrap"
+              :size-label="detailSizeLabel"
               @select-call="selectedCallId = $event"
               @branch="requestBranch"
               @close="closeNodeDetail"
               @drag="dragDetailPopover"
               @drag-end="finishDetailDrag"
               @toggle-wrap="toggleDetailWrap"
+              @cycle-size="cycleDetailSize"
             />
-            <template v-if="detailPinned">
-              <span
-                v-for="direction in ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const"
-                :key="direction"
-                class="detail-resize-handle"
-                :class="`is-${direction}`"
-                @pointerdown="startDetailResize(direction, $event)"
-              />
-            </template>
           </div>
         </Transition>
       </div>

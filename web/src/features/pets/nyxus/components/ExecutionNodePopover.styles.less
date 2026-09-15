@@ -41,6 +41,9 @@
 @ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
 .node-popover {
+  // 正文内容字号基线：随尺寸档位缩放（S=10px / M=11px / L=12px），
+  // hover 临时弹窗无档位类，回落到 12px。头部/页签等窗口外壳字号不随之变化。
+  --popover-content-font: 12px;
   width: min(480px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;
@@ -64,6 +67,16 @@
     transform: translateY(3px) scale(0.97);
   }
 }
+// 尺寸档位 → 正文最小字号（窗口越大字号越大）：S=10px、M=11px、L=12px。
+.node-popover.is-size-s {
+  --popover-content-font: 10px;
+}
+.node-popover.is-size-m {
+  --popover-content-font: 11px;
+}
+.node-popover.is-size-l {
+  --popover-content-font: 12px;
+}
 .node-popover.is-pinned,
 .node-popover.is-actionable {
   border-color: color-mix(in srgb, var(--nx-cyan) 68%, transparent);
@@ -82,8 +95,16 @@
   overflow: auto;
 }
 .wrap-button {
-  margin-left: auto;
+  margin-left: 0;
   color: var(--nx-cyan);
+}
+.size-button {
+  min-width: 26px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 4px;
+  color: var(--nx-text-dim);
+  font: 400 11px/1 ui-monospace, monospace;
 }
 @supports (color: contrast-color(red)) {
   .question-symbol {
@@ -138,7 +159,7 @@
   overflow: hidden;
     color: var(--nx-text);
       font:
-    600 12px/1.2 system-ui,
+    600 var(--popover-content-font)/1.2 system-ui,
     sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -150,7 +171,12 @@
     12px/1.2 system-ui,
     sans-serif;
 }
-.branch-head-actions + .close-button { margin-left: 0; }
+// 头部右侧簇：[branch-head-actions?] [size] [wrap] [close] 贴右排列。
+// 只有一个元素承担 margin-left:auto（无分支动作时是 size 按钮），避免 flex
+// 把剩余空间平分给多个 auto margin 导致动作按钮偏左、关闭键不贴右缘。
+.branch-head-actions ~ .size-button,
+.branch-head-actions ~ .wrap-button,
+.branch-head-actions ~ .close-button { margin-left: 0; }
 .status-pill {
   flex: 0 0 auto;
   padding: 2px 5px;
@@ -191,7 +217,7 @@
 .close-button {
   width: 24px;
   height: 24px;
-  margin-left: auto;
+  margin-left: 0;
   font-size: 16px;
 }
 .batch-lead {
@@ -209,7 +235,7 @@
 .batch-lead-content {
   color: var(--nx-text-dim);
   font:
-    12px/1.55 system-ui,
+    var(--popover-content-font)/1.55 system-ui,
     sans-serif;
 }
 .tool-tabs {
@@ -354,7 +380,7 @@
   background: color-mix(in srgb, var(--nx-purple) 6%, transparent);
   cursor: pointer;
   font:
-    600 12px/1.2 system-ui,
+    600 var(--popover-content-font)/1.2 system-ui,
     sans-serif;
   letter-spacing: 0.03em;
   text-align: left;
@@ -420,7 +446,7 @@
   margin: 0 0 4px;
   color: @accent;
   font:
-    600 12px/1.2 system-ui,
+    600 var(--popover-content-font)/1.2 system-ui,
     sans-serif;
   letter-spacing: 0.05em;
 }
@@ -432,7 +458,7 @@
   border-left-color: var(--detail-accent, @line);
   border-radius: 3px;
   color: var(--nx-text-dim);
-  font-size: 12px;
+  font-size: var(--popover-content-font);
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -460,7 +486,7 @@
 .spawn-field code {
     color: var(--nx-purple);
       font:
-    12px/1.5 ui-monospace,
+    var(--popover-content-font)/1.5 ui-monospace,
     'JetBrains Mono',
     monospace;
 }
@@ -479,7 +505,7 @@
   gap: 7px;
     color: var(--nx-text);
       font:
-    12px/1.55 ui-monospace,
+    var(--popover-content-font)/1.55 ui-monospace,
     'JetBrains Mono',
     monospace;
 }
@@ -494,7 +520,7 @@
 }
 .user-node-content {
   color: var(--nx-text-dim);
-  font: 12px/1.65 system-ui, sans-serif;
+  font: var(--popover-content-font)/1.65 system-ui, sans-serif;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -512,7 +538,7 @@
     0 0 10px color-mix(in srgb, var(--nx-yellow) 8%, transparent);
     color: var(--nx-yellow);
       font:
-    600 12px/1.55 ui-monospace,
+    600 var(--popover-content-font)/1.55 ui-monospace,
     'JetBrains Mono',
     monospace;
   letter-spacing: 0.015em;
@@ -528,7 +554,7 @@
   border-right: 1px solid color-mix(in srgb, var(--nx-yellow) 34%, transparent);
   background: color-mix(in srgb, var(--nx-yellow) 13%, transparent);
   color: color-mix(in srgb, var(--nx-yellow) 78%, transparent);
-  font-size: 12px;
+  font-size: var(--popover-content-font);
   line-height: 1;
   letter-spacing: 0.09em;
 }
@@ -554,7 +580,7 @@
   margin: 0 0 4px;
   color: @muted;
   font:
-    12px/1.45 system-ui,
+    var(--popover-content-font)/1.45 system-ui,
     sans-serif;
 }
 .field-row dd {
@@ -565,7 +591,7 @@
   margin: 0;
     color: var(--nx-text-dim);
       font:
-    12px/1.5 ui-monospace,
+    var(--popover-content-font)/1.5 ui-monospace,
     'JetBrains Mono',
     monospace;
   overflow-wrap: anywhere;
@@ -590,7 +616,7 @@
   min-width: 0;
     color: var(--nx-text-dim);
       font:
-    12px/1.5 ui-monospace,
+    var(--popover-content-font)/1.5 ui-monospace,
     'JetBrains Mono',
     monospace;
   overflow-wrap: anywhere;
@@ -610,7 +636,7 @@
   border-radius: 0;
   color: var(--nx-text-dim);
   font:
-    12px/1.55 ui-monospace,
+    var(--popover-content-font)/1.55 ui-monospace,
     'JetBrains Mono',
     monospace;
   white-space: pre-wrap;
@@ -687,7 +713,7 @@
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--popover-content-font);
 }
 .question-options {
   display: grid;
@@ -728,13 +754,13 @@
   gap: 2px;
 }
 .question-option-copy strong {
-  font-size: 12px;
+  font-size: var(--popover-content-font);
   font-weight: 400;
   overflow-wrap: anywhere;
 }
 .question-option-copy small {
   color: @muted;
-  font-size: 12px;
+  font-size: var(--popover-content-font);
   line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -760,7 +786,7 @@
   gap: 8px;
   min-height: 22px;
   color: @muted;
-  font-size: 12px;
+  font-size: var(--popover-content-font);
 }
 .search-mode-badge {
   padding: 2px 6px;
@@ -780,7 +806,7 @@
   border: 1px solid var(--nx-border-soft);
   border-radius: 3px;
   color: var(--nx-text-dim);
-  font-size: 12px;
+  font-size: var(--popover-content-font);
 }
 .search-results-field {
   min-width: 0;
@@ -814,7 +840,7 @@
   flex: 1;
     color: var(--nx-cyan);
       font:
-    600 12px/1.45 ui-monospace,
+    600 var(--popover-content-font)/1.45 ui-monospace,
     'JetBrains Mono',
     monospace;
   overflow-wrap: anywhere;
@@ -823,7 +849,7 @@
 .search-result-location span {
   flex: 0 0 auto;
   color: @muted;
-  font-size: 12px;
+  font-size: var(--popover-content-font);
 }
 .search-result-item pre,
 .search-result-raw {
@@ -832,7 +858,7 @@
   color: var(--nx-text-dim);
   background: color-mix(in srgb, var(--nx-cyan) 4%, transparent);
   font:
-    12px/1.5 ui-monospace,
+    var(--popover-content-font)/1.5 ui-monospace,
     'JetBrains Mono',
     monospace;
   overflow-wrap: anywhere;
@@ -861,7 +887,7 @@
   padding: 7px 8px;
   border-left: 2px solid var(--nx-red);
   color: var(--nx-red);
-  font-size: 12px;
+  font-size: var(--popover-content-font);
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -878,7 +904,7 @@
 .section-heading strong {
     color: var(--nx-text-dim);
       font:
-    600 12px/1.2 system-ui,
+    600 var(--popover-content-font)/1.2 system-ui,
     sans-serif;
 }
 .copy-button {
@@ -896,7 +922,7 @@
   overflow-wrap: anywhere;
   color: var(--nx-text-dim);
   font:
-    12px/1.55 system-ui,
+    var(--popover-content-font)/1.55 system-ui,
     sans-serif;
   .md-content();
 }
@@ -933,7 +959,7 @@
   padding: 8px 0;
   color: @muted;
   font:
-    12px/1.45 system-ui,
+    var(--popover-content-font)/1.45 system-ui,
     sans-serif;
 }
 .truncation-hint {
@@ -946,7 +972,7 @@
   border-left: 2px solid var(--nx-yellow);
   color: var(--nx-yellow);
   font:
-    12px/1.4 system-ui,
+    var(--popover-content-font)/1.4 system-ui,
     sans-serif;
 }
 .termination-list {

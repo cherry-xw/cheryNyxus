@@ -114,6 +114,8 @@ useGsap(popoverRoot, (context) => {
     :class="[
       `is-${variant ?? 'popover'}`,
       { 'is-pinned': pinned, 'is-actionable': question, 'is-wrap': wrap },
+      // 档位字号只作用于常驻窗口：hover 默认窗口保持 12px 基线，不受尺寸档位影响。
+      pinned && sizeLabel ? `is-size-${sizeLabel.toLowerCase()}` : '',
     ]"
     :style="{ maxHeight: `${maxHeight}px` }"
     role="dialog"
@@ -183,13 +185,28 @@ useGsap(popoverRoot, (context) => {
         <button
           v-if="pinned"
           type="button"
-          class="icon-button wrap-button"
-          :aria-pressed="wrap"
-          :title="wrap ? '保持长行并横向滚动' : '自动换行'"
-          @click="emit('toggleWrap')"
+          class="icon-button size-button"
+          :aria-label="`切换窗口尺寸（当前 ${sizeLabel ?? 'M'} 档）`"
+          @click="emit('cycleSize')"
         >
-          {{ wrap ? '↔' : '¶' }}
+          ▭{{ sizeLabel ?? 'M' }}
         </button>
+        <ElTooltip
+          v-if="pinned"
+          placement="top"
+          :show-after="180"
+          :content="wrap ? '保持长行并横向滚动：代码、命令、文件内容保留原始长行，超出部分横向滚动' : '自动换行：代码、命令、文件内容自动折行，不出现横向滚动条'"
+        >
+          <button
+            type="button"
+            class="icon-button wrap-button"
+            :aria-pressed="wrap"
+            :aria-label="wrap ? '切换为自动换行' : '切换为保持长行并横向滚动'"
+            @click="emit('toggleWrap')"
+          >
+            {{ wrap ? '↔' : '¶' }}
+          </button>
+        </ElTooltip>
         <button
           v-if="pinned"
           type="button"
