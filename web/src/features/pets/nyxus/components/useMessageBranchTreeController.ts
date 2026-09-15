@@ -1089,6 +1089,12 @@ export function useMessageBranchTreeController(
       pinnedDetailNodeId.value = node.id
       hoveredDetailNodeId.value = node.id
       if (node.kind === 'fold') readingFoldId.value = node.id
+    } else if (pinnedDetailNodeId.value && hasNodeHoverDetail(node)) {
+      // 常驻窗口已固定（拖拽/点击过某个节点）后，点击任意有详情内容的节点
+      // 即把窗口内容切换到该节点；窗口停留在用户手动放置的位置。
+      pinnedDetailNodeId.value = node.id
+      hoveredDetailNodeId.value = node.id
+      if (node.kind === 'fold') readingFoldId.value = node.id
     }
   }
   function focusNode(node: (typeof layout.value.nodes)[number]): void {
@@ -1253,103 +1259,47 @@ export function useMessageBranchTreeController(
     if (element) gsap.set(element, { x: 0, y: 0, clearProps: 'transform' })
   }
   /**
-   * pinned 8 向 resize：与拖拽同契约——pointermove 期间 quickSetter 直写
-   * width/height/left/top，pointerup 才把终值落回 detailSize/detailManualPos。
+   * 常驻详情窗口尺寸档位（2026-09-15 变更）：取消 8 向拖拽 resize，改由头部
+   * 「尺寸切换」按钮在 S/M/L 三档间循环，避免用户手动拖拽窗口尺寸。
+   * - S：当前默认尺寸（640×520），即原 M 档，用户实测“刚刚好”；
+   * - M：按 S 宽度 +25%（800×650）；
+   * - L：按 S 宽度 +50%（960×780）。
+   * 换档只更新 detailSize；未拖过位置的窗口继续自动定位，拖过的位置会回收进视口。
    */
-  let detailResizeState: {
-    width: number
-    height: number
-    left: number
-    top: number
-  } | null = null
-  let detailResizeSetters:
-    | {
-        width: ReturnType<typeof gsap.quickSetter>
-        height: ReturnType<typeof gsap.quickSetter>
-        left: ReturnType<typeof gsap.quickSetter>
-        top: ReturnType<typeof gsap.quickSetter>
-      }
-    | undefined
-  function startDetailResize(
-    direction: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
-    event: PointerEvent,
-  ): void {
-    if (!detailPinned.value || event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    const placement = detailPlacement.value
-    if (!placement) return
-    const start = {
-      x: event.clientX,
-      y: event.clientY,
-      left: parseFloat(placement.style.left),
-      top: parseFloat(placement.style.top),
-      ...detailSize.value,
-    }
-    detailResizeState = {
-      width: start.width,
-      height: start.height,
-      left: start.left,
-      top: start.top,
-    }
-    const element = detailAnchorEl.value
-    detailResizeSetters = element
-      ? {
-          width: gsap.quickSetter(element, 'width', 'px'),
-          height: gsap.quickSetter(element, 'height', 'px'),
-          left: gsap.quickSetter(element, 'left', 'px'),
-          top: gsap.quickSetter(element, 'top', 'px'),
-        }
-      : undefined
-    const move = (next: PointerEvent) => {
-      if (!detailResizeState) return
-      const dx = next.clientX - start.x
-      const dy = next.clientY - start.y
-      const west = direction.includes('w')
-      const north = direction.includes('n')
-      const maxWidth = Math.max(360, viewportSize.value.width - 24)
-      const maxHeight = Math.max(240, viewportSize.value.height - 24)
-      detailResizeState.width = Math.min(
-        maxWidth,
-        Math.max(360, start.width + (west ? -dx : direction.includes('e') ? dx : 0)),
-      )
-      detailResizeState.height = Math.min(
-        maxHeight,
-        Math.max(240, start.height + (north ? -dy : direction.includes('s') ? dy : 0)),
-      )
-      detailResizeState.left = Math.min(
-        viewportSize.value.width - 32,
-        Math.max(
-          24 - detailResizeState.width,
-          west ? start.left + start.width - detailResizeState.width : start.left,
+  function detailSizePresets(): Array<{ width: number; height: number; label: string }> {
+    return [
+      { width: 640, height: 520, label: 'S' },
+      { width: 800, height: 650, label: 'M' },
+      { width: 960, height: 780, label: 'L' },
+    ]
+  }
+  const detailSizeLabel = computed(() => {
+    const preset = detailSizePresets().find(
+      (item) => item.width === detailSize.value.width && item.height === detailSize.value.height,
+    )
+    return preset?.label ?? 'M'
+  })
+  function cycleDetailSize(): void {
+    const presets = detailSizePresets()
+    const index = presets.findIndex(
+      (item) => item.width === detailSize.value.width && item.height === detailSize.value.height,
+    )
+    const next =
+      presets[(index + 1) % presets.length] ?? { width: 640, height: 520, label: 'S' }
+    detailSize.value = { width: next.width, height: next.height }
+    if (detailManualPos.value) {
+      const vp = viewportSize.value
+      detailManualPos.value = {
+        left: Math.min(
+          Math.max(24, detailManualPos.value.left),
+          Math.max(24, vp.width - next.width - 24),
         ),
-      )
-      detailResizeState.top = Math.min(
-        viewportSize.value.height - 32,
-        Math.max(0, north ? start.top + start.height - detailResizeState.height : start.top),
-      )
-      if (detailResizeSetters) {
-        detailResizeSetters.width(detailResizeState.width)
-        detailResizeSetters.height(detailResizeState.height)
-        detailResizeSetters.left(detailResizeState.left)
-        detailResizeSetters.top(detailResizeState.top)
+        top: Math.min(
+          Math.max(0, detailManualPos.value.top),
+          Math.max(0, vp.height - next.height - 12),
+        ),
       }
     }
-    const end = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', end)
-      window.removeEventListener('pointercancel', end)
-      if (detailResizeState) {
-        detailSize.value = { width: detailResizeState.width, height: detailResizeState.height }
-        detailManualPos.value = { left: detailResizeState.left, top: detailResizeState.top }
-        detailResizeState = null
-      }
-      detailResizeSetters = undefined
-      if (element) gsap.set(element, { clearProps: 'width,height,left,top' })
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', end)
-    window.addEventListener('pointercancel', end)
   }
   function toggleDetailWrap(): void {
     detailWrap.value = !detailWrap.value
@@ -1358,8 +1308,8 @@ export function useMessageBranchTreeController(
    * 详情弹窗定位冻结契约（2026-09-02）：一次显示会话只求值一次位置。
    * 显示会话 = hover 换到新节点，或弹窗关闭后重新显示；会话内实测高度回填、
    * 画布缩放/平移、视口 resize 均不改变弹窗位置（屏幕坐标完全冻结）。
-   * hover → pinned 切换不算新会话；pinned 拖拽/resize 仍经
-   * `detailManualPos`/`detailSize` 覆盖冻结位置。
+   * hover → pinned 切换不算新会话；pinned 拖拽经 `detailManualPos`、
+   * 尺寸档位切换经 `detailSize` 覆盖冻结位置。
    */
   interface DetailPlacementDecision {
     left: number
@@ -1701,7 +1651,8 @@ export function useMessageBranchTreeController(
     () => props.paperMode,
     (enabled) => {
       closeNodeDetail()
-      if (enabled && !activePaperNodeId.value) activePaperNodeId.value = paperEntries.value.at(-1)?.id
+      if (enabled && !activePaperNodeId.value)
+        activePaperNodeId.value = paperEntries.value.at(-1)?.id
       // 卡牌模式开关会让树视口在「全宽 ↔ 右半区」间切换，旧相机位置不再对齐新视口，
       // 与折叠档位/布局模式一致：开关后重新 fit。流程图/阅读器抽屉覆盖画布但不改变
       // 视口几何，开关抽屉不重新 fit，保留用户当前平移与缩放。
@@ -1902,7 +1853,8 @@ export function useMessageBranchTreeController(
     dragCrt,
     dragDetailPopover,
     finishDetailDrag,
-    startDetailResize,
+    cycleDetailSize,
+    detailSizeLabel,
     toggleDetailWrap,
     focusCrt,
     focusNode,

@@ -39,6 +39,8 @@ export type ExecutionNodePopoverControllerProps = {
   /** 标题栏可拖动（常驻弹窗）。拖动通过 drag emit 上报增量位移。 */
   draggable?: boolean
   wrap?: boolean
+  /** 常驻窗口当前尺寸档位（S/M/L），供尺寸切换按钮展示；未提供时不显示该按钮。 */
+  sizeLabel?: string
 }
 export type ExecutionNodePopoverControllerEmits = {
   close: []
@@ -48,6 +50,8 @@ export type ExecutionNodePopoverControllerEmits = {
   /** 标题栏拖拽结束（pointerup/cancel）。消费端此刻才把直写位移落回持久定位。 */
   dragEnd: []
   toggleWrap: []
+  /** 常驻窗口在尺寸档位间循环切换（S/M/L）。 */
+  cycleSize: []
 }
 type ControllerEmit<T> = <K extends keyof T>(
   event: K,

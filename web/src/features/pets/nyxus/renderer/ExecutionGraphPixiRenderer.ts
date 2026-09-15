@@ -893,7 +893,9 @@ export class ExecutionGraphPixiRenderer {
             fontSize: String(node.foldCount).length > 2 ? 7 : 9,
             fontWeight: '700',
           },
-          resolution,
+          // 数字角标在 fit 缩放下会被相机整体缩小，纹理须超采样才不糊：
+          // 强制 ≥2 倍（上限 3），缩放前后都按 1:1 命中设备像素。
+          resolution: Math.min(3, Math.max(2, resolution * 2)),
         })
         foldCount.alpha = alpha
         this.labels.addChild(foldCount)
