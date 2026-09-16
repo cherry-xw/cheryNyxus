@@ -13,14 +13,13 @@ import { AgentComposer, useAgentDialogOptions, useComposerMenuPosition } from '.
 import ContextUsageBar from '../drawer/ContextUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
-import { agentApi, type ChatSummary, type RootTimelineSnapshot } from '@/application/backend/public'
+import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './useWorkbenchWindow'
 import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/application/public'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 import {
   MessageBranchTree,
   NyxusContentReader,
-  isPianoRootSession,
   type NyxusContentSelection,
 } from '@/features/pets/nyxus/public'
 import { resolveWorkspaceRootChatId } from '@/features/agent/attention/public'
@@ -36,8 +35,12 @@ import { useLiteViewToggle } from './useLiteViewToggle'
 import { useWorkbenchContextInspector, usageClass } from './useWorkbenchContextInspector'
 import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
-import NyxusSessionList from './NyxusSessionList.vue'
-import { useWorkbenchViewPreferences, type FoldMode } from './useWorkbenchViewPreferences'
+import { selectTreeTimelineOverride } from './workbenchTimelineSelection'
+import {
+  layoutModeForFoldMode,
+  useWorkbenchViewPreferences,
+  type FoldMode,
+} from './useWorkbenchViewPreferences'
 import { resolveTaskDrawerChatId } from '../drawer/historyBranchSelection'
 
 export type WorkbenchDialogControllerProps = {
@@ -284,11 +287,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
 
   /** 右侧抽屉标题（卡牌/流程图/阅读器，与 档案 抽屉同款头部）。 */
   const sidePanelTitle = computed(() =>
-    sidePanel.value === 'cards'
-      ? '卡牌模式'
-      : sidePanel.value === 'workflow'
-        ? '流程图'
-        : '阅读器',
+    sidePanel.value === 'cards' ? '卡牌模式' : sidePanel.value === 'workflow' ? '流程图' : '阅读器',
   )
   /** 关闭侧边抽屉（MessageBranchTree 右侧抽屉 ✕ / 遮罩触发）。 */
   function closeSidePanel(): void {
@@ -424,9 +423,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   }
   const FOLD_TIPS: Record<FoldMode, string> = {
     none: '完整展示：显示全部节点与分支',
-    partial: '局部精简：折叠连续过程，保留必要返回节点',
-    participant: '关键分支：精简各 Agent 过程，保留分派与返回关系',
-    full: '极简主线：每轮只保留用户消息与最终回复',
+    partial: '局部收纳：收起同一参与者已完成的连续步骤',
+    participant: '按参与者收纳：保留任务交接与结果返回关系',
+    full: '只看每轮主线：保留用户消息、分支起点与最终回复',
   }
   let foldCloseTimer: ReturnType<typeof setTimeout> | undefined
   function showFoldTool(): void {
@@ -448,9 +447,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   /** 角色列表配置交互期间锁定：点击内部控件（select 等）时置位，防 hover 误关。 */
   const roleListPinned = ref(false)
   let roleListCloseTimer: ReturnType<typeof setTimeout> | undefined
-  /** 会话列表 popout 状态（仿角色列表：hover/click 展开、延迟关闭、交互期间锁定）。 */
-  const sessionListOpen = ref(false)
-  let sessionListCloseTimer: ReturnType<typeof setTimeout> | undefined
   // AgentComposer 的 3 个 DOM ref 桥接回 useAgentDialogOptions（selectCommand / commandMenuStyle 等依赖）。
   const { commandMenuStyle, editorRefFn, commandMenuRefFn, roleMenuRefFn } =
     useComposerMenuPosition({
@@ -467,8 +463,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   function showRoleList(): void {
     if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
     roleListCloseTimer = undefined
-    // 与会话列表互斥：展开角色列表时收起会话列表。
-    closeSessionList()
     agents.closeAllHistory()
     roleListOpen.value = true
   }
@@ -500,95 +494,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     if (open) window.addEventListener('pointerdown', onRoleOutsidePointerDown)
     else window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
   })
-  // ── 会话列表（仿角色列表 popout：hover/click 展开、延迟关闭、互斥） ──
-  function showSessionList(): void {
-    if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
-    sessionListCloseTimer = undefined
-    closeRoleList()
-    agents.closeAllHistory()
-    sessionListOpen.value = true
-  }
-  function scheduleSessionListClose(): void {
-    if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
-    sessionListCloseTimer = setTimeout(() => {
-      sessionListOpen.value = false
-      sessionListCloseTimer = undefined
-    }, 160)
-  }
-  function closeSessionList(): void {
-    if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
-    sessionListCloseTimer = undefined
-    sessionListOpen.value = false
-  }
-  function toggleSessionList(): void {
-    if (sessionListOpen.value) closeSessionList()
-    else showSessionList()
-  }
-  /** 点击 popout/按钮之外 → 关闭会话列表。 */
-  function onSessionOutsidePointerDown(e: PointerEvent): void {
-    const t = e.target as HTMLElement | null
-    if (t?.closest('.nyxus-session-popout') || t?.closest('.nyxus-session-tool')) return
-    closeSessionList()
-  }
-  watch(sessionListOpen, (open) => {
-    if (open) window.addEventListener('pointerdown', onSessionOutsidePointerDown)
-    else window.removeEventListener('pointerdown', onSessionOutsidePointerDown)
-  })
-  /** 会话列表数据：按需拉取全部 root 会话（history scope 全量 + includePreview），前端按预设过滤。
-   * 不用 scope:'preset' + presetId/preset——后端 listRootChatsForPresets（src/db/chat.ts）对 metadata
-   * 原始字段精确匹配，会话 metadata 带非空 presetId 且与 props.presetId 不一致时双分支均 false，
-   * 曾致列表全空（2026-08-26 实测 bug）；也不复用 agents.historyList——它来自 scope:'stage'，
-   * 每预设仅保留最新 1 个 root（src/service/chat/handler.ts latestByPreset）且 lean 不带 preview，
-   * 既列不出历史会话、preview/turnCount 也恒空。history scope 走 listAllChats() 全量返回，
-   * 由下方 rootSessions 按预设过滤（与旧版 proven 逻辑一致）。 */
-  const sessionListChats = ref<ChatSummary[]>([])
-  const sessionListLoading = ref(false)
-  async function refreshSessionList(): Promise<void> {
-    sessionListLoading.value = true
-    try {
-      const chats = await agentApi.listChats({
-        scope: 'history',
-        includePreview: true,
-      })
-      sessionListChats.value = chats
-    } catch (cause) {
-      console.warn('[WorkbenchDialog] 会话列表拉取失败:', cause)
-      // 失败回退 stage 目录（agents.historyList），保证列表不空。
-      sessionListChats.value = agents.historyList ?? []
-    } finally {
-      sessionListLoading.value = false
-    }
-  }
-  /** 打开时刷新一次（hover/click 均经 open 变 true 触发，不重复拉取）。 */
-  watch(sessionListOpen, (open) => {
-    if (open) void refreshSessionList()
-  })
-  const rootSessions = computed<ChatSummary[]>(() =>
-    sessionListChats.value
-      .filter(
-        (c) =>
-          isPianoRootSession(c) && (c.preset === presetName.value || c.presetId === props.presetId),
-      )
-      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
-  )
-  async function onSessionDelete(targetChatId: string): Promise<void> {
-    // Deletion prunes the active workbench chat before the request resolves, so preserve intent now.
-    const deletingActiveSession = targetChatId === chatId.value
-    try {
-      if (isNyxus.value) await deleteNyxusSession(targetChatId)
-      else await deletePresetSession(targetChatId)
-    } catch (cause) {
-      ElMessage.error(cause instanceof Error ? cause.message : '删除会话失败')
-      return
-    }
-    // Do not override a session the user selected while deletion was in flight.
-    if (deletingActiveSession && !chatId.value) {
-      const latest = rootSessions.value.find((session) => session.chatId !== targetChatId)?.chatId
-      if (latest) await switchSession(latest)
-      else agents.setWorkbenchWindowChat(props.windowId, null)
-    }
-    void refreshSessionList()
-  }
+  // ── 会话列表已移除（2026-09-16）：切换入口上移标题栏会话状态条（strip + 当前预设分页下拉），
+  // rail ≡ popout 及其数据路径（rootSessions/onSessionDelete）一并删除，见 docs/frontend/workbench-multi-window.md。
   function activateNyxusInput(): void {
     nyxusDraftActive.value = true
     void nextTick(() => editorRef.value?.focus())
@@ -736,11 +643,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     ),
   )
   const currentAttentionCount = computed(() => workspacePending.value.length)
-  const attentionCount = computed(
-    () =>
-      interactions.pending.filter((item) => item.rootChatId !== attentionRootChatId.value).length,
-  )
-  const workspaceBrowserOpen = ref(false)
 
   watch(
     [attentionRootChatId, () => connection.status],
@@ -752,33 +654,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     },
     { immediate: true },
   )
-
-  function closeWorkspaceBrowser(): void {
-    workspaceBrowserOpen.value = false
-    agents.setWorkbenchWindowWorkspaceBrowser(props.windowId, undefined)
-  }
-
-  function toggleWorkspaceBrowser(): void {
-    workspaceBrowserOpen.value = !workspaceBrowserOpen.value
-    agents.setWorkbenchWindowBlink(props.windowId, false)
-    void interactions.refresh().catch(() => undefined)
-  }
-
-  async function focusAttentionTree(
-    rootChatId: string,
-    sourceChatId?: string,
-    interactionId?: string,
-    anchorNodeId?: string,
-  ): Promise<void> {
-    closeWorkspaceBrowser()
-    if (rootChatId !== treeRootChatId.value) await switchSession(rootChatId)
-    const targetId = anchorNodeId ?? interactionId
-    if (!targetId) return
-    treeFocusSourceChatId.value = sourceChatId ?? rootChatId
-    treeFocusInteractionId.value = targetId
-    treeFocusNonce.value++
-    selectWorkflowContent({ nodeId: targetId, sourceChatId: sourceChatId ?? rootChatId })
-  }
 
   function openGeneration(generationIndex: number): void {
     openHistory()
@@ -798,6 +673,31 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   )
   /** 无 root 时继续展示工作台既有的「新建会话」入口；创建后自动进入 Lite。 */
   const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)
+  /** 左下角当前流程待处理窗口的收起态（树模式，铃铛切换）。
+   * 收起后新事项到达不自动展开——铃铛角标计数、标题栏/任务栏闪烁继续提示（与 lite 面板收起契约一致）。 */
+  const attentionCollapsed = ref(false)
+  /** 待处理窗口当前是否展开：树模式=左下角窗口；lite 模式=lite 待处理面板（折叠态存 liteStore，按窗口 × 根会话隔离）。 */
+  const attentionWindowOpen = computed(() => {
+    if (!currentAttentionCount.value) return false
+    if (liteViewVisible.value) {
+      const rootId = treeRootChatId.value
+      return rootId ? !(liteUi.rootUi(props.windowId, rootId)?.pendingCollapsed ?? false) : false
+    }
+    return !attentionCollapsed.value
+  })
+  /** 铃铛切换待处理窗口：树模式收起/展开左下角审批回答窗口；精简模式折叠/展开提问面板（不影响 lite 视图本身）。 */
+  function toggleAttentionWindow(): void {
+    agents.setWorkbenchWindowBlink(props.windowId, false)
+    if (liteViewVisible.value) {
+      const rootId = treeRootChatId.value
+      if (!rootId) return
+      liteUi.patchRootUi(props.windowId, rootId, {
+        pendingCollapsed: !(liteUi.rootUi(props.windowId, rootId)?.pendingCollapsed ?? false),
+      })
+      return
+    }
+    attentionCollapsed.value = !attentionCollapsed.value
+  }
   function closeWorkbench(): void {
     if (sending.value) return
     // 关闭工作台即关闭其 docked 历史抽屉：HistoryDrawer 读全局单例，不清理则抽屉及遮罩残留页面
@@ -848,11 +748,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   })
   onBeforeUnmount(() => {
     workbenchResizeObserver?.disconnect()
-    if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
     if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
     if (foldCloseTimer) clearTimeout(foldCloseTimer)
     window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
-    window.removeEventListener('pointerdown', onSessionOutsidePointerDown)
   })
   const {
     onTreeEpochChange,
@@ -884,8 +782,11 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   }))
   const treeProps = computed(() => ({
     rootChatId: treeRootChatId.value,
-    timelineOverride: taskTimeline.value,
-    layoutMode: 'timeline' as const,
+    timelineOverride: selectTreeTimelineOverride(
+      treeRootChatId.value ? chatSessions.rootTimeline(treeRootChatId.value, 'tree') : undefined,
+      taskTimeline.value,
+    ),
+    layoutMode: layoutModeForFoldMode(foldMode.value),
     presentationMode: 'horizontal-signal' as const,
     foldMode: foldMode.value,
     paperMode: sidePanel.value === 'cards',
@@ -913,7 +814,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     LiteView,
     NYXUS_WORKBENCH_Z_INDEX,
     NyxusContentReader,
-    NyxusSessionList,
     OVERLAY_Z_INDEX,
     PromptSnapshotTip,
     RoleConfigPopover,
@@ -923,9 +823,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     activeRoleIndex,
     agents,
     attentionRootChatId,
-    attentionCount,
+    attentionCollapsed,
+    attentionWindowOpen,
     currentAttentionCount,
-    closeWorkspaceBrowser,
     brains,
     branchTarget,
     cancelNyxusInput,
@@ -975,8 +875,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onEditorSelectionChange,
     onMaximizeClick,
     onMediaSelected,
-    closeSessionList,
-    onSessionDelete,
     onTitlePointerDown,
     onTreeEpochChange,
     onTreePromptSnapShow,
@@ -993,9 +891,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     resizeDirections,
     roleListOpen,
     roleListPinned,
-    rootSessions,
-    sessionListLoading,
-    sessionListOpen,
     roleMenuRefFn,
     roleSelections,
     roleUsages,
@@ -1004,7 +899,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     readerTimeline,
     replayTimeline,
     scheduleFoldToolClose,
-    scheduleSessionListClose,
     scheduleRoleListClose,
     selectBranchTarget,
     selectedContent,
@@ -1023,7 +917,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     sessionControlPending,
     showCommandMenu,
     showFoldTool,
-    showSessionList,
     showRoleList,
     showRoleMenu,
     sidePanelTitle,
@@ -1036,8 +929,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     text,
     toggleLiteView,
     toggleRoleList,
-    toggleSessionList,
-    toggleWorkspaceBrowser,
+    toggleAttentionWindow,
     treeBreakdown,
     treeFocusInteractionId,
     treeFocusNonce,
@@ -1052,8 +944,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     usageClass,
     win,
     windowBlink,
-    workspaceBrowserOpen,
-    focusAttentionTree,
     workbenchShellRef,
     workbenchShellStyle,
     workbenchWindow,

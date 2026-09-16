@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { BellFilled, Connection, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
 import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
@@ -15,7 +16,8 @@ const props = defineProps<WorkbenchDialogControllerProps>()
 const controller = useWorkbenchDialogController(props)
 const workbenchMotion = useOverlayTransitionHooks('dialog')
 const rolePopoutMotion = useOverlayTransitionHooks('panel')
-const sessionPopoutMotion = useOverlayTransitionHooks('panel')
+// 小组角色编制默认折叠：仅占一行（标题行），点击标题行展开角色标签（与发消息弹窗一致）。
+const rolesExpanded = ref(false)
 // Keep the controller surface grouped here so this orchestration SFC stays inside its line budget.
 // prettier-ignore
 const {
@@ -25,12 +27,10 @@ const {
   MessageBranchTree,
   NYXUS_WORKBENCH_Z_INDEX,
   NyxusContentReader,
-  NyxusSessionList,
   OVERLAY_Z_INDEX, PromptSnapshotTip, RoleConfigPopover,
   activateNyxusInput, activeCommandIndex, activeCommandTab, activeRoleIndex,
-  attentionCount, currentAttentionCount,
+  attentionCollapsed, attentionWindowOpen, currentAttentionCount,
   runtimeDiagramProps, treeProps,
-  closeWorkspaceBrowser,
   brains, branchTarget,
   cancelNyxusInput, chatId, closeWorkbench,
   comboCommandGroups,
@@ -53,7 +53,6 @@ const {
   onEditorSelectionChange,
   onMaximizeClick,
   onMediaSelected,
-  onSessionDelete,
   onTitlePointerDown,
   onTreeEpochChange,
   onTreePromptSnapShow,
@@ -62,23 +61,22 @@ const {
   roleListOpen, roleListPinned, roleMenuRefFn,
   roleSelections, roleUsages,
   sidePanel, toggleSidePanel,
-  readerTimeline, rootSessions,
-  scheduleFoldToolClose, scheduleRoleListClose, scheduleSessionListClose,
+  readerTimeline,
+  scheduleFoldToolClose, scheduleRoleListClose,
   selectBranchTarget, selectedContent, selectWorkflowContent,
   selectCommand, selectCommandTab, selectFoldMode, selectRoleMention,
   sendFromComposer, sending,
   senseEntries, senseGroups, senseTool, senseTools,
   sessionControl, sessionControlPending,
-  sessionListLoading, sessionListOpen,
-  showCommandMenu, showFoldTool, showRoleList, showRoleMenu, showSessionList,
+  showCommandMenu, showFoldTool, showRoleList, showRoleMenu,
   sidePanelTitle, closeSidePanel,
   supportsTools, switchSession,
   taskControlPending, taskHasRunningBranches, taskTimeline,
-  text, toggleRoleList, toggleSessionList, toggleWorkspaceBrowser,
+  text, toggleRoleList,
   treeBreakdown, treeLoading, treePromptSnap, treeRootChatId,
   treeUsage, treeUsagePct,
-  uploading, usageClass, win, windowBlink, workspaceBrowserOpen,
-  focusAttentionTree, workbenchShellRef, workbenchShellStyle, workbenchWindow,
+  toggleAttentionWindow, uploading, usageClass, win, windowBlink,
+  workbenchShellRef, workbenchShellStyle, workbenchWindow,
 } = controller
 defineExpose({ closeWorkbench: controller.closeWorkbench })
 </script>
@@ -127,14 +125,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
         :style="workbenchShellStyle"
         aria-label="Agent 执行工作台"
       >
-        <WorkbenchAttentionSurface
-          v-show="workspaceBrowserOpen"
-          :root-chat-id="controller.attentionRootChatId.value || undefined"
-          :count="attentionCount"
-          others
-          @close="closeWorkspaceBrowser"
-          @tree="focusAttentionTree"
-        />
         <div class="nyxus-branch-top">
           <MessageBranchTree
             v-if="treeRootChatId"
@@ -165,7 +155,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </template>
           </MessageBranchTree>
           <WorkbenchAttentionSurface
-            v-if="currentAttentionCount"
+            v-if="currentAttentionCount && !attentionCollapsed"
             :key="treeRootChatId"
             class="workbench-current-attention"
             :root-chat-id="controller.attentionRootChatId.value || undefined"
@@ -266,87 +256,106 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 ✕
               </button>
             </header>
-            <div class="role-configs nyxus-role-configs">
-              <div class="session-note">小组角色编制</div>
-              <div
-                v-if="loading"
-                class="role-tags role-tags-skel"
-                aria-busy="true"
-                aria-label="角色编制加载中"
+            <div
+              class="role-configs nyxus-role-configs"
+              :class="{ 'is-collapsed': !rolesExpanded }"
+            >
+              <button
+                type="button"
+                class="role-configs-toggle"
+                :aria-expanded="rolesExpanded"
+                aria-label="小组角色编制"
+                @click="rolesExpanded = !rolesExpanded"
               >
-                <span v-for="n in 3" :key="n" class="role-skel-tile" aria-hidden="true" />
-              </div>
-              <div v-else class="role-tags" aria-label="小组角色编制">
-                <el-popover
-                  v-for="[role, selection] in orderedRoleSelections"
-                  :key="role"
-                  trigger="click"
-                  placement="bottom-start"
-                  :width="420"
-                  popper-class="role-runtime-popper"
+                <span class="session-note">小组角色编制</span>
+                <span
+                  class="role-configs-chevron"
+                  :class="{ 'is-open': rolesExpanded }"
+                  aria-hidden="true"
+                  >▾</span
                 >
-                  <template #reference>
-                    <button
-                      type="button"
-                      class="role-summary-tag"
-                      :class="{ 'is-primary': role === primaryRole }"
-                      :aria-label="`配置角色 ${role}，大脑 ${selection.brain || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
-                    >
-                      <span class="role-summary-main">
-                        <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
-                        <span class="role-summary-name">{{ role }}</span>
-                      </span>
-                      <span class="role-summary-meta-row">
-                        <span class="role-summary-model-slot">
-                          <span class="role-summary-model">◈ {{ selection.brain || '—' }}</span>
-                        </span>
-                        <el-tooltip
-                          v-if="roleUsages[role]"
-                          placement="top"
-                          :show-after="200"
-                          :hide-after="0"
-                        >
-                          <template #content>
-                            <span>上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span>
-                          </template>
-                          <span
-                            class="role-usage-chip"
-                            :class="usageClass(roleUsages[role]!.usage)"
-                            :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
-                            >{{ fmtTokens(roleUsages[role]!.used) }}/{{
-                              fmtTokens(roleUsages[role]!.total)
-                            }}</span
-                          >
-                        </el-tooltip>
-                      </span>
-                      <span
-                        v-if="senseEntries(selection.senseGroup).length"
-                        class="role-summary-senses"
-                        aria-label="当前能力"
+              </button>
+              <template v-if="rolesExpanded">
+                <div
+                  v-if="loading"
+                  class="role-tags role-tags-skel"
+                  aria-busy="true"
+                  aria-label="角色编制加载中"
+                >
+                  <span v-for="n in 3" :key="n" class="role-skel-tile" aria-hidden="true" />
+                </div>
+                <div v-else class="role-tags" aria-label="小组角色编制">
+                  <el-popover
+                    v-for="[role, selection] in orderedRoleSelections"
+                    :key="role"
+                    trigger="click"
+                    placement="bottom-start"
+                    :width="420"
+                    popper-class="role-runtime-popper"
+                  >
+                    <template #reference>
+                      <button
+                        type="button"
+                        class="role-summary-tag"
+                        :class="{ 'is-primary': role === primaryRole }"
+                        :aria-label="`配置角色 ${role}，大脑 ${selection.brain || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
                       >
-                        <span
-                          v-for="entry in senseEntries(selection.senseGroup)"
-                          :key="entry"
-                          class="role-summary-sense-icon"
-                        >
-                          {{ senseTool(entry)?.icon ?? '⚙' }}
+                        <span class="role-summary-main">
+                          <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
+                          <span class="role-summary-name">{{ role }}</span>
                         </span>
-                      </span>
-                    </button>
-                  </template>
-                  <RoleConfigPopover
-                    :role="role"
-                    :selection="selection"
-                    :brains="brains"
-                    :sense-groups="senseGroups"
-                    :config="config"
-                    :sense-tools="senseTools"
-                    :is-primary="role === primaryRole"
-                    :primary-role="primaryRole"
-                    @update:selection="roleSelections[role] = $event"
-                  />
-                </el-popover>
-              </div>
+                        <span class="role-summary-meta-row">
+                          <span class="role-summary-model-slot">
+                            <span class="role-summary-model">◈ {{ selection.brain || '—' }}</span>
+                          </span>
+                          <el-tooltip
+                            v-if="roleUsages[role]"
+                            placement="top"
+                            :show-after="200"
+                            :hide-after="0"
+                          >
+                            <template #content>
+                              <span>上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span>
+                            </template>
+                            <span
+                              class="role-usage-chip"
+                              :class="usageClass(roleUsages[role]!.usage)"
+                              :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
+                              >{{ fmtTokens(roleUsages[role]!.used) }}/{{
+                                fmtTokens(roleUsages[role]!.total)
+                              }}</span
+                            >
+                          </el-tooltip>
+                        </span>
+                        <span
+                          v-if="senseEntries(selection.senseGroup).length"
+                          class="role-summary-senses"
+                          aria-label="当前能力"
+                        >
+                          <span
+                            v-for="entry in senseEntries(selection.senseGroup)"
+                            :key="entry"
+                            class="role-summary-sense-icon"
+                          >
+                            {{ senseTool(entry)?.icon ?? '⚙' }}
+                          </span>
+                        </span>
+                      </button>
+                    </template>
+                    <RoleConfigPopover
+                      :role="role"
+                      :selection="selection"
+                      :brains="brains"
+                      :sense-groups="senseGroups"
+                      :config="config"
+                      :sense-tools="senseTools"
+                      :is-primary="role === primaryRole"
+                      :primary-role="primaryRole"
+                      @update:selection="roleSelections[role] = $event"
+                    />
+                  </el-popover>
+                </div>
+              </template>
             </div>
             <AgentComposer
               is-nyxus
@@ -398,7 +407,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
         </Transition>
         <nav
           class="nyxus-side-tools"
-          :class="{ 'has-open-popout': roleListOpen || sessionListOpen }"
+          :class="{ 'has-open-popout': roleListOpen }"
           aria-label="节点树工作台功能工具栏"
         >
           <div class="nyxus-tool-column">
@@ -426,9 +435,9 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </el-tooltip>
               <el-tooltip
                 :content="
-                  attentionCount
-                    ? `其他流程的审批与提问 · ${attentionCount}`
-                    : '其他流程的审批与提问'
+                  attentionWindowOpen
+                    ? `收起待处理审批与提问窗口 · ${currentAttentionCount} 项`
+                    : `展开待处理审批与提问窗口 · ${currentAttentionCount} 项`
                 "
                 placement="left"
                 :show-after="200"
@@ -439,18 +448,23 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                     type="button"
                     class="nyxus-rail-action is-attention"
                     data-view-action="attention"
-                    :class="{ 'is-active': workspaceBrowserOpen }"
+                    :class="{ 'is-active': attentionWindowOpen }"
                     :aria-label="
-                      attentionCount
-                        ? `其他流程的审批与提问，${attentionCount} 项`
-                        : '其他流程的审批与提问'
+                      attentionWindowOpen
+                        ? `收起待处理审批与提问窗口，${currentAttentionCount} 项`
+                        : `展开待处理审批与提问窗口，${currentAttentionCount} 项`
                     "
-                    :aria-pressed="workspaceBrowserOpen"
-                    @click="toggleWorkspaceBrowser"
+                    :aria-pressed="attentionWindowOpen"
+                    :disabled="!currentAttentionCount"
+                    @click="toggleAttentionWindow"
                   >
                     <BellFilled aria-hidden="true" />
-                    <span v-if="attentionCount" class="nyxus-attention-count" aria-hidden="true">
-                      {{ attentionCount > 99 ? '99+' : attentionCount }}
+                    <span
+                      v-if="currentAttentionCount"
+                      class="nyxus-attention-count"
+                      aria-hidden="true"
+                    >
+                      {{ currentAttentionCount > 99 ? '99+' : currentAttentionCount }}
                     </span>
                   </button>
                 </span>
@@ -522,24 +536,8 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                   </button>
                 </span>
               </el-tooltip>
-              <div
-                class="nyxus-session-tool"
-                @pointerenter="showSessionList"
-                @focusin="showSessionList"
-                @pointerleave="scheduleSessionListClose"
-              >
-                <button
-                  type="button"
-                  class="nyxus-rail-action"
-                  :class="{ 'is-active': sessionListOpen }"
-                  aria-label="会话列表"
-                  :aria-expanded="sessionListOpen"
-                  @click="toggleSessionList"
-                >
-                  <span aria-hidden="true">≡</span>
-                </button>
-              </div>
               <!-- v1.0 icon 区分：历史 ↺（回看）vs 上下文 ❐（内容快照），原 ◷/◍ 双圆点过似 -->
+              <!-- 会话切换入口已上移标题栏会话状态条（strip + 分页下拉，2026-09-16），rail ≡ 会话列表移除 -->
               <el-tooltip content="档案" placement="left" :show-after="200" :hide-after="0">
                 <span class="nyxus-tool-tip-anchor">
                   <button
@@ -712,30 +710,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                   />
                 </template>
               </div>
-            </div>
-          </Transition>
-          <Transition
-            :css="false"
-            @before-enter="sessionPopoutMotion.onBeforeEnter"
-            @enter="sessionPopoutMotion.onEnter"
-            @leave="sessionPopoutMotion.onLeave"
-            @enter-cancelled="sessionPopoutMotion.onEnterCancelled"
-            @leave-cancelled="sessionPopoutMotion.onLeaveCancelled"
-          >
-            <div
-              v-if="sessionListOpen"
-              key="session-popout"
-              class="nyxus-session-popout"
-              @pointerenter="showSessionList()"
-              @pointerleave="scheduleSessionListClose()"
-            >
-              <NyxusSessionList
-                :sessions="rootSessions"
-                :active-chat-id="chatId"
-                :loading="sessionListLoading"
-                @select="(id) => void switchSession(id)"
-                @delete="onSessionDelete"
-              />
             </div>
           </Transition>
         </nav>

@@ -284,10 +284,21 @@ export function listAllChats(): ChatRow[] {
  * Load only roots associated with the requested current presets. Filtering is
  * performed by SQLite so stage startup never materializes the historical root
  * catalog merely to discard unrelated entries in JavaScript.
+ *
+ * `excludeBranches` 剔除非 original 分支 root（conversation_branches kind != 'original'），
+ * 与前端 isPianoRootSession（pianoNotes.ts）语义对齐——preset 分页目录用它，stage 不传保持现状。
+ * `limit`/`offset` 仅显式提供时附加（preset 分页下拉用）；缺省返回全量，现有调用不变。
  */
-export function listRootChatsForPresets(
+export interface RootChatsForPresetsOptions {
+  excludeBranches?: boolean
+  limit?: number
+  offset?: number
+}
+
+function buildRootPresetWhere(
   presets: ReadonlyArray<{ presetId?: string; preset?: string }>,
-): ChatRow[] {
+  options: RootChatsForPresetsOptions,
+): { where: string; params: string[] } {
   const clauses: string[] = []
   const params: string[] = []
   for (const association of presets) {
@@ -305,14 +316,45 @@ export function listRootChatsForPresets(
       params.push(association.preset)
     }
   }
-  if (clauses.length === 0) return []
-  return getSoulDb()
-    .prepare(
-      `SELECT * FROM chats
-       WHERE parent_chat_id IS NULL AND lifecycle != 'archived' AND (${clauses.join(' OR ')})
-       ORDER BY updated_at DESC`,
+  if (clauses.length === 0) return { where: '', params }
+  const parts = [`parent_chat_id IS NULL`, `lifecycle != 'archived'`, `(${clauses.join(' OR ')})`]
+  if (options.excludeBranches) {
+    parts.push(
+      `NOT EXISTS (SELECT 1 FROM conversation_branches cb WHERE cb.chat_id = chats.id AND cb.kind != 'original')`,
     )
-    .all(...params) as ChatRow[]
+  }
+  return { where: parts.join(' AND '), params }
+}
+
+export function listRootChatsForPresets(
+  presets: ReadonlyArray<{ presetId?: string; preset?: string }>,
+  options: RootChatsForPresetsOptions = {},
+): ChatRow[] {
+  const { where, params } = buildRootPresetWhere(presets, options)
+  if (!where) return []
+  let sql = `SELECT * FROM chats WHERE ${where} ORDER BY updated_at DESC, created_at DESC`
+  if (options.limit !== undefined) {
+    sql += ` LIMIT ?`
+    params.push(String(options.limit))
+    if (options.offset !== undefined) {
+      sql += ` OFFSET ?`
+      params.push(String(options.offset))
+    }
+  }
+  return getSoulDb().prepare(sql).all(...params) as ChatRow[]
+}
+
+/** 同 WHERE（含分支排除）的匹配总数，供 chat.list preset 分页 total。 */
+export function countRootChatsForPresets(
+  presets: ReadonlyArray<{ presetId?: string; preset?: string }>,
+  options: RootChatsForPresetsOptions = {},
+): number {
+  const { where, params } = buildRootPresetWhere(presets, options)
+  if (!where) return 0
+  const row = getSoulDb()
+    .prepare(`SELECT COUNT(*) AS total FROM chats WHERE ${where}`)
+    .get(...params) as { total: number }
+  return row.total
 }
 
 /** Return the selected roots and all descendants using one recursive catalog query. */
@@ -847,8 +889,48 @@ export function getChatPreviews(
 }
 
 /**
- * 添加消息（路由到月份文件）
+ * 批量取 chat 的末条 user 消息（标题栏会话状态条 tooltip「最后一次提问」）。
+ * 与 getChatPreviews 同分组模式：按 messages_month 分组，每 group 一条 SQL，
+ * 取末条 user 消息 content（相关子查询 MAX created_at），复用 preview 规范化（折叠空白 + ≤40 字符）。
+ * 返回 Map<chatId, string>；无 user 消息的 chat 默认空串。
+ * 仅 chat.overview 的 TaskOverview.lastUserPrompt 调用（overview 订阅快照/变更重算）。
  */
+export function getLastUserPrompts(chats: ChatRow[]): Map<string, string> {
+  const result = new Map<string, string>()
+  for (const c of chats) {
+    result.set(c.id, '')
+  }
+  if (chats.length === 0) return result
+
+  const byMonth = new Map<string, string[]>()
+  for (const c of chats) {
+    if (!c.messages_month) continue
+    const arr = byMonth.get(c.messages_month)
+    if (arr) arr.push(c.id)
+    else byMonth.set(c.messages_month, [c.id])
+  }
+
+  for (const [month, chatIds] of byMonth) {
+    const monthlyDb = getMonthlyDb(month)
+    const placeholders = chatIds.map(() => '?').join(',')
+    const rows = monthlyDb
+      .prepare(
+        `SELECT m.chat_id AS chatId,
+          (SELECT m2.content FROM messages m2
+            WHERE m2.chat_id = m.chat_id AND m2.role = 'user'
+            ORDER BY m2.created_at DESC LIMIT 1) AS lastContent
+         FROM messages m
+         WHERE m.role = 'user' AND m.chat_id IN (${placeholders})
+         GROUP BY m.chat_id`,
+      )
+      .all(...chatIds) as { chatId: string; lastContent: string | null }[]
+
+    for (const r of rows) {
+      result.set(r.chatId, normalizePreview(r.lastContent))
+    }
+  }
+  return result
+}
 export function addMessage(messageId: string, chatId: string, data: MessageData): MessageRow {
   // 1. 获取 chat 的 messages_month
   const soulDb = getSoulDb()

@@ -93,11 +93,14 @@
   }
 }
 
-// LabelTip info-ico hover popper：长 tip 限宽自动换行 + 结构化多行（content 内 \n + pre-line）。
-// 配色随主题自适应：背景 var(--panel) / 文字 var(--ink)（深色黑底白字、浅色白底黑字），
-// 覆盖 el-tooltip 默认 dark（黑底白字，不随主题）。teleport 到 body，故置全局非 scoped。
-// 特异性抬到 .el-popper.is-dark 之上（同源覆盖，不用 !important）。
-.el-popper.is-dark.label-tip-popper {
+// ── 全局悬浮提示主题自适应（深浅双端统一） ────────────────────────────
+// Element Plus 的 el-tooltip 默认 effect="dark"，其样式是「文字色当背景、背景色当文字」
+// （.el-popper.is-dark：背景 = var(--el-text-color-primary)、文字 = var(--el-bg-color)）。
+// 浅色模式下文字色是深灰 → 黑底白字；一旦 html.dark 生效，这两个变量反转 → 浅底深字，
+// 深色模式反而显示浅色背景深色字。这里用主题 token 统一覆盖：
+// 背景 var(--panel) / 文字 var(--ink)，随 data-theme 自动翻转（深色深底浅字、浅色浅底深字）。
+// teleport 到 body，故置全局非 scoped；特异性(0,2,0)与 EP 相同、顺序在后，不用 !important。
+.el-popper.is-dark {
   background: var(--panel);
   color: var(--ink);
   border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
@@ -108,6 +111,9 @@
     border-color: color-mix(in srgb, var(--ink) 14%, transparent);
   }
 }
+
+// LabelTip info-ico hover popper：长 tip 限宽自动换行 + 结构化多行（content 内 \n + pre-line）。
+// 配色已由上方全局 .el-popper.is-dark 统一覆盖，这里只留布局规则。
 .el-popper.label-tip-popper {
   max-width: 260px;
   white-space: pre-line;

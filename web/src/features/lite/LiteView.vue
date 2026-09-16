@@ -14,7 +14,6 @@ const {
   activeLane,
   activePendingTabId,
   activeQuestion,
-  activeQuestionIdOf,
   activeQuestionIndexOf,
   answeredQuestionCount,
   answering,
@@ -44,6 +43,7 @@ const {
   interactionStatusLabel,
   isDetailNode,
   isInFlightNode,
+  isNoteOpen,
   isPlainRowContent,
   isRowFocused,
   laneTabs,
@@ -61,18 +61,21 @@ const {
   onErrorAction,
   onInputKeydown,
   onMonitorScroll,
+  onOtherInput,
   onResume,
   onSend,
   onStop,
+  onToggleChoice,
+  onToggleOther,
   onTrajectoryKeydown,
   onTrajectoryWheel,
   openApprovalDetail,
   moveQuestion,
   openNodeDetail,
   operationBlockReason,
+  otherActiveOf,
   pendingCollapsed,
   pendingTabs,
-  questionAnswered,
   questionsOf,
   selectPendingTab,
   remainingLabel,
@@ -86,14 +89,12 @@ const {
   selectedOf,
   sending,
   setOptionNote,
-  selectQuestion,
   setRowEl,
-  setTextDraft,
   showBarTip,
   showsRowContent,
   textDraftOf,
   tipPos,
-  toggleOption,
+  toggleNoteOpen,
   togglePendingCollapsed,
   toggleRunDetail,
   canAnswerBatch,
@@ -396,7 +397,7 @@ const {
               'is-' + tab.kind,
             ]"
             :aria-selected="tab.id === activePendingTabId"
-            :title="tab.label"
+            :title="tab.tip"
             @click="selectPendingTab(tab.id)"
           >
             <span class="lite-pending-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
@@ -516,8 +517,11 @@ const {
           </div>
           <div v-else class="lite-interaction is-question" :data-status="activeInteraction.status">
             <div class="lite-interaction-body is-question">
-              <header class="lite-interaction-head">
-                <span class="lite-interaction-kicker">QUESTION SESSION</span>
+              <!-- 批次单题后该行只剩进度数字：仅多题批次才保留（进度 + 状态点） -->
+              <header
+                v-if="questionsOf(activeInteraction).length > 1"
+                class="lite-interaction-head"
+              >
                 <span class="lite-interaction-head-right">
                   <span
                     class="lite-interaction-dot"
@@ -532,48 +536,13 @@ const {
                 </span>
               </header>
               <div class="lite-question-workspace">
-                <nav class="lite-question-nav" aria-label="问题列表">
-                  <button
-                    v-for="(question, index) in questionsOf(activeInteraction)"
-                    :key="question.questionId"
-                    type="button"
-                    class="lite-question-nav-item"
-                    :class="{
-                      'is-active': question.questionId === activeQuestionIdOf(activeInteraction),
-                      'is-answered': questionAnswered(activeInteraction.interactionId, question),
-                    }"
-                    :aria-current="
-                      question.questionId === activeQuestionIdOf(activeInteraction)
-                        ? 'step'
-                        : undefined
-                    "
-                    @click="selectQuestion(activeInteraction, question.questionId)"
-                  >
-                    <span class="lite-question-index">{{
-                      String(index + 1).padStart(2, '0')
-                    }}</span>
-                    <span class="lite-question-nav-copy">
-                      <strong>{{ question.header || `问题 ${index + 1}` }}</strong>
-                      <small>{{ question.question }}</small>
-                    </span>
-                    <span class="lite-question-state" aria-hidden="true">{{
-                      questionAnswered(activeInteraction.interactionId, question) ? '✓' : '·'
-                    }}</span>
-                  </button>
-                </nav>
                 <fieldset v-if="activeQuestion" class="lite-followup-question">
-                  <legend>{{ activeQuestion.header || activeQuestion.question }}</legend>
-                  <p v-if="activeQuestion.header" class="lite-question-prompt">
-                    {{ activeQuestion.question }}
-                  </p>
-                  <p class="lite-question-type">
-                    {{
-                      activeQuestion.freeText
-                        ? '自由回答'
-                        : activeQuestion.multiSelect
-                          ? '可多选'
-                          : '单选'
-                    }}
+                  <p class="lite-question-title">{{ activeQuestion.question }}</p>
+                  <p
+                    v-if="activeQuestion.freeText || activeQuestion.multiSelect"
+                    class="lite-question-type"
+                  >
+                    {{ activeQuestion.freeText ? '自由回答' : '可多选 · 再点已选项可取消' }}
                   </p>
                   <p
                     v-if="
@@ -588,74 +557,199 @@ const {
                     }}
                   </p>
                   <template v-if="!activeQuestion.freeText">
-                    <div
-                      v-for="option in activeQuestion.options"
-                      :key="option.label"
-                      class="lite-option-wrap"
-                    >
-                      <label class="lite-option">
-                        <input
-                          :type="activeQuestion.multiSelect ? 'checkbox' : 'radio'"
-                          :name="activeInteraction.interactionId + ':' + activeQuestion.questionId"
-                          :disabled="!interactionActionable(activeInteraction)"
-                          :checked="
+                    <!-- 两列选项：每个选项一张卡片，选中后「补充」按钮可展开补充输入；
+                         末尾「其他」卡片 = 默认输入框本身作为选项（单选点击抢 active，多选输入自动勾选） -->
+                    <div class="lite-options-grid">
+                      <div
+                        v-for="option in activeQuestion.options"
+                        :key="option.label"
+                        class="lite-option-card"
+                        :class="[
+                          `is-${activeQuestion.multiSelect ? 'multi' : 'single'}`,
+                          {
+                            'is-selected': selectedOf(
+                              activeInteraction.interactionId,
+                              activeQuestion.questionId,
+                            ).includes(option.label),
+                            'is-disabled': !interactionActionable(activeInteraction),
+                          },
+                        ]"
+                      >
+                        <div
+                          class="lite-option-main"
+                          role="option"
+                          :aria-selected="
                             selectedOf(
                               activeInteraction.interactionId,
                               activeQuestion.questionId,
                             ).includes(option.label)
                           "
-                          @change="
-                            toggleOption(
+                          :aria-disabled="!interactionActionable(activeInteraction)"
+                          tabindex="0"
+                          @click="onToggleChoice(activeInteraction, activeQuestion, option.label)"
+                          @keydown.enter.prevent="
+                            onToggleChoice(activeInteraction, activeQuestion, option.label)
+                          "
+                          @keydown.space.prevent="
+                            onToggleChoice(activeInteraction, activeQuestion, option.label)
+                          "
+                        >
+                          <span class="lite-choice-mark" aria-hidden="true">
+                            {{
+                              selectedOf(
+                                activeInteraction.interactionId,
+                                activeQuestion.questionId,
+                              ).includes(option.label)
+                                ? '✓'
+                                : ''
+                            }}
+                          </span>
+                          <span class="lite-option-copy">
+                            <span class="lite-option-label">{{ option.label }}</span>
+                            <span v-if="option.description" class="lite-option-description">{{
+                              option.description
+                            }}</span>
+                          </span>
+                          <button
+                            type="button"
+                            class="lite-option-note-toggle"
+                            :class="{
+                              'is-open': isNoteOpen(
+                                activeInteraction.interactionId,
+                                activeQuestion.questionId,
+                                option.label,
+                              ),
+                            }"
+                            :disabled="
+                              !selectedOf(
+                                activeInteraction.interactionId,
+                                activeQuestion.questionId,
+                              ).includes(option.label) || !interactionActionable(activeInteraction)
+                            "
+                            :aria-pressed="
+                              isNoteOpen(
+                                activeInteraction.interactionId,
+                                activeQuestion.questionId,
+                                option.label,
+                              )
+                            "
+                            @click.stop="
+                              toggleNoteOpen(
+                                activeInteraction.interactionId,
+                                activeQuestion.questionId,
+                                option.label,
+                              )
+                            "
+                            @keydown.stop
+                          >
+                            补充
+                          </button>
+                        </div>
+                        <textarea
+                          v-if="
+                            selectedOf(
                               activeInteraction.interactionId,
-                              activeQuestion,
+                              activeQuestion.questionId,
+                            ).includes(option.label) &&
+                            isNoteOpen(
+                              activeInteraction.interactionId,
+                              activeQuestion.questionId,
                               option.label,
                             )
                           "
+                          class="lite-option-note"
+                          rows="2"
+                          :value="
+                            noteOf(
+                              activeInteraction.interactionId,
+                              activeQuestion.questionId,
+                              option.label,
+                            )
+                          "
+                          :disabled="!interactionActionable(activeInteraction)"
+                          placeholder="为这个选项补充描述（可选）"
+                          @input="
+                            setOptionNote(
+                              activeInteraction.interactionId,
+                              activeQuestion.questionId,
+                              option.label,
+                              ($event.target as HTMLTextAreaElement).value,
+                            )
+                          "
                         />
-                        <span class="lite-option-label">{{ option.label }}</span>
-                        <span v-if="option.description" class="lite-option-description">{{
-                          option.description
-                        }}</span>
-                      </label>
-                      <textarea
-                        v-if="
-                          selectedOf(
-                            activeInteraction.interactionId,
-                            activeQuestion.questionId,
-                          ).includes(option.label)
-                        "
-                        class="lite-option-note"
-                        rows="2"
-                        :value="
-                          noteOf(
-                            activeInteraction.interactionId,
-                            activeQuestion.questionId,
-                            option.label,
-                          )
-                        "
-                        :disabled="!interactionActionable(activeInteraction)"
-                        placeholder="为这个选项补充描述（可选）"
-                        @input="
-                          setOptionNote(
-                            activeInteraction.interactionId,
-                            activeQuestion.questionId,
-                            option.label,
-                            ($event.target as HTMLTextAreaElement).value,
-                          )
-                        "
-                      />
+                      </div>
+                      <div
+                        class="lite-option-card is-other"
+                        :class="[
+                          `is-${activeQuestion.multiSelect ? 'multi' : 'single'}`,
+                          {
+                            'is-selected': otherActiveOf(
+                              activeInteraction.interactionId,
+                              activeQuestion.questionId,
+                            ),
+                            'is-disabled': !interactionActionable(activeInteraction),
+                          },
+                        ]"
+                      >
+                        <div
+                          class="lite-option-main"
+                          role="option"
+                          :aria-selected="
+                            otherActiveOf(
+                              activeInteraction.interactionId,
+                              activeQuestion.questionId,
+                            )
+                          "
+                          :aria-disabled="!interactionActionable(activeInteraction)"
+                          tabindex="0"
+                          @click="onToggleOther(activeInteraction, activeQuestion)"
+                          @keydown.enter.prevent="onToggleOther(activeInteraction, activeQuestion)"
+                          @keydown.space.prevent="onToggleOther(activeInteraction, activeQuestion)"
+                        >
+                          <span class="lite-choice-mark" aria-hidden="true">
+                            {{
+                              otherActiveOf(
+                                activeInteraction.interactionId,
+                                activeQuestion.questionId,
+                              )
+                                ? '✓'
+                                : ''
+                            }}
+                          </span>
+                          <input
+                            class="lite-option-other-input"
+                            :value="
+                              textDraftOf(
+                                activeInteraction.interactionId,
+                                activeQuestion.questionId,
+                              )
+                            "
+                            :disabled="!interactionActionable(activeInteraction)"
+                            placeholder="其他补充（可选）"
+                            @click.stop
+                            @keydown.stop
+                            @input="
+                              onOtherInput(
+                                activeInteraction,
+                                activeQuestion,
+                                ($event.target as HTMLInputElement).value,
+                              )
+                            "
+                          />
+                        </div>
+                      </div>
                     </div>
                   </template>
                   <textarea
+                    v-else
                     class="lite-freetext"
-                    :class="{ 'is-other': !activeQuestion.freeText }"
                     rows="4"
                     :value="textDraftOf(activeInteraction.interactionId, activeQuestion.questionId)"
                     :disabled="!interactionActionable(activeInteraction)"
-                    :placeholder="activeQuestion.freeText ? '输入回答' : '其他补充（可选）'"
+                    placeholder="输入回答"
                     @input="
-                      setTextDraft(
-                        activeInteraction.interactionId,
+                      onOtherInput(
+                        activeInteraction,
                         activeQuestion,
                         ($event.target as HTMLTextAreaElement).value,
                       )

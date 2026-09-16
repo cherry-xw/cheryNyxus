@@ -12,11 +12,12 @@ import {
   diagnoseExecutionGraphFacts,
   type ExecutionGraphDiagnostic,
 } from './executionGraphDiagnostics'
+import { projectEpochBoundaries, projectPackedGenerations } from './historyProjection'
 
 export type PersistentExecutionNodeKind =
   'message' | 'tool-batch' | 'return' | 'dispatch' | 'system' | 'spawn'
 export type ExecutionNodeKind =
-  'start' | PersistentExecutionNodeKind | 'pack' | 'fold' | 'input' | 'unknown'
+  'start' | PersistentExecutionNodeKind | 'pack' | 'epoch' | 'fold' | 'input' | 'unknown'
 export type PersistentExecutionEdgeKind = ExecutionEdgeFact['kind']
 export type ExecutionEdgeKind = 'start' | PersistentExecutionEdgeKind | 'input' | 'stream'
 export type ExecutionOrderSlot = 'start' | 'persistent' | 'transient'
@@ -38,6 +39,9 @@ export interface ExecutionNode {
   /** Canonical facts use their durable key; a fold projection reuses its first child's key. */
   orderKey: number | null
   activeRuns: ActiveRunFact[]
+  epochId?: string
+  /** Direct branch identity for UI-only history and epoch nodes without a source fact. */
+  branchId?: string
   sourceFact?: TimelineNode
   inputState?: VirtualInputNode['state']
   fold?: ExecutionFold
@@ -50,6 +54,7 @@ export interface ExecutionPack {
   boundaryNodeId: string
   nodeCount: number
   trigger: GenerationEntry['trigger']
+  sourceRootChatId: string
 }
 
 export interface ExecutionFold {
@@ -210,6 +215,8 @@ function projectPersistentNode(
     activeRuns: [...activeRuns.values()].sort(
       (a, b) => a.runId.localeCompare(b.runId) || a.chatId.localeCompare(b.chatId),
     ),
+    ...(node.epochId ? { epochId: node.epochId } : {}),
+    ...(node.branchId ? { branchId: node.branchId } : {}),
     sourceFact: node,
   }
 }
@@ -335,35 +342,6 @@ function collapseToolResponseMessages(
   }
 }
 
-/** 已定稿代际（除上一代、当前代外）合成为打包节点，平铺沿根分支排在窗口最前。 */
-function projectPackNodes(
-  rootChatId: string,
-  generations: readonly GenerationEntry[],
-): ExecutionNode[] {
-  const packed = generations.filter((entry) => entry.index <= generations.length - 2)
-  return packed.map((entry) => ({
-    id: `pack:gen:${entry.index}`,
-    kind: 'pack' as const,
-    rootChatId,
-    sourceChatId: rootChatId,
-    actor: { kind: 'system' } as TimelineActor,
-    direction: 'internal' as TimelineDirection,
-    content: entry.summary,
-    createdAt: entry.createdAt,
-    status: 'transient' as const,
-    main: true,
-    orderSlot: 'persistent' as const,
-    orderKey: entry.fromOrderKey,
-    activeRuns: [],
-    pack: {
-      generationIndex: entry.index,
-      boundaryNodeId: entry.boundaryNodeId,
-      nodeCount: entry.nodeCount,
-      trigger: entry.trigger,
-    },
-  }))
-}
-
 /** Canonical graph facts -> deterministic UI-neutral persistent graph. */
 export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot): ExecutionGraph {
   const canonicalNodes = uniqueFacts(snapshot.nodes)
@@ -382,7 +360,6 @@ export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot
     (node) => node.sourceChatId === snapshot.rootChatId && node.rootChatId === snapshot.rootChatId,
   )
   const startId = `start:${snapshot.rootChatId}`
-  const packNodes = projectPackNodes(snapshot.rootChatId, snapshot.generations ?? [])
   const nodes: ExecutionNode[] = [
     {
       id: startId,
@@ -399,33 +376,22 @@ export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot
       orderKey: null,
       activeRuns: [],
     },
-    ...packNodes,
     ...persistentNodes,
   ]
-  const edges = persistentEdges
-  // 根分支 sequence 首部：start → pack₁ → … → packₙ → 窗口内最前主节点。
-  // 无打包节点时保持原 start → firstMain 直连。
-  const chainHead: Array<{ id: string; orderKey: number | null }> = [
-    { id: startId, orderKey: null },
-    ...packNodes.map((node) => ({ id: node.id, orderKey: node.orderKey })),
-  ]
-  const chainTail = firstMain ? [firstMain] : []
-  let previous = chainHead[0]!
-  for (const next of [...chainHead.slice(1), ...chainTail]) {
-    const isFirstLink = previous.id === startId
+  const edges = persistentEdges.slice()
+  if (firstMain) {
     edges.unshift({
-      id: `${isFirstLink ? 'start' : 'sequence'}:${previous.id}->${next.id}`,
-      from: previous.id,
-      to: next.id,
-      kind: isFirstLink ? 'start' : 'sequence',
-      orderSlot: isFirstLink ? 'start' : 'persistent',
-      orderKey: next.orderKey,
+      id: `start:${startId}->${firstMain.id}`,
+      from: startId,
+      to: firstMain.id,
+      kind: 'start',
+      orderSlot: 'start',
+      orderKey: firstMain.orderKey,
       sourceChatId: snapshot.rootChatId,
       targetChatId: snapshot.rootChatId,
     })
-    previous = next
   }
-  return {
+  const canonicalGraph: ExecutionGraph = {
     rootChatId: snapshot.rootChatId,
     activeBranchId: snapshot.activeBranchId,
     branches: snapshot.branches,
@@ -433,6 +399,9 @@ export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot
     edges,
     diagnostics: diagnoseExecutionGraphFacts(snapshot.rootChatId, snapshot.nodes, snapshot.edges),
   }
+  return projectEpochBoundaries(
+    projectPackedGenerations(canonicalGraph, snapshot.generations ?? []),
+  )
 }
 
 export function mainExecutionEndpoint(graph: ExecutionGraph): ExecutionNode {

@@ -325,6 +325,28 @@ const emit = defineEmits<{
 .composer-wrap {
   position: relative;
 }
+
+// AgentDialog 非 nyxus 布局：composer 占满 panel 剩余高度，输入框随剩余高度伸缩
+// （角色编制折叠为一行后，剩余高度全部分配给输入框；nyxus dock 不参与）。
+.composer-wrap:not(.is-nyxus-composer) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  .textarea-row {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rich-message-input {
+    flex: 1;
+    min-height: 96px;
+    max-height: none;
+  }
+}
 .runtime-hint {
   color: color-mix(in srgb, var(--ink) 76%, transparent);
   font-size: 12px;

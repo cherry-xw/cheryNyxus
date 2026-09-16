@@ -364,6 +364,10 @@
   max-height: calc(100% - 37px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* 铃铛角标悬于按钮外（right:-6px / top:-5px），overflow 裁切区 = padding box：
+     padding 撑出角标余量、负 margin 抵消布局位移，按钮位置不变。 */
+  padding: 6px 8px 0 0;
+  margin: -6px -8px 0 0;
 }
 .nyxus-primary-tools {
   display: flex;
@@ -443,7 +447,6 @@
   /* 折叠按钮变宽时会撑宽本组；右对齐让角色按钮等保持贴 rail 边缘，不随折叠按钮左移。 */
   align-items: flex-end;
 }
-.nyxus-session-tool,
 .nyxus-role-tool,
 .nyxus-fold-tool {
   position: relative;
@@ -463,25 +466,6 @@
 .nyxus-rail-action:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--nx-cyan) 86%, transparent);
   outline-offset: 2px;
-}
-// 会话列表 popout：镜像角色 popout（rail 右侧悬浮、垂直居中）+ 主题面板与边框
-// （v1.0 由硬编码暖深棕 #241a10 改为 --nx-bg/--nx-border，浅深双端自适应）。
-.nyxus-session-popout {
-  position: absolute;
-  right: calc(100% + 8px);
-  top: 50%;
-  // 宽高上限相对工作台窗口（--rail-popout-w/h 由 ResizeObserver 写入 shell）；
-  // 垂直居中用独立 translate 属性，避免被 GSAP 面板过渡的 transform 覆盖。
-  width: min(380px, var(--rail-popout-w, calc(100vw - 190px)));
-  translate: 0 -50%;
-  padding: 6px;
-  box-sizing: border-box;
-  transform-origin: right center;
-  pointer-events: auto;
-  border: 1px solid var(--nx-border);
-  border-radius: 0;
-  background: var(--nx-bg);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
 }
 // 树数据加载指示：rootChatId 已定但 root timeline 快照未就绪时的居中轻提示。
 .workbench-tree-loading {
@@ -761,6 +745,37 @@
 .nyxus-role-configs {
   padding: 8px 14px 5px;
   border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+}
+// 折叠开关（与发消息弹窗一致）：整行可点，默认收起只占一行高度。
+.role-configs-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--nx-text) 6%, transparent);
+  }
+}
+
+.role-configs-chevron {
+  color: color-mix(in srgb, var(--nx-text) 38%, transparent);
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 160ms ease;
+
+  &.is-open {
+    transform: rotate(180deg);
+  }
 }
 .nyxus-composer-enter-active,
 .nyxus-composer-leave-active {

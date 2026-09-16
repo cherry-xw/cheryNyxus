@@ -22,6 +22,7 @@ const COMPANIONS: Record<string, string[]> = {
   ExecutionNodePopover: [
     'useExecutionNodePopoverController.ts',
     'ExecutionNodePopover.styles.less',
+    'QuestionAnswerDetail.vue',
   ],
   HistoryDrawerPanel: ['useHistoryDrawerPanelController.ts', 'HistoryDrawerPanel.styles.less'],
   SettingsDialog: ['useSettingsDialogController.ts', 'SettingsDialog.styles.less'],

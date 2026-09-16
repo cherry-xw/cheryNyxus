@@ -359,7 +359,7 @@ describe('execution layout and edge geometry', () => {
     expect(layout.laneByChat.get('outer-left')).toBe(-2)
   })
 
-  it('keeps the full fold layout-independent and strictly more minimal than participant fold', () => {
+  it('places independent fourth-level branch groups in the same topology row', () => {
     const user = {
       ...executionNode('user', 1),
       actor: { kind: 'user' as const, actorId: 'human' },
@@ -378,6 +378,8 @@ describe('execution layout and edge geometry', () => {
       child('right-work-1', 3, 'right'),
       child('left-work-2', 4, 'left'),
       child('right-work-2', 5, 'right'),
+      child('left-work-3', 6, 'left'),
+      child('right-work-3', 7, 'right'),
       reply,
     ]
     const edge = (
@@ -404,22 +406,22 @@ describe('execution layout and edge geometry', () => {
         edge('user-right', 'user', 'right-work-1', 'spawn'),
         edge('left-sequence', 'left-work-1', 'left-work-2'),
         edge('right-sequence', 'right-work-1', 'right-work-2'),
-        edge('left-reply', 'left-work-2', 'reply'),
-        edge('right-reply', 'right-work-2', 'reply'),
+        edge('left-sequence-2', 'left-work-2', 'left-work-3'),
+        edge('right-sequence-2', 'right-work-2', 'right-work-3'),
+        edge('left-reply', 'left-work-3', 'reply'),
+        edge('right-reply', 'right-work-3', 'reply'),
       ],
       diagnostics: [],
     }
     const projected = projectFullFoldExecutionGraph(fullGraph).graph
-    const thirdLevelGraph = projectParticipantFoldExecutionGraph(fullGraph).graph
     const timeline = layoutExecutionGraph(projected, { mode: 'timeline' })
     const topology = layoutExecutionGraph(projected, { mode: 'topology' })
 
-    // The fourth fold level collapses the round into a single backbone card and
-    // no longer depends on the row-overlap layout toggle, so the rendered node
-    // count is identical in both modes and strictly below the participant fold.
-    expect(projected.nodes.filter((node) => node.kind === 'fold')).toHaveLength(1)
-    expect(timeline.nodes.length).toBe(topology.nodes.length)
-    expect(projected.nodes.length).toBeLessThan(thirdLevelGraph.nodes.length)
+    const timelineFolds = timeline.nodes.filter((node) => node.kind === 'fold')
+    const topologyFolds = topology.nodes.filter((node) => node.kind === 'fold')
+    expect(topologyFolds).toHaveLength(2)
+    expect(new Set(timelineFolds.map((node) => node.y)).size).toBe(2)
+    expect(new Set(topologyFolds.map((node) => node.y)).size).toBe(1)
     for (const edge of projected.edges) {
       const from = topology.nodes.find((node) => node.id === edge.from)!
       const to = topology.nodes.find((node) => node.id === edge.to)!

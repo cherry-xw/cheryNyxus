@@ -10,11 +10,17 @@ import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 import { formatTime } from '@/utils/formatTime'
 import { createToolRunPresentation } from '@/utils/approvalPresentation'
 import { toSenseNameZh } from '@/utils/senseName'
+import { RISK_LEVEL_LABEL, riskLevelOf } from '@/domain/chat/securityRisk'
 import type { ExecutionEdge, ExecutionNode } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
 import ToolFieldTree from './ToolFieldTree.vue'
-import { selectedToolCall, toolBatchDetail, toolBatchUsesTabs } from '../graph/toolBatchDetails'
+import {
+  isQuestionCall,
+  selectedToolCall,
+  toolBatchDetail,
+  toolBatchUsesTabs,
+} from '../graph/toolBatchDetails'
 import { terminationDisplay } from '../graph/termination'
 import {
   displayValue,
@@ -52,6 +58,8 @@ export type ExecutionNodePopoverControllerEmits = {
   toggleWrap: []
   /** 常驻窗口在尺寸档位间循环切换（S/M/L）。 */
   cycleSize: []
+  /** 常驻窗口标题的「过程组 X/Y」分页器：按步进切换折叠成员（-1 上一页 / 1 下一页）。 */
+  stepFold: [delta: number]
 }
 type ControllerEmit<T> = <K extends keyof T>(
   event: K,
@@ -514,6 +522,11 @@ export function useExecutionNodePopoverController(
     return skinForNode(props.node).label
   })
 
+  /** 常驻窗口标题分页器：步进切换当前过程组页（折叠成员）。 */
+  function stepFold(delta: number): void {
+    emit('stepFold', delta)
+  }
+
   const nodeStatus = computed(() =>
     statusLabel(props.node.inputState ?? props.node.sourceFact?.status ?? props.node.status),
   )
@@ -522,10 +535,6 @@ export function useExecutionNodePopoverController(
 
   function statusLabel(status?: string): string {
     return status ? STATUS_LABELS[status] || '状态已更新' : '状态未知'
-  }
-
-  function isQuestionOptionSelected(label: string): boolean {
-    return questionAnswer.value.kind === 'answered' && questionAnswer.value.labels.includes(label)
   }
 
   function numberArgument(key: string, fallback: number): number {
@@ -645,6 +654,7 @@ export function useExecutionNodePopoverController(
   return {
     ElTooltip,
     RESULT_PREVIEW_LIMIT,
+    RISK_LEVEL_LABEL,
     ToolFieldTree,
     activeQuestionCall,
     actualDescription,
@@ -653,7 +663,8 @@ export function useExecutionNodePopoverController(
     canBranch,
     copiedFieldKey,
     copyField,
-    isQuestionOptionSelected,
+    foldPosition,
+    isQuestionCall,
     isQuestionTool,
     isReadFileTool,
     isSearchTool,
@@ -689,6 +700,7 @@ export function useExecutionNodePopoverController(
     renderedSpawnPrompt,
     resultFields,
     resultTruncated,
+    riskLevelOf,
     searchConfiguration,
     searchMode,
     searchPath,
@@ -702,6 +714,7 @@ export function useExecutionNodePopoverController(
     spawnPrompt,
     spawnRole,
     spawnWake,
+    stepFold,
     terminationDisplay,
     thinkingOpen,
     toolBatchUsesTabs,

@@ -10,12 +10,14 @@ const DETAIL_NODE_CACHE_LIMIT = 12
 
 /**
  * 单个问题在本 Lite 窗口内的作答草稿（UI 态，仅存于 store）。
- * selected：已选 label；notes：label → 选项补充；freeText：自由回答或整题补充描述。
+ * selected：已选 label；notes：label → 选项补充；freeText：自由回答或「其他」选项的输入内容；
+ * otherActive：「其他」输入框作为选项时的激活态（单选=radio 选中抢走其他选项；多选=复选框勾选，输入内容自动勾选）。
  */
 export interface LiteQuestionDraft {
   selected: string[]
   notes: Record<string, string>
   freeText: string
+  otherActive?: boolean
 }
 
 /**

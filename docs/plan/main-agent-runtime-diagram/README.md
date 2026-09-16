@@ -44,6 +44,7 @@
 | 现有部分                                                     | 本轮处理                                         |
 | ------------------------------------------------------------ | ------------------------------------------------ |
 | journal、open/close/history、增量、gap、固定回放上界         | 保留；不新增 schema、RPC、后端埋点或迁移用户数据 |
+| headerFlow 对所有 lane（含子 Agent）渲染头部                 | 2026-09-16 用户要求：流程图只渲染主 Agent 流程——头部流程图只覆盖根会话及其分支，子 Agent lane 不再渲染头部流程图，其内容节点仍保留在结果树 |
 | workflow reducer/controller、显式 anchor、分支身份           | 沿用新版；为两类投影拆分展示输入                 |
 | graphModel 的 occurrence/内容混排                            | 改为结果树只投影业务内容，步骤驱动头部与只读详情 |
 | WorkflowHeaderNode 的 sections/slots 网格                    | 替换为真正的 Vue Flow 子图及自定义边             |

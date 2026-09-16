@@ -6,7 +6,7 @@
 
 ## 目标
 
-- **每预设一窗**：窗口内经**会话列表**切换根会话（钢琴已降级为节点树彩蛋，切换语义由会话列表承接，见 [pet/rendering.md#工作台会话列表nyxussessionlist](pet/rendering.md#工作台会话列表nyxussessionlist)）。
+- **每预设一窗**：窗口内经**标题栏会话状态条**切换根会话（钢琴已降级为节点树彩蛋；切换入口 2026-09-16 从 rail 会话列表提升到标题栏 strip + 下拉）。
 - **多窗口布局**：窗口模式可拖动/缩放，多窗口层叠/平铺同时可见，后开的盖前开的。
 - **最小化**：**（2026-09-03 起废弃胶囊，改为赛博桌面底部任务栏 tag）**最小化窗从桌面消失、仅任务栏保留 tag；点击 tag 按 Windows 交互三态切换——最小化窗还原+聚焦 / 当前聚焦窗最小化 / 打开未聚焦窗聚焦。详见文末 [最小化任务栏化与胶囊移除（2026-09-03）](#最小化任务栏化与胶囊移除2026-09-03)。（历史方案：缩成「小胶囊」可拖摆放、层叠——已移除。）
 - **标题栏高亮**：收到需用户操作的通知时，窗口标题栏 + 胶囊加高亮闪烁。
@@ -50,9 +50,9 @@ interface WorkbenchWindowState {
 
 ### `WorkbenchDialog.vue`（新，`web/src/features/agent/workbench/`）
 
-自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、会话列表/角色 popout、右侧待处理抽屉、composer dock、resize handles。rail 的钢琴按钮已移除——钢琴仅经**节点树彩蛋**触发浮层出现（见 [pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。
+自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、角色 popout、右侧待处理抽屉、composer dock、resize handles。rail 的钢琴按钮已移除——钢琴仅经**节点树彩蛋**触发浮层出现（见 [pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。
 
-**rail 工具栏分组与 lite 显隐（2026-08-28）**：右侧工具栏按三组划分——**主操作**（发送消息 / 暂停·继续任务树 / 暂停全部分支）、**会话**（新建会话 / 会话列表 / 对话历史 / 查看上下文）、**视图与配置**（布局切换 / 卡牌阅读 / 折叠档位 / 角色配置）；布局切换按钮从标题栏下独立顶部位置挪入视图与配置组。会话组 icon 区分：对话历史用 ↺（回看）、查看上下文用 ❐（内容快照），替换原 ◷/◍ 双圆点避免混淆。**lite 极简模式下**隐藏无对应界面的按钮：树视图类（布局切换 / 卡牌阅读 / 折叠档位）与「暂停全部分支」；「暂停·继续任务树」保留（lite 顶部的停止/继续是 abort/resume，与任务树 pause/resume 互补，用户拍板保留）。**角色 popout（rail ♟）只读**：仅展示角色大脑/器官组信息，不提供编辑（`RoleConfigPopover` 传 `readonly`，选择区隐藏，资料卡 🔒 只读标）；编辑入口只在发送消息 composer 的角色卡片中。**会话列表 popout** 背景由硬编码深棕改主题 token（浅色适配，不再深底深字）。
+**rail 工具栏分组与 lite 显隐（2026-08-28）**：右侧工具栏按三组划分——**主操作**（发送消息 / 暂停·继续任务树 / 暂停全部分支）、**会话**（新建会话 / 对话历史 / 查看上下文；会话列表 ≡ 按钮及其 popout 已于 2026-09-16 移除，切换入口上移标题栏会话状态条，见下「标题栏会话状态条」）、**视图与配置**（布局切换 / 卡牌阅读 / 折叠档位 / 角色配置）；布局切换按钮从标题栏下独立顶部位置挪入视图与配置组。会话组 icon 区分：对话历史用 ↺（回看）、查看上下文用 ❐（内容快照），替换原 ◷/◍ 双圆点避免混淆。**lite 极简模式下**隐藏无对应界面的按钮：树视图类（布局切换 / 卡牌阅读 / 折叠档位）与「暂停全部分支」；「暂停·继续任务树」保留（lite 顶部的停止/继续是 abort/resume，与任务树 pause/resume 互补，用户拍板保留）。**角色 popout（rail ♟）只读**：仅展示角色大脑/器官组信息，不提供编辑（`RoleConfigPopover` 传 `readonly`，选择区隐藏，资料卡 🔒 只读标）；编辑入口只在发送消息 composer 的角色卡片中。
 
 - chatId 来源：`useAgentDialogOptions({ chatId: () => win.chatId ?? null })`，不再读全局单例。
 - **presetName 来源**：`useAgentDialogOptions` 同传 `presetName: () => win.presetName ?? null`——窗口打开时由**入口携带**（Nyxus 传预设名 `'cheryNyxus'`、Pet 传历史 summary 的 `preset` 名），不依赖 pet/session/history 推导。空白工作台（无历史会话、会话未水合）下角色编制、Nyxus 判定、`quickTargetRequired`、`roleMentions` 等据此立即正确。
@@ -374,3 +374,24 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 - `WorkbenchDialog.vue`：删除独立 ⇥ 方向切换按钮；卡牌按钮是唯一方向入口，tooltip/aria 为「切换卡牌纵向视图 / 切换信号横向视图」。两种展示模式（纵向 Classic 渲染 / 横向 Signal Grid）共存，随卡牌开关切换。
 - **fallback 豁免（实现结论：无需额外守卫）**：`fallbackToClassic`（`useWorkbenchDialogController.ts`）直接写 `presentationMode.value = 'vertical-classic'`，而联动 `watch` 只监听 `paperMode`，回退值不会被反向翻转；用户下次手动切换卡牌时联动按派生规则恢复，重载后派生值按 `paperMode` 重算（自然重试 Signal）。回退提示由既有 `graph.fallback` 视觉事件承担（「警告 // 图谱回退：Signal Grid 初始化失败，已回退 Classic」）。
 - 投影/渲染契约见 [pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约](pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约)。
+
+## 标题栏会话状态条（2026-09-16）
+
+工作台标题栏新增常驻**会话状态条**，把「多会话来回切换」入口从右侧 rail 会话列表 popout 提升到标题栏。**rail ≡「会话列表」按钮及其 popout 已移除**（2026-09-16，切换入口去重；归档入口随之下沉到标题栏下拉行内）：
+
+### 组成与交互
+
+- **活跃会话 icon 阵列**（`WorkbenchSessionStrip.vue`）：当前预设活跃会话以 icon 展示（≤6 个，超出折叠为「+N」，点击「+N」展开下拉）。icon = 当前运行节点——`currentStepKind === 'tool'`（或 currentStep 存在但 kind 缺省）用 `senseTool(currentStep)?.icon`（父级注入查找，未注入时组件内部自拉 `sense.tools` 兜底，均未命中回退 ⚙）；model/缺省用思考符号 ✦。**运行中状态**：节点 icon 上叠**半透明 loading 遮罩**（accent 呼吸底 + 细 spinner，底层 icon 仍可见，非遮挡式）。**hover tooltip 三块分栏**（`buildStripTooltip` + popper-class `session-strip-tip`）：标题（`task.title`，缺省「未命名会话」）／**用户消息**（`task.lastUserPrompt`，缺省「（暂无提问）」）／**当前节点**（`currentStep`，缺省按 kind 显示「思考中/执行工具」），`-webkit-line-clamp:3` 截断。**当前打开会话标记**：`activeChatId` 命中项强制置顶入列（`pickStripTasks` 第 5 参，非活跃也占位，溢出计数 +1）+ 底部 accent 指示条 + 高亮边框；点击 icon 切换会话（`switchSession`，draft 保持契约既有）。`needs_user` 会话带脉冲圆点 + 辉光；pendingCount 徽标。
+- **当前预设分页下拉**（`SessionDropdown.vue` + `useSessionDropdown.ts`）：常驻「☰」按钮打开，**仅限当前预设**（scope='preset' + presetId/preset 双重匹配），`chat.list` 分页（`limit=20`/页，滚动到底或「加载更多」追加，`total` 驱动 hasMore，chatId 去重防分页边界重叠）。**默认第一项 = 最近更新会话**；当前会话不在列表时高亮第一项。空态提供「＋新建会话」；行内展示 preview / 时间 / 轮次 / running / 待审批 / 待回答徽标；行 hover 出现**归档按钮**（`agents.deleteSession`，删除前捕获当前会话意图、请求返回且用户未中途切换时才切最新剩余，防竞态——契约同旧 rail popout `onSessionDelete`；当前会话被归档且无剩余时清空窗口当前会话）。
+- **组合容器**（`WorkbenchSessionBar.vue`）：strip + ☰ + 弹层。**弹层 Teleport 到 body + 锚点 fixed 定位 + `OVERLAY_Z_INDEX.sessionMenu`（9900，见 `@/styles/overlayLayers`）**——标题栏内 absolute 弹层会被工作台 body 更高 z-index（`NYXUS_WORKBENCH_Z_INDEX` chrome 60 等）盖住，必须脱离窗口 stacking context；且**不能用 `ownerOverlayZIndex`**（它返回窗口 zIndex+1=501，多窗口时聚焦窗口 500+2n ≥502 会盖住下拉，2026-09-16 实测），故用固定高位（低于全局抽屉 historyDrawer 10000 / modal 10100）；点击 bar/弹层之外关闭（capture 阶段 pointerdown，`closest('.session-dropdown')` 判定）。
+
+### 双 surface 挂载
+
+- **浏览器面**：工作台窗由 `CyberWindow` 承载标题栏（`WorkbenchDialog embedded` 自绘 `.workbench-titlebar` 不渲染），bar 挂 `App.vue` 浏览器分支 `CyberWindow #title-actions` slot（ConnectionStatusChip 与 WorkbenchViewToggle 之间）。`startPointer` 拖窗守卫忽略 `[data-window-interactive]`/button 区域，点击 strip/☰ 不触发拖窗。
+- **Electron 原生面**（surface=workbench）：`App.vue` WindowFrame `#title-actions` slot（ConnectionStatusChip 与 WorkbenchViewToggle 之间）；切换会话走 `setWorkbenchWindowChat`（与 bridge `onWorkbench-open-chat` 同语义，WorkbenchDialog 内 watch chatId 驱动树订阅与 draft reset）；新建会话按窗口形态走 `createNyxusSession` / `createMasterPet`（通用 `createWorkbenchSession(windowId, presetId, presetName)`，native/浏览器共用）；归档后无剩余会话经 `onWorkbenchSessionClear` 清空窗口当前会话。
+
+### 数据源与生命周期
+
+- 状态来自 `chat.overview` 订阅（应用级生命周期由 `startApplicationRuntime` 统一管理：connected → reopen，组件只读 `useTaskOverviewStore.tasks`，不自行 open/close，不订阅 root timeline，无 IndexedDB 缓存——状态 KB 级、服务端权威、重连快照重放覆盖同步语义）。
+- 下拉数据来自 `chat.list` scope='preset' 分页（见 [协议](../shared/protocol/websocket.md#chatlist-响应字段)）；列表含分支排除（非 original 分支不显示，与根会话目录语义一致）。
+- 契约不变：多窗架构、draft 保持、Electron 窗口生命周期均未改动；rail popout 的删除竞态保护迁移到下拉行内归档（见上）。

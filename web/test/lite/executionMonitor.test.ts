@@ -513,8 +513,12 @@ describe('Lite detail lazy pagination', () => {
     expect(view).toContain('LiteScrollbar')
     expect(view).toContain('activePendingTab')
     expect(view).toContain('lite-pending-tab')
-    expect(view).toContain('lite-question-nav')
-    expect(view).toContain("'is-other': !activeQuestion.freeText")
+    // v1.5 提问重做：左侧问题导航移除（底部 pager 承接切换），选项改两列卡片 + 补充按钮 + 输入框即选项
+    expect(view).not.toContain('lite-question-nav')
+    expect(view).toContain('lite-options-grid')
+    expect(view).toContain('lite-option-note-toggle')
+    expect(view).toContain('lite-option-card is-other')
+    expect(view).toContain('提问批次')
     expect(view).toContain('其他补充（可选）')
     expect(view).toContain('if (draft.freeText.trim()) return true')
     expect(view).toContain(

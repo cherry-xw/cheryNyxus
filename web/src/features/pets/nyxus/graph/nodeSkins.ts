@@ -22,7 +22,8 @@ export const NODE_SKINS: Record<NodeSkinKey, NodeSkin> = {
   dispatch: { key: 'dispatch', glyph: '⇢', accent: '#d867ff', label: '任务委派' },
   spawn: { key: 'spawn', glyph: '⑂', accent: '#d867ff', label: '创建协作节点' },
   system: { key: 'system', glyph: '◇', accent: '#9b7cff', label: '系统事件' },
-  pack: { key: 'pack', glyph: '❒', accent: '#00e7ff', label: '打包历史' },
+  pack: { key: 'pack', glyph: '❒', accent: '#00e7ff', label: '旧历史' },
+  epoch: { key: 'epoch', glyph: '↹', accent: '#b9f227', label: '设置已切换' },
   input: { key: 'input', glyph: '◌', accent: '#f06bff', label: '我的指令' },
   unknown: { key: 'unknown', glyph: '?', accent: '#ff4268', label: '未识别节点' },
 }
@@ -44,6 +45,7 @@ export const NODE_ACCENT_LIGHT: Record<NodeSkinKey, string> = {
   spawn: '#8a32df',
   system: '#653ee0',
   pack: '#008da8',
+  epoch: '#568300',
   input: '#aa20d4',
   unknown: '#d9003f',
 }

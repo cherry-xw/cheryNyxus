@@ -9,6 +9,7 @@ export interface PersistedExecutionNode extends Record<string, unknown> {
   orderKey: number
   createdAt: number
   updatedAt: number
+  epochId?: string
 }
 
 export interface PersistedExecutionEdge extends Record<string, unknown> {
@@ -79,10 +80,21 @@ export function upsertExecutionNode(input: ExecutionNodeInput): PersistedExecuti
       : undefined
     // Regenerated message projection updates canonical fields while retaining
     // lifecycle annotations (termination/run/turn) written independently.
+    const activeEpoch =
+      input.epochId === undefined && !previous
+        ? (db.prepare('SELECT active_epoch_id FROM chats WHERE id = ?').get(input.sourceChatId) as
+            { active_epoch_id: string | null } | undefined)
+        : undefined
     const node = {
       ...previous,
       ...input,
       orderKey,
+      ...(input.epochId || previous?.epochId || activeEpoch?.active_epoch_id
+        ? {
+            epochId:
+              input.epochId ?? previous?.epochId ?? activeEpoch?.active_epoch_id ?? undefined,
+          }
+        : {}),
       ...(previous?.workflow || input.workflow
         ? {
             workflow: {

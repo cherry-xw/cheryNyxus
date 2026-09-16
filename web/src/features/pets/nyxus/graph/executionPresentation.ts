@@ -132,27 +132,67 @@ export function signalNodeFrameVariantFor(kind: SignalNodeVisualKind): SignalNod
 }
 
 const SIGNAL_ACCENTS_DARK: Record<SignalNodeVisualKind, string> = {
-  start: '#00f59b', input: '#00dcff', reply: '#00f59b', error: '#ff4268',
-  fold: '#9b7cff', process: '#4d8dff', dispatch: '#d867ff', return: '#00f59b',
-  system: '#b9f227', 'tool-command': '#a970ff', 'tool-read': '#00dcff',
-  'tool-write': '#00e6a1', 'tool-search': '#00bfff', 'tool-skill': '#ff4f9d',
-  'tool-spawn': '#d867ff', 'tool-child': '#c85cff', 'tool-question': '#ffd21f',
-  'tool-media': '#00e7ff', 'tool-todo': '#4d8dff', 'tool-memory': '#9b7cff',
-  'tool-config': '#9bea19', 'tool-navigate': '#3e9bff', 'tool-role': '#b9f227',
-  'tool-web': '#00bfff', 'tool-data': '#00dfc4', 'tool-git': '#ff4f9d',
-  'tool-time': '#ff8a1f', 'tool-notify': '#9bea19', 'tool-generic': '#e1e9f5',
+  start: '#00f59b',
+  input: '#00dcff',
+  reply: '#00f59b',
+  error: '#ff4268',
+  fold: '#9b7cff',
+  process: '#4d8dff',
+  dispatch: '#d867ff',
+  return: '#00f59b',
+  system: '#b9f227',
+  'tool-command': '#a970ff',
+  'tool-read': '#00dcff',
+  'tool-write': '#00e6a1',
+  'tool-search': '#00bfff',
+  'tool-skill': '#ff4f9d',
+  'tool-spawn': '#d867ff',
+  'tool-child': '#c85cff',
+  'tool-question': '#ffd21f',
+  'tool-media': '#00e7ff',
+  'tool-todo': '#4d8dff',
+  'tool-memory': '#9b7cff',
+  'tool-config': '#9bea19',
+  'tool-navigate': '#3e9bff',
+  'tool-role': '#b9f227',
+  'tool-web': '#00bfff',
+  'tool-data': '#00dfc4',
+  'tool-git': '#ff4f9d',
+  'tool-time': '#ff8a1f',
+  'tool-notify': '#9bea19',
+  'tool-generic': '#e1e9f5',
 }
 
 const SIGNAL_ACCENTS_LIGHT: Record<SignalNodeVisualKind, string> = {
-  start: '#008d59', input: '#008eaa', reply: '#008d59', error: '#d9003f',
-  fold: '#653ee0', process: '#1762e8', dispatch: '#9a16bf', return: '#008d59',
-  system: '#568300', 'tool-command': '#7134d8', 'tool-read': '#007eaa',
-  'tool-write': '#008b67', 'tool-search': '#007fb8', 'tool-skill': '#c00068',
-  'tool-spawn': '#9a16bf', 'tool-child': '#8234c7', 'tool-question': '#b88100',
-  'tool-media': '#008da8', 'tool-todo': '#1762e8', 'tool-memory': '#653ee0',
-  'tool-config': '#568300', 'tool-navigate': '#1469df', 'tool-role': '#568300',
-  'tool-web': '#007fb8', 'tool-data': '#008678', 'tool-git': '#c00068',
-  'tool-time': '#c94d00', 'tool-notify': '#568300', 'tool-generic': '#334155',
+  start: '#008d59',
+  input: '#008eaa',
+  reply: '#008d59',
+  error: '#d9003f',
+  fold: '#653ee0',
+  process: '#1762e8',
+  dispatch: '#9a16bf',
+  return: '#008d59',
+  system: '#568300',
+  'tool-command': '#7134d8',
+  'tool-read': '#007eaa',
+  'tool-write': '#008b67',
+  'tool-search': '#007fb8',
+  'tool-skill': '#c00068',
+  'tool-spawn': '#9a16bf',
+  'tool-child': '#8234c7',
+  'tool-question': '#b88100',
+  'tool-media': '#008da8',
+  'tool-todo': '#1762e8',
+  'tool-memory': '#653ee0',
+  'tool-config': '#568300',
+  'tool-navigate': '#1469df',
+  'tool-role': '#568300',
+  'tool-web': '#007fb8',
+  'tool-data': '#008678',
+  'tool-git': '#c00068',
+  'tool-time': '#c94d00',
+  'tool-notify': '#568300',
+  'tool-generic': '#334155',
 }
 
 export function signalAccentForTheme(theme: 'light' | 'dark', kind: SignalNodeVisualKind): string {
@@ -164,7 +204,10 @@ export function foldContainsErrorMessage(node: ExecutionNode): boolean {
   return (
     node.kind === 'fold' &&
     !!node.fold?.projectionNodes.some(
-      (member) => member.kind === 'message' && member.sourceFact?.termination?.code === 'error',
+      (member) =>
+        member.sourceFact?.termination?.code === 'error' ||
+        member.activeRuns.some((run) => run.status === 'failed') ||
+        (member.sourceFact?.toolCalls ?? []).some((call) => call.status === 'error'),
     )
   )
 }
@@ -235,7 +278,7 @@ export function signalVisualKindFor(
   if (node.kind === 'tool-batch') return toolVisualKindFor(node)
   if (node.kind === 'spawn' || node.kind === 'dispatch') return 'dispatch'
   if (node.kind === 'return') return 'return'
-  if (node.kind === 'system') return 'system'
+  if (node.kind === 'system' || node.kind === 'epoch') return 'system'
   if (node.kind === 'input') return 'input'
   if (priority === 'hero-error') return 'error'
   if (priority === 'hero-user') return 'input'

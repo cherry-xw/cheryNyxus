@@ -28,7 +28,6 @@
 .branch-head-action.is-detail { color: var(--nx-cyan); }
 .branch-head-action.is-continuation { color: var(--nx-yellow); }
 .branch-head-action:disabled { cursor: not-allowed; opacity: 0.38; }
-.branch-info { color: var(--nx-text-dim); font-size: 11px; line-height: 1; }
 @import '@/styles/markdown.less';
 
 // 节点 hover 悬浮窗：随深浅主题翻转（引用全局 --nx-* CRT token）。
@@ -41,10 +40,10 @@
 @ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
 .node-popover {
-  // 正文内容字号基线：随尺寸档位缩放（S=10px / M=11px / L=12px），
+  // 正文内容字号基线：随尺寸档位缩放（S=12px / M=13px / L=13px），
   // hover 临时弹窗无档位类，回落到 12px。头部/页签等窗口外壳字号不随之变化。
   --popover-content-font: 12px;
-  width: min(480px, calc(100vw - 24px));
+  width: min(520px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -67,15 +66,15 @@
     transform: translateY(3px) scale(0.97);
   }
 }
-// 尺寸档位 → 正文最小字号（窗口越大字号越大）：S=10px、M=11px、L=12px。
+// 尺寸档位 → 正文最小字号（窗口越大字号越大）：S=12px、M=13px、L=13px。
 .node-popover.is-size-s {
-  --popover-content-font: 10px;
+  --popover-content-font: 12px;
 }
 .node-popover.is-size-m {
-  --popover-content-font: 11px;
+  --popover-content-font: 13px;
 }
 .node-popover.is-size-l {
-  --popover-content-font: 12px;
+  --popover-content-font: 13px;
 }
 .node-popover.is-pinned,
 .node-popover.is-actionable {
@@ -163,6 +162,54 @@
     sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+// 常驻过程组标题分页器：标题保持「过程组」，分页箭头只围绕数字（‹ X/Y ›）。
+.fold-pager {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.fold-pager strong {
+  flex: 0 1 auto;
+}
+.fold-pager-position {
+  flex: 0 0 auto;
+  padding: 0 1px;
+  color: var(--nx-text-dim);
+  font:
+    600 var(--popover-content-font)/1.2 system-ui,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.fold-pager-arrow {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: @muted;
+  background: transparent;
+  font: 600 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+.fold-pager-arrow:hover:not(:disabled) {
+  color: @accent;
+  border-color: color-mix(in srgb, var(--nx-cyan) 36%, transparent);
+  background: color-mix(in srgb, var(--nx-cyan) 8%, transparent);
+}
+.fold-pager-arrow:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.fold-pager-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 .node-time {
   flex: 0 0 auto;
@@ -308,6 +355,28 @@
 .tool-tabs button.active::after {
   opacity: 1;
   transform: scaleX(1);
+}
+// 页签右上角安全判定小色点：无文字、无底色，仅按风险等级着色（安全=绿 / 中=黄 / 高=红 / 未知=灰）。
+.tool-tab-risk {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--nx-text-dim);
+}
+.tool-tab-risk.is-safe {
+  background: var(--nx-green);
+}
+.tool-tab-risk.is-medium {
+  background: var(--nx-yellow);
+}
+.tool-tab-risk.is-high {
+  background: var(--nx-red);
+}
+.tool-tab-risk.is-unknown {
+  background: color-mix(in srgb, var(--nx-text-dim) 55%, transparent);
 }
 .popover-body {
   min-height: 0;
@@ -598,7 +667,6 @@
   white-space: pre-wrap;
 }
 .file-detail,
-.question-detail,
 .search-detail,
 .skill-detail {
   display: grid;
@@ -625,8 +693,7 @@
 .file-content-block {
   padding-top: 1px;
 }
-.file-content-block pre,
-.question-fallback {
+.file-content-block pre {
   max-width: 100%;
   max-height: 360px;
   margin: 0;
@@ -685,27 +752,6 @@
   font-size: 9px;
   font-variant-numeric: tabular-nums;
 }
-.question-heading {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.question-heading > span {
-  min-width: 0;
-  flex: 1;
-  color: var(--nx-text);
-  font-weight: 600;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-}
-.question-heading > small {
-  flex: 0 0 auto;
-  padding: 2px 5px;
-  border: 1px solid color-mix(in srgb, var(--nx-purple) 36%, transparent);
-  border-radius: 3px;
-  color: var(--nx-purple);
-  font-size: 12px;
-}
 .question-text {
   margin: 0;
   color: var(--nx-text);
@@ -714,70 +760,6 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: var(--popover-content-font);
-}
-.question-options {
-  display: grid;
-  gap: 5px;
-}
-.question-option {
-  display: grid;
-  grid-template-columns: 15px minmax(0, 1fr);
-  align-items: start;
-  gap: 7px;
-  padding: 7px 8px;
-  border: 1px solid @line;
-  border-radius: 3px;
-  color: var(--nx-text-dim);
-}
-.question-option.selected {
-  border-color: color-mix(in srgb, var(--nx-purple) 58%, transparent);
-  color: var(--nx-purple);
-}
-.question-control {
-  display: grid;
-  place-items: center;
-  width: 13px;
-  height: 13px;
-  margin-top: 1px;
-  line-height: 0;
-  border: 1px solid color-mix(in srgb, var(--nx-purple) 54%, transparent);
-  border-radius: 50%;
-  color: var(--nx-purple);
-  font-weight: 800;
-}
-.question-control.is-multi {
-  border-radius: 2px;
-}
-.question-option-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.question-option-copy strong {
-  font-size: var(--popover-content-font);
-  font-weight: 400;
-  overflow-wrap: anywhere;
-}
-.question-option-copy small {
-  color: @muted;
-  font-size: var(--popover-content-font);
-  line-height: 1.4;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.question-other {
-  --detail-accent: color-mix(in srgb, var(--nx-purple) 62%, transparent);
-}
-.question-other p,
-.question-note {
-  margin: 0;
-  color: var(--nx-text-dim);
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.question-note {
-  color: @muted;
 }
 .search-summary-bar {
   display: flex;

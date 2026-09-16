@@ -389,22 +389,45 @@ export function projectWorkflowScene(
   }
 
   let activeHeaderId: HeaderFlowProjection['activeHeaderId']
+  const headerLaneIds = [...context.laneIds]
+  for (const occurrence of context.occurrences) {
+    const laneId = nodeLane(occurrence.chatId, occurrence.branchId, context.branchByChat)
+    if (!headerLaneIds.includes(laneId)) headerLaneIds.push(laneId)
+  }
+  // 流程图只关注主 Agent 流程：只有根会话及其分支 lane 渲染头部流程图，
+  // 子 Agent lane 不渲染流程图（其内容仍保留在结果树）。
+  const laneChatId = (laneId: string): string => {
+    const branch = context.branches.find((candidate) => candidate.branchId === laneId)
+    if (branch?.chatId) return branch.chatId
+    const occurrence = context.occurrences.find(
+      (candidate) => nodeLane(candidate.chatId, candidate.branchId, context.branchByChat) === laneId,
+    )
+    if (occurrence) return occurrence.chatId
+    const content = resultNodes.find((node) => node.laneId === laneId)
+    if (content) return content.node.sourceChatId
+    return context.rootChatId ?? laneId.replace(/^agent:/, '')
+  }
+  const mainChatIds = new Set<string>([
+    ...(context.rootChatId ? [context.rootChatId] : []),
+    ...context.branches.map((branch) => branch.chatId),
+  ])
+  const mainHeaderLaneIds = headerLaneIds.filter((laneId) => mainChatIds.has(laneChatId(laneId)))
   const activeOccurrence = context.occurrences
-    .filter((occurrence) => occurrence.status === 'running' || occurrence.status === 'waiting')
+    .filter(
+      (occurrence) =>
+        (occurrence.status === 'running' || occurrence.status === 'waiting') &&
+        mainHeaderLaneIds.includes(
+          nodeLane(occurrence.chatId, occurrence.branchId, context.branchByChat),
+        ),
+    )
     .sort(
       (left, right) =>
         left.lastSequence - right.lastSequence ||
         left.occurrenceId.localeCompare(right.occurrenceId),
     )
     .at(-1)
-  const headerLaneIds = [...context.laneIds]
-  for (const occurrence of context.occurrences) {
-    const laneId = nodeLane(occurrence.chatId, occurrence.branchId, context.branchByChat)
-    if (!headerLaneIds.includes(laneId)) headerLaneIds.push(laneId)
-  }
-  const headers = headerLaneIds.map((laneId): HeaderLaneProjection => {
+  const headers = mainHeaderLaneIds.map((laneId): HeaderLaneProjection => {
     const branch = context.branches.find((candidate) => candidate.branchId === laneId)
-    const laneContent = resultNodes.filter((node) => node.laneId === laneId)
     const laneOccurrences = context.occurrences.filter(
       (occurrence) =>
         nodeLane(occurrence.chatId, occurrence.branchId, context.branchByChat) === laneId,
@@ -417,12 +440,7 @@ export function projectWorkflowScene(
       .filter((occurrence) => occurrence.status === 'running' || occurrence.status === 'waiting')
       .at(-1)?.iteration
     const currentIteration = activeIteration ?? iterations.at(-1) ?? 1
-    const chatId =
-      branch?.chatId ??
-      laneOccurrences[0]?.chatId ??
-      laneContent[0]?.node.sourceChatId ??
-      context.rootChatId ??
-      laneId.replace(/^agent:/, '')
+    const chatId = laneChatId(laneId)
     const full = branch
       ? branch.branchId === activeBranchId && branch.kind !== 'detail'
       : !timeline?.taskId && !context.branches.length && chatId === context.rootChatId
@@ -445,9 +463,7 @@ export function projectWorkflowScene(
             : branch.kind === 'original'
               ? '主 Agent'
               : '继续分支'
-          : chatId === context.rootChatId
-            ? '主 Agent'
-            : '子 Agent'),
+          : '主 Agent'),
       mode: full ? 'full' : 'compact',
       templateVersion: WORKFLOW_HEADER_TEMPLATE_VERSION,
       runStatus:

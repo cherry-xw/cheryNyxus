@@ -274,6 +274,49 @@ describe('horizontal Signal Grid presentation', () => {
     ).toBe(false)
   })
 
+  it('detects an older failed tool step hidden inside a process group', () => {
+    const failedTool: ExecutionNode = {
+      ...node('failed-tool', 1),
+      kind: 'tool-batch',
+      sourceFact: {
+        id: 'failed-tool',
+        rootChatId: 'root',
+        sourceChatId: 'root',
+        sourceMessageId: 'failed-tool',
+        kind: 'tool-batch',
+        actor: { kind: 'agent', chatId: 'root' },
+        direction: 'internal',
+        visibility: 'detail',
+        content: '',
+        toolCalls: [
+          {
+            callId: 'call:failed',
+            index: 0,
+            name: 'broken_tool',
+            arguments: '{}',
+            status: 'error',
+          },
+        ],
+        orderKey: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        status: 'committed',
+      },
+    }
+    const fold: ExecutionNode = {
+      ...node('fold', 2),
+      kind: 'fold',
+      fold: {
+        firstNodeId: failedTool.id,
+        lastNodeId: failedTool.id,
+        members: [{ id: failedTool.id, displayNode: failedTool, nodes: [failedTool] }],
+        projectionNodes: [failedTool],
+      },
+    }
+
+    expect(foldContainsErrorMessage(fold)).toBe(true)
+  })
+
   it('maps every base node to its visual kind', () => {
     expect(signalVisualKindFor(badgeNode('start', 'system', 'internal'), 'process')).toBe('start')
     expect(signalVisualKindFor(badgeNode('fold', 'agent', 'internal'), 'fold')).toBe('fold')

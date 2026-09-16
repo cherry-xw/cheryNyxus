@@ -10,7 +10,7 @@
  *
  * 数据来源：
  * - args: JSON 字符串 `{ question, header?, options:[{label,description?}], multiSelect }`（后端契约 types.ts:192）
- * - result: `"用户回答: <label>"` | `"用户回答: <l1>, <l2>"` | `"用户回答: 其他: <text>"` | `"(用户取消了此问题)"`（ask.ts:45-48）
+ * - result: `"用户回答: <label>"` | `"用户回答: <l1>, <l2>"` | `"用户回答: <label>（补充: <note>）"` | `"用户回答: 其他: <text>"` | `"(用户取消了此问题)"`（ask.ts:45-48 / db/question.ts 序列化）
  *
  * 不处理交互（历史只读），不修改 store 状态（符合 RendererProps 契约）。
  */

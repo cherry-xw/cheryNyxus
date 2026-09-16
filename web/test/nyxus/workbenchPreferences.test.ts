@@ -1,8 +1,23 @@
 import { readComponentSource } from '../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import {
+  layoutModeForFoldMode,
+  type FoldMode,
+} from '../../src/features/agent/workbench/useWorkbenchViewPreferences'
 
 describe('Nyxus workbench preferences and entry regressions', () => {
+  it('uses compact columns only for the fourth fold level', () => {
+    const modes: FoldMode[] = ['none', 'partial', 'participant', 'full']
+
+    expect(modes.map(layoutModeForFoldMode)).toEqual([
+      'timeline',
+      'timeline',
+      'timeline',
+      'topology',
+    ])
+  })
+
   it('keeps the Pixi tree primary and makes auxiliary views mutually exclusive', async () => {
     const source = await readComponentSource(
       resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
@@ -18,11 +33,11 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(source).toContain('<NyxusContentReader')
     expect(source).toContain('<MessageBranchTree')
     expect(source).toContain('v-if="!treeRootChatId" class="workbench-empty-state"')
-    expect(source).toContain("v-if=\"sidePanel === 'workflow'\"")
-    expect(source).toContain("v-else-if=\"sidePanel === 'reader'\"")
+    expect(source).toContain('v-if="sidePanel === \'workflow\'"')
+    expect(source).toContain('v-else-if="sidePanel === \'reader\'"')
     expect(source).toContain("paperMode: sidePanel.value === 'cards'")
     expect(source).toContain("presentationMode: 'horizontal-signal'")
-    expect(source).toContain(":aria-pressed=\"sidePanel === 'reader'\"")
+    expect(source).toContain(':aria-pressed="sidePanel === \'reader\'"')
     expect(source).toContain('data-view-action="reader"')
     expect(source).not.toContain('data-view-action="layout"')
     expect(source).toContain('data-view-action="cards"')
@@ -34,7 +49,8 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(scrollColumn).toBeGreaterThan(sideTools)
     expect(readerAction).toBeGreaterThan(scrollColumn)
     expect(source).toContain('max-height: calc(100% - 37px)')
-    expect(source).toContain(`:class="{ 'has-open-popout': roleListOpen || sessionListOpen }"`)
+    // 2026-09-16：rail ≡ 会话列表 popout 移除（切换入口上移标题栏会话状态条），互斥态只剩角色列表。
+    expect(source).toContain(`:class="{ 'has-open-popout': roleListOpen }"`)
     expect(source).toContain('z-index: var(--nx-z-side-popover)')
     const offlineMask = await readComponentSource(
       resolve('src/features/agent/workbench/WorkbenchOfflineMask.vue'),
@@ -42,8 +58,10 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     )
     expect(offlineMask).toContain('z-index: var(--nx-z-connection-mask)')
     expect(source).not.toContain('<WorkbenchReaderSplit')
-    expect(source).toContain('v-show="workspaceBrowserOpen"')
-    expect(source).toContain('其他流程的审批与提问')
+    expect(source).toContain('v-if="currentAttentionCount && !attentionCollapsed"')
+    expect(source).toContain('@click="toggleAttentionWindow"')
+    expect(source).not.toContain('其他流程的审批与提问')
+    expect(source).not.toContain('workspaceBrowserOpen')
   })
 
   it('refreshes only the lightweight catalog before opening from Cherry Nyxus', async () => {
@@ -96,26 +114,26 @@ describe('Nyxus workbench preferences and entry regressions', () => {
   })
 
   it('keeps enough active-session state to select the newest remaining session after deletion', async () => {
+    // 2026-09-16：归档入口随 rail popout 迁移到标题栏会话下拉（SessionDropdown.vue），
+    // 竞态保护契约同旧 onSessionDelete：删除前捕获当前会话意图，请求返回且用户未中途切换时才切最新剩余。
     const source = await readComponentSource(
-      resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
+      resolve('src/features/agent/workbench/SessionDropdown.vue'),
       'utf8',
     )
     const deletion = source.slice(
-      source.indexOf('async function onSessionDelete'),
-      source.indexOf('function activateNyxusInput'),
+      source.indexOf('async function onArchive'),
+      source.indexOf('/** 会话行滚动定位'),
     )
     const captureActiveSession = deletion.indexOf(
-      'const deletingActiveSession = targetChatId === chatId.value',
+      'const deletingActive = s.chatId === props.activeChatId',
     )
-    const deleteRequest = deletion.indexOf('await deleteNyxusSession(targetChatId)')
+    const deleteRequest = deletion.indexOf('await agents.deleteSession(s.chatId)')
 
     expect(captureActiveSession).toBeGreaterThan(-1)
     expect(captureActiveSession).toBeLessThan(deleteRequest)
-    expect(deletion).toContain('if (deletingActiveSession && !chatId.value)')
-    expect(deletion).toContain(
-      'rootSessions.value.find((session) => session.chatId !== targetChatId)?.chatId',
-    )
-    expect(deletion).not.toContain('if (targetChatId === chatId.value)')
+    expect(deletion).toContain('if (deletingActive && props.activeChatId)')
+    expect(deletion).toContain('items.value[0]')
+    expect(deletion).not.toContain('if (s.chatId === props.activeChatId)')
   })
 
   it('provides explicit high-contrast context colors in dark mode', async () => {

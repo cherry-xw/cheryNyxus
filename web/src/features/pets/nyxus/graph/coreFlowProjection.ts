@@ -124,6 +124,7 @@ function buildBranchMetadata(graph: Readonly<ExecutionGraph>): BranchMetadata | 
       node.kind === 'start' ||
       node.kind === 'fold' ||
       node.kind === 'pack' ||
+      node.kind === 'epoch' ||
       node.orderSlot !== 'persistent'
     )
       continue

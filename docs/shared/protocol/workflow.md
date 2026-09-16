@@ -56,7 +56,7 @@
 - conversation branch 共享前缀时不复制步骤；新分支只拥有分叉后的实例。活动分支切换不移动、不改写也不重新归属既有事实。
 - 根任务归档后事实仍可读；压缩只改变默认窗口。删除根任务时级联删除全部步骤，删除独立分支时原子删除该分支专属步骤；共享前缀保留在原 owner。独立步骤不设置短于任务数据的 TTL。
 
-完整头部身份不由步骤协议另设字段：唯一 `activeBranchId` 对应的 original/continuation 分支使用完整头部；非活动 original/continuation、全部 detail 分支和所有层级子 Agent 使用简略头部。旧数据没有任务身份时，前端可把 root chat 作为唯一兼容主干，但读取不得为此创建任务或修改数据。
+完整头部身份不由步骤协议另设字段：唯一 `activeBranchId` 对应的 original/continuation 分支使用完整头部；非活动 original/continuation 与全部 detail 分支使用简略头部；所有层级子 Agent 不渲染头部流程图，其内容只保留在结果树。旧数据没有任务身份时，前端可把 root chat 作为唯一兼容主干，但读取不得为此创建任务或修改数据。
 
 ## 5. 订阅与分页
 

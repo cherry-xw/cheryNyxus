@@ -12,6 +12,8 @@ export const OVERLAY_Z_INDEX = {
   canvas: 250,
   composer: 300,
   composerMenu: 320,
+  // 标题栏会话下拉（Teleport 到 body）：高于所有工作台窗（500 + 2n），低于全局抽屉/模态。
+  sessionMenu: 9_900,
   historyDrawer: 10_000,
   modal: 10_100,
   approval: 10_200,

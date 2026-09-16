@@ -171,21 +171,11 @@ function supervisionDesc(level: string): string {
 
 <!--
   popper teleport 到 body，scoped 样式无法穿透根面板，故置非 scoped：
-  主题自适应面板背景（仿 styles/element/index.scss 的 label-tip-popper），
-  specificity .el-popper.is-dark.tool-tip-popper(0,3,0) > EP .el-popper.is-dark(0,2,0)。
-  全局 .el-popper{font-weight:400; b,strong{600}}（index.scss）自动兜底基础字重。
+  配色已由 styles/element/index.scss 的全局 .el-popper.is-dark 统一覆盖
+  （背景/文字/边框/箭头随主题翻转），这里只留布局（限宽 + 换行）。
+  全局 .el-popper{font-weight:400; b,strong{400}}（index.scss）自动兜底基础字重。
 -->
 <style lang="less">
-.el-popper.is-dark.tool-tip-popper {
-  background: var(--panel);
-  color: var(--ink);
-  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
-  box-shadow: 0 5px 14px color-mix(in srgb, var(--ink) 16%, transparent);
-  .el-popper__arrow::before {
-    background: var(--panel);
-    border-color: color-mix(in srgb, var(--ink) 14%, transparent);
-  }
-}
 .el-popper.tool-tip-popper {
   max-width: 360px;
   line-height: 1.5;

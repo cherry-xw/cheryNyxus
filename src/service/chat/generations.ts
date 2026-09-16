@@ -45,6 +45,7 @@ interface CompactBoundary {
   boundaryMessageId: string
   createdAt: number
   summary: string
+  epochId?: string
 }
 
 /** 扫描 root chat 持久消息，收集全部 compact 定稿边界（context_compaction=1 的 assistant 行）。 */
@@ -56,6 +57,7 @@ function detectBoundaries(rootChatId: string): CompactBoundary[] {
       boundaryMessageId: row.id,
       createdAt: row.created_at,
       summary: summaryOf(row.content ?? ''),
+      ...(row.epoch_id ? { epochId: row.epoch_id } : {}),
     })
   }
   return boundaries
@@ -127,6 +129,7 @@ export function computeGenerations(rootChatId: string): GenerationEntry[] {
       ).length,
       createdAt: boundary.createdAt,
       trigger: boundary.trigger,
+      ...(boundary.epochId ? { epochId: boundary.epochId } : {}),
     })
     fromOrderKey = boundaryOrderKey
   }

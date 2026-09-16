@@ -187,7 +187,9 @@ export function projectWorkflowGraph(
   view: HeaderViewOptions = {},
 ): WorkflowGraphProjection {
   const scene = projectWorkflowScene(workflow, timeline, foldMode)
-  const laneIndex = new Map(scene.headerFlow.headers.map((header, index) => [header.laneId, index]))
+  // 结果树 lane 序号取自结果树自身（含子 Agent lane）；头部流程图只渲染主 Agent lane，
+  // 不能以头部列表作为内容节点的纵向定位依据。
+  const laneIndex = new Map(scene.resultTree.laneIds.map((laneId, index) => [laneId, index]))
   const nodes: WorkflowGraphNode[] = scene.resultTree.nodes.map((item) => {
     const presentation = presentResultNode(item.node, item.title, item.preview)
     return {

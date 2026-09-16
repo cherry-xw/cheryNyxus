@@ -18,6 +18,10 @@ const DEFAULT_WORKBENCH_VIEW: WorkbenchViewPreference = {
 const WORKBENCH_VIEW_STORAGE_PREFIX = 'nx-workbench-view:'
 const FOLD_MODES = new Set<FoldMode>(['none', 'partial', 'participant', 'full'])
 
+export function layoutModeForFoldMode(mode: FoldMode): 'timeline' | 'topology' {
+  return mode === 'full' ? 'topology' : 'timeline'
+}
+
 function loadPreference(presetId: string): WorkbenchViewPreference {
   if (typeof localStorage === 'undefined') return DEFAULT_WORKBENCH_VIEW
   try {
