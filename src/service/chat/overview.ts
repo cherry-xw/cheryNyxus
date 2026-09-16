@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { getChatPreviews, getRootChatId, listAllChats, listChatTrees } from '@/db/chat.js'
+import { getChatPreviews, getLastUserPrompts, getRootChatId, listAllChats, listChatTrees } from '@/db/chat.js'
 import { listInteractions } from '@/db/interaction.js'
 import { onPreparedChatEvent, type DeliverableChatEvent } from '@/db/delivery.js'
 import { safeJsonParse } from '@/utils/json.js'
@@ -74,7 +74,11 @@ function agentOverview(
     role: chat.parent_chat_id ? metadata.type || '子 Agent' : '主 Agent',
     status,
     ...(activeStep
-      ? { currentStep: activeStep.kind === 'model' ? '思考中' : activeStep.name || '执行工具' }
+      ? {
+          currentStep: activeStep.kind === 'model' ? '思考中' : activeStep.name || '执行工具',
+          // 节点类型透出（标题栏会话状态条 icon 按此映射：model=思考动画 / tool=sense 图标）。
+          currentStepKind: activeStep.kind,
+        }
       : {}),
     ...(current.runTiming?.startedAt ? { startedAt: current.runTiming.startedAt } : {}),
   }
@@ -110,6 +114,8 @@ export function buildTaskOverview(
   if (status === 'completed' && updatedAt < completedSince) return undefined
   const rootMeta = metadataOf(root.metadata)
   const preview = getChatPreviews([root]).get(root.id)?.preview.trim()
+  // 末条 user 消息（标题栏会话状态条 tooltip「最后一次提问」；无则省略）。
+  const lastUserPrompt = getLastUserPrompts([root]).get(root.id)?.trim()
   const branch = getConversationBranchByChat(root.id)
   const activeStarted = agents.flatMap((agent) => (agent.startedAt ? [agent.startedAt] : []))
   return {
@@ -118,6 +124,7 @@ export function buildTaskOverview(
     ...(rootMeta.presetId ? { presetId: rootMeta.presetId } : {}),
     ...(rootMeta.preset ? { preset: rootMeta.preset } : {}),
     title: preview || `任务 ${root.id.slice(0, 8)}`,
+    ...(lastUserPrompt ? { lastUserPrompt } : {}),
     status,
     startedAt: activeStarted.length ? Math.min(...activeStarted) : root.created_at,
     updatedAt,

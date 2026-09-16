@@ -4,6 +4,7 @@
  * 从 AgentDialog 拆出，负责 brain/senseGroup 选择 + 资料卡展示。
  */
 import { computed } from 'vue'
+import { LLM_PROTOCOL_CATALOG, type LlmProtocol } from '@chery/protocol'
 import type {
   BrainConfigDto,
   BrainInfo,
@@ -52,7 +53,7 @@ function brainConfig(name: string) {
 /** 思考档位 → 显示文字（资料卡 💭 tooltip 用）。 */
 const THINKING_LABEL: Record<ThinkingLevel, string> = {
   off: '关闭',
-  on: '思考',
+  on: '开',
   low: '低',
   medium: '中',
   high: '高',
@@ -96,6 +97,19 @@ function formatContextLimit(limit: number | undefined): string {
   if (limit === undefined) return '—'
   if (limit >= 1000) return `${Math.round(limit / 1000)}k`
   return String(limit)
+}
+
+/** API 协议标识 → 中文/官方标签（胶囊 hover 详情用）。 */
+function protocolLabel(protocol: LlmProtocol | undefined): string {
+  if (!protocol) return '—'
+  return LLM_PROTOCOL_CATALOG.find((entry) => entry.id === protocol)?.label ?? protocol
+}
+
+/** 器官组内单个能力入口的 hover 说明：工具 label · description。 */
+function senseToolTitle(entry: string): string {
+  const tool = senseTool(entry)
+  if (!tool) return senseName(entry)
+  return `${tool.label} · ${tool.description}`
 }
 
 /** 当前角色在 config.roles 中的默认 brain / senseGroup（无配置 → 空串，不标 ★）。 */
@@ -215,19 +229,67 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
         </div>
         <div class="choice-list" role="radiogroup" aria-label="选择模型">
           <span v-for="brain in brains" :key="brain.name" class="choice-slot">
-            <button
-              type="button"
-              class="choice-option"
-              :class="{ selected: localSelection.brain === brain.name }"
-              :aria-checked="localSelection.brain === brain.name"
-              role="radio"
-              @click="selectBrain(localSelection, brain.name)"
+            <el-tooltip
+              placement="top"
+              :show-after="150"
+              :hide-after="0"
+              popper-class="role-detail-popper"
             >
-              <span class="choice-option-label">{{ brain.name }}</span>
-              <span v-if="brain.name === roleDefault.brain" class="choice-default" aria-label="默认"
-                >★</span
+              <template #content>
+                <div class="role-detail" aria-label="大脑详情">
+                  <div class="role-detail-title">{{ brain.name }}</div>
+                  <div class="role-detail-row">
+                    <span class="role-detail-key">模型</span>
+                    <span class="role-detail-value">{{
+                      brainConfig(brain.name)?.model ?? '—'
+                    }}</span>
+                  </div>
+                  <div class="role-detail-row">
+                    <span class="role-detail-key">API 协议</span>
+                    <span class="role-detail-value">{{
+                      protocolLabel(brainConfig(brain.name)?.protocol)
+                    }}</span>
+                  </div>
+                  <div class="role-detail-row">
+                    <span class="role-detail-key">上下文限制</span>
+                    <span class="role-detail-value">{{
+                      formatContextLimit(
+                        brainInfo(brain.name)?.contextLimit ??
+                          brainConfig(brain.name)?.contextLimit,
+                      )
+                    }}</span>
+                  </div>
+                  <div class="role-detail-row">
+                    <span class="role-detail-key">工具调用</span>
+                    <span class="role-detail-value">{{
+                      supportsTools(brain.name) ? '支持' : '不支持'
+                    }}</span>
+                  </div>
+                  <div class="role-detail-row">
+                    <span class="role-detail-key">深度思考</span>
+                    <span class="role-detail-value">{{
+                      thinkingLabel(brainConfig(brain.name)) ?? '关闭'
+                    }}</span>
+                  </div>
+                </div>
+              </template>
+              <button
+                type="button"
+                class="choice-option"
+                :class="{ selected: localSelection.brain === brain.name }"
+                :aria-checked="localSelection.brain === brain.name"
+                role="radio"
+                @click="selectBrain(localSelection, brain.name)"
               >
-            </button>
+                <span class="choice-option-label">{{ brain.name }}</span>
+                <span
+                  v-if="brain.name === roleDefault.brain"
+                  class="choice-default"
+                  aria-label="默认"
+                  >★</span
+                >
+              </button>
+            </el-tooltip>
           </span>
         </div>
       </section>
@@ -239,22 +301,47 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
         </div>
         <div class="choice-list" role="radiogroup" aria-label="选择器官组">
           <span v-for="group in senseGroups" :key="group.name" class="choice-slot">
-            <button
-              type="button"
-              class="choice-option"
-              :class="{ selected: localSelection.senseGroup === group.name }"
-              :aria-checked="localSelection.senseGroup === group.name"
-              role="radio"
-              @click="localSelection.senseGroup = group.name"
+            <el-tooltip
+              placement="top"
+              :show-after="150"
+              :hide-after="0"
+              popper-class="role-detail-popper"
             >
-              <span class="choice-option-label">{{ group.name }}</span>
-              <span
-                v-if="group.name === roleDefault.senseGroup"
-                class="choice-default"
-                aria-label="默认"
-                >★</span
+              <template #content>
+                <div class="role-detail" aria-label="器官组详情">
+                  <div class="role-detail-title">{{ group.name }}</div>
+                  <div class="sense-detail-tools">
+                    <span
+                      v-for="entry in senseEntries(group.name)"
+                      :key="entry"
+                      class="sense-detail-tool"
+                      :title="senseToolTitle(entry)"
+                    >
+                      {{ senseTool(entry)?.icon ?? '⚙' }}
+                    </span>
+                    <span v-if="!senseEntries(group.name).length" class="sense-detail-empty"
+                      >无工具</span
+                    >
+                  </div>
+                </div>
+              </template>
+              <button
+                type="button"
+                class="choice-option"
+                :class="{ selected: localSelection.senseGroup === group.name }"
+                :aria-checked="localSelection.senseGroup === group.name"
+                role="radio"
+                @click="localSelection.senseGroup = group.name"
               >
-            </button>
+                <span class="choice-option-label">{{ group.name }}</span>
+                <span
+                  v-if="group.name === roleDefault.senseGroup"
+                  class="choice-default"
+                  aria-label="默认"
+                  >★</span
+                >
+              </button>
+            </el-tooltip>
           </span>
         </div>
       </section>
@@ -415,31 +502,36 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 
 .profile-settings {
   display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: 6px;
+  grid-template-columns: 1fr; /* 两列改两行：大脑一块、器官组一块 */
+  gap: 12px;
 }
 
 .profile-setting {
+  position: relative;
   min-width: 0;
-  padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  margin-top: 9px; /* 标题骑跨上边框（中线与边框线对齐）所需的突出空间 */
+  padding: 12px 10px 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 8px;
-  background: var(--surface);
+  background: transparent; /* 让卡片底（--panel）透出，标题盖边框线时与背景无缝 */
 }
 
-.sense-setting {
-  background: var(--surface-soft);
-}
-
+/* 块标题：盖住上边框线、居左但不盖左上角，标题中线与边框线对齐（legend 式） */
 .setting-heading {
-  display: flex;
+  position: absolute;
+  top: 0;
+  left: 12px; /* 避开左上角圆角 */
+  transform: translateY(-50%);
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-bottom: 4px;
+  padding: 0 6px;
+  background: var(--panel); /* 盖住身后的边框线 */
   color: color-mix(in srgb, var(--ink) 68%, transparent);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 .setting-icon {
@@ -452,59 +544,43 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 3px;
-  interpolate-size: allow-keywords;
+  gap: 6px;
 }
 
 .choice-slot {
-  position: relative;
   display: inline-block;
   flex: none;
-  width: 64px;
-  height: 21px;
+  max-width: 100%;
 }
 
+/* 子项胶囊：始终全量显示（不依赖 hover 展开），不用 ellipsis，胶囊内不换行 */
 .choice-option {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  min-width: 100%;
-  max-width: 100%;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 5px;
-  overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  border-radius: 999px;
   background: color-mix(in srgb, var(--ink) 4.5%, transparent);
   color: color-mix(in srgb, var(--ink) 64%, transparent);
   font: inherit;
   font-size: 10px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
+  line-height: 1.4;
   white-space: nowrap;
   cursor: pointer;
   transition:
-    width 0.18s ease,
-    max-width 0.18s ease,
     background-color 0.15s ease,
     border-color 0.15s ease,
     color 0.15s ease;
 
   &:hover {
-    z-index: 2;
-    width: max-content;
-    max-width: max-content;
-    overflow: visible;
+    border-color: color-mix(in srgb, var(--accent) 38%, transparent);
     background: var(--surface-hover);
-    box-shadow: 0 2px 7px color-mix(in srgb, var(--ink) 14%, transparent);
     color: color-mix(in srgb, var(--ink) 82%, transparent);
   }
 
   &.selected {
-    border-color: color-mix(in srgb, var(--accent) 33%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     color: var(--accent);
     font-weight: 400;
@@ -517,8 +593,6 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 
 .choice-option-label {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -536,10 +610,73 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   line-height: 1.2;
   text-align: right;
 }
+</style>
 
-@media (max-width: 440px) {
-  .profile-settings {
-    grid-template-columns: 1fr;
+<!-- 胶囊 hover 详情（el-tooltip teleport 到 body，需非 scoped 全局样式） -->
+<style lang="less">
+.role-detail-popper.el-popper {
+  --el-popper-padding: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 8px;
+  background: var(--surface-hover);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 20%, transparent);
+  color: var(--ink);
+
+  .role-detail {
+    display: grid;
+    gap: 5px;
+  }
+
+  .role-detail-title {
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .role-detail-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  .role-detail-key {
+    color: color-mix(in srgb, var(--ink) 54%, transparent);
+  }
+
+  .role-detail-value {
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .sense-detail-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 240px;
+  }
+
+  .sense-detail-tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+    border-radius: 6px;
+    background: var(--surface);
+    font-size: 11px;
+    line-height: 1;
+    cursor: default;
+  }
+
+  .sense-detail-empty {
+    color: color-mix(in srgb, var(--ink) 44%, transparent);
+    font-size: 11px;
   }
 }
 </style>

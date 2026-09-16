@@ -50,6 +50,7 @@ import {
   createChat,
   listAllChats,
   listRootChatsForPresets,
+  countRootChatsForPresets,
   listChatTrees,
   getChat,
   deleteChat,
@@ -324,6 +325,7 @@ export async function handleChatList(
       ? (safeJsonParse(chat.metadata, {}) as { preset?: string; presetId?: string })
       : {}
   let rows: ReturnType<typeof listAllChats>
+  let total: number | undefined
   if (data.scope === 'history') {
     rows = listAllChats()
   } else {
@@ -334,7 +336,35 @@ export async function handleChatList(
             presetId: value.id,
             preset,
           }))
-    const matchingRoots = listRootChatsForPresets(associations)
+    // 仅 preset scope 分页（标题栏会话下拉）：limit 缺省全量（现有调用不变）；带 limit 时排除
+    // 非 original 分支 root（与前端 isPianoRootSession 对齐）并返回 total 供分页判断。
+    const pageOptions: { excludeBranches: boolean; limit?: number; offset?: number } | undefined =
+      data.scope === 'preset'
+        ? {
+            excludeBranches: true,
+            ...(data.limit !== undefined
+              ? {
+                  limit: (() => {
+                    if (!Number.isInteger(data.limit) || data.limit < 1 || data.limit > 100) {
+                      throw new Error('分页参数非法：limit 须为 1-100 的整数')
+                    }
+                    return data.limit as number
+                  })(),
+                  ...(data.offset !== undefined
+                    ? {
+                        offset: (() => {
+                          if (!Number.isInteger(data.offset) || (data.offset as number) < 0) {
+                            throw new Error('分页参数非法：offset 须为不小于 0 的整数')
+                          }
+                          return data.offset as number
+                        })(),
+                      }
+                    : {}),
+                }
+              : {}),
+          }
+        : undefined
+    const matchingRoots = listRootChatsForPresets(associations, pageOptions)
     if (data.scope === 'stage') {
       const latestByPreset = new Map<string, (typeof matchingRoots)[number]>()
       for (const chat of matchingRoots) {
@@ -353,6 +383,10 @@ export async function handleChatList(
       rows = listChatTrees([...latestByPreset.values()].map((chat) => chat.id))
     } else {
       rows = listChatTrees(matchingRoots.map((chat) => chat.id))
+      // 仅 preset 分页返回 total（同 WHERE 的 root 匹配总数）；stage/history 不携带。
+      if (pageOptions?.limit !== undefined) {
+        total = countRootChatsForPresets(associations, pageOptions)
+      }
     }
   }
   const previews = data.includePreview ? getChatPreviews(rows) : undefined
@@ -454,8 +488,9 @@ export async function handleChatList(
     count: chats.length,
     scope: data.scope,
     includePreview: !!data.includePreview,
+    total,
   })
-  return { chats }
+  return { chats, ...(total !== undefined ? { total } : {}) }
 }
 
 /**
@@ -823,6 +858,7 @@ export function buildRootTimeline(
         createdAt: row.created_at,
         updatedAt: row.created_at,
         status: row.revoked === 1 ? 'revoked' : 'committed',
+        ...(row.epoch_id ? { epochId: row.epoch_id } : {}),
       }
       candidates.push({ node, branchChatId: chatId, rank: 0, relation })
       if (senseCalls.length > 0) {
@@ -843,6 +879,7 @@ export function buildRootTimeline(
             createdAt: row.created_at,
             updatedAt: row.created_at,
             status: row.revoked === 1 ? 'revoked' : 'committed',
+            ...(row.epoch_id ? { epochId: row.epoch_id } : {}),
           },
           branchChatId: chatId,
           rank: 1,
@@ -1440,6 +1477,7 @@ export async function handleChatTimelineGet(
     const edges: ExecutionEdgeFact[] = []
     const activeRuns: ActiveRunFact[] = []
     const pendingInputs: RootTimelineSnapshot['pendingInputs'] = []
+    const generations: RootTimelineSnapshot['generations'] = []
     let orderOffset = 0
     for (const { branch, timeline } of snapshots) {
       const maxOrder = Math.max(
@@ -1470,6 +1508,15 @@ export async function handleChatTimelineGet(
         ...timeline.activeRuns.map((run) => ({ ...run, rootChatId: task.originalChatId })),
       )
       pendingInputs.push(...timeline.pendingInputs)
+      generations.push(
+        ...timeline.generations.map((entry) => ({
+          ...entry,
+          fromOrderKey: entry.fromOrderKey + orderOffset,
+          boundaryOrderKey: entry.boundaryOrderKey + orderOffset,
+          sourceRootChatId: branch.chatId,
+          branchId: branch.branchId,
+        })),
+      )
       orderOffset += maxOrder + 1
     }
     for (const { branch, timeline } of snapshots) {
@@ -1535,7 +1582,7 @@ export async function handleChatTimelineGet(
       edges,
       activeRuns,
       pendingInputs,
-      generations: [],
+      generations,
       capturedEventSeq: Math.max(0, ...snapshots.map((item) => item.timeline.capturedEventSeq)),
     }
     return {

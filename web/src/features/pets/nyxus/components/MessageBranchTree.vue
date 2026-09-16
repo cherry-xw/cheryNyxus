@@ -30,6 +30,7 @@ const {
   agents,
   canvas,
   closeCrt,
+  closeGenerationView,
   closeNodeDetail,
   crtById,
   crtPlacements,
@@ -57,6 +58,7 @@ const {
   focusRelativeNode,
   foldRailSide,
   generationDialogIndex,
+  generationDialogRootChatId,
   gpuNodeAccent,
   gpuNodeHitStyle,
   gpuRenderError,
@@ -91,6 +93,7 @@ const {
   selectedActionCall,
   selectedCallId,
   showNodeDetail,
+  stepFoldDetail,
   toggleDetailWrap,
   unpinCrt,
   unreadFoldMembers,
@@ -265,7 +268,10 @@ defineExpose({ resetLayout: controller.resetLayout })
             :style="gpuNodeHitStyle(node)"
             :aria-label="nodeAriaLabel(node)"
             :data-execution-node-id="node.id"
-            @pointerdown="onNodePointerDown($event, node); canvas.onPointerDown($event)"
+            @pointerdown="
+              onNodePointerDown($event, node);
+              canvas.onPointerDown($event)
+            "
             @pointerenter="showNodeDetail(node)"
             @pointerleave="hideNodeDetail(node)"
             @focus="focusNode(node)"
@@ -439,16 +445,18 @@ defineExpose({ resetLayout: controller.resetLayout })
               @drag-end="finishDetailDrag"
               @toggle-wrap="toggleDetailWrap"
               @cycle-size="cycleDetailSize"
+              @step-fold="stepFoldDetail"
             />
           </div>
         </Transition>
       </div>
     </div>
     <GenerationTreeDialog
-      v-if="generationDialogIndex !== undefined"
-      :root-chat-id="rootChatId"
+      v-if="generationDialogIndex !== undefined && generationDialogRootChatId"
+      :root-chat-id="generationDialogRootChatId"
       :generation-index="generationDialogIndex"
-      @close="generationDialogIndex = undefined"
+      :fold-mode="foldMode"
+      @close="closeGenerationView"
     />
   </section>
 </template>

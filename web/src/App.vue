@@ -28,6 +28,7 @@ import { startApplicationRuntime } from '@/application/runtime/startApplicationR
 import { renderQualityTier } from '@/composables/renderQuality'
 import { installPerformanceDiagnostics } from '@/utils/performanceDiagnostics'
 import { visualEventWindow } from '@/features/desktop/visualEvents'
+import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 
 // Electron 的每种 surface 与浏览器 overlay 互斥。重界面按实际状态下载，避免冷启动时
 // 同时解析设置、历史、会话和 Pixi 工作台，并确保关闭后组件实例及其图形资源可回收。
@@ -36,6 +37,9 @@ const LoginSurface = defineAsyncComponent(() => import('@/features/desktop/Login
 const WindowFrame = defineAsyncComponent(() => import('@/features/desktop/WindowFrame.vue'))
 const ConnectionStatusChip = defineAsyncComponent(
   () => import('@/features/desktop/ConnectionStatusChip.vue'),
+)
+const WorkbenchSessionBar = defineAsyncComponent(
+  () => import('@/features/agent/workbench/WorkbenchSessionBar.vue'),
 )
 const CyberDesktopHost = defineAsyncComponent(
   () => import('@/features/desktop/CyberDesktopHost.vue'),
@@ -389,6 +393,42 @@ const surfaceWindowBlink = computed(
 function onWorkbenchTitlePointerDown(): void {
   if (surfacePresetId) workspace.setWorkbenchWindowBlink(surfacePresetId, false)
 }
+/** workbench 原生窗标题栏会话状态条：当前窗会话（store 注册表响应式），strip 高亮用。 */
+const workbenchSurfaceChatId = computed(
+  () => workspace.workbenchWindows[surfacePresetId ?? '']?.chatId ?? null,
+)
+/** 会话切换（与 bridge.onOpenChat 同语义：setWorkbenchWindowChat，WorkbenchDialog 内 watch chatId 驱动树订阅）。 */
+function onWorkbenchSessionSelect(chatId: string): void {
+  if (!surfacePresetId) return
+  workspace.setWorkbenchWindowChat(surfacePresetId, chatId)
+}
+/** 当前会话被归档且无剩余：清空本窗当前会话（workbench 空态）。 */
+function onWorkbenchSessionClear(): void {
+  if (!surfacePresetId) return
+  workspace.setWorkbenchWindowChat(surfacePresetId, null)
+}
+/** 新建会话（下拉「＋新建会话」）：Nyxus 走 createNyxusSession，其余预设 createMasterPet；native/浏览器面通用。 */
+async function createWorkbenchSession(
+  windowId: string,
+  presetId: string,
+  presetName?: string | null,
+): Promise<void> {
+  try {
+    const chatId =
+      presetId === CHERY_NYXUS_PRESET
+        ? await agents.createNyxusSession()
+        : await agents.createMasterPet({ preset: presetName ?? presetId })
+    workspace.setWorkbenchWindowChat(windowId, chatId)
+  } catch (cause) {
+    console.error('[workbench] create session failed:', cause)
+    ElMessage.error('新建会话失败')
+  }
+}
+/** native 面新建会话（surface 参数固化版）。 */
+function workbenchCreateSession(): Promise<void> {
+  if (!surfacePresetId) return Promise.resolve()
+  return createWorkbenchSession(surfacePresetId, surfacePresetId, surfacePresetName)
+}
 /** 标题栏「打开配置文件夹」失败：标题栏入口独立于 SettingsDialog 内部错误弹窗，用轻量消息提示。 */
 function onSettingsOpenDirError(message: string): void {
   ElMessage.error(message)
@@ -492,6 +532,17 @@ async function bootstrap(): Promise<void> {
   >
     <template #title-actions>
       <ConnectionStatusChip />
+      <!-- 标题栏会话状态条（活跃会话 icon + 当前预设分页下拉）；切换走 onWorkbenchSessionSelect（setWorkbenchWindowChat，
+           与 bridge.onOpenChat 同语义，WorkbenchDialog 内 watch chatId 驱动树订阅与 draft reset） -->
+      <WorkbenchSessionBar
+        :window-id="surfacePresetId ?? 'workbench'"
+        :preset-id="surfacePresetId ?? undefined"
+        :preset-name="surfacePresetName ?? undefined"
+        :active-chat-id="workbenchSurfaceChatId"
+        @select="onWorkbenchSessionSelect"
+        @create="() => void workbenchCreateSession()"
+        @clear="onWorkbenchSessionClear"
+      />
       <!-- lite 极简视图切换（§2.1）：native 面 WorkbenchDialog 内部 titlebar 被 v-if="!isNative"
            隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useLiteViewToggle；
            v1.0 改 el-switch（原 ⚡ 按钮 icon 歪斜、active 不突出） -->
@@ -576,6 +627,25 @@ async function bootstrap(): Promise<void> {
       >
         <template #title-actions>
           <ConnectionStatusChip />
+          <!-- 标题栏会话状态条（活跃会话 icon + 当前预设分页下拉）：浏览器面工作台窗由 CyberWindow 承载
+               标题栏（WorkbenchDialog embedded 自绘 titlebar 不渲染），strip 挂此 slot；
+               senseTool 不注入，strip 内部自拉 sense.tools 兜底 -->
+          <WorkbenchSessionBar
+            :window-id="entry.workbench.id"
+            :preset-id="entry.workbench.presetId"
+            :preset-name="entry.workbench.presetName ?? undefined"
+            :active-chat-id="entry.workbench.chatId"
+            @select="(id: string) => workspace.setWorkbenchWindowChat(entry.workbench.id, id)"
+            @clear="() => workspace.setWorkbenchWindowChat(entry.workbench.id, null)"
+            @create="
+              () =>
+                void createWorkbenchSession(
+                  entry.workbench.id,
+                  entry.workbench.presetId,
+                  entry.workbench.presetName,
+                )
+            "
+          />
           <WorkbenchViewToggle :window-id="entry.workbench.id" />
         </template>
         <WorkbenchDialog

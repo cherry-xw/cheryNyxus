@@ -4,7 +4,7 @@ import type {
   ExecutionGraph,
   ExecutionNode,
 } from './executionGraph'
-import { isQuestionCall, isSpawnCall } from './toolBatchDetails'
+import { isSpawnCall } from './toolBatchDetails'
 
 export interface FoldRange {
   id: string
@@ -28,6 +28,7 @@ interface FoldUnit {
 }
 
 const ACTIVE_RUN_STATES = new Set(['running', 'waiting', 'paused'])
+const DIRECT_RUN_STATES = new Set(['running', 'waiting', 'paused', 'failed'])
 const TERMINAL_RUN_STATES = new Set(['completed', 'failed'])
 const TERMINAL_CALL_STATES = new Set(['completed', 'rejected', 'error'])
 
@@ -42,6 +43,18 @@ function compareNodes(a: ExecutionNode, b: ExecutionNode): number {
 
 function hasActiveRun(node: ExecutionNode): boolean {
   return node.activeRuns.some((run) => ACTIVE_RUN_STATES.has(run.status))
+}
+
+function hasDirectRunState(node: ExecutionNode): boolean {
+  return node.activeRuns.some((run) => DIRECT_RUN_STATES.has(run.status))
+}
+
+function hasFailure(node: ExecutionNode): boolean {
+  return (
+    node.sourceFact?.termination?.code === 'error' ||
+    node.activeRuns.some((run) => run.status === 'failed') ||
+    (node.sourceFact?.toolCalls ?? []).some((call) => call.status === 'error')
+  )
 }
 
 function runsAreTerminal(node: ExecutionNode): boolean {
@@ -87,19 +100,45 @@ function isFoldableBatch(node: ExecutionNode): boolean {
     node.actor.chatId === node.sourceChatId &&
     !!node.sourceFact &&
     !node.sourceFact.termination &&
-    !(node.sourceFact.toolCalls ?? []).some(isSpawnCall) &&
-    // 提问批次是不可隐藏的交互点（用户已回答），应保持为可见节点 + 多个 tab，而非折叠进过程组。
-    !(node.sourceFact.toolCalls ?? []).some(isQuestionCall)
+    !(node.sourceFact.toolCalls ?? []).some(isSpawnCall)
   )
 }
 
 function isFoldableNode(node: ExecutionNode): boolean {
-  if (node.sourceFact?.forkAnchor) return false
+  if (node.sourceFact?.forkAnchor || node.status === 'revoked' || hasDirectRunState(node))
+    return false
   return isSelfAgentMessage(node) || isFoldableBatch(node)
 }
 
+function isAlwaysVisible(node: ExecutionNode): boolean {
+  if (
+    node.kind === 'start' ||
+    node.kind === 'pack' ||
+    node.kind === 'epoch' ||
+    node.kind === 'input' ||
+    node.kind === 'unknown'
+  )
+    return true
+  if (node.sourceFact?.forkAnchor || node.sourceFact?.termination || node.status === 'revoked')
+    return true
+  if (hasDirectRunState(node)) return true
+  if (node.kind !== 'tool-batch') return isUserMessage(node)
+  const calls = node.sourceFact?.toolCalls ?? []
+  return calls.some((call) => call.status === 'pending' || call.status === 'accepted')
+}
+
+function latestFailureIdsByChat(nodes: readonly ExecutionNode[]): Set<string> {
+  const latest = new Map<string, ExecutionNode>()
+  for (const node of nodes) {
+    if (!hasFailure(node)) continue
+    const existing = latest.get(node.sourceChatId)
+    if (!existing || compareNodes(existing, node) < 0) latest.set(node.sourceChatId, node)
+  }
+  return new Set([...latest.values()].map((node) => node.id))
+}
+
 function branchId(node: ExecutionNode): string {
-  return node.sourceFact?.branchId ?? `legacy:${node.rootChatId}`
+  return node.branchId ?? node.sourceFact?.branchId ?? `legacy:${node.rootChatId}`
 }
 
 function branchChatKey(node: ExecutionNode): string {
@@ -217,17 +256,25 @@ export function computeFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] 
 
   const ranges: FoldRange[] = []
   for (const { branchId: currentBranchId, sourceChatId, nodes: branch } of branches.values()) {
+    const orderedUnits = foldUnits(branch.slice().sort(compareNodes))
+    const latestFailedUnitId = [...orderedUnits]
+      .reverse()
+      .find((unit) => unit?.nodes.some(hasFailure))?.id
     const terminalUnits: FoldUnit[] = []
-    const flush = (final = false): void => {
-      // The round-closing reply is the last thing the agent says; keep it out
-      // of the fold so it renders as a normal message node.
-      const units = final && isReplyUnit(terminalUnits) ? terminalUnits.slice(0, -1) : terminalUnits
+    const flush = (): void => {
+      // A reply immediately before any visible boundary closes that local segment.
+      // Keep it visible so broader levels never reveal more than this level.
+      const units = isReplyUnit(terminalUnits) ? terminalUnits.slice(0, -1) : terminalUnits
       const range = toRange(sourceChatId, units, `${currentBranchId}:${sourceChatId}`)
       if (range) ranges.push(range)
       terminalUnits.splice(0)
     }
-    for (const unit of foldUnits(branch.slice().sort(compareNodes))) {
+    for (const unit of orderedUnits) {
       if (!unit) {
+        flush()
+        continue
+      }
+      if (unit.id === latestFailedUnitId) {
         flush()
         continue
       }
@@ -237,7 +284,7 @@ export function computeFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] 
       }
       terminalUnits.push(unit)
     }
-    flush(true)
+    flush()
   }
   return ranges.sort(
     (a, b) =>
@@ -316,10 +363,9 @@ function hasMultipleFoldMembers(nodes: readonly ExecutionNode[]): boolean {
 
 /**
  * Round-fold core: within each conversation round (user-led message → next user
- * message) keep the user messages, the round's final agent reply and branch
- * anchors; fold every other node into process cards split at those anchors (so
- * the quotient stays acyclic). Running rounds (any active run) stay expanded so
- * in-flight tool/answer state is never hidden.
+ * message), keep direct-attention facts and each participant's final reply.
+ * Completed details fold independently per participant so parallel branches
+ * remain available to topology layout instead of collapsing into one backbone.
  */
 function computeRoundFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
   const persistent = graph.nodes
@@ -346,31 +392,57 @@ function computeRoundFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
 
   const ranges: FoldRange[] = []
   for (const round of rounds) {
-    if (round.some(hasActiveRun)) continue
-    const keepIds = new Set<string>()
-    for (const node of round) if (isUserMessage(node)) keepIds.add(node.id)
-    for (const node of round) if (node.sourceFact?.forkAnchor) keepIds.add(node.id)
-    // The final agent reply is the last outbound message; keep it visible.
-    const finalReply = [...round].reverse().find(isAgentReply)
-    if (finalReply) keepIds.add(finalReply.id)
     // Only genuine user-led rounds fold; boundary-less leading segments stay expanded.
     if (!round.some(isUserMessage)) continue
-    // Split the fold at every kept (visible) node — user input, final reply and
-    // branch anchor are fold-range boundaries. A process group must never sit on
-    // both sides of the same anchor, or the quotient graph gains a 2-cycle.
-    let segment: ExecutionNode[] = []
-    const flush = (): void => {
-      if (hasMultipleFoldMembers(segment)) ranges.push(toFullRange(round, segment))
-      segment = []
+    const roundIds = new Set(round.map((node) => node.id))
+    const roundEdges = graph.edges.filter(
+      (edge) => roundIds.has(edge.from) && roundIds.has(edge.to),
+    )
+    const incidentChats = new Map<string, Set<string>>()
+    for (const edge of roundEdges) {
+      for (const nodeId of [edge.from, edge.to]) {
+        const chats = incidentChats.get(nodeId) ?? new Set<string>()
+        chats.add(edge.sourceChatId)
+        chats.add(edge.targetChatId)
+        incidentChats.set(nodeId, chats)
+      }
+    }
+    const keepIds = new Set<string>()
+    for (const node of round) if (isAlwaysVisible(node)) keepIds.add(node.id)
+    for (const id of latestFailureIdsByChat(round)) keepIds.add(id)
+    const finalReplyChats = new Set<string>()
+    for (const node of [...round].reverse()) {
+      if (!isAgentReply(node) || finalReplyChats.has(node.sourceChatId)) continue
+      finalReplyChats.add(node.sourceChatId)
+      keepIds.add(node.id)
+    }
+
+    const pendingByChat = new Map<string, ExecutionNode[]>()
+    const flush = (chatId: string): void => {
+      const segment = pendingByChat.get(chatId)
+      if (!segment?.length) return
+      if (hasMultipleFoldMembers(segment)) ranges.push(toFullRange(round, segment, chatId))
+      pendingByChat.delete(chatId)
     }
     for (const node of round) {
-      if (keepIds.has(node.id)) {
-        flush()
+      if (!keepIds.has(node.id)) {
+        const pending = pendingByChat.get(node.sourceChatId) ?? []
+        pending.push(node)
+        pendingByChat.set(node.sourceChatId, pending)
         continue
       }
-      segment.push(node)
+
+      if (node.kind === 'epoch') {
+        for (const chatId of [...pendingByChat.keys()]) flush(chatId)
+        continue
+      }
+      const affectedChats = new Set<string>([node.sourceChatId])
+      if (node.actor.kind === 'agent') affectedChats.add(node.actor.chatId)
+      if (node.target?.kind === 'agent') affectedChats.add(node.target.chatId)
+      for (const chatId of incidentChats.get(node.id) ?? []) affectedChats.add(chatId)
+      for (const chatId of affectedChats) flush(chatId)
     }
-    flush()
+    for (const chatId of [...pendingByChat.keys()]) flush(chatId)
   }
   return ranges.sort(
     (a, b) =>
@@ -380,10 +452,9 @@ function computeRoundFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
 }
 
 /**
- * Full fold: within each conversation round keep only the user messages, the
- * round's final agent reply and branch anchors, and fold every other node into
- * process cards split at those anchors (so the quotient stays acyclic). One
- * strategy regardless of layout — fold granularity is independent of row density.
+ * Full fold: keep each branch visible but collect its completed details as far as
+ * direct-attention boundaries allow. Fold granularity is independent of layout;
+ * topology layout may then place unrelated branch groups in the same column.
  */
 export function computeFullFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
   return computeRoundFoldRanges(graph)
@@ -427,7 +498,7 @@ export function computeParticipantFoldRanges(graph: Readonly<ExecutionGraph>): F
 
   const ranges: FoldRange[] = []
   for (const round of rounds) {
-    if (!round.some(isUserMessage) || round.some(hasActiveRun)) continue
+    if (!round.some(isUserMessage)) continue
 
     const roundIds = new Set(round.map((node) => node.id))
     const roundEdges = graph.edges.filter(
@@ -444,10 +515,7 @@ export function computeParticipantFoldRanges(graph: Readonly<ExecutionGraph>): F
     }
     const keepIds = new Set(
       round
-        .filter(
-          (node) =>
-            isUserMessage(node) || isParticipantBoundary(node) || node.sourceFact?.forkAnchor,
-        )
+        .filter((node) => isAlwaysVisible(node) || isParticipantBoundary(node))
         .map((node) => node.id),
     )
     for (const edge of roundEdges) {
@@ -461,6 +529,7 @@ export function computeParticipantFoldRanges(graph: Readonly<ExecutionGraph>): F
     }
     const finalReply = [...round].reverse().find(isAgentReply)
     if (finalReply) keepIds.add(finalReply.id)
+    for (const id of latestFailureIdsByChat(round)) keepIds.add(id)
 
     const pendingByChat = new Map<string, ExecutionNode[]>()
     const flush = (chatId: string): void => {
@@ -490,6 +559,10 @@ export function computeParticipantFoldRanges(graph: Readonly<ExecutionGraph>): F
         continue
       }
 
+      if (node.kind === 'epoch') {
+        for (const chatId of [...pendingByChat.keys()]) flush(chatId)
+        continue
+      }
       const affectedChats = new Set<string>([node.sourceChatId])
       if (node.actor.kind === 'agent') affectedChats.add(node.actor.chatId)
       if (node.target?.kind === 'agent') affectedChats.add(node.target.chatId)

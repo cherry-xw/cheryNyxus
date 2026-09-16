@@ -96,6 +96,12 @@ describe('workflow projection boundary', () => {
     )
     expect(withSteps.resultTree.edges.every((edge) => edge.semantic === 'fact')).toBe(true)
     expect(withSteps.edges.some((edge) => edge.semantic === 'template')).toBe(true)
+    // 流程图只关注主 Agent 流程：非主 Agent 会话不渲染头部流程图（内容仍保留在结果树）。
+    expect(
+      withSteps.headerFlow.headers.some(
+        (header) => header.chatId === 'observation-only-chat',
+      ),
+    ).toBe(false)
   })
 
   it('retains branch, dispatch and return content while isolating equal tool call IDs by chat', () => {

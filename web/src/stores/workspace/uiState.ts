@@ -46,7 +46,6 @@ export interface WorkbenchWindowState {
   historyDrawerStack: string[]
   historyDrawerMode: 'overlay' | 'workbench-docked'
   historyDrawerAnchor: HistoryDrawerAnchor | null
-  workspaceBrowserMode?: 'attention'
   focused: boolean
   zOrder: number
   attentionBlink: boolean
@@ -579,16 +578,6 @@ export function createUiState() {
     win.historyDrawerAnchor = drawer.anchor
   }
 
-  function setWorkbenchWindowWorkspaceBrowser(id: string, mode: 'attention' | undefined): void {
-    if (!guardWorkbenchWindow(id)) return
-    const win = workbenchWindows.value[id]!
-    if (mode === undefined) {
-      delete win.workspaceBrowserMode
-    } else {
-      win.workspaceBrowserMode = mode
-    }
-  }
-
   /** 按 z 序（order 顺序）返回窗口数组。 */
   const workbenchWindowsList: ComputedRef<WorkbenchWindowState[]> = computed(() =>
     workbenchWindowOrder.value
@@ -723,6 +712,5 @@ export function createUiState() {
     setWorkbenchWindowBlink,
     setWorkbenchWindowFocus,
     setWorkbenchWindowDrawer,
-    setWorkbenchWindowWorkspaceBrowser,
   }
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { ActiveRunFact, ExecutionEdgeFact, TimelineNode } from '../../../src/services/agentApi'
+import type {
+  ActiveRunFact,
+  ExecutionEdgeFact,
+  GenerationEntry,
+  TimelineNode,
+} from '../../../src/services/agentApi'
 import {
   projectActiveTurnNodes,
   projectExecutionGraph,
@@ -56,8 +61,24 @@ function snapshot(
   nodes: TimelineNode[],
   edges: ExecutionEdgeFact[] = [],
   activeRuns: ActiveRunFact[] = [],
+  generations: GenerationEntry[] = [],
 ): ExecutionGraphSnapshot {
-  return { rootChatId: 'root', nodes, edges, activeRuns }
+  return { rootChatId: 'root', nodes, edges, activeRuns, generations }
+}
+
+function generation(index: number, partial: Partial<GenerationEntry> = {}): GenerationEntry {
+  return {
+    index,
+    boundaryMessageId: `boundary:${index}`,
+    boundaryNodeId: `boundary:${index}`,
+    fromOrderKey: (index - 1) * 10,
+    boundaryOrderKey: index * 10,
+    summary: `第 ${index} 段`,
+    nodeCount: 4,
+    createdAt: index * 10,
+    trigger: 'manual',
+    ...partial,
+  }
 }
 
 function topology(graph: ReturnType<typeof projectExecutionGraph>) {
@@ -108,6 +129,136 @@ describe('execution graph projector', () => {
     expect(graph.edges.filter((item) => item.kind === 'start')).toEqual([
       expect.objectContaining({ from: 'start:root', to: 'root-first' }),
     ])
+  })
+
+  it('keeps the latest compacted segment as real nodes and packs every older segment once', () => {
+    const graph = projectPersistentExecutionGraph(
+      snapshot(
+        [node('latest-segment', 21), node('current-segment', 31)],
+        [edge('latest-current', 32, 'latest-segment', 'current-segment')],
+        [],
+        [generation(1), generation(2), generation(3)],
+      ),
+    )
+
+    expect(graph.nodes.filter((item) => item.kind === 'pack').map((item) => item.id)).toEqual([
+      'pack:gen:1',
+      'pack:gen:2',
+    ])
+    expect(graph.nodes.map((item) => item.id)).toEqual(
+      expect.arrayContaining(['latest-segment', 'current-segment']),
+    )
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: 'start:root', to: 'pack:gen:1' }),
+        expect.objectContaining({ from: 'pack:gen:1', to: 'pack:gen:2' }),
+        expect.objectContaining({ from: 'pack:gen:2', to: 'latest-segment' }),
+      ]),
+    )
+  })
+
+  it('keeps branch-owned compact history distinct and inserts it after the real fork', () => {
+    const graph = projectPersistentExecutionGraph(
+      snapshot(
+        [
+          node('root-latest', 21),
+          node('detail-latest', 41, {
+            sourceChatId: 'detail-root',
+            branchId: 'detail-branch',
+          }),
+        ],
+        [
+          edge('detail-fork', 40, 'root-latest', 'detail-latest', 'fork-detail', {
+            targetChatId: 'detail-root',
+            branchId: 'detail-branch',
+          }),
+        ],
+        [],
+        [
+          generation(1),
+          generation(2),
+          generation(1, {
+            sourceRootChatId: 'detail-root',
+            branchId: 'detail-branch',
+            fromOrderKey: 20,
+            boundaryOrderKey: 30,
+          }),
+          generation(2, {
+            sourceRootChatId: 'detail-root',
+            branchId: 'detail-branch',
+            fromOrderKey: 30,
+            boundaryOrderKey: 40,
+          }),
+        ],
+      ),
+    )
+
+    const rootPack = graph.nodes.find((item) => item.id === 'pack:gen:1')
+    const detailPack = graph.nodes.find((item) => item.id === 'pack:gen:detail-root:1')
+
+    expect(rootPack?.pack?.sourceRootChatId).toBe('root')
+    expect(detailPack).toMatchObject({
+      sourceChatId: 'detail-root',
+      branchId: 'detail-branch',
+      pack: { sourceRootChatId: 'detail-root', generationIndex: 1 },
+    })
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'fork-detail',
+          from: 'root-latest',
+          to: 'pack:gen:detail-root:1',
+        }),
+        expect.objectContaining({
+          kind: 'sequence',
+          from: 'pack:gen:detail-root:1',
+          to: 'detail-latest',
+        }),
+      ]),
+    )
+    expect(new Set(graph.nodes.map((item) => item.id)).size).toBe(graph.nodes.length)
+  })
+
+  it('does not add disconnected branch history when its real fork is missing', () => {
+    const graph = projectPersistentExecutionGraph(
+      snapshot(
+        [node('root-latest', 21), node('detail-latest', 41, { sourceChatId: 'detail-root' })],
+        [],
+        [],
+        [
+          generation(1, { sourceRootChatId: 'detail-root' }),
+          generation(2, { sourceRootChatId: 'detail-root' }),
+        ],
+      ),
+    )
+
+    expect(graph.nodes.some((item) => item.id.startsWith('pack:gen:detail-root:'))).toBe(false)
+  })
+
+  it('inserts a visible epoch divider only across an explicit edge with two known epochs', () => {
+    const graph = projectPersistentExecutionGraph(
+      snapshot(
+        [node('old', 1, { epochId: 'epoch-1' }), node('next', 2, { epochId: 'epoch-2' })],
+        [edge('old-next', 3, 'old', 'next')],
+      ),
+    )
+    const marker = graph.nodes.find((item) => item.kind === 'epoch')
+
+    expect(marker).toMatchObject({ content: '设置已切换', epochId: 'epoch-2' })
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: 'old', to: marker?.id }),
+        expect.objectContaining({ from: marker?.id, to: 'next' }),
+      ]),
+    )
+
+    const legacy = projectPersistentExecutionGraph(
+      snapshot(
+        [node('known', 1, { epochId: 'epoch-1' }), node('unknown', 2)],
+        [edge('known-unknown', 3, 'known', 'unknown')],
+      ),
+    )
+    expect(legacy.nodes.some((item) => item.kind === 'epoch')).toBe(false)
   })
 
   it('projects explicit DAG edges without guessing missing cross-agent relations', () => {
@@ -554,7 +705,9 @@ describe('execution graph projector', () => {
     const layout = layoutExecutionGraph(graph)
 
     expect(layout.laneByChat.get('detail-chat')).not.toBe(layout.laneByChat.get('child'))
-    expect(Math.abs(layout.laneByChat.get('detail-chat')! - layout.laneByChat.get('child')!)).toBe(1)
+    expect(Math.abs(layout.laneByChat.get('detail-chat')! - layout.laneByChat.get('child')!)).toBe(
+      1,
+    )
   })
 
   it('lays out persistent facts by orderKey rather than createdAt', () => {

@@ -18,17 +18,16 @@ const emit = defineEmits<{
   tree: [rootChatId: string, sourceChatId?: string, interactionId?: string, anchorNodeId?: string]
 }>()
 
-/** 纸牌堆叠决策窗口：标题栏 ← 题目 n/N → 切换当前批次卡内的题目
- * （批次切换走左下角卡片漏边点击；关闭改由右侧铃铛入口切换）。 */
+/** 决策窗口：标题栏 ← 批次 n/N → 切换批次卡（卡内题目切换固定在底部操作栏左侧，与提交按钮同行）。 */
 const browserRef = ref<InstanceType<typeof WorkspaceSessionBrowser> | null>(null)
-const pager = ref({ index: 0, total: 0 })
-const pagerIndex = computed(() => pager.value.index)
-const pagerTotal = computed(() => pager.value.total)
-function onPager(value: { index: number; total: number }): void {
-  pager.value = value
+const batchPager = ref({ index: 0, total: 0 })
+const batchIndex = computed(() => batchPager.value.index)
+const batchTotal = computed(() => batchPager.value.total)
+function onBatchPager(value: { index: number; total: number }): void {
+  batchPager.value = value
 }
-function stepPager(delta: number): void {
-  browserRef.value?.step(delta)
+function stepBatch(delta: number): void {
+  browserRef.value?.stepBatch(delta)
 }
 
 function forwardTree(
@@ -55,27 +54,27 @@ function forwardTree(
         <small>{{ others ? '其他流程需要你的确认或回答' : '待处理审批与提问' }}</small>
       </span>
       <div
-        v-if="pagerTotal > 0"
+        v-if="batchTotal > 1"
         class="attention-pager"
         role="group"
-        aria-label="切换批次内题目"
+        aria-label="切换批次"
       >
         <button
           type="button"
-          aria-label="上一题"
-          :disabled="pagerTotal <= 1"
-          @click="stepPager(-1)"
+          aria-label="上一批次"
+          :disabled="batchTotal <= 1"
+          @click="stepBatch(-1)"
         >
           ←
         </button>
         <span class="attention-pager-index" aria-live="polite"
-          >题目 {{ pagerIndex }}/{{ pagerTotal }}</span
+          >批次 {{ batchIndex }}/{{ batchTotal }}</span
         >
         <button
           type="button"
-          aria-label="下一题"
-          :disabled="pagerTotal <= 1"
-          @click="stepPager(1)"
+          aria-label="下一批次"
+          :disabled="batchTotal <= 1"
+          @click="stepBatch(1)"
         >
           →
         </button>
@@ -88,7 +87,7 @@ function forwardTree(
       :exclude-root-chat-id="others ? rootChatId : undefined"
       :root-chat-id="others ? undefined : rootChatId"
       pending-only
-      @pager="onPager"
+      @batch-pager="onBatchPager"
       @tree="forwardTree"
     />
   </div>

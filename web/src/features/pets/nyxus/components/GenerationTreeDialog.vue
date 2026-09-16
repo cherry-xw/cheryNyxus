@@ -16,6 +16,7 @@ const props = defineProps<{
   rootChatId: string
   /** 1-based，指向 GenerationEntry.index */
   generationIndex: number
+  foldMode: 'none' | 'partial' | 'full' | 'participant'
 }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -40,7 +41,7 @@ watch(() => [props.rootChatId, props.generationIndex], load, { immediate: true }
 const titleText = computed(() => {
   const trigger = payload.value?.generation.trigger === 'auto' ? '自动压缩' : '手动压缩'
   const count = payload.value?.generation.nodeCount
-  return `打包历史 · 第 ${props.generationIndex} 代 · ${trigger}${count ? ` · ${count} 节点` : ''}`
+  return `旧历史 · 第 ${props.generationIndex} 段 · ${trigger}${count ? ` · ${count} 节点` : ''}`
 })
 
 const timelineOverride = computed<RootTimelineSnapshot | undefined>(() => {
@@ -78,6 +79,7 @@ const timelineOverride = computed<RootTimelineSnapshot | undefined>(() => {
         v-else-if="timelineOverride"
         :root-chat-id="rootChatId"
         :timeline-override="timelineOverride"
+        :fold-mode="foldMode"
         static-view
       />
     </div>

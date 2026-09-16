@@ -25,8 +25,8 @@ const props = withDefaults(
 )
 const emit = defineEmits<{
   tree: [rootChatId: string, sourceChatId?: string, interactionId?: string, anchorNodeId?: string]
-  /** stepper 模式的决策队列进度（分页 n/N 由标题栏消费）。 */
-  pager: [{ index: number; total: number }]
+  /** stepper 模式的批次进度（分页 n/N 由标题栏消费，切换批次卡）。 */
+  batchPager: [{ index: number; total: number }]
 }>()
 
 const agents = useAgentsStore()
@@ -139,8 +139,8 @@ async function answer(item: InteractionRecord): Promise<void> {
   }
 }
 
-// ── stepper（纸牌堆叠）模式：多个批次同时堆叠（每批次一张卡，左下角漏边堆叠、
-// 点击切换遮挡关系）；标题栏 ← 题目 n/N → 切换当前批次卡内的题目，全部答完才可提交。 ──
+// ── stepper（单卡决策）模式：多个批次同时排队，一次完整展示一张卡；
+// 标题栏 ← 批次 n/N → 切换批次卡；卡内题目切换走底部操作栏左侧 ← 题目 n/N →，全部答完才可提交。 ──
 const activeIndex = ref(0)
 /** 每批次卡内的题目游标（按 interactionId 独立记忆，切换卡片不丢位置）。 */
 const questionCursor = reactive<Record<string, number>>({})
@@ -151,7 +151,7 @@ const questionIndex = computed(() => {
   const count = questionsOf(item).length
   return Math.min(questionCursor[item.interactionId] ?? 0, Math.max(count - 1, 0))
 })
-/** 标题栏 ← → 切换当前批次卡内的题目（循环）。 */
+/** 底部栏 ← 题目 → 切换当前批次卡内的题目（循环）。 */
 function step(delta: number): void {
   const item = activeItem.value
   if (!item) return
@@ -159,8 +159,11 @@ function step(delta: number): void {
   if (count < 2) return
   questionCursor[item.interactionId] = (questionIndex.value + delta + count) % count
 }
-function activate(index: number): void {
-  if (index >= 0 && index < scoped.value.length) activeIndex.value = index
+/** 标题栏 ← 批次 → 切换批次卡（循环）。 */
+function stepBatch(delta: number): void {
+  const length = scoped.value.length
+  if (length < 2) return
+  activeIndex.value = (activeIndex.value + delta + length) % length
 }
 /** 事项是否属于当前展示的节点树：属于则不显示「在节点树中查看」。 */
 function isCurrentTree(item: InteractionRecord): boolean {
@@ -176,22 +179,17 @@ watch(
     if (activeIndex.value >= length) activeIndex.value = Math.max(0, length - 1)
   },
 )
-// 标题栏题目进度上报：当前批次卡内 题目 n/N（审批无题目 → 0/0，标题栏不显示分页）
+// 标题栏批次进度上报：当前批次 n/N（审批与提问批次统一计数，单批次不显示分页）
 watch(
-  () => [questionIndex.value, activeItem.value?.interactionId ?? ''],
+  () => [activeIndex.value, scoped.value.length],
   () => {
     if (!props.stepper) return
-    const item = activeItem.value
-    if (!item || item.kind !== 'question_batch') {
-      emit('pager', { index: 0, total: 0 })
-      return
-    }
-    const total = questionsOf(item).length
-    emit('pager', { index: questionIndex.value + 1, total })
+    const total = scoped.value.length
+    emit('batchPager', total ? { index: activeIndex.value + 1, total } : { index: 0, total: 0 })
   },
   { immediate: true },
 )
-defineExpose({ step })
+defineExpose({ stepBatch })
 
 onMounted(() => {
   void interactions.refresh().catch(() => undefined)
@@ -272,8 +270,8 @@ onBeforeUnmount(() => {
       {{ interactions.error }}
     </p>
 
-    <!-- stepper（纸牌堆叠）模式：工作台决策窗口。多个事项批次同时堆叠，一次完整展示一张卡；
-         非活动卡以缩略条错位露出，点击或标题栏 ← n/N → 切换；提交后卡片抽出消失。 -->
+    <!-- stepper（单卡决策）模式：工作台决策窗口。多个事项批次同时排队，一次完整展示一张卡；
+         标题栏 ← 批次 n/N → 切换批次卡；卡内 ← 题目 n/N → 固定在底部操作栏左侧；提交后卡片淡出消失。 -->
     <template v-if="stepper">
       <div class="decision-deck">
         <DecisionDeck
@@ -281,15 +279,35 @@ onBeforeUnmount(() => {
           :active-index="activeIndex"
           :question-index="questionIndex"
           :now="now"
-          @activate="activate"
         />
         <p v-if="scoped.length === 0" class="empty">
           {{ interactions.loading ? '正在加载…' : '没有待处理交互' }}
         </p>
       </div>
 
-      <!-- 固定底部操作栏：单独一行；已是当前节点树的事项不显示「在节点树中查看」。 -->
+      <!-- 固定底部操作栏：单独一行；左侧为题目切换（提问批次始终显示），已是当前节点树的事项不显示「在节点树中查看」。 -->
       <footer v-if="activeItem" class="decision-bar">
+        <div
+          v-if="activeItem.kind === 'question_batch'"
+          class="question-switch"
+          role="group"
+          aria-label="切换批次内题目"
+        >
+          <button type="button" aria-label="上一题" :disabled="questionIndex <= 0" @click="step(-1)">
+            ←
+          </button>
+          <span class="question-switch-index" aria-live="polite"
+            >题目 {{ questionIndex + 1 }}/{{ questionsOf(activeItem).length }}</span
+          >
+          <button
+            type="button"
+            aria-label="下一题"
+            :disabled="questionIndex >= questionsOf(activeItem).length - 1"
+            @click="step(1)"
+          >
+            →
+          </button>
+        </div>
         <button v-if="!isCurrentTree(activeItem)" type="button" class="locate" @click="emitTree(activeItem)">
           在节点树中查看
         </button>
@@ -551,6 +569,40 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
+}
+// 底部栏左侧题目切换（与提交按钮同一行）：直角分页器，与标题栏批次分页同风格。
+.decision-bar .question-switch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.decision-bar .question-switch button {
+  min-width: 24px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.decision-bar .question-switch button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.decision-bar .question-switch button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+.decision-bar .question-switch-index {
+  min-width: 46px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
 }
 .decision-bar button:disabled {
   cursor: not-allowed;

@@ -210,6 +210,8 @@ export interface TaskAgentOverview {
   role: string
   status: TaskOverviewStatus | 'idle'
   currentStep?: string
+  /** 当前活动步骤类型（标题栏会话状态条 icon 映射：model=思考动画 / tool=sense 图标）。activeStep 存在时透出。 */
+  currentStepKind?: 'model' | 'tool'
   startedAt?: number
 }
 
@@ -239,6 +241,8 @@ export interface TaskOverview {
   presetId?: string
   preset?: string
   title: string
+  /** 末条 user 消息（截断 ≤40，复用 preview 规范化）；无 user 消息时省略。 */
+  lastUserPrompt?: string
   status: TaskOverviewStatus
   startedAt?: number
   updatedAt: number
@@ -756,6 +760,8 @@ export interface TimelineNode {
   createdAt: number
   updatedAt: number
   status: 'committed' | 'revoked'
+  /** Immutable configuration epoch that owned this fact. Missing only on legacy facts. */
+  epochId?: string
   taskId?: string
   branchId?: string
   branchKind?: 'original' | 'continuation' | 'detail'
@@ -863,6 +869,12 @@ export interface GenerationEntry {
   nodeCount: number
   createdAt: number
   trigger: 'manual' | 'auto'
+  /** Epoch that owns the compact boundary message. */
+  epochId?: string
+  /** Owning branch root when several conversation roots are combined into one task tree. */
+  sourceRootChatId?: string
+  /** Owning conversation branch in a combined task tree. */
+  branchId?: string
 }
 
 /** chat.timeline.generation.get 响应：单个已打包代际的完整图。 */
@@ -1523,6 +1535,20 @@ export const agentApi = {
   }): Promise<ChatSummary[]> {
     const data = await call<{ chats?: ChatSummary[] }>('chat.list', options)
     return data?.chats ?? []
+  },
+
+  /** chat.list 分页版（标题栏会话下拉）：scope='preset' + limit/offset，返回 total（同 WHERE 匹配总数）。
+   * 后端 preset scope 同时排除非 original 分支 root（与 isPianoRootSession 对齐）。 */
+  async listChatsPaged(options: {
+    scope: 'preset'
+    presetId?: string
+    preset?: string
+    includePreview?: boolean
+    limit: number
+    offset?: number
+  }): Promise<{ chats: ChatSummary[]; total: number }> {
+    const data = await call<{ chats?: ChatSummary[]; total?: number }>('chat.list', options)
+    return { chats: data?.chats ?? [], total: data?.total ?? 0 }
   },
 
   async suggestConversationRoute(params: {

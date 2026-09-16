@@ -72,4 +72,60 @@ describe('task overview projection', () => {
       agents: [expect.objectContaining({ status: 'failed' })],
     })
   })
+
+  it('surfaces the last user message as lastUserPrompt', () => {
+    const root = randomUUID()
+    cleanup.push(root)
+    createChat(root, { preset: 'research', presetId: 'preset-1' })
+    addMessage(randomUUID(), root, { role: 'user', content: '第一个问题' })
+    addMessage(randomUUID(), root, { role: 'user', content: '最后一个问题  带多余空白' })
+
+    expect(buildTaskOverview(root, 0)).toMatchObject({
+      lastUserPrompt: '最后一个问题 带多余空白',
+    })
+  })
+
+  it('omits lastUserPrompt when the root has no user messages', () => {
+    const root = randomUUID()
+    cleanup.push(root)
+    createChat(root)
+
+    expect(buildTaskOverview(root, 0)).not.toHaveProperty('lastUserPrompt')
+  })
+
+  it('exposes the current step kind for icon mapping and updates it as the run progresses', () => {
+    const root = randomUUID()
+    cleanup.push(root)
+    createChat(root)
+    appendChatEvent(root, {
+      kind: 'notification',
+      type: 'run.updated',
+      data: { runId: 'run-icon', status: 'running', at: 10 },
+      chatId: root,
+      runId: 'run-icon',
+    })
+    appendChatEvent(root, {
+      kind: 'notification',
+      type: 'turn.started',
+      data: { runId: 'run-icon', turnId: 'turn-1', createdAt: 11 },
+      chatId: root,
+      runId: 'run-icon',
+    })
+    expect(buildTaskOverview(root, 0)?.agents[0]).toMatchObject({
+      currentStep: '思考中',
+      currentStepKind: 'model',
+    })
+
+    appendChatEvent(root, {
+      kind: 'notification',
+      type: 'sense_started',
+      data: { runId: 'run-icon', id: 'tool-1', senseName: 'search', startedAt: 12 },
+      chatId: root,
+      runId: 'run-icon',
+    })
+    expect(buildTaskOverview(root, 0)?.agents[0]).toMatchObject({
+      currentStep: 'search',
+      currentStepKind: 'tool',
+    })
+  })
 })

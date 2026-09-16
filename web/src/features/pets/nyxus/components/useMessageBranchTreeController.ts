@@ -628,6 +628,8 @@ export function useMessageBranchTreeController(
   })
   /** 定位高度未测到前的合理小初始值：避免用视口上限高度参与垂直钳制导致矮窗「飘高」。 */
   const POPOVER_INITIAL_HEIGHT = 220
+  /** hover 详情弹窗默认宽度：与 ExecutionNodePopover.styles.less 的 `width: min(520px, …)` 保持一致。 */
+  const POPOVER_WIDTH = 520
   /** 审批/提问等 action 弹窗被用户拖动后的手动位置；缺省 = 跟随自动定位（贴节点右侧）。 */
   const actionPopoverManual = ref<Map<string, { left: number; top: number }>>(new Map())
   /** action 弹窗的实测内容高度（ResizeObserver 上报），定位用真实高度而非滚动上限。 */
@@ -678,7 +680,7 @@ export function useMessageBranchTreeController(
     const headerVisible = 32
     const left = Math.min(
       viewportSize.value.width - headerVisible,
-      Math.max(-480 + headerVisible, current.left + delta.x),
+      Math.max(-POPOVER_WIDTH + headerVisible, current.left + delta.x),
     )
     const top = Math.min(
       viewportSize.value.height - headerVisible,
@@ -715,14 +717,14 @@ export function useMessageBranchTreeController(
       const auto = anchoredPopoverPosition({
         anchor,
         viewport: viewportSize.value,
-        panel: { width: 480, height: measured ?? POPOVER_INITIAL_HEIGHT },
+        panel: { width: POPOVER_WIDTH, height: measured ?? POPOVER_INITIAL_HEIGHT },
         margin: 12,
       })
       const manual = actionPopoverManual.value.get(model.id)
       const left = manual?.left ?? auto.left
       const top = manual?.top ?? auto.top
       const placement = manual
-        ? anchor.x <= left + 480 / 2
+        ? anchor.x <= left + POPOVER_WIDTH / 2
           ? ('left' as const)
           : ('right' as const)
         : auto.placement
@@ -730,7 +732,7 @@ export function useMessageBranchTreeController(
         {
           id: model.id,
           anchor,
-          panel: { width: 480, height: Math.min(heightLimit, 640) },
+          panel: { width: POPOVER_WIDTH, height: Math.min(heightLimit, 640) },
           main: node.main,
           actionable: true,
           pinned: false,
@@ -1023,6 +1025,21 @@ export function useMessageBranchTreeController(
     }
     selectedCallId.value = undefined
   }
+  /** 常驻窗口标题分页器：按步进（-1/1）切换当前过程组的折叠成员页。 */
+  function stepFoldDetail(delta: number): void {
+    const node = detailNode.value
+    if (node?.kind !== 'fold' || !node.fold?.members.length) return
+    const members = node.fold.members
+    const currentIndex = Math.max(
+      0,
+      members.findIndex((member) => member.id === detailFoldMember.value?.id),
+    )
+    const nextIndex = currentIndex + delta
+    if (nextIndex < 0 || nextIndex >= members.length) return
+    const member = members[nextIndex]
+    if (!member) return
+    selectFoldMember(node.id, member.id)
+  }
   function onFoldRailInteraction(foldId: string, active: boolean): void {
     if (active) {
       readingFoldId.value = foldId
@@ -1078,7 +1095,7 @@ export function useMessageBranchTreeController(
       return
     }
     if (node.kind === 'pack' && node.pack) {
-      openGenerationView(node.pack.generationIndex)
+      openGenerationView(node.pack.sourceRootChatId, node.pack.generationIndex)
       return
     }
     if (props.paperMode && hasNodeHoverDetail(node)) {
@@ -1126,13 +1143,19 @@ export function useMessageBranchTreeController(
   }
   // ── 打包代际二层：点 pack 节点 → 抽屉已开则联动抽屉二层，否则本组件内弹窗 ──
   const generationDialogIndex = ref<number>()
-  function openGenerationView(generationIndex: number): void {
+  const generationDialogRootChatId = ref<string>()
+  function openGenerationView(sourceRootChatId: string, generationIndex: number): void {
     if (props.staticView) return // 二层内不再下钻（嵌套深度恒 1）
-    if (agents.historyDrawerStack.includes(props.rootChatId)) {
-      agents.openHistoryGeneration(props.rootChatId, generationIndex)
+    if (agents.historyDrawerStack.includes(sourceRootChatId)) {
+      agents.openHistoryGeneration(sourceRootChatId, generationIndex)
       return
     }
+    generationDialogRootChatId.value = sourceRootChatId
     generationDialogIndex.value = generationIndex
+  }
+  function closeGenerationView(): void {
+    generationDialogIndex.value = undefined
+    generationDialogRootChatId.value = undefined
   }
   const detailNode = computed(() => {
     const id = pinnedDetailNodeId.value ?? hoveredDetailNodeId.value
@@ -1288,8 +1311,7 @@ export function useMessageBranchTreeController(
     const index = presets.findIndex(
       (item) => item.width === detailSize.value.width && item.height === detailSize.value.height,
     )
-    const next =
-      presets[(index + 1) % presets.length] ?? { width: 640, height: 520, label: 'S' }
+    const next = presets[(index + 1) % presets.length] ?? { width: 640, height: 520, label: 'S' }
     detailSize.value = { width: next.width, height: next.height }
     if (detailManualPos.value) {
       const vp = viewportSize.value
@@ -1352,10 +1374,10 @@ export function useMessageBranchTreeController(
       viewport: viewportSize.value,
       panel: detailPinned.value
         ? detailSize.value
-        : { width: 480, height: measuredDetailHeight.value || POPOVER_INITIAL_HEIGHT },
+        : { width: POPOVER_WIDTH, height: measuredDetailHeight.value || POPOVER_INITIAL_HEIGHT },
       margin: 12,
     })
-    const panelWidth = detailPinned.value ? detailSize.value.width : 480
+    const panelWidth = detailPinned.value ? detailSize.value.width : POPOVER_WIDTH
     // 左轮与弹窗并排、顶对齐（统一落在节点下方区域）：默认贴弹窗左侧，左侧视口
     // 空间不足改贴弹窗右侧，两侧都放不下时钳制在视口内。锚点为弹窗容器相对坐标，
     // 左轮随弹窗容器移动（pinned 拖动时保持相对位置）。
@@ -1391,7 +1413,7 @@ export function useMessageBranchTreeController(
     const manual = detailPinned.value ? detailManualPos.value : undefined
     const left = manual?.left ?? decision.left
     const top = manual?.top ?? decision.top
-    const panelWidth = detailPinned.value ? detailSize.value.width : 480
+    const panelWidth = detailPinned.value ? detailSize.value.width : POPOVER_WIDTH
     const placement = manual
       ? decision.anchorX <= left + panelWidth / 2
         ? ('left' as const)
@@ -1615,6 +1637,7 @@ export function useMessageBranchTreeController(
       paperHasNewTail.value = false
       paperEntryCache = new Map()
       generationDialogIndex.value = undefined
+      generationDialogRootChatId.value = undefined
       if (previousRootChatId && previousRootChatId !== rootChatId) {
         pinnedCrtIds.value = new Set()
         hiddenCrtIds.value = new Set()
@@ -1835,6 +1858,7 @@ export function useMessageBranchTreeController(
     agents,
     canvas,
     closeCrt,
+    closeGenerationView,
     closeNodeDetail,
     crtById,
     crtPlacements,
@@ -1863,6 +1887,7 @@ export function useMessageBranchTreeController(
     focusRelativeNode,
     foldRailSide,
     generationDialogIndex,
+    generationDialogRootChatId,
     gpuNodeAccent,
     gpuNodeHitStyle,
     gpuRenderError,
@@ -1899,6 +1924,7 @@ export function useMessageBranchTreeController(
     selectedActionCall,
     selectedCallId,
     showNodeDetail,
+    stepFoldDetail,
     unpinCrt,
     unreadFoldMembers,
     vMeasureHeight,

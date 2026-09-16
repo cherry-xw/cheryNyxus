@@ -704,7 +704,7 @@ describe('unified workflow graph projection', () => {
     ).toMatchObject({ status: 'unavailable', reason: 'chat-mismatch' })
   })
 
-  it('elects one full eligible header and keeps detail and descendant headers compact', () => {
+  it('elects one full eligible header, keeps other branch headers compact and drops sub-agent headers', () => {
     const projection = projectWorkflowGraph(workflow(graphOccurrences()), timeline())
     const headers = projection.nodes.filter((node) => node.data.kind === 'header')
     expect(
@@ -712,13 +712,22 @@ describe('unified workflow graph projection', () => {
     ).toHaveLength(1)
     expect(headerData(projection, 'header:main').mode).toBe('full')
     expect(headerData(projection, 'header:detail').mode).toBe('compact')
-    expect(headerData(projection, 'header:agent:child-chat').mode).toBe('compact')
+    // 流程图只关注主 Agent 流程：子 Agent lane 不再渲染头部流程图。
+    expect(
+      headers.some((node) => node.data.kind === 'header' && node.id === 'header:agent:child-chat'),
+    ).toBe(false)
+    expect(
+      projection.scene.headerFlow.headers.some(
+        (header) => header.id === 'header:agent:child-chat',
+      ),
+    ).toBe(false)
     expect(
       headerData(projection, 'header:main').sections.flatMap((section) => section.kinds),
     ).toContain('tool-authorization')
     expect(projection.nodes.filter((node) => node.data.kind === 'occurrence')).toHaveLength(0)
-    expect(projection.scene.headerFlow.activeStepId).toBe('header-step:child-occurrence')
-    expect(projection.activeOccurrenceId).toBe('header:agent:child-chat')
+    // 活动步骤只在主 Agent lane 中选举：子 Agent 的运行步骤不进入流程图。
+    expect(projection.scene.headerFlow.activeStepId).toBe('header-step:detail-occurrence')
+    expect(projection.activeOccurrenceId).toBe('header:detail')
 
     const legacy = projectWorkflowGraph(
       workflow([occurrence('legacy', { status: 'running', endedAt: undefined })]),
@@ -774,10 +783,17 @@ describe('unified workflow graph projection', () => {
         .find((header) => header.id === 'header:alternate')
         ?.calls.map((call) => call.id),
     ).toEqual(['alternate-call'])
+    // 子 Agent lane 不渲染头部流程图，其内容节点与调用仍保留在结果树。
     expect(
-      projection.scene.headerFlow.headers
-        .find((header) => header.id === 'header:agent:child-chat')
-        ?.calls.map((call) => call.id),
-    ).toEqual(['child-call'])
+      projection.scene.headerFlow.headers.some(
+        (header) => header.id === 'header:agent:child-chat',
+      ),
+    ).toBe(false)
+    const childContent = projection.nodes.find((node) => node.id === 'content:child-message')
+    expect(childContent?.data.kind).toBe('content')
+    if (childContent?.data.kind === 'content')
+      expect(childContent.data.node.sourceFact?.toolCalls?.map((call) => call.callId)).toEqual([
+        'child-call',
+      ])
   })
 })

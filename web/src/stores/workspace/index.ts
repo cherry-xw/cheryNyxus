@@ -44,6 +44,5 @@ export function useWorkspacePort() {
     setWorkbenchWindowBlink: store.setWorkbenchWindowBlink,
     setWorkbenchWindowFocus: store.setWorkbenchWindowFocus,
     setWorkbenchWindowDrawer: store.setWorkbenchWindowDrawer,
-    setWorkbenchWindowWorkspaceBrowser: store.setWorkbenchWindowWorkspaceBrowser,
   }
 }

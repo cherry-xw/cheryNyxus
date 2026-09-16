@@ -220,6 +220,13 @@ export interface ChatListRequestData {
   preset?: string
   /** 仅显式历史/预设目录需要首条消息预览。 */
   includePreview?: boolean
+  /**
+   * 仅 preset scope 生效的分页：返回条数上限（1-100，非法值拒绝）。
+   * 缺省 = 全量返回（现有调用不变）；preset scope 同时排除非 original 分支 root（与前端 isPianoRootSession 对齐）。
+   */
+  limit?: number
+  /** 仅 preset scope 生效的分页偏移；须 ≥0。 */
+  offset?: number
 }
 
 export interface ChatRouteSuggestRequestData {
@@ -1526,6 +1533,8 @@ export interface ChatListResponseData {
       createdAt: number
     }>
   }>
+  /** 仅 scope='preset' 且携带 limit 时返回：同 WHERE（含分支排除）的匹配总数，供分页判断是否还有更多。 */
+  total?: number
 }
 
 export interface PendingQuestionBatchData {
@@ -1791,6 +1800,8 @@ export interface TimelineNode {
   createdAt: number
   updatedAt: number
   status: 'committed' | 'revoked'
+  /** Immutable configuration epoch that owned this fact. Missing only on legacy facts. */
+  epochId?: string
   taskId?: string
   branchId?: string
   branchKind?: ConversationBranchKind
@@ -1853,6 +1864,12 @@ export interface GenerationEntry {
   createdAt: number
   /** auto 由 send 侧内存标记 best-effort 回填；重启后重算一律 manual（装饰性字段） */
   trigger: 'manual' | 'auto'
+  /** Epoch that owns the compact boundary message. */
+  epochId?: string
+  /** Owning branch root when several conversation roots are combined into one task tree. */
+  sourceRootChatId?: string
+  /** Owning conversation branch in a combined task tree. */
+  branchId?: string
 }
 
 export interface RootTimelineSnapshot {
@@ -1884,6 +1901,8 @@ export interface TaskAgentOverview {
   role: string
   status: TaskAgentOverviewStatus
   currentStep?: string
+  /** 当前活动步骤类型（标题栏会话状态条 icon 映射：model=思考动画 / tool=sense 图标）。activeStep 存在时透出。 */
+  currentStepKind?: 'model' | 'tool'
   startedAt?: number
 }
 
@@ -1913,6 +1932,8 @@ export interface TaskOverview {
   presetId?: string
   preset?: string
   title: string
+  /** 末条 user 消息（截断 ≤40，复用 preview 规范化）；无 user 消息时省略。 */
+  lastUserPrompt?: string
   status: TaskOverviewStatus
   startedAt?: number
   updatedAt: number

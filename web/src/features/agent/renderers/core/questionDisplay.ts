@@ -14,7 +14,7 @@ export type QuestionAnswerView =
   | { kind: 'running'; labels: []; freeText?: undefined }
   | { kind: 'cancelled'; labels: []; freeText?: undefined }
   | { kind: 'missing'; labels: []; freeText?: undefined }
-  | { kind: 'answered'; labels: string[]; freeText?: string }
+  | { kind: 'answered'; labels: string[]; freeText?: string; notes?: Record<string, string> }
 
 export function parseQuestionArgs(input: unknown): QuestionArgsView | null {
   try {
@@ -46,29 +46,54 @@ export function parseQuestionArgs(input: unknown): QuestionArgsView | null {
   }
 }
 
+interface SerializedLabelMatch {
+  labels: string[]
+  notes: Record<string, string>
+}
+
+/** 后端选项补充注记分隔：`label（补充: note）`（src/db/question.ts）。 */
+const NOTE_SUFFIX = '（补充: '
+
 function matchSerializedLabels(
   serialized: string,
   options: readonly QuestionOptionView[],
-): string[] {
-  if (!serialized) return []
+): SerializedLabelMatch {
+  if (!serialized) return { labels: [], notes: {} }
   const labels = options.map((option) => option.label)
-  const memo = new Map<number, string[] | null>()
+  const memo = new Map<number, SerializedLabelMatch | null>()
 
-  function visit(offset: number): string[] | null {
-    if (offset === serialized.length) return []
+  /** 读取 label 之后紧跟的「（补充: note）」注记；无注记返回 undefined。 */
+  function noteAfter(offset: number, labelLength: number): string | undefined {
+    const after = offset + labelLength
+    if (!serialized.startsWith(NOTE_SUFFIX, after)) return undefined
+    const end = serialized.indexOf('）', after + NOTE_SUFFIX.length)
+    if (end < 0) return undefined
+    return serialized.slice(after + NOTE_SUFFIX.length, end).trim() || undefined
+  }
+
+  function visit(offset: number): SerializedLabelMatch | null {
+    if (offset === serialized.length) return { labels: [], notes: {} }
     if (memo.has(offset)) return memo.get(offset) ?? null
     for (const label of labels) {
       if (!serialized.startsWith(label, offset)) continue
       const end = offset + label.length
-      if (end === serialized.length) {
-        const match = [label]
+      const note = noteAfter(offset, label.length)
+      const after = note !== undefined ? end + NOTE_SUFFIX.length + note.length + 1 : end
+      if (after === serialized.length) {
+        const match: SerializedLabelMatch = {
+          labels: [label],
+          notes: note !== undefined ? { [label]: note } : {},
+        }
         memo.set(offset, match)
         return match
       }
-      if (!serialized.startsWith(', ', end)) continue
-      const rest = visit(end + 2)
+      if (!serialized.startsWith(', ', after)) continue
+      const rest = visit(after + 2)
       if (rest) {
-        const match = [label, ...rest]
+        const match: SerializedLabelMatch = {
+          labels: [label, ...rest.labels],
+          notes: note !== undefined ? { [label]: note, ...rest.notes } : rest.notes,
+        }
         memo.set(offset, match)
         return match
       }
@@ -77,13 +102,22 @@ function matchSerializedLabels(
     return null
   }
 
-  return (
-    visit(0) ??
-    serialized
-      .split(', ')
-      .map((label) => label.trim())
-      .filter(Boolean)
-  )
+  const matched = visit(0)
+  if (matched) return matched
+  // 无法按完整选项标签匹配（历史异常数据）：逐段剥离补充注记后原样保留。
+  const notes: Record<string, string> = {}
+  const parts = serialized
+    .split(', ')
+    .map((part) => {
+      const noteIndex = part.indexOf(NOTE_SUFFIX)
+      if (noteIndex < 0 || !part.endsWith('）')) return part.trim()
+      const base = part.slice(0, noteIndex).trim()
+      const note = part.slice(noteIndex + NOTE_SUFFIX.length, -1).trim()
+      if (base && note) notes[base] = note
+      return base
+    })
+    .filter(Boolean)
+  return { labels: parts, notes }
 }
 
 export function parseQuestionAnswer(
@@ -113,10 +147,11 @@ export function parseQuestionAnswer(
     }
   }
 
-  const labels = matchSerializedLabels(labelsText, args?.options ?? [])
+  const matched = matchSerializedLabels(labelsText, args?.options ?? [])
   return {
     kind: 'answered',
-    labels,
+    labels: matched.labels,
     ...(freeText ? { freeText } : {}),
+    ...(Object.keys(matched.notes).length ? { notes: matched.notes } : {}),
   }
 }

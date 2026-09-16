@@ -11,12 +11,14 @@ import { useMotionPreference } from '@/composables/useMotionPreference'
 import { MOTION } from '@/utils/gsapCore'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import RiskBadge from '@/components/RiskBadge.vue'
+import QuestionAnswerDetail from './QuestionAnswerDetail.vue'
 const props = defineProps<ExecutionNodePopoverControllerProps>()
 const emit = defineEmits<ExecutionNodePopoverControllerEmits>()
 const controller = useExecutionNodePopoverController(props, emit)
 const {
   ElTooltip,
   RESULT_PREVIEW_LIMIT,
+  RISK_LEVEL_LABEL,
   ToolFieldTree,
   activeQuestionCall,
   actualDescription,
@@ -25,7 +27,8 @@ const {
   canBranch,
   copiedFieldKey,
   copyField,
-  isQuestionOptionSelected,
+  foldPosition,
+  isQuestionCall,
   isQuestionTool,
   isReadFileTool,
   isSearchTool,
@@ -61,6 +64,7 @@ const {
   renderedSpawnPrompt,
   resultFields,
   resultTruncated,
+  riskLevelOf,
   searchConfiguration,
   searchMode,
   searchPath,
@@ -74,6 +78,7 @@ const {
   spawnPrompt,
   spawnRole,
   spawnWake,
+  stepFold,
   terminationDisplay,
   thinkingOpen,
   toolBatchUsesTabs,
@@ -133,7 +138,32 @@ useGsap(popoverRoot, (context) => {
         <span class="title-icon" aria-hidden="true">
           {{ batch ? toolIcon : skinForNode(node).glyph }}
         </span>
-        <strong>{{ nodeTitle }}</strong>
+        <!-- 常驻（pinned）过程组：标题保持「过程组」，分页箭头只围绕数字（‹ X/Y ›） -->
+        <span v-if="pinned && foldPosition" class="fold-pager" role="group" aria-label="过程组分页">
+          <strong>过程组</strong>
+          <button
+            type="button"
+            class="fold-pager-arrow"
+            :disabled="foldPosition.index <= 1"
+            aria-label="上一个过程组页"
+            @click="stepFold(-1)"
+          >
+            ‹
+          </button>
+          <span class="fold-pager-position" aria-live="polite">
+            {{ foldPosition.index }}/{{ foldPosition.total }}
+          </span>
+          <button
+            type="button"
+            class="fold-pager-arrow"
+            :disabled="foldPosition.index >= foldPosition.total"
+            aria-label="下一个过程组页"
+            @click="stepFold(1)"
+          >
+            ›
+          </button>
+        </span>
+        <strong v-else>{{ nodeTitle }}</strong>
         <span v-if="nodeTime" class="node-time" aria-label="节点发起时间">{{ nodeTime }}</span>
         <span v-if="!batch" class="status-pill" :class="`status-${node.status}`">
           {{ nodeStatus }}
@@ -145,14 +175,6 @@ useGsap(popoverRoot, (context) => {
           aria-label="从此节点发起对话"
         >
           <span class="branch-action-wrap">
-            <button
-              type="button"
-              class="branch-head-action is-detail"
-              :disabled="detailBranchAvailable === false"
-              @click="emit('branch', 'detail', node.sourceFact!.id)"
-            >
-              <span aria-hidden="true">◉</span>解释此处
-            </button>
             <ElTooltip
               :content="
                 detailBranchAvailable === false
@@ -162,23 +184,29 @@ useGsap(popoverRoot, (context) => {
               placement="top"
               :show-after="180"
             >
-              <span class="branch-info" aria-hidden="true">ⓘ</span>
+              <button
+                type="button"
+                class="branch-head-action is-detail"
+                :disabled="detailBranchAvailable === false"
+                @click="emit('branch', 'detail', node.sourceFact!.id)"
+              >
+                <span aria-hidden="true">◉</span>解释此处
+              </button>
             </ElTooltip>
           </span>
           <span class="branch-action-wrap">
-            <button
-              type="button"
-              class="branch-head-action is-continuation"
-              @click="emit('branch', 'continuation', node.sourceFact!.id)"
-            >
-              <span aria-hidden="true">⑂</span>从此处继续
-            </button>
             <ElTooltip
               content="从该历史状态创建并列任务分支并继承原角色；节点之后已经发生的工具副作用不会撤销。"
               placement="top"
               :show-after="180"
             >
-              <span class="branch-info" aria-hidden="true">ⓘ</span>
+              <button
+                type="button"
+                class="branch-head-action is-continuation"
+                @click="emit('branch', 'continuation', node.sourceFact!.id)"
+              >
+                <span aria-hidden="true">⑂</span>从此处继续
+              </button>
             </ElTooltip>
           </span>
         </div>
@@ -233,9 +261,18 @@ useGsap(popoverRoot, (context) => {
           :class="{ active: call.callId === selectedCall?.callId }"
           @click="emit('selectCall', call.callId)"
         >
-          <span class="tool-tab-icon" aria-hidden="true">{{ toolGlyph(call.name) }}</span>
+          <!-- 询问类工具省略 ❓ 图标（提问批次页签以文字为主） -->
+          <span v-if="!isQuestionCall(call)" class="tool-tab-icon" aria-hidden="true">{{
+            toolGlyph(call.name)
+          }}</span>
           <span class="tool-tab-label">{{ toolLabel(call.name) }}</span>
-          <RiskBadge :auth="call.security" compact />
+          <!-- 页签右上角安全判定小色点（无文字无底色）：安全=绿 / 中=黄 / 高=红 / 未知=灰 -->
+          <span
+            class="tool-tab-risk"
+            :class="`is-${riskLevelOf(call.security)}`"
+            :title="RISK_LEVEL_LABEL[riskLevelOf(call.security)]"
+            aria-hidden="true"
+          />
         </button>
       </div>
     </div>
@@ -314,7 +351,10 @@ useGsap(popoverRoot, (context) => {
             :class="{ active: call.callId === activeQuestionCall?.callId }"
             @click="!question && emit('selectCall', call.callId)"
           >
-            <span class="tool-tab-icon" aria-hidden="true">{{ toolGlyph(call.name) }}</span>
+            <!-- 询问类工具省略 ❓ 图标（提问批次页签以文字为主） -->
+            <span v-if="!isQuestionCall(call)" class="tool-tab-icon" aria-hidden="true">{{
+              toolGlyph(call.name)
+            }}</span>
             <span class="tool-tab-label">{{ toolLabel(call.name) }}</span>
           </button>
         </div>
@@ -474,59 +514,12 @@ useGsap(popoverRoot, (context) => {
                 <p v-else class="empty-detail">暂无可展示的文件内容。</p>
               </section>
 
-              <section v-else-if="isQuestionTool" class="question-detail">
-                <template v-if="questionArgs">
-                  <div class="question-heading">
-                    <span v-if="questionArgs.header">{{ questionArgs.header }}</span>
-                    <small>{{ questionArgs.multiSelect ? '多选' : '单选' }}</small>
-                  </div>
-                  <p class="question-text">{{ questionArgs.question }}</p>
-                  <div
-                    class="question-options"
-                    role="list"
-                    :aria-label="questionArgs.multiSelect ? '多选选项' : '单选选项'"
-                  >
-                    <div
-                      v-for="option in questionArgs.options"
-                      :key="option.label"
-                      class="question-option"
-                      :class="{ selected: isQuestionOptionSelected(option.label) }"
-                      role="listitem"
-                    >
-                      <span
-                        class="question-control"
-                        :class="{ 'is-multi': questionArgs.multiSelect }"
-                        aria-hidden="true"
-                      >
-                        {{ isQuestionOptionSelected(option.label) ? '✓' : '' }}
-                      </span>
-                      <span class="question-option-copy">
-                        <strong>{{ option.label }}</strong>
-                        <small v-if="option.description">{{ option.description }}</small>
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    v-if="questionAnswer.kind === 'answered' && questionAnswer.freeText"
-                    class="question-other detail-field"
-                  >
-                    <small class="detail-label">其他补充</small>
-                    <div class="detail-value">
-                      <p>{{ questionAnswer.freeText }}</p>
-                    </div>
-                  </div>
-                  <p v-else-if="questionAnswer.kind === 'cancelled'" class="question-note">
-                    用户已取消该问题。
-                  </p>
-                  <p v-else-if="questionAnswer.kind === 'running'" class="question-note">
-                    等待用户选择…
-                  </p>
-                  <p v-else-if="questionAnswer.kind === 'missing'" class="question-note">
-                    这次执行没有留下可识别的回答。
-                  </p>
-                </template>
-                <pre v-else class="question-fallback">{{ selectedCall.arguments }}</pre>
-              </section>
+              <QuestionAnswerDetail
+                v-else-if="isQuestionTool"
+                :args="questionArgs"
+                :answer="questionAnswer"
+                :raw-arguments="selectedCall.arguments"
+              />
 
               <section v-else-if="isSearchTool" class="search-detail">
                 <div class="search-summary-bar">

@@ -115,7 +115,7 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 
 **审批规则**：原「规则文件」改名为「审批规则」。下拉选择 `.chery/rule/` 下覆盖文件（`presets.<name>.rule`），与基准 `base.yaml` 深合并（详见 [后端 Sense 文档](../backend/core/sense.md) 的“smart 规则表”）。右侧「刷新」按钮重新拉取 `rules.list`——手动新建或与 Cherry Nexus 对话生成规则文件后立即可见。tip 含机制（命中危险拦截/未命中放行）+ 操作方案（与 Cherry Nexus 对话生成 / 手动编辑 `.chery/rule/` + 保存；实际采用时间以设置页生效状态为准）。
 
-**tip 排版与配色**：`.label-tip-popper`（web/src/styles/element/index.scss）全局 `pre-line` 换行（content 内 `\n` 分节）+ 配色随主题——背景 `var(--panel)` / 文字 `var(--ink)`（深色黑底白字、浅色白底黑字）；`.el-popper.is-dark.label-tip-popper` 抬特异性覆盖 el-tooltip 默认黑底。影响所有 LabelTip（编辑器/插件导入/指令/大脑/技能导入/预设）。
+**tip 排版与配色**：`.label-tip-popper`（web/src/styles/element/index.scss）全局 `pre-line` 换行（content 内 `\n` 分节）。配色由同文件全局 `.el-popper.is-dark` 规则统一覆盖——背景 `var(--panel)` / 文字 `var(--ink)`，随主题自动翻转（深色深底浅字、浅色浅底深字）；覆盖 el-tooltip 默认黑底（其「文字色当背景」在深色模式会反转成浅底深字）。影响所有 LabelTip 及全部 el-tooltip 悬浮提示（编辑器/插件导入/指令/大脑/技能导入/预设/工作台等）。
 
 **tip/title 使用边界（硬性要求）**：任何提示性内容**默认必须用 tip 展示**（LabelTip / el-tooltip，走 `.label-tip-popper` 排版）；只有**非常不重要**的信息才允许降级为原生 `title` 属性。新增 UI 一律按此判定，不得以 `title` 作为提示性内容的默认载体。
 
