@@ -54,6 +54,7 @@ const {
   monitorEl,
   moveBarTip,
   nodeKindLabel,
+  nodeTipText,
   nodeToneVars,
   noteOf,
   onAnswerBatch,
@@ -93,12 +94,14 @@ const {
   showBarTip,
   showsRowContent,
   textDraftOf,
+  tipAction,
   tipPos,
   toggleNoteOpen,
   togglePendingCollapsed,
   toggleRunDetail,
   canAnswerBatch,
   toolTypeGlyph,
+  toolTypeLabel,
   trajectoryBarStyle,
   trajectoryLayout,
   trajectoryZoom,
@@ -223,12 +226,7 @@ const {
                       :data-tooltype="bar.node.toolType"
                       :data-node-id="bar.node.nodeId"
                       :style="trajectoryBarStyle(bar)"
-                      :title="
-                        bar.node.label +
-                        ' · ' +
-                        runStatusLabel(bar.node.status) +
-                        ' · 点击定位下方内容'
-                      "
+                      :aria-label="nodeTipText(bar.node) + '，点击定位下方内容'"
                       @pointerenter="showBarTip(bar.node, $event)"
                       @pointermove="moveBarTip"
                       @pointerleave="hideBarTip"
@@ -316,12 +314,10 @@ const {
                 ]"
                 :data-status="node.status"
                 :data-tooltype="node.kind === 'tool' ? node.toolType : undefined"
-                :title="`${node.label} · ${runStatusLabel(node.status)}${
-                  node.elapsedMs > 0 ? ' · ' + formatElapsed(node.elapsedMs) : ''
-                }`"
-                :aria-label="`${node.label}，${runStatusLabel(node.status)}${
-                  node.elapsedMs > 0 ? '，' + formatElapsed(node.elapsedMs) : ''
-                }`"
+                :aria-label="nodeTipText(node)"
+                @pointerenter="showBarTip(node, $event)"
+                @pointermove="moveBarTip"
+                @pointerleave="hideBarTip"
                 @click="openNodeDetail(node, $event)"
               >
                 <span class="lite-cluster-icon" aria-hidden="true">{{
@@ -865,10 +861,15 @@ const {
             <span class="lite-tip-key">类型</span>
             {{ nodeKindLabel(hoverNode) }}
           </span>
+          <span v-if="hoverNode.kind === 'tool'" class="lite-tip-row">
+            <span class="lite-tip-key">工具类型</span>
+            {{ toolTypeLabel(hoverNode.toolType) }}
+          </span>
           <span v-if="hoverNode.agentLabel" class="lite-tip-row">
             <span class="lite-tip-key">Agent</span>
             {{ hoverNode.agentLabel }}
           </span>
+          <span class="lite-tip-action">{{ tipAction }}</span>
         </div>
       </Teleport>
     </div>

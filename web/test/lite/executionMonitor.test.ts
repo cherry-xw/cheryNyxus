@@ -528,7 +528,8 @@ describe('Lite detail lazy pagination', () => {
     expect(view).toContain('activeQuestion')
     expect(view).toContain('canAnswerBatch')
     expect(view).toContain('lite-interaction-actions is-question')
-    expect(view).toContain("html[data-theme='light']")
+    // 主题耦合已由 token + color-mix 承接（v1.0/v1.7 废弃独立浅色覆盖块）：校验 lite 仍绑定节点树同源主题色变量。
+    expect(view).toContain('--lite-tone-')
     expect(view).not.toContain('inset 3px 0 0')
     expect(view).toContain('remainingLabel(')
     expect(view).toContain('detailReturnFocus.value?.focus()')

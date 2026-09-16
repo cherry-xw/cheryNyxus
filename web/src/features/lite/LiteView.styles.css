@@ -35,11 +35,15 @@
   border: 1px solid currentColor;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .15s ease;
+  transition: opacity 0.15s ease;
 }
-.lite-cluster-node:hover::before { opacity: .32; }
+.lite-cluster-node:hover::before {
+  opacity: 0.32;
+}
 @media (prefers-reduced-motion: reduce) {
-  .lite-cluster-node::before { transition: none; }
+  .lite-cluster-node::before {
+    transition: none;
+  }
 }
 
 /* 字重收敛：lite 视图内 <strong>（审批标题/历史 label 等）一律 400——lite 为轻量界面，
@@ -670,6 +674,14 @@
   flex: none;
   color: var(--el-text-color-placeholder);
   min-width: 34px;
+}
+/* 浮层底部操作提示（去掉原生 title 后承接「点击定位/查看详情」指引） */
+.lite-tip-action {
+  display: block;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  color: var(--el-color-primary);
 }
 /* 工具只显示 ASCII 字符；中文名称仅保留在 title / aria-label / 详情中。 */
 .lite-cluster-node.is-tool .lite-cluster-icon {
