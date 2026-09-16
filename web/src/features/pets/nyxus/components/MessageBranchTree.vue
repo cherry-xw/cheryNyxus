@@ -12,10 +12,14 @@ const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), {
   layoutMode: 'timeline',
   presentationMode: 'horizontal-signal',
   suspended: false,
+  sidePanelTitle: '',
 })
 const emit = defineEmits<MessageBranchTreeControllerEmits>()
 const controller = useMessageBranchTreeController(props, emit)
 const detailMotion = useOverlayTransitionHooks('panel')
+const drawerMotion = useOverlayTransitionHooks('drawer')
+/** 侧边抽屉标题兜底（工作台总会传入；代际弹窗等无侧栏场景不渲染抽屉）。 */
+const drawerTitle = computed(() => props.sidePanelTitle || '侧边面板')
 const {
   AnchoredRunCrt,
   ExecutionNodePopover,
@@ -101,7 +105,7 @@ useTreePointerHighlight({
   layer: pointerHighlightRef,
   suspended: toRef(props, 'suspended'),
 })
-// 流程图/阅读器侧边抽屉：以 --tree-drawer-width 覆盖节点树，右缘拖拽/键盘调宽。
+// 卡牌/流程图/阅读器右侧抽屉：以 --tree-drawer-width 覆盖节点树，左缘拖拽/键盘调宽。
 // 宽度存百分比（相对画布容器），跨开关抽屉保留；切换会话重挂载后回到默认 50%。
 const DRAWER_MIN_PX = 300
 const DRAWER_MIN_PCT = 24
@@ -131,7 +135,8 @@ function onDrawerResizeMove(event: PointerEvent): void {
   const containerWidth = viewportSize.value.width
   if (containerWidth <= 0) return
   const deltaPct = ((event.clientX - drawerDragStart.x) / containerWidth) * 100
-  drawerWidthPct.value = clampDrawerWidth(drawerDragStart.pct + deltaPct)
+  // 右侧抽屉：手柄在抽屉左缘，向左拖 = 变宽。
+  drawerWidthPct.value = clampDrawerWidth(drawerDragStart.pct - deltaPct)
 }
 function onDrawerResizeEnd(): void {
   drawerDragStart = null
@@ -142,7 +147,15 @@ function onDrawerResizeKeydown(event: KeyboardEvent): void {
   const { min, max } = drawerWidthLimits.value
   if (event.key === 'Home') drawerWidthPct.value = min
   else if (event.key === 'End') drawerWidthPct.value = max
-  else drawerWidthPct.value = clampDrawerWidth(drawerWidthPct.value + (event.key === 'ArrowLeft' ? -5 : 5))
+  // 右侧抽屉：左箭头 = 变宽（向左扩），右箭头 = 变窄。
+  else
+    drawerWidthPct.value = clampDrawerWidth(
+      drawerWidthPct.value + (event.key === 'ArrowLeft' ? 5 : -5),
+    )
+}
+/** 遮罩 / ✕ 关闭侧边抽屉 → 父级（工作台）把 sidePanel 置回 none。 */
+function closeSidePanel(): void {
+  emit('close-side-panel')
 }
 defineExpose({ resetLayout: controller.resetLayout })
 </script>
@@ -150,44 +163,75 @@ defineExpose({ resetLayout: controller.resetLayout })
 <template>
   <section
     class="execution-tree"
-    :class="{ 'is-paper-mode': paperMode, 'has-side-panel': sidePanelOpen }"
+    :class="{ 'has-side-panel': sidePanelOpen }"
     :style="{ '--tree-drawer-width': `${clampDrawerWidth(drawerWidthPct)}%` }"
     aria-label="任务执行节点树"
   >
-    <div v-if="sidePanelOpen && !paperMode" class="tree-side-panel">
-      <slot name="side-panel" />
-    </div>
-    <span
-      v-if="sidePanelOpen && !paperMode"
-      class="tree-drawer-resize"
-      role="separator"
-      tabindex="0"
-      aria-orientation="vertical"
-      aria-label="调整侧边面板宽度"
-      :aria-valuemin="Math.round(drawerWidthLimits.min)"
-      :aria-valuemax="Math.round(drawerWidthLimits.max)"
-      :aria-valuenow="Math.round(drawerWidthPct)"
-      @pointerdown="onDrawerResizeDown"
-      @pointermove="onDrawerResizeMove"
-      @pointerup="onDrawerResizeEnd"
-      @pointercancel="onDrawerResizeEnd"
-      @lostpointercapture="onDrawerResizeEnd"
-      @keydown="onDrawerResizeKeydown"
-    />
-    <NodePaperStack
-      v-if="paperMode"
-      :entries="paperEntries"
-      :edges="paperGraph.edges"
-      :current-index="paperCurrentIndex"
-      :max-height="Math.min(640, Math.max(160, viewportSize.height - 150))"
-      :has-new-tail="paperHasNewTail"
-      :detail-branch-available="detailBranchAvailable"
-      :detail-branch-unavailable-reason="detailBranchUnavailableReason"
-      :sense-tools="agents.senseTools"
-      @select="selectPaperIndex"
-      @latest="returnToLatestPaper"
-      @branch="requestBranch"
-    />
+    <Transition
+      :css="false"
+      @before-enter="drawerMotion.onBeforeEnter"
+      @enter="drawerMotion.onEnter"
+      @leave="drawerMotion.onLeave"
+      @enter-cancelled="drawerMotion.onEnterCancelled"
+      @leave-cancelled="drawerMotion.onLeaveCancelled"
+    >
+      <div v-if="sidePanelOpen" key="tree-drawer" class="tree-drawer-layer">
+        <div class="tree-drawer-mask" aria-hidden="true" @pointerdown="closeSidePanel" />
+        <aside
+          class="tree-drawer"
+          data-motion-panel
+          role="dialog"
+          aria-modal="true"
+          :aria-label="drawerTitle"
+        >
+          <header class="tree-drawer-head">
+            <span class="tree-drawer-title">{{ drawerTitle }}</span>
+            <button
+              type="button"
+              class="tree-drawer-close"
+              aria-label="关闭侧边抽屉"
+              title="关闭"
+              @click="closeSidePanel"
+            >
+              ✕
+            </button>
+          </header>
+          <div class="tree-drawer-body">
+            <NodePaperStack
+              v-if="paperMode"
+              :entries="paperEntries"
+              :edges="paperGraph.edges"
+              :current-index="paperCurrentIndex"
+              :max-height="Math.min(640, Math.max(160, viewportSize.height - 150))"
+              :has-new-tail="paperHasNewTail"
+              :detail-branch-available="detailBranchAvailable"
+              :detail-branch-unavailable-reason="detailBranchUnavailableReason"
+              :sense-tools="agents.senseTools"
+              @select="selectPaperIndex"
+              @latest="returnToLatestPaper"
+              @branch="requestBranch"
+            />
+            <slot v-else name="side-panel" />
+          </div>
+        </aside>
+        <span
+          class="tree-drawer-resize"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="调整侧边面板宽度"
+          :aria-valuemin="Math.round(drawerWidthLimits.min)"
+          :aria-valuemax="Math.round(drawerWidthLimits.max)"
+          :aria-valuenow="Math.round(drawerWidthPct)"
+          @pointerdown="onDrawerResizeDown"
+          @pointermove="onDrawerResizeMove"
+          @pointerup="onDrawerResizeEnd"
+          @pointercancel="onDrawerResizeEnd"
+          @lostpointercapture="onDrawerResizeEnd"
+          @keydown="onDrawerResizeKeydown"
+        />
+      </div>
+    </Transition>
     <div
       ref="viewportRef"
       class="tree-viewport"

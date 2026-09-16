@@ -71,6 +71,7 @@ const {
   sessionControl, sessionControlPending,
   sessionListLoading, sessionListOpen,
   showCommandMenu, showFoldTool, showRoleList, showRoleMenu, showSessionList,
+  sidePanelTitle, closeSidePanel,
   supportsTools, switchSession,
   taskControlPending, taskHasRunningBranches, taskTimeline,
   text, toggleRoleList, toggleSessionList, toggleWorkspaceBrowser,
@@ -140,6 +141,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             :key="treeRootChatId"
             v-bind="treeProps"
             @branch="selectBranchTarget"
+            @close-side-panel="closeSidePanel"
           >
             <template #side-panel>
               <div class="workbench-side-panel">
@@ -407,7 +409,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 :show-after="200"
                 :hide-after="0"
               >
-                <span class="nyxus-tool-tip-anchor">
+                <span class="nyxus-tool-tip-anchor is-lite-hidden">
                   <button
                     type="button"
                     class="nyxus-rail-action is-message"
@@ -492,7 +494,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 :show-after="200"
                 :hide-after="0"
               >
-                <span class="nyxus-tool-tip-anchor">
+                <span class="nyxus-tool-tip-anchor is-lite-hidden">
                   <button
                     type="button"
                     class="nyxus-rail-action is-stop"
@@ -593,7 +595,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </div>
             <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
               <el-tooltip content="卡牌模式" placement="left" :show-after="200" :hide-after="0">
-                <span class="nyxus-tool-tip-anchor">
+                <span class="nyxus-tool-tip-anchor is-lite-hidden">
                   <button
                     type="button"
                     class="nyxus-rail-action"
@@ -609,7 +611,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 </span>
               </el-tooltip>
               <el-tooltip content="流程图" placement="left" :show-after="200" :hide-after="0">
-                <span class="nyxus-tool-tip-anchor">
+                <span class="nyxus-tool-tip-anchor is-lite-hidden">
                   <button
                     type="button"
                     class="nyxus-rail-action"
@@ -630,7 +632,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 :show-after="200"
                 :hide-after="0"
               >
-                <span class="nyxus-tool-tip-anchor">
+                <span class="nyxus-tool-tip-anchor is-lite-hidden">
                   <button
                     type="button"
                     class="nyxus-rail-action"
