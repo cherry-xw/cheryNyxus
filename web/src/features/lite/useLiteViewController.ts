@@ -13,6 +13,7 @@ import {
   projectLiteExecution,
   projectLiteHistory,
   toolTypeGlyph,
+  toolTypeLabel,
   type LiteRunNode,
   type LiteRunNodeStatus,
   type LiteRunRow,
@@ -618,7 +619,11 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     questionDrafts.value = { ...questionDrafts.value, [batchId]: batch }
   }
   /** 选项卡片点击/键盘切换：不可操作（已处理/超时等）时忽略。 */
-  function onToggleChoice(interaction: LiteInteraction, question: QuestionView, label: string): void {
+  function onToggleChoice(
+    interaction: LiteInteraction,
+    question: QuestionView,
+    label: string,
+  ): void {
     if (!interactionActionable(interaction)) return
     toggleOption(interaction.interactionId, question, label)
   }
@@ -915,13 +920,20 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     activeLane.value = laneIdOf(node)
     void locateNode(node.nodeId)
   }
-  // t16：hover 放大 + tip 展示详情（时间轴 bar 悬停浮层）。
+  // t16：hover 放大 + tip 展示详情（时间轴 bar 悬停浮层）。cluster 小按钮复用同一浮层。
   const hoverNode = ref<LiteRunNode | null>(null)
   const tipPos = ref({ x: 0, y: 0 })
+  /** 浮层底部「点击」操作提示：轨迹块点击定位下方内容，cluster 小按钮点击查看详情。 */
+  const tipAction = ref('')
   function showBarTip(node: LiteRunNode, event: PointerEvent): void {
     hoverNode.value = node
     tipPos.value.x = event.clientX
     tipPos.value.y = event.clientY
+    const target = event.currentTarget
+    tipAction.value =
+      target instanceof HTMLElement && target.classList.contains('lite-trajectory-bar')
+        ? '点击定位下方内容'
+        : '点击查看详情'
   }
   function moveBarTip(event: PointerEvent): void {
     if (!hoverNode.value) return
@@ -930,10 +942,20 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   }
   function hideBarTip(): void {
     hoverNode.value = null
+    tipAction.value = ''
   }
   function nodeKindLabel(node: LiteRunNode): string {
     if (node.kind === 'tool') return `${toolTypeGlyph(node.toolType)} ${LITE_NODE_LABELS.tool}`
     return LITE_NODE_LABELS[node.kind]
+  }
+  /** 小图标 tip 文案（cluster 小按钮 / 轨迹块 aria-label 共用）：节点类型 + 工具类型 + 名称 + 状态 + 耗时。 */
+  function nodeTipText(node: LiteRunNode): string {
+    const parts: string[] = [LITE_NODE_LABELS[node.kind]]
+    if (node.kind === 'tool' && node.toolType) parts.push(toolTypeLabel(node.toolType))
+    parts.push(node.label)
+    parts.push(runStatusLabel(node.status))
+    if (node.elapsedMs > 0) parts.push(formatElapsed(node.elapsedMs))
+    return parts.join(' · ')
   }
   // t16：MCU 方向键选中（预留）——左右/上下移动时间轴 bar 焦点并同步定位高亮。
   function onTrajectoryKeydown(event: KeyboardEvent): void {
@@ -1217,6 +1239,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     monitorEl,
     moveBarTip,
     nodeKindLabel,
+    nodeTipText,
     nodeToneVars,
     noteOf,
     isNoteOpen,
@@ -1261,6 +1284,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     showBarTip,
     showsRowContent,
     textDraftOf,
+    tipAction,
     tipPos,
     toggleNoteOpen,
     toggleOption,
@@ -1269,6 +1293,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     toggleRunDetail,
     canAnswerBatch,
     toolTypeGlyph,
+    toolTypeLabel,
     trajectoryBarStyle,
     trajectoryLayout,
     trajectoryZoom,
