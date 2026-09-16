@@ -53,14 +53,14 @@
   display: none;
 }
 /* t10：lite 视图下隐藏「继续编辑消息/发送消息」rail 按钮——lite 唯一消息入口是底部输入框，
-   避免误导（该按钮激活的是完整视图 composer，在 lite 下无效）。 */
-.workbench-shell.is-lite .nyxus-rail-action.is-message {
+   避免误导（该按钮激活的是完整视图 composer，在 lite 下无效）。
+   按钮外层 tooltip 锚点（30×30 固定尺寸）必须一并隐藏，否则列内留下空缺位不重新排布。 */
+.workbench-shell.is-lite .nyxus-tool-tip-anchor.is-lite-hidden {
   display: none;
 }
-/* Lite 视图保留任务控制与待处理入口，但不显示只作用于完整执行图的阅读和折叠操作。 */
-.workbench-shell.is-lite .nyxus-rail-action[data-view-action='reader'],
-.workbench-shell.is-lite .nyxus-fold-tool,
-.workbench-shell.is-lite .nyxus-rail-action[data-view-action='pause-whole'] {
+/* Lite 视图保留任务控制与待处理入口，但不显示只作用于完整执行图的视图/阅读/折叠操作
+   （卡牌/流程图/阅读器作用于被 lite 隐藏的节点树；折叠同理）。 */
+.workbench-shell.is-lite .nyxus-fold-tool {
   display: none;
 }
 
@@ -470,7 +470,10 @@
   position: absolute;
   right: calc(100% + 8px);
   top: 50%;
-  width: min(380px, calc(100vw - 190px));
+  // 宽高上限相对工作台窗口（--rail-popout-w/h 由 ResizeObserver 写入 shell）；
+  // 垂直居中用独立 translate 属性，避免被 GSAP 面板过渡的 transform 覆盖。
+  width: min(380px, var(--rail-popout-w, calc(100vw - 190px)));
+  translate: 0 -50%;
   padding: 6px;
   box-sizing: border-box;
   transform-origin: right center;
@@ -522,7 +525,10 @@
   position: absolute;
   right: calc(100% + 8px);
   top: 50%;
-  width: min(440px, calc(100vw - 190px));
+  // 宽高上限相对工作台窗口（--rail-popout-w/h 由 ResizeObserver 写入 shell），
+  // 避免窗口化工作台下内容超出窗口被 overflow:hidden 裁剪。
+  width: min(440px, var(--rail-popout-w, calc(100vw - 190px)));
+  translate: 0 -50%;
   padding: 0 7px 7px;
   transform-origin: right center;
   pointer-events: auto;
@@ -530,7 +536,7 @@
 .nyxus-role-card-list {
   display: grid;
   gap: 10px;
-  max-height: calc(100vh - 128px);
+  max-height: var(--rail-popout-h, calc(100vh - 128px));
   overflow: auto;
   padding: 2px;
   scrollbar-width: thin;
@@ -565,10 +571,11 @@
   pointer-events: none;
 }
 
-// 流程图/阅读器以左侧抽屉覆盖节点树；内容铺满抽屉，右侧 14px 让位给抽屉右缘拖拽手柄。
+// 卡牌/流程图/阅读器以右侧抽屉覆盖节点树（MessageBranchTree 内实现：遮罩 + 标题栏 + 关闭）；
+// 抽屉内容铺满 body，左侧 14px 让位给抽屉左缘拖拽手柄。
 .workbench-side-panel {
   position: absolute;
-  inset: 0 14px 0 0;
+  inset: 0 0 0 14px;
   min-width: 0;
   min-height: 0;
   overflow: hidden;

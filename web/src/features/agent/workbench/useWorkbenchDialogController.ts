@@ -195,12 +195,27 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     agents.updateHistoryDrawerAnchor(workbenchDrawerAnchor())
   }
   let workbenchResizeObserver: ResizeObserver | undefined
+  /** rail 悬浮面板（角色/会话列表）宽高上限改为相对工作台窗口：窗口化工作台下
+   *  100vw/100vh 会超出窗口被 .workbench-shell overflow:hidden 裁剪（见 WorkbenchDialog.scoped.less）。 */
+  function syncRailPopoutBounds(): void {
+    const shell = workbenchShellRef.value
+    if (!shell) return
+    const rect = shell.getBoundingClientRect()
+    shell.style.setProperty('--rail-popout-w', `${Math.max(0, rect.width - 190)}px`)
+    shell.style.setProperty('--rail-popout-h', `${Math.max(0, rect.height - 128)}px`)
+  }
   watch(workbenchShellRef, (element) => {
     workbenchResizeObserver?.disconnect()
     if (!element) return
-    workbenchResizeObserver = new ResizeObserver(syncWorkbenchDrawerAnchor)
+    workbenchResizeObserver = new ResizeObserver(() => {
+      syncWorkbenchDrawerAnchor()
+      syncRailPopoutBounds()
+    })
     workbenchResizeObserver.observe(element)
-    void nextTick(syncWorkbenchDrawerAnchor)
+    void nextTick(() => {
+      syncWorkbenchDrawerAnchor()
+      syncRailPopoutBounds()
+    })
   })
   watch(
     [
@@ -265,6 +280,19 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
 
   function toggleSidePanel(panel: Exclude<WorkbenchSidePanel, 'none'>): void {
     sidePanel.value = sidePanel.value === panel ? 'none' : panel
+  }
+
+  /** 右侧抽屉标题（卡牌/流程图/阅读器，与 档案 抽屉同款头部）。 */
+  const sidePanelTitle = computed(() =>
+    sidePanel.value === 'cards'
+      ? '卡牌模式'
+      : sidePanel.value === 'workflow'
+        ? '流程图'
+        : '阅读器',
+  )
+  /** 关闭侧边抽屉（MessageBranchTree 右侧抽屉 ✕ / 遮罩触发）。 */
+  function closeSidePanel(): void {
+    sidePanel.value = 'none'
   }
 
   function updateReplayTimeline(payload: {
@@ -862,6 +890,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     foldMode: foldMode.value,
     paperMode: sidePanel.value === 'cards',
     sidePanelOpen: sidePanel.value !== 'none',
+    sidePanelTitle: sidePanelTitle.value,
     suspended: win.value?.minimized ?? false,
     focusSourceChatId: treeFocusSourceChatId.value,
     focusInteractionId: treeFocusInteractionId.value,
@@ -997,6 +1026,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     showSessionList,
     showRoleList,
     showRoleMenu,
+    sidePanelTitle,
+    closeSidePanel,
     supportsTools,
     switchSession,
     taskControlPending,

@@ -27,41 +27,103 @@
     cursor: none;
   }
 }
-.execution-tree.is-paper-mode .tree-viewport {
-  left: 50%;
-  width: 50%;
+// 卡牌/流程图/阅读器右侧抽屉（档案同款）：遮罩 + 标题栏 + 关闭按钮，画布保持全宽不压缩。
+.tree-drawer-layer {
+  position: absolute;
+  z-index: var(--nx-z-drawer-mask);
+  inset: 0;
+  pointer-events: none;
 }
-.execution-tree.is-paper-mode .tree-viewport {
-  left: 50%;
-  width: 50%;
+.tree-drawer-mask {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  pointer-events: auto;
 }
-// 流程图/阅读器侧栏以左侧抽屉覆盖节点树：画布保持全宽，抽屉宽度由 --tree-drawer-width 控制。
-.execution-tree.has-side-panel:not(.is-paper-mode) .tree-viewport {
-  left: 0;
-  width: 100%;
-}
-.tree-side-panel {
+.tree-drawer {
   position: absolute;
   z-index: var(--nx-z-drawer);
-  inset: 0 auto 0 0;
+  inset: 0 0 0 auto;
   width: var(--tree-drawer-width, 50%);
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  pointer-events: auto;
   background: var(--nx-bg);
-  border-right: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
-  box-shadow: 12px 0 28px color-mix(in srgb, var(--nx-text) 22%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+  box-shadow: -12px 0 28px color-mix(in srgb, var(--nx-text) 22%, transparent);
 }
-// 抽屉右缘拖拽手柄：命中区骑跨抽屉边缘，hover/聚焦点亮高亮分割线。
+.tree-drawer-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+  background: color-mix(in srgb, var(--nx-bg) 82%, var(--nx-text) 6%);
+}
+.tree-drawer-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--nx-text);
+  font:
+    600 12px/1.2 system-ui,
+    sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-drawer-close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: color-mix(in srgb, var(--nx-text) 70%, transparent);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  &:hover:not(:disabled) {
+    color: var(--nx-text);
+    border-color: color-mix(in srgb, var(--nx-cyan) 22%, transparent);
+    background: color-mix(in srgb, var(--nx-cyan) 7%, transparent);
+  }
+}
+.tree-drawer-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+// 纸牌堆叠从「左半区」改为铺满抽屉内容区（抽屉 body 为最近定位祖先）。
+.tree-drawer-body :deep(.node-paper-stage) {
+  inset: 14px 16px 18px;
+}
+// 抽屉左缘拖拽手柄：命中区骑跨抽屉左缘，hover/聚焦点亮高亮分割线。
 .tree-drawer-resize {
   position: absolute;
-  z-index: var(--nx-z-drawer);
+  z-index: calc(var(--nx-z-drawer) + 1);
   top: 0;
   bottom: 0;
-  left: var(--tree-drawer-width, 50%);
+  left: calc(100% - var(--tree-drawer-width, 50%));
   width: 12px;
   margin-left: -6px;
   cursor: col-resize;
   touch-action: none;
   background: transparent;
+  pointer-events: auto;
   &::after {
     content: '';
     position: absolute;

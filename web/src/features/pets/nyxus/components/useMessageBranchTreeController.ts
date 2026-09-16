@@ -96,8 +96,10 @@ export type MessageBranchTreeControllerProps = {
   /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
   fullRenderThreshold?: number
   paperMode?: boolean
-  /** Auxiliary workbench panel occupies the left half while the tree remains primary. */
+  /** Auxiliary workbench panel occupies the right drawer while the tree stays full width. */
   sidePanelOpen?: boolean
+  /** 侧边抽屉标题（工作台按 sidePanel 传入：卡牌模式/流程图/阅读器）。 */
+  sidePanelTitle?: string
   /** Parent workbench is minimized/hidden; keep state but suspend GPU work. */
   suspended?: boolean
   /** 静态历史视图（代际二层弹窗）：挂断 live 投影（输入/流式/CRT），仅渲染 timelineOverride。 */
@@ -115,6 +117,8 @@ export type MessageBranchTreeControllerEmits = {
   /** 钢琴彩蛋连点序列触发 → 父级（工作台）打开钢琴浮层。 */
   'easter-egg': []
   'presentation-fallback': [message: string]
+  /** 右侧抽屉 ✕ / 遮罩点击 → 父级关闭侧栏（sidePanel 置回 none）。 */
+  'close-side-panel': []
 }
 type ControllerEmit<T> = <K extends keyof T>(
   event: K,
@@ -395,8 +399,8 @@ export function useMessageBranchTreeController(
   const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 150
   const fullRenderThreshold = computed(() => {
     const configured = props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT
-    // 卡牌模式把树压缩到右半区，避免在软件渲染的 Electron 画布上保留数百个屏外文字纹理；
-    // 流程图/阅读器抽屉覆盖画布、不改变视口尺寸，保持默认阈值。
+    // 卡牌模式打开右侧抽屉后画布被遮罩覆盖，收紧全量渲染阈值节省软件渲染纹理；
+    // 流程图/阅读器抽屉同样覆盖画布、不改变视口尺寸，保持默认阈值。
     return props.paperMode ? Math.min(configured, 120) : configured
   })
   const fullRenderActive = computed(() => layout.value.nodes.length <= fullRenderThreshold.value)
@@ -1653,10 +1657,8 @@ export function useMessageBranchTreeController(
       closeNodeDetail()
       if (enabled && !activePaperNodeId.value)
         activePaperNodeId.value = paperEntries.value.at(-1)?.id
-      // 卡牌模式开关会让树视口在「全宽 ↔ 右半区」间切换，旧相机位置不再对齐新视口，
-      // 与折叠档位/布局模式一致：开关后重新 fit。流程图/阅读器抽屉覆盖画布但不改变
-      // 视口几何，开关抽屉不重新 fit，保留用户当前平移与缩放。
-      void nextTick(resetLayout)
+      // 卡牌模式与流程图/阅读器一样以右侧抽屉覆盖节点树（不再压缩树视口），
+      // 开关不重排画布相机，保留用户当前平移与缩放。
     },
   )
   // 抽屉开关只收拢节点详情，不重排画布相机。
