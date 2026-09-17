@@ -13,6 +13,7 @@
 - 2026-09-15 用户追加反馈：左移“错误判断”节点，释放其右侧被遮挡的垂直连线通道。状态：实现与自动验证已完成，等待用户实机视觉确认。
 - 2026-09-15 用户要求：流程图与阅读器侧栏改为左侧抽屉覆盖节点树（画布保持全宽、不压缩），宽度可拖拽及键盘调整。已落地：`MessageBranchTree` 抽屉 + 拖拽手柄（默认 50%、最小 300px 或 24% 容器宽、最大 88%，支持 ←/→/Home/End），开关抽屉不再触发相机重新 fit。待用户实机确认。
 - 2026-09-26 用户反馈：卡牌模式左右分栏与流程图左侧抽屉均表现为「占空间的窗口」。已落地：卡牌、流程图、阅读器统一改为档案同款**右侧抽屉**（半透明遮罩 + 标题栏 + 关闭按钮，`MessageBranchTree` 内 `tree-drawer-layer`），画布保持全宽，点遮罩或 ✕ 关闭；同时修复 lite 视图 rail 空缺位与角色/会话悬浮面板相对窗口的宽高裁剪。待用户实机确认。
+- 2026-09-27 用户要求：右侧 rail「档案」按钮改为**第三个视图模式——对话模式**（工作台扩为 树/对话/精简 三档，标题栏三档切换与 rail 按钮同步；精简模式即对话模式的紧凑展示方式），并移除工作台 docked 档案抽屉、能力并入对话模式。已落地：`ConversationView`（`embedded` 形态复用 `HistoryDrawerPanel`，`conversation` 置位 + `taskBranches` 注入，级联切换同步 `setWorkbenchWindowChat`）；`useLiteViewToggle` 泛化为 `useWorkbenchViewMode`（旧 localStorage 键迁移）；App.vue 移除 docked 抽屉渲染，overlay 历史窗保留。**跟进要求（同日第二轮）**：对话模式补**精简模式同款底部输入框**（草稿与树 composer 共用 `text`，发送走 `sendFromComposer`）+ **会话风格待处理审批入口**。**方向修正（同日第三轮）**：不做独立待处理区内嵌滚动内容（方案已回退），改为**消息列表内直接作答**——`QuestionRenderer` 在等待中且命中 pending 提问批（`call.id`=questionId）时切换可交互形态（选项点选/补充/提交走 `interactions.answer`，草稿与浮窗共享，批内多题逐卡作答后任一卡提交整批），浮窗保持原样。待用户实机确认。
 
 ## 范围与边界
 

@@ -36,6 +36,17 @@ service 层的核心枢纽。把 RPC 请求（`chat.*` / `sense.approval`）转�
 - v1 前端通过 `chat.timeline.get({taskId})` 每 1.2 秒刷新任务投影；单根 Chat 的既有实时事件订阅保持不变，后续可在不改变分支协议的前提下升级为任务级 WebSocket patch。
 - **分支不可跨代**：anchor 节点属已打包代（orderKey <= 最后一代的 boundaryOrderKey，见「长会话代际分割」）时 preview 返回 `eligible:false`（reason「只能在当前对话段内创建分支，已打包的历史不支持分支」），create 同步拒绝；无 compact 不限制。
 
+## 工作台任务目录
+
+工作台全部任务页使用任务级只读目录，不能把 `chat.list` 的根会话分页当作任务分页。跨端字段与方法以[共享协议](../../shared/protocol/websocket.md#工作台任务目录与结果查看记录)为唯一 owner；`src/service/chat/taskCatalog.ts` 的 `handleChatTaskList`、`handleChatTaskResultView` 与 `src/service/chat/overview.ts` 的 `buildTaskOverview` 负责以下实现边界，定向验证见 `test/service/chat/taskCatalog.test.ts`：
+
+- 先用 `conversation_tasks.original_chat_id` 或无分支旧根的 chat id 得到稳定 `taskKey`，再合并分支、计算状态和分页；不得先分页 chat 后在前端去重。
+- 普通打开目标解析为活动 `original`/`continuation` 分支，`detail` 不参与主流程选择。搜索可以命中全部分支，但标题、最近要求和最新任务结果取活动主流程。
+- 状态读取持久 run、termination 和 interaction 事实。用户停止与系统暂停必须区分；局部工具、子 Agent、解释分支或旧分支失败不能直接升级为任务失败。
+- 最新结果以活动主流程最新终态 run 为界，结果 id 幂等稳定。结果查看使用 `taskKey + resultId` 比较后写入，查看记录保存在 soul.db，并在写入后发布 overview 变更供多窗口同步。
+- 完整检索直接覆盖全部消息分片中的未撤回用户消息与可见 assistant 结果；不把 thinking、system、原始工具内容或撤回内容加入索引。查询先生成固定任务身份顺序，再按不透明游标分页；快照过期显式失败，不静默换成新顺序。
+- 目录查询与查看确认只读或只写查看记录，不创建 conversation task、不初始化 Agent/runtime、不激活分支，也不改变 run、审批、问题批次和归档状态。
+
 ## 长会话代际分割（generations.ts）
 
 compact 事件（手动 `[[command:/compact]]` 与 autoCompact 统一）把 root 历史切为**代**：第 k 次压缩的摘要 assistant 消息（消息行 `context_compaction=1`，含手动+自动——autoCompact 注入的 token 经 `persistedContent` 剥离不落库，token 扫描会漏检，故以持久标志为准）即第 k 代定稿边界。

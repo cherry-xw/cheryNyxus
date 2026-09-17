@@ -411,6 +411,63 @@ idle chat:
 
 > `lastUserPrompt` 与 `currentStepKind` 由 `buildTaskOverview`/`agentOverview`（src/service/chat/overview.ts）派生：前者查末条 user 消息，后者取 `activeStep.kind`（executionSteps 反向找 status==='running' 的步骤）。
 
+#### 工作台任务目录与结果查看记录
+
+本节定义工作台“全部任务”页、稳定标题栏快捷位和未查看结果共同使用的现行数据契约。`chat.task.list`、`chat.task.result.view` 与 `chat.overview` 的任务级字段已实现；标题栏和覆盖页的界面接入由后续任务完成。客户端不得用已加载的 `chat.list` 页面在本地过滤来冒充完整历史检索。
+
+##### 任务身份与打开目标
+
+- 一张卡片代表一个用户任务。存在 `conversation_tasks` 时以该任务的 `original_chat_id` 作为稳定 `taskKey`，把同一 `task_id` 的 `original`、`continuation` 和 `detail` 分支合并；从未建立分支身份的旧根会话以自身 `chatId` 作为 `taskKey`。后续懒补 `task_id` 不得改变 `taskKey`、主图标或未查看记录。
+- `taskId` 是可选的分支域身份，`taskKey` 才是目录、快捷位和查看记录的稳定身份。搜索与分支统计覆盖任务内全部分支，但任务标题、最近要求和最新任务结果均以活动主流程为准。
+- 普通打开任务时，存在任务分支就打开 `conversation_tasks.active_branch_id` 指向的 `original` 或 `continuation` 分支；没有任务分支时打开原根会话。`detail` 永远不能成为普通打开目标。任务内其他分支有活动或待处理事项时可在卡片中计数提示，但不擅自改写活动主流程。
+- `branchCount` 统计任务内全部 `original`、`continuation`、`detail` 分支；未建立分支身份的旧根会话为 1。
+
+##### 任务级状态
+
+目标状态集合为 `idle | needs_user | running | paused | stopped | failed | completed`，投影顺序如下：
+
+1. 任务内存在未解决的审批或问题批次时为 `needs_user`。
+2. 否则任一所属分支仍有 `running`/`waiting` run 时为 `running`。
+3. 否则按活动主流程最新一次持久 run 的终态判定：没有 run 为 `idle`；`TerminationFact.code='user_abort'` 为 `stopped`；`system_stop`、`watchdog`、`agent_redirect`、`limit_reached` 或可继续的中断为 `paused`；run 明确为 `failed` 或 termination code 为 `error` 时为 `failed`；run 明确为 `completed` 时为 `completed`。
+
+单次模型重试、单个工具调用、子 Agent、`detail` 分支或已失去活动身份的旧主流程失败，只作为局部事实和卡片补充信息，不直接把整个任务标成 `failed`。生成器退出、断线、暂时无事件或前端推断也不能产生完成状态。
+
+##### 最新结果与未查看
+
+- 服务端从活动主流程最新一次持久终态 run 生成稳定且不透明的 `resultId`；结果状态可为 `paused | stopped | failed | completed`。同一终态重复投影必须得到同一 `resultId`，新一轮 run 结束必须得到新值。
+- 结果正文只取该 run 已持久化且允许展示的最终 assistant 内容；失败或提前终止可使用已有安全终止说明。没有可靠正文时省略正文，由界面显示明确空态，不用模型或客户端编造摘要。思考内容、原始异常、系统消息和工具原始结果不作为任务结果正文。
+- `unreadResult=true` 当且仅当最新 `resultId` 与该安装当前已记录的查看结果不同。查看记录持久化在服务端，按 `taskKey` 保存 `resultId` 与 `viewedAt`，同一后端实例的浏览器窗口与 Electron renderer 共享；刷新、断线和重启不得清空。
+- 查看确认采用比较后写入：客户端提交它实际显示的 `taskKey + resultId`，服务端仅在该结果仍为最新结果时写入。这样加载期间产生的新结果不会被迟到确认误清除。
+- 只有工作台已进入该任务、对应结果内容成功加载、任务详情处于前台可见且“全部任务”覆盖页已关闭时才发送查看确认。浏览卡片、打开标题栏 tip、后台窗口预载、切换请求尚未完成或页面不可见都不算查看。当前任务在前台显示期间收到并成功加载新结果，可以立即确认查看。
+
+方法：
+
+| 方法 | 语义 |
+| --- | --- |
+| `chat.task.list` | 查询当前工作台所属预设的完整非归档任务目录；首包建立固定结果快照并返回任务卡片、总数和不透明续页游标 |
+| `chat.task.result.view` | params `{taskKey, resultId}`；仅当 resultId 仍为该任务最新结果时记录查看，返回 `{viewed, latestResultId?}` |
+
+`chat.overview` 投影包含 `taskKey`、活动主流程打开目标、`branchCount`、最新结果、`unreadResult` 与不透明 `attentionKey`。`attentionKey` 只在新 run 开始、新待处理事项产生或新终态结果产生时改变；普通步骤推进不改变。客户端手动收起快捷位时记录当时的 `attentionKey`，只有新 key 才允许自动再次提醒。
+
+##### 完整历史查询
+
+`chat.task.list` 首次请求至少包含一个工作台身份 `presetId` 或 legacy `preset`，并支持：
+
+| 字段 | 约定 |
+| --- | --- |
+| `query?` | 搜索任务标题、全部分支中未撤回的用户消息和可见 assistant 结果；不搜索 thinking、系统消息、工具原始参数/结果或已撤回内容 |
+| `statuses?` | 按上述任务级状态过滤 |
+| `updatedFrom?` / `updatedTo?` | 按任务最近真实活动时间过滤，均为 epoch ms；不是卡片打开时间或查看时间 |
+| `sort?` | `updated_desc`（无搜索默认）、`created_desc` 或 `relevance`（有搜索默认） |
+| `limit?` | 每页 1-100，默认 24 |
+| `cursor?` | 服务端不透明续页游标；携带时必须沿用首包查询条件与固定结果快照 |
+
+响应为 `{items, total, snapshotAt, nextCursor?}`。每个目录项至少包含 `taskKey`、`taskId?`、`originalChatId`、`openChatId`、`title`、`lastUserPrompt?`、`status`、`currentStep?`、`latestResult?`、`unreadResult`、`attentionKey`、`createdAt`、`updatedAt`、`branchCount` 与 `matches[]`。`matches[]` 每项为 `{source, text, highlights, branchChatId?}`；`source` 仅为 `title | user_prompt | result`，`highlights` 使用 UTF-16 起止偏移，前端按纯文本渲染，不能接收或插入服务端 HTML。
+
+首包必须冻结命中任务身份与顺序，后续页沿用同一快照；快照失效要返回明确错误并要求用户刷新。实时 `chat.overview` 只更新已经显示卡片的状态和内容，不改变当前浏览顺序；新任务只产生“有新内容”提示，用户刷新或改变筛选后才进入结果集。不再符合筛选的已显示卡片同样保留到刷新或改变筛选。
+
+默认排除已归档任务；归档仍由既有归档入口管理。搜索必须在服务端覆盖完整历史及未加载分页，按任务去重后再计算 `total`，不得先分页根会话再在前端合并分支。
+
 #### CP2 root execution graph facts
 
 `RootTimelineSnapshot` 是 timeline 与节点树共享的原子事实快照：
