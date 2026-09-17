@@ -10,6 +10,7 @@ export {
   useConnectionStore,
   useInteractionsStore,
   useTaskOverviewStore,
+  useTaskCatalogStore,
   usePetPresentationStore,
   useThemeStore,
   useWorkspaceStore,

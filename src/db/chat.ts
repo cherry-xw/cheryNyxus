@@ -341,7 +341,9 @@ export function listRootChatsForPresets(
       params.push(String(options.offset))
     }
   }
-  return getSoulDb().prepare(sql).all(...params) as ChatRow[]
+  return getSoulDb()
+    .prepare(sql)
+    .all(...params) as ChatRow[]
 }
 
 /** 同 WHERE（含分支排除）的匹配总数，供 chat.list preset 分页 total。 */
@@ -684,6 +686,7 @@ export function deleteChats(chatIds: readonly string[]): void {
         .run(executionRootId, chatId, executionRootId, chatId)
       soulDb.prepare('DELETE FROM execution_active_runs WHERE chat_id = ?').run(chatId)
       if (chatId === workflowRootId) {
+        soulDb.prepare('DELETE FROM task_result_views WHERE task_key = ?').run(workflowRootId)
         soulDb
           .prepare('DELETE FROM workflow_step_events WHERE root_chat_id = ?')
           .run(workflowRootId)

@@ -156,6 +156,21 @@ export function listInteractions(input?: {
   return rows.map(toRecord)
 }
 
+export function listPendingInteractionsForRoots(
+  rootChatIds: readonly string[],
+): InteractionRecord[] {
+  if (rootChatIds.length === 0) return []
+  const placeholders = rootChatIds.map(() => '?').join(',')
+  const rows = getSoulDb()
+    .prepare(
+      `SELECT * FROM interactions
+       WHERE root_chat_id IN (${placeholders}) AND status IN ('pending','resolving','blocked')
+       ORDER BY created_at ASC, updated_at DESC`,
+    )
+    .all(...rootChatIds) as InteractionRow[]
+  return rows.map(toRecord)
+}
+
 export function transitionInteraction(
   interactionId: string,
   from: InteractionStatus[],

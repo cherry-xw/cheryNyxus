@@ -19,7 +19,9 @@ const STATUS_PRIORITY: Record<TaskOverview['status'], number> = {
   failed: 1,
   running: 2,
   paused: 3,
-  completed: 4,
+  stopped: 4,
+  idle: 5,
+  completed: 6,
 }
 
 export const useTaskOverviewStore = defineStore('taskOverview', () => {

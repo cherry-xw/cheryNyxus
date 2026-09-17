@@ -113,6 +113,8 @@ function statusLabel(status: TaskOverview['status']): string {
     needs_user: '等你处理',
     running: '运行中',
     paused: '已暂停',
+    stopped: '已停止',
+    idle: '空闲',
     failed: '有失败',
     completed: '已完成',
   }[status]
@@ -123,6 +125,8 @@ function statusDescription(status: TaskOverview['status']): string {
     needs_user: '存在需要你审批或回答的操作，处理后 Agent 才能继续。',
     running: '至少一个 Agent 正在执行任务步骤。',
     paused: '当前没有 Agent 在运行，但任务尚未结束。',
+    stopped: '用户已停止最近一次运行，可以重新发送要求继续。',
+    idle: '任务尚未开始运行。',
     failed: '至少一个 Agent 执行失败，可打开节点树查看原因。',
     completed: '任务已结束；任务中心只保留本次会话内的完成记录。',
   }[status]
@@ -161,7 +165,7 @@ function openWorkbench(task: TaskOverview, focus?: InteractionRecord): void {
       kind: 'workbench',
       presetId: task.presetId,
       presetName: task.preset,
-      chatId: task.rootChatId,
+      chatId: task.openChatId,
       view: 'tree',
       focus: focus
         ? {
@@ -169,12 +173,12 @@ function openWorkbench(task: TaskOverview, focus?: InteractionRecord): void {
             interactionId: focus.interactionId,
             anchorNodeId: focus.anchorNodeId,
           }
-        : { sourceChatId: task.rootChatId },
+        : { sourceChatId: task.openChatId },
     })
     return
   }
   const windowId = workspace.openWorkbenchWindow(task.presetId, task.preset)
-  workspace.setWorkbenchWindowChat(windowId, task.rootChatId)
+  workspace.setWorkbenchWindowChat(windowId, task.openChatId)
   workspace.setWorkbenchWindowView(windowId, 'tree')
   if (focus) {
     workspace.setWorkbenchWindowFocus(windowId, {
@@ -186,7 +190,11 @@ function openWorkbench(task: TaskOverview, focus?: InteractionRecord): void {
 }
 
 function locateInteraction(item: InteractionRecord): void {
-  const task = overview.tasksByRoot[item.rootChatId]
+  const task = overview.tasks.find(
+    (candidate) =>
+      candidate.rootChatId === item.rootChatId ||
+      candidate.agents.some((agent) => agent.chatId === item.chatId),
+  )
   if (task) openWorkbench(task, item)
   else workspace.openHistoryRoot(item.chatId || item.rootChatId)
 }

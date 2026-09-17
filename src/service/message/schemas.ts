@@ -367,10 +367,43 @@ export const requestSchemas = {
       presetId: z.string().min(1).optional(),
       preset: z.string().min(1).optional(),
       includePreview: z.boolean().optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+      offset: z.number().int().nonnegative().optional(),
     })
     .refine((value) => value.scope !== 'preset' || !!value.presetId || !!value.preset, {
       message: 'preset scope 需要 presetId 或 preset',
     }),
+  [Method.CHAT_TASK_LIST]: z
+    .object({
+      presetId: z.string().min(1).optional(),
+      preset: z.string().min(1).optional(),
+      query: z.string().max(500).optional(),
+      statuses: z
+        .array(
+          z.enum(['idle', 'needs_user', 'running', 'paused', 'stopped', 'failed', 'completed']),
+        )
+        .max(7)
+        .optional(),
+      updatedFrom: z.number().int().nonnegative().optional(),
+      updatedTo: z.number().int().nonnegative().optional(),
+      sort: z.enum(['updated_desc', 'created_desc', 'relevance']).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+      cursor: z.string().min(1).optional(),
+    })
+    .refine((value) => !!value.presetId || !!value.preset || !!value.cursor, {
+      message: '需要 presetId、preset 或 cursor',
+    })
+    .refine(
+      (value) =>
+        value.updatedFrom === undefined ||
+        value.updatedTo === undefined ||
+        value.updatedFrom <= value.updatedTo,
+      { message: 'updatedFrom 不能晚于 updatedTo' },
+    ),
+  [Method.CHAT_TASK_RESULT_VIEW]: z.object({
+    taskKey: z.string().min(1),
+    resultId: z.string().min(1),
+  }),
   [Method.CHAT_ROUTE_SUGGEST]: z.object({
     presetId: z.string().min(1),
     draft: z.string().trim().min(1).max(12000),

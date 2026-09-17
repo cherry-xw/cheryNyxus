@@ -110,6 +110,12 @@ function initSoulTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_conversation_branches_task
       ON conversation_branches(task_id, created_at);
 
+    CREATE TABLE IF NOT EXISTS task_result_views (
+      task_key TEXT PRIMARY KEY,
+      result_id TEXT NOT NULL,
+      viewed_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS request_journal (
       request_id TEXT PRIMARY KEY,
       method TEXT NOT NULL,

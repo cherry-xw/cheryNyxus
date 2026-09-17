@@ -118,17 +118,64 @@ const taskActivityEventSchema = z.looseObject({
 
 const taskOverviewSchema = z.looseObject({
   rootChatId: id,
+  taskKey: id,
   taskId: id.optional(),
   presetId: id.optional(),
   preset: z.string().min(1).optional(),
   title: z.string().min(1),
-  status: z.enum(['needs_user', 'running', 'paused', 'failed', 'completed']),
+  status: z.enum(['idle', 'needs_user', 'running', 'paused', 'stopped', 'failed', 'completed']),
   startedAt: z.number().optional(),
   updatedAt: z.number(),
   pendingCount: nonNegativeInt,
   hasFailure: z.boolean(),
   agents: z.array(taskAgentOverviewSchema),
   recentEvents: z.array(taskActivityEventSchema),
+  originalChatId: id,
+  openChatId: id,
+  branchCount: positiveInt,
+  currentStep: z.string().optional(),
+  latestResult: z
+    .looseObject({
+      resultId: id,
+      status: z.enum(['paused', 'stopped', 'failed', 'completed']),
+      completedAt: z.number(),
+      content: z.string().optional(),
+    })
+    .optional(),
+  unreadResult: z.boolean(),
+  attentionKey: id,
+})
+
+const taskCatalogItemSchema = z.looseObject({
+  taskKey: id,
+  taskId: id.optional(),
+  originalChatId: id,
+  openChatId: id,
+  title: z.string().min(1),
+  lastUserPrompt: z.string().optional(),
+  status: z.enum(['idle', 'needs_user', 'running', 'paused', 'stopped', 'failed', 'completed']),
+  currentStep: z.string().optional(),
+  latestResult: z
+    .looseObject({
+      resultId: id,
+      status: z.enum(['paused', 'stopped', 'failed', 'completed']),
+      completedAt: z.number(),
+      content: z.string().optional(),
+    })
+    .optional(),
+  unreadResult: z.boolean(),
+  attentionKey: id,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  branchCount: positiveInt,
+  matches: z.array(
+    z.looseObject({
+      source: z.enum(['title', 'user_prompt', 'result']),
+      text: z.string(),
+      highlights: z.array(z.looseObject({ start: nonNegativeInt, end: positiveInt })),
+      branchChatId: id.optional(),
+    }),
+  ),
 })
 
 const timelineNodeSchema = z.looseObject({
@@ -267,7 +314,20 @@ const schemas = {
     deferredRunning: stringArray,
   }),
   [Method.CHAT_CREATE]: runtimeSchema.extend({ presetId: id.optional() }),
-  [Method.CHAT_LIST]: z.looseObject({ chats: objectArray }),
+  [Method.CHAT_LIST]: z.looseObject({ chats: objectArray, total: nonNegativeInt.optional() }),
+  [Method.CHAT_TASK_LIST]: z.looseObject({
+    items: z.array(taskCatalogItemSchema),
+    total: nonNegativeInt,
+    snapshotAt: z.number(),
+    nextCursor: id.optional(),
+  }),
+  [Method.CHAT_TASK_RESULT_VIEW]: z.looseObject({
+    taskKey: id,
+    resultId: id,
+    viewed: z.boolean(),
+    viewedAt: z.number().optional(),
+    latestResultId: id.optional(),
+  }),
   [Method.CHAT_ROUTE_SUGGEST]: z.looseObject({
     requestVersion: nonNegativeInt,
     target: z.looseObject({
