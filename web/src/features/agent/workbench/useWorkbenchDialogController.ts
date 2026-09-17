@@ -4,7 +4,8 @@
  *   - chatId 来源 = store workbenchWindows[windowId].chatId（不再读全局 activeDialogChatId）
  *   - 视图/几何/最小化/会话写回 store 的 setWorkbenchWindow* per-window action
  *   - useAgentDialogOptions 传 per-window chatId；useWorkbenchWindow 传 windowId（per-window localStorage key）
- * 历史抽屉仍为全局单例（HistoryDrawer 单例渲染），openHistory/锚点写全局 agents.historyDrawer*。
+ * 历史抽屉（overlay）仍为全局单例（HistoryDrawer 单例渲染）；工作台自身不再打开 docked 抽屉，
+ * 原「档案」能力并入整屏「对话模式」（ConversationView 复用 HistoryDrawerPanel，分支切换同步窗口会话）。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -31,7 +32,7 @@ import {
   useWindowFrame,
 } from '@/features/desktop/public'
 import { LiteView, useLiteStore } from '@/features/lite/public'
-import { useLiteViewToggle } from './useLiteViewToggle'
+import { useWorkbenchViewMode } from './useWorkbenchViewMode'
 import { useWorkbenchContextInspector, usageClass } from './useWorkbenchContextInspector'
 import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
@@ -41,7 +42,6 @@ import {
   useWorkbenchViewPreferences,
   type FoldMode,
 } from './useWorkbenchViewPreferences'
-import { resolveTaskDrawerChatId } from '../drawer/historyBranchSelection'
 
 export type WorkbenchDialogControllerProps = {
   windowId: string
@@ -56,12 +56,12 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
   const interactions = useInteractionsStore()
-  /** lite 极简视图（T33 L0 + native 入口修复）：标题栏 ⚡ 切换，per-window 持久化（§2.1）。
+  /** 三视图模式（树 / 对话 / 精简，T33 L0 扩展）：标题栏三档切换，per-window 持久化（§2.1）。
    * Electron 面（surface=workbench）标题栏由 WindowFrame title-actions 承载，与 App.vue
-   * 共用 useLiteViewToggle 保证两模式状态一致（native 模式 WorkbenchDialog 内部 titlebar
+   * 共用 useWorkbenchViewMode 保证各入口状态一致（native 模式 WorkbenchDialog 内部 titlebar
    * 被 v-if="!isNative" 隐藏，切换入口在 App.vue title-actions）。 */
   const liteUi = useLiteStore()
-  const { liteViewEnabled, toggleLiteView } = useLiteViewToggle(props.windowId)
+  const { viewMode, setViewMode } = useWorkbenchViewMode(props.windowId)
   /** 本窗口状态（store 注册表按 windowId 索引）。窗口关闭/不存在时组件不渲染。 */
   const win = computed(() => agents.workbenchWindows[props.windowId])
   /** Phase E：需用户操作（审批/提问）时窗口闪烁。非聚焦窗由 store 置位，点击窗口熄灭。 */
@@ -179,24 +179,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     },
     { immediate: true },
   )
-  function workbenchDrawerAnchor() {
-    const rect = workbenchShellRef.value?.getBoundingClientRect()
-    if (!rect) return null
-    // 从标题栏下方起始、铺满内容区全宽，使历史抽屉盖住右侧 rail 按钮；标题栏窗口控制按钮保持可用。
-    // native 面（Electron 原生窗）标题栏由 WindowFrame 外壳承载在 shell 之外，shell 顶部即内容区
-    // 顶部，不再偏移；浏览器面自绘标题栏（40px）在 shell 内，需下移标题栏高。
-    const TITLEBAR_H = isShellless.value ? 0 : 40
-    return {
-      top: rect.top + TITLEBAR_H,
-      left: rect.left,
-      width: rect.width,
-      height: Math.max(0, rect.height - TITLEBAR_H),
-    }
-  }
-  function syncWorkbenchDrawerAnchor(): void {
-    if (agents.historyDrawerMode !== 'workbench-docked') return
-    agents.updateHistoryDrawerAnchor(workbenchDrawerAnchor())
-  }
   let workbenchResizeObserver: ResizeObserver | undefined
   /** rail 悬浮面板（角色/会话列表）宽高上限改为相对工作台窗口：窗口化工作台下
    *  100vw/100vh 会超出窗口被 .workbench-shell overflow:hidden 裁剪（见 WorkbenchDialog.scoped.less）。 */
@@ -211,25 +193,13 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     workbenchResizeObserver?.disconnect()
     if (!element) return
     workbenchResizeObserver = new ResizeObserver(() => {
-      syncWorkbenchDrawerAnchor()
       syncRailPopoutBounds()
     })
     workbenchResizeObserver.observe(element)
     void nextTick(() => {
-      syncWorkbenchDrawerAnchor()
       syncRailPopoutBounds()
     })
   })
-  watch(
-    [
-      workbenchMode,
-      () => workbenchPosition.value.x,
-      () => workbenchPosition.value.y,
-      () => workbenchSize.value.width,
-      () => workbenchSize.value.height,
-    ],
-    () => void nextTick(syncWorkbenchDrawerAnchor),
-  )
   // ── quick target（Pet 打开非 Nyxus 工作台需显式目标；Nyxus 恒 false） ──
   interface QuickTargetSelection {
     target: string | 'new'
@@ -596,12 +566,27 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     await handleSend(targetChatId, { keepOpen: true })
     if (text.value) nyxusDraftActive.value = true
   }
-  /** 查看档案（Nyxus 会话完整对话历史）：打开根历史抽屉（与 PetStage 同款；panel 挂载自动 loadHistory）。 */
-  function openHistory(): void {
-    const id = resolveTaskDrawerChatId(liveTimeline.value, chatId.value)
-    if (!id) return
-    agents.historyDrawerTaskBranches = liveTimeline.value?.branches ?? []
-    agents.openHistoryRoot(id, 'workbench-docked', workbenchDrawerAnchor())
+  /** 切换对话模式（rail 对话按钮）：当前为对话模式则回到树，否则进入对话模式。
+   * 离开对话模式时关闭其代际二层视图，避免切回时残留展开。 */
+  function toggleConversationView(): void {
+    setViewMode(viewMode.value === 'conversation' ? 'tree' : 'conversation')
+  }
+  /** 任意入口（标题栏三档 / rail 按钮）离开对话模式都清理代际二层视图。 */
+  watch(viewMode, (mode) => {
+    if (mode !== 'conversation') agents.closeHistoryGeneration()
+  })
+  /** 对话模式级联切换（分支/会话）：同步工作台窗口当前会话，树/精简/对话三视图跟随。 */
+  function onConversationSwitchChat(cid: string): void {
+    if (!cid || cid === chatId.value) return
+    agents.setWorkbenchWindowChat(props.windowId, cid)
+  }
+  /** 对话模式输入框草稿写入：与树 composer 共用 text 事实源（树端打开时经 restoreEditor 回填）。 */
+  function onConversationDraftInput(value: string): void {
+    text.value = value
+  }
+  /** 丢弃对话模式输入框上的分支目标（只清目标，不动草稿/附件）。 */
+  function clearBranchTarget(): void {
+    branchTarget.value = undefined
   }
   const {
     connection,
@@ -623,7 +608,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     isNyxus,
     chatId,
     taskTimeline,
-    drawerAnchor: workbenchDrawerAnchor,
     resetComposerBranch: () => {
       branchTarget.value = undefined
     },
@@ -655,12 +639,13 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     { immediate: true },
   )
 
+  /** 从阅读器/树打开某代打包历史：切入对话模式并在整屏会话视图打开该代二层视图。
+   *  ConversationView 面板 watch agents.historyDrawerGeneration（rootChatId 匹配 + group 布局）加载。 */
   function openGeneration(generationIndex: number): void {
-    openHistory()
-    agents.openHistoryGeneration(
-      liveTimeline.value?.rootChatId ?? treeRootChatId.value,
-      generationIndex,
-    )
+    const rootChatId = liveTimeline.value?.rootChatId ?? treeRootChatId.value
+    if (!rootChatId) return
+    setViewMode('conversation')
+    agents.openHistoryGeneration(rootChatId, generationIndex)
   }
 
   watch(
@@ -671,8 +656,14 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       replayTimeline.value = undefined
     },
   )
-  /** 无 root 时继续展示工作台既有的「新建会话」入口；创建后自动进入 Lite。 */
-  const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)
+  /** 精简模式可见（lite 紧凑会话视图）；创建新会话后自动进入（既有契约，见下）。 */
+  const liteViewVisible = computed(() => viewMode.value === 'lite' && !!treeRootChatId.value)
+  /** 对话模式可见：整屏会话视图（ConversationView）替代节点树主画布。 */
+  const conversationViewVisible = computed(
+    () => viewMode.value === 'conversation' && !!treeRootChatId.value,
+  )
+  /** 对话模式注入的任务分支摘要（面板级联切换与任务身份解析用；与旧 openHistory 注入同源）。 */
+  const conversationTaskBranches = computed(() => liveTimeline.value?.branches ?? [])
   /** 左下角当前流程待处理窗口的收起态（树模式，铃铛切换）。
    * 收起后新事项到达不自动展开——铃铛角标计数、标题栏/任务栏闪烁继续提示（与 lite 面板收起契约一致）。 */
   const attentionCollapsed = ref(false)
@@ -700,9 +691,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   }
   function closeWorkbench(): void {
     if (sending.value) return
-    // 关闭工作台即关闭其 docked 历史抽屉：HistoryDrawer 读全局单例，不清理则抽屉及遮罩残留页面
-    // （见 docs/frontend/workbench-multi-window.md「关闭工作台清理 docked 抽屉」）。overlay 全局抽屉保留。
-    if (agents.historyDrawerMode === 'workbench-docked') agents.closeAllHistory()
+    // 工作台不持有 docked 历史抽屉（对话模式为整屏视图，随窗销毁），overlay 全局抽屉不受影响。
     error.value = null
     // 只清理本窗口的 Lite 草稿/展开/滚动等 UI state；canonical root 数据与其它窗口不动。
     liteUi.clearWindow(props.windowId)
@@ -856,8 +845,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     isEmbedded,
     isShellless,
     isNyxus,
-    liteViewEnabled,
     liteViewVisible,
+    conversationViewVisible,
+    conversationTaskBranches,
     liveTimeline,
     loading,
     matchingRoleMentions,
@@ -869,6 +859,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     mediaServicesByType,
     minimizeWorkbench,
     nyxusDraftActive,
+    onConversationSwitchChat,
+    onConversationDraftInput,
+    clearBranchTarget,
     onDialogEditorKeydown,
     onEditorInput,
     onEditorPaste,
@@ -878,7 +871,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onTitlePointerDown,
     onTreeEpochChange,
     onTreePromptSnapShow,
-    openHistory,
     openGeneration,
     orderedRoleSelections,
     pauseWholeTask,
@@ -927,7 +919,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     taskHasRunningBranches,
     taskTimeline,
     text,
-    toggleLiteView,
+    toggleConversationView,
     toggleRoleList,
     toggleAttentionWindow,
     treeBreakdown,

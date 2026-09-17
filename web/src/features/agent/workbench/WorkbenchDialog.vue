@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { BellFilled, Connection, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
+import ConversationView from './ConversationView.vue'
 import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
 import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
 import {
@@ -32,12 +33,13 @@ const {
   attentionCollapsed, attentionWindowOpen, currentAttentionCount,
   runtimeDiagramProps, treeProps,
   brains, branchTarget,
-  cancelNyxusInput, chatId, closeWorkbench,
+  cancelNyxusInput, chatId, clearBranchTarget, closeWorkbench,
   comboCommandGroups,
   commandMenuRefFn, commandMenuStyle,
   commandOptions, commandTabs,
   composerBranchDescription, composerBranchTitle,
   config, connection,
+  conversationTaskBranches, conversationViewVisible,
   createSession, creating, detailBranchAvailability,
   editorRefFn, effectiveMode, error, executeSessionControl, fmtTokens,
   foldMode, foldToolOpen,
@@ -47,6 +49,8 @@ const {
   mediaAttachments, mediaHint,
   runtimeHint, runtimeError,
   mediaServicesByType, minimizeWorkbench, nyxusDraftActive,
+  onConversationDraftInput,
+  onConversationSwitchChat,
   onDialogEditorKeydown,
   onEditorInput,
   onEditorPaste,
@@ -56,7 +60,7 @@ const {
   onTitlePointerDown,
   onTreeEpochChange,
   onTreePromptSnapShow,
-  openHistory, openGeneration, orderedRoleSelections, pauseWholeTask,
+  openGeneration, orderedRoleSelections, pauseWholeTask,
   presetName, primaryRole, primarySelection, removeMedia, resizeDirections,
   roleListOpen, roleListPinned, roleMenuRefFn,
   roleSelections, roleUsages,
@@ -72,7 +76,7 @@ const {
   sidePanelTitle, closeSidePanel,
   supportsTools, switchSession,
   taskControlPending, taskHasRunningBranches, taskTimeline,
-  text, toggleRoleList,
+  text, toggleConversationView, toggleRoleList,
   treeBreakdown, treeLoading, treePromptSnap, treeRootChatId,
   treeUsage, treeUsagePct,
   toggleAttentionWindow, uploading, usageClass, win, windowBlink,
@@ -120,14 +124,15 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           `is-${effectiveMode}` +
           (isShellless ? ' is-shellless' : '') +
           (isNative ? ' is-native' : '') +
-          (liteViewVisible ? ' is-lite' : '')
+          (liteViewVisible ? ' is-lite' : '') +
+          (conversationViewVisible ? ' is-conversation' : '')
         "
         :style="workbenchShellStyle"
         aria-label="Agent 执行工作台"
       >
         <div class="nyxus-branch-top">
           <MessageBranchTree
-            v-if="treeRootChatId"
+            v-if="treeRootChatId && !conversationViewVisible"
             :key="treeRootChatId"
             v-bind="treeProps"
             @branch="selectBranchTarget"
@@ -154,6 +159,26 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </div>
             </template>
           </MessageBranchTree>
+          <ConversationView
+            v-else-if="conversationViewVisible"
+            :key="treeRootChatId"
+            :window-id="windowId"
+            :root-chat-id="treeRootChatId"
+            :task-branches="conversationTaskBranches"
+            :text="text"
+            :sending="sending"
+            :uploading="uploading"
+            :loading="loading"
+            :error="error"
+            :branch-active="!!branchTarget"
+            :branch-title="composerBranchTitle"
+            :media-count="mediaAttachments.length"
+            @switch-chat="onConversationSwitchChat"
+            @send="sendFromComposer"
+            @draft-input="onConversationDraftInput"
+            @drop-branch="clearBranchTarget"
+          />
+          <!-- 待处理审批与提问：树模式左下角浮窗；对话模式直接在消息列表内作答（见 QuestionRenderer 可交互模式）。 -->
           <WorkbenchAttentionSurface
             v-if="currentAttentionCount && !attentionCollapsed"
             :key="treeRootChatId"
@@ -165,7 +190,11 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             <span>暂无历史会话</span>
             <button type="button" @click="createSession">新建会话</button>
           </div>
-          <div v-if="treeLoading" class="workbench-tree-loading" aria-live="polite">
+          <div
+            v-if="treeLoading && !conversationViewVisible"
+            class="workbench-tree-loading"
+            aria-live="polite"
+          >
             <span class="workbench-spinner" aria-hidden="true" />
             执行图加载中…
           </div>
@@ -536,16 +565,24 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                   </button>
                 </span>
               </el-tooltip>
-              <!-- v1.0 icon 区分：历史 ↺（回看）vs 上下文 ❐（内容快照），原 ◷/◍ 双圆点过似 -->
+              <!-- v1.0 icon 区分：对话模式 ↺（回看完整对话，整屏会话视图）vs 上下文 ❐（内容快照），原 ◷/◍ 双圆点过似 -->
               <!-- 会话切换入口已上移标题栏会话状态条（strip + 分页下拉，2026-09-16），rail ≡ 会话列表移除 -->
-              <el-tooltip content="档案" placement="left" :show-after="200" :hide-after="0">
+              <!-- 第三视图模式：对话模式（完整会话气泡视图，替代原「档案」抽屉；精简是对话的紧凑展示） -->
+              <el-tooltip
+                :content="conversationViewVisible ? '退出对话模式' : '对话模式'"
+                placement="left"
+                :show-after="200"
+                :hide-after="0"
+              >
                 <span class="nyxus-tool-tip-anchor">
                   <button
                     type="button"
                     class="nyxus-rail-action"
-                    :disabled="!chatId"
-                    aria-label="档案"
-                    @click="openHistory"
+                    :class="{ 'is-active': conversationViewVisible }"
+                    :disabled="!treeRootChatId"
+                    aria-label="对话模式"
+                    :aria-pressed="conversationViewVisible"
+                    @click="toggleConversationView"
                   >
                     <span aria-hidden="true">↺</span>
                   </button>

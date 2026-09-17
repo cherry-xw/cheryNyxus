@@ -52,15 +52,30 @@
 .workbench-shell.is-lite .nyxus-composer-dock {
   display: none;
 }
+/* 对话模式（第三视图）：整屏会话视图由 ConversationView 在 .nyxus-branch-top 内接管，
+   隐藏树专用元素——composer dock（会话视图为回看界面，发消息走树/精简）、ctx 分割线；
+   树视图类 rail 按钮（发送消息/卡牌/流程图/阅读器/暂停全部分支/折叠）与 lite 同规则隐藏。 */
+.workbench-shell.is-conversation .workbench-ctx-bar,
+.workbench-shell.is-conversation .nyxus-composer-dock {
+  display: none;
+}
+/* 会话面板让位右侧 rail（rail 仍承担待处理/新建会话/退出对话模式入口）：
+   rail = right 10px + 30px 按钮 + 8px 列内 padding ≈ 48px。 */
+.workbench-shell.is-conversation .conversation-view {
+  right: 48px;
+}
 /* t10：lite 视图下隐藏「继续编辑消息/发送消息」rail 按钮——lite 唯一消息入口是底部输入框，
    避免误导（该按钮激活的是完整视图 composer，在 lite 下无效）。
-   按钮外层 tooltip 锚点（30×30 固定尺寸）必须一并隐藏，否则列内留下空缺位不重新排布。 */
-.workbench-shell.is-lite .nyxus-tool-tip-anchor.is-lite-hidden {
+   按钮外层 tooltip 锚点（30×30 固定尺寸）必须一并隐藏，否则列内留下空缺位不重新排布。
+   对话模式同样隐藏（composer dock 已隐藏，该按钮无对应界面）。 */
+.workbench-shell.is-lite .nyxus-tool-tip-anchor.is-lite-hidden,
+.workbench-shell.is-conversation .nyxus-tool-tip-anchor.is-lite-hidden {
   display: none;
 }
 /* Lite 视图保留任务控制与待处理入口，但不显示只作用于完整执行图的视图/阅读/折叠操作
-   （卡牌/流程图/阅读器作用于被 lite 隐藏的节点树；折叠同理）。 */
-.workbench-shell.is-lite .nyxus-fold-tool {
+   （卡牌/流程图/阅读器作用于被 lite 隐藏的节点树；折叠同理）。对话模式同理。 */
+.workbench-shell.is-lite .nyxus-fold-tool,
+.workbench-shell.is-conversation .nyxus-fold-tool {
   display: none;
 }
 

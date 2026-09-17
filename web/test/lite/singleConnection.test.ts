@@ -8,7 +8,7 @@ import {
   type TimelineNodeDetailResponse,
 } from '../../src/services/agentApi'
 import { wsClient } from '../../src/services/ws'
-import { useLiteViewToggle } from '../../src/features/agent/workbench/useLiteViewToggle'
+import { useWorkbenchViewMode } from '../../src/features/agent/workbench/useWorkbenchViewMode'
 import { useLiteStore } from '../../src/features/lite/liteStore'
 import { useLiteCanonicalView } from '../../src/features/lite/useLiteCanonicalView'
 import { useChatSessionsStore } from '../../src/stores/chats'
@@ -40,11 +40,13 @@ describe('workbench Lite single-connection integration', () => {
     }
     const before = { ...chats.rootSubscriptions['root-live'] }
 
-    const { liteViewEnabled, toggleLiteView } = useLiteViewToggle('window-a')
-    toggleLiteView()
-    expect(liteViewEnabled.value).toBe(true)
-    toggleLiteView()
-    expect(liteViewEnabled.value).toBe(false)
+    const { viewMode, setViewMode } = useWorkbenchViewMode('window-a')
+    setViewMode('lite')
+    expect(viewMode.value).toBe('lite')
+    setViewMode('conversation')
+    expect(viewMode.value).toBe('conversation')
+    setViewMode('tree')
+    expect(viewMode.value).toBe('tree')
 
     expect(connect).not.toHaveBeenCalled()
     expect(disconnect).not.toHaveBeenCalled()
@@ -59,7 +61,7 @@ describe('workbench Lite single-connection integration', () => {
 
   it('isolates drafts, expansion, scroll and errors by window plus explicit root', () => {
     const lite = useLiteStore()
-    lite.setActive('window-a', true)
+    lite.setViewMode('window-a', 'lite')
     lite.patchRootUi('window-a', 'root-one', {
       inputDraft: 'draft one',
       expandedItemIds: ['subtasks'],
@@ -149,25 +151,32 @@ describe('workbench Lite single-connection integration', () => {
     }>()
   })
 
-  it('uses one persisted toggle entry for the browser and Electron workbench entries', () => {
-    const browser = useLiteViewToggle('preset-a')
-    const electron = useLiteViewToggle('preset-a')
+  it('uses one persisted view-mode entry for the browser and Electron workbench entries', () => {
+    const browser = useWorkbenchViewMode('preset-a')
+    const electron = useWorkbenchViewMode('preset-a')
 
-    browser.toggleLiteView()
-    expect(browser.liteViewEnabled.value).toBe(true)
-    expect(electron.liteViewEnabled.value).toBe(true)
-    expect(localStorage.getItem('cherynyxus:workbench-lite-view:preset-a')).toBe('1')
+    browser.setViewMode('lite')
+    expect(browser.viewMode.value).toBe('lite')
+    expect(electron.viewMode.value).toBe('lite')
+    expect(localStorage.getItem('cherynyxus:workbench-view-mode:preset-a')).toBe('lite')
 
-    electron.toggleLiteView()
-    expect(browser.liteViewEnabled.value).toBe(false)
-    expect(electron.liteViewEnabled.value).toBe(false)
+    electron.setViewMode('tree')
+    expect(browser.viewMode.value).toBe('tree')
+    expect(electron.viewMode.value).toBe('tree')
+    expect(localStorage.getItem('cherynyxus:workbench-view-mode:preset-a')).toBe('tree')
+  })
+
+  it('migrates the legacy two-mode toggle entry into the three-mode key', () => {
+    localStorage.setItem('cherynyxus:workbench-lite-view:preset-legacy', '1')
+    const { viewMode } = useWorkbenchViewMode('preset-legacy')
+    expect(viewMode.value).toBe('lite')
   })
 
   it('keeps Lite integration free of a private client, hydration and root guessing', async () => {
     const [store, adapter, toggle, workbench, viewToggle] = await Promise.all([
       readComponentSource(resolve('src/features/lite/liteStore.ts'), 'utf8'),
       readComponentSource(resolve('src/features/lite/useLiteCanonicalView.ts'), 'utf8'),
-      readComponentSource(resolve('src/features/agent/workbench/useLiteViewToggle.ts'), 'utf8'),
+      readComponentSource(resolve('src/features/agent/workbench/useWorkbenchViewMode.ts'), 'utf8'),
       readComponentSource(resolve('src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
       readComponentSource(resolve('src/features/agent/workbench/WorkbenchViewToggle.vue'), 'utf8'),
     ])
@@ -183,10 +192,13 @@ describe('workbench Lite single-connection integration', () => {
     expect(adapter).not.toContain('chat.list')
     expect(workbench).toContain(':root-chat-id="treeRootChatId"')
     expect(workbench).toContain('<WorkbenchViewToggle :window-id="windowId" />')
-    expect(viewToggle).toContain('@click="liteViewEnabled && toggleLiteView()"')
-    expect(viewToggle).toContain('@click="!liteViewEnabled && toggleLiteView()"')
+    expect(viewToggle).toContain('@click="setViewMode(mode.key)"')
+    expect(viewToggle).toContain(":class=\"{ active: viewMode === mode.key }\"")
     expect(workbench).toContain(
-      'const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)',
+      'const liteViewVisible = computed(() => viewMode.value === \'lite\' && !!treeRootChatId.value)',
+    )
+    expect(workbench).toContain(
+      'const conversationViewVisible = computed(\n    () => viewMode.value === \'conversation\' && !!treeRootChatId.value,\n  )',
     )
   })
 })

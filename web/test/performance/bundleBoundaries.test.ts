@@ -24,7 +24,8 @@ describe('frontend cold-start bundle boundaries', () => {
     expect(source).toMatch(
       /<CyberWindow[\s\S]*?v-if="browserSettingsWindow"[\s\S]*?<SettingsDialog\b[^>]*v-if="workspace\.settingsOpen"[^>]*embedded\s*\/>[\s\S]*?<\/CyberWindow>/,
     )
-    expect(source).toContain("workspace.historyDrawerMode === 'workbench-docked'")
+    expect(source).toContain("workspace.historyDrawerMode === 'overlay'")
+    expect(source).not.toContain("'workbench-docked'")
     expect(source).not.toContain("from '@/features/pets/nyxus/public'")
   })
 

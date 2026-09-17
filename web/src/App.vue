@@ -118,9 +118,9 @@ watch(
   { deep: true },
 )
 
-/** workbench 原生窗 lite 极简视图切换（§2.1）：标题栏 ⚡ 与 WorkbenchDialog 共享 useLiteViewToggle，
- * 保证 Electron 面（surface=workbench）与浏览器面状态一致。非 workbench 面 windowId 兜底无害。
- * 顶层解构为 ref 变量以便模板自动 unwrap（对象属性访问不自动 unwrap）。 */
+/** workbench 原生窗三视图切换（树/对话/精简，§2.1 扩展）：标题栏与 WorkbenchDialog 共享
+ * useWorkbenchViewMode，保证 Electron 面（surface=workbench）与浏览器面状态一致。
+ * 非 workbench 面 windowId 兜底无害。 */
 // 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
 provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager())
 
@@ -543,9 +543,8 @@ async function bootstrap(): Promise<void> {
         @create="() => void workbenchCreateSession()"
         @clear="onWorkbenchSessionClear"
       />
-      <!-- lite 极简视图切换（§2.1）：native 面 WorkbenchDialog 内部 titlebar 被 v-if="!isNative"
-           隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useLiteViewToggle；
-           v1.0 改 el-switch（原 ⚡ 按钮 icon 歪斜、active 不突出） -->
+      <!-- 三视图切换（树/对话/精简，§2.1 扩展）：native 面 WorkbenchDialog 内部 titlebar 被 v-if="!isNative"
+           隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useWorkbenchViewMode -->
       <WorkbenchViewToggle :window-id="surfacePresetId ?? 'workbench'" />
     </template>
     <WorkbenchDialog
@@ -554,7 +553,6 @@ async function bootstrap(): Promise<void> {
       :preset-id="surfacePresetId!"
       native
     />
-    <HistoryDrawer />
   </WindowFrame>
   <template v-else>
     <!-- 浏览器完整单页（不受 Electron 迁移影响）：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉 -->
@@ -655,12 +653,6 @@ async function bootstrap(): Promise<void> {
           embedded
         />
       </CyberWindow>
-      <HistoryDrawer
-        v-if="
-          workspace.historyDrawerStack.length > 0 &&
-          workspace.historyDrawerMode === 'workbench-docked'
-        "
-      />
     </CyberDesktopHost>
   </template>
 </template>

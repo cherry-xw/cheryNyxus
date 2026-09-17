@@ -57,6 +57,16 @@ export type HistoryDrawerPanelControllerProps = {
   canGoBack?: boolean
   /** 层叠 z-index（280 + N×10 + 1，确保栈顶在上）。 */
   zIndex: number
+  /** 工作台对话模式（整屏会话视图，非抽屉）：恒显示分支级联切换、切换走 emit、
+   *  任务分支经 taskBranches 注入（不写全局 historyDrawerTaskBranches）。 */
+  conversation?: boolean
+  /** 对话模式注入的任务分支摘要（工作台 taskTimeline.branches，替代全局注入）。 */
+  taskBranches?: ConversationBranchSummary[]
+  /** 对话模式级联切换回调（工作台同步窗口当前会话用；抽屉路径忽略）。 */
+  onSwitchChat?: (chatId: string) => void
+  /** 对话模式 root 时间线订阅 owner（per-window，如 `workbench:<windowId>:conversation`），
+   *  会话切换/退出模式时可按窗口释放；缺省走抽屉全局 owner 'history-drawer'。 */
+  historyOwner?: string
 }
 
 export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControllerProps) {
@@ -219,20 +229,25 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   }
   const taskBranches = ref<ConversationBranchSummary[]>([])
   const taskTimeline = ref<RootTimelineSnapshot>()
+  /** 分支摘要注入源：对话模式走 props（工作台 taskTimeline.branches，按窗口隔离）；
+   *  抽屉路径走全局 historyDrawerTaskBranches（overlay 抽屉分支显示优化）。 */
+  const injectedBranches = computed(() =>
+    props.conversation ? (props.taskBranches ?? []) : agents.historyDrawerTaskBranches,
+  )
   const taskId = computed(() =>
     resolveHistoryTaskId(
       props.chatId,
       agents.summaryForChat(props.chatId)?.taskId,
-      agents.historyDrawerTaskBranches,
+      injectedBranches.value,
     ),
   )
   watch(
     taskId,
     (id) => {
-      // 注入值仅当属于当前任务时暂用（工作台 openHistory 即时显示优化）；跨任务残留
+      // 注入值仅当属于当前任务时暂用（overlay 抽屉分支显示优化）；跨任务残留
       // （switchSession 切会话不更新全局 historyDrawerTaskBranches）或无任务会话时
       // 过滤为空，避免下拉泄漏别的任务分支。真实数据以 timeline 拉取结果为准。
-      taskBranches.value = agents.historyDrawerTaskBranches.filter((branch) => branch.taskId === id)
+      taskBranches.value = injectedBranches.value.filter((branch) => branch.taskId === id)
       taskTimeline.value = undefined
       if (!id) return
       const requestedTaskId = id
@@ -242,7 +257,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
           if (taskId.value === requestedTaskId) {
             taskTimeline.value = snapshot
             taskBranches.value = snapshot.branches ?? []
-            agents.historyDrawerTaskBranches = taskBranches.value
+            if (!props.conversation) agents.historyDrawerTaskBranches = taskBranches.value
           }
         })
         .catch(() => undefined)
@@ -295,9 +310,9 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     return ''
   }
   const cascadeOptions = computed<SessionCascadeOption[]>(() => {
-    // workbench-docked：平铺当前任务分支为一级（含解释流程，可点击切换查看）；
+    // workbench-docked / 对话模式：平铺当前任务分支为一级（含解释流程，可点击切换查看）；
     // 无任务分支（非任务会话 / 分支已清空）时仅当前会话单选项，绝不退化两级跨任务显示。
-    if (agents.historyDrawerMode === 'workbench-docked') {
+    if (props.conversation || agents.historyDrawerMode === 'workbench-docked') {
       const branches = orderedTaskBranches.value
       if (branches.length > 0) {
         return branches.map((b) => ({
@@ -368,7 +383,12 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   function onSwitchCascade(value: unknown): void {
     const cid = typeof value === 'string' ? value : ''
     if (!cid || cid === props.chatId) return
-    // 透传当前 mode + anchor：dock 抽屉切分支后仍保持 dock 锚定，不回退 overlay。
+    // 对话模式：切换经 onSwitchChat 交给工作台（同步窗口当前会话，驱动整窗跟随）；
+    // 抽屉路径：透传当前 mode + anchor（dock 切分支后保持 dock 锚定，不回退 overlay）。
+    if (props.conversation) {
+      props.onSwitchChat?.(cid)
+      return
+    }
     manager.openRoot(cid, agents.historyDrawerMode, agents.historyDrawerAnchor)
   }
   const activatingBranch = ref(false)
@@ -720,7 +740,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       if (workingScopePets.value.length > 0 || props.chatId !== batchChatId) return
       batchReloading.value = true
       void manager
-        .loadHistory(props.chatId)
+        .loadHistory(props.chatId, props.historyOwner)
         .catch((error) => console.error('[HistoryDrawer] batch history reload failed:', error))
         .finally(() => {
           if (workingScopePets.value.length === 0 && props.chatId === batchChatId) {
@@ -742,7 +762,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
         // V2 session subscription is required even while a run is active so
         // turn.delta and timeline.patch are visible immediately.
         void manager
-          .loadHistory(chatId)
+          .loadHistory(chatId, props.historyOwner)
           .catch((error) => console.error('[HistoryDrawer] V2 session open failed:', error))
       }
       if (working.length > 0) {
@@ -861,16 +881,16 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     if (name) return `${name} 的历史`
     return `历史 · ${props.chatId.slice(0, 8)}…`
   })
-  /** 级联下拉作为标题：workbench-docked 恒显示（分支/会话切换入口，平铺当前任务分支一级）；
+  /** 级联下拉作为标题：workbench-docked / 对话模式恒显示（分支/会话切换入口，平铺当前任务分支一级）；
    *  overlay 在同 preset 存在多个可切换会话或任务含多个分支时显示。overlay 打开解释分支会话时
    *  其 chatId 不在过滤解释后的二级选项中，降为静态标题（titleText）避免 cascader 值失配。 */
   const dropdownAsTitle = computed(
     () =>
       layout.value === 'group' &&
-      (agents.historyDrawerMode === 'workbench-docked'
-        ? true
-        : currentTaskBranch.value?.kind !== 'detail' &&
-          (rootOptions.value.length > 1 || orderedTaskBranches.value.length > 1)),
+      (props.conversation ||
+        agents.historyDrawerMode === 'workbench-docked' ||
+        (currentTaskBranch.value?.kind !== 'detail' &&
+          (rootOptions.value.length > 1 || orderedTaskBranches.value.length > 1))),
   )
   /** 6c：解析某条历史消息所属 chat 的 pet runtime 兜底（subPetChatId 优先 → agentChatId → 当前 drawer chat）。
    * 旧历史项无 runtime 时，优先用 V2 session 当前 runtime 补全，再退化到 pet 投影。 */
