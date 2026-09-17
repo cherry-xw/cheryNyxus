@@ -1,153 +1,401 @@
 <script setup lang="ts">
-/**
- * WorkbenchSessionStrip：工作台标题栏会话状态条。
- * 当前预设活跃会话 icon 阵列：icon = 当前运行节点（model=✦ 思考 / tool=sense 图标）；
- * 运行中节点上层叠半透明 loading 遮罩（可见底层 icon）；hover 提示分三块（标题 / 用户最后一次消息 / 当前节点）。
- * 当前打开的会话强制置顶入列并高亮。数据来自 useTaskOverviewStore（应用级订阅生命周期由 startApplicationRuntime 管理）。
- * 纯展示 + emit，切换由父级执行（switchSession / setWorkbenchWindowChat，draft 保持契约既有）。
- */
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTaskOverviewStore } from '@/application/public'
-import { agentApi, type SenseToolInfo } from '@/application/backend/public'
+import type { TaskOverview } from '@/application/backend/public'
 import {
   buildStripTooltip,
-  currentNodeLabel,
+  dismissSessionStripTask,
+  matchesSessionStripPreset,
   pickStripTasks,
+  reconcileSessionStripPreference,
+  sessionStripStatusIcon,
+  sessionStripStatusLabel,
+  taskIconIndex,
   type SessionStripItem,
+  type TaskBrowserOpenRequest,
 } from './useSessionStripTasks'
+import { useSessionStripPreferences } from './useSessionStripPreferences'
 
 const props = withDefaults(
   defineProps<{
     windowId: string
     presetId?: string
     presetName?: string
-    /** sense 图标查找（工具节点 icon 映射）；缺省时组件内部自拉 sense.tools 兜底。 */
-    senseTool?: (name: string) => SenseToolInfo | undefined
     activeChatId?: string | null
+    /** 浏览器桌面内多窗口由父级传入；原生窗口缺省时使用 document.hasFocus()。 */
+    foreground?: boolean
+    allTasksExpanded?: boolean
   }>(),
-  { presetId: undefined, presetName: undefined, senseTool: undefined, activeChatId: null },
+  {
+    presetId: undefined,
+    presetName: undefined,
+    activeChatId: null,
+    foreground: undefined,
+    allTasksExpanded: false,
+  },
 )
 
 const emit = defineEmits<{
   select: [chatId: string]
-  /** 溢出「+N」点击：父级展开完整会话下拉。 */
-  expand: []
+  expand: [request: TaskBrowserOpenRequest]
 }>()
 
+const TASK_ICONS: ReadonlyArray<readonly string[]> = [
+  ['M4 6h16v12H4z', 'M8 10h8', 'M8 14h5'],
+  ['M12 3 5 7v10l7 4 7-4V7z', 'M12 3v18', 'm5-14 7 4 7-4'],
+  ['M5 5h14v14H5z', 'm5 12 3 3 6-7 4 4'],
+  ['M4 12h4l2-6 4 12 2-6h4'],
+  ['M6 4h12v16H6z', 'M9 8h6', 'M9 12h6', 'M9 16h4'],
+  ['M12 3v4', 'M12 17v4', 'M3 12h4', 'M17 12h4', 'M8 8l8 8', 'M16 8l-8 8'],
+  ['M4 18V8l8-5 8 5v10', 'M8 21v-7h8v7'],
+  ['M5 5h6v6H5z', 'M13 5h6v6h-6z', 'M5 13h6v6H5z', 'M13 13h6v6h-6z'],
+]
+
 const overview = useTaskOverviewStore()
+const preferenceScope = computed(() =>
+  props.presetId
+    ? `id:${props.presetId}`
+    : props.presetName
+      ? `name:${props.presetName}`
+      : `window:${props.windowId}`,
+)
+const { preference, setPreference } = useSessionStripPreferences(preferenceScope)
 
-/** sense 图标兜底：父级未注入 senseTool（如 Electron 原生标题栏）时自拉 sense.tools。 */
-const localSenseTools = ref<SenseToolInfo[]>([])
-onMounted(() => {
-  void agentApi
-    .listSenseTools()
-    .then((tools) => {
-      localSenseTools.value = tools
-    })
-    .catch(() => undefined)
-})
-
+const presetTasks = computed(() =>
+  overview.tasks.filter((task) =>
+    matchesSessionStripPreset(task, props.presetId, props.presetName),
+  ),
+)
+const visibleCapacity = ref(6)
 const strip = computed(() =>
-  pickStripTasks(overview.tasks, props.presetId, props.presetName, props.activeChatId ?? undefined),
+  pickStripTasks(
+    preference.value,
+    presetTasks.value,
+    props.activeChatId ?? undefined,
+    visibleCapacity.value,
+  ),
 )
 
-/** 工具节点 icon：优先父级注入的 senseTool，否则本地自拉结果，未命中回退 ⚙。 */
-function toolIcon(name: string | undefined): string {
-  if (!name) return '⚙'
-  if (props.senseTool) return props.senseTool(name)?.icon ?? '⚙'
-  return localSenseTools.value.find((tool) => tool.name === name)?.icon ?? '⚙'
+watch(
+  [presetTasks, () => props.activeChatId, preference],
+  ([tasks, activeChatId]) => {
+    setPreference(
+      reconcileSessionStripPreference(preference.value, tasks, activeChatId ?? undefined),
+    )
+  },
+  { immediate: true },
+)
+
+function taskMatchesChat(task: TaskOverview, chatId: string | null | undefined): boolean {
+  if (!chatId) return false
+  return (
+    task.taskKey === chatId ||
+    task.rootChatId === chatId ||
+    task.originalChatId === chatId ||
+    task.openChatId === chatId ||
+    task.agents.some((agent) => agent.chatId === chatId)
+  )
 }
 
-/** 当前运行节点 icon：tool=工具图标；model/缺省=思考符号 ✦。 */
-function nodeIcon(item: SessionStripItem): string {
-  if (item.currentStepKind === 'tool' || (item.currentStep && !item.currentStepKind)) {
-    return toolIcon(item.currentStep)
-  }
-  return '✦'
+const currentTaskKey = computed(
+  () =>
+    presetTasks.value.find((task) => taskMatchesChat(task, props.activeChatId))?.taskKey ??
+    preference.value.slots.find((slot) =>
+      [
+        slot.snapshot.taskKey,
+        slot.snapshot.rootChatId,
+        slot.snapshot.originalChatId,
+        slot.snapshot.openChatId,
+        ...slot.snapshot.relatedChatIds,
+      ].includes(props.activeChatId ?? ''),
+    )?.taskKey,
+)
+
+function isCurrent(item: SessionStripItem): boolean {
+  return item.taskKey === currentTaskKey.value
+}
+
+function isStored(item: SessionStripItem): boolean {
+  return preference.value.slots.some((slot) => slot.taskKey === item.taskKey)
+}
+
+function iconPaths(item: SessionStripItem): readonly string[] {
+  return TASK_ICONS[taskIconIndex(item.taskKey, TASK_ICONS.length)] ?? TASK_ICONS[0]!
 }
 
 function onSelect(item: SessionStripItem): void {
-  emit('select', item.rootChatId)
+  closeTip()
+  emit('select', item.openChatId)
 }
+
+async function dismiss(item: SessionStripItem): Promise<void> {
+  setPreference(dismissSessionStripTask(preference.value, item))
+  closeTip()
+  await nextTick()
+  const focusTarget =
+    document.getElementById(triggerId(item.taskKey)) ?? document.getElementById(allTasksId())
+  focusTarget?.focus()
+}
+
+function formatUpdatedAt(timestamp: number): string {
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(timestamp)
+}
+
+function accessibleLabel(item: SessionStripItem): string {
+  const parts = [
+    `切换任务：${buildStripTooltip(item).title}`,
+    sessionStripStatusLabel(item.status),
+  ]
+  if (item.unreadResult) parts.push('有未查看结果')
+  if (isCurrent(item)) parts.push('当前任务')
+  parts.push('按向下键进入详情')
+  return parts.join('，')
+}
+
+const itemsEl = ref<HTMLElement | null>(null)
+let resizeObserver: ResizeObserver | undefined
+
+function updateVisibleCapacity(width: number): void {
+  const iconWidth = 26
+  const gap = 6
+  visibleCapacity.value = Math.max(1, Math.min(6, Math.floor((width + gap) / (iconWidth + gap))))
+}
+
+const documentForeground = ref(true)
+function syncDocumentForeground(): void {
+  documentForeground.value = document.visibilityState === 'visible' && document.hasFocus()
+}
+const canAnimate = computed(
+  () => props.foreground !== false && documentForeground.value,
+)
+
+const openTipKey = ref<string>()
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+
+function triggerId(taskKey: string): string {
+  return `session-strip-${props.windowId}-${taskKey}-trigger`
+}
+
+function tipId(taskKey: string): string {
+  return `session-strip-${props.windowId}-${taskKey}-tip`
+}
+
+function allTasksId(): string {
+  return `session-strip-${props.windowId}-all-tasks`
+}
+
+function cancelTipClose(): void {
+  if (closeTimer) clearTimeout(closeTimer)
+  closeTimer = undefined
+}
+
+function openTip(taskKey: string): void {
+  cancelTipClose()
+  openTipKey.value = taskKey
+}
+
+function closeTip(): void {
+  cancelTipClose()
+  openTipKey.value = undefined
+}
+
+function scheduleTipClose(taskKey: string): void {
+  cancelTipClose()
+  closeTimer = setTimeout(() => {
+    if (openTipKey.value === taskKey) openTipKey.value = undefined
+  }, 120)
+}
+
+async function enterTip(item: SessionStripItem): Promise<void> {
+  openTip(item.taskKey)
+  await nextTick()
+  document.getElementById(tipId(item.taskKey))?.focus()
+}
+
+function onReferenceKeydown(event: KeyboardEvent, item: SessionStripItem): void {
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    void enterTip(item)
+  } else if (event.key === 'Escape') {
+    closeTip()
+  }
+}
+
+async function returnToTrigger(item: SessionStripItem): Promise<void> {
+  closeTip()
+  await nextTick()
+  document.getElementById(triggerId(item.taskKey))?.focus()
+}
+
+function openAllTasks(): void {
+  emit('expand', { focus: strip.value.attentionCount > 0 ? 'attention' : 'all' })
+}
+
+const allTasksLabel = computed(() => {
+  const parts = [props.allTasksExpanded ? '关闭任务列表' : '打开全部任务']
+  if (strip.value.overflowCount > 0) parts.push(`${strip.value.overflowCount} 个任务未显示在标题栏`)
+  if (strip.value.attentionCount > 0) parts.push(`${strip.value.attentionCount} 个任务需要关注`)
+  return parts.join('，')
+})
+
+onMounted(() => {
+  syncDocumentForeground()
+  window.addEventListener('focus', syncDocumentForeground)
+  window.addEventListener('blur', syncDocumentForeground)
+  document.addEventListener('visibilitychange', syncDocumentForeground)
+  if (itemsEl.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(([entry]) => {
+      if (entry) updateVisibleCapacity(entry.contentRect.width)
+    })
+    resizeObserver.observe(itemsEl.value)
+    updateVisibleCapacity(itemsEl.value.getBoundingClientRect().width)
+  }
+})
+
+onBeforeUnmount(() => {
+  cancelTipClose()
+  resizeObserver?.disconnect()
+  window.removeEventListener('focus', syncDocumentForeground)
+  window.removeEventListener('blur', syncDocumentForeground)
+  document.removeEventListener('visibilitychange', syncDocumentForeground)
+})
 </script>
 
 <template>
-  <div class="session-strip" role="group" aria-label="运行中会话">
-    <template v-if="strip.items.length">
-      <el-tooltip
+  <div class="session-strip" :class="{ 'can-animate': canAnimate }" role="group" aria-label="任务切换">
+    <div ref="itemsEl" class="session-strip-items">
+      <el-popover
         v-for="item in strip.items"
-        :key="item.rootChatId"
+        :key="item.taskKey"
+        :visible="openTipKey === item.taskKey"
+        trigger="manual"
         placement="bottom"
-        :show-after="200"
-        :hide-after="0"
+        :width="320"
         popper-class="session-strip-tip"
       >
-        <template #content>
-          <div class="session-strip-tip-body">
-            <span class="tip-title">{{ buildStripTooltip(item).title }}</span>
-            <span class="tip-divider" aria-hidden="true" />
-            <span class="tip-section">
-              <span class="tip-label">用户消息</span>
-              <span class="tip-value">{{ buildStripTooltip(item).lastPrompt }}</span>
+        <template #reference>
+          <button
+            :id="triggerId(item.taskKey)"
+            type="button"
+            class="session-strip-icon"
+            :class="{
+              'is-active': isCurrent(item),
+              'is-needs-user': item.status === 'needs_user',
+              'is-failed': item.status === 'failed',
+            }"
+            :aria-label="accessibleLabel(item)"
+            :aria-pressed="isCurrent(item)"
+            :aria-describedby="openTipKey === item.taskKey ? tipId(item.taskKey) : undefined"
+            @click="onSelect(item)"
+            @mouseenter="openTip(item.taskKey)"
+            @mouseleave="scheduleTipClose(item.taskKey)"
+            @focus="openTip(item.taskKey)"
+            @blur="scheduleTipClose(item.taskKey)"
+            @keydown="onReferenceKeydown($event, item)"
+          >
+            <svg class="strip-main-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path v-for="path in iconPaths(item)" :key="path" :d="path" />
+            </svg>
+            <span
+              class="strip-status-icon"
+              :class="`is-${item.status}`"
+              :title="sessionStripStatusLabel(item.status)"
+              aria-hidden="true"
+            >
+              {{ sessionStripStatusIcon(item.status) }}
             </span>
-            <span class="tip-section">
-              <span class="tip-label">当前节点</span>
-              <span class="tip-value">{{ buildStripTooltip(item).currentNode }}</span>
-            </span>
-          </div>
+            <span v-if="item.unreadResult" class="strip-unread-mark" aria-hidden="true" />
+            <span v-if="isCurrent(item)" class="strip-current-bar" aria-hidden="true" />
+          </button>
         </template>
-        <button
-          type="button"
-          class="session-strip-icon"
-          :class="{
-            'is-active': item.rootChatId === activeChatId,
-            'is-needs-user': item.status === 'needs_user',
-          }"
-          :aria-label="`切换会话：${buildStripTooltip(item).title}${item.rootChatId === activeChatId ? '（当前）' : ''}`"
-          :aria-pressed="item.rootChatId === activeChatId"
-          @click="onSelect(item)"
+
+        <section
+          :id="tipId(item.taskKey)"
+          class="session-strip-tip-body"
+          tabindex="-1"
+          :aria-label="`${buildStripTooltip(item).title}任务详情`"
+          @mouseenter="cancelTipClose"
+          @mouseleave="scheduleTipClose(item.taskKey)"
+          @focusin="cancelTipClose"
+          @focusout="scheduleTipClose(item.taskKey)"
+          @keydown.esc.stop.prevent="returnToTrigger(item)"
         >
-          <span class="strip-node-icon" :title="currentNodeLabel(item)" aria-hidden="true">
-            {{ nodeIcon(item) }}
-          </span>
-          <span v-if="item.status === 'running'" class="strip-loading" aria-hidden="true">
-            <span class="strip-loading-spinner" />
-          </span>
-          <span v-if="item.status === 'needs_user'" class="strip-needs-dot" aria-hidden="true" />
-          <span v-if="item.pendingCount" class="strip-pending-count" aria-hidden="true">
-            {{ item.pendingCount > 9 ? '9+' : item.pendingCount }}
-          </span>
-          <span
-            v-if="item.rootChatId === activeChatId"
-            class="strip-current-bar"
-            aria-hidden="true"
-          />
-        </button>
-      </el-tooltip>
-      <button
-        v-if="strip.overflowCount > 0"
-        type="button"
-        class="session-strip-overflow"
-        :aria-label="`展开全部 ${strip.overflowCount + strip.items.length} 个会话`"
-        @click="emit('expand')"
-      >
-        +{{ strip.overflowCount }}
-      </button>
-    </template>
+          <header class="tip-head">
+            <span class="tip-title">{{ buildStripTooltip(item).title }}</span>
+            <span class="tip-status">{{ buildStripTooltip(item).status }}</span>
+          </header>
+          <div class="tip-section">
+            <span class="tip-label">最近要求</span>
+            <span class="tip-value">{{ buildStripTooltip(item).lastPrompt }}</span>
+          </div>
+          <div class="tip-section">
+            <span class="tip-label">{{ buildStripTooltip(item).detailLabel }}</span>
+            <span class="tip-value">{{ buildStripTooltip(item).detail }}</span>
+          </div>
+          <footer class="tip-foot">
+            <time :datetime="new Date(item.updatedAt).toISOString()">
+              更新于 {{ formatUpdatedAt(item.updatedAt) }}
+            </time>
+            <button v-if="isStored(item)" type="button" @click="dismiss(item)">
+              从标题栏收起
+            </button>
+            <span v-else>当前任务补位，切换后自动离开</span>
+          </footer>
+        </section>
+      </el-popover>
+    </div>
+
+    <button
+      :id="allTasksId()"
+      type="button"
+      class="session-strip-all"
+      :class="{ 'has-attention': strip.attentionCount > 0 }"
+      :aria-label="allTasksLabel"
+      :aria-expanded="allTasksExpanded"
+      @click="openAllTasks"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 6h14M5 12h14M5 18h14" />
+        <path d="M3 6h.01M3 12h.01M3 18h.01" />
+      </svg>
+      <span v-if="strip.overflowCount" class="all-overflow" aria-hidden="true">
+        +{{ strip.overflowCount > 9 ? '9' : strip.overflowCount }}
+      </span>
+      <span v-if="strip.attentionCount" class="all-attention" aria-hidden="true">!</span>
+    </button>
   </div>
 </template>
 
 <style scoped lang="less">
-// 全直角 + token 色（--ink/--accent/--border + color-mix），浅深双端自适应；
-// hover 只用 transform/opacity；loading 动画尊重 prefers-reduced-motion。
 .session-strip {
   display: flex;
+  flex: 1 1 218px;
   align-items: center;
   gap: 6px;
-  padding: 0 2px;
+  min-width: 58px;
+  max-width: 218px;
+  overflow: hidden;
 }
-.session-strip-icon {
+.session-strip-items {
+  display: flex;
+  flex: 1 1 186px;
+  align-items: center;
+  gap: 6px;
+  min-width: 26px;
+  height: 34px;
+  padding: 4px 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.session-strip-icon,
+.session-strip-all {
   position: relative;
+  flex: 0 0 26px;
   width: 26px;
   height: 26px;
   display: grid;
@@ -156,111 +404,85 @@ function onSelect(item: SessionStripItem): void {
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
   border-radius: 0;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--ink);
-  font-size: 14px;
-  line-height: 1;
   cursor: pointer;
-  overflow: hidden;
+  overflow: visible;
   transition:
     border-color 120ms ease,
     background 120ms ease,
-    transform 120ms ease,
-    opacity 120ms ease;
+    transform 120ms ease;
   &:hover {
     border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
     transform: translateY(-1px);
   }
   &:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
+}
+.session-strip-icon {
   &.is-active {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 24%, transparent);
   }
-  &.is-needs-user {
-    border-color: color-mix(in srgb, var(--accent) 70%, transparent);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
+  &.is-needs-user,
+  &.is-failed {
+    border-color: color-mix(in srgb, var(--accent) 72%, transparent);
   }
 }
-.strip-node-icon {
-  font-size: 15px;
-  line-height: 1;
-  filter: saturate(0.85);
+.strip-main-icon,
+.session-strip-all > svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
 }
-// 运行中：半透明 loading 遮罩叠在节点 icon 上（能看见底层 icon），细 spinner 居中 + 呼吸。
-.strip-loading {
+.strip-status-icon {
   position: absolute;
-  inset: 0;
+  top: -4px;
+  right: -4px;
+  min-width: 11px;
+  height: 11px;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-  animation: strip-loading-breathe 1.3s ease-in-out infinite;
+  border: 1px solid var(--panel);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink);
+  font: 400 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  &.is-running,
+  &.is-needs_user,
+  &.is-failed {
+    color: var(--accent);
+  }
 }
-.strip-loading-spinner {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  border-top-color: var(--accent);
-  animation: strip-spin 900ms linear infinite;
+.can-animate .strip-status-icon.is-running {
+  animation: strip-running-signal 1.35s ease-in-out infinite;
 }
-@keyframes strip-loading-breathe {
+@keyframes strip-running-signal {
   0%,
   100% {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    opacity: 0.4;
   }
   50% {
-    background: color-mix(in srgb, var(--accent) 38%, transparent);
-  }
-}
-@keyframes strip-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.strip-needs-dot {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: strip-pulse 1.4s ease-in-out infinite;
-}
-@keyframes strip-pulse {
-  0%,
-  100% {
     opacity: 1;
   }
-  50% {
-    opacity: 0.35;
-  }
 }
-.strip-pending-count {
+.strip-unread-mark {
   position: absolute;
-  bottom: -5px;
-  right: -5px;
-  min-width: 13px;
-  height: 13px;
-  padding: 0 3px;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
+  left: -3px;
+  bottom: -3px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--panel);
   border-radius: 0;
   background: var(--accent);
-  color: #fff;
-  font:
-    400 9px/1 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
 }
-// 当前打开会话标记：底部 accent 指示条（is-active 之外的第二重信号）。
 .strip-current-bar {
   position: absolute;
   left: 0;
@@ -269,72 +491,127 @@ function onSelect(item: SessionStripItem): void {
   height: 3px;
   background: var(--accent);
 }
-.session-strip-overflow {
-  height: 26px;
-  padding: 0 7px;
-  border: 1px dashed color-mix(in srgb, var(--ink) 40%, transparent);
-  border-radius: 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--ink) 75%, transparent);
-  font:
-    400 11px/1 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
-  cursor: pointer;
-  &:hover {
+.session-strip-all {
+  flex: 0 0 26px;
+  &.has-attention {
     border-color: var(--accent);
-    color: var(--accent);
   }
 }
+.all-overflow,
+.all-attention {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  min-width: 11px;
+  height: 11px;
+  padding: 0 1px;
+  box-sizing: border-box;
+  border: 1px solid var(--panel);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--accent);
+  font: 400 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.all-overflow {
+  right: -5px;
+  bottom: -5px;
+}
+.all-attention {
+  top: -4px;
+  right: -4px;
+}
 @media (prefers-reduced-motion: reduce) {
-  .strip-loading,
-  .strip-loading-spinner,
-  .strip-needs-dot {
+  .session-strip-icon,
+  .session-strip-all {
+    transition: none;
+  }
+  .strip-status-icon.is-running {
     animation: none;
+    opacity: 1;
   }
 }
 </style>
 
 <style lang="less">
-// tooltip 三块分栏（标题 / 用户消息 / 当前节点），popper 挂 body，样式需全局（非 scoped）。
+.session-strip-tip.el-popover.el-popper {
+  padding: 0;
+  border-radius: 0;
+  font-weight: 400;
+}
 .session-strip-tip-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-width: 260px;
+  gap: 10px;
+  padding: 12px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 400;
+  outline: none;
+}
+.session-strip-tip-body .tip-head,
+.session-strip-tip-body .tip-foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 .session-strip-tip-body .tip-title {
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
-  color: var(--nx-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  word-break: break-word;
 }
-.session-strip-tip-body .tip-divider {
-  height: 1px;
-  background: color-mix(in srgb, var(--nx-text) 18%, transparent);
+.session-strip-tip-body .tip-status {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-weight: 400;
 }
 .session-strip-tip-body .tip-section {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
 }
 .session-strip-tip-body .tip-label {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: color-mix(in srgb, var(--nx-text) 48%, transparent);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
+  font-size: 12px;
+  font-weight: 400;
 }
 .session-strip-tip-body .tip-value {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--nx-text);
+  line-height: 1.55;
   word-break: break-word;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.session-strip-tip-body .tip-foot {
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
+  line-height: 24px;
+}
+.session-strip-tip-body .tip-foot button {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+  &:hover,
+  &:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
 }
 </style>
