@@ -44,20 +44,20 @@
 - **操作交互便捷**：极简但完整——发送 / 审批 / 提问 / 停止 / 查看详情，全部可在 lite 视图内完成。
 - **按需详情**：中间节点默认折叠为状态行，点按才通过 chat.timeline.node.get 按需拉全文。
 
-**与现有 UI 的关系**：并列不替代。同一工作台窗，标题栏切换「完整视图 ⇄ lite 极简视图」。两视图各自维护独立连接与状态，切换互不干扰。**范围（E 定案）：仅当前会话**——lite 视图不提供会话切换与历史回看（单 root 最简，D19 建议 ≤1-2 root），历史回看从完整视图进入（双子界面分工：lite=当前会话极低流量，完整视图=全功能）；chat.list 已在 hydration 链第一步，未来扩展成本为零。
+**与现有 UI 的关系**：并列不替代。同一工作台窗，标题栏三视图切换「**树 / 对话 / 精简**」（2026-09 扩展：原两档「完整视图 ⇄ lite」扩为三档，精简即对话的紧凑展示方式；`WorkbenchViewToggle` 三档分段按钮，rail「对话模式」按钮同步，见 [workbench-multi-window.md](workbench-multi-window.md#rail-工具栏分组与-lite对话显隐2026-08-282026-09-对话模式扩展)）。lite 视图与完整树/对话视图各自维护独立连接与状态，切换互不干扰。**范围（E 定案）：仅当前会话**——lite 视图不提供会话切换与历史回看（单 root 最简，D19 建议 ≤1-2 root），历史回看从对话模式进入（双子界面分工：lite=当前会话极低流量，完整视图=全功能）；chat.list 已在 hydration 链第一步，未来扩展成本为零。
 
 ---
 
 ## 2. 切换入口与布局
 
 ### 2.1 切换位置（用户已拍板）
-- **工作台窗口标题栏**放一个 **el-switch 开关**（v1.0：原 ⚡ 字符按钮改 switch——选中态主色实心轨道+白色滑块，明显区分激活/未激活；字符按钮存在 icon 歪斜、active 不突出问题）。
+- **工作台窗口标题栏**放一个**三档分段切换钮 `WorkbenchViewToggle`**（树 ⌘ / 对话 ↺ / 精简 ▤；2026-09 由两档 el-switch 扩为三档——精简即对话的紧凑展示方式，rail「对话模式」按钮与标题栏同步，同一 windowId 共用 `useWorkbenchViewMode`）。
 - 每个工作台窗独立（windowId=presetId 维度），互不影响。
-- 切换状态**按窗口持久化**（localStorage，沿用 useWorkbenchWindow 的 per-window key 模式），刷新后保持。
+- 切换状态**按窗口持久化**（localStorage key `cherynyxus:workbench-view-mode:<windowId>`，旧两档键 `cherynyxus:workbench-lite-view` 读取时迁移；沿用 useWorkbenchWindow 的 per-window key 模式），刷新后保持。
 - 不提供全局默认值开关（保持每个窗口独立，符合工作台「每预设一窗」模型）。
 
 ### 2.2 lite 视图布局（自上而下）
-- 标题栏（原样 + ⚡ 切换钮）——**lite 内容自标题栏下方开始**（v0.4.2 修复：非 native 面 titlebar 为 absolute 40px 悬浮于 shell 顶部，`.workbench-shell.is-lite:not(.is-native)` 加 `padding-top:40px` 让位，避免 lite-body 顶部被标题栏遮挡、上下不对称；native 面无 titlebar，lite 从顶开始）
+- 标题栏（原样 + 三档视图切换钮）——**lite 内容自标题栏下方开始**（v0.4.2 修复：非 native 面 titlebar 为 absolute 40px 悬浮于 shell 顶部，`.workbench-shell.is-lite:not(.is-native)` 加 `padding-top:40px` 让位，避免 lite-body 顶部被标题栏遮挡、上下不对称；native 面无 titlebar，lite 从顶开始）
 - 状态条（连接状态 / 会话信息 / **多 Agent 链路标签** / 流量计数）——链路标签常驻状态条内（v0.5.3 迁移，§4.12；**v1.0 浅色可读性**：状态条/链路标签/轨迹行头文字由 `--el-text-color-secondary` 提为 `--el-text-color-primary`，链路标签非激活加边框、激活实底主色，浅色下不再过浅看不清）
 - 对话流（可滚动）
   - [用户] 消息 A（用户消息全文）
@@ -240,7 +240,7 @@ lite 视图对话流上方的多流水线运行轨迹。**一轴 = 一个 Agent 
 
 ## 6. 验收标准（v0.2 按 T31 结论微调）
 
-1. 工作台窗口标题栏切换钮存在，切换 lite/完整视图即时生效、per-window 持久化。
+1. 工作台窗口标题栏三档切换钮存在，切换 树/对话/精简 即时生效、per-window 持久化；rail「对话模式」按钮与标题栏状态同步。
 2. lite 视图走独立 lite WS 连接（可在服务端日志确认 profile=lite 连接建立）。
 3. 默认只显示用户消息 + 最终回复；中间节点只显示状态行；点击状态行 node.get 拉全文；子任务状态行可展开 parent-to-child/child-to-parent lean 节点（§4.1）。
 4. 审批（interrupt）/ 提问（question_batch）在 lite 内可完整交互并闭环；多选题（multiSelect）与自由文本题正确渲染（§4.3）。

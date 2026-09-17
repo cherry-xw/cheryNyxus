@@ -1,4 +1,4 @@
-# 工作台标题栏会话状态条（WorkbenchSessionStrip）
+# 工作台标题栏与全部任务卡片页
 
 **文档创建时间：** 2026-09-16T12:29:17+08:00
 
@@ -6,7 +6,14 @@
 
 ## 目标与边界
 
-工作台（每预设一窗）标题栏增加常驻**会话状态条**：运行中/待用户会话以 icon 阵列展示（icon 随当前运行节点变化，hover 提示标题 + 最后一次提问 + 当前节点类型）；未运行会话经**当前预设下拉**切换（分页，默认第一个）。切换入口从右侧 rail 按钮 popout 提升到标题栏，满足「同时多会话、高频来回切换」场景。
+用户已确认本次设计；数据与行为契约、任务目录查询和未查看记录已经实现，标题栏与全部任务页仍待后续小任务接入。旧版标题栏与下拉实现作为起点，旧验收结果不能证明新设计通过。
+
+- 标题栏仅图标，主图标固定；运行状态用小图标轻微明暗闪烁，不使用 loading 转圈。详细信息放可进入的 tip 窗口。
+- 有限固定快捷位，不水平滚动。后台更新、任务结束、查看结果不重排、不自动移除。满位后新任务进入全部任务页；预留当前任务位，当前任务已在快捷位中时不重复显示。
+- 全部任务入口替换标题栏下拉，页面覆盖当前工作台节点树区域，标题栏保留。卡片按任务合并分支，等高排列，宽窗口三列、普通两列、窄窗口一列。
+- 卡片展示标题、最近要求、当前进展或最新结果或失败原因、状态、未查看标记、更新时间及分支数；更多操作提供标题栏显示/收起与归档，不添加节点树缩略图。
+- 搜索当前工作台全部历史的任务名称、用户提问和结果，展示命中片段；支持状态、时间与排序。浏览期间保持卡片顺序，新任务提示后由用户主动显示。
+- 返回列表恢复筛选和滚动位置；仅进入任务并实际显示本次结束结果后清除未查看，列表浏览和 tip 不算查看。
 
 - **数据通道**：复用现有 `chat.overview.open` 订阅（快照 + 细推送，不引入全量 root timeline 订阅，不做 IndexedDB 缓存层——状态数据 KB 级、服务端权威、断线重连快照重放已覆盖同步语义）。
 - **边界**：
@@ -25,12 +32,18 @@
 | 2 | ~~前端：当前预设分页下拉~~ | 2 | 分页列表 + 默认第一个 + 与 strip 联动，单组件有限行为 | 已完成 |
 | 2 | ~~前端：双 surface 挂载（native 标题栏 + 浏览器标题栏）~~ | 2 | 两处布局适配 + 空间约束，无协议变更 | 已完成 |
 | 3 | ~~文档：协议与工作台文档同步~~ | 1 | 契约/入口变更的权威文档更新 | 已完成 |
-| 4 | [综合验证与用户验收](./08-final-verification.md) | — | 固定收口小任务 | 进行中（反馈修复完成，M1-M5 待执行） |
+| 4 | ~~09 数据与行为约定~~ | 4 | 任务/分支身份、未查看持久化、历史搜索及多窗口边界 | 已完成 |
+| 5 | ~~10 历史检索与未查看记录~~ | 4 | 查询分页、异步结果、结束记录与重新连接 | 已完成 |
+| 6 | ~~11 稳定标题栏与状态 tip~~ | 3 | 固定位置、溢出与当前任务位、多种状态提醒 | 已完成 |
+| 7 | [12 全部任务卡片页](./12-task-browser.md) | 3 | 搜索筛选、稳定列表、任务切换和覆盖页恢复 | 未开始 |
+| 8 | [13 双窗口接入与旧入口替换](./13-integration.md) | 4 | 浏览器/Electron、草稿保持、焦点和归档竞态 | 未开始 |
+| 9 | [08 综合验证与用户验收](./08-final-verification.md) | 3 | 跨模块回归与真实窗口体验 | 未开始 |
 
 ## 依赖与执行顺序
 
-- `01 → 04`（strip 依赖 lastUserPrompt/currentStepKind）；`02 → 05`（下拉依赖分页参数）；`03` 可在 01/02 完成后随时进行；`04/05 → 06`；全部实现完成 → `07 → 08`。
-- 批次 1 内 01 与 02 无共享文件冲突（overview.ts vs handler.ts/types.ts 不同段），可并行；批次 2 内 04/05 组件独立可并行，06 依赖二者。
+- 本次顺序：09 → 10 → 11 → 12 → 13 → 08。01—07 为旧版已完成工作，保留执行记录，不重新执行。
+- 09 在修改代码前更新权威说明；10 的数据供 11/12 使用；13 统一接入两类窗口并替换旧入口。标题栏、工作台、App 与共享状态存在交叉修改，默认串行执行。
+- 总体复杂度 4/5。09/10/13 建议使用擅长跨模块数据、异步状态和恢复验证的 Agent；11/12 需要界面交互与无障碍经验；08 需要测试分析能力。具体执行主体在开始实施时按项目约定确认，本次未分配其他 Agent。
 
 ## 已收口执行记录
 
@@ -43,8 +56,13 @@
 - **06（双 surface 挂载）**：新增组合容器 `WorkbenchSessionBar.vue`（strip + ☰ 按钮 + 弹层 absolute 定位）；浏览器面挂 `App.vue` 的 `CyberWindow #title-actions` slot（ConnectionStatusChip 与 WorkbenchViewToggle 之间，**修正：浏览器工作台窗 embedded 模式自绘 `.workbench-titlebar` 不渲染，标题栏由 CyberWindow 承载**）；native 面挂 `App.vue` workbench surface WindowFrame `#title-actions`（ConnectionStatusChip 与 WorkbenchViewToggle 之间），新增 `workbenchSurfaceChatId` computed + `onWorkbenchSessionSelect`（`setWorkbenchWindowChat`，与 bridge onOpenChat 同语义）+ 通用 `createWorkbenchSession(windowId, presetId, presetName)`（Nyxus/普通预设分流，native/浏览器共用）。**架构边界修正**：新组件一律经 `@/application/public`（store）与 `@/application/backend/public`（agentApi+类型）导入，`dependencyBoundaries.test.ts` 通过。
 - **07（文档同步）**：`docs/shared/protocol/websocket.md`——`chat.list` 方法行补分页（limit 1-100/offset ≥0 仅 scope='preset' 生效、分支排除、total、次级排序防重叠）、响应区补 total 说明、新增「chat.overview 订阅（任务中心投影）」小节（open/close 语义 + TaskOverview/TaskAgentOverview 字段表，含 lastUserPrompt/currentStepKind）；`docs/frontend/workbench-multi-window.md` 新增「标题栏会话状态条（2026-09-16）」小节（组成/交互、双 surface 挂载、数据源与生命周期、契约不变）。`pnpm test:protocol` 基线 9 suite 失败（chat.archive/workflow 等另一任务改动所致），本次未引入新失败。
 - **用户 5 项精修（2026-09-16）**：① 下拉不显示 → 根因标题栏内 absolute 弹层被工作台 body 更高 z-index 覆盖，修复 = Teleport 到 body + 锚点 fixed + `ownerOverlayZIndex(anchor)`（`WorkbenchSessionBar.vue`）；② 运行中状态 = 节点 icon + 半透明 loading 遮罩（呼吸底 + spinner，底层可见）；③ hover 提示三块分栏（标题/用户消息/当前节点，`session-strip-tip`）；④ 当前会话标记：`pickStripTasks` 第 5 参 `currentChatId` 强制置顶 + 底部指示条 + 高亮；⑤ rail ≡ 会话列表按钮/popout/controller 状态与数据路径（`sessionListOpen`/`rootSessions`/`refreshSessionList`/`onSessionDelete`）全删，归档入口下沉下拉行内（删除竞态保护契约迁移，`web/test/nyxus/workbenchPreferences.test.ts` 同步更新）。验证：type-check 0、全量 web 测试 721 通过（仅余并行任务 AgentDialog/LiteView 行数超限 + performanceRecovery flaky 两个既有失败）、我的改动文件 lint 干净。
+- **09（数据与行为约定，2026-09-17）**：更新 `docs/shared/protocol/websocket.md`、`docs/backend/service/chat.md`、`docs/frontend/workbench-multi-window.md`；冻结 `taskKey=originalChatId` 的一任务一卡与活动主流程打开规则、七种任务状态、终态 `resultId` 比较后查看、服务端未查看持久化、`chat.task.list` 固定快照检索、5 个稳定快捷位 + 1 个当前补位、固定主图标及 `attentionKey` 再提醒条件。权威说明明确标注为已确认目标，待 10—13 实现；未修改产品源码。`pnpm plan:lint` 退出码 0，关键断言 `Plan Lint 通过：总入口 3 项、计划目录 3 个`；`git diff --check` 退出码 0；两条新增相对文档链接均解析到现存文件。
+- **10（历史检索与未查看记录，2026-09-17）**：新增公共 RPC `chat.task.list` 与 `chat.task.result.view`、任务目录服务、查询快照游标、服务端查看记录表和前端 `useTaskCatalogStore`；按 `taskKey` 先合并全部分支再搜索/筛选/排序/分页，打开活动主流程，搜索任务标题、用户消息与可见结果并返回 UTF-16 命中位置。概要订阅同步任务身份、活动分支、最新结果、未查看状态和稳定提醒键；查看确认比较 `resultId`，旧确认不会清除新结果，记录可跨重启恢复。补充迟到响应隔离、分页去重、深页搜索、跨预设隔离、分支合并、停止说明、真实 `nodeId` 结果关联等测试。验证：后端与前端类型检查、修改文件 ESLint、后端 19 个定向用例、前端 13 个定向用例、本次两个 RPC 的协议响应检查均通过；协议整组仍受既有 archive/workflow 响应样例缺失与临时目录缺配置阻断。
+- **11（稳定标题栏与状态 tip，2026-09-17）**：变更 `WorkbenchSessionStrip.vue`、`WorkbenchSessionBar.vue`、`useSessionStripTasks.ts` 与 `App.vue`，新增 `useSessionStripPreferences.ts`；实现按预设持久化的 5 个稳定快捷位、1 个当前补位、窄窗临时隐藏、固定线性主图标、非旋转状态角标、前台运行闪烁、可键盘进入的 tip、手动收起与 `attentionKey` 再提醒、全部任务入口事件。`pnpm --filter web type-check`、修改文件 ESLint、`git diff --check`、`pnpm plan:lint` 退出码 0；4 个定向文件 20 个用例通过，依赖边界 8 个用例通过；Vue 行数门禁仅有并行改动中的 `AgentDialog.vue: 816 > 800`、`LiteView.vue: 880 > 800` 两项既有失败。
 
-## 关键实现事实（探查结论，恢复时直接采用）
+## 旧版探查记录（仅供定位，实施前核对）
+
+下列记录含旧版实施前的字段缺失与已被修正的挂载描述，不能作为当前事实直接采用；以上已收口记录与当前源码优先。
 
 - 标题栏扩展点：native 面 `WindowFrame.vue` `#title-actions` slot（现放 ConnectionStatusChip + WorkbenchViewToggle，App.vue workbench surface）；浏览器面自绘 `.workbench-titlebar`（title + small + ConnectionStatusChip + WorkbenchViewToggle + controls，WorkbenchDialog.vue L184-206）。空间约束：标题栏高 40px，strip icon 建议 ≤24px，上限 6 个 + 「+N」溢出折叠进下拉。
 - `useTaskOverviewStore`（web/src/stores/taskOverview.ts）已具备 open/reopen/close/applyChanged/tasks（按 STATUS_PRIORITY 排序）/pendingCount/runningCount，TaskCenterPanel 在用；`TaskOverview` 含 `presetId`/`preset`/`title`（首条 user preview）/`status`/`agents[].currentStep`/`pendingCount`/`updatedAt`。缺 `lastUserPrompt`（末条 user 消息）与 `currentStepKind`（'model'|'tool'）。
@@ -59,9 +77,17 @@
 
 ## 恢复检查点
 
-- 当前批次：批次 4（08 综合验证）。阶段一（A1-A6 自动验证）已回填完成，全部失败经 stash 隔离归因为既有（并行任务改动/机器负载 flaky），本次 0 引入；A4/A5/A6 退出码 0。用户 5 项精修已实现并随 A 清单重验（type-check 0、定向 + 全量测试通过）。
-- 下一条动作：等待用户执行阶段二 M1-M5 手动验证（verify/manual-final.md，5 张卡各 ≤1 分钟，卡 1/3 已按精修更新交互描述），结论回填 08 表格 → 阶段三用户拍板后迁移证据并删除任务目录。
+- 当前工作：11 已完成，检查点恢复到 12“全部任务卡片页”。
+- 工作区：09—11 的权威说明、产品代码、测试和计划记录均未提交；另有此前任务留下的未提交改动，继续实施时不得回退。
+- 下一步：进入 12，直接消费 `useTaskCatalogStore` 与标题栏 `openTasks` 请求，实现覆盖节点树区域的搜索、筛选和卡片列表，不重新实现快捷位或任务目录数据。
+- 下一条计划校验命令：12 开始前核对工作台内容区的覆盖层挂载边界、任务目录 store 及返回列表状态恢复入口。
+- 后续不得改变的 10 契约：目录按 `taskKey` 先合并再分页；查看确认比较 `resultId`；完整搜索在服务端覆盖全部历史；同一 cursor 的任务身份和顺序保持不变。
 
 ## 最终综合验证
 
-见 [08-final-verification.md](./08-final-verification.md)：自动验证（后端/前端/协议测试 + type-check + lint）+ 手动验证（标题栏双 surface 视觉、icon 随节点变化、hover 提示、分页下拉、多会话切换）按三阶段执行，用户审批后收口。
+见 [08-final-verification.md](./08-final-verification.md) 与 [人工操作卡](./verify/manual-final.md)。旧版下拉和动态图标验收已被本次新清单替换，旧通过结论不沿用。自动验证不启动浏览器或 Electron，真实视觉、交互和使用体验由用户集中验收。
+
+## 用户确认与审批
+
+- 已确认：标题栏固定主图标、小状态图标闪烁、不水平滚动、5 个稳定快捷位 + 1 个当前补位、手动收起后的再提醒条件，以及全部任务卡片页与数据行为契约。
+- 未完成：实施、综合验证、抽样核对和最终交付审批。设计确认不等于产品已通过验收。
