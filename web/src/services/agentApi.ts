@@ -203,7 +203,54 @@ export interface InteractionRecord {
   completedAt?: number
 }
 
-export type TaskOverviewStatus = 'needs_user' | 'running' | 'paused' | 'failed' | 'completed'
+export type TaskOverviewStatus =
+  'idle' | 'needs_user' | 'running' | 'paused' | 'stopped' | 'failed' | 'completed'
+
+export type TaskResultStatus = 'paused' | 'stopped' | 'failed' | 'completed'
+
+export interface TaskLatestResult {
+  resultId: string
+  status: TaskResultStatus
+  completedAt: number
+  content?: string
+}
+
+export interface TaskSearchMatch {
+  source: 'title' | 'user_prompt' | 'result'
+  text: string
+  highlights: Array<{ start: number; end: number }>
+  branchChatId?: string
+}
+
+export interface TaskCatalogItem {
+  taskKey: string
+  taskId?: string
+  originalChatId: string
+  openChatId: string
+  title: string
+  lastUserPrompt?: string
+  status: TaskOverviewStatus
+  currentStep?: string
+  latestResult?: TaskLatestResult
+  unreadResult: boolean
+  attentionKey: string
+  createdAt: number
+  updatedAt: number
+  branchCount: number
+  matches: TaskSearchMatch[]
+}
+
+export interface TaskCatalogQuery {
+  presetId?: string
+  preset?: string
+  query?: string
+  statuses?: TaskOverviewStatus[]
+  updatedFrom?: number
+  updatedTo?: number
+  sort?: 'updated_desc' | 'created_desc' | 'relevance'
+  limit?: number
+  cursor?: string
+}
 
 export interface TaskAgentOverview {
   chatId: string
@@ -237,6 +284,7 @@ export interface TaskActivityEvent {
 
 export interface TaskOverview {
   rootChatId: string
+  taskKey: string
   taskId?: string
   presetId?: string
   preset?: string
@@ -250,6 +298,13 @@ export interface TaskOverview {
   hasFailure: boolean
   agents: TaskAgentOverview[]
   recentEvents: TaskActivityEvent[]
+  originalChatId: string
+  openChatId: string
+  branchCount: number
+  currentStep?: string
+  latestResult?: TaskLatestResult
+  unreadResult: boolean
+  attentionKey: string
 }
 
 export interface TaskOverviewSubscription {
@@ -1268,6 +1323,28 @@ async function call<T>(
 }
 
 export const agentApi = {
+  async listTasks(options: TaskCatalogQuery): Promise<{
+    items: TaskCatalogItem[]
+    total: number
+    snapshotAt: number
+    nextCursor?: string
+  }> {
+    return call('chat.task.list', options)
+  },
+
+  async markTaskResultViewed(
+    taskKey: string,
+    resultId: string,
+  ): Promise<{
+    taskKey: string
+    resultId: string
+    viewed: boolean
+    viewedAt?: number
+    latestResultId?: string
+  }> {
+    return call('chat.task.result.view', { taskKey, resultId })
+  },
+
   async openTaskOverview(completedSince: number): Promise<TaskOverviewSubscription> {
     return call<TaskOverviewSubscription>('chat.overview.open', { completedSince })
   },

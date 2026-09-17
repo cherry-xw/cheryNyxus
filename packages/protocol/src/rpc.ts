@@ -33,6 +33,8 @@ export const Method = {
   SESSION_RUNTIME_SET: 'session.runtime.set',
   CHAT_CREATE: 'chat.create',
   CHAT_LIST: 'chat.list',
+  CHAT_TASK_LIST: 'chat.task.list',
+  CHAT_TASK_RESULT_VIEW: 'chat.task.result.view',
   CHAT_ROUTE_SUGGEST: 'chat.route.suggest',
   CHAT_DELETE: 'chat.delete',
   CHAT_ARCHIVE: 'chat.archive',

@@ -40,6 +40,7 @@ export interface ExecutionActiveRunRow {
   nodeId?: string
   batchId?: string
   epochId?: string
+  updatedAt?: number
 }
 
 type ExecutionNodeInput = Pick<
@@ -288,7 +289,7 @@ export function getExecutionActiveRun(
 export function listLatestExecutionRuns(rootChatId: string): ExecutionActiveRunRow[] {
   const rows = getSoulDb()
     .prepare(
-      'SELECT * FROM execution_active_runs WHERE root_chat_id = ? ORDER BY updated_at DESC, chat_id ASC',
+      'SELECT * FROM execution_active_runs WHERE root_chat_id = ? ORDER BY updated_at DESC, rowid DESC, chat_id ASC',
     )
     .all(rootChatId) as Record<string, unknown>[]
   const seen = new Set<string>()
@@ -330,5 +331,6 @@ function activeRunFromRow(row: Record<string, unknown>): ExecutionActiveRunRow {
     ...(row.node_id ? { nodeId: String(row.node_id) } : {}),
     ...(row.batch_id ? { batchId: String(row.batch_id) } : {}),
     ...(row.epoch_id ? { epochId: String(row.epoch_id) } : {}),
+    ...(typeof row.updated_at === 'number' ? { updatedAt: row.updated_at } : {}),
   }
 }

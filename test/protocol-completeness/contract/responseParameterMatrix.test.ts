@@ -110,11 +110,20 @@ const validResponses: Record<Method, unknown> = {
   [Method.SKILLS_COMMIT]: { imported: [], skipped: [] },
   [Method.SKILLS_DELETE]: { ok: true },
   [Method.SKILLS_LIST_SOURCES]: { sources: [] },
-  [Method.SKILLS_CHECK_SOURCE]: { sourceId: 'source-1', latestSha: 'abc123', updateAvailable: false },
+  [Method.SKILLS_CHECK_SOURCE]: {
+    sourceId: 'source-1',
+    latestSha: 'abc123',
+    updateAvailable: false,
+  },
   [Method.SKILLS_CHECK_ALL_SOURCES]: { checked: 0, updatesAvailable: 0, failed: [] },
   [Method.SKILLS_RESYNC_SOURCE]: {
-    stagingId: 'stage-1', candidates: [], branch: 'main', commitSha: 'abc123',
-    commitDate: '2026-08-28T00:00:00.000Z', sourceId: 'source-1', selected: [],
+    stagingId: 'stage-1',
+    candidates: [],
+    branch: 'main',
+    commitSha: 'abc123',
+    commitDate: '2026-08-28T00:00:00.000Z',
+    sourceId: 'source-1',
+    selected: [],
   },
   [Method.SKILLS_DELETE_SOURCE]: { ok: true },
   [Method.SKILLS_RESYNC_ALL_SOURCES]: { results: [], successes: 0, failures: 0 },
@@ -124,6 +133,13 @@ const validResponses: Record<Method, unknown> = {
   [Method.SESSION_RUNTIME_SET]: { chatId: 'chat-1', applied: [], deferredRunning: [] },
   [Method.CHAT_CREATE]: runtime,
   [Method.CHAT_LIST]: { chats: [] },
+  [Method.CHAT_TASK_LIST]: { items: [], total: 0, snapshotAt: 1 },
+  [Method.CHAT_TASK_RESULT_VIEW]: {
+    taskKey: 'task-1',
+    resultId: 'result-1',
+    viewed: true,
+    viewedAt: 1,
+  },
   [Method.CHAT_ROUTE_SUGGEST]: {
     requestVersion: 0,
     target: { chatId: null, confidence: 1, reason: 'new conversation' },
@@ -134,58 +150,109 @@ const validResponses: Record<Method, unknown> = {
   },
   [Method.CHAT_DELETE]: { chatId: 'chat-1', deletedChatIds: ['chat-1'] },
   [Method.CHAT_BRANCH_PREVIEW]: {
-    taskId: 'task-1', sourceBranchId: 'branch-1', eligible: true, sideEffects: [],
-    effectDigest: 'digest', inheritedCompletedTasks: [], inheritedPausedTasks: [],
+    taskId: 'task-1',
+    sourceBranchId: 'branch-1',
+    eligible: true,
+    sideEffects: [],
+    effectDigest: 'digest',
+    inheritedCompletedTasks: [],
+    inheritedPausedTasks: [],
   },
   [Method.CHAT_BRANCH_CREATE]: {
-    branchId: 'branch-2', taskId: 'task-1', chatId: 'chat-2', kind: 'continuation',
-    createdAt: 1, input,
+    branchId: 'branch-2',
+    taskId: 'task-1',
+    chatId: 'chat-2',
+    kind: 'continuation',
+    createdAt: 1,
+    input,
   },
   [Method.CHAT_BRANCH_ACTIVATE]: {
-    taskId: 'task-1', activeBranchId: 'branch-1', activeChatId: 'chat-1', deliveryGeneration: 0,
+    taskId: 'task-1',
+    activeBranchId: 'branch-1',
+    activeChatId: 'chat-1',
+    deliveryGeneration: 0,
   },
   [Method.CHAT_ABORT_TASK]: { taskId: 'task-1', abortedBranches: [] },
   [Method.CHAT_CONTEXT_USAGE]: {
-    chatId: 'chat-1', contextUsage: 0.1, contextUsed: 10, contextTotal: 100,
+    chatId: 'chat-1',
+    contextUsage: 0.1,
+    contextUsed: 10,
+    contextTotal: 100,
     contextBreakdown: {},
   },
   [Method.CHAT_PROMPT_SNAPSHOT]: { chatId: 'chat-1', systemPrompt: '', tools: [] },
   [Method.CHAT_EPOCH_LIST]: {
-    chatId: 'chat-1', rootChatId: 'chat-1', activeEpochId: 'epoch-1',
+    chatId: 'chat-1',
+    rootChatId: 'chat-1',
+    activeEpochId: 'epoch-1',
     epochs: [epoch],
   },
   [Method.CHAT_INPUT_SUBMIT]: input,
   [Method.CHAT_TIMELINE_GET]: { chatId: 'chat-1', revision: 1, messages: [] },
   [Method.CHAT_TIMELINE_GENERATION_GET]: {
-    rootChatId: 'chat-1', generation, nodes: [node], edges: [],
+    rootChatId: 'chat-1',
+    generation,
+    nodes: [node],
+    edges: [],
   },
   [Method.CHAT_TIMELINE_NODE_GET]: { rootChatId: 'chat-1', node, refs: [], hasMore: false },
   [Method.CHAT_RUN_RESUME]: {
-    chatId: 'chat-1', commandId: 'command-1', runId: 'run-1', status: 'started',
+    chatId: 'chat-1',
+    commandId: 'command-1',
+    runId: 'run-1',
+    status: 'started',
   },
   [Method.CHAT_RESUME_TREE]: {
-    rootChatId: 'chat-1', pauseId: 'pause-1', commandId: 'command-1',
-    status: 'completed', results: [],
+    rootChatId: 'chat-1',
+    pauseId: 'pause-1',
+    commandId: 'command-1',
+    status: 'completed',
+    results: [],
   },
   [Method.CHAT_OPEN]: {
-    chatId: 'chat-1', subscriptionId: 'subscription-1', eventSeq: 0,
-    timelineRevision: 0, timelineChanged: false,
+    chatId: 'chat-1',
+    subscriptionId: 'subscription-1',
+    eventSeq: 0,
+    timelineRevision: 0,
+    timelineChanged: false,
     state: {
-      pendingInputs: [], activeTurns: [], questionBatches: [], runningTools: [],
-      executionSteps: [], roles: [],
+      pendingInputs: [],
+      activeTurns: [],
+      questionBatches: [],
+      runningTools: [],
+      executionSteps: [],
+      roles: [],
     },
   },
   [Method.CHAT_CLOSE]: { subscriptionId: 'subscription-1', chatId: 'chat-1', closed: true },
   [Method.CHAT_OVERVIEW_OPEN]: {
     subscriptionId: 'subscription-1',
     revision: 0,
-    tasks: [{
-      rootChatId: 'chat-1', title: 'Task', status: 'running', updatedAt: 1,
-      pendingCount: 0, hasFailure: false, agents: [], recentEvents: [],
-    }],
+    tasks: [
+      {
+        rootChatId: 'chat-1',
+        taskKey: 'chat-1',
+        originalChatId: 'chat-1',
+        openChatId: 'chat-1',
+        title: 'Task',
+        status: 'running',
+        updatedAt: 1,
+        branchCount: 1,
+        pendingCount: 0,
+        hasFailure: false,
+        agents: [],
+        recentEvents: [],
+        unreadResult: false,
+        attentionKey: 'attention-1',
+      },
+    ],
   },
   [Method.CHAT_OVERVIEW_CLOSE]: { subscriptionId: 'subscription-1', closed: true },
-  [Method.CHAT_STOP_CHILD]: { rootChatId: 'chat-1', commandId: 'command-1', results: [childResult] },
+  [Method.CHAT_STOP_CHILD]: {
+    rootChatId: 'chat-1',
+    commandId: 'command-1',
+    results: [childResult],
+  },
   [Method.CHAT_ABORT]: { chatId: 'chat-1', aborted: true },
   [Method.INTERACTION_LIST]: { interactions: [interaction] },
   [Method.INTERACTION_APPROVAL_DECIDE]: { interaction: { ...interaction, status: 'completed' } },
@@ -200,13 +267,42 @@ const validResponses: Record<Method, unknown> = {
   [Method.CONFIG_GET]: { ...config, baseRevision: 'config-1' },
   [Method.CONFIG_WORKSPACE_VALIDATE]: { valid: true },
   [Method.CONFIG_WORKSPACE_BROWSE_START]: {
-    sessionId: 'session-1', ttlMs: 1000, platform: 'win32', sep: '\\', roots: [],
-    initialPath: '', includeFiles: false,
+    sessionId: 'session-1',
+    ttlMs: 1000,
+    platform: 'win32',
+    sep: '\\',
+    roots: [],
+    initialPath: '',
+    includeFiles: false,
   },
   [Method.CONFIG_WORKSPACE_BROWSE_LIST]: { nonce: '0123456789abcdef', encData: '' },
-  [Method.CONFIG_SAVE]: { protocolVersion: 2, savedRevision: 'config-1', appliedRevision: 'config-1', status: 'applied', impacts: [], restart: { required: false, status: 'none' }, baseRevision: 'config-1', candidateRevisionId: 'revision-1', warnings: [] },
-  [Method.CONFIG_APPLY_STATUS]: { protocolVersion: 2, savedRevision: 'config-1', appliedRevision: 'config-1', status: 'applied', impacts: [], restart: { required: false, status: 'none' } },
-  [Method.CONFIG_PREVIEW]: { protocolVersion: 2, baseRevision: 'config-1', previewToken: 'preview-1', impacts: [], destructiveTargets: [], policy: 'wait' },
+  [Method.CONFIG_SAVE]: {
+    protocolVersion: 2,
+    savedRevision: 'config-1',
+    appliedRevision: 'config-1',
+    status: 'applied',
+    impacts: [],
+    restart: { required: false, status: 'none' },
+    baseRevision: 'config-1',
+    candidateRevisionId: 'revision-1',
+    warnings: [],
+  },
+  [Method.CONFIG_APPLY_STATUS]: {
+    protocolVersion: 2,
+    savedRevision: 'config-1',
+    appliedRevision: 'config-1',
+    status: 'applied',
+    impacts: [],
+    restart: { required: false, status: 'none' },
+  },
+  [Method.CONFIG_PREVIEW]: {
+    protocolVersion: 2,
+    baseRevision: 'config-1',
+    previewToken: 'preview-1',
+    impacts: [],
+    destructiveTargets: [],
+    policy: 'wait',
+  },
   [Method.HOOKS_GET]: { handlers: {}, brainHooks: {}, shellInfo: {} },
   [Method.HOOKS_SAVE]: { ok: true },
   [Method.HOOKS_EVENTS]: { events: [] },
@@ -217,23 +313,41 @@ const validResponses: Record<Method, unknown> = {
   [Method.UTILS_OPEN_CONFIG_DIR]: {},
   [Method.UTILS_EDITORS]: { editors: [] },
   [Method.UTILS_MODEL_RECOMMENDATION]: {
-    matched: false, confidence: 'unknown', thinkingLevels: [], unknown: {},
+    matched: false,
+    confidence: 'unknown',
+    thinkingLevels: [],
+    unknown: {},
   },
   [Method.COMMAND_LIST]: { commands: [] },
   [Method.PLUGINS_LIST]: { plugins: [plugin] },
   [Method.PLUGINS_PRE_IMPORT_URL]: {
-    gitNotInstalled: false, needsAuth: false, branches: [], owner: 'owner', repo: 'repo',
-    suggestedName: 'plugin-1', nameConflict: false,
+    gitNotInstalled: false,
+    needsAuth: false,
+    branches: [],
+    owner: 'owner',
+    repo: 'repo',
+    suggestedName: 'plugin-1',
+    nameConflict: false,
   },
   [Method.PLUGINS_IMPORT_URL]: {
-    stagingId: 'stage-1', pluginName: 'plugin-1', existing: false,
-    sourceUrl: 'https://example.test/plugin', branch: 'main', commitSha: 'abc123',
-    commitDate: '2026-08-28T00:00:00.000Z', skills: [],
+    stagingId: 'stage-1',
+    pluginName: 'plugin-1',
+    existing: false,
+    sourceUrl: 'https://example.test/plugin',
+    branch: 'main',
+    commitSha: 'abc123',
+    commitDate: '2026-08-28T00:00:00.000Z',
+    skills: [],
   },
   [Method.PLUGINS_COMMIT]: { plugin },
   [Method.PLUGINS_CHECK_UPDATE]: {
-    gitNotInstalled: false, needsAuth: false, currentSha: 'abc123', currentDate: '',
-    latestSha: 'abc123', lastUpgrade: '', updateAvailable: false,
+    gitNotInstalled: false,
+    needsAuth: false,
+    currentSha: 'abc123',
+    currentDate: '',
+    latestSha: 'abc123',
+    lastUpgrade: '',
+    updateAvailable: false,
   },
   [Method.PLUGINS_CHECK_ALL_UPDATES]: { checked: 0, updatesAvailable: 0, failed: [] },
   [Method.PLUGINS_UPDATE]: { plugin },
@@ -243,10 +357,7 @@ const validResponses: Record<Method, unknown> = {
   [Method.CREDENTIALS_DELETE]: { ok: true },
 }
 
-const explicitlyEmpty = new Set<Method>([
-  Method.UTILS_OPEN_FILE,
-  Method.UTILS_OPEN_CONFIG_DIR,
-])
+const explicitlyEmpty = new Set<Method>([Method.UTILS_OPEN_FILE, Method.UTILS_OPEN_CONFIG_DIR])
 
 describe('public RPC response parameter matrix', () => {
   it('defines a valid minimal response for all 82 public methods', () => {
@@ -264,52 +375,103 @@ describe('public RPC response parameter matrix', () => {
 
   it('rejects wrong primitive types in representative response families', () => {
     expect(responseSchemas[Method.CHAT_LIST].safeParse({ chats: {} }).success).toBe(false)
-    expect(responseSchemas[Method.SESSION_RUNTIME_SET].safeParse({
-      chatId: 'chat-1', applied: 'child-1', deferredRunning: [],
-    }).success).toBe(false)
-    expect(responseSchemas[Method.CREDENTIALS_SAVE].safeParse({ credential: { ...credential, id: 1 } }).success).toBe(false)
+    expect(
+      responseSchemas[Method.SESSION_RUNTIME_SET].safeParse({
+        chatId: 'chat-1',
+        applied: 'child-1',
+        deferredRunning: [],
+      }).success,
+    ).toBe(false)
+    expect(
+      responseSchemas[Method.CREDENTIALS_SAVE].safeParse({ credential: { ...credential, id: 1 } })
+        .success,
+    ).toBe(false)
   })
 
   it('rejects invalid lifecycle and interaction discriminators', () => {
-    expect(responseSchemas[Method.CHAT_INPUT_SUBMIT].safeParse({
-      ...input,
-      queueSequence: 0,
-    }).success).toBe(false)
-    expect(responseSchemas[Method.CHAT_RUN_RESUME].safeParse({
-      chatId: 'chat-1', commandId: 'command-1', runId: 'run-1', status: 'resumed',
-    }).success).toBe(false)
-    expect(responseSchemas[Method.INTERACTION_LIST].safeParse({
-      interactions: [{ ...interaction, status: 'unknown' }],
-    }).success).toBe(false)
-    expect(responseSchemas[Method.CHAT_EPOCH_LIST].safeParse({
-      chatId: 'chat-1', rootChatId: 'chat-1', epochs: [{
-        ...epoch, status: 'deleted',
-      }],
-    }).success).toBe(false)
-    expect(responseSchemas[Method.CHAT_EPOCH_LIST].safeParse({
-      chatId: 'chat-1', rootChatId: 'chat-1', epochs: [{ ...epoch, ordinal: -1 }],
-    }).success).toBe(false)
-    expect(responseSchemas[Method.CHAT_OVERVIEW_OPEN].safeParse({
-      subscriptionId: 'subscription-1', revision: 0,
-      tasks: [{ rootChatId: 'chat-1', title: 'Task', status: 'unknown', updatedAt: 1,
-        pendingCount: 0, hasFailure: false, agents: [], recentEvents: [] }],
-    }).success).toBe(false)
+    expect(
+      responseSchemas[Method.CHAT_INPUT_SUBMIT].safeParse({
+        ...input,
+        queueSequence: 0,
+      }).success,
+    ).toBe(false)
+    expect(
+      responseSchemas[Method.CHAT_RUN_RESUME].safeParse({
+        chatId: 'chat-1',
+        commandId: 'command-1',
+        runId: 'run-1',
+        status: 'resumed',
+      }).success,
+    ).toBe(false)
+    expect(
+      responseSchemas[Method.INTERACTION_LIST].safeParse({
+        interactions: [{ ...interaction, status: 'unknown' }],
+      }).success,
+    ).toBe(false)
+    expect(
+      responseSchemas[Method.CHAT_EPOCH_LIST].safeParse({
+        chatId: 'chat-1',
+        rootChatId: 'chat-1',
+        epochs: [
+          {
+            ...epoch,
+            status: 'deleted',
+          },
+        ],
+      }).success,
+    ).toBe(false)
+    expect(
+      responseSchemas[Method.CHAT_EPOCH_LIST].safeParse({
+        chatId: 'chat-1',
+        rootChatId: 'chat-1',
+        epochs: [{ ...epoch, ordinal: -1 }],
+      }).success,
+    ).toBe(false)
+    expect(
+      responseSchemas[Method.CHAT_OVERVIEW_OPEN].safeParse({
+        subscriptionId: 'subscription-1',
+        revision: 0,
+        tasks: [
+          {
+            rootChatId: 'chat-1',
+            title: 'Task',
+            status: 'unknown',
+            updatedAt: 1,
+            pendingCount: 0,
+            hasFailure: false,
+            agents: [],
+            recentEvents: [],
+          },
+        ],
+      }).success,
+    ).toBe(false)
   })
 
   it('enforces mutually exclusive response states', () => {
-    expect(responseSchemas[Method.UTILS_TEST_CONNECTION].safeParse({ ok: true, error: 'unexpected' }).success).toBe(false)
-    expect(responseSchemas[Method.UTILS_TEST_CONNECTION].safeParse({ ok: false }).success).toBe(false)
-    expect(responseSchemas[Method.CONFIG_SAVE].safeParse({
-      needRestart: false,
-      restart: 'immediate',
-      validationErrors: [],
-      validationWarnings: [],
-      rollbackBackup: 'backup.yaml',
-    }).success).toBe(false)
+    expect(
+      responseSchemas[Method.UTILS_TEST_CONNECTION].safeParse({ ok: true, error: 'unexpected' })
+        .success,
+    ).toBe(false)
+    expect(responseSchemas[Method.UTILS_TEST_CONNECTION].safeParse({ ok: false }).success).toBe(
+      false,
+    )
+    expect(
+      responseSchemas[Method.CONFIG_SAVE].safeParse({
+        needRestart: false,
+        restart: 'immediate',
+        validationErrors: [],
+        validationWarnings: [],
+        rollbackBackup: 'backup.yaml',
+      }).success,
+    ).toBe(false)
   })
 
   it('keeps additive fields compatible but strict-empty responses strict', () => {
-    expect(responseSchemas[Method.CHAT_CREATE].safeParse({ ...runtime, futureField: true }).success).toBe(true)
-    expect(responseSchemas[Method.UTILS_OPEN_FILE].safeParse({ futureField: true }).success).toBe(false)
+    expect(
+      responseSchemas[Method.CHAT_CREATE].safeParse({ ...runtime, futureField: true }).success,
+    ).toBe(true)
+    expect(responseSchemas[Method.UTILS_OPEN_FILE].safeParse({ futureField: true }).success).toBe(
+      false,
+    )
   })
 })

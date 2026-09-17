@@ -6,6 +6,9 @@ import { useTaskOverviewStore } from '../../src/stores/taskOverview'
 function task(rootChatId: string, status: TaskOverview['status'], updatedAt: number): TaskOverview {
   return {
     rootChatId,
+    taskKey: rootChatId,
+    originalChatId: rootChatId,
+    openChatId: rootChatId,
     title: rootChatId,
     status,
     updatedAt,
@@ -13,6 +16,9 @@ function task(rootChatId: string, status: TaskOverview['status'], updatedAt: num
     hasFailure: status === 'failed',
     agents: [],
     recentEvents: [],
+    branchCount: 1,
+    unreadResult: false,
+    attentionKey: `attention-${rootChatId}`,
   }
 }
 

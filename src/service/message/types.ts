@@ -229,6 +229,75 @@ export interface ChatListRequestData {
   offset?: number
 }
 
+export type TaskCatalogStatus =
+  'idle' | 'needs_user' | 'running' | 'paused' | 'stopped' | 'failed' | 'completed'
+
+export type TaskResultStatus = 'paused' | 'stopped' | 'failed' | 'completed'
+
+export interface TaskSearchMatch {
+  source: 'title' | 'user_prompt' | 'result'
+  text: string
+  highlights: Array<{ start: number; end: number }>
+  branchChatId?: string
+}
+
+export interface TaskLatestResult {
+  resultId: string
+  status: TaskResultStatus
+  completedAt: number
+  content?: string
+}
+
+export interface TaskCatalogItem {
+  taskKey: string
+  taskId?: string
+  originalChatId: string
+  openChatId: string
+  title: string
+  lastUserPrompt?: string
+  status: TaskCatalogStatus
+  currentStep?: string
+  latestResult?: TaskLatestResult
+  unreadResult: boolean
+  attentionKey: string
+  createdAt: number
+  updatedAt: number
+  branchCount: number
+  matches: TaskSearchMatch[]
+}
+
+export interface ChatTaskListRequestData {
+  presetId?: string
+  preset?: string
+  query?: string
+  statuses?: TaskCatalogStatus[]
+  updatedFrom?: number
+  updatedTo?: number
+  sort?: 'updated_desc' | 'created_desc' | 'relevance'
+  limit?: number
+  cursor?: string
+}
+
+export interface ChatTaskListResponseData {
+  items: TaskCatalogItem[]
+  total: number
+  snapshotAt: number
+  nextCursor?: string
+}
+
+export interface ChatTaskResultViewRequestData {
+  taskKey: string
+  resultId: string
+}
+
+export interface ChatTaskResultViewResponseData {
+  taskKey: string
+  resultId: string
+  viewed: boolean
+  viewedAt?: number
+  latestResultId?: string
+}
+
 export interface ChatRouteSuggestRequestData {
   presetId: string
   draft: string
@@ -1891,7 +1960,7 @@ export interface RootTimelineSnapshot {
   capturedEventSeq: number
 }
 
-export type TaskOverviewStatus = 'needs_user' | 'running' | 'paused' | 'failed' | 'completed'
+export type TaskOverviewStatus = TaskCatalogStatus
 
 export type TaskAgentOverviewStatus =
   'needs_user' | 'running' | 'paused' | 'failed' | 'completed' | 'idle'
@@ -1928,6 +1997,7 @@ export interface TaskActivityEvent {
 
 export interface TaskOverview {
   rootChatId: string
+  taskKey: string
   taskId?: string
   presetId?: string
   preset?: string
@@ -1941,6 +2011,13 @@ export interface TaskOverview {
   hasFailure: boolean
   agents: TaskAgentOverview[]
   recentEvents: TaskActivityEvent[]
+  originalChatId: string
+  openChatId: string
+  branchCount: number
+  currentStep?: string
+  latestResult?: TaskLatestResult
+  unreadResult: boolean
+  attentionKey: string
 }
 
 export interface ChatOverviewOpenRequestData {
@@ -2781,6 +2858,8 @@ export const Method = {
   // Chat 管理
   CHAT_CREATE: 'chat.create',
   CHAT_LIST: 'chat.list',
+  CHAT_TASK_LIST: 'chat.task.list',
+  CHAT_TASK_RESULT_VIEW: 'chat.task.result.view',
   CHAT_ROUTE_SUGGEST: 'chat.route.suggest',
   CHAT_DELETE: 'chat.delete',
   CHAT_ARCHIVE: 'chat.archive',
@@ -2948,6 +3027,14 @@ export interface RpcMethodMap {
   }
   [Method.CHAT_CREATE]: { params: ChatCreateRequestData; result: ChatCreateResponseData }
   [Method.CHAT_LIST]: { params: ChatListRequestData; result: ChatListResponseData }
+  [Method.CHAT_TASK_LIST]: {
+    params: ChatTaskListRequestData
+    result: ChatTaskListResponseData
+  }
+  [Method.CHAT_TASK_RESULT_VIEW]: {
+    params: ChatTaskResultViewRequestData
+    result: ChatTaskResultViewResponseData
+  }
   [Method.CHAT_ROUTE_SUGGEST]: {
     params: ChatRouteSuggestRequestData
     result: ChatRouteSuggestResponseData

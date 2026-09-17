@@ -1,13 +1,18 @@
 import { randomUUID } from 'crypto'
-import { getChatPreviews, getLastUserPrompts, getRootChatId, listAllChats, listChatTrees } from '@/db/chat.js'
-import { listInteractions } from '@/db/interaction.js'
+import { getRootChatId, listAllChats } from '@/db/chat.js'
+import { listPendingInteractionsForRoots } from '@/db/interaction.js'
 import { onPreparedChatEvent, type DeliverableChatEvent } from '@/db/delivery.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { computeCanResume } from './canResume.js'
 import { computeCurrentState } from './currentState.js'
 import { isChatRunning } from './runtime.js'
-import { getConversationBranchByChat } from '@/db/conversationBranch.js'
 import { createNotification, Method } from '../message/types.js'
+import {
+  projectTaskCatalogItemByChat,
+  onTaskResultViewChanged,
+  taskFamilyForChat,
+  taskKeyForChat,
+} from './taskCatalog.js'
 import type {
   ChatOverviewCloseRequestData,
   ChatOverviewCloseResponseData,
@@ -88,57 +93,57 @@ export function buildTaskOverview(
   rootChatId: string,
   completedSince = Date.now(),
 ): TaskOverview | undefined {
-  const rows = listChatTrees([rootChatId])
-  const root = rows.find((row) => row.id === rootChatId)
-  if (!root) return undefined
-  const pending = listInteractions().filter((item) => item.rootChatId === rootChatId)
+  const family = taskFamilyForChat(rootChatId)
+  const catalog = projectTaskCatalogItemByChat(rootChatId)
+  if (!family || !catalog) return undefined
+  const rows = family.rows
+  const branchRootIds = family.branchRoots.length
+    ? family.branchRoots.map((branch) => branch.chatId)
+    : [family.originalChatId]
+  const pending = listPendingInteractionsForRoots(branchRootIds)
   const pendingChatIds = new Set(pending.map((item) => item.chatId))
   const agents = rows.map((row) => agentOverview(row, pendingChatIds))
-  const hasRunning = agents.some((agent) => agent.status === 'running')
-  const hasPaused = agents.some((agent) => agent.status === 'paused')
   const hasFailure = agents.some((agent) => agent.status === 'failed')
-  const status: TaskOverview['status'] = pending.length
-    ? 'needs_user'
-    : hasFailure
-      ? 'failed'
-      : hasRunning
-        ? 'running'
-        : hasPaused
-          ? 'paused'
-          : 'completed'
-  const activity = recentEvents.get(rootChatId) ?? []
-  const updatedAt = Math.max(
-    ...rows.map((row) => row.updated_at),
-    ...(activity.length ? [activity.at(-1)!.at] : []),
-  )
-  if (status === 'completed' && updatedAt < completedSince) return undefined
-  const rootMeta = metadataOf(root.metadata)
-  const preview = getChatPreviews([root]).get(root.id)?.preview.trim()
-  // 末条 user 消息（标题栏会话状态条 tooltip「最后一次提问」；无则省略）。
-  const lastUserPrompt = getLastUserPrompts([root]).get(root.id)?.trim()
-  const branch = getConversationBranchByChat(root.id)
+  const activity = recentEvents.get(family.taskKey) ?? []
+  const updatedAt = Math.max(catalog.updatedAt, ...(activity.length ? [activity.at(-1)!.at] : []))
+  if ((catalog.status === 'completed' || catalog.status === 'idle') && updatedAt < completedSince) {
+    return undefined
+  }
+  const rootMeta = metadataOf(family.original.metadata)
   const activeStarted = agents.flatMap((agent) => (agent.startedAt ? [agent.startedAt] : []))
   return {
-    rootChatId,
-    ...(branch?.taskId ? { taskId: branch.taskId } : {}),
+    rootChatId: family.taskKey,
+    taskKey: family.taskKey,
+    ...(family.taskId ? { taskId: family.taskId } : {}),
     ...(rootMeta.presetId ? { presetId: rootMeta.presetId } : {}),
     ...(rootMeta.preset ? { preset: rootMeta.preset } : {}),
-    title: preview || `任务 ${root.id.slice(0, 8)}`,
-    ...(lastUserPrompt ? { lastUserPrompt } : {}),
-    status,
-    startedAt: activeStarted.length ? Math.min(...activeStarted) : root.created_at,
+    title: catalog.title,
+    ...(catalog.lastUserPrompt ? { lastUserPrompt: catalog.lastUserPrompt } : {}),
+    status: catalog.status,
+    startedAt: activeStarted.length ? Math.min(...activeStarted) : family.original.created_at,
     updatedAt,
     pendingCount: pending.length,
     hasFailure,
     agents,
     recentEvents: [...activity],
+    originalChatId: family.originalChatId,
+    openChatId: family.openChatId,
+    branchCount: catalog.branchCount,
+    ...(catalog.currentStep ? { currentStep: catalog.currentStep } : {}),
+    ...(catalog.latestResult ? { latestResult: catalog.latestResult } : {}),
+    unreadResult: catalog.unreadResult,
+    attentionKey: catalog.attentionKey,
   }
 }
 
 export function listTaskOverviews(completedSince = Date.now()): TaskOverview[] {
+  const seen = new Set<string>()
   return listAllChats()
     .filter((chat) => !chat.parent_chat_id)
     .flatMap((chat) => {
+      const taskKey = taskKeyForChat(chat.id)
+      if (!taskKey || seen.has(taskKey)) return []
+      seen.add(taskKey)
       const task = buildTaskOverview(chat.id, completedSince)
       return task ? [task] : []
     })
@@ -189,7 +194,9 @@ function eventProjection(
     label = `${String(data.type ?? '子 Agent')} 已完成`
   }
   if (!kind) return undefined
-  const rootChatId = typeof event.rootChatId === 'string' ? event.rootChatId : getRootChatId(chatId)
+  const rootChatId =
+    taskKeyForChat(chatId) ??
+    (typeof event.rootChatId === 'string' ? event.rootChatId : getRootChatId(chatId))
   const at = Number(data.at ?? data.startedAt ?? data.completedAt ?? data.createdAt) || Date.now()
   return {
     id: `${rootChatId}:${String(event.rootEventSeq ?? event.seq ?? at)}:${kind}`,
@@ -227,7 +234,7 @@ export function publishOverviewForChat(
 ): void {
   let rootChatId: string
   try {
-    rootChatId = getRootChatId(chatId)
+    rootChatId = taskKeyForChat(chatId) ?? getRootChatId(chatId)
   } catch {
     return
   }
@@ -276,6 +283,14 @@ async function handleClose(
 }
 
 export function registerChatOverviewHandlers(router: RpcRouter): void {
+  if (!resultViewHookRegistered) {
+    resultViewHookRegistered = true
+    onTaskResultViewChanged((taskKey) => {
+      for (const [id, subscription] of subscriptions) sendChange(id, subscription, taskKey)
+    })
+  }
   router.register(Method.CHAT_OVERVIEW_OPEN, handleOpen)
   router.register(Method.CHAT_OVERVIEW_CLOSE, handleClose)
 }
+
+let resultViewHookRegistered = false
