@@ -11,7 +11,6 @@ export function useWorkbenchTreeSession(options: {
   isNyxus: MaybeRefOrGetter<boolean>
   chatId: MaybeRefOrGetter<string | null | undefined>
   taskTimeline: Ref<RootTimelineSnapshot | undefined>
-  drawerAnchor: () => { top: number; left: number; width: number; height: number } | null
   resetComposerBranch: () => void
   resetDraft: () => void
   setError: (message: string | null) => void
@@ -139,13 +138,6 @@ export function useWorkbenchTreeSession(options: {
     agents.activatePresetSession(options.presetId, chatId, toValue(options.presetName) ?? undefined)
     treeRootChatId.value = chatId
     if (chatId !== toValue(options.chatId)) agents.setWorkbenchWindowChat(options.windowId, chatId)
-    try {
-      if (agents.historyDrawerStack.length > 0) {
-        agents.openHistoryRoot(chatId, agents.historyDrawerMode, options.drawerAnchor())
-      }
-    } catch (cause) {
-      console.error('[WorkbenchDialog] switch session failed:', cause)
-    }
   }
   async function deletePresetSession(chatId: string): Promise<void> {
     if (!chatId) return

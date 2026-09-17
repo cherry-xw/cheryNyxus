@@ -44,9 +44,12 @@ export interface LiteRootUiState {
   detailDrawerWidth: number | null
 }
 
+/** 工作台视图模式：树（Pixi 节点树主画布）/ 对话（整屏会话气泡视图）/ 精简（lite 紧凑会话视图）。 */
+export type WorkbenchViewMode = 'tree' | 'conversation' | 'lite'
+
 interface LiteStoreState {
-  /** Presentation mode is persisted per workbench window. */
-  activeByWindow: Record<string, boolean>
+  /** 视图模式持久化，按工作台窗口隔离（key = windowId/presetId）。 */
+  viewModeByWindow: Record<string, WorkbenchViewMode>
   /** Ephemeral UI state is isolated by window and then by the explicit root. */
   uiByWindowRoot: Record<string, Record<string, LiteRootUiState>>
 }
@@ -71,20 +74,20 @@ export function createLiteRootUiState(): LiteRootUiState {
 
 export const useLiteStore = defineStore('lite-workbench', {
   state: (): LiteStoreState => ({
-    activeByWindow: {},
+    viewModeByWindow: {},
     uiByWindowRoot: {},
   }),
   getters: {
     isLiteActive(state): (windowId: string) => boolean {
-      return (windowId) => !!state.activeByWindow[windowId]
+      return (windowId) => state.viewModeByWindow[windowId] === 'lite'
     },
     rootUi(state): (windowId: string, rootChatId: string) => LiteRootUiState | undefined {
       return (windowId, rootChatId) => state.uiByWindowRoot[windowId]?.[rootChatId]
     },
   },
   actions: {
-    setActive(windowId: string, active: boolean): void {
-      this.activeByWindow = { ...this.activeByWindow, [windowId]: active }
+    setViewMode(windowId: string, mode: WorkbenchViewMode): void {
+      this.viewModeByWindow = { ...this.viewModeByWindow, [windowId]: mode }
     },
     ensureRootUi(windowId: string, rootChatId: string): LiteRootUiState {
       const roots = this.uiByWindowRoot[windowId] ?? {}

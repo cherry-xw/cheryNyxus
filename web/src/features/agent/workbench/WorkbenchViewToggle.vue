@@ -1,27 +1,30 @@
 <script setup lang="ts">
-import { useLiteViewToggle } from './useLiteViewToggle'
+import { useWorkbenchViewMode } from './useWorkbenchViewMode'
+import type { WorkbenchViewMode } from '@/features/lite/liteStore'
 
 const props = defineProps<{ windowId: string }>()
-const { liteViewEnabled, toggleLiteView } = useLiteViewToggle(props.windowId)
+const { viewMode, setViewMode } = useWorkbenchViewMode(props.windowId)
+
+// 三档视图：树（节点树主画布）/ 对话（整屏会话气泡视图）/ 精简（lite 紧凑会话视图）。
+// 精简是对话的紧凑展示方式，二者同属会话展示家族，与树视图互斥。
+const MODES: Array<{ key: WorkbenchViewMode; icon: string; label: string }> = [
+  { key: 'tree', icon: '⌘', label: '树' },
+  { key: 'conversation', icon: '↺', label: '对话' },
+  { key: 'lite', icon: '▤', label: '精简' },
+]
 </script>
 
 <template>
   <div class="workbench-view-toggle" data-window-interactive role="group" aria-label="工作台视图">
     <button
+      v-for="mode in MODES"
+      :key="mode.key"
       type="button"
-      :class="{ active: !liteViewEnabled }"
-      :aria-pressed="!liteViewEnabled"
-      @click="liteViewEnabled && toggleLiteView()"
+      :class="{ active: viewMode === mode.key }"
+      :aria-pressed="viewMode === mode.key"
+      @click="setViewMode(mode.key)"
     >
-      <i aria-hidden="true">⌘</i><span>树</span>
-    </button>
-    <button
-      type="button"
-      :class="{ active: liteViewEnabled }"
-      :aria-pressed="liteViewEnabled"
-      @click="!liteViewEnabled && toggleLiteView()"
-    >
-      <i aria-hidden="true">▤</i><span>精简</span>
+      <i aria-hidden="true">{{ mode.icon }}</i><span>{{ mode.label }}</span>
     </button>
   </div>
 </template>
@@ -40,7 +43,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-width: 58px;
+  min-width: 46px;
   padding: 0 7px;
   border: 0;
   background: transparent;

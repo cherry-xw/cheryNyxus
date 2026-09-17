@@ -39,8 +39,10 @@ export interface HistoryDrawerManager {
   closeTop: () => void
   /** 关闭全部抽屉。 */
   closeAll: () => void
-  /** 加载 chat 历史（当前透传 store.getHistory 全量；缓存命中待后续启用）。 */
-  loadHistory: (chatId: string) => Promise<void>
+  /** 加载 chat 历史（当前透传 store.getHistory 全量；缓存命中待后续启用）。
+   *  ownerId 默认全局抽屉归属 'history-drawer'；工作台对话模式传 per-window owner，
+   *  使会话切换/退出模式时可按窗口释放订阅（与树订阅 owner 模式一致）。 */
+  loadHistory: (chatId: string, ownerId?: string) => Promise<void>
   /** 消息缓存（预留）：chatId → { items, ts }。当前 loadHistory 不读写命中，仅占位供后续接入。 */
   historyCache: Map<string, HistoryCacheEntry>
 }
@@ -85,7 +87,7 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
       store.closeAllHistory()
       release(open)
     },
-    async loadHistory(chatId: string) {
+    async loadHistory(chatId: string, ownerId = 'history-drawer') {
       // A native history window starts without the archived catalog. Resolve
       // ancestry before selecting root vs direct conversation loading.
       if (!chatSessions.sessionsById[chatId]?.meta.lifecycle) {
