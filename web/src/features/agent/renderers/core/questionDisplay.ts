@@ -1,3 +1,6 @@
+import type { InteractionRecord } from '@/application/backend/public'
+import { questionsOf, type PanelQuestion } from '@/features/agent/attention/interactionPresentation'
+
 export interface QuestionOptionView {
   label: string
   description?: string
@@ -8,6 +11,25 @@ export interface QuestionArgsView {
   header?: string
   options: QuestionOptionView[]
   multiSelect: boolean
+}
+
+/**
+ * 对话列表提问卡片的可交互匹配：提问批 item 的 questionId = 工具调用 call.id
+ * （src/db/question.ts 以 call.id 落 question_items.question_id），且仅 status='pending'
+ * 可提交。命中后渲染器切换为列表内直接作答（选项点选 + 补充 + 提交走 interactions.answer）。
+ * 未命中（提问已答/取消、交互数据未加载）保持历史只读展示。
+ */
+export function findInteractiveQuestion(
+  callId: string | undefined,
+  pending: ReadonlyArray<InteractionRecord>,
+): { item: InteractionRecord; question: PanelQuestion } | null {
+  if (!callId) return null
+  for (const item of pending) {
+    if (item.kind !== 'question_batch' || item.status !== 'pending') continue
+    const question = questionsOf(item).find((q) => q.questionId === callId)
+    if (question) return { item, question }
+  }
+  return null
 }
 
 export type QuestionAnswerView =
