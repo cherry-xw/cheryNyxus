@@ -532,7 +532,7 @@ async function bootstrap(): Promise<void> {
   >
     <template #title-actions>
       <ConnectionStatusChip />
-      <!-- 标题栏会话状态条（活跃会话 icon + 当前预设分页下拉）；切换走 onWorkbenchSessionSelect（setWorkbenchWindowChat，
+      <!-- 标题栏稳定任务快捷位；切换走 onWorkbenchSessionSelect（setWorkbenchWindowChat，
            与 bridge.onOpenChat 同语义，WorkbenchDialog 内 watch chatId 驱动树订阅与 draft reset） -->
       <WorkbenchSessionBar
         :window-id="surfacePresetId ?? 'workbench'"
@@ -627,7 +627,7 @@ async function bootstrap(): Promise<void> {
       >
         <template #title-actions>
           <ConnectionStatusChip />
-          <!-- 标题栏会话状态条（活跃会话 icon + 当前预设分页下拉）：浏览器面工作台窗由 CyberWindow 承载
+          <!-- 标题栏稳定任务快捷位：浏览器面工作台窗由 CyberWindow 承载
                标题栏（WorkbenchDialog embedded 自绘 titlebar 不渲染），strip 挂此 slot；
                senseTool 不注入，strip 内部自拉 sense.tools 兜底 -->
           <WorkbenchSessionBar
@@ -635,6 +635,7 @@ async function bootstrap(): Promise<void> {
             :preset-id="entry.workbench.presetId"
             :preset-name="entry.workbench.presetName ?? undefined"
             :active-chat-id="entry.workbench.chatId"
+            :foreground="entry.window.focused"
             @select="(id: string) => workspace.setWorkbenchWindowChat(entry.workbench.id, id)"
             @clear="() => workspace.setWorkbenchWindowChat(entry.workbench.id, null)"
             @create="

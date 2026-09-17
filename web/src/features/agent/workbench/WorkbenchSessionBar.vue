@@ -1,30 +1,28 @@
 <script setup lang="ts">
 /**
- * WorkbenchSessionBar：标题栏会话状态条 + 会话下拉的组合容器。
- * 左侧 strip（活跃会话 icon 阵列，hover 提示，点击切换），右侧「☰」按钮打开
- * 当前预设分页下拉（含未运行会话，默认第一项）；strip 溢出「+N」同样打开下拉。
+ * WorkbenchSessionBar：稳定任务快捷位与全部任务入口的组合容器。
+ * 小任务 11 先发出全部任务页请求，同时保留旧下拉作为任务 13 接入覆盖页前的可用降级。
  * 下拉经 Teleport 挂 body + 锚点 fixed 定位 + OVERLAY_Z_INDEX.sessionMenu——
  * 标题栏/窗口内 absolute 弹层会被工作台 body 内更高 z-index（NYXUS_WORKBENCH_Z_INDEX chrome 60 等）
  * 盖住，必须脱离窗口 stacking context；且不能用 ownerOverlayZIndex（它返回窗口 zIndex+1=501，
  * 多窗口时聚焦窗口 500+2n ≥502 会盖住下拉），须用固定高位（< historyDrawer 10000）。
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import type { SenseToolInfo } from '@/application/backend/public'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import WorkbenchSessionStrip from './WorkbenchSessionStrip.vue'
 import SessionDropdown from './SessionDropdown.vue'
+import type { TaskBrowserOpenRequest } from './useSessionStripTasks'
 
-// 模板直接解包使用（windowId/presetId/presetName/senseTool/activeChatId），脚本侧无需 props 变量。
+// 模板直接解包使用，脚本侧无需 props 变量。
 withDefaults(
   defineProps<{
     windowId: string
     presetId?: string
     presetName?: string
-    /** sense 图标查找（工具节点 icon 映射）；缺省时 strip 内部自拉 sense.tools。 */
-    senseTool?: (name: string) => SenseToolInfo | undefined
     activeChatId?: string | null
+    foreground?: boolean
   }>(),
-  { presetId: undefined, presetName: undefined, senseTool: undefined, activeChatId: null },
+  { presetId: undefined, presetName: undefined, activeChatId: null, foreground: undefined },
 )
 
 const emit = defineEmits<{
@@ -32,6 +30,7 @@ const emit = defineEmits<{
   create: []
   /** 当前会话被归档且无剩余：父级清空窗口当前会话。 */
   clear: []
+  openTasks: [request: TaskBrowserOpenRequest]
 }>()
 
 const barEl = ref<HTMLElement | null>(null)
@@ -52,9 +51,14 @@ function openDropdown(): void {
   dropdownOpen.value = true
 }
 
-function toggleDropdown(): void {
-  if (dropdownOpen.value) dropdownOpen.value = false
-  else openDropdown()
+function onOpenTasks(request: TaskBrowserOpenRequest): void {
+  // 任务 13 接入覆盖页前保留旧列表，避免阶段实施期间入口失效。
+  if (dropdownOpen.value) {
+    dropdownOpen.value = false
+    return
+  }
+  emit('openTasks', request)
+  openDropdown()
 }
 
 function onSelect(chatId: string): void {
@@ -81,21 +85,12 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
       :window-id="windowId"
       :preset-id="presetId"
       :preset-name="presetName"
-      :sense-tool="senseTool"
       :active-chat-id="activeChatId"
+      :foreground="foreground"
+      :all-tasks-expanded="dropdownOpen"
       @select="onSelect"
-      @expand="openDropdown"
+      @expand="onOpenTasks"
     />
-    <button
-      type="button"
-      class="session-bar-all"
-      :class="{ 'is-open': dropdownOpen }"
-      :aria-label="dropdownOpen ? '关闭会话列表' : '打开会话列表'"
-      :aria-expanded="dropdownOpen"
-      @click="toggleDropdown"
-    >
-      ☰
-    </button>
     <Teleport to="body">
       <SessionDropdown
         v-if="dropdownOpen"
@@ -118,40 +113,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
 .session-bar {
   position: relative;
   display: flex;
+  flex: 1 1 218px;
   align-items: center;
-  gap: 6px;
+  min-width: 58px;
+  max-width: 218px;
   padding: 0 2px;
-}
-.session-bar-all {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
-  border-radius: 0;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--ink);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    border-color 120ms ease,
-    background 120ms ease,
-    transform 120ms ease;
-  &:hover {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
-    transform: translateY(-1px);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-  }
-  &.is-open {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 24%, transparent);
-  }
 }
 </style>
