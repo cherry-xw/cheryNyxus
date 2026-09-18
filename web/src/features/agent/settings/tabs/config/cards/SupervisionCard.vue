@@ -80,10 +80,10 @@ defineProps<{ global: GlobalConfigDto; no: number }>()
   cursor: pointer;
   transition: 0.16s ease;
   span {
-    font-size: 17px;
+    font-size: 19px;
   }
   b {
-    font-size: 10px;
+    font-size: 12px;
   }
   &.active {
     border-color: rgba(96, 165, 250, 0.75);
@@ -108,7 +108,7 @@ defineProps<{ global: GlobalConfigDto; no: number }>()
 .deck-note {
   position: relative;
   margin: 0;
-  font-size: 9px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 </style>

@@ -138,12 +138,12 @@ article header strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 400;
 }
 article header small {
   flex: none;
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
 }
 article header small .countdown {
@@ -160,7 +160,7 @@ article header small .countdown.is-expired {
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 .kind.is-approval {
@@ -180,7 +180,7 @@ article footer button {
   padding: 6px 11px;
   border: 0;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
   cursor: pointer;
 }
@@ -200,6 +200,6 @@ article footer button {
 .object-error {
   margin: 6px 0 0;
   color: var(--el-color-danger);
-  font-size: 12px;
+  font-size: 14px;
 }
 </style>

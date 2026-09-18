@@ -93,7 +93,7 @@ function runningToolTip(name: string): string {
   background: color-mix(in srgb, var(--accent) 40%, transparent);
   font-family: @glyph-fonts;
   line-height: 1;
-  font-size: 11px;
+  font-size: 13px;
   animation: run-pulse 1.1s ease-in-out infinite;
 
   &.is-clickable {

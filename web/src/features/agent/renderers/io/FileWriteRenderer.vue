@@ -116,6 +116,7 @@ onBeforeUnmount(() => {
     <div class="file-head">
       <span class="file-icon" aria-hidden="true">✏️</span>
       <span class="file-name">写入文件</span>
+      <slot name="risk" />
       <span class="file-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
 
@@ -183,7 +184,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
@@ -193,7 +194,7 @@ onBeforeUnmount(() => {
   gap: 6px;
 
   .file-icon {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .file-name {
@@ -204,7 +205,7 @@ onBeforeUnmount(() => {
 
   .file-status {
     font-weight: 800;
-    font-size: 12px;
+    font-size: 14px;
 
     &.status-done {
       color: #16a34a;
@@ -235,7 +236,7 @@ onBeforeUnmount(() => {
 .file-label {
   flex-shrink: 0;
   line-height: 17px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
@@ -253,7 +254,7 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   white-space: pre-wrap;
   word-break: break-word;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
@@ -282,7 +283,7 @@ onBeforeUnmount(() => {
 .file-mode {
   flex: 1;
   min-width: 0;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
@@ -292,7 +293,7 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 200px;
@@ -307,7 +308,7 @@ onBeforeUnmount(() => {
   border: none;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   user-select: none;
@@ -334,7 +335,7 @@ onBeforeUnmount(() => {
 }
 
 .line-count {
-  font-size: 9px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
@@ -353,7 +354,7 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -362,7 +363,7 @@ onBeforeUnmount(() => {
 }
 
 .content-truncated {
-  font-size: 9px;
+  font-size: 12px;
   font-style: italic;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
 }

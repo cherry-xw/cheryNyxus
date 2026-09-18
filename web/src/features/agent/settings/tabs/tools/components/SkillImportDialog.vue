@@ -565,7 +565,7 @@ watch(
   background: #101a2c;
   color: #2ef2ff;
   font:
-    1000 8px/1 ui-monospace,
+    1000 12px/1 ui-monospace,
     monospace;
   transform: rotate(-3deg);
   box-shadow: 3px 3px 0 rgba(255, 60, 172, 0.18);
@@ -576,17 +576,17 @@ watch(
   gap: 2px;
 }
 .source-card header b {
-  font-size: 12px;
+  font-size: 14px;
   color: #f8fafc;
 }
 .source-card header small {
-  font-size: 9px;
+  font-size: 12px;
   color: #758096;
 }
 .source-card header i {
   margin-left: auto;
   font:
-    900 8px/1 ui-monospace,
+    900 12px/1 ui-monospace,
     monospace;
   letter-spacing: 0.12em;
   color: #c9ff43;
@@ -612,7 +612,7 @@ watch(
 .field :deep(.el-input__inner),
 .field :deep(.el-select__selected-item) {
   color: #edf9ff;
-  font-size: 10px;
+  font-size: 12px;
 }
 .url-field {
   display: grid;
@@ -629,7 +629,7 @@ watch(
   border-radius: 8px;
   background: rgba(46, 242, 255, 0.08);
   color: #c9fbff;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: 0.18s ease;
@@ -664,7 +664,7 @@ watch(
   left: 8px;
   top: 4px;
   font:
-    900 7px/1 ui-monospace,
+    900 12px/1 ui-monospace,
     monospace;
   letter-spacing: 0.15em;
   color: #ffb03d;
@@ -672,7 +672,7 @@ watch(
 .cred-chk {
   display: flex;
   align-items: flex-end;
-  font-size: 10px;
+  font-size: 12px;
 }
 .launch-row {
   display: flex;
@@ -691,7 +691,7 @@ watch(
   box-shadow: 4px 4px 0 rgba(255, 60, 172, 0.22);
 }
 .launch-btn i {
-  font-size: 15px;
+  font-size: 17px;
 }
 .launch-btn:hover:not(:disabled) {
   transform: translate(-2px, -2px);
@@ -747,11 +747,11 @@ button:disabled {
   width: 13px;
 }
 .drop-core b {
-  font-size: 11px;
+  font-size: 13px;
   color: #ffeaf7;
 }
 .drop-core small {
-  font-size: 9px;
+  font-size: 12px;
   color: #758096;
 }
 .hidden-file {
@@ -770,13 +770,13 @@ button:disabled {
 .scan-panel b,
 .success-panel h4 {
   margin: 14px 0 4px;
-  font-size: 16px;
+  font-size: 18px;
   color: #f8fafc;
 }
 .scan-panel small,
 .success-panel p {
   margin: 0;
-  font-size: 10px;
+  font-size: 12px;
   color: #8590a6;
 }
 .shuffle-cards {
@@ -804,7 +804,7 @@ button:disabled {
   animation-delay: calc(var(--i) * -90ms);
 }
 .shuffle-cards i {
-  font: 1000 22px/1 system-ui;
+  font: 1000 24px/1 system-ui;
   color: #fff;
   text-shadow:
     2px 1px 0 #ff3cac,
@@ -812,7 +812,7 @@ button:disabled {
 }
 .success-panel > span {
   font:
-    900 8px/1 ui-monospace,
+    900 12px/1 ui-monospace,
     monospace;
   letter-spacing: 0.18em;
   color: #c9ff43;
@@ -839,7 +839,7 @@ button:disabled {
 }
 .reveal-card span {
   font:
-    900 7px/1 ui-monospace,
+    900 12px/1 ui-monospace,
     monospace;
   color: #081018;
   background: #c9ff43;
@@ -847,14 +847,14 @@ button:disabled {
 }
 .reveal-card b {
   margin-top: 8px;
-  font: 1000 17px/1 system-ui;
+  font: 1000 19px/1 system-ui;
   color: #fff;
   text-shadow: 2px 2px 0 #ff3cac;
 }
 .reveal-card i {
   margin-top: 9px;
   color: #fff;
-  font-size: 20px;
+  font-size: 22px;
 }
 .success-panel h4 {
   margin-top: 9px;
@@ -915,7 +915,7 @@ button:disabled {
   border-radius: 6px;
   background: rgba(255, 60, 172, 0.22);
   color: #ff9ad4;
-  font-size: 13px;
+  font-size: 15px;
 }
 .import-error-banner .ie-body {
   flex: 1;
@@ -925,16 +925,16 @@ button:disabled {
   gap: 2px;
 }
 .import-error-banner .ie-body b {
-  font-size: 11px;
+  font-size: 13px;
   color: #fff;
 }
 .import-error-banner .ie-body p {
   margin: 0;
-  font-size: 10px;
+  font-size: 12px;
   color: #fda4af;
 }
 .import-error-banner .ie-body small {
-  font-size: 9px;
+  font-size: 12px;
   color: #9ba6ba;
 }
 .import-error-banner .ie-body .ie-raw {
@@ -950,7 +950,7 @@ button:disabled {
   background: transparent;
   color: #cbd5e1;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
   padding: 0;
 }

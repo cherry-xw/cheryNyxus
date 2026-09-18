@@ -51,11 +51,21 @@ export const SenseCallRenderer = defineComponent({
     defaultExpanded: { type: Boolean, required: false },
   },
   setup(props) {
+    // 工具安全性标签：作为 named slot `risk` 注入渲染器标题行（各渲染器在标题行内放置
+    // `<slot name="risk" />`，如单选工具放在「单选」标签后面）。compact 形态 = 纯 chip，
+    // 判定明细在 title 提示里；完整判定仍可在节点树 hover 窗/审批卡片查看。
+    // 一处覆盖 MessageBubble 折叠 popover 与展开列表两条路径。
+    const riskSlot = () => h(RiskBadge, { auth: props.call.security, compact: true })
+
     // 快速路径：未注册工具直接用通用渲染器（避免异步开销）
     let innerRenderer: () => ReturnType<typeof h>
     if (!hasRenderer(props.call.name)) {
       innerRenderer = () =>
-        h(SenseCallBox, { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded })
+        h(
+          SenseCallBox,
+          { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded },
+          { risk: riskSlot },
+        )
     } else {
       // 注册工具：异步加载专用渲染器
       const asyncComponent = defineAsyncComponent({
@@ -69,26 +79,14 @@ export const SenseCallRenderer = defineComponent({
       })
 
       innerRenderer = () =>
-        h(asyncComponent, {
-          call: props.call,
-          id: props.id,
-          defaultExpanded: props.defaultExpanded,
-        })
+        h(
+          asyncComponent,
+          { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded },
+          { risk: riskSlot },
+        )
     }
 
-    // 每次工具调用都渲染独立风险徽章；旧数据缺少判定时显示「未知」。
-    // 一处覆盖 MessageBubble 折叠 popover 与展开列表两条路径。
-    return () => {
-      const inner = innerRenderer()
-      return h(
-        'div',
-        {
-          class: 'sense-call-wrap',
-          style: { display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' },
-        },
-        [h(RiskBadge, { auth: props.call.security }), inner],
-      )
-    }
+    return () => innerRenderer()
   },
 })
 

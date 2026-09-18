@@ -399,7 +399,7 @@ function onEscape(event: KeyboardEvent): void {
   color: var(--ink);
   color: #d4dfe2;
   font-family: 'HYPixel Paper', system-ui, sans-serif;
-  font-size: 13px;
+  font-size: 15px;
   font-synthesis: none;
   line-height: 1.55;
   scrollbar-color: rgba(114, 147, 154, 0.58) transparent;

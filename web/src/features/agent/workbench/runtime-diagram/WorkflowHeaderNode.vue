@@ -176,7 +176,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   border: 0;
   border-radius: 0;
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   overflow: hidden;
@@ -199,14 +199,14 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   white-space: nowrap;
 }
 .workflow-header-caption strong {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
 }
 .workflow-header-caption span,
 .workflow-header-caption label,
 .workflow-header-caption button,
 .workflow-header-caption select {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 .workflow-header-iteration {
@@ -216,7 +216,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   background: color-mix(in srgb, var(--accent) 9%, var(--surface));
   color: var(--accent);
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   white-space: nowrap;
 }
@@ -253,7 +253,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   padding: 0 12px;
 }
 .is-compact .workflow-header-caption strong {
-  font-size: 13px;
+  font-size: 15px;
 }
 .workflow-header-summary {
   display: grid;
@@ -265,7 +265,7 @@ function selectScope(key: 'runId' | 'iteration' | 'attempt', event: Event) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 </style>

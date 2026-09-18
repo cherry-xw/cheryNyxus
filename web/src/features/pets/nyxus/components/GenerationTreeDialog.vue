@@ -110,7 +110,7 @@ const timelineOverride = computed<RootTimelineSnapshot | undefined>(() => {
   justify-content: center;
   height: 100%;
   color: color-mix(in srgb, var(--ink, #888) 60%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   font-style: italic;
 
   &.is-error {

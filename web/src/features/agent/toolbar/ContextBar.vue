@@ -102,7 +102,7 @@ const titleLines = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   white-space: nowrap;
 }

@@ -78,7 +78,7 @@ const hasArgs = computed(() => {
   border-radius: 4px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 78%, transparent);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
   cursor: pointer;
 
@@ -111,7 +111,7 @@ const hasArgs = computed(() => {
 .arg-key {
   flex-shrink: 0;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
@@ -122,13 +122,13 @@ const hasArgs = computed(() => {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 90%, transparent);
 }
 
 .arg-empty {
-  font-size: 12px;
+  font-size: 14px;
   font-style: italic;
   color: color-mix(in srgb, var(--ink) 58%, transparent);
 }
@@ -140,7 +140,7 @@ const hasArgs = computed(() => {
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: color-mix(in srgb, var(--ink) 90%, transparent);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12.5px;
+  font-size: 14.5px;
   font-weight: 400;
   line-height: 1.5;
   white-space: pre-wrap;

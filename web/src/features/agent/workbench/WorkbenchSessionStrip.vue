@@ -454,7 +454,7 @@ onBeforeUnmount(() => {
   border-radius: 0;
   background: var(--panel);
   color: var(--ink);
-  font: 400 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 400 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   &.is-running,
   &.is-needs_user,
   &.is-failed {
@@ -510,7 +510,7 @@ onBeforeUnmount(() => {
   border-radius: 0;
   background: var(--panel);
   color: var(--accent);
-  font: 400 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 400 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .all-overflow {
   right: -5px;
@@ -544,7 +544,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 12px;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   outline: none;
 }
@@ -557,7 +557,7 @@ onBeforeUnmount(() => {
 }
 .session-strip-tip-body .tip-title {
   min-width: 0;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.45;
   word-break: break-word;
@@ -576,7 +576,7 @@ onBeforeUnmount(() => {
 }
 .session-strip-tip-body .tip-label {
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 .session-strip-tip-body .tip-value {
@@ -601,7 +601,7 @@ onBeforeUnmount(() => {
   border-radius: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   cursor: pointer;
   &:hover,

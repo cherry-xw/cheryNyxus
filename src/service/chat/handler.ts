@@ -92,7 +92,7 @@ import {
 } from './runtime.js'
 import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
-import { getPendingQuestionAttention, getQuestionStateSnapshot } from '@/db/question.js'
+import { getPendingQuestionAttention, getQuestionAnsweredAt, getQuestionStateSnapshot } from '@/db/question.js'
 import { randomUUID } from 'crypto'
 import { recordWorkflowStep } from './workflowStepWriter.js'
 import {
@@ -862,6 +862,19 @@ export function buildRootTimeline(
       }
       candidates.push({ node, branchChatId: chatId, rank: 0, relation })
       if (senseCalls.length > 0) {
+        // 提问类工具（ask_user_question）：工具执行本身是「占位秒回」，真实等待发生在
+        // 提问 → 回答之间。把回答时间（question_items.answered_at）带到工具节点，
+        // 前端据此展示真实等待耗时。多题批次的题目同步落同一个 completedAt，取首个命中。
+        const answeredAt = senseCalls.some((call) => call.name === 'ask_user_question')
+          ? (() => {
+              for (const call of senseCalls) {
+                if (call.name !== 'ask_user_question') continue
+                const at = getQuestionAnsweredAt(chatId, call.callId)
+                if (at !== undefined) return at
+              }
+              return undefined
+            })()
+          : undefined
         candidates.push({
           node: {
             id: `batch:${row.id}`,
@@ -878,6 +891,7 @@ export function buildRootTimeline(
             batchId: `batch:${row.id}`,
             createdAt: row.created_at,
             updatedAt: row.created_at,
+            ...(answeredAt !== undefined ? { answeredAt } : {}),
             status: row.revoked === 1 ? 'revoked' : 'committed',
             ...(row.epoch_id ? { epochId: row.epoch_id } : {}),
           },

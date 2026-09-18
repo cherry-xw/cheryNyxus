@@ -135,7 +135,7 @@ function formatSize(bytes: number): string {
 }
 
 .thumb-audio-icon {
-  font-size: 22px;
+  font-size: 24px;
   color: var(--ink);
   color: #c58b20;
 }
@@ -148,7 +148,7 @@ function formatSize(bytes: number): string {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 65%, transparent);
   color: var(--ink);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -168,13 +168,13 @@ function formatSize(bytes: number): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 72%, transparent);
 }
 
 .thumb-size {
   flex: none;
-  font-size: 9px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 44%, transparent);
 }
 

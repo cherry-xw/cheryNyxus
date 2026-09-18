@@ -64,7 +64,7 @@ const edgeColor = computed(() => {
   background: var(--panel);
   padding: 1px 4px;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   letter-spacing: 0;
   line-height: 18px;

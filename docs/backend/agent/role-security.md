@@ -28,6 +28,17 @@ Bash 使用 `unbash` AST；PowerShell 使用 `System.Management.Automation.Langu
 
 审批卡显示角色、风险项、源码片段和要求的沙箱模式。批准只绑定当前工具参数、风险评估哈希和角色策略哈希；参数被 Hook 修改或策略变化后，旧批准立即失效。
 
+## 风险等级
+
+工具安全判定（`authorizeToolCall` 的 findings）固定四档，透传到前端风险徽章与审批卡：
+
+- `safe`（安全，绿）：读操作等无副作用调用，直接放行、无审批卡。
+- `medium`（中风险，黄）：有明确且受控的副作用，需人工审批后才执行。
+- `high`（高风险，红）：高危副作用（系统级修改、凭据、提权、网络外联等），需审批并强调核对。
+- `unknown`（未知，灰）：未声明副作用 / 未被既有规则覆盖的工具，按安全默认值处理（受监管角色要求审批）。
+
+**config_manage（配置管理）**：已声明副作用，不再落入「未知」。读操作（`get` / `asset_get`）在受监管角色直接放行且无判定（安全）；写操作（`patch` 等）要求审批并给出**中风险**判定（将修改 `.chery` 配置或受管资产，批准后才会落盘）。前端 lite 详情抽屉的徽章呈现见 `mcu-lite-workbench-ui.md` §4.4。
+
 ## OS 沙箱
 
 - Windows：DeepSeek Harness 的 `@deepseek-ai/dsh-sandbox-windows-acl` restricted-token/ACL runner。

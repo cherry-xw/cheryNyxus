@@ -192,7 +192,7 @@ onBeforeUnmount(() => {
 .vp-time {
   flex: none;
   color: rgba(255, 255, 255, 0.6);
-  font-size: 11px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   min-width: 34px;
   text-align: center;
@@ -221,6 +221,6 @@ onBeforeUnmount(() => {
 }
 
 .vp-close {
-  font-size: 13px;
+  font-size: 15px;
 }
 </style>

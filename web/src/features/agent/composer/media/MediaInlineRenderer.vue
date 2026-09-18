@@ -149,7 +149,7 @@ function closePreview() {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 16px;
     padding-left: 2px;
   }
 
@@ -161,7 +161,7 @@ function closePreview() {
     border-radius: 3px;
     background: color-mix(in srgb, var(--ink) 60%, transparent);
     color: var(--ink);
-    font-size: 10px;
+    font-size: 12px;
   }
 }
 
@@ -178,12 +178,12 @@ function closePreview() {
   min-width: 140px;
 
   .audio-icon {
-    font-size: 20px;
+    font-size: 22px;
     color: @accent;
   }
 
   .audio-label {
-    font-size: 11px;
+    font-size: 13px;
     color: color-mix(in srgb, var(--ink) 70%, transparent);
   }
 }

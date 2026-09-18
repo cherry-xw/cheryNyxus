@@ -13,7 +13,7 @@
  *    匹配 pending 提问批，选项点选 + 补充 + 提交走 interactions.answer）；打开时刷新一次
  *    interactions store，确保列表内提问可交互（后续由 interaction.changed 事件实时更新）
  */
-import { onMounted, onScopeDispose, ref, watch } from 'vue'
+import { nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import HistoryDrawerPanel from '../drawer/HistoryDrawerPanel.vue'
 import { useChatSessionsStore, useInteractionsStore } from '@/application/public'
 import type { ConversationBranchSummary } from '@/application/backend/public'
@@ -63,11 +63,18 @@ onScopeDispose(() => {
 
 // ── 输入框（精简模式同款交互：Enter 发送 / Shift+Enter 换行，单行自适应增高） ──
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+/** 输入框展开态：默认保持 6 行（120px）上限，展开后最高到窗口一半（由 CSS is-expanded 承接）。 */
+const expandedInput = ref(false)
 function autoGrow(): void {
   const element = inputRef.value
   if (!element) return
   element.style.height = 'auto'
-  element.style.height = `${Math.min(element.scrollHeight, 120)}px`
+  element.style.height = `${element.scrollHeight}px`
+}
+function toggleExpandInput(): void {
+  expandedInput.value = !expandedInput.value
+  // 类切换后重算高度：展开时立即给足可视高度，收起时回到内容高度（CSS 上限兜底）。
+  void nextTick(autoGrow)
 }
 function onInputKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
@@ -133,7 +140,7 @@ onMounted(() => {
           📎 {{ mediaCount }} 个附件随消息发送（附件管理在树视图输入框）
         </span>
       </div>
-      <div class="conversation-input-row">
+      <div class="conversation-input-row" :class="{ 'is-expanded': expandedInput }">
         <textarea
           ref="inputRef"
           :value="text"
@@ -145,15 +152,34 @@ onMounted(() => {
           @input="onInput"
           @keydown="onInputKeydown"
         />
-        <button
-          type="button"
-          class="conversation-send-btn"
-          :disabled="sending || uploading || loading || !text.trim()"
-          :aria-label="sending ? '消息正在发送' : '发送消息'"
-          @click="emit('send')"
-        >
-          {{ sending ? '发送中…' : '发送' }}
-        </button>
+        <div class="conversation-send-wrap">
+          <el-tooltip
+            :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+            placement="top"
+            :show-after="150"
+            :hide-after="0"
+          >
+            <button
+              type="button"
+              class="conversation-expand-btn"
+              :class="{ 'is-expanded': expandedInput }"
+              :aria-pressed="expandedInput"
+              :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+              @click="toggleExpandInput"
+            >
+              {{ expandedInput ? '⤡' : '⤢' }}
+            </button>
+          </el-tooltip>
+          <button
+            type="button"
+            class="conversation-send-btn"
+            :disabled="sending || uploading || loading || !text.trim()"
+            :aria-label="sending ? '消息正在发送' : '发送消息'"
+            @click="emit('send')"
+          >
+            {{ sending ? '发送中…' : '发送' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -193,7 +219,7 @@ onMounted(() => {
   border: 1px solid var(--el-color-danger);
   background: color-mix(in srgb, var(--el-color-danger) 8%, var(--surface));
   color: var(--el-color-danger);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.4;
 }
 .conversation-input-chips {
@@ -211,7 +237,7 @@ onMounted(() => {
   border-radius: 4px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 66%, transparent);
-  font-size: 11.5px;
+  font-size: 13.5px;
   line-height: 1.3;
 }
 .conversation-chip.is-branch {
@@ -234,7 +260,7 @@ onMounted(() => {
   border-radius: 3px;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 52%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   cursor: pointer;
   &:hover {
@@ -259,7 +285,7 @@ onMounted(() => {
   background: var(--panel);
   color: inherit;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 1.5;
   // 自定义细滚动条：内容超高时隐藏系统滚动条上下箭头
@@ -277,6 +303,49 @@ onMounted(() => {
     opacity: 0.6;
   }
 }
+// 展开态：输入框高度从 6 行上限提升到「至少 12 行、最高窗口一半」，长内容不再在小框中翻页滚动
+// （min-height 用 min(240px, 50vh) 兜底矮窗口，避免展开后溢出视口）。
+.conversation-input-row.is-expanded .conversation-input-box {
+  min-height: min(240px, 50vh);
+  max-height: 50vh;
+}
+// 发送钮右上角展开按钮：小方块，贴发送钮正上方右对齐（与发送钮同列，hover/焦点可键盘操作）
+.conversation-send-wrap {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.conversation-expand-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  border-radius: 0;
+  background: var(--panel);
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    background-color 120ms ease;
+  &:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  &.is-expanded {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  }
+}
 .conversation-send-btn {
   flex: none;
   display: inline-flex;
@@ -289,7 +358,7 @@ onMounted(() => {
   border-radius: 8px;
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 1;
   cursor: pointer;
@@ -302,6 +371,136 @@ onMounted(() => {
   &:disabled {
     cursor: default;
     opacity: 0.5;
+  }
+}
+
+// ── 对话模式可读性：整个会话列表中所有小于 12px 的文字统一提升到 12px ──
+// 列表由 HistoryDrawerPanel（embedded）→ VirtualScroll → MessageBubble + 工具渲染器 组成，
+// 各组件 scoped 样式里的小字号在此用 :deep + !important 覆盖（仅作用于对话模式，不影响树/浮窗）。
+// 面板与气泡根：让未显式设字号的继承文字也达到 12px。
+.conversation-view {
+  :deep(.drawer-panel),
+  :deep(.bubble) {
+    font-size: 14px !important;
+  }
+
+  // 消息气泡内部小字
+  :deep(.delivery-state),
+  :deep(.context-divider),
+  :deep(.termination-tail),
+  :deep(.thinking-toggle),
+  :deep(.thinking-pre),
+  :deep(.content),
+  :deep(.instruction-message-token),
+  :deep(.sense-tag),
+  :deep(.time) {
+    font-size: 14px !important;
+  }
+
+  // 工具卡片根（SenseCallBox / 各专用渲染器共用形态）
+  :deep(.sense-box),
+  :deep(.sense-icon),
+  :deep(.todo-box),
+  :deep(.todo-icon),
+  :deep(.cmd-box),
+  :deep(.file-box),
+  :deep(.file-write-box),
+  :deep(.media-box),
+  :deep(.search-box),
+  :deep(.skill-box),
+  :deep(.spawn-box) {
+    font-size: 14px !important;
+  }
+
+  // 折叠开关 / 参数行 / 结果区 / 状态徽标等（跨渲染器同名类统一覆盖）
+  :deep(.toggle),
+  :deep(.arg-key),
+  :deep(.arg-val),
+  :deep(.arg-empty),
+  :deep(.sense-pre),
+  :deep(.todo-count),
+  :deep(.todo-item .glyph),
+  :deep(.todo-fallback),
+  :deep(.cmd-label),
+  :deep(.cmd-code),
+  :deep(.cmd-meta-inline),
+  :deep(.cmd-desc),
+  :deep(.cmd-fallback),
+  :deep(.cmd-head .copy-btn .el-icon),
+  :deep(.timeout-badge),
+  :deep(.error-badge),
+  :deep(.output-pre),
+  :deep(.output-truncated),
+  :deep(.output-log),
+  :deep(.file-label),
+  :deep(.file-path),
+  :deep(.file-range),
+  :deep(.file-mode),
+  :deep(.file-fallback),
+  :deep(.line-count),
+  :deep(.compression-badge),
+  :deep(.content-pre),
+  :deep(.content-truncated),
+  :deep(.prompt-preview),
+  :deep(.prompt-pre),
+  :deep(.media-fallback),
+  :deep(.search-mode),
+  :deep(.search-label),
+  :deep(.search-query),
+  :deep(.search-badge),
+  :deep(.search-fallback),
+  :deep(.result-count),
+  :deep(.result-file),
+  :deep(.result-line),
+  :deep(.result-content),
+  :deep(.skill-type),
+  :deep(.skill-fallback),
+  :deep(.spawn-type),
+  :deep(.spawn-label),
+  :deep(.spawn-value),
+  :deep(.spawn-prompt),
+  :deep(.spawn-badge),
+  :deep(.spawn-fallback),
+  :deep(.spawn-detail-link) {
+    font-size: 14px !important;
+  }
+
+  // 提问卡片（单选/多选）
+  :deep(.q-header),
+  :deep(.q-kind),
+  :deep(.q-badge),
+  :deep(.q-text),
+  :deep(.q-option),
+  :deep(.q-option-copy small),
+  :deep(.q-note-tag),
+  :deep(.q-note-input),
+  :deep(.q-batch-hint),
+  :deep(.q-submit),
+  :deep(.q-error),
+  :deep(.q-other-answer p),
+  :deep(.q-fallback) {
+    font-size: 14px !important;
+  }
+
+  // markdown 富文本内容
+  :deep(.md code),
+  :deep(.md pre code),
+  :deep(.md table) {
+    font-size: 14px !important;
+  }
+
+  // 面板 chrome（标题操作 / 加载态 / 打包代际 / 用量条）
+  :deep(.copy-id-btn),
+  :deep(.activate-branch-btn),
+  :deep(.detail-branch-divider),
+  :deep(.agent-loading-copy b),
+  :deep(.agent-loading-copy small),
+  :deep(.batch-loading),
+  :deep(.usage-label),
+  :deep(.generation-card-summary),
+  :deep(.generation-card-meta),
+  :deep(.generation-layer-title small) {
+    font-size: 14px !important;
   }
 }
 </style>

@@ -76,7 +76,7 @@ function commit(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 13px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
@@ -124,7 +124,7 @@ function commit(): void {
     monospace;
 }
 .number-readout small {
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.2;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
 }

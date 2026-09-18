@@ -1860,6 +1860,9 @@ export interface TimelineNode {
   /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。 */
   runtime?: RuntimeProvenance
   toolCalls?: GraphToolCall[]
+  /** 提问类工具（ask_user_question）的回答时间；仅已答/已取消的提问批次存在。
+   *  真实等待 = answeredAt − createdAt（工具执行本身是占位秒回）。 */
+  answeredAt?: number
   batchId?: string
   orderKey: number
   termination?: TerminationFact

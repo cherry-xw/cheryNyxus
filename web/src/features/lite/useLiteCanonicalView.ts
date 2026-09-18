@@ -98,7 +98,13 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
   }
   function toolMeta(name: string): LiteToolMeta | undefined {
     const tool = senseTools.value.find((item) => item.name === name)
-    return tool ? { label: tool.label, icon: tool.icon } : undefined
+    return tool
+      ? {
+          label: tool.label,
+          icon: tool.icon,
+          ...(tool.description ? { description: tool.description } : {}),
+        }
+      : undefined
   }
 
   function setCommandError(

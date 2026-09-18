@@ -96,7 +96,7 @@ const labelPosition = computed(() => {
   background: var(--panel);
   color: var(--ink);
   padding: 2px 6px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 18px;
   white-space: nowrap;

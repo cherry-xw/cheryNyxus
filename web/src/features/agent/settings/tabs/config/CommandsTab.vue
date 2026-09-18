@@ -277,7 +277,7 @@ onMounted(async () => {
 
 code {
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
-  font-size: 11px;
+  font-size: 13px;
   padding: 1px 4px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--ink) 8%, transparent);
@@ -311,13 +311,13 @@ code {
 }
 
 .card-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .badge.warn {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 8px;
@@ -327,26 +327,26 @@ code {
 
 .unavail-hint {
   margin: 4px 0 8px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--danger);
 }
 
 .readonly-desc {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
 .empty-card {
   text-align: center;
   .empty-title {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
   .empty-hint {
     margin-top: 6px;
-    font-size: 11px;
+    font-size: 13px;
     color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
 }
@@ -370,7 +370,7 @@ code {
   border-radius: 6px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 80%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
   &:hover:not(:disabled) {
     background: var(--surface);

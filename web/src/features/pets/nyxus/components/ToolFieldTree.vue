@@ -56,7 +56,7 @@ defineProps<{ fields: readonly FieldView[] }>()
   justify-content: space-between;
   gap: 8px;
   color: var(--field-accent, currentColor);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -64,13 +64,13 @@ defineProps<{ fields: readonly FieldView[] }>()
 .tool-field > dt small {
   flex: 0 0 auto;
   opacity: 0.55;
-  font-size: 12px;
+  font-size: 14px;
 }
 .tool-field > dd {
   min-width: 0;
   margin: 4px 0 0;
   color: inherit;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;

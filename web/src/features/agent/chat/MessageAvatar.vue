@@ -261,7 +261,7 @@ function onAvatarClick(): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: #7c3aed;
   user-select: none;
@@ -293,7 +293,7 @@ function onAvatarClick(): void {
     right: -4px;
     width: 16px;
     height: 16px;
-    font-size: 9px;
+    font-size: 12px;
     border: 2px solid var(--panel);
   }
 }
@@ -349,12 +349,12 @@ function onAvatarClick(): void {
   border-radius: 8px;
   background: var(--panel);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
   pointer-events: none;
 
   .panel-name {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 88%, transparent);
     margin-bottom: 6px;

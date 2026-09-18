@@ -9,6 +9,8 @@ export interface QuestionOptionView {
 export interface QuestionArgsView {
   question: string
   header?: string
+  rationale?: string
+  nextStep?: string
   options: QuestionOptionView[]
   multiSelect: boolean
 }
@@ -60,6 +62,12 @@ export function parseQuestionArgs(input: unknown): QuestionArgsView | null {
     return {
       question: raw.question,
       ...(typeof raw.header === 'string' ? { header: raw.header } : {}),
+      ...(typeof raw.rationale === 'string' && raw.rationale.trim()
+        ? { rationale: raw.rationale.trim() }
+        : {}),
+      ...(typeof raw.nextStep === 'string' && raw.nextStep.trim()
+        ? { nextStep: raw.nextStep.trim() }
+        : {}),
       options,
       multiSelect: raw.multiSelect === true,
     }

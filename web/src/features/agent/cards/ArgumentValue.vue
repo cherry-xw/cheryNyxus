@@ -71,7 +71,7 @@ const scalar = computed(() => formatApprovalArgumentScalar(props.fieldKey, props
 .argument-field dt {
   margin-bottom: 2px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 11px;
+  font-size: 13px;
 }
 .argument-field dd {
   margin: 0;

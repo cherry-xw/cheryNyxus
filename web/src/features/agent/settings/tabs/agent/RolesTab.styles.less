@@ -9,7 +9,7 @@
 .roles-workspace :deep(.resource-workbench) {
   flex: 1;
 }
-.permission-hint { margin: 0 0 8px; color: color-mix(in srgb, var(--ink) 58%, transparent); font-size: 10px; }
+.permission-hint { margin: 0 0 8px; color: color-mix(in srgb, var(--ink) 58%, transparent); font-size: 12px; }
 .perm-board-head { margin: -2px 0 4px; }
 // 模板卡片：风险色点 + 定位句 + 维度摘要，选中态对齐 choice-board active 的视觉语言
 .permission-template-board {
@@ -47,7 +47,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 .risk-dot {
@@ -64,16 +64,16 @@
   padding: 0 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 600;
 }
 .tpl-tagline {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .tpl-summary {
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 52%, transparent);
   word-break: break-all;
@@ -93,7 +93,7 @@
   border-radius: 8px;
   h4 {
     margin: 0;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
@@ -101,14 +101,14 @@
 .perm-field {
   display: grid;
   gap: 3px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .perm-field-head {
   display: flex;
   align-items: center;
   gap: 5px;
   em {
-    font-size: 9px;
+    font-size: 12px;
     font-style: normal;
     font-weight: 600;
     color: var(--tab-color, @accent);
@@ -140,7 +140,7 @@
   border: 1px solid color-mix(in srgb, var(--ink) 11%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 55%, transparent);
-  font-size: 10px;
+  font-size: 12px;
 }
 .preview-k {
   font-weight: 400;
@@ -154,7 +154,7 @@
   }
   em {
     margin-left: 3px;
-    font-size: 9px;
+    font-size: 12px;
     font-style: normal;
     opacity: 0.85;
   }
@@ -177,7 +177,7 @@
   background: var(--surface);
   color: color-mix(in srgb, var(--ink) 72%, transparent);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   text-align: left;
   cursor: pointer;
@@ -312,7 +312,7 @@
 .role-desc-text {
   display: inline-block;
   max-width: 100%;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
   word-break: break-word;
@@ -330,7 +330,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 .detail-section {
@@ -344,7 +344,7 @@
 }
 .detail-section h3 {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
 .core-field {
@@ -355,7 +355,7 @@
 }
 .core-field > span {
   padding-top: 6px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
@@ -394,13 +394,13 @@
 }
 
 .brain-choice-name {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
 }
 
 .brain-choice-model {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
   font-weight: 400;
 }
@@ -414,7 +414,7 @@
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
 }
 .choice-board small {
-  font-size: 9px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 .prompt-cascader {
@@ -453,7 +453,7 @@
 .roster-k {
   flex: none;
   width: 32px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 400;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
@@ -461,15 +461,15 @@
   padding: 1px 7px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--tab-color, @accent) 88%, @ink);
 }
 .roster-tag small {
-  font-size: 9px;
+  font-size: 12px;
   opacity: 0.9;
 }
 .roster-empty {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
   font-style: italic;
 }

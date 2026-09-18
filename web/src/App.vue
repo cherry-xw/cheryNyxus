@@ -28,7 +28,6 @@ import { startApplicationRuntime } from '@/application/runtime/startApplicationR
 import { renderQualityTier } from '@/composables/renderQuality'
 import { installPerformanceDiagnostics } from '@/utils/performanceDiagnostics'
 import { visualEventWindow } from '@/features/desktop/visualEvents'
-import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 
 // Electron 的每种 surface 与浏览器 overlay 互斥。重界面按实际状态下载，避免冷启动时
 // 同时解析设置、历史、会话和 Pixi 工作台，并确保关闭后组件实例及其图形资源可回收。
@@ -402,33 +401,6 @@ function onWorkbenchSessionSelect(chatId: string): void {
   if (!surfacePresetId) return
   workspace.setWorkbenchWindowChat(surfacePresetId, chatId)
 }
-/** 当前会话被归档且无剩余：清空本窗当前会话（workbench 空态）。 */
-function onWorkbenchSessionClear(): void {
-  if (!surfacePresetId) return
-  workspace.setWorkbenchWindowChat(surfacePresetId, null)
-}
-/** 新建会话（下拉「＋新建会话」）：Nyxus 走 createNyxusSession，其余预设 createMasterPet；native/浏览器面通用。 */
-async function createWorkbenchSession(
-  windowId: string,
-  presetId: string,
-  presetName?: string | null,
-): Promise<void> {
-  try {
-    const chatId =
-      presetId === CHERY_NYXUS_PRESET
-        ? await agents.createNyxusSession()
-        : await agents.createMasterPet({ preset: presetName ?? presetId })
-    workspace.setWorkbenchWindowChat(windowId, chatId)
-  } catch (cause) {
-    console.error('[workbench] create session failed:', cause)
-    ElMessage.error('新建会话失败')
-  }
-}
-/** native 面新建会话（surface 参数固化版）。 */
-function workbenchCreateSession(): Promise<void> {
-  if (!surfacePresetId) return Promise.resolve()
-  return createWorkbenchSession(surfacePresetId, surfacePresetId, surfacePresetName)
-}
 /** 标题栏「打开配置文件夹」失败：标题栏入口独立于 SettingsDialog 内部错误弹窗，用轻量消息提示。 */
 function onSettingsOpenDirError(message: string): void {
   ElMessage.error(message)
@@ -540,8 +512,6 @@ async function bootstrap(): Promise<void> {
         :preset-name="surfacePresetName ?? undefined"
         :active-chat-id="workbenchSurfaceChatId"
         @select="onWorkbenchSessionSelect"
-        @create="() => void workbenchCreateSession()"
-        @clear="onWorkbenchSessionClear"
       />
       <!-- 三视图切换（树/对话/精简，§2.1 扩展）：native 面 WorkbenchDialog 内部 titlebar 被 v-if="!isNative"
            隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useWorkbenchViewMode -->
@@ -635,15 +605,6 @@ async function bootstrap(): Promise<void> {
             :active-chat-id="entry.workbench.chatId"
             :foreground="entry.window.focused"
             @select="(id: string) => workspace.setWorkbenchWindowChat(entry.workbench.id, id)"
-            @clear="() => workspace.setWorkbenchWindowChat(entry.workbench.id, null)"
-            @create="
-              () =>
-                void createWorkbenchSession(
-                  entry.workbench.id,
-                  entry.workbench.presetId,
-                  entry.workbench.presetName,
-                )
-            "
           />
           <WorkbenchViewToggle :window-id="entry.workbench.id" />
         </template>

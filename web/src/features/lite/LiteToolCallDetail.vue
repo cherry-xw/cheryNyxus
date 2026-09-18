@@ -6,21 +6,26 @@
  *   其余字段收进「更多」折叠区；嵌套对象 / 数组递归翻译键后 pretty-print；
  * - 解析失败回退原文 <pre>。
  */
-import { computed } from 'vue'
-import type { GraphToolCall } from '@/application/backend/public'
+import { computed, ref } from 'vue'
+import type { GraphToolCall, InteractionRecord } from '@/application/backend/public'
 import type { LiteToolType } from './executionMonitor'
-import { toolTypeGlyph, toolTypeLabel } from './executionMonitor'
-import { formatApprovalArgumentScalar } from '@/utils/approvalPresentation'
-import RiskBadge from '@/components/RiskBadge.vue'
 import {
+  parseQuestionAnswer,
+  parseQuestionArgs,
+} from '@/features/agent/renderers/core/questionDisplay'
+import RiskBadge from '@/components/RiskBadge.vue'
+import LiteFieldRows from './LiteFieldRows.vue'
+import LiteInteractionView from './LiteInteractionView.vue'
+import {
+  detectSelectPattern,
   isPrimaryField,
   isScalarValue,
+  isSelectContextKey,
+  isSelectPatternKey,
+  normalizeKey,
   parseJsonValue,
-  prettyTranslatedJson,
   readableToolRun,
-  scalarText,
   toObjectEntries,
-  type RenderedEntry,
 } from './toolRendering'
 
 const props = defineProps<{
@@ -30,22 +35,12 @@ const props = defineProps<{
   icon: string
   type: LiteToolType
   focused?: boolean
+  windowId: string
+  rootChatId: string
+  /** 该调用对应的待处理交互（审批/提问）。存在时卡片渲染交互区（LiteInteractionView），
+      交互完成后该值消失，卡片自动回到只读展示（v2026-11 交互入口迁入抽屉）。 */
+  interaction?: InteractionRecord | null
 }>()
-
-function statusLabel(status: GraphToolCall['status']): string {
-  switch (status) {
-    case 'pending':
-      return '等待中'
-    case 'accepted':
-      return '执行中'
-    case 'rejected':
-      return '已拒绝'
-    case 'error':
-      return '出错'
-    case 'completed':
-      return '已完成'
-  }
-}
 
 const argsValue = computed(() => parseJsonValue(props.call.arguments))
 const argsEntries = computed(() => toObjectEntries(argsValue.value))
@@ -59,6 +54,50 @@ const primaryArgs = computed(() => {
 const secondaryArgs = computed(() => {
   if (props.type === 'other') return []
   return (argsEntries.value ?? []).filter((entry) => !isPrimaryField(props.type, entry.key))
+})
+// 「问题 + 选项」形态参数（单选/多选）识别：命中后由专用区块展示，不再把 options 原文 JSON 列出。
+const selectPattern = computed(() => detectSelectPattern(argsEntries.value))
+// 选择类参数已由专用区块承载，从普通字段行排除（主区与「更多」折叠区都排除）；
+// 选择类工具的标题/说明字段（header/rationale/nextStep）由参数上方的上下文块承载，同样排除。
+const remainingArgs = computed(() => {
+  if (!selectPattern.value) return primaryArgs.value
+  return primaryArgs.value.filter(
+    (entry) => !isSelectPatternKey(entry.key) && !isSelectContextKey(entry.key),
+  )
+})
+const remainingSecondaryArgs = computed(() => {
+  if (!selectPattern.value) return secondaryArgs.value
+  return secondaryArgs.value.filter(
+    (entry) => !isSelectPatternKey(entry.key) && !isSelectContextKey(entry.key),
+  )
+})
+// 提问工具：结构化参数（问题/选项/标题）与答案（已答/取消/等待）。答案由后端序列化为
+// 「用户回答: <label>（补充: <note>）, 其他: <text>」（src/db/question.ts），直接渲染进选项。
+const questionArgs = computed(() => parseQuestionArgs(props.call.arguments))
+const answer = computed(() =>
+  parseQuestionAnswer(props.call.result, props.call.status, questionArgs.value),
+)
+const questionWaiting = computed(
+  () => props.call.status === 'pending' || props.call.status === 'accepted',
+)
+function isSelectedOption(label: string): boolean {
+  return answer.value.kind === 'answered' && answer.value.labels.includes(label)
+}
+/** 提问上下文（标题 + 说明）：取自参数原始键，展示在「参数」上方。 */
+const questionCtx = computed(() => {
+  const entries = argsEntries.value ?? []
+  const pick = (...keys: string[]): string | undefined => {
+    const entry = entries.find((candidate) =>
+      keys.some((key) => normalizeKey(key) === normalizeKey(candidate.key)),
+    )
+    const text = entry && isScalarValue(entry.value) ? String(entry.value).trim() : ''
+    return text || undefined
+  }
+  return {
+    header: pick('header', 'head'),
+    rationale: pick('rationale'),
+    nextStep: pick('nextStep', 'next_step'),
+  }
 })
 const argsFallback = computed(() => {
   if (argsEntries.value) return ''
@@ -83,41 +122,6 @@ const resultText = computed(() => {
   return raw ? raw : ''
 })
 
-/** 关键字段（命令 / 路径 / URL / 内容等）用等宽代码块展示。 */
-function isCodeField(entry: RenderedEntry): boolean {
-  const key = entry.key.trim().toLowerCase()
-  if (
-    [
-      'command',
-      'cmd',
-      'path',
-      'file_path',
-      'filepath',
-      'url',
-      'urls',
-      'query',
-      'pattern',
-      'content',
-      'prompt',
-      'filename',
-      'file',
-      'output',
-      'stdout',
-      'stderr',
-    ].includes(key)
-  ) {
-    return true
-  }
-  return typeof entry.value === 'string' && entry.value.includes('\n')
-}
-
-function fieldText(entry: RenderedEntry): string {
-  if (entry.key === 'action' && isScalarValue(entry.value)) {
-    return formatApprovalArgumentScalar(entry.key, entry.value)
-  }
-  return isScalarValue(entry.value) ? scalarText(entry.value) : prettyTranslatedJson(entry.value)
-}
-
 const waiting = computed(() => props.call.status === 'pending' || props.call.status === 'accepted')
 const readable = computed(() =>
   readableToolRun(
@@ -129,35 +133,46 @@ const readable = computed(() =>
     props.call.result,
   ),
 )
+// 执行说明区只承载抽屉标题栏没有的信息：目标 + 本次变更；两者皆无（如提问工具）则不显示。
+const storyVisible = computed(
+  () => Boolean(readable.value.target) || readable.value.changes.length > 0,
+)
+// 结果区：短结果直接展开；长结果折叠 + 一句摘要预览，展开后完整内容替换预览。
+const resultOpen = ref(false)
+function onResultToggle(event: Event): void {
+  const target = event.target as HTMLDetailsElement | null
+  if (target) resultOpen.value = target.open
+}
+const resultRaw = computed(() => props.call.result?.trim() ?? '')
+const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.value.length <= 200)
+const resultPreview = computed(() => {
+  if (selectPattern.value || isShortResult.value || resultOpen.value) return undefined
+  return readable.value.resultSummary
+})
 </script>
 
 <template>
   <article class="lite-tool-call" :data-tooltype="type" :class="{ 'is-focused': focused }">
     <header class="lite-tool-call-head">
       <span class="lite-tool-call-icon" aria-hidden="true">{{ icon }}</span>
-      <strong>{{ readable.toolLabel }}</strong>
-      <span
-        class="lite-tool-type-badge"
-        :data-tooltype="type"
-        :title="'工具类型：' + toolTypeLabel(type)"
-      >
-        <span class="lite-tool-type-dot" aria-hidden="true" />
-        {{ toolTypeGlyph(type) }} {{ toolTypeLabel(type) }}
-      </span>
-      <span class="lite-tool-call-status" :data-status="call.status">{{
-        statusLabel(call.status)
-      }}</span>
-      <!-- 工具调用的安全判定徽章（compact；缺省 = 未知） -->
+      <!-- 工具调用的安全判定徽章（compact；缺省 = 未知）。
+           标题 / 工具类型 / 执行状态已由抽屉顶部标题栏承担，此处不再重复展示（用户需求 2026-11）。 -->
       <RiskBadge :auth="call.security" compact />
     </header>
 
-    <section class="lite-tool-story" aria-label="执行说明">
-      <p class="lite-tool-story-intent">{{ readable.intent }}</p>
+    <!-- 有待处理交互（审批/提问）：渲染交互区，代替下方只读展示；
+         交互完成后 interaction 消失，卡片自动回到只读内容（v2026-11 交互入口迁入抽屉）。 -->
+    <LiteInteractionView
+      v-if="interaction"
+      :window-id="windowId"
+      :root-chat-id="rootChatId"
+      :interaction="interaction"
+      :question-id="call.callId"
+    />
+
+    <template v-else>
+      <section v-if="storyVisible" class="lite-tool-story" aria-label="执行说明">
       <code v-if="readable.target" class="lite-tool-story-target">{{ readable.target }}</code>
-      <p class="lite-tool-story-outcome">{{ readable.outcome }}</p>
-      <p v-if="readable.resultSummary" class="lite-tool-story-result">
-        {{ readable.resultSummary }}
-      </p>
       <ul v-if="readable.changes.length" class="lite-tool-story-changes" aria-label="本次变更">
         <li v-for="change in readable.changes" :key="`${change.label}:${change.detail}`">
           <small>{{ change.label }}</small
@@ -166,43 +181,81 @@ const readable = computed(() =>
       </ul>
     </section>
 
-    <details class="lite-tool-call-args">
-      <summary>查看完整参数</summary>
-      <template v-if="argsEntries">
-        <div
-          v-for="entry in primaryArgs"
-          :key="entry.key"
-          class="lite-field"
-          :class="{ 'is-code': isCodeField(entry) }"
-        >
-          <span class="lite-field-key">{{ entry.label }}</span>
-          <div class="lite-field-val">
-            <code v-if="isCodeField(entry)" class="lite-field-code">{{ fieldText(entry) }}</code>
-            <template v-else-if="isScalarValue(entry.value)">
-              <span>{{ fieldText(entry) }}</span>
-            </template>
-            <pre v-else class="lite-pre">{{ fieldText(entry) }}</pre>
-          </div>
+    <!-- 提问工具：标题 + 说明（大模型写的数据；展示在「参数」上方） -->
+    <div
+      v-if="selectPattern && (questionCtx.header || questionCtx.rationale || questionCtx.nextStep)"
+      class="lite-question-context"
+    >
+      <strong v-if="questionCtx.header" class="lite-question-context-title">{{
+        questionCtx.header
+      }}</strong>
+      <dl v-if="questionCtx.rationale || questionCtx.nextStep">
+        <div v-if="questionCtx.rationale">
+          <dt>为什么需要你决定</dt>
+          <dd>{{ questionCtx.rationale }}</dd>
         </div>
-        <details v-if="secondaryArgs.length" class="lite-fields-more">
-          <summary>更多参数（{{ secondaryArgs.length }}）</summary>
-          <div
-            v-for="entry in secondaryArgs"
-            :key="entry.key"
-            class="lite-field"
-            :class="{ 'is-code': isCodeField(entry) }"
-          >
-            <span class="lite-field-key">{{ entry.label }}</span>
-            <div class="lite-field-val">
-              <code v-if="isCodeField(entry)" class="lite-field-code">{{ fieldText(entry) }}</code>
-              <template v-else-if="isScalarValue(entry.value)">
-                <span>{{ fieldText(entry) }}</span>
-              </template>
-              <pre v-else class="lite-pre">{{ fieldText(entry) }}</pre>
-            </div>
-          </div>
+        <div v-if="questionCtx.nextStep">
+          <dt>决定后会发生什么</dt>
+          <dd>{{ questionCtx.nextStep }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <details open class="lite-tool-call-args">
+      <summary>参数</summary>
+      <template v-if="argsEntries">
+        <!-- 单选 / 多选形态参数：问题 + 选项（已答时结果直接渲染进选项） -->
+        <div v-if="selectPattern" class="lite-select-block">
+          <p class="lite-select-question">{{ selectPattern.question }}</p>
+          <span class="lite-select-kind">{{ selectPattern.multi ? '可多选' : '单选' }}</span>
+          <p v-if="answer.kind === 'cancelled'" class="lite-question-note">用户已取消该问题。</p>
+          <p v-else-if="questionWaiting" class="lite-question-note">等待用户回答…</p>
+          <p v-else-if="answer.kind === 'missing'" class="lite-question-note">
+            这次执行没有留下可识别的回答。
+          </p>
+          <ul class="lite-select-options">
+            <li
+              v-for="option in selectPattern.options"
+              :key="option.label"
+              class="lite-select-option"
+              :class="{ 'is-selected': isSelectedOption(option.label) }"
+            >
+              <span class="lite-select-mark" aria-hidden="true">{{
+                isSelectedOption(option.label) ? '✓' : selectPattern.multi ? '□' : '○'
+              }}</span>
+              <span class="lite-select-copy">
+                <span class="lite-select-label">{{ option.label }}</span>
+                <small v-if="option.description" class="lite-select-desc">{{
+                  option.description
+                }}</small>
+                <small
+                  v-if="answer.kind === 'answered' && answer.notes?.[option.label]"
+                  class="lite-select-note"
+                  >{{ answer.notes[option.label] }}</small
+                >
+              </span>
+            </li>
+            <li
+              v-if="answer.kind === 'answered' && answer.freeText"
+              class="lite-select-option is-user-input"
+            >
+              <span class="lite-select-mark" aria-hidden="true">✓</span>
+              <span class="lite-select-copy">
+                <span class="lite-select-label">其他</span>
+                <small class="lite-select-desc">{{ answer.freeText }}</small>
+              </span>
+            </li>
+          </ul>
+        </div>
+        <LiteFieldRows :entries="remainingArgs" />
+        <details v-if="remainingSecondaryArgs.length" class="lite-fields-more">
+          <summary>更多参数（{{ remainingSecondaryArgs.length }}）</summary>
+          <LiteFieldRows :entries="remainingSecondaryArgs" />
         </details>
-        <p v-if="!primaryArgs.length && !secondaryArgs.length" class="lite-drawer-hint is-muted">
+        <p
+          v-if="!remainingArgs.length && !remainingSecondaryArgs.length && !selectPattern"
+          class="lite-drawer-hint is-muted"
+        >
           （无参数）
         </p>
       </template>
@@ -210,59 +263,42 @@ const readable = computed(() =>
       <p v-else class="lite-drawer-hint is-muted">（无参数）</p>
     </details>
 
-    <details class="lite-tool-call-result">
-      <summary>查看原始结果</summary>
-      <template v-if="resultEntries">
-        <div
-          v-for="entry in primaryResult"
-          :key="entry.key"
-          class="lite-field"
-          :class="{ 'is-code': isCodeField(entry) }"
-        >
-          <span class="lite-field-key">{{ entry.label }}</span>
-          <div class="lite-field-val">
-            <code v-if="isCodeField(entry)" class="lite-field-code">{{ fieldText(entry) }}</code>
-            <template v-else-if="isScalarValue(entry.value)">
-              <span>{{ fieldText(entry) }}</span>
-            </template>
-            <pre v-else class="lite-pre">{{ fieldText(entry) }}</pre>
-          </div>
-        </div>
-        <details v-if="secondaryResult.length" class="lite-fields-more">
-          <summary>更多（{{ secondaryResult.length }}）</summary>
-          <div
-            v-for="entry in secondaryResult"
-            :key="entry.key"
-            class="lite-field"
-            :class="{ 'is-code': isCodeField(entry) }"
+    <!-- 结果区：提问工具已把结果渲染进选项，不再单列原始结果 -->
+    <template v-if="!selectPattern">
+      <details
+        class="lite-tool-call-result"
+        :open="isShortResult || resultOpen"
+        @toggle="onResultToggle"
+      >
+        <summary>原始结果</summary>
+        <template v-if="resultEntries">
+          <LiteFieldRows :entries="primaryResult" />
+          <details v-if="secondaryResult.length" class="lite-fields-more">
+            <summary>更多（{{ secondaryResult.length }}）</summary>
+            <LiteFieldRows :entries="secondaryResult" />
+          </details>
+          <p
+            v-if="!primaryResult.length && !secondaryResult.length"
+            class="lite-drawer-hint is-muted"
           >
-            <span class="lite-field-key">{{ entry.label }}</span>
-            <div class="lite-field-val">
-              <code v-if="isCodeField(entry)" class="lite-field-code">{{ fieldText(entry) }}</code>
-              <template v-else-if="isScalarValue(entry.value)">
-                <span>{{ fieldText(entry) }}</span>
-              </template>
-              <pre v-else class="lite-pre">{{ fieldText(entry) }}</pre>
-            </div>
-          </div>
-        </details>
-        <p
-          v-if="!primaryResult.length && !secondaryResult.length"
-          class="lite-drawer-hint is-muted"
-        >
-          （无结果）
+            （无结果）
+          </p>
+        </template>
+        <pre v-else-if="resultText" class="lite-pre">{{ resultText }}</pre>
+        <p v-else class="lite-drawer-hint is-muted">
+          {{ waiting ? '等待工具返回…' : '（无结果）' }}
         </p>
-      </template>
-      <pre v-else-if="resultText" class="lite-pre">{{ resultText }}</pre>
-      <p v-else class="lite-drawer-hint is-muted">{{ waiting ? '等待工具返回…' : '（无结果）' }}</p>
-    </details>
+      </details>
+      <p v-if="resultPreview" class="lite-result-preview">{{ resultPreview }}</p>
+    </template>
+    </template>
   </article>
 </template>
 
 <style scoped>
 .lite-tool-call {
-  margin-bottom: 10px;
-  padding: 10px 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 0;
   background: var(--el-fill-color-lighter);
@@ -274,122 +310,56 @@ const readable = computed(() =>
 .lite-tool-call-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 .lite-tool-call-icon {
-  font-size: 14px;
+  font-size: 18px;
   line-height: 1;
 }
-.lite-tool-call-head strong {
-  font-size: 12.5px;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  /* 强制字重规则：lite 内容一律 400。 */
-  font-weight: 400;
+.lite-tool-call-icon {
+  font-size: 18px;
+  line-height: 1;
 }
-.lite-tool-type-badge {
+/* 工具类型 / 执行状态 tag 已由抽屉顶部标题栏承担，工具卡头部仅保留图标 + 风险徽章（用户需求 2026-11）。
+   共享 RiskBadge（compact）拉齐到同套 tag 尺寸（圆角随 RiskBadge 基样式）。 */
+.lite-tool-call-head :deep(.risk-badge) {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  border-radius: 0;
-  font-size: 10.5px;
-  line-height: 17px;
-  border: 1px solid var(--el-border-color);
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
+  line-height: 1;
 }
-.lite-tool-type-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
+.lite-tool-call-head :deep(.risk-chip) {
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  font-size: 14px;
+  line-height: 20px;
+  border-radius: 999px;
 }
-.lite-tool-call[data-tooltype='exec'] .lite-tool-type-badge {
-  border-color: color-mix(in srgb, #9b59b6 55%, var(--el-border-color));
-  color: #9b59b6;
-}
-.lite-tool-call[data-tooltype='read'] .lite-tool-type-badge {
-  border-color: color-mix(in srgb, #6b7f92 55%, var(--el-border-color));
-  color: #6b7f92;
-}
-.lite-tool-call[data-tooltype='write'] .lite-tool-type-badge {
-  border-color: color-mix(in srgb, #2f9e63 55%, var(--el-border-color));
-  color: #2f9e63;
-}
-.lite-tool-call[data-tooltype='web'] .lite-tool-type-badge {
-  border-color: color-mix(in srgb, #00a8a8 55%, var(--el-border-color));
-  color: #00a8a8;
-}
-.lite-tool-call[data-tooltype='dispatch'] .lite-tool-type-badge {
-  border-color: color-mix(in srgb, #e67e22 55%, var(--el-border-color));
-  color: #e67e22;
-}
-.lite-tool-call[data-tooltype='other'] .lite-tool-type-badge {
-  border-color: color-mix(in srgb, #c58a1f 55%, var(--el-border-color));
-  color: #c58a1f;
-}
-.lite-tool-call-status {
-  flex: none;
-  font-size: 10.5px;
-  color: var(--el-text-color-secondary);
-  padding: 0 6px;
-  border-radius: 0;
-  border: 1px solid var(--el-border-color);
-}
-.lite-tool-call-status[data-status='accepted'],
-.lite-tool-call-status[data-status='pending'] {
-  color: var(--el-color-warning);
-  border-color: color-mix(in srgb, var(--el-color-warning) 50%, var(--el-border-color));
-}
-.lite-tool-call-status[data-status='error'],
-.lite-tool-call-status[data-status='rejected'] {
-  color: var(--el-color-danger);
-  border-color: color-mix(in srgb, var(--el-color-danger) 50%, var(--el-border-color));
-}
-.lite-tool-call-status[data-status='completed'] {
-  color: var(--el-color-success);
-  border-color: color-mix(in srgb, var(--el-color-success) 50%, var(--el-border-color));
+.lite-tool-call-head :deep(.risk-dot) {
+  width: 7px;
+  height: 7px;
 }
 .lite-tool-story {
   display: grid;
-  gap: 4px;
-  margin: 8px 0;
-  padding: 8px 10px;
+  gap: 5px;
+  margin: 10px 0;
+  padding: 10px 12px;
   border-left: 3px solid var(--el-color-primary);
   border-radius: 0;
   background: var(--el-fill-color-blank);
 }
-.lite-tool-story p {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-}
-.lite-tool-story-intent {
-  color: var(--el-text-color-primary);
-}
-.lite-tool-story-outcome {
-  color: var(--el-text-color-secondary);
-}
-.lite-tool-story-result {
-  color: var(--el-text-color-regular);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
 .lite-tool-story-target {
   display: block;
-  padding: 3px 6px;
+  padding: 4px 8px;
   overflow: auto;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 0;
   background: var(--el-fill-color-lighter);
   color: var(--el-text-color-primary);
   font-family: var(--el-font-family-mono);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -409,18 +379,55 @@ const readable = computed(() =>
 }
 .lite-tool-story-changes small {
   color: var(--el-text-color-secondary);
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 .lite-tool-story-changes span {
   color: var(--el-text-color-primary);
-  font-size: 11.5px;
+  font-size: 13.5px;
   line-height: 1.5;
+}
+/* 提问工具：标题 + 说明（展示在「参数」上方） */
+.lite-question-context {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--el-color-primary);
+  border-radius: 0;
+  background: var(--el-fill-color-blank);
+}
+.lite-question-context-title {
+  display: block;
+  color: var(--el-text-color-primary);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.lite-question-context dl {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+.lite-question-context dl > div {
+  display: grid;
+  gap: 1px;
+}
+.lite-question-context dt {
+  color: var(--el-text-color-secondary);
+  font-size: 12.5px;
+}
+.lite-question-context dd {
+  margin: 0;
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .lite-tool-call-args > summary,
 .lite-tool-call-result > summary {
   cursor: pointer;
   list-style: none;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--el-text-color-secondary);
   user-select: none;
 }
@@ -434,79 +441,139 @@ const readable = computed(() =>
 }
 .lite-tool-call-args[open] > summary,
 .lite-tool-call-result[open] > summary {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .lite-tool-call-args,
 .lite-tool-call-result {
-  margin-top: 8px;
+  margin-top: 10px;
 }
 /* Preserves the field-level labels when a user explicitly inspects raw data. */
 .lite-tool-call-args h5,
 .lite-tool-call-result h5 {
   margin: 0 0 4px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 400;
   color: var(--el-text-color-secondary);
 }
-.lite-tool-call-args,
-.lite-tool-call-result {
-  margin-top: 8px;
+/* 单选 / 多选形态参数：问题 + 选项列表区块。 */
+.lite-select-block {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 0;
+  background: var(--el-fill-color-blank);
 }
-.lite-field {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 3px 0;
-  min-width: 0;
-}
-.lite-field-key {
-  flex: none;
-  min-width: 64px;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
-}
-.lite-field-val {
-  flex: 1;
-  min-width: 0;
-}
-.lite-field-val > span {
-  display: inline-block;
-  font-size: 12px;
-  line-height: 1.6;
+.lite-select-question {
+  margin: 0 0 4px;
   color: var(--el-text-color-primary);
+  font-size: 16px;
+  line-height: 1.55;
+}
+.lite-select-kind {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color));
+  border-radius: 0;
+  color: var(--el-color-primary);
+  font-size: 14px;
+  line-height: 18px;
+}
+.lite-select-options {
+  display: grid;
+  gap: 3px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.lite-select-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 3px 4px;
+}
+.lite-select-option.is-selected {
+  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+}
+.lite-select-option.is-selected .lite-select-mark,
+.lite-select-option.is-selected .lite-select-label {
+  color: var(--el-color-primary);
+}
+.lite-select-option.is-user-input .lite-select-label,
+.lite-select-option.is-user-input .lite-select-desc {
+  color: var(--el-color-primary);
+}
+.lite-select-mark {
+  margin-top: 2px;
+  width: 16px;
+  color: var(--el-text-color-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: center;
+}
+.lite-select-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.lite-select-label {
+  min-width: 0;
+  color: var(--el-text-color-primary);
+  font-size: 16px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+/* 选项说明：完整展示在选项文字下方（浅色），不截断。 */
+.lite-select-desc {
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-.lite-field-code {
-  display: block;
-  padding: 4px 8px;
-  border-radius: 0;
-  background: var(--el-fill-color-blank);
-  border: 1px solid var(--el-border-color-lighter);
-  font-family: var(--el-font-family-mono);
-  font-size: 11.5px;
-  line-height: 1.6;
+.lite-select-note {
+  margin-top: 2px;
+  padding-left: 5px;
+  border-left: 2px solid color-mix(in srgb, var(--el-color-primary) 50%, transparent);
+  color: var(--el-color-primary);
+  font-size: 14px;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--el-text-color-primary);
-  max-height: 220px;
-  overflow: auto;
-  scrollbar-width: none;
+  overflow-wrap: anywhere;
+}
+.lite-question-note {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+/* 结果区：长结果折叠时的一句话摘要预览（展开后由完整内容替换）。 */
+.lite-result-preview {
+  margin: 6px 0 0;
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .lite-fields-more {
-  margin: 3px 0;
+  margin: 4px 0;
 }
 .lite-fields-more summary {
   cursor: pointer;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--el-color-primary);
   user-select: none;
 }
 .lite-fields-more summary:hover {
   text-decoration: underline;
 }
+/* 解析失败回退原文（字段行样式在 LiteFieldRows）。允许任意位置断点换行（break-all）。 */
 .lite-pre {
   margin: 0;
   padding: 8px 10px;
@@ -514,10 +581,10 @@ const readable = computed(() =>
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 0;
   font-family: var(--el-font-family-mono);
-  font-size: 11.5px;
+  font-size: 13.5px;
   line-height: 1.6;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: break-all;
   color: var(--el-text-color-primary);
   max-height: 280px;
   overflow: auto;
@@ -527,6 +594,6 @@ const readable = computed(() =>
   margin: 0;
   padding: 4px 2px;
   color: var(--el-text-color-secondary);
-  font-size: 12px;
+  font-size: 15px;
 }
 </style>

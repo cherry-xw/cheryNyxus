@@ -4,7 +4,7 @@
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
@@ -59,7 +59,8 @@
 .workbench-shell.is-conversation .nyxus-composer-dock {
   display: none;
 }
-/* 会话面板让位右侧 rail（rail 仍承担待处理/新建会话/退出对话模式入口）：
+/* 会话面板让位右侧 rail（rail 承担待处理/新建会话/上下文等入口；「对话模式」按钮 v2.1 移除，
+   对话模式入口统一标题栏三档切换钮）：
    rail = right 10px + 30px 按钮 + 8px 列内 padding ≈ 48px。 */
 .workbench-shell.is-conversation .conversation-view {
   right: 48px;
@@ -134,6 +135,16 @@
 .workbench-shell.is-shellless .workbench-ctx-bar {
   top: 0;
 }
+
+.workbench-task-browser {
+  position: absolute;
+  z-index: calc(var(--nx-z-connection-mask) + 1);
+  inset: 40px 0 0;
+}
+
+.workbench-shell.is-shellless .workbench-task-browser {
+  inset: 0;
+}
 .workbench-shell.is-native .nyxus-branch-top {
   inset: 0;
 }
@@ -166,6 +177,8 @@
   border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
   cursor: default;
   user-select: none;
+  // 以自身宽度作容器查询：过窄时隐藏装饰性元素，保持核心控件水平可用
+  container-type: inline-size;
 }
 .workbench-titlebar.is-draggable {
   cursor: grab;
@@ -193,12 +206,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 .workbench-titlebar small {
   color: color-mix(in srgb, var(--nx-text) 56%, transparent);
-  font-size: 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+// 标题栏宽度过窄时隐藏装饰性元素，优先保证核心控件不被挤出窗口
+@container (max-width: 620px) {
+  .workbench-titlebar small {
+    display: none;
+  }
 }
 .workbench-window-actions {
   position: absolute;
@@ -402,7 +423,7 @@
   color: color-mix(in srgb, var(--nx-text) 64%, transparent);
   background: color-mix(in srgb, var(--nx-bg) 55%, transparent);
   backdrop-filter: blur(9px) saturate(115%);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   transition:
@@ -443,7 +464,7 @@
   border-radius: 8px;
   color: #fff;
   background: var(--nx-red);
-  font-size: 9px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   line-height: 13px;
   text-align: center;
@@ -494,7 +515,7 @@
   border-radius: 999px;
   color: color-mix(in srgb, var(--nx-text) 70%, transparent);
   background: color-mix(in srgb, var(--nx-bg) 78%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
@@ -671,7 +692,7 @@
   place-items: center;
   border-radius: 50%;
   color: var(--nx-bg);
-  font-size: 11px;
+  font-size: 13px;
   background: var(--nx-green);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-green) 10%, transparent);
 }
@@ -703,13 +724,13 @@
 }
 .nyxus-composer-title strong {
   color: var(--nx-text);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.2;
 }
 .nyxus-composer-title small {
   overflow: hidden;
   color: color-mix(in srgb, var(--nx-text) 60%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -746,7 +767,7 @@
   gap: 12px;
   padding: 0 14px 8px;
   color: color-mix(in srgb, var(--nx-text) 56%, transparent);
-  font-size: 9px;
+  font-size: 12px;
 }
 .nyxus-composer-hint kbd {
   padding: 1px 4px;
@@ -784,7 +805,7 @@
 
 .role-configs-chevron {
   color: color-mix(in srgb, var(--nx-text) 38%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   transition: transform 160ms ease;
 

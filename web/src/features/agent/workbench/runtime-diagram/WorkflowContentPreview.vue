@@ -44,7 +44,7 @@ const { html } = useRenderedMarkdown(source, { mode: 'full' })
 <style scoped lang="less">
 .workflow-content-preview {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
 }
 header,

@@ -203,7 +203,7 @@ function previewOf(s: ChatSummary): string {
   overflow: hidden;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-weight: 400;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -232,7 +232,7 @@ function previewOf(s: ChatSummary): string {
   border-radius: 0;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
   opacity: 0;
@@ -256,7 +256,7 @@ function previewOf(s: ChatSummary): string {
     color: var(--danger);
     border-color: color-mix(in srgb, var(--danger) 70%, transparent);
     background: color-mix(in srgb, var(--danger) 16%, transparent);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     opacity: 1;
     &:hover {
@@ -281,6 +281,6 @@ function previewOf(s: ChatSummary): string {
   place-items: center;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-weight: 400;
-  font-size: 12px;
+  font-size: 14px;
 }
 </style>

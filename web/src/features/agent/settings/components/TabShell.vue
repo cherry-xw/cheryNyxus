@@ -103,14 +103,14 @@ function scrollTo(item: IndexItem, i: number): void {
   border-radius: 0;
   color: var(--accent);
   background: var(--surface-soft);
-  font: 400 12px/26px var(--font-ui, sans-serif);
+  font: 400 14px/26px var(--font-ui, sans-serif);
   cursor: pointer;
 }
 .shell-help-content {
   max-height: 50vh;
   overflow: auto;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 14px;
 }
 </style>
 
@@ -135,7 +135,7 @@ function scrollTo(item: IndexItem, i: number): void {
   background: var(--panel);
 
   .index-card-title {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 88%, transparent);
     line-height: 1.3;
@@ -146,14 +146,14 @@ function scrollTo(item: IndexItem, i: number): void {
     display: flex;
     align-items: baseline;
     gap: 6px;
-    font-size: 11px;
+    font-size: 13px;
     color: color-mix(in srgb, var(--ink) 70%, transparent);
     line-height: 1.4;
 
     b {
       font-weight: 600;
       color: color-mix(in srgb, var(--ink) 55%, transparent);
-      font-size: 10px;
+      font-size: 12px;
       letter-spacing: 0.02em;
       flex: 0 0 auto;
       min-width: 34px;
@@ -170,7 +170,7 @@ function scrollTo(item: IndexItem, i: number): void {
   }
 
   .index-card-empty {
-    font-size: 11px;
+    font-size: 13px;
     color: color-mix(in srgb, var(--ink) 42%, transparent);
     font-style: italic;
   }

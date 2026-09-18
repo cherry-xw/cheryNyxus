@@ -662,7 +662,7 @@ const indexItems = computed<IndexItem[]>(() => {
   border-radius: 5px;
   background: var(--surface);
   color: color-mix(in srgb, var(--ink) 70%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
   &:hover {
     border-color: color-mix(in srgb, var(--accent) 80%, transparent);
@@ -683,7 +683,7 @@ const indexItems = computed<IndexItem[]>(() => {
   gap: 6px;
 }
 .picker-role-option > span {
-  font-size: 16px;
+  font-size: 18px;
 }
 .member-avatar {
   width: 26px;
@@ -692,7 +692,7 @@ const indexItems = computed<IndexItem[]>(() => {
   place-items: center;
   border-radius: 9px;
   box-shadow: 0 0 8px rgba(99, 102, 241, 0.12);
-  font-size: 16px;
+  font-size: 18px;
 }
 .picker-arrow {
   width: 11px;
@@ -708,7 +708,7 @@ const indexItems = computed<IndexItem[]>(() => {
   }
   :deep(.el-checkbox) {
     margin-right: 0;
-    font-size: 12px;
+    font-size: 14px;
   }
 }
 .member-roles {
@@ -729,7 +729,7 @@ const indexItems = computed<IndexItem[]>(() => {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
@@ -751,7 +751,7 @@ const indexItems = computed<IndexItem[]>(() => {
   background: var(--surface);
   color: color-mix(in srgb, var(--ink) 58%, transparent);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
   transition:
     border-color 0.15s,
@@ -787,7 +787,7 @@ const indexItems = computed<IndexItem[]>(() => {
   align-items: center;
   gap: 3px;
   color: color-mix(in srgb, #d99717 72%, var(--ink));
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   svg {
     width: 10px;
@@ -834,7 +834,7 @@ const indexItems = computed<IndexItem[]>(() => {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 86%, transparent);
 }
@@ -852,7 +852,7 @@ const indexItems = computed<IndexItem[]>(() => {
   background: var(--surface-hover);
   box-shadow: 0 5px 14px color-mix(in srgb, var(--ink) 14%, transparent);
   color: color-mix(in srgb, var(--ink) 72%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.35;
 }
 .member-role:hover .member-role-card,
@@ -909,7 +909,7 @@ const indexItems = computed<IndexItem[]>(() => {
   .field {
     gap: 2px;
     .lbl {
-      font-size: 10px;
+      font-size: 12px;
     }
   }
 }
@@ -920,7 +920,7 @@ const indexItems = computed<IndexItem[]>(() => {
   .field {
     gap: 2px;
     .lbl {
-      font-size: 10px;
+      font-size: 12px;
     }
   }
 }
@@ -958,7 +958,7 @@ const indexItems = computed<IndexItem[]>(() => {
   display: block;
   margin-top: 4px;
   color: var(--danger);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
 }
 .workspace-input.is-invalid {

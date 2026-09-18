@@ -16,7 +16,13 @@ import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
 import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './useWorkbenchWindow'
-import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/application/public'
+import {
+  useAgentsStore,
+  useChatSessionsStore,
+  useInteractionsStore,
+  useTaskCatalogStore,
+  useTaskOverviewStore,
+} from '@/application/public'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 import {
   MessageBranchTree,
@@ -37,6 +43,13 @@ import { useWorkbenchContextInspector, usageClass } from './useWorkbenchContextI
 import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
 import { selectTreeTimelineOverride } from './workbenchTimelineSelection'
+import { matchesCurrentTask } from './useSessionStripTasks'
+import {
+  canMarkTaskResultViewed,
+  taskAfterArchive,
+  taskBrowserCatalogScope,
+  useTaskBrowserOverlay,
+} from './useTaskBrowserOverlay'
 import {
   layoutModeForFoldMode,
   useWorkbenchViewPreferences,
@@ -56,6 +69,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
   const interactions = useInteractionsStore()
+  const taskCatalog = useTaskCatalogStore()
+  const taskOverview = useTaskOverviewStore()
+  const taskBrowser = useTaskBrowserOverlay(props.windowId)
+  const taskBrowserState = taskBrowser.state
   /** 三视图模式（树 / 对话 / 精简，T33 L0 扩展）：标题栏三档切换，per-window 持久化（§2.1）。
    * Electron 面（surface=workbench）标题栏由 WindowFrame title-actions 承载，与 App.vue
    * 共用 useWorkbenchViewMode 保证各入口状态一致（native 模式 WorkbenchDialog 内部 titlebar
@@ -566,12 +583,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     await handleSend(targetChatId, { keepOpen: true })
     if (text.value) nyxusDraftActive.value = true
   }
-  /** 切换对话模式（rail 对话按钮）：当前为对话模式则回到树，否则进入对话模式。
-   * 离开对话模式时关闭其代际二层视图，避免切回时残留展开。 */
-  function toggleConversationView(): void {
-    setViewMode(viewMode.value === 'conversation' ? 'tree' : 'conversation')
-  }
-  /** 任意入口（标题栏三档 / rail 按钮）离开对话模式都清理代际二层视图。 */
+  /** 任意入口（标题栏三档切换钮；rail「对话模式」按钮 v2.1 移除）离开对话模式都清理代际二层视图。 */
   watch(viewMode, (mode) => {
     if (mode !== 'conversation') agents.closeHistoryGeneration()
   })
@@ -592,8 +604,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     connection,
     createSession,
     creating,
-    deleteNyxusSession,
-    deletePresetSession,
     releaseCurrentRoot,
     switchSession,
     treeFocusInteractionId,
@@ -618,6 +628,114 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       error.value = message
     },
   })
+  const documentForeground = ref(false)
+  const resultViewInFlight = new Set<string>()
+  let taskBrowserReturnFocus: HTMLElement | null = null
+  let skipTaskBrowserFocusRestore = false
+
+  function syncDocumentForeground(): void {
+    documentForeground.value = document.visibilityState === 'visible' && document.hasFocus()
+  }
+
+  const workbenchForeground = computed(
+    () => documentForeground.value && !!win.value?.focused && !win.value.minimized,
+  )
+
+  watch(
+    () => taskBrowserState.value.open,
+    async (open) => {
+      if (open) {
+        taskBrowserReturnFocus = document.activeElement as HTMLElement | null
+        skipTaskBrowserFocusRestore = false
+        return
+      }
+      if (skipTaskBrowserFocusRestore) {
+        skipTaskBrowserFocusRestore = false
+        taskBrowserReturnFocus = null
+        return
+      }
+      const target = taskBrowserReturnFocus
+      taskBrowserReturnFocus = null
+      await nextTick()
+      if (target?.isConnected) target.focus()
+    },
+  )
+
+  function closeTaskBrowser(): void {
+    taskBrowser.close()
+  }
+
+  async function openTaskFromBrowser(targetChatId: string): Promise<void> {
+    skipTaskBrowserFocusRestore = true
+    await switchSession(targetChatId)
+    taskBrowser.close()
+  }
+
+  function onTaskBrowserArchived(
+    taskKey: string,
+    archivedChatIds: string[],
+    activeChatIdAtStart?: string,
+  ): void {
+    const followup = taskAfterArchive({
+      tasks: taskOverview.tasks,
+      taskKey,
+      archivedChatIds,
+      activeChatIdAtStart,
+      currentChatId: chatId.value,
+      presetId: props.presetId,
+      presetName: presetName.value ?? undefined,
+    })
+    if (followup.change) agents.setWorkbenchWindowChat(props.windowId, followup.chatId)
+  }
+
+  watch(
+    () => {
+      const task = taskOverview.tasks.find((candidate) =>
+        matchesCurrentTask(candidate, chatId.value ?? undefined),
+      )
+      return [
+        task?.taskKey,
+        task?.latestResult?.resultId,
+        task?.unreadResult,
+        chatId.value,
+        treeRootChatId.value,
+        treeLoading.value,
+        workbenchForeground.value,
+        taskBrowserState.value.open,
+      ] as const
+    },
+    async () => {
+      const task = taskOverview.tasks.find((candidate) =>
+        matchesCurrentTask(candidate, chatId.value ?? undefined),
+      )
+      const gate = {
+        task,
+        currentChatId: chatId.value,
+        loadedChatId: treeRootChatId.value,
+        loading: treeLoading.value,
+        foreground: workbenchForeground.value,
+        taskBrowserOpen: taskBrowserState.value.open,
+      }
+      if (!canMarkTaskResultViewed(gate)) return
+      const resultId = gate.task.latestResult.resultId
+      const requestKey = `${gate.task.taskKey}:${resultId}`
+      if (resultViewInFlight.has(requestKey)) return
+      resultViewInFlight.add(requestKey)
+      try {
+        const viewed = await taskCatalog.markResultViewed(
+          gate.task.taskKey,
+          resultId,
+          taskBrowserCatalogScope(props.windowId, props.presetId, presetName.value ?? undefined),
+        )
+        if (viewed) taskOverview.acknowledgeResultViewed(gate.task.taskKey, resultId)
+      } catch (cause) {
+        console.warn('[WorkbenchDialog] mark task result viewed failed:', cause)
+      } finally {
+        resultViewInFlight.delete(requestKey)
+      }
+    },
+    { immediate: true },
+  )
   const attentionRootChatId = computed(() =>
     resolveWorkspaceRootChatId(liveTimeline.value?.rootChatId, treeRootChatId.value),
   )
@@ -667,23 +785,26 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   /** 左下角当前流程待处理窗口的收起态（树模式，铃铛切换）。
    * 收起后新事项到达不自动展开——铃铛角标计数、标题栏/任务栏闪烁继续提示（与 lite 面板收起契约一致）。 */
   const attentionCollapsed = ref(false)
-  /** 待处理窗口当前是否展开：树模式=左下角窗口；lite 模式=lite 待处理面板（折叠态存 liteStore，按窗口 × 根会话隔离）。 */
+  /** 待处理窗口当前是否展开：树模式=左下角窗口；lite 模式=是否存在待处理交互（铃铛点击定位到详情抽屉）。 */
   const attentionWindowOpen = computed(() => {
     if (!currentAttentionCount.value) return false
-    if (liteViewVisible.value) {
-      const rootId = treeRootChatId.value
-      return rootId ? !(liteUi.rootUi(props.windowId, rootId)?.pendingCollapsed ?? false) : false
-    }
+    if (liteViewVisible.value) return true
     return !attentionCollapsed.value
   })
-  /** 铃铛切换待处理窗口：树模式收起/展开左下角审批回答窗口；精简模式折叠/展开提问面板（不影响 lite 视图本身）。 */
+  /** 铃铛切换待处理窗口：树模式收起/展开左下角审批回答窗口；精简模式打开详情抽屉定位到最早的待处理交互
+   * （写入 rootUi.attentionOpenRequest，lite 视图据此打开交互所在节点详情并聚焦交互卡）。 */
   function toggleAttentionWindow(): void {
     agents.setWorkbenchWindowBlink(props.windowId, false)
     if (liteViewVisible.value) {
       const rootId = treeRootChatId.value
-      if (!rootId) return
+      const first = workspacePending.value[0]
+      if (!rootId || !first) return
+      const current = liteUi.rootUi(props.windowId, rootId)?.attentionOpenRequest
       liteUi.patchRootUi(props.windowId, rootId, {
-        pendingCollapsed: !(liteUi.rootUi(props.windowId, rootId)?.pendingCollapsed ?? false),
+        attentionOpenRequest: {
+          interactionId: first.interactionId,
+          nonce: (current?.nonce ?? 0) + 1,
+        },
       })
       return
     }
@@ -691,6 +812,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   }
   function closeWorkbench(): void {
     if (sending.value) return
+    taskBrowser.close()
     // 工作台不持有 docked 历史抽屉（对话模式为整屏视图，随窗销毁），overlay 全局抽屉不受影响。
     error.value = null
     // 只清理本窗口的 Lite 草稿/展开/滚动等 UI state；canonical root 数据与其它窗口不动。
@@ -734,12 +856,20 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   onMounted(() => {
     // native 面（无 WindowFrame 外壳）：锁定根画布 color-scheme + 加 window-surface class（灰边修复）
     if (isNative.value) lockWindowRootColorScheme()
+    syncDocumentForeground()
+    window.addEventListener('focus', syncDocumentForeground)
+    window.addEventListener('blur', syncDocumentForeground)
+    document.addEventListener('visibilitychange', syncDocumentForeground)
   })
   onBeforeUnmount(() => {
     workbenchResizeObserver?.disconnect()
     if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
     if (foldCloseTimer) clearTimeout(foldCloseTimer)
     window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
+    window.removeEventListener('focus', syncDocumentForeground)
+    window.removeEventListener('blur', syncDocumentForeground)
+    document.removeEventListener('visibilitychange', syncDocumentForeground)
+    taskBrowser.dispose()
   })
   const {
     onTreeEpochChange,
@@ -831,8 +961,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     connection,
     createSession,
     creating,
-    deleteNyxusSession,
-    deletePresetSession,
     detailBranchAvailability,
     editorRefFn,
     effectiveMode,
@@ -911,15 +1039,16 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     showFoldTool,
     showRoleList,
     showRoleMenu,
-    sidePanelTitle,
     closeSidePanel,
     supportsTools,
-    switchSession,
     taskControlPending,
     taskHasRunningBranches,
     taskTimeline,
+    taskBrowserState,
+    closeTaskBrowser,
+    openTaskFromBrowser,
+    onTaskBrowserArchived,
     text,
-    toggleConversationView,
     toggleRoleList,
     toggleAttentionWindow,
     treeBreakdown,

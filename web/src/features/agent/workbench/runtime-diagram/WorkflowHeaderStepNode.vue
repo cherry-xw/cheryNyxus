@@ -194,7 +194,7 @@ v-if="!pendingCount && (data.liveTurn || data.slot.status === 'running')"
   color: var(--ink);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   text-align: left;
 }
@@ -246,22 +246,22 @@ v-if="!pendingCount && (data.liveTurn || data.slot.status === 'running')"
   box-shadow: 0 10px 28px color-mix(in srgb, var(--ink) 16%, transparent);
   padding: 9px 10px;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 1.45;
   pointer-events: none;
 }
 .workflow-step-info strong {
   color: var(--workflow-capability);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 .workflow-step-info span {
   color: color-mix(in srgb, var(--ink) 78%, transparent);
-  font-size: 12px;
+  font-size: 14px;
 }
 .workflow-step-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -272,7 +272,7 @@ v-if="!pendingCount && (data.liveTurn || data.slot.status === 'running')"
   white-space: nowrap;
 }
 .workflow-step-call {
-  font-size: 12px;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

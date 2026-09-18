@@ -124,6 +124,8 @@ onMounted(() => {
   user-select: none;
   // 系统级拖拽移动 + 双击最大化（Windows 惯例）；按钮区下方 no-drag 恢复点击
   -webkit-app-region: drag;
+  // 以自身宽度作容器查询：过窄时隐藏装饰性元素，保持核心控件水平可用
+  container-type: inline-size;
 }
 
 // —— CyberWindow 同款 channel 徽记 / signal / 文字三键（2026-09 视觉统一） ——
@@ -133,8 +135,9 @@ onMounted(() => {
   border: 1px solid color-mix(in srgb, var(--accent) 46%, transparent);
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.12em;
+  white-space: nowrap;
 }
 .window-frame-signal {
   flex: none;
@@ -142,8 +145,21 @@ onMounted(() => {
   opacity: 0.64;
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+// 标题栏宽度过窄时隐藏装饰性元素（channel 徽记 / signal），优先保证核心控件不被挤出窗口
+@container (max-width: 620px) {
+  .window-frame-signal {
+    display: none;
+  }
+}
+@container (max-width: 520px) {
+  .window-frame-channel {
+    display: none;
+  }
 }
 .window-frame-actions {
   display: flex;
@@ -159,7 +175,7 @@ onMounted(() => {
   border-radius: 0;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
 }
 .window-frame .window-control:hover,
@@ -186,12 +202,18 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   -webkit-app-region: no-drag;
 }
 
+// 标题：空间挤压时先自己截断（ellipsis），保持水平单行，不换行成竖排
 .window-frame-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   letter-spacing: 0.06em;

@@ -73,4 +73,54 @@ describe('task catalog store', () => {
     expect(await store.markResultViewed('one', 'result-1')).toBe(true)
     expect(store.items[0]?.unreadResult).toBe(false)
   })
+
+  it('keeps concurrent workbench catalogs isolated', async () => {
+    vi.spyOn(agentApi, 'listTasks').mockImplementation(async (query) => ({
+      items: [item(query.presetId ?? 'unknown')],
+      total: 1,
+      snapshotAt: 1,
+    }))
+    const store = useTaskCatalogStore()
+
+    await Promise.all([
+      store.search({ presetId: 'preset-a' }, 'window-a'),
+      store.search({ presetId: 'preset-b' }, 'window-b'),
+    ])
+
+    expect(store.stateFor('window-a').items.map((entry) => entry.taskKey)).toEqual(['preset-a'])
+    expect(store.stateFor('window-b').items.map((entry) => entry.taskKey)).toEqual(['preset-b'])
+  })
+
+  it('keeps a task visible when archiving fails and removes it after a successful retry', async () => {
+    vi.spyOn(agentApi, 'listTasks').mockResolvedValue({
+      items: [item('one')],
+      total: 1,
+      snapshotAt: 1,
+    })
+    vi.spyOn(agentApi, 'archiveChat')
+      .mockRejectedValueOnce(new Error('归档暂时不可用'))
+      .mockResolvedValueOnce({ chatId: 'one', archivedChatIds: ['one'] })
+    const store = useTaskCatalogStore()
+    await store.search({ presetId: 'preset-1' }, 'window-1')
+
+    await expect(store.archiveTask('one', 'one', 'window-1')).rejects.toThrow('归档暂时不可用')
+    expect(store.stateFor('window-1').items).toHaveLength(1)
+
+    await store.archiveTask('one', 'one', 'window-1')
+    expect(store.stateFor('window-1').items).toHaveLength(0)
+    expect(store.stateFor('window-1').total).toBe(0)
+  })
+
+  it('keeps the current snapshot visible when refreshing fails', async () => {
+    vi.spyOn(agentApi, 'listTasks')
+      .mockResolvedValueOnce({ items: [item('one')], total: 1, snapshotAt: 1 })
+      .mockRejectedValueOnce(new Error('网络暂时不可用'))
+    const store = useTaskCatalogStore()
+
+    await store.search({ presetId: 'preset-1' }, 'window-1')
+    await store.search({ presetId: 'preset-1', query: 'new' }, 'window-1')
+
+    expect(store.stateFor('window-1').items.map((entry) => entry.taskKey)).toEqual(['one'])
+    expect(store.stateFor('window-1').error).toBe('网络暂时不可用')
+  })
 })

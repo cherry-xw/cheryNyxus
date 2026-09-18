@@ -83,7 +83,7 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
   - **显示条件**：对话模式恒显；overlay 为 `layout === 'group'` 且（同 preset 可切换 root 会话 >1 **或** 任务分支数 >1），且当前 chat 非解释分支（overlay 打开解释分支会话时值不在二级选项中，降为静态标题 `titleText`）。
 - **下拉切换**：`onSwitchCascade` 分支——对话模式经 `onSwitchChat` 回调交给工作台（`setWorkbenchWindowChat(windowId, cid)`，树/精简/对话三视图随窗口会话整体跟随）；抽屉路径透传当前 `historyDrawerMode` + `historyDrawerAnchor`（`manager.openRoot(cid, mode, anchor)`），保持 dock 锚定不回退 overlay。
 - **「设为主流程」按钮**（`activateCurrentBranch`）：当前打开分支 `kind !== 'detail'` 且 `branchId !== activeBranchId` 时显示；点击经 `chat.branch.activate` 切换主干后刷新 `getTaskTimeline({ view: 'conversation' })`。`detail` 永远不能设为主干（对齐后端语义）。
-- **底部输入框（2026-09，精简模式同款）**：`ConversationView` 纵向布局 = 会话面板（flex:1）+ 底部输入区（`.conversation-input`）——单行自适应 textarea（Enter 发送 / Shift+Enter 换行，最高 120px）+ 实心发送钮，视觉用会话面板 token（`--accent` 暖金系，非 lite 的 `--el-color-primary`）。草稿与树 composer **共用 `text` 同一事实源**（`onConversationDraftInput` 直写 `text.value`，树端打开时经 `restoreEditor` 回填；切会话 stash 照常），发送走同一 `sendFromComposer`（分支目标/快速目标/附件提交语义一致）。输入区提示随行状态：发送错误行（`error`）、分支目标 chip（`composerBranchTitle`，✕ 只清目标不动草稿）、草稿附件计数 chip（附件管理仍在树视图输入框）。
+- **底部输入框（2026-09，精简模式同款）**：`ConversationView` 纵向布局 = 会话面板（flex:1）+ 底部输入区（`.conversation-input`）——单行自适应 textarea（Enter 发送 / Shift+Enter 换行）+ 实心发送钮，视觉用会话面板 token（`--accent` 暖金系，非 lite 的 `--el-color-primary`）。**展开交互（2026-10）**：默认 6 行（120px）上限；发送钮右上角有展开钮（`.conversation-expand-btn`，⤢/⤡，el-tooltip 提示），点击后输入框高度提升到**至少 12 行（`min-height: min(240px, 50vh)`）、最高窗口一半（`max-height: 50vh`）**，大段内容输入不再在小框中翻页滚动；状态存组件内 ref（`expandedInput`），不持久化。草稿与树 composer **共用 `text` 同一事实源**（`onConversationDraftInput` 直写 `text.value`，树端打开时经 `restoreEditor` 回填；切会话 stash 照常），发送走同一 `sendFromComposer`（分支目标/快速目标/附件提交语义一致）。输入区提示随行状态：发送错误行（`error`）、分支目标 chip（`composerBranchTitle`，✕ 只清目标不动草稿）、草稿附件计数 chip（附件管理仍在树视图输入框）。
 - **待处理提问列表内直接作答（2026-09）**：对话模式不内嵌独立待处理区（左下角浮窗对树/对话模式照常渲染，铃铛收起/展开语义不变）。消息列表里 `ask_user_question` 的渲染器 `QuestionRenderer` 在**等待中（call.status='running'）且命中 pending 提问批**时切换为可交互形态：选项可点选（单选互斥/多选叠加）、选项「补充」输入、「其他」也作为选项项（单选/多选视觉一致，点击展开自由文本输入，单选互斥/多选共存）、底部「提交回答」按钮——匹配关系 `call.id = questionId`（后端 question_items.question_id 即 call.id），提交走 `interactions.answer`（整批原子提交，草稿与浮窗/决策窗口**全局共享**：批内多题可逐卡作答，任一卡片提交整批；其他题未答时提交给出明确提示）。提交后交互项进入 resolving/completed，卡片自动回退只读展示（已回答/已取消）。`ConversationView` 打开时 `interactions.refresh()` 一次（后续由 `interaction.changed` 事件实时 upsert），确保列表内提问可交互。
 - **历史加载**：面板经 `manager.loadHistory(chatId, owner)` 获取 root 时间线（`view: 'conversation'`），与树订阅（`view: 'tree'`）、lite 读模型多 owner 并存；抽屉路径 owner 为全局 `history-drawer`，对话模式用 per-window owner `workbench:<windowId>:conversation`（切会话释放上一根、退出对话模式释放当前根，与树订阅 owner 模式一致，避免跨会话累积订阅）。切会话（标题栏状态条 / 对话模式级联）经 `setWorkbenchWindowChat` 驱动 `treeRootChatId` → `ConversationView` prop 变化 → 面板重载。
 - **overlay 全局抽屉**：仍由 PetStage / 任务中心 / 归档设置等入口打开（`openHistoryRoot(chatId, 'overlay')`），App.vue 按 `historyDrawerMode === 'overlay'` 渲染独立历史窗，工作台不持有该路径。
@@ -153,9 +153,9 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 
 ### 可读性规范（2026-08-22 实测修订）
 
-- **字号**：正文/按钮/选项 ≥ **13px**（卡片头标题 14px、次级/徽章 12px），弱化文字不低于 11px。`nyxusPopoverTheme.less` 节点弹窗同步放大（原 8.5-11px → 12-13px）。
+- **字号（2026-10 全局放大 +2，最小 12px）**：正文/按钮/选项 ≥ **15px**（卡片头标题 16px、次级/徽章 14px），弱化文字不低于 13px。`nyxusPopoverTheme.less` 节点弹窗随全局放大（原 8.5-11px → 12-13px，2026-10 → 14-15px）。
 - **字重**：待确认面板与节点树弹窗全部 **400**（原 600/700/800 加粗去除，避免小字号糊字）。
-- **工具解释排版**：`.sense-desc` 不设 `max-height` 滚动（避免内容被挤压小空间），随面板列表自然滚动；字号 13px、行高 1.65、正文色。
+- **工具解释排版**：`.sense-desc` 不设 `max-height` 滚动（避免内容被挤压小空间），随面板列表自然滚动；字号 15px（2026-10 全局放大后）、行高 1.65、正文色。
 - **倒计时**：approval 卡头状态旁显示 `剩余 Ns`（后端 `deadlineAt` = createdAt + approval_timeout），归零变红显示「已超时」，`now` 250ms 定时器驱动。
 - **语义标题**：待确认标题统一使用 `createApprovalPresentation`，不再只是 sense 英文名的中文替换。
 - **同步入口**：节点树工作台、Pet 气泡、设置窗待办与轻量工作台共用 `ApprovalSummary + ParsedArgs`，同一审批在不同入口的标题、参数和审批责任标记一致。
@@ -384,11 +384,11 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 
 - **双 surface 挂载**：浏览器工作台挂在 `CyberWindow #title-actions`，Electron 原生工作台挂在 `WindowFrame #title-actions`；两处都由 `WorkbenchSessionBar.vue` 组合，切换目标使用任务概要的活动主流程 `openChatId`，既有 draft、树订阅和窗口生命周期不变。浏览器面额外传入工作台前台状态，原生面使用文档可见性与窗口焦点，后台不持续闪烁。
 - **数据与偏好**：实时状态只读应用级 `chat.overview` 订阅；稳定快捷位由 `useSessionStripPreferences.ts` 按预设持久化，并通过同源存储事件与 BroadcastChannel 跨 renderer 同步。组件不自行建立任务订阅，也不清除未查看记录。
-- **迁移期下拉**：`SessionDropdown.vue` 与 `chat.list` 分页仅作为全部任务覆盖页接入前的可用降级；标题栏已经只显示一个“全部任务”图标。小任务 13 接入覆盖页后删除该降级及其归档入口迁移逻辑。
+- **全部任务入口**：`WorkbenchSessionBar.vue` 通过按 `windowId` 隔离的 `useTaskBrowserOverlay.ts` 打开所属工作台覆盖页；标题栏不再挂载会话下拉，`SessionDropdown.vue` 与专用分页逻辑已删除。
 
 ### 标题栏与全部任务页替换契约（2026-09-17 已确认）
 
-任务目录接口、未查看记录、任务级概要字段、前端 `useTaskCatalogStore` 与下述稳定标题栏均已实现；全部任务覆盖页及其双窗口接入仍待小任务 12—13 完成。
+任务目录接口、未查看记录、任务级概要字段、稳定标题栏和全部任务覆盖页均已接入浏览器与 Electron 工作台。任务页从 `TaskBrowser.vue` 进入，`useTaskBrowserController` 按工作台隔离查询与恢复状态，`taskBrowserModel.ts` 负责筛选请求、实时原位更新及纯文本命中片段，`useTaskBrowserOverlay.ts` 负责按窗口隔离开关、归档后的当前任务处理和查看确认前置判断。覆盖页打开时底层树、输入区、工具栏和离线操作不可接收交互，但工作台控制器、草稿状态与树订阅保持；结果查看只在目标树加载完成、窗口处于前台且覆盖页关闭后按 `resultId` 确认。定向验证见 `web/test/workbench/taskBrowser.test.ts`、`web/test/workbench/taskBrowserIntegration.test.ts` 与 `web/test/taskCenter/taskCatalogStore.test.ts`。
 
 #### 稳定标题栏
 

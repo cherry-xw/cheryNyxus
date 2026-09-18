@@ -108,6 +108,7 @@ function onDrillDetail(): void {
     <div class="spawn-head">
       <span class="spawn-icon" aria-hidden="true">🤖</span>
       <span class="spawn-name">派遣角色</span>
+      <slot name="risk" />
       <span class="spawn-type">{{ parsedArgs?.type ?? 'unknown' }}</span>
       <span class="spawn-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
@@ -152,7 +153,7 @@ function onDrillDetail(): void {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
@@ -162,7 +163,7 @@ function onDrillDetail(): void {
   gap: 6px;
 
   .spawn-icon {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .spawn-name {
@@ -172,7 +173,7 @@ function onDrillDetail(): void {
 
   .spawn-type {
     flex: 1;
-    font-size: 9px;
+    font-size: 12px;
     padding: 1px 4px;
     border-radius: 3px;
     background: rgba(168, 85, 247, 0.12);
@@ -183,7 +184,7 @@ function onDrillDetail(): void {
 
   .spawn-status {
     font-weight: 800;
-    font-size: 12px;
+    font-size: 14px;
 
     &.status-done {
       color: #16a34a;
@@ -213,21 +214,21 @@ function onDrillDetail(): void {
 
 .spawn-label {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
 .spawn-value {
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .spawn-prompt {
   flex: 1;
   min-width: 0;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
@@ -237,7 +238,7 @@ function onDrillDetail(): void {
   display: inline-block;
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 400;
   background: rgba(59, 130, 246, 0.12);
   color: #2563eb;
@@ -249,7 +250,7 @@ function onDrillDetail(): void {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 200px;
@@ -261,7 +262,7 @@ function onDrillDetail(): void {
   border: none;
   background: transparent;
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--ink);
   color: #2563eb;
 

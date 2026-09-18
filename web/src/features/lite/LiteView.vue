@@ -1,8 +1,6 @@
 <script setup lang="ts">
+import { nextTick, ref } from 'vue'
 import { useLiteViewController, type LiteViewControllerProps } from './useLiteViewController'
-import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
-import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
-import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 const props = defineProps<LiteViewControllerProps>()
 const controller = useLiteViewController(props)
 const {
@@ -10,20 +8,10 @@ const {
   LiteMarkdown,
   LiteScrollbar,
   aborting,
-  activeInteraction,
   activeLane,
-  activePendingTabId,
-  activeQuestion,
-  activeQuestionIndexOf,
-  answeredQuestionCount,
-  answering,
-  approvalArguments,
-  approvalDetailNodeId,
-  approvalRiskSummary,
   autoGrowInput,
   closeDetail,
   connectionBlocked,
-  deciding,
   detailNode,
   detailNodeIndex,
   entryDispatch,
@@ -39,11 +27,8 @@ const {
   hoverNode,
   hydrationLabel,
   inputText,
-  interactionActionable,
-  interactionStatusLabel,
   isDetailNode,
   isInFlightNode,
-  isNoteOpen,
   isPlainRowContent,
   isRowFocused,
   laneTabs,
@@ -56,30 +41,16 @@ const {
   nodeKindLabel,
   nodeTipText,
   nodeToneVars,
-  noteOf,
-  onAnswerBatch,
-  onDecide,
   onErrorAction,
   onInputKeydown,
   onMonitorScroll,
-  onOtherInput,
   onResume,
   onSend,
   onStop,
-  onToggleChoice,
-  onToggleOther,
   onTrajectoryKeydown,
   onTrajectoryWheel,
-  openApprovalDetail,
-  moveQuestion,
   openNodeDetail,
   operationBlockReason,
-  otherActiveOf,
-  pendingCollapsed,
-  pendingTabs,
-  questionsOf,
-  selectPendingTab,
-  remainingLabel,
   resetTrajectoryZoom,
   resuming,
   rootUi,
@@ -87,19 +58,13 @@ const {
   runDetailOpen,
   runDetailText,
   runStatusLabel,
-  selectedOf,
   sending,
-  setOptionNote,
   setRowEl,
   showBarTip,
   showsRowContent,
-  textDraftOf,
   tipAction,
   tipPos,
-  toggleNoteOpen,
-  togglePendingCollapsed,
   toggleRunDetail,
-  canAnswerBatch,
   toolTypeGlyph,
   toolTypeLabel,
   trajectoryBarStyle,
@@ -107,6 +72,15 @@ const {
   trajectoryZoom,
   visibleRows,
 } = controller
+
+// ── 输入框展开态（精简模式同款交互，与对话模式一致）：默认保持 6 行上限，
+// 展开后最高到窗口一半（由 CSS .lite-input.is-expanded 承接）。 ──
+const expandedInput = ref(false)
+function toggleExpandInput(): void {
+  expandedInput.value = !expandedInput.value
+  // 类切换后重算高度：展开时立即给足可视高度，收起时回到内容高度（CSS 上限兜底）。
+  void nextTick(() => autoGrowInput())
+}
 </script>
 
 <template>
@@ -119,7 +93,7 @@ const {
         >NODE {{ history.nodes.length.toString().padStart(3, '0') }}</span
       >
       <!-- v0.5.3 链路标签栏迁入状态条：顶层直接展示多个 Agent（主 Agent ✧ + 各子 Agent ◆ 角色名），
-           点击切换 activeLane，与轨迹行头角色名按钮联动 -->
+            点击切换 activeLane，与轨迹行头角色名按钮联动 -->
       <nav v-if="laneTabs.length > 1" class="lite-lane-bar" aria-label="切换链路">
         <button
           v-for="tab in laneTabs"
@@ -375,437 +349,7 @@ const {
         <p v-if="runDetailOpen" class="lite-run-error-detail">{{ runDetailText }}</p>
       </div>
 
-      <section
-        v-if="activeInteraction"
-        class="lite-pending-panel"
-        :class="{ 'is-collapsed': pendingCollapsed }"
-        aria-label="待处理详情"
-      >
-        <div v-if="pendingTabs.length" class="lite-pending-tabs-bar" role="tablist">
-          <button
-            v-for="tab in pendingTabs"
-            :key="tab.id"
-            type="button"
-            role="tab"
-            class="lite-pending-tab"
-            :class="[
-              { 'is-active': tab.id === activePendingTabId, 'is-expired': tab.expired },
-              'is-' + tab.kind,
-            ]"
-            :aria-selected="tab.id === activePendingTabId"
-            :title="tab.tip"
-            @click="selectPendingTab(tab.id)"
-          >
-            <span class="lite-pending-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
-            <span class="lite-pending-tab-label">{{ tab.label }}</span>
-            <span v-if="tab.countdown" class="lite-pending-badge" :data-expired="tab.expired">
-              {{ tab.countdown }}
-            </span>
-          </button>
-          <!-- v1.2 收起/展开（▲=收起 / ▼=展开）：带边框方形按钮，绝对定位挂在面板右上角、
-               相对标签栏垂直居中；收起态内容区高度过渡到 0，仅保留标签栏 -->
-          <button
-            type="button"
-            class="lite-pending-collapse"
-            :aria-expanded="!pendingCollapsed"
-            :title="pendingCollapsed ? '展开待处理面板' : '收起待处理面板'"
-            @click="togglePendingCollapsed"
-          >
-            {{ pendingCollapsed ? '▼' : '▲' }}
-          </button>
-        </div>
-        <!-- v1.2：内容区常驻渲染——收起由高度过渡驱动（visibility 隐藏防聚焦），避免 v-if 卸载导致高度跳变 -->
-        <div class="lite-pending-content">
-          <div
-            v-if="activeInteraction.kind === 'approval'"
-            class="lite-interaction is-approval"
-            :data-status="activeInteraction.status"
-          >
-            <div class="lite-interaction-body">
-              <header class="lite-interaction-head">
-                <span class="lite-interaction-kicker">APPROVAL REQUEST</span>
-                <span class="lite-interaction-head-right">
-                  <span
-                    class="lite-interaction-dot"
-                    :data-status="activeInteraction.status"
-                    aria-hidden="true"
-                  />
-                  <span
-                    v-if="activeInteraction.status !== 'pending'"
-                    class="lite-status-pill"
-                    :data-status="activeInteraction.status"
-                    >{{ interactionStatusLabel(activeInteraction) }}</span
-                  >
-                  <span
-                    v-if="remainingLabel(activeInteraction)"
-                    class="lite-countdown"
-                    :data-expired="remainingLabel(activeInteraction) === '已超时'"
-                  >
-                    {{ remainingLabel(activeInteraction) }}
-                  </span>
-                </span>
-              </header>
-              <ApprovalSummary
-                class="lite-approval-overview"
-                :sense-name="activeInteraction.payload?.senseName"
-                :args="approvalArguments(activeInteraction)"
-              />
-              <p class="lite-risk-summary">
-                <span aria-hidden="true">!</span>{{ approvalRiskSummary(activeInteraction) }}
-              </p>
-              <details class="lite-technical-details">
-                <summary>技术详情</summary>
-                <div class="lite-technical-details-body">
-                  <ParsedArgs
-                    :args="approvalArguments(activeInteraction)"
-                    title="完整操作参数"
-                    embedded
-                  />
-                  <FileChangeDiff :args="approvalArguments(activeInteraction)" embedded />
-                </div>
-              </details>
-              <p
-                v-if="lite.interactionError(activeInteraction.interactionId)"
-                class="lite-object-error"
-                role="alert"
-              >
-                {{ lite.interactionError(activeInteraction.interactionId)?.message }}
-              </p>
-              <button
-                type="button"
-                class="lite-view-full"
-                :disabled="!approvalDetailNodeId(activeInteraction)"
-                @click="openApprovalDetail(activeInteraction, $event)"
-              >
-                查看工具详情
-              </button>
-            </div>
-            <footer
-              v-if="interactionActionable(activeInteraction)"
-              class="lite-interaction-actions"
-            >
-              <span class="lite-action-hint">批准后将立即执行，请先核对目标与变更。</span>
-              <button
-                type="button"
-                class="lite-btn is-reject"
-                :disabled="
-                  deciding === activeInteraction.interactionId ||
-                  remainingLabel(activeInteraction) === '已超时' ||
-                  connectionBlocked
-                "
-                @click="onDecide(activeInteraction, 'reject')"
-              >
-                拒绝
-              </button>
-              <button
-                type="button"
-                class="lite-btn is-accept"
-                :disabled="
-                  deciding === activeInteraction.interactionId ||
-                  remainingLabel(activeInteraction) === '已超时' ||
-                  connectionBlocked
-                "
-                @click="onDecide(activeInteraction, 'accept')"
-              >
-                {{ deciding === activeInteraction.interactionId ? '处理中…' : '允许执行' }}
-              </button>
-            </footer>
-          </div>
-          <div v-else class="lite-interaction is-question" :data-status="activeInteraction.status">
-            <div class="lite-interaction-body is-question">
-              <!-- 批次单题后该行只剩进度数字：仅多题批次才保留（进度 + 状态点） -->
-              <header
-                v-if="questionsOf(activeInteraction).length > 1"
-                class="lite-interaction-head"
-              >
-                <span class="lite-interaction-head-right">
-                  <span
-                    class="lite-interaction-dot"
-                    :data-status="activeInteraction.status"
-                    aria-hidden="true"
-                  />
-                  <span>
-                    已完成 {{ answeredQuestionCount(activeInteraction) }}/{{
-                      questionsOf(activeInteraction).length
-                    }}
-                  </span>
-                </span>
-              </header>
-              <div class="lite-question-workspace">
-                <fieldset v-if="activeQuestion" class="lite-followup-question">
-                  <p class="lite-question-title">{{ activeQuestion.question }}</p>
-                  <p
-                    v-if="activeQuestion.freeText || activeQuestion.multiSelect"
-                    class="lite-question-type"
-                  >
-                    {{ activeQuestion.freeText ? '自由回答' : '可多选 · 再点已选项可取消' }}
-                  </p>
-                  <p
-                    v-if="
-                      lite.questionError(activeInteraction.interactionId, activeQuestion.questionId)
-                    "
-                    class="lite-question-error"
-                    role="alert"
-                  >
-                    {{
-                      lite.questionError(activeInteraction.interactionId, activeQuestion.questionId)
-                        ?.message
-                    }}
-                  </p>
-                  <template v-if="!activeQuestion.freeText">
-                    <!-- 两列选项：每个选项一张卡片，选中后「补充」按钮可展开补充输入；
-                         末尾「其他」卡片 = 默认输入框本身作为选项（单选点击抢 active，多选输入自动勾选） -->
-                    <div class="lite-options-grid">
-                      <div
-                        v-for="option in activeQuestion.options"
-                        :key="option.label"
-                        class="lite-option-card"
-                        :class="[
-                          `is-${activeQuestion.multiSelect ? 'multi' : 'single'}`,
-                          {
-                            'is-selected': selectedOf(
-                              activeInteraction.interactionId,
-                              activeQuestion.questionId,
-                            ).includes(option.label),
-                            'is-disabled': !interactionActionable(activeInteraction),
-                          },
-                        ]"
-                      >
-                        <div
-                          class="lite-option-main"
-                          role="option"
-                          :aria-selected="
-                            selectedOf(
-                              activeInteraction.interactionId,
-                              activeQuestion.questionId,
-                            ).includes(option.label)
-                          "
-                          :aria-disabled="!interactionActionable(activeInteraction)"
-                          tabindex="0"
-                          @click="onToggleChoice(activeInteraction, activeQuestion, option.label)"
-                          @keydown.enter.prevent="
-                            onToggleChoice(activeInteraction, activeQuestion, option.label)
-                          "
-                          @keydown.space.prevent="
-                            onToggleChoice(activeInteraction, activeQuestion, option.label)
-                          "
-                        >
-                          <span class="lite-choice-mark" aria-hidden="true">
-                            {{
-                              selectedOf(
-                                activeInteraction.interactionId,
-                                activeQuestion.questionId,
-                              ).includes(option.label)
-                                ? '✓'
-                                : ''
-                            }}
-                          </span>
-                          <span class="lite-option-copy">
-                            <span class="lite-option-label">{{ option.label }}</span>
-                            <span v-if="option.description" class="lite-option-description">{{
-                              option.description
-                            }}</span>
-                          </span>
-                          <button
-                            type="button"
-                            class="lite-option-note-toggle"
-                            :class="{
-                              'is-open': isNoteOpen(
-                                activeInteraction.interactionId,
-                                activeQuestion.questionId,
-                                option.label,
-                              ),
-                            }"
-                            :disabled="
-                              !selectedOf(
-                                activeInteraction.interactionId,
-                                activeQuestion.questionId,
-                              ).includes(option.label) || !interactionActionable(activeInteraction)
-                            "
-                            :aria-pressed="
-                              isNoteOpen(
-                                activeInteraction.interactionId,
-                                activeQuestion.questionId,
-                                option.label,
-                              )
-                            "
-                            @click.stop="
-                              toggleNoteOpen(
-                                activeInteraction.interactionId,
-                                activeQuestion.questionId,
-                                option.label,
-                              )
-                            "
-                            @keydown.stop
-                          >
-                            补充
-                          </button>
-                        </div>
-                        <textarea
-                          v-if="
-                            selectedOf(
-                              activeInteraction.interactionId,
-                              activeQuestion.questionId,
-                            ).includes(option.label) &&
-                            isNoteOpen(
-                              activeInteraction.interactionId,
-                              activeQuestion.questionId,
-                              option.label,
-                            )
-                          "
-                          class="lite-option-note"
-                          rows="2"
-                          :value="
-                            noteOf(
-                              activeInteraction.interactionId,
-                              activeQuestion.questionId,
-                              option.label,
-                            )
-                          "
-                          :disabled="!interactionActionable(activeInteraction)"
-                          placeholder="为这个选项补充描述（可选）"
-                          @input="
-                            setOptionNote(
-                              activeInteraction.interactionId,
-                              activeQuestion.questionId,
-                              option.label,
-                              ($event.target as HTMLTextAreaElement).value,
-                            )
-                          "
-                        />
-                      </div>
-                      <div
-                        class="lite-option-card is-other"
-                        :class="[
-                          `is-${activeQuestion.multiSelect ? 'multi' : 'single'}`,
-                          {
-                            'is-selected': otherActiveOf(
-                              activeInteraction.interactionId,
-                              activeQuestion.questionId,
-                            ),
-                            'is-disabled': !interactionActionable(activeInteraction),
-                          },
-                        ]"
-                      >
-                        <div
-                          class="lite-option-main"
-                          role="option"
-                          :aria-selected="
-                            otherActiveOf(
-                              activeInteraction.interactionId,
-                              activeQuestion.questionId,
-                            )
-                          "
-                          :aria-disabled="!interactionActionable(activeInteraction)"
-                          tabindex="0"
-                          @click="onToggleOther(activeInteraction, activeQuestion)"
-                          @keydown.enter.prevent="onToggleOther(activeInteraction, activeQuestion)"
-                          @keydown.space.prevent="onToggleOther(activeInteraction, activeQuestion)"
-                        >
-                          <span class="lite-choice-mark" aria-hidden="true">
-                            {{
-                              otherActiveOf(
-                                activeInteraction.interactionId,
-                                activeQuestion.questionId,
-                              )
-                                ? '✓'
-                                : ''
-                            }}
-                          </span>
-                          <input
-                            class="lite-option-other-input"
-                            :value="
-                              textDraftOf(
-                                activeInteraction.interactionId,
-                                activeQuestion.questionId,
-                              )
-                            "
-                            :disabled="!interactionActionable(activeInteraction)"
-                            placeholder="其他补充（可选）"
-                            @click.stop
-                            @keydown.stop
-                            @input="
-                              onOtherInput(
-                                activeInteraction,
-                                activeQuestion,
-                                ($event.target as HTMLInputElement).value,
-                              )
-                            "
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </template>
-                  <textarea
-                    v-else
-                    class="lite-freetext"
-                    rows="4"
-                    :value="textDraftOf(activeInteraction.interactionId, activeQuestion.questionId)"
-                    :disabled="!interactionActionable(activeInteraction)"
-                    placeholder="输入回答"
-                    @input="
-                      onOtherInput(
-                        activeInteraction,
-                        activeQuestion,
-                        ($event.target as HTMLTextAreaElement).value,
-                      )
-                    "
-                  />
-                </fieldset>
-              </div>
-              <p
-                v-if="lite.interactionError(activeInteraction.interactionId)"
-                class="lite-object-error"
-                role="alert"
-              >
-                {{ lite.interactionError(activeInteraction.interactionId)?.message }}
-              </p>
-            </div>
-            <footer
-              v-if="interactionActionable(activeInteraction)"
-              class="lite-interaction-actions is-question"
-            >
-              <div class="lite-question-pager">
-                <button
-                  type="button"
-                  :disabled="activeQuestionIndexOf(activeInteraction) <= 0"
-                  @click="moveQuestion(activeInteraction, -1)"
-                >
-                  上一题
-                </button>
-                <span
-                  >{{ activeQuestionIndexOf(activeInteraction) + 1 }} /
-                  {{ questionsOf(activeInteraction).length }}</span
-                >
-                <button
-                  type="button"
-                  :disabled="
-                    activeQuestionIndexOf(activeInteraction) >=
-                    questionsOf(activeInteraction).length - 1
-                  "
-                  @click="moveQuestion(activeInteraction, 1)"
-                >
-                  下一题
-                </button>
-              </div>
-              <button
-                type="button"
-                class="lite-btn is-submit"
-                :disabled="
-                  answering === activeInteraction.interactionId ||
-                  connectionBlocked ||
-                  !canAnswerBatch(activeInteraction)
-                "
-                @click="onAnswerBatch(activeInteraction)"
-              >
-                {{ canAnswerBatch(activeInteraction) ? '提交回答' : '请完成全部问题' }}
-              </button>
-            </footer>
-          </div>
-        </div>
-      </section>
-
-      <div class="lite-input">
+      <div class="lite-input" :class="{ 'is-expanded': expandedInput }">
         <textarea
           ref="liteInputEl"
           v-model="inputText"
@@ -818,14 +362,33 @@ const {
           @keydown="onInputKeydown"
           @input="autoGrowInput"
         />
-        <button
-          type="button"
-          class="lite-send-btn"
-          :disabled="sending || !inputText.trim() || connectionBlocked"
-          @click="onSend"
-        >
-          发送
-        </button>
+        <div class="lite-send-wrap">
+          <el-tooltip
+            :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+            placement="top"
+            :show-after="150"
+            :hide-after="0"
+          >
+            <button
+              type="button"
+              class="lite-expand-btn"
+              :class="{ 'is-expanded': expandedInput }"
+              :aria-pressed="expandedInput"
+              :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+              @click="toggleExpandInput"
+            >
+              {{ expandedInput ? '▼' : '▲' }}
+            </button>
+          </el-tooltip>
+          <button
+            type="button"
+            class="lite-send-btn"
+            :disabled="sending || !inputText.trim() || connectionBlocked"
+            @click="onSend"
+          >
+            发送
+          </button>
+        </div>
       </div>
 
       <DetailDrawer

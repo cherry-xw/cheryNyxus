@@ -546,7 +546,7 @@ onBeforeUnmount(() => {
 .target-state {
   flex: none;
   color: var(--accent);
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 600;
 }
 .target-label {
@@ -558,7 +558,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 .target-label-text {
@@ -575,7 +575,7 @@ onBeforeUnmount(() => {
   padding: 0 4px;
   border-radius: 4px;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 8.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.5;
 }
@@ -599,12 +599,12 @@ onBeforeUnmount(() => {
   max-width: 320px;
   .target-tip-state {
     margin-bottom: 4px;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--accent);
   }
   .target-tip-content {
-    font-size: 11.5px;
+    font-size: 13.5px;
     line-height: 1.5;
     color: var(--ink);
     white-space: pre-wrap;
@@ -614,7 +614,7 @@ onBeforeUnmount(() => {
     display: flex;
     gap: 8px;
     margin-top: 6px;
-    font-size: 10px;
+    font-size: 12px;
     color: color-mix(in srgb, var(--ink) 55%, transparent);
   }
   &.is-trace {
@@ -631,12 +631,12 @@ onBeforeUnmount(() => {
   .target-tip-section b {
     display: block;
     margin-bottom: 4px;
-    font-size: 10.5px;
+    font-size: 12.5px;
     color: var(--accent);
   }
   .target-tip-section p {
     margin: 0;
-    font-size: 11px;
+    font-size: 13px;
     line-height: 1.5;
     color: var(--ink);
     white-space: pre-wrap;
@@ -649,7 +649,7 @@ onBeforeUnmount(() => {
     background: color-mix(in srgb, var(--ink) 6%, transparent);
     white-space: pre-wrap;
     word-break: break-all;
-    font-size: 10px;
+    font-size: 12px;
   }
   .target-tip-candidates {
     display: grid;
@@ -665,7 +665,7 @@ onBeforeUnmount(() => {
     grid-template-columns: minmax(72px, auto) 1fr;
     gap: 7px;
     align-items: start;
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.4;
   }
   .target-tip-candidates code {

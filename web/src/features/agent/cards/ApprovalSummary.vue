@@ -64,7 +64,7 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
 .approval-summary h3 {
   margin: 0;
   color: var(--ink);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.35;
 }
 .approval-badges {
@@ -75,7 +75,7 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
 .approval-badges span {
   padding: 2px 6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.25;
 }
 .approval-badges .actor {
@@ -99,12 +99,12 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
 }
 .approval-summary dt {
   color: color-mix(in srgb, var(--ink) 55%, transparent);
-  font-size: 11px;
+  font-size: 13px;
 }
 .approval-summary dd {
   margin: 0;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 .approval-summary .change {
@@ -113,7 +113,7 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
 .approval-summary p {
   margin: 0;
   color: color-mix(in srgb, var(--ink) 72%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .approval-summary.is-compact {

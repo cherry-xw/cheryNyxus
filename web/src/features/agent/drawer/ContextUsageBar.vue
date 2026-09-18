@@ -138,7 +138,7 @@ function shortLabel(key: BreakdownKey): string {
     display: inline-flex;
     align-items: baseline;
     gap: 2px;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1.3;
     white-space: nowrap;
   }
@@ -183,7 +183,7 @@ function shortLabel(key: BreakdownKey): string {
     align-items: center;
     gap: 3px;
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 78%, transparent);
   }
@@ -204,7 +204,7 @@ function shortLabel(key: BreakdownKey): string {
     background: var(--usage-bg);
     color: var(--usage-color);
     font-weight: 600;
-    font-size: 12px;
+    font-size: 14px;
   }
 
   // ── 共享：分段条。track 负责容器；seg 有 min-width，数据只剩一点点也有最基础色块宽度。──

@@ -349,7 +349,7 @@ const emit = defineEmits<{
 }
 .runtime-hint {
   color: color-mix(in srgb, var(--ink) 76%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   overflow-wrap: anywhere;
   margin-bottom: 6px;
@@ -395,7 +395,7 @@ const emit = defineEmits<{
     background: color-mix(in srgb, var(--nx-bg) 76%, transparent);
     box-shadow: inset 0 1px 0 color-mix(in srgb, var(--nx-text) 4%, transparent);
     caret-color: var(--nx-green);
-    font-size: 13px;
+    font-size: 15px;
     line-height: 1.55;
     transition:
       border-color 150ms ease,

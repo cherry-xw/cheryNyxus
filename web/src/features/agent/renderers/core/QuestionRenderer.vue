@@ -48,6 +48,15 @@ const answerState = computed(() =>
   parseQuestionAnswer(props.call.result, props.call.status, args.value),
 )
 
+/** 已答问题的直接汇总：用户勾选的选项（单选/多选一致），含「其他」自由文本（若有）。 */
+const answerSummary = computed(() => {
+  if (answerState.value.kind !== 'answered') return ''
+  const labels = answerState.value.labels.join('、')
+  const free = answerState.value.freeText
+  if (!labels && !free) return ''
+  return [labels, free ? `其他：${free}` : ''].filter(Boolean).join('；')
+})
+
 /** 可交互匹配：等待中且 pending 提问批命中本题（call.id = questionId）。 */
 const interactive = computed(() => findInteractiveQuestion(props.call.id, interactions.pending))
 const draft = computed(() => {
@@ -135,9 +144,20 @@ async function submit(): Promise<void> {
       <span class="indicator" aria-hidden="true" />
       <span v-if="args?.header" class="q-header">{{ args.header }}</span>
       <span v-if="args" class="q-kind">{{ args.multiSelect ? '多选' : '单选' }}</span>
+      <slot name="risk" />
       <span class="q-badge" :class="answerBadge.cls">{{ answerBadge.text }}</span>
     </div>
     <div v-if="args" class="q-text">{{ args.question }}</div>
+
+    <!-- 提问说明（大模型写的数据）：为什么需要你决定 / 决定后会发生什么 -->
+    <div v-if="args && (args.rationale || args.nextStep)" class="q-context">
+      <p v-if="args.rationale">
+        <span class="q-context-key">为什么需要你决定</span>{{ args.rationale }}
+      </p>
+      <p v-if="args.nextStep">
+        <span class="q-context-key">决定后会发生什么</span>{{ args.nextStep }}
+      </p>
+    </div>
 
     <!-- 等待中且命中 pending 提问批：列表内直接作答（草稿与浮窗/决策窗口共享） -->
     <template v-if="interactive">
@@ -265,6 +285,15 @@ async function submit(): Promise<void> {
 
     <!-- 历史只读展示（已答 / 已取消 / 交互数据未命中） -->
     <template v-else>
+      <!-- 已答：直接显示用户勾选选项，无需在选项列表中找勾选态 -->
+      <p
+        v-if="answerState.kind === 'answered' && answerSummary"
+        class="q-answer-summary"
+        role="status"
+      >
+        <span class="q-answer-summary-key">已选择</span>
+        <span class="q-answer-summary-value">{{ answerSummary }}</span>
+      </p>
       <div
         v-if="args && args.options.length > 0"
         class="q-options"
@@ -338,7 +367,7 @@ async function submit(): Promise<void> {
 
   .q-header {
     color: color-mix(in srgb, var(--ink) 80%, transparent);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1.2;
     overflow-wrap: anywhere;
@@ -350,7 +379,7 @@ async function submit(): Promise<void> {
     border: 1px solid rgba(124, 58, 237, 0.2);
     border-radius: 4px;
     color: var(--violet);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 400;
   }
 
@@ -358,7 +387,7 @@ async function submit(): Promise<void> {
     margin-left: auto;
     padding: 1px 6px;
     border-radius: 4px;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 400;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
@@ -388,12 +417,61 @@ async function submit(): Promise<void> {
 }
 
 .q-text {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 400;
   line-height: 1.35;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+// 提问说明（大模型写的数据）：标题 + 说明，弱化展示。
+.q-context {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 6px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--violet) 40%, transparent);
+  background: color-mix(in srgb, var(--violet) 6%, transparent);
+
+  p {
+    margin: 0;
+    color: color-mix(in srgb, var(--ink) 68%, transparent);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .q-context-key {
+    display: block;
+    color: var(--violet);
+    font-weight: 600;
+  }
+}
+
+// 已答直接汇总：勾选选项醒目展示（强调色块 + 紫色文字）。
+.q-answer-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--violet) 38%, transparent);
+  border-radius: 5px;
+  background: var(--violet-soft);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+
+  .q-answer-summary-key {
+    flex: 0 0 auto;
+    font-weight: 600;
+    color: var(--violet);
+  }
+  .q-answer-summary-value {
+    color: var(--violet);
+  }
 }
 
 .q-options {
@@ -411,7 +489,7 @@ async function submit(): Promise<void> {
   border-radius: 5px;
   background: var(--surface);
   color: color-mix(in srgb, var(--ink) 78%, transparent);
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.3;
 
   &.selected {
@@ -434,9 +512,9 @@ async function submit(): Promise<void> {
   padding: 7px 8px;
   text-align: left;
   cursor: pointer;
-  // 显式字号（勿用 font: inherit——简写会重置 font-size 为父级继承值，覆盖 .q-option 的 10.5px）
+  // 显式字号（勿用 font: inherit——简写会重置 font-size 为父级继承值，覆盖 .q-option 的 12.5px）
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 400;
   line-height: 1.3;
   transition:
@@ -490,7 +568,7 @@ async function submit(): Promise<void> {
 
   small {
     color: color-mix(in srgb, var(--ink) 58%, transparent);
-    font-size: 9.5px;
+    font-size: 12px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
@@ -509,7 +587,7 @@ async function submit(): Promise<void> {
   border-radius: 3px;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 52%, transparent);
-  font-size: 9.5px;
+  font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
   white-space: nowrap;
@@ -531,7 +609,7 @@ async function submit(): Promise<void> {
   background: var(--surface);
   color: inherit;
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
   &:focus {
     outline: none;
@@ -549,7 +627,7 @@ async function submit(): Promise<void> {
 .q-batch-hint {
   margin-right: auto;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
 }
 .q-submit {
@@ -559,7 +637,7 @@ async function submit(): Promise<void> {
   border-radius: 6px;
   background: #7c3aed;
   color: #fff;
-  font-size: 11.5px;
+  font-size: 13.5px;
   line-height: 1.2;
   cursor: pointer;
   transition: filter 120ms ease;
@@ -574,7 +652,7 @@ async function submit(): Promise<void> {
 .q-error {
   margin: 2px 0 0;
   color: var(--el-color-danger);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -593,7 +671,7 @@ async function submit(): Promise<void> {
   p {
     margin: 0;
     color: color-mix(in srgb, var(--ink) 82%, transparent);
-    font-size: 10.5px;
+    font-size: 12.5px;
     line-height: 1.4;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -606,7 +684,7 @@ async function submit(): Promise<void> {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
   color: color-mix(in srgb, var(--ink) 66%, transparent);

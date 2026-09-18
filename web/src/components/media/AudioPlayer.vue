@@ -257,12 +257,12 @@ watch(
   border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .ap-title {
   color: rgba(255, 255, 255, 0.82);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -288,7 +288,7 @@ watch(
   align-items: center;
   justify-content: center;
   color: rgba(255, 255, 255, 0.5);
-  font-size: 12px;
+  font-size: 14px;
   background: rgba(30, 32, 40, 0.8);
 }
 
@@ -336,7 +336,7 @@ watch(
 .ap-time {
   flex: none;
   color: rgba(255, 255, 255, 0.5);
-  font-size: 11px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   min-width: 34px;
   text-align: center;
@@ -358,6 +358,6 @@ watch(
 }
 
 .ap-close {
-  font-size: 14px;
+  font-size: 16px;
 }
 </style>

@@ -46,6 +46,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
     <div class="todo-head">
       <span class="todo-icon" aria-hidden="true">📋</span>
       <span class="todo-name">待办</span>
+      <slot name="risk" />
       <span class="todo-count">{{ doneCount }}/{{ todos.length }}</span>
     </div>
     <ul v-if="todos.length" class="todo-list">
@@ -71,7 +72,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
@@ -81,7 +82,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   gap: 6px;
 
   .todo-icon {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   .todo-name {
@@ -91,7 +92,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   }
 
   .todo-count {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
     color: color-mix(in srgb, var(--ink) 56%, transparent);
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
@@ -115,7 +116,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
 
   .glyph {
     flex-shrink: 0;
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.45;
   }
 
@@ -152,7 +153,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 200px;

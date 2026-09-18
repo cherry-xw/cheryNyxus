@@ -144,7 +144,7 @@ function paramFields(
 .ps-status {
   padding: 8px;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
-  font-size: 12px;
+  font-size: 14px;
 }
 .ps-epoch-bar {
   display: flex;
@@ -154,7 +154,7 @@ function paramFields(
 }
 .ps-epoch-label {
   color: color-mix(in srgb, var(--ink) 60%, transparent);
-  font-size: 10.5px;
+  font-size: 12.5px;
   flex-shrink: 0;
 }
 .ps-epoch-select {
@@ -165,11 +165,11 @@ function paramFields(
   border-radius: 5px;
   background: var(--surface-soft);
   color: var(--ink);
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 .ps-readonly {
   color: #b45309;
-  font-size: 9.5px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 .ps-quality-warning {
@@ -178,7 +178,7 @@ function paramFields(
   border-radius: 5px;
   background: rgba(180, 83, 9, 0.1);
   color: #92400e;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
 }
 .ps-error {
@@ -195,7 +195,7 @@ function paramFields(
   align-items: center;
   gap: 6px;
   color: color-mix(in srgb, var(--ink) 82%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -204,7 +204,7 @@ function paramFields(
   border-radius: 999px;
   background: rgba(16, 185, 129, 0.14);
   color: #047857;
-  font-size: 10px;
+  font-size: 12px;
 }
 .ps-pre {
   margin: 0;
@@ -213,7 +213,7 @@ function paramFields(
   background: color-mix(in srgb, var(--ink) 5%, transparent);
   color: color-mix(in srgb, var(--ink) 80%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -222,7 +222,7 @@ function paramFields(
 }
 .ps-empty {
   color: color-mix(in srgb, var(--ink) 40%, transparent);
-  font-size: 11px;
+  font-size: 13px;
 }
 .ps-tool {
   display: flex;
@@ -249,12 +249,12 @@ function paramFields(
 .ps-tool-name {
   color: #047857;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
 }
 .ps-tool-desc {
   color: color-mix(in srgb, var(--ink) 66%, transparent);
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -270,7 +270,7 @@ function paramFields(
   border: none;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 46%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 .ps-caret {
@@ -292,7 +292,7 @@ function paramFields(
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .ps-param-name {
@@ -303,7 +303,7 @@ function paramFields(
 }
 .ps-param-type {
   color: color-mix(in srgb, var(--ink) 44%, transparent);
-  font-size: 9.5px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 .ps-param-req {
@@ -311,12 +311,12 @@ function paramFields(
   border-radius: 3px;
   background: rgba(180, 83, 9, 0.12);
   color: #b45309;
-  font-size: 9px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 .ps-param-desc {
   color: color-mix(in srgb, var(--ink) 55%, transparent);
-  font-size: 9.5px;
+  font-size: 12px;
   line-height: 1.45;
   white-space: nowrap;
   overflow: hidden;

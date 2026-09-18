@@ -335,6 +335,19 @@ export function getPendingQuestionBatches(chatId: string): PendingQuestionBatchS
   return readPendingQuestionBatches(monthlyDbForChat(chatId), chatId)
 }
 
+/**
+ * 单个问题的回答时间（整批逐题在 completeQuestionBatch 里写入同一个 completedAt；
+ * 未回答 / 仍在等待返回 undefined）。供时间线重建把回答时间带到提问工具节点，
+ * 前端据此计算「提问 → 回答」的真实等待耗时。
+ */
+export function getQuestionAnsweredAt(chatId: string, questionId: string): number | undefined {
+  const db = monthlyDbForChat(chatId)
+  const row = db
+    .prepare('SELECT answered_at FROM question_items WHERE question_id = ?')
+    .get(questionId) as { answered_at: number | null } | undefined
+  return typeof row?.answered_at === 'number' ? row.answered_at : undefined
+}
+
 /** Read the question projection and its event cursor in one SQLite snapshot. */
 export function getQuestionStateSnapshot(chatId: string): QuestionStateSnapshot {
   backfillLegacyPendingQuestionBatches(chatId)

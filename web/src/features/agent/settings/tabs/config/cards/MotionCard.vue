@@ -42,7 +42,7 @@ button {
   border-radius: 0;
   background: var(--surface-soft);
   color: var(--ink);
-  font: 400 12px/1.5 var(--font-ui, sans-serif);
+  font: 400 14px/1.5 var(--font-ui, sans-serif);
   cursor: pointer;
 }
 button[aria-pressed='true'],
@@ -53,7 +53,7 @@ button:hover {
 }
 p {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--ink);
 }

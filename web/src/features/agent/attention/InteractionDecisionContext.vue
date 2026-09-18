@@ -20,11 +20,12 @@ const context = computed(() => {
       <dt>Agent 角色</dt>
       <dd>{{ context.agent }}</dd>
     </div>
-    <div v-if="context.rationale">
+    <!-- rationale/nextStep 只展示大模型写的原文；source='fallback' 是代码兜底文案（代码写死的内容不上 UI） -->
+    <div v-if="context.rationale && context.source !== 'fallback'">
       <dt>为什么需要你决定</dt>
       <dd>{{ context.rationale }}</dd>
     </div>
-    <div v-if="context.nextStep">
+    <div v-if="context.nextStep && context.source !== 'fallback'">
       <dt>决定后会发生什么</dt>
       <dd>{{ context.nextStep }}</dd>
     </div>
@@ -46,14 +47,14 @@ const context = computed(() => {
   dt {
     margin-bottom: 6px;
     color: color-mix(in srgb, var(--ink) 65%, transparent);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 400;
     line-height: 1.5;
   }
   dd {
     margin: 0;
     color: var(--ink);
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 400;
     line-height: 1.6;
     overflow-wrap: anywhere;

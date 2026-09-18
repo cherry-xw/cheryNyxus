@@ -157,7 +157,7 @@ const { ready, isActive, activeAnchor, cardNumber, raise } = scatter
   border-radius: 0;
   background: var(--surface-soft);
   color: var(--ink);
-  font: 400 12px/22px monospace;
+  font: 400 14px/22px monospace;
   cursor: pointer;
 }
 .global-card-no:hover,

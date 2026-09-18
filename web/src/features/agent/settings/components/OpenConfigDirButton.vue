@@ -112,7 +112,7 @@ async function onClick(): Promise<void> {
   border-radius: 6px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 88%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
   &:hover:not(:disabled) {
     background: var(--surface);

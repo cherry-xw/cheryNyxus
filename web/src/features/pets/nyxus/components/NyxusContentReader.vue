@@ -241,13 +241,13 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 }
 
 .content-reader-title strong {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
 }
 
 .content-reader-title small {
   color: color-mix(in srgb, var(--ink) 64%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 
@@ -262,7 +262,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   color: inherit;
   padding: 3px 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .content-reader-close {
@@ -290,7 +290,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--warning) 10%, var(--panel));
   color: color-mix(in srgb, var(--warning) 78%, var(--ink));
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 

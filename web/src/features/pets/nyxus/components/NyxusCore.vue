@@ -292,7 +292,7 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   color: #ffe8e8;
   background: rgba(30, 17, 25, 0.94);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.35;
 }
 </style>

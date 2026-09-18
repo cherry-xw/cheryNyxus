@@ -132,6 +132,7 @@ const fallback = computed(() => {
     <div class="file-head">
       <span class="file-icon" aria-hidden="true">📄</span>
       <span class="file-name">读取文件</span>
+      <slot name="risk" />
       <span class="file-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
 
@@ -204,7 +205,7 @@ const fallback = computed(() => {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
@@ -214,7 +215,7 @@ const fallback = computed(() => {
   gap: 6px;
 
   .file-icon {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .file-name {
@@ -225,7 +226,7 @@ const fallback = computed(() => {
 
   .file-status {
     font-weight: 800;
-    font-size: 12px;
+    font-size: 14px;
 
     &.status-done {
       color: #16a34a;
@@ -255,7 +256,7 @@ const fallback = computed(() => {
 
 .file-label {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 17px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
@@ -272,7 +273,7 @@ const fallback = computed(() => {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   white-space: pre-wrap;
   word-break: break-word;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
@@ -281,7 +282,7 @@ const fallback = computed(() => {
 .file-range {
   flex: 1;
   min-width: 0;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
@@ -304,7 +305,7 @@ const fallback = computed(() => {
   user-select: none;
 
   .el-icon {
-    font-size: 10px;
+    font-size: 12px;
   }
 
   &:hover {
@@ -325,7 +326,7 @@ const fallback = computed(() => {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 200px;
@@ -340,7 +341,7 @@ const fallback = computed(() => {
   border: none;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   user-select: none;
@@ -367,7 +368,7 @@ const fallback = computed(() => {
 }
 
 .line-count {
-  font-size: 9px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
@@ -376,7 +377,7 @@ const fallback = computed(() => {
   display: inline-block;
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 400;
   background: rgba(234, 179, 8, 0.16);
   color: #ca8a04;
@@ -389,7 +390,7 @@ const fallback = computed(() => {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;

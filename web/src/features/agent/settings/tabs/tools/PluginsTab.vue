@@ -345,7 +345,7 @@ function skillTagStyle(i: number): { background: string; color: string } {
 
 code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
   padding: 1px 4px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--ink) 8%, transparent);
@@ -374,7 +374,7 @@ code {
     gap: 4px;
   }
   .last-check {
-    font-size: 11px;
+    font-size: 13px;
     color: color-mix(in srgb, var(--ink) 55%, transparent);
   }
 }
@@ -387,12 +387,12 @@ code {
   flex: 1;
 }
 .card-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 .badge {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 8px;
@@ -418,7 +418,7 @@ code {
   align-items: center;
   gap: 8px;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
   .meta-item {
     display: inline-flex;
@@ -428,7 +428,7 @@ code {
 }
 .plugin-src {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 .plugin-tokens {
@@ -456,7 +456,7 @@ code {
 }
 .skill-tag {
   display: inline-block;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   padding: 1px 8px;
   border-radius: 10px;
@@ -469,13 +469,13 @@ code {
 .empty-card {
   text-align: center;
   .empty-title {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
   .empty-hint {
     margin-top: 6px;
-    font-size: 11px;
+    font-size: 13px;
     color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
 }
@@ -486,7 +486,7 @@ code {
   border-radius: 6px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 80%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
