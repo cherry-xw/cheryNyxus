@@ -63,6 +63,11 @@ const MUTATING_TOOLS = new Set([
   'generate_audio',
   'destroy_role',
 ])
+/**
+ * config_manage 的只读操作（不写盘、不改配置，可放行）；其余动作（patch/save/rollback/
+ * asset_save/asset_archive 等）修改 .chery 配置或受管资产，属中风险变更。
+ */
+const CONFIG_MANAGE_READ_ACTIONS = new Set(['get', 'asset_get'])
 const HARMLESS_TOOLS = new Set([
   'read_file',
   'search_codebase',
@@ -237,7 +242,8 @@ export function authorizeToolCall(input: {
     !HARMLESS_TOOLS.has(name) &&
     !MUTATING_TOOLS.has(name) &&
     name !== 'execute_command' &&
-    name !== 'spawn_role'
+    name !== 'spawn_role' &&
+    name !== 'config_manage'
   ) {
     if (policy.template !== 'trusted') decision = addEffect(decision, 'ask')
     findings.push({
@@ -273,6 +279,23 @@ export function authorizeToolCall(input: {
   if (MUTATING_TOOLS.has(name)) {
     if (policy.template === 'read-only') decision = 'deny'
     else if (policy.template === 'supervised') decision = addEffect(decision, 'ask')
+  }
+
+  // config_manage：结构化配置管理工具（cheryNyxus 专用，读写 .chery/config.yaml 与受管资产）。
+  // 已声明副作用，不再是「未知工具」：读操作（get/asset_get）只读放行；
+  // 写操作修改持久配置，按角色策略审批，并给出中风险判定（前端风险徽章据此显示，不再「未知」）。
+  if (
+    name === 'config_manage' &&
+    !CONFIG_MANAGE_READ_ACTIONS.has(typeof args.action === 'string' ? args.action : '')
+  ) {
+    if (policy.template === 'read-only') decision = 'deny'
+    else if (policy.template === 'supervised') decision = addEffect(decision, 'ask')
+    findings.push({
+      code: 'role.config-mutating',
+      category: 'config',
+      severity: 'medium',
+      message: '配置管理将修改 .chery 配置或受管资产，批准后才会落盘',
+    })
   }
 
   if (name === 'spawn_role') {

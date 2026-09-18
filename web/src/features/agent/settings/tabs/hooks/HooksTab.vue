@@ -246,7 +246,7 @@ const brainList = computed(() =>
   padding: 20px;
   text-align: center;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 // ============ Neumorphism 原语（事件卡 = 粉 → 白渐变 + 粉调阴影）============
@@ -306,7 +306,7 @@ const brainList = computed(() =>
   align-items: center;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.5;
   white-space: nowrap;
@@ -368,7 +368,7 @@ const brainList = computed(() =>
 }
 
 .ev-label {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   overflow: hidden;
@@ -377,7 +377,7 @@ const brainList = computed(() =>
 }
 
 .ev-name-tag {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   padding: 1px 5px;
   border-radius: 3px;
@@ -389,17 +389,17 @@ const brainList = computed(() =>
 
 .ev-desc {
   margin: 0;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 65%, transparent);
   line-height: 1.4;
 }
 
 .ev-matcher-hint {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 10px;
+    font-size: 12px;
     padding: 0 3px;
     border-radius: 3px;
     background: var(--surface-soft);
@@ -422,11 +422,11 @@ const brainList = computed(() =>
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-style: italic;
   .empty-icon {
-    font-size: 13px;
+    font-size: 15px;
     color: color-mix(in srgb, var(--ink) 35%, transparent);
   }
   .empty-text {
@@ -463,13 +463,13 @@ const brainList = computed(() =>
   gap: 2px;
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: color-mix(in srgb, var(--ink) 60%, transparent);
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 9px;
+    font-size: 12px;
     color: color-mix(in srgb, var(--ink) 80%, transparent);
     max-width: 80px;
     overflow: hidden;
@@ -510,7 +510,7 @@ const brainList = computed(() =>
   flex: 1 1 0;
   min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -518,7 +518,7 @@ const brainList = computed(() =>
 }
 
 .handler-timeout {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
   flex-shrink: 0;
@@ -558,10 +558,10 @@ const brainList = computed(() =>
   gap: 8px;
   padding: 8px 14px;
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 14px;
   flex-shrink: 0;
   .shell-icon {
-    font-size: 14px;
+    font-size: 16px;
     flex-shrink: 0;
   }
   .shell-text {
@@ -570,7 +570,7 @@ const brainList = computed(() =>
     line-height: 1.4;
     code {
       font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-      font-size: 11px;
+      font-size: 13px;
       padding: 1px 4px;
       border-radius: 3px;
       background: color-mix(in srgb, var(--ink) 8%, transparent);
@@ -599,11 +599,11 @@ const brainList = computed(() =>
 }
 
 .guide-icon {
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .guide-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
@@ -614,7 +614,7 @@ const brainList = computed(() =>
 
 .guide-text {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
   line-height: 1.5;
 }
@@ -622,7 +622,7 @@ const brainList = computed(() =>
 .guide-steps {
   margin: 0 0 8px;
   padding-left: 20px;
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 75%, transparent);
   line-height: 1.7;
   li {
@@ -630,7 +630,7 @@ const brainList = computed(() =>
   }
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 11px;
+    font-size: 13px;
     padding: 1px 4px;
     border-radius: 3px;
     background: color-mix(in srgb, var(--ink) 8%, transparent);
@@ -639,11 +639,11 @@ const brainList = computed(() =>
 
 .guide-file {
   margin: 0;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 11px;
+    font-size: 13px;
     padding: 1px 4px;
     border-radius: 3px;
     background: color-mix(in srgb, var(--ink) 8%, transparent);
@@ -661,14 +661,14 @@ const brainList = computed(() =>
 
 .brain-title {
   margin: 0 0 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .brain-hint {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
@@ -685,7 +685,7 @@ const brainList = computed(() =>
   padding: 3px 8px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 75%, transparent);
   small {
     color: color-mix(in srgb, var(--ink) 68%, transparent);

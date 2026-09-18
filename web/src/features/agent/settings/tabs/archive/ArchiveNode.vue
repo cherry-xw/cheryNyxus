@@ -51,12 +51,12 @@ defineEmits<{ view: [chatId: string] }>()
 }
 .node-relation,
 .node-count {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--ink-muted, var(--ink));
 }
 p {
   margin: 6px 0;
-  font-size: 12px;
+  font-size: 14px;
 }
 ul {
   padding-left: 12px;
@@ -65,7 +65,7 @@ ul {
 summary {
   cursor: pointer;
   color: var(--accent);
-  font-size: 12px;
+  font-size: 14px;
 }
 button {
   background: var(--surface);

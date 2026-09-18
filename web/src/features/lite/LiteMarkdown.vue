@@ -26,7 +26,7 @@ const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: '
 
 <style scoped>
 .lite-md {
-  font-size: 12.5px;
+  font-size: 14.5px;
   line-height: 1.55;
   color: var(--el-text-color-primary);
   /* 强制字重规则：lite 内容一律 400。 */
@@ -50,7 +50,7 @@ const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: '
 .lite-md :deep(h5),
 .lite-md :deep(h6) {
   margin: 8px 0 4px;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.3;
   font-weight: 600;
 }
@@ -74,7 +74,7 @@ const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: '
 }
 .lite-md :deep(code) {
   font-family: var(--el-font-family-mono);
-  font-size: 11.5px;
+  font-size: 13.5px;
   padding: 1px 4px;
   border-radius: 0;
   background: var(--el-fill-color-light);
@@ -91,7 +91,7 @@ const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: '
 .lite-md :deep(pre code) {
   padding: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
 }
 .lite-md :deep(hr) {
@@ -106,7 +106,7 @@ const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: '
 .lite-md :deep(table) {
   border-collapse: collapse;
   margin: 6px 0;
-  font-size: 11.5px;
+  font-size: 13.5px;
 }
 .lite-md :deep(th),
 .lite-md :deep(td) {

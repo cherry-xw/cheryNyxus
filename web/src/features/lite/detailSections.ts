@@ -114,10 +114,14 @@ export function mergeDetailSectionPage(
         : toolChunkLength(incomingCalls)
       : chunkText.length
   const stalled = response.hasMore && consumed === 0
+  // 游标页（toolCalls 每页返回一个字段块）：服务端 hasMore === !!nextCursor 已是权威判定，
+  // 不能再套用 fullPage 兜底——否则「最后一块恰好凑满 limit」时 hasMore 恒真、按钮卡死无法终止。
+  const toolCursorPage = section === 'toolCalls' && response.page?.section === 'toolCalls'
   // Older node.get implementations do not set hasMore when `limit` itself
   // performed the slice. A full page is therefore treated as resumable; an
   // exact-length payload costs at most one final empty probe and never skips.
-  const fullPage = requestedLimit !== undefined && consumed >= requestedLimit
+  const fullPage =
+    !toolCursorPage && requestedLimit !== undefined && consumed >= requestedLimit
 
   return {
     loaded: true,

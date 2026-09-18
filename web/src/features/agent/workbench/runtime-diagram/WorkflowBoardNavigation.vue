@@ -59,7 +59,7 @@ const emit = defineEmits<{
   border-bottom: 1px solid var(--border);
   color: var(--ink);
   background: var(--panel);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 nav,

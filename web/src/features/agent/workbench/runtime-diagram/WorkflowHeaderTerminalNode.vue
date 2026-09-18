@@ -62,7 +62,7 @@ button {
   border: 0;
   border-radius: 0;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   color: inherit;
   background: transparent;

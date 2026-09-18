@@ -107,7 +107,7 @@ function removeLogExtension(value: string): void {
   border-radius: 7px;
   background: color-mix(in srgb, var(--neon-indigo) 14%, transparent);
   color: color-mix(in srgb, var(--neon-indigo) 82%, var(--ink));
-  font-size: 9px;
+  font-size: 12px;
   cursor: pointer;
 }
 .extension-magazine .add-extension {

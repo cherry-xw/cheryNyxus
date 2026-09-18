@@ -55,7 +55,7 @@ defineProps<{ window: WorkspaceWindowState }>()
 
 .diagnostic-code b {
   color: var(--danger);
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 600;
 }
 
@@ -64,7 +64,7 @@ defineProps<{ window: WorkspaceWindowState }>()
 .diagnostic-copy small,
 footer {
   color: color-mix(in srgb, var(--ink) 56%, transparent);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.08em;
 }
 
@@ -79,7 +79,7 @@ footer {
 .diagnostic-copy strong {
   overflow: auto;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.55;
   overflow-wrap: anywhere;

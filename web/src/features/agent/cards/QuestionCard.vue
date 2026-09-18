@@ -407,7 +407,7 @@ function back(): void {
 }
 .submit-error {
   color: color-mix(in srgb, #dc2626 80%, var(--ink));
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 400;
 }
 .question-heading {
@@ -425,7 +425,7 @@ function back(): void {
   color: var(--ink);
   background: linear-gradient(145deg, #7c3aed, #4f46e5);
   box-shadow: 0 6px 16px rgba(91, 33, 182, 0.28);
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 900;
 }
 .heading-copy {
@@ -437,7 +437,7 @@ function back(): void {
 }
 .heading-kicker {
   color: color-mix(in srgb, #6d28d9 78%, var(--ink));
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -447,13 +447,13 @@ function back(): void {
   padding: 3px 7px;
   border-radius: 999px;
   color: color-mix(in srgb, #5b21b6 80%, var(--ink));
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
 .question-text {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
   color: @ink;
@@ -481,7 +481,7 @@ function back(): void {
   border-radius: 9px;
   background: var(--surface-soft);
   color: @ink;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
   resize: vertical;
   &::placeholder {
@@ -552,7 +552,7 @@ function back(): void {
   border-radius: 50%;
   color: var(--ink);
   background: var(--surface-soft);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
 }
 .option-card.selected .choice-mark {
@@ -567,13 +567,13 @@ function back(): void {
   gap: 2px;
 }
 .option-label {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 400;
   line-height: 1.25;
 }
 .option-description {
   color: color-mix(in srgb, var(--ink) 58%, transparent);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 400;
   line-height: 1.35;
 }
@@ -588,7 +588,7 @@ function back(): void {
     min-height: 62px !important;
     border-radius: 10px;
     box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.24) inset;
-    font-size: 11px;
+    font-size: 13px;
   }
 }
 
@@ -611,7 +611,7 @@ function back(): void {
   padding: 0 12px;
   border: 1px solid transparent;
   border-radius: 9px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -650,14 +650,14 @@ function back(): void {
   .question-symbol {
     width: 32px;
     height: 32px;
-    font-size: 18px;
+    font-size: 20px;
   }
   .heading-kicker,
   .question-progress {
     font-size: var(--paper-font-small, 11px);
   }
   .question-text {
-    font-size: 15px;
+    font-size: 17px;
     line-height: 1.5;
   }
   .option-card {

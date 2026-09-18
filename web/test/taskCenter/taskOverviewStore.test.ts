@@ -81,4 +81,26 @@ describe('task overview store', () => {
     await vi.waitFor(() => expect(store.subscriptionId).toBe('sub-2'))
     expect(store.tasksByRoot.recovered).toBeDefined()
   })
+
+  it('clears only the viewed result that is still current', async () => {
+    vi.spyOn(agentApi, 'openTaskOverview').mockResolvedValue({
+      subscriptionId: 'sub-1',
+      revision: 0,
+      tasks: [
+        {
+          ...task('done', 'completed', 5),
+          unreadResult: true,
+          latestResult: { resultId: 'result-2', status: 'completed', completedAt: 5 },
+        },
+      ],
+    })
+    const store = useTaskOverviewStore()
+    await store.open()
+
+    store.acknowledgeResultViewed('done', 'result-1')
+    expect(store.tasksByRoot.done?.unreadResult).toBe(true)
+
+    store.acknowledgeResultViewed('done', 'result-2')
+    expect(store.tasksByRoot.done?.unreadResult).toBe(false)
+  })
 })

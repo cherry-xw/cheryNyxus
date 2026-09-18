@@ -396,7 +396,7 @@ onBeforeUnmount(() => {
   padding: 12px 14px 16px;
   overflow: hidden;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 // native 整窗模式：铺满 WindowFrame body、无二次内外边距；toolbar 固定、列表区 flex:1 内部滚动
@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   background: transparent;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
 }
 .nav-chip b {
@@ -456,7 +456,7 @@ onBeforeUnmount(() => {
 .group-head {
   margin: 0 0 6px;
   padding: 0 2px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -485,7 +485,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   background: transparent;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
 }
 .segmented button.active {
@@ -499,7 +499,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   background: transparent;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
   cursor: pointer;
 }
 .refresh:disabled {
@@ -545,7 +545,7 @@ onBeforeUnmount(() => {
   padding: 6px 13px;
   border: 0;
   border-radius: 0;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
   cursor: pointer;
 }
@@ -566,7 +566,7 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 .decision-progress {
-  font-size: 12px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
@@ -586,7 +586,7 @@ onBeforeUnmount(() => {
   border-radius: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
@@ -600,7 +600,7 @@ onBeforeUnmount(() => {
 .decision-bar .question-switch-index {
   min-width: 46px;
   text-align: center;
-  font-size: 12px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
 }
@@ -614,12 +614,12 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   background: color-mix(in srgb, #e35a49 13%, var(--surface));
   color: #b74438;
-  font-size: 12px;
+  font-size: 14px;
 }
 .empty {
   margin: 48px 0;
   text-align: center;
   opacity: 0.55;
-  font-size: 13px;
+  font-size: 15px;
 }
 </style>

@@ -102,7 +102,7 @@ onMounted(loadEditors)
   padding: 2px 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--ink) 5.5%, transparent);
-  font-size: 8px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .editor-status i {
@@ -116,7 +116,7 @@ onMounted(loadEditors)
   box-shadow: 0 0 5px #22d3ee;
 }
 .editor-status small {
-  font-size: 8px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
 }
 </style>

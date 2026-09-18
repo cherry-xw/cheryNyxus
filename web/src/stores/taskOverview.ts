@@ -120,6 +120,15 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
     return true
   }
 
+  function acknowledgeResultViewed(taskKey: string, resultId: string): void {
+    const next = { ...tasksByRoot.value }
+    for (const [rootChatId, task] of Object.entries(next)) {
+      if (task.taskKey !== taskKey || task.latestResult?.resultId !== resultId) continue
+      next[rootChatId] = { ...task, unreadResult: false }
+    }
+    tasksByRoot.value = next
+  }
+
   return {
     tasksByRoot,
     tasks,
@@ -137,5 +146,6 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
     resetSubscription,
     applyChanged,
     togglePin,
+    acknowledgeResultViewed,
   }
 })

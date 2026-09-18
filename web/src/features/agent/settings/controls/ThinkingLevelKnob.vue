@@ -458,7 +458,7 @@ onBeforeUnmount(() => {
   left: 50%;
   transform: translateX(-50%);
   padding: 0 3px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
   background: var(--surface-soft);
@@ -664,7 +664,7 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
   display: inline-block;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   filter: grayscale(18%);
   transition: filter 0.18s ease;
@@ -673,7 +673,7 @@ onBeforeUnmount(() => {
 // 下方小轨道月球：比分轨道放大一档（10px→13px），但整体压暗、去饱和，
 // 与放大镜内按 emoji 原始明暗呈现的月相拉开层级。
 .point-item .moon-icon {
-  font-size: 13px;
+  font-size: 15px;
   filter: grayscale(45%) brightness(0.7);
 }
 // 小轨道上当前选中位：比其余小月稍亮以标示位置，但仍保持压暗。

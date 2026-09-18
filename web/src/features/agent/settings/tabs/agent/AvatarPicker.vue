@@ -118,14 +118,14 @@ function applyCustom(): void {
   opacity: 0.78;
 }
 .avatar-picker-trigger span {
-  font-size: 34px;
+  font-size: 36px;
   transition: transform 0.18s ease;
 }
 .avatar-picker-trigger:hover span {
   transform: rotate(-6deg) scale(1.1);
 }
 .avatar-picker-trigger small {
-  font-size: 9px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .avatar-picker {
@@ -134,7 +134,7 @@ function applyCustom(): void {
   gap: 7px;
 }
 .avatar-group-title {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
@@ -148,7 +148,7 @@ function applyCustom(): void {
   border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   border-radius: 7px;
   background: var(--surface);
-  font-size: 18px;
+  font-size: 20px;
   cursor: pointer;
 }
 .avatar-grid button:hover,
@@ -165,7 +165,7 @@ function applyCustom(): void {
   border: 0;
   background: transparent;
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
   text-align: left;
   padding: 0;

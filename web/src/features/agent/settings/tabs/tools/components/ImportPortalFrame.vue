@@ -252,7 +252,7 @@ const opening = computed(() => props.phase === 'scanning' || props.phase === 'co
 }
 .pack-head h3 {
   margin: 0;
-  font-size: 20px;
+  font-size: 22px;
   letter-spacing: 0.02em;
   color: #fff;
 }
@@ -289,7 +289,7 @@ const opening = computed(() => props.phase === 'scanning' || props.phase === 'co
   align-items: center;
   gap: 5px;
   color: #646d84;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
   transition: 0.22s ease;
@@ -641,12 +641,12 @@ const opening = computed(() => props.phase === 'scanning' || props.phase === 'co
   gap: 4px;
 }
 .showcase-copy b {
-  font-size: 12px;
+  font-size: 14px;
   color: #fff;
 }
 .showcase-copy small {
   min-height: 27px;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.45;
   color: #8e98ae;
 }
@@ -873,7 +873,7 @@ const opening = computed(() => props.phase === 'scanning' || props.phase === 'co
     height: 30px;
     line-height: 30px;
     color: #a4aec1;
-    font-size: 10px;
+    font-size: 12px;
     border-radius: 7px;
     margin: 2px 5px;
     padding: 0 9px;
@@ -895,7 +895,7 @@ const opening = computed(() => props.phase === 'scanning' || props.phase === 'co
   }
   .el-select-dropdown__empty {
     color: #68738a;
-    font-size: 10px;
+    font-size: 12px;
   }
 }
 </style>

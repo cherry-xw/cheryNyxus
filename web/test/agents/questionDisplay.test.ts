@@ -29,6 +29,27 @@ describe('question history display', () => {
     })
   })
 
+  it('keeps agent-written rationale and next step as display data', () => {
+    const withContext = parseQuestionArgs(
+      JSON.stringify({
+        question: '是否继续',
+        rationale: '需要确认兼容范围',
+        nextStep: '确认后运行回归测试',
+        options: [{ label: '继续' }],
+        multiSelect: false,
+      }),
+    )
+    expect(withContext).toMatchObject({
+      question: '是否继续',
+      rationale: '需要确认兼容范围',
+      nextStep: '确认后运行回归测试',
+    })
+    expect(
+      parseQuestionArgs(JSON.stringify({ question: 'q', options: ['x'], rationale: '  ' }))
+        ?.rationale,
+    ).toBeUndefined()
+  })
+
   it('keeps selected labels and an other answer as separate display data', () => {
     expect(
       parseQuestionAnswer('用户回答: 文件, 路径, 执行结果, 其他: 还要保留\n原始换行', 'done', args),

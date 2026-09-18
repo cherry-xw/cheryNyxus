@@ -123,15 +123,15 @@ function setMode(value: string[] | undefined): void {
   gap: 6px;
 }
 .equipment-slot b {
-  font-size: 12px;
+  font-size: 14px;
 }
 .equipment-slot small {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .equipment-token {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
 }
@@ -146,7 +146,7 @@ function setMode(value: string[] | undefined): void {
   border-radius: 7px;
   background: var(--surface);
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 .equipment-mode button.active {
@@ -167,12 +167,12 @@ function setMode(value: string[] | undefined): void {
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 8%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 .equipment-warning {
   margin: 0;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--warning);
 }
 </style>

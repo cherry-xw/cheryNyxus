@@ -387,7 +387,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   border: 2px solid rgba(255, 255, 255, 0.82);
   background: #d99717;
   color: #fff;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 600;
   box-shadow: 0 2px 8px rgba(129, 88, 15, 0.2);
 }
@@ -401,7 +401,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   strong {
     overflow: hidden;
     color: var(--ink);
-    font-size: 16px;
+    font-size: 18px;
     line-height: 1.15;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -429,7 +429,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 16px;
   font-weight: 600;
 }
@@ -443,7 +443,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   align-items: center;
   gap: 3px 5px;
   color: color-mix(in srgb, var(--ink) 65%, transparent);
-  font-size: 10px;
+  font-size: 12px;
 
   .brain-fact-text {
     min-width: 0;
@@ -466,7 +466,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     height: 18px;
     border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
     background: var(--surface-soft);
-    font-size: 11px;
+    font-size: 13px;
     line-height: 1;
     cursor: pointer;
 
@@ -496,7 +496,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   height: 18px;
   border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   background: var(--surface-soft);
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -528,7 +528,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   padding: 0 6px;
   background: var(--panel); /* 盖住身后的边框线 */
   color: color-mix(in srgb, var(--ink) 68%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.03em;
   white-space: nowrap;
@@ -536,7 +536,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 
 .setting-icon {
   color: #d99717;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
 }
 
@@ -564,7 +564,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   background: color-mix(in srgb, var(--ink) 4.5%, transparent);
   color: color-mix(in srgb, var(--ink) 64%, transparent);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
   white-space: nowrap;
   cursor: pointer;
@@ -599,14 +599,14 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 .choice-default {
   flex: none;
   color: #bd8215;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .runtime-note {
   color: color-mix(in srgb, var(--ink) 46%, transparent);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.2;
   text-align: right;
 }
@@ -630,7 +630,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 
   .role-detail-title {
     color: var(--ink);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1.3;
   }
@@ -640,7 +640,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     align-items: baseline;
     justify-content: space-between;
     gap: 14px;
-    font-size: 11px;
+    font-size: 13px;
     line-height: 1.4;
     white-space: nowrap;
   }
@@ -669,14 +669,14 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
     border-radius: 6px;
     background: var(--surface);
-    font-size: 11px;
+    font-size: 13px;
     line-height: 1;
     cursor: default;
   }
 
   .sense-detail-empty {
     color: color-mix(in srgb, var(--ink) 44%, transparent);
-    font-size: 11px;
+    font-size: 13px;
   }
 }
 </style>

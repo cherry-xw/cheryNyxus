@@ -491,18 +491,25 @@ describe('Lite detail lazy pagination', () => {
   })
 
   it('keeps internal payloads out of summaries and exposes accessible detail controls', async () => {
-    const [view, drawer] = await Promise.all([
+    const [view, drawer, interactionView, interactionsSource] = await Promise.all([
       readComponentSource(resolve('src/features/lite/LiteView.vue'), 'utf8'),
       readComponentSource(resolve('src/features/lite/DetailDrawer.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/LiteInteractionView.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/useLiteInteractions.ts'), 'utf8'),
     ])
 
+    // v2026-11：审批/提问交互整体迁入详情抽屉（LiteInteractionView），主视图不再残留面板/交互内部件。
     expect(view).not.toContain('approvalEntries')
-    // 审批参数只能通过待处理详情的结构化组件展示，不得回退为原始 pre 或渗入运行摘要。
-    expect(view).toContain('ParsedArgs')
-    expect(view).toContain('approvalArguments')
+    expect(view).not.toContain('ParsedArgs')
+    expect(view).not.toContain('approvalArguments')
+    expect(view).not.toContain('activePendingTab')
+    expect(view).not.toContain('lite-pending-tab')
+    expect(view).not.toContain('remainingLabel(')
     expect(view).not.toContain('payload.result')
     expect(view).not.toContain('lite-actions')
-    // 上半部运行历史列表（需求 1c）+ 顶部时间瀑布流（需求：放在节点区顶部）+ 底部 tab 栏（需求 1a/1b）
+    expect(view).not.toContain('lite-question-nav')
+    expect(view).not.toContain('lite-question-supplement')
+    // 上半部运行历史列表（需求 1c）+ 顶部时间瀑布流（需求：放在节点区顶部）
     expect(view).toContain('projectLiteHistory(')
     expect(view).toContain('lite-history-row')
     expect(view).toContain('lite-cluster')
@@ -511,29 +518,29 @@ describe('Lite detail lazy pagination', () => {
     expect(view).not.toContain('lite-cluster-dot')
     expect(view).toContain('lite-trajectory')
     expect(view).toContain('LiteScrollbar')
-    expect(view).toContain('activePendingTab')
-    expect(view).toContain('lite-pending-tab')
-    // v1.5 提问重做：左侧问题导航移除（底部 pager 承接切换），选项改两列卡片 + 补充按钮 + 输入框即选项
-    expect(view).not.toContain('lite-question-nav')
-    expect(view).toContain('lite-options-grid')
-    expect(view).toContain('lite-option-note-toggle')
-    expect(view).toContain('lite-option-card is-other')
-    expect(view).toContain('提问批次')
-    expect(view).toContain('其他补充（可选）')
-    expect(view).toContain('if (draft.freeText.trim()) return true')
-    expect(view).toContain(
-      'const selected = !question.multiSelect && freeText ? [] : draft.selected',
-    )
-    expect(view).not.toContain('lite-question-supplement')
-    expect(view).toContain('activeQuestion')
-    expect(view).toContain('canAnswerBatch')
-    expect(view).toContain('lite-interaction-actions is-question')
     // 主题耦合已由 token + color-mix 承接（v1.0/v1.7 废弃独立浅色覆盖块）：校验 lite 仍绑定节点树同源主题色变量。
     expect(view).toContain('--lite-tone-')
     expect(view).not.toContain('inset 3px 0 0')
-    expect(view).toContain('remainingLabel(')
     expect(view).toContain('detailReturnFocus.value?.focus()')
     expect(view).toContain('<button')
+
+    // 交互区（审批/提问）整体迁入 LiteInteractionView（详情抽屉工具卡内渲染）：
+    // 审批参数只能通过结构化组件展示，不得回退为原始 pre 或渗入运行摘要。
+    expect(interactionView).toContain('ParsedArgs')
+    expect(interactionView).toContain('approvalArguments')
+    expect(interactionView).toContain('lite-options-grid')
+    expect(interactionView).toContain('lite-option-note-toggle')
+    expect(interactionView).toContain('lite-option-card is-other')
+    expect(interactionView).toContain('题 · 已完成')
+    expect(interactionView).toContain('其他补充（可选）')
+    expect(interactionView).toContain('lite-interaction-actions is-question')
+    // 草稿/批次提交逻辑收敛到 useLiteInteractions（单一事实源）
+    expect(interactionsSource).toContain('if (draft.freeText.trim()) return true')
+    expect(interactionsSource).toContain(
+      'const selected = !question.multiSelect && freeText ? [] : draft.selected',
+    )
+    expect(interactionsSource).toContain('canAnswerBatch')
+    expect(interactionsSource).toContain('remainingLabel(')
     // 详情抽屉（需求 3）：单节点详情 + 遮罩，点击遮罩关闭；不含轨迹/节点列表
     expect(drawer).toContain('lite-drawer-mask')
     // 工具调用详情已拆到 LiteToolCallDetail（按工具类型解析参数/结果 + JSON 键中文翻译）
@@ -1054,6 +1061,143 @@ describe('projectLiteHistory run-history projection', () => {
     expect(user?.active).toBe(false)
     expect(user?.status).toBe('completed')
     expect(user?.elapsedMs).toBe(0)
+  })
+
+  it('merges the response message (thinking/content) into its tool node via sourceMessageId (一次 LLM 响应 = 一个节点)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        {
+          id: 'm1',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          sourceMessageId: 'resp-1',
+          kind: 'message',
+          actor: { kind: 'agent', chatId: 'root' },
+          target: { kind: 'user', actorId: 'human' },
+          direction: 'agent-to-user',
+          visibility: 'conversation',
+          content: '我先查一下',
+          thinking: '用户要数据，先搜索',
+          orderKey: 20,
+          createdAt: 20,
+          updatedAt: 24,
+          status: 'committed',
+        },
+        {
+          id: 'batch-1',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          sourceMessageId: 'resp-1',
+          kind: 'tool-batch',
+          actor: { kind: 'agent', chatId: 'root' },
+          direction: 'internal',
+          visibility: 'detail',
+          content: '',
+          toolCalls: [
+            { callId: 'c1', index: 0, name: 'search', status: 'completed' as const, arguments: '' },
+          ],
+          orderKey: 30,
+          createdAt: 30,
+          updatedAt: 30,
+          status: 'committed',
+        },
+      ],
+      emptyModel,
+      100,
+    )
+    // 消息节点不再单独出现；工具节点携带同一次响应的正文与思考
+    expect(view.nodes.map((node) => node.nodeId)).toEqual(['q1', 'batch-1'])
+    const tool = view.nodes.find((node) => node.nodeId === 'batch-1')
+    expect(tool?.content).toBe('我先查一下')
+    expect(tool?.thinking).toBe('用户要数据，先搜索')
+  })
+
+  it('keeps a terminated final response as a separate message node (终止回答不并入工具节点)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        {
+          id: 'm1',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          sourceMessageId: 'resp-2',
+          kind: 'message',
+          actor: { kind: 'agent', chatId: 'root' },
+          target: { kind: 'user', actorId: 'human' },
+          direction: 'agent-to-user',
+          visibility: 'conversation',
+          content: '最终回答',
+          orderKey: 20,
+          createdAt: 20,
+          updatedAt: 24,
+          status: 'committed',
+          termination: { actor: { kind: 'system' }, code: 'user_abort', at: 24 },
+        },
+        {
+          id: 'batch-2',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          sourceMessageId: 'resp-2',
+          kind: 'tool-batch',
+          actor: { kind: 'agent', chatId: 'root' },
+          direction: 'internal',
+          visibility: 'detail',
+          content: '',
+          toolCalls: [
+            { callId: 'c2', index: 0, name: 'write', status: 'completed' as const, arguments: '' },
+          ],
+          orderKey: 30,
+          createdAt: 30,
+          updatedAt: 30,
+          status: 'committed',
+        },
+      ],
+      emptyModel,
+      100,
+    )
+    expect(view.nodes.map((node) => node.nodeId)).toEqual(['q1', 'm1', 'batch-2'])
+  })
+
+  it('shows the real ask→answer wait for answered questions via answeredAt (提问耗时 ≠ 0s)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        {
+          id: 'batch-q',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          sourceMessageId: 'msg-q',
+          kind: 'tool-batch',
+          actor: { kind: 'agent', chatId: 'root' },
+          direction: 'internal',
+          visibility: 'detail',
+          content: '',
+          toolCalls: [
+            {
+              callId: 'qid-1',
+              index: 0,
+              name: 'ask_user_question',
+              status: 'completed' as const,
+              arguments: '{"question":"选哪个","options":[]}',
+            },
+          ],
+          answeredAt: 90,
+          orderKey: 20,
+          createdAt: 10,
+          updatedAt: 10,
+          status: 'committed',
+        },
+      ],
+      emptyModel,
+      100,
+    )
+    const tool = view.nodes.find((node) => node.nodeId === 'batch-q')
+    // 真实等待 = 回答时间 − 提问时间（不再显示占位秒回的 0s）
+    expect(tool?.elapsedMs).toBe(80)
+    expect(tool?.completedAt).toBe(90)
+    expect(tool?.startedAt).toBe(10)
+    expect(tool?.status).toBe('completed')
   })
 })
 

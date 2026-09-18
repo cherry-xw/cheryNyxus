@@ -30,10 +30,10 @@ const emit = defineEmits<{ retry: [] }>()
   border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
   color: var(--nx-text);
   background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 8%);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   strong {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
   }
 }

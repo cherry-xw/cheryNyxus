@@ -139,18 +139,6 @@ export function useWorkbenchTreeSession(options: {
     treeRootChatId.value = chatId
     if (chatId !== toValue(options.chatId)) agents.setWorkbenchWindowChat(options.windowId, chatId)
   }
-  async function deletePresetSession(chatId: string): Promise<void> {
-    if (!chatId) return
-    try {
-      await agents.deleteSession(chatId)
-      ElMessage.success('会话已归档，可在设置 → 归档中查看')
-    } catch (cause) {
-      console.error('[WorkbenchDialog] deletePresetSession failed:', cause)
-      const message = cause instanceof Error ? cause.message : '归档会话失败，请重试'
-      options.setError(message)
-      ElMessage.error(message)
-    }
-  }
   async function createSession(): Promise<void> {
     if (creating.value) return
     creating.value = true
@@ -179,9 +167,6 @@ export function useWorkbenchTreeSession(options: {
       creating.value = false
     }
   }
-  async function deleteNyxusSession(chatId: string): Promise<void> {
-    await deletePresetSession(chatId)
-  }
 
   onScopeDispose(releaseCurrentRoot)
 
@@ -189,8 +174,6 @@ export function useWorkbenchTreeSession(options: {
     connection,
     createSession,
     creating,
-    deleteNyxusSession,
-    deletePresetSession,
     historyLoading,
     releaseCurrentRoot,
     switchSession,

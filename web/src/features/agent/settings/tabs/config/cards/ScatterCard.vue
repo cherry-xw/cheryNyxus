@@ -107,7 +107,7 @@ const sectionStyle = computed(() => ({
   overflow: visible;
   overflow-wrap: anywhere;
   text-overflow: clip;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 1.4;
 }
@@ -226,7 +226,7 @@ const sectionStyle = computed(() => ({
 .neon-block :deep(h3) {
   position: relative;
   margin: 0;
-  font-size: 13px;
+  font-size: 15px;
   // 主题自适应标题：浅色深靛、深色随 --ink 抬亮的靛蓝（原硬编码 #3730a3 深色近不可见）
   color: color-mix(in srgb, var(--neon-indigo) 68%, var(--ink));
 }
@@ -234,7 +234,7 @@ const sectionStyle = computed(() => ({
   gap: 2px;
 }
 .neon-block :deep(.lbl) {
-  font-size: 12px;
+  font-size: 14px;
 }
 .neon-block :deep(.el-input__wrapper),
 .neon-block :deep(.el-select__wrapper) {
@@ -245,7 +245,7 @@ const sectionStyle = computed(() => ({
 .neon-block :deep(.el-input__inner),
 .neon-block :deep(.el-select__selected-item),
 .neon-block :deep(.el-select__placeholder) {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 18px;
 }
 .neon-block :deep(.el-input__inner) {

@@ -254,7 +254,7 @@ watch(
   border-radius: 11px 9px 12px 8px;
   background: linear-gradient(145deg, var(--surface), var(--surface-hover));
   box-shadow: 0 2px 7px color-mix(in srgb, var(--ink) 12%, transparent);
-  font-size: 18px;
+  font-size: 20px;
   transition: 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
   overflow: hidden;
 }
@@ -272,7 +272,7 @@ watch(
   display: flex;
   align-items: baseline;
   gap: 4px;
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -304,11 +304,11 @@ watch(
   white-space: nowrap;
 }
 .resource-copy b {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 .resource-copy small {
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .resource-badge {
@@ -316,7 +316,7 @@ watch(
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 .resource-detail {
@@ -367,7 +367,7 @@ watch(
 .resource-rail-empty {
   padding: 24px 8px;
   text-align: center;
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 .rail-search-icon {

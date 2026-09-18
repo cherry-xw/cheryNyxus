@@ -1,10 +1,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
-import { useAgentsStore } from '@/application/public'
-import { useLiteStore, type LiteQuestionDraft } from './liteStore'
-import { useLiteCanonicalView, type LiteInteraction } from './useLiteCanonicalView'
+import { useLiteStore } from './liteStore'
+import { useLiteCanonicalView } from './useLiteCanonicalView'
+import { useLiteInteractions } from './useLiteInteractions'
 import {
   buildLiteRows,
-  classifyToolType,
   createLiteExecutionClock,
   formatElapsed,
   isStandaloneNodeKind,
@@ -23,7 +22,6 @@ import LiteScrollbar from './LiteScrollbar.vue'
 import DetailDrawer from './DetailDrawer.vue'
 import LiteMarkdown from './LiteMarkdown.vue'
 import { useLiteNodeTones } from './useLiteNodeTones'
-import { createApprovalPresentation } from '@/utils/approvalPresentation'
 
 export type LiteViewControllerProps = { windowId: string; rootChatId: string; presetName?: string }
 
@@ -39,6 +37,11 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     { immediate: true },
   )
   const rootUi = computed(() => liteUi.ensureRootUi(props.windowId, props.rootChatId))
+  /** 交互单一事实源（审批/提问展示与操作，供详情抽屉消费；铃铛定位也走这里）。 */
+  const interactions = useLiteInteractions(
+    () => props.windowId,
+    () => props.rootChatId,
+  )
   /** 节点色调（与节点树 nodeSkins 同源，随主题切换）：以 CSS 变量绑定 .lite-view 根元素。 */
   const { nodeToneVars } = useLiteNodeTones()
   const clock = createLiteExecutionClock()
@@ -280,452 +283,6 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     el.style.height = 'auto'
     el.style.height = el.scrollHeight + 'px'
   }
-  function interactionStatusLabel(interaction: LiteInteraction): string {
-    return {
-      pending: '待处理',
-      resolving: '处理中',
-      blocked: '恢复失败，可重试',
-      completed: '已处理',
-      expired: '已超时，未执行',
-      cancelled: '已取消',
-    }[interaction.status]
-  }
-  function interactionActionable(interaction: LiteInteraction): boolean {
-    return (
-      interaction.status === 'pending' ||
-      (interaction.kind === 'approval' && interaction.status === 'blocked')
-    )
-  }
-  function approvalPresentation(interaction: LiteInteraction) {
-    return createApprovalPresentation(interaction.payload.senseName, interaction.payload.arguments)
-  }
-  function approvalArguments(interaction: LiteInteraction): unknown {
-    return interaction.payload.arguments
-  }
-  function approvalRiskSummary(interaction: LiteInteraction): string {
-    const security = interaction.payload.security
-    if (security && typeof security === 'object') {
-      const findings = (security as { findings?: unknown }).findings
-      if (Array.isArray(findings)) {
-        const message = (findings[0] as { message?: unknown } | undefined)?.message
-        if (typeof message === 'string' && message.trim()) return message.slice(0, 120)
-      }
-    }
-    return '未发现额外安全提示；仍请核对能力、行为和完整操作参数。'
-  }
-  // ── 顶部待操作 tab 栏（需求 1a/1b/4e）：只渲染存在的类型，每个审批/提问交互独立一个小 Tab，
-  // 按时间排序；激活的交互在 Tab 栏下方的内容面板展示。
-  const actionableInteractions = computed(() => lite.interactions.filter(interactionActionable))
-  const sortedInteractions = computed(() =>
-    [...actionableInteractions.value].sort(
-      (a, b) => a.createdAt - b.createdAt || a.interactionId.localeCompare(b.interactionId),
-    ),
-  )
-  interface PendingTabView {
-    id: string
-    kind: 'approval' | 'question'
-    label: string
-    /** 完整说明（title 提示）：含批次号/问题数/Agent 名等 label 放不下的信息。 */
-    tip: string
-    /** 页签标记（审批=MCU ASCII 工具字符，提问保留独立交互标记） */
-    icon: string
-    countdown: string
-    expired: boolean
-  }
-  const agents = useAgentsStore()
-  /** 交互所属 Agent 名：pet 名 → 会话摘要预设名 → 兜底「Agent」。 */
-  function agentNameOf(chatId: string): string {
-    const pet = agents.petForChat(chatId)
-    if (pet?.name) return pet.name
-    const summary = agents.summaryForChat(chatId)
-    return summary?.preset ?? summary?.presetId ?? 'Agent'
-  }
-  /**
-   * 批次 tab（需求：tab 为批次/不同 agent）：
-   * - 多 agent 并存时前缀 Agent 名区分归属（同 root 下的子 agent 批次与主 agent 批次并列展示）；
-   * - 同一 agent 的多个提问批次显示问题批次号（按 chatId 独立计数，审批不受影响）。
-   */
-  const pendingTabs = computed<PendingTabView[]>(() => {
-    const list = sortedInteractions.value
-    const raw: Array<{
-      id: string
-      kind: 'approval' | 'question'
-      agentName: string
-      title: string
-      batchOrdinal: number
-      questionCount: number
-      icon: string
-      countdown: string
-      expired: boolean
-    }> = []
-    const questionOrdinalByChat = new Map<string, number>()
-    for (const interaction of list) {
-      const agentName = agentNameOf(interaction.chatId)
-      const countdown = remainingLabel(interaction)
-      const expired = countdown === '已超时'
-      if (interaction.kind === 'approval') {
-        const presentation = approvalPresentation(interaction)
-        raw.push({
-          id: interaction.interactionId,
-          kind: 'approval',
-          agentName,
-          title: presentation.title,
-          batchOrdinal: 0,
-          questionCount: 0,
-          icon: toolTypeGlyph(classifyToolType(presentation.senseName)),
-          countdown,
-          expired,
-        })
-      } else {
-        const ordinal = (questionOrdinalByChat.get(interaction.chatId) ?? 0) + 1
-        questionOrdinalByChat.set(interaction.chatId, ordinal)
-        raw.push({
-          id: interaction.interactionId,
-          kind: 'question',
-          agentName,
-          title: '',
-          batchOrdinal: ordinal,
-          questionCount: questionsOf(interaction).length,
-          icon: '❓',
-          countdown,
-          expired,
-        })
-      }
-    }
-    const multiAgent = new Set(raw.map((tab) => tab.agentName)).size > 1
-    return raw.map((tab) => {
-      const agentPrefix = multiAgent ? `${tab.agentName} · ` : ''
-      if (tab.kind === 'approval') {
-        const title = tab.title.length > 16 ? tab.title.slice(0, 16) + '…' : tab.title
-        return {
-          id: tab.id,
-          kind: 'approval' as const,
-          label: agentPrefix + title,
-          tip: agentPrefix + tab.title,
-          icon: tab.icon,
-          countdown: tab.countdown,
-          expired: tab.expired,
-        }
-      }
-      const batch = `提问批次 ${tab.batchOrdinal}`
-      return {
-        id: tab.id,
-        kind: 'question' as const,
-        label: agentPrefix + batch,
-        tip: `${agentPrefix}${batch} · ${tab.questionCount} 问`,
-        icon: tab.icon,
-        countdown: tab.countdown,
-        expired: tab.expired,
-      }
-    })
-  })
-  const pendingTab = computed({
-    get: () => rootUi.value.pendingTab,
-    set: (value: string | null) =>
-      liteUi.patchRootUi(props.windowId, props.rootChatId, { pendingTab: value }),
-  })
-  /** 待处理面板收起态（v1.1）：收起仅保留标签栏；按窗口 × 根会话隔离存 rootUi。 */
-  const pendingCollapsed = computed({
-    get: () => rootUi.value.pendingCollapsed,
-    set: (value: boolean) =>
-      liteUi.patchRootUi(props.windowId, props.rootChatId, { pendingCollapsed: value }),
-  })
-  function togglePendingCollapsed(): void {
-    pendingCollapsed.value = !pendingCollapsed.value
-  }
-  /** 点标签：收起态下先展开再切换到该交互；展开态即普通切换。 */
-  function selectPendingTab(id: string): void {
-    if (pendingCollapsed.value) pendingCollapsed.value = false
-    pendingTab.value = id
-  }
-  /** 激活的待处理交互 id：null=收起；无有效 pendingTab 时自动回退到第一个 Tab（保持「有新交互即展示」）。 */
-  const activePendingTabId = computed<string | null>(() => {
-    if (pendingTab.value && pendingTabs.value.some((tab) => tab.id === pendingTab.value)) {
-      return pendingTab.value
-    }
-    return pendingTabs.value[0]?.id ?? null
-  })
-  /** 激活的待处理交互（内容面板据此渲染；不在可操作列表时回退为 null）。 */
-  const activeInteraction = computed<LiteInteraction | null>(() => {
-    const id = activePendingTabId.value
-    if (!id) return null
-    return lite.interactions.find((item) => item.interactionId === id) ?? null
-  })
-  const deciding = ref<string | null>(null)
-  async function onDecide(
-    interaction: LiteInteraction,
-    action: 'accept' | 'reject',
-  ): Promise<void> {
-    deciding.value = interaction.interactionId
-    try {
-      await lite.decideApproval(interaction.interactionId, action)
-    } finally {
-      deciding.value = null
-    }
-  }
-  interface QuestionView {
-    questionId: string
-    question: string
-    header?: string
-    options: Array<{ label: string; description?: string }>
-    multiSelect: boolean
-    freeText: boolean
-  }
-  function questionsOf(interaction: LiteInteraction): QuestionView[] {
-    const questions = interaction.payload.questions
-    if (!Array.isArray(questions)) return []
-    return (questions as Array<Record<string, unknown>>).map((question) => ({
-      questionId: typeof question.questionId === 'string' ? question.questionId : '',
-      question: typeof question.question === 'string' ? question.question : '',
-      ...(typeof question.header === 'string' && question.header.trim()
-        ? { header: question.header.trim() }
-        : {}),
-      options: Array.isArray(question.options)
-        ? (question.options as Array<{ label: string; description?: string }>)
-        : [],
-      multiSelect: question.multiSelect === true,
-      freeText: !Array.isArray(question.options) || question.options.length === 0,
-    }))
-  }
-  const questionDrafts = computed({
-    get: () => rootUi.value.interactionDrafts,
-    set: (value: Record<string, Record<string, LiteQuestionDraft>>) =>
-      liteUi.patchRootUi(props.windowId, props.rootChatId, { interactionDrafts: value }),
-  })
-  function draftOf(batchId: string, questionId: string): LiteQuestionDraft {
-    return (
-      questionDrafts.value[batchId]?.[questionId] ?? {
-        selected: [],
-        notes: {},
-        freeText: '',
-        otherActive: false,
-      }
-    )
-  }
-  function selectedOf(batchId: string, questionId: string): string[] {
-    return draftOf(batchId, questionId).selected
-  }
-  function noteOf(batchId: string, questionId: string, label: string): string {
-    return draftOf(batchId, questionId).notes[label] ?? ''
-  }
-  /** 「其他」输入框作为选项的激活态（单选 radio / 多选复选框）。 */
-  function otherActiveOf(batchId: string, questionId: string): boolean {
-    return draftOf(batchId, questionId).otherActive === true
-  }
-  // ── 选项「补充」输入的展开态（纯 UI，不持久化；key 含 questionId，切题自动隔离）──
-  const noteOpenByKey = ref<Record<string, boolean>>({})
-  function noteKey(batchId: string, questionId: string, label: string): string {
-    return `${batchId}:${questionId}:${label}`
-  }
-  function isNoteOpen(batchId: string, questionId: string, label: string): boolean {
-    return noteOpenByKey.value[noteKey(batchId, questionId, label)] === true
-  }
-  function openNote(batchId: string, questionId: string, label: string): void {
-    noteOpenByKey.value = {
-      ...noteOpenByKey.value,
-      [noteKey(batchId, questionId, label)]: true,
-    }
-  }
-  function closeNote(batchId: string, questionId: string, label: string): void {
-    const key = noteKey(batchId, questionId, label)
-    if (!noteOpenByKey.value[key]) return
-    const { [key]: _removed, ...rest } = noteOpenByKey.value
-    noteOpenByKey.value = rest
-  }
-  /** 「补充」按钮：仅选中选项可展开（展开/收起切换）。 */
-  function toggleNoteOpen(batchId: string, questionId: string, label: string): void {
-    if (isNoteOpen(batchId, questionId, label)) closeNote(batchId, questionId, label)
-    else openNote(batchId, questionId, label)
-  }
-  function toggleOption(batchId: string, question: QuestionView, label: string): void {
-    const batch = { ...questionDrafts.value[batchId] }
-    const draft = draftOf(batchId, question.questionId)
-    const current = new Set(draft.selected)
-    const next = { ...draft }
-    if (question.multiSelect) {
-      if (current.has(label)) {
-        current.delete(label)
-        const { [label]: _removed, ...rest } = next.notes
-        next.notes = rest
-        closeNote(batchId, question.questionId, label)
-      } else {
-        current.add(label)
-        if (next.notes[label]?.trim()) openNote(batchId, question.questionId, label)
-      }
-      next.selected = [...current]
-    } else {
-      const deselecting = current.has(label)
-      next.selected = deselecting ? [] : [label]
-      if (!deselecting) {
-        // 单选选中具体选项 → 抢走「其他」的激活并丢弃其输入（互斥）
-        next.freeText = ''
-        next.otherActive = false
-      }
-      // 单选切选项：丢弃非当前选项的补充描述
-      next.notes = deselecting
-        ? {}
-        : { ...(next.notes[label] ? { [label]: next.notes[label] } : {}) }
-      if (deselecting) closeNote(batchId, question.questionId, label)
-      else if (next.notes[label]?.trim()) openNote(batchId, question.questionId, label)
-    }
-    batch[question.questionId] = next
-    questionDrafts.value = { ...questionDrafts.value, [batchId]: batch }
-  }
-  function setOptionNote(batchId: string, questionId: string, label: string, value: string): void {
-    const batch = { ...questionDrafts.value[batchId] }
-    const draft = draftOf(batchId, questionId)
-    batch[questionId] = { ...draft, notes: { ...draft.notes, [label]: value } }
-    questionDrafts.value = { ...questionDrafts.value, [batchId]: batch }
-  }
-  function textDraftOf(batchId: string, questionId: string): string {
-    return draftOf(batchId, questionId).freeText
-  }
-  /**
-   * 「其他」输入框切换（输入框本身是单选/多选的一个选项）：
-   * - 单选：点击抢走其他选项的 active（可再点取消，取消即清空输入）；
-   * - 多选：手动勾选复选框；取消勾选清空输入。
-   */
-  function toggleOtherActive(batchId: string, question: QuestionView): void {
-    const batch = { ...questionDrafts.value[batchId] }
-    const draft = draftOf(batchId, question.questionId)
-    const next = { ...draft, otherActive: !draft.otherActive }
-    if (next.otherActive) {
-      if (!question.multiSelect) {
-        next.selected = []
-        next.notes = {}
-      }
-    } else {
-      next.freeText = ''
-    }
-    batch[question.questionId] = next
-    questionDrafts.value = { ...questionDrafts.value, [batchId]: batch }
-  }
-  function setTextDraft(batchId: string, question: QuestionView, value: string): void {
-    const batch = { ...questionDrafts.value[batchId] }
-    const draft = draftOf(batchId, question.questionId)
-    const next = { ...draft, freeText: value }
-    if (question.freeText) {
-      // 纯自由文本题：无选项，不参与勾选
-    } else if (question.multiSelect) {
-      // 多选：输入内容自动勾选「其他」复选框；清空即取消勾选
-      next.otherActive = value.trim().length > 0
-    } else if (value.trim()) {
-      // 单选：输入即激活「其他」选项，抢走其他选项的选中
-      next.selected = []
-      next.notes = {}
-      next.otherActive = true
-    }
-    batch[question.questionId] = next
-    questionDrafts.value = { ...questionDrafts.value, [batchId]: batch }
-  }
-  /** 选项卡片点击/键盘切换：不可操作（已处理/超时等）时忽略。 */
-  function onToggleChoice(
-    interaction: LiteInteraction,
-    question: QuestionView,
-    label: string,
-  ): void {
-    if (!interactionActionable(interaction)) return
-    toggleOption(interaction.interactionId, question, label)
-  }
-  function onToggleOther(interaction: LiteInteraction, question: QuestionView): void {
-    if (!interactionActionable(interaction)) return
-    toggleOtherActive(interaction.interactionId, question)
-  }
-  function onOtherInput(interaction: LiteInteraction, question: QuestionView, value: string): void {
-    setTextDraft(interaction.interactionId, question, value)
-  }
-  const activeQuestionByBatch = ref<Record<string, string>>({})
-  function questionAnswered(batchId: string, question: QuestionView): boolean {
-    const draft = draftOf(batchId, question.questionId)
-    if (draft.freeText.trim()) return true
-    if (question.freeText) return false
-    return question.multiSelect ? draft.selected.length > 0 : draft.selected.length === 1
-  }
-  function activeQuestionIdOf(interaction: LiteInteraction): string {
-    const questions = questionsOf(interaction)
-    const saved = activeQuestionByBatch.value[interaction.interactionId]
-    if (saved && questions.some((question) => question.questionId === saved)) return saved
-    return questions[0]?.questionId ?? ''
-  }
-  function activeQuestionOf(interaction: LiteInteraction): QuestionView | undefined {
-    const id = activeQuestionIdOf(interaction)
-    return questionsOf(interaction).find((question) => question.questionId === id)
-  }
-  const activeQuestion = computed(() =>
-    activeInteraction.value?.kind === 'question_batch'
-      ? activeQuestionOf(activeInteraction.value)
-      : undefined,
-  )
-  function selectQuestion(interaction: LiteInteraction, questionId: string): void {
-    activeQuestionByBatch.value = {
-      ...activeQuestionByBatch.value,
-      [interaction.interactionId]: questionId,
-    }
-  }
-  function moveQuestion(interaction: LiteInteraction, offset: number): void {
-    const questions = questionsOf(interaction)
-    const index = questions.findIndex(
-      (question) => question.questionId === activeQuestionIdOf(interaction),
-    )
-    const next = questions[index + offset]
-    if (next) selectQuestion(interaction, next.questionId)
-  }
-  function activeQuestionIndexOf(interaction: LiteInteraction): number {
-    return questionsOf(interaction).findIndex(
-      (question) => question.questionId === activeQuestionIdOf(interaction),
-    )
-  }
-  function answeredQuestionCount(interaction: LiteInteraction): number {
-    return questionsOf(interaction).filter((question) =>
-      questionAnswered(interaction.interactionId, question),
-    ).length
-  }
-  function canAnswerBatch(interaction: LiteInteraction): boolean {
-    const questions = questionsOf(interaction)
-    return (
-      questions.length > 0 &&
-      questions.every((question) => questionAnswered(interaction.interactionId, question))
-    )
-  }
-  const answering = ref<string | null>(null)
-  async function onAnswerBatch(interaction: LiteInteraction): Promise<void> {
-    const batchId = interaction.interactionId
-    if (!canAnswerBatch(interaction)) {
-      const firstIncomplete = questionsOf(interaction).find(
-        (question) => !questionAnswered(batchId, question),
-      )
-      if (firstIncomplete) selectQuestion(interaction, firstIncomplete.questionId)
-      return
-    }
-    const answers = questionsOf(interaction).map((question) => {
-      const draft = draftOf(batchId, question.questionId)
-      if (question.freeText) {
-        return {
-          questionId: question.questionId,
-          freeText: draft.freeText,
-        }
-      }
-      const notes: Record<string, string> = {}
-      const freeText = draft.freeText.trim()
-      const selected = !question.multiSelect && freeText ? [] : draft.selected
-      for (const label of selected) {
-        const note = draft.notes[label]?.trim()
-        if (note) notes[label] = note
-      }
-      return {
-        questionId: question.questionId,
-        selectedLabels: selected,
-        ...(Object.keys(notes).length ? { optionNotes: notes } : {}),
-        ...(freeText ? { freeText } : {}),
-      }
-    })
-    answering.value = batchId
-    try {
-      await lite.answerQuestion(batchId, answers)
-    } finally {
-      answering.value = null
-    }
-  }
   const aborting = ref(false)
   async function onStop(): Promise<void> {
     aborting.value = true
@@ -756,16 +313,6 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       if (allowed && wasBlocked === false) void nextTick(() => liteInputEl.value?.focus())
     },
   )
-  // 倒计时（需求 2）：仅运行中（pending/resolving）的节点计算倒计时；终态节点只显示状态。
-  function remainingLabel(interaction: LiteInteraction): string {
-    void clock.now.value
-    if (interaction.status !== 'pending' && interaction.status !== 'resolving') return ''
-    if (typeof interaction.deadlineAt !== 'number') return ''
-    const remaining = interaction.deadlineAt - lite.calibratedNow()
-    if (remaining <= 0) return '已超时'
-    const seconds = Math.ceil(remaining / 1000)
-    return seconds >= 60 ? `${Math.floor(seconds / 60)}m${seconds % 60}s` : `${seconds}s`
-  }
   const errorBanner = computed(() => {
     const error = lite.lastCommandError
     if (!error) return null
@@ -841,20 +388,6 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   function openNodeDetail(node: LiteRunNode, event: Event): void {
     showDetail(node.nodeId, node.kind === 'tool' ? 'toolCalls' : null, null, event)
   }
-  function approvalDetailNodeId(interaction: LiteInteraction): string | null {
-    const payloadAnchor = interaction.payload.anchorNodeId
-    const toolOwner = lite.detailNodeIdForToolCall(interaction.interactionId)
-    if (toolOwner) return toolOwner
-    if (interaction.anchorNodeId) {
-      const anchored = lite.detailNodeIdForMessage(interaction.anchorNodeId)
-      if (anchored) return anchored
-    }
-    return typeof payloadAnchor === 'string' ? lite.detailNodeIdForMessage(payloadAnchor) : null
-  }
-  function openApprovalDetail(interaction: LiteInteraction, event: Event): void {
-    const nodeId = approvalDetailNodeId(interaction)
-    if (nodeId) showDetail(nodeId, 'toolCalls', interaction.interactionId, event)
-  }
   async function closeDetail(): Promise<void> {
     liteUi.patchRootUi(props.windowId, props.rootChatId, {
       detailNodeId: null,
@@ -865,6 +398,23 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     detailReturnFocus.value?.focus()
     detailReturnFocus.value = null
   }
+  // 铃铛定位待处理交互（工作台写入 rootUi.attentionOpenRequest）：打开目标交互所在节点的详情抽屉，
+  // 并聚焦承载该交互的工具调用卡（审批=interactionId / 提问=第一题 questionId）。消费后清空请求。
+  watch(
+    () => rootUi.value.attentionOpenRequest,
+    (request) => {
+      if (!request) return
+      const interaction = lite.interactions.find(
+        (item) => item.interactionId === request.interactionId,
+      )
+      if (interaction) {
+        const focusCallId = interactions.focusCallIdForInteraction(interaction)
+        const nodeId = interactions.focusNodeForInteraction(interaction)
+        if (nodeId) showDetail(nodeId, 'toolCalls', focusCallId)
+      }
+      liteUi.patchRootUi(props.windowId, props.rootChatId, { attentionOpenRequest: null })
+    },
+  )
   // t14：点击时间轴节点 → 定位/高亮下方对应内容块（不再拉出侧边窗）。
   const focusNodeId = ref<string | null>(null)
   const rowEls = new Map<string, HTMLElement | null>()
@@ -1194,22 +744,10 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     LiteMarkdown,
     LiteScrollbar,
     aborting,
-    activeInteraction,
     activeLane,
-    activePendingTabId,
-    activeQuestion,
-    activeQuestionIdOf,
-    activeQuestionIndexOf,
-    answeredQuestionCount,
-    answering,
-    approvalArguments,
-    approvalDetailNodeId,
-    approvalPresentation,
-    approvalRiskSummary,
     autoGrowInput,
     closeDetail,
     connectionBlocked,
-    deciding,
     detailNode,
     detailNodeIndex,
     entryDispatch,
@@ -1225,8 +763,6 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     hoverNode,
     hydrationLabel,
     inputText,
-    interactionActionable,
-    interactionStatusLabel,
     isDetailNode,
     isInFlightNode,
     isPlainRowContent,
@@ -1241,33 +777,16 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     nodeKindLabel,
     nodeTipText,
     nodeToneVars,
-    noteOf,
-    isNoteOpen,
-    onAnswerBatch,
-    onDecide,
     onErrorAction,
     onInputKeydown,
     onMonitorScroll,
-    onOtherInput,
     onResume,
     onSend,
     onStop,
-    onToggleChoice,
-    onToggleOther,
     onTrajectoryKeydown,
     onTrajectoryWheel,
-    openApprovalDetail,
-    moveQuestion,
     openNodeDetail,
     operationBlockReason,
-    otherActiveOf,
-    pendingTab,
-    pendingCollapsed,
-    pendingTabs,
-    questionAnswered,
-    questionsOf,
-    selectPendingTab,
-    remainingLabel,
     resetTrajectoryZoom,
     resuming,
     rootUi,
@@ -1275,23 +794,13 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     runDetailOpen,
     runDetailText,
     runStatusLabel,
-    selectedOf,
     sending,
-    setOptionNote,
-    selectQuestion,
     setRowEl,
-    setTextDraft,
     showBarTip,
     showsRowContent,
-    textDraftOf,
     tipAction,
     tipPos,
-    toggleNoteOpen,
-    toggleOption,
-    toggleOtherActive,
-    togglePendingCollapsed,
     toggleRunDetail,
-    canAnswerBatch,
     toolTypeGlyph,
     toolTypeLabel,
     trajectoryBarStyle,

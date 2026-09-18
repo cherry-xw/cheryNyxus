@@ -35,10 +35,16 @@ const state = computed(() => {
   border-radius: 999px;
   color: color-mix(in srgb, var(--ink) 72%, transparent);
   background: var(--surface-soft);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
   user-select: none;
+  // 空间挤压时保持水平：不被标题栏 flex 压缩，状态文字不换行成竖排
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.conn-label {
+  white-space: nowrap;
 }
 .conn-dot {
   width: 6px;

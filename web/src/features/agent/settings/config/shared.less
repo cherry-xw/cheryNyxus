@@ -13,7 +13,7 @@
 .sect-hint {
   margin: 0;
   color: color-mix(in srgb, var(--ink) 74%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   // 骨架模式：覆盖为 shimmer 占位条；保持 .sect-hint 同样字号行高 → 计算高度一致。
   &.skel-shimmer {
@@ -36,7 +36,7 @@
   // 警示语义用 emoji 前缀表达（不再用左边色条）；背景淡化 + 文字色加重保持 tab-color 联动
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
   // 骨架模式：复用真实 .warn-hint 字号 + 行高 + padding，只是把背景色换成 shimmer。
   // 计算高度（line-height 15.4 + padding 10 = 25.4px）与真实段落像素级一致。
@@ -74,7 +74,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 20px;
   text-align: center;
@@ -94,7 +94,7 @@
     gap: 6px;
   }
   .card-name {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 92%, transparent);
     &.editable {
@@ -120,7 +120,7 @@
   // 等宽输入：模型/地址/key 类字段整齐对齐
   :deep(.el-input__inner) {
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    font-size: 12px;
+    font-size: 14px;
   }
 }
 .icon-btn {
@@ -230,12 +230,12 @@
   gap: 12px;
 }
 .lbl {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 78%, transparent);
 }
 .hint {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
   line-height: 1.4;
 }
@@ -245,7 +245,7 @@
   gap: 6px 12px;
 }
 .empty {
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
   font-style: italic;
 }
@@ -263,7 +263,7 @@
   border-radius: 6px;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 78%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
   &:hover {
     color: var(--tab-color, @accent);
@@ -276,7 +276,7 @@
   border-radius: 6px;
   background: var(--surface);
   color: color-mix(in srgb, var(--ink) 88%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
   &:hover {
     border-color: color-mix(in srgb, var(--ink) 40%, transparent);
@@ -323,7 +323,7 @@
   border-radius: 5px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 76%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
@@ -442,7 +442,7 @@
 }
 .sub-title {
   margin: 10px 0 0;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 90%, transparent);
   letter-spacing: 0.01em;
@@ -460,7 +460,7 @@
   border-radius: 5px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 76%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
   &:hover {
@@ -474,7 +474,7 @@
   }
 }
 .shell-index-page-info {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
   margin: 0 2px;
   white-space: nowrap;
@@ -500,7 +500,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--neon-indigo) 8%, transparent);
   color: var(--neon-indigo);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -519,7 +519,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 8px;
@@ -558,7 +558,7 @@
   border-radius: 999px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 82%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -580,7 +580,7 @@
   align-items: center;
   gap: 8px;
   padding-left: 28px;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 72%, transparent);
   .brain-summary-sep {
     color: color-mix(in srgb, var(--ink) 25%, transparent);

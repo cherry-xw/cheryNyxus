@@ -110,18 +110,18 @@ fieldset {
 }
 legend {
   padding: 0 4px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
 }
 fieldset > small {
   display: block;
   margin-bottom: 7px;
-  font-size: 12px;
+  font-size: 14px;
   opacity: 0.88;
 }
 .options-hint {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--ink) 52%, transparent);
 }
 .options {
@@ -143,7 +143,7 @@ fieldset > small {
   border-radius: 8px;
   background: transparent;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
   text-align: left;
   cursor: pointer;
 }
@@ -161,7 +161,7 @@ fieldset > small {
   background: color-mix(in srgb, var(--accent) 20%, var(--surface));
 }
 .option-btn-label span {
-  font-size: 12px;
+  font-size: 14px;
   opacity: 0.72;
 }
 // 选项按钮内部末尾的「补充」tag：点选才展开该选项的补充输入（不随选中自动出现）。
@@ -175,7 +175,7 @@ fieldset > small {
   border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 52%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
   cursor: pointer;
 }
@@ -198,7 +198,7 @@ input {
   border-radius: 7px;
   background: var(--surface);
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
 }
 .option-note-input {
   margin-top: 0;
@@ -206,6 +206,6 @@ input {
 .object-error {
   margin: 6px 0 0;
   color: var(--el-color-danger);
-  font-size: 12px;
+  font-size: 14px;
 }
 </style>

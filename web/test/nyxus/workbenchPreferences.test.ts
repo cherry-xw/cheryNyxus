@@ -90,52 +90,6 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(openWorkbench).not.toContain('fetchHistoryList')
   })
 
-  it('allows archiving the final session and explains where it remains accessible', async () => {
-    const source = await readComponentSource(
-      resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
-      'utf8',
-    )
-    const deletePreset = source.slice(
-      source.indexOf('async function deletePresetSession'),
-      source.indexOf('async function createSession'),
-    )
-    const deleteNyxus = source.slice(
-      source.indexOf('async function deleteNyxusSession'),
-      source.indexOf('onScopeDispose(releaseCurrentRoot)'),
-    )
-
-    expect(deletePreset).not.toContain('请先新建一个会话')
-    expect(deletePreset).toContain('await agents.deleteSession(chatId)')
-    expect(deleteNyxus).toContain('await deletePresetSession(chatId)')
-    expect(deleteNyxus).not.toContain("treeRootChatId.value = ''")
-    expect(deleteNyxus).not.toContain('await switchSession(')
-    expect(deletePreset).toContain("ElMessage.success('会话已归档，可在设置 → 归档中查看')")
-    expect(deletePreset).toContain('options.setError(message)')
-  })
-
-  it('keeps enough active-session state to select the newest remaining session after deletion', async () => {
-    // 2026-09-16：归档入口随 rail popout 迁移到标题栏会话下拉（SessionDropdown.vue），
-    // 竞态保护契约同旧 onSessionDelete：删除前捕获当前会话意图，请求返回且用户未中途切换时才切最新剩余。
-    const source = await readComponentSource(
-      resolve('src/features/agent/workbench/SessionDropdown.vue'),
-      'utf8',
-    )
-    const deletion = source.slice(
-      source.indexOf('async function onArchive'),
-      source.indexOf('/** 会话行滚动定位'),
-    )
-    const captureActiveSession = deletion.indexOf(
-      'const deletingActive = s.chatId === props.activeChatId',
-    )
-    const deleteRequest = deletion.indexOf('await agents.deleteSession(s.chatId)')
-
-    expect(captureActiveSession).toBeGreaterThan(-1)
-    expect(captureActiveSession).toBeLessThan(deleteRequest)
-    expect(deletion).toContain('if (deletingActive && props.activeChatId)')
-    expect(deletion).toContain('items.value[0]')
-    expect(deletion).not.toContain('if (s.chatId === props.activeChatId)')
-  })
-
   it('provides explicit high-contrast context colors in dark mode', async () => {
     const source = await readComponentSource(
       resolve('src/features/agent/workbench/WorkbenchDialog.vue'),

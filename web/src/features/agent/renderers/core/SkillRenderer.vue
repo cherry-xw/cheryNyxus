@@ -90,6 +90,7 @@ const fallback = computed(() => {
     <div class="skill-head">
       <span class="skill-icon" aria-hidden="true">⚡</span>
       <span class="skill-name">激活技能</span>
+      <slot name="risk" />
       <span class="skill-type">{{ skillInfo?.name ?? parsedArgs?.name ?? 'unknown' }}</span>
       <span class="skill-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
@@ -129,7 +130,7 @@ const fallback = computed(() => {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
@@ -139,7 +140,7 @@ const fallback = computed(() => {
   gap: 6px;
 
   .skill-icon {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .skill-name {
@@ -149,7 +150,7 @@ const fallback = computed(() => {
 
   .skill-type {
     flex: 1;
-    font-size: 9px;
+    font-size: 12px;
     padding: 1px 4px;
     border-radius: 3px;
     background: rgba(234, 179, 8, 0.16);
@@ -160,7 +161,7 @@ const fallback = computed(() => {
 
   .skill-status {
     font-weight: 800;
-    font-size: 12px;
+    font-size: 14px;
 
     &.status-done {
       color: #16a34a;
@@ -189,7 +190,7 @@ const fallback = computed(() => {
   border: none;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   user-select: none;
@@ -216,7 +217,7 @@ const fallback = computed(() => {
 }
 
 .line-count {
-  font-size: 9px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
@@ -235,7 +236,7 @@ const fallback = computed(() => {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -249,7 +250,7 @@ const fallback = computed(() => {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 200px;

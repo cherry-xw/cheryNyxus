@@ -32,7 +32,7 @@ const preview = computed(() => fileChangePreview(props.args))
 <style scoped>
 .file-diff {
   width: 100%;
-  font-size: 12px;
+  font-size: 14px;
 }
 summary {
   cursor: pointer;

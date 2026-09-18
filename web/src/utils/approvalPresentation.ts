@@ -67,7 +67,7 @@ const TOOL_PRESENTATIONS: Record<string, ToolPresentation> = {
   generate_video: { label: '媒体生成', operation: '生成视频', targetKeys: ['prompt'] },
   generate_audio: { label: '媒体生成', operation: '生成音频', targetKeys: ['prompt'] },
   memory_manage: { label: '记忆管理', operation: '管理项目记忆', targetKeys: ['name'] },
-  ask_user_question: { label: '用户交互', operation: '向你提问' },
+  ask_user_question: { label: '询问用户', operation: '询问用户' },
   install_skill: { label: '技能管理', operation: '安装技能', targetKeys: ['url', 'name'] },
   role_acceptance: { label: '角色验收', operation: '验收角色', targetKeys: ['roleName', 'role'] },
   select_conversation: { label: '会话路由', operation: '选择会话', targetKeys: ['chatId'] },

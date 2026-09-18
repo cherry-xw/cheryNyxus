@@ -354,7 +354,7 @@ const indexItems = computed<IndexItem[]>(() => [])
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  font-size: 12px;
+  font-size: 14px;
   cursor: default;
   // el-tag 根默认 justify-content:center → 内容居中、两侧留空。
   // 改：content 撑满，工具名居左、监管等级靠右，EP 自带 close ✕ 紧随最右。
@@ -414,7 +414,7 @@ const indexItems = computed<IndexItem[]>(() => [])
   padding-left: 6px;
   border-left: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   opacity: 0.75;
   user-select: none;
   &:hover {
@@ -435,7 +435,7 @@ const indexItems = computed<IndexItem[]>(() => [])
   height: 24px;
   padding: 0 6px;
   box-sizing: border-box;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   border-radius: 4px;
   white-space: nowrap;
@@ -483,14 +483,14 @@ const indexItems = computed<IndexItem[]>(() => [])
     min-width: 0;
   }
   .opt-label {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 400;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .opt-desc {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 400;
     color: color-mix(in srgb, var(--ink) 64%, transparent);
     line-height: 1.4;

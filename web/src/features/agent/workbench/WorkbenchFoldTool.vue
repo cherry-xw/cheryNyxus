@@ -111,7 +111,7 @@ const emit = defineEmits<{
   height: 30px;
   display: grid;
   place-items: center;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
 }
 .nyxus-fold-part {

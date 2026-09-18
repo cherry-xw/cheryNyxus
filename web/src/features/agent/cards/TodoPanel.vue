@@ -93,7 +93,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   background: var(--surface-soft);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.16);
   color: var(--ink);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.3;
 }
@@ -108,14 +108,14 @@ const statusGlyph = (s: TodoItem['status']): string =>
 
   .head-icon {
     font-family: @glyph-fonts;
-    font-size: 10px;
+    font-size: 12px;
   }
   .head-title {
     flex: 1;
     font-weight: 600;
   }
   .head-count {
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 700;
     color: color-mix(in srgb, var(--ink) 56%, transparent);
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
@@ -143,7 +143,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   .glyph {
     flex-shrink: 0;
     font-family: @glyph-fonts;
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.4;
   }
   .content {
@@ -172,7 +172,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
 }
 
 .empty {
-  font-size: 9.5px;
+  font-size: 12px;
   font-style: italic;
   color: color-mix(in srgb, var(--ink) 44%, transparent);
 }
@@ -185,12 +185,12 @@ const statusGlyph = (s: TodoItem['status']): string =>
 
   .loading-icon {
     font-family: @glyph-fonts;
-    font-size: 10px;
+    font-size: 12px;
     animation: tp-spin 1.5s linear infinite;
   }
 
   .loading-text {
-    font-size: 9.5px;
+    font-size: 12px;
     font-style: italic;
     color: color-mix(in srgb, var(--ink) 56%, transparent);
   }

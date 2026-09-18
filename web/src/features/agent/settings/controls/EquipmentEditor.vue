@@ -136,12 +136,12 @@ function remove(name: string): void {
   gap: 7px;
 }
 .editor-head b {
-  font-size: 12px;
+  font-size: 14px;
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
 }
 .editor-head small,
 .inventory-toolbar > span {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .close-editor {
@@ -151,7 +151,7 @@ function remove(name: string): void {
   border-radius: 7px;
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, var(--surface));
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -172,7 +172,7 @@ function remove(name: string): void {
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 13%, var(--surface));
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 .selected-tag > span {
@@ -188,7 +188,7 @@ function remove(name: string): void {
 .editor-empty,
 .inventory-empty {
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-style: italic;
 }
 .inventory-toolbar :deep(.el-input) {
@@ -220,7 +220,7 @@ function remove(name: string): void {
 }
 .equipment-inventory b {
   overflow-wrap: anywhere;
-  font-size: 10px;
+  font-size: 12px;
 }
 .equipment-inventory i {
   color: var(--tab-color, @accent);
@@ -228,7 +228,7 @@ function remove(name: string): void {
   font-weight: 900;
 }
 .equipment-inventory small {
-  font-size: 9px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 .inventory-empty {
@@ -242,7 +242,7 @@ function remove(name: string): void {
   justify-content: center;
   gap: 8px;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
-  font-size: 10px;
+  font-size: 12px;
 }
 .editor-pages button {
   width: 28px;

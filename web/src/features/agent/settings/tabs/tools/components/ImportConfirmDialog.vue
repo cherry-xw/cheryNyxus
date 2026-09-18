@@ -205,14 +205,14 @@ function formatDate(iso: string | undefined): string {
 }
 .review-kicker {
   font:
-    800 8px/1 ui-monospace,
+    800 12px/1 ui-monospace,
     monospace;
   letter-spacing: 0.18em;
   color: #67e8f9;
 }
 .review-head h4 {
   margin: 4px 0 0;
-  font-size: 15px;
+  font-size: 17px;
   color: #fff;
 }
 .review-count {
@@ -223,23 +223,23 @@ function formatDate(iso: string | undefined): string {
 }
 .review-count b {
   font:
-    800 24px/1 ui-monospace,
+    800 26px/1 ui-monospace,
     monospace;
   color: #67e8f9;
   text-shadow: 0 0 12px rgba(103, 232, 249, 0.5);
 }
 .review-count span {
-  font-size: 10px;
+  font-size: 12px;
 }
 .dlg-hint {
   margin: 8px 0;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   color: #8290aa;
 }
 .source-meta {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: 13px;
   color: #8290aa;
   display: flex;
   flex-wrap: wrap;
@@ -251,7 +251,7 @@ function formatDate(iso: string | undefined): string {
   }
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 10px;
+    font-size: 12px;
     padding: 1px 4px;
     border-radius: 3px;
     background: rgba(255, 255, 255, 0.08);
@@ -289,7 +289,7 @@ function formatDate(iso: string | undefined): string {
 }
 .candidate-tools :deep(.el-input__inner) {
   color: #e2e8f0;
-  font-size: 10px;
+  font-size: 12px;
 }
 .candidate-tools button {
   height: 24px;
@@ -298,7 +298,7 @@ function formatDate(iso: string | undefined): string {
   border-radius: 7px;
   background: rgba(103, 232, 249, 0.06);
   color: #a5f3fc;
-  font-size: 9px;
+  font-size: 12px;
   cursor: pointer;
 }
 .search-icon {
@@ -309,7 +309,7 @@ function formatDate(iso: string | undefined): string {
   align-items: center;
   gap: 7px;
   margin-bottom: 6px;
-  font-size: 9px;
+  font-size: 12px;
   color: #64748b;
 }
 .manifest-summary i {
@@ -323,7 +323,7 @@ function formatDate(iso: string | undefined): string {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  font-size: 9px;
+  font-size: 12px;
   color: #8290aa;
 }
 .candidate-pages button {
@@ -372,7 +372,7 @@ function formatDate(iso: string | undefined): string {
   color: #06151b;
 }
 .cargo-toggle span {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 .cargo-toggle.on {
@@ -391,7 +391,7 @@ function formatDate(iso: string | undefined): string {
 }
 .cand-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 15px;
   color: #f1f5f9;
   white-space: nowrap;
   overflow: hidden;
@@ -399,7 +399,7 @@ function formatDate(iso: string | undefined): string {
 }
 .badge {
   margin-left: 6px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 8px;
@@ -414,7 +414,7 @@ function formatDate(iso: string | undefined): string {
   margin: 4px 0 0;
   .meta-row {
     margin: 0;
-    font-size: 11px;
+    font-size: 13px;
     line-height: 1.5;
     color: #94a3b8;
     word-break: break-all;
@@ -440,7 +440,7 @@ function formatDate(iso: string | undefined): string {
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.05);
   color: #cbd5e1;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
   &:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -454,7 +454,7 @@ function formatDate(iso: string | undefined): string {
   background: linear-gradient(135deg, #67e8f9, #818cf8);
   color: #07111e;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
   &:disabled {
     opacity: 0.45;
@@ -577,7 +577,7 @@ function formatDate(iso: string | undefined): string {
   position: relative;
   z-index: 1;
   font:
-    1000 6px/1 ui-monospace,
+    1000 12px/1 ui-monospace,
     monospace;
   letter-spacing: 0.12em;
   color: #09101c;
@@ -591,7 +591,7 @@ function formatDate(iso: string | undefined): string {
   position: relative;
   z-index: 1;
   color: #fff;
-  font-size: 16px;
+  font-size: 18px;
   text-shadow: 0 0 9px currentColor;
 }
 .cargo-main {
@@ -606,13 +606,13 @@ function formatDate(iso: string | undefined): string {
 }
 .cand-name {
   width: 100%;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.15;
   color: #fff;
 }
 .badge {
   margin-left: 0;
-  font-size: 7px;
+  font-size: 12px;
   padding: 2px 5px;
   border-radius: 4px;
 }
@@ -620,7 +620,7 @@ function formatDate(iso: string | undefined): string {
   margin-top: 3px;
 }
 .cand-meta .meta-row {
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.35;
 }
 .cand-meta .clamp {
@@ -639,7 +639,7 @@ function formatDate(iso: string | undefined): string {
 }
 .card-foot > span {
   font:
-    900 6px/1 ui-monospace,
+    900 12px/1 ui-monospace,
     monospace;
   letter-spacing: 0.12em;
   color: #69758b;
@@ -655,7 +655,7 @@ function formatDate(iso: string | undefined): string {
   color: #8d98ad;
 }
 .cargo-toggle i {
-  font: 800 7px/1 system-ui;
+  font: 800 12px/1 system-ui;
   font-style: normal;
 }
 .cargo-toggle.on {

@@ -26,11 +26,12 @@ describe('approval and question surface wiring', () => {
   })
 
   it('routes cards, Lite and attention workspaces through the one interaction store', async () => {
-    const [chatStore, liteCanonical, liteView, taskCenter, decisionContext] =
+    const [chatStore, liteCanonical, liteView, interactionView, taskCenter, decisionContext] =
       await Promise.all([
         source('stores/chats/index.ts'),
         source('features/lite/useLiteCanonicalView.ts'),
         source('features/lite/LiteView.vue'),
+        source('features/lite/LiteInteractionView.vue'),
         source('features/agent/task-center/TaskCenterAttentionWorkspace.vue'),
         source('features/agent/attention/InteractionDecisionContext.vue'),
       ])
@@ -39,8 +40,11 @@ describe('approval and question surface wiring', () => {
     expect(chatStore).toContain('await interactions.answer(')
     expect(liteCanonical).toContain('await interactions.decide(interaction, action)')
     expect(liteCanonical).toContain('await interactions.answer(')
-    expect(liteView).toContain('@click="onDecide(activeInteraction, \'accept\')"')
-    expect(liteView).toContain('@click="onAnswerBatch(activeInteraction)"')
+    // v2026-11：审批/提问交互迁入详情抽屉（LiteInteractionView），主视图不再直接持有交互动作。
+    expect(liteView).not.toContain('onDecide(')
+    expect(liteView).not.toContain('onAnswerBatch(')
+    expect(interactionView).toContain("@click=\"interactions.onDecide(interaction, 'accept')\"")
+    expect(interactionView).toContain('@click="interactions.onAnswerBatch(interaction)"')
     expect(taskCenter).toContain('await interactions.decide(item, action)')
     expect(taskCenter).toContain('await interactions.answer(item, answers)')
     expect(taskCenter).toContain('item.deadlineAt')

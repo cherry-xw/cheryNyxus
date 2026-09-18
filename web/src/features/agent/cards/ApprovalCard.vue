@@ -175,7 +175,7 @@ function closeToQueue(): void {
 
   .sense-name {
     color: color-mix(in srgb, #dc2626 80%, var(--ink));
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 400;
     line-height: 1.2;
     overflow-wrap: anywhere;
@@ -187,7 +187,7 @@ function closeToQueue(): void {
     border-radius: 4px;
     background: rgba(234, 88, 12, 0.12);
     color: color-mix(in srgb, #16a34a 80%, var(--ink));
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 400;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
@@ -207,7 +207,7 @@ function closeToQueue(): void {
     border-radius: 4px;
     background: var(--surface-soft);
     color: color-mix(in srgb, var(--ink) 58%, transparent);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 400;
     line-height: 1;
     cursor: pointer;
@@ -238,7 +238,7 @@ function closeToQueue(): void {
   border: 1px solid color-mix(in srgb, #dc2626 22%, var(--border));
   border-radius: 5px;
   background: color-mix(in srgb, #fef2f2 55%, var(--surface));
-  font-size: 12px;
+  font-size: 14px;
 }
 .security-meta {
   display: flex;
@@ -264,7 +264,7 @@ function closeToQueue(): void {
 .submit-error {
   margin: 1px 0 0;
   color: color-mix(in srgb, #dc2626 80%, var(--ink));
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -274,7 +274,7 @@ function closeToQueue(): void {
   padding: 4px 7px;
   border: 1px solid;
   border-radius: 5px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
   cursor: pointer;
   transition:

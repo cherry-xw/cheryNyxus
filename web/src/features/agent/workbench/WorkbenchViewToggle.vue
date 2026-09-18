@@ -24,7 +24,8 @@ const MODES: Array<{ key: WorkbenchViewMode; icon: string; label: string }> = [
       :aria-pressed="viewMode === mode.key"
       @click="setViewMode(mode.key)"
     >
-      <i aria-hidden="true">{{ mode.icon }}</i><span>{{ mode.label }}</span>
+      <i aria-hidden="true">{{ mode.icon }}</i
+      ><span>{{ mode.label }}</span>
     </button>
   </div>
 </template>
@@ -37,6 +38,8 @@ const MODES: Array<{ key: WorkbenchViewMode; icon: string; label: string }> = [
   border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--cyber-line));
   background: color-mix(in srgb, var(--cyber-title-bg) 88%, transparent);
   box-shadow: inset 0 0 12px color-mix(in srgb, var(--accent) 8%, transparent);
+  // 空间挤压时保持水平：整体不随标题栏压缩，标签文字不换行成竖排
+  flex-shrink: 0;
 }
 
 button {
@@ -48,15 +51,16 @@ button {
   border: 0;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
-  font: 600 8px/1 var(--font-mono);
+  font: 600 12px/1 var(--font-mono);
   letter-spacing: 0.1em;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 button i {
   color: var(--accent);
   font-style: normal;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 button.active {

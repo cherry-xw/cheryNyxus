@@ -15,9 +15,11 @@ import {
   createLiteDetailSectionState,
   mergeDetailSectionPage,
   type LiteDetailSectionName,
+  type LiteDetailSectionState,
 } from './detailSections'
 import LiteMarkdown from './LiteMarkdown.vue'
 import LiteToolCallDetail from './LiteToolCallDetail.vue'
+import { useLiteInteractions } from './useLiteInteractions'
 
 /**
  * DetailDrawer：单个节点的详情抽屉（需求 3：点击详情只展示该节点本身的信息，
@@ -41,11 +43,18 @@ const lite = useLiteCanonicalView(
   () => props.windowId,
   () => props.rootChatId,
 )
+/** 交互（审批/提问）单一事实源：抽屉内工具调用卡按 callId 匹配待处理交互并渲染交互区。 */
+const interactions = useLiteInteractions(
+  () => props.windowId,
+  () => props.rootChatId,
+)
 const dialogRef = ref<HTMLElement | null>(null)
 const bodyRef = ref<HTMLElement | null>(null)
 const closeButtonRef = ref<HTMLButtonElement | null>(null)
 const loadingNodeIds = ref<Record<string, boolean>>({})
 const sectionLoading = ref<Record<string, boolean>>({})
+/** 思考分节折叠态：默认收起（降低思考内容的视觉权重），点击标题展开。 */
+const thinkingOpen = ref(false)
 // 数据放宽（需求：适当放宽一次响应回来的内容数据量；其余交互不放开）
 const DETAIL_PAGE_LIMIT = 30000
 
@@ -135,11 +144,17 @@ function toolIcon(call: { name: string }): string {
   return toolTypeGlyph(classifyToolType(call.name))
 }
 
-/** 按节点类型列出要展示的详情分节：用户→正文；工具→工具调用；主·子 Agent→思考+正文；其余事件→正文。 */
+/** 按节点类型列出要展示的详情分节：用户→正文；工具→工具调用（合并同一次 LLM 响应时附思考/正文）；主·子 Agent→思考+正文；其余事件→正文。 */
 const sections = computed<LiteDetailSectionName[]>(() => {
   if (!props.node) return []
   if (props.node.kind === 'user') return ['content']
-  if (props.node.kind === 'tool') return ['toolCalls']
+  if (props.node.kind === 'tool') {
+    return [
+      'toolCalls',
+      ...(props.node.thinking ? (['thinking'] as const) : []),
+      ...(props.node.content ? (['content'] as const) : []),
+    ]
+  }
   if (props.node.kind === 'root-agent' || props.node.kind === 'child-agent') {
     return ['thinking', 'content']
   }
@@ -173,6 +188,45 @@ function isLoadingNode(): boolean {
   return props.node ? (loadingNodeIds.value[props.node.nodeId] ?? false) : false
 }
 
+/** 工具详情游标链页数上限（每页 = 一个调用的一个字段块）。 */
+const MAX_TOOL_CURSOR_PAGES = 24
+
+/**
+ * 工具调用详情走完游标链：协议按「每页一个调用的一个字段」返回
+ * （chat.timeline.node.get 的 toolCursor / page.nextCursor）。若只拉一页，
+ * 一个批次的多条工具调用就得分很多次点「加载更多」才能看全。
+ * 首次打开（或续拉）时沿 nextCursor 顺序拉取，直到取完（hasMore=false）
+ * 或到达页数上限；到达上限后剩余部分由「继续加载更多工具内容」按钮续拉。
+ */
+async function loadToolCallsChain(
+  nodeId: string,
+  section: 'toolCalls',
+  state: LiteDetailSectionState,
+): Promise<void> {
+  let current = state
+  let cursor = state.toolCursor ?? { callIndex: 0, field: 'arguments' as const, offset: 0 }
+  for (let page = 0; page < MAX_TOOL_CURSOR_PAGES; page++) {
+    const response = await lite.fetchNodeDetail(nodeId, {
+      sections: [section],
+      toolCursor: cursor,
+      limit: DETAIL_PAGE_LIMIT,
+    })
+    if (!response.success) {
+      liteUi.patchDetailSection(props.windowId, props.rootChatId, nodeId, section, {
+        ...current,
+        error: response.error.message,
+      })
+      return
+    }
+    current = mergeDetailSectionPage(current, section, response.data, 0, DETAIL_PAGE_LIMIT)
+    const next =
+      response.data.page?.section === 'toolCalls' ? response.data.page.nextCursor : undefined
+    if (!response.data.hasMore || !next) break
+    cursor = next
+  }
+  liteUi.patchDetailSection(props.windowId, props.rootChatId, nodeId, section, current)
+}
+
 async function loadSection(section: LiteDetailSectionName): Promise<void> {
   const nodeId = props.node?.nodeId
   if (!nodeId) return
@@ -181,32 +235,35 @@ async function loadSection(section: LiteDetailSectionName): Promise<void> {
   const state = detailState(section)
   if (state.loaded && !state.hasMore) return
   // The Lite projection already contains complete content for ordinary
-  // conversation/event nodes. Asking the execution-node endpoint for those
-  // source-message ids produces a false "invalid data" error.
-  if (section === 'content' && !state.loaded && props.node?.kind !== 'tool') {
+  // conversation/event nodes, and for merged tool nodes that carry the same
+  // response's thinking/content (see projectLiteHistory). Asking the
+  // execution-node endpoint for those source-message ids produces a false
+  // "invalid data" error.
+  const localText = section === 'content' ? props.node?.content : props.node?.thinking
+  if (
+    section !== 'toolCalls' &&
+    !state.loaded &&
+    (props.node?.kind !== 'tool' || Boolean(localText))
+  ) {
     liteUi.patchDetailSection(props.windowId, props.rootChatId, nodeId, section, {
       ...state,
       loaded: true,
-      text: props.node.content,
-      offset: props.node.content.length,
+      text: localText ?? '',
+      offset: (localText ?? '').length,
       error: null,
     })
     return
   }
-  const requestedOffset = state.loaded ? state.offset : 0
   sectionLoading.value[requestKey] = true
   try {
+    if (section === 'toolCalls') {
+      await loadToolCallsChain(nodeId, section, state)
+      return
+    }
+    const requestedOffset = state.loaded ? state.offset : 0
     const response = await lite.fetchNodeDetail(nodeId, {
       sections: [section],
-      ...(section === 'toolCalls'
-        ? {
-            toolCursor: state.toolCursor ?? {
-              callIndex: 0,
-              field: 'arguments' as const,
-              offset: 0,
-            },
-          }
-        : { offset: requestedOffset }),
+      offset: requestedOffset,
       limit: DETAIL_PAGE_LIMIT,
     })
     if (!response.success) {
@@ -236,6 +293,12 @@ async function loadNodeSections(): Promise<void> {
   } finally {
     loadingNodeIds.value[props.node.nodeId] = false
   }
+}
+
+/** 思考分节展开/收起：首次展开时若未预载（正常流程 loadNodeSections 已本地载入）再补拉一次。 */
+function toggleThinking(): void {
+  thinkingOpen.value = !thinkingOpen.value
+  if (thinkingOpen.value && !sectionLoaded('thinking')) void loadSection('thinking')
 }
 
 function requestClose(): void {
@@ -352,26 +415,40 @@ watch(
       <div ref="bodyRef" class="lite-drawer-body">
         <p v-if="isLoadingNode()" class="lite-drawer-hint">加载节点内容…</p>
         <template v-else>
-          <section v-if="sections.includes('thinking')" class="lite-node-detail-block">
-            <h4>思考</h4>
-            <p v-if="sectionError('thinking')" class="lite-drawer-error" role="alert">
-              {{ sectionError('thinking') }}
-            </p>
-            <template v-else>
-              <p v-if="!sectionLoaded('thinking')" class="lite-drawer-hint is-muted">加载中…</p>
-              <template v-else-if="sectionText('thinking')">
-                <LiteMarkdown :text="sectionText('thinking')" />
-                <button
-                  v-if="sectionHasMore('thinking')"
-                  type="button"
-                  class="lite-drawer-more"
-                  :disabled="isSectionLoading('thinking')"
-                  @click="loadSection('thinking')"
-                >
-                  加载更多思考
-                </button>
+          <section v-if="sections.includes('thinking')" class="lite-node-detail-block is-thinking">
+            <button
+              type="button"
+              class="lite-drawer-section-toggle"
+              :aria-expanded="thinkingOpen"
+              @click="toggleThinking"
+            >
+              <span class="lite-drawer-caret" :class="{ open: thinkingOpen }" aria-hidden="true"
+                >▸</span
+              >
+              <span class="lite-drawer-section-title">思考</span>
+            </button>
+            <template v-if="thinkingOpen">
+              <p v-if="sectionError('thinking')" class="lite-drawer-error" role="alert">
+                {{ sectionError('thinking') }}
+              </p>
+              <template v-else>
+                <p v-if="!sectionLoaded('thinking')" class="lite-drawer-hint is-muted">加载中…</p>
+                <template v-else-if="sectionText('thinking')">
+                  <div class="lite-thinking-content">
+                    <LiteMarkdown :text="sectionText('thinking')" />
+                  </div>
+                  <button
+                    v-if="sectionHasMore('thinking')"
+                    type="button"
+                    class="lite-drawer-more"
+                    :disabled="isSectionLoading('thinking')"
+                    @click="loadSection('thinking')"
+                  >
+                    加载更多思考
+                  </button>
+                </template>
+                <p v-else class="lite-drawer-hint is-muted">（无思考内容）</p>
               </template>
-              <p v-else class="lite-drawer-hint is-muted">（无思考内容）</p>
             </template>
           </section>
 
@@ -406,7 +483,8 @@ watch(
             <template v-else>
               <p v-if="!sectionLoaded('toolCalls')" class="lite-drawer-hint is-muted">加载中…</p>
               <template v-else-if="sectionToolCalls().length">
-                <!-- 专用渲染：按工具类型解析参数 / 结果（命令、路径、URL、任务说明…）+ JSON 键中文翻译 -->
+                <!-- 专用渲染：按工具类型解析参数 / 结果（命令、路径、URL、任务说明…）+ JSON 键中文翻译。
+                     有待处理交互（审批/提问）的调用渲染交互区（LiteInteractionView），其余只读展示。 -->
                 <LiteToolCallDetail
                   v-for="call in sectionToolCalls()"
                   :key="call.callId"
@@ -415,15 +493,19 @@ watch(
                   :icon="toolIcon(call)"
                   :type="classifyToolType(call.name)"
                   :focused="call.callId === props.focusToolCallId"
+                  :window-id="props.windowId"
+                  :root-chat-id="props.rootChatId"
+                  :interaction="interactions.interactionForCall(call.callId)"
                 />
                 <button
                   v-if="sectionHasMore('toolCalls')"
                   type="button"
                   class="lite-drawer-more"
                   :disabled="isSectionLoading('toolCalls')"
+                  title="参数或结果内容较长，未全部取回；点击继续加载剩余内容"
                   @click="loadSection('toolCalls')"
                 >
-                  加载更多工具
+                  继续加载更多工具内容
                 </button>
               </template>
               <p v-else class="lite-drawer-hint is-muted">（无工具调用）</p>
@@ -486,11 +568,11 @@ watch(
   flex: none;
 }
 .lite-drawer-icon {
-  font-size: 15px;
+  font-size: 18px;
   line-height: 1;
 }
 .lite-drawer-head strong {
-  font-size: 13px;
+  font-size: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -500,11 +582,13 @@ watch(
 }
 .lite-drawer-status {
   flex: none;
-  padding: 0 7px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 8px;
   border-radius: 0;
   border: 1px solid var(--el-border-color);
-  font-size: 10.5px;
-  line-height: 16px;
+  font-size: 12.5px;
+  line-height: 20px;
   color: var(--el-text-color-secondary);
 }
 .lite-drawer-status[data-status='running'] {
@@ -517,7 +601,7 @@ watch(
   color: var(--el-color-danger);
 }
 .lite-drawer-elapsed {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--el-text-color-secondary);
   flex: none;
   font-variant-numeric: tabular-nums;
@@ -525,7 +609,7 @@ watch(
 .lite-drawer-meta {
   flex: 1;
   text-align: right;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--el-text-color-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -540,7 +624,7 @@ watch(
   background: transparent;
   color: var(--el-text-color-secondary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 15px;
 }
 .lite-drawer-close:hover {
   background: var(--el-fill-color-light);
@@ -575,20 +659,56 @@ watch(
 }
 .lite-node-detail-block h4 {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: 15px;
   color: var(--el-text-color-secondary);
   font-weight: 400;
   letter-spacing: 0.02em;
+}
+/* 思考分节标题（可点击折叠切换，替代 h4；样式与 h4 一致） */
+.lite-drawer-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  font-family: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+}
+.lite-drawer-section-toggle:hover {
+  color: var(--el-text-color-primary);
+}
+.lite-drawer-caret {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 140ms ease;
+}
+.lite-drawer-caret.open {
+  transform: rotate(90deg);
+}
+/* 思考内容弱化：与正文（--el-text-color-primary）区分，降低视觉权重 */
+.lite-node-detail-block.is-thinking .lite-thinking-content :deep(.lite-md) {
+  color: var(--el-text-color-secondary);
 }
 .lite-drawer-type {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 7px;
+  gap: 5px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 8px;
   border-radius: 0;
-  font-size: 10.5px;
-  line-height: 17px;
+  font-size: 12.5px;
+  line-height: 20px;
   border: 1px solid var(--el-border-color);
   color: var(--el-text-color-secondary);
   white-space: nowrap;
@@ -623,7 +743,7 @@ watch(
   border-radius: 0;
   background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
   color: var(--el-color-danger);
-  font-size: 12px;
+  font-size: 15px;
 }
 .lite-drawer-hint {
   margin: 0;
@@ -631,7 +751,7 @@ watch(
   border-radius: 0;
   background: var(--el-fill-color-lighter);
   color: var(--el-text-color-secondary);
-  font-size: 12px;
+  font-size: 15px;
 }
 .lite-drawer-hint.is-muted {
   background: transparent;
@@ -639,12 +759,12 @@ watch(
 }
 .lite-drawer-more {
   margin-top: 6px;
-  padding: 3px 10px;
-  border: 1px solid var(--el-border-color);
+  padding: 5px 10px;
+  border: 1px dashed var(--el-border-color-darker);
   border-radius: 0;
   background: transparent;
-  color: var(--el-text-color-secondary);
-  font-size: 11.5px;
+  color: var(--el-text-color-regular);
+  font-size: 14px;
   cursor: pointer;
 }
 .lite-drawer-more:hover:not(:disabled) {

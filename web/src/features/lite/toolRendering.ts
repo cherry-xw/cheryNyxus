@@ -14,9 +14,7 @@ export type ReadableToolStatus = 'pending' | 'accepted' | 'rejected' | 'error' |
 /** The short, user-facing account of a tool run shown before its raw payload. */
 export interface ReadableToolRun {
   toolLabel: string
-  intent: string
   target?: string
-  outcome: string
   resultSummary?: string
   changes: Array<{ label: string; detail: string }>
 }
@@ -299,6 +297,113 @@ export function isPrimaryField(type: LiteToolType, key: string): boolean {
   return TOOL_TYPE_PRIMARY_FIELDS[type].some((field) => normalizeKey(field) === normalized)
 }
 
+/** 在字段行列表里按（归一化）键名查找；未命中返回 undefined。 */
+function entryOf(entries: readonly RenderedEntry[], ...keys: string[]): RenderedEntry | undefined {
+  return entries.find((entry) => keys.some((key) => normalizeKey(key) === normalizeKey(entry.key)))
+}
+
+function scalarTextOf(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const text = value.trim()
+    return text || undefined
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return undefined
+}
+
+/** 选择类参数中已由专用区块（单选/多选列表）展示、应从普通字段行排除的键。 */
+export function isSelectPatternKey(key: string): boolean {
+  return [
+    'question',
+    'options',
+    'option',
+    'choices',
+    'answers',
+    'multi_select',
+    'multiSelect',
+    'multiple',
+    'allow_multi',
+  ].some((candidate) => normalizeKey(candidate) === normalizeKey(key))
+}
+
+/** 选择类工具中由「提问上下文块」（标题 + 说明）承载、应从普通字段行排除的键。 */
+export function isSelectContextKey(key: string): boolean {
+  return ['header', 'head', 'rationale', 'next_step', 'nextStep'].some(
+    (candidate) => normalizeKey(candidate) === normalizeKey(key),
+  )
+}
+
+/** 单选 / 多选选项的展示视图。 */
+export interface SelectOptionView {
+  label: string
+  description?: string
+}
+
+/** 选择类参数的结构化视图（question + options + multi）。 */
+export interface SelectPatternView {
+  question: string
+  multi: boolean
+  options: SelectOptionView[]
+}
+
+function selectOptionOf(value: unknown): SelectOptionView | null {
+  if (typeof value === 'string') {
+    const label = value.trim()
+    return label ? { label } : null
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>
+    // 人读标签优先（label/name/title/text），value 多为机器 id 放最后。
+    const label = scalarTextOf(
+      record.label ?? record.name ?? record.title ?? record.text ?? record.value,
+    )
+    if (!label) return null
+    const description = scalarTextOf(record.description)
+    return description ? { label, description } : { label }
+  }
+  return null
+}
+
+/**
+ * 识别「问题 + 选项」形态的参数（ask_user_question 等选择类工具）：
+ * 有 question 字符串 + 非空 options 数组（标量或带 label/value/description 的对象）即命中。
+ * 命中的工具在详情里用单选 / 多选列表区块展示，不再把选项原文 JSON 列出来。
+ */
+export function detectSelectPattern(
+  entries: readonly RenderedEntry[] | null | undefined,
+): SelectPatternView | null {
+  if (!entries || entries.length === 0) return null
+  const questionEntry = entryOf(entries, 'question')
+  if (typeof questionEntry?.value !== 'string') return null
+  const question = questionEntry.value.trim()
+  if (!question) return null
+  const optionsEntry = entryOf(entries, 'options', 'option', 'choices', 'answers')
+  if (!optionsEntry || !Array.isArray(optionsEntry.value) || optionsEntry.value.length === 0) {
+    return null
+  }
+  const options = optionsEntry.value
+    .map(selectOptionOf)
+    .filter((option): option is SelectOptionView => option !== null)
+  if (options.length === 0) return null
+  const multiEntry = entryOf(entries, 'multi_select', 'multiSelect', 'multiple', 'allow_multi')
+  const multi =
+    multiEntry?.value === true ||
+    (typeof multiEntry?.value === 'string' && multiEntry.value.toLowerCase() === 'true')
+  return { question, multi, options }
+}
+
+/** 标量数组 → 每项一行的文本列表；含对象 / 空数组返回 null（交给 pretty JSON）。 */
+export function scalarArrayItems(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null
+  const items: string[] = []
+  for (const item of value) {
+    const text = scalarTextOf(item)
+    if (text === undefined) return null
+    items.push(text)
+  }
+  return items
+}
+
 /** 值是否为「标量」（可直接行内展示）；对象 / 数组走 pretty JSON。 */
 export function isScalarValue(value: unknown): boolean {
   return value === null || typeof value !== 'object'
@@ -404,24 +509,6 @@ export function readableToolRun(
   )
   const role = shortText(valueOf(args, 'role', 'agent', 'target'))
   const isSearch = /search|grep|find|query/i.test(name)
-  const fallbackAction =
-    type === 'read'
-      ? isSearch
-        ? '搜索代码或信息'
-        : '读取文件或信息'
-      : type === 'write'
-        ? '修改文件或项目内容'
-        : type === 'exec'
-          ? '执行命令'
-          : type === 'web'
-            ? query
-              ? '搜索网页信息'
-              : '访问网页'
-            : type === 'dispatch'
-              ? '委派子任务'
-              : description
-                ? '执行工具步骤'
-                : `运行“${label || name || '工具'}”`
   const target =
     presentation.target ??
     path ??
@@ -429,10 +516,6 @@ export function readableToolRun(
     (type === 'exec' ? command : undefined) ??
     (type === 'dispatch' ? (role ?? description) : undefined) ??
     (isSearch ? query : undefined)
-  const prefix = status === 'accepted' ? '正在' : status === 'pending' ? '准备' : '已'
-  const operationLabel = presentation.operationLabel.startsWith('执行「')
-    ? fallbackAction
-    : presentation.operationLabel
   const parsedResult = parseJsonValue(resultText)
   const rawResult = shortText(resultText)
   const completedSummary =
@@ -443,18 +526,7 @@ export function readableToolRun(
       : undefined
   return {
     toolLabel: presentation.toolLabel || label || name,
-    intent: `${prefix}${operationLabel || fallbackAction}`,
     ...(target ? { target } : {}),
-    outcome:
-      status === 'pending'
-        ? '等待工具执行'
-        : status === 'accepted'
-          ? '工具正在运行，等待返回结果'
-          : status === 'completed'
-            ? '执行完成'
-            : status === 'rejected'
-              ? '本次操作已被拒绝'
-              : '工具执行失败',
     ...(failure
       ? { resultSummary: failure }
       : completedSummary

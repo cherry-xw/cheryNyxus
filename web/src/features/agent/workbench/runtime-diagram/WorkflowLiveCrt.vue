@@ -112,7 +112,7 @@ footer {
   align-items: center;
   gap: 8px;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   background: var(--surface);
 }
@@ -149,7 +149,7 @@ button:focus-visible {
 .workflow-live-crt-body {
   overflow: auto;
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
   overscroll-behavior: contain;
   scrollbar-color: var(--border-strong) var(--panel);
@@ -191,13 +191,13 @@ button:focus-visible {
 .workflow-live-crt-body :deep(h5),
 .workflow-live-crt-body :deep(h6) {
   margin: 0.5em 0 0.25em;
-  font-size: 12.5px;
+  font-size: 14.5px;
   font-weight: 600;
   line-height: 1.3;
 }
 .workflow-live-crt-body :deep(h1),
 .workflow-live-crt-body :deep(h2) {
-  font-size: 13px;
+  font-size: 15px;
 }
 .workflow-live-crt-body :deep(ul),
 .workflow-live-crt-body :deep(ol) {
@@ -210,13 +210,13 @@ button:focus-visible {
 .workflow-live-crt-body :deep(pre) {
   margin: 0.35em 0;
   padding: 5px 7px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .workflow-live-crt-body :deep(code) {
-  font-size: 11px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .workflow-live-crt-body :deep(blockquote) {
@@ -232,7 +232,7 @@ button:focus-visible {
 }
 .workflow-live-crt-body :deep(table) {
   margin: 0.35em 0;
-  font-size: 11.5px;
+  font-size: 13.5px;
   border-collapse: collapse;
 }
 .workflow-live-crt-body :deep(th),

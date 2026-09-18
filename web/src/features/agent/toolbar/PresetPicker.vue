@@ -140,7 +140,7 @@ function pickPreset(name: string): void {
 }
 
 .picker-title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
   padding: 2px 6px 4px;
@@ -152,7 +152,7 @@ function pickPreset(name: string): void {
   flex-direction: column;
   gap: 7px;
   padding: 8px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
 
@@ -193,13 +193,13 @@ function pickPreset(name: string): void {
   }
 
   .pi-name {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .pi-meta {
-    font-size: 10px;
+    font-size: 12px;
     color: color-mix(in srgb, var(--ink) 50%, transparent);
   }
 }

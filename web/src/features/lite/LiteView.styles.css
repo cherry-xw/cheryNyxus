@@ -12,7 +12,7 @@
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-ui, sans-serif);
-  font-size: 13px;
+  font-size: 15px;
   /* 字重基线 400（用户强制规则）：lite 全部内容继承 400，杜绝任何加粗继承。 */
   font-weight: 400;
 }
@@ -66,7 +66,7 @@
   font-family: var(--font-mono, monospace);
   letter-spacing: 0.015em;
   color: var(--el-text-color-regular);
-  font-size: 12px;
+  font-size: 14px;
 }
 .lite-status-text {
   flex: none;
@@ -110,7 +110,7 @@
   border-radius: 0;
   background: var(--el-fill-color-light);
   color: var(--el-text-color-regular);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 18px;
   font-variant-numeric: tabular-nums;
 }
@@ -135,7 +135,7 @@
   background: transparent;
   color: var(--el-color-primary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   padding: 1px 6px;
   border-radius: 0;
 }
@@ -174,7 +174,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1;
   color: var(--el-text-color-secondary);
   padding: 0 2px 4px;
@@ -186,7 +186,7 @@
   color: var(--el-color-primary);
   border-radius: 0;
   padding: 1px 6px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.4;
   cursor: pointer;
 }
@@ -225,7 +225,7 @@
   border: none;
   border-radius: 0;
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: 12.5px;
   /* v1.0 浅色可读性：链路行头角色名由 secondary 提为 regular（浅色下不再看不清） */
   color: var(--el-text-color-regular);
   background: var(--el-bg-color);
@@ -341,7 +341,7 @@
   border-radius: 0;
   background: color-mix(in srgb, var(--el-bg-color) 72%, transparent);
   color: var(--el-text-color-regular);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1;
   font-weight: 400;
   cursor: pointer;
@@ -361,7 +361,8 @@
 }
 .lite-lane-tab-icon {
   flex: none;
-  font-size: 10px;
+  /* 2026-10 icon 全局放大：精简模式 icon 偏小，统一提档 */
+  font-size: 15px;
   line-height: 1;
 }
 .lite-lane-tab.is-root-lane .lite-lane-tab-icon {
@@ -391,7 +392,10 @@
 }
 .lite-entry-dispatch-icon {
   flex: none;
-  width: 18px;
+  /* 2026-10 icon 全局放大 */
+  width: 20px;
+  font-size: 15px;
+  line-height: 1;
   text-align: center;
   color: var(--lite-tone-dispatch);
 }
@@ -399,7 +403,7 @@
   color: var(--el-text-color-primary);
 }
 .lite-entry-dispatch-verb {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .lite-entry-dispatch-toggle {
@@ -407,14 +411,14 @@
   border: 0;
   background: transparent;
   color: var(--el-color-primary);
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
 }
 .lite-entry-dispatch-content {
   margin: 0;
   padding: 0 10px 8px 34px;
   line-height: 1.55;
-  font-size: 12.5px;
+  font-size: 14.5px;
   color: var(--el-text-color-secondary);
   /* 强制字重规则：正文一律 400。 */
   font-weight: 400;
@@ -482,7 +486,10 @@
 }
 .lite-history-icon {
   flex: none;
-  width: 18px;
+  /* 2026-10 icon 全局放大 */
+  width: 20px;
+  font-size: 15px;
+  line-height: 1;
   text-align: center;
   color: var(--el-text-color-secondary);
 }
@@ -523,11 +530,11 @@
   font-weight: 400;
 }
 .lite-history-status {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .lite-history-meta time {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -537,7 +544,7 @@
   background: transparent;
   color: var(--el-color-primary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
 }
 .lite-history-detail:disabled,
 .lite-view-full:disabled {
@@ -548,7 +555,7 @@
   margin: 0;
   padding: 0 10px 8px 36px;
   line-height: 1.55;
-  font-size: 12.5px;
+  font-size: 14.5px;
   /* 强制字重规则：用户提问/模型响应正文一律 400。 */
   font-weight: 400;
 }
@@ -580,7 +587,7 @@
   background: transparent;
   color: var(--el-text-color-regular);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   transition:
     background-color 120ms ease,
@@ -603,7 +610,7 @@
   transform: translateY(-50%);
   color: var(--el-border-color);
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 400;
   line-height: 1;
   pointer-events: none;
@@ -646,7 +653,7 @@
   border: 1px solid var(--el-border-color);
   background: var(--el-bg-color-overlay, var(--el-bg-color));
   color: var(--el-text-color-regular);
-  font-size: 11.5px;
+  font-size: 13.5px;
   line-height: 1.5;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
   pointer-events: none;
@@ -657,12 +664,15 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 3px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .lite-tip-head strong {
   font-weight: 400;
 }
 .lite-tip-icon {
+  /* 2026-10 icon 全局放大 */
+  font-size: 15px;
+  line-height: 1;
   color: var(--el-text-color-secondary);
 }
 .lite-tip-row {
@@ -719,7 +729,8 @@
   flex: none;
   min-width: 2ch;
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 11px;
+  /* 2026-10 icon 全局放大 */
+  font-size: 15px;
   line-height: 1;
   letter-spacing: -0.08em;
   text-align: center;
@@ -740,601 +751,6 @@
   .lite-cluster-status[data-status='running'] {
     animation: none;
   }
-}
-
-/* ── 待操作页签（v0.4.2 浏览器式）：标签栏内多 tab，样式照抄浏览器顶部 tab——
-   上圆角下直角、底部与内容区连接（无底边框）；激活 tab 亮背景（= 内容区背景，与其连体）
-   + 主色边框文字 + 略高盖过非激活；非激活 tab 透明背景（= 标签栏灰）+ 略矮；
-   激活不收缩，其余空间不足时互相挤压、最短只剩 icon ── */
-.lite-pending-tab {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  max-width: 160px;
-  /* 非激活 tab 底部 padding 更薄 → 总高矮于激活 tab（底部对齐后顶部低 4px，浏览器 tab 层次） */
-  padding: 6px 14px 5px;
-  /* 浏览器 tab：直角矩形（用户强制规则：无圆角）、底部与内容区连接（无底边框） */
-  border: 1px solid var(--el-border-color);
-  border-bottom: none;
-  /* v1.7：tab **按钮自身**有底色（用户要求）——非激活中性亮底；
-     但 tab **栏位置**（标签栏容器背景）必须无底色（用户多次强调的硬约束） */
-  background: var(--el-bg-color);
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    border-color 120ms ease,
-    background-color 120ms ease,
-    color 120ms ease;
-  /* 标签挤压：不撑满（flex-grow 0），空间不足时非激活可收缩（flex-shrink 1） */
-  flex: 0 1 auto;
-}
-.lite-pending-tab:hover:not(.is-active) {
-  border-color: var(--el-color-primary-light-5);
-  color: var(--el-color-primary);
-}
-.lite-pending-tab.is-active {
-  /* 当前展示页签不挤压 */
-  flex: 0 0 auto;
-  /* 激活 tab：底部 padding 更厚 → 更高盖过非激活；背景 = 内容区紫底（连体，浏览器式），
-     主色边框 + 主色文字标记激活态（v1.7 恢复 v0.4.2 连体；v1.7b：面板色系由琥珀改紫） */
-  padding: 6px 14px 9px;
-  background: color-mix(in srgb, var(--violet) 20%, var(--surface));
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-}
-.lite-pending-tab-icon {
-  flex: none;
-  font-size: 12px;
-  line-height: 1;
-}
-/* 审批页签标记（工具 icon）用暖金指示「工具审批」（与节点树 tool-batch 一致） */
-.lite-pending-tab.is-approval .lite-pending-tab-icon {
-  color: var(--lite-tone-tool);
-}
-.lite-pending-tab-label {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.lite-pending-badge {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  padding: 0 5px;
-  /* v1.7b：徽章空白底 + 紫描边（面板改紫系后同族；浅色下可读） */
-  background: var(--el-bg-color);
-  border: 1px solid color-mix(in srgb, var(--violet) 55%, var(--el-border-color));
-  color: var(--violet);
-  font-size: 10px;
-  text-align: center;
-  line-height: 15px;
-  font-variant-numeric: tabular-nums;
-}
-.lite-pending-badge[data-expired='true'] {
-  background: var(--el-bg-color);
-  border-color: color-mix(in srgb, var(--el-color-danger) 55%, var(--el-border-color));
-  color: var(--el-color-danger);
-}
-/* ── 待处理工作区：外层任务 tab + 内层问题导航，正文独立滚动，操作区固定。── */
-/* v1.2：面板高度改 auto——收起/展开由内容区显式高度过渡驱动（200ms，无高度跳变） */
-/* v1.7 修正（区域二·提问/审批面板分色）：**标签栏位置必须无底色**（用户多次强调的硬约束，
-   v1.7 初版误把琥珀底加到整个面板上，本次修正移除）——面板容器完全透明、无边框；
-   边框由 bar 底线（标签栏下一行）+ 内容区三边承担；琥珀底色只加在**内容元素**上：
-   tab 按钮自身（非激活中性亮底 / 激活与内容区连体）、提问内容区（琥珀淡底）、
-   选项卡片（中性亮底凸出）、底部操作栏（同家族更深一档）。 */
-.lite-pending-panel {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  margin: 4px 10px 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  overflow: hidden;
-}
-/* v1.2 标签栏净化 + v1.7 修正：标签栏容器**完全透明、无任何底色层**；
-   唯一的一条线是 bar 底部 border-bottom（位于按钮下一行，即内容区顶线）；
-   按钮直接从最左边开始依次排列，右侧 padding 仅为收起按钮预留 */
-.lite-pending-tabs-bar {
-  flex: none;
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  padding: 5px 44px 0 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--violet) 38%, var(--el-border-color));
-  background: transparent;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.lite-pending-tabs-bar::-webkit-scrollbar {
-  display: none;
-}
-/* v1.2 收起/展开按钮：24×24 方形按钮，绝对定位挂在面板右上角、相对标签栏垂直居中
-   （▲=收起 / ▼=展开）；背景完全透明，仅按钮自身（边框 + 箭头）可见，hover 主色 */
-.lite-pending-collapse {
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  transform: translateY(-50%);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  background: transparent;
-  color: var(--el-text-color-regular);
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    border-color 120ms ease;
-}
-.lite-pending-collapse:hover,
-.lite-pending-collapse:focus-visible {
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-}
-/* v1.2 收起态：内容区高度过渡到 0（面板自然塌为标签栏高）；visibility 延迟翻转，
-   收起后内部不可聚焦；`prefers-reduced-motion` 直切 */
-.lite-pending-content {
-  flex: none;
-  /* 高度贴合内容：单题时面板随内容收短、不再留白；超长内容由 body 内部滚动（body 封顶 50vh）。
-     interpolate-size 允许 height:auto ↔ 0 过渡（收起动画），不支持时收起瞬时完成 */
-  height: auto;
-  interpolate-size: allow-keywords;
-  overflow: hidden;
-  /* v1.7b：提问内容区（提醒区）为紫色淡底（--violet 20% 派生，与激活 tab 同值连体；
-     原琥珀显脏不贴合主题，v1.7b 换主题原生紫色系）；边框由内容区承担左/右/下三边
-     （顶线 = bar 底线）；标签栏位置无底色（硬约束） */
-  background: color-mix(in srgb, var(--violet) 20%, var(--surface));
-  border-left: 1px solid color-mix(in srgb, var(--violet) 45%, var(--el-border-color));
-  border-right: 1px solid color-mix(in srgb, var(--violet) 45%, var(--el-border-color));
-  border-bottom: 1px solid color-mix(in srgb, var(--violet) 45%, var(--el-border-color));
-  transition:
-    height 200ms ease,
-    visibility 200ms;
-}
-.lite-pending-panel.is-collapsed .lite-pending-content {
-  height: 0;
-  visibility: hidden;
-}
-@media (prefers-reduced-motion: reduce) {
-  .lite-pending-content {
-    transition: none;
-  }
-}
-
-.lite-interaction {
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.lite-interaction-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  /* 内容超长时封顶滚动，操作栏不被挤出面板；单题时高度贴合内容 */
-  max-height: 50vh;
-  padding: 8px 12px;
-  /* v1.2：滚动链隔离 + 主题化 webkit 滚动条（待处理内容也可能很长） */
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--el-border-color-darker) transparent;
-}
-.lite-interaction-body::-webkit-scrollbar {
-  width: 8px;
-}
-.lite-interaction-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.lite-interaction-body::-webkit-scrollbar-thumb {
-  background: var(--el-border-color-darker);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-.lite-interaction-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-/* 提问区去 kicker 后 head 仅剩进度信息，靠右对齐（审批区保留 APPROVAL REQUEST kicker 用 space-between） */
-.lite-interaction.is-question .lite-interaction-head {
-  justify-content: flex-end;
-}
-.lite-interaction-kicker {
-  color: var(--el-text-color-secondary);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-}
-.lite-interaction-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--el-text-color-placeholder);
-}
-.lite-interaction-dot[data-status='pending'] {
-  background: var(--lite-tone-tool);
-  animation: lite-pulse 1.4s ease-in-out infinite;
-}
-.lite-interaction-dot[data-status='resolving'] {
-  background: var(--el-color-primary);
-  animation: lite-pulse 1.2s ease-in-out infinite;
-}
-.lite-interaction-dot[data-status='blocked'],
-.lite-interaction-dot[data-status='expired'] {
-  background: var(--el-color-danger);
-}
-.lite-interaction-dot[data-status='completed'] {
-  background: var(--el-color-success);
-}
-.lite-interaction-dot[data-status='cancelled'] {
-  background: var(--el-text-color-placeholder);
-}
-.lite-interaction-head-right {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-}
-.lite-status-pill {
-  padding: 0 7px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  color: var(--el-text-color-secondary);
-  font-size: 10.5px;
-  line-height: 16px;
-}
-.lite-status-pill[data-status='resolving'] {
-  border-color: color-mix(in srgb, var(--el-color-warning) 55%, var(--el-border-color));
-  color: var(--el-color-warning);
-}
-.lite-status-pill[data-status='blocked'] {
-  border-color: color-mix(in srgb, var(--el-color-danger) 55%, var(--el-border-color));
-  color: var(--el-color-danger);
-}
-.lite-countdown {
-  color: var(--el-color-warning);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.lite-countdown[data-expired='true'] {
-  color: var(--el-color-danger);
-}
-.lite-approval-overview {
-  display: grid;
-  gap: 8px;
-}
-.lite-approval-overview h3,
-.lite-approval-overview p {
-  margin: 0;
-}
-.lite-approval-overview h3 {
-  color: var(--el-text-color-primary);
-  font-size: 16px;
-  line-height: 1.4;
-}
-.lite-approval-overview p {
-  color: var(--el-text-color-regular);
-  line-height: 1.55;
-}
-.lite-approval-overview dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  margin: 2px 0 0;
-  border: 1px solid var(--el-border-color);
-  background: var(--el-border-color);
-}
-.lite-approval-overview dl > div {
-  min-width: 0;
-  padding: 7px 9px;
-  background: var(--el-bg-color);
-}
-.lite-approval-overview dt {
-  color: var(--el-text-color-secondary);
-  font-size: 10px;
-}
-.lite-approval-overview dd {
-  margin: 2px 0 0;
-  color: var(--el-text-color-primary);
-  overflow-wrap: anywhere;
-}
-.lite-risk-summary {
-  display: flex;
-  gap: 8px;
-  margin: 10px 0;
-  padding: 8px 10px;
-  border-left: 3px solid var(--el-color-warning);
-  background: color-mix(in srgb, var(--el-color-warning) 8%, transparent);
-  color: var(--el-text-color-regular);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.lite-risk-summary > span {
-  color: var(--el-color-warning);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-.lite-technical-details {
-  border-top: 1px solid var(--el-border-color-lighter);
-  border-bottom: 1px solid var(--el-border-color-lighter);
-}
-.lite-technical-details > summary {
-  padding: 8px 2px;
-  color: var(--el-text-color-regular);
-  cursor: pointer;
-}
-.lite-technical-details-body {
-  display: grid;
-  gap: 10px;
-  padding: 2px 0 10px 16px;
-}
-.lite-technical-details :deep(.args-body) {
-  padding-left: 0;
-}
-.lite-technical-details :deep(.file-diff) {
-  margin: 0;
-}
-.lite-interaction-actions {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  min-height: 40px;
-  padding: 6px 10px;
-  /* v1.7b：底部操作栏（上一题/下一题分页 + 提交/允许/拒绝按钮）紫色系更深一档底色
-     （26% 派生），与内容区形成层次；顶部分隔线同家族加深 */
-  border-top: 1px solid color-mix(in srgb, var(--violet) 45%, var(--el-border-color));
-  background: color-mix(in srgb, var(--violet) 26%, var(--surface));
-  box-shadow: none;
-}
-.lite-action-hint {
-  margin-right: auto;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-}
-.lite-btn {
-  min-width: 84px;
-  padding: 6px 14px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  background: var(--el-bg-color);
-  color: var(--el-text-color-primary);
-  cursor: pointer;
-  transition:
-    transform 120ms ease,
-    background-color 120ms ease,
-    border-color 120ms ease;
-}
-.lite-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-.lite-btn.is-accept {
-  border-color: var(--el-color-success);
-  background: var(--el-color-success);
-  color: #fff;
-}
-.lite-btn.is-reject {
-  border-color: var(--el-color-danger);
-  color: var(--el-color-danger);
-}
-.lite-btn.is-submit {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary);
-  color: #fff;
-}
-.lite-btn:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-.lite-question-workspace {
-  display: block;
-  min-width: 0;
-  min-height: 0;
-}
-/* 提问选项区（v1.5）：两列卡片布局——每个选项一张卡片，末尾「其他」卡片自带输入框（本身作为选项） */
-.lite-options-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 6px;
-}
-.lite-option-card {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-  padding: 6px;
-  /* v1.7b：选项卡片底色调整为同族淡紫底（--violet 9% 派生，比内容区浅一档，形成
-     「内容区 20% → 卡片 9%」层次；原中性白底在浅色淡底上边界不清，用户要求调整）；
-     边框常规色，选中态主色边框 + 主色淡底 */
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  background: color-mix(in srgb, var(--violet) 9%, var(--surface));
-  transition:
-    border-color 120ms ease,
-    background-color 120ms ease;
-}
-.lite-option-card.is-selected {
-  border-color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-bg-color));
-}
-.lite-option-card.is-disabled {
-  opacity: 0.55;
-}
-.lite-option-main {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 7px;
-  min-height: 26px;
-  cursor: pointer;
-}
-.lite-option-main[aria-disabled='true'] {
-  cursor: default;
-}
-.lite-choice-mark {
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border: 1px solid var(--el-border-color-darker);
-  color: transparent;
-  font-size: 10px;
-  line-height: 1;
-}
-.lite-option-card.is-single .lite-choice-mark {
-  border-radius: 50%;
-}
-.lite-option-card.is-selected .lite-choice-mark {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary);
-  color: #fff;
-}
-.lite-option-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.lite-option-label {
-  min-width: 0;
-  color: var(--el-text-color-primary);
-  font-size: 12px;
-  line-height: 1.3;
-  word-break: break-word;
-}
-.lite-option-description {
-  min-width: 0;
-  color: var(--el-text-color-secondary);
-  font-size: 10px;
-  line-height: 1.35;
-}
-/* 「补充」按钮：选中该选项后才可展开补充输入 */
-.lite-option-note-toggle {
-  flex: none;
-  padding: 1px 6px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  background: transparent;
-  color: var(--el-text-color-secondary);
-  font-size: 10px;
-  line-height: 16px;
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    border-color 120ms ease;
-}
-.lite-option-note-toggle:not(:disabled):hover {
-  border-color: var(--el-color-primary-light-5);
-  color: var(--el-color-primary);
-}
-.lite-option-note-toggle.is-open {
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-}
-.lite-option-note-toggle:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-.lite-option-note {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 5px 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  background: var(--el-fill-color-blank);
-  color: inherit;
-  resize: vertical;
-}
-/* 「其他」卡片内嵌输入框：默认常驻，本身作为单选/多选的一个选项；radio 标记后直接单行输入，高度与左侧选项卡片一致 */
-.lite-option-other-input {
-  min-width: 0;
-  width: 100%;
-  box-sizing: border-box;
-  height: 26px;
-  padding: 0 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  background: var(--el-fill-color-blank);
-  color: inherit;
-  font-size: 12px;
-}
-.lite-followup-question {
-  min-width: 0;
-  margin: 0;
-  padding: 8px 10px;
-  /* 批次单题：去掉 fieldset 默认边框，不再用边框分隔多题 */
-  border: none;
-  /* v1.7：题干区透出琥珀内容区底色（不再单独画浅色块），层次交给选项卡片 */
-  background: transparent;
-}
-.lite-question-title {
-  margin: 0 0 6px;
-  color: var(--el-text-color-primary);
-  font-size: 14px;
-  line-height: 1.55;
-}
-.lite-question-type {
-  margin: 0 0 6px;
-  color: var(--el-text-color-secondary);
-  font-size: 10px;
-  letter-spacing: 0.05em;
-}
-.lite-object-error,
-.lite-question-error {
-  margin: 4px 0;
-  color: var(--el-color-danger);
-  font-size: 12px;
-}
-.lite-freetext {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 92px;
-  margin-top: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  background: var(--el-fill-color-blank);
-  color: inherit;
-}
-.lite-question-pager {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: auto;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-}
-.lite-question-pager button {
-  padding: 4px 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 0;
-  background: var(--el-bg-color);
-  color: var(--el-text-color-regular);
-  cursor: pointer;
-}
-.lite-question-pager button:disabled {
-  cursor: default;
-  opacity: 0.42;
 }
 
 .lite-error-banner {
@@ -1363,7 +779,7 @@
   align-items: center;
   gap: 8px;
   color: var(--el-color-danger);
-  font-size: 12px;
+  font-size: 14px;
 }
 .lite-failed-input span {
   flex: 1;
@@ -1375,7 +791,7 @@
   border-top: 1px solid var(--el-color-danger-light-7);
   background: var(--el-color-danger-light-9);
   color: var(--el-color-danger);
-  font-size: 12px;
+  font-size: 14px;
 }
 .lite-run-error-title {
   display: flex;
@@ -1418,6 +834,50 @@
   font: inherit;
   line-height: 1.5;
 }
+/* 展开态（与对话模式同款交互）：高度从 6 行上限提升到「至少 12 行、最高窗口一半」，
+   长内容不再在小框中翻页滚动（min-height 用 min(240px, 50vh) 兜底矮窗口）。 */
+.lite-input.is-expanded .lite-input-box {
+  min-height: min(240px, 50vh);
+  max-height: 50vh;
+}
+/* 发送钮右上角展开按钮：小方块，贴发送钮正上方右对齐（与发送钮同列，hover/焦点可键盘操作） */
+.lite-send-wrap {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-left: 8px;
+}
+.lite-expand-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 1px solid var(--el-border-color);
+  border-radius: 0;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.lite-expand-btn:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+.lite-expand-btn.is-expanded {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
+}
 /* v1.0 高度对齐：发送按钮高度固定为单行输入框同高（≈35px，含输入框 padding 7px×2 + 1.5 行高 + 边框），
    消除右下角按钮与左侧单行输入框的纵向错位；多行输入增高时按钮仍贴底（.lite-input 为 align-items:flex-end）。 */
 .lite-send-btn {
@@ -1427,12 +887,11 @@
   justify-content: center;
   height: 35px;
   box-sizing: border-box;
-  margin-left: 8px;
   padding: 0 16px;
   border: none;
   background: var(--el-color-primary);
   color: #fff;
-  font-size: 12.5px;
+  font-size: 14.5px;
   line-height: 1;
   cursor: pointer;
   transition:
@@ -1450,14 +909,5 @@
 @media (max-width: 560px) {
   .lite-history-content {
     padding-left: 26px;
-  }
-}
-
-@media (max-width: 760px) {
-  .lite-options-grid {
-    grid-template-columns: 1fr;
-  }
-  .lite-action-hint {
-    display: none;
   }
 }

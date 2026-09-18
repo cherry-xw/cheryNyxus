@@ -392,7 +392,7 @@ function locateInteraction(item: InteractionRecord): void {
   min-height: 0;
   overflow: hidden;
   padding: 16px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
   line-height: 1.6;
   container-type: inline-size;
@@ -409,11 +409,11 @@ function locateInteraction(item: InteractionRecord): void {
 }
 .task-center :deep(button) {
   border-radius: 0;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.5;
 }
 .task-center :deep(small) {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
 }
 .task-center :deep(h2),
@@ -457,18 +457,18 @@ function locateInteraction(item: InteractionRecord): void {
   border-color: color-mix(in srgb, var(--warning) 62%, transparent);
 }
 .workspace-tabs span {
-  font-size: 13px;
+  font-size: 15px;
 }
 .workspace-tabs b {
   margin-left: 4px;
   padding: 1px 5px;
   background: var(--warning);
   color: var(--bg);
-  font-size: 12px;
+  font-size: 14px;
 }
 .workspace-tabs small {
   color: color-mix(in srgb, var(--ink) 52%, transparent);
-  font-size: 12px;
+  font-size: 14px;
 }
 .summary-stats {
   display: flex;
@@ -483,22 +483,22 @@ function locateInteraction(item: InteractionRecord): void {
 }
 .summary-stats dt {
   color: color-mix(in srgb, var(--ink) 50%, transparent);
-  font: 12px/1.2 var(--font-mono);
+  font: 14px/1.2 var(--font-mono);
 }
 .summary-stats dd {
   margin: 2px 0 0;
-  font: 400 18px/1.2 var(--font-mono);
+  font: 400 20px/1.2 var(--font-mono);
 }
 .load-error {
   align-self: center;
   color: var(--danger);
-  font-size: 12px;
+  font-size: 14px;
 }
 .workspace-description {
   flex: none;
   margin: 8px 0 12px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .overview-workspace {
@@ -524,13 +524,13 @@ function locateInteraction(item: InteractionRecord): void {
 }
 .pane-title h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 17px;
 }
 .pane-title p,
 .detail-section > header p {
   margin: 4px 0 0;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .filters {
@@ -547,7 +547,7 @@ function locateInteraction(item: InteractionRecord): void {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
 }
 .filters button.active {
   border-color: var(--accent);
@@ -577,13 +577,13 @@ function locateInteraction(item: InteractionRecord): void {
   padding: 0 2px 6px;
 }
 .task-group > header strong {
-  font-size: 12px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .task-group > header small {
   color: color-mix(in srgb, var(--ink) 48%, transparent);
-  font-size: 12px;
+  font-size: 14px;
 }
 .task-card {
   display: grid;
@@ -608,7 +608,7 @@ function locateInteraction(item: InteractionRecord): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 14px;
 }
 .task-card > small {
   grid-column: 2;
@@ -619,18 +619,18 @@ function locateInteraction(item: InteractionRecord): void {
   grid-column: 3;
   grid-row: 1 / 3;
   align-self: center;
-  font: 12px/1.2 var(--font-mono);
+  font: 14px/1.2 var(--font-mono);
 }
 .pending-count {
   grid-column: 2 / -1;
   color: var(--warning);
-  font-size: 12px;
+  font-size: 14px;
 }
 .latest-activity {
   grid-column: 2 / -1;
   overflow: hidden;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -677,24 +677,24 @@ function locateInteraction(item: InteractionRecord): void {
 }
 .task-detail-head > div > small {
   color: var(--accent);
-  font: 12px/1.2 var(--font-mono);
+  font: 14px/1.2 var(--font-mono);
 }
 .task-detail-head h2 {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
-  font-size: 18px;
+  font-size: 20px;
 }
 .task-detail-head p {
   margin: 5px 0 0;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .detail-status {
   flex: none;
   padding: 4px 7px;
   background: var(--surface-soft);
-  font-size: 12px;
+  font-size: 14px;
 }
 .detail-status.is-needs_user {
   color: var(--warning);
@@ -713,7 +713,7 @@ function locateInteraction(item: InteractionRecord): void {
 }
 .detail-section h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 15px;
 }
 .agent-grid {
   display: grid;
@@ -737,7 +737,7 @@ function locateInteraction(item: InteractionRecord): void {
 .agent-grid time,
 .activity time {
   color: color-mix(in srgb, var(--ink) 45%, transparent);
-  font: 12px/1.3 var(--font-mono);
+  font: 14px/1.3 var(--font-mono);
 }
 .activity ol {
   display: grid;
@@ -750,14 +750,14 @@ function locateInteraction(item: InteractionRecord): void {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
   gap: 8px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .section-empty,
 .empty-state,
 .detail-empty {
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   text-align: center;
-  font-size: 12px;
+  font-size: 14px;
 }
 .empty-state,
 .detail-empty {

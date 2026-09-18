@@ -59,7 +59,8 @@ export function accentForTheme(theme: 'light' | 'dark', key: NodeSkinKey): strin
 }
 
 /** Interactive execution-node kinds that open a read-only hover detail surface.
- *  start 是纯装饰节点，不参与 hover/点击。 */
+ *  start 是纯装饰节点，不参与 hover/点击（工作台非 staticView 下另有彩蛋点击位）。
+ *  epoch（设置已切换）是真实时间标记，同样需要吸附 + hover 详情。 */
 export const NODE_HOVER_DETAIL_KINDS: Partial<Record<ExecutionNodeKind, true>> = {
   message: true,
   'tool-batch': true,
@@ -69,6 +70,7 @@ export const NODE_HOVER_DETAIL_KINDS: Partial<Record<ExecutionNodeKind, true>> =
   spawn: true,
   pack: true,
   fold: true,
+  epoch: true,
   input: true,
   unknown: true,
 }

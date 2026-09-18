@@ -164,6 +164,9 @@ function uniqueFacts<T extends { id: string; orderKey: number }>(facts: readonly
 }
 
 function graphKind(node: TimelineNode): ExecutionNodeKind {
+  // 协议允许 tool-group（工具组摘要，后端暂未产出）：归入 tool-batch 展示，
+  // 保证这类节点也走工具执行的外观、吸附与 hover 详情，而不是降级成 unknown。
+  if (node.kind === 'tool-group') return 'tool-batch'
   return PERSISTENT_NODE_KINDS.has(node.kind as PersistentExecutionNodeKind)
     ? (node.kind as PersistentExecutionNodeKind)
     : 'unknown'

@@ -412,7 +412,7 @@ function formatDateTime(iso: string | undefined): string {
 
 .load-error {
   color: var(--danger);
-  font-size: 12px;
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 
@@ -435,7 +435,7 @@ function formatDateTime(iso: string | undefined): string {
 
 code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
   padding: 1px 4px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--ink) 8%, transparent);
@@ -449,14 +449,14 @@ code {
   gap: 8px;
   .search-status {
     flex: 0 0 auto;
-    font-size: 10px;
+    font-size: 12px;
     color: color-mix(in srgb, var(--ink) 66%, transparent);
     font-variant-numeric: tabular-nums;
   }
 }
 .sect-hint {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
 .section {
@@ -478,7 +478,7 @@ code {
   border: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 8px;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   text-align: center;
 }
 .source-card {
@@ -490,7 +490,7 @@ code {
   justify-content: space-between;
   gap: 7px;
   margin-top: 7px;
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .sync-btn {
@@ -498,14 +498,14 @@ code {
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   padding: 3px 9px;
   cursor: pointer;
 }
 .sect-title {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
   border-bottom: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
@@ -538,7 +538,7 @@ code {
 .card-title {
   flex: 1 1 180px;
   min-width: 0;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   white-space: normal;
@@ -579,7 +579,7 @@ code {
   }
 }
 .badge {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 8px;
@@ -609,7 +609,7 @@ code {
 }
 .skill-body {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 82%, transparent);
   word-break: break-word;
@@ -627,7 +627,7 @@ code {
   align-items: center;
   gap: 8px;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
   .meta-item {
     display: inline-flex;
@@ -643,7 +643,7 @@ code {
 }
 .skill-tag {
   display: inline-block;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   padding: 1px 8px;
   border-radius: 10px;
@@ -654,13 +654,13 @@ code {
 .empty-card {
   text-align: center;
   .empty-title {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
   .empty-hint {
     margin-top: 6px;
-    font-size: 11px;
+    font-size: 13px;
     color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
 }
@@ -671,7 +671,7 @@ code {
   border-radius: 6px;
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 80%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;

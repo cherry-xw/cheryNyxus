@@ -59,6 +59,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
     <div class="sense-head">
       <span class="sense-icon" aria-hidden="true">⚙</span>
       <span class="sense-name">{{ toSenseNameZh(props.call.name) }}</span>
+      <slot name="risk" />
       <span class="sense-status" :class="statusClass" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
     <div v-if="hasArgs" class="sense-section">
@@ -104,8 +105,10 @@ const statusClass = computed(() => `status-${props.call.status}`)
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--surface-soft);
-  font-size: 11px;
+  /* 未知工具通用渲染器：用不透明表面，避免在深色主题 / 折叠 tag 悬浮层上
+     内容与背后背景重叠导致文字不清（与已注册专用渲染器的 var(--surface) 一致）。 */
+  background: var(--surface);
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
@@ -115,7 +118,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   gap: 6px;
 
   .sense-icon {
-    font-size: 11px;
+    font-size: 13px;
     opacity: 0.7;
   }
 
@@ -128,7 +131,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
 
   .sense-status {
     font-weight: 800;
-    font-size: 12px;
+    font-size: 14px;
 
     &.status-done {
       color: #16a34a;
@@ -157,7 +160,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   border: none;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   user-select: none;
@@ -205,7 +208,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
 .arg-key {
   flex-shrink: 0;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 400;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
@@ -216,7 +219,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.45;
   color: color-mix(in srgb, var(--ink) 86%, transparent);
   max-height: 160px;
@@ -224,7 +227,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
 }
 
 .arg-empty {
-  font-size: 10px;
+  font-size: 12px;
   font-style: italic;
   color: color-mix(in srgb, var(--ink) 44%, transparent);
 }
@@ -236,7 +239,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;

@@ -113,21 +113,28 @@ const {
           aria-label="切换会话或任务分支"
           @change="onSwitchCascade"
         />
-        <button
+        <el-tooltip
           v-if="
             !archived &&
             currentTaskBranch &&
             currentTaskBranch.kind !== 'detail' &&
             currentTaskBranch.branchId !== taskTimeline?.activeBranchId
           "
-          type="button"
-          class="activate-branch-btn"
-          :disabled="activatingBranch"
-          title="将当前分支切换为任务主流程；不会复制消息或启动执行"
-          @click="activateCurrentBranch"
+          content="将当前分支切换为任务主流程；不会复制消息或启动执行"
+          placement="bottom"
+          :show-after="150"
+          :hide-after="0"
         >
-          设为主流程
-        </button>
+          <button
+            type="button"
+            class="activate-branch-btn"
+            :disabled="activatingBranch"
+            aria-label="将当前分支切换为任务主流程；不会复制消息或启动执行"
+            @click="activateCurrentBranch"
+          >
+            设为主流程
+          </button>
+        </el-tooltip>
         <button
           type="button"
           class="copy-id-btn"
@@ -140,50 +147,65 @@ const {
         </button>
       </div>
       <div v-if="isTop" class="head-actions">
-        <button
-          type="button"
-          class="tool-collapse-btn"
-          :class="{ active: agents.senseCallsCollapsed }"
-          :aria-pressed="agents.senseCallsCollapsed"
-          title="折叠工具调用为标签（hover 标签查看详情）"
-          @click="agents.setSenseCallsCollapsed(!agents.senseCallsCollapsed)"
-        >
-          🧰
-        </button>
+        <el-tooltip content="折叠工具调用为标签（hover 标签查看详情）" placement="bottom" :show-after="150" :hide-after="0">
+          <button
+            type="button"
+            class="tool-collapse-btn"
+            :class="{ active: agents.senseCallsCollapsed }"
+            :aria-pressed="agents.senseCallsCollapsed"
+            aria-label="折叠工具调用为标签（hover 标签查看详情）"
+            @click="agents.setSenseCallsCollapsed(!agents.senseCallsCollapsed)"
+          >
+            🧰
+          </button>
+        </el-tooltip>
         <div
           v-if="layout === 'group'"
           class="display-mode-seg"
           role="group"
           aria-label="子 agent 消息显示模式"
         >
-          <button
-            type="button"
-            class="mode-btn"
-            :class="{ active: agents.subagentDisplay === 'show' }"
-            :aria-pressed="agents.subagentDisplay === 'show'"
-            title="不折叠子 Agent 消息"
-            @click="agents.setSubagentDisplay('show')"
+          <el-tooltip content="不折叠子 Agent 消息" placement="bottom" :show-after="150" :hide-after="0">
+            <button
+              type="button"
+              class="mode-btn"
+              :class="{ active: agents.subagentDisplay === 'show' }"
+              :aria-pressed="agents.subagentDisplay === 'show'"
+              aria-label="不折叠子 Agent 消息"
+              @click="agents.setSubagentDisplay('show')"
+            >
+              👥</button
+            >
+          </el-tooltip>
+          <el-tooltip content="折叠子 Agent 消息" placement="bottom" :show-after="150" :hide-after="0">
+            <button
+              type="button"
+              class="mode-btn"
+              :class="{ active: agents.subagentDisplay === 'collapse' }"
+              :aria-pressed="agents.subagentDisplay === 'collapse'"
+              aria-label="折叠子 Agent 消息"
+              @click="agents.setSubagentDisplay('collapse')"
+            >
+              🙈</button
+            >
+          </el-tooltip>
+          <el-tooltip
+            content="只保留用户和大模型单个轮次最后一条消息"
+            placement="bottom"
+            :show-after="150"
+            :hide-after="0"
           >
-            👥</button
-          ><button
-            type="button"
-            class="mode-btn"
-            :class="{ active: agents.subagentDisplay === 'collapse' }"
-            :aria-pressed="agents.subagentDisplay === 'collapse'"
-            title="折叠子 Agent 消息"
-            @click="agents.setSubagentDisplay('collapse')"
-          >
-            🙈</button
-          ><button
-            type="button"
-            class="mode-btn"
-            :class="{ active: agents.subagentDisplay === 'round' }"
-            :aria-pressed="agents.subagentDisplay === 'round'"
-            title="只保留用户和大模型单个轮次最后一条消息"
-            @click="agents.setSubagentDisplay('round')"
-          >
-            🎯
-          </button>
+            <button
+              type="button"
+              class="mode-btn"
+              :class="{ active: agents.subagentDisplay === 'round' }"
+              :aria-pressed="agents.subagentDisplay === 'round'"
+              aria-label="只保留用户和大模型单个轮次最后一条消息"
+              @click="agents.setSubagentDisplay('round')"
+            >
+              🎯
+            </button>
+          </el-tooltip>
         </div>
         <button
           v-if="!embedded || canGoBack"

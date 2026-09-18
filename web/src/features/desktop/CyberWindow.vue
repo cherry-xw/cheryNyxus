@@ -258,14 +258,17 @@ function endPointer(event: PointerEvent): void {
     var(--cyber-title-bg);
   cursor: move;
   user-select: none;
+  // 以自身宽度作容器查询：过窄时隐藏装饰性元素，保持核心控件水平可用
+  container-type: inline-size;
 }
 
 .cyber-window-channel,
 .cyber-window-signal {
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.12em;
+  white-space: nowrap;
 }
 
 .cyber-window-channel {
@@ -278,7 +281,7 @@ function endPointer(event: PointerEvent): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -300,6 +303,18 @@ function endPointer(event: PointerEvent): void {
   opacity: 0.64;
 }
 
+// 标题栏宽度过窄时隐藏装饰性元素（channel 徽记 / signal），优先保证核心控件不被挤出窗口
+@container (max-width: 620px) {
+  .cyber-window-signal {
+    display: none;
+  }
+}
+@container (max-width: 520px) {
+  .cyber-window-channel {
+    display: none;
+  }
+}
+
 .cyber-window-actions {
   align-self: stretch;
   display: flex;
@@ -312,7 +327,7 @@ function endPointer(event: PointerEvent): void {
   border-radius: 0;
   background: transparent;
   color: var(--ink);
-  font: 400 15px/1 var(--font-mono);
+  font: 400 17px/1 var(--font-mono);
   cursor: pointer;
 }
 

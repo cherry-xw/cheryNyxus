@@ -206,7 +206,7 @@ function chatLabel(chatId: string): string {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--ink);
-  font: 400 12px/20px var(--font-ui, sans-serif);
+  font: 400 14px/20px var(--font-ui, sans-serif);
 }
 .status-capsule {
   --notice-color: var(--accent);
@@ -218,7 +218,7 @@ function chatLabel(chatId: string): string {
   border-radius: 0;
   background: transparent;
   color: var(--notice-color);
-  font: 400 12px/28px var(--font-ui, sans-serif);
+  font: 400 14px/28px var(--font-ui, sans-serif);
   cursor: pointer;
 }
 .status-capsule.warning {
@@ -242,7 +242,7 @@ function chatLabel(chatId: string): string {
 }
 h3 {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
 }
 article {
@@ -258,7 +258,7 @@ p {
 small,
 b,
 p {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
 }
 .restart-block {
@@ -287,7 +287,7 @@ p {
   border-radius: 0;
   background: var(--surface-soft);
   color: var(--ink);
-  font: 400 12px/24px var(--font-ui, sans-serif);
+  font: 400 14px/24px var(--font-ui, sans-serif);
   cursor: pointer;
 }
 button svg {

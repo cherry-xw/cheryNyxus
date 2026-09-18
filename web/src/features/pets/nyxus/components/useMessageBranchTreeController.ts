@@ -820,6 +820,7 @@ export function useMessageBranchTreeController(
   function nodeTitle(node: ExecutionNode): string {
     if (node.kind === 'start') return '任务起点'
     if (node.kind === 'input') return '我的指令'
+    if (node.kind === 'epoch') return '设置已切换'
     if (node.kind === 'pack') {
       // 打包节点标题 = 摘要首行（compactNodeTitle 统一截断）。
       const firstLine = node.content

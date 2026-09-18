@@ -364,7 +364,7 @@ function activate(window: WorkspaceWindowState): void {
   padding: 0 12px;
   border-bottom: 1px solid var(--cyber-line-soft);
   background: var(--cyber-bar-bg);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.11em;
 }
 
@@ -394,7 +394,7 @@ function activate(window: WorkspaceWindowState): void {
   border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
-  font: 400 12px/1 var(--font-mono);
+  font: 400 14px/1 var(--font-mono);
   letter-spacing: 0.04em;
   cursor: pointer;
 }
@@ -432,7 +432,7 @@ function activate(window: WorkspaceWindowState): void {
   gap: 4px;
   justify-items: end;
   color: color-mix(in srgb, var(--accent) 44%, transparent);
-  font: 400 8px/1.2 var(--font-mono);
+  font: 400 12px/1.2 var(--font-mono);
   letter-spacing: 0.12em;
   pointer-events: none;
 }
@@ -461,7 +461,7 @@ function activate(window: WorkspaceWindowState): void {
 .cyber-taskbar-tail {
   padding: 0 7px;
   color: color-mix(in srgb, var(--ink) 48%, transparent);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.1em;
 }
 
@@ -476,7 +476,7 @@ function activate(window: WorkspaceWindowState): void {
   color: color-mix(in srgb, var(--ink) 72%, transparent);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 400 10px/1 var(--font-mono);
+  font: 400 12px/1 var(--font-mono);
   cursor: pointer;
 }
 
@@ -489,7 +489,7 @@ function activate(window: WorkspaceWindowState): void {
   background: var(--accent-soft);
   color: var(--accent);
   font-style: normal;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .cyber-taskbar button.active {

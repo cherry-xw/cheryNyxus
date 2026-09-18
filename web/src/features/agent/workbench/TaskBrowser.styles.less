@@ -1,0 +1,443 @@
+.task-browser {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.task-browser button,
+.task-browser input,
+.task-browser select,
+.task-browser summary {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--ink) 28%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--ink);
+  font: inherit;
+}
+
+.task-browser button,
+.task-browser summary {
+  cursor: pointer;
+}
+
+.task-browser button:hover,
+.task-browser button:focus-visible,
+.task-browser input:focus-visible,
+.task-browser select:focus-visible,
+.task-browser summary:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.task-browser button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.task-browser-toolbar {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  padding: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  background: var(--panel);
+}
+
+.task-browser-heading,
+.task-browser-filters,
+.task-card-head,
+.task-browser-notice,
+.task-browser-inline-error,
+.task-browser-load-more,
+.task-browser-card footer,
+.task-card-confirm > div {
+  display: flex;
+  align-items: center;
+}
+
+.task-browser-heading {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.task-browser-heading h2,
+.task-browser-card h3 {
+  margin: 0;
+  font-weight: 600;
+}
+
+.task-browser-heading h2 {
+  font-size: 20px;
+}
+
+.task-browser-heading p {
+  margin: 4px 0 0;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
+  line-height: 1.5;
+}
+
+.task-browser-close {
+  width: 34px;
+  padding: 0;
+  font-size: 20px;
+}
+
+.task-browser-filters {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.task-browser-filters > label,
+.task-browser-search {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  font-size: 12px;
+}
+
+.task-browser-search {
+  flex: 1 1 280px;
+}
+
+.task-browser-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.task-browser-filters select {
+  min-width: 126px;
+  padding: 0 8px;
+}
+
+.task-browser-filters > button {
+  align-self: flex-end;
+  padding: 0 12px;
+}
+
+.task-browser button.is-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.task-browser-status-filter {
+  position: relative;
+  align-self: flex-end;
+}
+
+.task-browser-status-filter > summary {
+  display: flex;
+  align-items: center;
+  min-width: 110px;
+  padding: 0 10px;
+  list-style: none;
+}
+
+.task-browser-status-filter > summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-browser-status-filter fieldset {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 4;
+  display: grid;
+  width: 180px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  background: var(--panel);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.task-browser-status-filter legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.task-browser-status-filter label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.task-browser-status-filter input {
+  min-height: auto;
+  accent-color: var(--accent);
+}
+
+.task-browser-notice,
+.task-browser-inline-error {
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.task-browser-notice button,
+.task-browser-inline-error button {
+  flex: 0 0 auto;
+  padding: 0 10px;
+}
+
+.task-browser-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  outline: none;
+}
+
+.task-browser-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 14px;
+}
+
+.task-browser-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 330px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  cursor: pointer;
+}
+
+.task-browser-card:hover,
+.task-browser-card:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.task-browser-card.has-unread {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.task-card-head {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-card-title-wrap {
+  min-width: 0;
+}
+
+.task-browser-card h3 {
+  margin-top: 8px;
+  font-size: 16px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.task-card-status,
+.task-card-unread,
+.match-source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-right: 6px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
+  font-size: 12px;
+}
+
+.task-card-status.is-running,
+.task-card-status.is-needs_user,
+.task-card-status.is-failed,
+.task-card-unread {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--accent);
+}
+
+.task-card-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.task-card-menu > summary {
+  display: grid;
+  width: 34px;
+  padding: 0;
+  place-items: center;
+  list-style: none;
+}
+
+.task-card-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-card-menu-items {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 3;
+  display: grid;
+  width: 180px;
+  padding: 6px;
+  border: 1px solid var(--accent);
+  background: var(--panel);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.task-card-menu-items button {
+  border-color: transparent;
+  text-align: left;
+}
+
+.task-browser button.is-danger {
+  color: var(--el-color-danger);
+}
+
+.task-card-section,
+.task-card-matches {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+}
+
+.task-card-section h4,
+.task-card-matches h4 {
+  margin: 0 0 5px;
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.task-card-section p,
+.task-card-matches p,
+.task-card-confirm p,
+.task-card-error {
+  margin: 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.task-card-detail p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.task-card-matches p {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.task-card-matches mark {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--ink);
+}
+
+.match-source {
+  min-height: 20px;
+  padding: 0 4px;
+}
+
+.task-card-confirm {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 55%, transparent);
+  background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
+}
+
+.task-card-confirm > div {
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.task-card-confirm button {
+  padding: 0 10px;
+}
+
+.task-card-error {
+  margin-top: 10px;
+  color: var(--el-color-danger);
+}
+
+.task-browser-card footer {
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 14px;
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  font-size: 12px;
+}
+
+.task-browser-state {
+  display: grid;
+  min-height: 240px;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  text-align: center;
+}
+
+.task-browser-state p {
+  margin: 0;
+}
+
+.task-browser-state button,
+.task-browser-load-more button {
+  padding: 0 14px;
+}
+
+.task-browser-load-more {
+  justify-content: center;
+  margin-top: 16px;
+}
+
+@media (max-width: 1040px) {
+  .task-browser-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .task-browser-toolbar,
+  .task-browser-viewport {
+    padding: 12px;
+  }
+
+  .task-browser-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-browser-filters > label,
+  .task-browser-status-filter,
+  .task-browser-filters select {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-browser * {
+    scroll-behavior: auto;
+  }
+}

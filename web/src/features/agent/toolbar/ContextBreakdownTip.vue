@@ -45,7 +45,7 @@ defineProps<{ breakdown?: ContextBreakdown }>()
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
 }
 .ctx-dot {
@@ -58,11 +58,11 @@ defineProps<{ breakdown?: ContextBreakdown }>()
   flex: 1;
 }
 .ctx-tip-count {
-  font-size: 12px;
+  font-size: 14px;
   opacity: 0.6;
 }
 .ctx-tip-thinking {
-  font-size: 12px;
+  font-size: 14px;
   opacity: 0.6;
 }
 .ctx-tip-val {

@@ -109,6 +109,67 @@ describe('filesystemRead override（配置管理角色读放行）', () => {
   })
 })
 
+describe('config_manage 安全判定（已声明副作用，不再是未知工具）', () => {
+  const base = { name: 'config_manage', workspace, configuredLevel: SupervisionLevel.auto }
+
+  it('读操作（get）在受监管角色放行且无判定（安全）', () => {
+    const result = authorizeToolCall({
+      ...base,
+      args: { action: 'get' },
+      security: compileRoleSecurity('reviewed', role('supervised')),
+    })
+    expect(result.decision).toBe('allow')
+    expect(result.findings).toEqual([])
+  })
+
+  it('写操作（patch）在受监管角色要求审批，并给出中风险判定（不再 unknown）', () => {
+    const result = authorizeToolCall({
+      ...base,
+      args: { action: 'patch', operations: [{ op: 'putBrain' }] },
+      security: compileRoleSecurity('reviewed', role('supervised')),
+    })
+    expect(result.decision).toBe('ask')
+    expect(result.findings).toEqual([
+      expect.objectContaining({ code: 'role.config-mutating', severity: 'medium' }),
+    ])
+  })
+
+  it('写操作在只读角色拒绝，在开发/信任角色放行但保留中风险判定', () => {
+    const patch = { action: 'patch' }
+    expect(
+      authorizeToolCall({
+        ...base,
+        args: patch,
+        security: compileRoleSecurity('reader', role('read-only')),
+      }).decision,
+    ).toBe('deny')
+    const developer = authorizeToolCall({
+      ...base,
+      args: patch,
+      security: compileRoleSecurity('developer', role('workspace-developer')),
+    })
+    expect(developer.decision).toBe('allow')
+    expect(developer.findings.some((finding) => finding.severity === 'medium')).toBe(true)
+    const trusted = authorizeToolCall({
+      ...base,
+      args: patch,
+      security: compileRoleSecurity('trusted-role', role('trusted')),
+    })
+    expect(trusted.decision).toBe('allow')
+    expect(trusted.findings.some((finding) => finding.severity === 'medium')).toBe(true)
+  })
+
+  it('缺少 action 或未知 action 按变更类处置（不静默放行）', () => {
+    const result = authorizeToolCall({
+      ...base,
+      args: {},
+      security: compileRoleSecurity('reviewed', role('supervised')),
+    })
+    expect(result.decision).toBe('ask')
+    expect(result.findings.some((finding) => finding.severity === 'medium')).toBe(true)
+  })
+})
+
 describe('角色验收安全覆盖层', () => {
   const acceptance: AcceptanceExecutionPolicy = {
     workspaceRoot: workspace,

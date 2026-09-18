@@ -86,7 +86,10 @@ export function projectSessionStripTask(task: TaskOverview): SessionStripItem {
   }
 }
 
-function matchesCurrentTask(task: SessionStripItem | TaskOverview, currentChatId?: string): boolean {
+export function matchesCurrentTask(
+  task: SessionStripItem | TaskOverview,
+  currentChatId?: string,
+): boolean {
   if (!currentChatId) return false
   return (
     task.taskKey === currentChatId ||
@@ -209,7 +212,8 @@ export function pickStripTasks(
     ...item,
     source: 'stable',
   }))
-  if (needsCurrentSupplement && current && capacity > 0) items.push({ ...current, source: 'current' })
+  if (needsCurrentSupplement && current && capacity > 0)
+    items.push({ ...current, source: 'current' })
 
   const visibleKeys = new Set(items.map((item) => item.taskKey))
   const relevantKeys = new Set(stable.map((item) => item.taskKey))
@@ -265,7 +269,8 @@ export function buildStripTooltip(item: SessionStripItem): {
   status: string
 } {
   const result = item.latestResult?.content?.trim()
-  const showsResult = item.status !== 'running' && item.status !== 'needs_user' && !!item.latestResult
+  const showsResult =
+    item.status !== 'running' && item.status !== 'needs_user' && !!item.latestResult
   return {
     title: item.title || '未命名任务',
     lastPrompt: item.lastUserPrompt || '暂无最近要求',

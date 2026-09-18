@@ -307,7 +307,7 @@ function confirm(): void {
     gap: 3px;
     align-items: center;
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: 13px;
   }
 }
 
@@ -322,7 +322,7 @@ function confirm(): void {
 
   .crumb-sep {
     color: color-mix(in srgb, var(--ink) 40%, transparent);
-    font-size: 11px;
+    font-size: 13px;
     user-select: none;
   }
   .crumb {
@@ -331,7 +331,7 @@ function confirm(): void {
     border-radius: 4px;
     background: transparent;
     color: color-mix(in srgb, var(--ink) 75%, transparent);
-    font-size: 11px;
+    font-size: 13px;
     cursor: pointer;
 
     &:hover:not(:disabled) {
@@ -349,7 +349,7 @@ function confirm(): void {
   }
   .crumb-root-hint {
     color: color-mix(in srgb, var(--ink) 50%, transparent);
-    font-size: 11px;
+    font-size: 13px;
   }
 }
 
@@ -369,7 +369,7 @@ function confirm(): void {
     border-radius: 6px;
     background: transparent;
     color: color-mix(in srgb, var(--ink) 88%, transparent);
-    font-size: 12px;
+    font-size: 14px;
     text-align: left;
     cursor: pointer;
 
@@ -397,7 +397,7 @@ function confirm(): void {
       align-items: center;
       flex: 0 0 auto;
       color: var(--danger);
-      font-size: 10px;
+      font-size: 12px;
     }
   }
 }
@@ -407,7 +407,7 @@ function confirm(): void {
   margin: 0;
   padding: 12px;
   color: var(--danger);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .browser-empty {

@@ -90,7 +90,7 @@ const positions = {
   pointer-events: auto;
 }
 .workflow-layer-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -98,7 +98,7 @@ const positions = {
 }
 .workflow-layer-action {
   margin-left: auto;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   color: color-mix(in srgb, var(--ink) 72%, transparent);
 }

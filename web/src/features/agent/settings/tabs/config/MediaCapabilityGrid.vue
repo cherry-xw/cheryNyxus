@@ -106,12 +106,12 @@ const emit = defineEmits<{
 
   strong {
     color: color-mix(in srgb, var(--ink) 82%, transparent);
-    font-size: 11px;
+    font-size: 13px;
     line-height: 1.1;
   }
   small {
     color: color-mix(in srgb, var(--ink) 62%, transparent);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.1;
   }
 }
@@ -181,7 +181,7 @@ const emit = defineEmits<{
 
 .cap-back {
   transform: rotateY(-180deg);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
 }
 

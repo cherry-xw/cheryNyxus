@@ -86,11 +86,11 @@ function supervisionDesc(level: string): string {
   gap: 8px;
 }
 .tip-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
 }
 .danger-pill {
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   padding: 3px 7px;
   border-radius: 999px;
@@ -104,7 +104,7 @@ function supervisionDesc(level: string): string {
   gap: 2px;
 }
 .sec-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
@@ -114,13 +114,13 @@ function supervisionDesc(level: string): string {
   color: var(--danger);
 }
 .sec-text {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
   word-break: break-word;
 }
 .plain-doc {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
   word-break: break-word;
 }
@@ -138,7 +138,7 @@ function supervisionDesc(level: string): string {
   gap: 6px;
 }
 .lv-name {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   // 与 tag 着色语义一致：auto（放权）= 最险 → danger，smart = warning，manual = info
   &.lv-auto {
@@ -156,15 +156,15 @@ function supervisionDesc(level: string): string {
   }
 }
 .super-hint {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 52%, transparent);
 }
 .super-desc {
-  font-size: 11px;
+  font-size: 13px;
   color: color-mix(in srgb, var(--ink) 74%, transparent);
 }
 .super-inherit {
-  font-size: 10px;
+  font-size: 12px;
   color: color-mix(in srgb, var(--ink) 52%, transparent);
 }
 </style>

@@ -263,10 +263,12 @@ export function isStandaloneNodeKind(kind: LiteRunNodeKind): boolean {
   )
 }
 
-/** 工具元信息（来自 sense.tools：中文名 label + 图标 icon）。 */
+/** 工具元信息（来自 sense.tools：中文名 label + 图标 icon + 说明 description）。 */
 export interface LiteToolMeta {
   label: string
   icon: string
+  /** 工具短说明（sense.tools description；未收录回退 undefined）。 */
+  description?: string
 }
 export type LiteToolMetaResolver = (name: string) => LiteToolMeta | undefined
 
@@ -343,6 +345,8 @@ export interface LiteRunNode {
   /** 节点图标（cluster 小按钮 / 抽屉头部显示） */
   icon: string
   content: string
+  /** 合并自同一次 LLM 响应的思考（message 事实并入 tool-batch 节点，见 projectLiteHistory）。 */
+  thinking?: string
   /** 工具中文名（原名为 key，展示用 label） */
   toolNames: string[]
   status: LiteRunNodeStatus
@@ -453,6 +457,11 @@ function toolBatchStatus(calls: readonly GraphToolCall[] | undefined): LiteRunNo
   return 'completed'
 }
 
+/** 是否提问类工具节点（ask_user_question；其真实等待由 answeredAt 表达）。 */
+function isQuestionCall(node: TimelineNode): boolean {
+  return (node.toolCalls ?? []).some((call) => call.name === 'ask_user_question')
+}
+
 function matchStep(
   stepsByChat: ReadonlyMap<string, readonly ExecutionStep[]>,
   chatId: string,
@@ -500,6 +509,48 @@ export function projectLiteHistory(
     .filter((node) => node.status === 'committed')
     .slice()
     .sort((a, b) => a.orderKey - b.orderKey || a.id.localeCompare(b.id))
+
+  // 同一次 LLM 响应在时间线里是 message(思考/正文) + tool-batch(调用) 两条事实，共享
+  // sourceMessageId。与节点树 collapseToolResponseMessages 同一规则：agent→user、
+  // 无终止、每响应只取第一条消息——把正文/思考并入工具节点，跳过独立消息节点，
+  // 让「一次 LLM 响应」在瀑布流里呈现为一个整体而不是两个节点。
+  interface ResponseMergeInfo {
+    content: string
+    thinking?: string
+  }
+  const mergeByBatchId = new Map<string, ResponseMergeInfo>()
+  const mergedMessageIds = new Set<string>()
+  {
+    const messageByIdentity = new Map<string, TimelineNode>()
+    for (const node of committed) {
+      const identity = node.sourceMessageId
+        ? `${node.sourceChatId}:${node.sourceMessageId}`
+        : undefined
+      if (
+        identity &&
+        node.kind === 'message' &&
+        node.actor?.kind === 'agent' &&
+        node.direction === 'agent-to-user' &&
+        !node.termination &&
+        !messageByIdentity.has(identity)
+      ) {
+        messageByIdentity.set(identity, node)
+      }
+    }
+    for (const node of committed) {
+      const identity = node.sourceMessageId
+        ? `${node.sourceChatId}:${node.sourceMessageId}`
+        : undefined
+      if (!identity || node.kind !== 'tool-batch') continue
+      const message = messageByIdentity.get(identity)
+      if (!message) continue
+      mergedMessageIds.add(message.id)
+      mergeByBatchId.set(node.id, {
+        content: message.content,
+        ...(message.thinking ? { thinking: message.thinking } : {}),
+      })
+    }
+  }
   // 角色名优先用节点的 roleType（更具角色辨识度），其次 model.agents / step.agentLabel。
   for (const node of committed) {
     const roleType = node.actor?.kind === 'agent' ? node.actor.roleType?.trim() : ''
@@ -530,6 +581,8 @@ export function projectLiteHistory(
   for (const node of committed) {
     const kind = classifyNodeKind(node, model.rootChatId)
     if (!kind) continue
+    // 已并入对应工具节点的消息节点不再单独出现。
+    if (node.kind === 'message' && mergedMessageIds.has(node.id)) continue
 
     if (kind === 'user' && (rounds[roundIndex]?.length ?? 0) > 0) {
       roundIndex += 1
@@ -537,6 +590,7 @@ export function projectLiteHistory(
     }
 
     const toolCalls = node.toolCalls ?? []
+    const merge = kind === 'tool' ? mergeByBatchId.get(node.id) : undefined
     // 工具名一律使用中文名（sense.tools label），未命中回退原名（需求：所有工具调用必须使用中文名称）。
     const toolNames = toolCalls
       .map((call) => toolMetaOf(call.name)?.label?.trim() || toSenseNameZh(call.name))
@@ -558,7 +612,8 @@ export function projectLiteHistory(
       label:
         kind === 'tool' ? toolNames.join(', ') || LITE_NODE_LABELS.tool : LITE_NODE_LABELS[kind],
       icon: kind === 'tool' ? toolTypeGlyph(toolType) : LITE_NODE_GLYPHS[kind],
-      content: kind === 'tool' ? '' : node.content,
+      content: kind === 'tool' ? (merge?.content ?? '') : node.content,
+      ...(merge?.thinking ? { thinking: merge.thinking } : {}),
       toolNames,
       sourceChatId: node.sourceChatId,
       agentLabel: agentLabelOf(node.sourceChatId),
@@ -592,6 +647,17 @@ export function projectLiteHistory(
   const nodesOut = items.map(({ node, run, matchedStep }): LiteRunNode => {
     const isFinal = finalKeys.has(run.key)
     const next: LiteRunNode = { ...run, isRoundFinal: isFinal }
+    // 提问类工具：工具执行本身是「占位秒回」（ask.ts 立即返回占位并暂停本轮），
+    // 实时步骤/节点时间戳都反映不出真实等待。已答/已取消后后端把回答时间带到节点
+    // （answeredAt = question_items.answered_at），真实等待 = answeredAt − createdAt。
+    if (run.kind === 'tool' && isQuestionCall(node) && typeof node.answeredAt === 'number') {
+      next.status = toolBatchStatus(node.toolCalls)
+      next.active = false
+      next.startedAt = node.createdAt
+      next.completedAt = node.answeredAt
+      next.elapsedMs = Math.max(0, node.answeredAt - node.createdAt)
+      return next
+    }
     if (matchedStep) {
       const active = matchedStep.status === 'running' && rootRunning
       next.status =

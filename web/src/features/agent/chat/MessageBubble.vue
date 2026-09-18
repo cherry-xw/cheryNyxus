@@ -243,13 +243,14 @@ function removeDelivery(): void {
                 type="button"
                 class="sense-tag"
                 :class="`tag-${call.status}`"
-                :title="call.name"
+                :aria-label="toSenseNameZh(call.name)"
               >
                 <span class="sense-tag-name">{{ toSenseNameZh(call.name) }}</span>
                 <span class="sense-tag-status" aria-hidden="true">{{
                   senseStatusGlyph(call)
                 }}</span>
-                <RiskBadge :auth="call.security" compact />
+                <!-- 折叠标签模式：风险只显示小圆点，hover 圆点 tip 显内容（不用 title） -->
+                <RiskBadge :auth="call.security" dot-only />
               </button>
             </template>
             <!-- 悬浮详情 = 原渲染器完整内容（专用渲染器优先，参数/结果默认展开） -->
@@ -289,7 +290,7 @@ function removeDelivery(): void {
   gap: 6px;
   margin-top: 5px;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
-  font-size: 11px;
+  font-size: 13px;
 }
 .delivery-state[data-status='failed'] {
   color: var(--el-color-danger);
@@ -316,7 +317,7 @@ function removeDelivery(): void {
   gap: 8px;
   margin: 12px 0 8px;
   color: color-mix(in srgb, var(--ink) 46%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.04em;
 
   &::before,
@@ -342,7 +343,7 @@ function removeDelivery(): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: #7c3aed;
   user-select: none;
@@ -385,7 +386,7 @@ function removeDelivery(): void {
   padding-top: 5px;
   border-top: 1px dashed rgba(70, 76, 86, 0.2);
   color: var(--ink);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 400;
 }
 .termination-tail.tone-warning,
@@ -424,7 +425,7 @@ function removeDelivery(): void {
   border: none;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 50%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   user-select: none;
@@ -450,7 +451,7 @@ function removeDelivery(): void {
   background: color-mix(in srgb, var(--ink) 5%, transparent);
   color: color-mix(in srgb, var(--ink) 66%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 9.5px;
+  font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
   max-height: 220px;
@@ -459,7 +460,7 @@ function removeDelivery(): void {
 }
 
 .content {
-  font-size: 11.5px;
+  font-size: 13.5px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   overflow: auto;
@@ -487,7 +488,7 @@ function removeDelivery(): void {
   // （原白→透明渐变 + 固定深褐字，深色下成白→黑过渡、两主题都不对）
   background: color-mix(in srgb, var(--accent) 18%, var(--surface-soft));
   color: color-mix(in srgb, #b67c1c 72%, var(--ink));
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 600;
   line-height: 1.45;
   vertical-align: baseline;
@@ -524,7 +525,7 @@ function removeDelivery(): void {
   background: var(--surface-soft);
   color: color-mix(in srgb, var(--ink) 70%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   cursor: default;
 
@@ -552,7 +553,7 @@ function removeDelivery(): void {
 // 气泡右上角时间戳：bubble-head 内靠右、低饱和、小字号；缺失不渲染（v-if 控制）
 .time {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   color: color-mix(in srgb, var(--ink) 40%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
@@ -572,8 +573,73 @@ function removeDelivery(): void {
   box-shadow: none;
   max-height: none;
   overflow: visible;
+  /* 2026-10 用户需求：折叠标签悬浮详情字号偏小，内层渲染器内容统一再放大一档（主体 15px、内容区 14-14.5px） */
+  font-size: 14px;
 }
 .sense-tag-detail-popper .el-popper__arrow {
   display: none;
+}
+/* ---- 悬浮 popper 内渲染器内容字号放大（作用域：popper 渲染在 body 外，需全局选择器） ---- */
+/* 通用渲染器 SenseCallBox */
+.sense-tag-detail-popper .sense-box {
+  font-size: 15px; /* 13→15 */
+}
+.sense-tag-detail-popper .sense-head .sense-name,
+.sense-tag-detail-popper .sense-head .sense-icon {
+  font-size: 15px; /* 13→15 */
+}
+.sense-tag-detail-popper .sense-head .sense-status {
+  font-size: 16px; /* 14→16 */
+}
+.sense-tag-detail-popper .sense-pre,
+.sense-tag-detail-popper .arg-key,
+.sense-tag-detail-popper .arg-val {
+  font-size: 14.5px; /* 12.5→14.5 */
+}
+.sense-tag-detail-popper .toggle,
+.sense-tag-detail-popper .arg-empty {
+  font-size: 14px; /* 12→14 */
+}
+/* 专用渲染器：根 box/头部 15px */
+.sense-tag-detail-popper .cmd-box,
+.sense-tag-detail-popper .spawn-box,
+.sense-tag-detail-popper .todo-box,
+.sense-tag-detail-popper .media-box,
+.sense-tag-detail-popper .file-read-box,
+.sense-tag-detail-popper .file-write-box,
+.sense-tag-detail-popper .search-box,
+.sense-tag-detail-popper .skill-box,
+.sense-tag-detail-popper .question-renderer,
+.sense-tag-detail-popper .cmd-head,
+.sense-tag-detail-popper .spawn-head,
+.sense-tag-detail-popper .todo-head,
+.sense-tag-detail-popper .media-head,
+.sense-tag-detail-popper .file-head,
+.sense-tag-detail-popper .search-head,
+.sense-tag-detail-popper .skill-head {
+  font-size: 15px;
+}
+/* 专用渲染器：参数/内容/代码区 14px */
+.sense-tag-detail-popper .cmd-row,
+.sense-tag-detail-popper .cmd-row-desc,
+.sense-tag-detail-popper .cmd-code-wrap,
+.sense-tag-detail-popper .q-text,
+.sense-tag-detail-popper .q-option-row,
+.sense-tag-detail-popper .q-actions,
+.sense-tag-detail-popper .spawn-row,
+.sense-tag-detail-popper .todo-fallback,
+.sense-tag-detail-popper .prompt-pre,
+.sense-tag-detail-popper .media-fallback,
+.sense-tag-detail-popper .file-row,
+.sense-tag-detail-popper .file-path-wrap,
+.sense-tag-detail-popper .file-fallback,
+.sense-tag-detail-popper .content-body,
+.sense-tag-detail-popper .content-pre,
+.sense-tag-detail-popper .content-truncated,
+.sense-tag-detail-popper .results-body,
+.sense-tag-detail-popper .search-row,
+.sense-tag-detail-popper .search-fallback,
+.sense-tag-detail-popper .skill-fallback {
+  font-size: 14px;
 }
 </style>

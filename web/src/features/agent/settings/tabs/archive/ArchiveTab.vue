@@ -200,7 +200,7 @@ select:focus-visible {
 }
 .archive-reason,
 header > span {
-  font-size: 12px;
+  font-size: 14px;
   margin: 4px 0;
 }
 .archive-body {
