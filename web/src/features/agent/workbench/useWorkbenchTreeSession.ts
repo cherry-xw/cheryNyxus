@@ -2,7 +2,6 @@ import { computed, onScopeDispose, ref, watch, type MaybeRefOrGetter, type Ref, 
 import { ElMessage } from 'element-plus'
 import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useAgentsStore, useChatSessionsStore, useConnectionStore } from '@/application/public'
-import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 
 export function useWorkbenchTreeSession(options: {
   windowId: string
@@ -147,9 +146,9 @@ export function useWorkbenchTreeSession(options: {
       // turnCount===0 的 root 会话直接返回其 chatId（reused:true），前端无须区分，直接跳转。
       // 此前前端曾以 stage 目录的 turnCount 自行判空——stage lean 响应恒无 turnCount，判定恒真，
       // 导致「新建会话」永远复用当前会话而不发创建请求（2026-08-29 修复，判定移交后端）。
-      const isNyxusWindow = options.presetId === CHERY_NYXUS_PRESET
+      // Nyxus 判定只用 isNyxus（按预设名比较）：presetId 是配置稳定 ID，不再与预设名比较。
       let chatId: string
-      if (isNyxusWindow || toValue(options.isNyxus)) chatId = await agents.createNyxusSession()
+      if (toValue(options.isNyxus)) chatId = await agents.createNyxusSession()
       else {
         const presetName = toValue(options.presetName)
         if (!presetName) throw new Error('工作台未关联到预设，无法新建会话，请在设置中配置预设')
