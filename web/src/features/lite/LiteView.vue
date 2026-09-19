@@ -30,9 +30,9 @@ const {
   inputText,
   inputLines,
   isDetailNode,
-  isInFlightNode,
   isPlainRowContent,
   isRowFocused,
+  isThinkingOpen,
   laneTabs,
   lite,
   liteInputEl,
@@ -66,12 +66,14 @@ const {
   showsRowContent,
   tipAction,
   tipPos,
+  toggleThinking,
   toggleRunDetail,
   toolTypeGlyph,
   toolTypeLabel,
   trajectoryBarStyle,
   trajectoryLayout,
   trajectoryZoom,
+  userSegments,
   visibleRows,
 } = controller
 
@@ -283,20 +285,48 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                   <span class="lite-history-status">{{ runStatusLabel(row.node.status) }}</span>
                   <time v-if="row.node.elapsedMs > 0">{{ formatElapsed(row.node.elapsedMs) }}</time>
                 </div>
-                <button
-                  v-if="row.node && !isInFlightNode(row.node)"
-                  type="button"
-                  class="lite-history-detail"
-                  @click="openNodeDetail(row.node, $event)"
-                >
-                  详情
-                </button>
               </div>
-              <div v-if="showsRowContent(row.node)" class="lite-history-content">
-                <LiteMarkdown
-                  :text="row.node.content || '（空）'"
-                  :plain="isPlainRowContent(row.node)"
-                />
+              <!-- v2.8 行内「思考」：正文全文已直接在页面滚动展示，思考默认折叠在此补充；
+                   详情按钮随之移除（工具调用细节仍可从 cluster 小按钮 / 轨迹块进入）。 -->
+              <div v-if="row.node.thinking" class="lite-history-thinking">
+                <button
+                  type="button"
+                  class="lite-thinking-toggle"
+                  :aria-expanded="isThinkingOpen(row.node)"
+                  @click="toggleThinking(row.node)"
+                >
+                  <span
+                    class="lite-thinking-caret"
+                    :class="{ open: isThinkingOpen(row.node) }"
+                    aria-hidden="true"
+                    >▸</span
+                  >
+                  <span>思考</span>
+                </button>
+                <div v-if="isThinkingOpen(row.node)" class="lite-thinking-content">
+                  <LiteMarkdown :text="row.node.thinking" />
+                </div>
+              </div>
+              <div
+                v-if="showsRowContent(row.node)"
+                class="lite-history-content"
+                :class="{ 'is-plain': isPlainRowContent(row.node) }"
+              >
+                <!-- 用户指令性消息：[[command:…]] / [[role:@…]] token 样式化（与对话模式 MessageBubble 同源） -->
+                <template v-if="isPlainRowContent(row.node)">
+                  <template v-for="(segment, index) in userSegments(row.node)" :key="index">
+                    <span v-if="segment.type === 'command'" class="lite-instruction-token">{{
+                      segment.value
+                    }}</span>
+                    <span
+                      v-else-if="segment.type === 'role'"
+                      class="lite-instruction-token is-role"
+                      >{{ segment.value }}</span
+                    >
+                    <template v-else>{{ segment.value }}</template>
+                  </template>
+                </template>
+                <LiteMarkdown v-else :text="row.node.content || '（空）'" />
               </div>
             </template>
             <div v-else class="lite-cluster" role="group" aria-label="本轮中间节点">

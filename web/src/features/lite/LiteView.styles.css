@@ -79,6 +79,9 @@
   height: 8px;
   border-radius: 50%;
   background: var(--el-text-color-placeholder);
+  transition:
+    background-color 200ms ease,
+    box-shadow 200ms ease;
 }
 .lite-status-dot[data-tone='busy'] {
   background: var(--el-color-primary);
@@ -138,6 +141,10 @@
   font-size: 14px;
   padding: 1px 6px;
   border-radius: 0;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
 }
 .lite-inline-action:hover:not(:disabled) {
   border-color: var(--el-color-primary-light-5);
@@ -189,6 +196,9 @@
   font-size: 12.5px;
   line-height: 1.4;
   cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
 }
 .lite-trajectory-zoom:hover {
   background: color-mix(in srgb, var(--el-color-primary) 24%, transparent);
@@ -209,6 +219,12 @@
   flex: none;
   height: 13px;
   line-height: 0;
+  /* v1.8：Agent 时间条区块浅底色——整条链路横带淡标记，一眼区分各 Agent 区块；激活链路稍加深 */
+  background: color-mix(in srgb, var(--el-color-primary) 4%, var(--el-bg-color));
+  transition: background-color 200ms ease;
+}
+.lite-trajectory-lane.is-active {
+  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-bg-color));
 }
 /* 行头角色名（需求 c/2/4）：独立分配空间展示，实心背景盖住横向滚动时滚过的块，不与节点重叠/冲突；
    本身是按钮，点击切换正文列表显示该链路（需求 4）。 */
@@ -235,13 +251,20 @@
   cursor: pointer;
   text-align: left;
   font-variant-numeric: tabular-nums;
+  /* v1.8：高亮过渡——颜色/底色变化平滑渐变，不再闪变 */
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
 }
 .lite-trajectory-lane-label:hover {
   color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 9%, var(--el-bg-color));
 }
 .lite-trajectory-lane.is-root-lane .lite-trajectory-lane-label {
   color: var(--el-color-primary);
 }
+/* 激活链路行头：主色文字 + 淡底（区别于 hover 的 9% 更明显；不用左侧强调条——那是 TaskBrowser 的专属形态） */
 .lite-trajectory-lane.is-active .lite-trajectory-lane-label {
   color: var(--el-color-primary);
   background: color-mix(in srgb, var(--el-color-primary) 14%, var(--el-bg-color));
@@ -263,51 +286,67 @@
   padding: 0;
   cursor: pointer;
   opacity: 0.72;
+  /* 每种类型块把自身色写入 color，供辉光/描边使用（background 语义不变） */
   transition:
-    opacity 120ms ease,
-    box-shadow 120ms ease,
-    transform 120ms ease;
+    opacity 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
 }
 /* t16：hover 提示（不再放大，避免遮挡上下链路；用 inset 描边高亮，不溢出遮挡两侧块） */
 .lite-trajectory-bar:hover {
   opacity: 1;
-  box-shadow: inset 0 0 0 1px var(--el-text-color-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--el-text-color-primary) 55%, transparent);
 }
 .lite-trajectory-bar.is-user {
   background: var(--lite-tone-user);
+  color: var(--lite-tone-user);
 }
 .lite-trajectory-bar.is-root-agent {
   background: var(--lite-tone-root-agent);
+  color: var(--lite-tone-root-agent);
 }
 .lite-trajectory-bar.is-child-agent {
   background: var(--lite-tone-child-agent);
+  color: var(--lite-tone-child-agent);
 }
 .lite-trajectory-bar.is-tool {
   background: var(--lite-tone-tool);
+  color: var(--lite-tone-tool);
 }
 .lite-trajectory-bar.is-return {
   background: var(--lite-tone-return);
+  color: var(--lite-tone-return);
 }
 .lite-trajectory-bar.is-dispatch {
   background: var(--lite-tone-dispatch);
+  color: var(--lite-tone-dispatch);
 }
 .lite-trajectory-bar.is-spawn {
   background: var(--lite-tone-spawn);
+  color: var(--lite-tone-spawn);
 }
 .lite-trajectory-bar.is-system {
   background: var(--lite-tone-system);
+  color: var(--lite-tone-system);
 }
 /* 工具子类型不再用于窄条色块——统一 tool-batch 暖金（悬停浮层有工具名/类型） */
 /* v0.4.1：运行中块移除脉冲闪烁动画——宽度随执行时间持续增长即为运行反馈（barWidthFor 线性映射），
    仅保留常亮高亮（opacity:1）。 */
 .lite-trajectory-bar.is-running {
   opacity: 1;
+  /* v1.8：运行中——柔光晕 + 顶部一道内亮线（「带电」质感，不循环、无位移） */
+  box-shadow: 0 0 10px color-mix(in srgb, currentColor 55%, transparent);
+  background-image: linear-gradient(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
 }
 /* v3：运行中执行块宽度由 elapsedMs 驱动的布局重算逐秒增长（需求 3.1 先创建→变长→结束固定），
    不再使用 CSS 动画（trajectoryLayout memo 已纳入 active.elapsedMs）。 */
 .lite-trajectory-bar.is-selected {
-  box-shadow: inset 0 0 0 2px var(--el-text-color-primary);
   opacity: 1;
+  /* v1.8：选中——细描边 + 同色柔光，不再用粗 inset 框 */
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, currentColor 88%, transparent),
+    0 0 8px color-mix(in srgb, currentColor 45%, transparent);
 }
 /* 无时间刻度轴（v0.3.2：时间跨度展示被放弃，改为紧凑块流） */
 
@@ -346,23 +385,27 @@
   font-weight: 400;
   cursor: pointer;
   transition:
-    border-color 120ms ease,
-    background-color 120ms ease,
-    color 120ms ease;
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
 }
 .lite-lane-tab:hover:not(.is-active) {
   border-color: var(--el-color-primary-light-5);
+  background: color-mix(in srgb, var(--el-color-primary) 7%, var(--el-bg-color));
   color: var(--el-color-primary);
 }
 .lite-lane-tab.is-active {
   background: color-mix(in srgb, var(--el-color-primary) 14%, var(--el-bg-color));
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
+  /* v1.8：激活链路标签主色柔光，与轨迹行头激活强调条呼应 */
+  box-shadow: 0 0 10px color-mix(in srgb, var(--el-color-primary) 22%, transparent);
 }
 .lite-lane-tab-icon {
   flex: none;
   /* 2026-10 icon 全局放大：精简模式 icon 偏小，统一提档 */
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1;
 }
 .lite-lane-tab.is-root-lane .lite-lane-tab-icon {
@@ -393,8 +436,8 @@
 .lite-entry-dispatch-icon {
   flex: none;
   /* 2026-10 icon 全局放大 */
-  width: 20px;
-  font-size: 15px;
+  width: 22px;
+  font-size: 17px;
   line-height: 1;
   text-align: center;
   color: var(--lite-tone-dispatch);
@@ -416,7 +459,8 @@
 }
 .lite-entry-dispatch-content {
   margin: 0;
-  padding: 0 10px 8px 34px;
+  /* v1.8：对齐放大后的委派图标（10 行距 + 22 图标 + 6 间距） */
+  padding: 0 10px 8px 38px;
   line-height: 1.55;
   font-size: 14.5px;
   color: var(--el-text-color-secondary);
@@ -486,9 +530,9 @@
 }
 .lite-history-icon {
   flex: none;
-  /* 2026-10 icon 全局放大 */
-  width: 20px;
-  font-size: 15px;
+  /* 2026-10 icon 全局放大：主历史行图标再提一档 */
+  width: 24px;
+  font-size: 19px;
   line-height: 1;
   text-align: center;
   color: var(--el-text-color-secondary);
@@ -538,26 +582,89 @@
   color: var(--el-text-color-secondary);
   font-variant-numeric: tabular-nums;
 }
-.lite-history-detail,
 .lite-view-full {
   border: 0;
   background: transparent;
   color: var(--el-color-primary);
   cursor: pointer;
   font-size: 14px;
+  transition: color 160ms ease;
 }
-.lite-history-detail:disabled,
+.lite-view-full:hover:not(:disabled) {
+  color: var(--el-color-primary-light-3);
+}
 .lite-view-full:disabled {
   cursor: default;
   opacity: 0.5;
 }
 .lite-history-content {
   margin: 0;
-  padding: 0 10px 8px 36px;
+  /* v1.8：对齐放大后的行图标（10 行距 + 24 图标 + 8 间距） */
+  padding: 0 10px 8px 42px;
   line-height: 1.55;
   font-size: 14.5px;
   /* 强制字重规则：用户提问/模型响应正文一律 400。 */
   font-weight: 400;
+}
+/* v2.8 用户指令性消息：[[command:…]] / [[role:@…]] token 样式化（与对话模式 MessageBubble 同源），
+   普通文本保留换行/空格原样展示。 */
+.lite-history-content.is-plain {
+  white-space: pre-wrap;
+}
+.lite-instruction-token {
+  display: inline-block;
+  margin: 1px 3px 1px 0;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 45%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--el-color-primary) 13%, transparent);
+  color: color-mix(in srgb, var(--el-color-primary) 82%, var(--el-text-color-primary));
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  vertical-align: baseline;
+}
+.lite-instruction-token.is-role {
+  border-color: color-mix(in srgb, #4a8fd6 55%, transparent);
+  background: color-mix(in srgb, #4a8fd6 15%, transparent);
+  color: color-mix(in srgb, #4a8fd6 80%, var(--el-text-color-primary));
+}
+/* v2.8 行内「思考」分节：默认折叠，点击标题展开；思考文字弱化（与详情抽屉一致）。 */
+.lite-history-thinking {
+  margin: 0;
+  padding: 0 10px 6px 42px;
+}
+.lite-thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 400;
+  transition: color 160ms ease;
+}
+.lite-thinking-toggle:hover {
+  color: var(--el-color-primary);
+}
+.lite-thinking-caret {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 160ms ease;
+}
+.lite-thinking-caret.open {
+  transform: rotate(90deg);
+}
+.lite-thinking-content {
+  margin-top: 4px;
+}
+.lite-thinking-content :deep(.lite-md) {
+  color: var(--el-text-color-secondary);
 }
 .lite-empty {
   margin: 14px 2px 2px;
@@ -579,19 +686,19 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 18px;
-  height: 18px;
+  min-width: 22px;
+  height: 22px;
   padding: 0 3px;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--el-text-color-regular);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color 160ms ease,
+    color 160ms ease;
 }
 .lite-cluster-node:hover {
   background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
@@ -639,8 +746,9 @@
   background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
 }
 .lite-trajectory-bar.is-focused {
-  box-shadow: inset 0 0 0 2px var(--el-color-primary);
   opacity: 1;
+  /* v1.8：聚焦定位——主色柔和光环（不再用粗 inset 框） */
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-primary) 35%, transparent);
 }
 /* t16：时间轴 bar 悬停详情浮层（跟随鼠标，fixed 定位） */
 .lite-tip {
@@ -671,7 +779,7 @@
 }
 .lite-tip-icon {
   /* 2026-10 icon 全局放大 */
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1;
   color: var(--el-text-color-secondary);
 }
@@ -709,6 +817,7 @@
   border-radius: 0;
   background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
   pointer-events: none;
+  transition: background-color 200ms ease;
 }
 .lite-cluster-status[data-status='running'] {
   background: color-mix(in srgb, var(--el-color-success) 78%, transparent);
@@ -730,10 +839,89 @@
   min-width: 2ch;
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   /* 2026-10 icon 全局放大 */
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1;
   letter-spacing: -0.08em;
   text-align: center;
+}
+/* v2.8 工具 icon 闲启动效：运行结束后按工具类型做小幅循环动效（旋转 / 跳动），
+   幅度克制不抢眼；运行中由底部状态条闪动承担反馈、取消态静止。 */
+.lite-cluster-node[data-tooltype]:not(.is-status-running):not(.is-status-cancelled)
+  .lite-cluster-icon {
+  animation: lite-icon-idle-exec 2.8s ease-in-out infinite;
+}
+.lite-cluster-node[data-tooltype='read']:not(.is-status-running):not(.is-status-cancelled)
+  .lite-cluster-icon {
+  animation: lite-icon-idle-read 3.4s ease-in-out infinite;
+}
+.lite-cluster-node[data-tooltype='write']:not(.is-status-running):not(.is-status-cancelled)
+  .lite-cluster-icon {
+  animation: lite-icon-idle-write 2.6s ease-in-out infinite;
+}
+.lite-cluster-node[data-tooltype='web']:not(.is-status-running):not(.is-status-cancelled)
+  .lite-cluster-icon {
+  animation: lite-icon-idle-web 7s linear infinite;
+}
+.lite-cluster-node[data-tooltype='dispatch']:not(.is-status-running):not(.is-status-cancelled)
+  .lite-cluster-icon {
+  animation: lite-icon-idle-dispatch 2.4s ease-in-out infinite;
+}
+.lite-cluster-node[data-tooltype='other']:not(.is-status-running):not(.is-status-cancelled)
+  .lite-cluster-icon {
+  animation: lite-icon-idle-other 2.2s ease-in-out infinite;
+}
+@keyframes lite-icon-idle-exec {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes lite-icon-idle-read {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-1.5px);
+  }
+}
+@keyframes lite-icon-idle-write {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(1.5px) rotate(2deg);
+  }
+}
+@keyframes lite-icon-idle-web {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes lite-icon-idle-dispatch {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(2px);
+  }
+}
+@keyframes lite-icon-idle-other {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
 }
 @keyframes lite-tool-blink {
   0%,
@@ -750,6 +938,27 @@
 @media (prefers-reduced-motion: reduce) {
   .lite-cluster-status[data-status='running'] {
     animation: none;
+  }
+  /* v2.8 工具 icon 闲启动效在 reduced 下关闭 */
+  .lite-cluster-node .lite-cluster-icon {
+    animation: none;
+  }
+  /* v1.8：全部颜色/状态过渡在 reduced 下关闭，保留即时状态反馈 */
+  .lite-trajectory-lane,
+  .lite-trajectory-lane-label,
+  .lite-trajectory-bar,
+  .lite-lane-tab,
+  .lite-status-dot,
+  .lite-trajectory-zoom,
+  .lite-inline-action,
+  .lite-view-full,
+  .lite-cluster-node,
+  .lite-cluster-status,
+  .lite-expand-btn,
+  .lite-expand-icon,
+  .lite-thinking-toggle,
+  .lite-thinking-caret {
+    transition: none;
   }
 }
 
@@ -840,7 +1049,9 @@
   min-height: min(240px, 50vh);
   max-height: 50vh;
 }
-/* 发送钮右上角展开按钮：小方块，贴发送钮正上方右对齐（与发送钮同列，hover/焦点可键盘操作） */
+/* 发送钮右上角展开按钮：无边框幽灵小按钮（与实心发送钮同风格家族，贴发送钮正上方右对齐，
+   与发送钮同列，hover/焦点可键盘操作）；仅在输入超过 2 行时出现（模板 v-if），
+   展开态图标旋转 180° 表「收起」。 */
 .lite-send-wrap {
   flex: none;
   display: flex;
@@ -852,31 +1063,34 @@
 .lite-expand-btn {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   box-sizing: border-box;
   padding: 0;
-  border: 1px solid var(--el-border-color);
+  border: 0;
   border-radius: 0;
-  background: var(--el-bg-color);
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1;
+  background: transparent;
+  color: var(--el-text-color-regular);
   cursor: pointer;
   transition:
-    border-color 120ms ease,
     color 120ms ease,
     background-color 120ms ease;
 }
 .lite-expand-btn:hover {
-  border-color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
   color: var(--el-color-primary);
 }
 .lite-expand-btn.is-expanded {
-  border-color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
   color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
+}
+.lite-expand-icon {
+  width: 14px;
+  height: 14px;
+  transition: transform 160ms ease;
+}
+.lite-expand-btn.is-expanded .lite-expand-icon {
+  transform: rotate(180deg);
 }
 /* v1.0 高度对齐：发送按钮高度固定为单行输入框同高（≈35px，含输入框 padding 7px×2 + 1.5 行高 + 边框），
    消除右下角按钮与左侧单行输入框的纵向错位；多行输入增高时按钮仍贴底（.lite-input 为 align-items:flex-end）。 */
@@ -908,6 +1122,6 @@
 
 @media (max-width: 560px) {
   .lite-history-content {
-    padding-left: 26px;
+    padding-left: 30px;
   }
 }
