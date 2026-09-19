@@ -124,20 +124,29 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
       <!-- v0.5.3 链路标签栏迁入状态条：顶层直接展示多个 Agent（主 Agent ✧ + 各子 Agent ◆ 角色名），
             点击切换 activeLane，与轨迹行头角色名按钮联动 -->
       <nav v-if="laneTabs.length > 1" class="lite-lane-bar" aria-label="切换链路">
-        <button
+        <el-tooltip
           v-for="tab in laneTabs"
           :key="tab.chatId"
-          type="button"
-          class="lite-lane-tab"
-          :class="[{ 'is-active': tab.chatId === activeLane }, { 'is-root-lane': tab.isRootLane }]"
-          :title="'切换到 ' + tab.label + ' 链路'"
-          @click="activeLane = tab.chatId"
+          :content="'切换到 ' + tab.label + ' 链路'"
+          placement="top"
+          :show-after="150"
+          :hide-after="0"
         >
-          <span class="lite-lane-tab-icon" aria-hidden="true">{{
-            tab.isRootLane ? '✧' : '◆'
-          }}</span>
-          <span class="lite-lane-tab-label">{{ tab.label }}</span>
-        </button>
+          <button
+            type="button"
+            class="lite-lane-tab"
+            :class="[
+              { 'is-active': tab.chatId === activeLane },
+              { 'is-root-lane': tab.isRootLane },
+            ]"
+            @click="activeLane = tab.chatId"
+          >
+            <span class="lite-lane-tab-icon" aria-hidden="true">{{
+              tab.isRootLane ? '✧' : '◆'
+            }}</span>
+            <span class="lite-lane-tab-label">{{ tab.label }}</span>
+          </button>
+        </el-tooltip>
       </nav>
       <span class="lite-session">{{ props.presetName || '会话' }}</span>
       <time class="lite-total" aria-label="总耗时"
@@ -174,14 +183,16 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
         @keydown="onTrajectoryKeydown"
       >
         <span v-if="trajectoryZoom !== 1" class="lite-trajectory-head">
-          <button
-            type="button"
-            class="lite-trajectory-zoom"
-            :title="'重置缩放（Ctrl/⌘ + 滚轮缩放）'"
-            @click="resetTrajectoryZoom"
+          <el-tooltip
+            content="重置缩放（Ctrl/⌘ + 滚轮缩放）"
+            placement="top"
+            :show-after="150"
+            :hide-after="0"
           >
-            {{ Math.round(trajectoryZoom * 100) }}%
-          </button>
+            <button type="button" class="lite-trajectory-zoom" @click="resetTrajectoryZoom">
+              {{ Math.round(trajectoryZoom * 100) }}%
+            </button>
+          </el-tooltip>
         </span>
         <LiteScrollbar axis="x">
           <template #default="{ width }">
@@ -200,14 +211,20 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                     'is-active': track.chatId === activeLane,
                   }"
                 >
-                  <button
-                    type="button"
-                    class="lite-trajectory-lane-label"
-                    :title="'切换到 ' + track.label + ' 链路'"
-                    @click="activeLane = track.chatId"
+                  <el-tooltip
+                    :content="'切换到 ' + track.label + ' 链路'"
+                    placement="top"
+                    :show-after="150"
+                    :hide-after="0"
                   >
-                    {{ track.label }}
-                  </button>
+                    <button
+                      type="button"
+                      class="lite-trajectory-lane-label"
+                      @click="activeLane = track.chatId"
+                    >
+                      {{ track.label }}
+                    </button>
+                  </el-tooltip>
                   <div class="lite-trajectory-lane-track">
                     <button
                       v-for="bar in track.bars"
