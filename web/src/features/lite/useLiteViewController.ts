@@ -276,12 +276,34 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     event.preventDefault()
     void onSend()
   }
-  /** v0.4.2：多行自适应增高——默认单行（rows=1），换行/长内容时按 scrollHeight 自动撑高，上限内滚动。 */
+  /** v0.4.2：多行自适应增高——默认单行（rows=1），换行/长内容时按 scrollHeight 自动撑高，上限内滚动。
+   * box-sizing: border-box 下 height 需补上边框高度，否则盒子比内容矮 1px×2，空内容也挤出右侧细滚动条；
+   * 展开态有 min-height 撑高盒子，测真实内容行数前先临时解除。 */
+  /** 输入框可视行数（含自动换行）：>2 行时组件才显示「展开输入框」按钮（默认隐藏）。 */
+  const inputLines = ref(1)
+  /** 行数测量缓存（字号/内距静态，首次读取后复用）。 */
+  let inputMetrics: { lineHeight: number; padding: number } | null = null
   function autoGrowInput(): void {
     const el = liteInputEl.value
     if (!el) return
+    const borders = el.offsetHeight - el.clientHeight
+    const minHeight = el.style.minHeight
+    el.style.minHeight = '0'
     el.style.height = 'auto'
-    el.style.height = el.scrollHeight + 'px'
+    const contentHeight = el.scrollHeight
+    el.style.height = contentHeight + borders + 'px'
+    el.style.minHeight = minHeight
+    if (!inputMetrics) {
+      const style = window.getComputedStyle(el)
+      inputMetrics = {
+        lineHeight: Number.parseFloat(style.lineHeight) || 21,
+        padding: Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom),
+      }
+    }
+    inputLines.value = Math.max(
+      1,
+      Math.round((contentHeight - inputMetrics.padding) / inputMetrics.lineHeight),
+    )
   }
   const aborting = ref(false)
   async function onStop(): Promise<void> {
@@ -763,6 +785,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     hoverNode,
     hydrationLabel,
     inputText,
+    inputLines,
     isDetailNode,
     isInFlightNode,
     isPlainRowContent,
