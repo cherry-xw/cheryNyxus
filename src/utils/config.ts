@@ -216,6 +216,7 @@ export type RolePermissionTemplate = 'read-only' | 'workspace-developer' | 'supe
 
 export type RolePermissionEffect = 'inherit' | 'allow' | 'ask' | 'deny'
 export type CommandRiskCategory =
+  | 'config'
   | 'filesystem'
   | 'destructive'
   | 'privilege'
