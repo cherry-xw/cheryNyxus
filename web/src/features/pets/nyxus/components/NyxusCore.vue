@@ -139,6 +139,12 @@ function endPointer(event: PointerEvent): void {
   endStandalonePointer(event)
 }
 
+/** Nyxus 工作台 presetId：配置里 cheryNyxus 预设的稳定 ID（任务目录按它过滤会话元数据）；
+ *  配置未就绪时回退预设名（仅影响任务页查询精度，窗口仍可打开）。 */
+const nyxusPresetId = computed(
+  () => agents.globalConfig?.presets?.[CHERY_NYXUS_PRESET]?.id ?? CHERY_NYXUS_PRESET,
+)
+
 /** 打开 cheryNyxus（主预设）的节点树工作台，并刷新钢琴依赖的轻量会话目录。 */
 async function openWorkbench(): Promise<void> {
   if (connection.status !== 'connected') return
@@ -150,21 +156,21 @@ async function openWorkbench(): Promise<void> {
     return
   }
   // desktop surface：工作台由 Electron 原生独立窗承载（每预设一窗，main 层 get-or-create 聚焦复用）；
-  // 浏览器保持应用内多窗口。chatId 语义与下方分支一致：新建窗口恢复活跃会话。
-  // presetName 随窗携带：Nyxus 窗口以预设名 'cheryNyxus' 作 windowId/presetId，空白工作台角色编制
-  // 据此解析（不靠会话推导——独立 store 下 historyList 初始为空）。
+  // 浏览器保持应用内多窗口。presetId 必须是配置稳定 ID（chat.task.list 按 chats.metadata.presetId
+  // 精确过滤，名字会一条都查不到）；presetName 随窗携带：空白工作台角色编制据名字解析
+  // （不靠会话推导——独立 store 下 historyList 初始为空）。
   const bridge = desktopBridge()
   if (bridge) {
     bridge.openWindow({
       kind: 'workbench',
-      presetId: CHERY_NYXUS_PRESET,
+      presetId: nyxusPresetId.value,
       presetName: CHERY_NYXUS_PRESET,
       chatId: agents.activeNyxusChatId ?? undefined,
     })
     closeNyxusMenu()
     return
   }
-  const id = agents.openWorkbenchWindow(CHERY_NYXUS_PRESET, CHERY_NYXUS_PRESET)
+  const id = agents.openWorkbenchWindow(nyxusPresetId.value, CHERY_NYXUS_PRESET)
   // 仅新建窗口（chatId 为空）时恢复活跃 Nyxus 会话，避免打开即空树；已存在窗口不覆盖当前浏览。
   if (!agents.workbenchWindows[id]?.chatId) {
     const active = agents.activeNyxusChatId

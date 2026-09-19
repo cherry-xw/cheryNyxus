@@ -380,7 +380,7 @@ if (surface === 'workbench' && surfacePresetId) {
   }
 }
 
-// workbench 面标题显示名 = 预设名（windowId = presetId = config.presets 键）；外层 WindowFrame 承载。
+// workbench 面：presetId = 配置稳定 ID（windowId 同值；标题显示用预设名）；外层 WindowFrame 承载。
 const wbRef = ref<{ closeWorkbench: () => void } | null>(null)
 /** Phase E 闪烁回推：本窗 attentionBlink → WindowFrame 标题栏暖橙外发光（任务栏闪烁已在注册块处理）。 */
 const surfaceWindowBlink = computed(
@@ -497,7 +497,7 @@ async function bootstrap(): Promise<void> {
        title-actions 放常驻连接状态 chip（断连遮罩由 WorkbenchDialog 内部渲染） -->
   <WindowFrame
     v-else-if="surface === 'workbench'"
-    :title="surfacePresetId ?? '节点树工作台'"
+    :title="surfacePresetName ?? surfacePresetId ?? '节点树工作台'"
     :attention="surfaceWindowBlink"
     :close="() => wbRef?.closeWorkbench()"
     :title-pointer-down="onWorkbenchTitlePointerDown"
