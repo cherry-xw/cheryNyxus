@@ -25,7 +25,6 @@ const activeItem = computed(() => props.items[props.activeIndex] ?? null)
       :now="now"
       :show-footer="false"
       :question-index="questionIndex"
-      title-always
     />
   </Transition>
 </template>
