@@ -7,6 +7,8 @@
 
 | 版本 | 变更 |
 |---|---|
+| v2.8（增量） | **工具 icon 闲启动效 + 最终响应去详情按钮 + 行内思考折叠 + 用户指令 token 样式（用户需求 2026-11，§4.1/§4.4/§4.13）**：①**工具 icon 动效**——cluster 工具小按钮的 ASCII glyph 在**运行结束后**按工具类型做小幅循环动效（命令=上下轻跳 2px / 读取=左右微移 1.5px / 写入=轻压+2° 微转 / 网页=7s 慢速旋转一周 / 委派=右移 2px / 其他=1.08 呼吸缩放），幅度克制不抢眼；运行中仍由底部状态条闪动反馈、取消态静止，`prefers-reduced-motion` 全部关闭；②**最终响应去「详情」按钮（§4.1）**——最终回复正文全文已直接在页面内滚动展示（v1.3 full 渲染），右上角「详情」按钮删除（用户提问行同删）；工具调用细节仍由 cluster 小按钮 / 轨迹块进入抽屉，信息不丢失；③**行内思考分节（§4.1/§4.4）**——「思考」直接展示在正文行上方，**默认折叠**（▸ 思考，点击展开，文字弱化为 secondary 与正文区分，同详情抽屉 v2.2 交互）；`projectLiteHistory` 为非工具节点透出 `node.thinking`；④**用户指令性消息 token 样式（§4.1）**——用户消息正文中的 `[[command:/…]]` / `[[role:@…]]` token 样式化为彩色小标签（命令=主题金色、角色=蓝，与对话模式 `MessageBubble` 同源 `splitCommandPrompt`），不再裸显示 `[[ ]]` 包裹文本 |
+| v2.7（增量） | **展开钮默认隐藏 + 图标重设计 + 空输入滚动条修复（用户需求 2026-11，与对话模式同步，§4.5）**：①**显示逻辑**——发送钮正上方的展开钮（`.lite-expand-btn` / `.conversation-expand-btn`）**默认隐藏，仅当输入内容超过 2 行时出现**（行数按可视行计、含自动换行，`autoGrowInput`/`refreshInput` 重算高度时顺带测量 `inputLines`；内容回落 2 行以内自动收起展开态，避免「已展开却无法收起」）；②**图标重设计**——字符 ▲/▼/⤢/⤡ 改为 Element Plus `Top` 矢量图标（14px，展开态旋转 180° 表「收起」），按钮由 20×20 带边框小方块改为 24×24 无边框幽灵按钮（hover/展开态主色淡底 + 主色，直角）；③**空输入滚动条修复**——输入框高度公式在 `box-sizing: border-box` 下补上边框高度（原 `height = scrollHeight` 使盒子比内容矮 1px×2，空内容也挤出右侧细滚动条） |
 | v2.6（重构） | **交互入口迁入详情抽屉（§4.3/§4.4，用户需求 2026-11「参考对话模式，把精简模式提问交互放进页面内容」）**：①**待处理面板移除**——输入区上方常驻的审批/提问面板（浏览器式多页签、收起/展开、`pendingCollapsed`/`pendingTab` 状态）整体删除；**交互入口 = 点击大模型响应回来的工具调用簇按钮** → 详情抽屉，在该**工具调用卡内**完成审批/提问（`LiteInteractionView`），交互完成后卡片自动切回只读展示；②**交互逻辑收敛**——原 `useLiteViewController` 的审批/提问/草稿/提交逻辑整体搬入新组合式 `useLiteInteractions`（单一事实源），详情抽屉（DetailDrawer → LiteToolCallDetail）直接消费；草稿仍持久化 `rootUi.interactionDrafts`（按窗口 × 根会话），关抽屉再开不丢已答内容；③**铃铛语义更新**——精简模式点击铃铛 = 打开**最早待处理交互**所在节点的详情抽屉并聚焦其工具卡（`rootUi.attentionOpenRequest` 请求，lite 视图消费后清空），角标仍显示待处理数量；④**配置管理工具（config_manage）安全判定**：由「未知」改为**中风险**（写操作须审批，读操作 get/asset_get 直接放行且无判定），风险等级固定四档：未知 / 高风险 / 中风险 / 安全（§4.4 徽章，后端 rolePolicy §见 role-security.md）；⑤**精简模式配置管理参数展示（LiteFieldRows）**：标题在上、内容在下两行式（原左右单行），内容允许任意位置断点换行（`word-break: break-all`，原 break-word 错误）；⑥**工具卡标题去重**：`LiteToolCallDetail` 头部只留 icon + 风险徽章（未知/安全/中/高）——工具名/类型/状态/耗时已由抽屉标题栏承担，工具卡内「写入」「已完成」等冗余标签删除 |
 | v2.5（增量） | **工具详情「执行说明」去重 + 提问工具专用展示 + 结果区统一（用户需求，§4.4）**：①**执行说明区只保留标题栏没有的信息**——抽屉标题栏已含工具名/状态/耗时，工具卡删除动作句（已读取文件…）与状态句（执行完成），仅留「目标」代码块与「本次变更」列表，皆无则整区不显示；②**提问工具（ask_user_question）展示名改「询问用户」**（approvalPresentation，原「用户交互」）；③**提问工具标题 + 说明移到「参数」上方**——header 作标题、rationale/nextStep 用「为什么需要你决定」「决定后会发生什么」中文标签（这三个键是大模型写的数据，参数字段行与「更多」折叠区同步排除）；对话模式提问卡片（QuestionRenderer）与树视图悬停详情（QuestionAnswerDetail）补上同两条说明（数据一致）；④**选项说明完整展示在选项文字下方**（去掉 45% 省略号截断）；⑤**结果直接渲染进选项**——已答选中项 ✓ + 主色高亮、取消显示「用户已取消该问题」、自由文本/补充注记照树视图样式，提问工具不再单列「原始结果」；⑥**结果区统一（非提问工具）**——短结果（原文 ≤200 字符）默认展开直接展示；长结果默认折叠 + 一句摘要预览，展开后完整内容替换预览；⑦**删除代码写死的说明上 UI**——未知工具首行的 `sense.tools` description 说明行删除（`toolDescriptionLine` 随之移除），任务中心提问面板的兜底文案（context.source='fallback'）不再展示 |
 | v2.4（增量） | **精简模式 icon 全局放大 + 对话模式折叠标签悬浮详情字号加大（用户需求 2026-10）**：①**lite icon 统一放大**——`LiteView` 页面 6 处 icon（lane 页签 12→15px、历史行/委派入口 icon 18px 宽→20px 宽 + 15px 字、cluster 工具 tag 13→15px、待处理页签 14→16px、时间轴 tip icon 继承→15px）；②**对话模式折叠工具标签悬浮弹出框（`.sense-tag-detail-popper`）内容字号再放大一档**——内层渲染器（SenseCallBox + 全部专用渲染器）主体/名称 15px、参数/代码/内容区 14-14.5px、状态符号 16px（对比对话流展开态再大 2px，悬浮临时查看更易读）。改动只调字号，不影响组件结构。**像素卡片豁免**：桌宠纸牌卡（`PaperGameCard.styles.less`/`NodePaperStack.styles.less`）保持 pixel-font 契约字号（`--paper-font-caption: 10px`、body 13px、title 16px，测试 `paperStackIntegration.test.ts` 锁定），不随全局放大；上轮 v2.3 误触及处已按行级回退。 |
@@ -103,9 +105,9 @@
 ## 4. 对话流渲染与交互
 
 ### 4.1 默认显示（§3.2 契约——只有用户消息 + 最终回复）
-- **用户消息**：actorKind='user' 的节点 → 全文显示 summary（用户消息短，通常不截断）。
-- **最终回复（T31 修正）**：主 agent 的最终回复权威通道 = **done.finalMessage（即时终态）+ timeline.patch upsert 的 agent-to-user message lean 节点（历史权威）**，同 id upsert 去重（F2）——显示该节点的 summary（≤180B）+「详情 >」按钮。return 节点（direction=child-to-parent）是**子 agent** 回传的投影，用于子任务状态行展开，不是主回复信号。
-- **中间节点**（工具/子任务/思考）：**只显示运行状态行**（⟳ 正在… / ✓ 完成），不显示内容；toolNames 可选显示（如 📎 read_file, write_file）。点击状态行 → node.get 按需拉全文（§4.4）。
+- **用户消息**：actorKind='user' 的节点 → 全文显示 summary（用户消息短，通常不截断）。**v2.8 指令 token 样式**：正文中的 `[[command:/…]]` / `[[role:@…]]` token 经 `splitCommandPrompt`（与对话模式 `MessageBubble` 同源）渲染为样式化小标签（命令=主题金色、角色=蓝），不再裸显示 `[[ ]]` 包裹文本；普通文本保留换行/空格原样展示。
+- **最终回复（T31 修正）**：主 agent 的最终回复权威通道 = **done.finalMessage（即时终态）+ timeline.patch upsert 的 agent-to-user message lean 节点（历史权威）**，同 id upsert 去重（F2）——正文**全文**直接在页面内滚动展示（v1.3 full 渲染，不截断）。**v2.8 起右上角不再有「详情」按钮**（全文已直接展示，按钮冗余；用户提问行同删）——工具调用细节仍由 cluster 小按钮 / 轨迹块点击进入抽屉，信息不丢失。return 节点（direction=child-to-parent）是**子 agent** 回传的投影，用于子任务状态行展开，不是主回复信号。
+- **中间节点**（工具/子任务/思考）：**只显示运行状态行**（⟳ 正在… / ✓ 完成），不显示内容；toolNames 可选显示（如 📎 read_file, write_file）。点击状态行 → node.get 按需拉全文（§4.4）。**v2.8 思考行内折叠**：最终回复的「思考」直接展示在正文行上方，**默认折叠**（▸ 思考，点击展开；文字弱化为 secondary 与正文区分，同详情抽屉 v2.2 交互）；工具节点合并的思考（同一次 LLM 响应并入 tool-batch）仍在抽屉内查看。
 - **子任务状态行展开（v0.2 补）**：子 agent 按 T26 折叠规则显示为「⟳ 子任务运行中 / ✓ 子任务完成」状态行；点击展开显示该子 agent 的 lean 节点维度——`direction='parent-to-child'`（派发）与 `direction='child-to-parent'`（回传/return）的 lean 节点列表（各自 summary+orderKey），展开数据来自本地 leanTimeline 过滤（不新发请求）；return 节点的「详情 >」走 node.get。子 agent 的 lean 节点不进入主对话流（仅展开区），主回复信号不变（仍为 done.finalMessage + agent-to-user 节点，见上条）。
 
 ### 4.2 运行中状态
@@ -115,7 +117,7 @@
 
 ### 4.3 审批 / 提问交互（G4 全量下发，交互必须）
 - **交互入口（v2.6 重构，用户需求「参考对话模式，把提问交互放进页面内容」）**：审批 / 提问交互**不再有常驻面板**（原输入区上方的待处理面板已移除）——入口 = 点击大模型响应回来的**工具调用簇按钮**（或时间轴工具块）→ 打开**详情抽屉**，在抽屉内**该工具调用卡**上完成交互（`LiteToolCallDetail` 卡片内嵌 `LiteInteractionView`）。**工具卡 ↔ 交互匹配**：审批 = interactionId 即该次工具调用的 callId；提问批 = 批内每题 questionId 即触发它的 callId（见下）。待处理 / 提交中的交互命中卡片 → 渲染交互视图；**交互完成后不再命中 → 卡片自动回到只读展示**。
-- **审批（interrupt）**：`LiteInteractionView` 内展示：头部 `APPROVAL REQUEST` + 状态小点 / 状态药丸（非 pending 时）/ 倒计时（pending 显示剩余，超时「已超时」置灰）；下方 `ApprovalSummary`（大模型需要…）+ **风险摘要**（security.findings[0] 前 120 字，缺省兜底「未发现额外安全提示…」）+「技术详情」折叠区（完整操作参数 `ParsedArgs` + 文件变更 `FileChangeDiff`）；按钮【拒绝】【允许执行】——**允许后立即执行**，底部提示「批准后将立即执行，请先核对目标与变更。」。提交中 / 超时 / 断线时按钮禁用。
+- **审批（interrupt）**：`LiteInteractionView` 内展示：头部 `APPROVAL REQUEST` + 状态小点 / 状态药丸（非 pending 时）/ 倒计时（pending 显示剩余，超时「已超时」置灰）；下方 `ApprovalSummary`（标题「大模型需要…」+ 能力/行为/对象，2026-11 起无徽章与总结句）+ **风险摘要**（security.findings[0] 前 120 字，缺省兜底「未发现额外安全提示…」）+「技术详情」折叠区（完整操作参数 `ParsedArgs` + 文件变更 `FileChangeDiff`）；按钮【拒绝】【允许执行】——**允许后立即执行**，底部提示「批准后将立即执行，请先核对目标与变更。」。提交中 / 超时 / 断线时按钮禁用。
   - 批准 → interaction.approval.decide({interactionId, action:'accept', expectedRevision, commandId})；拒绝 → action:'reject'（interactionId=approvalId 同值）。
   - 结果经 interaction.changed（含 presetId）+ accept/rejected 事件反馈。
   - **id 映射（D 定案）**：interrupt 的 interactionId = 该 sense call id = 消息节点 toolCalls 中该 toolCall 的 call id；「技术详情」经 node.get({rootChatId, nodeId=所属消息节点, sections:['toolCalls']}) 一次拉取该节点全部调用后按 call id 定位该项。
@@ -129,7 +131,7 @@
 ### 4.4 按需详情（node.get，G5）
 - 点击任意节点状态行 / 摘要 → 面板抽屉：chat.timeline.node.get({rootChatId, nodeId, sections:['content','thinking','toolCalls'], offset, limit})。
 - 单响应 ≤32KB 分段；超长字段附 contentHash 引用 → 前端展示截断 + 「加载更多」续拉。
-- 详情抽屉内可查看 toolCalls（工具名+参数摘要）、thinking（**v2.2 起默认折叠**，标题为可点击切换钮 ▸/▾，展开后思考文字色降为 `--el-text-color-secondary` 与正文区分、降低视觉权重；v2.2 前为恒展开的「可选开关」）。
+- 详情抽屉内可查看 toolCalls（工具名+参数摘要）、thinking（**v2.2 起默认折叠**，标题为可点击切换钮 ▸/▾，展开后思考文字色降为 `--el-text-color-secondary` 与正文区分、降低视觉权重；v2.2 前为恒展开的「可选开关」；**v2.8 起最终回复的思考同时在正文行内折叠展示**，抽屉保留完整分节供工具节点查看）。
 - **工具调用风险展示**：toolCalls 中每项 toolCall 携带 `security?`（该工具 `authorizeToolCall` 判定原样透传，与审批 interrupt 同源；缺省 undefined 兼容旧数据）→ `LiteToolCallDetail` 在工具状态旁渲染 `RiskBadge compact`（**固定四档：安全=绿/中风险=黄/高风险=红/未知或未评估=灰**；config_manage 写操作 = 中风险，读操作 get/asset_get 直接放行且无判定，见 role-security.md）。
 - **工具卡标题去重（v2.6）**：`LiteToolCallDetail` 卡片头部只保留 **icon + 风险徽章（compact）**——工具名/类型/执行状态/耗时已由抽屉顶部标题栏承担，卡片内不再重复展示（原「写入」「已完成」等状态标签删除）。
 - **详情抽屉宽度可拖拽（v1.2）**：抽屉左缘为拖拽手柄（ew-resize），宽度 clamp(320px, 拖拽值, 92% 容器宽)；拖拽结果按窗口 × 根会话持久于 LiteRootUiState（`detailDrawerWidth`，null=默认 min(460px, 92%)），重开抽屉/切回会话保持；抽屉体配主题化细滚动条（超长内容可拖拽滚动，§4.4 不再隐藏滚动条）。
@@ -145,7 +147,7 @@
   - **未知工具（other）**：不再展示 `sense.tools` description 工具说明行（v2.5，代码写死的说明信息不上 UI）；下方按「中文标签: 内容」逐字段行展示；嵌套对象/数组递归翻译键后 pretty-print。
 
 ### 4.5 发送
-- **自适应多行输入框**（v0.4.2）：默认单行，换行 / 长内容自动增高（上限内滚动）；发送按钮为**主色实心短小按钮**；**v1.0**：发送按钮高度与单行输入框对齐（同高，消除底部输入区左右错位）；**v2.2**：默认保持 **6 行（120px）上限**，发送钮正上方新增**展开钮**（`.lite-expand-btn`，⤢/⤡，el-tooltip 提示，状态存 `LiteView` 组件内 ref、不持久化）——点击后输入框高度提升到**至少 12 行（`min-height: min(240px, 50vh)`）、最高窗口一半（`max-height: 50vh`）**，大段内容输入不再在小框中翻页滚动（与对话模式底部输入框同款交互）。
+- **自适应多行输入框**（v0.4.2）：默认单行，换行 / 长内容自动增高（上限内滚动）；发送按钮为**主色实心短小按钮**；**v1.0**：发送按钮高度与单行输入框对齐（同高，消除底部输入区左右错位）；**v2.2**：默认保持 **6 行（120px）上限**，发送钮正上方新增**展开钮**（`.lite-expand-btn`，el-tooltip 提示，状态存 `LiteView` 组件内 ref、不持久化）——点击后输入框高度提升到**至少 12 行（`min-height: min(240px, 50vh)`）、最高窗口一半（`max-height: 50vh`）**，大段内容输入不再在小框中翻页滚动（与对话模式底部输入框同款交互）；**v2.7**：展开钮改为 EP `Top` 矢量图标（展开态旋转 180°）、无边框幽灵小按钮，**默认隐藏、仅当输入内容超过 2 行时出现**（内容回落 2 行以内自动收起展开态）；高度重算补上边框高度，空内容不再挤出右侧细滚动条。
 - **输入区底色（v1.7）**：输入区整行为主题强调色淡底（浅色靛蓝 / 深色电光青，`--el-color-primary` 8% 派生）+ 同家族 45% 顶部分隔线——与对话列表（中性亮面）、提问面板（暖琥珀）三种底色一眼区分。
 - **Enter 发送、Shift+Enter 换行**（v0.4.2，与快速发送 composer / 工作台 composer 行为统一，原 Cmd/Ctrl+Enter 废弃）。chat.input.submit（命令面：立即 ack + 幂等 commandId + 客户端预分配 messageId）。
 - 发送后：本地立即回显用户消息（messageId 预分配）→ input.updated 确认（去 content，设备本地已有文本）→ run.updated 开始运行。
@@ -215,6 +217,7 @@ lite 视图对话流上方的多流水线运行轨迹。**一轴 = 一个 Agent 
 - **固定结构**：只显示 1–2 字符的 ASCII 类型字符，字符底部叠加状态条，相邻节点使用 ASCII `|` 分隔。不显示中文类型名，也不展示参数、结果、摘要或可见耗时；**悬停浮层（cluster 小按钮与轨迹块共用同一 `lite-tip`）与 `aria-label` 标记节点类型 + 工具类型名称 + 工具名 + 状态 + 耗时**（如「工具执行 · 命令 · 读取文件 · 已完成 · 00:12」），**不再挂原生 `title`**（避免 1 秒延迟的系统 tooltip 与自定义浮层双重叠加），详情入口保留全文。
 - **ASCII 字符表**：命令 `>_`、读取 `<`、写入 `>`、网络 `@`、委派 `>>`、其他 `*`。Web 不再使用 `sense.tools.icon` 渲染工具 emoji，MCU 无需 emoji 字库或多码点宽度计算。
 - **状态条**：高 `2px`，绝对定位在字符底部、不占横向空间；取消灰、完成绿、运行中绿闪、失败/拒绝红。`prefers-reduced-motion` 下运行条保持绿色常亮。**v1.0 弱化**：状态条不再喧宾夺主——降低对比/透明度并收窄，icon 为主、状态线为辅；icon 字号加大保证清晰（浅色下 icon 清晰度不再低于状态线）。
+- **icon 闲启动效（v2.8，用户需求「icon 信息量低，让图标动起来」）**：运行结束后 cluster 工具 glyph 按工具类型做**小幅循环动效**——命令 `>_`=上下轻跳 2px（2.8s）、读取 `<`=左右微移 1.5px（3.4s）、写入 `>`=轻压 1.5px + 2° 微转（2.6s）、网页 `@`=7s 慢速旋转一周（线性）、委派 `>>`=右移 2px（2.4s）、其他 `*`=1.08 呼吸缩放（2.2s）。幅度克制不抢眼；运行中仍由状态线闪动承担反馈、取消态静止；`prefers-reduced-motion` 全部关闭。
 - **外观**：无边框、无圆角、无常驻底色；hover 仅给极淡背景，选中态用底部 1px 主题色线，键盘聚焦保留 1px 点状轮廓。单 tag 的常规可见内容约 5–7 个等宽字符，可在极小屏完整显示。
 - **一致性**：正文 cluster、轨迹提示、工具详情头部与审批工具标记共用 `toolTypeGlyph()`，不得各自维护另一套图标；浮层与 title 的工具类型中文名统一走 `toolTypeLabel()`，节点类型中文名统一走 `LITE_NODE_LABELS`。
 
