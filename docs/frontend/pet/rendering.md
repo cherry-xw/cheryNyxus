@@ -83,7 +83,7 @@ Nyxus 消息输入不再投影 `input:draft:*` 虚拟节点，也不 Teleport �
 节点树三类弹窗（hover 预览 popover / 常驻审批气泡 / 提问气泡）统一使用一套 CRT 终端风渲染主题，集中管理在独立的 [nyxusPopoverTheme.less](../../../web/src/features/pets/nyxus/styles/nyxusPopoverTheme.less)，由 `MessageBranchTree.vue` 的 `<style scoped lang="less">` 经 `@import` 引入。主题覆盖所有节点类型的弹窗内容：
 
 - **工具节点**：`SenseCallRenderer` 分发的全部专用渲染器（`CommandRenderer`/`SearchRenderer`/`SkillRenderer`/`FileReadRenderer`/`FileWriteRenderer`/`SpawnRenderer`/`MediaRenderer`/`QuestionRenderer`/`TodoRenderer`）与通用降级 `SenseCallBox`，统一复位其默认浅色卡片（去 `border`/白底/`border-radius`/`box-shadow`），内部 head/label/code 块/pre 块/toggle 折叠/copy-btn/彩色 badge/状态字形/输出区全部 CRT 化。
-- **审批气泡**：`ApprovalCard` + `ParsedArgs` 的参数行、按钮、徽章。
+- **审批气泡**：`ApprovalCard` + `ParsedArgs` 的参数行、按钮（2026-11 起无徽章；`ParsedArgs` 完整操作参数默认收起、无边框纯文字开关）。
 - **提问气泡**：`QuestionCard` 的标题、选项卡、选择标记、自由输入（element-plus `el-textarea`）、操作按钮--从原蓝紫玻璃风改为 CRT 灰绿调，交互结构不变。
 - **消息节点 popover**：user 文本、assistant markdown（含 thinking 折叠--内容低于 5 行默认展开、streaming 占位、hljs 代码高亮）。user 正文中的 `[[command:/x]]` / `[[role:@x]]` token 经 `splitCommandPrompt`（与主聊天面 `MessageBubble` 同源）拆分后渲染为像素风 terminal 方括号 tag（`.nx-tag`）：方角 + 等宽 + 关闭字体平滑 + CRT text-shadow + 字符化 `[ ]` 括号定界，command 黄 `#ffe18b`、role 蓝 `#7da7ff`，括号半透明弱化突出值；其余纯文本仍走 `pre-wrap`。
 
