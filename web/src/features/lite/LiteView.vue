@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Top } from '@element-plus/icons-vue'
 import { useLiteViewController, type LiteViewControllerProps } from './useLiteViewController'
 const props = defineProps<LiteViewControllerProps>()
 const controller = useLiteViewController(props)
@@ -27,6 +28,7 @@ const {
   hoverNode,
   hydrationLabel,
   inputText,
+  inputLines,
   isDetailNode,
   isInFlightNode,
   isPlainRowContent,
@@ -81,6 +83,31 @@ function toggleExpandInput(): void {
   // 类切换后重算高度：展开时立即给足可视高度，收起时回到内容高度（CSS 上限兜底）。
   void nextTick(() => autoGrowInput())
 }
+// 展开按钮仅在输入超过 2 行时出现（controller 测量 inputLines）；内容回落 2 行以内时
+// 收起展开态（按钮随之隐藏，避免「已展开却无法收起」）。
+watch(inputLines, (lines) => {
+  if (lines <= 2) expandedInput.value = false
+})
+// 挂载时按既有草稿重算高度/行数（恢复的长草稿直接撑高 + 展开按钮立即可见）；
+// 容器宽度变化导致自动换行改变时重算，避免行数/高度停留在旧宽度。
+let inputResizeObserver: ResizeObserver | null = null
+let lastInputWidth = 0
+onMounted(() => {
+  void nextTick(() => autoGrowInput())
+  const el = liteInputEl.value
+  if (el) {
+    lastInputWidth = el.clientWidth
+    inputResizeObserver = new ResizeObserver(() => {
+      const width = el.clientWidth
+      if (width !== lastInputWidth) {
+        lastInputWidth = width
+        autoGrowInput()
+      }
+    })
+    inputResizeObserver.observe(el)
+  }
+})
+onBeforeUnmount(() => inputResizeObserver?.disconnect())
 </script>
 
 <template>
@@ -364,6 +391,7 @@ function toggleExpandInput(): void {
         />
         <div class="lite-send-wrap">
           <el-tooltip
+            v-if="inputLines > 2"
             :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
             placement="top"
             :show-after="150"
@@ -377,7 +405,7 @@ function toggleExpandInput(): void {
               :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
               @click="toggleExpandInput"
             >
-              {{ expandedInput ? '▼' : '▲' }}
+              <Top class="lite-expand-icon" aria-hidden="true" />
             </button>
           </el-tooltip>
           <button
