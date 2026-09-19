@@ -3,6 +3,19 @@ import { Method, PUBLIC_METHODS } from '@chery/protocol'
 import { responseSchemas } from '@/service/message/responseSchemas.js'
 
 const runtime = { chatId: 'chat-1', brain: 'brain-1', senseGroup: 'tools', mcpServers: [] }
+const workflowResources = { loadedSkillsComplete: false }
+const workflowSnapshot = {
+  chatId: 'chat-1',
+  rootChatId: 'chat-1',
+  contextStageId: 'stage-1',
+  revision: 0,
+  status: 'idle',
+  visitedNodeIds: [],
+  dispatches: [],
+  resources: workflowResources,
+  phaseKnown: false,
+  historyComplete: true,
+}
 const input = {
   chatId: 'chat-1',
   inputId: 'input-1',
@@ -149,6 +162,8 @@ const validResponses: Record<Method, unknown> = {
     },
   },
   [Method.CHAT_DELETE]: { chatId: 'chat-1', deletedChatIds: ['chat-1'] },
+  [Method.CHAT_ARCHIVE]: { chatId: 'chat-1', archivedChatIds: ['chat-1'] },
+  [Method.CHAT_ARCHIVE_LIST]: { groups: [], total: 0, page: 1, pageSize: 1, presets: [] },
   [Method.CHAT_BRANCH_PREVIEW]: {
     taskId: 'task-1',
     sourceBranchId: 'branch-1',
@@ -179,6 +194,22 @@ const validResponses: Record<Method, unknown> = {
     contextUsed: 10,
     contextTotal: 100,
     contextBreakdown: {},
+  },
+  [Method.CHAT_WORKFLOW_OPEN]: {
+    subscriptionId: 'subscription-1',
+    streamId: 'stream-1',
+    snapshot: workflowSnapshot,
+  },
+  [Method.CHAT_WORKFLOW_CLOSE]: { subscriptionId: 'subscription-1', closed: true },
+  [Method.CHAT_WORKFLOW_HISTORY]: {
+    chatId: 'chat-1',
+    contextStageId: 'stage-1',
+    boundary: 0,
+    stages: [],
+    facts: [],
+    complete: true,
+    historyComplete: true,
+    resources: workflowResources,
   },
   [Method.CHAT_PROMPT_SNAPSHOT]: { chatId: 'chat-1', systemPrompt: '', tools: [] },
   [Method.CHAT_EPOCH_LIST]: {
