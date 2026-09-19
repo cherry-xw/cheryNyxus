@@ -227,11 +227,10 @@
   background: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-bg-color));
 }
 /* 行头角色名（需求 c/2/4）：独立分配空间展示，实心背景盖住横向滚动时滚过的块，不与节点重叠/冲突；
-   本身是按钮，点击切换正文列表显示该链路（需求 4）。 */
+   本身是按钮，点击切换正文列表显示该链路（需求 4）。
+   el-tooltip 会在 trigger 外包 .el-tooltip__trigger span，sticky 定位移到该包裹 span 上，
+   保证横向滚动时行头角色名保持可见（button 本身不再 sticky）。 */
 .lite-trajectory-lane-label {
-  position: sticky;
-  left: 0;
-  z-index: 4;
   display: inline-block;
   box-sizing: border-box;
   width: 76px;
@@ -256,6 +255,14 @@
     color 180ms ease,
     background-color 180ms ease,
     box-shadow 180ms ease;
+}
+.lite-trajectory-lane :deep(.el-tooltip__trigger) {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  display: inline-block;
+  width: 76px;
+  height: 13px;
 }
 .lite-trajectory-lane-label:hover {
   color: var(--el-color-primary);

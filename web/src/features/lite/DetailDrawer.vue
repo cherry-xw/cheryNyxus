@@ -391,7 +391,6 @@ watch(
           v-if="props.node.kind === 'tool'"
           class="lite-drawer-type"
           :data-tooltype="props.node.toolType"
-          :title="'工具类型：' + toolTypeLabel(props.node.toolType)"
           >{{ toolTypeGlyph(props.node.toolType) }} {{ toolTypeLabel(props.node.toolType) }}</span
         >
         <time v-if="props.node.elapsedMs > 0" class="lite-drawer-elapsed">{{
@@ -497,16 +496,22 @@ watch(
                   :root-chat-id="props.rootChatId"
                   :interaction="interactions.interactionForCall(call.callId)"
                 />
-                <button
+                <el-tooltip
                   v-if="sectionHasMore('toolCalls')"
-                  type="button"
-                  class="lite-drawer-more"
-                  :disabled="isSectionLoading('toolCalls')"
-                  title="参数或结果内容较长，未全部取回；点击继续加载剩余内容"
-                  @click="loadSection('toolCalls')"
+                  content="参数或结果内容较长，未全部取回；点击继续加载剩余内容"
+                  placement="top"
+                  :show-after="150"
+                  :hide-after="0"
                 >
-                  继续加载更多工具内容
-                </button>
+                  <button
+                    type="button"
+                    class="lite-drawer-more"
+                    :disabled="isSectionLoading('toolCalls')"
+                    @click="loadSection('toolCalls')"
+                  >
+                    继续加载更多工具内容
+                  </button>
+                </el-tooltip>
               </template>
               <p v-else class="lite-drawer-hint is-muted">（无工具调用）</p>
             </template>
