@@ -5,7 +5,14 @@ import { useInteractionsStore } from '@/application/public'
 import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
 import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
-import { countdownOf, kindLabel, payload, questionsOf, statusOf, timeOf, titleOf } from './interactionPresentation'
+import {
+  countdownOf,
+  kindLabel,
+  payload,
+  questionsOf,
+  statusOf,
+  timeOf,
+} from './interactionPresentation'
 import InteractionQuestionFieldset from './InteractionQuestionFieldset.vue'
 
 const props = withDefaults(
@@ -15,8 +22,6 @@ const props = withDefaults(
     pendingOnly?: boolean
     section?: 'pending' | 'activity'
     showFooter?: boolean
-    /** 纸牌堆叠：整卡标题恒显（列表模式保持既有「pendingOnly 只显审批标题」逻辑）。 */
-    titleAlways?: boolean
     /** 纸牌堆叠：只展示该下标的题目（undefined = 列表模式展示全部题目）。 */
     questionIndex?: number
   }>(),
@@ -24,7 +29,6 @@ const props = withDefaults(
     pendingOnly: false,
     section: 'pending',
     showFooter: true,
-    titleAlways: false,
     questionIndex: undefined,
   },
 )
@@ -43,9 +47,6 @@ const countdown = computed(() => countdownOf(props.item, props.now))
       <span class="kind" :class="item.kind === 'approval' ? 'is-approval' : 'is-question'">{{
         kindLabel(item)
       }}</span>
-      <strong v-if="titleAlways || !pendingOnly || item.kind === 'approval'">{{
-        titleOf(item)
-      }}</strong>
       <small>
         {{ statusOf(item) }} · {{ timeOf(item.createdAt) }}
         <!-- 审批倒计时：后端 deadlineAt，归零变红提示超时。 -->
@@ -57,26 +58,26 @@ const countdown = computed(() => countdownOf(props.item, props.now))
     </header>
 
     <template v-if="item.kind === 'approval'">
-        <ApprovalSummary :sense-name="payload(item).senseName" :args="payload(item).arguments" />
-        <ParsedArgs :args="payload(item).arguments" title="完整操作参数" />
-        <FileChangeDiff :args="payload(item).arguments" />
+      <ApprovalSummary :sense-name="payload(item).senseName" :args="payload(item).arguments" />
+      <ParsedArgs :args="payload(item).arguments" title="完整操作参数" />
+      <FileChangeDiff :args="payload(item).arguments" />
+    </template>
+    <div v-else class="questions">
+      <!-- 纸牌堆叠：只渲染当前题目；列表模式渲染该批全部题目（legend 编号始终按全批序号） -->
+      <template v-for="(question, qi) in questionsOf(item)" :key="question.questionId">
+        <InteractionQuestionFieldset
+          v-if="questionIndex === undefined || qi === questionIndex"
+          :item="item"
+          :question="question"
+          :question-index="qi"
+          :total-questions="questionsOf(item).length"
+          :disabled="item.status !== 'pending'"
+        />
       </template>
-      <div v-else class="questions">
-        <!-- 纸牌堆叠：只渲染当前题目；列表模式渲染该批全部题目（legend 编号始终按全批序号） -->
-        <template v-for="(question, qi) in questionsOf(item)" :key="question.questionId">
-          <InteractionQuestionFieldset
-            v-if="questionIndex === undefined || qi === questionIndex"
-            :item="item"
-            :question="question"
-            :question-index="qi"
-            :total-questions="questionsOf(item).length"
-            :disabled="item.status !== 'pending'"
-          />
-        </template>
-      </div>
-      <p v-if="interactions.errorsById[item.interactionId]" class="object-error" role="alert">
-        {{ interactions.errorsById[item.interactionId]?.message }}
-      </p>
+    </div>
+    <p v-if="interactions.errorsById[item.interactionId]" class="object-error" role="alert">
+      {{ interactions.errorsById[item.interactionId]?.message }}
+    </p>
 
     <footer v-if="showFooter">
       <button
@@ -132,17 +133,9 @@ article header {
   align-items: baseline;
   gap: 7px;
 }
-article header strong {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 16px;
-  font-weight: 400;
-}
 article header small {
   flex: none;
+  margin-left: auto;
   font-size: 14px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
 }

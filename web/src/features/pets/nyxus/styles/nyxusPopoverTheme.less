@@ -55,9 +55,17 @@
   font-family: @nx-font;
   -webkit-font-smoothing: none;
   background:
-    repeating-linear-gradient(0deg, color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px, transparent 1px 3px),
-    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px, transparent 0.8px) 0 0 /
-      4px 4px,
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px,
+      transparent 1px 3px
+    ),
+    radial-gradient(
+        circle at 1px 1px,
+        color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px,
+        transparent 0.8px
+      )
+      0 0 / 4px 4px,
     @nx-bg;
   border: 1px solid @nx-border;
   border-radius: 2px;
@@ -85,9 +93,15 @@
     right: 0;
     top: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--nx-border) 78%, transparent), transparent);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--nx-border) 78%, transparent),
+      transparent
+    );
   }
-  scrollbar-color: color-mix(in srgb, var(--nx-border) 62%, transparent) color-mix(in srgb, var(--nx-code-bg) 72%, transparent);
+  scrollbar-color: color-mix(in srgb, var(--nx-border) 62%, transparent)
+    color-mix(in srgb, var(--nx-code-bg) 72%, transparent);
   scrollbar-width: thin;
   &::-webkit-scrollbar {
     width: 8px;
@@ -117,9 +131,17 @@
   font-family: @nx-font;
   -webkit-font-smoothing: none;
   background:
-    repeating-linear-gradient(0deg, color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px, transparent 1px 3px),
-    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px, transparent 0.8px) 0 0 /
-      4px 4px,
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px,
+      transparent 1px 3px
+    ),
+    radial-gradient(
+        circle at 1px 1px,
+        color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px,
+        transparent 0.8px
+      )
+      0 0 / 4px 4px,
     color-mix(in srgb, var(--nx-bg) 97%, transparent);
   border: 1px solid color-mix(in srgb, var(--nx-border) 72%, transparent);
   border-radius: 2px;
@@ -551,17 +573,6 @@
 .approval-frame :deep(.arg-empty) {
   color: var(--nx-text);
 }
-.approval-frame :deep(.args-toggle) {
-  border-color: color-mix(in srgb, var(--nx-border) 40%, transparent);
-  background: color-mix(in srgb, var(--nx-code-bg) 60%, transparent);
-  &:hover {
-    background: color-mix(in srgb, var(--nx-border) 18%, transparent);
-  }
-}
-.approval-frame :deep(.args) {
-  border-color: color-mix(in srgb, var(--nx-border) 34%, transparent);
-  background: color-mix(in srgb, var(--nx-code-bg) 36%, transparent);
-}
 .approval-frame :deep(.args-body),
 .approval-frame :deep(.args-pre) {
   color: var(--nx-text-dim);
@@ -642,9 +653,17 @@
   border-radius: 2px;
   color: @nx-text;
   background:
-    repeating-linear-gradient(0deg, color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px, transparent 1px 3px),
-    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px, transparent 0.8px) 0 0 /
-      4px 4px,
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px,
+      transparent 1px 3px
+    ),
+    radial-gradient(
+        circle at 1px 1px,
+        color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px,
+        transparent 0.8px
+      )
+      0 0 / 4px 4px,
     @nx-bg;
   box-shadow:
     0 22px 58px rgba(0, 0, 0, 0.52),
@@ -686,7 +705,11 @@
 }
 .question-frame :deep(.option-card.selected) {
   border-color: color-mix(in srgb, var(--nx-cyan) 84%, transparent);
-  background: linear-gradient(120deg, color-mix(in srgb, var(--nx-cyan) 34%, transparent), color-mix(in srgb, var(--nx-purple) 24%, transparent));
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--nx-cyan) 34%, transparent),
+    color-mix(in srgb, var(--nx-purple) 24%, transparent)
+  );
   box-shadow:
     inset 3px 0 0 @nx-cyan,
     0 0 18px color-mix(in srgb, var(--nx-cyan) 14%, transparent);
@@ -904,8 +927,7 @@
 .popover-thinking pre {
   margin: 0;
   white-space: pre-wrap;
-  font:
-    10px/1.45 @nx-font;
+  font: 10px/1.45 @nx-font;
   color: inherit;
 }
 

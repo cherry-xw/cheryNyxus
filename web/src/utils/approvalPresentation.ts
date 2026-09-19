@@ -3,12 +3,9 @@ import { toSenseNameZh } from './senseName'
 
 export interface ApprovalPresentation {
   senseName: string
-  actorLabel: string
-  approvalLabel: string
   toolLabel: string
   operationLabel: string
   title: string
-  summary: string
   target?: string
   changes: ToolChangePresentation[]
 }
@@ -251,15 +248,11 @@ export function createApprovalPresentation(
     typeof senseNameInput === 'string' && senseNameInput.trim() ? senseNameInput.trim() : '未知工具'
   const tool = createToolRunPresentation(senseName, argsInput)
   const target = tool.target
-  const targetText = target ? `：${target}` : ''
   return {
     senseName,
-    actorLabel: '大模型发起',
-    approvalLabel: '由你审批后执行',
     toolLabel: tool.toolLabel,
     operationLabel: tool.operationLabel,
     title: `大模型需要${tool.operationLabel}`,
-    summary: `大模型请求通过「${tool.toolLabel}」${tool.operationLabel}${targetText}。批准后才会执行。`,
     ...(target ? { target } : {}),
     changes: tool.changes,
   }

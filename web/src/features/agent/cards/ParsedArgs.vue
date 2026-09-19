@@ -19,7 +19,8 @@ const props = withDefaults(
   { embedded: false },
 )
 
-const expanded = ref(true)
+// 默认收起：参数属于追溯细节，不默认铺开（审批主体信息已由 ApprovalSummary 承载）。
+const expanded = ref(false)
 
 const argsParsed = computed(() => parseArgs(props.args))
 const argsFallback = computed(() => argsParsed.value.fallback)
@@ -72,18 +73,19 @@ const hasArgs = computed(() => {
   gap: 2px;
 }
 
+// 无边框纯文字开关（▸/▾ + 标题）：内部已是 key:value 行，开关不再套胶囊边框，避免条条框框叠加。
 .args-toggle {
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-soft);
-  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
   font-size: 15px;
   font-weight: 400;
   cursor: pointer;
 
   &:hover {
-    background: var(--surface-hover);
+    color: var(--ink);
   }
 }
 
@@ -113,6 +115,7 @@ const hasArgs = computed(() => {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 15px;
   font-weight: 400;
+  line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
 
