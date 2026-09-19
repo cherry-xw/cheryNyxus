@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { PopoverInstance } from 'element-plus'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
+import type { IconInput } from 'morphicons/vue'
+import { Activity } from 'lucide'
 import type { WorkflowGraphNodeData } from './graphModel'
 import WorkflowMorphIcon from './WorkflowMorphIcon.vue'
 import WorkflowContentPreview from './WorkflowContentPreview.vue'
@@ -20,6 +22,15 @@ function selectContent(): void {
   closePreview()
   emit('select', props.data)
 }
+
+// 图标状态机（工作台示例，基于 Morphicons 变形组件）：
+//  A = 类型图标（等待 / 终态兜底）→ B = 运行图标（运行中主 icon 平滑变形为 Activity 脉冲线）
+//  → C = 终态徽标（运行结束才出现：✓ / ✗ / 暂停，压在右上角边框线上）
+const isRunning = computed(() => props.data.presentation.statusTone === 'running')
+const mainIcon = computed<IconInput>(() => (isRunning.value ? Activity : props.data.visual.icon))
+const badgeIcon = computed<IconInput | undefined>(() =>
+  isRunning.value ? undefined : statusIcon(props.data.presentation.statusTone),
+)
 </script>
 
 <template>
@@ -59,8 +70,8 @@ function selectContent(): void {
             aria-hidden="true"
           >
             <WorkflowMorphIcon
-              :icon="data.visual.icon"
-              :status-icon="statusIcon(data.presentation.statusTone)"
+              :icon="mainIcon"
+              :status-icon="badgeIcon"
               :size="25"
             />
             <span v-if="data.presentation.toolCount > 1" class="workflow-result-count">

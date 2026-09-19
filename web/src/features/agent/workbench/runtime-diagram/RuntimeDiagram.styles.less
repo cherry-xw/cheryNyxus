@@ -347,6 +347,12 @@
   border: 1px solid color-mix(in srgb, var(--workflow-capability) 70%, var(--workflow-node-border));
   background: color-mix(in srgb, var(--workflow-capability-soft) 26%, var(--surface));
   color: var(--workflow-capability);
+  /* v1.8：所有状态变化（含颜色/边框/缩放）走过渡，不闪变 */
+  transition:
+    transform 200ms ease,
+    border-color 200ms ease,
+    background-color 200ms ease,
+    box-shadow 200ms ease;
 }
 /* 内容节点 icon 撑满外边框容器，使状态角标能压在外边框右上角 */
 :deep(.workflow-result-glyph .workflow-morph-icon) {
@@ -488,6 +494,14 @@
 :deep(.vue-flow__node.selected .workflow-result-glyph) {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  /* v1.8：交互变形——悬浮框住节点后 icon 容器轻微放大 + 主色光晕 */
+  transform: scale(1.06);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* v1.8：运行中（B 态）主 icon 容器加柔光晕，配合 Activity 脉冲线变形 */
+:deep(.workflow-result-node-root.status-running .workflow-result-glyph) {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--workflow-capability) 45%, transparent);
 }
 
 :deep(.workflow-result-node-root.status-running .workflow-result-status) {
@@ -551,6 +565,10 @@
 @media (prefers-reduced-motion: reduce) {
   .workflow-pointer-highlight {
     display: none;
+  }
+  :deep(.workflow-result-glyph) {
+    transition: none;
+    transform: none !important;
   }
 }
 

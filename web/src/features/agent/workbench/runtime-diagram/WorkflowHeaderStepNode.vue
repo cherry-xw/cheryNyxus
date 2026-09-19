@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
 import { InfoFilled } from '@element-plus/icons-vue'
+import type { IconInput } from 'morphicons/vue'
+import { Activity } from 'lucide'
 import type { HeaderChildData } from './headerGraph'
 
 import { statusIcon, visualStyle, headerLayerColor } from './workflowVisuals'
@@ -18,9 +20,13 @@ const positions = {
   bottom: Position.Bottom,
 }
 const ports = computed(() => props.data.ports)
+// 运行中（live turn 或槽位 running）：主 icon 平滑变形为 Activity 脉冲线（B 态），
+// 徽标让位给终态（C 态），避免运行期间主 icon 与角标重复。
+const isRunning = computed(() => !!props.data.liveTurn || props.data.slot.status === 'running')
+const stepIcon = computed<IconInput>(() => (isRunning.value ? Activity : props.data.visual.icon))
 const stateIcon = computed(() =>
-  props.data.liveTurn
-    ? statusIcon('running')
+  isRunning.value
+    ? undefined
     : props.data.slot.status === 'idle'
       ? undefined
       : statusIcon(props.data.slot.status),
@@ -109,7 +115,7 @@ v-if="!pendingCount && (data.liveTurn || data.slot.status === 'running')"
       />
       <WorkflowMorphIcon
         class="workflow-step-capability-icon"
-        :icon="data.visual.icon"
+        :icon="stepIcon"
         :status-icon="stateIcon"
         :label="`${data.template.title}，${data.slot.statusText}`"
         :size="25"
@@ -206,6 +212,11 @@ v-if="!pendingCount && (data.liveTurn || data.slot.status === 'running')"
 .workflow-step-capability-icon {
   flex: 0 0 32px;
   color: var(--workflow-capability);
+  /* v1.8：交互变形——悬浮步骤节点时 icon 轻微放大 */
+  transition: transform 200ms ease;
+}
+.workflow-step-button:hover .workflow-step-capability-icon {
+  transform: scale(1.08);
 }
 .workflow-step-info-button {
   position: absolute;
@@ -401,4 +412,11 @@ button:focus-visible {
   pointer-events: none;
 }
 .state-waiting .workflow-step-beacon { border-color: var(--warning); }
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-step-capability-icon {
+    transition: none;
+    transform: none !important;
+  }
+}
 </style>
