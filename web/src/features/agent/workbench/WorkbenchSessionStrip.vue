@@ -354,7 +354,10 @@ onBeforeUnmount(() => {
       :id="allTasksId()"
       type="button"
       class="session-strip-all"
-      :class="{ 'has-attention': strip.attentionCount > 0 }"
+      :class="{
+        'is-expanded': allTasksExpanded,
+        'has-attention': strip.attentionCount > 0,
+      }"
       :aria-label="allTasksLabel"
       :aria-expanded="allTasksExpanded"
       @click="openAllTasks"
@@ -493,6 +496,11 @@ onBeforeUnmount(() => {
 }
 .session-strip-all {
   flex: 0 0 26px;
+  /* 覆盖页展开时高亮（与任务图标当前态同款），按钮本身承担开/关切换。 */
+  &.is-expanded {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+  }
   &.has-attention {
     border-color: var(--accent);
   }
