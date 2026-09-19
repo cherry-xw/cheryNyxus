@@ -85,7 +85,10 @@ function previewOf(s: ChatSummary): string {
           >
             <span class="session-row-index" aria-hidden="true">{{ index + 1 }}</span>
             <span class="session-row-body">
-              <span class="session-row-preview" :title="previewOf(s)">{{ previewOf(s) }}</span>
+              <!-- t 提示：截断预览的完整内容用 tooltip 展示，不用原生 title -->
+              <el-tooltip :content="previewOf(s)" placement="top" :show-after="150" :hide-after="0">
+                <span class="session-row-preview">{{ previewOf(s) }}</span>
+              </el-tooltip>
               <span class="session-row-meta">
                 <span class="session-row-time">{{ formatTime(s.updatedAt ?? s.createdAt) }}</span>
                 <span v-if="s.turnCount != null" class="session-row-turns"
@@ -200,6 +203,7 @@ function previewOf(s: ChatSummary): string {
   gap: 3px;
 }
 .session-row-preview {
+  display: block;
   overflow: hidden;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-weight: 400;
