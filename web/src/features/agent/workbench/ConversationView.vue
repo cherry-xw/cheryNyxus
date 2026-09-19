@@ -14,9 +14,12 @@
  *    interactions store，确保列表内提问可交互（后续由 interaction.changed 事件实时更新）
  */
 import { nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
+import { Top } from '@element-plus/icons-vue'
 import HistoryDrawerPanel from '../drawer/HistoryDrawerPanel.vue'
 import { useChatSessionsStore, useInteractionsStore } from '@/application/public'
 import type { ConversationBranchSummary } from '@/application/backend/public'
+import { useInstructionSuggestions } from '../composer/useInstructionSuggestions'
+import InstructionSuggestions from '../composer/InstructionSuggestions.vue'
 
 const props = defineProps<{
   windowId: string
@@ -58,47 +61,92 @@ watch(
 )
 // 退出对话模式（卸载）：释放当前根的订阅。
 onScopeDispose(() => {
+  inputResizeObserver?.disconnect()
   if (props.rootChatId) void chatSessions.releaseRootTimeline(props.rootChatId, HISTORY_OWNER)
 })
 
 // ── 输入框（精简模式同款交互：Enter 发送 / Shift+Enter 换行，单行自适应增高） ──
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+const menu = useInstructionSuggestions({ chatId: () => props.rootChatId, text: () => props.text, input: inputRef, update: (value) => emit('draftInput', value), resize: refreshInput })
 /** 输入框展开态：默认保持 6 行（120px）上限，展开后最高到窗口一半（由 CSS is-expanded 承接）。 */
 const expandedInput = ref(false)
-function autoGrow(): void {
+/** 输入框当前可视行数（含自动换行）：超过 2 行才显示「展开输入框」按钮（默认隐藏）。 */
+const inputLines = ref(1)
+/** 行数测量缓存（字号/内距静态，首次读取后复用）。 */
+let inputMetrics: { lineHeight: number; padding: number } | null = null
+/**
+ * 重算输入框高度 + 行数：
+ * - box-sizing: border-box 下 height 需补上边框高度，否则盒子比内容矮 1px×2，
+ *   空内容也会挤出右侧细滚动条（本轮修复点）。
+ * - 展开态有 min-height 撑高盒子，测真实内容行数前先临时解除，避免被盒子高度误导。
+ */
+function refreshInput(): void {
   const element = inputRef.value
   if (!element) return
+  const borders = element.offsetHeight - element.clientHeight
+  const minHeight = element.style.minHeight
+  element.style.minHeight = '0'
   element.style.height = 'auto'
-  element.style.height = `${element.scrollHeight}px`
+  const contentHeight = element.scrollHeight
+  element.style.height = `${contentHeight + borders}px`
+  element.style.minHeight = minHeight
+  if (!inputMetrics) {
+    const style = window.getComputedStyle(element)
+    inputMetrics = {
+      lineHeight: Number.parseFloat(style.lineHeight) || 21,
+      padding: Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom),
+    }
+  }
+  inputLines.value = Math.max(
+    1,
+    Math.round((contentHeight - inputMetrics.padding) / inputMetrics.lineHeight),
+  )
+  // 内容回落 2 行以内时收起展开态（按钮随之隐藏，避免「已展开却无法收起」）。
+  if (inputLines.value <= 2) expandedInput.value = false
 }
 function toggleExpandInput(): void {
   expandedInput.value = !expandedInput.value
   // 类切换后重算高度：展开时立即给足可视高度，收起时回到内容高度（CSS 上限兜底）。
-  void nextTick(autoGrow)
+  void nextTick(refreshInput)
 }
 function onInputKeydown(event: KeyboardEvent): void {
+  if (menu.keydown(event)) return
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
   event.preventDefault()
   emit('send')
 }
 function onInput(event: Event): void {
-  emit('draftInput', (event.target as HTMLTextAreaElement).value)
-  autoGrow()
+  const value = (event.target as HTMLTextAreaElement).value
+  emit('draftInput', value)
+  void nextTick(menu.refresh)
+  refreshInput()
 }
-// 发送成功（草稿清空）后输入框高度复位到单行。
+// 外部草稿变化（树端恢复 / 发送清空）同步重算高度与行数（onInput 已同步算一次，此处兜底外部来源）。
 watch(
   () => props.text,
-  (value) => {
-    if (!value) {
-      const element = inputRef.value
-      if (element) element.style.height = 'auto'
-    }
+  () => {
+    void nextTick(refreshInput)
   },
 )
+// 容器宽度变化导致自动换行改变时重算，避免行数/高度停留在旧宽度。
+let inputResizeObserver: ResizeObserver | null = null
+let lastInputWidth = 0
 // 打开对话模式时刷新一次交互（提问批）数据：列表内提问卡片据此进入可交互态；
 // 后续变化由 interaction.changed 事件实时 upsert，无需持续轮询。
 onMounted(() => {
-  autoGrow()
+  refreshInput()
+  const element = inputRef.value
+  if (element) {
+    lastInputWidth = element.clientWidth
+    inputResizeObserver = new ResizeObserver(() => {
+      const width = element.clientWidth
+      if (width !== lastInputWidth) {
+        lastInputWidth = width
+        refreshInput()
+      }
+    })
+    inputResizeObserver.observe(element)
+  }
   void interactions.refresh().catch((cause) => {
     console.warn('[ConversationView] refresh interactions failed:', cause)
   })
@@ -126,15 +174,21 @@ onMounted(() => {
       <div class="conversation-input-chips">
         <span v-if="branchActive" class="conversation-chip is-branch">
           <span class="conversation-chip-text">{{ branchTitle }}</span>
-          <button
-            type="button"
-            class="conversation-chip-drop"
-            aria-label="取消分支目标"
-            title="取消分支目标（保留已输入内容）"
-            @click="emit('dropBranch')"
+          <el-tooltip
+            content="取消分支目标（保留已输入内容）"
+            placement="top"
+            :show-after="150"
+            :hide-after="0"
           >
-            ✕
-          </button>
+            <button
+              type="button"
+              class="conversation-chip-drop"
+              aria-label="取消分支目标"
+              @click="emit('dropBranch')"
+            >
+              ✕
+            </button>
+          </el-tooltip>
         </span>
         <span v-if="mediaCount > 0" class="conversation-chip is-media">
           📎 {{ mediaCount }} 个附件随消息发送（附件管理在树视图输入框）
@@ -151,9 +205,14 @@ onMounted(() => {
           aria-label="输入消息"
           @input="onInput"
           @keydown="onInputKeydown"
+          @click="menu.refresh"
+          @keyup.left="menu.refresh"
+          @keyup.right="menu.refresh"
         />
+        <InstructionSuggestions :items="menu.suggestions.value" :active-index="menu.activeIndex.value" :message="menu.message.value" :opened="menu.opened.value" @select="menu.choose" />
         <div class="conversation-send-wrap">
           <el-tooltip
+            v-if="inputLines > 2"
             :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
             placement="top"
             :show-after="150"
@@ -167,7 +226,7 @@ onMounted(() => {
               :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
               @click="toggleExpandInput"
             >
-              {{ expandedInput ? '⤡' : '⤢' }}
+              <Top class="conversation-expand-icon" aria-hidden="true" />
             </button>
           </el-tooltip>
           <button
@@ -181,6 +240,7 @@ onMounted(() => {
           </button>
         </div>
       </div>
+      <div class="conversation-input-hint"><kbd>/</kbd> 指令　<kbd>@</kbd> 角色　<kbd>&amp;</kbd> 文件引用　· 输入后从候选窗口选择</div>
     </div>
   </div>
 </template>
@@ -214,6 +274,8 @@ onMounted(() => {
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
   border-top: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
+.conversation-input-row { position: relative; }
+.conversation-input-hint { font-size:11px; opacity:.62; padding-top:5px; }
 .conversation-input-error {
   padding: 6px 10px;
   border: 1px solid var(--el-color-danger);
@@ -309,7 +371,9 @@ onMounted(() => {
   min-height: min(240px, 50vh);
   max-height: 50vh;
 }
-// 发送钮右上角展开按钮：小方块，贴发送钮正上方右对齐（与发送钮同列，hover/焦点可键盘操作）
+// 发送钮右上角展开按钮：无边框幽灵小按钮（与实心发送钮同风格家族，贴发送钮正上方右对齐，
+// 与发送钮同列，hover/焦点可键盘操作）；仅在输入超过 2 行时出现（模板 v-if），
+// 展开态图标旋转 180° 表「收起」。
 .conversation-send-wrap {
   flex: none;
   display: flex;
@@ -320,31 +384,34 @@ onMounted(() => {
 .conversation-expand-btn {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   box-sizing: border-box;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  border: 0;
   border-radius: 0;
-  background: var(--panel);
-  color: color-mix(in srgb, var(--ink) 58%, transparent);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
   cursor: pointer;
   transition:
-    border-color 120ms ease,
     color 120ms ease,
     background-color 120ms ease;
   &:hover {
-    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
     color: var(--accent);
   }
   &.is-expanded {
-    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
     color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--panel));
   }
+}
+.conversation-expand-icon {
+  width: 14px;
+  height: 14px;
+  transition: transform 160ms ease;
+}
+.conversation-expand-btn.is-expanded .conversation-expand-icon {
+  transform: rotate(180deg);
 }
 .conversation-send-btn {
   flex: none;
