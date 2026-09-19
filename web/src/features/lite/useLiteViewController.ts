@@ -3,6 +3,10 @@ import { useLiteStore } from './liteStore'
 import { useLiteCanonicalView } from './useLiteCanonicalView'
 import { useLiteInteractions } from './useLiteInteractions'
 import {
+  splitCommandPrompt,
+  type CommandPromptSegment,
+} from '@/features/agent/composables/commands'
+import {
   buildLiteRows,
   createLiteExecutionClock,
   formatElapsed,
@@ -81,6 +85,22 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   /** 用户消息正文为纯文本（不渲染 markdown，避免 # / * 被误解释）；其余（Agent/事件/委派）走 markdown。 */
   function isPlainRowContent(node: LiteRunNode): boolean {
     return node.kind === 'user'
+  }
+  /** 用户指令性消息正文拆分（v2.8）：[[command:…]] / [[role:@…]] token 渲染为样式化标签，
+      与对话模式 MessageBubble 同源（splitCommandPrompt）；普通文本原样保留（含换行）。 */
+  function userSegments(node: LiteRunNode): CommandPromptSegment[] {
+    return splitCommandPrompt(node.content || '')
+  }
+  /** 正文行内「思考」折叠态（v2.8）：按节点 key 独立记录，默认收起；点击标题展开/收起。 */
+  const thinkingOpenKeys = ref(new Set<string>())
+  function isThinkingOpen(node: LiteRunNode): boolean {
+    return thinkingOpenKeys.value.has(node.key)
+  }
+  function toggleThinking(node: LiteRunNode): void {
+    const next = new Set(thinkingOpenKeys.value)
+    if (next.has(node.key)) next.delete(node.key)
+    else next.add(node.key)
+    thinkingOpenKeys.value = next
   }
   // ── v0.5 链路标签栏：正文列表顶部常驻，主 Agent ✧ + 各子 Agent ◆ 角色名，激活高亮、点击切换 activeLane，
   // 与轨迹行头角色名按钮联动（链路展示改造：切换入口从轨迹行头移到正文顶部，直观可见）。 ──
@@ -385,10 +405,6 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   function rememberDetailTrigger(event?: Event): void {
     detailReturnFocus.value =
       event?.currentTarget instanceof HTMLElement ? event.currentTarget : null
-  }
-  /** t20：t18 合成的 in-flight 占位节点（无持久内容）——禁用详情入口，避免抽屉对不存在节点报错。 */
-  function isInFlightNode(node: LiteRunNode): boolean {
-    return node.nodeId.startsWith('inflight:')
   }
   function showDetail(
     nodeId: string,
@@ -787,9 +803,9 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     inputText,
     inputLines,
     isDetailNode,
-    isInFlightNode,
     isPlainRowContent,
     isRowFocused,
+    isThinkingOpen,
     laneTabs,
     lite,
     liteInputEl,
@@ -823,12 +839,14 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     showsRowContent,
     tipAction,
     tipPos,
+    toggleThinking,
     toggleRunDetail,
     toolTypeGlyph,
     toolTypeLabel,
     trajectoryBarStyle,
     trajectoryLayout,
     trajectoryZoom,
+    userSegments,
     visibleRows,
   }
 }

@@ -613,7 +613,15 @@ export function projectLiteHistory(
         kind === 'tool' ? toolNames.join(', ') || LITE_NODE_LABELS.tool : LITE_NODE_LABELS[kind],
       icon: kind === 'tool' ? toolTypeGlyph(toolType) : LITE_NODE_GLYPHS[kind],
       content: kind === 'tool' ? (merge?.content ?? '') : node.content,
-      ...(merge?.thinking ? { thinking: merge.thinking } : {}),
+      // 工具节点：思考来自合并的 message 事实（同一次 LLM 响应的 thinking/content 并入 tool-batch）；
+      // 其余节点（主/子 Agent 消息等）直接透出节点自身 thinking——供正文行内「思考」折叠展示（v2.8）。
+      ...(kind === 'tool'
+        ? merge?.thinking
+          ? { thinking: merge.thinking }
+          : {}
+        : node.thinking
+          ? { thinking: node.thinking }
+          : {}),
       toolNames,
       sourceChatId: node.sourceChatId,
       agentLabel: agentLabelOf(node.sourceChatId),
