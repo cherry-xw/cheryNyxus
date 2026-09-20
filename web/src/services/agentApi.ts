@@ -458,11 +458,13 @@ export interface CommandInfo {
   content: string
 }
 
-/** skills.list 单项：用户 `.chery/skills/` 独立技能 + `.chery/plugins/` 插件技能元数据。 */
+/** skills.list 单项：用户 `.chery/skills/` 独立技能 + `.chery/plugins/` 插件技能元数据（不含正文 content）。 */
 export interface SkillInfo {
   name: string
   description: string
   trigger?: string
+  /** SKILL.md frontmatter 中用户自定义字段（version 等），key 为原字段名。 */
+  extra?: Record<string, unknown>
   /** 激活完整技能指令后预计新增的上下文 token（= 系统提示词 + 内容提示词之和）。 */
   contextTokens: number
   /** 系统提示词占用：注入 system prompt `<skills>` XML 的 name+description token。 */
@@ -471,6 +473,8 @@ export interface SkillInfo {
   triggerTokens?: number
   /** 内容提示词占用：激活后加载的技能正文 token。 */
   contentTokens: number
+  /** JSON 序列化全字段（含 extra）的 token（按设计用作正文段 token 计算）。 */
+  promptTokens?: number
   /** 来源插件名（undefined = 独立 skill；否则插件技能，name 形如 `<plugin>__<skill>`）。 */
   plugin?: string
 }

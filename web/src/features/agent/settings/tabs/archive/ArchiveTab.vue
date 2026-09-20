@@ -219,7 +219,7 @@ header label {
   min-width: 160px;
 }
 .archive-title {
-  font-weight: 600;
+  font-weight: 400;
   overflow-wrap: anywhere;
 }
 .archive-tree {

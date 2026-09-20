@@ -62,6 +62,9 @@ function scrollTo(item: IndexItem, i: number): void {
             </template>
             <div class="shell-help-content"><slot name="hints" /></div>
           </el-popover>
+          <div v-if="$slots['hints-actions']" class="shell-hints-actions">
+            <slot name="hints-actions" />
+          </div>
         </div>
         <div v-if="$slots.toolbar" class="shell-toolbar">
           <slot name="toolbar" />
@@ -96,7 +99,6 @@ function scrollTo(item: IndexItem, i: number): void {
   min-height: 0;
 }
 .shell-help {
-  align-self: flex-start;
   height: 28px;
   padding: 0 8px;
   border: 1px solid var(--border);

@@ -2,7 +2,23 @@
  * Settings 面板共享常量。各 tab 组件按需 import。
  */
 import type { InjectionKey, Ref } from 'vue'
+import type { IconInput } from 'morphicons/vue'
 import { LLM_PROVIDER_CATALOG, LLM_PROTOCOL_CATALOG } from '@chery/protocol'
+import {
+  Anchor,
+  Archive,
+  BrainCircuit,
+  Ear,
+  Image,
+  NotebookPen,
+  Package,
+  Plug,
+  Puzzle,
+  Settings,
+  Sparkles,
+  SquareTerminal,
+  Theater,
+} from 'lucide'
 
 export type TabKey =
   | 'archive'
@@ -24,20 +40,21 @@ export const SETTINGS_ACTIVE_TAB_KEY = Symbol('settings-active-tab') as Injectio
   Readonly<Ref<TabKey>>
 >
 
-export const TABS: { key: TabKey; icon: string; label: string; color: string }[] = [
-  { key: 'presets', icon: '📦', label: '预设', color: '#22d3ee' },
-  { key: 'roles', icon: '🎭', label: '角色', color: '#fb7185' },
-  { key: 'brains', icon: '🧠', label: '大脑', color: '#5ee7ff' },
-  { key: 'senses', icon: '👂', label: '器官', color: '#34d399' },
-  { key: 'skills', icon: '✨', label: '技能', color: '#6366f1' },
-  { key: 'plugins', icon: '🧩', label: '组合技', color: '#3b82f6' },
-  { key: 'commands', icon: '📝', label: '指令', color: '#84cc16' },
-  { key: 'hooks', icon: '⚓', label: '钩子', color: '#f472b6' },
-  { key: 'mcp', icon: '🔌', label: 'MCP', color: '#8b5cf6' },
-  { key: 'media', icon: '🖼️', label: '多媒体', color: '#f97316' },
-  { key: 'global', icon: '⚙️', label: '全局', color: '#06b6d4' },
-  { key: 'archive', icon: '🗃️', label: '归档', color: 'var(--accent)' },
-  { key: 'terminal', icon: '>_', label: '终端', color: 'var(--accent)' },
+export const TABS: { key: TabKey; icon: IconInput; label: string; color: string }[] = [
+  // 颜色按彩虹谱依次过渡（红→橙→黄→绿→青→蓝→靛→紫→粉），相邻 tab 色相相邻、逐格渐变
+  { key: 'presets', icon: Package, label: '预设', color: '#ef4444' },
+  { key: 'roles', icon: Theater, label: '角色', color: '#f97316' },
+  { key: 'brains', icon: BrainCircuit, label: '大脑', color: '#f59e0b' },
+  { key: 'senses', icon: Ear, label: '器官', color: '#a3e635' },
+  { key: 'skills', icon: Sparkles, label: '技能', color: '#22c55e' },
+  { key: 'plugins', icon: Puzzle, label: '组合技', color: '#10b981' },
+  { key: 'commands', icon: NotebookPen, label: '指令', color: '#06b6d4' },
+  { key: 'hooks', icon: Anchor, label: '钩子', color: '#0ea5e9' },
+  { key: 'mcp', icon: Plug, label: 'MCP', color: '#3b82f6' },
+  { key: 'media', icon: Image, label: '多媒体', color: '#6366f1' },
+  { key: 'global', icon: Settings, label: '全局', color: '#8b5cf6' },
+  { key: 'archive', icon: Archive, label: '归档', color: '#d946ef' },
+  { key: 'terminal', icon: SquareTerminal, label: '终端', color: '#ec4899' },
 ]
 
 export const PROVIDERS = LLM_PROVIDER_CATALOG.map((provider) => provider.id)
