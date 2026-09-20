@@ -130,12 +130,13 @@ interface LoginChallenge {
 }
 
 /** 向后端申请一次性登录挑战（challenge）。失败抛 classifyError 归类结果。 */
-async function fetchChallenge(base: string): Promise<LoginChallenge> {
+async function fetchChallenge(base: string, username: string): Promise<LoginChallenge> {
   let res: Response
   try {
     res = await fetch(`${base}/api/auth/challenge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
     })
   } catch (cause) {
     throw classifyError(cause)
@@ -261,7 +262,7 @@ export const useAuthStore = defineStore('auth', () => {
     const base = normalizeAddress(addr)
     let res: Response
     try {
-      const challenge = await fetchChallenge(base)
+      const challenge = await fetchChallenge(base, user)
       const sealed = await encryptCredentials(
         challenge.challengeId,
         challenge.nonce,

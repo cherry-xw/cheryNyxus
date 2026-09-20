@@ -7,7 +7,7 @@
  *
  * 设计要点：
  * - 单一 `Window` 全局类型声明（其他文件禁止再 `declare global` 加这些字段）
- * - `isElectron` 用 `__BACKEND_CONFIG__` 存在性做单一事实源
+ * - `isElectron` 用桌面 bridge 或旧版后端配置注入做单一事实源
  * - WS URL 三分支（Electron / vite-dev / static-prod）收敛到 `wsUrl()`
  * - `httpUrl` 行为兼容旧 API（[http.ts] 转发层保留 5 处旧 import 路径不变）
  * - `ServerConfig` 是后端配置契约的唯一类型源，ws.ts 通过 `import type` 消费
@@ -26,6 +26,9 @@ export interface ServerConfig {
   transport: 'binary' | 'json'
   /** Ephemeral local capability required by the backend WebSocket control plane. */
   sessionToken?: string
+  backendId?: string
+  httpBasePath?: string
+  wsPath?: string
 }
 
 declare global {
@@ -46,7 +49,8 @@ declare global {
 // ---- 单一事实源 -------------------------------------------------------------
 
 /** 当前是否运行在 Electron 模式（preload 注入了 `__BACKEND_CONFIG__`）。 */
-export const isElectron: boolean = typeof window !== 'undefined' && !!window.__BACKEND_CONFIG__
+export const isElectron: boolean =
+  typeof window !== 'undefined' && (!!window.__DESKTOP_BRIDGE__ || !!window.__BACKEND_CONFIG__)
 
 /**
  * `/api/config` 拉取超时（ms）。worker 重启瞬间 Chromium 连接池可能把请求复用到
@@ -99,6 +103,11 @@ export function httpUrl(path: string): string {
 export function wsUrl(cfg: ServerConfig): string {
   const auth = serviceAuth()
   if (auth.isRemote()) {
+    if (cfg.wsPath) {
+      const base = auth.baseUrl()
+      const scheme = base.startsWith('https:') ? 'wss' : 'ws'
+      return `${scheme}://${hostOf(base)}${cfg.wsPath}`
+    }
     const base = auth.baseUrl()
     const scheme = base.startsWith('https:') ? 'wss' : 'ws'
     return `${scheme}://${hostOf(base)}:${cfg.wsPort}`
