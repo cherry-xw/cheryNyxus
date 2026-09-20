@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "noEmit": true,
+    "paths": {
+      "@chery/protocol/relay": ["packages/protocol/src/relay.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "../packages/protocol/src/relay.ts"],
+  "exclude": ["../node_modules", "../dist", "../web"]
+}

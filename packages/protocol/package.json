@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./chat": "./src/chat.ts",
-    "./rpc": "./src/rpc.ts"
+    "./rpc": "./src/rpc.ts",
+    "./relay": "./src/relay.ts"
   },
   "dependencies": {
     "zod": "^4.4.1"
