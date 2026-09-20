@@ -14,28 +14,8 @@ asarUnpack:
   - "**/node_modules/koffi/**"
   - "**/node_modules/@koromix/**"
 
-# The backend, immutable workspace seeds and bundled Node runtime live under resources/.
-# Runtime `.env` and `.chery/` are deliberately not materialized in appOutDir: the app creates or
-# upgrades them on startup, preventing installer upgrades from overwriting user-owned files.
-extraResources:
-  - from: ../dist
-    to: dist
-  - from: ../build/terminal-runtime/node_modules
-    to: node_modules
-  - from: ../.env.example
-    to: .env.example
-  - from: ../.chery.template
-    to: .chery.template
-  # Path is relative to the web/ package root, so ../build/node resolves to <repo>/build/node.
-  - from: ../build/node
-    to: node
-
-# The backend runs with the bundled/system Node ABI rather than Electron's embedded Node ABI.
-npmRebuild: true
-buildDependenciesFromSource: true
-
-# Verify immutable seeds and remove stale runtime copies left by older build hooks.
-afterPack: ./scripts/post-pack.mjs
+# Electron is a frontend shell. Backend, Node runtime, and `.chery` templates
+# are provided by the independent backend/manager distribution.
 
 win:
   target: nsis
