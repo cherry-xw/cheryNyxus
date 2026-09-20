@@ -20,6 +20,7 @@ import { useChatSessionsStore, useInteractionsStore } from '@/application/public
 import type { ConversationBranchSummary } from '@/application/backend/public'
 import { useInstructionSuggestions } from '../composer/useInstructionSuggestions'
 import InstructionSuggestions from '../composer/InstructionSuggestions.vue'
+import { splitCommandPrompt } from '../composables/commands'
 
 const props = defineProps<{
   windowId: string
@@ -67,6 +68,7 @@ onScopeDispose(() => {
 
 // ── 输入框（精简模式同款交互：Enter 发送 / Shift+Enter 换行，单行自适应增高） ──
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+defineExpose({ focusInput() { inputRef.value?.focus(); inputRef.value?.setSelectionRange(props.text.length, props.text.length) } })
 const menu = useInstructionSuggestions({ chatId: () => props.rootChatId, text: () => props.text, input: inputRef, update: (value) => emit('draftInput', value), resize: refreshInput })
 /** 输入框展开态：默认保持 6 行（120px）上限，展开后最高到窗口一半（由 CSS is-expanded 承接）。 */
 const expandedInput = ref(false)
@@ -194,6 +196,10 @@ onMounted(() => {
           📎 {{ mediaCount }} 个附件随消息发送（附件管理在树视图输入框）
         </span>
       </div>
+      <div v-if="splitCommandPrompt(text).some((segment) => segment.type === 'file')" class="conversation-reference-preview" aria-label="文件引用">
+        <span v-for="(segment, index) in splitCommandPrompt(text).filter((item) => item.type === 'file')" :key="index" class="conversation-reference-chip">&amp;{{ segment.value }}</span>
+      </div>
+      <div class="conversation-input-hint"><kbd>/</kbd> 指令　<kbd>@</kbd> 角色　<kbd>&amp;</kbd> 文件引用　· 输入后从候选窗口选择</div>
       <div class="conversation-input-row" :class="{ 'is-expanded': expandedInput }">
         <textarea
           ref="inputRef"
@@ -212,7 +218,6 @@ onMounted(() => {
         <InstructionSuggestions :items="menu.suggestions.value" :active-index="menu.activeIndex.value" :message="menu.message.value" :opened="menu.opened.value" @select="menu.choose" />
         <div class="conversation-send-wrap">
           <el-tooltip
-            v-if="inputLines > 2"
             :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
             placement="top"
             :show-after="150"
@@ -240,7 +245,6 @@ onMounted(() => {
           </button>
         </div>
       </div>
-      <div class="conversation-input-hint"><kbd>/</kbd> 指令　<kbd>@</kbd> 角色　<kbd>&amp;</kbd> 文件引用　· 输入后从候选窗口选择</div>
     </div>
   </div>
 </template>
@@ -275,7 +279,9 @@ onMounted(() => {
   border-top: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 .conversation-input-row { position: relative; }
-.conversation-input-hint { font-size:11px; opacity:.62; padding-top:5px; }
+.conversation-input-hint { font-size:12px; color:var(--el-text-color-secondary); padding-top:5px; }
+.conversation-reference-preview { display:flex; flex-wrap:wrap; gap:5px; margin:5px 0; }
+.conversation-reference-chip, .lite-reference-chip { display:inline-flex; max-width:100%; padding:3px 7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--accent); background:color-mix(in srgb,var(--accent) 12%, transparent); border:1px solid color-mix(in srgb,var(--accent) 28%, transparent); font-size:12px; }
 .conversation-input-error {
   padding: 6px 10px;
   border: 1px solid var(--el-color-danger);

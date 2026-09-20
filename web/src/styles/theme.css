@@ -9,6 +9,14 @@
  * 由 main.ts 在 createApp 前 import。
  */
 
+@font-face {
+  font-family: 'Fira Code Local';
+  src: url('@/assets/fonts/FiraCode-VF.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+}
+
 :root {
   /* 文字 */
   --ink: #1b2337;
@@ -26,7 +34,7 @@
 
   /* 精密控制台：排版、密度、几何与低成本环境光 */
   --font-ui: Inter, 'Segoe UI Variable', 'PingFang SC', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
+  --font-mono: 'Fira Code Local', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
   --text-xs: 11px;
   --text-sm: 12px;
   --text-md: 14px;
@@ -88,6 +96,14 @@
   --nx-hljs-comment: #64748b;
   --nx-hljs-number: #1d4ed8;
   --nx-ts: 0.55px 0 rgba(42, 47, 44, 0.3), -0.55px 0 rgba(255, 255, 255, 0.5);
+}
+
+code,
+pre,
+.xterm,
+.xterm-helpers,
+.xterm-screen {
+  font-family: var(--font-mono);
 }
 
 [data-theme='dark'] {

@@ -20,6 +20,8 @@ asarUnpack:
 extraResources:
   - from: ../dist
     to: dist
+  - from: ../build/terminal-runtime/node_modules
+    to: node_modules
   - from: ../.env.example
     to: .env.example
   - from: ../.chery.template

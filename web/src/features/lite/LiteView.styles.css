@@ -1029,8 +1029,9 @@
 .lite-input {
   flex: none;
   display: flex;
+  flex-direction: column;
   /* v0.4.2 多行输入：按钮贴底对齐 */
-  align-items: flex-end;
+  align-items: stretch;
   padding: 8px 12px;
   /* v1.7 区域三·输入区（操作区）：主题强调色淡底（浅色靛蓝 / 深色电光青派生），
      与对话列表（中性亮面）/提问面板（暖琥珀）明显区分；顶部分隔线同家族加深。 */
@@ -1065,7 +1066,8 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
-  margin-left: 8px;
+  align-self: flex-end;
+  margin-left: 0;
 }
 .lite-expand-btn {
   display: grid;
@@ -1132,3 +1134,11 @@
     padding-left: 30px;
   }
 }
+.lite-input { position: relative; }
+.lite-input-suggestions { position: absolute; left: 0; right: 84px; bottom: calc(100% + 6px); z-index: 8; display: flex; flex-direction: column; max-height: 220px; overflow: auto; border: 1px solid color-mix(in srgb,var(--nx-text) 16%,transparent); background: var(--nx-bg); }
+.lite-input-suggestions button { display:flex; gap:10px; padding:8px 10px; color:inherit; text-align:left; border:0; background:transparent; cursor:pointer; }
+.lite-input-suggestions button.active,.lite-input-suggestions button:hover { background: color-mix(in srgb,var(--accent) 14%,transparent); }
+.lite-input-suggestions small { opacity:.65; }
+.lite-input-hint { font-size:12px; color:var(--el-text-color-secondary); padding-top:5px; }
+.lite-input-reference-preview { display:flex; flex-wrap:wrap; gap:5px; padding:5px 0 0; }
+.lite-reference-chip { max-width:100%; }

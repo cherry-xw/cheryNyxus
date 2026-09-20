@@ -45,6 +45,8 @@ export interface FitToViewOptions {
   duration?: number
   /** 水平对齐：center 居中（默认），right 贴右沿（垂直树靠右贴警戒条，左侧让详情区）。 */
   align?: 'center' | 'right'
+  /** 内容中心在视口中的垂直比例；节点树默认偏上，给节点下方 hover 内容留空间。 */
+  verticalBias?: number
 }
 
 export function calculateFitTransform(input: {
@@ -56,6 +58,7 @@ export function calculateFitTransform(input: {
   maxScale: number
   padding: number
   align?: FitToViewOptions['align']
+  verticalBias?: number
 }): CanvasTransform {
   const { viewport, content, focus, minScale, maxScale, padding } = input
   const bounds = input.bounds ?? { minX: 0, minY: 0, maxX: content.width, maxY: content.height }
@@ -72,7 +75,7 @@ export function calculateFitTransform(input: {
   else if (fitsWidth) x = (viewport.width - scaledWidth) / 2 - bounds.minX * scale
   else x = viewport.width / 2 - (focus?.x ?? (bounds.minX + bounds.maxX) / 2) * scale
   const y = fitsHeight
-    ? (viewport.height - scaledHeight) / 2 - bounds.minY * scale
+    ? Math.max(padding - bounds.minY * scale, viewport.height * (input.verticalBias ?? 0.3) - ((bounds.minY + bounds.maxY) / 2) * scale)
     : padding - (focus?.y ?? bounds.minY) * scale
   return { scale, x, y }
 }
@@ -205,6 +208,7 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
       maxScale,
       padding,
       align: options.align,
+      verticalBias: options.verticalBias ?? 0.3,
     })
     cancelAnimation()
     if (!options.animate) {

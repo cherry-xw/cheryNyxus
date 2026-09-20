@@ -68,7 +68,7 @@ describe('tree canvas long-content behavior', () => {
     vi.unstubAllGlobals()
   })
 
-  it('continues to center content that fits inside the viewport', () => {
+  it('places fitting content toward the top while keeping its first node visible', () => {
     const fitted = calculateFitTransform({
       viewport: { width: 1200, height: 700 },
       content: { width: 600, height: 400 },
@@ -77,7 +77,7 @@ describe('tree canvas long-content behavior', () => {
       padding: 18,
     })
 
-    expect(fitted).toEqual({ scale: 1, x: 300, y: 150 })
+    expect(fitted).toEqual({ scale: 1, x: 300, y: 18 })
   })
 
   it('reports when an initial fit must be retried after geometry becomes ready', () => {
@@ -112,7 +112,7 @@ describe('tree canvas long-content behavior', () => {
       }).toEqual({
         scale: 1,
         x: 300,
-        y: 150,
+        y: 14,
       })
     })
     scope.stop()
@@ -198,7 +198,7 @@ describe('tree canvas long-content behavior', () => {
     const world = { x: -175, y: 210 }
     const screen = worldToScreen(world, fitted)
 
-    expect(fitted).toEqual({ scale: 1, x: 500, y: 80 })
+    expect(fitted).toEqual({ scale: 1, x: 500, y: 0 })
     expect(screenToWorld(screen, fitted)).toEqual(world)
   })
 

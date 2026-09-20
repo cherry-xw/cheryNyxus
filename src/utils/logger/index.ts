@@ -85,7 +85,7 @@ function getScope(): LogScope {
  * one place so structured events, legacy logger calls, and config baselines
  * all receive the same protection.
  */
-const SENSITIVE_FIELD = /(key|token|secret|password|authorization|credential|env)/i
+const SENSITIVE_FIELD = /(key|token|secret|password|passphrase|authorization|credential|env)/i
 
 function redactLogData(value: unknown, fieldName?: string, seen = new WeakSet<object>()): unknown {
   if (fieldName && SENSITIVE_FIELD.test(fieldName)) return '[REDACTED]'

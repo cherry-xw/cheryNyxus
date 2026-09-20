@@ -2,6 +2,9 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Top } from '@element-plus/icons-vue'
 import { useLiteViewController, type LiteViewControllerProps } from './useLiteViewController'
+import { useInstructionSuggestions } from '../agent/composer/useInstructionSuggestions'
+import InstructionSuggestions from '../agent/composer/InstructionSuggestions.vue'
+import { splitCommandPrompt } from '../agent/composables/commands'
 const props = defineProps<LiteViewControllerProps>()
 const controller = useLiteViewController(props)
 const {
@@ -76,6 +79,11 @@ const {
   userSegments,
   visibleRows,
 } = controller
+
+const menu = useInstructionSuggestions({ chatId: () => props.rootChatId, preset: () => props.presetName, text: () => inputText.value, input: liteInputEl, update: (value) => { inputText.value = value }, resize: autoGrowInput })
+function onLiteInput(): void { void nextTick(menu.refresh); autoGrowInput() }
+function onLiteKeydown(event: KeyboardEvent): void { if (!menu.keydown(event)) onInputKeydown(event) }
+defineExpose({ insertReference(token: string) { inputText.value += (inputText.value ? ' ' : '') + token + ' '; void nextTick(() => { autoGrowInput(); liteInputEl.value?.focus() }) } })
 
 // ── 输入框展开态（精简模式同款交互，与对话模式一致）：默认保持 6 行上限，
 // 展开后最高到窗口一半（由 CSS .lite-input.is-expanded 承接）。 ──
@@ -340,6 +348,7 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                       class="lite-instruction-token is-role"
                       >{{ segment.value }}</span
                     >
+                    <el-tooltip v-else-if="segment.type === 'file'" content="工作区文件引用，仅传递路径，由 Agent 按需读取"><span class="lite-instruction-token">&amp;{{ segment.value }}</span></el-tooltip>
                     <template v-else>{{ segment.value }}</template>
                   </template>
                 </template>
@@ -424,6 +433,7 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
       </div>
 
       <div class="lite-input" :class="{ 'is-expanded': expandedInput }">
+        <div class="lite-input-hint">/ 指令 · @ 角色 · &amp; 文件引用（仅传路径） · 输入后从候选窗口选择</div>
         <textarea
           ref="liteInputEl"
           v-model="inputText"
@@ -433,12 +443,18 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
             connectionBlocked ? operationBlockReason : '发送消息（Enter 发送 / Shift+Enter 换行）'
           "
           :disabled="sending || connectionBlocked"
-          @keydown="onInputKeydown"
-          @input="autoGrowInput"
+          @keydown="onLiteKeydown"
+          @click="menu.refresh"
+          @keyup.left="menu.refresh"
+          @keyup.right="menu.refresh"
+          @input="onLiteInput"
         />
+        <InstructionSuggestions :items="menu.suggestions.value" :active-index="menu.activeIndex.value" :message="menu.message.value" :opened="menu.opened.value" @select="menu.choose" />
+        <div v-if="inputText.includes('[[file:')" class="lite-input-reference-preview" aria-label="文件引用">
+          <span v-for="(segment, index) in splitCommandPrompt(inputText).filter((item) => item.type === 'file')" :key="index" class="lite-reference-chip">&amp;{{ segment.value }}</span>
+        </div>
         <div class="lite-send-wrap">
           <el-tooltip
-            v-if="inputLines > 2"
             :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
             placement="top"
             :show-after="150"

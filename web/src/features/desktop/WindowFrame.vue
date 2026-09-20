@@ -191,6 +191,7 @@ onMounted(() => {
 
 .window-frame-title-group {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 8px;
   min-width: 0;

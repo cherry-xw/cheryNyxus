@@ -22,6 +22,7 @@ const {
   BrainsTab,
   Close,
   CommandsTab,
+  TerminalSettingsTab,
   GlobalTab,
   HooksTab,
   McpTab,
@@ -295,6 +296,9 @@ onBeforeUnmount(() => {
             </div>
             <div v-else-if="renderedTab === 'commands'" class="tab-pane">
               <CommandsTab :draft="draft" @error="onError" />
+            </div>
+            <div v-else-if="renderedTab === 'terminal'" class="tab-pane">
+              <TerminalSettingsTab @error="onError" />
             </div>
             <div v-else-if="renderedTab === 'hooks'" class="tab-pane">
               <HooksTab

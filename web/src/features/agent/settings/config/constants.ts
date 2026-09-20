@@ -17,6 +17,7 @@ export type TabKey =
   | 'hooks'
   | 'skills'
   | 'plugins'
+  | 'terminal'
 
 /** TabShell 用于判断自身是否为当前可见 Tab，避免 v-show 下多个 Teleport 同时占用 footer。 */
 export const SETTINGS_ACTIVE_TAB_KEY = Symbol('settings-active-tab') as InjectionKey<
@@ -36,6 +37,7 @@ export const TABS: { key: TabKey; icon: string; label: string; color: string }[]
   { key: 'media', icon: '🖼️', label: '多媒体', color: '#f97316' },
   { key: 'global', icon: '⚙️', label: '全局', color: '#06b6d4' },
   { key: 'archive', icon: '🗃️', label: '归档', color: 'var(--accent)' },
+  { key: 'terminal', icon: '>_', label: '终端', color: 'var(--accent)' },
 ]
 
 export const PROVIDERS = LLM_PROVIDER_CATALOG.map((provider) => provider.id)
@@ -68,6 +70,7 @@ export const HINT_LINES: Record<TabKey, { sect: number; warn: number }> = {
   hooks: { sect: 1, warn: 1 },
   skills: { sect: 1, warn: 0 },
   plugins: { sect: 1, warn: 0 },
+  terminal: { sect: 1, warn: 1 },
 }
 
 /**
@@ -87,4 +90,5 @@ export const INDEX_COUNT: Record<TabKey, number> = {
   hooks: 3, // 10 事件，典型 2-4 个有 handler
   skills: 4, // 典型 1-8 个独立 skill
   plugins: 1, // 典型 0-3 个插件
+  terminal: 1,
 }

@@ -5,6 +5,7 @@ import {
   onBeforeUnmount,
   onMounted,
   provide,
+  reactive,
   ref,
   watch,
 } from 'vue'
@@ -26,8 +27,10 @@ import {
 } from '@/stores'
 import { startApplicationRuntime } from '@/application/runtime/startApplicationRuntime'
 import { renderQualityTier } from '@/composables/renderQuality'
+import { useClickFxLayer } from '@/composables/useClickFxLayer'
 import { installPerformanceDiagnostics } from '@/utils/performanceDiagnostics'
 import { visualEventWindow } from '@/features/desktop/visualEvents'
+import type { TerminalHeaderMeta } from '@/features/agent/workbench/terminal/WorkbenchTerminal.vue'
 
 // Electron 的每种 surface 与浏览器 overlay 互斥。重界面按实际状态下载，避免冷启动时
 // 同时解析设置、历史、会话和 Pixi 工作台，并确保关闭后组件实例及其图形资源可回收。
@@ -47,6 +50,9 @@ const CyberWindow = defineAsyncComponent(() => import('@/features/desktop/CyberW
 const AgentDialog = defineAsyncComponent(() => import('@/features/agent/chat/AgentDialog.vue'))
 const WorkbenchDialog = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchDialog.vue'),
+)
+const TerminalSurface = defineAsyncComponent(
+  () => import('@/features/agent/workbench/terminal/TerminalSurface.vue'),
 )
 const WorkbenchViewToggle = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchViewToggle.vue'),
@@ -78,11 +84,43 @@ const surface = query.get('surface')
 const surfacePresetId = query.get('presetId') ?? undefined
 /** 入口携带的预设名（workbench 窗空白态角色编制解析；main extraParams 拼入 URL）。 */
 const surfacePresetName = query.get('presetName') ?? undefined
+const surfaceTerminalPresetId = query.get('presetId') ?? undefined
 const surfaceChatId = query.get('chatId') ?? undefined
 const surfaceSettingsSection = query.get('settingsSection') as
   'provider' | 'runtime' | 'limits' | null
 const surfaceSource = query.get('source') as 'pet' | 'history' | 'nyxus' | null
 const surfaceView = query.get('view') as 'composer' | 'attention' | 'tree' | null
+const terminalSurfaceRef = ref<{ clear: () => void } | null>(null)
+const terminalHeaderMeta = ref<TerminalHeaderMeta>({ username: '', host: '', status: 'idle' })
+const browserTerminalHeaders = reactive<Record<string, TerminalHeaderMeta>>({})
+const browserTerminalRefs = new Map<string, { clear: () => void }>()
+const terminalConnectionLabel = computed(
+  () =>
+    ({ idle: '未连接', connecting: '连接中', connected: '已连接', exited: '已断开' })[
+      terminalHeaderMeta.value.status
+    ],
+)
+function updateTerminalHeader(meta: TerminalHeaderMeta): void {
+  terminalHeaderMeta.value = meta
+}
+function browserTerminalHeader(windowId: string): TerminalHeaderMeta {
+  return browserTerminalHeaders[windowId] ?? { username: '', host: '', status: 'idle' }
+}
+function updateBrowserTerminalHeader(windowId: string, meta: TerminalHeaderMeta): void {
+  browserTerminalHeaders[windowId] = meta
+}
+function setBrowserTerminalRef(windowId: string, instance: unknown): void {
+  if (instance && typeof instance === 'object' && 'clear' in instance) {
+    browserTerminalRefs.set(windowId, instance as { clear: () => void })
+  } else {
+    browserTerminalRefs.delete(windowId)
+    delete browserTerminalHeaders[windowId]
+  }
+}
+
+// 点击特效层：全部 surface（浏览器单页 + 各 Electron 面）挂载；桌面透明窗走透明窗官方配置。
+// 是否启用由 useClickFxLayer 内部监听偏好与动效模式（reduced 时自动关闭）。
+useClickFxLayer({ transparentWindow: surface === 'desktop' })
 
 const reportedRunFailures = new Set<string>()
 watch(
@@ -215,6 +253,9 @@ const browserSessionWindow = computed(() =>
     ),
 )
 const browserSettingsWindow = computed(() => workspace.workspaceWindows['window:settings'])
+const browserTerminalWindows = computed(() =>
+  workspace.workspaceWindowsList.filter((window) => window.context.kind === 'terminal'),
+)
 const browserHistoryWindow = computed(() =>
   [...workspace.workspaceWindowsList]
     .reverse()
@@ -381,7 +422,31 @@ if (surface === 'workbench' && surfacePresetId) {
 }
 
 // workbench 面：presetId = 配置稳定 ID（windowId 同值；标题显示用预设名）；外层 WindowFrame 承载。
-const wbRef = ref<{ closeWorkbench: () => void } | null>(null)
+const wbRef = ref<{
+  closeWorkbench: () => void
+  toggleFilesWorkspace: () => void
+  closeFilesWorkspace: () => void
+  closeTaskBrowser: () => void
+  getFilesOpen: () => boolean
+} | null>(null)
+type WorkbenchDialogHandle = { toggleFilesWorkspace: () => void; closeFilesWorkspace: () => void; closeTaskBrowser: () => void; getFilesOpen: () => boolean }
+const browserWorkbenchRefs = new Map<string, WorkbenchDialogHandle>()
+function setBrowserWorkbenchRef(
+  windowId: string,
+  instance: unknown,
+): void {
+  if (instance && typeof instance === 'object' && 'toggleFilesWorkspace' in instance) {
+    browserWorkbenchRefs.set(windowId, instance as WorkbenchDialogHandle)
+  } else {
+    browserWorkbenchRefs.delete(windowId)
+  }
+}
+function toggleBrowserWorkbenchFiles(windowId: string): void {
+  browserWorkbenchRefs.get(windowId)?.closeTaskBrowser()
+  browserWorkbenchRefs.get(windowId)?.toggleFilesWorkspace()
+}
+function closeNativeWorkbenchTasks(): void { wbRef.value?.closeTaskBrowser() }
+function closeNativeWorkbenchFiles(): void { wbRef.value?.closeTaskBrowser(); wbRef.value?.toggleFilesWorkspace() }
 /** Phase E 闪烁回推：本窗 attentionBlink → WindowFrame 标题栏暖橙外发光（任务栏闪烁已在注册块处理）。 */
 const surfaceWindowBlink = computed(
   () =>
@@ -496,6 +561,26 @@ async function bootstrap(): Promise<void> {
        关闭经 closeWorkbench（先释放根时间线订阅再交 main hide 保活）；
        title-actions 放常驻连接状态 chip（断连遮罩由 WorkbenchDialog 内部渲染） -->
   <WindowFrame
+    v-else-if="surface === 'terminal' && surfaceTerminalPresetId"
+    class="terminal-window-frame"
+    :title="surfacePresetName ? `Terminal // ${surfacePresetName}` : 'Terminal'"
+  >
+    <template #title-actions>
+      <span v-if="terminalHeaderMeta.username || terminalHeaderMeta.host" class="terminal-title-connection">
+        {{ terminalHeaderMeta.username }} · {{ terminalHeaderMeta.host }}
+      </span>
+      <span class="terminal-title-status" :data-status="terminalHeaderMeta.status">
+        {{ terminalConnectionLabel }}
+      </span>
+      <button type="button" class="terminal-title-clear" @click="terminalSurfaceRef?.clear()">清空</button>
+    </template>
+    <TerminalSurface
+      ref="terminalSurfaceRef"
+      :preset-id="surfaceTerminalPresetId"
+      @meta="updateTerminalHeader"
+    />
+  </WindowFrame>
+  <WindowFrame
     v-else-if="surface === 'workbench'"
     :title="surfacePresetName ?? surfacePresetId ?? '节点树工作台'"
     :attention="surfaceWindowBlink"
@@ -512,7 +597,18 @@ async function bootstrap(): Promise<void> {
         :preset-name="surfacePresetName ?? undefined"
         :active-chat-id="workbenchSurfaceChatId"
         @select="onWorkbenchSessionSelect"
+        @before-expand="() => wbRef?.closeFilesWorkspace()"
       />
+      <button
+        type="button"
+        class="workbench-files-title-action"
+        aria-label="打开文件工作区"
+        :aria-pressed="wbRef?.getFilesOpen() ?? false"
+        :disabled="!workbenchSurfaceChatId"
+        @click="closeNativeWorkbenchFiles()"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h7l2 2h9v9.5H3z" /><path d="M3 6.5V5h7l2 2" /></svg>
+      </button>
       <!-- 三视图切换（树/对话/精简，§2.1 扩展）：native 面 WorkbenchDialog 内部 titlebar 被 v-if="!isNative"
            隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useWorkbenchViewMode -->
       <WorkbenchViewToggle :window-id="surfacePresetId ?? 'workbench'" />
@@ -582,6 +678,37 @@ async function bootstrap(): Promise<void> {
         <SettingsDialog v-if="workspace.settingsOpen" ref="settingsDialogRef" embedded />
       </CyberWindow>
       <CyberWindow
+        v-for="terminalWindow in browserTerminalWindows"
+        :key="terminalWindow.id"
+        :window="terminalWindow"
+        @focus="workspace.focusWorkspaceWindow"
+        @opened="workspace.markWorkspaceWindowOpen"
+        @minimize="minimizeCyberWindow"
+        @request-close="requestCyberWindowClose"
+        @closed="finishCyberWindowClose"
+        @geometry="workspace.setWorkspaceWindowGeometry"
+        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+      >
+        <template #title-actions>
+          <span
+            v-if="browserTerminalHeader(terminalWindow.id).username || browserTerminalHeader(terminalWindow.id).host"
+            class="terminal-title-connection"
+          >
+            {{ browserTerminalHeader(terminalWindow.id).username }} · {{ browserTerminalHeader(terminalWindow.id).host }}
+          </span>
+          <span class="terminal-title-status" :data-status="browserTerminalHeader(terminalWindow.id).status">
+            {{ ({ idle: '未连接', connecting: '连接中', connected: '已连接', exited: '已断开' })[browserTerminalHeader(terminalWindow.id).status] }}
+          </span>
+          <button type="button" class="terminal-title-clear" @click="browserTerminalRefs.get(terminalWindow.id)?.clear()">清空</button>
+        </template>
+        <TerminalSurface
+          v-if="terminalWindow.context.kind === 'terminal'"
+          :ref="(instance) => setBrowserTerminalRef(terminalWindow.id, instance)"
+          :preset-id="terminalWindow.context.presetId"
+          @meta="updateBrowserTerminalHeader(terminalWindow.id, $event)"
+        />
+      </CyberWindow>
+      <CyberWindow
         v-for="entry in browserWorkbenchWindows"
         :key="entry.window.id"
         :window="entry.window"
@@ -605,10 +732,22 @@ async function bootstrap(): Promise<void> {
             :active-chat-id="entry.workbench.chatId"
             :foreground="entry.window.focused"
             @select="(id: string) => workspace.setWorkbenchWindowChat(entry.workbench.id, id)"
+            @before-expand="() => browserWorkbenchRefs.get(entry.workbench.id)?.closeFilesWorkspace()"
           />
+          <button
+            type="button"
+            class="workbench-files-title-action"
+            aria-label="打开文件工作区"
+            :aria-pressed="browserWorkbenchRefs.get(entry.workbench.id)?.getFilesOpen() ?? false"
+            :disabled="!entry.workbench.chatId"
+            @click="toggleBrowserWorkbenchFiles(entry.workbench.id)"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h7l2 2h9v9.5H3z" /><path d="M3 6.5V5h7l2 2" /></svg>
+          </button>
           <WorkbenchViewToggle :window-id="entry.workbench.id" />
         </template>
         <WorkbenchDialog
+          :ref="(instance) => setBrowserWorkbenchRef(entry.workbench.id, instance)"
           :window-id="entry.workbench.id"
           :preset-id="entry.workbench.presetId"
           embedded
@@ -731,5 +870,115 @@ body {
   flex: none;
   margin-left: 8px;
   vertical-align: middle;
+}
+.workbench-files-title-action {
+  -webkit-app-region: no-drag;
+  flex: none;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  border-radius: 0;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.workbench-files-title-action svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+.workbench-files-title-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.workbench-files-title-action[aria-pressed='true'] svg,
+.workbench-files-title-action:hover:not(:disabled) svg {
+  animation: workbench-title-file-signal 1.1s steps(2, end) infinite;
+  filter: drop-shadow(-1px 0 color-mix(in srgb, var(--accent) 75%, #f44))
+    drop-shadow(1px 0 color-mix(in srgb, var(--accent) 70%, #4ff));
+}
+@keyframes workbench-title-file-signal {
+  0%, 100% { transform: translate(0, 0) skewX(0deg); }
+  25% { transform: translate(-1px, 0) skewX(-4deg); }
+  50% { transform: translate(1px, 1px) skewX(5deg); }
+  75% { transform: translate(-1px, 0) skewX(-2deg); }
+}
+.workbench-files-title-action:focus-visible,
+.workbench-files-title-action[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+.workbench-files-title-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.terminal-title-connection,
+.terminal-title-status,
+.terminal-title-clear {
+  -webkit-app-region: no-drag;
+  flex: none;
+  font: 12px/1.2 var(--font-mono);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.terminal-window-frame .window-frame-signal {
+  display: none;
+}
+.terminal-window-frame .window-frame-title-actions {
+  flex: 1;
+}
+.cyber-window.is-terminal .cyber-window-title-actions {
+  flex: 1;
+}
+.cyber-window.is-terminal .cyber-window-signal {
+  display: none;
+}
+.terminal-title-connection {
+  max-width: 190px;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
+  text-overflow: ellipsis;
+}
+.terminal-title-status {
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+}
+.terminal-title-status[data-status='connected'] {
+  color: var(--el-color-success);
+}
+.terminal-title-status[data-status='connecting'] {
+  color: var(--accent);
+}
+.terminal-title-clear {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  cursor: pointer;
+}
+.terminal-title-clear:hover,
+.terminal-title-clear:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+.terminal-title-clear:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workbench-files-title-action[aria-pressed='true'] svg,
+  .workbench-files-title-action:hover:not(:disabled) svg {
+    animation: none;
+    filter: none;
+  }
 }
 </style>

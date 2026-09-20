@@ -49,6 +49,8 @@ applyProxyEnv(config);
 // 否则回退到 .bin shim（带 shell:true 让 PATHEXT 处理）。
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(__dirname, "..");
+const terminalRuntime = spawnSync(process.execPath, [resolve(webRoot, "../scripts/prepare-terminal-runtime.mjs")], { stdio: "inherit" });
+if (terminalRuntime.status !== 0) process.exit(terminalRuntime.status ?? 1);
 const cliJsCandidates = [
   join(webRoot, "node_modules", "electron-builder", "cli.js"),
 ];

@@ -23,6 +23,9 @@ import {
   toSkillCommands,
   type MessageCommand,
   type RoleMention,
+  serializeFileMention,
+  canReferenceFile,
+  type FileMention,
 } from '@/features/agent/composables/commands'
 
 /**
@@ -66,6 +69,7 @@ export interface ComboCommandGroup {
   plugin: string
   commands: MessageCommand[]
 }
+export interface FileMentionOption extends FileMention { name: string }
 
 export interface UseAgentDialogOptionsOptions {
   draftScope?: string
@@ -118,6 +122,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   const text = ref('')
   /** 光标前内容序列化串；指令/角色菜单据此触发（支持句中输入 / 或 @）。 */
   const caretPrefix = ref('')
+  const workspaceFiles = ref<FileMentionOption[]>([])
   const builtinCommands = ref<MessageCommand[]>([COMPACT_COMMAND])
   const skillCommands = ref<MessageCommand[]>([])
   const editorRef = ref<HTMLElement | null>(null)
@@ -315,8 +320,8 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   ])
   /** 光标前最近一个 / 起的 token；null 表示当前不应展示指令菜单。 */
   const slashQuery = computed<string | null>(() => {
-    const match = caretPrefix.value.match(/\/([^\s/@]*)$/)
-    return match ? match[1]!.toLowerCase() : null
+    const match = caretPrefix.value.match(/(?:^|\s)\/([^\s/@&\[\]]*)$/)
+    return match ? match[1]! : null
   })
   const matchingCommands = computed(() => {
     if (slashQuery.value === null) return []
@@ -326,7 +331,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     // 搜索 key = 命令完整名（含 plugin 前缀拼接），子串匹配，命中：
     //   - /<skillName>：独立技能
     //   - /<plugin:skill>：插件技能（中间字符也算，含 plugin 名 / skill 名 / 中间片段）
-    const q = slashQuery.value
+    const q = slashQuery.value.toLowerCase()
     return allCommands.value.filter((command) => {
       if (selected.has(command.name)) return false
       // 搜索 key = 命令完整名（含 plugin 前缀拼接）
@@ -336,6 +341,32 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       return searchable.includes(q) || command.name.slice(1).toLowerCase().includes(q)
     })
   })
+  const fileQuery = computed<string | null>(() => {
+    const match = caretPrefix.value.match(/(?:^|\s)&([^\r\n\[\]@&]*)$/)
+    return match ? match[1]! : null
+  })
+  const fileMenuHint = ref('')
+  watch([fileQuery, chatId], async ([query, id], _, cleanup) => {
+    let cancelled = false; cleanup(() => { cancelled = true })
+    workspaceFiles.value = []
+    if (query === null || !id) return
+    fileMenuHint.value = '正在读取工作区…'
+    const slash = query.lastIndexOf('/')
+    try {
+      const files = await agentApi.listWorkspaceFiles(id, slash < 0 ? '' : query.slice(0, slash))
+      if (cancelled) return
+      workspaceFiles.value = files.entries.map((entry) => ({ name: entry.name, path: entry.path, kind: entry.kind }))
+      fileMenuHint.value = files.entries.length ? '只引用路径，按需读取。输入目录/ 可继续查找文件。' : '文件夹为空'
+    } catch (cause) { if (!cancelled) fileMenuHint.value = cause instanceof Error ? cause.message : '工作区不可用' }
+  })
+  const matchingFiles = computed(() => {
+    if (fileQuery.value === null) return []
+    const selected = new Set([...text.value.matchAll(/\[\[file:([^\]\r\n]+)\]\]/g)].map((m) => m[1]!))
+    return workspaceFiles.value.filter((file) => canReferenceFile(file.path) && !selected.has(file.path) && `${file.name} ${file.path}`.toLowerCase().includes(fileQuery.value!.toLowerCase()))
+  })
+  const showFileMenu = computed(() => fileQuery.value !== null)
+  const activeFileIndex = ref(0)
+  watch(matchingFiles, () => { activeFileIndex.value = 0 })
   const activeCommandTab = ref<CommandTab>('builtin')
   const commandOptionsByTab = computed<Record<CommandTab, MessageCommand[]>>(() => {
     const result: Record<CommandTab, MessageCommand[]> = { builtin: [], skill: [], combo: [] }
@@ -391,7 +422,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     })
   })
   const roleQuery = computed<string | null>(() => {
-    const match = caretPrefix.value.match(/@([^\s/@]*)$/)
+    const match = caretPrefix.value.match(/(?:^|\s)@([^\s/@&\[\]]*)$/)
     return match ? match[1]!.toLowerCase() : null
   })
   const matchingRoleMentions = computed(() => {
@@ -471,6 +502,27 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     insertRoleMentionToken(editor, role)
     syncEditorText()
   }
+  function selectFileMention(file: FileMentionOption): void {
+    const editor = editorRef.value
+    if (!editor) return
+    removeQueryBeforeCaret(/&[^\r\n\[\]@&]*$/)
+    insertFileMentionToken(editor, file)
+    syncEditorText()
+  }
+  function appendFileReference(file: FileMention): void {
+    text.value += (text.value ? ' ' : '') + serializeFileMention(file) + ' '
+    stashDraft()
+    void nextTick(() => {
+      restoreEditor()
+      const editor = editorRef.value
+      if (!editor) return
+      editor.focus()
+      const range = document.createRange()
+      range.selectNodeContents(editor); range.collapse(false)
+      const selection = window.getSelection()
+      selection?.removeAllRanges(); selection?.addRange(range)
+    })
+  }
 
   function close(): void {
     if (sending.value) return
@@ -491,16 +543,18 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   function restoreEditor(): void {
     const editor = editorRef.value
     if (!editor) return
-    const nodes = text.value.split(/(\[\[(?:command:|role:@)[^\]]+\]\])/g).map((part) => {
+    const nodes = text.value.split(/(\[\[(?:command:|role:@|file:)[^\]]+\]\])/g).map((part) => {
       const command = /^\[\[command:(.+)\]\]$/.exec(part)?.[1]
       const role = /^\[\[role:@(.+)\]\]$/.exec(part)?.[1]
-      if (!command && !role) return document.createTextNode(part)
+      const file = /^\[\[file:(.+)\]\]$/.exec(part)?.[1]
+      if (!command && !role && !file) return document.createTextNode(part)
       const token = document.createElement('span')
-      token.className = `instruction-token${role ? ' role-mention-token' : ''}`
+      token.className = `instruction-token${role ? ' role-mention-token' : ''}${file ? ' file-mention-token' : ''}`
       token.contentEditable = 'false'
       if (command) token.dataset.commandName = command
       if (role) token.dataset.roleName = role
-      token.textContent = role ? `@${role}` : command!.replace(/^\//, '')
+      if (file) token.dataset.filePath = file
+      token.textContent = role ? `@${role}` : file ? `&${file}` : command!.replace(/^\//, '')
       return token
     })
     editor.replaceChildren(...nodes)
@@ -719,6 +773,20 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   }
 
   function onEditorKeydown(e: KeyboardEvent, send?: () => void): void {
+    if (e.isComposing) return
+    if (removeAdjacentInstructionToken(e)) return
+    if (e.key === 'Escape' && (showFileMenu.value || showCommandMenu.value || showRoleMenu.value)) {
+      e.preventDefault(); e.stopPropagation(); caretPrefix.value = ''; return
+    }
+    if (showFileMenu.value) {
+      const files = matchingFiles.value
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); caretPrefix.value = ''; return }
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (files.length) activeFileIndex.value = (activeFileIndex.value + 1) % files.length; return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); if (files.length) activeFileIndex.value = (activeFileIndex.value - 1 + files.length) % files.length; return }
+      if (e.key === 'Enter' && !e.isComposing && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault(); const file = files[activeFileIndex.value]; if (file) selectFileMention(file); return
+      }
+    }
     if (showCommandMenu.value) {
       const opts = commandOptions.value
       if (e.key === 'ArrowRight') {
@@ -831,6 +899,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     const element = node as HTMLElement
     if (element.dataset.commandName) return `[[command:${element.dataset.commandName}]]`
     if (element.dataset.roleName) return `[[role:@${element.dataset.roleName}]]`
+    if (element.dataset.filePath) return serializeFileMention({ path: element.dataset.filePath })
     if (element.tagName === 'BR') return '\n'
     const content = [...element.childNodes].map(serializeNode).join('')
     return element.tagName === 'DIV' || element.tagName === 'P' ? `${content}\n` : content
@@ -877,6 +946,33 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     removeQueryBeforeCaret(/@[^\s/@]*$/)
   }
 
+  function removeAdjacentInstructionToken(event: KeyboardEvent): boolean {
+    if (event.key !== 'Backspace' && event.key !== 'Delete') return false
+    const selection = window.getSelection()
+    const editor = editorRef.value
+    if (!selection || !selection.isCollapsed || selection.rangeCount === 0 || !editor) return false
+    const range = selection.getRangeAt(0)
+    if (!editor.contains(range.startContainer)) return false
+    const parent = range.startContainer
+    const offset = range.startOffset
+    const isToken = (node: Node | undefined): node is HTMLElement =>
+      node instanceof HTMLElement && (!!node.dataset.filePath || !!node.dataset.commandName || !!node.dataset.roleName)
+    const candidate: Node | undefined = (parent.nodeType === Node.TEXT_NODE
+      ? event.key === 'Backspace' && offset === 0 ? parent.previousSibling : event.key === 'Delete' && offset === (parent.textContent ?? '').length ? parent.nextSibling : undefined
+      : event.key === 'Backspace' ? parent.childNodes[offset - 1] : parent.childNodes[offset]) ?? undefined
+    if (!isToken(candidate) || !candidate.parentNode) return false
+    event.preventDefault()
+    const owner = candidate.parentNode
+    const index = [...owner.childNodes].indexOf(candidate)
+    candidate.remove()
+    const nextRange = document.createRange()
+    nextRange.setStart(owner, event.key === 'Backspace' ? Math.max(0, index) : Math.min(index, owner.childNodes.length))
+    nextRange.collapse(true)
+    selection.removeAllRanges(); selection.addRange(nextRange)
+    syncEditorText()
+    return true
+  }
+
   /**
    * 删除光标前紧邻的 query（/foo 或 @bar），并把光标停在删除起点，供 token 原地插入。
    * 基于光标所在文本节点，支持句中（非行尾）选中。
@@ -891,8 +987,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     const before = (node as Text).data.slice(0, offset)
     const queryStart = before.search(pattern)
     if (queryStart < 0) return
-    const seg = before.slice(queryStart)
-    const start = queryStart + Math.max(seg.lastIndexOf('/'), seg.lastIndexOf('@'))
+    const start = queryStart
     const range = document.createRange()
     range.setStart(node, start)
     range.setEnd(node, offset)
@@ -962,6 +1057,22 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     selection?.removeAllRanges()
     selection?.addRange(range)
     editor.focus()
+  }
+
+  function insertFileMentionToken(editor: HTMLElement, file: FileMentionOption): void {
+    const token = document.createElement('span')
+    token.className = 'instruction-token file-mention-token'
+    token.dataset.filePath = file.path + (file.kind === 'directory' && !file.path.endsWith('/') ? '/' : '')
+    token.contentEditable = 'false'
+    token.setAttribute('role', 'note')
+    token.setAttribute('aria-label', `文件 ${file.path}`)
+    token.textContent = `&${file.path}`
+    const selection = window.getSelection()
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : document.createRange()
+    if (!editor.contains(range.commonAncestorContainer)) { range.selectNodeContents(editor); range.collapse(false) }
+    range.collapse(true); range.insertNode(token)
+    const spacer = document.createTextNode(' '); range.setStartAfter(token); range.insertNode(spacer); range.setStartAfter(spacer); range.collapse(true)
+    selection?.removeAllRanges(); selection?.addRange(range); editor.focus()
   }
 
   function showInstructionPopover(anchor: HTMLElement, command: MessageCommand): void {
@@ -1211,6 +1322,10 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     matchingRoleMentions,
     showRoleMenu,
     activeRoleIndex,
+    matchingFiles,
+    showFileMenu,
+    activeFileIndex,
+    fileMenuHint,
     uploading,
     mediaHint,
     runtimeHint,
@@ -1232,6 +1347,8 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     onEditorPaste,
     selectCommand,
     selectRoleMention,
+    selectFileMention,
+    appendFileReference,
     selectCommandTab,
     mediaKind,
     formatFileSize,

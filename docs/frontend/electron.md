@@ -105,7 +105,7 @@ desktop 窗口默认整体 `setIgnoreMouseEvents(true, { forward: true })`——
 | `backend:refresh-config` | renderer→main invoke | → `ServerConfig` | 刷新后端配置（Electron 下 `getServerConfig({refresh:true})` 走此 IPC，main 进程 fetch `/api/config`——Node 无 CORS 限制；渲染进程直接 fetch 会被后端缺 CORS 头的响应拦截，见 [env.md#会话-token-轮换与重连刷新](env.md#会话-token-轮换与重连刷新)） |
 | `dialog:pickDirectory` | renderer→main invoke | → `string\|null` | 原生目录选择 |
 | `desktop:mouse-passthrough` | desktop→main | `{ ignore: boolean }` | 仅 win32 生效，sender 校验 desktop 窗 |
-| `window:open` | desktop→main | `OpenWindowRequest` | 仅 desktop 窗可发起；`kind:'settings'` → 设置窗，`kind:'workbench'` → 工作台窗，`kind:'composer'` → 发消息窗（均惰性创建 / show+focus / `workbench:open-chat` / `workbench:focus`）。workbench 载荷含 `presetId`/`chatId`/`presetName`（presetName 由入口携带，经 `extraParams` 拼 URL 供 App.vue 读 `?presetName=`） |
+| `window:open` | desktop→main | `OpenWindowRequest` | 仅 desktop 窗可发起；`kind:'settings'` → 设置窗，`kind:'workbench'` → 工作台窗，`kind:'terminal'` → 按终端预设打开并自动连接的终端窗，`kind:'composer'` → 发消息窗（均惰性创建 / show+focus）。workbench/terminal 载荷含 `presetId`，可带 `presetName` 经 `extraParams` 拼入 URL。 |
 | `window:control` | 任一窗→main | `'minimize'\|'maximize'\|'restore'\|'close'` | 按 `BrowserWindow.fromWebContents(event.sender)` 定位窗口的原生控制；工作台窗 `close` = hide（hide 不销毁，run 继续），设置窗 close = destroy |
 | `window:maximized` | main→窗 | `boolean` | 原生最大化态回推（双击标题栏 / Win+↑ / 拖边缘），标题栏图标切换 |
 | `window:focused` | main→窗 | `boolean` | 焦点态回推（工作台标题栏高亮等） |

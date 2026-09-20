@@ -27,6 +27,7 @@ import { ClassifiedError } from '@/utils/error.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { createRequestObservation } from '@/agent/provider/requestObservation.js'
 import { estimateTokens } from '@/utils/token.js'
+import { describeFileReferences } from '@/service/workspace/handler.js'
 
 /**
  * Chat Middleware
@@ -89,6 +90,14 @@ export async function* chatMiddleware(
       ...enriched.history,
     ]
   }
+
+  const latestUser = historyForBuild.findLast((message) => message.role === 'user')
+  const fileReferences = latestUser?.content.includes('[[file:')
+    ? await describeFileReferences(ctx.soul.chatId, latestUser.content)
+    : undefined
+  if (fileReferences) historyForBuild = [...historyForBuild, {
+    role: 'user', content: fileReferences, createdAt: Date.now(), updateAt: Date.now(),
+  } as LLMResponse]
 
   // 使用预构建的 senses（runtime.builtSenses）
   const senses = ctx.runtime.builtSenses

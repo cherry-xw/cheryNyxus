@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { BellFilled, Connection, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
 import ConversationView from './ConversationView.vue'
@@ -16,6 +16,8 @@ import WorkbenchViewToggle from './WorkbenchViewToggle.vue'
 import WorkbenchFoldTool from './WorkbenchFoldTool.vue'
 import WorkbenchWindowControls from './WorkbenchWindowControls.vue'
 import ContextAnalyticsPanel from './context-analytics/ContextAnalyticsPanel.vue'
+import WorkbenchFilesWorkspace from './files/WorkbenchFilesWorkspace.vue'
+import { serializeFileMention } from '../composables/commands'
 const props = defineProps<WorkbenchDialogControllerProps>()
 const controller = useWorkbenchDialogController(props)
 const agents = useAgentsStore()
@@ -24,6 +26,44 @@ const rolePopoutMotion = useOverlayTransitionHooks('panel')
 // 查看上下文侧边抽屉：drawer 型动效（面板 x 轴滑入，与全局抽屉一致）。
 const contextDrawerMotion = useOverlayTransitionHooks('drawer')
 const contextTrigger = ref<HTMLButtonElement>()
+const filesOpen = ref(false)
+const visitedFileChat = ref('')
+watch([filesOpen, controller.treeRootChatId], ([open, id]) => { if (open) visitedFileChat.value = id })
+const liteViewRef = ref<{ insertReference: (token: string) => void }>()
+const conversationViewRef = ref<{ focusInput: () => void }>()
+function insertFileReference(path: string, kind: 'file' | 'directory'): void {
+  const token = serializeFileMention({ path, kind })
+  const targetIsLite = liteViewVisible.value
+  filesOpen.value = false
+  if (targetIsLite) void nextTick(() => liteViewRef.value?.insertReference(token))
+  else {
+    controller.appendFileReference({ path, kind })
+    if (conversationViewVisible.value) void nextTick(() => conversationViewRef.value?.focusInput())
+    else activateNyxusInput()
+  }
+}
+function closeContextPanel(): void {
+  controller.closeContextDrawer()
+  void nextTick(() => contextTrigger.value?.focus())
+}
+function toggleFilesWorkspace(): void {
+  if (!controller.treeRootChatId.value) return
+  filesOpen.value = !filesOpen.value
+}
+function closeFilesWorkspace(): void {
+  filesOpen.value = false
+}
+// 抽屉打开时按 Esc 关闭。topOverlay 守卫与全局抽屉一致：settings / 历史抽屉 / 输入弹窗 /
+// 会话列表任一打开时它们在上方，Esc 交给它们处理，避免双重关闭。
+function onContextDrawerKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape' || !controller.contextDrawerOpen.value) return
+  if (agents.topOverlay) return
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  closeContextPanel()
+}
+onMounted(() => window.addEventListener('keydown', onContextDrawerKeydown, true))
+onBeforeUnmount(() => window.removeEventListener('keydown', onContextDrawerKeydown, true))
 // 小组角色编制默认折叠：仅占一行（标题行），点击标题行展开角色标签（与发消息弹窗一致）。
 const rolesExpanded = ref(false)
 // Keep the controller surface grouped here so this orchestration SFC stays inside its line budget.
@@ -52,6 +92,7 @@ const {
   foldMode, foldToolOpen,
   isEmbedded, isNative, isShellless, liteViewVisible, loading,
   matchingRoleMentions,
+  matchingFiles, showFileMenu, activeFileIndex, fileMenuHint,
   maxControlState,
   mediaAttachments, mediaHint,
   runtimeHint, runtimeError,
@@ -75,6 +116,7 @@ const {
   scheduleFoldToolClose, scheduleRoleListClose,
   selectBranchTarget, selectedContent, selectWorkflowContent,
   selectCommand, selectCommandTab, selectFoldMode, selectRoleMention,
+  selectFileMention,
   sendFromComposer, sending,
   senseEntries, senseGroups, senseTool, senseTools,
   sessionControl, sessionControlPending,
@@ -91,7 +133,7 @@ const {
   toggleAttentionWindow, uploading, usageClass, win, windowBlink,
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
 } = controller
-defineExpose({ closeWorkbench: controller.closeWorkbench })
+defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, closeFilesWorkspace, closeTaskBrowser: controller.closeTaskBrowser, getFilesOpen: () => filesOpen.value })
 </script>
 <template>
   <Transition
@@ -170,6 +212,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           </MessageBranchTree>
           <ConversationView
             v-else-if="conversationViewVisible"
+            ref="conversationViewRef"
             :key="treeRootChatId"
             :window-id="windowId"
             :root-chat-id="treeRootChatId"
@@ -224,7 +267,23 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           }}</small>
           <ConnectionStatusChip class="workbench-conn-chip" />
           <WorkbenchViewToggle :window-id="windowId" />
+          <el-tooltip :content="treeRootChatId ? '查看工作区文件与 Terminal' : '当前没有可用会话'" placement="bottom">
+            <span>
+              <button
+                type="button"
+                class="workbench-files-trigger"
+                aria-label="打开文件工作区"
+                :aria-pressed="filesOpen"
+                :class="{ 'is-active': filesOpen }"
+                :disabled="!treeRootChatId"
+                @click="closeTaskBrowser(); toggleFilesWorkspace()"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h7l2 2h9v9.5H3z" /><path d="M3 6.5V5h7l2 2" /></svg>
+              </button>
+            </span>
+          </el-tooltip>
           <WorkbenchWindowControls
+            v-if="!isEmbedded"
             :max-control-state="maxControlState"
             @minimize="minimizeWorkbench"
             @maximize="onMaximizeClick"
@@ -247,10 +306,18 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
         />
         <LiteView
           v-if="liteViewVisible"
+          ref="liteViewRef"
           :inert="taskBrowserState.open || undefined"
           :window-id="windowId"
           :root-chat-id="treeRootChatId"
           :preset-name="presetName"
+        />
+        <WorkbenchFilesWorkspace
+          v-if="treeRootChatId && visitedFileChat === treeRootChatId"
+          v-show="filesOpen"
+          :key="treeRootChatId"
+          :chat-id="treeRootChatId"
+          @reference="insertFileReference"
         />
 
         <div
@@ -290,18 +357,27 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </span>
               <span class="nyxus-composer-title">
                 <strong>{{ composerBranchTitle }}</strong>
-                <small>{{ composerBranchDescription }}</small>
+                <small> · {{ composerBranchDescription }}</small>
               </span>
               <el-tooltip
-                v-if="branchTarget"
                 :content="
-                  branchTarget.type === 'detail'
-                    ? '解释分支使用专用诊断角色，可读取、搜索和运行诊断命令，但不会回传或修改原任务。'
-                    : '继续分支继承来源分支角色和工具；它与原流程并列，已经发生的外部副作用不会回退。'
+                  branchTarget
+                    ? branchTarget.type === 'detail'
+                      ? '解释分支使用专用诊断角色，可读取、搜索和运行诊断命令，但不会回传或修改原任务。'
+                      : '继续分支继承来源分支角色和工具；它与原流程并列，已经发生的外部副作用不会回退。'
+                    : '打开小组角色编制；修改会同步到后续请求。'
                 "
                 placement="top"
               >
-                <span class="nyxus-composer-info" aria-label="分支影响说明">ⓘ</span>
+                <button
+                  type="button"
+                  class="nyxus-composer-info nyxus-role-config-trigger"
+                  :aria-expanded="rolesExpanded"
+                  aria-label="编辑小组角色编制"
+                  @click="rolesExpanded = !rolesExpanded"
+                >
+                  ⚙
+                </button>
               </el-tooltip>
               <button
                 type="button"
@@ -318,6 +394,9 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               class="role-configs nyxus-role-configs"
               :class="{ 'is-collapsed': !rolesExpanded }"
             >
+              <small class="role-runtime-note" role="status">
+                {{ runtimeHint && !runtimeError ? runtimeHint : '修改角色编制后，后续请求会使用新配置。' }}
+              </small>
               <button
                 type="button"
                 class="role-configs-toggle"
@@ -441,6 +520,11 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               :show-role-menu="showRoleMenu"
               :matching-role-mentions="matchingRoleMentions"
               :active-role-index="activeRoleIndex"
+              :matching-files="matchingFiles"
+              :show-file-menu="showFileMenu"
+              :active-file-index="activeFileIndex"
+              :file-menu-hint="fileMenuHint"
+              @update:active-file-index="activeFileIndex = $event"
               :editor-ref-fn="editorRefFn"
               :command-menu-ref-fn="commandMenuRefFn"
               :role-menu-ref-fn="roleMenuRefFn"
@@ -452,13 +536,14 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               @select-command="selectCommand"
               @select-command-tab="selectCommandTab"
               @select-role-mention="selectRoleMention"
+              @select-file-mention="selectFileMention"
               @media-selected="(f: any) => onMediaSelected(f)"
               @send="sendFromComposer"
               @update:active-command-index="activeCommandIndex = $event"
               @update:active-role-index="activeRoleIndex = $event"
             />
             <footer class="nyxus-composer-hint">
-              <span><kbd>/</kbd> 指令 · <kbd>@</kbd> 角色</span>
+              <span><kbd>/</kbd> 指令 · <kbd>@</kbd> 角色 · <kbd>&amp;</kbd> 文件</span>
               <span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span>
             </footer>
           </section>

@@ -35,9 +35,10 @@ export const COMPACT_COMMAND: MessageCommand = {
 
 const COMMAND_TOKEN_PATTERN = /\[\[command:(\/[^\]\s]+)\]\]/g
 const ROLE_TOKEN_PATTERN = /\[\[role:@([^\]\s]+)\]\]/g
+const FILE_TOKEN_PATTERN = /\[\[file:([^\]\r\n]+)\]\]/g
 
 export interface CommandPromptSegment {
-  type: 'text' | 'command' | 'role'
+  type: 'text' | 'command' | 'role' | 'file'
   value: string
 }
 
@@ -45,6 +46,17 @@ export interface CommandPromptSegment {
 export interface RoleMention {
   name: string
   description: string
+}
+
+export interface FileMention { path: string; kind?: 'file' | 'directory' }
+
+export function canReferenceFile(path: string): boolean {
+  return !!path && !/[\]\r\n]/.test(path)
+}
+
+export function serializeFileMention(file: FileMention): string {
+  if (!canReferenceFile(file.path)) throw new Error('此文件路径包含暂不支持的引用字符')
+  return `[[file:${file.path}${file.kind === 'directory' && !file.path.endsWith('/') ? '/' : ''}]]`
 }
 
 export function toSkillCommands(skills: SkillCommandMeta[]): MessageCommand[] {
@@ -99,6 +111,11 @@ export function splitCommandPrompt(content: string): CommandPromptSegment[] {
       match,
       type: 'role' as const,
       value: `@${match[1]!}`,
+    })),
+    ...content.matchAll(FILE_TOKEN_PATTERN).map((match) => ({
+      match,
+      type: 'file' as const,
+      value: match[1]!,
     })),
   ].sort((left, right) => (left.match.index ?? 0) - (right.match.index ?? 0))
   for (const { match, type, value } of matches) {

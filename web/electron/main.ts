@@ -49,7 +49,7 @@ function recordGpuSafeMode(reason: string): void {
  * desktop renderer → main 请求打开独立原生窗的目标。
  * 仅 desktop 窗可发起；main 惰性创建 / show+focus 复用（工作台窗 hide 保活）。
  */
-export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login' | 'task-center'
+export type WindowKind = 'settings' | 'workbench' | 'terminal' | 'composer' | 'history' | 'login' | 'task-center'
 export type SettingsSection = 'provider' | 'runtime' | 'limits'
 export interface OpenWindowRequest {
   kind: WindowKind
@@ -79,6 +79,7 @@ function isValidOpenRequest(value: unknown): value is OpenWindowRequest {
     )
   }
   if (req.kind === 'login' || req.kind === 'task-center') return true
+  if (req.kind === 'terminal') return typeof req.presetId === 'string'
   if (req.kind === 'history') return typeof req.chatId === 'string'
   if (req.kind === 'composer') {
     return (
@@ -446,7 +447,7 @@ function createManagedWindow(
     kind: WindowKind
     presetId?: string
     title: string
-    surface: 'settings' | 'workbench' | 'composer' | 'history' | 'login' | 'task-center'
+    surface: 'settings' | 'workbench' | 'terminal' | 'composer' | 'history' | 'login' | 'task-center'
     extraParams?: Record<string, string>
     keepAlive: boolean
   },
@@ -607,6 +608,22 @@ function openWorkbenchWindow(req: OpenWindowRequest & { kind: 'workbench' }): vo
       if (!entry.win.isDestroyed()) entry.win.webContents.send('workbench:focus', req.focus)
     })
   }
+}
+
+function openTerminalWindow(req: OpenWindowRequest & { kind: 'terminal' }): void {
+  const key = `terminal:${req.presetId}`
+  if (showManagedWindow(key)) return
+  createManagedWindow(key, {
+    kind: 'terminal',
+    presetId: req.presetId,
+    title: req.presetName ? `Terminal // ${req.presetName}` : 'Terminal',
+    surface: 'terminal',
+    keepAlive: false,
+    extraParams: {
+      presetId: req.presetId!,
+      ...(req.presetName ? { presetName: req.presetName } : {}),
+    },
+  })
 }
 
 function quitApplication(): void {
@@ -860,6 +877,8 @@ app.whenReady().then(async () => {
       openSettingsWindow(req as OpenWindowRequest & { kind: 'settings' })
     } else if (req.kind === 'workbench') {
       openWorkbenchWindow(req as OpenWindowRequest & { kind: 'workbench' })
+    } else if (req.kind === 'terminal') {
+      openTerminalWindow(req as OpenWindowRequest & { kind: 'terminal' })
     } else {
       openAuxWindow(req as OpenWindowRequest & { kind: 'composer' | 'history' | 'login' | 'task-center' })
     }

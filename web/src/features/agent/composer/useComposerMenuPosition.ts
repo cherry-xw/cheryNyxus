@@ -7,6 +7,7 @@ interface ComposerMenuPositionOptions {
   roleMenuRef: Ref<HTMLElement | null>
   showCommandMenu: Ref<boolean>
   showRoleMenu: Ref<boolean>
+  showFileMenu?: Ref<boolean>
   activeCommandIndex: Ref<number>
   layoutDependencies: WatchSource[]
 }
@@ -23,8 +24,7 @@ export function useComposerMenuPosition(options: ComposerMenuPositionOptions) {
 
   function positionCommandMenu(): void {
     const editor = options.editorRef.value
-    const menu = options.commandMenuRef.value ?? options.roleMenuRef.value
-    if (!editor || !menu) return
+    if (!editor) return
     const editorRect = editor.getBoundingClientRect()
     commandMenuStyle.zIndex = ownerOverlayZIndex(editor)
     const margin = 8
@@ -54,11 +54,14 @@ export function useComposerMenuPosition(options: ComposerMenuPositionOptions) {
       positionCommandMenu()
     }
   })
+  if (options.showFileMenu) watch(options.showFileMenu, async (open) => {
+    if (open) { await nextTick(); positionCommandMenu() }
+  })
   watch(options.activeCommandIndex, () => {
     if (options.showCommandMenu.value) nextTick(positionCommandMenu)
   })
   watch(options.layoutDependencies, () => {
-    if (options.showCommandMenu.value) nextTick(positionCommandMenu)
+    if (options.showCommandMenu.value || options.showRoleMenu.value || options.showFileMenu?.value) nextTick(positionCommandMenu)
   })
 
   if (typeof window !== 'undefined') {
@@ -67,7 +70,7 @@ export function useComposerMenuPosition(options: ComposerMenuPositionOptions) {
     window.addEventListener('pointerdown', onOwnerFocus, true)
   }
   function onOwnerFocus(): void {
-    if (options.showCommandMenu.value || options.showRoleMenu.value)
+    if (options.showCommandMenu.value || options.showRoleMenu.value || options.showFileMenu?.value)
       void nextTick(positionCommandMenu)
   }
   onBeforeUnmount(() => {
