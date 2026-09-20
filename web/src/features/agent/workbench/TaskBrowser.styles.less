@@ -349,43 +349,39 @@
   flex-direction: column;
   min-width: 0;
   width: min(100%, 280px);
-  height: 200px;
   min-height: 200px;
   padding: 8px;
   border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
   border-radius: 0;
   background: color-mix(in srgb, var(--surface) 86%, transparent);
   cursor: pointer;
-  overflow: hidden;
+  // v3.1：不再固定 200px 高 + overflow:hidden——内容多时卡片随内容撑开，全部区块可见；
+  // 卡片内「•••」下拉菜单为 absolute 定位，原 overflow:hidden 也会误裁剪它，一并移除。
 }
 
+// v3.1：状态不再用「顶部彩色边缘线」表达（太抢眼）；状态由卡片内的状态徽章 +
+// 整卡极淡的状态背景色承担。以下仅保留背景淡色，不再设置 border-top-color。
 .task-browser-card.status-running {
-  border-top-color: #0891b2;
   background: color-mix(in srgb, #0891b2 4%, var(--surface));
 }
 
 .task-browser-card.status-needs_user {
-  border-top-color: #d97706;
   background: color-mix(in srgb, #d97706 4%, var(--surface));
 }
 
 .task-browser-card.status-failed {
-  border-top-color: #dc2626;
   background: color-mix(in srgb, #dc2626 4%, var(--surface));
 }
 
 .task-browser-card.status-completed {
-  border-top-color: #059669;
   background: color-mix(in srgb, #059669 4%, var(--surface));
 }
 
 .task-browser-card.status-paused {
-  border-top-color: #7c3aed;
   background: color-mix(in srgb, #7c3aed 4%, var(--surface));
 }
 
 .task-browser-card.status-stopped {
-  border-top-color: #64748b;
   background: color-mix(in srgb, #64748b 4%, var(--surface));
 }
 
@@ -393,10 +389,6 @@
 .task-browser-card:focus-visible {
   border-color: var(--accent);
   outline: none;
-}
-
-.task-browser-card.has-unread {
-  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .task-card-head {

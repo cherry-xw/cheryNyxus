@@ -1,7 +1,13 @@
 import { nextTick, ref, watch, type Ref } from 'vue'
 import { agentApi } from '@/application/backend/public'
 import { useChatSessionsStore } from '@/application/public'
-import { toSkillCommands, serializeFileMention, canReferenceFile } from '../composables/commands'
+import {
+  toSkillCommands,
+  serializeFileMention,
+  serializeCommandToken,
+  canReferenceFile,
+  type MessageCommand,
+} from '../composables/commands'
 import { instructionQuery } from './instructionQuery'
 
 export interface InputSuggestion {
@@ -9,6 +15,16 @@ export interface InputSuggestion {
   description: string
   token: string
 }
+
+/** 与树页面 command-tab 同源的三档指令类型（内置指令 / 独立技能 / 插件组合技）。 */
+export type InstructionTabId = 'builtin' | 'skill' | 'combo'
+
+export interface InstructionTabOption {
+  id: InstructionTabId
+  label: string
+  count: number
+}
+
 export function useInstructionSuggestions(options: {
   chatId: () => string
   preset?: () => string | undefined
@@ -22,7 +38,11 @@ export function useInstructionSuggestions(options: {
   const activeIndex = ref(0)
   const message = ref('')
   const opened = ref(false)
-  let commands: InputSuggestion[] = []
+  const tabs = ref<InstructionTabOption[]>([])
+  const activeTab = ref<InstructionTabId>('builtin')
+  let builtinCommands: MessageCommand[] = []
+  let skillCommands: MessageCommand[] = []
+  let comboCommands: MessageCommand[] = []
   let roles: InputSuggestion[] = []
   let sequence = 0
   let query: ReturnType<typeof instructionQuery> = null
@@ -33,9 +53,12 @@ export function useInstructionSuggestions(options: {
       cleanup(() => {
         cancelled = true
       })
-      commands = []
+      builtinCommands = []
+      skillCommands = []
+      comboCommands = []
       roles = []
       suggestions.value = []
+      tabs.value = []
       opened.value = false
       sequence++
       if (!chatId) return
@@ -45,22 +68,21 @@ export function useInstructionSuggestions(options: {
         agentApi.getConfig(),
       ])
       if (cancelled) return
-      commands =
+      builtinCommands =
         results[0].status === 'fulfilled'
           ? results[0].value.map((c) => ({
-              label: '/' + c.name,
-              description: c.description,
-              token: '[[command:/' + c.name + ']]',
+              id: `builtin:${c.name}`,
+              name: `/${c.name}`,
+              label: c.name,
+              description: c.description || '执行此内置指令。',
+              kind: 'builtin' as const,
             }))
           : []
-      if (results[1].status === 'fulfilled')
-        commands.push(
-          ...toSkillCommands(results[1].value.skills).map((c) => ({
-            label: c.name,
-            description: c.description,
-            token: '[[command:' + c.name + ']]',
-          })),
-        )
+      if (results[1].status === 'fulfilled') {
+        const skills = toSkillCommands(results[1].value.skills)
+        skillCommands = skills.filter((s) => !s.plugin)
+        comboCommands = skills.filter((s) => !!s.plugin)
+      }
       roles = []
       if (results[2].status === 'fulfilled') {
         const config = results[2].value
@@ -86,6 +108,46 @@ export function useInstructionSuggestions(options: {
     },
     { immediate: true },
   )
+  /** 按当前 tab 过滤指令候选：分组逻辑与树页面 useAgentDialogOptions 完全一致。 */
+  function applyCommandFilter(needle: string): void {
+    const byTab: Record<InstructionTabId, MessageCommand[]> = {
+      builtin: [],
+      skill: [],
+      combo: [],
+    }
+    for (const command of [...builtinCommands, ...skillCommands, ...comboCommands]) {
+      const searchable = command.plugin
+        ? `${command.plugin}:${command.label}`.toLowerCase()
+        : command.label.toLowerCase()
+      if (
+        searchable.includes(needle) ||
+        command.name.slice(1).toLowerCase().includes(needle)
+      )
+        byTab[command.kind === 'builtin' ? 'builtin' : command.plugin ? 'combo' : 'skill'].push(
+          command,
+        )
+    }
+    tabs.value = [
+      { id: 'builtin', label: '指令', count: byTab.builtin.length },
+      { id: 'skill', label: '技能', count: byTab.skill.length },
+      { id: 'combo', label: '组合技', count: byTab.combo.length },
+    ]
+    // 当前 tab 无候选时切到首个有候选的 tab（无候选则留在原地显示空态）。
+    if (byTab[activeTab.value].length === 0) {
+      const first = tabs.value.find((tab) => tab.count > 0)
+      if (first) activeTab.value = first.id
+    }
+    suggestions.value = byTab[activeTab.value].map((command) => ({
+      // 组合技带插件前缀以区分同名技能（与树页面 combo 分组标题同源）。
+      label:
+        command.plugin && command.kind === 'skill'
+          ? `${command.plugin}:${command.label}`
+          : command.label,
+      description: command.description,
+      token: serializeCommandToken(command),
+    }))
+    if (!suggestions.value.length) message.value = '没有匹配的可用选项'
+  }
   async function refresh(): Promise<void> {
     const version = ++sequence
     query = instructionQuery(
@@ -94,14 +156,17 @@ export function useInstructionSuggestions(options: {
     )
     activeIndex.value = 0
     suggestions.value = []
+    tabs.value = []
     message.value = ''
     opened.value = !!query
     if (!query) return
     const needle = query.query.toLowerCase()
+    if (query.trigger === '/') {
+      applyCommandFilter(needle)
+      return
+    }
     if (query.trigger !== '&') {
-      suggestions.value = (query.trigger === '/' ? commands : roles).filter((item) =>
-        item.label.toLowerCase().includes(needle),
-      )
+      suggestions.value = roles.filter((item) => item.label.toLowerCase().includes(needle))
       if (!suggestions.value.length) message.value = '没有匹配的可用选项'
       return
     }
@@ -141,6 +206,7 @@ export function useInstructionSuggestions(options: {
     options.update(value.slice(0, query.start) + inserted + value.slice(query.end))
     const caret = query.start + inserted.length
     opened.value = false
+    tabs.value = []
     sequence++
     void nextTick(() => {
       options.input.value?.focus()
@@ -148,13 +214,36 @@ export function useInstructionSuggestions(options: {
       options.resize()
     })
   }
+  /** 切换到指定 tab（点击 tab 栏）。无候选的 tab 不可切换。 */
+  function selectTab(tab: InstructionTabId): void {
+    if (tab === activeTab.value) return
+    if (!tabs.value.some((item) => item.id === tab && item.count > 0)) return
+    activeTab.value = tab
+    activeIndex.value = 0
+    if (query && query.trigger === '/') applyCommandFilter(query.query.toLowerCase())
+  }
+  /** 左右方向键在可用 tab 间循环切换（与树页面 command-tab 键盘行为一致）。 */
+  function moveTab(direction: 1 | -1): void {
+    const available = tabs.value.filter((item) => item.count > 0)
+    if (available.length < 2) return
+    const current = available.findIndex((item) => item.id === activeTab.value)
+    const next = available[(current + direction + available.length) % available.length]
+    if (next) selectTab(next.id)
+  }
   function keydown(event: KeyboardEvent): boolean {
     if (event.isComposing || !opened.value) return false
     if (event.key === 'Escape') {
       opened.value = false
+      tabs.value = []
       sequence++
       event.preventDefault()
       event.stopPropagation()
+      return true
+    }
+    // 斜杠指令菜单：左右键切 tab（指令/技能/组合技）。
+    if (query?.trigger === '/' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault()
+      moveTab(event.key === 'ArrowRight' ? 1 : -1)
       return true
     }
     const length = suggestions.value.length
@@ -168,5 +257,16 @@ export function useInstructionSuggestions(options: {
     }
     return false
   }
-  return { suggestions, activeIndex, message, opened, refresh, choose, keydown }
+  return {
+    suggestions,
+    activeIndex,
+    message,
+    opened,
+    tabs,
+    activeTab,
+    refresh,
+    choose,
+    selectTab,
+    keydown,
+  }
 }

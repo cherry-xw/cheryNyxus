@@ -299,7 +299,6 @@ function endPointer(event: PointerEvent): void {
 }
 
 .cyber-window-signal {
-  margin-left: auto;
   opacity: 0.64;
 }
 
@@ -317,6 +316,9 @@ function endPointer(event: PointerEvent): void {
 
 .cyber-window-actions {
   align-self: stretch;
+  // 右对齐职责：窗口过窄时 signal 会被容器查询隐藏，若 auto 挂在 signal 上，
+  // 最小化/最大化/关闭会失去右对齐而贴到标题后。挂在 actions 上则始终居右（v3.1 修复）。
+  margin-left: auto;
   display: flex;
 }
 

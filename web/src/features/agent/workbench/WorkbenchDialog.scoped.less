@@ -615,31 +615,17 @@
   transform-origin: right center;
   pointer-events: auto;
 }
-.nyxus-role-card-list {
-  display: grid;
-  gap: 10px;
-  max-height: var(--rail-popout-h, calc(100vh - 128px));
-  overflow: auto;
-  padding: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 221, 151, 0.4) transparent;
-}
-.nyxus-role-card-list::-webkit-scrollbar {
-  width: 6px;
-}
-.nyxus-role-card-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.nyxus-role-card-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 221, 151, 0.4);
-  border-radius: 3px;
-}
-.nyxus-role-card-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 221, 151, 0.6);
+/* 小组角色编制标签行：rail popout 承载与 composer 同款的可编辑角色标签（role-summary-tag）。
+   外层容器保持轻量背景 + 内边距，标签行内部横向滚动由 .role-tags 承接。 */
+.nyxus-role-configs {
+  padding: 8px 12px 5px;
+  border: 1px solid var(--nx-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 6%);
 }
 .nyxus-role-loading {
   padding: 18px;
-  color: rgba(255, 255, 255, 0.72);
+  color: color-mix(in srgb, var(--nx-text) 72%, transparent);
   text-align: center;
 }
 
@@ -921,11 +907,6 @@
 .nyxus-composer-head.is-continuation {
   border-color: color-mix(in srgb, var(--nx-yellow) 38%, transparent);
 }
-.nyxus-composer-info {
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
-  cursor: help;
-}
 .nyxus-composer-title {
   min-width: 0;
   display: flex;
@@ -944,15 +925,6 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.nyxus-role-config-trigger {
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-.nyxus-role-config-trigger:hover,
-.nyxus-role-config-trigger[aria-expanded='true'] {
-  border-color: var(--nx-cyan);
-  color: var(--nx-cyan);
 }
 .nyxus-composer-close {
   flex: 0 0 auto;
@@ -996,48 +968,12 @@
   background: color-mix(in srgb, var(--nx-text) 6%, transparent);
   font: inherit;
 }
-// 节点树 composer 内置角色编制：与 composer 主体分隔，顶部留白让浅色 chip 不贴 dock 边缘。
-.nyxus-role-configs {
-  padding: 8px 14px 5px;
-  border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
-}
 .role-runtime-note {
   display: block;
   margin: 2px 0 6px;
   color: color-mix(in srgb, var(--nx-text) 58%, transparent);
   font-size: 12px;
   line-height: 1.35;
-}
-// 折叠开关（与发消息弹窗一致）：整行可点，默认收起只占一行高度。
-.role-configs-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 3px 5px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 120ms ease;
-
-  &:hover {
-    background: color-mix(in srgb, var(--nx-text) 6%, transparent);
-  }
-}
-
-.role-configs-chevron {
-  color: color-mix(in srgb, var(--nx-text) 38%, transparent);
-  font-size: 12px;
-  line-height: 1;
-  transition: transform 160ms ease;
-
-  &.is-open {
-    transform: rotate(180deg);
-  }
 }
 .nyxus-composer-enter-active,
 .nyxus-composer-leave-active {

@@ -484,10 +484,17 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     if (roleListOpen.value) closeRoleList()
     else showRoleList()
   }
-  /** 点击 popout/按钮之外 → 关闭（配置面板点外部关闭）。 */
+  /** 点击 popout/按钮之外 → 关闭（配置面板点外部关闭）。
+   *  role-summary-tag 点击打开的编辑 el-popover（popper 挂载到 body，类名 role-runtime-popper）
+   *  视为 popout 内部，避免编辑时被误关。 */
   function onRoleOutsidePointerDown(e: PointerEvent): void {
     const t = e.target as HTMLElement | null
-    if (t?.closest('.nyxus-role-popout') || t?.closest('.nyxus-role-tool')) return
+    if (
+      t?.closest('.nyxus-role-popout') ||
+      t?.closest('.nyxus-role-tool') ||
+      t?.closest('.role-runtime-popper')
+    )
+      return
     closeRoleList()
   }
   watch(roleListOpen, (open) => {

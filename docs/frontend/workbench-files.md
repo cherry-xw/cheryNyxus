@@ -12,7 +12,7 @@
 
 ## 输入与发送
 
-节点树使用 `AgentComposer` 和 `useAgentDialogOptions`；对话与精简输入使用共享的 `useInstructionSuggestions` 和 `InstructionSuggestions`。三者共用 `commands.ts` 的 token 格式，支持候选过滤、键盘选择和文件回填，保留各自草稿和附件功能。输入提示说明 `/` 是指令、`@` 是角色、`&` 是文件引用，以及正文由 Agent 按需读取。
+节点树使用 `AgentComposer` 和 `useAgentDialogOptions`；对话与精简输入使用共享的 `useInstructionSuggestions` 和 `InstructionSuggestions`。三者共用 `commands.ts` 的 token 格式（`serializeCommandToken` 等），支持候选过滤、键盘选择和文件回填，保留各自草稿和附件功能。输入提示说明 `/` 是指令、`@` 是角色、`&` 是文件引用，以及正文由 Agent 按需读取。`/` 指令候选在三种视图都带 tab 栏（指令/技能/组合技，左右键切换），对话/精简的 tab 分组与 token 与树页面完全一致（2026-09-20 起）。
 
 节点树在一轮响应结束且当前根没有审批/提问时按 `useWorkbenchDialogController` 的终态规则打开输入区；用户主动关闭同一轮不被自动打扰。首次适配视图和切根使用偏上相机定位，保留 hover 面板的下方空间，用户手动平移后暂停自动跟随。
 
