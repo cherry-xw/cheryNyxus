@@ -1,8 +1,8 @@
 # Agent 运行头部与结果节点树
 
-本文是工作台图形展示的目标契约。执行事实归 [workflow 协议](../shared/protocol/workflow.md)，后端层级归 [中间件](../backend/agent/middleware.md)，交互入口强制边界归 [Agent 运行图交互入口规范](../standards/modules/agent/runtime-diagram-interactions.md)，实施状态归 [活动计划](../plan/main-agent-runtime-diagram/README.md)。
+本文是工作台图形展示的目标契约。执行事实归 [workflow 协议](../shared/protocol/workflow.md)，后端层级归 [中间件](../backend/agent/middleware.md)，交互入口强制边界归 [Agent 运行图交互入口规范](../standards/modules/agent/runtime-diagram-interactions.md)。
 
-> **2026-09-15 当前契约覆盖说明**：工作台主画布为 Pixi `MessageBranchTree` 横向 Signal 节点树，节点为纯图标并保留节点/连线运行时动画、hover 详情和 `AnchoredRunCrt`。Vue Flow `RuntimeDiagram` 只在 `workflow` 辅助侧栏打开时挂载；它与 `cards`、`reader` 互斥，侧栏每次进入工作台默认为关闭。下文仍描述的“Vue Flow 单画布结果节点树”“不恢复 Pixi”“当前根审批锚定图内”等旧目标均已废止，实施以本覆盖说明、节点树维护文档和活动计划为准。
+> **2026-09-15 当前契约覆盖说明**：工作台主画布为 Pixi `MessageBranchTree` 横向 Signal 节点树，节点为纯图标并保留节点/连线运行时动画、hover 详情和 `AnchoredRunCrt`。Vue Flow `RuntimeDiagram` 只在 `workflow` 辅助侧栏打开时挂载；它与 `cards`、`reader` 互斥，侧栏每次进入工作台默认为关闭。下文仍描述的“Vue Flow 单画布结果节点树”“不恢复 Pixi”“当前根审批锚定图内”等旧目标均已废止，实施以本覆盖说明和节点树维护文档为准。
 
 ## 当前交互规则（替代下文旧展示位置与收起策略）
 
@@ -65,7 +65,7 @@
 
 内部展示接口维护层父子关系、展开集合、可见代表、关系成员、引脚、端口、路径和模板版本；RPC/schema/journal 不变。布局由 `headerLayout.layoutHeader` 与 [headerNestedLayout.ts](../../web/src/features/agent/workbench/runtime-diagram/headerNestedLayout.ts) 的 `buildNestedHeader` 维护；[headerCircuitPlacement.ts](../../web/src/features/agent/workbench/runtime-diagram/headerCircuitPlacement.ts) 的 `placeCircuit` 维护各层位置、四向端口和边界次序。`headerBoardRouting.routeBoardEdges` 先按短距离试布，受阻时撤回并优先重布该关系；[headerCircuitRouting.ts](../../web/src/features/agent/workbench/runtime-diagram/headerCircuitRouting.ts) 的 `circuitRoute` 包含进入方向与转弯代价，交叉及接触不可用。条件标签在全部线路完成后避让放置；固定模板缺少完整路线或标签位置时显式报错，由全组合回归阻止交付。`useHeaderBoardNavigation` 持有展开导航、可暂停运行跟随、相机和接口追踪。扩展节点时同步层归属、位置与引脚约束、关系表、证据匹配和全部展开组合验证。
 
-定向 Vitest 覆盖全部 256 种展开组合的关系守恒、封装边界映射、逐层进入/返回和 root 隔离、路由穿透/标签/端口、工具异常/续接、重试/Loop、交错协作、压缩、gap、root/回放及动画清理。验证入口：pnpm test:web、pnpm web:type-check、受影响 ESLint、pnpm web:build。最终自动与人工清单唯一维护在活动计划，旧通过不能替代新契约验收。浏览器/Electron 操作及视觉验收由用户执行，正常 p95 ≤20ms、压力 p95 ≤33ms。
+定向 Vitest 覆盖全部 256 种展开组合的关系守恒、封装边界映射、逐层进入/返回和 root 隔离、路由穿透/标签/端口、工具异常/续接、重试/Loop、交错协作、压缩、gap、root/回放及动画清理。验证入口：pnpm test:web、pnpm web:type-check、受影响 ESLint、pnpm web:build。浏览器/Electron 操作及视觉验收由用户执行，正常 p95 ≤20ms、压力 p95 ≤33ms。
 
 ## 运行反馈与阅读交互
 

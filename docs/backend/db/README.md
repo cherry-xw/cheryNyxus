@@ -28,7 +28,7 @@
 
 ## 文件清单
 
-现行粗粒度运行流程复用冻结资源清单及执行节点 JSON，不增加表；`upsertExecutionNode` 保留独立 workflow 结果附注。已采纳的详细步骤目标改用独立追加事实、尚待活动计划 T12 实现；存储生命周期与写者见[执行观察](../service/workflow.md)，跨端定义见[workflow 契约](../../shared/protocol/workflow.md)。
+现行粗粒度运行流程复用冻结资源清单及执行节点 JSON，不增加表；`upsertExecutionNode` 保留独立 workflow 结果附注。已采纳的详细步骤目标改用独立追加事实（workflow journal 与步骤事件表，已落地）；存储生命周期与写者见[执行观察](../service/workflow.md)，跨端定义见[workflow 契约](../../shared/protocol/workflow.md)。
 
 | 文件 | 一句话 |
 |------|--------|
