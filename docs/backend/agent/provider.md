@@ -84,6 +84,10 @@ Provider 目录按 protocol 解析默认地址，显式配置的 `brain.url` 仍
 
 ### 三层 Adapter 的接口契约
 
+请求统计通过可选的发送观察接口报告；观察失败不能改变模型执行、重试或取消策略。每次实际发送单独生成身份，供应商用量与上下文估算分开保存；没有报告的字段保持未知。流式读取必须消费仅包含 usage 的尾帧，累计字段以最新值覆盖而不是逐帧相加。OpenAI 的缓存读取和 reasoning 是输入、输出的子集；Anthropic 缓存读取和写入不包含在原始 input_tokens 内，需要分别保存后计算总输入。Ollama 使用 prompt_eval_count/eval_count；Mock 默认不报告计费用量。
+
+观察入口覆盖原生 fetch、OpenAI SDK 的响应副本、Anthropic SSE 和 Ollama async stream；解析供应商响应只更新已报告字段。SDK 重试在发送入口重新生成 attemptId，结束事件和迟到 usage 对同一 attempt 幂等更新。观察器异常只记录日志，不改变模型重试、取消或流式结束。
+
 | Adapter | 接口                                                                      | 文件                                                         |
 | ------- | ------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | LLM     | `chat()/chatStream()` 调用 LLM                                            | [core/llm/adapter.ts](../../../src/core/llm/adapter.ts)         |

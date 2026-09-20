@@ -1,4 +1,5 @@
 import { handleChatArchive, handleArchiveList, handleChatDelete } from './archive.js'
+import { registerUsageHandlers } from './usage.js'
 export { handleChatDelete } from './archive.js'
 import type { HandlerContext } from '../message/router.js'
 import {
@@ -2297,4 +2298,5 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_ARCHIVE_LIST, handleArchiveList)
   router.register(Method.CHAT_CONTEXT_USAGE, handleChatContextUsage)
   registerPromptSnapshotHandler(router)
+  registerUsageHandlers(router)
 }

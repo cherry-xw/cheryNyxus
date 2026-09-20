@@ -101,11 +101,14 @@ const ollamaLLMAdapter: LLMAdapter = {
     }
     try {
       const client = createOllamaClient(options)
-      return await client.chat({
+      options?.observation?.start(model)
+      const response = await client.chat({
         model,
         messages: msgArray,
         ...(senses.length > 0 && { tools: senses }),
       })
+      options?.observation?.response(response)
+      return response
     } catch (err) {
       throw classifyBrainError(err)
     }
@@ -134,13 +137,16 @@ const ollamaLLMAdapter: LLMAdapter = {
     }
     try {
       const client = createOllamaClient(options)
+      options?.observation?.start(model)
       const stream = await client.chat({
         model,
         messages: msgArray,
         stream: true,
         ...(senses.length > 0 && { tools: senses }),
       })
-      return wrapBrainStream(stream as AsyncIterable<unknown>)
+      return wrapBrainStream(stream as AsyncIterable<unknown>, (chunk) =>
+        options?.observation?.response(chunk),
+      )
     } catch (err) {
       throw classifyBrainError(err)
     }

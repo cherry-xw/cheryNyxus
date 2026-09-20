@@ -14,6 +14,7 @@ import {
   ChatRunResumeRequestSchema,
 } from '@chery/protocol'
 import { InternalCommand } from './internalCommand.js'
+import { UsageTaskRequestSchema, UsageBatchRequestSchema, UsagePageRequestSchema, UsageDailyRequestSchema, UsageDayTasksRequestSchema, ContextContentRequestSchema } from '@chery/protocol'
 
 /**
  * RPC 请求参数 zod schema（每 method 一个）。
@@ -302,6 +303,13 @@ export const configSaveSchema = configPreviewSchema.extend({
 })
 
 export const requestSchemas = {
+  [Method.CHAT_USAGE_DETAIL]: UsageTaskRequestSchema,
+  [Method.CHAT_USAGE_SUMMARIES]: UsageBatchRequestSchema,
+  [Method.CHAT_USAGE_ROUNDS]: UsagePageRequestSchema,
+  [Method.CHAT_USAGE_OPERATIONS]: UsagePageRequestSchema,
+  [Method.CHAT_USAGE_DAILY]: UsageDailyRequestSchema,
+  [Method.CHAT_USAGE_DAY_TASKS]: UsageDayTasksRequestSchema,
+  [Method.CHAT_CONTEXT_CONTENT]: ContextContentRequestSchema,
   [Method.BRAIN_LIST]: emptySchema,
   [Method.SENSE_LIST]: emptySchema,
   [Method.SENSE_TOOLS]: emptySchema,
@@ -626,6 +634,35 @@ export const requestSchemas = {
       includeFiles: z.boolean().optional(),
     })
     .strict(),
+  [Method.WORKSPACE_FILES_LIST]: z.object({
+    chatId: nonEmptyString,
+    path: z.string().max(4096).optional(),
+    offset: z.number().int().nonnegative().optional(),
+  }).strict(),
+  [Method.WORKSPACE_FILES_READ]: z.object({
+    chatId: nonEmptyString,
+    path: z.string().min(1).max(4096),
+  }).strict(),
+  [Method.WORKSPACE_GIT_STATUS]: z.object({ chatId: nonEmptyString }).strict(),
+  [Method.WORKSPACE_GIT_CHECKOUT]: z.object({ chatId: nonEmptyString, branch: z.string().min(1).max(256) }).strict(),
+  [Method.TERMINAL_CREATE]: z.object({
+    chatId: nonEmptyString,
+    target: z.discriminatedUnion('kind', [z.object({kind: z.literal('local'), cwd: z.string().max(4096).optional()}).strict(), z.object({
+      kind: z.literal('ssh'),
+      host: z.string().min(1).max(253),
+      port: z.number().int().positive().max(65535).optional(),
+      username: z.string().min(1).max(256),
+      credentialId: z.string().optional(),
+      password: z.string().optional(),
+      privateKey: z.string().max(32768).optional(),
+      passphrase: z.string().optional(),
+    }).strict().refine((target) => [target.credentialId, target.password, target.privateKey].filter(Boolean).length === 1, { message: '请选择一种 SSH 认证方式' })]).optional(),
+    cols: z.number().int().min(20).max(500).optional(),
+    rows: z.number().int().min(5).max(200).optional(),
+  }).strict(),
+  [Method.TERMINAL_INPUT]: z.object({ sessionId: nonEmptyString, data: z.string().max(100000) }).strict(),
+  [Method.TERMINAL_RESIZE]: z.object({ sessionId: nonEmptyString, cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200) }).strict(),
+  [Method.TERMINAL_CLOSE]: z.object({ sessionId: nonEmptyString }).strict(),
   [Method.CONFIG_SAVE]: configSaveSchema,
   [Method.CONFIG_PREVIEW]: configPreviewSchema,
   [Method.CONFIG_APPLY_STATUS]: emptySchema,

@@ -19,14 +19,22 @@
 
 ```ts
 interface WorkbenchWindowState {
-  id: string; presetId: string
-  presetName: string | null   // 入口携带的预设名（空白工作台/会话未水合时角色编制据此解析，不靠会话推导）
-  chatId: string | null       // 当前根会话（会话列表切换）
-  view; minimized              // 胶囊态
-  mode; position; size        // 窗口几何
-  capsulePos                  // 胶囊摆放位置（可拖，持久化）
-  historyDrawerStack; historyDrawerMode; historyDrawerAnchor
-  focused; zOrder; attentionBlink
+  id: string
+  presetId: string
+  presetName: string | null // 入口携带的预设名（空白工作台/会话未水合时角色编制据此解析，不靠会话推导）
+  chatId: string | null // 当前根会话（会话列表切换）
+  view
+  minimized // 胶囊态
+  mode
+  position
+  size // 窗口几何
+  capsulePos // 胶囊摆放位置（可拖，持久化）
+  historyDrawerStack
+  historyDrawerMode
+  historyDrawerAnchor
+  focused
+  zOrder
+  attentionBlink
 }
 ```
 
@@ -52,7 +60,7 @@ interface WorkbenchWindowState {
 
 自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、角色 popout、右侧待处理抽屉、composer dock、resize handles。rail 的钢琴按钮已移除——钢琴仅经**节点树彩蛋**触发浮层出现（见 [pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。
 
-**rail 工具栏分组与 lite/对话显隐（2026-08-28，2026-09 对话模式扩展）**：右侧工具栏按三组划分——**主操作**（发送消息 / 暂停·继续任务树 / 暂停全部分支）、**会话**（新建会话 / 对话模式 / 查看上下文；会话列表 ≡ 按钮及其 popout 已于 2026-09-16 移除，切换入口上移标题栏会话状态条，见下「标题栏会话状态条」）、**视图与配置**（布局切换 / 卡牌阅读 / 折叠档位 / 角色配置）；布局切换按钮从标题栏下独立顶部位置挪入视图与配置组。会话组 icon 区分：对话模式用 ↺（回看完整对话，整屏会话视图）、查看上下文用 ❐（内容快照），替换原 ◷/◍ 双圆点避免混淆。**三视图模式（2026-09 扩展）**：标题栏 `WorkbenchViewToggle` 由两档（树/精简）扩为三档——**树 / 对话 / 精简**；对话模式（`ConversationView` 整屏会话视图）替代原「档案」docked 抽屉，精简是对话的紧凑展示方式（lite）。视图状态以 `liteStore.viewModeByWindow` 为单一事实源、per-window 持久化（`cherynyxus:workbench-view-mode:<windowId>`，旧两档键 `cherynyxus:workbench-lite-view` 读取时迁移），入口见 [`useWorkbenchViewMode.ts`](../../web/src/features/agent/workbench/useWorkbenchViewMode.ts)。**lite/对话模式下隐藏无对应界面的按钮**：树视图类（发送消息 / 布局切换 / 卡牌阅读 / 折叠档位 / 暂停全部分支）——lite 的发送入口是底部输入框、对话模式有同款底部输入框（2026-09 起，见「会话视图（对话模式）」节），rail 的「发送消息」只对树视图 composer 有效故隐藏；「暂停·继续任务树」保留（lite 顶部的停止/继续是 abort/resume，与任务树 pause/resume 互补，用户拍板保留）；对话模式隐藏 composer dock 与 ctx 分割线（`.is-conversation`），待处理审批与提问在对话模式仍走左下角浮窗（铃铛收起/展开），消息列表内提问可直接作答（`QuestionRenderer` 可交互形态，见下）。**角色 popout（rail ♟）只读**：仅展示角色大脑/器官组信息，不提供编辑（`RoleConfigPopover` 传 `readonly`，选择区隐藏，资料卡 🔒 只读标）；编辑入口只在发送消息 composer 的角色卡片中。
+**rail 工具栏分组与 lite/对话显隐（2026-08-28，2026-09 对话模式扩展）**：右侧工具栏按三组划分——**主操作**（发送消息 / 暂停·继续任务树 / 暂停全部分支）、**会话**（新建会话 / 对话模式 / 查看上下文；会话列表 ≡ 按钮及其 popout 已于 2026-09-16 移除，切换入口上移标题栏会话状态条，见下「标题栏会话状态条」）、**视图与配置**（布局切换 / 卡牌阅读 / 折叠档位 / 角色配置）；布局切换按钮从标题栏下独立顶部位置挪入视图与配置组。会话组 icon 区分：对话模式用 ↺（回看完整对话，整屏会话视图）、查看上下文用 ❐（内容快照），替换原 ◷/◍ 双圆点避免混淆。**查看上下文侧边抽屉（2026-09-18）**：rail ❐ 按钮由 460px 小弹窗改为工作台内右侧抽屉（`workbench-context-drawer`，状态在 `useWorkbenchDialogController` 的 `contextDrawerOpen`）——与卡牌模式抽屉同款形态（参照 `MessageBranchTree` 的 tree-drawer）：遮罩 `--nx-z-drawer-mask` + 贴右缘面板 `--nx-z-drawer`，从标题栏下方延伸到底部、宽 `min(720px, 88%)`，40px 头部（标题 + ✕），占用条（inline）置于内容区顶部，主体滚动展示 `PromptSnapshotTip`（系统消息全文 + 工具定义）；内容排版统一 12px、去加粗（scoped `:deep()` 覆盖子组件样式）；Esc / 遮罩 / ✕ 关闭；历史抽屉内「上下文」hover 弹窗维持原样。**三视图模式（2026-09 扩展）**：标题栏 `WorkbenchViewToggle` 由两档（树/精简）扩为三档——**树 / 对话 / 精简**；对话模式（`ConversationView` 整屏会话视图）替代原「档案」docked 抽屉，精简是对话的紧凑展示方式（lite）。视图状态以 `liteStore.viewModeByWindow` 为单一事实源、per-window 持久化（`cherynyxus:workbench-view-mode:<windowId>`，旧两档键 `cherynyxus:workbench-lite-view` 读取时迁移），入口见 [`useWorkbenchViewMode.ts`](../../web/src/features/agent/workbench/useWorkbenchViewMode.ts)。**lite/对话模式下隐藏无对应界面的按钮**：树视图类（发送消息 / 布局切换 / 卡牌阅读 / 折叠档位 / 暂停全部分支）——lite 的发送入口是底部输入框、对话模式有同款底部输入框（2026-09 起，见「会话视图（对话模式）」节），rail 的「发送消息」只对树视图 composer 有效故隐藏；「暂停·继续任务树」保留（lite 顶部的停止/继续是 abort/resume，与任务树 pause/resume 互补，用户拍板保留）；对话模式隐藏 composer dock 与 ctx 分割线（`.is-conversation`），待处理审批与提问在对话模式仍走左下角浮窗（铃铛收起/展开），消息列表内提问可直接作答（`QuestionRenderer` 可交互形态，见下）。**角色 popout（rail ♟）只读**：仅展示角色大脑/器官组信息，不提供编辑（`RoleConfigPopover` 传 `readonly`，选择区隐藏，资料卡 🔒 只读标）；编辑入口只在发送消息 composer 的角色卡片中。
 
 - chatId 来源：`useAgentDialogOptions({ chatId: () => win.chatId ?? null })`，不再读全局单例。
 - **presetName 来源**：`useAgentDialogOptions` 同传 `presetName: () => win.presetName ?? null`——窗口打开时由**入口携带**（Nyxus 传预设名 `'cheryNyxus'`、Pet 传历史 summary 的 `preset` 名），不依赖 pet/session/history 推导。空白工作台（无历史会话、会话未水合）下角色编制、Nyxus 判定、`quickTargetRequired`、`roleMentions` 等据此立即正确。
@@ -83,7 +91,7 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
   - **显示条件**：对话模式恒显；overlay 为 `layout === 'group'` 且（同 preset 可切换 root 会话 >1 **或** 任务分支数 >1），且当前 chat 非解释分支（overlay 打开解释分支会话时值不在二级选项中，降为静态标题 `titleText`）。
 - **下拉切换**：`onSwitchCascade` 分支——对话模式经 `onSwitchChat` 回调交给工作台（`setWorkbenchWindowChat(windowId, cid)`，树/精简/对话三视图随窗口会话整体跟随）；抽屉路径透传当前 `historyDrawerMode` + `historyDrawerAnchor`（`manager.openRoot(cid, mode, anchor)`），保持 dock 锚定不回退 overlay。
 - **「设为主流程」按钮**（`activateCurrentBranch`）：当前打开分支 `kind !== 'detail'` 且 `branchId !== activeBranchId` 时显示；点击经 `chat.branch.activate` 切换主干后刷新 `getTaskTimeline({ view: 'conversation' })`。`detail` 永远不能设为主干（对齐后端语义）。
-- **底部输入框（2026-09，精简模式同款）**：`ConversationView` 纵向布局 = 会话面板（flex:1）+ 底部输入区（`.conversation-input`）——单行自适应 textarea（Enter 发送 / Shift+Enter 换行）+ 实心发送钮，视觉用会话面板 token（`--accent` 暖金系，非 lite 的 `--el-color-primary`）。**展开交互（2026-10）**：默认 6 行（120px）上限；发送钮右上角有展开钮（`.conversation-expand-btn`，⤢/⤡，el-tooltip 提示），点击后输入框高度提升到**至少 12 行（`min-height: min(240px, 50vh)`）、最高窗口一半（`max-height: 50vh`）**，大段内容输入不再在小框中翻页滚动；状态存组件内 ref（`expandedInput`），不持久化。草稿与树 composer **共用 `text` 同一事实源**（`onConversationDraftInput` 直写 `text.value`，树端打开时经 `restoreEditor` 回填；切会话 stash 照常），发送走同一 `sendFromComposer`（分支目标/快速目标/附件提交语义一致）。输入区提示随行状态：发送错误行（`error`）、分支目标 chip（`composerBranchTitle`，✕ 只清目标不动草稿）、草稿附件计数 chip（附件管理仍在树视图输入框）。
+- **底部输入框（2026-09，精简模式同款）**：`ConversationView` 纵向布局 = 会话面板（flex:1）+ 底部输入区（`.conversation-input`）——单行自适应 textarea（Enter 发送 / Shift+Enter 换行）+ 实心发送钮，视觉用会话面板 token（`--accent` 暖金系，非 lite 的 `--el-color-primary`）。**展开交互（2026-10，2026-11 显隐/图标重设计）**：默认 6 行（120px）上限；发送钮右上角有展开钮（`.conversation-expand-btn`，EP `Top` 矢量图标、展开态旋转 180° 表「收起」，el-tooltip 提示），**默认隐藏、仅当输入内容超过 2 行时出现**（行数按可视行计、含自动换行，`refreshInput` 重算高度时顺带测量 `inputLines`；内容回落 2 行以内自动收起展开态，避免「已展开却无法收起」），点击后输入框高度提升到**至少 12 行（`min-height: min(240px, 50vh)`）、最高窗口一半（`max-height: 50vh`）**，大段内容输入不再在小框中翻页滚动；状态存组件内 ref（`expandedInput`），不持久化。输入框高度重算在 `box-sizing: border-box` 下补上边框高度（原 `height = scrollHeight` 使盒子比内容矮 1px×2，空内容也挤出右侧细滚动条，2026-11 修复）。草稿与树 composer **共用 `text` 同一事实源**（`onConversationDraftInput` 直写 `text.value`，树端打开时经 `restoreEditor` 回填；切会话 stash 照常），发送走同一 `sendFromComposer`（分支目标/快速目标/附件提交语义一致）。输入区提示随行状态：发送错误行（`error`）、分支目标 chip（`composerBranchTitle`，✕ 只清目标不动草稿）、草稿附件计数 chip（附件管理仍在树视图输入框）。
 - **待处理提问列表内直接作答（2026-09）**：对话模式不内嵌独立待处理区（左下角浮窗对树/对话模式照常渲染，铃铛收起/展开语义不变）。消息列表里 `ask_user_question` 的渲染器 `QuestionRenderer` 在**等待中（call.status='running'）且命中 pending 提问批**时切换为可交互形态：选项可点选（单选互斥/多选叠加）、选项「补充」输入、「其他」也作为选项项（单选/多选视觉一致，点击展开自由文本输入，单选互斥/多选共存）、底部「提交回答」按钮——匹配关系 `call.id = questionId`（后端 question_items.question_id 即 call.id），提交走 `interactions.answer`（整批原子提交，草稿与浮窗/决策窗口**全局共享**：批内多题可逐卡作答，任一卡片提交整批；其他题未答时提交给出明确提示）。提交后交互项进入 resolving/completed，卡片自动回退只读展示（已回答/已取消）。`ConversationView` 打开时 `interactions.refresh()` 一次（后续由 `interaction.changed` 事件实时 upsert），确保列表内提问可交互。
 - **历史加载**：面板经 `manager.loadHistory(chatId, owner)` 获取 root 时间线（`view: 'conversation'`），与树订阅（`view: 'tree'`）、lite 读模型多 owner 并存；抽屉路径 owner 为全局 `history-drawer`，对话模式用 per-window owner `workbench:<windowId>:conversation`（切会话释放上一根、退出对话模式释放当前根，与树订阅 owner 模式一致，避免跨会话累积订阅）。切会话（标题栏状态条 / 对话模式级联）经 `setWorkbenchWindowChat` 驱动 `treeRootChatId` → `ConversationView` prop 变化 → 面板重载。
 - **overlay 全局抽屉**：仍由 PetStage / 任务中心 / 归档设置等入口打开（`openHistoryRoot(chatId, 'overlay')`），App.vue 按 `historyDrawerMode === 'overlay'` 渲染独立历史窗，工作台不持有该路径。
@@ -107,9 +115,13 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
 authenticated 分支保留 `<AgentDialog />`，新增：
 
 ```vue
-<WorkbenchDialog v-for="win in agents.workbenchWindowsList"
-  :key="win.id" :window-id="win.id" :preset-id="win.presetId" />
-<WorkbenchCapsule v-for="win in agents.workbenchWindowsList.filter(w=>w.minimized)" ... />
+<WorkbenchDialog
+  v-for="win in agents.workbenchWindowsList"
+  :key="win.id"
+  :window-id="win.id"
+  :preset-id="win.presetId"
+/>
+<WorkbenchCapsule v-for="win in agents.workbenchWindowsList.filter((w) => w.minimized)" ... />
 ```
 
 （胶囊渲染用 `template v-for` 包裹，避免 `v-for`+`v-if` 同元素作用域问题。）
@@ -137,9 +149,9 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 ### 工具能力解释
 
 - 后端审批注册时从 senseRegistry 注入 sense 定义 `description` → `ApprovalPayload.senseDescription` → interaction payload（[manager.ts](../../src/service/approval/manager.ts) / [observer.ts](../../src/service/chat/observer.ts)）。
-- 审批卡不直接暴露「工具名 + 原始 action」。共享 [approvalPresentation.ts](../../web/src/utils/approvalPresentation.ts) 把 `senseName + arguments` 投影为「大模型需要做什么」、能力、行为、对象和「由你审批后执行」标记；未知自定义工具保留原名安全回退。
+- 审批卡不直接暴露「工具名 + 原始 action」。共享 [approvalPresentation.ts](../../web/src/utils/approvalPresentation.ts) 把 `senseName + arguments` 投影为标题（「大模型需要做什么」）、能力、行为、对象；未知自定义工具保留原名安全回退。**2026-11 精简**：审批界面不再显示「大模型发起 / 由你审批后执行」徽章与「批准后才会执行」总结句——`ApprovalSummary` 只留标题 + 能力/行为/对象，`InteractionCard` 卡头不再重复标题（标题由 `ApprovalSummary` 单一承载）。
 - `config_manage` 按实际 `action` 显示「获取/修改/恢复配置参数」或「获取/保存/归档角色资产」；技术值（如 `get`）仅在完整参数中作为追溯信息保留。
-- [ParsedArgs.vue](../../web/src/features/agent/cards/ParsedArgs.vue) 与递归 `ArgumentValue.vue` 解析 JSON 字符串、嵌套对象和数组，统一中文字段名；非法 JSON 仍以原文回退，不会丢失审批证据。
+- [ParsedArgs.vue](../../web/src/features/agent/cards/ParsedArgs.vue) 与递归 `ArgumentValue.vue` 解析 JSON 字符串、嵌套对象和数组，统一中文字段名；非法 JSON 仍以原文回退，不会丢失审批证据。**2026-11**：`完整操作参数` **默认收起**（点击 ▸ 展开），开关为**无边框纯文字**（内部已是 key:value 行，不再套胶囊边框）。
 - 后端注入的 sense `description` 保留为默认折叠的深入能力说明，不再承担审批主标题。
 
 ### 节点展开与动画
@@ -158,7 +170,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 - **工具解释排版**：`.sense-desc` 不设 `max-height` 滚动（避免内容被挤压小空间），随面板列表自然滚动；字号 15px（2026-10 全局放大后）、行高 1.65、正文色。
 - **倒计时**：approval 卡头状态旁显示 `剩余 Ns`（后端 `deadlineAt` = createdAt + approval_timeout），归零变红显示「已超时」，`now` 250ms 定时器驱动。
 - **语义标题**：待确认标题统一使用 `createApprovalPresentation`，不再只是 sense 英文名的中文替换。
-- **同步入口**：节点树工作台、Pet 气泡、设置窗待办与轻量工作台共用 `ApprovalSummary + ParsedArgs`，同一审批在不同入口的标题、参数和审批责任标记一致。
+- **同步入口**：节点树工作台、Pet 气泡、设置窗待办与轻量工作台共用 `ApprovalSummary + ParsedArgs`，同一审批在不同入口的标题、参数展示一致（2026-11 起不再有「审批责任标记」徽章，`ParsedArgs` 完整操作参数默认收起、无边框纯文字开关）。
 
 ### 左右分栏重构（2026-08-23）
 
@@ -234,30 +246,30 @@ props `rootChatId`/`focusedInteraction`、emit `locate`、挂载点 `WorkbenchDi
 
 ### 本次改动文件
 
-| 文件 | 变更 |
-|------|------|
-| `web/src/features/agent/attention/PendingOperationsPanel.vue` | 重写：状态头 + FocusCard 单层结构 + GSAP/Flip 动效 |
-| `web/src/features/agent/attention/PendingOperationsPanel.styles.less` | 重写：全直角、去 backdrop-filter、token 色收敛 |
-| `web/src/features/agent/attention/PendingQueueStrip.vue` | 新：底部队列缩略带（键盘循环 + scrollIntoView） |
-| `web/src/features/agent/attention/QuestionStepper.vue` | 新：问题步进器（进度点 + 上/下题） |
-| `web/test/agents/pendingOperationsLayout.test.ts` | 重写：旧 DOM 断言 → 聚焦流水线结构断言 |
+| 文件                                                                  | 变更                                               |
+| --------------------------------------------------------------------- | -------------------------------------------------- |
+| `web/src/features/agent/attention/PendingOperationsPanel.vue`         | 重写：状态头 + FocusCard 单层结构 + GSAP/Flip 动效 |
+| `web/src/features/agent/attention/PendingOperationsPanel.styles.less` | 重写：全直角、去 backdrop-filter、token 色收敛     |
+| `web/src/features/agent/attention/PendingQueueStrip.vue`              | 新：底部队列缩略带（键盘循环 + scrollIntoView）    |
+| `web/src/features/agent/attention/QuestionStepper.vue`                | 新：问题步进器（进度点 + 上/下题）                 |
+| `web/test/agents/pendingOperationsLayout.test.ts`                     | 重写：旧 DOM 断言 → 聚焦流水线结构断言             |
 
 ## 改动文件清单
 
-| 文件 | 变更 |
-|------|------|
-| `web/src/stores/agents/ui/uiState.ts` | 窗口注册表 + actions |
-| `web/src/stores/agents/ui/streamRouter.ts` | 通知→blink 触发/熄灭 |
-| `web/src/stores/chats/index.ts` | 移除根观察单例守卫 |
-| `web/src/features/agent/workbench/WorkbenchDialog.vue` | 新：自包含窗口组件 |
-| `web/src/features/agent/workbench/WorkbenchCapsule.vue` | 新：胶囊最小化 |
-| `web/src/features/agent/composer/useAgentDialogOptions.ts` | 参数化 chatId 来源（2026-08-21 加 presetName 入口） |
-| `web/src/features/agent/workbench/useWorkbenchWindow.ts` | 参数化 windowId + per-window key |
-| `web/src/features/agent/chat/AgentDialog.vue` | 精简为 composer 单例 |
-| `web/src/features/agent/toolbar/PetToolbar.vue` | 工作台 icon 入口（携带 presetName） |
-| `web/src/features/pets/nyxus/components/NyxusCore.vue` | 工作台入口携带 `CHERY_NYXUS_PRESET` |
-| `web/src/App.vue` | 多窗口/胶囊渲染（workbench 面读 URL `presetName`） |
-| `web/src/features/desktop/desktopBridge.ts` + `web/electron/main.ts` + `web/electron/preload.ts` | `OpenWindowRequest` 透传 `presetName` |
+| 文件                                                                                             | 变更                                                |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `web/src/stores/agents/ui/uiState.ts`                                                            | 窗口注册表 + actions                                |
+| `web/src/stores/agents/ui/streamRouter.ts`                                                       | 通知→blink 触发/熄灭                                |
+| `web/src/stores/chats/index.ts`                                                                  | 移除根观察单例守卫                                  |
+| `web/src/features/agent/workbench/WorkbenchDialog.vue`                                           | 新：自包含窗口组件                                  |
+| `web/src/features/agent/workbench/WorkbenchCapsule.vue`                                          | 新：胶囊最小化                                      |
+| `web/src/features/agent/composer/useAgentDialogOptions.ts`                                       | 参数化 chatId 来源（2026-08-21 加 presetName 入口） |
+| `web/src/features/agent/workbench/useWorkbenchWindow.ts`                                         | 参数化 windowId + per-window key                    |
+| `web/src/features/agent/chat/AgentDialog.vue`                                                    | 精简为 composer 单例                                |
+| `web/src/features/agent/toolbar/PetToolbar.vue`                                                  | 工作台 icon 入口（携带 presetName）                 |
+| `web/src/features/pets/nyxus/components/NyxusCore.vue`                                           | 工作台入口携带 `CHERY_NYXUS_PRESET`                 |
+| `web/src/App.vue`                                                                                | 多窗口/胶囊渲染（workbench 面读 URL `presetName`）  |
+| `web/src/features/desktop/desktopBridge.ts` + `web/electron/main.ts` + `web/electron/preload.ts` | `OpenWindowRequest` 透传 `presetName`               |
 
 ## 保留耦合点 / 未来工作
 
@@ -287,23 +299,23 @@ props `rootChatId`/`focusedInteraction`、emit `locate`、挂载点 `WorkbenchDi
 
 **渲染层四 surface**（App.vue 分发）：
 
-| surface | 内容 |
-|---------|------|
-| `?surface=desktop` | 桌面透明宠物窗（不变：PetStage/NyxusCore/AgentDialog） |
-| `?surface=settings` | 设置原生窗：`WindowFrame`（标题栏三键/主题边框）内嵌 `<SettingsDialog native/>`（native 面隐藏自身 header，标题 + 打开配置文件夹按钮并入 WindowFrame 标题栏） |
-| `?surface=composer&chatId=xx&view=composer|attention` | 发消息（快速发送）原生窗：`WindowFrame` 外壳承载标题栏（标题=当前会话 pet 名，回退预设名），`title-actions` slot 放两个能力按钮——🌳 打开当前会话节点树工作台 + ! 待处理交互（有待处理时充能高亮：accent 金底白字 + 徽标脉动光晕；点击切 attention 视图）。`<AgentDialog native/>` 隐藏自绘标题栏，按钮操作经 `defineExpose` 暴露调用。待处理视图（`WorkspaceSessionBrowser` native 模式）**整窗铺满布局**（无二次内边距，列表区 `flex:1` 内部滚动 + `.inner-scrollbar` 弱化滚动条），按 `rootChatId` 会话分组（分组头显会话名 + 计数），顶部导航 chip 点击滚动定位到对应分组；「需确认 / 需回答」kind 标签全局双色高对比（金/紫实色底白字，native 与浮动窗一致） |
+| surface                                                  | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `?surface=desktop`                                       | 桌面透明宠物窗（不变：PetStage/NyxusCore/AgentDialog）                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `?surface=settings`                                      | 设置原生窗：`WindowFrame`（标题栏三键/主题边框）内嵌 `<SettingsDialog native/>`（native 面隐藏自身 header，标题 + 打开配置文件夹按钮并入 WindowFrame 标题栏）                                                                                                                                                                                                                                                                                                   |
+| `?surface=composer&chatId=xx&view=composer               | attention`                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 发消息（快速发送）原生窗：`WindowFrame` 外壳承载标题栏（标题=当前会话 pet 名，回退预设名），`title-actions` slot 放两个能力按钮——🌳 打开当前会话节点树工作台 + ! 待处理交互（有待处理时充能高亮：accent 金底白字 + 徽标脉动光晕；点击切 attention 视图）。`<AgentDialog native/>` 隐藏自绘标题栏，按钮操作经 `defineExpose` 暴露调用。待处理视图（`WorkspaceSessionBrowser` native 模式）**整窗铺满布局**（无二次内边距，列表区 `flex:1` 内部滚动 + `.inner-scrollbar` 弱化滚动条），按 `rootChatId` 会话分组（分组头显会话名 + 计数），顶部导航 chip 点击滚动定位到对应分组；「需确认 / 需回答」kind 标签全局双色高对比（金/紫实色底白字，native 与浮动窗一致） |
 | `?surface=workbench&presetId=xx&chatId=xx&presetName=xx` | 工作台原生窗（每 preset 一窗）：**同用 `WindowFrame` 公共外壳**——`<WorkbenchDialog native/>` 隐藏自身 `.workbench-titlebar`，标题显示预设名、`attentionBlink` → 标题栏闪烁、关闭经 `defineExpose(closeWorkbench)` 由 WindowFrame `close` handler 接管（先释放根时间线订阅），另渲染 `HistoryDrawer`。`presetName` 由入口经 `OpenWindowRequest` 携带 → main `extraParams` 拼入 URL → App.vue 读 `?presetName=` 写 `win.presetName`（空白工作台角色编制解析必需） |
-| 无 surface | 浏览器单页（**逐字节不变**：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉） |
+| 无 surface                                               | 浏览器单页（**逐字节不变**：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉）                                                                                                                                                                                                                                                                                                                                                                                     |
 
 每个原生窗是独立 renderer，各连一条 WS（后端 `ConnectionManager` 支持多连接）；跨窗状态只经 query（chatId/presetId）+ 少量 IPC（`workbench:open-chat` / `workbench:focus` / `window:focused` / `theme:set`）。
 
 ### 窗口生命周期
 
-| 操作 | 设置窗 | 工作台窗 |
-|------|--------|----------|
-| 点 X 关闭 | **destroy**（无运行状态，重开重载 config） | **hide 不销毁**：WS 与 run 保持、任务继续；重开同 preset → show+focus 还原（任务可见/可继续） |
-| 最小化 | 任务栏 | 任务栏，run 继续 |
-| 最大化/还原 | 原生（双击标题栏 / Win+↑ / 拖边缘均可） | 同左 |
+| 操作        | 设置窗                                     | 工作台窗                                                                                      |
+| ----------- | ------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| 点 X 关闭   | **destroy**（无运行状态，重开重载 config） | **hide 不销毁**：WS 与 run 保持、任务继续；重开同 preset → show+focus 还原（任务可见/可继续） |
+| 最小化      | 任务栏                                     | 任务栏，run 继续                                                                              |
+| 最大化/还原 | 原生（双击标题栏 / Win+↑ / 拖边缘均可）    | 同左                                                                                          |
 
 托盘点击 / `app.activate` / `second-instance`：原打开 console 壳窗 → **改为打开设置窗**（应用主界面锚点）。
 
@@ -335,23 +347,23 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 
 ### 改动文件清单（Part 3）
 
-| 文件 | 变更 |
-|------|------|
-| `web/electron/main.ts` | 删 console 全套；`ManagedWindow` 注册表 + settings/workbench 工厂 + `window:open/control/set-background/flash`/`theme:changed` IPC + bounds 持久化；托盘/activate/second-instance → 打开设置窗 |
-| `web/electron/preload.ts` | 删 `ConsoleTarget`；新 bridge（openWindow/windowControl/onWindowMaximized/onWindowFocused/onWorkbenchFocus/onOpenChat/flashFrame/setBackgroundColor/emitThemeChanged/onThemeSet） |
-| `web/src/features/desktop/desktopBridge.ts` | 同上镜像类型 |
-| `web/src/features/desktop/useWindowFrame.ts` | 新：通用窗口外壳 composable + `lockWindowRootColorScheme` |
-| `web/src/features/desktop/WindowFrame.vue` | 新：自绘标题栏外壳 |
-| `web/src/styles/windowControls.less` | 新：共享三键样式 |
-| `web/src/App.vue` | surface 四分发；workbench 面同步注册 + focus/open-chat/flashFrame/主题订阅；删 console 分支与 `bindConsoleNavigation` |
-| `web/src/features/agent/settings/SettingsDialog.vue` | `native` prop（铺满窗、去自拖拽/自三键、close→windowControl、mounted 加载） |
-| `web/src/features/agent/workbench/WorkbenchDialog.vue` | `native` prop（fullscreen 恒置、三键走 windowControl、titlebar drag、resize 隐藏、attentionBlink→flashFrame） |
-| `web/src/features/pets/nyxus/components/NyxusCore.vue` | 入口改 `openWindow` |
-| `web/src/features/agent/chat/AgentDialog.vue` | 入口改 `openWindow`（含 `openWorkspaceTree` 盲点修复） |
-| `web/src/features/agent/toolbar/PetToolbar.vue` | 入口改 `openWindow`（盲点修复） |
-| `web/src/features/desktop/ConsoleShell.vue` | 删除 |
-| `web/src/stores/theme.ts` | `applyFrom(theme)` + Electron 面 `setBackgroundColor` + `emitThemeChanged` |
-| `web/src/styles/theme.css` | `html.window-surface` 兜底背景 |
+| 文件                                                   | 变更                                                                                                                                                                                           |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `web/electron/main.ts`                                 | 删 console 全套；`ManagedWindow` 注册表 + settings/workbench 工厂 + `window:open/control/set-background/flash`/`theme:changed` IPC + bounds 持久化；托盘/activate/second-instance → 打开设置窗 |
+| `web/electron/preload.ts`                              | 删 `ConsoleTarget`；新 bridge（openWindow/windowControl/onWindowMaximized/onWindowFocused/onWorkbenchFocus/onOpenChat/flashFrame/setBackgroundColor/emitThemeChanged/onThemeSet）              |
+| `web/src/features/desktop/desktopBridge.ts`            | 同上镜像类型                                                                                                                                                                                   |
+| `web/src/features/desktop/useWindowFrame.ts`           | 新：通用窗口外壳 composable + `lockWindowRootColorScheme`                                                                                                                                      |
+| `web/src/features/desktop/WindowFrame.vue`             | 新：自绘标题栏外壳                                                                                                                                                                             |
+| `web/src/styles/windowControls.less`                   | 新：共享三键样式                                                                                                                                                                               |
+| `web/src/App.vue`                                      | surface 四分发；workbench 面同步注册 + focus/open-chat/flashFrame/主题订阅；删 console 分支与 `bindConsoleNavigation`                                                                          |
+| `web/src/features/agent/settings/SettingsDialog.vue`   | `native` prop（铺满窗、去自拖拽/自三键、close→windowControl、mounted 加载）                                                                                                                    |
+| `web/src/features/agent/workbench/WorkbenchDialog.vue` | `native` prop（fullscreen 恒置、三键走 windowControl、titlebar drag、resize 隐藏、attentionBlink→flashFrame）                                                                                  |
+| `web/src/features/pets/nyxus/components/NyxusCore.vue` | 入口改 `openWindow`                                                                                                                                                                            |
+| `web/src/features/agent/chat/AgentDialog.vue`          | 入口改 `openWindow`（含 `openWorkspaceTree` 盲点修复）                                                                                                                                         |
+| `web/src/features/agent/toolbar/PetToolbar.vue`        | 入口改 `openWindow`（盲点修复）                                                                                                                                                                |
+| `web/src/features/desktop/ConsoleShell.vue`            | 删除                                                                                                                                                                                           |
+| `web/src/stores/theme.ts`                              | `applyFrom(theme)` + Electron 面 `setBackgroundColor` + `emitThemeChanged`                                                                                                                     |
+| `web/src/styles/theme.css`                             | `html.window-surface` 兜底背景                                                                                                                                                                 |
 
 浏览器面（无 surface）不受影响：`uiState.ts` workbenchWindows 注册表 / capsule / 几何 / `settingsOpen` 全部保留（浏览器多窗口模式照常），Electron 原生面下这些字段自然休眠。
 
@@ -404,9 +416,38 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 #### 全部任务入口与覆盖页
 
 - 原标题栏下拉入口替换为“全部任务”图标。点击后只覆盖所属工作台的节点树内容区，标题栏保留可操作；输入区、底层节点树和其他工作台在覆盖期间不能误接收指针或键盘操作。
-- 一张等高卡片对应一个任务，任务内分支合并。卡片展示状态、未查看、标题、最近要求、当前进展或最新结果或安全失败说明、更新时间、分支数；没有可靠内容时显示明确空态，不显示节点树缩略图，也不生成摘要。更多菜单提供标题栏显示/收起和归档。
+- 一张等高卡片对应一个任务，任务内分支合并。卡片通过 `chat.taskUsage.summaries` 批量读取真实累计 Token、轮次、模型请求和参与 Agent 数；空任务显示真实零值或未知值，请求失败显示缺失状态，不得根据 `taskKey` 分配演示统计。当前上下文快照没有长期记录时明确显示“暂无快照”。更多菜单提供标题栏显示/收起和归档。
 - 普通卡片点击打开任务活动主流程；解释分支不作为默认打开目标。任务与分支身份、状态、未查看和完整历史查询以[共享协议](../shared/protocol/websocket.md#工作台任务目录与结果查看记录)为准。
-- 页面首次打开为三列/两列/一列响应式等高网格。搜索覆盖当前预设完整非归档历史的任务标题、用户提问和结果，返回来源明确的纯文本命中片段；支持状态、最近活动时间和排序，并显示结果总数。
+- 页面首次打开为三列/两列/一列响应式等高网格。搜索覆盖当前预设完整非归档历史的任务标题、用户提问和结果，返回来源明确的纯文本命中片段；状态、最近活动时间和排序使用相同的下拉按钮样式。“清除筛选”始终占位，未选择条件时禁用，并显示结果总数。
 - 一次浏览期间冻结卡片顺序。实时状态只原位更新卡片；新任务显示“有新内容”提示，不再符合筛选的卡片暂留。用户主动刷新或改变筛选后才建立新结果快照。
 - 普通打开恢复该工作台上次筛选、排序和滚动位置；从标题栏状态角标进入时使用对应筛选，但不覆盖普通入口的已保存条件。关闭覆盖页恢复原节点树位置和焦点。
 - 浏览卡片、打开 tip 和后台预载均不算查看。只有任务切换完成、对应最新结果成功显示、窗口处于前台且覆盖页已关闭时才确认查看；迟到加载只能确认其携带的旧 `resultId`，不得清除期间产生的新结果。
+
+#### 上下文与统计只读面板
+
+概览无跳转至上下文的交互；分类图例为 ECharts Legend，支持开关系列与悬停联动，环图扇区使用原生放大。步骤图默认显示最近 48 步（窄窗 30 步），范围滑块高 28px，整列 axisPointer 阴影；无图表横向浏览器滚动条。工具调用为固定列的紧凑表格，数量不限，不使用独立方块。
+
+阅读样式参考 [Microsoft Fluent 2 Typography](https://fluent2.microsoft.design/typography) 的基线对齐与正文/辅助信息层级；保留项目 12px 下限和正常字重。具体标题增加轻量标识、章节细分隔、参数隔行底色，长文用排版而非大卡片分割。ECharts 图例行为参考 [官方图例说明](https://echarts.apache.org/handbook/en/concepts/legend/)。
+
+运行摘要并入左上上下文模块。小统计块使用可整除条目数的列数，等宽等高填满每一行；操作与媒体合计八项，采用四/二/一列。柱状图使用 ECharts Canvas 和 dataZoom 在固定宽度容器展示，按窗口宽度增加可见柱数，少量记录时按类别填满横轴；同一步的所有分类同时高亮。未来真实大数据查询必须先聚合或分段加载，当前 Demo 不承担亿级原始记录渲染。
+
+上下文阅读采用嵌入分隔线的轻量分类标签，不保留左侧分类栏或分类大外壳。具体条目名称使用 15px 正常字重，来源在旁侧弱化；正文行高 1.55，宽窗长文自动双栏连续排版，窄窗单栏，标题与后文尽量保持同栏。工具与技能各条内容直接列出，不再添加分类卡片边框。
+
+图表使用 ECharts 绘制。步骤柱关联只读操作记录，悬停、点击或键盘选择后在图下显示轮次、步骤、输入占比及操作；汇总区点击统计数字可筛选操作明细。工具耗时、调用与失败合并为自适应多列卡片。正文按类别使用规则排版、技能说明与工具参数卡，无分类定位或复制按钮。缓存命中率仅以已报告请求为分母；未知图片、语音和操作数量不能补成零。Demo 操作只供展示，命令与路径不得执行。
+
+- 工作台右侧“查看上下文”进入两页签的上下文与统计面板。面板打开后按任务根身份读取 `chat.taskUsage.detail` 与 `chat.contextContent`；列表页和每日热力图分别使用批量摘要、日统计和日期任务查询。服务端失败时显示错误或已保存内容状态，不用演示数据掩盖真实失败；仅无真实任务时才保留隔离的开发 fixture。
+- 从未发送用户消息的空任务不显示卡片统计或“查看上下文”入口；面板查询也以首个真实模型请求为展示门槛。输入组成暂时为空时仍绘制最近 24 小时到当前时刻的空 X/Y 坐标轴和时间范围条，使“尚无数据”和“图表未加载”可区分。
+- 面板只负责查看：统计概览与上下文内容两个页签；纪元选择、原因及交接说明并入上下文内容。它不提供修改配置、启停技能或工具、压缩、恢复、切换运行纪元等操作，也不得因为打开面板而调用模型。
+- 已保存请求输入分类时，Token 变化默认按步骤（一次模型请求）显示固定宽度、直角堆叠柱并支持按轮次汇总；分类估算不能当作供应商累计账单。当前长期记录尚不包含完整分类时显示无记录空态，不得沿用 Demo 组成。模型名称仅在真实记录或明确配置来源可用时展示。
+- 工具定义列表常驻展示参数名称、类型、必填状态和格式化参数说明；工具长描述与完整定义收进“查看工具详情”弹窗，保存内容中的转义换行须还原为实际段落。没有可选纪元时不显示空的纪元选择框。
+- 所有上下文环形图共用主题感知的提示层：提示层限制宽度并留在图表范围内，显示分类、Token、窗口占比及当前窗口汇总；背景、边框和文字随浅色/深色主题变化，不使用固定黑白配色。
+- Agent 前三使用第二、第一、第三的卡片排列；后续使用行列表，详情原位增高，当前上下文采用横向堆叠条。正文与标题均用正常字重，最小字号 12px。上下文所有已保存正文按分类直接列出，工具名称突出，描述和参数以次要颜色完整展示。
+- 统计范围固定说明为整个任务；Agent 与纪元选择只改变内容查看范围。所有 Agent 名称默认可见，累计消耗前三名默认显示详细卡片，其余可逐项原位展开。
+- Demo 数据只用于明确的隔离开发 fixture。真实任务入口必须读取真实接口；接口失败、字段尚未采集或历史缺失均保留错误、未知或空态，不能回退到 Demo。
+- 全部任务卡片通过 `context-analytics/public.ts` 将批量真实摘要转换为卡片模型，映射严格按响应 `taskKey` 完成。点击“查看统计”不打开普通任务。
+- 全部任务筛选区下方固定显示每日 Token 热力图。统计范围是当前工作台全部非归档任务，不随状态、最近活动或排序筛选改变；日期字段必须来自 Token 消耗记录，不能用任务 `updatedAt` 代替。Demo 默认显示最近 364 天并包含当前周的未来占位，最多不超过 366 个闭区间日期，页面明确显示 IANA 时区。
+- 日历使用 ECharts Calendar + Custom + VisualMap，矩形由 ECharts 创建并处理交互。完整、部分、未知、零消耗和未来日期保留数据语义；范围外、未来和无数据在视觉图例中合并为近乎透明的灰色，未知和未来不能补成零。选择日期后通过真实日期任务查询列出当天任务、Token 和覆盖状态，“查看统计”只打开该真实任务的只读统计，不触发普通任务卡片打开。
+- 热力图不使用斜线纹理，图例与日历网格必须分开留出空间；颜色使用可区分的低饱和紫色阶梯。保留“最近活动”筛选并与日历联动：全部时间显示完整范围，24 小时、7 天和 30 天只显示对应日期区间；点击日期后，任务卡片按该日已有 Token 记录筛选，不使用 `updatedAt` 冒充消耗日期。卡片中的最近要求和最新结果只显示一行，超出部分省略；任务卡使用自适应紧凑网格和状态跳色，避免长期任务列表中卡片过高。
+- 日历几何与独立调色板由 `context-analytics/dailyChart.ts` 维护：高度按容器可用高度分配七行，宽度按全年列数计算且不超过高度；切换日期范围不放大色块，窗口变化才重新分配。矩形圆角明确为 1px，横纵空隙均为 2px。使用 ECharts 官方 Custom 系列的矩形形状设置圆角，避免依赖 roundRect 默认半径；参考 [官方 Custom 文档](https://echarts.apache.org/en/option.html#series-custom)。范围外、未来、无数据共用近乎透明的灰色；零消耗为白色；正值从近白逐步过渡到深紫。图例和色块共用颜色表，悬浮与选中保持不透明。日期范围扩展到完整周，悬浮不触发日期筛选。定向验证见 `web/test/workbench/contextDailyChart.test.ts`，代码验证不代替实际视觉验收。任务卡使用最大 `280px × 200px` 的固定密度网格。
+- 任务卡第一行合并标题、状态和未读标记，右侧操作按钮缩小。环图旁只显示当前上下文、累计 Token、轮次、请求数和 Agent 数；最近要求与结果在下方各展示一次，标签与省略正文同行，阅读文字不小于 12px。
+- 任务列表和日详情的滚动区域使用统一的细窄自定义滚动条：透明轨道、低对比圆角滑块，悬浮时才使用强调色；不依赖浏览器默认滚动条外观。

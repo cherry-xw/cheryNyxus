@@ -29,6 +29,7 @@ import { annotateExecutionNode } from '@/db/executionGraph.js'
 import { skillActivation } from './workflowEvidence.js'
 import { refreshWorkflowContext } from './workflow.js'
 import { startWorkflowRunRecorder, type WorkflowRunRecorder } from './workflowRecorder.js'
+import { startUsageRecorder } from './usageRecorder.js'
 
 function annotateWorkflow(id: string, workflow: Record<string, unknown>): void {
   try {
@@ -79,9 +80,11 @@ export async function* observeAgentChunks(
     (message) => message.role === 'system' && message.contextCompaction,
   )?.id
   const injectedCommands: string[] = []
+  const usageRecorder = startUsageRecorder(chatId)
   try {
     for await (const chunk of generator) {
       workflowRecorder.recordChunk(chunk)
+      usageRecorder.record(chunk)
       // feed-dog：每条 chunk 到达 = 子 agent generator 仍活着 = 未卡死，重置看门狗计时。
       // 主 chat（非注册唤醒子）feedWatchdog 内部自动忽略（waitedChildren 无此 chatId）。
       feedWatchdog(chatId)
@@ -349,6 +352,7 @@ export async function* observeAgentChunks(
     }
     throw err
   } finally {
+    usageRecorder.close()
     // abort 兜底：ws.close → connectionManager.close → approvalManager.abort 解除 senseMiddleware
     // await（不调 gen.return，避免与 catch yield 死锁）。sense_call 流的 assistant 已在 sense_end
     // 时落库（for-await 内 effect）；纯 content 流的 assistant 在 checkpoint finally yield effect

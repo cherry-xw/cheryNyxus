@@ -154,6 +154,7 @@ export type NotificationType =
   | 'chat.lifecycle.changed'
   | 'chat.overview.changed'
   | 'workflow.updated'
+  | 'terminal.event'
 
 // ========== Request Data ==========
 
@@ -862,6 +863,96 @@ export interface ConfigWorkspaceBrowseListRequestData {
   encPath: string
   /** 是否返回文件条目；缺省取配置 default_include_files（默认 false 仅目录，为硬上限） */
   includeFiles?: boolean
+}
+
+export interface WorkspaceFilesListRequestData {
+  chatId: string
+  path?: string
+  offset?: number
+}
+
+export interface WorkspaceFileEntry {
+  name: string
+  path: string
+  kind: 'file' | 'directory'
+  size?: number
+  modifiedAt?: number
+  extension?: string
+}
+
+export interface WorkspaceFilesListResponseData {
+  chatId: string
+  workspace: string
+  path: string
+  entries: WorkspaceFileEntry[]
+  nextOffset?: number
+}
+
+export interface WorkspaceFilesReadRequestData {
+  chatId: string
+  path: string
+}
+
+export interface WorkspaceFilesReadResponseData {
+  chatId: string
+  path: string
+  kind: 'text' | 'image' | 'binary'
+  mimeType?: string
+  content?: string
+  size: number
+  truncated?: boolean
+}
+export interface WorkspaceGitStatusRequestData { chatId: string }
+export interface WorkspaceGitStatusResponseData {
+  chatId: string
+  branch: string
+  branches: string[]
+  dirty: boolean
+  files: Array<{ path: string; status: 'added' | 'modified' }>
+}
+export interface WorkspaceGitCheckoutRequestData { chatId: string; branch: string }
+export interface WorkspaceGitCheckoutResponseData { chatId: string; branch: string }
+
+export type TerminalTarget =
+  | { kind: 'local'; cwd?: string }
+  | {
+      kind: 'ssh'
+      host: string
+      port?: number
+      username: string
+      credentialId?: string
+      password?: string
+      privateKey?: string
+      passphrase?: string
+    }
+
+export interface TerminalCreateRequestData {
+  chatId: string
+  target?: TerminalTarget
+  cols?: number
+  rows?: number
+}
+
+export interface TerminalCreateResponseData {
+  sessionId: string
+  target: { kind: 'local' | 'ssh'; label: string }
+  cols: number
+  rows: number
+}
+
+export interface TerminalInputRequestData { sessionId: string; data: string }
+export interface TerminalInputResponseData { sessionId: string; accepted: boolean }
+export interface TerminalResizeRequestData { sessionId: string; cols: number; rows: number }
+export interface TerminalResizeResponseData { sessionId: string; cols: number; rows: number }
+export interface TerminalCloseRequestData { sessionId: string }
+export interface TerminalCloseResponseData { sessionId: string; closed: boolean }
+export interface TerminalEventNotificationData {
+  sessionId: string
+  event: 'output' | 'exit' | 'error'
+  data?: string
+  code?: number | null
+  signal?: string | null
+  message?: string
 }
 
 // ---------- Hooks 管理（hooks.get / hooks.save / hooks.events）----------
@@ -1731,6 +1822,8 @@ export interface ChatPromptSnapshotRequestData {
 }
 
 export interface ChatPromptSnapshotResponseData {
+  origin?: 'frozen' | 'reconstructed' | 'missing'
+  contentState?: 'available' | 'partial' | 'missing'
   chatId: string
   epochId?: string
   epochOrdinal?: number
@@ -2553,6 +2646,7 @@ export type NotificationData =
   | RunUpdatedNotificationData
   | InteractionChangedNotificationData
   | ChatOverviewChangedNotificationData
+  | TerminalEventNotificationData
   | null
 
 export interface InteractionChangedNotificationData {
@@ -2876,6 +2970,13 @@ export const Method = {
   CHAT_PROMPT_SNAPSHOT: 'chat.promptSnapshot',
   /** List immutable context epochs; only the active epoch is executable. */
   CHAT_EPOCH_LIST: 'chat.epoch.list',
+  CHAT_USAGE_DETAIL: ProtocolMethod.CHAT_USAGE_DETAIL,
+  CHAT_USAGE_SUMMARIES: ProtocolMethod.CHAT_USAGE_SUMMARIES,
+  CHAT_USAGE_ROUNDS: ProtocolMethod.CHAT_USAGE_ROUNDS,
+  CHAT_USAGE_DAILY: ProtocolMethod.CHAT_USAGE_DAILY,
+  CHAT_USAGE_DAY_TASKS: ProtocolMethod.CHAT_USAGE_DAY_TASKS,
+  CHAT_USAGE_OPERATIONS: ProtocolMethod.CHAT_USAGE_OPERATIONS,
+  CHAT_CONTEXT_CONTENT: ProtocolMethod.CHAT_CONTEXT_CONTENT,
   CHAT_INPUT_SUBMIT: 'chat.input.submit',
   CHAT_TIMELINE_GET: 'chat.timeline.get',
   CHAT_TIMELINE_GENERATION_GET: 'chat.timeline.generation.get',
@@ -2917,6 +3018,14 @@ export const Method = {
   CONFIG_WORKSPACE_VALIDATE: 'config.workspace.validate',
   CONFIG_WORKSPACE_BROWSE_START: 'config.workspace.browse.start',
   CONFIG_WORKSPACE_BROWSE_LIST: 'config.workspace.browse.list',
+  WORKSPACE_FILES_LIST: ProtocolMethod.WORKSPACE_FILES_LIST,
+  WORKSPACE_FILES_READ: ProtocolMethod.WORKSPACE_FILES_READ,
+  WORKSPACE_GIT_STATUS: ProtocolMethod.WORKSPACE_GIT_STATUS,
+  WORKSPACE_GIT_CHECKOUT: ProtocolMethod.WORKSPACE_GIT_CHECKOUT,
+  TERMINAL_CREATE: ProtocolMethod.TERMINAL_CREATE,
+  TERMINAL_INPUT: ProtocolMethod.TERMINAL_INPUT,
+  TERMINAL_RESIZE: ProtocolMethod.TERMINAL_RESIZE,
+  TERMINAL_CLOSE: ProtocolMethod.TERMINAL_CLOSE,
   CONFIG_SAVE: 'config.save',
   CONFIG_PREVIEW: 'config.preview',
   CONFIG_APPLY_STATUS: 'config.apply.status',
@@ -3073,6 +3182,13 @@ export interface RpcMethodMap {
     params: ChatPromptSnapshotRequestData
     result: ChatPromptSnapshotResponseData
   }
+  [Method.CHAT_USAGE_DETAIL]: { params: { taskKey: string }; result: import('@chery/protocol').TaskUsageDetail }
+  [Method.CHAT_USAGE_SUMMARIES]: { params: { taskKeys: string[] }; result: { asOf: number; items: import('@chery/protocol').TaskUsageSummary[] } }
+  [Method.CHAT_USAGE_ROUNDS]: { params: import('@chery/protocol').UsagePageRequest; result: { asOf: number; items: import('@chery/protocol').RequestUsage[]; nextCursor?: string } }
+  [Method.CHAT_USAGE_OPERATIONS]: { params: import('@chery/protocol').UsagePageRequest; result: { asOf: number; items: import('@chery/protocol').UsageOperation[]; nextCursor?: string } }
+  [Method.CHAT_USAGE_DAILY]: { params: import('@chery/protocol').UsageDailyRequest; result: import('@chery/protocol').UsageDailyResponse }
+  [Method.CHAT_USAGE_DAY_TASKS]: { params: { date: string; timezone: string; presetId?: string; cursor?: string; limit?: number }; result: { asOf: number; items: { taskKey: string; tokens: import('@chery/protocol').UsageMetric }[]; nextCursor?: string } }
+  [Method.CHAT_CONTEXT_CONTENT]: { params: ChatPromptSnapshotRequestData & { cursor?: string; limit?: number }; result: import('@chery/protocol').ContextContentResponse }
   [Method.CHAT_EPOCH_LIST]: {
     params: ChatEpochListRequestData
     result: ChatEpochListResponseData
@@ -3183,6 +3299,32 @@ export interface RpcMethodMap {
   [Method.CONFIG_WORKSPACE_BROWSE_LIST]: {
     params: ConfigWorkspaceBrowseListRequestData
     result: ConfigWorkspaceBrowseListResponseData
+  }
+  [Method.WORKSPACE_FILES_LIST]: {
+    params: WorkspaceFilesListRequestData
+    result: WorkspaceFilesListResponseData
+  }
+  [Method.WORKSPACE_FILES_READ]: {
+    params: WorkspaceFilesReadRequestData
+    result: WorkspaceFilesReadResponseData
+  }
+  [Method.WORKSPACE_GIT_STATUS]: { params: WorkspaceGitStatusRequestData; result: WorkspaceGitStatusResponseData }
+  [Method.WORKSPACE_GIT_CHECKOUT]: { params: WorkspaceGitCheckoutRequestData; result: WorkspaceGitCheckoutResponseData }
+  [Method.TERMINAL_CREATE]: {
+    params: TerminalCreateRequestData
+    result: TerminalCreateResponseData
+  }
+  [Method.TERMINAL_INPUT]: {
+    params: TerminalInputRequestData
+    result: TerminalInputResponseData
+  }
+  [Method.TERMINAL_RESIZE]: {
+    params: TerminalResizeRequestData
+    result: TerminalResizeResponseData
+  }
+  [Method.TERMINAL_CLOSE]: {
+    params: TerminalCloseRequestData
+    result: TerminalCloseResponseData
   }
   [Method.CONFIG_SAVE]: { params: ConfigSaveRequestData; result: ConfigSaveResponseData }
   [Method.CONFIG_PREVIEW]: {

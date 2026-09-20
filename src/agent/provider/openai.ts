@@ -10,6 +10,7 @@
  * 详见 [docs/backend/agent/provider.md](../../../docs/backend/agent/provider.md)。
  */
 import OpenAI from 'openai'
+import { observedFetch } from './requestObservation.js'
 import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
@@ -47,7 +48,7 @@ const openaiLLMAdapter: LLMAdapter = {
         },
         key,
         options?.signal,
-        { fullUrl: true },
+        { fullUrl: true, observation: options?.observation },
       )
     }
     // 未勾选：SDK 自拼 /chat/completions，baseURL 原样（版本段由用户填写，见 resolveProviderUrl）
@@ -55,6 +56,7 @@ const openaiLLMAdapter: LLMAdapter = {
     const client = new OpenAI({
       baseURL: resolveProviderUrl('openai', url, { fullUrl: false, kind: 'chat' }),
       apiKey: key,
+      fetch: observedFetch(options?.observation),
     })
     try {
       const params: Record<string, unknown> = {
@@ -87,17 +89,19 @@ const openaiLLMAdapter: LLMAdapter = {
           model,
           messages: msgArray,
           stream: true,
+          stream_options: { include_usage: true },
           ...(options?.thinkingParams ?? {}),
           ...(senses.length > 0 && { tools: senses }),
         },
         key,
         options?.signal,
-        { fullUrl: true },
+        { fullUrl: true, observation: options?.observation },
       )
     }
     const client = new OpenAI({
       baseURL: resolveProviderUrl('openai', url, { fullUrl: false, kind: 'chat' }),
       apiKey: key,
+      fetch: observedFetch(options?.observation),
     })
     try {
       // thinkingParams 含 SDK 类型未声明的协议字段，整体 cast（同 chat）
@@ -105,6 +109,7 @@ const openaiLLMAdapter: LLMAdapter = {
         model,
         messages: msgArray,
         stream: true,
+        stream_options: { include_usage: true },
         ...(options?.thinkingParams ?? {}),
         ...(senses.length > 0 && { tools: senses }),
       }

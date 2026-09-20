@@ -2,13 +2,22 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { TaskCatalogItem, TaskOverviewStatus } from '@/application/backend/public'
 import {
+  hasTaskBrowserFilters,
   splitHighlightedText,
   taskBrowserDetail,
   taskBrowserStatusLabel,
   taskSearchSourceLabel,
 } from './taskBrowserModel'
+import {
+  ContextUsageRing,
+  contextAnalyticsCardSummaryFromUsage,
+  type ContextAnalyticsCardSummary,
+} from './context-analytics/public'
+import ContextDailyHeatmap from './context-analytics/ContextDailyHeatmap.vue'
+import { formatMetric } from './context-analytics/presentation'
 import { useTaskBrowserController } from './useTaskBrowserController'
 import { taskBrowserCatalogScope } from './useTaskBrowserOverlay'
+import { agentApi } from '@/application/backend/public'
 
 const props = withDefaults(
   defineProps<{
@@ -24,6 +33,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   close: []
   openTask: [chatId: string]
+  analytics: [demoTaskKey: string]
   archived: [taskKey: string, archivedChatIds: string[], activeChatIdAtStart?: string]
 }>()
 
@@ -57,6 +67,11 @@ const viewport = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const restored = ref(false)
 const pendingArchiveKey = ref<string>()
+const dailyFilterDate = ref<string>()
+const dailyDemoTaskKeys = ref<string[]>()
+const usageSummaries = ref(new Map<string, import('@chery/protocol').TaskUsageSummary>())
+const usageStatus = ref<'loading' | 'ready' | 'error'>('loading')
+let usageRequestId = 0
 
 const STATUS_OPTIONS: Array<{ value: TaskOverviewStatus; label: string }> = [
   { value: 'needs_user', label: '等待处理' },
@@ -67,8 +82,22 @@ const STATUS_OPTIONS: Array<{ value: TaskOverviewStatus; label: string }> = [
   { value: 'stopped', label: '已停止' },
   { value: 'idle', label: '空闲' },
 ]
+const TIME_RANGE_OPTIONS: Array<{ value: typeof controller.filters.value.timeRange; label: string }> = [
+  { value: 'all', label: '全部时间' },
+  { value: 'day', label: '24 小时内' },
+  { value: 'week', label: '7 天内' },
+  { value: 'month', label: '30 天内' },
+]
+const SORT_OPTIONS: Array<{ value: typeof controller.filters.value.sort; label: string }> = [
+  { value: 'updated_desc', label: '最近更新' },
+  { value: 'created_desc', label: '最近创建' },
+  { value: 'relevance', label: '搜索相关度' },
+]
 
 const resultSummary = computed(() => {
+  if (dailyFilterDate.value) {
+    return `${visibleItems.value.length} 个任务 · ${dailyFilterDate.value}`
+  }
   if (controller.filters.value.attentionOnly) {
     return `${controller.items.value.length} 个已加载的需关注任务`
   }
@@ -76,13 +105,15 @@ const resultSummary = computed(() => {
 })
 
 const hasFilters = computed(
-  () =>
-    !!controller.filters.value.query.trim() ||
-    controller.filters.value.statuses.length > 0 ||
-    controller.filters.value.timeRange !== 'all' ||
-    controller.filters.value.sort !== 'updated_desc' ||
-    controller.filters.value.attentionOnly,
+  () => hasTaskBrowserFilters(controller.filters.value) || !!dailyFilterDate.value,
 )
+
+const visibleItems = computed(() => {
+  if (!dailyFilterDate.value || !dailyDemoTaskKeys.value) return controller.items.value
+  return controller.items.value.filter((item) => {
+    return dailyDemoTaskKeys.value?.includes(item.taskKey)
+  })
+})
 
 function formatTime(timestamp: number): string {
   return new Intl.DateTimeFormat('zh-CN', {
@@ -101,14 +132,90 @@ function toggleStatus(status: TaskOverviewStatus): void {
     : [...statuses, status]
 }
 
+function selectTimeRange(timeRange: typeof controller.filters.value.timeRange): void {
+  controller.filters.value.timeRange = timeRange
+}
+
+function selectSort(sort: typeof controller.filters.value.sort): void {
+  controller.filters.value.sort = sort
+}
+
+function selectDailyUsage(date: string, demoTaskKeys: string[]): void {
+  if (dailyFilterDate.value === date) {
+    clearDailyUsageFilter()
+    return
+  }
+  dailyFilterDate.value = date
+  dailyDemoTaskKeys.value = demoTaskKeys
+}
+
+function onDailyRangeChanged(startDate: string, endDate: string): void {
+  if (
+    dailyFilterDate.value &&
+    (dailyFilterDate.value < startDate || dailyFilterDate.value > endDate)
+  ) {
+    clearDailyUsageFilter()
+  }
+}
+
+function clearDailyUsageFilter(): void {
+  dailyFilterDate.value = undefined
+  dailyDemoTaskKeys.value = undefined
+}
+
+function clearAllFilters(): void {
+  controller.clearFilters()
+  clearDailyUsageFilter()
+}
+
+function analyticsFor(item: TaskCatalogItem): ContextAnalyticsCardSummary | undefined {
+  const summary = usageSummaries.value.get(item.taskKey)
+  if (!summary) return undefined
+  return contextAnalyticsCardSummaryFromUsage(summary)
+}
+
+async function loadUsageSummaries(items: TaskCatalogItem[]): Promise<void> {
+  const requestId = ++usageRequestId
+  const taskKeys = items.map((item) => item.taskKey).filter(Boolean)
+  if (!taskKeys.length) {
+    usageSummaries.value = new Map()
+    usageStatus.value = 'ready'
+    return
+  }
+  usageStatus.value = 'loading'
+  try {
+    const batches = Array.from({ length: Math.ceil(taskKeys.length / 100) }, (_, index) =>
+      taskKeys.slice(index * 100, (index + 1) * 100),
+    )
+    const responses = await Promise.all(
+      batches.map((batch) => agentApi.getContextUsageSummaries(batch)),
+    )
+    if (requestId !== usageRequestId) return
+    usageSummaries.value = new Map(
+      responses.flatMap((response) => response.items).map((item) => [item.taskKey, item]),
+    )
+    usageStatus.value = 'ready'
+  } catch {
+    if (requestId !== usageRequestId) return
+    usageSummaries.value = new Map()
+    usageStatus.value = 'error'
+  }
+}
+
 function onCardKeydown(event: KeyboardEvent, item: TaskCatalogItem): void {
   if (event.key !== 'Enter' && event.key !== ' ') return
   event.preventDefault()
   controller.openTask(item)
 }
 
-function requestArchive(item: TaskCatalogItem): void {
+function closeCardMenu(event?: MouseEvent): void {
+  const details = (event?.currentTarget as HTMLElement | null)?.closest('details')
+  details?.removeAttribute('open')
+}
+
+function requestArchive(item: TaskCatalogItem, event?: MouseEvent): void {
   pendingArchiveKey.value = item.taskKey
+  closeCardMenu(event as MouseEvent)
 }
 
 async function confirmArchive(item: TaskCatalogItem): Promise<void> {
@@ -135,6 +242,8 @@ watch(
   },
 )
 
+watch(() => controller.items.value, (items) => { void loadUsageSummaries(items) }, { immediate: true })
+
 onMounted(async () => {
   await nextTick()
   searchInput.value?.focus()
@@ -149,14 +258,7 @@ onMounted(async () => {
           <h2>全部任务</h2>
           <p>{{ resultSummary }}。搜索范围包含当前工作台的任务标题、用户提问和结果。</p>
         </div>
-        <button
-          type="button"
-          class="task-browser-close"
-          aria-label="关闭全部任务"
-          @click="emit('close')"
-        >
-          ×
-        </button>
+        <!-- 关闭入口只保留标题栏「全部任务」按钮的高亮切换（Esc 仍可关闭）。 -->
       </div>
 
       <form class="task-browser-filters" role="search" @submit.prevent="controller.applyFilters">
@@ -191,27 +293,43 @@ onMounted(async () => {
           </fieldset>
         </details>
 
-        <label>
-          <span>最近活动</span>
-          <select v-model="controller.filters.value.timeRange">
-            <option value="all">全部时间</option>
-            <option value="day">24 小时内</option>
-            <option value="week">7 天内</option>
-            <option value="month">30 天内</option>
-          </select>
-        </label>
+        <details class="task-browser-status-filter">
+          <summary>最近活动</summary>
+          <fieldset>
+            <legend>按最近活动筛选</legend>
+            <label v-for="option in TIME_RANGE_OPTIONS" :key="option.value">
+              <input
+                type="radio"
+                name="task-browser-time-range"
+                :checked="controller.filters.value.timeRange === option.value"
+                @change="selectTimeRange(option.value)"
+              />
+              <span>{{ option.label }}</span>
+            </label>
+          </fieldset>
+        </details>
 
-        <label>
-          <span>排序</span>
-          <select v-model="controller.filters.value.sort">
-            <option value="updated_desc">最近更新</option>
-            <option value="created_desc">最近创建</option>
-            <option value="relevance">搜索相关度</option>
-          </select>
-        </label>
+        <details class="task-browser-status-filter">
+          <summary>排序</summary>
+          <fieldset>
+            <legend>任务排序</legend>
+            <label v-for="option in SORT_OPTIONS" :key="option.value">
+              <input
+                type="radio"
+                name="task-browser-sort"
+                :checked="controller.filters.value.sort === option.value"
+                @change="selectSort(option.value)"
+              />
+              <span>{{ option.label }}</span>
+            </label>
+          </fieldset>
+        </details>
 
         <button type="submit" class="is-primary">应用</button>
-        <button v-if="hasFilters" type="button" @click="controller.clearFilters">清除筛选</button>
+        <button type="button" :disabled="!dailyFilterDate" @click="clearDailyUsageFilter">
+          清除日期
+        </button>
+        <button type="button" :disabled="!hasFilters" @click="clearAllFilters">清除筛选</button>
       </form>
 
       <div v-if="controller.filters.value.attentionOnly" class="task-browser-notice" role="status">
@@ -225,6 +343,13 @@ onMounted(async () => {
     </header>
 
     <div ref="viewport" class="task-browser-viewport" tabindex="-1" @scroll.passive="onScroll">
+      <ContextDailyHeatmap
+        :time-range="controller.filters.value.timeRange"
+        @analytics="emit('analytics', $event)"
+        @date-selected="selectDailyUsage"
+        @range-changed="onDailyRangeChanged"
+      />
+
       <div v-if="controller.state.value.loading" class="task-browser-state" role="status">
         正在加载任务…
       </div>
@@ -238,17 +363,17 @@ onMounted(async () => {
         <button type="button" @click="controller.retry">重试</button>
       </div>
 
-      <div v-else-if="!controller.items.value.length" class="task-browser-state">
+      <div v-else-if="!visibleItems.length" class="task-browser-state">
         <p>{{ hasFilters ? '没有符合当前条件的任务。' : '当前工作台还没有任务。' }}</p>
-        <button v-if="hasFilters" type="button" @click="controller.clearFilters">清除筛选</button>
+        <button v-if="hasFilters" type="button" @click="clearAllFilters">清除筛选</button>
       </div>
 
       <div v-else class="task-browser-grid" role="list">
         <article
-          v-for="item in controller.items.value"
+          v-for="item in visibleItems"
           :key="item.taskKey"
           class="task-browser-card"
-          :class="{ 'has-unread': item.unreadResult }"
+          :class="[`status-${item.status}`, { 'has-unread': item.unreadResult }]"
           role="listitem"
           tabindex="0"
           :aria-label="`打开任务：${item.title || '未命名任务'}`"
@@ -257,28 +382,60 @@ onMounted(async () => {
         >
           <div class="task-card-head">
             <div class="task-card-title-wrap">
-              <span class="task-card-status" :class="`is-${item.status}`">
-                {{ taskBrowserStatusLabel(item.status) }}
-              </span>
-              <span v-if="item.unreadResult" class="task-card-unread">未查看结果</span>
-              <h3>{{ item.title || '未命名任务' }}</h3>
+              <h3>
+                {{ item.title || '未命名任务' }}
+                <span class="task-card-status" :class="`is-${item.status}`">
+                  {{ taskBrowserStatusLabel(item.status) }}
+                </span>
+                <span v-if="item.unreadResult" class="task-card-unread">未查看结果</span>
+              </h3>
             </div>
             <details class="task-card-menu" @click.stop @keydown.stop>
               <summary :aria-label="`任务操作：${item.title || '未命名任务'}`">•••</summary>
               <div class="task-card-menu-items">
-                <button type="button" @click="controller.toggleShortcut(item)">
+                <button type="button" @click="controller.toggleShortcut(item); closeCardMenu($event)">
                   {{
                     controller.shortcutKeys.value.has(item.taskKey)
                       ? '从标题栏收起'
                       : '显示在标题栏'
                   }}
                 </button>
-                <button type="button" class="is-danger" @click="requestArchive(item)">
+                <button type="button" class="is-danger" @click="requestArchive(item, $event)">
                   归档任务
                 </button>
               </div>
             </details>
           </div>
+
+          <!-- 统计区属于卡片主体，点击不再拦截：整卡任意位置（除菜单/归档确认/错误提示）都打开任务活动主流程。 -->
+          <section v-if="item.lastUserPrompt" class="task-card-analytics">
+            <template v-for="analytics in [analyticsFor(item)]" :key="analytics?.taskKey ?? item.taskKey">
+              <template v-if="analytics">
+                <ContextUsageRing v-if="analytics.currentContext" :snapshot="analytics.currentContext" />
+                <div v-else class="task-card-analytics-placeholder" aria-label="当前上下文快照暂无记录">
+                  <span>暂无快照</span>
+                </div>
+                <div class="task-card-analytics-copy">
+                  <div class="task-card-analytics-heading">
+                    <h4>当前上下文</h4>
+                  </div>
+                  <div class="task-card-analytics-total">累计 Token {{ formatMetric(analytics.totalTokens) }}</div>
+                  <div class="task-card-analytics-metrics">
+                    <span>轮次 {{ formatMetric(analytics.rounds) }}</span>
+                    <span>请求 {{ formatMetric(analytics.requests) }}</span>
+                    <span>Agent {{ analytics.agentCount }}</span>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <div class="task-card-analytics-unavailable" :aria-label="usageStatus === 'error' ? '统计读取失败' : '正在读取统计'">
+                  <strong>当前上下文</strong>
+                  <span>{{ usageStatus === 'error' ? '统计读取失败' : '正在读取统计…' }}</span>
+                  <small>{{ usageStatus === 'error' ? '当前未显示任何替代数据，请稍后刷新重试。' : '正在读取该任务的长期统计。' }}</small>
+                </div>
+              </template>
+            </template>
+          </section>
 
           <section class="task-card-section">
             <h4>最近要求</h4>

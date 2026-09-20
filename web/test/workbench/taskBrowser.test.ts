@@ -4,6 +4,7 @@ import {
   buildTaskCatalogQuery,
   countNewTaskBrowserItems,
   DEFAULT_TASK_BROWSER_FILTERS,
+  hasTaskBrowserFilters,
   mergeTaskBrowserUpdates,
   parseTaskBrowserFilters,
   parseSavedTaskBrowserState,
@@ -99,6 +100,11 @@ describe('task browser model', () => {
       }),
     ).toMatchObject({ filters: { query: '上次搜索' }, scrollTop: 438 })
     expect(parseSavedTaskBrowserState({ filters: null, scrollTop: -1 }).scrollTop).toBe(0)
+  })
+
+  it('keeps the clear-filter control disabled for the default filter state', () => {
+    expect(hasTaskBrowserFilters(DEFAULT_TASK_BROWSER_FILTERS)).toBe(false)
+    expect(hasTaskBrowserFilters({ ...DEFAULT_TASK_BROWSER_FILTERS, timeRange: 'week' })).toBe(true)
   })
 
   it('updates loaded cards in place and reports unseen live tasks without reordering', () => {

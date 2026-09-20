@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { BellFilled, Connection, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
 import ConversationView from './ConversationView.vue'
@@ -11,13 +11,19 @@ import {
   type WorkbenchDialogControllerProps,
 } from './useWorkbenchDialogController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
+import { useAgentsStore } from '@/application/public'
 import WorkbenchViewToggle from './WorkbenchViewToggle.vue'
 import WorkbenchFoldTool from './WorkbenchFoldTool.vue'
 import WorkbenchWindowControls from './WorkbenchWindowControls.vue'
+import ContextAnalyticsPanel from './context-analytics/ContextAnalyticsPanel.vue'
 const props = defineProps<WorkbenchDialogControllerProps>()
 const controller = useWorkbenchDialogController(props)
+const agents = useAgentsStore()
 const workbenchMotion = useOverlayTransitionHooks('dialog')
 const rolePopoutMotion = useOverlayTransitionHooks('panel')
+// 查看上下文侧边抽屉：drawer 型动效（面板 x 轴滑入，与全局抽屉一致）。
+const contextDrawerMotion = useOverlayTransitionHooks('drawer')
+const contextTrigger = ref<HTMLButtonElement>()
 // 小组角色编制默认折叠：仅占一行（标题行），点击标题行展开角色标签（与发消息弹窗一致）。
 const rolesExpanded = ref(false)
 // Keep the controller surface grouped here so this orchestration SFC stays inside its line budget.
@@ -60,7 +66,6 @@ const {
   onMediaSelected,
   onTitlePointerDown,
   onTreeEpochChange,
-  onTreePromptSnapShow,
   openGeneration, orderedRoleSelections, pauseWholeTask,
   presetName, primaryRole, primarySelection, removeMedia, resizeDirections,
   roleListOpen, roleListPinned, roleMenuRefFn,
@@ -75,9 +80,11 @@ const {
   sessionControl, sessionControlPending,
   showCommandMenu, showFoldTool, showRoleList, showRoleMenu,
   closeSidePanel,
+  contextAnalyticsDemos, contextAnalyticsInitialTaskKey,
+  contextDrawerOpen, contextAnalyticsAvailable, contextAnalyticsPanelEligible, toggleContextDrawer,
   supportsTools,
   taskControlPending, taskHasRunningBranches, taskTimeline,
-  taskBrowserState, closeTaskBrowser, openTaskFromBrowser, onTaskBrowserArchived,
+  taskBrowserState, closeTaskBrowser, openContextAnalyticsFromBrowser, openTaskFromBrowser, onTaskBrowserArchived,
   text, toggleRoleList,
   treeBreakdown, treeLoading, treePromptSnap, treeRootChatId,
   treeUsage, treeUsagePct,
@@ -235,6 +242,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           :entry-focus="taskBrowserState.entryFocus"
           @close="closeTaskBrowser"
           @open-task="openTaskFromBrowser"
+          @analytics="openContextAnalyticsFromBrowser"
           @archived="onTaskBrowserArchived"
         />
         <LiteView
@@ -471,6 +479,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               >
                 <span class="nyxus-tool-tip-anchor is-lite-hidden">
                   <button
+                    ref="contextTrigger"
                     type="button"
                     class="nyxus-rail-action is-message"
                     :class="{ 'is-active': nyxusDraftActive }"
@@ -591,42 +600,25 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               <!-- 会话切换入口已上移标题栏会话状态条（strip + 分页下拉，2026-09-16），rail ≡ 会话列表移除 -->
               <!-- v2.1 移除 rail「对话模式」按钮：对话模式入口统一由标题栏三档切换钮承担（精简是对话的紧凑展示），rail 不再放第二入口 -->
               <el-tooltip
+                v-if="contextAnalyticsAvailable"
                 :content="`查看上下文 · ${treeUsagePct}%`"
                 placement="left"
                 :show-after="200"
                 :hide-after="0"
               >
                 <span class="nyxus-tool-tip-anchor">
-                  <el-popover
-                    trigger="click"
-                    placement="left"
-                    :width="460"
-                    popper-class="prompt-snapshot-popper"
-                    @show="onTreePromptSnapShow"
+                  <button
+                    type="button"
+                    class="nyxus-rail-action"
+                    :class="{ 'is-active': contextDrawerOpen }"
+                    :disabled="!chatId"
+                    :aria-label="`查看上下文 · ${treeUsagePct}%`"
+                    :aria-expanded="contextDrawerOpen"
+                    aria-haspopup="dialog"
+                    @click="toggleContextDrawer"
                   >
-                    <template #reference>
-                      <button
-                        type="button"
-                        class="nyxus-rail-action"
-                        :disabled="!chatId"
-                        :aria-label="`查看上下文 · ${treeUsagePct}%`"
-                      >
-                        <span aria-hidden="true">❐</span>
-                      </button>
-                    </template>
-                    <PromptSnapshotTip
-                      v-if="treePromptSnap"
-                      :system-prompt="treePromptSnap.systemPrompt"
-                      :tools="treePromptSnap.tools"
-                      :status="treePromptSnap.status"
-                      :error="treePromptSnap.error"
-                      :epochs="treePromptSnap.epochs"
-                      :selected-epoch-id="treePromptSnap.selectedEpochId"
-                      :active-epoch-id="treePromptSnap.activeEpochId"
-                      :snapshot-quality="treePromptSnap.snapshotQuality"
-                      @epoch-change="onTreeEpochChange"
-                    />
-                  </el-popover>
+                    <span aria-hidden="true">❐</span>
+                  </button>
                 </span>
               </el-tooltip>
             </div>
@@ -752,6 +744,65 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
             </div>
           </Transition>
         </nav>
+        <!-- 查看上下文：工作台内右侧抽屉（替代原 rail ❐ 小弹窗），从标题栏下方延伸到底部。 -->
+        <Transition
+          :css="false"
+          @before-enter="contextDrawerMotion.onBeforeEnter"
+          @enter="contextDrawerMotion.onEnter"
+          @leave="contextDrawerMotion.onLeave"
+          @enter-cancelled="contextDrawerMotion.onEnterCancelled"
+          @leave-cancelled="contextDrawerMotion.onLeaveCancelled"
+        >
+          <ContextAnalyticsPanel
+            v-if="contextDrawerOpen"
+            key="context-analytics-demo"
+            :models="contextAnalyticsDemos"
+            :initial-task-key="contextAnalyticsInitialTaskKey"
+            :eligible="contextAnalyticsPanelEligible"
+            data-motion-panel
+            @close="closeContextPanel"
+          />
+          <!-- eslint-disable-next-line vue/no-dupe-v-else-if -- 保留旧抽屉逻辑，供方案回退时恢复。 -->
+          <div v-else-if="contextDrawerOpen" key="context-drawer" class="workbench-context-drawer">
+            <div class="workbench-context-drawer-mask" @pointerdown="closeContextPanel" />
+            <aside
+              class="workbench-context-drawer-panel"
+              role="dialog"
+              aria-label="上下文快照"
+              data-motion-panel
+            >
+              <header class="workbench-context-drawer-head">
+                <span class="workbench-context-drawer-title">上下文快照</span>
+                <button
+                  type="button"
+                  class="workbench-context-drawer-close"
+                  aria-label="关闭上下文抽屉"
+                  title="关闭"
+                  @click="closeContextPanel"
+                >
+                  ✕
+                </button>
+              </header>
+              <div class="workbench-context-drawer-body">
+                <ContextUsageBar :usage="treeUsage" :breakdown="treeBreakdown" variant="inline" />
+                <PromptSnapshotTip
+                  v-if="treePromptSnap"
+                  :system-prompt="treePromptSnap.systemPrompt"
+                  :tools="treePromptSnap.tools"
+                  :status="treePromptSnap.status"
+                  :error="treePromptSnap.error"
+                  :epochs="treePromptSnap.epochs"
+                  :selected-epoch-id="treePromptSnap.selectedEpochId"
+                  :active-epoch-id="treePromptSnap.activeEpochId"
+                  :snapshot-quality="treePromptSnap.snapshotQuality"
+                  @epoch-change="onTreeEpochChange"
+                />
+                <div v-else class="workbench-context-drawer-loading">重建系统提示词…</div>
+                <p class="workbench-context-drawer-esc">按 Esc 关闭</p>
+              </div>
+            </aside>
+          </div>
+        </Transition>
         <WorkbenchOfflineMask
           v-if="connection.status === 'disconnected'"
           :inert="taskBrowserState.open || undefined"

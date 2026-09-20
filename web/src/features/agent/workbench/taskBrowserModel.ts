@@ -55,6 +55,16 @@ export function cloneTaskBrowserFilters(filters: TaskBrowserFilters): TaskBrowse
   return { ...filters, statuses: [...filters.statuses] }
 }
 
+export function hasTaskBrowserFilters(filters: TaskBrowserFilters): boolean {
+  return (
+    !!filters.query.trim() ||
+    filters.statuses.length > 0 ||
+    filters.timeRange !== 'all' ||
+    filters.sort !== 'updated_desc' ||
+    filters.attentionOnly
+  )
+}
+
 export function parseTaskBrowserFilters(value: unknown): TaskBrowserFilters {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return cloneTaskBrowserFilters(DEFAULT_TASK_BROWSER_FILTERS)

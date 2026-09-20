@@ -14,6 +14,8 @@ export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' |
  * 各 provider 按需读取；model 必选，其余可选。
  */
 export interface LLMOptions {
+  /** Internal observation only; never included in a provider request body. */
+  observation?: import('./usage.js').RequestObservation
   model: string
   /** 服务入口（官方厂商/中转/custom），不参与 adapter 选择。 */
   provider?: string
