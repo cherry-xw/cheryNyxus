@@ -839,23 +839,6 @@ app.whenReady().then(async () => {
   )
   console.log(`[graphics] Chromium features=${JSON.stringify(app.getGPUFeatureStatus())}`)
 
-  // IPC：preload 同步取后端端口配置（createWindow 在 waitForBackend 之后，配置已就绪）
-  ipcMain.on('get-backend-config', (event) => {
-    event.returnValue = serverConfig ?? { wsPort: WS_PORT, webPort: WEB_PORT, transport: 'binary' }
-  })
-
-  // IPC：渲染进程请求刷新后端配置（worker 重启轮换 sessionToken 后，重连必须拿最新值）。
-  // 渲染进程不能直接 fetch /api/config——后端响应无 Access-Control-Allow-Origin 头，
-  // Chromium 会按 CORS 拦截跨源请求（渲染进程 origin 为 file:// 或 dev :5173，均与 :8183 跨源）。
-  // 下沉到 main 进程用 Node 全局 fetch（无 CORS 限制），带 5s 超时，worker 切换瞬间可重试。
-  ipcMain.handle('backend:refresh-config', async () => {
-    try {
-      return await fetchBackendConfig()
-    } catch (e) {
-      throw new Error(`获取后端配置失败: ${(e as Error).message}`)
-    }
-  })
-
   // IPC：渲染进程请求选择目录（预设 workspace 字段用）。canceled → null。
   ipcMain.handle('dialog:pickDirectory', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
@@ -937,8 +920,8 @@ app.whenReady().then(async () => {
   console.log(`[setup] .env path: ${join(getRuntimeRoot(), '.env')}`)
 
   try {
-    backend = startBackend()
-    await waitForBackend()
+    // Electron is a frontend shell only. A local backend is selected through
+    // the manager/connection UI instead of being spawned inside this process.
     createDesktopSurfaceWindow()
     // 全屏视频 / 游戏出现时隐藏 desktop 窗，退出全屏恢复（koffi 加载失败自动降级不启用）
     startFullscreenGuard(() => desktopWin)
@@ -947,7 +930,7 @@ app.whenReady().then(async () => {
     screen.on('display-added', realignDesktopSurface)
     screen.on('display-removed', realignDesktopSurface)
   } catch (e) {
-    console.error('启动后端失败:', e)
+    console.error('启动桌面前端失败:', e)
     app.quit()
   }
 
@@ -972,35 +955,6 @@ app.on('before-quit', async (e) => {
   // 1. 清理 IPC 监听器
   ipcMain.removeAllListeners()
 
-  // 2. 等待 backend 子进程退出（最长 5 秒超时）
-  if (backend && !backend.killed) {
-    const BACKEND_EXIT_TIMEOUT_MS = 5000
-
-    backend.kill('SIGTERM')
-
-    // 监听 backend exit 事件
-    const exitPromise = new Promise<void>((resolve) => {
-      backend!.once('exit', () => {
-        console.log('[backend] 已退出')
-        resolve()
-      })
-    })
-
-    // 超时强制 kill
-    const timeoutPromise = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        if (backend && !backend.killed) {
-          console.warn(`[backend] ${BACKEND_EXIT_TIMEOUT_MS}ms 超时，强制 SIGKILL`)
-          backend.kill('SIGKILL')
-        }
-        resolve()
-      }, BACKEND_EXIT_TIMEOUT_MS)
-    })
-
-    await Promise.race([exitPromise, timeoutPromise])
-    backend = null
-  }
-
-  // 3. 允许退出
+  // 2. 允许退出
   app.exit(0)
 })

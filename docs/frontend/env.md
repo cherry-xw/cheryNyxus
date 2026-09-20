@@ -4,18 +4,21 @@
 
 ## 职责
 
-封装“渲染进程跑在哪种平台 / 后端怎么连”——业务代码**不再直接读** `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__` 两个 Electron preload 注入的全局。需要操作本机资源且后端可承担的业务能力（如打开配置目录）统一走 WebSocket RPC。
+封装“渲染进程跑在哪种平台 / 后端怎么连”。纯前端 Electron 不再注入后端端口；连接目标由管理器、直连地址或 relay 发现提供。
 
 ## 导出 API
 
 ```ts
 // web/src/services/platform.ts
-export const isElectron: boolean;                       // 单一事实源（基于 __BACKEND_CONFIG__ 存在性）
+export const isElectron: boolean;                       // 桌面 bridge 或旧版后端配置存在
 export interface ServerConfig {                         // 后端端口 + transport + 会话 token
   wsPort: number;
   webPort: number;
   transport: "binary" | "json";
   sessionToken?: string;
+  backendId?: string;
+  httpBasePath?: string;
+  wsPath?: string;
 }
 export function httpUrl(path: string): string;          // 拼绝对 HTTP URL（Electron file:// 下相对路径挂）
 export function wsUrl(cfg: ServerConfig): string;       // 收敛 WS URL 三分支
@@ -32,7 +35,7 @@ export async function getServerConfig(options?: { refresh?: boolean }): Promise<
 
 ### `isElectron` 判定
 
-只用 `window.__BACKEND_CONFIG__` 存在性做判定（preload 注入的"最稳定"标记——main 进程在 createWindow 前已 waitForBackend 就绪）。其他全局都是这一位的派生，**不另立标志**。
+纯前端 Electron 使用 `__DESKTOP_BRIDGE__` 判定，旧版一体化 Electron 兼容 `__BACKEND_CONFIG__`。该值只代表运行容器，不代表当前连接本机后端。
 
 ### `ServerConfig` 类型归属
 
@@ -42,7 +45,7 @@ export async function getServerConfig(options?: { refresh?: boolean }): Promise<
 
 | 模式 | URL 形式 | 触发条件 |
 |------|----------|----------|
-| Electron 桌面 | `ws://localhost:<wsPort>` | `isElectron` 为真（preload 注入 `__BACKEND_CONFIG__`） |
+| 旧版 Electron 一体化 | `ws://localhost:<wsPort>` | `__BACKEND_CONFIG__` 存在 |
 | 浏览器 / dev | `<ws/wss>://<host>/ws`（vite proxy） | `import.meta.env.DEV` |
 | 浏览器 / prod | `<ws/wss>://<host>:<wsPort>` | 后端静态 serve 同源 + 直连 |
 

@@ -11,12 +11,6 @@ import { contextBridge, ipcRenderer } from 'electron'
  *
  * 仅注入后端连接配置；业务能力统一通过 WebSocket RPC 调用后端。
  */
-interface BackendConfig {
-  wsPort: number
-  webPort: number
-  transport: 'binary' | 'json'
-}
-
 /**
  * desktop renderer → main 的独立原生窗打开请求（与 main.ts 的 OpenWindowRequest 保持一致）。
  */
@@ -35,20 +29,6 @@ export interface OpenWindowRequest {
   returnToComposer?: boolean
   focus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
 }
-
-const config = ipcRenderer.sendSync('get-backend-config') as BackendConfig | null
-
-if (config) {
-  contextBridge.exposeInMainWorld('__BACKEND_CONFIG__', config)
-  contextBridge.exposeInMainWorld('__BACKEND_HTTP_URL__', `http://localhost:${config.webPort}`)
-}
-
-// 刷新后端配置（invoke → main 进程 fetch /api/config，返回含最新 sessionToken 的完整配置）。
-// 渲染进程不能直接 fetch /api/config：后端响应无 CORS 头，Chromium 拦截跨源请求；
-// main 进程 Node 全局 fetch 无此限制。worker 重启轮换 sessionToken 后，重连必须先经此刷新。
-contextBridge.exposeInMainWorld('__REFRESH_BACKEND_CONFIG__', () =>
-  ipcRenderer.invoke('backend:refresh-config'),
-)
 
 // 目录选择对话框（预设 workspace 字段用）。main 进程 dialog.showOpenDialog；canceled → null。
 // 不依赖 backend config，独立注入（仅 Electron 模式有此 preload）。
