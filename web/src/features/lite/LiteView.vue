@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Top } from '@element-plus/icons-vue'
+import { MorphIcon } from 'morphicons/vue'
+import { useMotionTier } from '@/composables/useMotionTier'
+import { clusterNodeIcon } from './clusterIcons'
 import { useLiteViewController, type LiteViewControllerProps } from './useLiteViewController'
 import { useInstructionSuggestions } from '../agent/composer/useInstructionSuggestions'
 import InstructionSuggestions from '../agent/composer/InstructionSuggestions.vue'
@@ -71,7 +74,6 @@ const {
   tipPos,
   toggleThinking,
   toggleRunDetail,
-  toolTypeGlyph,
   toolTypeLabel,
   trajectoryBarStyle,
   trajectoryLayout,
@@ -80,10 +82,39 @@ const {
   visibleRows,
 } = controller
 
-const menu = useInstructionSuggestions({ chatId: () => props.rootChatId, preset: () => props.presetName, text: () => inputText.value, input: liteInputEl, update: (value) => { inputText.value = value }, resize: autoGrowInput })
-function onLiteInput(): void { void nextTick(menu.refresh); autoGrowInput() }
-function onLiteKeydown(event: KeyboardEvent): void { if (!menu.keydown(event)) onInputKeydown(event) }
-defineExpose({ insertReference(token: string) { inputText.value += (inputText.value ? ' ' : '') + token + ' '; void nextTick(() => { autoGrowInput(); liteInputEl.value?.focus() }) } })
+const menu = useInstructionSuggestions({
+  chatId: () => props.rootChatId,
+  preset: () => props.presetName,
+  text: () => inputText.value,
+  input: liteInputEl,
+  update: (value) => {
+    inputText.value = value
+  },
+  resize: autoGrowInput,
+})
+function onLiteInput(): void {
+  void nextTick(menu.refresh)
+  autoGrowInput()
+}
+function onLiteKeydown(event: KeyboardEvent): void {
+  if (!menu.keydown(event)) onInputKeydown(event)
+}
+
+// ── cluster 小按钮可变形图标（morphicons）：状态变化时弹簧变形为状态图标（终态），
+// 平时静止；动效档位约定与 WorkflowMorphIcon 一致——精简动效/关闭装饰档下不做变形动画。 ──
+const { spec } = useMotionTier()
+const clusterMorphReducedMotion = computed(() =>
+  spec.value.mode === 'full' && spec.value.decoration !== 'off' ? 'user' : 'always',
+)
+defineExpose({
+  insertReference(token: string) {
+    inputText.value += (inputText.value ? ' ' : '') + token + ' '
+    void nextTick(() => {
+      autoGrowInput()
+      liteInputEl.value?.focus()
+    })
+  },
+})
 
 // ── 输入框展开态（精简模式同款交互，与对话模式一致）：默认保持 6 行上限，
 // 展开后最高到窗口一半（由 CSS .lite-input.is-expanded 承接）。 ──
@@ -348,7 +379,13 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                       class="lite-instruction-token is-role"
                       >{{ segment.value }}</span
                     >
-                    <el-tooltip v-else-if="segment.type === 'file'" content="工作区文件引用，仅传递路径，由 Agent 按需读取"><span class="lite-instruction-token">&amp;{{ segment.value }}</span></el-tooltip>
+                    <el-tooltip
+                      v-else-if="segment.type === 'file'"
+                      content="工作区文件引用，仅传递路径，由 Agent 按需读取"
+                      ><span class="lite-instruction-token"
+                        >&amp;{{ segment.value }}</span
+                      ></el-tooltip
+                    >
                     <template v-else>{{ segment.value }}</template>
                   </template>
                 </template>
@@ -377,9 +414,16 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                 @pointerleave="hideBarTip"
                 @click="openNodeDetail(node, $event)"
               >
-                <span class="lite-cluster-icon" aria-hidden="true">{{
-                  node.kind === 'tool' ? toolTypeGlyph(node.toolType) : node.icon
-                }}</span>
+                <!-- 可变形图标（morphicons + lucide）：终态变形为状态图标，见 clusterIcons.ts -->
+                <MorphIcon
+                  class="lite-cluster-icon"
+                  :icon="clusterNodeIcon(node)"
+                  :size="15"
+                  :stroke-width="2"
+                  :reduced-motion="clusterMorphReducedMotion"
+                  spring="snappy"
+                  aria-hidden="true"
+                />
                 <span class="lite-cluster-status" :data-status="node.status" aria-hidden="true" />
               </button>
             </div>
@@ -432,28 +476,13 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
         <p v-if="runDetailOpen" class="lite-run-error-detail">{{ runDetailText }}</p>
       </div>
 
+      <!-- 顶部行：提示信息居左 + 「展开输入框」按钮居右（与对话模式同款结构）；
+           下行：输入框 + 发送按钮同行贴底对齐，发送按钮不再被挤到下一行。 -->
       <div class="lite-input" :class="{ 'is-expanded': expandedInput }">
-        <div class="lite-input-hint">/ 指令 · @ 角色 · &amp; 文件引用（仅传路径） · 输入后从候选窗口选择</div>
-        <textarea
-          ref="liteInputEl"
-          v-model="inputText"
-          class="lite-input-box"
-          rows="1"
-          :placeholder="
-            connectionBlocked ? operationBlockReason : '发送消息（Enter 发送 / Shift+Enter 换行）'
-          "
-          :disabled="sending || connectionBlocked"
-          @keydown="onLiteKeydown"
-          @click="menu.refresh"
-          @keyup.left="menu.refresh"
-          @keyup.right="menu.refresh"
-          @input="onLiteInput"
-        />
-        <InstructionSuggestions :items="menu.suggestions.value" :active-index="menu.activeIndex.value" :message="menu.message.value" :opened="menu.opened.value" @select="menu.choose" />
-        <div v-if="inputText.includes('[[file:')" class="lite-input-reference-preview" aria-label="文件引用">
-          <span v-for="(segment, index) in splitCommandPrompt(inputText).filter((item) => item.type === 'file')" :key="index" class="lite-reference-chip">&amp;{{ segment.value }}</span>
-        </div>
-        <div class="lite-send-wrap">
+        <div class="lite-input-top">
+          <div class="lite-input-hint">
+            / 指令 · @ 角色 · &amp; 文件引用（仅传路径） · 输入后从候选窗口选择
+          </div>
           <el-tooltip
             :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
             placement="top"
@@ -471,6 +500,33 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
               <Top class="lite-expand-icon" aria-hidden="true" />
             </button>
           </el-tooltip>
+        </div>
+        <div class="lite-input-row">
+          <textarea
+            ref="liteInputEl"
+            v-model="inputText"
+            class="lite-input-box"
+            rows="1"
+            :placeholder="
+              connectionBlocked ? operationBlockReason : '发送消息（Enter 发送 / Shift+Enter 换行）'
+            "
+            :disabled="sending || connectionBlocked"
+            @keydown="onLiteKeydown"
+            @click="menu.refresh"
+            @keyup.left="menu.refresh"
+            @keyup.right="menu.refresh"
+            @input="onLiteInput"
+          />
+          <InstructionSuggestions
+            :items="menu.suggestions.value"
+            :active-index="menu.activeIndex.value"
+            :message="menu.message.value"
+            :opened="menu.opened.value"
+            :tabs="menu.tabs.value"
+            :active-tab="menu.activeTab.value"
+            @select="menu.choose"
+            @select-tab="menu.selectTab"
+          />
           <button
             type="button"
             class="lite-send-btn"
@@ -479,6 +535,20 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
           >
             发送
           </button>
+        </div>
+        <div
+          v-if="inputText.includes('[[file:')"
+          class="lite-input-reference-preview"
+          aria-label="文件引用"
+        >
+          <span
+            v-for="(segment, index) in splitCommandPrompt(inputText).filter(
+              (item) => item.type === 'file',
+            )"
+            :key="index"
+            class="lite-reference-chip"
+            >&amp;{{ segment.value }}</span
+          >
         </div>
       </div>
 

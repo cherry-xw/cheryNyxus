@@ -68,8 +68,19 @@ onScopeDispose(() => {
 
 // ── 输入框（精简模式同款交互：Enter 发送 / Shift+Enter 换行，单行自适应增高） ──
 const inputRef = ref<HTMLTextAreaElement | null>(null)
-defineExpose({ focusInput() { inputRef.value?.focus(); inputRef.value?.setSelectionRange(props.text.length, props.text.length) } })
-const menu = useInstructionSuggestions({ chatId: () => props.rootChatId, text: () => props.text, input: inputRef, update: (value) => emit('draftInput', value), resize: refreshInput })
+defineExpose({
+  focusInput() {
+    inputRef.value?.focus()
+    inputRef.value?.setSelectionRange(props.text.length, props.text.length)
+  },
+})
+const menu = useInstructionSuggestions({
+  chatId: () => props.rootChatId,
+  text: () => props.text,
+  input: inputRef,
+  update: (value) => emit('draftInput', value),
+  resize: refreshInput,
+})
 /** 输入框展开态：默认保持 6 行（120px）上限，展开后最高到窗口一半（由 CSS is-expanded 承接）。 */
 const expandedInput = ref(false)
 /** 输入框当前可视行数（含自动换行）：超过 2 行才显示「展开输入框」按钮（默认隐藏）。 */
@@ -196,10 +207,43 @@ onMounted(() => {
           📎 {{ mediaCount }} 个附件随消息发送（附件管理在树视图输入框）
         </span>
       </div>
-      <div v-if="splitCommandPrompt(text).some((segment) => segment.type === 'file')" class="conversation-reference-preview" aria-label="文件引用">
-        <span v-for="(segment, index) in splitCommandPrompt(text).filter((item) => item.type === 'file')" :key="index" class="conversation-reference-chip">&amp;{{ segment.value }}</span>
+      <div
+        v-if="splitCommandPrompt(text).some((segment) => segment.type === 'file')"
+        class="conversation-reference-preview"
+        aria-label="文件引用"
+      >
+        <span
+          v-for="(segment, index) in splitCommandPrompt(text).filter(
+            (item) => item.type === 'file',
+          )"
+          :key="index"
+          class="conversation-reference-chip"
+          >&amp;{{ segment.value }}</span
+        >
       </div>
-      <div class="conversation-input-hint"><kbd>/</kbd> 指令　<kbd>@</kbd> 角色　<kbd>&amp;</kbd> 文件引用　· 输入后从候选窗口选择</div>
+      <!-- 顶部行：提示信息居左 + 「展开输入框」按钮居右（同一行对齐）；下行：输入框 + 发送按钮。 -->
+      <div class="conversation-input-top">
+        <div class="conversation-input-hint">
+          <kbd>/</kbd> 指令　<kbd>@</kbd> 角色　<kbd>&amp;</kbd> 文件引用　· 输入后从候选窗口选择
+        </div>
+        <el-tooltip
+          :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+          placement="top"
+          :show-after="150"
+          :hide-after="0"
+        >
+          <button
+            type="button"
+            class="conversation-expand-btn"
+            :class="{ 'is-expanded': expandedInput }"
+            :aria-pressed="expandedInput"
+            :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+            @click="toggleExpandInput"
+          >
+            <Top class="conversation-expand-icon" aria-hidden="true" />
+          </button>
+        </el-tooltip>
+      </div>
       <div class="conversation-input-row" :class="{ 'is-expanded': expandedInput }">
         <textarea
           ref="inputRef"
@@ -215,35 +259,25 @@ onMounted(() => {
           @keyup.left="menu.refresh"
           @keyup.right="menu.refresh"
         />
-        <InstructionSuggestions :items="menu.suggestions.value" :active-index="menu.activeIndex.value" :message="menu.message.value" :opened="menu.opened.value" @select="menu.choose" />
-        <div class="conversation-send-wrap">
-          <el-tooltip
-            :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
-            placement="top"
-            :show-after="150"
-            :hide-after="0"
-          >
-            <button
-              type="button"
-              class="conversation-expand-btn"
-              :class="{ 'is-expanded': expandedInput }"
-              :aria-pressed="expandedInput"
-              :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
-              @click="toggleExpandInput"
-            >
-              <Top class="conversation-expand-icon" aria-hidden="true" />
-            </button>
-          </el-tooltip>
-          <button
-            type="button"
-            class="conversation-send-btn"
-            :disabled="sending || uploading || loading || !text.trim()"
-            :aria-label="sending ? '消息正在发送' : '发送消息'"
-            @click="emit('send')"
-          >
-            {{ sending ? '发送中…' : '发送' }}
-          </button>
-        </div>
+        <InstructionSuggestions
+          :items="menu.suggestions.value"
+          :active-index="menu.activeIndex.value"
+          :message="menu.message.value"
+          :opened="menu.opened.value"
+          :tabs="menu.tabs.value"
+          :active-tab="menu.activeTab.value"
+          @select="menu.choose"
+          @select-tab="menu.selectTab"
+        />
+        <button
+          type="button"
+          class="conversation-send-btn"
+          :disabled="sending || uploading || loading || !text.trim()"
+          :aria-label="sending ? '消息正在发送' : '发送消息'"
+          @click="emit('send')"
+        >
+          {{ sending ? '发送中…' : '发送' }}
+        </button>
       </div>
     </div>
   </div>
@@ -278,10 +312,41 @@ onMounted(() => {
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
   border-top: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
-.conversation-input-row { position: relative; }
-.conversation-input-hint { font-size:12px; color:var(--el-text-color-secondary); padding-top:5px; }
-.conversation-reference-preview { display:flex; flex-wrap:wrap; gap:5px; margin:5px 0; }
-.conversation-reference-chip, .lite-reference-chip { display:inline-flex; max-width:100%; padding:3px 7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--accent); background:color-mix(in srgb,var(--accent) 12%, transparent); border:1px solid color-mix(in srgb,var(--accent) 28%, transparent); font-size:12px; }
+.conversation-input-row {
+  position: relative;
+}
+// 顶部行：提示信息居左 + 「展开输入框」按钮居右，同一行垂直居中对齐；
+// 最小高度取展开按钮同高（24px），按钮隐藏/显示时提示行高度不跳动。
+.conversation-input-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+.conversation-input-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.conversation-reference-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 5px 0;
+}
+.conversation-reference-chip,
+.lite-reference-chip {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 3px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  font-size: 12px;
+}
 .conversation-input-error {
   padding: 6px 10px;
   border: 1px solid var(--el-color-danger);
@@ -336,6 +401,8 @@ onMounted(() => {
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 }
+// 发送钮与输入框同行贴底对齐（展开按钮已移至上方提示行右侧）；
+// 展开态图标旋转 180° 表「收起」（按钮本体在 .conversation-input-top）。
 .conversation-input-row {
   display: flex;
   align-items: flex-end;
@@ -377,16 +444,8 @@ onMounted(() => {
   min-height: min(240px, 50vh);
   max-height: 50vh;
 }
-// 发送钮右上角展开按钮：无边框幽灵小按钮（与实心发送钮同风格家族，贴发送钮正上方右对齐，
-// 与发送钮同列，hover/焦点可键盘操作）；仅在输入超过 2 行时出现（模板 v-if），
-// 展开态图标旋转 180° 表「收起」。
-.conversation-send-wrap {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-}
+// 展开按钮：无边框幽灵小按钮（与实心发送钮同风格家族），位于提示行右端；
+// 仅在输入超过 2 行时出现（模板 v-if），展开态图标旋转 180° 表「收起」。
 .conversation-expand-btn {
   display: grid;
   place-items: center;

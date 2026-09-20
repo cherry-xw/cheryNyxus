@@ -22,30 +22,6 @@
   border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
   box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.lite-cluster-node {
-  position: relative;
-  overflow: visible;
-}
-/* v1.2：hover 描边框改用 ::before——::after 已被相邻节点的 `|` 分隔线占用，
-   同用 ::after 时分隔线规则（更高特异性）会覆盖描边框，导致 hover 框错乱。 */
-.lite-cluster-node::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border: 1px solid currentColor;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-.lite-cluster-node:hover::before {
-  opacity: 0.32;
-}
-@media (prefers-reduced-motion: reduce) {
-  .lite-cluster-node::before {
-    transition: none;
-  }
-}
-
 /* 字重收敛：lite 视图内 <strong>（审批标题/历史 label 等）一律 400——lite 为轻量界面，
    遵循 font-style-guide「内容字段不加粗」，标题层级亦随轻量风格降为 400。 */
 .lite-view strong {
@@ -678,56 +654,56 @@
   color: var(--el-text-color-placeholder);
 }
 
-/* ── MCU 同构工具 tag：纯 ASCII glyph + 底部状态条 + 字符竖线分隔 ── */
+/* ── MCU 同构工具 tag：可变形图标（morphicons）+ 底部状态条 + 统一小方框 ── */
 .lite-cluster {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   padding: 4px 10px;
 }
-/* v1.2 对齐修正：icon 在盒内垂直居中（去掉 2px 底部 padding 挤压导致的偏上），
-   hover 背景即按钮盒本身，底部 2px 状态条绝对定位叠加、不参与布局。 */
+/* 统一小方框：固定 22×22、淡底色 + 细描边，图标垂直水平居中，高低一致；
+   节点间的 `|` 字符分隔线已移除，由方框本身承担分隔（阶段1确认）。 */
 .lite-cluster-node {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 22px;
+  width: 22px;
   height: 22px;
-  padding: 0 3px;
-  border: 0;
+  padding: 0;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 0;
-  background: transparent;
+  background: var(--el-fill-color-light);
   color: var(--el-text-color-regular);
   cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
   transition:
     background-color 160ms ease,
+    border-color 160ms ease,
     color 160ms ease;
 }
 .lite-cluster-node:hover {
-  background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color-lighter));
+  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-fill-color-light));
   color: var(--el-text-color-primary);
 }
 .lite-cluster-node.is-selected {
   color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-fill-color-light));
+  border-color: color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color-lighter));
 }
-/* 用字符竖线分隔相邻节点：Web 与 MCU 都可直接复用同一个 `|`。 */
-.lite-cluster-node:not(:last-child)::after {
-  content: '|';
+/* v1.2：hover 描边框用 ::before 叠加（inset -2px 外圈），与方框自身的 hover 变色叠加出层次。 */
+.lite-cluster-node::before {
+  content: '';
   position: absolute;
-  top: 50%;
-  right: -5px;
-  transform: translateY(-50%);
-  color: var(--el-border-color);
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1;
+  inset: -2px;
+  border: 1px solid currentColor;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.lite-cluster-node:hover::before {
+  opacity: 0.32;
 }
 /* t14：时间轴点击定位 → 高亮下方对应内容块（行 + 具体节点），并做一次短暂闪光动画。 */
 .lite-history-row.is-focused {
@@ -808,19 +784,36 @@
   border-top: 1px solid var(--el-border-color-lighter);
   color: var(--el-color-primary);
 }
-/* 工具只显示 ASCII 字符；中文名称仅保留在 title / aria-label / 详情中。 */
-.lite-cluster-node.is-tool .lite-cluster-icon {
-  color: var(--lite-tone-tool);
+/* 工具节点 icon 按工具类型区分颜色（六类专属色调，与详情抽屉 type chip 同色板）；
+   中文名称仅保留在 title / aria-label / 详情中。 */
+.lite-cluster-node[data-tooltype='exec'] .lite-cluster-icon {
+  color: #9b59b6;
+}
+.lite-cluster-node[data-tooltype='read'] .lite-cluster-icon {
+  color: #6b7f92;
+}
+.lite-cluster-node[data-tooltype='write'] .lite-cluster-icon {
+  color: #2f9e63;
+}
+.lite-cluster-node[data-tooltype='web'] .lite-cluster-icon {
+  color: #00a8a8;
+}
+.lite-cluster-node[data-tooltype='dispatch'] .lite-cluster-icon {
+  color: #e67e22;
+}
+.lite-cluster-node[data-tooltype='other'] .lite-cluster-icon {
+  color: #c58a1f;
 }
 /* v1.0 弱化状态线：icon 为主、状态线为辅——状态线统一降透明度（成功绿/失败红不再全实色抢眼），
-   仅作底部细微状态指示，`prefers-reduced-motion` 下运行线保持常亮。 */
+   仅作底部细微状态指示，`prefers-reduced-motion` 下运行线保持常亮。
+   v3.0 收敛：状态线变短变粗（左右内缩更多 + 高度 2→3px），视觉更克制。 */
 .lite-cluster-status {
   position: absolute;
   z-index: 1;
-  right: 2px;
+  right: 5px;
   bottom: 0;
-  left: 2px;
-  height: 2px;
+  left: 5px;
+  height: 3px;
   border-radius: 0;
   background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
   pointer-events: none;
@@ -840,95 +833,13 @@
 .lite-cluster-status[data-status='cancelled'] {
   background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
 }
-/* v1.0 icon 增强：字号 10→11px，清晰度不低于下方状态线 */
+/* 工具 icon 用主题工具色；其余节点用按钮默认色。图标为 MorphIcon 渲染的 SVG，
+   尺寸由组件 size prop 控制（15px），方框负责居中。
+   margin-bottom 使图标在 22px 方框内视觉微上移：底部状态条贴底独立，
+   与图标留出空隙，不再粘连（v3.1 修复）。 */
 .lite-cluster-icon {
-  flex: none;
-  min-width: 2ch;
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  /* 2026-10 icon 全局放大 */
-  font-size: 17px;
-  line-height: 1;
-  letter-spacing: -0.08em;
-  text-align: center;
-}
-/* v2.8 工具 icon 闲启动效：运行结束后按工具类型做小幅循环动效（旋转 / 跳动），
-   幅度克制不抢眼；运行中由底部状态条闪动承担反馈、取消态静止。 */
-.lite-cluster-node[data-tooltype]:not(.is-status-running):not(.is-status-cancelled)
-  .lite-cluster-icon {
-  animation: lite-icon-idle-exec 2.8s ease-in-out infinite;
-}
-.lite-cluster-node[data-tooltype='read']:not(.is-status-running):not(.is-status-cancelled)
-  .lite-cluster-icon {
-  animation: lite-icon-idle-read 3.4s ease-in-out infinite;
-}
-.lite-cluster-node[data-tooltype='write']:not(.is-status-running):not(.is-status-cancelled)
-  .lite-cluster-icon {
-  animation: lite-icon-idle-write 2.6s ease-in-out infinite;
-}
-.lite-cluster-node[data-tooltype='web']:not(.is-status-running):not(.is-status-cancelled)
-  .lite-cluster-icon {
-  animation: lite-icon-idle-web 7s linear infinite;
-}
-.lite-cluster-node[data-tooltype='dispatch']:not(.is-status-running):not(.is-status-cancelled)
-  .lite-cluster-icon {
-  animation: lite-icon-idle-dispatch 2.4s ease-in-out infinite;
-}
-.lite-cluster-node[data-tooltype='other']:not(.is-status-running):not(.is-status-cancelled)
-  .lite-cluster-icon {
-  animation: lite-icon-idle-other 2.2s ease-in-out infinite;
-}
-@keyframes lite-icon-idle-exec {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-2px);
-  }
-}
-@keyframes lite-icon-idle-read {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  50% {
-    transform: translateX(-1.5px);
-  }
-}
-@keyframes lite-icon-idle-write {
-  0%,
-  100% {
-    transform: translateY(0) rotate(0deg);
-  }
-  50% {
-    transform: translateY(1.5px) rotate(2deg);
-  }
-}
-@keyframes lite-icon-idle-web {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes lite-icon-idle-dispatch {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  50% {
-    transform: translateX(2px);
-  }
-}
-@keyframes lite-icon-idle-other {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.08);
-  }
+  display: block;
+  margin-bottom: 4px;
 }
 @keyframes lite-tool-blink {
   0%,
@@ -944,10 +855,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .lite-cluster-status[data-status='running'] {
-    animation: none;
-  }
-  /* v2.8 工具 icon 闲启动效在 reduced 下关闭 */
-  .lite-cluster-node .lite-cluster-icon {
     animation: none;
   }
   /* v1.8：全部颜色/状态过渡在 reduced 下关闭，保留即时状态反馈 */
@@ -1030,16 +937,32 @@
   flex: none;
   display: flex;
   flex-direction: column;
-  /* v0.4.2 多行输入：按钮贴底对齐 */
-  align-items: stretch;
+  gap: 6px;
   padding: 8px 12px;
   /* v1.7 区域三·输入区（操作区）：主题强调色淡底（浅色靛蓝 / 深色电光青派生），
      与对话列表（中性亮面）/提问面板（暖琥珀）明显区分；顶部分隔线同家族加深。 */
   background: color-mix(in srgb, var(--el-color-primary) 8%, var(--surface));
   border-top: 1px solid color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color));
 }
+/* 顶部行：提示信息居左 + 「展开输入框」按钮居右，同一行垂直居中对齐（与对话模式同款）；
+   最小高度取展开按钮同高（24px），按钮显隐时提示行高度不跳动。 */
+.lite-input-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+/* 输入行：输入框 + 发送按钮同行，贴底对齐（多行增高时按钮仍贴底）。 */
+.lite-input-row {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
 .lite-input-box {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   box-sizing: border-box;
   /* v0.4.2 多行自适应：默认单行，换行/长内容自动增高（autoGrowInput），上限内滚动 */
   resize: none;
@@ -1057,18 +980,8 @@
   min-height: min(240px, 50vh);
   max-height: 50vh;
 }
-/* 发送钮右上角展开按钮：无边框幽灵小按钮（与实心发送钮同风格家族，贴发送钮正上方右对齐，
-   与发送钮同列，hover/焦点可键盘操作）；仅在输入超过 2 行时出现（模板 v-if），
-   展开态图标旋转 180° 表「收起」。 */
-.lite-send-wrap {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  align-self: flex-end;
-  margin-left: 0;
-}
+/* 展开按钮：无边框幽灵小按钮（与实心发送钮同风格家族），位于提示行右端；
+   仅在输入超过 2 行时出现（模板 v-if），展开态图标旋转 180° 表「收起」。 */
 .lite-expand-btn {
   display: grid;
   place-items: center;
@@ -1101,8 +1014,8 @@
 .lite-expand-btn.is-expanded .lite-expand-icon {
   transform: rotate(180deg);
 }
-/* v1.0 高度对齐：发送按钮高度固定为单行输入框同高（≈35px，含输入框 padding 7px×2 + 1.5 行高 + 边框），
-   消除右下角按钮与左侧单行输入框的纵向错位；多行输入增高时按钮仍贴底（.lite-input 为 align-items:flex-end）。 */
+/* 发送按钮高度固定为单行输入框同高（含输入框 padding 7px×2 + 1.5 行高 + 边框），
+   与左侧单行输入框底缘对齐（.lite-input-row 为 align-items:flex-end）；多行输入增高时按钮仍贴底。 */
 .lite-send-btn {
   flex: none;
   display: inline-flex;
@@ -1139,6 +1052,6 @@
 .lite-input-suggestions button { display:flex; gap:10px; padding:8px 10px; color:inherit; text-align:left; border:0; background:transparent; cursor:pointer; }
 .lite-input-suggestions button.active,.lite-input-suggestions button:hover { background: color-mix(in srgb,var(--accent) 14%,transparent); }
 .lite-input-suggestions small { opacity:.65; }
-.lite-input-hint { font-size:12px; color:var(--el-text-color-secondary); padding-top:5px; }
+.lite-input-hint { font-size:12px; color:var(--el-text-color-secondary); }
 .lite-input-reference-preview { display:flex; flex-wrap:wrap; gap:5px; padding:5px 0 0; }
 .lite-reference-chip { max-width:100%; }

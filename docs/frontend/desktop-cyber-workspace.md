@@ -5,7 +5,7 @@
 ## 组件与模型
 
 - `web/src/features/desktop/CyberDesktopHost.vue`：桌面装配层——系统栏、任务栏、进程轨、功能窗渲染、视觉事件横幅。
-- `web/src/features/desktop/CyberWindow.vue`：浏览器功能窗唯一外壳（标题栏、层级、最小化/最大化/恢复、拖拽/缩放）。嵌入内容（Agent/History/Settings 等）必须为无壳 `embedded` 态铺满内容区，禁止出现"双壳"。
+- `web/src/features/desktop/CyberWindow.vue`：浏览器功能窗唯一外壳（标题栏、层级、最小化/最大化/恢复、拖拽/缩放）。嵌入内容（Agent/History/Settings 等）必须为无壳 `embedded` 态铺满内容区，禁止出现"双壳"。**标题栏按钮右对齐（2026-09-21）**：最小化/最大化/关闭按钮组的 `margin-left: auto` 挂在 `.cyber-window-actions` 上（而非装饰 signal）——窗口 ≤620px 时 signal 被容器查询隐藏，右对齐职责随按钮组保留，按钮始终右上角居右、与标题保持间隙。
 - `web/src/stores/workspace/windowModel.ts`：纯窗口模型（类型、几何、层级、焦点、最小化、最大化、恢复、持久化）。业务数据留在既有 canonical state，窗口模型只承载 UI 事实。
 - `web/src/stores/workspace/uiState.ts`：窗口注册表与 actions；`focusWorkspaceWindow` 维护 z 序（`workspaceWindowOrder`，末尾=最上）。
 - `web/src/features/desktop/visualEvents.ts`：桌面视觉事件（故障横幅等）。

@@ -101,11 +101,13 @@ function syncSlider(animate: boolean): void {
   }
   pendingSync = null
   // 以遮罩（=容器内容盒）为参照：色块与遮罩都从内容盒左缘起算，x 即色块左缘距内容盒左缘的距离。
-  const maskRect = mask.getBoundingClientRect()
-  const btnRect = btn.getBoundingClientRect()
-  cachedMaskW = maskRect.width
-  const x = btnRect.left - maskRect.left + BLOCK_INSET
-  const width = btnRect.width - BLOCK_INSET * 2
+  // 测量必须用 offsetLeft/offsetWidth（布局尺寸，规范明确忽略 CSS transform）而非
+  // getBoundingClientRect：工作台打开动画会给面板临时加 scale（useOverlayAnimation 的 dialog 入场），
+  // re-open 时本函数恰在动画内触发，rect 会把缩小后的宽度测进去，色块因此偏短且不再自愈
+  // （transform 变化不触发 ResizeObserver）；offset 系列不受缩放影响，任何时机测量都正确。
+  cachedMaskW = mask.offsetWidth
+  const x = btn.offsetLeft - mask.offsetLeft + BLOCK_INSET
+  const width = btn.offsetWidth - BLOCK_INSET * 2
 
   sliderTimeline?.kill()
   sliderTimeline = null

@@ -64,8 +64,7 @@ function onContextDrawerKeydown(e: KeyboardEvent): void {
 }
 onMounted(() => window.addEventListener('keydown', onContextDrawerKeydown, true))
 onBeforeUnmount(() => window.removeEventListener('keydown', onContextDrawerKeydown, true))
-// 小组角色编制默认折叠：仅占一行（标题行），点击标题行展开角色标签（与发消息弹窗一致）。
-const rolesExpanded = ref(false)
+// 小组角色编制入口统一在右侧 rail 按钮（树/对话/精简三视图共用），composer 内不再内置折叠面板。
 // Keep the controller surface grouped here so this orchestration SFC stays inside its line budget.
 // prettier-ignore
 const {
@@ -359,26 +358,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
                 <strong>{{ composerBranchTitle }}</strong>
                 <small> · {{ composerBranchDescription }}</small>
               </span>
-              <el-tooltip
-                :content="
-                  branchTarget
-                    ? branchTarget.type === 'detail'
-                      ? '解释分支使用专用诊断角色，可读取、搜索和运行诊断命令，但不会回传或修改原任务。'
-                      : '继续分支继承来源分支角色和工具；它与原流程并列，已经发生的外部副作用不会回退。'
-                    : '打开小组角色编制；修改会同步到后续请求。'
-                "
-                placement="top"
-              >
-                <button
-                  type="button"
-                  class="nyxus-composer-info nyxus-role-config-trigger"
-                  :aria-expanded="rolesExpanded"
-                  aria-label="编辑小组角色编制"
-                  @click="rolesExpanded = !rolesExpanded"
-                >
-                  ⚙
-                </button>
-              </el-tooltip>
               <button
                 type="button"
                 class="nyxus-composer-close"
@@ -390,110 +369,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
                 ✕
               </button>
             </header>
-            <div
-              class="role-configs nyxus-role-configs"
-              :class="{ 'is-collapsed': !rolesExpanded }"
-            >
-              <small class="role-runtime-note" role="status">
-                {{ runtimeHint && !runtimeError ? runtimeHint : '修改角色编制后，后续请求会使用新配置。' }}
-              </small>
-              <button
-                type="button"
-                class="role-configs-toggle"
-                :aria-expanded="rolesExpanded"
-                aria-label="小组角色编制"
-                @click="rolesExpanded = !rolesExpanded"
-              >
-                <span class="session-note">小组角色编制</span>
-                <span
-                  class="role-configs-chevron"
-                  :class="{ 'is-open': rolesExpanded }"
-                  aria-hidden="true"
-                  >▾</span
-                >
-              </button>
-              <template v-if="rolesExpanded">
-                <div
-                  v-if="loading"
-                  class="role-tags role-tags-skel"
-                  aria-busy="true"
-                  aria-label="角色编制加载中"
-                >
-                  <span v-for="n in 3" :key="n" class="role-skel-tile" aria-hidden="true" />
-                </div>
-                <div v-else class="role-tags" aria-label="小组角色编制">
-                  <el-popover
-                    v-for="[role, selection] in orderedRoleSelections"
-                    :key="role"
-                    trigger="click"
-                    placement="bottom-start"
-                    :width="420"
-                    popper-class="role-runtime-popper"
-                  >
-                    <template #reference>
-                      <button
-                        type="button"
-                        class="role-summary-tag"
-                        :class="{ 'is-primary': role === primaryRole }"
-                        :aria-label="`配置角色 ${role}，大脑 ${selection.brain || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
-                      >
-                        <span class="role-summary-main">
-                          <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
-                          <span class="role-summary-name">{{ role }}</span>
-                        </span>
-                        <span class="role-summary-meta-row">
-                          <span class="role-summary-model-slot">
-                            <span class="role-summary-model">◈ {{ selection.brain || '—' }}</span>
-                          </span>
-                          <el-tooltip
-                            v-if="roleUsages[role]"
-                            placement="top"
-                            :show-after="200"
-                            :hide-after="0"
-                          >
-                            <template #content>
-                              <span>上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span>
-                            </template>
-                            <span
-                              class="role-usage-chip"
-                              :class="usageClass(roleUsages[role]!.usage)"
-                              :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
-                              >{{ fmtTokens(roleUsages[role]!.used) }}/{{
-                                fmtTokens(roleUsages[role]!.total)
-                              }}</span
-                            >
-                          </el-tooltip>
-                        </span>
-                        <span
-                          v-if="senseEntries(selection.senseGroup).length"
-                          class="role-summary-senses"
-                          aria-label="当前能力"
-                        >
-                          <span
-                            v-for="entry in senseEntries(selection.senseGroup)"
-                            :key="entry"
-                            class="role-summary-sense-icon"
-                          >
-                            {{ senseTool(entry)?.icon ?? '⚙' }}
-                          </span>
-                        </span>
-                      </button>
-                    </template>
-                    <RoleConfigPopover
-                      :role="role"
-                      :selection="selection"
-                      :brains="brains"
-                      :sense-groups="senseGroups"
-                      :config="config"
-                      :sense-tools="senseTools"
-                      :is-primary="role === primaryRole"
-                      :primary-role="primaryRole"
-                      @update:selection="roleSelections[role] = $event"
-                    />
-                  </el-popover>
-                </div>
-              </template>
-            </div>
             <AgentComposer
               is-nyxus
               :nyxus-draft-active="nyxusDraftActive"
@@ -524,10 +399,10 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
               :show-file-menu="showFileMenu"
               :active-file-index="activeFileIndex"
               :file-menu-hint="fileMenuHint"
-              @update:active-file-index="activeFileIndex = $event"
               :editor-ref-fn="editorRefFn"
               :command-menu-ref-fn="commandMenuRefFn"
               :role-menu-ref-fn="roleMenuRefFn"
+              @update:active-file-index="activeFileIndex = $event"
               @remove-media="removeMedia"
               @editor-input="onEditorInput"
               @editor-keydown="onDialogEditorKeydown"
@@ -782,7 +657,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
                   type="button"
                   class="nyxus-rail-action"
                   :class="{ 'is-active': roleListOpen }"
-                  aria-label="角色配置"
+                  aria-label="小组角色编制"
                   :aria-expanded="roleListOpen"
                   @click="toggleRoleList"
                 >
@@ -807,24 +682,89 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
               @pointerleave="scheduleRoleListClose()"
               @pointerdown="roleListPinned = true"
             >
-              <div class="nyxus-role-card-list" aria-label="Nyxus 角色列表">
-                <div v-if="loading" class="nyxus-role-loading">角色加载中…</div>
-                <template v-else>
-                  <RoleConfigPopover
+              <div class="nyxus-role-configs" aria-label="小组角色编制">
+                <small class="role-runtime-note" role="status">
+                  {{ runtimeHint && !runtimeError ? runtimeHint : '修改角色编制后，后续请求会使用新配置。' }}
+                </small>
+                <div
+                  v-if="loading"
+                  class="role-tags role-tags-skel"
+                  aria-busy="true"
+                  aria-label="角色编制加载中"
+                >
+                  <span v-for="n in 3" :key="n" class="role-skel-tile" aria-hidden="true" />
+                </div>
+                <div v-else class="role-tags" aria-label="小组角色编制">
+                  <el-popover
                     v-for="[role, selection] in orderedRoleSelections"
                     :key="role"
-                    :role="role"
-                    :selection="selection"
-                    :brains="brains"
-                    :sense-groups="senseGroups"
-                    :config="config"
-                    :sense-tools="senseTools"
-                    :is-primary="role === primaryRole"
-                    :primary-role="primaryRole"
-                    readonly
-                    @update:selection="roleSelections[role] = $event"
-                  />
-                </template>
+                    trigger="click"
+                    placement="bottom-start"
+                    :width="420"
+                    popper-class="role-runtime-popper"
+                  >
+                    <template #reference>
+                      <button
+                        type="button"
+                        class="role-summary-tag"
+                        :class="{ 'is-primary': role === primaryRole }"
+                        :aria-label="`配置角色 ${role}，大脑 ${selection.brain || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
+                      >
+                        <span class="role-summary-main">
+                          <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
+                          <span class="role-summary-name">{{ role }}</span>
+                        </span>
+                        <span class="role-summary-meta-row">
+                          <span class="role-summary-model-slot">
+                            <span class="role-summary-model">◈ {{ selection.brain || '—' }}</span>
+                          </span>
+                          <el-tooltip
+                            v-if="roleUsages[role]"
+                            placement="top"
+                            :show-after="200"
+                            :hide-after="0"
+                          >
+                            <template #content>
+                              <span>上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span>
+                            </template>
+                            <span
+                              class="role-usage-chip"
+                              :class="usageClass(roleUsages[role]!.usage)"
+                              :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
+                              >{{ fmtTokens(roleUsages[role]!.used) }}/{{
+                                fmtTokens(roleUsages[role]!.total)
+                              }}</span
+                            >
+                          </el-tooltip>
+                        </span>
+                        <span
+                          v-if="senseEntries(selection.senseGroup).length"
+                          class="role-summary-senses"
+                          aria-label="当前能力"
+                        >
+                          <span
+                            v-for="entry in senseEntries(selection.senseGroup)"
+                            :key="entry"
+                            class="role-summary-sense-icon"
+                          >
+                            {{ senseTool(entry)?.icon ?? '⚙' }}
+                          </span>
+                        </span>
+                      </button>
+                    </template>
+                    <RoleConfigPopover
+                      :role="role"
+                      :selection="selection"
+                      :brains="brains"
+                      :sense-groups="senseGroups"
+                      :config="config"
+                      :sense-tools="senseTools"
+                      :is-primary="role === primaryRole"
+                      :primary-role="primaryRole"
+                      @update:selection="roleSelections[role] = $event"
+                    />
+                  </el-popover>
+                </div>
               </div>
             </div>
           </Transition>
