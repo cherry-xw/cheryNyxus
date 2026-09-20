@@ -95,4 +95,4 @@ Checkpoint（内容记录）只建立一个 occurrence：checkpoint 边界（记
 
 新增步骤 kind 前先确认真实边界、隐私预算、幂等 source key、所属 run/attempt/call、终态和内容 owner。协议 Zod、持久 schema、记录器、分页与前端降级必须同批演进；不能只添加视觉节点。
 
-计划内隔离 fixture 覆盖无观察者运行、多观察者、重复事件、写失败/gap、终态幂等、无锚点后补、审批与子任务等待、子孙 Agent、索引分页、固定上界、删除和版本失配；入口为 `pnpm exec vitest run --config docs/plan/main-agent-runtime-diagram/verify/vitest.config.ts`。后端 `test/` 冻结期间不得修改或运行，也不得访问用户数据库。最终跨端回归由[活动计划](../../plan/main-agent-runtime-diagram/README.md)收口。
+正式测试覆盖工具链记录顺序与 root 事件流（`test/service/chat/workflowRecorder.test.ts`、`test/service/chat/flowSync.test.ts`，入口 `pnpm test:backend`）。后端 `test/` 冻结期间不得修改或运行，也不得访问用户数据库；真实界面由用户验收。

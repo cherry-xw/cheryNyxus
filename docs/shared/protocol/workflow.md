@@ -86,6 +86,6 @@
 
 ## 7. 实现与验证
 
-共享类型与校验由 [`packages/protocol/src/workflow.ts`](../../../packages/protocol/src/workflow.ts) 维护，RPC 名称由 `packages/protocol/src/rpc.ts` 注册。持久写入与分页入口见[后端观察实现](../../backend/service/workflow.md)，前端 reducer、统一图投影、工作台阅读、回放与生长动效见[执行图说明](../../frontend/runtime-diagram.md)；最终跨端验证由[活动计划](../../plan/main-agent-runtime-diagram/README.md)收口。
+共享类型与校验由 [`packages/protocol/src/workflow.ts`](../../../packages/protocol/src/workflow.ts) 维护，RPC 名称由 `packages/protocol/src/rpc.ts` 注册。持久写入与分页入口见[后端观察实现](../../backend/service/workflow.md)，前端 reducer、统一图投影、工作台阅读、回放与生长动效见[执行图说明](../../frontend/runtime-diagram.md)。
 
-验证必须覆盖重复事件、终态幂等、交错因果、无内容锚点、重试撤回、审批等待、取消/异常退出、分支切换、子孙 Agent、压缩阶段、分页上界、版本缺口与旧数据降级。后端 `test/` 冻结期间只使用计划内隔离 fixture，不访问用户数据库；真实界面由用户验收。
+验证必须覆盖重复事件、终态幂等、交错因果、无内容锚点、重试撤回、审批等待、取消/异常退出、分支切换、子孙 Agent、压缩阶段、分页上界、版本缺口与旧数据降级。后端验证入口为 `pnpm test:backend`，不访问用户数据库；真实界面由用户验收。
