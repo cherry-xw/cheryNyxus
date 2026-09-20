@@ -7,7 +7,9 @@ import {
   dismissSessionStripTask,
   matchesSessionStripPreset,
   pickStripTasks,
+  promoteSessionStripTask,
   reconcileSessionStripPreference,
+  SESSION_STRIP_STABLE_SLOTS,
   sessionStripStatusIcon,
   sessionStripStatusLabel,
   taskIconIndex,
@@ -66,18 +68,46 @@ const presetTasks = computed(() =>
     matchesSessionStripPreset(task, props.presetId, props.presetName),
   ),
 )
-const visibleCapacity = ref(6)
+
+// 当前打开的会话必须始终参与标题栏投影，即使它来自“全部任务”而不属于当前预设。
+const stripTasks = computed(() => {
+  const tasks = [...presetTasks.value]
+  const activeTask = overview.tasks.find((task) => taskMatchesChat(task, props.activeChatId))
+  if (activeTask && !tasks.some((task) => task.taskKey === activeTask.taskKey)) tasks.push(activeTask)
+  return tasks
+})
+
+const currentFallback = computed<SessionStripItem | undefined>(() => {
+  const chatId = props.activeChatId?.trim()
+  if (!chatId || stripTasks.value.some((task) => taskMatchesChat(task, chatId))) return undefined
+  return {
+    taskKey: chatId,
+    rootChatId: chatId,
+    originalChatId: chatId,
+    openChatId: chatId,
+    relatedChatIds: [],
+    title: '当前会话',
+    status: 'idle',
+    unreadResult: false,
+    attentionKey: `current:${chatId}`,
+    pendingCount: 0,
+    updatedAt: 0,
+  }
+})
+// 标题栏预留固定槽位，宽度变化只影响是否显示溢出入口，不改变已分配槽位的顺序。
+const visibleCapacity = ref(5)
 const strip = computed(() =>
   pickStripTasks(
     preference.value,
-    presetTasks.value,
+    stripTasks.value,
     props.activeChatId ?? undefined,
     visibleCapacity.value,
+    currentFallback.value,
   ),
 )
 
 watch(
-  [presetTasks, () => props.activeChatId, preference],
+  [stripTasks, () => props.activeChatId, preference],
   ([tasks, activeChatId]) => {
     setPreference(
       reconcileSessionStripPreference(preference.value, tasks, activeChatId ?? undefined),
@@ -125,6 +155,7 @@ function iconPaths(item: SessionStripItem): readonly string[] {
 
 function onSelect(item: SessionStripItem): void {
   closeTip()
+  setPreference(promoteSessionStripTask(preference.value, item))
   emit('select', item.openChatId)
 }
 
@@ -160,10 +191,8 @@ function accessibleLabel(item: SessionStripItem): string {
 const itemsEl = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | undefined
 
-function updateVisibleCapacity(width: number): void {
-  const iconWidth = 26
-  const gap = 6
-  visibleCapacity.value = Math.max(1, Math.min(6, Math.floor((width + gap) / (iconWidth + gap))))
+function updateVisibleCapacity(_width: number): void {
+  visibleCapacity.value = 5
 }
 
 const documentForeground = ref(true)
@@ -285,6 +314,7 @@ onBeforeUnmount(() => {
             class="session-strip-icon"
             :class="{
               'is-active': isCurrent(item),
+              'is-ghost': item.ghost,
               'is-needs-user': item.status === 'needs_user',
               'is-failed': item.status === 'failed',
             }"
@@ -335,7 +365,12 @@ onBeforeUnmount(() => {
           </div>
           <div class="tip-section">
             <span class="tip-label">{{ buildStripTooltip(item).detailLabel }}</span>
-            <span class="tip-value">{{ buildStripTooltip(item).detail }}</span>
+            <span
+              class="tip-value"
+              :class="{
+                'is-result': item.status !== 'running' && item.status !== 'needs_user' && !!item.latestResult,
+              }"
+            >{{ buildStripTooltip(item).detail }}</span>
           </div>
           <footer class="tip-foot">
             <time :datetime="new Date(item.updatedAt).toISOString()">
@@ -348,6 +383,12 @@ onBeforeUnmount(() => {
           </footer>
         </section>
       </el-popover>
+      <span
+        v-for="index in Math.max(0, SESSION_STRIP_STABLE_SLOTS - strip.items.length)"
+        :key="`empty-${index}`"
+        class="session-strip-placeholder"
+        aria-hidden="true"
+      />
     </div>
 
     <button
@@ -359,6 +400,7 @@ onBeforeUnmount(() => {
         'has-attention': strip.attentionCount > 0,
       }"
       :aria-label="allTasksLabel"
+      :aria-pressed="allTasksExpanded"
       :aria-expanded="allTasksExpanded"
       @click="openAllTasks"
     >
@@ -425,10 +467,25 @@ onBeforeUnmount(() => {
     outline-offset: 1px;
   }
 }
+.session-strip-placeholder {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border: 1px dashed color-mix(in srgb, var(--ink) 18%, transparent);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
 .session-strip-icon {
   &.is-active {
     border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 12px var(--accent-glow);
+  }
+  &.is-ghost {
+    opacity: 0.42;
+    border-style: dashed;
+    background: color-mix(in srgb, var(--ink) 4%, transparent);
   }
   &.is-needs-user,
   &.is-failed {
@@ -444,6 +501,22 @@ onBeforeUnmount(() => {
   stroke-width: 1.6;
   stroke-linecap: square;
   stroke-linejoin: miter;
+}
+.session-strip-icon.is-active .strip-main-icon {
+  /* 高亮底色是 --accent，图标必须用 --accent-ink 才能在底色上清晰可见；
+     与「全部任务」展开按钮（.session-strip-all.is-expanded）的高亮一致，
+     此前误用 --accent 导致图标与底色同色不可见（reduced-motion 下更彻底不可见）。 */
+  color: var(--accent-ink);
+  filter: drop-shadow(-1px 0 color-mix(in srgb, var(--accent) 75%, white))
+    drop-shadow(1px 0 color-mix(in srgb, var(--accent) 75%, black));
+  animation: session-active-signal 0.85s steps(2, end) infinite;
+}
+@keyframes session-active-signal {
+  0%, 100% { transform: translate(0, 0) skewX(0deg) scale(1); }
+  18% { transform: translate(-1px, 0) skewX(-8deg) scale(1.08); }
+  42% { transform: translate(1px, 1px) skewX(9deg) scale(.94); }
+  66% { transform: translate(-1px, 0) skewX(-5deg) scale(1.05); }
+  84% { transform: translate(1px, 0) skewX(4deg) scale(.98); }
 }
 .strip-status-icon {
   position: absolute;
@@ -499,11 +572,25 @@ onBeforeUnmount(() => {
   /* 覆盖页展开时高亮（与任务图标当前态同款），按钮本身承担开/关切换。 */
   &.is-expanded {
     border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    background: var(--accent) !important;
+    color: var(--accent-ink) !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 12px var(--accent-glow);
   }
   &.has-attention {
     border-color: var(--accent);
   }
+}
+.session-strip-all.is-expanded > svg,
+.session-strip-all:hover > svg {
+  animation: session-all-tasks-signal 1.1s steps(2, end) infinite;
+  filter: drop-shadow(-1px 0 color-mix(in srgb, var(--accent) 75%, #f44))
+    drop-shadow(1px 0 color-mix(in srgb, var(--accent) 70%, #4ff));
+}
+@keyframes session-all-tasks-signal {
+  0%, 100% { transform: translate(0, 0) skewX(0deg); }
+  25% { transform: translate(-1px, 0) skewX(-4deg); }
+  50% { transform: translate(1px, 1px) skewX(5deg); }
+  75% { transform: translate(-1px, 0) skewX(-2deg); }
 }
 .all-overflow,
 .all-attention {
@@ -536,6 +623,15 @@ onBeforeUnmount(() => {
   .strip-status-icon.is-running {
     animation: none;
     opacity: 1;
+  }
+  .session-strip-icon.is-active .strip-main-icon {
+    animation: none;
+    filter: none;
+  }
+  .session-strip-all.is-expanded > svg,
+  .session-strip-all:hover > svg {
+    animation: none;
+    filter: none;
   }
 }
 </style>
@@ -593,6 +689,12 @@ onBeforeUnmount(() => {
   display: -webkit-box;
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.session-strip-tip-body .tip-value.is-result {
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   overflow: hidden;
 }
 .session-strip-tip-body .tip-foot {

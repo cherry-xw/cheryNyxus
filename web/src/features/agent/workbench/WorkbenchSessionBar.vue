@@ -17,11 +17,13 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   select: [chatId: string]
+  beforeExpand: []
 }>()
 
 const taskBrowser = useTaskBrowserOverlay(props.windowId)
 
 function onOpenTasks(request: TaskBrowserOpenRequest): void {
+  emit('beforeExpand')
   taskBrowser.toggle(request)
 }
 

@@ -148,10 +148,11 @@ watch(
 // 布局变化（窄屏折叠 / 字体加载 / 标题栏元素增删）：色块无动画跟随新位置。
 let resizeObserver: ResizeObserver | null = null
 watch(
-  rootEl,
-  (el) => {
+  sliderEl,
+  (slider) => {
     resizeObserver?.disconnect()
     resizeObserver = null
+    const el = slider?.parentElement
     if (!el) return
     resizeObserver = new ResizeObserver(() => syncSlider(false))
     resizeObserver.observe(el)
@@ -276,6 +277,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   box-sizing: border-box;
   width: 56px;
+  flex: 0 0 56px;
   padding: 0 7px;
   color: var(--accent-ink);
   font: 600 12px/1.5 var(--font-mono);
@@ -329,6 +331,10 @@ button i {
   transition: color 200ms ease;
 }
 
+button:hover i {
+  color: var(--accent);
+}
+
 button:hover {
   color: color-mix(in srgb, var(--ink) 82%, transparent);
 }
@@ -348,6 +354,7 @@ button:hover {
   button,
   button i {
     transition: none;
+    text-shadow: none;
   }
 }
 </style>

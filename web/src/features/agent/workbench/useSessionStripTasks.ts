@@ -40,7 +40,7 @@ export interface SessionStripPreference {
 }
 
 export interface SessionStripProjection {
-  items: Array<SessionStripItem & { source: 'stable' | 'current' }>
+  items: Array<SessionStripItem & { source: 'stable' | 'current'; ghost?: boolean }>
   overflowCount: number
   attentionCount: number
 }
@@ -151,12 +151,28 @@ export function reconcileSessionStripPreference(
 
   const candidates = tasks
     .filter((task) => needsStableSlot(task, currentChatId))
-    .sort((a, b) => b.updatedAt - a.updatedAt || a.taskKey.localeCompare(b.taskKey))
+    .sort((a, b) => {
+      const priority = (task: TaskOverview) =>
+        task.status === 'running' ? 0 : task.status === 'needs_user' || task.unreadResult ? 1 : 2
+      return priority(a) - priority(b) || b.updatedAt - a.updatedAt || a.taskKey.localeCompare(b.taskKey)
+    })
 
   for (const task of candidates) {
-    if (slots.length >= SESSION_STRIP_STABLE_SLOTS) break
     if (seen.has(task.taskKey)) continue
     if (dismissedAttentionKeys[task.taskKey] === task.attentionKey) continue
+    if (slots.length >= SESSION_STRIP_STABLE_SLOTS) {
+      const replaceIndex = slots.findLastIndex(
+        (slot) =>
+          slot.snapshot.status !== 'running' &&
+          !slot.snapshot.unreadResult &&
+          slot.snapshot.status !== 'needs_user',
+      )
+      if (replaceIndex < 0 || (task.status !== 'running' && !task.unreadResult && task.status !== 'needs_user')) continue
+      seen.delete(slots[replaceIndex]!.taskKey)
+      slots[replaceIndex] = { taskKey: task.taskKey, snapshot: projectSessionStripTask(task) }
+      seen.add(task.taskKey)
+      continue
+    }
     slots.push({ taskKey: task.taskKey, snapshot: projectSessionStripTask(task) })
     seen.add(task.taskKey)
     delete dismissedAttentionKeys[task.taskKey]
@@ -183,6 +199,27 @@ export function dismissSessionStripTask(
   }
 }
 
+/** 将用户从“全部任务”主动打开的任务提升到标题栏固定槽位。 */
+export function promoteSessionStripTask(
+  preference: SessionStripPreference,
+  item: SessionStripItem,
+): SessionStripPreference {
+  if (preference.slots.some((slot) => slot.taskKey === item.taskKey)) return preference
+  if (preference.slots.length < SESSION_STRIP_STABLE_SLOTS) {
+    return { ...preference, slots: [...preference.slots, { taskKey: item.taskKey, snapshot: item }] }
+  }
+  const replaceIndex = preference.slots.findLastIndex(
+    (slot) =>
+      slot.snapshot.status !== 'running' &&
+      !slot.snapshot.unreadResult &&
+      slot.snapshot.status !== 'needs_user',
+  )
+  if (replaceIndex < 0) return preference
+  const slots = preference.slots.slice()
+  slots[replaceIndex] = { taskKey: item.taskKey, snapshot: item }
+  return { ...preference, slots }
+}
+
 /**
  * 投影当前可见项。visibleCapacity 是“全部任务”入口之外可容纳的任务图标数。
  * 当前任务不在可见稳定槽时占用末尾补位，恢复宽度后回到自己的原槽。
@@ -192,34 +229,39 @@ export function pickStripTasks(
   tasks: TaskOverview[],
   currentChatId?: string,
   visibleCapacity = SESSION_STRIP_MAX_VISIBLE_TASKS,
+  currentItem?: SessionStripItem,
 ): SessionStripProjection {
-  const capacity = Math.max(0, Math.min(SESSION_STRIP_MAX_VISIBLE_TASKS, visibleCapacity))
+  const capacity = Math.max(0, Math.min(SESSION_STRIP_STABLE_SLOTS, visibleCapacity))
   const liveByKey = new Map(tasks.map((task) => [task.taskKey, projectSessionStripTask(task)]))
   const stable = preference.slots.map((slot) => liveByKey.get(slot.taskKey) ?? slot.snapshot)
   const liveCurrent = tasks.find((task) => matchesCurrentTask(task, currentChatId))
   const current = liveCurrent
     ? projectSessionStripTask(liveCurrent)
-    : stable.find((item) => matchesCurrentTask(item, currentChatId))
+    : currentItem ?? stable.find((item) => matchesCurrentTask(item, currentChatId))
 
-  const currentStableIndex = current
-    ? stable.findIndex((item) => item.taskKey === current.taskKey)
-    : -1
-  const needsCurrentSupplement =
-    !!current && (currentStableIndex < 0 || currentStableIndex >= Math.min(stable.length, capacity))
-  const stableCapacity = Math.max(0, capacity - (needsCurrentSupplement ? 1 : 0))
-  const visibleStable = stable.slice(0, stableCapacity)
-  const items: SessionStripProjection['items'] = visibleStable.map((item) => ({
-    ...item,
-    source: 'stable',
-  }))
-  if (needsCurrentSupplement && current && capacity > 0)
-    items.push({ ...current, source: 'current' })
+  const visibleStable = stable.slice(0, capacity)
+  const items: SessionStripProjection['items'] = visibleStable.map((item) => ({ ...item, source: 'stable' }))
+
+  if (current && !items.some((item) => item.taskKey === current.taskKey) && capacity > 0) {
+    const replaceIndex = items.findLastIndex(
+      (item) => item.status !== 'running' && !item.unreadResult,
+    )
+    if (items.length < capacity) {
+      items.push({ ...current, source: 'current' })
+    } else if (replaceIndex >= 0) {
+      items[replaceIndex] = { ...current, source: 'current' }
+    } else {
+      // 五个槽位都被运行中或未读结果占用时，当前任务只能以虚影入口保留。
+      items.push({ ...current, source: 'current', ghost: true })
+    }
+  }
 
   const visibleKeys = new Set(items.map((item) => item.taskKey))
-  const relevantKeys = new Set(stable.map((item) => item.taskKey))
-  for (const task of tasks) {
-    if (needsStableSlot(task, currentChatId)) relevantKeys.add(task.taskKey)
-  }
+  const relevantKeys = new Set(
+    [...stable, ...tasks.map(projectSessionStripTask)]
+      .filter((item) => item.status === 'running' || item.unreadResult)
+      .map((item) => item.taskKey),
+  )
 
   return {
     items,
