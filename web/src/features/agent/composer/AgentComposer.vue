@@ -18,6 +18,7 @@ import {
   type ComboCommandGroup,
 } from './useAgentDialogOptions'
 import type { MessageCommand, RoleMention } from '../composables/commands'
+import type { FileMentionOption } from './useAgentDialogOptions'
 import type { RuntimeSelection } from '@/application/backend/public'
 
 const props = defineProps<{
@@ -46,6 +47,10 @@ const props = defineProps<{
   showRoleMenu: boolean
   matchingRoleMentions: RoleMention[]
   activeRoleIndex: number
+  showFileMenu: boolean
+  matchingFiles: FileMentionOption[]
+  activeFileIndex: number
+  fileMenuHint?: string
   editorRefFn: (el: HTMLElement | null) => void
   commandMenuRefFn: (el: HTMLElement | null) => void
   roleMenuRefFn: (el: HTMLElement | null) => void
@@ -105,10 +110,12 @@ const emit = defineEmits<{
   selectCommand: [command: MessageCommand]
   selectCommandTab: [tab: CommandTab]
   selectRoleMention: [role: RoleMention]
+  selectFileMention: [file: FileMentionOption]
   mediaSelected: [file: UploadFile]
   send: []
   'update:activeCommandIndex': [index: number]
   'update:activeRoleIndex': [index: number]
+  'update:activeFileIndex': [index: number]
 }>()
 </script>
 
@@ -122,7 +129,7 @@ const emit = defineEmits<{
     <div v-if="mediaHint" class="media-hint-row">
       {{ mediaHint }}
     </div>
-    <div v-if="runtimeHint" :class="runtimeError ? 'error-row' : 'runtime-hint'" role="status">
+    <div v-if="runtimeHint && runtimeError" class="error-row" role="status">
       {{ runtimeHint }}
     </div>
     <div class="textarea-row">
@@ -134,7 +141,7 @@ const emit = defineEmits<{
         role="textbox"
         aria-multiline="true"
         aria-label="输入消息"
-        data-placeholder="输入消息…（输入 / 选择指令）"
+        data-placeholder="输入消息… / 指令 · @ 角色 · & 文件引用"
         @input="emit('editorInput')"
         @keydown="emit('editorKeydown', $event)"
         @keyup="emit('editorSelectionChange')"
@@ -239,6 +246,14 @@ const emit = defineEmits<{
           >
             <span class="command-option-name">@{{ role.name }}</span>
             <span class="command-option-desc">{{ role.description }}</span>
+          </button>
+        </div>
+      </Teleport>
+      <Teleport v-if="showFileMenu" to="body">
+        <div :ref="setCommandMenuRef" class="command-menu file-mention-menu" role="listbox" aria-label="工作区文件" data-desktop-hit :style="commandMenuStyle">
+          <p v-if="fileMenuHint" class="command-option-desc">{{ fileMenuHint }}</p>
+          <button v-for="(file, index) in matchingFiles" :key="file.path" type="button" class="command-option" :class="{ 'is-active': index === activeFileIndex }" role="option" :aria-selected="index === activeFileIndex" @mousedown.prevent @mousemove="emit('update:activeFileIndex', index)" @click="emit('selectFileMention', file)">
+            <span class="command-option-name">&amp;{{ file.path }}</span><span class="command-option-desc">{{ file.kind === 'directory' ? '引用这个文件夹' : '引用这个文件' }}</span>
           </button>
         </div>
       </Teleport>

@@ -1,5 +1,22 @@
 # WebSocket 协议规范
 
+## 工作区文件与 Terminal
+
+`workspace.files.list/read`、`terminal.create/input/resize/close` 与所属连接的 `terminal.event` 见[工作区文件与 Terminal 协议](workspace-files-terminal.md)。文件接口只读且限定于当前会话工作区，引用只携带路径；Terminal 是显式打开的交互 Shell。
+
+## 上下文与用量只读查询
+
+请求、响应字段与校验由 [usage.ts](../../../packages/protocol/src/usage.ts) 定义。所有查询只读，沿用已认证工作区的会话访问范围，不触发模型、工具、配置修订或纪元初始化。
+
+- `chat.taskUsage.summaries`：最多 100 个任务根身份的批量摘要，不逐卡请求详情。
+- `chat.taskUsage.detail`：任务及 Agent 汇总、缓存覆盖、执行时间与工具汇总。
+- `chat.taskUsage.rounds` / `chat.taskUsage.operations`：实际请求和实际工具执行记录，默认 30、最大 100 条，游标绑定任务与查询内容；模型重试计为独立步骤。
+- `chat.taskUsage.daily`：IANA 时区内最多 366 天，按请求结束时间归日；包含归档任务，永久删除后不再出现。没有长期请求记录的过去日期返回 `state=unknown`，不会返回假零值；供应商明确报告 0 才是 `state=complete` 的真实零消耗，未来日期返回 `state=future`。
+- `chat.taskUsage.dayTasks`：指定日期的任务用量分页，支持预设筛选。
+- `chat.contextContent`：冻结系统原文和逐项工具定义的分页读取；游标绑定快照哈希，内容变化后旧游标失效。当前重建、历史缺失明确区分，参数 schema 原文保留。
+
+计量值携带来源与覆盖率：`null` 是未知，`0` 仅表示已知零；部分覆盖数值仅为已知小计。上下文为估算，不是累计账单。旧会话不伪造用量回填。任务身份是原始根 Chat，同任务分支及子 Agent 的实际请求只计一次。
+
 主 Agent 专用只读 `chat.workflow.open/close/history` 与 `workflow.updated` 见[workflow 契约](workflow.md)；该观察流不属于执行控制或持久 journal。
 
 ## 会话归档管理

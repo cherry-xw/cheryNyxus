@@ -88,6 +88,8 @@ export function startService(options: { port: number; webPort: number; staticDir
 | [src/service/browse/sandbox.ts](../../../src/service/browse/sandbox.ts) | `config.workspace.browse` 沙箱：默认全盘浏览（POSIX `/` / win32 盘符）+ 可选 roots 收窄、`.chery` 拦截、软链逃逸阻断、跨平台 |
 | [src/service/browse/session.ts](../../../src/service/browse/session.ts) | `BrowseSessionStore` 单例：浏览会话 TTL + 每会话限流 + 并发上限 + sweep 清理 |
 | [src/service/browse/handler.ts](../../../src/service/browse/handler.ts) | `config.workspace.browse.start` / `.list` handler + `registerBrowseHandlers`（解密路径 → 沙箱 → 加密回传） |
+| [src/service/workspace/](../../../src/service/workspace/) | 当前 chat 工作区的文件列表、只读读取和文件引用校验（实施中） |
+| [src/service/terminal/](../../../src/service/terminal/) | 本机与 SSH Terminal session、输入输出和生命周期（实施中） |
 
 ## RPC 模式
 
@@ -150,6 +152,9 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `utils.editors` | `handleUtilsEditors` | [utils/handler.ts](../../../src/service/utils/handler.ts) | 否 | 检测后端主机可用的文本编辑器 |
 | `config.workspace.browse.start` | `handleBrowseStart` | [browse/handler.ts](../../../src/service/browse/handler.ts) | 否 | 开启浏览会话（根锚定 + 一次性 sessionId + 限流） |
 | `config.workspace.browse.list` | `handleBrowseList` | 同上 | 否 | 解密路径 → 沙箱列目录 → 同 nonce 加密回传（权限拒绝结构化返回不抛错） |
+| `workspace.files.list` | `handleWorkspaceFilesList` | [workspace/handler.ts](../../../src/service/workspace/handler.ts) | 否 | 当前 chat 工作区内懒加载列目录 |
+| `workspace.files.read` | `handleWorkspaceFilesRead` | 同上 | 否 | 当前 chat 工作区内有界只读读取 |
+| `terminal.create/input/resize/close` | `TerminalManager` | [terminal/manager.ts](../../../src/service/terminal/manager.ts) | 否 | 本机或 SSH 交互会话；事件经 WebSocket notification 推送 |
 
 `Method` 常量全集见 [./message.md](message.md)「Method 常量」。chat.* 流程细节见 [./chat.md](chat.md)。
 

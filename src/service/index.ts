@@ -33,6 +33,9 @@ import { registerHooksHandlers } from './hooks/handler.js'
 import { registerUtilsHandlers } from './utils/handler.js'
 import { registerBrowseHandlers } from './browse/handler.js'
 import { registerCommandHandlers } from './command/handler.js'
+import { registerWorkspaceHandlers } from './workspace/handler.js'
+import { registerTerminalHandlers } from './terminal/handler.js'
+import { closeAllTerminals } from './terminal/manager.js'
 import { startScheduleService, stopScheduleService } from './schedule/scheduler.js'
 import { randomBytes } from 'node:crypto'
 import { OAuth2Auth, type OAuth2Config } from './auth/index.js'
@@ -70,6 +73,8 @@ export function registerAllHandlers(router: ReturnType<typeof createRouter>): vo
   registerUtilsHandlers(router)
   registerBrowseHandlers(router)
   registerCommandHandlers(router)
+  registerWorkspaceHandlers(router)
+  registerTerminalHandlers(router)
 }
 
 export interface StartServiceOptions {
@@ -159,6 +164,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     wss,
     httpServer,
     stopSchedule: () => {
+      closeAllTerminals()
       stopInteractionLifecycle()
       stopScheduleService()
     },

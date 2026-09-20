@@ -104,12 +104,20 @@ describe('task browser workbench integration', () => {
     const bar = readComponentSourceSync(
       resolve('src/features/agent/workbench/WorkbenchSessionBar.vue'),
     )
+    const browser = readComponentSourceSync(resolve('src/features/agent/workbench/TaskBrowser.vue'))
     const workbenchSource = existsSync(resolve('src/features/agent/workbench'))
       ? resolve('src/features/agent/workbench')
       : resolve('web/src/features/agent/workbench')
 
     expect(dialog).toContain('<TaskBrowser')
+    expect(dialog).toContain('@analytics="openContextAnalyticsFromBrowser"')
     expect(dialog).toContain(':inert="taskBrowserState.open || undefined"')
+    expect(browser).toContain('class="task-card-analytics"')
+    expect(browser).not.toContain('class="task-card-analytics" @click.stop')
+    expect(browser).toContain('agentApi.getContextUsageSummaries(batch)')
+    expect(browser).not.toContain('contextAnalyticsCardSummary(item.taskKey)')
+    expect(browser).toContain('v-if="item.lastUserPrompt" class="task-card-analytics"')
+    expect(dialog).toContain('v-if="contextAnalyticsAvailable"')
     expect(bar).toContain('useTaskBrowserOverlay')
     expect(bar).not.toContain('SessionDropdown')
     expect(existsSync(resolve(workbenchSource, 'SessionDropdown.vue'))).toBe(false)

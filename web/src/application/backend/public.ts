@@ -8,6 +8,11 @@
 export { agentApi, fetchServerConfig } from '@/services/agentApi'
 export { workflowApi } from '@/services/workflowApi'
 export type {
+  WorkspaceFileEntry,
+  WorkspaceFileContent,
+  WorkspaceFilesList,
+  WorkspaceGitStatus,
+  TerminalSessionInfo,
   ActiveRunFact,
   ActiveTurnSnapshot,
   BrainCapabilitiesDto,

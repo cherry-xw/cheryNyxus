@@ -71,6 +71,10 @@ const {
   commandMenuRef,
   roleMenuRef,
   matchingRoleMentions,
+  matchingFiles,
+  showFileMenu,
+  activeFileIndex,
+  fileMenuHint,
   showRoleMenu,
   activeRoleIndex,
   uploading,
@@ -93,6 +97,7 @@ const {
   selectCommand,
   selectCommandTab,
   selectRoleMention,
+  selectFileMention,
   removeMedia,
   onMediaSelected,
   senseEntries,
@@ -352,6 +357,7 @@ const { commandMenuStyle, editorRefFn, commandMenuRefFn, roleMenuRefFn } = useCo
   roleMenuRef,
   showCommandMenu,
   showRoleMenu,
+      showFileMenu,
   activeCommandIndex,
   layoutDependencies: [activeCommandTab, commandOptions],
 })
@@ -770,6 +776,11 @@ defineExpose({
             :show-role-menu="showRoleMenu"
             :matching-role-mentions="matchingRoleMentions"
             :active-role-index="activeRoleIndex"
+            :matching-files="matchingFiles"
+            :show-file-menu="showFileMenu"
+            :active-file-index="activeFileIndex"
+            :file-menu-hint="fileMenuHint"
+            @update:active-file-index="activeFileIndex = $event"
             :editor-ref-fn="editorRefFn"
             :command-menu-ref-fn="commandMenuRefFn"
             :role-menu-ref-fn="roleMenuRefFn"
@@ -781,6 +792,7 @@ defineExpose({
             @select-command="selectCommand"
             @select-command-tab="selectCommandTab"
             @select-role-mention="selectRoleMention"
+            @select-file-mention="selectFileMention"
             @media-selected="(f: any) => onMediaSelected(f)"
             @send="sendFromComposer"
             @update:active-command-index="activeCommandIndex = $event"

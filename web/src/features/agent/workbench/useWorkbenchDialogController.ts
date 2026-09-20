@@ -9,6 +9,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { advanceComposerTurn, type ComposerTurnState } from './composerTurnState'
 import { RoleConfigPopover } from '../runtime/public'
 import { AgentComposer, useAgentDialogOptions, useComposerMenuPosition } from '../composer/public'
 import ContextUsageBar from '../drawer/ContextUsageBar.vue'
@@ -131,6 +132,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     commandMenuRef,
     roleMenuRef,
     matchingRoleMentions,
+    matchingFiles,
+    showFileMenu,
+    activeFileIndex,
+  fileMenuHint,
     showRoleMenu,
     activeRoleIndex,
     uploading,
@@ -152,6 +157,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     selectCommand,
     selectCommandTab,
     selectRoleMention,
+    selectFileMention,
+    appendFileReference,
     resetEditor,
     resetMedia,
     removeMedia,
@@ -243,6 +250,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     () => agents.activeDialogSource === 'pet' && !isNyxus.value && !!presetName.value,
   )
   const nyxusDraftActive = ref(false)
+  const userClosedAfterTurn = ref(false)
+  let composerTurn: ComposerTurnState = { active: false, awaitingInput: false }
   /** 只持久化折叠档位；辅助侧栏每次进入工作台默认关闭，避免隐式建立 workflow lease。 */
   const { foldMode } = useWorkbenchViewPreferences(props.presetId)
   const sidePanel = ref<WorkbenchSidePanel>('none')
@@ -445,6 +454,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       roleMenuRef,
       showCommandMenu,
       showRoleMenu,
+      showFileMenu,
       activeCommandIndex,
       layoutDependencies: [activeCommandTab, commandOptions],
     })
@@ -487,12 +497,14 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   // ── 会话列表已移除（2026-09-16）：切换入口上移标题栏会话状态条（strip + 当前预设分页下拉），
   // rail ≡ popout 及其数据路径（rootSessions/onSessionDelete）一并删除，见 docs/frontend/workbench-multi-window.md。
   function activateNyxusInput(): void {
+    userClosedAfterTurn.value = false
     nyxusDraftActive.value = true
     void nextTick(() => editorRef.value?.focus())
   }
   function cancelNyxusInput(): void {
     if (sending.value) return
     nyxusDraftActive.value = false
+    userClosedAfterTurn.value = true
     branchTarget.value = undefined
     resetEditor()
     resetMedia()
@@ -506,6 +518,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       return
     }
     nyxusDraftActive.value = false
+    userClosedAfterTurn.value = false
     if (branchTarget.value) {
       if (mediaAttachments.value.length) {
         error.value = '分支暂不支持附件，请移除附件或返回普通输入后发送。'
@@ -748,6 +761,21 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     ),
   )
   const currentAttentionCount = computed(() => workspacePending.value.length)
+  watch(chatId, () => { composerTurn = { active: false, awaitingInput: false }; userClosedAfterTurn.value = false })
+  watch(
+    () => [
+      sending.value || (liveTimeline.value?.activeRuns.some((run) => run.status === 'running' || run.status === 'waiting') ?? false),
+      currentAttentionCount.value,
+      sending.value,
+    ] as const,
+    ([active, attention]) => {
+      const next = advanceComposerTurn(composerTurn, { active, pending: attention, dismissed: userClosedAfterTurn.value })
+      composerTurn = next.state
+      if (next.resetDismissal) userClosedAfterTurn.value = false
+      if (next.open) nyxusDraftActive.value = true
+    },
+    { immediate: true },
+  )
 
   watch(
     [attentionRootChatId, () => connection.status],
@@ -847,7 +875,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     workbenchWindow.toggleMode()
   }
   function onDialogEditorKeydown(e: KeyboardEvent): void {
-    if (nyxusDraftActive.value && e.key === 'Escape') {
+    if (nyxusDraftActive.value && e.key === 'Escape' && !showFileMenu.value && !showCommandMenu.value && !showRoleMenu.value) {
       e.preventDefault()
       e.stopPropagation()
       cancelNyxusInput()
@@ -1021,6 +1049,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     liveTimeline,
     loading,
     matchingRoleMentions,
+    matchingFiles,
+    showFileMenu,
+    activeFileIndex,
+  fileMenuHint,
     maxControlState,
     mediaAttachments,
     mediaHint,
@@ -1069,6 +1101,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     selectCommandTab,
     selectFoldMode,
     selectRoleMention,
+    selectFileMention,
+    appendFileReference,
     sendFromComposer,
     sending,
     senseEntries,

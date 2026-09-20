@@ -1,5 +1,5 @@
 export type WorkspaceWindowKind =
-  'session' | 'graph' | 'task-center' | 'history' | 'settings' | 'diagnostic'
+  'session' | 'graph' | 'task-center' | 'history' | 'settings' | 'terminal' | 'diagnostic'
 
 export type WorkspaceWindowLifecycle = 'opening' | 'open' | 'minimizing' | 'minimized' | 'closing'
 
@@ -11,6 +11,7 @@ export type WorkspaceWindowContext =
   | { kind: 'task-center' }
   | { kind: 'history'; rootChatId: string }
   | { kind: 'settings'; section?: string }
+  | { kind: 'terminal'; presetId: string; presetName?: string }
   | {
       kind: 'diagnostic'
       severity: DiagnosticSeverity
@@ -191,7 +192,7 @@ function isWorkspaceWindowState(value: unknown): value is WorkspaceWindowState {
     typeof window.resourceKey === 'string' &&
     typeof window.title === 'string' &&
     typeof context?.kind === 'string' &&
-    ['session', 'graph', 'task-center', 'history', 'settings', 'diagnostic'].includes(
+    ['session', 'graph', 'task-center', 'history', 'settings', 'terminal', 'diagnostic'].includes(
       context.kind,
     ) &&
     !!window.geometry &&
@@ -200,6 +201,7 @@ function isWorkspaceWindowState(value: unknown): value is WorkspaceWindowState {
     Number.isFinite(window.geometry.width) &&
     Number.isFinite(window.geometry.height) &&
     window.persistent === true &&
+    (context.kind !== 'terminal' || typeof context.presetId === 'string') &&
     (window.maximized === undefined || typeof window.maximized === 'boolean') &&
     isOptionalGeometry(window.restoreGeometry)
   )

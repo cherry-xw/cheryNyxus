@@ -11,3 +11,6 @@ allowBuilds:
   electron-winstaller: true
   # 全屏覆盖检测（desktop 窗全屏隐藏）：install 脚本 cnoke.cjs 编译/下载 koffi 原生 .node
   koffi: true
+  cpu-features: false
+  ssh2: false
+  node-pty: true

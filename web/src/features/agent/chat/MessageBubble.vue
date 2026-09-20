@@ -205,6 +205,7 @@ function removeDelivery(): void {
                 class="instruction-message-token role-message-token"
                 >{{ segment.value }}</span
               >
+              <el-tooltip v-else-if="segment.type === 'file'" content="工作区文件引用，仅传递路径，由 Agent 按需读取"><span class="instruction-message-token">&amp;{{ segment.value }}</span></el-tooltip>
               <template v-else>{{ segment.value }}</template>
             </template>
           </template>

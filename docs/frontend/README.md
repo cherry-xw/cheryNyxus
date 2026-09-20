@@ -11,6 +11,7 @@
 | 身份认证 | [auth-login.md](./auth-login.md) | 修改首次登录、连接完成反馈与失败重试 |
 | 桌面工作区 | [desktop-cyber-workspace.md](./desktop-cyber-workspace.md) | 修改窗口组织、关闭保护、菜单层级与诊断入口 |
 | 多窗口工作台 | [workbench-multi-window.md](./workbench-multi-window.md) | 修改会话草稿、附件提交、分支与 Electron 多窗协作 |
+| 工作台文件与 Terminal | [workbench-files.md](./workbench-files.md) | 三模式统一输入、工作区文件列表与只读查看、文件引用和 Terminal 展示 |
 | 设置中心 | [settings.md](./settings.md) | 修改保存与重载、未保存提示、标签导航和动效偏好 |
 | 协议绑定 | [frontend-protocol-binding.md](./frontend-protocol-binding.md) | RPC、通知和流式数据到前端状态的映射 |
 | 工具渲染 | [renderer.md](./renderer.md) | Agent 工具调用的前端渲染机制 |

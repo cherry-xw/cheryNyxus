@@ -52,6 +52,7 @@ import PresetsTab from './tabs/agent/PresetsTab.vue'
 import McpTab from './tabs/tools/McpTab.vue'
 import GlobalTab from './tabs/config/GlobalTab.vue'
 import CommandsTab from './tabs/config/CommandsTab.vue'
+import TerminalSettingsTab from './tabs/config/TerminalSettingsTab.vue'
 import SkillsTab from './tabs/tools/SkillsTab.vue'
 import type { SkillSource } from '@/application/backend/public'
 import PluginsTab from './tabs/tools/PluginsTab.vue'
@@ -72,6 +73,7 @@ const SETTINGS_TAB_BY_SECTION: Record<SettingsSection, TabKey> = {
   provider: 'brains',
   runtime: 'presets',
   limits: 'global',
+  terminal: 'terminal',
 }
 
 export function useSettingsDialogController(props: SettingsDialogControllerProps) {
@@ -843,6 +845,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     BrainsTab,
     Close,
     CommandsTab,
+    TerminalSettingsTab,
     GlobalTab,
     HooksTab,
     McpTab,

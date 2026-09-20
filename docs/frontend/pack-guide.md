@@ -105,6 +105,8 @@ pnpm electron:pack:force
 
 ## 二、底层子命令
 
+Terminal 的 `ssh2` 与 `node-pty` 保持为 Node 运行依赖，不进入 SSR bundle。`web/scripts/dist-electron.mjs` 在打包前调用 `scripts/prepare-terminal-runtime.mjs`：使用当前已安装的直接依赖版本，在 `build/terminal-runtime` 安装独立依赖，并用随包 Node 验证加载。该目录的 `node_modules` 作为 `resources/node_modules` 分发，供 `resources/dist/index.js` 正常解析。可单独执行 `node scripts/prepare-terminal-runtime.mjs`；准备失败会停止打包。仅在目标系统及架构上构建；源码运行继续使用根项目 pnpm 依赖。
+
 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 提供底层子命令，可单独执行用于调试：
 
 ```bash
