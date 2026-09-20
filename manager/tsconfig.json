@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "baseUrl": "..", "paths": { "@chery/manager/*": ["manager/src/*"] } },
+  "include": ["src/**/*.ts"],
+  "exclude": ["../node_modules", "../dist", "../web"]
+}
