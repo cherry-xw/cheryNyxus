@@ -13,6 +13,7 @@ import {
 } from './taskBrowserModel'
 import {
   dismissSessionStripTask,
+  promoteSessionStripTask,
   SESSION_STRIP_STABLE_SLOTS,
   type SessionStripItem,
 } from './useSessionStripTasks'
@@ -127,7 +128,13 @@ export function useTaskBrowserController(options: TaskBrowserOptions) {
   }
 
   function openTask(item: TaskCatalogItem): void {
-    options.onOpenTask(item.openChatId)
+    // 从“全部任务”直接打开时不会经过标题栏入口，先把当前任务提升到标题栏。
+    try {
+      setPreference(promoteSessionStripTask(preference.value, toStripItem(item)))
+    } finally {
+      // 标题栏状态写入不能阻断任务打开；切换会话是点击卡片的主动作。
+      options.onOpenTask(item.openChatId)
+    }
   }
 
   function toggleShortcut(item: TaskCatalogItem): void {
