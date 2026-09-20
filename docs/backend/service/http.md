@@ -7,6 +7,7 @@
 HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口):
 
 - `GET /api/config` → 返回 `{wsPort, webPort, transport}`,供前端自动构建 WS 连接地址(无需硬编码端口)
+- `GET /api/auth/capabilities` → 返回非敏感的 `{password, oidc}` 登录能力；密码失败冷却由 challenge 和 login 同时执行
 - `POST /api/media/upload` / `GET /api/media/:filename` → 上传和读取 `.chery/media/` 下的受控媒体资产
 - 其余路径 → 默认静态 serve 前端构建产物(`web/dist/`),SPA fallback 到 `index.html`
 - `server.serve_frontend=false` 或 `web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
