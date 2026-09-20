@@ -7,6 +7,7 @@
 | 领域 | 入口 | 对应范围 |
 | --- | --- | --- |
 | 后端 | [backend/](./backend/README.md) | `src/` 中的 Agent、Core、数据库、记忆、服务与工具模块 |
+| 中转服务 | [relay/](./relay/README.md) | 独立中转进程、设备握手、后端发现与受限路由 |
 | 前端 | [frontend/](./frontend/README.md) | `web/` 应用、工作台、设置、桌宠与 Electron 平台能力 |
 | 跨端共享 | [shared/](./shared/README.md) | 前后端共同遵守的架构、协议、状态机与设备 profile |
 | 质量 | [quality/](./quality/README.md) | 测试基线、流程测试与测试工具 |

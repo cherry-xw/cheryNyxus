@@ -9,6 +9,7 @@
 service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket 上的 RPC 请求路由到对应 handler，把 agent 的流式 `MiddlewareChunk` 流映射成协议层 Chunk/Notification 推回客户端，并集中处理 DB 持久化与审批副作用。
 
 - **启动装配**（[index.ts](../../../src/service/index.ts)）：`startService({port, webPort, staticDir})` 创建 Router → 注册全部 handler → 启动 WebSocketServer + HTTP 服务器。
+- **独立运行边界**：Electron 不再启动此服务；本地管理器或系统服务负责后端进程生命周期。
 - **RPC 路由**（[message/](../../../src/service/message/)）：Request/Response/Chunk/Notification 四象限类型 + `RpcRouter` 分发。详见 [./message.md](message.md)。
 - **传输实现**（[websocket/](../../../src/service/websocket/)）：ws 封装、连接状态、二进制帧编解码。详见 [./websocket.md](websocket.md)。
 - **chat 枢纽**（[chat/](../../../src/service/chat/)）：流式执行、observer 副作用、streamMapper 映射、runtime 缓存、chat 管理。详见 [./chat.md](chat.md)。
