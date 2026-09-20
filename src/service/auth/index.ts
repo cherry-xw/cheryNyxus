@@ -23,6 +23,8 @@ export interface OAuth2Config {
   username?: string
   /** password 明文或 scrypt 哈希（scrypt$<salt>$<hash>）；启动自检明文→哈希。 */
   password?: string
+  /** Remote-only listeners set this false; local loopback compatibility remains default true. */
+  allowLoopback?: boolean
 }
 
 export interface AuthenticatedUser {
@@ -48,6 +50,14 @@ const ACCESS_TTL_SECONDS = 15 * 60
 const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60
 /** 登录挑战（challenge）TTL：前端须在有效期内完成加密登录，过期作废。 */
 const CHALLENGE_TTL_SECONDS = 120
+const PASSWORD_FAILURE_STEP = 15
+const PASSWORD_COOLDOWN_START_SECONDS = 5 * 60
+const PASSWORD_COOLDOWN_MAX_SECONDS = 60 * 60
+
+interface PasswordFailureState {
+  failures: number
+  cooldownUntil: number
+}
 
 /**
  * Server-side OIDC/OAuth2 login gate. OAuth2 alone does not identify people,
@@ -63,6 +73,7 @@ export class OAuth2Auth {
   private readonly secret: string
   /** 一次性登录挑战：challengeId → nonce + 过期时间。解密后即删除（防重放）。 */
   private readonly challenges = new Map<string, { nonce: string; exp: number }>()
+  private readonly passwordFailures = new Map<string, PasswordFailureState>()
 
   constructor(config: OAuth2Config | undefined) {
     this.cfg = {
@@ -99,7 +110,8 @@ export class OAuth2Auth {
   getUser(req: IncomingMessage): AuthenticatedUser | null {
     if (!this.enabled) return { sub: 'local', username: 'local', isAdmin: true }
     // 本地 loopback 信任豁免：直连不鉴权。
-    if (isLoopback(req)) return { sub: 'local', username: 'local', isAdmin: true }
+    if (this.cfg.allowLoopback !== false && isLoopback(req))
+      return { sub: 'local', username: 'local', isAdmin: true }
     // 远端：校验 access token（Authorization: Bearer / WS ?token=）或 OAuth2 会话 cookie。
     const token = readBearer(req) ?? readCookie(req, SESSION_COOKIE) ?? readTokenQuery(req)
     const payload = token ? this.verifyAuthToken(token) : null
@@ -112,9 +124,41 @@ export class OAuth2Auth {
     password: string,
   ): { accessToken: string; refreshToken: string; accessTtl: number } | null {
     if (!this.cfg.username || !this.cfg.password) return null
-    if (username !== this.cfg.username) return null
-    if (!verifyPassword(password, this.cfg.password)) return null
+    // Cooldown belongs to the configured account, not attacker-controlled input.
+    const key = this.cfg.username
+    const state = this.passwordFailures.get(key)
+    if (state && state.cooldownUntil > Date.now()) return null
+    if (username !== this.cfg.username || !verifyPassword(password, this.cfg.password)) {
+      this.recordPasswordFailure(key)
+      return null
+    }
+    this.passwordFailures.delete(key)
     return this.issueTokens(username)
+  }
+
+  /** Current account cooldown, used by HTTP handlers to reject challenge and login consistently. */
+  passwordRetryAfter(username = ''): number {
+    if (this.cfg.username && username && username !== this.cfg.username) return 0
+    const state = this.passwordFailures.get(this.cfg.username ?? '<empty>')
+    if (!state || state.cooldownUntil <= Date.now()) return 0
+    return Math.max(1, Math.ceil((state.cooldownUntil - Date.now()) / 1000))
+  }
+
+  private recordPasswordFailure(key: string): void {
+    const current = this.passwordFailures.get(key) ?? { failures: 0, cooldownUntil: 0 }
+    current.failures += 1
+    if (current.failures % PASSWORD_FAILURE_STEP === 0) {
+      const step = Math.min(
+        Math.floor(current.failures / PASSWORD_FAILURE_STEP) - 1,
+        Math.log2(PASSWORD_COOLDOWN_MAX_SECONDS / PASSWORD_COOLDOWN_START_SECONDS),
+      )
+      const seconds = Math.min(
+        PASSWORD_COOLDOWN_MAX_SECONDS,
+        PASSWORD_COOLDOWN_START_SECONDS * 2 ** step,
+      )
+      current.cooldownUntil = Date.now() + seconds * 1000
+    }
+    this.passwordFailures.set(key, current)
   }
 
   /** 校验 refresh token，换发新 access token。失败返回 null。 */
@@ -205,6 +249,13 @@ export class OAuth2Auth {
       )
       return true
     }
+    if (path === '/api/auth/capabilities' && req.method === 'GET') {
+      writeJson(res, 200, {
+        password: Boolean(this.cfg.username),
+        oidc: Boolean(this.cfg.authorizationUrl && this.cfg.tokenUrl && this.cfg.userInfoUrl),
+      })
+      return true
+    }
     if (path === '/api/auth/logout' && req.method === 'POST') {
       this.clearCookies(res, req)
       writeJson(res, 204)
@@ -214,6 +265,13 @@ export class OAuth2Auth {
     if (path === '/api/auth/challenge' && req.method === 'POST') {
       if (!this.cfg.username) {
         writeJson(res, 404, { error: 'Not found' })
+        return true
+      }
+      const challengeBody = await readJsonBody<{ username?: string }>(req)
+      const retryAfter = this.passwordRetryAfter(challengeBody?.username ?? '')
+      if (retryAfter > 0) {
+        res.setHeader('Retry-After', retryAfter)
+        writeJson(res, 429, { error: 'Password login is temporarily locked', retryAfter })
         return true
       }
       this.pruneChallenges()
@@ -236,7 +294,12 @@ export class OAuth2Auth {
           : null
       const tokens = creds && this.authenticate(creds.username ?? '', creds.password ?? '')
       if (!tokens) {
-        writeJson(res, 401, { error: 'Invalid credentials' })
+        const retryAfter = this.passwordRetryAfter(creds?.username ?? '')
+        if (retryAfter > 0) res.setHeader('Retry-After', retryAfter)
+        writeJson(res, retryAfter > 0 ? 429 : 401, {
+          error: retryAfter > 0 ? 'Password login is temporarily locked' : 'Invalid credentials',
+          ...(retryAfter > 0 ? { retryAfter } : {}),
+        })
         return true
       }
       writeJson(res, 200, {
