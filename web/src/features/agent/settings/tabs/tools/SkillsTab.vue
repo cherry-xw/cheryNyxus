@@ -117,7 +117,49 @@ const checkingIds = ref<Set<string>>(new Set())
 
 // ── 独立 skill 列表 ──────────────────────────────────────────────────
 /** 技能列表与仓库展示解耦：所有独立 skill 在同一分页列表中展示。 */
-const standalone = computed(() => skills.value)
+interface SkillPill {
+  field: string
+  content: string
+}
+type SkillCard = SkillInfo & { pills: SkillPill[] }
+
+/** 不放进胶囊的字段：主展示（name/description）、正文（content）、token 估算（走「系统/内容」徽章）、来源标记。 */
+const NON_PILL_FIELDS = new Set([
+  'name',
+  'description',
+  'content',
+  'plugin',
+  'contextTokens',
+  'nameDescTokens',
+  'triggerTokens',
+  'contentTokens',
+  'promptTokens',
+])
+
+/** 头部元数据字段（trigger、extra 中的 version 等）折叠为胶囊；extra 摊平成独立胶囊；空值跳过。
+ *  content 正文不返回也不展示。 */
+function skillPills(s: SkillInfo): SkillPill[] {
+  const pills: SkillPill[] = []
+  for (const [k, v] of Object.entries(s) as Array<[string, unknown]>) {
+    if (NON_PILL_FIELDS.has(k)) continue
+    if (v === undefined || v === null || v === '') continue
+    if (k === 'extra' && typeof v === 'object') {
+      // extra = frontmatter 用户自定义字段（version 等），key 即原字段名
+      for (const [ek, ev] of Object.entries(v as Record<string, unknown>)) {
+        if (ev !== undefined && ev !== null && ev !== '') {
+          pills.push({ field: ek, content: String(ev) })
+        }
+      }
+      continue
+    }
+    pills.push({ field: k, content: String(v) })
+  }
+  return pills
+}
+
+const standalone = computed<SkillCard[]>(() =>
+  skills.value.map((s) => ({ ...s, pills: skillPills(s) })),
+)
 
 const indexItems = computed<IndexItem[]>(() =>
   standalone.value.map((s) => ({
@@ -378,9 +420,23 @@ function formatDateTime(iso: string | undefined): string {
               <span class="badge content">内容 ≈{{ s.contentTokens }}</span>
             </div>
           </header>
-          <div v-if="s.description || s.trigger" class="skill-body">
-            <span v-if="s.description"><span class="k">说明：</span>{{ s.description }}</span>
-            <span v-if="s.trigger"> <span class="k">触发：</span>{{ s.trigger }}</span>
+          <p v-if="s.description" class="skill-desc">{{ s.description }}</p>
+          <div v-if="s.pills.length" class="skill-tags">
+            <el-tooltip
+              v-for="p in s.pills"
+              :key="p.field"
+              placement="bottom"
+              :show-after="200"
+              popper-class="skill-pill-tip"
+            >
+              <template #content>
+                <div class="pill-tip">
+                  <span class="pill-tip-field">{{ p.field }}</span>
+                  <span class="pill-tip-value">{{ p.content }}</span>
+                </div>
+              </template>
+              <span class="skill-tag">{{ p.field }}</span>
+            </el-tooltip>
           </div>
         </article>
         <article v-if="!standalone.length && !loading && !loadError" class="card empty-card">
@@ -607,19 +663,13 @@ code {
     color: var(--success);
   }
 }
-.skill-body {
+.skill-desc {
   margin: 4px 0 0;
   font-size: 14px;
+  font-weight: 400;
   line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 82%, transparent);
   word-break: break-word;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  .k {
-    font-weight: 400;
-    color: color-mix(in srgb, var(--ink) 88%, transparent);
-  }
 }
 .src-meta {
   display: flex;
@@ -644,11 +694,12 @@ code {
 .skill-tag {
   display: inline-block;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   padding: 1px 8px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--neon-indigo) 14%, transparent);
-  color: var(--neon-indigo);
+  background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
+  color: color-mix(in srgb, var(--tab-color, @accent) 84%, var(--ink));
+  border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 45%, transparent);
   cursor: default;
 }
 .empty-card {
@@ -690,5 +741,45 @@ code {
 .ico {
   width: 12px;
   height: 12px;
+}
+</style>
+
+<!--
+  胶囊 hover tip 内容 teleport 到 body，scoped 样式无法穿透；
+  用非 scoped 样式 + popper-class 限定，避免影响其它 popover。
+  结构（外→内）：tip 窗口边缘（el-popper 自带边框）→ 外边距 → 内边框（含内边距）→ 内容。
+-->
+<style lang="less">
+@import '../../config/shared.less';
+
+.el-popper.skill-pill-tip {
+  // tip 窗口边缘到内边框之间的外边距
+  padding: 6px;
+}
+
+.el-popper.skill-pill-tip .pill-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  // 内容外层的边框 + 内边距（正式一点的卡片感）；tip teleport 到 body 时拿不到 --tab-color，退回霓虹靛
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--tab-color, var(--neon-indigo)) 42%, transparent);
+  border-radius: 6px;
+  max-width: 240px;
+
+  .pill-tip-field {
+    font-size: 11px;
+    font-weight: 400;
+    color: color-mix(in srgb, var(--ink) 55%, transparent);
+    letter-spacing: 0.04em;
+  }
+  .pill-tip-value {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--ink);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 }
 </style>

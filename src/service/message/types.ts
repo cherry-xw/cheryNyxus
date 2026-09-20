@@ -1146,12 +1146,15 @@ export interface SenseToolsDocsResponseData {
   docs: SenseToolDoc[]
 }
 
-/** skills.list 响应：用户 `.chery/skills/` 独立 skill + `.chery/plugins/` 插件 skill；不含前端内置命令。 */
+/** skills.list 响应：用户 `.chery/skills/` 独立 skill + `.chery/plugins/` 插件 skill；不含前端内置命令。
+ *  只返回 frontmatter 元数据与 token 估算，不返回技能正文 content（列表接口仅用于展示/搜索）。 */
 export interface SkillsListResponseData {
   skills: Array<{
     name: string
     description: string
     trigger?: string
+    /** SKILL.md frontmatter 中用户自定义字段（version 等），key 为原字段名。 */
+    extra?: Record<string, unknown>
     /** 激活该技能后写入模型上下文的近似 token 增量（= 系统提示词 + 内容提示词之和）。 */
     contextTokens: number
     /** 系统提示词占用：注入 system prompt `<skills>` XML 的 name+description token。 */
@@ -1160,6 +1163,8 @@ export interface SkillsListResponseData {
     triggerTokens?: number
     /** 内容提示词占用：激活后加载的技能正文 token。 */
     contentTokens: number
+    /** JSON 序列化全字段（含 extra）的 token（按设计用作正文段 token 计算）。 */
+    promptTokens?: number
     /** 来源插件名（undefined = 独立 skill；否则为插件 skill，name 形如 `<plugin>__<skill>`）。 */
     plugin?: string
   }>

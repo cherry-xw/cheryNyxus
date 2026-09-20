@@ -43,6 +43,7 @@ import {
   type TabKey,
 } from './config/constants'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
+import type { IconInput } from 'morphicons/vue'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import BrainsTab from './tabs/brain/BrainsTab.vue'
 import MediaTab from './tabs/config/MediaTab.vue'
@@ -102,10 +103,19 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const tabSwitching = ref(false)
   const rolesShadowMode = ref(false)
   provide(SETTINGS_ACTIVE_TAB_KEY, readonly(activeTab))
-  /** 文字、焦点与主操作统一消费深浅主题强调色；分类装饰不驱动交互前景。 */
+  /** 当前激活 tab 的主题色：提升到 panel 根作为 --tab-color，让保存按钮/序号/卡片强调色/panel 背景/边框随 tab 整体变色。
+   *  tab 按钮仍各自绑自己的 color（hover/active 显示对应 tab 色），与此处全局基调互不冲突。 */
+  const activeTabColor = computed(() =>
+    activeTab.value === 'roles' && rolesShadowMode.value
+      ? '#64748b'
+      : (TABS.find((t) => t.key === activeTab.value)?.color ?? '#22d3ee'),
+  )
+  const activeTabHighlight = computed(() =>
+    activeTab.value === 'roles' && rolesShadowMode.value ? '#cbd5e1' : activeTabColor.value,
+  )
   const settingsThemeStyle = computed(() => ({
-    '--tab-color': 'var(--accent)',
-    '--tab-highlight': 'var(--accent)',
+    '--tab-color': activeTabColor.value,
+    '--tab-highlight': activeTabHighlight.value,
   }))
   /** 当前 tab 的 hints 段落拆分（sect + warn），渲染与真实 hints 像素级一致。 */
   const hintLines = computed(() => HINT_LINES[activeTab.value] ?? { sect: 1, warn: 0 })
@@ -548,7 +558,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   /** 单行错误 → 结构化条目：首段 `xxx.` 前缀命中映射时带 tab 信息（图标/名称取自 TABS）。 */
   interface ErrorLine {
     text: string
-    tab?: { key: TabKey; icon: string; label: string }
+    tab?: { key: TabKey; icon: IconInput; label: string }
   }
   function parseErrorLine(line: string): ErrorLine {
     const m = /^([a-z_]+)\./.exec(line)

@@ -119,6 +119,9 @@
 }
 .error-tab-badge {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-weight: 600;
 }
 .error-text {
@@ -305,7 +308,7 @@
   align-items: center;
   gap: 4px;
   // 按下态（未选中）：矮一档、暗一档，三边框无下边框，底边停在内容区顶边线上方
-  padding: 4px 12px;
+  padding: 4px 8px;
   border: 1px solid var(--border);
   border-bottom: 0;
   border-radius: 0;
@@ -325,7 +328,7 @@
     // 底色须不透明（混 --panel 而非 transparent），否则盖线 1px 内会透出顶边线破坏连通
     top: 1px;
     z-index: 2;
-    padding: 5px 12px;
+    padding: 5px 8px;
     background: color-mix(in srgb, var(--tab-color, @accent) 12%, var(--panel));
     color: color-mix(in srgb, var(--tab-color, @accent) 80%, @ink);
     font-weight: 600;
@@ -355,7 +358,11 @@
     }
   }
   .tab-icon {
-    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
   }
 }
 

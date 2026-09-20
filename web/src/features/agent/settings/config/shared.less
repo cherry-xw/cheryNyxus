@@ -14,6 +14,7 @@
   margin: 0;
   color: color-mix(in srgb, var(--ink) 74%, transparent);
   font-size: 13px;
+  font-weight: 400;
   line-height: 1.5;
   // 骨架模式：覆盖为 shimmer 占位条；保持 .sect-hint 同样字号行高 → 计算高度一致。
   &.skel-shimmer {
@@ -37,6 +38,7 @@
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
   font-size: 13px;
+  font-weight: 400;
   line-height: 1.4;
   // 骨架模式：复用真实 .warn-hint 字号 + 行高 + padding，只是把背景色换成 shimmer。
   // 计算高度（line-height 15.4 + padding 10 = 25.4px）与真实段落像素级一致。
@@ -299,8 +301,16 @@
 }
 .shell-hints {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.shell-hints-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .shell-toolbar {
   min-width: 0;

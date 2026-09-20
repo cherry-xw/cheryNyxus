@@ -7,6 +7,7 @@ import {
 } from './useSettingsDialogController'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import ConfigApplyStatus from './components/ConfigApplyStatus.vue'
+import TabIcon from './components/TabIcon.vue'
 import ArchiveTab from './tabs/archive/ArchiveTab.vue'
 import { useMotionPreference } from '@/composables/useMotionPreference'
 import type { TabKey } from './config/constants'
@@ -212,6 +213,7 @@ onBeforeUnmount(() => {
               type="button"
               class="tab"
               :class="{ active: activeTab === t.key }"
+              :style="{ '--tab-color': t.color }"
               role="tab"
               :aria-selected="activeTab === t.key"
               aria-controls="settings-tab-panel"
@@ -219,7 +221,7 @@ onBeforeUnmount(() => {
               @click="selectTab(t.key, $event)"
               @keydown="onTabKeydown($event, t.key)"
             >
-              <span class="tab-icon">{{ t.icon }}</span>
+              <span class="tab-icon"><TabIcon :icon="t.icon" /></span>
               <span class="tab-label">{{ t.label }}</span>
             </button>
           </div>
@@ -347,7 +349,8 @@ onBeforeUnmount(() => {
           <div class="settings-error-detail" role="alert">
             <div v-for="(line, i) in errorLines" :key="i" class="error-line">
               <span v-if="line.tab" class="error-tab-badge">
-                {{ line.tab.icon }} {{ line.tab.label }}
+                <TabIcon :icon="line.tab.icon" :size="14" />
+                {{ line.tab.label }}
               </span>
               <span class="error-text">{{ line.text }}</span>
               <button
