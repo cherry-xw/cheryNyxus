@@ -494,7 +494,8 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
       // PreLLMRequest 钩子：handler 可改 body（thinking/max_tokens/tools） 或阻断
       if (options?.skipHooks !== true) body = await applyPreLLMRequest(body, options)
 
-      return anthropicFetch(url, body, key, options?.fullUrl === true)
+      options?.observation?.start(body.model)
+      return anthropicFetch(url, body, key, options?.fullUrl === true, options?.observation)
     },
 
     async chatStream(
@@ -519,7 +520,15 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
 
       if (options?.skipHooks !== true) body = await applyPreLLMRequest(body, options)
 
-      return anthropicStreamSSE(url, body, key, options?.signal, options?.fullUrl === true)
+      options?.observation?.start(body.model)
+      return anthropicStreamSSE(
+        url,
+        body,
+        key,
+        options?.signal,
+        options?.fullUrl === true,
+        options?.observation,
+      )
     },
   }
 
@@ -578,6 +587,7 @@ async function anthropicFetch(
   body: AnthropicBody,
   key: string,
   fullUrl = false,
+  observation?: LLMOptions['observation'],
 ): Promise<AnthropicResponse> {
   let res: Response
   try {
@@ -600,7 +610,9 @@ async function anthropicFetch(
     )
   }
   try {
-    return (await res.json()) as AnthropicResponse
+    const value = (await res.json()) as AnthropicResponse
+    observation?.response(value)
+    return value
   } catch (err) {
     throw brainInvalidStream(
       `响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`,
@@ -624,6 +636,7 @@ async function* anthropicStreamSSE(
   key: string,
   signal?: AbortSignal,
   fullUrl = false,
+  observation?: LLMOptions['observation'],
 ): AsyncGenerator<AnthropicSSEEvent, void, unknown> {
   const controller = new AbortController()
   const abortFromParent = () => controller.abort()
@@ -681,6 +694,7 @@ async function* anthropicStreamSSE(
         if (!payload) continue
         try {
           const ev = JSON.parse(payload) as AnthropicSSEEvent
+          observation?.response(ev)
           yield ev
           yielded++
           // message_stop 主动结束（与 OpenAI [DONE] 等价）

@@ -36,6 +36,38 @@ export type {
 } from '@/domain/chat/runtime'
 export type { CommandConfigDataDto, CommandConfigDto, ThresholdDto } from '@/domain/chat/commands'
 
+export interface WorkspaceFileEntry {
+  name: string
+  path: string
+  kind: 'file' | 'directory'
+  size?: number
+  modifiedAt?: number
+  extension?: string
+}
+export interface WorkspaceFilesList {
+  chatId: string
+  workspace: string
+  path: string
+  entries: WorkspaceFileEntry[]
+  nextOffset?: number
+}
+export interface WorkspaceFileContent {
+  chatId: string
+  path: string
+  kind: 'text' | 'image' | 'binary'
+  mimeType?: string
+  content?: string
+  size: number
+  truncated?: boolean
+}
+export interface WorkspaceGitStatus { chatId: string; branch: string; branches: string[]; dirty: boolean; files: Array<{ path: string; status: 'added' | 'modified' }> }
+export interface TerminalSessionInfo {
+  sessionId: string
+  target: { kind: 'local' | 'ssh'; label: string }
+  cols: number
+  rows: number
+}
+
 /** 上下文用量单段（镜像后端 utils/token.ts Segment）：tokens = 段 token 估算；count = 条目数（记忆/技能/工具/消息）；thinking = 用户对话段思考拆分（仅 conversation，已含在 tokens 内）。 */
 /** 单个工具定义快照（镜像后端 PromptSnapshotTool；统一 OpenAI 形状，剥离 provider 差异）。 */
 export interface PromptSnapshotTool {
@@ -1326,6 +1358,26 @@ async function call<T>(
 }
 
 export const agentApi = {
+  async getContextUsageDetail(taskKey: string): Promise<import('@chery/protocol').TaskUsageDetail> {
+    return call('chat.taskUsage.detail', { taskKey })
+  },
+
+  async getContextUsageSummaries(taskKeys: string[]): Promise<{ asOf: number; items: import('@chery/protocol').TaskUsageSummary[] }> {
+    return call('chat.taskUsage.summaries', { taskKeys })
+  },
+
+  async getContextUsageDaily(params: { from: string; to: string; timezone: string; presetId?: string }): Promise<import('@chery/protocol').UsageDailyResponse> {
+    return call('chat.taskUsage.daily', params)
+  },
+
+  async getContextUsageDayTasks(params: { date: string; timezone: string; presetId?: string; cursor?: string; limit?: number }): Promise<{ asOf: number; items: { taskKey: string; tokens: import('@chery/protocol').UsageMetric }[]; nextCursor?: string }> {
+    return call('chat.taskUsage.dayTasks', params)
+  },
+
+  async getContextContent(params: { chatId: string; epochId?: string; cursor?: string; limit?: number }): Promise<import('@chery/protocol').ContextContentResponse> {
+    return call('chat.contextContent', params)
+  },
+
   async listTasks(options: TaskCatalogQuery): Promise<{
     items: TaskCatalogItem[]
     total: number
@@ -2036,6 +2088,32 @@ export const agentApi = {
     includeFiles?: boolean
   }): Promise<{ nonce: string; encData: string }> {
     return call<{ nonce: string; encData: string }>('config.workspace.browse.list', params)
+  },
+
+  async listWorkspaceFiles(chatId: string, path?: string, offset?: number): Promise<WorkspaceFilesList> {
+    return call<WorkspaceFilesList>('workspace.files.list', { chatId, ...(path ? { path } : {}), ...(offset ? { offset } : {}) })
+  },
+  async readWorkspaceFile(chatId: string, path: string): Promise<WorkspaceFileContent> {
+    return call<WorkspaceFileContent>('workspace.files.read', { chatId, path })
+  },
+  async getWorkspaceGitStatus(chatId: string): Promise<WorkspaceGitStatus> { return call<WorkspaceGitStatus>('workspace.git.status', { chatId }) },
+  async checkoutWorkspaceGit(chatId: string, branch: string): Promise<{ chatId: string; branch: string }> { return call<{ chatId: string; branch: string }>('workspace.git.checkout', { chatId, branch }) },
+  async createTerminal(
+    chatId: string,
+    target?: Record<string, unknown>,
+    cols?: number,
+    rows?: number,
+  ): Promise<TerminalSessionInfo> {
+    return call<TerminalSessionInfo>('terminal.create', { chatId, ...(target ? { target } : {}), ...(cols ? { cols } : {}), ...(rows ? { rows } : {}) }, { timeoutMs: 25000 })
+  },
+  async terminalInput(sessionId: string, data: string): Promise<void> {
+    await call('terminal.input', { sessionId, data })
+  },
+  async terminalResize(sessionId: string, cols: number, rows: number): Promise<void> {
+    await call('terminal.resize', { sessionId, cols, rows })
+  },
+  async closeTerminal(sessionId: string): Promise<void> {
+    await call('terminal.close', { sessionId })
   },
 
   /**

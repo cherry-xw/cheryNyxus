@@ -73,6 +73,29 @@ export function getMonthlyDb(yearMonth: string): Database.Database {
  */
 function initSoulTables(db: Database.Database): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS model_request_usage (
+      attempt_id TEXT PRIMARY KEY,
+      task_key TEXT NOT NULL,
+      chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+      run_id TEXT,
+      input_message_id TEXT,
+      started_at INTEGER NOT NULL,
+      ended_at INTEGER,
+      data_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_usage_task ON model_request_usage(task_key, started_at, attempt_id);
+    CREATE INDEX IF NOT EXISTS idx_usage_end ON model_request_usage(ended_at, task_key);
+    CREATE TABLE IF NOT EXISTS usage_operations (
+      operation_id TEXT PRIMARY KEY,
+      task_key TEXT NOT NULL,
+      chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+      attempt_id TEXT,
+      started_at INTEGER NOT NULL,
+      data_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_usage_operations_task ON usage_operations(task_key, started_at, operation_id);
+  `)
+  db.exec(`
     CREATE TABLE IF NOT EXISTS chats (
       id TEXT PRIMARY KEY,
       messages_month TEXT NOT NULL,

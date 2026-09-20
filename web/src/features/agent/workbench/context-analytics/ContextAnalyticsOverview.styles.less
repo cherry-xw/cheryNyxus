@@ -1,0 +1,26 @@
+.overview-grid, .support-grid { display: grid; grid-template-columns: minmax(300px, 4fr) minmax(0, 7fr); gap: 14px; }
+.overview-grid { align-items: start; }
+.primary-context { display: flex; flex-direction: column; }
+.primary-context .runtime-summary { margin-top: 12px; }
+.support-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
+.overview-card { min-width: 0; padding: 16px; border: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); color: var(--nx-text); background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 6%); }
+.overview-card > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h3 { margin: 3px 0 0; font-size: 15px; font-weight: 400; }
+small, p { color: color-mix(in srgb, var(--nx-text) 65%, transparent); font-size: 12px; }
+p { margin: 12px 0 0; line-height: 1.6; }
+.quality { color: var(--nx-cyan); font: 12px/1.5 var(--font-mono); }
+.runtime-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 20px 0 0; border-top: 1px solid color-mix(in srgb, var(--nx-text) 15%, transparent); }
+.runtime-summary > div { min-width: 0; min-height: 76px; padding: 12px 8px; border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 10%, transparent); }
+.primary-context-body { display: flex; align-items: center; gap: 16px; margin-top: 18px; }
+.segment-list { min-width: 0; flex: 1; margin: 0; padding: 0; list-style: none; }
+.segment-list button { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 7px; width: 100%; padding: 6px 3px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; font-size: 12px; }
+.segment-list i { width: 8px; height: 8px; }
+b { font-weight: 400; font-size: 12px; }
+.support-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+dt { color: color-mix(in srgb, var(--nx-text) 65%, transparent); font-size: 12px; }
+dd { margin: 4px 0 0; font: 13px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+.tool-ranking { display: grid; gap: 10px; margin: 14px 0; padding: 0; list-style: none; }
+.tool-ranking li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; font-size: 12px; }
+.tool-ranking code { overflow-wrap: anywhere; }
+@media (max-width: 900px) { .overview-grid, .support-grid { grid-template-columns: 1fr; } }
+@media (max-width: 460px) { .primary-context-body { flex-direction: column; align-items: stretch; } }

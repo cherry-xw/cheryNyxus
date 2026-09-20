@@ -107,6 +107,60 @@
   isolation: isolate;
   pointer-events: auto;
 }
+.workbench-files-trigger {
+  margin-left: 4px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.workbench-files-trigger svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+.workbench-files-trigger[aria-pressed='true'],
+.workbench-files-trigger:focus-visible {
+  border-color: var(--nx-cyan);
+  background: color-mix(in srgb, var(--nx-cyan) 22%, transparent);
+  color: var(--nx-cyan);
+  outline: 2px solid color-mix(in srgb, var(--nx-cyan) 40%, transparent);
+  outline-offset: 1px;
+}
+.workbench-files-trigger.is-active svg,
+.workbench-files-trigger:hover:not(:disabled) svg {
+  color: var(--accent);
+  animation: workbench-file-icon-signal 0.82s steps(2, end) infinite;
+  filter: drop-shadow(-2px 0 color-mix(in srgb, var(--accent) 78%, white))
+    drop-shadow(2px 0 color-mix(in srgb, var(--accent) 78%, black));
+}
+@keyframes workbench-file-icon-signal {
+  0%, 100% { transform: translate(0, 0) skewX(0deg); }
+  25% { transform: translate(-2px, 0) skewX(-8deg) scale(1.12); }
+  50% { transform: translate(2px, 1px) skewX(9deg) scale(.9); }
+  75% { transform: translate(-1px, 0) skewX(-5deg) scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workbench-files-trigger.is-active svg,
+  .workbench-files-trigger:hover:not(:disabled) svg {
+    animation: none;
+    filter: none;
+  }
+}
+.workbench-shell > :deep(.workbench-files) {
+  position: absolute;
+  z-index: var(--nx-z-drawer);
+  top: 40px;
+  right: 0;
+  left: 0;
+  height: auto;
+  bottom: 0;
+}
+.workbench-shell.is-shellless > :deep(.workbench-files) { top: 0; }
 .dialog-overlay.is-windowed-workbench {
   pointer-events: none;
 }
@@ -133,6 +187,14 @@
   inset: 0;
 }
 .workbench-shell.is-shellless .workbench-ctx-bar {
+  top: 0;
+}
+.workbench-shell.is-shellless .workbench-context-drawer,
+.workbench-shell.is-native .workbench-context-drawer {
+  top: 0;
+}
+.workbench-shell.is-shellless :deep(.analytics-panel),
+.workbench-shell.is-native :deep(.analytics-panel) {
   top: 0;
 }
 
@@ -631,6 +693,153 @@
   left: 0;
 }
 
+// 查看上下文侧边抽屉：与卡牌模式同款抽屉形态（参照 MessageBranchTree 的 tree-drawer）——
+// 遮罩 + 贴右缘面板，面板从标题栏下方延伸到底部，宽度 min(720px, 88%)，左缘阴影分割。
+.workbench-context-drawer {
+  position: absolute;
+  z-index: var(--nx-z-drawer-mask);
+  inset: 40px 0 0;
+  pointer-events: none;
+}
+.workbench-context-drawer-mask {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  pointer-events: auto;
+}
+.workbench-context-drawer-panel {
+  position: absolute;
+  z-index: var(--nx-z-drawer);
+  inset: 0 0 0 auto;
+  width: min(720px, 88%);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  pointer-events: auto;
+  background: var(--nx-bg);
+  border-left: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+  box-shadow: -12px 0 28px color-mix(in srgb, var(--nx-text) 22%, transparent);
+}
+.workbench-context-drawer-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+  background: color-mix(in srgb, var(--nx-bg) 82%, var(--nx-text) 6%);
+}
+.workbench-context-drawer-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--nx-text);
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-context-drawer-close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: color-mix(in srgb, var(--nx-text) 70%, transparent);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+.workbench-context-drawer-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  overflow: auto;
+  .inner-scrollbar();
+}
+
+// 内容排版：统一 12px、去加粗（覆盖 PromptSnapshotTip 内部的 scoped 样式）。
+.workbench-context-drawer-body {
+  :deep(.ps-panel) {
+    width: auto;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    overflow: visible;
+  }
+  :deep(.ps-section-title),
+  :deep(.ps-tool-name),
+  :deep(.ps-param-name),
+  :deep(.ps-count),
+  :deep(.ps-pre) {
+    font-weight: 400;
+  }
+  :deep(.ps-section-title),
+  :deep(.ps-tool-desc),
+  :deep(.ps-tool-name),
+  :deep(.ps-param-row),
+  :deep(.ps-params-toggle),
+  :deep(.ps-empty),
+  :deep(.ps-status),
+  :deep(.ps-epoch-label),
+  :deep(.ps-epoch-select),
+  :deep(.ps-readonly),
+  :deep(.ps-quality-warning),
+  :deep(.ps-pre),
+  :deep(.ps-param-name),
+  :deep(.ps-param-type),
+  :deep(.ps-param-req),
+  :deep(.ps-param-desc) {
+    font-size: 12px;
+  }
+  :deep(.ps-pre) {
+    max-height: 50vh;
+  }
+  /* 抽屉空间足够：工具描述整体展示，滚动交给抽屉主体（popover 里仍是 200px 内滚）。 */
+  :deep(.ps-tool-body) {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+// ContextUsageBar（inline）图例/数值同样 12px、去加粗。
+.workbench-context-drawer-body {
+  :deep(.ctx-legend-item),
+  :deep(.ctx-legend-tokens),
+  :deep(.ctx-usage-values),
+  :deep(.ctx-usage-used),
+  :deep(.ctx-usage-total),
+  :deep(.ctx-usage-pct),
+  :deep(.ctx-legend-label) {
+    font-size: 12px;
+    font-weight: 400;
+  }
+}
+.workbench-context-drawer-loading {
+  padding: 8px 0;
+  color: color-mix(in srgb, var(--nx-text) 50%, transparent);
+  font-size: 12px;
+}
+.workbench-context-drawer-esc {
+  margin: 2px 0 0;
+  color: color-mix(in srgb, var(--nx-text) 45%, transparent);
+  font-size: 12px;
+  text-align: right;
+}
+
 .workbench-empty-state {
   position: absolute;
   inset: 0 48px 0 0;
@@ -719,8 +928,9 @@
 }
 .nyxus-composer-title {
   min-width: 0;
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 0;
 }
 .nyxus-composer-title strong {
   color: var(--nx-text);
@@ -734,6 +944,15 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.nyxus-role-config-trigger {
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.nyxus-role-config-trigger:hover,
+.nyxus-role-config-trigger[aria-expanded='true'] {
+  border-color: var(--nx-cyan);
+  color: var(--nx-cyan);
 }
 .nyxus-composer-close {
   flex: 0 0 auto;
@@ -781,6 +1000,13 @@
 .nyxus-role-configs {
   padding: 8px 14px 5px;
   border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+}
+.role-runtime-note {
+  display: block;
+  margin: 2px 0 6px;
+  color: color-mix(in srgb, var(--nx-text) 58%, transparent);
+  font-size: 12px;
+  line-height: 1.35;
 }
 // 折叠开关（与发消息弹窗一致）：整行可点，默认收起只占一行高度。
 .role-configs-toggle {
@@ -833,6 +1059,11 @@
     background: color-mix(in srgb, var(--nx-green) 11%, transparent);
   }
   .nyxus-composer-close:hover:not(:disabled) {
+    color: var(--nx-text);
+    border-color: color-mix(in srgb, var(--nx-cyan) 22%, transparent);
+    background: color-mix(in srgb, var(--nx-cyan) 7%, transparent);
+  }
+  .workbench-context-drawer-close:hover {
     color: var(--nx-text);
     border-color: color-mix(in srgb, var(--nx-cyan) 22%, transparent);
     background: color-mix(in srgb, var(--nx-cyan) 7%, transparent);

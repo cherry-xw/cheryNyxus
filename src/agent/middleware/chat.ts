@@ -25,6 +25,8 @@ import config, { isOrdinaryRole } from '@/utils/config.js'
 import { dispatch } from '@/agent/hooks/index.js'
 import { ClassifiedError } from '@/utils/error.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
+import { createRequestObservation } from '@/agent/provider/requestObservation.js'
+import { estimateTokens } from '@/utils/token.js'
 
 /**
  * Chat Middleware
@@ -180,12 +182,32 @@ export async function* chatMiddleware(
     msgCount: messages.length,
   })
 
+  options.observation = createRequestObservation({
+    chatId: ctx.soul.chatId,
+    inputMessageId: historyForBuild.findLast((message) => message.role === 'user')?.id,
+    model: options.model,
+    provider: options.provider ?? 'unknown',
+    protocol: options.protocol ?? options.provider ?? 'unknown',
+    context: {
+      system: estimateTokens(historyForBuild.filter((m) => m.role === 'system').map((m) => m.content).join('\n')),
+      tools: estimateTokens(JSON.stringify(senses)),
+      conversation: estimateTokens(JSON.stringify(historyForBuild.filter((m) => m.role !== 'system'))),
+      limit: ctx.runtime.brain.contextLimit ?? null,
+    },
+  })
+  if (options.provider === 'mock' || options.protocol === 'mock') options.observation.start()
+  let completed = false
+  try {
   if (ctx.global.stream) {
     // 流式调用
     yield* handleStream(ctx, options, llmAdapter, messageAdapter, senseAdapter, messages, senses)
   } else {
     // 非流式调用
     yield* handleNonStream(ctx, options, llmAdapter, messageAdapter, senseAdapter, messages, senses)
+  }
+  completed = true
+  } finally {
+    options.observation.finish(completed ? 'completed' : options.signal?.aborted ? 'cancelled' : 'failed')
   }
 
   // 执行下游
@@ -220,6 +242,7 @@ async function* handleStream(
   const thinkingAssembler = new ThinkingBlockAssembler()
 
   for await (const rawChunk of streamIterator) {
+    options.observation?.response(rawChunk)
     chunkCount++
 
     // 提取增量
@@ -299,6 +322,7 @@ async function* handleNonStream(
     waitReason: 'model',
   })
   const response = await llmAdapter.chat(messages, senses, options)
+  options.observation?.response(response)
   reportWorkflow(ctx.soul.chatId, { activeNodeId: 'model', phaseLabel: '处理响应' })
 
   // 提取内容和思考

@@ -34,10 +34,8 @@ import {
   getChatEpoch,
   getActiveChatEpoch,
   getFrozenChatSnapshot,
-  ensureActiveChatEpoch,
   listChatEpochs,
 } from '@/db/epoch.js'
-import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 
 /**
  * 重建 system prompt 全文 + tools 列表。
@@ -91,13 +89,7 @@ export async function handleChatPromptSnapshot(
   const chat = getChat(chatId)
   if (!chat) throw new Error('这个会话不见了')
   try {
-    const activeEpoch =
-      chat.lifecycle === 'active' && !getActiveChatEpoch(chatId)
-        ? ensureActiveChatEpoch({
-            chatId,
-            revisionId: ensureCurrentConfigRevision().revisionId,
-          }).epoch
-        : getActiveChatEpoch(chatId)
+    const activeEpoch = getActiveChatEpoch(chatId)
     const knownEpochs = listChatEpochs(chatId)
     const latestFrozenEpoch = [...knownEpochs]
       .reverse()
@@ -120,6 +112,8 @@ export async function handleChatPromptSnapshot(
           epochOrdinal: epoch.ordinal,
           epochStatus: epoch.status,
           snapshotQuality: epoch.snapshotQuality,
+          origin: 'frozen',
+          contentState: 'available',
           systemPrompt: frozen.systemPrompt,
           tools: frozen.tools as PromptSnapshotTool[],
         }
@@ -138,8 +132,14 @@ export async function handleChatPromptSnapshot(
               ? '此历史纪元来自旧数据重建，无法可靠还原当时的完整系统提示词与工具定义。'
               : '此会话在该纪元中没有冻结快照；不会用最新配置伪造历史上下文。',
           tools: [],
+          origin: 'missing',
+          contentState: 'missing',
         }
       }
+    }
+    if (chat.lifecycle !== 'active') return {
+      chatId, systemPrompt: '', tools: [], snapshotQuality: 'partial',
+      origin: 'missing', contentState: 'missing',
     }
     const { systemPrompt, tools } = buildLivePromptSnapshot(chatId)
     return {
@@ -154,6 +154,9 @@ export async function handleChatPromptSnapshot(
         : {}),
       systemPrompt,
       tools,
+      origin: 'reconstructed',
+      contentState: 'available',
+      snapshotQuality: 'reconstructed',
     }
   } catch (err) {
     // resolve runtime 失败（感官组不存在 / MCP server 未连等）→ fail loud：抛错给前端，不静默返空 tools
@@ -167,13 +170,7 @@ export async function handleChatEpochList(
 ): Promise<ChatEpochListResponseData> {
   if (!getChat(data.chatId)) throw new Error('这个会话不见了')
   const chat = getChat(data.chatId)!
-  const active =
-    chat.lifecycle === 'active' && !getActiveChatEpoch(data.chatId)
-      ? ensureActiveChatEpoch({
-          chatId: data.chatId,
-          revisionId: ensureCurrentConfigRevision().revisionId,
-        }).epoch
-      : getActiveChatEpoch(data.chatId)
+  const active = getActiveChatEpoch(data.chatId)
   const epochs = listChatEpochs(data.chatId)
   const executableEpochId = chat.lifecycle === 'active' ? active?.epochId : undefined
   return {

@@ -45,6 +45,9 @@ import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
 import { selectTreeTimelineOverride } from './workbenchTimelineSelection'
 import { matchesCurrentTask } from './useSessionStripTasks'
 import {
+  CONTEXT_ANALYTICS_DEMOS,
+} from './context-analytics/public'
+import {
   canMarkTaskResultViewed,
   taskAfterArchive,
   taskBrowserCatalogScope,
@@ -886,6 +889,45 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     brainConfig,
   })
 
+  // 查看上下文侧边抽屉：rail ❐ 按钮点击开关（原小弹窗空间不足，改为工作台右缘抽屉）。
+  // 打开时立即按当前树根会话拉取提示词快照；关闭不清数据，再次打开按 key 去重不重复请求。
+  const contextDrawerOpen = ref(false)
+  const contextAnalyticsInitialTaskKey = ref<string>()
+  const contextAnalyticsDemos = CONTEXT_ANALYTICS_DEMOS
+  const contextAnalyticsForced = ref(false)
+  const contextAnalyticsAvailable = computed(() => {
+    const currentTask = taskOverview.tasks.find((candidate) =>
+      matchesCurrentTask(candidate, chatId.value ?? undefined),
+    )
+    return !!currentTask?.lastUserPrompt
+  })
+  function toggleContextDrawer(): void {
+    if (!contextAnalyticsAvailable.value) return
+    if (!contextDrawerOpen.value) {
+      contextAnalyticsForced.value = false
+      const currentTask = taskOverview.tasks.find((candidate) =>
+        matchesCurrentTask(candidate, chatId.value ?? undefined),
+      )
+      contextAnalyticsInitialTaskKey.value = currentTask?.taskKey ?? treeRootChatId.value ?? undefined
+    }
+    contextDrawerOpen.value = !contextDrawerOpen.value
+  }
+  function openContextAnalyticsFromBrowser(taskKey: string): void {
+    contextAnalyticsForced.value = true
+    contextAnalyticsInitialTaskKey.value = taskKey
+    contextDrawerOpen.value = true
+  }
+  function closeContextDrawer(): void {
+    contextDrawerOpen.value = false
+    contextAnalyticsForced.value = false
+  }
+  const contextAnalyticsPanelEligible = computed(
+    () => contextAnalyticsForced.value || contextAnalyticsAvailable.value,
+  )
+  watch(contextAnalyticsAvailable, (available) => {
+    if (!available && contextDrawerOpen.value && !contextAnalyticsForced.value) closeContextDrawer()
+  })
+
   const runtimeDiagramProps = computed(() => ({
     chatId: treeRootChatId.value,
     timeline: liveTimeline.value,
@@ -1040,12 +1082,20 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     showRoleList,
     showRoleMenu,
     closeSidePanel,
+    closeContextDrawer,
+    contextAnalyticsDemos,
+    contextAnalyticsAvailable,
+    contextAnalyticsPanelEligible,
+    contextAnalyticsInitialTaskKey,
+    contextDrawerOpen,
+    toggleContextDrawer,
     supportsTools,
     taskControlPending,
     taskHasRunningBranches,
     taskTimeline,
     taskBrowserState,
     closeTaskBrowser,
+    openContextAnalyticsFromBrowser,
     openTaskFromBrowser,
     onTaskBrowserArchived,
     text,

@@ -1,4 +1,5 @@
 import type { LLMOptions } from '@/core/llm/adapter'
+import { observedFetch } from './requestObservation.js'
 import { getProviderUrlPattern, type ProviderUrlKind } from '@/core/llm/urlPattern'
 import { ErrorId, type ErrorId as ErrorIdValue } from '@chery/protocol'
 import { ClassifiedError, classifyError, type ErrorCategory } from '@/utils/error.js'
@@ -112,9 +113,15 @@ export function classifyBrainError(err: unknown): ClassifiedError {
  * 包裹任意 async iterable：迭代中抛错时映射为大脑 ClassifiedError（连接中断/限流/鉴权等），
  * 避免裸错误漏到 compose 兜底。供 openai/ollama 的 chatStream 复用。
  */
-export async function* wrapBrainStream(stream: AsyncIterable<unknown>): AsyncGenerator<unknown> {
+export async function* wrapBrainStream(
+  stream: AsyncIterable<unknown>,
+  onChunk?: (chunk: unknown) => void,
+): AsyncGenerator<unknown> {
   try {
-    for await (const chunk of stream) yield chunk
+    for await (const chunk of stream) {
+      onChunk?.(chunk)
+      yield chunk
+    }
   } catch (err) {
     throw classifyBrainError(err)
   }
@@ -275,7 +282,7 @@ export async function jsonRequest(
   body: unknown,
   key: string,
   signal?: AbortSignal,
-  opts?: { fullUrl?: boolean; endpoint?: string },
+  opts?: { fullUrl?: boolean; endpoint?: string; observation?: LLMOptions['observation'] },
 ): Promise<Record<string, unknown>> {
   const endpoint = buildEndpointUrl(url, {
     fullUrl: opts?.fullUrl,
@@ -283,7 +290,7 @@ export async function jsonRequest(
   })
   let res: Response
   try {
-    res = await fetch(endpoint, {
+    res = await observedFetch(opts?.observation)(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders(key) },
       body: JSON.stringify(body),
@@ -330,7 +337,7 @@ export async function* streamSSE(
   body: unknown,
   key: string,
   signal?: AbortSignal,
-  opts?: { fullUrl?: boolean; endpoint?: string },
+  opts?: { fullUrl?: boolean; endpoint?: string; observation?: LLMOptions['observation'] },
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
   const endpoint = buildEndpointUrl(url, {
     fullUrl: opts?.fullUrl,
@@ -342,7 +349,7 @@ export async function* streamSSE(
   else signal?.addEventListener('abort', abortFromParent, { once: true })
   let res: Response
   try {
-    res = await fetch(endpoint, {
+    res = await observedFetch(opts?.observation)(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -396,7 +403,9 @@ export async function* streamSSE(
           return
         }
         try {
-          yield JSON.parse(payload) as Record<string, unknown>
+          const parsed = JSON.parse(payload) as Record<string, unknown>
+          opts?.observation?.response(parsed)
+          yield parsed
           yielded++
         } catch {
           // 单行 JSON 解析失败不致命，跳过该事件

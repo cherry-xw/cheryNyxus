@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TaskUsageDetailSchema, UsageBatchResponseSchema, UsageRequestsResponseSchema, UsageOperationsResponseSchema, UsageDailyResponseSchema, UsageDayTasksResponseSchema, ContextContentResponseSchema } from '@chery/protocol'
 import { ArchiveListResponseSchema } from '@chery/protocol'
 import {
   WorkflowOpenResponseSchema,
@@ -372,6 +373,13 @@ const schemas = {
     contextTotal: nonNegativeInt,
     contextBreakdown: object,
   }),
+  [Method.CHAT_USAGE_DETAIL]: TaskUsageDetailSchema,
+  [Method.CHAT_USAGE_SUMMARIES]: UsageBatchResponseSchema,
+  [Method.CHAT_USAGE_ROUNDS]: UsageRequestsResponseSchema,
+  [Method.CHAT_USAGE_OPERATIONS]: UsageOperationsResponseSchema,
+  [Method.CHAT_USAGE_DAILY]: UsageDailyResponseSchema,
+  [Method.CHAT_USAGE_DAY_TASKS]: UsageDayTasksResponseSchema,
+  [Method.CHAT_CONTEXT_CONTENT]: ContextContentResponseSchema,
   [Method.CHAT_PROMPT_SNAPSHOT]: z.looseObject({
     chatId: id,
     epochId: id.optional(),
@@ -506,6 +514,39 @@ const schemas = {
     includeFiles: z.boolean(),
   }),
   [Method.CONFIG_WORKSPACE_BROWSE_LIST]: z.looseObject({ nonce: id, encData: z.string() }),
+  [Method.WORKSPACE_FILES_LIST]: z.looseObject({
+    chatId: id,
+    workspace: z.string(),
+    path: z.string(),
+    entries: z.array(z.looseObject({ name: z.string(), path: z.string(), kind: z.enum(['file', 'directory']), size: nonNegativeInt, modifiedAt: z.number(), extension: z.string() })),
+    nextOffset: nonNegativeInt.optional(),
+  }),
+  [Method.WORKSPACE_FILES_READ]: z.looseObject({
+    chatId: id,
+    path: z.string(),
+    kind: z.enum(['text', 'image', 'binary']),
+    mimeType: z.string().optional(),
+    content: z.string().optional(),
+    size: nonNegativeInt,
+    truncated: z.boolean().optional(),
+  }),
+  [Method.WORKSPACE_GIT_STATUS]: z.looseObject({
+    chatId: id,
+    branch: z.string(),
+    branches: z.array(z.string()),
+    dirty: z.boolean(),
+    files: z.array(z.looseObject({ path: z.string(), status: z.enum(['added', 'modified']) })),
+  }),
+  [Method.WORKSPACE_GIT_CHECKOUT]: z.looseObject({ chatId: id, branch: z.string() }),
+  [Method.TERMINAL_CREATE]: z.looseObject({
+    sessionId: id,
+    target: z.looseObject({ kind: z.enum(['local', 'ssh']), label: z.string() }),
+    cols: positiveInt,
+    rows: positiveInt,
+  }),
+  [Method.TERMINAL_INPUT]: z.looseObject({ sessionId: id, accepted: z.boolean() }),
+  [Method.TERMINAL_RESIZE]: z.looseObject({ sessionId: id, cols: positiveInt, rows: positiveInt }),
+  [Method.TERMINAL_CLOSE]: z.looseObject({ sessionId: id, closed: z.boolean() }),
   [Method.CONFIG_SAVE]: configSaveResponseSchema,
   [Method.CONFIG_PREVIEW]: ConfigPreviewSchema,
   [Method.CONFIG_APPLY_STATUS]: ConfigApplyStateSchema,

@@ -3,6 +3,19 @@ import { Method, PUBLIC_METHODS } from '@chery/protocol'
 import { responseSchemas } from '@/service/message/responseSchemas.js'
 
 const runtime = { chatId: 'chat-1', brain: 'brain-1', senseGroup: 'tools', mcpServers: [] }
+const metric = { value: 0, source: 'provider', coverage: 'complete', knownCount: 0, totalCount: 0 }
+const requestUsage = {
+  attemptId: 'attempt-1',
+  taskKey: 'chat-1',
+  chatId: 'chat-1',
+  model: 'mock',
+  provider: 'mock',
+  protocol: 'mock',
+  startedAt: 1,
+  status: 'completed',
+  usage: {},
+  context: { system: 0, tools: 0, conversation: 0, limit: null },
+}
 const workflowResources = { loadedSkillsComplete: false }
 const workflowSnapshot = {
   chatId: 'chat-1',
@@ -195,6 +208,52 @@ const validResponses: Record<Method, unknown> = {
     contextTotal: 100,
     contextBreakdown: {},
   },
+  [Method.CHAT_USAGE_DETAIL]: {
+    asOf: 1,
+    revision: '0',
+    summary: {
+      taskKey: 'chat-1',
+      inputTokens: metric,
+      outputTokens: metric,
+      totalTokens: metric,
+      requests: metric,
+      rounds: metric,
+      retryCount: metric,
+      agentCount: 0,
+      capturedSince: null,
+      currentRequest: null,
+    },
+    agents: [],
+    cache: {
+      readTokens: metric,
+      writeTokens: metric,
+      reportedRequests: 0,
+      hitRequests: 0,
+      totalRequests: 0,
+    },
+    elapsedMs: metric,
+    activeMs: metric,
+    tools: [],
+  },
+  [Method.CHAT_USAGE_SUMMARIES]: { asOf: 1, items: [] },
+  [Method.CHAT_USAGE_ROUNDS]: { asOf: 1, items: [requestUsage] },
+  [Method.CHAT_USAGE_OPERATIONS]: { asOf: 1, items: [] },
+  [Method.CHAT_USAGE_DAILY]: {
+    asOf: 1,
+    from: '2026-01-01',
+    to: '2026-01-01',
+    timezone: 'UTC',
+    capturedSince: null,
+    points: [{ date: '2026-01-01', tokens: metric, taskKeys: [], state: 'complete' }],
+  },
+  [Method.CHAT_USAGE_DAY_TASKS]: { asOf: 1, items: [] },
+  [Method.CHAT_CONTEXT_CONTENT]: {
+    chatId: 'chat-1',
+    snapshotId: 'snapshot-1',
+    origin: 'missing',
+    contentState: 'missing',
+    items: [],
+  },
   [Method.CHAT_WORKFLOW_OPEN]: {
     subscriptionId: 'subscription-1',
     streamId: 'stream-1',
@@ -307,6 +366,12 @@ const validResponses: Record<Method, unknown> = {
     includeFiles: false,
   },
   [Method.CONFIG_WORKSPACE_BROWSE_LIST]: { nonce: '0123456789abcdef', encData: '' },
+  [Method.WORKSPACE_FILES_LIST]: { chatId: 'chat', workspace: 'workspace', path: '', entries: [] },
+  [Method.WORKSPACE_FILES_READ]: { chatId: 'chat', path: 'a.ts', kind: 'text', content: '', size: 0 },
+  [Method.TERMINAL_CREATE]: { sessionId: 'terminal', target: { kind: 'local', label: 'test' }, cols: 80, rows: 24 },
+  [Method.TERMINAL_INPUT]: { sessionId: 'terminal', accepted: true },
+  [Method.TERMINAL_RESIZE]: { sessionId: 'terminal', cols: 80, rows: 24 },
+  [Method.TERMINAL_CLOSE]: { sessionId: 'terminal', closed: true },
   [Method.CONFIG_SAVE]: {
     protocolVersion: 2,
     savedRevision: 'config-1',

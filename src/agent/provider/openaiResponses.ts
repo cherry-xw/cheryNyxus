@@ -240,7 +240,7 @@ const responsesLLMAdapter: LLMAdapter = {
       },
       key,
       options?.signal,
-      { fullUrl: options?.fullUrl === true, endpoint: '/responses' },
+      { fullUrl: options?.fullUrl === true, endpoint: '/responses', observation: options?.observation },
     )
   },
   async chatStream(messages, senses, options?: LLMOptions): Promise<AsyncIterable<unknown>> {
@@ -257,7 +257,7 @@ const responsesLLMAdapter: LLMAdapter = {
       },
       key,
       options?.signal,
-      { fullUrl: options?.fullUrl === true, endpoint: '/responses' },
+      { fullUrl: options?.fullUrl === true, endpoint: '/responses', observation: options?.observation },
     )
   },
 }
