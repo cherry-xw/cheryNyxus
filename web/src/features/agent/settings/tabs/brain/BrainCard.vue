@@ -360,24 +360,24 @@ function setAnthropicOfficial(cfg: BrainConfigDto, value: unknown): void {
 
 /** 地址输入框示例（随 provider 变化）：未勾选填 base（须含版本段，端点自动拼接）；勾选「完整 URL」填完整请求地址 */
 const urlPlaceholder = computed(() => {
-  if (effectiveProtocol.value === 'ollama-chat') return '如 http://localhost:11434'
+  if (effectiveProtocol.value === 'ollama-chat') return 'http://localhost:11434'
   if (effectiveProtocol.value === 'mock') return 'mock 无需真实地址'
   if (props.cfg.fullUrl === true) {
     if (effectiveProtocol.value === 'anthropic-messages') {
-      return '完整 URL，如 https://api.anthropic.com/v1/messages'
+      return 'https://api.anthropic.com/v1/messages'
     }
     if (effectiveProtocol.value === 'openai-responses') {
-      return '完整 URL，如 https://api.openai.com/v1/responses'
+      return 'https://api.openai.com/v1/responses'
     }
-    return '完整 URL，如 https://api.openai.com/v1/chat/completions'
+    return 'https://api.openai.com/v1/chat/completions'
   }
   if (effectiveProtocol.value === 'anthropic-messages') {
-    return '须含版本段，如 https://api.anthropic.com/v1 → 自动拼 /messages'
+    return 'https://api.anthropic.com/v1 → 自动拼 /messages'
   }
   if (effectiveProtocol.value === 'openai-responses') {
-    return '须含版本段，如 https://api.openai.com/v1 → 自动拼 /responses'
+    return 'https://api.openai.com/v1 → 自动拼 /responses'
   }
-  return '须含版本段，如 https://api.openai.com/v1 → 自动拼 /chat/completions'
+  return 'https://api.openai.com/v1 → 自动拼 /chat/completions'
 })
 
 // ── brain mutations ───────────────────────────────────────────────

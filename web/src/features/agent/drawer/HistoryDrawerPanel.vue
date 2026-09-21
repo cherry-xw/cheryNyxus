@@ -347,8 +347,9 @@ const {
       </VirtualScroll>
 
       <!-- run 级中断错误：告知「这里运行中断了」+ 上游技术摘要全文（error-conventions.md detail 通道）。
-           不落时间线 DB，保留至下次 run 清除（新流 chunk / done 时 reducer 清空 session.run.error）。 -->
-      <div v-if="runFeedbacks.length" class="run-error-bar" role="status">
+           不落时间线 DB，保留至下次 run 清除（新流 chunk / done 时 reducer 清空 session.run.error）。
+           对话模式（工作台整屏会话视图）不显示该条，树抽屉等其余入口照常。 -->
+      <div v-if="runFeedbacks.length && !conversation" class="run-error-bar" role="status">
         <UserFeedbackCard
           v-for="entry in runFeedbacks"
           :key="entry.key"
