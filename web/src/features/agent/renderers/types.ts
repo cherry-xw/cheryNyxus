@@ -103,6 +103,8 @@ export type MediaKind = 'image' | 'video' | 'audio'
 export interface GenerateMediaArgs {
   /** 生成提示词 */
   prompt: string
+  /** 参考媒体引用（图生图/参考生成）：上下文图片的 /api/media/<file> 或 [[media:<file>]]，可选。 */
+  reference?: string
 }
 
 // ============== search_codebase 参数类型 ==============
