@@ -62,6 +62,8 @@ const sectionStyle = computed(() => ({
   left: var(--cx, 0);
   top: var(--cy, 0);
   transition:
+    left 0.28s ease,
+    top 0.28s ease,
     transform 0.18s ease,
     box-shadow 0.18s ease,
     filter 0.18s ease;

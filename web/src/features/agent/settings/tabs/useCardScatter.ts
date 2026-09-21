@@ -96,6 +96,9 @@ export function useCardScatter(
     ANCHORS.map((anchor) => [anchor, [Math.random(), Math.random()]]),
   )
   let layoutSignature = ''
+  /** 最近一次散点布局时的画布尺寸。窗口显著变大（如最大化）时据此判定需要重新散点。 */
+  let lastScatterWidth = 0
+  let lastScatterHeight = 0
   /** 本 tab 是否处于激活（控制左下角数字索引 Teleport 的显隐）。 */
   const isActive = computed(() => !!activeTab && activeTab.value === 'global')
 
@@ -167,9 +170,13 @@ export function useCardScatter(
     ])
     if (signature === layoutSignature) return
     layoutSignature = signature
+    // 窗口显著变大（最大化 / 大幅拖宽）时按当前画布重新散点，利用更大空间分散开；
+    // 普通小幅调整只钳制越界卡，不打扰用户已有排布。
+    const grewSignificantly =
+      width * height > lastScatterWidth * lastScatterHeight * 1.25
     elements.forEach(({ anchor, element }, index) => {
       const card = { width: element.offsetWidth, height: element.offsetHeight }
-      if (!ready.value) {
+      if (!ready.value || grewSignificantly) {
         Object.assign(
           cards[anchor],
           initialScatterPosition(
@@ -186,6 +193,10 @@ export function useCardScatter(
         cards[anchor].y = Math.max(12, Math.min(height - card.height - 12, cards[anchor].y))
       }
     })
+    if (!ready.value || grewSignificantly) {
+      lastScatterWidth = width
+      lastScatterHeight = height
+    }
     ready.value = true
     if (pendingEntry) {
       pendingEntry = false
