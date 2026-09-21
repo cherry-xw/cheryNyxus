@@ -561,12 +561,14 @@ export function createNyxusRenderer(): NyxusRenderer {
     context.translate(extent / 2, extent / 2)
     renderInteractionAccents(context, input)
 
+    const densityScale = 1.12 - Math.min(1, particles.length / 600) * 0.22
     for (let brightness = 0; brightness <= 1; brightness += 1) {
-      context.fillStyle = colorWithAlpha(tone.accent, brightness === 0 ? 0.1 : 0.18)
+      // 普通点光晕紧贴核心的微羽化，alpha 极低，不撑大星点轮廓。
+      context.fillStyle = colorWithAlpha(tone.accent, brightness === 0 ? 0.05 : 0.08)
       context.beginPath()
       for (const particle of particles) {
         if (particle.brightness !== brightness) continue
-        const radius = nyxusParticleHaloRadius(particle)
+        const radius = nyxusParticleHaloRadius(particle) * densityScale * particle.retireT
         context.moveTo(particle.x + radius, particle.y)
         context.arc(particle.x, particle.y, radius, 0, Math.PI * 2)
       }
@@ -574,11 +576,12 @@ export function createNyxusRenderer(): NyxusRenderer {
     }
 
     for (let brightness = 0; brightness <= 1; brightness += 1) {
-      context.fillStyle = colorWithAlpha(tone.spark, brightness === 0 ? 0.66 : 0.86)
+      // 核心做实（高透明度、贴近自身半径），边缘干净：星点小、实、清晰亮起。
+      context.fillStyle = colorWithAlpha(tone.spark, brightness === 0 ? 0.8 : 0.95)
       context.beginPath()
       for (const particle of particles) {
         if (particle.brightness !== brightness) continue
-        const radius = nyxusParticleCoreRadius(particle) * 1.12
+        const radius = nyxusParticleCoreRadius(particle) * densityScale * particle.retireT
         context.moveTo(particle.x + radius, particle.y)
         context.arc(particle.x, particle.y, radius, 0, Math.PI * 2)
       }

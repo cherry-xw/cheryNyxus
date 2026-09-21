@@ -3,6 +3,8 @@ import {
   contributesToNyxusFog,
   cosmicModeDuration,
   createNyxusParticles,
+  appendNyxusParticles,
+  retireNyxusParticles,
   nyxusCloudColor,
   nyxusBinaryGeometry,
   nyxusChromaticStrength,
@@ -65,6 +67,18 @@ describe('nyxus particle engine', () => {
     expect(first).toHaveLength(500)
     expect(first[0]).toEqual(second[0])
     expect(first.some((particle) => particle.brightness === 3)).toBe(true)
+  })
+
+  it('grows and retires particles without rebuilding the existing field', () => {
+    const particles = createNyxusParticles(200, 123)
+    const firstParticle = particles[0]
+    appendNyxusParticles(particles, 4, 456)
+    expect(particles).toHaveLength(204)
+    expect(particles[0]).toBe(firstParticle)
+    expect(particles.slice(-4).every((particle) => particle.birthT === 0)).toBe(true)
+
+    retireNyxusParticles(particles, 1)
+    expect(particles.filter((particle) => particle.retireT < 1)).toHaveLength(1)
   })
 
   it('stratifies highlighted stars before the simulation begins', () => {

@@ -67,6 +67,8 @@ export function nyxusStarColor(particle: NyxusParticle): string {
 
 /** 所属色只用于恒星的柔光、诞生和爆发环，维持生死阶段的鲜艳辨识度。 */
 export function nyxusStarHaloColor(particle: NyxusParticle): string {
+  if (particle.starKind === 'redGiant') return '#ff6a45'
+  if (particle.starKind === 'bluePulsar') return '#58c7ff'
   return STAR_HALO_COLORS[particle.starColor % STAR_HALO_COLORS.length]!
 }
 
@@ -82,15 +84,27 @@ export function nyxusChromaticStrength(particle: NyxusParticle, time: number): n
 }
 
 export function nyxusParticleCoreRadius(particle: NyxusParticle): number {
-  if (particle.brightness === 0) return 0.2 + particle.size * 0.22
-  if (particle.brightness === 1) return 0.3 + particle.size * 0.3
-  if (particle.brightness === 2) return 0.26 + particle.size * 0.22
-  return 0.26 + particle.size * 0.22
+  // 各档核心对 size 敏感，让星点呈现明显的大小区分；暗点小、亮点大、恒星最大。
+  if (particle.brightness === 0) return 0.15 + particle.size * 0.3
+  if (particle.brightness === 1) return 0.35 + particle.size * 0.55
+  if (particle.brightness === 2) {
+    const scale = particle.starKind === 'bluePulsar' ? 0.78 : particle.starKind === 'redGiant' ? 1.25 : 1
+    return (0.5 + particle.size * 0.5) * scale
+  }
+  if (particle.starKind === 'redGiant') return (0.5 + particle.size * 0.5) * 1.25
+  if (particle.starKind === 'bluePulsar') return (0.5 + particle.size * 0.5) * 0.78
+  return 0.5 + particle.size * 0.5
 }
 
 export function nyxusParticleHaloRadius(particle: NyxusParticle): number {
-  if (particle.brightness === 0) return 0.42 + particle.size * 0.18
-  if (particle.brightness === 1) return 0.72 + particle.size * 0.38
-  if (particle.brightness === 2) return 0.6 + particle.size * 0.28
-  return 0.72 + particle.size * 0.38
+  // 普通点光晕只做紧贴核心的羽化（约 1.3 倍），不撑大星点轮廓；恒星保留大光晕表现生灭。
+  if (particle.brightness === 0) return 0.28 + particle.size * 0.36
+  if (particle.brightness === 1) return 0.48 + particle.size * 0.68
+  if (particle.brightness === 2) {
+    const scale = particle.starKind === 'bluePulsar' ? 0.78 : particle.starKind === 'redGiant' ? 1.22 : 1
+    return (1.1 + particle.size * 0.58) * scale
+  }
+  if (particle.starKind === 'redGiant') return (1.25 + particle.size * 0.7) * 1.22
+  if (particle.starKind === 'bluePulsar') return (1.25 + particle.size * 0.7) * 0.78
+  return 1.25 + particle.size * 0.7
 }

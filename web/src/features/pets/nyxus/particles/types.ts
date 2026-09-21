@@ -13,6 +13,7 @@ export interface NyxusNearbyPet {
 }
 
 export type NyxusReaction = 'positive' | 'agitated' | 'error'
+export type NyxusStarKind = 'normal' | 'redGiant' | 'bluePulsar'
 
 /** 服务连接驱动的系统呈现态；只有 disconnected 会渲染黑洞。 */
 export type NyxusServiceState = 'connected' | 'connecting' | 'disconnected'
@@ -51,6 +52,8 @@ export interface NyxusParticle {
   /** 云团色带与恒星色温均由种子固定，保证重建后的视觉分布稳定。 */
   cloudColor: number
   starColor: number
+  /** 少量特殊恒星；普通粒子也可带值，但只在恒星亮度层渲染。 */
+  starKind?: NyxusStarKind
   armRank: number
   armT: number
   armSlot: number
@@ -61,6 +64,8 @@ export interface NyxusParticle {
   explosionT: number
   /** 生长进度:1 已长成(默认);>0 且 <1 渐入中,promote 后白点缓慢生长为恒星 */
   birthT: number
+  /** 数量下降时的湮灭进度；1 为正常，降到 0 后移除。 */
+  retireT: number
 }
 
 export interface NyxusParticleInput {
@@ -98,6 +103,8 @@ export interface NyxusParticleInput {
   releaseStrength: number
   time: number
   size: number
+  /** 连续数量控制器给当前粒子场的目标数量。 */
+  particleTarget?: number
 }
 
 export interface NyxusTone {

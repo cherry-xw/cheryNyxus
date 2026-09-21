@@ -22,7 +22,7 @@ export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQ
   high: {
     tier: 'high',
     particleCountAt112: 420,
-    particleDpr: 1.75,
+    particleDpr: 2,
     particleIdleFps: 45,
     particleActiveFps: 45,
     particleAtmosphereFps: 20,
@@ -37,7 +37,7 @@ export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQ
   balanced: {
     tier: 'balanced',
     particleCountAt112: 300,
-    particleDpr: 1.25,
+    particleDpr: 1.5,
     particleIdleFps: 30,
     particleActiveFps: 45,
     particleAtmosphereFps: 15,
@@ -77,6 +77,7 @@ export function particleCountForSize(size: number, tier: RenderQualityTier): num
 
 export interface AdaptiveQualityGovernor {
   readonly tier: RenderQualityTier
+  readonly particleTarget: number
   recordFrame(intervalMs: number, now?: number): RenderQualityTier
   reset(tier?: RenderQualityTier): void
 }
@@ -95,6 +96,8 @@ const LOW_DOWNGRADE_P95_MS = 33
 const BALANCED_UPGRADE_P95_MS = 20
 const HIGH_UPGRADE_P95_MS = 18.5
 const MAX_SAMPLE_WINDOW_MS = HIGH_UPGRADE_WINDOW_MS
+const MIN_PARTICLE_TARGET = 200
+const MAX_PARTICLE_TARGET = 600
 
 function percentile95(samples: readonly FrameSample[], since: number): number {
   const values = samples
@@ -135,16 +138,28 @@ export function createAdaptiveQualityGovernor(
   let currentTier = initialTier
   let samples: FrameSample[] = []
   let lastTransitionAt: number | undefined
+  let particleTarget = MIN_PARTICLE_TARGET
+  let smoothedInterval = 16.7
 
   return {
     get tier() {
       return currentTier
+    },
+    get particleTarget() {
+      return Math.round(particleTarget)
     },
     recordFrame(intervalMs: number, now = performance.now()) {
       if (!Number.isFinite(intervalMs) || intervalMs <= 0) return currentTier
       lastTransitionAt ??= now
       // 后台恢复由调用方过滤；真正的长帧应计入压力，而不是因过慢被忽略。
       samples.push({ at: now, intervalMs: Math.min(intervalMs, 250) })
+      smoothedInterval += (Math.min(intervalMs, 100) - smoothedInterval) * 0.08
+      const targetRate =
+        smoothedInterval <= 18 ? 1.1 : smoothedInterval >= 30 ? -1.6 : 0.25
+      particleTarget = Math.min(
+        MAX_PARTICLE_TARGET,
+        Math.max(MIN_PARTICLE_TARGET, particleTarget + targetRate),
+      )
       const oldest = now - MAX_SAMPLE_WINDOW_MS
       const firstLive = samples.findIndex((sample) => sample.at >= oldest)
       if (firstLive > 0) samples = samples.slice(firstLive)
@@ -188,12 +203,15 @@ export function createAdaptiveQualityGovernor(
       currentTier = tier
       samples = []
       lastTransitionAt = undefined
+      particleTarget = MIN_PARTICLE_TARGET
+      smoothedInterval = 16.7
     },
   }
 }
 
 const adaptiveGovernor = createAdaptiveQualityGovernor()
 const adaptiveTier = ref<RenderQualityTier>(adaptiveGovernor.tier)
+const adaptiveParticleTarget = ref(200)
 
 export const renderQualityTier = readonly(adaptiveTier)
 export const currentRenderQuality = computed(() => renderQualityProfile(adaptiveTier.value))
@@ -202,6 +220,13 @@ export function reportDisplayFrame(intervalMs: number, now = performance.now()):
   if (typeof document !== 'undefined' && document.hidden) return
   const next = adaptiveGovernor.recordFrame(intervalMs, now)
   if (adaptiveTier.value !== next) adaptiveTier.value = next
+  adaptiveParticleTarget.value = adaptiveGovernor.particleTarget
+}
+
+export const nyxusParticleTarget = readonly(adaptiveParticleTarget)
+
+export function particleTargetForNyxus(): number {
+  return adaptiveParticleTarget.value
 }
 
 export interface RenderQualityState {
@@ -217,4 +242,5 @@ export function useRenderQuality(): RenderQualityState {
 export function resetAdaptiveRenderQuality(tier: RenderQualityTier = 'balanced'): void {
   adaptiveGovernor.reset(tier)
   adaptiveTier.value = tier
+  adaptiveParticleTarget.value = 200
 }
