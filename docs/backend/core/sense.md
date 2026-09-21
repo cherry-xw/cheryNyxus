@@ -33,18 +33,42 @@ export function sense<T extends z.ZodType>(
   schema: T,
   handler: (input: z.infer<T>, senseSharedData: SenseSharedData, ctx?: SenseRuntimeContext) => Promise<SenseResult>,
   supervisionLevel?: SupervisionLevel,   // 感官内置监管等级，未声明时外部 fallback
+  capabilities?: SenseCapabilities,     // 工具能力声明（第 6 参）：accepts / produces / preprocess / batchSize
 ): Sense<T>;
 ```
 
-返回的 `Sense<T>` 包含三部分：
+返回的 `Sense<T>` 包含四部分：
 
 ```ts
 export interface Sense<T extends z.ZodType> {
   definition: SenseFunction;            // 给 LLM 的工具声明（OpenAI function 格式）
   executor: SenseExecutor<T>;           // schema + execute，运行期 args 校验与执行
   supervisionLevel: SupervisionLevel | undefined;  // 感官声明等级（优先级链第 2 级）
+  capabilities?: SenseCapabilities;     // 工具能力声明（见下），供前置调度 / 发送门控 / 生成注入判断
 }
 ```
+
+### 工具能力声明（Sense 第 6 参 capabilities）
+
+工具自己声明「接收什么、产出什么、是否前置执行、每批容量」，供发送门控、前置调度与生成注入判断，**不发给 LLM**（不进 `definition.function.parameters`）：
+
+```ts
+export interface SenseCapabilities {
+  accepts?: string[]     // 接收的媒体类型（image/video/audio）或文件后缀（doc/docx/pdf…）
+  produces?: string[]    // 产出的媒体类型（image/video/audio）或 text
+  preprocess?: boolean   // 是否前置执行（缺省 false = 普通后置工具）
+  batchSize?: number     // 每批最多处理几个媒体项（缺省 = 一次性全量；仅影响工具内部实现）
+}
+```
+
+| 字段 | 生效点 |
+|---|---|
+| `accepts` | 前置调度（`preprocess=true` 时按媒体类型/后缀匹配）、发送门控（该类型可上传） |
+| `produces` | 生成注入判断（感官组配置即注入，替代大脑 `generate.*` 双门）、`sense.tools` 透传 |
+| `preprocess` | 非多模态模型下，`[[media:]]` 引用在发请求前交给该工具执行，结果替换进消息（不持久化、失败跳过+提示） |
+| `batchSize` | 仅影响工具内部实现（分批调用外部接口）；调度层永远全量传入，工具内部自行分批/合并/管理并发 |
+
+`SenseEntry`（`core/middleware/types.ts`）透传 `capabilities`，供 chat middleware 前置调度查找工具。外部自定义 sense 的能力声明经 `sense()` 第 6 参透传，编译链路无需改动。
 
 `definition` 由 `schema.toJSONSchema()` 自动生成（zod → JSON Schema），无需手写参数描述：
 

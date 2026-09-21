@@ -40,6 +40,16 @@ describe('media sense 定义', () => {
       expect(s.supervisionLevel).toBe(SupervisionLevel.smart)
     }
   })
+
+  it('能力声明：produces=对应类型；generate_image 另声明 accepts=image（图生图参考图）', () => {
+    const [img, video, audio] = mediaSenses
+    expect(img!.capabilities?.produces).toEqual(['image'])
+    expect(img!.capabilities?.accepts).toEqual(['image'])
+    expect(video!.capabilities?.produces).toEqual(['video'])
+    expect(video!.capabilities?.accepts).toBeUndefined()
+    expect(audio!.capabilities?.produces).toEqual(['audio'])
+    expect(audio!.capabilities?.accepts).toBeUndefined()
+  })
 })
 
 describe('media sense handler', () => {

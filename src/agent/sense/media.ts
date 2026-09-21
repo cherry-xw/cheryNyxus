@@ -53,6 +53,11 @@ function mediaSense(kind: MediaKind) {
       return { content, hash: hashGenerator(`media-${kind}`, content) }
     },
     SupervisionLevel.smart,
+    {
+      // 生成类工具能力声明：产出对应媒体类型；图生图（reference 参考图）接收 image 输入。
+      produces: [kind],
+      ...(kind === 'image' ? { accepts: ['image'] } : {}),
+    },
   )
 }
 

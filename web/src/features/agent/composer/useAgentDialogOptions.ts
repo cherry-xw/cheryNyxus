@@ -1260,15 +1260,19 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     const generation = draftGeneration
     const category = mediaKind(file)
     if (!category) return
-    // 检查媒体服务 OR brain 原生能力，任一满足即可上传
+    // 检查媒体服务 OR 感官组工具 accepts 命中 OR brain 原生能力，任一满足即可上传
     const hasMediaService = config.value?.media
       ? Object.values(config.value.media).some(
           (svc) => svc.type === category && svc.enabled && svc.url,
         )
       : false
+    const groupName = primarySelection.value.senseGroup
+    const hasToolCapability = groupName
+      ? senseEntries(groupName).some((entry) => senseTool(entry)?.accepts?.includes(category))
+      : false
     const hasBrainCapability =
       brainConfig(primarySelection.value.brain)?.capabilities?.input?.[category] === true
-    if (!hasMediaService && !hasBrainCapability) {
+    if (!hasMediaService && !hasToolCapability && !hasBrainCapability) {
       const typeLabel = category === 'image' ? '图片' : category === 'video' ? '视频' : '音频'
       mediaHint.value = `未配置${typeLabel}服务，且小组无支持模型`
       return
@@ -1390,12 +1394,26 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     })
   })
 
-  /** 各媒体类型对应的已启用服务名（AgentDialog 媒体菜单显示用）。 */
+  /** 各媒体类型对应的已启用服务名/工具/模型能力（AgentDialog 媒体菜单显示用）。 */
   const mediaServicesByType = computed<Record<MediaKind, string | null>>(() => {
     const result: Record<string, string | null> = { image: null, video: null, audio: null }
     for (const [name, svc] of Object.entries(config.value?.media ?? {})) {
       if (svc.enabled && svc.url && !result[svc.type]) {
         result[svc.type] = name
+      }
+    }
+    // 感官组工具能力声明：组内配置了 accepts 命中该 kind 的工具 → 该类型可上传（由工具前置处理/接收）。
+    const groupName = primarySelection.value?.senseGroup
+    const groupEntries = groupName ? senseEntries(groupName) : []
+    for (const kind of ['image', 'video', 'audio'] as const) {
+      if (result[kind]) continue
+      const hit = groupEntries.find((entry) => {
+        const tool = senseTool(entry)
+        return tool?.accepts?.includes(kind)
+      })
+      if (hit) {
+        result[kind] = `工具：${senseName(hit)}`
+        continue
       }
     }
     const capability = primarySelection.value

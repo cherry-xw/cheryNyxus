@@ -5,17 +5,48 @@
  * 预设通过 PresetConfig.mediaImage/mediaVideo/mediaAudio 引用此处服务名。
  * 增删改走 EditableTitle + ConfirmPopover；合法性由后端 config.save 校验 fail loud。
  */
-import { ref, computed } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { ref, computed, watch } from 'vue'
+import { Delete, Refresh, Document } from '@element-plus/icons-vue'
 import type { ConfigDto, MediaKindDto } from '@/application/backend/public'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/features/agent/settings/controls/EditableTitle.vue'
 import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
+import { agentApi } from '@/application/backend/public'
 
 const props = defineProps<{ draft: ConfigDto; envVars: string[] }>()
 const emit = defineEmits<{ (e: 'error', msg: string): void }>()
 
 const newServiceName = ref('')
+
+// ── .env 密钥入口：与大脑 Tab 一致——「打开 .env」+「刷新密钥列表」+ 密钥下拉选项本地副本 ──
+/** 本地副本：初始来自父级 envVars，刷新按钮重拉 env.list 更新（用户改 .env 后立即可见）。 */
+const keyOptions = ref<string[]>([...props.envVars])
+const keyLoading = ref(false)
+watch(
+  () => props.envVars,
+  (vars) => {
+    keyOptions.value = [...vars]
+  },
+)
+async function refreshKeyOptions(): Promise<void> {
+  keyLoading.value = true
+  try {
+    keyOptions.value = await agentApi.listEnvVars()
+  } catch (err) {
+    emit('error', err instanceof Error ? err.message : '刷新密钥列表失败')
+  } finally {
+    keyLoading.value = false
+  }
+}
+
+/** 打开 .env 文件（密钥存储位置）。复用 utils.openFile RPC，与大脑 Tab 同一机制。 */
+async function openEnvFile(): Promise<void> {
+  try {
+    await agentApi.openFile('.env')
+  } catch (err) {
+    emit('error', err instanceof Error ? err.message : '打开 .env 失败')
+  }
+}
 
 const MEDIA_TYPES: { value: MediaKindDto; label: string; icon: string }[] = [
   { value: 'image', label: '图片', icon: '🖼️' },
@@ -169,7 +200,28 @@ const indexItems = computed<IndexItem[]>(() => {
           <el-input-number v-model="cfg.maxUploadMb" :min="1" :controls="false" placeholder="100" />
         </label>
         <label class="field">
-          <span class="lbl">密钥</span>
+          <div class="label-with-action">
+            <span class="lbl">密钥</span>
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="打开 .env 文件"
+              title="打开 .env 文件编辑密钥"
+              @click="openEnvFile"
+            >
+              <Document class="ico" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="刷新密钥列表"
+              title="重新读取 .env，刷新密钥下拉选项"
+              :disabled="keyLoading"
+              @click="refreshKeyOptions"
+            >
+              <Refresh class="ico" :class="{ spinning: keyLoading }" />
+            </button>
+          </div>
           <el-select
             v-model="cfg.key"
             filterable
@@ -178,7 +230,7 @@ const indexItems = computed<IndexItem[]>(() => {
             class="mono-input"
             placeholder="选择 .env 变量"
           >
-            <el-option v-for="v in envVars" :key="v" :value="`$${v}`" :label="v" />
+            <el-option v-for="v in keyOptions" :key="v" :value="`$${v}`" :label="v" />
           </el-select>
         </label>
       </div>
@@ -204,6 +256,50 @@ const indexItems = computed<IndexItem[]>(() => {
 
 .card-grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+// 密钥标签行内操作：打开 .env / 刷新密钥列表（与大脑 Tab 一致的交互形态）
+.label-with-action {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  .icon-btn {
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: color-mix(in srgb, var(--ink) 60%, transparent);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover:not(:disabled) {
+      color: color-mix(in srgb, var(--tab-color, @accent) 90%, transparent);
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .ico {
+      width: 13px;
+      height: 13px;
+    }
+
+    .ico.spinning {
+      animation: spin 0.9s linear infinite;
+    }
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 // 输入框/下拉 focus 边框跟随多媒体主题色（取代全局 primary 暖橙）

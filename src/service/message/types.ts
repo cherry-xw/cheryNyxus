@@ -1118,6 +1118,8 @@ export interface SenseListResponseData {
  * name=原名（作 sense_groups 条目 key，如 "execute_command"）；
  * label=中文名（UI 显示）；description=解释（tooltip）。
  * 自定义/外部/MCP 工具不在内，前端组合框允许自由输入。
+ * accepts/produces/preprocess：工具能力声明（来自已注册 sense 实例的 capabilities），
+ * 供发送门控判断「感官组是否有可处理某媒体类型的工具」。
  */
 export interface SenseToolMeta {
   name: string
@@ -1125,6 +1127,12 @@ export interface SenseToolMeta {
   description: string
   /** glyph/emoji 字符串（pet bar 运行中工具图标用）。非内置工具前端 fallback ⚙。 */
   icon: string
+  /** 接收的媒体类型（image/video/audio）或文件后缀（doc/docx/pdf…） */
+  accepts?: string[]
+  /** 产出的媒体类型（image/video/audio）或 text */
+  produces?: string[]
+  /** 是否前置执行（缺省 false = 普通后置工具） */
+  preprocess?: boolean
 }
 
 export interface SenseToolsResponseData {

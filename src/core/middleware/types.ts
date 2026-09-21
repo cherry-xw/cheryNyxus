@@ -84,6 +84,11 @@ export interface SenseEntry {
    * 用途：执行前 safeParse 拦截缺参/非法参数调用，避免空参数直达 handler 或进入审批。
    */
   schema?: ZodType
+  /**
+   * 工具能力声明（透传自 Sense.capabilities）。前置调度器在 chat middleware 用它
+   * 查找 preprocess=true 且 accepts 命中媒体类型的工具；发送门控据此判断可否上传。
+   */
+  capabilities?: import('@/core/sense/senseCreator.js').SenseCapabilities
 }
 
 /**

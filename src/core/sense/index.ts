@@ -1,5 +1,11 @@
 export { sense } from './senseCreator'
-export type { Sense, SenseResult, SenseFunction, SenseSharedData } from './senseCreator'
+export type {
+  Sense,
+  SenseResult,
+  SenseFunction,
+  SenseSharedData,
+  SenseCapabilities,
+} from './senseCreator'
 export * from './adapter'
 export {
   registerSenses,

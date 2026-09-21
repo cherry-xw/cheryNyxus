@@ -8,6 +8,7 @@ import {
 } from '../message/types.js'
 import config from '@/utils/config'
 import { BUILTIN_SENSE_TOOLS } from '@/agent/sense/index.js'
+import { getSense } from '@/core/sense'
 
 /**
  * 列出所有可用 sense group（config.yaml 中 sense_groups 的键）
@@ -33,12 +34,18 @@ export async function handleSenseTools(
   _params: unknown,
 ): Promise<SenseToolsResponseData> {
   return {
-    tools: BUILTIN_SENSE_TOOLS.map(({ name, label, description, icon }) => ({
-      name,
-      label,
-      description,
-      icon,
-    })),
+    tools: BUILTIN_SENSE_TOOLS.map(({ name, label, description, icon }) => {
+      const capabilities = getSense(name)?.capabilities
+      return {
+        name,
+        label,
+        description,
+        icon,
+        ...(capabilities?.accepts?.length ? { accepts: capabilities.accepts } : {}),
+        ...(capabilities?.produces?.length ? { produces: capabilities.produces } : {}),
+        ...(capabilities?.preprocess ? { preprocess: true } : {}),
+      }
+    }),
   }
 }
 
