@@ -10,7 +10,7 @@ service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket �
 
 - **启动装配**（[index.ts](../../../src/service/index.ts)）：`startService({port, webPort, staticDir})` 创建 Router → 注册全部 handler → 启动本地 WebSocket/HTTP；配置 `remote` 时再启动两个仅 loopback 的远程入口，并从 `ready` 取得实际端口。
 - **独立运行边界**：Electron 不再启动此服务；本地管理器或系统服务负责后端进程生命周期。
-- **管理器状态摘要**：worker 通过 `CHERY_BACKEND_STATUS_FILE` 写入监听地址和非敏感 Agent 运行统计，管理器只读取这些摘要，不从后端状态接口转发凭据或会话秘密。
+- **管理器状态摘要**：worker 通过 `CHERY_BACKEND_STATUS_FILE` 写入监听地址和非敏感 Agent 运行统计，管理器读取这些摘要（可选），并自行探测 `server.port` 端口判断后端是否运行，不从后端状态接口转发凭据或会话秘密。
 - **RPC 路由**（[message/](../../../src/service/message/)）：Request/Response/Chunk/Notification 四象限类型 + `RpcRouter` 分发。详见 [./message.md](message.md)。
 - **传输实现**（[websocket/](../../../src/service/websocket/)）：ws 封装、连接状态、二进制帧编解码。详见 [./websocket.md](websocket.md)。
 - **chat 枢纽**（[chat/](../../../src/service/chat/)）：流式执行、observer 副作用、streamMapper 映射、runtime 缓存、chat 管理。详见 [./chat.md](chat.md)。

@@ -161,3 +161,7 @@ server:
     enabled: false
     httpPort: 0
     websocketPort: 0
+# 本地管理器监听地址（manager/ 独立进程，缺省 127.0.0.1；0.0.0.0 或内网 IP 开放内网访问，
+# 访问需携带启动日志 URL 上的管理密钥；优先级 CHERY_MANAGER_HOST > 本字段）。
+manager:
+  host: 127.0.0.1

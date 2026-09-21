@@ -580,6 +580,15 @@ interface ServerConfig {
   workspace_browse?: WorkspaceBrowseConfig
 }
 
+/** 本地管理器（独立进程，见 manager/）监听配置。server 侧专属：config.get 剥离、config.save 原样保留。 */
+interface ManagerConfig {
+  /**
+   * 管理器监听地址；缺省 127.0.0.1。0.0.0.0 或内网 IP 开放内网访问，
+   * 访问需携带启动日志 URL 上的管理密钥。优先级 CHERY_MANAGER_HOST > 本字段。
+   */
+  host?: string
+}
+
 /** 文件夹浏览协议（config.workspace.browse.*）配置。 */
 interface WorkspaceBrowseConfig {
   /** 允许浏览的根目录白名单（绝对路径，支持 ~ 展开）；缺省当前用户 home；win32 缺省枚举存在盘符。 */
@@ -667,6 +676,8 @@ export interface ConfigRaw {
   roles?: Record<string, RoleConfig>
   presets?: Record<string, PresetConfig>
   memory?: MemoryConfig
+  /** 本地管理器监听配置（server 侧专属，设置面板不可编辑；见 .chery.template/docs/config.md）。 */
+  manager?: ManagerConfig
 }
 
 function resolveEnvVars(
@@ -1035,6 +1046,11 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         )
       }
     }
+  }
+
+  // manager 段（本地管理器监听，server 侧专属）：host 可选字符串
+  if (raw.manager?.host !== undefined && typeof raw.manager.host !== 'string') {
+    errors.push('manager.host 必须是字符串')
   }
 
   // sense_groups 的 :level 后缀合法
@@ -1437,10 +1453,14 @@ export function validateWorkspacePath(workspace: string | undefined): {
 export function readRawConfig(): ConfigRaw {
   const cheryDir = process.env.CHERY_DIR || process.cwd()
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
-  const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & { server?: unknown }
-  // 端口/传输不通过面板编辑，剥离 server
-  const { server: _server, ...rest } = raw
+  const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & {
+    server?: unknown
+    manager?: unknown
+  }
+  // 端口/传输与管理器监听不通过面板编辑，剥离 server 与 manager
+  const { server: _server, manager: _manager, ...rest } = raw
   void _server
+  void _manager
   ensurePresetIds(rest.presets)
   ensureRoleIds(rest.roles)
   // routingBrain 已废弃；读取设置时主动剥离，下一次保存自然从磁盘删除。
@@ -1636,6 +1656,7 @@ export function saveRawConfig(
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
   const disk = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & {
     server?: ServerConfig
+    manager?: unknown
   }
   const validation = validateConfigCandidate(partial, disk)
   if (!validation.ok) return validation
@@ -1643,7 +1664,12 @@ export function saveRawConfig(
   // 落盘前补全缺失 id（前端新建角色未带 id；改名场景 value 对象随行携带 id，此处不覆盖）。
   ensurePresetIds(partial.presets)
   ensureRoleIds(partial.roles)
-  const merged = { ...partial, server: disk.server ?? { port: 8182, transport: 'binary' as const } }
+  // 写回保留盘上 server 与 manager 段不动（同 server 模式，manager 为 server 侧专属配置）。
+  const merged = {
+    ...partial,
+    server: disk.server ?? { port: 8182, transport: 'binary' as const },
+    ...(disk.manager ? { manager: disk.manager } : {}),
+  }
 
   // 写盘前备份旧配置（.chery/backups/，保留最近 BACKUP_KEEP 份）——回滚到修改前状态的唯一依据。
   // 校验失败路径已提前 return，不会走到这里，故不会产生无效备份。

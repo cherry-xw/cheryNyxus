@@ -70,7 +70,10 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:8182',
         ws: true,
-        changeOrigin: true,
+        // 必须透传浏览器原始 Host：后端 WS 的 Origin 校验（isTrustedOrigin）拿请求
+        // Host 与浏览器 Origin 的主机名比对。changeOrigin 会把 Host 改写成
+        // localhost:8182，导致经局域网地址（如 http://192.168.68.164:5173）访问的
+        // 浏览器被 403 "WebSocket origin is not allowed" 拒绝。
       },
     },
   },

@@ -119,7 +119,9 @@ export function httpUrl(path: string): string {
 
 /**
  * 拼 WebSocket URL。分支：
- * - 远端模式：`ws(s)://<serverAddress host>:<wsPort>`
+ * - 远端模式：`ws(s)://<serverAddress host><wsPath>`（wsPath 缺省时回退 `<wsPort>`）。
+ *   注意不能消费 `/api/config` 返回的 `cfg.wsUrl`：那是后端按它收到的本机请求 Host 生成的
+ *   （如 `ws://localhost:8182`），对远端浏览器指向的是浏览器自己那台机器，必然连不上。
  * - Electron 模式（preload 注入 `__BACKEND_CONFIG__`）：`ws://localhost:<wsPort>`
  * - 浏览器 / dev（vite）：同源 `/ws` 走 vite proxy
  * - 浏览器 / prod（后端静态 serve）：`<ws/wss>://<host>:<wsPort>`
@@ -127,7 +129,8 @@ export function httpUrl(path: string): string {
 export function wsUrl(cfg: ServerConfig): string {
   const auth = serviceAuth()
   if (auth.isRemote()) {
-    if (cfg.wsUrl) return cfg.wsUrl
+    // 远端访问：WS 必须跟随用户填写的地址主机——/api 能通、同源 /ws 就能通
+    // （Vite 代理与后端 Web 源都提供 /ws）。
     if (cfg.wsPath) {
       const base = new URL(auth.baseUrl())
       const scheme = base.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -136,7 +139,9 @@ export function wsUrl(cfg: ServerConfig): string {
     }
     const base = new URL(auth.baseUrl())
     const scheme = base.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${scheme}//${base.host}:${cfg.wsPort}`
+    // 用 hostname：地址可能带端口（如 http://192.168.68.164:8183），直接拼 host 会得到
+    // "ws://192.168.68.164:8183:8182" 这种双端口 URL。
+    return `${scheme}//${base.hostname}:${cfg.wsPort}`
   }
   // /api/config 返回的完整地址包含实际监听端口和转发后的主机；优先消费它，
   // 这样动态端口和本地反向代理不会被下面的兼容分支覆盖。

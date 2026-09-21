@@ -19,6 +19,7 @@
 | `roles` | object | ✅（如启用角色） | 角色定义（brain、工具组、提示词和权限） |
 | `presets` | object | ✅ | 预设配置（leader、成员、可选 workspace 与监管规则） |
 | `server` | object | ❌ | WebSocket 服务监听配置（默认 port 8182 / transport binary / host 127.0.0.1） |
+| `manager` | object | ❌ | 本地管理器监听配置（`manager/` 独立进程，默认 host 127.0.0.1；见 [manager 字段](#manager-字段)） |
 | `memory` | object | ❌ | 长期记忆参数（`max_count` / `max_chars`） |
 
 ## global 字段
@@ -199,6 +200,18 @@ sense_groups:
 > ⚠ `workspace_browse` 是 **server 侧专属**：被 `config.get` 剥离（设置面板不可编辑）、`config.save` 原样保留；改配置需直接编辑 `.chery/config.yaml` 后重启生效。载荷加密为混淆级（协议见 [docs/protocol.md](../../docs/protocol.md) `config.workspace.browse.*`）。
 
 > ⚠ Web 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定。
+
+## manager 字段
+
+本地管理器（`manager/` 独立进程，管理页面端口固定 39980）的监听配置，**server 侧专属**。
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `host` | string | `127.0.0.1` | 管理器监听地址。`0.0.0.0` 或具体内网 IP 开放内网访问；访问需携带启动日志 URL 上的管理密钥（`?token=` / `X-Chery-Manager-Token` 请求头 / 密钥 Cookie） |
+
+> ⚠ `manager` 是 **server 侧专属**：被 `config.get` 剥离（设置面板不可编辑）、`config.save` 原样保留；改配置需直接编辑 `.chery/config.yaml` 后重启管理器生效。监听地址优先级：环境变量 `CHERY_MANAGER_HOST` > `manager.host` > 默认。
+
+> 🔴 **开放内网访问有严重安全风险**：同网段任意设备都可访问管理页（唯一的保护是启动日志里的管理密钥，密钥持久化于 `.chery/manager-token.json`、每 7 天自动轮换），可查看 / 修改后端登录凭据、启停后端与中转。仅在受信任网络使用，用后改回 `127.0.0.1`。
 
 ## memory 字段
 
