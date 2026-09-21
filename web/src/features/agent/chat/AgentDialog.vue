@@ -3,9 +3,9 @@
  * AgentDialog orchestrator：发消息弹窗（runtime 切换合一）。
  * C-3 抽取后仅保留「快速发送 composer 弹窗」单例面板（Pet 单击打开）。
  * 节点树工作台已抽到 WorkbenchDialog（多窗口），此处不再承载 .workbench-shell 子树。
- * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaPreviewBar。
+ * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaThumbStrip。
  */
-import { computed, onBeforeUnmount, reactive, ref, watch, type CSSProperties } from 'vue'
+import { computed, onBeforeUnmount, onMounted, onUnmounted, reactive, ref, watch, type CSSProperties } from 'vue'
 import { ElPopover, ElTooltip } from 'element-plus'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import { RoleConfigPopover } from '../runtime/public'
@@ -17,6 +17,10 @@ import {
   useComposerMenuPosition,
   type RouteStatus,
 } from '../composer/public'
+import {
+  BRING_MEDIA_INTO_CONTEXT_EVENT,
+  type BringMediaPayload,
+} from './bringMediaEvent'
 import { WorkspaceSessionBrowser } from '../attention/public'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
@@ -99,12 +103,25 @@ const {
   selectRoleMention,
   selectFileMention,
   removeMedia,
+  toggleMediaVariant,
+  addMediaAttachment,
   onMediaSelected,
   senseEntries,
   senseTool,
   brainConfig,
   supportsTools,
 } = useAgentDialogOptions()
+
+// 历史/生成媒体「重新带进上下文」：接收 MediaInlineRenderer 广播，加入本 composer 待发送附件
+function onBringMediaIntoContext(event: Event): void {
+  const payload = (event as CustomEvent<BringMediaPayload>).detail
+  if (!payload?.filename) return
+  addMediaAttachment(payload.filename, payload.kind, payload.mimeType)
+}
+onMounted(() => window.addEventListener(BRING_MEDIA_INTO_CONTEXT_EVENT, onBringMediaIntoContext))
+onUnmounted(() =>
+  window.removeEventListener(BRING_MEDIA_INTO_CONTEXT_EVENT, onBringMediaIntoContext),
+)
 
 /** 快速发送 composer 单例面板：仅有活跃 chatId 时可见（Pet 单击/PetStage 打开）。 */
 interface QuickTargetSelection {
@@ -785,6 +802,7 @@ defineExpose({
             :command-menu-ref-fn="commandMenuRefFn"
             :role-menu-ref-fn="roleMenuRefFn"
             @remove-media="removeMedia"
+            @toggle-media-variant="toggleMediaVariant"
             @editor-input="onEditorInput"
             @editor-keydown="onDialogEditorKeydown"
             @editor-selection-change="onEditorSelectionChange"

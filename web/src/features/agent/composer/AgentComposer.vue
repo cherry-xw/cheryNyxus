@@ -9,7 +9,7 @@ import { computed } from 'vue'
 import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
 import { Plus, Promotion } from '@element-plus/icons-vue'
 import type { UploadFile } from 'element-plus'
-import MediaPreviewBar from './media/MediaPreviewBar.vue'
+import MediaThumbStrip from './media/MediaThumbStrip.vue'
 import {
   type MediaAttachment,
   type MediaKind,
@@ -103,6 +103,7 @@ function setRoleMenuRef(value: TemplateRefValue): void {
 
 const emit = defineEmits<{
   removeMedia: [attachment: MediaAttachment]
+  toggleMediaVariant: [attachment: MediaAttachment]
   editorInput: []
   editorKeydown: [event: KeyboardEvent]
   editorSelectionChange: []
@@ -125,7 +126,6 @@ const emit = defineEmits<{
     class="composer-wrap"
     :class="{ 'is-nyxus-composer': isNyxus }"
   >
-    <MediaPreviewBar :attachments="mediaAttachments" @remove="(a) => emit('removeMedia', a)" />
     <div v-if="mediaHint" class="media-hint-row">
       {{ mediaHint }}
     </div>
@@ -328,6 +328,17 @@ const emit = defineEmits<{
         </ElTooltip>
       </div>
     </div>
+    <!-- 输入框下方一行：小缩略图（如有）+ 提示信息被顶到右侧（树 tab / 对话面板统一形态） -->
+    <div class="composer-media-row">
+      <MediaThumbStrip
+        :attachments="mediaAttachments"
+        @remove="(a) => emit('removeMedia', a)"
+        @toggle="(a) => emit('toggleMediaVariant', a)"
+      />
+      <span class="composer-media-hint" :class="{ 'is-pushed': mediaAttachments.length > 0 }">
+        / 指令 · @ 角色 · &amp; 文件引用
+      </span>
+    </div>
     <div v-if="error" class="error-row" :class="{ 'node-composer-error': isNyxus }" role="alert">
       {{ error }}
     </div>
@@ -370,34 +381,46 @@ const emit = defineEmits<{
   margin-bottom: 6px;
 }
 
+/* 输入框下方一行：小缩略图（如有）+ 提示信息；有缩略图时提示被顶到右侧 */
+.composer-media-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  min-width: 0;
+  padding-top: 6px;
+}
+
+.composer-media-hint {
+  flex: none;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  white-space: nowrap;
+}
+
+.composer-media-hint.is-pushed {
+  margin-left: auto;
+}
+
 .composer-wrap.is-nyxus-composer {
   padding: 10px 12px 6px;
 
-  :deep(.media-preview-bar) {
-    padding: 0 0 8px;
-  }
-
-  :deep(.media-preview-strip) {
-    padding: 0 0 3px;
+  :deep(.media-thumb-strip) {
     scrollbar-color: color-mix(in srgb, var(--nx-border) 34%, transparent) transparent;
   }
 
-  :deep(.media-preview-thumb) {
+  :deep(.thumb-box) {
     border-color: color-mix(in srgb, var(--nx-border) 45%, transparent);
     background: color-mix(in srgb, var(--nx-bg) 92%, transparent);
-    box-shadow: none;
   }
 
-  :deep(.thumb-visual) {
-    background: color-mix(in srgb, var(--nx-bg) 88%, transparent);
+  :deep(.orig-tag) {
+    border-color: color-mix(in srgb, var(--nx-border) 55%, transparent);
+    color: color-mix(in srgb, var(--nx-text) 62%, transparent);
   }
 
-  :deep(.thumb-name) {
-    color: color-mix(in srgb, var(--nx-text) 82%, transparent);
-  }
-
-  :deep(.thumb-size) {
-    color: color-mix(in srgb, var(--nx-text) 54%, transparent);
+  .composer-media-hint {
+    color: color-mix(in srgb, var(--nx-text) 52%, transparent);
   }
 
   .rich-message-input {
