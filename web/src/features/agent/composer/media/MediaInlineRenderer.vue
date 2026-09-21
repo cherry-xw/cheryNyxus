@@ -12,9 +12,12 @@ import ImagePreview from '@/components/media/ImagePreview.vue'
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
 import AudioPlayer from '@/components/media/AudioPlayer.vue'
 import { httpUrl } from '@/application/platform/public'
+import { dispatchBringMediaIntoContext } from '@/features/agent/chat/bringMediaEvent'
 
 const props = defineProps<{
   assets: MediaAssetRef[]
+  /** 显示「重新带进上下文」小按钮（历史气泡/生成结果里的媒体可被带回发送框附件）。 */
+  bringBack?: boolean
 }>()
 
 // 预览状态（同一时间只打开一个）
@@ -48,6 +51,15 @@ function openPreview(asset: MediaAssetRef) {
   }
 }
 
+/** 历史/生成媒体「重新带进上下文」：广播到 composer 作为下一轮附件（不重新上传）。 */
+function bringIntoContext(asset: MediaAssetRef): void {
+  dispatchBringMediaIntoContext({
+    filename: asset.filename,
+    kind: asset.kind,
+    mimeType: asset.mimeType,
+  })
+}
+
 function closePreview() {
   previewImage.value = null
   previewVideo.value = null
@@ -64,6 +76,17 @@ function closePreview() {
       :class="`kind-${asset.kind}`"
       @click="openPreview(asset)"
     >
+      <!-- 重新带进上下文（仅历史/生成结果媒体开启） -->
+      <button
+        v-if="bringBack"
+        type="button"
+        class="bring-back-btn"
+        :aria-label="`把 ${asset.filename} 重新带进上下文`"
+        title="重新带进上下文（下一轮随消息携带）"
+        @click.stop="bringIntoContext(asset)"
+      >
+        ⤴
+      </button>
       <!-- 图片：缩略图 -->
       <img
         v-if="asset.kind === 'image'"
@@ -103,6 +126,7 @@ function closePreview() {
 }
 
 .media-inline-item {
+  position: relative;
   cursor: pointer;
   border-radius: 6px;
   overflow: hidden;
@@ -114,6 +138,41 @@ function closePreview() {
   &:hover {
     transform: translateY(-1px);
     box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 10%, transparent);
+  }
+}
+
+.bring-back-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent, var(--ink)) 82%, transparent);
+  color: #fff;
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+
+  .media-inline-item:hover & {
+    opacity: 1;
+  }
+
+  &:hover {
+    filter: brightness(1.1);
+  }
+
+  &:focus-visible {
+    opacity: 1;
+    outline: 2px solid color-mix(in srgb, var(--accent, var(--ink)) 60%, transparent);
+    outline-offset: 1px;
   }
 }
 

@@ -21,6 +21,7 @@ import { splitCommandPrompt } from '../composables/commands'
 import { SenseCallRenderer } from '../renderers/index'
 import MessageAvatar from './MessageAvatar.vue'
 import { MediaInlineRenderer } from '../composer/public'
+import { stripMediaMarkers } from '@/utils/mediaUrls'
 import { terminationDisplay } from '@/features/pets/nyxus/graph/termination'
 import { toSenseNameZh } from '@/utils/senseName'
 import RiskBadge from '@/components/RiskBadge.vue'
@@ -91,10 +92,12 @@ const senseStatusGlyph = (call: NonNullable<HistoryItem['senseCalls']>[number]):
       return '?'
   }
 }
-const { html: renderedContent } = useRenderedMarkdown(() => props.item.content ?? '', {
+// 展示用文本：剥离 [[media:...]] 内部标记（图由 MediaInlineRenderer 按 mediaAssets 渲染，不露原文）
+const displayContent = computed(() => stripMediaMarkers(props.item.content ?? ''))
+const { html: renderedContent } = useRenderedMarkdown(() => displayContent.value, {
   mode: 'full',
 })
-const userContentSegments = computed(() => splitCommandPrompt(props.item.content ?? ''))
+const userContentSegments = computed(() => splitCommandPrompt(displayContent.value))
 
 // 气泡底部时间戳常显：同天 HH:MM / 跨天 MM-DD HH:MM / 跨年 YYYY-MM-DD HH:MM；缺失不渲染
 const timeText = computed(() => formatTime(props.item.createdAt))
@@ -209,10 +212,11 @@ function removeDelivery(): void {
               <template v-else>{{ segment.value }}</template>
             </template>
           </template>
-          <!-- 内联媒体预览 -->
+          <!-- 内联媒体预览（历史图片可「重新带进上下文」） -->
           <MediaInlineRenderer
             v-if="props.item.mediaAssets && props.item.mediaAssets.length > 0"
             :assets="props.item.mediaAssets"
+            bring-back
           />
         </div>
         <div
