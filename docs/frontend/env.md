@@ -1,126 +1,63 @@
 # Web 端环境抽象层（platform.ts）
 
-> 源码 [web/src/services/platform.ts](../../web/src/services/platform.ts) ｜ 上级 [README.md](README.md) ｜ 相关 [./electron.md](electron.md)（preload 注入格式）、[./deployment.md](deployment.md)
+> 源码 [web/src/services/platform.ts](../../web/src/services/platform.ts) ｜ 上级 [README.md](README.md) ｜ 相关 [./electron.md](electron.md)、[./deployment.md](deployment.md)
 
 ## 职责
 
-封装“渲染进程跑在哪种平台 / 后端怎么连”。纯前端 Electron 不再注入后端端口；连接目标由管理器、直连地址或 relay 发现提供。
+封装渲染进程运行在哪种容器、后端连接目标是什么、HTTP/WS 地址如何生成。纯前端 Electron 不注入后端端口；连接目标由本地管理器、直连地址或 relay 发现提供。
 
 ## 导出 API
 
 ```ts
-// web/src/services/platform.ts
-export const isElectron: boolean;                       // 桌面 bridge 或旧版后端配置存在
-export interface ServerConfig {                         // 后端端口 + transport + 会话 token
-  wsPort: number;
-  webPort: number;
-  transport: "binary" | "json";
-  sessionToken?: string;
-  backendId?: string;
-  httpBasePath?: string;
-  wsPath?: string;
+export const isElectron: boolean
+export interface ServerConfig {
+  wsPort: number
+  webPort: number
+  transport: 'binary' | 'json'
+  sessionToken?: string
+  backendId?: string
+  httpBasePath?: string
+  wsPath?: string
+  httpBaseUrl?: string
+  wsUrl?: string
 }
-export function httpUrl(path: string): string;          // 拼绝对 HTTP URL（Electron file:// 下相对路径挂）
-export function wsUrl(cfg: ServerConfig): string;       // 收敛 WS URL 三分支
-export async function getServerConfig(options?: { refresh?: boolean }): Promise<ServerConfig>;
-// 注入优先，否则 fetch /api/config；refresh=true 时强制拉最新（token 已轮换时必用）。
-// Electron 模式 refresh 走 main 进程 IPC（渲染进程直接 fetch 会被 CORS 拦截），浏览器走同源 fetch
+export function httpUrl(path: string): string
+export function wsUrl(config: ServerConfig): string
+export async function getServerConfig(options?: { refresh?: boolean }): Promise<ServerConfig>
+export function clearManagedBackendDiscovery(): void
 ```
 
-## 设计要点
+## 本地管理器发现
 
-### 单一 `Window` 类型声明
+纯前端 Electron 在没有旧版 `__BACKEND_CONFIG__` 和 `__BACKEND_HTTP_URL__` 时，先访问固定的本机管理器：
 
-两个 `window.__*` 全局集中在 `platform.ts` 顶部 `declare global` 一处声明，**别处不再重复**。`platform.ts` 是 `export {}` 模块（强制成为 ESM），`declare global` 才能正常合并到 `Window` 接口。
-
-### `isElectron` 判定
-
-纯前端 Electron 使用 `__DESKTOP_BRIDGE__` 判定，旧版一体化 Electron 兼容 `__BACKEND_CONFIG__`。该值只代表运行容器，不代表当前连接本机后端。
-
-### `ServerConfig` 类型归属
-
-`ServerConfig` 定义在 `platform.ts`（与 `getServerConfig()` 同源），`ws.ts` 通过 `import type { ServerConfig } from "./platform"` 消费——避免在 ws.ts 与 platform.ts 之间来回 re-export。
-
-### WS URL 三分支收敛
-
-| 模式 | URL 形式 | 触发条件 |
-|------|----------|----------|
-| 旧版 Electron 一体化 | `ws://localhost:<wsPort>` | `__BACKEND_CONFIG__` 存在 |
-| 浏览器 / dev | `<ws/wss>://<host>/ws`（vite proxy） | `import.meta.env.DEV` |
-| 浏览器 / prod | `<ws/wss>://<host>:<wsPort>` | 后端静态 serve 同源 + 直连 |
-
-原 [web/src/services/ws.ts](../../web/src/services/ws.ts) 的 if-else 三分支已搬到 `wsUrl()`，调用方 `new WebSocket(wsUrl(cfg))` 即可。
-
-### 会话 token 轮换与重连刷新
-
-`ServerConfig.sessionToken` 是**本地 loopback 能力**（`wsUrl`/WS `?token=` 校验用），随后端 worker 重启**每次轮换**（[service/index.ts](../../src/service/index.ts) `randomBytes`）。因此：
-
-- **`getServerConfig()`（默认）**：Electron 模式直接返回 preload 注入的 `__BACKEND_CONFIG__`（窗口创建时的快照，token 可能已过期）。
-- **`getServerConfig({ refresh: true })`**：强制拉**当前 worker** 的端口/token——**任何「worker 重启后重连」路径必须走 refresh**，不能复用缓存的旧 token（否则 WS 被 `verifyClient` 以 401 拒绝）。两种实现：
-  - **Electron 模式**：经 `window.__REFRESH_BACKEND_CONFIG__()`（preload 暴露，invoke `backend:refresh-config`）让 **main 进程** `fetch('/api/config')`（带 5s 超时）。渲染进程**不能直接 fetch**——后端 `/api/config` 响应无 `Access-Control-Allow-Origin` 头，Chromium 按 CORS 拦截跨源请求（渲染进程 origin 为 `file://` 或 dev `:5173`，与 `:8183` 跨源；vite proxy 只对相对路径生效，`httpUrl()` 返回绝对 URL 不走 proxy）。main 进程的 Node 全局 fetch 无 CORS 限制。
-  - **浏览器模式**：同源 `fetch('/api/config')`（vite dev proxy / 后端同源 serve，无 CORS）。
-
-**fetch 带 5s 超时**（`AbortController`）：worker 切换瞬间 Chromium 连接池可能把请求发到已死 socket 上，无超时会让重连永久挂起、`conn.status` 卡在 `disconnected` 且无日志。超时后 fetch reject → 调用方（ws.ts `reconnect()`）走 catch → 2s 后重试，直到 worker 就绪。
-
-**首次连接 vs 重连**：首次连接（`connection.init()`）**不传 refresh**——用 preload 快照直连（main 已 `waitForBackend` 就绪，token 有效，且省一次 IPC）；即使快照 token 因罕见竞态失效，WS `onclose → shouldReconnect → reconnect()` 会走 refresh 兜底。手动/自动重连（`connection.reconnect()` / ws.ts `reconnect()`）**必须传 refresh**。
-
-### `httpUrl` 保留转发层
-
-为不一次性改完所有调用点（[App.vue](../../web/src/App.vue) 2 处 + [agentApi.ts](../../web/src/services/agentApi.ts) 2 处 import 路径），`http.ts` 改为 `export { httpUrl } from "./platform"`。`httpUrl` 行为不变，纯转发。
-
-## 消费方式
-
-### 业务组件调用后端原生能力
-
-```vue
-<script setup lang="ts">
-import { agentApi } from "@/services/agentApi";
-
-async function openConfigDir(): Promise<void> {
-  await agentApi.openConfigDir();
-}
-</script>
-
-<template>
-  <button title="打开配置文件夹" @click="openConfigDir">
-    📁 打开配置文件夹
-  </button>
-</template>
+```text
+GET http://127.0.0.1:39980/api/connection
+  → backendListener.addresses.local.httpPort
+GET http://127.0.0.1:<实际端口>/api/config
 ```
 
-该调用经 WebSocket RPC 在后端主机执行；远程浏览器不会打开浏览器客户端机器的目录。
+管理器只绑定 loopback，不能通过 relay 或 nginx 访问。发现结果只用于连接本机后端，不提供 Backend ID 选择界面。
 
-**目录选择（预设 workspace）**：仅 Electron 模式可用原生对话框拿**绝对路径**——preload 注入 `__PICK_DIRECTORY__`（main 进程 `dialog.showOpenDialog({ properties: ['openDirectory'] })`）。Electron 渲染进程与后端同机，所选即后端机器路径（所有执行在后端）。**浏览器模式无目录选择**：前端机器路径与后端无关（浏览器安全沙箱也无绝对路径），纯文本输入。路径校验双层：前端 `isAbsolutePathFormat` 即时格式校验（POSIX `/` / Windows `C:\` / UNC `\\server\share`，非法红框 `ws-warning`）+ 后端 `validateWorkspace` RPC 存在性校验（设置面板实时 + 保存时）。
+`getServerConfig({ refresh: true })` 会先调用 `clearManagedBackendDiscovery()`，再重新读取管理器状态和后端 `/api/config`。后端重启、session token 轮换或动态端口变化后的自动/手动重连必须使用 refresh。
 
-### 业务服务（HTTP / WS）
+## HTTP 与 WS 地址
 
-```ts
-import { httpUrl, getServerConfig, wsUrl } from "@/services/platform";
-import type { ServerConfig } from "@/services/platform";
+- 远端登录模式使用认证服务保存的目标地址和访问 token。
+- 纯前端 Electron 使用管理器发现的 HTTP 地址和 `/api/config` 返回的 WS 信息。
+- 浏览器开发模式使用同源 `/ws` 代理。
+- 浏览器生产模式使用后端发现的 WS 端口或公共路径。
+- `httpBasePath`、`wsPath`、`httpBaseUrl` 和 `wsUrl` 优先于默认端口拼接，用于 relay 和子路径部署。
 
-// HTTP：自动适配 Electron / 浏览器
-const res = await fetch(httpUrl("/api/auth/me"));
+渲染业务不得直接读取 preload 全局；统一使用 `platform.ts` 的 `httpUrl()`、`wsUrl()` 和 `getServerConfig()`。
 
-// WS：注入优先，否则 fetch
-const cfg: ServerConfig = await getServerConfig();
-const ws = new WebSocket(wsUrl(cfg));
-```
+## 会话 token 与重连
 
-## 扩展点
+本地 `sessionToken` 是后端 loopback WebSocket 的短期能力，worker 重启时会轮换。`ws.ts` 在重连前调用 `getServerConfig({ refresh: true })`，确保不会继续发送旧 token 或旧端口。配置请求带 5 秒超时，失败后由 WS 客户端按既有退避时间重试。
 
-### 新增后端原生能力
+## 关联模块
 
-1. 按 [service/message.md](../backend/service/message.md) 的扩展点新增 Method、`RpcMethodMap`、schema 与 handler。
-2. 在 `web/src/services/agentApi.ts` 增加业务方法，组件只调用该门面。
-3. 若能力会操作文件或进程，协议参数应限制为最小固定集合；例如 `utils.openConfigDir` 不接受客户端路径。
-4. 仅当能力必须运行在 Electron main 进程且后端无法承担时，才新增 `ipcMain.handle` 与 preload bridge。
-
-### 新增运行时配置字段
-
-`ServerConfig` 加字段时，main 进程 [get-backend-config](../../web/electron/main.ts#L178) 与后端 [/api/config](../backend/service/http.md) 同步扩；前端 `getServerConfig()` / `wsUrl()` 自动透传。
-
-## 依赖与关联
-
-- **依赖**：[web/electron/preload.ts](../../web/electron/preload.ts) 注入两个后端连接相关的 `window.__*` 全局；后端 [/api/config](../backend/service/http.md) 返回 `ServerConfig`。
-- **被依赖**：[web/src/services/ws.ts](../../web/src/services/ws.ts)（WS 连接 + RPC）、[web/src/services/http.ts](../../web/src/services/http.ts)（转发层）、[web/src/services/agentApi.ts](../../web/src/services/agentApi.ts)（HTTP/RPC 端点）、[web/src/App.vue](../../web/src/App.vue)（认证）。
-- **关联文档**：[README.md#双运行模式](README.md#双运行模式浏览器--electron)、[./electron.md#preload-注入配置](electron.md#preload-注入配置)、[./electron.md#扩展点](electron.md#扩展点)。
+- [`web/src/services/ws.ts`](../../web/src/services/ws.ts)：消费动态 WS 地址并处理 refresh/reconnect。
+- [`web/src/services/http.ts`](../../web/src/services/http.ts)：保留 `httpUrl` 转发入口。
+- [`manager/src/server.ts`](../../manager/src/server.ts)：提供本地连接发现。
+- [`docs/frontend/electron.md`](electron.md)：说明 Electron 纯前端壳边界。

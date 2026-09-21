@@ -6,13 +6,15 @@
 
 HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口):
 
-- `GET /api/config` → 返回 `{wsPort, webPort, transport}`,供前端自动构建 WS 连接地址(无需硬编码端口)
+- `GET /api/config` → 本地返回旧端口字段以及 `httpBaseUrl`、`wsUrl`、`httpPath`、`wsPath`；远程专用入口只返回 `remote`、路径和传输格式，不泄露 loopback 端口
 - `GET /api/auth/capabilities` → 返回非敏感的 `{password, oidc}` 登录能力；密码失败冷却由 challenge 和 login 同时执行
 - `POST /api/media/upload` / `GET /api/media/:filename` → 上传和读取 `.chery/media/` 下的受控媒体资产
 - 其余路径 → 默认静态 serve 前端构建产物(`web/dist/`),SPA fallback 到 `index.html`
 - `server.serve_frontend=false` 或 `web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
 
-服务端口 `config.server.web_port`(默认 8183),与 WS 端口 `config.server.port`(8182)分离,避免 WS upgrade 重构。
+本地服务端口由 `config.server.webPort`（默认 8183）和 `config.server.port`（默认 8182）配置；可选的
+`config.server.remote` 会额外创建两个仅绑定 `127.0.0.1` 的远程专用入口，端口为 `0` 时由系统动态分配。
+远程入口只供 rathole 连接，始终要求用户认证，不能继承本地 loopback 豁免。
 
 启用 `server.auth.enabled` 时，静态 SPA 仍可加载以显示登录遮罩，但 `GET /api/config` 及 WebSocket 控制面必须
 有 OAuth2 登录后的 HttpOnly 会话。认证端点为 `GET /api/auth/me`、`GET /api/auth/login`、
@@ -65,7 +67,7 @@ createHttpServer({webPort, staticDir})
 
 handleRequest:
   url === "/api/config"?
-    ├─ 是 → 200 {wsPort: config.server.port, webPort: config.server.web_port, transport: config.server.transport}
+     ├─ 是 → 本地返回端口和完整地址；远程入口只返回 remote、控制面路径和传输格式
     └─ 否 → 静态 serve:
          ├─ pathname = decodeURIComponent(url.split("?")[0])
          ├─ safe = normalize(pathname).replace(/^(\.\.[/\\])+/, "")  // 防越界

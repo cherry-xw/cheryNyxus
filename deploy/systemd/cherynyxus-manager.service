@@ -5,7 +5,8 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=%h/.cherynyxus
-ExecStart=/usr/bin/node /opt/cherynyxus/manager/dist/index.js
+ExecStart=/usr/bin/node %h/.cherynyxus/manager/dist/index.js
+Environment=CHERY_DIR=%h/.cherynyxus
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true

@@ -42,7 +42,7 @@
 > [multi-agent-canonical-timeline.md](../architecture/canonical-timeline.md)。本文保留旧
 > `chat.get/chat.sync/chat.attach`、staged chunk 等兼容期帧格式；新代码不得据此重新设计前端历史重组。
 
-**连接地址：** `ws://localhost:8182`（端口通过 `.chery/config.yaml` 的 `server.port` 配置）
+**本地连接地址：** `ws://localhost:8182`（端口通过 `.chery/config.yaml` 的 `server.port` 配置；远程专用入口使用启动后分配的 loopback 端口）
 
 **消息模式：** RPC 模式，四种消息类型：
 
@@ -586,6 +586,10 @@ Web 静态服务（端口 `config.server.webPort`，优先级 `WEB_PORT` 环境�
 {
   "wsPort": 8182,
   "webPort": 8183,
+  "httpBaseUrl": "http://127.0.0.1:8183",
+  "wsUrl": "ws://127.0.0.1:8182",
+  "httpPath": "/api",
+  "wsPath": "/ws",
   "transport": "binary",
   "senseGroups": [
     { "name": "leader", "default": true },
@@ -612,6 +616,10 @@ Web 静态服务（端口 `config.server.webPort`，优先级 `WEB_PORT` 环境�
 | ------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `wsPort`      | number                                              | WebSocket 服务端口                                                                                                                                                                |
 | `webPort`     | number                                              | Web 静态服务端口（来自 `WEB_PORT` 环境变量）                                                                                                                                      |
+| `httpBaseUrl` | string                                              | 本地入口的完整 HTTP 地址；仅本地发现返回                                                                                                                                           |
+| `wsUrl`       | string                                              | 本地入口的完整 WebSocket 地址；仅本地发现返回                                                                                                                                      |
+| `httpPath`    | string                                              | HTTP 控制面路径，当前为 `/api`                                                                                                                                                    |
+| `wsPath`      | string                                              | WebSocket 控制面路径，当前为 `/ws`                                                                                                                                                 |
 | `transport`   | string                                              | 传输格式：`binary` / `json`                                                                                                                                                       |
 | `senseGroups` | `{name, default}[]`                                 | config.sense_groups 全部键名 + `default` 标记（= 是否在「默认」预设 `leader` 角色的 `senseGroup` 内，供前端 AgentDialog 渲染单选 + 预选默认项）；config 无 sense_groups 时为 `[]` |
 | `presets`     | `{name, leader, brain, roles:string[], shadows?}[]` | 全部预设（FAB 预设选择器用）；`leader`/`roles` 只含普通角色；`shadows.conversationRouting` 为可选会话路由 Shadow type                                                             |
@@ -619,9 +627,12 @@ Web 静态服务（端口 `config.server.webPort`，优先级 `WEB_PORT` 环境�
 
 > 前端通过 `fetch('/api/config')` 获取配置，结合 `window.location.hostname` 自动构建 `ws://` 连接地址，无需硬编码端口。
 
+远程专用入口的 `/api/config` 只返回 `remote: true`、控制面路径和传输格式，可选返回可信的
+`publicBasePath`；不会返回远程监听的 loopback 端口、session token 或 rathole 配置。
+
 #### 认证（用户名/密码）
 
-`server.auth.username`+`password`（加盐 scrypt 哈希）配置后启用。**授权规则：本地 loopback 信任豁免；非本地未登录的接口请求 401 拒绝。** 登录成功签发双 token（HMAC 无状态）：access token（15min，`Authorization: Bearer` 或 WS `?token=`）+ refresh token（7d）。签名密钥 `server.auth.sessionSecret`（或环境变量 `CHERY_AUTH_SESSION_SECRET`）默认由后端启动自动生成 32 字节随机值并持久化到后端同级的 `.env`（`rootEnvPath`，即项目根 / exe 同级）跨重启复用——`.env` 是**唯一**的 env 文件，`.chery/` 下不再存放 `.env`；**失效/轮换：删除 `.env` 中该行后重启即重新生成，所有已签发 token 立即失效需重新登录**。
+`server.auth.username`+`password`（加盐 scrypt 哈希）配置后启用。**授权规则：本地入口保留 loopback 信任豁免；远程专用入口即使收到 loopback 来源也必须认证；其他未登录的接口请求 401 拒绝。** 登录成功签发双 token（HMAC 无状态）：access token（15min，`Authorization: Bearer` 或 WS `?token=`）+ refresh token（7d）。签名密钥 `server.auth.sessionSecret`（或环境变量 `CHERY_AUTH_SESSION_SECRET`）默认由后端启动自动生成 32 字节随机值并持久化到后端同级的 `.env`（`rootEnvPath`，即项目根 / exe 同级）跨重启复用——`.env` 是**唯一**的 env 文件，`.chery/` 下不再存放 `.env`；**失效/轮换：删除 `.env` 中该行后重启即重新生成，所有已签发 token 立即失效需重新登录**。
 
 - `POST /api/auth/challenge` — 分发一次性登录挑战（公开，无需鉴权）：`200 {challengeId, nonce}`。`nonce` 供前端作为 keyHex 经 **SHA-256 CTR 流密码**加密凭据；challenge 单次使用、TTL 120s，解密后即作废（防重放）。纯 JS 实现（前端 `web/src/utils/obfuscate.ts`、后端 `xorDecrypt`），非安全上下文（非 HTTPS 远端）亦可用。仅密码认证模式启用，否则 `404`。
 - `POST /api/auth/login` — body 为**加密凭据信封** `{challengeId, cipher}`（信封明文 = `JSON.stringify({username, password})`，keyHex = challenge nonce，`keystream = SHA-256(nonce_U8 || BE32(counter))` 逐字节异或）→ `200 {username, accessToken, refreshToken, expiresIn}`；challenge 无效/解密失败/凭据错误一律 `401 {error}`。`username` 供前端登录面板展示已登录用户信息（凭据不落明文在网）。

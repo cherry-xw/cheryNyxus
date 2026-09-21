@@ -8,8 +8,9 @@
 
 service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket 上的 RPC 请求路由到对应 handler，把 agent 的流式 `MiddlewareChunk` 流映射成协议层 Chunk/Notification 推回客户端，并集中处理 DB 持久化与审批副作用。
 
-- **启动装配**（[index.ts](../../../src/service/index.ts)）：`startService({port, webPort, staticDir})` 创建 Router → 注册全部 handler → 启动 WebSocketServer + HTTP 服务器。
+- **启动装配**（[index.ts](../../../src/service/index.ts)）：`startService({port, webPort, staticDir})` 创建 Router → 注册全部 handler → 启动本地 WebSocket/HTTP；配置 `remote` 时再启动两个仅 loopback 的远程入口，并从 `ready` 取得实际端口。
 - **独立运行边界**：Electron 不再启动此服务；本地管理器或系统服务负责后端进程生命周期。
+- **管理器状态摘要**：worker 通过 `CHERY_BACKEND_STATUS_FILE` 写入监听地址和非敏感 Agent 运行统计，管理器只读取这些摘要，不从后端状态接口转发凭据或会话秘密。
 - **RPC 路由**（[message/](../../../src/service/message/)）：Request/Response/Chunk/Notification 四象限类型 + `RpcRouter` 分发。详见 [./message.md](message.md)。
 - **传输实现**（[websocket/](../../../src/service/websocket/)）：ws 封装、连接状态、二进制帧编解码。详见 [./websocket.md](websocket.md)。
 - **chat 枢纽**（[chat/](../../../src/service/chat/)）：流式执行、observer 副作用、streamMapper 映射、runtime 缓存、chat 管理。详见 [./chat.md](chat.md)。
@@ -74,7 +75,7 @@ export function startService(options: { port: number; webPort: number; staticDir
 | [src/service/chat/handler.ts](../../../src/service/chat/handler.ts) | `handleChatCreate`/`handleChatList`/`handleChatGet`/`handleChatDelete` |
 | [src/service/chat/observer.ts](../../../src/service/chat/observer.ts) | `observeAgentChunks`：effect chunk → DB/审批副作用 |
 | [src/service/chat/streamMapper.ts](../../../src/service/chat/streamMapper.ts) | `streamAgentChunks`：MiddlewareChunk → 协议 Chunk/Notification |
-| [src/service/chat/runtime.ts](../../../src/service/chat/runtime.ts) | `chatRuntimes` Map + `ensureChat`/`setRuntime`/`clear`/`abort` |
+| [src/service/chat/runtime.ts](../../../src/service/chat/runtime.ts) | `chatRuntimes` Map + `ensureChat`/`setRuntime`/`clear`/`abort`/`getAgentRuntimeStats` |
 | [src/service/approval/manager.ts](../../../src/service/approval/manager.ts) | `ApprovalManager` 单例：极简审批（Set + 转调 core registry） |
 | [src/service/bash/handler.ts](../../../src/service/bash/handler.ts) | `bash.list` / `bash.kill` handler |
 | [src/service/brain/list.ts](../../../src/service/brain/list.ts) | `brain.list` handler |

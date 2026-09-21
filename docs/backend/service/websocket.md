@@ -7,7 +7,7 @@
 
 ## 职责
 
-- **服务封装**（index.ts）：创建 `ws.WebSocketServer`、绑定 connection/message/close/error、把 Request 分发给 `RpcRouter`、迭代流式 handler 结果逐帧推送、interrupt 后记 approvalId（供 close park；限时超时由 core approvalRegistry 管，非本层）。
+- **服务封装**（index.ts）：创建 `ws.WebSocketServer`、绑定 connection/message/close/error、把 Request 分发给 `RpcRouter`、迭代流式 handler 结果逐帧推送、interrupt 后记 approvalId（供 close park；限时超时由 core approvalRegistry 管，非本层）。服务入口可额外创建仅绑定 loopback 的远程 socket；远程 socket 使用认证但不允许 loopback 豁免。
 - **连接状态**（connection.ts）：`ConnectionManager` 维护 ws→state、chatId→connectionId 活跃绑定（拒绝跨连接并发同 chat）、pendingRequests（含审批 ID 映射）、关闭时 park pending approval 并释放 chat 绑定。
 - **帧编解码**（transport.ts）：`Transport` 单例，按 `config.server.transport`（`binary`/`json`）编码 Chunk/Notification；Request/Response 始终走 JSON。
 

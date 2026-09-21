@@ -13,7 +13,7 @@ pnpm relay:build
 RELAY_SESSION_SECRET='change-this-to-a-random-secret-of-32-bytes-or-more' pnpm relay:start
 ```
 
-生产环境用 HTTPS/WSS 终止 TLS，并让 nginx 将公共前缀转发到 relay。模板见 [`deploy/nginx/cherynyxus.conf.template`](../../deploy/nginx/cherynyxus.conf.template)。管理器 `39980` 和 rathole 两个私有服务映射不得通过 nginx 暴露。
+生产环境用 HTTPS/WSS 终止 TLS，并让 nginx 按 [`deploy/nginx/cherynyxus.conf.template`](../../deploy/nginx/cherynyxus.conf.template) 同时提供静态前端、`/api/` 和 `/backend/` WebSocket 路由。公共前缀必须与 relay 的 `RELAY_PUBLIC_BASE_PATH` 相同。管理器 `39980` 和 rathole 两个私有服务映射不得通过 nginx 暴露。
 
 ## 本地管理器
 
@@ -23,7 +23,7 @@ pnpm exec vite build --config manager/vite.config.ts
 CHERY_MANAGER_TOKEN='another-local-secret' node manager/dist/index.js
 ```
 
-管理器只绑定 `127.0.0.1:39980`。启动、停止和重启接口还要求 `X-Chery-Manager-Token`。Linux unit 见 [`deploy/systemd/cherynyxus-manager.service`](../../deploy/systemd/cherynyxus-manager.service)；Windows 使用隐藏窗口启动脚本 [`deploy/windows/start-manager.ps1`](../../deploy/windows/start-manager.ps1)。
+管理器只绑定 `127.0.0.1:39980`。启动、停止和重启接口还要求 `X-Chery-Manager-Token`。Linux unit 模板见 [`deploy/systemd/cherynyxus-manager.service`](../../deploy/systemd/cherynyxus-manager.service)，构建后可用 `node manager/dist/index.js service install` 安装用户级 systemd 服务；卸载使用同一命令的 `service uninstall`。Windows 使用 `node manager/dist/index.js service install`，实际入口是 [`deploy/windows/service.ps1`](../../deploy/windows/service.ps1) 和 [`deploy/windows/tray-manager.ps1`](../../deploy/windows/tray-manager.ps1)。托盘和 systemd 的真实机器行为留到 H。
 
 ## Rathole
 
