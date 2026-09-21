@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Top } from '@element-plus/icons-vue'
+import { Plus, Top } from '@element-plus/icons-vue'
+import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
+import type { UploadFile } from 'element-plus'
 import { MorphIcon } from 'morphicons/vue'
 import { useMotionTier } from '@/composables/useMotionTier'
-import { clusterNodeIcon } from './clusterIcons'
+import { THINKING_ICONS, toolCallIcon } from './clusterIcons'
+import { classifyToolType, toolTypeGlyph } from './executionMonitor'
 import { useLiteViewController, type LiteViewControllerProps } from './useLiteViewController'
 import { useInstructionSuggestions } from '../agent/composer/useInstructionSuggestions'
 import InstructionSuggestions from '../agent/composer/InstructionSuggestions.vue'
+import MediaThumbStrip from '../agent/composer/media/MediaThumbStrip.vue'
 import { splitCommandPrompt } from '../agent/composables/commands'
 const props = defineProps<LiteViewControllerProps>()
 const controller = useLiteViewController(props)
@@ -31,6 +35,7 @@ const {
   formatElapsed,
   hideBarTip,
   history,
+  hoverCall,
   hoverNode,
   hydrationLabel,
   inputText,
@@ -46,20 +51,27 @@ const {
   monitor,
   monitorEl,
   moveBarTip,
+  mediaAttachments,
+  mediaDisabledReason,
+  mediaHint,
+  mediaServicesByType,
   nodeKindLabel,
   nodeTipText,
   nodeToneVars,
   onErrorAction,
   onInputKeydown,
   onMonitorScroll,
+  onMediaSelected,
   onResume,
   onSend,
   onStop,
   onTrajectoryKeydown,
   onTrajectoryWheel,
   openNodeDetail,
+  openToolCallDetail,
   operationBlockReason,
   resetTrajectoryZoom,
+  removeMedia,
   resuming,
   rootUi,
   rowKey,
@@ -69,18 +81,29 @@ const {
   sending,
   setRowEl,
   showBarTip,
+  showThinkingMark,
   showsRowContent,
   tipAction,
   tipPos,
+  toolCallStatus,
+  toolCallTipText,
+  toggleMediaVariant,
   toggleThinking,
   toggleRunDetail,
   toolTypeLabel,
   trajectoryBarStyle,
   trajectoryLayout,
   trajectoryZoom,
+  uploading,
   userSegments,
   visibleRows,
 } = controller
+
+const mediaKinds = [
+  { kind: 'image', label: '图片' },
+  { kind: 'video', label: '视频' },
+  { kind: 'audio', label: '音频' },
+] as const
 
 const menu = useInstructionSuggestions({
   chatId: () => props.rootChatId,
@@ -106,6 +129,30 @@ const { spec } = useMotionTier()
 const clusterMorphReducedMotion = computed(() =>
   spec.value.mode === 'full' && spec.value.decoration !== 'off' ? 'user' : 'always',
 )
+
+// ── 思考标记动态图标：运行中的模型响应在 brain / brain-cog 间切换（MorphIcon 变形过渡），
+// 并配合主题色呼吸（CSS）；完成/失败后静止在 idle 图标。多个思考节点共享一个切换 tick。 ──
+const hasActiveThinking = computed(() =>
+  visibleRows.value.some((row) =>
+    (row.nodes ?? []).some((node) => node.active && showThinkingMark(node)),
+  ),
+)
+const thinkingFlip = ref(false)
+let thinkingTimer: ReturnType<typeof setInterval> | undefined
+watch(hasActiveThinking, (on) => {
+  if (on) {
+    thinkingTimer = setInterval(() => {
+      thinkingFlip.value = !thinkingFlip.value
+    }, 1600)
+  } else if (thinkingTimer) {
+    clearInterval(thinkingTimer)
+    thinkingTimer = undefined
+    thinkingFlip.value = false
+  }
+})
+onBeforeUnmount(() => {
+  if (thinkingTimer) clearInterval(thinkingTimer)
+})
 defineExpose({
   insertReference(token: string) {
     inputText.value += (inputText.value ? ' ' : '') + token + ' '
@@ -393,39 +440,76 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
               </div>
             </template>
             <div v-else class="lite-cluster" role="group" aria-label="本轮中间节点">
-              <button
-                v-for="node in row.nodes"
-                :key="node.key"
-                type="button"
-                class="lite-cluster-node"
-                :class="[
-                  `is-${node.kind}`,
-                  `is-status-${node.status}`,
-                  {
+              <template v-for="node in row.nodes" :key="node.key">
+                <div
+                  class="lite-cluster-unit"
+                  :class="{
                     'is-selected': isDetailNode(node),
                     'is-focused': node.nodeId === focusNodeId,
-                  },
-                ]"
-                :data-status="node.status"
-                :data-tooltype="node.kind === 'tool' ? node.toolType : undefined"
-                :aria-label="nodeTipText(node)"
-                @pointerenter="showBarTip(node, $event)"
-                @pointermove="moveBarTip"
-                @pointerleave="hideBarTip"
-                @click="openNodeDetail(node, $event)"
-              >
-                <!-- 可变形图标（morphicons + lucide）：终态变形为状态图标，见 clusterIcons.ts -->
-                <MorphIcon
-                  class="lite-cluster-icon"
-                  :icon="clusterNodeIcon(node)"
-                  :size="15"
-                  :stroke-width="2"
-                  :reduced-motion="clusterMorphReducedMotion"
-                  spring="snappy"
-                  aria-hidden="true"
-                />
-                <span class="lite-cluster-status" :data-status="node.status" aria-hidden="true" />
-              </button>
+                  }"
+                >
+                  <!-- 思考/正文标记：主·子 Agent 响应或工具节点合并的思考/正文。
+                       运行中 brain ↔ brain-cog 切换（MorphIcon 变形）+ 主题色呼吸（CSS）；完成静止。 -->
+                  <button
+                    v-if="showThinkingMark(node)"
+                    type="button"
+                    class="lite-thinking-mark"
+                    :class="{ 'is-active': node.active }"
+                    :aria-label="nodeTipText(node)"
+                    @pointerenter="showBarTip(node, $event)"
+                    @pointermove="moveBarTip"
+                    @pointerleave="hideBarTip"
+                    @click="openNodeDetail(node, $event)"
+                  >
+                    <MorphIcon
+                      class="lite-thinking-icon"
+                      :icon="
+                        node.active && thinkingFlip ? THINKING_ICONS.active : THINKING_ICONS.idle
+                      "
+                      :size="14"
+                      :stroke-width="2"
+                      :reduced-motion="clusterMorphReducedMotion"
+                      spring="snappy"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <!-- 工具 icon 组：同一次 LLM 响应的逐个工具调用（无边框并排，每工具底部一条状态线） -->
+                  <template v-if="node.kind === 'tool' && node.toolCalls?.length">
+                    <button
+                      v-for="call in node.toolCalls"
+                      :key="call.callId"
+                      type="button"
+                      class="lite-tool-call"
+                      :class="{
+                        'is-selected':
+                          isDetailNode(node) && rootUi.detailFocusToolCallId === call.callId,
+                      }"
+                      :data-tooltype="classifyToolType(call.name)"
+                      :data-status="toolCallStatus(call.status)"
+                      :aria-label="toolCallTipText(node, call)"
+                      @pointerenter="showBarTip(node, $event, call)"
+                      @pointermove="moveBarTip"
+                      @pointerleave="hideBarTip"
+                      @click="openToolCallDetail(node, call, $event)"
+                    >
+                      <MorphIcon
+                        class="lite-tool-call-icon"
+                        :icon="toolCallIcon(call.name)"
+                        :size="16"
+                        :stroke-width="2"
+                        :reduced-motion="clusterMorphReducedMotion"
+                        spring="snappy"
+                        aria-hidden="true"
+                      />
+                      <span
+                        class="lite-tool-call-status"
+                        :data-status="toolCallStatus(call.status)"
+                        aria-hidden="true"
+                      />
+                    </button>
+                  </template>
+                </div>
+              </template>
             </div>
           </li>
         </ol>
@@ -480,26 +564,94 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
            下行：输入框 + 发送按钮同行贴底对齐，发送按钮不再被挤到下一行。 -->
       <div class="lite-input" :class="{ 'is-expanded': expandedInput }">
         <div class="lite-input-top">
-          <div class="lite-input-hint">
-            / 指令 · @ 角色 · &amp; 文件引用（仅传路径） · 输入后从候选窗口选择
+          <div class="lite-media-group">
+            <MediaThumbStrip
+              :attachments="mediaAttachments"
+              @remove="removeMedia"
+              @toggle="toggleMediaVariant"
+            />
+            <div class="lite-input-hint">/ 指令 · @ 角色 · &amp; 文件引用</div>
           </div>
-          <el-tooltip
-            :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
-            placement="top"
-            :show-after="150"
-            :hide-after="0"
-          >
-            <button
-              type="button"
-              class="lite-expand-btn"
-              :class="{ 'is-expanded': expandedInput }"
-              :aria-pressed="expandedInput"
-              :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
-              @click="toggleExpandInput"
+          <div class="lite-input-actions">
+            <ElPopover
+              trigger="click"
+              placement="top-end"
+              :width="160"
+              popper-class="add-media-popper"
+              popper-style="padding: 4px;"
             >
-              <Top class="lite-expand-icon" aria-hidden="true" />
-            </button>
-          </el-tooltip>
+              <template #reference>
+                <ElTooltip
+                  :content="mediaDisabledReason || '添加媒体'"
+                  popper-class="label-tip-popper"
+                >
+                  <span>
+                    <button
+                      type="button"
+                      class="lite-add-media-btn"
+                      :disabled="!!mediaDisabledReason"
+                      aria-label="添加媒体附件"
+                    >
+                      <Plus width="16" height="16" />
+                    </button>
+                  </span>
+                </ElTooltip>
+              </template>
+              <div class="add-media-menu" @click.stop>
+                <ElTooltip
+                  v-for="item in mediaKinds"
+                  :key="item.kind"
+                  :content="
+                    mediaDisabledReason ||
+                    (mediaServicesByType[item.kind]
+                      ? item.label
+                      : `当前大脑及媒体服务均不支持${item.label}`)
+                  "
+                  popper-class="label-tip-popper"
+                >
+                  <span>
+                    <ElUpload
+                      :auto-upload="false"
+                      :show-file-list="false"
+                      :accept="`${item.kind}/*`"
+                      :disabled="!!mediaDisabledReason || !mediaServicesByType[item.kind]"
+                      :on-change="(file: UploadFile) => onMediaSelected(file)"
+                      class="add-media-upload"
+                    >
+                      <div class="add-media-item">
+                        <span>{{ item.label }}</span
+                        ><span
+                          class="media-svc-tag"
+                          :class="{ missing: !mediaServicesByType[item.kind] }"
+                          >{{ mediaServicesByType[item.kind] || '不可用' }}</span
+                        >
+                      </div>
+                    </ElUpload>
+                  </span>
+                </ElTooltip>
+              </div>
+            </ElPopover>
+            <el-tooltip
+              :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+              placement="top"
+              :show-after="150"
+              :hide-after="0"
+            >
+              <button
+                type="button"
+                class="lite-expand-btn"
+                :class="{ 'is-expanded': expandedInput }"
+                :aria-pressed="expandedInput"
+                :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+                @click="toggleExpandInput"
+              >
+                <Top class="lite-expand-icon" aria-hidden="true" />
+              </button>
+            </el-tooltip>
+          </div>
+        </div>
+        <div v-if="mediaHint" class="lite-media-hint" role="status">
+          {{ mediaHint }}
         </div>
         <div class="lite-input-row">
           <textarea
@@ -530,7 +682,7 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
           <button
             type="button"
             class="lite-send-btn"
-            :disabled="sending || !inputText.trim() || connectionBlocked"
+            :disabled="sending || uploading || !inputText.trim() || connectionBlocked"
             @click="onSend"
           >
             发送
@@ -570,22 +722,38 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
           :style="{ left: tipPos.x + 'px', top: tipPos.y + 'px' }"
         >
           <span class="lite-tip-head">
-            <span class="lite-tip-icon" aria-hidden="true">{{ hoverNode.icon }}</span>
-            <strong>{{ hoverNode.label }}</strong>
+            <template v-if="hoverCall">
+              <span class="lite-tip-icon" aria-hidden="true">{{
+                toolTypeGlyph(classifyToolType(hoverCall.name))
+              }}</span>
+              <strong>{{ hoverCall.label }}</strong>
+            </template>
+            <template v-else>
+              <span class="lite-tip-icon" aria-hidden="true">{{ hoverNode.icon }}</span>
+              <strong>{{ hoverNode.label }}</strong>
+            </template>
           </span>
           <span class="lite-tip-row">
             <span class="lite-tip-key">状态</span>
-            {{ runStatusLabel(hoverNode.status) }}
+            {{
+              hoverCall
+                ? runStatusLabel(toolCallStatus(hoverCall.status))
+                : runStatusLabel(hoverNode.status)
+            }}
           </span>
-          <span class="lite-tip-row">
+          <span v-if="!hoverCall" class="lite-tip-row">
             <span class="lite-tip-key">耗时</span>
             {{ hoverNode.elapsedMs > 0 ? formatElapsed(hoverNode.elapsedMs) : '—' }}
           </span>
-          <span class="lite-tip-row">
+          <span v-if="!hoverCall" class="lite-tip-row">
             <span class="lite-tip-key">类型</span>
             {{ nodeKindLabel(hoverNode) }}
           </span>
-          <span v-if="hoverNode.kind === 'tool'" class="lite-tip-row">
+          <span v-if="hoverCall" class="lite-tip-row">
+            <span class="lite-tip-key">工具类型</span>
+            {{ toolTypeLabel(classifyToolType(hoverCall.name)) }}
+          </span>
+          <span v-else-if="hoverNode.kind === 'tool'" class="lite-tip-row">
             <span class="lite-tip-key">工具类型</span>
             {{ toolTypeLabel(hoverNode.toolType) }}
           </span>

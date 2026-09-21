@@ -7,6 +7,7 @@
  * - 解析失败回退原文 <pre>。
  */
 import { computed, ref } from 'vue'
+import { MorphIcon, type IconInput } from 'morphicons/vue'
 import type { GraphToolCall, InteractionRecord } from '@/application/backend/public'
 import type { LiteToolType } from './executionMonitor'
 import {
@@ -32,7 +33,8 @@ const props = defineProps<{
   call: GraphToolCall
   /** 工具中文名（sense.tools label；未命中回退原名） */
   label: string
-  icon: string
+  /** 工具本源图标（lucide，与列表 cluster 同款；按类型配色） */
+  icon: IconInput
   type: LiteToolType
   focused?: boolean
   windowId: string
@@ -83,7 +85,7 @@ const questionWaiting = computed(
 function isSelectedOption(label: string): boolean {
   return answer.value.kind === 'answered' && answer.value.labels.includes(label)
 }
-/** 提问上下文（标题 + 说明）：取自参数原始键，展示在「参数」上方。 */
+/** 提问标题：取自参数原始键，展示在「参数」上方（说明区已按需求移除）。 */
 const questionCtx = computed(() => {
   const entries = argsEntries.value ?? []
   const pick = (...keys: string[]): string | undefined => {
@@ -95,8 +97,6 @@ const questionCtx = computed(() => {
   }
   return {
     header: pick('header', 'head'),
-    rationale: pick('rationale'),
-    nextStep: pick('nextStep', 'next_step'),
   }
 })
 const argsFallback = computed(() => {
@@ -154,7 +154,16 @@ const resultPreview = computed(() => {
 <template>
   <article class="lite-tool-call" :data-tooltype="type" :class="{ 'is-focused': focused }">
     <header class="lite-tool-call-head">
-      <span class="lite-tool-call-icon" aria-hidden="true">{{ icon }}</span>
+      <span class="lite-tool-call-icon" aria-hidden="true">
+        <MorphIcon
+          :icon="icon"
+          :size="16"
+          :stroke-width="2"
+          :reduced-motion="'always'"
+          spring="snappy"
+        />
+      </span>
+      <strong class="lite-tool-call-name">{{ label }}</strong>
       <!-- 工具调用的安全判定徽章（compact；缺省 = 未知）。
            标题 / 工具类型 / 执行状态已由抽屉顶部标题栏承担，此处不再重复展示（用户需求 2026-11）。 -->
       <RiskBadge :auth="call.security" compact />
@@ -172,125 +181,110 @@ const resultPreview = computed(() => {
 
     <template v-else>
       <section v-if="storyVisible" class="lite-tool-story" aria-label="执行说明">
-      <code v-if="readable.target" class="lite-tool-story-target">{{ readable.target }}</code>
-      <ul v-if="readable.changes.length" class="lite-tool-story-changes" aria-label="本次变更">
-        <li v-for="change in readable.changes" :key="`${change.label}:${change.detail}`">
-          <small>{{ change.label }}</small
-          ><span>{{ change.detail }}</span>
-        </li>
-      </ul>
-    </section>
+        <code v-if="readable.target" class="lite-tool-story-target">{{ readable.target }}</code>
+        <ul v-if="readable.changes.length" class="lite-tool-story-changes" aria-label="本次变更">
+          <li v-for="change in readable.changes" :key="`${change.label}:${change.detail}`">
+            <small>{{ change.label }}</small
+            ><span>{{ change.detail }}</span>
+          </li>
+        </ul>
+      </section>
 
-    <!-- 提问工具：标题 + 说明（大模型写的数据；展示在「参数」上方） -->
-    <div
-      v-if="selectPattern && (questionCtx.header || questionCtx.rationale || questionCtx.nextStep)"
-      class="lite-question-context"
-    >
-      <strong v-if="questionCtx.header" class="lite-question-context-title">{{
-        questionCtx.header
-      }}</strong>
-      <dl v-if="questionCtx.rationale || questionCtx.nextStep">
-        <div v-if="questionCtx.rationale">
-          <dt>为什么需要你决定</dt>
-          <dd>{{ questionCtx.rationale }}</dd>
-        </div>
-        <div v-if="questionCtx.nextStep">
-          <dt>决定后会发生什么</dt>
-          <dd>{{ questionCtx.nextStep }}</dd>
-        </div>
-      </dl>
-    </div>
+      <!-- 提问工具：标题（大模型写的数据；展示在「参数」上方），说明区（为什么需要你决定等）已按需求移除 -->
+      <div v-if="selectPattern && questionCtx.header" class="lite-question-context">
+        <strong class="lite-question-context-title">{{ questionCtx.header }}</strong>
+      </div>
 
-    <details open class="lite-tool-call-args">
-      <summary>参数</summary>
-      <template v-if="argsEntries">
-        <!-- 单选 / 多选形态参数：问题 + 选项（已答时结果直接渲染进选项） -->
-        <div v-if="selectPattern" class="lite-select-block">
-          <p class="lite-select-question">{{ selectPattern.question }}</p>
-          <span class="lite-select-kind">{{ selectPattern.multi ? '可多选' : '单选' }}</span>
-          <p v-if="answer.kind === 'cancelled'" class="lite-question-note">用户已取消该问题。</p>
-          <p v-else-if="questionWaiting" class="lite-question-note">等待用户回答…</p>
-          <p v-else-if="answer.kind === 'missing'" class="lite-question-note">
-            这次执行没有留下可识别的回答。
-          </p>
-          <ul class="lite-select-options">
-            <li
-              v-for="option in selectPattern.options"
-              :key="option.label"
-              class="lite-select-option"
-              :class="{ 'is-selected': isSelectedOption(option.label) }"
-            >
-              <span class="lite-select-mark" aria-hidden="true">{{
-                isSelectedOption(option.label) ? '✓' : selectPattern.multi ? '□' : '○'
-              }}</span>
-              <span class="lite-select-copy">
-                <span class="lite-select-label">{{ option.label }}</span>
-                <small v-if="option.description" class="lite-select-desc">{{
-                  option.description
-                }}</small>
-                <small
-                  v-if="answer.kind === 'answered' && answer.notes?.[option.label]"
-                  class="lite-select-note"
-                  >{{ answer.notes[option.label] }}</small
-                >
-              </span>
-            </li>
-            <li
-              v-if="answer.kind === 'answered' && answer.freeText"
-              class="lite-select-option is-user-input"
-            >
-              <span class="lite-select-mark" aria-hidden="true">✓</span>
-              <span class="lite-select-copy">
-                <span class="lite-select-label">其他</span>
-                <small class="lite-select-desc">{{ answer.freeText }}</small>
-              </span>
-            </li>
-          </ul>
-        </div>
-        <LiteFieldRows :entries="remainingArgs" />
-        <details v-if="remainingSecondaryArgs.length" class="lite-fields-more">
-          <summary>更多参数（{{ remainingSecondaryArgs.length }}）</summary>
-          <LiteFieldRows :entries="remainingSecondaryArgs" />
-        </details>
-        <p
-          v-if="!remainingArgs.length && !remainingSecondaryArgs.length && !selectPattern"
-          class="lite-drawer-hint is-muted"
-        >
-          （无参数）
-        </p>
-      </template>
-      <pre v-else-if="argsFallback" class="lite-pre">{{ argsFallback }}</pre>
-      <p v-else class="lite-drawer-hint is-muted">（无参数）</p>
-    </details>
-
-    <!-- 结果区：提问工具已把结果渲染进选项，不再单列原始结果 -->
-    <template v-if="!selectPattern">
-      <details
-        class="lite-tool-call-result"
-        :open="isShortResult || resultOpen"
-        @toggle="onResultToggle"
-      >
-        <summary>原始结果</summary>
-        <template v-if="resultEntries">
-          <LiteFieldRows :entries="primaryResult" />
-          <details v-if="secondaryResult.length" class="lite-fields-more">
-            <summary>更多（{{ secondaryResult.length }}）</summary>
-            <LiteFieldRows :entries="secondaryResult" />
+      <details open class="lite-tool-call-args">
+        <summary>参数</summary>
+        <template v-if="argsEntries">
+          <!-- 单选 / 多选形态参数：问题 + 选项（已答时结果直接渲染进选项） -->
+          <div v-if="selectPattern" class="lite-select-block">
+            <p class="lite-select-question">{{ selectPattern.question }}</p>
+            <span class="lite-select-kind">{{ selectPattern.multi ? '可多选' : '单选' }}</span>
+            <p v-if="answer.kind === 'cancelled'" class="lite-question-note">用户已取消该问题。</p>
+            <p v-else-if="questionWaiting" class="lite-question-note">等待用户回答…</p>
+            <p v-else-if="answer.kind === 'missing'" class="lite-question-note">
+              这次执行没有留下可识别的回答。
+            </p>
+            <ul class="lite-select-options">
+              <li
+                v-for="option in selectPattern.options"
+                :key="option.label"
+                class="lite-select-option"
+                :class="{ 'is-selected': isSelectedOption(option.label) }"
+              >
+                <span class="lite-select-mark" aria-hidden="true">{{
+                  isSelectedOption(option.label) ? '✓' : selectPattern.multi ? '□' : '○'
+                }}</span>
+                <span class="lite-select-copy">
+                  <span class="lite-select-label">{{ option.label }}</span>
+                  <small v-if="option.description" class="lite-select-desc">{{
+                    option.description
+                  }}</small>
+                  <small
+                    v-if="answer.kind === 'answered' && answer.notes?.[option.label]"
+                    class="lite-select-note"
+                    >{{ answer.notes[option.label] }}</small
+                  >
+                </span>
+              </li>
+              <li
+                v-if="answer.kind === 'answered' && answer.freeText"
+                class="lite-select-option is-user-input"
+              >
+                <span class="lite-select-mark" aria-hidden="true">✓</span>
+                <span class="lite-select-copy">
+                  <span class="lite-select-label">其他</span>
+                  <small class="lite-select-desc">{{ answer.freeText }}</small>
+                </span>
+              </li>
+            </ul>
+          </div>
+          <LiteFieldRows :entries="remainingArgs" />
+          <details v-if="remainingSecondaryArgs.length" class="lite-fields-more">
+            <summary>更多参数（{{ remainingSecondaryArgs.length }}）</summary>
+            <LiteFieldRows :entries="remainingSecondaryArgs" />
           </details>
           <p
-            v-if="!primaryResult.length && !secondaryResult.length"
+            v-if="!remainingArgs.length && !remainingSecondaryArgs.length && !selectPattern"
             class="lite-drawer-hint is-muted"
           >
-            （无结果）
+            （无参数）
           </p>
         </template>
-        <pre v-else-if="resultText" class="lite-pre">{{ resultText }}</pre>
-        <p v-else class="lite-drawer-hint is-muted">
-          {{ waiting ? '等待工具返回…' : '（无结果）' }}
-        </p>
+        <pre v-else-if="argsFallback" class="lite-pre">{{ argsFallback }}</pre>
+        <p v-else class="lite-drawer-hint is-muted">（无参数）</p>
       </details>
-      <p v-if="resultPreview" class="lite-result-preview">{{ resultPreview }}</p>
-    </template>
+
+      <!-- 结果区：提问工具已把结果渲染进选项，不再单列原始结果 -->
+      <template v-if="!selectPattern">
+        <details
+          class="lite-tool-call-result"
+          :open="isShortResult || resultOpen"
+          @toggle="onResultToggle"
+        >
+          <summary>原始结果</summary>
+          <template v-if="resultEntries">
+            <LiteFieldRows :entries="primaryResult" />
+            <details v-if="secondaryResult.length" class="lite-fields-more">
+              <summary>更多（{{ secondaryResult.length }}）</summary>
+              <LiteFieldRows :entries="secondaryResult" />
+            </details>
+            <p
+              v-if="!primaryResult.length && !secondaryResult.length"
+              class="lite-drawer-hint is-muted"
+            >
+              （无结果）
+            </p>
+          </template>
+          <pre v-else-if="resultText" class="lite-pre">{{ resultText }}</pre>
+          <p v-else class="lite-drawer-hint is-muted">
+            {{ waiting ? '等待工具返回…' : '（无结果）' }}
+          </p>
+        </details>
+        <p v-if="resultPreview" class="lite-result-preview">{{ resultPreview }}</p>
+      </template>
     </template>
   </article>
 </template>
@@ -314,14 +308,42 @@ const resultPreview = computed(() => {
   margin-bottom: 10px;
 }
 .lite-tool-call-icon {
-  font-size: 18px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--el-text-color-regular);
   line-height: 1;
 }
-.lite-tool-call-icon {
-  font-size: 18px;
-  line-height: 1;
+/* 工具 icon 按类型配色（与列表 cluster 同色板），名称撑开剩余空间、安全徽章靠右。 */
+.lite-tool-call[data-tooltype='exec'] .lite-tool-call-icon {
+  color: #9b59b6;
 }
-/* 工具类型 / 执行状态 tag 已由抽屉顶部标题栏承担，工具卡头部仅保留图标 + 风险徽章（用户需求 2026-11）。
+.lite-tool-call[data-tooltype='read'] .lite-tool-call-icon {
+  color: #6b7f92;
+}
+.lite-tool-call[data-tooltype='write'] .lite-tool-call-icon {
+  color: #2f9e63;
+}
+.lite-tool-call[data-tooltype='web'] .lite-tool-call-icon {
+  color: #00a8a8;
+}
+.lite-tool-call[data-tooltype='dispatch'] .lite-tool-call-icon {
+  color: #e67e22;
+}
+.lite-tool-call[data-tooltype='other'] .lite-tool-call-icon {
+  color: #c58a1f;
+}
+.lite-tool-call-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--el-text-color-primary);
+}
+/* 工具类型 / 执行状态 tag 已由抽屉顶部标题栏承担，工具卡头部仅保留图标 + 名称 + 风险徽章。
    共享 RiskBadge（compact）拉齐到同套 tag 尺寸（圆角随 RiskBadge 基样式）。 */
 .lite-tool-call-head :deep(.risk-badge) {
   flex: none;
@@ -386,7 +408,7 @@ const resultPreview = computed(() => {
   font-size: 13.5px;
   line-height: 1.5;
 }
-/* 提问工具：标题 + 说明（展示在「参数」上方） */
+/* 提问工具：标题（展示在「参数」上方） */
 .lite-question-context {
   margin: 10px 0 0;
   padding: 8px 12px;
@@ -400,28 +422,6 @@ const resultPreview = computed(() => {
   font-size: 16px;
   font-weight: 400;
   line-height: 1.5;
-}
-.lite-question-context dl {
-  display: grid;
-  gap: 6px;
-  margin: 6px 0 0;
-}
-.lite-question-context dl > div {
-  display: grid;
-  gap: 1px;
-}
-.lite-question-context dt {
-  color: var(--el-text-color-secondary);
-  font-size: 12.5px;
-}
-.lite-question-context dd {
-  margin: 0;
-  color: var(--el-text-color-regular);
-  font-size: 14px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: anywhere;
 }
 .lite-tool-call-args > summary,
 .lite-tool-call-result > summary {

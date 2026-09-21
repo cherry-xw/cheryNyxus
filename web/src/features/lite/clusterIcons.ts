@@ -1,24 +1,15 @@
 /**
- * 精简视图执行监控 cluster 小按钮的图标映射（morphicons + lucide 图标数据）。
+ * 精简视图执行监控 cluster 行的图标映射（morphicons + lucide 图标数据）。
  *
- * 动效约定（阶段1已确认）：图标类型固定关联工具类型（六类各有专属 lucide 图标），
- * 颜色同样按工具类型区分；运行状态与成功/失败由底部状态条表达，不再把图标统一替换成状态图标。
+ * - 工具 icon：按单个工具调用的类型分类（同一次 LLM 响应的多个工具各自显示，
+ *   不再以「一次响应」为单位只取一个图标）；
+ * - 思考标记：模型思考/正文用 brain / brain-cog 双图标，运行中由视图层做图标
+ *   切换与主题色呼吸动画（见 LiteView.vue）。
  */
-import {
-  BookOpen,
-  CircleDashed,
-  CornerDownLeft,
-  Forward,
-  GitFork,
-  Globe,
-  PenLine,
-  Sparkles,
-  SquareTerminal,
-  UserRound,
-  Wrench,
-} from 'lucide'
+import { BookOpen, Brain, BrainCog, Forward, Globe, PenLine, SquareTerminal, Wrench } from 'lucide'
 import type { IconInput } from 'morphicons/vue'
-import type { LiteRunNode, LiteRunNodeKind, LiteToolType } from './executionMonitor'
+import { classifyToolType } from './executionMonitor'
+import type { LiteToolType } from './executionMonitor'
 
 /** 工具类型 → 本源图标（与树视图 workflowVisuals.ts 的 lucide 家族一致）。 */
 const TOOL_TYPE_ICONS: Readonly<Record<LiteToolType, IconInput>> = {
@@ -30,25 +21,13 @@ const TOOL_TYPE_ICONS: Readonly<Record<LiteToolType, IconInput>> = {
   other: Wrench,
 }
 
-/** 非工具节点类型 → 本源图标（cluster 中间节点也含模型响应、委派、系统事件等）。 */
-const NODE_KIND_ICONS: Readonly<Record<LiteRunNodeKind, IconInput>> = {
-  user: UserRound,
-  'root-agent': Sparkles,
-  'child-agent': Sparkles,
-  tool: Wrench,
-  return: CornerDownLeft,
-  dispatch: Forward,
-  spawn: GitFork,
-  system: CircleDashed,
+/** 单个工具调用 → 本源图标（按该工具的类型分类）。 */
+export function toolCallIcon(name: string): IconInput {
+  return TOOL_TYPE_ICONS[classifyToolType(name)] ?? Wrench
 }
 
-/** cluster 小按钮当前应显示的图标：工具节点始终按工具类型取本源图标，其余按节点类型。 */
-export function clusterNodeIcon(
-  node: Pick<LiteRunNode, 'kind' | 'toolType'>,
-): IconInput {
-  return (
-    (node.kind === 'tool' ? TOOL_TYPE_ICONS[node.toolType ?? 'other'] : undefined) ??
-    NODE_KIND_ICONS[node.kind] ??
-    Wrench
-  )
-}
+/** 思考/正文标记图标：静止用 brain，运行中由视图层切换为 brain-cog。 */
+export const THINKING_ICONS = {
+  idle: Brain,
+  active: BrainCog,
+} as const
