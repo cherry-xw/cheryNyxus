@@ -30,15 +30,6 @@ const freeTextOption = computed(
     props.answer.kind === 'answered' &&
     Boolean(props.answer.freeText),
 )
-
-/** 已答直接汇总：勾选选项 + 「其他」自由文本（若有）。 */
-const answerSummary = computed(() => {
-  if (props.answer.kind !== 'answered') return ''
-  const labels = props.answer.labels.join('、')
-  const free = props.answer.freeText
-  if (!labels && !free) return ''
-  return [labels, free ? `其他：${free}` : ''].filter(Boolean).join('；')
-})
 </script>
 
 <template>
@@ -48,16 +39,6 @@ const answerSummary = computed(() => {
       <small>{{ args.multiSelect ? '多选' : '单选' }}</small>
     </div>
     <p class="question-text">{{ args.question }}</p>
-    <!-- 提问说明（大模型写的数据）：为什么需要你决定 / 决定后会发生什么 -->
-    <div v-if="args.rationale || args.nextStep" class="question-context">
-      <p v-if="args.rationale"><strong>为什么需要你决定</strong>{{ args.rationale }}</p>
-      <p v-if="args.nextStep"><strong>决定后会发生什么</strong>{{ args.nextStep }}</p>
-    </div>
-    <!-- 已答：直接显示用户勾选选项（无需在选项列表中找勾选态） -->
-    <p v-if="answer.kind === 'answered' && answerSummary" class="question-answer-summary">
-      <strong>已选择</strong>
-      <span>{{ answerSummary }}</span>
-    </p>
     <div
       class="question-options"
       role="list"
@@ -153,49 +134,6 @@ const answerSummary = computed(() => {
   font-size: var(--popover-content-font);
 }
 // 提问说明（大模型写的数据）：弱化展示在问题下方。
-.question-context {
-  display: grid;
-  gap: 3px;
-  margin: 0;
-  padding: 6px 8px;
-  border-left: 2px solid color-mix(in srgb, var(--nx-purple) 45%, transparent);
-  background: color-mix(in srgb, var(--nx-purple) 6%, transparent);
-
-  p {
-    margin: 0;
-    color: var(--nx-text-dim);
-    font-size: var(--popover-content-font);
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  strong {
-    display: block;
-    color: var(--nx-purple);
-    font-weight: 600;
-  }
-}
-// 已答直接汇总：勾选选项醒目展示。
-.question-answer-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin: 0;
-  padding: 5px 8px;
-  border: 1px solid color-mix(in srgb, var(--nx-purple) 42%, transparent);
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--nx-purple) 8%, transparent);
-  color: var(--nx-purple);
-  font-size: var(--popover-content-font);
-  line-height: 1.4;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-
-  strong {
-    flex: 0 0 auto;
-    font-weight: 600;
-  }
-}
 .question-options {
   display: grid;
   gap: 5px;

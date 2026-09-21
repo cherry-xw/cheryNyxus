@@ -50,15 +50,11 @@ function forwardTree(
     <header class="workbench-attention-head">
       <span>
         <BellFilled aria-hidden="true" />
-        <strong aria-live="polite">{{ others ? '其他流程' : '等待审批与回答' }} · {{ count }} 项</strong>
-        <small>{{ others ? '其他流程需要你的确认或回答' : '待处理审批与提问' }}</small>
+        <strong aria-live="polite"
+          >{{ others ? '其他流程' : '等待审批与回答' }} · {{ count }} 项</strong
+        >
       </span>
-      <div
-        v-if="batchTotal > 1"
-        class="attention-pager"
-        role="group"
-        aria-label="切换批次"
-      >
+      <div v-if="batchTotal > 1" class="attention-pager" role="group" aria-label="切换批次">
         <button
           type="button"
           aria-label="上一批次"

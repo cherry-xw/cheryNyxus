@@ -31,12 +31,11 @@ const activeItem = computed(() => props.items[props.activeIndex] ?? null)
 
 <style scoped lang="less">
 // 单卡展示：切换批次时只淡入淡出，避免位移抖动。
+// 卡片不加边框：外层浮窗已有一圈边框，卡片再套框线会形成双重框线；
+// 恢复失败状态由卡片头部「恢复失败」文字与底部「重试并接受」按钮提示，不再用边框强调。
 .deck-card.is-active {
   border-radius: 0;
-  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
-}
-.deck-card.is-active.is-blocked {
-  border-color: #e59a35;
+  border: 0;
 }
 .deck-enter-active,
 .deck-leave-active {
