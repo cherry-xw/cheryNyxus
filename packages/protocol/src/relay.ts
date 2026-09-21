@@ -79,6 +79,11 @@ export interface RelayAccepted {
   }
 }
 
+export interface RelayTunnelAddresses {
+  httpLocalAddr: string
+  websocketLocalAddr: string
+}
+
 export interface RelayHeartbeat {
   type: 'heartbeat'
   leaseId: string

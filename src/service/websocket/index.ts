@@ -77,13 +77,16 @@ interface WebSocketServerConfig {
   allowedOrigins?: readonly string[]
   /** Cookie-session authentication used for intranet OAuth2 deployments. */
   auth?: OAuth2Auth
+  /** Local keeps loopback compatibility; remote is always authenticated. */
+  listener?: 'local' | 'remote'
 }
 
 /**
  * 创建 WebSocket 服务器
  */
 export function createWebSocketServer(config: WebSocketServerConfig): WebSocketServer {
-  const { port, router, host, authToken, allowedOrigins = [], auth } = config
+  const { port, router, host, authToken, allowedOrigins = [], auth, listener = 'local' } = config
+  const allowLoopback = listener === 'local'
   const wss = new WebSocketServer({
     port,
     ...(host ? { host } : {}),
@@ -99,7 +102,8 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
               return
             }
             if (auth?.enabled) {
-              if (!auth.getUser(info.req)) done(false, 401, 'WebSocket authentication required')
+              if (!auth.getUser(info.req, { allowLoopback }))
+                done(false, 401, 'WebSocket authentication required')
               else done(true)
               return
             }

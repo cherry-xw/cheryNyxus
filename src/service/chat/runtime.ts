@@ -129,6 +129,21 @@ export function hasRunningChats(): boolean {
   )
 }
 
+/** Non-sensitive runtime summary for the local manager status file. */
+export function getAgentRuntimeStats(): {
+  initializedChats: number
+  runningChats: number
+  activeRuns: number
+} {
+  let runningChats = 0
+  let activeRuns = 0
+  for (const runtime of chatRuntimes.values()) {
+    if (runtime.builder.isRunning()) runningChats += 1
+    if (runtime.activeRunId) activeRuns += 1
+  }
+  return { initializedChats: chatRuntimes.size, runningChats, activeRuns }
+}
+
 /** 获取当前活跃运行，用于 queued send 回包与带条件的 chat.abort。 */
 export function getActiveChatRunId(chatId: string): string | undefined {
   return chatRuntimes.get(chatId)?.activeRunId

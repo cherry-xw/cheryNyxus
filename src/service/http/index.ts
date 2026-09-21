@@ -43,6 +43,10 @@ export interface CreateHttpServerOptions {
   sessionToken?: string
   host?: string
   auth?: OAuth2Auth
+  /** Local keeps the existing loopback behavior; remote is tunnel-only. */
+  listener?: 'local' | 'remote'
+  /** The paired WebSocket port for local discovery. */
+  wsPort?: number | (() => number)
 }
 
 /**
@@ -59,6 +63,8 @@ export function createHttpServer({
   sessionToken,
   host = '127.0.0.1',
   auth,
+  listener = 'local',
+  wsPort,
 }: CreateHttpServerOptions) {
   // 静态目录解析：未提供 → null（不挂文件 handler，所有非 API 路径返回 JSON 404 提示）
   const root = staticDir ? resolve(staticDir) : null
@@ -69,7 +75,7 @@ export function createHttpServer({
   }
 
   const server = createServer((req, res) => {
-    handleRequest(req, res, root, sessionToken, auth).catch((err) => {
+    handleRequest(req, res, root, sessionToken, auth, listener, wsPort).catch((err) => {
       logger.info(`HTTP 错误: ${(err as Error).message}`)
       if (!res.headersSent) {
         res.writeHead(500)
@@ -104,16 +110,22 @@ async function handleRequest(
   root: string | null,
   sessionToken?: string,
   auth?: OAuth2Auth,
+  listener: 'local' | 'remote' = 'local',
+  wsPort?: number | (() => number),
 ): Promise<void> {
   const url = req.url ?? '/'
+  const authOptions =
+    listener === 'remote'
+      ? { allowLoopback: false, trustForwardedPrefix: true }
+      : { allowLoopback: true, trustForwardedPrefix: false }
 
   // Auth endpoints and the SPA shell remain public so the client can render a
   // login overlay. The control-plane bootstrap is never issued anonymously.
-  if (auth && (await auth.handle(req, res))) return
+  if (auth && (await auth.handle(req, res, authOptions))) return
   if (
-    auth?.enabled &&
+    (listener === 'remote' || auth?.enabled) &&
     (url === '/api/config' || url.startsWith('/api/config?')) &&
-    !auth.getUser(req)
+    !auth?.getUser(req, authOptions)
   ) {
     res.writeHead(401, {
       'Content-Type': 'application/json; charset=utf-8',
@@ -125,9 +137,12 @@ async function handleRequest(
 
   const isMediaRequest = url.startsWith('/api/media/')
   if (isMediaRequest) {
-    const authorized = auth?.enabled
-      ? !!auth.getUser(req)
-      : !!sessionToken && req.headers['x-chery-session-token'] === sessionToken
+    const authorized =
+      listener === 'remote'
+        ? !!auth?.getUser(req, authOptions)
+        : auth?.enabled
+          ? !!auth.getUser(req, authOptions)
+          : !!sessionToken && req.headers['x-chery-session-token'] === sessionToken
     if (!authorized) {
       res.writeHead(401)
       res.end('Unauthorized')
@@ -166,9 +181,12 @@ async function handleRequest(
   // POST /api/skills/import —— ZIP 上传导入（raw bytes，鉴权同 media）→ stage 候选 + 冲突
   // 协议规范见 docs/shared/protocol/websocket.md；两阶段：前端拿到 stagingId+candidates 后用 skills.commit 落盘。
   if (url === '/api/skills/import' && req.method === 'POST') {
-    const authorized = auth?.enabled
-      ? !!auth.getUser(req)
-      : !!sessionToken && req.headers['x-chery-session-token'] === sessionToken
+    const authorized =
+      listener === 'remote'
+        ? !!auth?.getUser(req, authOptions)
+        : auth?.enabled
+          ? !!auth.getUser(req, authOptions)
+          : !!sessionToken && req.headers['x-chery-session-token'] === sessionToken
     if (!authorized) {
       res.writeHead(401)
       res.end('Unauthorized')
@@ -220,14 +238,38 @@ async function handleRequest(
       roles: p.roles ?? [],
       ...(p.shadows ? { shadows: p.shadows } : {}),
     }))
+    const remote = listener === 'remote'
+    const requestHost = req.headers.host ?? '127.0.0.1'
+    const wsHost = formatHost(new URL(`http://${requestHost}`).hostname)
+    const forwardedProto =
+      String(req.headers['x-forwarded-proto'] ?? 'http')
+        .split(',')[0]
+        ?.trim() || 'http'
+    const discovery = remote
+      ? {
+          remote: true,
+          transport: config.server.transport,
+          httpPath: '/api',
+          wsPath: '/ws',
+          ...(String(req.headers['x-forwarded-prefix'] ?? '').trim()
+            ? { publicBasePath: String(req.headers['x-forwarded-prefix']).split(',')[0]?.trim() }
+            : {}),
+        }
+      : {
+          wsPort: typeof wsPort === 'function' ? wsPort() : (wsPort ?? config.server.port),
+          webPort: config.server.webPort,
+          transport: config.server.transport,
+          httpBaseUrl: `${forwardedProto}://${requestHost}`,
+          wsUrl: `${forwardedProto === 'https' ? 'wss' : 'ws'}://${wsHost}:${typeof wsPort === 'function' ? wsPort() : (wsPort ?? config.server.port)}`,
+          httpPath: '/api',
+          wsPath: '/ws',
+        }
     res.end(
       JSON.stringify({
-        wsPort: config.server.port,
-        webPort: config.server.webPort,
-        transport: config.server.transport,
+        ...discovery,
         // Legacy local capability is not issued when OAuth2 is enabled: the
         // WebSocket authenticates with the HttpOnly browser session instead.
-        ...(sessionToken && !auth?.enabled ? { sessionToken } : {}),
+        ...(sessionToken && !auth?.enabled && !remote ? { sessionToken } : {}),
         senseGroups: senseGroupsList,
         presets: presetsList,
         ...(defaultCfg ? { default: defaultCfg } : {}),
@@ -282,4 +324,8 @@ async function handleRequest(
       path: url,
     }),
   )
+}
+
+function formatHost(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
 }

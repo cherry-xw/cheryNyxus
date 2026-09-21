@@ -48,6 +48,7 @@ export class BackendRegistry {
     }
     const leaseId = randomBytes(18).toString('base64url')
     const opaque = randomBytes(18).toString('base64url')
+    const token = randomBytes(32).toString('base64url')
     const leaseExpiresAt = Date.now() + this.config.leaseTtlMs
     this.active.set(input.identity.backendId, {
       ...input,
@@ -65,7 +66,7 @@ export class BackendRegistry {
       tunnel: {
         httpService: `http-${opaque}`,
         websocketService: `ws-${opaque}`,
-        token: randomBytes(32).toString('base64url'),
+        token,
       },
     }
   }
