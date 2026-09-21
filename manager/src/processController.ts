@@ -21,6 +21,11 @@ export class ProcessController {
     return [...this.states.values()].map((state) => ({ ...state }))
   }
 
+  /** 该进程是否由管理器作为子进程拉起（否则视为外部启动，无法由管理器重启）。 */
+  isManaged(name: ManagedProcessName): boolean {
+    return this.children.has(name)
+  }
+
   start(name: ManagedProcessName, command: string, args: string[], env?: NodeJS.ProcessEnv): ManagedProcessState {
     if (this.children.get(name)) return this.states.get(name)!
     const child = spawn(command, args, {

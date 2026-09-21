@@ -30,7 +30,7 @@ export async function runManagerCli(argv: string[]): Promise<boolean> {
 
 function printHelp(): void {
   process.stdout.write(
-    `CheryNyxus 本地管理器\n\n命令：\n  （无参数）           启动 127.0.0.1:39980 管理器\n  info                 显示连接发现信息\n  status               显示管理器、后端和 rathole 状态\n  restart [backend|rathole]  重启指定进程（需要 CHERY_MANAGER_TOKEN）\n  service install      安装当前平台的本地服务入口\n  service uninstall    卸载当前平台的本地服务入口\n  help                 显示帮助\n\n环境变量：\n  CHERY_MANAGER_HOST   监听地址（默认 127.0.0.1；0.0.0.0 或内网 IP 开放内网访问）\n  CHERY_MANAGER_TOKEN  管理控制密钥（未设置时启动自动生成，见启动日志 URL）\n  CHERY_DIR            后端运行目录\n`,
+    `CheryNyxus 本地管理器\n\n命令：\n  （无参数）           启动 127.0.0.1:39980 管理器\n  info                 显示连接发现信息\n  status               显示管理器、后端和 rathole 状态\n  restart [backend|rathole]  重启指定进程（需要 CHERY_MANAGER_TOKEN）\n  service install      安装当前平台的本地服务入口\n  service uninstall    卸载当前平台的本地服务入口\n  help                 显示帮助\n\n环境变量：\n  CHERY_MANAGER_HOST   监听地址（默认 127.0.0.1；0.0.0.0 或内网 IP 开放内网访问；\n                      也可在 .chery/config.yaml 的 manager.host 配置，环境变量优先）\n  CHERY_MANAGER_TOKEN  管理控制密钥（未设置时启动自动生成，见启动日志 URL）\n  CHERY_DIR            后端运行目录\n`,
   )
 }
 

@@ -118,9 +118,8 @@ function isRecord(value: unknown): value is Record<string, any> {
 }
 
 function randomPassword(): string {
-  return [randomBytes(9), randomBytes(9), randomBytes(9)]
-    .map((part) => part.toString('base64url'))
-    .join('-')
+  // 12 随机字节 → 16 位 base64url（96 位熵）：足够强，且比旧版 3×9 字节（35 字符）短得多、便于复制。
+  return randomBytes(12).toString('base64url')
 }
 
 async function writeProtectedJson(file: string, value: StoredCredentials): Promise<void> {
