@@ -1,8 +1,6 @@
-import { join, dirname } from 'node:path'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } from 'electron'
-import { ensureEnvSeed } from '../../scripts/lib/chery-template-sync.mjs'
 // 桌面单窗：pet / nyxus 两独立浮窗体系（FloatingWindow / 漂移 / teleport / surface:* IPC）已废弃，见 docs/frontend/electron.md「2026-08 单窗合并」。
 // 全屏覆盖检测：外部全屏视频 / 游戏出现时隐藏 desktop 窗（koffi + user32，失败降级不阻塞）。
 import { startFullscreenGuard } from './fullscreenGuard'
@@ -111,206 +109,12 @@ interface ManagedWindow {
   restoreWindowKeyOnHide?: string
 }
 
-const WS_PORT = Number(process.env.WS_PORT ?? 8182)
-const WEB_PORT = Number(process.env.WEB_PORT ?? 8183)
-
-/** 后端 /api/config 拉取超时（ms）：worker 重启瞬间端口可能短暂不可用，超时让调用方快速重试而非挂死。 */
-const CONFIG_FETCH_TIMEOUT_MS = 5000
-
-/** 后端配置契约：与 /api/config 返回对齐。sessionToken 随 worker 重启轮换，IPC 刷新用。 */
-interface BackendConfig {
-  wsPort: number
-  webPort: number
-  transport: 'binary' | 'json'
-  sessionToken?: string
-}
-
-let backend: ChildProcess | null = null
 /** 桌面单窗（全工作区透明覆盖，pet/Nyxus 同窗渲染）。 */
 let desktopWin: BrowserWindow | null = null
 /** 全部受管原生窗（settings + 每 preset 一工作台窗）。 */
 const managedWindows = new Map<string, ManagedWindow>()
 let tray: Tray | null = null
 let isQuitting = false
-let serverConfig: BackendConfig | null = null
-/** `getRuntimeRoot()` 解析结果缓存（启动后固定）。 */
-let runtimeRoot: string | null = null
-
-/**
- * 后端 bundle 路径：
- * - 开发期（electron .）：app.getAppPath() = web/，../dist = <root>/dist
- * - 打包后：extraResources dist/ → resources/dist，app.getAppPath() = resources/app，../dist = resources/dist
- */
-function getBackendBundle(): string {
-  return join(app.getAppPath(), '..', 'dist', 'index.js')
-}
-
-/** Development root or packaged `resources/`, both of which carry the immutable seed assets. */
-function getTemplateAssetsRoot(): string {
-  return join(app.getAppPath(), '..')
-}
-
-/**
- * node 可执行文件：打包后优先 extraResources 内的 node；否则系统 PATH 的 node。
- *
- * 路径模式：
- * - 打包后：resources/node/node[.exe]（electron-builder.yml extraResources 把 build/node/ 整目录打入）
- * - 开发期：系统 PATH 的 node
- *
- * 用系统 node 跑后端 bundle（node + index.js），better-sqlite3 用系统 Node ABI，
- * 与后端 build 时一致 —— 避免 ELECTRON_RUN_AS_NODE（Electron 内嵌 node ABI）的跨 ABI 问题。
- * 发行版通过 scripts/electron-pack.mjs 下载匹配的 Node 22 LTS 二进制到 build/node/。
- */
-function getNodeExecutable(): string {
-  const ext = process.platform === 'win32' ? '.exe' : ''
-  const bundled = join(app.getAppPath(), '..', 'node', 'node' + ext)
-  if (existsSync(bundled)) return bundled
-  return 'node'
-}
-
-/**
- * 解析用户运行时配置根目录（`CHERY_DIR` 的父目录，即 `.env` 与 `.chery/` 所在目录）：
- *
- * - 打包后：安装包只携带 resources 下的不可变模板，运行时默认根为
- *   `dirname(process.execPath)`；主进程补缺失 `.env`，guardian 初始化/升级 `.chery/`；
- *   `.env` 中 `CHERY_DIR` 非空时改用其值（便于跨平台部署）。
- * - 开发期：默认项目根 `<repo>/`（含 `.chery/`），`CHERY_DIR` env 优先。
- *
- * 返回值缓存：启动后固定，后端子进程与启动日志共用。
- */
-function getRuntimeRoot(): string {
-  if (runtimeRoot) return runtimeRoot
-  if (!app.isPackaged) {
-    runtimeRoot = process.env.CHERY_DIR ?? join(app.getAppPath(), '..')
-  } else {
-    runtimeRoot = process.env.CHERY_DIR || dirname(process.execPath)
-  }
-  return runtimeRoot
-}
-
-/**
- * 从 `getRuntimeRoot()/.env` 加载环境变量到 `process.env`。
- *
- * 加载规则：
- * - 跳过空行和 `#` 注释
- * - 空值（如 `CHERY_DIR=`）**不灌进 `process.env`**——保留默认推断行为
- * - 已存在的 `process.env` 变量**不覆盖**——OS env 优先级最高
- *
- * 注意：模板位于 resources，运行时 `.env` 位于 `getRuntimeRoot()`；调用方会先尝试
- * 只补缺失文件。模板缺失或创建失败时仍允许继续，并在这里静默跳过加载。
- */
-function loadEnvFile(): void {
-  const envPath = join(getRuntimeRoot(), '.env')
-  if (!existsSync(envPath)) {
-    console.log(`[setup] no .env at ${envPath}, skipping env load`)
-    return
-  }
-
-  const content = readFileSync(envPath, 'utf8')
-  let loadedCount = 0
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eqIdx = trimmed.indexOf('=')
-    if (eqIdx <= 0) continue
-    const key = trimmed.slice(0, eqIdx).trim()
-    const value = trimmed
-      .slice(eqIdx + 1)
-      .trim()
-      .replace(/^["']|["']$/g, '')
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue
-    if (!value) continue // 空值：保留默认推断（不灌进 process.env）
-    if (key in process.env) continue // 不覆盖已有（OS env 优先）
-    process.env[key] = value
-    loadedCount++
-  }
-  console.log(`[setup] loaded ${loadedCount} env var(s) from ${envPath}`)
-}
-
-/**
- * 启动后端子进程：系统 node + 后端 SSR bundle（node + index.js）。
- *
- * - `CHERY_DIR`：来自 `process.env.CHERY_DIR`（`.env` 灌入）或 `getRuntimeRoot()`
- * - `DB_DIR`：打包后落 `app.getPath('userData')/.chery/db`（可写，NSIS 默认 Program Files
- *   也能写）；开发期沿用 `CHERY_DIR/.chery/db`
- */
-function startBackend(): ChildProcess {
-  // 先创建缺失的 .env，再加载它；已有文件和用户密钥永不覆盖。
-  try {
-    const envSeed = ensureEnvSeed({
-      envExamplePath: join(getTemplateAssetsRoot(), '.env.example'),
-      runtimeRoot: getRuntimeRoot(),
-    })
-    if (envSeed.warning) console.warn(`[setup] ${envSeed.warning}`)
-    else console.log(`[setup] .env ${envSeed.created ? 'created' : 'already exists, preserved'}`)
-  } catch (error) {
-    console.warn(`[setup] .env initialization failed; continuing: ${(error as Error).message}`)
-  }
-
-  // 加载 .env（必须在最终 CHERY_DIR 计算之前，因为 .env 可能覆盖 CHERY_DIR）
-  loadEnvFile()
-
-  // 重新解析 runtimeRoot（CHERY_DIR 可能被 .env 改了）
-  runtimeRoot = null
-  const cheryDir = getRuntimeRoot()
-
-  const env: NodeJS.ProcessEnv = { ...process.env, CHERY_DIR: cheryDir }
-  // 清理 shell 可能注入的 ELECTRON_RUN_AS_NODE（系统 node 不认，但避免污染）
-  delete env.ELECTRON_RUN_AS_NODE
-  if (app.isPackaged) {
-    env.DB_DIR = join(app.getPath('userData'), '.chery', 'db')
-  }
-
-  const child = spawn(getNodeExecutable(), [getBackendBundle()], {
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    // Windows: main 是 GUI 进程无控制台，缺省 spawn 控制台子进程会闪 cmd 窗
-    windowsHide: true,
-  })
-  child.stdout?.on('data', (d) => process.stdout.write(`[backend] ${d}`))
-  child.stderr?.on('data', (d) => process.stderr.write(`[backend] ${d}`))
-  child.on('exit', (code) => {
-    console.log(`[backend] exited with ${code}`)
-  })
-  return child
-}
-
-/**
- * 从后端拉取最新配置（含轮换后的 sessionToken）。带 5s 超时 + Cache-Control: no-store，
- * worker 重启瞬间端口不可用时快速 reject，调用方（waitForBackend / IPC 刷新）各自重试。
- */
-async function fetchBackendConfig(): Promise<BackendConfig> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), CONFIG_FETCH_TIMEOUT_MS)
-  try {
-    const res = await fetch(`http://localhost:${WEB_PORT}/api/config`, {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-    if (!res.ok) throw new Error(`/api/config ${res.status}`)
-    return (await res.json()) as BackendConfig
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-/**
- * 轮询 /api/config 等后端就绪，顺带取端口配置。
- */
-async function waitForBackend(timeoutMs = 30000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    try {
-      serverConfig = await fetchBackendConfig()
-      return
-    } catch {
-      // 后端尚未就绪
-    }
-    await new Promise((r) => setTimeout(r, 500))
-  }
-  throw new Error(`后端启动超时（${timeoutMs}ms）`)
-}
-
 /** 加载渲染入口。params 拼接为 query（dev 用 searchParams，prod 用 loadFile search）。 */
 function loadRenderer(win: BrowserWindow, params: Record<string, string> = {}): void {
   const rendererParams = { ...params, graphicsMode }
@@ -913,11 +717,6 @@ app.whenReady().then(async () => {
     if (!isTrustedRenderer(event.sender)) return
     broadcast('auth:changed', data, event.sender)
   })
-
-  // 启动日志：让用户在 console / 日志文件里能找到 .env 和 .chery 的真实路径
-  console.log(`[setup] runtime root: ${getRuntimeRoot()}`)
-  console.log(`[setup] .chery path: ${join(getRuntimeRoot(), '.chery')}`)
-  console.log(`[setup] .env path: ${join(getRuntimeRoot(), '.env')}`)
 
   try {
     // Electron is a frontend shell only. A local backend is selected through

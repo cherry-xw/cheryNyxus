@@ -1,5 +1,11 @@
 import { httpUrl } from './platform'
 
+function joinRelayBase(base: string, path: string): string {
+  const prefix = base.replace(/\/$/, '')
+  const suffix = path.startsWith('/') ? path : `/${path}`
+  return `${prefix}${suffix}`
+}
+
 export interface RelayBackendSummary {
   backendId: string
   displayName: string
@@ -15,13 +21,16 @@ export interface RelayDiscovery extends RelayBackendSummary {
 }
 
 export async function listRelayBackends(base = ''): Promise<RelayBackendSummary[]> {
-  const response = await fetch(`${base}/api/backends`, { credentials: 'include', cache: 'no-store' })
+  const response = await fetch(joinRelayBase(base, '/api/backends'), {
+    credentials: 'include',
+    cache: 'no-store',
+  })
   if (!response.ok) throw new Error(`获取后端列表失败：${response.status}`)
   return ((await response.json()) as { backends?: RelayBackendSummary[] }).backends ?? []
 }
 
 export async function discoverRelayBackend(backendId: string, base = ''): Promise<RelayDiscovery> {
-  const response = await fetch(`${base}/api/backends/${encodeURIComponent(backendId)}`, {
+  const response = await fetch(joinRelayBase(base, `/api/backends/${encodeURIComponent(backendId)}`), {
     credentials: 'include',
     cache: 'no-store',
   })
@@ -30,7 +39,7 @@ export async function discoverRelayBackend(backendId: string, base = ''): Promis
 }
 
 export async function bindRelayBackend(backendId: string, base = ''): Promise<RelayDiscovery> {
-  const response = await fetch(`${base}/api/session/backend`, {
+  const response = await fetch(joinRelayBase(base, '/api/session/backend'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -41,7 +50,7 @@ export async function bindRelayBackend(backendId: string, base = ''): Promise<Re
 }
 
 export async function unbindRelayBackend(base = ''): Promise<void> {
-  const response = await fetch(`${base}/api/session/backend`, {
+  const response = await fetch(joinRelayBase(base, '/api/session/backend'), {
     method: 'DELETE',
     credentials: 'include',
   })

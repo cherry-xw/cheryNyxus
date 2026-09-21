@@ -11,7 +11,7 @@ const runtimeNode =
     ? resolve(process.argv[nodeFlag + 1])
     : join(root, 'build', 'node', process.platform === 'win32' ? 'node.exe' : 'node')
 if (!existsSync(runtimeNode))
-  throw new Error('请先准备随安装包分发的 Node：node scripts/electron-pack.mjs node')
+  throw new Error('请先准备独立运行时提供的 Node；Electron 前端打包不会调用此脚本')
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', ...options })
@@ -20,7 +20,7 @@ function run(command, args, options = {}) {
   return result.stdout
 }
 
-// Query package-manager metadata; do not inspect or rewrite dependency source.
+// This optional runtime belongs to the separate terminal distribution, not the Electron shell.
 const installed = JSON.parse(
   run('pnpm', ['list', 'ssh2', 'node-pty', '--json', '--depth', '0'], {
     shell: process.platform === 'win32',
@@ -49,7 +49,6 @@ const env = { ...process.env }
 const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
 env[pathKey] = dirname(runtimeNode) + delimiter + (env[pathKey] ?? '')
 const npmOptions = { cwd: runtime, env, shell: process.platform === 'win32', stdio: 'inherit' }
-// ssh2's native accelerators are optional; node-pty must prepare its native PTY.
 run(
   'npm',
   ['install', '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund'],

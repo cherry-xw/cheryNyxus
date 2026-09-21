@@ -18,7 +18,7 @@
  *   - https://npmmirror.com/mirrors/electron-builder-binaries/
  *   - https://npmmirror.com/mirrors/electron/
  *
- * 与 scripts/electron-pack.mjs 一致（统一默认值来源），确保
+ * 与 scripts/pack-electron.mjs 一致（统一默认值来源），确保
  * `pnpm --filter web dist` 与 `pnpm pack:electron` 行为一致。
  *
  * 用法：所有 CLI flag 直接转发，与 `electron-builder` 相同。
@@ -49,8 +49,6 @@ applyProxyEnv(config);
 // 否则回退到 .bin shim（带 shell:true 让 PATHEXT 处理）。
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(__dirname, "..");
-const terminalRuntime = spawnSync(process.execPath, [resolve(webRoot, "../scripts/prepare-terminal-runtime.mjs")], { stdio: "inherit" });
-if (terminalRuntime.status !== 0) process.exit(terminalRuntime.status ?? 1);
 const cliJsCandidates = [
   join(webRoot, "node_modules", "electron-builder", "cli.js"),
 ];

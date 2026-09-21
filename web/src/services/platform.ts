@@ -15,7 +15,6 @@
  * 详细：[docs/frontend/env.md](../../../docs/frontend/env.md)
  */
 
-import { hostOf } from '@/domain/auth/serverAddress'
 import type { DesktopBridge } from '@/domain/shell/desktopBridge'
 import { serviceAuth } from './authContext'
 
@@ -29,6 +28,8 @@ export interface ServerConfig {
   backendId?: string
   httpBasePath?: string
   wsPath?: string
+  httpBaseUrl?: string
+  wsUrl?: string
 }
 
 declare global {
@@ -58,6 +59,26 @@ export const isElectron: boolean =
  * 且无日志。超时 reject → ws.ts `reconnect()` catch → 2s 后重试直到 worker 就绪。
  */
 const CONFIG_FETCH_TIMEOUT_MS = 5000
+let managedBackendHttpBase = ''
+
+export function clearManagedBackendDiscovery(): void {
+  managedBackendHttpBase = ''
+}
+
+async function ensureManagedBackendHttpBase(): Promise<string> {
+  if (managedBackendHttpBase) return managedBackendHttpBase
+  const response = await fetch('http://127.0.0.1:39980/api/connection', {
+    cache: 'no-store',
+  })
+  if (!response.ok) throw new Error(`获取本地管理器连接信息失败：${response.status}`)
+  const body = (await response.json()) as {
+    backendListener?: { addresses?: { local?: { httpPort?: number } } }
+  }
+  const port = body.backendListener?.addresses?.local?.httpPort
+  if (!port || !Number.isSafeInteger(port) || port <= 0) throw new Error('本地后端尚未监听 HTTP 端口')
+  managedBackendHttpBase = `http://127.0.0.1:${port}`
+  return managedBackendHttpBase
+}
 
 /** 拉取后端配置（带超时 + 鉴权头，Cache-Control: no-store）。 */
 async function fetchConfig(path: string): Promise<Response> {
@@ -88,8 +109,11 @@ async function fetchConfig(path: string): Promise<Response> {
  */
 export function httpUrl(path: string): string {
   const auth = serviceAuth()
-  if (auth.isRemote()) return `${auth.baseUrl()}${path}`
-  const base = typeof window !== 'undefined' ? (window.__BACKEND_HTTP_URL__ ?? '') : ''
+  if (auth.isRemote()) return `${auth.baseUrl().replace(/\/$/, '')}${path}`
+  const base =
+    typeof window !== 'undefined'
+      ? (window.__BACKEND_HTTP_URL__ ?? managedBackendHttpBase)
+      : ''
   return `${base}${path}`
 }
 
@@ -103,16 +127,25 @@ export function httpUrl(path: string): string {
 export function wsUrl(cfg: ServerConfig): string {
   const auth = serviceAuth()
   if (auth.isRemote()) {
+    if (cfg.wsUrl) return cfg.wsUrl
     if (cfg.wsPath) {
-      const base = auth.baseUrl()
-      const scheme = base.startsWith('https:') ? 'wss' : 'ws'
-      return `${scheme}://${hostOf(base)}${cfg.wsPath}`
+      const base = new URL(auth.baseUrl())
+      const scheme = base.protocol === 'https:' ? 'wss:' : 'ws:'
+      const prefix = base.pathname.replace(/\/$/, '')
+      return `${scheme}//${base.host}${prefix}${cfg.wsPath.startsWith('/') ? cfg.wsPath : `/${cfg.wsPath}`}`
     }
-    const base = auth.baseUrl()
-    const scheme = base.startsWith('https:') ? 'wss' : 'ws'
-    return `${scheme}://${hostOf(base)}:${cfg.wsPort}`
+    const base = new URL(auth.baseUrl())
+    const scheme = base.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${scheme}//${base.host}:${cfg.wsPort}`
   }
-  // Electron：直连 wsPort
+  // /api/config 返回的完整地址包含实际监听端口和转发后的主机；优先消费它，
+  // 这样动态端口和本地反向代理不会被下面的兼容分支覆盖。
+  if (cfg.wsUrl) return cfg.wsUrl
+  if (isElectron && cfg.httpBaseUrl) {
+    const scheme = cfg.httpBaseUrl.startsWith('https:') ? 'wss' : 'ws'
+    return `${scheme}://${new URL(cfg.httpBaseUrl).host}:${cfg.wsPort}`
+  }
+  // Electron 旧版 preload 快照：直连 wsPort
   if (window.__BACKEND_CONFIG__) {
     return `ws://localhost:${cfg.wsPort}`
   }
@@ -166,6 +199,8 @@ export async function getServerConfig(options: { refresh?: boolean } = {}): Prom
     }
     return window.__BACKEND_CONFIG__
   }
+  if (options.refresh) clearManagedBackendDiscovery()
+  if (isElectron && !window.__BACKEND_HTTP_URL__) await ensureManagedBackendHttpBase()
   const res = await fetchConfig(httpUrl('/api/config'))
   if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`)
   return (await res.json()) as ServerConfig
