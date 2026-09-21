@@ -53,6 +53,7 @@ export function createTestSense(
   exec: (input: Record<string, unknown>, sd: SenseSharedData) => Promise<SenseResult>,
   level: SupervisionLevel = SupervisionLevel.auto,
   schema: ZodType = z.record(z.unknown()),
+  capabilities?: import('@/core/sense/senseCreator.js').SenseCapabilities,
 ): Sense<ZodType> {
   return sense(
     name,
@@ -60,10 +61,11 @@ export function createTestSense(
     schema as unknown as z.ZodObject<z.ZodRawShape>,
     exec as (input: unknown, sd: SenseSharedData) => Promise<SenseResult>,
     level,
+    capabilities,
   );
 }
 
-/** 摊平 senses 为 senseTable（监管等级 + 执行器 + schema），对齐 runtimeResolver.buildSenseTable */
+/** 摊平 senses 为 senseTable（监管等级 + 执行器 + schema + capabilities），对齐 runtimeResolver.buildSenseTable */
 export function buildSenseTable(senses: Sense<ZodType>[]): Map<string, SenseEntry> {
   const table = new Map<string, SenseEntry>();
   for (const s of senses) {
@@ -77,6 +79,8 @@ export function buildSenseTable(senses: Sense<ZodType>[]): Map<string, SenseEntr
         ),
       // 透传 schema（对齐 runtimeResolver：senseMiddleware 执行前 safeParse 拦截缺参调用）
       schema: s.executor.schema,
+      // 透传工具能力声明（前置调度 / 发送门控判断用）
+      ...(s.capabilities ? { capabilities: s.capabilities } : {}),
     });
   }
   return table;

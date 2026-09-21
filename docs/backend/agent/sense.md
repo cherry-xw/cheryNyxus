@@ -38,7 +38,7 @@
 
 > ⚠ sense **函数名**（首参数）才是注册 key，与文件名无关。bash.ts → "execute_command"、skill.ts → "skill"。
 
-三个 `generate_*` sense 统一调用 `media.<kind>` 网关，将其返回的 base64 资产保存至 `.chery/media/` 并返回受控读取 URL。它们虽在 registry 中注册，但仅当前 brain 的 `capabilities.generate.<kind>=true` 才会被 RuntimeResolver 注入模型。详见 [../model-capabilities.md](model-capabilities.md)。
+三个 `generate_*` sense 统一调用 `media.<kind>` 网关，将其返回的 base64 资产保存至 `.chery/media/` 并返回受控读取 URL。它们声明 `capabilities.produces=[kind]`（`generate_image` 另声明 `accepts:['image']` 支持参考图），只要被感官组配置即注入模型——**不再受大脑 `capabilities.generate.*` 双门限制**（该标记仅作兼容期保留，不拦截注入）。详见 [../model-capabilities.md](model-capabilities.md)。
 
 ### 监管等级（[core/config.ts](../../../src/core/config.ts)）
 
@@ -292,6 +292,35 @@ chatId → (pid → BashProcessRecord)
 4. 在 `config.yaml` 的 `sense_groups` 中引用。
 
 > 编译细节见 [core/sense/compiler](../../../src/core/sense/compiler/)。
+
+### 工具能力声明（Sense 第 6 参）
+
+`sense()` 工厂第 6 个可选参数 `capabilities` 声明工具能力，供发送门控、前置调度与生成注入判断：
+
+```ts
+export default sense(
+  "external_image_generate",
+  "调用外部图片服务生成图片",
+  z.object({ prompt: z.string(), images: z.array(z.object({ filename: z.string() })) }),
+  async (input) => { /* 出入参翻译 + 落盘 /api/media/ */ return { content }; },
+  SupervisionLevel.smart,
+  {
+    accepts: ["image"],   // 接收：媒体类型 image/video/audio 或文件后缀 doc/docx/pdf…
+    produces: ["image"],  // 产出：媒体类型或 text
+    preprocess: false,    // 是否前置执行（缺省 false = 普通后置工具）
+    batchSize: 3,         // 每批最多处理几个媒体项（缺省 = 一次性全量）
+  },
+);
+```
+
+语义与生效点：
+
+| 字段 | 生效点 |
+|---|---|
+| `accepts` | 前置调度（`preprocess=true` 时按媒体类型/后缀匹配）、发送门控（该类型可上传）、工具能力声明透传 `sense.tools` |
+| `produces` | 生成注入判断（感官组配置即注入，替代大脑 `generate.*` 双门）、`sense.tools` 透传 |
+| `preprocess` | 非多模态模型下，`[[media:]]` 引用在发请求前交给该工具执行，结果替换进消息（不持久化、失败跳过+提示） |
+| `batchSize` | 仅影响工具内部实现（分批调用外部接口）；调度层永远全量传入，工具内部自行分批/合并/管理并发 |
 
 ### Sense 实现要点
 

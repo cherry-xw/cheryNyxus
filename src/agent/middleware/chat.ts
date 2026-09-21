@@ -477,8 +477,123 @@ async function enrichMediaInputs(
     return enrichMediaInputsMultimodal(brain, history)
   }
 
+  // 非多模态模型：先尝试前置工具调度——扫描 [[media:]] 引用，把命中 accepts+preprocess
+  // 工具的媒体类型交给工具执行，结果替换进消息（理解类媒体在无原生能力模型下的处理路径）。
+  // 有工具命中的 kind 才介入；否则回退旧路径（媒体网关 understand 文本转写）。
+  const preprocessed = await enrichMediaInputsPreprocess(ctx, history)
+  if (preprocessed.handled) {
+    return {
+      history: preprocessed.history,
+      ...(preprocessed.capabilitiesHint ? { capabilitiesHint: preprocessed.capabilitiesHint } : {}),
+    }
+  }
+
   // 旧路径：marker 文本转写（只处理最后一条 user 消息，保持既有行为）
   return enrichMediaInputsLegacy(ctx, history)
+}
+
+/**
+ * 前置工具调度：非多模态模型下，把最后一条 user 消息里的 [[media:]] 引用交给
+ * capabilities.preprocess=true 且 accepts 命中媒体类型的工具执行，结果替换进消息。
+ *
+ * - 输入契约：工具的 schema 必须接受 `{ text, media: [{filename,mimeType,kind,size}] }`；
+ *   text = 剥离媒体标记后的描述文字，media = 媒体项数组（工具内部按 batchSize 分批处理）。
+ * - 输出契约：工具返回 `SenseResult.content`，替换对应 marker（同 kind 的多个 marker 共享一次
+ *   调用，合并为一个结果段；未命中的 kind 保留原 marker 并收集进 capabilitiesHint 供委派建议）。
+ * - 失败语义：工具执行抛错 → marker 替换为「[媒体附件处理失败，已跳过]」，不阻断整轮发送。
+ * - 不持久化：仅替换本轮内存 history，不改写 DB 原始消息。
+ * - 前置默认自动执行：用户已明确上传文件，不进入 smart 审批流。
+ * - 无任何命中返回 handled=false，供上层回退旧路径（媒体网关 understand）。
+ */
+async function enrichMediaInputsPreprocess(
+  ctx: MiddlewareContext,
+  history: LLMResponse[],
+): Promise<{ handled: boolean; history: LLMResponse[]; capabilitiesHint?: string }> {
+  const last = history[history.length - 1]
+  if (!last || last.role !== 'user') return { handled: false, history }
+  const matches = [...last.content.matchAll(/\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/gi)]
+  if (!matches.length) return { handled: false, history }
+
+  const senseTable = ctx.runtime?.senseTable
+  const brain = ctx.runtime?.brain
+  if (!senseTable || senseTable.size === 0 || !brain) return { handled: false, history }
+
+  // 1) 解析每个 marker：读资产 → kind；按 kind 分组
+  type MarkerRef = {
+    marker: string
+    filename: string
+    kind: MediaKind
+    mimeType: string
+    size: number
+  }
+  const byKind = new Map<MediaKind, MarkerRef[]>()
+  for (const match of matches) {
+    const filename = match[1]!
+    const asset = await readMediaAsset(filename)
+    if (!asset) continue
+    const kind = mediaKindForMime(asset.mimeType)
+    if (!kind) continue
+    const list = byKind.get(kind) ?? []
+    list.push({
+      marker: match[0],
+      filename,
+      kind,
+      mimeType: asset.mimeType,
+      size: asset.data.byteLength,
+    })
+    byKind.set(kind, list)
+  }
+  if (byKind.size === 0) return { handled: false, history }
+
+  // 2) 每个 kind 找一个匹配的前置工具（preprocess=true && accepts 包含该 kind）
+  type ToolRef = { name: string; entry: import('@/core/middleware/types.js').SenseEntry }
+  const toolByKind = new Map<MediaKind, ToolRef>()
+  for (const kind of byKind.keys()) {
+    for (const [name, entry] of senseTable) {
+      const caps = entry.capabilities
+      if (caps?.preprocess && caps.accepts?.includes(kind)) {
+        toolByKind.set(kind, { name, entry })
+        break
+      }
+    }
+  }
+  if (toolByKind.size === 0) return { handled: false, history }
+
+  // 3) 对每个有工具匹配的 kind 执行一次调用，产出替换该 kind 全部 marker
+  const text = last.content.replace(/\[\[media:[a-f0-9-]+\.[a-z0-9]+\]\]/gi, '').trim()
+  const unsupportedMedia: { filename: string; kind: MediaKind }[] = []
+  let replaced = last.content
+  for (const [kind, { entry }] of toolByKind) {
+    const refs = byKind.get(kind) ?? []
+    const media = refs.map((r) => ({
+      filename: r.filename,
+      mimeType: r.mimeType,
+      kind: r.kind,
+      size: r.size,
+    }))
+    try {
+      const result = await entry.execute(
+        { text, media },
+        new Map<string, Map<string, unknown>>(),
+        { chatId: ctx.soul.chatId },
+      )
+      const output = `[${kind} 附件前置处理结果]\n${result.content}`
+      for (const r of refs) replaced = replaced.replace(r.marker, output)
+    } catch {
+      for (const r of refs) replaced = replaced.replace(r.marker, '[媒体附件处理失败，已跳过]')
+    }
+  }
+  for (const [kind, refs] of byKind) {
+    if (toolByKind.has(kind)) continue
+    for (const r of refs) unsupportedMedia.push({ filename: r.filename, kind })
+  }
+
+  const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia)
+  return {
+    handled: true,
+    history: [...history.slice(0, -1), { ...last, content: replaced }],
+    ...(capabilitiesHint ? { capabilitiesHint } : {}),
+  }
 }
 
 /** 近几轮带图 user 消息内的图片全程重发（其余转占位）。 */

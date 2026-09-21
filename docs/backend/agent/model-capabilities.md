@@ -47,7 +47,7 @@ media:
 - runtime 使用空 `senseGroup`、空 `mcpServers`，`RuntimeResolver` 生成空 `builtSenses/senseTable`；provider 不发送 `tools` 参数。
 - 设置页切换角色 brain 时会清空并禁用感官/MCP；会话发送弹窗临时切换到无工具 brain 时同样清空工具选择。切回支持工具的 brain 后才可再次选择感官组。
 
-`generate_image`、`generate_video`、`generate_audio` 是内置 sense，但只会在当前 brain 的 `generate.*` 对应标记为真时注入 LLM schema；全部按 `smart` 监管级别执行（敏感操作，规则表判定为需确认）。
+`generate_image`、`generate_video`、`generate_audio` 是内置 sense，各自声明 `capabilities.produces`（生成类型）与 `accepts`（图生图参考图）。**注入不再受大脑 `capabilities.generate.*` 双门限制**：感官组配置了对应工具即注入；`generate.*` 标记仅作兼容期保留（config 校验仍要求其与 Tool Call 兼容），不再作为注入门。全部按 `smart` 监管级别执行（敏感操作，规则表判定为需确认）。
 
 ## 媒体资产与输入理解
 
@@ -69,7 +69,8 @@ media:
 | 脑声明 | 行为 | provider 调用 |
 |---|---|---|
 | `input.*` 任一为 true | 多模态旁路：解析**全历史** `[[media:]]` 标记 → 近 3 轮用户消息的图片全程重发（压缩版，挂回原消息位置）→ 更早图片转一行文字占位；超上限（总数≤10/单轮≤5/字节≤16MB）按「新→旧」保留最新、最旧转占位 → 临时 `attachments` 数组（仅脑支持的 kind，每项带 `messageId` 归属） | openai adapter `buildMessages` 据 `messageId` 把附件只挂到对应消息，产对应 content part：image→`image_url`、video→`video_url`、audio→`input_audio`（均为 data URI base64） |
-| `input.*` 全 false 或缺省 | 旧路径：仅最后一条 user 消息，媒体网关 `understand` → 文本理解结果拼到 `last.content` | 文本消息，仅 `[{type:"text",text:"... [媒体附件理解结果]..."}]` |
+| `input.*` 全 false 或缺省，且有前置工具 | 前置调度：扫描最后一条 user 消息的 `[[media:]]` 引用 → 按 kind 匹配感官组中 `capabilities.preprocess=true` 且 `accepts` 命中该 kind 的工具 → 执行（输入 `{text, media[]}`，工具内部按 `batchSize` 分批）→ 产出替换进消息；执行失败替换为「[媒体附件处理失败，已跳过]」；未命中 kind 收集进 `<self-capabilities>` 委派建议 | 文本消息（工具产出的理解/转换结果已替换 marker） |
+| `input.*` 全 false 或缺省，且无前置工具 | 旧路径：仅最后一条 user 消息，媒体网关 `understand` → 文本理解结果拼到 `last.content` | 文本消息，仅 `[{type:"text",text:"... [媒体附件理解结果]..."}]` |
 
 约束：
 
@@ -106,7 +107,7 @@ media:
 ## 验收要点
 
 1. `toolCall:false` 的角色无法保存 sense/MCP；临时换到该模型后请求不携带 `tools`。
-2. 生成 sense 仅在 Tool Call 和对应 `generate.*` 均开启时出现。
-3. 上传不支持的 MIME、超出限制的文件或当前模型不支持的类别均被拒绝或提示。
-4. 已启用的媒体输入会先请求网关 `understand`，其返回文本进入该轮模型上下文。
+2. 生成 sense 只要感官组配置即注入（不再依赖大脑 `generate.*` 标记）。
+3. 上传不支持的 MIME、超出限制的文件或当前模型不支持的类别均被拒绝或提示；感官组工具 `accepts` 命中某媒体类型时该类型可上传（由工具前置处理）。
+4. 已启用的媒体输入会先请求网关 `understand`，其返回文本进入该轮模型上下文；若感官组配置了 `preprocess` 工具则优先走前置调度。
 5. 媒体服务生成结果可通过受控 `/api/media/:filename` 读取。

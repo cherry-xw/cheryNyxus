@@ -9,6 +9,7 @@
 | [工作台文件引用与 Terminal](workbench-files-terminal/README.md) | 待综合验证 | 三种工作台模式统一输入、工作区文件列表与只读查看、文件引用执行、本机与 SSH Terminal |
 | [独立后端与中转网关](relay-gateway/README.md) | 执行中 | 独立后端、rathole 中转、Pocket ID 与密码双认证、动态端口、本地管理器、Electron 前端化和子路径部署 |
 | [MiniMax 多模态图片能力对接](minimax-multimodal/README.md) | 规划中 | MiniMax 图片理解/生成接入：上传、展示、对话携带、多轮上下文保留与回溯的完整链路 |
+| [媒体外部服务化与工具能力声明](media-external-service/README.md) | 实现完成 | 多媒体并入自定义工具机制（外部服务）：工具能力声明 accepts/produces/preprocess/batchSize、生成类从大脑双门解放、理解类前置执行、密钥 env 解耦、CherryNexus 自动生成 |
 | [预设与角色 Tab 合并](presets-roles-merge/README.md) | 执行中 | 设置中心合并「预设」与「角色」为单一 Tab：外层预设列表 + 内层该预设角色工作台；阶段一只做前端，结构变更为后续任务 |
 
 ## 使用规则

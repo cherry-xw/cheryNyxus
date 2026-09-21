@@ -433,12 +433,18 @@ export interface BrainListResponse {
   mcpServers: string[]
 }
 
-/** sense.tools 响应单项：内置工具元信息（name=原名/key，label=中文名/显示，description=解释/tooltip，icon=glyph/emoji 供 pet bar 运行中工具显示）。 */
+/** sense.tools 响应单项：内置工具元信息（name=原名/key，label=中文名/显示，description=解释/tooltip，icon=glyph/emoji 供 pet bar 运行中工具显示；accepts/produces/preprocess 为工具能力声明）。 */
 export interface SenseToolInfo {
   name: string
   label: string
   description: string
   icon: string
+  /** 接收的媒体类型（image/video/audio）或文件后缀（doc/docx/pdf…）；供发送门控判断。 */
+  accepts?: string[]
+  /** 产出的媒体类型（image/video/audio）或 text */
+  produces?: string[]
+  /** 是否前置执行（缺省 false = 普通后置工具） */
+  preprocess?: boolean
 }
 
 /** sense.tools.docs 响应单项：内置工具完整说明文档（【作用】【能力】【边界】【注意】分节，换行分隔，hover 展示）。 */

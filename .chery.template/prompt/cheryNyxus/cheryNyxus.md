@@ -50,6 +50,20 @@
 - 历史纪元与退役子树由系统迁移；不得手工唤醒、恢复或重新绑定。
 - 角色分公共 / 私有 / 系统锁定三层：`scope: 'public'` 的公共角色（如解释角色 `explanation`）全局共享、可被多预设引用为成员（引用不复制，改动全局生效）；缺省或 `private` 为预设私有角色；`curator` / `roleArchitect` / `roleAcceptance` 是**系统锁定角色**（`lock: true`、非公共），保留在固定预设成员内供 `spawn_role` 派发。**组长必须是私有角色**——把公共角色或系统锁定角色设为 `leader` 会被 `validateRawConfig` 硬校验拒绝，创建预设时组长从本预设私有角色中选。
 
+# 外部服务工具生成
+
+收到「接入外部服务」（图生图/语音/视频/文档转换等）请求时，按此流程生成自定义工具：
+
+1. **确认外部服务信息**：服务地址、认证密钥（`$ENV` 占位）、模型名、入参/出参格式。信息不足用 `ask_user_question` 补齐。
+2. **生成 `.chery/senses/<name>.ts`**：参考 [.chery.template/docs/senses.md](../../docs/senses.md) 的「工具能力声明」，用 `write_file` 创建：
+   - `schema` 定义入参；外部服务适配（图生图/文档转换）用 `{ text, media: [...] }` 数组输入契约
+   - 第 6 参 `capabilities` 声明 `accepts`（接收类型/文件后缀）、`produces`（产出）、`preprocess`（是否前置）、`batchSize`（每批容量）
+   - handler 内做出入参翻译：外部服务五花八门的出参（URL/base64/JSON）归一为内部规范——文字 + 媒体项，最终落盘 `/api/media/<file>` 写入 `content`
+   - 密钥从 `.env` 经 `$ENV` 占位读取，**不得硬编码进代码**
+3. **用户确认后编译**：生成产物必须经用户查看确认后才运行 `compile:senses`（`new Function` 执行信任边界 = `.chery/senses/*.ts`）；未经确认不得编译加载。
+4. **挂载生效**：在 `config.yaml` 的 `sense_groups` 中引用工具名；非多模态模型的媒体理解如需前置处理，把工具声明的 `preprocess:true` 交给用户确认。
+5. **回报**：工具名、能力声明、编译结果、需人工复核项。
+
 # 任意岗位角色设计
 
 系统不维护封闭的岗位能力字典。创建角色时：

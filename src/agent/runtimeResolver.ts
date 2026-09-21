@@ -204,7 +204,6 @@ export class RuntimeResolver {
       adapters.senseAdapter,
       selection.senseGroup,
       selection.mcpServers,
-      brain.capabilities?.generate,
       opts?.injectMemoryManage ?? true,
       opts?.chatId,
     )
@@ -281,7 +280,6 @@ export class RuntimeResolver {
     senseAdapter: SenseAdapter<unknown>,
     senseGroup: string,
     mcpServers: string[],
-    generateCapabilities?: { image?: boolean; video?: boolean; audio?: boolean },
     injectMemoryManage = true,
     chatId?: string,
   ): { builtSenses: SenseFunction[]; senseTable: Map<string, SenseEntry> } {
@@ -302,9 +300,6 @@ export class RuntimeResolver {
         )
       )
         continue
-      const mediaKind = senseName.match(/^generate_(image|video|audio)$/)?.[1] as
-        'image' | 'video' | 'audio' | undefined
-      if (mediaKind && !generateCapabilities?.[mediaKind]) continue
       let original = getSense(senseName)
       if (!original) {
         throw new Error(`感官 "${senseName}" 不存在，请在设置里检查`)
@@ -392,6 +387,8 @@ export class RuntimeResolver {
           s.executor.execute(args as Parameters<typeof s.executor.execute>[0], sharedData, ctx),
         // 透传 schema 供 senseMiddleware 执行前 safeParse（运行时校验拦截缺参调用）
         schema: s.executor.schema,
+        // 透传工具能力声明（前置调度 / 发送门控 / 生成注入判断用）
+        ...(s.capabilities ? { capabilities: s.capabilities } : {}),
       })
       bindMcpExecutor(s.executor, senseTable.get(name)!)
     }

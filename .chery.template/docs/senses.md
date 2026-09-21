@@ -16,6 +16,7 @@
 2. **默认导出**（`export default`）一个 `sense(...)` 调用
 3. **文件名 = Sense 名**（去掉 `.ts`），与 `sense()` 第一个参数一致
 4. **可声明监管等级**：作为 `sense()` 第 5 个参数；优先级低于 `config.yaml sense_groups` 的 `:level` 后缀
+5. **可声明工具能力**：作为 `sense()` 第 6 个参数 `capabilities`（见下「工具能力声明」），用于发送门控、前置调度与生成注入判断
 
 ## sense() 函数签名
 
@@ -26,6 +27,7 @@ sense(
   schema: z.ZodType,                       // zod schema，定义 input 参数结构
   handler: async (input) => SenseResult,   // 实际执行逻辑
   supervision?: SupervisionLevel,         // 可选：监管等级（auto / smart / manual）
+  capabilities?: SenseCapabilities,       // 可选：工具能力声明（见下）
 ): SenseDefinition
 ```
 
@@ -106,6 +108,41 @@ sense_groups:
     - other_sense             # 用 echo_text 感官内置或 global.supervision
 ```
 
+## 工具能力声明（第 6 参 capabilities）
+
+工具自己声明「接收什么、产出什么、是否前置执行、每批容量」：
+
+```ts
+export default sense(
+  "external_image_service",
+  "调用外部图片服务生成/处理图片",
+  z.object({ text: z.string(), images: z.array(z.object({ filename: z.string() })) }),
+  async (input) => {
+    // 出入参翻译：调外部 API → 内部规范出参 → 落盘 /api/media/<file> → content 写 URL
+    return { content: "/api/media/<生成的图>", hash: "" };
+  },
+  SupervisionLevel.smart,
+  {
+    accepts: ["image"],   // 接收：媒体类型 image/video/audio 或文件后缀 doc/docx/pdf…
+    produces: ["image"],  // 产出：媒体类型或 text
+    preprocess: false,    // 是否前置执行（缺省 false = 普通后置工具）
+    batchSize: 3,         // 每批最多处理几个媒体项（缺省 = 一次性全量）
+  },
+);
+```
+
+| 字段 | 类型 | 含义 | 生效点 |
+|------|------|------|--------|
+| `accepts` | `string[]` | 接收的媒体类型（image/video/audio）或文件后缀（doc/docx/pdf…） | 前置调度匹配（preprocess=true 时）、发送门控（该类型可上传） |
+| `produces` | `string[]` | 产出的媒体类型（image/video/audio）或 text | 生成注入判断（感官组配置即注入）、`sense.tools` 透传 |
+| `preprocess` | `boolean` | 是否前置执行（缺省 false） | true 时在发请求前执行，把 `[[media:]]` 引用处理结果替换进消息（理解类媒体在非多模态模型下的路径） |
+| `batchSize` | `number` | 每批最多处理几个媒体项（缺省不限） | 仅影响工具内部实现；调度层永远全量传入，工具内部自行分批/合并/管理并发 |
+
+**前置工具输入契约**（`preprocess:true` 时）：`schema` 必须是 `{ text, media: [{filename, mimeType, kind, size}] }` 结构——
+`text` = 剥离媒体标记后的描述文字，`media` = 媒体项数组。执行失败替换为「[媒体附件处理失败，已跳过]」，不阻断整轮发送。
+
+**内部规范出参**：不管外部服务返回 URL、base64 还是 JSON 数组，工具负责翻译成统一形态——文字说明 + 媒体项数组，最终落盘为受控本地资产 `/api/media/<file>` 写入 `content`。渲染层只认 `/api/media/` 规范，不感知外部多样性。
+
 ## 字段参考表
 
 | 文件元素 | 类型 | 必填 | 说明 |
@@ -115,6 +152,7 @@ sense_groups:
 | `sense.schema` | z.ZodType | ✅ | input 参数 schema；用 `.describe()` 标注字段语义 |
 | `sense.handler` | async fn | ✅ | `(input) => { content, hash? }` |
 | `sense.supervision` | enum | ❌ | `auto` / `smart` / `manual`；缺省走 `global.supervision`。`smart` 档的安全/敏感判定规则外置 `.chery/rule/`（见下「smart 监管规则表」） |
+| `sense.capabilities` | object | ❌ | 工具能力声明：`accepts`/`produces`/`preprocess`/`batchSize`（见上「工具能力声明」） |
 | `@test` 注解 | array | ❌ | 自测用例；失败则 Sense 不注册 |
 
 ## 注意事项
