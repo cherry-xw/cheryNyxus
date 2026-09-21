@@ -242,6 +242,8 @@ export function useWorkbenchTerminal(chatId: () => string) {
     const id = sessionId
     sessionId = ''
     status.value = 'exited'
+    // 主动断开：屏幕残留旧会话内容，写一行断开标记让界面明确显示已断开。
+    terminal?.writeln('\r\n[已断开连接]')
     if (id) {
       try {
         await agentApi.closeTerminal(id)

@@ -11,7 +11,15 @@ function clear(): void {
   terminalRef.value?.clear()
 }
 
-defineExpose({ clear })
+function connect(): void {
+  void terminalRef.value?.connect()
+}
+
+function disconnect(): void {
+  void terminalRef.value?.disconnect()
+}
+
+defineExpose({ clear, connect, disconnect })
 </script>
 
 <template>
@@ -20,6 +28,7 @@ defineExpose({ clear })
     :chat-id="`terminal:${props.presetId}`"
     :initial-preset-id="props.presetId"
     auto-connect
+    title-reconnect
     @meta="emit('meta', $event)"
   />
 </template>

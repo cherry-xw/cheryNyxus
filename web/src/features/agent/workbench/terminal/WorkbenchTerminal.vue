@@ -10,7 +10,13 @@ export interface TerminalHeaderMeta {
   status: 'idle' | 'connecting' | 'connected' | 'exited'
 }
 
-const props = defineProps<{ chatId: string; initialPresetId?: string; autoConnect?: boolean }>()
+const props = defineProps<{
+  chatId: string
+  initialPresetId?: string
+  autoConnect?: boolean
+  /** 独立终端窗（标题栏负责连接/断开/重连）时不渲染面板内「选择连接预设」表单。 */
+  titleReconnect?: boolean
+}>()
 const emit = defineEmits<{ title: [value: string]; meta: [value: TerminalHeaderMeta] }>()
 const agents = useAgentsStore()
 const {
@@ -23,6 +29,7 @@ const {
   canConnect,
   applyPreset,
   connect,
+  disconnect,
   clear,
 } = useWorkbenchTerminal(() => props.chatId)
 
@@ -56,12 +63,16 @@ function openSettings(): void {
   agents.settingsOpen = true
 }
 
-defineExpose({ clear })
+defineExpose({ clear, connect, disconnect })
 </script>
 
 <template>
   <section class="terminal-panel" aria-label="Terminal">
-    <form v-if="status !== 'connected' && status !== 'connecting'" class="terminal-connect" @submit.prevent="connect">
+    <form
+      v-if="!titleReconnect && status !== 'connected' && status !== 'connecting'"
+      class="terminal-connect"
+      @submit.prevent="connect"
+    >
       <div class="terminal-connect-card">
         <div class="terminal-connect-title">选择连接预设</div>
         <p v-if="!presets.length" class="terminal-help">还没有可用预设，请先到设置页面保存一个连接。</p>
