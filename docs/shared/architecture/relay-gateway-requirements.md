@@ -166,7 +166,7 @@ http://127.0.0.1:39980
 - 展示 Agent 数量等基础运行统计；
 - 提供复制连接信息和配置的操作。
 
-39980 只绑定 loopback，不经过 nginx 或 rathole。后端停止后管理页面仍应可访问，以便用户重新启动后端。
+39980 默认只绑定 loopback，不经过 nginx 或 rathole；设置环境变量 `CHERY_MANAGER_HOST`（如 `0.0.0.0`）可开放内网访问，内网访问必须携带启动日志 URL 上的管理密钥（URL `?token=` 或 `X-Chery-Manager-Token` 请求头），本机回环只读访问仍免密钥。后端停止后管理页面仍应可访问，以便用户重新启动后端。
 
 Linux 使用 systemd 注册和管理；Windows 使用无控制台窗口的托盘启动器。托盘启动器点击后调用系统浏览器打开 39980，不使用 Electron 窗口承载管理页。
 

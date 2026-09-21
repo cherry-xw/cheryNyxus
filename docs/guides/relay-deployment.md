@@ -23,7 +23,7 @@ pnpm exec vite build --config manager/vite.config.ts
 CHERY_MANAGER_TOKEN='another-local-secret' node manager/dist/index.js
 ```
 
-管理器只绑定 `127.0.0.1:39980`。启动、停止和重启接口还要求 `X-Chery-Manager-Token`。Linux unit 模板见 [`deploy/systemd/cherynyxus-manager.service`](../../deploy/systemd/cherynyxus-manager.service)，构建后可用 `node manager/dist/index.js service install` 安装用户级 systemd 服务；卸载使用同一命令的 `service uninstall`。Windows 使用 `node manager/dist/index.js service install`，实际入口是 [`deploy/windows/service.ps1`](../../deploy/windows/service.ps1) 和 [`deploy/windows/tray-manager.ps1`](../../deploy/windows/tray-manager.ps1)。托盘和 systemd 的真实机器行为留到 H。
+管理器默认只绑定 `127.0.0.1:39980`；设置 `CHERY_MANAGER_HOST`（如 `0.0.0.0`）可开放内网访问，访问需携带启动日志 URL 上的管理密钥（URL `?token=` 或 `X-Chery-Manager-Token` 请求头），未设置 `CHERY_MANAGER_TOKEN` 时密钥自动生成。启动、停止和重启接口始终要求管理密钥。Linux unit 模板见 [`deploy/systemd/cherynyxus-manager.service`](../../deploy/systemd/cherynyxus-manager.service)，构建后可用 `node manager/dist/index.js service install` 安装用户级 systemd 服务；卸载使用同一命令的 `service uninstall`。Windows 使用 `node manager/dist/index.js service install`，实际入口是 [`deploy/windows/service.ps1`](../../deploy/windows/service.ps1) 和 [`deploy/windows/tray-manager.ps1`](../../deploy/windows/tray-manager.ps1)。托盘和 systemd 的真实机器行为留到 H。
 
 ## Rathole
 
