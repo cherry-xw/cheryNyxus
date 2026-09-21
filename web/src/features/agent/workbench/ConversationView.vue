@@ -13,13 +13,17 @@
  *    匹配 pending 提问批，选项点选 + 补充 + 提交走 interactions.answer）；打开时刷新一次
  *    interactions store，确保列表内提问可交互（后续由 interaction.changed 事件实时更新）
  */
-import { nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
-import { Top } from '@element-plus/icons-vue'
+import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
+import { Plus, Top } from '@element-plus/icons-vue'
+import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
+import type { UploadFile } from 'element-plus'
 import HistoryDrawerPanel from '../drawer/HistoryDrawerPanel.vue'
 import { useChatSessionsStore, useInteractionsStore } from '@/application/public'
 import type { ConversationBranchSummary } from '@/application/backend/public'
 import { useInstructionSuggestions } from '../composer/useInstructionSuggestions'
 import InstructionSuggestions from '../composer/InstructionSuggestions.vue'
+import MediaThumbStrip from '../composer/media/MediaThumbStrip.vue'
+import type { MediaAttachment, MediaKind } from '../composer/useAgentDialogOptions'
 import { splitCommandPrompt } from '../composables/commands'
 
 const props = defineProps<{
@@ -35,8 +39,11 @@ const props = defineProps<{
   /** 树端选中的分支目标（发送时创建分支；仅提示 + 可丢弃，不动草稿） */
   branchActive: boolean
   branchTitle: string
-  /** 草稿携带的附件数（随消息一并发送；附件管理在树 composer） */
-  mediaCount: number
+  /** 草稿携带的附件（附件状态/逻辑在工作台 controller，本视图仅展示 + 透传事件） */
+  mediaAttachments: MediaAttachment[]
+  mediaServicesByType: Record<MediaKind, string | null>
+  /** 附件上传/移除的瞬时反馈（上传中、已附加、错误） */
+  mediaHint: string
 }>()
 
 const emit = defineEmits<{
@@ -44,7 +51,22 @@ const emit = defineEmits<{
   send: []
   draftInput: [value: string]
   dropBranch: []
+  mediaSelected: [file: UploadFile]
+  removeMedia: [attachment: MediaAttachment]
+  toggleMediaVariant: [attachment: MediaAttachment]
 }>()
+
+const mediaKinds = [
+  { kind: 'image', label: '图片' },
+  { kind: 'video', label: '视频' },
+  { kind: 'audio', label: '音频' },
+] as const
+const mediaDisabledReason = computed(() => {
+  if (props.branchActive) return '分支暂不支持附件'
+  if (props.sending) return '消息正在发送'
+  if (props.uploading) return '附件正在上传'
+  return ''
+})
 
 const chatSessions = useChatSessionsStore()
 const interactions = useInteractionsStore()
@@ -203,9 +225,6 @@ onMounted(() => {
             </button>
           </el-tooltip>
         </span>
-        <span v-if="mediaCount > 0" class="conversation-chip is-media">
-          📎 {{ mediaCount }} 个附件随消息发送（附件管理在树视图输入框）
-        </span>
       </div>
       <div
         v-if="splitCommandPrompt(text).some((segment) => segment.type === 'file')"
@@ -221,28 +240,96 @@ onMounted(() => {
           >&amp;{{ segment.value }}</span
         >
       </div>
-      <!-- 顶部行：提示信息居左 + 「展开输入框」按钮居右（同一行对齐）；下行：输入框 + 发送按钮。 -->
+      <div v-if="mediaHint" class="conversation-media-hint" role="status">
+        {{ mediaHint }}
+      </div>
+      <!-- 顶部行：左侧小缩略图 + 提示信息（选图后提示被顶到右侧）；右侧「+」选媒体 + 展开输入框按钮。 -->
       <div class="conversation-input-top">
-        <div class="conversation-input-hint">
-          <kbd>/</kbd> 指令　<kbd>@</kbd> 角色　<kbd>&amp;</kbd> 文件引用　· 输入后从候选窗口选择
+        <div class="conversation-media-group">
+          <MediaThumbStrip
+            :attachments="mediaAttachments"
+            @remove="(a) => emit('removeMedia', a)"
+            @toggle="(a) => emit('toggleMediaVariant', a)"
+          />
+          <div class="conversation-input-hint">/ 指令 · @ 角色 · &amp; 文件引用</div>
         </div>
-        <el-tooltip
-          :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
-          placement="top"
-          :show-after="150"
-          :hide-after="0"
-        >
-          <button
-            type="button"
-            class="conversation-expand-btn"
-            :class="{ 'is-expanded': expandedInput }"
-            :aria-pressed="expandedInput"
-            :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
-            @click="toggleExpandInput"
+        <div class="conversation-input-actions">
+          <ElPopover
+            trigger="click"
+            placement="top-end"
+            :width="160"
+            popper-class="add-media-popper"
+            popper-style="padding: 4px;"
           >
-            <Top class="conversation-expand-icon" aria-hidden="true" />
-          </button>
-        </el-tooltip>
+            <template #reference>
+              <ElTooltip
+                :content="mediaDisabledReason || '添加媒体'"
+                popper-class="label-tip-popper"
+              >
+                <span>
+                  <button
+                    type="button"
+                    class="conversation-add-media-btn"
+                    :disabled="!!mediaDisabledReason"
+                    aria-label="添加媒体附件"
+                  >
+                    <Plus width="16" height="16" />
+                  </button>
+                </span>
+              </ElTooltip>
+            </template>
+            <div class="add-media-menu" @click.stop>
+              <ElTooltip
+                v-for="item in mediaKinds"
+                :key="item.kind"
+                :content="
+                  mediaDisabledReason ||
+                  (mediaServicesByType[item.kind]
+                    ? item.label
+                    : `当前大脑及媒体服务均不支持${item.label}`)
+                "
+                popper-class="label-tip-popper"
+              >
+                <span>
+                  <ElUpload
+                    :auto-upload="false"
+                    :show-file-list="false"
+                    :accept="`${item.kind}/*`"
+                    :disabled="!!mediaDisabledReason || !mediaServicesByType[item.kind]"
+                    :on-change="(file: UploadFile) => emit('mediaSelected', file)"
+                    class="add-media-upload"
+                  >
+                    <div class="add-media-item">
+                      <span>{{ item.label }}</span
+                      ><span
+                        class="media-svc-tag"
+                        :class="{ missing: !mediaServicesByType[item.kind] }"
+                        >{{ mediaServicesByType[item.kind] || '不可用' }}</span
+                      >
+                    </div>
+                  </ElUpload>
+                </span>
+              </ElTooltip>
+            </div>
+          </ElPopover>
+          <el-tooltip
+            :content="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+            placement="top"
+            :show-after="150"
+            :hide-after="0"
+          >
+            <button
+              type="button"
+              class="conversation-expand-btn"
+              :class="{ 'is-expanded': expandedInput }"
+              :aria-pressed="expandedInput"
+              :aria-label="expandedInput ? '收起输入框' : '展开输入框（最高半屏）'"
+              @click="toggleExpandInput"
+            >
+              <Top class="conversation-expand-icon" aria-hidden="true" />
+            </button>
+          </el-tooltip>
+        </div>
       </div>
       <div class="conversation-input-row" :class="{ 'is-expanded': expandedInput }">
         <textarea
@@ -315,7 +402,7 @@ onMounted(() => {
 .conversation-input-row {
   position: relative;
 }
-// 顶部行：提示信息居左 + 「展开输入框」按钮居右，同一行垂直居中对齐；
+// 顶部行：左侧小缩略图 + 提示信息（选图后提示被顶到右侧），右侧「+」选媒体 + 展开按钮；
 // 最小高度取展开按钮同高（24px），按钮隐藏/显示时提示行高度不跳动。
 .conversation-input-top {
   display: flex;
@@ -324,9 +411,61 @@ onMounted(() => {
   gap: 8px;
   min-height: 24px;
 }
+.conversation-media-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+.conversation-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
 .conversation-input-hint {
+  flex: none;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+/* 附件上传/移除的瞬时反馈（上传中、已附加、错误）：与树 composer 的 media-hint-row 同款强调色淡底。 */
+.conversation-media-hint {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1.4;
+}
+/* 「+」选媒体按钮：与展开按钮同尺寸的幽灵小按钮（位于展开按钮左侧）。 */
+.conversation-add-media-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--accent);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
 }
 .conversation-reference-preview {
   display: flex;
@@ -603,7 +742,6 @@ onMounted(() => {
   :deep(.q-badge),
   :deep(.q-text),
   :deep(.q-option),
-  :deep(.q-option-copy small),
   :deep(.q-note-tag),
   :deep(.q-note-input),
   :deep(.q-batch-hint),
@@ -612,6 +750,24 @@ onMounted(() => {
   :deep(.q-other-answer p),
   :deep(.q-fallback) {
     font-size: 14px !important;
+  }
+
+  // 提问卡片选项描述：不跟随 14px 统一字号，保持 12px 且显式不加粗（弱于选项标题）。
+  :deep(.q-option-copy small) {
+    font-size: 12px !important;
+    font-weight: 400 !important;
+  }
+  // 提问说明区（为什么需要你决定 / 决定后会发生什么）在对话模式不展示。
+  :deep(.q-context) {
+    display: none !important;
+  }
+  // 提问卡片放宽：对话模式气泡空间充足，去掉 420px 宽度上限，填满气泡可用宽度。
+  :deep(.question-renderer) {
+    max-width: 100% !important;
+  }
+  // 已答汇总行（已选择 xxx）：下方选项已有勾选态展示，对话模式不再重复显示。
+  :deep(.q-answer-summary) {
+    display: none !important;
   }
 
   // markdown 富文本内容

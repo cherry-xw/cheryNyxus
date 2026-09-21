@@ -1,8 +1,18 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { UploadFile } from 'element-plus'
+import { httpUrl } from '@/application/platform/public'
 import { useAgentsStore, useChatSessionsStore, useConfigApplyStore } from '@/application/public'
 import { wsClient } from '@/application/transport/public'
+import {
+  compressImage,
+  COMPRESS_MAX_EDGE,
+  COMPRESS_QUALITY,
+  loadImageDims,
+  ORIGINAL_MAX_EDGE,
+  ORIGINAL_QUALITY,
+  shouldCompressImage,
+} from '@/utils/imageCompress'
 import {
   agentApi,
   fetchServerConfig,
@@ -45,6 +55,20 @@ export interface MediaAttachment {
   mimeType: string
   size: number
   previewUrl: string
+  /** 原图尺寸（图片且可测到才有；用于 token 估算展示）。 */
+  width?: number
+  height?: number
+  /** 压缩版（仅可压缩图片有）。useCompressed=true 时发送压缩版资产。 */
+  compressed?: {
+    assetId: string
+    filename: string
+    mimeType: string
+    size: number
+    width: number
+    height: number
+  }
+  /** 是否发送压缩版（默认 true；可压缩图片才有意义）。 */
+  useCompressed?: boolean
 }
 
 // Renderer-local drafts survive browser panel unmounts without persisting private input.
@@ -702,11 +726,15 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
             ? `（已应用到 ${applied.length} 个已派发的子）`
             : ''
       if (propagationHint) console.info('[AgentDialog] session.runtime.set 回灌:', propagationHint)
-      const attachments = submittedMedia.map((m) => ({
-        assetId: m.assetId,
-        kind: m.kind,
-        mimeType: m.mimeType,
-      }))
+      const attachments = submittedMedia.map((m) => {
+        // 预压缩双版本：按 useCompressed 选择发送压缩版还是原图
+        const chosen = m.useCompressed && m.compressed ? m.compressed : m
+        return {
+          assetId: chosen.assetId,
+          kind: m.kind,
+          mimeType: chosen.mimeType,
+        }
+      })
       // V2 command plane: ACK the input independently from the agent run. Opening
       // the session first guarantees the subsequent input.updated/turn events are
       // observed by the authoritative ChatSession reducer. Nyxus additionally
@@ -1195,6 +1223,36 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       : ''
   }
 
+  /** 切换某图片使用「原图」还是「压缩图」（仅可压缩图片有双版本时生效）。 */
+  function toggleMediaVariant(attachment: MediaAttachment): void {
+    if (!attachment.compressed) return
+    const next = { ...attachment, useCompressed: !attachment.useCompressed }
+    const index = mediaAttachments.value.indexOf(attachment)
+    if (index >= 0) mediaAttachments.value[index] = next
+    else mediaAttachments.value = mediaAttachments.value.map((m) => (m === attachment ? next : m))
+    stashDraft()
+  }
+
+  /**
+   * 历史/生成媒体「重新带进上下文」：按 filename 构造附件加入待发送列表。
+   * 文件已在服务器（不重新上传），发送时按 assetId 携带。去重 + 无活跃 chat/忙时忽略。
+   */
+  function addMediaAttachment(filename: string, kind: MediaKind, mimeType: string): void {
+    if (!chatId.value || sending.value || uploading.value) return
+    const assetId = filename.replace(/\.[a-z0-9]+$/i, '')
+    if (mediaAttachments.value.some((m) => m.assetId === assetId)) return
+    mediaAttachments.value.push({
+      assetId,
+      filename,
+      kind,
+      mimeType,
+      size: 0,
+      previewUrl: httpUrl(`/api/media/${filename}`),
+    })
+    stashDraft()
+    mediaHint.value = `已附加 ${mediaAttachments.value.length} 个媒体文件`
+  }
+
   async function onMediaSelected(uploadFile: UploadFile): Promise<void> {
     const file = uploadFile.raw
     uploadQueue.value = []
@@ -1218,16 +1276,67 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     uploading.value = true
     mediaHint.value = '上传媒体中…'
     try {
+      const previewUrl = URL.createObjectURL(file)
+      const dims = category === 'image' ? await loadImageDims(file) : null
+      if (generation !== draftGeneration) return
+      // 图片预压缩：超阈值（最长边>1280 或 >1MB）→ 上传「原图版(2048/90) + 压缩版(1280/85)」双版本，
+      // 默认发压缩版；「原图」tag 开启时发原图版（已基本压缩，非原始大图）。压缩失败回退原始文件。
+      if (category === 'image' && shouldCompressImage(file, dims)) {
+        const [origTier, compTier] = await Promise.all([
+          compressImage(file, { maxEdge: ORIGINAL_MAX_EDGE, quality: ORIGINAL_QUALITY }),
+          compressImage(file, { maxEdge: COMPRESS_MAX_EDGE, quality: COMPRESS_QUALITY }),
+        ])
+        if (generation !== draftGeneration) return
+        if (origTier && compTier) {
+          const [origAsset, compAsset] = await Promise.all([
+            agentApi.uploadMedia(
+              new File([origTier.blob], `original-${file.name}`, { type: origTier.blob.type }),
+            ),
+            agentApi.uploadMedia(
+              new File([compTier.blob], `compressed-${file.name}`, { type: compTier.blob.type }),
+            ),
+          ])
+          if (generation !== draftGeneration) return
+          mediaAttachments.value.push({
+            assetId: origAsset.id,
+            filename: origAsset.filename,
+            kind: 'image',
+            mimeType: origAsset.mimeType,
+            size: origAsset.size,
+            previewUrl,
+            width: origTier.dims.width,
+            height: origTier.dims.height,
+            useCompressed: true,
+            compressed: {
+              assetId: compAsset.id,
+              filename: compAsset.filename,
+              mimeType: compAsset.mimeType,
+              size: compAsset.size,
+              width: compTier.dims.width,
+              height: compTier.dims.height,
+            },
+          })
+          mediaHint.value = `${file.name} 已附加`
+          return
+        }
+      }
+      // 小图 / 非图片 / 压缩失败 → 上传原始文件
       const asset = await agentApi.uploadMedia(file)
       if (generation !== draftGeneration) return
-      mediaAttachments.value.push({
+      const base: MediaAttachment = {
         assetId: asset.id,
         filename: asset.filename,
         kind: asset.kind,
         mimeType: asset.mimeType,
         size: asset.size,
-        previewUrl: URL.createObjectURL(file),
-      })
+        previewUrl,
+        useCompressed: false,
+      }
+      if (category === 'image' && dims) {
+        base.width = dims.width
+        base.height = dims.height
+      }
+      mediaAttachments.value.push(base)
       mediaHint.value = `${file.name} 已附加`
     } catch (err) {
       if (generation === draftGeneration) mediaHint.value = (err as Error).message
@@ -1355,6 +1464,8 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     resetMedia,
     resetEditor,
     removeMedia,
+    toggleMediaVariant,
+    addMediaAttachment,
     onMediaSelected,
     brainInfo,
     brainConfig,

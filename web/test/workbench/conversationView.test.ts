@@ -26,17 +26,24 @@ describe('workbench conversation view input', () => {
     expect(view).toContain("@keydown=\"onInputKeydown\"")
     expect(view).toContain("event.key !== 'Enter' || event.shiftKey || event.isComposing")
     expect(view).toContain('emit(\'send\')')
-    expect(view).toContain('emit(\'draftInput\', (event.target as HTMLTextAreaElement).value)')
+    expect(view).toContain('emit(\'draftInput\', value)')
     expect(view).toContain('@click="emit(\'send\')"')
     expect(view).toContain("!text.trim()")
 
-    // 工作台接线：同一 text/发送管线，分支目标与附件随行提示
+    // 工作台接线：同一 text/发送管线，分支目标随行提示；
+    // 媒体：对话模式直接管理附件（小缩略图 + 原图tag + 预览弹窗），经工作台 controller 上传/移除/切换
     expect(dialog).toContain(':text="text"')
     expect(dialog).toContain('@send="sendFromComposer"')
     expect(dialog).toContain('@draft-input="onConversationDraftInput"')
     expect(dialog).toContain('@drop-branch="clearBranchTarget"')
     expect(dialog).toContain(':branch-active="!!branchTarget"')
-    expect(dialog).toContain(':media-count="mediaAttachments.length"')
+    expect(dialog).toContain(':media-attachments="mediaAttachments"')
+    expect(dialog).toContain(':media-services-by-type="mediaServicesByType"')
+    expect(dialog).toContain('@media-selected="(f: any) => onMediaSelected(f)"')
+    expect(dialog).toContain('@remove-media="removeMedia"')
+    expect(dialog).toContain('@toggle-media-variant="toggleMediaVariant"')
+    expect(view).toContain('<MediaThumbStrip')
+    expect(view).toContain('conversation-input-hint')
     expect(controller).toContain(
       'function onConversationDraftInput(value: string): void {\n    text.value = value\n  }',
     )

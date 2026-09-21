@@ -124,7 +124,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | `useAgentDialogOptions.ts` | `store.brains` / `store.senseGroups` / `pet.runtime` | 角色卡勾选 → `runtime: RuntimeSelection` | `agents.sendMessage` |
 | `RoleConfigPopover.vue` | `brains[]` / `senseGroups[]` / 当前 `selection` | — | 通过 store 暴露的 `setSessionRuntime` 临时调整；持久化走 `sendMessage` 内 `setRuntime` |
 | `ContextBreakdownTip.vue` | `contextBreakdown` 6 段 + `commandConfig` | — | — |
-| `MediaPreviewBar.vue` | `uploadedMedia[]` | — | `agentApi.uploadMedia`（HTTP）→ 把 `UploadedMediaAsset` 附到 `attachments` |
+| `MediaThumbStrip.vue` | `uploadedMedia[]`（小缩略图 + 「原图」tag 切换 + 同批次多图预览弹窗） | — | `agentApi.uploadMedia`（HTTP）→ 把 `UploadedMediaAsset` 附到 `attachments` |
 
 **关键字段对照**（[agents.index.ts:243-327](../../web/src/stores/agents/index.ts#L243) `sendMessage`）：
 - 入参 `runtime?: RuntimeSelection`（仅当与当前 `pet.runtime` 不同才发 `runtime.set`）→ 后端 `runtime.set` → `parseRuntimeSelection` → `configureRuntime`

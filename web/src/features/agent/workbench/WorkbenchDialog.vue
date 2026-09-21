@@ -111,6 +111,7 @@ const {
   roleListOpen, roleListPinned, roleMenuRefFn,
   roleSelections, roleUsages,
   sidePanel, toggleSidePanel,
+  toggleMediaVariant,
   readerTimeline,
   scheduleFoldToolClose, scheduleRoleListClose,
   selectBranchTarget, selectedContent, selectWorkflowContent,
@@ -223,11 +224,16 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
             :error="error"
             :branch-active="!!branchTarget"
             :branch-title="composerBranchTitle"
-            :media-count="mediaAttachments.length"
+            :media-attachments="mediaAttachments"
+            :media-services-by-type="mediaServicesByType"
+            :media-hint="mediaHint"
             @switch-chat="onConversationSwitchChat"
             @send="sendFromComposer"
             @draft-input="onConversationDraftInput"
             @drop-branch="clearBranchTarget"
+            @media-selected="(f: any) => onMediaSelected(f)"
+            @remove-media="removeMedia"
+            @toggle-media-variant="toggleMediaVariant"
           />
           <!-- 待处理审批与提问：树模式左下角浮窗；对话模式直接在消息列表内作答（见 QuestionRenderer 可交互模式）。 -->
           <WorkbenchAttentionSurface
@@ -404,6 +410,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
               :role-menu-ref-fn="roleMenuRefFn"
               @update:active-file-index="activeFileIndex = $event"
               @remove-media="removeMedia"
+              @toggle-media-variant="toggleMediaVariant"
               @editor-input="onEditorInput"
               @editor-keydown="onDialogEditorKeydown"
               @editor-selection-change="onEditorSelectionChange"
@@ -418,8 +425,9 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
               @update:active-role-index="activeRoleIndex = $event"
             />
             <footer class="nyxus-composer-hint">
-              <span><kbd>/</kbd> 指令 · <kbd>@</kbd> 角色 · <kbd>&amp;</kbd> 文件</span>
-              <span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span>
+              <span class="nyxus-composer-enter-hint"
+                ><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span
+              >
             </footer>
           </section>
         </Transition>
