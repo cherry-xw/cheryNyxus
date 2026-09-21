@@ -1,7 +1,7 @@
 import { TAU, mulberry32, clamp } from './math'
 import { CLOUD_COLORS, STAR_HALO_COLORS } from './colors'
 import { particleTarget, resolveNyxusMode } from './targets'
-import type { NyxusParticle, NyxusParticleInput, NyxusCosmicMode } from './types'
+import type { NyxusParticle, NyxusParticleInput, NyxusCosmicMode, NyxusStarKind } from './types'
 
 const HIGHLIGHT_RATIO = 0.02
 const SPARK_RATIO = 0.003
@@ -30,7 +30,8 @@ export function createNyxusParticles(count: number, seed = 0x4e797875): NyxusPar
   const particles = Array.from({ length: count }, () => {
     const angle = random() * TAU
     const brightnessRoll = random()
-    const brightness = brightnessRoll > 0.69 ? 1 : 0
+    // 约三分之一外盘亮点点缀旋臂，让两条主旋臂在星云底色上清晰可见；其余为参与云团的暗点。
+    const brightness = brightnessRoll > 0.67 ? 1 : 0
     const radius = Math.pow(random(), brightness === 0 ? 1.15 : 0.55)
     const initialDistance = radius * 46
     const x = Math.cos(angle) * initialDistance + (random() - 0.5) * 12
@@ -50,11 +51,13 @@ export function createNyxusParticles(count: number, seed = 0x4e797875): NyxusPar
       angle,
       radius,
       phase: random() * TAU,
-      size: 0.45 + random() * 0.9,
+      // 尺寸高次幂分布：绝大多数小星铺底，极少数大星点缀，形成有大有小的星场层次。
+      size: 0.35 + Math.pow(random(), 4) * 1.45,
       brightness,
       colorCycle: 0,
       cloudColor: Math.floor(random() * CLOUD_COLORS.length),
       starColor: Math.floor(random() * STAR_HALO_COLORS.length),
+      starKind: 'normal' as NyxusStarKind,
       armRank: random(),
       armT: random(),
       armSlot: Math.floor(random() * 3),
@@ -64,6 +67,7 @@ export function createNyxusParticles(count: number, seed = 0x4e797875): NyxusPar
       orbit: 0.35 + random() * 0.9,
       explosionT: 0,
       birthT: 1,
+      retireT: 1,
     }
   })
 
@@ -89,6 +93,11 @@ export function createNyxusParticles(count: number, seed = 0x4e797875): NyxusPar
     accepted.push(candidate)
     if (accepted.length >= desiredHighlights) break
   }
+  for (const particle of particles) {
+    if (particle.brightness < 2) continue
+    const stableRoll = (((particle.phase / TAU) + particle.starColor * 0.17) % 1 + 1) % 1
+    particle.starKind = stableRoll < 0.025 ? 'redGiant' : stableRoll < 0.105 ? 'bluePulsar' : 'normal'
+  }
   return particles
 }
 
@@ -102,7 +111,11 @@ export function cosmicModeDuration(mode: NyxusCosmicMode): number {
  * 2) 每个消逝位置晋升一个普通点，经历渐生后成为新恒星（总数恒定）。
  * 3) 新星重新分配鲜艳光晕色；核心始终纯白，生命周期更容易辨识。
  */
-function stepNyxusExplosions(particles: NyxusParticle[], dt: number): void {
+function stepNyxusExplosions(
+  particles: NyxusParticle[],
+  dt: number,
+  allowReplacement = true,
+): void {
   const demoted: Array<{ particle: NyxusParticle; wasSpark: boolean }> = []
   for (const particle of particles) {
     if (particle.explosionT <= 0) continue
@@ -114,7 +127,7 @@ function stepNyxusExplosions(particles: NyxusParticle[], dt: number): void {
       demoted.push({ particle, wasSpark })
     }
   }
-  if (demoted.length > 0) {
+  if (demoted.length > 0 && allowReplacement) {
     const promoted = new Set<NyxusParticle>(demoted.map((entry) => entry.particle))
     for (const { wasSpark } of demoted) {
       const candidates = particles.filter(
@@ -152,6 +165,10 @@ export function stepNyxusParticles(
   const damping = Math.exp(-drag * boundedDt)
 
   for (const particle of particles) {
+    if (particle.retireT < 1) {
+      particle.retireT = Math.max(0, particle.retireT - boundedDt / 1.2)
+      continue
+    }
     const target = particleTarget(particle, input)
     let ax = (target.x - particle.x) * stiffness
     let ay = (target.y - particle.y) * stiffness
@@ -210,7 +227,29 @@ export function stepNyxusParticles(
     }
   }
 
-  stepNyxusExplosions(particles, boundedDt)
+  stepNyxusExplosions(particles, boundedDt, particles.length <= (input.particleTarget ?? particles.length))
+}
+
+/** 追加正在渐生的粒子；用于连续提升数量，不重建已有星系。 */
+export function appendNyxusParticles(particles: NyxusParticle[], count: number, seed: number): void {
+  if (count <= 0) return
+  const additions = createNyxusParticles(count, seed)
+  for (const particle of additions) {
+    particle.birthT = 0
+    particle.retireT = 1
+    particles.push(particle)
+  }
+}
+
+/** 标记末端普通粒子进入湮灭，完成后由调用方移除。 */
+export function retireNyxusParticles(particles: NyxusParticle[], count: number): void {
+  let remaining = count
+  for (let index = particles.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const particle = particles[index]!
+    if (particle.retireT < 1 || particle.brightness >= 2) continue
+    particle.retireT = 0.999
+    remaining -= 1
+  }
 }
 
 export function kickNyxusParticles(

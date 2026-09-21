@@ -12,7 +12,7 @@ import { createNyxusRenderer } from '../particles/nyxusRenderer'
 import { useNyxusParticleInput } from '../composables/useNyxusParticleInput'
 import type { PetAction, PetMood } from '@/domain/pets/types'
 import {
-  particleCountForSize,
+  nyxusParticleTarget,
   reportDisplayFrame,
   renderQualityProfile,
   useRenderQuality,
@@ -60,7 +60,9 @@ const cosmicModeLabel = ref<NyxusCosmicMode | 'nebula'>('nebula')
 const quality = useRenderQuality()
 const effectiveTier = computed(() => (props.background ? 'low' : quality.tier.value))
 const profile = computed(() => renderQualityProfile(effectiveTier.value))
-const particleCount = computed(() => particleCountForSize(props.size, effectiveTier.value))
+const particleCount = computed(() =>
+  Math.min(600, Math.max(200, Math.round(nyxusParticleTarget.value * (props.size / 112)))),
+)
 const canvasExtent = computed(() => Math.round(props.size * 2.35))
 
 const renderer = createNyxusRenderer()
@@ -93,7 +95,10 @@ function activeFrameRate(): number {
 }
 
 function pixelRatio(): number {
-  return Math.min(window.devicePixelRatio || 1, profile.value.particleDpr)
+  const dpr = window.devicePixelRatio || 1
+  // 背景装饰模式只降低粒子数与帧率；位图分辨率保持设备像素级（上限与 high 档一致），
+  // 避免覆盖界面（工作台/设置/对话框）打开时星系被拉伸发虚。
+  return Math.min(dpr, props.background ? 2 : profile.value.particleDpr)
 }
 
 function resumeFrameLoop(): void {
@@ -126,6 +131,7 @@ function frame(now: number): void {
   simulationAccumulator = Math.min(0.1, simulationAccumulator + elapsedSeconds)
 
   const ratio = pixelRatio()
+  inputState.updateParticleTarget(particleCount.value)
   renderer.resizeCanvas(canvas, context, canvasExtent.value, ratio)
   const particles = inputState.getParticles()
   const simulationStep = inputState.isReducedMotion() ? 1 / 45 : SIMULATION_STEP_SECONDS
@@ -161,12 +167,11 @@ function frame(now: number): void {
 }
 
 watch(particleCount, () => {
-  inputState.resetParticles()
   lastAtmosphereAt = 0
 })
 
 onMounted(() => {
-  inputState.resetParticles()
+  inputState.resetParticles(200)
   if (props.interactive) {
     window.addEventListener('pointermove', inputState.onPointerMove, { passive: true })
     window.addEventListener('pointerdown', inputState.onPointerDown, { passive: true })

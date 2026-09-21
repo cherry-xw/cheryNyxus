@@ -29,10 +29,24 @@ describe('adaptive render quality', () => {
     expect(governor.tier).toBe('low')
   })
 
+  it('moves the Nyxus particle target continuously within 200–600', () => {
+    const governor = createAdaptiveQualityGovernor()
+    expect(governor.particleTarget).toBe(200)
+
+    for (let index = 1; index <= 1_000; index += 1) governor.recordFrame(16.67, index * 16.67)
+    const fastTarget = governor.particleTarget
+    expect(fastTarget).toBeGreaterThan(200)
+    expect(fastTarget).toBeLessThanOrEqual(600)
+
+    for (let index = 1_001; index <= 1_500; index += 1) governor.recordFrame(40, index * 16.67)
+    expect(governor.particleTarget).toBeLessThan(fastTarget)
+    expect(governor.particleTarget).toBeGreaterThanOrEqual(200)
+  })
+
   it('uses bounded resource budgets for every quality tier', () => {
     expect(RENDER_QUALITY_PROFILES.high).toMatchObject({
       particleCountAt112: 420,
-      particleDpr: 1.75,
+      particleDpr: 2,
       graphDpr: 2,
       graphLabelResolution: 2,
       desktopNoiseOpacity: 0.2,
@@ -41,7 +55,7 @@ describe('adaptive render quality', () => {
     })
     expect(RENDER_QUALITY_PROFILES.balanced).toMatchObject({
       particleCountAt112: 300,
-      particleDpr: 1.25,
+      particleDpr: 1.5,
       graphDpr: 1.5,
       graphLabelResolution: 1.5,
       desktopNoiseOpacity: 0.12,

@@ -9,6 +9,8 @@ import { onMounted, type Ref } from 'vue'
 import { useNyxusHost } from '../application/host'
 import {
   createNyxusParticles,
+  appendNyxusParticles,
+  retireNyxusParticles,
   kickNyxusParticles,
   promoteNyxusParticleAt,
   type NyxusParticle,
@@ -72,6 +74,8 @@ export function useNyxusParticleInput(opts: {
   const { connection } = useNyxusHost()
 
   let particles: NyxusParticle[] = []
+  let particleSeed = 0x4e797875
+  let currentParticleTarget = 200
   let mountedAt = 0
   let actionStartedAt = 0
   let lastActionKey = ''
@@ -100,8 +104,26 @@ export function useNyxusParticleInput(opts: {
   let pointerDownAt: Vec2 | null = null
   const cosmicScheduler = createNyxusCosmicScheduler()
 
-  function resetParticles(): void {
-    particles = createNyxusParticles(particleCount())
+  function resetParticles(initialCount = particleCount()): void {
+    particles = createNyxusParticles(Math.min(600, Math.max(200, initialCount)))
+    particleSeed += 1
+  }
+
+  function updateParticleTarget(target: number): void {
+    const boundedTarget = Math.min(600, Math.max(200, Math.round(target)))
+    currentParticleTarget = boundedTarget
+    particles = particles.filter((particle) => particle.retireT > 0)
+    const difference = boundedTarget - particles.length
+    if (difference > 0) {
+      // 生成比湮灭快，性能恢复后画面能较快恢复，但仍逐步增加。
+      const amount = Math.min(4, difference)
+      appendNyxusParticles(particles, amount, particleSeed++)
+      return
+    }
+    if (difference < 0) {
+      // 每次只标记少量粒子湮灭，完成后不补生。
+      retireNyxusParticles(particles, Math.min(1, -difference))
+    }
   }
 
   function pointInsideRoot(clientX: number, clientY: number): boolean {
@@ -319,6 +341,7 @@ export function useNyxusParticleInput(opts: {
       releaseStrength,
       time: now / 1000,
       size: props.size,
+      particleTarget: currentParticleTarget,
     }
   }
 
@@ -341,6 +364,7 @@ export function useNyxusParticleInput(opts: {
     createInput,
     decay,
     resetParticles,
+    updateParticleTarget,
     onPointerMove,
     onPointerDown,
     onPointerUp,
