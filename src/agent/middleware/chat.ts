@@ -446,10 +446,18 @@ function buildCapabilitiesHint(
  * 上传资产在用户文本中以 [[media:filename]] 标记传递；不改写持久化原文。
  * P5b 双轨：
  *   - 脑 capabilities.input.image=true + 至少一个 marker → 走多模态：readMediaAsset 同步读 base64，
- *     从 last.content 移除 marker（无论是否支持都移除，避免 LLM 看到无意义标记），
- *     支持的 kind 进 attachments 数组，不支持的收集到 unsupportedMedia 供 capabilitiesHint 用。
+ *     按消息归属生成临时 attachments（messageId 指向原消息，provider 按 id 挂图），
+ *     从对应消息 content 移除 marker（无论是否支持都移除，避免 LLM 看到无意义标记），
+ *     不支持的 kind 收集到 unsupportedMedia 供 capabilitiesHint 用。
  *   - 否则保留旧行为：调媒体网关 understandMediaReference → 把理解文本追加到 last.content。
  * capabilitiesHint：有 [[media:]] marker 时生成 <self-capabilities> 段，声明自身能力 + 不支持附件的委派建议。
+ *
+ * 多模态旁路的多轮保留策略（P5c）：
+ *   - 近 MEDIA_RETENTION_TURNS 轮（最后几条带 marker 的 user 消息）的图片全程重发（挂回原消息位置）；
+ *   - 更早轮次的图片从上下文移除，原位替换为一行占位文本（模型不再直接看到图，消息历史仍完整可回溯）；
+ *   - 上下文内重发图片总量 / 单轮新增数 / 累计字节分别受 MEDIA_MAX_TOTAL / MEDIA_MAX_PER_TURN /
+ *     MEDIA_MAX_BYTES 约束，超限把最旧的转占位。
+ *   - 图片字节按压缩后 base64 之前的二进制计（上传原图可能更大，压缩属于前端上传侧行为）。
  */
 async function enrichMediaInputs(
   ctx: MiddlewareContext,
@@ -457,53 +465,193 @@ async function enrichMediaInputs(
 ): Promise<{ history: LLMResponse[]; attachments?: LLMAttachment[]; capabilitiesHint?: string }> {
   const brain = ctx.runtime?.brain
   if (!brain) return { history }
+
+  const hasMarker = history.some(
+    (m) => isUserRole(m.role) && /\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/i.test(m.content),
+  )
+  if (!hasMarker) return { history }
+
+  // 脑 input 下任一 kind 支持原生多模态 → 多模态旁路（旁路内按 kind 过滤）
+  const inputCaps = brain.capabilities?.input
+  if (inputCaps && (inputCaps.image || inputCaps.video || inputCaps.audio)) {
+    return enrichMediaInputsMultimodal(brain, history)
+  }
+
+  // 旧路径：marker 文本转写（只处理最后一条 user 消息，保持既有行为）
+  return enrichMediaInputsLegacy(ctx, history)
+}
+
+/** 近几轮带图 user 消息内的图片全程重发（其余转占位）。 */
+const MEDIA_RETENTION_TURNS = 3
+/** 上下文内最多同时重发多少张图片。 */
+const MEDIA_MAX_TOTAL = 10
+/** 单轮（当前发送消息）最多新增重发多少张图片。 */
+const MEDIA_MAX_PER_TURN = 5
+/** 上下文内重发图片累计二进制字节上限（给单请求 64MB 留裕量）。 */
+const MEDIA_MAX_BYTES = 16 * 1024 * 1024
+/** 超出保留窗口/上限的图片在上下文中的占位文本（不带内部 marker，避免泄露）。 */
+const MEDIA_PLACEHOLDER = '[此前上传的图片已从当前上下文移除，如需再次查看请在历史消息中把它重新带入。]'
+
+function isUserRole(role: LLMResponse['role']): boolean {
+  return role === 'user' || role === 'role' || role === 'subagent'
+}
+
+interface MediaMarkerCandidate {
+  /** 消息在传入 history 中的下标（仅用于本轮窗口判定，attachments 用 messageId 归属）。 */
+  index: number
+  msg: LLMResponse
+  matches: RegExpMatchArray[]
+}
+
+/** 多模态旁路：全历史 marker 解析 + 近 N 轮保留 + 上限约束。 */
+async function enrichMediaInputsMultimodal(
+  brain: RuntimeConfig['brain'],
+  history: LLMResponse[],
+): Promise<{ history: LLMResponse[]; attachments?: LLMAttachment[]; capabilitiesHint?: string }> {
+  // 1) 收集所有带 marker 的 user 类消息（按顺序）
+  const candidates: MediaMarkerCandidate[] = []
+  history.forEach((msg, index) => {
+    if (!isUserRole(msg.role)) return
+    const matches = [...msg.content.matchAll(/\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/gi)]
+    if (matches.length) candidates.push({ index, msg, matches })
+  })
+  if (!candidates.length) return { history }
+
+  // 2) 保留窗口：最后 MEDIA_RETENTION_TURNS 条带 marker 的 user 消息重发，更早转占位
+  const windowStart = Math.max(0, candidates.length - MEDIA_RETENTION_TURNS)
+  const retained = candidates.slice(windowStart)
+  const toPlaceholder = candidates.slice(0, windowStart)
+
+  // 3) 预先决定每个 marker 的动作：'send' | 'placeholder' | 'unsupported' | 'missing'
+  type MarkerDecision = {
+    msgIndex: number
+    match: RegExpMatchArray
+    kind: MediaKind
+    data: Buffer
+    mimeType: string
+  }
+  const sendCandidates: MarkerDecision[] = []
+  const unsupportedMedia: { filename: string; kind: MediaKind }[] = []
+  const placeholderMarkers = new Map<number, string[]>() // msgIndex -> marker 文本
+  const currentTurnIndex = retained[retained.length - 1]?.index
+
+  for (const c of retained) {
+    for (const match of c.matches) {
+      const filename = match[1]!
+      const asset = await readMediaAsset(filename)
+      if (!asset) {
+        // 资产失效：仅移除 marker，不占位、不挂图
+        const list = placeholderMarkers.get(c.index) ?? []
+        list.push(match[0])
+        placeholderMarkers.set(c.index, list)
+        continue
+      }
+      const kind = mediaKindForMime(asset.mimeType)
+      if (!kind) {
+        const list = placeholderMarkers.get(c.index) ?? []
+        list.push(match[0])
+        placeholderMarkers.set(c.index, list)
+        continue
+      }
+      if (!brain.capabilities?.input?.[kind]) {
+        // 脑不支持该 kind：移除 marker，收集到 unsupportedMedia 供 hint
+        unsupportedMedia.push({ filename, kind })
+        const list = placeholderMarkers.get(c.index) ?? []
+        list.push(match[0])
+        placeholderMarkers.set(c.index, list)
+        continue
+      }
+      sendCandidates.push({
+        msgIndex: c.index,
+        match,
+        kind,
+        data: asset.data,
+        mimeType: asset.mimeType,
+      })
+    }
+  }
+
+  // 4) 对可发送池按 新→旧 保留最新图片：超出总数/单轮/字节的，把最旧的转占位
+  const placeholdersFromCap: MarkerDecision[] = []
+  let totalCount = 0
+  let currentTurnCount = 0
+  let totalBytes = 0
+  const sendDecisions: MarkerDecision[] = []
+  for (const item of [...sendCandidates].reverse()) {
+    const inCurrentTurn = item.msgIndex === currentTurnIndex
+    const wouldExceedTurn = inCurrentTurn && currentTurnCount >= MEDIA_MAX_PER_TURN
+    const wouldExceedTotal = totalCount >= MEDIA_MAX_TOTAL
+    const wouldExceedBytes = totalBytes + item.data.byteLength > MEDIA_MAX_BYTES
+    if (wouldExceedTurn || wouldExceedTotal || wouldExceedBytes) {
+      placeholdersFromCap.push(item)
+      continue
+    }
+    totalBytes += item.data.byteLength
+    totalCount += 1
+    if (inCurrentTurn) currentTurnCount += 1
+    sendDecisions.push(item)
+  }
+
+  // 5) 重建 history：send → 移除 marker；占位（窗口外或超限）→ 替换占位文本
+  const cleanedHistory = [...history]
+  const markToPlace = (index: number, marker: string) => {
+    const msg = cleanedHistory[index]
+    if (!msg) return
+    cleanedHistory[index] = { ...msg, content: msg.content.replace(marker, MEDIA_PLACEHOLDER) }
+  }
+  const markToRemove = (index: number, marker: string) => {
+    const msg = cleanedHistory[index]
+    if (!msg) return
+    cleanedHistory[index] = { ...msg, content: msg.content.replace(marker, '').trim() }
+  }
+  for (const c of toPlaceholder) {
+    for (const match of c.matches) markToPlace(c.index, match[0])
+  }
+  for (const [index, markers] of placeholderMarkers) {
+    for (const marker of markers) markToRemove(index, marker)
+  }
+  for (const item of placeholdersFromCap) {
+    markToPlace(item.msgIndex, item.match[0])
+  }
+  for (const item of sendDecisions) {
+    markToRemove(item.msgIndex, item.match[0])
+  }
+
+  // 6) 组装 attachments（messageId 归属原消息）
+  const attachments: LLMAttachment[] = sendDecisions.map((item) => ({
+    mimeType: item.mimeType,
+    data: item.data,
+    kind: item.kind,
+    messageId: history[item.msgIndex]?.id,
+  }))
+
+  const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia)
+  return {
+    history: cleanedHistory,
+    ...(attachments.length > 0 && { attachments }),
+    ...(capabilitiesHint && { capabilitiesHint }),
+  }
+}
+
+/** 旧路径：marker 文本转写（仅最后一条 user 消息），保持既有行为。 */
+async function enrichMediaInputsLegacy(
+  ctx: MiddlewareContext,
+  history: LLMResponse[],
+): Promise<{ history: LLMResponse[]; capabilitiesHint?: string }> {
+  const brain = ctx.runtime?.brain
+  if (!brain) return { history }
   const last = history[history.length - 1]
   if (!last || last.role !== 'user') return { history }
   const matches = [...last.content.matchAll(/\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/gi)]
   if (!matches.length) return { history }
 
-  // 脑 input 下任一 kind 支持原生多模态 → 多模态旁路（旁路内 :285 按 kind 过滤）
-  const inputCaps = brain.capabilities?.input
-  if (inputCaps && (inputCaps.image || inputCaps.video || inputCaps.audio)) {
-    const attachments: LLMAttachment[] = []
-    const unsupportedMedia: { filename: string; kind: MediaKind }[] = []
-    let cleanedContent = last.content
-    for (const match of matches) {
-      const filename = match[1]!
-      // 先从文本移除 marker（无论是否支持，避免 LLM 看到无意义 [[media:xxx]] 标记）
-      cleanedContent = cleanedContent.replace(match[0], '').trim()
-
-      const asset = await readMediaAsset(filename)
-      if (!asset) continue
-      const kind = mediaKindForMime(asset.mimeType)
-      if (!kind) continue
-
-      if (brain.capabilities?.input?.[kind]) {
-        // 支持 → 多模态附件
-        attachments.push({ mimeType: asset.mimeType, data: asset.data, kind })
-      } else {
-        // 不支持 → 收集到 unsupportedMedia（给 capabilitiesHint 用）
-        unsupportedMedia.push({ filename, kind })
-      }
-    }
-    // 即使 attachments 为空也返回（可能有 unsupportedMedia 需要生成 hint）
-    if (attachments.length === 0 && unsupportedMedia.length === 0) return { history }
-    const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia)
-    return {
-      history: [...history.slice(0, -1), { ...last, content: cleanedContent }],
-      ...(attachments.length > 0 && { attachments }),
-      ...(capabilitiesHint && { capabilitiesHint }),
-    }
-  }
-
-  // 旧路径：marker 文本转写
   const additions: string[] = []
   const unsupportedMedia: { filename: string; kind: MediaKind }[] = []
   for (const match of matches) {
     const filename = match[1]!
     try {
       const understood = await understandMediaReference(filename)
-      if (!brain.capabilities?.input?.[understood.kind]) {
+      if (!brain?.capabilities?.input?.[understood.kind]) {
         // 网关转写是原生多模态以外的降级路径：模型不直接接收二进制，
         // 但必须接收网关已经产出的文本，否则“配置网关即可理解媒体”的
         // 契约形同虚设。此处不再把成功结果误标为未发送。

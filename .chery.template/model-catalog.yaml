@@ -28,16 +28,16 @@ models:
       protocols: [openai-chat-completions, openai-responses, anthropic-messages]
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        input: { image: true, video: false, audio: false }
+        generate: { image: true, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 250000
       thinking: on
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        input: { image: true, video: false, audio: false }
+        generate: { image: true, video: false, audio: false }
     wire:
       openai-chat-completions:
         thinking:

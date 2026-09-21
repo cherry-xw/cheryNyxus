@@ -132,6 +132,7 @@ export function createMockRuntime(opts: {
     url: opts.brain?.url,
     key: opts.brain?.key,
     thinking: opts.brain?.thinking,
+    ...(opts.brain?.capabilities ? { capabilities: opts.brain.capabilities } : {}),
   };
   return {
     brain,

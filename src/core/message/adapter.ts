@@ -86,12 +86,38 @@ export interface LLMResponse {
  * 由 enrichMediaInputs 在 chat.ts 内据脑 capabilities + [[media:]] marker 现场构造，
  * provider 调用前同步 readMediaAsset → base64；provider 调用后丢弃。
  * 支持 image/video/audio 类型，provider 据 mimeType/kind 决定 content part 格式。
+ * messageId：该附件应挂到 buildMessages 第一参 history 中消息 id 与之相同的消息上
+ * （多模态按消息归属，历史轮图片可挂回其原本位置）；缺省/undefined = 挂到最后一条 user 消息
+ * （兼容既有调用与旧数据）。
  */
 export interface LLMAttachment {
   mimeType: string
   data: Buffer
   /** 媒体类型（image/video/audio），供 provider 区分处理 */
   kind?: MediaKind
+  /** 该附件归属的消息 id（history 中 LLMResponse.id）；缺省 = 最后一条 user 消息。 */
+  messageId?: string
+}
+
+/**
+ * 把扁平 attachments 按归属消息 id 分组。
+ * 无 messageId 的附件归入 lastUserMessageId（不存在则丢弃）。
+ * 供各 provider 的 buildMessages 按消息挂图（避免把全部附件挂到每条 user 消息）。
+ */
+export function groupAttachmentsByMessage(
+  attachments: LLMAttachment[] | undefined,
+  lastUserMessageId: string | undefined,
+): Map<string, LLMAttachment[]> {
+  const grouped = new Map<string, LLMAttachment[]>()
+  if (!attachments?.length) return grouped
+  for (const attachment of attachments) {
+    const key = attachment.messageId ?? lastUserMessageId
+    if (!key) continue
+    const list = grouped.get(key)
+    if (list) list.push(attachment)
+    else grouped.set(key, [attachment])
+  }
+  return grouped
 }
 
 /** buildMessages 可选的 provider 级选项（如 Anthropic 的 anthropicOfficial 开关）。

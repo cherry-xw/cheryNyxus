@@ -68,14 +68,15 @@ media:
 
 | 脑声明 | 行为 | provider 调用 |
 |---|---|---|
-| `input.*` 任一为 true | 多模态旁路：从 `[[media:]]` 标记读 base64 → 移除标记 → 临时 `attachments` 数组（仅脑支持的 kind） | openai adapter `buildMessages` 产对应 content part：image→`image_url`、video→`video_url`、audio→`input_audio`（均为 data URI base64） |
-| `input.*` 全 false 或缺省 | 旧路径：媒体网关 `understand` → 文本理解结果拼到 `last.content` | 文本消息，仅 `[{type:"text",text:"... [媒体附件理解结果]..."}]` |
+| `input.*` 任一为 true | 多模态旁路：解析**全历史** `[[media:]]` 标记 → 近 3 轮用户消息的图片全程重发（压缩版，挂回原消息位置）→ 更早图片转一行文字占位；超上限（总数≤10/单轮≤5/字节≤16MB）按「新→旧」保留最新、最旧转占位 → 临时 `attachments` 数组（仅脑支持的 kind，每项带 `messageId` 归属） | openai adapter `buildMessages` 据 `messageId` 把附件只挂到对应消息，产对应 content part：image→`image_url`、video→`video_url`、audio→`input_audio`（均为 data URI base64） |
+| `input.*` 全 false 或缺省 | 旧路径：仅最后一条 user 消息，媒体网关 `understand` → 文本理解结果拼到 `last.content` | 文本消息，仅 `[{type:"text",text:"... [媒体附件理解结果]..."}]` |
 
 约束：
 
 - **不持久化**：`attachments` 仅在 chat middleware 调用 provider 时构造，**不**进 `LLMResponse`、**不**进 DB；provider 调用后丢弃。原始 `[[media:...]]` 标记留在 `LLMResponse.content` 不动，跨模型回放可重 enrich。
-- **provider 范围**：仅 `src/agent/provider/openai.ts`（及兼容实现如 bigmodel）实现多模态；`mock.ts`/`ollama.ts` 签名对齐接口但忽略 `attachments`（provider 内部注释说明）。
-- **入口**：[src/agent/middleware/chat.ts](../../../src/agent/middleware/chat.ts) `enrichMediaInputs`；adapter 接口见 [src/core/message/adapter.ts](../../../src/core/message/adapter.ts) `LLMAttachment` / `buildMessages(history, attachments?)`。
+- **provider 范围**：`src/agent/provider/openaiCompat.ts`（openai-chat-completions，MiniMax 默认）、`anthropic.ts`、`openaiResponses.ts` 均实现多模态并支持按 `messageId` 归属挂图；`mock.ts`/`ollama.ts` 签名对齐接口但忽略 `attachments`（provider 内部注释说明）。
+- **入口**：[src/agent/middleware/chat.ts](../../../src/agent/middleware/chat.ts) `enrichMediaInputs`（多模态旁路 `enrichMediaInputsMultimodal` + 旧路径 `enrichMediaInputsLegacy`）；adapter 接口见 [src/core/message/adapter.ts](../../../src/core/message/adapter.ts) `LLMAttachment` / `groupAttachmentsByMessage` / `buildMessages(history, attachments?)`。
+- **MiniMax 图片协议**：走 `openaiCompat` 的 `image_url` data URI base64 透传；单图≤10MB、请求≤64MB。image-01 文生图/图生图经媒体网关（`generate_image` sense 支持可选 `reference` 参考图透传，网关侧转 `subject_reference`）。token 预检可调 MiniMax `POST /v1/responses/input_tokens` 或 Anthropic `count_tokens`（见 3.2）。
 
 ## 媒体网关协议
 

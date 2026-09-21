@@ -599,7 +599,7 @@ buildMessages(history, attachments?): { system: string | null, messages: Anthrop
 | `sense`                   | `{role:'user', content:[{type:'tool_result', tool_use_id, content: replace.state?replace.content:m.content}]}`             |
 | `assistant`+senseCalls    | `[{thinking?}, {text?}, {tool_use,id,name,input:JSON.parse(arguments)}]`（thinking 必须在 text/tool_use 之前）             |
 | `assistant` 无 senseCalls | `[{thinking?}, {text?}]`（全空时 `[{text:''}]` 兜底）                                                                      |
-| `user`+image attachments  | `[{text}, {image, source:{base64,media_type,data}}]`（仅 image/；video/audio 由 chat.ts enrichMediaInputs 旧路径文本转写） |
+| `user`+image attachments  | `[{text}, {image, source:{base64,media_type,data}}]`（仅 image/；video/audio 由 chat.ts enrichMediaInputs 旧路径文本转写）。按附件 `messageId` 归组，只挂到对应 user 消息（多轮保留） |
 | 普通 user                 | `[{text}]`                                                                                                                 |
 
 **Sense Adapter 流式 delta 对接（与 SenseCallAssembler 天然兼容）：**
