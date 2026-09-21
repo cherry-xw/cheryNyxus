@@ -204,7 +204,8 @@ export function createPetLifecycle(
 
   /**
    * 创建主 agent（FAB 点击触发，CP2 接 AgentFab）。
-   * 调 chat.create → 主 pet 入 pets。返回新 chatId。
+   * 调 chat.create → 主 pet 入 pets；cheryNyxus 预设除外：不建 PetInstance（独立核心 NyxusCore 渲染），
+   * 只返回 chatId。返回新 chatId。
    * opts 必填（brain/senseGroups 来自 config.default，CP2 由调用方读取）。
    */
   async function createMasterPet(opts: {
@@ -217,6 +218,9 @@ export function createPetLifecycle(
   }): Promise<string> {
     const result = await agentApi.createAgent(opts)
     const chatId = result.chatId
+    // Nyxus 预设不建 PetInstance（由 NyxusCore 独立渲染）：与 buildMasterAndChildren 的排除一致。
+    // 会话路由「新建会话」等路径经此创建 nyxus 会话时只返回 chatId，不往舞台塞主 pet。
+    if (opts.preset === CHERY_NYXUS_PRESET) return chatId
     const existing = result.presetId
       ? pets.value.find((candidate) => candidate.isMaster && candidate.presetId === result.presetId)
       : undefined
