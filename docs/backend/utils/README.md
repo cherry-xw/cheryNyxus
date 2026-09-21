@@ -129,6 +129,7 @@ export function validateLoadable(raw: ConfigRaw): { ok: true; warnings: string[]
 - `roles.*.id` / `presets.*.id`（如配置）必须匹配 `role-` / `preset-` 前缀 + 至少 8 位标识
 - `roles.*.brain` 必须存在于 `llm.brain`；`roles.*.systemPrompt`（如配置）必须存在
 - `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`；`presets.*.roles[*]` 必须引用已定义角色
+- `presets.*.leader` 不能引用 `scope: 'public'` 的角色（组长必须是预设私有角色，防止手改 yaml 绕过前端限制）
 - `presets.*.workspace`（如配置）必须是已存在的目录绝对路径（`fs.accessSync` 校验，fail loud；该字段仅作 system prompt 提示词注入，不约束 sense 行为）
 - `global.supervision` / `mcp_servers.*.supervision` 必须是 `auto|smart|manual`（修原 `SupervisionLevel[name]` 非法值静默变 undefined 的 bug）
 - `global.disconnect_grace_ms` 必须是有限且 `>= 0` 的毫秒值；缺省为 `15000`，`0` 表示断连后立即请求当前输出结束时暂停

@@ -32,7 +32,6 @@ const {
   OpenConfigDirButton,
   PluginsTab,
   PresetsTab,
-  RolesTab,
   SensesTab,
   SkeletonTab,
   SkillsTab,
@@ -72,7 +71,6 @@ const {
   refreshSkills,
   reloadServerVersion,
   renderedTab,
-  rolesShadowMode,
   rules,
   save,
   savedHint,
@@ -270,18 +268,11 @@ onBeforeUnmount(() => {
                 @error="onError"
               />
             </div>
-            <div v-else-if="renderedTab === 'roles'" class="tab-pane">
-              <RolesTab
-                :draft="draft"
-                :prompts="prompts"
-                :skill-catalog="skillNames"
-                @mode-change="(mode) => (rolesShadowMode = mode === 'shadow')"
-                @error="onError"
-              />
-            </div>
             <div v-else-if="renderedTab === 'presets'" class="tab-pane">
               <PresetsTab
                 :draft="draft"
+                :prompts="prompts"
+                :skill-catalog="skillNames"
                 :sense-tools="senseTools"
                 :rules="rules"
                 :workspace-warnings="workspaceWarnings"

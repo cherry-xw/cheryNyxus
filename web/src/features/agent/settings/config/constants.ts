@@ -17,7 +17,6 @@ import {
   Settings,
   Sparkles,
   SquareTerminal,
-  Theater,
 } from 'lucide'
 
 export type TabKey =
@@ -25,7 +24,6 @@ export type TabKey =
   | 'brains'
   | 'media'
   | 'senses'
-  | 'roles'
   | 'presets'
   | 'mcp'
   | 'global'
@@ -43,7 +41,6 @@ export const SETTINGS_ACTIVE_TAB_KEY = Symbol('settings-active-tab') as Injectio
 export const TABS: { key: TabKey; icon: IconInput; label: string; color: string }[] = [
   // 颜色按彩虹谱依次过渡（红→橙→黄→绿→青→蓝→靛→紫→粉），相邻 tab 色相相邻、逐格渐变
   { key: 'presets', icon: Package, label: '预设', color: '#ef4444' },
-  { key: 'roles', icon: Theater, label: '角色', color: '#f97316' },
   { key: 'brains', icon: BrainCircuit, label: '大脑', color: '#f59e0b' },
   { key: 'senses', icon: Ear, label: '器官', color: '#a3e635' },
   { key: 'skills', icon: Sparkles, label: '技能', color: '#22c55e' },
@@ -80,7 +77,6 @@ export const HINT_LINES: Record<TabKey, { sect: number; warn: number }> = {
   brains: { sect: 1, warn: 1 },
   media: { sect: 1, warn: 0 },
   senses: { sect: 1, warn: 1 },
-  roles: { sect: 1, warn: 0 },
   mcp: { sect: 1, warn: 1 },
   global: { sect: 1, warn: 0 },
   commands: { sect: 1, warn: 0 },
@@ -100,7 +96,6 @@ export const INDEX_COUNT: Record<TabKey, number> = {
   brains: 3, // 典型 2-5 颗 brain
   media: 2, // 典型 0-4 个媒体服务
   senses: 0, // 瀑布流后无 footer 圆点导航
-  roles: 3, // 典型 2-5 个角色
   mcp: 1, // 典型 0-2 个 MCP
   global: 3, // 默认监管 + logger + file_compression，常见三者齐
   commands: 2, // 默认仅 compact 一条；可扩展内置指令

@@ -48,7 +48,6 @@ import { desktopBridge } from '@/features/desktop/desktopBridge'
 import BrainsTab from './tabs/brain/BrainsTab.vue'
 import MediaTab from './tabs/config/MediaTab.vue'
 import SensesTab from './tabs/tools/SensesTab.vue'
-import RolesTab from './tabs/agent/RolesTab.vue'
 import PresetsTab from './tabs/agent/PresetsTab.vue'
 import McpTab from './tabs/tools/McpTab.vue'
 import GlobalTab from './tabs/config/GlobalTab.vue'
@@ -101,18 +100,13 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   /** 实际已揭示的 Tab；切换时先置空，让骨架屏完成一帧绘制后再挂载目标页。 */
   const renderedTab = ref<TabKey | null>(initialTab)
   const tabSwitching = ref(false)
-  const rolesShadowMode = ref(false)
   provide(SETTINGS_ACTIVE_TAB_KEY, readonly(activeTab))
   /** 当前激活 tab 的主题色：提升到 panel 根作为 --tab-color，让保存按钮/序号/卡片强调色/panel 背景/边框随 tab 整体变色。
    *  tab 按钮仍各自绑自己的 color（hover/active 显示对应 tab 色），与此处全局基调互不冲突。 */
-  const activeTabColor = computed(() =>
-    activeTab.value === 'roles' && rolesShadowMode.value
-      ? '#64748b'
-      : (TABS.find((t) => t.key === activeTab.value)?.color ?? '#22d3ee'),
+  const activeTabColor = computed(
+    () => TABS.find((t) => t.key === activeTab.value)?.color ?? '#22d3ee',
   )
-  const activeTabHighlight = computed(() =>
-    activeTab.value === 'roles' && rolesShadowMode.value ? '#cbd5e1' : activeTabColor.value,
-  )
+  const activeTabHighlight = computed(() => activeTabColor.value)
   const settingsThemeStyle = computed(() => ({
     '--tab-color': activeTabColor.value,
     '--tab-highlight': activeTabHighlight.value,
@@ -440,7 +434,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
         activeTab.value = 'presets'
         renderedTab.value = 'presets'
         tabSwitching.value = false
-        rolesShadowMode.value = false
         return
       }
       if (agents.settingsSection) {
@@ -547,7 +540,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
    */
   const ERROR_TAB_BY_PREFIX: Record<string, TabKey> = {
     presets: 'presets',
-    roles: 'roles',
+    roles: 'presets',
     llm: 'brains',
     sense_groups: 'senses',
     media: 'media',
@@ -864,7 +857,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     OpenConfigDirButton,
     PluginsTab,
     PresetsTab,
-    RolesTab,
     SensesTab,
     SkeletonTab,
     SkillsTab,
@@ -906,7 +898,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     refreshSkills,
     reloadServerVersion,
     renderedTab,
-    rolesShadowMode,
     rules,
     save,
     savedHint,

@@ -298,6 +298,11 @@ export interface RoleConfig {
   permissions?: RolePermissionPolicy
   /** 锁定身份：禁止删除/改名/复制及修改 avatar/description/systemPrompt；cheryNyxus 仅允许切换 brain。 */
   lock?: boolean
+  /**
+   * 角色归属域：`public` 为公共角色（全局共享单一源，可被任意预设引用；组长不能是公共角色）；
+   * 缺省或 `private` 为预设内私有角色（归属单一预设）。
+   */
+  scope?: 'public' | 'private'
 }
 
 /**
@@ -1164,6 +1169,8 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         )
       } else if (!members.includes(pcfg.leader)) {
         errors.push(`presets.${pname}.leader "${pcfg.leader}" 不在其 roles 成员列表中`)
+      } else if (raw.roles?.[pcfg.leader]?.scope === 'public') {
+        errors.push(`presets.${pname}.leader "${pcfg.leader}" 不能是公共角色（组长必须是本预设的私有角色）`)
       }
       // roles 成员为 type 名引用（string[]），每个必须存在于 config.roles
       for (const type of members) {

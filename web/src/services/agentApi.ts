@@ -1268,6 +1268,8 @@ export interface ConfigDto {
       plugins?: string[]
       permissions?: RolePermissionPolicyDto
       lock?: boolean
+      /** 角色归属域：public 公共角色（全局共享、可被任意预设引用，组长不能是公共角色）；缺省/private 为预设内私有角色 */
+      scope?: 'public' | 'private'
     }
   >
   presets?: Record<string, PresetDto>
