@@ -48,6 +48,21 @@ const md = new MarkdownIt({
   },
 })
 
+// Mermaid 围栏：```mermaid / ```mmd 不交给 highlight.js，而是输出 <pre class="mermaid"> 占位，
+// 由浏览器侧 mermaidRenderer（DOM 挂载后自动渲染）替换成 SVG 图表。
+// 源码经 escapeHtml 转义（与默认 fence 一致，XSS 安全），mermaid 从 textContent 读取。
+const defaultFence = md.renderer.rules.fence!
+md.renderer.rules.fence = (tokens, idx, options, env, self): string => {
+  const token = tokens[idx]
+  if (!token) return defaultFence(tokens, idx, options, env, self)
+  const info = token.info ? md.utils.unescapeAll(token.info).trim() : ''
+  const language = info.split(/\s+/g)[0]
+  if (language === 'mermaid' || language === 'mmd') {
+    return `<pre class="mermaid">${md.utils.escapeHtml(token.content)}</pre>`
+  }
+  return defaultFence(tokens, idx, options, env, self)
+}
+
 export function renderMarkdown(source: string): string {
   return md.render(source ?? '')
 }

@@ -127,7 +127,7 @@ pnpm dev:all      # concurrently 同时拉起 backend + web
 | 类型检查（前端） | `pnpm --filter web type-check` | 通过（前端验证最终交用户自测） |
 | Lint | `pnpm lint` | 通过 |
 | 单测 | `pnpm test` | vitest；套件有预存失败基线，开发期以后端 TSC 为门控 |
-| 流程测试 | 见 [flow-test.md](../quality/testing/flows.md) | S1–S16 场景矩阵 |
+| 流程测试 | 见 [flows.md](../quality/testing/flows.md) | S1–S17 场景矩阵 |
 
 > 「预存错误 / 失败基线」是指仓库本身就存在的、与本次改动无关的历史问题，别当成自己引入的回归去修。
 

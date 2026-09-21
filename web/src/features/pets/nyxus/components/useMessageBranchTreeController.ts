@@ -5,7 +5,17 @@
  * come from pure graph modules, while this layer owns only the canvas gesture
  * and visual skin. Later checkpoints add termination controls and CRT anchoring.
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  watch,
+  type ComputedRef,
+  type Ref,
+} from 'vue'
 import { gsap } from 'gsap'
 import { renderQualityTier } from '@/composables/renderQuality'
 import { useNyxusHost } from '../application/host'
@@ -16,7 +26,9 @@ import {
   projectActiveTurnNodes,
   projectInputNodes,
   projectPersistentExecutionGraph,
+  type ExecutionEdge,
   type ExecutionFoldMember,
+  type ExecutionGraph,
   type ExecutionNode,
   type VirtualInputNode,
 } from '../graph/executionGraph'
@@ -29,6 +41,7 @@ import { projectCoreFlowExecutionGraph } from '../graph/coreFlowProjection'
 import {
   createIncrementalExecutionLayout,
   type ExecutionLayoutMode,
+  type PositionedExecutionNode,
 } from '../graph/executionLayout'
 import {
   foldContainsErrorMessage,
@@ -64,7 +77,11 @@ import NodePaperStack from './NodePaperStack.vue'
 import GenerationTreeDialog from './GenerationTreeDialog.vue'
 import { terminationDisplay } from '../graph/termination'
 import { buildRunCrtModels, effectiveRunFacts, type RunCrtModel } from '../graph/crtModel'
-import { layoutCrtWindowsBesideAnchors, selectVisibleCrtIds } from '../graph/crtLayout'
+import {
+  layoutCrtWindowsBesideAnchors,
+  selectVisibleCrtIds,
+  type CrtPlacement,
+} from '../graph/crtLayout'
 import { buildDefaultNodePopovers, type DefaultNodePopover } from '../graph/nodePopoverModel'
 import {
   ExecutionGraphPixiRenderer,
@@ -79,7 +96,7 @@ import {
   type ExecutionCamera,
 } from '../renderer/executionViewport'
 import type { RootTimelineSnapshot } from '@/application/backend/public'
-import { buildPaperStack } from '../paper/paperStackModel'
+import { buildPaperStack, type PaperStackEntry } from '../paper/paperStackModel'
 
 export type MessageBranchTreeControllerProps = {
   rootChatId: string
@@ -125,10 +142,142 @@ type ControllerEmit<T> = <K extends keyof T>(
   ...args: T[K] extends unknown[] ? T[K] : never
 ) => void
 
+/** 默认节点悬浮窗的布局条目（由 defaultPopoverPlacements 推断，未单独导出）。 */
+type DefaultPopoverPlacement = {
+  id: string
+  anchor: { x: number; y: number }
+  panel: { width: number; height: number }
+  main: boolean
+  actionable: boolean
+  pinned: boolean
+  order: number
+  left: number
+  top: number
+  placement: 'left' | 'right' | 'below'
+}
+
+/** 默认节点悬浮窗的视图条目（defaultPopoverViews 元素）。 */
+type DefaultPopoverView = {
+  placement: DefaultPopoverPlacement
+  model: DefaultNodePopover
+  anchor: ExecutionNode
+  display: ExecutionNode
+  relatedEdges: ExecutionEdge[]
+}
+
+/** 详情弹窗的定位结果（detailPlacement 值）。 */
+type DetailPlacement = {
+  style: { left: string; top: string; width?: string; height?: string }
+  nodeOffset: { x: number; y: number }
+  railSide: 'left' | 'right'
+  placement: 'left' | 'right' | 'below'
+}
+
+/** 运行 CRT 窗口的定位条目（crtPlacements / overlayPlacements 元素）：在 CrtPlacement 基础上带窗口叠放层级。 */
+type RunCrtPlacement = CrtPlacement & { windowZ: number }
+
+/**
+ * 控制器返回对象类型。
+ *
+ * 该返回对象字段多、类型复杂，若依赖自动推断，vue-tsc 在消费端
+ * （MessageBranchTree.vue 的 controller 使用）会陷入类型推断循环
+ * （TS7022/TS7023）。这里为返回对象建立显式类型边界，返回对象字面量
+ * 仍受 `return {…}` 的赋值校验兜底，字段变化会在此处报错提示同步。
+ */
+export interface MessageBranchTreeController {
+  AnchoredRunCrt: typeof AnchoredRunCrt
+  ExecutionNodePopover: typeof ExecutionNodePopover
+  FoldTabRail: typeof FoldTabRail
+  GenerationTreeDialog: typeof GenerationTreeDialog
+  NodePaperStack: typeof NodePaperStack
+  activateNode: (node: PositionedExecutionNode) => void
+  agents: ReturnType<typeof useNyxusHost>['agents']
+  canvas: ReturnType<typeof useTreeCanvas>
+  closeCrt: (id: string) => void
+  closeGenerationView: () => void
+  closeNodeDetail: () => void
+  crtById: ComputedRef<Map<string, RunCrtModel>>
+  crtPlacements: ComputedRef<RunCrtPlacement[]>
+  crtVisibility: ComputedRef<{ visible: Set<string>; hiddenPassive: number }>
+  defaultPopoverAnchorIds: ComputedRef<Set<string>>
+  defaultPopoverViews: ComputedRef<DefaultPopoverView[]>
+  detailAnchorEl: Ref<HTMLElement | undefined>
+  detailAnchorStyle: ComputedRef<DetailPlacement['style'] | undefined>
+  detailDisplayNode: ComputedRef<ExecutionNode | undefined>
+  detailFoldMember: ComputedRef<ExecutionFoldMember | undefined>
+  detailMaxHeight: ComputedRef<number>
+  detailNode: ComputedRef<PositionedExecutionNode | undefined>
+  detailPinned: ComputedRef<boolean>
+  detailWrap: Ref<boolean>
+  detailPlacement: ComputedRef<DetailPlacement | undefined>
+  detailRelatedEdges: ComputedRef<ExecutionEdge[]>
+  dragActionPopover: (id: string, delta: { x: number; y: number }) => void
+  dragCrt: (id: string, delta: { x: number; y: number }) => void
+  dragDetailPopover: (delta: { x: number; y: number }) => void
+  finishDetailDrag: () => void
+  cycleDetailSize: () => void
+  detailSizeLabel: ComputedRef<string>
+  toggleDetailWrap: () => void
+  focusCrt: (id: string) => void
+  focusNode: (node: PositionedExecutionNode) => void
+  focusRelativeNode: (
+    nodeId: string,
+    direction: -1 | 1 | 'first' | 'last' | 'up' | 'down' | 'left' | 'right',
+  ) => void
+  foldRailSide: ComputedRef<'left' | 'right'>
+  generationDialogIndex: Ref<number | undefined>
+  generationDialogRootChatId: Ref<string | undefined>
+  gpuNodeAccent: (node: PositionedExecutionNode) => string
+  gpuNodeHitStyle: (node: PositionedExecutionNode) => Record<string, string>
+  gpuRenderError: Ref<string>
+  graph: ComputedRef<ExecutionGraph>
+  hasNewTail: Ref<boolean>
+  hideNodeDetail: (node: PositionedExecutionNode) => void
+  keepNodeDetailOpen: () => void
+  leaveNodeDetail: () => void
+  nodeAriaLabel: (node: PositionedExecutionNode) => string
+  nodeTitle: (node: ExecutionNode) => string
+  onFoldRailInteraction: (foldId: string, active: boolean) => void
+  onNodePointerDown: (event: PointerEvent, node: PositionedExecutionNode) => void
+  overlayPlacements: ComputedRef<RunCrtPlacement[]>
+  paperCurrentIndex: ComputedRef<number>
+  paperEntries: ComputedRef<PaperStackEntry[]>
+  paperGraph: ComputedRef<ExecutionGraph>
+  paperHasNewTail: Ref<boolean>
+  persistentGraph: ComputedRef<ExecutionGraph>
+  pinCrt: (id: string) => void
+  pinnedCrtIds: Ref<Set<string>>
+  pixiMountRef: Ref<HTMLElement | null>
+  recordActionPopoverHeight: (id: string) => (height: number) => void
+  recoverGraph: () => Promise<void>
+  recoveringGraph: Ref<boolean>
+  recoveryError: Ref<string>
+  requestBranch: (type: 'detail' | 'continuation', nodeId: string) => void
+  resetLayout: () => boolean
+  returnToBottom: () => void
+  returnToLatestPaper: () => void
+  selectActionCall: (modelId: string, callId: string) => void
+  selectFoldMember: (foldId: string, memberId: string) => void
+  selectPaperIndex: (index: number) => void
+  selectedActionCall: (model: DefaultNodePopover) => string | undefined
+  selectedCallId: Ref<string | undefined>
+  showNodeDetail: (node: PositionedExecutionNode) => void
+  stepFoldDetail: (delta: number) => void
+  unpinCrt: (id: string) => void
+  unreadFoldMembers: Ref<Map<string, number>>
+  vMeasureHeight: {
+    mounted(el: HTMLElement, binding: { value: (height: number) => void }): void
+    updated(el: HTMLElement, binding: { value: (height: number) => void }): void
+    unmounted(el: HTMLElement): void
+  }
+  viewportRef: Ref<HTMLElement | null>
+  viewportSize: Ref<{ width: number; height: number }>
+  visibleInteractiveNodes: ComputedRef<PositionedExecutionNode[]>
+}
 export function useMessageBranchTreeController(
   props: MessageBranchTreeControllerProps,
   emit: ControllerEmit<MessageBranchTreeControllerEmits>,
-): any {
+): MessageBranchTreeController {
   const { chats: chatSessions, agents, theme: themeStore } = useNyxusHost()
   const { canvasPalette } = useThemeTokens()
   const viewportRef = ref<HTMLElement | null>(null)
@@ -327,28 +476,10 @@ export function useMessageBranchTreeController(
   const defaultPopoverAnchorIds = computed(
     () => new Set(defaultNodePopovers.value.map((model) => model.anchorNodeId)),
   )
-  const endpointFoldProjection = computed(() => {
-    if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
-    if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
-    if (props.foldMode === 'participant')
-      return projectParticipantFoldExecutionGraph(liveGraph.value)
-    return projectFoldExecutionGraph(liveGraph.value)
-  })
-  const endpointGraph = computed(() => endpointFoldProjection.value.graph)
   const layoutEngine = createIncrementalExecutionLayout()
-  const endpointLayoutEngine = createIncrementalExecutionLayout()
   const layout = computed(() =>
     projectExecutionPresentation(
       layoutEngine.layout(graph.value, {
-        mode: props.layoutMode,
-        branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
-      }),
-      props.presentationMode ?? 'horizontal-signal',
-    ),
-  )
-  const endpointLayout = computed(() =>
-    projectExecutionPresentation(
-      endpointLayoutEngine.layout(endpointGraph.value, {
         mode: props.layoutMode,
         branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
       }),
@@ -1069,18 +1200,10 @@ export function useMessageBranchTreeController(
       recoveringGraph.value = false
     }
   }
-  // 折叠档位/切根后禁止 `followContentEnd` 立即把相机拖到末尾：fit 应锚定开始节点，
-  // 让用户看清新投影的起点。动画结束后恢复自动跟随（流式新增节点仍可贴底）。
-  let suppressAutoFollow = false
   function resetLayout(): boolean {
-    suppressAutoFollow = true
     if (!canvas.fitToView({ animate: true, duration: 300 })) {
-      suppressAutoFollow = false
       return false
     }
-    window.setTimeout(() => {
-      suppressAutoFollow = false
-    }, 360)
     return true
   }
   function isPaused(node: (typeof layout.value.nodes)[number]): boolean {
@@ -1625,7 +1748,6 @@ export function useMessageBranchTreeController(
       cachedActiveRunKey = ''
       cachedActiveCrtRuns = []
       layoutEngine.reset()
-      endpointLayoutEngine.reset()
       pianoEasterEgg.reset()
       recoveryError.value = ''
       hasNewTail.value = false
@@ -1716,7 +1838,6 @@ export function useMessageBranchTreeController(
       // 折叠档位改变会整体重排投影图（节点增删），旧相机位置/缩放已不再对应新图。
       // 与切根一致：清空增量布局缓存并重新 fit 到新投影，否则开始/末尾节点定位不到视口内。
       layoutEngine.reset()
-      endpointLayoutEngine.reset()
       void nextTick(resetLayout)
     },
   )
@@ -1725,7 +1846,6 @@ export function useMessageBranchTreeController(
     () => {
       closeNodeDetail()
       layoutEngine.reset()
-      endpointLayoutEngine.reset()
       void nextTick(resetLayout)
     },
   )
@@ -1914,7 +2034,6 @@ export function useMessageBranchTreeController(
     recoverGraph,
     recoveringGraph,
     recoveryError,
-    ref,
     requestBranch,
     resetLayout,
     returnToBottom,

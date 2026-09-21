@@ -33,6 +33,21 @@
     .inner-scrollbar();
   }
   :deep(pre code) { padding: 0; background: transparent; font-size: 12px; }
+  // Mermaid 图表容器：不套用代码块底色，透明背景 + 横向滚动；svg 自适应宽度并居中。
+  :deep(pre.mermaid) {
+    margin: 6px 0;
+    padding: 8px 0;
+    overflow-x: auto;
+    background: transparent;
+    text-align: center;
+    .inner-scrollbar();
+    svg {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 0 auto;
+    }
+  }
   :deep(hr) { border: none; border-top: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); margin: 8px 0; }
   :deep(img) { max-width: 100%; border-radius: 4px; }
   :deep(table) { border-collapse: collapse; margin: 6px 0; font-size: 12px; }

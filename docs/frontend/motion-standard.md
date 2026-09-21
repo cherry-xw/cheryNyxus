@@ -36,6 +36,8 @@
 
 所有实时 Markdown 使用 `useRenderedMarkdown()`：首个非空结果立即调度，随后以 240ms trailing 合并；默认 preview 模式截断到 `MARKDOWN_PREVIEW_LIMIT`（12000 字符），full 模式全文渲染；终态或流结束强制 flush。解析在共享 Worker 中执行，结果以 revision 丢弃过时响应，并带字符预算 LRU；Worker 不可用时才动态导入主线程解析器。
 
+Mermaid 图表（` ```mermaid ` / ` ```mmd ` 围栏）不走 Worker：引擎只输出转义后的 `<pre class="mermaid">` 占位，`web/src/utils/mermaidRenderer.ts`（入口 `setupMermaidAutoRender`，在 `main.ts` 启动）通过 MutationObserver 在 DOM 挂载后自动渲染为 SVG——懒加载 mermaid（独立 chunk），渲染与主题重绘按 `documentElement.dataset.theme` 选 default/dark 主题；解析失败保留转义原文可见，流式更新重建节点后自动重试。安全与现有渲染一致：引擎 `html:false` 转义 + mermaid 默认 `securityLevel: 'strict'`。
+
 禁止在流式 delta watch 中同步调用 `renderMarkdown()`。当前覆盖 MessageBubble、宠物气泡、AnchoredRunCrt、LiteMarkdown、PaperGameCard 与 ExecutionNodePopover。
 
 **模式选用（v1.1）**：`preview`（12000 字符截断）仅限流式气泡与嵌入式小卡等次要预览面（宠物气泡、AnchoredRunCrt）；主要阅读面一律 `full` 全文渲染——MessageBubble、LiteMarkdown（lite 简洁模式正文/详情抽屉，v1.1 起由 preview 改 full，协议层 `chat.timeline.node.get` 的 32KB 单响应硬上限由分页续拉兜底，渲染层不再截断）等。
