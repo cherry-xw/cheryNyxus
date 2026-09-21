@@ -47,19 +47,19 @@
 
 ## 3. 权威文档与现有入口
 
-| 主题 | 权威文档/入口 | 本计划中的使用方式 |
-| --- | --- | --- |
-| 总体需求和架构 | [`docs/shared/architecture/relay-gateway-requirements.md`](../../shared/architecture/relay-gateway-requirements.md) | 所有阶段的稳定边界和验收目标 |
-| 后端服务装配 | [`docs/backend/service/README.md`](../../backend/service/README.md) | `src/service/index.ts`、HTTP、WS 和启动生命周期 |
-| 后端 HTTP | [`docs/backend/service/http.md`](../../backend/service/http.md) | `/api/config`、静态服务和认证入口 |
-| 后端 WebSocket | [`docs/backend/service/websocket.md`](../../backend/service/websocket.md) | Upgrade、来源检查、会话和传输行为 |
-| 后端认证 | [`src/service/auth/index.ts`](../../../src/service/auth/index.ts) | OIDC、密码认证、Cookie、loopback 边界和冷却实现入口 |
-| 后端启动 | [`src/index.ts`](../../../src/index.ts) | 独立进程、guardian、信号和进程退出 |
-| 前端连接抽象 | [`docs/frontend/env.md`](../../frontend/env.md) | `platform.ts`、发现 API、HTTP/WS 地址和重连 |
-| 前端认证 | [`docs/frontend/auth-login.md`](../../frontend/auth-login.md) | 登录对话框、登录能力发现和双登录入口 |
-| 前端部署 | [`docs/frontend/deployment.md`](../../frontend/deployment.md) | 删除旧 Electron 内置后端描述并补充独立后端模式 |
-| Electron | [`docs/frontend/electron.md`](../../frontend/electron.md) | 主进程、preload 和纯前端容器边界 |
-| 测试边界 | [`docs/quality/testing/baseline.md`](../../quality/testing/baseline.md) | 自动检查、浏览器人工验收和回归范围 |
+| 主题           | 权威文档/入口                                                                                                       | 本计划中的使用方式                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 总体需求和架构 | [`docs/shared/architecture/relay-gateway-requirements.md`](../../shared/architecture/relay-gateway-requirements.md) | 所有阶段的稳定边界和验收目标                        |
+| 后端服务装配   | [`docs/backend/service/README.md`](../../backend/service/README.md)                                                 | `src/service/index.ts`、HTTP、WS 和启动生命周期     |
+| 后端 HTTP      | [`docs/backend/service/http.md`](../../backend/service/http.md)                                                     | `/api/config`、静态服务和认证入口                   |
+| 后端 WebSocket | [`docs/backend/service/websocket.md`](../../backend/service/websocket.md)                                           | Upgrade、来源检查、会话和传输行为                   |
+| 后端认证       | [`src/service/auth/index.ts`](../../../src/service/auth/index.ts)                                                   | OIDC、密码认证、Cookie、loopback 边界和冷却实现入口 |
+| 后端启动       | [`src/index.ts`](../../../src/index.ts)                                                                             | 独立进程、guardian、信号和进程退出                  |
+| 前端连接抽象   | [`docs/frontend/env.md`](../../frontend/env.md)                                                                     | `platform.ts`、发现 API、HTTP/WS 地址和重连         |
+| 前端认证       | [`docs/frontend/auth-login.md`](../../frontend/auth-login.md)                                                       | 登录对话框、登录能力发现和双登录入口                |
+| 前端部署       | [`docs/frontend/deployment.md`](../../frontend/deployment.md)                                                       | 删除旧 Electron 内置后端描述并补充独立后端模式      |
+| Electron       | [`docs/frontend/electron.md`](../../frontend/electron.md)                                                           | 主进程、preload 和纯前端容器边界                    |
+| 测试边界       | [`docs/quality/testing/baseline.md`](../../quality/testing/baseline.md)                                             | 自动检查、浏览器人工验收和回归范围                  |
 
 计划内的协议草案不能与共享协议形成第二个 owner；在 A 阶段落定后，应把稳定字段迁入 `docs/shared/protocol/`，此处只链接结果。
 
@@ -115,16 +115,16 @@
 
 这些事项必须在相应阶段的代码实现前落定；未落定时只能写协议草案和测试夹具，不能把猜测实现成固定契约。
 
-| 编号 | 必须落定的事项 | 当前已知决定 | 负责阶段 | 阻塞影响 |
-| --- | --- | --- | --- | --- |
-| D1 | “无需注册、直接连接”的后端身份握手 | 已确认：用户设置易读 Backend ID；本地 Ed25519 密钥挑战签名；中转首次信任持久绑定公钥；密码只用于后端用户登录 | A/B | 已解除；撤销只走部署方本机管理操作 |
-| D2 | rathole service 映射 | 已确认：HTTP/WS 两个私有映射，只绑定中转机 loopback；服务名和短期 token 由中转下发 | B | 已解除；B 固定版本和配置生命周期 |
-| D3 | 中转列表访问边界 | 已确认：公开最小列表/发现；只返回 ID、名称、状态、公开能力和网关地址；控制面仍由目标后端认证 | A/E | 已解除 |
-| D4 | 远程入口与 loopback 信任边界 | 已确认：新增独立远程 HTTP/WS 入口并强制认证；本地入口保留 loopback 豁免 | C | 已解除 |
-| D5 | OIDC 回调拓扑 | 已确认：中转保持同源路由并转发给目标后端；后端校验 state、换码、设置 Cookie | C/E/F | 已解除 |
-| D6 | 凭据文件与密码变更关系 | 本地受保护文件可重复查看；不经中转 | D/C | 必须定义首次生成、手动修改、重新生成和文件权限 |
-| D7 | 管理器与后端 IPC | 已确认：管理器作为父进程管理 guardian 与 rathole，生命周期走子进程 IPC；39980 使用本机控制密钥 | D | 已解除；D 细化停止中状态 |
-| D8 | 子路径规则 | 已确认：relay 去 Backend ID 路由段，向专用远程入口传递可信公共前缀；前端、Cookie 和 OIDC 使用该前缀 | F/G | 已解除 |
+| 编号 | 必须落定的事项                     | 当前已知决定                                                                                                 | 负责阶段 | 阻塞影响                                       |
+| ---- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------- | ---------------------------------------------- |
+| D1   | “无需注册、直接连接”的后端身份握手 | 已确认：用户设置易读 Backend ID；本地 Ed25519 密钥挑战签名；中转首次信任持久绑定公钥；密码只用于后端用户登录 | A/B      | 已解除；撤销只走部署方本机管理操作             |
+| D2   | rathole service 映射               | 已确认：HTTP/WS 两个私有映射，只绑定中转机 loopback；服务名和短期 token 由中转下发                           | B        | 已解除；B 固定版本和配置生命周期               |
+| D3   | 中转列表访问边界                   | 已确认：公开最小列表/发现；只返回 ID、名称、状态、公开能力和网关地址；控制面仍由目标后端认证                 | A/E      | 已解除                                         |
+| D4   | 远程入口与 loopback 信任边界       | 已确认：新增独立远程 HTTP/WS 入口并强制认证；本地入口保留 loopback 豁免                                      | C        | 已解除                                         |
+| D5   | OIDC 回调拓扑                      | 已确认：中转保持同源路由并转发给目标后端；后端校验 state、换码、设置 Cookie                                  | C/E/F    | 已解除                                         |
+| D6   | 凭据文件与密码变更关系             | 本地受保护文件可重复查看；不经中转                                                                           | D/C      | 必须定义首次生成、手动修改、重新生成和文件权限 |
+| D7   | 管理器与后端 IPC                   | 已确认：管理器作为父进程管理 guardian 与 rathole，生命周期走子进程 IPC；39980 使用本机控制密钥               | D        | 已解除；D 细化停止中状态                       |
+| D8   | 子路径规则                         | 已确认：relay 去 Backend ID 路由段，向专用远程入口传递可信公共前缀；前端、Cookie 和 OIDC 使用该前缀          | F/G      | 已解除                                         |
 
 任何 D1-D8 的变更都要同步需求文档、受影响阶段、最终验证清单和恢复检查点。
 
@@ -132,16 +132,16 @@
 
 状态统一使用 `未开始 / 进行中 / 阻塞 / 已完成`。复杂度用于选择执行能力，不表示工期。
 
-| 编号 | 小任务 | 状态 | 复杂度 | 复杂度依据 | 依赖 | 主要交付物 |
-| --- | --- | --- | --- | --- | --- | --- |
-| A | 中转协议与控制层 | 已完成 | 5 | 新建跨进程连接协议、列表、路由白名单、状态、限流和审计边界，涉及公共契约 | 需求文档 | `relay/` 控制服务、共享协议、协议测试、D1/D3 |
-| B | rathole 连接与动态下发 | 进行中 | 4 | 外部二进制、出站连接、配置生成、断线恢复和资源隔离 | A、D1 | rathole server/client 配置、连接管理、B 阶段测试 |
-| C | 后端动态端口与认证安全 | 进行中 | 5 | 修改既有 HTTP/WS/Auth 入口，涉及 loopback 安全、双认证、Cookie、冷却和兼容 | A、B、D4、D5 | 后端远程入口、动态发现、认证安全、C 阶段测试 |
-| D | 本地管理器与运行入口 | 进行中 | 5 | 新的常驻控制进程、跨平台进程管理、凭据文件、统计和服务安装 | C、D6、D7 | `39980` 管理器、CLI、systemd、Windows 启动器 |
-| E | 前端连接发现与双登录 | 进行中 | 4 | 改变前端连接目标、缓存、重连和登录状态，同时保持旧直连兼容 | A、C、D | 列表/手动 ID、发现适配器、双登录 UI 和状态管理 |
-| F | Electron 前端化与子路径适配 | 进行中 | 4 | 删除现有后端生命周期耦合，改造 preload、打包和资源/路径生成 | C、D、E、D8 | 纯前端 Electron、子路径适配、构建检查 |
-| G | nginx、发布和操作文档 | 进行中 | 3 | 把多个进程和外部服务整理为可复用部署方式，涉及配置模板和平台说明 | B、D、E、F | nginx 模板、安装脚本、运行指南、配置说明 |
-| H | 综合验证与用户验收 | 未开始 | 5 | 需要真实多进程、网络、认证、动态端口、子路径和桌面/系统服务验收 | A-G | 自动清单、人工操作卡、长期验收证据 |
+| 编号 | 小任务                      | 状态   | 复杂度 | 复杂度依据                                                                                     | 依赖         | 主要交付物                                                                                                         |
+| ---- | --------------------------- | ------ | ------ | ---------------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| A    | 中转协议与控制层            | 已完成 | 5      | 新建跨进程连接协议、列表、路由白名单、状态、限流和审计边界，涉及公共契约                       | 需求文档     | `relay/` 控制服务、共享协议、协议测试、D1/D3                                                                       |
+| B    | rathole 连接与动态下发      | 已完成 | 4      | 外部二进制、出站连接、配置生成、断线恢复和资源隔离                                             | A、D1        | rathole server/client 配置、连接管理、B 阶段测试                                                                   |
+| C    | 后端动态端口与认证安全      | 已完成 | 5      | 修改既有 HTTP/WS/Auth 入口，涉及 loopback 安全、双认证、Cookie、冷却和兼容                     | A、B、D4、D5 | 后端远程入口、动态发现、认证安全、C 阶段测试                                                                       |
+| D    | 本地管理器与运行入口        | 已完成 | 5      | 新的常驻控制进程、跨平台进程管理、凭据文件、统计和服务安装                                     | C、D6、D7    | `39980` 管理器、CLI、systemd、Windows 启动器                                                                       |
+| E    | 前端连接发现与双登录        | 已完成 | 4      | 改变前端连接目标、缓存、重连和登录状态，同时保持旧直连兼容；不新增 Backend ID 选择器           | A、C、D      | 本地管理器发现、动态 HTTP/WS、手动远程/relay 路径兼容、现有登录状态适配                                            |
+| F    | Electron 前端化与子路径适配 | 已完成 | 4      | 删除现有后端生命周期耦合，改造 preload、打包和资源/路径生成                                    | C、D、E、D8  | 纯前端 Electron、子路径 URL 适配、资源静态检查                                                                     |
+| G    | nginx、发布和操作文档       | 已完成 | 3      | 把多个进程和外部服务整理为可复用部署方式，涉及配置模板和平台说明                               | B、D、E、F   | nginx 模板、安装脚本、运行指南、配置说明                                                                           |
+| H    | 综合验证与用户验收          | 进行中 | 5      | 需要真实多进程、网络、认证、动态端口、子路径和桌面/系统服务验收；阶段一受外部 Web 类型错误阻塞 | A-G          | [`H-verification.md`](H-verification.md)、[`verify/manual-final.md`](verify/manual-final.md)、自动清单和人工操作卡 |
 
 ## 7. 批次实施规划
 
@@ -497,10 +497,10 @@ A 中转协议与控制层
 
 - 已完成：需求文档和本计划总入口；
 - 已确认：后端独立运行、Electron 只做前端、动态端口发现、前端列表/手动 Backend ID、Pocket ID 与密码并存、本地管理器 39980、子路径部署、开放中转但只服务本协议；
-- 当前小任务：B-G 连续实施中，最后统一进入 H 验收；
-- 当前阻塞决策：D6 凭据文件与密码变更关系留待 C/D 细化；D1-D5、D7-D8 已确认；
+- 当前小任务：H 阶段一自动收口；E-G 的代码、打包和部署资产已完成，真实托盘/systemd 操作仍归 H；
+- 当前阻塞决策：D1-D8 已确认；真实公网 relay/rathole、Pocket ID、nginx 和跨设备运行仍归 H；
 - 工作区约束：存在其他任务的未提交修改，不得 reset、覆盖、批量格式化或混入本任务；
-- 下一步：补齐后端远程专用监听、管理器凭据/统计、前端登录目标界面和最终自动/人工验收清单。
+- 下一步：执行 `H-verification.md` 的自动清单并回填退出码、断言行和产物；用户再按 `verify/manual-final.md` 执行真实环境卡片。真实公网 relay/rathole 联调留待 H。
 
 ### A 阶段执行记录
 
@@ -514,13 +514,30 @@ A 中转协议与控制层
 
 ### 连续实施进度（2026-09-21）
 
-- B：已加入 rathole 双服务 TOML 生成、私有配置写入和隐藏窗口子进程适配；真实 rathole server/client 联调仍待 H。
-- C：已加入登录能力发现、账号级密码失败冷却和远程入口的 `allowLoopback` 配置开关；独立远程监听端口及其与 relay 的真实接线仍待完成。
-- D：已加入 `127.0.0.1:39980` 管理器、子进程控制、systemd unit 和 Windows 隐藏启动脚本；凭据查看、Agent 统计和真实托盘菜单仍待完成。
-- E：已加入 relay 列表/发现/绑定 API 客户端和动态 WS 路径消费；登录界面的 Backend ID 选择与完整 Cookie/OIDC 流程仍待完成。
-- F：已删除 Electron 后端 spawn、preload 后端配置注入和打包后端资源；纯前端 Electron 的首次连接界面与生产子路径还待统一验收。
-- G：已加入 nginx 模板、独立运行指南和部署入口；真实 nginx、Pocket ID、rathole 发布环境尚未运行。
-- 自动检查：`pnpm relay:type-check`、`pnpm relay:test`（4 个用例）、`pnpm relay:build`、`pnpm manager:type-check`、`pnpm manager:build`、`pnpm type-check`、`pnpm web:type-check`、`pnpm web:build`、`pnpm build`、`git diff --check` 均退出码 0；后端构建输出有既存 Windows `EBUSY` 原生文件锁警告但构建退出码为 0。
+- B：已加入后端控制客户端、挑战签名、租约心跳/退避重连、动态双服务 TOML、私有配置写入、rathole 进程替换和非敏感状态摘要；`pnpm relay:type-check`、`pnpm relay:test`、`pnpm relay:build`、`pnpm manager:type-check`、`pnpm manager:build`、`pnpm type-check` 和 `git diff --check` 均退出码 0；真实 rathole server/client 联调仍待 H。
+- C：已完成双认证能力发现、账号级密码失败冷却、入口级 loopback 隔离、仅 loopback 的动态远程 HTTP/WS 监听、发现响应分层、公共前缀 Cookie 和监听状态摘要；真实公网 relay/rathole 联调仍待 H。
+- D：已完成 manager CLI（`info`、`status`、`restart`、`service install/uninstall`）、Linux user systemd 安装脚本、Windows 隐藏托盘启动脚本、凭据/统计/管理页面；`pnpm manager:type-check`、`pnpm manager:build`、`pnpm type-check`、`pnpm web:type-check`、`pnpm web:build`、`pnpm exec vitest run test/manager/server.test.ts`、PowerShell 脚本解析和 `git diff --check` 均通过；真实托盘/systemd 操作仍待 H。
+- E：已完成本地管理器发现缓存刷新、动态 HTTP/WS 地址消费、手动远程/relay 公共路径兼容和现有双登录状态适配；按用户约束不新增 Backend ID 选择器，真实 relay 绑定与双设备流程进入 H。
+- F：已删除 Electron 后端 spawn、preload 后端配置注入、后端打包资源和后端运行时准备脚本；纯前端资源扫描与生产子路径真实交互进入 H。
+- G：已完成 nginx 静态前端/API/WS 模板、Windows/Linux 服务入口和运行/发布文档对齐；真实 nginx、Pocket ID、rathole 发布环境尚未运行。
+- H：已建立并执行自动清单；H-A01、H-A04-H-A13（除 H-A02/H-A03）退出码 0，H-A02/H-A03 被外部未提交 `PresetsTab.vue` 类型错误阻塞；人工卡和抽样信任尚未完成。
+- 自动检查：relay 3 个测试文件共 6 个测试通过，远程监听测试 4 个通过，管理器 API 测试 1 个通过；Vite 单独构建退出码 0；远程测试输出含第三方 sourcemap 缺失提示，不影响对应退出码。
+
+### C 阶段执行记录（2026-09-21）
+
+- `src/service/index.ts`、`src/service/http/index.ts`、`src/service/websocket/index.ts`：增加仅绑定 `127.0.0.1` 的远程 HTTP/WS 监听、动态端口 `ready` 结果和本地/远程发现分层。
+- `src/service/auth/index.ts`：增加入口级 loopback 策略、共享认证状态和远程 Cookie 公共前缀处理。
+- `src/worker.ts`、`manager/src/server.ts`、`.chery.template/config.yaml`：增加远程监听配置和不含秘密的实际端口状态摘要。
+- `docs/shared/protocol/websocket.md`、`docs/backend/service/README.md`、`docs/backend/service/http.md`、`docs/backend/service/websocket.md`：同步 C 的发现、监听和认证边界。
+- `test/service/remoteListener.test.ts`：HTTP/WS 远程认证、动态发现字段、本地 loopback 兼容和账号冷却共 4 个用例通过。
+- `pnpm type-check`：退出码 0。
+- `pnpm manager:type-check`：退出码 0。
+- `pnpm vitest run test/service/remoteListener.test.ts`：退出码 0；1 个测试文件、4 个用例通过。
+- `pnpm build`：退出码 0；既有 Windows `EBUSY` 原生文件锁提示不影响构建完成。
+- `pnpm manager:build`：退出码 0；生成 `manager/dist/index.js`。
+- `pnpm plan:lint`：退出码 0；计划入口和链接检查通过。
+- `pnpm exec prettier --check ...`：退出码 0；本轮涉及源文件格式通过。
+- `git diff --check`：退出码 0；无空白错误。
 
 ### 每个小任务开始前
 

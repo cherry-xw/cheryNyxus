@@ -1,15 +1,42 @@
-# Replace example.com and /nyxus/ before enabling this file.
-location /nyxus/ {
-    proxy_pass http://127.0.0.1:4080;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header Origin $http_origin;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-Host $host;
-    proxy_set_header X-Forwarded-Prefix /nyxus;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 60s;
-}
+# Replace example.com, /nyxus/ and the upstream addresses before enabling this file.
+# The public prefix must be the same value as RELAY_PUBLIC_BASE_PATH.
+server {
+    listen 443 ssl;
+    server_name example.com;
 
-# The manager is loopback-only and must never be proxied here.
+    # Serve the compiled browser frontend from the same public prefix.
+    location /nyxus/ {
+        alias /srv/cherynyxus/web/;
+        try_files $uri $uri/ /nyxus/index.html;
+    }
+
+    # Relay discovery and backend HTTP API. The relay removes /nyxus/ before
+    # applying its CheryNyxus-only route allowlist.
+    location /nyxus/api/ {
+        proxy_pass http://127.0.0.1:4080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Origin $http_origin;
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Prefix /nyxus;
+        proxy_read_timeout 60s;
+    }
+
+    # Relay WebSocket backend route. No manager or arbitrary TCP route is
+    # proxied here.
+    location /nyxus/backend/ {
+        proxy_pass http://127.0.0.1:4080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Origin $http_origin;
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Prefix /nyxus;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 60s;
+    }
+}

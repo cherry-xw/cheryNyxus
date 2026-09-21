@@ -9,6 +9,7 @@
 | 修改设备握手、发现或路由 | [中转协议](../shared/protocol/relay.md) | [`relay/src/server.ts`](../../relay/src/server.ts) `createRelayService()` | `pnpm relay:test` |
 | 修改中转配置和限制 | [中转协议](../shared/protocol/relay.md) | [`relay/src/config.ts`](../../relay/src/config.ts) `loadRelayConfig()` | `pnpm relay:type-check` |
 | 修改设备绑定存储 | [中转协议](../shared/protocol/relay.md) | [`relay/src/identityStore.ts`](../../relay/src/identityStore.ts) `IdentityStore` | `relay/test/relay.test.ts` |
+| 修改后端控制连接或动态隧道配置 | [中转协议](../shared/protocol/relay.md) | [`relay/src/client.ts`](../../relay/src/client.ts) `RelayBackendClient`、[`relay/src/rathole.ts`](../../relay/src/rathole.ts) `servicesFromAccepted()` | `relay/test/rathole.test.ts`、`pnpm relay:type-check` |
 
 ## 运行方式
 
@@ -24,6 +25,10 @@
 - `relay/src/registry.ts`：在线租约、容量和浏览器 WS 计数。
 - `relay/src/identityStore.ts`：Backend ID 到设备公钥指纹的首次信任绑定。
 - `relay/src/adapter.ts`：后端 HTTP/WS 目标适配器；测试可以注入假适配器。
+- `relay/src/client.ts`：后端控制 WebSocket 客户端、设备密钥、租约心跳、重连和动态 client 配置。
+- `relay/src/rathole.ts`：HTTP/WS 两服务校验、client/server TOML、私有配置和 rathole 子进程适配。
 - `packages/protocol/src/relay.ts`：跨进程共享类型和签名原文。
 
 普通日志只允许 request id、Backend ID、路径类别、状态码、耗时和错误类别；不得添加凭据、Cookie、token、密钥或请求体。
+
+后端控制客户端可以把不含 token、密钥和 Cookie 的状态摘要写入本机受保护状态文件；本地管理器通过配置的 `CHERY_RELAY_STATUS_FILE` 读取该摘要，不经中转返回。
