@@ -99,4 +99,20 @@ describe('Nyxus demand loading contract', () => {
     expect(applyEvent).not.toContain('observeRootTimeline(')
     expect(applyEvent).not.toContain('ensureRootSubscription(')
   })
+
+  it('never creates a stage PetInstance for the cheryNyxus preset', async () => {
+    const source = await readComponentSource(
+      resolve('web/src/stores/agents/data/petLifecycle.ts'),
+      'utf8',
+    )
+    const create = source.slice(
+      source.indexOf('async function createMasterPet'),
+      source.indexOf('async function getActiveNyxus'),
+    )
+
+    expect(create).toContain('if (opts.preset === CHERY_NYXUS_PRESET) return chatId')
+    expect(create.indexOf('pets.value.push(pet)')).toBeGreaterThan(
+      create.indexOf('if (opts.preset === CHERY_NYXUS_PRESET) return chatId'),
+    )
+  })
 })

@@ -39,6 +39,7 @@ PetPresentation 只拥有无法从会话推导的视觉状态，例如坐标、�
 ## 生命周期与恢复
 
 - 启动时先加载 ChatSession catalog，再协调 Pet 实例；
+- cheryNyxus（Nyxus）预设不产生舞台 PetInstance：所有入口一致——含 `createMasterPet` 的新建会话路径与历史重建的 `buildMasterAndChildren`，只创建/复用会话，由 Nyxus 星系界面独立渲染；
 - 运行中恢复使用 `chat.open` 的原子状态和 event fence，不使用 attach/sync replay；
 - role 创建/销毁通知只触发 catalog 对账，不作为 Pet 唯一创建/删除命令；
 - 删除会话时，先由 ChatSession 驱逐 canonical entity，再由应用 effect 清理视觉实例和 workspace 引用；
