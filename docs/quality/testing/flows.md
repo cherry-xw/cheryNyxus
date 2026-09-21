@@ -2,7 +2,7 @@
 
 > 把「主子 agent 对话 / 审批 / 工具卡 / 刷新重连 / resume」的需求逐条落成**可执行的流程测试**。本文是流程测试的**规约**（doc-first）：每个交互场景给出**步骤序列 + 检查信息 + 功能点 + 覆盖分支**，并证明原始需求的每种分支情况都被某个场景覆盖。
 >
-> 状态：覆盖 [test.md](baseline.md) 的「test 模块推迟」约定——流程测试是**例外**（新建、独立、全绿），不计入预存失败基线。**S1–S17 全部落地**（Tier 1 S1–S7 + Tier 2 S8–S17），公共流程已统一迁移到 canonical command/session plane。
+> 状态：覆盖 [baseline.md](baseline.md) 的「test 模块推迟」约定——流程测试是**例外**（新建、独立、全绿），不计入预存失败基线。**S1–S17 全部落地**（Tier 1 S1–S7 + Tier 2 S8–S17），公共流程已统一迁移到 canonical command/session plane。
 
 ---
 
@@ -337,7 +337,7 @@
 
 - **必绿**：S1–S17 全绿方算流程测试验收。跑 `pnpm vitest run test/flows/`
 - **core/agent 覆盖**：改 `src/core`/`src/agent` 跑 `pnpm test`（core≥90%/agent≥70%）
-- **协议契约**：改 types.ts/schemas.ts/config.ts 跑 `pnpm type-check`（排除 [test.md](baseline.md) 基线 4 处）+ `pnpm lint`
+- **协议契约**：改 types.ts/schemas.ts/config.ts 跑 `pnpm type-check`（排除 [baseline.md](baseline.md) 基线 4 处）+ `pnpm lint`
 - 流程测试独立于预存失败基线，不计入该基线
 - 前端验证交用户（约定）
 
@@ -345,6 +345,5 @@
 
 ## 9. 依赖与关联
 
-- **关联文档**：[test.md](baseline.md)、[protocol.md](../../shared/protocol/websocket.md)（canonical command/session plane）、[interaction.md](../../shared/protocol/interactions.md)（`chat.open` + `chat.timeline.get` hydration）、[mock.md](mock-provider.md)、[service/chat.md](../../backend/service/chat.md)、[service/websocket.md](../../backend/service/websocket.md)
-- **关联记忆**：[[protocol-hydration-redesign]]、[[test-module-deferred]]、[[unified-pause-semantics]]、[[test-core-agent-required]]
-- **改造背景**：G1–G8 详见计划 `/home/chery/.claude/plans/virtual-splashing-yao.md` 与 [[protocol-hydration-redesign]]
+- **关联文档**：[baseline.md](baseline.md)、[protocol.md](../../shared/protocol/websocket.md)（canonical command/session plane）、[interaction.md](../../shared/protocol/interactions.md)（`chat.open` + `chat.timeline.get` hydration）、[mock.md](mock-provider.md)、[service/chat.md](../../backend/service/chat.md)、[service/websocket.md](../../backend/service/websocket.md)
+- **改造背景**：G1–G8 的验收点标注见上文 §3 流程场景矩阵，落地证据见 §7 实现状态，不再依赖外部计划文件。

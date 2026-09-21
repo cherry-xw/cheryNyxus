@@ -94,6 +94,7 @@ watch(
 }
 .instruction-tab {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   gap: 4px;
   padding: 4px 8px;

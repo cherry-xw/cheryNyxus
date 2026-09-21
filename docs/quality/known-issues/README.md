@@ -10,7 +10,6 @@
 | FE-UI-002 | 设置/窗口/会话输入 | 人工复核 | P1 | 待用户复核 | 草稿保护、关闭、附件和分支反馈尚需真实操作确认 | [前端 UI](./frontend-ui.md#fe-ui-002-关键交互反馈待人工复核) |
 | FE-UI-003 | 登录与可用性 | 人工复核 | P2 | 待用户复核 | 登录反馈、键盘、触摸和小视口体验尚需真实操作确认 | [前端 UI](./frontend-ui.md#fe-ui-003-登录与多输入方式待人工复核) |
 | FE-ENG-001 | 前端工程基线 | 暂缓处理 | P3 | 已知/暂缓 | 全仓 Web lint 受存量 CRLF 行尾影响 | [前端工程](./frontend-engineering.md#fe-eng-001-全仓-web-lint-受存量-crlf-影响) |
-| FE-ENG-002 | Nyxus 节点树 | 暂缓处理 | P3 | 已知/暂缓 | 节点树控制器保留 3 条 ESLint warning | [前端工程](./frontend-engineering.md#fe-eng-002-节点树控制器保留-3-条-eslint-warning) |
 | FE-PERF-001 | Workbench 构建 | 暂缓处理 | P3 | 已知/暂缓 | Workbench 生产 chunk 超过 Vite 500 kB 告警线 | [前端工程](./frontend-engineering.md#fe-perf-001-workbench-生产-chunk-超过告警线) |
 
 ## 维护规则

@@ -13,18 +13,6 @@
 - 处理入口：独立建立行尾归一化任务，统一 `.gitattributes`、编辑器配置和现存文件后，再恢复全仓 lint 为强制门禁。
 - 关闭条件：干净工作区执行 `pnpm --filter web lint` 不再因存量行尾失败，并确认没有批量改写生成文件或第三方文件。
 
-## FE-ENG-002 节点树控制器保留 3 条 ESLint warning
-
-- 模块：Nyxus 节点树控制器。
-- 类型/状态：暂缓处理 / 已知/暂缓。
-- 优先级：P3。
-- 现象：[useMessageBranchTreeController.ts](../../../web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts) 的 `useMessageBranchTreeController` 返回类型仍为 `any`；`endpointLayout` 与 `suppressAutoFollow` 当前被赋值但未消费，共产生 3 条 warning、0 error。
-- 影响：不阻断构建或现有测试，但削弱控制器返回值的类型边界，并留下可能已经失效的布局/跟随意图。
-- 当前决定：不在本轮 UI 交互与颜色修复中顺带重构超大控制器。
-- 处理入口：先为控制器返回对象建立显式类型，再确认 endpoint 投影和自动跟随抑制是否仍属于现行设计；确定无调用后删除死状态，否则补齐消费路径与定向测试。
-- 验证命令：`pnpm --filter web exec eslint src/features/pets/nyxus/components/useMessageBranchTreeController.ts`。
-- 关闭条件：命令返回 0 warning，相关节点树类型检查和定向测试通过。
-
 ## FE-PERF-001 Workbench 生产 chunk 超过告警线
 
 - 模块：Workbench 按需加载与生产构建。

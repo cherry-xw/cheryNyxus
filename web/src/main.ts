@@ -34,9 +34,11 @@ import App from './App.vue'
 import { useAuthStore, useThemeStore } from '@/stores'
 import { configureServiceAuth } from '@/services/authContext'
 import { setupGsapCore } from '@/utils/gsapCore'
+import { setupMermaidAutoRender } from '@/utils/mermaidRenderer'
 
 const app = createApp(App)
 setupGsapCore()
+setupMermaidAutoRender()
 const pinia = createPinia()
 app.use(pinia)
 app.use(ElLoading)

@@ -94,6 +94,19 @@ const { html: rendered } = useRenderedMarkdown(() => props.text ?? '', { mode: '
   font-size: 14px;
   line-height: 1.6;
 }
+.lite-md :deep(pre.mermaid) {
+  margin: 6px 0;
+  padding: 8px 0;
+  background: transparent;
+  border: none;
+  text-align: center;
+  svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+  }
+}
 .lite-md :deep(hr) {
   border: none;
   border-top: 1px solid var(--el-border-color);

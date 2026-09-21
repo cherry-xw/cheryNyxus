@@ -23,20 +23,11 @@
 
 ## TSC 基线预存错误
 
-按 [[tsc-baseline-preexisting-errors]]：以下文件 / 行号有预存 TSC 错误，**非回归**，跑 `pnpm type-check` 时排除：
-
-| 文件 | 备注 |
-|------|------|
-| `src/service/brain/proxy/list.ts` | 行号随新增函数漂移 |
-| `src/db/chat.ts` | `parseMessageRow` cast 缺类型，行号随上方新增漂移（504→520→538） |
-| `web/src/features/agent/HistoryDrawer.vue` | 第 149 行附近 |
-| `web/src/services/agentApi.ts` | 第 261 行附近 |
-
-跑 TSC 时以上错误**不计入回归**。其余文件 TSC 0 错 = 通过。
+历史基线记录的 4 处预存 TSC 错误（`src/service/brain/proxy/list.ts`、`src/db/chat.ts`、`web/src/features/agent/HistoryDrawer.vue`、`web/src/services/agentApi.ts`）已随各自修复清除，`pnpm type-check` 与 `pnpm --filter web type-check` 均回归 0 错误。当前不再有计入基线的 TSC 预存错误。
 
 ## test/ 套件预存失败
 
-按 [[test-suite-baseline-preexisting-failures]]：~86 个预存失败分四类，**非回归**，跑 `pnpm test` 时排除：
+按历史基线记录：~86 个预存失败分四类，**非回归**，跑 `pnpm test` 时排除：
 
 | 类别 | 性质 |
 |------|------|
@@ -49,7 +40,7 @@
 
 ## 既有的 P6 测试（保留不删）
 
-P6 阶段已写三组测试（按 [[test-module-deferred]] 保留不删、不扩展、不跑）：
+P6 阶段已写三组测试（按「test 模块推迟」指令保留不删、不扩展、不跑）：
 
 - `test/agent/middleware/retry.test.ts`：14 用例，含 3 个 P6a auth 分类测试（401/403/invalid api key → 1 次后 yield error，不重试）
 - `test/service/chat/send.test.ts`：16 用例，含 3 个 P2 回归门用例（streamAgentChunks onError → failureResponse success:false，done notification 抑制）
@@ -60,12 +51,12 @@ P6 阶段已写三组测试（按 [[test-module-deferred]] 保留不删、不扩
 ```bash
 # 1. src 门控（必跑）
 pnpm type-check
-# 期望：除基线 4 处外 0 错，exit 0
+# 期望：0 错，exit 0（无 TSC 基线预存错误）
 
 # 2. test/ 不跑（按推迟指令）
 # pnpm test  # 跳过
 
-# 3. 前端验证（按 [[frontend-verification-user-only]]）
+# 3. 前端验证（按约定交用户自验）
 # 用户自验 vue-tsc / vite build / vitest，不在 Claude 流程内
 ```
 
@@ -75,5 +66,4 @@ pnpm type-check
 
 ## 依赖与关联
 
-- **关联记忆**：[[test-module-deferred]]、[[test-suite-baseline-preexisting-failures]]、[[tsc-baseline-preexisting-errors]]、[[frontend-verification-user-only]]
-- **关联文档**：[docs/quality/testing/flows.md](flows.md)（流程测试规约——刷新重连改造 G1/G3/G8 验收点为例外，独立全绿，不计入 86 基线）、[docs/quality/testing/mock-provider.md](mock-provider.md)（mock provider 脚本化离线测试，可手动跑 mock brain 验证修复）
+- **关联文档**：[flows.md](flows.md)（流程测试规约——刷新重连改造 G1/G3/G8 验收点为例外，独立全绿，不计入 86 基线）、[mock-provider.md](mock-provider.md)（mock provider 脚本化离线测试，可手动跑 mock brain 验证修复）

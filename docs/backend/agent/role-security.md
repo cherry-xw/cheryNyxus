@@ -9,7 +9,7 @@
 - `supervised`：变更类工具、未知 MCP 与派遣默认审核；这是未声明策略的安全默认值。
 - `trusted`：减少语义审批，但仍不能绕过系统路径守卫、参数绑定和 OS 沙箱。
 
-可继续配置 `filesystem.read/write`、`commands.shells/maxSandboxMode/categories`、`mcp.default/tools`、`spawn.effect/allowedRoles` 与工具名通配规则 `tools`。设置页“角色 → 行为权限”提供常用选项。
+可继续配置 `filesystem.read/write`、`commands.shells/maxSandboxMode/categories`、`mcp.default/tools`、`spawn.effect/allowedRoles` 与工具名通配规则 `tools`。设置页进入预设 → 「编辑角色」→ 角色详情「行为权限」提供常用选项。
 
 ## 智能命令审核
 

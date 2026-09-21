@@ -38,6 +38,8 @@ h4 { color: var(--nx-text); font-size: 15px; line-height: 1.4; letter-spacing: .
 .formatted-content :deep(strong) { color: var(--nx-cyan); }
 .formatted-content :deep(code) { font-size: 12px; color: var(--nx-cyan); }
 .formatted-content :deep(pre) { white-space: pre-wrap; font-size: 12px; line-height: 1.5; padding: 10px 12px; background: color-mix(in srgb, var(--nx-text) 5%, transparent); break-inside: avoid; }
+.formatted-content :deep(pre.mermaid) { padding: 8px 0; background: transparent; white-space: normal; text-align: center; }
+.formatted-content :deep(pre.mermaid svg) { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .formatted-content :deep(blockquote) { margin: 8px 0; padding: 6px 12px; border-left: 2px solid color-mix(in srgb, var(--nx-cyan) 50%, transparent); background: color-mix(in srgb, var(--nx-cyan) 4%, transparent); break-inside: avoid; }
 .formatted-content :deep(table) { width: 100%; border-collapse: collapse; font-size: 12px; break-inside: avoid; }
 .formatted-content :deep(th), .formatted-content :deep(td) { padding: 6px 8px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent); }
