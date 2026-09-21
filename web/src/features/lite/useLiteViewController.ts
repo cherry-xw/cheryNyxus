@@ -8,6 +8,7 @@ import {
 } from '@/features/agent/composables/commands'
 import {
   buildLiteRows,
+  classifyToolType,
   createLiteExecutionClock,
   formatElapsed,
   isStandaloneNodeKind,
@@ -20,17 +21,38 @@ import {
   type LiteRunNode,
   type LiteRunNodeStatus,
   type LiteRunRow,
+  type LiteToolCallItem,
 } from './executionMonitor'
 import type { LiteDetailSectionName } from './detailSections'
 import LiteScrollbar from './LiteScrollbar.vue'
 import DetailDrawer from './DetailDrawer.vue'
 import LiteMarkdown from './LiteMarkdown.vue'
 import { useLiteNodeTones } from './useLiteNodeTones'
+import {
+  agentApi,
+  type ConfigDto,
+  type GraphToolCall,
+  type MediaCapabilitiesDto,
+} from '@/application/backend/public'
+import { useChatSessionsStore } from '@/application/public'
+import type { UploadFile } from 'element-plus'
+import type { MediaAttachment, MediaKind } from '@/features/agent/composer/useAgentDialogOptions'
+import {
+  compressImage,
+  COMPRESS_MAX_EDGE,
+  COMPRESS_QUALITY,
+  loadImageDims,
+  mediaKindOf,
+  ORIGINAL_MAX_EDGE,
+  ORIGINAL_QUALITY,
+  shouldCompressImage,
+} from '@/utils/imageCompress'
 
 export type LiteViewControllerProps = { windowId: string; rootChatId: string; presetName?: string }
 
 export function useLiteViewController(props: LiteViewControllerProps) {
   const liteUi = useLiteStore()
+  const chatSessions = useChatSessionsStore()
   const lite = useLiteCanonicalView(
     () => props.windowId,
     () => props.rootChatId,
@@ -194,6 +216,20 @@ export function useLiteViewController(props: LiteViewControllerProps) {
         return '已取消'
     }
   }
+  /** 工具调用状态 → 节点状态（cluster 组内逐工具状态线 / 文案映射）。 */
+  function toolCallStatus(status: GraphToolCall['status']): LiteRunNodeStatus {
+    switch (status) {
+      case 'pending':
+      case 'accepted':
+        return 'running'
+      case 'completed':
+        return 'completed'
+      case 'error':
+        return 'failed'
+      case 'rejected':
+        return 'rejected'
+    }
+  }
   const monitorEl = ref<HTMLElement | null>(null)
   const autoScroll = computed({
     get: () => rootUi.value.autoScroll,
@@ -271,13 +307,21 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   async function onSend(): Promise<void> {
     const content = inputText.value.trim()
     if (!content || sending.value) return
+    // 媒体附件：可压缩图片按 useCompressed 选择发送「压缩版」还是「原图版（基本压缩）」
+    const attachments = mediaAttachments.value.map((m) => {
+      const chosen = m.useCompressed && m.compressed ? m.compressed : m
+      return { assetId: chosen.assetId, kind: m.kind, mimeType: chosen.mimeType }
+    })
     sending.value = true
     try {
-      const sent = await lite.submitInput(content)
+      const sent = await lite.submitInput(content, attachments)
       if (sent) {
         // 新运行已开始：清掉可能残留的命令错误 banner（成功发送是新一轮开始）
         lite.lastCommandError = null
         inputText.value = ''
+        for (const a of mediaAttachments.value) URL.revokeObjectURL(a.previewUrl)
+        mediaAttachments.value = []
+        mediaHint.value = ''
         // v0.4.2 多行输入：清空后等 DOM 更新，把 textarea 高度重置回单行
         await nextTick()
         autoGrowInput()
@@ -426,6 +470,10 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   function openNodeDetail(node: LiteRunNode, event: Event): void {
     showDetail(node.nodeId, node.kind === 'tool' ? 'toolCalls' : null, null, event)
   }
+  /** 工具节点：点击单个工具调用 → 打开详情抽屉并定位到该调用卡。 */
+  function openToolCallDetail(node: LiteRunNode, call: LiteToolCallItem, event: Event): void {
+    showDetail(node.nodeId, 'toolCalls', call.callId, event)
+  }
   async function closeDetail(): Promise<void> {
     liteUi.patchRootUi(props.windowId, props.rootChatId, {
       detailNodeId: null,
@@ -510,11 +558,14 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   }
   // t16：hover 放大 + tip 展示详情（时间轴 bar 悬停浮层）。cluster 小按钮复用同一浮层。
   const hoverNode = ref<LiteRunNode | null>(null)
+  /** 悬停单个工具调用时的覆盖信息（cluster 组内工具 icon）；缺省 = 整节点提示。 */
+  const hoverCall = ref<LiteToolCallItem | null>(null)
   const tipPos = ref({ x: 0, y: 0 })
   /** 浮层底部「点击」操作提示：轨迹块点击定位下方内容，cluster 小按钮点击查看详情。 */
   const tipAction = ref('')
-  function showBarTip(node: LiteRunNode, event: PointerEvent): void {
+  function showBarTip(node: LiteRunNode, event: PointerEvent, call?: LiteToolCallItem): void {
     hoverNode.value = node
+    hoverCall.value = call ?? null
     tipPos.value.x = event.clientX
     tipPos.value.y = event.clientY
     const target = event.currentTarget
@@ -530,6 +581,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   }
   function hideBarTip(): void {
     hoverNode.value = null
+    hoverCall.value = null
     tipAction.value = ''
   }
   function nodeKindLabel(node: LiteRunNode): string {
@@ -542,6 +594,19 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     if (node.kind === 'tool' && node.toolType) parts.push(toolTypeLabel(node.toolType))
     parts.push(node.label)
     parts.push(runStatusLabel(node.status))
+    if (node.elapsedMs > 0) parts.push(formatElapsed(node.elapsedMs))
+    return parts.join(' · ')
+  }
+  /** cluster 思考/正文标记：主·子 Agent 响应，或工具节点合并了思考/正文时展示。 */
+  function showThinkingMark(node: LiteRunNode): boolean {
+    if (node.kind === 'root-agent' || node.kind === 'child-agent') return true
+    return Boolean(node.thinking) || Boolean(node.content?.trim())
+  }
+  /** 单个工具调用的 tip 文案（cluster 组内工具 aria-label）：工具 + 类型 + 名称 + 状态 + 耗时。 */
+  function toolCallTipText(node: LiteRunNode, call: LiteToolCallItem): string {
+    const parts: string[] = [LITE_NODE_LABELS.tool, toolTypeLabel(classifyToolType(call.name))]
+    parts.push(call.label)
+    parts.push(runStatusLabel(toolCallStatus(call.status)))
     if (node.elapsedMs > 0) parts.push(formatElapsed(node.elapsedMs))
     return parts.join(' · ')
   }
@@ -777,6 +842,153 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     return (row.nodes ?? []).map((node) => node.key).join('|')
   }
 
+  // ── 媒体（图片/视频/音频）：与对话/树输入区一致的上传-压缩-携带体系。
+  //    精简模式是独立 controller，媒体状态与逻辑在此自带；发送时经 onSend 携带附件。 ──
+  const config = ref<ConfigDto | null>(null)
+  async function ensureConfig(): Promise<ConfigDto | null> {
+    if (!config.value) {
+      try {
+        config.value = await agentApi.getConfig()
+      } catch {
+        config.value = null
+      }
+    }
+    return config.value
+  }
+  const mediaAttachments = ref<MediaAttachment[]>([])
+  const uploading = ref(false)
+  const mediaHint = ref('')
+  /** 当前会话主角色 brain（取最近一条带 runtime 的用户/助手消息的发送配置）。 */
+  function currentBrain(): string | undefined {
+    const session = chatSessions.sessionsById[props.rootChatId]
+    if (!session) return undefined
+    for (const id of [...session.messageOrder].reverse()) {
+      const runtime = session.messagesById[id]?.runtime
+      if (runtime?.brain) return runtime.brain
+    }
+    return undefined
+  }
+  /** 当前会话主角色 brain 的 input 能力。 */
+  function brainCapability(): MediaCapabilitiesDto | undefined {
+    const brainName = currentBrain()
+    if (!brainName) return undefined
+    return config.value?.llm.brain[brainName]?.capabilities?.input
+  }
+  /** 各媒体类型对应的已启用服务名（媒体菜单显示用；brain 原生能力补位）。 */
+  const mediaServicesByType = computed<Record<MediaKind, string | null>>(() => {
+    const result: Record<string, string | null> = { image: null, video: null, audio: null }
+    for (const [name, svc] of Object.entries(config.value?.media ?? {})) {
+      if (svc.enabled && svc.url && !result[svc.type]) result[svc.type] = name
+    }
+    const capability = brainCapability()
+    for (const kind of ['image', 'video', 'audio'] as const) {
+      if (!result[kind] && capability?.[kind]) result[kind] = '模型原生支持'
+    }
+    return result as Record<MediaKind, string | null>
+  })
+  const mediaDisabledReason = computed(() => {
+    if (sending.value) return '消息正在发送'
+    if (uploading.value) return '附件正在上传'
+    return ''
+  })
+  function removeMedia(attachment: MediaAttachment): void {
+    URL.revokeObjectURL(attachment.previewUrl)
+    mediaAttachments.value = mediaAttachments.value.filter((item) => item !== attachment)
+    mediaHint.value = mediaAttachments.value.length
+      ? `已附加 ${mediaAttachments.value.length} 个媒体文件`
+      : ''
+  }
+  function toggleMediaVariant(attachment: MediaAttachment): void {
+    if (!attachment.compressed) return
+    const next = { ...attachment, useCompressed: !attachment.useCompressed }
+    const index = mediaAttachments.value.indexOf(attachment)
+    if (index >= 0) mediaAttachments.value[index] = next
+    else mediaAttachments.value = mediaAttachments.value.map((m) => (m === attachment ? next : m))
+  }
+  async function onMediaSelected(uploadFile: UploadFile): Promise<void> {
+    const file = uploadFile.raw
+    if (!file || uploading.value || sending.value) return
+    await ensureConfig()
+    const category = mediaKindOf(file)
+    if (!category) return
+    const hasMediaService = config.value?.media
+      ? Object.values(config.value.media).some(
+          (svc) => svc.type === category && svc.enabled && svc.url,
+        )
+      : false
+    const hasBrainCapability = brainCapability()?.[category] === true
+    if (!hasMediaService && !hasBrainCapability) {
+      const typeLabel = category === 'image' ? '图片' : category === 'video' ? '视频' : '音频'
+      mediaHint.value = `未配置${typeLabel}服务，且小组无支持模型`
+      return
+    }
+    uploading.value = true
+    mediaHint.value = '上传媒体中…'
+    try {
+      const previewUrl = URL.createObjectURL(file)
+      const dims = category === 'image' ? await loadImageDims(file) : null
+      // 图片超阈值 → 上传「原图版(2048/90) + 压缩版(1280/85)」双版本，默认发压缩版
+      if (category === 'image' && shouldCompressImage(file, dims)) {
+        const [origTier, compTier] = await Promise.all([
+          compressImage(file, { maxEdge: ORIGINAL_MAX_EDGE, quality: ORIGINAL_QUALITY }),
+          compressImage(file, { maxEdge: COMPRESS_MAX_EDGE, quality: COMPRESS_QUALITY }),
+        ])
+        if (origTier && compTier) {
+          const [origAsset, compAsset] = await Promise.all([
+            agentApi.uploadMedia(
+              new File([origTier.blob], `original-${file.name}`, { type: origTier.blob.type }),
+            ),
+            agentApi.uploadMedia(
+              new File([compTier.blob], `compressed-${file.name}`, { type: compTier.blob.type }),
+            ),
+          ])
+          mediaAttachments.value.push({
+            assetId: origAsset.id,
+            filename: origAsset.filename,
+            kind: 'image',
+            mimeType: origAsset.mimeType,
+            size: origAsset.size,
+            previewUrl,
+            width: origTier.dims.width,
+            height: origTier.dims.height,
+            useCompressed: true,
+            compressed: {
+              assetId: compAsset.id,
+              filename: compAsset.filename,
+              mimeType: compAsset.mimeType,
+              size: compAsset.size,
+              width: compTier.dims.width,
+              height: compTier.dims.height,
+            },
+          })
+          mediaHint.value = `${file.name} 已附加`
+          return
+        }
+      }
+      // 小图 / 非图片 / 压缩失败 → 上传原始文件
+      const asset = await agentApi.uploadMedia(file)
+      const base: MediaAttachment = {
+        assetId: asset.id,
+        filename: asset.filename,
+        kind: asset.kind,
+        mimeType: asset.mimeType,
+        size: asset.size,
+        previewUrl,
+        useCompressed: false,
+      }
+      if (category === 'image' && dims) {
+        base.width = dims.width
+        base.height = dims.height
+      }
+      mediaAttachments.value.push(base)
+      mediaHint.value = `${file.name} 已附加`
+    } catch (err) {
+      mediaHint.value = (err as Error).message
+    } finally {
+      uploading.value = false
+    }
+  }
+
   return {
     DetailDrawer,
     LiteMarkdown,
@@ -798,6 +1010,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     formatElapsed,
     hideBarTip,
     history,
+    hoverCall,
     hoverNode,
     hydrationLabel,
     inputText,
@@ -813,19 +1026,26 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     monitor,
     monitorEl,
     moveBarTip,
+    mediaAttachments,
+    mediaDisabledReason,
+    mediaHint,
+    mediaServicesByType,
     nodeKindLabel,
     nodeTipText,
     nodeToneVars,
     onErrorAction,
     onInputKeydown,
     onMonitorScroll,
+    onMediaSelected,
     onResume,
     onSend,
     onStop,
     onTrajectoryKeydown,
     onTrajectoryWheel,
     openNodeDetail,
+    openToolCallDetail,
     operationBlockReason,
+    removeMedia,
     resetTrajectoryZoom,
     resuming,
     rootUi,
@@ -836,9 +1056,13 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     sending,
     setRowEl,
     showBarTip,
+    showThinkingMark,
     showsRowContent,
     tipAction,
     tipPos,
+    toolCallStatus,
+    toolCallTipText,
+    toggleMediaVariant,
     toggleThinking,
     toggleRunDetail,
     toolTypeGlyph,
@@ -846,6 +1070,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     trajectoryBarStyle,
     trajectoryLayout,
     trajectoryZoom,
+    uploading,
     userSegments,
     visibleRows,
   }

@@ -654,56 +654,116 @@
   color: var(--el-text-color-placeholder);
 }
 
-/* ── MCU 同构工具 tag：可变形图标（morphicons）+ 底部状态条 + 统一小方框 ── */
+/* ── MCU 同构 cluster 行：思考/正文标记 + 工具 icon 组，单元间短竖线分隔（首尾无竖线） ── */
 .lite-cluster {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   padding: 4px 10px;
 }
-/* 统一小方框：固定 22×22、淡底色 + 细描边，图标垂直水平居中，高低一致；
-   节点间的 `|` 字符分隔线已移除，由方框本身承担分隔（阶段1确认）。 */
-.lite-cluster-node {
+/* 一个节点单元（思考标记 / 工具 icon 组）：与前一个单元之间用短竖线分隔
+   （首个单元无前置兄弟 → 首无竖线；末单元后无兄弟 → 尾无竖线）。 */
+.lite-cluster-unit {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lite-cluster-unit + .lite-cluster-unit {
+  margin-left: 12px;
+}
+.lite-cluster-unit + .lite-cluster-unit::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 14px;
+  background: var(--el-border-color);
+  pointer-events: none;
+}
+.lite-cluster-unit.is-selected .lite-thinking-mark {
+  color: var(--el-color-primary);
+}
+/* 思考/正文标记：无边框；运行中 brain↔brain-cog 变形（MorphIcon）+ 主题色呼吸。 */
+.lite-thinking-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  line-height: 1;
+  transition: color 160ms ease;
+}
+.lite-thinking-mark:hover {
+  color: var(--el-text-color-primary);
+}
+.lite-thinking-mark.is-active {
+  animation: lite-thinking-breathe 2.4s ease-in-out infinite;
+}
+@keyframes lite-thinking-breathe {
+  0%,
+  100% {
+    color: var(--el-color-primary);
+  }
+  50% {
+    color: var(--el-color-primary-light-6);
+  }
+}
+/* 工具 icon：无边框、并排（同一次 LLM 响应的逐个工具），每个底部一条状态线。
+   图标按工具类型区分颜色（六类专属色调，与详情抽屉 type chip 同色板）。
+   状态线不占布局高度（absolute 定位），保证 icon 与思考标记中心对齐。 */
+.lite-tool-call {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-sizing: border-box;
-  width: 22px;
-  height: 22px;
   padding: 0;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 0;
-  background: var(--el-fill-color-light);
+  border: 0;
+  background: transparent;
   color: var(--el-text-color-regular);
   cursor: pointer;
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease;
+  line-height: 1;
+  transition: filter 160ms ease;
 }
-.lite-cluster-node:hover {
-  border-color: color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color-lighter));
-  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-fill-color-light));
-  color: var(--el-text-color-primary);
+.lite-tool-call:hover {
+  filter: brightness(1.18);
 }
-.lite-cluster-node.is-selected {
-  color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-fill-color-light));
-  border-color: color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color-lighter));
+.lite-tool-call.is-selected {
+  filter: brightness(1.28);
 }
-/* v1.2：hover 描边框用 ::before 叠加（inset -2px 外圈），与方框自身的 hover 变色叠加出层次。 */
-.lite-cluster-node::before {
+.lite-tool-call.is-selected::after {
   content: '';
   position: absolute;
-  inset: -2px;
-  border: 1px solid currentColor;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  top: -2px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--el-color-primary);
 }
-.lite-cluster-node:hover::before {
-  opacity: 0.32;
+.lite-tool-call[data-tooltype='exec'] {
+  color: #9b59b6;
+}
+.lite-tool-call[data-tooltype='read'] {
+  color: #6b7f92;
+}
+.lite-tool-call[data-tooltype='write'] {
+  color: #2f9e63;
+}
+.lite-tool-call[data-tooltype='web'] {
+  color: #00a8a8;
+}
+.lite-tool-call[data-tooltype='dispatch'] {
+  color: #e67e22;
+}
+.lite-tool-call[data-tooltype='other'] {
+  color: #c58a1f;
 }
 /* t14：时间轴点击定位 → 高亮下方对应内容块（行 + 具体节点），并做一次短暂闪光动画。 */
 .lite-history-row.is-focused {
@@ -723,10 +783,9 @@
     background: transparent;
   }
 }
-.lite-cluster-node.is-focused {
+.lite-cluster-unit.is-focused {
   outline: 1px dotted var(--el-color-primary);
-  outline-offset: 0;
-  background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+  outline-offset: 2px;
 }
 .lite-trajectory-bar.is-focused {
   opacity: 1;
@@ -784,62 +843,42 @@
   border-top: 1px solid var(--el-border-color-lighter);
   color: var(--el-color-primary);
 }
-/* 工具节点 icon 按工具类型区分颜色（六类专属色调，与详情抽屉 type chip 同色板）；
-   中文名称仅保留在 title / aria-label / 详情中。 */
-.lite-cluster-node[data-tooltype='exec'] .lite-cluster-icon {
-  color: #9b59b6;
-}
-.lite-cluster-node[data-tooltype='read'] .lite-cluster-icon {
-  color: #6b7f92;
-}
-.lite-cluster-node[data-tooltype='write'] .lite-cluster-icon {
-  color: #2f9e63;
-}
-.lite-cluster-node[data-tooltype='web'] .lite-cluster-icon {
-  color: #00a8a8;
-}
-.lite-cluster-node[data-tooltype='dispatch'] .lite-cluster-icon {
-  color: #e67e22;
-}
-.lite-cluster-node[data-tooltype='other'] .lite-cluster-icon {
-  color: #c58a1f;
-}
+/* 工具类型配色已上移至 .lite-tool-call[data-tooltype]（见 cluster 单元样式）。 */
+
 /* v1.0 弱化状态线：icon 为主、状态线为辅——状态线统一降透明度（成功绿/失败红不再全实色抢眼），
    仅作底部细微状态指示，`prefers-reduced-motion` 下运行线保持常亮。
-   v3.0 收敛：状态线变短变粗（左右内缩更多 + 高度 2→3px），视觉更克制。 */
-.lite-cluster-status {
+   去边框后状态线 absolute 定位不占布局高度（icon 与思考标记中心对齐），
+   并在 icon 下方下移；宽高进一步缩小（10×2）。 */
+.lite-tool-call-status {
   position: absolute;
-  z-index: 1;
-  right: 5px;
-  bottom: 0;
-  left: 5px;
-  height: 3px;
+  left: 50%;
+  bottom: -5px;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 2px;
   border-radius: 0;
   background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
   pointer-events: none;
   transition: background-color 200ms ease;
 }
-.lite-cluster-status[data-status='running'] {
+.lite-tool-call-status[data-status='running'] {
   background: color-mix(in srgb, var(--el-color-success) 78%, transparent);
   animation: lite-tool-blink 900ms steps(1, end) infinite;
 }
-.lite-cluster-status[data-status='completed'] {
+.lite-tool-call-status[data-status='completed'] {
   background: color-mix(in srgb, var(--el-color-success) 78%, transparent);
 }
-.lite-cluster-status[data-status='failed'],
-.lite-cluster-status[data-status='rejected'] {
+.lite-tool-call-status[data-status='failed'],
+.lite-tool-call-status[data-status='rejected'] {
   background: color-mix(in srgb, var(--el-color-danger) 78%, transparent);
 }
-.lite-cluster-status[data-status='cancelled'] {
+.lite-tool-call-status[data-status='cancelled'] {
   background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
 }
-/* 工具 icon 用主题工具色；其余节点用按钮默认色。图标为 MorphIcon 渲染的 SVG，
-   尺寸由组件 size prop 控制（15px），方框负责居中。
-   margin-bottom 使图标在 22px 方框内视觉微上移：底部状态条贴底独立，
-   与图标留出空隙，不再粘连（v3.1 修复）。 */
-.lite-cluster-icon {
+/* 思考/工具图标均为 MorphIcon 渲染的 SVG（尺寸由 size prop 控制），颜色继承按钮 currentColor。 */
+.lite-thinking-icon,
+.lite-tool-call-icon {
   display: block;
-  margin-bottom: 4px;
 }
 @keyframes lite-tool-blink {
   0%,
@@ -854,7 +893,10 @@
 /* 底部状态条：成功绿、运行中绿闪、失败/拒绝红、取消灰。 */
 
 @media (prefers-reduced-motion: reduce) {
-  .lite-cluster-status[data-status='running'] {
+  .lite-tool-call-status[data-status='running'] {
+    animation: none;
+  }
+  .lite-thinking-mark.is-active {
     animation: none;
   }
   /* v1.8：全部颜色/状态过渡在 reduced 下关闭，保留即时状态反馈 */
@@ -866,8 +908,9 @@
   .lite-trajectory-zoom,
   .lite-inline-action,
   .lite-view-full,
-  .lite-cluster-node,
-  .lite-cluster-status,
+  .lite-thinking-mark,
+  .lite-tool-call,
+  .lite-tool-call-status,
   .lite-expand-btn,
   .lite-expand-icon,
   .lite-thinking-toggle,
@@ -952,6 +995,46 @@
   justify-content: space-between;
   gap: 8px;
   min-height: 24px;
+}
+.lite-media-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+.lite-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+/* 「+」选媒体按钮：与展开按钮同尺寸的幽灵小按钮（位于展开按钮左侧）。 */
+.lite-add-media-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+    color: var(--el-color-primary);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
 }
 /* 输入行：输入框 + 发送按钮同行，贴底对齐（多行增高时按钮仍贴底）。 */
 .lite-input-row {
@@ -1047,11 +1130,61 @@
     padding-left: 30px;
   }
 }
-.lite-input { position: relative; }
-.lite-input-suggestions { position: absolute; left: 0; right: 84px; bottom: calc(100% + 6px); z-index: 8; display: flex; flex-direction: column; max-height: 220px; overflow: auto; border: 1px solid color-mix(in srgb,var(--nx-text) 16%,transparent); background: var(--nx-bg); }
-.lite-input-suggestions button { display:flex; gap:10px; padding:8px 10px; color:inherit; text-align:left; border:0; background:transparent; cursor:pointer; }
-.lite-input-suggestions button.active,.lite-input-suggestions button:hover { background: color-mix(in srgb,var(--accent) 14%,transparent); }
-.lite-input-suggestions small { opacity:.65; }
-.lite-input-hint { font-size:12px; color:var(--el-text-color-secondary); }
-.lite-input-reference-preview { display:flex; flex-wrap:wrap; gap:5px; padding:5px 0 0; }
-.lite-reference-chip { max-width:100%; }
+.lite-input {
+  position: relative;
+}
+.lite-input-suggestions {
+  position: absolute;
+  left: 0;
+  right: 84px;
+  bottom: calc(100% + 6px);
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
+  background: var(--nx-bg);
+}
+.lite-input-suggestions button {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  color: inherit;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.lite-input-suggestions button.active,
+.lite-input-suggestions button:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.lite-input-suggestions small {
+  opacity: 0.65;
+}
+.lite-input-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  flex: none;
+}
+/* 附件上传/移除的瞬时反馈（上传中、已附加、错误）：与树 composer 的 media-hint-row 同款强调色淡底。 */
+.lite-media-hint {
+  margin-top: 2px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.lite-input-reference-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px 0 0;
+}
+.lite-reference-chip {
+  max-width: 100%;
+}

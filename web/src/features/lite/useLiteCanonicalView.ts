@@ -1,6 +1,7 @@
 import { reactive, ref } from 'vue'
 import {
   agentApi,
+  type ChatSendAttachment,
   type InteractionRecord,
   type SenseToolInfo,
   type TimelineNode,
@@ -284,10 +285,10 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     async refreshInteractions(): Promise<void> {
       await interactions.refresh()
     },
-    async submitInput(content: string): Promise<boolean> {
+    async submitInput(content: string, attachments?: ChatSendAttachment[]): Promise<boolean> {
       try {
         const prepared = chats.prepareInput(root(), content)
-        await chats.submitInput(root(), content, undefined, prepared)
+        await chats.submitInput(root(), content, attachments, prepared)
         return true
       } catch (cause) {
         // 发送失败同样写入 commandError 驱动 .lite-error-banner（§4.14）；

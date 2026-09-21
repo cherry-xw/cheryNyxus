@@ -369,6 +369,18 @@ export interface LiteRunNode {
   targetChatId?: string
   /** 工具类型（仅工具节点；按类型配色） */
   toolType?: LiteToolType
+  /** 工具节点：同一次 LLM 响应的逐个工具调用（cluster 组内逐工具展示 + 逐条状态线）。 */
+  toolCalls?: LiteToolCallItem[]
+}
+
+/** cluster 组内逐个展示的工具调用子项（同一次 LLM 响应的多个工具调用）。 */
+export interface LiteToolCallItem {
+  callId: string
+  /** 工具原名（sense.tools key）。 */
+  name: string
+  /** 工具中文名（sense.tools label；未命中回退原名）。 */
+  label: string
+  status: GraphToolCall['status']
 }
 
 /** 一行布局：full=用户消息/轮末响应独占一行；cluster=多个中间节点（思考/工具）挤成一行的小按钮。 */
@@ -595,6 +607,13 @@ export function projectLiteHistory(
     const toolNames = toolCalls
       .map((call) => toolMetaOf(call.name)?.label?.trim() || toSenseNameZh(call.name))
       .filter(Boolean)
+    // 逐个工具调用子项（cluster 组内逐工具展示）：保留每个 call 的独立状态与中文名。
+    const toolCallItems = toolCalls.map((call) => ({
+      callId: call.callId,
+      name: call.name,
+      label: toolMetaOf(call.name)?.label?.trim() || toSenseNameZh(call.name),
+      status: call.status,
+    }))
     const toolType = classifyToolType(toolCalls[0]?.name ?? '')
     // v0.5.2：主/子 Agent 节点不再要求 direction==='agent-to-user' 才匹配 model step——
     // canonical rootTimeline 不投影 direction 字段，原条件恒不成立导致模型节点全部回退
@@ -630,6 +649,7 @@ export function projectLiteHistory(
         ? { targetChatId: node.target.chatId }
         : {}),
       ...(kind === 'tool' ? { toolType } : {}),
+      ...(kind === 'tool' ? { toolCalls: toolCallItems } : {}),
       status: 'completed',
       active: false,
       startedAt: node.createdAt,
