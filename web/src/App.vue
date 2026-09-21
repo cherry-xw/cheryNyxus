@@ -54,6 +54,9 @@ const WorkbenchDialog = defineAsyncComponent(
 const TerminalSurface = defineAsyncComponent(
   () => import('@/features/agent/workbench/terminal/TerminalSurface.vue'),
 )
+const TerminalTitleActions = defineAsyncComponent(
+  () => import('@/features/agent/workbench/terminal/TerminalTitleActions.vue'),
+)
 const WorkbenchViewToggle = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchViewToggle.vue'),
 )
@@ -90,16 +93,17 @@ const surfaceSettingsSection = query.get('settingsSection') as
   'provider' | 'runtime' | 'limits' | null
 const surfaceSource = query.get('source') as 'pet' | 'history' | 'nyxus' | null
 const surfaceView = query.get('view') as 'composer' | 'attention' | 'tree' | null
-const terminalSurfaceRef = ref<{ clear: () => void } | null>(null)
+const terminalSurfaceRef = ref<{
+  clear: () => void
+  connect: () => void
+  disconnect: () => void
+} | null>(null)
 const terminalHeaderMeta = ref<TerminalHeaderMeta>({ username: '', host: '', status: 'idle' })
 const browserTerminalHeaders = reactive<Record<string, TerminalHeaderMeta>>({})
-const browserTerminalRefs = new Map<string, { clear: () => void }>()
-const terminalConnectionLabel = computed(
-  () =>
-    ({ idle: '未连接', connecting: '连接中', connected: '已连接', exited: '已断开' })[
-      terminalHeaderMeta.value.status
-    ],
-)
+const browserTerminalRefs = new Map<
+  string,
+  { clear: () => void; connect: () => void; disconnect: () => void }
+>()
 function updateTerminalHeader(meta: TerminalHeaderMeta): void {
   terminalHeaderMeta.value = meta
 }
@@ -110,8 +114,17 @@ function updateBrowserTerminalHeader(windowId: string, meta: TerminalHeaderMeta)
   browserTerminalHeaders[windowId] = meta
 }
 function setBrowserTerminalRef(windowId: string, instance: unknown): void {
-  if (instance && typeof instance === 'object' && 'clear' in instance) {
-    browserTerminalRefs.set(windowId, instance as { clear: () => void })
+  if (
+    instance &&
+    typeof instance === 'object' &&
+    'clear' in instance &&
+    'connect' in instance &&
+    'disconnect' in instance
+  ) {
+    browserTerminalRefs.set(
+      windowId,
+      instance as { clear: () => void; connect: () => void; disconnect: () => void },
+    )
   } else {
     browserTerminalRefs.delete(windowId)
     delete browserTerminalHeaders[windowId]
@@ -566,13 +579,12 @@ async function bootstrap(): Promise<void> {
     :title="surfacePresetName ? `Terminal // ${surfacePresetName}` : 'Terminal'"
   >
     <template #title-actions>
-      <span v-if="terminalHeaderMeta.username || terminalHeaderMeta.host" class="terminal-title-connection">
-        {{ terminalHeaderMeta.username }} · {{ terminalHeaderMeta.host }}
-      </span>
-      <span class="terminal-title-status" :data-status="terminalHeaderMeta.status">
-        {{ terminalConnectionLabel }}
-      </span>
-      <button type="button" class="terminal-title-clear" @click="terminalSurfaceRef?.clear()">清空</button>
+      <TerminalTitleActions
+        :meta="terminalHeaderMeta"
+        @connect="terminalSurfaceRef?.connect()"
+        @disconnect="terminalSurfaceRef?.disconnect()"
+        @clear="terminalSurfaceRef?.clear()"
+      />
     </template>
     <TerminalSurface
       ref="terminalSurfaceRef"
@@ -690,16 +702,12 @@ async function bootstrap(): Promise<void> {
         @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
       >
         <template #title-actions>
-          <span
-            v-if="browserTerminalHeader(terminalWindow.id).username || browserTerminalHeader(terminalWindow.id).host"
-            class="terminal-title-connection"
-          >
-            {{ browserTerminalHeader(terminalWindow.id).username }} · {{ browserTerminalHeader(terminalWindow.id).host }}
-          </span>
-          <span class="terminal-title-status" :data-status="browserTerminalHeader(terminalWindow.id).status">
-            {{ ({ idle: '未连接', connecting: '连接中', connected: '已连接', exited: '已断开' })[browserTerminalHeader(terminalWindow.id).status] }}
-          </span>
-          <button type="button" class="terminal-title-clear" @click="browserTerminalRefs.get(terminalWindow.id)?.clear()">清空</button>
+          <TerminalTitleActions
+            :meta="browserTerminalHeader(terminalWindow.id)"
+            @connect="browserTerminalRefs.get(terminalWindow.id)?.connect()"
+            @disconnect="browserTerminalRefs.get(terminalWindow.id)?.disconnect()"
+            @clear="browserTerminalRefs.get(terminalWindow.id)?.clear()"
+          />
         </template>
         <TerminalSurface
           v-if="terminalWindow.context.kind === 'terminal'"
@@ -922,22 +930,31 @@ body {
   opacity: 0.45;
 }
 .terminal-title-connection,
-.terminal-title-status,
+.terminal-title-state,
 .terminal-title-clear {
   -webkit-app-region: no-drag;
   flex: none;
   font: 12px/1.2 var(--font-mono);
   letter-spacing: 0.04em;
   white-space: nowrap;
+  pointer-events: auto;
 }
 .terminal-window-frame .window-frame-signal {
   display: none;
 }
-.terminal-window-frame .window-frame-title-actions {
+// 终端窗标题栏：title-actions 撑满空白以把「清空」按钮推至右侧（margin-left:auto），
+// 但对空白区放开 pointer-events，让鼠标穿透到标题栏拖拽区（原生走 OS -webkit-app-region），
+// 元素本体（连接信息/连接状态按钮/清空）保持可交互（原生由各自 no-drag 保证可点击）。
+.terminal-window-frame .window-frame-titlebar .window-frame-title-actions {
   flex: 1;
+  pointer-events: none;
+}
+.terminal-window-frame .window-frame-titlebar .window-frame-title-actions > * {
+  pointer-events: auto;
 }
 .cyber-window.is-terminal .cyber-window-title-actions {
   flex: 1;
+  pointer-events: none;
 }
 .cyber-window.is-terminal .cyber-window-signal {
   display: none;
@@ -948,14 +965,35 @@ body {
   color: color-mix(in srgb, var(--ink) 68%, transparent);
   text-overflow: ellipsis;
 }
-.terminal-title-status {
+.terminal-title-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px;
+  border: 0;
   color: color-mix(in srgb, var(--ink) 58%, transparent);
+  background: transparent;
+  cursor: default;
 }
-.terminal-title-status[data-status='connected'] {
+.terminal-title-state.is-connected {
   color: var(--el-color-success);
 }
-.terminal-title-status[data-status='connecting'] {
+.terminal-title-state.is-connected:hover {
+  color: color-mix(in srgb, var(--el-color-success) 75%, var(--ink) 25%);
+  cursor: pointer;
+}
+.terminal-title-state.is-connected.is-confirming {
+  color: var(--el-color-danger);
+}
+.terminal-title-state.is-connecting {
   color: var(--accent);
+}
+.terminal-title-state.is-reconnect {
+  color: var(--accent);
+  cursor: pointer;
+}
+.terminal-title-state.is-reconnect:hover {
+  color: color-mix(in srgb, var(--accent) 70%, var(--ink) 30%);
 }
 .terminal-title-clear {
   margin-left: auto;
