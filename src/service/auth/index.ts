@@ -33,6 +33,13 @@ export interface AuthenticatedUser {
   isAdmin: true
 }
 
+/** Per-listener policy. Remote listeners must not inherit the local loopback exemption. */
+export interface AuthRequestOptions {
+  allowLoopback?: boolean
+  /** Trust the relay-provided public prefix for cookie paths on the remote listener only. */
+  trustForwardedPrefix?: boolean
+}
+
 interface SessionPayload extends AuthenticatedUser {
   exp: number
 }
@@ -107,11 +114,11 @@ export class OAuth2Auth {
       )
   }
 
-  getUser(req: IncomingMessage): AuthenticatedUser | null {
+  getUser(req: IncomingMessage, options?: AuthRequestOptions): AuthenticatedUser | null {
     if (!this.enabled) return { sub: 'local', username: 'local', isAdmin: true }
     // 本地 loopback 信任豁免：直连不鉴权。
-    if (this.cfg.allowLoopback !== false && isLoopback(req))
-      return { sub: 'local', username: 'local', isAdmin: true }
+    const allowLoopback = options?.allowLoopback ?? this.cfg.allowLoopback !== false
+    if (allowLoopback && isLoopback(req)) return { sub: 'local', username: 'local', isAdmin: true }
     // 远端：校验 access token（Authorization: Bearer / WS ?token=）或 OAuth2 会话 cookie。
     const token = readBearer(req) ?? readCookie(req, SESSION_COOKIE) ?? readTokenQuery(req)
     const payload = token ? this.verifyAuthToken(token) : null
@@ -238,10 +245,14 @@ export class OAuth2Auth {
     return payload && payload.exp > nowSeconds() && payload.type === type ? payload : null
   }
 
-  async handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  async handle(
+    req: IncomingMessage,
+    res: ServerResponse,
+    options?: AuthRequestOptions,
+  ): Promise<boolean> {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname
     if (path === '/api/auth/me') {
-      const user = this.getUser(req)
+      const user = this.getUser(req, options)
       writeJson(
         res,
         user ? 200 : 401,
@@ -257,7 +268,7 @@ export class OAuth2Auth {
       return true
     }
     if (path === '/api/auth/logout' && req.method === 'POST') {
-      this.clearCookies(res, req)
+      this.clearCookies(res, req, options)
       writeJson(res, 204)
       return true
     }
@@ -340,7 +351,7 @@ export class OAuth2Auth {
         returnTo,
         exp: nowSeconds() + STATE_TTL_SECONDS,
       })
-      this.setCookie(res, STATE_COOKIE, state, req, STATE_TTL_SECONDS)
+      this.setCookie(res, STATE_COOKIE, state, req, STATE_TTL_SECONDS, options)
       const url = new URL(this.cfg.authorizationUrl!)
       url.searchParams.set('response_type', 'code')
       url.searchParams.set('client_id', this.cfg.clientId!)
@@ -357,7 +368,7 @@ export class OAuth2Auth {
       return true
     }
     if (path === '/api/auth/callback') {
-      await this.callback(req, res)
+      await this.callback(req, res, options)
       return true
     }
     return false
@@ -380,7 +391,11 @@ export class OAuth2Auth {
     }
   }
 
-  private async callback(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async callback(
+    req: IncomingMessage,
+    res: ServerResponse,
+    options?: AuthRequestOptions,
+  ): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const state = url.searchParams.get('state') ?? ''
     const expected = readCookie(req, STATE_COOKIE)
@@ -435,8 +450,9 @@ export class OAuth2Auth {
         }),
         req,
         SESSION_TTL_SECONDS,
+        options,
       )
-      this.setCookie(res, STATE_COOKIE, '', req, 0)
+      this.setCookie(res, STATE_COOKIE, '', req, 0, options)
       res.writeHead(302, { Location: saved.returnTo })
       res.end()
     } catch (error) {
@@ -481,11 +497,12 @@ export class OAuth2Auth {
     value: string,
     req: IncomingMessage,
     maxAge: number,
+    options?: AuthRequestOptions,
   ): void {
     const secure = isHttps(req)
     const attrs = [
       `${name}=${encodeURIComponent(value)}`,
-      'Path=/',
+      `Path=${cookiePath(req, options)}`,
       'HttpOnly',
       'SameSite=Lax',
       `Max-Age=${maxAge}`,
@@ -493,9 +510,13 @@ export class OAuth2Auth {
     if (secure) attrs.push('Secure')
     appendCookie(res, attrs.join('; '))
   }
-  private clearCookies(res: ServerResponse, req: IncomingMessage): void {
-    this.setCookie(res, SESSION_COOKIE, '', req, 0)
-    this.setCookie(res, STATE_COOKIE, '', req, 0)
+  private clearCookies(
+    res: ServerResponse,
+    req: IncomingMessage,
+    options?: AuthRequestOptions,
+  ): void {
+    this.setCookie(res, SESSION_COOKIE, '', req, 0, options)
+    this.setCookie(res, STATE_COOKIE, '', req, 0, options)
   }
 }
 
@@ -576,4 +597,21 @@ function isHttps(req: IncomingMessage): boolean {
       .split(',')[0]
       ?.trim() ?? '') === 'https'
   )
+}
+
+function cookiePath(req: IncomingMessage, options?: AuthRequestOptions): string {
+  if (!options?.trustForwardedPrefix) return '/'
+  const forwarded = String(req.headers['x-forwarded-prefix'] ?? '')
+    .split(',')[0]
+    ?.trim()
+  if (
+    !forwarded ||
+    !forwarded.startsWith('/') ||
+    forwarded.includes('..') ||
+    forwarded.includes('\\')
+  ) {
+    return '/'
+  }
+  const normalized = forwarded.replace(/\/+$/, '')
+  return normalized || '/'
 }

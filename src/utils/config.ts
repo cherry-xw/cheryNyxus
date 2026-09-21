@@ -567,6 +567,12 @@ interface ServerConfig {
   static_dir_override?: string
   /** OIDC/OAuth2 authorization-code login for browser control-plane access. */
   auth?: OAuth2Config
+  /** Optional loopback-only listeners used by the rathole client. Ports may be 0 for allocation. */
+  remote?: {
+    enabled?: boolean
+    httpPort?: number
+    websocketPort?: number
+  }
   /**
    * 文件夹浏览协议（config.workspace.browse.*）配置。server 侧专属：
    * 被 config.get 剥离（设置面板不可编辑）、config.save 原样保留；改配置需编辑 config.yaml 后重启。
@@ -837,6 +843,13 @@ export function normalizeRuntimeConfig(
     serve_frontend: serverRaw?.serve_frontend !== false,
     static_dir_override: serverRaw?.static_dir_override,
     auth: serverRaw?.auth,
+    remote: serverRaw?.remote
+      ? {
+          enabled: serverRaw.remote.enabled === true,
+          httpPort: serverRaw.remote.httpPort ?? 0,
+          websocketPort: serverRaw.remote.websocketPort ?? 0,
+        }
+      : undefined,
     workspace_browse: serverRaw?.workspace_browse,
   }
 

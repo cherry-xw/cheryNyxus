@@ -79,6 +79,12 @@ export class IdentityStore {
     return { ...identity }
   }
 
+  async revoke(backendId: string): Promise<boolean> {
+    const removed = this.identities.delete(backendId)
+    if (removed) await this.save()
+    return removed
+  }
+
   private async save(): Promise<void> {
     if (!this.file) return
     await mkdir(dirname(this.file), { recursive: true })

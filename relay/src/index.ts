@@ -9,6 +9,7 @@ export * from './logger.js'
 export * from './registry.js'
 export * from './server.js'
 export * from './rathole.js'
+export * from './client.js'
 
 async function main(): Promise<void> {
   const config = loadRelayConfig()

@@ -39,6 +39,7 @@ import { closeAllTerminals } from './terminal/manager.js'
 import { startScheduleService, stopScheduleService } from './schedule/scheduler.js'
 import { randomBytes } from 'node:crypto'
 import { OAuth2Auth, type OAuth2Config } from './auth/index.js'
+import type { AddressInfo } from 'node:net'
 
 export { createWebSocketServer } from './websocket/index.js'
 export { createHttpServer } from './http/index.js'
@@ -92,11 +93,24 @@ export interface StartServiceOptions {
   /** Network binding. Defaults to loopback; set explicitly for an intranet deployment. */
   host?: string
   auth?: OAuth2Config
+  /** Optional loopback-only HTTP/WS pair for the rathole tunnel. */
+  remote?: {
+    httpPort?: number
+    websocketPort?: number
+  }
+}
+
+export interface ServiceAddresses {
+  local: { httpPort: number; websocketPort: number }
+  remote?: { httpPort: number; websocketPort: number }
 }
 
 export interface ServiceHandle {
   wss: ReturnType<typeof createWebSocketServer>
   httpServer: ReturnType<typeof createHttpServer>
+  remoteWss?: ReturnType<typeof createWebSocketServer>
+  remoteHttpServer?: ReturnType<typeof createHttpServer>
+  ready: Promise<ServiceAddresses>
   /** 停止定时触发器（cron scheduler），测试/关闭时调用 */
   stopSchedule: () => void
 }
@@ -133,6 +147,9 @@ export function startService(options: StartServiceOptions): ServiceHandle {
 
   // 创建 WebSocket 服务器
   const auth = new OAuth2Auth(options.auth)
+  if (options.remote && !auth.enabled) {
+    throw new Error('Remote HTTP/WS listeners require password or OIDC authentication')
+  }
   const sessionToken = options.sessionToken ?? randomBytes(32).toString('base64url')
   const allowedOrigins = [
     `http://127.0.0.1:${options.webPort}`,
@@ -149,6 +166,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     authToken: sessionToken,
     allowedOrigins,
     auth,
+    listener: 'local',
   })
 
   // 创建 HTTP 服务器（静态 serve + /api/config）
@@ -158,15 +176,76 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     sessionToken,
     host: options.host ?? '127.0.0.1',
     auth,
+    listener: 'local',
+    wsPort: () => listeningPort(wss) ?? options.port,
   })
+
+  const remoteWss = options.remote
+    ? createWebSocketServer({
+        port: options.remote.websocketPort ?? 0,
+        host: '127.0.0.1',
+        router,
+        allowedOrigins,
+        auth,
+        listener: 'remote',
+      })
+    : undefined
+  const remoteHttpServer = options.remote
+    ? createHttpServer({
+        webPort: options.remote.httpPort ?? 0,
+        host: '127.0.0.1',
+        auth,
+        listener: 'remote',
+        wsPort: () =>
+          (remoteWss ? listeningPort(remoteWss) : undefined) ?? options.remote?.websocketPort ?? 0,
+      })
+    : undefined
+  const remoteWssForReady = remoteWss
+  const remoteHttpForReady = remoteHttpServer
+
+  const ready = Promise.all([
+    waitForListening(wss),
+    waitForListening(httpServer),
+    ...(remoteWssForReady ? [waitForListening(remoteWssForReady)] : []),
+    ...(remoteHttpForReady ? [waitForListening(remoteHttpForReady)] : []),
+  ]).then(() => ({
+    local: {
+      httpPort: listeningPort(httpServer) ?? options.webPort,
+      websocketPort: listeningPort(wss) ?? options.port,
+    },
+    ...(remoteWssForReady && remoteHttpForReady
+      ? {
+          remote: {
+            httpPort: listeningPort(remoteHttpForReady) ?? 0,
+            websocketPort: listeningPort(remoteWssForReady) ?? 0,
+          },
+        }
+      : {}),
+  }))
 
   return {
     wss,
     httpServer,
+    remoteWss,
+    remoteHttpServer,
+    ready,
     stopSchedule: () => {
       closeAllTerminals()
       stopInteractionLifecycle()
       stopScheduleService()
     },
   }
+}
+
+function listeningPort(server: { address(): string | AddressInfo | null }): number | undefined {
+  const address = server.address()
+  return typeof address === 'object' && address ? address.port : undefined
+}
+
+function waitForListening(server: {
+  listening?: boolean
+  once(event: string, listener: () => void): unknown
+}): Promise<void> {
+  if (server.listening) return Promise.resolve()
+  return new Promise((resolve) => server.once('listening', resolve))
 }

@@ -120,6 +120,8 @@ describe('relay primitives', () => {
         now: new Date(0),
       }),
     ).rejects.toMatchObject({ code: 'BACKEND_ID_CONFLICT' })
+    expect(await store.revoke('same-id')).toBe(true)
+    expect(store.get('same-id')).toBeUndefined()
   })
 
   it('returns a retryable rate limit error', () => {

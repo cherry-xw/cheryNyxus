@@ -19,7 +19,7 @@ import { closeAllConnections } from '@/service/websocket/index.js'
 import { initLogger, logger, LogLevel } from '@/utils/logger/index.js'
 import config, { readRawConfig } from '@/utils/config.js'
 import { hashPassword, isHashed } from '@/utils/password.js'
-import { hasRunningChats } from '@/service/chat/runtime.js'
+import { getAgentRuntimeStats, hasRunningChats } from '@/service/chat/runtime.js'
 import { reconcileOrphanedExecutionRuns } from '@/service/chat/runRecovery.js'
 import { sweepOrphanQuestionBatchesAcrossRoots } from '@/db/question.js'
 import {
@@ -189,13 +189,32 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
       `server.serve_frontend=true 但静态目录不存在: ${staticDir}（先 pnpm web:build；仅 API 模式生效）`,
     )
   }
-  const { wss, httpServer } = startService({
+  const service = startService({
     port: config.server.port,
     webPort: config.server.webPort,
     staticDir,
     host: config.server.host,
     auth: config.server.auth,
+    remote: config.server.remote?.enabled
+      ? {
+          httpPort: config.server.remote.httpPort,
+          websocketPort: config.server.remote.websocketPort,
+        }
+      : undefined,
   })
+  const { wss, httpServer, remoteWss, remoteHttpServer } = service
+  let serviceAddresses: unknown
+  void service.ready.then((addresses) => {
+    serviceAddresses = addresses
+    logger.info(
+      `远程专用入口已启动：HTTP 127.0.0.1:${addresses.remote?.httpPort ?? 0} · WS 127.0.0.1:${addresses.remote?.websocketPort ?? 0}`,
+    )
+    writeBackendStatus(addresses)
+  })
+  const statusTimer = setInterval(() => {
+    if (serviceAddresses) writeBackendStatus(serviceAddresses)
+  }, 2_000)
+  statusTimer.unref()
   // 启动汇报：打印监听的服务地址（rule12 fail loud——端口监听可见）。
   const bindHost = config.server.host === '0.0.0.0' ? '0.0.0.0 (所有接口)' : config.server.host
   logger.info(
@@ -214,12 +233,17 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
     clearAllApprovals()
     clearAllWaitedChildren()
     configWatcher.close()
+    clearInterval(statusTimer)
     stopScheduleService()
     try {
       await Promise.race([
         Promise.all([
           new Promise<void>((resolve) => wss.close(() => resolve())),
           new Promise<void>((resolve) => httpServer.close(() => resolve())),
+          ...(remoteWss ? [new Promise<void>((resolve) => remoteWss.close(() => resolve()))] : []),
+          ...(remoteHttpServer
+            ? [new Promise<void>((resolve) => remoteHttpServer.close(() => resolve()))]
+            : []),
           closeMcpClients(),
         ]),
         new Promise<void>((_, reject) => setTimeout(() => reject(new Error('关闭超时')), 5000)),
@@ -254,6 +278,22 @@ function ensurePasswordHashedOnDisk(hashed: string): void {
   const auth = (server.auth ??= {}) as Record<string, unknown>
   auth.password = hashed
   fs.writeFileSync(configPath, yaml.dump(disk, { lineWidth: -1 }))
+}
+
+function writeBackendStatus(addresses: unknown): void {
+  const file = process.env.CHERY_BACKEND_STATUS_FILE
+  if (!file) return
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(
+      file,
+       `${JSON.stringify({ status: 'running', addresses, agents: getAgentRuntimeStats(), updatedAt: new Date().toISOString() })}\n`,
+      { mode: 0o600 },
+    )
+    if (process.platform !== 'win32') fs.chmodSync(file, 0o600)
+  } catch (error) {
+    logger.warn(`无法写入后端监听状态：${(error as Error).message}`)
+  }
 }
 
 async function compileSensesCommand(): Promise<void> {

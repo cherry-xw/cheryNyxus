@@ -19,6 +19,7 @@
     "relay:type-check": "tsc --noEmit -p relay/tsconfig.json",
     "relay:test": "vitest run --config relay/vitest.config.ts",
     "manager:dev": "tsx manager/src/index.ts",
+    "manager:cli": "node manager/dist/index.js",
     "manager:type-check": "tsc --noEmit -p manager/tsconfig.json",
     "manager:build": "vite build --config manager/vite.config.ts",
     "prebuild": "pnpm type-check",
