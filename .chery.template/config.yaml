@@ -112,6 +112,7 @@ roles:
     senseGroup: role_architect
     mcpServers: []
     systemPrompt: prompt/roleArchitect/roleArchitect.md
+    lock: true
     skills:
       - role-design
   roleAcceptance:
@@ -123,6 +124,7 @@ roles:
     senseGroup: role_acceptance
     mcpServers: []
     systemPrompt: prompt/roleAcceptance/roleAcceptance.md
+    lock: true
     skills:
       - role-acceptance
     permissions:
@@ -153,3 +155,9 @@ server:
   transport: binary
   host: 127.0.0.1
   serve_frontend: true
+  # Relay mode: creates two additional 127.0.0.1-only listeners. Keep disabled
+  # unless password or OIDC authentication is configured above.
+  remote:
+    enabled: false
+    httpPort: 0
+    websocketPort: 0

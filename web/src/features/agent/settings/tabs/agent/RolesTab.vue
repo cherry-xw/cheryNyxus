@@ -30,26 +30,44 @@ const {
   closeEquipment,
   commitDescEdit,
   copiedRole,
+  copySources,
   current,
+  currentPreset,
   descEditValue,
   descEditing,
   duplicateRole,
   effectivePermission,
   equipmentEditor,
+  isDetailRole,
+  isFixedPreset,
   isFixedRole,
+  isLeader,
   isOverflowing,
+  isPublicRole,
+  isSeedPublicRoleSelected,
   mcpNames,
   mcpTokens,
+  newRoleSourcePreset,
+  newRoleSourceRole,
   newRoleType,
+  onReferencePick,
+  onSourceRolePick,
   openEquipment,
   permissionPreview,
   permissionTemplate,
   promptOptions,
+  publicMode,
+  publicPool,
   railItems,
+  readOnly,
+  referencePool,
+  referencePublicRole,
+  referenceRolePick,
   ref,
   removeImpact,
   removeRole,
   renameRole,
+  resetNewRoleSource,
   roleMode,
   roleTokens,
   roles,
@@ -58,11 +76,14 @@ const {
   setBrain,
   setOverflowRef,
   setPermissionSection,
+  sourceRoleOptions,
   startDescEdit,
   supportsTools,
   swapping,
   systemPromptModel,
   titleRef,
+  toggleDetailRole,
+  toggleLeader,
   toggleRoleMode,
   updateEquipment,
   validateRename,
@@ -72,15 +93,20 @@ const {
 <template>
   <section class="roles-workspace">
     <p class="sect-hint">
-      <template v-if="roleMode === 'role'">
-        普通角色会进入团队、@ 菜单和节点树。点击左侧头像进入详情；技能、插件和 MCP
-        支持继承、自选与全部关闭。
+      <template v-if="publicMode">
+        公共角色全局共享单一源：任意预设可「引用」为成员，配置改动对所有引用它的预设生效。组长不能是公共角色。
+      </template>
+      <template v-else-if="roleMode === 'role'">
+        这里是本预设的角色成员，会进入团队、@ 菜单和节点树。点击左侧头像进入详情；技能、插件和
+        MCP 支持继承、自选与全部关闭。新增角色即成为本预设成员。
       </template>
       <template v-else>
-        Shadow 只运行内部临时流程，不创建会话、Pet 或节点树，也不能成为组长、团队成员或 @ 目标。
+        Shadow 为全局共享，只运行内部临时流程（如会话路由），不创建会话、Pet 或节点树，也不能成为组长、团队成员或
+        @ 目标。
       </template>
     </p>
     <div
+      v-if="!publicMode"
       class="role-mode-stack"
       :class="{ 'is-swapping': swapping }"
       role="group"
@@ -112,7 +138,7 @@ const {
       :glow-rail="true"
     >
       <template #rail-actions>
-        <el-popover trigger="click" placement="bottom-start" :width="230">
+        <el-popover trigger="click" placement="bottom-start" :width="240">
           <template #reference
             ><button
               type="button"
@@ -124,9 +150,59 @@ const {
           <div class="new-role-pop">
             <el-input
               v-model="newRoleType"
-              :placeholder="roleMode === 'shadow' ? '新 Shadow 类型名' : '新角色类型名'"
+              :placeholder="
+                publicMode
+                  ? '新公共角色名'
+                  : roleMode === 'shadow'
+                    ? '新 Shadow 类型名'
+                    : '新角色类型名'
+              "
               @keydown.enter="addRole"
-            /><button type="button" class="primary-btn" @click="addRole">创建</button>
+            />
+            <template v-if="roleMode === 'role' && !publicMode && copySources.length">
+              <span class="copy-source-divider">或从其他预设复制</span>
+              <el-select
+                v-model="newRoleSourcePreset"
+                placeholder="选择来源预设"
+                size="small"
+                clearable
+                filterable
+              >
+                <el-option v-for="s in copySources" :key="s.name" :value="s.name" :label="s.name" />
+              </el-select>
+              <el-select
+                v-model="newRoleSourceRole"
+                placeholder="选择要复制的角色"
+                size="small"
+                clearable
+                filterable
+                @change="onSourceRolePick"
+              >
+                <el-option v-for="r in sourceRoleOptions" :key="r" :value="r" :label="r" />
+              </el-select>
+              <span v-if="newRoleSourceRole" class="copy-source-hint">
+                将复制其全部配置到本预设，之后独立编辑
+              </span>
+            </template>
+            <template v-if="roleMode === 'role' && !publicMode && referencePool.length">
+              <span class="copy-source-divider">或引用公共角色</span>
+              <el-select
+                v-model="referenceRolePick"
+                placeholder="选择要引用的公共角色"
+                size="small"
+                clearable
+                filterable
+                @change="onReferencePick"
+              >
+                <el-option v-for="r in referencePool" :key="r" :value="r" :label="r" />
+              </el-select>
+              <span v-if="referenceRolePick" class="copy-source-hint">
+                共享同一份配置，改动对所有引用它的预设生效
+              </span>
+            </template>
+            <button type="button" class="primary-btn" @click="addRole">
+              {{ publicMode ? '创建公共角色' : '创建' }}
+            </button>
           </div>
         </el-popover>
       </template>
@@ -140,7 +216,7 @@ const {
           <AvatarPicker
             v-model="current.avatar"
             :role-type="selectedRole"
-            :disabled="!!current.lock || isFixedRole"
+            :disabled="!!current.lock || isFixedRole || readOnly"
             @error="emit('error', $event)"
           />
           <div class="role-title-zone">
@@ -149,13 +225,16 @@ const {
               class="role-name-edit"
               :model-value="selectedRole"
               :validate="validateRename"
-              :disabled="!!current.lock || isFixedRole"
+              :disabled="!!current.lock || isFixedRole || readOnly"
               @rename="(name: string) => renameRole(selectedRole, name)"
               @error="emit('error', $event)"
             >
               <template #actions>
+                <span v-if="!publicMode && isPublicRole(selectedRole)" class="role-public-tag"
+                  >公共</span
+                >
                 <button
-                  v-if="!current.lock && !isFixedRole"
+                  v-if="!current.lock && !isFixedRole && !readOnly"
                   type="button"
                   class="icon-btn"
                   aria-label="复制角色"
@@ -176,30 +255,53 @@ const {
                 >
                   <Lock class="ico" />
                 </button>
+                <button
+                  v-if="isSeedPublicRoleSelected"
+                  type="button"
+                  class="icon-btn"
+                  disabled
+                  title="固定预设内置的公共角色（系统模板），不可删除"
+                  aria-label="固定预设内置公共角色"
+                >
+                  <Lock class="ico" />
+                </button>
                 <ConfirmPopover
-                  v-else
-                  :title="`删除角色「${selectedRole}」？`"
+                  v-if="
+                    !current.lock &&
+                    !isFixedRole &&
+                    !isFixedPreset &&
+                    !isSeedPublicRoleSelected
+                  "
+                  :title="
+                    readOnly
+                      ? `将公共角色「${selectedRole}」移出本预设？`
+                      : `删除角色「${selectedRole}」？`
+                  "
                   :impact="removeImpact"
                   @confirm="removeRole(selectedRole)"
                 >
                   <template #trigger>
-                    <button type="button" class="icon-btn danger" aria-label="删除角色">
+                    <button
+                      type="button"
+                      class="icon-btn danger"
+                      :aria-label="readOnly ? '移出本预设' : '删除角色'"
+                    >
                       <Delete class="ico" />
                     </button>
                   </template>
                 </ConfirmPopover>
               </template>
             </EditableTitle>
-            <!-- 角色说明：header 内注释样式，点击 inline 编辑（锁定角色只读） -->
+            <!-- 角色说明：header 内注释样式，点击 inline 编辑（锁定角色只读；公共角色在预设工作台只读） -->
             <div class="role-desc-line">
               <span
                 v-if="!descEditing"
                 class="role-desc-text"
-                :class="{ editable: !current.lock && !isFixedRole }"
-                :title="current.lock || isFixedRole ? undefined : '点击编辑说明'"
-                @click="startDescEdit"
+                :class="{ editable: !current.lock && !isFixedRole && !readOnly }"
+                :title="current.lock || isFixedRole || readOnly ? undefined : '点击编辑说明'"
+                @click="readOnly ? undefined : startDescEdit"
                 >{{
-                  current.description || (current.lock || isFixedRole ? '—' : '点击添加角色说明')
+                  current.description || (current.lock || isFixedRole || readOnly ? '—' : '点击添加角色说明')
                 }}</span
               >
               <el-input
@@ -216,8 +318,54 @@ const {
             <div class="role-status-line">
               <span class="status-chip">系统负重 ≈ {{ roleTokens(current) }} token</span>
             </div>
+            <div v-if="currentPreset && roleMode === 'role'" class="role-duty-line">
+              <span class="duty-label">角色职责</span>
+              <button
+                type="button"
+                class="duty-btn is-leader"
+                :class="{ active: isLeader }"
+                :disabled="isFixedRole || isFixedPreset || readOnly"
+                :title="
+                  readOnly
+                    ? '公共角色不能作为组长'
+                    : isFixedPreset
+                      ? '固定预设：组长不可调整'
+                      : isLeader
+                        ? '取消组长'
+                        : '设为组长（运行时采用组长角色配置）'
+                "
+                :aria-pressed="isLeader"
+                @click="toggleLeader"
+              >
+                组长
+              </button>
+              <button
+                type="button"
+                class="duty-btn is-detail"
+                :class="{ active: isDetailRole }"
+                :disabled="isFixedRole || isFixedPreset || isLeader"
+                :title="
+                  isFixedPreset
+                    ? '固定预设：解释角色不可调整'
+                    : isLeader
+                      ? '组长不能同时作为解释角色'
+                      : isDetailRole
+                        ? '取消解释角色'
+                        : '设为解释角色'
+                "
+                :aria-pressed="isDetailRole"
+                @click="toggleDetailRole"
+              >
+                解释角色
+              </button>
+              <span v-if="!currentPreset?.leader" class="duty-warn">⚠️ 未指定组长（保存前需指定）</span>
+            </div>
           </div>
         </header>
+
+        <p v-if="readOnly" class="role-readonly-banner">
+          公共角色为全局共享：配置只读，请在「公共角色」管理中统一修改（改动对所有引用它的预设生效）。
+        </p>
 
         <section class="detail-section">
           <h3>运行核心</h3>
@@ -229,7 +377,7 @@ const {
                 :key="name"
                 type="button"
                 class="brain-choice"
-                :disabled="isFixedRole && !supportsTools(name)"
+                :disabled="readOnly || (isFixedRole && !supportsTools(name))"
                 :class="{ active: current.brain === name }"
                 :data-overflow-name="isOverflowing[`brain-name-${name}`] ? 'true' : undefined"
                 :data-overflow-model="isOverflowing[`brain-model-${name}`] ? 'true' : undefined"
@@ -269,7 +417,7 @@ const {
             <div class="choice-board compact">
               <button
                 type="button"
-                :disabled="isFixedRole"
+                :disabled="isFixedRole || readOnly"
                 :class="{ active: !current.senseGroup }"
                 @click="current.senseGroup = ''"
               >
@@ -278,7 +426,7 @@ const {
                 v-for="name in senseNames"
                 :key="name"
                 type="button"
-                :disabled="isFixedRole || !supportsTools(current.brain)"
+                :disabled="readOnly || isFixedRole || !supportsTools(current.brain)"
                 :class="{ active: current.senseGroup === name }"
                 @click="current.senseGroup = name"
               >
@@ -295,7 +443,7 @@ const {
               placeholder="无专属背景(仅全局)"
               filterable
               clearable
-              :disabled="!!current.lock || isFixedRole"
+              :disabled="readOnly || !!current.lock || isFixedRole"
               popper-class="role-prompt-cascader"
               class="prompt-cascader"
             />
@@ -320,6 +468,7 @@ const {
               type="button"
               class="tpl-card"
               :class="[`risk-${card.risk}`, { active: permissionTemplate === card.value }]"
+              :disabled="readOnly"
               @click="permissionTemplate = card.value"
             >
               <b class="tpl-name"
@@ -349,6 +498,7 @@ const {
                   placeholder="继承模板"
                   clearable
                   size="small"
+                  :disabled="readOnly"
                   @update:model-value="
                     (v: string | undefined) => setPermissionSection('filesystem', 'read', v)
                   "
@@ -375,6 +525,7 @@ const {
                   placeholder="继承模板"
                   clearable
                   size="small"
+                  :disabled="readOnly"
                   @update:model-value="
                     (v: string | undefined) => setPermissionSection('filesystem', 'write', v)
                   "
@@ -404,6 +555,7 @@ const {
                   placeholder="继承模板"
                   clearable
                   size="small"
+                  :disabled="readOnly"
                   @update:model-value="
                     (v: string | undefined) => setPermissionSection('commands', 'maxSandboxMode', v)
                   "
@@ -425,7 +577,7 @@ const {
                   />
                   <em v-if="effectivePermission.customized.shells">已自定义</em>
                 </span>
-                <el-checkbox-group v-model="allowedShells"
+                <el-checkbox-group v-model="allowedShells" :disabled="readOnly"
                   ><el-checkbox value="bash">Bash</el-checkbox
                   ><el-checkbox value="powershell">PowerShell</el-checkbox></el-checkbox-group
                 >
@@ -449,6 +601,7 @@ const {
                   placeholder="继承模板"
                   clearable
                   size="small"
+                  :disabled="readOnly"
                   @update:model-value="
                     (v: string | undefined) => setPermissionSection('mcp', 'default', v)
                   "
@@ -478,6 +631,7 @@ const {
                   placeholder="继承模板"
                   clearable
                   size="small"
+                  :disabled="readOnly"
                   @update:model-value="
                     (v: string | undefined) => setPermissionSection('spawn', 'effect', v)
                   "
@@ -513,7 +667,7 @@ const {
               label="技能"
               :options="skillCatalog.skills"
               :token-map="skillCatalog.skillTokens"
-              :disabled="isFixedRole"
+              :disabled="isFixedRole || readOnly"
               @edit="openEquipment('skills')"
               @mode-change="closeEquipment"
             />
@@ -522,7 +676,7 @@ const {
               label="插件"
               :options="skillCatalog.plugins"
               :token-map="skillCatalog.pluginTokens"
-              :disabled="isFixedRole"
+              :disabled="isFixedRole || readOnly"
               @edit="openEquipment('plugins')"
               @mode-change="closeEquipment"
             />
@@ -531,7 +685,7 @@ const {
               label="MCP 服务"
               :options="mcpNames"
               :token-map="mcpTokens"
-              :disabled="isFixedRole"
+              :disabled="isFixedRole || readOnly"
               @edit="openEquipment('mcpServers')"
               @mode-change="closeEquipment"
             />

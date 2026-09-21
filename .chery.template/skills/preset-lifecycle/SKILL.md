@@ -23,6 +23,7 @@ trigger: 用户要求创建、重建、删除预设，或连带清理角色、�
 2. 用 `asset_save` 创建角色系统提示词和必要背景资产。
 3. 用同一次 `patch` 中的资源级 `put` 操作闭合 roles、leader、brain、senseGroup、skills、rule 引用。
 4. `get` 回读核对；新角色只能由主 Agent 后续 `spawn_role` 产生新子会话。
+5. **组长必须是本预设的私有角色**：不能把 `scope: 'public'` 的公共角色（如 `explanation`）或系统锁定角色（curator / roleArchitect / roleAcceptance）设为 `leader`，否则 `config_manage` patch 校验失败；公共角色只能作为普通成员引用（引用不复制、改动全局生效），系统锁定角色不可删除或改公共。
 
 ## 历史会话
 

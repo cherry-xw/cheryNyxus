@@ -248,6 +248,7 @@ export const configRawSchema = z
           plugins: z.array(z.string()).optional(),
           permissions: rolePermissionSchema.optional(),
           lock: z.boolean().optional(),
+          scope: z.enum(['public', 'private']).optional(),
         }),
       )
       .optional(),

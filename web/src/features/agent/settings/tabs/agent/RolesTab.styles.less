@@ -241,7 +241,32 @@
 }
 .new-role-pop {
   display: flex;
-  gap: 5px;
+  flex-direction: column;
+  gap: 6px;
+  .primary-btn {
+    align-self: flex-end;
+  }
+  .el-select {
+    width: 100%;
+  }
+}
+.copy-source-divider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: color-mix(in srgb, var(--ink) 12%, transparent);
+  }
+}
+.copy-source-hint {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--tab-color, @accent) 82%, var(--ink));
 }
 .primary-btn {
   border: 0;
@@ -304,6 +329,60 @@
   flex-wrap: wrap;
   margin-top: 6px;
 }
+.role-duty-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.duty-label {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
+}
+.duty-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 21px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  border-radius: 5px;
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    color 0.15s;
+  &.is-leader:hover,
+  &.is-leader.active {
+    border-color: #d99717;
+    background: color-mix(in srgb, #d99717 16%, var(--surface));
+    color: color-mix(in srgb, #d99717 82%, var(--ink));
+  }
+  &.is-detail:hover,
+  &.is-detail.active {
+    border-color: var(--nx-cyan, #38bdf8);
+    background: color-mix(in srgb, var(--nx-cyan, #38bdf8) 16%, var(--surface));
+    color: color-mix(in srgb, var(--nx-cyan, #0284c7) 82%, var(--ink));
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--tab-color, @accent) 45%, transparent);
+    outline-offset: 1px;
+  }
+}
+.duty-warn {
+  color: color-mix(in srgb, var(--warning) 82%, var(--ink));
+  font-size: 12px;
+}
 .role-desc-line {
   margin-top: 3px;
   min-height: 16px;
@@ -332,6 +411,28 @@
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
   font-size: 12px;
   font-weight: 600;
+}
+.role-public-tag {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--nx-cyan, #38bdf8) 16%, transparent);
+  color: color-mix(in srgb, var(--nx-cyan, #0284c7) 82%, var(--ink));
+  font-size: 11px;
+  font-weight: 600;
+}
+.role-readonly-banner {
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 38%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-soft));
+  color: color-mix(in srgb, var(--warning) 84%, var(--ink));
+  font-size: 12px;
+  line-height: 1.5;
 }
 .detail-section {
   padding: 10px;

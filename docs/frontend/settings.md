@@ -52,7 +52,7 @@
 - 非空数组：只启用选中项。
 - 空数组：全部关闭。
 
-装备选择器不再打开侧边抽屉。技能、插件和 MCP 的概览卡共用卡片下方的页内编辑区：一次只编辑一类，已装备项固定在顶部，未装备项按名称搜索并以每页 24 项分页。增删直接更新设置草稿，最终仍由设置弹窗统一保存；切换角色、继承全部或全部关闭会关闭编辑区并重置搜索分页。技能和插件按实际元数据汇总 token；MCP 为近似值并在 UI 明示。装备卡、标签、按钮统一使用角色 Tab 的主题色。
+装备选择器不再打开侧边抽屉。技能、插件和 MCP 的概览卡共用卡片下方的页内编辑区：一次只编辑一类，已装备项固定在顶部，未装备项按名称搜索并以每页 24 项分页。增删直接更新设置草稿，最终仍由设置弹窗统一保存；切换角色、继承全部或全部关闭会关闭编辑区并重置搜索分页。技能和插件按实际元数据汇总 token；MCP 为近似值并在 UI 明示。装备卡、标签、按钮统一使用当前 Tab 的主题色（角色工作台位于预设 Tab 内，取预设 Tab 主题色）。
 
 ### 行为权限
 
@@ -107,13 +107,17 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 
 ## 预设 Tab
 
-每预设 = 团队成员多选（引用 `config.roles` 单一源）+ 组长（leader）+ 可选的解释角色（detailRole）。运行时采用组长角色配置，不在预设内重定义 brain/sense。
+每预设以「外层预设列表 ↔ 内层角色工作台」双视图管理：列表卡片维护媒体/工作区/审批规则/会话路由，点击「编辑角色」进入该预设的角色工作台；工作台左侧只列出该预设引用的普通角色成员，新增角色即成为本预设成员（可从其他预设复制现有角色后独立编辑），右侧编辑角色详情，卡片上设组长（leader）与解释角色（detailRole）。运行时采用组长角色配置，不在预设内重定义 brain/sense。影子角色保留全局区，作为工作台内「影子角色」分类子视图。
+
+**公共角色双轨**：角色分公共、私有与系统锁定三层。公共角色（`roles.<name>.scope: 'public'`，或固定预设 cheryNexus 的非锁定普通成员角色，如解释角色 `explanation`）全局共享单一源、不归属任何预设，可被任意预设「引用」为成员（引用不复制配置，改动对所有引用它的预设生效）；组长必须是私有角色。私有角色归属单一预设、删除连全局删。`curator` / `roleArchitect` / `roleAcceptance` 为**系统锁定角色**（`lock: true`、非公共），供 Cherry Nexus 记忆维护、任意岗位设计与独立验收流程使用，保留在固定预设成员内以保证 `spawn_role` 可派发，不可删除或改为公共。预设列表顶部有「公共角色」独立入口 → 公共角色管理视图（全局维护层，增删改公共角色配置；固定预设种子公共角色属系统模板不可删除）。预设工作台新增弹窗提供「引用公共角色」来源；引用后的公共角色带「公共」标记、配置只读（引导去公共层修改），职责可设解释角色、不可设组长，删除为「移出本预设」。
+
+**卡片职责区**：预设列表卡片表面保留「为成员指定职责」区——「设置组长 / 设置解释」两个模式按钮 + 点击成员卡指定职责（黄色角标=组长、青色角标=解释角色），与工作台内职责按钮并存、均可调整。固定预设成员与组长不可调整；公共角色不可设为组长；锁定系统角色不可指定职责。
 
 **布局**：会话路由、工作区、审批规则三组选择并排一行（紧凑 `card-grid-3`）；媒体服务（图片/视频/音频）单独一行。三组字段的 label 均挂 info 图标（hover 出 tip，见下方「tip 排版与配色」）。工作区校验告警（后端 `config.save` 返回的 warning / 前端格式错误）显示在「工作区」字段内部、输入框正下方，不放整个三列块底部。
 
 **工作区选择**：目录选择按钮按运行模式互斥展示——Electron 模式显示「选择目录」原生按钮（`dialog.showOpenDialog`，选的是后端同机绝对路径）；浏览器模式显示「浏览」按钮，通过 `config.workspace.browse.*` 协议打开「面包屑 + 目录列表」弹层，逐层懒加载服务端文件系统并选中目录回填。**默认全盘可浏览**（POSIX 从 `/`、win32 全部盘符），权限由系统对后端的实际访问报错把关——目录无权限时列表行内提示「下级无法加载（无权限）」，不可再钻取；`.chery` 系统配置目录恒不可见。配置 `server.workspace_browse.roots` 可收窄浏览范围。选中目录走既有 `updateWorkspace` → `workspaceChange` → 即时校验链路（`config.workspace.validate`）。手动输入绝对路径不受影响。
 
-**Cherry Nexus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（模板默认为 roles=[cheryNyxus, roleArchitect, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。`roleArchitect` 只研究任意岗位并返回蓝图，具体工具映射与配置写入仍由 Cherry Nexus 完成。前端「选择成员」下拉禁用、「设置解释」禁用、成员卡全部禁用；成员配置本身不在设置页改动。
+**Cherry Nexus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（模板默认为 roles=[cheryNyxus, roleArchitect, roleAcceptance, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。其中 `curator` / `roleArchitect` / `roleAcceptance` 是系统锁定角色（锁定时不可删改、非公共），`explanation` 为种子公共角色。工作台内「编辑角色」仍可进入查看，但职责按钮（组长/解释角色）与成员增删对固定预设禁用；固定预设卡片表面职责区同样不可调整。
 
 **审批规则**：原「规则文件」改名为「审批规则」。下拉选择 `.chery/rule/` 下覆盖文件（`presets.<name>.rule`），与基准 `base.yaml` 深合并（详见 [后端 Sense 文档](../backend/core/sense.md) 的“smart 规则表”）。右侧「刷新」按钮重新拉取 `rules.list`——手动新建或与 Cherry Nexus 对话生成规则文件后立即可见。tip 含机制（命中危险拦截/未命中放行）+ 操作方案（与 Cherry Nexus 对话生成 / 手动编辑 `.chery/rule/` + 保存；实际采用时间以设置页生效状态为准）。
 
@@ -136,6 +140,6 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 - `web/src/features/agent/settings/SettingsDialog.vue`：一级 Tab、保存和错误弹窗。
 - `web/src/features/agent/settings/components/ConfigApplyStatus.vue`：保存后的生效状态、等待原因和重启待办。
 - `web/src/features/agent/settings/components/TabShell.vue`：统一资源导航。
-- `web/src/features/agent/settings/tabs/RolesTab.vue`：角色图鉴与装备。
+- `web/src/features/agent/settings/tabs/agent/RolesTab.vue`：角色工作台（图鉴与装备），由 `PresetsTab` 内部挂载；`useRolesTabController.ts` 承担预设范围限定、从其他预设复制、删除连全局清理，以及公共角色的引用/只读/移出本预设语义；`publicRole.ts` 提供公共角色判定（scope 字段 + 固定预设种子推导）。
 - `src/agent/prompt/loadSkill.ts`：技能目录缓存与分页元数据。
 - `src/service/skill/`：技能列表、来源检查、同步和 staging。

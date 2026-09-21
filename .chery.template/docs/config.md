@@ -155,15 +155,18 @@ sense_groups:
 | `skills` / `plugins` | string[] | ❌ | 全部 | 允许注入的独立技能或插件子集；空数组表示禁用 |
 | `permissions` | object | ❌ | `supervised` | 参数级权限模板与覆盖 |
 | `lock` | bool | ❌ | `false` | 锁定禁止删除（保护关键角色如 `cheryNyxus` / `curator`） |
+| `scope` | `public\|private` | ❌ | `private` | 角色归属域：`public` 公共角色全局共享单一源、可被任意预设引用为成员；组长不能是公共角色 |
 
 **校验（启动期）：** `brain` 必须存在；配置了 `systemPrompt` 时文件必须存在；无 Tool Call 能力的 brain 不得配置 `senseGroup` / `mcpServers`。
+
+**公共 / 私有语义：** `scope: 'public'` 表示公共角色——全局共享单一源、不归属任何预设，可被任意预设引用为成员（引用不复制，改动对所有引用预设生效）。缺省或 `private` 为预设内私有角色（归属单一预设、删除连全局删）。**组长（`presets.<name>.leader`）必须是私有角色，不能是公共角色**——这是 `validateRawConfig` 的硬校验，保存时违反会报错。模板中解释角色 `explanation` 是固定预设 `cheryNyxus` 的种子公共角色（由固定预设成员推导，禁止删除）；`curator` / `roleArchitect` / `roleAcceptance` 是**系统锁定角色**（`lock: true`、非公共），供 Cherry Nexus 内部流程使用，保留在固定预设成员内以保证 `spawn_role` 可派发。旧配置无 `scope` 字段时，设置页按「固定预设成员（非组长、非锁定）」推导为公共。
 
 ## presets.<name> 字段
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `id` | string | ❌ | 稳定身份；改名时必须保留 |
-| `leader` | string | ✅ | 主角色名（必须在同预设的 `roles` 内，且存在于 `roles` 顶层） |
+| `leader` | string | ✅ | 主角色名（必须在同预设的 `roles` 内，且存在于 `roles` 顶层；不能是 `scope: 'public'` 的公共角色） |
 | `roles` | string[] | ✅ | 该预设启用的角色列表（含 `leader`）；每个角色必须存在于 `roles` 顶层 |
 | `detailRole` | string | ❌ | 节点详情解释角色；必须是本预设成员且不能等于 leader |
 | `shadows.conversationRouting` | string | ❌ | 会话路由 Shadow；其工具组必须且只能包含 `select_conversation:auto` |
@@ -235,7 +238,7 @@ llm:
 返回错误字符串数组（空=通过）。启动期与 `saveRawConfig` 均调用：
 
 1. `roles.*.brain` 必须存在于 `llm.brain`；配置了 `roles.*.systemPrompt` 时文件必须存在
-2. `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`
+2. `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`；**且不能是 `scope: 'public'` 的公共角色（组长必须是预设私有角色）**
 3. `presets.*.workspace` 可缺省；保存时非绝对路径为错误，不存在或不可访问为告警
 4. `global.supervision` 必须是 `auto|smart|manual`
 5. `sense_groups.*[]` 的 `:level` 后缀必须合法

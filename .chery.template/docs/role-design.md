@@ -84,6 +84,14 @@ tool_decisions:
     prohibited_use: 未经授权修改产品实现
 ```
 
+## 角色归属（公共 / 私有 / 系统锁定）
+
+新创建的角色缺省为**私有**（`scope` 缺省），归属其加入的预设、删除连全局删。确需被多个预设共享的基础角色才标 `scope: 'public'`——全局共享单一源，任意预设可引用为成员，改动对所有引用它的预设生效（模板中解释角色 `explanation` 即固定预设的公共角色）。
+
+`curator` / `roleArchitect` / `roleAcceptance` 是**系统锁定角色**（`lock: true`、非公共）：它们是 Cherry Nexus 记忆维护、任意岗位设计与独立验收流程的执行者，保留在固定预设成员内以保证 `spawn_role` 可派发，用户不可删除或改为公共。
+
+**组长必须是私有角色**：`presets.<name>.leader` 不能引用公共角色或系统锁定角色（`validateRawConfig` 硬校验，违反会报错）。因此创建预设时，组长应从该预设自己的私有角色中选。
+
 ## 创建流程
 
 1. Cherry Nexus 激活 `role-design` 技能。
