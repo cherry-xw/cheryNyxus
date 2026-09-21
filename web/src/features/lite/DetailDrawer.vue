@@ -11,6 +11,7 @@ import {
   type LiteRunNodeKind,
   type LiteRunNodeStatus,
 } from './executionMonitor'
+import { toolCallIcon } from './clusterIcons'
 import {
   createLiteDetailSectionState,
   mergeDetailSectionPage,
@@ -139,9 +140,6 @@ function kindLabel(kind: LiteRunNodeKind): string {
 }
 function toolLabel(call: { name: string }): string {
   return lite.toolMeta(call.name)?.label?.trim() || call.name
-}
-function toolIcon(call: { name: string }): string {
-  return toolTypeGlyph(classifyToolType(call.name))
 }
 
 /** 按节点类型列出要展示的详情分节：用户→正文；工具→工具调用（合并同一次 LLM 响应时附思考/正文）；主·子 Agent→思考+正文；其余事件→正文。 */
@@ -383,7 +381,9 @@ watch(
       <div class="lite-drawer-resize" aria-hidden="true" @pointerdown="onResizeStart" />
       <header class="lite-drawer-head">
         <span class="lite-drawer-icon" aria-hidden="true">{{ props.node.icon }}</span>
-        <strong id="lite-detail-title">{{ props.node.label }}</strong>
+        <strong id="lite-detail-title">{{
+          props.node.kind === 'tool' ? '工具调用' : props.node.label
+        }}</strong>
         <span class="lite-drawer-status" :data-status="props.node.status">{{
           runStatusLabel(props.node.status)
         }}</span>
@@ -489,7 +489,7 @@ watch(
                   :key="call.callId"
                   :call="call"
                   :label="toolLabel(call)"
-                  :icon="toolIcon(call)"
+                  :icon="toolCallIcon(call.name)"
                   :type="classifyToolType(call.name)"
                   :focused="call.callId === props.focusToolCallId"
                   :window-id="props.windowId"
