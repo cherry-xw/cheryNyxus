@@ -14,6 +14,7 @@ import type {
 } from 'openai/resources/chat/completions'
 import type { ZodType } from 'zod'
 import type { LLMResponse, LLMAttachment, BuildMessagesOptions } from '@/core/message/adapter'
+import { groupAttachmentsByMessage } from '@/core/message/adapter'
 import { ClassifiedError } from '@/utils/error.js'
 import type { Sense, SenseCallData, SenseFunction } from '@/core/sense'
 import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
@@ -46,89 +47,97 @@ export async function acquireRpm(options?: {
  *
  * attachments 支持 image/video/audio（OpenAI 兼容端点：image_url/video_url/input_audio，均为 data URI base64）。
  * video_url / input_audio 是 SDK 类型里不存在的字段，用 `as unknown as` 强转。
+ * 附件按 messageId 挂到对应消息；无 messageId 的挂到最后一条 user 消息。
  */
 export function buildOpenAICompatibleMessages(
   history: LLMResponse[],
   attachments?: LLMAttachment[],
   includeReasoningContent: (message: LLMResponse) => boolean = () => false,
 ) {
-  const messages = history
-    .filter((m) => !m.revoked)
-    .map((m) => {
-      if (m.role === 'sense') {
-        // 如果被替换，使用 replace.content
-        const content = m.replace?.state ? m.replace.content : m.content
-        return {
-          role: 'tool',
-          content,
-          tool_call_id: m.id,
-        } as ChatCompletionMessageParam
-      }
-      if (m.role === 'assistant' && m.senseCalls && m.senseCalls.length > 0) {
-        return {
-          role: m.role,
-          content: m.content || null,
-          ...(includeReasoningContent(m) && m.thinking ? { reasoning_content: m.thinking } : {}),
-          tool_calls: m.senseCalls.map((sc) => ({
-            id: sc.id,
-            type: 'function' as const,
-            function: {
-              name: sc.name,
-              arguments: sc.arguments,
-            },
-          })),
-        } as ChatCompletionMessageParam
-      }
-      if (m.role === 'assistant' && includeReasoningContent(m) && m.thinking) {
-        return {
-          role: 'assistant',
-          content: m.content,
-          reasoning_content: m.thinking,
-        } as ChatCompletionMessageParam
-      }
-      // role（wait=true 子完成注入的角色回复）映射为 user：OpenAI 拒未知 role
-      // 兼容旧历史消息 role:subagent（与 role 等价）
-      const role = m.role === 'subagent' || m.role === 'role' ? 'user' : m.role
-      // user 消息携带 attachments → 构造 OpenAI vision content array（多模态）
-      if (role === 'user' && attachments && attachments.length > 0) {
-        const parts: ChatCompletionContentPart[] = [{ type: 'text', text: m.content }]
-        for (const att of attachments) {
-          if (att.mimeType.startsWith('image/')) {
-            parts.push({
-              type: 'image_url',
-              image_url: {
-                url: `data:${att.mimeType};base64,${att.data.toString('base64')}`,
-              },
-            })
-          } else if (att.mimeType.startsWith('video/')) {
-            // video_url 不是 SDK 标准类型，用强转
-            parts.push({
-              type: 'video_url',
-              video_url: {
-                url: `data:${att.mimeType};base64,${att.data.toString('base64')}`,
-              },
-            } as unknown as ChatCompletionContentPart)
-          } else if (att.mimeType.startsWith('audio/')) {
-            // input_audio 是 OpenAI 语音输入格式
-            parts.push({
-              type: 'input_audio',
-              input_audio: {
-                data: att.data.toString('base64'),
-                format: att.mimeType.split('/')[1] ?? 'wav',
-              },
-            } as unknown as ChatCompletionContentPart)
-          }
-        }
-        return { role: 'user', content: parts } as ChatCompletionMessageParam
-      }
+  const visible = history.filter((m) => !m.revoked)
+  const lastUser = [...visible].reverse().find((m) => isUserRole(m.role))
+  const attachmentsByMessage = groupAttachmentsByMessage(attachments, lastUser?.id)
+  const messages = visible.map((m) => {
+    if (m.role === 'sense') {
+      // 如果被替换，使用 replace.content
+      const content = m.replace?.state ? m.replace.content : m.content
       return {
-        role,
-        content: m.content,
+        role: 'tool',
+        content,
+        tool_call_id: m.id,
       } as ChatCompletionMessageParam
-    })
+    }
+    if (m.role === 'assistant' && m.senseCalls && m.senseCalls.length > 0) {
+      return {
+        role: m.role,
+        content: m.content || null,
+        ...(includeReasoningContent(m) && m.thinking ? { reasoning_content: m.thinking } : {}),
+        tool_calls: m.senseCalls.map((sc) => ({
+          id: sc.id,
+          type: 'function' as const,
+          function: {
+            name: sc.name,
+            arguments: sc.arguments,
+          },
+        })),
+      } as ChatCompletionMessageParam
+    }
+    if (m.role === 'assistant' && includeReasoningContent(m) && m.thinking) {
+      return {
+        role: 'assistant',
+        content: m.content,
+        reasoning_content: m.thinking,
+      } as ChatCompletionMessageParam
+    }
+    // role（wait=true 子完成注入的角色回复）映射为 user：OpenAI 拒未知 role
+    // 兼容旧历史消息 role:subagent（与 role 等价）
+    const role = m.role === 'subagent' || m.role === 'role' ? 'user' : m.role
+    // user 消息携带归属附件 → 构造 OpenAI vision content array（多模态）
+    const myAttachments = role === 'user' ? attachmentsByMessage.get(m.id) : undefined
+    if (myAttachments && myAttachments.length > 0) {
+      const parts: ChatCompletionContentPart[] = [{ type: 'text', text: m.content }]
+      for (const att of myAttachments) {
+        if (att.mimeType.startsWith('image/')) {
+          parts.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${att.mimeType};base64,${att.data.toString('base64')}`,
+            },
+          })
+        } else if (att.mimeType.startsWith('video/')) {
+          // video_url 不是 SDK 标准类型，用强转
+          parts.push({
+            type: 'video_url',
+            video_url: {
+              url: `data:${att.mimeType};base64,${att.data.toString('base64')}`,
+            },
+          } as unknown as ChatCompletionContentPart)
+        } else if (att.mimeType.startsWith('audio/')) {
+          // input_audio 是 OpenAI 语音输入格式
+          parts.push({
+            type: 'input_audio',
+            input_audio: {
+              data: att.data.toString('base64'),
+              format: att.mimeType.split('/')[1] ?? 'wav',
+            },
+          } as unknown as ChatCompletionContentPart)
+        }
+      }
+      return { role: 'user', content: parts } as ChatCompletionMessageParam
+    }
+    return {
+      role,
+      content: m.content,
+    } as ChatCompletionMessageParam
+  })
 
   // 发送前防御校验：tool result 与前置 assistant.tool_calls 必须配对，否则上游 400。
   return validateToolResultPairing(messages)
+}
+
+/** user 类角色（OpenAI 侧统一映射为 user）。 */
+function isUserRole(role: LLMResponse['role']): boolean {
+  return role === 'user' || role === 'role' || role === 'subagent'
 }
 
 /** OpenAI 兼容生态常见 reasoning 字段归一化。reasoning_details 保持宽松读取以兼容中转。 */

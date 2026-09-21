@@ -276,7 +276,7 @@ export function buildSystemPromptSegments(
 | 记忆 | `<memory global>` + `<memory workspace>` | estimateTokens(text) | 记忆条数 |
 | 技能 | `<skills>` 元数据 | `Σ triggerTokens`（loadSkill 预计算，单一来源） | skill 数 |
 | 工具定义 | runtime senseTable 各 sense `definition` schema | Σ estimateTokens(JSON.stringify(sense)) | tool 数 |
-| 用户对话 | DB 消息行 role∈user/assistant/role/subagent/**sense**（含感官调用结果） | Σ estimateTokens(content+thinking) | 消息条数 |
+| 用户对话 | DB 消息行 role∈user/assistant/role/subagent/**sense**（含感官调用结果） | Σ estimateTokens(content+thinking)（另加 content 里 `[[media:]]` 图片按宽高估算的 token，见 [utils/token.ts](../../../src/utils/token.ts) `mediaTokensInContent`） | 消息条数 |
 
 **conversation 段 thinking 拆分（展示用，不改计量）：** `Segment.thinking?` 单独暴露用户对话段中 thinking 部分的 token 估算（`Σ estimateTokens(thinking)`）；`tokens` 仍 = content+thinking 合计，**计量口径与 usage/total 全不变**，thinking 仅作前端拆分展示（ContextBar hover 追加"(含思考 N)"注脚）。仅 conversation 段填该字段，其余 5 段不填。
 

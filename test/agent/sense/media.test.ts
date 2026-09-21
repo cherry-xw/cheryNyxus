@@ -13,6 +13,7 @@ import { SupervisionLevel } from '@/core/config.js'
 const mediaMocks = vi.hoisted(() => ({
   callMediaService: vi.fn(),
   saveMediaAsset: vi.fn(),
+  resolveMediaAsset: vi.fn(),
 }))
 
 vi.mock('@/service/media/index.js', () => mediaMocks)
@@ -62,5 +63,78 @@ describe('media sense handler', () => {
     expect(mediaMocks.callMediaService).toHaveBeenCalledWith(kind, 'generate', { prompt })
     expect(mediaMocks.saveMediaAsset).toHaveBeenCalledWith(expect.any(Uint8Array), mimeType, filename)
     expect(result.content).toBe(`/api/media/${filename}`)
+  })
+})
+
+describe('media sense 图生图参考图透传', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('提供 reference（/api/media/<file>）时解析资产并透传给 callMediaService', async () => {
+    mediaMocks.resolveMediaAsset.mockResolvedValueOnce({
+      id: 'ref-1',
+      kind: 'image',
+      mimeType: 'image/png',
+      filename: 'aaa.png',
+      path: '/tmp/aaa.png',
+      size: 10,
+    })
+    mediaMocks.callMediaService.mockResolvedValueOnce({
+      assets: [{ data: 'aGVsbG8=', mimeType: 'image/png', filename: 'gen.png' }],
+    })
+    mediaMocks.saveMediaAsset.mockResolvedValueOnce({ filename: 'gen.png' })
+
+    const exec = mediaSenses[0]!.executor.execute.bind(mediaSenses[0]!.executor)
+    const result = await exec({ prompt: '再画一张', reference: '/api/media/aaa.png' }, new Map())
+
+    expect(mediaMocks.resolveMediaAsset).toHaveBeenCalledWith('aaa.png')
+    expect(mediaMocks.callMediaService).toHaveBeenCalledWith('image', 'generate', {
+      prompt: '再画一张',
+      assets: [
+        {
+          id: 'ref-1',
+          kind: 'image',
+          mimeType: 'image/png',
+          filename: 'aaa.png',
+          path: '/tmp/aaa.png',
+          size: 10,
+        },
+      ],
+    })
+    expect(result.content).toBe('/api/media/gen.png')
+  })
+
+  it('提供 reference（[[media:<file>]]）时同样解析', async () => {
+    mediaMocks.resolveMediaAsset.mockResolvedValueOnce({
+      id: 'ref-2',
+      kind: 'image',
+      mimeType: 'image/jpeg',
+      filename: 'bbb.jpg',
+      path: '/tmp/bbb.jpg',
+      size: 10,
+    })
+    mediaMocks.callMediaService.mockResolvedValueOnce({})
+    mediaMocks.saveMediaAsset.mockResolvedValueOnce({ filename: 'gen2.png' })
+
+    const exec = mediaSenses[0]!.executor.execute.bind(mediaSenses[0]!.executor)
+    await exec({ prompt: 'p', reference: '[[media:bbb.jpg]]' }, new Map())
+
+    expect(mediaMocks.resolveMediaAsset).toHaveBeenCalledWith('bbb.jpg')
+    expect(mediaMocks.callMediaService).toHaveBeenCalledWith(
+      'image',
+      'generate',
+      expect.objectContaining({ prompt: 'p' }),
+    )
+  })
+
+  it('reference 指向不存在的资产时不透传 assets，只带 prompt', async () => {
+    mediaMocks.resolveMediaAsset.mockResolvedValueOnce(undefined)
+    mediaMocks.callMediaService.mockResolvedValueOnce({})
+
+    const exec = mediaSenses[0]!.executor.execute.bind(mediaSenses[0]!.executor)
+    await exec({ prompt: 'p', reference: '/api/media/missing.png' }, new Map())
+
+    expect(mediaMocks.callMediaService).toHaveBeenCalledWith('image', 'generate', { prompt: 'p' })
   })
 })

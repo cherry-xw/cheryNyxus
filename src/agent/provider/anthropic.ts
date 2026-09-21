@@ -21,6 +21,7 @@ import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import {
   registerMessageAdapter,
+  groupAttachmentsByMessage,
   type BuildMessagesOptions,
   type LLMResponse,
   type LLMAttachment,
@@ -235,8 +236,10 @@ const anthropicMessageAdapterConfig = {
 
     const normalized = ensureAlternatingUserFirst(filtered)
     const official = buildOptions?.anthropicOfficial === true
+    const lastUser = [...normalized].reverse().find((m) => m.role === 'user')
+    const attachmentsByMessage = groupAttachmentsByMessage(attachments, lastUser?.id)
     const messages = normalized.map((m) =>
-      buildAnthropicMessage(m, attachments, {
+      buildAnthropicMessage(m, attachmentsByMessage.get(m.id), {
         official,
         includeReasoning: buildOptions?.reasoningHistory !== 'omit',
       }),

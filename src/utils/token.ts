@@ -11,6 +11,7 @@
  */
 import { getMessages, type MessageRow } from '@/db/chat.js'
 import { getChatRuntimeSelection } from '@/db/chat.js'
+import { readImageDimensionsSync } from '@/service/media/index.js'
 import config from '@/utils/config'
 
 /** 上限未知时 total=0；不再用通用 8192 伪造模型上下文百分比。 */
@@ -25,13 +26,53 @@ export function estimateTokens(text: string | undefined | null): number {
   return Math.ceil(text.length / 4)
 }
 
+/** 图片 detail 档位（MiniMax 兼容 openai image_url 的 detail 语义）。 */
+export type ImageDetail = 'low' | 'default' | 'high'
+
+export interface ImageTokenEstimate {
+  width: number
+  height: number
+  detail?: ImageDetail
+}
+
+/**
+ * 本地图片 token 估算（OpenAI 视觉规则，MiniMax 兼容其 image_url detail 语义）：
+ * - low：固定 85
+ * - default：85 + 170 × tile 数（tile = ⌈w/512⌉ × ⌈h/512⌉，上限 4 个）
+ * - high：85 + 170 × tile 数（不设上限，适配大图）
+ * 用于原图/压缩图选择对比与本地进度估算；绝对准确度以官方预检接口为准（见 3.2）。
+ */
+export function estimateImageTokens({ width, height, detail = 'default' }: ImageTokenEstimate): number {
+  if (!width || !height || width <= 0 || height <= 0) return 0
+  if (detail === 'low') return 85
+  const tiles = Math.ceil(width / 512) * Math.ceil(height / 512)
+  if (detail === 'high') return 85 + 170 * tiles
+  return 85 + 170 * Math.min(tiles, 4)
+}
+
+/** content 里 [[media:filename]] 图片标记的本地 token 估算合计（标记文本本身的字符估算由调用方另计）。 */
+function mediaTokensInContent(content: string | undefined | null): number {
+  if (!content) return 0
+  let total = 0
+  for (const match of content.matchAll(/\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/gi)) {
+    const dim = readImageDimensionsSync(match[1]!)
+    if (!dim) continue
+    total += estimateImageTokens({ width: dim.width, height: dim.height })
+  }
+  return total
+}
+
 /**
  * 累加单条消息 token（content + thinking）。
  * revoked 消息已从 LLM 上下文中剔除（revokeTrailingCycle 撤回），不计。
  */
 function sumRowTokens(row: MessageRow): number {
   if (row.revoked === 1) return 0
-  return estimateTokens(row.content) + estimateTokens(row.thinking)
+  return (
+    estimateTokens(row.content) +
+    mediaTokensInContent(row.content) +
+    estimateTokens(row.thinking)
+  )
 }
 
 /**
@@ -73,7 +114,7 @@ export function sumChatConversationTokens(chatId: string): {
     if (m.revoked === 1) continue
     if (!CONVERSATION_ROLES.has(m.role)) continue
     const thinkingTokens = estimateTokens(m.thinking)
-    tokens += estimateTokens(m.content) + thinkingTokens
+    tokens += estimateTokens(m.content) + mediaTokensInContent(m.content) + thinkingTokens
     thinking += thinkingTokens
     count += 1
   }

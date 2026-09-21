@@ -3,6 +3,7 @@ import { LlmProtocol } from '@chery/protocol'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter.js'
 import {
   registerMessageAdapter,
+  groupAttachmentsByMessage,
   type BuildMessagesOptions,
   type LLMAttachment,
   type LLMResponse,
@@ -101,8 +102,10 @@ function buildResponsesInput(
   buildOptions?: BuildMessagesOptions,
 ): ResponsesInputItem[] {
   const input: ResponsesInputItem[] = []
-  for (const message of history) {
-    if (message.revoked) continue
+  const visible = history.filter((m) => !m.revoked)
+  const lastUser = [...visible].reverse().find((m) => m.role === 'user')
+  const attachmentsByMessage = groupAttachmentsByMessage(attachments, lastUser?.id)
+  for (const message of visible) {
     if (message.role === 'sense') {
       input.push({
         type: 'function_call_output',
@@ -130,9 +133,10 @@ function buildResponsesInput(
       })
     }
     if (message.content || !message.senseCalls?.length) {
-      if (role === 'user' && attachments?.length) {
+      const myAttachments = role === 'user' ? attachmentsByMessage.get(message.id) : undefined
+      if (myAttachments && myAttachments.length > 0) {
         const parts: ResponsesInputPart[] = [{ type: 'input_text', text: message.content }]
-        for (const attachment of attachments) {
+        for (const attachment of myAttachments) {
           if (!attachment.mimeType.startsWith('image/')) continue
           parts.push({
             type: 'input_image',

@@ -92,10 +92,13 @@ export interface LLMAttachment {
   mimeType: string;     // 如 "image/png" / "video/mp4" / "audio/wav"
   data: Buffer;         // base64 前的二进制
   kind?: MediaKind;     // "image" | "video" | "audio"，供 provider 区分 content part 格式
+  messageId?: string;   // 来源消息 id：附件必须挂回该消息，避免多条 user 消息时位置错乱
 }
 ```
 
-由 [`chatMiddleware`](../../../src/agent/middleware/chat.ts) `enrichMediaInputs` 据脑 `capabilities.input` + 消息正文里的 `[[media:<filename>]]` marker 现场构造（`readMediaAsset` 同步读 base64），provider 调用后丢弃。provider 据 `mimeType`/`kind` 决定 content part 格式（如 OpenAI 兼容端点：image→`image_url`、video→`video_url`、audio→`input_audio`）。多模态是否走原生旁路由 `chatMiddleware` 据 `capabilities.input` gate，见 [model-capabilities.md](../agent/model-capabilities.md)。
+由 [`chatMiddleware`](../../../src/agent/middleware/chat.ts) `enrichMediaInputs` 据脑 `capabilities.input` + 消息正文里的 `[[media:<filename>]]` marker 现场构造（`readMediaAsset` 同步读 base64），provider 调用后丢弃。多模态走**原生旁路**（多轮保留）还是**旧路径**（仅最后一条 user 消息 + 文本转写），由 `chatMiddleware` 据 `capabilities.input` gate，见 [model-capabilities.md](../agent/model-capabilities.md)。
+
+**多轮保留形态（多模态旁路）**：`enrichMediaInputsMultimodal` 解析全历史 `[[media:...]]` 标记，近 3 轮用户消息的图片全程重发（压缩版，挂回原消息位置，`attachments` 带 `messageId`），更早的转一行文字占位；上限总数≤10 / 单轮≤5 / 图片字节≤16MB，超限按「新→旧」保留最新、最旧转占位。三个 provider 的 `buildMessages` 用 [`groupAttachmentsByMessage`](../../../src/core/message/adapter.ts) 把附件按 `messageId` 归组，只把归属附件挂到对应 user 消息。已知局限：anthropic 协议下连续 user 消息合并时，被合并消息的图归属会丢失（MiniMax 走 openaiCompat，非关键路径）。
 
 ### 注册表
 

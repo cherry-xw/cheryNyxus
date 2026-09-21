@@ -110,7 +110,7 @@ presets:
 
 **与 roles 关系**：`config.roles` 是普通角色与 Shadow 的唯一来源（全字段 brain/senseGroup/mcpServers/systemPrompt/kind）；预设的 `leader`、`detailRole`、`roles` 只可选择普通角色，`shadows` 只可选择 Shadow。todo 存在与否 = 是否在 senseGroup（无 task-scale 判断逻辑）。
 
-**T8 编辑 UI（已落地）**：设置面板（[SettingsDialog.vue](../../../web/src/features/agent/settings/SettingsDialog.vue)）「预设」tab = [PresetsTab.vue](../../../web/src/features/agent/settings/tabs/agent/PresetsTab.vue)。每预设一卡片：`leader` 选择 `config.roles` 中的角色 type，`roles` 多选已定义的 type 名；角色的 brain、senseGroup、mcpServers、systemPrompt 均在「角色」tab 维护，不在预设内联编辑。增删预设走底部输入框 + ConfirmPopover。保存统一走外壳 `config.save`，presets 段经后端 schema + `validateRawConfig` 校验 fail loud。**「默认宠物」tab 已移除**（default 并入预设）；默认 brain/senseGroup/mcp 标记（AgentDialog 无 runtime 预选用）派生自「默认」预设的 leader 角色。
+**T8 编辑 UI（已落地）**：设置面板（[SettingsDialog.vue](../../../web/src/features/agent/settings/SettingsDialog.vue)）「预设」tab = [PresetsTab.vue](../../../web/src/features/agent/settings/tabs/agent/PresetsTab.vue)，为「外层预设列表 ↔ 内层角色工作台」双视图（原「角色」一级 Tab 已并入预设）。每预设一卡片：媒体/工作区/审批规则/会话路由 + 「编辑角色」进入 [RolesTab.vue](../../../web/src/features/agent/settings/tabs/agent/RolesTab.vue) 的角色工作台；工作台左轨只列出该预设 `roles` 引用的普通角色成员，新增角色即成为本预设成员（可从其他预设复制后独立编辑），卡片设 `leader`/`detailRole` 职责；角色的 brain、senseGroup、mcpServers、systemPrompt 均在角色工作台维护。增删预设走底部输入框 + ConfirmPopover。保存统一走外壳 `config.save`，presets 段经后端 schema + `validateRawConfig` 校验 fail loud。**「默认宠物」tab 已移除**（default 并入预设）；默认 brain/senseGroup/mcp 标记（AgentDialog 无 runtime 预选用）派生自「默认」预设的 leader 角色。
 
 **校验**：`presets.<name>.leader` 必须引用普通角色且存在于同一预设的 `roles`；`detailRole` 与 `roles[*]` 也必须引用普通角色；`shadows.conversationRouting` 必须引用 Shadow。每个 `roles.<type>.brain` 必须存在于 `llm.brain`，其 `systemPrompt` 文件须存在；Shadow 的 `mentionable:true` 非法（皆 fail loud）。会话路由 Shadow 还必须使用只含 `select_conversation` 的 sense group 且 `mcpServers` 为空。`config.save` 同样校验（见 [service/README.md](../../backend/service/README.md)）。
 
@@ -324,7 +324,7 @@ sense(
 - `chat.send`/`chat.resume` 完成时 `done` notification 增携 `contextUsage`（每轮 loop 后实时重算推送）
 - 纯历史查看不计算 context usage；`chat.get/sync/open` 不解析 runtime。只有当前会话已建立执行 runtime 后，实时 `done`（或显式 `chat.contextUsage`）才计算
 - `brain.list` response 增返每 brain 的 `contextLimit`（CP2 已实现）
-- token 用量计算：**简化估算 `Math.ceil(text.length / 4)`**（字符数近似，英文 4 char/token；中文偏保守），累加 chat 所有非 revoked 消息 content+thinking。实现见 [src/utils/token.ts](../../../src/utils/token.ts)。后续接 tokenizer（如 js-tiktoken）时替换 `estimateTokens` 实现，调用点不变
+- token 用量计算：**简化估算 `Math.ceil(text.length / 4)`**（字符数近似，英文 4 char/token；中文偏保守），累加 chat 所有非 revoked 消息 content+thinking，并对 content 里 `[[media:]]` 图片资产按「压缩后尺寸 + detail」追加图片 token（`estimateImageTokens`，OpenAI 兼容 tile 公式）。实现见 [src/utils/token.ts](../../../src/utils/token.ts)。后续接 tokenizer（如 js-tiktoken）时替换 `estimateTokens` 实现，调用点不变
 - 估算失败兜底 0 + console.warn（不阻塞当前执行流）
 
 ### 5.7 消息级 runtime 记录（每轮配置溯源）
