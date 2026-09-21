@@ -14,7 +14,7 @@
  * 删组走 ConfirmPopover 二次确认；工具移除=tag 关闭（频繁操作，不二次确认）。
  * 字段名 sense_groups / senseGroup 保留（后端协议），仅 UI 文案改"器官"。
  */
-import { ref, computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
 import type { ConfigDto, SenseToolDocInfo, SenseToolInfo } from '@/application/backend/public'
 import { SUPERVISIONS } from '../../config/constants'
@@ -170,6 +170,80 @@ function levelTagType(level: string): 'info' | 'warning' | 'danger' {
 
 /** 瀑布流后所有组卡平铺，无需 footer 圆点导航；返回空数组隐藏 IndexPaginator。 */
 const indexItems = computed<IndexItem[]>(() => [])
+
+/**
+ * 瀑布流改为高度均衡排布：量每张卡实际高度，放进当前最矮的列（顶部各行填满），
+ * 列数随容器宽度自动增减；窗口明显变大（最大化/拖宽）或卡片内容变化时重新均衡并平滑滑入。
+ * 替代原 CSS column-width 多列——后者在高度自动时逐列顺序填充，顶部其余列会留空。
+ */
+const COLUMN_WIDTH = 200
+const GAP = 8
+
+const gridRef = ref<HTMLElement | null>(null)
+const ready = ref(false)
+const cardPositions = ref<Record<string, { x: number; y: number }>>({})
+const gridHeight = ref(0)
+let gridRo: ResizeObserver | undefined
+
+function layout(): void {
+  const el = gridRef.value
+  if (!el || !el.clientWidth) return
+  const width = el.clientWidth
+  const groups = Object.keys(props.draft.sense_groups ?? {})
+  if (!groups.length) {
+    cardPositions.value = {}
+    gridHeight.value = 0
+    ready.value = true
+    return
+  }
+  const columnCount = Math.max(1, Math.floor((width + GAP) / (COLUMN_WIDTH + GAP)))
+  const cardWidth = (width - (columnCount - 1) * GAP) / columnCount
+  el.style.setProperty('--card-width', `${cardWidth}px`)
+  // 同步测量：读 offsetHeight 强制布局，宽度已由 --card-width 生效。
+  // 用 dataset 匹配而非 querySelector 值选择器——组名是自由输入，可能含引号等特殊字符。
+  const cardEls = Array.from(el.querySelectorAll<HTMLElement>('[data-anchor]'))
+  const heights = groups.map((g) => {
+    const card = cardEls.find((c) => c.dataset.anchor === g)
+    return card?.offsetHeight ?? 0
+  })
+  // 最短列优先：每张卡进当前最矮的列，顶部各行被填满
+  const colHeights = new Array<number>(columnCount).fill(0)
+  const positions: Record<string, { x: number; y: number }> = {}
+  groups.forEach((g, i) => {
+    const col = colHeights.indexOf(Math.min(...colHeights))
+    positions[g] = { x: col * (cardWidth + GAP), y: colHeights[col]! }
+    colHeights[col] = colHeights[col]! + heights[i]! + GAP
+  })
+  cardPositions.value = positions
+  gridHeight.value = Math.max(0, ...colHeights) - GAP
+  // 位置就位后再揭示（避免 origin 堆叠闪现）；ready 后重排走 left/top 平滑过渡
+  if (!ready.value) {
+    nextTick(() => {
+      ready.value = true
+    })
+  }
+}
+
+onMounted(() => {
+  const el = gridRef.value
+  if (el && typeof ResizeObserver !== 'undefined') {
+    gridRo = new ResizeObserver(() => layout())
+    gridRo.observe(el)
+  }
+  nextTick(layout)
+})
+
+onBeforeUnmount(() => {
+  gridRo?.disconnect()
+  gridRo = undefined
+})
+
+// 组/工具增删改会改变卡片高度，重新均衡瀑布流
+watch(
+  () => props.draft.sense_groups,
+  () => nextTick(layout),
+  { deep: true },
+)
 </script>
 
 <template>
@@ -206,12 +280,21 @@ const indexItems = computed<IndexItem[]>(() => [])
         <button type="button" class="ghost-btn" @click="addGroup">+ 新增组</button>
       </div>
     </template>
-    <div class="senses-grid">
+    <div
+      ref="gridRef"
+      class="senses-grid"
+      :class="{ 'is-ready': ready }"
+      :style="{ height: `${gridHeight}px` }"
+    >
       <article
         v-for="(_, gname, idx) in draft.sense_groups"
         :key="gname"
         class="card"
-        :data-anchor="idx"
+        :data-anchor="gname as string"
+        :style="{
+          left: `${cardPositions[gname as string]?.x ?? 0}px`,
+          top: `${cardPositions[gname as string]?.y ?? 0}px`,
+        }"
       >
         <span class="card-idx">{{ idx + 1 }}</span>
         <header class="card-head">
@@ -313,16 +396,30 @@ const indexItems = computed<IndexItem[]>(() => [])
 <style scoped lang="less">
 @import '../../config/shared.less';
 
-// 瀑布流：列宽 200px，列数随容器宽度自适应（空间够自动增多列）；卡片按工具数自然分列、各列高等于内容。
+// 瀑布流：高度均衡排布——JS 量卡高、最短列优先分配后绝对定位。
+// 列数随容器宽度自适应；窗口变大或卡片内容变化时重新均衡（left/top 平滑过渡）。
 .senses-grid {
-  column-width: 200px;
-  column-gap: 8px;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
 }
 .senses-grid > .card {
-  break-inside: avoid;
-  width: 100%;
-  margin: 0 0 8px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--card-width, 200px);
+  margin: 0;
   box-sizing: border-box;
+  opacity: 0;
+  transition: none;
+}
+// ready 后淡入；后续重排（最大化/内容变化）时 left/top 平滑滑入
+.senses-grid.is-ready > .card {
+  opacity: 1;
+  transition:
+    left 0.28s ease,
+    top 0.28s ease,
+    opacity 0.2s ease;
 }
 .senses-toolbar {
   margin-left: auto;

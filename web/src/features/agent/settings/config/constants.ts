@@ -49,9 +49,10 @@ export const TABS: { key: TabKey; icon: IconInput; label: string; color: string 
   { key: 'hooks', icon: Anchor, label: '钩子', color: '#0ea5e9' },
   { key: 'mcp', icon: Plug, label: 'MCP', color: '#3b82f6' },
   { key: 'media', icon: Image, label: '多媒体', color: '#6366f1' },
-  { key: 'global', icon: Settings, label: '全局', color: '#8b5cf6' },
   { key: 'archive', icon: Archive, label: '归档', color: '#d946ef' },
   { key: 'terminal', icon: SquareTerminal, label: '终端', color: '#ec4899' },
+  // 用户指定：全局固定放在页签最后一条
+  { key: 'global', icon: Settings, label: '全局', color: '#8b5cf6' },
 ]
 
 export const PROVIDERS = LLM_PROVIDER_CATALOG.map((provider) => provider.id)
