@@ -1182,19 +1182,6 @@ export interface RolePermissionPolicyDto {
   spawn?: { allowedRoles?: string[]; effect?: RolePermissionEffectDto }
 }
 
-export type MediaKindDto = 'image' | 'video' | 'audio'
-export interface MediaServiceConfigDto {
-  type: MediaKindDto
-  url: string
-  model?: string
-  key?: string
-  enabled?: boolean
-  maxUploadMb?: number
-}
-export interface MediaConfigDto {
-  [name: string]: MediaServiceConfigDto
-}
-
 /** 阈值线型（对齐后端 utils/config.ts Threshold）：tokens 绝对值 / percent 0..1 占比。 */
 export interface GlobalConfigDto {
   thinking: boolean
@@ -1231,7 +1218,7 @@ export interface GlobalConfigDto {
   tree_full_render_threshold?: number
 }
 
-/** 预设（对齐后端 PresetConfig）：选中的角色 type 列表（引用 config.roles 单一源）+ 指定组长 + 按类型媒体服务 */
+/** 预设（对齐后端 PresetConfig）：选中的角色 type 列表（引用 config.roles 单一源）+ 指定组长 */
 export interface PresetDto {
   /** Stable preset workspace identity; generated for legacy configs when read. */
   id?: string
@@ -1241,10 +1228,6 @@ export interface PresetDto {
   leader: string
   /** 选中的角色 type 名 */
   roles?: string[]
-  /** 按类型引用媒体服务名（引用 config.media 已定义的服务，类型须匹配） */
-  mediaImage?: string
-  mediaVideo?: string
-  mediaAudio?: string
   /** 项目工作目录绝对路径（system prompt 提示词注入 <workspace> 段；不约束 sense 行为）。缺省 → 不注入 */
   workspace?: string
   /** smart 监管规则覆盖文件名（.chery/rule/ 下，不含 base.yaml；与基准深合并）。缺省 → 仅用基准 */
@@ -1254,7 +1237,6 @@ export interface PresetDto {
 export interface ConfigDto {
   global: GlobalConfigDto
   llm: { brain: Record<string, BrainConfigDto> }
-  media?: MediaConfigDto
   sense_groups?: Record<string, string[]>
   mcp_servers?: Record<string, McpServerConfigDto>
   roles?: Record<

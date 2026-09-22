@@ -114,7 +114,7 @@ export class RuntimeResolver {
 
 `mcpServers` 绕过 `sense_groups`：enabled server 的全部 `mcp__<server>__*` sense 会合并进 `builtSenses/senseTable`，监管等级来自 MCP server 默认值。启用未连接 server 会 fail loud。
 
-**能力约束：** `brain.capabilities.toolCall !== false` 时必须选择非空 `senseGroup`；`toolCall:false` 时 `senseGroup` 必须为空且 `mcpServers` 必须为空，resolver 返回空 `builtSenses/senseTable`。`generate_image/video/audio` 仅在 brain 的 `capabilities.generate.<kind>` 为真时进入 schema。完整能力与媒体链见 [../model-capabilities.md](model-capabilities.md)。
+**能力约束：** `brain.capabilities.toolCall !== false` 时必须选择非空 `senseGroup`；`toolCall:false` 时 `senseGroup` 必须为空且 `mcpServers` 必须为空，resolver 返回空 `builtSenses/senseTable`。生成/媒体类工具由自定义 sense 声明 `capabilities` 并提供（旧内置 `generate_image/video/audio` 已删除）。完整能力与媒体链见 [../model-capabilities.md](model-capabilities.md)。
 
 **监管等级优先级链**（[runtimeResolver.ts resolveSense](../../../src/agent/runtimeResolver.ts)）：
 

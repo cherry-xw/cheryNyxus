@@ -143,14 +143,10 @@ const fields: Record<string, string[]> = {
     'detailRole',
     'leader',
     'roles',
-    'mediaImage',
-    'mediaVideo',
-    'mediaAudio',
     'workspace',
     'rule',
     'schedule',
   ],
-  media: ['type', 'url', 'model', 'key', 'enabled', 'maxUploadMb'],
   mcp_servers: ['transport', 'command', 'args', 'env', 'url', 'supervision'],
   memory: ['max_count', 'max_chars'],
 }
@@ -240,7 +236,7 @@ function boundary(path: string[]): { boundary: ConfigImpact['boundary']; semanti
       !field || ['model', 'provider', 'protocol', 'capabilities', 'hooks'].includes(field)
     return { boundary: semantic ? 'tree' : 'run', semantic }
   }
-  if (root === 'media' || root === 'memory') return { boundary: 'operation', semantic: false }
+  if (root === 'memory') return { boundary: 'operation', semantic: false }
   if (root === 'mcp_servers') return { boundary: 'resource', semantic: true }
   if (root === 'roles' && field && ['avatar', 'description', 'mentionable'].includes(field))
     return { boundary: 'operation', semantic: false }

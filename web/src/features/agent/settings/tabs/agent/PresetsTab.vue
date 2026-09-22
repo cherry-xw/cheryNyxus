@@ -183,14 +183,6 @@ function selectRoleDuty(pname: string, role: string): void {
   else setLeader(pname, role)
 }
 
-/** 按类型筛选媒体服务名（供下拉选项）。 */
-function mediaNamesByType(type: 'image' | 'video' | 'audio'): string[] {
-  if (!props.draft.media) return []
-  return Object.entries(props.draft.media)
-    .filter(([, cfg]) => cfg.type === type)
-    .map(([name]) => name)
-}
-
 /** 目录选择按钮按运行模式互斥展示：Electron 用原生「选择目录」（后端同机绝对路径）；浏览器用「浏览」服务端目录弹层（前端机器路径与后端无关）。 */
 const canPickDir = isElectron
 
@@ -247,9 +239,6 @@ const indexItems = computed<IndexItem[]>(() => {
     count: (p.roles ?? []).length,
     leader: p.leader || '未指定',
     detailRole: p.detailRole || '未指定',
-    mediaImage: p.mediaImage || '未挂载',
-    mediaVideo: p.mediaVideo || '未挂载',
-    mediaAudio: p.mediaAudio || '未挂载',
     workspace: p.workspace || '未限定',
   }))
 })
@@ -316,15 +305,6 @@ const indexItems = computed<IndexItem[]>(() => {
           </div>
           <div class="index-card-line">
             <b>解释角色</b><span>{{ item.detailRole as string }}</span>
-          </div>
-          <div class="index-card-line">
-            <b>🖼️ 图片</b><span>{{ item.mediaImage as string }}</span>
-          </div>
-          <div class="index-card-line">
-            <b>🎬 视频</b><span>{{ item.mediaVideo as string }}</span>
-          </div>
-          <div class="index-card-line">
-            <b>🎵 音频</b><span>{{ item.mediaAudio as string }}</span>
           </div>
           <div class="index-card-line">
             <b>📁 工作区</b><span>{{ item.workspace as string }}</span>
@@ -536,52 +516,6 @@ const indexItems = computed<IndexItem[]>(() => {
           <span v-else-if="!preset.roles || !preset.roles.length" class="hint"
             >点击「编辑角色」进入工作台添加角色成员</span
           >
-        </div>
-
-        <div class="field">
-          <span class="lbl">媒体服务</span>
-          <template v-if="draft.media && Object.keys(draft.media).length">
-            <div class="card-grid card-grid-3 media-row">
-              <label class="field">
-                <span class="lbl">🖼️ 图片</span>
-                <el-select
-                  :model-value="preset.mediaImage ?? ''"
-                  placeholder="未选择"
-                  clearable
-                  size="small"
-                  @update:model-value="(v: string) => (preset.mediaImage = v || undefined)"
-                >
-                  <el-option v-for="n in mediaNamesByType('image')" :key="n" :value="n" :label="n" />
-                </el-select>
-              </label>
-              <label class="field">
-                <span class="lbl">🎬 视频</span>
-                <el-select
-                  :model-value="preset.mediaVideo ?? ''"
-                  placeholder="未选择"
-                  clearable
-                  size="small"
-                  @update:model-value="(v: string) => (preset.mediaVideo = v || undefined)"
-                >
-                  <el-option v-for="n in mediaNamesByType('video')" :key="n" :value="n" :label="n" />
-                </el-select>
-              </label>
-              <label class="field">
-                <span class="lbl">🎵 音频</span>
-                <el-select
-                  :model-value="preset.mediaAudio ?? ''"
-                  placeholder="未选择"
-                  clearable
-                  size="small"
-                  @update:model-value="(v: string) => (preset.mediaAudio = v || undefined)"
-                >
-                  <el-option v-for="n in mediaNamesByType('audio')" :key="n" :value="n" :label="n" />
-                </el-select>
-              </label>
-            </div>
-            <span class="hint">按类型选择媒体服务。不选则该类型无媒体能力。</span>
-          </template>
-          <span v-else class="empty"> 暂无媒体服务。在「🖼️ 媒体服务」tab 中新建。 </span>
         </div>
 
         <div class="field">
@@ -1041,18 +975,7 @@ const indexItems = computed<IndexItem[]>(() => {
   }
 }
 
-// 媒体三选 row：紧凑横排（gap 缩小到 6px），与 small size el-select 配套不显笨重。
-.media-row {
-  gap: 6px;
-  .field {
-    gap: 2px;
-    .lbl {
-      font-size: 12px;
-    }
-  }
-}
-
-// 会话路由/工作区/审批规则三组同行：同 media-row 紧凑规则
+// 会话路由/工作区/审批规则三组同行：紧凑规则
 .combo-row {
   gap: 6px;
   .field {

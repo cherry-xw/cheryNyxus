@@ -125,18 +125,6 @@ const brainSchema = z.looseObject({
   anthropicCompat: z.looseObject({ official: z.boolean().optional() }).optional(),
 })
 
-const mediaServiceSchema = z.looseObject({
-  type: z.enum(['image', 'video', 'audio']),
-  url: z.string(),
-  model: z.string().optional(),
-  key: z.string().optional(),
-  enabled: z.boolean().optional(),
-  maxUploadMb: z.number().positive().optional(),
-})
-
-/** media：命名实体集合（name → 配置），非旧 3-slot 结构。 */
-const mediaSchema = z.record(z.string(), mediaServiceSchema).optional()
-
 /** 项目记忆双层配置（global 跨 chat 共享 · workspace per chat）；字段均 optional。沿用 utils/config.ts MemoryLimits/MemoryConfig 形状 */
 const memoryLimitsSchema = z
   .looseObject({
@@ -225,7 +213,6 @@ export const configRawSchema = z
   .looseObject({
     global: globalSchema,
     llm: z.looseObject({ brain: z.record(z.string(), brainSchema) }),
-    media: mediaSchema,
     sense_groups: z.record(z.string(), z.array(z.string())).optional(),
     mcp_servers: z.record(z.string(), mcpServerConfigSchema).optional(),
     roles: z
@@ -268,9 +255,6 @@ export const configRawSchema = z
           detailRole: z.string().optional(),
           leader: z.string(),
           roles: z.array(z.string()).optional(),
-          mediaImage: z.string().optional(),
-          mediaVideo: z.string().optional(),
-          mediaAudio: z.string().optional(),
           /** 项目工作目录绝对路径（对齐 PresetConfig.workspace；缺省 → 不注入 <workspace> 段） */
           workspace: z.string().optional(),
           /** smart 监管规则覆盖文件名（对齐 PresetConfig.rule；缺省 → 仅用基准 base.yaml） */

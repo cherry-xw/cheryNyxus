@@ -38,7 +38,6 @@ llm:
       key: $LLM_API_KEY
       provider: openai
       protocol: openai-chat-completions
-media: {}
 sense_groups:
   chery_nexus:
     - read_file

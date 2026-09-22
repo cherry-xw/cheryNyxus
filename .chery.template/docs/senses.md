@@ -171,12 +171,12 @@ export default sense(
 
 ```yaml
 # .chery/rule/base.yaml
-generate_image: false          # 硬开关：整体需确认（破坏性 sense 兜底）
+write_file: false             # 硬开关：整体需确认（破坏性 sense 兜底）
 execute_command:
-  extract: command             # 从 args.command 取待匹配串（支持点号路径如 input.path）
-  dangerPatterns:              # 命中 = 需确认；未命中 = 自动执行
-    - 'rm -rf'                 # 子串匹配 → 需确认
-    - '/^\w+\s+--version$/'    # 正则 /pattern/flags → 需确认
+  extract: command            # 从 args.command 取待匹配串（支持点号路径如 input.path）
+  dangerPatterns:             # 命中 = 需确认；未命中 = 自动执行
+    - 'rm -rf'                # 子串匹配 → 需确认
+    - '/^\w+\s+--version$/'   # 正则 /pattern/flags → 需确认
 # 未登记的 sense → fail-open 默认放行（降 auto）
 ```
 

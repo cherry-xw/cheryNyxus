@@ -135,26 +135,6 @@ export interface BrainCapabilities {
   generate?: MediaCapabilities
 }
 
-/** 媒体类型 */
-export type MediaKind = 'image' | 'video' | 'audio'
-
-/** 命名媒体服务配置（独立实体，在 MediaTab 管理）。 */
-export interface MediaServiceConfig {
-  /** 服务类型（图/音/视） */
-  type: MediaKind
-  url: string
-  model?: string
-  key?: string
-  enabled?: boolean
-  /** 单文件上传上限（MiB），覆盖全局默认 100 */
-  maxUploadMb?: number
-}
-
-/** 媒体服务集合：name → 配置。预设通过 PresetConfig.mediaImage/mediaVideo/mediaAudio 引用此处的 name。 */
-export interface MediaConfig {
-  [name: string]: MediaServiceConfig
-}
-
 /**
  * Brain 配置基础类型
  * 各 Provider 可扩展具体配置结构
@@ -324,10 +304,6 @@ export interface PresetConfig {
   leader: string
   /** 选中的角色 type 名（引用 config.roles 已定义的键，不在预设内重定义） */
   roles?: string[]
-  /** 按类型引用媒体服务名（引用 config.media 已定义的服务，类型须匹配） */
-  mediaImage?: string
-  mediaVideo?: string
-  mediaAudio?: string
   /**
    * 项目工作目录绝对路径（提示词层注入：buildFirstSystemPrompt 注入 <workspace> 段声明本会话专属该项目）。
    * 仅 system prompt 提示，不约束 sense 实际行为（无 cwd 收束/路径沙箱）。缺省 → 不注入该段。
@@ -637,7 +613,6 @@ interface ExtendedGlobalConfig extends GlobalConfig {
 interface Config {
   global: ExtendedGlobalConfig
   llm: LLMConfig
-  media?: MediaConfig
   sense_groups?: Record<string, string[]> // sense分组配置
   mcp_servers?: Record<string, McpServerConfig> // MCP server 配置（name → 连接参数 + server 级监管默认）
   server: ServerConfig // 服务配置（端口 + 传输格式，loadConfig 兜底默认值）
@@ -670,7 +645,6 @@ interface McpServerConfigRaw extends Omit<McpServerConfig, 'supervision'> {
 export interface ConfigRaw {
   global: GlobalConfigRaw
   llm: LLMConfig
-  media?: MediaConfig
   sense_groups?: Record<string, string[]>
   mcp_servers?: Record<string, McpServerConfigRaw>
   roles?: Record<string, RoleConfig>
@@ -1108,20 +1082,6 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     }
   }
 
-  // media.* 命名服务：type 合法 + enabled 时 url 必填
-  const VALID_MEDIA_KIND = ['image', 'video', 'audio'] as const
-  const mediaNames = Object.keys(raw.media ?? {})
-  if (raw.media) {
-    for (const [name, cfg] of Object.entries(raw.media)) {
-      if (!cfg?.type || !VALID_MEDIA_KIND.includes(cfg.type)) {
-        errors.push(`media.${name}.type 非法（合法：image/video/audio）`)
-      }
-      if (cfg?.enabled && !cfg.url) {
-        errors.push(`media.${name} 已启用但 url 为空`)
-      }
-    }
-  }
-
   // roles.*.brain 必须存在于 llm.brain；roles.*.systemPrompt 文件存在性（相对 .chery 目录解析；绝对路径原样）。
   if (raw.roles) {
     const cheryDir = process.env.CHERY_DIR || process.cwd()
@@ -1229,24 +1189,6 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
           if ((shadow?.mcpServers?.length ?? 0) > 0) {
             errors.push(`会话路由 Shadow "${routingShadow}" 不能配置 MCP server`)
           }
-        }
-      }
-      // mediaImage/mediaVideo/mediaAudio 引用必须存在于 config.media 且 type 匹配
-      const mediaByKind: Record<string, string | undefined> = {
-        image: pcfg.mediaImage,
-        video: pcfg.mediaVideo,
-        audio: pcfg.mediaAudio,
-      }
-      for (const [kind, ref] of Object.entries(mediaByKind)) {
-        if (!ref) continue
-        if (!mediaNames.includes(ref)) {
-          errors.push(
-            `presets.${pname}.media${kind} "${ref}" 不在 media 服务列表（可用：${mediaNames.join(', ') || '（未配置任何媒体服务）'}）`,
-          )
-        } else if (raw.media?.[ref]?.type !== kind) {
-          errors.push(
-            `presets.${pname}.media${kind} "${ref}" 类型为 ${raw.media?.[ref]?.type ?? '未知'}，非 ${kind}`,
-          )
         }
       }
       // workspace 不在此校验：启动期不关心（workspace 是环境配置非服务必需）；
@@ -1418,11 +1360,6 @@ function validateCredentialEnvPlaceholders(raw: unknown): string[] {
       errors.push(envPlaceholderFormatError(`llm.brain.${name}.key`))
     }
   }
-  for (const [name, cfg] of Object.entries(config?.media ?? {})) {
-    if (isMalformedEnvPlaceholder(cfg?.key)) {
-      errors.push(envPlaceholderFormatError(`media.${name}.key`))
-    }
-  }
   return errors
 }
 
@@ -1502,11 +1439,6 @@ export function redactConfigSecrets(raw: ConfigRaw): ConfigRaw {
       if (cfg.key !== undefined) cfg.key = redactSecretValue(cfg.key)
     }
   }
-  if (copy.media) {
-    for (const svc of Object.values(copy.media)) {
-      if (svc.key !== undefined) svc.key = redactSecretValue(svc.key)
-    }
-  }
   if (copy.mcp_servers) {
     for (const srv of Object.values(copy.mcp_servers)) {
       if (srv.env) {
@@ -1537,12 +1469,6 @@ export function restoreRedactedSecrets(partial: ConfigRaw, disk: ConfigRaw): Con
     for (const [name, cfg] of Object.entries(copy.llm.brain)) {
       const diskCfg = disk.llm.brain[name]
       if (cfg.key === '[REDACTED]' && diskCfg?.key !== undefined) cfg.key = diskCfg.key
-    }
-  }
-  if (copy.media && disk.media) {
-    for (const [name, svc] of Object.entries(copy.media)) {
-      const diskSvc = disk.media[name]
-      if (svc.key === '[REDACTED]' && diskSvc?.key !== undefined) svc.key = diskSvc.key
     }
   }
   if (copy.mcp_servers && disk.mcp_servers) {

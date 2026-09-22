@@ -605,7 +605,7 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                     mediaDisabledReason ||
                     (mediaServicesByType[item.kind]
                       ? item.label
-                      : `当前大脑及媒体服务均不支持${item.label}`)
+                      : `当前感官组无处理${item.label}的工具，且模型不支持原生${item.label}`)
                   "
                   popper-class="label-tip-popper"
                 >

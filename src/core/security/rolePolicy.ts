@@ -58,9 +58,6 @@ const MUTATING_TOOLS = new Set([
   'write_file',
   'memory_manage',
   'install_skill',
-  'generate_image',
-  'generate_video',
-  'generate_audio',
   'destroy_role',
 ])
 /**

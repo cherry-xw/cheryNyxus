@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import readSense from '@/agent/sense/read.js'
-import { callMediaService } from '@/service/media/index.js'
 import { addMemory } from '@/memory/manager.js'
 import { getAppliedRawConfig, replaceRuntimeConfig } from '@/utils/config.js'
 import { cleanupTempDir, createTempDir, createTempFile } from '../../helpers/tempDir.js'
@@ -43,27 +42,6 @@ describe('live settings real consumers', () => {
     } finally {
       cleanupTempDir(dir)
     }
-  })
-
-  it('media calls use the service published before the operation', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: 'ok' }) })
-    vi.stubGlobal('fetch', fetchMock)
-    const first = getAppliedRawConfig()
-    first.media = {
-      live_image: { type: 'image', url: 'http://media-one.test', enabled: true },
-    }
-    replaceRuntimeConfig(first)
-    await callMediaService('image', 'generate', { prompt: 'one' })
-
-    const second = getAppliedRawConfig()
-    second.media!.live_image!.url = 'http://media-two.test'
-    replaceRuntimeConfig(second)
-    await callMediaService('image', 'generate', { prompt: 'two' })
-
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      'http://media-one.test',
-      'http://media-two.test',
-    ])
   })
 
   it('memory operations use the latest published limit', () => {
