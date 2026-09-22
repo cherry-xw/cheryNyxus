@@ -53,6 +53,8 @@ const props = defineProps<{
   /** 工具调用折叠为小 tag（抽屉头部「折叠工具调用」开关）：senseCalls 渲染为一行 tag，
    *  hover tag 悬浮显完整渲染器内容；thinking / content 渲染不受影响。 */
   collapseSenseCalls?: boolean
+  /** 当前实时回复尚未收到首个 thinking/content 片段。 */
+  waitingForResponse?: boolean
 }>()
 
 const showThinking = ref(false)
@@ -101,6 +103,10 @@ const userContentSegments = computed(() => splitCommandPrompt(displayContent.val
 
 // 气泡底部时间戳常显：同天 HH:MM / 跨天 MM-DD HH:MM / 跨年 YYYY-MM-DD HH:MM；缺失不渲染
 const timeText = computed(() => formatTime(props.item.createdAt))
+const showWaitingForResponse = computed(
+  () =>
+    props.waitingForResponse === true && !props.item.content.trim() && !props.item.thinking?.trim(),
+)
 const isCompactTrigger = computed(
   () => props.item.role === 'user' && /\[\[command:\/compact\]\]/.test(props.item.content ?? ''),
 )
@@ -190,6 +196,15 @@ function removeDelivery(): void {
             thinking
           </button>
           <span v-if="timeText" class="time">{{ timeText }}</span>
+        </div>
+        <div
+          v-if="showWaitingForResponse"
+          class="response-loading"
+          role="status"
+          aria-live="polite"
+        >
+          <span class="response-loading-icon" aria-hidden="true" />
+          <span>等待首个响应片段…</span>
         </div>
         <pre v-if="hasThinking && showThinking" class="thinking-pre">{{ props.item.thinking }}</pre>
         <div v-if="props.item.content" class="content">
@@ -563,6 +578,37 @@ function removeDelivery(): void {
   color: color-mix(in srgb, var(--ink) 40%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   white-space: nowrap;
+}
+
+.response-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.response-loading-icon {
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: response-loading-spin 800ms linear infinite;
+}
+
+@keyframes response-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .response-loading-icon {
+    animation: none;
+  }
 }
 </style>
 

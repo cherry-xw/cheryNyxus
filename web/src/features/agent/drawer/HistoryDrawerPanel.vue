@@ -39,6 +39,7 @@ const {
   getHistoryItemKey,
   history,
   isLastSubReply,
+  isWaitingForResponse,
   layout,
   loaded,
   loadingAgents,
@@ -314,6 +315,7 @@ const {
               :caller-pet-name="callerPetName(history[index]!)"
               :caller-is-master="callerIsMaster(history[index]!)"
               :show-master-badge="isLastSubReply(history[index]!)"
+              :waiting-for-response="isWaitingForResponse(history[index]!)"
               :fallback-runtime="runtimeForItem(history[index]!)"
               :user-avatar-caption="userAvatarCaption"
               @jump-to-spawn="onJumpToSpawn"

@@ -682,6 +682,34 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   function getHistoryItemKey(item: HistoryItem, index: number): string {
     return item.msgId ?? `idx-${index}`
   }
+  /** 当前仍在等待首个 thinking/content 片段的实时回复消息。 */
+  const waitingMessageIds = computed<Set<string>>(() => {
+    const turns =
+      layout.value === 'group'
+        ? (chatSessions.rootTimelineStates[props.chatId]?.activeTurns ?? [])
+        : (chatSessions.sessionsById[props.chatId]?.activeTurns ?? [])
+    return new Set(
+      turns
+        .filter(
+          (turn) =>
+            turn.status !== 'completed' &&
+            turn.status !== 'paused' &&
+            turn.status !== 'error' &&
+            !turn.content.trim() &&
+            !turn.thinking.trim(),
+        )
+        .map((turn) => turn.messageId),
+    )
+  })
+  function isWaitingForResponse(item: HistoryItem): boolean {
+    return (
+      (item.role === 'assistant' || item.role === 'role' || item.role === 'subagent') &&
+      !!item.msgId &&
+      waitingMessageIds.value.has(item.msgId) &&
+      !item.content.trim() &&
+      !item.thinking?.trim()
+    )
+  }
   /** loading 头像三态背景框：master（主 agent）/ sub（子 agent 运行中）/ ghost（子 agent 已完成等待）。 */
   function faceStateClass(entry: AgentLoadingEntry): 'is-master' | 'is-sub' | 'is-ghost' {
     if (entry.isMaster) return 'is-master'
@@ -1047,6 +1075,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     getHistoryItemKey,
     history,
     isLastSubReply,
+    isWaitingForResponse,
     layout,
     loaded,
     loadingAgents,
