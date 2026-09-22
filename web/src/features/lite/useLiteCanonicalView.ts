@@ -261,9 +261,14 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     set lastCommandError(value) {
       setCommandError(value)
     },
-    /** 运行失败（消息已发出、本轮中断）：run.status='failed' 且 run.error 存在时暴露（§4.14）。
+    /** 运行失败（消息已发出、本轮中断）：优先读取终态反馈，兼容旧的 run.error。
      * 命令错误 banner 优先（commandError 存在时不显示）；发送失败落 run.status='paused' 不被捕获。
-     * 「继续运行」入口由状态条 canResume 驱动，不在此重复。 */
+     * 「继续运行」入口由状态条 canResume 驱动，不在此重复。
+     *
+     * 反馈历史是对话视图显示运行错误的持久事实源。精简视图不能只依赖
+     * run.error：重新打开或切换视图后，错误文案可能已经不在当前瞬时状态中，
+     * 但失败反馈仍保存在 outcome/outcomeHistory 中。
+     */
     get runError(): {
       message: string
       detail?: string
@@ -271,12 +276,21 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     } | null {
       if (rootUi().commandError) return null
       const session = chats.sessionsById[root()]
-      if (!session || session.run.status !== 'failed' || !session.run.error) return null
+      if (!session) return null
       const fact = session.run.errorFact
+      const latestOutcome = session.run.outcomeHistory?.at(-1)?.outcome ?? session.run.outcome
+      const feedback =
+        latestOutcome?.status === 'failed' && latestOutcome.feedback?.severity === 'error'
+          ? latestOutcome.feedback
+          : undefined
+      if (session.run.status !== 'failed' && !feedback) return null
+      if (!session.run.error && !feedback) return null
+      const detail = feedback?.detail ?? feedback?.description ?? fact?.detail
+      const tracingId = feedback?.tracingId ?? fact?.tracingId
       return {
-        message: session.run.error,
-        ...(fact?.detail ? { detail: fact.detail } : {}),
-        ...(fact?.tracingId ? { tracingId: fact.tracingId } : {}),
+        message: feedback?.title ?? session.run.error ?? '本轮运行意外中断',
+        ...(detail ? { detail } : {}),
+        ...(tracingId ? { tracingId } : {}),
       }
     },
     async loadOlder(): Promise<boolean> {
