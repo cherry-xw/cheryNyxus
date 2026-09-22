@@ -18,7 +18,7 @@
 - `web/src/features/pets/components/PetSprite.vue`
 - `web/src/features/pets/components/PetBody.vue`
 - `docs/frontend/pet/movement.md`
-- `docs/standards/frontend/ui-visual-and-interaction.md`
+- `docs/standards/frontend/design-language.md`
 
 ## 范围与非目标
 

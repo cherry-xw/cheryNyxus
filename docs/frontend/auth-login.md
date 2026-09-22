@@ -1,6 +1,6 @@
 # 登录窗（auth / ServerLoginDialog）
 
-> 状态：设计规格（Doc-First，先于实现落稿）｜ 源码 `web/src/features/auth/` ｜ 相关 [electron.md](electron.md)（原生 login 窗）、[../standards/ui-visual-and-interaction.md](../standards/frontend/ui-visual-and-interaction.md)（全直角 / 字重 400 / 深空电光 token）
+> 状态：设计规格（Doc-First，先于实现落稿）｜ 源码 `web/src/features/auth/` ｜ 相关 [electron.md](electron.md)（原生 login 窗）、[设计语言规范](../standards/frontend/design-language.md)（全直角 / 字重 400 / 深空电光 token）
 
 ## 定位
 

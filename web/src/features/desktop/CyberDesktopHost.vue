@@ -140,7 +140,7 @@ onMounted(async () => {
 onMounted(() => {
   window.addEventListener('error', reportWindowError)
   window.addEventListener('unhandledrejection', reportUnhandledRejection)
-  // 系统栏/任务栏入场统一挂接 useMotionTier 三档（motion-standard §3）：
+  // 系统栏/任务栏入场统一挂接 useMotionTier 三档（design-language §5.3）：
   // full = opacity+y+scale 全量、reduced = 仅 opacity+y（幅度减半）、opacityOnly = 仅淡入。
   const enter = motionSpec.value.enter
   if (root.value && enter !== 'opacityOnly') {

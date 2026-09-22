@@ -23,7 +23,7 @@
   box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 /* 字重收敛：lite 视图内 <strong>（审批标题/历史 label 等）一律 400——lite 为轻量界面，
-   遵循 font-style-guide「内容字段不加粗」，标题层级亦随轻量风格降为 400。 */
+   遵循设计语言规范「内容字段不加粗」，标题层级亦随轻量风格降为 400。 */
 .lite-view strong {
   font-weight: 400;
 }
