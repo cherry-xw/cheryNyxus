@@ -107,7 +107,7 @@ function mixTone(from: NyxusTone, to: NyxusTone, amount: number): NyxusTone {
 }
 
 export function toneForNyxus(input: NyxusParticleInput): NyxusTone {
-  if (input.serviceState === 'disconnected') return COSMIC_MODE_TONES.blackHole
+  if (input.loginState !== 'authenticated') return COSMIC_MODE_TONES.blackHole
   if (!input.connected || input.reaction === 'error') {
     return {
       core: '#41353f',

@@ -10,8 +10,9 @@ import { createClickDisambiguator } from '../composables/clickDisambiguator'
 import { closeNyxusMenu, nyxusMenuOpen, toggleNyxusMenu } from '../nyxusUiState'
 import { desktopBridge, openQuickComposerWindow } from '@/features/desktop/desktopBridge'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
+import { resolveLoginState } from '@/domain/auth/loginState'
 
-const { agents, connection, theme: themeStore } = useNyxusHost()
+const { agents, auth, connection, theme: themeStore } = useNyxusHost()
 const creating = ref(false)
 const openingChat = ref(false)
 const loginOpen = ref(false)
@@ -30,8 +31,16 @@ const {
   closeNyxusMenu,
 )
 const dragging = computed(() => standaloneDragging.value)
+const loginState = computed(() =>
+  resolveLoginState({
+    isRemote: auth.isRemote,
+    loggedIn: auth.loggedIn,
+    connectionStatus: connection.status,
+    authenticating: auth.authenticating,
+  }),
+)
 const disabled = computed(
-  () => creating.value || openingChat.value || connection.status !== 'connected',
+  () => creating.value || openingChat.value || loginState.value !== 'authenticated',
 )
 /** 已打开成 pet 的预设（master）→ 从创建列表隐藏；全部打开时 PresetPicker 隐藏按钮。 */
 const openedPresets = computed(() => [
@@ -63,7 +72,7 @@ function onNyxusDoubleClick(): void {
 
 /** Cherry Nyxus 双击或工具环聊天按钮打开统一弹窗。 */
 async function openNyxusDialog(): Promise<void> {
-  if (connection.status !== 'connected' || openingChat.value || creating.value) return
+  if (loginState.value !== 'authenticated' || openingChat.value || creating.value) return
   openingChat.value = true
   error.value = null
   try {
@@ -98,7 +107,7 @@ async function runCreate(opts: {
   senseGroup?: string
   mcpServers?: string[]
 }): Promise<void> {
-  if (creating.value || openingChat.value || connection.status !== 'connected') return
+  if (creating.value || openingChat.value || loginState.value !== 'authenticated') return
   creating.value = true
   error.value = null
   try {
@@ -113,7 +122,7 @@ async function runCreate(opts: {
 }
 
 function openSettings(): void {
-  if (connection.status !== 'connected') return
+  if (loginState.value !== 'authenticated') return
   // desktop surface：设置由 Electron 原生独立窗承载（get-or-create，聚焦复用）；浏览器保持应用内弹窗
   const bridge = desktopBridge()
   if (bridge) {
@@ -147,7 +156,7 @@ const nyxusPresetId = computed(
 
 /** 打开 cheryNyxus（主预设）的节点树工作台，并刷新钢琴依赖的轻量会话目录。 */
 async function openWorkbench(): Promise<void> {
-  if (connection.status !== 'connected') return
+  if (loginState.value !== 'authenticated') return
   try {
     await agents.getActiveNyxus()
   } catch (cause) {
@@ -205,7 +214,7 @@ onBeforeUnmount(() => {
     <button
       type="button"
       class="nyxus-entry-button"
-      :aria-disabled="openingChat || connection.status !== 'connected'"
+      :aria-disabled="openingChat || loginState !== 'authenticated'"
       aria-label="打开 Cherry Nyxus"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
@@ -225,7 +234,7 @@ onBeforeUnmount(() => {
     </button>
     <NyxusToolRing
       :disabled="disabled"
-      :connected="connection.status === 'connected'"
+      :connected="loginState === 'authenticated'"
       :excluded-presets="excludedPresets"
       :dark="themeStore.theme === 'dark'"
       @create-preset="createPreset"

@@ -340,7 +340,11 @@ export function createNyxusRenderer(): NyxusRenderer {
     const radius = input.size * 0.0496
     context.save()
     if (upperHalf) clipEventHorizonSegment(context, input, true)
-    context.globalAlpha = 1
+    // 重连中用低幅度呼吸闪烁提示状态变化；已经断开时保持稳定黑洞。
+    context.globalAlpha =
+      input.loginState === 'authenticating'
+        ? 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(input.time * 5))
+        : 1
     context.fillStyle = '#020203'
     context.beginPath()
     context.arc(0, 0, radius, 0, Math.PI * 2)
@@ -352,15 +356,15 @@ export function createNyxusRenderer(): NyxusRenderer {
    * 中心在线状态点(仅主 pet,叠加于粒子之上,独立坐标系)。
    * core 2px 锚定不动(在线白/离线黑);halo 色略别于 core(在线暖金/离线暗紫),
    * 椭圆 rotate 自旋 + 双频扰动 → 明显旋转感。
-   * connecting 明灭走 input.time 正弦;离线 halo 用 source-over(lighter 下暗色不可见)。
+    * 在线状态点使用暖色光晕；未连接时由黑洞承担中心状态反馈。
    */
   function renderStatusDot(
     context: CanvasRenderingContext2D,
     input: NyxusParticleInput,
     connectionStatus: string,
   ): void {
-    // 黑洞是断连时唯一的中心焦点，在线状态点不再与暗核竞争注意力。
-    if (input.serviceState === 'disconnected') return
+    // 未连接时黑洞是唯一的中心焦点，在线状态点不再与暗核竞争注意力。
+    if (input.loginState !== 'authenticated') return
     // 双星及并合形态有自身双心结构；状态点复用形态过渡曲线渐隐/渐显，避免切换时闪断。
     const binaryOpacity =
       input.cosmicMode === 'binary'
@@ -550,7 +554,7 @@ export function createNyxusRenderer(): NyxusRenderer {
       context.restore()
     }
 
-    if (input.serviceState === 'disconnected') {
+    if (input.loginState !== 'authenticated') {
       context.save()
       context.translate(extent / 2, extent / 2)
       renderEventHorizon(context, input)
@@ -685,7 +689,7 @@ export function createNyxusRenderer(): NyxusRenderer {
     }
     // 双核心在星点之后收尾，避免小尺寸下被普通粒子覆盖而失去辨识度。
     renderBinaryCores(context, input)
-    if (input.serviceState === 'disconnected') {
+    if (input.loginState !== 'authenticated') {
       // 前景云沿星盘局部下方的下凸弧切入事件视界，端点落在圆周两侧。
       context.save()
       clipEventHorizonSegment(context, input, false)

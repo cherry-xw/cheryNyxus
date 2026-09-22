@@ -61,12 +61,27 @@
 
 `地址 → (非 loopback: 用户名/密码/记住密码) → 鉴权 → WebSocket 连接完成`；只有实际连接成功才关闭或进入已连接态。鉴权成功但连接失败仍保留表单与重试入口，不能仅凭 token 或地址保存提示成功。提交期禁止重复提交、编辑及内部关闭。
 
+### 登录状态与 Nyxus 视觉契约
+
+登录展示只使用三种状态，登录页与 Nyxus 必须由同一状态计算结果驱动：
+
+| 登录状态 | 判定含义 | Nyxus 中心 | 中心外围 | 登录页含义 |
+| --- | --- | --- | --- | --- |
+| `unauthenticated` | 远端没有有效登录凭证，且没有正在提交登录 | 稳定黑洞 | 保留星云和星点 | 未登录，显示登录表单 |
+| `authenticating` | 正在提交登录，或已有凭证但 WebSocket 尚未完成 | 闪烁黑洞 | 保留星云和星点 | 登录中或等待连接完成 |
+| `authenticated` | 登录凭证有效且 WebSocket 已连接 | 正常星系核心 | 正常星系、星云和星点 | 已登录，显示用户信息 |
+
+这里的 WebSocket `connection.status` 只是登录完成的底层条件，不能单独代表“已登录”。`connected` 不等于 `authenticated`；否则登录页可能显示未登录，而 Nyxus 错误显示已登录星系。
+
+黑洞是完整的外围场景，不是单独的黑色中心点。修改未登录或登录中渲染时，必须保留外围星云、星点和黑洞前景层；不能因为关闭已登录星系调度而提前返回并删除外围粒子。统一状态计算位于 [`web/src/domain/auth/loginState.ts`](../../web/src/domain/auth/loginState.ts) 的 `resolveLoginState()`，认证过程由 [`web/src/stores/auth.ts`](../../web/src/stores/auth.ts) 持有，Nyxus 输入和绘制分别见 [`web/src/features/pets/nyxus/composables/useNyxusParticleInput.ts`](../../web/src/features/pets/nyxus/composables/useNyxusParticleInput.ts) 与 [`web/src/features/pets/nyxus/particles/nyxusRenderer.ts`](../../web/src/features/pets/nyxus/particles/nyxusRenderer.ts)。
+
 首次挂载即为可见的原生面和后续打开的浮动面共用初始化；记住密码的异步读取在关闭、切地址、重新打开或用户开始输入后失效。浮动面为非模态窗口，不声明 `aria-modal`。错误卡片保留 kind、backendMessage、HTTP status 和原始错误。
 
 | 修改意图 | 稳定入口与关键符号 | 验证 |
 | --- | --- | --- |
 | 初始化、提交与重试 | [ServerLoginDialog.vue](../../web/src/features/auth/ServerLoginDialog.vue) 的 `submit`、`visible` 监听 | `pnpm test:web`、`pnpm web:type-check`；原生首次打开与断连重试 |
 | 连接结果 | [connection.ts](../../web/src/stores/connection.ts) 的 `reconnect` | 同上；仅连接状态归 store，鉴权归 auth store |
+| 登录状态与 Nyxus 视觉一致性 | [`loginState.ts`](../../web/src/domain/auth/loginState.ts) 的 `resolveLoginState()` | [`web/test/auth/loginState.test.ts`](../../web/test/auth/loginState.test.ts)、[`web/test/nyxus/cosmicScheduler.test.ts`](../../web/test/nyxus/cosmicScheduler.test.ts) |
 
 ## 验收清单（视觉项交用户截图确认）
 

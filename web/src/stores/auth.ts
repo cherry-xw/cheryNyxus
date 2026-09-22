@@ -206,6 +206,7 @@ export const useAuthStore = defineStore('auth', () => {
   const savedUsername = ref(localStorage.getItem(KEY_SAVED_USER) ?? '')
   /** 已记住的密码密文（base64(iv||ct)）；未勾选记住密码时为空。 */
   const savedPassword = ref(localStorage.getItem(KEY_SAVED_PW) ?? '')
+  const authenticating = ref(false)
 
   /** 目标后端是否为远端（非 loopback）→ 需鉴权。 */
   const isRemote = computed(() => {
@@ -227,6 +228,18 @@ export const useAuthStore = defineStore('auth', () => {
   function setServerAddress(addr: string): void {
     serverAddress.value = normalizeAddress(addr)
     persist()
+  }
+
+  function beginAuthentication(): void {
+    authenticating.value = true
+  }
+
+  function finishAuthentication(): void {
+    authenticating.value = false
+  }
+
+  function failAuthentication(): void {
+    authenticating.value = false
   }
 
   /** Electron 多 renderer：另一个原生窗更新 localStorage 后显式刷新本 Pinia 投影。 */
@@ -335,6 +348,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout(): void {
+    authenticating.value = false
     accessToken.value = ''
     refreshToken.value = ''
     username.value = ''
@@ -359,6 +373,10 @@ export const useAuthStore = defineStore('auth', () => {
     authHeader,
     login,
     savedPasswordPlain,
+    authenticating,
+    beginAuthentication,
+    finishAuthentication,
+    failAuthentication,
     refresh,
     logout,
   }

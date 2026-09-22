@@ -19,12 +19,12 @@ export interface NyxusCosmicScheduleResult {
   progress: number
 }
 
-/** 系统状态只保留断连黑洞与运行中脉冲星，且断连优先。 */
+/** 登录状态只保留登录中黑洞与运行中脉冲星，且登录中优先。 */
 export function nyxusForcedCosmicState(
   serviceState: NyxusServiceState,
   working: boolean,
 ): NyxusCosmicScheduleResult | null {
-  if (serviceState === 'disconnected') return { mode: 'blackHole', progress: 0.5 }
+  if (serviceState !== 'connected') return { mode: 'blackHole', progress: 0.5 }
   if (working) return { mode: 'pulsar', progress: 0.5 }
   return null
 }
