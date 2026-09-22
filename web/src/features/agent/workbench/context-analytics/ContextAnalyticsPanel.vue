@@ -28,6 +28,60 @@ const canShowContent = computed(() => !isReal.value || props.eligible)
 
 function mergeDetail(detail: import('@chery/protocol').TaskUsageDetail): ContextAnalyticsDemo {
   const unknownMetric = { value: null, source: 'unknown' as const, coverage: 'none' as const, knownCount: 0, totalCount: 0 }
+  const requests = detail.requests ?? []
+  const operations = detail.operations ?? []
+  const metric = (value: number | null, source: 'provider' | 'estimate' | 'derived' = 'derived') => ({
+    value, source: value === null ? 'unknown' as const : source,
+    coverage: value === null ? 'none' as const : 'complete' as const,
+    knownCount: value === null ? 0 : 1, totalCount: value === null ? 0 : 1,
+  })
+  const segment = (key: ContextCategory, label: string, color: string, tokens: number) => ({
+    key, label, color, tokens: metric(tokens, 'estimate'),
+  })
+  const roundByAttempt = new Map<string, number>()
+  let nextRound = 0
+  for (const request of requests) {
+    const key = request.inputMessageId ?? request.attemptId
+    if (!roundByAttempt.has(key)) roundByAttempt.set(key, ++nextRound)
+  }
+  const requestRows = requests.map((request, index) => ({
+    step: index + 1,
+    round: roundByAttempt.get(request.inputMessageId ?? request.attemptId) ?? index + 1,
+    agentId: request.chatId,
+    segments: [
+      segment('system', '系统规则', '#65c6d8', request.context.system),
+      segment('tools', '工具定义', '#a98be8', request.context.tools),
+      segment('conversation', '会话与工具结果', '#e8b86a', request.context.conversation),
+    ],
+    summary: `${request.model} · ${request.provider}`,
+  }))
+  const durationFor = (agentId: string): number | null => {
+    const own = requests.filter((request) => request.chatId === agentId)
+    if (!own.length) return null
+    const start = own[0]!.startedAt
+    const end = own.at(-1)!.endedAt ?? detail.asOf
+    return Math.max(0, end - start)
+  }
+  const snapshotFor = (agentId: string): ContextAnalyticsDemo['snapshots'][number] => {
+    const own = requests.filter((request) => request.chatId === agentId)
+    const request = own.findLast((item) => item.status === 'running') ?? own.at(-1)
+    if (!request) return {
+      snapshotId: `missing-${agentId}`, agentId, epochId: 'current', capturedAt: null,
+      origin: 'reconstructed', quality: 'reconstructed', usedTokens: unknownMetric,
+      limitTokens: null, segments: [], items: [],
+    }
+    const segments = [
+      segment('system', '系统规则', '#65c6d8', request.context.system),
+      segment('tools', '工具定义', '#a98be8', request.context.tools),
+      segment('conversation', '会话与工具结果', '#e8b86a', request.context.conversation),
+    ]
+    return {
+      snapshotId: `${agentId}:${request.attemptId}`, agentId, epochId: 'current', capturedAt: request.startedAt,
+      origin: 'reconstructed', quality: 'partial', usedTokens: metric(segments.reduce((sum, item) => sum + (item.tokens.value ?? 0), 0)),
+      limitTokens: request.context.limit, segments, items: [],
+    }
+  }
+  const snapshots = detail.agents.map((item) => snapshotFor(item.chatId))
   return {
     taskKey: detail.summary.taskKey,
     taskTitle: detail.summary.taskKey,
@@ -44,32 +98,46 @@ function mergeDetail(detail: import('@chery/protocol').TaskUsageDetail): Context
       cumulativeTokens: item.totalTokens,
       rounds: item.rounds,
       requests: item.requests,
-      durationMs: unknownMetric,
-      currentContext: {
-        snapshotId: `missing-${item.chatId}`,
-        agentId: item.chatId,
-        epochId: '',
-        capturedAt: null,
-        origin: 'reconstructed',
-        quality: 'partial',
-        usedTokens: unknownMetric,
-        limitTokens: null,
-        segments: [],
-        items: [],
-      },
+      durationMs: metric(durationFor(item.chatId)),
+      currentContext: snapshots.find((snapshot) => snapshot.agentId === item.chatId) ?? snapshotFor(item.chatId),
     })),
     cache: detail.cache,
-    cacheHitRequests: null,
+    cacheHitRequests: detail.cache.hitRequests,
     imageCount: null,
     audioCount: null,
     taskDurationMs: detail.elapsedMs,
     activeDurationMs: detail.activeMs,
     tools: detail.tools.map((tool) => ({ name: tool.name, calls: tool.calls, failures: 0, rejected: tool.rejected, totalDurationMs: tool.durationMs })),
-    trend: [],
-    requestComposition: undefined,
-    operations: undefined,
-    epochs: [],
-    snapshots: [],
+    trend: requestRows.map((row, index) => ({
+      round: row.round,
+      cumulativeTokens: requests.slice(0, index + 1).reduce((sum, item) => sum + (item.usage.totalTokens ?? 0), 0),
+      roundTokens: row.segments.reduce((sum, item) => sum + (item.tokens.value ?? 0), 0),
+      contextTokens: row.segments.reduce((sum, item) => sum + (item.tokens.value ?? 0), 0),
+    })),
+    requestComposition: requestRows,
+    operations: operations.map((operation, index) => ({
+      id: operation.id,
+      step: Math.max(1, requests.findIndex((request) => request.attemptId === operation.attemptId) + 1),
+      round: index + 1,
+      agentId: operation.chatId,
+      kind: /read|list|get/i.test(operation.toolName)
+        ? 'read' as const
+        : /search|grep|find/i.test(operation.toolName)
+          ? 'search' as const
+          : /write|edit|patch/i.test(operation.toolName)
+            ? 'write' as const
+            : 'command' as const,
+      toolName: operation.toolName,
+      description: operation.toolName,
+      durationMs: Math.max(0, (operation.endedAt ?? Date.now()) - operation.startedAt),
+      status: operation.status === 'completed' ? 'completed' as const : 'failed' as const,
+    })),
+    epochs: [{
+      epochId: 'current', ordinal: 1, label: '当前上下文', status: 'active',
+      transitionReason: '由最近一次已记录请求重建', createdAt: requests[0]?.startedAt ?? detail.asOf,
+      quality: 'partial', availableAgentIds: detail.agents.map((item) => item.chatId),
+    }],
+    snapshots,
   }
 }
 

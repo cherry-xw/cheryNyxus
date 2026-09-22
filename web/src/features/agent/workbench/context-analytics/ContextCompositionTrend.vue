@@ -9,7 +9,6 @@ const props = defineProps<{ requests: RequestComposition[]; operations: Analytic
 const mode = ref<'step' | 'round'>('step')
 const viewport = ref<HTMLElement>()
 const capacity = ref(48)
-const windowEnd = ref(0)
 let resizeObserver: ResizeObserver | undefined
 onMounted(() => {
   if (!viewport.value) return
@@ -21,6 +20,10 @@ onMounted(() => {
 onBeforeUnmount(() => resizeObserver?.disconnect())
 const selected = ref(0)
 const points = computed(() => groupRequestComposition(props.requests, mode.value))
+const chartPoints = computed<(RequestComposition | null)[]>(() => {
+  const visible = points.value.slice(-capacity.value)
+  return [...Array(Math.max(0, capacity.value - visible.length)).fill(null), ...visible]
+})
 const point = computed(() => points.value[selected.value])
 const selectedRequests = computed(() => props.requests.filter(r => mode.value === 'step' ? r.step === point.value?.step : r.round === point.value?.round))
 const operations = computed(() => props.operations.filter(o => selectedRequests.value.some(r => r.step === o.step)))
@@ -33,10 +36,6 @@ const option = computed<EChartsOption>(() => {
     return {
       grid: { left: 54, right: 18, top: 36, bottom: 68 },
       tooltip: { show: false },
-      dataZoom: [
-        { type: 'inside', start: 0, end: 100, zoomLock: false },
-        { type: 'slider', height: 28, bottom: 4, showDetail: true, brushSelect: false, showDataShadow: false },
-      ],
       xAxis: {
         type: 'time',
         min: now - 24 * 60 * 60 * 1000,
@@ -64,28 +63,26 @@ const option = computed<EChartsOption>(() => {
   legend: { top: 0, type: 'scroll', textStyle: { color: '#888', fontSize: 12 } },
   grid: { left: 12, right: 12, top: 42, bottom: 68 },
   tooltip: { trigger: 'axis', showContent: false, axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(128,128,128,0.25)' } } },
-  dataZoom: [
-    { type: 'inside', startValue: Math.max(0, windowEnd.value - capacity.value + 1), endValue: windowEnd.value, zoomLock: true },
-    { type: 'slider', height: 28, bottom: 4, showDetail: false, brushSelect: false, zoomLock: true, showDataShadow: true, startValue: Math.max(0, windowEnd.value - capacity.value + 1), endValue: windowEnd.value },
-  ],
-  xAxis: { type: 'category', data: points.value.map(p => mode.value === 'step' ? p.step + ' 步' : p.round + ' 轮'), axisLabel: { color: '#888', fontSize: 12, hideOverlap: true }, axisTick: { show: false } },
+  xAxis: { type: 'category', data: chartPoints.value.map(p => p ? (mode.value === 'step' ? p.step + ' 步' : p.round + ' 轮') : ''), axisLabel: { color: '#888', fontSize: 12, hideOverlap: true }, axisTick: { show: false } },
   yAxis: { type: 'value', show: false },
   series: legend.value.map(segment => ({
     name: segment.label, type: 'bar', stack: 'input', barWidth: '92%', barCategoryGap: '8%',
     emphasis: { focus: 'none' },
     itemStyle: { color: segment.color, borderRadius: 0 },
-    data: points.value.map(p => p.segments.find(s => s.key === segment.key)?.tokens.value ?? null),
+     data: chartPoints.value.map(p => p?.segments.find(s => s.key === segment.key)?.tokens.value ?? null),
   })),
   }
 })
 watch(points, () => {
   selected.value = Math.max(0, points.value.length - 1)
-  windowEnd.value = selected.value
 }, { immediate: true })
+function selectChartIndex(index: number): void {
+  const emptyCount = Math.max(0, capacity.value - Math.min(points.value.length, capacity.value))
+  const actualIndex = points.value.length - Math.min(points.value.length, capacity.value) + index - emptyCount
+  if (actualIndex >= 0 && actualIndex < points.value.length) selected.value = actualIndex
+}
 function move(offset: number): void {
   selected.value = Math.min(points.value.length - 1, Math.max(0, selected.value + offset))
-  if (selected.value > windowEnd.value || selected.value < windowEnd.value - capacity.value + 1)
-    windowEnd.value = Math.min(points.value.length - 1, selected.value + Math.floor(capacity.value / 2))
 }
 </script>
 <template>
@@ -95,7 +92,7 @@ function move(offset: number): void {
     </header>
     <div ref="viewport" class="chart-scroll">
       <div style="width: 100%; height: 300px">
-        <AnalyticsChart :option="option" label="按步骤或轮次排列的输入组成堆叠图" @select="selected = $event" />
+         <AnalyticsChart :option="option" label="按步骤或轮次排列的输入组成堆叠图" @select="selectChartIndex" />
       </div>
     </div>
     <section v-if="point" class="step-detail" aria-label="所选柱子的行为详情" style="max-height: 280px; overflow-y: auto">

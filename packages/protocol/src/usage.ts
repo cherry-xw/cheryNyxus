@@ -56,6 +56,7 @@ export const TaskUsageSummarySchema = z.object({
   agentCount: count,
   capturedSince: count.nullable(),
   currentRequest: RequestUsageSchema.nullable(),
+  latestRequest: RequestUsageSchema.nullable().optional(),
 })
 export type TaskUsageSummary = z.infer<typeof TaskUsageSummarySchema>
 export const TaskUsageDetailSchema = z.object({
@@ -92,6 +93,9 @@ export const TaskUsageDetailSchema = z.object({
       durationMs: count,
     }),
   ),
+  /** 请求与工具明细供统计概览构造趋势和当前上下文快照；旧服务端可不返回。 */
+  requests: z.array(RequestUsageSchema).optional(),
+  operations: z.array(UsageOperationSchema).optional(),
 })
 export type TaskUsageDetail = z.infer<typeof TaskUsageDetailSchema>
 export const UsageTaskRequestSchema = z.object({ taskKey: z.string().min(1) })
