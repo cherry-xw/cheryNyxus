@@ -18,6 +18,7 @@ import { desktopBridge } from '@/features/desktop/desktopBridge'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import TerminalPresetForm, { type TerminalDraft } from './TerminalPresetForm.vue'
+import { uuid } from '@/utils/uuid'
 
 const emit = defineEmits<{ error: [message: string] }>()
 const workspace = useWorkspaceStore()
@@ -64,7 +65,7 @@ async function save(form: TerminalDraft): Promise<void> {
       form.password,
     )
     const preset: TerminalPreset = {
-      id: editingId.value ?? crypto.randomUUID(),
+      id: editingId.value ?? uuid(),
       label: form.label.trim(),
       kind: 'ssh',
       host: form.host.trim(),
