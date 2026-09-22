@@ -266,11 +266,11 @@ function onEscape(event: KeyboardEvent): void {
   outline-offset: 2px;
 }
 .crt-head {
-  flex: 0 0 32px;
+  flex: 0 0 28px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 8px;
+  gap: 4px;
+  padding: 0 5px 0 6px;
   border-bottom: 1px solid @line;
   background: @surface;
   cursor: grab;
@@ -316,7 +316,7 @@ function onEscape(event: KeyboardEvent): void {
   flex: 0 0 auto;
   color: @muted;
   font:
-    8px/1.2 system-ui,
+    10px/1.2 system-ui,
     sans-serif;
 }
 .crt-actions {
@@ -332,8 +332,8 @@ function onEscape(event: KeyboardEvent): void {
   cursor: pointer;
 }
 .crt-actions button {
-  width: 21px;
-  height: 21px;
+  width: 19px;
+  height: 19px;
   border-radius: 3px;
   font:
     12px/1 ui-monospace,
@@ -348,19 +348,19 @@ function onEscape(event: KeyboardEvent): void {
   transform: scale(0.97);
 }
 .crt-tabs {
-  flex: 0 0 26px;
+  flex: 0 0 22px;
   display: flex;
   align-items: stretch;
   gap: 0;
-  padding: 0 7px;
+  padding: 0 5px;
   border-bottom: 1px solid @line;
   background: @surface;
 }
 .crt-tabs button {
   position: relative;
-  padding: 0 8px;
+  padding: 0 6px;
   font:
-    9px/1.2 system-ui,
+    10px/1.2 system-ui,
     sans-serif;
   transition:
     transform 120ms @ease-out,
@@ -390,18 +390,18 @@ function onEscape(event: KeyboardEvent): void {
   transform: scaleX(1);
 }
 .crt-body {
-  min-height: 94px;
+  min-height: 84px;
   flex: 1 1 auto;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 8px 10px;
+  padding: 5px 7px;
   overscroll-behavior: contain;
   color: var(--ink);
   color: #d4dfe2;
   font-family: 'HYPixel Paper', system-ui, sans-serif;
-  font-size: 15px;
+  font-size: 13px;
   font-synthesis: none;
-  line-height: 1.55;
+  line-height: 1.35;
   scrollbar-color: rgba(114, 147, 154, 0.58) transparent;
   scrollbar-width: thin;
 }
@@ -412,44 +412,61 @@ function onEscape(event: KeyboardEvent): void {
   background: rgba(114, 147, 154, 0.58);
 }
 .markdown-body :deep(p) {
-  margin: 0 0 0.55em;
+  margin: 0 0 0.3em;
 }
 .markdown-body :deep(p:last-child) {
   margin-bottom: 0;
 }
 .markdown-body :deep(h1),
 .markdown-body :deep(h2),
-.markdown-body :deep(h3) {
-  margin: 0.7em 0 0.35em;
+.markdown-body :deep(h3),
+.markdown-body :deep(h4),
+.markdown-body :deep(h5),
+.markdown-body :deep(h6) {
+  margin: 0.45em 0 0.2em;
   color: var(--ink);
   color: #edf5f7;
+  font-size: 13px;
+  line-height: 1.25;
+}
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 0.25em 0;
+  padding-left: 1.25em;
+}
+.markdown-body :deep(li) {
+  margin: 0.1em 0;
 }
 .markdown-body :deep(pre) {
   overflow: visible;
-  padding: 6px 7px;
+  margin: 0.35em 0;
+  padding: 4px 5px;
   color: var(--ink);
   color: #cce5e9;
+  font-size: 11px;
+  line-height: 1.3;
   white-space: pre-wrap;
   word-break: break-word;
 }
 .markdown-body :deep(code) {
   color: var(--ink);
   color: #bfe2e7;
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
 .is-thinking {
   color: #9aa9ae;
 }
 .crt-foot {
-  flex: 0 0 20px;
+  flex: 0 0 18px;
   display: flex;
   align-items: center;
-  padding: 0 8px;
+  padding: 0 6px;
   border-top: 1px solid @line;
   color: @muted;
   background: @surface;
   font:
-    8px/1.2 system-ui,
+    10px/1.2 system-ui,
     sans-serif;
 }
 .crt-content-enter-active,
