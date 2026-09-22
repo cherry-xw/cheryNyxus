@@ -87,13 +87,12 @@ chat.send 路径前置校验。
 | `[xxxxxxxx] 感官出了点小问题` | 感官兜底 `unknown` | 查日志 `sense.*` scope | 审视 |
 | `审批等待超时` | 用户长时间未在 `smart` / `manual` 监管下点确认 | 调高 `global.approval_timeout`；或降低 `global.supervision` 等级（auto 静默 / smart 弹一次） | 审视 |
 
-### 来源：media / mcp（占位）
+### 来源：mcp（占位）
 
 当前模板未启用，留作扩展。
 
 | 用户面消息 | 触发条件 | 设置项 / 排查 | 状态 |
 |----------|----------|--------------|------|
-| `[xxxxxxxx] 媒体出了点状况` | 媒体网关错误（未来扩展） | `.chery/config.yaml` 中 `media.*` 段（当前未启用） | TODO |
 | `[xxxxxxxx] 扩展工具出了点小问题` | MCP server 异常 | `roles.<role>.mcpServers`（当前为空数组） | TODO |
 
 ## 错误分类到设置的快查树

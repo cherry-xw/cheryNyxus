@@ -14,7 +14,6 @@
 |----|------|------|------|
 | `global` | object | ✅ | 全局运行参数（thinking / supervision / stream / 超时 / 日志 / 文件压缩） |
 | `llm` | object | ✅ | LLM 配置根（`llm.brain.<name>` 为脑实例 map，至少一个） |
-| `media` | object | ❌ | 媒体网关（图片/视频/音频生成），当前未启用，留作扩展 |
 | `sense_groups` | object | ✅（如启用感官） | 感官分组（角色通过 `senseGroup` 引用） |
 | `roles` | object | ✅（如启用角色） | 角色定义（brain、工具组、提示词和权限） |
 | `presets` | object | ✅ | 预设配置（leader、成员、可选 workspace 与监管规则） |
@@ -94,12 +93,6 @@
 | `enabled` | bool | ✅ | 是否启用 mock（false 则跳过此脑） |
 | `file` | string | ✅ | mock 响应脚本路径（相对 `.chery/`，如 `mock/read_file.yaml`） |
 
-## media 字段
-
-当前为扩展预留，类型 `MediaConfig`。完整定义尚未启用，按需扩展：
-- 图片/视频/音频网关（url / model / key / enabled）
-- `maxUploadMb`：上传上限
-
 ## sense_groups.<group> 字段
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -171,7 +164,6 @@ sense_groups:
 | `roles` | string[] | ✅ | 该预设启用的角色列表（含 `leader`）；每个角色必须存在于 `roles` 顶层 |
 | `detailRole` | string | ❌ | 节点详情解释角色；必须是本预设成员且不能等于 leader |
 | `shadows.conversationRouting` | string | ❌ | 会话路由 Shadow；其工具组必须且只能包含 `select_conversation:auto` |
-| `mediaImage` / `mediaVideo` / `mediaAudio` | string | ❌ | 引用类型匹配的媒体服务 |
 | `workspace` | string | ❌ | 工作目录绝对路径；缺省时不注入 workspace 提示 |
 | `schedule` | object | ❌ | 定时任务 `{cron, task, enabled?}` |
 | `rule` | string | ❌ | `.chery/rule/` 下的 smart 监管规则覆盖文件名 |

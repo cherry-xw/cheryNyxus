@@ -20,9 +20,6 @@ function makeRaw(): ConfigRaw {
         'brain-b': { provider: 'mock', model: 'mock_test', key: 'sk-literal-secret-123' },
       },
     },
-    media: {
-      image: { type: 'image', url: 'https://api.example.com/v1', key: 'media-literal-secret' },
-    },
     mcp_servers: {
       fs: {
         transport: 'stdio',
@@ -43,12 +40,6 @@ describe('redactConfigSecrets 脱敏', () => {
   it('明文 llm.brain.*.key → [REDACTED]', () => {
     const redacted = redactConfigSecrets(makeRaw())
     expect(redacted.llm?.brain?.['brain-b']?.key).toBe('[REDACTED]')
-  })
-
-  it('明文 media.*.key → [REDACTED]；media.url 公开地址保留', () => {
-    const redacted = redactConfigSecrets(makeRaw())
-    expect(redacted.media?.image?.key).toBe('[REDACTED]')
-    expect(redacted.media?.image?.url).toBe('https://api.example.com/v1')
   })
 
   it('mcp_servers.*.env 值：$ENV 保留、明文 → [REDACTED]', () => {
@@ -81,11 +72,10 @@ describe('redactConfigSecrets 脱敏', () => {
 describe('restoreRedactedSecrets 还原', () => {
   const disk = makeRaw() // 盘上原值（含真实明文 key）
 
-  it('[REDACTED] key → 盘上原值（llm / media / mcp env / mcp url）', () => {
+  it('[REDACTED] key → 盘上原值（llm / mcp env / mcp url）', () => {
     const partial = redactConfigSecrets(makeRaw())
     const restored = restoreRedactedSecrets(partial, disk)
     expect(restored.llm?.brain?.['brain-b']?.key).toBe('sk-literal-secret-123')
-    expect(restored.media?.image?.key).toBe('media-literal-secret')
     expect(restored.mcp_servers?.fs?.env?.OTHER).toBe('plain-secret')
     expect(restored.mcp_servers?.http?.url).toBe('https://user:pass@example.com/mcp')
   })

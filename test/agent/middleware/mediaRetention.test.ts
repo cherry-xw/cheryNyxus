@@ -28,7 +28,6 @@ import { collectChunks } from "../helpers/chunkAssert.js";
 
 const mediaMocks = vi.hoisted(() => ({
   readMediaAsset: vi.fn(),
-  understandMediaReference: vi.fn(),
   mediaKindForMime: vi.fn(),
 }));
 

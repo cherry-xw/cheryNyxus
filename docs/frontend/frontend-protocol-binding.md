@@ -220,7 +220,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | `FileWriteRenderer.vue` | `write_file` | `WriteFileArgs{path,content,offset?,limit?}` | `src/agent/sense/writeFile.ts` |
 | `ExecuteCommandRenderer` | `execute_command` | `ExecuteCommandArgs{command,description}` + `ExecuteCommandResult` | `src/agent/sense/bash.ts` |
 | `TodoRenderer.vue` | `update_todo` | `UpdateTodoArgs{todos: TodoItem[]}` | `src/agent/sense/updateTodo.ts` |
-| `MediaRenderer.vue` | `generate_image`/`generate_video`/`generate_audio` | `GenerateMediaArgs{prompt}` | `src/agent/sense/generate*.ts` |
+| `MediaRenderer.vue` | 自定义生成类工具（如 `generate_image` 等，见 [renderer.md](renderer.md)） | `GenerateMediaArgs{prompt}` | 自定义 sense（`.chery/senses/`） |
 | `SearchRenderer.vue` | `search_codebase` | `SearchCodebaseArgs{mode?,path,query,regex?,maxResults?,contextLines?}` | `src/agent/sense/searchCodebase.ts` |
 | `SpawnRenderer.vue` | `spawn_role` | `SpawnRoleArgs{type,prompt,wake?}` | `src/agent/sense/spawn.ts` |
 | `SkillRenderer.vue` | `skill` | `SkillArgs{name}` | `src/agent/sense/skill.ts` |

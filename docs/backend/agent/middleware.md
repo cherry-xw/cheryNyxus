@@ -428,7 +428,7 @@ if (needsApproval.length > 0) {
 
 **职责：** 调用 LLM，yield StreamChunk（含 senseDelta）。
 
-**媒体输入预处理：** 用户消息中的 `[[media:<filename>]]` 受控资产引用会在构造 provider 消息前解析。中间件按当前 brain 的 `capabilities.input.image/video/audio` 许可调用媒体网关 `understand`，仅把理解文本注入本轮内存请求；持久化原消息不改写。处理失败或能力未声明时同样注入显式说明，避免静默丢弃附件。见 [../model-capabilities.md](model-capabilities.md)。
+**媒体输入预处理：** 用户消息中的 `[[media:<filename>]]` 受控资产引用会在构造 provider 消息前解析。中间件按当前 brain 的 `capabilities.input.image/video/audio` 决定路径：多模态能力开启走附件直传（`enrichMediaInputsMultimodal`）；否则若感官组配置了 `preprocess` + `accepts` 命中的工具则走前置调度（`enrichMediaInputsPreprocess`），把工具产出替换进消息；两者都没有时消息原样保留（旧媒体网关 understand 转写已删除）。持久化原消息不改写。见 [../model-capabilities.md](model-capabilities.md)。
 
 **关键：** `if (!ctx.runtime) throw`——P2-4 重构后 runtime 在 `send` 前由 `configureRuntime` 注入，运行时守卫窄化消除了构造期 `{} as RuntimeConfig` 的类型谎言。
 

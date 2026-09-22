@@ -38,7 +38,7 @@
 
 1. `src/agent/middleware/chat.ts` `enrichMediaInputs` 只处理**最后一条** user 消息的 `[[media:]]` 标记 → 后续轮模型看不到历史图片，还把内部标记原文泄露给模型。
 2. `LLMAttachment`（`src/core/message/adapter.ts`）是扁平数组、无消息位置 → 三个 provider 的 `buildMessages` 把全部附件挂到每条 user 消息上，位置错乱。
-3. model-catalog 中 `minimax-m3` / `minimax-m2.7` 均 `input.image:false` → MiniMax 目前走媒体网关文本转写旧路径，未启用原生多模态（M2.7 官方不支持图片输入，不可开启）。
+3. model-catalog 中 `minimax-m3` / `minimax-m2.7` 均 `input.image:false` → MiniMax 无原生多模态（M2.7 官方不支持图片输入，不可开启）；媒体理解只能走感官组前置工具，旧媒体网关文本转写路径已随破坏性收尾删除。
 4. 前端 `web/src/utils/mediaUrls.ts` 只匹配 `/api/media/<filename>`；用户上传图 content 里是 `[[media:...]]` 标记 → 发送后气泡不显示图，历史重载会露出内部标记文本。
 5. `src/utils/token.ts` `estimateTokens` 是本地文本启发式，**不统计图片** → 图片进上下文后进度条/compact 判定低估。
 
@@ -57,7 +57,7 @@
 | 3.1 | 本地图片 token 估算公式（按压缩后尺寸 + detail） | 三 | 2 | `utils/token.ts` 扩展，不调网络 | 完成 | [token.ts 变更](#执行记录) |
 | 3.2 | 官方 token 估算接口接入 + compact 判定纳入图片 | 三 | 3 | 接 MiniMax `input_tokens`/`count_tokens`，改造 compact 判定 | 部分 | compact 判定纳入图片由 3.1 达成；官方预检接口后置实测 |
 | 4.1 | 预压缩与 token 选择 UX（分情况压缩 + 原图/压缩切换 + 估算展示） | 四 | 4 | 前端 canvas 压缩 + 逐张切换 + 估算展示，交互复杂 | 完成 | [预压缩 UX](#执行记录)；canvas 路径手动验收 |
-| 5.1 | image-01 文生图/图生图接入 `generate_image` sense | 五 | 3 | MiniMax 图片生成调用（base64 输出/参考图 data URL） | 完成 | [generate_image 扩展](#执行记录)；真实调用后置 |
+| 5.1 | image-01 文生图/图生图接入 `generate_image` sense | 五 | 3 | MiniMax 图片生成调用（base64 输出/参考图 data URL） | 完成 | [generate_image 扩展](#执行记录)；真实调用后置（注：内置 `generate_image` 已随 media-external-service 破坏性收尾删除，生成能力改由自定义 sense 承担） |
 | 5.2 | 生成图落库/展示/可携带标记 | 五 | 3 | 生成图走 media 链路 + 补 `[[media:]]` 纳入携带 | 部分 | 落库/展示已有；可携带经 6.1 前端带回；真实调用后置 |
 | 6.1 | 历史图片「重新带进上下文」入口（基础版） | 六 | 2 | 按需挂载入口，不占常驻缓存 | 完成 | [回溯入口](#执行记录)；UI 手动验收 |
 | 7.1 | 综合验证与用户验收 | 七 | — | 汇总自动/手动清单 + 反馈回填槽（见下） | 进行中 | [最终综合验证](#最终综合验证) |

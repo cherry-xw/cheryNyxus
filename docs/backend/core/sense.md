@@ -225,7 +225,7 @@ smart 档的「危险/放行」判定规则**外置**到 `.chery/rule/` 目录�
 **YAML 格式**：
 
 ```yaml
-generate_image: false              # 硬开关：整体需确认（破坏性 sense 兜底）
+write_file: false              # 硬开关：整体需确认（破坏性 sense 兜底）
 execute_command:
   extract: command                 # 从 args.command 取待匹配串（支持点号路径如 input.path）
   dangerPatterns:                  # 命中 = 需确认；未命中 = 自动执行

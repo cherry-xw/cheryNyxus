@@ -80,7 +80,7 @@ MIME 映射:自写 `Record<string, string>`(html/js/css/json/svg/png/...),无新
 
 ## 媒体资产 API
 
-媒体端点使用与控制面相同的认证：OAuth 开启时要求 HttpOnly 会话；本地 session-token 模式要求 `X-Chery-Session-Token`。`POST /api/media/upload` 接受原始二进制 body，`Content-Type` 是媒体 MIME、`X-Filename` 是原始文件名；成功返回资产元数据与 `/api/media/<filename>`。只允许图片、视频、音频白名单 MIME，大小由 `media.maxUploadMb`（默认 100 MiB）限制。`GET /api/media/:filename` 校验 UUID 文件名并返回 `private` 缓存响应。完整网关处理见 [../model-capabilities.md](../agent/model-capabilities.md)。
+媒体端点使用与控制面相同的认证：OAuth 开启时要求 HttpOnly 会话；本地 session-token 模式要求 `X-Chery-Session-Token`。`POST /api/media/upload` 接受原始二进制 body，`Content-Type` 是媒体 MIME、`X-Filename` 是原始文件名；成功返回资产元数据与 `/api/media/<filename>`。只允许图片、视频、音频白名单 MIME，大小由全局上传上限限制（默认 100 MiB）。`GET /api/media/:filename` 校验 UUID 文件名并返回 `private` 缓存响应。媒体资产链路见 [../model-capabilities.md](../agent/model-capabilities.md)。
 
 ## 前端调用路径与 httpUrl helper（Electron 模式）
 

@@ -6,7 +6,6 @@ const ROOT_LABELS: Record<string, string> = {
   hooks: 'Hooks',
   llm: '大脑',
   mcp_servers: 'MCP 服务',
-  media: '媒体服务',
   memory: '记忆设置',
   presets: '预设',
   roles: '角色',

@@ -32,13 +32,10 @@
 | `write_file` | [write.ts](../../../src/agent/sense/write.ts) | manual | `path`、`content`、`offset?`、`limit?` |
 | `skill` | [skill.ts](../../../src/agent/sense/skill.ts) | auto | `name` |
 | `search_codebase` | [search.ts](../../../src/agent/sense/search.ts) | auto | `mode?`、`query`、`regex?`、`maxResults?`、`contextLines?` |
-| `generate_image` | [media.ts](../../../src/agent/sense/media.ts) | smart | `prompt` |
-| `generate_video` | [media.ts](../../../src/agent/sense/media.ts) | smart | `prompt` |
-| `generate_audio` | [media.ts](../../../src/agent/sense/media.ts) | smart | `prompt` |
 
 > ⚠ sense **函数名**（首参数）才是注册 key，与文件名无关。bash.ts → "execute_command"、skill.ts → "skill"。
 
-三个 `generate_*` sense 统一调用 `media.<kind>` 网关，将其返回的 base64 资产保存至 `.chery/media/` 并返回受控读取 URL。它们声明 `capabilities.produces=[kind]`（`generate_image` 另声明 `accepts:['image']` 支持参考图），只要被感官组配置即注入模型——**不再受大脑 `capabilities.generate.*` 双门限制**（该标记仅作兼容期保留，不拦截注入）。详见 [../model-capabilities.md](model-capabilities.md)。
+生成类媒体工具（旧的 `generate_image` / `generate_video` / `generate_audio` 内置 sense）已随破坏性收尾删除，改由自定义 sense 承担（`.chery/senses/` 或 CherryNexus 生成），工具声明 `capabilities.produces` / `accepts` / `preprocess`。详见 [../model-capabilities.md](model-capabilities.md) 与 [.chery.template/docs/senses.md](../../../.chery.template/docs/senses.md)。
 
 ### 监管等级（[core/config.ts](../../../src/core/config.ts)）
 

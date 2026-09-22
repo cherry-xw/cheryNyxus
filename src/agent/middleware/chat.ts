@@ -17,7 +17,6 @@ import type { LLMResponse, LLMAttachment, ThinkingBlockDelta } from '@/core/mess
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
 import {
   readMediaAsset,
-  understandMediaReference,
   mediaKindForMime,
   type MediaKind,
 } from '@/service/media/index.js'
@@ -444,12 +443,13 @@ function buildCapabilitiesHint(
 
 /**
  * 上传资产在用户文本中以 [[media:filename]] 标记传递；不改写持久化原文。
- * P5b 双轨：
+ * 输入处理双轨（旧媒体网关 understand 转写已随破坏性收尾移除）：
  *   - 脑 capabilities.input.image=true + 至少一个 marker → 走多模态：readMediaAsset 同步读 base64，
  *     按消息归属生成临时 attachments（messageId 指向原消息，provider 按 id 挂图），
  *     从对应消息 content 移除 marker（无论是否支持都移除，避免 LLM 看到无意义标记），
  *     不支持的 kind 收集到 unsupportedMedia 供 capabilitiesHint 用。
- *   - 否则保留旧行为：调媒体网关 understandMediaReference → 把理解文本追加到 last.content。
+ *   - 否则走前置工具调度（enrichMediaInputsPreprocess）：命中 accepts+preprocess 的工具
+ *     执行并把结果替换进消息；无命中则保持原消息（marker 原样保留）。
  * capabilitiesHint：有 [[media:]] marker 时生成 <self-capabilities> 段，声明自身能力 + 不支持附件的委派建议。
  *
  * 多模态旁路的多轮保留策略（P5c）：
@@ -477,9 +477,10 @@ async function enrichMediaInputs(
     return enrichMediaInputsMultimodal(brain, history)
   }
 
-  // 非多模态模型：先尝试前置工具调度——扫描 [[media:]] 引用，把命中 accepts+preprocess
+  // 非多模态模型：尝试前置工具调度——扫描 [[media:]] 引用，把命中 accepts+preprocess
   // 工具的媒体类型交给工具执行，结果替换进消息（理解类媒体在无原生能力模型下的处理路径）。
-  // 有工具命中的 kind 才介入；否则回退旧路径（媒体网关 understand 文本转写）。
+  // 有工具命中的 kind 才介入；无命中则保持原消息（不再回退旧媒体网关 understand 转写，
+  // 旧网关链路已随破坏性收尾移除）。
   const preprocessed = await enrichMediaInputsPreprocess(ctx, history)
   if (preprocessed.handled) {
     return {
@@ -488,8 +489,7 @@ async function enrichMediaInputs(
     }
   }
 
-  // 旧路径：marker 文本转写（只处理最后一条 user 消息，保持既有行为）
-  return enrichMediaInputsLegacy(ctx, history)
+  return { history }
 }
 
 /**
@@ -744,46 +744,6 @@ async function enrichMediaInputsMultimodal(
   return {
     history: cleanedHistory,
     ...(attachments.length > 0 && { attachments }),
-    ...(capabilitiesHint && { capabilitiesHint }),
-  }
-}
-
-/** 旧路径：marker 文本转写（仅最后一条 user 消息），保持既有行为。 */
-async function enrichMediaInputsLegacy(
-  ctx: MiddlewareContext,
-  history: LLMResponse[],
-): Promise<{ history: LLMResponse[]; capabilitiesHint?: string }> {
-  const brain = ctx.runtime?.brain
-  if (!brain) return { history }
-  const last = history[history.length - 1]
-  if (!last || last.role !== 'user') return { history }
-  const matches = [...last.content.matchAll(/\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/gi)]
-  if (!matches.length) return { history }
-
-  const additions: string[] = []
-  const unsupportedMedia: { filename: string; kind: MediaKind }[] = []
-  for (const match of matches) {
-    const filename = match[1]!
-    try {
-      const understood = await understandMediaReference(filename)
-      if (!brain?.capabilities?.input?.[understood.kind]) {
-        // 网关转写是原生多模态以外的降级路径：模型不直接接收二进制，
-        // 但必须接收网关已经产出的文本，否则“配置网关即可理解媒体”的
-        // 契约形同虚设。此处不再把成功结果误标为未发送。
-        additions.push(`[${understood.kind} 附件网关理解结果]\n${understood.text}`)
-      } else {
-        additions.push(`[${understood.kind} 附件理解结果]\n${understood.text}`)
-      }
-    } catch (error) {
-      additions.push(`[媒体附件处理失败，已跳过]`)
-    }
-  }
-  const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia)
-  return {
-    history: [
-      ...history.slice(0, -1),
-      { ...last, content: `${last.content}\n\n${additions.join('\n\n')}` },
-    ],
     ...(capabilitiesHint && { capabilitiesHint }),
   }
 }

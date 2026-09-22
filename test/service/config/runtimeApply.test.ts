@@ -49,10 +49,6 @@ describe('runtime config coordinator adapter', () => {
     after.config.global.textEditor = 'hot-editor'
     after.config.global.file_compression = { truncate_threshold: 17 }
     delete after.config.global.history_recall
-    after.config.media = {
-      ...(after.config.media ?? {}),
-      hot_image: { type: 'image', url: 'http://media.hot', enabled: true },
-    }
     after.config.memory = {
       ...(after.config.memory ?? {}),
       global: { max_count: 9, max_chars: 123 },
@@ -68,10 +64,8 @@ describe('runtime config coordinator adapter', () => {
     expect(config.global.file_compression?.truncate_threshold).toBe(17)
     expect(getAppliedRawConfig().global.history_recall).toBeUndefined()
     expect(config.global.history_recall).toEqual({ max_output_chars: 4000 })
-    expect(config.media?.hot_image?.url).toBe('http://media.hot')
     expect(config.memory?.global).toEqual({ max_count: 9, max_chars: 123 })
     expect(oldSnapshot.global.textEditor).not.toBe('hot-editor')
-    expect(oldSnapshot.media?.hot_image).toBeUndefined()
   })
 
   it('applies logger and run settings without waiting for a tree boundary', async () => {

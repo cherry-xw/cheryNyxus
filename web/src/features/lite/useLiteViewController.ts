@@ -868,21 +868,40 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     }
     return undefined
   }
+  /** 当前会话主角色感官组（同 currentBrain 取最近一条带 runtime 消息的发送配置）。 */
+  function currentSenseGroup(): string | undefined {
+    const session = chatSessions.sessionsById[props.rootChatId]
+    if (!session) return undefined
+    for (const id of [...session.messageOrder].reverse()) {
+      const runtime = session.messagesById[id]?.runtime
+      if (runtime?.senseGroup) return runtime.senseGroup
+    }
+    return undefined
+  }
+  /** 感官组内配置的 tool 能力信息（匹配 accepts 供发送门控用；复用 lite 已加载的工具元数据）。 */
+  /** 感官组内是否有 accepts 命中该 kind 的工具（工具能力声明层）。 */
+  function hasToolCapability(kind: MediaKind): boolean {
+    const groupName = currentSenseGroup()
+    if (!groupName) return false
+    const entries = config.value?.sense_groups?.[groupName] ?? []
+    return entries.some((entry) => {
+      const name = entry.split(':')[0]?.trim() ?? entry
+      return lite.senseTools.some((tool) => tool.name === name && tool.accepts?.includes(kind))
+    })
+  }
   /** 当前会话主角色 brain 的 input 能力。 */
   function brainCapability(): MediaCapabilitiesDto | undefined {
     const brainName = currentBrain()
     if (!brainName) return undefined
     return config.value?.llm.brain[brainName]?.capabilities?.input
   }
-  /** 各媒体类型对应的已启用服务名（媒体菜单显示用；brain 原生能力补位）。 */
+  /** 各媒体类型对应的工具/模型能力（媒体菜单显示用；感官组工具 + brain 原生能力）。 */
   const mediaServicesByType = computed<Record<MediaKind, string | null>>(() => {
     const result: Record<string, string | null> = { image: null, video: null, audio: null }
-    for (const [name, svc] of Object.entries(config.value?.media ?? {})) {
-      if (svc.enabled && svc.url && !result[svc.type]) result[svc.type] = name
-    }
     const capability = brainCapability()
     for (const kind of ['image', 'video', 'audio'] as const) {
-      if (!result[kind] && capability?.[kind]) result[kind] = '模型原生支持'
+      if (hasToolCapability(kind)) result[kind] = '感官组工具'
+      else if (capability?.[kind]) result[kind] = '模型原生支持'
     }
     return result as Record<MediaKind, string | null>
   })
@@ -911,15 +930,11 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     await ensureConfig()
     const category = mediaKindOf(file)
     if (!category) return
-    const hasMediaService = config.value?.media
-      ? Object.values(config.value.media).some(
-          (svc) => svc.type === category && svc.enabled && svc.url,
-        )
-      : false
+    const hasTool = hasToolCapability(category)
     const hasBrainCapability = brainCapability()?.[category] === true
-    if (!hasMediaService && !hasBrainCapability) {
+    if (!hasTool && !hasBrainCapability) {
       const typeLabel = category === 'image' ? '图片' : category === 'video' ? '视频' : '音频'
-      mediaHint.value = `未配置${typeLabel}服务，且小组无支持模型`
+      mediaHint.value = `当前感官组无处理${typeLabel}的工具，且模型不支持原生${typeLabel}`
       return
     }
     uploading.value = true

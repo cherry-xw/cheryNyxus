@@ -9,7 +9,6 @@ import {
   Archive,
   BrainCircuit,
   Ear,
-  Image,
   NotebookPen,
   Package,
   Plug,
@@ -22,7 +21,6 @@ import {
 export type TabKey =
   | 'archive'
   | 'brains'
-  | 'media'
   | 'senses'
   | 'presets'
   | 'mcp'
@@ -48,7 +46,6 @@ export const TABS: { key: TabKey; icon: IconInput; label: string; color: string 
   { key: 'commands', icon: NotebookPen, label: '指令', color: '#06b6d4' },
   { key: 'hooks', icon: Anchor, label: '钩子', color: '#0ea5e9' },
   { key: 'mcp', icon: Plug, label: 'MCP', color: '#3b82f6' },
-  { key: 'media', icon: Image, label: '多媒体', color: '#6366f1' },
   { key: 'archive', icon: Archive, label: '归档', color: '#d946ef' },
   { key: 'terminal', icon: SquareTerminal, label: '终端', color: '#ec4899' },
   // 用户指定：全局固定放在页签最后一条
@@ -76,7 +73,6 @@ export const HINT_LINES: Record<TabKey, { sect: number; warn: number }> = {
   archive: { sect: 1, warn: 0 },
   presets: { sect: 1, warn: 0 },
   brains: { sect: 1, warn: 1 },
-  media: { sect: 1, warn: 0 },
   senses: { sect: 1, warn: 1 },
   mcp: { sect: 1, warn: 1 },
   global: { sect: 1, warn: 0 },
@@ -95,7 +91,6 @@ export const INDEX_COUNT: Record<TabKey, number> = {
   archive: 0,
   presets: 2, // 典型 1-3 个预设
   brains: 3, // 典型 2-5 颗 brain
-  media: 2, // 典型 0-4 个媒体服务
   senses: 0, // 瀑布流后无 footer 圆点导航
   mcp: 1, // 典型 0-2 个 MCP
   global: 3, // 默认监管 + logger + file_compression，常见三者齐

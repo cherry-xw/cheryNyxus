@@ -46,7 +46,6 @@ import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import type { IconInput } from 'morphicons/vue'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import BrainsTab from './tabs/brain/BrainsTab.vue'
-import MediaTab from './tabs/config/MediaTab.vue'
 import SensesTab from './tabs/tools/SensesTab.vue'
 import PresetsTab from './tabs/agent/PresetsTab.vue'
 import McpTab from './tabs/tools/McpTab.vue'
@@ -210,7 +209,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const prompts = ref<string[]>([])
   /** rules.list 返回的 .chery/rule/ 下 .yaml 文件名清单（PresetsTab 规则文件下拉用，排除 base.yaml）。每次打开重新拉。 */
   const rules = ref<string[]>([])
-  /** env.list 返回的 .env 变量名列表（BrainsTab/MediaTab 密钥下拉选项）。每次打开重新拉。 */
+  /** env.list 返回的 .env 变量名列表（BrainsTab 密钥下拉选项）。每次打开重新拉。 */
   const envVars = ref<string[]>([])
   /** skills.list 第一页：仅作为 SkillsTab 首屏占位；角色装备使用轻量 skillNames 目录。 */
   const skills = ref<SkillInfo[]>([])
@@ -543,7 +542,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     roles: 'presets',
     llm: 'brains',
     sense_groups: 'senses',
-    media: 'media',
     mcp_servers: 'mcp',
     global: 'global',
     memory: 'global',
@@ -852,7 +850,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     GlobalTab,
     HooksTab,
     McpTab,
-    MediaTab,
     OVERLAY_Z_INDEX,
     OpenConfigDirButton,
     PluginsTab,

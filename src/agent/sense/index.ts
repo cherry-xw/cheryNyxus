@@ -21,7 +21,6 @@ import historyRecallSense from './historyRecall'
 import spawnSense from './spawn'
 import todoSense from './todo'
 import memorySense from './memory'
-import mediaSenses from './media'
 import askSense from './ask'
 import installSkillSense from './installSkill'
 import configManageSense from './configManage'
@@ -165,39 +164,6 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
       '【注意】多步骤任务开始时先列出执行计划，复杂修改前先规划；进度变化及时更新，避免列表失真。',
   },
   {
-    name: 'generate_image',
-    label: '生成图片',
-    description: '调用配置的图片媒体服务',
-    icon: '🖼️',
-    doc:
-      '【作用】调用已配置的图片媒体服务，根据 prompt 生成图片。\n' +
-      '【能力】按自然语言 prompt 生成；结果保存为本地媒体资产并返回 /api/media/ 路径。\n' +
-      '【边界】需要已配置且可用的图片媒体服务；生成质量与风格受所选模型限制。\n' +
-      '【注意】生成耗时长于普通工具；prompt 越明确（主体、风格、构图）效果越好。',
-  },
-  {
-    name: 'generate_video',
-    label: '生成视频',
-    description: '调用配置的视频媒体服务',
-    icon: '🎬',
-    doc:
-      '【作用】调用已配置的视频媒体服务，根据 prompt 生成视频片段。\n' +
-      '【能力】按自然语言 prompt 生成；结果保存为本地媒体资产并返回 /api/media/ 路径。\n' +
-      '【边界】需要已配置且可用的视频媒体服务；生成时长与成本明显高于图片。\n' +
-      '【注意】生成耗时长；prompt 明确镜头与内容可提升可用性，避免无意义长片段。',
-  },
-  {
-    name: 'generate_audio',
-    label: '生成音频',
-    description: '调用配置的音频媒体服务',
-    icon: '🔊',
-    doc:
-      '【作用】调用已配置的音频媒体服务，根据 prompt 生成语音/音效。\n' +
-      '【能力】按自然语言 prompt 生成；结果保存为本地媒体资产并返回 /api/media/ 路径。\n' +
-      '【边界】需要已配置且可用的音频媒体服务；输出内容受所选模型与语言支持限制。\n' +
-      '【注意】生成耗时长；描述清楚内容与风格（语速、情绪、用途）效果更好。',
-  },
-  {
     name: 'memory_manage',
     label: '记忆管理',
     description: '管理项目记忆（增删改查 + 淘汰归档）',
@@ -286,7 +252,6 @@ function builtinSenses(): Sense<ZodType>[] {
     roleAcceptanceSense,
     selectConversationSense,
     ...childControlSenses,
-    ...mediaSenses,
   ]
 }
 

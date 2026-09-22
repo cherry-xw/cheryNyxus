@@ -105,9 +105,6 @@ export const presetConfigOperationSchema = z.object({
   detailRole: z.string().optional(),
   leader: nonEmptyString,
   roles: z.array(z.string()).optional(),
-  mediaImage: z.string().optional(),
-  mediaVideo: z.string().optional(),
-  mediaAudio: z.string().optional(),
   workspace: z.string().optional(),
   schedule: z
     .object({

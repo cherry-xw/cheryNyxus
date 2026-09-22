@@ -44,7 +44,7 @@ P6 阶段已写三组测试（按「test 模块推迟」指令保留不删、不
 
 - `test/agent/middleware/retry.test.ts`：14 用例，含 3 个 P6a auth 分类测试（401/403/invalid api key → 1 次后 yield error，不重试）
 - `test/service/chat/send.test.ts`：16 用例，含 3 个 P2 回归门用例（streamAgentChunks onError → failureResponse success:false，done notification 抑制）
-- `test/service/media/index.test.ts`：16 用例，覆盖 mediaKindForMime/understandMediaReference/saveMediaAsset/readMediaAsset
+- `test/service/media/index.test.ts`：16 用例，覆盖 mediaKindForMime/saveMediaAsset/readMediaAsset（原含的 understandMediaReference 用例已随旧媒体网关删除）
 
 ## 回归判定流程
 

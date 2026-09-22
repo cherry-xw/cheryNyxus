@@ -80,6 +80,3 @@ spawn_role: false
 memory_manage: false
 skill: false
 install_skill: false
-generate_image: false
-generate_video: false
-generate_audio: false

@@ -81,7 +81,6 @@ export function resetEnvVarCache(): void;
 |------|------|------|
 | `global` | `ExtendedGlobalConfig` | 全局开关（thinking/supervision/stream/超时/loop 上限）+ `disconnect_grace_ms` 断连宽限 + logger + file_compression + 自动补全的 4 个 `.chery/` 子路径 |
 | `llm.brain` | `Record<string, BrainConfig>` | Brain 名称 → provider/model/url/key/thinking/rpm/mock/capabilities 配置 |
-| `media` | `MediaConfig?` | 图片、视频、音频网关（url/model/key/enabled）及 `maxUploadMb` |
 | `sense_groups` | `Record<string, string[]>` | 感官分组（值如 `"read_file"` 或 `"execute_command:auto"` 覆盖监管等级） |
 | `server` | `ServerConfig` | WebSocket `port`（默认 8182）+ `transport`（默认 `"binary"`）；HTTP 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定，与 `electron/main.ts` 一致 |
 

@@ -24,7 +24,6 @@ describe('settings tab visibility', () => {
 
     expect(paneTabs).toEqual([
       'brains',
-      'media',
       'senses',
       'presets',
       'mcp',

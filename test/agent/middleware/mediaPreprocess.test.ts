@@ -7,7 +7,7 @@
  * - 工具输入契约：{ text, media: [{filename,mimeType,kind,size}] }（text 剥离媒体标记）
  * - 多 kind：每个 kind 独立匹配工具，未命中 kind 的 marker 保留并进 capabilitiesHint
  * - 执行失败：marker 替换为「[媒体附件处理失败，已跳过]」，不阻断整轮发送
- * - 无匹配工具 → 回退旧路径（媒体网关 understand）
+ * - 无匹配工具 → 消息原样保留（旧媒体网关 understand 回退已随破坏性收尾移除）
  * - 生成注入：感官组配置即注入（不再受大脑 generate.* 双门限制）
  *
  * 通过 chatMiddleware 端到端触发 enrichMediaInputs（内部函数未导出），
@@ -30,7 +30,6 @@ import { collectChunks } from "../helpers/chunkAssert.js";
 
 const mediaMocks = vi.hoisted(() => ({
   readMediaAsset: vi.fn(),
-  understandMediaReference: vi.fn(),
   mediaKindForMime: vi.fn(),
 }));
 
@@ -74,7 +73,6 @@ beforeEach(() => {
     data: Buffer.from("dummy"),
     mimeType: filename.endsWith(".png") ? "image/png" : "video/mp4",
   }));
-  mediaMocks.understandMediaReference.mockResolvedValue({ text: "网关理解文本" });
 });
 
 describe("chatMiddleware 前置工具调度（非多模态 + preprocess 工具）", () => {
@@ -130,7 +128,7 @@ describe("chatMiddleware 前置工具调度（非多模态 + preprocess 工具�
     expect(u1.content).toContain("[媒体附件处理失败，已跳过]");
   });
 
-  it("无匹配 preprocess 工具 → 回退旧路径（媒体网关 understand）", async () => {
+  it("无匹配 preprocess 工具 → 不处理（旧媒体网关回退已随破坏性收尾移除）", async () => {
     const messages = [msg("u1", "user", "看图 [[media:aa-1.png]]")];
     const { ctx, getCaptured } = runChatMiddleware(messages, {
       // 只有普通（非 preprocess）工具，accepts 命中也不前置
@@ -146,10 +144,10 @@ describe("chatMiddleware 前置工具调度（非多模态 + preprocess 工具�
     });
     await collectChunks(chatMiddleware(ctx, makeNext([])));
 
-    expect(mediaMocks.understandMediaReference).toHaveBeenCalled();
     const cap = getCaptured()!;
     const u1 = cap.history.find((m) => m.id === "u1")!;
-    expect(u1.content).toContain("网关理解文本");
+    // 无前置工具命中 → 消息原样保留（marker 不被吞掉，也没有网关转写文本）
+    expect(u1.content).toContain("[[media:aa-1.png]]");
   });
 
   it("多 kind：每个 kind 独立匹配；未命中 kind 保留 marker 并进 capabilitiesHint", async () => {

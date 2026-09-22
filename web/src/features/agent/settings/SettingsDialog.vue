@@ -27,7 +27,6 @@ const {
   GlobalTab,
   HooksTab,
   McpTab,
-  MediaTab,
   OVERLAY_Z_INDEX,
   OpenConfigDirButton,
   PluginsTab,
@@ -256,9 +255,6 @@ onBeforeUnmount(() => {
             -->
             <div v-if="renderedTab === 'brains'" class="tab-pane">
               <BrainsTab :draft="draft" :env-vars="envVars" @error="onError" />
-            </div>
-            <div v-else-if="renderedTab === 'media'" class="tab-pane">
-              <MediaTab :draft="draft" :env-vars="envVars" @error="onError" />
             </div>
             <div v-else-if="renderedTab === 'senses'" class="tab-pane">
               <SensesTab
