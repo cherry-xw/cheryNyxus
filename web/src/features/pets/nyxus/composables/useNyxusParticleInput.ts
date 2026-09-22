@@ -27,6 +27,7 @@ import {
   type NyxusMenuTool,
 } from '../nyxusUiState'
 import type { PetAction, PetMood } from '@/domain/pets/types'
+import { resolveLoginState } from '@/domain/auth/loginState'
 import { createNyxusCosmicScheduler, nyxusForcedCosmicState } from './cosmicScheduler'
 
 export interface NyxusInputProps {
@@ -71,7 +72,7 @@ export function useNyxusParticleInput(opts: {
   particleCount: () => number
 }) {
   const { props, rootRef, canvasExtent, particleCount } = opts
-  const { connection } = useNyxusHost()
+  const { auth, connection } = useNyxusHost()
 
   let particles: NyxusParticle[] = []
   let particleSeed = 0x4e797875
@@ -287,18 +288,30 @@ export function useNyxusParticleInput(opts: {
     const serviceState: NyxusServiceState = props.respectConnection
       ? connection.status
       : 'connected'
-    const connected = serviceState !== 'disconnected'
+    const loginState = resolveLoginState({
+      isRemote: auth.isRemote,
+      loggedIn: auth.loggedIn,
+      connectionStatus: connection.status,
+      authenticating: auth.authenticating,
+    })
+    const connected = loginState === 'authenticated'
     // 重连期间保留普通星系，但暂时压低工作态的环系/波纹，避免状态快速往返时显得躁动。
     const menuTargets = props.interactive && nyxusMenuOpen.value ? localMenuTargets() : []
     const pointerNear = props.interactive && pointerIsFresh && pointer.distance <= props.size * 1.45
-    const forcedCosmic = nyxusForcedCosmicState(serviceState, props.working)
-    if (serviceState === 'disconnected') cosmicScheduler.cancel(now, false)
+    const forcedCosmic =
+      loginState === 'authenticated'
+        ? nyxusForcedCosmicState('connected', props.working)
+        : nyxusForcedCosmicState(
+            loginState === 'authenticating' ? 'connecting' : 'disconnected',
+            props.working,
+          )
+    if (loginState !== 'authenticated') cosmicScheduler.cancel(now, false)
     else if (props.working) cosmicScheduler.update(now, false, false, false)
     const cosmic =
       forcedCosmic ??
       cosmicScheduler.update(
         now,
-        serviceState === 'connected' &&
+        loginState === 'authenticated' &&
           (props.action === 'idle' || props.action === 'walk') &&
           !nyxusMenuOpen.value &&
           !props.reaction,
@@ -314,6 +327,7 @@ export function useNyxusParticleInput(opts: {
       working: props.working,
       reaction: props.reaction,
       serviceState,
+      loginState,
       connected,
       menuOpen: props.interactive && nyxusMenuOpen.value,
       menuTargets,

@@ -32,7 +32,7 @@ const props = withDefaults(
     respectConnection?: boolean
     /** Core 提供的最近普通 Pet 视觉关联；只读且不参与运动。 */
     nearbyPet?: NyxusNearbyPet | null
-    /** 中心在线状态点(仅主 pet):connected 白发光 / connecting 明灭 / disconnected 黑发光 */
+    /** 中心在线状态点(仅主 pet):connected 时显示；未连接时由黑洞承担状态反馈 */
     statusDot?: boolean
     /** A covering application surface is active; keep one low-cost decorative frame loop. */
     background?: boolean

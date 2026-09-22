@@ -24,6 +24,7 @@ import {
   useConnectionStore,
   type AuthError,
 } from '@/application/auth/public'
+import { resolveLoginState } from '@/domain/auth/loginState'
 import { useThemeStore } from '@/application/public'
 import { isElectron } from '@/application/platform/public'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
@@ -67,12 +68,18 @@ let dragCleanup: (() => void) | undefined
 /** 手电开关状态：面板级光束（rift-light）由此驱动。 */
 const lampLit = ref(false)
 
-/** 远端已登录 → 显示用户信息 + 登出；否则显示表单。 */
-const loggedIn = computed(
-  () => auth.isRemote && auth.loggedIn && conn.status === 'connected' && !busy.value,
+const loginState = computed(() =>
+  resolveLoginState({
+    isRemote: auth.isRemote,
+    loggedIn: auth.loggedIn,
+    connectionStatus: conn.status,
+    authenticating: busy.value || auth.authenticating,
+  }),
 )
+/** 远端已登录 → 显示用户信息 + 登出；否则显示表单。 */
+const loggedIn = computed(() => loginState.value === 'authenticated' && auth.isRemote)
 /** 本地 loopback 已连接成功 → 显示「已连接」态（地址 + 状态 + 断开连接），不再可重新连接。 */
-const localConnected = computed(() => !auth.isRemote && conn.status === 'connected' && !busy.value)
+const localConnected = computed(() => loginState.value === 'authenticated' && !auth.isRemote)
 /** 信息面板展示的服务地址（远端已登录 / 本地已连接共用）。 */
 const displayServer = computed(() => auth.serverAddress || address.value || defaultAddress.value)
 
@@ -238,6 +245,7 @@ async function submit(): Promise<void> {
     return
   }
   busy.value = true
+  auth.beginAuthentication()
   error.value = null
   try {
     if (isLocal.value) {
@@ -256,6 +264,7 @@ async function submit(): Promise<void> {
     // 应用内重建连接（替代 reload）：bootstrap 首次连 401 后 serverConfig 为空，
     // reconnect 会带新 token 重拉 /api/config + 重连 WS，App.vue 顶层 onStatus 自动恢复。
   } catch (cause) {
+    auth.failAuthentication()
     error.value =
       cause && typeof cause === 'object' && 'kind' in cause
         ? (cause as AuthError)
@@ -266,6 +275,7 @@ async function submit(): Promise<void> {
             raw: cause,
           }
   } finally {
+    if (conn.status === 'connected' && (auth.loggedIn || isLocal.value)) auth.finishAuthentication()
     busy.value = false
   }
 }

@@ -1,4 +1,5 @@
 import type { PetAction, PetMood } from '@/domain/pets/types'
+import type { LoginState } from '@/domain/auth/loginState'
 
 export interface Vec2 {
   x: number
@@ -15,7 +16,7 @@ export interface NyxusNearbyPet {
 export type NyxusReaction = 'positive' | 'agitated' | 'error'
 export type NyxusStarKind = 'normal' | 'redGiant' | 'bluePulsar'
 
-/** 服务连接驱动的系统呈现态；只有 disconnected 会渲染黑洞。 */
+/** WebSocket 传输状态；不再直接决定登录视觉。 */
 export type NyxusServiceState = 'connected' | 'connecting' | 'disconnected'
 
 /**
@@ -74,6 +75,7 @@ export interface NyxusParticleInput {
   working: boolean
   reaction: NyxusReaction | null
   serviceState: NyxusServiceState
+  loginState: LoginState
   connected: boolean
   menuOpen: boolean
   menuTargets: Vec2[]
