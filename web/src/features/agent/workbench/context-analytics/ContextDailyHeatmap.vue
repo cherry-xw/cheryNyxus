@@ -67,6 +67,16 @@ const selectedPoint = computed(
   () => visiblePoints.value.find((point) => point.date === selectedDate.value) ?? visiblePoints.value[0]!,
 )
 
+function tooltipContent(params: unknown): string {
+  const item = (Array.isArray(params) ? params[0] : params) as { data?: { value?: unknown[] }; value?: unknown[]; name?: string }
+  const value = item.data?.value ?? item.value ?? []
+  const date = typeof value[0] === 'string' ? value[0] : item.name?.split(' · ')[0] ?? '未知日期'
+  const point = displayPoints.value.find((candidate) => candidate.date === date)
+  if (!point) return date
+  const amount = point.tokens === null ? 'Token 未知' : `${formatTokens(point.tokens)} Token`
+  return `${date}<br/>${dailyUsageStateLabel(point)} · ${amount}`
+}
+
 function pointDescription(index: number): string {
   const point = displayPoints.value[index]!
   const amount = point.tokens === null ? '' : ` · ${formatTokens(point.tokens)} Token`
@@ -78,7 +88,7 @@ const option = computed<EChartsOption>(() => ({
     enabled: true,
     description: `每日 Token 日历，日期范围 ${visibleRange.value.startDate} 至 ${visibleRange.value.endDate}，时区 ${demo.timeZone}`,
   },
-  tooltip: { trigger: 'item', formatter: '{b}', confine: true },
+  tooltip: { trigger: 'item', formatter: tooltipContent, confine: true },
   visualMap: {
     type: 'piecewise',
     dimension: 1,
@@ -160,15 +170,27 @@ function selectDate(date: string): void {
   const point = visiblePoints.value.find((candidate) => candidate.date === date)
   if (!point) return
   selectedDate.value = point.date
-  void (async () => {
-    const keys = remoteTaskKeys.value.get(point.date)
-    if (keys) return emit('dateSelected', point.date, keys)
-    try {
-      const response = await agentApi.getContextUsageDayTasks({ date: point.date, timezone: demo.timeZone, limit: 100 })
-      remoteTaskKeys.value.set(point.date, response.items.map((item) => item.taskKey))
-      emit('dateSelected', point.date, response.items.map((item) => item.taskKey))
-    } catch { emit('dateSelected', point.date, [...new Set(point.tasks.map((task) => task.demoTaskKey))]) }
-  })()
+  void loadDayTasks(point).then((keys) => emit('dateSelected', point.date, keys))
+}
+
+async function loadDayTasks(point: DailyUsagePoint): Promise<string[]> {
+  const cached = remoteTaskKeys.value.get(point.date)
+  if (cached) return cached
+  try {
+    const response = await agentApi.getContextUsageDayTasks({ date: point.date, timezone: demo.timeZone, limit: 100 })
+    point.tasks = response.items.map((item) => ({
+      taskKey: item.taskKey,
+      demoTaskKey: item.taskKey,
+      title: item.taskKey,
+      tokens: item.tokens.value,
+      coverage: item.tokens.coverage === 'complete' ? 'complete' as const : item.tokens.coverage === 'partial' ? 'partial' as const : 'unknown' as const,
+    }))
+    const keys = response.items.map((item) => item.taskKey)
+    remoteTaskKeys.value.set(point.date, keys)
+    return keys
+  } catch {
+    return [...new Set(point.tasks.map((task) => task.demoTaskKey))]
+  }
 }
 
 onMounted(() => {
@@ -177,9 +199,17 @@ onMounted(() => {
       date: point.date,
       tokens: point.tokens.value,
       state: point.state,
-      tasks: point.taskKeys.map((taskKey) => ({ taskKey, demoTaskKey: taskKey, title: taskKey, tokens: null, coverage: 'unknown' })),
-    }))
+       tasks: point.taskKeys.map((taskKey) => ({ taskKey, demoTaskKey: taskKey, title: taskKey, tokens: null, coverage: 'unknown' as const })),
+     }))
+    const current = remotePoints.value.find((point) => point.date === selectedDate.value)
+    if (current) void loadDayTasks(current)
   }).catch(() => undefined).finally(() => { remoteLoaded.value = true })
+})
+
+watch(selectedDate, (date) => {
+  const point = visiblePoints.value.find((candidate) => candidate.date === date)
+  if (!point || remoteTaskKeys.value.has(date)) return
+  void loadDayTasks(point)
 })
 
 function moveDay(offset: number): void {

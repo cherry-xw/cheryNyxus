@@ -22,9 +22,12 @@ function taskChats(taskKey: string) {
   const family = getChatFamily(taskKey)
   return family?.chats ?? (getChat(taskKey) ? [getChat(taskKey)!] : [])
 }
+function usageTimestamp(row: ReturnType<typeof readRequestUsage>[number]): number | undefined {
+  return row.endedAt ?? (row.status === 'running' ? row.startedAt : undefined)
+}
 function sum(
   records: ReturnType<typeof readRequestUsage>,
-  key: 'inputTokens' | 'outputTokens' | 'totalTokens',
+  key: 'inputTokens' | 'outputTokens' | 'totalTokens' | 'cacheReadTokens' | 'cacheWriteTokens',
 ) {
   const known = records.filter((r) => r.usage[key] !== undefined)
   return known.length
@@ -50,6 +53,7 @@ function summary(taskKey: string) {
     agentCount: new Set(records.map((r) => r.chatId)).size,
     capturedSince: records[0]?.startedAt ?? null,
     currentRequest: records.findLast((r) => r.status === 'running') ?? null,
+    latestRequest: records.at(-1) ?? null,
   }
 }
 export async function handleUsageSummaries(
@@ -84,10 +88,10 @@ export async function handleUsageDetail(
     summary: summary(data.taskKey),
     agents,
     cache: {
-      readTokens: metric(null, false),
-      writeTokens: metric(null, false),
+      readTokens: sum(records, 'cacheReadTokens'),
+      writeTokens: sum(records, 'cacheWriteTokens'),
       reportedRequests: records.filter((r) => r.usage.inputTokens !== undefined).length,
-      hitRequests: 0,
+      hitRequests: records.filter((r) => (r.usage.cacheReadTokens ?? 0) > 0).length,
       totalRequests: records.length,
     },
     elapsedMs: metric(
@@ -104,6 +108,8 @@ export async function handleUsageDetail(
         durationMs: own.reduce((n, o) => n + ((o.endedAt ?? Date.now()) - o.startedAt), 0),
       }
     }),
+    requests: records,
+    operations: ops,
   }
 }
 export async function handleUsageRounds(
@@ -147,9 +153,9 @@ export async function handleUsageDaily(
     const date = new Date(time).toISOString().slice(0, 10)
     const rows = all.filter(
       (row) =>
-        row.endedAt &&
+        usageTimestamp(row) &&
         new Intl.DateTimeFormat('en-CA', { timeZone: data.timezone }).format(
-          new Date(row.endedAt),
+          new Date(usageTimestamp(row)!),
         ) === date,
     )
     const tokens = rows.length ? sum(rows, 'totalTokens') : metric(null, false)
@@ -183,9 +189,9 @@ export async function handleUsageDayTasks(
   const all = listChatFamilies().flatMap((family) => readRequestUsage(family.rootChatId))
   const rows = all.filter(
     (row) =>
-      row.endedAt &&
+      usageTimestamp(row) &&
       new Intl.DateTimeFormat('en-CA', { timeZone: data.timezone }).format(
-        new Date(row.endedAt),
+        new Date(usageTimestamp(row)!),
       ) === data.date,
   )
   const grouped = new Map<string, typeof rows>()

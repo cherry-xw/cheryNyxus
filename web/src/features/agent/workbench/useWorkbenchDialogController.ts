@@ -934,10 +934,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const contextAnalyticsDemos = CONTEXT_ANALYTICS_DEMOS
   const contextAnalyticsForced = ref(false)
   const contextAnalyticsAvailable = computed(() => {
-    const currentTask = taskOverview.tasks.find((candidate) =>
-      matchesCurrentTask(candidate, chatId.value ?? undefined),
-    )
-    return !!currentTask?.lastUserPrompt
+    return !!treeRootChatId.value
   })
   function toggleContextDrawer(): void {
     if (!contextAnalyticsAvailable.value) return
