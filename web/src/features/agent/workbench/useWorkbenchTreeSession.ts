@@ -18,6 +18,7 @@ export function useWorkbenchTreeSession(options: {
   const chatSessions = useChatSessionsStore()
   const connection = useConnectionStore()
   const treeRootChatId = ref('')
+  const treeLoadError = ref<string | null>(null)
   const treeFocusSourceChatId = ref<string>()
   const treeFocusInteractionId = ref<string>()
   const treeFocusNonce = ref(0)
@@ -45,6 +46,7 @@ export function useWorkbenchTreeSession(options: {
     (chatId) => {
       if (!chatId) {
         treeRootChatId.value = ''
+        treeLoadError.value = null
         options.taskTimeline.value = undefined
         treeFocusSourceChatId.value = undefined
         treeFocusInteractionId.value = undefined
@@ -53,6 +55,7 @@ export function useWorkbenchTreeSession(options: {
       }
       options.resetDraft()
       treeRootChatId.value = chatId
+      treeLoadError.value = null
       const summary = agents.historyList.find((item) => item.chatId === chatId)
       if (!summary?.taskId) {
         options.taskTimeline.value = undefined
@@ -79,18 +82,25 @@ export function useWorkbenchTreeSession(options: {
           void chatSessions.releaseRootTimeline(previousRootChatId, rootSubscriptionOwner)
         return
       }
-      void chatSessions
-        .acquireRootTimeline(rootChatId, rootSubscriptionOwner, 'tree')
-        .then(async () => {
-          if (previousRootChatId && previousRootChatId !== rootChatId) {
-            await chatSessions.releaseRootTimeline(previousRootChatId, rootSubscriptionOwner)
-          }
-          void chatSessions.ensureQuestionHydrated(rootChatId)
-        })
-        .catch((cause) => console.error('[WorkbenchDialog] observe root tree failed:', cause))
+      void observeTreeRoot(rootChatId, previousRootChatId)
     },
     { immediate: true },
   )
+
+  async function observeTreeRoot(rootChatId: string, previousRootChatId?: string): Promise<void> {
+    treeLoadError.value = null
+    try {
+      await chatSessions.acquireRootTimeline(rootChatId, rootSubscriptionOwner, 'tree')
+      if (previousRootChatId && previousRootChatId !== rootChatId) {
+        await chatSessions.releaseRootTimeline(previousRootChatId, rootSubscriptionOwner)
+      }
+      await chatSessions.ensureQuestionHydrated(rootChatId)
+    } catch (cause) {
+      if (treeRootChatId.value !== rootChatId) return
+      treeLoadError.value = cause instanceof Error ? cause.message : '执行图加载失败，请重试'
+      console.error('[WorkbenchDialog] observe root tree failed:', cause)
+    }
+  }
 
   const historyLoading = ref(false)
   async function onConnectionReady(): Promise<void> {
@@ -113,10 +123,7 @@ export function useWorkbenchTreeSession(options: {
     }
     const rootChatId = treeRootChatId.value
     if (rootChatId && !chatSessions.rootTimeline(rootChatId, 'tree')) {
-      void chatSessions
-        .acquireRootTimeline(rootChatId, rootSubscriptionOwner, 'tree')
-        .then(() => void chatSessions.ensureQuestionHydrated(rootChatId))
-        .catch((cause) => console.error('[WorkbenchDialog] retry observe root tree failed:', cause))
+      void observeTreeRoot(rootChatId)
     }
   }
   watch(
@@ -128,8 +135,16 @@ export function useWorkbenchTreeSession(options: {
   )
 
   const treeLoading = computed(
-    () => !!treeRootChatId.value && !chatSessions.rootTimeline(treeRootChatId.value, 'tree'),
+    () =>
+      !!treeRootChatId.value &&
+      !chatSessions.rootTimeline(treeRootChatId.value, 'tree') &&
+      !treeLoadError.value,
   )
+  async function retryTree(): Promise<void> {
+    const rootChatId = treeRootChatId.value
+    if (!rootChatId) return
+    await observeTreeRoot(rootChatId)
+  }
   const creating = ref(false)
   async function switchSession(chatId: string): Promise<void> {
     if (!chatId) return
@@ -180,6 +195,8 @@ export function useWorkbenchTreeSession(options: {
     treeFocusNonce,
     treeFocusSourceChatId,
     treeLoading,
+    treeLoadError,
+    retryTree,
     treeRootChatId,
   }
 }

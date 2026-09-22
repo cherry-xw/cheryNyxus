@@ -128,7 +128,7 @@ const {
   taskControlPending, taskHasRunningBranches, taskTimeline,
   taskBrowserState, closeTaskBrowser, openContextAnalyticsFromBrowser, openTaskFromBrowser, onTaskBrowserArchived,
   text, toggleRoleList,
-  treeBreakdown, treeLoading, treePromptSnap, treeRootChatId,
+  treeBreakdown, treeLoading, treeLoadError, treePromptSnap, treeRootChatId, retryTree,
   treeUsage, treeUsagePct,
   toggleAttentionWindow, uploading, usageClass, win, windowBlink,
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
@@ -181,6 +181,19 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
         :style="workbenchShellStyle"
         aria-label="Agent 执行工作台"
       >
+        <div
+          v-if="treeLoadError"
+          class="workbench-error"
+          role="alert"
+          aria-live="assertive"
+        >
+          <span class="workbench-error__viewport">
+            <span class="workbench-error__track">
+              <span>执行图加载失败：{{ treeLoadError }}</span>
+              <button type="button" @click="retryTree">重试</button>
+            </span>
+          </span>
+        </div>
         <div class="nyxus-branch-top" :inert="taskBrowserState.open || undefined">
           <MessageBranchTree
             v-if="treeRootChatId && !conversationViewVisible"

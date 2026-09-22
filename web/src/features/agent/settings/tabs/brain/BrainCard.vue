@@ -687,14 +687,21 @@ async function openModelRuleFile(): Promise<void> {
                   </template>
                 </el-option>
               </el-select>
-              <el-checkbox
+              <el-tooltip
                 v-if="effectiveProtocol === 'anthropic-messages' && cfg.provider !== 'deepseek'"
-                :model-value="anthropicOfficial(cfg)"
-                class="official-checkbox"
-                @change="(v: unknown) => setAnthropicOfficial(cfg, v)"
+                content="开启后保留 Anthropic 返回的完整思考协议块，包括 thinking 和 redacted_thinking。官方 Anthropic API 可开启；第三方中转服务可能不兼容，遇到请求或工具调用异常时请关闭。"
+                placement="top"
+                :show-after="120"
+                popper-class="label-tip-popper"
               >
-                完整思考块
-              </el-checkbox>
+                <el-checkbox
+                  :model-value="anthropicOfficial(cfg)"
+                  class="official-checkbox"
+                  @change="(v: unknown) => setAnthropicOfficial(cfg, v)"
+                >
+                  完整思考块
+                </el-checkbox>
+              </el-tooltip>
             </div>
           </label>
           <label class="field secondary-field">

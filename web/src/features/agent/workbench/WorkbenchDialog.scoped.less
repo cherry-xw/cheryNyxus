@@ -581,6 +581,72 @@
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
+.workbench-error {
+  position: absolute;
+  z-index: var(--nx-z-chrome);
+  top: 40px;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 12px;
+  color: var(--el-color-danger);
+  background: color-mix(in srgb, var(--nx-bg) 92%, var(--el-color-danger));
+  font-size: 13px;
+  line-height: 30px;
+  overflow: hidden;
+  pointer-events: auto;
+}
+.workbench-error__viewport {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.workbench-error__track {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: max-content;
+  animation: workbench-error-marquee 18s linear infinite;
+  will-change: transform;
+}
+.workbench-error:hover .workbench-error__track {
+  animation-play-state: paused;
+}
+.workbench-error__track button {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  color: inherit;
+  background: color-mix(in srgb, var(--nx-bg) 72%, var(--el-color-danger));
+  border: 1px solid color-mix(in srgb, currentColor 70%, transparent);
+  border-radius: 3px;
+  font: inherit;
+  line-height: 1.3;
+  cursor: pointer;
+}
+.workbench-error__track button:hover {
+  color: var(--nx-text);
+  background: color-mix(in srgb, var(--el-color-danger) 28%, var(--nx-bg));
+}
+@keyframes workbench-error-marquee {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workbench-error__track {
+    animation: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
+}
 // 通用小 spinner（树加载 / 断连面板共用）。
 .workbench-spinner {
   width: 12px;

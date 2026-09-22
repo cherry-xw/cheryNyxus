@@ -55,7 +55,26 @@ function publish(event: WorkspaceVisualEvent): void {
   workspace.openOrFocusWindow(visualEventWindow(event))
 }
 
+/**
+ * Chromium reports a completed ResizeObserver delivery as a window error even
+ * when no application request failed. It is browser layout noise, not a
+ * runtime fault, so it must not open the red diagnostic window.
+ */
+function isResizeObserverLoopNotice(message: string): boolean {
+  const normalized = message.trim().toLowerCase()
+  return (
+    normalized.includes('resizeobserver loop completed with undelivered notifications') ||
+    normalized.includes('resizeobserver loop limit exceeded')
+  )
+}
+
 function reportWindowError(event: ErrorEvent): void {
+  if (
+    isResizeObserverLoopNotice(event.message) ||
+    isResizeObserverLoopNotice(event.error?.message ?? '')
+  ) {
+    return
+  }
   publish({
     type: 'failure',
     source: event.filename || 'browser.runtime',
