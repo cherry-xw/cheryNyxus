@@ -36,7 +36,10 @@ export class ShadowRunner {
     const maxTurns = Math.max(1, options.maxTurns ?? 2)
     const timeoutMs = options.timeoutMs ?? 25_000
     const builder = new AgentBuilder()
-      .build({ maxLoopCount: 1 })
+      // A tool call needs a following model turn to produce the terminal
+      // result. Keep the middleware limit aligned with the shadow turn limit;
+      // the old fixed value of 1 stopped after the first tool round.
+      .build({ maxLoopCount: maxTurns })
       .configureRuntime(
         {
           brain: options.role.brain,
