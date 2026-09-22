@@ -43,6 +43,7 @@ import {
   type TabKey,
 } from './config/constants'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
+import { uuid } from '@/utils/uuid'
 import type { IconInput } from 'morphicons/vue'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import BrainsTab from './tabs/brain/BrainsTab.vue'
@@ -658,7 +659,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       }
       const result = await agentApi.saveConfig({
         ...payload,
-        requestId: crypto.randomUUID(),
+        requestId: uuid(),
         previewToken: preview.previewToken,
         policy: 'wait',
       })

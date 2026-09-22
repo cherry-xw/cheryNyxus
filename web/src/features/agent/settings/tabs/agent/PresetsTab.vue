@@ -20,6 +20,7 @@ import SenseIcon from '../tools/SenseIcon.vue'
 import { isPublicRole, listPublicRoles } from './publicRole'
 import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import WorkspaceDirBrowser from './WorkspaceDirBrowser.vue'
+import { uuid } from '@/utils/uuid'
 
 /** 角色工作台所需技能目录（与 RolesTabControllerProps.skillCatalog 同构）。 */
 type SkillCatalog = {
@@ -109,7 +110,7 @@ function addPreset(): void {
   }
   // 初始化：空组长 + 空成员。进入工作台后添加角色成员并指定组长（后端校验组长必填）。
   props.draft.presets[name] = {
-    id: `preset-${crypto.randomUUID().replaceAll('-', '')}`,
+    id: `preset-${uuid().replaceAll('-', '')}`,
     leader: '',
     roles: [],
   }
