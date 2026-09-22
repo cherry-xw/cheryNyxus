@@ -22,7 +22,7 @@
 
 通过与关闭条件：用户确认上述实际渲染无阻断问题；未覆盖的宿主明确记录。发现问题时将本项改为“已确认待修复”，并为具体模块拆出新 ID。
 
-定位入口：主题规则见 [前端 UI 规范](../../standards/frontend/ui-visual-and-interaction.md)；代码入口为 [theme.ts](../../../web/src/stores/theme.ts) 的 `toggle/applyFrom`、[theme.css](../../../web/src/styles/theme.css) 的主题 token、[overlayLayers.ts](../../../web/src/styles/overlayLayers.ts) 的 `OVERLAY_Z_INDEX` 和 [ExecutionGraphPixiRenderer.ts](../../../web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts) 的主题调色板应用。
+定位入口：主题规则见 [设计语言规范](../../standards/frontend/design-language.md)；代码入口为 [theme.ts](../../../web/src/stores/theme.ts) 的 `toggle/applyFrom`、[theme.css](../../../web/src/styles/theme.css) 的主题 token、[overlayLayers.ts](../../../web/src/styles/overlayLayers.ts) 的 `OVERLAY_Z_INDEX` 和 [ExecutionGraphPixiRenderer.ts](../../../web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts) 的主题调色板应用。
 
 ## FE-UI-002 关键交互反馈待人工复核
 

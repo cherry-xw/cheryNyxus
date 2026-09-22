@@ -28,11 +28,8 @@
 
 当前仍开放的前端问题、待用户人工复核项和明确暂缓的小问题统一见 [已知问题目录](../quality/known-issues/README.md)；模块文档不重复维护问题状态。
 
-## 局部设计约定
+## 设计语言
 
-| 文档 | 内容 |
-| --- | --- |
-| [font-style-guide.md](./font-style-guide.md) | 当前前端字体与字重约定 |
-| [motion-standard.md](./motion-standard.md) | 当前前端动效约定 |
+全平台视觉实现统一从[前端设计语言规范](../standards/frontend/design-language.md)进入；它整合全局 token、字体字重、GSAP 动效和工作台、Lite、桌宠、桌面外壳、登录、设置中心的独立设计语言，并取代原先分散的字体字重与动效约定文档。
 
 新的全局强制规则应写入 [前端规范](../standards/frontend/README.md)，不再继续扩充局部约定文件。已经完成或被替代的实施记录位于 [archive/](./archive/README.md)，不能作为当前实现入口。

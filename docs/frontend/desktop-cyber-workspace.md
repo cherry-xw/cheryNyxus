@@ -41,5 +41,5 @@
 | 启动入口与真实状态 | [CyberDesktopHost.vue](../../web/src/features/desktop/CyberDesktopHost.vue) 的 `openCapability`、`publish` | `web/test/workspace/uiStateTaskbar.test.ts`、`pnpm web:type-check` |
 | 窗口关闭与菜单层级 | [App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose`；[overlayLayers.ts](../../web/src/styles/overlayLayers.ts) 的 `ownerOverlayZIndex` | `web/test/styles/overlayLayers.test.ts`；多窗叠放验收 |
 
-- 桌面 chrome 动效遵循 [motion-standard.md](motion-standard.md)：GSAP 只管 DOM（`useGsap` scoped）；入场/切换只动 transform/opacity；系统栏/任务栏入场接 `useMotionTier`（full 档 stagger、reduced 档仅淡入）。
-- 视觉红线遵循 [../standards/ui-visual-and-interaction.md](../standards/frontend/ui-visual-and-interaction.md)：全直角、字重 400/600 规则、色走 token。
+- 桌面 chrome 动效遵循 [设计语言规范 §5](../standards/frontend/design-language.md#5-动效规范)：GSAP 只管 DOM（`useGsap` scoped）；入场/切换只动 transform/opacity；系统栏/任务栏入场接 `useMotionTier`（full 档 stagger、reduced 档仅淡入）。
+- 视觉红线遵循 [设计语言规范](../standards/frontend/design-language.md)：全直角、字重 400/600 规则、色走 token。

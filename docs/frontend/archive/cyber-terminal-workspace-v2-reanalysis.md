@@ -120,5 +120,5 @@ Web 工作台迁入通用 `CyberWindow`，并使 TREE/LITE、待操作 Interrupt
 
 - 原执行计划 `docs/plan/cyber-terminal-workspace-v2/` 已因过时退役删除（2026-09-12），本复盘为工作区 V2 的长期记录入口。
 - 节点树模块说明：[`docs/frontend/pet/README.md`](../pet/README.md)
-- 视觉与交互规范：[`docs/standards/ui-visual-and-interaction.md`](../../standards/frontend/ui-visual-and-interaction.md)
-- 动效规范：[`docs/frontend/motion-standard.md`](../motion-standard.md)
+- 设计语言规范：[`docs/standards/frontend/design-language.md`](../../standards/frontend/design-language.md)
+- 动效规范：[`docs/standards/frontend/design-language.md` §5](../../standards/frontend/design-language.md#5-动效规范)

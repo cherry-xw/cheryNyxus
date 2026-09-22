@@ -130,7 +130,7 @@ function previewOf(s: ChatSummary): string {
 <style scoped lang="less">
 // 全直角 + 字重 400（标题/强调 ≤600）。
 // 颜色走主题 token（--ink/--accent/--border/--danger + color-mix），
-// 浅深双端自适应，统一主题色调（ui-visual-and-interaction.md §4）。
+// 浅深双端自适应，统一主题色调（design-language.md §3.3）。
 .session-list {
   display: flex;
   flex-direction: column;

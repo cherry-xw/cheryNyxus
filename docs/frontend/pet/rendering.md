@@ -99,7 +99,7 @@ popover 内所有 renderer 折叠区（命令输出/搜索结果/参数/结果/�
 
 > 2026-08-26 起钢琴降级为**纯键盘弹奏彩蛋**，不再承载会话切换。会话切换改由 rail 的会话列表 popout 承接（见下节）；钢琴与列表的关联已全部剔除。
 
-钢琴组件 `NyxusPianoStrip` 只在**节点树彩蛋触发**时以浮层出现在节点树视口中央（触发序列见 [nyxus-node-tree-maintenance.md#节点树钢琴彩蛋](nyxus-node-tree-maintenance.md#节点树钢琴彩蛋)）。固定绘制 **2 个八度 24 键标准钢琴**（C4–B5）：白键 14 + 黑键 10，复用 `layoutPianoKeys(24)`（`pianoNotes.ts`）按真实钢琴比例排版（黑键骑白键边界、z 叠上层）——白键象牙渐变、黑键乌木渐变+高光、键前缘与面板**全直角**（`border-radius:0`）；面板标题 `NYXUS PIANO · C4–B5` + 键位提示行，全部字重 400（`docs/frontend/font-style-guide.md` 豁免清单同步收敛）。
+钢琴组件 `NyxusPianoStrip` 只在**节点树彩蛋触发**时以浮层出现在节点树视口中央（触发序列见 [nyxus-node-tree-maintenance.md#节点树钢琴彩蛋](nyxus-node-tree-maintenance.md#节点树钢琴彩蛋)）。固定绘制 **2 个八度 24 键标准钢琴**（C4–B5）：白键 14 + 黑键 10，复用 `layoutPianoKeys(24)`（`pianoNotes.ts`）按真实钢琴比例排版（黑键骑白键边界、z 叠上层）——白键象牙渐变、黑键乌木渐变+高光、键前缘与面板**全直角**（`border-radius:0`）；面板标题 `NYXUS PIANO · C4–B5` + 键位提示行，全部字重 400（[设计语言规范 §4](../../standards/frontend/design-language.md#4-字体与字重细则) 字重细则同步收敛）。
 
 **键盘映射（VirtualPiano 两行键位排版）**：低八度白键 `Z X C V B N M` = C4..B4（MIDI 60..71）、黑键 `S D G H J` = C#4..A#4（61/63/66/68/70）；高八度白键 `Q W E R T Y U` = C5..B5（72..83）、黑键 `2 3 5 6 7` = 73/75/78/80/82。监听用 `KeyboardEvent.code` 匹配（规避键盘布局/输入法差异）；输入控件（`input/textarea/select/[contenteditable]`）内的按键忽略、`e.repeat` 忽略；命中键 `preventDefault` 并调 `usePianoAudio.play(noteFrequency(midi))`（`usePianoKeyboard.ts`，仅浮层挂载期间监听，弹琴不误触 composer 输入）。音频为 Web Audio 三角波 + ADSR 包络，`AudioContext` 在用户手势同步链内懒建解锁（`usePianoAudio.ts` 保留，含静音开关，静音态持久化 localStorage）。指针点击与键盘按键共用按下高亮。浮层自包含关闭：点 ✕ / 点浮层外 / `Esc`。
 
@@ -231,6 +231,6 @@ isBusy = !isGhost && (chat.run.isWorking || chat.interaction.runningTools.length
 
 **视觉**：自定义 SVG 双圆环 loader，16×16，`viewBox="0 0 24 24"`，face 右上角偏移（`right:0; top:26px`）。外圈 `.busy-ring` 虚线圆（`stroke-dasharray: 3 3`，`fade(@ink, 28%)`），内圈 `.busy-arc` 实心弧流光（`stroke-dasharray: 18 18`，主题橙 `#f6b73c`，`busy-arc` keyframes 推动 `stroke-dashoffset 0 → -36`）。整体 1.4s 旋转（`busy-spin` 0→360deg），`drop-shadow(0 1px 1px rgba(0,0,0,0.18))` 抬离背景。
 
-> 注：项目历史决策使用主题橙 #f6b73c；当前视觉约束以 [UI 视觉与交互规范](../../standards/frontend/ui-visual-and-interaction.md) 为准。
+> 注：项目历史决策使用主题橙 #f6b73c；当前视觉约束以 [设计语言规范](../../standards/frontend/design-language.md) 为准。
 
 > agent 接入引入的 status-row/meta-row/speech 变化见 [agent-integration.md](agent-integration.md) 渲染分层注记。
