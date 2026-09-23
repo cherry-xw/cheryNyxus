@@ -102,8 +102,14 @@ watch(
     )
     const shouldReplaceUrl =
       !props.cfg.url || isTemplatePlaceholder(props.cfg.url) || previousDefaults.has(props.cfg.url)
-    props.cfg.protocol = definition.defaultProtocol
-    const nextDefault = resolveLlmProviderDefaultUrl(provider, definition.defaultProtocol)
+    // 模型推荐可能在切换服务前已把协议设为新服务支持的有效协议；此时保留，
+    // 避免这里用默认协议覆盖推荐协议。仅当当前协议不被新服务支持时才回退默认。
+    const currentProtocol = effectiveProtocol.value
+    if (!currentProtocol || !definition.protocols.includes(currentProtocol)) {
+      props.cfg.protocol = definition.defaultProtocol
+    }
+    const protocolAfter = props.cfg.protocol ?? definition.defaultProtocol
+    const nextDefault = resolveLlmProviderDefaultUrl(provider, protocolAfter)
     if (shouldReplaceUrl && nextDefault) props.cfg.url = nextDefault
   },
 )
@@ -235,6 +241,9 @@ const { contextLimitTip, modelRuleNotice, modelUnmatched, thinkingLevels, thinki
     cfg: props.cfg,
     effectiveProtocol: () => effectiveProtocol.value,
     supportedProtocols: () => supportedProtocols.value,
+    setProvider: (provider) => {
+      props.cfg.provider = provider ?? ''
+    },
     setProtocol: (protocol) => {
       protocolModel.value = protocol
     },

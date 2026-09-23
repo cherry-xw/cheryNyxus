@@ -49,6 +49,44 @@ describe('modelCatalog', () => {
     ).toEqual({ thinking: { type: 'adaptive' }, reasoning_split: true })
   })
 
+  it('selects the recommendation for the active protocol', async () => {
+    const catalog = await loadProjectCatalog(`
+models:
+  - id: protocol-model
+    match: { models: [protocol-model] }
+    recommend:
+      contextLimit: 100000
+      thinking: low
+    recommendByProtocol:
+      openai-responses:
+        protocol: openai-responses
+        contextLimit: 200000
+        thinking: high
+    wire:
+      openai-responses:
+        thinking:
+          - { display: off, params: { reasoning: { effort: none } } }
+          - { display: high, params: { reasoning: { effort: high } } }
+`)
+
+    expect(
+      catalog.resolveModelCatalog({
+        model: 'protocol-model',
+        protocol: LlmProtocol.OPENAI_RESPONSES,
+      }),
+    ).toMatchObject({
+      recommend: {
+        protocol: LlmProtocol.OPENAI_RESPONSES,
+        contextLimit: 200000,
+        thinking: 'high',
+      },
+    })
+    expect(catalog.resolveModelCatalog({ model: 'protocol-model' }).recommend).toEqual({
+      contextLimit: 100000,
+      thinking: 'low',
+    })
+  })
+
   it('applies configurable conservative recommendations to unknown models', async () => {
     const catalog = await loadDefaultCatalog()
     const resolved = catalog.resolveModelCatalog({
@@ -86,8 +124,8 @@ describe('modelCatalog', () => {
       }),
     ).toMatchObject({
       id: 'zhipu-glm-5.3',
-      recommend: { contextLimit: 128_000, thinking: 'on' },
-      thinkingLevels: ['off', 'on'],
+      recommend: { contextLimit: 128_000, thinking: 'max' },
+      thinkingLevels: ['low', 'high', 'max'],
     })
     expect(
       catalog.resolveModelCatalog({
@@ -96,8 +134,8 @@ describe('modelCatalog', () => {
       }),
     ).toMatchObject({
       id: 'zhipu-glm-5.2',
-      recommend: { contextLimit: 128_000, thinking: 'on' },
-      thinkingLevels: ['off', 'on'],
+      recommend: { contextLimit: 128_000, thinking: 'max' },
+      thinkingLevels: ['low', 'high', 'max'],
     })
     expect(catalog.resolveModelCatalog({ model: 'glm5_1-relay' }).id).toBe('zhipu-glm-5.1')
     expect(catalog.resolveModelCatalog({ model: 'deepseek-v4.1' }).matched).toBe(false)
@@ -204,5 +242,148 @@ models:
         protocol: LlmProtocol.ANTHROPIC_MESSAGES,
       }),
     ).toBe('thinking-block')
+  })
+
+  it('uses official multi-level thinking rules for GLM and Step models', async () => {
+    const catalog = await loadDefaultCatalog()
+
+    expect(
+      catalog.resolveCatalogThinkingParams({
+        model: 'relay/GLM-5.3-flash',
+        protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+        display: 'max',
+      }),
+    ).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'max' })
+    expect(
+      catalog.resolveModelCatalog({
+        model: 'relay/GLM-5.3-flash',
+        protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+      }),
+    ).toMatchObject({
+      id: 'zhipu-glm-5.3-flash',
+      facts: { capabilities: { input: { image: true } } },
+    })
+
+    expect(
+      catalog.resolveModelCatalog({
+        model: 'vendor/step-3.7-flash',
+        protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+      }),
+    ).toMatchObject({
+      id: 'step-3.7',
+      recommend: { thinking: 'medium' },
+      thinkingLevels: ['low', 'medium', 'high'],
+    })
+
+    expect(
+      catalog.resolveModelCatalog({
+        model: 'vendor/step-3.5-flash-2603',
+        protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+      }).thinkingLevels,
+    ).toEqual(['low', 'high'])
+  })
+
+  it('keeps GLM thinking levels available when using the Anthropic protocol', async () => {
+    const catalog = await loadDefaultCatalog()
+    expect(
+      catalog.resolveModelCatalog({
+        model: 'glm-5.3',
+        protocol: LlmProtocol.ANTHROPIC_MESSAGES,
+      }),
+    ).toMatchObject({
+      recommend: { protocol: LlmProtocol.ANTHROPIC_MESSAGES, thinking: 'max' },
+      thinkingLevels: ['low', 'high', 'max'],
+    })
+    expect(
+      catalog.resolveCatalogThinkingParams({
+        model: 'glm-5.3',
+        protocol: LlmProtocol.ANTHROPIC_MESSAGES,
+        display: 'high',
+      }),
+    ).toEqual({ thinking: { type: 'adaptive' }, output_config: { effort: 'high' } })
+  })
+
+  it('matches the GPT-6 family and recommends the OpenAI service', async () => {
+    const catalog = await loadDefaultCatalog()
+    // Astra 官方不支持 none（off），档位从 low 到 max
+    for (const model of ['gpt-6-astra', 'relay/gpt-6-astra-pro']) {
+      expect(
+        catalog.resolveModelCatalog({ model, protocol: LlmProtocol.OPENAI_RESPONSES }),
+      ).toMatchObject({
+        id: 'openai-gpt-6-astra',
+        recommend: {
+          provider: 'openai',
+          protocol: LlmProtocol.OPENAI_RESPONSES,
+          thinking: 'medium',
+        },
+        thinkingLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      })
+    }
+    // Sol/Luna 官方支持 none（off）到 max
+    for (const model of ['gpt-6-sol', 'gpt-6-luna']) {
+      expect(
+        catalog.resolveModelCatalog({ model, protocol: LlmProtocol.OPENAI_RESPONSES }),
+      ).toMatchObject({
+        id: 'openai-gpt-6',
+        thinkingLevels: ['off', 'low', 'medium', 'high', 'xhigh', 'max'],
+      })
+    }
+    expect(
+      catalog.resolveCatalogThinkingParams({
+        model: 'gpt-6-sol',
+        protocol: LlmProtocol.OPENAI_RESPONSES,
+        display: 'max',
+      }),
+    ).toEqual({ reasoning: { effort: 'max' } })
+    expect(
+      catalog.resolveCatalogThinkingParams({
+        model: 'gpt-6-astra',
+        protocol: LlmProtocol.OPENAI_RESPONSES,
+        display: 'max',
+      }),
+    ).toEqual({ reasoning: { effort: 'max' } })
+    expect(
+      catalog.resolveModelCatalog({ model: 'gpt-6-astra', protocol: LlmProtocol.OPENAI_RESPONSES })
+        .facts?.capabilities?.input?.image,
+    ).toBe(true)
+    expect(catalog.resolveModelCatalog({ model: 'gpt-6.1' }).matched).toBe(false)
+  })
+
+  it('exposes max reasoning effort for GPT-5.6', async () => {
+    const catalog = await loadDefaultCatalog()
+    expect(
+      catalog.resolveModelCatalog({
+        model: 'gpt-5.6-sol',
+        protocol: LlmProtocol.OPENAI_RESPONSES,
+      }).thinkingLevels,
+    ).toEqual(['off', 'low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
+  it('recommends a vendor provider for catalogued models', async () => {
+    const catalog = await loadDefaultCatalog()
+    expect(catalog.resolveModelCatalog({ model: 'glm-5.3' }).recommend?.provider).toBe('bigmodel')
+    expect(catalog.resolveModelCatalog({ model: 'MiniMax-M3' }).recommend?.provider).toBe('minimax')
+    expect(catalog.resolveModelCatalog({ model: 'deepseek-v4-pro' }).recommend?.provider).toBe(
+      'deepseek',
+    )
+    expect(catalog.resolveModelCatalog({ model: 'claude-opus-4.7' }).recommend?.provider).toBe(
+      'anthropic',
+    )
+    expect(catalog.resolveModelCatalog({ model: 'step-3.7-flash' }).recommend?.provider).toBeUndefined()
+  })
+
+  it('keeps known media facts while staying conservative for unverified thinking wires', async () => {
+    const catalog = await loadDefaultCatalog()
+
+    expect(
+      catalog.resolveModelCatalog({
+        model: 'mimo-v2.6-flash',
+        protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+      }),
+    ).toMatchObject({
+      id: 'xiaomi-mimo-v2',
+      facts: { capabilities: { input: { image: true, video: true, audio: true } } },
+      thinkingLevels: [],
+    })
   })
 })
