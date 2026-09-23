@@ -229,3 +229,104 @@ describe('tree canvas long-content behavior', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('tree canvas horizontal tail follow', () => {
+  it('shifts the whole tree left once the tail crosses the right-edge ratio', () => {
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      frame = cb
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const nowSpy = vi.spyOn(performance, 'now')
+    const scope = effectScope()
+    scope.run(() => {
+      const canvas = useTreeCanvas({
+        viewport: () => ({ clientWidth: 1200, clientHeight: 700 }) as HTMLElement,
+        contentSize: () => ({ width: 1000, height: 400 }),
+      })
+      // scale=1、offsetX=0：endX=1000 → 屏幕位置 1000 > 960（视口 80%），应左移 40px。
+      nowSpy.mockReturnValue(0)
+      canvas.followContentEndX(1000)
+      expect(frame).toBeTypeOf('function')
+      frame?.(0) // progress=0
+      nowSpy.mockReturnValue(1000) // 越过 240ms 时长
+      frame?.(1000) // progress=1 → 终值
+      expect(canvas.offsetX.value).toBe(-40)
+      // 跟随只移动 offsetX，不重新 fit，节点尺寸（scale）保持默认不变。
+      expect(canvas.scale.value).toBe(1)
+    })
+    scope.stop()
+    nowSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps the tree stationary while the tail stays inside the right-edge ratio', () => {
+    const scope = effectScope()
+    scope.run(() => {
+      const canvas = useTreeCanvas({
+        viewport: () => ({ clientWidth: 1200, clientHeight: 700 }) as HTMLElement,
+        contentSize: () => ({ width: 1000, height: 400 }),
+      })
+      // 900 < 960：仍在右侧 20% 留白以内，不移动。
+      canvas.followContentEndX(900)
+      expect(canvas.offsetX.value).toBe(0)
+    })
+    scope.stop()
+  })
+
+  it('does not take over the camera after the user panned', () => {
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      frame = cb
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const scope = effectScope()
+    scope.run(() => {
+      const canvas = useTreeCanvas({
+        viewport: () => ({ clientWidth: 800, clientHeight: 600 }) as HTMLElement,
+        contentSize: () => ({ width: 400, height: 500 }),
+        deferDragCommit: true,
+        threshold: 4,
+      })
+      canvas.onPointerDown({
+        button: 0,
+        pointerId: 1,
+        clientX: 0,
+        clientY: 0,
+        currentTarget: { setPointerCapture: vi.fn() },
+        preventDefault: vi.fn(),
+      } as unknown as PointerEvent)
+      canvas.onPointerMove({ pointerId: 1, clientX: 10, clientY: 0 } as PointerEvent)
+      frame?.(0)
+
+      expect(canvas.userPanned.value).toBe(true)
+      canvas.followContentEndX(2000)
+      expect(canvas.offsetX.value).toBe(0)
+    })
+    scope.stop()
+    vi.unstubAllGlobals()
+  })
+
+  it('places the newest node 20% away from the right edge on load without fitting full width', () => {
+    const fitted = calculateFitTransform({
+      viewport: { width: 1200, height: 700 },
+      content: { width: 800, height: 400 },
+      bounds: { minX: 0, minY: 0, maxX: 800, maxY: 400 },
+      minScale: 0.32,
+      maxScale: 1.6,
+      padding: 18,
+      align: 'right',
+      scale: 1,
+      tailRatio: 0.8,
+    })
+
+    // 固定 scale=1（节点默认尺寸）；最右节点右缘停在视口宽 80% 处，距右缘 20%（240px），
+    // 而不是 fit 铺满全宽或贴右缘。
+    expect(fitted.scale).toBe(1)
+    expect(fitted.x).toBe(160)
+    expect(fitted.x + fitted.scale * 800).toBe(960)
+    expect(1200 - (fitted.x + fitted.scale * 800)).toBe(240)
+  })
+})

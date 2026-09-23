@@ -47,6 +47,10 @@ export interface FitToViewOptions {
   align?: 'center' | 'right'
   /** 内容中心在视口中的垂直比例；节点树默认偏上，给节点下方 hover 内容留空间。 */
   verticalBias?: number
+  /** 固定缩放值：提供后不按内容宽度自适应（节点尺寸不变），仅按 align 做平移对齐。 */
+  scale?: number
+  /** 仅 align='right'：最右节点右缘所在的视口宽度比例（如 0.8 = 距右缘 20%）。缺省贴右缘留 padding。 */
+  tailRatio?: number
 }
 
 export function calculateFitTransform(input: {
@@ -59,19 +63,27 @@ export function calculateFitTransform(input: {
   padding: number
   align?: FitToViewOptions['align']
   verticalBias?: number
+  /** 固定缩放值：提供后跳过内容自适应，节点尺寸保持不变。 */
+  scale?: number
+  /** 仅 align='right'：最右节点右缘所在的视口宽度比例。 */
+  tailRatio?: number
 }): CanvasTransform {
   const { viewport, content, focus, minScale, maxScale, padding } = input
   const bounds = input.bounds ?? { minX: 0, minY: 0, maxX: content.width, maxY: content.height }
   const availableWidth = Math.max(1, viewport.width - padding * 2)
   const availableHeight = Math.max(1, viewport.height - padding * 2)
   const idealScale = Math.min(1, availableWidth / content.width, availableHeight / content.height)
-  const scale = Math.min(maxScale, Math.max(minScale, idealScale))
+  const scale = input.scale ?? Math.min(maxScale, Math.max(minScale, idealScale))
   const scaledWidth = content.width * scale
   const scaledHeight = content.height * scale
   const fitsWidth = scaledWidth <= availableWidth
   const fitsHeight = scaledHeight <= availableHeight
   let x: number
-  if (input.align === 'right') x = viewport.width - padding - bounds.maxX * scale
+  if (input.align === 'right')
+    x =
+      input.tailRatio === undefined
+        ? viewport.width - padding - bounds.maxX * scale
+        : viewport.width * input.tailRatio - bounds.maxX * scale
   else if (fitsWidth) x = (viewport.width - scaledWidth) / 2 - bounds.minX * scale
   else x = viewport.width / 2 - (focus?.x ?? (bounds.minX + bounds.maxX) / 2) * scale
   const y = fitsHeight
@@ -123,6 +135,8 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
   panToElement: (el: Element, align?: 'center' | 'bottom') => void
   panToPoint: (point: CanvasPoint, align?: 'center' | 'bottom') => void
   followContentEnd: (endY: number) => void
+  /** 横向末尾跟随：内容右端越过视口右侧 edgeRatio 警戒线时整体左移，保持缩放不变。 */
+  followContentEndX: (endX: number, edgeRatio?: number) => void
   worldToScreen: (point: CanvasPoint) => CanvasPoint
   screenToWorld: (point: CanvasPoint) => CanvasPoint
   consumeClickAfterDrag: () => boolean
@@ -209,6 +223,8 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
       padding,
       align: options.align,
       verticalBias: options.verticalBias ?? 0.3,
+      scale: options.scale,
+      tailRatio: options.tailRatio,
     })
     cancelAnimation()
     if (!options.animate) {
@@ -341,6 +357,33 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     }
   }
 
+  /**
+   * 横向末尾跟随：内容右端越过视口右侧 edgeRatio（默认 0.8，即右侧留白 20%）
+   * 警戒线时，保持当前缩放与节点尺寸不变，把整棵树向左移动，让新节点继续从右侧出现。
+   * 与 fitToView 不同：不重新计算 scale，节点不会随数量增多而变小。
+   */
+  function followContentEndX(endX: number, edgeRatio = 0.8): void {
+    if (userPanned.value) return
+    const vp = viewportSize()
+    if (vp.width <= 0) return
+    const endScreenX = offsetX.value + endX * scale.value
+    const rightLimit = vp.width * edgeRatio
+    const delta = rightLimit - endScreenX
+    if (delta >= 0) return
+    cancelAnimation()
+    const startX = offsetX.value
+    const startedAt = performance.now()
+    const duration = 240
+    const step = (now: number): void => {
+      const progress = Math.min(1, Math.max(0, (now - startedAt) / duration))
+      const eased = treeResetProgress(progress)
+      offsetX.value = startX + delta * eased
+      if (progress < 1) animationFrame = requestAnimationFrame(step)
+      else animationFrame = 0
+    }
+    animationFrame = requestAnimationFrame(step)
+  }
+
   function convertWorldToScreen(point: CanvasPoint): CanvasPoint {
     return worldToScreen(point, { scale: scale.value, x: offsetX.value, y: offsetY.value })
   }
@@ -382,6 +425,7 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     panToElement,
     panToPoint,
     followContentEnd,
+    followContentEndX,
     worldToScreen: convertWorldToScreen,
     screenToWorld: convertScreenToWorld,
     consumeClickAfterDrag,
