@@ -337,14 +337,19 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
 }
 
+// 监听源按「原始值」比较（数组字面量每次求值都是新引用，会被 Vue 判为变化，
+// 而 props.node 随运行历史每秒重建 → 监听每秒触发 → 滚动复位把抽屉反复拉回顶部）。
 watch(
-  () => [props.windowId, props.rootChatId, props.node?.nodeId, props.initialSection] as const,
-  async ([, , nodeId, initialSection], previous) => {
+  [
+    () => props.windowId,
+    () => props.rootChatId,
+    () => props.node?.nodeId ?? '',
+    () => props.initialSection ?? '',
+  ],
+  async ([windowId, rootChatId, nodeId, initialSection], previous) => {
     if (!nodeId) return
     const isNewNode =
-      nodeId !== previous?.[2] ||
-      props.windowId !== previous?.[0] ||
-      props.rootChatId !== previous?.[1]
+      nodeId !== previous?.[2] || windowId !== previous?.[0] || rootChatId !== previous?.[1]
     await nextTick()
     closeButtonRef.value?.focus()
     if (bodyRef.value) bodyRef.value.scrollTop = 0

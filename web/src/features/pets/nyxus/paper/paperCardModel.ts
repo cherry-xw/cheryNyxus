@@ -2,6 +2,7 @@ import type { GraphToolCall, SenseToolInfo } from '@/application/backend/public'
 import { formatTime } from '@/utils/formatTime'
 import { createToolRunPresentation } from '@/utils/approvalPresentation'
 import { toSenseNameZh } from '@/utils/senseName'
+import type { TodoItem } from '@/features/agent/renderers/types'
 import type { ExecutionEdge, ExecutionNode, ExecutionFoldMember } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'
 import { terminationDisplay } from '../graph/termination'
@@ -62,6 +63,8 @@ export interface PaperDetailBlock {
   tone?: 'default' | 'magic' | 'success' | 'warning'
   /** 工具参数解析后的字段列表；存在时优先以字段形式渲染。 */
   fields?: FieldView[]
+  /** update_todo 专用：解析后的待办列表；存在时以待办列表形式渲染（替代嵌套字段树）。 */
+  todos?: TodoItem[]
 }
 
 export interface PaperProcessCall {
@@ -279,6 +282,26 @@ function buildProcessStages(
   })
 }
 
+/** update_todo 参数解析：提取 todos 数组（结构非法返回 undefined，回退原展示）。 */
+function parseTodoItems(args: string | undefined): TodoItem[] | undefined {
+  if (!args) return undefined
+  try {
+    const value: unknown = JSON.parse(args)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+    const todos = (value as Record<string, unknown>).todos
+    if (!Array.isArray(todos)) return undefined
+    const items = todos.filter(
+      (item): item is TodoItem =>
+        Boolean(item) &&
+        typeof (item as TodoItem).content === 'string' &&
+        ['pending', 'in_progress', 'completed'].includes((item as TodoItem).status),
+    )
+    return items.length ? items : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function buildPaperGameCard(
   node: ExecutionNode,
   options: {
@@ -327,21 +350,38 @@ export function buildPaperGameCard(
     })
   }
   if (selectedCall?.arguments.trim()) {
-    const argumentFields = parseFieldViews(selectedCall.arguments, '工具参数')
-    details.push({
-      id: `${selectedCall.callId}:arguments`,
-      kind: 'arguments',
-      icon: 'map',
-      title: '具体操作',
-      hint:
-        [toolPresentation?.operationLabel, toolPresentation?.target].filter(Boolean).join('：') ||
-        plainSummary(selectedCall.arguments, '查看工具参数'),
-      content: selectedCall.arguments,
-      format: 'code',
-      ...(argumentFields.length ? { fields: argumentFields } : {}),
-    })
+    // update_todo：以待办列表呈现参数，不落入嵌套字段树。
+    const todoItems =
+      selectedCall.name === 'update_todo' ? parseTodoItems(selectedCall.arguments) : undefined
+    if (todoItems?.length) {
+      details.push({
+        id: `${selectedCall.callId}:arguments`,
+        kind: 'arguments',
+        icon: 'map',
+        title: '具体操作',
+        hint: toolPresentation?.operationLabel || '查看任务计划',
+        content: selectedCall.arguments,
+        format: 'code',
+        todos: todoItems,
+      })
+    } else {
+      const argumentFields = parseFieldViews(selectedCall.arguments, '工具参数')
+      details.push({
+        id: `${selectedCall.callId}:arguments`,
+        kind: 'arguments',
+        icon: 'map',
+        title: '具体操作',
+        hint:
+          [toolPresentation?.operationLabel, toolPresentation?.target].filter(Boolean).join('：') ||
+          plainSummary(selectedCall.arguments, '查看工具参数'),
+        content: selectedCall.arguments,
+        format: 'code',
+        ...(argumentFields.length ? { fields: argumentFields } : {}),
+      })
+    }
   }
-  if (selectedCall?.result?.trim()) {
+  // update_todo 结果只是「任务列表已更新」文本（对话页不展示），待办列表已承载状态，不再单列。
+  if (selectedCall?.result?.trim() && selectedCall.name !== 'update_todo') {
     const resultFields = parseFieldViews(selectedCall.result)
     details.push({
       id: `${selectedCall.callId}:result`,

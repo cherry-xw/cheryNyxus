@@ -12,6 +12,7 @@ import { MOTION } from '@/utils/gsapCore'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import RiskBadge from '@/components/RiskBadge.vue'
 import QuestionAnswerDetail from './QuestionAnswerDetail.vue'
+import TodoRenderer from '@/features/agent/renderers/io/TodoRenderer.vue'
 const props = defineProps<ExecutionNodePopoverControllerProps>()
 const emit = defineEmits<ExecutionNodePopoverControllerEmits>()
 const controller = useExecutionNodePopoverController(props, emit)
@@ -34,6 +35,7 @@ const {
   isSearchTool,
   isSkillTool,
   isSpawnTool,
+  isTodoTool,
   isUserNode,
   nodeContent,
   nodeContentSegments,
@@ -81,6 +83,7 @@ const {
   stepFold,
   terminationDisplay,
   thinkingOpen,
+  todoSenseCall,
   toolBatchUsesTabs,
   toolGlyph,
   toolIcon,
@@ -640,6 +643,11 @@ useGsap(popoverRoot, (context) => {
                 <p v-else class="empty-detail">等待加载技能指令…</p>
               </section>
 
+              <!-- update_todo 专用：待办列表（与对话页同款渲染，popover-tool 包装让 CRT 主题生效） -->
+              <section v-else-if="isTodoTool" class="todo-detail popover-tool">
+                <TodoRenderer v-if="todoSenseCall" :call="todoSenseCall" :default-expanded="true" />
+              </section>
+
               <template v-else>
                 <section
                   v-if="primaryInstruction"
@@ -682,7 +690,8 @@ useGsap(popoverRoot, (context) => {
                   !isReadFileTool &&
                   !isQuestionTool &&
                   !isSearchTool &&
-                  !isSkillTool
+                  !isSkillTool &&
+                  !isTodoTool
                 "
                 class="result-block detail-field"
               >
@@ -710,6 +719,7 @@ useGsap(popoverRoot, (context) => {
                   !isQuestionTool &&
                   !isSearchTool &&
                   !isSkillTool &&
+                  !isTodoTool &&
                   (selectedCall.status === 'pending' || selectedCall.status === 'accepted')
                 "
                 class="empty-detail"

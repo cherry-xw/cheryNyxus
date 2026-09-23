@@ -206,6 +206,66 @@ describe('paper game card model', () => {
     expect(stage).not.toHaveProperty('nodeCardsByCallId')
   })
 
+  it('renders update_todo arguments as a todo list instead of a nested field tree', () => {
+    const result = card(
+      node({
+        kind: 'tool-batch',
+        actor: { kind: 'tool', toolName: 'update_todo' },
+        sourceFact: sourceFact({
+          kind: 'tool-batch',
+          actor: { kind: 'tool', toolName: 'update_todo' },
+          toolCalls: [
+            {
+              callId: 'call-todo',
+              index: 0,
+              name: 'update_todo',
+              arguments:
+                '{"todos":[{"content":"准备材料","status":"completed"},{"content":"起草结论","status":"in_progress"},{"content":"校验发布","status":"pending"}]}',
+              result: '任务列表已更新 (3 项):\n- [x] 准备材料\n- [ ] 起草结论\n- [ ] 校验发布',
+              status: 'completed',
+            },
+          ],
+        }),
+      }),
+    )
+
+    const argumentsDetail = result.details.find((detail) => detail.kind === 'arguments')
+    expect(argumentsDetail?.todos).toEqual([
+      { content: '准备材料', status: 'completed' },
+      { content: '起草结论', status: 'in_progress' },
+      { content: '校验发布', status: 'pending' },
+    ])
+    expect(argumentsDetail?.fields).toBeUndefined()
+    // 结果文本不单列（对话页同款：待办列表已承载状态，避免重复）。
+    expect(result.details.find((detail) => detail.kind === 'result')).toBeUndefined()
+  })
+
+  it('falls back to normal field rendering when update_todo args are not a valid todo list', () => {
+    const result = card(
+      node({
+        kind: 'tool-batch',
+        actor: { kind: 'tool', toolName: 'update_todo' },
+        sourceFact: sourceFact({
+          kind: 'tool-batch',
+          actor: { kind: 'tool', toolName: 'update_todo' },
+          toolCalls: [
+            {
+              callId: 'call-todo-bad',
+              index: 0,
+              name: 'update_todo',
+              arguments: '{"todos":"not-an-array"}',
+              status: 'completed',
+            },
+          ],
+        }),
+      }),
+    )
+
+    const argumentsDetail = result.details.find((detail) => detail.kind === 'arguments')
+    expect(argumentsDetail?.todos).toBeUndefined()
+    expect(argumentsDetail?.fields?.length).toBeGreaterThan(0)
+  })
+
   it('maps returns, delegation, system, and folds to their game panels', () => {
     expect(card(node({ kind: 'return' })).kind).toBe('treasure')
     expect(card(node({ kind: 'dispatch' })).kind).toBe('quest')

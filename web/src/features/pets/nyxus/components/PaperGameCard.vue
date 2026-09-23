@@ -8,6 +8,7 @@ import type {
   PaperProcessStage,
 } from '../paper/paperCardModel'
 import { buildPaperGameCard } from '../paper/paperCardModel'
+import type { TodoItem } from '@/features/agent/renderers/types'
 import PaperPixelIcon from './PaperPixelIcon.vue'
 import ToolFieldTree from './ToolFieldTree.vue'
 
@@ -66,6 +67,8 @@ const activeStage = computed<PaperProcessStage | undefined>(() =>
 const activeDetail = computed(() =>
   props.model.details.find((detail) => detail.id === activeDetailId.value),
 )
+const statusGlyph = (s: TodoItem['status']): string =>
+  s === 'completed' ? '✓' : s === 'in_progress' ? '▣' : '☐'
 const detailPanelId = computed(() => `paper-detail-${safeId(props.model.id)}`)
 const activeStageCallId = computed(() => {
   const stage = activeStage.value
@@ -566,6 +569,17 @@ async function copyDetail(): Promise<void> {
         </header>
         <div class="side-card-body">
           <ToolFieldTree v-if="activeDetail.fields?.length" :fields="activeDetail.fields" />
+          <ul v-else-if="activeDetail.todos?.length" class="paper-todo-list">
+            <li
+              v-for="(t, i) in activeDetail.todos"
+              :key="i"
+              class="paper-todo-item"
+              :class="`is-${t.status}`"
+            >
+              <span class="glyph" aria-hidden="true">{{ statusGlyph(t.status) }}</span>
+              <span class="text" :class="{ done: t.status === 'completed' }">{{ t.content }}</span>
+            </li>
+          </ul>
           <div
             v-else-if="activeDetail.format === 'markdown'"
             class="markdown-body"

@@ -929,6 +929,49 @@
   gap: 5px;
   margin: 0;
 }
+.paper-todo-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.paper-todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #594025;
+  background: #f3e3ba;
+
+  .glyph {
+    flex-shrink: 0;
+    font-size: var(--paper-font-body);
+    line-height: 1.5;
+  }
+  .text {
+    flex: 1;
+    min-width: 0;
+    color: #302010;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--paper-font-label);
+    line-height: 1.5;
+
+    &.done {
+      color: #8a6a3f;
+      text-decoration: line-through;
+    }
+  }
+  &.is-in_progress .glyph {
+    color: #9a6a00;
+  }
+  &.is-completed .glyph {
+    color: #2f7a2f;
+  }
+}
 .field-row {
   display: grid;
   grid-template-columns: 74px minmax(0, 1fr);
