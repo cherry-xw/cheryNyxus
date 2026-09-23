@@ -109,7 +109,7 @@
 ### 4.1 默认显示（§3.2 契约——只有用户消息 + 最终回复）
 - **用户消息**：actorKind='user' 的节点 → 全文显示 summary（用户消息短，通常不截断）。**v2.8 指令 token 样式**：正文中的 `[[command:/…]]` / `[[role:@…]]` token 经 `splitCommandPrompt`（与对话模式 `MessageBubble` 同源）渲染为样式化小标签（命令=主题金色、角色=蓝），不再裸显示 `[[ ]]` 包裹文本；普通文本保留换行/空格原样展示。
 - **最终回复（T31 修正）**：主 agent 的最终回复权威通道 = **done.finalMessage（即时终态）+ timeline.patch upsert 的 agent-to-user message lean 节点（历史权威）**，同 id upsert 去重（F2）——正文**全文**直接在页面内滚动展示（v1.3 full 渲染，不截断）。**v2.8 起右上角不再有「详情」按钮**（全文已直接展示，按钮冗余；用户提问行同删）——工具调用细节仍由 cluster 小按钮 / 轨迹块点击进入抽屉，信息不丢失。return 节点（direction=child-to-parent）是**子 agent** 回传的投影，用于子任务状态行展开，不是主回复信号。
-- **中间节点**（工具/子任务/思考）：**只显示运行状态行**（⟳ 正在… / ✓ 完成），不显示内容；toolNames 可选显示（如 📎 read_file, write_file）。点击状态行 → node.get 按需拉全文（§4.4）。**v2.8 思考行内折叠**：最终回复的「思考」直接展示在正文行上方，**默认折叠**（▸ 思考，点击展开；文字弱化为 secondary 与正文区分，同详情抽屉 v2.2 交互）；工具节点合并的思考（同一次 LLM 响应并入 tool-batch）仍在抽屉内查看。
+- **中间节点**（工具/子任务/思考）：**只显示运行状态行**（⟳ 正在… / ✓ 完成），不显示内容；`toolNames` 可选显示（如 📎 read_file, write_file），`toolCalls` 轻量列表用于按调用逐个显示同一次 LLM 响应中的多个工具及各自状态。点击状态行 → node.get 按需拉全文（§4.4）。**v2.8 思考行内折叠**：最终回复的「思考」直接展示在正文行上方，**默认折叠**（▸ 思考，点击展开；文字弱化为 secondary 与正文区分，同详情抽屉 v2.2 交互）；工具节点合并的思考（同一次 LLM 响应并入 tool-batch）仍在抽屉内查看。
 - **子任务状态行展开（v0.2 补）**：子 agent 按 T26 折叠规则显示为「⟳ 子任务运行中 / ✓ 子任务完成」状态行；点击展开显示该子 agent 的 lean 节点维度——`direction='parent-to-child'`（派发）与 `direction='child-to-parent'`（回传/return）的 lean 节点列表（各自 summary+orderKey），展开数据来自本地 leanTimeline 过滤（不新发请求）；return 节点的「详情 >」走 node.get。子 agent 的 lean 节点不进入主对话流（仅展开区），主回复信号不变（仍为 done.finalMessage + agent-to-user 节点，见上条）。
 
 ### 4.2 运行中状态

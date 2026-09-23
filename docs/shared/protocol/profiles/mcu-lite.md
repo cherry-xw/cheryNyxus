@@ -173,12 +173,21 @@ interface LeanTimelineNode {
   createdAt: number
   summary: string // content 服务端截断，**字节定义 ≤180B（≈60 中文字符，恰为 OLED 128×64 四行）**（T6①：中文 UTF-8 3B/字符，v1 按 120 字符=378B 实测单节点 578B 超标 1.7 倍，改为字节定义）
   contentLength: number // 全文长度，「展开」入口判据
-  toolNames?: string[] // toolCalls 精简为工具名列表（G3）
+  toolNames?: string[] // 工具中文名/原名摘要（兼容旧客户端）
+  toolCalls?: Array<{ // 同一批次内每个工具调用的轻量元数据
+    callId: string
+    index: number
+    name: string
+    arguments: ''
+    status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
+    childChatId?: string
+    targetChatId?: string
+  }>
   termination?: TerminationFact
 }
 ```
 
-- **砍掉**：content/thinking 全文、runtime、toolCalls 全量、edges、parentNodeId/causationId（legacy）、batchId/branch* 等。
+- **砍掉**：content/thinking 全文、runtime、工具调用的 arguments/result 全文、edges、parentNodeId/causationId（legacy）、batchId/branch* 等。`toolCalls` 只保留每个调用的身份、顺序、名称、状态和子任务关联，供精简工作台逐个显示同一次 LLM 响应中的多个工具；完整参数/结果仍通过 node.get 的 `toolCursor` 按需读取。
 - **归属语义完整保留**：actorKind+actorRoleType+direction 三元组（F1：投影只扁平化不改语义）。
 - **体积预算（T6 实测校准）**：单节点 **300–500B**（summary 60 字符实测 389B）；20 节点页 7.6KB ≤ 16KB 预算达标。
 - edges 不下发（D7）。

@@ -346,17 +346,26 @@ type LeanTimelineNode = {
   createdAt: number
   summary: string               // content 服务端截断，字节定义 ≤180B（预算依据见 mcu-lite-api.md §3.3）
   contentLength: number         // 全文长度；按需拉取（3.6.3）的展开判据
-  toolNames?: string[]          // toolCalls 投影为工具名列表（Actor.kind='tool' 同并入）
+  toolNames?: string[]          // 工具名摘要（Actor.kind='tool' 同并入）
+  toolCalls?: Array<{            // 每个调用的轻量元数据；参数/结果不在首屏下发
+    callId: string
+    index: number
+    name: string
+    arguments: ''
+    status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
+    childChatId?: string
+    targetChatId?: string
+  }>
   termination?: TerminationFact
 }
 ```
 
-**与 TimelineNode 的对应关系**：LeanTimelineNode 是 TimelineNode 的**有损投影**——扁平化 `actor/target` 为 `actorKind/actorRoleType`、砍 `content/thinking` 全文（留 summary+contentLength）、砍 `runtime`/`toolCalls` 全量（留 toolNames）、砍 edges 与 legacy 字段。**归属语义只扁平化不改写**：`actorKind+actorRoleType+direction` 三元组与 §3.1 的 actor/target/direction 机械映射，lite 端（客户端或投影层）禁止从文本、时间邻近或 sourceChatId 推断归属——本条是 §1/§8 反模式在投影侧的延伸。
+**与 TimelineNode 的对应关系**：LeanTimelineNode 是 TimelineNode 的**有损投影**——扁平化 `actor/target` 为 `actorKind/actorRoleType`、砍 `content/thinking` 全文（留 summary+contentLength）、砍 `runtime` 与工具调用的 `arguments/result` 全文（留 `toolNames` 及每个调用的轻量身份/状态元数据）、砍 edges 与 legacy 字段。**归属语义只扁平化不改写**：`actorKind+actorRoleType+direction` 三元组与 §3.1 的 actor/target/direction 机械映射，lite 端（客户端或投影层）禁止从文本、时间邻近或 sourceChatId 推断归属——本条是 §1/§8 反模式在投影侧的延伸。
 
 **投影规则**：
 
 1. **revision/orderKey 语义不变**：snapshot 与 patch 的 revision、knownRevision 短路、缺口全量自愈（§3.5）对 lean 投影同等适用；edges 不投影（conversation 视图顺序 = orderKey 全序），tree/audit 视图不属于 lite 范围。
-2. **conversation 视图降采样**：`visibility='conversation'` 节点逐一映射为 lean 节点（无额外抽样）；`tool-batch`/`spawn`/`tool-group` 不产生独立节点，归并进所属 message 节点的 toolNames。
+2. **conversation 视图降采样**：`visibility='conversation'` 节点逐一映射为 lean 节点（无额外抽样）；`tool-batch`/`spawn`/`tool-group` 不产生独立节点，归并进所属节点的 `toolNames` 与 `toolCalls` 轻量列表。列表必须保留同一批次的全部调用，不能只保留第一个。
 3. **return 节点是子任务完成的唯一权威投影**：lite 连接抑制 role_reply 通知（其与 return 节点无对齐键，靠 childChatId 猜配对违反归属规则）；子完成只经 timeline patch 的 return lean 节点表达——与 §4 child_return/child_output 显式合并规则同源，不在投影层引入第二事实。
 4. **子 chat 事件路由**：子 chat 的 done/staged 全部抑制（最终回复只认 rootChatId 维度 done）；子 turn.started/cancelled/completed 折叠为「子任务运行中」状态，cancelled 要求丢弃对应增量缓冲；**子 run.updated 只驱动该子任务状态行**（「工作态唯一权威信号」限定为 chatId==rootChatId 的 run.updated）；子 error 折叠为子任务失败态（message 原样保留，不当主回复错误展示）；子 accept/rejected 折叠进子任务状态行，子 interrupt 不折叠（G4 审批全量不分根/子）；seq 游标按 chatId 分道。判定规则与完整语义见 mcu-lite-api.md §3.2（唯一维护处）。
 5. **事件白名单**：lite 连接的完整推送裁剪矩阵（原样/投影精简/抑制三分类）以 [mcu-lite-api.md §3.2](../protocol/profiles/mcu-lite.md) 为唯一维护处，本节不重复。

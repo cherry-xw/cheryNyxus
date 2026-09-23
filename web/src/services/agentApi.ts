@@ -783,6 +783,7 @@ export interface GraphToolCall {
   status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
   childChatId?: string
   targetChatId?: string
+  todoPlan?: { planId: string; itemId?: string; index?: number }
   /** 工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
   security?: ToolAuthorizationDto
 }
@@ -849,6 +850,17 @@ export interface TimelineNode {
   /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。brainModel/brainProvider 为溯源快照。 */
   runtime?: RuntimeProvenance
   toolCalls?: GraphToolCall[]
+  todoPlan?: {
+    planId: string
+    items: Array<{
+      itemId: string
+      index: number
+      content: string
+      status: 'pending' | 'in_progress' | 'completed'
+      activeForm?: string
+    }>
+    currentItemId?: string
+  }
   /** 提问类工具（ask_user_question）的回答时间；仅已答/已取消的提问批次存在。
    *  真实等待 = answeredAt − createdAt（工具执行本身是占位秒回）。 */
   answeredAt?: number
