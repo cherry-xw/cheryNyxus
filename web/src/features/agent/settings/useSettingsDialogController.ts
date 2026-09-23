@@ -95,7 +95,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     ? SETTINGS_TAB_BY_SECTION[props.initialSection]
     : agents.settingsSection
       ? SETTINGS_TAB_BY_SECTION[agents.settingsSection]
-      : 'presets'
+      : 'brains'
   const activeTab = ref<TabKey>(initialTab)
   /** 实际已揭示的 Tab；切换时先置空，让骨架屏完成一帧绘制后再挂载目标页。 */
   const renderedTab = ref<TabKey | null>(initialTab)

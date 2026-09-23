@@ -37,9 +37,9 @@ export const SETTINGS_ACTIVE_TAB_KEY = Symbol('settings-active-tab') as Injectio
 >
 
 export const TABS: { key: TabKey; icon: IconInput; label: string; color: string }[] = [
-  // 颜色按彩虹谱依次过渡（红→橙→黄→绿→青→蓝→靛→紫→粉），相邻 tab 色相相邻、逐格渐变
-  { key: 'presets', icon: Package, label: '预设', color: '#ef4444' },
+  // 大脑是首次配置入口，固定放在首位；其余 tab 保持既有顺序与颜色。
   { key: 'brains', icon: BrainCircuit, label: '大脑', color: '#f59e0b' },
+  { key: 'presets', icon: Package, label: '预设', color: '#ef4444' },
   { key: 'senses', icon: Ear, label: '器官', color: '#a3e635' },
   { key: 'skills', icon: Sparkles, label: '技能', color: '#22c55e' },
   { key: 'plugins', icon: Puzzle, label: '组合技', color: '#10b981' },
