@@ -676,6 +676,8 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   )
   type VirtualScrollInstance = {
     scrollToEnd: (behavior?: ScrollBehavior) => void
+    /** 收敛滚动：反复滚到底直到总高度稳定（长列表估算偏差时贴真底）。 */
+    scrollToEndConverged: (maxIter?: number) => Promise<void>
     scrollToIndex: (
       index: number,
       options?: { align?: 'start' | 'center' | 'end'; behavior?: ScrollBehavior },
@@ -820,6 +822,11 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   function scrollToBottom(): void {
     void nextTick(() => virtualScrollRef.value?.scrollToEnd('auto'))
   }
+  /** 滚到真底：长列表条目未量测时总高度偏低，一次性 scrollToEnd 会停在估算底（偏中）。
+   *  走 VirtualScroll 收敛滚动（反复滚到底直到总高度稳定），保证贴齐最后一条消息。 */
+  function scrollToTrueBottom(): void {
+    void nextTick(() => virtualScrollRef.value?.scrollToEndConverged())
+  }
   /** 滚动顶部 / 底部按钮（smooth）。走 scrollToIndex 复用其迭代收敛循环：
    *  动态高度虚拟列表里，scrollToEnd/scrollToOffset 一次性 smooth 滚到底/顶时，滚动过程中新进入
    *  视口的项被 ResizeObserver 量测 → flushMeasurements 的 anchorAdjustment 改写 scrollTop，
@@ -842,9 +849,19 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   }
   // 历史长度变化（流式累积）→ 滚到底
   watch(() => history.value.length, scrollToBottom)
-  // loaded 切 true（首批 staged 回放完成）→ 滚到底
+  // loaded 切 true（首批 staged 回放完成）→ 滚到底；对话模式用收敛滚动贴真底（挂载时数据
+  // 可能尚未就绪，由这里兜底——一次性滚动在估算高度下会偏中）。
   watch(loaded, (v) => {
-    if (v) scrollToBottom()
+    if (!v) return
+    if (props.conversation) void scrollToTrueBottom()
+    else scrollToBottom()
+  })
+  // 对话模式（工作台整屏会话视图）每次重新挂载时列表默认落到底：
+  // 树订阅已把数据灌满（loaded=true / history 非空），上方两条 watch 均不触发（非 immediate），
+  // 若不主动滚动，列表会停在顶部。收敛滚动会等量测完成后贴真底，避免偏中。
+  onMounted(() => {
+    if (!props.conversation) return
+    void scrollToTrueBottom()
   })
   // 宽度拖拽 + 持久化（localStorage，所有面板共享同一 key → 同宽）
   const { panelStyle, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp } =
