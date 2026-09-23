@@ -495,7 +495,7 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                       <MorphIcon
                         class="lite-tool-call-icon"
                         :icon="toolCallIcon(call.name)"
-                        :size="16"
+                        :size="10"
                         :stroke-width="2"
                         :reduced-motion="clusterMorphReducedMotion"
                         spring="snappy"
