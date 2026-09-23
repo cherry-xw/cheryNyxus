@@ -110,7 +110,16 @@ onMounted(() => {
     }
   })
   chart.on('mouseout', () => { if (props.selectedIndex !== undefined) void nextTick(highlight) })
-  chart.on('click', (event) => { if (typeof event.dataIndex === 'number') emit('select', event.dataIndex) })
+  chart.on('click', (event) => {
+    const params = event as { dataIndex?: unknown; offsetX?: unknown; offsetY?: unknown }
+    let index: number | undefined = typeof params.dataIndex === 'number' ? params.dataIndex : undefined
+    if (index === undefined && typeof params.offsetX === 'number' && typeof params.offsetY === 'number') {
+      const converted = chart?.convertFromPixel({ gridIndex: 0 }, [params.offsetX, params.offsetY])
+      const candidate = Array.isArray(converted) ? Number(converted[0]) : NaN
+      if (Number.isFinite(candidate) && candidate >= 0) index = Math.round(candidate)
+    }
+    if (index !== undefined) emit('select', index)
+  })
   observer = new ResizeObserver(() => { chart?.resize() })
   observer.observe(host.value)
   update()

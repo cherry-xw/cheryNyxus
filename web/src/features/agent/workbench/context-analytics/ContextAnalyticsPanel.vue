@@ -54,6 +54,7 @@ function mergeDetail(detail: import('@chery/protocol').TaskUsageDetail): Context
       segment('conversation', '会话与工具结果', '#e8b86a', request.context.conversation),
     ],
     summary: `${request.model} · ${request.provider}`,
+    modelName: request.model,
   }))
   const durationFor = (agentId: string): number | null => {
     const own = requests.filter((request) => request.chatId === agentId)
@@ -221,7 +222,7 @@ defineExpose({ focusClose })
 </template>
 
 <style scoped lang="less">
-.analytics-panel { font-size: 13px; font-weight: 400; position: absolute; z-index: var(--nx-z-drawer); inset: 40px 0 0; display: flex; flex-direction: column; color: var(--nx-text); background: var(--nx-bg); }
+.analytics-panel { font-size: 13px; font-weight: 400; position: absolute; z-index: var(--nx-z-drawer); inset: 40px 0 0 auto; width: clamp(700px, min(960px, 92%), 960px); display: flex; flex-direction: column; container-type: inline-size; color: var(--nx-text); background: var(--nx-bg); border-left: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); box-shadow: -12px 0 28px color-mix(in srgb, var(--nx-text) 22%, transparent); }
 .analytics-head { display: flex; align-items: center; gap: 18px; min-height: 66px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); background: color-mix(in srgb, var(--nx-bg) 90%, var(--nx-text) 5%); }
 .title-block { display: flex; align-items: center; gap: 10px; min-width: 220px; margin-right: auto; }
 .title-block small { color: color-mix(in srgb, var(--nx-text) 52%, transparent); }
@@ -240,6 +241,15 @@ defineExpose({ focusClose })
 .analytics-tabs button.active { color: var(--nx-cyan); border-color: color-mix(in srgb, var(--nx-cyan) 35%, transparent); background: color-mix(in srgb, var(--nx-cyan) 9%, transparent); }
 .analytics-tabs span { margin-left: auto; color: color-mix(in srgb, var(--nx-text) 45%, transparent); font-size: 12px; }
 .analytics-body { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+@container (max-width: 820px) {
+  .analytics-head { align-items: flex-start; flex-wrap: wrap; }
+  .title-block { width: calc(100% - 48px); }
+  .task-summary { order: 3; width: 100%; justify-content: space-between; gap: 8px; }
+  .task-summary div { min-width: 0; }
+  .analytics-tabs { overflow-x: auto; }
+  .analytics-tabs button { flex: none; }
+  .analytics-tabs span { display: none; }
+}
 @media (max-width: 760px) {
   .analytics-head { align-items: flex-start; flex-wrap: wrap; }
   .title-block { width: calc(100% - 48px); }
