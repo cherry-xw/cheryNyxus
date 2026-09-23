@@ -291,10 +291,10 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     else monitorEl.value.scrollTop = rootUi.value.scrollTop
   })
   watch(
-    () => [
-      history.value.nodes.length,
-      history.value.nodes.filter((node) => node.active).length,
-      history.value.running,
+    [
+      () => history.value.nodes.length,
+      () => history.value.nodes.filter((node) => node.active).length,
+      () => history.value.running,
     ],
     scrollToBottom,
   )

@@ -491,12 +491,14 @@ describe('Lite detail lazy pagination', () => {
   })
 
   it('keeps internal payloads out of summaries and exposes accessible detail controls', async () => {
-    const [view, drawer, interactionView, interactionsSource] = await Promise.all([
-      readComponentSource(resolve('src/features/lite/LiteView.vue'), 'utf8'),
-      readComponentSource(resolve('src/features/lite/DetailDrawer.vue'), 'utf8'),
-      readComponentSource(resolve('src/features/lite/LiteInteractionView.vue'), 'utf8'),
-      readComponentSource(resolve('src/features/lite/useLiteInteractions.ts'), 'utf8'),
-    ])
+    const [view, drawer, interactionView, interactionsSource, liteController] =
+      await Promise.all([
+        readComponentSource(resolve('src/features/lite/LiteView.vue'), 'utf8'),
+        readComponentSource(resolve('src/features/lite/DetailDrawer.vue'), 'utf8'),
+        readComponentSource(resolve('src/features/lite/LiteInteractionView.vue'), 'utf8'),
+        readComponentSource(resolve('src/features/lite/useLiteInteractions.ts'), 'utf8'),
+        readComponentSource(resolve('src/features/lite/useLiteViewController.ts'), 'utf8'),
+      ])
 
     // v2026-11：审批/提问交互整体迁入详情抽屉（LiteInteractionView），主视图不再残留面板/交互内部件。
     expect(view).not.toContain('approvalEntries')
@@ -552,6 +554,13 @@ describe('Lite detail lazy pagination', () => {
     expect(drawer).toContain("event.key === 'Escape'")
     expect(drawer).toContain("event.key !== 'Tab'")
     expect(drawer).toContain('aria-modal="true"')
+    // 抽屉滚动复位只应因真实节点/分节变化触发：监听源按原始值比较（数组字面量每次求值都是新引用，
+    // props.node 随运行历史每秒重建 → 监听每秒触发 → 滚动到底被反复拉回顶部，回归防护）。
+    expect(drawer).toContain('() => props.node?.nodeId ?? \'\'')
+    expect(drawer).not.toContain('() => [props.windowId, props.rootChatId, props.node?.nodeId')
+    // 主列表自动滚到底同款监听同样按原始值比较，避免每秒空转触发 scrollToBottom。
+    expect(liteController).toContain('() => history.value.nodes.length')
+    expect(liteController).not.toContain('() => [\n      history.value.nodes.length')
   })
 })
 

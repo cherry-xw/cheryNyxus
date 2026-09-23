@@ -20,6 +20,7 @@ import {
   selectedToolCall,
   toolBatchDetail,
   toolBatchUsesTabs,
+  graphToolCallToSenseCall,
 } from '../graph/toolBatchDetails'
 import { terminationDisplay } from '../graph/termination'
 import {
@@ -299,6 +300,13 @@ export function useExecutionNodePopoverController(
   const isSearchTool = computed(() => selectedCall.value?.name === 'search_codebase')
 
   const isSkillTool = computed(() => selectedCall.value?.name === 'skill')
+
+  const isTodoTool = computed(() => selectedCall.value?.name === 'update_todo')
+
+  /** update_todo 专用：转成对话页待办渲染器（TodoRenderer）所需格式。 */
+  const todoSenseCall = computed(() =>
+    selectedCall.value ? graphToolCallToSenseCall(selectedCall.value) : null,
+  )
 
   const questionArgs = computed(() =>
     isQuestionTool.value ? parseQuestionArgs(selectedCall.value?.arguments) : null,
@@ -670,6 +678,7 @@ export function useExecutionNodePopoverController(
     isSearchTool,
     isSkillTool,
     isSpawnTool,
+    isTodoTool,
     isUserNode,
     nodeContent,
     nodeContentSegments,
@@ -717,6 +726,7 @@ export function useExecutionNodePopoverController(
     stepFold,
     terminationDisplay,
     thinkingOpen,
+    todoSenseCall,
     toolBatchUsesTabs,
     toolGlyph,
     toolIcon,
