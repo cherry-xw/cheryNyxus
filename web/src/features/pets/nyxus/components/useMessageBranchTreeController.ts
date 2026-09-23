@@ -515,6 +515,8 @@ export function useMessageBranchTreeController(
   }))
   const viewportSelectionCamera = shallowRef<ExecutionCamera>(executionCamera.value)
   const VIEWPORT_RETENTION_SAFETY_MARGIN = 160
+  /** 横向节点树右侧警戒线：最右节点屏幕位置超过视口宽度此比例（右侧留白 20%）时整体左移。 */
+  const TREE_TAIL_EDGE_RATIO = 0.8
   const viewportRetentionOverscan = computed(() =>
     Math.max(480, Math.min(960, Math.max(viewportSize.value.width, viewportSize.value.height))),
   )
@@ -1241,7 +1243,20 @@ export function useMessageBranchTreeController(
     }
   }
   function resetLayout(): boolean {
-    if (!canvas.fitToView({ animate: true, duration: 300 })) {
+    // 横向 Signal：复位/切根/折叠切换后保持节点默认尺寸（scale 1），
+    // 最右节点停在视口宽度 TREE_TAIL_EDGE_RATIO（80%）处，即距右缘 20%，
+    // 与运行中新增节点的跟随目标一致；树不 fit 铺满整个页面、节点不缩小。
+    // 其他模式（vertical-classic）继续整树自适应 fit。
+    const horizontal = layout.value.presentation === 'horizontal-signal'
+    if (
+      !canvas.fitToView({
+        animate: true,
+        duration: 300,
+        ...(horizontal
+          ? ({ align: 'right', scale: 1, tailRatio: TREE_TAIL_EDGE_RATIO } as const)
+          : {}),
+      })
+    ) {
       return false
     }
     return true
@@ -1869,6 +1884,26 @@ export function useMessageBranchTreeController(
       () => viewportSize.value.height,
     ],
     () => void nextTick(tryInitialFit),
+    { flush: 'post' },
+  )
+  // 横向 Signal：新节点出现后保持节点尺寸不变（不再重新 fit 缩小整棵树）。
+  // 最右节点越过右侧警戒线时整体左移，让新节点继续从右侧出现。
+  const signalTailRight = computed(() => {
+    if (layout.value.presentation !== 'horizontal-signal') return Number.NEGATIVE_INFINITY
+    let right = Number.NEGATIVE_INFINITY
+    for (const node of layout.value.nodes) {
+      const bounds = node.visualBounds
+      if (bounds) right = Math.max(right, bounds.right)
+    }
+    return right
+  })
+  watch(
+    signalTailRight,
+    (right) => {
+      // 首次进入/切根由 tryInitialFit 负责 fit，横向跟随只在已就绪后接管新增节点。
+      if (right === Number.NEGATIVE_INFINITY || initialFitPending) return
+      canvas.followContentEndX(right, TREE_TAIL_EDGE_RATIO)
+    },
     { flush: 'post' },
   )
   watch(

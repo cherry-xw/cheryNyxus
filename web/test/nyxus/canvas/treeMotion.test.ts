@@ -226,6 +226,36 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('alpha: 0.94 * (1 - phase) * emphasis')
   })
 
+  it('grows the horizontal tree at fixed size and shifts left past the right-edge ratio', async () => {
+    const [controller, canvasSource] = await Promise.all([
+      treeControllerSource(),
+      readComponentSource(
+        resolve('web/src/features/pets/nyxus/composables/useTreeCanvas.ts'),
+        'utf8',
+      ),
+    ])
+
+    // 新增节点不再重新 fit 缩小整棵树，而是保持缩放、越过右侧 20% 警戒线后整体左移。
+    expect(canvasSource).toContain(
+      'function followContentEndX(endX: number, edgeRatio = 0.8): void',
+    )
+    expect(controller).toContain('TREE_TAIL_EDGE_RATIO = 0.8')
+    expect(controller).toContain('canvas.followContentEndX(right, TREE_TAIL_EDGE_RATIO)')
+    expect(controller).toContain(
+      'if (right === Number.NEGATIVE_INFINITY || initialFitPending) return',
+    )
+    // 跟随只作用于横向 Signal；vertical-classic 仍走垂直末尾跟随。
+    expect(controller).toContain(
+      "if (layout.value.presentation !== 'horizontal-signal') return Number.NEGATIVE_INFINITY",
+    )
+    // 初始/复位渲染：横向 Signal 固定节点默认尺寸，最右节点停在视口宽 80%（距右 20%），
+    // 不 fit 铺满全宽、不贴右缘。
+    expect(controller).toContain("align: 'right', scale: 1, tailRatio: TREE_TAIL_EDGE_RATIO")
+    expect(controller).toContain(
+      "const horizontal = layout.value.presentation === 'horizontal-signal'",
+    )
+  })
+
   it('uses a 120px head-tail pulse on one fixed 2.4s generation interval', () => {
     expect(EXECUTION_EDGE_PULSE_SPEED).toBe(100)
     expect(EXECUTION_EDGE_PULSE_INTERVAL).toBe(2.4)
