@@ -1,5 +1,6 @@
 import { handleChatArchive, handleArchiveList, handleChatDelete } from './archive.js'
 import { registerUsageHandlers } from './usage.js'
+import { createHash } from 'node:crypto'
 export { handleChatDelete } from './archive.js'
 import type { HandlerContext } from '../message/router.js'
 import {
@@ -33,6 +34,8 @@ import {
   type TimelineActor,
   type ExecutionEdgeFact,
   type GraphToolCall,
+  type TodoPlanItem,
+  type TodoPlanSnapshot,
   type ActiveRunFact,
   type RootTimelineSnapshot,
   type ChatSessionSnapshotData,
@@ -910,15 +913,84 @@ export function buildRootTimeline(
       a.node.sourceMessageId!.localeCompare(b.node.sourceMessageId!) ||
       a.rank - b.rank,
   )
+
+  // update_todo 的入参不要求模型提供 ID。这里在 canonical timeline 的唯一重建入口
+  // 生成确定性身份：同一 callId 产生同一 planId，同一 Agent 下相同内容的任务项保持
+  // 同一 itemId。计划按 sourceChatId 隔离，避免主/子 Agent 的清单互相覆盖。
+  const digest = (value: string): string =>
+    createHash('sha256').update(value).digest('hex').slice(0, 20)
+  const todoPlanFromCall = (sourceChatId: string, call: GraphToolCall): TodoPlanSnapshot | undefined => {
+    if (call.name !== 'update_todo') return undefined
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(call.arguments)
+    } catch {
+      return undefined
+    }
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { todos?: unknown }).todos)) {
+      return undefined
+    }
+    const occurrenceByContent = new Map<string, number>()
+    const items: TodoPlanItem[] = []
+    for (const [index, raw] of (parsed as { todos: unknown[] }).todos.entries()) {
+      if (!raw || typeof raw !== 'object') continue
+      const item = raw as { content?: unknown; status?: unknown; activeForm?: unknown }
+      if (
+        typeof item.content !== 'string' ||
+        (item.status !== 'pending' && item.status !== 'in_progress' && item.status !== 'completed')
+      ) {
+        continue
+      }
+      const occurrence = occurrenceByContent.get(item.content) ?? 0
+      occurrenceByContent.set(item.content, occurrence + 1)
+      items.push({
+        itemId: digest(`${sourceChatId}:todo-item:${item.content}:${occurrence}`),
+        index,
+        content: item.content,
+        status: item.status,
+        ...(typeof item.activeForm === 'string' ? { activeForm: item.activeForm } : {}),
+      })
+    }
+    const planId = digest(`${sourceChatId}:todo-plan:${call.callId}`)
+    const currentItemId = items.find((item) => item.status === 'in_progress')?.itemId
+    return { planId, items, ...(currentItemId ? { currentItemId } : {}) }
+  }
+
+  for (const candidate of candidates) {
+    const sourceChatId = candidate.node.sourceChatId
+    let nodePlan: TodoPlanSnapshot | undefined
+    for (const call of candidate.node.toolCalls ?? []) {
+      const plan = todoPlanFromCall(sourceChatId, call)
+      if (!plan) continue
+      nodePlan = plan
+      const current = plan.items.find((item) => item.itemId === plan.currentItemId)
+      call.todoPlan = {
+        planId: plan.planId,
+        ...(current ? { itemId: current.itemId, index: current.index } : {}),
+      }
+    }
+    // 计划快照只挂在产生 update_todo 的消息/工具批次上。后续普通响应
+    // 仍属于同一执行过程，但不能冒充任务计划的锚点。显式写入 undefined
+    // 也用于清除上一版错误地遗留在普通响应节点上的旧归属。
+    candidate.node.todoPlan = nodePlan
+  }
+
   const persistedById = new Map<string, TimelineNode>()
   // 回填改图检测：懒回填（spawn 边/return-continuation 等）不经消息写路径，不会自然推进
   // timeline_revision。图变更必须 bump（见返回前），否则客户端同 revision 丢弃增量 patch，
   // knownRevision 短路会冻结残缺快照（不变量：图变更 ⇒ revision 前进）。
   const nodeIdsBefore = new Set(listExecutionNodes(rootChatId).map((node) => node.id))
+  const nodesBeforeById = new Map(listExecutionNodes(rootChatId).map((node) => [node.id, node]))
   let graphMutated = false
   for (const candidate of candidates) {
     const persisted = upsertExecutionNode(candidate.node) as unknown as TimelineNode
-    if (!nodeIdsBefore.has(persisted.id)) graphMutated = true
+    if (
+      !nodeIdsBefore.has(persisted.id) ||
+      JSON.stringify(nodesBeforeById.get(persisted.id)?.todoPlan) !== JSON.stringify(persisted.todoPlan) ||
+      JSON.stringify(nodesBeforeById.get(persisted.id)?.toolCalls) !== JSON.stringify(persisted.toolCalls)
+    ) {
+      graphMutated = true
+    }
     persistedById.set(persisted.id, persisted)
     if (persisted.kind === 'tool-batch') {
       for (const call of persisted.toolCalls ?? []) {

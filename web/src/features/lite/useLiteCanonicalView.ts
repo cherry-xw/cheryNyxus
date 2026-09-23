@@ -27,6 +27,7 @@ export interface LeanTimelineNode {
   summary: string
   contentLength: number
   toolNames?: string[]
+  todoPlan?: TimelineNode['todoPlan']
   termination?: Record<string, unknown>
 }
 
@@ -50,6 +51,7 @@ function toLeanNode(node: TimelineNode): LeanTimelineNode {
     // Internal/tool rows remain name-only in Lite. Full content stays in the
     // canonical timeline and is requested by the existing detail affordance.
     summary: isConversationMessage ? node.content : toolNames?.join(', ') || node.kind,
+    ...(node.todoPlan ? { todoPlan: node.todoPlan } : {}),
     contentLength: node.content.length,
     ...(toolNames?.length ? { toolNames } : {}),
     ...(node.termination

@@ -138,6 +138,18 @@ type TimelineNode = {
   createdAt: number
   updatedAt: number
   status: 'committed' | 'revoked'
+  /** update_todo 生效计划的稳定归属；旧节点可以没有。 */
+  todoPlan?: {
+    planId: string
+    currentItemId?: string
+    items: Array<{
+      itemId: string
+      index: number
+      content: string
+      status: 'pending' | 'in_progress' | 'completed'
+      activeForm?: string
+    }>
+  }
 }
 ```
 
@@ -148,6 +160,7 @@ type TimelineNode = {
 - 子 agent 输出：`actor=子 agent`，`direction='agent-to-user'`；群聊视图也可按 `child-to-parent` 展示其回传节点。
 - 子 agent 回传：`kind='return'`，`actor=子 agent`，`target=父 agent`，`direction='child-to-parent'`。
 - 工具结果：作为所属 assistant 节点的 `toolCalls[].result`；只有 `view='audit'` 时才产生独立 `tool-group` 节点。
+- `todoPlan` 由后端在 canonical timeline 重建时生成，不要求模型在 `update_todo` 参数中填写身份。`planId` 由实际工具调用身份确定，`itemId` 由 Agent、任务内容和重复序号确定；每个 `sourceChatId` 独立维护当前计划。`GraphToolCall.todoPlan` 指向该次更新的当前项，节点的 `todoPlan` 保留当时完整清单，缺少该字段的旧历史仍可正常读取。
 
 头像、角色名、方向徽章都只从 `actor/target/direction` 读取。UI 不应根据 `sourceChatId === rootChatId` 等规则自行判断。
 

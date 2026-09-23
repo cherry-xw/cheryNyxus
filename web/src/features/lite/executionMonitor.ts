@@ -371,6 +371,7 @@ export interface LiteRunNode {
   toolType?: LiteToolType
   /** 工具节点：同一次 LLM 响应的逐个工具调用（cluster 组内逐工具展示 + 逐条状态线）。 */
   toolCalls?: LiteToolCallItem[]
+  todoPlan?: TimelineNode['todoPlan']
 }
 
 /** cluster 组内逐个展示的工具调用子项（同一次 LLM 响应的多个工具调用）。 */
@@ -650,6 +651,7 @@ export function projectLiteHistory(
         : {}),
       ...(kind === 'tool' ? { toolType } : {}),
       ...(kind === 'tool' ? { toolCalls: toolCallItems } : {}),
+      ...(node.todoPlan ? { todoPlan: node.todoPlan } : {}),
       status: 'completed',
       active: false,
       startedAt: node.createdAt,

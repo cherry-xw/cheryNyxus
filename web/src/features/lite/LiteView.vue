@@ -12,6 +12,7 @@ import { useInstructionSuggestions } from '../agent/composer/useInstructionSugge
 import InstructionSuggestions from '../agent/composer/InstructionSuggestions.vue'
 import MediaThumbStrip from '../agent/composer/media/MediaThumbStrip.vue'
 import { splitCommandPrompt } from '../agent/composables/commands'
+import TaskPlanMarker from '../agent/task-plan/TaskPlanMarker.vue'
 const props = defineProps<LiteViewControllerProps>()
 const controller = useLiteViewController(props)
 const {
@@ -98,6 +99,28 @@ const {
   userSegments,
   visibleRows,
 } = controller
+
+const activeLitePlan = computed(() => {
+  if (monitor.value.status !== 'running' && monitor.value.status !== 'waiting') return undefined
+  const planNode = history.value.nodes
+    .filter((node) => node.sourceChatId === activeLane.value && node.todoPlan)
+    .at(-1)
+  return planNode?.todoPlan
+})
+const activeLitePlanNodeId = computed(() => {
+  if (!activeLitePlan.value) return undefined
+  return (
+    history.value.nodes
+      .slice()
+      .reverse()
+      .find((node) => node.sourceChatId === activeLane.value && node.kind === 'tool' && node.active)
+      ?.nodeId ??
+    history.value.nodes
+      .slice()
+      .reverse()
+      .find((node) => node.sourceChatId === activeLane.value && node.todoPlan)?.nodeId
+  )
+})
 
 const mediaKinds = [
   { kind: 'image', label: '图片' },
@@ -475,9 +498,8 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                   </button>
                   <!-- 工具 icon 组：同一次 LLM 响应的逐个工具调用（无边框并排，每工具底部一条状态线） -->
                   <template v-if="node.kind === 'tool' && node.toolCalls?.length">
-                    <button
-                      v-for="call in node.toolCalls"
-                      :key="call.callId"
+                    <span v-for="call in node.toolCalls" :key="call.callId" class="lite-tool-call-wrap">
+                      <button
                       type="button"
                       class="lite-tool-call"
                       :class="{
@@ -505,8 +527,14 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                         class="lite-tool-call-status"
                         :data-status="toolCallStatus(call.status)"
                         aria-hidden="true"
+                        />
+                      </button>
+                      <TaskPlanMarker
+                        v-if="activeLitePlan && activeLitePlanNodeId === node.nodeId && call === node.toolCalls[0]"
+                        :plan="activeLitePlan"
+                        variant="lite"
                       />
-                    </button>
+                    </span>
                   </template>
                 </div>
               </template>

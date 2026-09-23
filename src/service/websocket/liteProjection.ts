@@ -104,6 +104,30 @@ export interface LeanTimelineNode {
   summary: string
   contentLength: number
   toolNames?: string[]
+  /**
+   * 工具调用的轻量元数据：精简工作台需要按调用逐个显示图标和状态。
+   * arguments/result 仍不下发，完整内容继续通过 node.get 的 toolCursor 按需读取。
+   */
+  toolCalls?: Array<{
+    callId: string
+    index: number
+    name: string
+    arguments: string
+    status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
+    childChatId?: string
+    targetChatId?: string
+  }>
+  todoPlan?: {
+    planId: string
+    currentItemId?: string
+    items: Array<{
+      itemId: string
+      index: number
+      content: string
+      status: 'pending' | 'in_progress' | 'completed'
+      activeForm?: string
+    }>
+  }
   termination?: Record<string, unknown>
 }
 
@@ -156,6 +180,68 @@ function projectTimelineNode(node: UnknownRecord): LeanTimelineNode | undefined 
     })
     .filter((name): name is string => !!name)
   if (toolNames.length > 0) lean.toolNames = toolNames
+  // 只保留每个调用的身份、顺序、名称和状态。此前这里只保留 toolNames，
+  // 精简前端无法从一个摘要恢复同一批次中的多个调用，最终只显示一个工具。
+  const projectedToolCalls = toolCalls.flatMap((call, fallbackIndex) => {
+    const record = asRecord(call)
+    if (!record || typeof record.name !== 'string') return []
+    const callId = typeof record.callId === 'string' ? record.callId : ''
+    if (!callId) return []
+    const status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error' =
+      record.status === 'pending' ||
+      record.status === 'accepted' ||
+      record.status === 'rejected' ||
+      record.status === 'completed' ||
+      record.status === 'error'
+        ? record.status
+        : 'pending'
+    return [
+      {
+        callId,
+        index: typeof record.index === 'number' ? record.index : fallbackIndex,
+        name: record.name,
+        // 保持 TimelineNode 的字段形状；真实参数和结果只走 node.get。
+        arguments: '',
+        status,
+        ...(typeof record.childChatId === 'string' ? { childChatId: record.childChatId } : {}),
+        ...(typeof record.targetChatId === 'string' ? { targetChatId: record.targetChatId } : {}),
+      },
+    ]
+  })
+  if (projectedToolCalls.length > 0) {
+    lean.toolCalls = projectedToolCalls.sort(
+      (a, b) => a.index - b.index || a.callId.localeCompare(b.callId),
+    )
+  }
+  const todoPlan = asRecord(node.todoPlan)
+  const rawItems = Array.isArray(todoPlan?.items) ? todoPlan.items : []
+  const items = rawItems.flatMap((item) => {
+    const record = asRecord(item)
+    if (
+      typeof record?.itemId !== 'string' ||
+      typeof record.index !== 'number' ||
+      typeof record.content !== 'string' ||
+      (record.status !== 'pending' && record.status !== 'in_progress' && record.status !== 'completed')
+    ) {
+      return []
+    }
+    return [{
+      itemId: record.itemId,
+      index: record.index,
+      content: record.content,
+      status: record.status as 'pending' | 'in_progress' | 'completed',
+      ...(typeof record.activeForm === 'string' ? { activeForm: record.activeForm } : {}),
+    }]
+  })
+  if (typeof todoPlan?.planId === 'string' && items.length > 0) {
+    lean.todoPlan = {
+      planId: todoPlan.planId,
+      items,
+      ...(typeof todoPlan.currentItemId === 'string'
+        ? { currentItemId: todoPlan.currentItemId }
+        : {}),
+    }
+  }
   const termination = asRecord(node.termination)
   if (termination) lean.termination = termination
   return lean

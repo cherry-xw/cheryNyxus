@@ -108,6 +108,20 @@
     flex: 1 1 auto;
   }
 
+  .title-task-plan-anchor {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+  }
+
+  .title-task-plan-anchor .task-plan-marker.is-conversation {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 5px);
+    left: 0;
+  }
+
   .title {
     // 标题抢占剩余空间并先 ellipsis（flex-basis 0 + flex:1 + overflow ellipsis），
     // 让过长标题截断而非推挤右侧操作组（6a）。

@@ -7,6 +7,7 @@ import {
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import { computed, ref, toRef } from 'vue'
 import { useTreePointerHighlight } from './useTreePointerHighlight'
+import TreeTaskPlanMarker from '@/features/agent/task-plan/TreeTaskPlanMarker.vue'
 const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), {
   foldMode: 'partial',
   layoutMode: 'timeline',
@@ -101,6 +102,10 @@ const {
   viewportRef,
   viewportSize,
   visibleInteractiveNodes,
+  taskPlanMarkerNodes,
+  taskPlanForNode,
+  taskPlanMarkerStyle,
+  actorLabel,
 } = controller
 const pointerHighlightRef = ref<HTMLElement | null>(null)
 useTreePointerHighlight({
@@ -248,6 +253,14 @@ defineExpose({ resetLayout: controller.resetLayout })
       <div ref="pixiMountRef" class="tree-gpu-surface" role="img" aria-label="任务执行节点图" />
       <div class="tree-overlay" aria-live="polite">
         <div ref="pointerHighlightRef" class="tree-pointer-highlight" aria-hidden="true" />
+        <TreeTaskPlanMarker
+          v-for="node in taskPlanMarkerNodes"
+          :key="`${node.id}:todo-plan`"
+          :plan="taskPlanForNode(node)!"
+          :agent-label="actorLabel(node)"
+          class="tree-task-plan-marker"
+          :style="taskPlanMarkerStyle(node)"
+        />
         <div class="gpu-node-hit-layer">
           <button
             v-for="node in visibleInteractiveNodes"

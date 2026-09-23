@@ -192,6 +192,20 @@ const timelineNodeSchema = z.looseObject({
   createdAt: z.number(),
   updatedAt: z.number(),
   status: z.enum(['committed', 'revoked']),
+  todoPlan: z
+    .looseObject({
+      planId: id,
+      items: z.array(
+        z.looseObject({
+          itemId: id,
+          index: nonNegativeInt,
+          content: z.string(),
+          status: z.enum(['pending', 'in_progress', 'completed']),
+        }),
+      ),
+      currentItemId: id.optional(),
+    })
+    .optional(),
 })
 
 const generationSchema = z.looseObject({
