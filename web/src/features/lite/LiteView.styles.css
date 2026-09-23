@@ -501,6 +501,7 @@
   border-style: dashed;
   border-color: var(--el-border-color);
   background: color-mix(in srgb, var(--el-fill-color-lighter) 55%, transparent);
+  overflow: visible;
 }
 .lite-history-row[data-status='failed'] {
   border-color: var(--el-color-danger-light-5);
@@ -1187,4 +1188,16 @@
 }
 .lite-reference-chip {
   max-width: 100%;
+}
+.lite-tool-call-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.lite-tool-call-wrap .task-plan-marker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 100%;
 }

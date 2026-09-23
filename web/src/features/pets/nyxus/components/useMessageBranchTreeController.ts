@@ -95,7 +95,7 @@ import {
   visibleItemsKey,
   type ExecutionCamera,
 } from '../renderer/executionViewport'
-import type { RootTimelineSnapshot } from '@/application/backend/public'
+import type { RootTimelineSnapshot, TimelineNode } from '@/application/backend/public'
 import { buildPaperStack, type PaperStackEntry } from '../paper/paperStackModel'
 
 export type MessageBranchTreeControllerProps = {
@@ -273,6 +273,10 @@ export interface MessageBranchTreeController {
   viewportRef: Ref<HTMLElement | null>
   viewportSize: Ref<{ width: number; height: number }>
   visibleInteractiveNodes: ComputedRef<PositionedExecutionNode[]>
+  taskPlanMarkerNodes: ComputedRef<PositionedExecutionNode[]>
+  taskPlanForNode: (node: PositionedExecutionNode) => NonNullable<TimelineNode['todoPlan']> | undefined
+  taskPlanMarkerStyle: (node: PositionedExecutionNode) => Record<string, string>
+  actorLabel: (node: ExecutionNode) => string
 }
 export function useMessageBranchTreeController(
   props: MessageBranchTreeControllerProps,
@@ -552,6 +556,42 @@ export function useMessageBranchTreeController(
       (node) => isInteractiveNode(node) || (!props.staticView && node.kind === 'start'),
     ),
   )
+  function taskPlanForNode(
+    node: PositionedExecutionNode,
+  ): NonNullable<TimelineNode['todoPlan']> | undefined {
+    if (node.sourceFact?.todoPlan) return node.sourceFact.todoPlan
+    return node.fold?.projectionNodes
+      .filter((member) => !!member.sourceFact?.todoPlan)
+      .sort((a, b) => (b.orderKey ?? -Infinity) - (a.orderKey ?? -Infinity))[0]
+      ?.sourceFact?.todoPlan
+  }
+  const taskPlanMarkerNodes = computed(() => {
+    const latestByChat = new Map<string, { node: PositionedExecutionNode; orderKey: number }>()
+    for (const node of layout.value.nodes) {
+      let planOrder = node.orderKey ?? -Infinity
+      const plan = taskPlanForNode(node)
+      if (!plan) continue
+      if (!node.sourceFact?.todoPlan) {
+        planOrder = node.fold?.projectionNodes
+          .filter((member) => !!member.sourceFact?.todoPlan)
+          .sort((a, b) => (b.orderKey ?? -Infinity) - (a.orderKey ?? -Infinity))[0]?.orderKey ?? planOrder
+      }
+      const previous = latestByChat.get(node.sourceChatId)
+      if (!previous || planOrder > previous.orderKey) {
+        latestByChat.set(node.sourceChatId, { node, orderKey: planOrder })
+      }
+    }
+    const visible = new Set(visibleInteractiveNodes.value.map((node) => node.id))
+    return [...latestByChat.values()].map(({ node }) => node).filter((node) => visible.has(node.id))
+  })
+  function taskPlanMarkerStyle(node: PositionedExecutionNode): Record<string, string> {
+    const bounds = node.visualBounds
+    const position = canvas.worldToScreen({
+      x: bounds?.left ?? node.x - 52,
+      y: node.y,
+    })
+    return { left: `${position.x}px`, top: `${position.y - 8}px` }
+  }
   function dragExecutionCamera(transform: CanvasTransform): ExecutionCamera {
     return { ...transform, width: viewportSize.value.width, height: viewportSize.value.height }
   }
@@ -2051,5 +2091,9 @@ export function useMessageBranchTreeController(
     viewportRef,
     viewportSize,
     visibleInteractiveNodes,
+    taskPlanMarkerNodes,
+    taskPlanForNode,
+    taskPlanMarkerStyle,
+    actorLabel,
   }
 }

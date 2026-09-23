@@ -1936,6 +1936,26 @@ export type TimelineActor =
 export type TimelineDirection =
   'user-to-agent' | 'agent-to-user' | 'parent-to-child' | 'child-to-parent' | 'internal'
 
+export interface TodoPlanItem {
+  itemId: string
+  index: number
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  activeForm?: string
+}
+
+export interface TodoPlanSnapshot {
+  planId: string
+  items: TodoPlanItem[]
+  currentItemId?: string
+}
+
+export interface TodoPlanRef {
+  planId: string
+  itemId?: string
+  index?: number
+}
+
 export interface GraphToolCall {
   callId: string
   index: number
@@ -1945,6 +1965,8 @@ export interface GraphToolCall {
   status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
   childChatId?: string
   targetChatId?: string
+  /** update_todo 及其所属任务项的稳定归属；旧历史缺省。 */
+  todoPlan?: TodoPlanRef
   /** 工具调用的安全授权判定；按 callId 独立保存，旧节点可省略。 */
   security?: ToolAuthorization
 }
@@ -1966,6 +1988,8 @@ export interface TimelineNode {
   /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。 */
   runtime?: RuntimeProvenance
   toolCalls?: GraphToolCall[]
+  /** 该节点发生时该 Agent 生效的完整任务计划；旧历史缺省。 */
+  todoPlan?: TodoPlanSnapshot
   /** 提问类工具（ask_user_question）的回答时间；仅已答/已取消的提问批次存在。
    *  真实等待 = answeredAt − createdAt（工具执行本身是占位秒回）。 */
   answeredAt?: number

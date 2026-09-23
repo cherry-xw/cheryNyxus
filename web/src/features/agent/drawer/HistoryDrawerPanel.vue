@@ -4,6 +4,7 @@ import {
   type HistoryDrawerPanelControllerProps,
 } from './useHistoryDrawerPanelController'
 import UserFeedbackCard from '@/features/feedback/UserFeedbackCard.vue'
+import TaskPlanMarker from '@/features/agent/task-plan/TaskPlanMarker.vue'
 const props = defineProps<HistoryDrawerPanelControllerProps>()
 const controller = useHistoryDrawerPanelController(props)
 const {
@@ -73,6 +74,7 @@ const {
   subPetName,
   subPetType,
   taskTimeline,
+  taskPlan,
   titleText,
   userAvatarCaption,
   userMarks,
@@ -136,16 +138,24 @@ const {
             设为主流程
           </button>
         </el-tooltip>
-        <button
-          type="button"
-          class="copy-id-btn"
-          :class="{ copied }"
-          :title="copied ? '已复制' : '复制 ID'"
-          aria-label="复制 chatId"
-          @click="copyChatId"
-        >
-          <span class="copy-glyph">{{ copied ? '✓' : '📋' }}</span>
-        </button>
+        <span class="title-task-plan-anchor">
+          <button
+            type="button"
+            class="copy-id-btn"
+            :class="{ copied }"
+            :title="copied ? '已复制' : '复制 ID'"
+            aria-label="复制 chatId"
+            @click="copyChatId"
+          >
+            <span class="copy-glyph">{{ copied ? '✓' : '📋' }}</span>
+          </button>
+          <TaskPlanMarker
+            v-if="taskPlan"
+            :plan="taskPlan"
+            variant="conversation"
+            :compact="!callerIsMaster"
+          />
+        </span>
       </div>
       <div v-if="isTop" class="head-actions">
         <el-tooltip content="折叠工具调用为标签（hover 标签查看详情）" placement="bottom" :show-after="150" :hide-after="0">

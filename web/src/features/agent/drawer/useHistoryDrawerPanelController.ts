@@ -45,6 +45,7 @@ import type { GenerationPayload } from '@/application/chat/public'
 import { useChatSessionData, toHistoryItem } from '@/application/chat/public'
 import { detailBranchContextNodes } from './detailBranchContext'
 import { resolveHistoryTaskId } from './historyBranchSelection'
+import type { TaskPlan } from '@/features/agent/task-plan/model'
 
 export type HistoryDrawerPanelControllerProps = {
   /** 本面板要展示的 chat。 */
@@ -229,6 +230,13 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   }
   const taskBranches = ref<ConversationBranchSummary[]>([])
   const taskTimeline = ref<RootTimelineSnapshot>()
+  const taskPlan = computed<TaskPlan | undefined>(() => {
+    const liveNodes = chatSessions.rootTimeline(props.chatId, 'conversation')?.nodes ?? []
+    const nodes = liveNodes.length > 0 ? liveNodes : taskTimeline.value?.nodes ?? []
+    return nodes
+      .filter((node) => node.sourceChatId === props.chatId && node.todoPlan)
+      .sort((a, b) => b.orderKey - a.orderKey)[0]?.todoPlan
+  })
   /** 分支摘要注入源：对话模式走 props（工作台 taskTimeline.branches，按窗口隔离）；
    *  抽屉路径走全局 historyDrawerTaskBranches（overlay 抽屉分支显示优化）。 */
   const injectedBranches = computed(() =>
@@ -1110,6 +1118,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     subPetName,
     subPetType,
     taskTimeline,
+    taskPlan,
     titleText,
     userAvatarCaption,
     userMarks,

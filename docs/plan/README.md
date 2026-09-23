@@ -6,6 +6,7 @@
 | ------------------------------------------------------------------------------ | ---------- | -------------------------------------------------------------- |
 | [万象台](wanxiangtai/README.md)                                                | 规划中     | 多 Agent 团队协作、独立工作区、交付集成与桌面呈现              |
 | [上下文统计、待办进度与连续消息交互](conversation-observability-and-input/README.md) | 规划中 | 基于现有实现的设计初稿：上下文组成与增长、To-do 三模式展示、连续消息采用时机与状态 |
+| [工作台任务进度标记](workbench-todo-progress/README.md) | 执行中 | 精确任务归属协议，以及节点树、对话、精简三种工作台模式的 To-do 进度标记 |
 | [工作台文件引用与 Terminal](workbench-files-terminal/README.md) | 待综合验证 | 三种工作台模式统一输入、工作区文件列表与只读查看、文件引用执行、本机与 SSH Terminal |
 | [独立后端与中转网关](relay-gateway/README.md) | 执行中 | 独立后端、rathole 中转、Pocket ID 与密码双认证、动态端口、本地管理器、Electron 前端化和子路径部署 |
 | [MiniMax 多模态图片能力对接](minimax-multimodal/README.md) | 规划中 | MiniMax 图片理解/生成接入：上传、展示、对话携带、多轮上下文保留与回溯的完整链路 |
