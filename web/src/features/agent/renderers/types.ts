@@ -166,6 +166,8 @@ import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 export interface RendererProps {
   /** 原始调用记录（含 name/args/result/status） */
   call: SenseCallRecord
+  /** 当前会话 id，用于按需读取该会话实际启用的工具字段 schema。 */
+  chatId?: string
   /** 解析后的参数（类型安全，由分发器预处理） */
   parsedArgs?: unknown
   /** DOM ID（用于可访问性） */

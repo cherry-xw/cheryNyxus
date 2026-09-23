@@ -13,6 +13,7 @@
  */
 import { computed, ref } from 'vue'
 import type { RendererProps, SearchCodebaseArgs } from '../types'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
@@ -107,7 +108,12 @@ const fallback = computed(() => {
   <div class="search-box" :class="statusClass">
     <div class="search-head">
       <span class="search-icon" aria-hidden="true">🔍</span>
-      <span class="search-name">搜索代码库</span>
+      <ToolDescriptionDisclosure
+        class="search-name"
+        tool-name="搜索代码库"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <slot name="risk" />
       <span class="search-mode">{{ modeLabel }}</span>
       <span class="search-status" aria-hidden="true">{{ statusGlyph }}</span>
@@ -179,6 +185,12 @@ const fallback = computed(() => {
 
   .search-name {
     flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .search-name :deep(.tool-description-trigger) {
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }

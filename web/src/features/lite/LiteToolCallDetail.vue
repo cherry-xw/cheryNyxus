@@ -15,17 +15,15 @@ import {
   parseQuestionArgs,
 } from '@/features/agent/renderers/core/questionDisplay'
 import RiskBadge from '@/components/RiskBadge.vue'
+import ToolDescriptionDisclosure from '@/features/agent/renderers/ToolDescriptionDisclosure.vue'
 import LiteFieldRows from './LiteFieldRows.vue'
 import LiteInteractionView from './LiteInteractionView.vue'
 import {
   detectSelectPattern,
   isPrimaryField,
-  isScalarValue,
   isSelectContextKey,
   isSelectPatternKey,
-  normalizeKey,
   parseJsonValue,
-  readableToolRun,
   toObjectEntries,
 } from './toolRendering'
 
@@ -85,20 +83,6 @@ const questionWaiting = computed(
 function isSelectedOption(label: string): boolean {
   return answer.value.kind === 'answered' && answer.value.labels.includes(label)
 }
-/** 提问标题：取自参数原始键，展示在「参数」上方（说明区已按需求移除）。 */
-const questionCtx = computed(() => {
-  const entries = argsEntries.value ?? []
-  const pick = (...keys: string[]): string | undefined => {
-    const entry = entries.find((candidate) =>
-      keys.some((key) => normalizeKey(key) === normalizeKey(candidate.key)),
-    )
-    const text = entry && isScalarValue(entry.value) ? String(entry.value).trim() : ''
-    return text || undefined
-  }
-  return {
-    header: pick('header', 'head'),
-  }
-})
 const argsFallback = computed(() => {
   if (argsEntries.value) return ''
   const raw = props.call.arguments?.trim()
@@ -123,21 +107,7 @@ const resultText = computed(() => {
 })
 
 const waiting = computed(() => props.call.status === 'pending' || props.call.status === 'accepted')
-const readable = computed(() =>
-  readableToolRun(
-    props.call.name,
-    props.label,
-    props.type,
-    props.call.status,
-    props.call.arguments,
-    props.call.result,
-  ),
-)
-// 执行说明区只承载抽屉标题栏没有的信息：目标 + 本次变更；两者皆无（如提问工具）则不显示。
-const storyVisible = computed(
-  () => Boolean(readable.value.target) || readable.value.changes.length > 0,
-)
-// 结果区：短结果直接展开；长结果折叠 + 一句摘要预览，展开后完整内容替换预览。
+// 结果区：短结果直接展开；长结果折叠，避免摘要与完整结果重复。
 const resultOpen = ref(false)
 function onResultToggle(event: Event): void {
   const target = event.target as HTMLDetailsElement | null
@@ -145,10 +115,6 @@ function onResultToggle(event: Event): void {
 }
 const resultRaw = computed(() => props.call.result?.trim() ?? '')
 const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.value.length <= 200)
-const resultPreview = computed(() => {
-  if (selectPattern.value || isShortResult.value || resultOpen.value) return undefined
-  return readable.value.resultSummary
-})
 </script>
 
 <template>
@@ -163,7 +129,12 @@ const resultPreview = computed(() => {
           spring="snappy"
         />
       </span>
-      <strong class="lite-tool-call-name">{{ label }}</strong>
+      <ToolDescriptionDisclosure
+        class="lite-tool-call-name"
+        :tool-name="label"
+        :tool-key="call.name"
+        :chat-id="rootChatId"
+      />
       <!-- 工具调用的安全判定徽章（compact；缺省 = 未知）。
            标题 / 工具类型 / 执行状态已由抽屉顶部标题栏承担，此处不再重复展示（用户需求 2026-11）。 -->
       <RiskBadge :auth="call.security" compact />
@@ -180,26 +151,12 @@ const resultPreview = computed(() => {
     />
 
     <template v-else>
-      <section v-if="storyVisible" class="lite-tool-story" aria-label="执行说明">
-        <code v-if="readable.target" class="lite-tool-story-target">{{ readable.target }}</code>
-        <ul v-if="readable.changes.length" class="lite-tool-story-changes" aria-label="本次变更">
-          <li v-for="change in readable.changes" :key="`${change.label}:${change.detail}`">
-            <small>{{ change.label }}</small
-            ><span>{{ change.detail }}</span>
-          </li>
-        </ul>
-      </section>
-
-      <!-- 提问工具：标题（大模型写的数据；展示在「参数」上方），说明区（为什么需要你决定等）已按需求移除 -->
-      <div v-if="selectPattern && questionCtx.header" class="lite-question-context">
-        <strong class="lite-question-context-title">{{ questionCtx.header }}</strong>
-      </div>
-
       <details open class="lite-tool-call-args">
         <summary>参数</summary>
         <template v-if="argsEntries">
-          <!-- 单选 / 多选形态参数：问题 + 选项（已答时结果直接渲染进选项） -->
+          <!-- 单选 / 多选形态参数：标题（header，本次问题内容）+ 问题 + 选项（已答时结果直接渲染进选项） -->
           <div v-if="selectPattern" class="lite-select-block">
+            <p v-if="questionArgs?.header" class="lite-select-header">{{ questionArgs.header }}</p>
             <p class="lite-select-question">{{ selectPattern.question }}</p>
             <span class="lite-select-kind">{{ selectPattern.multi ? '可多选' : '单选' }}</span>
             <p v-if="answer.kind === 'cancelled'" class="lite-question-note">用户已取消该问题。</p>
@@ -283,7 +240,6 @@ const resultPreview = computed(() => {
             {{ waiting ? '等待工具返回…' : '（无结果）' }}
           </p>
         </details>
-        <p v-if="resultPreview" class="lite-result-preview">{{ resultPreview }}</p>
       </template>
     </template>
   </article>
@@ -336,13 +292,11 @@ const resultPreview = computed(() => {
 .lite-tool-call-name {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 15px;
   font-weight: 400;
   color: var(--el-text-color-primary);
 }
+/* 工具名称 = ToolDescriptionDisclosure 触发按钮（共享组件内部已处理长名省略）。 */
 /* 工具类型 / 执行状态 tag 已由抽屉顶部标题栏承担，工具卡头部仅保留图标 + 名称 + 风险徽章。
    共享 RiskBadge（compact）拉齐到同套 tag 尺寸（圆角随 RiskBadge 基样式）。 */
 .lite-tool-call-head :deep(.risk-badge) {
@@ -362,66 +316,6 @@ const resultPreview = computed(() => {
 .lite-tool-call-head :deep(.risk-dot) {
   width: 7px;
   height: 7px;
-}
-.lite-tool-story {
-  display: grid;
-  gap: 5px;
-  margin: 10px 0;
-  padding: 10px 12px;
-  border-left: 3px solid var(--el-color-primary);
-  border-radius: 0;
-  background: var(--el-fill-color-blank);
-}
-.lite-tool-story-target {
-  display: block;
-  padding: 4px 8px;
-  overflow: auto;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 0;
-  background: var(--el-fill-color-lighter);
-  color: var(--el-text-color-primary);
-  font-family: var(--el-font-family-mono);
-  font-size: 14px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.lite-tool-story-changes {
-  display: grid;
-  gap: 4px;
-  margin: 2px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.lite-tool-story-changes li {
-  display: grid;
-  gap: 1px;
-  padding-top: 4px;
-  border-top: 1px solid var(--el-border-color-lighter);
-}
-.lite-tool-story-changes small {
-  color: var(--el-text-color-secondary);
-  font-size: 12.5px;
-}
-.lite-tool-story-changes span {
-  color: var(--el-text-color-primary);
-  font-size: 13.5px;
-  line-height: 1.5;
-}
-/* 提问工具：标题（展示在「参数」上方） */
-.lite-question-context {
-  margin: 10px 0 0;
-  padding: 8px 12px;
-  border-left: 3px solid var(--el-color-primary);
-  border-radius: 0;
-  background: var(--el-fill-color-blank);
-}
-.lite-question-context-title {
-  display: block;
-  color: var(--el-text-color-primary);
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 1.5;
 }
 .lite-tool-call-args > summary,
 .lite-tool-call-result > summary {
@@ -455,13 +349,21 @@ const resultPreview = computed(() => {
   font-weight: 400;
   color: var(--el-text-color-secondary);
 }
-/* 单选 / 多选形态参数：问题 + 选项列表区块。 */
+/* 单选 / 多选形态参数：标题（header）+ 问题 + 选项列表区块。 */
 .lite-select-block {
   margin: 0 0 8px;
   padding: 8px 10px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 0;
   background: var(--el-fill-color-blank);
+}
+.lite-select-header {
+  margin: 0 0 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .lite-select-question {
   margin: 0 0 4px;
@@ -550,16 +452,6 @@ const resultPreview = computed(() => {
   color: var(--el-text-color-secondary);
   font-size: 14px;
   line-height: 1.5;
-}
-/* 结果区：长结果折叠时的一句话摘要预览（展开后由完整内容替换）。 */
-.lite-result-preview {
-  margin: 6px 0 0;
-  color: var(--el-text-color-regular);
-  font-size: 14px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: anywhere;
 }
 .lite-fields-more {
   margin: 4px 0;

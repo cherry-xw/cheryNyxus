@@ -15,11 +15,11 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { RendererProps, ExecuteCommandArgs, ExecuteCommandResult } from '../types'
 import { CopyDocument, DocumentChecked } from '@element-plus/icons-vue'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
 const showOutput = ref(props.defaultExpanded ?? false)
-
 // 解析参数
 const parsedArgs = computed<ExecuteCommandArgs | null>(() => {
   try {
@@ -172,7 +172,12 @@ onBeforeUnmount(() => {
   <div class="cmd-box" :class="statusClass">
     <div class="cmd-head">
       <span class="cmd-icon" aria-hidden="true">💻</span>
-      <span class="cmd-name">执行命令</span>
+      <ToolDescriptionDisclosure
+        class="cmd-name"
+        tool-name="执行命令"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <slot name="risk" />
       <span v-if="headMetaText" class="cmd-meta-inline">{{ headMetaText }}</span>
       <span v-else style="flex: 1" />
@@ -259,6 +264,11 @@ onBeforeUnmount(() => {
   }
 
   .cmd-name {
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .cmd-name :deep(.tool-description-trigger) {
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }

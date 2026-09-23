@@ -47,6 +47,7 @@ export const SenseCallRenderer = defineComponent({
   name: 'SenseCallRenderer',
   props: {
     call: { type: Object as PropType<SenseCallRecord>, required: true },
+    chatId: { type: String, required: false },
     id: { type: String, required: false },
     defaultExpanded: { type: Boolean, required: false },
   },
@@ -63,7 +64,7 @@ export const SenseCallRenderer = defineComponent({
       innerRenderer = () =>
         h(
           SenseCallBox,
-          { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded },
+          { call: props.call, chatId: props.chatId, id: props.id, defaultExpanded: props.defaultExpanded },
           { risk: riskSlot },
         )
     } else {
@@ -81,7 +82,7 @@ export const SenseCallRenderer = defineComponent({
       innerRenderer = () =>
         h(
           asyncComponent,
-          { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded },
+          { call: props.call, chatId: props.chatId, id: props.id, defaultExpanded: props.defaultExpanded },
           { risk: riskSlot },
         )
     }

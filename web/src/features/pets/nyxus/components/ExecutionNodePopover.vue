@@ -13,6 +13,21 @@ import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import RiskBadge from '@/components/RiskBadge.vue'
 import QuestionAnswerDetail from './QuestionAnswerDetail.vue'
 import TodoRenderer from '@/features/agent/renderers/io/TodoRenderer.vue'
+import ToolDescriptionDisclosure from '@/features/agent/renderers/ToolDescriptionDisclosure.vue'
+
+/**
+ * 工具说明浮层主题（CRT 终端配色）：面板 Teleport 到 body，脱离 popover DOM，
+ * 需通过 theme prop 传入与 CRT 调色板一致的 CSS 变量（浅/深主题 --nx-* 已随主题翻转）。
+ */
+const crtDisclosureTheme = {
+  '--ink': 'var(--nx-text)',
+  '--panel': 'color-mix(in srgb, var(--nx-bg) 88%, var(--nx-text))',
+  '--surface': 'color-mix(in srgb, var(--nx-bg) 88%, var(--nx-text))',
+  '--border': 'var(--nx-border-soft)',
+  '--accent': 'var(--nx-cyan)',
+  '--accent-soft': 'color-mix(in srgb, var(--nx-cyan) 12%, transparent)',
+} satisfies Record<string, string>
+
 const props = defineProps<ExecutionNodePopoverControllerProps>()
 const emit = defineEmits<ExecutionNodePopoverControllerEmits>()
 const controller = useExecutionNodePopoverController(props, emit)
@@ -88,7 +103,6 @@ const {
   toolGlyph,
   toolIcon,
   toolLabel,
-  toolPresentation,
 } = controller
 
 /**
@@ -302,6 +316,13 @@ useGsap(popoverRoot, (context) => {
         <div class="question-title-row">
           <span class="question-symbol" aria-hidden="true">?</span>
           <span class="heading-copy">
+            <ToolDescriptionDisclosure
+              v-if="selectedCall"
+              :tool-name="toolLabel(selectedCall.name)"
+              :tool-key="selectedCall.name"
+              :chat-id="chatId"
+              :theme="crtDisclosureTheme"
+            />
             <span class="heading-kicker">{{ question.question.header || '需要你的选择' }}</span>
             <span class="question-text">{{ question.question.question }}</span>
           </span>
@@ -402,19 +423,15 @@ useGsap(popoverRoot, (context) => {
               <!-- 该工具调用的安全判定徽章（缺省 = 未知） -->
               <RiskBadge :auth="selectedCall.security" />
             </div>
-            <section v-if="toolPresentation" class="actual-description detail-field">
-              <small class="detail-label">本次操作</small>
+            <section v-if="selectedCall" class="tool-description-field detail-field">
+              <small class="detail-label">工具</small>
               <div class="detail-value">
-                <p>{{ toolPresentation.operationLabel }}</p>
-                <code v-if="toolPresentation.target">{{ toolPresentation.target }}</code>
-                <ul v-if="toolPresentation.changes.length">
-                  <li
-                    v-for="change in toolPresentation.changes"
-                    :key="`${change.label}:${change.detail}`"
-                  >
-                    {{ change.detail }}
-                  </li>
-                </ul>
+                <ToolDescriptionDisclosure
+                  :tool-name="toolLabel(selectedCall.name)"
+                  :tool-key="selectedCall.name"
+                  :chat-id="chatId"
+                  :theme="crtDisclosureTheme"
+                />
               </div>
             </section>
             <section v-if="actualDescription" class="actual-description detail-field">
@@ -645,7 +662,12 @@ useGsap(popoverRoot, (context) => {
 
               <!-- update_todo 专用：待办列表（与对话页同款渲染，popover-tool 包装让 CRT 主题生效） -->
               <section v-else-if="isTodoTool" class="todo-detail popover-tool">
-                <TodoRenderer v-if="todoSenseCall" :call="todoSenseCall" :default-expanded="true" />
+                <TodoRenderer
+                  v-if="todoSenseCall"
+                  :call="todoSenseCall"
+                  :chat-id="chatId"
+                  :default-expanded="true"
+                />
               </section>
 
               <template v-else>

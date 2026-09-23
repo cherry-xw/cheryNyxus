@@ -8,7 +8,6 @@ import {
 import { useNyxusHost } from '../application/host'
 import { useRenderedMarkdown } from '@/composables/useRenderedMarkdown'
 import { formatTime } from '@/utils/formatTime'
-import { createToolRunPresentation } from '@/utils/approvalPresentation'
 import { toSenseNameZh } from '@/utils/senseName'
 import { RISK_LEVEL_LABEL, riskLevelOf } from '@/domain/chat/securityRisk'
 import type { ExecutionEdge, ExecutionNode } from '../graph/executionGraph'
@@ -285,12 +284,6 @@ export function useExecutionNodePopoverController(
   )
 
   const parsedArguments = computed(() => parseRecord(selectedCall.value?.arguments))
-  const toolPresentation = computed(() =>
-    selectedCall.value
-      ? createToolRunPresentation(selectedCall.value.name, selectedCall.value.arguments)
-      : undefined,
-  )
-
   const isSpawnTool = computed(() => SPAWN_TOOL_NAMES.has(selectedCall.value?.name ?? ''))
 
   const isReadFileTool = computed(() => selectedCall.value?.name === 'read_file')
@@ -731,6 +724,5 @@ export function useExecutionNodePopoverController(
     toolGlyph,
     toolIcon,
     toolLabel,
-    toolPresentation,
   }
 }

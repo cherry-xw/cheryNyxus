@@ -13,6 +13,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { CopyDocument, DocumentChecked } from '@element-plus/icons-vue'
 import type { RendererProps, WriteFileArgs } from '../types'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
@@ -115,7 +116,12 @@ onBeforeUnmount(() => {
   <div class="file-write-box" :class="statusClass">
     <div class="file-head">
       <span class="file-icon" aria-hidden="true">✏️</span>
-      <span class="file-name">写入文件</span>
+      <ToolDescriptionDisclosure
+        class="file-name"
+        tool-name="写入文件"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <slot name="risk" />
       <span class="file-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
@@ -199,6 +205,12 @@ onBeforeUnmount(() => {
 
   .file-name {
     flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .file-name :deep(.tool-description-trigger) {
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }

@@ -13,6 +13,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { RendererProps, ReadFileArgs } from '../types'
 import { CopyDocument, DocumentChecked } from '@element-plus/icons-vue'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
@@ -131,7 +132,12 @@ const fallback = computed(() => {
   <div class="file-read-box" :class="statusClass">
     <div class="file-head">
       <span class="file-icon" aria-hidden="true">📄</span>
-      <span class="file-name">读取文件</span>
+      <ToolDescriptionDisclosure
+        class="file-name"
+        tool-name="读取文件"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <slot name="risk" />
       <span class="file-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
@@ -220,6 +226,12 @@ const fallback = computed(() => {
 
   .file-name {
     flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .file-name :deep(.tool-description-trigger) {
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }

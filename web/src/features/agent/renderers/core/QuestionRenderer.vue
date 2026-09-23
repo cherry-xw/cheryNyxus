@@ -38,6 +38,7 @@ import {
   onOtherInput,
   questionAnswered,
 } from '@/features/agent/attention/useInteractionDrafts'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
@@ -142,6 +143,13 @@ async function submit(): Promise<void> {
   <div class="question-renderer" :class="{ 'is-interactive': !!interactive }">
     <div class="q-head">
       <span class="indicator" aria-hidden="true" />
+      <ToolDescriptionDisclosure
+        v-if="args"
+        class="q-tool-name"
+        tool-name="询问用户"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <span v-if="args?.header" class="q-header">{{ args.header }}</span>
       <span v-if="args" class="q-kind">{{ args.multiSelect ? '多选' : '单选' }}</span>
       <slot name="risk" />
@@ -363,6 +371,17 @@ async function submit(): Promise<void> {
     border-radius: 50%;
     background: #7c3aed;
     box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.18);
+  }
+
+  .q-tool-name {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .q-tool-name :deep(.tool-description-trigger) {
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
 
   .q-header {

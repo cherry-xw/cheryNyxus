@@ -15,8 +15,14 @@ import { formatArgValue, formatValue, parseArgs } from '@/utils/parseArgs'
 import { extractMediaUrls } from '@/utils/mediaUrls'
 import { toSenseNameZh } from '@/utils/senseName'
 import { MediaInlineRenderer } from '../composer/public'
+import ToolDescriptionDisclosure from '../renderers/ToolDescriptionDisclosure.vue'
 
-const props = defineProps<{ call: SenseCallRecord; defaultExpanded?: boolean }>()
+const props = defineProps<{
+  call: SenseCallRecord
+  defaultExpanded?: boolean
+  /** 当前会话 id，用于按需读取工具字段说明。 */
+  chatId?: string
+}>()
 
 const showArgs = ref(props.defaultExpanded ?? false)
 const showResult = ref(props.defaultExpanded ?? false)
@@ -24,7 +30,9 @@ const showResult = ref(props.defaultExpanded ?? false)
 const argsParsed = computed(() => parseArgs(props.call.args))
 const argsFallback = computed(() => argsParsed.value.fallback)
 const argsEntries = computed(() => argsParsed.value.parsed?.entries ?? [])
-const argsToggleLabel = computed(() => argsParsed.value.parsed?.description ?? 'arguments')
+// 参数折叠标题保持「参数」文案；不再把本次调用里的 description 值当作折叠标题
+// （那是本次调用参数，不是工具的固定说明）。
+const argsToggleLabel = computed(() => '参数')
 const hasArgs = computed(() => {
   const { parsed, fallback } = argsParsed.value
   if (parsed) return parsed.description != null || parsed.entries.length > 0
@@ -58,7 +66,12 @@ const statusClass = computed(() => `status-${props.call.status}`)
   <div class="sense-box">
     <div class="sense-head">
       <span class="sense-icon" aria-hidden="true">⚙</span>
-      <span class="sense-name">{{ toSenseNameZh(props.call.name) }}</span>
+      <ToolDescriptionDisclosure
+        class="sense-name"
+        :tool-name="toSenseNameZh(props.call.name)"
+        :tool-key="props.call.name"
+        :chat-id="chatId"
+      />
       <slot name="risk" />
       <span class="sense-status" :class="statusClass" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
@@ -124,9 +137,14 @@ const statusClass = computed(() => `status-${props.call.status}`)
 
   .sense-name {
     flex: 1;
-    font-weight: 600;
+    min-width: 0;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
     word-break: break-all;
+  }
+
+  .sense-name :deep(.tool-description-trigger) {
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .sense-status {
