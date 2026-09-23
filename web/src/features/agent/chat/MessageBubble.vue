@@ -274,7 +274,7 @@ function removeDelivery(): void {
               </button>
             </template>
             <!-- 悬浮详情 = 原渲染器完整内容（专用渲染器优先，参数/结果默认展开） -->
-            <SenseCallRenderer :call="call" default-expanded />
+            <SenseCallRenderer :call="call" :chat-id="props.item.agentChatId" default-expanded />
           </el-popover>
         </div>
         <div v-else-if="hasSenseCalls" class="sense-list">
@@ -283,6 +283,7 @@ function removeDelivery(): void {
             :id="call.id ? `sensecall-${call.id}` : `sensecall-idx-${idx}`"
             :key="call.id ?? `${call.name}-${idx}`"
             :call="call"
+            :chat-id="props.item.agentChatId"
           />
         </div>
         <div

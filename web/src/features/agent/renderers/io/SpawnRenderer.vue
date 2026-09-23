@@ -11,6 +11,7 @@
 import { computed } from 'vue'
 import type { RendererProps, SpawnRoleArgs } from '../types'
 import { useHistoryDrawerManager } from '../../drawer/useHistoryDrawerManager'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 const manager = useHistoryDrawerManager()
@@ -107,7 +108,12 @@ function onDrillDetail(): void {
   <div class="spawn-box" :class="statusClass">
     <div class="spawn-head">
       <span class="spawn-icon" aria-hidden="true">🤖</span>
-      <span class="spawn-name">派遣角色</span>
+      <ToolDescriptionDisclosure
+        class="spawn-name"
+        tool-name="派遣角色"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <slot name="risk" />
       <span class="spawn-type">{{ parsedArgs?.type ?? 'unknown' }}</span>
       <span class="spawn-status" aria-hidden="true">{{ statusGlyph }}</span>
@@ -167,6 +173,11 @@ function onDrillDetail(): void {
   }
 
   .spawn-name {
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .spawn-name :deep(.tool-description-trigger) {
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }

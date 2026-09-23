@@ -13,6 +13,7 @@
  */
 import { computed } from 'vue'
 import type { RendererProps, TodoItem, UpdateTodoArgs } from '../types'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
@@ -45,7 +46,12 @@ const statusGlyph = (s: TodoItem['status']): string =>
   <div class="todo-box">
     <div class="todo-head">
       <span class="todo-icon" aria-hidden="true">📋</span>
-      <span class="todo-name">待办</span>
+      <ToolDescriptionDisclosure
+        class="todo-name"
+        tool-name="待办"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <slot name="risk" />
       <span class="todo-count">{{ doneCount }}/{{ todos.length }}</span>
     </div>
@@ -87,6 +93,12 @@ const statusGlyph = (s: TodoItem['status']): string =>
 
   .todo-name {
     flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .todo-name :deep(.tool-description-trigger) {
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }

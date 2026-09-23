@@ -10,6 +10,7 @@
  */
 import { computed, ref } from 'vue'
 import type { RendererProps, SkillArgs } from '../types'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
@@ -89,7 +90,12 @@ const fallback = computed(() => {
   <div class="skill-box" :class="statusClass">
     <div class="skill-head">
       <span class="skill-icon" aria-hidden="true">⚡</span>
-      <span class="skill-name">激活技能</span>
+      <ToolDescriptionDisclosure
+        class="skill-name"
+        tool-name="激活技能"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <slot name="risk" />
       <span class="skill-type">{{ skillInfo?.name ?? parsedArgs?.name ?? 'unknown' }}</span>
       <span class="skill-status" aria-hidden="true">{{ statusGlyph }}</span>
@@ -144,6 +150,11 @@ const fallback = computed(() => {
   }
 
   .skill-name {
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .skill-name :deep(.tool-description-trigger) {
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }

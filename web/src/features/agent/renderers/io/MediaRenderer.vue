@@ -14,6 +14,7 @@
 import { computed, ref } from 'vue'
 import type { RendererProps, GenerateMediaArgs, MediaKind } from '../types'
 import { httpUrl } from '@/application/platform/public'
+import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
@@ -109,7 +110,12 @@ const fallback = computed(() => {
   <div class="media-box" :class="statusClass">
     <div class="media-head">
       <span class="media-icon" aria-hidden="true">{{ mediaIcon }}</span>
-      <span class="media-name">生成{{ mediaLabel }}</span>
+      <ToolDescriptionDisclosure
+        class="media-name"
+        :tool-name="`生成${mediaLabel}`"
+        :tool-key="props.call.name"
+        :chat-id="props.chatId"
+      />
       <slot name="risk" />
       <span class="media-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
@@ -186,6 +192,12 @@ const fallback = computed(() => {
 
   .media-name {
     flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .media-name :deep(.tool-description-trigger) {
     font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
