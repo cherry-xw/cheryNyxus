@@ -8,6 +8,7 @@ import type { LlmProtocol } from '@chery/protocol'
 type Recommendation = ModelRecommendationDto['recommend']
 
 export interface ModelRecommendationDraftPatch {
+  provider?: string
   protocol?: LlmProtocol
   contextLimit?: number
   thinking?: BrainConfigDto['thinking']
@@ -57,9 +58,10 @@ export function planModelRecommendationDraftUpdate(
     isPlaceholderModel = () => false,
   } = input
   const firstModelSelection = !previousModel || isPlaceholderModel(previousModel)
+  const modelChanged = !!previousModel && previousModel !== draft.model
   const patch: ModelRecommendationDraftPatch = {}
 
-  for (const key of ['protocol', 'contextLimit', 'thinking', 'capabilities'] as const) {
+  for (const key of ['provider', 'protocol', 'contextLimit', 'thinking', 'capabilities'] as const) {
     const current = draft[key]
     const previous = previousRecommendation?.[key]
     if (!shouldFollowRecommendation(current, previous, firstModelSelection)) continue
@@ -71,9 +73,19 @@ export function planModelRecommendationDraftUpdate(
       continue
     }
 
-    // When switching to a rule that does not recommend this field (including
-    // an unknown model), remove only the value inherited from the old rule.
-    if (!firstModelSelection && previous !== undefined && valuesEqual(current, previous)) {
+    // Only a model change may clear an inherited value that the next model does
+    // not recommend. A protocol change for the same model must preserve it:
+    // missing protocol-specific metadata means "unknown", not "off".
+    // Provider/protocol are never cleared: without a vendor recommendation we
+    // keep the current service and wire protocol instead of resetting them.
+    if (
+      modelChanged &&
+      !firstModelSelection &&
+      key !== 'provider' &&
+      key !== 'protocol' &&
+      previous !== undefined &&
+      valuesEqual(current, previous)
+    ) {
       Object.assign(patch, { [key]: undefined })
     }
   }
@@ -84,9 +96,15 @@ export function planModelRecommendationDraftUpdate(
 export function applyModelRecommendationDraftPatch(
   draft: BrainConfigDto,
   patch: ModelRecommendationDraftPatch,
+  setProvider: (provider: string | undefined) => void,
   setProtocol: (protocol: LlmProtocol | undefined) => void,
   supportedProtocols: readonly LlmProtocol[],
 ): void {
+  // Switch the service first; the provider watch maps it to a default URL and
+  // protocol, then the explicit protocol patch overrides the wire protocol.
+  if ('provider' in patch && patch.provider !== undefined) {
+    setProvider(patch.provider)
+  }
   if (
     'protocol' in patch &&
     (patch.protocol === undefined || supportedProtocols.includes(patch.protocol))

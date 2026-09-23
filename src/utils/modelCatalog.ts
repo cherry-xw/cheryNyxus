@@ -46,12 +46,19 @@ export interface ModelCatalogFacts {
 }
 
 export interface ModelCatalogRecommendation {
+  /** Vendor service entry to switch to when this model is selected. */
+  provider?: string
   protocol?: LlmProtocolValue
   /** Practical operating limit copied to brain.contextLimit when accepted. */
   contextLimit?: number
   thinking?: ThinkingLevel
   capabilities?: CatalogCapabilities
 }
+
+/** Defaults that apply only when the editor is using a particular API protocol. */
+export type ModelCatalogProtocolRecommendations = Partial<
+  Record<LlmProtocolValue, ModelCatalogRecommendation>
+>
 
 export type ModelMatchPattern =
   | string
@@ -71,6 +78,7 @@ export interface ModelCatalogRule {
   match: ModelCatalogMatchSpec
   facts?: ModelCatalogFacts
   recommend?: ModelCatalogRecommendation
+  recommendByProtocol?: ModelCatalogProtocolRecommendations
   wire?: Partial<Record<LlmProtocolValue, ModelWireRule>>
 }
 
@@ -209,16 +217,33 @@ function parseFacts(raw: unknown): ModelCatalogFacts | undefined {
 function parseRecommendation(raw: unknown): ModelCatalogRecommendation | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const value = raw as Record<string, unknown>
+  const provider = typeof value.provider === 'string' && value.provider.trim() !== ''
+    ? value.provider
+    : undefined
   const protocol = isLlmProtocol(value.protocol) ? value.protocol : undefined
   const contextLimit = positiveNumber(value.contextLimit)
   const thinking =
     typeof value.thinking === 'string' && value.thinking.trim() !== '' ? value.thinking : undefined
   const capabilities = parseCapabilities(value.capabilities)
   const result: ModelCatalogRecommendation = {
+    ...(provider ? { provider } : {}),
     ...(protocol ? { protocol } : {}),
     ...(contextLimit ? { contextLimit } : {}),
     ...(thinking ? { thinking } : {}),
     ...(capabilities ? { capabilities } : {}),
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function parseProtocolRecommendations(
+  raw: unknown,
+): ModelCatalogProtocolRecommendations | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const result: ModelCatalogProtocolRecommendations = {}
+  for (const [protocol, recommendation] of Object.entries(raw)) {
+    if (!isLlmProtocol(protocol)) continue
+    const parsed = parseRecommendation(recommendation)
+    if (parsed) result[protocol] = parsed
   }
   return Object.keys(result).length > 0 ? result : undefined
 }
@@ -257,6 +282,7 @@ function parseRule(raw: unknown): ModelCatalogRule | undefined {
     : undefined
   const facts = parseFacts(value.facts)
   const recommend = parseRecommendation(value.recommend)
+  const recommendByProtocol = parseProtocolRecommendations(value.recommendByProtocol)
   const wire = parseWire(value.wire)
   return {
     id: value.id,
@@ -266,6 +292,7 @@ function parseRule(raw: unknown): ModelCatalogRule | undefined {
     },
     ...(facts ? { facts } : {}),
     ...(recommend ? { recommend } : {}),
+    ...(recommendByProtocol ? { recommendByProtocol } : {}),
     ...(wire ? { wire } : {}),
   }
 }
@@ -412,12 +439,23 @@ export function resolveModelCatalog(input: {
       unknown: catalog.unknown,
     }
   }
+  const baseRecommendation = matched.rule.recommend
+  const protocolRecommendation = input.protocol
+    ? matched.rule.recommendByProtocol?.[input.protocol]
+    : undefined
+  const recommend = protocolRecommendation
+    ? {
+        ...baseRecommendation,
+        ...protocolRecommendation,
+        protocol: input.protocol,
+      }
+    : baseRecommendation
   return {
     matched: true,
     id: matched.rule.id,
     confidence: matched.confidence,
     facts: matched.rule.facts,
-    recommend: matched.rule.recommend,
+    recommend,
     thinkingLevels: wire?.thinking?.map((entry) => entry.display) ?? [],
     unknown: catalog.unknown,
   }

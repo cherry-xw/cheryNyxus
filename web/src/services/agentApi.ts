@@ -410,6 +410,7 @@ export interface ModelRecommendationDto {
     capabilities?: BrainCapabilitiesDto
   }
   recommend?: {
+    provider?: string
     protocol?: LlmProtocol
     contextLimit?: number
     thinking?: ThinkingLevel

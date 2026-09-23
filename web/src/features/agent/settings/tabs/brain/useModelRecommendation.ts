@@ -15,6 +15,7 @@ interface UseModelRecommendationOptions {
   cfg: BrainConfigDto
   effectiveProtocol: () => LlmProtocol | undefined
   supportedProtocols: () => readonly LlmProtocol[]
+  setProvider: (provider: string | undefined) => void
   setProtocol: (protocol: LlmProtocol | undefined) => void
   isPlaceholderModel: (model: string) => boolean
 }
@@ -40,6 +41,7 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
     applyModelRecommendationDraftPatch(
       options.cfg,
       patch,
+      options.setProvider,
       options.setProtocol,
       options.supportedProtocols(),
     )
@@ -82,8 +84,9 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
     () => [options.cfg.model, options.cfg.provider, options.cfg.protocol] as const,
     (current, previous) => {
       const modelChanged = !!previous && current[0] !== previous[0]
+      const protocolChanged = !!previous && current[2] !== previous[2]
       const previousRecommendation = modelRecommendation.value?.recommend
-      void refresh(modelChanged, previous?.[0], previousRecommendation)
+      void refresh(modelChanged || protocolChanged, previous?.[0], previousRecommendation)
     },
     { immediate: true },
   )
