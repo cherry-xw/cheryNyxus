@@ -281,6 +281,31 @@ function scrollToEnd(behavior: ScrollBehavior = 'auto'): void {
   })
 }
 
+/** 滚到真底并等待量测收敛（一次性 scrollToEnd 在长列表估算偏差时会停在估算底，偏中不贴底）：
+ *  反复滚到当前底部，每轮等 2 帧让新进入视口的条目被 ResizeObserver 量测、总高度更新，
+ *  直到总高度连续两轮稳定。保证最终停在真底（最后一条消息尾部贴齐视口底）。 */
+async function scrollToEndConverged(maxIter = 30): Promise<void> {
+  await nextTick()
+  const element = containerRef.value
+  if (!element) return
+  let lastMax = -1
+  let stableRounds = 0
+  for (let iter = 0; iter < maxIter; iter += 1) {
+    const max = Math.max(0, element.scrollHeight - element.clientHeight)
+    if (Math.abs(max - lastMax) < 2) {
+      stableRounds += 1
+      if (stableRounds >= 2) break
+    } else {
+      stableRounds = 0
+    }
+    lastMax = max
+    element.scrollTo({ top: max, behavior: 'auto' })
+    syncScrollTop()
+    await nextFrame()
+    await nextFrame()
+  }
+}
+
 // thumb 拖拽：按下捕获指针，move 按比例同步 scrollTop，up 释放
 function onThumbPointerDown(e: PointerEvent): void {
   if (e.button !== 0) return
@@ -386,6 +411,7 @@ function scrollToRatio(ratio: number, behavior: ScrollBehavior = 'auto'): void {
 
 defineExpose({
   scrollToEnd,
+  scrollToEndConverged,
   scrollToIndex,
   offsetOf,
   ratioOf,
