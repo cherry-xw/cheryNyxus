@@ -274,19 +274,23 @@ export const CONTEXT_ANALYTICS_DEMO: ContextAnalyticsDemo = {
   rounds: metric(12, 'derived'),
   requests: metric(56, 'derived'),
   agents,
-  requestComposition: Array.from({ length: 56 }, (_, index) => ({
-    step: index + 1,
-    round: Math.floor(index * 12 / 56) + 1,
-    agentId: agents[index % agents.length]!.agentId,
-    segments: [
-      segment('system', 1400 + index % 3 * 80),
-      segment('userRules', 320),
-      segment('memory', 180 + index % 4 * 60),
-      segment('skills', 440 + index % 5 * 90),
-      segment('tools', 600 + index % 6 * 120),
-      segment('conversation', 200 + index % 18 * 160),
-    ],
-  })),
+  requestComposition: Array.from({ length: 56 }, (_, index) => {
+    const agent = agents[index % agents.length]!
+    return {
+      step: index + 1,
+      round: Math.floor(index * 12 / 56) + 1,
+      agentId: agent.agentId,
+      modelName: agent.modelName,
+      segments: [
+        segment('system', 1400 + index % 3 * 80),
+        segment('userRules', 320),
+        segment('memory', 180 + index % 4 * 60),
+        segment('skills', 440 + index % 5 * 90),
+        segment('tools', 600 + index % 6 * 120),
+        segment('conversation', 200 + index % 18 * 160),
+      ],
+    }
+  }),
   trend: [
     [1, 18_000, 18_000, 14_000],
     [2, 42_000, 24_000, 21_000],

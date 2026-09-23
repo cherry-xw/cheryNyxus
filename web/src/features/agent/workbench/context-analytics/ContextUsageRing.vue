@@ -48,7 +48,7 @@ const option = computed<EChartsOption>(() => ({
 <style scoped>
 .ring { position: relative; flex: none; width: 92px; height: 92px; }.ring.large { width: 150px; height: 150px; }
 .center { position: absolute; inset: 25%; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; font-size: 13px; font-weight: 400; }
-.ring.with-legend { width: 100%; height: 200px; }
+.ring.with-legend { width: 100%; height: 180px; }
 .with-legend .center { inset: 25% 60% 25% 10%; }
 small { font-size: 12px; margin-top: 4px; }
 </style>

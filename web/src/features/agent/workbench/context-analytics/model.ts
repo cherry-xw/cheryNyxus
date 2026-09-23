@@ -78,6 +78,7 @@ export interface RequestComposition {
   agentId: string
   segments: ContextSegmentView[]
   summary?: string
+  modelName?: string
 }
 
 export interface AnalyticsOperation {
