@@ -126,8 +126,9 @@ function openSettings(): void {
   // desktop surface：设置由 Electron 原生独立窗承载（get-or-create，聚焦复用）；浏览器保持应用内弹窗
   const bridge = desktopBridge()
   if (bridge) {
-    bridge.openWindow({ kind: 'settings' })
+    bridge.openWindow({ kind: 'settings', settingsSection: 'provider' })
   } else {
+    agents.settingsSection = 'provider'
     agents.settingsOpen = true
   }
   closeNyxusMenu()
