@@ -688,19 +688,17 @@ export function projectLiteHistory(
       next.elapsedMs = Math.max(0, node.answeredAt - node.createdAt)
       return next
     }
-    if (matchedStep) {
-      const active = matchedStep.status === 'running' && rootRunning
-      next.status =
-        matchedStep.status === 'running' ? (active ? 'running' : 'completed') : matchedStep.status
-      next.active = active
+    // matchedStep 仅用于「运行中」步骤的实时计时。execution steps 是 root 订阅的
+    // 当前执行窗口快照（非全量历史）：对已提交的历史节点做时间匹配时，长对话里
+    // 前段节点会在匹配窗口内错误命中末尾步骤，污染 startedAt/completedAt 导致
+    // 排序与行分组错乱（精简模式 cluster 丢失工具、轮末回复错位）。已提交节点
+    // 一律以节点自身 createdAt/updatedAt 为权威时间。
+    if (matchedStep && matchedStep.status === 'running' && rootRunning) {
+      next.status = 'running'
+      next.active = true
       next.startedAt = matchedStep.startedAt
-      if (active) {
-        delete next.completedAt
-        next.elapsedMs = elapsedTime(matchedStep.startedAt, undefined, now)
-      } else {
-        next.completedAt = matchedStep.completedAt
-        next.elapsedMs = elapsedTime(matchedStep.startedAt, next.completedAt, now)
-      }
+      delete next.completedAt
+      next.elapsedMs = elapsedTime(matchedStep.startedAt, undefined, now)
       return next
     }
     // 无实时 step 回退：仅运行中的节点以 now 计时（需求 2），终态节点用固定耗时。
