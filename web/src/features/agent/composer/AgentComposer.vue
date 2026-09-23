@@ -266,18 +266,23 @@ const emit = defineEmits<{
           popper-style="padding: 4px;"
         >
           <template #reference>
-            <ElTooltip :content="mediaDisabledReason || '添加媒体'" popper-class="label-tip-popper">
-              <span>
-                <button
-                  type="button"
-                  class="add-media-btn"
-                  :disabled="!!mediaDisabledReason"
-                  aria-label="添加媒体附件"
-                >
-                  <Plus width="16" height="16" />
-                </button>
-              </span>
-            </ElTooltip>
+            <span class="add-media-wrap">
+              <ElTooltip
+                :content="mediaDisabledReason || '添加媒体'"
+                popper-class="label-tip-popper"
+              >
+                <span>
+                  <button
+                    type="button"
+                    class="add-media-btn"
+                    :disabled="!!mediaDisabledReason"
+                    aria-label="添加媒体附件"
+                  >
+                    <Plus width="16" height="16" />
+                  </button>
+                </span>
+              </ElTooltip>
+            </span>
           </template>
           <div class="add-media-menu" @click.stop>
             <ElTooltip
