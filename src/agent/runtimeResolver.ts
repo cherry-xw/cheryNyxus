@@ -5,6 +5,7 @@ import { captureRuntimeConfig, isOrdinaryRole, type BrainConfig, type Config } f
 import type { ZodType } from 'zod'
 import { SupervisionLevel } from '@/core/config'
 import { getLLMAdapter } from '@/core/llm/adapter'
+import type { ThinkingLevel } from '@/core/llm/adapter.js'
 import { resolveBrainAdapterKey } from '@/core/llm/routing.js'
 import { getMessageAdapter } from '@/core/message/adapter'
 import { getSenseAdapter } from '@/core/sense/adapter'
@@ -24,6 +25,8 @@ export interface RuntimeSelection {
   senseGroup: string
   /** 启用的 MCP server 名（与 senseGroup 同层级）。enabled server 的全部 mcp__<server>__* 直接合并进 schema，绕过 sense_groups。 */
   mcpServers: string[]
+  /** 思考等级临时覆盖（可选）：不设置时用大脑配置默认档位；设置后本会话按此档位发送。 */
+  thinking?: ThinkingLevel
 }
 
 /**
@@ -66,7 +69,7 @@ export function resolveSelectionIssues(selection: RuntimeSelection): RuntimeIssu
  * mcpServers 缺省 []（旧 chat 向后兼容）；非数组视为非法。
  */
 export function parseRuntimeSelection(
-  params: { brain?: string; senseGroup?: string; mcpServers?: string[] },
+  params: { brain?: string; senseGroup?: string; mcpServers?: string[]; thinking?: ThinkingLevel },
   _methodName: string,
   configSnapshot: Config = captureRuntimeConfig(),
 ): RuntimeSelection {
@@ -74,13 +77,25 @@ export function parseRuntimeSelection(
   const mcpServers = Array.isArray(params.mcpServers) ? params.mcpServers : []
   const brain = configSnapshot.llm.brain[params.brain]
   if (!brain) throw new Error(`大脑 "${params.brain}" 不存在，请在设置里检查`)
+  // thinking 覆盖为可选透传：缺省不写字段，运行沿用大脑配置默认档位。
+  const thinking = params.thinking
   if (brain.capabilities?.toolCall === false) {
     if (params.senseGroup || mcpServers.length)
       throw new Error(`大脑 "${params.brain}" 不支持工具调用，不能配感官组`)
-    return { brain: params.brain, senseGroup: '', mcpServers: [] }
+    return {
+      brain: params.brain,
+      senseGroup: '',
+      mcpServers: [],
+      ...(thinking !== undefined ? { thinking } : {}),
+    }
   }
   if (!params.senseGroup) throw new Error('这颗大脑需要配一个感官组')
-  return { brain: params.brain, senseGroup: params.senseGroup, mcpServers }
+  return {
+    brain: params.brain,
+    senseGroup: params.senseGroup,
+    mcpServers,
+    ...(thinking !== undefined ? { thinking } : {}),
+  }
 }
 
 /**
@@ -198,7 +213,14 @@ export class RuntimeResolver {
   ): RuntimeConfig {
     this.validateSelection(selection, config)
 
-    const { brain, adapters } = this.resolveBrain(selection.brain, config)
+    const resolved = this.resolveBrain(selection.brain, config)
+    // 思考等级临时覆盖：存在 selection.thinking 时，复制 brain 并把档位盖到副本上，
+    // 中间件读取 ctx.runtime.brain.thinking 即得覆盖值；缺省沿用大脑配置默认档位（不碰原配置对象）。
+    const brain =
+      selection.thinking !== undefined
+        ? { ...resolved.brain, thinking: selection.thinking }
+        : resolved.brain
+    const { adapters } = resolved
     let { builtSenses, senseTable } = this.resolveSense(
       config,
       adapters.senseAdapter,

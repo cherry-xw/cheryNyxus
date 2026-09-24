@@ -35,6 +35,23 @@ describe("parseRuntimeSelection", () => {
   it("空 senseGroups → throw", () => {
     expect(() => parseRuntimeSelection({ brain: "mock_content", senseGroup: "" }, "test")).toThrow("需要配一个感官组");
   });
+
+  it("thinking 可选透传：设置时保留", () => {
+    expect(
+      parseRuntimeSelection({ brain: "mock_content", senseGroup: "auto_senses", thinking: "high" }, "test"),
+    ).toEqual({
+      brain: "mock_content",
+      senseGroup: "auto_senses",
+      mcpServers: [],
+      thinking: "high",
+    });
+  });
+
+  it("thinking 缺省不写字段（沿用大脑配置默认档位）", () => {
+    expect(
+      parseRuntimeSelection({ brain: "mock_content", senseGroup: "auto_senses" }, "test"),
+    ).not.toHaveProperty("thinking");
+  });
 });
 
 describe("RuntimeResolver.resolve", () => {
@@ -50,6 +67,23 @@ describe("RuntimeResolver.resolve", () => {
     expect(r.adapters.senseAdapter).toBeDefined();
     expect(r.builtSenses.length).toBeGreaterThan(0);
     expect(r.senseTable.has("read_file")).toBe(true);
+  });
+
+  it("thinking 覆盖生效：克隆 brain 并把档位盖到副本上，不污染原配置", () => {
+    const r = new RuntimeResolver().resolve({
+      brain: "mock_content",
+      senseGroup: "auto_senses",
+      mcpServers: [],
+      thinking: "xhigh",
+    });
+    expect(r.brain.thinking).toBe("xhigh");
+    // 覆盖语义为副本：原 config 的默认档位保持原样（xhigh 未写回全局）
+    expect(config.llm.brain.mock_content!.thinking).not.toBe("xhigh");
+  });
+
+  it("thinking 缺省沿用大脑配置默认档位（不克隆改写）", () => {
+    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "auto_senses", mcpServers: [] });
+    expect(r.brain.thinking).toBe(config.llm.brain.mock_content!.thinking);
   });
 
   it("brain 不存在 → throw", () => {

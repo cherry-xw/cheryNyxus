@@ -460,7 +460,8 @@
   gap: 7px;
   min-height: 0;
   max-height: calc(100% - 37px);
-  overflow-y: auto;
+  // 堆叠动画期间不允许滚动条出现，否则滚动条宽度会挤压弹窗并造成窗口横向偏移。
+  overflow: hidden;
   overscroll-behavior: contain;
   /* 铃铛角标悬于按钮外（right:-6px / top:-5px），overflow 裁切区 = padding box：
      padding 撑出角标余量、负 margin 抵消布局位移，按钮位置不变。 */
@@ -674,20 +675,132 @@
   right: calc(100% + 8px);
   top: 50%;
   // 宽高上限相对工作台窗口（--rail-popout-w/h 由 ResizeObserver 写入 shell），
-  // 避免窗口化工作台下内容超出窗口被 overflow:hidden 裁剪。
-  width: min(440px, var(--rail-popout-w, calc(100vw - 190px)));
+  // 不能使用这里的 100%：该百分比会相对 rail 按钮容器计算，导致弹窗异常变成约 200px。
+  width: min(680px, var(--rail-popout-w, calc(100vw - 190px)));
+  height: min(760px, var(--rail-popout-h, calc(100vh - 128px)));
+  max-height: min(760px, var(--rail-popout-h, calc(100vh - 128px)));
   translate: 0 -50%;
   padding: 0 7px 7px;
+  // 堆叠动画期间不允许滚动条出现，否则滚动条宽度会挤压弹窗并造成窗口横向偏移。
+  overflow: hidden;
   transform-origin: right center;
   pointer-events: auto;
 }
-/* 小组角色编制标签行：rail popout 承载与 composer 同款的可编辑角色标签（role-summary-tag）。
-   外层容器保持轻量背景 + 内边距，标签行内部横向滚动由 .role-tags 承接。 */
+/* 小组角色编制身份卡列表：工作台直接展示完整角色卡，模型按钮在卡内即可一键切换。 */
 .nyxus-role-configs {
-  padding: 8px 12px 5px;
-  border: 1px solid var(--nx-border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 6%);
+  --role-panel-bg: #171411;
+  --role-panel-edge: #8b6a3e;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 3px solid var(--role-panel-edge);
+  background: var(--role-panel-bg);
+  box-shadow: 0 0 0 2px #0c0b0a;
+}
+.nyxus-role-configs .role-runtime-note {
+  flex: none;
+  margin-bottom: 10px;
+  color: #b9aa87;
+}
+.nyxus-role-configs .role-tags {
+  display: flex;
+  flex: none;
+  min-height: 0;
+  max-height: 100%;
+  overflow: visible;
+  padding: 1px 4px 4px 1px;
+  .inner-scrollbar();
+}
+.nyxus-role-configs .role-stack-list {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+}
+.nyxus-role-configs .role-stack-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% - 4px);
+  /* 女神异闻录式上下分层：每张卡外圈 6px 大黑边，黑边外侧再加一圈极淡米白细线
+     （卡片/面板都是深色，纯黑边黑上加黑几乎看不见，细线让黑边和卡片轮廓能被看清），
+     并叠加向上的软投影形成前后层次；前卡压在后卡上时，黑边+细线画出清晰分层线。 */
+  box-shadow:
+    0 0 0 6px #0c0b0a,
+    0 0 0 7px rgba(241, 228, 194, 0.18),
+    0 0 0 8px rgba(228, 185, 85, 0),
+    0 -6px 10px rgba(0, 0, 0, 0.25);
+  transition:
+    transform 0.22s ease,
+    filter 0.22s ease,
+    box-shadow 0.22s ease;
+}
+/* 正在查看的卡：边框升级为亮金色——内层黑边收窄让位，外圈变 4px 亮金描边 + 一圈金色柔光，
+   像被选中点亮一样；随悬停过渡平滑亮起。 */
+.nyxus-role-configs .role-stack-item.is-active {
+  box-shadow:
+    0 0 0 3px #0c0b0a,
+    0 0 0 7px #e4b955,
+    0 0 0 8px rgba(228, 185, 85, 0.35),
+    0 -6px 10px rgba(0, 0, 0, 0.25);
+}
+/* 悬停时才拉开明暗对比：正在查看的卡保持全亮，被推开的卡压到很暗（亮度约四成、低饱和），
+   像聚光灯一样突出当前卡；默认（未悬停）态保持原亮度，保证三张卡内容都清晰可读。 */
+.nyxus-role-configs .role-stack-list.is-hovering .role-stack-item:not(.is-active) {
+  filter: saturate(0.25) brightness(0.42);
+}
+.nyxus-role-configs .role-stack-nameplate {
+  position: absolute;
+  top: 0;
+  /* 名字标签 Y 轴中线与卡片顶边框线对齐：上移自身高度一半，标签跨坐在卡片边框上。 */
+  transform: translateY(-50%);
+  left: 14px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 28px);
+  margin: 0;
+  padding: 3px 10px 3px 8px;
+  border: 2px solid #8b6a3e;
+  border-bottom: 0;
+  background: #171411;
+  box-shadow: 2px 0 0 #0c0b0a;
+  color: #f1e4c2;
+  font-size: 12px;
+  line-height: 1.25;
+  pointer-events: none;
+}
+.nyxus-role-configs .role-stack-nameplate strong {
+  overflow: hidden;
+  color: #f1e4c2;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nyxus-role-configs .role-stack-nameplate > span:last-child {
+  color: #b9aa87;
+  white-space: nowrap;
+}
+.nyxus-role-configs .role-stack-nameplate-mark {
+  color: #e4b955;
+  font-size: 15px;
+}
+.nyxus-role-configs .workbench-role-card {
+  width: 100%;
+}
+.nyxus-role-configs .role-tags-skel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+.nyxus-role-configs .role-skel-tile {
+  width: 100%;
+  height: 180px;
 }
 .nyxus-role-loading {
   padding: 18px;
