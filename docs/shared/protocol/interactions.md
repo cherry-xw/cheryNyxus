@@ -63,12 +63,12 @@
 
 ```json
 → {"id":"r3","kind":"request","method":"runtime.set",
-   "params":{"chatId":"c1","brain":"longcat","senseGroup":"safe","mcpServers":["filesystem"]}}
+   "params":{"chatId":"c1","brain":"longcat","senseGroup":"safe","mcpServers":["filesystem"],"thinking":"high"}}
 ← {"id":"a3","kind":"response","requestId":"r3","success":true,
-   "data":{"chatId":"c1","brain":"longcat","senseGroup":"safe","mcpServers":["filesystem"]}}
+   "data":{"chatId":"c1","brain":"longcat","senseGroup":"safe","mcpServers":["filesystem"],"thinking":"high"}}
 ```
 
-> 前置：chat 必须已存在。每轮可换 brain + senseGroup + mcpServers。`mcpServers` 缺省为空数组。
+> 前置：chat 必须已存在。每轮可换 brain + senseGroup + mcpServers。`mcpServers` 缺省为空数组。`thinking` 为可选思考等级临时覆盖（`off/on/low/medium/high/xhigh`）：缺省沿用大脑配置默认档位；设置后本会话该 chat 按此档位发送。前端工作台角色卡「思考等级」切换即走此通道（同 `session.runtime.set` 会话级语义，重启失效）。
 
 ### chat.create
 

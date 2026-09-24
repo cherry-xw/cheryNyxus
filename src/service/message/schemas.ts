@@ -36,6 +36,8 @@ const runtimeSelectionSchema = z.object({
   brain: nonEmptyString,
   senseGroup: z.string().optional(),
   mcpServers: mcpServersSchema,
+  /** 思考等级临时覆盖（档位字符串；缺省用大脑配置默认档位）。 */
+  thinking: z.string().optional(),
   /** 消息级溯源快照（messages.runtime / content_end.runtime）：消息发送时 brain 的 model/provider */
   brainModel: z.string().optional(),
   brainProvider: z.string().optional(),
@@ -315,6 +317,8 @@ export const requestSchemas = {
     brain: nonEmptyString,
     senseGroup: z.string().optional(),
     mcpServers: mcpServersSchema,
+    /** 思考等级临时覆盖（档位字符串；缺省用大脑配置默认档位）。 */
+    thinking: z.string().optional(),
   }),
   [Method.SESSION_RUNTIME_SET]: z.object({
     chatId: nonEmptyString,

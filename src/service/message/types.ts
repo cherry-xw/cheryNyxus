@@ -476,6 +476,8 @@ export interface RuntimeSetRequestData {
   senseGroup?: string
   /** 启用的 MCP server 名。缺省 []（关闭所有 MCP）。preset chat 下锁定。 */
   mcpServers?: string[]
+  /** 思考等级临时覆盖（可选）：缺省用大脑配置默认档位。 */
+  thinking?: import('@/core/llm/adapter.js').ThinkingLevel
 }
 
 /** 当前会话临时编制：仅保存在服务进程内存，不写 chats.metadata。 */

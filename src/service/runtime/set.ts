@@ -36,6 +36,7 @@ export async function handleRuntimeSet(
   let brain: string
   let senseGroup: string
   let mcpServers: string[]
+  const thinking = p.thinking
   const presetName = getChatPreset(p.chatId)
   if (presetName) {
     // 编制锁定：取创建快照的 senseGroup/mcp，brain 用传入值
@@ -59,7 +60,12 @@ export async function handleRuntimeSet(
     mcpServers = selection.mcpServers
   }
 
-  const selection = { brain, senseGroup, mcpServers }
+  const selection = {
+    brain,
+    senseGroup,
+    mcpServers,
+    ...(thinking !== undefined ? { thinking } : {}),
+  }
   await setRuntime(p.chatId, selection)
   logger.event('runtime.set', {
     chatId: p.chatId,
@@ -67,6 +73,7 @@ export async function handleRuntimeSet(
     brain,
     senseGroup,
     mcpServers,
+    thinking,
   })
   return { chatId: p.chatId, brain, senseGroup, mcpServers }
 }

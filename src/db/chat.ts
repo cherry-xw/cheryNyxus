@@ -2,6 +2,7 @@ import { getSoulDb, getMonthlyDb } from './index.js'
 import { safeJsonParse } from '@/utils/json.js'
 import config from '@/utils/config.js'
 import type { ThinkingBlock } from '@/core/message/adapter.js'
+import type { ThinkingLevel } from '@/core/llm/adapter.js'
 import type { ToolAuthorization } from '@/core/security/index.js'
 import { publishWorkflowJournalInvalidation } from './workflowJournal.js'
 
@@ -432,14 +433,25 @@ export function updateChatMetadata(chatId: string, patch: Record<string, unknown
  */
 export function getChatRuntimeSelection(
   chatId: string,
-): { brain: string; senseGroup: string; mcpServers: string[] } | undefined {
+): {
+  brain: string
+  senseGroup: string
+  mcpServers: string[]
+  thinking?: ThinkingLevel
+} | undefined {
   const db = getSoulDb()
   const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
     { metadata: string | null } | undefined
   if (!row?.metadata) return undefined
   const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
   const rt = parsed.runtime as
-    | { brain?: string; senseGroup?: string; senseGroups?: string[]; mcpServers?: string[] }
+    | {
+        brain?: string
+        senseGroup?: string
+        senseGroups?: string[]
+        mcpServers?: string[]
+        thinking?: ThinkingLevel
+      }
     | undefined
   if (!rt?.brain) return undefined
   // 单组化：读 senseGroup（新）；兼容旧行 senseGroups[]（取首项）。无迁移脚本，旧 chat 继续可用。
@@ -448,7 +460,13 @@ export function getChatRuntimeSelection(
   if (!senseGroup) return undefined
   // mcpServers 缺省 []：旧 chat metadata 无此字段，视为未启用任何 MCP server（向后兼容）
   const mcpServers = Array.isArray(rt.mcpServers) ? rt.mcpServers : []
-  return { brain: rt.brain, senseGroup, mcpServers }
+  // thinking 缺省不写字段：无临时覆盖时运行沿用大脑配置默认档位。
+  return {
+    brain: rt.brain,
+    senseGroup,
+    mcpServers,
+    ...(rt.thinking !== undefined ? { thinking: rt.thinking } : {}),
+  }
 }
 
 export function getChatMetadata(chatId: string): Record<string, unknown> {

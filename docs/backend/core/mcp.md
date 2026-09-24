@@ -108,13 +108,15 @@ MCP sense 绕过 sense_groups，**无 `:level` 后缀覆盖**。最终监管等�
        (单个失败 warn + lastError 记录,不阻断启动)
 
 ─── 挂载层（chat.create / runtime.set → resolveSense） ─────────
-RuntimeSelection { brain, senseGroup, mcpServers }
+RuntimeSelection { brain, senseGroup, mcpServers, thinking? }
   └─ resolveSense: sense_groups 解析后追加
        for serverName in mcpServers:
          getConnectedServerSenseNames(name)   ← 未连 throw NOT_FOUND(fail loud)
          → 每个 getSense → shallow copy + server 级 supervision → 合并进 resolved Map
      → builtSenses + senseTable 含 enabled MCP tools
   （持久化 metadata.runtime；重启 ensureChat 自动恢复）
+  （thinking? 为可选思考等级临时覆盖：resolve 时克隆 brain 并把档位盖到副本上，
+    中间件读 ctx.runtime.brain.thinking 即得覆盖值；缺省沿用大脑配置默认档位）
 
 ─── 运行期（零特例,复用 sense 链） ─────────────────────────────
 LLM 产出 senseCalls 含 mcp__<server>__<tool>
