@@ -134,6 +134,7 @@ export function reconcileSessionStripPreference(
   preference: SessionStripPreference,
   tasks: TaskOverview[],
   currentChatId?: string,
+  knownChatIds?: ReadonlySet<string>,
 ): SessionStripPreference {
   const liveByKey = new Map(tasks.map((task) => [task.taskKey, task]))
   const seen = new Set<string>()
@@ -142,6 +143,14 @@ export function reconcileSessionStripPreference(
     if (seen.has(slot.taskKey) || seen.size >= SESSION_STRIP_STABLE_SLOTS) return []
     seen.add(slot.taskKey)
     const live = liveByKey.get(slot.taskKey)
+    if (
+      live === undefined &&
+      knownChatIds &&
+      !snapshotReferencesKnownChat(slot.snapshot, knownChatIds)
+    ) {
+      delete dismissedAttentionKeys[slot.taskKey]
+      return []
+    }
     return [
       live && snapshotChanged(slot.snapshot, live)
         ? { taskKey: slot.taskKey, snapshot: projectSessionStripTask(live) }
@@ -183,6 +192,19 @@ export function reconcileSessionStripPreference(
     slots,
     dismissedAttentionKeys,
   }
+}
+
+function snapshotReferencesKnownChat(
+  snapshot: SessionStripItem,
+  knownChatIds: ReadonlySet<string>,
+): boolean {
+  return [
+    snapshot.taskKey,
+    snapshot.rootChatId,
+    snapshot.originalChatId,
+    snapshot.openChatId,
+    ...snapshot.relatedChatIds,
+  ].some((chatId) => knownChatIds.has(chatId))
 }
 
 export function dismissSessionStripTask(

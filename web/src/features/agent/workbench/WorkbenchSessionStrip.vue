@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useTaskOverviewStore } from '@/application/public'
+import { useChatSessionsStore, useTaskOverviewStore } from '@/application/public'
 import type { TaskOverview } from '@/application/backend/public'
 import {
   buildStripTooltip,
@@ -54,6 +54,7 @@ const TASK_ICONS: ReadonlyArray<readonly string[]> = [
 ]
 
 const overview = useTaskOverviewStore()
+const chats = useChatSessionsStore()
 const preferenceScope = computed(() =>
   props.presetId
     ? `id:${props.presetId}`
@@ -77,9 +78,14 @@ const stripTasks = computed(() => {
   return tasks
 })
 
+const knownChatIds = computed(
+  () => new Set(chats.catalogSummaries.map((summary) => summary.chatId)),
+)
+
 const currentFallback = computed<SessionStripItem | undefined>(() => {
   const chatId = props.activeChatId?.trim()
   if (!chatId || stripTasks.value.some((task) => taskMatchesChat(task, chatId))) return undefined
+  if (chats.catalogReady && !knownChatIds.value.has(chatId)) return undefined
   return {
     taskKey: chatId,
     rootChatId: chatId,
@@ -107,10 +113,15 @@ const strip = computed(() =>
 )
 
 watch(
-  [stripTasks, () => props.activeChatId, preference],
+  [stripTasks, () => props.activeChatId, preference, () => chats.catalogReady, knownChatIds],
   ([tasks, activeChatId]) => {
     setPreference(
-      reconcileSessionStripPreference(preference.value, tasks, activeChatId ?? undefined),
+      reconcileSessionStripPreference(
+        preference.value,
+        tasks,
+        activeChatId ?? undefined,
+        chats.catalogReady ? knownChatIds.value : undefined,
+      ),
     )
   },
   { immediate: true },
