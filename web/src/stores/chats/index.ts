@@ -193,6 +193,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   const sessionsById = ref<Record<string, ChatSession>>({})
   /** Authoritative lightweight catalog. Session entities are hydrated projections of this list. */
   const catalogSummaries = ref<ChatSummary[]>([])
+  /** True after chat.list has supplied an authoritative catalog snapshot. */
+  const catalogReady = ref(false)
   /** Root-owned projection; one snapshot covers the entire recursive tree. */
   const rootTimelines = ref<Record<string, RootTimelineSnapshot>>({})
   /** Root-owned transient plane, shared by every view of the same root. */
@@ -371,6 +373,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   /** chat.list(includePreview=true) 后建全部 catalog 实体 + 索引。 */
   function initCatalog(summaries: ChatSummary[]): void {
     catalogSummaries.value = [...summaries]
+    catalogReady.value = true
     for (const summary of summaries) ensureCatalogEntity(summary)
   }
 
@@ -1925,6 +1928,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   return {
     sessionsById,
     catalogSummaries,
+    catalogReady,
     rootTimelines,
     rootTimelineStates,
     rootSubscriptions,

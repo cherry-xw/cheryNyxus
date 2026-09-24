@@ -43,8 +43,9 @@ function reconcile(
   tasks: TaskOverview[],
   currentChatId?: string,
   preference: SessionStripPreference = EMPTY_SESSION_STRIP_PREFERENCE,
+  knownChatIds?: ReadonlySet<string>,
 ): SessionStripPreference {
-  return reconcileSessionStripPreference(preference, tasks, currentChatId)
+  return reconcileSessionStripPreference(preference, tasks, currentChatId, knownChatIds)
 }
 
 describe('stable session strip preferences', () => {
@@ -109,6 +110,32 @@ describe('stable session strip preferences', () => {
       { taskKey: 'current', source: 'current' },
     ])
     expect(pickStripTasks(dismissed, [current], undefined).items).toHaveLength(0)
+  })
+
+  it('removes a saved task when the authoritative chat catalog no longer contains it', () => {
+    const stale = task({
+      rootChatId: 'deleted',
+      status: 'completed',
+      unreadResult: true,
+    })
+    const saved = reconcile([stale])
+
+    const cleaned = reconcile([], undefined, saved, new Set(['remaining']))
+
+    expect(cleaned.slots).toHaveLength(0)
+  })
+
+  it('keeps an older completed task when it is omitted from the live overview but still exists', () => {
+    const existing = task({
+      rootChatId: 'older',
+      status: 'completed',
+      unreadResult: true,
+    })
+    const saved = reconcile([existing])
+
+    const preserved = reconcile([], undefined, saved, new Set(['older']))
+
+    expect(preserved.slots.map((slot) => slot.taskKey)).toEqual(['older'])
   })
 
   it('restores the current task from a saved branch id when live overview no longer contains it', () => {
