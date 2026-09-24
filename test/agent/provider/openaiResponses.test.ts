@@ -96,6 +96,51 @@ describe('OpenAI Responses adapter', () => {
     ).toEqual([{ type: 'function_call_output', call_id: 'call_1', output: 'file content' }])
   })
 
+  it('可选参数工具不强制启用 Responses strict schema', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ output: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const sense = {
+      definition: {
+        type: 'function' as const,
+        function: {
+          name: 'read_file',
+          description: 'read a file',
+          parameters: {
+            type: 'object' as const,
+            properties: {
+              path: { type: 'string' },
+              limit: { type: 'number' },
+            },
+            required: ['path'],
+            additionalProperties: false,
+          },
+        },
+      },
+      executor: { schema: {} as never, execute: async () => ({ content: '' }) },
+      supervisionLevel: undefined,
+    }
+    const built = getSenseAdapter(LlmProtocol.OPENAI_RESPONSES)!.buildSenses([sense] as never)
+    const llm = getLLMAdapter(LlmProtocol.OPENAI_RESPONSES)!
+
+    await llm.chat([{ role: 'user', content: 'read it' }], built, {
+      model: 'gpt-6-luna',
+      url: 'https://example.com/v1',
+      key: 'k',
+    })
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)) as {
+      tools: Array<{ strict: boolean }>
+    }
+    expect(body.tools[0]?.strict).toBe(false)
+  })
+
   it('DeepSeek 多轮历史把思考编码为 reasoning item', () => {
     const messages = getMessageAdapter(LlmProtocol.OPENAI_RESPONSES)!
     expect(

@@ -66,6 +66,48 @@ interface ResponsesStreamEvent {
   response?: ResponsesResult
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Responses strict function tools require every object property to be listed
+ * in `required` and every object to reject additional properties. Optional
+ * fields in the project's Sense schemas are valid for non-strict tools, so
+ * only opt into strict mode when the complete schema satisfies that contract.
+ */
+function supportsResponsesStrictSchema(schema: unknown): boolean {
+  if (!isRecord(schema)) return true
+
+  const objectSchema = schema.type === 'object' || isRecord(schema.properties)
+  if (objectSchema) {
+    if (schema.additionalProperties !== false) return false
+
+    const properties = isRecord(schema.properties) ? schema.properties : {}
+    const required = new Set(
+      Array.isArray(schema.required)
+        ? schema.required.filter((name): name is string => typeof name === 'string')
+        : [],
+    )
+    if (Object.keys(properties).some((name) => !required.has(name))) return false
+    if (!Object.values(properties).every(supportsResponsesStrictSchema)) return false
+  }
+
+  if (schema.items !== undefined && !supportsResponsesStrictSchema(schema.items)) return false
+
+  for (const key of ['anyOf', 'oneOf', 'allOf']) {
+    const variants = schema[key]
+    if (
+      Array.isArray(variants) &&
+      !variants.every((variant) => supportsResponsesStrictSchema(variant))
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
 function textFromParts(parts: ResponsesOutputPart[] | string | undefined): string {
   if (typeof parts === 'string') return parts
   return (parts ?? [])
@@ -180,10 +222,16 @@ const responsesMessageAdapter: MessageProviderAdapterConfig<
 
 const responsesSenseAdapter: SenseAdapter<ResponsesResult> = {
   buildSenses(senses: Sense<ZodType>[]): SenseFunction[] {
-    return senses.map((sense) => ({
-      type: 'function',
-      function: { ...buildBaseSenseFunction(sense), strict: true },
-    }))
+    return senses.map((sense) => {
+      const definition = buildBaseSenseFunction(sense)
+      return {
+        type: 'function',
+        function: {
+          ...definition,
+          strict: supportsResponsesStrictSchema(definition.parameters),
+        },
+      }
+    })
   },
   senseCalls(response): SenseCallData[] {
     return (response.output ?? [])
@@ -226,7 +274,7 @@ function responseTools(senses: SenseFunction[]): Record<string, unknown>[] {
     name: sense.function.name,
     description: sense.function.description,
     parameters: sense.function.parameters,
-    strict: 'strict' in sense.function ? (sense.function as { strict?: boolean }).strict : true,
+    strict: supportsResponsesStrictSchema(sense.function.parameters),
   }))
 }
 
@@ -244,7 +292,11 @@ const responsesLLMAdapter: LLMAdapter = {
       },
       key,
       options?.signal,
-      { fullUrl: options?.fullUrl === true, endpoint: '/responses', observation: options?.observation },
+      {
+        fullUrl: options?.fullUrl === true,
+        endpoint: '/responses',
+        observation: options?.observation,
+      },
     )
   },
   async chatStream(messages, senses, options?: LLMOptions): Promise<AsyncIterable<unknown>> {
@@ -261,7 +313,11 @@ const responsesLLMAdapter: LLMAdapter = {
       },
       key,
       options?.signal,
-      { fullUrl: options?.fullUrl === true, endpoint: '/responses', observation: options?.observation },
+      {
+        fullUrl: options?.fullUrl === true,
+        endpoint: '/responses',
+        observation: options?.observation,
+      },
     )
   },
 }
