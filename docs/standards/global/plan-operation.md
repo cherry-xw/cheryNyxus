@@ -1,4 +1,4 @@
-# Plan 操作方案入口
+# 计划规范兼容入口
 
 规则正文已统一到[通用规范](../documentation/plans.md)。本页保留历史路径与章节锚点，不维护规则副本。执行操作前读取通用规则及[项目配置](./project-documentation.md)。
 

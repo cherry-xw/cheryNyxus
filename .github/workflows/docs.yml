@@ -1,0 +1,50 @@
+name: Documentation checks
+
+on:
+  push:
+    paths:
+      - AGENTS.md
+      - docs/**
+      - scripts/docs/**
+      - tools/plan-viewer/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/docs.yml
+  pull_request:
+    paths:
+      - AGENTS.md
+      - docs/**
+      - scripts/docs/**
+      - tools/plan-viewer/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/docs.yml
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Check documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run documentation tests
+        run: pnpm docs:test
+
+      - name: Run documentation checks
+        run: pnpm docs:check

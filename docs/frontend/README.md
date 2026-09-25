@@ -26,6 +26,17 @@
 | [deployment.md](./deployment.md) | Web 前端部署拓扑 |
 | [pack-guide.md](./pack-guide.md) | Electron 打包操作 |
 
+## 常见任务路由
+
+| 修改意图 | 先读 |
+| --- | --- |
+| 修改工作台、会话窗口、文件引用或 Terminal | [工作台文件与 Terminal](./workbench-files.md)、[多窗口工作台](./workbench-multi-window.md) |
+| 修改设置保存、重载、Tab 或配置界面 | [设置中心](./settings.md) |
+| 修改登录、连接发现或中转绑定 | [身份认证](./auth-login.md)、[中转连接模式](./relay-mode.md) |
+| 修改 Electron 窗口、preload、托盘或打包 | [Electron 集成](./electron.md)、[打包指南](./pack-guide.md) |
+| 修改工具调用、Markdown、媒体或结果展示 | [工具渲染](./renderer.md) |
+| 修改桌宠、节点树或桌宠视觉行为 | [桌宠与 Nyxus](./pet/README.md) |
+
 当前仍开放的前端问题、待用户人工复核项和明确暂缓的小问题统一见 [已知问题目录](../quality/known-issues/README.md)；模块文档不重复维护问题状态。
 
 ## 设计语言

@@ -10,7 +10,7 @@
 
 当前 CheryClaw 的「多媒体」能力是一套**硬编码、与大脑能力标记强耦合**的体系，存在四个结构性问题：
 
-1. **能力开关放错位置**：`generate_image/video/audio` 是否注入由「大脑 `capabilities.generate.*` + 感官组」双重门决定（[`src/agent/runtimeResolver.ts`](../../../src/agent/runtimeResolver.ts) `resolveSense`）。但生成工具的 `execute` 实际走多媒体网关（[`src/agent/sense/media.ts`](../../../src/agent/sense/media.ts)），**与大脑模型完全无关**。能力声明与执行路径语义混淆。
+1. **能力开关放错位置**：`generate_image/video/audio` 是否注入由「大脑 `capabilities.generate.*` + 感官组」双重门决定（[`src/agent/runtimeResolver.ts`](../../../src/agent/runtimeResolver.ts) `resolveSense`）。但生成工具的 `execute` 实际走多媒体网关（[`src/service/media/index.ts`](../../../src/service/media/index.ts)），**与大脑模型完全无关**。能力声明与执行路径语义混淆。
 2. **媒体服务配置粗粒度且写死协议**：`MediaServiceConfig`（[`src/utils/config.ts`](../../../src/utils/config.ts)）只有 `type/url/model/key/enabled/maxUploadMb` 六字段，一个服务 = 一个媒体类型；`operation`（understand/generate/edit）是请求时参数而非配置字段；无 TTS/STT/音色克隆等细分入口。网关协议固定为 JSON POST + 固定出参 `{text, assets}`，**无法适配市面上五花八门的外部服务出参**。
 3. **适配能力不存在**：系统不试图覆盖各厂商差异，但当前也没有「用户可自定义出入参处理」的机制——媒体能力被锁死在内置 `generate_*` 里。
 4. **发送门控不看工具**：发送弹窗的上传前提是「有媒体服务 OR 大脑 `input.*`」（[`web/src/features/agent/composer/useAgentDialogOptions.ts`](../../../web/src/features/agent/composer/useAgentDialogOptions.ts) `mediaServicesByType`），**不感知感官组里配了什么工具**。工具自身也没有任何「我接收什么、产出什么」的能力声明。
@@ -40,7 +40,7 @@
 | 事实 | 位置 |
 |---|---|
 | 内置生成 sense：`generate_image/video/audio`，schema 固定 `{prompt, reference?}` | [`src/agent/sense/index.ts`](../../../src/agent/sense/index.ts)（第 168-199 行） |
-| 生成执行：固定调媒体网关 `callMediaService(kind, 'generate', ...)`，结果 `saveMediaAsset` 落盘 | [`src/agent/sense/media.ts`](../../../src/agent/sense/media.ts) |
+| 生成执行：固定调媒体网关 `callMediaService(kind, 'generate', ...)`，结果 `saveMediaAsset` 落盘 | [`src/service/media/index.ts`](../../../src/service/media/index.ts) |
 | 双重门注入：`generateCapabilities` 拦截，需「感官组配置 + brain.generate[kind]=true」 | [`src/agent/runtimeResolver.ts`](../../../src/agent/runtimeResolver.ts) `resolveSense` |
 | 输入双轨：多模态旁路（全历史解析、近 3 轮重发、数量/字节上限）vs 旧路径（最后一条 user 消息调网关 `understand` 转文字） | [`src/agent/middleware/chat.ts`](../../../src/agent/middleware/chat.ts) `enrichMediaInputs` / `enrichMediaInputsMultimodal` / `enrichMediaInputsLegacy` |
 | 媒体网关协议：JSON POST `{operation, model, prompt, assets}`，返回 `{text}` 或 `{text, assets}` | [`src/service/media/index.ts`](../../../src/service/media/index.ts) `callMediaService` / `findMediaService` / `understandMediaReference` |
@@ -49,7 +49,7 @@
 | 自定义工具机制：`.chery/senses/*.ts` → `compile:senses` → `loadCompiledSense`（`new Function`）→ 注册 | [`src/agent/sense/index.ts`](../../../src/agent/sense/index.ts) `loadCustomSenses`（第 386 行）、[`src/core/sense/compiler/core.ts`](../../../src/core/sense/compiler/core.ts) `compileSenses` |
 | Sense 定义结构：`definition / executor / supervisionLevel`，**无能力声明字段** | [`src/core/sense/senseCreator.ts`](../../../src/core/sense/senseCreator.ts) `Sense<T>` / `sense()` |
 | env 入口：大脑 Tab 有「打开 .env」按钮（`openEnvFile`）+ 密钥下拉（`env.list`）+ 刷新 | [`web/src/features/agent/settings/tabs/brain/BrainCard.vue`](../../../web/src/features/agent/settings/tabs/brain/BrainCard.vue) `openEnvFile`（第 453 行） |
-| 多媒体 Tab：只有密钥下拉，**无「打开 .env」按钮** | [`web/src/features/agent/settings/tabs/config/MediaTab.vue`](../../../web/src/features/agent/settings/tabs/config/MediaTab.vue) |
+| 多媒体 Tab：只有密钥下拉，**无「打开 .env」按钮** | [`web/src/features/agent/settings/tabs/config/MediaCapabilityGrid.vue`](../../../web/src/features/agent/settings/tabs/config/MediaCapabilityGrid.vue) |
 | 历史图带回：`bringBack` 事件把历史媒体挂进待发送 | [`web/src/features/agent/chat/bringMediaEvent.ts`](../../../web/src/features/agent/chat/bringMediaEvent.ts) |
 
 ## 5. 目标设计

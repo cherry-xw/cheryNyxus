@@ -59,7 +59,7 @@ Nyxus 消息输入不再投影 `input:draft:*` 虚拟节点，也不 Teleport �
 
 ### Signal Grid 渲染分支（2026-09-02 返工）
 
-横向 Signal 模式的 renderer 规则（投影契约见 [nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约](nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约)）：
+横向 Signal 模式的 renderer 规则（投影契约见 [nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约二轮修订](nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约二轮修订)）：
 
 - **节点轮廓（2026-09-02 三轮重构）**：所有节点统一为 40×40 紧凑方框、24×24 图标；主框使用 2px 小圆角、主体外扩 4px 的完整高对比外框、3px 内缩细框和左右端口座。边框按语义分成角线、上下导轨、分段顶边、侧缺口四种轻量变体，不改变节点尺寸。节点内严格零文字，类型只由 icon、边框和颜色辨识，完整语义继续由 hover 详情和 HTML `aria-label` 提供。
 - **类型图标矩阵**：基础 9 类与工具 20 类全部使用 `vue-icons-plus/lu` 的 Lucide 线性图标。`signalNodeIcons.ts` 只保存 `SignalNodeVisualKind → Vue icon component` 注册表；renderer 将组件一次性渲染为白色 SVG/Pixi 纹理，节点 Sprite 复用纹理并按主题 tint，不再维护手绘 Graphics path。
@@ -99,7 +99,7 @@ popover 内所有 renderer 折叠区（命令输出/搜索结果/参数/结果/�
 
 > 2026-08-26 起钢琴降级为**纯键盘弹奏彩蛋**，不再承载会话切换。会话切换改由 rail 的会话列表 popout 承接（见下节）；钢琴与列表的关联已全部剔除。
 
-钢琴组件 `NyxusPianoStrip` 只在**节点树彩蛋触发**时以浮层出现在节点树视口中央（触发序列见 [nyxus-node-tree-maintenance.md#节点树钢琴彩蛋](nyxus-node-tree-maintenance.md#节点树钢琴彩蛋)）。固定绘制 **2 个八度 24 键标准钢琴**（C4–B5）：白键 14 + 黑键 10，复用 `layoutPianoKeys(24)`（`pianoNotes.ts`）按真实钢琴比例排版（黑键骑白键边界、z 叠上层）——白键象牙渐变、黑键乌木渐变+高光、键前缘与面板**全直角**（`border-radius:0`）；面板标题 `NYXUS PIANO · C4–B5` + 键位提示行，全部字重 400（[设计语言规范 §4](../../standards/frontend/design-language.md#4-字体与字重细则) 字重细则同步收敛）。
+钢琴组件 `NyxusPianoStrip` 只在**节点树彩蛋触发**时以浮层出现在节点树视口中央（触发序列见 [nyxus-node-tree-maintenance.md#节点树钢琴彩蛋](nyxus-node-tree-maintenance.md#节点树钢琴彩蛋)）。固定绘制 **2 个八度 24 键标准钢琴**（C4–B5）：白键 14 + 黑键 10，复用 `layoutPianoKeys(24)`（`pianoNotes.ts`）按真实钢琴比例排版（黑键骑白键边界、z 叠上层）——白键象牙渐变、黑键乌木渐变+高光、键前缘与面板**全直角**（`border-radius:0`）；面板标题 `NYXUS PIANO · C4–B5` + 键位提示行，全部字重 400（[设计语言规范 §4.2](../../standards/frontend/design-language.md#42-字体字号字重几何) 字重细则同步收敛）。
 
 **键盘映射（VirtualPiano 两行键位排版）**：低八度白键 `Z X C V B N M` = C4..B4（MIDI 60..71）、黑键 `S D G H J` = C#4..A#4（61/63/66/68/70）；高八度白键 `Q W E R T Y U` = C5..B5（72..83）、黑键 `2 3 5 6 7` = 73/75/78/80/82。监听用 `KeyboardEvent.code` 匹配（规避键盘布局/输入法差异）；输入控件（`input/textarea/select/[contenteditable]`）内的按键忽略、`e.repeat` 忽略；命中键 `preventDefault` 并调 `usePianoAudio.play(noteFrequency(midi))`（`usePianoKeyboard.ts`，仅浮层挂载期间监听，弹琴不误触 composer 输入）。音频为 Web Audio 三角波 + ADSR 包络，`AudioContext` 在用户手势同步链内懒建解锁（`usePianoAudio.ts` 保留，含静音开关，静音态持久化 localStorage）。指针点击与键盘按键共用按下高亮。浮层自包含关闭：点 ✕ / 点浮层外 / `Esc`。
 

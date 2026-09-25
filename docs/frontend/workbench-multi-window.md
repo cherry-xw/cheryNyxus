@@ -1,4 +1,4 @@
-﻿# 节点树工作台多窗口化（Part 2）实现汇总
+# 节点树工作台多窗口化（Part 2）实现汇总
 
 > 本文档记录节点树工作台从**单实例**改造为**每预设一窗**多窗口架构的完整实现细节。需求确认见记忆 `workbench-multi-window-plan`；Part 1（待处理交互右侧抽屉）已单独落地，见 `AgentDialog.vue`/`overlayLayers.ts`。
 
@@ -132,7 +132,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 
 **打开即恢复会话**：新建窗口初始 `chatId: null`，空树不渲染。入口须在新建窗口时恢复该 preset 活跃根会话——Pet 用 `activeRootForPet(pet)`（`activeRootByPreset` 优先，回退 pet 当前会话），Nyxus 用 `activeNyxusChatId`（空则 `getActiveNyxus()` 取最近/新建）。仅当窗口 `chatId` 为空时设置，已存在窗口重开复用不覆盖当前浏览。
 
-**入口统一携带预设名（2026-08-21）**：窗口 id/presetId 语义双通道——Nyxus 入口直接传**预设名** `'cheryNyxus'`（`CHERY_NYXUS_PRESET`），Pet/AgentDialog 入口传**真实 presetId**。为让 `useAgentDialogOptions` 的 `presetName` 不依赖可能为空的会话数据（空白工作台根因），三处入口（`NyxusCore.openWorkbench` / `PetToolbar.openWorkbench` / `AgentDialog` 的 `openWorkbenchForChat`/`openWorkspaceTree`）在 `openWorkbenchWindow` 第二参 / `bridge.openWindow` 的 `OpenWindowRequest.presetName` 统一携带预设名；`WorkbenchWindowState.presetName` 打开时存入，已存在窗口重开时防御性补写（入口解析失败留下的旧窗 presetName 恒 null 也可被后续打开纠正）。Electron 原生窗经 `OpenWindowRequest` → main `extraParams` → URL `?presetName=` → App.vue 读入（见 [electron.md#多-surface-模型桌面宠物--独立原生窗](electron.md#多-surface-模型桌面宠物--独立原生窗)）。
+**入口统一携带预设名（2026-08-21）**：窗口 id/presetId 语义双通道——Nyxus 入口直接传**预设名** `'cheryNyxus'`（`CHERY_NYXUS_PRESET`），Pet/AgentDialog 入口传**真实 presetId**。为让 `useAgentDialogOptions` 的 `presetName` 不依赖可能为空的会话数据（空白工作台根因），三处入口（`NyxusCore.openWorkbench` / `PetToolbar.openWorkbench` / `AgentDialog` 的 `openWorkbenchForChat`/`openWorkspaceTree`）在 `openWorkbenchWindow` 第二参 / `bridge.openWindow` 的 `OpenWindowRequest.presetName` 统一携带预设名；`WorkbenchWindowState.presetName` 打开时存入，已存在窗口重开时防御性补写（入口解析失败留下的旧窗 presetName 恒 null 也可被后续打开纠正）。Electron 原生窗经 `OpenWindowRequest` → main `extraParams` → URL `?presetName=` → App.vue 读入（见 [electron.md#electron-原生独立窗迁移part-3](#electron-原生独立窗迁移part-3)）。
 
 **空态新建会话**：窗口 `chatId` 为空且无任何会话时渲染空态「新建会话」按钮（`WorkbenchDialog.createSession`）。该场景下 `presetName`/`isNyxus` 不再推导不到——2026-08-21 起入口随窗携带 `presetName`（`win.presetName` 打开即定），预设判定优先用 `win.presetName`：等于 `'cheryNyxus'`（Nyxus 窗口以预设名开窗）→ `createNyxusSession()`；普通预设窗口（稳定 id）→ 复用空白会话或 `createMasterPet({ preset })`，无 preset 名可解析时明确报错而非静默失败（`props.presetId` 与 `win.presetName` 双保险，仍以窗口自身为准而非会话推导）。空白会话匹配键同样按窗口形态区分（Nyxus 用 `preset` 名、普通预设用 `presetId`），避免 Nyxus 空白会话永不命中而重复新建。
 
@@ -388,7 +388,7 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 - `useWorkbenchViewPreferences.ts`：`presentationMode` 改为由 `paperMode` **派生**（卡牌开 → `vertical-classic`，卡牌关 → `horizontal-signal`），不再独立持久化；load 时忽略旧持久化字段完成迁移（存量 `presentationMode='vertical-classic' && paperMode=false` 迁移为横向）。
 - `WorkbenchDialog.vue`：删除独立 ⇥ 方向切换按钮；卡牌按钮是唯一方向入口，tooltip/aria 为「切换卡牌纵向视图 / 切换信号横向视图」。两种展示模式（纵向 Classic 渲染 / 横向 Signal Grid）共存，随卡牌开关切换。
 - **fallback 豁免（实现结论：无需额外守卫）**：`fallbackToClassic`（`useWorkbenchDialogController.ts`）直接写 `presentationMode.value = 'vertical-classic'`，而联动 `watch` 只监听 `paperMode`，回退值不会被反向翻转；用户下次手动切换卡牌时联动按派生规则恢复，重载后派生值按 `paperMode` 重算（自然重试 Signal）。回退提示由既有 `graph.fallback` 视觉事件承担（「警告 // 图谱回退：Signal Grid 初始化失败，已回退 Classic」）。
-- 投影/渲染契约见 [pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约](pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约)。
+- 投影/渲染契约见 [pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约二轮修订](pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约二轮修订)。
 
 ## 标题栏任务切换（2026-09-17）
 

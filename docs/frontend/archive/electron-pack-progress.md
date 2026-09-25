@@ -173,7 +173,7 @@ targets: win=nsis, mac=dmg, linux=AppImage
 - `DB_DIR`：始终 `app.getPath('userData')/.chery/db/`（避开 Program Files 权限问题）。
 - 升级：`.env` 仅补缺失；`.chery` 按 manifest 中的官方哈希增量更新并在替换前备份。
 
-详见 [electron.md#electron-spawn-后端模式-2](../electron.md#electron-spawn-后端模式-2)。
+详见 [electron.md#主进程路径解析](../electron.md#主进程路径解析)。
 
 ## 6. 实现细节记录
 

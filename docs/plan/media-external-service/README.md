@@ -4,7 +4,7 @@
 
 **状态：** 待综合验证
 
-> 需求基线见 [requirements.md](./requirements.md)。本 README 只负责恢复与跟踪，详细设计以需求文档为准。
+> 需求基线见 [requirements.md](./requirements.md)。讨论过程备忘见 [discussion-notes.md](./discussion-notes.md)。本 README 只负责恢复与跟踪，详细设计以需求文档为准。
 
 ## 目标与边界
 
@@ -97,7 +97,7 @@
 
 | 编号 | 目标 | 操作卡锚点 | 结论 |
 |---|---|---|---|
-| M1 | 设置页无「多媒体」Tab，感官组 Tab 正常 | [`verify/manual-final.md`](verify/manual-final.md#a1-设置页无多媒体-tab) | 待补 fixture |
+| M1 | 设置页无「多媒体」Tab，感官组 Tab 正常 | [`verify/manual-final.md`](verify/manual-final.md#a1-设置页无多媒体tab) | 待补 fixture |
 | M2 | 发送弹窗上传门控（非多模态无/有工具） | [`verify/manual-final.md`](verify/manual-final.md#a2-发送弹窗上传门控非多模态) | 待补 fixture |
 | M3 | 多模态直传与渲染 | [`verify/manual-final.md`](verify/manual-final.md#a3-多模态直传) | 待补 fixture |
 | M4 | 非多模态前置调度执行 | [`verify/manual-final.md`](verify/manual-final.md#a4-非多模态前置调度) | 待补 fixture |

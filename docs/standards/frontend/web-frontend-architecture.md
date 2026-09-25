@@ -153,7 +153,7 @@ application runtime = 组装上述依赖的唯一例外
 - 只有 composition root 或明确登记的 host adapter 可以组装 application/store；
 - canonical owner 不得反向依赖迁移期兼容 facade。
 
-验证命令见 [前端架构交接](../../frontend/archive/frontend-refactor-handoff.md#变更门禁)。
+验证命令见 [前端架构交接](../../frontend/archive/frontend-refactor-handoff.md#8-变更门禁)。
 
 ## 8. 存量迁移规则
 

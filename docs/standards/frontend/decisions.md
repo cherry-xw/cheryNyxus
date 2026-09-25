@@ -35,5 +35,5 @@
 ## 2026-09 · GSAP 为唯一 JS 动画引擎（motion-v 退役）
 
 - **背景**：动效栈并存 motion-v（10 文件）与 pixi.js/CSS；引入 GSAP 后双 JS 动画栈双 ticker 并存，帧预算无法统一管理，且 vendor 多一个 chunk。
-- **裁决**：GSAP 为唯一 DOM 动画引擎，motion-v 全部用法迁移后删除依赖；pixi.js（执行图 canvas）与 CSS @keyframes 不属 DOM 动画栈，维持现状。动效规范见 [design-language.md §5](design-language.md#5-动效规范)。
+- **裁决**：GSAP 为唯一 DOM 动画引擎，motion-v 全部用法迁移后删除依赖；pixi.js（执行图 canvas）与 CSS @keyframes 不属 DOM 动画栈，维持现状。动效规范见 [design-language.md §14.3](design-language.md#143-动效和性能)。
 - **依据**：单一 ticker 才能接入 `renderQuality` 调速器形成统一帧采样；「降复杂度不降帧率」的降级策略需要统一入口；仓库已有动效恒开约定（settings.md），GSAP 默认不跟随 reduced-motion 与之一致。

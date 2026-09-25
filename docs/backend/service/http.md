@@ -86,7 +86,7 @@ MIME 映射:自写 `Record<string, string>`(html/js/css/json/svg/png/...),无新
 
 `/api/*`（`/api/config`、`/api/media/upload`、`/api/media/:filename`、`/api/auth/me` 等）在浏览器模式下走同源相对路径直连本服务端口（8183）；在 Electron `file://` 加载下，`window.location.origin === "null"`，相对路径失败，必须显式 base URL。
 
-约定：Electron main 进程在 `waitForBackend` 就绪后经 [preload](../../frontend/electron.md#preload-注入配置) `contextBridge.exposeInMainWorld("__BACKEND_HTTP_URL__", ...)` 同步注入 `http://localhost:<webPort>`。前端统一用 `httpUrl(path)` helper：
+约定：Electron main 进程在 `waitForBackend` 就绪后经 [preload](../../frontend/electron.md#ipc-通道边界) `contextBridge.exposeInMainWorld("__BACKEND_HTTP_URL__", ...)` 同步注入 `http://localhost:<webPort>`。前端统一用 `httpUrl(path)` helper：
 
 ```ts
 // web/src/services/http.ts
@@ -111,7 +111,7 @@ export function httpUrl(path: string): string {
 - **被依赖**:仅 [src/service/index.ts](../../../src/service/index.ts) `startService` 调用,与 `createWebSocketServer` 同进程启动。
 - **协议规范**:[../protocol.md](../../shared/protocol/websocket.md)「HTTP API」段定义 `/api/config` 响应结构。
 - **关联模式**:[docs/frontend/deployment.md](../../frontend/deployment.md) 模式 3(Web 浏览器)由此模块 serve 前端;模式 2(Electron)前端 `loadFile` 不依赖此模块,但 main `waitForBackend` 轮询 `/api/config` 确认后端就绪。
-- **关联文档**:[../web/electron.md#preload-注入配置](../../frontend/electron.md#preload-注入配置) 描述 `__BACKEND_HTTP_URL__` 注入。
+- **关联文档**:[../web/electron.md#ipc-通道边界](../../frontend/electron.md#ipc-通道边界) 描述 `__BACKEND_HTTP_URL__` 注入。
 
 ## 扩展点
 
