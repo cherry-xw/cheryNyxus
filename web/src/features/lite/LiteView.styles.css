@@ -876,10 +876,11 @@
 .lite-tool-call-status[data-status='cancelled'] {
   background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
 }
-/* 思考/工具图标均为 MorphIcon 渲染的 SVG（尺寸由 size prop 控制），颜色继承按钮 currentColor。 */
+/* 思考/工具图标使用 MorphIcon 或 sense.tools glyph，颜色继承按钮 currentColor。 */
 .lite-thinking-icon,
 .lite-tool-call-icon {
   display: block;
+  line-height: 1;
 }
 @keyframes lite-tool-blink {
   0%,

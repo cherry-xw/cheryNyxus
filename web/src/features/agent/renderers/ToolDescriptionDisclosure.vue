@@ -21,6 +21,7 @@ const doc = ref<SenseToolDocInfo | null>(null)
 const tool = ref<PromptSnapshotTool | null>(null)
 
 const lookupKey = computed(() => props.toolKey ?? props.toolName)
+const displayToolKey = computed(() => props.toolKey?.trim() ?? '')
 
 const sections = computed(() => parseSenseDoc(doc.value?.doc ?? ''))
 const fields = computed(() => {
@@ -159,6 +160,10 @@ onBeforeUnmount(() => {
         <p v-if="loading" class="tool-description-muted">加载工具说明…</p>
         <p v-else-if="error" class="tool-description-error" role="alert">{{ error }}</p>
         <template v-else>
+          <div v-if="displayToolKey" class="tool-description-identity">
+            <span class="tool-description-identity-label">英文名称</span>
+            <code>{{ displayToolKey }}</code>
+          </div>
           <p v-if="!sections.length && !doc?.doc" class="tool-description-muted">暂无工具说明。</p>
           <div v-for="section in sections" :key="section.label" class="tool-description-section">
             <span class="tool-description-section-label">{{ section.label }}</span>
@@ -245,6 +250,28 @@ onBeforeUnmount(() => {
   line-height: 1.55;
   max-height: min(420px, 60vh);
   overflow-y: auto;
+}
+
+.tool-description-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 9px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--border, var(--el-border-color)) 55%, transparent);
+}
+.tool-description-identity-label {
+  flex: none;
+  color: color-mix(in srgb, var(--ink, var(--el-text-color-primary)) 52%, transparent);
+  font-size: 12px;
+}
+.tool-description-identity code {
+  min-width: 0;
+  color: var(--ink, var(--el-text-color-primary));
+  font-family: var(--font-mono, var(--el-font-family-mono));
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
 }
 
 /* 分节（作用 / 能力 / 边界 / 注意）：小标签 + 正文 */

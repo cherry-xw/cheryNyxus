@@ -3,7 +3,7 @@
  * LiteToolCallDetail：单条工具调用的结构化详情（问题 2：不同类型分开展示 + JSON 解析 + 英文→中文）。
  * - 外层卡片（.lite-tool-call / .is-focused）由 DetailDrawer 提供，本组件只渲染卡片内部；
  * - 参数 / 结果各自：解析 JSON → 按工具类型高亮关键字段（命令、路径、URL、任务说明…），
- *   其余字段收进「更多」折叠区；嵌套对象 / 数组递归翻译键后 pretty-print；
+ *   嵌套对象 / 数组递归翻译键后 pretty-print；
  * - 解析失败回退原文 <pre>。
  */
 import { computed, ref } from 'vue'
@@ -29,10 +29,12 @@ import {
 
 const props = defineProps<{
   call: GraphToolCall
-  /** 工具中文名（sense.tools label；未命中回退原名） */
+  /** 工具中文名（sense.tools label；未命中回退内置中文映射） */
   label: string
-  /** 工具本源图标（lucide，与列表 cluster 同款；按类型配色） */
+  /** 工具类型回退图标（sense.tools 元信息未加载时使用；按类型配色） */
   icon: IconInput
+  /** sense.tools 返回的工具图标；没有元信息时回退到按类型生成的图标。 */
+  glyph?: string
   type: LiteToolType
   focused?: boolean
   windowId: string
@@ -40,12 +42,16 @@ const props = defineProps<{
   /** 该调用对应的待处理交互（审批/提问）。存在时卡片渲染交互区（LiteInteractionView），
       交互完成后该值消失，卡片自动回到只读展示（v2026-11 交互入口迁入抽屉）。 */
   interaction?: InteractionRecord | null
+  /** 结果尚有未取回内容时，展开结果会继续请求工具调用详情。 */
+  resultHasMore?: boolean
+  resultLoading?: boolean
 }>()
+const emit = defineEmits<{ expandResult: [] }>()
 
 const argsValue = computed(() => parseJsonValue(props.call.arguments))
 const argsEntries = computed(() => toObjectEntries(argsValue.value))
-// 未知工具（other）无专用高亮字段：全部字段直接展开展示（已翻译中文标签），不折叠；
-// 已知工具类型只高亮关键字段，其余收进「更多参数」折叠区。
+// 未知工具（other）无专用高亮字段：全部字段直接展开展示（已翻译中文标签）。
+// 已知工具类型按工具字段顺序展示。
 const primaryArgs = computed(() => {
   const entries = argsEntries.value ?? []
   if (props.type === 'other') return entries
@@ -57,7 +63,7 @@ const secondaryArgs = computed(() => {
 })
 // 「问题 + 选项」形态参数（单选/多选）识别：命中后由专用区块展示，不再把 options 原文 JSON 列出。
 const selectPattern = computed(() => detectSelectPattern(argsEntries.value))
-// 选择类参数已由专用区块承载，从普通字段行排除（主区与「更多」折叠区都排除）；
+// 选择类参数已由专用区块承载，从普通字段行排除；
 // 选择类工具的标题/说明字段（header/rationale/nextStep）由参数上方的上下文块承载，同样排除。
 const remainingArgs = computed(() => {
   if (!selectPattern.value) return primaryArgs.value
@@ -71,6 +77,7 @@ const remainingSecondaryArgs = computed(() => {
     (entry) => !isSelectPatternKey(entry.key) && !isSelectContextKey(entry.key),
   )
 })
+const visibleArgs = computed(() => [...remainingArgs.value, ...remainingSecondaryArgs.value])
 // 提问工具：结构化参数（问题/选项/标题）与答案（已答/取消/等待）。答案由后端序列化为
 // 「用户回答: <label>（补充: <note>）, 其他: <text>」（src/db/question.ts），直接渲染进选项。
 const questionArgs = computed(() => parseQuestionArgs(props.call.arguments))
@@ -88,40 +95,45 @@ const argsFallback = computed(() => {
   const raw = props.call.arguments?.trim()
   return raw ? raw : ''
 })
-
-const resultValue = computed(() => parseJsonValue(props.call.result))
-const resultEntries = computed(() => toObjectEntries(resultValue.value))
-const primaryResult = computed(() => {
-  const entries = resultEntries.value ?? []
-  if (props.type === 'other') return entries
-  return entries.filter((entry) => isPrimaryField(props.type, entry.key))
-})
-const secondaryResult = computed(() => {
-  if (props.type === 'other') return []
-  return (resultEntries.value ?? []).filter((entry) => !isPrimaryField(props.type, entry.key))
-})
-const resultText = computed(() => {
-  if (resultEntries.value) return ''
-  const raw = props.call.result?.trim()
-  return raw ? raw : ''
+const argsCount = computed(() => {
+  if (argsEntries.value) return argsEntries.value.length
+  return argsFallback.value ? 1 : 0
 })
 
 const waiting = computed(() => props.call.status === 'pending' || props.call.status === 'accepted')
-// 结果区：短结果直接展开；长结果折叠，避免摘要与完整结果重复。
-const resultOpen = ref(false)
-function onResultToggle(event: Event): void {
-  const target = event.target as HTMLDetailsElement | null
-  if (target) resultOpen.value = target.open
+// 结果区：默认只显示摘要；点击正文后请求并展示完整结果，也可再次点击收回摘要。
+const resultExpanded = ref(false)
+function toggleResult(): void {
+  if (resultExpanded.value) {
+    resultExpanded.value = false
+    return
+  }
+  if (props.resultLoading) return
+  resultExpanded.value = true
+  if (props.resultHasMore) emit('expandResult')
+}
+function onResultPreviewKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  toggleResult()
 }
 const resultRaw = computed(() => props.call.result?.trim() ?? '')
-const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.value.length <= 200)
+const resultPreview = computed(() => {
+  const compact = resultRaw.value.replace(/\s+/g, ' ').trim()
+  const limit = 180
+  if (compact.length <= limit) return compact
+  return `${compact.slice(0, limit - 3).trimEnd()}...`
+})
+const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : resultPreview.value))
 </script>
 
 <template>
   <article class="lite-tool-call" :data-tooltype="type" :class="{ 'is-focused': focused }">
     <header class="lite-tool-call-head">
       <span class="lite-tool-call-icon" aria-hidden="true">
+        <span v-if="glyph" class="lite-tool-call-glyph">{{ glyph }}</span>
         <MorphIcon
+          v-else
           :icon="icon"
           :size="16"
           :stroke-width="2"
@@ -151,8 +163,11 @@ const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.val
     />
 
     <template v-else>
-      <details open class="lite-tool-call-args">
-        <summary>参数</summary>
+      <details class="lite-tool-call-args">
+        <summary>
+          <span>参数</span>
+          <span class="lite-tool-call-count">（{{ argsCount }}）</span>
+        </summary>
         <template v-if="argsEntries">
           <!-- 单选 / 多选形态参数：标题（header，本次问题内容）+ 问题 + 选项（已答时结果直接渲染进选项） -->
           <div v-if="selectPattern" class="lite-select-block">
@@ -198,15 +213,8 @@ const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.val
               </li>
             </ul>
           </div>
-          <LiteFieldRows :entries="remainingArgs" />
-          <details v-if="remainingSecondaryArgs.length" class="lite-fields-more">
-            <summary>更多参数（{{ remainingSecondaryArgs.length }}）</summary>
-            <LiteFieldRows :entries="remainingSecondaryArgs" />
-          </details>
-          <p
-            v-if="!remainingArgs.length && !remainingSecondaryArgs.length && !selectPattern"
-            class="lite-drawer-hint is-muted"
-          >
+          <LiteFieldRows :entries="visibleArgs" />
+          <p v-if="!visibleArgs.length && !selectPattern" class="lite-drawer-hint is-muted">
             （无参数）
           </p>
         </template>
@@ -214,32 +222,27 @@ const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.val
         <p v-else class="lite-drawer-hint is-muted">（无参数）</p>
       </details>
 
-      <!-- 结果区：提问工具已把结果渲染进选项，不再单列原始结果 -->
+      <!-- 结果区：提问工具已把结果渲染进选项，不再单列结果 -->
       <template v-if="!selectPattern">
-        <details
-          class="lite-tool-call-result"
-          :open="isShortResult || resultOpen"
-          @toggle="onResultToggle"
-        >
-          <summary>原始结果</summary>
-          <template v-if="resultEntries">
-            <LiteFieldRows :entries="primaryResult" />
-            <details v-if="secondaryResult.length" class="lite-fields-more">
-              <summary>更多（{{ secondaryResult.length }}）</summary>
-              <LiteFieldRows :entries="secondaryResult" />
-            </details>
-            <p
-              v-if="!primaryResult.length && !secondaryResult.length"
-              class="lite-drawer-hint is-muted"
-            >
-              （无结果）
-            </p>
-          </template>
-          <pre v-else-if="resultText" class="lite-pre">{{ resultText }}</pre>
+        <section class="lite-tool-call-result">
+          <h5>执行结果</h5>
+          <div
+            v-if="resultDisplay"
+            class="lite-result-content"
+            role="button"
+            tabindex="0"
+            aria-label="点击切换执行结果显示范围"
+            :aria-expanded="resultExpanded"
+            :aria-busy="resultLoading"
+            @click="toggleResult"
+            @keydown="onResultPreviewKeydown"
+          >
+            {{ resultDisplay }}
+          </div>
           <p v-else class="lite-drawer-hint is-muted">
             {{ waiting ? '等待工具返回…' : '（无结果）' }}
           </p>
-        </details>
+        </section>
       </template>
     </template>
   </article>
@@ -249,13 +252,11 @@ const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.val
 .lite-tool-call {
   margin-bottom: 12px;
   padding: 12px 14px;
-  border: 1px solid var(--el-border-color-lighter);
   border-radius: 0;
-  background: var(--el-fill-color-lighter);
 }
-.lite-tool-call.is-focused {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 1px;
+.lite-tool-call + .lite-tool-call {
+  padding-top: 13px;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 .lite-tool-call-head {
   display: flex;
@@ -267,7 +268,14 @@ const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.val
   flex: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   color: var(--el-text-color-regular);
+  line-height: 1;
+}
+.lite-tool-call-glyph {
+  font-size: 16px;
   line-height: 1;
 }
 /* 工具 icon 按类型配色（与列表 cluster 同色板），名称撑开剩余空间、安全徽章靠右。 */
@@ -317,25 +325,54 @@ const isShortResult = computed(() => resultRaw.value.length > 0 && resultRaw.val
   width: 7px;
   height: 7px;
 }
-.lite-tool-call-args > summary,
-.lite-tool-call-result > summary {
+.lite-tool-call-args > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
   cursor: pointer;
   list-style: none;
   font-size: 14px;
   color: var(--el-text-color-secondary);
   user-select: none;
 }
-.lite-tool-call-args > summary:hover,
-.lite-tool-call-result > summary:hover {
+.lite-tool-call-args > summary:hover {
   color: var(--el-color-primary);
 }
-.lite-tool-call-args > summary::-webkit-details-marker,
-.lite-tool-call-result > summary::-webkit-details-marker {
+.lite-tool-call-args > summary::-webkit-details-marker {
   display: none;
 }
-.lite-tool-call-args[open] > summary,
-.lite-tool-call-result[open] > summary {
+.lite-tool-call-args > summary::before {
+  content: '▸';
+  flex: none;
+  margin-right: 3px;
+  font-size: 12px;
+  transition: transform 140ms ease;
+}
+.lite-tool-call-args[open] > summary::before {
+  transform: rotate(90deg);
+}
+.lite-tool-call-args[open] > summary {
   margin-bottom: 8px;
+}
+.lite-tool-call-count {
+  color: var(--el-text-color-placeholder);
+  font-variant-numeric: tabular-nums;
+}
+.lite-result-content {
+  display: block;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--el-font-family-mono);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+}
+.lite-result-content:hover,
+.lite-result-content:focus-visible {
+  color: color-mix(in srgb, var(--el-text-color-regular) 88%, var(--el-text-color-primary));
+  outline: none;
 }
 .lite-tool-call-args,
 .lite-tool-call-result {

@@ -498,39 +498,51 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                   </button>
                   <!-- 工具 icon 组：同一次 LLM 响应的逐个工具调用（无边框并排，每工具底部一条状态线） -->
                   <template v-if="node.kind === 'tool' && node.toolCalls?.length">
-                    <span v-for="call in node.toolCalls" :key="call.callId" class="lite-tool-call-wrap">
-                      <button
-                      type="button"
-                      class="lite-tool-call"
-                      :class="{
-                        'is-selected':
-                          isDetailNode(node) && rootUi.detailFocusToolCallId === call.callId,
-                      }"
-                      :data-tooltype="classifyToolType(call.name)"
-                      :data-status="toolCallStatus(call.status)"
-                      :aria-label="toolCallTipText(node, call)"
-                      @pointerenter="showBarTip(node, $event, call)"
-                      @pointermove="moveBarTip"
-                      @pointerleave="hideBarTip"
-                      @click="openToolCallDetail(node, call, $event)"
+                    <span
+                      v-for="call in node.toolCalls"
+                      :key="call.callId"
+                      class="lite-tool-call-wrap"
                     >
-                      <MorphIcon
-                        class="lite-tool-call-icon"
-                        :icon="toolCallIcon(call.name)"
-                        :size="10"
-                        :stroke-width="2"
-                        :reduced-motion="clusterMorphReducedMotion"
-                        spring="snappy"
-                        aria-hidden="true"
-                      />
-                      <span
-                        class="lite-tool-call-status"
+                      <button
+                        type="button"
+                        class="lite-tool-call"
+                        :class="{
+                          'is-selected':
+                            isDetailNode(node) && rootUi.detailFocusToolCallId === call.callId,
+                        }"
+                        :data-tooltype="classifyToolType(call.name)"
                         :data-status="toolCallStatus(call.status)"
-                        aria-hidden="true"
+                        :aria-label="toolCallTipText(node, call)"
+                        @pointerenter="showBarTip(node, $event, call)"
+                        @pointermove="moveBarTip"
+                        @pointerleave="hideBarTip"
+                        @click="openToolCallDetail(node, call, $event)"
+                      >
+                        <span v-if="call.icon" class="lite-tool-call-icon" aria-hidden="true">{{
+                          call.icon
+                        }}</span>
+                        <MorphIcon
+                          v-else
+                          class="lite-tool-call-icon"
+                          :icon="toolCallIcon(call.name)"
+                          :size="10"
+                          :stroke-width="2"
+                          :reduced-motion="clusterMorphReducedMotion"
+                          spring="snappy"
+                          aria-hidden="true"
+                        />
+                        <span
+                          class="lite-tool-call-status"
+                          :data-status="toolCallStatus(call.status)"
+                          aria-hidden="true"
                         />
                       </button>
                       <TaskPlanMarker
-                        v-if="activeLitePlan && activeLitePlanNodeId === node.nodeId && call === node.toolCalls[0]"
+                        v-if="
+                          activeLitePlan &&
+                          activeLitePlanNodeId === node.nodeId &&
+                          call === node.toolCalls[0]
+                        "
                         :plan="activeLitePlan"
                         variant="lite"
                       />

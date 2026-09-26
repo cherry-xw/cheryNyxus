@@ -379,8 +379,10 @@ export interface LiteToolCallItem {
   callId: string
   /** 工具原名（sense.tools key）。 */
   name: string
-  /** 工具中文名（sense.tools label；未命中回退原名）。 */
+  /** 工具中文名（sense.tools label；未命中回退内置中文映射）。 */
   label: string
+  /** sense.tools 图标；未加载工具元信息时由视图回退到类型图标。 */
+  icon?: string
   status: GraphToolCall['status']
 }
 
@@ -609,12 +611,17 @@ export function projectLiteHistory(
       .map((call) => toolMetaOf(call.name)?.label?.trim() || toSenseNameZh(call.name))
       .filter(Boolean)
     // 逐个工具调用子项（cluster 组内逐工具展示）：保留每个 call 的独立状态与中文名。
-    const toolCallItems = toolCalls.map((call) => ({
-      callId: call.callId,
-      name: call.name,
-      label: toolMetaOf(call.name)?.label?.trim() || toSenseNameZh(call.name),
-      status: call.status,
-    }))
+    const toolCallItems = toolCalls.map((call) => {
+      const meta = toolMetaOf(call.name)
+      const icon = meta?.icon?.trim()
+      return {
+        callId: call.callId,
+        name: call.name,
+        label: meta?.label?.trim() || toSenseNameZh(call.name),
+        ...(icon ? { icon } : {}),
+        status: call.status,
+      }
+    })
     const toolType = classifyToolType(toolCalls[0]?.name ?? '')
     // v0.5.2：主/子 Agent 节点不再要求 direction==='agent-to-user' 才匹配 model step——
     // canonical rootTimeline 不投影 direction 字段，原条件恒不成立导致模型节点全部回退

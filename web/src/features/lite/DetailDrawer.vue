@@ -21,6 +21,7 @@ import {
 import LiteMarkdown from './LiteMarkdown.vue'
 import LiteToolCallDetail from './LiteToolCallDetail.vue'
 import { useLiteInteractions } from './useLiteInteractions'
+import { toSenseNameZh } from '@/utils/senseName'
 
 /**
  * DetailDrawer：单个节点的详情抽屉（需求 3：点击详情只展示该节点本身的信息，
@@ -56,6 +57,8 @@ const loadingNodeIds = ref<Record<string, boolean>>({})
 const sectionLoading = ref<Record<string, boolean>>({})
 /** 思考分节折叠态：默认收起（降低思考内容的视觉权重），点击标题展开。 */
 const thinkingOpen = ref(false)
+/** 工具节点正文是否已经发起过全文请求；摘要本身不在前端通过隐藏全文来模拟折叠。 */
+const contentFullRequested = ref(false)
 // 数据放宽（需求：适当放宽一次响应回来的内容数据量；其余交互不放开）
 const DETAIL_PAGE_LIMIT = 30000
 
@@ -139,7 +142,7 @@ function kindLabel(kind: LiteRunNodeKind): string {
   }
 }
 function toolLabel(call: { name: string }): string {
-  return lite.toolMeta(call.name)?.label?.trim() || call.name
+  return lite.toolMeta(call.name)?.label?.trim() || toSenseNameZh(call.name)
 }
 
 /** 按节点类型列出要展示的详情分节：用户→正文；工具→工具调用（合并同一次 LLM 响应时附思考/正文）；主·子 Agent→思考+正文；其余事件→正文。 */
@@ -147,11 +150,7 @@ const sections = computed<LiteDetailSectionName[]>(() => {
   if (!props.node) return []
   if (props.node.kind === 'user') return ['content']
   if (props.node.kind === 'tool') {
-    return [
-      'toolCalls',
-      ...(props.node.thinking ? (['thinking'] as const) : []),
-      ...(props.node.content ? (['content'] as const) : []),
-    ]
+    return [...(props.node.thinking ? (['thinking'] as const) : []), 'content', 'toolCalls']
   }
   if (props.node.kind === 'root-agent' || props.node.kind === 'child-agent') {
     return ['thinking', 'content']
@@ -184,6 +183,26 @@ function isSectionLoading(section: LiteDetailSectionName): boolean {
 }
 function isLoadingNode(): boolean {
   return props.node ? (loadingNodeIds.value[props.node.nodeId] ?? false) : false
+}
+
+const showContentPreview = computed(
+  () =>
+    props.node?.kind === 'tool' &&
+    !contentFullRequested.value &&
+    sectionLoaded('content') &&
+    Boolean(sectionText('content')),
+)
+
+function requestFullContent(): void {
+  if (contentFullRequested.value || isSectionLoading('content')) return
+  contentFullRequested.value = true
+  void loadSection('content')
+}
+
+function onContentPreviewKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  requestFullContent()
 }
 
 /** 工具详情游标链页数上限（每页 = 一个调用的一个字段块）。 */
@@ -232,12 +251,22 @@ async function loadSection(section: LiteDetailSectionName): Promise<void> {
   if (sectionLoading.value[requestKey]) return
   const state = detailState(section)
   if (state.loaded && !state.hasMore) return
-  // The Lite projection already contains complete content for ordinary
-  // conversation/event nodes, and for merged tool nodes that carry the same
-  // response's thinking/content (see projectLiteHistory). Asking the
-  // execution-node endpoint for those source-message ids produces a false
-  // "invalid data" error.
+  // Ordinary conversation/event nodes already carry their complete local content.
+  // Tool nodes are handled above: their local content is only the visible summary,
+  // and the full text is requested from the execution-node endpoint on click.
   const localText = section === 'content' ? props.node?.content : props.node?.thinking
+  if (section === 'content' && props.node?.kind === 'tool' && !state.loaded) {
+    // 工具节点的 content 是时间线摘要：首次只展示它，正文全文必须由用户点击后通过 node.get 获取。
+    liteUi.patchDetailSection(props.windowId, props.rootChatId, nodeId, section, {
+      ...state,
+      loaded: true,
+      text: localText ?? '',
+      offset: 0,
+      hasMore: Boolean(localText),
+      error: null,
+    })
+    return
+  }
   if (
     section !== 'toolCalls' &&
     !state.loaded &&
@@ -353,8 +382,10 @@ watch(
     await nextTick()
     closeButtonRef.value?.focus()
     if (bodyRef.value) bodyRef.value.scrollTop = 0
-    if (isNewNode) loadNodeSections()
-    else if (initialSection) {
+    if (isNewNode) {
+      contentFullRequested.value = false
+      loadNodeSections()
+    } else if (initialSection) {
       // 审批等带初始工具详情的入口：保证目标分节已加载
       const state = detailState(initialSection)
       if (!state.loaded) await loadSection(initialSection)
@@ -463,6 +494,21 @@ watch(
             </p>
             <template v-else>
               <p v-if="!sectionLoaded('content')" class="lite-drawer-hint is-muted">加载中…</p>
+              <p v-else-if="isSectionLoading('content')" class="lite-drawer-hint is-muted">
+                获取完整正文…
+              </p>
+              <div
+                v-else-if="showContentPreview"
+                class="lite-content-preview"
+                role="button"
+                tabindex="0"
+                aria-label="点击获取完整正文"
+                @click="requestFullContent"
+                @keydown="onContentPreviewKeydown"
+              >
+                <LiteMarkdown :text="sectionText('content')" />
+                <span class="lite-content-preview-hint">点击查看完整正文</span>
+              </div>
               <template v-else-if="sectionText('content')">
                 <LiteMarkdown :text="sectionText('content')" :plain="props.node.kind === 'user'" />
                 <button
@@ -495,11 +541,15 @@ watch(
                   :call="call"
                   :label="toolLabel(call)"
                   :icon="toolCallIcon(call.name)"
+                  :glyph="lite.toolMeta(call.name)?.icon"
                   :type="classifyToolType(call.name)"
                   :focused="call.callId === props.focusToolCallId"
                   :window-id="props.windowId"
                   :root-chat-id="props.rootChatId"
+                  :result-has-more="sectionHasMore('toolCalls')"
+                  :result-loading="isSectionLoading('toolCalls')"
                   :interaction="interactions.interactionForCall(call.callId)"
+                  @expand-result="loadSection('toolCalls')"
                 />
                 <el-tooltip
                   v-if="sectionHasMore('toolCalls')"
@@ -673,6 +723,21 @@ watch(
   color: var(--el-text-color-secondary);
   font-weight: 400;
   letter-spacing: 0.02em;
+}
+.lite-content-preview {
+  cursor: pointer;
+  outline: none;
+}
+.lite-content-preview:hover .lite-content-preview-hint,
+.lite-content-preview:focus-visible .lite-content-preview-hint {
+  color: var(--el-color-primary);
+}
+.lite-content-preview-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--el-text-color-placeholder);
+  font-size: 13px;
+  line-height: 1.4;
 }
 /* 思考分节标题（可点击折叠切换，替代 h4；样式与 h4 一致） */
 .lite-drawer-section-toggle {
