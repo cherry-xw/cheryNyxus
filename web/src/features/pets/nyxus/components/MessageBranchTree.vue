@@ -401,6 +401,7 @@ defineExpose({ resetLayout: controller.resetLayout })
             :selected-call-id="selectedActionCall(view.model)"
             :chat-id="view.model.chatId"
             :question="view.model.question"
+            :approval="view.model.approval"
             :draggable="true"
             @select-call="selectActionCall(view.model.id, $event)"
             @drag="dragActionPopover(view.model.id, $event)"

@@ -15,8 +15,9 @@ describe('approval and question surface wiring', () => {
       source('features/pets/nyxus/components/MessageBranchTree.vue'),
     ])
 
-    // 审批交互由任务中心 / Lite 处理；提问交互仍保留节点弹窗入口。
-    expect(popover).not.toContain('ApprovalCard')
+    // 树模式审批/提问交互统一收敛到节点弹窗（点击闪烁节点打开交互卡）；
+    // 纸卡面（stack/paper）不承载审批与提问交互。
+    expect(popover).toContain('ApprovalCard')
     for (const surface of [stack, paper]) {
       expect(surface).not.toContain('ApprovalCard')
       expect(surface).not.toContain('QuestionCard')

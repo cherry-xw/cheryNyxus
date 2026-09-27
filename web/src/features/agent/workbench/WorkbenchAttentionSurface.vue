@@ -18,15 +18,16 @@ const emit = defineEmits<{
   tree: [rootChatId: string, sourceChatId?: string, interactionId?: string, anchorNodeId?: string]
 }>()
 
-/** 决策窗口：标题栏 ← 批次 n/N → 切换批次卡（卡内题目切换固定在底部操作栏左侧，与提交按钮同行）。 */
+/** 纸牌堆叠决策窗口：标题栏 ← 题目 n/N → 切换当前批次卡内的题目
+ * （批次切换走左下角卡片漏边点击；关闭改由右侧铃铛入口切换）。 */
 const browserRef = ref<InstanceType<typeof WorkspaceSessionBrowser> | null>(null)
-const batchPager = ref({ index: 0, total: 0 })
-const batchIndex = computed(() => batchPager.value.index)
-const batchTotal = computed(() => batchPager.value.total)
-function onBatchPager(value: { index: number; total: number }): void {
-  batchPager.value = value
+const pager = ref({ index: 0, total: 0 })
+const pagerIndex = computed(() => pager.value.index)
+const pagerTotal = computed(() => pager.value.total)
+function onPager(value: { index: number; total: number }): void {
+  pager.value = value
 }
-function stepBatch(delta: number): void {
+function stepPager(delta: number): void {
   browserRef.value?.stepBatch(delta)
 }
 
@@ -50,27 +51,39 @@ function forwardTree(
     <header class="workbench-attention-head">
       <span>
         <BellFilled aria-hidden="true" />
-        <strong aria-live="polite"
-          >{{ others ? '其他流程' : '等待审批与回答' }} · {{ count }} 项</strong
-        >
+        <strong aria-live="polite">{{ others ? '其他流程' : '等待审批与回答' }} · {{ count }} 项</strong>
+        <small>{{ others ? '其他流程需要你的确认或回答' : '待处理审批与提问' }}</small>
       </span>
-      <div v-if="batchTotal > 1" class="attention-pager" role="group" aria-label="切换批次">
+      <button
+        type="button"
+        class="attention-close"
+        aria-label="关闭审批与回答窗口"
+        @click="emit('close')"
+      >
+        ×
+      </button>
+      <div
+        v-if="pagerTotal > 0"
+        class="attention-pager"
+        role="group"
+        aria-label="切换批次内题目"
+      >
         <button
           type="button"
-          aria-label="上一批次"
-          :disabled="batchTotal <= 1"
-          @click="stepBatch(-1)"
+          aria-label="上一题"
+          :disabled="pagerTotal <= 1"
+          @click="stepPager(-1)"
         >
           ←
         </button>
         <span class="attention-pager-index" aria-live="polite"
-          >批次 {{ batchIndex }}/{{ batchTotal }}</span
+          >题目 {{ pagerIndex }}/{{ pagerTotal }}</span
         >
         <button
           type="button"
-          aria-label="下一批次"
-          :disabled="batchTotal <= 1"
-          @click="stepBatch(1)"
+          aria-label="下一题"
+          :disabled="pagerTotal <= 1"
+          @click="stepPager(1)"
         >
           →
         </button>
@@ -83,7 +96,7 @@ function forwardTree(
       :exclude-root-chat-id="others ? rootChatId : undefined"
       :root-chat-id="others ? undefined : rootChatId"
       pending-only
-      @batch-pager="onBatchPager"
+      @pager="onPager"
       @tree="forwardTree"
     />
   </div>

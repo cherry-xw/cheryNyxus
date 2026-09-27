@@ -52,7 +52,8 @@ describe('current-root question anchor', () => {
   it('keeps the actionable current-root form outside the optional workflow diagram', () => {
     const file = 'web/src/features/agent/workbench/WorkbenchDialog.vue'
     expect(slotOwners(file, 'attention')).toEqual([])
-    expect(templateSource(file)).toContain('class="workbench-current-attention"')
+    // 2026-09-27：待处理提示上移标题栏（不可点击图标 + hover tip），警告条类名不再存在
+    expect(templateSource(file)).toContain('<WorkbenchAttentionIndicator')
   })
 
   it.each([0.35, 0.5, 1, 1.8])('uses flow-host coordinates and a fixed-size panel at zoom %s', (zoom) => {

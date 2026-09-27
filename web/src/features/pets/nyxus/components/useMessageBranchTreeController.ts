@@ -131,6 +131,8 @@ export type MessageBranchTreeControllerEmits = {
       ordinary?: boolean
     },
   ]
+  /** 用户点击待处理节点：交由工作台左下角统一审核窗口处理。 */
+  interactionFocus: [focus: { chatId: string; interactionId?: string; anchorNodeId?: string }]
   /** 钢琴彩蛋连点序列触发 → 父级（工作台）打开钢琴浮层。 */
   'easter-egg': []
   'presentation-fallback': [message: string]
@@ -480,6 +482,42 @@ export function useMessageBranchTreeController(
   const defaultPopoverAnchorIds = computed(
     () => new Set(defaultNodePopovers.value.map((model) => model.anchorNodeId)),
   )
+  /**
+   * 等待用户交互的锚定节点（待审批/待回答）：整棵树上持续闪烁，直到交互完成。
+   * 除主锚点外还包含模型的附加锚点（如提问批的 ask_user_question 问号工具节点）。
+   */
+  const awaitingInteractionNodeIds = computed(() => {
+    const ids = new Set<string>()
+    for (const model of defaultNodePopovers.value) {
+      ids.add(model.anchorNodeId)
+      for (const alt of model.anchorAltNodeIds ?? []) ids.add(alt)
+    }
+    return ids
+  })
+  /** 保留节点弹层布局状态，审核/提问模型本身不再进入弹层渲染。 */
+  const actionPopoverOpenIds = ref<Set<string>>(new Set())
+  /** 其他节点详情弹层使用的锚点查找。 */
+  function actionPopoversForAnchor(anchorNodeId: string): string[] {
+    return defaultNodePopovers.value
+      .filter(
+        (model) =>
+          model.anchorNodeId === anchorNodeId ||
+          model.anchorAltNodeIds?.includes(anchorNodeId),
+      )
+      .map((model) => model.id)
+  }
+  /** 其他节点详情弹层的切换状态。审核/提问不调用此路径。 */
+  function toggleActionPopover(anchorNodeId: string): void {
+    const modelIds = actionPopoversForAnchor(anchorNodeId)
+    if (!modelIds.length) return
+    const next = new Set(actionPopoverOpenIds.value)
+    const anyClosed = modelIds.some((id) => !next.has(id))
+    for (const id of modelIds) {
+      if (anyClosed) next.add(id)
+      else next.delete(id)
+    }
+    actionPopoverOpenIds.value = next
+  }
   const layoutEngine = createIncrementalExecutionLayout()
   const layout = computed(() =>
     projectExecutionPresentation(
@@ -863,26 +901,32 @@ export function useMessageBranchTreeController(
     next.set(id, { left, top })
     actionPopoverManual.value = next
   }
-  // 模型消失（审批已处理/提问已答复）→ 清掉该 id 的手动位置与实测高度，重开后回自动定位。
+  // 模型消失（审批已处理/提问已答复）→ 清掉该 id 的手动位置、实测高度与打开态，重开后回自动定位。
   watch(
     () => defaultNodePopovers.value.map((model) => model.id),
     (ids) => {
       const idSet = new Set(ids)
       const nextManual = new Map(actionPopoverManual.value)
       const nextHeights = new Map(actionPopoverHeights.value)
+      const nextOpen = new Set(actionPopoverOpenIds.value)
       for (const id of nextManual.keys()) if (!idSet.has(id)) nextManual.delete(id)
       for (const id of nextHeights.keys()) if (!idSet.has(id)) nextHeights.delete(id)
+      for (const id of nextOpen) if (!idSet.has(id)) nextOpen.delete(id)
       actionPopoverManual.value = nextManual
       actionPopoverHeights.value = nextHeights
+      actionPopoverOpenIds.value = nextOpen
     },
   )
   const defaultPopoverPlacements = computed(() => {
     const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
     const heightLimit = Math.max(160, viewportSize.value.height - 96)
     return defaultNodePopovers.value.flatMap((model, order) => {
-      // Approval and question decisions live in the persistent operations panel.
-      // Keep their models only for node focus/highlight linkage; never create a tree popover.
+      // 审批/提问统一在工作台左下角审核窗口处理，节点只承担闪烁提示与定位，
+      // 不再生成节点旁的第二个可交互审核窗口。
       if (model.approval || model.question) return []
+      // 审批/提问交互卡只在用户点击（或外部定位）对应节点后打开；
+      // 未打开的待处理模型仅驱动节点闪烁提示。
+      if (!actionPopoverOpenIds.value.has(model.id)) return []
       const node = positioned.get(model.anchorNodeId)
       if (!node) return []
       const anchor = nodeScreenAnchor(node)
@@ -1091,6 +1135,7 @@ export function useMessageBranchTreeController(
       canvas.panToPoint(node)
       if (hasNodeHoverDetail(node)) pinnedDetailNodeId.value = node.id
       if (interactionId) selectedCallId.value = interactionId
+      // 审核/提问只在左下角统一窗口处理，节点在这里仅作为定位和闪烁提示。
     },
     { flush: 'post' },
   )
@@ -1281,8 +1326,18 @@ export function useMessageBranchTreeController(
       selectPaperNode(node.id)
       return
     }
-    if (defaultPopoverAnchorIds.value.has(node.id)) {
-      return
+    if (awaitingInteractionNodeIds.value.has(node.id)) {
+      const model = defaultNodePopovers.value.find(
+        (candidate) =>
+          candidate.anchorNodeId === node.id || candidate.anchorAltNodeIds?.includes(node.id),
+      )
+      if (model && (model.approval || model.question)) {
+        emit('interactionFocus', {
+          chatId: model.chatId,
+          interactionId: model.approval?.approvalId ?? model.question?.batch.batchId,
+          anchorNodeId: model.anchorNodeId,
+        })
+      }
     } else if (crtsByAnchor.value.has(node.id)) {
       for (const card of crtsByAnchor.value.get(node.id) ?? []) pinCrt(card.id)
     } else if (canPinNodeDetail(node)) {
@@ -1641,6 +1696,7 @@ export function useMessageBranchTreeController(
         ...(node.kind === 'fold' && node.fold ? { foldCount: node.fold.members.length } : {}),
         ...(node.kind === 'pack' && node.pack ? { foldCount: node.pack.nodeCount } : {}),
         running: runningTailIds.value.has(node.id),
+        awaitingInteraction: awaitingInteractionNodeIds.value.has(node.id),
         detailActive:
           hoveredDetailNodeId.value === node.id ||
           pinnedDetailNodeId.value === node.id ||

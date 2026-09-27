@@ -129,7 +129,9 @@ describe('Nyxus tree motion contract', () => {
     expect(controller).toContain('() => layout.value.bounds.maxY')
     expect(controller).toContain('() => viewportSize.value.height')
     expect(component).toContain('@click.stop="resetLayout"')
-    expect(component).toContain('@pointerdown="onNodePointerDown($event, node); canvas.onPointerDown($event)"')
+    // 2026-09-27：pointerdown 表达式换行重排（多行属性），断言按实际排版匹配。
+    expect(component).toContain('onNodePointerDown($event, node);')
+    expect(component).toContain('canvas.onPointerDown($event)')
   })
 
   it('keeps the enlarged static cache out of the per-frame animation loops', async () => {
@@ -145,7 +147,8 @@ describe('Nyxus tree motion contract', () => {
     expect(drawMotion).toContain('for (const node of this.visibleMotionNodes)')
     expect(drawMotion).not.toContain('this.sampledEdges')
     expect(drawMotion).not.toContain('this.scene.nodes')
-    expect(source).toContain('.filter((node) => node.running || node.detailActive)')
+    // 2026-09-27：待审批/提问节点（awaitingInteraction）加入运动层，闪烁环与运行态共享预算。
+    expect(source).toContain('.filter((node) => node.running || node.detailActive || node.awaitingInteraction)')
     expect(source).toContain('renderQualityProfile(this.qualityTier).graphEffectNodes')
     // 2026-09-02 二轮返工：priority 分级随类型徽记矩阵移除，motion 预算按 detailActive 排序。
     expect(source).toContain('Number(right.detailActive) - Number(left.detailActive)')

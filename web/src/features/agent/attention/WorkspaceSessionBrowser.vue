@@ -5,7 +5,7 @@ import type { InteractionRecord } from '@/application/backend/public'
 import DecisionDeck from './DecisionDeck.vue'
 import InteractionCard from './InteractionCard.vue'
 import { belongsToWorkspace } from './interactionScope'
-import { questionsOf } from './interactionPresentation'
+import { countdownOf, questionsOf } from './interactionPresentation'
 import { allAnsweredOf, answeredCountOf, draftOf } from './useInteractionDrafts'
 
 const props = withDefaults(
@@ -151,6 +151,9 @@ const questionIndex = computed(() => {
   const count = questionsOf(item).length
   return Math.min(questionCursor[item.interactionId] ?? 0, Math.max(count - 1, 0))
 })
+const activeCountdown = computed(() =>
+  activeItem.value ? countdownOf(activeItem.value, now.value) : { total: 0, remaining: 0, expired: false },
+)
 /** 底部栏 ← 题目 → 切换当前批次卡内的题目（循环）。 */
 function step(delta: number): void {
   const item = activeItem.value
@@ -312,6 +315,13 @@ onBeforeUnmount(() => {
           在节点树中查看
         </button>
         <template v-if="activeItem.kind === 'approval'">
+          <span
+            v-if="activeCountdown.total"
+            class="decision-countdown"
+            :class="{ 'is-expired': activeCountdown.expired }"
+          >
+            {{ activeCountdown.expired ? '已超时' : `剩余 ${Math.ceil(activeCountdown.remaining / 1000)}s` }}
+          </span>
           <span class="decision-spacer" />
           <button
             type="button"
@@ -334,6 +344,13 @@ onBeforeUnmount(() => {
           <span class="decision-progress"
             >已完成 {{ answeredCountOf(activeItem) }}/{{ questionsOf(activeItem).length }} 题</span
           >
+          <span
+            v-if="activeCountdown.total"
+            class="decision-countdown"
+            :class="{ 'is-expired': activeCountdown.expired }"
+          >
+            {{ activeCountdown.expired ? '已超时' : `剩余 ${Math.ceil(activeCountdown.remaining / 1000)}s` }}
+          </span>
           <span class="decision-spacer" />
           <button
             type="button"
@@ -570,6 +587,13 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
+.decision-countdown {
+  flex: none;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: #1a7f52;
+}
+.decision-countdown.is-expired { color: #c02e47; }
 // 底部栏左侧题目切换（与提交按钮同一行）：直角分页器，与标题栏批次分页同风格。
 .decision-bar .question-switch {
   flex: none;

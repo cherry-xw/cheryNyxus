@@ -21,6 +21,9 @@ export function executionSceneSignature(scene: PixiExecutionScene, visibleKey = 
         node.termination ?? '',
         node.foldCount ?? '',
         Number(node.running),
+        // 待处理审批/提问的闪烁标志必须参与签名：仅该字段变化时（审批等待期图形静止）
+        // 签名不变会短路 setScene，渲染器拿不到新场景导致节点不闪。
+        Number(node.awaitingInteraction ?? false),
         Number(node.detailActive),
         node.branchAnchorKind ?? '',
         Number(node.paused),

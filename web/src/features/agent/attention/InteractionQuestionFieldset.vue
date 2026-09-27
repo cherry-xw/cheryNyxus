@@ -2,6 +2,7 @@
 import type { InteractionRecord } from '@/application/backend/public'
 import { useInteractionsStore } from '@/application/public'
 import type { PanelQuestion } from './interactionPresentation'
+import { timeOf } from './interactionPresentation'
 import {
   draftOf,
   noteOpenOf,
@@ -25,15 +26,15 @@ const interactions = useInteractionsStore()
 <template>
   <fieldset :disabled="disabled">
     <legend>
-      <span v-if="totalQuestions > 1">{{ questionIndex + 1 }}. </span
-      >{{ question.header || question.question }}
+      <span class="question-title">
+        <span v-if="totalQuestions > 1">{{ questionIndex + 1 }}. </span
+        >{{ question.header || question.question }}
+      </span>
+      <time>{{ timeOf(item.createdAt) }}</time>
     </legend>
     <small v-if="question.header && question.header !== question.question">{{
       question.question
     }}</small>
-    <p class="options-hint">
-      {{ question.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
-    </p>
     <div class="options">
       <div v-for="option in question.options" :key="option.label" class="option-row">
         <button
@@ -109,20 +110,27 @@ fieldset {
   border-radius: 9px;
 }
 legend {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: calc(100% - 8px);
   padding: 0 4px;
   font-size: 15px;
   font-weight: 400;
+}
+.question-title { min-width: 0; }
+legend time {
+  flex: none;
+  font-size: 12px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--ink) 54%, transparent);
 }
 fieldset > small {
   display: block;
   margin-bottom: 7px;
   font-size: 14px;
   opacity: 0.88;
-}
-.options-hint {
-  margin: 0 0 6px;
-  font-size: 14px;
-  color: color-mix(in srgb, var(--ink) 52%, transparent);
 }
 .options {
   display: grid;

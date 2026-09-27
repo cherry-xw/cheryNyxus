@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Connection, Reading } from '@element-plus/icons-vue'
+import { BellFilled, Connection, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
 import ConversationView from './ConversationView.vue'
+import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
 import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
 import TaskBrowser from './TaskBrowser.vue'
 import {
@@ -19,6 +20,7 @@ import ContextAnalyticsPanel from './context-analytics/ContextAnalyticsPanel.vue
 import WorkbenchFilesWorkspace from './files/WorkbenchFilesWorkspace.vue'
 import { serializeFileMention } from '../composables/commands'
 const props = defineProps<WorkbenchDialogControllerProps>()
+const emit = defineEmits<{ filesOpenChange: [open: boolean] }>()
 const controller = useWorkbenchDialogController(props)
 const agents = useAgentsStore()
 const workbenchMotion = useOverlayTransitionHooks('dialog')
@@ -153,6 +155,7 @@ function closeContextPanel(): void {
 function toggleFilesWorkspace(): void {
   if (!controller.treeRootChatId.value) return
   filesOpen.value = !filesOpen.value
+  emit('filesOpenChange', filesOpen.value)
 }
 function onFilesTriggerClick(): void {
   closeTaskBrowser()
@@ -160,6 +163,7 @@ function onFilesTriggerClick(): void {
 }
 function closeFilesWorkspace(): void {
   filesOpen.value = false
+  emit('filesOpenChange', false)
 }
 // 抽屉打开时按 Esc 关闭。topOverlay 守卫与全局抽屉一致：settings / 历史抽屉 / 输入弹窗 /
 // 会话列表任一打开时它们在上方，Esc 交给它们处理，避免双重关闭。
@@ -184,6 +188,7 @@ const {
   NyxusContentReader,
   OVERLAY_Z_INDEX, PromptSnapshotTip, RoleConfigPopover,
   activateNyxusInput, activeCommandIndex, activeCommandTab, activeRoleIndex,
+  attentionCount, attentionRootChatId, closeWorkspaceBrowser, currentAttentionCount, focusAttentionTree,
   runtimeDiagramProps, treeProps,
   brains, branchTarget,
   cancelNyxusInput, chatId, clearBranchTarget, closeWorkbench,
@@ -212,6 +217,7 @@ const {
   onMaximizeClick,
   onMediaSelected,
   onTitlePointerDown,
+  onTreeInteractionFocus,
   onTreeEpochChange,
   openGeneration, orderedRoleSelections, pauseWholeTask,
   presetName, primaryRole, primarySelection, removeMedia, resizeDirections,
@@ -231,12 +237,15 @@ const {
   closeSidePanel,
   contextAnalyticsDemos, contextAnalyticsInitialTaskKey,
   contextDrawerOpen, contextAnalyticsAvailable, contextAnalyticsPanelEligible, toggleContextDrawer,
+   toggleWorkspaceBrowser,
+   hasPresetWorkspace,
   supportsTools,
   taskControlPending, taskHasRunningBranches, taskTimeline,
   taskBrowserState, closeTaskBrowser, openContextAnalyticsFromBrowser, openTaskFromBrowser, onTaskBrowserArchived,
   text, toggleRoleList,
   treeBreakdown, treeLoading, treeLoadError, treePromptSnap, treeRootChatId, retryTree,
   treeUsage, treeUsagePct,
+  workspaceBrowserOpen,
   uploading, win, windowBlink,
   agentUsage,
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
@@ -245,6 +254,7 @@ const {
 const { agents: usageBarAgents, tokenSpeed: usageBarTokenSpeed } = agentUsage
 defineExpose({
   closeWorkbench: controller.closeWorkbench,
+  toggleWorkspaceBrowser: controller.toggleWorkspaceBrowser,
   toggleFilesWorkspace,
   closeFilesWorkspace,
   closeTaskBrowser: controller.closeTaskBrowser,
@@ -315,6 +325,7 @@ defineExpose({
             :key="treeRootChatId"
             v-bind="treeProps"
             @branch="selectBranchTarget"
+            @interaction-focus="onTreeInteractionFocus"
             @close-side-panel="closeSidePanel"
           >
             <template #side-panel>
@@ -378,6 +389,21 @@ defineExpose({
             执行图加载中…
           </div>
         </div>
+        <WorkbenchAttentionSurface
+          v-if="
+            workspaceBrowserOpen &&
+            !conversationViewVisible &&
+            !liteViewVisible &&
+            (currentAttentionCount || attentionCount)
+          "
+          :key="treeRootChatId"
+          class="workbench-current-attention"
+          :root-chat-id="attentionRootChatId || undefined"
+          :count="currentAttentionCount || attentionCount"
+          :others="!currentAttentionCount"
+          @close="closeWorkspaceBrowser"
+          @tree="focusAttentionTree"
+        />
         <header
           v-if="!isShellless"
           class="workbench-titlebar"
@@ -392,12 +418,14 @@ defineExpose({
           <small>{{
             effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台'
           }}</small>
-          <!-- 树模式待处理提示：标题栏内不可点击图标，hover 显示数量与完成方式；
-               与外层标题栏（native/embedded）的 WorkbenchAttentionIndicator 同一组件。 -->
-          <WorkbenchAttentionIndicator :window-id="windowId" />
+           <WorkbenchAttentionIndicator
+             :window-id="windowId"
+             @click="toggleWorkspaceBrowser"
+           />
           <ConnectionStatusChip class="workbench-conn-chip" />
           <WorkbenchViewToggle :window-id="windowId" />
           <el-tooltip
+            v-if="hasPresetWorkspace"
             :content="treeRootChatId ? '查看工作区文件与 Terminal' : '当前没有可用会话'"
             placement="bottom"
           >

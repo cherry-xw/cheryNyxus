@@ -40,6 +40,8 @@ export interface PixiExecutionNode {
   termination?: string
   foldCount?: number
   running: boolean
+  /** 等待用户交互（待审批/待回答）：整树持续硬闪，直到交互完成。 */
+  awaitingInteraction?: boolean
   detailActive: boolean
   branchAnchorKind?: 'detail' | 'continuation'
   paused: boolean
@@ -305,6 +307,8 @@ export class ExecutionGraphPixiRenderer {
   private readonly motionNodes = new Graphics()
   private readonly labels = new Container()
   private readonly signalIconSprites = new Map<string, Sprite>()
+  /** Classic 布局节点中间的 glyph 文本（awaitingInteraction 闪烁用，nodeId → Text）。 */
+  private readonly glyphTexts = new Map<string, Text>()
   private signalTextures: ReadonlyMap<SignalNodeVisualKind, Texture> = new Map()
   private scene = EMPTY_SCENE
   private sampledEdges: SampledEdge[] = []
@@ -537,6 +541,7 @@ export class ExecutionGraphPixiRenderer {
           node.containsErrorMessage,
           node.revoked,
           node.detailActive,
+          node.awaitingInteraction ?? false,
           node.branchAnchorKind ?? '',
           node.detailBranch,
           node.deemphasized,
@@ -610,10 +615,11 @@ export class ExecutionGraphPixiRenderer {
     const effectBudget = renderQualityProfile(this.qualityTier).graphEffectNodes
     const selectMotionNodes = (nodes: readonly PixiExecutionNode[]) =>
       nodes
-        .filter((node) => node.running || node.detailActive)
+        .filter((node) => node.running || node.detailActive || node.awaitingInteraction)
         .sort(
           (left, right) =>
             Number(right.detailActive) - Number(left.detailActive) ||
+            Number(Boolean(right.awaitingInteraction)) - Number(Boolean(left.awaitingInteraction)) ||
             left.id.localeCompare(right.id),
         )
         .slice(0, effectBudget)
@@ -713,6 +719,12 @@ export class ExecutionGraphPixiRenderer {
           .circle(node.x, node.y, 22)
           .stroke({ color: accent, width: 2.4, alpha: 0.92 * alpha })
       }
+      if (node.awaitingInteraction) {
+        // 静态 attention 环：reduced-motion 下闪烁停用，仅保留常驻提示。
+        this.staticNodes
+          .circle(node.x, node.y, 26)
+          .stroke({ color: accent, width: 2.6, alpha: 0.4 * alpha })
+      }
       if (node.foldCount) {
         this.staticNodes
           .circle(node.x + 12, node.y - 12, 8)
@@ -723,6 +735,15 @@ export class ExecutionGraphPixiRenderer {
       }
     }
     this.rebuildSignalIcons()
+    // awaitingInteraction 结束时 glyph 不触发 labels 重建（labelSignature 不含该字段），
+    // 静态 alpha 会卡在最后一个闪烁值。此处统一恢复静态透明度，避免图标残留暗态。
+    if (!signal) {
+      for (const node of this.scene.nodes) {
+        if (node.awaitingInteraction) continue
+        const glyph = this.glyphTexts.get(node.id)
+        if (glyph) glyph.alpha = emphasisAlpha(node.deemphasized, node.detailBranch)
+      }
+    }
   }
 
   /**
@@ -824,6 +845,12 @@ export class ExecutionGraphPixiRenderer {
       graphics.circle(badgeX, badgeY, 8).fill({ color: p.nodeFill, alpha: 0.95 * alpha })
       graphics.circle(badgeX, badgeY, 8).stroke({ color: accent, width: 1, alpha })
     }
+    if (node.awaitingInteraction) {
+      // 静态 attention 环：reduced-motion 下闪烁停用，仅保留常驻提示。
+      graphics
+        .roundRect(left - 8, top - 8, size.width + 16, size.height + 16, 3)
+        .stroke({ color: accent, width: 1.6, alpha: 0.4 * alpha })
+    }
   }
 
   private rebuildSignalIcons(): void {
@@ -872,6 +899,7 @@ export class ExecutionGraphPixiRenderer {
       return
     }
     this.labels.removeChildren().forEach((child) => child.destroy())
+    this.glyphTexts.clear()
     this.labelsReleased = false
     const p = this.canvasPalette
     const resolution = this.labelResolution
@@ -931,6 +959,7 @@ export class ExecutionGraphPixiRenderer {
       })
       glyph.alpha = alpha
       title.alpha = alpha
+      this.glyphTexts.set(node.id, glyph)
       this.labels.addChild(glyph)
       if (this.labelLod !== 'far') this.labels.addChild(title)
       if (node.termination) {
@@ -1070,6 +1099,35 @@ export class ExecutionGraphPixiRenderer {
           width: 3,
           alpha: 0.96 * (1 - phase) * emphasis,
         })
+      }
+      // 等待用户交互（待审批/待回答）：整树硬闪环，与精简模式 lite-attention-blink
+      // 一致（500ms 硬切换，亮态 1 → 暗态 0.2），确认完成前持续提醒。
+      if (node.awaitingInteraction) {
+        const blink = Math.floor(seconds / 0.5) % 2 === 0 ? 1 : 0.2
+        // 图标本身（问号/工具图标）随环同步闪烁：亮态图标正常显色，暗态压到 0.2，
+        // 让「节点中的问号闪烁」直接可感知（不只靠外环）。信号布局走 sprite，
+        // 经典布局走 glyph 文本，两路共用同一 blink 节奏。
+        const iconAlpha = blink * emphasis
+        const iconSprite = this.signalIconSprites.get(node.id)
+        if (iconSprite) iconSprite.alpha = iconAlpha
+        const glyph = this.glyphTexts.get(node.id)
+        if (glyph) glyph.alpha = iconAlpha
+        if (this.scene.presentation === 'horizontal-signal') {
+          const size = signalNodeSizeFor(node.visualKind ?? 'process')
+          this.motionNodes
+            .roundRect(
+              node.x - size.width / 2 - 6,
+              node.y - size.height / 2 - 6,
+              size.width + 12,
+              size.height + 12,
+              3,
+            )
+            .stroke({ color: accent, width: 2.4, alpha: blink * emphasis })
+        } else {
+          this.motionNodes
+            .circle(node.x, node.y, 26)
+            .stroke({ color: accent, width: 2.6, alpha: blink * emphasis })
+        }
       }
       const breathe = 0.3 + 0.4 * (0.5 + Math.sin((seconds * Math.PI * 2) / 0.9) * 0.5)
       const stateSize =

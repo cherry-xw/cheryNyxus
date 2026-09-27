@@ -315,6 +315,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       ? { available: true, reason: '' }
       : { available: false, reason: '解释角色配置不完整，请在角色设置中配置大脑和器官组。' }
   })
+  const hasPresetWorkspace = computed(() => {
+    const preset = presetName.value ? config.value?.presets?.[presetName.value] : undefined
+    return Boolean(preset?.workspace?.trim())
+  })
   const composerBranchTitle = computed(() =>
     branchTarget.value?.type === 'detail'
       ? '解释所选节点'
@@ -793,6 +797,58 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     ),
   )
   const currentAttentionCount = computed(() => workspacePending.value.length)
+  /** 其他工作区的待处理数量；标题栏铃铛入口打开统一审核窗口。 */
+  const attentionCount = computed(
+    () => interactions.pending.filter((item) => item.rootChatId !== attentionRootChatId.value).length,
+  )
+  const workspaceBrowserOpen = ref(false)
+  // 独立保存审核窗口的显示状态，切换树/对话/经典模式时不重置。
+  const attentionSurfaceInitialized = ref(false)
+  watch(
+    currentAttentionCount,
+    (count) => {
+      if (count <= 0) {
+        attentionSurfaceInitialized.value = false
+        return
+      }
+      if (attentionSurfaceInitialized.value) return
+      attentionSurfaceInitialized.value = true
+      workspaceBrowserOpen.value = true
+    },
+    { immediate: true },
+  )
+  function closeWorkspaceBrowser(): void {
+    workspaceBrowserOpen.value = false
+  }
+  function toggleWorkspaceBrowser(): void {
+    workspaceBrowserOpen.value = !workspaceBrowserOpen.value
+    agents.setWorkbenchWindowBlink(props.windowId, false)
+    void interactions.refresh().catch(() => undefined)
+  }
+  function onTreeInteractionFocus(_focus: {
+    chatId: string
+    interactionId?: string
+    anchorNodeId?: string
+  }): void {
+    workspaceBrowserOpen.value = true
+    agents.setWorkbenchWindowBlink(props.windowId, false)
+    void interactions.refresh().catch(() => undefined)
+  }
+  async function focusAttentionTree(
+    rootChatId: string,
+    sourceChatId?: string,
+    interactionId?: string,
+    anchorNodeId?: string,
+  ): Promise<void> {
+    closeWorkspaceBrowser()
+    if (rootChatId && rootChatId !== treeRootChatId.value) await switchSession(rootChatId)
+    const targetId = anchorNodeId ?? interactionId
+    if (!targetId) return
+    treeFocusSourceChatId.value = sourceChatId ?? rootChatId
+    treeFocusInteractionId.value = targetId
+    treeFocusNonce.value++
+    selectWorkflowContent({ nodeId: targetId, sourceChatId: sourceChatId ?? rootChatId })
+  }
   watch(chatId, () => {
     composerTurn = { active: false, awaitingInput: false }
     userClosedAfterTurn.value = false
@@ -1044,7 +1100,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     activeCommandTab,
     activeRoleIndex,
     agents,
+    attentionCount,
     attentionRootChatId,
+    closeWorkspaceBrowser,
     currentAttentionCount,
     brains,
     branchTarget,
@@ -1070,6 +1128,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     fmtTokens,
     foldMode,
     foldToolOpen,
+    focusAttentionTree,
     isNative,
     isEmbedded,
     isShellless,
@@ -1104,6 +1163,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onMaximizeClick,
     onMediaSelected,
     onTitlePointerDown,
+    onTreeInteractionFocus,
     onTreeEpochChange,
     onTreePromptSnapShow,
     openGeneration,
@@ -1157,6 +1217,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     contextAnalyticsInitialTaskKey,
     contextDrawerOpen,
     toggleContextDrawer,
+    toggleWorkspaceBrowser,
     supportsTools,
     taskControlPending,
     taskHasRunningBranches,
@@ -1179,6 +1240,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     retryTree,
     treeUsage,
     treeUsagePct,
+    workspaceBrowserOpen,
+    hasPresetWorkspace,
     agentUsage,
     updateReplayTimeline,
     uploading,

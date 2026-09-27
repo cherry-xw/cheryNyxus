@@ -18,7 +18,9 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ChatSession, ChatSessionSnapshot, ChatEvent, ChatTimelineSnapshot } from './types'
 import type {
+  ApprovalState,
   QuestionDraftAnswer,
+  QuestionBatchPayload,
   ChunkMessage,
   NotificationMessage,
 } from '@/domain/chat/projectionTypes'
@@ -42,6 +44,7 @@ import {
   applyTimelinePatch,
   reduceSessionEvent,
   installActiveTurns,
+  replaceQuestionBatches,
   type ReduceContext,
 } from './model/reducer'
 import { collectDescendantChatIds } from '@/domain/chat/sessionTree'
@@ -939,6 +942,34 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }))
     if (response.state.executionSteps !== undefined) {
       session.executionSteps = response.state.executionSteps.map((step) => ({ ...step }))
+    }
+    // 刷新/重进恢复：chat.open 快照携带的挂起审批与提问批次必须落回会话交互状态，
+    // 否则树节点闪烁与锚定交互卡在无实时事件回放时数据源为空（2026-09-27 刷新断链修复）。
+    if (response.state.pendingApproval) {
+      const pa = response.state.pendingApproval as {
+        approvalId: string
+        senseName: string
+        arguments: string
+        waitTime: number
+        createdAt: number
+        security?: ApprovalState['security']
+      }
+      session.interaction.approval = {
+        approvalId: pa.approvalId,
+        senseName: pa.senseName,
+        args: pa.arguments,
+        waitTime: pa.waitTime,
+        createdAt: pa.createdAt,
+        security: pa.security,
+      }
+    } else {
+      session.interaction.approval = undefined
+    }
+    if (Array.isArray(response.state.questionBatches) && response.state.questionBatches.length > 0) {
+      replaceQuestionBatches(
+        session.interaction,
+        response.state.questionBatches as QuestionBatchPayload[],
+      )
     }
     installActiveTurns(session, session.activeTurns, Date.now())
     session.activeRun = response.state.run

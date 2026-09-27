@@ -60,6 +60,9 @@ const TerminalTitleActions = defineAsyncComponent(
 const WorkbenchViewToggle = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchViewToggle.vue'),
 )
+const WorkbenchAttentionIndicator = defineAsyncComponent(
+  () => import('@/features/agent/workbench/WorkbenchAttentionIndicator.vue'),
+)
 const HistoryDrawer = defineAsyncComponent(
   () => import('@/features/agent/drawer/HistoryDrawer.vue'),
 )
@@ -437,13 +440,26 @@ if (surface === 'workbench' && surfacePresetId) {
 // workbench 面：presetId = 配置稳定 ID（windowId 同值；标题显示用预设名）；外层 WindowFrame 承载。
 const wbRef = ref<{
   closeWorkbench: () => void
+  toggleWorkspaceBrowser: () => void
   toggleFilesWorkspace: () => void
   closeFilesWorkspace: () => void
   closeTaskBrowser: () => void
   getFilesOpen: () => boolean
 } | null>(null)
-type WorkbenchDialogHandle = { toggleFilesWorkspace: () => void; closeFilesWorkspace: () => void; closeTaskBrowser: () => void; getFilesOpen: () => boolean }
+type WorkbenchDialogHandle = { toggleWorkspaceBrowser: () => void; toggleFilesWorkspace: () => void; closeFilesWorkspace: () => void; closeTaskBrowser: () => void; getFilesOpen: () => boolean }
 const browserWorkbenchRefs = new Map<string, WorkbenchDialogHandle>()
+const nativeFilesOpen = ref(false)
+const browserFilesOpen = reactive(new Map<string, boolean>())
+function hasPresetWorkspace(presetId?: string, presetName?: string): boolean {
+  const presets = agents.globalConfig?.presets
+  const preset = presetName
+    ? presets?.[presetName]
+    : Object.values(presets ?? {}).find((item) => item.id === presetId)
+  return Boolean(preset?.workspace?.trim())
+}
+function setBrowserFilesOpen(windowId: string, open: boolean): void {
+  browserFilesOpen.set(windowId, open)
+}
 function setBrowserWorkbenchRef(
   windowId: string,
   instance: unknown,
@@ -600,6 +616,8 @@ async function bootstrap(): Promise<void> {
     :title-pointer-down="onWorkbenchTitlePointerDown"
   >
     <template #title-actions>
+      <!-- 树模式待处理提示：标题栏内不可点击图标（hover 显示数量），与 WorkbenchDialog 内部标题栏同一组件 -->
+      <WorkbenchAttentionIndicator :window-id="surfacePresetId ?? 'workbench'" @click="wbRef?.toggleWorkspaceBrowser()" />
       <ConnectionStatusChip />
       <!-- 标题栏稳定任务快捷位；切换走 onWorkbenchSessionSelect（setWorkbenchWindowChat，
            与 bridge.onOpenChat 同语义，WorkbenchDialog 内 watch chatId 驱动树订阅与 draft reset） -->
@@ -612,10 +630,11 @@ async function bootstrap(): Promise<void> {
         @before-expand="() => wbRef?.closeFilesWorkspace()"
       />
       <button
+        v-if="hasPresetWorkspace(surfacePresetId, surfacePresetName)"
         type="button"
         class="workbench-files-title-action"
         aria-label="打开文件工作区"
-        :aria-pressed="wbRef?.getFilesOpen() ?? false"
+        :aria-pressed="nativeFilesOpen"
         :disabled="!workbenchSurfaceChatId"
         @click="closeNativeWorkbenchFiles()"
       >
@@ -630,6 +649,7 @@ async function bootstrap(): Promise<void> {
       :window-id="surfacePresetId!"
       :preset-id="surfacePresetId!"
       native
+      @files-open-change="(open) => (nativeFilesOpen = open)"
     />
   </WindowFrame>
   <template v-else>
@@ -729,6 +749,8 @@ async function bootstrap(): Promise<void> {
         @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
       >
         <template #title-actions>
+          <!-- 树模式待处理提示：标题栏内不可点击图标（hover 显示数量），与 WorkbenchDialog 内部标题栏同一组件 -->
+          <WorkbenchAttentionIndicator :window-id="entry.workbench.id" @click="browserWorkbenchRefs.get(entry.workbench.id)?.toggleWorkspaceBrowser()" />
           <ConnectionStatusChip />
           <!-- 标题栏稳定任务快捷位：浏览器面工作台窗由 CyberWindow 承载
                标题栏（WorkbenchDialog embedded 自绘 titlebar 不渲染），strip 挂此 slot；
@@ -743,10 +765,11 @@ async function bootstrap(): Promise<void> {
             @before-expand="() => browserWorkbenchRefs.get(entry.workbench.id)?.closeFilesWorkspace()"
           />
           <button
+            v-if="hasPresetWorkspace(entry.workbench.presetId, entry.workbench.presetName ?? undefined)"
             type="button"
             class="workbench-files-title-action"
             aria-label="打开文件工作区"
-            :aria-pressed="browserWorkbenchRefs.get(entry.workbench.id)?.getFilesOpen() ?? false"
+            :aria-pressed="browserFilesOpen.get(entry.workbench.id) ?? false"
             :disabled="!entry.workbench.chatId"
             @click="toggleBrowserWorkbenchFiles(entry.workbench.id)"
           >
@@ -759,6 +782,7 @@ async function bootstrap(): Promise<void> {
           :window-id="entry.workbench.id"
           :preset-id="entry.workbench.presetId"
           embedded
+          @files-open-change="(open) => setBrowserFilesOpen(entry.workbench.id, open)"
         />
       </CyberWindow>
     </CyberDesktopHost>

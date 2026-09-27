@@ -2,7 +2,8 @@
   position: absolute;
   z-index: var(--nx-z-blocking-interaction);
   left: 20px;
-  bottom: 24px;
+  // 底部上下文消耗条占 27px（有子 Agent 时 45px），窗口上移后不再遮住它。
+  bottom: 58px;
   width: min(600px, calc(100% - 88px));
   max-height: min(680px, calc(100% - 96px));
   min-height: 0;
@@ -27,11 +28,13 @@
   gap: 4px 8px;
 }
 .workbench-attention-head svg {
+  grid-row: 1 / 3;
   width: 18px;
   height: 18px;
   color: var(--nx-yellow);
 }
-.workbench-attention-head strong { font-size: 15px; font-weight: 600; }
+.workbench-attention-head strong { font-size: 13px; font-weight: 600; }
+.workbench-attention-head small { font-size: 12px; font-weight: 400; }
 .workbench-attention-browser {
   min-height: 0;
   height: auto;
@@ -44,10 +47,24 @@
 .workbench-attention-surface.is-embedded .workbench-attention-head { display: none; }
 .workbench-attention-surface.is-embedded .workbench-attention-browser { padding: 14px; }
 
-// 标题栏：关闭按钮已移除，右侧为批次 ← n/N → 切换（收起/展开走右侧铃铛入口）。
+// 标题栏：右上角关闭按钮隐藏窗口，标题栏铃铛或闪烁节点可重新打开。
 // 新元素直角、400 字重，颜色走 nx token 派生。
 .workbench-attention-head { display: flex; align-items: center; gap: 12px; }
 .workbench-attention-head > span { flex: 1; min-width: 0; }
+.attention-close {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--nx-text-muted, var(--nx-text));
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.attention-close:hover { color: var(--nx-text); }
+.attention-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attention-pager {
   flex: none;
   display: flex;
@@ -67,7 +84,7 @@
   background: transparent;
   color: var(--nx-text);
   font: inherit;
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
 }
@@ -85,7 +102,7 @@
 .attention-pager-index {
   min-width: 40px;
   text-align: center;
-  font-size: 14px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--nx-text);
 }

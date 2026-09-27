@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import type { InteractionRecord } from '@/application/backend/public'
 import { useInteractionsStore } from '@/application/public'
 import ApprovalSummary from '@/features/agent/cards/ApprovalSummary.vue'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
 import FileChangeDiff from '@/features/agent/cards/FileChangeDiff.vue'
 import {
-  countdownOf,
   kindLabel,
   payload,
   questionsOf,
@@ -38,22 +36,16 @@ const emit = defineEmits<{
   answer: []
 }>()
 const interactions = useInteractionsStore()
-const countdown = computed(() => countdownOf(props.item, props.now))
 </script>
 
 <template>
   <article class="interaction-card" :class="`is-${item.status}`">
-    <header>
+    <header v-if="item.kind === 'approval'">
       <span class="kind" :class="item.kind === 'approval' ? 'is-approval' : 'is-question'">{{
         kindLabel(item)
       }}</span>
       <small>
         {{ statusOf(item) }} · {{ timeOf(item.createdAt) }}
-        <!-- 审批倒计时：后端 deadlineAt，归零变红提示超时。 -->
-        <template v-if="countdown.total">
-          <span v-if="countdown.expired" class="countdown is-expired">已超时</span>
-          <span v-else class="countdown">剩余 {{ Math.ceil(countdown.remaining / 1000) }}s</span>
-        </template>
       </small>
     </header>
 

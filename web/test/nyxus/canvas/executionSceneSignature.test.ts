@@ -88,6 +88,16 @@ describe('Pixi execution scene signature', () => {
     expect(executionSceneSignature(after)).not.toBe(executionSceneSignature(before))
   })
 
+  it('changes when a node starts awaiting user interaction', () => {
+    // 2026-09-27：审批/提问等待标志必须驱动签名，否则仅该字段变化时 syncGpuScene
+    // 会短路 setScene，节点闪烁环不出现。
+    const before = scene()
+    const after = scene()
+    after.nodes[0]!.awaitingInteraction = true
+
+    expect(executionSceneSignature(after)).not.toBe(executionSceneSignature(before))
+  })
+
   it('stays stable for equivalent scenes', () => {
     expect(executionSceneSignature(scene(), 'visible-set')).toBe(
       executionSceneSignature(scene(), 'visible-set'),
