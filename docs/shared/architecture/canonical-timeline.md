@@ -101,6 +101,7 @@ CREATE INDEX idx_message_links_spawn
 3. 子 chat 的 assistant 输出写入 `child_output`。
 4. `wakeParent` 写父 chat 的 `role` 消息时，必须写 `child_return`，关联 `source_chat_id`、`spawn_id` 和源 child 输出 `related_message_id`。
 5. 工具结果关联其所属 assistant message / sense call；不得作为独立默认可见节点。
+6. 位置型关系（`root_input`/`child_input`/`agent_output`/`child_output`）由消息所在会话与 root 的拓扑唯一决定，不得违反：root 会话消息只能是 `root_input`/`agent_output`，子会话消息只能是 `child_input`/`child_output`。`buildRootTimeline` 懒回填发现已持久化的位置型关系与拓扑矛盾（历史版本曾把子会话首条指令误写成 `root_input`，投影后前端持续误报 illegal-user-child-input）时，重写为正确值并推进 revision；显式关系（`child_return`/`system`/`tool_result`）不在此自愈范围。
 
 这样刷新后仍能精确知道“谁发给谁”“这条回传来自哪个子 agent”“某个工具结果属于哪次调用”。
 
@@ -567,7 +568,7 @@ subscription，不能删除同连接上的 root subscription。事件路由同�
 - 每个后代 chat 事件同步写入 `soul.db.root_events`。`chat.open({rootChatId})` 以 root eventSeq 建立原子订阅栅栏，覆盖当前和未来后代；direct 视图仍保留每-chat subscription 兼容路径。
 - `timeline.patch` 保留单 chat `CanonicalMessage` 操作以兼容 direct 视图，并同时携带 root `TimelineNode` patch。RootTimelineStore 直接应用 root patch；revision 不连续时重取 root snapshot。
 - Pet 实时气泡及部分审批/问题组件仍保留 ChatSession/legacy agents store 兼容桥；这不改变 root snapshot 的权威性，但意味着“所有 UI 只读 RootTimelineStore”尚未完成。
-- 旧数据回填当前采用按 chat 层级懒回填；无法唯一匹配的旧 role 行保持未关联，不会写入虚假的 `legacy_unknown` 关系。
+- 旧数据回填当前采用按 chat 层级懒回填；无法唯一匹配的旧 role 行保持未关联，不会写入虚假的 `legacy_unknown` 关系。回填同时自愈与拓扑矛盾的位置型关系（见 §2 写入约束第 6 条），自愈属于图变更、按「图变更 ⇒ revision 前进」不变量推进 revision。
 
 ## 10. 文档先行与版本维护
 

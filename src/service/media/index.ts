@@ -29,21 +29,6 @@ const MIME_KIND: Record<string, MediaKind> = {
   'audio/webm': 'audio',
 }
 
-const MIME_BY_EXT: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-  '.mov': 'video/quicktime',
-  '.mp3': 'audio/mpeg',
-  '.wav': 'audio/wav',
-  '.ogg': 'audio/ogg',
-  '.m4a': 'audio/mp4',
-}
-
 function mediaRoot(): string {
   return resolve(process.env.CHERY_DIR || process.cwd(), '.chery', 'media')
 }
@@ -192,24 +177,4 @@ export async function readMediaAsset(
   }
 }
 
-/**
- * 按 filename 解析完整 MediaAsset（含 path），供自定义 sense 读参考图等场景使用。
- * 文件缺失/非法名/类型未知 → undefined（容错不抛）。
- */
-export async function resolveMediaAsset(filename: string): Promise<MediaAsset | undefined> {
-  if (!/^[a-f0-9-]+\.[a-z0-9]+$/i.test(filename)) return undefined
-  const path = join(mediaRoot(), filename)
-  const info = await stat(path).catch(() => undefined)
-  if (!info?.isFile()) return undefined
-  const mimeType = MIME_BY_EXT[extname(filename).toLowerCase()] ?? 'application/octet-stream'
-  const kind = mediaKindForMime(mimeType)
-  if (!kind) return undefined
-  return {
-    id: filename.slice(0, filename.indexOf('.')),
-    kind,
-    mimeType,
-    filename,
-    path,
-    size: info.size,
-  }
-}
+

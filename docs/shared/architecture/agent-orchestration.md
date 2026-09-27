@@ -322,7 +322,7 @@ sense(
 ### 5.5 context usage（CP7 已实现简化估算）
 
 - `chat.send`/`chat.resume` 完成时 `done` notification 增携 `contextUsage`（每轮 loop 后实时重算推送）
-- 纯历史查看不计算 context usage；`chat.get/sync/open` 不解析 runtime。只有当前会话已建立执行 runtime 后，实时 `done`（或显式 `chat.contextUsage`）才计算
+- 纯历史查看不计算 context usage；`chat.get/sync/open` 不解析 runtime。实时 `done`（每次 loop 后）与显式 `chat.contextUsage` 才计算；`chat.contextUsage` 的 selection 优先级：内存 runtime（`getChatSelection`）→ 持久化 `metadata.runtime`（`resolveChatRuntimeSelection`，服务重启后内存丢失时回退），两者皆无（全新会话从未运行）才抛 `RUNTIME_SELECTION_REQUIRED`
 - `brain.list` response 增返每 brain 的 `contextLimit`（CP2 已实现）
 - token 用量计算：**简化估算 `Math.ceil(text.length / 4)`**（字符数近似，英文 4 char/token；中文偏保守），累加 chat 所有非 revoked 消息 content+thinking，并对 content 里 `[[media:]]` 图片资产按「压缩后尺寸 + detail」追加图片 token（`estimateImageTokens`，OpenAI 兼容 tile 公式）。实现见 [src/utils/token.ts](../../../src/utils/token.ts)。后续接 tokenizer（如 js-tiktoken）时替换 `estimateTokens` 实现，调用点不变
 - 估算失败兜底 0 + console.warn（不阻塞当前执行流）

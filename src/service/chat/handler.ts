@@ -77,6 +77,7 @@ import {
   listPendingInputs,
 } from '@/db/chat.js'
 import {
+  annotateExecutionNode,
   getExecutionActiveRun,
   listExecutionEdges,
   listExecutionNodes,
@@ -93,6 +94,7 @@ import {
   getActiveChatRunId,
   getPendingChatInputs,
   getChatSelection,
+  resolveChatRuntimeSelection,
 } from './runtime.js'
 import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
@@ -661,6 +663,13 @@ export function buildCanonicalTimeline(chatId: string): CanonicalMessage[] {
 }
 
 /**
+ * 位置型消息关系：由消息所在会话与 root 的拓扑唯一决定（懒回填按拓扑推导的这一类）。
+ * 与之相对的显式关系（child_return/system/tool_result）由 wake 等写路径带语义写入，
+ * 拓扑推导无法代替，自愈逻辑不得重写它们。
+ */
+const POSITIONAL_LINK_RELATIONS = new Set(['root_input', 'child_input', 'agent_output', 'child_output'])
+
+/**
  * Build the root-owned multi-agent projection. Raw messages remain in their
  * own chat; this function is the only place that assigns actor/direction and
  * hides standalone tool-result rows from the conversation view.
@@ -672,10 +681,14 @@ export function buildRootTimeline(
   const root = getChat(rootChatId)
   if (!root) throw new Error('这个会话不见了')
   const chatIds = [rootChatId, ...collectDescendantsChatIds(rootChatId)]
-  const existingLinkIds = new Set(getMessageLinksForRoot(rootChatId).map((link) => link.messageId))
+  const persistedLinks = new Map(
+    getMessageLinksForRoot(rootChatId).map((link) => [link.messageId, link]),
+  )
+  const existingLinkIds = new Set(persistedLinks.keys())
   // Lazy backfill makes pre-V2 conversations progressively auditable without
   // a destructive one-shot migration. Ambiguous parent role rows are left
   // unlinked so the projector can apply its conservative matcher below.
+  let linksRepaired = false
   for (const chatId of chatIds) {
     const child = chatId !== rootChatId
     for (const row of getMessages(chatId)) {
@@ -693,6 +706,31 @@ export function buildRootTimeline(
                 : 'agent_output',
         })
         existingLinkIds.add(row.id)
+        continue
+      }
+      // 自愈历史脏数据：位置型 relation 必须与消息所在会话的拓扑一致（root 会话只能是
+      // root_input/agent_output，子会话只能是 child_input/child_output）。历史版本曾把
+      // 子会话首条指令误写成 root_input，投影成主轴用户消息后前端持续报
+      // illegal-user-child-input，且重新同步无法消除（懒回填只补缺失、不修错误）。
+      // 仅重写四个位置型关系；child_return/system/tool_result 由显式写路径负责，不在此触碰。
+      const persisted = persistedLinks.get(row.id)
+      if (!persisted || (row.role !== 'user' && row.role !== 'assistant')) continue
+      const expected = child
+        ? row.role === 'user'
+          ? 'child_input'
+          : 'child_output'
+        : row.role === 'user'
+          ? 'root_input'
+          : 'agent_output'
+      if (
+        persisted.relation !== expected &&
+        POSITIONAL_LINK_RELATIONS.has(persisted.relation)
+      ) {
+        // 原行展开重写：upsert 是全字段覆盖，必须保留已有语义字段（防御未来写路径
+        // 在位置型关系上补充 spawn 关联时不被自愈清空）。
+        upsertMessageLink(row.id, chatId, { ...persisted, relation: expected })
+        persistedLinks.set(row.id, { ...persisted, relation: expected })
+        linksRepaired = true
       }
     }
   }
@@ -858,7 +896,6 @@ export function buildRootTimeline(
         ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
         ...(runtime ? { runtime } : {}),
         ...(senseCalls.length > 0 ? { toolCalls: senseCalls } : {}),
-        ...(link?.causationNodeId ? { causationId: link.causationNodeId } : {}),
         createdAt: row.created_at,
         updatedAt: row.created_at,
         status: row.revoked === 1 ? 'revoked' : 'committed',
@@ -981,7 +1018,9 @@ export function buildRootTimeline(
   // knownRevision 短路会冻结残缺快照（不变量：图变更 ⇒ revision 前进）。
   const nodeIdsBefore = new Set(listExecutionNodes(rootChatId).map((node) => node.id))
   const nodesBeforeById = new Map(listExecutionNodes(rootChatId).map((node) => [node.id, node]))
-  let graphMutated = false
+  // link 自愈同样属于图变更（改变节点 actor/direction/sourceChatId 投影），
+  // 而 upsert 变更检测只比对 todoPlan/toolCalls，必须在此并入。
+  let graphMutated = linksRepaired
   for (const candidate of candidates) {
     const persisted = upsertExecutionNode(candidate.node) as unknown as TimelineNode
     if (
@@ -1190,6 +1229,31 @@ export function buildRootTimeline(
   for (const edge of edgeInputs) {
     const persistedEdge = upsertExecutionEdge(edge)
     if (!edgeIdsBefore.has(persistedEdge.id)) graphMutated = true
+  }
+
+  // causationId 是旧数据兼容字段（仅用于旧数据诊断与服务端 backfill，不参与前端建边）。
+  // 当前数据在 wake.ts 为 child_return 写入 causationNodeId，上方又为每个 return 节点生成
+  // 显式 return 边：对已建成边的节点，causationId 属于冗余兼容元数据。若原样下发，代际窗口
+  // （generationWindowFloor）裁掉跨代际 return 边后，前端诊断会把「边在窗口外」误判成
+  // legacy-relation-unresolved，且重新同步无法消除。这里只在对应 return 边未建成时保留
+  // causationId（真实未解析的旧数据仍可被诊断），已建成边的节点剥除。
+  const returnTargetIds = new Set(
+    edgeInputs.filter((edge) => edge.kind === 'return').map((edge) => edge.toNodeId),
+  )
+  for (const candidate of candidates) {
+    const node = persistedById.get(candidate.node.id)
+    if (!node || node.kind !== 'return') continue
+    const link = node.sourceMessageId ? links.get(node.sourceMessageId) : undefined
+    const causationNodeId = link?.causationNodeId
+    if (returnTargetIds.has(node.id)) {
+      if (node.causationId) {
+        annotateExecutionNode(node.id, { causationId: undefined })
+        graphMutated = true
+      }
+    } else if (causationNodeId && !node.causationId) {
+      annotateExecutionNode(node.id, { causationId: causationNodeId })
+      graphMutated = true
+    }
   }
 
   const allNodes = listExecutionNodes(rootChatId) as unknown as TimelineNode[]
@@ -1945,16 +2009,18 @@ export async function* handleChatStartSpawn(
 }
 
 /**
- * chat.contextUsage：仅对已建立当前执行 runtime 的活跃会话计算上下文用量。
- * 历史浏览不得调用此接口，避免为展示历史而解析运行配置。
+ * chat.contextUsage：计算会话上下文用量。
+ * selection 优先级：内存活跃 runtime（getChatSelection）→ 持久化 metadata.runtime
+ * （resolveChatRuntimeSelection，服务重启后内存 chatRuntimes 丢失时按 DB 恢复，见 runtime.ts）。
+ * 两者皆无（全新会话从未运行）时保持原守卫：抛 RUNTIME_SELECTION_REQUIRED，由前端兜底空白。
  */
 export async function handleChatContextUsage(
   _ctx: HandlerContext,
   data: ChatContextUsageRequestData,
 ): Promise<ChatContextUsageResponseData> {
-  const selection = getChatSelection(data.chatId)
+  const selection = getChatSelection(data.chatId) ?? resolveChatRuntimeSelection(data.chatId)
   if (!selection) {
-    const error = new Error('该历史任务尚未建立当前运行配置，请先发送或继续') as Error & {
+    const error = new Error('该会话尚未建立运行配置，请先发送或继续') as Error & {
       code: string
     }
     error.code = ErrorCode.RUNTIME_SELECTION_REQUIRED
