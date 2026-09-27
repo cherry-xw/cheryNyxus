@@ -154,8 +154,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   // 取最早一条 targetChatId = activeLane 的委派节点，正文列表顶部独立块展示。 ──
   const entryDispatch = computed<LiteRunNode | null>(() => {
     if (activeLane.value === props.rootChatId) return null
-    const candidates = history.value.nodes.filter(
-      (node) => node.kind === 'dispatch' && node.targetChatId === activeLane.value,
+    const candidates = history.value.entryDispatches.filter(
+      (node) => node.targetChatId === activeLane.value,
     )
     if (!candidates.length) return null
     return (
@@ -1030,6 +1030,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     hydrationLabel,
     inputText,
     inputLines,
+    interactionNeedsAttentionForCall: interactions.interactionNeedsAttentionForCall,
+    interactionForCall: interactions.interactionForCall,
     isDetailNode,
     isPlainRowContent,
     isRowFocused,

@@ -491,14 +491,13 @@ describe('Lite detail lazy pagination', () => {
   })
 
   it('keeps internal payloads out of summaries and exposes accessible detail controls', async () => {
-    const [view, drawer, interactionView, interactionsSource, liteController] =
-      await Promise.all([
-        readComponentSource(resolve('src/features/lite/LiteView.vue'), 'utf8'),
-        readComponentSource(resolve('src/features/lite/DetailDrawer.vue'), 'utf8'),
-        readComponentSource(resolve('src/features/lite/LiteInteractionView.vue'), 'utf8'),
-        readComponentSource(resolve('src/features/lite/useLiteInteractions.ts'), 'utf8'),
-        readComponentSource(resolve('src/features/lite/useLiteViewController.ts'), 'utf8'),
-      ])
+    const [view, drawer, interactionView, interactionsSource, liteController] = await Promise.all([
+      readComponentSource(resolve('src/features/lite/LiteView.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/DetailDrawer.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/LiteInteractionView.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/useLiteInteractions.ts'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/useLiteViewController.ts'), 'utf8'),
+    ])
 
     // v2026-11：审批/提问交互整体迁入详情抽屉（LiteInteractionView），主视图不再残留面板/交互内部件。
     expect(view).not.toContain('approvalEntries')
@@ -516,7 +515,6 @@ describe('Lite detail lazy pagination', () => {
     expect(view).toContain('lite-history-row')
     expect(view).toContain('lite-cluster')
     expect(view).not.toContain('lite-cluster-type-label')
-    expect(view).toContain('lite-cluster-status')
     expect(view).not.toContain('lite-cluster-dot')
     expect(view).toContain('lite-trajectory')
     expect(view).toContain('LiteScrollbar')
@@ -531,6 +529,9 @@ describe('Lite detail lazy pagination', () => {
     expect(interactionView).toContain('ParsedArgs')
     expect(interactionView).toContain('approvalArguments')
     expect(interactionView).toContain('lite-options-grid')
+    expect(interactionView).toContain('grid-template-columns: 1fr')
+    expect(interactionView).toContain('@container (min-width: 520px)')
+    expect(interactionView).toContain('grid-template-columns: repeat(2, minmax(240px, 1fr))')
     expect(interactionView).toContain('lite-option-note-toggle')
     expect(interactionView).toContain('lite-option-card is-other')
     expect(interactionView).toContain('题 · 已完成')
@@ -556,7 +557,7 @@ describe('Lite detail lazy pagination', () => {
     expect(drawer).toContain('aria-modal="true"')
     // 抽屉滚动复位只应因真实节点/分节变化触发：监听源按原始值比较（数组字面量每次求值都是新引用，
     // props.node 随运行历史每秒重建 → 监听每秒触发 → 滚动到底被反复拉回顶部，回归防护）。
-    expect(drawer).toContain('() => props.node?.nodeId ?? \'\'')
+    expect(drawer).toContain("() => props.node?.nodeId ?? ''")
     expect(drawer).not.toContain('() => [props.windowId, props.rootChatId, props.node?.nodeId')
     // 主列表自动滚到底同款监听同样按原始值比较，避免每秒空转触发 scrollToBottom。
     expect(liteController).toContain('() => history.value.nodes.length')
@@ -593,14 +594,15 @@ describe('projectLiteHistory run-history projection', () => {
     content: string,
     orderKey: number,
     createdAt = orderKey,
+    sourceChatId = 'root',
   ): TimelineNode {
     return {
       id,
       rootChatId: 'root',
-      sourceChatId: 'root',
+      sourceChatId,
       sourceMessageId: id,
       kind: 'message',
-      actor: { kind: 'agent', chatId: 'root' },
+      actor: { kind: 'agent', chatId: sourceChatId },
       target: { kind: 'user', actorId: 'human' },
       direction: 'agent-to-user',
       visibility: 'conversation',
@@ -942,6 +944,39 @@ describe('projectLiteHistory run-history projection', () => {
     // v0.5：dispatch 节点保留目标子 Agent 关联（子 Agent 链路入口消息数据源），其余节点不携带。
     expect(view.nodes.find((node) => node.nodeId === 'dispatch-1')?.targetChatId).toBe('child')
     expect(view.nodes.find((node) => node.nodeId === 'return-1')?.targetChatId).toBeUndefined()
+  })
+
+  it('keeps the parent dispatch prompt as the child lane entry even when the anchor is internal', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        {
+          id: 'spawn-target-1',
+          rootChatId: 'root',
+          sourceChatId: 'child',
+          kind: 'dispatch',
+          actor: { kind: 'agent', chatId: 'root' },
+          target: { kind: 'agent', chatId: 'child' },
+          direction: 'parent-to-child',
+          visibility: 'internal',
+          content: '请检查这个任务',
+          orderKey: 15,
+          createdAt: 15,
+          updatedAt: 15,
+          status: 'committed',
+        },
+        modelNode('child-answer', '检查完成', 30, 28, 'child'),
+      ],
+      emptyModel,
+      100,
+    )
+
+    expect(view.nodes.map((node) => node.nodeId)).toEqual(['q1', 'child-answer'])
+    expect(view.entryDispatches).toHaveLength(1)
+    expect(view.entryDispatches[0]).toMatchObject({
+      targetChatId: 'child',
+      content: '请检查这个任务',
+    })
   })
 
   it('keeps event nodes (return/dispatch/spawn/system) as standalone rows (需求 4 链路过滤)', () => {

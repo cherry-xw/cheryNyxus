@@ -41,6 +41,7 @@ const {
   hydrationLabel,
   inputText,
   inputLines,
+  interactionNeedsAttentionForCall,
   isDetailNode,
   isPlainRowContent,
   isRowFocused,
@@ -509,6 +510,7 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                         :class="{
                           'is-selected':
                             isDetailNode(node) && rootUi.detailFocusToolCallId === call.callId,
+                          'is-attention': interactionNeedsAttentionForCall(call.callId),
                         }"
                         :data-tooltype="classifyToolType(call.name)"
                         :data-status="toolCallStatus(call.status)"

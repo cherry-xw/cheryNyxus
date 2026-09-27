@@ -397,6 +397,8 @@ export interface LiteRunHistoryView {
   nodes: LiteRunNode[]
   rows: LiteRunRow[]
   running: boolean
+  /** 主 Agent 派给各子 Agent 的首条任务，供切换子 Agent 后先显示入口。 */
+  entryDispatches: LiteRunNode[]
 }
 
 /**
@@ -576,6 +578,43 @@ export function projectLiteHistory(
     if (label && label.trim()) return label
     return chatId === model.rootChatId ? '主 Agent' : '子 Agent'
   }
+
+  // spawn-target 是内部锚点，不应混入普通瀑布流，但它保存了主 Agent
+  // 发给子 Agent 的原始问题。把它单独投影出来，供精简模式的入口块使用。
+  const entryDispatches: LiteRunNode[] = committed.flatMap((node) => {
+    const target = node.target
+    if (
+      (node.kind !== 'dispatch' && node.kind !== 'spawn') ||
+      target?.kind !== 'agent' ||
+      target.chatId === model.rootChatId ||
+      !node.content.trim()
+    )
+      return []
+    return [
+      {
+        key: `entry:${node.id}:${node.orderKey}`,
+        nodeId: node.id,
+        kind: node.kind === 'spawn' ? ('spawn' as const) : ('dispatch' as const),
+        label: node.kind === 'spawn' ? LITE_NODE_LABELS.spawn : LITE_NODE_LABELS.dispatch,
+        icon: node.kind === 'spawn' ? LITE_NODE_GLYPHS.spawn : LITE_NODE_GLYPHS.dispatch,
+        content: node.content,
+        toolNames: [],
+        status: 'completed' as const,
+        active: false,
+        startedAt: node.createdAt,
+        completedAt: node.updatedAt,
+        elapsedMs: Math.max(0, node.updatedAt - node.createdAt),
+        roundIndex: 0,
+        isRoundFinal: true,
+        collapsed: false,
+        sourceChatId: node.sourceChatId,
+        agentLabel: agentLabelOf(
+          node.actor.kind === 'agent' ? node.actor.chatId : model.rootChatId,
+        ),
+        targetChatId: target.chatId,
+      },
+    ]
+  })
 
   const stepsByChat = new Map<string, ExecutionStep[]>()
   for (const step of model.steps) {
@@ -776,5 +815,10 @@ export function projectLiteHistory(
 
   // 行布局（需求 4a）：用户消息与轮末响应单独占一行；中间的思考/工具节点
   // 挤成一个 cluster 小按钮行（可换行），不单独占行。复用 buildLiteRows 统一规则。
-  return { nodes: nodesOut, rows: buildLiteRows(nodesOut), running: rootRunning }
+  return {
+    nodes: nodesOut,
+    rows: buildLiteRows(nodesOut),
+    running: rootRunning,
+    entryDispatches,
+  }
 }

@@ -77,6 +77,17 @@ export function useLiteInteractions(windowId: () => string, rootChatId: () => st
     return null
   }
 
+  /** 未消费的待处理问题：只在用户尚未开始提交时持续提醒对应工具图标。 */
+  function interactionNeedsAttentionForCall(callId: string | undefined): boolean {
+    if (!callId) return false
+    return lite.interactions.some(
+      (item) =>
+        item.kind === 'question_batch' &&
+        item.status === 'pending' &&
+        questionsOf(item).some((question) => question.questionId === callId),
+    )
+  }
+
   /** 交互承载的焦点工具调用 id：审批=该次工具调用的 callId（=interactionId）；提问=批内第一题的 questionId。 */
   function focusCallIdForInteraction(interaction: LiteInteraction): string | null {
     if (interaction.kind === 'approval') return interaction.interactionId
@@ -386,6 +397,7 @@ export function useLiteInteractions(windowId: () => string, rootChatId: () => st
     interactionSettled,
     interactionStatusLabel,
     interactionForCall,
+    interactionNeedsAttentionForCall,
     focusCallIdForInteraction,
     focusNodeForInteraction,
     approvalArguments,

@@ -39,8 +39,7 @@ const errorMessage = computed(
 // ── 提问：本卡对应的一题 + 批次进度 ──────────────────────────────────
 const questions = computed(() => interactions.questionsOf(props.interaction))
 const question = computed(
-  () =>
-    questions.value.find((item) => item.questionId === props.questionId) ?? questions.value[0],
+  () => questions.value.find((item) => item.questionId === props.questionId) ?? questions.value[0],
 )
 const questionIndex = computed(() =>
   Math.max(
@@ -104,7 +103,10 @@ const blocked = computed(
         </div>
       </details>
       <p v-if="errorMessage" class="lite-object-error" role="alert">{{ errorMessage }}</p>
-      <footer v-if="interactions.interactionActionable(interaction)" class="lite-interaction-actions">
+      <footer
+        v-if="interactions.interactionActionable(interaction)"
+        class="lite-interaction-actions"
+      >
         <span class="lite-action-hint">批准后将立即执行，请先核对目标与变更。</span>
         <button
           type="button"
@@ -127,13 +129,14 @@ const blocked = computed(
 
     <!-- ── 提问 ── -->
     <template v-else>
-      <header
-        v-if="questions.length > 1"
-        class="lite-interaction-head is-question-head"
-      >
+      <header v-if="questions.length > 1" class="lite-interaction-head is-question-head">
         <span class="lite-interaction-head-right">
           <span class="lite-interaction-dot" :data-status="interaction.status" aria-hidden="true" />
-          <span>第 {{ questionIndex + 1 }}/{{ questions.length }} 题 · 已完成 {{ answeredCount }}/{{ questions.length }}</span>
+          <span
+            >第 {{ questionIndex + 1 }}/{{ questions.length }} 题 · 已完成 {{ answeredCount }}/{{
+              questions.length
+            }}</span
+          >
         </span>
       </header>
       <div class="lite-question-workspace">
@@ -164,9 +167,11 @@ const blocked = computed(
                 <div
                   class="lite-option-main"
                   role="option"
-                  :aria-selected="interactions
-                    .selectedOf(interaction.interactionId, question.questionId)
-                    .includes(option.label)"
+                  :aria-selected="
+                    interactions
+                      .selectedOf(interaction.interactionId, question.questionId)
+                      .includes(option.label)
+                  "
                   :aria-disabled="blocked"
                   tabindex="0"
                   @click="interactions.onToggleChoice(interaction, question, option.label)"
@@ -207,11 +212,13 @@ const blocked = computed(
                         .selectedOf(interaction.interactionId, question.questionId)
                         .includes(option.label) || blocked
                     "
-                    :aria-pressed="interactions.isNoteOpen(
-                      interaction.interactionId,
-                      question.questionId,
-                      option.label,
-                    )"
+                    :aria-pressed="
+                      interactions.isNoteOpen(
+                        interaction.interactionId,
+                        question.questionId,
+                        option.label,
+                      )
+                    "
                     @click.stop="
                       interactions.toggleNoteOpen(
                         interaction.interactionId,
@@ -237,11 +244,13 @@ const blocked = computed(
                   "
                   class="lite-option-note"
                   rows="2"
-                  :value="interactions.noteOf(
-                    interaction.interactionId,
-                    question.questionId,
-                    option.label,
-                  )"
+                  :value="
+                    interactions.noteOf(
+                      interaction.interactionId,
+                      question.questionId,
+                      option.label,
+                    )
+                  "
                   :disabled="blocked"
                   placeholder="为这个选项补充描述（可选）"
                   @input="
@@ -270,10 +279,9 @@ const blocked = computed(
                 <div
                   class="lite-option-main"
                   role="option"
-                  :aria-selected="interactions.otherActiveOf(
-                    interaction.interactionId,
-                    question.questionId,
-                  )"
+                  :aria-selected="
+                    interactions.otherActiveOf(interaction.interactionId, question.questionId)
+                  "
                   :aria-disabled="blocked"
                   tabindex="0"
                   @click="interactions.onToggleOther(interaction, question)"
@@ -282,20 +290,16 @@ const blocked = computed(
                 >
                   <span class="lite-choice-mark" aria-hidden="true">
                     {{
-                      interactions.otherActiveOf(
-                        interaction.interactionId,
-                        question.questionId,
-                      )
+                      interactions.otherActiveOf(interaction.interactionId, question.questionId)
                         ? '✓'
                         : ''
                     }}
                   </span>
                   <input
                     class="lite-option-other-input"
-                    :value="interactions.textDraftOf(
-                      interaction.interactionId,
-                      question.questionId,
-                    )"
+                    :value="
+                      interactions.textDraftOf(interaction.interactionId, question.questionId)
+                    "
                     :disabled="blocked"
                     placeholder="其他补充（可选）"
                     @click.stop
@@ -334,10 +338,10 @@ const blocked = computed(
         v-if="interactions.interactionActionable(interaction)"
         class="lite-interaction-actions is-question"
       >
-        <span class="lite-action-hint" v-if="questions.length > 1 && !canSubmit"
+        <span v-if="questions.length > 1 && !canSubmit" class="lite-action-hint"
           >请完成批次内全部问题（可分别在对应工具卡中作答）</span
         >
-        <span class="lite-action-hint" v-else-if="!canSubmit">请先作答本题</span>
+        <span v-else-if="!canSubmit" class="lite-action-hint">请先作答本题</span>
         <button
           type="button"
           class="lite-btn is-submit"
@@ -522,6 +526,7 @@ const blocked = computed(
 .lite-question-workspace {
   display: block;
   min-width: 0;
+  container-type: inline-size;
 }
 .lite-followup-question {
   min-width: 0;
@@ -550,7 +555,8 @@ const blocked = computed(
 }
 .lite-options-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 抽屉默认按单列排版，避免窄宽度下每个选项都被挤成多行。 */
+  grid-template-columns: 1fr;
   gap: 6px;
   margin-top: 6px;
 }
@@ -698,6 +704,13 @@ const blocked = computed(
   }
   .lite-action-hint {
     display: none;
+  }
+}
+
+/* 只在详情抽屉内容本身足够宽时启用双列；不使用 viewport 宽度，避免窄抽屉落在宽屏上时误切双列。 */
+@container (min-width: 520px) {
+  .lite-options-grid {
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
   }
 }
 </style>
