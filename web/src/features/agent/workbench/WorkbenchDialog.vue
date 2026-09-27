@@ -28,7 +28,9 @@ const contextDrawerMotion = useOverlayTransitionHooks('drawer')
 const contextTrigger = ref<HTMLButtonElement>()
 const filesOpen = ref(false)
 const visitedFileChat = ref('')
-watch([filesOpen, controller.treeRootChatId], ([open, id]) => { if (open) visitedFileChat.value = id })
+watch([filesOpen, controller.treeRootChatId], ([open, id]) => {
+  if (open) visitedFileChat.value = id
+})
 const liteViewRef = ref<{ insertReference: (token: string) => void }>()
 const conversationViewRef = ref<{ focusInput: () => void }>()
 const roleStackRef = ref<HTMLElement>()
@@ -68,22 +70,19 @@ function updateRoleStackLayout(): void {
     return
   }
 
-  const peek =
-    stack.querySelector<HTMLElement>('.role-stack-nameplate')?.offsetHeight ?? 32
+  const peek = stack.querySelector<HTMLElement>('.role-stack-nameplate')?.offsetHeight ?? 32
   const positions = Array<number>(items.length).fill(0)
   const active = activeRoleStackIndex.value
   const activeHeight = active >= 0 ? (items[active]?.offsetHeight ?? 0) : 0
   // 下移距离 = 本卡高度 − peek（扇形偏移）− 小量重叠：让前面卡片正好停在本卡底部并保留小量重叠，
   // 不留空隙，避免指针同时离开两张卡。相比旧式"大幅下移"消除了中间空白带。
-  const expandedDistance =
-    active >= 0 ? Math.max(0, activeHeight - peek - ROLE_STACK_OVERLAP) : 0
+  const expandedDistance = active >= 0 ? Math.max(0, activeHeight - peek - ROLE_STACK_OVERLAP) : 0
 
   // 默认位置：Y 轴从上到下为 C → B → A（A 最前/上层，C 最后/下层），每张卡露出上半部分头部。
   // 悬浮某张卡时，只把它之前的卡片向 Y 轴下方移动（贴合本卡底部，留小量重叠）；
   // 当前卡片和后面的卡片不移动，离开后恢复默认位置。
   positions.forEach((_, index) => {
-    positions[index] =
-      (items.length - 1 - index) * peek + (index < active ? expandedDistance : 0)
+    positions[index] = (items.length - 1 - index) * peek + (index < active ? expandedDistance : 0)
   })
   roleStackPositions.value = positions
   roleStackHeight.value = Math.max(
@@ -154,6 +153,10 @@ function closeContextPanel(): void {
 function toggleFilesWorkspace(): void {
   if (!controller.treeRootChatId.value) return
   filesOpen.value = !filesOpen.value
+}
+function onFilesTriggerClick(): void {
+  closeTaskBrowser()
+  toggleFilesWorkspace()
 }
 function closeFilesWorkspace(): void {
   filesOpen.value = false
@@ -235,10 +238,16 @@ const {
   text, toggleRoleList,
   treeBreakdown, treeLoading, treeLoadError, treePromptSnap, treeRootChatId, retryTree,
   treeUsage, treeUsagePct,
-  toggleAttentionWindow, uploading, win, windowBlink,
+  toggleAttentionWindow, uploading, viewMode, win, windowBlink,
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
 } = controller
-defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, closeFilesWorkspace, closeTaskBrowser: controller.closeTaskBrowser, getFilesOpen: () => filesOpen.value })
+defineExpose({
+  closeWorkbench: controller.closeWorkbench,
+  toggleFilesWorkspace,
+  closeFilesWorkspace,
+  closeTaskBrowser: controller.closeTaskBrowser,
+  getFilesOpen: () => filesOpen.value,
+})
 </script>
 <template>
   <Transition
@@ -286,12 +295,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
         :style="workbenchShellStyle"
         aria-label="Agent 执行工作台"
       >
-        <div
-          v-if="treeLoadError"
-          class="workbench-error"
-          role="alert"
-          aria-live="assertive"
-        >
+        <div v-if="treeLoadError" class="workbench-error" role="alert" aria-live="assertive">
           <span class="workbench-error__viewport">
             <span class="workbench-error__track">
               <span>执行图加载失败：{{ treeLoadError }}</span>
@@ -353,10 +357,13 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
             @remove-media="removeMedia"
             @toggle-media-variant="toggleMediaVariant"
           />
-          <!-- 待处理审批与提问：树模式左下角浮窗；对话模式直接在消息列表内作答（见 QuestionRenderer 可交互模式）。 -->
+          <!-- 待处理审批与提问：仅树模式使用工作台浮窗；对话/精简模式使用各自的消息或工具入口。
+              判定直接基于 viewMode（不依赖 treeRootChatId 是否已加载）：
+              刷新后树根会话尚未恢复时 conversationViewVisible 会短暂为 false，
+              若用 !conversationViewVisible 判断会被误判为树模式，导致对话 tab 显示树的审批入口。 -->
           <WorkbenchAttentionSurface
-            v-if="currentAttentionCount && !attentionCollapsed"
-            :key="treeRootChatId"
+            v-if="currentAttentionCount && !attentionCollapsed && viewMode === 'tree'"
+            :key="`attention:${treeRootChatId}`"
             class="workbench-current-attention"
             :root-chat-id="controller.attentionRootChatId.value || undefined"
             :count="currentAttentionCount"
@@ -390,7 +397,10 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
           }}</small>
           <ConnectionStatusChip class="workbench-conn-chip" />
           <WorkbenchViewToggle :window-id="windowId" />
-          <el-tooltip :content="treeRootChatId ? '查看工作区文件与 Terminal' : '当前没有可用会话'" placement="bottom">
+          <el-tooltip
+            :content="treeRootChatId ? '查看工作区文件与 Terminal' : '当前没有可用会话'"
+            placement="bottom"
+          >
             <span>
               <button
                 type="button"
@@ -399,9 +409,12 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
                 :aria-pressed="filesOpen"
                 :class="{ 'is-active': filesOpen }"
                 :disabled="!treeRootChatId"
-                @click="closeTaskBrowser(); toggleFilesWorkspace()"
+                @click="onFilesTriggerClick"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h7l2 2h9v9.5H3z" /><path d="M3 6.5V5h7l2 2" /></svg>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 6.5h7l2 2h9v9.5H3z" />
+                  <path d="M3 6.5V5h7l2 2" />
+                </svg>
               </button>
             </span>
           </el-tooltip>
@@ -580,6 +593,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
                 </span>
               </el-tooltip>
               <el-tooltip
+                v-if="viewMode === 'tree'"
                 :content="
                   attentionWindowOpen
                     ? `收起待处理审批与提问窗口 · ${currentAttentionCount} 项`
@@ -810,7 +824,11 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
             >
               <div class="nyxus-role-configs" aria-label="小组角色编制">
                 <small class="role-runtime-note" role="status">
-                  {{ runtimeHint && !runtimeError ? runtimeHint : '修改角色编制后，后续请求会使用新配置。' }}
+                  {{
+                    runtimeHint && !runtimeError
+                      ? runtimeHint
+                      : '修改角色编制后，后续请求会使用新配置。'
+                  }}
                 </small>
                 <div
                   v-if="loading"
@@ -826,9 +844,9 @@ defineExpose({ closeWorkbench: controller.closeWorkbench, toggleFilesWorkspace, 
                   class="role-tags role-stack-list"
                   :class="{ 'is-hovering': activeRoleStackIndex >= 0 }"
                   aria-label="小组角色身份卡列表"
-                   :style="{
-                     height: `${roleStackHeight}px`,
-                   }"
+                  :style="{
+                    height: `${roleStackHeight}px`,
+                  }"
                 >
                   <div
                     v-for="([role, selection], index) in orderedRoleSelections"

@@ -4,6 +4,12 @@ import { agentApi } from '@/application/backend/public'
 import type { PromptSnapshotTool, SenseToolDocInfo } from '@/application/backend/public'
 import { parseSenseDoc } from '@/features/agent/settings/config/shared'
 
+// 组件渲染为「根 div + Teleport」多根节点，外部传入的 class/style 等属性
+// 不会被 Vue 自动继承。关闭自动继承，并把 $attrs 显式落到根 div 上，
+// 让各宿主（SenseCallBox / CommandRenderer / LiteToolCallDetail 等）的标题行
+// 布局类名真正生效，避免出现 Extraneous non-props attributes 警告。
+defineOptions({ inheritAttrs: false })
+
 const props = defineProps<{
   toolName: string
   /** 工具英文名（用于匹配 sense.tools.docs / promptSnapshot.tools 的 name 字段）。
@@ -133,7 +139,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="triggerRef" class="tool-description-disclosure">
+  <div ref="triggerRef" class="tool-description-disclosure" v-bind="$attrs">
     <button
       type="button"
       class="tool-description-trigger"

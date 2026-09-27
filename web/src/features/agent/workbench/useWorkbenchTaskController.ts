@@ -1,4 +1,4 @@
-import { computed, ref, type MaybeRefOrGetter, toValue } from 'vue'
+import { computed, ref, watch, type MaybeRefOrGetter, toValue } from 'vue'
 import { ElMessage } from 'element-plus'
 import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
@@ -15,6 +15,53 @@ export function useWorkbenchTaskController(options: {
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
   const taskTimeline = ref<RootTimelineSnapshot>()
+  let taskLoadToken = 0
+
+  /**
+   * 根时间线只负责当前 Chat 的实时订阅，不包含同一任务的其它分支。
+   * 工作台打开时必须再拉一次任务级快照，否则对话模式只能退化成单个日期选项。
+   */
+  async function loadTaskTimeline(chatId: string | null): Promise<void> {
+    const token = ++taskLoadToken
+    taskTimeline.value = undefined
+    if (!chatId) return
+
+    const rootTimeline =
+      chatSessions.rootTimeline(chatId, 'tree') ??
+      chatSessions.rootTimeline(chatId, 'conversation') ??
+      chatSessions.rootTimeline(chatId, 'audit')
+    const taskId = rootTimeline?.taskId ?? agents.summaryForChat(chatId)?.taskId
+    if (!taskId) return
+
+    try {
+      const snapshot = await agentApi.getTaskTimeline({ taskId, view: 'tree' })
+      if (token === taskLoadToken && toValue(options.chatId) === chatId) {
+        taskTimeline.value = snapshot
+      }
+    } catch (cause) {
+      // 根会话仍可正常显示；任务快照失败时保留实时根时间线作为降级数据源。
+      console.warn('[WorkbenchDialog] load task timeline failed:', cause)
+    }
+  }
+
+  watch(
+    [
+      () => toValue(options.chatId),
+      () => {
+        const chatId = toValue(options.chatId)
+        if (!chatId) return undefined
+        return (
+          chatSessions.rootTimeline(chatId, 'tree')?.taskId ??
+          chatSessions.rootTimeline(chatId, 'conversation')?.taskId ??
+          agents.summaryForChat(chatId)?.taskId
+        )
+      },
+    ],
+    ([chatId]) => {
+      void loadTaskTimeline(chatId ?? null)
+    },
+    { immediate: true },
+  )
 
   const controlTimeline = computed(() => {
     const chatId = toValue(options.chatId)
@@ -23,7 +70,18 @@ export function useWorkbenchTaskController(options: {
     const fallback = taskTimeline.value
     if (!live) return fallback
     if (!fallback) return live
-    return live.revision >= fallback.revision ? live : fallback
+    const selected = live.revision >= fallback.revision ? live : fallback
+    // 根订阅与任务级快照使用不同的构建路径。根快照可能更新得更快，却没有
+    // 任务分支元数据；不能因此把已经加载的分支选项丢掉。
+    if (selected.branches === undefined && fallback.branches !== undefined) {
+      return {
+        ...selected,
+        ...(selected.taskId ? {} : { taskId: fallback.taskId }),
+        ...(selected.activeBranchId ? {} : { activeBranchId: fallback.activeBranchId }),
+        branches: fallback.branches,
+      }
+    }
+    return selected
   })
   const taskHasRunningBranches = computed(
     () =>

@@ -45,9 +45,7 @@ import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
 import { selectTreeTimelineOverride } from './workbenchTimelineSelection'
 import { matchesCurrentTask } from './useSessionStripTasks'
-import {
-  CONTEXT_ANALYTICS_DEMOS,
-} from './context-analytics/public'
+import { CONTEXT_ANALYTICS_DEMOS } from './context-analytics/public'
 import {
   canMarkTaskResultViewed,
   taskAfterArchive,
@@ -135,7 +133,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     matchingFiles,
     showFileMenu,
     activeFileIndex,
-  fileMenuHint,
+    fileMenuHint,
     showRoleMenu,
     activeRoleIndex,
     uploading,
@@ -764,15 +762,27 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     ),
   )
   const currentAttentionCount = computed(() => workspacePending.value.length)
-  watch(chatId, () => { composerTurn = { active: false, awaitingInput: false }; userClosedAfterTurn.value = false })
+  watch(chatId, () => {
+    composerTurn = { active: false, awaitingInput: false }
+    userClosedAfterTurn.value = false
+  })
   watch(
-    () => [
-      sending.value || (liveTimeline.value?.activeRuns.some((run) => run.status === 'running' || run.status === 'waiting') ?? false),
-      currentAttentionCount.value,
-      sending.value,
-    ] as const,
+    () =>
+      [
+        sending.value ||
+          (liveTimeline.value?.activeRuns.some(
+            (run) => run.status === 'running' || run.status === 'waiting',
+          ) ??
+            false),
+        currentAttentionCount.value,
+        sending.value,
+      ] as const,
     ([active, attention]) => {
-      const next = advanceComposerTurn(composerTurn, { active, pending: attention, dismissed: userClosedAfterTurn.value })
+      const next = advanceComposerTurn(composerTurn, {
+        active,
+        pending: attention,
+        dismissed: userClosedAfterTurn.value,
+      })
       composerTurn = next.state
       if (next.resetDismissal) userClosedAfterTurn.value = false
       if (next.open) nyxusDraftActive.value = true
@@ -815,6 +825,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     () => viewMode.value === 'conversation' && !!treeRootChatId.value,
   )
   /** 对话模式注入的任务分支摘要（面板级联切换与任务身份解析用；与旧 openHistory 注入同源）。 */
+  // 对话模式的下拉必须读取任务级快照；当前根实时时间线只包含一个根，
+  // 不能作为同一任务其它 Agent/分支的选项来源。
   const conversationTaskBranches = computed(() => liveTimeline.value?.branches ?? [])
   /** 左下角当前流程待处理窗口的收起态（树模式，铃铛切换）。
    * 收起后新事项到达不自动展开——铃铛角标计数、标题栏/任务栏闪烁继续提示（与 lite 面板收起契约一致）。 */
@@ -878,7 +890,13 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     workbenchWindow.toggleMode()
   }
   function onDialogEditorKeydown(e: KeyboardEvent): void {
-    if (nyxusDraftActive.value && e.key === 'Escape' && !showFileMenu.value && !showCommandMenu.value && !showRoleMenu.value) {
+    if (
+      nyxusDraftActive.value &&
+      e.key === 'Escape' &&
+      !showFileMenu.value &&
+      !showCommandMenu.value &&
+      !showRoleMenu.value
+    ) {
       e.preventDefault()
       e.stopPropagation()
       cancelNyxusInput()
@@ -936,7 +954,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       const currentTask = taskOverview.tasks.find((candidate) =>
         matchesCurrentTask(candidate, chatId.value ?? undefined),
       )
-      contextAnalyticsInitialTaskKey.value = currentTask?.taskKey ?? treeRootChatId.value ?? undefined
+      contextAnalyticsInitialTaskKey.value =
+        currentTask?.taskKey ?? treeRootChatId.value ?? undefined
     }
     contextDrawerOpen.value = !contextDrawerOpen.value
   }
@@ -1052,7 +1071,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     matchingFiles,
     showFileMenu,
     activeFileIndex,
-  fileMenuHint,
+    fileMenuHint,
     maxControlState,
     mediaAttachments,
     mediaHint,
@@ -1152,6 +1171,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     usageClass,
     win,
     windowBlink,
+    viewMode,
     workbenchShellRef,
     workbenchShellStyle,
     workbenchWindow,

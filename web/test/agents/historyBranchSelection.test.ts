@@ -32,10 +32,7 @@ describe('history drawer branch selection', () => {
 
   it('opens the active task branch instead of an inactive original branch', () => {
     expect(
-      resolveTaskDrawerChatId(
-        { activeBranchId: 'branch-active', branches },
-        'chat-current',
-      ),
+      resolveTaskDrawerChatId({ activeBranchId: 'branch-active', branches }, 'chat-current'),
     ).toBe('chat-active')
   })
 

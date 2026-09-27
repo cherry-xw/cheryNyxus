@@ -7,10 +7,12 @@
  * 3. 导出类型和工具函数
  */
 
-import { defineComponent, defineAsyncComponent, type PropType, h } from 'vue'
+import { computed, defineComponent, defineAsyncComponent, type PropType, h } from 'vue'
 import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 import { registerRenderer, getRenderer, hasRenderer } from './registry'
 import RiskBadge from '@/components/RiskBadge.vue'
+import ApprovalInteractionRenderer from './core/ApprovalInteractionRenderer.vue'
+import { useInteractionsStore } from '@/application/public'
 
 // ============== 注册内置工具渲染器 ==============
 // 每个内置工具一行声明，易于维护
@@ -52,6 +54,14 @@ export const SenseCallRenderer = defineComponent({
     defaultExpanded: { type: Boolean, required: false },
   },
   setup(props) {
+    const interactions = useInteractionsStore()
+    const pendingApproval = computed(() =>
+      props.call.id
+        ? interactions.pending.find(
+            (item) => item.kind === 'approval' && item.interactionId === props.call.id,
+          )
+        : undefined,
+    )
     // 工具安全性标签：作为 named slot `risk` 注入渲染器标题行（各渲染器在标题行内放置
     // `<slot name="risk" />`，如单选工具放在「单选」标签后面）。compact 形态 = 纯 chip，
     // 判定明细在 title 提示里；完整判定仍可在节点树 hover 窗/审批卡片查看。
@@ -64,7 +74,12 @@ export const SenseCallRenderer = defineComponent({
       innerRenderer = () =>
         h(
           SenseCallBox,
-          { call: props.call, chatId: props.chatId, id: props.id, defaultExpanded: props.defaultExpanded },
+          {
+            call: props.call,
+            chatId: props.chatId,
+            id: props.id,
+            defaultExpanded: props.defaultExpanded,
+          },
           { risk: riskSlot },
         )
     } else {
@@ -82,12 +97,25 @@ export const SenseCallRenderer = defineComponent({
       innerRenderer = () =>
         h(
           asyncComponent,
-          { call: props.call, chatId: props.chatId, id: props.id, defaultExpanded: props.defaultExpanded },
+          {
+            call: props.call,
+            chatId: props.chatId,
+            id: props.id,
+            defaultExpanded: props.defaultExpanded,
+          },
           { risk: riskSlot },
         )
     }
 
-    return () => innerRenderer()
+    return () =>
+      pendingApproval.value
+        ? h(ApprovalInteractionRenderer, {
+            call: props.call,
+            chatId: props.chatId,
+            id: props.id,
+            defaultExpanded: props.defaultExpanded,
+          })
+        : innerRenderer()
   },
 })
 

@@ -232,7 +232,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   const taskTimeline = ref<RootTimelineSnapshot>()
   const taskPlan = computed<TaskPlan | undefined>(() => {
     const liveNodes = chatSessions.rootTimeline(props.chatId, 'conversation')?.nodes ?? []
-    const nodes = liveNodes.length > 0 ? liveNodes : taskTimeline.value?.nodes ?? []
+    const nodes = liveNodes.length > 0 ? liveNodes : (taskTimeline.value?.nodes ?? [])
     return nodes
       .filter((node) => node.sourceChatId === props.chatId && node.todoPlan)
       .sort((a, b) => b.orderKey - a.orderKey)[0]?.todoPlan
@@ -438,6 +438,28 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
             .filter((node) => node.visibility === 'conversation' || !!node.termination)
             .map(rootNodeToHistory)
         : sessionData.ownTimeline.value
+
+    if (layout.value === 'group') {
+      // spawn-target 是内部图锚点，但它保存了主 Agent 发给子 Agent 的原始问题。
+      // 只有在可见的 parent-to-child 消息缺失时才补入，避免新旧两类事实重复显示。
+      const visibleEntries = new Set(
+        result
+          .filter((item) => item.role === 'master' && item.subPetChatId)
+          .map((item) => `${item.subPetChatId}\u0000${item.content}`),
+      )
+      const fallbackEntries = (chatSessions.rootTimeline(props.chatId, 'conversation')?.nodes ?? [])
+        .filter(
+          (node) =>
+            (node.kind === 'dispatch' || node.kind === 'spawn') &&
+            node.target?.kind === 'agent' &&
+            node.target.chatId !== props.chatId &&
+            node.content.trim().length > 0 &&
+            !visibleEntries.has(`${node.target.chatId}\u0000${node.content}`),
+        )
+        .map(rootNodeToHistory)
+      result.push(...fallbackEntries)
+      result.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+    }
 
     const transient: HistoryItem[] = []
     if (layout.value === 'group') {
