@@ -83,6 +83,11 @@ function mergeDetail(detail: import('@chery/protocol').TaskUsageDetail): Context
     }
   }
   const snapshots = detail.agents.map((item) => snapshotFor(item.chatId))
+  const latestRequestByAgent = new Map<string, (typeof requests)[number]>()
+  for (const request of requests) {
+    const previous = latestRequestByAgent.get(request.chatId)
+    if (!previous || request.startedAt >= previous.startedAt) latestRequestByAgent.set(request.chatId, request)
+  }
   return {
     taskKey: detail.summary.taskKey,
     taskTitle: detail.summary.taskKey,
@@ -91,6 +96,12 @@ function mergeDetail(detail: import('@chery/protocol').TaskUsageDetail): Context
     rounds: detail.summary.rounds,
     requests: detail.summary.requests,
     agents: detail.agents.map((item) => ({
+      ...(() => {
+        const request = item.currentRequest ?? latestRequestByAgent.get(item.chatId)
+        return request
+          ? { modelName: request.model, modelSource: 'lastRequest' as const }
+          : {}
+      })(),
       agentId: item.chatId,
       name: item.name,
       role: item.isMain ? '主 Agent' : '子 Agent',
@@ -223,18 +234,20 @@ defineExpose({ focusClose })
 
 <style scoped lang="less">
 .analytics-panel { font-size: 13px; font-weight: 400; position: absolute; z-index: var(--nx-z-drawer); inset: 40px 0 0 auto; width: clamp(700px, min(960px, 92%), 960px); display: flex; flex-direction: column; container-type: inline-size; color: var(--nx-text); background: var(--nx-bg); border-left: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); box-shadow: -12px 0 28px color-mix(in srgb, var(--nx-text) 22%, transparent); }
-.analytics-head { display: flex; align-items: center; gap: 18px; min-height: 66px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); background: color-mix(in srgb, var(--nx-bg) 90%, var(--nx-text) 5%); }
-.title-block { display: flex; align-items: center; gap: 10px; min-width: 220px; margin-right: auto; }
+.analytics-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto 30px; align-items: start; gap: 18px; min-height: 66px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); background: color-mix(in srgb, var(--nx-bg) 90%, var(--nx-text) 5%); }
+.title-block { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.title-block > div { min-width: 0; }
+.title-block small, .scenario-picker, .task-summary dt { line-height: 18px; }
 .title-block small { color: color-mix(in srgb, var(--nx-text) 52%, transparent); }
 .title-block h2 { font-weight: 400; max-width: 420px; margin: 2px 0 0; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.demo-badge { flex: none; padding: 4px 7px; border-radius: 999px; color: var(--nx-yellow); background: color-mix(in srgb, var(--nx-yellow) 12%, transparent); font-size: 12px; }
+.demo-badge { flex: none; padding: 4px 7px; border-radius: 0; color: var(--nx-yellow); background: color-mix(in srgb, var(--nx-yellow) 12%, transparent); font-size: 12px; }
 .scenario-picker { display: grid; gap: 3px; color: color-mix(in srgb, var(--nx-text) 48%, transparent); font-size: 12px; }
-.scenario-picker select { max-width: 210px; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent); border-radius: 6px; color: var(--nx-text); background: var(--nx-bg); font-size: 12px; }
+.scenario-picker select { max-width: 210px; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent); border-radius: 0; color: var(--nx-text); background: var(--nx-bg); font-size: 12px; }
 .task-summary { display: flex; gap: 20px; margin: 0; }
 .task-summary div { min-width: 70px; }
 .task-summary dt { color: color-mix(in srgb, var(--nx-text) 48%, transparent); font-size: 12px; }
 .task-summary dd { margin: 2px 0 0; font: 13px/1.2 var(--font-mono); }
-.close-button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 7px; color: color-mix(in srgb, var(--nx-text) 65%, transparent); background: transparent; cursor: pointer; }
+.close-button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 0; color: color-mix(in srgb, var(--nx-text) 65%, transparent); background: transparent; cursor: pointer; }
 .close-button:hover { color: var(--nx-text); border-color: color-mix(in srgb, var(--nx-cyan) 22%, transparent); background: color-mix(in srgb, var(--nx-cyan) 7%, transparent); }
 .analytics-tabs { display: flex; align-items: center; gap: 5px; padding: 8px 16px; border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 10%, transparent); }
 .analytics-tabs button { padding: 7px 11px; border: 1px solid transparent; border-radius: 7px; color: color-mix(in srgb, var(--nx-text) 65%, transparent); background: transparent; cursor: pointer; }
@@ -242,18 +255,18 @@ defineExpose({ focusClose })
 .analytics-tabs span { margin-left: auto; color: color-mix(in srgb, var(--nx-text) 45%, transparent); font-size: 12px; }
 .analytics-body { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
 @container (max-width: 820px) {
-  .analytics-head { align-items: flex-start; flex-wrap: wrap; }
-  .title-block { width: calc(100% - 48px); }
-  .task-summary { order: 3; width: 100%; justify-content: space-between; gap: 8px; }
+  .analytics-head { grid-template-columns: minmax(0, 1fr) auto 30px; }
+  .close-button { grid-column: 3; grid-row: 1; }
+  .task-summary { grid-column: 1 / -1; width: 100%; justify-content: space-between; gap: 8px; }
   .task-summary div { min-width: 0; }
   .analytics-tabs { overflow-x: auto; }
   .analytics-tabs button { flex: none; }
   .analytics-tabs span { display: none; }
 }
 @media (max-width: 760px) {
-  .analytics-head { align-items: flex-start; flex-wrap: wrap; }
-  .title-block { width: calc(100% - 48px); }
-  .task-summary { order: 3; width: 100%; justify-content: space-between; gap: 8px; }
+  .analytics-head { grid-template-columns: minmax(0, 1fr) auto 30px; }
+  .close-button { grid-column: 3; grid-row: 1; }
+  .task-summary { grid-column: 1 / -1; width: 100%; justify-content: space-between; gap: 8px; }
   .task-summary div { min-width: 0; }
   .analytics-tabs { overflow-x: auto; }
   .analytics-tabs button { flex: none; }

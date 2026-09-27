@@ -33,6 +33,7 @@ const emit = defineEmits<{ select: [index: number] }>()
 const host = ref<HTMLElement>()
 let chart: EChartsType | undefined
 let observer: ResizeObserver | undefined
+let zr: ReturnType<EChartsType['getZr']> | undefined
 function highlight(): void {
   chart?.dispatchAction({ type: 'downplay' })
   if (props.selectedIndex !== undefined)
@@ -110,15 +111,14 @@ onMounted(() => {
     }
   })
   chart.on('mouseout', () => { if (props.selectedIndex !== undefined) void nextTick(highlight) })
-  chart.on('click', (event) => {
-    const params = event as { dataIndex?: unknown; offsetX?: unknown; offsetY?: unknown }
-    let index: number | undefined = typeof params.dataIndex === 'number' ? params.dataIndex : undefined
-    if (index === undefined && typeof params.offsetX === 'number' && typeof params.offsetY === 'number') {
-      const converted = chart?.convertFromPixel({ gridIndex: 0 }, [params.offsetX, params.offsetY])
-      const candidate = Array.isArray(converted) ? Number(converted[0]) : NaN
-      if (Number.isFinite(candidate) && candidate >= 0) index = Math.round(candidate)
-    }
-    if (index !== undefined) emit('select', index)
+  zr = chart.getZr()
+  zr.on('click', (event) => {
+    const { offsetX, offsetY } = event
+    if (typeof offsetX !== 'number' || typeof offsetY !== 'number') return
+    if (!chart?.containPixel({ gridIndex: 0 }, [offsetX, offsetY])) return
+    const converted = chart.convertFromPixel({ gridIndex: 0 }, [offsetX, offsetY])
+    const candidate = Array.isArray(converted) ? Number(converted[0]) : NaN
+    if (Number.isFinite(candidate) && candidate >= 0) emit('select', Math.round(candidate))
   })
   observer = new ResizeObserver(() => { chart?.resize() })
   observer.observe(host.value)
@@ -126,7 +126,7 @@ onMounted(() => {
 })
 watch(() => props.option, update, { deep: true })
 watch(() => props.selectedIndex, highlight)
-onBeforeUnmount(() => { observer?.disconnect(); chart?.dispose() })
+onBeforeUnmount(() => { observer?.disconnect(); zr?.off('click'); chart?.dispose() })
 </script>
 <template><div ref="host" class="analytics-chart" role="img" :aria-label="label" /></template>
 <style scoped>.analytics-chart { width: 100%; height: 100%; min-width: 0; color: var(--nx-text); }</style>

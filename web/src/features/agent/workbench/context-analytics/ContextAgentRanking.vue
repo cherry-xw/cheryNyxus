@@ -45,10 +45,10 @@ function share(agent: AgentUsageView): string {
       <article v-for="entry in rows" :key="entry.agent.agentId" class="agent-row">
         <div class="row-summary">
           <span class="rank">{{ entry.rank ? '第 ' + entry.rank + ' 名' : '未排名' }}</span>
-          <span>{{ entry.agent.name }}</span>
+          <span class="agent-name">{{ entry.agent.name }}</span>
           <span class="model-name">{{ entry.agent.modelName ?? '模型未记录' }}</span>
-          <span>{{ formatMetric(entry.agent.cumulativeTokens) }} Token</span>
-          <span>{{ formatMetric(entry.agent.requests) }} 步</span>
+          <span class="agent-metric">{{ formatMetric(entry.agent.cumulativeTokens) }} Token</span>
+          <span class="agent-metric">{{ formatMetric(entry.agent.requests) }} 步</span>
           <button type="button" :aria-expanded="expanded.has(entry.agent.agentId)" @click="toggle(entry.agent.agentId)">{{ expanded.has(entry.agent.agentId) ? '收起详情' : '查看详情' }}</button>
         </div>
         <div v-if="expanded.has(entry.agent.agentId)" class="row-detail">
@@ -89,8 +89,11 @@ dt { font-size: 12px; color: color-mix(in srgb, var(--nx-text) 65%, transparent)
 dd { font-size: 13px; margin: 4px 0 0; overflow-wrap: anywhere; }
 button { padding: 5px 8px; color: inherit; border: 1px solid color-mix(in srgb, var(--nx-text) 20%, transparent); background: transparent; font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.5; cursor: pointer; }
 .agent-rows { margin-top: 12px; border-top: 1px solid color-mix(in srgb, var(--nx-text) 15%, transparent); }
-.agent-row { border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 15%, transparent); padding: 12px; }
-.row-summary { display: grid; grid-template-columns: 70px 1fr 1.5fr 1fr 70px auto; align-items: center; gap: 12px; font-size: 13px; }
+.agent-row { border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 15%, transparent); padding: 12px; overflow: hidden; }
+.row-summary { display: grid; grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1.5fr) auto auto auto; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 30px; font-size: 13px; }
+.row-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-summary .agent-name { color: var(--nx-text); }
+.row-summary .agent-metric { white-space: nowrap; }
 .row-detail { margin-top: 12px; }
 .segments span { display: flex; gap: 5px; align-items: center; }
 .segments i { width: 8px; height: 8px; }
@@ -98,6 +101,5 @@ button { padding: 5px 8px; color: inherit; border: 1px solid color-mix(in srgb, 
   .podium { grid-template-columns: 1fr; }
   .podium-card { grid-column: 1; grid-row: auto; }
   .rank-1 { order: -1; }
-  .row-summary { grid-template-columns: 70px 1fr auto; }
 }
 </style>
