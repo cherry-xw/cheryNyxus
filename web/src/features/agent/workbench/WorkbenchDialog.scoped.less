@@ -46,16 +46,15 @@
   color: #fca5a5;
 }
 
-/* T33 lite 视图：隐藏完整视图主体（树/ctx/面板/composer），由 LiteView 接管。 */
+/* T33 lite 视图：隐藏完整视图主体（树/面板/composer），由 LiteView 接管。
+   底部 Agent 用量条保留，并占据自己的底部空间。 */
 .workbench-shell.is-lite .nyxus-branch-top,
-.workbench-shell.is-lite .workbench-ctx-bar,
 .workbench-shell.is-lite .nyxus-composer-dock {
   display: none;
 }
 /* 对话模式（第三视图）：整屏会话视图由 ConversationView 在 .nyxus-branch-top 内接管，
-   隐藏树专用元素——composer dock（会话视图为回看界面，发消息走树/精简）、ctx 分割线；
-   树视图类 rail 按钮（发送消息/卡牌/流程图/阅读器/暂停全部分支/折叠）与 lite 同规则隐藏。 */
-.workbench-shell.is-conversation .workbench-ctx-bar,
+   隐藏树专用元素——composer dock（会话视图为回看界面，发消息走树/精简）；
+   底部 Agent 用量条保留，并占据自己的底部空间。 */
 .workbench-shell.is-conversation .nyxus-composer-dock {
   display: none;
 }
@@ -139,10 +138,19 @@
     drop-shadow(2px 0 color-mix(in srgb, var(--accent) 78%, black));
 }
 @keyframes workbench-file-icon-signal {
-  0%, 100% { transform: translate(0, 0) skewX(0deg); }
-  25% { transform: translate(-2px, 0) skewX(-8deg) scale(1.12); }
-  50% { transform: translate(2px, 1px) skewX(9deg) scale(.9); }
-  75% { transform: translate(-1px, 0) skewX(-5deg) scale(1.06); }
+  0%,
+  100% {
+    transform: translate(0, 0) skewX(0deg);
+  }
+  25% {
+    transform: translate(-2px, 0) skewX(-8deg) scale(1.12);
+  }
+  50% {
+    transform: translate(2px, 1px) skewX(9deg) scale(0.9);
+  }
+  75% {
+    transform: translate(-1px, 0) skewX(-5deg) scale(1.06);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .workbench-files-trigger.is-active svg,
@@ -160,7 +168,9 @@
   height: auto;
   bottom: 0;
 }
-.workbench-shell.is-shellless > :deep(.workbench-files) { top: 0; }
+.workbench-shell.is-shellless > :deep(.workbench-files) {
+  top: 0;
+}
 .dialog-overlay.is-windowed-workbench {
   pointer-events: none;
 }
@@ -187,7 +197,7 @@
   inset: 0;
 }
 .workbench-shell.is-shellless .workbench-ctx-bar {
-  top: 0;
+  bottom: 0;
 }
 .workbench-shell.is-shellless .workbench-context-drawer,
 .workbench-shell.is-native .workbench-context-drawer {
@@ -211,7 +221,7 @@
   inset: 0;
 }
 .workbench-shell.is-native .workbench-ctx-bar {
-  top: 0;
+  bottom: 0;
 }
 .workbench-shell.is-fullscreen {
   inset: 0;
@@ -838,24 +848,43 @@
   width: 100%;
   height: 100%;
 }
-.workbench-current-attention {
-  position: absolute;
-  z-index: var(--nx-z-blocking-interaction);
-  left: max(20px, env(safe-area-inset-left));
-  bottom: max(24px, env(safe-area-inset-bottom));
-  width: min(600px, calc(100% - 88px));
-  pointer-events: auto;
-}
-
-// 节点树上下文占用条：定位容器（标题栏下方 40px 处，分割线位置）。
-// 视觉由共享组件 ContextUsageBar variant="divider" 渲染：默认仅 4px 细线
-// （track 底色即分割线，无数据也可见）；hover 时条变宽并展开图例/数值。
+// 节点树上下文占用条：只占主 Agent 一行；有子 Agent 时增加一行。
 .workbench-ctx-bar {
   position: absolute;
   z-index: var(--nx-z-chrome);
-  top: 40px;
+  bottom: 0;
   right: 0;
   left: 0;
+  height: 27px;
+}
+.workbench-shell:not(.is-conversation) .workbench-ctx-bar {
+  border-top: 1px dashed color-mix(in srgb, var(--nx-text) 10%, transparent);
+}
+.workbench-shell.is-lite .workbench-ctx-bar {
+  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--surface));
+}
+.workbench-ctx-bar.has-subagents {
+  height: 45px;
+}
+.workbench-shell:not(.is-shellless) .nyxus-branch-top {
+  bottom: 27px;
+}
+.workbench-shell.is-shellless .nyxus-branch-top,
+.workbench-shell.is-native .nyxus-branch-top {
+  bottom: 27px;
+}
+.workbench-shell .nyxus-branch-top.has-usage-subagents {
+  bottom: 45px;
+}
+.workbench-shell.is-conversation .nyxus-branch-top {
+  bottom: 0;
+}
+.workbench-shell.is-lite :deep(.lite-view) {
+  box-sizing: border-box;
+  padding-bottom: 27px;
+}
+.workbench-shell.is-lite:has(.workbench-ctx-bar.has-subagents) :deep(.lite-view) {
+  padding-bottom: 45px;
 }
 
 // 查看上下文侧边抽屉：与卡牌模式同款抽屉形态（参照 MessageBranchTree 的 tree-drawer）——

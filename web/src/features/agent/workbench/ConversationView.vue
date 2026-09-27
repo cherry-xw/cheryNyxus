@@ -26,6 +26,8 @@ import InstructionSuggestions from '../composer/InstructionSuggestions.vue'
 import MediaThumbStrip from '../composer/media/MediaThumbStrip.vue'
 import type { MediaAttachment, MediaKind } from '../composer/useAgentDialogOptions'
 import { splitCommandPrompt } from '../composables/commands'
+import WorkbenchAgentUsageBar from './WorkbenchAgentUsageBar.vue'
+import type { WorkbenchAgentUsageView } from './useWorkbenchAgentUsage'
 
 const props = defineProps<{
   windowId: string
@@ -45,6 +47,8 @@ const props = defineProps<{
   mediaServicesByType: Record<MediaKind, string | null>
   /** 附件上传/移除的瞬时反馈（上传中、已附加、错误） */
   mediaHint: string
+  agentUsageAgents: WorkbenchAgentUsageView[]
+  agentUsageTokenSpeed: number
 }>()
 
 const emit = defineEmits<{
@@ -369,6 +373,12 @@ onMounted(() => {
           {{ sending ? '发送中…' : '发送' }}
         </button>
       </div>
+      <WorkbenchAgentUsageBar
+        class="conversation-agent-usage"
+        :agents="agentUsageAgents"
+        :token-speed="agentUsageTokenSpeed"
+        variant="divider"
+      />
     </div>
   </div>
 </template>
@@ -398,9 +408,17 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 8px 12px 0;
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
   border-top: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.conversation-agent-usage {
+  height: auto !important;
+  min-height: 27px;
+  margin: 2px -12px 0;
+}
+.conversation-agent-usage.has-subagents {
+  min-height: 45px;
 }
 .conversation-input-row {
   position: relative;

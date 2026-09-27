@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { BellFilled, Connection, Reading } from '@element-plus/icons-vue'
+import { Connection, Reading } from '@element-plus/icons-vue'
 import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
 import ConversationView from './ConversationView.vue'
-import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
 import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
 import TaskBrowser from './TaskBrowser.vue'
 import {
@@ -13,6 +12,7 @@ import {
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
 import { useAgentsStore } from '@/application/public'
 import WorkbenchViewToggle from './WorkbenchViewToggle.vue'
+import WorkbenchAttentionIndicator from './WorkbenchAttentionIndicator.vue'
 import WorkbenchFoldTool from './WorkbenchFoldTool.vue'
 import WorkbenchWindowControls from './WorkbenchWindowControls.vue'
 import ContextAnalyticsPanel from './context-analytics/ContextAnalyticsPanel.vue'
@@ -176,7 +176,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onContextDrawerKeydo
 // Keep the controller surface grouped here so this orchestration SFC stays inside its line budget.
 // prettier-ignore
 const {
-  AgentComposer, ConnectionStatusChip, ContextUsageBar,
+  AgentComposer, ConnectionStatusChip, ContextUsageBar, WorkbenchAgentUsageBar,
   FOLD_ICONS, FOLD_TIPS,
   LiteView,
   MessageBranchTree,
@@ -184,7 +184,6 @@ const {
   NyxusContentReader,
   OVERLAY_Z_INDEX, PromptSnapshotTip, RoleConfigPopover,
   activateNyxusInput, activeCommandIndex, activeCommandTab, activeRoleIndex,
-  attentionCollapsed, attentionWindowOpen, currentAttentionCount,
   runtimeDiagramProps, treeProps,
   brains, branchTarget,
   cancelNyxusInput, chatId, clearBranchTarget, closeWorkbench,
@@ -238,9 +237,12 @@ const {
   text, toggleRoleList,
   treeBreakdown, treeLoading, treeLoadError, treePromptSnap, treeRootChatId, retryTree,
   treeUsage, treeUsagePct,
-  toggleAttentionWindow, uploading, viewMode, win, windowBlink,
+  uploading, win, windowBlink,
+  agentUsage,
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
 } = controller
+// 底部 Agent 用量条入参：顶层解构为独立 ref，模板中才能自动解包。
+const { agents: usageBarAgents, tokenSpeed: usageBarTokenSpeed } = agentUsage
 defineExpose({
   closeWorkbench: controller.closeWorkbench,
   toggleFilesWorkspace,
@@ -303,7 +305,11 @@ defineExpose({
             </span>
           </span>
         </div>
-        <div class="nyxus-branch-top" :inert="taskBrowserState.open || undefined">
+        <div
+          class="nyxus-branch-top"
+          :class="{ 'has-usage-subagents': usageBarAgents.length > 1 }"
+          :inert="taskBrowserState.open || undefined"
+        >
           <MessageBranchTree
             v-if="treeRootChatId && !conversationViewVisible"
             :key="treeRootChatId"
@@ -349,6 +355,8 @@ defineExpose({
             :media-attachments="mediaAttachments"
             :media-services-by-type="mediaServicesByType"
             :media-hint="mediaHint"
+            :agent-usage-agents="usageBarAgents"
+            :agent-usage-token-speed="usageBarTokenSpeed"
             @switch-chat="onConversationSwitchChat"
             @send="sendFromComposer"
             @draft-input="onConversationDraftInput"
@@ -356,17 +364,6 @@ defineExpose({
             @media-selected="(f: any) => onMediaSelected(f)"
             @remove-media="removeMedia"
             @toggle-media-variant="toggleMediaVariant"
-          />
-          <!-- 待处理审批与提问：仅树模式使用工作台浮窗；对话/精简模式使用各自的消息或工具入口。
-              判定直接基于 viewMode（不依赖 treeRootChatId 是否已加载）：
-              刷新后树根会话尚未恢复时 conversationViewVisible 会短暂为 false，
-              若用 !conversationViewVisible 判断会被误判为树模式，导致对话 tab 显示树的审批入口。 -->
-          <WorkbenchAttentionSurface
-            v-if="currentAttentionCount && !attentionCollapsed && viewMode === 'tree'"
-            :key="`attention:${treeRootChatId}`"
-            class="workbench-current-attention"
-            :root-chat-id="controller.attentionRootChatId.value || undefined"
-            :count="currentAttentionCount"
           />
           <div v-if="!treeRootChatId" class="workbench-empty-state" aria-live="polite">
             <span>暂无历史会话</span>
@@ -395,6 +392,9 @@ defineExpose({
           <small>{{
             effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台'
           }}</small>
+          <!-- 树模式待处理提示：标题栏内不可点击图标，hover 显示数量与完成方式；
+               与外层标题栏（native/embedded）的 WorkbenchAttentionIndicator 同一组件。 -->
+          <WorkbenchAttentionIndicator :window-id="windowId" />
           <ConnectionStatusChip class="workbench-conn-chip" />
           <WorkbenchViewToggle :window-id="windowId" />
           <el-tooltip
@@ -457,11 +457,16 @@ defineExpose({
         />
 
         <div
-          v-if="treeRootChatId"
+          v-if="treeRootChatId && !conversationViewVisible"
           class="workbench-ctx-bar"
+          :class="{ 'has-subagents': usageBarAgents.length > 1 }"
           :inert="taskBrowserState.open || undefined"
         >
-          <ContextUsageBar :usage="treeUsage" :breakdown="treeBreakdown" variant="divider" />
+          <WorkbenchAgentUsageBar
+            :agents="usageBarAgents"
+            :token-speed="usageBarTokenSpeed"
+            :variant="liteViewVisible ? 'lite' : 'divider'"
+          />
         </div>
 
         <Transition name="nyxus-composer">
@@ -589,43 +594,6 @@ defineExpose({
                     @click="activateNyxusInput"
                   >
                     <span aria-hidden="true">↗</span>
-                  </button>
-                </span>
-              </el-tooltip>
-              <el-tooltip
-                v-if="viewMode === 'tree'"
-                :content="
-                  attentionWindowOpen
-                    ? `收起待处理审批与提问窗口 · ${currentAttentionCount} 项`
-                    : `展开待处理审批与提问窗口 · ${currentAttentionCount} 项`
-                "
-                placement="left"
-                :show-after="200"
-                :hide-after="0"
-              >
-                <span class="nyxus-tool-tip-anchor">
-                  <button
-                    type="button"
-                    class="nyxus-rail-action is-attention"
-                    data-view-action="attention"
-                    :class="{ 'is-active': attentionWindowOpen }"
-                    :aria-label="
-                      attentionWindowOpen
-                        ? `收起待处理审批与提问窗口，${currentAttentionCount} 项`
-                        : `展开待处理审批与提问窗口，${currentAttentionCount} 项`
-                    "
-                    :aria-pressed="attentionWindowOpen"
-                    :disabled="!currentAttentionCount"
-                    @click="toggleAttentionWindow"
-                  >
-                    <BellFilled aria-hidden="true" />
-                    <span
-                      v-if="currentAttentionCount"
-                      class="nyxus-attention-count"
-                      aria-hidden="true"
-                    >
-                      {{ currentAttentionCount > 99 ? '99+' : currentAttentionCount }}
-                    </span>
                   </button>
                 </span>
               </el-tooltip>

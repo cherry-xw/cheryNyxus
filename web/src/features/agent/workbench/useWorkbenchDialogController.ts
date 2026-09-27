@@ -13,6 +13,7 @@ import { advanceComposerTurn, type ComposerTurnState } from './composerTurnState
 import { RoleConfigPopover } from '../runtime/public'
 import { AgentComposer, useAgentDialogOptions, useComposerMenuPosition } from '../composer/public'
 import ContextUsageBar from '../drawer/ContextUsageBar.vue'
+import WorkbenchAgentUsageBar from './WorkbenchAgentUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
 import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
@@ -41,6 +42,7 @@ import {
 import { LiteView, useLiteStore } from '@/features/lite/public'
 import { useWorkbenchViewMode } from './useWorkbenchViewMode'
 import { useWorkbenchContextInspector, usageClass } from './useWorkbenchContextInspector'
+import { useWorkbenchAgentUsage } from './useWorkbenchAgentUsage'
 import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
 import { selectTreeTimelineOverride } from './workbenchTimelineSelection'
@@ -857,34 +859,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   // 对话模式的下拉必须读取任务级快照；当前根实时时间线只包含一个根，
   // 不能作为同一任务其它 Agent/分支的选项来源。
   const conversationTaskBranches = computed(() => liveTimeline.value?.branches ?? [])
-  /** 左下角当前流程待处理窗口的收起态（树模式，铃铛切换）。
-   * 收起后新事项到达不自动展开——铃铛角标计数、标题栏/任务栏闪烁继续提示（与 lite 面板收起契约一致）。 */
-  const attentionCollapsed = ref(false)
-  /** 待处理窗口当前是否展开：树模式=左下角窗口；lite 模式=是否存在待处理交互（铃铛点击定位到详情抽屉）。 */
-  const attentionWindowOpen = computed(() => {
-    if (!currentAttentionCount.value) return false
-    if (liteViewVisible.value) return true
-    return !attentionCollapsed.value
-  })
-  /** 铃铛切换待处理窗口：树模式收起/展开左下角审批回答窗口；精简模式打开详情抽屉定位到最早的待处理交互
-   * （写入 rootUi.attentionOpenRequest，lite 视图据此打开交互所在节点详情并聚焦交互卡）。 */
-  function toggleAttentionWindow(): void {
-    agents.setWorkbenchWindowBlink(props.windowId, false)
-    if (liteViewVisible.value) {
-      const rootId = treeRootChatId.value
-      const first = workspacePending.value[0]
-      if (!rootId || !first) return
-      const current = liteUi.rootUi(props.windowId, rootId)?.attentionOpenRequest
-      liteUi.patchRootUi(props.windowId, rootId, {
-        attentionOpenRequest: {
-          interactionId: first.interactionId,
-          nonce: (current?.nonce ?? 0) + 1,
-        },
-      })
-      return
-    }
-    attentionCollapsed.value = !attentionCollapsed.value
-  }
   function closeWorkbench(): void {
     if (sending.value) return
     taskBrowser.close()
@@ -967,6 +941,16 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     brainConfig,
   })
 
+  // 工作台底部 Agent 用量条：主 Agent + 子 Agent 的 token 上下文、耗时与运行状态（树/对话/精简三视图共用）。
+  const agentUsage = useWorkbenchAgentUsage({
+    rootChatId: treeRootChatId,
+    agentName: presetName,
+    runtime: primarySelection,
+    brainConfig,
+    usage: treeUsage,
+    breakdown: treeBreakdown,
+  })
+
   // 查看上下文侧边抽屉：rail ❐ 按钮点击开关（原小弹窗空间不足，改为工作台右缘抽屉）。
   // 打开时立即按当前树根会话拉取提示词快照；关闭不清数据，再次打开按 key 去重不重复请求。
   const contextDrawerOpen = ref(false)
@@ -1046,6 +1030,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     AgentComposer,
     ConnectionStatusChip,
     ContextUsageBar,
+    WorkbenchAgentUsageBar,
     FOLD_ICONS,
     FOLD_TIPS,
     LiteView,
@@ -1060,8 +1045,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     activeRoleIndex,
     agents,
     attentionRootChatId,
-    attentionCollapsed,
-    attentionWindowOpen,
     currentAttentionCount,
     brains,
     branchTarget,
@@ -1185,7 +1168,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onTaskBrowserArchived,
     text,
     toggleRoleList,
-    toggleAttentionWindow,
     treeBreakdown,
     treeFocusInteractionId,
     treeFocusNonce,
@@ -1197,6 +1179,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     retryTree,
     treeUsage,
     treeUsagePct,
+    agentUsage,
     updateReplayTimeline,
     uploading,
     usageClass,
