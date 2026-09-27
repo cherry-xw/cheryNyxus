@@ -1159,7 +1159,9 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       } else if (!members.includes(pcfg.leader)) {
         errors.push(`presets.${pname}.leader "${pcfg.leader}" 不在其 roles 成员列表中`)
       } else if (raw.roles?.[pcfg.leader]?.scope === 'public') {
-        errors.push(`presets.${pname}.leader "${pcfg.leader}" 不能是公共角色（组长必须是本预设的私有角色）`)
+        errors.push(
+          `presets.${pname}.leader "${pcfg.leader}" 不能是公共角色（组长必须是本预设的私有角色）`,
+        )
       }
       // roles 成员为 type 名引用（string[]），每个必须存在于 config.roles
       for (const type of members) {
@@ -1393,11 +1395,14 @@ export function readRawConfig(): ConfigRaw {
   const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & {
     server?: unknown
     manager?: unknown
+    /** 已退役的媒体网关配置；读取时丢弃，避免旧配置污染 config.get 响应。 */
+    media?: unknown
   }
-  // 端口/传输与管理器监听不通过面板编辑，剥离 server 与 manager
-  const { server: _server, manager: _manager, ...rest } = raw
+  // 端口/传输、管理器监听和已退役的媒体网关不通过面板编辑，读取时剥离。
+  const { server: _server, manager: _manager, media: _media, ...rest } = raw
   void _server
   void _manager
+  void _media
   ensurePresetIds(rest.presets)
   ensureRoleIds(rest.roles)
   // routingBrain 已废弃；读取设置时主动剥离，下一次保存自然从磁盘删除。

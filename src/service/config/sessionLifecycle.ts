@@ -12,6 +12,7 @@ import {
   getAppliedRawConfig,
   prepareRuntimeConfig,
   publishRuntimeConfig,
+  type Config,
   type ConfigRaw,
 } from '@/utils/config.js'
 import {
@@ -58,7 +59,7 @@ export function setConfigResource(raw: ConfigRaw, path: string[], value: unknown
   }
 }
 
-function syncTreeMetadata(rootId: string, raw: ConfigRaw): string[] {
+function syncTreeMetadata(rootId: string, raw: ConfigRaw, normalized?: Config): string[] {
   const rootMeta = getChatMetadata(rootId)
   const presetEntry = Object.entries(raw.presets ?? {}).find(([name, preset]) =>
     rootMeta.presetId ? preset.id === rootMeta.presetId : name === rootMeta.preset,
@@ -84,12 +85,18 @@ function syncTreeMetadata(rootId: string, raw: ConfigRaw): string[] {
       continue
     }
     const role = roleEntry?.[1]
+    const roleName = roleEntry?.[0]
+    // systemPrompt 归一化：raw 是配置原始相对路径（相对 .chery），而 metadata.systemPromptFile 的
+    // 契约是绝对路径（读取端 buildPromptPieces 的 existsSync 相对进程 cwd 解析）。曾因直接写 raw
+    // 相对路径，导致「systemPrompt 文件不存在，仅用全局 base」告警随每次 prompt 构建反复出现。
+    // 优先取归一化配置（normalizeRuntimeConfig 已把相对路径解析为绝对），无归一化配置时回退 raw。
+    const systemPromptFile = normalized?.roles?.[roleName ?? '']?.systemPrompt ?? role?.systemPrompt
     updateChatMetadata(id, {
       ...(roleEntry
         ? {
             roleId: role?.id,
             type: roleEntry[0],
-            systemPromptFile: role?.systemPrompt,
+            systemPromptFile,
             skillFilter: { skills: role?.skills, plugins: role?.plugins },
           }
         : {}),
@@ -229,7 +236,7 @@ export const prepareSessionLifecycle: ConfigTreeAdapter = async ({ impacts, targ
             }
           }
           for (const rootId of roots) {
-            retired.push(...syncTreeMetadata(rootId, next))
+            retired.push(...syncTreeMetadata(rootId, next, candidate.config))
             if (getChat(rootId)?.lifecycle !== 'active') {
               getSoulDb()
                 .prepare(

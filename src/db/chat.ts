@@ -1,4 +1,5 @@
 import { getSoulDb, getMonthlyDb } from './index.js'
+import path from 'path'
 import { safeJsonParse } from '@/utils/json.js'
 import config from '@/utils/config.js'
 import type { ThinkingBlock } from '@/core/message/adapter.js'
@@ -497,7 +498,14 @@ export function getChatSystemPromptFile(chatId: string): string | undefined {
   if (typeof p !== 'string' || p.length === 0) return undefined
   // 历史兼容：旧 chat metadata 曾存 `.chery/prompts/...`（有 s），但实际目录是 `.chery/prompt/`（无 s）。
   // 规范化为当前目录名，避免 existsSync 失败导致 userSystem 段显示 0。
-  return p.replace(/\/\.chery\/prompts\//, '/.chery/prompt/')
+  const normalized = p.replace(/\/\.chery\/prompts\//, '/.chery/prompt/')
+  // 兜底：历史配置热更新曾把配置原始相对路径（如 prompt/cheryNyxus/cheryNyxus.md）写入
+  // metadata.systemPromptFile，运行时 existsSync 相对进程 cwd 解析不到 → 「systemPrompt 文件不存在」
+  // 告警随每次 prompt 构建反复出现。按「相对 CHERY_DIR/.chery」解析为绝对路径
+  // （与 config normalizeRuntimeConfig / validateRawConfig 同一基准；lazy 读取，兼容测试切目录）。
+  return path.isAbsolute(normalized)
+    ? normalized
+    : path.join(process.env.CHERY_DIR || process.cwd(), '.chery', normalized)
 }
 
 /**
