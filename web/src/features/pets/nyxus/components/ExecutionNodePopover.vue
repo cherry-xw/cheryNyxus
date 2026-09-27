@@ -130,6 +130,8 @@ useGsap(popoverRoot, (context) => {
 </script>
 
 <template>
+  <!-- 高度上限只约束 hover 临时弹窗：常驻窗口由容器按 S/M/L 档位定尺（is-pinned 100% 填充），
+       不受此上限干扰，否则档位高度（如 650/780）会被 hover 上限截断。 -->
   <aside
     ref="popoverRoot"
     class="node-popover"
@@ -139,7 +141,7 @@ useGsap(popoverRoot, (context) => {
       // 档位字号只作用于常驻窗口：hover 默认窗口保持 12px 基线，不受尺寸档位影响。
       pinned && sizeLabel ? `is-size-${sizeLabel.toLowerCase()}` : '',
     ]"
-    :style="{ maxHeight: `${maxHeight}px` }"
+    :style="pinned ? undefined : { maxHeight: `${maxHeight}px` }"
     role="dialog"
     :aria-label="`${nodeTitle}详情`"
   >

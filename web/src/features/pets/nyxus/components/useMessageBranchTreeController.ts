@@ -801,8 +801,8 @@ export function useMessageBranchTreeController(
   })
   /** 定位高度未测到前的合理小初始值：避免用视口上限高度参与垂直钳制导致矮窗「飘高」。 */
   const POPOVER_INITIAL_HEIGHT = 220
-  /** hover 详情弹窗默认宽度：与 ExecutionNodePopover.styles.less 的 `width: min(520px, …)` 保持一致。 */
-  const POPOVER_WIDTH = 520
+  /** hover 详情弹窗默认宽度：与 ExecutionNodePopover.styles.less 的 `width: min(640px, …)` 保持一致。 */
+  const POPOVER_WIDTH = 640
   /** 审批/提问等 action 弹窗被用户拖动后的手动位置；缺省 = 跟随自动定位（贴节点右侧）。 */
   const actionPopoverManual = ref<Map<string, { left: number; top: number }>>(new Map())
   /** action 弹窗的实测内容高度（ResizeObserver 上报），定位用真实高度而非滚动上限。 */
@@ -1374,8 +1374,9 @@ export function useMessageBranchTreeController(
       ? graph.value.edges.filter((edge) => edge.from === node.id || edge.to === node.id)
       : []
   })
+  /** hover 临时弹窗最大高度（2026-09-27 下调：配合宽度加宽成横宽「显示器」式，小屏更易看到底部内容）。 */
   const detailMaxHeight = computed(() => {
-    return Math.min(640, Math.max(160, viewportSize.value.height - 96))
+    return Math.min(480, Math.max(160, viewportSize.value.height - 96))
   })
   /** 详情弹窗实测高度。冻结契约（2026-09-02）下仅在冻结决策前已测得时参与定位，
    *  否则用初始回退值；会话内不随实测回填重排。切节点时清零，旧节点高度不串位。 */
