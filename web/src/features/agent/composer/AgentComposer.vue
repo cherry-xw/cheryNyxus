@@ -32,6 +32,8 @@ const props = defineProps<{
   mediaHint: string
   runtimeHint?: string
   runtimeError?: boolean
+  /** 运行配置错误由工作台公共横幅展示时，输入区不再重复显示。 */
+  runtimeGlobal?: boolean
   attachmentsDisabled?: boolean
   uploading: boolean
   primarySelection: RuntimeSelection | undefined
@@ -129,7 +131,7 @@ const emit = defineEmits<{
     <div v-if="mediaHint" class="media-hint-row">
       {{ mediaHint }}
     </div>
-    <div v-if="runtimeHint && runtimeError" class="error-row" role="status">
+    <div v-if="runtimeHint && runtimeError && !runtimeGlobal" class="error-row" role="status">
       {{ runtimeHint }}
     </div>
     <div class="textarea-row">

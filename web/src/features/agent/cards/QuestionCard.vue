@@ -332,7 +332,7 @@ function back(): void {
         :disabled="pending !== null"
         @click="cancel"
       >
-        跳过
+        拒绝回答
       </button>
       <button
         type="button"

@@ -46,6 +46,19 @@ import {
 // /api/config 未暴露 senseGroups 或拉取失败时的兜底
 const SENSE_GROUPS_FALLBACK = [{ name: 'default', default: true }] as const
 
+/** 配置等待当前待办流程时，向用户说明可操作的下一步，而不是暴露同步内部错误。 */
+function isWaitingForInteractionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes('问题处理') || message.includes('节点树依赖的配置尚未生效')
+}
+
+function runtimeSyncReference(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const tracingId = message.match(/\[[^\]]+\]/)?.[0]
+  return tracingId ? `追踪编号：${tracingId}` : '后端未返回具体原因'
+}
+
+
 export type MediaKind = 'image' | 'video' | 'audio'
 
 export interface MediaAttachment {
@@ -648,7 +661,9 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
           .catch((e) => {
             if (seq !== propagateSeq || targetId !== chatId.value) return
             runtimeError.value = true
-            runtimeHint.value = `运行配置同步失败：${(e as Error).message}。发送时将重试。`
+            runtimeHint.value = isWaitingForInteractionError(e)
+              ? '当前流程正在等待你的处理；可先拒绝回答或完成回答，配置随后会继续生效。'
+              : `运行配置暂时未同步。请先处理工作台中的待办问题或审批，完成或拒绝后点击“发送”重试；如果没有待办，请刷新工作台后重试。（${runtimeSyncReference(e)}）`
           })
       }, 150)
     },
@@ -787,7 +802,11 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
         void chatSessions.releaseRootTimeline(targetChatId, 'agent-dialog-submit')
       }
       if (preparedInput) chatSessions.rollbackPreparedInput(preparedInput, e)
-      if (submittedGeneration === draftGeneration) error.value = (e as Error).message
+      if (submittedGeneration === draftGeneration) {
+        error.value = isWaitingForInteractionError(e)
+          ? '当前流程正在等待你的处理，请先完成或拒绝回答，再发送补充消息。'
+          : `运行配置暂时未同步。请先处理工作台中的待办问题或审批，完成或拒绝后再发送；如果没有待办，请刷新工作台后重试。（${runtimeSyncReference(e)}）`
+      }
       // 历史 runtime 仅供展示。无法关联当前 preset/type 时保留后端错误，
       // 用户可直接在上方角色编制中选择当前运行配置后再次提交。
       if ((e as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {

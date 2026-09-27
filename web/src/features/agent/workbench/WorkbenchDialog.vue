@@ -316,6 +316,18 @@ defineExpose({
           </span>
         </div>
         <div
+          v-if="runtimeHint && runtimeError"
+          class="workbench-error workbench-runtime-error"
+          role="alert"
+          aria-live="assertive"
+        >
+          <span class="workbench-error__viewport">
+            <span class="workbench-error__track">
+              <span>{{ runtimeHint }}</span>
+            </span>
+          </span>
+        </div>
+        <div
           class="nyxus-branch-top"
           :class="{ 'has-usage-subagents': usageBarAgents.length > 1 }"
           :inert="taskBrowserState.open || undefined"
@@ -550,6 +562,7 @@ defineExpose({
               :media-hint="mediaHint"
               :runtime-hint="runtimeHint"
               :runtime-error="runtimeError"
+              runtime-global
               :attachments-disabled="!!branchTarget"
               :uploading="uploading"
               :primary-selection="primarySelection"

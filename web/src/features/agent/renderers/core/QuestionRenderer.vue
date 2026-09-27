@@ -25,7 +25,7 @@
 import { computed, ref } from 'vue'
 import type { RendererProps } from '../types'
 import { parseQuestionAnswer, parseQuestionArgs, findInteractiveQuestion } from './questionDisplay'
-import { useInteractionsStore } from '@/application/public'
+import { useChatSessionsStore, useInteractionsStore } from '@/application/public'
 import { questionsOf } from '@/features/agent/attention/interactionPresentation'
 import {
   draftOf,
@@ -42,6 +42,7 @@ import ToolDescriptionDisclosure from '../ToolDescriptionDisclosure.vue'
 
 const props = defineProps<RendererProps>()
 
+const chatSessions = useChatSessionsStore()
 const interactions = useInteractionsStore()
 
 const args = computed(() => parseQuestionArgs(props.call.args))
@@ -80,6 +81,7 @@ const objectError = computed(() => {
   return match ? interactions.errorsById[match.item.interactionId]?.message : undefined
 })
 const localError = ref<string | null>(null)
+const actionPending = ref<'submit' | 'skip' | null>(null)
 
 /** 当前 chip 是否高亮为"用户选中"（只读形态）。 */
 function isSelected(label: string): boolean {
@@ -107,7 +109,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
 /** 交互形态提交：整批题目一起提交（草稿全局共享，批内多题各卡片可分别作答）。 */
 async function submit(): Promise<void> {
   const match = interactive.value
-  if (!match) return
+  if (!match || !props.chatId || actionPending.value !== null) return
   localError.value = null
   const { item, question } = match
   if (!questionAnswered(item, question)) {
@@ -131,10 +133,33 @@ async function submit(): Promise<void> {
       ...(current.freeText.trim() ? { freeText: current.freeText.trim() } : {}),
     }
   })
+  actionPending.value = 'submit'
   try {
     await interactions.answer(item, answers)
   } catch {
     // 对象级错误已写入 interactions.errorsById，由 objectError 展示
+  } finally {
+    actionPending.value = null
+  }
+}
+
+/**
+ * 用户可以明确拒绝回答当前问题。不能只依赖“提交回答”按钮，否则在配置等待
+ * 当前流程结束时，用户没有办法主动结束这个待办来继续后续工作。
+ */
+async function skip(): Promise<void> {
+  const match = interactive.value
+  const chatId = props.chatId
+  if (!match || !chatId || actionPending.value !== null) return
+  actionPending.value = 'skip'
+  localError.value = null
+  try {
+    await chatSessions.cancelQuestion(chatId, match.question.questionId)
+  } catch (error) {
+    console.error(`[QuestionRenderer] skip failed (id=${match.question.questionId}):`, error)
+    localError.value = '拒绝回答失败，请重试'
+  } finally {
+    actionPending.value = null
   }
 }
 </script>
@@ -285,7 +310,22 @@ async function submit(): Promise<void> {
         <span v-if="batchTotal > 1" class="q-batch-hint"
           >共 {{ batchTotal }} 题 · 全部作答后可提交</span
         >
-        <button type="button" class="q-submit" @click="submit">提交回答</button>
+        <button
+          type="button"
+          class="q-skip"
+          :disabled="actionPending !== null"
+          @click="skip"
+        >
+          {{ actionPending === 'skip' ? '处理中…' : '拒绝回答' }}
+        </button>
+        <button
+          type="button"
+          class="q-submit"
+          :disabled="actionPending !== null"
+          @click="submit"
+        >
+          {{ actionPending === 'submit' ? '处理中…' : '提交回答' }}
+        </button>
       </div>
       <p v-if="localError" class="q-error" role="alert">{{ localError }}</p>
       <p v-if="objectError" class="q-error" role="alert">{{ objectError }}</p>
@@ -667,6 +707,31 @@ async function submit(): Promise<void> {
     outline: 1px solid color-mix(in srgb, var(--violet) 60%, transparent);
     outline-offset: 1px;
   }
+}
+.q-skip {
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  &:hover {
+    border-color: color-mix(in srgb, var(--violet) 55%, var(--border));
+    background: color-mix(in srgb, var(--violet) 8%, transparent);
+  }
+  &:focus-visible {
+    outline: 1px solid color-mix(in srgb, var(--violet) 60%, transparent);
+    outline-offset: 1px;
+  }
+}
+.q-skip:disabled,
+.q-submit:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 .q-error {
   margin: 2px 0 0;
