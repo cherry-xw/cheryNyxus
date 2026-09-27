@@ -242,13 +242,26 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   const injectedBranches = computed(() =>
     props.conversation ? (props.taskBranches ?? []) : agents.historyDrawerTaskBranches,
   )
-  const taskId = computed(() =>
-    resolveHistoryTaskId(
+  // 任务解析：对话模式允许窗口直接打开子 Agent 会话（其 summary 无 taskId），
+  // 此时沿 parent 链回退到根会话再取 taskId，保证下拉仍以所属任务为单位列会话；
+  // 目录缺失时保留注入分支兜底；抽屉路径保持原逻辑。
+  const taskId = computed(() => {
+    if (props.conversation) {
+      const direct = agents.summaryForChat(props.chatId)?.taskId
+      if (direct) return direct
+      const injected = injectedBranches.value.find(
+        (branch) => branch.chatId === props.chatId,
+      )?.taskId
+      if (injected) return injected
+      const root = agents.rootChatForChat(props.chatId)
+      return root && root !== props.chatId ? agents.summaryForChat(root)?.taskId : undefined
+    }
+    return resolveHistoryTaskId(
       props.chatId,
       agents.summaryForChat(props.chatId)?.taskId,
       injectedBranches.value,
-    ),
-  )
+    )
+  })
   watch(
     taskId,
     (id) => {
@@ -284,6 +297,12 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   const currentTaskBranch = computed(() =>
     taskBranches.value.find((branch) => branch.chatId === props.chatId),
   )
+  /** 分支标题纯文本（去掉 [[token]] 双中括号、保留内文；无标题回退「未命名问题」）。 */
+  function plainBranchTitle(branch: ConversationBranchSummary): string {
+    return splitCommandPrompt(branch.title?.trim() || '未命名问题')
+      .map((segment) => segment.value)
+      .join('')
+  }
   function branchOptionLabel(branch: ConversationBranchSummary): string {
     const prefix =
       branch.branchId === taskTimeline.value?.activeBranchId
@@ -293,10 +312,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
           : branch.kind === 'original'
             ? '原流程'
             : '继续'
-    const plain = splitCommandPrompt(branch.title?.trim() || '未命名问题')
-      .map((segment) => segment.value)
-      .join('')
-    return `${prefix} · ${plain}`
+    return `${prefix} · ${plainBranchTitle(branch)}`
   }
   // ── 会话级联切换（原「根会话 + 任务分支」两个下拉合并为一个两级 cascader）：
   //    workbench-docked：平铺当前任务分支为一级（主流程/继续/解释，branchOptionLabel 打标，
@@ -317,10 +333,156 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     if (c.branchKind === 'detail') return '解释 · '
     return ''
   }
+  // ── 对话模式级联下拉（四分类两级结构）：
+  //    一级 = 会话类别（主 Agent 对话 / 子 Agent 对话 / 检视对话 / 废弃的分支对话），
+  //    二级 = 该类别的会话。数据来源：
+  //    - 主 Agent / 检视 / 废弃：任务分支摘要——activeBranchId 标主流程，kind='detail' 即检视
+  //      （解释该节点），其余非激活分支即「废弃」（原流程/继续，已不再是最新主流程）
+  //    - 子 Agent：任务时间线节点源 + 当前根实时时间线节点源 + 会话目录 parent 链归属并集
+  //    有任务分支时展示完整四分类；无任务分支（普通未分支会话）至少展示主 Agent + 存在的子 Agent，
+  //    不再退化为「单个日期时间」。空的分类不展示。
+  const CONVERSATION_CATEGORIES = {
+    main: '主 Agent 对话',
+    sub: '子 Agent 对话',
+    review: '检视对话',
+    abandoned: '废弃的分支对话',
+  } as const
+
+  /** 子 Agent 会话标签：非主 pet 的角色名优先，其次 agentType，兜底「子 Agent」；
+   *  有 preview 用首条 user 预览，否则附最近更新时间，便于区分同名角色。
+   *  注意 petForChat 对无 pet 实例的会话会回退到主 pet，此处必须排除主 pet（isMaster），
+   *  否则子 Agent 会误标成主 Agent 名。 */
+  function subAgentOptionLabel(chatId: string): string {
+    const summary = agents.summaryForChat(chatId)
+    const pet = agents.petForChat(chatId)
+    const name = (pet && !pet.isMaster ? pet.name : undefined) ?? summary?.agentType ?? '子 Agent'
+    const preview = summary?.preview?.trim()
+    if (preview) {
+      const plain = splitCommandPrompt(preview)
+        .map((segment) => segment.value)
+        .join('')
+      if (plain) return `${name} · ${plain}`
+    }
+    if (summary?.updatedAt) {
+      const when = new Date(summary.updatedAt).toLocaleString(undefined, {
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+      return `${name} · ${when}`
+    }
+    return name
+  }
+  /** 主 Agent 会话标签（无任务分支时当前根会话自身）：preview 优先，兜底「当前会话」。 */
+  function mainConversationOptionLabel(chatId: string): string {
+    const preview = agents.summaryForChat(chatId)?.preview?.trim()
+    if (preview) {
+      const plain = splitCommandPrompt(preview)
+        .map((segment) => segment.value)
+        .join('')
+      if (plain) return plain
+    }
+    return '当前会话'
+  }
+  /** 归属给定根集合的子 Agent 会话：任务时间线节点源 + 当前根实时时间线节点源 + 会话目录 parent 链
+   *  三路并集（去重，按最近更新排序）。未分支会话也能经根实时时间线拿到参与过的子 Agent。 */
+  function subAgentChatOptions(rootIds: ReadonlySet<string>): SessionCascadeOption[] {
+    const candidates = new Map<string, true>()
+    const collect = (nodes: TimelineNode[] | undefined): void => {
+      for (const node of nodes ?? []) {
+        for (const chatId of [
+          node.sourceChatId,
+          node.actor?.kind === 'agent' ? node.actor.chatId : undefined,
+          node.target?.kind === 'agent' ? node.target.chatId : undefined,
+        ]) {
+          if (chatId && !rootIds.has(chatId)) candidates.set(chatId, true)
+        }
+      }
+    }
+    collect(taskTimeline.value?.nodes)
+    collect(chatSessions.rootTimeline(props.chatId, 'conversation')?.nodes)
+    for (const summary of agents.historyList) {
+      if (!summary.parentChatId || rootIds.has(summary.chatId)) continue
+      const root = agents.rootChatForChat(summary.chatId)
+      if (root && rootIds.has(root)) candidates.set(summary.chatId, true)
+    }
+    return [...candidates.keys()]
+      .sort(
+        (a, b) =>
+          (agents.summaryForChat(b)?.updatedAt ?? 0) - (agents.summaryForChat(a)?.updatedAt ?? 0),
+      )
+      .map((chatId) => ({ value: chatId, label: subAgentOptionLabel(chatId) }))
+  }
+  /** 对话模式选项：四分类两级。
+   *  有任务分支：主 Agent = 主流程分支、检视 = 解释分支、废弃 = 非主流程分支；
+   *  无任务分支（普通未分支会话）：主 Agent = 当前根会话自身、子 Agent = 其子会话，检视/废弃不出现。
+   *  只要根可解析就至少出现主 Agent 分类，存在子 Agent 一并列出——不再退化为「单个日期时间」。 */
+  const conversationCascadeOptions = computed<SessionCascadeOption[]>(() => {
+    const branches = orderedTaskBranches.value
+    const activeBranch =
+      branches.find((b) => b.branchId === taskTimeline.value?.activeBranchId) ??
+      branches.find((b) => b.kind === 'original')
+    const mainRootChatId = agents.rootChatForChat(props.chatId) ?? props.chatId
+    const rootIds = new Set<string>(
+      branches.length > 0 ? branches.map((b) => b.chatId) : [mainRootChatId],
+    )
+    const groups: SessionCascadeOption[] = []
+    if (activeBranch) {
+      groups.push({
+        value: activeBranch.chatId,
+        label: CONVERSATION_CATEGORIES.main,
+        children: [
+          { value: activeBranch.chatId, label: `主流程 · ${plainBranchTitle(activeBranch)}` },
+        ],
+      })
+    } else if (mainRootChatId) {
+      groups.push({
+        value: mainRootChatId,
+        label: CONVERSATION_CATEGORIES.main,
+        children: [{ value: mainRootChatId, label: mainConversationOptionLabel(mainRootChatId) }],
+      })
+    }
+    const subAgents = subAgentChatOptions(rootIds)
+    if (subAgents.length > 0) {
+      groups.push({
+        value: subAgents[0]!.value,
+        label: CONVERSATION_CATEGORIES.sub,
+        children: subAgents,
+      })
+    }
+    if (branches.length > 0) {
+      const reviewBranches = branches.filter((b) => b.kind === 'detail')
+      if (reviewBranches.length > 0) {
+        groups.push({
+          value: reviewBranches[0]!.chatId,
+          label: CONVERSATION_CATEGORIES.review,
+          children: reviewBranches.map((b) => ({
+            value: b.chatId,
+            label: `解释 · ${plainBranchTitle(b)}`,
+          })),
+        })
+      }
+      const abandonedBranches = branches.filter(
+        (b) => b.kind !== 'detail' && b.chatId !== activeBranch?.chatId,
+      )
+      if (abandonedBranches.length > 0) {
+        groups.push({
+          value: abandonedBranches[0]!.chatId,
+          label: CONVERSATION_CATEGORIES.abandoned,
+          children: abandonedBranches.map((b) => ({
+            value: b.chatId,
+            label: `${b.kind === 'original' ? '原流程' : '继续'} · ${plainBranchTitle(b)}`,
+          })),
+        })
+      }
+    }
+    return groups
+  })
   const cascadeOptions = computed<SessionCascadeOption[]>(() => {
-    // workbench-docked / 对话模式：平铺当前任务分支为一级（含解释流程，可点击切换查看）；
-    // 无任务分支（非任务会话 / 分支已清空）时仅当前会话单选项，绝不退化两级跨任务显示。
-    if (props.conversation || agents.historyDrawerMode === 'workbench-docked') {
+    if (props.conversation) return conversationCascadeOptions.value
+    // workbench-docked（当前无入口的死路径，防御保留）：平铺当前任务分支为一级。
+    if (agents.historyDrawerMode === 'workbench-docked') {
       const branches = orderedTaskBranches.value
       if (branches.length > 0) {
         return branches.map((b) => ({
@@ -391,7 +553,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   function onSwitchCascade(value: unknown): void {
     const cid = typeof value === 'string' ? value : ''
     if (!cid || cid === props.chatId) return
-    // 对话模式：切换经 onSwitchChat 交给工作台（同步窗口当前会话，驱动整窗跟随）；
+    // 对话模式：切换经 onSwitchChat 交给工作台（改写对话模式局部会话，不影响窗口会话/树/精简）；
     // 抽屉路径：透传当前 mode + anchor（dock 切分支后保持 dock 锚定，不回退 overlay）。
     if (props.conversation) {
       props.onSwitchChat?.(cid)
@@ -956,17 +1118,18 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     if (name) return `${name} 的历史`
     return `历史 · ${props.chatId.slice(0, 8)}…`
   })
-  /** 级联下拉作为标题：workbench-docked / 对话模式恒显示（分支/会话切换入口，平铺当前任务分支一级）；
-   *  overlay 在同 preset 存在多个可切换会话或任务含多个分支时显示。overlay 打开解释分支会话时
-   *  其 chatId 不在过滤解释后的二级选项中，降为静态标题（titleText）避免 cascader 值失配。 */
-  const dropdownAsTitle = computed(
-    () =>
+  /** 级联下拉作为标题：对话模式恒显示（多会话选择入口，含任务四分类；窗口停在子 Agent 时同样可用，便于切回）；
+   *  workbench-docked 恒显示；overlay 在同 preset 存在多个可切换会话或任务含多个分支时显示。
+   *  overlay 打开解释分支会话时其 chatId 不在过滤解释后的二级选项中，降为静态标题（titleText）避免 cascader 值失配。 */
+  const dropdownAsTitle = computed(() => {
+    if (props.conversation) return cascadeOptions.value.length > 0
+    return (
       layout.value === 'group' &&
-      (props.conversation ||
-        agents.historyDrawerMode === 'workbench-docked' ||
+      (agents.historyDrawerMode === 'workbench-docked' ||
         (currentTaskBranch.value?.kind !== 'detail' &&
-          (rootOptions.value.length > 1 || orderedTaskBranches.value.length > 1))),
-  )
+          (rootOptions.value.length > 1 || orderedTaskBranches.value.length > 1)))
+    )
+  })
   /** 6c：解析某条历史消息所属 chat 的 pet runtime 兜底（subPetChatId 优先 → agentChatId → 当前 drawer chat）。
    * 旧历史项无 runtime 时，优先用 V2 session 当前 runtime 补全，再退化到 pet 投影。 */
   function runtimeForItem(item: HistoryItem): RuntimeSelection | undefined {

@@ -4,7 +4,8 @@
  * 直接复用 HistoryDrawerPanel 的完整会话能力（消息气泡、分支级联切换、设为主流程、
  * 打包代际历史、工具折叠、子 Agent 显示模式、滚动 minimap 等），以 embedded 形态铺满画布区：
  *  - conversation 置位：恒显示分支级联下拉、任务分支经 taskBranches 注入、切换走 switch-chat
- *  - 根会话由工作台 treeRootChatId 驱动（切换分支/会话时工作台窗口会话同步变更，本组件随 prop 刷新）
+ *  - 根会话由工作台对话模式局部会话 conversationViewChatId 驱动（下拉切换只改局部会话，不改窗口根，
+ *    树/精简视图保持窗口根；窗口根被外部切换时经 watch 同步局部会话，本组件随 prop 刷新）
  *  - root 时间线订阅使用 per-window owner：切会话释放上一根、退出对话模式（卸载）释放当前根，
  *    与树订阅（`workbench:<windowId>`）同模式，避免跨会话累积订阅
  *  - 底部输入框（精简模式同款：单行自适应 textarea + 发送钮）：草稿与树 composer 共用

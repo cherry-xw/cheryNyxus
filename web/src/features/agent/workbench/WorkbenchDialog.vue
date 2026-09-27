@@ -193,7 +193,7 @@ const {
   commandOptions, commandTabs,
   composerBranchDescription, composerBranchTitle,
   config, connection,
-  conversationTaskBranches, conversationViewVisible,
+  conversationTaskBranches, conversationViewVisible, conversationViewChatId,
   createSession, creating, detailBranchAvailability,
   editorRefFn, effectiveMode, error, executeSessionControl,
   foldMode, foldToolOpen,
@@ -335,9 +335,9 @@ defineExpose({
           <ConversationView
             v-else-if="conversationViewVisible"
             ref="conversationViewRef"
-            :key="treeRootChatId"
+            :key="conversationViewChatId"
             :window-id="windowId"
-            :root-chat-id="treeRootChatId"
+            :root-chat-id="conversationViewChatId"
             :task-branches="conversationTaskBranches"
             :text="text"
             :sending="sending"

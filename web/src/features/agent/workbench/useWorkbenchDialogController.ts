@@ -81,6 +81,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
    * 被 v-if="!isNative" 隐藏，切换入口在 App.vue title-actions）。 */
   const liteUi = useLiteStore()
   const { viewMode, setViewMode } = useWorkbenchViewMode(props.windowId)
+  /** 对话模式局部会话（per-window）：下拉切换只改本值，不影响窗口会话与树/精简视图。
+   *  默认跟随窗口根会话（treeRootChatId，见下方 watch），窗口根被外部切换（标题栏等）时复位跟随。 */
+  const conversationRootChatId = ref<string | null>(null)
   /** 本窗口状态（store 注册表按 windowId 索引）。窗口关闭/不存在时组件不渲染。 */
   const win = computed(() => agents.workbenchWindows[props.windowId])
   /** Phase E：需用户操作（审批/提问）时窗口闪烁。非聚焦窗由 store 置位，点击窗口熄灭。 */
@@ -569,7 +572,12 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
         sending.value = false
       }
     }
-    let targetChatId = chatId.value ?? undefined
+    // 对话模式下发送目标 = 下拉选中的局部会话（conversationRootChatId，可能不是窗口根/主流程）；
+    // 树/精简模式仍以窗口会话 chatId 为准。
+    let targetChatId =
+      (viewMode.value === 'conversation' ? conversationRootChatId.value : undefined) ??
+      chatId.value ??
+      undefined
     if (quickTargetRequired.value) {
       if (quickTarget.value?.target === 'new') {
         if (!presetName.value) {
@@ -591,7 +599,13 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
         targetChatId = quickTarget.value?.target
       }
     }
-    if (targetChatId) {
+    // 对话模式局部会话发送：目标 = 下拉选中的会话（conversationRootChatId，可能不是窗口根/主流程）。
+    // 此时不得把窗口会话/预设活跃根一并改走（树/精简不受影响），否则下拉切换的局部性失效。
+    const isConversationLocalSend =
+      viewMode.value === 'conversation' &&
+      !!conversationRootChatId.value &&
+      conversationRootChatId.value !== chatId.value
+    if (targetChatId && !isConversationLocalSend) {
       agents.activatePresetSession(quickPresetId.value, targetChatId, presetName.value)
       agents.setWorkbenchWindowChat(props.windowId, targetChatId)
     }
@@ -602,10 +616,11 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   watch(viewMode, (mode) => {
     if (mode !== 'conversation') agents.closeHistoryGeneration()
   })
-  /** 对话模式级联切换（分支/会话）：同步工作台窗口当前会话，树/精简/对话三视图跟随。 */
+  /** 对话模式级联切换（分支/会话）：只改对话模式局部会话（conversationRootChatId），
+   *  不影响窗口会话与树/精简视图（窗口根仍由标题栏/任务浏览器等入口切换）。 */
   function onConversationSwitchChat(cid: string): void {
-    if (!cid || cid === chatId.value) return
-    agents.setWorkbenchWindowChat(props.windowId, cid)
+    if (!cid || cid === conversationRootChatId.value) return
+    conversationRootChatId.value = cid
   }
   /** 对话模式输入框草稿写入：与树 composer 共用 text 事实源（树端打开时经 restoreEditor 回填）。 */
   function onConversationDraftInput(value: string): void {
@@ -645,6 +660,20 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       error.value = message
     },
   })
+  /** 对话模式局部会话跟随窗口根：下拉切换只改 conversationRootChatId（treeRootChatId 不变），
+   *  此处仅在窗口根被外部切换（标题栏/任务浏览器/归档等）时同步，保证对话模式不滞留已离开的会话。 */
+  watch(
+    treeRootChatId,
+    (rootChatId) => {
+      if (conversationRootChatId.value !== rootChatId) conversationRootChatId.value = rootChatId
+    },
+    { immediate: true },
+  )
+  /** 对话模式实际展示的会话（渲染期非空：conversationViewVisible 由窗口根 treeRootChatId 门控，
+   *  本值同步跟随，下拉局部切换时用局部值）。 */
+  const conversationViewChatId = computed<string>(
+    () => conversationRootChatId.value ?? treeRootChatId.value ?? '',
+  )
   const documentForeground = ref(false)
   const resultViewInFlight = new Set<string>()
   let taskBrowserReturnFocus: HTMLElement | null = null
@@ -1065,6 +1094,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     liteViewVisible,
     conversationViewVisible,
     conversationTaskBranches,
+    conversationRootChatId,
+    conversationViewChatId,
     liveTimeline,
     loading,
     matchingRoleMentions,
