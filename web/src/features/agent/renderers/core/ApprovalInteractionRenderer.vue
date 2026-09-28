@@ -118,6 +118,7 @@ async function decide(action: 'accept' | 'reject'): Promise<void> {
   margin-top: 8px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-radius: 10px; /* 对话模式圆角：与消息气泡 .bubble 一致 */
   background: color-mix(in srgb, var(--warning) 8%, var(--surface));
 }
 .approval-interaction-head,
@@ -129,7 +130,7 @@ async function decide(action: 'accept' | 'reject'): Promise<void> {
 .approval-interaction-label {
   color: var(--warning);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
 }
 .approval-interaction-countdown {
   margin-left: auto;
@@ -163,7 +164,7 @@ async function decide(action: 'accept' | 'reject'): Promise<void> {
   flex: 1;
   min-height: 30px;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 8px; /* 对话模式圆角：与发送钮/输入框一致 */
   background: var(--surface);
   color: var(--ink);
   cursor: pointer;

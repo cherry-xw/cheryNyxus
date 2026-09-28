@@ -61,6 +61,7 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
   color: var(--ink);
   font-size: 16px;
   line-height: 1.4;
+  font-weight: 400; /* 非加粗：标题由字号/边框承担层级，字重保持 400 */
 }
 .approval-summary dl {
   display: flex;

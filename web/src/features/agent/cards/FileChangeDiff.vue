@@ -44,6 +44,9 @@ pre {
 .file-change {
   margin-top: 6px;
 }
+.file-change strong {
+  font-weight: 400; /* 非加粗：路径标签由边框/颜色承担区分，不加重 */
+}
 pre {
   max-height: 280px;
   overflow: auto;

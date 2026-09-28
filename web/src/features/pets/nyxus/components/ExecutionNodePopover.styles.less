@@ -965,6 +965,23 @@
 .tool-content-leave-to {
   opacity: 0;
 }
+// 待审批节点内嵌 ApprovalCard（CRT 直角风格）：覆盖其内部圆角为直角。
+// 仅在树模式弹窗作用域内生效，共享组件本体（ApprovalCard/ApprovalSummary/ParsedArgs）
+// 不动——桌宠气泡复用同一批组件时保持圆角存量例外。
+.node-popover :deep(.approval-card) {
+  .countdown,
+  .close-btn,
+  .security-summary,
+  .btn {
+    border-radius: 0;
+  }
+}
+.node-popover :deep(.approval-summary) {
+  border-radius: 0;
+}
+.node-popover :deep(.args-pre) {
+  border-radius: 0;
+}
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover,
   .copy-button:hover {
