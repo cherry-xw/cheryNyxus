@@ -66,6 +66,31 @@ describe('canonical command and interaction lifecycle', () => {
     ).toEqual({ allowed: true })
   })
 
+  it('allows the first command for a newly created empty root while its timeline loads', () => {
+    const chats = readyRoot()
+    const session = chats.ensureEntity('root')
+    session.sync.loaded = false
+    session.meta.parentChatId = null
+    session.meta.messageCount = 0
+    session.meta.running = false
+
+    expect(chats.commandAvailability('root')).toEqual({ allowed: true })
+  })
+
+  it('keeps an existing unhydrated root blocked until its state is loaded', () => {
+    const chats = readyRoot()
+    const session = chats.ensureEntity('root')
+    session.sync.loaded = false
+    session.meta.parentChatId = null
+    session.meta.messageCount = 3
+    session.meta.running = false
+
+    expect(chats.commandAvailability('root')).toMatchObject({
+      allowed: false,
+      code: 'HYDRATING',
+    })
+  })
+
   it('applies one done fact to final body, resume state, clock and completion timing', () => {
     const session = createEmptySession('root')
     session.run.status = 'running'

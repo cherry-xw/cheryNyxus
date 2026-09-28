@@ -487,6 +487,15 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     void hydrationRevision.value
     const rootChatId = chatId ? rootIdOf(chatId) : undefined
     const session = rootChatId ? sessionsById.value[rootChatId] : undefined
+    // 新建的空根会话已经由 chat.create 在服务端建立，可以先接收第一条输入；
+    // 它的时间线快照继续在后台加载，不应阻塞精简模式的输入框。
+    const freshEmptyRoot = Boolean(
+      session &&
+        session.meta.parentChatId == null &&
+        session.meta.messageCount === 0 &&
+        session.meta.finished !== true &&
+        session.meta.running !== true,
+    )
     const hasTimeline = rootChatId
       ? Boolean(
           rootTimeline(rootChatId, 'conversation') ??
@@ -497,8 +506,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     return commandGate({
       connectionStatus: wsClient.getStatus(),
       rootChatId,
-      hydrated: Boolean(session?.sync.loaded || hasTimeline),
+      hydrated: Boolean(session?.sync.loaded || hasTimeline || freshEmptyRoot),
       hydrating: Boolean(
+        !freshEmptyRoot &&
         rootChatId &&
         (hydrating.has(rootChatId) ||
           opening.has(rootChatId) ||
