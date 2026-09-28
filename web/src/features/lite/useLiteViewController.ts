@@ -87,6 +87,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       clock.now.value,
       lite.toolMeta,
       approvalWaitByCallId.value,
+      lite.pendingInputs,
     ),
   )
   // ── 需求 4：正文列表一次只显示一条链路（主 Agent 链路 / 子 Agent 链路），点击行头 name 切换 ──

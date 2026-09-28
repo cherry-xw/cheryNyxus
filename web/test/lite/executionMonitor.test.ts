@@ -679,6 +679,59 @@ describe('projectLiteHistory run-history projection', () => {
     expect(view.nodes.map((node) => node.roundIndex)).toEqual([0, 0, 0, 1, 1])
   })
 
+  it('shows an accepted user input before its timeline node is committed', () => {
+    const view = projectLiteHistory(
+      [],
+      { ...emptyModel, status: 'running' },
+      100,
+      undefined,
+      undefined,
+      [
+        {
+          inputId: 'input-1',
+          messageId: 'message-1',
+          clientMessageId: 'client-1',
+          chatId: 'root',
+          content: '立即显示这条消息',
+          state: 'accepted',
+          acceptedAt: 90,
+        },
+      ],
+    )
+
+    expect(view.nodes).toHaveLength(1)
+    expect(view.nodes[0]).toMatchObject({
+      nodeId: 'message-1',
+      kind: 'user',
+      content: '立即显示这条消息',
+      status: 'completed',
+    })
+    expect(view.rows).toMatchObject([{ kind: 'full', node: { kind: 'user' } }])
+  })
+
+  it('removes the optimistic row when the committed timeline node has the same message id', () => {
+    const view = projectLiteHistory(
+      [userNode('server-node', '已落库', 10)],
+      emptyModel,
+      100,
+      undefined,
+      undefined,
+      [
+        {
+          inputId: 'input-1',
+          messageId: 'server-node',
+          clientMessageId: 'client-1',
+          chatId: 'root',
+          content: '已落库',
+          state: 'accepted',
+          acceptedAt: 90,
+        },
+      ],
+    )
+
+    expect(view.nodes.map((node) => node.nodeId)).toEqual(['server-node'])
+  })
+
   it('collapses everything except user messages and the round-final message (需求 3d-1)', () => {
     const view = projectLiteHistory(
       [

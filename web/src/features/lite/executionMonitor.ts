@@ -4,7 +4,7 @@ import type {
   ExecutionReadStep,
   ExecutionRootStatus,
 } from '@/application/chat/public'
-import type { ExecutionStep, GraphToolCall, TimelineNode } from '@/application/backend/public'
+import type { ExecutionStep, GraphToolCall, PendingInput, TimelineNode } from '@/application/backend/public'
 import { executionStepKey } from '@/application/chat/public'
 import { toSenseNameZh } from '@/utils/senseName'
 
@@ -516,6 +516,7 @@ export function projectLiteHistory(
   now: number,
   toolMeta?: LiteToolMetaResolver,
   approvalWait?: ReadonlyMap<string, number>,
+  pendingInputs: readonly PendingInput[] = [],
 ): LiteRunHistoryView {
   const toolMetaOf = (name: string): LiteToolMeta | undefined => toolMeta?.(name)
   const agentLabelByChat = new Map<string, string>()
@@ -763,6 +764,20 @@ export function projectLiteHistory(
       next.elapsedMs = elapsedTime(matchedStep.startedAt, undefined, now)
       return next
     }
+    // 已结束的实时步骤仍提供比节点 updatedAt 更准确的实际耗时；否则工具/模型
+    // 节点会在 timeline 先落下、step 快照后到时短暂显示为 0 秒。
+    if (
+      matchedStep &&
+      matchedStep.status !== 'running' &&
+      matchedStep.completedAt !== undefined
+    ) {
+      next.status = matchedStep.status
+      next.active = false
+      next.startedAt = matchedStep.startedAt
+      next.completedAt = matchedStep.completedAt
+      next.elapsedMs = Math.max(0, matchedStep.completedAt - matchedStep.startedAt)
+      return next
+    }
     // 无实时 step 回退：仅运行中的节点以 now 计时（需求 2），终态节点用固定耗时。
     if (run.kind === 'tool') {
       const status = toolBatchStatus(node.toolCalls)
@@ -785,6 +800,53 @@ export function projectLiteHistory(
     next.elapsedMs = Math.max(0, node.updatedAt - node.createdAt)
     return next
   })
+
+  // chat.input.submit 已经成功接收、但 timeline.patch 尚未落库时，先把用户输入
+  // 投影到数据流中。服务端节点出现后按 messageId/sourceMessageId 去重，避免闪一下两条。
+  const committedNodeIds = new Set(
+    committed.flatMap((node) => [node.id, ...(node.sourceMessageId ? [node.sourceMessageId] : [])]),
+  )
+  const pending = pendingInputs
+    .filter(
+      (input) =>
+        input.state !== 'cancelled' &&
+        input.state !== 'rejected' &&
+        !!input.content &&
+        !committedNodeIds.has(input.messageId ?? input.inputId),
+    )
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.acceptedAt ?? a.createdAt ?? 0) - (b.acceptedAt ?? b.createdAt ?? 0) ||
+        a.inputId.localeCompare(b.inputId),
+    )
+  const hasCommittedUser = committed.some(
+    (node) => node.sourceChatId === model.rootChatId && node.actor?.kind === 'user',
+  )
+  let pendingRoundIndex = hasCommittedUser ? roundIndex + 1 : roundIndex
+  for (const input of pending) {
+    const startedAt = input.acceptedAt ?? input.createdAt ?? now
+    nodesOut.push({
+      key: `pending-input:${input.inputId}`,
+      nodeId: input.messageId ?? input.inputId,
+      kind: 'user',
+      label: LITE_NODE_LABELS.user,
+      icon: LITE_NODE_GLYPHS.user,
+      content: input.content,
+      toolNames: [],
+      status: 'completed',
+      active: false,
+      startedAt,
+      completedAt: startedAt,
+      elapsedMs: 0,
+      roundIndex: pendingRoundIndex,
+      isRoundFinal: false,
+      collapsed: false,
+      sourceChatId: input.chatId ?? model.rootChatId,
+      agentLabel: agentLabelOf(input.chatId ?? model.rootChatId),
+    })
+    pendingRoundIndex += 1
+  }
 
   // 需求 3 收尾（进行中节点）：turn.started / sense_started 在回合末才 commit，timeline 尚无
   // 已提交节点。用 executionReadModel.steps 中 status==='running' 且未被任何已提交节点匹配的

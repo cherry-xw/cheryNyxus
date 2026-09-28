@@ -3,6 +3,7 @@ import {
   agentApi,
   type ChatSendAttachment,
   type InteractionRecord,
+  type PendingInput,
   type SenseToolInfo,
   type TimelineNode,
 } from '@/application/backend/public'
@@ -155,6 +156,16 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     /** 运行历史投影的权威数据源：全部已提交节点（含工具批/消息），按 orderKey 排序由投影器处理。 */
     get runNodes(): TimelineNode[] {
       return (timeline()?.nodes ?? []).filter((node) => node.status === 'committed')
+    },
+    /** 已接受但尚未进入 root timeline 的输入，供 Lite 先显示用户消息。 */
+    get pendingInputs(): PendingInput[] {
+      const session = chats.sessionsById[root()]
+      const rootState = chats.rootTimelineStates[root()]
+      const byIdentity = new Map<string, PendingInput>()
+      for (const input of [...(session?.pendingInputs ?? []), ...(rootState?.pendingInputs ?? [])]) {
+        byIdentity.set(input.clientMessageId ?? input.messageId ?? input.inputId, input)
+      }
+      return [...byIdentity.values()]
     },
     get mainStreamNodes(): LeanTimelineNode[] {
       return (timeline()?.nodes ?? [])
