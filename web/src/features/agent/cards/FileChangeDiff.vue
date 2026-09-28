@@ -33,9 +33,11 @@ const preview = computed(() => fileChangePreview(props.args))
 .file-diff {
   width: 100%;
   font-size: 14px;
+  font-weight: 400; /* 非加粗：文件差异正文统一 400 */
 }
 summary {
   cursor: pointer;
+  font-weight: 400; /* 非加粗：浏览器默认 summary 可能加粗，显式压平 */
 }
 code,
 pre {
@@ -54,6 +56,7 @@ pre {
   padding: 6px;
   background: color-mix(in srgb, var(--ink) 7%, transparent);
   white-space: pre-wrap;
+  font-weight: 400; /* 非加粗：差异行正文不加重 */
 }
 .add {
   color: #16803a;

@@ -80,6 +80,7 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
   color: color-mix(in srgb, var(--ink) 55%, transparent);
   font-size: 13px;
   line-height: 1.4;
+  font-weight: 400; /* 非加粗：标签行不加重 */
 }
 .approval-summary dd {
   margin: 0;
@@ -87,6 +88,7 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
   font-size: 14px;
   line-height: 1.4;
   overflow-wrap: anywhere;
+  font-weight: 400; /* 非加粗：对象/行为正文不加重 */
 }
 .approval-summary .change {
   flex-basis: 100%;

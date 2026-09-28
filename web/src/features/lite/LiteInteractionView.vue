@@ -446,6 +446,7 @@ const blocked = computed(
   background: color-mix(in srgb, var(--el-color-warning) 8%, transparent);
   color: var(--el-text-color-regular);
   font-size: 14px;
+  font-weight: 400; /* 非加粗：风险摘要正文不加重 */
   line-height: 1.5;
 }
 .lite-risk-summary > span {
@@ -460,6 +461,7 @@ const blocked = computed(
   padding: 8px 2px;
   color: var(--el-text-color-regular);
   cursor: pointer;
+  font-weight: 400; /* 非加粗：折叠标题不加重（浏览器默认 summary 可能加粗） */
 }
 .lite-technical-details-body {
   display: grid;

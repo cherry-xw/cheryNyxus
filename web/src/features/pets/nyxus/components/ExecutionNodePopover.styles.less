@@ -969,6 +969,7 @@
 // 仅在树模式弹窗作用域内生效，共享组件本体（ApprovalCard/ApprovalSummary/ParsedArgs）
 // 不动——桌宠气泡复用同一批组件时保持圆角存量例外。
 .node-popover :deep(.approval-card) {
+  text-shadow: none; /* 非加粗：去掉 CRT 偏移荧光描边（视觉等效加粗），审批正文保持干净 */
   .countdown,
   .close-btn,
   .security-summary,

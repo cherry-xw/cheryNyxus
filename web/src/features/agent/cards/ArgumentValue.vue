@@ -51,6 +51,7 @@ const scalar = computed(() => formatApprovalArgumentScalar(props.fieldKey, props
 .argument-object {
   margin: 0;
   padding-left: 18px;
+  font-weight: 400; /* 非加粗：嵌套参数正文统一 400 */
 }
 .argument-list {
   display: grid;
@@ -72,16 +73,20 @@ const scalar = computed(() => formatApprovalArgumentScalar(props.fieldKey, props
   margin-bottom: 2px;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
   font-size: 13px;
+  font-weight: 400; /* 非加粗：嵌套字段名不加重 */
 }
 .argument-field dd {
   margin: 0;
+  font-weight: 400; /* 非加粗：嵌套字段值不加重 */
 }
 .argument-scalar {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-weight: 400; /* 非加粗：标量正文不加重 */
 }
 .argument-empty {
   color: color-mix(in srgb, var(--ink) 55%, transparent);
   font-style: italic;
+  font-weight: 400;
 }
 </style>

@@ -126,6 +126,7 @@ const hasArgs = computed(() => {
   word-break: break-word;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 15px;
+  font-weight: 400; /* 非加粗：参数正文不加重 */
   line-height: 1.5;
   color: color-mix(in srgb, var(--ink) 90%, transparent);
 }

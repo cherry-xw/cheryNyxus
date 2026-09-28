@@ -41,6 +41,7 @@
 h2 {
   margin: 3px 0 0;
   font-size: 18px;
+  font-weight: 400; /* 非加粗：审批/提问决策标题靠字号承担层级，不加重 */
 }
 
 .pane-head p,
@@ -100,6 +101,7 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 400; /* 非加粗：分组标题不加重 */
 }
 
 .queue-item {
@@ -132,6 +134,7 @@ h2 {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 14px;
+  font-weight: 400; /* 非加粗：待处理项标题不加重 */
 }
 .queue-select small {
   grid-column: 2;
@@ -188,6 +191,9 @@ h2 {
   color: color-mix(in srgb, var(--ink) 55%, transparent);
   font: 14px/1.2 var(--font-mono);
 }
+.decision-meta b {
+  font-weight: 400; /* 非加粗：倒计时是状态计数，不加重（b 默认 bolder） */
+}
 .decision-scroll {
   flex: 1;
   display: flex;
@@ -224,6 +230,7 @@ h2 {
   padding: 9px 12px;
   cursor: pointer;
   font-size: 14px;
+  font-weight: 400; /* 非加粗：折叠标题不加重（浏览器默认 summary 可能加粗） */
 }
 .technical-details > div {
   display: grid;
@@ -367,6 +374,9 @@ legend span {
   max-width: 430px;
   padding: 28px;
   text-align: center;
+}
+.empty-state strong {
+  font-weight: 400; /* 非加粗：空状态提示正文不加重 */
 }
 .decision-empty {
   display: grid;

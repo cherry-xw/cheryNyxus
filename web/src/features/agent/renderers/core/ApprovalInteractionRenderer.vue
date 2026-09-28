@@ -120,6 +120,7 @@ async function decide(action: 'accept' | 'reject'): Promise<void> {
   border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
   border-radius: 10px; /* 对话模式圆角：与消息气泡 .bubble 一致 */
   background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+  font-weight: 400; /* 非加粗：气泡内全部正文统一 400，防宿主/默认继承加粗 */
 }
 .approval-interaction-head,
 .approval-interaction-actions {
@@ -138,6 +139,7 @@ async function decide(action: 'accept' | 'reject'): Promise<void> {
   font-family: var(--font-mono);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+  font-weight: 400;
 }
 .approval-interaction-countdown.is-expired,
 .approval-interaction-error {
@@ -152,6 +154,7 @@ async function decide(action: 'accept' | 'reject'): Promise<void> {
   color: var(--ink);
   cursor: pointer;
   font-size: 13px;
+  font-weight: 400; /* 非加粗：浏览器默认 summary 可能加粗，显式压平 */
 }
 .approval-interaction-details :deep(.args-body) {
   padding-left: 0;
@@ -169,6 +172,7 @@ async function decide(action: 'accept' | 'reject'): Promise<void> {
   color: var(--ink);
   cursor: pointer;
   font: inherit;
+  font-weight: 400; /* 非加粗：按钮文字随正文 400 */
 }
 .approval-interaction-btn.is-accept {
   border-color: var(--success);

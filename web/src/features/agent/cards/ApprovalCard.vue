@@ -239,6 +239,7 @@ function closeToQueue(): void {
   border-radius: 5px;
   background: color-mix(in srgb, #fef2f2 55%, var(--surface));
   font-size: 14px;
+  font-weight: 400; /* 非加粗：安全摘要正文不加重 */
 }
 .security-meta {
   display: flex;
@@ -253,6 +254,7 @@ function closeToQueue(): void {
 .security-findings li {
   margin-top: 2px;
   overflow-wrap: anywhere;
+  font-weight: 400; /* 非加粗：发现项正文不加重 */
 }
 .security-findings code {
   display: block;
@@ -265,6 +267,7 @@ function closeToQueue(): void {
   margin: 1px 0 0;
   color: color-mix(in srgb, #dc2626 80%, var(--ink));
   font-size: 14px;
+  font-weight: 400; /* 非加粗：错误正文不加重 */
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
