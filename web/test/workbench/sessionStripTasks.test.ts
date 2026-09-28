@@ -45,9 +45,8 @@ function reconcile(
   tasks: TaskOverview[],
   currentChatId?: string,
   preference: SessionStripPreference = EMPTY_SESSION_STRIP_PREFERENCE,
-  knownChatIds?: ReadonlySet<string>,
 ): SessionStripPreference {
-  return reconcileSessionStripPreference(preference, tasks, currentChatId, knownChatIds)
+  return reconcileSessionStripPreference(preference, tasks, currentChatId)
 }
 
 describe('stable session strip preferences', () => {
@@ -165,20 +164,24 @@ describe('stable session strip preferences', () => {
     expect(pickStripTasks(dismissed, [current], undefined).items).toHaveLength(0)
   })
 
-  it('removes a saved task when the authoritative chat catalog no longer contains it', () => {
-    const stale = task({
-      rootChatId: 'deleted',
-      status: 'completed',
-      unreadResult: true,
-    })
-    const saved = reconcile([stale])
+  it('keeps a saved slot when the task leaves the live overview and the stage catalog', () => {
+    // 场景还原（新建会话后）：旧任务 completed/idle 无近期活动被概览剪枝（后端发 remove），
+    // 且新建会话后 stage 目录每预设仅保留最新 root，旧任务不再在其中。两者都不代表任务已删除，
+    // 槽位必须保留；新任务有空位时追加到末尾，绝不挤掉旧任务（设计「不自动移除」「不挤掉现有任务」）。
+    const existing = task({ rootChatId: 'older', status: 'completed', unreadResult: true })
+    const saved = reconcile([existing])
+    expect(saved.slots.map((slot) => slot.taskKey)).toEqual(['older'])
 
-    const cleaned = reconcile([], undefined, saved, new Set(['remaining']))
+    const next = reconcile(
+      [task({ rootChatId: 'newest', status: 'running', updatedAt: 999 })],
+      'newest',
+      saved,
+    )
 
-    expect(cleaned.slots).toHaveLength(0)
+    expect(next.slots.map((slot) => slot.taskKey)).toEqual(['older', 'newest'])
   })
 
-  it('keeps an older completed task when it is omitted from the live overview but still exists', () => {
+  it('keeps an older completed task when it is omitted from the live overview', () => {
     const existing = task({
       rootChatId: 'older',
       status: 'completed',
@@ -186,7 +189,7 @@ describe('stable session strip preferences', () => {
     })
     const saved = reconcile([existing])
 
-    const preserved = reconcile([], undefined, saved, new Set(['older']))
+    const preserved = reconcile([], undefined, saved)
 
     expect(preserved.slots.map((slot) => slot.taskKey)).toEqual(['older'])
   })
@@ -237,6 +240,15 @@ describe('pickStripTasks', () => {
       'slot-3',
       'slot-4',
     ])
+  })
+
+  it('shows the current task from the fallback item even when it is absent from the live overview', () => {
+    // 场景还原（从「全部任务」打开旧 root）：任务不在实时概览、不在槽位，也不在 stage 目录，
+    // currentFallback 提供的补位项必须作为当前任务补位出现（设计「当前任务补位」）。
+    const fallback = projectSessionStripTask(task({ rootChatId: 'solo', status: 'idle' }))
+    const projection = pickStripTasks(EMPTY_SESSION_STRIP_PREFERENCE, [], 'solo', 6, fallback)
+
+    expect(projection.items).toMatchObject([{ taskKey: 'solo', source: 'current' }])
   })
 
   it('temporarily replaces a hidden stable slot with the current supplement in a narrow window', () => {

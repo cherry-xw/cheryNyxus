@@ -132,13 +132,13 @@ function snapshotChanged(snapshot: SessionStripItem, task: TaskOverview): boolea
 /**
  * 追加首次需要展示的任务并刷新必要快照。已有槽位绝不因状态、更新时间或查看结果而重排、
  * 也不自动移除；槽位满时不再追加，绝不挤掉已有任务（设计「不挤掉现有任务」）。
- * 仅以下情况移除槽位：手动收起；或已确认该任务从权威会话目录消失（失效任务清理）。
+ * 槽位只经手动收起移除。任务不在实时概览（completed/idle 且无近期活动被后端剪枝）或
+ * 不再是最新 root（stage 目录每预设仅保留最新 1 个）都不代表已删除，绝不据此自动剔除。
  */
 export function reconcileSessionStripPreference(
   preference: SessionStripPreference,
   tasks: TaskOverview[],
   currentChatId?: string,
-  knownChatIds?: ReadonlySet<string>,
 ): SessionStripPreference {
   const liveByKey = new Map(tasks.map((task) => [task.taskKey, task]))
   const seen = new Set<string>()
@@ -147,14 +147,6 @@ export function reconcileSessionStripPreference(
     if (seen.has(slot.taskKey) || seen.size >= SESSION_STRIP_STABLE_SLOTS) return []
     seen.add(slot.taskKey)
     const live = liveByKey.get(slot.taskKey)
-    if (
-      live === undefined &&
-      knownChatIds &&
-      !snapshotReferencesKnownChat(slot.snapshot, knownChatIds)
-    ) {
-      delete dismissedAttentionKeys[slot.taskKey]
-      return []
-    }
     return [
       live && snapshotChanged(slot.snapshot, live)
         ? { taskKey: slot.taskKey, snapshot: projectSessionStripTask(live) }
@@ -180,19 +172,6 @@ export function reconcileSessionStripPreference(
     slots,
     dismissedAttentionKeys,
   }
-}
-
-function snapshotReferencesKnownChat(
-  snapshot: SessionStripItem,
-  knownChatIds: ReadonlySet<string>,
-): boolean {
-  return [
-    snapshot.taskKey,
-    snapshot.rootChatId,
-    snapshot.originalChatId,
-    snapshot.openChatId,
-    ...snapshot.relatedChatIds,
-  ].some((chatId) => knownChatIds.has(chatId))
 }
 
 export function dismissSessionStripTask(

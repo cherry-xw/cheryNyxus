@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useChatSessionsStore, useTaskOverviewStore } from '@/application/public'
+import { useTaskOverviewStore } from '@/application/public'
 import type { TaskOverview } from '@/application/backend/public'
 import {
   buildStripTooltip,
@@ -53,7 +53,6 @@ const TASK_ICONS: ReadonlyArray<readonly string[]> = [
 ]
 
 const overview = useTaskOverviewStore()
-const chats = useChatSessionsStore()
 const preferenceScope = computed(() =>
   props.presetId
     ? `id:${props.presetId}`
@@ -77,14 +76,11 @@ const stripTasks = computed(() => {
   return tasks
 })
 
-const knownChatIds = computed(
-  () => new Set(chats.catalogSummaries.map((summary) => summary.chatId)),
-)
-
 const currentFallback = computed<SessionStripItem | undefined>(() => {
   const chatId = props.activeChatId?.trim()
+  // 当前打开的会话即使不在实时概览（旧 root 或新建未入概览）也要以补位出现在标题栏。
+  // 不以 stage 目录做存在性判断：stage 每预设仅保留最新 root，旧会话缺失不代表失效。
   if (!chatId || stripTasks.value.some((task) => taskMatchesChat(task, chatId))) return undefined
-  if (chats.catalogReady && !knownChatIds.value.has(chatId)) return undefined
   return {
     taskKey: chatId,
     rootChatId: chatId,
@@ -114,15 +110,15 @@ const strip = computed(() =>
 
 // 稳定槽位按当前预设分区维护：只把属于本预设的任务纳入持久槽位（设计「以稳定 presetId 分区」），
 // 跨预设的当前任务只经 pickStripTasks 的当前补位展示，不写入本预设槽位。
+// reconcile 不接收 knownChatIds：槽位只由手动收起移除，绝不在新建会话/概览剪枝时被自动剔除。
 watch(
-  [presetTasks, () => props.activeChatId, preference, () => chats.catalogReady, knownChatIds],
+  [presetTasks, () => props.activeChatId, preference],
   ([tasks, activeChatId]) => {
     setPreference(
       reconcileSessionStripPreference(
         preference.value,
         tasks,
         activeChatId ?? undefined,
-        chats.catalogReady ? knownChatIds.value : undefined,
       ),
     )
   },
