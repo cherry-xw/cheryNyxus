@@ -49,8 +49,6 @@ import {
   getMcpServer,
   connectMcpServerByName,
   disconnectMcpServer,
-  reloadOneServer,
-  reloadMcpServers,
   getConnectedServerSenseNames,
   listConnectedServerNames,
   loadMcpSenses,
@@ -72,7 +70,7 @@ describe('MCP loader', () => {
     const { connectMcpServer } = await import('@/core/mcp/client.js')
     await loader.connectMcpServerByName('srv1')
     const status = { applyStatus: 'failed' as 'failed' | 'applied' }
-    loader.setMcpReloadCoordinator(vi.fn(), () => status)
+    loader.setMcpReloadCoordinator(() => status)
     vi.mocked(connectMcpServer).mockRejectedValueOnce(new Error('candidate failed'))
     await expect(
       loader.prepareMcpChanges({ srv1: { ...httpCfg, url: 'http://broken' } }, ['srv1']),
@@ -96,7 +94,7 @@ describe('MCP loader', () => {
     mockConfig.mcp_servers = { srv1: httpCfg }
     const loader = await import('@/core/mcp/loader.js')
     const { connectMcpServer } = await import('@/core/mcp/client.js')
-    loader.setMcpReloadCoordinator(vi.fn(), () => ({ applyStatus: 'applied' }))
+    loader.setMcpReloadCoordinator(() => ({ applyStatus: 'applied' }))
     vi.mocked(connectMcpServer).mockRejectedValueOnce(new Error('unreachable'))
     await expect(loader.connectMcpServerByName('srv1')).rejects.toThrow()
     expect(loader.getMcpServer('srv1')).toMatchObject({ status: 'failed' })
@@ -223,56 +221,6 @@ describe('MCP loader', () => {
       const info = await mod.disconnectMcpServer('srv1')
       expect(info.status).toBe('disconnected')
       expect(mockClose).toHaveBeenCalled()
-    })
-  })
-
-  describe('reloadOneServer', () => {
-    it('throws NOT_FOUND for unconfigured server', async () => {
-      mockConfig.mcp_servers = {}
-      const { reloadOneServer: reload } = await import('@/core/mcp/loader.js')
-      await expect(reload('missing')).rejects.toThrow('没配置')
-    })
-
-    it('reloads a connected server atomically', async () => {
-      mockConfig.mcp_servers = { srv1: stdioCfg }
-      const mod = await import('@/core/mcp/loader.js')
-      await mod.connectMcpServerByName('srv1')
-      const info = await mod.reloadOneServer('srv1')
-      expect(info.status).toBe('connected')
-      expect(mockRegisterSenses).toHaveBeenCalled()
-    })
-
-    it('preserves old state on reload failure', async () => {
-      mockConfig.mcp_servers = { srv1: stdioCfg }
-      const mod = await import('@/core/mcp/loader.js')
-      await mod.connectMcpServerByName('srv1')
-      // Make next connect fail
-      const { connectMcpServer } = await import('@/core/mcp/client.js')
-      vi.mocked(connectMcpServer).mockRejectedValueOnce(new Error('reload fail'))
-      await expect(mod.reloadOneServer('srv1')).rejects.toThrow('reload fail')
-      // Old connection should still be there
-      const info = mod.getMcpServer('srv1')
-      expect(info.status).toBe('connected')
-      expect(info.error).toContain('尚未生效')
-    })
-  })
-
-  describe('reloadMcpServers', () => {
-    it('returns summary with zero servers when no config', async () => {
-      mockConfig.mcp_servers = undefined
-      const { reloadMcpServers: reload } = await import('@/core/mcp/loader.js')
-      const result = await reload()
-      expect(result.connected).toBe(0)
-      expect(result.failed).toBe(0)
-      expect(result.totalSenses).toBe(0)
-    })
-
-    it('reloads all configured servers', async () => {
-      mockConfig.mcp_servers = { srv1: stdioCfg, srv2: httpCfg }
-      const { reloadMcpServers: reload } = await import('@/core/mcp/loader.js')
-      const result = await reload()
-      expect(result.connected).toBe(2)
-      expect(result.failed).toBe(0)
     })
   })
 
@@ -464,51 +412,6 @@ describe('MCP loader', () => {
       })
       const info = await mod.connectMcpServerByName('failPrompt')
       expect(info.status).toBe('connected')
-    })
-  })
-
-  describe('reloadOneServer — dropped sense cleanup', () => {
-    it('unregisters senses that no longer exist after reload', async () => {
-      mockConfig.mcp_servers = { srv1: stdioCfg }
-      const mod = await import('@/core/mcp/loader.js')
-      const { connectMcpServer } = await import('@/core/mcp/client.js')
-
-      // First connect: has tool "old_tool"
-      const clientV1 = {
-        connect: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
-        listTools: vi.fn().mockResolvedValue({ tools: [{ name: 'old_tool' }] }),
-        listResources: vi.fn().mockResolvedValue({ resources: [] }),
-        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
-      }
-      vi.mocked(connectMcpServer).mockResolvedValueOnce({
-        name: 'srv1',
-        client: clientV1 as any,
-        close: clientV1.close,
-      })
-      await mod.connectMcpServerByName('srv1')
-
-      // Reload: tool "old_tool" gone, "new_tool" added
-      const clientV2 = {
-        connect: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
-        listTools: vi.fn().mockResolvedValue({ tools: [{ name: 'new_tool' }] }),
-        listResources: vi.fn().mockResolvedValue({ resources: [] }),
-        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
-      }
-      vi.mocked(connectMcpServer).mockResolvedValueOnce({
-        name: 'srv1',
-        client: clientV2 as any,
-        close: clientV2.close,
-      })
-      await mod.reloadOneServer('srv1')
-
-      // Should have unregistered the dropped "old_tool" sense
-      expect(mockUnregisterSenses).toHaveBeenCalled()
-      const unregisteredNames = mockUnregisterSenses.mock.calls[0][0] as string[]
-      expect(unregisteredNames).toContain('mcp__srv1__old_tool')
     })
   })
 })

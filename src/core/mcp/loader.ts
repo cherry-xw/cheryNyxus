@@ -25,14 +25,11 @@ interface ConnectedEntry {
 const connectedServers = new Map<string, ConnectedEntry>()
 const lastError = new Map<string, { message: string; candidate?: boolean }>()
 let operation: Promise<void> = Promise.resolve()
-let coordinatedReload: ((name?: string) => Promise<McpReloadResult>) | undefined
 let applyStatus: ((name: string) => Pick<McpServerInfo, 'applyStatus' | 'applyReason'>) | undefined
 
 export function setMcpReloadCoordinator(
-  reload: (name?: string) => Promise<McpReloadResult>,
   status?: typeof applyStatus,
 ): void {
-  coordinatedReload = reload
   applyStatus = status
 }
 
@@ -349,16 +346,6 @@ export async function disconnectMcpServer(name: string): Promise<McpServerInfo> 
   return { ...info, status: 'disconnected', senseNames: [] }
 }
 
-export async function reloadOneServer(name: string): Promise<McpServerInfo> {
-  if (coordinatedReload) {
-    await coordinatedReload(name)
-    return getMcpServer(name)
-  }
-  getMcpServer(name)
-  await applyStandalone(config.mcp_servers ?? {}, [name])
-  return getMcpServer(name)
-}
-
 export interface McpReloadResult {
   servers: McpServerInfo[]
   connected: number
@@ -376,25 +363,6 @@ export function mcpReloadSummary(): McpReloadResult {
     ).length,
     totalSenses: servers.reduce((sum, server) => sum + server.senseNames.length, 0),
   }
-}
-
-export async function reloadMcpServers(): Promise<McpReloadResult> {
-  if (coordinatedReload) return coordinatedReload()
-  const configs = config.mcp_servers ?? {}
-  const names = new Set([...Object.keys(configs), ...connectedServers.keys()])
-  for (const name of names) {
-    if (
-      !connectedServers.get(name)?.disconnected &&
-      classifyMcpChange(connectedServers.get(name)?.cfg, configs[name]) === 'unchanged'
-    )
-      continue
-    try {
-      await applyStandalone(configs, [name])
-    } catch {
-      /* Each server reports its own error. */
-    }
-  }
-  return mcpReloadSummary()
 }
 
 export function getConnectedServerSenseNames(name: string): string[] {

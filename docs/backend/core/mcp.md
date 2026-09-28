@@ -22,7 +22,7 @@
 | [types.ts](../../../src/core/mcp/types.ts) | `McpClientHandle`、`McpSenseContext`、`McpServerInfo`、`McpServerError`、命名常量（`MCP_PREFIX="mcp__"`） |
 | [client.ts](../../../src/core/mcp/client.ts) | `connectMcpServer()`：按 transport（stdio / streamable-http）构造 transport，Client 握手 |
 | [convert.ts](../../../src/core/mcp/convert.ts) | `toolToSense` / `resourceToSense` / `promptToSense`：MCP 能力 → `Sense` |
-| [loader.ts](../../../src/core/mcp/loader.ts) | 连接层状态机：`Map<name,{handle,senseNames}>` + lastError；导出 `listMcpServers`/`getMcpServer`/`connectMcpServerByName`/`disconnectMcpServer`/`reloadOneServer`/`reloadMcpServers`/`getConnectedServerSenseNames`/`listConnectedServerNames`；`loadMcpSenses`/`closeMcpClients` 为启动/关闭 wrapper |
+| [loader.ts](../../../src/core/mcp/loader.ts) | 连接层状态机：`Map<name,{handle,senseNames}>` + lastError；导出 `listMcpServers`/`getMcpServer`/`connectMcpServerByName`/`disconnectMcpServer`/`getConnectedServerSenseNames`/`listConnectedServerNames`；`loadMcpSenses`/`closeMcpClients` 为启动/关闭 wrapper；`setMcpReloadCoordinator` 注册配置协调器的 apply 状态回调 |
 | [index.ts](../../../src/core/mcp/index.ts) | barrel |
 
 ## 配置
@@ -130,12 +130,12 @@ mcp.list    → listMcpServers()                config 所有 server + 状态
 mcp.get     → getMcpServer(name)              单个详情
 mcp.connect → connectMcpServerByName(name)    已连幂等;建连+register
 mcp.disconnect → disconnectMcpServer(name)    未连幂等;unregister+close
-mcp.reload  → reloadOneServer(name) | reloadMcpServers()
+mcp.reload  → reloadMcpConfiguration(name)   协调器引擎：name 给出→原子重载单 server；省略→全量重载
   受控交换(单 server):
     1. 准备新连接和 Senses；失败保留旧态
     2. 可并行的连接先发布新 registry；旧调用和节点树持有的 client 释放后再回收旧连接
     3. stdio 等不能双开的资源先等待安全边界，确认旧连接关闭后再启动新连接
-  全量 reload: reloadMcpServersConfig() 重读 yaml → 断开已移除 server → 逐个原子重载
+  全量 reload: reloadMcpConfiguration() 重读磁盘 config → 经协调器引擎（engine.submit + retry）提交差异 → 断开已移除 server → 逐个原子重载
 
 ─── 关闭期（src/index.ts SIGINT/SIGTERM 钩子） ──────────────────
 closeMcpClients() → 各 disconnectMcpServer (unregister + handle.close)
@@ -150,7 +150,7 @@ closeMcpClients() → 各 disconnectMcpServer (unregister + handle.close)
 - **依赖**：
   - `@modelcontextprotocol/sdk`（官方 SDK：`Client` / `StdioClientTransport` / `StreamableHTTPClientTransport`）。
   - [`core/sense`](../../../src/core/sense/) `registerSenses` / `unregisterSenses` / `getSense`、`Sense`/`SenseResult`/`SenseFunction` 类型。
-  - [`utils/config.ts`](../../../src/utils/config.ts) `config.mcp_servers`、`McpServerConfig`、`reloadMcpServersConfig`。
+  - [`utils/config.ts`](../../../src/utils/config.ts) `config.mcp_servers`、`McpServerConfig`。
   - [`utils/logger`](../utils/README.md)。
 - **被依赖**：
   - [`agent/bootstrap.ts`](../../../src/agent/bootstrap.ts) —— `loadMcpSenses()`（启动期）。

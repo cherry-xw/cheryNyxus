@@ -16,8 +16,6 @@ import {
   classifyMcpChange,
   connectMcpServerByName,
   prepareMcpChanges,
-  reloadMcpServers,
-  reloadOneServer,
   closeMcpClients,
   disconnectMcpServer,
   getMcpServer,
@@ -193,20 +191,6 @@ describe('MCP resource handoff', () => {
     expect(getSense('mcp__a__read')!.supervisionLevel).toBe(SupervisionLevel.manual)
   })
 
-  it('full reload leaves unchanged servers alone and removes deleted servers', async () => {
-    const old = await initial()
-    enqueue({ ...handle('other'), name: 'b' })
-    mocks.config.mcp_servers.b = http
-    await connectMcpServerByName('b')
-    await reloadMcpServers()
-    expect(mocks.connect).toHaveBeenCalledTimes(2)
-    delete mocks.config.mcp_servers.a
-    await reloadMcpServers()
-    expect(old.close).toHaveBeenCalledOnce()
-    expect(getSense('mcp__a__read')).toBeUndefined()
-    expect(getSense('mcp__b__other')).toBeDefined()
-  })
-
   it('waits for stdio runtime references, including future calls, before stopping the process', async () => {
     const old = await initial(stdio)
     const retained = lease()
@@ -242,16 +226,6 @@ describe('MCP resource handoff', () => {
     expect(getMcpServer('a').status).toBe('connected')
     await getSense('mcp__a__read')!.executor.execute({}, {} as never)
     expect(restored.client.callTool).toHaveBeenCalledOnce()
-  })
-
-  it('reports unavailable stdio when both candidate and recovery fail', async () => {
-    await initial(stdio)
-    mocks.connect
-      .mockRejectedValueOnce(new Error('new fails'))
-      .mockRejectedValueOnce(new Error('restore fails'))
-    await expect(reloadOneServer('a')).rejects.toThrow('new fails')
-    expect(getMcpServer('a')).toMatchObject({ status: 'failed', senseNames: [] })
-    expect(getMcpServer('a').error).toContain('也未能恢复')
   })
 
   it('retains failed-close handles for retry while the new HTTP connection remains usable', async () => {

@@ -5,8 +5,6 @@ export {
   getMcpServer,
   connectMcpServerByName,
   disconnectMcpServer,
-  reloadOneServer,
-  reloadMcpServers,
   getConnectedServerSenseNames,
   listConnectedServerNames,
 } from './loader.js'

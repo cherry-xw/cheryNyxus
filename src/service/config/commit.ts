@@ -107,7 +107,7 @@ export function getConfigApplyCoordinator(): ConfigApplyCoordinator {
     coordinator = new ConfigApplyCoordinator(image)
     registerRuntimeConfigAdapters(coordinator, image)
     const engine = coordinator
-    setMcpReloadCoordinator(reloadMcpConfiguration, (name) => {
+    setMcpReloadCoordinator((name) => {
       const impact = engine
         .getState()
         .impacts.find((item) => item.resource === JSON.stringify(['mcp_servers', name]))

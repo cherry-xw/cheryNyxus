@@ -116,44 +116,114 @@ export const presetConfigOperationSchema = z.object({
   rule: z.string().optional(),
 })
 
-const putBrainSchema = z.object({
-  op: z.literal('putBrain'),
-  name: nonEmptyString,
-  brain: brainConfigOperationSchema,
-})
-const removeBrainSchema = z.object({
-  op: z.literal('removeBrain'),
-  name: nonEmptyString,
-})
-const putRoleSchema = z.object({
-  op: z.literal('putRole'),
-  name: nonEmptyString,
-  role: roleConfigOperationSchema,
-})
-const removeRoleSchema = z.object({
-  op: z.literal('removeRole'),
-  name: nonEmptyString,
-  expectedId: stableId('role').optional(),
-})
-const putPresetSchema = z.object({
-  op: z.literal('putPreset'),
-  name: nonEmptyString,
-  preset: presetConfigOperationSchema,
-})
-const removePresetSchema = z.object({
-  op: z.literal('removePreset'),
-  name: nonEmptyString,
-  expectedId: stableId('preset').optional(),
-})
-const putSenseGroupSchema = z.object({
-  op: z.literal('putSenseGroup'),
-  name: nonEmptyString,
-  senses: z.array(nonEmptyString),
-})
-const removeSenseGroupSchema = z.object({
-  op: z.literal('removeSenseGroup'),
-  name: nonEmptyString,
-})
+// ---- 表驱动操作工厂：4 对 put/remove 由同一套工厂生成（schema 与 apply 共用资源描述） ----
+
+/** 单个资源的 put/remove 操作描述（表驱动，新增资源种类只需加一行）。 */
+interface ResourceOpSpec {
+  /** 操作名（camelCase，如 'brain' → putBrain / removeBrain）。 */
+  resource: string
+  /** zod schema 厂：生成该资源 put 操作的附加字段。 */
+  putPayload?: z.ZodRawShape
+  /** 资源在 ConfigRaw 中的容器取值器。 */
+  getContainer: (candidate: ConfigRaw) => Record<string, unknown> | undefined
+  /** 资源在 ConfigRaw 中的容器惰性初始化（put 前调用）。 */
+  ensureContainer: (candidate: ConfigRaw) => Record<string, unknown>
+  /** put 时写值的取值器（多数资源 structuredClone(payload)；数组类可浅拷贝）。 */
+  takePutValue: (payload: Record<string, unknown>) => unknown
+  /** put 时的 payload 字段名（如 'brain' / 'role' / 'preset' / 'senses'）。 */
+  payloadField: string
+  /** put 时保留既有稳定 id（role/preset 需要幂等 id）。 */
+  preserveId?: {
+    /** 既有 id 的读取器（base 快照侧）。 */
+    baseId: (base: ConfigRaw, name: string) => string | undefined
+  }
+  /** remove 时的乐观并发校验（role/preset 带 expectedId）。 */
+  expectedId?: {
+    baseId: (base: ConfigRaw, name: string) => string | undefined
+    /** 错误消息中的资源路径前缀（如 'roles' / 'presets'）。 */
+    errorPath: string
+  }
+  /** remove 错误消息中的资源路径前缀（无 expectedId 的资源用）。 */
+  removeErrorPath: string
+  /** remove 错误消息中的资源路径前缀（candidate 侧实际路径，如 'llm.brain'）。 */
+  missingErrorPath: string
+}
+
+function makePutSchema(resource: string, payload: z.ZodRawShape = {}) {
+  return z.object({ op: z.literal(`put${capitalize(resource)}`), name: nonEmptyString, ...payload })
+}
+function makeRemoveSchema(resource: string, payload: z.ZodRawShape = {}) {
+  return z.object({
+    op: z.literal(`remove${capitalize(resource)}`),
+    name: nonEmptyString,
+    ...payload,
+  })
+}
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+const RESOURCE_OPS: ResourceOpSpec[] = [
+  {
+    resource: 'brain',
+    payloadField: 'brain',
+    getContainer: (c) => c.llm?.brain,
+    ensureContainer: (c) => {
+      c.llm ??= { brain: {} }
+      c.llm.brain ??= {}
+      return c.llm.brain
+    },
+    takePutValue: (payload) => structuredClone(payload),
+    removeErrorPath: 'llm.brain',
+    missingErrorPath: 'llm.brain',
+  },
+  {
+    resource: 'role',
+    payloadField: 'role',
+    getContainer: (c) => c.roles,
+    ensureContainer: (c) => (c.roles ??= {}),
+    takePutValue: (payload) => structuredClone(payload),
+    preserveId: { baseId: (base, name) => base.roles?.[name]?.id },
+    expectedId: {
+      baseId: (base, name) => base.roles?.[name]?.id,
+      errorPath: 'roles',
+    },
+    removeErrorPath: 'roles',
+    missingErrorPath: 'roles',
+  },
+  {
+    resource: 'preset',
+    payloadField: 'preset',
+    getContainer: (c) => c.presets,
+    ensureContainer: (c) => (c.presets ??= {}),
+    takePutValue: (payload) => structuredClone(payload),
+    preserveId: { baseId: (base, name) => base.presets?.[name]?.id },
+    expectedId: {
+      baseId: (base, name) => base.presets?.[name]?.id,
+      errorPath: 'presets',
+    },
+    removeErrorPath: 'presets',
+    missingErrorPath: 'presets',
+  },
+  {
+    resource: 'senseGroup',
+    payloadField: 'senses',
+    getContainer: (c) => c.sense_groups,
+    ensureContainer: (c) => (c.sense_groups ??= {}),
+    takePutValue: (payload) => [...(payload as unknown as string[])],
+    removeErrorPath: 'sense_groups',
+    missingErrorPath: 'sense_groups',
+  },
+]
+
+const putBrainSchema = makePutSchema('brain', { brain: brainConfigOperationSchema })
+const removeBrainSchema = makeRemoveSchema('brain')
+const putRoleSchema = makePutSchema('role', { role: roleConfigOperationSchema })
+const removeRoleSchema = makeRemoveSchema('role', { expectedId: stableId('role').optional() })
+const putPresetSchema = makePutSchema('preset', { preset: presetConfigOperationSchema })
+const removePresetSchema = makeRemoveSchema('preset', { expectedId: stableId('preset').optional() })
+const putSenseGroupSchema = makePutSchema('senseGroup', { senses: z.array(nonEmptyString) })
+const removeSenseGroupSchema = makeRemoveSchema('senseGroup')
 
 /** 增量操作使用资源级 put/remove，不开放任意 JSON path，避免越界字段与类型退化。 */
 export const configOperationSchema = z.discriminatedUnion('op', [
@@ -201,67 +271,45 @@ export function applyConfigOperations(
   const errors: string[] = []
 
   for (const operation of operations) {
-    switch (operation.op) {
-      case 'putBrain':
-        candidate.llm ??= { brain: {} }
-        candidate.llm.brain ??= {}
-        candidate.llm.brain[operation.name] = structuredClone(operation.brain)
-        break
-      case 'removeBrain':
-        if (!candidate.llm?.brain?.[operation.name]) {
-          errors.push(`llm.brain.${operation.name} 不存在，无法删除`)
-        } else {
-          delete candidate.llm.brain[operation.name]
-        }
-        break
-      case 'putRole':
-        candidate.roles ??= {}
-        candidate.roles[operation.name] = structuredClone(operation.role)
-        candidate.roles[operation.name]!.id ??= base.roles?.[operation.name]?.id
-        break
-      case 'removeRole': {
-        const current = candidate.roles?.[operation.name]
-        if (!current) {
-          errors.push(`roles.${operation.name} 不存在，无法删除`)
-        } else if (operation.expectedId && current.id !== operation.expectedId) {
-          errors.push(
-            `roles.${operation.name}.id 已变化（期望 ${operation.expectedId}，实际 ${current.id ?? '无'}）`,
-          )
-        } else {
-          delete candidate.roles![operation.name]
-        }
-        break
+    const verb = operation.op.startsWith('put') ? 'put' : 'remove'
+    const resource = operation.op.slice(verb.length)
+    const spec = RESOURCE_OPS.find(
+      (entry) => entry.resource.toLowerCase() === resource.toLowerCase(),
+    )
+    if (!spec) continue
+
+    if (verb === 'put') {
+      const container = spec.ensureContainer(candidate)
+      const payload = (operation as unknown as Record<string, unknown>)[
+        spec.payloadField
+      ] as Record<string, unknown>
+      container[operation.name] = spec.takePutValue(payload)
+      const written = container[operation.name] as { id?: string } | undefined
+      if (spec.preserveId && written && typeof written === 'object') {
+        written.id ??= spec.preserveId.baseId(base, operation.name)
       }
-      case 'putPreset':
-        candidate.presets ??= {}
-        candidate.presets[operation.name] = structuredClone(operation.preset)
-        candidate.presets[operation.name]!.id ??= base.presets?.[operation.name]?.id
-        break
-      case 'removePreset': {
-        const current = candidate.presets?.[operation.name]
-        if (!current) {
-          errors.push(`presets.${operation.name} 不存在，无法删除`)
-        } else if (operation.expectedId && current.id !== operation.expectedId) {
-          errors.push(
-            `presets.${operation.name}.id 已变化（期望 ${operation.expectedId}，实际 ${current.id ?? '无'}）`,
-          )
-        } else {
-          delete candidate.presets![operation.name]
-        }
-        break
-      }
-      case 'putSenseGroup':
-        candidate.sense_groups ??= {}
-        candidate.sense_groups[operation.name] = [...operation.senses]
-        break
-      case 'removeSenseGroup':
-        if (!candidate.sense_groups?.[operation.name]) {
-          errors.push(`sense_groups.${operation.name} 不存在，无法删除`)
-        } else {
-          delete candidate.sense_groups[operation.name]
-        }
-        break
+      continue
     }
+
+    const container = spec.getContainer(candidate)
+    const current = container?.[operation.name]
+    if (!current) {
+      errors.push(`${spec.missingErrorPath}.${operation.name} 不存在，无法删除`)
+      continue
+    }
+    if (spec.expectedId) {
+      const expectedId = (operation as unknown as Record<string, unknown>).expectedId as
+        | string
+        | undefined
+      const currentId = (current as { id?: string }).id
+      if (expectedId && currentId !== expectedId) {
+        errors.push(
+          `${spec.expectedId.errorPath}.${operation.name}.id 已变化（期望 ${expectedId}，实际 ${currentId ?? '无'}）`,
+        )
+        continue
+      }
+    }
+    delete container![operation.name]
   }
 
   return errors.length > 0 ? { ok: false, errors } : { ok: true, candidate }
