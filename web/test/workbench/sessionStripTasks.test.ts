@@ -5,6 +5,8 @@ import {
   dismissSessionStripTask,
   EMPTY_SESSION_STRIP_PREFERENCE,
   pickStripTasks,
+  projectSessionStripTask,
+  promoteSessionStripTask,
   reconcileSessionStripPreference,
   SESSION_STRIP_STABLE_SLOTS,
   sessionStripStatusIcon,
@@ -80,6 +82,57 @@ describe('stable session strip preferences', () => {
     expect(next.slots.map((slot) => slot.taskKey)).toEqual(
       initialTasks.map((item) => item.taskKey),
     )
+  })
+
+  it('does not evict a pinned task that became idle when a newer task arrives while full', () => {
+    // 5 个槽位占满：4 个运行中 + 1 个随后结束（completed）。
+    const busy = Array.from({ length: SESSION_STRIP_STABLE_SLOTS - 1 }, (_, index) =>
+      task({ rootChatId: `busy-${index}`, status: 'running', updatedAt: 100 - index }),
+    )
+    const pinned = task({ rootChatId: 'pinned', status: 'running', updatedAt: 50 })
+    const initial = reconcile([...busy, pinned])
+    expect(initial.slots).toHaveLength(SESSION_STRIP_STABLE_SLOTS)
+
+    // pinned 结束变为 completed，同时一个新任务开始运行——设计「不挤掉现有任务」，
+    // 已固定的 completed 槽位必须保留，新任务只进“全部任务”入口提醒。
+    const finishedPinned = { ...pinned, status: 'completed', unreadResult: false, updatedAt: 200 }
+    const newcomer = task({ rootChatId: 'newcomer', status: 'running', updatedAt: 999 })
+    const next = reconcile([newcomer, ...busy, finishedPinned], undefined, initial)
+
+    expect(next.slots.map((slot) => slot.taskKey)).toEqual(
+      initial.slots.map((slot) => slot.taskKey),
+    )
+  })
+
+  it('promotes a task only when a stable slot is free and never evicts when full', () => {
+    const occupied = Array.from({ length: SESSION_STRIP_STABLE_SLOTS }, (_, index) =>
+      task({ rootChatId: `slot-${index}`, status: 'completed', updatedAt: 10 - index }),
+    )
+    const full = reconcile(occupied.map((item) => ({ ...item, unreadResult: true })))
+    const candidate = task({ rootChatId: 'candidate', status: 'running', updatedAt: 99 })
+
+    // 已满：promote 不做任何改动，不挤掉现有任务。
+    expect(promoteSessionStripTask(full, projectSessionStripTask(candidate))).toBe(full)
+
+    // 有空位：追加到末尾，并清除该任务已有的“已收起”标记（用户主动提升优先于手动收起）。
+    const withRoom = reconcile(
+      occupied
+        .slice(0, SESSION_STRIP_STABLE_SLOTS - 1)
+        .map((item) => ({ ...item, unreadResult: true })),
+    )
+    const dismissed = dismissSessionStripTask(
+      reconcile([]),
+      projectSessionStripTask(candidate),
+    )
+    const promoted = promoteSessionStripTask(withRoom, projectSessionStripTask(candidate))
+    expect(promoted.slots.map((slot) => slot.taskKey)).toEqual([
+      ...occupied
+        .slice(0, SESSION_STRIP_STABLE_SLOTS - 1)
+        .map((item) => item.rootChatId),
+      'candidate',
+    ])
+    expect(promoted.dismissedAttentionKeys.candidate).toBeUndefined()
+    expect(dismissed.dismissedAttentionKeys.candidate).toBe(candidate.attentionKey)
   })
 
   it('suppresses the dismissed attention key and allows a new key back', () => {
@@ -209,6 +262,28 @@ describe('pickStripTasks', () => {
     )
     expect(projection.overflowCount).toBe(1)
     expect(projection.attentionCount).toBe(1)
+  })
+
+  it('keeps placeholder count within the visible stable capacity across widths', () => {
+    const three = reconcile(
+      stableTasks.slice(0, 3).map((item) => ({ ...item, unreadResult: true })),
+    )
+    const extra = task({ rootChatId: 'current', status: 'completed' })
+
+    // 宽窗、当前任务不在槽内：5 稳定槽分配 4 格 + 补位 1 = 5 图标，补齐到 5 的占位 = 2。
+    const supplement = pickStripTasks(three, [...stableTasks.slice(0, 3), extra], 'current', 6)
+    expect(supplement.items).toHaveLength(4)
+    expect(supplement.placeholderCount).toBe(2)
+
+    // 宽窗、当前任务已在槽内：5 个稳定图标无占位。
+    const wide = pickStripTasks(preference, stableTasks, 'slot-2', 6)
+    expect(wide.items).toHaveLength(5)
+    expect(wide.placeholderCount).toBe(0)
+
+    // 窄窗（容量 3）：稳定槽被从末尾隐藏、当前任务补位，占位为 0，不溢出。
+    const narrow = pickStripTasks(preference, stableTasks, 'slot-4', 3)
+    expect(narrow.items).toHaveLength(3)
+    expect(narrow.placeholderCount).toBe(0)
   })
 })
 

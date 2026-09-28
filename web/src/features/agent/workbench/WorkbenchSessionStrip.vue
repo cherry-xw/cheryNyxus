@@ -7,9 +7,8 @@ import {
   dismissSessionStripTask,
   matchesSessionStripPreset,
   pickStripTasks,
-  promoteSessionStripTask,
   reconcileSessionStripPreference,
-  SESSION_STRIP_STABLE_SLOTS,
+  SESSION_STRIP_MAX_VISIBLE_TASKS,
   sessionStripStatusIcon,
   sessionStripStatusLabel,
   taskIconIndex,
@@ -100,8 +99,9 @@ const currentFallback = computed<SessionStripItem | undefined>(() => {
     updatedAt: 0,
   }
 })
-// 标题栏预留固定槽位，宽度变化只影响是否显示溢出入口，不改变已分配槽位的顺序。
-const visibleCapacity = ref(5)
+// 标题栏容量随宽度变化：窄窗只减少可见槽位（从末尾临时隐藏），持久顺序不变；
+// 当前任务补位始终保留。宽窗最多 6 = 5 稳定槽 + 1 当前任务补位。
+const visibleCapacity = ref(SESSION_STRIP_MAX_VISIBLE_TASKS)
 const strip = computed(() =>
   pickStripTasks(
     preference.value,
@@ -112,8 +112,10 @@ const strip = computed(() =>
   ),
 )
 
+// 稳定槽位按当前预设分区维护：只把属于本预设的任务纳入持久槽位（设计「以稳定 presetId 分区」），
+// 跨预设的当前任务只经 pickStripTasks 的当前补位展示，不写入本预设槽位。
 watch(
-  [stripTasks, () => props.activeChatId, preference, () => chats.catalogReady, knownChatIds],
+  [presetTasks, () => props.activeChatId, preference, () => chats.catalogReady, knownChatIds],
   ([tasks, activeChatId]) => {
     setPreference(
       reconcileSessionStripPreference(
@@ -140,7 +142,8 @@ function taskMatchesChat(task: TaskOverview, chatId: string | null | undefined):
 
 const currentTaskKey = computed(
   () =>
-    presetTasks.value.find((task) => taskMatchesChat(task, props.activeChatId))?.taskKey ??
+    // stripTasks 含当前任务补位（可能跨预设），保证补位图标也被标记为当前任务。
+    stripTasks.value.find((task) => taskMatchesChat(task, props.activeChatId))?.taskKey ??
     preference.value.slots.find((slot) =>
       [
         slot.snapshot.taskKey,
@@ -166,7 +169,6 @@ function iconPaths(item: SessionStripItem): readonly string[] {
 
 function onSelect(item: SessionStripItem): void {
   closeTip()
-  setPreference(promoteSessionStripTask(preference.value, item))
   emit('select', item.openChatId)
 }
 
@@ -202,8 +204,14 @@ function accessibleLabel(item: SessionStripItem): string {
 const itemsEl = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | undefined
 
-function updateVisibleCapacity(_width: number): void {
-  visibleCapacity.value = 5
+function updateVisibleCapacity(width: number): void {
+  const iconWidth = 26
+  const gap = 6
+  // n 个图标占 26n + 6(n-1) = 32n - 6；反推可容纳数量，限制在 1..6（5 稳定 + 1 补位）。
+  visibleCapacity.value = Math.max(
+    1,
+    Math.min(SESSION_STRIP_MAX_VISIBLE_TASKS, Math.floor((width + gap) / (iconWidth + gap))),
+  )
 }
 
 const documentForeground = ref(true)
@@ -325,7 +333,6 @@ onBeforeUnmount(() => {
             class="session-strip-icon"
             :class="{
               'is-active': isCurrent(item),
-              'is-ghost': item.ghost,
               'is-needs-user': item.status === 'needs_user',
               'is-failed': item.status === 'failed',
             }"
@@ -395,7 +402,7 @@ onBeforeUnmount(() => {
         </section>
       </el-popover>
       <span
-        v-for="index in Math.max(0, SESSION_STRIP_STABLE_SLOTS - strip.items.length)"
+        v-for="index in strip.placeholderCount"
         :key="`empty-${index}`"
         class="session-strip-placeholder"
         aria-hidden="true"
@@ -492,11 +499,6 @@ onBeforeUnmount(() => {
     background: var(--accent);
     color: var(--accent-ink);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 12px var(--accent-glow);
-  }
-  &.is-ghost {
-    opacity: 0.42;
-    border-style: dashed;
-    background: color-mix(in srgb, var(--ink) 4%, transparent);
   }
   &.is-needs-user,
   &.is-failed {
