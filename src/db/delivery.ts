@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { getMonthlyDb, getSoulDb } from './index.js'
+import { jsonRows } from './helpers.js'
 
 const RETENTION_MS = 24 * 60 * 60 * 1000
 const RETENTION_EVENTS_PER_CHAT = 10_000
@@ -268,9 +269,9 @@ export function getRootEvents(rootChatId: string, afterSeq: number): RootEventPa
     .prepare(
       'SELECT event_json FROM root_events WHERE root_chat_id = ? AND root_seq > ? ORDER BY root_seq ASC',
     )
-    .all(rootChatId, afterSeq) as { event_json: string }[]
+    .all(rootChatId, afterSeq) as { [key: string]: unknown }[]
   return {
-    events: rows.map((row) => JSON.parse(row.event_json) as StoredChatEvent),
+    events: jsonRows<StoredChatEvent>(rows, 'event_json'),
     latestSeq,
     minSeq,
     reset: false,
@@ -295,9 +296,9 @@ export function getChatEvents(chatId: string, afterSeq: number): ChatEventPage {
     .prepare(
       'SELECT event_json FROM chat_events WHERE chat_id = ? AND chat_seq > ? ORDER BY chat_seq ASC',
     )
-    .all(chatId, afterSeq) as { event_json: string }[]
+    .all(chatId, afterSeq) as { [key: string]: unknown }[]
   return {
-    events: rows.map((row) => JSON.parse(row.event_json) as StoredChatEvent),
+    events: jsonRows<StoredChatEvent>(rows, 'event_json'),
     latestSeq,
     minSeq,
     reset: false,
@@ -313,8 +314,8 @@ export function getRecentChatEvents(chatId: string, limit = 500): StoredChatEven
   const db = getMonthlyDb(chatMonth(chatId))
   const rows = db
     .prepare('SELECT event_json FROM chat_events WHERE chat_id = ? ORDER BY chat_seq DESC LIMIT ?')
-    .all(chatId, limit) as { event_json: string }[]
-  return rows.map((row) => JSON.parse(row.event_json) as StoredChatEvent).reverse()
+    .all(chatId, limit) as { [key: string]: unknown }[]
+  return jsonRows<StoredChatEvent>(rows, 'event_json').reverse()
 }
 
 export function createSpawnTask(

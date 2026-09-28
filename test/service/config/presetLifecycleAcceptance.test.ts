@@ -2,13 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { bootstrapAgentRuntime } from '@/agent/bootstrap.js'
 import config, { DEFAULT_PRESET_NAME } from '@/utils/config.js'
-import {
-  addMessage,
-  createChat,
-  deleteChat,
-  getChat,
-  getMessages,
-} from '@/db/chat.js'
+import { createChat, deleteChat, getChat } from '@/db/chat.js'
+import { addMessage, getMessages } from '@/db/message.js'
 import { createSpawnTask } from '@/db/delivery.js'
 import {
   getFrozenChatSnapshot,

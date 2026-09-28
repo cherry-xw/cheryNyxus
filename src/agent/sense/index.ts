@@ -379,7 +379,7 @@ async function loadCustomSenses(compiledPaths?: string[]): Promise<Sense<ZodType
 }
 
 /** Prepare the full local table without publishing it. */
-export async function prepareSenseReload(compiledPaths?: string[]): Promise<() => void> {
+async function prepareSenseReload(compiledPaths?: string[]): Promise<() => void> {
   const candidate = [...builtinSenses(), ...(await loadCustomSenses(compiledPaths))]
   return prepareLocalSenseReplacement(candidate)
 }

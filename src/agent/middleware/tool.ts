@@ -630,5 +630,3 @@ async function* doExecuteSense(
     return { content: `感官执行失败：${errorMsg}`, replaced }
   }
 }
-
-export default senseMiddleware

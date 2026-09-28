@@ -15,7 +15,7 @@ import {
   getMaintenanceState,
   leaveMaintenanceMode,
 } from '@/service/maintenanceMode.js'
-import { abortAllChatRuntimes } from '@/service/chat/runtime.js'
+import { abortAllChatRuntimes } from '@/service/chat/runtimeCache.js'
 
 const WATCHED_DIRS = ['prompt', 'skills', 'senses', 'plugins', 'rule', 'command', 'hooks']
 const WATCHED_ROOT_FILES = new Set(['config.yaml', 'model-catalog.yaml'])

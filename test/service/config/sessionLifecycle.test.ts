@@ -4,14 +4,8 @@ import path from 'node:path'
 import { AgentBuilder } from '@/agent/builder.js'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bootstrapAgentRuntime } from '@/agent/bootstrap.js'
-import {
-  addPendingInput,
-  createChat,
-  deleteChat,
-  getChat,
-  getChatMetadata,
-  listPendingInputs,
-} from '@/db/chat.js'
+import { createChat, deleteChat, getChat, getChatMetadata } from '@/db/chat.js'
+import { addPendingInput, listPendingInputs } from '@/db/pendingInput.js'
 import { getSoulDb } from '@/db/index.js'
 import {
   getActiveChatEpoch,
@@ -31,17 +25,9 @@ import {
 } from '@/service/config/revision.js'
 import { detectRetiredRoleIdentities } from '@/service/config/roleLifecycle.js'
 import { treeBoundaryReason } from '@/service/config/treeBoundary.js'
-import {
-  activateChatRun,
-  clearChatRuntime,
-  ensureChat,
-  getChatSelection,
-  getSessionRoleConfiguration,
-  resolveEffectiveSelection,
-  releaseChatRun,
-  setEphemeralChatRuntime,
-  setSessionRoleRuntimes,
-} from '@/service/chat/runtime.js'
+import { clearChatRuntime, ensureChat, resolveEffectiveSelection, setSessionRoleRuntimes } from '@/service/chat/runtime.js'
+import { activateChatRun, getChatSelection, releaseChatRun } from '@/service/chat/runtimeCache.js'
+import { getSessionRoleConfiguration, setEphemeralChatRuntime } from '@/service/chat/sessionRoleRuntime.js'
 import { handleChatEpochList } from '@/service/chat/promptSnapshot.js'
 import { captureRuntimeConfig, getAppliedRawConfig, replaceRuntimeConfig } from '@/utils/config.js'
 import type { HandlerContext } from '@/service/message/router.js'

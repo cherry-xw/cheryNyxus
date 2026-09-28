@@ -1,4 +1,5 @@
 import { getSoulDb } from './index.js'
+import { jsonRows } from './helpers.js'
 import type { ModelRequestEvent } from '@/core/llm/usage.js'
 
 export interface StoredRequestUsage extends ModelRequestEvent {
@@ -38,16 +39,21 @@ export function saveRequestUsage(record: StoredRequestUsage): void {
 }
 
 export function readRequestUsage(taskKey: string): StoredRequestUsage[] {
-  return (
+  return jsonRows<StoredRequestUsage>(
     getSoulDb()
       .prepare(
         'SELECT data_json FROM model_request_usage WHERE task_key=? ORDER BY started_at,attempt_id',
       )
-      .all(taskKey) as { data_json: string }[]
-  ).map((row) => JSON.parse(row.data_json) as StoredRequestUsage)
+      .all(taskKey) as { [key: string]: unknown }[],
+    'data_json',
+  )
 }
 
-function page<T extends { attemptId?: string; id?: string }>(
+/**
+ * Offset 语义分页（游标为「上一页末位下标」字符串）。
+ * 供本模块 usage 页与 service/chat/usage.ts 的两个手写分页共用（E-08 收敛）。
+ */
+export function page<T>(
   items: T[],
   cursor: string | undefined,
   limit = 30,
@@ -81,13 +87,14 @@ export function saveUsageOperation(record: StoredUsageOperation): void {
 }
 
 export function readUsageOperations(taskKey: string): StoredUsageOperation[] {
-  return (
+  return jsonRows<StoredUsageOperation>(
     getSoulDb()
       .prepare(
         'SELECT data_json FROM usage_operations WHERE task_key=? ORDER BY started_at,operation_id',
       )
-      .all(taskKey) as { data_json: string }[]
-  ).map((row) => JSON.parse(row.data_json) as StoredUsageOperation)
+      .all(taskKey) as { [key: string]: unknown }[],
+    'data_json',
+  )
 }
 
 export function readUsageOperationsPage(taskKey: string, cursor?: string, limit?: number) {

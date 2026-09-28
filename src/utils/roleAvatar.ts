@@ -1,5 +1,5 @@
 /** 角色默认头像池。顺序是协议的一部分：前端使用同一顺序按角色名稳定映射。 */
-export const ROLE_AVATAR_POOL = [
+const ROLE_AVATAR_POOL = [
   '🧭',
   '🛠️',
   '🔬',
@@ -19,13 +19,13 @@ export const ROLE_AVATAR_POOL = [
 ] as const
 
 /** DJB2 变体；与前端 roleAvatar.ts 保持一致。 */
-export function roleAvatarHash(value: string): number {
+function roleAvatarHash(value: string): number {
   let hash = 5381
   for (let i = 0; i < value.length; i += 1) hash = (hash * 33) ^ value.charCodeAt(i)
   return hash >>> 0
 }
 
-export function defaultRoleAvatar(roleType: string): string {
+function defaultRoleAvatar(roleType: string): string {
   return ROLE_AVATAR_POOL[roleAvatarHash(roleType) % ROLE_AVATAR_POOL.length]!
 }
 

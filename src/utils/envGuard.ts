@@ -8,7 +8,7 @@
 import { listEnvVarMap } from './config.js'
 
 /** 敏感 key 判定（key 名匹配，大小写不敏感）。 */
-export const SENSITIVE_KEY_RE = /KEY|SECRET|TOKEN|PASSWORD|AUTH/i
+const SENSITIVE_KEY_RE = /KEY|SECRET|TOKEN|PASSWORD|AUTH/i
 
 /** 裸值子串替换最小长度（避免短值误伤，如 'true'/'0' 等通用短值）。 */
 export const MIN_BARE_VALUE_LENGTH = 8
@@ -21,7 +21,7 @@ let cachedEnvVarMap: Record<string, string> | null = null
  *
  * @returns key→value 映射
  */
-export function getEnvVarMap(): Record<string, string> {
+function getEnvVarMap(): Record<string, string> {
   if (cachedEnvVarMap === null) {
     cachedEnvVarMap = listEnvVarMap()
   }

@@ -185,7 +185,7 @@ export function createQuestionBatch(
  * One-time compatibility bridge for conversations created before question batches were persisted.
  * Only assistant calls whose sense result is still the legacy placeholder are recovered.
  */
-export function backfillLegacyPendingQuestionBatches(chatId: string): void {
+function backfillLegacyPendingQuestionBatches(chatId: string): void {
   const db = monthlyDbForChat(chatId)
   const migrated = db
     .prepare('SELECT legacy_backfill_version FROM question_projection_meta WHERE chat_id = ?')

@@ -10,7 +10,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat } from '@/db/chat.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
 import { getMonthlyDb, getSoulDb } from '@/db/index.js'
 import { completeQuestionBatch, createQuestionBatch } from '@/db/question.js'
 import type { QuestionBatchItemInput } from '@/db/question.js'

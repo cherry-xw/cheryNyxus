@@ -155,7 +155,7 @@ export function upsertConfigRevision(input: {
   return getConfigRevision(revisionId)!
 }
 
-export function getConfigRevision(revisionId: string): ConfigRevisionRecord | undefined {
+function getConfigRevision(revisionId: string): ConfigRevisionRecord | undefined {
   const row = getSoulDb()
     .prepare('SELECT * FROM config_revisions WHERE revision_id = ?')
     .get(revisionId) as ConfigRevisionRow | undefined

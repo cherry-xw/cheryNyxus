@@ -15,12 +15,9 @@ import {
   type Config,
   type ConfigRaw,
 } from '@/utils/config.js'
-import {
-  clearChatRuntime,
-  prepareTreeRuntimeRefresh,
-  reconcileSessionBrains,
-  renameSessionRoles,
-} from '@/service/chat/runtime.js'
+import { clearChatRuntime } from '@/service/chat/runtime.js'
+import { prepareTreeRuntimeRefresh } from '@/service/chat/treeRuntimeRefresh.js'
+import { reconcileSessionBrains, renameSessionRoles } from '@/service/chat/sessionRoleRuntime.js'
 import type { ConfigTreeAdapter } from './applyCoordinator.js'
 import {
   createConfigRevision,

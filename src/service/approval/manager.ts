@@ -33,7 +33,7 @@ export type ApprovalPayload = {
   security?: ToolAuthorization
 }
 
-export class ApprovalManager {
+class ApprovalManager {
   private approvals = new Map<string, ApprovalPayload | undefined>()
   private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -138,7 +138,7 @@ export class ApprovalManager {
   /**
    * 确认审批：转调 core registry resolve，触发 senseMiddleware await 解除。
    * @returns true=命中并 resolve；false=approvalId 失效（已被 abort/park/超时清出）。
-   *   规则12 fail loud：调用方（handleSenseApproval）据 false 抛错让前端感知，不静默丢弃。
+   *   规则12 fail loud：调用方据 false 抛错让前端感知，不静默丢弃。
    */
   confirm(approvalId: string, action: 'accept' | 'reject', reason?: string): boolean {
     if (this.approvals.has(approvalId)) {

@@ -1,14 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, beforeAll, expect, it } from 'vitest'
 import { bootstrapAgentRuntime } from '@/agent/bootstrap.js'
-import { createChat, deleteChat, listPendingInputs } from '@/db/chat.js'
-import {
-  ensureChat,
-  clearChatRuntime,
-  activateChatRun,
-  releaseChatRun,
-} from '@/service/chat/runtime.js'
-import { handleChatInputSubmit } from '@/service/chat/handler.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { listPendingInputs } from '@/db/pendingInput.js'
+import { ensureChat, clearChatRuntime } from '@/service/chat/runtime.js'
+import { activateChatRun, releaseChatRun } from '@/service/chat/runtimeCache.js'
+import { handleChatInputSubmit } from '@/service/chat/input.js'
 import { setTreeConfigBoundary } from '@/service/config/treeBoundary.js'
 import {
   configureRestartCoordinator,

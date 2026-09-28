@@ -422,7 +422,7 @@ export interface SkillFilter {
 }
 
 /** 判断单个 skill 是否通过 role 过滤（无 filter = 全部通过，向后兼容）。 */
-export function matchSkillFilter(
+function matchSkillFilter(
   s: Pick<SkillData, 'name' | 'plugin'>,
   filter?: SkillFilter,
 ): boolean {

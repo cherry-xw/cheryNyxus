@@ -84,7 +84,7 @@ function deriveKey(): Buffer {
 }
 
 /** AES-256-GCM 加密：返回 hex 编码的 ciphertext/iv(12B)/tag(16B)。 */
-export function encryptString(plain: string): EncryptedPayload {
+function encryptString(plain: string): EncryptedPayload {
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', deriveKey(), iv)
   const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
@@ -97,7 +97,7 @@ export function encryptString(plain: string): EncryptedPayload {
 }
 
 /** AES-256-GCM 解密：GCM tag 校验失败（密钥错误/密文篡改）抛错，调用方需自行 try/catch。 */
-export function decryptString(env: EncryptedPayload): string {
+function decryptString(env: EncryptedPayload): string {
   const decipher = createDecipheriv('aes-256-gcm', deriveKey(), Buffer.from(env.iv, 'hex'))
   decipher.setAuthTag(Buffer.from(env.tag, 'hex'))
   const dec = Buffer.concat([decipher.update(Buffer.from(env.ciphertext, 'hex')), decipher.final()])

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
 import { startService } from './service/index.js'
 import { getSoulDb, closeAllDbs } from './db/index.js'
-import { reconcileMessageCounts } from './db/chat.js'
+import { reconcileMessageCounts } from './db/message.js'
 import { compileSenses } from './core/sense/compiler/index.js'
 import {
   runSenseTestsAndCollect,
@@ -19,7 +19,7 @@ import { closeAllConnections } from '@/service/websocket/index.js'
 import { initLogger, logger, LogLevel } from '@/utils/logger/index.js'
 import config, { readRawConfig } from '@/utils/config.js'
 import { hashPassword, isHashed } from '@/utils/password.js'
-import { getAgentRuntimeStats, hasRunningChats } from '@/service/chat/runtime.js'
+import { getAgentRuntimeStats, hasRunningChats } from '@/service/chat/runtimeCache.js'
 import { reconcileOrphanedExecutionRuns } from '@/service/chat/runRecovery.js'
 import { sweepOrphanQuestionBatchesAcrossRoots } from '@/db/question.js'
 import {

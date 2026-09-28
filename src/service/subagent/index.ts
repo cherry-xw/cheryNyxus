@@ -20,7 +20,7 @@ import { appendChatEvent } from '@/db/delivery.js'
  * 主 chat 流活跃期间 chatId 一定有 connection 绑定（chat.send/resume bindChatConnection）。
  * 若主 chat 未绑定连接（异常路径）：warn + 不抛错，前端通过 chat.list/chat.get 重建子 pet。
  */
-export function installSpawnBroadcaster(): void {
+function installSpawnBroadcaster(): void {
   setSpawnBroadcaster((parentChatId, kind, data) => {
     const ws = connectionManager.findWsByChatId(parentChatId)
     const type = kind === 'created' ? 'role_created' : 'role_destroyed'
@@ -62,7 +62,7 @@ function sendNotification(ws: WebSocket, notif: Notification): void {
  *
  * chat.startSpawn RPC 不删除（保留为 recovery：重连 / 抢占 / 已 finished 同步 / 流加入）。
  */
-export function installEagerSpawnStarter(): void {
+function installEagerSpawnStarter(): void {
   setEagerSpawnStarter((taskId, parentChatId) => {
     // fire-and-forget：不等待，错误隔离在 runChildTaskInBackground 内部 try/catch。
     void runChildTaskInBackground(taskId, parentChatId)

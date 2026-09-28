@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { deleteChat } from '@/db/chat.js'
-import { isChatRunning } from '@/service/chat/runtime.js'
+import { isChatRunning } from '@/service/chat/runtimeCache.js'
 import type {
   ChatCreateResponseData,
   ChatListResponseData,

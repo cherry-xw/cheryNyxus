@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { SupervisionLevel } from '@/core/config'
 import { sense, type SenseResult, type SenseSharedData } from '@/core/sense'
 import { stopChildAgents } from '@/service/chat/childControl.js'
-import { dispatchToChild } from '@/service/chat/handler.js'
+import { dispatchToChild } from '@/service/chat/input.js'
 
 const stopChildSense = sense(
   'stop_child',

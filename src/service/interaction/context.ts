@@ -1,4 +1,5 @@
-import { getChat, getChatPreviews, getRootChatId } from '@/db/chat.js'
+import { getChat, getRootChatId } from '@/db/chat.js'
+import { getChatPreviews } from '@/db/message.js'
 import { safeJsonParse } from '@/utils/json.js'
 
 export interface InteractionContextSnapshot {

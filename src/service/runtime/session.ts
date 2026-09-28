@@ -1,5 +1,6 @@
 import { parseRuntimeSelection } from '@/agent/runtimeResolver.js'
-import { getChat, getChatRuntimeSelection } from '@/db/chat.js'
+import { getChatRuntimeSelection } from '@/db/chat.js'
+import { assertChatExists } from '../chat/guards.js'
 import { logger } from '@/utils/logger/index.js'
 import type { HandlerContext } from '../message/router.js'
 import {
@@ -7,12 +8,9 @@ import {
   type SessionRuntimeSetRequestData,
   type SessionRuntimeSetResponseData,
 } from '../message/types.js'
-import {
-  getChatSelection,
-  getSessionRoleConfiguration,
-  isChatRunning,
-  setSessionRoleRuntimes,
-} from '../chat/runtime.js'
+import { getChatSelection, isChatRunning } from '../chat/runtimeCache.js'
+import { getSessionRoleConfiguration } from '../chat/sessionRoleRuntime.js'
+import { setSessionRoleRuntimes } from '../chat/runtime.js'
 import config from '@/utils/config.js'
 
 /** 会话临时角色编制：验证后写内存 + 回灌已存在子 chat（idle 持久化到子 metadata；running 延迟）。 */
@@ -20,7 +18,7 @@ export async function handleSessionRuntimeSet(
   _ctx: HandlerContext,
   data: SessionRuntimeSetRequestData,
 ): Promise<SessionRuntimeSetResponseData> {
-  if (!getChat(data.chatId)) throw new Error('这个会话不见了')
+  assertChatExists(data.chatId)
   const primary = parseRuntimeSelection(data.primary, 'session.runtime.set.primary')
   const roles = Object.fromEntries(
     Object.entries(data.roles).map(([role, selection]) => [

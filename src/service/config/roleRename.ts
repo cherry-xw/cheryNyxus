@@ -40,7 +40,7 @@ export function migrateRoleRename(from: string, to: string): void {
   const db = getSoulDb()
   const now = Date.now()
 
-  // 1. spawn_tasks.type（findChildChatsWithType 按 type 匹配回灌的关联键）
+  // 1. spawn_tasks.type（session.runtime.set 按 type 匹配回灌的关联键）
   const taskResult = db
     .prepare('UPDATE spawn_tasks SET type = ?, updated_at = ? WHERE type = ?')
     .run(to, now, from)

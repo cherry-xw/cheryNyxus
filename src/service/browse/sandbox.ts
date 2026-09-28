@@ -50,7 +50,7 @@ export interface BrowseOptions {
 // ---- 跨平台适配 -------------------------------------------------------------
 
 /** 平台路径模块：win32 → path.win32，其余 → path.posix。 */
-export function pathFor(platform: NodeJS.Platform): typeof posixPath {
+function pathFor(platform: NodeJS.Platform): typeof posixPath {
   return platform === 'win32' ? winPath : posixPath
 }
 
@@ -60,7 +60,7 @@ export function sepFor(platform: NodeJS.Platform): '/' | '\\' {
 }
 
 /** win32 缺省根：枚举存在盘符 A:\..Z:\（仅 win32 平台探测，其余返回空）。 */
-export function enumerateWindowsDrives(): string[] {
+function enumerateWindowsDrives(): string[] {
   if (process.platform !== 'win32') return []
   const out: string[] = []
   for (let i = 0; i < 26; i += 1) {

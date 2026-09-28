@@ -1,13 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  addPendingInput,
-  createChat,
-  deleteChat,
-  getChat,
-  listPendingInputs,
-  updateChatMetadata,
-} from '@/db/chat.js'
+import { createChat, deleteChat, getChat, updateChatMetadata } from '@/db/chat.js'
+import { addPendingInput, listPendingInputs } from '@/db/pendingInput.js'
 import { createSpawnTask, finishSpawnTask, getSpawnTaskByChild } from '@/db/delivery.js'
 import {
   ensureActiveChatEpoch,

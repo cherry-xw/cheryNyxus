@@ -10,12 +10,8 @@ import {
   clearProcessRevisionCache,
   ensureCurrentConfigRevision,
 } from '@/service/config/revision.js'
-import {
-  activateChatRun,
-  clearChatRuntime,
-  ensureChat,
-  releaseChatRun,
-} from '@/service/chat/runtime.js'
+import { clearChatRuntime, ensureChat } from '@/service/chat/runtime.js'
+import { activateChatRun, releaseChatRun } from '@/service/chat/runtimeCache.js'
 import { getAppliedRawConfig, replaceRuntimeConfig } from '@/utils/config.js'
 import { connectMcpServerByName, closeMcpClients, getMcpServer } from '@/core/mcp/loader.js'
 import { getSense } from '@/core/sense/senseRegistry.js'

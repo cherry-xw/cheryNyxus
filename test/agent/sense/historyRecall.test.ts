@@ -12,8 +12,9 @@
  */
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat, getChat } from '@/db/chat.js'
-import { buildRootTimeline } from '@/service/chat/handler.js'
+import { createChat, deleteChat, getChat } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
+import { buildRootTimeline } from '@/service/chat/timeline.js'
 import config from '@/utils/config'
 import historyRecallSense from '@/agent/sense/historyRecall.js'
 import { SupervisionLevel } from '@/core/config.js'

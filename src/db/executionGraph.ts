@@ -1,4 +1,5 @@
 import { getSoulDb } from './index.js'
+import { jsonRow, jsonRows } from './helpers.js'
 
 export interface PersistedExecutionNode extends Record<string, unknown> {
   id: string
@@ -164,21 +165,25 @@ export function upsertExecutionEdge(input: ExecutionEdgeInput): PersistedExecuti
 }
 
 export function listExecutionNodes(rootChatId: string): PersistedExecutionNode[] {
-  const rows = getSoulDb()
-    .prepare(
-      'SELECT payload_json FROM execution_nodes WHERE root_chat_id = ? ORDER BY order_key ASC',
-    )
-    .all(rootChatId) as { payload_json: string }[]
-  return rows.map((row) => JSON.parse(row.payload_json) as PersistedExecutionNode)
+  return jsonRows<PersistedExecutionNode>(
+    getSoulDb()
+      .prepare(
+        'SELECT payload_json FROM execution_nodes WHERE root_chat_id = ? ORDER BY order_key ASC',
+      )
+      .all(rootChatId) as { [key: string]: unknown }[],
+    'payload_json',
+  )
 }
 
 export function listExecutionEdges(rootChatId: string): PersistedExecutionEdge[] {
-  const rows = getSoulDb()
-    .prepare(
-      'SELECT payload_json FROM execution_edges WHERE root_chat_id = ? ORDER BY order_key ASC',
-    )
-    .all(rootChatId) as { payload_json: string }[]
-  return rows.map((row) => JSON.parse(row.payload_json) as PersistedExecutionEdge)
+  return jsonRows<PersistedExecutionEdge>(
+    getSoulDb()
+      .prepare(
+        'SELECT payload_json FROM execution_edges WHERE root_chat_id = ? ORDER BY order_key ASC',
+      )
+      .all(rootChatId) as { [key: string]: unknown }[],
+    'payload_json',
+  )
 }
 
 export function upsertToolCallOwner(owner: ToolCallOwnerRow): void {
@@ -231,9 +236,9 @@ export function annotateExecutionNode(
   const db = getSoulDb()
   const row = db
     .prepare('SELECT payload_json FROM execution_nodes WHERE node_id = ?')
-    .get(nodeId) as { payload_json: string } | undefined
+    .get(nodeId) as Record<string, unknown> | undefined
   if (!row) return undefined
-  const current = JSON.parse(row.payload_json) as PersistedExecutionNode
+  const current = jsonRow<PersistedExecutionNode>(row, 'payload_json')!
   return upsertExecutionNode({ ...current, ...patch, orderKey: current.orderKey })
 }
 

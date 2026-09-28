@@ -18,11 +18,8 @@ import {
 } from '@/db/chat.js'
 import { emitRoleCreated, registerWaitedChild, startChildEager } from '@/agent/spawnBroker.js'
 import { logger } from '@/utils/logger/index.js'
-import {
-  getActiveChatRunId,
-  getSessionRoleRuntime,
-  setEphemeralChatRuntime,
-} from '@/service/chat/runtime.js'
+import { getActiveChatRunId } from '@/service/chat/runtimeCache.js'
+import { getSessionRoleRuntime, setEphemeralChatRuntime } from '@/service/chat/sessionRoleRuntime.js'
 import { createSpawnTask, getSpawnTaskByChild, setSpawnTaskOwnership } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
 import { getToolCallOwner } from '@/db/executionGraph.js'

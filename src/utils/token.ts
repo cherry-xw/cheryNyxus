@@ -9,7 +9,7 @@
  * 估算失败不阻塞（规则 12 fail loud：兜底 0 + console.warn，避免 chat.send/get 因
  * token 计算挂掉）。
  */
-import { getMessages, type MessageRow } from '@/db/chat.js'
+import { getMessages, type MessageRow } from '@/db/message.js'
 import { getChatRuntimeSelection } from '@/db/chat.js'
 import { readImageDimensionsSync } from '@/service/media/index.js'
 import config from '@/utils/config'
@@ -78,7 +78,7 @@ function sumRowTokens(row: MessageRow): number {
 /**
  * 累加 chat 所有消息 token（读 DB）。
  */
-export function sumChatTokens(chatId: string): number {
+function sumChatTokens(chatId: string): number {
   const messages = getMessages(chatId)
   let total = 0
   for (const m of messages) {

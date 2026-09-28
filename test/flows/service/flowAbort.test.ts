@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { deleteChat } from '@/db/chat.js'
 import { getInteraction } from '@/db/interaction.js'
 import { approvalManager } from '@/service/approval/manager.js'
-import { isChatRunning } from '@/service/chat/runtime.js'
+import { isChatRunning } from '@/service/chat/runtimeCache.js'
 import type {
   ChatAbortResponseData,
   ChatCreateResponseData,

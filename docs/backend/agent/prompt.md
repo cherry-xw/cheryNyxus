@@ -72,13 +72,13 @@ export default function buildFirstSystemPrompt(
 
 **skills 段：** 调用 [getSkillMetas(skillFilter)](../../../src/agent/prompt/loadSkill.ts)，扫描 `.chery/skills/`（独立）+ `.chery/plugins/*/`（插件）下所有 SKILL.md，每个 skill 仅含 `name`/`description`/`trigger`（**不含 content**）——完整指令按需由 [skill 感官](../../../src/agent/sense/skill.ts) 加载，避免 system prompt 膨胀。trigger 缺省则省略「触发条件」行。插件 skill 的 `name` 为 `<plugin>__<skill>`。`skillFilter` 给出时仅保留通过 `matchSkillFilter` 的子集（per-role 裁剪，详见下文「Plugins」段）。
 
-- 调用时机：[AgentBuilder.init()](../../../src/agent/builder.ts) `init(chatId, messages?, systemPromptFile?, workspace?, skillFilter?, roleMentions?, historyGenerations?)`——构造首条 `{role:"system"}` 消息。`skillFilter`（per-role 技能组/插件组过滤，详见下文「Plugins」段）仅作用于 `<skills>` 块注入，`undefined` = 全部 skill（向后兼容）。
+- 调用时机：[AgentBuilder.init()](../../../src/agent/builder.ts) `init(chatId, options?)`——选项包含 `messages`、`systemPromptFile`、`workspace`、`skillFilter`、`roleMentions`、`historyGenerations`、`frozenSystemPrompt`，并构造首条 `{role:"system"}` 消息。`skillFilter`（per-role 技能组/插件组过滤，详见下文「Plugins」段）仅作用于 `<skills>` 块注入，`undefined` = 全部 skill。
 
 **`<history_generations>` 段（LLM 历史回忆 L0 索引）**：`historyGenerations` 非空（该 chat 存在已定稿 compact 代际）时注入，每代一行摘要索引；`undefined` / 空数组 → 不注入（无 compact 历史零开销）。数据流：
 ```text
 来源：service/chat/generations.ts computeGenerations(chatId)（chat 创建/进程重启时现算）
   → ensureChat 投影为 HistoryGenerationInfo[] {index, summary, nodeCount, createdAt, trigger}
-  → builder.init(..., historyGenerations) → buildFirstSystemPrompt 注入 <history_generations> 段
+   → builder.init(chatId, { historyGenerations, ... }) → buildFirstSystemPrompt 注入 <history_generations> 段
 ```
 注入时机为 **chat 初始化**（system 消息构造时一次性注入，内存首条 system 随后不变）——进程内新增 compact 后索引滞后一代，重启 / 切回 chat 重建时刷新；细粒度回忆由 `history_recall` 感官承担（见 [core/sense.md](../core/sense.md)「内置感官：history_recall」）。`contextUsage` / `promptSnapshot` 重建时同样传入（token 计量与快照展示一致）。
 
@@ -93,7 +93,7 @@ export default function buildFirstSystemPrompt(
   → 写入 chat metadata.systemPromptFile
     （spawn createChat 写子 agent / chat.create 写预设主 agent）
   → ensureChat 读 getChatSystemPromptFile(chatId)
-  → builder.init(chatId, history, systemPromptFile)
+   → builder.init(chatId, { messages: history, systemPromptFile, ... })
   → buildFirstSystemPrompt(systemPromptFile) 合并「全局 base + 角色补充」→ 首条 system
 ```
 无 `systemPromptFile`（metadata 无此字段：非预设主 agent / 旧 chat）→ 仅全局 base（`.chery/prompt/system.md`）。字段名演进：subagentPromptPath（T6 之前）→ promptPathOverride（T6 通用化）→ systemPromptFile（语义修正：合并补充而非替换）。
@@ -104,7 +104,7 @@ export default function buildFirstSystemPrompt(
   → 写入 chat metadata.workspace
     （chat.create 写预设主 agent / spawn createChat 继承主 chat workspace 写子 agent）
   → ensureChat 读 getChatWorkspace(chatId)
-  → builder.init(chatId, history, systemPromptFile, workspace)
+   → builder.init(chatId, { messages: history, systemPromptFile, workspace, ... })
   → buildFirstSystemPrompt(systemPromptFile, workspace) → 注入 <workspace> 段
 ```
 **仅提示词层声明**：workspace 只在 system prompt 注入一段说明，**不**改变 bash/read_file/write_file 等感官的实际行为（无 cwd 收束、无路径沙箱）。无 `workspace`（非预设 chat / 预设未配 / 旧 chat）→ 不注入该段，行为同系统全局。
@@ -289,7 +289,7 @@ export function buildSystemPromptSegments(
 ### system prompt 注入流程
 
 ```text
-AgentBuilder.init(chatId, messages?, systemPromptFile?, workspace?, skillFilter?)
+AgentBuilder.init(chatId, { messages?, systemPromptFile?, workspace?, skillFilter?, ... })
   ├─ 构造 systemMsg = createInitialMessages(systemPromptFile, workspace, skillFilter)[0]
   ├─ messages 空？→ [systemMsg]
   ├─ messages 非空且首条 role!==system（重启后 observer 不持久化 system）→ [systemMsg, ...messages]（persona 修复）
@@ -352,7 +352,7 @@ const pluginsDir = config.global.plugins_dir;     // .chery/plugins（插件整�
   → spawn_role sense（子 agent）/ chat.create 解析预设 leader 角色（主 agent）
   → 写入 chat metadata.skillFilter = { skills?, plugins? }
   → ensureChat 读 getChatSkillFilter(chatId)
-  → builder.init(chatId, history, systemPromptFile, workspace, skillFilter)
+   → builder.init(chatId, { messages: history, systemPromptFile, workspace, skillFilter, ... })
   → buildFirstSystemPrompt(systemPromptFile, workspace, skillFilter)
        → getSkillMetas(skillFilter) 仅返回通过 matchSkillFilter 的子集 → <skills> 块裁剪
 ```

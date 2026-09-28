@@ -12,6 +12,7 @@ import type {
   WorkflowWaitReason,
 } from '@chery/protocol'
 import { getSoulDb } from './index.js'
+import { jsonRows } from './helpers.js'
 
 const TERMINAL_STATUSES = new Set<WorkflowOccurrenceStatus>([
   'succeeded',
@@ -542,17 +543,18 @@ export function readWorkflowJournalPage(options: WorkflowJournalPageOptions): {
   const occurrences = occurrenceIds
     .map((occurrenceId) => byId.get(occurrenceId))
     .filter((occurrence): occurrence is WorkflowOccurrence => !!occurrence)
-  const gaps = (
+  const gaps = jsonRows<WorkflowGap>(
     db
       .prepare(
         `SELECT payload_json FROM workflow_journal_gaps
          WHERE root_chat_id = ? AND from_sequence <= ? AND to_sequence > ?
          ORDER BY from_sequence ASC LIMIT 50`,
       )
-      .all(options.rootChatId, upperSequence, options.afterSequence ?? 0) as Array<{
-      payload_json: string
-    }>
-  ).map((row) => JSON.parse(row.payload_json) as WorkflowGap)
+      .all(options.rootChatId, upperSequence, options.afterSequence ?? 0) as {
+      [key: string]: unknown
+    }[],
+    'payload_json',
+  )
   return {
     revision: root?.revision ?? 0,
     historyGeneration,
@@ -597,16 +599,15 @@ export function readWorkflowStepSnapshot(rootChatId: string, tailLimit = 80): Wo
       )
       .all(rootChatId) as Array<{ payload_json: string }>
   ).map((row) => parseOccurrence(row.payload_json))
-  const gaps = (
+  const gaps = jsonRows<WorkflowGap>(
     db
       .prepare(
         `SELECT payload_json FROM workflow_journal_gaps
          WHERE root_chat_id = ? ORDER BY from_sequence DESC LIMIT 50`,
       )
-      .all(rootChatId) as Array<{ payload_json: string }>
-  )
-    .map((row) => JSON.parse(row.payload_json) as WorkflowGap)
-    .reverse()
+      .all(rootChatId) as Array<{ [key: string]: unknown }>,
+    'payload_json',
+  ).reverse()
   const firstSequence = recentEvents[0]?.sequence ?? upperSequence + 1
   const earlier = db
     .prepare(
@@ -643,46 +644,3 @@ export function listWorkflowJournalStages(rootChatId: string): Array<{
   }))
 }
 
-export function deleteWorkflowJournalScope(
-  rootChatId: string,
-  chatId: string,
-  deleteRoot: boolean,
-): void {
-  const db = getSoulDb()
-  const commit = db.transaction((): WorkflowJournalCommit | undefined => {
-    if (deleteRoot) {
-      db.prepare('DELETE FROM workflow_step_events WHERE root_chat_id = ?').run(rootChatId)
-      db.prepare('DELETE FROM workflow_occurrences WHERE root_chat_id = ?').run(rootChatId)
-      db.prepare('DELETE FROM workflow_journal_gaps WHERE root_chat_id = ?').run(rootChatId)
-      db.prepare('DELETE FROM workflow_journal_roots WHERE root_chat_id = ?').run(rootChatId)
-      return undefined
-    }
-    const root = db
-      .prepare('SELECT revision FROM workflow_journal_roots WHERE root_chat_id = ?')
-      .get(rootChatId) as { revision: number } | undefined
-    db.prepare(
-      'DELETE FROM workflow_step_events WHERE root_chat_id = ? AND source_chat_id = ?',
-    ).run(rootChatId, chatId)
-    db.prepare(
-      'DELETE FROM workflow_occurrences WHERE root_chat_id = ? AND source_chat_id = ?',
-    ).run(rootChatId, chatId)
-    db.prepare(
-      'DELETE FROM workflow_journal_gaps WHERE root_chat_id = ? AND source_chat_id = ?',
-    ).run(rootChatId, chatId)
-    if (!root) return undefined
-    db.prepare(
-      `UPDATE workflow_journal_roots
-       SET revision = revision + 1, history_generation = history_generation + 1,
-           updated_at = ? WHERE root_chat_id = ?`,
-    ).run(Date.now(), rootChatId)
-    return {
-      rootChatId,
-      baseRevision: root.revision,
-      revision: root.revision + 1,
-      events: [],
-      gaps: [],
-      invalidated: true,
-    }
-  })()
-  if (commit) publishCommit(commit)
-}

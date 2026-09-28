@@ -22,7 +22,7 @@ import { registerConversationRouterHandlers } from './chat/conversationRouter.js
 import { registerConversationBranchHandlers } from './chat/conversationBranch.js'
 import { registerInteractionHandlers } from './interaction/handler.js'
 import { startInteractionLifecycle, stopInteractionLifecycle } from './interaction/lifecycle.js'
-import { requestParkAfterTurn } from './chat/runtime.js'
+import { requestParkAfterTurn } from './chat/runtimeCache.js'
 import { disconnectGrace } from './websocket/disconnectGrace.js'
 import { approvalManager } from './approval/manager.js'
 import { registerBashHandlers } from './bash/handler.js'

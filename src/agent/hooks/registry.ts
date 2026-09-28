@@ -9,8 +9,8 @@
  * 详见 [docs/backend/agent/hooks.md](../../../../docs/backend/agent/hooks.md)。
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { logger, LogLevel } from '@/utils/logger/index.js'
 import config from '@/utils/config.js'
 import { resolvePosixShell } from '@/core/security/sandbox.js'
@@ -236,13 +236,4 @@ export function readBrainHooksMap(): Record<string, HookHandlerMap> {
     if (hooks) result[brainName] = hooks
   }
   return result
-}
-
-/** 写入全局 hooks.json + 清缓存。路径不存在时自动创建目录。 */
-export function writeGlobalHooks(handlers: HookHandlerMap): void {
-  const cheryDir = process.env.CHERY_DIR || process.cwd()
-  const globalPath = join(cheryDir, '.chery', GLOBAL_HOOKS_FILE)
-  mkdirSync(dirname(globalPath), { recursive: true })
-  writeFileSync(globalPath, JSON.stringify(handlers, null, 2), 'utf8')
-  clearHookRegistry()
 }

@@ -1,5 +1,6 @@
 import { parseRuntimeSelection } from '@/agent/runtimeResolver.js'
-import { getChat, getChatPreset, getChatRuntimeSelection } from '@/db/chat.js'
+import { getChatPreset, getChatRuntimeSelection } from '@/db/chat.js'
+import { assertChatExists } from '../chat/guards.js'
 import type { HandlerContext } from '../message/router.js'
 import {
   Method,
@@ -28,10 +29,7 @@ export async function handleRuntimeSet(
   data: RuntimeSetRequestData,
 ): Promise<RuntimeSetResponseData> {
   const p = data
-  const chat = getChat(p.chatId)
-  if (!chat) {
-    throw new Error('这个会话不见了')
-  }
+  assertChatExists(p.chatId)
 
   let brain: string
   let senseGroup: string

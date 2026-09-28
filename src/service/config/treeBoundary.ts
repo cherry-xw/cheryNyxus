@@ -3,12 +3,8 @@ import { getChat, getChatMetadata } from '@/db/chat.js'
 import { getRootChatIdForEpoch } from '@/db/epoch.js'
 import type { ConfigRaw } from '@/utils/config.js'
 import type { ConfigImpact } from '@chery/protocol'
-import {
-  getActiveChatRunId,
-  getChatSelection,
-  getSessionRoleConfiguration,
-  isChatRunning,
-} from '@/service/chat/runtime.js'
+import { getActiveChatRunId, getChatSelection, isChatRunning } from '@/service/chat/runtimeCache.js'
+import { getSessionRoleConfiguration } from '@/service/chat/sessionRoleRuntime.js'
 import { getWaitedParent } from '@/agent/spawnBroker.js'
 
 export function treeChatIds(chatId: string): string[] {

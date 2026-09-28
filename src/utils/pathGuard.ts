@@ -55,7 +55,7 @@ export function isCheryPath(target: string): boolean {
  * 匹配 .chery/rule 作为路径段：(^|[\/\\])\.chery[\/\\]rule([\/\\]|$) —— 不误伤 .chery/rules.txt。
  * 绝对路径额外 resolve 判定落 <root>/.chery/rule 下。
  */
-export function isRuleDirPath(target: string): boolean {
+function isRuleDirPath(target: string): boolean {
   if (!target) return false
   const t = target.trim()
   if (/(^|[\/\\])\.chery[\/\\]rule([\/\\]|$)/.test(t)) return true
@@ -111,7 +111,7 @@ export function isCheryInfoOnlyCommand(command: string): boolean {
  * 从感官 args 提取路径参数（可能命中 .chery 的字段）。
  * execute_command 取 command（shell 字符串里可能含 .chery 路径）。
  */
-export function extractSensePaths(name: string, args: Record<string, unknown>): string[] {
+function extractSensePaths(name: string, args: Record<string, unknown>): string[] {
   switch (name) {
     case 'write_file':
     case 'read_file':

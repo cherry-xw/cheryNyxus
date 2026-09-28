@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { createChat, updateChatMetadata } from '@/db/chat.js'
-import { ensureChat, clearChatRuntime, activateChatRun, releaseChatRun } from '../chat/runtime.js'
+import { ensureChat, clearChatRuntime } from '../chat/runtime.js'
+import { activateChatRun, releaseChatRun } from '../chat/runtimeCache.js'
 import { observeAgentChunks } from '../chat/observer.js'
 import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import type { SkillFilter } from '@/agent/prompt/loadSkill.js'

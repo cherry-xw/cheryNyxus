@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { getSoulDb } from './index.js'
+import { jsonRow } from './helpers.js'
+import type { ConversationBranchKind } from '@/service/message/types.js'
 
-export type ConversationBranchKind = 'original' | 'continuation' | 'detail'
+export type { ConversationBranchKind }
 
 export interface ConversationTaskRow {
   taskId: string
@@ -47,9 +49,9 @@ function branchFromRow(row: Record<string, unknown>): ConversationBranchRow {
     ...(row.anchor_root_chat_id ? { anchorRootChatId: String(row.anchor_root_chat_id) } : {}),
     ...(row.anchor_node_id ? { anchorNodeId: String(row.anchor_node_id) } : {}),
     ...(row.context_snapshot_json
-      ? { contextSnapshot: JSON.parse(String(row.context_snapshot_json)) as unknown }
+      ? { contextSnapshot: jsonRow<unknown>(row, 'context_snapshot_json') }
       : {}),
-    runtimeSnapshot: JSON.parse(String(row.runtime_snapshot_json)) as Record<string, unknown>,
+    runtimeSnapshot: jsonRow<Record<string, unknown>>(row, 'runtime_snapshot_json')!,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   }
