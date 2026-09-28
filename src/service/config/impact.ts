@@ -95,6 +95,7 @@ const fields: Record<string, string[]> = {
     'stream',
     'sense_execute_timeout',
     'approval_timeout',
+    'llm_request_timeout_ms',
     'approval_hard_timeout',
     'disconnect_grace_ms',
     'maxLoopCount',

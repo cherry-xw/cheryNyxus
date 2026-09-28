@@ -1,5 +1,6 @@
 # 首次启动只需在「设置 → 大脑」中配置 default；完整字段见 docs/config.md。
 global:
+  llm_request_timeout_ms: 600000 # 单次模型请求最多 10 分钟；0 = 不限时
   thinking: true
   supervision: manual
   stream: true

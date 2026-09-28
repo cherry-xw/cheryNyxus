@@ -1243,6 +1243,110 @@ describe('projectLiteHistory run-history projection', () => {
     expect(tool?.startedAt).toBe(10)
     expect(tool?.status).toBe('completed')
   })
+
+  it('freezes a tool node while its call awaits approval (阻塞等待不计入工具耗时)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        toolBatch('batch-approval', 20, [
+          { callId: 'approval-1', name: 'write_file', status: 'pending' },
+        ]),
+      ],
+      {
+        rootChatId: 'root',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: 0,
+        steps: [],
+        agents: [],
+      },
+      100,
+      undefined,
+      new Map([['approval-1', 25]]),
+    )
+    const tool = view.nodes.find((node) => node.nodeId === 'batch-approval')
+    // 冻结值 = 审批发起时刻 − 节点创建时刻（≈0，节点 createdAt=20、审批发起=25）
+    expect(tool?.status).toBe('running')
+    expect(tool?.active).toBe(true)
+    expect(tool?.startedAt).toBe(20)
+    expect(tool?.elapsedMs).toBe(5)
+    // 审批等待期间不显示 completedAt（仍在等待）
+    expect(tool?.completedAt).toBeUndefined()
+  })
+
+  it('resumes ticking a tool node after its approval resolves (approvalWait 为空 → 照常计时)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        toolBatch('batch-approval', 20, [
+          { callId: 'approval-1', name: 'write_file', status: 'pending' },
+        ]),
+      ],
+      {
+        rootChatId: 'root',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: 0,
+        steps: [],
+        agents: [],
+      },
+      100,
+    )
+    const tool = view.nodes.find((node) => node.nodeId === 'batch-approval')
+    // 无待审批集合：pending 工具节点照常按 now 计时（active）
+    expect(tool?.status).toBe('running')
+    expect(tool?.active).toBe(true)
+    expect(tool?.elapsedMs).toBe(80)
+  })
+
+  it('does not freeze a question tool node even when its id is in approvalWait (提问是释放等待)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        {
+          id: 'batch-q',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          sourceMessageId: 'msg-q',
+          kind: 'tool-batch',
+          actor: { kind: 'agent', chatId: 'root' },
+          direction: 'internal',
+          visibility: 'detail',
+          content: '',
+          toolCalls: [
+            {
+              callId: 'qid-1',
+              index: 0,
+              name: 'ask_user_question',
+              status: 'completed' as const,
+              arguments: '{"question":"选哪个","options":[]}',
+            },
+          ],
+          answeredAt: 90,
+          orderKey: 20,
+          createdAt: 10,
+          updatedAt: 10,
+          status: 'committed',
+        },
+      ],
+      {
+        rootChatId: 'root',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: 0,
+        steps: [],
+        agents: [],
+      },
+      100,
+      undefined,
+      new Map([['qid-1', 15]]),
+    )
+    const tool = view.nodes.find((node) => node.nodeId === 'batch-q')
+    // 提问工具即使被误加入 approvalWait，仍按真实等待 answeredAt − createdAt 计时（释放等待不冻结）
+    expect(tool?.elapsedMs).toBe(80)
+    expect(tool?.status).toBe('completed')
+    expect(tool?.active).toBe(false)
+  })
 })
 
 describe('classifyToolType tool-type classification (需求 5 配色)', () => {

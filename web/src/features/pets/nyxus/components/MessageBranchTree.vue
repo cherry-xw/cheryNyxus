@@ -5,8 +5,7 @@ import type {
   MessageBranchTreeControllerEmits,
 } from './treeControllerTypes'
 import { useOverlayTransitionHooks } from '@/composables/useOverlayAnimation'
-import { computed, ref, toRef, onMounted, onBeforeUnmount } from 'vue'
-import { durationColor, durationSeverity, readableDuration } from '@/domain/chat/executionDuration'
+import { computed, ref, toRef } from 'vue'
 import { useTreePointerHighlight } from './useTreePointerHighlight'
 import TreeTaskPlanMarker from '@/features/agent/task-plan/TreeTaskPlanMarker.vue'
 const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), {
@@ -17,37 +16,6 @@ const props = withDefaults(defineProps<MessageBranchTreeControllerProps>(), {
   sidePanelTitle: '',
 })
 const emit = defineEmits<MessageBranchTreeControllerEmits>()
-const durationNow = ref(Date.now())
-let durationTimer: ReturnType<typeof setInterval> | undefined
-onMounted(() => {
-  durationTimer = setInterval(() => {
-    durationNow.value = Date.now()
-  }, 1000)
-})
-onBeforeUnmount(() => {
-  if (durationTimer) clearInterval(durationTimer)
-})
-function nodeElapsed(node: { createdAt: number }): number {
-  return Math.max(0, durationNow.value - node.createdAt)
-}
-function nodeElapsedLabel(node: {
-  createdAt: number
-  kind: string
-  actor: { kind: string }
-}): string {
-  const elapsed = readableDuration(nodeElapsed(node))
-  const limit = props.modelRequestTimeoutMs ?? 600000
-  return node.kind === 'message' && node.actor.kind === 'agent' && limit > 0
-    ? `${elapsed}/${readableDuration(limit)}`
-    : elapsed
-}
-function isActiveExecution(node: { kind: string; activeRuns: Array<{ status: string }> }): boolean {
-  return (
-    node.kind !== 'start' &&
-    node.kind !== 'input' &&
-    node.activeRuns.some((run) => run.status === 'running')
-  )
-}
 const controller = useMessageBranchTreeController(props, emit)
 const detailMotion = useOverlayTransitionHooks('panel')
 const drawerMotion = useOverlayTransitionHooks('drawer')
@@ -307,7 +275,6 @@ defineExpose({ resetLayout: controller.resetLayout })
               node.y,
               nodeTitle(node),
               node.status,
-              isActiveExecution(node) ? durationNow : 0,
               gpuNodeAccent(node),
               canvas.scale.value,
               canvas.offsetX.value,
@@ -315,16 +282,7 @@ defineExpose({ resetLayout: controller.resetLayout })
             ]"
             type="button"
             class="gpu-node-hit-target"
-            :class="
-              isActiveExecution(node)
-                ? `is-duration-${durationSeverity(nodeElapsed(node), 60000, 180000)}`
-                : ''
-            "
-            :data-duration="isActiveExecution(node) ? nodeElapsedLabel(node) : undefined"
-            :style="{
-              ...gpuNodeHitStyle(node),
-              '--node-duration-color': durationColor(nodeElapsed(node), 60000, 180000),
-            }"
+            :style="gpuNodeHitStyle(node)"
             :aria-label="nodeAriaLabel(node)"
             :data-execution-node-id="node.id"
             @pointerdown="handleNodePointerDown($event, node)"

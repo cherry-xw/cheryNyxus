@@ -27,6 +27,11 @@ export class CheckpointState {
   private thinkingBlocks: ThinkingBlock[] = []
   /** 本轮 assistant 是否已在 sense_end 时 flush（避免 finally 重复 push） */
   private assistantFlushed = false
+  private timeoutMs: number | null = null
+
+  markModelExcluded(timeoutMs: number): void {
+    this.timeoutMs = timeoutMs
+  }
   /** 第一次 flush 时记录的 assistant id（流结束后 reconcile senseCalls 用） */
   private flushedAssistantId: string | null = null
   /** 预分配的本轮 assistant 消息 id（= 落库 id = chat.get 回放 id）。
@@ -118,6 +123,7 @@ export class CheckpointState {
     this.thinkingBlockAssembler = new ThinkingBlockAssembler()
     this.thinkingBlocks = []
     this.assistantFlushed = false
+    this.timeoutMs = null
     this.flushedAssistantId = null
     this.flushedAssistantSenseCalls = []
     this.securityByCallId.clear()
@@ -200,18 +206,25 @@ export class CheckpointState {
     // assistant 响应（包含 thinking 和 senseCalls）
     // sense_call 流已在 sense_end 时 flush（assistantFlushed=true），此处跳过避免重复 push；
     // 仅纯 content/thinking 流（未触发 sense_end）在此构建。
-    if (!this.assistantFlushed && (this.content || this.thinking || mergedSenseCalls.length > 0)) {
+    if (
+      !this.assistantFlushed &&
+      (this.content || this.thinking || mergedSenseCalls.length > 0 || this.timeoutMs !== null)
+    ) {
       const senseCalls = this.buildSenseCalls()
       this.thinkingBlocks = this.thinkingBlockAssembler.toArray()
       const message = ctx.journal.appendAssistant(
         {
-          content: this.content,
+          content:
+            this.timeoutMs === null
+              ? this.content
+              : `${this.content}${this.content ? '\n\n' : ''}【模型请求超时截断；此段不会传给模型继续使用】`,
           thinking: this.thinking,
           thinkingBlocks: this.thinkingBlocks.length > 0 ? this.thinkingBlocks : undefined,
           senseCalls,
         },
         this.assistantId,
       )
+      if (this.timeoutMs !== null) message.modelExcluded = true
       // 流式场景（无 sense_end 触发）此路径直接拿到完整 senseCalls，不需要 reconcile
       this.assistantFlushed = true
       this.flushedAssistantId = message.id

@@ -4,6 +4,7 @@ import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { classifyError, ClassifiedError, type ErrorCategory } from '@/utils/error.js'
+import { ModelRequestTimeoutError } from './requestTimeout.js'
 
 // ========== 配置常量 ==========
 // 最多尝试 MAX_RETRIES 次（含首次）。重试间隔指数退避：第 attempt 次失败后等
@@ -114,6 +115,7 @@ export async function* retryMiddleware(
       }
       return // 成功，结束
     } catch (error) {
+      if (error instanceof ModelRequestTimeoutError) throw error
       // provider 因 AbortSignal 抛出的网络错误不能落入 retry；watchdog 已终止此 run。
       if (ctx.pipeline?.isAbortRequested()) throw new AgentAbortError()
       // compose abort（chat.abort 注入的 AgentAbortError）：直接 re-throw 传播退出整个 generator，

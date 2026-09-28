@@ -221,36 +221,6 @@
   cursor: pointer;
   pointer-events: auto;
 }
-.gpu-node-hit-target[data-duration]::after {
-  content: attr(data-duration);
-  position: absolute;
-  left: 50%;
-  bottom: -18px;
-  translate: -50% 0;
-  color: var(--node-duration-color);
-  background: var(--surface);
-  border: 1px solid currentColor;
-  padding: 1px 4px;
-  font-size: 12px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-}
-.gpu-node-hit-target.is-duration-yellow::after { animation: node-duration-warn 4s infinite; }
-.gpu-node-hit-target.is-duration-red::after { animation: node-duration-danger 3s infinite; }
-@keyframes node-duration-warn {
-  0%, 6%, 10%, 100% { transform: translateX(0); }
-  7% { transform: translateX(-1px); }
-  9% { transform: translateX(1px); }
-}
-@keyframes node-duration-danger {
-  0%, 14%, 100% { transform: translateX(0); }
-  2%, 6%, 10% { transform: translateX(-2px); }
-  4%, 8%, 12% { transform: translateX(2px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .gpu-node-hit-target[data-duration]::after { animation: none; }
-}
 .gpu-node-hit-layer {
   position: absolute;
   inset: 0;

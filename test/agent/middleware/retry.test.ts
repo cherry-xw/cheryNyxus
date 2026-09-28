@@ -17,6 +17,7 @@ import {
   retryMiddleware,
 } from "@/agent/middleware/retry.js";
 import { AgentAbortError } from "@/core/middleware/errors.js";
+import { ModelRequestTimeoutError } from "@/agent/middleware/requestTimeout.js";
 import { ClassifiedError } from "@/utils/error.js";
 import { ErrorId } from "@chery/protocol";
 import type { MiddlewareChunk, ErrorChunk, StreamChunk } from "@/core/middleware/types.js";
@@ -24,6 +25,17 @@ import { createMockContext } from "../helpers/fakeContext.js";
 import { collectChunks } from "../helpers/chunkAssert.js";
 
 type NextFactory = () => AsyncGenerator<MiddlewareChunk>;
+
+it("模型请求硬超时不重试，也不当普通可恢复网络超时", async () => {
+  const ctx = createMockContext({ messages: [] });
+  let attempts = 0;
+  const next = async function* (): AsyncGenerator<MiddlewareChunk> {
+    attempts++;
+    throw new ModelRequestTimeoutError(1000);
+  };
+  await expect(collectChunks(retryMiddleware(ctx, next))).rejects.toBeInstanceOf(ModelRequestTimeoutError);
+  expect(attempts).toBe(1);
+});
 
 /** 构造按顺序行为的 next：每次调用取下一个 behavior */
 function sequenceNext(behaviors: NextFactory[]): NextFactory {

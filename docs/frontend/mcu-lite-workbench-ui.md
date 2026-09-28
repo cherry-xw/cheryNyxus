@@ -170,7 +170,7 @@
 - 重连判定规则（mcu-lite-api §3.6）：run 是否已结束的唯一判定 = chat.open state 快照中无该 runId 且 revision 自愈完成；**不依赖重放错过的 done/run.updated**。
 
 ### 4.9 审批超时倒计时（v0.2 补）
-- 审批行显示本地渲染倒计时：`remaining = deadlineAt − (now + Δ)`，Δ = serverNow 校准偏移（interaction.list 与 done 投影每轮免费校准）。
+- 审批行显示本地渲染倒计时：`remaining = deadlineAt − (now + Δ)`，Δ = serverNow 校准偏移（interaction.list 与 done 投影每轮免费校准）。**倒计时按秒自动刷新（2026-09-28 修复）**：`calibratedNow()` 是普通函数调用、不参与响应式依赖，若直接在 computed 里使用剩余秒数不会随时间重算；`useLiteInteractions` 用每秒刷新的 `countdownNow` ref（仅在存在带 deadlineAt 的进行中交互时启动定时器）作为响应式时钟驱动 `remainingLabel`，关闭即停止。
 - 到点后 UI 将审批行转为「已超时（服务端自动拒绝）」终态——**以 interaction.changed(status='expired') 为驱动信号**（服务端 deadlineAt 到点自动 reject/expire，见 protocol.md interactions 生命周期）；本地倒计时仅提示性渲染，过期 decide 的真实结果以响应 interaction.status 为准（C4：到期仍调用返回成功响应 status=expired）。
 - 超时态审批行不可再操作（按钮置灰），可展开查看参数详情（node.get 链路不变）。
 
@@ -197,7 +197,7 @@ lite 视图对话流上方的多流水线运行轨迹。**一轴 = 一个 Agent 
 - **zoom 应用**：渲染宽 = `基准宽 × zoom`，clamp 到 `[10, 180]`。放大块变长、轨道变宽（配横向滚动条 LiteScrollbar）；**变短下限 10px** 保证可点击命中、**变长上限 180px**。缩放范围 0.4x–5x，Ctrl/⌘+滚轮缩放（普通滚轮仍由 LiteScrollbar 横向平移）。
 - **两档 clamp（v0.5.1 修正定稿）**：执行节点（模型响应 / 工具，按耗时线性映射）宽 = `耗时秒数 × 1px × zoom`，**正常档** clamp `[MIN_BAR_PX=10, MAX_BAR_PX=180]`——空间足够时执行时间真实区分（2 分钟≈120px、30 秒≈30px、10 秒≈10px、超过 180s 封顶 180px）；**挤压档**（块排不下时）clamp `[MIN_BAR_PX=10, COMPRESSED_MAX_BAR_PX=30]`——整体挤压、长执行封顶 30px。**挤压判定口径**：按「每条链路块固有宽之和 + 1px 间隙」的紧凑口径是否超出视口宽度判定（排除时间 gap 占位——gap 只决定块位置、不参与挤压判定），避免长会话时间空隙把正常档撑成挤压档；事件节点（用户/返回/委派/协作/系统）固定宽（user=16 / 其他=12）× zoom，同样 clamp 下限 10（缩放 0.4x 不窄于 10px）。
 - **块序列化推进（v0.5.2 修正定稿，防遮挡硬约束）**：块 left 不再直接取时间 gap 光标，而取 `max(时间 gap 位置, 同一轨道前一块 right + 1px)`——线性流程同一轨道内块间**最低 1px 间隔、绝不互相遮挡**（根源矛盾：gap 增量上限 24px 远小于块宽上限 180px，纯时间定位下长耗时块必然压住后续块）；时间 gap 在块不挤（窄块）时仍保留占位，体现真实等待；块真挤（宽块）时后续块被顺延到右缘 + 1px。
-- **节点耗时（修正定稿）**：`projectLiteHistory` 中**已提交节点一律以节点自身 `createdAt/updatedAt` 为权威时间**（耗时 = `updatedAt − createdAt`），不依赖 execution step——`chat.open.state.executionSteps` 只是 root 订阅的**当前执行窗口**快照（`executionStepLimit` 约束下仅保留最近步骤），若对长对话的历史节点做时间匹配，前段节点会在匹配窗口内错误命中末尾步骤、污染 `startedAt` 导致排序与行分组错乱（精简模式 cluster 丢失工具、轮末回复错位）。execution step 仅用于**运行中**节点的实时计时（`matchedStep.status==='running'`；未匹配的 running step 由 `projectLiteHistory` 合成为运行中占位节点，见 [`executionMonitor.ts`](../../web/src/features/lite/executionMonitor.ts)）。
+- **节点耗时（修正定稿）**：`projectLiteHistory` 中**已提交节点一律以节点自身 `createdAt/updatedAt` 为权威时间**（耗时 = `updatedAt − createdAt`），不依赖 execution step——`chat.open.state.executionSteps` 只是 root 订阅的**当前执行窗口**快照（`executionStepLimit` 约束下仅保留最近步骤），若对长对话的历史节点做时间匹配，前段节点会在匹配窗口内错误命中末尾步骤、污染 `startedAt` 导致排序与行分组错乱（精简模式 cluster 丢失工具、轮末回复错位）。execution step 仅用于**运行中**节点的实时计时（`matchedStep.status==='running'`；未匹配的 running step 由 `projectLiteHistory` 合成为运行中占位节点，见 [`executionMonitor.ts`](../../web/src/features/lite/executionMonitor.ts)）。**审批等待（阻塞等待）不计入工具耗时（2026 冻结）**：工具节点有待审批调用（`approvalWait` 第五参，callId→审批发起时间，来自 `lite.interactions` 的 approval + pending/blocked）且非提问时，计时冻结在审批发起时刻（≈0），审批通过后才真正执行（`sense_started` 才建 execution step）；提问（释放等待）不在冻结之列，仍按 `answeredAt − createdAt` 真实等待计时。
 
 **布局与视觉**
 - **无时间刻度轴、无省略号、无空隙压缩标记**（删除 v0.3/v0.3.1 的底部均匀刻度与空隙段省略号——时间跨度展示被放弃，改为紧凑块流）。

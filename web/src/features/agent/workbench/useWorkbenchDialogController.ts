@@ -818,6 +818,16 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       (item) => !!attentionRootChatId.value && item.rootChatId === attentionRootChatId.value,
     ),
   )
+  /** 当前待审批调用（interactionId → 审批发起时间）：总运行时长在审批等待期间冻结（阻塞等待不计时）。 */
+  const approvalWaitByInteractionId = computed(() => {
+    const map = new Map<string, number>()
+    for (const item of workspacePending.value) {
+      if (item.kind !== 'approval') continue
+      if (item.status !== 'pending' && item.status !== 'blocked') continue
+      map.set(item.interactionId, item.createdAt)
+    }
+    return map
+  })
   const currentAttentionCount = computed(() => workspacePending.value.length)
   /** 其他工作区的待处理数量；标题栏铃铛入口打开统一审核窗口。 */
   const attentionCount = computed(
@@ -1024,6 +1034,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     brainConfig,
     usage: treeUsage,
     breakdown: treeBreakdown,
+    approvalWait: approvalWaitByInteractionId,
   })
 
   // 查看上下文侧边抽屉：rail ❐ 按钮点击开关（原小弹窗空间不足，改为工作台右缘抽屉）。

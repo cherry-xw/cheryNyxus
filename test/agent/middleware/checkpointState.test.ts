@@ -8,274 +8,330 @@
  * - appendResponseMessages：未 flushed 构建 assistant；sense result 创建/更新；recovery 原地更新
  * - mergeSenseDeltas：按 index 合并 arguments（经 flushAssistant senseCalls 验证）
  */
-import { describe, it, expect } from "vitest";
-import { CheckpointState } from "@/agent/middleware/checkpointState.js";
-import type {
-  StreamChunk,
-  SenseAcceptChunk,
-  SenseRejectChunk,
-} from "@/core/middleware/types.js";
-import { createMockContext } from "../helpers/fakeContext.js";
-import type { ToolAuthorization } from "@/core/security/index.js";
+import { describe, it, expect } from 'vitest'
+import { CheckpointState } from '@/agent/middleware/checkpointState.js'
+import type { StreamChunk, SenseAcceptChunk, SenseRejectChunk } from '@/core/middleware/types.js'
+import { createMockContext } from '../helpers/fakeContext.js'
+import type { ToolAuthorization } from '@/core/security/index.js'
 
 function authorization(
-  decision: ToolAuthorization["decision"],
+  decision: ToolAuthorization['decision'],
   assessmentHash: string,
 ): ToolAuthorization {
   return {
     decision,
-    roleType: "workspace-developer",
-    policyHash: "policy",
-    findings: decision === "allow"
-      ? []
-      : [{
-          code: `risk.${decision}`,
-          category: "unknown",
-          severity: decision === "deny" ? "high" : "medium",
-          message: decision,
-        }],
+    roleType: 'workspace-developer',
+    policyHash: 'policy',
+    findings:
+      decision === 'allow'
+        ? []
+        : [
+            {
+              code: `risk.${decision}`,
+              category: 'unknown',
+              severity: decision === 'deny' ? 'high' : 'medium',
+              message: decision,
+            },
+          ],
     assessmentHash,
-  };
+  }
 }
 
 function stream(opts: {
-  thinking?: string;
-  content?: string;
-  senseDelta?: StreamChunk["senseDelta"];
+  thinking?: string
+  content?: string
+  senseDelta?: StreamChunk['senseDelta']
 }): StreamChunk {
   return {
-    type: "stream",
-    thinkingDelta: opts.thinking ?? "",
-    contentDelta: opts.content ?? "",
+    type: 'stream',
+    thinkingDelta: opts.thinking ?? '',
+    contentDelta: opts.content ?? '',
     senseDelta: opts.senseDelta,
-  };
+  }
 }
 
-describe("CheckpointState.ingest", () => {
-  it("累积 stream thinking 与 content", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({ thinking: "a" }));
-    s.ingest(stream({ thinking: "b", content: "x" }));
-    s.ingest(stream({ content: "y" }));
-    expect(s.getThinking()).toBe("ab");
-    expect(s.getContent()).toBe("xy");
-  });
+describe('CheckpointState.ingest', () => {
+  it('累积 stream thinking 与 content', () => {
+    const s = new CheckpointState()
+    s.ingest(stream({ thinking: 'a' }))
+    s.ingest(stream({ thinking: 'b', content: 'x' }))
+    s.ingest(stream({ content: 'y' }))
+    expect(s.getThinking()).toBe('ab')
+    expect(s.getContent()).toBe('xy')
+  })
 
-  it("收集 senseDelta", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({ senseDelta: [{ index: 0, id: "t1", name: "read_file", arguments: '{"a":' }] }));
-    s.ingest(stream({ senseDelta: [{ index: 0, arguments: "1}" }] }));
-    const ctx = createMockContext({ messages: [] });
-    const msg = s.flushAssistant(ctx);
-    expect(msg?.senseCalls?.[0]?.arguments).toBe('{"a":1}');
-    expect(msg?.senseCalls?.[0]?.name).toBe("read_file");
-  });
+  it('收集 senseDelta', () => {
+    const s = new CheckpointState()
+    s.ingest(
+      stream({ senseDelta: [{ index: 0, id: 't1', name: 'read_file', arguments: '{"a":' }] }),
+    )
+    s.ingest(stream({ senseDelta: [{ index: 0, arguments: '1}' }] }))
+    const ctx = createMockContext({ messages: [] })
+    const msg = s.flushAssistant(ctx)
+    expect(msg?.senseCalls?.[0]?.arguments).toBe('{"a":1}')
+    expect(msg?.senseCalls?.[0]?.name).toBe('read_file')
+  })
 
-  it("收集 sense_accept / sense_reject 到 results", () => {
-    const s = new CheckpointState();
-    const accept: SenseAcceptChunk = { type: "sense_accept", id: "s1", name: "read_file", result: "ok", hash: "h1" };
-    const reject: SenseRejectChunk = { type: "sense_reject", id: "s2", name: "write_file", reason: "no" };
-    s.ingest(accept);
-    s.ingest(reject);
-    const ctx = createMockContext({ messages: [] });
-    const mutations = s.appendResponseMessages(ctx);
-    const created = mutations.filter((m) => m.type === "created");
-    expect(created.length).toBe(2);
-  });
-});
+  it('收集 sense_accept / sense_reject 到 results', () => {
+    const s = new CheckpointState()
+    const accept: SenseAcceptChunk = {
+      type: 'sense_accept',
+      id: 's1',
+      name: 'read_file',
+      result: 'ok',
+      hash: 'h1',
+    }
+    const reject: SenseRejectChunk = {
+      type: 'sense_reject',
+      id: 's2',
+      name: 'write_file',
+      reason: 'no',
+    }
+    s.ingest(accept)
+    s.ingest(reject)
+    const ctx = createMockContext({ messages: [] })
+    const mutations = s.appendResponseMessages(ctx)
+    const created = mutations.filter((m) => m.type === 'created')
+    expect(created.length).toBe(2)
+  })
+})
 
-describe("CheckpointState.flushAssistant", () => {
-  it("有 content 时构建 assistant 消息并 push", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({ thinking: "th", content: "co" }));
-    const ctx = createMockContext({ messages: [] });
-    const msg = s.flushAssistant(ctx);
-    expect(msg).not.toBeNull();
-    expect(msg!.role).toBe("assistant");
-    expect(msg!.content).toBe("co");
-    expect(msg!.thinking).toBe("th");
-    expect(ctx.soul.messages!.length).toBe(1);
-    expect(ctx.soul.messages![0]!.role).toBe("assistant");
-  });
+describe('CheckpointState.flushAssistant', () => {
+  it('有 content 时构建 assistant 消息并 push', () => {
+    const s = new CheckpointState()
+    s.ingest(stream({ thinking: 'th', content: 'co' }))
+    const ctx = createMockContext({ messages: [] })
+    const msg = s.flushAssistant(ctx)
+    expect(msg).not.toBeNull()
+    expect(msg!.role).toBe('assistant')
+    expect(msg!.content).toBe('co')
+    expect(msg!.thinking).toBe('th')
+    expect(ctx.soul.messages!.length).toBe(1)
+    expect(ctx.soul.messages![0]!.role).toBe('assistant')
+  })
 
-  it("空内容返回 null 且不 push", () => {
-    const s = new CheckpointState();
-    const ctx = createMockContext({ messages: [] });
-    expect(s.flushAssistant(ctx)).toBeNull();
-    expect(ctx.soul.messages!.length).toBe(0);
-  });
+  it('空内容返回 null 且不 push', () => {
+    const s = new CheckpointState()
+    const ctx = createMockContext({ messages: [] })
+    expect(s.flushAssistant(ctx)).toBeNull()
+    expect(ctx.soul.messages!.length).toBe(0)
+  })
 
-  it("幂等：已 flushed 后再调返回 null", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({ content: "x" }));
-    const ctx = createMockContext({ messages: [] });
-    expect(s.flushAssistant(ctx)).not.toBeNull();
-    expect(s.flushAssistant(ctx)).toBeNull();
-    expect(ctx.soul.messages!.length).toBe(1);
-  });
+  it('幂等：已 flushed 后再调返回 null', () => {
+    const s = new CheckpointState()
+    s.ingest(stream({ content: 'x' }))
+    const ctx = createMockContext({ messages: [] })
+    expect(s.flushAssistant(ctx)).not.toBeNull()
+    expect(s.flushAssistant(ctx)).toBeNull()
+    expect(ctx.soul.messages!.length).toBe(1)
+  })
 
-  it("senseCalls 由 senseDelta 合并", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({ content: "c", senseDelta: [{ index: 0, id: "i1", name: "read_file", arguments: "{}" }] }));
-    const ctx = createMockContext({ messages: [] });
-    const msg = s.flushAssistant(ctx);
-    expect(msg!.senseCalls?.length).toBe(1);
-    expect(msg!.senseCalls?.[0]?.name).toBe("read_file");
-  });
+  it('senseCalls 由 senseDelta 合并', () => {
+    const s = new CheckpointState()
+    s.ingest(
+      stream({
+        content: 'c',
+        senseDelta: [{ index: 0, id: 'i1', name: 'read_file', arguments: '{}' }],
+      }),
+    )
+    const ctx = createMockContext({ messages: [] })
+    const msg = s.flushAssistant(ctx)
+    expect(msg!.senseCalls?.length).toBe(1)
+    expect(msg!.senseCalls?.[0]?.name).toBe('read_file')
+  })
 
-  it("同批多个调用在后续 sense_end 到达时分别补齐 security", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({
-      senseDelta: [
-        { index: 0, id: "t0", name: "read_file", arguments: "{}" },
-        { index: 1, id: "t1", name: "write_file", arguments: "{}" },
-      ],
-    }));
-    s.recordSecurity("t0", authorization("allow", "assessment-0"));
+  it('同批多个调用在后续 sense_end 到达时分别补齐 security', () => {
+    const s = new CheckpointState()
+    s.ingest(
+      stream({
+        senseDelta: [
+          { index: 0, id: 't0', name: 'read_file', arguments: '{}' },
+          { index: 1, id: 't1', name: 'write_file', arguments: '{}' },
+        ],
+      }),
+    )
+    s.recordSecurity('t0', authorization('allow', 'assessment-0'))
 
-    const ctx = createMockContext({ messages: [] });
-    const flushed = s.flushAssistant(ctx);
-    expect(flushed?.senseCalls?.[0]?.security?.decision).toBe("allow");
-    expect(flushed?.senseCalls?.[1]?.security).toBeUndefined();
+    const ctx = createMockContext({ messages: [] })
+    const flushed = s.flushAssistant(ctx)
+    expect(flushed?.senseCalls?.[0]?.security?.decision).toBe('allow')
+    expect(flushed?.senseCalls?.[1]?.security).toBeUndefined()
 
-    s.recordSecurity("t1", authorization("ask", "assessment-1"));
-    const reconciled = s.reconcileAssistantSenseCalls();
+    s.recordSecurity('t1', authorization('ask', 'assessment-1'))
+    const reconciled = s.reconcileAssistantSenseCalls()
     expect(reconciled).toMatchObject({
-      type: "updated",
+      type: 'updated',
       patch: {
         senseCalls: [
-          { id: "t0", security: { decision: "allow", assessmentHash: "assessment-0" } },
-          { id: "t1", security: { decision: "ask", assessmentHash: "assessment-1" } },
+          { id: 't0', security: { decision: 'allow', assessmentHash: 'assessment-0' } },
+          { id: 't1', security: { decision: 'ask', assessmentHash: 'assessment-1' } },
         ],
       },
-    });
-  });
+    })
+  })
 
-  it("多个 sense_end 分批到达时逐次补齐 assistant.senseCalls，最终不重复更新", () => {
-    const s = new CheckpointState();
-    const ctx = createMockContext({ messages: [] });
+  it('多个 sense_end 分批到达时逐次补齐 assistant.senseCalls，最终不重复更新', () => {
+    const s = new CheckpointState()
+    const ctx = createMockContext({ messages: [] })
 
-    s.ingest(stream({
-      senseDelta: [{ index: 0, id: "t0", name: "read_file", arguments: "{}" }],
-    }));
-    s.recordSecurity("t0", authorization("allow", "assessment-0"));
-    const flushed = s.flushAssistant(ctx);
-    expect(flushed?.senseCalls?.map((call) => call.id)).toEqual(["t0"]);
+    s.ingest(
+      stream({
+        senseDelta: [{ index: 0, id: 't0', name: 'read_file', arguments: '{}' }],
+      }),
+    )
+    s.recordSecurity('t0', authorization('allow', 'assessment-0'))
+    const flushed = s.flushAssistant(ctx)
+    expect(flushed?.senseCalls?.map((call) => call.id)).toEqual(['t0'])
 
-    s.ingest(stream({
-      senseDelta: [{ index: 1, id: "t1", name: "execute_command", arguments: "{}" }],
-    }));
-    s.recordSecurity("t1", authorization("ask", "assessment-1"));
-    const firstUpdate = s.reconcileAssistantSenseCalls();
-    expect(firstUpdate?.patch.senseCalls?.map((call) => call.id)).toEqual(["t0", "t1"]);
+    s.ingest(
+      stream({
+        senseDelta: [{ index: 1, id: 't1', name: 'execute_command', arguments: '{}' }],
+      }),
+    )
+    s.recordSecurity('t1', authorization('ask', 'assessment-1'))
+    const firstUpdate = s.reconcileAssistantSenseCalls()
+    expect(firstUpdate?.patch.senseCalls?.map((call) => call.id)).toEqual(['t0', 't1'])
 
-    s.ingest(stream({
-      senseDelta: [{ index: 2, id: "t2", name: "search_codebase", arguments: "{}" }],
-    }));
-    s.recordSecurity("t2", authorization("allow", "assessment-2"));
-    const secondUpdate = s.reconcileAssistantSenseCalls();
-    expect(secondUpdate?.patch.senseCalls?.map((call) => call.id)).toEqual(["t0", "t1", "t2"]);
-    expect(s.reconcileAssistantSenseCalls()).toBeNull();
-  });
+    s.ingest(
+      stream({
+        senseDelta: [{ index: 2, id: 't2', name: 'search_codebase', arguments: '{}' }],
+      }),
+    )
+    s.recordSecurity('t2', authorization('allow', 'assessment-2'))
+    const secondUpdate = s.reconcileAssistantSenseCalls()
+    expect(secondUpdate?.patch.senseCalls?.map((call) => call.id)).toEqual(['t0', 't1', 't2'])
+    expect(s.reconcileAssistantSenseCalls()).toBeNull()
+  })
 
-  it("retry reset 不沿用上一次尝试的 security", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({
-      senseDelta: [{ index: 0, id: "reused-id", name: "read_file", arguments: "{}" }],
-    }));
-    s.recordSecurity("reused-id", authorization("deny", "old-assessment"));
-    s.resetAttempt();
-    s.ingest(stream({
-      senseDelta: [{ index: 0, id: "reused-id", name: "read_file", arguments: "{}" }],
-    }));
+  it('retry reset 不沿用上一次尝试的 security', () => {
+    const s = new CheckpointState()
+    s.ingest(
+      stream({
+        senseDelta: [{ index: 0, id: 'reused-id', name: 'read_file', arguments: '{}' }],
+      }),
+    )
+    s.recordSecurity('reused-id', authorization('deny', 'old-assessment'))
+    s.resetAttempt()
+    s.ingest(
+      stream({
+        senseDelta: [{ index: 0, id: 'reused-id', name: 'read_file', arguments: '{}' }],
+      }),
+    )
 
-    const msg = s.flushAssistant(createMockContext({ messages: [] }));
-    expect(msg?.senseCalls?.[0]?.security).toBeUndefined();
-  });
-});
+    const msg = s.flushAssistant(createMockContext({ messages: [] }))
+    expect(msg?.senseCalls?.[0]?.security).toBeUndefined()
+  })
+})
 
-describe("CheckpointState.appendResponseMessages", () => {
-  it("未 flushed 且有 content → created assistant", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({ content: "hello" }));
-    const ctx = createMockContext({ messages: [] });
-    const mutations = s.appendResponseMessages(ctx);
-    expect(mutations.some((m) => m.type === "created" && m.message.role === "assistant")).toBe(true);
-    expect(ctx.soul.messages!.some((m) => m.role === "assistant" && m.content === "hello")).toBe(true);
-  });
+describe('CheckpointState.appendResponseMessages', () => {
+  it('未 flushed 且有 content → created assistant', () => {
+    const s = new CheckpointState()
+    s.ingest(stream({ content: 'hello' }))
+    const ctx = createMockContext({ messages: [] })
+    const mutations = s.appendResponseMessages(ctx)
+    expect(mutations.some((m) => m.type === 'created' && m.message.role === 'assistant')).toBe(true)
+    expect(ctx.soul.messages!.some((m) => m.role === 'assistant' && m.content === 'hello')).toBe(
+      true,
+    )
+  })
 
-  it("已 flushed → 不重复 push assistant", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({ content: "x" }));
-    const ctx = createMockContext({ messages: [] });
-    s.flushAssistant(ctx);
-    const before = ctx.soul.messages!.length;
-    const mutations = s.appendResponseMessages(ctx);
-    expect(ctx.soul.messages!.length).toBe(before);
-    expect(mutations.filter((m) => m.type === "created" && m.message.role === "assistant")).toHaveLength(0);
-  });
+  it('已 flushed → 不重复 push assistant', () => {
+    const s = new CheckpointState()
+    s.ingest(stream({ content: 'x' }))
+    const ctx = createMockContext({ messages: [] })
+    s.flushAssistant(ctx)
+    const before = ctx.soul.messages!.length
+    const mutations = s.appendResponseMessages(ctx)
+    expect(ctx.soul.messages!.length).toBe(before)
+    expect(
+      mutations.filter((m) => m.type === 'created' && m.message.role === 'assistant'),
+    ).toHaveLength(0)
+  })
 
-  it("sense_accept result（新）→ created sense 消息", () => {
-    const s = new CheckpointState();
-    s.ingest({ type: "sense_accept", id: "new-sense", name: "read_file", result: "file-content", hash: "h" } as SenseAcceptChunk);
-    const ctx = createMockContext({ messages: [] });
-    const mutations = s.appendResponseMessages(ctx);
-    const created = mutations.find((m) => m.type === "created" && m.message.role === "sense");
-    expect(created).toBeDefined();
-    expect(ctx.soul.messages!.some((m) => m.id === "new-sense" && m.role === "sense")).toBe(true);
-  });
+  it('sense_accept result（新）→ created sense 消息', () => {
+    const s = new CheckpointState()
+    s.ingest({
+      type: 'sense_accept',
+      id: 'new-sense',
+      name: 'read_file',
+      result: 'file-content',
+      hash: 'h',
+    } as SenseAcceptChunk)
+    const ctx = createMockContext({ messages: [] })
+    const mutations = s.appendResponseMessages(ctx)
+    const created = mutations.find((m) => m.type === 'created' && m.message.role === 'sense')
+    expect(created).toBeDefined()
+    expect(ctx.soul.messages!.some((m) => m.id === 'new-sense' && m.role === 'sense')).toBe(true)
+  })
 
-  it("sense result 已存在（recovery）→ updated 原地更新", () => {
-    const s = new CheckpointState();
-    s.ingest({ type: "sense_accept", id: "exist-sense", name: "read_file", result: "recovered", hash: "h2" } as SenseAcceptChunk);
+  it('sense result 已存在（recovery）→ updated 原地更新', () => {
+    const s = new CheckpointState()
+    s.ingest({
+      type: 'sense_accept',
+      id: 'exist-sense',
+      name: 'read_file',
+      result: 'recovered',
+      hash: 'h2',
+    } as SenseAcceptChunk)
     const ctx = createMockContext({
-      messages: [{ id: "exist-sense", role: "sense", content: "", createdAt: 0, updateAt: 0 }],
-    });
-    const mutations = s.appendResponseMessages(ctx);
-    const updated = mutations.find((m) => m.type === "updated" && m.id === "exist-sense");
-    expect(updated).toBeDefined();
-    expect(ctx.soul.messages!.find((m) => m.id === "exist-sense")!.content).toBe("recovered");
-  });
+      messages: [{ id: 'exist-sense', role: 'sense', content: '', createdAt: 0, updateAt: 0 }],
+    })
+    const mutations = s.appendResponseMessages(ctx)
+    const updated = mutations.find((m) => m.type === 'updated' && m.id === 'exist-sense')
+    expect(updated).toBeDefined()
+    expect(ctx.soul.messages!.find((m) => m.id === 'exist-sense')!.content).toBe('recovered')
+  })
 
-  it("sense_reject → content 为「被拒绝: reason」", () => {
-    const s = new CheckpointState();
-    s.ingest({ type: "sense_reject", id: "rej", name: "write_file", reason: "危险" } as SenseRejectChunk);
-    const ctx = createMockContext({ messages: [] });
-    const mutations = s.appendResponseMessages(ctx);
-    const created = mutations.find((m) => m.type === "created" && m.message.role === "sense") as
-      | { type: "created"; message: { content?: string } }
-      | undefined;
-    expect(created?.message.content).toBe("被拒绝: 危险");
-  });
+  it('sense_reject → content 为「被拒绝: reason」', () => {
+    const s = new CheckpointState()
+    s.ingest({
+      type: 'sense_reject',
+      id: 'rej',
+      name: 'write_file',
+      reason: '危险',
+    } as SenseRejectChunk)
+    const ctx = createMockContext({ messages: [] })
+    const mutations = s.appendResponseMessages(ctx)
+    const created = mutations.find((m) => m.type === 'created' && m.message.role === 'sense') as
+      { type: 'created'; message: { content?: string } } | undefined
+    expect(created?.message.content).toBe('被拒绝: 危险')
+  })
 
-  it("无任何内容 → 空 mutations", () => {
-    const s = new CheckpointState();
-    const ctx = createMockContext({ messages: [] });
-    expect(s.appendResponseMessages(ctx)).toHaveLength(0);
-  });
-});
+  it('无任何内容 → 空 mutations', () => {
+    const s = new CheckpointState()
+    const ctx = createMockContext({ messages: [] })
+    expect(s.appendResponseMessages(ctx)).toHaveLength(0)
+  })
+})
 
-describe("mergeSenseDeltas（经 flushAssistant 验证）", () => {
-  it("同 index 多 delta 累积 arguments，首 delta 提供 id/name", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({ content: "c", senseDelta: [{ index: 0, id: "t0", name: "read_file", arguments: '{"p":' }] }));
-    s.ingest(stream({ senseDelta: [{ index: 0, arguments: '"x"}' }] }));
-    const ctx = createMockContext({ messages: [] });
-    const msg = s.flushAssistant(ctx);
-    expect(msg!.senseCalls).toEqual([{ id: "t0", name: "read_file", arguments: '{"p":"x"}' }]);
-  });
+describe('mergeSenseDeltas（经 flushAssistant 验证）', () => {
+  it('同 index 多 delta 累积 arguments，首 delta 提供 id/name', () => {
+    const s = new CheckpointState()
+    s.ingest(
+      stream({
+        content: 'c',
+        senseDelta: [{ index: 0, id: 't0', name: 'read_file', arguments: '{"p":' }],
+      }),
+    )
+    s.ingest(stream({ senseDelta: [{ index: 0, arguments: '"x"}' }] }))
+    const ctx = createMockContext({ messages: [] })
+    const msg = s.flushAssistant(ctx)
+    expect(msg!.senseCalls).toEqual([{ id: 't0', name: 'read_file', arguments: '{"p":"x"}' }])
+  })
 
-  it("多 index → 多 senseCall，按 index 排序", () => {
-    const s = new CheckpointState();
-    s.ingest(stream({
-      content: "c",
-      senseDelta: [
-        { index: 1, id: "t1", name: "write_file", arguments: "{}" },
-        { index: 0, id: "t0", name: "read_file", arguments: "{}" },
-      ],
-    }));
-    const ctx = createMockContext({ messages: [] });
-    const msg = s.flushAssistant(ctx);
-    expect(msg!.senseCalls?.map((sc) => sc.name)).toEqual(["read_file", "write_file"]);
-  });
-});
+  it('多 index → 多 senseCall，按 index 排序', () => {
+    const s = new CheckpointState()
+    s.ingest(
+      stream({
+        content: 'c',
+        senseDelta: [
+          { index: 1, id: 't1', name: 'write_file', arguments: '{}' },
+          { index: 0, id: 't0', name: 'read_file', arguments: '{}' },
+        ],
+      }),
+    )
+    const ctx = createMockContext({ messages: [] })
+    const msg = s.flushAssistant(ctx)
+    expect(msg!.senseCalls?.map((sc) => sc.name)).toEqual(['read_file', 'write_file'])
+  })
+})

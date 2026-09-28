@@ -515,6 +515,7 @@ export function projectLiteHistory(
   model: ExecutionReadModel,
   now: number,
   toolMeta?: LiteToolMetaResolver,
+  approvalWait?: ReadonlyMap<string, number>,
 ): LiteRunHistoryView {
   const toolMetaOf = (name: string): LiteToolMeta | undefined => toolMeta?.(name)
   const agentLabelByChat = new Map<string, string>()
@@ -733,6 +734,21 @@ export function projectLiteHistory(
       next.completedAt = node.answeredAt
       next.elapsedMs = Math.max(0, node.answeredAt - node.createdAt)
       return next
+    }
+    // 审批等待（阻塞等待）：工具调用已发起但仍在等用户审批，计时冻结在审批发起时刻（≈0）。
+    // 工具在审批通过后才真正执行（sense_started 才建 execution step），故审批等待不计入工具
+    // 耗时；提问（释放等待）不在此列，仍按真实等待计时。
+    if (run.kind === 'tool' && !isQuestionCall(node) && rootRunning) {
+      const awaitingCall = (node.toolCalls ?? []).find((call) => approvalWait?.has(call.callId))
+      if (awaitingCall) {
+        const since = approvalWait!.get(awaitingCall.callId) ?? node.createdAt
+        next.status = 'running'
+        next.active = true
+        next.startedAt = node.createdAt
+        delete next.completedAt
+        next.elapsedMs = Math.max(0, since - node.createdAt)
+        return next
+      }
     }
     // matchedStep 仅用于「运行中」步骤的实时计时。execution steps 是 root 订阅的
     // 当前执行窗口快照（非全量历史）：对已提交的历史节点做时间匹配时，长对话里

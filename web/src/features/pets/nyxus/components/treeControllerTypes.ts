@@ -22,7 +22,6 @@ import NodePaperStack from './NodePaperStack.vue'
 
 export type MessageBranchTreeControllerProps = {
   rootChatId: string
-  modelRequestTimeoutMs?: number
   timelineOverride?: RootTimelineSnapshot
   branchAnchorNodeId?: string
   branchAnchorKind?: 'detail' | 'continuation'

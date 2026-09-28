@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import type { InteractionRecord } from '@/application/backend/public'
 import { useLiteStore, type LiteQuestionDraft } from './liteStore'
 import { useLiteCanonicalView, type LiteInteraction } from './useLiteCanonicalView'
@@ -356,10 +356,40 @@ export function useLiteInteractions(windowId: () => string, rootChatId: () => st
   }
 
   // ── 倒计时（仅运行中 pending/resolving 的交互计算；终态只显示状态）──
+  // calibratedNow() 是普通函数调用，不参与 Vue 响应式依赖：若直接在 computed 里使用，
+  // 剩余秒数永远不会随时间重算（精简模式倒计时不自动更新）。这里用一个每秒刷新的
+  // countdownNow ref 作为响应式时钟，仅在存在带 deadlineAt 的进行中交互时启动定时器。
+  const countdownNow = ref(lite.calibratedNow())
+  let countdownTimer: ReturnType<typeof setInterval> | undefined
+  function stopCountdown(): void {
+    if (countdownTimer !== undefined) {
+      clearInterval(countdownTimer)
+      countdownTimer = undefined
+    }
+  }
+  watch(
+    () =>
+      lite.interactions.some(
+        (item) =>
+          (item.status === 'pending' || item.status === 'resolving') &&
+          typeof item.deadlineAt === 'number',
+      ),
+    (active) => {
+      stopCountdown()
+      if (active) {
+        countdownNow.value = lite.calibratedNow()
+        countdownTimer = setInterval(() => {
+          countdownNow.value = lite.calibratedNow()
+        }, 1000)
+      }
+    },
+    { immediate: true },
+  )
+  onBeforeUnmount(stopCountdown)
   function remainingLabel(interaction: LiteInteraction): string {
     if (interaction.status !== 'pending' && interaction.status !== 'resolving') return ''
     if (typeof interaction.deadlineAt !== 'number') return ''
-    const remaining = interaction.deadlineAt - lite.calibratedNow()
+    const remaining = interaction.deadlineAt - countdownNow.value
     if (remaining <= 0) return '已超时'
     const seconds = Math.ceil(remaining / 1000)
     return seconds >= 60 ? `${Math.floor(seconds / 60)}m${seconds % 60}s` : `${seconds}s`

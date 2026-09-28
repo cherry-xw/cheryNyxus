@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { bootstrapForTests, createAgent, runSend } from '../helpers/agentHarness.js'
 import { checkpointMiddleware } from '@/agent/middleware/checkpoint.js'
+import { ModelRequestTimeoutError } from '@/agent/middleware/requestTimeout.js'
 import { createMockContext } from '../helpers/fakeContext.js'
 import {
   stagedTypes,
@@ -23,6 +24,25 @@ import {
 import type { MiddlewareChunk, StreamChunk, StagedChunk } from '@/core/middleware/types.js'
 
 describe('checkpointMiddleware 集成', () => {
+  it('超时后半截回复留在历史但标记不进入下次模型请求', async () => {
+    const ctx = createMockContext({ messages: [] })
+    const next = async function* (): AsyncGenerator<MiddlewareChunk> {
+      yield { type: 'stream', thinkingDelta: '仍在思考', contentDelta: '半截回复' } as StreamChunk
+      throw new ModelRequestTimeoutError(1000)
+    }
+    const emitted: MiddlewareChunk[] = []
+    try {
+      for await (const chunk of checkpointMiddleware(ctx, next)) emitted.push(chunk)
+    } catch (error) {
+      expect(error).toBeInstanceOf(ModelRequestTimeoutError)
+    }
+    const partial = messageCreated(emitted).find(
+      (item) => item.message.role === 'assistant',
+    )?.message
+    expect(partial?.modelExcluded).toBe(true)
+    expect(partial?.content).toContain('超时截断')
+    expect(partial?.thinking).toBe('仍在思考')
+  })
   beforeAll(async () => {
     await bootstrapForTests()
   })
@@ -234,10 +254,10 @@ describe('checkpointMiddleware 集成', () => {
     const chunks = await collectChunks(checkpointMiddleware(ctx, next))
     const streams = filterType<StreamChunk>(chunks, 'stream')
     const reset = chunks.find((chunk) => chunk.type === 'retry_reset') as
-      | { type: 'retry_reset'; messageId?: string }
-      | undefined
-    const contentEnd = filterType<StagedChunk>(chunks, 'staged')
-      .find((chunk) => chunk.stagedType === 'content_end')
+      { type: 'retry_reset'; messageId?: string } | undefined
+    const contentEnd = filterType<StagedChunk>(chunks, 'staged').find(
+      (chunk) => chunk.stagedType === 'content_end',
+    )
 
     const firstTurnId = streams[0]?.msgId
     const retriedTurnId = streams.at(-1)?.msgId

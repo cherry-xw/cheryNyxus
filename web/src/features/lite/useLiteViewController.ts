@@ -69,9 +69,25 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   })
   onBeforeUnmount(clock.stop)
   const monitor = computed(() => projectLiteExecution(lite.execution, clock.now.value))
+  /** 审批等待（阻塞等待）冻结计时：当前待审批的 callId → 审批发起时间（interactionId = callId）。 */
+  const approvalWaitByCallId = computed(() => {
+    const map = new Map<string, number>()
+    for (const item of lite.interactions) {
+      if (item.kind !== 'approval') continue
+      if (item.status !== 'pending' && item.status !== 'blocked') continue
+      map.set(item.interactionId, item.createdAt)
+    }
+    return map
+  })
   /** 运行历史：从开始节点往下，用户问题 / 工具运行 / 大模型响应 关键节点（需求 1c），工具名走中文（sense.tools）。 */
   const history = computed(() =>
-    projectLiteHistory(lite.runNodes, lite.execution, clock.now.value, lite.toolMeta),
+    projectLiteHistory(
+      lite.runNodes,
+      lite.execution,
+      clock.now.value,
+      lite.toolMeta,
+      approvalWaitByCallId.value,
+    ),
   )
   // ── 需求 4：正文列表一次只显示一条链路（主 Agent 链路 / 子 Agent 链路），点击行头 name 切换 ──
   const activeLane = ref<string>(props.rootChatId)

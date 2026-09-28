@@ -475,6 +475,8 @@ interface GlobalConfig {
   thinking: boolean // 是否开启思考模式（如果能思考）
   supervision: SupervisionLevel // 全局默认的监管等级
   stream: boolean // 是否开启流式输出
+  /** 单次模型请求的总时长上限（毫秒）；0 = 不限制，缺省 10 分钟。 */
+  llm_request_timeout_ms?: number
   sense_execute_timeout?: number // 感官执行超时时间（毫秒）
   /**
    * 审批等待超时（毫秒）。`>= 0`，0 = 不限时（无用户超时，永远等用户决）。
@@ -1240,6 +1242,13 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     const t = raw.global.approval_timeout
     if (typeof t !== 'number' || !Number.isFinite(t) || t < 0) {
       errors.push(`global.approval_timeout 必须为 ≥ 0 的数字（0 = 不超时，当前：${String(t)}）`)
+    }
+  }
+
+  if (raw.global?.llm_request_timeout_ms !== undefined) {
+    const t = raw.global.llm_request_timeout_ms
+    if (typeof t !== 'number' || !Number.isFinite(t) || t < 0) {
+      errors.push(`global.llm_request_timeout_ms 必须为 ≥ 0 的有限数字（0 = 不限制，当前：${String(t)}）`)
     }
   }
 

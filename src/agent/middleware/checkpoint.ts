@@ -8,6 +8,7 @@ import type {
 import { CheckpointState } from './checkpointState.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
+import { ModelRequestTimeoutError } from './requestTimeout.js'
 
 /**
  * Checkpoint Middleware
@@ -292,6 +293,9 @@ export async function* checkpointMiddleware(
       } as StagedChunk
       contentActive = false
     }
+  } catch (error) {
+    if (error instanceof ModelRequestTimeoutError) state.markModelExcluded(error.timeoutMs)
+    throw error
   } finally {
     reportWorkflow(ctx.soul.chatId, { activeNodeId: 'checkpoint', phaseLabel: '记录汇总' })
     // === 追加消息 + yield effect，由外层 observer 统一处理副作用 ===
@@ -353,5 +357,3 @@ export async function* checkpointMiddleware(
 
   // 不再 yield done（由 loop.ts 负责）
 }
-
-export default checkpointMiddleware

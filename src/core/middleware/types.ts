@@ -143,6 +143,8 @@ export interface AgentMessage {
   hash?: string
   /** 已撤回 */
   revoked?: boolean
+  /** Incomplete model turn kept for display but excluded from later model requests. */
+  modelExcluded?: boolean
   contextCompaction?: boolean
   contextCompactionTokens?: number
   /** Command-plane correlation carried through consumption notification. */

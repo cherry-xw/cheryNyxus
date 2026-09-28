@@ -330,14 +330,13 @@ defineExpose({
         </div>
         <div
           class="nyxus-branch-top"
-          :class="{ 'has-usage-subagents': usageBarAgents.length > 1 }"
+            :class="{ 'has-usage-subagents': usageBarAgents.length > 1 }"
           :inert="taskBrowserState.open || undefined"
         >
           <MessageBranchTree
             v-if="treeRootChatId && !conversationViewVisible"
             :key="treeRootChatId"
             v-bind="treeProps"
-            :model-request-timeout-ms="config?.global?.llm_request_timeout_ms ?? 600000"
             @branch="selectBranchTarget"
             @interaction-focus="onTreeInteractionFocus"
             @close-side-panel="closeSidePanel"
