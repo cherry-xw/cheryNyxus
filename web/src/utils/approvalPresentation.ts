@@ -8,13 +8,26 @@ export interface ApprovalPresentation {
   title: string
   target?: string
   changes: ToolChangePresentation[]
+  /** 该工具类型需要用户重点核对的关键信息，按重要程度排序优先展示。 */
+  keyFacts: ToolKeyFact[]
 }
 
 interface ToolPresentation {
   label: string
   operation: string
   targetKeys?: string[]
+  /** 关键信息定义：kind='tool' 输出工具名称（= label）；kind='arg' 从参数取值，缺值跳过。 */
+  keyFacts?: ToolKeyFactDef[]
 }
+
+/** 一条关键信息：回答「哪个工具 + 具体目标」的核对要点。 */
+export interface ToolKeyFact {
+  label: string
+  value: string
+}
+
+/** 关键信息条目定义（声明式）：tool = 工具名称；arg = 从参数提取并附中文标签。 */
+type ToolKeyFactDef = { kind: 'tool' } | { kind: 'arg'; arg: string; label: string }
 
 /** One concrete, user-readable change within a structured tool call. */
 export interface ToolChangePresentation {
@@ -28,6 +41,7 @@ export interface ToolRunPresentation {
   operationLabel: string
   target?: string
   changes: ToolChangePresentation[]
+  keyFacts: ToolKeyFact[]
 }
 
 const TOOL_PRESENTATIONS: Record<string, ToolPresentation> = {
@@ -35,39 +49,152 @@ const TOOL_PRESENTATIONS: Record<string, ToolPresentation> = {
     label: '命令执行',
     operation: '执行命令',
     targetKeys: ['description', 'command'],
+    keyFacts: [
+      { kind: 'tool' },
+      { kind: 'arg', arg: 'command', label: '命令内容' },
+      { kind: 'arg', arg: 'description', label: '用途说明' },
+    ],
   },
-  bash: { label: '命令执行', operation: '执行命令', targetKeys: ['description', 'command'] },
-  read_file: { label: '文件读取', operation: '读取文件', targetKeys: ['path'] },
-  write_file: { label: '文件写入', operation: '写入文件', targetKeys: ['path'] },
+  bash: {
+    label: '命令执行',
+    operation: '执行命令',
+    targetKeys: ['description', 'command'],
+    keyFacts: [
+      { kind: 'tool' },
+      { kind: 'arg', arg: 'command', label: '命令内容' },
+      { kind: 'arg', arg: 'description', label: '用途说明' },
+    ],
+  },
+  read_file: {
+    label: '文件读取',
+    operation: '读取文件',
+    targetKeys: ['path'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'path', label: '文件路径' }],
+  },
+  write_file: {
+    label: '文件写入',
+    operation: '写入文件',
+    targetKeys: ['path'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'path', label: '文件路径' }],
+  },
   search_codebase: {
     label: '代码搜索',
     operation: '搜索代码',
     targetKeys: ['query', 'pattern', 'path'],
+    keyFacts: [
+      { kind: 'tool' },
+      { kind: 'arg', arg: 'query', label: '搜索关键词' },
+      { kind: 'arg', arg: 'pattern', label: '匹配规则' },
+    ],
   },
-  skill: { label: '技能管理', operation: '加载技能', targetKeys: ['name', 'skill'] },
-  history_recall: { label: '会话历史', operation: '检索会话历史', targetKeys: ['query'] },
+  skill: {
+    label: '技能管理',
+    operation: '加载技能',
+    targetKeys: ['name', 'skill'],
+    keyFacts: [
+      { kind: 'tool' },
+      { kind: 'arg', arg: 'name', label: '技能名称' },
+      { kind: 'arg', arg: 'skill', label: '技能名称' },
+    ],
+  },
+  history_recall: {
+    label: '会话历史',
+    operation: '检索会话历史',
+    targetKeys: ['query'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'query', label: '检索关键词' }],
+  },
   spawn_role: {
     label: '角色协作',
     operation: '派发子任务',
     targetKeys: ['role', 'roleName', 'task'],
+    keyFacts: [
+      { kind: 'tool' },
+      { kind: 'arg', arg: 'roleName', label: '角色名称' },
+      { kind: 'arg', arg: 'role', label: '角色名称' },
+      { kind: 'arg', arg: 'task', label: '任务内容' },
+    ],
   },
   spawn_subagent: {
     label: '角色协作',
     operation: '派发子任务',
     targetKeys: ['role', 'roleName', 'task'],
+    keyFacts: [
+      { kind: 'tool' },
+      { kind: 'arg', arg: 'roleName', label: '角色名称' },
+      { kind: 'arg', arg: 'role', label: '角色名称' },
+      { kind: 'arg', arg: 'task', label: '任务内容' },
+    ],
   },
-  stop_child: { label: '角色协作', operation: '停止子角色', targetKeys: ['chatId'] },
-  destroy_role: { label: '角色协作', operation: '停止子角色', targetKeys: ['chatId'] },
-  send_to_child: { label: '角色协作', operation: '追加子任务', targetKeys: ['task'] },
-  update_todo: { label: '任务管理', operation: '更新任务计划' },
-  generate_image: { label: '媒体生成', operation: '生成图片', targetKeys: ['prompt'] },
-  generate_video: { label: '媒体生成', operation: '生成视频', targetKeys: ['prompt'] },
-  generate_audio: { label: '媒体生成', operation: '生成音频', targetKeys: ['prompt'] },
-  memory_manage: { label: '记忆管理', operation: '管理项目记忆', targetKeys: ['name'] },
-  ask_user_question: { label: '询问用户', operation: '询问用户' },
-  install_skill: { label: '技能管理', operation: '安装技能', targetKeys: ['url', 'name'] },
-  role_acceptance: { label: '角色验收', operation: '验收角色', targetKeys: ['roleName', 'role'] },
-  select_conversation: { label: '会话路由', operation: '选择会话', targetKeys: ['chatId'] },
+  stop_child: {
+    label: '角色协作',
+    operation: '停止子角色',
+    targetKeys: ['chatId'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'chatId', label: '会话标识' }],
+  },
+  destroy_role: {
+    label: '角色协作',
+    operation: '停止子角色',
+    targetKeys: ['chatId'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'chatId', label: '会话标识' }],
+  },
+  send_to_child: {
+    label: '角色协作',
+    operation: '追加子任务',
+    targetKeys: ['task'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'task', label: '任务内容' }],
+  },
+  update_todo: { label: '任务管理', operation: '更新任务计划', keyFacts: [{ kind: 'tool' }] },
+  generate_image: {
+    label: '媒体生成',
+    operation: '生成图片',
+    targetKeys: ['prompt'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'prompt', label: '生成要求' }],
+  },
+  generate_video: {
+    label: '媒体生成',
+    operation: '生成视频',
+    targetKeys: ['prompt'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'prompt', label: '生成要求' }],
+  },
+  generate_audio: {
+    label: '媒体生成',
+    operation: '生成音频',
+    targetKeys: ['prompt'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'prompt', label: '生成要求' }],
+  },
+  memory_manage: {
+    label: '记忆管理',
+    operation: '管理项目记忆',
+    targetKeys: ['name'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'name', label: '记忆名称' }],
+  },
+  ask_user_question: { label: '询问用户', operation: '询问用户', keyFacts: [{ kind: 'tool' }] },
+  install_skill: {
+    label: '技能管理',
+    operation: '安装技能',
+    targetKeys: ['url', 'name'],
+    keyFacts: [
+      { kind: 'tool' },
+      { kind: 'arg', arg: 'url', label: '来源地址' },
+      { kind: 'arg', arg: 'name', label: '技能名称' },
+    ],
+  },
+  role_acceptance: {
+    label: '角色验收',
+    operation: '验收角色',
+    targetKeys: ['roleName', 'role'],
+    keyFacts: [
+      { kind: 'tool' },
+      { kind: 'arg', arg: 'roleName', label: '角色名称' },
+      { kind: 'arg', arg: 'role', label: '角色名称' },
+    ],
+  },
+  select_conversation: {
+    label: '会话路由',
+    operation: '选择会话',
+    targetKeys: ['chatId'],
+    keyFacts: [{ kind: 'tool' }, { kind: 'arg', arg: 'chatId', label: '会话标识' }],
+  },
 }
 
 const CONFIG_ACTIONS: Record<string, string> = {
@@ -207,6 +334,30 @@ function configChanges(args: Record<string, unknown>): ToolChangePresentation[] 
   })
 }
 
+/** 解析关键信息：按声明顺序取值；同名标签只保留第一条有值的（如 role/roleName 二选一）。
+ *  description 被 parseArgs 单独提取（折叠标题用），此处自行补回供「用途说明」类关键信息读取。 */
+function resolveKeyFacts(tool: ToolPresentation, argsInput: unknown): ToolKeyFact[] {
+  if (!tool.keyFacts?.length) return []
+  const args = argumentRecord(argsInput)
+  const description = parseArgs(argsInput).parsed?.description
+  if (description) args.description = description
+  const facts: ToolKeyFact[] = []
+  const seen = new Set<string>()
+  for (const def of tool.keyFacts) {
+    const fact: ToolKeyFact | undefined =
+      def.kind === 'tool'
+        ? { label: '工具名称', value: tool.label }
+        : (() => {
+            const value = shortValue(args[def.arg])
+            return value ? { label: def.label, value } : undefined
+          })()
+    if (!fact || seen.has(fact.label)) continue
+    seen.add(fact.label)
+    facts.push(fact)
+  }
+  return facts
+}
+
 export function createToolRunPresentation(
   senseNameInput: unknown,
   argsInput: unknown,
@@ -227,16 +378,13 @@ export function createToolRunPresentation(
     shortValue(args.task) ??
     shortValue(args.prompt)
   const changes =
-    senseName === 'config_manage' && args.action === 'patch'
-      ? configChanges(args)
-      : senseName === 'write_file' && typeof args.path === 'string'
-        ? [{ label: '文件变更', detail: `写入文件“${args.path}”` }]
-        : []
+    senseName === 'config_manage' && args.action === 'patch' ? configChanges(args) : []
   return {
     toolLabel: tool.label,
     operationLabel: tool.operation,
     ...(genericTarget ? { target: genericTarget } : {}),
     changes,
+    keyFacts: resolveKeyFacts(tool, argsInput),
   }
 }
 
@@ -255,6 +403,7 @@ export function createApprovalPresentation(
     title: `大模型需要${tool.operationLabel}`,
     ...(target ? { target } : {}),
     changes: tool.changes,
+    keyFacts: tool.keyFacts,
   }
 }
 

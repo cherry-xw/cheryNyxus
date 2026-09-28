@@ -160,7 +160,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 ### 工具能力解释
 
 - 后端审批注册时从 senseRegistry 注入 sense 定义 `description` → `ApprovalPayload.senseDescription` → interaction payload（[manager.ts](../../src/service/approval/manager.ts) / [observer.ts](../../src/service/chat/observer.ts)）。
-- 审批卡不直接暴露「工具名 + 原始 action」。共享 [approvalPresentation.ts](../../web/src/utils/approvalPresentation.ts) 把 `senseName + arguments` 投影为标题（「大模型需要做什么」）、能力、行为、对象；未知自定义工具保留原名安全回退。**2026-11 精简**：审批界面不再显示「大模型发起 / 由你审批后执行」徽章与「批准后才会执行」总结句——`ApprovalSummary` 只留标题 + 能力/行为/对象，`InteractionCard` 卡头不再重复标题（标题由 `ApprovalSummary` 单一承载）。
+- 审批卡不直接暴露「工具名 + 原始 action」。共享 [approvalPresentation.ts](../../web/src/utils/approvalPresentation.ts) 把 `senseName + arguments` 投影为标题（「大模型需要做什么」）+ **关键信息**（每类工具在 `TOOL_PRESENTATIONS` 声明 `keyFacts`：工具名称 + 具体目标，如技能加载 = 工具名称 + 技能名称），`ApprovalSummary` 把关键信息置前放大强调；未声明的工具（含未知自定义工具）回退能力/行为/对象模板、保留原名安全回退。**2026-11 精简**：审批界面不再显示「大模型发起 / 由你审批后执行」徽章与「批准后才会执行」总结句——`ApprovalSummary` 只留标题 + 关键信息（或通用能力/行为/对象回退），`InteractionCard` 卡头不再重复标题（标题由 `ApprovalSummary` 单一承载）。
 - `config_manage` 按实际 `action` 显示「获取/修改/恢复配置参数」或「获取/保存/归档角色资产」；技术值（如 `get`）仅在完整参数中作为追溯信息保留。
 - [ParsedArgs.vue](../../web/src/features/agent/cards/ParsedArgs.vue) 与递归 `ArgumentValue.vue` 解析 JSON 字符串、嵌套对象和数组，统一中文字段名；非法 JSON 仍以原文回退，不会丢失审批证据。**2026-11**：`完整操作参数` **默认收起**（点击 ▸ 展开），开关为**无边框纯文字**（内部已是 key:value 行，不再套胶囊边框）。
 - 后端注入的 sense `description` 保留为默认折叠的深入能力说明，不再承担审批主标题。

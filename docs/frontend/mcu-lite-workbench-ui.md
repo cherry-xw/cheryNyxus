@@ -120,7 +120,7 @@
 
 ### 4.3 审批 / 提问交互（G4 全量下发，交互必须）
 - **交互入口（v2.6 重构，用户需求「参考对话模式，把提问交互放进页面内容」）**：审批 / 提问交互**不再有常驻面板**（原输入区上方的待处理面板已移除）——入口 = 点击大模型响应回来的**工具调用簇按钮**（或时间轴工具块）→ 打开**详情抽屉**，在抽屉内**该工具调用卡**上完成交互（`LiteToolCallDetail` 卡片内嵌 `LiteInteractionView`）。**工具卡 ↔ 交互匹配**：审批 = interactionId 即该次工具调用的 callId；提问批 = 批内每题 questionId 即触发它的 callId（见下）。待处理 / 提交中的交互命中卡片 → 渲染交互视图；**交互完成后不再命中 → 卡片自动回到只读展示**。
-- **审批（interrupt）**：`LiteInteractionView` 内展示：头部 `APPROVAL REQUEST` + 状态小点 / 状态药丸（非 pending 时）/ 倒计时（pending 显示剩余，超时「已超时」置灰）；下方 `ApprovalSummary`（标题「大模型需要…」+ 能力/行为/对象，2026-11 起无徽章与总结句）+ **风险摘要**（security.findings[0] 前 120 字，缺省兜底「未发现额外安全提示…」）+「技术详情」折叠区（完整操作参数 `ParsedArgs` + 文件变更 `FileChangeDiff`）；按钮【拒绝】【允许执行】——**允许后立即执行**，底部提示「批准后将立即执行，请先核对目标与变更。」。提交中 / 超时 / 断线时按钮禁用。
+- **审批（interrupt）**：`LiteInteractionView` 内展示：头部 `APPROVAL REQUEST` + 状态小点 / 状态药丸（非 pending 时）/ 倒计时（pending 显示剩余，超时「已超时」置灰）；下方 `ApprovalSummary`（标题「大模型需要…」+ 关键信息（工具名称 + 具体目标，如技能加载 = 工具名称 + 技能名称），未声明关键信息的工具回退能力/行为/对象）+ **风险摘要**（security.findings[0] 前 120 字，缺省兜底「未发现额外安全提示…」）+「技术详情」折叠区（完整操作参数 `ParsedArgs` + 文件变更 `FileChangeDiff`）；按钮【拒绝】【允许执行】——**允许后立即执行**，底部提示「批准后将立即执行，请先核对目标与变更。」。提交中 / 超时 / 断线时按钮禁用。
   - 批准 → interaction.approval.decide({interactionId, action:'accept', expectedRevision, commandId})；拒绝 → action:'reject'（interactionId=approvalId 同值）。
   - 结果经 interaction.changed（含 presetId）+ accept/rejected 事件反馈。
   - **id 映射（D 定案）**：interrupt 的 interactionId = 该 sense call id = 消息节点 toolCalls 中该 toolCall 的 call id；「技术详情」经 node.get({rootChatId, nodeId=所属消息节点, sections:['toolCalls']}) 一次拉取该节点全部调用后按 call id 定位该项。

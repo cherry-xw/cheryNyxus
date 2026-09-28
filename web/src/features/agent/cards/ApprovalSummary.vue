@@ -21,7 +21,14 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
     :aria-label="presentation.title"
   >
     <h3>{{ presentation.title }}</h3>
-    <dl>
+    <!-- 关键信息：该工具类型需要重点核对的内容（优先、放大强调）；未定义时回退通用能力/行为/对象 -->
+    <dl v-if="presentation.keyFacts.length" class="key-facts">
+      <div v-for="fact in presentation.keyFacts" :key="fact.label" class="key-fact">
+        <dt>{{ fact.label }}</dt>
+        <dd>{{ fact.value }}</dd>
+      </div>
+    </dl>
+    <dl v-else class="generic-facts">
       <div>
         <dt>能力</dt>
         <dd>{{ presentation.toolLabel }}</dd>
@@ -34,6 +41,8 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
         <dt>对象</dt>
         <dd>{{ presentation.target }}</dd>
       </div>
+    </dl>
+    <dl v-if="presentation.changes.length" class="change-facts">
       <div
         v-for="change in presentation.changes"
         :key="`${change.label}:${change.detail}`"
@@ -63,26 +72,58 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
   line-height: 1.4;
   font-weight: 400; /* 非加粗：标题由字号/边框承担层级，字重保持 400 */
 }
-.approval-summary dl {
+/* 关键信息：核心核对项，值字号更大、实色更强，纵向逐行排列突出权重 */
+.key-facts {
   display: flex;
-  flex-wrap: wrap;
-  gap: 3px 14px;
-  margin: 0;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
 }
-.approval-summary dl > div {
+.key-fact {
   display: flex;
   align-items: baseline;
+  gap: 6px;
   min-width: 0;
-  gap: 4px;
 }
-.approval-summary dt {
+.key-fact dt {
   flex-shrink: 0;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
   font-size: 13px;
   line-height: 1.4;
   font-weight: 400; /* 非加粗：标签行不加重 */
 }
-.approval-summary dd {
+.key-fact dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  font-weight: 400; /* 非加粗：关键值由字号/实色承担强调 */
+}
+/* 通用回退（未定义关键信息的工具）：能力/行为/对象 */
+.generic-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+  margin: 4px 0 0;
+}
+.generic-facts > div,
+.change-facts > div {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 4px;
+}
+.generic-facts dt,
+.change-facts dt {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 400; /* 非加粗：标签行不加重 */
+}
+.generic-facts dd,
+.change-facts dd {
   margin: 0;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-size: 14px;
@@ -90,7 +131,10 @@ const presentation = computed(() => createApprovalPresentation(props.senseName, 
   overflow-wrap: anywhere;
   font-weight: 400; /* 非加粗：对象/行为正文不加重 */
 }
-.approval-summary .change {
+.change-facts {
+  margin: 4px 0 0;
+}
+.change-facts .change {
   flex-basis: 100%;
 }
 .approval-summary.is-compact {
