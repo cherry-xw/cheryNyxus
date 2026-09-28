@@ -173,6 +173,56 @@ describe('checkpointMiddleware 集成', () => {
     expect(assistant?.senseCalls?.map((sc) => sc.id)).toEqual(['t0', 't1'])
   })
 
+  it('多工具调用审批前即时补齐 assistant，避免对话/精简模式只看到首个工具', async () => {
+    const ctx = createMockContext({ messages: [] })
+    const next = async function* (): AsyncGenerator<MiddlewareChunk> {
+      yield {
+        type: 'stream',
+        thinkingDelta: '',
+        contentDelta: '并行调用',
+        senseDelta: [{ index: 0, id: 't0', name: 'read_file', arguments: '{}' }],
+      }
+      yield {
+        type: 'sense_end',
+        id: 't0',
+        name: 'read_file',
+        arguments: '{}',
+        supervisionLevel: 0,
+      } as MiddlewareChunk
+      yield {
+        type: 'stream',
+        thinkingDelta: '',
+        contentDelta: '',
+        senseDelta: [{ index: 1, id: 't1', name: 'execute_command', arguments: '{}' }],
+      }
+      yield {
+        type: 'sense_end',
+        id: 't1',
+        name: 'execute_command',
+        arguments: '{}',
+        supervisionLevel: 1,
+      } as MiddlewareChunk
+    }
+
+    const emitted = await collectChunks(checkpointMiddleware(ctx, next))
+    const updates = emitted.filter(
+      (chunk): chunk is Extract<MiddlewareChunk, { type: 'message_updated' }> =>
+        chunk.type === 'message_updated',
+    )
+    const pendingIndex = emitted.findIndex((chunk) => chunk.type === 'sense_pending')
+    const updateIndex = emitted.findIndex((chunk) => chunk.type === 'message_updated')
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]?.patch.senseCalls?.map((call) => call.id)).toEqual(['t0', 't1'])
+    expect(updateIndex).toBeGreaterThanOrEqual(0)
+    expect(pendingIndex).toBeGreaterThan(updateIndex)
+    expect(
+      ctx.soul.messages
+        ?.find((message) => message.role === 'assistant')
+        ?.senseCalls?.map((call) => call.id),
+    ).toEqual(['t0', 't1'])
+  })
+
   it('rotates the assistant turn and discards accumulated content on retry_reset', async () => {
     const ctx = createMockContext({ messages: [] })
     const next = async function* (): AsyncGenerator<MiddlewareChunk> {

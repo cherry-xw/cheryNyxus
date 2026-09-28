@@ -151,6 +151,33 @@ describe("CheckpointState.flushAssistant", () => {
     });
   });
 
+  it("多个 sense_end 分批到达时逐次补齐 assistant.senseCalls，最终不重复更新", () => {
+    const s = new CheckpointState();
+    const ctx = createMockContext({ messages: [] });
+
+    s.ingest(stream({
+      senseDelta: [{ index: 0, id: "t0", name: "read_file", arguments: "{}" }],
+    }));
+    s.recordSecurity("t0", authorization("allow", "assessment-0"));
+    const flushed = s.flushAssistant(ctx);
+    expect(flushed?.senseCalls?.map((call) => call.id)).toEqual(["t0"]);
+
+    s.ingest(stream({
+      senseDelta: [{ index: 1, id: "t1", name: "execute_command", arguments: "{}" }],
+    }));
+    s.recordSecurity("t1", authorization("ask", "assessment-1"));
+    const firstUpdate = s.reconcileAssistantSenseCalls();
+    expect(firstUpdate?.patch.senseCalls?.map((call) => call.id)).toEqual(["t0", "t1"]);
+
+    s.ingest(stream({
+      senseDelta: [{ index: 2, id: "t2", name: "search_codebase", arguments: "{}" }],
+    }));
+    s.recordSecurity("t2", authorization("allow", "assessment-2"));
+    const secondUpdate = s.reconcileAssistantSenseCalls();
+    expect(secondUpdate?.patch.senseCalls?.map((call) => call.id)).toEqual(["t0", "t1", "t2"]);
+    expect(s.reconcileAssistantSenseCalls()).toBeNull();
+  });
+
   it("retry reset 不沿用上一次尝试的 security", () => {
     const s = new CheckpointState();
     s.ingest(stream({

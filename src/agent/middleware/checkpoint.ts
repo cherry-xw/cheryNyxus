@@ -184,6 +184,26 @@ export async function* checkpointMiddleware(
           } as MiddlewareChunk
         }
 
+        // 同一轮可能包含多个 sense_call。首个 sense_end 会先创建 assistant，后续
+        // sense_end 不能等到审批/整轮结束才回写，否则对话与精简模式在审批等待期间
+        // 看不到后续待审批调用；即时回写仍复用最终 reconcile 的去重快照。
+        const incrementalReconcile = state.reconcileAssistantSenseCalls()
+        if (
+          incrementalReconcile &&
+          incrementalReconcile.type === 'updated' &&
+          'senseCalls' in incrementalReconcile.patch
+        ) {
+          ctx.journal.updateAssistantSenseCalls(
+            incrementalReconcile.id,
+            incrementalReconcile.patch.senseCalls ?? [],
+          )
+          yield {
+            type: 'message_updated',
+            id: incrementalReconcile.id,
+            patch: incrementalReconcile.patch,
+          } as MiddlewareChunk
+        }
+
         // smart/manual 模式：创建 pending sense 消息（若不存在），并 yield effect 交给 service 持久化。
         // resume 续接时 pending 已存在（同 trigger.id）→ 跳过创建，仅注册审批避免重复落库。
         if (trigger.supervisionLevel > 0 /* SupervisionLevel.auto */) {

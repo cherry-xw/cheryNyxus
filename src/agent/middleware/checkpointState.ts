@@ -34,7 +34,7 @@ export class CheckpointState {
   private assistantId = randomUUID()
   /** turn 起始时间戳，staged chunk 携此作为实时项 createdAt（reload 后由 DB 值替换）。 */
   private turnStartedAt = Date.now()
-  /** 第一次 flush 时记录的 senseCalls（流结束后比对是否需要补充） */
+  /** 最近一次已写入 assistant 的 senseCalls 快照（增量 reconcile 与最终兜底共用） */
   private flushedAssistantSenseCalls: NonNullable<AgentMessage['senseCalls']> = []
   /** callId → 安全授权判定（checkpoint 在 sense_end 收到 trigger 时注入；构造 senseCalls 落库用）。
    *  callId 与 senseDelta 合并产出的 sc.id 同源（同一 SenseCallAssembler 处理同一条 delta 流）。 */
@@ -163,11 +163,12 @@ export class CheckpointState {
   }
 
   /**
-   * 流结束后 reconcile last assistant 的 senseCalls 字段。
+   * reconcile 已 flush assistant 的 senseCalls 字段。
    *
-   * 流式多 sense_call 场景：第一次 sense_end flushAssistant 时 senseDeltas 未累积完整
-   * （OpenAI 流式 delta 分散到达，yield trigger 早于 ingest chunk），流结束后需要补充新增 trigger。
-   * 比对「flush 时记录的 senseCalls」与「最终 mergeSenseDeltas」，有新增则返回 updated mutation
+   * 流式多 sense_call 场景：第一次 sense_end flushAssistant 时 senseDeltas 可能未累积完整，
+   * 后续 sense_end 到达时需要立即把新增调用写回 assistant，保证审批等待期间前端也能看到完整
+   * 的待审批工具。流结束时仍可再次调用此方法，作为最后一轮 delta 合并的兜底。
+   * 比对「最近一次已写入的 senseCalls」与当前 mergeSenseDeltas，有变化则返回 updated mutation
    * （patch.kind="content" + senseCalls），由 observer 落库。
    *
    * @returns updated mutation（含 senseCalls 增量）或 null（无需补充）
@@ -179,6 +180,7 @@ export class CheckpointState {
     // 后续 sense_end 只会补齐各自的 security。不能只比较长度，否则第 2 个及之后
     // 的授权判定不会写回 assistant.senseCalls。
     if (sameSenseCalls(finalSenseCalls, this.flushedAssistantSenseCalls)) return null
+    this.flushedAssistantSenseCalls = finalSenseCalls
     return {
       type: 'updated',
       id: this.flushedAssistantId,
