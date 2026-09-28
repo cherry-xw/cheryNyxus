@@ -4,7 +4,7 @@
 
 ## 1. 实施状态
 
-详细执行事实已经落地：`workflowRecorder.ts` 随 run 安装记录 sink，`workflowStepWriter.ts` 为排队、审批、协作等 run 外边界提供相同的受控写入口，二者都独立于界面。`workflowJournal.ts` 持久化 occurrence/event、root sequence/revision 与 gap；`publishWorkflowJournalInvalidation` 在聊天删除后递增存续 root 的 revision。旧十节点快照和重建历史继续作为兼容读取路径，只读、不写入。
+详细执行事实已经落地：`workflowRecorder.ts` 随 run 安装记录 sink，`workflowStepWriter.ts` 为排队、审批、协作等 run 外边界提供相同的受控写入口，二者都独立于界面。`workflowJournal.ts` 持久化 occurrence/event、root sequence/revision 与 gap；聊天删除后同步递增存续 root 的 revision。旧十节点快照和重建历史继续作为兼容读取路径，只读、不写入。
 
 ## 2. 任务定位
 
@@ -41,7 +41,6 @@
   -> 语义事件（稳定 occurrence/source key）
   -> service 有界队列或短批次
   -> 独立步骤 journal 事务（event + root sequence + workflow revision）
-  -> after-commit 通知（记录体系订阅方，如删除失效通知）
 ```
 
 - 同一 source key 重报必须幂等；一次 occurrence 的终态不可翻转。可批量提交相邻小事件，但批处理不能合并不同调用、attempt 或因果身份。
@@ -76,7 +75,7 @@ Checkpoint（内容记录）只建立一个 occurrence：checkpoint 边界（记
 
 ## 6. 删除与失效
 
-聊天删除流程中，对每个存续的受影响 root，在 soul.db 同一事务内递增 `workflow_journal_roots` 的 revision 与 history_generation（[chat.ts `updateWorkflowAfterChatDeletion`](../../../src/db/chat.ts)），并通过 `publishWorkflowJournalInvalidation` 通知记录体系订阅方；没有订阅方时通知为空操作。删除前必须完成同级 chat、消息、epoch、execution 与 branch/task 清理，避免孤儿步骤。
+聊天删除流程中，对每个存续的受影响 root，在 soul.db 同一事务内递增 `workflow_journal_roots` 的 revision（[chat.ts `updateWorkflowAfterChatDeletion`](../../../src/db/chat.ts)）。删除前必须完成同级 chat、消息、epoch、execution 与 branch/task 清理，避免孤儿步骤。
 
 恢复语义：从持久事件折叠 occurrence。没有终态的旧 run 显示 unknown，明确 waiting/cancelled/interrupted 按原事实恢复。只有 compaction applied 事件切换 context stage；不能用当前配置或新的 active branch 重写旧事实。
 

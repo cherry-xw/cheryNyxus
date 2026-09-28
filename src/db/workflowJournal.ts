@@ -55,41 +55,6 @@ export interface WorkflowJournalCommit {
   revision: number
   events: WorkflowStepEvent[]
   gaps: WorkflowGap[]
-  invalidated?: boolean
-}
-
-const commitListeners = new Set<(commit: WorkflowJournalCommit) => void>()
-
-export function onWorkflowJournalCommit(
-  listener: (commit: WorkflowJournalCommit) => void,
-): () => void {
-  commitListeners.add(listener)
-  return () => commitListeners.delete(listener)
-}
-
-function publishCommit(commit: WorkflowJournalCommit): void {
-  for (const listener of commitListeners) {
-    try {
-      listener(commit)
-    } catch {
-      /* A projection is never allowed to roll back a committed fact. */
-    }
-  }
-}
-
-export function publishWorkflowJournalInvalidation(
-  rootChatId: string,
-  baseRevision: number,
-  revision: number,
-): void {
-  publishCommit({
-    rootChatId,
-    baseRevision,
-    revision,
-    events: [],
-    gaps: [],
-    invalidated: true,
-  })
 }
 
 function ensureRoot(rootChatId: string): {
@@ -391,7 +356,6 @@ export function appendWorkflowJournalEvents(
       gaps: [],
     }
   })()
-  if (commit?.events.length) publishCommit(commit)
   return commit
 }
 
@@ -446,7 +410,6 @@ export function recordWorkflowJournalGap(input: {
       gaps: [gap],
     }
   })()
-  publishCommit(commit)
   return commit
 }
 

@@ -4,7 +4,6 @@ import path from 'path'
 import { safeJsonParse } from '@/utils/json.js'
 import config from '@/utils/config.js'
 import type { ThinkingLevel } from '@/core/llm/adapter.js'
-import { publishWorkflowJournalInvalidation } from './workflowJournal.js'
 
 export interface ChatRow {
   id: string
@@ -540,7 +539,6 @@ function clearSoulChatData(
 function updateWorkflowAfterChatDeletion(
   soulDb: ReturnType<typeof getSoulDb>,
   mutatedWorkflowRoots: Set<string>,
-  workflowInvalidations: Map<string, { baseRevision: number; revision: number }>,
 ): void {
   for (const rootChatId of mutatedWorkflowRoots) {
     const root = soulDb
@@ -549,22 +547,16 @@ function updateWorkflowAfterChatDeletion(
     if (!root) continue
     soulDb
       .prepare(
-        `UPDATE workflow_journal_roots
-         SET revision = revision + 1, history_generation = history_generation + 1,
-             updated_at = ? WHERE root_chat_id = ?`,
+        `UPDATE workflow_journal_roots SET revision = revision + 1, updated_at = ?
+         WHERE root_chat_id = ?`,
       )
       .run(Date.now(), rootChatId)
-    workflowInvalidations.set(rootChatId, {
-      baseRevision: root.revision,
-      revision: root.revision + 1,
-    })
   }
 }
 
 /** Clear monthly data first; failure retains ownership records for retry. */
 export function deleteChats(chatIds: readonly string[]): void {
   const soulDb = getSoulDb()
-  const workflowInvalidations = new Map<string, { baseRevision: number; revision: number }>()
   const mutatedWorkflowRoots = new Set<string>()
   const targets = chatIds.flatMap((chatId) => {
     const chat = getChat(chatId)
@@ -588,10 +580,8 @@ export function deleteChats(chatIds: readonly string[]): void {
   for (const { chatId, chat } of targets) clearMonthlyChatData(chatId, chat)
   soulDb.transaction(() => {
     for (const target of targets) clearSoulChatData(soulDb, target, mutatedWorkflowRoots)
-    updateWorkflowAfterChatDeletion(soulDb, mutatedWorkflowRoots, workflowInvalidations)
+    updateWorkflowAfterChatDeletion(soulDb, mutatedWorkflowRoots)
   })()
-  for (const [rootChatId, revision] of workflowInvalidations)
-    publishWorkflowJournalInvalidation(rootChatId, revision.baseRevision, revision.revision)
 }
 
 /** Internal rollback primitive; public deletion requires an archived family. */
