@@ -643,4 +643,3 @@ export function listWorkflowJournalStages(rootChatId: string): Array<{
     quality: row.exact === 1 ? 'exact' : 'reconstructed',
   }))
 }
-
