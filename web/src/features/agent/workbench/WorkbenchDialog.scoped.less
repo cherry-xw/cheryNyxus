@@ -1065,7 +1065,8 @@
   position: absolute;
   z-index: var(--nx-z-composer);
   right: max(62px, calc(env(safe-area-inset-right) + 52px));
-  bottom: max(22px, env(safe-area-inset-bottom));
+  /* 底部留出 Agent 用量条（27px）+ 间距，避免遮挡底部 context 显示。 */
+  bottom: max(39px, calc(env(safe-area-inset-bottom) + 12px));
   left: max(22px, env(safe-area-inset-left));
   width: min(720px, calc(100vw - 106px));
   margin-inline: auto;
@@ -1080,6 +1081,10 @@
   backdrop-filter: blur(14px);
   transform-origin: right bottom;
   pointer-events: auto;
+}
+/* 有子 Agent 时用量条增高（45px），composer 相应再抬高。 */
+.nyxus-composer-dock.has-usage-subagents {
+  bottom: max(57px, calc(env(safe-area-inset-bottom) + 12px));
 }
 .nyxus-composer-head {
   min-height: 46px;
@@ -1227,9 +1232,12 @@
   }
   .nyxus-composer-dock {
     right: 52px;
-    bottom: 12px;
+    bottom: max(39px, calc(env(safe-area-inset-bottom) + 12px));
     left: 12px;
     width: auto;
+  }
+  .nyxus-composer-dock.has-usage-subagents {
+    bottom: max(57px, calc(env(safe-area-inset-bottom) + 12px));
   }
   .nyxus-composer-title small {
     display: none;

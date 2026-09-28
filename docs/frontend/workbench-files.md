@@ -14,7 +14,7 @@
 
 节点树使用 `AgentComposer` 和 `useAgentDialogOptions`；对话与精简输入使用共享的 `useInstructionSuggestions` 和 `InstructionSuggestions`。三者共用 `commands.ts` 的 token 格式（`serializeCommandToken` 等），支持候选过滤、键盘选择和文件回填，保留各自草稿和附件功能。输入提示说明 `/` 是指令、`@` 是角色、`&` 是文件引用，以及正文由 Agent 按需读取。`/` 指令候选在三种视图都带 tab 栏（指令/技能/组合技，左右键切换），对话/精简的 tab 分组与 token 与树页面完全一致（2026-09-20 起）。
 
-节点树在一轮响应结束且当前根没有审批/提问时按 `useWorkbenchDialogController` 的终态规则打开输入区；用户主动关闭同一轮不被自动打扰。首次适配视图和切根使用偏上相机定位，保留 hover 面板的下方空间，用户手动平移后暂停自动跟随。
+节点树输入区（`nyxusDraftActive`）的显示时机：新建会话后默认打开；一轮响应结束且当前根没有审批/提问时按 `useWorkbenchDialogController` 的终态规则自动打开——自动打开只由 Agent 实际运行（`activeRuns`）的起止驱动，发送动作本身不触发，因此发送消息后立即关闭且不会弹回；用户主动关闭同一轮不被自动打扰，右侧 rail 消息按钮为开/关 toggle（关闭即放弃草稿并标记该轮不自动打扰），从对话模式切回树视图时打开输入区。输入区底部位于 Agent 用量条之上（有子 Agent 时相应抬高），不遮挡底部 context 显示。首次适配视图和切根使用偏上相机定位，保留 hover 面板的下方空间，用户手动平移后暂停自动跟随。
 
 ## 查看器和图标
 

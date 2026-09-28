@@ -225,6 +225,7 @@ const {
   roleSelections, roleUsages,
   sidePanel, toggleSidePanel,
   toggleMediaVariant,
+  toggleNyxusInput,
   readerTimeline,
   scheduleFoldToolClose, scheduleRoleListClose,
   selectBranchTarget, selectedContent, selectWorkflowContent,
@@ -524,6 +525,7 @@ defineExpose({
             v-if="nyxusDraftActive"
             id="nyxus-message-composer"
             class="nyxus-composer-dock"
+            :class="{ 'has-usage-subagents': usageBarAgents.length > 1 }"
             role="dialog"
             aria-modal="false"
             aria-label="发送新消息"
@@ -627,7 +629,7 @@ defineExpose({
           <div class="nyxus-tool-column">
             <div class="nyxus-primary-tools" aria-label="主要操作">
               <el-tooltip
-                :content="nyxusDraftActive ? '继续编辑消息' : '发送消息'"
+                :content="nyxusDraftActive ? '关闭发送消息窗口' : '发送消息'"
                 placement="left"
                 :show-after="200"
                 :hide-after="0"
@@ -639,10 +641,10 @@ defineExpose({
                     class="nyxus-rail-action is-message"
                     :class="{ 'is-active': nyxusDraftActive }"
                     :disabled="!chatId"
-                    :aria-label="nyxusDraftActive ? '继续编辑消息' : '发送消息'"
+                    :aria-label="nyxusDraftActive ? '关闭发送消息窗口' : '发送消息'"
                     aria-controls="nyxus-message-composer"
                     :aria-expanded="nyxusDraftActive"
-                    @click="activateNyxusInput"
+                    @click="toggleNyxusInput"
                   >
                     <span aria-hidden="true">↗</span>
                   </button>

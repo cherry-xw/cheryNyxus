@@ -518,6 +518,11 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     resetMedia()
     error.value = null
   }
+  /** 右侧消息按钮 toggle：输入区开着时点击关闭，关着时点击打开。 */
+  function toggleNyxusInput(): void {
+    if (nyxusDraftActive.value) cancelNyxusInput()
+    else activateNyxusInput()
+  }
   async function sendFromComposer(): Promise<void> {
     if (sending.value || uploading.value || loading.value) return
     if (quickTargetRequired.value && quickRoutingPending.value) await waitForQuickRouting()
@@ -618,9 +623,15 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     await handleSend(targetChatId, { keepOpen: true })
     if (text.value) nyxusDraftActive.value = true
   }
-  /** 任意入口（标题栏三档切换钮；rail「对话模式」按钮 v2.1 移除）离开对话模式都清理代际二层视图。 */
-  watch(viewMode, (mode) => {
+  /** 任意入口（标题栏三档切换钮；rail「对话模式」按钮 v2.1 移除）离开对话模式都清理代际二层视图。
+   *  从对话模式切回节点树时打开输入区：对话模式常驻输入框，切回后允许继续输入。 */
+  watch(viewMode, (mode, previousMode) => {
     if (mode !== 'conversation') agents.closeHistoryGeneration()
+    // 从对话模式切回节点树且已有会话：打开输入区，允许继续输入。
+    if (mode === 'tree' && previousMode === 'conversation' && treeRootChatId.value) {
+      userClosedAfterTurn.value = false
+      nyxusDraftActive.value = true
+    }
   })
   /** 对话模式级联切换（分支/会话）：只改对话模式局部会话（conversationRootChatId），
    *  不影响窗口会话与树/精简视图（窗口根仍由标题栏/任务浏览器等入口切换）。 */
@@ -666,6 +677,17 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       error.value = message
     },
   })
+  /** 新建会话后默认打开输入区（新会话/复用空会话都允许继续输入并聚焦）；
+   *  创建失败（error 被新设置）时不打开，保留错误提示。 */
+  async function handleCreateSession(): Promise<void> {
+    const errorBefore = error.value
+    await createSession()
+    if (error.value && error.value !== errorBefore) return
+    await nextTick()
+    userClosedAfterTurn.value = false
+    nyxusDraftActive.value = true
+    void nextTick(() => editorRef.value?.focus())
+  }
   /** 对话模式局部会话跟随窗口根：下拉切换只改 conversationRootChatId（treeRootChatId 不变），
    *  此处仅在窗口根被外部切换（标题栏/任务浏览器/归档等）时同步，保证对话模式不滞留已离开的会话。 */
   watch(
@@ -856,13 +878,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   watch(
     () =>
       [
-        sending.value ||
-          (liveTimeline.value?.activeRuns.some(
-            (run) => run.status === 'running' || run.status === 'waiting',
-          ) ??
-            false),
+        liveTimeline.value?.activeRuns.some(
+          (run) => run.status === 'running' || run.status === 'waiting',
+        ) ?? false,
         currentAttentionCount.value,
-        sending.value,
       ] as const,
     ([active, attention]) => {
       const next = advanceComposerTurn(composerTurn, {
@@ -1118,7 +1137,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     composerBranchTitle,
     config,
     connection,
-    createSession,
+    createSession: handleCreateSession,
     creating,
     detailBranchAvailability,
     editorRefFn,
@@ -1184,6 +1203,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     sidePanel,
     toggleSidePanel,
     toggleMediaVariant,
+    toggleNyxusInput,
     readerTimeline,
     replayTimeline,
     scheduleFoldToolClose,
