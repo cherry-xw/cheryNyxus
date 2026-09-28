@@ -93,8 +93,7 @@ function fmtSpeed(speed: number): string {
             v-for="seg in allSegs"
             :key="seg.key"
             class="wub-breakdown"
-            :class="{ 'is-zero': seg.tokens === 0 }"
-            :style="{ color: seg.color }"
+            :class="[`label-${seg.key}`, { 'is-zero': seg.tokens === 0 }]"
           >
             {{ seg.label }} {{ fmtTokens(seg.tokens) }}
           </span>
@@ -287,6 +286,25 @@ function fmtSpeed(speed: number): string {
   .wub-breakdown {
     flex: none;
   }
+  // 分解段文字色（与 BREAKDOWN_SEGMENTS 类别色一致；深色提亮见文件末尾无 scoped 块）。
+  .wub-breakdown.label-system {
+    color: #6366f1;
+  }
+  .wub-breakdown.label-userSystem {
+    color: #a855f7;
+  }
+  .wub-breakdown.label-memory {
+    color: #ec4899;
+  }
+  .wub-breakdown.label-skills {
+    color: #f59e0b;
+  }
+  .wub-breakdown.label-tools {
+    color: #10b981;
+  }
+  .wub-breakdown.label-conversation {
+    color: #3b82f6;
+  }
   .wub-breakdown.is-zero {
     opacity: 0.45;
   }
@@ -313,5 +331,28 @@ function fmtSpeed(speed: number): string {
   .wub-speed {
     color: color-mix(in srgb, var(--nx-text) 72%, transparent);
   }
+}
+</style>
+
+<!-- 深色模式提亮（无 scoped 块，仅提亮前景文字）：分解段文字不再用内联 seg.color
+（内联样式无法被 CSS 覆盖，是此前深色下蓝/紫文字对比度低的根因），改走类名提亮。 -->
+<style lang="less">
+[data-theme='dark'] .wub-bar .wub-breakdown.label-system {
+  color: #a5b4fc;
+}
+[data-theme='dark'] .wub-bar .wub-breakdown.label-userSystem {
+  color: #d8b4fe;
+}
+[data-theme='dark'] .wub-bar .wub-breakdown.label-memory {
+  color: #f9a8d4;
+}
+[data-theme='dark'] .wub-bar .wub-breakdown.label-skills {
+  color: #fcd34d;
+}
+[data-theme='dark'] .wub-bar .wub-breakdown.label-tools {
+  color: #34d399;
+}
+[data-theme='dark'] .wub-bar .wub-breakdown.label-conversation {
+  color: #93c5fd;
 }
 </style>

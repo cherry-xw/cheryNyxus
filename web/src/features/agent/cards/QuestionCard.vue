@@ -683,3 +683,17 @@ function back(): void {
   }
 }
 </style>
+
+<!-- 深色模式提亮放独立无 scoped 样式块（scoped 内 :global 会被编译成裸 [data-theme='dark'] 导致不生效）。
+    仅提亮前景文字；纸卡变体（.is-paper）有独立色板，用 :not(.is-paper) 排除。 -->
+<style lang="less">
+[data-theme='dark'] .question-card:not(.is-paper) .heading-kicker {
+  color: #c4b5fd;
+}
+[data-theme='dark'] .question-card:not(.is-paper) .question-progress {
+  color: #a78bfa;
+}
+[data-theme='dark'] .question-card:not(.is-paper) .submit-error {
+  color: #f87171;
+}
+</style>

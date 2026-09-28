@@ -72,3 +72,14 @@
   font-size: 12px;
   line-height: 15px;
 }
+
+/* 深色模式提亮（scoped 文件内直接写 [data-theme='dark'] 前缀，编译器给末段补 [data-v]；:global 包装会丢选择器）：仅提亮前景文字。 */
+[data-theme='dark'] .role-usage-chip.usage-mid {
+  color: #fde047;
+}
+[data-theme='dark'] .role-usage-chip.usage-high {
+  color: #fca5a5;
+}
+[data-theme='dark'] .history-keys-btn.is-active {
+  color: #c4b5fd;
+}

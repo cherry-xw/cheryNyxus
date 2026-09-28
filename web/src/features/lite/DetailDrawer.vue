@@ -851,3 +851,25 @@ watch(
   cursor: default;
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块，理由见 ContextUsageBar.vue）：仅提亮前景文字。 -->
+<style>
+[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='exec'] {
+  color: #c084fc;
+}
+[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='read'] {
+  color: #94a3b8;
+}
+[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='write'] {
+  color: #34d399;
+}
+[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='web'] {
+  color: #2dd4bf;
+}
+[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='dispatch'] {
+  color: #fb923c;
+}
+[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='other'] {
+  color: #facc15;
+}
+</style>

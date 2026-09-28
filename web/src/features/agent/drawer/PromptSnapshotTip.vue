@@ -325,3 +325,25 @@ function paramFields(
   min-width: 0;
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字/图标。 -->
+<style lang="less">
+[data-theme='dark'] .ps-readonly {
+  color: #fbbf24;
+}
+[data-theme='dark'] .ps-quality-warning {
+  color: #fbbf24;
+}
+[data-theme='dark'] .ps-count {
+  color: #34d399;
+}
+[data-theme='dark'] .ps-tool-name {
+  color: #34d399;
+}
+[data-theme='dark'] .ps-param-name {
+  color: #34d399;
+}
+[data-theme='dark'] .ps-param-req {
+  color: #fbbf24;
+}
+</style>

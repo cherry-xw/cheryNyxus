@@ -390,3 +390,10 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字/图标。 -->
+<style lang="less">
+[data-theme='dark'] .file-head .file-status.status-error {
+  color: #f87171;
+}
+</style>

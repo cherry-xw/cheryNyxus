@@ -695,3 +695,26 @@ function removeDelivery(): void {
   font-size: 14px;
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块，理由见 ContextUsageBar.vue）：仅提亮前景文字/图标。 -->
+<style lang="less">
+[data-theme='dark'] .msg-row .avatar {
+  color: #c4b5fd;
+}
+[data-theme='dark'] .termination-tail.tone-warning,
+[data-theme='dark'] .termination-tail.tone-user {
+  color: #fbbf24;
+}
+[data-theme='dark'] .termination-tail.tone-error {
+  color: #f87171;
+}
+[data-theme='dark'] .termination-tail.tone-redirect {
+  color: #c4b5fd;
+}
+[data-theme='dark'] .compact-label {
+  color: #4ade80;
+}
+[data-theme='dark'] .sense-tag.tag-error .sense-tag-status {
+  color: #f87171;
+}
+</style>

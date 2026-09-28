@@ -193,6 +193,17 @@ application runtime = 负责组装依赖的唯一例外
 
 正文对比度至少 `4.5:1`，必要控件和连线至少 `3:1`，按最终混合背景计算。状态不能只靠颜色表达，至少同时有文字、图形、位置、边界、图标或 ARIA 状态中的一种。
 
+#### 硬编码前景色的深色提亮模式
+
+深色主题下，组件内硬编码的蓝/紫/绿/琥珀/红前景（`color`/`fill`/`stroke`）必须可读。背景色不动，只提亮前景文字/图标，且通过「同文件 dark 覆盖块」实现，不改基础声明：
+
+- `.vue`：在 scoped 块之外追加独立的无 scoped `<style>` 块，写 `[data-theme='dark'] …` 覆盖（`ContextUsageBar.vue` 范例）。scoped 块内写 `:global([data-theme='dark']) …` 会被编译器丢弃后代选择器，不能用于提亮。
+- `.less`/`.css`（经 `<style scoped lang="less" src>` 或 `<style scoped src>` 引入）：直接写 `[data-theme='dark'] …` 前缀，编译器会给末段选择器补 `[data-v]`（例如 `[data-theme='dark'] .role-usage-chip` → `[data-theme='dark'] .role-usage-chip[data-v]`），特异性必然高于基础 scoped 规则。不要用 `:global(...)`/`:deep(...)` 包装（`:global` 会丢选择器编译成裸 `[data-theme='dark']`；`:deep` 会把 `[data-v]` 变成祖先约束，虽可用但可读性差）。
+- 非 scoped less：直接写 `[data-theme='dark']` 前缀。
+- 覆盖选择器的末段复合选择器必须涵盖基础选择器（例如基础 `.label-system` 由 `.ctx-legend-label.label-system` 覆盖）；特异性不得低于带 `[data-v]` 的基础 scoped 规则（相等时覆盖块必须位于基础块之后）。
+
+豁免：独立视觉身份不纳入强制提亮——nyxus CRT（`--nx-*`）、paper/import 弹窗、Pixi/particle、桌宠、settings 的 `--neon-*`/`--cyber-*`；以及固定浅底/白底/彩底徽章。完整豁免名单由扫描用例维护（新增豁免必须能说明理由），见 [`web/test/styles/colorReadability.test.ts`](../../../web/test/styles/colorReadability.test.ts) 的 `hardcoded foreground colors stay readable` 用例：该用例扫描 `web/src` 全部 `.vue`/`.less`/`.css` 的硬编码前景声明（解析 `var(--token)`/`color-mix`），对深浅两套背景断言正文 4.5、控件/图标 3.0，并校验「依赖同文件 dark 覆盖的基础声明，覆盖特异性 ≥ 基础 scoped 规则」，不达标即 `pnpm test:web` 失败，防止回归。新增硬编码前景色后必须通过该用例。
+
 Element Plus 的实际使用方式是：[`web/src/main.ts`](../../../web/src/main.ts#L44-L68) 显式注册组件；[`web/src/styles/element/index.scss`](../../../web/src/styles/element/index.scss) 覆盖浅色变量；`theme.css` 的 `html.dark` 覆盖深色 css-vars。不要在组件内重新定义一套 primary。
 
 ### 4.4 全局样式入口
@@ -382,16 +393,16 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 
 **任务：**把复杂执行过程变成可以观察、定位和操作的执行空间。
 
-入口包括 `WorkbenchDialog.scoped.less`、`agentDialog.less`、`nyxusPopoverTheme.less`、`nodeSkins.ts`、`edgeStyles.ts`、`ExecutionGraphPixiRenderer.ts`。
+入口包括 `WorkbenchDialog.scoped.less`、`agentDialog.less`、`nyxusPopoverTheme.less`、`nodeSkins.ts`、`ExecutionGraphPixiRenderer.ts`。
 
 - `--nx-*` 只服务 CRT 弹窗、执行图详情、审批和提问面；
-- 节点和边通过 `NODE_SKINS`、`EXECUTION_EDGE_STYLES` 映射，不把颜色写进图数据；
+- 节点色经 `NODE_SKINS`/Signal accent 映射，不把颜色写进图数据；连线色不按边类型固定，改为两端节点色的路径渐变（端点色与节点当前显示色一致）；
 - Pixi 只接收 projection 后的场景，主题切换通过 palette 重画；
 - CRT 扫描线、噪点、偏移文字和边脉冲是辅助层，reduced 或 low 时关闭/削减；
 - Composer、抽屉、节点详情和 blocking interaction 必须服从 Nyxus 内部层级；
 - 用户内容仍遵守全局字号和 400 字重，不因为 CRT 身份而降低可读性。
 
-当前节点语义包括 `start`、`message`、`user`、`root-agent`、`child-agent`、`tool-batch`、`fold`、`return`、`dispatch`、`spawn`、`system`、`pack`、`epoch`、`input` 和 `unknown`；边语义包括 `start`、`spawn`、`dispatch`、`return` 和 `fork-detail`。新增执行节点先扩展 `nodeSkins.ts`/`edgeStyles.ts` 的语义表，再扩展视图，不能在模板内按字符串临时选色。
+当前节点语义包括 `start`、`message`、`user`、`root-agent`、`child-agent`、`tool-batch`、`fold`、`return`、`dispatch`、`spawn`、`system`、`pack`、`epoch`、`input` 和 `unknown`。新增执行节点先扩展 `nodeSkins.ts` 的语义表，再扩展视图，不能在模板内按字符串临时选色。连线色不再维护按边类型的语义表：颜色由两端节点的当前显示色决定并沿路径渐变。
 
 纸牌面 `PaperGameCard.vue` 是执行节点的独立展示面，`--card-*` 和 `--paper-font-*` 不得扩散到普通对话、设置或 Lite。
 

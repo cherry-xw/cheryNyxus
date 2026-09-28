@@ -647,3 +647,19 @@ onBeforeUnmount(() => {
   font-size: 15px;
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字/图标。 -->
+<style lang="less">
+[data-theme='dark'] .decision-bar .reject {
+  color: #f87171;
+}
+[data-theme='dark'] .decision-countdown {
+  color: #34d399;
+}
+[data-theme='dark'] .decision-countdown.is-expired {
+  color: #f87171;
+}
+[data-theme='dark'] .error {
+  color: #f87171;
+}
+</style>

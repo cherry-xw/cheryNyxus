@@ -105,3 +105,11 @@
   font-size: 12px;
   font-weight: 400;
 }
+
+/* 深色模式提亮（非 scoped less，直接 [data-theme='dark']）：仅提亮前景文字。 */
+[data-theme='dark'] .media-svc-tag {
+  color: #fbbf24;
+}
+[data-theme='dark'] .media-svc-tag.missing {
+  color: #f87171;
+}

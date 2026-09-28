@@ -75,3 +75,10 @@ const state = computed(() => {
   }
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字。 -->
+<style lang="less">
+[data-theme='dark'] .conn-chip.is-disconnected {
+  color: #f87171;
+}
+</style>

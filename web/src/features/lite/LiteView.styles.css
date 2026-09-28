@@ -1206,3 +1206,24 @@
 @keyframes lite-duration-warn { 0%, 6%, 10%, 100% { transform: translateX(0); } 7% { transform: translateX(-1px); } 9% { transform: translateX(1px); } }
 @keyframes lite-duration-danger { 0%, 14%, 100% { transform: translateX(0); } 2%, 6%, 10% { transform: translateX(-2px); } 4%, 8%, 12% { transform: translateX(2px); } }
 @media (prefers-reduced-motion: reduce) { .lite-duration-yellow, .lite-duration-red { animation: none; } }
+
+/* ── 深色模式提亮（scoped 文件内直接写 [data-theme='dark'] 前缀，编译器会给末段补 [data-v]；
+   :global 包装会编译成裸 [data-theme='dark'] 丢选择器，不可用）：仅提亮图标前景色。── */
+[data-theme='dark'] .lite-tool-call[data-tooltype='exec'] {
+  color: #c084fc;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='read'] {
+  color: #94a3b8;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='write'] {
+  color: #34d399;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='web'] {
+  color: #2dd4bf;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='dispatch'] {
+  color: #fb923c;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='other'] {
+  color: #facc15;
+}

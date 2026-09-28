@@ -292,3 +292,19 @@ function onDrillDetail(): void {
   }
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字/图标。 -->
+<style lang="less">
+[data-theme='dark'] .spawn-head .spawn-type {
+  color: #93c5fd;
+}
+[data-theme='dark'] .spawn-head .spawn-status.status-error {
+  color: #f87171;
+}
+[data-theme='dark'] .spawn-badge {
+  color: #93c5fd;
+}
+[data-theme='dark'] .spawn-detail-link {
+  color: #93c5fd;
+}
+</style>

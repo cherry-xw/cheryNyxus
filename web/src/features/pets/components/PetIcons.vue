@@ -365,3 +365,14 @@ function clickApproval(a: ApprovalState): void {
   }
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字/图标。
+     .role-tag 为彩底 chip（var(--accent)/#7c3aed 底 + 深色字），两主题深字在浅彩底上对比足够，不参与提亮。 -->
+<style lang="less">
+[data-theme='dark'] .attention-badge {
+  color: #ffffff;
+}
+[data-theme='dark'] .thinking-tag {
+  color: #c4b5fd;
+}
+</style>

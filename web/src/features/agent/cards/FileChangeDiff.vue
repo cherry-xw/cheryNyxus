@@ -74,3 +74,11 @@ pre {
   margin: 6px 0;
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字/图标。
+     .add/.remove 行内色字落在固定浅绿/浅红底（#dcfce7/#fee2e2，两主题不变），本身对比足够，不参与提亮。 -->
+<style lang="less">
+[data-theme='dark'] .preview-error {
+  color: #f87171;
+}
+</style>

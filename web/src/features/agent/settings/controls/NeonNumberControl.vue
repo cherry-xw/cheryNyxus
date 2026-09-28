@@ -149,4 +149,8 @@ function commit(): void {
   background: color-mix(in srgb, #6366f1 14%, var(--surface));
   color: #a5b4fc;
 }
+/* 控制台 −/＋ 按钮：深色下提亮（输入框已有上方覆盖）。 */
+[data-theme='dark'] .neon-number-console > button {
+  color: #a5b4fc;
+}
 </style>

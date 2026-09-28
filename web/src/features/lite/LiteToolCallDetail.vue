@@ -526,3 +526,25 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
   font-size: 15px;
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块，理由见 ContextUsageBar.vue）：仅提亮前景图标。 -->
+<style>
+[data-theme='dark'] .lite-tool-call[data-tooltype='exec'] .lite-tool-call-icon {
+  color: #c084fc;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='read'] .lite-tool-call-icon {
+  color: #94a3b8;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='write'] .lite-tool-call-icon {
+  color: #34d399;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='web'] .lite-tool-call-icon {
+  color: #2dd4bf;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='dispatch'] .lite-tool-call-icon {
+  color: #fb923c;
+}
+[data-theme='dark'] .lite-tool-call[data-tooltype='other'] .lite-tool-call-icon {
+  color: #facc15;
+}
+</style>

@@ -310,3 +310,17 @@ function closeToQueue(): void {
   }
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字。
+     .btn 为固定浅底（#dcfce7/#fee2e2，两主题不变），深色下仍以浅底为背景，对比足够，不参与提亮。 -->
+<style lang="less">
+[data-theme='dark'] .header .sense-name {
+  color: #f87171;
+}
+[data-theme='dark'] .header .countdown.expired {
+  color: #f87171;
+}
+[data-theme='dark'] .submit-error {
+  color: #f87171;
+}
+</style>

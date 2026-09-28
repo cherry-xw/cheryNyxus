@@ -369,3 +369,19 @@ const fallback = computed(() => {
   }
 }
 </style>
+
+<!-- 深色模式提亮（无 scoped 块）：仅提亮前景文字/图标。 -->
+<style lang="less">
+[data-theme='dark'] .search-head .search-mode {
+  color: #93c5fd;
+}
+[data-theme='dark'] .search-head .search-status.status-error {
+  color: #f87171;
+}
+[data-theme='dark'] .search-badge {
+  color: #93c5fd;
+}
+[data-theme='dark'] .result-file {
+  color: #93c5fd;
+}
+</style>
