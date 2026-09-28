@@ -9,7 +9,8 @@
  *
  * 详见 docs/shared/architecture/canonical-timeline.md §3.5 与 docs/backend/service/chat.md「长会话代际分割」。
  */
-import { getChat, getMessages } from '@/db/chat.js'
+import { getMessages } from '@/db/message.js'
+import { assertChatExists } from './guards.js'
 import { listExecutionEdges, listExecutionNodes } from '@/db/executionGraph.js'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
 import type { HandlerContext } from '../message/router.js'
@@ -186,7 +187,7 @@ export async function handleChatTimelineGenerationGet(
   _ctx: HandlerContext,
   data: ChatTimelineGenerationGetRequestData,
 ): Promise<ChatTimelineGenerationGetResponseData> {
-  if (!getChat(data.rootChatId)) throw new Error('这个会话不见了')
+  assertChatExists(data.rootChatId)
   const generation = computeGenerations(data.rootChatId).find(
     (entry) => entry.index === data.generationIndex,
   )

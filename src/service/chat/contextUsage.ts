@@ -13,7 +13,7 @@
 import { RuntimeResolver } from '@/agent/runtimeResolver.js'
 import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import { buildSystemPromptSegments } from '@/agent/prompt/index.js'
-import { getChatSelection } from './runtime.js'
+import { getChatSelection } from './runtimeCache.js'
 import {
   getChat,
   getChatSystemPromptFile,

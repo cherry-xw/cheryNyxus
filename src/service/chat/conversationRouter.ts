@@ -1,4 +1,5 @@
-import { getChatPreviews, listAllChats } from '@/db/chat'
+import { listAllChats } from '@/db/chat'
+import { getChatPreviews } from '@/db/message'
 import { readFileSync } from 'node:fs'
 import config, { isShadowRole } from '@/utils/config'
 import { safeJsonParse } from '@/utils/json'

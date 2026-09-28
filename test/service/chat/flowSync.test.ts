@@ -6,7 +6,8 @@
  */
 import { randomUUID } from 'crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat, getChat } from '@/db/chat.js'
+import { createChat, deleteChat, getChat } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
 import { getMonthlyDb } from '@/db/index.js'
 import {
   appendChatEvent,
@@ -15,17 +16,13 @@ import {
   prepareChatEventForDelivery,
 } from '@/db/delivery.js'
 import {
-  buildActiveTurns,
-  buildRootTimeline,
   handleChatSync,
-  messagesToStagedEvents,
 } from '@/service/chat/handler.js'
-import {
-  activateChatRun,
-  clearChatRuntime,
-  ensureChat,
-  releaseChatRun,
-} from '@/service/chat/runtime.js'
+import { messagesToStagedEvents } from '@/service/chat/stagedHistory.js'
+import { buildActiveTurns } from '@/service/chat/activeTurns.js'
+import { buildRootTimeline } from '@/service/chat/timeline.js'
+import { clearChatRuntime, ensureChat } from '@/service/chat/runtime.js'
+import { activateChatRun, releaseChatRun } from '@/service/chat/runtimeCache.js'
 import type { HandlerContext } from '@/service/message/router.js'
 import type { Chunk, Notification } from '@/service/message/types.js'
 import { registerBuiltinProviders } from '@/agent/provider/index.js'

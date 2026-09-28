@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat } from '@/db/chat.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
 import { appendChatEvent, prepareChatEventForDelivery } from '@/db/delivery.js'
 import { buildTaskOverview } from '@/service/chat/overview.js'
 

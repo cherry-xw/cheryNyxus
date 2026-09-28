@@ -22,6 +22,16 @@ import { retainMcpExecutors } from '@/core/mcp/lifetime.js'
  * - 原子解析 brain + senseGroups 为 RuntimeConfig
  * - 通过 Middleware.configureRuntime 一次性注入运行时
  */
+export interface AgentChatInitOptions {
+  messages?: LLMResponse[]
+  systemPromptFile?: string
+  workspace?: string
+  skillFilter?: SkillFilter
+  roleMentions?: RoleMentionInfo[]
+  historyGenerations?: HistoryGenerationInfo[]
+  frozenSystemPrompt?: string
+}
+
 export class AgentBuilder {
   /** 构建的 AgentSession 实例（build 后持有，门面方法转发） */
   private agent?: AgentSession<MiddlewareChunk>
@@ -88,16 +98,16 @@ export class AgentBuilder {
    * persona 修复：observer 不持久化 system 消息 → 重启后 loadHistory 返回 messages 无 system 首条。
    * 故统一保证内存 messages 首条为 system：历史存在但首条非 system → prepend；首条已是 system → 原样；无历史 → [systemMsg]。
    */
-  init(
-    chatId: string,
-    messages?: LLMResponse[],
-    systemPromptFile?: string,
-    workspace?: string,
-    skillFilter?: SkillFilter,
-    roleMentions?: RoleMentionInfo[],
-    historyGenerations?: HistoryGenerationInfo[],
-    frozenSystemPrompt?: string,
-  ): this {
+  init(chatId: string, options: AgentChatInitOptions = {}): this {
+    const {
+      messages,
+      systemPromptFile,
+      workspace,
+      skillFilter,
+      roleMentions,
+      historyGenerations,
+      frozenSystemPrompt,
+    } = options
     const systemMsg = this.createInitialMessages(
       systemPromptFile,
       workspace,

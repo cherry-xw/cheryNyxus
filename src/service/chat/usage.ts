@@ -3,6 +3,7 @@ import { Method, type ParamsOf, type ResultOf } from '../message/types.js'
 import { getChat } from '@/db/chat.js'
 import { getChatFamily, listChatFamilies } from '@/db/chatFamily.js'
 import {
+  page,
   readRequestUsage,
   readRequestUsagePage,
   readUsageOperations,
@@ -200,12 +201,9 @@ export async function handleUsageDayTasks(
     taskKey,
     tokens: sum(rows, 'totalTokens'),
   }))
-  const offset = data.cursor ? Math.max(0, Number.parseInt(data.cursor, 10) + 1) : 0
-  const limit = Math.min(100, Math.max(1, data.limit ?? 30))
   return {
     asOf: Date.now(),
-    items: items.slice(offset, offset + limit),
-    ...(offset + limit < items.length ? { nextCursor: String(offset + limit - 1) } : {}),
+    ...page(items, data.cursor, data.limit),
   }
 }
 export async function handleContextContent(
@@ -227,17 +225,13 @@ export async function handleContextContent(
       content: JSON.stringify(tool),
     })),
   ]
-  const offset = data.cursor ? Math.max(0, Number.parseInt(data.cursor, 10) + 1) : 0
-  const limit = Math.min(100, Math.max(1, data.limit ?? 30))
-  const items = all.slice(offset, offset + limit)
   return {
     chatId: snapshot.chatId,
     epochId: snapshot.epochId,
     snapshotId: `${snapshot.chatId}:${snapshot.epochId ?? 'current'}`,
     origin: snapshot.origin ?? 'reconstructed',
     contentState: snapshot.contentState ?? 'available',
-    items,
-    ...(offset + limit < all.length ? { nextCursor: String(offset + limit - 1) } : {}),
+    ...page(all, data.cursor, data.limit),
   }
 }
 export function registerUsageHandlers(router: import('../message/router.js').RpcRouter): void {

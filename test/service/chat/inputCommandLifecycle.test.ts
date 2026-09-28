@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { getSoulDb } from '@/db/index.js'
-import { handleChatInputSubmit } from '@/service/chat/handler.js'
+import { handleChatInputSubmit } from '@/service/chat/input.js'
 import type { HandlerContext } from '@/service/message/router.js'
 
 describe('chat.input.submit command lifecycle', () => {

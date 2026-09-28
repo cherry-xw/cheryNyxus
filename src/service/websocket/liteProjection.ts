@@ -23,6 +23,7 @@ export interface LiteProfile {
 import { truncateByBytes, utf8ByteLength } from '@/utils/boundedContent.js'
 import { getRootChatId } from '@/db/chat.js'
 import type { ChatTimelineNodeToolCursor } from '@/service/message/types.js'
+import type { GraphToolCall, TimelineActor, TimelineNode, TodoPlanItem } from '@chery/protocol'
 
 /** 当前支持的 lite 字段集版本。升级字段集必须发布新 v（D14）。 */
 export const SUPPORTED_LITE_VERSIONS = [1] as const
@@ -92,15 +93,14 @@ const PASSTHROUGH_NOTIFICATION_TYPES = new Set([
 const SUMMARY_BYTE_BUDGET = 180
 
 /** LeanTimelineNode：TimelineNode 的设备投影（有损、归属语义只扁平化不改写）。 */
-export interface LeanTimelineNode {
-  id: string
-  kind: 'message' | 'return' | 'dispatch' | 'system'
-  actorKind: 'user' | 'agent' | 'system'
+export interface LeanTimelineNode extends Pick<
+  TimelineNode,
+  'id' | 'orderKey' | 'status' | 'createdAt'
+> {
+  kind: Extract<TimelineNode['kind'], 'message' | 'return' | 'dispatch' | 'system'>
+  actorKind: Extract<TimelineActor['kind'], 'user' | 'agent' | 'system'>
   actorRoleType?: string
   direction: string
-  orderKey: number
-  status: 'committed' | 'revoked'
-  createdAt: number
   summary: string
   contentLength: number
   toolNames?: string[]
@@ -108,26 +108,13 @@ export interface LeanTimelineNode {
    * 工具调用的轻量元数据：精简工作台需要按调用逐个显示图标和状态。
    * arguments/result 仍不下发，完整内容继续通过 node.get 的 toolCursor 按需读取。
    */
-  toolCalls?: Array<{
-    callId: string
-    index: number
-    name: string
-    arguments: string
-    status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
-    childChatId?: string
-    targetChatId?: string
-  }>
-  todoPlan?: {
-    planId: string
-    currentItemId?: string
-    items: Array<{
-      itemId: string
-      index: number
-      content: string
-      status: 'pending' | 'in_progress' | 'completed'
-      activeForm?: string
-    }>
-  }
+  toolCalls?: Array<
+    Pick<
+      GraphToolCall,
+      'callId' | 'index' | 'name' | 'arguments' | 'status' | 'childChatId' | 'targetChatId'
+    >
+  >
+  todoPlan?: TimelineNode['todoPlan']
   termination?: Record<string, unknown>
 }
 
@@ -137,6 +124,88 @@ function asRecord(value: unknown): UnknownRecord | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as UnknownRecord)
     : undefined
+}
+
+function projectNodeToolCalls(
+  node: UnknownRecord,
+): Pick<LeanTimelineNode, 'toolNames' | 'toolCalls'> {
+  const toolCalls = Array.isArray(node.toolCalls) ? node.toolCalls : []
+  const toolNames = toolCalls
+    .map((call) => {
+      const rec = asRecord(call)
+      return typeof rec?.name === 'string' ? rec.name : undefined
+    })
+    .filter((name): name is string => !!name)
+  // 同一批次每个工具调用都保留轻量身份；参数和结果仍由 node.get 按需读取。
+  const projectedToolCalls = toolCalls.flatMap((call, fallbackIndex) => {
+    const record = asRecord(call)
+    if (!record || typeof record.name !== 'string') return []
+    const callId = typeof record.callId === 'string' ? record.callId : ''
+    if (!callId) return []
+    const status: GraphToolCall['status'] =
+      record.status === 'pending' ||
+      record.status === 'accepted' ||
+      record.status === 'rejected' ||
+      record.status === 'completed' ||
+      record.status === 'error'
+        ? record.status
+        : 'pending'
+    return [
+      {
+        callId,
+        index: typeof record.index === 'number' ? record.index : fallbackIndex,
+        name: record.name,
+        arguments: '',
+        status,
+        ...(typeof record.childChatId === 'string' ? { childChatId: record.childChatId } : {}),
+        ...(typeof record.targetChatId === 'string' ? { targetChatId: record.targetChatId } : {}),
+      },
+    ]
+  })
+  return {
+    ...(toolNames.length > 0 ? { toolNames } : {}),
+    ...(projectedToolCalls.length > 0
+      ? {
+          toolCalls: projectedToolCalls.sort(
+            (a, b) => a.index - b.index || a.callId.localeCompare(b.callId),
+          ),
+        }
+      : {}),
+  }
+}
+
+function projectNodeTodoPlan(value: unknown): TimelineNode['todoPlan'] | undefined {
+  const todoPlan = asRecord(value)
+  const rawItems = Array.isArray(todoPlan?.items) ? todoPlan.items : []
+  const items = rawItems.flatMap((item) => {
+    const record = asRecord(item)
+    if (
+      typeof record?.itemId !== 'string' ||
+      typeof record.index !== 'number' ||
+      typeof record.content !== 'string' ||
+      (record.status !== 'pending' &&
+        record.status !== 'in_progress' &&
+        record.status !== 'completed')
+    )
+      return []
+    return [
+      {
+        itemId: record.itemId,
+        index: record.index,
+        content: record.content,
+        status: record.status as TodoPlanItem['status'],
+        ...(typeof record.activeForm === 'string' ? { activeForm: record.activeForm } : {}),
+      },
+    ]
+  })
+  if (typeof todoPlan?.planId !== 'string' || items.length === 0) return undefined
+  return {
+    planId: todoPlan.planId,
+    items,
+    ...(typeof todoPlan.currentItemId === 'string'
+      ? { currentItemId: todoPlan.currentItemId }
+      : {}),
+  }
 }
 
 function projectTimelineNode(node: UnknownRecord): LeanTimelineNode | undefined {
@@ -172,76 +241,9 @@ function projectTimelineNode(node: UnknownRecord): LeanTimelineNode | undefined 
       }
     })(),
   }
-  const toolCalls = Array.isArray(node.toolCalls) ? node.toolCalls : []
-  const toolNames = toolCalls
-    .map((call) => {
-      const rec = asRecord(call)
-      return typeof rec?.name === 'string' ? rec.name : undefined
-    })
-    .filter((name): name is string => !!name)
-  if (toolNames.length > 0) lean.toolNames = toolNames
-  // 只保留每个调用的身份、顺序、名称和状态。此前这里只保留 toolNames，
-  // 精简前端无法从一个摘要恢复同一批次中的多个调用，最终只显示一个工具。
-  const projectedToolCalls = toolCalls.flatMap((call, fallbackIndex) => {
-    const record = asRecord(call)
-    if (!record || typeof record.name !== 'string') return []
-    const callId = typeof record.callId === 'string' ? record.callId : ''
-    if (!callId) return []
-    const status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error' =
-      record.status === 'pending' ||
-      record.status === 'accepted' ||
-      record.status === 'rejected' ||
-      record.status === 'completed' ||
-      record.status === 'error'
-        ? record.status
-        : 'pending'
-    return [
-      {
-        callId,
-        index: typeof record.index === 'number' ? record.index : fallbackIndex,
-        name: record.name,
-        // 保持 TimelineNode 的字段形状；真实参数和结果只走 node.get。
-        arguments: '',
-        status,
-        ...(typeof record.childChatId === 'string' ? { childChatId: record.childChatId } : {}),
-        ...(typeof record.targetChatId === 'string' ? { targetChatId: record.targetChatId } : {}),
-      },
-    ]
-  })
-  if (projectedToolCalls.length > 0) {
-    lean.toolCalls = projectedToolCalls.sort(
-      (a, b) => a.index - b.index || a.callId.localeCompare(b.callId),
-    )
-  }
-  const todoPlan = asRecord(node.todoPlan)
-  const rawItems = Array.isArray(todoPlan?.items) ? todoPlan.items : []
-  const items = rawItems.flatMap((item) => {
-    const record = asRecord(item)
-    if (
-      typeof record?.itemId !== 'string' ||
-      typeof record.index !== 'number' ||
-      typeof record.content !== 'string' ||
-      (record.status !== 'pending' && record.status !== 'in_progress' && record.status !== 'completed')
-    ) {
-      return []
-    }
-    return [{
-      itemId: record.itemId,
-      index: record.index,
-      content: record.content,
-      status: record.status as 'pending' | 'in_progress' | 'completed',
-      ...(typeof record.activeForm === 'string' ? { activeForm: record.activeForm } : {}),
-    }]
-  })
-  if (typeof todoPlan?.planId === 'string' && items.length > 0) {
-    lean.todoPlan = {
-      planId: todoPlan.planId,
-      items,
-      ...(typeof todoPlan.currentItemId === 'string'
-        ? { currentItemId: todoPlan.currentItemId }
-        : {}),
-    }
-  }
+  Object.assign(lean, projectNodeToolCalls(node))
+  const todoPlan = projectNodeTodoPlan(node.todoPlan)
+  if (todoPlan) lean.todoPlan = todoPlan
   const termination = asRecord(node.termination)
   if (termination) lean.termination = termination
   return lean
@@ -257,6 +259,14 @@ function pick(source: UnknownRecord, keys: readonly string[]): UnknownRecord {
     if (source[key] !== undefined) out[key] = source[key]
   }
   return out
+}
+
+/** Project record arrays while omitting malformed entries in their original order. */
+function projectArrayByKeys(values: unknown[], keys: readonly string[]): UnknownRecord[] {
+  return values.flatMap((value) => {
+    const record = asRecord(value)
+    return record ? [pick(record, keys)] : []
+  })
 }
 
 /** 常量帧开销预算：截断/投影按 maxFrameBytes − ENVELOPE_OVERHEAD 计算有效载荷（B4）。 */
@@ -563,61 +573,75 @@ function nodeDetailBudgetFailure(
  * node.get 专用投影：lite 每次只返回一个 section，先裁掉 canonical 节点元数据，
  * 再按完整 RPC Response 精确装箱，最后生成真实 next cursor。
  */
-function projectLiteNodeDetailResponse(
+/** Use the final serialized RPC envelope as the page boundary for every detail section. */
+function fitNodeDetailPage(
+  profile: LiteProfile,
+  response: UnknownRecord,
+  source: string,
+  build: (end: number) => UnknownRecord,
+): UnknownRecord {
+  const consumed = fitUtf16Prefix(source, profile.maxFrameBytes, build)
+  if (source.length > 0 && consumed === 0) {
+    return nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+  }
+  const projected = build(consumed)
+  return serializedBytes(projected) <= profile.maxFrameBytes
+    ? projected
+    : nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+}
+
+function projectNodeTextSection(
   profile: LiteProfile,
   response: UnknownRecord,
   data: UnknownRecord,
   params: UnknownRecord | undefined,
+  sourceNode: UnknownRecord,
+  section: 'content' | 'thinking',
+  rootChatId: string,
+  nodeId: string,
 ): UnknownRecord {
-  const sourceNode = asRecord(data.node)
-  if (!sourceNode) return nodeDetailBudgetFailure(response, profile.maxFrameBytes)
-  const section = selectedNodeDetailSection(params)
-  const rootChatId = typeof data.rootChatId === 'string' ? data.rootChatId : ''
-  const nodeId = typeof sourceNode.id === 'string' ? sourceNode.id : ''
-
-  if (section === 'content' || section === 'thinking') {
-    const source = typeof sourceNode[section] === 'string' ? sourceNode[section] : ''
-    const offset =
-      typeof params?.offset === 'number' &&
-      Number.isSafeInteger(params.offset) &&
-      params.offset >= 0
-        ? params.offset
-        : 0
-    const limit =
-      typeof params?.limit === 'number' && Number.isSafeInteger(params.limit) && params.limit > 0
-        ? params.limit
-        : undefined
-    // legacy handler 未在恰好由 limit 截断时设置 hasMore；满页允许一次空终页探测。
-    const sourceHasMore = data.hasMore === true || (limit !== undefined && source.length >= limit)
-    const build = (end: number): UnknownRecord => {
-      const consumed = safePrefixEnd(source, end)
-      const hasMore = consumed < source.length || sourceHasMore
-      return {
-        ...response,
-        data: {
-          rootChatId,
-          node: { id: nodeId, [section]: source.slice(0, consumed) },
-          refs: [],
-          hasMore,
-          page: {
-            section,
-            offset,
-            consumed,
-            ...(hasMore && consumed > 0 ? { nextOffset: offset + consumed } : {}),
-          },
+  const source = typeof sourceNode[section] === 'string' ? sourceNode[section] : ''
+  const offset =
+    typeof params?.offset === 'number' && Number.isSafeInteger(params.offset) && params.offset >= 0
+      ? params.offset
+      : 0
+  const limit =
+    typeof params?.limit === 'number' && Number.isSafeInteger(params.limit) && params.limit > 0
+      ? params.limit
+      : undefined
+  // legacy handler 未在恰好由 limit 截断时设置 hasMore；满页允许一次空终页探测。
+  const sourceHasMore = data.hasMore === true || (limit !== undefined && source.length >= limit)
+  const build = (end: number): UnknownRecord => {
+    const consumed = safePrefixEnd(source, end)
+    const hasMore = consumed < source.length || sourceHasMore
+    return {
+      ...response,
+      data: {
+        rootChatId,
+        node: { id: nodeId, [section]: source.slice(0, consumed) },
+        refs: [],
+        hasMore,
+        page: {
+          section,
+          offset,
+          consumed,
+          ...(hasMore && consumed > 0 ? { nextOffset: offset + consumed } : {}),
         },
-      }
+      },
     }
-    const consumed = fitUtf16Prefix(source, profile.maxFrameBytes, build)
-    if (source.length > 0 && consumed === 0) {
-      return nodeDetailBudgetFailure(response, profile.maxFrameBytes)
-    }
-    const projected = build(consumed)
-    return serializedBytes(projected) <= profile.maxFrameBytes
-      ? projected
-      : nodeDetailBudgetFailure(response, profile.maxFrameBytes)
   }
+  return fitNodeDetailPage(profile, response, source, build)
+}
 
+function projectNodeToolSection(
+  profile: LiteProfile,
+  response: UnknownRecord,
+  data: UnknownRecord,
+  params: UnknownRecord | undefined,
+  sourceNode: UnknownRecord,
+  rootChatId: string,
+  nodeId: string,
+): UnknownRecord {
   const handlerPage = asRecord(data.page)
   const cursor = parseToolCursor(handlerPage?.cursor) ??
     parseToolCursor(params?.toolCursor) ?? { callIndex: 0, field: 'arguments', offset: 0 }
@@ -659,14 +683,33 @@ function projectLiteNodeDetailResponse(
       },
     }
   }
-  const consumed = fitUtf16Prefix(source, profile.maxFrameBytes, build)
-  if (source.length > 0 && consumed === 0) {
-    return nodeDetailBudgetFailure(response, profile.maxFrameBytes)
-  }
-  const projected = build(consumed)
-  return serializedBytes(projected) <= profile.maxFrameBytes
-    ? projected
-    : nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+  return fitNodeDetailPage(profile, response, source, build)
+}
+
+/** node.get keeps one section per lite response and a cursor based on the actual frame. */
+function projectLiteNodeDetailResponse(
+  profile: LiteProfile,
+  response: UnknownRecord,
+  data: UnknownRecord,
+  params: UnknownRecord | undefined,
+): UnknownRecord {
+  const sourceNode = asRecord(data.node)
+  if (!sourceNode) return nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+  const section = selectedNodeDetailSection(params)
+  const rootChatId = typeof data.rootChatId === 'string' ? data.rootChatId : ''
+  const nodeId = typeof sourceNode.id === 'string' ? sourceNode.id : ''
+  return section === 'toolCalls'
+    ? projectNodeToolSection(profile, response, data, params, sourceNode, rootChatId, nodeId)
+    : projectNodeTextSection(
+        profile,
+        response,
+        data,
+        params,
+        sourceNode,
+        section,
+        rootChatId,
+        nodeId,
+      )
 }
 
 /**
@@ -772,6 +815,74 @@ export function applyLiteEvent(profile: LiteProfile, event: unknown): unknown | 
   return event
 }
 
+/** Select the newest window without changing the original order of already fitting nodes. */
+function projectTimelineSnapshot(
+  profile: LiteProfile,
+  timeline: UnknownRecord,
+  params: UnknownRecord | undefined,
+): UnknownRecord {
+  const nodes = Array.isArray(timeline.nodes) ? timeline.nodes : []
+  let projectedNodes = nodes
+    .map((n) => asRecord(n))
+    .map((n) => (n ? projectTimelineNode(n) : undefined))
+    .filter((n): n is LeanTimelineNode => !!n)
+  // D6 双做（lite 连接）：默认 limit=20 分页 + nodeCount 预告（超大会话首刷防超预算）。
+  // 取 orderKey 最大的 20 条（最新窗口）；hasMore + total 供设备按需再拉更早页。
+  const DEFAULT_PAGE = 20
+  // P1-② 游标分页：before（orderKey 排他下界）+ limit（1..100，缺省 20）→ nextCursor 续拉。
+  const before = typeof params?.before === 'number' ? params.before : undefined
+  const cursorLimit =
+    typeof params?.limit === 'number' &&
+    Number.isInteger(params.limit) &&
+    params.limit >= 1 &&
+    params.limit <= 100
+      ? params.limit
+      : DEFAULT_PAGE
+  if (before !== undefined) {
+    projectedNodes = projectedNodes.filter((n) => n.orderKey < before)
+  }
+  const total = projectedNodes.length
+  let page = projectedNodes
+  if (total > cursorLimit) {
+    page = projectedNodes
+      .slice()
+      .sort((a, b) => a.orderKey - b.orderKey)
+      .slice(total - cursorLimit)
+  }
+  // T30（§3.7 有界负载）：lite 连接按 maxFrameBytes 自动收缩 limit——chat.open 首页
+  // 与 timeline.get 在 lite 上天然 ≤maxFrameBytes。从最新端（orderKey 大者）逐节点
+  // 按 lean 实际序列化字节数装箱（JSON.stringify 精确口径，非估算），超预算即止；
+  // 至少保留 1 节点（进度可见），hasMore/nextCursor 续拉补齐。请求 limit 仍有效（作为上界约束前的页大小）。
+  const BUDGET_FIXED_OVERHEAD = 512 // 信封/固定字段（nodeCount/state 快照等）保守预算
+  const byteBudget = Math.max(1024, profile.maxFrameBytes) - BUDGET_FIXED_OVERHEAD
+  const sortedAsc = [...page].sort((a, b) => a.orderKey - b.orderKey)
+  let used = 0
+  let fitFromNewest = 0
+  for (let i = sortedAsc.length - 1; i >= 0; i--) {
+    const nodeBytes = Buffer.byteLength(JSON.stringify(sortedAsc[i]), 'utf8')
+    if (used + nodeBytes > byteBudget) break
+    used += nodeBytes
+    fitFromNewest++
+  }
+  const effectiveFit = Math.max(1, fitFromNewest)
+  if (effectiveFit < sortedAsc.length) {
+    page = sortedAsc.slice(sortedAsc.length - effectiveFit)
+  }
+  // P1-②：hasMore 时附 nextCursor（本页最小 orderKey），客户端以它作为下页 before。
+  const oldest = [...page].sort((a, b) => a.orderKey - b.orderKey)[0]
+  const nextCursor = page.length < total && oldest ? { nextCursor: oldest.orderKey } : {}
+  // state 快照 lean 投影（B-11）：activeTurns 不带累计文本、questionBatches/roles 不带题干/全量字段。
+  return {
+    ...timeline,
+    nodes: page,
+    // T30：hasMore 判定用实际下发页 vs total（含字节收缩场景：total ≤ limit 但超 maxFrameBytes）。
+    ...(total > page.length ? { nodeCount: total, hasMore: true } : { nodeCount: total }),
+    ...nextCursor,
+    edges: [], // D7：edges 不投影
+    // activeRuns/pendingInputs/generations 等保留（低频快照，有界负载归 T16）
+  }
+}
+
 /**
  * 对 lite 连接应用 RPC Response 帧投影（timeline.get/open 的 LeanTimelineNode 投影，三处共用）。
  * 只做传输层裁剪，不改 handler 响应结构（serverNow/maxItems/node.get 等增强归 T16）。
@@ -810,67 +921,9 @@ export function applyLiteResponse(
   // chat.timeline.get / chat.open 的 rootTimeline 节点投影。
   const timeline = asRecord(data.rootTimeline)
   if (timeline && Array.isArray(timeline.nodes)) {
-    let projectedNodes = timeline.nodes
-      .map((n) => asRecord(n))
-      .map((n) => (n ? projectTimelineNode(n) : undefined))
-      .filter((n): n is LeanTimelineNode => !!n)
-    // D6 双做（lite 连接）：默认 limit=20 分页 + nodeCount 预告（超大会话首刷防超预算）。
-    // 取 orderKey 最大的 20 条（最新窗口）；hasMore + total 供设备按需再拉更早页。
-    const DEFAULT_PAGE = 20
-    // P1-② 游标分页：before（orderKey 排他下界）+ limit（1..100，缺省 20）→ nextCursor 续拉。
-    const before = typeof params?.before === 'number' ? params.before : undefined
-    const cursorLimit =
-      typeof params?.limit === 'number' &&
-      Number.isInteger(params.limit) &&
-      params.limit >= 1 &&
-      params.limit <= 100
-        ? params.limit
-        : DEFAULT_PAGE
-    if (before !== undefined) {
-      projectedNodes = projectedNodes.filter((n) => n.orderKey < before)
-    }
-    const total = projectedNodes.length
-    let page = projectedNodes
-    if (total > cursorLimit) {
-      page = projectedNodes
-        .slice()
-        .sort((a, b) => a.orderKey - b.orderKey)
-        .slice(total - cursorLimit)
-    }
-    // T30（§3.7 有界负载）：lite 连接按 maxFrameBytes 自动收缩 limit——chat.open 首页
-    // 与 timeline.get 在 lite 上天然 ≤maxFrameBytes。从最新端（orderKey 大者）逐节点
-    // 按 lean 实际序列化字节数装箱（JSON.stringify 精确口径，非估算），超预算即止；
-    // 至少保留 1 节点（进度可见），hasMore/nextCursor 续拉补齐。请求 limit 仍有效（作为上界约束前的页大小）。
-    const BUDGET_FIXED_OVERHEAD = 512 // 信封/固定字段（nodeCount/state 快照等）保守预算
-    const byteBudget = Math.max(1024, profile.maxFrameBytes) - BUDGET_FIXED_OVERHEAD
-    const sortedAsc = [...page].sort((a, b) => a.orderKey - b.orderKey)
-    let used = 0
-    let fitFromNewest = 0
-    for (let i = sortedAsc.length - 1; i >= 0; i--) {
-      const nodeBytes = Buffer.byteLength(JSON.stringify(sortedAsc[i]), 'utf8')
-      if (used + nodeBytes > byteBudget) break
-      used += nodeBytes
-      fitFromNewest++
-    }
-    const effectiveFit = Math.max(1, fitFromNewest)
-    if (effectiveFit < sortedAsc.length) {
-      page = sortedAsc.slice(sortedAsc.length - effectiveFit)
-    }
-    // P1-②：hasMore 时附 nextCursor（本页最小 orderKey），客户端以它作为下页 before。
-    const oldest = [...page].sort((a, b) => a.orderKey - b.orderKey)[0]
-    const nextCursor = page.length < total && oldest ? { nextCursor: oldest.orderKey } : {}
-    // state 快照 lean 投影（B-11）：activeTurns 不带累计文本、questionBatches/roles 不带题干/全量字段。
     projectedData = {
       ...projectedData,
-      rootTimeline: {
-        ...timeline,
-        nodes: page,
-        // T30：hasMore 判定用实际下发页 vs total（含字节收缩场景：total ≤ limit 但超 maxFrameBytes）。
-        ...(total > page.length ? { nodeCount: total, hasMore: true } : { nodeCount: total }),
-        ...nextCursor,
-        edges: [], // D7：edges 不投影
-        // activeRuns/pendingInputs/generations 等保留（低频快照，有界负载归 T16）
-      },
+      rootTimeline: projectTimelineSnapshot(profile, timeline, params),
     }
   }
   const state = asRecord(data.state)
@@ -891,46 +944,41 @@ function projectStateSnapshot(state: UnknownRecord, executionStepLimit: number):
   const projected: UnknownRecord = { ...state }
   // activeTurns：{chatId, turnId, messageId, createdAt}——不带累计文本（thinking/content 等 CRT 字段剔除）。
   if (Array.isArray(projected.activeTurns)) {
-    projected.activeTurns = (projected.activeTurns as unknown[])
-      .map((t) => asRecord(t))
-      .filter((t): t is UnknownRecord => !!t)
-      .map((t) => pick(t, ['chatId', 'turnId', 'messageId', 'createdAt']))
+    projected.activeTurns = projectArrayByKeys(projected.activeTurns, [
+      'chatId',
+      'turnId',
+      'messageId',
+      'createdAt',
+    ])
   }
   // questionBatches：{batchId, interactionId}——不带题干（详情走 interaction.list 收件箱）。
   if (Array.isArray(projected.questionBatches)) {
-    projected.questionBatches = (projected.questionBatches as unknown[])
-      .map((q) => asRecord(q))
-      .filter((q): q is UnknownRecord => !!q)
-      .map((q) => pick(q, ['batchId', 'interactionId']))
+    projected.questionBatches = projectArrayByKeys(projected.questionBatches, [
+      'batchId',
+      'interactionId',
+    ])
   }
   // runningTools：工具名级（G3）。
   if (Array.isArray(projected.runningTools)) {
-    projected.runningTools = (projected.runningTools as unknown[])
-      .map((t) => asRecord(t))
-      .filter((t): t is UnknownRecord => !!t)
-      .map((t) => pick(t, ['id', 'senseName']))
+    projected.runningTools = projectArrayByKeys(projected.runningTools, ['id', 'senseName'])
   }
   // executionSteps：活动步骤优先，再用最新终态填满严格数量预算；活动超限时保留最新项。
   if (Array.isArray(projected.executionSteps)) {
-    const steps = (projected.executionSteps as unknown[])
-      .map((step) => asRecord(step))
-      .filter((step): step is UnknownRecord => !!step)
-      .map((step) => {
-        const lean = pick(step, [
-          'id',
-          'runId',
-          'chatId',
-          'kind',
-          'name',
-          'status',
-          'startedAt',
-          'completedAt',
-        ])
-        if (typeof lean.name === 'string') {
-          lean.name = truncateByBytes(lean.name, 96).text
-        }
-        return lean
-      })
+    const steps = projectArrayByKeys(projected.executionSteps, [
+      'id',
+      'runId',
+      'chatId',
+      'kind',
+      'name',
+      'status',
+      'startedAt',
+      'completedAt',
+    ]).map((lean) => {
+      if (typeof lean.name === 'string') {
+        lean.name = truncateByBytes(lean.name, 96).text
+      }
+      return lean
+    })
     const running = steps
       .filter((step) => step.status === 'running')
       .sort(
@@ -952,10 +1000,13 @@ function projectStateSnapshot(state: UnknownRecord, executionStepLimit: number):
   }
   // roles：{taskId, chatId, parentChatId, type, state}（去 prompt 等长字段）。
   if (Array.isArray(projected.roles)) {
-    projected.roles = (projected.roles as unknown[])
-      .map((t) => asRecord(t))
-      .filter((t): t is UnknownRecord => !!t)
-      .map((t) => pick(t, ['taskId', 'chatId', 'parentChatId', 'type', 'state']))
+    projected.roles = projectArrayByKeys(projected.roles, [
+      'taskId',
+      'chatId',
+      'parentChatId',
+      'type',
+      'state',
+    ])
   }
   // pendingInputs：content 保留（冷启动恢复路径，计入响应帧预算——恢复用户输入属必要数据）。
   return projected

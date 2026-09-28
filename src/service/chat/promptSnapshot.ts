@@ -28,6 +28,7 @@ import {
   getChatWorkspace,
   getChatSkillFilter,
 } from '@/db/chat.js'
+import { assertChatExists } from './guards.js'
 import { getChatMentionableRoles } from './roleMentions.js'
 import { computeHistoryGenerationInfos } from './generations.js'
 import {
@@ -86,8 +87,7 @@ export async function handleChatPromptSnapshot(
   data: ChatPromptSnapshotRequestData,
 ): Promise<ChatPromptSnapshotResponseData> {
   const { chatId } = data
-  const chat = getChat(chatId)
-  if (!chat) throw new Error('这个会话不见了')
+  const chat = assertChatExists(chatId)
   try {
     const activeEpoch = getActiveChatEpoch(chatId)
     const knownEpochs = listChatEpochs(chatId)
@@ -168,7 +168,7 @@ export async function handleChatEpochList(
   _ctx: HandlerContext,
   data: ChatEpochListRequestData,
 ): Promise<ChatEpochListResponseData> {
-  if (!getChat(data.chatId)) throw new Error('这个会话不见了')
+  assertChatExists(data.chatId)
   const chat = getChat(data.chatId)!
   const active = getActiveChatEpoch(data.chatId)
   const epochs = listChatEpochs(data.chatId)

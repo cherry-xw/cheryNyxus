@@ -11,14 +11,10 @@
  * child_return/system/tool_result 由显式写路径负责，自愈不触碰。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  addMessage,
-  createChat,
-  deleteChat,
-  getMessageLinksForRoot,
-  getTimelineRevision,
-} from '@/db/chat.js'
-import { buildRootTimeline } from '@/service/chat/handler.js'
+import { createChat, deleteChat, getTimelineRevision } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
+import { getMessageLinksForRoot } from '@/db/messageLink.js'
+import { buildRootTimeline } from '@/service/chat/timeline.js'
 
 const cleanup: string[] = []
 afterEach(() => {

@@ -1,6 +1,7 @@
 import { appendChatEvent } from '@/db/delivery.js'
 import { getRootChatId, getTimelineRevision } from '@/db/chat.js'
-import { logger } from '@/utils/logger/index.js'
+import { deliverToSockets } from '../websocket/deliver.js'
+import { LogLevel } from '@/utils/logger/types.js'
 import {
   createNotification,
   type RootTimelinePatchData,
@@ -9,8 +10,7 @@ import {
   type TimelinePatchOperation,
 } from '../message/types.js'
 import { connectionManager } from '../websocket/connection.js'
-import { transport } from '../websocket/transport.js'
-import { buildCanonicalTimeline, buildRootTimeline } from './handler.js'
+import { buildCanonicalTimeline, buildRootTimeline } from './timeline.js'
 
 /**
  * timeline.patch 增量化：模块级缓存上次已发送的 JSON 事实，diff 后只推
@@ -154,14 +154,11 @@ export function emitTimelinePatch(chatId: string, baseRevision: number): void {
     { chatId },
   )
   notification.seq = appendChatEvent(chatId, notification as unknown as Record<string, unknown>)
-  for (const ws of connectionManager.getChatOutputs(chatId)) {
-    if (ws.readyState !== ws.OPEN) continue
-    for (const routed of connectionManager.prepareSessionEvent(ws, notification)) {
-      try {
-        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
-      } catch (error) {
-        logger.event('timeline.patch.send_failed', { chatId, message: (error as Error).message })
-      }
-    }
-  }
+  deliverToSockets(
+    connectionManager.getChatOutputs(chatId),
+    notification,
+    'timeline.patch.send_failed',
+    LogLevel.info,
+    { chatId },
+  )
 }

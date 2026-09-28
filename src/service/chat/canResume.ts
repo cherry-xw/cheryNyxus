@@ -1,4 +1,6 @@
-import { getChat, getLastMessage, listPendingInputs } from '@/db/chat.js'
+import { getChat } from '@/db/chat.js'
+import { getLastMessage } from '@/db/message.js'
+import { listPendingInputs } from '@/db/pendingInput.js'
 import { hasPendingQuestionBatches } from '@/db/question.js'
 import { safeJsonParse } from '@/utils/json.js'
 

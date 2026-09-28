@@ -1,9 +1,10 @@
 import type { WebSocket } from 'ws'
 import { handleChatStartSpawn } from './handler.js'
 import { connectionManager } from '../websocket/connection.js'
-import { transport } from '../websocket/transport.js'
+import { deliverToSockets, resolveOutputTargets } from '../websocket/deliver.js'
 import { prepareChatEventForDelivery } from '@/db/delivery.js'
 import { logger } from '@/utils/logger/index.js'
+import { LogLevel } from '@/utils/logger/types.js'
 import type { Chunk, Notification } from '../message/types.js'
 
 /**
@@ -35,25 +36,13 @@ function prepareChatEvent<T extends { chatId?: string; seq?: number }>(
 
 /** 单条 ws 推送（与 websocket/index.ts.sendChatEvent 同语义，service 层脱离调用版）。 */
 function sendToWss(targets: readonly WebSocket[], item: unknown): void {
-  for (const ws of targets) {
-    if (ws.readyState !== ws.OPEN) continue
-    for (const routed of connectionManager.prepareSessionEvent(ws, item)) {
-      try {
-        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
-      } catch (err) {
-        logger.event('ws.event.failed', { message: (err as Error).message }, 3)
-      }
-    }
-  }
+  deliverToSockets(targets, item, 'ws.event.failed', LogLevel.error)
 }
-
 /**
  * 解析实时输出目标 ws（liveOutput 命中 → 重定向 ws；否则回落运行启动 ws）。
  * 与 websocket/index.ts.resolveOutputWs 同语义。
  */
-function resolveOutputWss(item: { chatId?: string }, fallbackWs: WebSocket): WebSocket[] {
-  return item.chatId ? connectionManager.getChatOutputs(item.chatId, fallbackWs) : [fallbackWs]
-}
+const resolveOutputWss = resolveOutputTargets
 
 /**
  * 取父 chat 所属 ws + connectionId（用于子 agent 后台启动 stream 输出目标）。

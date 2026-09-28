@@ -214,7 +214,11 @@ async function runTargetRole(
       roleName,
       acceptance,
     )
-    .init(runId, undefined, role.systemPrompt, workspaceRoot, skillFilter)
+    .init(runId, {
+      workspace: workspaceRoot,
+      skillFilter,
+      frozenSystemPrompt: role.systemPrompt,
+    })
   const chunks: MiddlewareChunk[] = []
   await runWithTimeout(
     builder,
@@ -282,7 +286,10 @@ async function evaluateEvidence(
       undefined,
       evaluatorName,
     )
-    .init(runId, undefined, evaluator.systemPrompt, undefined, { skills: [], plugins: [] })
+    .init(runId, {
+      frozenSystemPrompt: evaluator.systemPrompt,
+      skillFilter: { skills: [], plugins: [] },
+    })
   await runWithTimeout(
     builder,
     (async () => {

@@ -6,7 +6,9 @@ import type {
   WorkflowOccurrence,
   WorkflowSnapshot,
 } from '@chery/protocol'
-import { getChat, getMessages, getMessageLinksForRoot } from '@/db/chat.js'
+import { getMessages } from '@/db/message.js'
+import { getMessageLinksForRoot } from '@/db/messageLink.js'
+import { assertChatExists } from './guards.js'
 import { createHash } from 'node:crypto'
 import { listExecutionNodes } from '@/db/executionGraph.js'
 import { getActiveChatEpoch, getFrozenChatSnapshot, listChatEpochs } from '@/db/epoch.js'
@@ -19,8 +21,7 @@ import {
 import { getConversationBranchByChat, getConversationTask } from '@/db/conversationBranch.js'
 
 export function requireWorkflowRoot(chatId: string) {
-  const chat = getChat(chatId)
-  if (!chat) throw Object.assign(new Error('这个会话不见了'), { code: 'NOT_FOUND' })
+  const chat = assertChatExists(chatId)
   if (chat.parent_chat_id)
     throw Object.assign(new Error('运行流程仅支持主 Agent 会话'), { code: 'INVALID_PARAMS' })
   return chat

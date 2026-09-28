@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat } from '@/db/chat.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
 import { closeAllDbs, getSoulDb } from '@/db/index.js'
 import { ensureConversationTask, insertConversationBranch } from '@/db/conversationBranch.js'
 import { getTaskResultView } from '@/db/taskResultView.js'

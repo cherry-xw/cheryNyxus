@@ -13,7 +13,7 @@ import {
   recordWorkflowJournalGap,
   type WorkflowJournalEventInput,
 } from '@/db/workflowJournal.js'
-import { getActiveChatRunId } from './runtime.js'
+import { getActiveChatRunId } from './runtimeCache.js'
 import { getSpawnTaskByChild } from '@/db/delivery.js'
 import {
   recordWorkflowStep,

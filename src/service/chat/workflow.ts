@@ -13,7 +13,9 @@ import {
   type WorkflowJournalCommit,
 } from '@/db/workflowJournal.js'
 import { onPreparedChatEvent } from '@/db/delivery.js'
-import { getChat, getMessages, getChatRuntimeSelection, getMessageLinksForRoot } from '@/db/chat.js'
+import { getChat, getChatRuntimeSelection } from '@/db/chat.js'
+import { getMessages } from '@/db/message.js'
+import { getMessageLinksForRoot } from '@/db/messageLink.js'
 import { listLatestExecutionRuns, listExecutionNodes } from '@/db/executionGraph.js'
 import { getActiveChatEpoch } from '@/db/epoch.js'
 import { listInteractions } from '@/db/interaction.js'
@@ -23,7 +25,7 @@ import { matches } from '@/agent/hooks/matcher.js'
 import type { HookEvent } from '@/agent/hooks/types.js'
 import config from '@/utils/config.js'
 import { resolveBrainAdapterKey } from '@/core/llm/routing.js'
-import { peekChatMessages, isChatRunning, getActiveChatRunId } from './runtime.js'
+import { peekChatMessages, isChatRunning, getActiveChatRunId } from './runtimeCache.js'
 import { effectiveSkillCount, memoryRows, workflowCallStatus } from './workflowEvidence.js'
 import {
   readWorkflowHistory,
@@ -72,7 +74,7 @@ function modelHooks(chatId: string) {
   }
 }
 
-export function initialWorkflowSnapshot(chatId: string): WorkflowSnapshot {
+function initialWorkflowSnapshot(chatId: string): WorkflowSnapshot {
   requireWorkflowRoot(chatId)
   const active = listLatestExecutionRuns(chatId).find((run) => run.chatId === chatId)
   const memory = peekChatMessages(chatId)

@@ -1,20 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  addMessage,
-  createChat,
-  deleteChat,
-  getChat,
-  getLastMessage,
-  getMessages,
-} from '@/db/chat.js'
+import { createChat, deleteChat, getChat } from '@/db/chat.js'
+import { addMessage, getLastMessage, getMessages } from '@/db/message.js'
 import { getMonthlyDb, getSoulDb } from '@/db/index.js'
 import {
   createSpawnTask,
   finishSpawnTask,
   listSpawnTasksNeedingWakeRecovery,
 } from '@/db/delivery.js'
-import { buildRootTimeline, handleChatList } from '@/service/chat/handler.js'
+import { handleChatList } from '@/service/chat/handler.js'
+import { buildRootTimeline } from '@/service/chat/timeline.js'
 import { getExecutionActiveRun } from '@/db/executionGraph.js'
 import { computeCanResume } from '@/service/chat/canResume.js'
 import { recordRunFact } from '@/service/chat/executionFacts.js'

@@ -12,8 +12,9 @@
  */
 import { randomUUID } from 'crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat } from '@/db/chat.js'
-import { buildRootTimeline } from '@/service/chat/handler.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
+import { buildRootTimeline } from '@/service/chat/timeline.js'
 
 const cleanup: string[] = []
 afterEach(() => {

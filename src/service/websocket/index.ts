@@ -11,6 +11,7 @@ import {
 } from '../message/index.js'
 import { connectionManager, type ConnectionState } from './connection.js'
 import { transport } from './transport.js'
+import { deliverToSockets, resolveOutputTargets } from './deliver.js'
 import { SUPPORTED_LITE_VERSIONS, applyLiteResponse, type LiteProfile } from './liteProjection.js'
 import { isAsyncGenerator } from '@/utils/generator.js'
 import { logger } from '@/utils/logger/index.js'
@@ -43,25 +44,14 @@ function prepareChatEvent<T extends { chatId?: string; seq?: number }>(
  * 不抛出影响 generator；重连后新 ws 接管后续事件，断连窗口由 `chat.sync` 回放补齐。
  */
 function sendChatEvent(targets: readonly WebSocket[], item: unknown): void {
-  for (const ws of targets) {
-    if (ws.readyState !== ws.OPEN) continue
-    for (const routed of connectionManager.prepareSessionEvent(ws, item)) {
-      try {
-        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
-      } catch (err) {
-        logger.event('ws.event.failed', { message: (err as Error).message }, 3)
-      }
-    }
-  }
+  deliverToSockets(targets, item, 'ws.event.failed', LogLevel.error)
 }
 
 /**
  * 解析实时输出目标 ws：chat.attach 重定向命中（按 event.chatId）→ 新连接 ws；否则回落启动 run 的捕获 ws。
  * 使刷新后新连接能接管仍在运行的 run 的后续 chunk/notification（含终态 done/error）。
  */
-function resolveOutputWss(item: { chatId?: string }, fallbackWs: WebSocket): WebSocket[] {
-  return item.chatId ? connectionManager.getChatOutputs(item.chatId, fallbackWs) : [fallbackWs]
-}
+const resolveOutputWss = resolveOutputTargets
 
 /**
  * WebSocket 服务器配置

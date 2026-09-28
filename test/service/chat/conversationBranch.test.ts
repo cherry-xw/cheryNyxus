@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat, getChat, getChatMetadata } from '@/db/chat.js'
+import { createChat, deleteChat, getChat, getChatMetadata } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
 import { getSoulDb } from '@/db/index.js'
 import {
   ensureConversationTask,
   getConversationBranchByChat,
   listConversationBranches,
 } from '@/db/conversationBranch.js'
-import { buildRootTimeline, handleChatTimelineGet } from '@/service/chat/handler.js'
+import { handleChatTimelineGet } from '@/service/chat/timelineGet.js'
+import { buildRootTimeline } from '@/service/chat/timeline.js'
 import {
   handleChatAbortTask,
   handleChatBranchActivate,

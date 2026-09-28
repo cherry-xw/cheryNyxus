@@ -587,6 +587,7 @@ function initMonthlyTables(db: Database.Database): void {
       replace_content TEXT,
       original_content TEXT,
       revoked INTEGER DEFAULT 0,
+      model_excluded INTEGER DEFAULT 0,
       runtime TEXT,
       context_compaction INTEGER DEFAULT 0,
       context_compaction_tokens INTEGER,
@@ -647,6 +648,7 @@ function initMonthlyTables(db: Database.Database): void {
 
   ensureMessageColumn(db, 'thinking_blocks', 'TEXT')
   ensureMessageColumn(db, 'revoked', 'INTEGER DEFAULT 0')
+  ensureMessageColumn(db, 'model_excluded', 'INTEGER DEFAULT 0')
   ensureMessageColumn(db, 'runtime', 'TEXT')
   ensureMessageColumn(db, 'context_compaction', 'INTEGER DEFAULT 0')
   ensureMessageColumn(db, 'context_compaction_tokens', 'INTEGER')

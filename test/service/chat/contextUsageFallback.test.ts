@@ -12,9 +12,11 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import config from '@/utils/config.js'
-import { addMessage, createChat, deleteChat } from '@/db/chat.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
 import { handleChatContextUsage } from '@/service/chat/handler.js'
-import { clearChatRuntime, getChatSelection } from '@/service/chat/runtime.js'
+import { clearChatRuntime } from '@/service/chat/runtime.js'
+import { getChatSelection } from '@/service/chat/runtimeCache.js'
 import { bootstrapForTests } from '../../agent/helpers/agentHarness.js'
 import type { HandlerContext } from '@/service/message/router.js'
 

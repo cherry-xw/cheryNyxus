@@ -20,7 +20,8 @@ import { connectionManager } from '../websocket/connection.js'
 import { computeCanResume } from './canResume.js'
 import { recordTerminationFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
-import { abortChatRuntime, clearChatRuntime, getActiveChatRunId, isChatRunning } from './runtime.js'
+import { clearChatRuntime } from './runtime.js'
+import { abortChatRuntime, getActiveChatRunId, isChatRunning } from './runtimeCache.js'
 import { abortPendingApprovals } from './send.js'
 
 function metadataOf(chatId: string): Record<string, unknown> {

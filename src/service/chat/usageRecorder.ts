@@ -1,7 +1,7 @@
 import { observeModelRequests } from '@/core/llm/usage.js'
 import type { MiddlewareChunk } from '@/core/middleware/types.js'
 import { saveRequestUsage, saveUsageOperation, type StoredUsageOperation } from '@/db/usage.js'
-import { getActiveChatRunId } from './runtime.js'
+import { getActiveChatRunId } from './runtimeCache.js'
 import { resolveWorkflowIdentity } from './workflowStepWriter.js'
 import { logger } from '@/utils/logger/index.js'
 

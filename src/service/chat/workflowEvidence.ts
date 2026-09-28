@@ -1,5 +1,5 @@
 import type { WorkflowCall, WorkflowSnapshot } from '@chery/protocol'
-import type { MessageRow } from '@/db/chat.js'
+import type { MessageRow } from '@/db/message.js'
 import type { LLMResponse } from '@/core/message/adapter'
 
 export function skillActivation(content: string): string | undefined {

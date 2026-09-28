@@ -177,6 +177,7 @@ const globalSchema = z.looseObject({
   stream: z.boolean(),
   sense_execute_timeout: z.number().optional(),
   approval_timeout: z.number().min(0).optional(),
+  llm_request_timeout_ms: z.number().finite().min(0).optional(),
   // 审批等待期间的内存资源上限；到点只 park runtime，不终结持久交互。
   approval_hard_timeout: z.number().min(0).optional(),
   // 断连宽限期（毫秒，>= 0；0 = 不等待）；缺省 15000 由 utils/config 兜底

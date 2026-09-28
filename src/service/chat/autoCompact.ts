@@ -22,7 +22,7 @@
 import { getSystemCommand } from '@/agent/prompt/loadCommand.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { computeContextUsage } from '@/utils/token.js'
-import { resolveChatRuntimeSelection } from '@/service/chat/runtime.js'
+import { resolveChatRuntimeSelection } from '@/service/chat/sessionRoleRuntime.js'
 import { getSkillMetas } from '@/agent/prompt/loadSkill.js'
 import config, { type Threshold, DEFAULT_COMMAND_CONFIG } from '@/utils/config'
 
@@ -49,7 +49,7 @@ export interface CommandInjection {
  * - brain 未配置 / contextLimit < min_context_limit → 不启用。
  * - 临时换模型（含 ephemeral 子角色覆盖）按当次发送的实际 brain 判定（resolveChatRuntimeSelection）。
  */
-export function isCompactEnabled(chatId: string): boolean {
+function isCompactEnabled(chatId: string): boolean {
   const cmd = config.global.command
 
   const selection = resolveChatRuntimeSelection(chatId)
@@ -77,7 +77,7 @@ function thresholdReached(t: Threshold, used: number, total: number): boolean {
  * 自动压缩触发条件判定。任一满足返回触发原因。
  * 本函数不判 compact 是否启用；调用方需先经 isCompactEnabled 守门（brain 上下文门槛）。
  */
-export function shouldAutoCompact(chatId: string): AutoCompactReason | undefined {
+function shouldAutoCompact(chatId: string): AutoCompactReason | undefined {
   const cmd = config.global.command
   const usage = computeContextUsage(chatId)
   const { used, total } = usage

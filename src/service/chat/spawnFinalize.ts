@@ -1,4 +1,5 @@
-import { getChat, getLastMessage, updateChatMetadata } from '@/db/chat.js'
+import { getChat, updateChatMetadata } from '@/db/chat.js'
+import { getLastMessage } from '@/db/message.js'
 import { finishSpawnTask, getSpawnTaskByChild } from '@/db/delivery.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { logger } from '@/utils/logger/index.js'

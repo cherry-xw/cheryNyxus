@@ -7,7 +7,7 @@ import type {
   TimelineNode,
 } from '../message/types.js'
 import { listExecutionNodes } from '@/db/executionGraph.js'
-import { getChat } from '@/db/chat.js'
+import { assertChatExists } from './guards.js'
 import { truncateByBytes, contentRef, utf8ByteLength } from '@/utils/boundedContent.js'
 
 /**
@@ -105,7 +105,7 @@ export async function handleChatTimelineNodeGet(
   _ctx: HandlerContext,
   data: ChatTimelineNodeGetRequestData,
 ): Promise<ChatTimelineNodeGetResponseData> {
-  if (!getChat(data.rootChatId)) throw new Error('这个会话不见了')
+  assertChatExists(data.rootChatId)
   const node = listExecutionNodes(data.rootChatId).find((row) => row.id === data.nodeId)
   if (!node) throw new Error(`节点 ${data.nodeId} 不存在`)
 

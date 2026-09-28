@@ -3,7 +3,7 @@ import {
   type ExecutionActiveRunRow,
 } from '@/db/executionGraph.js'
 import { getChat } from '@/db/chat.js'
-import { getActiveChatRunId } from './runtime.js'
+import { getActiveChatRunId } from './runtimeCache.js'
 import { recordTerminationFact } from './executionFacts.js'
 
 export interface RunRecoveryOptions {

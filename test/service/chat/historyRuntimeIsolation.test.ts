@@ -3,13 +3,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { WebSocket } from 'ws'
 import { RuntimeResolver } from '@/agent/runtimeResolver.js'
 import config from '@/utils/config.js'
-import {
-  addPendingInput,
-  createChat,
-  deleteChat,
-  getMessages,
-  listPendingInputs,
-} from '@/db/chat.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { getMessages } from '@/db/message.js'
+import { addPendingInput, listPendingInputs } from '@/db/pendingInput.js'
 import { getSoulDb } from '@/db/index.js'
 import { appendChatEvent } from '@/db/delivery.js'
 import {
@@ -20,13 +16,8 @@ import {
   handleChatSync,
 } from '@/service/chat/handler.js'
 import { handleChatResume } from '@/service/chat/send.js'
-import {
-  activateChatRun,
-  clearChatRuntime,
-  ensureChat,
-  releaseChatRun,
-  resolveEffectiveSelection,
-} from '@/service/chat/runtime.js'
+import { clearChatRuntime, ensureChat, resolveEffectiveSelection } from '@/service/chat/runtime.js'
+import { activateChatRun, releaseChatRun } from '@/service/chat/runtimeCache.js'
 import { connectionManager } from '@/service/websocket/connection.js'
 import type { HandlerContext } from '@/service/message/router.js'
 import { logger } from '@/utils/logger/index.js'
@@ -148,7 +139,9 @@ describe('historical runtime isolation', () => {
     createChat(stableChatId, { preset: 'old-detail-name', presetId })
     createChat(legacyChatId, { preset: 'detail-test' })
     const newest = Date.now() + 100_000
-    getSoulDb().prepare('UPDATE chats SET updated_at = ? WHERE id = ?').run(newest - 1, stableChatId)
+    getSoulDb()
+      .prepare('UPDATE chats SET updated_at = ? WHERE id = ?')
+      .run(newest - 1, stableChatId)
     getSoulDb().prepare('UPDATE chats SET updated_at = ? WHERE id = ?').run(newest, legacyChatId)
 
     const response = await handleChatList({} as HandlerContext, { scope: 'stage' })

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat, getMessages } from '@/db/chat.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { addMessage, getMessages } from '@/db/message.js'
 import {
   ensureActiveChatEpoch,
   freezeChatEpochSnapshot,

@@ -17,7 +17,7 @@ import { bumpTimelineRevision, getChat, getRootChatId, getTimelineRevision } fro
 import { claimRequest, completeRequest } from '@/db/delivery.js'
 import { listLatestExecutionRuns } from '@/db/executionGraph.js'
 import { computeCanResume } from './canResume.js'
-import { getActiveChatRunId } from './runtime.js'
+import { getActiveChatRunId } from './runtimeCache.js'
 import { launchDetachedResume } from './send.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 

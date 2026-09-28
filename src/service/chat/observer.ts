@@ -1,12 +1,6 @@
-import {
-  addMessage,
-  fillApprovalResult,
-  markMessageReplaced,
-  updateAssistantSenseCalls,
-  updateChatMetadata,
-  getTimelineRevision,
-} from '@/db/chat.js'
-import { getActiveChatRunId, getChatRuntimeProvenance } from './runtime.js'
+import { updateChatMetadata, getTimelineRevision } from '@/db/chat.js'
+import { addMessage, fillApprovalResult, markMessageReplaced, updateAssistantSenseCalls } from '@/db/message.js'
+import { getActiveChatRunId, getChatRuntimeProvenance } from './runtimeCache.js'
 import { approvalManager } from '../approval/manager.js'
 import { getSense } from '@/core/sense/senseRegistry.js'
 
@@ -28,6 +22,7 @@ import { questionInteractionContext } from '../interaction/context.js'
 import { annotateExecutionNode } from '@/db/executionGraph.js'
 import { skillActivation } from './workflowEvidence.js'
 import { refreshWorkflowContext } from './workflow.js'
+import { ModelRequestTimeoutError } from '@/agent/middleware/requestTimeout.js'
 import { startWorkflowRunRecorder, type WorkflowRunRecorder } from './workflowRecorder.js'
 import { startUsageRecorder } from './usageRecorder.js'
 
@@ -40,6 +35,9 @@ function annotateWorkflow(id: string, workflow: Record<string, unknown>): void {
 }
 
 function unexpectedTerminationContent(error: unknown): string {
+  if (error instanceof ModelRequestTimeoutError) {
+    return `本轮运行未完成。\n\n${error.userMessage}\n\n下一步：可在全局设置中调整单次模型请求超时，或尝试降低思考档位、缩小任务范围、切换模型后再继续。`
+  }
   if (error instanceof ClassifiedError) {
     const guidance =
       error.category === 'validation' && error.source === 'brain'
@@ -104,6 +102,7 @@ export async function* observeAgentChunks(
             role: chunk.message.role,
             content: chunk.message.content,
             thinking: chunk.message.thinking,
+            modelExcluded: chunk.message.modelExcluded,
             thinkingBlocks: chunk.message.thinkingBlocks,
             senseCall: chunk.message.senseCalls,
             hash: chunk.message.hash,
@@ -368,6 +367,7 @@ export async function* observeAgentChunks(
         role: m.role,
         content: m.content,
         thinking: m.thinking,
+        modelExcluded: m.modelExcluded,
         thinkingBlocks: m.thinkingBlocks,
         senseCall: m.senseCalls,
         hash: m.hash,

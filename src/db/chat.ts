@@ -1,10 +1,9 @@
+import { assertChanged } from './chatStorage.js'
 import { getSoulDb, getMonthlyDb } from './index.js'
 import path from 'path'
 import { safeJsonParse } from '@/utils/json.js'
 import config from '@/utils/config.js'
-import type { ThinkingBlock } from '@/core/message/adapter.js'
 import type { ThinkingLevel } from '@/core/llm/adapter.js'
-import type { ToolAuthorization } from '@/core/security/index.js'
 import { publishWorkflowJournalInvalidation } from './workflowJournal.js'
 
 export interface ChatRow {
@@ -24,109 +23,6 @@ export interface ChatRow {
   lifecycle?: 'active' | 'retired' | 'abandoned' | 'archived'
 }
 
-export interface MessageRow {
-  id: string
-  chat_id: string
-  role: string
-  content: string | null
-  thinking: string | null
-  /** JSON 序列化的 ThinkingBlock[]（Anthropic 扩展思考完整块） */
-  thinking_blocks: string | null
-  sense_calls: string | null
-  hash: string | null
-  replace_state: number | null
-  replace_by: string | null
-  replace_content: string | null
-  original_content: string | null
-  revoked: number
-  created_at: number
-  /** JSON {brain,senseGroup,mcpServers}，仅 user 消息记（发送时配置）；assistant/sense 为 null */
-  runtime: string | null
-  context_compaction?: number | null
-  context_compaction_tokens?: number | null
-  /** Immutable context epoch that owned this message. */
-  epoch_id?: string | null
-}
-
-export interface MessageData {
-  role: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent' // role=新（子 pet 回复）；subagent 仅旧历史消息兼容读
-  content?: string
-  thinking?: string
-  /** Anthropic 扩展：thinking 完整块（含 signature）；JSON 列反序列化 */
-  thinkingBlocks?: ThinkingBlock[]
-  senseCall?: Array<{
-    index?: number
-    id: string
-    name: string
-    arguments: string
-    /** 该工具调用的安全授权判定（authorizeToolCall 输出原样 JSON round-trip；缺省 = 旧数据无判定） */
-    security?: ToolAuthorization
-  }>
-  hash?: string
-  replace?: {
-    state: boolean
-    by: string
-    content: string
-  }
-  originalContent?: string
-  revoked?: boolean
-  /** 仅 user 消息传（发送时配置，记入 messages.runtime）；assistant/sense 不传。brainModel/brainProvider 为溯源快照（展示用）。 */
-  runtime?: {
-    brain: string
-    senseGroup: string
-    mcpServers: string[]
-    brainModel?: string
-    brainProvider?: string
-  }
-  contextCompaction?: boolean
-  contextCompactionTokens?: number
-  /** Cross-chat provenance used by the root timeline projector. */
-  link?: MessageLinkData
-}
-
-export type MessageLinkRelation =
-  | 'root_input'
-  | 'agent_output'
-  | 'tool_result'
-  | 'spawn_request'
-  | 'child_input'
-  | 'child_output'
-  | 'child_return'
-  | 'system'
-  | 'legacy_unknown'
-
-export interface MessageLinkData {
-  rootChatId?: string
-  sourceChatId?: string
-  parentChatId?: string
-  spawnId?: string
-  spawnCallId?: string
-  relatedMessageId?: string
-  causationNodeId?: string
-  relation: MessageLinkRelation
-}
-
-export interface MessageLinkRow extends MessageLinkData {
-  messageId: string
-  rootChatId: string
-  sourceChatId: string
-  createdAt: number
-}
-
-export interface PendingInputRow {
-  input_id: string
-  chat_id: string
-  message_id: string
-  client_message_id: string | null
-  command_id: string
-  content: string
-  queue_sequence: number
-  state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
-  accepted_at: number
-  consumed_at: number | null
-  epoch_id?: string | null
-}
-
 /**
  * 格式化年份月份（YYYY-MM）
  * 用于 createChat 时确定该 chat 的 messages 分片月份（创建月固定，跨月不迁移）
@@ -134,18 +30,6 @@ export interface PendingInputRow {
 function formatYearMonth(timestamp: number): string {
   const date = new Date(timestamp)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-}
-
-/**
- * 断言写操作命中 ≥1 行，否则抛错（规则12：失败显性化，禁静默 0 行）。
- * better-sqlite3 RunResult.changes 反映受影响行数；UPDATE/DELETE 命中 0 行多为
- * chat/messageId 不匹配等隐性 bug（如 fillApprovalResult 旧实现落错库致 content 永久 NULL）。
- * 用结构类型 { changes: number } 免 import better-sqlite3 类型。
- */
-function assertChanged(result: { changes: number }, context: string): void {
-  if (result.changes === 0) {
-    throw new Error(`[db] ${context}: 0 rows affected (expected ≥1)`)
-  }
 }
 
 /**
@@ -208,69 +92,6 @@ export function getChat(chatId: string): ChatRow | undefined {
   const db = getSoulDb()
   const stmt = db.prepare('SELECT * FROM chats WHERE id = ?')
   return stmt.get(chatId) as ChatRow | undefined
-}
-
-/** Durable command-plane input queue. Accepted rows survive a process restart. */
-export function addPendingInput(input: {
-  inputId: string
-  chatId: string
-  messageId: string
-  clientMessageId?: string
-  commandId: string
-  content: string
-  queueSequence: number
-  state: PendingInputRow['state']
-  acceptedAt: number
-}): void {
-  const epoch = getSoulDb()
-    .prepare('SELECT active_epoch_id FROM chats WHERE id = ?')
-    .get(input.chatId) as { active_epoch_id: string | null } | undefined
-  getSoulDb()
-    .prepare(
-      `INSERT INTO pending_inputs
-        (input_id, chat_id, message_id, client_message_id, command_id, content, queue_sequence, state, accepted_at, epoch_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      input.inputId,
-      input.chatId,
-      input.messageId,
-      input.clientMessageId ?? null,
-      input.commandId,
-      input.content,
-      input.queueSequence,
-      input.state,
-      input.acceptedAt,
-      epoch?.active_epoch_id ?? null,
-    )
-}
-
-export function listPendingInputs(chatId: string): PendingInputRow[] {
-  return getSoulDb()
-    .prepare(
-      `SELECT * FROM pending_inputs
-       WHERE chat_id = ? AND state IN ('accepted', 'started', 'queued')
-         AND (
-           epoch_id = (SELECT active_epoch_id FROM chats WHERE id = ?)
-           OR (epoch_id IS NULL AND (SELECT active_epoch_id FROM chats WHERE id = ?) IS NULL)
-         )
-       ORDER BY queue_sequence ASC, accepted_at ASC`,
-    )
-    .all(chatId, chatId, chatId) as PendingInputRow[]
-}
-
-export function markPendingInputsConsumed(chatId: string, inputIds: string[]): void {
-  if (inputIds.length === 0) return
-  const db = getSoulDb()
-  const update = db.prepare(
-    `UPDATE pending_inputs SET state = 'consumed', consumed_at = ?
-     WHERE chat_id = ? AND input_id = ? AND state IN ('accepted', 'started', 'queued')`,
-  )
-  const tx = db.transaction((ids: string[]) => {
-    const now = Date.now()
-    for (const id of ids) update.run(now, chatId, id)
-  })
-  tx(inputIds)
 }
 
 /**
@@ -432,19 +253,15 @@ export function updateChatMetadata(chatId: string, patch: Record<string, unknown
  * 服务重启后内存 chatRuntimes 丢失，ensureChat 据此自动恢复 runtime。
  * brain/group 为 config.yaml 名称引用，恢复时实时 resolve（配置变更后自动用新配置）。
  */
-export function getChatRuntimeSelection(
-  chatId: string,
-): {
-  brain: string
-  senseGroup: string
-  mcpServers: string[]
-  thinking?: ThinkingLevel
-} | undefined {
-  const db = getSoulDb()
-  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    { metadata: string | null } | undefined
-  if (!row?.metadata) return undefined
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+export function getChatRuntimeSelection(chatId: string):
+  | {
+      brain: string
+      senseGroup: string
+      mcpServers: string[]
+      thinking?: ThinkingLevel
+    }
+  | undefined {
+  const parsed = getChatMetadata(chatId)
   const rt = parsed.runtime as
     | {
         brain?: string
@@ -489,11 +306,7 @@ export function getChatBranchContext(chatId: string): string | undefined {
  * 字段名演进：subagentPromptPath（T6 之前，仅子 agent）→ promptPathOverride（T6 通用化）→ systemPromptFile（语义修正：合并补充而非替换）。
  */
 export function getChatSystemPromptFile(chatId: string): string | undefined {
-  const db = getSoulDb()
-  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    { metadata: string | null } | undefined
-  if (!row?.metadata) return undefined
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const parsed = getChatMetadata(chatId)
   const p = parsed.systemPromptFile
   if (typeof p !== 'string' || p.length === 0) return undefined
   // 历史兼容：旧 chat metadata 曾存 `.chery/prompts/...`（有 s），但实际目录是 `.chery/prompt/`（无 s）。
@@ -518,11 +331,7 @@ export function getChatSystemPromptFile(chatId: string): string | undefined {
 export function getChatSkillFilter(
   chatId: string,
 ): { skills?: string[]; plugins?: string[] } | undefined {
-  const db = getSoulDb()
-  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    { metadata: string | null } | undefined
-  if (!row?.metadata) return undefined
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const parsed = getChatMetadata(chatId)
   const f = parsed.skillFilter
   if (!f || typeof f !== 'object') return undefined
   const obj = f as Record<string, unknown>
@@ -544,11 +353,7 @@ export function getChatSkillFilter(
  * 缺省（非预设主 agent / 子 agent / 旧 chat）→ undefined。
  */
 export function getChatPreset(chatId: string): string | undefined {
-  const db = getSoulDb()
-  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    { metadata: string | null } | undefined
-  if (!row?.metadata) return undefined
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const parsed = getChatMetadata(chatId)
   // ID 优先：presetId -> 当前 config 预设名（改名后显示/关联均指向新名）；旧数据回退 metadata.preset 名
   const presetId = parsed.presetId
   if (typeof presetId === 'string' && presetId.length > 0) {
@@ -568,11 +373,7 @@ export function getChatPreset(chatId: string): string | undefined {
  * 缺省（无 preset 的非子 chat / 未知）→ undefined → 不做 self 排除。
  */
 export function getChatType(chatId: string): string | undefined {
-  const db = getSoulDb()
-  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    { metadata: string | null } | undefined
-  if (!row?.metadata) return undefined
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const parsed = getChatMetadata(chatId)
   // ID 优先（rename-safe）：roleId -> 按 id 在当前 config.roles 找角色，返回当前名。
   // 主 chat 创建时快照 leader 的 roleId（不回读 live preset.leader，改 leader 不影响历史主 chat 身份）；
   // 子 chat 由 spawn_role 写入 roleId + type（config.save 改名迁移保持同步）。
@@ -604,11 +405,7 @@ export function getChatType(chatId: string): string | undefined {
  * 缺省（子 chat 无 preset / 旧主 chat 无此字段）→ undefined → spawn gate 走全集（child）或 live preset 回退（旧主 chat）。
  */
 export function getChatSpawnTypes(chatId: string): string[] | undefined {
-  const db = getSoulDb()
-  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    { metadata: string | null } | undefined
-  if (!row?.metadata) return undefined
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const parsed = getChatMetadata(chatId)
   const arr = parsed.spawnTypes
   return Array.isArray(arr) ? (arr as string[]) : undefined
 }
@@ -620,11 +417,7 @@ export function getChatSpawnTypes(chatId: string): string[] | undefined {
  * 缺省（非预设主 agent / 预设未配 workspace / 旧 chat）→ undefined → 不注入该段。
  */
 export function getChatWorkspace(chatId: string): string | undefined {
-  const db = getSoulDb()
-  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    { metadata: string | null } | undefined
-  if (!row?.metadata) return undefined
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const parsed = getChatMetadata(chatId)
   const ws = parsed.workspace
   return typeof ws === 'string' && ws.length > 0 ? ws : undefined
 }
@@ -636,13 +429,136 @@ export function getChatWorkspace(chatId: string): string | undefined {
  * 缺省（非预设主 agent / 预设未配 rule / 旧 chat）→ undefined → 仅用基准 base.yaml。
  */
 export function getChatRule(chatId: string): string | undefined {
-  const db = getSoulDb()
-  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    { metadata: string | null } | undefined
-  if (!row?.metadata) return undefined
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const parsed = getChatMetadata(chatId)
   const r = parsed.rule
   return typeof r === 'string' && r.length > 0 ? r : undefined
+}
+
+function clearMonthlyChatData(chatId: string, chat: ChatRow): void {
+  const monthlyDb = getMonthlyDb(chat.messages_month)
+  const clear = monthlyDb.transaction(() => {
+    monthlyDb
+      .prepare(
+        'DELETE FROM question_items WHERE batch_id IN (SELECT batch_id FROM question_batches WHERE chat_id = ?)',
+      )
+      .run(chatId)
+    monthlyDb.prepare('DELETE FROM question_batches WHERE chat_id = ?').run(chatId)
+    monthlyDb.prepare('DELETE FROM question_projection_meta WHERE chat_id = ?').run(chatId)
+    monthlyDb.prepare('DELETE FROM chat_events WHERE chat_id = ?').run(chatId)
+    monthlyDb.prepare('DELETE FROM messages WHERE chat_id = ?').run(chatId)
+  })
+  clear()
+}
+
+type ChatDeleteTarget = {
+  chatId: string
+  executionRootId: string
+  workflowRootId: string
+}
+
+/** All soul.db dependent rows for one chat, inside the caller's transaction. */
+function clearSoulChatData(
+  soulDb: ReturnType<typeof getSoulDb>,
+  { chatId, executionRootId, workflowRootId }: ChatDeleteTarget,
+  mutatedWorkflowRoots: Set<string>,
+): void {
+  soulDb
+    .prepare('DELETE FROM interactions WHERE chat_id = ? OR root_chat_id = ?')
+    .run(chatId, chatId)
+  soulDb
+    .prepare(
+      'DELETE FROM tree_control_targets WHERE chat_id = ? OR pause_id IN (SELECT pause_id FROM tree_control_operations WHERE root_chat_id = ?)',
+    )
+    .run(chatId, chatId)
+  soulDb.prepare('DELETE FROM tree_control_operations WHERE root_chat_id = ?').run(chatId)
+  soulDb
+    .prepare(
+      'DELETE FROM spawn_tasks WHERE child_chat_id = ? OR parent_chat_id = ? OR delivery_chat_id = ?',
+    )
+    .run(chatId, chatId, chatId)
+  soulDb
+    .prepare(
+      'DELETE FROM execution_edges WHERE root_chat_id = ? AND (? = ? OR from_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?) OR to_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?))',
+    )
+    .run(executionRootId, chatId, executionRootId, chatId, chatId)
+  soulDb
+    .prepare('DELETE FROM execution_nodes WHERE root_chat_id = ? AND (? = ? OR source_chat_id = ?)')
+    .run(executionRootId, chatId, executionRootId, chatId)
+  soulDb.prepare('DELETE FROM execution_active_runs WHERE chat_id = ?').run(chatId)
+  if (chatId === workflowRootId) {
+    soulDb.prepare('DELETE FROM task_result_views WHERE task_key = ?').run(workflowRootId)
+    soulDb.prepare('DELETE FROM workflow_step_events WHERE root_chat_id = ?').run(workflowRootId)
+    soulDb.prepare('DELETE FROM workflow_occurrences WHERE root_chat_id = ?').run(workflowRootId)
+    soulDb.prepare('DELETE FROM workflow_journal_gaps WHERE root_chat_id = ?').run(workflowRootId)
+    soulDb.prepare('DELETE FROM workflow_journal_roots WHERE root_chat_id = ?').run(workflowRootId)
+  } else {
+    soulDb
+      .prepare('DELETE FROM workflow_step_events WHERE root_chat_id = ? AND source_chat_id = ?')
+      .run(workflowRootId, chatId)
+    soulDb
+      .prepare('DELETE FROM workflow_occurrences WHERE root_chat_id = ? AND source_chat_id = ?')
+      .run(workflowRootId, chatId)
+    soulDb
+      .prepare('DELETE FROM workflow_journal_gaps WHERE root_chat_id = ? AND source_chat_id = ?')
+      .run(workflowRootId, chatId)
+    mutatedWorkflowRoots.add(workflowRootId)
+  }
+  if (chatId === executionRootId) {
+    soulDb.prepare('DELETE FROM tool_call_owners WHERE root_chat_id = ?').run(executionRootId)
+    soulDb
+      .prepare('DELETE FROM execution_graph_counters WHERE root_chat_id = ?')
+      .run(executionRootId)
+  }
+  soulDb
+    .prepare(
+      'DELETE FROM message_links WHERE source_chat_id = ? OR root_chat_id = ? OR parent_chat_id = ?',
+    )
+    .run(chatId, chatId, chatId)
+  soulDb.prepare('DELETE FROM pending_inputs WHERE chat_id = ?').run(chatId)
+  soulDb.prepare('DELETE FROM chat_epoch_snapshots WHERE chat_id = ?').run(chatId)
+  if (chatId === executionRootId) {
+    soulDb.prepare('DELETE FROM root_events WHERE root_chat_id = ?').run(chatId)
+    soulDb.prepare('DELETE FROM chat_epochs WHERE root_chat_id = ?').run(chatId)
+  }
+  const branch = soulDb
+    .prepare('SELECT task_id FROM conversation_branches WHERE chat_id = ?')
+    .get(chatId) as { task_id: string } | undefined
+  soulDb.prepare('DELETE FROM conversation_branches WHERE chat_id = ?').run(chatId)
+  if (branch) {
+    const remaining = soulDb
+      .prepare('SELECT COUNT(*) AS count FROM conversation_branches WHERE task_id = ?')
+      .get(branch.task_id) as { count: number }
+    if (remaining.count === 0) {
+      soulDb.prepare('DELETE FROM conversation_tasks WHERE task_id = ?').run(branch.task_id)
+    }
+  }
+  const stmt = soulDb.prepare('DELETE FROM chats WHERE id = ?')
+  stmt.run(chatId)
+}
+
+/** Bump surviving workflow roots once, within the same soul.db transaction. */
+function updateWorkflowAfterChatDeletion(
+  soulDb: ReturnType<typeof getSoulDb>,
+  mutatedWorkflowRoots: Set<string>,
+  workflowInvalidations: Map<string, { baseRevision: number; revision: number }>,
+): void {
+  for (const rootChatId of mutatedWorkflowRoots) {
+    const root = soulDb
+      .prepare('SELECT revision FROM workflow_journal_roots WHERE root_chat_id = ?')
+      .get(rootChatId) as { revision: number } | undefined
+    if (!root) continue
+    soulDb
+      .prepare(
+        `UPDATE workflow_journal_roots
+         SET revision = revision + 1, history_generation = history_generation + 1,
+             updated_at = ? WHERE root_chat_id = ?`,
+      )
+      .run(Date.now(), rootChatId)
+    workflowInvalidations.set(rootChatId, {
+      baseRevision: root.revision,
+      revision: root.revision + 1,
+    })
+  }
 }
 
 /** Clear monthly data first; failure retains ownership records for retry. */
@@ -669,125 +585,10 @@ export function deleteChats(chatIds: readonly string[]): void {
       },
     ]
   })
-  for (const { chatId, chat } of targets) {
-    const monthlyDb = getMonthlyDb(chat.messages_month)
-    const clear = monthlyDb.transaction(() => {
-      monthlyDb
-        .prepare(
-          'DELETE FROM question_items WHERE batch_id IN (SELECT batch_id FROM question_batches WHERE chat_id = ?)',
-        )
-        .run(chatId)
-      monthlyDb.prepare('DELETE FROM question_batches WHERE chat_id = ?').run(chatId)
-      monthlyDb.prepare('DELETE FROM question_projection_meta WHERE chat_id = ?').run(chatId)
-      monthlyDb.prepare('DELETE FROM chat_events WHERE chat_id = ?').run(chatId)
-      monthlyDb.prepare('DELETE FROM messages WHERE chat_id = ?').run(chatId)
-    })
-    clear()
-  }
+  for (const { chatId, chat } of targets) clearMonthlyChatData(chatId, chat)
   soulDb.transaction(() => {
-    for (const { chatId, executionRootId, workflowRootId } of targets) {
-      soulDb
-        .prepare('DELETE FROM interactions WHERE chat_id = ? OR root_chat_id = ?')
-        .run(chatId, chatId)
-      soulDb
-        .prepare(
-          'DELETE FROM tree_control_targets WHERE chat_id = ? OR pause_id IN (SELECT pause_id FROM tree_control_operations WHERE root_chat_id = ?)',
-        )
-        .run(chatId, chatId)
-      soulDb.prepare('DELETE FROM tree_control_operations WHERE root_chat_id = ?').run(chatId)
-      soulDb
-        .prepare(
-          'DELETE FROM spawn_tasks WHERE child_chat_id = ? OR parent_chat_id = ? OR delivery_chat_id = ?',
-        )
-        .run(chatId, chatId, chatId)
-      soulDb
-        .prepare(
-          'DELETE FROM execution_edges WHERE root_chat_id = ? AND (? = ? OR from_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?) OR to_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?))',
-        )
-        .run(executionRootId, chatId, executionRootId, chatId, chatId)
-      soulDb
-        .prepare(
-          'DELETE FROM execution_nodes WHERE root_chat_id = ? AND (? = ? OR source_chat_id = ?)',
-        )
-        .run(executionRootId, chatId, executionRootId, chatId)
-      soulDb.prepare('DELETE FROM execution_active_runs WHERE chat_id = ?').run(chatId)
-      if (chatId === workflowRootId) {
-        soulDb.prepare('DELETE FROM task_result_views WHERE task_key = ?').run(workflowRootId)
-        soulDb
-          .prepare('DELETE FROM workflow_step_events WHERE root_chat_id = ?')
-          .run(workflowRootId)
-        soulDb
-          .prepare('DELETE FROM workflow_occurrences WHERE root_chat_id = ?')
-          .run(workflowRootId)
-        soulDb
-          .prepare('DELETE FROM workflow_journal_gaps WHERE root_chat_id = ?')
-          .run(workflowRootId)
-        soulDb
-          .prepare('DELETE FROM workflow_journal_roots WHERE root_chat_id = ?')
-          .run(workflowRootId)
-      } else {
-        soulDb
-          .prepare('DELETE FROM workflow_step_events WHERE root_chat_id = ? AND source_chat_id = ?')
-          .run(workflowRootId, chatId)
-        soulDb
-          .prepare('DELETE FROM workflow_occurrences WHERE root_chat_id = ? AND source_chat_id = ?')
-          .run(workflowRootId, chatId)
-        soulDb
-          .prepare(
-            'DELETE FROM workflow_journal_gaps WHERE root_chat_id = ? AND source_chat_id = ?',
-          )
-          .run(workflowRootId, chatId)
-        mutatedWorkflowRoots.add(workflowRootId)
-      }
-      if (chatId === executionRootId) {
-        soulDb.prepare('DELETE FROM tool_call_owners WHERE root_chat_id = ?').run(executionRootId)
-        soulDb
-          .prepare('DELETE FROM execution_graph_counters WHERE root_chat_id = ?')
-          .run(executionRootId)
-      }
-      soulDb
-        .prepare(
-          'DELETE FROM message_links WHERE source_chat_id = ? OR root_chat_id = ? OR parent_chat_id = ?',
-        )
-        .run(chatId, chatId, chatId)
-      soulDb.prepare('DELETE FROM pending_inputs WHERE chat_id = ?').run(chatId)
-      soulDb.prepare('DELETE FROM chat_epoch_snapshots WHERE chat_id = ?').run(chatId)
-      if (chatId === executionRootId) {
-        soulDb.prepare('DELETE FROM root_events WHERE root_chat_id = ?').run(chatId)
-        soulDb.prepare('DELETE FROM chat_epochs WHERE root_chat_id = ?').run(chatId)
-      }
-      const branch = soulDb
-        .prepare('SELECT task_id FROM conversation_branches WHERE chat_id = ?')
-        .get(chatId) as { task_id: string } | undefined
-      soulDb.prepare('DELETE FROM conversation_branches WHERE chat_id = ?').run(chatId)
-      if (branch) {
-        const remaining = soulDb
-          .prepare('SELECT COUNT(*) AS count FROM conversation_branches WHERE task_id = ?')
-          .get(branch.task_id) as { count: number }
-        if (remaining.count === 0) {
-          soulDb.prepare('DELETE FROM conversation_tasks WHERE task_id = ?').run(branch.task_id)
-        }
-      }
-      const stmt = soulDb.prepare('DELETE FROM chats WHERE id = ?')
-      stmt.run(chatId)
-    }
-    for (const rootChatId of mutatedWorkflowRoots) {
-      const root = soulDb
-        .prepare('SELECT revision FROM workflow_journal_roots WHERE root_chat_id = ?')
-        .get(rootChatId) as { revision: number } | undefined
-      if (!root) continue
-      soulDb
-        .prepare(
-          `UPDATE workflow_journal_roots
-           SET revision = revision + 1, history_generation = history_generation + 1,
-               updated_at = ? WHERE root_chat_id = ?`,
-        )
-        .run(Date.now(), rootChatId)
-      workflowInvalidations.set(rootChatId, {
-        baseRevision: root.revision,
-        revision: root.revision + 1,
-      })
-    }
+    for (const target of targets) clearSoulChatData(soulDb, target, mutatedWorkflowRoots)
+    updateWorkflowAfterChatDeletion(soulDb, mutatedWorkflowRoots, workflowInvalidations)
   })()
   for (const [rootChatId, revision] of workflowInvalidations)
     publishWorkflowJournalInvalidation(rootChatId, revision.baseRevision, revision.revision)
@@ -806,27 +607,6 @@ export function findChatsByParent(parentChatId: string): ChatRow[] {
   const soulDb = getSoulDb()
   const stmt = soulDb.prepare('SELECT * FROM chats WHERE parent_chat_id = ?')
   return stmt.all(parentChatId) as ChatRow[]
-}
-
-/**
- * 主 chat 下所有存活子 chat 及其角色 type（JOIN spawn_tasks）。
- *
- * 用途：session.runtime.set 回灌已存在子——按 type 匹配新 roles 编制，作用于已派发/卡住的子。
- * INNER JOIN 保证子 chat 必有 spawn_task 记录（孤儿 chat 行不会返回）。
- * 索引 idx_spawn_tasks_parent_status(parent_chat_id, status) 覆盖查询。
- */
-export function findChildChatsWithType(
-  parentChatId: string,
-): { childChatId: string; type: string }[] {
-  const rows = getSoulDb()
-    .prepare(
-      `SELECT c.id AS child_chat_id, s.type AS type
-       FROM chats c
-       INNER JOIN spawn_tasks s ON s.child_chat_id = c.id
-       WHERE c.parent_chat_id = ?`,
-    )
-    .all(parentChatId) as { child_chat_id: string; type: string }[]
-  return rows.map((r) => ({ childChatId: r.child_chat_id, type: r.type }))
 }
 
 /**
@@ -850,210 +630,8 @@ export function collectDescendantsChatIds(parentChatId: string): string[] {
   return result
 }
 
-/**
- * preview 单行规范化（CP8）：折叠空白 + 截断 ≤40 字符。
- * TODO(CP8 "指令"跳过)：当前默认取首条 user 消息（isDirective=false）。
- *   定义指令标记后，改为取首条「非指令」user 消息（需查多条 user 消息）。
- */
-function normalizePreview(content: string | null): string {
-  if (!content) return ''
-  return content.replace(/\s+/g, ' ').trim().slice(0, 40)
-}
-
-/**
- * 批量取 chat 的会话列表 preview + turnCount（CP8）。
- * 按 messages_month 分组（消息按月分片，跨月分别查），每 group 一条 SQL：
- *   首条 user 消息 content（相关子查询 MIN created_at）+ user 消息计数。
- * 返回 Map<chatId, {preview, turnCount}>；无 user 消息的 chat 默认 {preview:"",turnCount:0}。
- *
- * 仅 chat.list includePreview=true 调用（会话列表渲染，on-demand）；initFromChats 走 lean 免 N+1。
- */
-export function getChatPreviews(
-  chats: ChatRow[],
-): Map<string, { preview: string; turnCount: number }> {
-  const result = new Map<string, { preview: string; turnCount: number }>()
-  // 全部 chat 先初始化默认值（无 user 消息的 chat 也有条目）
-  for (const c of chats) {
-    result.set(c.id, { preview: '', turnCount: 0 })
-  }
-  if (chats.length === 0) return result
-
-  // 按 messages_month 分组
-  const byMonth = new Map<string, string[]>()
-  for (const c of chats) {
-    if (!c.messages_month) continue
-    const arr = byMonth.get(c.messages_month)
-    if (arr) arr.push(c.id)
-    else byMonth.set(c.messages_month, [c.id])
-  }
-
-  for (const [month, chatIds] of byMonth) {
-    const monthlyDb = getMonthlyDb(month)
-    const placeholders = chatIds.map(() => '?').join(',')
-    const rows = monthlyDb
-      .prepare(
-        `SELECT m.chat_id AS chatId,
-          (SELECT m2.content FROM messages m2
-            WHERE m2.chat_id = m.chat_id AND m2.role = 'user'
-            ORDER BY m2.created_at ASC LIMIT 1) AS firstContent,
-          COUNT(*) AS turnCount
-         FROM messages m
-         WHERE m.role = 'user' AND m.chat_id IN (${placeholders})
-         GROUP BY m.chat_id`,
-      )
-      .all(...chatIds) as {
-      chatId: string
-      firstContent: string | null
-      turnCount: number
-    }[]
-
-    for (const r of rows) {
-      result.set(r.chatId, {
-        preview: normalizePreview(r.firstContent),
-        turnCount: r.turnCount,
-      })
-    }
-  }
-  return result
-}
-
-/**
- * 批量取 chat 的末条 user 消息（标题栏会话状态条 tooltip「最后一次提问」）。
- * 与 getChatPreviews 同分组模式：按 messages_month 分组，每 group 一条 SQL，
- * 取末条 user 消息 content（相关子查询 MAX created_at），复用 preview 规范化（折叠空白 + ≤40 字符）。
- * 返回 Map<chatId, string>；无 user 消息的 chat 默认空串。
- * 仅 chat.overview 的 TaskOverview.lastUserPrompt 调用（overview 订阅快照/变更重算）。
- */
-export function getLastUserPrompts(chats: ChatRow[]): Map<string, string> {
-  const result = new Map<string, string>()
-  for (const c of chats) {
-    result.set(c.id, '')
-  }
-  if (chats.length === 0) return result
-
-  const byMonth = new Map<string, string[]>()
-  for (const c of chats) {
-    if (!c.messages_month) continue
-    const arr = byMonth.get(c.messages_month)
-    if (arr) arr.push(c.id)
-    else byMonth.set(c.messages_month, [c.id])
-  }
-
-  for (const [month, chatIds] of byMonth) {
-    const monthlyDb = getMonthlyDb(month)
-    const placeholders = chatIds.map(() => '?').join(',')
-    const rows = monthlyDb
-      .prepare(
-        `SELECT m.chat_id AS chatId,
-          (SELECT m2.content FROM messages m2
-            WHERE m2.chat_id = m.chat_id AND m2.role = 'user'
-            ORDER BY m2.created_at DESC LIMIT 1) AS lastContent
-         FROM messages m
-         WHERE m.role = 'user' AND m.chat_id IN (${placeholders})
-         GROUP BY m.chat_id`,
-      )
-      .all(...chatIds) as { chatId: string; lastContent: string | null }[]
-
-    for (const r of rows) {
-      result.set(r.chatId, normalizePreview(r.lastContent))
-    }
-  }
-  return result
-}
-export function addMessage(messageId: string, chatId: string, data: MessageData): MessageRow {
-  // 1. 获取 chat 的 messages_month
-  const soulDb = getSoulDb()
-  const chatStmt = soulDb.prepare('SELECT messages_month, active_epoch_id FROM chats WHERE id = ?')
-  const chat = chatStmt.get(chatId) as
-    { messages_month: string; active_epoch_id: string | null } | undefined
-
-  if (!chat) throw new Error(`Chat ${chatId} not found`)
-
-  // 2. messageId 由调用方传入（checkpoint/loadHistory 生成），直接使用
-  const finalMessageId = messageId
-
-  // 3. 路由到月份文件并插入 message
-  const monthlyDb = getMonthlyDb(chat.messages_month)
-  const now = Date.now()
-
-  const stmt = monthlyDb.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime, context_compaction, context_compaction_tokens, epoch_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  stmt.run(
-    finalMessageId,
-    chatId,
-    data.role,
-    data.content ?? null,
-    data.thinking ?? null,
-    data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
-    data.senseCall ? JSON.stringify(data.senseCall) : null,
-    data.hash ?? null,
-    data.replace?.state ? 1 : 0,
-    data.replace?.by ?? null,
-    data.replace?.content ?? null,
-    data.originalContent ?? null,
-    data.revoked ? 1 : 0,
-    now,
-    data.runtime ? JSON.stringify(data.runtime) : null,
-    data.contextCompaction ? 1 : 0,
-    data.contextCompactionTokens ?? null,
-    chat.active_epoch_id,
-  )
-
-  // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
-  const countResult = soulDb
-    .prepare('UPDATE chats SET message_count = message_count + 1 WHERE id = ?')
-    .run(chatId)
-  assertChanged(countResult, `addMessage count (${chatId})`)
-  bumpTimelineRevision(chatId)
-  upsertMessageLink(messageId, chatId, data.link ?? defaultMessageLink(chatId, data.role))
-
-  return {
-    id: finalMessageId,
-    chat_id: chatId,
-    role: data.role,
-    content: data.content ?? null,
-    thinking: data.thinking ?? null,
-    thinking_blocks: data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
-    sense_calls: data.senseCall ? JSON.stringify(data.senseCall) : null,
-    hash: data.hash ?? null,
-    replace_state: data.replace?.state ? 1 : 0,
-    replace_by: data.replace?.by ?? null,
-    replace_content: data.replace?.content ?? null,
-    original_content: data.originalContent ?? null,
-    revoked: data.revoked ? 1 : 0,
-    created_at: now,
-    runtime: data.runtime ? JSON.stringify(data.runtime) : null,
-    context_compaction: data.contextCompaction ? 1 : 0,
-    context_compaction_tokens: data.contextCompactionTokens ?? null,
-    epoch_id: chat.active_epoch_id,
-  }
-}
-
-function defaultMessageLink(chatId: string, role: MessageData['role']): MessageLinkData {
-  const root = getRootChat(chatId)
-  return {
-    rootChatId: root.id,
-    sourceChatId: chatId,
-    parentChatId: root.id === chatId ? undefined : (getChat(chatId)?.parent_chat_id ?? undefined),
-    relation:
-      role === 'user'
-        ? root.id === chatId
-          ? 'root_input'
-          : 'child_input'
-        : role === 'sense'
-          ? 'tool_result'
-          : role === 'system'
-            ? 'system'
-            : root.id === chatId
-              ? 'agent_output'
-              : 'child_output',
-  }
-}
-
-function getRootChat(chatId: string): ChatRow {
+/** Get the root chat; keep missing-parent and cycle behavior for existing families. */
+export function getRootChat(chatId: string): ChatRow {
   let current = getChat(chatId)
   if (!current) throw new Error(`Chat ${chatId} not found`)
   const seen = new Set<string>()
@@ -1069,333 +647,4 @@ function getRootChat(chatId: string): ChatRow {
 /** Root chat identity for root-scoped event journals and subscriptions. */
 export function getRootChatId(chatId: string): string {
   return getRootChat(chatId).id
-}
-
-export function upsertMessageLink(messageId: string, chatId: string, link: MessageLinkData): void {
-  const chat = getChat(chatId)
-  if (!chat) throw new Error(`Chat ${chatId} not found`)
-  const root = link.rootChatId ? getChat(link.rootChatId) : getRootChat(chatId)
-  const now = Date.now()
-  getSoulDb()
-    .prepare(
-      `INSERT INTO message_links
-        (message_id, root_chat_id, source_chat_id, parent_chat_id, spawn_id, spawn_call_id, related_message_id, causation_node_id, relation, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(message_id) DO UPDATE SET
-         root_chat_id=excluded.root_chat_id,
-         source_chat_id=excluded.source_chat_id,
-         parent_chat_id=excluded.parent_chat_id,
-         spawn_id=excluded.spawn_id,
-         spawn_call_id=excluded.spawn_call_id,
-         related_message_id=excluded.related_message_id,
-         causation_node_id=excluded.causation_node_id,
-         relation=excluded.relation`,
-    )
-    .run(
-      messageId,
-      root?.id ?? chat.id,
-      link.sourceChatId ?? chatId,
-      link.parentChatId ?? chat.parent_chat_id ?? null,
-      link.spawnId ?? null,
-      link.spawnCallId ?? null,
-      link.relatedMessageId ?? null,
-      link.causationNodeId ?? null,
-      link.relation,
-      now,
-    )
-}
-
-export function getMessageLinksForRoot(rootChatId: string): MessageLinkRow[] {
-  const rows = getSoulDb()
-    .prepare(
-      'SELECT * FROM message_links WHERE root_chat_id = ? ORDER BY created_at ASC, message_id ASC',
-    )
-    .all(rootChatId) as Record<string, unknown>[]
-  return rows.map((row) => ({
-    messageId: String(row.message_id),
-    rootChatId: String(row.root_chat_id),
-    sourceChatId: String(row.source_chat_id),
-    parentChatId: row.parent_chat_id ? String(row.parent_chat_id) : undefined,
-    spawnId: row.spawn_id ? String(row.spawn_id) : undefined,
-    spawnCallId: row.spawn_call_id ? String(row.spawn_call_id) : undefined,
-    relatedMessageId: row.related_message_id ? String(row.related_message_id) : undefined,
-    causationNodeId: row.causation_node_id ? String(row.causation_node_id) : undefined,
-    relation: String(row.relation) as MessageLinkRelation,
-    createdAt: Number(row.created_at),
-  }))
-}
-
-/**
- * 取注入本 chat 的 child_return 角色回复消息 id（wakeParent 注入的子返回/超时）。
- * 前端 hydration 据此标记 mergedView=child-to-master，从主轴过滤（与 live reducer 一致）--
- * 否则 DB 重新加载后子返回 role 消息丢失 live 标记，被误认作主轴消息渲染到 lane 0。
- */
-export function getChildReturnMessageIds(parentChatId: string): Set<string> {
-  const rows = getSoulDb()
-    .prepare('SELECT message_id FROM message_links WHERE parent_chat_id = ? AND relation = ?')
-    .all(parentChatId, 'child_return') as { message_id: string }[]
-  return new Set(rows.map((r) => r.message_id))
-}
-
-/**
- * 获取消息（路由到月份文件）
- */
-export function getMessages(chatId: string, epochId?: string): MessageRow[] {
-  // 1. 获取 chat 的 messages_month
-  const soulDb = getSoulDb()
-  const chatStmt = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?')
-  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined
-
-  if (!chat) return []
-
-  // 2. 路由到月份文件
-  const monthlyDb = getMonthlyDb(chat.messages_month)
-
-  // 3. 查询 messages
-  if (epochId) {
-    return monthlyDb
-      .prepare(
-        'SELECT * FROM messages WHERE chat_id = ? AND epoch_id = ? ORDER BY created_at ASC, rowid ASC',
-      )
-      .all(chatId, epochId) as MessageRow[]
-  }
-  return monthlyDb
-    .prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC')
-    .all(chatId) as MessageRow[]
-}
-
-/**
- * 获取 chat 末条非 revoked 消息（用于 canResume 判定，避免全量加载）
- * 返回 null 表示 chat 不存在或无可见消息
- */
-export function getLastMessage(chatId: string): MessageRow | null {
-  const soulDb = getSoulDb()
-  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
-    { messages_month: string } | undefined
-  if (!chat) return null
-
-  const monthlyDb = getMonthlyDb(chat.messages_month)
-  const stmt = monthlyDb.prepare(
-    'SELECT * FROM messages WHERE chat_id = ? AND revoked = 0 ORDER BY created_at DESC, rowid DESC LIMIT 1',
-  )
-  return (stmt.get(chatId) as MessageRow) ?? null
-}
-
-/**
- * 填充审批结果（更新 content / hash 字段）
- * 按 chatId 路由月份库（与 addMessage/getMessages 同源），消除对 messageId 月份前缀的依赖：
- * smart pending sense 的 messageId = trigger.id（LLM tool_call.id 或 sense-${index}），无月份前缀，
- * 旧实现 substring(0,7) 会落到错误空库、UPDATE 命中 0 行 → content 永远 NULL。
- */
-export function fillApprovalResult(
-  chatId: string,
-  messageId: string,
-  fields: { content?: string; hash?: string },
-): void {
-  const soulDb = getSoulDb()
-  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
-    { messages_month: string } | undefined
-  if (!chat) return
-
-  const monthlyDb = getMonthlyDb(chat.messages_month)
-
-  const sets: string[] = []
-  const vals: unknown[] = []
-  if (fields.content !== undefined) {
-    sets.push('content = ?')
-    vals.push(fields.content)
-  }
-  if (fields.hash !== undefined) {
-    sets.push('hash = ?')
-    vals.push(fields.hash)
-  }
-  if (sets.length === 0) return
-
-  const result = monthlyDb
-    .prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`)
-    .run(...vals, messageId)
-  assertChanged(result, `fillApprovalResult(${chatId}/${messageId})`)
-  bumpTimelineRevision(chatId)
-}
-
-/**
- * 补充 assistant 消息的 sense_calls 字段（流式多 sense_call reconcile）。
- *
- * 流式场景首个 sense_end 时 checkpointState.flushAssistant 写入的 senseCalls 可能不全
- * （OpenAI 流式 delta 分散到达），流结束后由 CheckpointState.reconcileAssistantSenseCalls
- * 比对补充。observer 收到 patch.kind="content" + senseCalls 时调此函数持久化。
- *
- * 按 chatId 路由月份库（与 fillApprovalResult 同源），assembleContent 仅做 JSON.stringify 序列化。
- */
-export function updateAssistantSenseCalls(
-  chatId: string,
-  messageId: string,
-  senseCalls: Array<{ id: string; name: string; arguments: string }>,
-): void {
-  const soulDb = getSoulDb()
-  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
-    { messages_month: string } | undefined
-  if (!chat) return
-
-  const monthlyDb = getMonthlyDb(chat.messages_month)
-  const result = monthlyDb
-    .prepare('UPDATE messages SET sense_calls = ? WHERE id = ?')
-    .run(JSON.stringify(senseCalls), messageId)
-  assertChanged(result, `updateAssistantSenseCalls(${chatId}/${messageId})`)
-  bumpTimelineRevision(chatId)
-}
-
-/**
- * 批量标记消息 revoked（chat.resume 撤回时持久化）
- */
-export function markMessagesRevoked(chatId: string, messageIds: string[]): void {
-  if (messageIds.length === 0) return
-  const soulDb = getSoulDb()
-  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
-    { messages_month: string } | undefined
-  if (!chat) return
-
-  const monthlyDb = getMonthlyDb(chat.messages_month)
-  const placeholders = messageIds.map(() => '?').join(', ')
-  const revoke = monthlyDb.transaction(() => {
-    const result = monthlyDb
-      .prepare(`UPDATE messages SET revoked = 1 WHERE id IN (${placeholders})`)
-      .run(...messageIds)
-    assertChanged(result, `markMessagesRevoked(${chatId}) ids=[${messageIds.join(',')}]`)
-
-    // 新 prompt 撤回整个 trailing assistant/sense 周期时，同步关闭其问题批次。
-    // 否则被撤回的旧问题会继续阻塞 canResume，并在刷新快照中重新出现。
-    const now = Date.now()
-    monthlyDb
-      .prepare(
-        `UPDATE question_items
-       SET status = 'cancelled', answer_json = '{"cancelled":true}',
-           answer_text = '(问题批次已被新消息取代)', answered_at = ?
-       WHERE batch_id IN (
-         SELECT batch_id FROM question_batches
-         WHERE chat_id = ? AND assistant_message_id IN (${placeholders}) AND status = 'pending'
-       ) AND status = 'pending'`,
-      )
-      .run(now, chatId, ...messageIds)
-    monthlyDb
-      .prepare(
-        `UPDATE question_batches SET status = 'completed', completed_at = ?
-       WHERE chat_id = ? AND assistant_message_id IN (${placeholders}) AND status = 'pending'`,
-      )
-      .run(now, chatId, ...messageIds)
-  })
-  revoke()
-  bumpTimelineRevision(chatId)
-}
-
-/**
- * 标记消息 replaced（感官去重命中时持久化 replace 状态）
- * 与 markMessagesRevoked 同源路由（按 chatId 定位月份库），
- * UPDATE replace_state/replace_by/replace_content/original_content，不动 content 字段（历史内容保持真实，replace 为元数据）。
- */
-export function markMessageReplaced(
-  chatId: string,
-  messageId: string,
-  fields: {
-    content?: string
-    replace: { state: boolean; by: string; content: string }
-    originalContent?: string
-  },
-): void {
-  const soulDb = getSoulDb()
-  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
-    { messages_month: string } | undefined
-  if (!chat) return
-
-  const monthlyDb = getMonthlyDb(chat.messages_month)
-  // content 可选：传入则更新（感官去重改写为短说明，剔除冗长重复内容）；
-  // 未传则保留原 content，避免误清空。
-  // 调用方（observer）经 AgentMessagePatch kind:"replace" 联合类型约束，replace patch 必携带 content，
-  // 故运行时 replace 路径总会传 content（smart/manual 不再因缺 content 导致 DB 保留旧长内容）。
-  const sets = [
-    'replace_state = ?',
-    'replace_by = ?',
-    'replace_content = ?',
-    'original_content = ?',
-  ]
-  const vals: unknown[] = [
-    fields.replace.state ? 1 : 0,
-    fields.replace.by,
-    fields.replace.content,
-    fields.originalContent ?? null,
-  ]
-  if (fields.content !== undefined) {
-    sets.push('content = ?')
-    vals.push(fields.content)
-  }
-  const result = monthlyDb
-    .prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`)
-    .run(...vals, messageId)
-  assertChanged(result, `markMessageReplaced(${chatId}/${messageId})`)
-  bumpTimelineRevision(chatId)
-}
-
-/**
- * 解析消息行
- */
-export function parseMessageRow(row: MessageRow): MessageData {
-  return {
-    role: row.role as MessageData['role'],
-    content: row.content ?? undefined,
-    thinking: row.thinking ?? undefined,
-    thinkingBlocks: row.thinking_blocks
-      ? safeJsonParse<ThinkingBlock[] | undefined>(row.thinking_blocks, undefined)
-      : undefined,
-    senseCall: row.sense_calls ? safeJsonParse(row.sense_calls, undefined) : undefined,
-    hash: row.hash ?? undefined,
-    replace: row.replace_state
-      ? { state: true, by: row.replace_by ?? '', content: row.replace_content ?? '' }
-      : undefined,
-    originalContent: row.original_content ?? undefined,
-    revoked: row.revoked === 1,
-    runtime: row.runtime
-      ? safeJsonParse<
-          | {
-              brain: string
-              senseGroup: string
-              mcpServers: string[]
-              brainModel?: string
-              brainProvider?: string
-            }
-          | undefined
-        >(row.runtime, undefined)
-      : undefined,
-    contextCompaction: row.context_compaction === 1,
-    contextCompactionTokens: row.context_compaction_tokens ?? undefined,
-  }
-}
-
-/**
- * 对账 message_count：遍历 soul.db chats，按各自 messages_month 路由 COUNT 修正冗余计数列。
- *
- * 单 chat 消息只在一个分片（messages_month 创建时钉死，跨月不迁移），故 O(chats)、
- * 每 chat 1 次 COUNT、无 fan-out。修 addMessage 跨库写（monthly INSERT + soul count UPDATE）
- * 崩溃导致的漂移。启动期 + CLI 调用。
- *
- * @returns { checked, fixed } — checked 总 chat 数，fixed 修正的漂移数
- */
-export function reconcileMessageCounts(): { checked: number; fixed: number } {
-  const soulDb = getSoulDb()
-  const chats = soulDb.prepare('SELECT id, messages_month, message_count FROM chats').all() as {
-    id: string
-    messages_month: string
-    message_count: number
-  }[]
-  let fixed = 0
-  for (const c of chats) {
-    const monthlyDb = getMonthlyDb(c.messages_month)
-    const row = monthlyDb
-      .prepare('SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?')
-      .get(c.id) as { n: number }
-    if (row.n !== c.message_count) {
-      soulDb.prepare('UPDATE chats SET message_count = ? WHERE id = ?').run(row.n, c.id)
-      fixed++
-    }
-  }
-  return { checked: chats.length, fixed }
 }

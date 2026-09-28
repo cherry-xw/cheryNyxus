@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, addPendingInput, createChat, deleteChat } from '@/db/chat.js'
+import { createChat, deleteChat } from '@/db/chat.js'
+import { addMessage } from '@/db/message.js'
+import { addPendingInput } from '@/db/pendingInput.js'
 import { getSoulDb } from '@/db/index.js'
 import {
   addTreePauseTarget,
@@ -8,15 +10,12 @@ import {
   getTreeControlOperation,
   updateTreeControlOperation,
 } from '@/db/treeControl.js'
-import { buildRootTimeline } from '@/service/chat/handler.js'
+import { buildRootTimeline } from '@/service/chat/timeline.js'
 import { recordRunFact } from '@/service/chat/executionFacts.js'
 import { handleChatAbort } from '@/service/chat/send.js'
 import { handleChatResumeTree } from '@/service/chat/treeControl.js'
-import {
-  activateChatRun,
-  clearChatRuntime,
-  ensureChat,
-} from '@/service/chat/runtime.js'
+import { clearChatRuntime, ensureChat } from '@/service/chat/runtime.js'
+import { activateChatRun } from '@/service/chat/runtimeCache.js'
 import type { HandlerContext } from '@/service/message/router.js'
 import { registerBuiltinProviders } from '@/agent/provider/index.js'
 import { reloadSenses } from '@/agent/sense/index.js'

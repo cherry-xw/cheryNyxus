@@ -5,7 +5,7 @@ import { onPreparedChatEvent, type DeliverableChatEvent } from '@/db/delivery.js
 import { safeJsonParse } from '@/utils/json.js'
 import { computeCanResume } from './canResume.js'
 import { computeCurrentState } from './currentState.js'
-import { isChatRunning } from './runtime.js'
+import { isChatRunning } from './runtimeCache.js'
 import { createNotification, Method } from '../message/types.js'
 import {
   projectTaskCatalogItemByChat,

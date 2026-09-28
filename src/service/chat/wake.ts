@@ -1,16 +1,10 @@
-import {
-  addMessage,
-  updateChatMetadata,
-  getChat,
-  getMessages,
-  getLastMessage,
-  getMessageLinksForRoot,
-  parseMessageRow,
-  getRootChatId,
-  getTimelineRevision,
-} from '@/db/chat.js'
+import { updateChatMetadata, getChat, getRootChatId, getTimelineRevision } from '@/db/chat.js'
+import { addMessage, getMessages, getLastMessage, parseMessageRow } from '@/db/message.js'
+import { getMessageLinksForRoot } from '@/db/messageLink.js'
+import { assertChatExists } from './guards.js'
 import { safeJsonParse } from '@/utils/json.js'
-import { ensureChat, abortChatRuntime, clearChatRuntime, getActiveChatRunId } from './runtime.js'
+import { ensureChat, clearChatRuntime } from './runtime.js'
+import { abortChatRuntime, getActiveChatRunId } from './runtimeCache.js'
 import { connectionManager } from '../websocket/connection.js'
 import { transport } from '../websocket/transport.js'
 import { createNotification } from '../message/types.js'
@@ -243,7 +237,7 @@ export async function resolveQuestionBatch(
   batchId: string,
   answers: QuestionBatchAnswerInput[],
 ): Promise<CompletedQuestionBatch> {
-  if (!getChat(chatId)) throw new Error('这个会话不见了')
+  assertChatExists(chatId)
 
   const completed = completeQuestionBatch(chatId, batchId, answers)
   const interaction = transitionInteraction(

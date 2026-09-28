@@ -24,16 +24,8 @@ import {
   insertConversationBranch,
   listConversationBranches,
 } from '@/db/conversationBranch.js'
-import {
-  createChat,
-  deleteChat,
-  getChat,
-  getChatMetadata,
-  getChatRuntimeSelection,
-  getRootChatId,
-  addMessage,
-  getLastMessage,
-} from '@/db/chat.js'
+import { createChat, deleteChat, getChat, getChatMetadata, getChatRuntimeSelection, getRootChatId } from '@/db/chat.js'
+import { addMessage, getLastMessage } from '@/db/message.js'
 import {
   abandonRequest,
   claimRequest,
@@ -43,7 +35,8 @@ import {
   type SpawnTask,
 } from '@/db/delivery.js'
 import { clearChatRuntime, ensureChat } from './runtime.js'
-import { buildRootTimeline, handleChatInputSubmit } from './handler.js'
+import { handleChatInputSubmit } from './input.js'
+import { buildRootTimeline } from './timeline.js'
 import { isNodeInPackedGeneration } from './generations.js'
 import { handleChatAbort } from './send.js'
 import { resolveDetailSelection, type RuntimeSelection } from '@/agent/runtimeResolver.js'

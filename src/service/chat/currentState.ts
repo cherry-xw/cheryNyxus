@@ -1,6 +1,6 @@
 import { getRecentChatEvents } from '@/db/delivery.js'
 import { approvalManager } from '../approval/manager.js'
-import { getActiveChatRunId, isChatRunning } from './runtime.js'
+import { getActiveChatRunId, isChatRunning } from './runtimeCache.js'
 import { safeJsonParse } from '@/utils/json.js'
 import type { StoredChatEvent } from '@/db/delivery.js'
 import type { CurrentStateData, ExecutionStep } from '../message/types.js'

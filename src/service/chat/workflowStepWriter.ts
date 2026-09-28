@@ -6,7 +6,8 @@ import type {
   WorkflowStepReason,
   WorkflowWaitReason,
 } from '@chery/protocol'
-import { getMessages, getRootChatId } from '@/db/chat.js'
+import { getRootChatId } from '@/db/chat.js'
+import { getMessages } from '@/db/message.js'
 import { getConversationBranchByChat, getConversationTask } from '@/db/conversationBranch.js'
 import {
   appendWorkflowJournalEvents,

@@ -11,6 +11,8 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { chatMiddleware } from "@/agent/middleware/chat.js";
+import { ModelRequestTimeoutError } from "@/agent/middleware/requestTimeout.js";
+import config from "@/utils/config.js";
 import type { MiddlewareChunk, StreamChunk } from "@/core/middleware/types.js";
 import { SupervisionLevel } from "@/core/config.js";
 import {
@@ -46,6 +48,54 @@ describe("chatMiddleware runtime 校验", () => {
 });
 
 describe("chatMiddleware 流式分支", () => {
+  it("provider 忽略取消信号时仍在截止时间返回", async () => {
+    const previous = config.global.llm_request_timeout_ms;
+    config.global.llm_request_timeout_ms = 20;
+    const llm = mockLLMAdapter({ chatStream: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() { await new Promise((resolve) => setTimeout(resolve, 150)); yield { d: 'late' }; },
+    })) });
+    const ctx = createMockContext({ messages: userMessages(), runtime: createMockRuntime({ adapters: {
+      llmAdapter: llm, messageAdapter: mockMessageAdapter(), senseAdapter: mockSenseAdapter(),
+    } }), global: { stream: true, thinking: false, supervision: SupervisionLevel.auto } });
+    try {
+      const start = Date.now();
+      await expect(collectChunks(chatMiddleware(ctx, makeNext([])))).rejects.toBeInstanceOf(ModelRequestTimeoutError);
+      expect(Date.now() - start).toBeLessThan(140);
+    } finally { config.global.llm_request_timeout_ms = previous; }
+  });
+  it("持续有增量也按单次总时长截断；排除已截断的历史", async () => {
+    const previous = config.global.llm_request_timeout_ms;
+    config.global.llm_request_timeout_ms = 25;
+    let calls = 0;
+    const llm = mockLLMAdapter({
+      chatStream: vi.fn(async (_messages, _senses, options) => ({
+        async *[Symbol.asyncIterator]() {
+          while (!options?.signal?.aborted) {
+            calls++;
+            yield { d: "片段" };
+            await new Promise((resolve) => setTimeout(resolve, 6));
+          }
+          throw new Error("request aborted");
+        },
+      })),
+    });
+    const msg = mockMessageAdapter({ extractStreamDelta: (raw: { d: string }) => raw.d });
+    const buildMessages = vi.spyOn(msg, 'buildMessages');
+    const history = [...userMessages(), {
+      id: "partial", role: "assistant" as const, content: "未完成", createdAt: 1, updateAt: 1, modelExcluded: true,
+    }];
+    const ctx = createMockContext({ messages: history, runtime: createMockRuntime({ adapters: {
+      llmAdapter: llm, messageAdapter: msg, senseAdapter: mockSenseAdapter(),
+    } }), global: { stream: true, thinking: false, supervision: SupervisionLevel.auto } });
+    try {
+      await expect(collectChunks(chatMiddleware(ctx, makeNext([])))).rejects.toBeInstanceOf(ModelRequestTimeoutError);
+      expect(calls).toBeGreaterThan(1);
+      expect(buildMessages).toHaveBeenCalledWith(expect.not.arrayContaining([history[1]]), undefined, expect.anything());
+      expect(llm.chatStream).toHaveBeenCalledTimes(1);
+    } finally {
+      config.global.llm_request_timeout_ms = previous;
+    }
+  });
   it("chatStream content delta → yield stream", async () => {
     const llm = mockLLMAdapter({
       chatStream: vi.fn(async () => asyncIter([{ d: "Hello" }, { d: " world" }])),

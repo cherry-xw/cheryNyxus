@@ -13,39 +13,20 @@ import {
   type ChatSendResponseData,
   type ChatResumeRequestData,
   type ChatResumeResponseData,
-  type SenseApprovalRequestData,
-  type SenseApprovalResponseData,
-  type SenseQuestionAnswerRequestData,
-  type SenseQuestionAnswerResponseData,
-  type SenseQuestionBatchAnswerRequestData,
-  type SenseQuestionBatchAnswerResponseData,
   type ChatAbortRequestData,
   type ChatAbortResponseData,
   type ChildControlTargetResult,
 } from '../message/types.js'
-import {
-  getChat,
-  markMessagesRevoked,
-  updateChatMetadata,
-  collectDescendantsChatIds,
-  getTimelineRevision,
-  getRootChatId,
-  bumpTimelineRevision,
-} from '@/db/chat.js'
+import { updateChatMetadata, collectDescendantsChatIds, getTimelineRevision, getRootChatId, bumpTimelineRevision } from '@/db/chat.js'
+import { markMessagesRevoked } from '@/db/message.js'
+import { assertChatExists } from './guards.js'
+import { deliverToSockets } from '../websocket/deliver.js'
 import { approvalManager } from '../approval/manager.js'
-import { findPendingQuestionBatchByQuestionId, hasPendingQuestionBatches } from '@/db/question.js'
-import { resolveQuestionBatch } from './wake.js'
+import { hasPendingQuestionBatches } from '@/db/question.js'
 import type { StagedReverseChunkData } from '@chery/protocol'
 import { connectionManager } from '../websocket/connection.js'
-import {
-  ensureChat,
-  clearChatRuntime,
-  abortChatRuntime,
-  getChatSelection,
-  getActiveChatRunId,
-  activateChatRun,
-  releaseChatRun,
-} from './runtime.js'
+import { ensureChat, clearChatRuntime } from './runtime.js'
+import { abortChatRuntime, getChatSelection, getActiveChatRunId, activateChatRun, releaseChatRun } from './runtimeCache.js'
 import { clearWaitedChildrenByParent } from '@/agent/spawnBroker.js'
 import { observeAgentChunks } from './observer.js'
 import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
@@ -64,7 +45,6 @@ import { emitTimelinePatch } from './rootGraphPatch.js'
 import { claimRequest, completeRequest, prepareChatEventForDelivery } from '@/db/delivery.js'
 import type { ChatRunResumeRequest } from '@chery/protocol'
 import { getExecutionActiveRun } from '@/db/executionGraph.js'
-import { transport } from '../websocket/transport.js'
 import { addTreePauseTarget, createTreePause, refreshTreeControlStatus } from '@/db/treeControl.js'
 import { finishActiveWorkflowSteps } from './workflowStepWriter.js'
 
@@ -121,10 +101,7 @@ export async function* handleChatSend(
   const runId = ctx.requestId ?? randomUUID()
 
   // 校验 chat 存在
-  const chat = getChat(chatId)
-  if (!chat) {
-    throw new Error('这个会话不见了')
-  }
+  assertChatExists(chatId)
 
   logger.event('chat.send.start', {
     mode: 'send',
@@ -305,10 +282,7 @@ export async function* handleChatResume(
   const runId = ctx.requestId ?? randomUUID()
   const rid = ctx.requestId ?? runId
 
-  const chat = getChat(chatId)
-  if (!chat) {
-    throw new Error('这个会话不见了')
-  }
+  const chat = assertChatExists(chatId)
 
   // abandoned 守卫：watchdog wake_on_timeout=true 标记的子为 ghost，用户无法操作。
   // 前端 canResume=false 应已隐藏按钮；此处防御性兜底（前端状态错位时仍拒绝）。
@@ -418,19 +392,13 @@ export async function launchDetachedResume(
     if (item.chatId) {
       prepareChatEventForDelivery(item.chatId, item as unknown as Record<string, unknown>)
     }
-    for (const ws of connectionManager.getChatOutputs(chatId)) {
-      if (ws.readyState !== ws.OPEN) continue
-      for (const routed of connectionManager.prepareSessionEvent(ws, item)) {
-        try {
-          ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
-        } catch (error) {
-          logger.event('chat.resumeTree.output_failed', {
-            chatId,
-            message: (error as Error).message,
-          })
-        }
-      }
-    }
+    deliverToSockets(
+      connectionManager.getChatOutputs(chatId),
+      item,
+      'chat.resumeTree.output_failed',
+      LogLevel.info,
+      { chatId },
+    )
   }
   const first = await generator.next()
   if (first.done) {
@@ -475,7 +443,7 @@ export async function handleChatRunResume(
   if (claimed.state === 'active') throw new Error('该继续命令正在处理')
   if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
 
-  if (!getChat(data.chatId)) throw new Error('这个会话不见了')
+  assertChatExists(data.chatId)
   const activeRunId = getActiveChatRunId(data.chatId)
   const runId = activeRunId ?? randomUUID()
   const response = {
@@ -487,89 +455,6 @@ export async function handleChatRunResume(
   if (!activeRunId) await launchDetachedResume(ctx, data.chatId, runId)
   completeRequest(data.commandId, response)
   return response
-}
-
-/**
- * 审批 Sense
- */
-export async function handleSenseApproval(
-  _ctx: HandlerContext,
-  data: SenseApprovalRequestData,
-): Promise<SenseApprovalResponseData> {
-  // 转调 ApprovalManager.confirm → core approvalRegistry.resolve（P1-11 解耦后）
-  // 旧气泡直连入口只处理当前进程仍存活的 approval；全局待办入口可跨断线/重启
-  // 恢复同一个稳定 approvalId 后再提交决定。
-  const ok = approvalManager.confirm(data.approvalId, data.action, data.reason)
-  if (!ok) {
-    throw new Error('审批已失效（可能因连接中断或超时被清除），请重新触发该工具的审批')
-  }
-  logger.event('sense.approval', {
-    approvalId: data.approvalId,
-    action: data.action,
-    reason: data.reason,
-  })
-
-  return {
-    approvalId: data.approvalId,
-    action: data.action,
-  }
-}
-
-/** 旧版单题接口：仅兼容单题批次；多题必须使用原子 batchAnswer。 */
-export async function handleSenseQuestionAnswer(
-  _ctx: HandlerContext,
-  data: SenseQuestionAnswerRequestData,
-): Promise<SenseQuestionAnswerResponseData> {
-  const cancelled = data.cancelled === true
-  const pending = findPendingQuestionBatchByQuestionId(data.questionId)
-  logger.event('sense.question.answer', {
-    questionId: data.questionId,
-    chatId: pending?.chatId,
-    selectedLabels: data.selectedLabels,
-    hasFreeText: data.freeText !== undefined,
-    cancelled,
-    legacy: true,
-  })
-  if (!pending) {
-    logger.event('sense.question.answer.unknown', { questionId: data.questionId })
-    return { questionId: data.questionId, cancelled }
-  }
-  if (pending.pendingCount !== 1) {
-    throw new Error(
-      `Question "${data.questionId}" belongs to a multi-question batch; use sense.question.batchAnswer`,
-    )
-  }
-  await resolveQuestionBatch(pending.chatId, pending.batchId, [
-    {
-      questionId: data.questionId,
-      selectedLabels: data.selectedLabels,
-      ...(data.optionNotes ? { optionNotes: data.optionNotes } : {}),
-      ...(data.freeText !== undefined ? { freeText: data.freeText } : {}),
-      ...(cancelled ? { cancelled: true } : {}),
-    },
-  ])
-
-  return { questionId: data.questionId, cancelled }
-}
-
-/** 原子回答整批 ask_user_question；成功响应由调用方负责启动 chat.resume。 */
-export async function handleSenseQuestionBatchAnswer(
-  _ctx: HandlerContext,
-  data: SenseQuestionBatchAnswerRequestData,
-): Promise<SenseQuestionBatchAnswerResponseData> {
-  logger.event('sense.question.batchAnswer', {
-    chatId: data.chatId,
-    batchId: data.batchId,
-    questionCount: data.answers.length,
-    cancelledCount: data.answers.filter((answer) => answer.cancelled === true).length,
-  })
-  const completed = await resolveQuestionBatch(data.chatId, data.batchId, data.answers)
-  return {
-    chatId: data.chatId,
-    batchId: data.batchId,
-    completed: true,
-    shouldResume: !completed.alreadyCompleted,
-  }
 }
 
 /**

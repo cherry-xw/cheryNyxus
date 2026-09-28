@@ -1,7 +1,8 @@
 /** Canonical WS acceptance for transient model-output deltas. */
 import { randomUUID } from 'node:crypto'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { deleteChat, getMessages } from '@/db/chat.js'
+import { deleteChat } from '@/db/chat.js'
+import { getMessages } from '@/db/message.js'
 import { getChatEvents, getRootEvents } from '@/db/delivery.js'
 import type {
   ChatCreateResponseData,
