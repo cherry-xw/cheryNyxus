@@ -85,7 +85,7 @@ function fmtSpeed(speed: number): string {
             >思考 {{ rootAgent.thinkingLabel }}</span
           >
           <span v-if="rootAgent.running" class="wub-running">运行中</span>
-          <span class="wub-speed">{{ fmtSpeed(tokenSpeed) }} tok/s</span>
+          <span v-if="tokenSpeed > 0" class="wub-speed">{{ fmtSpeed(tokenSpeed) }} tok/s</span>
           <span v-if="hasValues" class="wub-values"
             >{{ fmtTokens(usedTokens) }}/{{ fmtTokens(totalTokens) }} {{ pct }}%</span
           >
@@ -133,7 +133,7 @@ function fmtSpeed(speed: number): string {
           <span v-if="hasValues" class="wub-values"
             >{{ fmtTokens(usedTokens) }}/{{ fmtTokens(totalTokens) }} {{ pct }}%</span
           >
-          <span class="wub-speed">{{ fmtSpeed(tokenSpeed) }} tok/s</span>
+          <span v-if="tokenSpeed > 0" class="wub-speed">{{ fmtSpeed(tokenSpeed) }} tok/s</span>
         </div>
         <div class="wub-actions">
           <button v-if="canStop" type="button" class="wub-stop" :disabled="stopping"
