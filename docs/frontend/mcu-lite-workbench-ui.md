@@ -7,6 +7,7 @@
 
 | 版本 | 变更 |
 |---|---|
+| v3.1（增量） | **cluster 工具状态表达改右上角小点（用户需求 2026-09-28，§4.13）**：删除工具 icon 底部状态条（`.lite-tool-call-status`）与选中态右上角主色圆点（`.lite-tool-call.is-selected::after`）——**状态改由 icon 右上角 5px 圆点（`.lite-tool-call-dot`）表达：已完成不显示点，运行中绿闪 / 失败·拒绝红 / 取消灰**（沿用原状态配色）；小点纯状态指示（`aria-hidden`、`pointer-events: none`），无点击/选中交互，信息负担较整条底部状态线更克制 |
 | v3.0（增量） | **cluster 工具小图标放大 + 上移避让状态条（用户需求 2026-09-21，§4.13）**：①**图标 13→15px**——`.lite-cluster-node` 内 MorphIcon `size` 由 13 提为 15，图标更大更清晰；②**图标微上移**——`.lite-cluster-icon` 加 `margin-bottom: 4px`（flex 居中下图标本体上移约 2px），与贴底的状态条（bottom 0 / 高 3px）留出约 2.5px 空隙，不再粘连；③**全部任务卡片**（同批，TaskBrowser.styles.less）：去掉固定 `height: 200px` + `overflow: hidden`——卡片随内容撑开、全部区块可见，卡片内「•••」下拉菜单不再被 `overflow: hidden` 误裁剪；「最近要求/详情」仍保持单行省略（`overflow:hidden` 只留在省略处）；④**卡片去边缘高亮**：删除 `status-*` 顶部彩色描边线（`border-top-color`）与未读左侧亮条（`inset 3px 0 var(--accent)`）——状态改由卡片内状态徽章 + 整卡 4% 极淡状态底色表达，未读由「未查看结果」徽章表达；⑤**诊断/桌面窗口标题栏按钮右对齐修复**（CyberWindow.vue）：`margin-left: auto` 从 `.cyber-window-signal` 移到 `.cyber-window-actions`——原挂在 signal 上，窗口 ≤620px 触发容器查询隐藏 signal 后最小化/最大化/关闭按钮会失去右对齐而贴到标题后；改挂 actions 后按钮组始终居右、与标题保持间隙。回归测试 `web/test/ui/uiRegressionFixes.test.ts` |
 | v2.9（增量） | **cluster 工具小图标换可变形图标库 + 按工具类型固定差异化（用户需求 2026-09-20，§4.13）**：①**图标改 lucide 矢量（morphicons 渲染）**——cluster 小方框图标由 ASCII glyph（命令 `>_`/读取 `<`/写入 `>`/网页 `@`/委派 `>>`/其他 `*`）改为 lucide 家族本源图标（exec=SquareTerminal / read=BookOpen / write=PenLine / web=Globe / dispatch=Forward / other=Wrench），与节点树 workflowVisuals 同族；图标与颜色**固定关联工具类型**（六类专属色，与详情抽屉 `.lite-drawer-type` type chip 同色板：exec 紫 / read 灰蓝 / write 绿 / web 青 / dispatch 橙 / other 金黄），不再把终态统一替换成勾/叉状态图标——**运行状态与成功/失败改由底部状态条表达**（running 绿闪 / completed 绿 / failed·rejected 红 / cancelled 灰）；②**底部状态条收敛**——左右内缩 2→5px（变短）、高度 2→3px（变粗），视觉更克制；③非工具节点（user/root-agent/child-agent/return/dispatch/spawn/system）各配 lucide 图标，未知工具回退 Wrench；`clusterIcons.ts` 为唯一映射源，测试 `clusterIcons.test.ts` 锁定 |
 | v2.8（增量） | **工具 icon 闲启动效 + 最终响应去详情按钮 + 行内思考折叠 + 用户指令 token 样式（用户需求 2026-11，§4.1/§4.4/§4.13）**：①**工具 icon 动效**——cluster 工具小按钮的 ASCII glyph 在**运行结束后**按工具类型做小幅循环动效（命令=上下轻跳 2px / 读取=左右微移 1.5px / 写入=轻压+2° 微转 / 网页=7s 慢速旋转一周 / 委派=右移 2px / 其他=1.08 呼吸缩放），幅度克制不抢眼；运行中仍由底部状态条闪动反馈、取消态静止，`prefers-reduced-motion` 全部关闭；②**最终响应去「详情」按钮（§4.1）**——最终回复正文全文已直接在页面内滚动展示（v1.3 full 渲染），右上角「详情」按钮删除（用户提问行同删）；工具调用细节仍由 cluster 小按钮 / 轨迹块进入抽屉，信息不丢失；③**行内思考分节（§4.1/§4.4）**——「思考」直接展示在正文行上方，**默认折叠**（▸ 思考，点击展开，文字弱化为 secondary 与正文区分，同详情抽屉 v2.2 交互）；`projectLiteHistory` 为非工具节点透出 `node.thinking`；④**用户指令性消息 token 样式（§4.1）**——用户消息正文中的 `[[command:/…]]` / `[[role:@…]]` token 样式化为彩色小标签（命令=主题金色、角色=蓝，与对话模式 `MessageBubble` 同源 `splitCommandPrompt`），不再裸显示 `[[ ]]` 包裹文本 |
@@ -216,9 +217,9 @@ lite 视图对话流上方的多流水线运行轨迹。**一轴 = 一个 Agent 
 
 ### 4.13 工具调用微型 tag（v0.7 定稿）
 
-- **固定结构**：统一固定尺寸小方框（22×22），lucide 矢量图标居中（`MorphIcon` 渲染）；图标与颜色**固定关联工具类型**，**不再用状态图标替换**——运行状态与成功/失败改由底部状态条表达；相邻节点不再用 ASCII `|` 分隔。不显示中文类型名，也不展示参数、结果、摘要或可见耗时；**悬停浮层（cluster 小按钮与轨迹块共用同一 `lite-tip`）与 `aria-label` 标记节点类型 + 工具类型名称 + 工具名 + 状态 + 耗时**（如「工具执行 · 命令 · 读取文件 · 已完成 · 00:12」），**不再挂原生 `title`**（避免 1 秒延迟的系统 tooltip 与自定义浮层双重叠加），详情入口保留全文。
-- **图标与配色（v2.9，lucide + morphicons）**：工具类型 → lucide 本源图标与专属色（与详情抽屉 `.lite-drawer-type` type chip 同色板）——exec=SquareTerminal 紫、read=BookOpen 灰蓝、write=PenLine 绿、web=Globe 青、dispatch=Forward 橙、other=Wrench 金黄；非工具节点各配 lucide 图标（user=UserRound / root·child-agent=Sparkles / return=CornerDownLeft / dispatch=Forward / spawn=GitFork / system=CircleDashed），未知工具回退 Wrench。映射唯一源 `clusterIcons.ts`（测试 `clusterIcons.test.ts` 锁定）。**图标尺寸与避让（v3.0）**：MorphIcon `size` 15px，`.lite-cluster-icon` 带 `margin-bottom: 4px` 使图标在 22px 方框内微上移（本体上移约 2px），与贴底状态条留出空隙，不再粘连。
-- **状态条**：高 `3px`，绝对定位在图标底部、左右内缩 5px（v2.9 收敛：原 2px 高/2px 内缩改为更短更粗）；取消灰、完成绿、运行中绿闪、失败/拒绝红。`prefers-reduced-motion` 下运行条保持绿色常亮。**v1.0 弱化**：状态条不再喧宾夺主——降低对比/透明度，icon 为主、状态线为辅；icon 字号加大保证清晰（浅色下 icon 清晰度不再低于状态线）。
+- **固定结构**：统一固定尺寸小方框（22×22），lucide 矢量图标居中（`MorphIcon` 渲染）；图标与颜色**固定关联工具类型**，**不再用状态图标替换**——运行状态与成功/失败由 icon 右上角状态小点表达（见下「状态点」）；相邻节点不再用 ASCII `|` 分隔。不显示中文类型名，也不展示参数、结果、摘要或可见耗时；**悬停浮层（cluster 小按钮与轨迹块共用同一 `lite-tip`）与 `aria-label` 标记节点类型 + 工具类型名称 + 工具名 + 状态 + 耗时**（如「工具执行 · 命令 · 读取文件 · 已完成 · 00:12」），**不再挂原生 `title`**（避免 1 秒延迟的系统 tooltip 与自定义浮层双重叠加），详情入口保留全文。
+- **图标与配色（v2.9，lucide + morphicons）**：工具类型 → lucide 本源图标与专属色（与详情抽屉 `.lite-drawer-type` type chip 同色板）——exec=SquareTerminal 紫、read=BookOpen 灰蓝、write=PenLine 绿、web=Globe 青、dispatch=Forward 橙、other=Wrench 金黄；非工具节点各配 lucide 图标（user=UserRound / root·child-agent=Sparkles / return=CornerDownLeft / dispatch=Forward / spawn=GitFork / system=CircleDashed），未知工具回退 Wrench。映射唯一源 `clusterIcons.ts`（测试 `clusterIcons.test.ts` 锁定）。**图标尺寸**：cluster 图标统一由 MorphIcon 渲染——工具 icon 10px、思考/正文标记 14px；v3.1 移除底部状态条后，图标无贴底元素、不再需要避让偏移。
+- **状态点（v3.1，取代底部状态条）**：5px 圆点绝对定位在 icon 右上角（`top:-2px; right:-2px`，`.lite-tool-call-dot`），**已完成不显示点**；运行中绿闪、失败/拒绝红、取消灰（沿用原状态配色）。`prefers-reduced-motion` 下运行点保持绿色常亮。小点纯状态指示（`aria-hidden`、`pointer-events: none`），无点击/选中交互；打开详情抽屉的选中反馈只保留图标变亮，不再有右上角主色圆点。
 - **外观**：无边框、无圆角、常驻淡底色（工具节点按工具类型专属色淡底）；hover 仅给极淡背景，选中态用底部 1px 主题色线，键盘聚焦保留 1px 点状轮廓。
 - **一致性**：正文 cluster 图标统一走 `clusterNodeIcon()`（lucide 映射），详情抽屉工具类型 chip 仍用 `toolTypeGlyph()` 字符；浮层与 title 的工具类型中文名统一走 `toolTypeLabel()`，节点类型中文名统一走 `LITE_NODE_LABELS`。
 
@@ -269,7 +270,7 @@ lite 视图对话流上方的多流水线运行轨迹。**一轴 = 一个 Agent 
 9. **错误码六码分支**：STALE 刷新重试 / ALREADY_RESOLVED 置灰 / CONFLICT 幂等提示 / QUEUE_FULL 稍候 / RATE_LIMITED 节流退避 / VERSION_UNSUPPORTED 升级提示——各码 UI 分支按 §4.10 触发验证。
 10. 现有完整 UI 不受影响（两视图独立连接，切换互不干扰；同一会话同一时刻单视图操作，§5.1）。
 11. type-check + 前端构建通过；服务端 lite 测试不回归。
-12. 工具调用 tag 无 emoji、无中文、无外框、无可见参数/结果/耗时；ASCII 字符表、`|` 分隔与底部状态条颜色/闪烁符合 §4.13，并在窄屏完整显示。
+12. 工具调用 tag 无 emoji、无中文、无外框、无可见参数/结果/耗时；ASCII 字符表、`|` 分隔与右上角状态点颜色/闪烁符合 §4.13，并在窄屏完整显示。
 
 ---
 

@@ -716,9 +716,9 @@
     color: var(--el-color-primary-light-6);
   }
 }
-/* 工具 icon：无边框、并排（同一次 LLM 响应的逐个工具），每个底部一条状态线。
+/* 工具 icon：无边框、并排（同一次 LLM 响应的逐个工具）。
    图标按工具类型区分颜色（六类专属色调，与详情抽屉 type chip 同色板）。
-   状态线不占布局高度（absolute 定位），保证 icon 与思考标记中心对齐。 */
+   状态由右上角小点表达（仅非完成态出现，见 .lite-tool-call-dot）。 */
 .lite-tool-call {
   position: relative;
   display: inline-flex;
@@ -737,16 +737,6 @@
 }
 .lite-tool-call.is-selected {
   filter: brightness(1.28);
-}
-.lite-tool-call.is-selected::after {
-  content: '';
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--el-color-primary);
 }
 /* 尚未消费的提问必须独立于工具运行状态持续提醒，避免用户只看到普通工具图标。 */
 .lite-tool-call.is-attention .lite-tool-call-icon {
@@ -850,34 +840,28 @@
 }
 /* 工具类型配色已上移至 .lite-tool-call[data-tooltype]（见 cluster 单元样式）。 */
 
-/* v1.0 弱化状态线：icon 为主、状态线为辅——状态线统一降透明度（成功绿/失败红不再全实色抢眼），
-   仅作底部细微状态指示，`prefers-reduced-motion` 下运行线保持常亮。
-   去边框后状态线 absolute 定位不占布局高度（icon 与思考标记中心对齐），
-   并在 icon 下方下移；宽高进一步缩小（10×2）。 */
-.lite-tool-call-status {
+/* 右上角状态点：仅非完成态出现（completed 不渲染点）——运行中绿闪、失败/拒绝红、
+   取消灰；`prefers-reduced-motion` 下运行点保持绿色常亮。纯状态指示，无交互。 */
+.lite-tool-call-dot {
   position: absolute;
-  left: 50%;
-  bottom: -5px;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 2px;
-  border-radius: 0;
+  top: -2px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
   background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
   pointer-events: none;
   transition: background-color 200ms ease;
 }
-.lite-tool-call-status[data-status='running'] {
+.lite-tool-call-dot[data-status='running'] {
   background: color-mix(in srgb, var(--el-color-success) 78%, transparent);
   animation: lite-tool-blink 900ms steps(1, end) infinite;
 }
-.lite-tool-call-status[data-status='completed'] {
-  background: color-mix(in srgb, var(--el-color-success) 78%, transparent);
-}
-.lite-tool-call-status[data-status='failed'],
-.lite-tool-call-status[data-status='rejected'] {
+.lite-tool-call-dot[data-status='failed'],
+.lite-tool-call-dot[data-status='rejected'] {
   background: color-mix(in srgb, var(--el-color-danger) 78%, transparent);
 }
-.lite-tool-call-status[data-status='cancelled'] {
+.lite-tool-call-dot[data-status='cancelled'] {
   background: color-mix(in srgb, var(--el-text-color-placeholder) 55%, transparent);
 }
 /* 思考/工具图标使用 MorphIcon 或 sense.tools glyph，颜色继承按钮 currentColor。 */
@@ -906,10 +890,10 @@
     opacity: 0.2;
   }
 }
-/* 底部状态条：成功绿、运行中绿闪、失败/拒绝红、取消灰。 */
+/* 右上角状态点：运行中绿闪、失败/拒绝红、取消灰（已完成不显示点）。 */
 
 @media (prefers-reduced-motion: reduce) {
-  .lite-tool-call-status[data-status='running'] {
+  .lite-tool-call-dot[data-status='running'] {
     animation: none;
   }
   .lite-thinking-mark.is-active {
@@ -926,7 +910,7 @@
   .lite-view-full,
   .lite-thinking-mark,
   .lite-tool-call,
-  .lite-tool-call-status,
+  .lite-tool-call-dot,
   .lite-expand-btn,
   .lite-expand-icon,
   .lite-thinking-toggle,

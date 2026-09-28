@@ -13,7 +13,8 @@ import { clusterNodeIcon } from '../../src/features/lite/clusterIcons'
 
 /**
  * 精简视图 cluster 小按钮的可变形图标映射（morphicons + lucide）。
- * 约定（阶段1确认）：图标类型固定关联工具类型，运行状态与成功/失败由底部状态条表达，
+ * 约定（阶段1确认）：图标类型固定关联工具类型，运行状态与成功/失败由 icon 右上角
+ * 状态点表达（v3.1 起，见 LiteView.styles.css `.lite-tool-call-dot`），
  * 不再把图标统一替换成状态图标。
  */
 describe('clusterNodeIcon morph mapping', () => {

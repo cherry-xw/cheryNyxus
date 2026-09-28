@@ -543,7 +543,8 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                           aria-hidden="true"
                         />
                         <span
-                          class="lite-tool-call-status"
+                          v-if="toolCallStatus(call.status) !== 'completed'"
+                          class="lite-tool-call-dot"
                           :data-status="toolCallStatus(call.status)"
                           aria-hidden="true"
                         />
