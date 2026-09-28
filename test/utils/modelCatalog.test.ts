@@ -98,11 +98,72 @@ models:
     expect(resolved.thinkingLevels).toEqual([])
     expect(resolved.recommend).toMatchObject({
       protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
-      contextLimit: 128_000,
+      contextLimit: 256_000,
       thinking: 'off',
       capabilities: { toolCall: true },
     })
     expect(resolved.unknown.capabilities?.toolCall).toBe(true)
+  })
+
+  it('infers provider and protocol for unmatched models by name', async () => {
+    const catalog = await loadDefaultCatalog()
+
+    // GPT 系名称的未知模型：切到 openai 服务商 + Responses API（覆盖当前协议）。
+    const gptLike = catalog.resolveModelCatalog({
+      model: 'gpt-5.60',
+      protocol: LlmProtocol.ANTHROPIC_MESSAGES,
+    })
+    expect(gptLike.matched).toBe(false)
+    expect(gptLike.recommend).toMatchObject({
+      provider: 'openai',
+      protocol: LlmProtocol.OPENAI_RESPONSES,
+      contextLimit: 256_000,
+    })
+
+    // 完全未知的模型：切到 openai 服务商 + Chat Completions（最通用兼容协议）。
+    const unnamed = catalog.resolveModelCatalog({ model: 'private-unknown-model' })
+    expect(unnamed.matched).toBe(false)
+    expect(unnamed.recommend).toMatchObject({
+      provider: 'openai',
+      protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+      contextLimit: 256_000,
+    })
+  })
+
+  it('infers the Anthropic Messages protocol for unmatched Claude-family models', async () => {
+    const catalog = await loadDefaultCatalog()
+
+    for (const model of ['claude-opus-5', 'opus-4.7-future', 'sonnet-next', 'haiku-x']) {
+      const resolved = catalog.resolveModelCatalog({
+        model,
+        protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+      })
+      expect(resolved.matched).toBe(false)
+      expect(resolved.recommend).toMatchObject({
+        protocol: LlmProtocol.ANTHROPIC_MESSAGES,
+        contextLimit: 256_000,
+      })
+      // 只切协议、保留当前服务商（中转站通常支持 Anthropic 协议）。
+      expect(resolved.recommend?.provider).toBeUndefined()
+    }
+  })
+
+  it('explicit unknown recommendations override name-based inference', async () => {
+    const catalog = await loadProjectCatalog(`
+version: 1
+unknown:
+  recommend:
+    provider: custom-relay
+    protocol: anthropic-messages
+    contextLimit: 64000
+models: []
+`)
+
+    expect(catalog.resolveModelCatalog({ model: 'gpt-5.60' }).recommend).toMatchObject({
+      provider: 'custom-relay',
+      protocol: LlmProtocol.ANTHROPIC_MESSAGES,
+      contextLimit: 64_000,
+    })
   })
 
   it('matches default catalog rules by stable model family and version boundaries', async () => {

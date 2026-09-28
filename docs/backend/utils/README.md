@@ -58,8 +58,8 @@ export function redactEnvKeys(content: string, placeholder?: string): string;
 // 纯函数：给定 key→value 映射做值遮蔽（无 IO，可测）
 export function redactSensitiveValues(content: string, envMap: Record<string, string>, placeholder?: string): string;
 
-// 获取 .env key→value 映射（带缓存）
-export function getEnvVarMap(): Record<string, string>;
+// 获取 .env key→value 映射（带缓存；模块内部使用，redactEnvKeys 依赖，不对外导出）
+function getEnvVarMap(): Record<string, string>;
 
 // 重置缓存（供测试 / .env 变更失效用）
 export function resetEnvVarCache(): void;
@@ -181,7 +181,7 @@ export function resolveCatalogThinkingParams(input): Record<string, unknown> | u
 export function resolveCatalogReasoningHistory(input): ReasoningHistoryMode | undefined;
 ```
 
-前端通过 `utils.modelRecommendation({model, provider, protocol})` 同时取得识别结果、推荐、事实和当前协议的 thinking 档位。推荐只有被写入编辑草稿并保存到 `config.yaml` 后才生效；未知模型写入 `unknown.recommend` 中的保守草稿，但仍返回空思考档位，UI 显示“跟随服务默认”，后端不发送猜测的思考参数。完整格式见 [模型目录](../agent/model-catalog.md)。
+前端通过 `utils.modelRecommendation({model, provider, protocol})` 同时取得识别结果、推荐、事实和当前协议的 thinking 档位。推荐只有被写入编辑草稿并保存到 `config.yaml` 后才生效；未知模型先按模型名推断服务与协议（GPT 系名称 → openai + openai-responses，其余 → openai-chat-completions），再写入 `unknown.recommend` 中的保守草稿，但仍返回空思考档位，UI 显示“跟随服务默认”，后端不发送猜测的思考参数。完整格式见 [模型目录](../agent/model-catalog.md)。
 
 **前端交互：** ThinkingLevelKnob 采用「真放大镜」设计——上方固定 `84×36px` 的长方形视窗（带边缘扭曲效果），下方是一条优先使用的可拖动小轨道。轨道和视窗共用居中的 `50px` 分段连线与月相图标：以完整序列 `🌑 🌒 🌓 🌔 🌕` 为标尺，按当前模型实际暴露的档位数量等距取样，不依赖档位名称。故 2 档为 `🌑 → 🌕`、3 档为 `🌑 → 🌓 → 🌕`、4 档为 `🌑 → 🌒 → 🌔 → 🌕`、5 档使用完整序列。视窗内隐藏一条与下方轨道共用同一 `T = baseOffset(activeIndex) + dragDelta` 的大轨道（缩放约 2.2x），被 `overflow:hidden` 裁剪后呈现精准放大效果：视窗正中显示的内容与小轨道中线的内容始终一致。当前档位标签直接显示后端值 `off` / `on` / `low` / `medium` / `high`，居中置于视窗上方；无边框的细线 chevron 前后档按钮位于控件底部左右边，仅作为拖拽之外的备用入口，到达首尾时禁用。详见 [ThinkingLevelKnob](../../../web/src/features/agent/settings/controls/ThinkingLevelKnob.vue) 及 [../service/chat.md §5 工具与设置类 RPC](../service/chat.md)。
 

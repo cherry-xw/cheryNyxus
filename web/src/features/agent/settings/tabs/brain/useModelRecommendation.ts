@@ -43,7 +43,7 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
       patch,
       options.setProvider,
       options.setProtocol,
-      options.supportedProtocols(),
+      () => options.supportedProtocols(),
     )
   }
 

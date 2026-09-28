@@ -112,7 +112,7 @@ const CONSERVATIVE_CAPABILITIES: CatalogCapabilities = {
 /** Safety fallback used only when the project catalog is missing or invalid. */
 const DEFAULT_UNKNOWN: ModelCatalogUnknownPolicy = {
   recommend: {
-    contextLimit: 128_000,
+    contextLimit: 256_000,
     thinking: 'off',
     capabilities: CONSERVATIVE_CAPABILITIES,
   },
@@ -217,9 +217,8 @@ function parseFacts(raw: unknown): ModelCatalogFacts | undefined {
 function parseRecommendation(raw: unknown): ModelCatalogRecommendation | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const value = raw as Record<string, unknown>
-  const provider = typeof value.provider === 'string' && value.provider.trim() !== ''
-    ? value.provider
-    : undefined
+  const provider =
+    typeof value.provider === 'string' && value.provider.trim() !== '' ? value.provider : undefined
   const protocol = isLlmProtocol(value.protocol) ? value.protocol : undefined
   const contextLimit = positiveNumber(value.contextLimit)
   const thinking =
@@ -416,6 +415,21 @@ export function resolveModelCatalogRule(
   return { rule: best, confidence: bestScore >= 3_000_000 ? 'exact' : 'pattern' }
 }
 
+/**
+ * Name-based service and protocol inference for models the catalog does not
+ * recognize. GPT-named models (including future versions like GPT-7/8) are
+ * OpenAI models and point at the Responses API; Claude-family names (opus,
+ * claude, sonnet, haiku) switch the wire protocol to Anthropic Messages while
+ * keeping the selected service entry; everything else falls back to the widely
+ * supported Chat Completions format on the OpenAI service entry. An explicit
+ * `unknown.recommend` in the project catalog overrides both fields.
+ */
+function unknownModelRecommendation(model: string): ModelCatalogRecommendation {
+  if (/gpt/i.test(model)) return { provider: 'openai', protocol: 'openai-responses' }
+  if (/claude|opus|sonnet|haiku/i.test(model)) return { protocol: 'anthropic-messages' }
+  return { provider: 'openai', protocol: 'openai-chat-completions' }
+}
+
 export function resolveModelCatalog(input: {
   model: string
   provider?: string
@@ -428,6 +442,7 @@ export function resolveModelCatalog(input: {
     const configured = catalog.unknown.recommend
     const recommend: ModelCatalogRecommendation = {
       ...(input.protocol ? { protocol: input.protocol } : {}),
+      ...unknownModelRecommendation(input.model),
       ...configured,
       capabilities: configured?.capabilities ?? catalog.unknown.capabilities,
     }

@@ -4,10 +4,14 @@
 # 默认规则按“主体模型名 + 版本”正则匹配，可兼容中转前缀和变体/日期后缀。
 version: 1
 
-# 未匹配具体规则时写入保守草稿：128K、关闭显式思考、保持工具兼容、关闭媒体；协议保持当前选择。
+# 未匹配具体规则时写入保守草稿：256K、关闭显式思考、保持工具兼容、关闭媒体。
+# 协议与服务商按模型名推断：GPT 系名称（含未来版本，如 GPT-7/8）推荐 openai + openai-responses；
+# Claude 系名称（claude/opus/sonnet/haiku）推荐 anthropic-messages 协议（保留当前服务商）；
+# 其余完全未知名称推荐 openai + openai-chat-completions。
+# 在下方 recommend 中显式写 provider / protocol 可覆盖按名称推断的结果。
 unknown:
   recommend:
-    contextLimit: 128000
+    contextLimit: 256000
     thinking: off
     capabilities:
       toolCall: true
