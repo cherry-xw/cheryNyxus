@@ -218,7 +218,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const plugins = ref<PluginInfo[]>([])
   /** skills.listSources 返回的 git 来源索引：SkillsTab 用。 */
   const skillSources = ref<SkillSource[]>([])
-  /** skills.listNames 返回的全量名称列表：RolesTab TagSelect 下拉用（不算 token，轻量）。 */
+  /** skills.listNames 返回的全量名称列表：RolesTab 角色装备下拉用（不算 token，轻量）。 */
   const skillNames = ref<{
     skills: string[]
     plugins: string[]
@@ -461,7 +461,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       console.error('[SettingsDialog] listSkills failed:', e)
       skills.value = []
     }
-    // 轻量名称列表（RolesTab TagSelect 下拉用）
+    // 轻量名称列表（RolesTab 角色装备下拉用）
     try {
       skillNames.value = await agentApi.listSkillNames()
     } catch (e) {

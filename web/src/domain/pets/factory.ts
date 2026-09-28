@@ -1,7 +1,7 @@
 /**
  * Pet 实例工厂 + 纯辅助（从 usePetWorld.ts 提纯）。
  *
- * createPetInstance 供 agents store（petLifecycle / streamRouter）直接复用，
+ * createPetInstance 供 agents store（petLifecycle）直接复用，
  * 切断 store → composables 的反向依赖（store 不再 import usePetWorld）。
  * rand/pick/clamp/randomTarget/moodForAction/actionTalk 为 usePetWorld 与本工厂共享的纯辅助。
  * 零行为变更。

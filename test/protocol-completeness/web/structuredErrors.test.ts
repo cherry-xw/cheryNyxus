@@ -1,14 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { ref } from 'vue'
 import { fail } from '../../../web/src/services/agentApi'
 import { wsClient, type ConnectionStatus, type RpcResponse } from '../../../web/src/services/ws'
 import { createEmptySession } from '../../../web/src/stores/chats/model/hydration'
 import { reduce } from '../../../web/src/stores/chats/model/reducer'
 import { useChatSessionsStore } from '../../../web/src/stores/chats'
-import { createStreamRouter } from '../../../web/src/stores/agents/ui/streamRouter'
-import type { StreamState } from '../../../web/src/stores/agents/types'
-import type { PetInstance } from '../../../web/src/domain/pets/types'
 
 const protocolError = {
   code: 'RATE_LIMITED',
@@ -191,54 +187,5 @@ describe('structured error delivery to web state', () => {
 
     expect(session.run.status).toBe('running')
     expect(session.run.errorFact).toBeUndefined()
-  })
-
-  it('preserves the same facts in the legacy Pet stream without replaying its error bubble', () => {
-    const pet = {
-      instanceId: 'pet-1',
-      chatId: 'root-chat',
-      isMaster: true,
-      isGhost: false,
-      isWorking: true,
-      canResume: false,
-    } as PetInstance
-    const streams = ref<Record<string, StreamState>>({})
-    const router = createStreamRouter(
-      streams,
-      ref([pet]),
-      new Map(),
-      (target, working) => {
-        if (target) target.isWorking = working
-      },
-      () => {},
-      async () => {},
-      async () => {},
-      () => 'ghost',
-      ref([]),
-    )
-    const stream = router.ensureStream('root-chat')
-
-    router.routeNotification({
-      kind: 'notification',
-      type: 'error',
-      chatId: 'root-chat',
-      runId: 'run-1',
-      data: { ...protocolError, canResume: true },
-    })
-    expect(stream.errorFact).toMatchObject({ ...protocolError, canResume: true })
-    expect(stream.error).toBe(protocolError.message)
-
-    stream.error = undefined
-    stream.errorFact = undefined
-    stream.replaying = true
-    router.routeNotification({
-      kind: 'notification',
-      type: 'error',
-      chatId: 'root-chat',
-      runId: 'old-run',
-      data: { ...protocolError, canResume: true },
-    })
-    expect(stream.error).toBeUndefined()
-    expect(stream.errorFact).toBeUndefined()
   })
 })
