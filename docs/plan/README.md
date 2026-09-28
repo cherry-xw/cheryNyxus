@@ -12,6 +12,8 @@
 | [MiniMax 多模态图片能力对接](minimax-multimodal/README.md) | 规划中 | MiniMax 图片理解/生成接入：上传、展示、对话携带、多轮上下文保留与回溯的完整链路 |
 | [媒体外部服务化与工具能力声明](media-external-service/README.md) | 待综合验证 | 多媒体并入自定义工具机制（外部服务）：工具能力声明 accepts/produces/preprocess/batchSize、生成类从大脑双门解放、理解类前置执行、密钥 env 解耦、CherryNexus 自动生成；破坏性收尾删除旧媒体网关链路（config.media / 内置 generate_* / 旧路径兜底 / MediaTab），媒体能力统一由自定义 sense + .env + 感官组承担 |
 | [预设与角色 Tab 合并](presets-roles-merge/README.md) | 执行中 | 设置中心合并「预设」与「角色」为单一 Tab：外层预设列表 + 内层该预设角色工作台；阶段一只做前端，结构变更为后续任务 |
+| [模型请求超时与运行时长反馈](llm-request-timeout/README.md) | 执行中 | 单次模型请求限时与截断历史、底部统一停止入口、节点和任务运行时长反馈 |
+| [F 表大文件拆分](refactor-f-table/README.md) | 执行中 | 按重构基线完成 F-01～F-19，保持行为并直接切换到拆分后的实现 |
 
 ## 使用规则
 

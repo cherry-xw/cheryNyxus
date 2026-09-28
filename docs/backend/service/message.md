@@ -6,7 +6,7 @@
 
 ## 职责
 
-- **类型层**（types.ts）：定义全部 RPC 消息类型（Request / Response / Chunk / Notification）、`RpcMethodMap` 方法级参数/结果映射、Method/ErrorCode 常量、工厂函数、类型守卫。service 内部以此为唯一协议类型契约；web 通过自己的传输 DTO 与 `agentApi` 消费线上结构。
+- **类型层**（types.ts 与同目录 `types/`）：按领域维护 RPC 参数与结果类型；`types/events.ts` 定义 Request / Response / Chunk / Notification 与共同事件字段，`types/methods.ts` 定义方法常量及参数结果映射；`types.ts` 转发类型和方法常量，保留错误码、消息工厂与类型守卫。service 内部继续从 `types.ts` 导入；web 通过自己的传输 DTO 与 `agentApi` 消费线上结构。
 - **路由层**（router.ts）：`RpcRouter` 注册 handler、分发请求、自动区分普通 Promise 与 AsyncGenerator handler、统一错误转 RpcError、保证流式 handler 最终 return Response。
 - **入口**（index.ts）：re-export types + router。
 
@@ -14,7 +14,19 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [src/service/message/types.ts](../../../src/service/message/types.ts) | 全部 RPC 类型定义、`Method`/`ErrorCode` 常量、`createResponse/Chunk/Notification/Error` 工厂、`isRequest/isResponse` 类型守卫 |
+| [src/service/message/types.ts](../../../src/service/message/types.ts) | 后端 RPC 类型公共入口、`ErrorCode` 常量、`createResponse/Chunk/Notification/Error` 工厂、`isRequest/isResponse` 类型守卫 |
+| [src/service/message/types/events.ts](../../../src/service/message/types/events.ts) | 消息外壳与流式数据类型，共用 `EventEnvelopeBase` |
+| [src/service/message/types/methods.ts](../../../src/service/message/types/methods.ts) | `Method` 常量和 `RpcMethodMap` 方法参数结果映射 |
+| [src/service/message/types/chat.ts](../../../src/service/message/types/chat.ts) | chat 请求、任务及 timeline 协议别名 |
+| [src/service/message/types/chatSnapshots.ts](../../../src/service/message/types/chatSnapshots.ts) | 会话读取、问题与历史快照结构 |
+| [src/service/message/types/chatTimeline.ts](../../../src/service/message/types/chatTimeline.ts) | 图、任务概览与时间线增量结构 |
+| [src/service/message/types/chatResponses.ts](../../../src/service/message/types/chatResponses.ts) | 运行、子 Agent 与命令响应结构 |
+| [src/service/message/types/notification.ts](../../../src/service/message/types/notification.ts) | 推送数据结构及联合类型 |
+| [src/service/message/types/settingsRequests.ts](../../../src/service/message/types/settingsRequests.ts) | 设置、MCP、工作区和工具请求结构 |
+| [src/service/message/types/settingsResponses.ts](../../../src/service/message/types/settingsResponses.ts) | 设置、MCP、模型与工具响应结构 |
+| [src/service/message/types/plugins.ts](../../../src/service/message/types/plugins.ts) | 插件管理请求、列表与更新结果类型；由 `types.ts` 转发 |
+| [src/service/message/types/skills.ts](../../../src/service/message/types/skills.ts) | 技能列表、导入和来源管理类型；由 `types.ts` 转发 |
+| [src/service/message/types/terminal.ts](../../../src/service/message/types/terminal.ts) | Terminal 目标、会话请求与事件类型；由 `types.ts` 转发 |
 | [src/service/message/router.ts](../../../src/service/message/router.ts) | `RpcRouter` 类、`HandlerContext`/`HandlerFn` 类型、`createRouter()` 工厂、流式包装与错误转换 |
 | [src/service/message/index.ts](../../../src/service/message/index.ts) | barrel：`export * from types + router` |
 

@@ -139,7 +139,7 @@ ctx.soul.messages: LLMResponse[]
   - [`agent/builder.ts`](../../../src/agent/builder.ts) —— 初始 system 消息构造为 `LLMResponse`。
   - [`agent/runtimeResolver.ts`](../../../src/agent/runtimeResolver.ts) —— 取 `getMessageAdapter`。
   - [`service/chat/observer.ts`](../../../src/service/chat/observer.ts)、[`service/chat/runtime.ts`](../../../src/service/chat/runtime.ts) —— 用 `LLMResponse` 落库 / 回显。
-  - [`db/chat.ts`](../../../src/db/chat.ts) —— `LLMResponse` ↔ DB 行互转。
+   - [`db/message.ts`](../../../src/db/message.ts) —— 消息数据 ↔ DB 行互转。
 - **横切参考**：[llm.md](llm.md)（上游）、[sense.md](sense.md)（senseCalls 协同）、[db.md](../db/README.md)（`revoked` / `replace` 字段的持久化列）。
 
 ## 扩展点

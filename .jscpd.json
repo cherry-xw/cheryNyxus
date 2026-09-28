@@ -1,0 +1,29 @@
+{
+  "path": ["./src", "./web/src", "./packages", "./manager", "./relay"],
+  "reporters": ["console", "json"],
+  "output": ".tmp/jscpd",
+  "format": ["typescript", "javascript", "vue"],
+  "minLines": 5,
+  "minTokens": 50,
+  "mode": "mild",
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/dist-electron/**",
+    "**/build/**",
+    "**/report/**",
+    "**/.tmp/**",
+    "**/*.d.ts",
+    "**/test/**",
+    "**/__tests__/**",
+    "**/*.test.*",
+    "**/*.spec.*"
+  ],
+  "deadCode": {
+    "minConfidence": 80,
+    "categories": ["unused-file", "unused-export", "unused-symbol", "unused-import"],
+    "includeTests": false,
+    "includeEntryExports": false
+  }
+}

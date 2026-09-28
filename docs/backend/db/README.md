@@ -33,7 +33,11 @@
 | 文件 | 一句话 |
 |------|--------|
 | [src/db/index.ts](../../../src/db/index.ts) | 多 SQLite 实例管理：`getSoulDb`/`getMonthlyDb` 单例缓存、chats/messages 建表、列迁移、`closeAllDbs` |
-| [src/db/chat.ts](../../../src/db/chat.ts) | chats 表 CRUD + messages 表按月路由 CRUD、`MessageRow`/`MessageData` 类型、`parseMessageRow` |
+| [src/db/chat.ts](../../../src/db/chat.ts) | 会话创建、查找、元数据和跨库删除的编排 |
+| [src/db/message.ts](../../../src/db/message.ts) | 按固定月份分片读写消息、预览、撤回、审批回填及计数对账；`MessageRow` / `MessageData` |
+| [src/db/messageLink.ts](../../../src/db/messageLink.ts) | 跨会话消息关系写入、读取与默认关联判定 |
+| [src/db/chatStorage.ts](../../../src/db/chatStorage.ts) | 查找会话固定月份分片与写入命中断言 |
+| [src/db/pendingInput.ts](../../../src/db/pendingInput.ts) | `addPendingInput` / `listPendingInputs` / `markPendingInputsConsumed`：持久输入排队与代际过滤 |
 | [src/db/chatFamily.ts](../../../src/db/chatFamily.ts) | `listChatFamilies` / `getChatFamily`：把父子 Agent 与同任务分支归并到唯一组主会话 |
 | [src/db/question.ts](../../../src/db/question.ts) | QuestionBatch/QuestionItem 持久化、旧占位消息回填、权威快照与原子批量回答 |
 

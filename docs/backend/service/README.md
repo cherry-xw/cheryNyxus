@@ -47,7 +47,7 @@ export function startService(options: { port: number; webPort: number; staticDir
   registerPluginHandlers(router);       // plugins.list / plugins.preImportUrl / plugins.importUrl / plugins.commit / plugins.checkUpdate / plugins.update / plugins.uninstall
   registerCredentialsHandlers(router);  // credentials.list / credentials.save / credentials.delete
   registerRuntimeSetHandlers(router);   // runtime.set
-  registerChatHandlers(router);         // chat.send / chat.resume / sense.approval / chat.abort
+  registerChatHandlers(router);         // chat.run.resume / chat.abort（chat.send / chat.resume 亦被 chat.input.submit / chat.resumeTree / spawn 链内部复用）
   registerChatManageHandlers(router);   // chat.create / chat.list / chat.get / chat.delete
   registerBashHandlers(router);         // bash.list / bash.kill
   registerMcpHandlers(router);          // mcp.list / mcp.get / mcp.connect / mcp.disconnect / mcp.reload
@@ -71,7 +71,7 @@ export function startService(options: { port: number; webPort: number; staticDir
 | [src/service/websocket/index.ts](../../../src/service/websocket/index.ts) | `createWebSocketServer`：ws 服务、消息分发、流式推送、审批超时 |
 | [src/service/websocket/connection.ts](../../../src/service/websocket/connection.ts) | `ConnectionManager` 单例：连接状态、chat 绑定、pendingRequest approvalId 映射、close park |
 | [src/service/websocket/transport.ts](../../../src/service/websocket/transport.ts) | `Transport` 单例：二进制/JSON 帧编解码 |
-| [src/service/chat/send.ts](../../../src/service/chat/send.ts) | `handleChatSend`/`handleChatResume`/`handleSenseApproval`/`handleChatAbort` |
+| [src/service/chat/send.ts](../../../src/service/chat/send.ts) | `handleChatSend`/`handleChatResume`/`handleChatAbort`（chat.send / chat.resume 为内部命令，由 chat.input.submit / chat.resumeTree / spawn 链复用） |
 | [src/service/chat/handler.ts](../../../src/service/chat/handler.ts) | `handleChatCreate`/`handleChatList`/`handleChatGet`/`handleChatDelete` |
 | [src/service/chat/observer.ts](../../../src/service/chat/observer.ts) | `observeAgentChunks`：effect chunk → DB/审批副作用 |
 | [src/service/chat/streamMapper.ts](../../../src/service/chat/streamMapper.ts) | `streamAgentChunks`：MiddlewareChunk → 协议 Chunk/Notification |
@@ -134,7 +134,6 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `chat.delete` | `handleChatDelete` | 同上 | 否 | clearChatRuntime + deleteChat |
 | `chat.send` | `handleChatSend` | [chat/send.ts](../../../src/service/chat/send.ts) | 是 | 流式发送；恢复撤回；运行中仅入队 |
 | `chat.resume` | `handleChatResume` | 同上 | 是 | 续接（无 prompt），恢复执行 / 继续 loop |
-| `sense.approval` | `handleSenseApproval` | 同上 | 否 | 转调 approvalManager.confirm |
 | `chat.abort` | `handleChatAbort` | 同上 | 否 | abort generator + 强制解绑 + 清内存 |
 | `bash.list` | `handleBashList` | [bash/handler.ts](../../../src/service/bash/handler.ts) | 否 | 列 chat 挂起的 bash 进程 |
 | `bash.kill` | `handleBashKill` | 同上 | 否 | 杀死挂起 bash 进程组 |
@@ -198,7 +197,7 @@ ws.on("message")
 | 项 | 内容 |
 |----|------|
 | 源码 | [approval/manager.ts](../../../src/service/approval/manager.ts) |
-| 对应 RPC | 无直接 RPC；被 observer（`register`）与 `sense.approval`（`confirm`）、ws close（`abort`）调用 |
+| 对应 RPC | 无直接 RPC；被 observer（`register`）与 `interaction.approval.decide`（`confirm`）、ws close（`abort`）调用 |
 | 职责 | 极简审批：仅维护 `Set<approvalId>`，`confirm`/`abort` 转调 core [approvalRegistry](../../../src/core/sense/approvalRegistry.ts) 解除 senseMiddleware 的 await Promise |
 
 ```ts

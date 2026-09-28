@@ -43,7 +43,7 @@ Cherry Nyxus 是独立于 Pet/Agent 身份的弹窗入口（[NyxusCore.vue](../.
 
 ### Nyxus 消息神经树
 
-Nyxus 对话框上方的 `MessageBranchTree` 是独立的 SVG 画布：消息和工具调用使用统一的内联线框图标，不依赖操作系统 emoji。图标按用户、主 AI、子 Agent 和工具类别使用不同主色，以霓虹双描边渲染（外辉光 halo + 加粗亮外描边 + 细内芯 + 强调色能量扫描），不绘制方形/圆形容器底板。主用户显示“我”，root assistant/master 显示“Cherry Nyxus”，子 Agent 优先显示实际 `petName/agentType/preset`。普通节点 hover 详情优先显示在节点**正下方**（下方放不下时回退侧贴，2026-09-02 调整）；过程组左轮与弹窗左侧并排、顶对齐，统一落在节点下方区域；详情展示期间，对应节点的外辉光以轻量呼吸闪烁持续标记弹窗归属，弹窗关闭后立即停止，减少动态模式下则降级为静态高亮；待回答问题和待审批工具按 `questionId/approvalId === senseCall.id` 精确锚定可交互面板（同样靠左弹出），完成后保留工具图标并以终态色点区分完成/取消（绿点=已回答/已通过，红点=已拒绝/已过期/已取消），替代文字徽章；待回答/待审批等活跃态仍显文字徽章。提问面板不把交互类型表现成新的“单选/多选节点”，而以问题标题、具有明确选择标记和说明文本的选项卡、自由输入及独立操作区组成；单选/多选只决定选择行为。**询问节点（question 场景）popover 布局**：按「问题标题 → 思考 → 正文 → 选项卡指示器 → 选项区+操作」自上而下排列——标题行由 popover 独立渲染（QuestionCard 经 `show-heading=false` 隐藏自带标题，选项区复用 QuestionCard）；多问题批次的选项卡**高亮由当前活动问题（activeQuestionId）联动**（当前题对应 tab 高亮，“下一步”推进后高亮跟走），**点击选项卡不切换问题内容**——问题只由“下一步”实质切换；进入新问题后选项卡选中项、自由文本与展开态全部重置，与上一题无关联。审批倒计时直接显示在节点上，并与图标能量扫描、入边脉冲共用随剩余时间加速的周期。画布外围使用独立灰黑椭圆径向衬底，中心压暗并在四周连续衰减至完全透明，不出现矩形边界；所有连线使用平滑垂直贝塞尔曲线（控制点取纵向中点，跨车道分支形成上下 S 弯，同车道相邻退化为直线），thread/spawn/tool/merge 分别使用青、品红、琥珀和绿色纤维，紧凑波头与短尾沿源节点到目标节点传播。点击节点时其入边播放一次脉冲；运行判定对工具节点与消息节点统一（待审/待答/调用运行中均视为运行），正在响应或等待交互的节点其入边与出边整条活跃路径（含工具分支节点）持续脉冲，不再跳过中间工具节点。
+Nyxus 对话框上方的 `MessageBranchTree` 是独立的 SVG 画布：消息和工具调用使用统一的内联线框图标，不依赖操作系统 emoji。图标按用户、主 AI、子 Agent 和工具类别使用不同主色，以霓虹双描边渲染（外辉光 halo + 加粗亮外描边 + 细内芯 + 强调色能量扫描），不绘制方形/圆形容器底板。主用户显示“我”，root assistant/master 显示“Cherry Nyxus”，子 Agent 优先显示实际 `petName/agentType/preset`。普通节点 hover 详情优先显示在节点**正下方**（下方放不下时回退侧贴，2026-09-02 调整）；过程组左轮与弹窗左侧并排、顶对齐，统一落在节点下方区域；详情展示期间，对应节点的外辉光以轻量呼吸闪烁持续标记弹窗归属，弹窗关闭后立即停止，减少动态模式下则降级为静态高亮；待回答问题和待审批工具按 `questionId/approvalId === senseCall.id` 精确锚定可交互面板（同样靠左弹出），完成后保留工具图标并以终态色点区分完成/取消（绿点=已回答/已通过，红点=已拒绝/已过期/已取消），替代文字徽章；待回答/待审批等活跃态仍显文字徽章。提问面板不把交互类型表现成新的“单选/多选节点”，而以问题标题、具有明确选择标记和说明文本的选项卡、自由输入及独立操作区组成；单选/多选只决定选择行为。**询问节点（question 场景）popover 布局**：按「问题标题 → 思考 → 正文 → 选项卡指示器 → 选项区+操作」自上而下排列——标题行由 popover 独立渲染（QuestionCard 经 `show-heading=false` 隐藏自带标题，选项区复用 QuestionCard）；多问题批次的选项卡**高亮由当前活动问题（activeQuestionId）联动**（当前题对应 tab 高亮，“下一步”推进后高亮跟走），**点击选项卡不切换问题内容**——问题只由“下一步”实质切换；进入新问题后选项卡选中项、自由文本与展开态全部重置，与上一题无关联。审批倒计时直接显示在节点上，并与图标能量扫描、入边脉冲共用随剩余时间加速的周期。画布外围使用独立灰黑椭圆径向衬底，中心压暗并在四周连续衰减至完全透明，不出现矩形边界；所有连线使用平滑垂直贝塞尔曲线（控制点取纵向中点，跨车道分支形成上下 S 弯，同车道相邻退化为直线），连线颜色不按类型固定，而是沿路径从来源节点色渐变到目标节点色（与两端节点当前显示色一致），紧凑波头与短尾沿源节点到目标节点传播。点击节点时其入边播放一次脉冲；运行判定对工具节点与消息节点统一（待审/待答/调用运行中均视为运行），正在响应或等待交互的节点其入边与出边整条活跃路径（含工具分支节点）持续脉冲，不再跳过中间工具节点。
 
 纵向布局提供“时间布局”和“层级布局”两种模式，首次打开工作台默认使用时间布局；四档节点折叠首次默认使用第三档“参与者折叠”。时间布局按全局 canonical `orderKey`（瞬态节点按 `createdAt`）严格向下排列，保持完整执行时序；层级布局忽略不同分支间的时间先后，按执行图上下游关系分层，每个目标节点至少位于其最深父节点的下一层，同一 Agent 内的连续节点仍保持上下顺序，不同分支的同层节点允许横向并排。两种模式都使用统一固定行距，且只改变纵坐标；spawn 树车道、节点样式、连线和交互保持一致。用户在右侧操作区选择的布局模式与折叠档位按工作台预设写入前端本地存储，切换会话或重新打开工作台后恢复；没有有效记录时分别回退时间布局与第三档。切换模式时清空布局缓存并重新 fit 画布。
 
@@ -97,17 +97,18 @@ popover 内所有 renderer 折叠区（命令输出/搜索结果/参数/结果/�
 
 ### Nyxus 钢琴彩蛋（NyxusPianoStrip）
 
-> 2026-08-26 起钢琴降级为**纯键盘弹奏彩蛋**，不再承载会话切换。会话切换改由 rail 的会话列表 popout 承接（见下节）；钢琴与列表的关联已全部剔除。
+> 2026-08-26 起钢琴降级为**纯键盘弹奏彩蛋**，不再承载会话切换。会话切换由工作台**标题栏会话状态条**承接（见 [workbench-multi-window.md](../workbench-multi-window.md)「标题栏会话状态条」）；钢琴与列表的关联已全部剔除。
 
 钢琴组件 `NyxusPianoStrip` 只在**节点树彩蛋触发**时以浮层出现在节点树视口中央（触发序列见 [nyxus-node-tree-maintenance.md#节点树钢琴彩蛋](nyxus-node-tree-maintenance.md#节点树钢琴彩蛋)）。固定绘制 **2 个八度 24 键标准钢琴**（C4–B5）：白键 14 + 黑键 10，复用 `layoutPianoKeys(24)`（`pianoNotes.ts`）按真实钢琴比例排版（黑键骑白键边界、z 叠上层）——白键象牙渐变、黑键乌木渐变+高光、键前缘与面板**全直角**（`border-radius:0`）；面板标题 `NYXUS PIANO · C4–B5` + 键位提示行，全部字重 400（[设计语言规范 §4.2](../../standards/frontend/design-language.md#42-字体字号字重几何) 字重细则同步收敛）。
 
 **键盘映射（VirtualPiano 两行键位排版）**：低八度白键 `Z X C V B N M` = C4..B4（MIDI 60..71）、黑键 `S D G H J` = C#4..A#4（61/63/66/68/70）；高八度白键 `Q W E R T Y U` = C5..B5（72..83）、黑键 `2 3 5 6 7` = 73/75/78/80/82。监听用 `KeyboardEvent.code` 匹配（规避键盘布局/输入法差异）；输入控件（`input/textarea/select/[contenteditable]`）内的按键忽略、`e.repeat` 忽略；命中键 `preventDefault` 并调 `usePianoAudio.play(noteFrequency(midi))`（`usePianoKeyboard.ts`，仅浮层挂载期间监听，弹琴不误触 composer 输入）。音频为 Web Audio 三角波 + ADSR 包络，`AudioContext` 在用户手势同步链内懒建解锁（`usePianoAudio.ts` 保留，含静音开关，静音态持久化 localStorage）。指针点击与键盘按键共用按下高亮。浮层自包含关闭：点 ✕ / 点浮层外 / `Esc`。
 
-### 工作台会话列表（NyxusSessionList）
+### 工作台会话切换（现状）
 
-> 2026-08-26 起替代原钢琴键的会话切换：滚动加载 + 点击选择，与钢琴彻底解耦。
+> 工作台 rail 的「会话」按钮与 `NyxusSessionList` popout（2026-08-26 引入）已于 2026-09-16 移除：rail 会话按钮整体删除，会话切换入口上移到工作台标题栏会话状态条（strip + 下拉），实现与交互见 [workbench-multi-window.md](../workbench-multi-window.md)「标题栏会话状态条」。下列 popout 时代的行为细节仅作历史参考。
 
-工作台 rail 的「会话」按钮（原钢琴按钮位）打开 `NyxusSessionList` popout（`web/src/features/agent/workbench/NyxusSessionList.vue`），**滚动加载 + 点击选择**切换根会话：
+<details>
+<summary>历史：NyxusSessionList popout 时代的行为（已删除）</summary>
 
 - **数据范围（按需拉取）**：仅该工作台预设的**原生 root 会话**（复用 `isPianoRootSession`：`!parentChatId` 且 `branchKind` 缺省或 `'original'`，剔 spawn 子角色与 continuation/detail 分支），按 `createdAt` 降序。**数据源是打开时按需 `agentApi.listChats({ scope: 'history', includePreview: true })`（全量目录）后在前端过滤**——不依赖后端 metadata 匹配，最稳。⚠️ 曾尝试 `scope:'preset' + presetId/preset` 双参：后端 `listRootChatsForPresets`（`src/db/chat.ts`）对 metadata **原始字段**精确匹配，会话 metadata 带非空 presetId 且与窗口 `props.presetId` 不一致时，`presetId=? OR (presetId IS NULL AND preset=?)` 两分支均 false → **列表全空**（2026-08-26 实测 bug），故放弃；也不复用 `agents.historyList`（`scope:'stage'` 每预设仅留最新 1 个 root 且 lean 无 preview）。`scope:'history'` 走 `listAllChats()` 全量返回（含 preview/turnCount），前端经 `isPianoRootSession && (preset===presetName || presetId===props.presetId)` 过滤、按 `createdAt` 降序注入 `NyxusSessionList`，配 `loading` 占位；拉取失败回退 `agents.historyList ?? []` 保证不空。
 - **列表行**：全局序号（自 1 递增）+ 首条 user 消息预览（无则「无消息」）+ 末次时间（HH:mm / M/d）+ 轮次；标题单行 ellipsis（宽度受限），`title` 属性携带完整信息；当前会话行高亮 `.is-active`。
@@ -115,6 +116,8 @@ popover 内所有 renderer 折叠区（命令输出/搜索结果/参数/结果/�
 - **关闭逻辑**：点击行经 `switchSession(chatId)`（`useWorkbenchTreeSession`）切换**但不收起 popout**（用户可先确认切换效果）；鼠标移出 popout 区间后延迟关闭（复用 pointerenter/pointerleave + 160ms 延迟，鼠标移回即取消）。
 - **删除**：行 hover 显放大删除按钮（带边框与图标、hover 变红），点击原位变「确认？」红字 2s 二次确认再删；运行中会话禁用删除。删除走 `deletePresetSession` / `deleteNyxusSession`（级联删除后代）；删除的是当前会话时先切到剩余最近会话，无剩余则清空工作台当前会话（`setWorkbenchWindowChat(windowId, null)`）。
 - **空态**：无原生 root 会话时显示「该预设暂无会话，可用右侧新建会话按钮」。
+
+</details>
 
 ```text
 div.pet-wrap                                                            // 根容器（无 z-index/position → 不创建 stacking context，气泡 z-index 跨 pet 比较）

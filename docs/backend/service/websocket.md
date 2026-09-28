@@ -10,6 +10,7 @@
 - **服务封装**（index.ts）：创建 `ws.WebSocketServer`、绑定 connection/message/close/error、把 Request 分发给 `RpcRouter`、迭代流式 handler 结果逐帧推送、interrupt 后记 approvalId（供 close park；限时超时由 core approvalRegistry 管，非本层）。服务入口可额外创建仅绑定 loopback 的远程 socket；远程 socket 使用认证但不允许 loopback 豁免。
 - **连接状态**（connection.ts）：`ConnectionManager` 维护 ws→state、chatId→connectionId 活跃绑定（拒绝跨连接并发同 chat）、pendingRequests（含审批 ID 映射）、关闭时 park pending approval 并释放 chat 绑定。
 - **帧编解码**（transport.ts）：`Transport` 单例，按 `config.server.transport`（`binary`/`json`）编码 Chunk/Notification；Request/Response 始终走 JSON。
+- **精简设备投影**（liteProjection.ts）：只在 lite 连接发送端裁剪通知、时间线和 RPC 响应；字段与分页预算以[设备协议](../../shared/protocol/profiles/mcu-lite.md)为准，时间线归属以[权威时间线](../../shared/architecture/canonical-timeline.md)为准。
 
 ## 文件清单
 
@@ -18,6 +19,7 @@
 | [src/service/websocket/index.ts](../../../src/service/websocket/index.ts) | `createWebSocketServer({port, router})`：ws 服务、消息分发、流式迭代推送、interrupt→记 approvalId、错误兜底 |
 | [src/service/websocket/connection.ts](../../../src/service/websocket/connection.ts) | `ConnectionManager`/`connectionManager` 单例：连接状态、chat 活跃绑定、pendingRequest approvalId 映射、close park |
 | [src/service/websocket/transport.ts](../../../src/service/websocket/transport.ts) | `Transport`/`transport` 单例：`encode`（Chunk/Notification→Buffer/string）、`parseMessage`/`serializeMessage`（Request/Response JSON） |
+| [src/service/websocket/liteProjection.ts](../../../src/service/websocket/liteProjection.ts) | `applyLiteEvent` / `applyLiteResponse`：设备通知、节点详情与时间线快照的有界投影；相关校验见 `test/service/websocket/liteProjection.test.ts` |
 
 ## 核心概念 / 导出
 
@@ -125,7 +127,7 @@ chat.send/resume handler:
 ```
 senseMiddleware（tool.ts）needsApproval → approvalRegistry.createApproval(id, global.approval_timeout)
   ├─ approval_timeout=0 / undefined → 不创建 timer（不限时，永久等用户决）
-  ├─ 用户 sense.approval → approvalManager.confirm → resolveApproval(id) → 清 timer + resolve
+  ├─ 用户 interaction.approval.decide → approvalManager.confirm → resolveApproval(id) → 清 timer + resolve
   └─ 超时 → registry 内部 timer fire → resolve({ action:'reject', reason:'审批超时' })
             → senseMiddleware await 解除 → yield sense_reject → streamMapper 发 rejected notification
             → 前端 routeNotification 自动关审批卡片 → 子 loop 继续（= 用户点 Reject 的正常路径）

@@ -15,6 +15,7 @@
 | 修改意图 | 先读 |
 | --- | --- |
 | 判断测试门控、TSC 基线或回归判定 | [testing/baseline.md](./testing/baseline.md) |
+| 大型任务收尾时做重构回归对照（`pnpm regression:code`） | [testing/refactor-baseline.md](./testing/refactor-baseline.md) |
 | 新增或修改流程测试场景 | [testing/flows.md](./testing/flows.md) |
 | 用 Mock Provider 做离线测试 | [testing/mock-provider.md](./testing/mock-provider.md) |
 | 计划收口时迁移长期验收证据 | [verification/README.md](./verification/README.md) |

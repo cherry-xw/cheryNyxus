@@ -26,7 +26,7 @@
                   └──── store 编排 (agents.index.ts) ────────┘
 ```
 
-- **wire**：RPC 编解码 + envelope 排序（[`web/src/services/ws.ts`](../../web/src/services/ws.ts)）+ RPC 高层封装（[`web/src/services/agentApi.ts`](../../web/src/services/agentApi.ts)）
+- **wire**：RPC 编解码 + envelope 排序（[`web/src/services/ws.ts`](../../web/src/services/ws.ts)）+ RPC 高层入口（[`web/src/services/agentApi.ts`](../../web/src/services/agentApi.ts)）；类型、通用调用和会话/技能/插件请求分别由同目录的 `agentApiTypes.ts`、`agentApiTransport.ts`、`chatApi.ts`、`skillsApi.ts`、`pluginsApi.ts` 维护。
 - **store**：[`web/src/stores/agents/`](../../web/src/stores/agents/) —— `useAgentsStore` + `StreamState` + `HistoryItem` + `PetInstance`
 - **组件**：[`web/src/features/agent/`](../../web/src/features/agent/) + [`web/src/features/pets/`](../../web/src/features/pets/)
 
@@ -278,7 +278,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | `PetIcons.vue` 的 ghost 列 | `pet.isGhost` / `pet.parentChatId` | — | 点击 ghost icon → drawer 打开 |
 
 **关键字段对照**（`role_created` 触发路径）：
-- 后端 `role_created.data: {taskId, chatId:child, parentChatId, type, prompt, brain, senseGroup, wake}` → `streamRouter.routeNotification` → `pets.value.push(createPetInstance(...))` + `allChatsCache.push({chatId:child, parentChatId})`
+- 后端 `role_created.data: {taskId, chatId:child, parentChatId, type, prompt, brain, senseGroup, wake}` → chats store `applyEvent`（`chats/index.ts` WS 订阅）→ `ensureChildPet`（store 层建子 catalog 实体 + `createPetInstance` 入 pets）+ `allChatsCache` 更新
 - `wake ∈ 'immediate' \| 'deferred' \| 'barrier'`：UI 全部走「子 pet 显示在主 pet 旁边」同一渲染；区别在后端 wakeScheduler 决定何时 role_reply
 - 子 agent **eager 已启动**（后端 spawn_role sense 内 fire-and-forget），前端 role_created 到达时 chunks 可能在路上：若 `subStream.isWorking \|\| subStream.thinking/content 非空` → 跳过 `chat.startSpawn` RPC（防止覆盖累积）
 
@@ -349,7 +349,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 - 子 chat drawer（direct）：仅该 chat 的 own history（**不递归合流**）
 - 孙 chat drawer（direct）：仅该 chat 的 own history（**不递归合流 C 的子 D**）
 
-**`mergeChildReplyHistory` 合并规则**（[historyMerge.ts](../../web/src/stores/agents/data/historyMerge.ts)）：
+**`mergeChildReplyHistory` 合并规则**（[historyProjection.ts](../../web/src/domain/chat/historyProjection.ts)）：
 - 按 `(createdAt, agentChatId)` 配对，把子 chat 的 assistant→role 改写行插入主 chat 时间线
 - **不**按 msgId（主 chat 的 role:role 行 vs 子 chat 的 assistant→role 改写行 msgId 不同）
 - 仅 layout=group 触发
@@ -422,14 +422,13 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 
 | 文件 | 用途 |
 |------|------|
-| [`web/src/App.vue`](../../web/src/App.vue) | 装配入口：wsClient 订阅 → agents.routeChunk/routeNotification → onStatus 触发 init/sync |
+| [`web/src/App.vue`](../../web/src/App.vue) | 装配入口：挂载后调 `startApplicationRuntime`（wsClient 订阅经 chats store `bindWsClient` 分发 → agents/chats/interactions 协同） |
 | [`web/src/services/ws.ts`](../../web/src/services/ws.ts) | WS client：rpc / rpcTrack / onChunk / onNotification / chatSeq 单调游标 |
-| [`web/src/services/agentApi.ts`](../../web/src/services/agentApi.ts) | RPC 高层封装 + 类型（ChatSummary / CurrentStateData / RuntimeSelection / ChatSendAttachment ...）|
+| [`web/src/services/agentApi.ts`](../../web/src/services/agentApi.ts) | RPC 高层入口；类型从 `agentApiTypes.ts` 转发，会话/技能/插件请求分别从 `chatApi.ts`、`skillsApi.ts`、`pluginsApi.ts` 组合 |
 | [`web/src/stores/agents/index.ts`](../../web/src/stores/agents/index.ts) | Pinia store 主入口：sendMessage / resumeAgent / startSpawn / getHistory / abort / applyCurrentState / applyQuestionSnapshot |
-| [`web/src/stores/agents/ui/streamRouter.ts`](../../web/src/stores/agents/ui/streamRouter.ts) | chunk/notification 路由 + replaying 抑制 |
+| [`web/src/stores/chats/index.ts`](../../web/src/stores/chats/index.ts) | 会话 store 主入口：`bindWsClient` 统一订阅 chunk/notification 并分发（reducer 单写者 + 跨 session 事件路由） |
 | [`web/src/stores/agents/data/streamAccumulator.ts`](../../web/src/stores/agents/data/streamAccumulator.ts) | `accumulateStaged` / `pushHistoryItem`（msgId 幂等去重轴）|
-| [`web/src/stores/agents/data/historyMerge.ts`](../../web/src/stores/agents/data/historyMerge.ts) | `mergeChildReplyHistory`（按 createdAt+agentChatId 配对）/ `collectDescendantChatIds` |
-| [`web/src/stores/agents/actions/questionBatch.ts`](../../web/src/stores/agents/actions/questionBatch.ts) | `replaceQuestionBatches` / `upsertQuestionBatch` / `findQuestion` |
+| [`web/src/domain/chat/historyProjection.ts`](../../web/src/domain/chat/historyProjection.ts) | `mergeChildReplyHistory`（按 createdAt+agentChatId 配对）；`collectDescendantChatIds` 在 [sessionTree.ts](../../web/src/domain/chat/sessionTree.ts) |
 | [`web/src/stores/agents/types.ts`](../../web/src/stores/agents/types.ts) | 公共类型：StreamState / HistoryItem / ApprovalState / QuestionBatchState / ChunkMessage / NotificationMessage |
 | `web/src/features/agent/AgentFab.vue`（已移除） | 历史创建会话入口；当前入口由工作台与 Nyxus 交互承担 |
 | [`web/src/features/agent/chat/AgentDialog.vue`](../../web/src/features/agent/chat/AgentDialog.vue) + `dialog/useAgentDialogOptions.ts` | 发消息 + 临时编制切换 |
