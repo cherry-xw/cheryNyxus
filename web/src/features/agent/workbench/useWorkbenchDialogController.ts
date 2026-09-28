@@ -7,7 +7,7 @@
  * 历史抽屉（overlay）仍为全局单例（HistoryDrawer 单例渲染）；工作台自身不再打开 docked 抽屉，
  * 原「档案」能力并入整屏「对话模式」（ConversationView 复用 HistoryDrawerPanel，分支切换同步窗口会话）。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { advanceComposerTurn, type ComposerTurnState } from './composerTurnState'
 import { RoleConfigPopover } from '../runtime/public'
@@ -16,7 +16,7 @@ import ContextUsageBar from '../drawer/ContextUsageBar.vue'
 import WorkbenchAgentUsageBar from './WorkbenchAgentUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
-import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
+import { agentApi } from '@/application/backend/public'
 import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './useWorkbenchWindow'
 import {
   useAgentsStore,
@@ -66,7 +66,7 @@ export type WorkbenchDialogControllerProps = {
   embedded?: boolean
 }
 export type { FoldMode } from './useWorkbenchViewPreferences'
-export type WorkbenchSidePanel = 'none' | 'cards' | 'workflow' | 'reader'
+export type WorkbenchSidePanel = 'none' | 'cards' | 'reader'
 
 export function useWorkbenchDialogController(props: WorkbenchDialogControllerProps) {
   const agents = useAgentsStore()
@@ -255,11 +255,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const nyxusDraftActive = ref(false)
   const userClosedAfterTurn = ref(false)
   let composerTurn: ComposerTurnState = { active: false, awaitingInput: false }
-  /** 只持久化折叠档位；辅助侧栏每次进入工作台默认关闭，避免隐式建立 workflow lease。 */
+  /** 只持久化折叠档位；辅助侧栏每次进入工作台默认关闭。 */
   const { foldMode } = useWorkbenchViewPreferences(props.presetId)
   const sidePanel = ref<WorkbenchSidePanel>('none')
   const selectedContent = ref<NyxusContentSelection>()
-  const replayTimeline = shallowRef<RootTimelineSnapshot>()
   const branchTarget = ref<{
     type: 'detail' | 'continuation'
     nodeId: string
@@ -276,7 +275,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     taskHasRunningBranches,
     taskTimeline,
   } = useWorkbenchTaskController({ chatId, windowId: props.windowId })
-  const readerTimeline = computed(() => replayTimeline.value ?? liveTimeline.value)
+  const readerTimeline = computed(() => liveTimeline.value)
 
   function selectWorkflowContent(selection: NyxusContentSelection): void {
     selectedContent.value = selection
@@ -287,21 +286,15 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     sidePanel.value = sidePanel.value === panel ? 'none' : panel
   }
 
-  /** 右侧抽屉标题（卡牌/流程图/阅读器，与 档案 抽屉同款头部）。 */
+  /** 右侧抽屉标题（卡牌/阅读器，与 档案 抽屉同款头部）。 */
   const sidePanelTitle = computed(() =>
-    sidePanel.value === 'cards' ? '卡牌模式' : sidePanel.value === 'workflow' ? '流程图' : '阅读器',
+    sidePanel.value === 'cards' ? '卡牌模式' : '阅读器',
   )
   /** 关闭侧边抽屉（MessageBranchTree 右侧抽屉 ✕ / 遮罩触发）。 */
   function closeSidePanel(): void {
     sidePanel.value = 'none'
   }
 
-  function updateReplayTimeline(payload: {
-    replay: boolean
-    timeline?: RootTimelineSnapshot
-  }): void {
-    replayTimeline.value = payload.replay ? payload.timeline : undefined
-  }
   const detailBranchAvailability = computed(() => {
     const loaded = config.value
     const preset = presetName.value ? loaded?.presets?.[presetName.value] : undefined
@@ -930,7 +923,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     (rootChatId, previousRootChatId) => {
       if (!rootChatId || !previousRootChatId || rootChatId === previousRootChatId) return
       selectedContent.value = undefined
-      replayTimeline.value = undefined
     },
   )
   /** 精简模式可见（lite 紧凑会话视图）；创建新会话后自动进入（既有契约，见下）。 */
@@ -1072,19 +1064,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     if (!available && contextDrawerOpen.value && !contextAnalyticsForced.value) closeContextDrawer()
   })
 
-  const runtimeDiagramProps = computed(() => ({
-    chatId: treeRootChatId.value,
-    timeline: liveTimeline.value,
-    foldMode: foldMode.value,
-    selection: selectedContent.value,
-    focusSourceChatId: treeFocusSourceChatId.value,
-    focusInteractionId: treeFocusInteractionId.value,
-    focusNonce: treeFocusNonce.value,
-    suspended: win.value?.minimized ?? false,
-    pendingCount: currentAttentionCount.value,
-    onSelectContent: selectWorkflowContent,
-    onReplayTimelineChange: updateReplayTimeline,
-  }))
   const treeProps = computed(() => ({
     rootChatId: treeRootChatId.value,
     timelineOverride: selectTreeTimelineOverride(
@@ -1108,7 +1087,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   }))
 
   return {
-    runtimeDiagramProps,
     treeProps,
     MessageBranchTree,
     AgentComposer,
@@ -1214,7 +1192,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     toggleMediaVariant,
     toggleNyxusInput,
     readerTimeline,
-    replayTimeline,
     scheduleFoldToolClose,
     scheduleRoleListClose,
     selectBranchTarget,
@@ -1271,7 +1248,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     workspaceBrowserOpen,
     hasPresetWorkspace,
     agentUsage,
-    updateReplayTimeline,
     uploading,
     usageClass,
     win,

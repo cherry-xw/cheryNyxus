@@ -1,7 +1,5 @@
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { reactive, shallowReactive } from 'vue'
-import { cloneReplayTimeline } from '../../src/features/agent/workbench/runtime-diagram/workflowStepDetails'
 import type { RootTimelineSnapshot, TimelineNode } from '../../src/services/agentApi'
 import {
   buildNyxusReaderEntries,
@@ -9,31 +7,6 @@ import {
   resolveNyxusReaderSelection,
 } from '../../src/features/pets/nyxus/public'
 import { readComponentSource } from '../helpers/componentSource'
-
-describe('replay snapshot capture', () => {
-  it.each([reactive, shallowReactive])(
-    'detaches reactive timelines and nested tool content',
-    (wrap) => {
-      const source = timeline()
-      source.nodes = reactive(source.nodes)
-      const live = wrap(source)
-      const snapshot = cloneReplayTimeline(live)!
-      expect(snapshot).toEqual(JSON.parse(JSON.stringify(live)))
-      const body = snapshot.nodes[0]!.content
-      live.nodes[0]!.content = 'live delta after replay started'
-      live.nodes[2]!.toolCalls![0]!.result = 'new result'
-      live.capturedEventSeq += 1
-      expect(snapshot.nodes[0]!.content).toBe(body)
-      expect(snapshot.nodes[2]!.toolCalls![0]!.result).toBe('ok')
-      expect(snapshot.capturedEventSeq).not.toBe(live.capturedEventSeq)
-      snapshot.nodes[0]!.content = 'replay edit'
-      expect(live.nodes[0]!.content).toBe('live delta after replay started')
-    },
-  )
-  it('allows an absent timeline', () => {
-    expect(cloneReplayTimeline(undefined)).toBeUndefined()
-  })
-})
 
 function message(
   id: string,
@@ -154,32 +127,22 @@ describe('workbench content reader projection', () => {
   })
 
   it('keeps the Pixi tree mounted while auxiliary panels change locally', async () => {
-    const [workbench, runtime, reader] = await Promise.all([
+    const [workbench, reader] = await Promise.all([
       readComponentSource(resolve('web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
-      readComponentSource(
-        resolve('web/src/features/agent/workbench/runtime-diagram/RuntimeDiagram.vue'),
-        'utf8',
-      ),
       readComponentSource(
         resolve('web/src/features/pets/nyxus/components/NyxusContentReader.vue'),
         'utf8',
       ),
     ])
 
-    expect(workbench.match(/<RuntimeDiagram\b/g)).toHaveLength(1)
     expect(workbench.match(/<MessageBranchTree\b/g)).toHaveLength(1)
     expect(workbench).toContain('<WorkbenchAttentionIndicator')
     expect(workbench).not.toContain('workbench-attention-warning')
     expect(workbench).not.toContain('toggleAttentionWindow')
     expect(workbench).not.toContain('workspaceBrowserOpen')
-    expect(workbench).toContain('v-bind="runtimeDiagramProps"')
-    expect(workbench).toContain('v-if="sidePanel === \'workflow\'"')
-    expect(workbench).toContain('v-else-if="sidePanel === \'reader\'"')
+    expect(workbench).not.toContain('runtimeDiagramProps')
+    expect(workbench).toContain('v-if="sidePanel === \'reader\'"')
     expect(workbench).toContain('focusNonce: treeFocusNonce.value')
-    expect(runtime).toContain('const worldCenter =')
-    expect(runtime).toContain('cloneReplayTimeline(props.timeline)')
-    expect(runtime).toContain('<WorkflowStepDetails')
-    expect(runtime).toContain('@select-content="selectStepContent"')
     expect(reader).toContain('<NodePaperStack')
     expect(workbench).toContain('v-bind="treeProps"')
   })

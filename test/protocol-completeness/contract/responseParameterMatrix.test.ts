@@ -16,19 +16,6 @@ const requestUsage = {
   usage: {},
   context: { system: 0, tools: 0, conversation: 0, limit: null },
 }
-const workflowResources = { loadedSkillsComplete: false }
-const workflowSnapshot = {
-  chatId: 'chat-1',
-  rootChatId: 'chat-1',
-  contextStageId: 'stage-1',
-  revision: 0,
-  status: 'idle',
-  visitedNodeIds: [],
-  dispatches: [],
-  resources: workflowResources,
-  phaseKnown: false,
-  historyComplete: true,
-}
 const input = {
   chatId: 'chat-1',
   inputId: 'input-1',
@@ -253,22 +240,6 @@ const validResponses: Record<Method, unknown> = {
     origin: 'missing',
     contentState: 'missing',
     items: [],
-  },
-  [Method.CHAT_WORKFLOW_OPEN]: {
-    subscriptionId: 'subscription-1',
-    streamId: 'stream-1',
-    snapshot: workflowSnapshot,
-  },
-  [Method.CHAT_WORKFLOW_CLOSE]: { subscriptionId: 'subscription-1', closed: true },
-  [Method.CHAT_WORKFLOW_HISTORY]: {
-    chatId: 'chat-1',
-    contextStageId: 'stage-1',
-    boundary: 0,
-    stages: [],
-    facts: [],
-    complete: true,
-    historyComplete: true,
-    resources: workflowResources,
   },
   [Method.CHAT_PROMPT_SNAPSHOT]: { chatId: 'chat-1', systemPrompt: '', tools: [] },
   [Method.CHAT_EPOCH_LIST]: {

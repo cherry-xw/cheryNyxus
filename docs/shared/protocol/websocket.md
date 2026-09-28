@@ -17,8 +17,6 @@
 
 计量值携带来源与覆盖率：`null` 是未知，`0` 仅表示已知零；部分覆盖数值仅为已知小计。上下文为估算，不是累计账单。旧会话不伪造用量回填。任务身份是原始根 Chat，同任务分支及子 Agent 的实际请求只计一次。
 
-主 Agent 专用只读 `chat.workflow.open/close/history` 与 `workflow.updated` 见[workflow 契约](workflow.md)；该观察流不属于执行控制或持久 journal。
-
 ## 会话归档管理
 
 - `chat.archive`：`{chatId}` → `{chatId,archivedChatIds}`。只接受主会话组，归档同任务所有分支和后代；运行中拒绝。归档保留历史并禁止继续执行，重复归档幂等。

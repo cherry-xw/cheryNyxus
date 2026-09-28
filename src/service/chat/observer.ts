@@ -21,7 +21,6 @@ import { recordTerminationFact } from './executionFacts.js'
 import { questionInteractionContext } from '../interaction/context.js'
 import { annotateExecutionNode } from '@/db/executionGraph.js'
 import { skillActivation } from './workflowEvidence.js'
-import { refreshWorkflowContext } from './workflow.js'
 import { ModelRequestTimeoutError } from '@/agent/middleware/requestTimeout.js'
 import { startWorkflowRunRecorder, type WorkflowRunRecorder } from './workflowRecorder.js'
 import { startUsageRecorder } from './usageRecorder.js'
@@ -385,11 +384,6 @@ export async function* observeAgentChunks(
     )
     if (summary && summary.id !== initialSummaryId) {
       annotateWorkflow(summary.id, { compaction: { applied: true, summaryMessageId: summary.id } })
-    }
-    try {
-      refreshWorkflowContext(chatId)
-    } catch {
-      /* Observation is optional. */
     }
     workflowRecorder.finish()
   }

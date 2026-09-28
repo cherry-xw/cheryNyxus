@@ -8,10 +8,10 @@ describe('paper stack workbench integration', () => {
       resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
       'utf8',
     )
-    expect(workbench).toContain('<RuntimeDiagram')
+    expect(workbench).not.toContain('<RuntimeDiagram')
     expect(workbench).toContain('<NyxusContentReader')
-    expect(workbench).toContain('v-bind="runtimeDiagramProps"')
-    expect(workbench).toContain('timeline: liveTimeline.value')
+    expect(workbench).not.toContain('runtimeDiagramProps')
+    expect(workbench).not.toContain('timeline: liveTimeline.value')
     expect(workbench).toContain(':selection="selectedContent"')
     expect(workbench).not.toContain(':composer-open="nyxusDraftActive"')
     expect(workbench).toContain(":aria-pressed=\"sidePanel === 'reader'\"")

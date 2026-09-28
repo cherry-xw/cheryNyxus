@@ -564,7 +564,6 @@ const EXEMPT_FILES: RegExp[] = [
   /SkillImportDialog\.vue$/,
   /ImportConfirmDialog\.vue$/,
   /ImportPortalFrame\.vue$/,
-  /RuntimeDiagram\.styles\.less$/,
   /RoleConfigPopover\.vue$/,
   /ThinkingLevelSwitch\.vue$/,
   /WorkbenchAgentUsageBar\.vue$/,

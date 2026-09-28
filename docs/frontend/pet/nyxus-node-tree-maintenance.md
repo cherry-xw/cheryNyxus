@@ -1,6 +1,6 @@
 # Nyxus 节点树维护、迁移与回滚
 
-> **2026-09-15 主视图契约**：`MessageBranchTree` 是工作台核心主画布，默认使用 Pixi 横向 Signal 纯图标节点。流程图 `RuntimeDiagram` 只通过工作台互斥辅助侧栏按需挂载；卡牌与阅读器共享同一侧栏区域，不能同时显示。节点树侧栏打开时仍保持横向 Signal，不切换纵向 Classic。卡牌、流程图与阅读器统一以右侧抽屉打开（历史对话抽屉同款：遮罩 + 标题栏 + 关闭按钮），覆盖节点树但不压缩画布（画布保持全宽），抽屉宽度可拖拽及键盘调整（默认 50%，最小 300px 或 24% 容器宽，最大 88%，← 变宽 / → 变窄 / Home / End），点遮罩或 ✕ 关闭。
+> **2026-09-15 主视图契约**：`MessageBranchTree` 是工作台核心主画布，默认使用 Pixi 横向 Signal 纯图标节点。卡牌与阅读器共享右侧抽屉区域，不能同时显示。节点树侧栏打开时仍保持横向 Signal，不切换纵向 Classic。卡牌与阅读器统一以右侧抽屉打开（历史对话抽屉同款：遮罩 + 标题栏 + 关闭按钮），覆盖节点树但不压缩画布（画布保持全宽），抽屉宽度可拖拽及键盘调整（默认 50%，最小 300px 或 24% 容器宽，最大 88%，← 变宽 / → 变窄 / Home / End），点遮罩或 ✕ 关闭。
 
 ## 模块边界
 
@@ -79,17 +79,16 @@
 - 多个协作节点并行时，各自保留独立横行；它们不能因为收纳而合并成一条线。
 - 本轮仍有参与者正在运行、等待、暂停或失败待处理时，相关节点保持展开；其他已经完成的连续内容继续按参与者收纳。
 
-### 第四档：只看每轮主线
+### 第四档：轮次档位
 
-这一档用于快速阅读“用户提出了什么，系统最后怎样回答”，但仍须保留所有分支，而不是只保留当前分支。
+这一档把一轮已经结束的对话压成一个 `round` 节点，专门解决 Signal 横向链条持续变长的问题。节点本体仍只显示 40×40 的图标，文字和细节只在详情弹窗中展示。
 
-- 每条分支、每一轮都保留用户消息、本轮最后回复和分支起点。
-- 派出任务、协作任务入口、内部工具执行、结果返回和结果接收都可以收进过程组。
-- 同一轮中，两个保留节点之间的所有执行细节可以合成一个过程组；若中间还有分支起点，则必须在分支起点前后拆成两个过程组。
-- 没有分叉的一轮通常显示为“用户消息 → 过程组 → 最后回复”。若没有足够内容形成过程组，则直接连接用户消息和最后回复。
-- 不同分支仍占用不同横行。为了减少空白，可以把支线向中间靠拢，但不能交换支线顺序、让连线倒退或把两条支线重叠。
-- 没有直接先后关系、处于同一进度位置的多个分支节点允许排在同一列；存在直接连接的两个节点必须分列，后一个位于右侧。
-- 本轮仍在运行、等待、暂停或失败待处理时，只保持相关节点和必要的用户消息、分支起点直接可见；其他已经完成的部分继续收成主线。
+- 一轮从同一分支上的用户消息开始，到下一条用户消息之前结束；整轮节点保存用户提问、内部步骤和主 Agent 最终回复的锚点。
+- 详情弹窗固定为三段：第一段是用户提问，第二段沿用现有左轮选择内部步骤，第三段是主 Agent 的最终结论。纯问答轮次没有内部步骤时隐藏中段左轮，但仍显示提问和结论。
+- 已结束轮次中的派出任务、协作任务入口、工具执行、结果返回和其他内部节点都收入该轮的详情，不在节点本体上重复展示。
+- 轮次仍在运行、等待、暂停、待审批、待回答或存在分支锚点、纪元、代际打包、撤回状态时，不建立整轮节点，回退到按参与者保留主线的收纳方式，确保必须处理的内容直接可见。
+- 已结束轮次即使含有隐藏错误也可以压缩；`round` 节点沿用隐藏成员错误检测并明显标红。
+- 不同分支仍按拓扑关系排列；轮次档位使用更紧凑的分支靠拢方式，但不能交换分支顺序、让连线倒退或把分支重叠。
 
 ### 四档必须形成稳定的递进关系
 
@@ -101,7 +100,7 @@
 完整展示的单独节点
   包含 局部收纳的单独节点
   包含 按参与者收纳的单独节点
-  包含 只看每轮主线的单独节点
+  包含 轮次档位的单独节点
 ```
 
 ### `compact` 后的旧历史怎样放入树中
@@ -145,7 +144,7 @@
 ### 实现与验证入口
 
 - 四档选择和提示文字：[`useWorkbenchDialogController.ts`](../../../web/src/features/agent/workbench/useWorkbenchDialogController.ts) 的 `FOLD_TIPS`。
-- 四档收纳计算：[`foldProjection.ts`](../../../web/src/features/pets/nyxus/graph/foldProjection.ts) 的 `computeFoldRanges()`、`computeParticipantFoldRanges()` 和 `computeFullFoldRanges()`。
+- 四档收纳计算：[`foldProjection.ts`](../../../web/src/features/pets/nyxus/graph/foldProjection.ts) 的 `computeFoldRanges()`、`computeParticipantFoldRanges()` 和 `computeRoundRanges()`；轮次投影由 `projectRoundExecutionGraph()` 接入。
 - 节点排列：[`executionLayout.ts`](../../../web/src/features/pets/nyxus/graph/executionLayout.ts)。
 - `compact` 旧历史节点和纪元分界：[`historyProjection.ts`](../../../web/src/features/pets/nyxus/graph/historyProjection.ts) 的 `projectPackedGenerations()` 和 `projectEpochBoundaries()`。
 - 旧历史只读二层树：[`GenerationTreeDialog.vue`](../../../web/src/features/pets/nyxus/components/GenerationTreeDialog.vue)。
@@ -160,8 +159,8 @@
 - 细节解释分支作为独立参与者；运行中只展开它自身所在轮次，不解除其他分支的折叠。
 - 工作台任务树以 `chatSessions.rootTimeline(rootChatId, 'tree')` 的订阅快照作为实时 canonical 数据源；`getTaskTimeline` 的任务聚合快照只在 live 快照缺失或 revision 落后时兜底。live revision 追平或更新后，[`useWorkbenchDialogController.ts`](../../../web/src/features/agent/workbench/useWorkbenchDialogController.ts) 不得继续向 `MessageBranchTree` 传入 `timelineOverride`，避免旧 canonical 拓扑与当前 transient 输入、运行态及 CRT 混合。代际二层弹窗的 `staticView` 不受此规则影响。
 - Agent 消息节点优先显示 `roleType` 角色名；缺失时，根会话降级为“核心节点”，子会话降级为“协作节点”。界面文案不得出现 `Agent`、`Fold`、`Spawn` 等内部英文类型名。
-- 展示名称固定为：`start=任务起点`、`fold=过程组`、`tool-batch=工具执行`、`return=结果返回`、`dispatch=任务委派`、`spawn=创建协作节点`、`system=系统事件`、`input=我的指令`、`unknown=未识别节点`。
-- **过程组含错误红框（2026-09-04）**：过程组（fold）折叠范围内含隐藏错误消息时（`foldContainsErrorMessage`：fold 成员存在 `termination.code === 'error'` 的 message），该组外框在三种呈现形态一致显示红色且须醒目——vertical-classic 节点外圈加粗红描边 + 外圈光晕；horizontal-signal 主体外扩 4px 外框加粗红描边 + 光晕；paperMode 卡牌（`is-error-group`）亮色外圈层替换为红色 + 光晕、四角角饰同步变红，深棕内框不变。红色沿用各子系统错误色相（画布 `stateError`；卡牌经 color-mix 融入纸面）。
+- 展示名称固定为：`start=任务起点`、`fold=过程组`、`round=整轮`、`tool-batch=工具执行`、`return=结果返回`、`dispatch=任务委派`、`spawn=创建协作节点`、`system=系统事件`、`input=我的指令`、`unknown=未识别节点`。
+- **过程组和轮次含错误红框（2026-09-04 / 2026-09-29）**：过程组或轮次（`fold`/`round`）折叠范围内含隐藏错误消息时（`foldContainsErrorMessage`：投影节点存在 `termination.code === 'error'` 的 message），该组外框在三种呈现形态一致显示红色且须醒目——vertical-classic 节点外圈加粗红描边 + 外圈光晕；horizontal-signal 主体外扩 4px 外框加粗红描边 + 光晕；paperMode 卡牌（`is-error-group`）亮色外圈层替换为红色 + 光晕、四角角饰同步变红，深棕内框不变。红色沿用各子系统错误色相（画布 `stateError`；卡牌经 color-mix 融入纸面）。
 - 横向 lane 间距固定为 110px；节点标题按紧凑宽度省略，完整信息继续由节点详情承载。该收窄仅为后续侧边信息区留出空间，本阶段不新增侧边区域。
 - 工具节点仅从 `sense.tools` 元数据读取图标和中文名称。单工具显示工具名，多工具显示“工具执行 · N 项”；元数据缺失时降级为通用图标和“工具”，不暴露内部工具 key。
 - 同一次 assistant 响应拆出的 `message` 与 `tool-batch` 以显式 `sourceMessageId` 投影为一个工具视觉节点；模型 thinking/content 位于工具区上方，多工具随后显示页签，单工具直接显示详情。不得依靠时间相邻或正文内容配对，且不得因此改变 canonical facts、工具批次 ID 或 spawn/continue 拓扑。

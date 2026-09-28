@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { BellFilled, Connection, Reading } from '@element-plus/icons-vue'
-import RuntimeDiagram from './runtime-diagram/RuntimeDiagram.vue'
+import { BellFilled, Reading } from '@element-plus/icons-vue'
 import ConversationView from './ConversationView.vue'
 import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
 import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
@@ -189,7 +188,7 @@ const {
   OVERLAY_Z_INDEX, PromptSnapshotTip, RoleConfigPopover,
   activateNyxusInput, activeCommandIndex, activeCommandTab, activeRoleIndex,
   attentionCount, attentionRootChatId, closeWorkspaceBrowser, currentAttentionCount, focusAttentionTree,
-  runtimeDiagramProps, treeProps,
+  treeProps,
   brains, branchTarget,
   cancelNyxusInput, chatId, clearBranchTarget, closeWorkbench,
   comboCommandGroups,
@@ -343,9 +342,8 @@ defineExpose({
           >
             <template #side-panel>
               <div class="workbench-side-panel">
-                <RuntimeDiagram v-if="sidePanel === 'workflow'" v-bind="runtimeDiagramProps" />
                 <NyxusContentReader
-                  v-else-if="sidePanel === 'reader'"
+                  v-if="sidePanel === 'reader'"
                   class="workbench-content-reader"
                   :root-chat-id="treeRootChatId"
                   :timeline="readerTimeline"
@@ -732,22 +730,6 @@ defineExpose({
                     @click="toggleSidePanel('cards')"
                   >
                     <span aria-hidden="true">▤</span>
-                  </button>
-                </span>
-              </el-tooltip>
-              <el-tooltip content="流程图" placement="left" :show-after="200" :hide-after="0">
-                <span class="nyxus-tool-tip-anchor is-lite-hidden">
-                  <button
-                    type="button"
-                    class="nyxus-rail-action"
-                    data-view-action="workflow"
-                    :class="{ 'is-active': sidePanel === 'workflow' }"
-                    :disabled="!treeRootChatId"
-                    aria-label="流程图"
-                    :aria-pressed="sidePanel === 'workflow'"
-                    @click="toggleSidePanel('workflow')"
-                  >
-                    <Connection aria-hidden="true" />
                   </button>
                 </span>
               </el-tooltip>

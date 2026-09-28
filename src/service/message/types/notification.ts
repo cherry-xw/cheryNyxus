@@ -23,7 +23,6 @@ import type {
 // ========== Notification Data ==========
 
 export type NotificationData =
-  | import('@chery/protocol').WorkflowUpdated
   | import('@chery/protocol').ChatLifecycleChanged
   | import('@chery/protocol').ConfigApplyState
   | InterruptNotificationData

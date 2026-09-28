@@ -116,7 +116,6 @@ export type NotificationType =
   | 'interaction.changed'
   | 'chat.lifecycle.changed'
   | 'chat.overview.changed'
-  | 'workflow.updated'
   | 'terminal.event'
 
 // ========== Chunk Data ==========
