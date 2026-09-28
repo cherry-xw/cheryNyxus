@@ -7,7 +7,7 @@ import ContextAnalyticsContent from './ContextAnalyticsContent.vue'
 import { agentApi } from '@/application/backend/public'
 
 const props = withDefaults(
-  defineProps<{ models: ContextAnalyticsDemo[]; initialTaskKey?: string; eligible?: boolean }>(),
+  defineProps<{ initialTaskKey?: string; eligible?: boolean }>(),
   { initialTaskKey: undefined, eligible: true },
 )
 const emit = defineEmits<{ close: [] }>()
@@ -18,13 +18,12 @@ const contentAgentId = ref<string>()
 const contentCategory = ref<ContextCategory>()
 const contentEpochId = ref<string>()
 const closeButton = ref<HTMLButtonElement>()
-const selectedScenario = ref(0)
-const resolvedModels = ref<ContextAnalyticsDemo[]>(props.models)
+const resolvedModels = ref<ContextAnalyticsDemo[]>([])
 const loading = ref(false)
 const loadError = ref<string>()
-const isReal = ref(!!props.initialTaskKey)
-const model = computed(() => resolvedModels.value[selectedScenario.value] ?? resolvedModels.value[0]!)
-const canShowContent = computed(() => !isReal.value || props.eligible)
+const model = computed(() => resolvedModels.value[0])
+const canShowContent = computed(() => props.eligible)
+const hasTask = computed(() => !!resolvedModels.value[0])
 
 function mergeDetail(detail: import('@chery/protocol').TaskUsageDetail): ContextAnalyticsDemo {
   const unknownMetric = { value: null, source: 'unknown' as const, coverage: 'none' as const, knownCount: 0, totalCount: 0 }
@@ -154,14 +153,11 @@ function mergeDetail(detail: import('@chery/protocol').TaskUsageDetail): Context
 }
 
 async function loadRealDetail(taskKey: string): Promise<void> {
-  isReal.value = true
   loading.value = true
   loadError.value = undefined
   try {
     const detail = await agentApi.getContextUsageDetail(taskKey)
     resolvedModels.value = [mergeDetail(detail)]
-    selectedScenario.value = 0
-    isReal.value = true
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : '统计加载失败'
   } finally { loading.value = false }
@@ -170,12 +166,11 @@ async function loadRealDetail(taskKey: string): Promise<void> {
 watch(
   () => props.initialTaskKey,
   (taskKey) => {
-    const index = props.models.findIndex((candidate) => candidate.taskKey === taskKey)
-    if (index >= 0) selectedScenario.value = index
+    resolvedModels.value = []
+    if (taskKey) void loadRealDetail(taskKey)
   },
   { immediate: true },
 )
-watch(() => props.initialTaskKey, (taskKey) => { if (taskKey) void loadRealDetail(taskKey) }, { immediate: true })
 
 
 function focusClose(): void {
@@ -189,18 +184,9 @@ defineExpose({ focusClose })
   <section class="analytics-panel" role="dialog" aria-modal="true" aria-label="上下文与统计">
     <header class="analytics-head">
       <div class="title-block">
-        <span v-if="!isReal" class="demo-badge">演示数据</span>
-        <div><small>上下文与统计</small><h2>{{ loading || loadError ? (initialTaskKey ?? model.taskTitle) : model.taskTitle }}</h2></div>
+        <div><small>上下文与统计</small><h2>{{ model?.taskTitle ?? initialTaskKey ?? '上下文与统计' }}</h2></div>
       </div>
-      <label v-if="!isReal" class="scenario-picker">演示场景
-        <select v-model.number="selectedScenario">
-          <option v-for="(scenario, index) in models" :key="scenario.taskKey" :value="index">
-            {{ scenario.taskTitle }}
-          </option>
-        </select>
-      </label>
-      <span v-else class="scenario-picker">真实任务</span>
-      <dl v-if="!loading && !loadError && canShowContent" class="task-summary" aria-label="整个任务统计摘要">
+      <dl v-if="model && !loading && !loadError && canShowContent" class="task-summary" aria-label="整个任务统计摘要">
         <div><dt>累计 Token</dt><dd>{{ formatMetric(model.totalTokens) }}</dd></div>
         <div><dt>轮次</dt><dd>{{ formatMetric(model.rounds) }}</dd></div>
         <div><dt>模型请求</dt><dd>{{ formatMetric(model.requests) }}</dd></div>
@@ -211,14 +197,15 @@ defineExpose({ focusClose })
     <p v-if="loading" class="analytics-state">正在读取长期统计…</p>
     <p v-else-if="loadError" class="analytics-state error">{{ loadError }}</p>
     <p v-else-if="!canShowContent" class="analytics-state">首次发送消息后才会显示统计概览和上下文内容。</p>
+    <p v-else-if="!hasTask" class="analytics-state">当前没有任务可统计。</p>
 
-    <nav v-if="!loading && !loadError && canShowContent" class="analytics-tabs" aria-label="上下文与统计页面">
+    <nav v-if="model && !loading && !loadError && canShowContent" class="analytics-tabs" aria-label="上下文与统计页面">
       <button type="button" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">统计概览</button>
       <button type="button" :class="{ active: activeTab === 'content' }" @click="activeTab = 'content'">上下文内容</button>
       <span>只读 · 不会修改配置或运行上下文</span>
     </nav>
 
-    <div v-if="!loading && !loadError && canShowContent" class="analytics-body">
+    <div v-if="model && !loading && !loadError && canShowContent" class="analytics-body">
       <ContextAnalyticsOverview v-if="activeTab === 'overview'" :key="model.taskKey" :model="model" />
       <ContextAnalyticsContent
         v-else
@@ -234,15 +221,12 @@ defineExpose({ focusClose })
 
 <style scoped lang="less">
 .analytics-panel { font-size: 13px; font-weight: 400; position: absolute; z-index: var(--nx-z-drawer); inset: 40px 0 0 auto; width: clamp(700px, min(960px, 92%), 960px); display: flex; flex-direction: column; container-type: inline-size; color: var(--nx-text); background: var(--nx-bg); border-left: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); box-shadow: -12px 0 28px color-mix(in srgb, var(--nx-text) 22%, transparent); }
-.analytics-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto 30px; align-items: start; gap: 18px; min-height: 66px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); background: color-mix(in srgb, var(--nx-bg) 90%, var(--nx-text) 5%); }
+.analytics-head { display: grid; grid-template-columns: minmax(0, 1fr) auto 30px; align-items: start; gap: 18px; min-height: 66px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent); background: color-mix(in srgb, var(--nx-bg) 90%, var(--nx-text) 5%); }
 .title-block { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .title-block > div { min-width: 0; }
-.title-block small, .scenario-picker, .task-summary dt { line-height: 18px; }
+.title-block small, .task-summary dt { line-height: 18px; }
 .title-block small { color: color-mix(in srgb, var(--nx-text) 52%, transparent); }
 .title-block h2 { font-weight: 400; max-width: 420px; margin: 2px 0 0; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.demo-badge { flex: none; padding: 4px 7px; border-radius: 0; color: var(--nx-yellow); background: color-mix(in srgb, var(--nx-yellow) 12%, transparent); font-size: 12px; }
-.scenario-picker { display: grid; gap: 3px; color: color-mix(in srgb, var(--nx-text) 48%, transparent); font-size: 12px; }
-.scenario-picker select { max-width: 210px; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent); border-radius: 0; color: var(--nx-text); background: var(--nx-bg); font-size: 12px; }
 .task-summary { display: flex; gap: 20px; margin: 0; }
 .task-summary div { min-width: 70px; }
 .task-summary dt { color: color-mix(in srgb, var(--nx-text) 48%, transparent); font-size: 12px; }

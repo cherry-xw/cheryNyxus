@@ -3,18 +3,21 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import AnalyticsChart from './AnalyticsChart.vue'
 import {
+  DAILY_USAGE_TIME_ZONE,
   addCalendarDays,
   calendarDayCount,
   calendarDisplayRange,
-  createDailyUsageDemo,
   dailyHeatmapValue,
   dailyUsageStateLabel,
+  dateInTimeZone,
+  defaultDailyUsageRange,
   enumerateCalendarDays,
   type DailyUsagePoint,
   type DailyTaskUsage,
 } from './dailyModel'
 import { formatTokens } from './presentation'
 import { agentApi } from '@/application/backend/public'
+import { wsClient } from '@/services/ws'
 import { DAILY_CHART_TOP, DAILY_CHART_LEFT, DAILY_COLOR_BANDS, dailyCellColor, dailyCellLayout } from './dailyChart'
 
 const props = withDefaults(
@@ -22,32 +25,43 @@ const props = withDefaults(
   { timeRange: 'all' },
 )
 const emit = defineEmits<{
-  analytics: [demoTaskKey: string]
-  dateSelected: [date: string, demoTaskKeys: string[]]
+  analytics: [taskKey: string]
+  dateSelected: [date: string, taskKeys: string[]]
   rangeChanged: [startDate: string, endDate: string]
 }>()
-const demo = createDailyUsageDemo()
+
+const timeZone = DAILY_USAGE_TIME_ZONE
+const today = dateInTimeZone(Date.now(), timeZone)
+const defaultRange = defaultDailyUsageRange(Date.now(), timeZone)
 const remotePoints = ref<DailyUsagePoint[]>()
 const remoteLoaded = ref(false)
 const remoteTaskKeys = ref(new Map<string, string[]>())
-const selectedDate = ref(demo.selectedDate)
+const loadError = ref<string>()
+const selectedDate = ref(today)
 const calendarHost = ref<HTMLElement>()
 const hostWidth = ref(800)
 const hostHeight = ref(238)
 let calendarObserver: ResizeObserver | undefined
+let connectWatch: (() => void) | undefined
 const rows = 7
-const maximumColumns = calendarDayCount(calendarDisplayRange(demo)) / rows
+const maximumColumns = calendarDayCount(calendarDisplayRange(defaultRange)) / rows
 const visibleRange = computed(() => {
   const days = { all: 0, day: 0, week: 6, month: 29 }[props.timeRange]
-  return props.timeRange !== 'all' ? { startDate: addCalendarDays(demo.today, -days), endDate: demo.today } : demo
+  return props.timeRange !== 'all'
+    ? { startDate: addCalendarDays(today, -days), endDate: today }
+    : defaultRange
 })
-const visiblePoints = computed(() =>
-  (remoteLoaded.value ? (remotePoints.value ?? []) : demo.points.map((point) => ({
-    ...point,
+/** 空日历骨架：真实数据未到达时全部日期为「无数据」格子。 */
+const skeletonPoints = computed<DailyUsagePoint[]>(() =>
+  enumerateCalendarDays(defaultRange).map((date) => ({
+    date,
     tokens: null,
     state: 'unknown' as const,
     tasks: [],
-  }))).filter(
+  })),
+)
+const visiblePoints = computed(() =>
+  (remoteLoaded.value ? (remotePoints.value ?? skeletonPoints.value) : skeletonPoints.value).filter(
     (point) => point.date >= visibleRange.value.startDate && point.date <= visibleRange.value.endDate,
   ),
 )
@@ -63,8 +77,12 @@ const displayPoints = computed(() => {
 const selectedIndex = computed(() =>
   Math.max(0, displayPoints.value.findIndex((point) => point.date === selectedDate.value)),
 )
+const EMPTY_POINT: DailyUsagePoint = { date: today, tokens: null, state: 'unknown', tasks: [] }
 const selectedPoint = computed(
-  () => visiblePoints.value.find((point) => point.date === selectedDate.value) ?? visiblePoints.value[0]!,
+  () =>
+    visiblePoints.value.find((point) => point.date === selectedDate.value) ??
+    visiblePoints.value[0] ??
+    EMPTY_POINT,
 )
 
 function tooltipContent(params: unknown): string {
@@ -86,7 +104,7 @@ function pointDescription(index: number): string {
 const option = computed<EChartsOption>(() => ({
   aria: {
     enabled: true,
-    description: `每日 Token 日历，日期范围 ${visibleRange.value.startDate} 至 ${visibleRange.value.endDate}，时区 ${demo.timeZone}`,
+    description: `每日 Token 日历，日期范围 ${visibleRange.value.startDate} 至 ${visibleRange.value.endDate}，时区 ${timeZone}`,
   },
   tooltip: { trigger: 'item', formatter: tooltipContent, confine: true },
   visualMap: {
@@ -177,10 +195,9 @@ async function loadDayTasks(point: DailyUsagePoint): Promise<string[]> {
   const cached = remoteTaskKeys.value.get(point.date)
   if (cached) return cached
   try {
-    const response = await agentApi.getContextUsageDayTasks({ date: point.date, timezone: demo.timeZone, limit: 100 })
+    const response = await agentApi.getContextUsageDayTasks({ date: point.date, timezone: timeZone, limit: 100 })
     point.tasks = response.items.map((item) => ({
       taskKey: item.taskKey,
-      demoTaskKey: item.taskKey,
       title: item.taskKey,
       tokens: item.tokens.value,
       coverage: item.tokens.coverage === 'complete' ? 'complete' as const : item.tokens.coverage === 'partial' ? 'partial' as const : 'unknown' as const,
@@ -189,21 +206,50 @@ async function loadDayTasks(point: DailyUsagePoint): Promise<string[]> {
     remoteTaskKeys.value.set(point.date, keys)
     return keys
   } catch {
-    return [...new Set(point.tasks.map((task) => task.demoTaskKey))]
+    return [...new Set(point.tasks.map((task) => task.taskKey))]
   }
 }
 
-onMounted(() => {
-  void agentApi.getContextUsageDaily({ from: demo.startDate, to: demo.endDate, timezone: demo.timeZone }).then((response) => {
+async function loadDailyUsage(): Promise<void> {
+  loadError.value = undefined
+  try {
+    const response = await agentApi.getContextUsageDaily({
+      from: defaultRange.startDate,
+      to: defaultRange.endDate,
+      timezone: timeZone,
+    })
     remotePoints.value = response.points.map((point) => ({
       date: point.date,
       tokens: point.tokens.value,
       state: point.state,
-       tasks: point.taskKeys.map((taskKey) => ({ taskKey, demoTaskKey: taskKey, title: taskKey, tokens: null, coverage: 'unknown' as const })),
-     }))
+      tasks: point.taskKeys.map((taskKey) => ({ taskKey, title: taskKey, tokens: null, coverage: 'unknown' as const })),
+    }))
     const current = remotePoints.value.find((point) => point.date === selectedDate.value)
     if (current) void loadDayTasks(current)
-  }).catch(() => undefined).finally(() => { remoteLoaded.value = true })
+  } catch {
+    loadError.value = '每日 Token 数据加载失败，请重试'
+  } finally {
+    remoteLoaded.value = true
+  }
+}
+
+/** ws 未连接时挂载会立即 reject「还没连上服务器」；等待 connected 后再请求。 */
+function loadWhenConnected(): void {
+  if (wsClient.getStatus() === 'connected') {
+    void loadDailyUsage()
+    return
+  }
+  connectWatch?.()
+  connectWatch = wsClient.onStatus((status) => {
+    if (status !== 'connected') return
+    connectWatch?.()
+    connectWatch = undefined
+    void loadDailyUsage()
+  })
+}
+
+onMounted(() => {
+  loadWhenConnected()
 })
 
 watch(selectedDate, (date) => {
@@ -218,7 +264,7 @@ function moveDay(offset: number): void {
 }
 
 function openAnalytics(task: DailyTaskUsage): void {
-  emit('analytics', task.demoTaskKey)
+  emit('analytics', task.taskKey)
 }
 
 watch(
@@ -246,7 +292,10 @@ onMounted(() => {
   calendarObserver.observe(calendarHost.value)
 })
 
-onBeforeUnmount(() => calendarObserver?.disconnect())
+onBeforeUnmount(() => {
+  connectWatch?.()
+  calendarObserver?.disconnect()
+})
 </script>
 
 <template>
@@ -255,7 +304,7 @@ onBeforeUnmount(() => calendarObserver?.disconnect())
       <div>
         <small>当前工作台全部非归档任务 · 不随下方筛选变化</small>
         <h3 id="daily-usage-title">每日 Token 消耗</h3>
-        <p>{{ visibleRange.startDate }} 至 {{ visibleRange.endDate }} · 时区 {{ demo.timeZone }} · 演示数据</p>
+        <p>{{ visibleRange.startDate }} 至 {{ visibleRange.endDate }} · 时区 {{ timeZone }}</p>
       </div>
       <div class="daily-date-control" aria-label="选择日期">
         <button type="button" :disabled="selectedDate === visibleRange.startDate" @click="moveDay(-1)">
@@ -274,6 +323,11 @@ onBeforeUnmount(() => calendarObserver?.disconnect())
         </button>
       </div>
     </header>
+
+    <p v-if="loadError" class="daily-load-error" role="alert">
+      {{ loadError }}
+      <button type="button" @click="loadWhenConnected">重试</button>
+    </p>
 
     <div class="daily-usage-layout">
       <div ref="calendarHost" class="daily-calendar">
@@ -467,6 +521,28 @@ onBeforeUnmount(() => calendarObserver?.disconnect())
 
 .daily-empty {
   margin-top: 18px;
+}
+
+.daily-load-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.daily-load-error button {
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
 }
 
 .daily-task-list {

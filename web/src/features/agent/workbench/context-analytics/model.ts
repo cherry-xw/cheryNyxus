@@ -250,21 +250,3 @@ export function snapshotFor(
 export function categoryCount(snapshot: ContextSnapshotView, category: ContextCategory): number {
   return snapshot.items.filter((item) => item.category === category).length
 }
-
-export function assertDemoConsistency(model: ContextAnalyticsDemo): string[] {
-  const errors: string[] = []
-  if (!model.agents.some((agent) => agent.isMain)) errors.push('缺少主 Agent')
-  if (new Set(model.agents.map((agent) => agent.agentId)).size !== model.agents.length)
-    errors.push('Agent 标识重复')
-  for (const agent of model.agents) {
-    if (!model.snapshots.some((snapshot) => snapshot.snapshotId === agent.currentContext.snapshotId))
-      errors.push(`${agent.name} 当前快照未登记`)
-  }
-  for (const epoch of model.epochs) {
-    for (const agentId of epoch.availableAgentIds) {
-      if (!snapshotFor(model, agentId, epoch.epochId))
-        errors.push(`${epoch.label} 声称存在但缺少 ${agentId} 快照`)
-    }
-  }
-  return errors
-}

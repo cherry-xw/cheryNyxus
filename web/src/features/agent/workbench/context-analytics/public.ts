@@ -1,5 +1,4 @@
 export { default as ContextUsageRing } from './ContextUsageRing.vue'
-export { CONTEXT_ANALYTICS_DEMOS } from './demoData'
 export type { ContextAnalyticsDemo, ContextSnapshotView, UsageMetric } from './model'
 
 import type { TaskUsageSummary } from '@chery/protocol'

@@ -33,7 +33,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   close: []
   openTask: [chatId: string]
-  analytics: [demoTaskKey: string]
+  analytics: [taskKey: string]
   archived: [taskKey: string, archivedChatIds: string[], activeChatIdAtStart?: string]
 }>()
 
@@ -68,7 +68,7 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const restored = ref(false)
 const pendingArchiveKey = ref<string>()
 const dailyFilterDate = ref<string>()
-const dailyDemoTaskKeys = ref<string[]>()
+const dailyTaskKeys = ref<string[]>()
 const usageSummaries = ref(new Map<string, import('@chery/protocol').TaskUsageSummary>())
 const usageStatus = ref<'loading' | 'ready' | 'error'>('loading')
 let usageRequestId = 0
@@ -109,9 +109,9 @@ const hasFilters = computed(
 )
 
 const visibleItems = computed(() => {
-  if (!dailyFilterDate.value || !dailyDemoTaskKeys.value) return controller.items.value
+  if (!dailyFilterDate.value || !dailyTaskKeys.value) return controller.items.value
   return controller.items.value.filter((item) => {
-    return dailyDemoTaskKeys.value?.includes(item.taskKey)
+    return dailyTaskKeys.value?.includes(item.taskKey)
   })
 })
 
@@ -140,13 +140,13 @@ function selectSort(sort: typeof controller.filters.value.sort): void {
   controller.filters.value.sort = sort
 }
 
-function selectDailyUsage(date: string, demoTaskKeys: string[]): void {
+function selectDailyUsage(date: string, taskKeys: string[]): void {
   if (dailyFilterDate.value === date) {
     clearDailyUsageFilter()
     return
   }
   dailyFilterDate.value = date
-  dailyDemoTaskKeys.value = demoTaskKeys
+  dailyTaskKeys.value = taskKeys
 }
 
 function onDailyRangeChanged(startDate: string, endDate: string): void {
@@ -160,7 +160,7 @@ function onDailyRangeChanged(startDate: string, endDate: string): void {
 
 function clearDailyUsageFilter(): void {
   dailyFilterDate.value = undefined
-  dailyDemoTaskKeys.value = undefined
+  dailyTaskKeys.value = undefined
 }
 
 function clearAllFilters(): void {

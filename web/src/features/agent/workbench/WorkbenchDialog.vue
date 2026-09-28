@@ -236,7 +236,7 @@ const {
   sessionControl, sessionControlPending,
   showCommandMenu, showFoldTool, showRoleList, showRoleMenu,
   closeSidePanel,
-  contextAnalyticsDemos, contextAnalyticsInitialTaskKey,
+  contextAnalyticsInitialTaskKey,
   contextDrawerOpen, contextAnalyticsAvailable, contextAnalyticsPanelEligible, toggleContextDrawer,
    toggleWorkspaceBrowser,
    hasPresetWorkspace,
@@ -892,8 +892,7 @@ defineExpose({
         >
           <ContextAnalyticsPanel
             v-if="contextDrawerOpen"
-            key="context-analytics-demo"
-            :models="contextAnalyticsDemos"
+            key="context-analytics-panel"
             :initial-task-key="contextAnalyticsInitialTaskKey"
             :eligible="contextAnalyticsPanelEligible"
             data-motion-panel

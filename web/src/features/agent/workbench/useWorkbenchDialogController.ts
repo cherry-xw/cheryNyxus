@@ -47,7 +47,6 @@ import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
 import { selectTreeTimelineOverride } from './workbenchTimelineSelection'
 import { matchesCurrentTask } from './useSessionStripTasks'
-import { CONTEXT_ANALYTICS_DEMOS } from './context-analytics/public'
 import {
   canMarkTaskResultViewed,
   taskAfterArchive,
@@ -1041,7 +1040,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   // 打开时立即按当前树根会话拉取提示词快照；关闭不清数据，再次打开按 key 去重不重复请求。
   const contextDrawerOpen = ref(false)
   const contextAnalyticsInitialTaskKey = ref<string>()
-  const contextAnalyticsDemos = CONTEXT_ANALYTICS_DEMOS
   const contextAnalyticsForced = ref(false)
   const contextAnalyticsAvailable = computed(() => {
     return !!treeRootChatId.value
@@ -1242,7 +1240,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     showRoleMenu,
     closeSidePanel,
     closeContextDrawer,
-    contextAnalyticsDemos,
     contextAnalyticsAvailable,
     contextAnalyticsPanelEligible,
     contextAnalyticsInitialTaskKey,

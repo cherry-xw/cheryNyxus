@@ -4,12 +4,12 @@ import {
   addCalendarDays,
   calendarDisplayRange,
   calendarDayCount,
-  createDailyUsageDemo,
   dailyHeatmapValue,
   dailyTasksForDate,
   dateInTimeZone,
   defaultDailyUsageRange,
   normalizeDailyUsageRange,
+  type DailyUsagePoint,
 } from '../../src/features/agent/workbench/context-analytics/dailyModel'
 
 const NOW = Date.UTC(2026, 8, 19, 4, 0, 0)
@@ -49,10 +49,9 @@ describe('daily context usage model', () => {
   })
 
   it('does not collapse unknown or future dates into zero usage', () => {
-    const demo = createDailyUsageDemo(NOW, 'Asia/Shanghai')
-    const unknown = demo.points.find((point) => point.state === 'unknown')!
-    const zero = demo.points.find((point) => point.tokens === 0)!
-    const future = demo.points.find((point) => point.state === 'future')!
+    const unknown: DailyUsagePoint = { date: '2026-09-10', tokens: null, state: 'unknown', tasks: [] }
+    const zero: DailyUsagePoint = { date: '2026-09-11', tokens: 0, state: 'complete', tasks: [] }
+    const future: DailyUsagePoint = { date: '2026-09-20', tokens: null, state: 'future', tasks: [] }
 
     expect(dailyHeatmapValue(unknown)).toBe(-1)
     expect(dailyHeatmapValue(future)).toBe(-1)
@@ -61,16 +60,27 @@ describe('daily context usage model', () => {
     expect(future.date).toBe('2026-09-20')
   })
 
-  it('keeps partial task coverage and a cross-day request visible in the selected-day list', () => {
-    const demo = createDailyUsageDemo(NOW, 'Asia/Shanghai')
-    const firstDate = addCalendarDays(demo.today, -3)
-    const secondDate = addCalendarDays(demo.today, -2)
-    const first = dailyTasksForDate(demo.points, firstDate)
-    const second = dailyTasksForDate(demo.points, secondDate)
-
-    expect(first[0]).toMatchObject({ taskKey: 'daily-design', coverage: 'partial' })
-    expect(first.some((task) => task.tokens === null)).toBe(true)
-    expect(second[0]?.taskKey).toBe(first[0]?.taskKey)
-    expect(second[0]?.note).toContain('跨过零点')
+  it('keeps partial task coverage visible in the selected-day list', () => {
+    const points: DailyUsagePoint[] = [
+      {
+        date: '2026-09-16',
+        tokens: 100,
+        state: 'partial',
+        tasks: [
+          { taskKey: 'daily-design', title: '上下文统计页面设计', tokens: 60, coverage: 'partial' },
+          {
+            taskKey: 'daily-protocol',
+            title: '统计协议能力调研',
+            tokens: null,
+            coverage: 'unknown',
+            note: '该任务当天仍有请求未报告 Token',
+          },
+        ],
+      },
+    ]
+    const tasks = dailyTasksForDate(points, '2026-09-16')
+    expect(tasks[0]).toMatchObject({ taskKey: 'daily-design', coverage: 'partial' })
+    expect(tasks.some((task) => task.tokens === null)).toBe(true)
+    expect(dailyTasksForDate(points, '2026-09-17')).toEqual([])
   })
 })
