@@ -5,7 +5,7 @@ import { readComponentSource } from '../../helpers/componentSource'
 describe('node detail popover placement freeze', () => {
   it('freezes placement per show session instead of recomputing live', async () => {
     const controller = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts'),
+      resolve('web/src/features/pets/nyxus/components/useTreeDetailWindow.ts'),
       'utf8',
     )
     // 冻结契约：detailPlacement 读一次性快照，不直接重算 anchoredPopoverPositionBelow

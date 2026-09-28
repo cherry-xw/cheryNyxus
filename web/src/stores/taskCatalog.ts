@@ -14,8 +14,10 @@ export interface TaskCatalogState {
   error?: string
 }
 
+import { createStaleGuard, type StaleGuard } from '@/utils/asyncGuards'
+
 interface TaskCatalogControl {
-  generation: number
+  guard: StaleGuard
   lastQuery?: BaseTaskCatalogQuery
 }
 
@@ -42,7 +44,7 @@ export const useTaskCatalogStore = defineStore('taskCatalog', () => {
   function controlFor(scope: string): TaskCatalogControl {
     let control = controls.get(scope)
     if (!control) {
-      control = { generation: 0 }
+      control = { guard: createStaleGuard() }
       controls.set(scope, control)
     }
     return control
@@ -57,25 +59,30 @@ export const useTaskCatalogStore = defineStore('taskCatalog', () => {
   const loadingMore = computed(() => defaultState.value.loadingMore)
   const error = computed(() => defaultState.value.error)
 
+  /** 应用分页结果到 scope 状态（load 与 loadMore 共用尾部段）。 */
+  function applyPage(state: TaskCatalogState, page: { total: number; snapshotAt: number; nextCursor?: string }): void {
+    state.total = page.total
+    state.snapshotAt = page.snapshotAt
+    state.nextCursor = page.nextCursor
+  }
+
   async function search(query: BaseTaskCatalogQuery, scope = DEFAULT_SCOPE): Promise<void> {
     const state = stateFor(scope)
     const control = controlFor(scope)
-    const current = ++control.generation
+    const current = control.guard.next()
     control.lastQuery = { ...query }
     state.loading = true
     state.error = undefined
     try {
       const page = await agentApi.listTasks(query)
-      if (current !== control.generation) return
+      if (!control.guard.isCurrent(current)) return
       state.items = page.items
-      state.total = page.total
-      state.snapshotAt = page.snapshotAt
-      state.nextCursor = page.nextCursor
+      applyPage(state, page)
     } catch (cause) {
-      if (current !== control.generation) return
+      if (!control.guard.isCurrent(current)) return
       state.error = cause instanceof Error ? cause.message : '任务列表加载失败'
     } finally {
-      if (current === control.generation) state.loading = false
+      if (control.guard.isCurrent(current)) state.loading = false
     }
   }
 
@@ -84,22 +91,20 @@ export const useTaskCatalogStore = defineStore('taskCatalog', () => {
     const control = controlFor(scope)
     const cursor = state.nextCursor
     if (!cursor || state.loadingMore) return
-    const current = control.generation
+    const current = control.guard.peek()
     state.loadingMore = true
     state.error = undefined
     try {
       const page = await agentApi.listTasks({ cursor, limit: control.lastQuery?.limit })
-      if (current !== control.generation || cursor !== state.nextCursor) return
+      if (!control.guard.isCurrent(current) || cursor !== state.nextCursor) return
       const seen = new Set(state.items.map((item) => item.taskKey))
       state.items = [...state.items, ...page.items.filter((item) => !seen.has(item.taskKey))]
-      state.total = page.total
-      state.snapshotAt = page.snapshotAt
-      state.nextCursor = page.nextCursor
+      applyPage(state, page)
     } catch (cause) {
-      if (current !== control.generation) return
+      if (!control.guard.isCurrent(current)) return
       state.error = cause instanceof Error ? cause.message : '更多任务加载失败'
     } finally {
-      if (current === control.generation) state.loadingMore = false
+      if (control.guard.isCurrent(current)) state.loadingMore = false
     }
   }
 
@@ -143,7 +148,7 @@ export const useTaskCatalogStore = defineStore('taskCatalog', () => {
 
   function reset(scope = DEFAULT_SCOPE): void {
     const control = controlFor(scope)
-    control.generation += 1
+    control.guard.invalidate()
     control.lastQuery = undefined
     states[scope] = emptyState()
   }

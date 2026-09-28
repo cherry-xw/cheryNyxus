@@ -77,35 +77,16 @@ export function useLiteInteractions(windowId: () => string, rootChatId: () => st
     return null
   }
 
-  /** 未消费的待处理问题：只在用户尚未开始提交时持续提醒对应工具图标。 */
+  /** 未消费的待处理问题/审批：只在用户尚未开始提交时持续提醒对应工具图标。 */
   function interactionNeedsAttentionForCall(callId: string | undefined): boolean {
     if (!callId) return false
     return lite.interactions.some(
       (item) =>
-        item.kind === 'question_batch' &&
-        item.status === 'pending' &&
-        questionsOf(item).some((question) => question.questionId === callId),
+        (item.kind === 'question_batch' &&
+          item.status === 'pending' &&
+          questionsOf(item).some((question) => question.questionId === callId)) ||
+        (item.kind === 'approval' && item.status === 'pending' && item.interactionId === callId),
     )
-  }
-
-  /** 交互承载的焦点工具调用 id：审批=该次工具调用的 callId（=interactionId）；提问=批内第一题的 questionId。 */
-  function focusCallIdForInteraction(interaction: LiteInteraction): string | null {
-    if (interaction.kind === 'approval') return interaction.interactionId
-    return questionsOf(interaction)[0]?.questionId ?? null
-  }
-  /** 交互所在节点 id（详情抽屉打开目标）：工具调用归属节点 → 会话锚点节点 → payload 锚点节点。 */
-  function focusNodeForInteraction(interaction: LiteInteraction): string | null {
-    const callId = focusCallIdForInteraction(interaction)
-    if (callId) {
-      const owner = lite.detailNodeIdForToolCall(callId)
-      if (owner) return owner
-    }
-    if (interaction.anchorNodeId) {
-      const anchored = lite.detailNodeIdForMessage(interaction.anchorNodeId)
-      if (anchored) return anchored
-    }
-    const payloadAnchor = (interaction.payload as { anchorNodeId?: unknown }).anchorNodeId
-    return typeof payloadAnchor === 'string' ? lite.detailNodeIdForMessage(payloadAnchor) : null
   }
 
   // ── 审批展示 ────────────────────────────────────────────────────────
@@ -398,8 +379,6 @@ export function useLiteInteractions(windowId: () => string, rootChatId: () => st
     interactionStatusLabel,
     interactionForCall,
     interactionNeedsAttentionForCall,
-    focusCallIdForInteraction,
-    focusNodeForInteraction,
     approvalArguments,
     approvalRiskSummary,
     approvalPresentationOf,

@@ -153,19 +153,8 @@ export function effectiveRootLiveState(
 
 export type RootTimelinePatchResult = 'applied' | 'duplicate' | 'missing' | 'gap'
 
-export function runSingleFlight<K, T>(
-  inFlight: Map<K, Promise<T>>,
-  key: K,
-  task: () => Promise<T>,
-): Promise<T> {
-  const current = inFlight.get(key)
-  if (current) return current
-  const promise = task()
-  inFlight.set(key, promise)
-  return promise.finally(() => {
-    if (inFlight.get(key) === promise) inFlight.delete(key)
-  })
-}
+/** 单飞原语已收敛到共享模块；此处 re-export 保持既有 import 路径。 */
+export { runSingleFlight } from '@/utils/asyncGuards'
 
 export function rootTimelineCacheKey(rootChatId: string, view: RootTimelineView): string {
   return `${rootChatId}:${view}`

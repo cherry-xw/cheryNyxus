@@ -168,8 +168,9 @@ describe('workbench content reader projection', () => {
 
     expect(workbench.match(/<RuntimeDiagram\b/g)).toHaveLength(1)
     expect(workbench.match(/<MessageBranchTree\b/g)).toHaveLength(1)
-    expect(workbench).toContain("viewMode === 'tree'")
-    expect(workbench).toContain('@click="toggleAttentionWindow"')
+    expect(workbench).toContain('<WorkbenchAttentionIndicator')
+    expect(workbench).not.toContain('workbench-attention-warning')
+    expect(workbench).not.toContain('toggleAttentionWindow')
     expect(workbench).not.toContain('workspaceBrowserOpen')
     expect(workbench).toContain('v-bind="runtimeDiagramProps"')
     expect(workbench).toContain('v-if="sidePanel === \'workflow\'"')

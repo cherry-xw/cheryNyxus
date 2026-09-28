@@ -3,16 +3,16 @@
  * 工作台底部 Agent 用量条：默认占据底部空间并以两行小字展示详情。
  *
  * - divider（树 / 对话）：主 Agent 一行、子 Agent 一行。
- * - lite（精简视图）：紧凑摘要——主 Agent used/total/占比 + 总耗时 + 运行中 + token 速度 +
+ * - lite（精简视图）：紧凑摘要——主 Agent 名称后显示任务总时长，再列 used/total/占比、运行状态与 token 速度 +
  *   子 Agent 计数（内容精简初版，后续按精简模式 API 特性再细化）。
  *
  * 进度条固定在信息区最底部，详情默认展示。
  */
 import { computed } from 'vue'
 import { breakdownSegments, fmtTokens } from '../toolbar/contextBreakdown'
-import { formatElapsed } from '@/features/lite/executionMonitor'
 import { usageClass } from './useWorkbenchContextInspector'
 import type { WorkbenchAgentUsageView } from './useWorkbenchAgentUsage'
+import { durationColor, readableDuration } from '@/domain/chat/executionDuration'
 
 const props = withDefaults(
   defineProps<{
@@ -22,9 +22,13 @@ const props = withDefaults(
     tokenSpeed: number
     /** divider=树/对话完整档；lite=精简档。 */
     variant?: 'divider' | 'lite'
+    taskElapsedMs?: number
+    canStop?: boolean
+    stopping?: boolean
   }>(),
   { variant: 'divider' },
 )
+const emit = defineEmits<{ stop: [] }>()
 
 const rootAgent = computed(() => props.agents.find((agent) => agent.isRoot))
 const subAgents = computed(() => props.agents.filter((agent) => !agent.isRoot))
@@ -69,8 +73,13 @@ function fmtSpeed(speed: number): string {
     <div class="wub-panel">
       <!-- 完整档（树 / 对话）：主 Agent 一行 + 子 Agent 一行 -->
       <template v-if="variant === 'divider' && rootAgent">
+        <div class="wub-main-line">
         <div class="wub-row wub-main-row">
           <span>{{ rootAgent.label }}</span>
+          <time v-if="taskElapsedMs !== undefined" class="wub-duration"
+            :style="{ color: durationColor(taskElapsedMs, 600000, 1800000) }"
+            :aria-label="`本次任务总运行时长 ${readableDuration(taskElapsedMs)}`"
+          >{{ readableDuration(taskElapsedMs) }}</time>
           <span v-if="rootAgent.model" class="wub-model">{{ rootAgent.model }}</span>
           <span v-if="rootAgent.thinkingLabel" class="wub-thinking"
             >思考 {{ rootAgent.thinkingLabel }}</span
@@ -89,25 +98,34 @@ function fmtSpeed(speed: number): string {
           >
             {{ seg.label }} {{ fmtTokens(seg.tokens) }}
           </span>
-          <time v-if="rootAgent.elapsedMs > 0" class="wub-elapsed"
-            >耗时 {{ formatElapsed(rootAgent.elapsedMs) }}</time
-          >
+        </div>
+        <div class="wub-actions">
+          <button v-if="canStop" type="button" class="wub-stop" :disabled="stopping"
+            :aria-label="stopping ? '正在停止全部分支' : '停止整个任务（全部分支）'" @click="emit('stop')"
+          >{{ stopping ? '停止中…' : '■ 停止全部' }}</button>
+        </div>
         </div>
         <div v-if="subAgents.length" class="wub-row wub-subagents">
           <div v-for="sub in subAgents" :key="sub.chatId" class="wub-subagent">
             <span>{{ sub.label }}</span>
+            <time v-if="sub.running || sub.elapsedMs > 0" class="wub-duration"
+              :style="{ color: durationColor(sub.elapsedMs, 600000, 1800000) }"
+              :aria-label="`${sub.label} 总运行时长 ${readableDuration(sub.elapsedMs)}`"
+            >{{ readableDuration(sub.elapsedMs) }}</time>
             <span>{{ subTokensText(sub) }}</span>
             <span v-if="sub.running" class="wub-running">运行中</span>
-            <time v-if="sub.elapsedMs > 0" class="wub-elapsed">{{
-              formatElapsed(sub.elapsedMs)
-            }}</time>
           </div>
         </div>
       </template>
       <!-- 精简档（精简视图）：紧凑摘要 -->
       <template v-else-if="variant === 'lite' && rootAgent">
+        <div class="wub-main-line">
         <div class="wub-row wub-main-row">
           <span>{{ rootAgent.label }}</span>
+          <time v-if="taskElapsedMs !== undefined" class="wub-duration"
+            :style="{ color: durationColor(taskElapsedMs, 600000, 1800000) }"
+            :aria-label="`本次任务总运行时长 ${readableDuration(taskElapsedMs)}`"
+          >{{ readableDuration(taskElapsedMs) }}</time>
           <span v-if="rootAgent.model" class="wub-model">{{ rootAgent.model }}</span>
           <span v-if="rootAgent.thinkingLabel" class="wub-thinking"
             >思考 {{ rootAgent.thinkingLabel }}</span
@@ -117,18 +135,22 @@ function fmtSpeed(speed: number): string {
             >{{ fmtTokens(usedTokens) }}/{{ fmtTokens(totalTokens) }} {{ pct }}%</span
           >
           <span class="wub-speed">{{ fmtSpeed(tokenSpeed) }} tok/s</span>
-          <time v-if="rootAgent.elapsedMs > 0" class="wub-elapsed"
-            >耗时 {{ formatElapsed(rootAgent.elapsedMs) }}</time
-          >
+        </div>
+        <div class="wub-actions">
+          <button v-if="canStop" type="button" class="wub-stop" :disabled="stopping"
+            :aria-label="stopping ? '正在停止全部分支' : '停止整个任务（全部分支）'" @click="emit('stop')"
+          >{{ stopping ? '停止中…' : '■ 停止全部' }}</button>
+        </div>
         </div>
         <div v-if="subAgents.length" class="wub-row wub-subagents">
           <div v-for="sub in subAgents" :key="sub.chatId" class="wub-subagent">
             <span>{{ sub.label }}</span>
+            <time v-if="sub.running || sub.elapsedMs > 0" class="wub-duration"
+              :style="{ color: durationColor(sub.elapsedMs, 600000, 1800000) }"
+              :aria-label="`${sub.label} 总运行时长 ${readableDuration(sub.elapsedMs)}`"
+            >{{ readableDuration(sub.elapsedMs) }}</time>
             <span>{{ subTokensText(sub) }}</span>
             <span v-if="sub.running" class="wub-running">运行中</span>
-            <time v-if="sub.elapsedMs > 0" class="wub-elapsed">{{
-              formatElapsed(sub.elapsedMs)
-            }}</time>
           </div>
         </div>
       </template>
@@ -191,6 +213,12 @@ function fmtSpeed(speed: number): string {
     font-weight: 400;
     background: transparent;
   }
+  .wub-main-line { display: flex; align-items: center; min-width: 0; width: 100%; flex: none; }
+  .wub-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; padding-left: 10px; background: var(--surface); }
+  .wub-duration { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .wub-stop { border: 1px solid #ef4444; background: color-mix(in srgb, #ef4444 15%, var(--surface)); color: #ef4444; cursor: pointer; font: inherit; padding: 0 5px; white-space: nowrap; }
+  .wub-stop:hover { background: #ef4444; color: #fff; }
+  .wub-stop:disabled { opacity: .55; cursor: wait; }
 
   // 进度条：order 2 固定在信息区底部边缘线。
   .wub-track {
@@ -232,7 +260,7 @@ function fmtSpeed(speed: number): string {
     line-height: 17px;
   }
   .wub-main-row {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-height: 18px;
   }
   .wub-main-row > :not(:first-child)::before,
@@ -278,10 +306,6 @@ function fmtSpeed(speed: number): string {
   }
   .wub-thinking {
     color: var(--nx-cyan);
-  }
-  .wub-elapsed {
-    margin-left: auto;
-    color: color-mix(in srgb, var(--nx-text) 72%, transparent);
   }
   .wub-running {
     color: var(--wub-color);

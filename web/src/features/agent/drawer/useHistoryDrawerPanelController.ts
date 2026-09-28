@@ -1,3 +1,5 @@
+import { useEpochSnapshotLoader } from './useEpochSnapshotLoader'
+import { pendingInputHistory, activeTurnHistory } from './historyTransient'
 /**
  * HistoryDrawerPanel：历史抽屉单面板（从 HistoryDrawer 拆出，CP4 栈化）。
  *
@@ -31,11 +33,9 @@ import PromptSnapshotTip from './PromptSnapshotTip.vue'
 import ContextUsageBar from './ContextUsageBar.vue'
 import type {
   ChatSummary,
-  ChatEpochSummary,
   ConversationBranchSummary,
   GenerationEntry,
   GraphToolCall,
-  PromptSnapshotTool,
   RootTimelineSnapshot,
   RuntimeSelection,
   TimelineNode,
@@ -626,55 +626,17 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     const transient: HistoryItem[] = []
     if (layout.value === 'group') {
       const rootState = chatSessions.rootTimelineStates[props.chatId]
-      for (const input of rootState?.pendingInputs ?? []) {
-        if (input.state === 'consumed' || input.state === 'cancelled' || input.state === 'rejected')
-          continue
-        transient.push({
-          role: 'user',
-          content: input.content,
-          createdAt: input.acceptedAt ?? input.createdAt ?? Date.now(),
-          msgId: input.messageId ?? `pending:${input.inputId}`,
-          agentChatId: input.chatId ?? props.chatId,
-        })
-      }
+      transient.push(...pendingInputHistory(rootState?.pendingInputs ?? [], props.chatId))
       const rootSession = chatSessions.sessionsById[props.chatId]
       for (const messageId of rootSession?.messageOrder ?? []) {
         const message = rootSession?.messagesById[messageId]
         if (message?.delivery?.status === 'failed') transient.push(toHistoryItem(message))
       }
-      for (const turn of rootState?.activeTurns ?? []) {
-        transient.push({
-          role: 'assistant',
-          content: turn.content,
-          thinking: turn.thinking || undefined,
-          createdAt: turn.createdAt ?? Date.now(),
-          msgId: turn.messageId,
-          agentChatId: turn.chatId ?? props.chatId,
-        })
-      }
+      transient.push(...activeTurnHistory(rootState?.activeTurns ?? [], props.chatId))
     } else {
       const session = chatSessions.sessionsById[props.chatId]
-      for (const input of session?.pendingInputs ?? []) {
-        if (input.state === 'consumed' || input.state === 'cancelled' || input.state === 'rejected')
-          continue
-        transient.push({
-          role: 'user',
-          content: input.content,
-          createdAt: input.acceptedAt ?? input.createdAt ?? Date.now(),
-          msgId: input.messageId ?? `pending:${input.inputId}`,
-          agentChatId: props.chatId,
-        })
-      }
-      for (const turn of session?.activeTurns ?? []) {
-        transient.push({
-          role: 'assistant',
-          content: turn.content,
-          thinking: turn.thinking || undefined,
-          createdAt: turn.createdAt ?? Date.now(),
-          msgId: turn.messageId,
-          agentChatId: props.chatId,
-        })
-      }
+      transient.push(...pendingInputHistory(session?.pendingInputs ?? [], props.chatId))
+      transient.push(...activeTurnHistory(session?.activeTurns ?? [], props.chatId))
     }
     const canonicalIds = new Set(result.map((item) => item.msgId).filter(Boolean))
     const merged = dedupHistoryByMsgId(
@@ -1189,69 +1151,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
    * 懒加载：hover 顶部「上下文」标签才拉取 chat.promptSnapshot；按 chatId 缓存避免重复请求。
    * chatId 切换（栈层切换）时清空缓存重拉。
    */
-  const promptSnap = ref<{
-    systemPrompt: string
-    tools: PromptSnapshotTool[]
-    status: 'idle' | 'loading' | 'error' | 'loaded'
-    error?: string
-    epochs: ChatEpochSummary[]
-    selectedEpochId?: string
-    activeEpochId?: string
-    snapshotQuality?: 'exact' | 'partial' | 'reconstructed'
-  } | null>(null)
-  let promptSnapKey = ''
-  async function loadPromptSnapshot(chatId: string, epochId?: string): Promise<void> {
-    // 同 chat 已加载或加载中 → 不重复请求
-    const key = `${chatId}:${epochId ?? 'active'}`
-    if (promptSnapKey === key && promptSnap.value && promptSnap.value.status !== 'error') return
-    promptSnapKey = key
-    try {
-      const epochResult = await agentApi.listEpochs(chatId)
-      const selectedEpochId = epochId ?? epochResult.activeEpochId
-      promptSnap.value = {
-        systemPrompt: '',
-        tools: [],
-        status: 'loading',
-        epochs: epochResult.epochs,
-        selectedEpochId,
-        activeEpochId: epochResult.activeEpochId,
-      }
-      const res = await agentApi.promptSnapshot(chatId, selectedEpochId)
-      const effectiveSelectedEpochId = res.epochId ?? selectedEpochId
-      // chatId 期间未切换才写入（避免竞态覆盖）
-      if (promptSnapKey === key) {
-        promptSnap.value = {
-          systemPrompt: res.systemPrompt,
-          tools: res.tools,
-          status: 'loaded',
-          epochs: epochResult.epochs,
-          selectedEpochId: effectiveSelectedEpochId,
-          activeEpochId: epochResult.activeEpochId,
-          snapshotQuality: res.snapshotQuality,
-        }
-      }
-    } catch (err) {
-      if (promptSnapKey === key) {
-        promptSnap.value = {
-          systemPrompt: '',
-          tools: [],
-          status: 'error',
-          error: (err as Error).message,
-          epochs: promptSnap.value?.epochs ?? [],
-          selectedEpochId: epochId,
-        }
-      }
-    }
-  }
-  function onPromptSnapShow(): void {
-    if (!props.chatId) return
-    void loadPromptSnapshot(props.chatId)
-  }
-  function onPromptEpochChange(epochId: string): void {
-    if (!props.chatId) return
-    void loadPromptSnapshot(props.chatId, epochId)
-  }
-
+  const { promptSnap, onPromptSnapShow, onPromptEpochChange } = useEpochSnapshotLoader(() => props.chatId)
   return {
     ContextUsageBar,
     MessageBubble,

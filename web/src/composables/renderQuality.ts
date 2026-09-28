@@ -16,6 +16,8 @@ export interface RenderQualityProfile {
   windowGlitchPixels: number
   graphPulseSegments: number
   graphEffectNodes: number
+  /** 静态连线渐变描边的最大分段数（长边抽稀的上限，控制静态层 draw call 预算）。 */
+  graphEdgeGradientMaxSegments: number
 }
 
 export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQualityProfile>> = {
@@ -33,6 +35,7 @@ export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQ
     windowGlitchPixels: 5,
     graphPulseSegments: 7,
     graphEffectNodes: 48,
+    graphEdgeGradientMaxSegments: 32,
   },
   balanced: {
     tier: 'balanced',
@@ -48,6 +51,7 @@ export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQ
     windowGlitchPixels: 3,
     graphPulseSegments: 5,
     graphEffectNodes: 28,
+    graphEdgeGradientMaxSegments: 20,
   },
   low: {
     tier: 'low',
@@ -63,6 +67,7 @@ export const RENDER_QUALITY_PROFILES: Readonly<Record<RenderQualityTier, RenderQ
     windowGlitchPixels: 1,
     graphPulseSegments: 3,
     graphEffectNodes: 12,
+    graphEdgeGradientMaxSegments: 12,
   },
 }
 
@@ -154,8 +159,7 @@ export function createAdaptiveQualityGovernor(
       // 后台恢复由调用方过滤；真正的长帧应计入压力，而不是因过慢被忽略。
       samples.push({ at: now, intervalMs: Math.min(intervalMs, 250) })
       smoothedInterval += (Math.min(intervalMs, 100) - smoothedInterval) * 0.08
-      const targetRate =
-        smoothedInterval <= 18 ? 1.1 : smoothedInterval >= 30 ? -1.6 : 0.25
+      const targetRate = smoothedInterval <= 18 ? 1.1 : smoothedInterval >= 30 ? -1.6 : 0.25
       particleTarget = Math.min(
         MAX_PARTICLE_TARGET,
         Math.max(MIN_PARTICLE_TARGET, particleTarget + targetRate),

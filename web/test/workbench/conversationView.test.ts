@@ -70,10 +70,11 @@ describe('workbench conversation view input', () => {
     // 打开对话模式时刷新一次 interactions store（列表内提问可交互的前提）
     expect(view).toContain('interactions.refresh()')
 
-    // 树模式浮窗排除对话/精简模式，避免切换视图后残留；判定直接基于 viewMode，
-    // 不依赖 treeRootChatId 加载时序（刷新后树根未恢复时 conversationViewVisible 短暂为 false，
-    // 用 !conversationViewVisible 判断会被误判为树模式，导致对话 tab 显示树的审批入口）。
-    expect(dialog).toContain("currentAttentionCount && !attentionCollapsed && viewMode === 'tree'")
+    // 树模式待处理提示已上移标题栏（WorkbenchAttentionIndicator，不可点击图标 + hover tip）：
+    // 视图门控移入组件内部（useWorkbenchAttentionCount 基于单一事实源 viewModeByWindow），
+    // 对话/精简模式计数归零不渲染，不会在对话 tab 显示树的提示。
+    expect(dialog).toContain('<WorkbenchAttentionIndicator')
+    expect(dialog).not.toContain('workbench-attention-warning')
 
     // 普通工具消息命中 pending approval 时由独立气泡处理。
     expect(approvalRenderer).toContain('interactions.decide(item, action)')

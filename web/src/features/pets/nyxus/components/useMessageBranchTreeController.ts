@@ -1,285 +1,32 @@
-/**
- * Canonical execution tree consumer with CP5 input, CP6 details, and CP7 folds.
- *
- * The component is intentionally a thin renderer: topology and coordinates
- * come from pure graph modules, while this layer owns only the canvas gesture
- * and visual skin. Later checkpoints add termination controls and CRT anchoring.
- */
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  shallowRef,
-  watch,
-  type ComputedRef,
-  type Ref,
-} from 'vue'
-import { gsap } from 'gsap'
-import { renderQualityTier } from '@/composables/renderQuality'
+import { ref, watch } from 'vue'
 import { useNyxusHost } from '../application/host'
 import { useThemeTokens } from '@/composables/useThemeTokens'
-import { effectiveRootLiveState } from '@/application/chat/public'
-import {
-  mainExecutionEndpoint,
-  projectActiveTurnNodes,
-  projectInputNodes,
-  projectPersistentExecutionGraph,
-  type ExecutionEdge,
-  type ExecutionFoldMember,
-  type ExecutionGraph,
-  type ExecutionNode,
-  type VirtualInputNode,
-} from '../graph/executionGraph'
-import {
-  projectFoldExecutionGraph,
-  projectFullFoldExecutionGraph,
-  projectParticipantFoldExecutionGraph,
-} from '../graph/foldProjection'
-import { projectCoreFlowExecutionGraph } from '../graph/coreFlowProjection'
-import {
-  createIncrementalExecutionLayout,
-  type ExecutionLayoutMode,
-  type PositionedExecutionNode,
-} from '../graph/executionLayout'
-import {
-  foldContainsErrorMessage,
-  projectExecutionPresentation,
-  signalAccentForTheme,
-  signalVisualKindFor,
-  type ExecutionPresentationMode,
-} from '../graph/executionPresentation'
-import { edgeStyle } from '../graph/edgeStyles'
-import {
-  accentForTheme,
-  canPinNodeDetail,
-  hasNodeHoverDetail,
-  skinForNode,
-} from '../graph/nodeSkins'
-import {
-  anchoredPopoverPosition,
-  anchoredPopoverPositionBelow,
-  toolBatchDetail,
-} from '../graph/toolBatchDetails'
-import {
-  FOLD_WHEEL_NODE_GAP,
-  FOLD_WHEEL_STAGE_HEIGHT,
-  FOLD_WHEEL_STAGE_WIDTH,
-} from '../graph/foldTabs'
-import { useTreeCanvas, type CanvasTransform } from '../composables/useTreeCanvas'
-import { pendingInputAnchor, pendingInputPhase } from '../composables/mainInputState'
+import { hasNodeHoverDetail } from '../graph/nodeSkins'
+import { toolBatchDetail } from '../graph/toolBatchDetails'
 import { usePianoEasterEgg } from '../composables/usePianoEasterEgg'
 import ExecutionNodePopover from './ExecutionNodePopover.vue'
 import FoldTabRail from './FoldTabRail.vue'
 import AnchoredRunCrt from './AnchoredRunCrt.vue'
 import NodePaperStack from './NodePaperStack.vue'
 import GenerationTreeDialog from './GenerationTreeDialog.vue'
-import { terminationDisplay } from '../graph/termination'
-import { buildRunCrtModels, effectiveRunFacts, type RunCrtModel } from '../graph/crtModel'
-import {
-  layoutCrtWindowsBesideAnchors,
-  selectVisibleCrtIds,
-  type CrtPlacement,
-} from '../graph/crtLayout'
-import { buildDefaultNodePopovers, type DefaultNodePopover } from '../graph/nodePopoverModel'
-import {
-  ExecutionGraphPixiRenderer,
-  type PixiExecutionScene,
-} from '../renderer/ExecutionGraphPixiRenderer'
-import { executionSceneSignature } from '../renderer/executionSceneSignature'
-import {
-  createExecutionViewportIndex,
-  selectVisibleExecutionItems,
-  viewportSelectionContainsCamera,
-  visibleItemsKey,
-  type ExecutionCamera,
-} from '../renderer/executionViewport'
-import type { RootTimelineSnapshot, TimelineNode } from '@/application/backend/public'
-import { buildPaperStack, type PaperStackEntry } from '../paper/paperStackModel'
+import type {
+  MessageBranchTreeControllerProps,
+  MessageBranchTreeControllerEmits,
+  MessageBranchTreeController,
+  ControllerEmit,
+} from './treeControllerTypes'
+import { useTreeGraphProjection } from './useTreeGraphProjection'
+import { useTreeNodeActivation } from './useTreeNodeActivation'
+import { useTreeViewportLifecycle } from './useTreeViewportLifecycle'
+import { useTreeModeReactions } from './useTreeModeReactions'
+import { useTreeNodeLabels } from './useTreeNodeLabels'
+import { useTreeGpuScene } from './useTreeGpuScene'
+import { useTreeActionPopovers } from './useTreeActionPopovers'
+import { useTreeFoldReading } from './useTreeFoldReading'
+import { useTreeDetailWindow } from './useTreeDetailWindow'
+import { useTreeCamera } from './useTreeCamera'
+import { useTreeCrtWindows } from './useTreeCrtWindows'
 
-export type MessageBranchTreeControllerProps = {
-  rootChatId: string
-  timelineOverride?: RootTimelineSnapshot
-  branchAnchorNodeId?: string
-  branchAnchorKind?: 'detail' | 'continuation'
-  detailBranchAvailable?: boolean
-  detailBranchUnavailableReason?: string
-  layoutMode?: ExecutionLayoutMode
-  presentationMode?: ExecutionPresentationMode
-  foldMode?: 'none' | 'partial' | 'full' | 'participant'
-  focusSourceChatId?: string
-  focusInteractionId?: string
-  /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
-  fullRenderThreshold?: number
-  paperMode?: boolean
-  /** Auxiliary workbench panel occupies the right drawer while the tree stays full width. */
-  sidePanelOpen?: boolean
-  /** 侧边抽屉标题（工作台按 sidePanel 传入：卡牌模式/流程图/阅读器）。 */
-  sidePanelTitle?: string
-  /** Parent workbench is minimized/hidden; keep state but suspend GPU work. */
-  suspended?: boolean
-  /** 静态历史视图（代际二层弹窗）：挂断 live 投影（输入/流式/CRT），仅渲染 timelineOverride。 */
-  staticView?: boolean
-}
-export type MessageBranchTreeControllerEmits = {
-  branch: [
-    payload: {
-      type: 'detail' | 'continuation'
-      nodeId: string
-      sourceRootChatId: string
-      ordinary?: boolean
-    },
-  ]
-  /** 用户点击待处理节点：交由工作台左下角统一审核窗口处理。 */
-  interactionFocus: [focus: { chatId: string; interactionId?: string; anchorNodeId?: string }]
-  /** 钢琴彩蛋连点序列触发 → 父级（工作台）打开钢琴浮层。 */
-  'easter-egg': []
-  'presentation-fallback': [message: string]
-  /** 右侧抽屉 ✕ / 遮罩点击 → 父级关闭侧栏（sidePanel 置回 none）。 */
-  'close-side-panel': []
-}
-type ControllerEmit<T> = <K extends keyof T>(
-  event: K,
-  ...args: T[K] extends unknown[] ? T[K] : never
-) => void
-
-/** 默认节点悬浮窗的布局条目（由 defaultPopoverPlacements 推断，未单独导出）。 */
-type DefaultPopoverPlacement = {
-  id: string
-  anchor: { x: number; y: number }
-  panel: { width: number; height: number }
-  main: boolean
-  actionable: boolean
-  pinned: boolean
-  order: number
-  left: number
-  top: number
-  placement: 'left' | 'right' | 'below'
-}
-
-/** 默认节点悬浮窗的视图条目（defaultPopoverViews 元素）。 */
-type DefaultPopoverView = {
-  placement: DefaultPopoverPlacement
-  model: DefaultNodePopover
-  anchor: ExecutionNode
-  display: ExecutionNode
-  relatedEdges: ExecutionEdge[]
-}
-
-/** 详情弹窗的定位结果（detailPlacement 值）。 */
-type DetailPlacement = {
-  style: { left: string; top: string; width?: string; height?: string }
-  nodeOffset: { x: number; y: number }
-  railSide: 'left' | 'right'
-  placement: 'left' | 'right' | 'below'
-}
-
-/** 运行 CRT 窗口的定位条目（crtPlacements / overlayPlacements 元素）：在 CrtPlacement 基础上带窗口叠放层级。 */
-type RunCrtPlacement = CrtPlacement & { windowZ: number }
-
-/**
- * 控制器返回对象类型。
- *
- * 该返回对象字段多、类型复杂，若依赖自动推断，vue-tsc 在消费端
- * （MessageBranchTree.vue 的 controller 使用）会陷入类型推断循环
- * （TS7022/TS7023）。这里为返回对象建立显式类型边界，返回对象字面量
- * 仍受 `return {…}` 的赋值校验兜底，字段变化会在此处报错提示同步。
- */
-export interface MessageBranchTreeController {
-  AnchoredRunCrt: typeof AnchoredRunCrt
-  ExecutionNodePopover: typeof ExecutionNodePopover
-  FoldTabRail: typeof FoldTabRail
-  GenerationTreeDialog: typeof GenerationTreeDialog
-  NodePaperStack: typeof NodePaperStack
-  activateNode: (node: PositionedExecutionNode) => void
-  agents: ReturnType<typeof useNyxusHost>['agents']
-  canvas: ReturnType<typeof useTreeCanvas>
-  closeCrt: (id: string) => void
-  closeGenerationView: () => void
-  closeNodeDetail: () => void
-  crtById: ComputedRef<Map<string, RunCrtModel>>
-  crtPlacements: ComputedRef<RunCrtPlacement[]>
-  crtVisibility: ComputedRef<{ visible: Set<string>; hiddenPassive: number }>
-  defaultPopoverAnchorIds: ComputedRef<Set<string>>
-  defaultPopoverViews: ComputedRef<DefaultPopoverView[]>
-  detailAnchorEl: Ref<HTMLElement | undefined>
-  detailAnchorStyle: ComputedRef<DetailPlacement['style'] | undefined>
-  detailDisplayNode: ComputedRef<ExecutionNode | undefined>
-  detailFoldMember: ComputedRef<ExecutionFoldMember | undefined>
-  detailMaxHeight: ComputedRef<number>
-  detailNode: ComputedRef<PositionedExecutionNode | undefined>
-  detailPinned: ComputedRef<boolean>
-  detailWrap: Ref<boolean>
-  detailPlacement: ComputedRef<DetailPlacement | undefined>
-  detailRelatedEdges: ComputedRef<ExecutionEdge[]>
-  dragActionPopover: (id: string, delta: { x: number; y: number }) => void
-  dragCrt: (id: string, delta: { x: number; y: number }) => void
-  dragDetailPopover: (delta: { x: number; y: number }) => void
-  finishDetailDrag: () => void
-  cycleDetailSize: () => void
-  detailSizeLabel: ComputedRef<string>
-  toggleDetailWrap: () => void
-  focusCrt: (id: string) => void
-  focusNode: (node: PositionedExecutionNode) => void
-  focusRelativeNode: (
-    nodeId: string,
-    direction: -1 | 1 | 'first' | 'last' | 'up' | 'down' | 'left' | 'right',
-  ) => void
-  foldRailSide: ComputedRef<'left' | 'right'>
-  generationDialogIndex: Ref<number | undefined>
-  generationDialogRootChatId: Ref<string | undefined>
-  gpuNodeAccent: (node: PositionedExecutionNode) => string
-  gpuNodeHitStyle: (node: PositionedExecutionNode) => Record<string, string>
-  gpuRenderError: Ref<string>
-  graph: ComputedRef<ExecutionGraph>
-  hasNewTail: Ref<boolean>
-  hideNodeDetail: (node: PositionedExecutionNode) => void
-  keepNodeDetailOpen: () => void
-  leaveNodeDetail: () => void
-  nodeAriaLabel: (node: PositionedExecutionNode) => string
-  nodeTitle: (node: ExecutionNode) => string
-  onFoldRailInteraction: (foldId: string, active: boolean) => void
-  onNodePointerDown: (event: PointerEvent, node: PositionedExecutionNode) => void
-  overlayPlacements: ComputedRef<RunCrtPlacement[]>
-  paperCurrentIndex: ComputedRef<number>
-  paperEntries: ComputedRef<PaperStackEntry[]>
-  paperGraph: ComputedRef<ExecutionGraph>
-  paperHasNewTail: Ref<boolean>
-  persistentGraph: ComputedRef<ExecutionGraph>
-  pinCrt: (id: string) => void
-  pinnedCrtIds: Ref<Set<string>>
-  pixiMountRef: Ref<HTMLElement | null>
-  recordActionPopoverHeight: (id: string) => (height: number) => void
-  recoverGraph: () => Promise<void>
-  recoveringGraph: Ref<boolean>
-  recoveryError: Ref<string>
-  requestBranch: (type: 'detail' | 'continuation', nodeId: string) => void
-  resetLayout: () => boolean
-  returnToBottom: () => void
-  returnToLatestPaper: () => void
-  selectActionCall: (modelId: string, callId: string) => void
-  selectFoldMember: (foldId: string, memberId: string) => void
-  selectPaperIndex: (index: number) => void
-  selectedActionCall: (model: DefaultNodePopover) => string | undefined
-  selectedCallId: Ref<string | undefined>
-  showNodeDetail: (node: PositionedExecutionNode) => void
-  stepFoldDetail: (delta: number) => void
-  unpinCrt: (id: string) => void
-  unreadFoldMembers: Ref<Map<string, number>>
-  vMeasureHeight: {
-    mounted(el: HTMLElement, binding: { value: (height: number) => void }): void
-    updated(el: HTMLElement, binding: { value: (height: number) => void }): void
-    unmounted(el: HTMLElement): void
-  }
-  viewportRef: Ref<HTMLElement | null>
-  viewportSize: Ref<{ width: number; height: number }>
-  visibleInteractiveNodes: ComputedRef<PositionedExecutionNode[]>
-  taskPlanMarkerNodes: ComputedRef<PositionedExecutionNode[]>
-  taskPlanForNode: (node: PositionedExecutionNode) => NonNullable<TimelineNode['todoPlan']> | undefined
-  taskPlanMarkerStyle: (node: PositionedExecutionNode) => Record<string, string>
-  actorLabel: (node: ExecutionNode) => string
-}
 export function useMessageBranchTreeController(
   props: MessageBranchTreeControllerProps,
   emit: ControllerEmit<MessageBranchTreeControllerEmits>,
@@ -287,834 +34,186 @@ export function useMessageBranchTreeController(
   const { chats: chatSessions, agents, theme: themeStore } = useNyxusHost()
   const { canvasPalette } = useThemeTokens()
   const viewportRef = ref<HTMLElement | null>(null)
-  const pixiMountRef = ref<HTMLElement | null>(null)
   const hoveredDetailNodeId = ref<string>()
   const pinnedDetailNodeId = ref<string>()
   const selectedCallId = ref<string>()
-  const selectedFoldMembers = ref<Map<string, string>>(new Map())
-  const unreadFoldMembers = ref<Map<string, number>>(new Map())
-  const readingFoldId = ref<string>()
   const viewportSize = ref({ width: 0, height: 0 })
-  const pinnedCrtIds = ref<Set<string>>(new Set())
-  const hiddenCrtIds = ref<Set<string>>(new Set())
-  const crtWindowState = ref<Map<string, { left: number; top: number; z: number }>>(new Map())
-  let nextCrtZ = 1
-  const actionSelectedCallIds = ref<Map<string, string>>(new Map())
   const recoveringGraph = ref(false)
   const recoveryError = ref('')
-  const gpuRenderError = ref('')
-  const hasNewTail = ref(false)
-  /** 已在图中出现过的节点 id；判定「回到底部」要用全新 id，排除末节点抖动。 */
-  let knownTailIds = new Set<string>()
-  let gpuRenderer: ExecutionGraphPixiRenderer | undefined
-  let gpuMountGeneration = 0
-  let lastGpuSceneSignature = ''
-  let detailHideTimer: ReturnType<typeof setTimeout> | undefined
-  const timelineSnapshot = computed(
-    () => props.timelineOverride ?? chatSessions.rootTimeline(props.rootChatId, 'tree'),
-  )
-  const timelineNodes = computed(() => timelineSnapshot.value?.nodes ?? [])
-  const rootTransientState = computed(() => chatSessions.rootTimelineStates[props.rootChatId])
-  const liveState = computed(() =>
-    props.staticView
-      ? { activeTurns: [], activeRuns: [] }
-      : effectiveRootLiveState(
-          props.rootChatId,
-          rootTransientState.value,
-          chatSessions.sessionsById,
-        ),
-  )
-  let cachedActiveRunKey = ''
-  let cachedActiveCrtRuns: ReturnType<typeof effectiveRunFacts> = []
-  const activeCrtRuns = computed(() => {
-    // Token deltas change turn content but not run topology. Keep the durable
-    // projection graph from rebuilding until run IDs/statuses actually change.
-    const canonicalRuns = timelineSnapshot.value?.activeRuns ?? []
-    const key = [
-      props.rootChatId,
-      ...canonicalRuns.map((run) => `${run.chatId ?? ''}:${run.runId ?? ''}:${run.status ?? ''}`),
-      ...liveState.value.activeRuns.map(
-        (run) => `${run.chatId ?? ''}:${run.runId ?? ''}:${run.status ?? run.state ?? ''}`,
-      ),
-      ...liveState.value.activeTurns.map(
-        (turn) => `${turn.chatId ?? ''}:${turn.runId ?? ''}:${turn.turnId}:${turn.status}`,
-      ),
-    ].join('\u0001')
-    if (key === cachedActiveRunKey) return cachedActiveCrtRuns
-    cachedActiveRunKey = key
-    cachedActiveCrtRuns = effectiveRunFacts(
-      props.rootChatId,
-      canonicalRuns,
-      liveState.value.activeRuns,
-      liveState.value.activeTurns,
-    )
-    return cachedActiveCrtRuns
+  const { actorLabel, nodeTitle, compactNodeTitle, nodeAriaLabel } = useTreeNodeLabels({
+    agents,
+    runningTailIds: () => runningTailIds.value,
+    isPaused,
+    isError,
   })
-  const pendingInputs = computed<VirtualInputNode[]>(() => {
-    if (props.staticView) return []
-    const rootState = rootTransientState.value
-    const latest = Math.max(0, ...timelineNodes.value.map((node) => node.createdAt))
-    return (rootState?.pendingInputs ?? [])
-      .filter((input) => !input.chatId || input.chatId === props.rootChatId)
-      .filter((input) => input.state !== 'cancelled' && input.state !== 'rejected')
-      .map((input, index) => ({
-        id: pendingInputAnchor(input),
-        content: input.content,
-        createdAt: input.acceptedAt ?? latest + index + 1,
-        state: pendingInputPhase(input),
-        ...(input.queueSequence === undefined ? {} : { queueSequence: input.queueSequence }),
-      }))
-      .sort(
-        (a, b) =>
-          (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
-            (b.queueSequence ?? Number.MAX_SAFE_INTEGER) ||
-          a.createdAt - b.createdAt ||
-          a.id.localeCompare(b.id),
-      )
-  })
-  const persistentGraph = computed(() =>
-    projectPersistentExecutionGraph(
-      timelineSnapshot.value
-        ? { ...timelineSnapshot.value, activeRuns: activeCrtRuns.value }
-        : {
-            rootChatId: props.rootChatId,
-            nodes: [],
-            edges: [],
-            activeRuns: activeCrtRuns.value,
-            generations: [],
-          },
-    ),
-  )
-  const liveGraph = computed(() =>
-    projectActiveTurnNodes(
-      projectInputNodes(persistentGraph.value, pendingInputs.value),
-      liveState.value.activeTurns,
-      activeCrtRuns.value,
-    ),
-  )
-  const foldProjection = computed(() => {
-    if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
-    if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
-    if (props.foldMode === 'participant')
-      return projectParticipantFoldExecutionGraph(liveGraph.value)
-    return projectFoldExecutionGraph(liveGraph.value)
-  })
-  const graph = computed(() => foldProjection.value.graph)
-  // 钢琴彩蛋触发状态机：consume 命中序列 → emit('easter-egg') 并吞掉本次节点点击。
+  const {
+    timelineSnapshot,
+    liveState,
+    activeCrtRuns,
+    persistentGraph,
+    foldProjection,
+    graph,
+    coreFlowProjection,
+    paperGraph,
+    paperEntries,
+    activePaperNodeId,
+    paperHasNewTail,
+    paperCurrentIndex,
+    selectPaperNode,
+    selectPaperIndex,
+    returnToLatestPaper,
+    resetGraphProjection,
+  } = useTreeGraphProjection(props, chatSessions, nodeTitle, () => detail.closeNodeDetail())
   const pianoEasterEgg = usePianoEasterEgg({
     graph: () => graph.value,
     enabled: () => !props.staticView,
   })
-  const coreFlowProjection = computed(() => projectCoreFlowExecutionGraph(graph.value))
-  const paperGraph = computed(() => coreFlowProjection.value.paperGraph)
-  type CachedPaperEntry = {
-    version: string
-    entry: ReturnType<typeof buildPaperStack>[number]
-  }
-  let paperEntryCache = new Map<string, CachedPaperEntry>()
-  function paperTextHash(value?: string): number {
-    if (!value) return 0
-    let hash = 2166136261
-    for (let index = 0; index < value.length; index += 1) {
-      hash ^= value.charCodeAt(index)
-      hash = Math.imul(hash, 16777619)
-    }
-    return hash >>> 0
-  }
-  function paperNodeVersion(node: ExecutionNode): string {
-    const fact = node.sourceFact
-    const own = [
-      node.id,
-      node.status,
-      node.inputState ?? '',
-      paperTextHash(node.content),
-      paperTextHash(node.thinking),
-      fact?.updatedAt ?? '',
-      fact?.status ?? '',
-      ...(fact?.toolCalls ?? []).flatMap((call) => [
-        call.callId ?? '',
-        call.status ?? '',
-        paperTextHash(call.arguments),
-        paperTextHash(call.result),
-      ]),
-    ]
-    if (node.kind === 'fold') {
-      own.push(
-        ...(node.fold?.members ?? []).flatMap((member) => {
-          const display = member.displayNode
-          return [
-            display.id,
-            display.status,
-            display.sourceFact?.updatedAt ?? '',
-            paperTextHash(display.content),
-            paperTextHash(display.thinking),
-          ]
-        }),
-      )
-    }
-    return own.join('\u0001')
-  }
-  const paperEntries = computed(() => {
-    const nextCache = new Map<string, CachedPaperEntry>()
-    const entries = buildPaperStack(paperGraph.value.nodes, nodeTitle).map((entry) => {
-      const version = paperNodeVersion(entry.node)
-      const cached = paperEntryCache.get(entry.id)
-      const stable =
-        cached?.version === version && cached.entry.title === entry.title ? cached.entry : entry
-      nextCache.set(entry.id, { version, entry: stable })
-      return stable
-    })
-    paperEntryCache = nextCache
-    return entries
-  })
-  const activePaperNodeId = ref<string>()
-  const paperHasNewTail = ref(false)
-  const paperCurrentIndex = computed(() => {
-    const index = paperEntries.value.findIndex((entry) => entry.id === activePaperNodeId.value)
-    return index >= 0 ? index : Math.max(0, paperEntries.value.length - 1)
-  })
-  const defaultNodePopovers = computed(() =>
-    buildDefaultNodePopovers(graph.value.nodes, chatSessions.sessionsById),
-  )
-  const defaultPopoverById = computed(
-    () => new Map(defaultNodePopovers.value.map((model) => [model.id, model] as const)),
-  )
-  const defaultPopoverAnchorIds = computed(
-    () => new Set(defaultNodePopovers.value.map((model) => model.anchorNodeId)),
-  )
-  /**
-   * 等待用户交互的锚定节点（待审批/待回答）：整棵树上持续闪烁，直到交互完成。
-   * 除主锚点外还包含模型的附加锚点（如提问批的 ask_user_question 问号工具节点）。
-   */
-  const awaitingInteractionNodeIds = computed(() => {
-    const ids = new Set<string>()
-    for (const model of defaultNodePopovers.value) {
-      ids.add(model.anchorNodeId)
-      for (const alt of model.anchorAltNodeIds ?? []) ids.add(alt)
-    }
-    return ids
-  })
-  /** 保留节点弹层布局状态，审核/提问模型本身不再进入弹层渲染。 */
-  const actionPopoverOpenIds = ref<Set<string>>(new Set())
-  /** 其他节点详情弹层使用的锚点查找。 */
-  function actionPopoversForAnchor(anchorNodeId: string): string[] {
-    return defaultNodePopovers.value
-      .filter(
-        (model) =>
-          model.anchorNodeId === anchorNodeId ||
-          model.anchorAltNodeIds?.includes(anchorNodeId),
-      )
-      .map((model) => model.id)
-  }
-  /** 其他节点详情弹层的切换状态。审核/提问不调用此路径。 */
-  function toggleActionPopover(anchorNodeId: string): void {
-    const modelIds = actionPopoversForAnchor(anchorNodeId)
-    if (!modelIds.length) return
-    const next = new Set(actionPopoverOpenIds.value)
-    const anyClosed = modelIds.some((id) => !next.has(id))
-    for (const id of modelIds) {
-      if (anyClosed) next.add(id)
-      else next.delete(id)
-    }
-    actionPopoverOpenIds.value = next
-  }
-  const layoutEngine = createIncrementalExecutionLayout()
-  const layout = computed(() =>
-    projectExecutionPresentation(
-      layoutEngine.layout(graph.value, {
-        mode: props.layoutMode,
-        branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
-      }),
-      props.presentationMode ?? 'horizontal-signal',
-    ),
-  )
-  const canvas = useTreeCanvas({
-    viewport: () => viewportRef.value,
-    contentBounds: () => layout.value.bounds,
-    initialFocus: () =>
-      layout.value.presentation === 'horizontal-signal'
-        ? { x: layout.value.bounds.minX, y: layout.value.nodes[0]?.y ?? 0 }
-        : { x: 0, y: layout.value.bounds.minY },
-    minScale: 0.32,
-    // 2026-09-02 调整：2.2 放大后节点超出阅读尺度，上限收敛到 1.6。
-    maxScale: 1.6,
-    padding: 18,
-    deferDragCommit: true,
-    onDragStart: startGpuDrag,
-    onDragFrame: presentGpuDrag,
-    onDragEnd: finishGpuDrag,
-  })
-  const executionCamera = computed<ExecutionCamera>(() => ({
-    scale: canvas.scale.value,
-    x: canvas.offsetX.value,
-    y: canvas.offsetY.value,
-    width: viewportSize.value.width,
-    height: viewportSize.value.height,
-  }))
-  const viewportSelectionCamera = shallowRef<ExecutionCamera>(executionCamera.value)
-  const VIEWPORT_RETENTION_SAFETY_MARGIN = 160
-  /** 横向节点树右侧警戒线：最右节点屏幕位置超过视口宽度此比例（右侧留白 20%）时整体左移。 */
-  const TREE_TAIL_EDGE_RATIO = 0.8
-  const viewportRetentionOverscan = computed(() =>
-    Math.max(480, Math.min(960, Math.max(viewportSize.value.width, viewportSize.value.height))),
-  )
-  const forcedGpuNodeIds = computed(
-    () =>
-      new Set(
-        [
-          hoveredDetailNodeId.value,
-          pinnedDetailNodeId.value,
-          props.paperMode ? activePaperNodeId.value : undefined,
-          ...runningTailIds.value,
-        ].filter((id): id is string => !!id),
-      ),
-  )
-  const executionViewportIndex = computed(() => createExecutionViewportIndex(layout.value))
-  /** 全量渲染默认阈值（config 未配置时兜底）：节点数≤此值跳过视口裁剪。 */
-  const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 150
-  const fullRenderThreshold = computed(() => {
-    const configured = props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT
-    // 卡牌模式打开右侧抽屉后画布被遮罩覆盖，收紧全量渲染阈值节省软件渲染纹理；
-    // 流程图/阅读器抽屉同样覆盖画布、不改变视口尺寸，保持默认阈值。
-    return props.paperMode ? Math.min(configured, 120) : configured
-  })
-  const fullRenderActive = computed(() => layout.value.nodes.length <= fullRenderThreshold.value)
-  const visibleExecutionItems = computed(() =>
-    selectVisibleExecutionItems(
-      layout.value,
-      viewportSelectionCamera.value,
-      forcedGpuNodeIds.value,
-      executionViewportIndex.value,
-      viewportRetentionOverscan.value,
-      fullRenderThreshold.value,
-    ),
-  )
-  const visibleExecutionKey = computed(() => visibleItemsKey(visibleExecutionItems.value))
-  const visibleInteractiveNodes = computed(() =>
-    visibleExecutionItems.value.nodes.filter(
-      // start 为纯装饰节点，默认不在命中层；工作台（非 staticView）下可点化以承载钢琴彩蛋首步。
-      (node) => isInteractiveNode(node) || (!props.staticView && node.kind === 'start'),
-    ),
-  )
-  function taskPlanForNode(
-    node: PositionedExecutionNode,
-  ): NonNullable<TimelineNode['todoPlan']> | undefined {
-    if (node.sourceFact?.todoPlan) return node.sourceFact.todoPlan
-    return node.fold?.projectionNodes
-      .filter((member) => !!member.sourceFact?.todoPlan)
-      .sort((a, b) => (b.orderKey ?? -Infinity) - (a.orderKey ?? -Infinity))[0]
-      ?.sourceFact?.todoPlan
-  }
-  const taskPlanMarkerNodes = computed(() => {
-    const latestByChat = new Map<string, { node: PositionedExecutionNode; orderKey: number }>()
-    for (const node of layout.value.nodes) {
-      let planOrder = node.orderKey ?? -Infinity
-      const plan = taskPlanForNode(node)
-      if (!plan) continue
-      if (!node.sourceFact?.todoPlan) {
-        planOrder = node.fold?.projectionNodes
-          .filter((member) => !!member.sourceFact?.todoPlan)
-          .sort((a, b) => (b.orderKey ?? -Infinity) - (a.orderKey ?? -Infinity))[0]?.orderKey ?? planOrder
-      }
-      const previous = latestByChat.get(node.sourceChatId)
-      if (!previous || planOrder > previous.orderKey) {
-        latestByChat.set(node.sourceChatId, { node, orderKey: planOrder })
-      }
-    }
-    const visible = new Set(visibleInteractiveNodes.value.map((node) => node.id))
-    return [...latestByChat.values()].map(({ node }) => node).filter((node) => visible.has(node.id))
-  })
-  function taskPlanMarkerStyle(node: PositionedExecutionNode): Record<string, string> {
-    const bounds = node.visualBounds
-    const position = canvas.worldToScreen({
-      x: bounds?.left ?? node.x - 52,
-      y: node.y,
-    })
-    return { left: `${position.x}px`, top: `${position.y - 8}px` }
-  }
-  function dragExecutionCamera(transform: CanvasTransform): ExecutionCamera {
-    return { ...transform, width: viewportSize.value.width, height: viewportSize.value.height }
-  }
-  function setDragOverlayTranslation(x: number, y: number): void {
-    viewportRef.value?.style.setProperty('--tree-drag-x', `${x}px`)
-    viewportRef.value?.style.setProperty('--tree-drag-y', `${y}px`)
-  }
-  function startGpuDrag(transform: CanvasTransform): void {
-    gpuRenderer?.setCamera(dragExecutionCamera(transform))
-    gpuRenderer?.setMotionPaused(true)
-    viewportRef.value?.classList.add('is-panning')
-    setDragOverlayTranslation(0, 0)
-  }
-  function retainCameraSelection(camera: ExecutionCamera): void {
-    // Full-render scenes are camera-independent. Updating the selection ref here
-    // would only invalidate Vue and repatch every transparent hit target per frame.
-    if (fullRenderActive.value) return
-    if (
-      !viewportSelectionContainsCamera(
-        visibleExecutionItems.value.bounds,
-        camera,
-        VIEWPORT_RETENTION_SAFETY_MARGIN,
-      )
-    ) {
-      viewportSelectionCamera.value = camera
-    }
-  }
-  function presentGpuDrag(transform: CanvasTransform): void {
-    const camera = dragExecutionCamera(transform)
-    // Freeze the expensive Pixi scene while panning. The already rendered canvas
-    // and all camera-bound DOM overlays are translated as compositor bitmaps.
-    setDragOverlayTranslation(
-      transform.x - canvas.offsetX.value,
-      transform.y - canvas.offsetY.value,
-    )
-    retainCameraSelection(camera)
-  }
-  function finishGpuDrag(transform: CanvasTransform): void {
-    const camera = dragExecutionCamera(transform)
-    gpuRenderer?.setCamera(camera)
-    retainCameraSelection(camera)
-    gpuRenderer?.setMotionPaused(false)
-    snapCrtWindowsToAnchors()
-    void nextTick(() => {
-      setDragOverlayTranslation(0, 0)
-      viewportRef.value?.classList.remove('is-panning')
-    })
-  }
-  const projectedCrts = computed(() =>
-    buildRunCrtModels({
-      rootChatId: props.rootChatId,
-      runs: activeCrtRuns.value,
-      authoritativeRuns: timelineSnapshot.value?.activeRuns,
-      activeTurns: liveState.value.activeTurns,
-      canonicalNodes: persistentGraph.value.nodes,
-      visibleNodes: graph.value.nodes,
-      sessionsById: chatSessions.sessionsById,
-    }),
-  )
-  const retainedCrts = computed(
-    () => new Map(projectedCrts.value.map((card) => [card.id, card] as const)),
-  )
-  const runningTailIds = computed(() => {
-    return new Set([
-      ...graph.value.nodes
-        .filter((node) => node.activeRuns.some((run) => run.status === 'running'))
-        .map((node) => node.id),
-      ...projectedCrts.value
-        .filter((card) => card.status === 'running' || card.status === 'waiting')
-        .map((card) => card.anchorNodeId),
-    ])
-  })
-  watch(
-    projectedCrts,
-    (nextCards) => {
-      const liveIds = new Set(nextCards.map((card) => card.id))
-      updateCrtSet(pinnedCrtIds, (ids) => {
-        for (const id of ids) if (!liveIds.has(id)) ids.delete(id)
-      })
-      updateCrtSet(hiddenCrtIds, (ids) => {
-        for (const id of ids) if (!liveIds.has(id)) ids.delete(id)
-      })
-    },
-    { immediate: true },
-  )
-  watch(
+  const {
     defaultNodePopovers,
-    (models) => {
-      const liveIds = new Set(models.map((model) => model.id))
-      const next = new Map(actionSelectedCallIds.value)
-      for (const id of next.keys()) if (!liveIds.has(id)) next.delete(id)
-      actionSelectedCallIds.value = next
-    },
-    { immediate: true },
-  )
-  const crtVisibility = computed(() => {
-    const cards = [...retainedCrts.value.values()].map((card, order) => ({
-      id: card.id,
-      actionable: card.actionable,
-      pinned: pinnedCrtIds.value.has(card.id),
-      order: card.updatedAt || order,
-    }))
-    return selectVisibleCrtIds(cards, 5)
+    defaultPopoverAnchorIds,
+    awaitingInteractionNodeIds,
+    vMeasureHeight,
+    recordActionPopoverHeight,
+    dragActionPopover,
+    defaultPopoverViews,
+    selectedActionCall,
+    selectActionCall,
+    resetActionPopovers,
+  } = useTreeActionPopovers({
+    graph,
+    chatSessions,
+    layout: () => layout.value,
+    viewportSize,
+    nodeScreenAnchor: (node) => nodeScreenAnchor(node),
+    memberContainingNode: (members, nodeId) => memberContainingNode(members, nodeId),
+    popoverWidth: 640,
+    popoverInitialHeight: 220,
   })
-  const visibleCrts = computed(() =>
-    [...retainedCrts.value.values()].filter(
-      (card) =>
-        crtVisibility.value.visible.has(card.id) &&
-        (card.actionable || !hiddenCrtIds.value.has(card.id)),
-    ),
-  )
-  const initialCrtPlacements = computed(() => {
-    const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
-    const heightLimit = Math.max(160, viewportSize.value.height - 96)
-    return layoutCrtWindowsBesideAnchors(
-      visibleCrts.value.flatMap((card, order) => {
-        const node = positioned.get(card.anchorNodeId)
-        if (!node) return []
-        return [
-          {
-            id: card.id,
-            anchor: nodeScreenAnchor(node),
-            panel: { width: 360, height: Math.min(heightLimit, 476) },
-            anchorClearance: 23 * canvas.scale.value + 10,
-            main: card.main,
-            actionable: false,
-            pinned: pinnedCrtIds.value.has(card.id),
-            order: card.updatedAt || order,
-            lineTargetOffsetY: 16,
-          },
-        ]
-      }),
-      { ...viewportSize.value, margin: 12 },
-    )
+  const {
+    layout,
+    canvas,
+    executionCamera,
+    viewportSelectionCamera,
+    visibleExecutionItems,
+    visibleExecutionKey,
+    visibleInteractiveNodes,
+    focusRelativeNode,
+    taskPlanForNode,
+    taskPlanMarkerNodes,
+    taskPlanMarkerStyle,
+    hasNewTail,
+    resetLayout,
+    tryInitialFit,
+    returnToBottom,
+    resetCameraForRoot,
+    resetCameraLayout,
+  } = useTreeCamera({
+    props,
+    graph,
+    timelineSnapshot,
+    viewportRef,
+    viewportSize,
+    hoveredDetailNodeId,
+    pinnedDetailNodeId,
+    activePaperNodeId,
+    runningTailIds: () => runningTailIds.value,
+    isInteractiveNode,
+    renderer: () => gpu.renderer(),
+    snapCrts: () => snapCrtWindowsToAnchors(),
   })
-  let crtAnchorPlacementKeys = new Map<string, string>()
-  watch(
-    initialCrtPlacements,
-    (placements) => {
-      const live = new Set(visibleCrts.value.map((card) => card.id))
-      const next = new Map(crtWindowState.value)
-      const nextPlacementKeys = new Map<string, string>()
-      for (const id of next.keys()) if (!live.has(id)) next.delete(id)
-      for (const placement of placements) {
-        const placementKey = [
-          placement.anchor.x,
-          placement.anchor.y,
-          placement.left,
-          placement.top,
-        ].join(':')
-        nextPlacementKeys.set(placement.id, placementKey)
-        const current = next.get(placement.id)
-        if (!current)
-          next.set(placement.id, { left: placement.left, top: placement.top, z: nextCrtZ++ })
-        else if (crtAnchorPlacementKeys.get(placement.id) !== placementKey)
-          next.set(placement.id, { ...current, left: placement.left, top: placement.top })
-      }
-      crtAnchorPlacementKeys = nextPlacementKeys
-      crtWindowState.value = next
-    },
-    { immediate: true },
-  )
-  function snapCrtWindowsToAnchors(): void {
-    const next = new Map(crtWindowState.value)
-    let changed = false
-    for (const placement of initialCrtPlacements.value) {
-      const current = next.get(placement.id)
-      if (!current || (current.left === placement.left && current.top === placement.top)) continue
-      next.set(placement.id, { ...current, left: placement.left, top: placement.top })
-      changed = true
-    }
-    if (changed) crtWindowState.value = next
-  }
-  const crtPlacements = computed(() => {
-    const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
-    return visibleCrts.value.flatMap((card, order) => {
-      const node = positioned.get(card.anchorNodeId)
-      const state = crtWindowState.value.get(card.id)
-      if (!node || !state) return []
-      const anchor = nodeScreenAnchor(node)
-      const panel = {
-        width: 360,
-        height: Math.min(Math.max(160, viewportSize.value.height - 96), 476),
-      }
-      const centerX = state.left + panel.width / 2
-      const placement = anchor.x <= centerX ? ('right' as const) : ('left' as const)
-      const edgeX = placement === 'right' ? state.left : state.left + panel.width
-      return [
-        {
-          id: card.id,
-          anchor,
-          panel,
-          main: card.main,
-          actionable: card.actionable,
-          pinned: pinnedCrtIds.value.has(card.id),
-          order: card.updatedAt || order,
-          left: state.left,
-          top: state.top,
-          placement,
-          windowZ: state.z,
-          line: { from: anchor, to: { x: edgeX, y: state.top + 16 } },
-        },
-      ]
-    })
+  const {
+    unreadFoldMembers,
+    readingFoldId,
+    memberContainingNode,
+    selectedFoldMember,
+    selectFoldMember,
+    stepFoldDetail,
+    onFoldRailInteraction,
+    resetFoldReading,
+  } = useTreeFoldReading({
+    props,
+    graph,
+    foldProjection,
+    pinnedDetailNodeId,
+    hoveredDetailNodeId,
+    selectedCallId,
+    detailNode: () => detail.detailNode.value,
+    detailFoldMember: () => detail.detailFoldMember.value,
   })
-  /** 定位高度未测到前的合理小初始值：避免用视口上限高度参与垂直钳制导致矮窗「飘高」。 */
   const POPOVER_INITIAL_HEIGHT = 220
-  /** hover 详情弹窗默认宽度：与 ExecutionNodePopover.styles.less 的 `width: min(640px, …)` 保持一致。 */
   const POPOVER_WIDTH = 640
+  const detail = useTreeDetailWindow({
+    props,
+    graph,
+    layout,
+    canvas,
+    viewportRef,
+    viewportSize,
+    hoveredDetailNodeId,
+    pinnedDetailNodeId,
+    selectedCallId,
+    readingFoldId,
+    selectedFoldMember,
+    hasCrtAnchor: (id) => crtsByAnchor.value.has(id),
+    hasDefaultPopoverAnchor: (id) => defaultPopoverAnchorIds.value.has(id),
+    popoverWidth: POPOVER_WIDTH,
+    popoverInitialHeight: POPOVER_INITIAL_HEIGHT,
+  })
+  const {
+    showNodeDetail,
+    hideNodeDetail,
+    keepNodeDetailOpen,
+    leaveNodeDetail,
+    closeNodeDetail,
+    detailNode,
+    detailFoldMember,
+    detailDisplayNode,
+    detailPinned,
+    detailRelatedEdges,
+    detailMaxHeight,
+    detailAnchorEl,
+    detailWrap,
+    nodeScreenAnchor,
+    dragDetailPopover,
+    finishDetailDrag,
+    detailSizeLabel,
+    cycleDetailSize,
+    toggleDetailWrap,
+    detailPlacement,
+    detailAnchorStyle,
+    foldRailSide,
+    containsBranchAnchor,
+    cleanupDetail,
+  } = detail
+  const {
+    pinnedCrtIds,
+    runningTailIds,
+    crtVisibility,
+    crtPlacements,
+    overlayPlacements,
+    crtById,
+    crtsByAnchor,
+    pinCrt,
+    unpinCrt,
+    closeCrt,
+    focusCrt,
+    dragCrt,
+    snapCrtWindowsToAnchors,
+    resetCrtWindows,
+  } = useTreeCrtWindows({
+    props,
+    chatSessions,
+    timelineSnapshot,
+    liveState,
+    persistentGraph,
+    graph,
+    activeCrtRuns,
+    layout,
+    canvas,
+    viewportSize,
+    nodeScreenAnchor,
+  })
   /** 审批/提问等 action 弹窗被用户拖动后的手动位置；缺省 = 跟随自动定位（贴节点右侧）。 */
-  const actionPopoverManual = ref<Map<string, { left: number; top: number }>>(new Map())
-  /** action 弹窗的实测内容高度（ResizeObserver 上报），定位用真实高度而非滚动上限。 */
-  const actionPopoverHeights = ref<Map<string, number>>(new Map())
-  /**
-   * 高度测量指令：观察宿主元素尺寸变化并回传实测高度，供定位使用。
-   * 每帧回传的是闭包里的最新回调（updated 钩子同步），避免 ResizeObserver 回调拿到过期引用。
-   */
-  const vMeasureHeight = {
-    mounted(el: HTMLElement, binding: { value: (height: number) => void }): void {
-      const host = el as HTMLElement & {
-        __popoverMeasure?: ResizeObserver
-        __popoverMeasureCallback?: (height: number) => void
-      }
-      host.__popoverMeasureCallback = binding.value
-      const observer = new ResizeObserver(() => {
-        host.__popoverMeasureCallback?.(host.offsetHeight)
-      })
-      observer.observe(el)
-      host.__popoverMeasure = observer
-    },
-    updated(el: HTMLElement, binding: { value: (height: number) => void }): void {
-      ;(
-        el as HTMLElement & { __popoverMeasureCallback?: (height: number) => void }
-      ).__popoverMeasureCallback = binding.value
-    },
-    unmounted(el: HTMLElement): void {
-      ;(el as HTMLElement & { __popoverMeasure?: ResizeObserver }).__popoverMeasure?.disconnect()
-    },
-  }
-  function setActionPopoverHeight(id: string, height: number): void {
-    if (height <= 0 || actionPopoverHeights.value.get(id) === height) return
-    const next = new Map(actionPopoverHeights.value)
-    next.set(id, height)
-    actionPopoverHeights.value = next
-  }
-  /** v-measure-height 的具名回调工厂：模板内联箭头无法推断 height 类型（TS7006）。 */
-  function recordActionPopoverHeight(id: string): (height: number) => void {
-    return (height: number) => setActionPopoverHeight(id, height)
-  }
-  function dragActionPopover(id: string, delta: { x: number; y: number }): void {
-    const placement = defaultPopoverPlacements.value.find((item) => item.id === id)
-    if (!placement) return
-    const current = actionPopoverManual.value.get(id) ?? {
-      left: placement.left,
-      top: placement.top,
-    }
-    const headerVisible = 32
-    const left = Math.min(
-      viewportSize.value.width - headerVisible,
-      Math.max(-POPOVER_WIDTH + headerVisible, current.left + delta.x),
-    )
-    const top = Math.min(
-      viewportSize.value.height - headerVisible,
-      Math.max(0, current.top + delta.y),
-    )
-    const next = new Map(actionPopoverManual.value)
-    next.set(id, { left, top })
-    actionPopoverManual.value = next
-  }
-  // 模型消失（审批已处理/提问已答复）→ 清掉该 id 的手动位置、实测高度与打开态，重开后回自动定位。
-  watch(
-    () => defaultNodePopovers.value.map((model) => model.id),
-    (ids) => {
-      const idSet = new Set(ids)
-      const nextManual = new Map(actionPopoverManual.value)
-      const nextHeights = new Map(actionPopoverHeights.value)
-      const nextOpen = new Set(actionPopoverOpenIds.value)
-      for (const id of nextManual.keys()) if (!idSet.has(id)) nextManual.delete(id)
-      for (const id of nextHeights.keys()) if (!idSet.has(id)) nextHeights.delete(id)
-      for (const id of nextOpen) if (!idSet.has(id)) nextOpen.delete(id)
-      actionPopoverManual.value = nextManual
-      actionPopoverHeights.value = nextHeights
-      actionPopoverOpenIds.value = nextOpen
-    },
-  )
-  const defaultPopoverPlacements = computed(() => {
-    const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
-    const heightLimit = Math.max(160, viewportSize.value.height - 96)
-    return defaultNodePopovers.value.flatMap((model, order) => {
-      // 审批/提问统一在工作台左下角审核窗口处理，节点只承担闪烁提示与定位，
-      // 不再生成节点旁的第二个可交互审核窗口。
-      if (model.approval || model.question) return []
-      // 审批/提问交互卡只在用户点击（或外部定位）对应节点后打开；
-      // 未打开的待处理模型仅驱动节点闪烁提示。
-      if (!actionPopoverOpenIds.value.has(model.id)) return []
-      const node = positioned.get(model.anchorNodeId)
-      if (!node) return []
-      const anchor = nodeScreenAnchor(node)
-      const measured = actionPopoverHeights.value.get(model.id)
-      const auto = anchoredPopoverPosition({
-        anchor,
-        viewport: viewportSize.value,
-        panel: { width: POPOVER_WIDTH, height: measured ?? POPOVER_INITIAL_HEIGHT },
-        margin: 12,
-      })
-      const manual = actionPopoverManual.value.get(model.id)
-      const left = manual?.left ?? auto.left
-      const top = manual?.top ?? auto.top
-      const placement = manual
-        ? anchor.x <= left + POPOVER_WIDTH / 2
-          ? ('left' as const)
-          : ('right' as const)
-        : auto.placement
-      return [
-        {
-          id: model.id,
-          anchor,
-          panel: { width: POPOVER_WIDTH, height: Math.min(heightLimit, 640) },
-          main: node.main,
-          actionable: true,
-          pinned: false,
-          order: model.createdAt || order,
-          left,
-          top,
-          placement,
-        },
-      ]
-    })
-  })
-  /** 锚点连线只服务运行 CRT；节点悬浮框（详情/审批/提问）一律不画线。 */
-  const overlayPlacements = computed(() => [...crtPlacements.value])
-  const crtById = computed(() => new Map(visibleCrts.value.map((card) => [card.id, card])))
-  const crtsByAnchor = computed(() => {
-    const result = new Map<string, RunCrtModel[]>()
-    for (const card of retainedCrts.value.values()) {
-      const cards = result.get(card.anchorNodeId) ?? []
-      cards.push(card)
-      result.set(card.anchorNodeId, cards)
-    }
-    return result
-  })
-  function updateCrtSet(target: typeof pinnedCrtIds, update: (next: Set<string>) => void): void {
-    const next = new Set(target.value)
-    update(next)
-    target.value = next
-  }
-  function pinCrt(id: string): void {
-    updateCrtSet(pinnedCrtIds, (next) => next.add(id))
-    updateCrtSet(hiddenCrtIds, (next) => next.delete(id))
-  }
-  function unpinCrt(id: string): void {
-    updateCrtSet(pinnedCrtIds, (next) => next.delete(id))
-  }
-  function closeCrt(id: string): void {
-    if (retainedCrts.value.get(id)?.actionable) return
-    unpinCrt(id)
-    updateCrtSet(hiddenCrtIds, (next) => next.add(id))
-  }
-  function focusCrt(id: string): void {
-    const current = crtWindowState.value.get(id)
-    if (!current) return
-    const next = new Map(crtWindowState.value)
-    const ordered = [...next.entries()]
-      .filter(([candidate]) => candidate !== id)
-      .sort((a, b) => a[1].z - b[1].z || a[0].localeCompare(b[0]))
-    ordered.forEach(([candidate, state], index) => next.set(candidate, { ...state, z: index + 1 }))
-    next.set(id, { ...current, z: ordered.length + 1 })
-    nextCrtZ = ordered.length + 2
-    crtWindowState.value = next
-  }
-  function dragCrt(id: string, delta: { x: number; y: number }): void {
-    const current = crtWindowState.value.get(id)
-    if (!current) return
-    const width = 360
-    const headerVisible = 32
-    const left = Math.min(
-      viewportSize.value.width - headerVisible,
-      Math.max(-width + headerVisible, current.left + delta.x),
-    )
-    const top = Math.min(
-      viewportSize.value.height - headerVisible,
-      Math.max(0, current.top + delta.y),
-    )
-    const next = new Map(crtWindowState.value)
-    next.set(id, { left, top, z: current.z })
-    crtWindowState.value = next
-  }
-  function actorLabel(node: ExecutionNode): string {
-    const actor = node.actor
-    if (actor.kind === 'user') return actor.displayName?.trim() || '我'
-    if (actor.kind === 'agent') {
-      return (
-        actor.roleType?.trim() ||
-        (node.sourceChatId === node.rootChatId ? 'Cherry Nyxus' : '协作节点')
-      )
-    }
-    if (actor.kind === 'tool') return toolDisplayName(actor.toolName)
-    return '系统事件'
-  }
-  function toolDisplayName(name: string): string {
-    return agents.senseTools.find((tool) => tool.name === name)?.label?.trim() || name
-  }
-  function nodeTitle(node: ExecutionNode): string {
-    if (node.kind === 'start') return '任务起点'
-    if (node.kind === 'input') return '我的指令'
-    if (node.kind === 'epoch') return '设置已切换'
-    if (node.kind === 'pack') {
-      // 打包节点标题 = 摘要首行（compactNodeTitle 统一截断）。
-      const firstLine = node.content
-        .split('\n')
-        .map((line) => line.trim())
-        .find(Boolean)
-      return firstLine ? `打包 · ${firstLine}` : '打包历史'
-    }
-    if (node.kind === 'return') return '结果返回'
-    if (node.direction === 'parent-to-child') return '委派任务'
-    if (node.kind === 'tool-batch') {
-      const detail = toolBatchDetail(node)
-      if (detail?.calls.length === 1) return toolDisplayName(detail.calls[0]!.name)
-      return detail?.calls.length ? `工具执行 · ${detail.calls.length} 项` : '工具执行'
-    }
-    if (node.kind === 'fold') return skinForNode(node).label
-    if (node.kind === 'dispatch') return '任务委派'
-    if (node.kind === 'spawn') return '创建协作节点'
-    return actorLabel(node)
-  }
-  function compactNodeTitle(node: ExecutionNode): string {
-    const title = nodeTitle(node)
-    return title.length > 10 ? `${title.slice(0, 9)}…` : title
-  }
-  function nodeAriaLabel(node: (typeof layout.value.nodes)[number]): string {
-    const states = [
-      runningTailIds.value.has(node.id) ? '运行中' : '',
-      isPaused(node) ? '已暂停' : '',
-      isError(node) ? '执行错误' : '',
-      node.sourceFact?.termination ? terminationDisplay(node.sourceFact.termination).label : '',
-    ].filter(Boolean)
-    return `${nodeTitle(node)}，${skinForNode(node).label}${states.length ? `，${states.join('，')}` : ''}`
-  }
-  function focusRelativeNode(
-    nodeId: string,
-    direction: -1 | 1 | 'first' | 'last' | 'up' | 'down' | 'left' | 'right',
-  ): void {
-    const nodes = layout.value.nodes.filter(isInteractiveNode)
-    if (nodes.length === 0) return
-    const currentIndex = Math.max(
-      0,
-      nodes.findIndex((node) => node.id === nodeId),
-    )
-    const current = nodes[currentIndex]!
-    let node
-    if (direction === 'first') node = nodes[0]
-    else if (direction === 'last') node = nodes.at(-1)
-    else if (
-      layout.value.presentation === 'horizontal-signal' &&
-      (direction === 'up' || direction === 'down')
-    ) {
-      const sign = direction === 'up' ? -1 : 1
-      node = nodes
-        .filter((candidate) => (candidate.y - current.y) * sign > 0)
-        .sort(
-          (a, b) =>
-            Math.abs(a.y - current.y) - Math.abs(b.y - current.y) ||
-            Math.abs(a.x - current.x) - Math.abs(b.x - current.x),
-        )[0]
-    } else {
-      const delta = direction === -1 || direction === 'left' || direction === 'up' ? -1 : 1
-      node = nodes[Math.min(nodes.length - 1, Math.max(0, currentIndex + delta))]
-    }
-    if (!node) return
-    const nextId = node.id
-    const focusTarget = (): boolean => {
-      const target = viewportRef.value?.querySelector<HTMLButtonElement>(
-        `[data-execution-node-id="${CSS.escape(nextId)}"]`,
-      )
-      target?.focus()
-      return !!target
-    }
-    if (!focusTarget()) {
-      canvas.panToPoint(node)
-      void nextTick(focusTarget)
-    }
-  }
   function isInteractiveNode(node: (typeof layout.value.nodes)[number]): boolean {
     return hasNodeHoverDetail(node) || crtsByAnchor.value.has(node.id)
   }
@@ -1139,142 +238,6 @@ export function useMessageBranchTreeController(
     },
     { flush: 'post' },
   )
-  function cancelDetailHide(): void {
-    if (detailHideTimer) clearTimeout(detailHideTimer)
-    detailHideTimer = undefined
-  }
-  function showNodeDetail(node: (typeof layout.value.nodes)[number]): void {
-    if (props.paperMode) return
-    if (crtsByAnchor.value.has(node.id) || defaultPopoverAnchorIds.value.has(node.id)) return
-    if (!hasNodeHoverDetail(node)) return
-    cancelDetailHide()
-    hoveredDetailNodeId.value = node.id
-    if (node.kind === 'fold') readingFoldId.value = node.id
-  }
-  function hideNodeDetail(node: (typeof layout.value.nodes)[number]): void {
-    if (props.paperMode) return
-    if (pinnedDetailNodeId.value === node.id) return
-    cancelDetailHide()
-    detailHideTimer = setTimeout(() => {
-      detailHideTimer = undefined
-      if (!pinnedDetailNodeId.value && hoveredDetailNodeId.value === node.id) {
-        hoveredDetailNodeId.value = undefined
-        if (readingFoldId.value === node.id) readingFoldId.value = undefined
-      }
-    }, 180)
-  }
-  function keepNodeDetailOpen(): void {
-    cancelDetailHide()
-    if (detailNode.value?.kind === 'fold') readingFoldId.value = detailNode.value.id
-  }
-  function leaveNodeDetail(): void {
-    if (pinnedDetailNodeId.value) return
-    cancelDetailHide()
-    detailHideTimer = setTimeout(() => {
-      detailHideTimer = undefined
-      hoveredDetailNodeId.value = undefined
-      readingFoldId.value = undefined
-    }, 180)
-  }
-  function closeNodeDetail(): void {
-    cancelDetailHide()
-    detailManualPos.value = null
-    pinnedDetailNodeId.value = undefined
-    hoveredDetailNodeId.value = undefined
-    selectedCallId.value = undefined
-    readingFoldId.value = undefined
-  }
-  function requestBranch(type: 'detail' | 'continuation', nodeId: string): void {
-    if (props.staticView) return // 静态代际视图：历史节点不提供分支入口（服务端已拒绝）
-    const node = persistentGraph.value.nodes.find((candidate) => candidate.id === nodeId)
-    if (!node || node.kind === 'pack') return
-    const branchId = node.sourceFact?.branchId
-    const sourceRootChatId = branchId
-      ? props.timelineOverride?.branches?.find((branch) => branch.branchId === branchId)?.chatId
-      : props.rootChatId
-    if (!sourceRootChatId) return
-    // 结尾节点（主执行流终点）的「从此处继续」= 普通发送：在当前会话末尾追加一条新消息。
-    // 是否普通发送只看该节点是否就是执行流终点，与工作台当前聚焦的聊天无关——
-    // 工作台可能聚焦在某一分支，而整棵任务树的真正终点落在根会话里。
-    const ordinary =
-      type === 'continuation' && mainExecutionEndpoint(persistentGraph.value).id === node.id
-    emit('branch', { type, nodeId, sourceRootChatId, ...(ordinary ? { ordinary: true } : {}) })
-    closeNodeDetail()
-  }
-  function updateStringMap(
-    target: typeof selectedFoldMembers,
-    update: (next: Map<string, string>) => void,
-  ): void {
-    const next = new Map(target.value)
-    update(next)
-    target.value = next
-  }
-  function updateNumberMap(
-    target: typeof unreadFoldMembers,
-    update: (next: Map<string, number>) => void,
-  ): void {
-    const next = new Map(target.value)
-    update(next)
-    target.value = next
-  }
-  function memberContainingNode(
-    members: readonly ExecutionFoldMember[],
-    nodeId?: string,
-  ): ExecutionFoldMember | undefined {
-    if (!nodeId) return undefined
-    return members.find(
-      (member) => member.id === nodeId || member.nodes.some((node) => node.id === nodeId),
-    )
-  }
-  function selectedFoldMember(
-    node: (typeof layout.value.nodes)[number] | undefined,
-  ): ExecutionFoldMember | undefined {
-    const members = node?.fold?.members ?? []
-    return (
-      memberContainingNode(members, pinnedDetailNodeId.value) ??
-      memberContainingNode(members, selectedFoldMembers.value.get(node?.id ?? '')) ??
-      members.at(-1)
-    )
-  }
-  function selectFoldMember(foldId: string, memberId: string): void {
-    updateStringMap(selectedFoldMembers, (next) => next.set(foldId, memberId))
-    const fold = graph.value.nodes.find((node) => node.id === foldId)
-    if (fold?.fold?.members.at(-1)?.id === memberId) {
-      updateNumberMap(unreadFoldMembers, (next) => next.set(foldId, 0))
-    }
-    selectedCallId.value = undefined
-  }
-  /** 常驻窗口标题分页器：按步进（-1/1）切换当前过程组的折叠成员页。 */
-  function stepFoldDetail(delta: number): void {
-    const node = detailNode.value
-    if (node?.kind !== 'fold' || !node.fold?.members.length) return
-    const members = node.fold.members
-    const currentIndex = Math.max(
-      0,
-      members.findIndex((member) => member.id === detailFoldMember.value?.id),
-    )
-    const nextIndex = currentIndex + delta
-    if (nextIndex < 0 || nextIndex >= members.length) return
-    const member = members[nextIndex]
-    if (!member) return
-    selectFoldMember(node.id, member.id)
-  }
-  function onFoldRailInteraction(foldId: string, active: boolean): void {
-    if (active) {
-      readingFoldId.value = foldId
-      return
-    }
-    const detailStillOpen =
-      hoveredDetailNodeId.value === foldId || pinnedDetailNodeId.value === foldId
-    if (!detailStillOpen && readingFoldId.value === foldId) readingFoldId.value = undefined
-  }
-  function onNodePointerDown(event: PointerEvent, node: (typeof layout.value.nodes)[number]): void {
-    // Interactive nodes must retain pointer ownership. Otherwise the viewport's
-    // pointer capture retargets the eventual click to the canvas.
-    // start 节点在非 staticView 下同样保留所有权（钢琴彩蛋首步可点化）。
-    if (isInteractiveNode(node) || (!props.staticView && node.kind === 'start'))
-      event.stopPropagation()
-  }
   async function recoverGraph(): Promise<void> {
     if (recoveringGraph.value) return
     recoveringGraph.value = true
@@ -1287,818 +250,98 @@ export function useMessageBranchTreeController(
       recoveringGraph.value = false
     }
   }
-  function resetLayout(): boolean {
-    // 横向 Signal：复位/切根/折叠切换后保持节点默认尺寸（scale 1），
-    // 最右节点停在视口宽度 TREE_TAIL_EDGE_RATIO（80%）处，即距右缘 20%，
-    // 与运行中新增节点的跟随目标一致；树不 fit 铺满整个页面、节点不缩小。
-    // 其他模式（vertical-classic）继续整树自适应 fit。
-    const horizontal = layout.value.presentation === 'horizontal-signal'
-    if (
-      !canvas.fitToView({
-        animate: true,
-        duration: 300,
-        ...(horizontal
-          ? ({ align: 'right', scale: 1, tailRatio: TREE_TAIL_EDGE_RATIO } as const)
-          : {}),
-      })
-    ) {
-      return false
-    }
-    return true
-  }
   function isPaused(node: (typeof layout.value.nodes)[number]): boolean {
     return node.activeRuns.some((run) => run.status === 'paused')
   }
   function isError(node: (typeof layout.value.nodes)[number]): boolean {
     return node.sourceFact?.termination?.code === 'error'
   }
-  function activateNode(node: (typeof layout.value.nodes)[number]): void {
-    if (canvas.consumeClickAfterDrag()) return
-    if (pianoEasterEgg.consume(node)) {
-      emit('easter-egg')
-      return
-    }
-    if (node.kind === 'pack' && node.pack) {
-      openGenerationView(node.pack.sourceRootChatId, node.pack.generationIndex)
-      return
-    }
-    if (props.paperMode && hasNodeHoverDetail(node)) {
-      selectPaperNode(node.id)
-      return
-    }
-    if (awaitingInteractionNodeIds.value.has(node.id)) {
-      const model = defaultNodePopovers.value.find(
-        (candidate) =>
-          candidate.anchorNodeId === node.id || candidate.anchorAltNodeIds?.includes(node.id),
-      )
-      if (model && (model.approval || model.question)) {
-        emit('interactionFocus', {
-          chatId: model.chatId,
-          interactionId: model.approval?.approvalId ?? model.question?.batch.batchId,
-          anchorNodeId: model.anchorNodeId,
-        })
-      }
-    } else if (crtsByAnchor.value.has(node.id)) {
-      for (const card of crtsByAnchor.value.get(node.id) ?? []) pinCrt(card.id)
-    } else if (canPinNodeDetail(node)) {
-      pinnedDetailNodeId.value = node.id
-      hoveredDetailNodeId.value = node.id
-      if (node.kind === 'fold') readingFoldId.value = node.id
-    } else if (pinnedDetailNodeId.value && hasNodeHoverDetail(node)) {
-      // 常驻窗口已固定（拖拽/点击过某个节点）后，点击任意有详情内容的节点
-      // 即把窗口内容切换到该节点；窗口停留在用户手动放置的位置。
-      pinnedDetailNodeId.value = node.id
-      hoveredDetailNodeId.value = node.id
-      if (node.kind === 'fold') readingFoldId.value = node.id
-    }
-  }
-  function focusNode(node: (typeof layout.value.nodes)[number]): void {
-    if (props.paperMode && hasNodeHoverDetail(node)) {
-      selectPaperNode(node.id)
-      return
-    }
-    showNodeDetail(node)
-  }
-  function selectPaperNode(nodeId: string): void {
-    const index = paperEntries.value.findIndex((entry) => entry.id === nodeId)
-    if (index < 0) return
-    activePaperNodeId.value = nodeId
-    paperHasNewTail.value = index < paperEntries.value.length - 1 && paperHasNewTail.value
-    closeNodeDetail()
-  }
-  function selectPaperIndex(index: number): void {
-    const entry = paperEntries.value[index]
-    if (!entry) return
-    selectPaperNode(entry.id)
-    if (index === paperEntries.value.length - 1) paperHasNewTail.value = false
-  }
-  function returnToLatestPaper(): void {
-    selectPaperIndex(paperEntries.value.length - 1)
-  }
-  // ── 打包代际二层：点 pack 节点 → 抽屉已开则联动抽屉二层，否则本组件内弹窗 ──
-  const generationDialogIndex = ref<number>()
-  const generationDialogRootChatId = ref<string>()
-  function openGenerationView(sourceRootChatId: string, generationIndex: number): void {
-    if (props.staticView) return // 二层内不再下钻（嵌套深度恒 1）
-    if (agents.historyDrawerStack.includes(sourceRootChatId)) {
-      agents.openHistoryGeneration(sourceRootChatId, generationIndex)
-      return
-    }
-    generationDialogRootChatId.value = sourceRootChatId
-    generationDialogIndex.value = generationIndex
-  }
-  function closeGenerationView(): void {
-    generationDialogIndex.value = undefined
-    generationDialogRootChatId.value = undefined
-  }
-  const detailNode = computed(() => {
-    const id = pinnedDetailNodeId.value ?? hoveredDetailNodeId.value
-    if (!id) return undefined
-    const exact = layout.value.nodes.find((node) => node.id === id)
-    if (exact) return exact
-    return layout.value.nodes.find(
-      (node) =>
-        node.fold?.members.some((member) =>
-          member.nodes.some((memberNode) => memberNode.id === id),
-        ) ||
-        (!!selectedCallId.value &&
-          toolBatchDetail(node)?.calls.some((call) => call.callId === selectedCallId.value)),
-    )
+  const {
+    requestBranch,
+    onNodePointerDown,
+    activateNode,
+    focusNode,
+    generationDialogIndex,
+    generationDialogRootChatId,
+    closeGenerationView,
+  } = useTreeNodeActivation({
+    props,
+    emit,
+    agents,
+    canvas,
+    pianoEasterEgg,
+    persistentGraph,
+    awaitingInteractionNodeIds,
+    defaultNodePopovers,
+    crtsByAnchor,
+    pinnedDetailNodeId,
+    hoveredDetailNodeId,
+    readingFoldId,
+    isInteractiveNode,
+    pinCrt,
+    selectPaperNode,
+    showNodeDetail,
+    closeNodeDetail,
   })
-  const detailFoldMember = computed(() => selectedFoldMember(detailNode.value))
-  const detailDisplayNode = computed(() =>
-    detailNode.value?.kind === 'fold' ? detailFoldMember.value?.displayNode : detailNode.value,
-  )
-  const detailPinned = computed(() => !!pinnedDetailNodeId.value && !!detailNode.value)
-  function containsBranchAnchor(node: (typeof layout.value.nodes)[number]): boolean {
-    const anchorId = props.branchAnchorNodeId
-    if (!anchorId) return false
-    if (node.id === anchorId || node.sourceFact?.id === anchorId) return true
-    return !!node.fold?.members.some(
-      (member) =>
-        member.id === anchorId ||
-        member.displayNode.sourceFact?.id === anchorId ||
-        member.nodes.some(
-          (candidate) => candidate.id === anchorId || candidate.sourceFact?.id === anchorId,
-        ),
-    )
-  }
-  const detailRelatedEdges = computed(() => {
-    const node = detailNode.value
-    return node
-      ? graph.value.edges.filter((edge) => edge.from === node.id || edge.to === node.id)
-      : []
-  })
-  /** hover 临时弹窗最大高度（2026-09-27 下调：配合宽度加宽成横宽「显示器」式，小屏更易看到底部内容）。 */
-  const detailMaxHeight = computed(() => {
-    return Math.min(480, Math.max(160, viewportSize.value.height - 96))
-  })
-  /** 详情弹窗实测高度。冻结契约（2026-09-02）下仅在冻结决策前已测得时参与定位，
-   *  否则用初始回退值；会话内不随实测回填重排。切节点时清零，旧节点高度不串位。 */
-  const detailAnchorEl = ref<HTMLElement>()
-  const measuredDetailHeight = ref(0)
-  let detailHeightRO: ResizeObserver | undefined
-  watch(detailAnchorEl, (el) => {
-    detailHeightRO?.disconnect()
-    detailHeightRO = undefined
-    measuredDetailHeight.value = 0
-    if (!el) return
-    detailHeightRO = new ResizeObserver(() => {
-      const height = el.offsetHeight
-      if (height > 0 && height !== measuredDetailHeight.value) measuredDetailHeight.value = height
-    })
-    detailHeightRO.observe(el)
-  })
-  /** 详情弹窗被用户拖动后的手动位置；null = 跟随自动定位。hover 窗口首次拖动时会升级为常驻窗口。 */
-  const detailManualPos = ref<{ left: number; top: number } | null>(null)
-  const detailSize = ref({ width: 640, height: 520 })
-  const detailWrap = ref(false)
-  function nodeScreenAnchor(node: (typeof layout.value.nodes)[number]) {
-    const centre = canvas.worldToScreen(node)
-    const bounds = node.visualBounds
-    if (!bounds) return centre
-    const worldX = centre.x <= viewportSize.value.width / 2 ? bounds.right : bounds.left
-    return canvas.worldToScreen({ x: worldX, y: node.y })
-  }
-  /** 悬浮窗下方锚点：节点底沿中点的屏幕坐标（弹窗出现在节点正下方，横竖排版通用）。 */
-  function nodeScreenAnchorBelow(node: (typeof layout.value.nodes)[number]) {
-    const centre = canvas.worldToScreen(node)
-    const bounds = node.visualBounds
-    if (!bounds) return { x: centre.x, y: centre.y + 28 }
-    return canvas.worldToScreen({ x: node.x, y: bounds.bottom })
-  }
-  /**
-   * 详情弹窗拖拽（2026-09-02 返工契约）：hover 窗口首次产生有效位移时
-   * 立即升级为常驻窗口，此后鼠标移出不再自动关闭；pointermove 期间 quickSetter 直写
-   * transform x/y（与树平移的 CSS `translate` 属性分属不同通道，可叠加），不触发
-   * 每帧响应式 patch；`finishDetailDrag`（弹窗 dragEnd）才把终值一次性落回
-   * `detailManualPos` 并清除直写 transform——落回与清写同帧完成，无闪烁。
-   */
-  let detailDragState: { baseLeft: number; baseTop: number; left: number; top: number } | null =
-    null
-  let detailDragSetters:
-    { x: ReturnType<typeof gsap.quickSetter>; y: ReturnType<typeof gsap.quickSetter> } | undefined
-  function dragDetailPopover(delta: { x: number; y: number }): void {
-    const current = detailPlacement.value
-    if (!current) return
-    if (!detailDragState) {
-      const baseLeft = parseFloat(current.style.left)
-      const baseTop = parseFloat(current.style.top)
-      detailDragState = { baseLeft, baseTop, left: baseLeft, top: baseTop }
-      const node = detailNode.value
-      if (!pinnedDetailNodeId.value && node) {
-        cancelDetailHide()
-        pinnedDetailNodeId.value = node.id
-        hoveredDetailNodeId.value = node.id
-        detailManualPos.value = { left: baseLeft, top: baseTop }
-      }
-    }
-    const headerVisible = 32
-    detailDragState.left = Math.min(
-      viewportSize.value.width - headerVisible,
-      Math.max(-detailSize.value.width + headerVisible, detailDragState.left + delta.x),
-    )
-    detailDragState.top = Math.min(
-      viewportSize.value.height - headerVisible,
-      Math.max(0, detailDragState.top + delta.y),
-    )
-    const element = detailAnchorEl.value
-    if (element) {
-      detailDragSetters ??= {
-        x: gsap.quickSetter(element, 'x', 'px'),
-        y: gsap.quickSetter(element, 'y', 'px'),
-      }
-      detailDragSetters.x(detailDragState.left - detailDragState.baseLeft)
-      detailDragSetters.y(detailDragState.top - detailDragState.baseTop)
-    }
-  }
-  function finishDetailDrag(): void {
-    if (!detailDragState) return
-    detailManualPos.value = { left: detailDragState.left, top: detailDragState.top }
-    detailDragState = null
-    detailDragSetters = undefined
-    const element = detailAnchorEl.value
-    if (element) gsap.set(element, { x: 0, y: 0, clearProps: 'transform' })
-  }
-  /**
-   * 常驻详情窗口尺寸档位（2026-09-15 变更）：取消 8 向拖拽 resize，改由头部
-   * 「尺寸切换」按钮在 S/M/L 三档间循环，避免用户手动拖拽窗口尺寸。
-   * - S：当前默认尺寸（640×520），即原 M 档，用户实测“刚刚好”；
-   * - M：按 S 宽度 +25%（800×650）；
-   * - L：按 S 宽度 +50%（960×780）。
-   * 换档只更新 detailSize；未拖过位置的窗口继续自动定位，拖过的位置会回收进视口。
-   */
-  function detailSizePresets(): Array<{ width: number; height: number; label: string }> {
-    return [
-      { width: 640, height: 520, label: 'S' },
-      { width: 800, height: 650, label: 'M' },
-      { width: 960, height: 780, label: 'L' },
-    ]
-  }
-  const detailSizeLabel = computed(() => {
-    const preset = detailSizePresets().find(
-      (item) => item.width === detailSize.value.width && item.height === detailSize.value.height,
-    )
-    return preset?.label ?? 'M'
-  })
-  function cycleDetailSize(): void {
-    const presets = detailSizePresets()
-    const index = presets.findIndex(
-      (item) => item.width === detailSize.value.width && item.height === detailSize.value.height,
-    )
-    const next = presets[(index + 1) % presets.length] ?? { width: 640, height: 520, label: 'S' }
-    detailSize.value = { width: next.width, height: next.height }
-    if (detailManualPos.value) {
-      const vp = viewportSize.value
-      detailManualPos.value = {
-        left: Math.min(
-          Math.max(24, detailManualPos.value.left),
-          Math.max(24, vp.width - next.width - 24),
-        ),
-        top: Math.min(
-          Math.max(0, detailManualPos.value.top),
-          Math.max(0, vp.height - next.height - 12),
-        ),
-      }
-    }
-  }
-  function toggleDetailWrap(): void {
-    detailWrap.value = !detailWrap.value
-  }
-  /**
-   * 详情弹窗定位冻结契约（2026-09-02）：一次显示会话只求值一次位置。
-   * 显示会话 = hover 换到新节点，或弹窗关闭后重新显示；会话内实测高度回填、
-   * 画布缩放/平移、视口 resize 均不改变弹窗位置（屏幕坐标完全冻结）。
-   * hover → pinned 切换不算新会话；pinned 拖拽经 `detailManualPos`、
-   * 尺寸档位切换经 `detailSize` 覆盖冻结位置。
-   */
-  interface DetailPlacementDecision {
-    left: number
-    top: number
-    anchorX: number
-    placement: 'left' | 'right' | 'below'
-    railSide: 'left' | 'right'
-    nodeOffset: { x: number; y: number }
-  }
-  let frozenDetailPlacement: DetailPlacementDecision | null = null
-  watch(
-    () => detailNode.value?.id,
-    () => {
-      frozenDetailPlacement = null
-      // 冻结决策只用本次会话的初始高度：上个节点的实测高度不参与新节点定位。
-      measuredDetailHeight.value = 0
-    },
-  )
-  /** 一次性求值自动定位决策：优先节点正下方，下方放不下回退侧贴；左轮默认贴弹窗左侧。 */
-  function decideDetailPlacement(): DetailPlacementDecision {
-    const node = detailNode.value
-    if (!node) {
-      return {
-        left: 0,
-        top: 0,
-        anchorX: 0,
-        placement: 'below',
-        railSide: 'left',
-        nodeOffset: { x: 0, y: FOLD_WHEEL_STAGE_HEIGHT / 2 },
-      }
-    }
-    // 悬浮窗优先出现在节点正下方（横竖排版一致）；下方放不下才回退右侧优先的侧贴逻辑。
-    const anchor = nodeScreenAnchorBelow(node)
-    const auto = anchoredPopoverPositionBelow({
-      anchor,
-      viewport: viewportSize.value,
-      panel: detailPinned.value
-        ? detailSize.value
-        : { width: POPOVER_WIDTH, height: measuredDetailHeight.value || POPOVER_INITIAL_HEIGHT },
-      margin: 12,
-    })
-    const panelWidth = detailPinned.value ? detailSize.value.width : POPOVER_WIDTH
-    // 左轮与弹窗并排、顶对齐（统一落在节点下方区域）：默认贴弹窗左侧，左侧视口
-    // 空间不足改贴弹窗右侧，两侧都放不下时钳制在视口内。锚点为弹窗容器相对坐标，
-    // 左轮随弹窗容器移动（pinned 拖动时保持相对位置）。
-    let railSide: 'left' | 'right' = 'left'
-    let railAnchorX = 0 // side='left' 时 nav 左缘 = railAnchorX - STAGE_WIDTH - NODE_GAP
-    if (auto.left - FOLD_WHEEL_STAGE_WIDTH - FOLD_WHEEL_NODE_GAP < 12) {
-      railSide = 'right'
-      railAnchorX = panelWidth // side='right' 时 nav 左缘 = railAnchorX + NODE_GAP
-      if (
-        auto.left + panelWidth + FOLD_WHEEL_NODE_GAP + FOLD_WHEEL_STAGE_WIDTH >
-        viewportSize.value.width - 12
-      ) {
-        // 两侧都放不下（极窄视口）：钳回左侧贴视口边距，允许与弹窗轻微重叠。
-        railSide = 'left'
-        railAnchorX = Math.max(0, 12 - auto.left + FOLD_WHEEL_STAGE_WIDTH + FOLD_WHEEL_NODE_GAP)
-      }
-    }
-    return {
-      left: auto.left,
-      top: auto.top,
-      anchorX: anchor.x,
-      placement: auto.placement,
-      railSide,
-      nodeOffset: { x: railAnchorX, y: FOLD_WHEEL_STAGE_HEIGHT / 2 },
-    }
-  }
-  const detailPlacement = computed(() => {
-    const node = detailNode.value
-    const viewport = viewportRef.value
-    if (!node || !viewport) return undefined
-    frozenDetailPlacement ??= decideDetailPlacement()
-    const decision = frozenDetailPlacement
-    const manual = detailPinned.value ? detailManualPos.value : undefined
-    const left = manual?.left ?? decision.left
-    const top = manual?.top ?? decision.top
-    const panelWidth = detailPinned.value ? detailSize.value.width : POPOVER_WIDTH
-    const placement = manual
-      ? decision.anchorX <= left + panelWidth / 2
-        ? ('left' as const)
-        : ('right' as const)
-      : decision.placement
-    return {
-      style: {
-        left: `${left}px`,
-        top: `${top}px`,
-        ...(detailPinned.value
-          ? { width: `${detailSize.value.width}px`, height: `${detailSize.value.height}px` }
-          : {}),
-      },
-      nodeOffset: decision.nodeOffset,
-      railSide: decision.railSide,
-      placement,
-    }
-  })
-  const detailAnchorStyle = computed(() => detailPlacement.value?.style)
-  const foldRailSide = computed<'left' | 'right'>(() => {
-    const placement = detailPlacement.value
-    if (!placement) return 'left'
-    return placement.railSide
-  })
-  const pixiScene = computed<PixiExecutionScene>(() => ({
-    presentation: layout.value.presentation ?? 'vertical-classic',
-    nodes: visibleExecutionItems.value.nodes.map((node) => {
-      const skin = skinForNode(node)
-      const visualKind = signalVisualKindFor(node, node.presentationPriority ?? 'process')
-      return {
-        id: node.id,
-        x: node.x,
-        y: node.y,
-        accent:
-          layout.value.presentation === 'horizontal-signal'
-            ? signalAccentForTheme(themeStore.theme, visualKind)
-            : accentForTheme(themeStore.theme, skin.key),
-        glyph: skin.glyph,
-        title: compactNodeTitle(node),
-        effect: node.effect,
-        visualKind,
-        ...(node.sourceFact?.termination
-          ? { termination: terminationDisplay(node.sourceFact.termination).label }
-          : {}),
-        ...(node.kind === 'fold' && node.fold ? { foldCount: node.fold.members.length } : {}),
-        ...(node.kind === 'pack' && node.pack ? { foldCount: node.pack.nodeCount } : {}),
-        running: runningTailIds.value.has(node.id),
-        awaitingInteraction: awaitingInteractionNodeIds.value.has(node.id),
-        detailActive:
-          hoveredDetailNodeId.value === node.id ||
-          pinnedDetailNodeId.value === node.id ||
-          Boolean(props.paperMode && activePaperNodeId.value === node.id),
-        branchAnchorKind: containsBranchAnchor(node) ? props.branchAnchorKind : undefined,
-        paused: isPaused(node),
-        error: isError(node),
-        containsErrorMessage: foldContainsErrorMessage(node),
-        revoked: node.status === 'revoked',
-        deemphasized: !coreFlowProjection.value.coreNodeIds.has(node.id),
-        detailBranch: coreFlowProjection.value.detailNodeIds.has(node.id),
-      }
-    }),
-    edges: visibleExecutionItems.value.edges.map((edge) => {
-      const detailBranch =
-        coreFlowProjection.value.detailNodeIds.has(edge.from.id) ||
-        coreFlowProjection.value.detailNodeIds.has(edge.to.id)
-      return {
-        id: edge.id,
-        from: edge.from,
-        to: edge.to,
-        color: edgeStyle(detailBranch ? 'fork-detail' : edge.kind, themeStore.theme).color,
-        active: runningTailIds.value.has(edge.from.id) || runningTailIds.value.has(edge.to.id),
-        phaseSeconds: (edge.to.createdAt % 1300) / 1000,
-        deemphasized:
-          !coreFlowProjection.value.coreNodeIds.has(edge.from.id) ||
-          !coreFlowProjection.value.coreNodeIds.has(edge.to.id),
-        detailBranch,
-        ...(edge.routeX === undefined ? {} : { routeX: edge.routeX }),
-        ...(edge.routeY === undefined ? {} : { routeY: edge.routeY }),
-        horizontal: layout.value.presentation === 'horizontal-signal',
-        fromHalfWidth: edge.from.visualBounds
-          ? (edge.from.visualBounds.right - edge.from.visualBounds.left) / 2
-          : undefined,
-        toHalfWidth: edge.to.visualBounds
-          ? (edge.to.visualBounds.right - edge.to.visualBounds.left) / 2
-          : undefined,
-      }
-    }),
-  }))
-  function gpuNodeAccent(node: (typeof layout.value.nodes)[number]): string {
-    const signal = layout.value.presentation === 'horizontal-signal'
-    return signal
-      ? signalAccentForTheme(
-          themeStore.theme,
-          signalVisualKindFor(node, node.presentationPriority ?? 'process'),
-        )
-      : accentForTheme(themeStore.theme, skinForNode(node).key)
-  }
-  function gpuNodeHitStyle(node: (typeof layout.value.nodes)[number]): Record<string, string> {
-    const position = canvas.worldToScreen(node)
-    const signal = layout.value.presentation === 'horizontal-signal'
-    const visualWidth = node.visualBounds
-      ? node.visualBounds.right - node.visualBounds.left + 12
-      : signal
-        ? 104
-        : 46
-    const visualHeight = node.visualBounds
-      ? node.visualBounds.bottom - node.visualBounds.top + 12
-      : signal
-        ? 56
-        : 46
-    const width = Math.max(30, visualWidth * canvas.scale.value)
-    const height = Math.max(30, visualHeight * canvas.scale.value)
-    return {
-      width: `${width}px`,
-      height: `${height}px`,
-      borderRadius: signal ? '3px' : '50%',
-      '--tree-node-accent': gpuNodeAccent(node),
-      transform: `translate3d(${position.x - width / 2}px, ${position.y - height / 2}px, 0)`,
-    }
-  }
-  function defaultPopoverNodes(
-    model: DefaultNodePopover,
-  ): { anchor: ExecutionNode; display: ExecutionNode } | undefined {
-    const anchor = layout.value.nodes.find((node) => node.id === model.anchorNodeId)
-    if (!anchor) return undefined
-    if (anchor.kind !== 'fold') return { anchor, display: anchor }
-    const member = memberContainingNode(anchor.fold?.members ?? [], model.displayNodeId)
-    return { anchor, display: member?.displayNode ?? anchor }
-  }
-  function selectedActionCall(model: DefaultNodePopover): string | undefined {
-    return actionSelectedCallIds.value.get(model.id) ?? model.selectedCallId
-  }
-  function selectActionCall(modelId: string, callId: string): void {
-    const next = new Map(actionSelectedCallIds.value)
-    next.set(modelId, callId)
-    actionSelectedCallIds.value = next
-  }
-  const defaultPopoverViews = computed(() =>
-    defaultPopoverPlacements.value.flatMap((placement) => {
-      const model = defaultPopoverById.value.get(placement.id)
-      if (!model) return []
-      const nodes = defaultPopoverNodes(model)
-      if (!nodes) return []
-      return [
-        {
-          placement,
-          model,
-          ...nodes,
-          relatedEdges: graph.value.edges.filter(
-            (edge) => edge.from === nodes.anchor.id || edge.to === nodes.anchor.id,
-          ),
-        },
-      ]
-    }),
-  )
-  function onEscape(event: KeyboardEvent): void {
-    if (event.key !== 'Escape') return
-    if (pinnedDetailNodeId.value) closeNodeDetail()
-    else {
-      const latest = [...pinnedCrtIds.value].at(-1)
-      if (latest) unpinCrt(latest)
-    }
-  }
-  let viewportRO: ResizeObserver | undefined
-  let knownFoldCounts = new Map<string, number>()
-  // 首次进入/切根时，数据布局与工作台视口可能分两拍就绪。保留待 fit 状态，直到两者都有效，
-  // 避免早到的 resetLayout 静默失败后一直使用默认相机；成功后即停止，不能抢走用户视角。
-  let initialFitPending = true
-  watch(
-    () =>
-      foldProjection.value.ranges.map((range) => ({
-        id: range.id,
-        members: range.members,
-      })),
-    (ranges) => {
-      if (props.foldMode === 'none') return
-      const selected = new Map(selectedFoldMembers.value)
-      const unread = new Map(unreadFoldMembers.value)
-      const nextCounts = new Map<string, number>()
-      for (const range of ranges) {
-        const count = range.members.length
-        const previousCount = knownFoldCounts.get(range.id) ?? 0
-        const current = memberContainingNode(range.members, selected.get(range.id))
-        const pinned = memberContainingNode(range.members, pinnedDetailNodeId.value)
-        const protectedReading = readingFoldId.value === range.id || !!pinned
-        const latest = range.members.at(-1)
-        if (pinned) {
-          selected.set(range.id, pinned.id)
-          if (latest?.id === pinned.id) unread.set(range.id, 0)
-        } else if (!current || (!protectedReading && count > previousCount)) {
-          if (latest) selected.set(range.id, latest.id)
-          unread.set(range.id, 0)
-        } else if (protectedReading && count > previousCount) {
-          unread.set(range.id, (unread.get(range.id) ?? 0) + count - previousCount)
-        }
-        nextCounts.set(range.id, count)
-      }
-      selectedFoldMembers.value = selected
-      unreadFoldMembers.value = unread
-      knownFoldCounts = nextCounts
-    },
-    { immediate: true },
-  )
-  watch(
-    () => props.rootChatId,
-    (rootChatId, previousRootChatId) => {
-      if (!rootChatId) return
-      initialFitPending = true
-      cachedActiveRunKey = ''
-      cachedActiveCrtRuns = []
-      layoutEngine.reset()
-      pianoEasterEgg.reset()
-      recoveryError.value = ''
-      hasNewTail.value = false
-      knownTailIds = new Set()
-      selectedFoldMembers.value = new Map()
-      unreadFoldMembers.value = new Map()
-      actionSelectedCallIds.value = new Map()
-      knownFoldCounts = new Map()
-      activePaperNodeId.value = undefined
-      paperHasNewTail.value = false
-      paperEntryCache = new Map()
-      generationDialogIndex.value = undefined
-      generationDialogRootChatId.value = undefined
-      if (previousRootChatId && previousRootChatId !== rootChatId) {
-        pinnedCrtIds.value = new Set()
-        hiddenCrtIds.value = new Set()
-        crtWindowState.value = new Map()
-        nextCrtZ = 1
-      }
-      closeNodeDetail()
-      void nextTick(tryInitialFit)
-    },
-    { immediate: true },
-  )
-  watch(
-    paperEntries,
-    (entries, previousEntries) => {
-      if (!props.paperMode) return
-      if (!entries.length) {
-        activePaperNodeId.value = undefined
-        paperHasNewTail.value = false
-        return
-      }
-      const previousIds = new Set(previousEntries?.map((entry) => entry.id) ?? [])
-      const previousActive = activePaperNodeId.value
-      const wasAtTail =
-        !previousEntries?.length || previousEntries.at(-1)?.id === previousActive || !previousActive
-      if (previousActive && entries.some((entry) => entry.id === previousActive)) {
-        if (wasAtTail && entries.at(-1)?.id !== previousActive) {
-          activePaperNodeId.value = entries.at(-1)!.id
-        } else if (!wasAtTail && entries.some((entry) => !previousIds.has(entry.id))) {
-          paperHasNewTail.value = true
-        }
-        return
-      }
-      activePaperNodeId.value = entries.at(-1)!.id
-    },
-    { immediate: true },
-  )
-  watch(
-    () => props.paperMode,
-    (enabled) => {
-      closeNodeDetail()
-      if (enabled && !activePaperNodeId.value)
-        activePaperNodeId.value = paperEntries.value.at(-1)?.id
-      // 卡牌模式与流程图/阅读器一样以右侧抽屉覆盖节点树（不再压缩树视口），
-      // 开关不重排画布相机，保留用户当前平移与缩放。
-    },
-  )
-  // 抽屉开关只收拢节点详情，不重排画布相机。
-  watch(
-    () => props.sidePanelOpen,
-    () => closeNodeDetail(),
-  )
-  function tryInitialFit(): void {
-    // 数据请求完成前 graph 可能已有占位边界，不能据此结束首次 fit，否则真实历史到达后仍是默认相机。
-    if (!initialFitPending || !timelineSnapshot.value) return
-    if (resetLayout()) initialFitPending = false
-  }
-  watch(
-    [
-      () => timelineSnapshot.value?.revision,
-      () => graph.value.nodes.length,
-      () => layout.value.bounds.minX,
-      () => layout.value.bounds.minY,
-      () => layout.value.bounds.maxX,
-      () => layout.value.bounds.maxY,
-      () => viewportSize.value.width,
-      () => viewportSize.value.height,
-    ],
-    () => void nextTick(tryInitialFit),
-    { flush: 'post' },
-  )
-  // 横向 Signal：新节点出现后保持节点尺寸不变（不再重新 fit 缩小整棵树）。
-  // 最右节点越过右侧警戒线时整体左移，让新节点继续从右侧出现。
-  const signalTailRight = computed(() => {
-    if (layout.value.presentation !== 'horizontal-signal') return Number.NEGATIVE_INFINITY
-    let right = Number.NEGATIVE_INFINITY
-    for (const node of layout.value.nodes) {
-      const bounds = node.visualBounds
-      if (bounds) right = Math.max(right, bounds.right)
-    }
-    return right
-  })
-  watch(
-    signalTailRight,
-    (right) => {
-      // 首次进入/切根由 tryInitialFit 负责 fit，横向跟随只在已就绪后接管新增节点。
-      if (right === Number.NEGATIVE_INFINITY || initialFitPending) return
-      canvas.followContentEndX(right, TREE_TAIL_EDGE_RATIO)
-    },
-    { flush: 'post' },
-  )
-  watch(
-    () => props.foldMode,
-    () => {
-      closeNodeDetail()
-      // 折叠档位改变会整体重排投影图（节点增删），旧相机位置/缩放已不再对应新图。
-      // 与切根一致：清空增量布局缓存并重新 fit 到新投影，否则开始/末尾节点定位不到视口内。
-      layoutEngine.reset()
-      void nextTick(resetLayout)
-    },
-  )
-  watch(
-    () => props.layoutMode,
-    () => {
-      closeNodeDetail()
-      layoutEngine.reset()
-      void nextTick(resetLayout)
-    },
-  )
-  watch(
-    () => props.presentationMode,
-    () => {
-      closeNodeDetail()
-      void nextTick(resetLayout)
-      if (gpuRenderError.value) {
-        gpuRenderer?.destroy()
-        gpuRenderer = undefined
-        void nextTick(mountGpuRenderer)
-      }
-    },
-  )
-  // 用户拖离后末尾真正追加了「新」节点（id 此前未出现在图中）才显示「回到底部」浮标。
-  // 排除 transient 占位增删 / 投影折叠重排造成的末节点 id 抖动：新尾若是旧节点则不置位。
-  // 首次 / 切根后 knownTailIds 为空，先建档不置位，避免把根节点误判为「新尾」。
-  watch(
-    () => graph.value.nodes,
-    (nodes) => {
-      const known = knownTailIds
-      knownTailIds = new Set(nodes.map((node) => node.id))
-      const tailId = nodes.at(-1)?.id
-      if (!tailId || known.size === 0) return
-      if (canvas.userPanned.value && !known.has(tailId)) hasNewTail.value = true
-    },
-  )
-  function returnToBottom(): void {
-    hasNewTail.value = false
-    const latest = layout.value.nodes.at(-1)
-    if (latest) canvas.panToPoint(latest)
-  }
-  function syncGpuScene(scene = pixiScene.value): void {
-    if (props.suspended) return
-    const signature = executionSceneSignature(scene, visibleExecutionKey.value)
-    const appliedToPixi = signature !== lastGpuSceneSignature
-    if (!appliedToPixi) return
-    lastGpuSceneSignature = signature
-    gpuRenderer?.setScene(scene)
-  }
-  watch(
+  const gpu = useTreeGpuScene({
+    props,
+    emit,
+    layout,
+    canvas,
+    visibleExecutionItems,
+    visibleExecutionKey,
+    viewportSelectionCamera,
     executionCamera,
-    (camera) => {
-      gpuRenderer?.setCamera(camera)
-      if (!canvas.dragging.value) viewportSelectionCamera.value = camera
-    },
-    { deep: true, flush: 'sync' },
-  )
-  watch(pixiScene, (scene) => syncGpuScene(scene))
-  watch(renderQualityTier, (tier) => gpuRenderer?.setQualityTier(tier))
-  // 主题切换：更新画布调色板并重画静态层（accent 随 pixiScene 重算）。
-  watch(canvasPalette, (palette) => gpuRenderer?.setPalette(palette))
-  watch(
-    () => props.paperMode,
-    (paperMode) => gpuRenderer?.setMotionFrameRate(paperMode ? 24 : 30),
-    { immediate: true },
-  )
-  watch(
-    () => props.suspended,
-    (suspended) => {
-      gpuRenderer?.setSuspended(!!suspended)
-      if (!suspended) syncGpuScene()
-    },
-    { immediate: true },
-  )
-  async function mountGpuRenderer(): Promise<void> {
-    const host = pixiMountRef.value
-    if (!host) return
-    const generation = ++gpuMountGeneration
-    const renderer = new ExecutionGraphPixiRenderer()
-    gpuRenderer = renderer
-    renderer.setScene(pixiScene.value)
-    renderer.setPalette(canvasPalette.value)
-    renderer.setQualityTier(renderQualityTier.value)
-    renderer.setMotionFrameRate(props.paperMode ? 24 : 30)
-    renderer.setSuspended(!!props.suspended)
-    try {
-      await renderer.mount(host)
-    } catch (error) {
-      if (generation === gpuMountGeneration) {
-        gpuRenderError.value = error instanceof Error ? error.message : 'GPU 渲染器初始化失败'
-        if (props.presentationMode === 'horizontal-signal') {
-          emit('presentation-fallback', gpuRenderError.value)
-        }
-      }
-      return
-    }
-    if (generation !== gpuMountGeneration) {
-      renderer.destroy()
-      return
-    }
-    renderer.setCamera(executionCamera.value)
-    gpuRenderError.value = ''
-    lastGpuSceneSignature = ''
-    syncGpuScene()
-  }
-  onMounted(() => {
-    viewportRO = new ResizeObserver(() => {
-      const width = viewportRef.value?.clientWidth ?? 0
-      const height = viewportRef.value?.clientHeight ?? 0
-      viewportSize.value = { width, height }
-      // 与画布相机同步：resizeTo 对工作台瞬时全屏切换可能漏触发，导致 GPU 位图停留在旧高度、
-      // 图底部被裁剪。这里显式重设渲染器尺寸，与 SVG 视口保持一致。
-      gpuRenderer?.resize(width, height)
-    })
-    if (viewportRef.value) viewportRO.observe(viewportRef.value)
-    void nextTick(() => {
-      tryInitialFit()
-    })
-    void mountGpuRenderer()
-    window.addEventListener('keydown', onEscape)
+    themeStore,
+    canvasPalette,
+    coreFlowProjection,
+    runningTailIds,
+    awaitingInteractionNodeIds,
+    hoveredDetailNodeId,
+    pinnedDetailNodeId,
+    activePaperNodeId,
+    containsBranchAnchor,
+    isPaused,
+    isError,
+    compactNodeTitle,
   })
-  onBeforeUnmount(() => {
-    gpuMountGeneration += 1
-    gpuRenderer?.destroy()
-    gpuRenderer = undefined
-    viewportRO?.disconnect()
-    detailHeightRO?.disconnect()
-    cancelDetailHide()
-    window.removeEventListener('keydown', onEscape)
+  const {
+    pixiMountRef,
+    gpuRenderError,
+    gpuNodeAccent,
+    gpuNodeHitStyle,
+    mountGpuRenderer,
+    restartGpuRenderer,
+    resizeGpuRenderer,
+    disposeGpuRenderer,
+  } = gpu
+  useTreeModeReactions({
+    props,
+    graphProjection: { resetGraphProjection, paperEntries, activePaperNodeId, paperHasNewTail },
+    camera: { resetCameraForRoot, resetCameraLayout, resetLayout, tryInitialFit, hasNewTail },
+    resetPiano: () => pianoEasterEgg.reset(),
+    recoveryError,
+    resetFoldReading,
+    resetActionPopovers,
+    resetCrtWindows,
+    generationDialogIndex,
+    generationDialogRootChatId,
+    closeNodeDetail,
+    gpuRenderError,
+    restartGpuRenderer,
+  })
+  useTreeViewportLifecycle({
+    pinnedDetailNodeId,
+    pinnedCrtIds,
+    closeNodeDetail,
+    unpinCrt,
+    viewportRef,
+    viewportSize,
+    tryInitialFit,
+    mountGpuRenderer,
+    resizeGpuRenderer,
+    disposeGpuRenderer,
+    cleanupDetail,
   })
 
   return {

@@ -19,7 +19,6 @@ import { ref } from 'vue'
 import type { ChatSession, ChatSessionSnapshot, ChatEvent, ChatTimelineSnapshot } from './types'
 import type {
   ApprovalState,
-  QuestionDraftAnswer,
   QuestionBatchPayload,
   ChunkMessage,
   NotificationMessage,
@@ -65,7 +64,7 @@ import {
 } from './read-model/rootTimeline'
 import { applyExecutionTimingEvent } from './read-model/executionTiming'
 import { selectExecutionReadModel } from './read-model/executionReadModel'
-import { useInteractionsStore } from '../interactions'
+import { createInteractionCommands } from './commands/interactionCommands'
 import {
   commandErrorFact,
   commandGate,
@@ -655,31 +654,22 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     view: 'conversation' | 'tree' | 'audit' = 'conversation',
   ): Promise<RootTimelineSnapshot> {
     const key = `${rootChatId}:${view}`
-    const existing = rootViewOpening.get(key)
-    if (existing) return existing
-    const current = rootTimeline(rootChatId, view)
-    const promise = agentApi
-      .getRootTimeline({
+    return runSingleFlight(rootViewOpening, key, async () => {
+      const current = rootTimeline(rootChatId, view)
+      const snapshot = await agentApi.getRootTimeline({
         rootChatId,
         view,
         ...(current ? { knownRevision: current.revision } : {}),
       })
-      .then((snapshot) => {
-        if (evictedRoots.has(rootChatId)) throw new Error(`root timeline ${rootChatId} was deleted`)
-        // knownRevision 短路：服务端确认客户端快照仍最新，保留现有缓存不覆盖。
-        if (!snapshot) {
-          if (!current) throw new Error(`root timeline ${key} unchanged 短路但本地无缓存`)
-          return current
-        }
-        installRootTimeline(rootTimelines.value, snapshot)
-        return snapshot
-      })
-    rootViewOpening.set(key, promise)
-    try {
-      return await promise
-    } finally {
-      if (rootViewOpening.get(key) === promise) rootViewOpening.delete(key)
-    }
+      if (evictedRoots.has(rootChatId)) throw new Error(`root timeline ${rootChatId} was deleted`)
+      // knownRevision 短路：服务端确认客户端快照仍最新，保留现有缓存不覆盖。
+      if (!snapshot) {
+        if (!current) throw new Error(`root timeline ${key} unchanged 短路但本地无缓存`)
+        return current
+      }
+      installRootTimeline(rootTimelines.value, snapshot)
+      return snapshot
+    })
   }
 
   // ---- 代际图按需缓存（LRU 上限 4/root；root 订阅释放时整棵清空） ----
@@ -995,17 +985,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
 
   /** V2 atomic open: establish subscription, then fetch timeline only if revision changed. */
   async function openSession(chatId: string): Promise<void> {
-    const previous = opening.get(chatId)
-    if (previous) return previous
-    const promise = openSessionOnce(chatId)
-    opening.set(chatId, promise)
-    bumpHydration()
-    try {
-      await promise
-    } finally {
-      opening.delete(chatId)
-      bumpHydration()
-    }
+    if (!opening.has(chatId)) bumpHydration()
+    return runSingleFlight(opening, chatId, async () => {
+      try {
+        await openSessionOnce(chatId)
+      } finally {
+        bumpHydration()
+      }
+    })
   }
 
   async function openSessionOnce(chatId: string): Promise<void> {
@@ -1524,30 +1511,20 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
 
   /** Hydrate a root and all known descendants through the canonical open contract. */
   async function hydrateTree(rootChatId: string): Promise<void> {
-    const existing = hydrating.get(rootChatId)
-    if (existing) return existing
-    const promise = (async () => {
-      const chats = Object.values(sessionsById.value).map((s) => ({
-        chatId: s.chatId,
-        parentChatId: s.meta.parentChatId,
-      }))
-      const descendantIds = collectDescendantChatIds(chats, rootChatId)
-      const allIds = [rootChatId, ...descendantIds]
-
-      // Canonical hydration: chat.open atomically installs state and fences later events.
-      // Timeline data is revisioned and fetched by openSession only when the revision changed.
-      for (const id of allIds) {
-        await openSession(id)
+    if (!hydrating.has(rootChatId)) bumpHydration()
+    return runSingleFlight(hydrating, rootChatId, async () => {
+      try {
+        const chats = Object.values(sessionsById.value).map((s) => ({
+          chatId: s.chatId,
+          parentChatId: s.meta.parentChatId,
+        }))
+        const descendantIds = collectDescendantChatIds(chats, rootChatId)
+        // Canonical hydration: chat.open atomically installs state and fences later events.
+        for (const id of [rootChatId, ...descendantIds]) await openSession(id)
+      } finally {
+        bumpHydration()
       }
-    })()
-    hydrating.set(rootChatId, promise)
-    bumpHydration()
-    try {
-      await promise
-    } finally {
-      hydrating.delete(rootChatId)
-      bumpHydration()
-    }
+    })
   }
 
   /** Ensure the canonical open snapshot has restored pending question batches. */
@@ -1628,182 +1605,19 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     })
   }
 
-  async function submitApproval(
-    chatId: string,
-    approvalId: string,
-    action: 'accept' | 'reject',
-  ): Promise<void> {
-    const interactions = useInteractionsStore()
-    let record = interactions.records[approvalId]
-    if (!record) {
-      await interactions.refresh()
-      record = interactions.records[approvalId]
-    }
-    if (!record || record.kind !== 'approval') throw new Error('审批待办不存在或已结束')
-    await interactions.decide(record, action)
-    // 即时清 pending（不等 accept/rejected notification 回来）
-    const session = sessionsById.value[chatId]
-    if (session) {
-      if (session.interaction.approval?.approvalId === approvalId) {
-        session.interaction.approval = undefined
-        if (session.interaction.approvalQueue.length > 0) {
-          session.interaction.approval = session.interaction.approvalQueue.shift()
-        }
-      }
-    }
-  }
-
-  function dismissApproval(chatId: string): void {
-    const session = sessionsById.value[chatId]
-    if (!session) return
-    session.interaction.approval = undefined
-    if (session.interaction.approvalQueue.length > 0) {
-      session.interaction.approval = session.interaction.approvalQueue.shift()
-    }
-  }
-
-  function dismissApprovalToQueue(chatId: string): void {
-    const session = sessionsById.value[chatId]
-    if (!session?.interaction.approval) return
-    const current = session.interaction.approval
-    session.interaction.approval = session.interaction.approvalQueue.shift()
-    session.interaction.approvalQueue.push(current)
-  }
-
-  function resummonApproval(chatId: string, approvalId: string): void {
-    const session = sessionsById.value[chatId]
-    if (!session) return
-    const idx = session.interaction.approvalQueue.findIndex((a) => a.approvalId === approvalId)
-    if (idx < 0) return
-    const target = session.interaction.approvalQueue[idx]
-    if (!target) return
-    if (session.interaction.approval)
-      session.interaction.approvalQueue.push(session.interaction.approval)
-    session.interaction.approvalQueue.splice(idx, 1)
-    session.interaction.approval = target
-  }
-
-  function expireApproval(chatId: string, approvalId: string): void {
-    const session = sessionsById.value[chatId]
-    if (!session) return
-    if (session.interaction.approval?.approvalId === approvalId) {
-      dismissApproval(chatId)
-      return
-    }
-    session.interaction.approvalQueue = session.interaction.approvalQueue.filter(
-      (approval) => approval.approvalId !== approvalId,
-    )
-  }
-
-  function setActiveQuestion(chatId: string, questionId: string | undefined): void {
-    const session = sessionsById.value[chatId]
-    if (session) session.interaction.activeQuestionId = questionId
-  }
-
-  function updateQuestionDraft(
-    chatId: string,
-    questionId: string,
-    draft?: QuestionDraftAnswer,
-  ): void {
-    const session = sessionsById.value[chatId]
-    const question = session?.interaction.questionBatches
-      .flatMap((batch) => batch.questions)
-      .find((item) => item.questionId === questionId)
-    if (!question) return
-    if (draft) question.draftAnswer = draft
-    else delete question.draftAnswer
-  }
-
-  async function advanceQuestion(
-    chatId: string,
-    questionId: string,
-    draft: QuestionDraftAnswer,
-  ): Promise<void> {
-    const session = sessionsById.value[chatId]
-    const batch = session?.interaction.questionBatches.find((item) =>
-      item.questions.some((question) => question.questionId === questionId),
-    )
-    const question = batch?.questions.find((item) => item.questionId === questionId)
-    if (!batch || !question || batch.status === 'submitting') return
-    question.draftAnswer = draft
-    question.localStatus = 'ready'
-    const next = batch.questions.find((item) => item.localStatus === 'pending')
-    if (next) {
-      session!.interaction.activeQuestionId = next.questionId
-      return
-    }
-    batch.status = 'submitting'
-    try {
-      const interactions = useInteractionsStore()
-      let interaction = interactions.records[batch.batchId]
-      if (!interaction) {
-        await interactions.refresh()
-        interaction = interactions.records[batch.batchId]
-      }
-      if (!interaction || interaction.kind !== 'question_batch') {
-        throw new Error('问题待办不存在或已结束')
-      }
-      await interactions.answer(
-        interaction,
-        batch.questions.map((item) => ({
-          questionId: item.questionId,
-          selectedLabels: [...item.draftAnswer!.selectedLabels],
-          ...(item.draftAnswer!.optionNotes ? { optionNotes: item.draftAnswer!.optionNotes } : {}),
-          ...(item.draftAnswer!.freeText ? { freeText: item.draftAnswer!.freeText } : {}),
-          ...(item.draftAnswer!.cancelled ? { cancelled: true } : {}),
-        })),
-      )
-      session!.interaction.questionBatches = session!.interaction.questionBatches.filter(
-        (item) => item.batchId !== batch.batchId,
-      )
-    } catch (error) {
-      batch.status = 'pending'
-      throw error
-    }
-  }
-
-  async function cancelQuestion(chatId: string, questionId: string): Promise<void> {
-    await advanceQuestion(chatId, questionId, { selectedLabels: [], cancelled: true })
-  }
-
-  function backQuestion(chatId: string, questionId: string): void {
-    const session = sessionsById.value[chatId]
-    const batch = session?.interaction.questionBatches.find((item) =>
-      item.questions.some((question) => question.questionId === questionId),
-    )
-    const current = batch?.questions.find((item) => item.questionId === questionId)
-    if (!batch || !current || batch.status === 'submitting') return
-    const sorted = [...batch.questions].sort((a, b) => a.position - b.position)
-    const index = sorted.findIndex((item) => item.questionId === questionId)
-    const previous = index > 0 ? sorted[index - 1] : undefined
-    if (!previous) return
-    if (current.localStatus === 'ready') current.localStatus = 'pending'
-    session!.interaction.activeQuestionId = previous.questionId
-  }
-
-  async function submitQuestionBatch(
-    chatId: string,
-    batchId: string,
-    answers: Array<{
-      questionId: string
-      selectedLabels: string[]
-      /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
-      optionNotes?: Record<string, string>
-      freeText?: string
-      cancelled?: boolean
-    }>,
-  ): Promise<void> {
-    const interactions = useInteractionsStore()
-    let interaction = interactions.records[batchId]
-    if (!interaction) {
-      await interactions.refresh()
-      interaction = interactions.records[batchId]
-    }
-    if (!interaction || interaction.chatId !== chatId || interaction.kind !== 'question_batch') {
-      throw new Error('问题待办不存在或已结束')
-    }
-    await interactions.answer(interaction, answers)
-  }
+  const {
+    submitApproval,
+    dismissApproval,
+    dismissApprovalToQueue,
+    resummonApproval,
+    expireApproval,
+    setActiveQuestion,
+    updateQuestionDraft,
+    advanceQuestion,
+    cancelQuestion,
+    backQuestion,
+    submitQuestionBatch,
+  } = createInteractionCommands((chatId) => sessionsById.value[chatId])
 
   // ---- 启动 / 重连（与旧 store 并行；迁移桥接，非破坏）----
 

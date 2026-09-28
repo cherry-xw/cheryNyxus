@@ -58,11 +58,12 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     )
     expect(offlineMask).toContain('z-index: var(--nx-z-connection-mask)')
     expect(source).not.toContain('<WorkbenchReaderSplit')
-    // 待处理浮窗/铃铛仅树模式出现：判定直接基于 viewMode（不依赖 treeRootChatId 是否已加载，
+    // 待处理提示仅树模式出现：已上移标题栏（WorkbenchAttentionIndicator），
+    // 视图门控在组件内基于 viewModeByWindow（不依赖 treeRootChatId 是否已加载，
     // 刷新后树根未恢复时 conversationViewVisible 会短暂为 false，用 !conversationViewVisible
-    // 会被误判为树模式，导致对话 tab 显示树的审批入口）。
-    expect(source).toContain("currentAttentionCount && !attentionCollapsed && viewMode === 'tree'")
-    expect(source).toContain('@click="toggleAttentionWindow"')
+    // 会被误判为树模式，导致对话 tab 显示树的审批提示）。
+    expect(source).toContain('<WorkbenchAttentionIndicator')
+    expect(source).not.toContain('workbench-attention-warning')
     expect(source).not.toContain('其他流程的审批与提问')
     expect(source).not.toContain('workspaceBrowserOpen')
   })

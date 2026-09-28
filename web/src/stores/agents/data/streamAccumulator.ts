@@ -49,7 +49,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
   }
 
   if (d.type === 'thinking_end') {
-    // 去重：done.finalMessage 已按 msgId push 过（streamRouter.ts 经 pushHistoryItem 统一入口）
+    // 去重：done.finalMessage 已按 msgId push 过（pushHistoryItem 统一入口）
     // → 合并到既有 item，不 push 新 item。否则 chat.sync staged 回放会产出两条同 msgId
     // assistant item（thinking 重复显示）。
     if (d.msgId) {

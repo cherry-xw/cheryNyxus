@@ -2,11 +2,12 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ConfigApplyStateSchema, type ConfigApplyState } from '@chery/protocol'
 import { agentApi } from '@/services/agentApi'
+import { runSingleFlight } from '@/utils/asyncGuards'
 
 export const useConfigApplyStore = defineStore('configApply', () => {
   const state = ref<ConfigApplyState>()
   const error = ref<string>()
-  let refreshing: Promise<void> | undefined
+  const refreshFlights = new Map<string, Promise<void>>()
 
   const savedRevision = computed(() => state.value?.savedRevision)
 
@@ -23,19 +24,16 @@ export const useConfigApplyStore = defineStore('configApply', () => {
   }
 
   function refresh(): Promise<void> {
-    if (refreshing) return refreshing
-    refreshing = agentApi
-      .getConfigApplyState()
-      .then((next) => {
-        apply(next)
-      })
-      .catch((cause: unknown) => {
-        error.value = cause instanceof Error ? cause.message : '无法读取设置生效状态'
-      })
-      .finally(() => {
-        refreshing = undefined
-      })
-    return refreshing
+    return runSingleFlight(refreshFlights, 'refresh', () =>
+      agentApi
+        .getConfigApplyState()
+        .then((next) => {
+          apply(next)
+        })
+        .catch((cause: unknown) => {
+          error.value = cause instanceof Error ? cause.message : '无法读取设置生效状态'
+        }),
+    )
   }
 
   return { state, savedRevision, error, apply, refresh }

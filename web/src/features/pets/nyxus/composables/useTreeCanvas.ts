@@ -114,7 +114,6 @@ export function treeResetProgress(progress: number): number {
 
 /**
  * SVG 树画布：内容永远按完整逻辑尺寸布局，视口负责 fit、二维平移与以指针为锚点的缩放。
- * 不与 useDragPan 共用，避免改变钢琴键盘的水平滚动语义。
  */
 export function useTreeCanvas(opts: TreeCanvasOptions): {
   scale: Ref<number>

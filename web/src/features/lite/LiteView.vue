@@ -13,7 +13,14 @@ import InstructionSuggestions from '../agent/composer/InstructionSuggestions.vue
 import MediaThumbStrip from '../agent/composer/media/MediaThumbStrip.vue'
 import { splitCommandPrompt } from '../agent/composables/commands'
 import TaskPlanMarker from '../agent/task-plan/TaskPlanMarker.vue'
+import { durationColor, durationSeverity, readableDuration } from '@/domain/chat/executionDuration'
 const props = defineProps<LiteViewControllerProps>()
+function nodeTime(node: { elapsedMs: number; kind: string }): string {
+  const timeout = props.modelRequestTimeoutMs ?? 600000
+  const elapsed = readableDuration(node.elapsedMs)
+  return timeout > 0 && (node.kind === 'root-agent' || node.kind === 'child-agent')
+    ? `${elapsed}/${readableDuration(timeout)}` : elapsed
+}
 const controller = useLiteViewController(props)
 const {
   DetailDrawer,
@@ -259,9 +266,6 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
         </el-tooltip>
       </nav>
       <span class="lite-session">{{ props.presetName || '会话' }}</span>
-      <time class="lite-total" aria-label="总耗时"
-        >总耗时 {{ formatElapsed(monitor.elapsedMs) }}</time
-      >
       <div class="lite-run-controls">
         <button
           v-if="lite.runningState"
@@ -410,7 +414,8 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                 <div class="lite-history-meta">
                   <strong>{{ row.node.label }}</strong>
                   <span class="lite-history-status">{{ runStatusLabel(row.node.status) }}</span>
-                  <time v-if="row.node.elapsedMs > 0">{{ formatElapsed(row.node.elapsedMs) }}</time>
+                  <time v-if="row.node.elapsedMs > 0" :class="row.node.active ? `lite-duration-${durationSeverity(row.node.elapsedMs, 60000, 180000)}` : ''"
+                    :style="row.node.active ? { color: durationColor(row.node.elapsedMs, 60000, 180000) } : undefined">{{ row.node.active ? nodeTime(row.node) : formatElapsed(row.node.elapsedMs) }}</time>
                 </div>
               </div>
               <!-- v2.8 行内「思考」：正文全文已直接在页面滚动展示，思考默认折叠在此补充；
@@ -472,6 +477,10 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                     'is-focused': node.nodeId === focusNodeId,
                   }"
                 >
+                  <time v-if="node.active" class="lite-node-duration"
+                    :class="`lite-duration-${durationSeverity(node.elapsedMs, 60000, 180000)}`"
+                    :style="{ color: durationColor(node.elapsedMs, 60000, 180000) }"
+                  >{{ nodeTime(node) }}</time>
                   <!-- 思考/正文标记：主·子 Agent 响应或工具节点合并的思考/正文。
                        运行中 brain ↔ brain-cog 切换（MorphIcon 变形）+ 主题色呼吸（CSS）；完成静止。 -->
                   <button

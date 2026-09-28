@@ -13,6 +13,7 @@ import { RISK_LEVEL_LABEL, riskLevelOf } from '@/domain/chat/securityRisk'
 import type { ExecutionEdge, ExecutionNode } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
+import type { ApprovalState } from '@/domain/chat/projectionTypes'
 import ToolFieldTree from './ToolFieldTree.vue'
 import {
   isQuestionCall,
@@ -39,6 +40,8 @@ export type ExecutionNodePopoverControllerProps = {
   selectedCallId?: string
   chatId?: string
   question?: NodePopoverQuestion
+  /** 待审批模型：节点交互卡内渲染 ApprovalCard。 */
+  approval?: ApprovalState
   detailBranchAvailable?: boolean
   detailBranchUnavailableReason?: string
   variant?: 'popover' | 'paper'
@@ -659,6 +662,7 @@ export function useExecutionNodePopoverController(
     ToolFieldTree,
     activeQuestionCall,
     actualDescription,
+    approval: props.approval,
     batch,
     batchInfo,
     canBranch,

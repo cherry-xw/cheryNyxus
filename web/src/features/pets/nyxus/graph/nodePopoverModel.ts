@@ -17,6 +17,11 @@ export interface DefaultNodePopover {
   id: string
   chatId: string
   anchorNodeId: string
+  /**
+   * 附加锚点节点：与主锚点一起闪烁，点击任一都打开同一交互卡。
+   * 提问批除锚定 assistant 消息节点外，同时锚定 ask_user_question 问号工具节点。
+   */
+  anchorAltNodeIds?: string[]
   displayNodeId: string
   selectedCallId?: string
   approval?: ApprovalState
@@ -111,10 +116,19 @@ export function buildDefaultNodePopovers(
       const question = pendingQuestion(session, batch)
       const match = messageMatch(nodes, batch.assistantMessageId)
       if (!question || !match) continue
+      // 除 assistant 消息节点外，同时锚定触发该提问的 ask_user_question 问号工具节点：
+      // 提问批内每题的 questionId 即触发它的调用 callId，两个锚点一起闪烁、
+      // 点击任一都打开同一提问卡。
+      const toolMatch = callMatch(nodes, question.question.questionId)
+      const anchorAltNodeIds =
+        toolMatch && toolMatch.anchor.id !== match.anchor.id
+          ? [toolMatch.anchor.id]
+          : undefined
       models.push({
         id: `node-action:question:${batch.batchId}`,
         chatId: session.chatId,
         anchorNodeId: match.anchor.id,
+        anchorAltNodeIds,
         displayNodeId: match.display.id,
         question,
         createdAt: batch.createdAt,

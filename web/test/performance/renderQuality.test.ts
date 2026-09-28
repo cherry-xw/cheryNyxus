@@ -52,6 +52,7 @@ describe('adaptive render quality', () => {
       desktopNoiseOpacity: 0.2,
       graphPulseSegments: 7,
       graphEffectNodes: 48,
+      graphEdgeGradientMaxSegments: 32,
     })
     expect(RENDER_QUALITY_PROFILES.balanced).toMatchObject({
       particleCountAt112: 300,
@@ -61,6 +62,7 @@ describe('adaptive render quality', () => {
       desktopNoiseOpacity: 0.12,
       graphPulseSegments: 5,
       graphEffectNodes: 28,
+      graphEdgeGradientMaxSegments: 20,
     })
     expect(RENDER_QUALITY_PROFILES.low).toMatchObject({
       particleCountAt112: 180,
@@ -70,6 +72,7 @@ describe('adaptive render quality', () => {
       desktopNoiseOpacity: 0.04,
       graphPulseSegments: 3,
       graphEffectNodes: 12,
+      graphEdgeGradientMaxSegments: 12,
     })
     expect(particleCountForSize(112, 'balanced')).toBe(300)
     expect(particleCountForSize(1_000, 'high')).toBe(500)

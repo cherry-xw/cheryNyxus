@@ -11,6 +11,7 @@ import {
   horizontalExecutionEdgeGeometry,
   type ExecutionEdgeGeometry,
 } from '../graph/executionGeometry'
+import { gradientPathPoints } from '../graph/edgeGradient'
 import { EXECUTION_ICON_RADIUS } from '../graph/executionLayout'
 import {
   signalNodeFrameVariantFor,
@@ -60,7 +61,10 @@ export interface PixiExecutionEdge {
   id: string
   from: { x: number; y: number }
   to: { x: number; y: number }
-  color: string
+  /** 来源节点当前显示色（渐变起点）。 */
+  fromColor: string
+  /** 目标节点当前显示色（渐变终点）。 */
+  toColor: string
   active: boolean
   phaseSeconds: number
   deemphasized: boolean
@@ -83,6 +87,9 @@ interface SampledEdge extends PixiExecutionEdge {
   samples: Array<{ x: number; y: number; distance: number }>
   length: number
   bounds: ExecutionWorldBounds
+  /** 渐变端点色（number 形式，供每帧颜色插值直接使用）。 */
+  fromColorNumber: number
+  toColorNumber: number
 }
 
 const EMPTY_SCENE: PixiExecutionScene = { nodes: [], edges: [] }
@@ -165,6 +172,8 @@ function sampleEdge(edge: PixiExecutionEdge): SampledEdge {
       maxX: Math.max(...points.map((point) => point.x)),
       maxY: Math.max(...points.map((point) => point.y)),
     },
+    fromColorNumber: colorNumber(edge.fromColor),
+    toColorNumber: colorNumber(edge.toColor),
   }
 }
 
@@ -202,26 +211,23 @@ function pointAtDistance(edge: SampledEdge, distance: number): { x: number; y: n
   }
 }
 
-function drawCurve(graphics: Graphics, geometry: ExecutionEdgeGeometry): Graphics {
-  if (geometry.samples) {
-    graphics.moveTo(geometry.samples[0]!.x, geometry.samples[0]!.y)
-    for (const point of geometry.samples.slice(1)) graphics.lineTo(point.x, point.y)
-    return graphics
-  }
-  return graphics
-    .moveTo(geometry.from.x, geometry.from.y)
-    .bezierCurveTo(
-      geometry.control1.x,
-      geometry.control1.y,
-      geometry.control2.x,
-      geometry.control2.y,
-      geometry.to.x,
-      geometry.to.y,
-    )
-}
-
 function colorNumber(color: string): number {
   return Number.parseInt(color.replace('#', ''), 16)
+}
+
+/** 在 from → to 两个 0xRRGGBB 颜色之间按 t∈[0,1] 线性插值（sRGB 空间）。 */
+function lerpColor(from: number, to: number, t: number): number {
+  const clamped = Math.max(0, Math.min(1, t))
+  const fromR = (from >> 16) & 0xff
+  const fromG = (from >> 8) & 0xff
+  const fromB = from & 0xff
+  const toR = (to >> 16) & 0xff
+  const toG = (to >> 8) & 0xff
+  const toB = to & 0xff
+  const r = Math.round(fromR + (toR - fromR) * clamped)
+  const g = Math.round(fromG + (toG - fromG) * clamped)
+  const b = Math.round(fromB + (toB - fromB) * clamped)
+  return (r << 16) | (g << 8) | b
 }
 
 function isElectronRuntime(): boolean {
@@ -403,6 +409,8 @@ export class ExecutionGraphPixiRenderer {
       this.labelResolution = needed
       this.rebuildLabels()
     }
+    // 渐变分段预算随档位变化，须立即重绘静态连线层让新档位生效。
+    this.drawStatic()
     this.renderWhenTickerStopped()
   }
 
@@ -551,7 +559,14 @@ export class ExecutionGraphPixiRenderer {
         ].join(':'),
       ),
       ...scene.edges.map((edge) =>
-        [edge.id, edge.color, edge.active, edge.detailBranch, edge.deemphasized].join(':'),
+        [
+          edge.id,
+          edge.fromColor,
+          edge.toColor,
+          edge.active,
+          edge.detailBranch,
+          edge.deemphasized,
+        ].join(':'),
       ),
     ].join('|')
     const labelSignature = scene.nodes
@@ -578,8 +593,14 @@ export class ExecutionGraphPixiRenderer {
     if (geometryChanged) this.sampledEdges = scene.edges.map(sampleEdge)
     else {
       // 几何采样可以复用，但 phase/active/color 等运行态仍须更新；否则静态层和脉冲
-      // 会在仅状态变化时继续读取上一帧的边属性。
-      scene.edges.forEach((edge, index) => Object.assign(this.sampledEdges[index]!, edge))
+      // 会在仅状态变化时继续读取上一帧的边属性。fromColor/toColor 是场景字符串，
+      // 更新后还要重算插值用的数值端点，避免节点状态变化后连线沿用陈旧渐变。
+      scene.edges.forEach((edge, index) => {
+        Object.assign(this.sampledEdges[index]!, edge)
+        const sampled = this.sampledEdges[index]!
+        sampled.fromColorNumber = colorNumber(sampled.fromColor)
+        sampled.toColorNumber = colorNumber(sampled.toColor)
+      })
     }
     this.geometrySignature = geometrySignature
     this.staticSignature = staticSignature
@@ -619,7 +640,8 @@ export class ExecutionGraphPixiRenderer {
         .sort(
           (left, right) =>
             Number(right.detailActive) - Number(left.detailActive) ||
-            Number(Boolean(right.awaitingInteraction)) - Number(Boolean(left.awaitingInteraction)) ||
+            Number(Boolean(right.awaitingInteraction)) -
+              Number(Boolean(left.awaitingInteraction)) ||
             left.id.localeCompare(right.id),
         )
         .slice(0, effectBudget)
@@ -647,26 +669,54 @@ export class ExecutionGraphPixiRenderer {
     this.motionNodes.clear()
   }
 
+  /**
+   * 沿 gradientPathPoints 逐段用 from→to 渐变插值色描边。路径点默认就是完整采样折线，
+   * 拐角天然保留；只有超预算的长边才会抽稀（且不跨拐角）。
+   */
+  private drawGradientCurve(
+    graphics: Graphics,
+    edge: SampledEdge,
+    maxSegments: number,
+    width: number,
+    alpha: number,
+  ): void {
+    const points = gradientPathPoints(edge, maxSegments)
+    for (let index = 1; index < points.length; index += 1) {
+      const from = points[index - 1]!
+      const to = points[index]!
+      const t = edge.length > 0 ? (from.distance + to.distance) / 2 / edge.length : 0
+      graphics
+        .moveTo(from.x, from.y)
+        .lineTo(to.x, to.y)
+        .stroke({
+          color: lerpColor(edge.fromColorNumber, edge.toColorNumber, t),
+          width,
+          alpha,
+        })
+    }
+  }
+
   private drawStatic(): void {
     if (!this.app) return
     this.staticEdges.clear()
     for (const edge of this.sampledEdges) {
-      const color = colorNumber(edge.color)
       const alpha = emphasisAlpha(edge.deemphasized, edge.detailBranch)
-      drawCurve(this.staticEdges, edge.geometry).stroke({
-        color,
-        width: 4.5,
-        alpha: 0.12 * alpha,
-      })
-      drawCurve(this.staticEdges, edge.geometry).stroke({
-        color,
-        width: 1.35,
-        alpha:
-          (edge.active ? this.canvasPalette.activeEdgeAlpha : this.canvasPalette.edgeAlpha) * alpha,
-      })
+      const maxSegments = renderQualityProfile(this.qualityTier).graphEdgeGradientMaxSegments
+      this.drawGradientCurve(this.staticEdges, edge, maxSegments, 4.5, 0.12 * alpha)
+      this.drawGradientCurve(
+        this.staticEdges,
+        edge,
+        maxSegments,
+        1.35,
+        (edge.active ? this.canvasPalette.activeEdgeAlpha : this.canvasPalette.edgeAlpha) * alpha,
+      )
       if (edge.horizontal && edge.routeX !== undefined && edge.from.y !== edge.to.y) {
-        this.staticEdges.circle(edge.routeX, edge.from.y, 2.4).fill({ color, alpha: 0.96 * alpha })
-        this.staticEdges.circle(edge.routeX, edge.to.y, 2.4).fill({ color, alpha: 0.96 * alpha })
+        this.staticEdges
+          .circle(edge.routeX, edge.from.y, 2.4)
+          .fill({ color: edge.fromColorNumber, alpha: 0.96 * alpha })
+        this.staticEdges
+          .circle(edge.routeX, edge.to.y, 2.4)
+          .fill({ color: edge.toColorNumber, alpha: 0.96 * alpha })
       }
     }
 
@@ -993,7 +1043,6 @@ export class ExecutionGraphPixiRenderer {
     const seconds = now / 1000
     this.motionEdges.clear()
     for (const edge of this.visibleMotionEdges) {
-      const color = colorNumber(edge.color)
       const emphasis = emphasisAlpha(edge.deemphasized, edge.detailBranch)
       const phase =
         ((seconds - edge.phaseSeconds) * EXECUTION_EDGE_PULSE_SPEED) % EXECUTION_EDGE_PULSE_PERIOD
@@ -1009,6 +1058,13 @@ export class ExecutionGraphPixiRenderer {
           if (!visible) return
           const alpha =
             [0.12, 0.16, 0.22, 0.3, 0.48, 0.3, 0.55][index]! * (edge.active ? 1.12 : 1) * emphasis
+          // 脉冲沿路径行进时颜色随渐变同步移动：取当前段中点的渐变插值色。
+          const middle = (visible.start + visible.end) / 2
+          const color = lerpColor(
+            edge.fromColorNumber,
+            edge.toColorNumber,
+            edge.length > 0 ? middle / edge.length : 0,
+          )
           drawSampledSegment(this.motionEdges, edge, visible.start, visible.end).stroke({
             color,
             width: 2.2,

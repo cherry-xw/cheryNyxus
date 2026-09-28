@@ -191,6 +191,204 @@ describe('anchored CRT model', () => {
     })
   })
 
+  it('anchors a pending question batch on both the message node and the ask tool node', () => {
+    const session = createEmptySession('root')
+    session.interaction.questionBatches = [
+      {
+        batchId: 'batch:q',
+        assistantMessageId: 'assistant:q',
+        createdAt: 1,
+        status: 'pending',
+        questions: [
+          {
+            questionId: 'call:q',
+            position: 0,
+            question: '继续执行吗？',
+            options: [{ label: '是' }, { label: '否' }],
+            multiSelect: false,
+            createdAt: 1,
+            localStatus: 'pending',
+          },
+        ],
+      },
+    ]
+    const messageNode = {
+      id: 'assistant:q',
+      kind: 'message' as const,
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      actor: { kind: 'agent' as const, chatId: 'root' },
+      direction: 'internal' as const,
+      content: '提问消息',
+      orderKey: 1,
+      createdAt: 1,
+      status: 'committed' as const,
+    }
+    const toolNode = {
+      id: 'batch:q',
+      batchId: 'batch:q',
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      sourceMessageId: 'assistant:q',
+      kind: 'tool-batch' as const,
+      actor: { kind: 'agent' as const, chatId: 'root' },
+      direction: 'internal' as const,
+      visibility: 'detail' as const,
+      content: '',
+      toolCalls: [
+        {
+          callId: 'call:q',
+          index: 0,
+          name: 'ask_user_question',
+          arguments: '{}',
+          status: 'pending' as const,
+        },
+      ],
+      orderKey: 2,
+      createdAt: 1,
+      updatedAt: 1,
+      status: 'committed' as const,
+    }
+    const graphFor = () =>
+      projectPersistentExecutionGraph({
+        rootChatId: 'root',
+        nodes: [messageNode, toolNode],
+        edges: [],
+        activeRuns: [],
+      })
+
+    const models = buildDefaultNodePopovers(graphFor().nodes, { root: session })
+    expect(models).toHaveLength(1)
+    expect(models[0]).toMatchObject({
+      id: 'node-action:question:batch:q',
+      anchorNodeId: 'assistant:q',
+      displayNodeId: 'assistant:q',
+      // 问号工具节点作为附加锚点：与消息节点一起闪烁、点击打开同一提问卡
+      anchorAltNodeIds: ['batch:q'],
+    })
+  })
+
+  it('end-to-end with realistic ids: the pending question anchors the visible question tool node after folding', () => {
+    // 真实运行时形态：assistantMessageId/消息主键为 UUID；消息节点 id 带 message: 前缀、
+    // 工具批节点 id 为 batch:{消息id}；提问批内 questionId 即 ask_user_question 调用的 callId。
+    const uuid = '9f1c2d3e-4a5b-4c6d-8e7f-001122334455'
+    const session = createEmptySession('root')
+    session.interaction.questionBatches = [
+      {
+        batchId: uuid,
+        assistantMessageId: uuid,
+        createdAt: 4,
+        status: 'pending',
+        questions: [
+          {
+            questionId: `call:${uuid}`,
+            position: 0,
+            question: '继续执行吗？',
+            options: [{ label: '是' }],
+            multiSelect: false,
+            createdAt: 4,
+            localStatus: 'pending',
+          },
+        ],
+      },
+    ]
+    const doneMessage = {
+      id: 'message:done',
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      sourceMessageId: 'done',
+      kind: 'message' as const,
+      actor: { kind: 'agent' as const, chatId: 'root' },
+      direction: 'internal' as const,
+      content: '已完成',
+      orderKey: 1,
+      createdAt: 1,
+      status: 'committed' as const,
+    }
+    const doneBatch = {
+      id: 'batch:done',
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      sourceMessageId: 'done',
+      kind: 'tool-batch' as const,
+      actor: { kind: 'agent' as const, chatId: 'root' },
+      direction: 'internal' as const,
+      visibility: 'detail' as const,
+      content: '',
+      toolCalls: [
+        {
+          callId: 'call:done',
+          index: 0,
+          name: 'read_file',
+          arguments: '{}',
+          result: 'ok',
+          status: 'completed' as const,
+        },
+      ],
+      orderKey: 2,
+      createdAt: 2,
+      updatedAt: 2,
+      status: 'committed' as const,
+    }
+    const questionMessage = {
+      id: `message:${uuid}`,
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      sourceMessageId: uuid,
+      kind: 'message' as const,
+      actor: { kind: 'agent' as const, chatId: 'root' },
+      direction: 'internal' as const,
+      content: '提问',
+      orderKey: 3,
+      createdAt: 3,
+      status: 'committed' as const,
+    }
+    const questionTool = {
+      id: `batch:${uuid}`,
+      batchId: `batch:${uuid}`,
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      sourceMessageId: uuid,
+      kind: 'tool-batch' as const,
+      actor: { kind: 'agent' as const, chatId: 'root' },
+      direction: 'internal' as const,
+      visibility: 'detail' as const,
+      content: '',
+      toolCalls: [
+        {
+          callId: `call:${uuid}`,
+          index: 0,
+          name: 'ask_user_question',
+          arguments: '{}',
+          status: 'pending' as const,
+        },
+      ],
+      orderKey: 4,
+      createdAt: 4,
+      updatedAt: 4,
+      status: 'committed' as const,
+    }
+    const canonical = projectPersistentExecutionGraph({
+      rootChatId: 'root',
+      nodes: [doneMessage, doneBatch, questionMessage, questionTool],
+      edges: [],
+      activeRuns: [],
+    })
+    const folded = projectFoldExecutionGraph(canonical)
+    // 折叠后问号工具节点必须保留在可见图中
+    expect(folded.graph.nodes.some((node) => node.id === `batch:${uuid}`)).toBe(true)
+
+    const models = buildDefaultNodePopovers(folded.graph.nodes, { root: session })
+    expect(models).toHaveLength(1)
+    // 问号工具节点必然进入闪烁集合：消息可见时作为附加锚点，消息折叠时作为主锚点
+    const awaitingIds = new Set<string>()
+    for (const model of models) {
+      awaitingIds.add(model.anchorNodeId)
+      for (const alt of model.anchorAltNodeIds ?? []) awaitingIds.add(alt)
+    }
+    expect(awaitingIds.has(`batch:${uuid}`)).toBe(true)
+  })
+
   it('treats transient run state as authoritative while preserving matching durable anchors', () => {
     expect(effectiveRunFacts('root', [], [{ chatId: 'root', runId: 'new', status: 'running' }]))
       .toEqual([

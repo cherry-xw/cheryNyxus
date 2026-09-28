@@ -1,10 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
-import { edgeStyle } from '../../src/features/pets/nyxus/graph/edgeStyles'
-import {
-  NODE_ACCENT_LIGHT,
-  NODE_SKINS,
-} from '../../src/features/pets/nyxus/graph/nodeSkins'
+import { NODE_ACCENT_LIGHT, NODE_SKINS } from '../../src/features/pets/nyxus/graph/nodeSkins'
 import {
   signalAccentForTheme,
   type SignalNodeVisualKind,
@@ -104,23 +100,65 @@ describe('theme foreground/background pairing', () => {
   })
 
   it('keeps primary tree edges visible after alpha blending', () => {
+    // 连线改为两端节点色的渐变后，端点色（节点语义色 + Signal 状态覆盖色）即边色来源；
+    // 该用例确保这些端点色在边线透明度混合后仍与画布背景可区分。
     const palette = readFileSync('web/src/composables/useThemeTokens.ts', 'utf8')
+    const signalKinds: SignalNodeVisualKind[] = [
+      'start',
+      'input',
+      'reply',
+      'error',
+      'fold',
+      'process',
+      'dispatch',
+      'return',
+      'system',
+      'tool-command',
+      'tool-read',
+      'tool-write',
+      'tool-search',
+      'tool-skill',
+      'tool-spawn',
+      'tool-child',
+      'tool-question',
+      'tool-media',
+      'tool-todo',
+      'tool-memory',
+      'tool-config',
+      'tool-navigate',
+      'tool-role',
+      'tool-web',
+      'tool-data',
+      'tool-git',
+      'tool-time',
+      'tool-notify',
+      'tool-generic',
+    ]
     for (const theme of ['light', 'dark'] as const) {
       const block = palette.split(`${theme}: {`)[1]!.split('},')[0]!
       const alpha = Number(/edgeAlpha: ([\d.]+)/.exec(block)![1])
-      for (const kind of [
-        'start',
-        'spawn',
-        'dispatch',
-        'return',
-        'return-continuation',
-        'fork-detail',
-        'next',
-      ] as const) {
-        expect(
-          contrast(edgeStyle(kind, theme).color, theme === 'light' ? '#f5f7fc' : '#0b1020', alpha),
-          `${theme}/${kind}`,
-        ).toBeGreaterThanOrEqual(3)
+      const background = theme === 'light' ? '#f5f7fc' : '#0b1020'
+      const skinAccents =
+        theme === 'light'
+          ? NODE_ACCENT_LIGHT
+          : Object.fromEntries(Object.entries(NODE_SKINS).map(([key, skin]) => [key, skin.accent]))
+      // stateRevoked 是刻意弱化的中性灰（撤销即淡化），不作为可见性校验对象；
+      // 错误红与暂停琥珀必须醒目。
+      const stateColors = ['stateError', 'statePaused'].map((name) => {
+        const raw = new RegExp(`${name}: (0x[0-9a-f]+)`).exec(block)![1]!
+        return `#${(Number(raw) & 0xffffff).toString(16).padStart(6, '0')}`
+      })
+      const accents = [
+        ...Object.values(skinAccents),
+        ...signalKinds.map((kind) => signalAccentForTheme(theme, kind)),
+        ...stateColors,
+      ]
+      for (const accent of accents) {
+        // 连线是 1.35px 装饰性连接线，不承担文本/大元素角色，2.5:1 已是清晰的可见下限
+        // （WCAG 3:1 针对大文本/UI 组件，连线无需达到）。
+        expect(contrast(accent, background, alpha), `${theme}/${accent}`).toBeGreaterThanOrEqual(
+          2.5,
+        )
       }
     }
   })

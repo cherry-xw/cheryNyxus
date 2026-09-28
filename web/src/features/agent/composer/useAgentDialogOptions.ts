@@ -1,18 +1,14 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { Ref } from 'vue'
-import type { UploadFile } from 'element-plus'
 import { httpUrl } from '@/application/platform/public'
 import { useAgentsStore, useChatSessionsStore, useConfigApplyStore } from '@/application/public'
 import { wsClient } from '@/application/transport/public'
 import {
-  compressImage,
-  COMPRESS_MAX_EDGE,
-  COMPRESS_QUALITY,
-  loadImageDims,
-  ORIGINAL_MAX_EDGE,
-  ORIGINAL_QUALITY,
-  shouldCompressImage,
-} from '@/utils/imageCompress'
+  useComposerMedia,
+  mediaKindOf,
+  type MediaAttachment,
+  type MediaKind,
+} from '@/features/agent/composables/useComposerMedia'
 import {
   agentApi,
   fetchServerConfig,
@@ -21,11 +17,13 @@ import {
   type RuntimeSelection,
   type SenseToolInfo,
   type SenseGroupOption,
+  type MediaCapabilitiesDto,
 } from '@/application/backend/public'
 import type { PetInstance } from '@/domain/pets/types'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { ownerOverlayZIndex } from '@/styles/overlayLayers'
+import { createRoleConfigModel } from '@/features/agent/runtime/roleConfigModel'
 import {
   COMPACT_COMMAND,
   composeCommandPrompt,
@@ -58,32 +56,7 @@ function runtimeSyncReference(error: unknown): string {
   return tracingId ? `追踪编号：${tracingId}` : '后端未返回具体原因'
 }
 
-
-export type MediaKind = 'image' | 'video' | 'audio'
-
-export interface MediaAttachment {
-  assetId: string
-  filename: string
-  kind: MediaKind
-  mimeType: string
-  size: number
-  previewUrl: string
-  /** 原图尺寸（图片且可测到才有；用于 token 估算展示）。 */
-  width?: number
-  height?: number
-  /** 压缩版（仅可压缩图片有）。useCompressed=true 时发送压缩版资产。 */
-  compressed?: {
-    assetId: string
-    filename: string
-    mimeType: string
-    size: number
-    width: number
-    height: number
-  }
-  /** 是否发送压缩版（默认 true；可压缩图片才有意义）。 */
-  useCompressed?: boolean
-}
-
+export type { MediaAttachment, MediaKind } from '@/features/agent/composables/useComposerMedia'
 // Renderer-local drafts survive browser panel unmounts without persisting private input.
 const composerDrafts = new Map<string, { text: string; media: MediaAttachment[] }>()
 // Keep refresh protection after the last browser panel has unmounted.
@@ -1211,12 +1184,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   }
 
   // === media functions ===
-  function mediaKind(file: File): MediaKind | undefined {
-    if (file.type.startsWith('image/')) return 'image'
-    if (file.type.startsWith('video/')) return 'video'
-    if (file.type.startsWith('audio/')) return 'audio'
-    return undefined
-  }
+  const mediaKind = mediaKindOf
 
   function formatFileSize(bytes: number): string {
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -1272,132 +1240,47 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     mediaHint.value = `已附加 ${mediaAttachments.value.length} 个媒体文件`
   }
 
-  async function onMediaSelected(uploadFile: UploadFile): Promise<void> {
-    const file = uploadFile.raw
-    uploadQueue.value = []
-    if (!file || !primarySelection.value || uploading.value || sending.value) return
-    const generation = draftGeneration
-    const category = mediaKind(file)
-    if (!category) return
-    // 检查感官组工具 accepts 命中 OR brain 原生能力，任一满足即可上传
-    const groupName = primarySelection.value.senseGroup
-    const hasToolCapability = groupName
-      ? senseEntries(groupName).some((entry) => senseTool(entry)?.accepts?.includes(category))
-      : false
-    const hasBrainCapability =
-      brainConfig(primarySelection.value.brain)?.capabilities?.input?.[category] === true
-    if (!hasToolCapability && !hasBrainCapability) {
-      const typeLabel = category === 'image' ? '图片' : category === 'video' ? '视频' : '音频'
-      mediaHint.value = `当前感官组无处理${typeLabel}的工具，且模型不支持原生${typeLabel}`
-      return
-    }
-    uploading.value = true
-    mediaHint.value = '上传媒体中…'
-    try {
-      const previewUrl = URL.createObjectURL(file)
-      const dims = category === 'image' ? await loadImageDims(file) : null
-      if (generation !== draftGeneration) return
-      // 图片预压缩：超阈值（最长边>1280 或 >1MB）→ 上传「原图版(2048/90) + 压缩版(1280/85)」双版本，
-      // 默认发压缩版；「原图」tag 开启时发原图版（已基本压缩，非原始大图）。压缩失败回退原始文件。
-      if (category === 'image' && shouldCompressImage(file, dims)) {
-        const [origTier, compTier] = await Promise.all([
-          compressImage(file, { maxEdge: ORIGINAL_MAX_EDGE, quality: ORIGINAL_QUALITY }),
-          compressImage(file, { maxEdge: COMPRESS_MAX_EDGE, quality: COMPRESS_QUALITY }),
-        ])
-        if (generation !== draftGeneration) return
-        if (origTier && compTier) {
-          const [origAsset, compAsset] = await Promise.all([
-            agentApi.uploadMedia(
-              new File([origTier.blob], `original-${file.name}`, { type: origTier.blob.type }),
-            ),
-            agentApi.uploadMedia(
-              new File([compTier.blob], `compressed-${file.name}`, { type: compTier.blob.type }),
-            ),
-          ])
-          if (generation !== draftGeneration) return
-          mediaAttachments.value.push({
-            assetId: origAsset.id,
-            filename: origAsset.filename,
-            kind: 'image',
-            mimeType: origAsset.mimeType,
-            size: origAsset.size,
-            previewUrl,
-            width: origTier.dims.width,
-            height: origTier.dims.height,
-            useCompressed: true,
-            compressed: {
-              assetId: compAsset.id,
-              filename: compAsset.filename,
-              mimeType: compAsset.mimeType,
-              size: compAsset.size,
-              width: compTier.dims.width,
-              height: compTier.dims.height,
-            },
-          })
-          mediaHint.value = `${file.name} 已附加`
-          return
-        }
-      }
-      // 小图 / 非图片 / 压缩失败 → 上传原始文件
-      const asset = await agentApi.uploadMedia(file)
-      if (generation !== draftGeneration) return
-      const base: MediaAttachment = {
-        assetId: asset.id,
-        filename: asset.filename,
-        kind: asset.kind,
-        mimeType: asset.mimeType,
-        size: asset.size,
-        previewUrl,
-        useCompressed: false,
-      }
-      if (category === 'image' && dims) {
-        base.width = dims.width
-        base.height = dims.height
-      }
-      mediaAttachments.value.push(base)
-      mediaHint.value = `${file.name} 已附加`
-    } catch (err) {
-      if (generation === draftGeneration) mediaHint.value = (err as Error).message
-    } finally {
-      if (generation === draftGeneration) uploading.value = false
-    }
-  }
+  // 媒体上传编排与 Lite 视图共用（composables/useComposerMedia.ts）：
+  // 能力探测走主角色 selection，draftGeneration 作过期守卫。
+  const { onMediaSelected } = useComposerMedia({
+    attachments: mediaAttachments,
+    uploading,
+    mediaHint,
+    sending: () => sending.value,
+    hasCapability: (category) => {
+      // 检查感官组工具 accepts 命中 OR brain 原生能力，任一满足即可上传
+      const groupName = primarySelection.value?.senseGroup
+      const hasToolCapability = groupName
+        ? senseEntries(groupName).some((entry) => senseTool(entry)?.accepts?.includes(category))
+        : false
+      const inputCaps: MediaCapabilitiesDto | undefined = primarySelection.value
+        ? brainConfig(primarySelection.value.brain)?.capabilities?.input
+        : undefined
+      const hasBrainCapability = inputCaps?.[category] === true
+      return hasToolCapability || hasBrainCapability
+    },
+    generation: () => draftGeneration,
+    isCurrent: (snapshot) => snapshot === draftGeneration,
+    prepare: () => {
+      uploadQueue.value = []
+    },
+  })
 
-  // === role config helpers ===
-  function brainInfo(name: string): BrainInfo | undefined {
-    return brains.value.find((brain) => brain.name === name)
-  }
-
-  function brainConfig(name: string) {
-    return config.value?.llm.brain[name]
-  }
-
-  function supportsTools(brainName: string): boolean {
-    return brainConfig(brainName)?.capabilities?.toolCall !== false
-  }
-
-  function selectBrain(selection: RuntimeSelection, brain: string): void {
-    selection.brain = brain
-    if (!supportsTools(brain)) {
-      selection.senseGroup = ''
-      selection.mcpServers = []
-    } else if (!selection.senseGroup) {
-      selection.senseGroup =
-        senseGroups.value.find((g) => g.default)?.name ?? senseGroups.value[0]?.name ?? ''
-    }
-  }
-
-  function senseEntries(group: string): string[] {
-    return config.value?.sense_groups?.[group] ?? []
-  }
-
-  function senseName(entry: string): string {
-    return entry.split(':')[0] ?? entry
-  }
-
-  function senseTool(entry: string): SenseToolInfo | undefined {
-    return senseTools.value.find((tool) => tool.name === senseName(entry))
-  }
+  // === role config helpers（共享实现见 runtime/roleConfigModel.ts） ===
+  const {
+    brainInfo,
+    brainConfig,
+    supportsTools,
+    selectBrain,
+    senseEntries,
+    senseName,
+    senseTool,
+  } = createRoleConfigModel({
+    brains: () => brains.value,
+    config: () => config.value,
+    senseGroups: () => senseGroups.value,
+    senseTools: () => senseTools.value,
+  })
 
   const orderedRoleSelections = computed(() => {
     const entries = Object.entries(roleSelections.value)

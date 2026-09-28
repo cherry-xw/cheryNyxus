@@ -13,7 +13,7 @@
  *
  * 依赖浏览器 canvas / URL；node 单测环境仅覆盖判定规则与尺寸换算，canvas 路径由手动验收覆盖。
  */
-import type { MediaKind } from '@/features/agent/composer/useAgentDialogOptions'
+import type { MediaKind } from '@/features/agent/composables/useComposerMedia'
 
 /** 压缩版最长边阈值（px，默认发送）。 */
 export const COMPRESS_MAX_EDGE = 1280

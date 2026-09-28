@@ -6,7 +6,7 @@
  * - video：视频卡片（封面帧 + 播放图标），点击打开 VideoPlayer
  * - audio：音频卡片（波形图标 + 文件名），点击打开 AudioPlayer
  */
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import type { MediaAssetRef } from '@/domain/chat/projectionTypes'
 import ImagePreview from '@/components/media/ImagePreview.vue'
 import VideoPlayer from '@/components/media/VideoPlayer.vue'

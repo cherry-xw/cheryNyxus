@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { agentApi, type InteractionRecord } from '@/services/agentApi'
 import { commandErrorFact, commandGateError, type CanonicalCommandError } from './commandLifecycle'
 import { useChatSessionsStore } from './chats'
+import { runSingleFlight } from '@/utils/asyncGuards'
 
 export interface InteractionCommandError extends CanonicalCommandError {
   interactionId: string
@@ -90,7 +91,6 @@ export const useInteractionsStore = defineStore('interactions', () => {
   const serverClockOffsetMs = ref(0)
   const inFlight = new Map<string, Promise<void>>()
   const commandIds = new Map<string, string>()
-
   const all = computed(() => Object.values(records.value))
   const pending = computed(() =>
     all.value.filter((item) => ['pending', 'resolving', 'blocked'].includes(item.status)),
@@ -181,11 +181,7 @@ export const useInteractionsStore = defineStore('interactions', () => {
   }
 
   function singleFlight(interactionId: string, operation: () => Promise<void>): Promise<void> {
-    const existing = inFlight.get(interactionId)
-    if (existing) return existing
-    const promise = operation().finally(() => inFlight.delete(interactionId))
-    inFlight.set(interactionId, promise)
-    return promise
+    return runSingleFlight(inFlight, interactionId, operation)
   }
 
   async function decide(item: InteractionRecord, action: 'accept' | 'reject'): Promise<void> {

@@ -251,7 +251,7 @@ const {
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
 } = controller
 // 底部 Agent 用量条入参：顶层解构为独立 ref，模板中才能自动解包。
-const { agents: usageBarAgents, tokenSpeed: usageBarTokenSpeed } = agentUsage
+ const { agents: usageBarAgents, tokenSpeed: usageBarTokenSpeed, taskElapsedMs: usageTaskElapsedMs } = agentUsage
 defineExpose({
   closeWorkbench: controller.closeWorkbench,
   toggleWorkspaceBrowser: controller.toggleWorkspaceBrowser,
@@ -336,6 +336,7 @@ defineExpose({
             v-if="treeRootChatId && !conversationViewVisible"
             :key="treeRootChatId"
             v-bind="treeProps"
+            :model-request-timeout-ms="config?.global?.llm_request_timeout_ms ?? 600000"
             @branch="selectBranchTarget"
             @interaction-focus="onTreeInteractionFocus"
             @close-side-panel="closeSidePanel"
@@ -380,6 +381,10 @@ defineExpose({
             :media-hint="mediaHint"
             :agent-usage-agents="usageBarAgents"
             :agent-usage-token-speed="usageBarTokenSpeed"
+            :task-elapsed-ms="usageTaskElapsedMs"
+            :can-stop-task="(!!taskTimeline?.taskId && taskHasRunningBranches) || sessionControl?.mode === 'pause'"
+            :stopping-task="taskControlPending || sessionControlPending"
+            @stop-task="taskTimeline?.taskId ? pauseWholeTask() : executeSessionControl()"
             @switch-chat="onConversationSwitchChat"
             @send="sendFromComposer"
             @draft-input="onConversationDraftInput"
@@ -487,6 +492,7 @@ defineExpose({
           :window-id="windowId"
           :root-chat-id="treeRootChatId"
           :preset-name="presetName"
+          :model-request-timeout-ms="config?.global?.llm_request_timeout_ms ?? 600000"
         />
         <WorkbenchFilesWorkspace
           v-if="treeRootChatId && visitedFileChat === treeRootChatId"
@@ -505,7 +511,11 @@ defineExpose({
           <WorkbenchAgentUsageBar
             :agents="usageBarAgents"
             :token-speed="usageBarTokenSpeed"
+            :task-elapsed-ms="usageTaskElapsedMs"
+            :can-stop="(!!taskTimeline?.taskId && taskHasRunningBranches) || sessionControl?.mode === 'pause'"
+            :stopping="taskControlPending || sessionControlPending"
             :variant="liteViewVisible ? 'lite' : 'divider'"
+            @stop="taskTimeline?.taskId ? pauseWholeTask() : executeSessionControl()"
           />
         </div>
 
@@ -663,30 +673,6 @@ defineExpose({
                     <span aria-hidden="true">{{
                       sessionControl.mode === 'pause' ? '■' : '▶'
                     }}</span>
-                  </button>
-                </span>
-              </el-tooltip>
-              <el-tooltip
-                v-if="
-                  taskTimeline?.taskId &&
-                  taskHasRunningBranches &&
-                  (taskTimeline.branches?.length ?? 0) > 1
-                "
-                :content="taskControlPending ? '正在暂停全部分支…' : '暂停全部分支'"
-                placement="left"
-                :show-after="200"
-                :hide-after="0"
-              >
-                <span class="nyxus-tool-tip-anchor is-lite-hidden">
-                  <button
-                    type="button"
-                    class="nyxus-rail-action is-stop"
-                    data-view-action="pause-whole"
-                    :disabled="taskControlPending"
-                    aria-label="暂停全部分支"
-                    @click="pauseWholeTask"
-                  >
-                    <span aria-hidden="true">▣</span>
                   </button>
                 </span>
               </el-tooltip>

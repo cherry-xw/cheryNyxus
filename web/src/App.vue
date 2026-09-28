@@ -46,7 +46,7 @@ const WorkbenchSessionBar = defineAsyncComponent(
 const CyberDesktopHost = defineAsyncComponent(
   () => import('@/features/desktop/CyberDesktopHost.vue'),
 )
-const CyberWindow = defineAsyncComponent(() => import('@/features/desktop/CyberWindow.vue'))
+const WorkspaceCyberWindow = defineAsyncComponent(() => import('@/features/desktop/WorkspaceCyberWindow.vue'))
 const AgentDialog = defineAsyncComponent(() => import('@/features/agent/chat/AgentDialog.vue'))
 const WorkbenchDialog = defineAsyncComponent(
   () => import('@/features/agent/workbench/WorkbenchDialog.vue'),
@@ -314,6 +314,15 @@ function minimizeCyberWindow(id: string): void {
 function focusTaskCenterWindow(id: string): void {
   workspace.setWorkspaceWindowAttention(id, false)
   workspace.focusWorkspaceWindow(id)
+}
+
+const cyberWindowHandlers = {
+  opened: workspace.markWorkspaceWindowOpen,
+  minimize: minimizeCyberWindow,
+  requestClose: requestCyberWindowClose,
+  closed: finishCyberWindowClose,
+  geometry: workspace.setWorkspaceWindowGeometry,
+  toggleMaximize: workspace.toggleWorkspaceWindowMaximized,
 }
 
 function finishCyberWindowClose(id: string): void {
@@ -657,69 +666,44 @@ async function bootstrap(): Promise<void> {
     <CyberDesktopHost>
       <PetStage transparent />
       <NyxusCore />
-      <CyberWindow
+      <WorkspaceCyberWindow
         v-if="browserSessionWindow"
+        :handlers="cyberWindowHandlers"
         :window="browserSessionWindow"
-        @focus="workspace.focusWorkspaceWindow"
-        @opened="workspace.markWorkspaceWindowOpen"
-        @minimize="minimizeCyberWindow"
-        @request-close="requestCyberWindowClose"
-        @closed="finishCyberWindowClose"
-        @geometry="workspace.setWorkspaceWindowGeometry"
-        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+        :focus="workspace.focusWorkspaceWindow"
       >
         <AgentDialog v-if="workspace.activeDialogChatId" embedded />
-      </CyberWindow>
-      <CyberWindow
+      </WorkspaceCyberWindow>
+      <WorkspaceCyberWindow
         v-if="browserTaskCenterWindow"
+        :handlers="cyberWindowHandlers"
         :window="browserTaskCenterWindow"
-        @focus="focusTaskCenterWindow"
-        @opened="workspace.markWorkspaceWindowOpen"
-        @minimize="minimizeCyberWindow"
-        @request-close="requestCyberWindowClose"
-        @closed="finishCyberWindowClose"
-        @geometry="workspace.setWorkspaceWindowGeometry"
-        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+        :focus="focusTaskCenterWindow"
       >
         <TaskCenterPanel />
-      </CyberWindow>
-      <CyberWindow
+      </WorkspaceCyberWindow>
+      <WorkspaceCyberWindow
         v-if="browserHistoryWindow && workspace.historyDrawerMode === 'overlay'"
+        :handlers="cyberWindowHandlers"
         :window="browserHistoryWindow"
-        @focus="workspace.focusWorkspaceWindow"
-        @opened="workspace.markWorkspaceWindowOpen"
-        @minimize="minimizeCyberWindow"
-        @request-close="requestCyberWindowClose"
-        @closed="finishCyberWindowClose"
-        @geometry="workspace.setWorkspaceWindowGeometry"
-        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+        :focus="workspace.focusWorkspaceWindow"
       >
         <HistoryDrawer embedded />
-      </CyberWindow>
-      <CyberWindow
+      </WorkspaceCyberWindow>
+      <WorkspaceCyberWindow
         v-if="browserSettingsWindow"
+        :handlers="cyberWindowHandlers"
         :window="browserSettingsWindow"
-        @focus="workspace.focusWorkspaceWindow"
-        @opened="workspace.markWorkspaceWindowOpen"
-        @minimize="minimizeCyberWindow"
-        @request-close="requestCyberWindowClose"
-        @closed="finishCyberWindowClose"
-        @geometry="workspace.setWorkspaceWindowGeometry"
-        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+        :focus="workspace.focusWorkspaceWindow"
       >
         <SettingsDialog v-if="workspace.settingsOpen" ref="settingsDialogRef" embedded />
-      </CyberWindow>
-      <CyberWindow
+      </WorkspaceCyberWindow>
+      <WorkspaceCyberWindow
         v-for="terminalWindow in browserTerminalWindows"
         :key="terminalWindow.id"
+        :handlers="cyberWindowHandlers"
         :window="terminalWindow"
-        @focus="workspace.focusWorkspaceWindow"
-        @opened="workspace.markWorkspaceWindowOpen"
-        @minimize="minimizeCyberWindow"
-        @request-close="requestCyberWindowClose"
-        @closed="finishCyberWindowClose"
-        @geometry="workspace.setWorkspaceWindowGeometry"
-        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+        :focus="workspace.focusWorkspaceWindow"
       >
         <template #title-actions>
           <TerminalTitleActions
@@ -735,18 +719,13 @@ async function bootstrap(): Promise<void> {
           :preset-id="terminalWindow.context.presetId"
           @meta="updateBrowserTerminalHeader(terminalWindow.id, $event)"
         />
-      </CyberWindow>
-      <CyberWindow
+      </WorkspaceCyberWindow>
+      <WorkspaceCyberWindow
         v-for="entry in browserWorkbenchWindows"
         :key="entry.window.id"
+        :handlers="cyberWindowHandlers"
         :window="entry.window"
-        @focus="workspace.focusWorkbenchWindow(entry.workbench.id)"
-        @opened="workspace.markWorkspaceWindowOpen"
-        @minimize="minimizeCyberWindow"
-        @request-close="requestCyberWindowClose"
-        @closed="finishCyberWindowClose"
-        @geometry="workspace.setWorkspaceWindowGeometry"
-        @toggle-maximize="workspace.toggleWorkspaceWindowMaximized"
+        :focus="() => workspace.focusWorkbenchWindow(entry.workbench.id)"
       >
         <template #title-actions>
           <!-- 树模式待处理提示：标题栏内不可点击图标（hover 显示数量），与 WorkbenchDialog 内部标题栏同一组件 -->
@@ -784,7 +763,7 @@ async function bootstrap(): Promise<void> {
           embedded
           @files-open-change="(open) => setBrowserFilesOpen(entry.workbench.id, open)"
         />
-      </CyberWindow>
+      </WorkspaceCyberWindow>
     </CyberDesktopHost>
   </template>
 </template>

@@ -41,8 +41,6 @@ describe('frontend cold-start bundle boundaries', () => {
     expect(main).toContain('const elementComponents = [')
     expect(markdown).toContain("from 'highlight.js/lib/core'")
     expect(markdown).not.toContain("from 'highlight.js'")
-    const markdownFacade = await readFile(resolve('web/src/utils/markdown.ts'), 'utf8')
-    expect(markdownFacade).not.toContain("from 'highlight.js")
     expect(viteConfig).not.toContain("return 'vendor-markdown'")
     expect(theme).not.toContain('theme-chalk/src/index.scss')
     expect(theme).toContain('theme-chalk/src/tooltip.scss')

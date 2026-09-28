@@ -61,46 +61,28 @@ function compareNodes(a: ExecutionNode, b: ExecutionNode): number {
   return (a.orderKey ?? 0) - (b.orderKey ?? 0) || a.id.localeCompare(b.id)
 }
 
-/**
- * Recursively packs each participant subtree around its own root lane. Direct
- * children are split across both sides of their parent; an odd fan-out puts
- * the extra child on the side farther from the global centre. Within either
- * side newer child subtrees are packed nearer their parent than older ones.
- */
-function assignChildLanes(
-  graph: ExecutionGraph,
-  previous?: ReadonlyMap<string, number>,
-  branchPacking: NonNullable<ExecutionLayoutOptions['branchPacking']> = 'balanced',
-): Map<string, number> {
+function buildParticipantHierarchy(graph: ExecutionGraph): {
+  weights: Map<string, { firstOrder: number }>
+  parentByChat: Map<string, string>
+  entryOrderByChat: Map<string, number>
+  nodeById: Map<string, ExecutionNode>
+  children: Map<string, string[]>
+} {
   const { nodes, rootChatId } = graph
   const weights = new Map<string, { firstOrder: number }>()
   for (const node of nodes) {
-    // 仅排除归因主 chat 的节点（含主 start）。子 chat 的 start 计入权重，
-    // 使刚 spawn 的子 agent（仅 start 节点）也能立刻获得 lane，创建即平衡。
     if (node.sourceChatId === rootChatId) continue
     const current = weights.get(node.sourceChatId)
-    if (current) {
-      current.firstOrder = Math.min(current.firstOrder, node.orderKey ?? Number.MAX_SAFE_INTEGER)
-    } else {
-      weights.set(node.sourceChatId, {
-        firstOrder: node.orderKey ?? Number.MAX_SAFE_INTEGER,
-      })
-    }
+    if (current) current.firstOrder = Math.min(current.firstOrder, node.orderKey ?? Number.MAX_SAFE_INTEGER)
+    else weights.set(node.sourceChatId, { firstOrder: node.orderKey ?? Number.MAX_SAFE_INTEGER })
   }
-
   const parentByChat = new Map<string, string>()
   const entryOrderByChat = new Map<string, number>()
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   for (const edge of graph.edges) {
-    if (
-      !['spawn', 'fork-continuation', 'fork-detail'].includes(edge.kind) ||
-      edge.targetChatId === rootChatId
-    )
-      continue
+    if (!['spawn', 'fork-continuation', 'fork-detail'].includes(edge.kind) || edge.targetChatId === rootChatId) continue
     const parent = nodeById.get(edge.from)?.sourceChatId ?? edge.sourceChatId
-    if (parent !== edge.targetChatId && !parentByChat.has(edge.targetChatId)) {
-      parentByChat.set(edge.targetChatId, parent)
-    }
+    if (parent !== edge.targetChatId && !parentByChat.has(edge.targetChatId)) parentByChat.set(edge.targetChatId, parent)
     const entryOrder = nodeById.get(edge.from)?.orderKey ?? edge.orderKey
     if (entryOrder !== null && entryOrder !== undefined) {
       const current = entryOrderByChat.get(edge.targetChatId)
@@ -116,6 +98,22 @@ function assignChildLanes(
     list.push(chatId)
     children.set(parent, list)
   }
+  return { weights, parentByChat, entryOrderByChat, nodeById, children }
+}
+
+/**
+ * Recursively packs each participant subtree around its own root lane. Direct
+ * children are split across both sides of their parent; an odd fan-out puts
+ * the extra child on the side farther from the global centre. Within either
+ * side newer child subtrees are packed nearer their parent than older ones.
+ */
+function assignChildLanes(
+  graph: ExecutionGraph,
+  previous?: ReadonlyMap<string, number>,
+  branchPacking: NonNullable<ExecutionLayoutOptions['branchPacking']> = 'balanced',
+): Map<string, number> {
+  const { rootChatId } = graph
+  const { weights, entryOrderByChat, nodeById, children } = buildParticipantHierarchy(graph)
   const compareChats = (a: string, b: string): number =>
     (weights.get(a)?.firstOrder ?? Number.MAX_SAFE_INTEGER) -
       (weights.get(b)?.firstOrder ?? Number.MAX_SAFE_INTEGER) || a.localeCompare(b)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createUiState } from '../../src/stores/agents/ui/uiState'
+import { createUiState } from '../../src/stores/workspace/uiState'
 
 describe('deleted chat UI pruning', () => {
   it('clears every chat reference while preserving workbench preferences', () => {

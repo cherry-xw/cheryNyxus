@@ -49,6 +49,9 @@ const props = defineProps<{
   mediaHint: string
   agentUsageAgents: WorkbenchAgentUsageView[]
   agentUsageTokenSpeed: number
+  taskElapsedMs: number
+  canStopTask: boolean
+  stoppingTask: boolean
 }>()
 
 const emit = defineEmits<{
@@ -59,6 +62,7 @@ const emit = defineEmits<{
   mediaSelected: [file: UploadFile]
   removeMedia: [attachment: MediaAttachment]
   toggleMediaVariant: [attachment: MediaAttachment]
+  stopTask: []
 }>()
 
 const mediaKinds = [
@@ -377,7 +381,11 @@ onMounted(() => {
         class="conversation-agent-usage"
         :agents="agentUsageAgents"
         :token-speed="agentUsageTokenSpeed"
+        :task-elapsed-ms="taskElapsedMs"
+        :can-stop="canStopTask"
+        :stopping="stoppingTask"
         variant="divider"
+        @stop="emit('stopTask')"
       />
     </div>
   </div>

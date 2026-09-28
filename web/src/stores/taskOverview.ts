@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { agentApi, type TaskOverview } from '@/services/agentApi'
+import { runSingleFlight } from '@/utils/asyncGuards'
 
 export interface TaskOverviewChange {
   type: 'upsert' | 'remove'
@@ -32,7 +33,7 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
   const loading = ref(false)
   const error = ref<string>()
   const pinnedRootIds = ref<string[]>([])
-  let opening: Promise<void> | undefined
+  const openFlights = new Map<string, Promise<void>>()
 
   const tasks = computed(() =>
     Object.values(tasksByRoot.value).sort(
@@ -51,8 +52,7 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
   )
 
   async function open(): Promise<void> {
-    if (opening) return opening
-    opening = (async () => {
+    return runSingleFlight(openFlights, 'open', async () => {
       loading.value = true
       try {
         const snapshot = await agentApi.openTaskOverview(sessionStartedAt)
@@ -67,14 +67,12 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
         throw cause
       } finally {
         loading.value = false
-        opening = undefined
       }
-    })()
-    return opening
+    })
   }
 
   async function close(): Promise<void> {
-    if (opening) await opening.catch(() => undefined)
+    if (openFlights.has('open')) await openFlights.get('open')!.catch(() => undefined)
     const current = subscriptionId.value
     subscriptionId.value = undefined
     revision.value = 0
@@ -88,7 +86,7 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
   }
 
   async function reopen(): Promise<void> {
-    if (opening) await opening.catch(() => undefined)
+    if (openFlights.has('open')) await openFlights.get('open')!.catch(() => undefined)
     const current = subscriptionId.value
     resetSubscription()
     if (current) await agentApi.closeTaskOverview(current).catch(() => undefined)

@@ -10,6 +10,7 @@ import { useGsap } from '@/composables/useGsap'
 import { useMotionPreference } from '@/composables/useMotionPreference'
 import { MOTION } from '@/utils/gsapCore'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
+import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import RiskBadge from '@/components/RiskBadge.vue'
 import QuestionAnswerDetail from './QuestionAnswerDetail.vue'
 import TodoRenderer from '@/features/agent/renderers/io/TodoRenderer.vue'
@@ -38,6 +39,7 @@ const {
   ToolFieldTree,
   activeQuestionCall,
   actualDescription,
+  approval,
   batch,
   batchInfo,
   canBranch,
@@ -137,7 +139,7 @@ useGsap(popoverRoot, (context) => {
     class="node-popover"
     :class="[
       `is-${variant ?? 'popover'}`,
-      { 'is-pinned': pinned, 'is-actionable': question, 'is-wrap': wrap },
+      { 'is-pinned': pinned, 'is-actionable': question || approval, 'is-wrap': wrap },
       // 档位字号只作用于常驻窗口：hover 默认窗口保持 12px 基线，不受尺寸档位影响。
       pinned && sizeLabel ? `is-size-${sizeLabel.toLowerCase()}` : '',
     ]"
@@ -188,7 +190,7 @@ useGsap(popoverRoot, (context) => {
           {{ nodeStatus }}
         </span>
         <div
-          v-if="canBranch && !question"
+          v-if="canBranch && !question && !approval"
           class="branch-head-actions"
           role="group"
           aria-label="从此节点发起对话"
@@ -297,6 +299,11 @@ useGsap(popoverRoot, (context) => {
     </div>
 
     <div class="popover-body">
+      <!-- 待审批节点：点击节点后在此渲染 ApprovalCard（批准/拒绝/倒计时）。 -->
+      <template v-if="approval && chatId">
+        <ApprovalCard :approval="approval" :chat-id="chatId" />
+      </template>
+
       <!-- 询问节点（question 场景）：标题 → 思考 → 正文 → tabs(指示器) → 选项区+操作。
            tabs 高亮由当前活动问题（activeQuestionCall）联动，"下一步"推进后高亮跟走；
            点击 tab 不切换问题内容（问题只由"下一步"实质切换）。 -->

@@ -6,6 +6,19 @@ import NeonNumberControl from '../../../controls/NeonNumberControl.vue'
 
 const props = defineProps<{ global: GlobalConfigDto; no: number }>()
 
+const modelTimeoutMinutes = computed<number | undefined>({
+  get: () => props.global.llm_request_timeout_ms === undefined
+    ? undefined
+    : props.global.llm_request_timeout_ms / 60000,
+  set: (minutes) => {
+    if (minutes === undefined || minutes === null || Number.isNaN(minutes)) {
+      delete props.global.llm_request_timeout_ms
+    } else {
+      props.global.llm_request_timeout_ms = Math.round(minutes * 60000)
+    }
+  },
+})
+
 /**
  * 审批等待时长（global.approval_timeout）：后端存 ms，前端 UI 按秒录入。
  * - 读取：ms ÷ 1000 → 秒（undefined 时保持 undefined，placeholder 显示默认 300 秒）
@@ -53,6 +66,15 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
     >LIMIT MATRIX
   </div>
   <div class="limit-grid">
+    <NeonNumberControl
+      v-model="modelTimeoutMinutes"
+      label="单次模型请求超时"
+      tip="从本次模型请求开始计时，持续收到内容也不会重置。默认 10 分钟；0 = 不限时。到时截断，已收到内容可查看，但不会加入后续模型上下文；工具和审批等待不计入。"
+      placeholder="10"
+      unit="分钟"
+      :step="1"
+      :min="0"
+    />
     <NeonNumberControl
       v-model="global.sense_execute_timeout"
       label="工具执行超时"

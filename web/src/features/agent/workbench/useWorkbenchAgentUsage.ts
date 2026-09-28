@@ -23,7 +23,8 @@ import {
   type Ref,
   toValue,
 } from 'vue'
-import { createLiteExecutionClock, elapsedTime } from '@/features/lite/executionMonitor'
+import { createLiteExecutionClock, elapsedTime, projectLiteExecution } from '@/features/lite/executionMonitor'
+import { THINKING_LABEL } from '@/features/agent/runtime/roleConfigModel'
 import { useChatSessionData } from '@/application/chat/public'
 import { useChatSessionsStore } from '@/application/public'
 import type { ExecutionReadModel, ExecutionRootStatus } from '@/application/chat/public'
@@ -80,6 +81,7 @@ export interface WorkbenchAgentUsage {
   tokenSpeed: Ref<number>
   /** 每秒 tick（展示层实时刷新）。 */
   now: Ref<number>
+  taskElapsedMs: ComputedRef<number>
 }
 
 /** 估算文本 token（字符数/4 向上取整，与后端 estimateTokens 对齐）。 */
@@ -100,32 +102,7 @@ function breakdownUsed(bd: ContextBreakdown): number {
   )
 }
 
-/** 思考档位 → 中文（与 RoleConfigPopover 同表；未命中原样展示）。 */
-const THINKING_LABEL: Record<string, string> = {
-  off: '关闭',
-  on: '开',
-  low: '低',
-  medium: '中',
-  high: '高',
-  xhigh: '超高',
-  max: '最高',
-  min: '最低',
-  none: '无',
-  auto: '自动',
-  adaptive: '自适应',
-  balanced: '均衡',
-  standard: '标准',
-  moderate: '适中',
-  minimal: '极少',
-  deep: '深度',
-  extreme: '极限',
-  ultra: '极致',
-  turbo: '极速',
-  full: '全力',
-  always: '始终',
-  verbose: '详细',
-}
-
+/** 思考档位 → 中文（共享表：runtime/roleConfigModel.ts 的 THINKING_LABEL；未命中原样展示）。 */
 function thinkingLabelOf(level: ThinkingLevel | undefined): string | undefined {
   if (!level || level === 'off') return undefined
   return THINKING_LABEL[level] ?? level
@@ -148,6 +125,7 @@ export function useWorkbenchAgentUsage(options: WorkbenchAgentUsageOptions): Wor
     const ex = execution.value
     return !!ex && (ex.status === 'running' || ex.status === 'waiting')
   })
+  const taskElapsedMs = computed(() => execution.value ? projectLiteExecution(execution.value, clock.now.value).elapsedMs : 0)
 
   // ── 主 Agent token 用量（工作台既有口径：treeUsage / treeBreakdown）──
   const rootBreakdown = computed(() => toValue(options.breakdown))
@@ -351,5 +329,6 @@ export function useWorkbenchAgentUsage(options: WorkbenchAgentUsageOptions): Wor
     running,
     tokenSpeed,
     now: clock.now,
+    taskElapsedMs,
   }
 }

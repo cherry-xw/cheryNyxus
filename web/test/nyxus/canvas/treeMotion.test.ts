@@ -27,9 +27,16 @@ async function treeComponentSource(): Promise<string> {
   )
 }
 
-async function treeControllerSource(): Promise<string> {
+async function treeCameraSource(): Promise<string> {
   return readComponentSource(
-    resolve('web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts'),
+    resolve('web/src/features/pets/nyxus/components/useTreeCamera.ts'),
+    'utf8',
+  )
+}
+
+async function treeGpuSource(): Promise<string> {
+  return readComponentSource(
+    resolve('web/src/features/pets/nyxus/components/useTreeGpuScene.ts'),
     'utf8',
   )
 }
@@ -70,10 +77,7 @@ describe('Nyxus tree motion contract', () => {
   })
 
   it('keeps pointer-down and pointer-up outside scene reconstruction', async () => {
-    const [component, controller] = await Promise.all([
-      treeComponentSource(),
-      treeControllerSource(),
-    ])
+    const [component, controller] = await Promise.all([treeComponentSource(), treeCameraSource()])
     const dragStart = controller.slice(
       controller.indexOf('function startGpuDrag'),
       controller.indexOf('function retainCameraSelection'),
@@ -92,7 +96,7 @@ describe('Nyxus tree motion contract', () => {
   it('keeps the mouse highlight in one non-interactive compositor layer', async () => {
     const [component, controller, highlight] = await Promise.all([
       treeComponentSource(),
-      treeControllerSource(),
+      treeGpuSource(),
       readComponentSource(
         resolve('web/src/features/pets/nyxus/components/useTreePointerHighlight.ts'),
         'utf8',
@@ -119,10 +123,7 @@ describe('Nyxus tree motion contract', () => {
   })
 
   it('retries the shared reset layout until initial timeline geometry is ready', async () => {
-    const [component, controller] = await Promise.all([
-      treeComponentSource(),
-      treeControllerSource(),
-    ])
+    const [component, controller] = await Promise.all([treeComponentSource(), treeCameraSource()])
 
     expect(controller).toContain('if (!initialFitPending || !timelineSnapshot.value) return')
     expect(controller).toContain('if (resetLayout()) initialFitPending = false')
@@ -130,7 +131,7 @@ describe('Nyxus tree motion contract', () => {
     expect(controller).toContain('() => viewportSize.value.height')
     expect(component).toContain('@click.stop="resetLayout"')
     // 2026-09-27：pointerdown 表达式换行重排（多行属性），断言按实际排版匹配。
-    expect(component).toContain('onNodePointerDown($event, node);')
+    expect(component).toContain('onNodePointerDown($event, node)')
     expect(component).toContain('canvas.onPointerDown($event)')
   })
 
@@ -148,7 +149,9 @@ describe('Nyxus tree motion contract', () => {
     expect(drawMotion).not.toContain('this.sampledEdges')
     expect(drawMotion).not.toContain('this.scene.nodes')
     // 2026-09-27：待审批/提问节点（awaitingInteraction）加入运动层，闪烁环与运行态共享预算。
-    expect(source).toContain('.filter((node) => node.running || node.detailActive || node.awaitingInteraction)')
+    expect(source).toContain(
+      '.filter((node) => node.running || node.detailActive || node.awaitingInteraction)',
+    )
     expect(source).toContain('renderQualityProfile(this.qualityTier).graphEffectNodes')
     // 2026-09-02 二轮返工：priority 分级随类型徽记矩阵移除，motion 预算按 detailActive 排序。
     expect(source).toContain('Number(right.detailActive) - Number(left.detailActive)')
@@ -157,10 +160,7 @@ describe('Nyxus tree motion contract', () => {
   })
 
   it('keeps full-render dragging outside Vue and moves one hit-target layer', async () => {
-    const [component, controller] = await Promise.all([
-      treeComponentSource(),
-      treeControllerSource(),
-    ])
+    const [component, controller] = await Promise.all([treeComponentSource(), treeCameraSource()])
 
     expect(controller).toContain('if (fullRenderActive.value) return')
     expect(component).toContain('class="gpu-node-hit-layer"')
@@ -172,10 +172,10 @@ describe('Nyxus tree motion contract', () => {
     )
     const dragEnd = controller.slice(
       controller.indexOf('function finishGpuDrag'),
-      controller.indexOf('const projectedCrts'),
+      controller.indexOf('function resetLayout'),
     )
     expect(dragFrame).not.toContain('gpuRenderer?.setCamera(camera)')
-    expect(dragEnd).toContain('snapCrtWindowsToAnchors()')
+    expect(dragEnd).toContain('snapCrts()')
     expect(component).not.toContain('.gpu-node-hit-target,\n    .crt-anchor-lines')
   })
 
@@ -225,13 +225,13 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('width: node.containsErrorMessage ? 2.2 : 0.75')
     expect(source).toContain('width: 1.05')
     expect(source).toContain('width: 1.45')
-    expect(source).toContain('alpha: 0.12 * alpha')
+    expect(source).toContain('0.12 * alpha')
     expect(source).toContain('alpha: 0.94 * (1 - phase) * emphasis')
   })
 
   it('grows the horizontal tree at fixed size and shifts left past the right-edge ratio', async () => {
     const [controller, canvasSource] = await Promise.all([
-      treeControllerSource(),
+      treeCameraSource(),
       readComponentSource(
         resolve('web/src/features/pets/nyxus/composables/useTreeCanvas.ts'),
         'utf8',
@@ -277,7 +277,7 @@ describe('Nyxus tree motion contract', () => {
   it('keeps the static line subdued while the pulse head and tail stay luminous', async () => {
     const source = await rendererSource()
 
-    expect(source).toContain('alpha: 0.12 * alpha')
+    expect(source).toContain('0.12 * alpha')
     expect(source).toContain('width: 1.35')
     expect(source).toContain('this.canvasPalette.activeEdgeAlpha : this.canvasPalette.edgeAlpha')
     expect(source).toContain('[0.12, 0.16, 0.22, 0.3, 0.48, 0.3, 0.55]')
@@ -298,16 +298,15 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('const emphasis = emphasisAlpha(node.deemphasized, node.detailBranch)')
   })
 
-  it('gives detail branches a distinct cyan 55% treatment', async () => {
-    const [renderer, component] = await Promise.all([rendererSource(), treeComponentSource()])
+  it('keeps detail branches deemphasized and derives edge colors from endpoint nodes', async () => {
+    const [renderer, component] = await Promise.all([rendererSource(), treeGpuSource()])
 
     expect(renderer).toContain('const DETAIL_BRANCH_ALPHA = 0.55')
     expect(renderer).toContain('detailBranch ? DETAIL_BRANCH_ALPHA : DEEMPHASIZED_ALPHA')
     expect(renderer).toContain('if (node.detailBranch)')
     expect(renderer).toContain('width: 1.8')
-    expect(component).toContain(
-      "edgeStyle(detailBranch ? 'fork-detail' : edge.kind, themeStore.theme).color",
-    )
+    expect(component).toContain('fromColor: gpuNodeEndpointColor(edge.from)')
+    expect(component).toContain('toColor: gpuNodeEndpointColor(edge.to)')
     expect(component).toContain('detailBranch: coreFlowProjection.value.detailNodeIds.has(node.id)')
   })
 })
