@@ -5,8 +5,8 @@
   top: 50%;
   left: 50%;
   z-index: 3000;
-  margin-left: -200px;
-  margin-top: -240px;
+  margin-left: -380px;
+  margin-top: -300px;
 }
 /* 卷帘最小化：窗体缩为只剩标题栏（38px），锚点同步上移保持居中观感 */
 .rift-float.is-min {
@@ -41,7 +41,7 @@
 }
 .rift-stage {
   position: relative;
-  width: 400px;
+  width: 760px;
   max-width: calc(100vw - 32px);
   /* 暖黄光锚点：用户明确指定的"白偏黄"手电光色（本模块唯一硬编码色相，已获确认） */
   --lamp-warm: color-mix(in srgb, white 55%, #ffcf7a);
@@ -566,6 +566,351 @@ html.dark .btn--primary {
   transform: translateX(-50%) translateY(-8px);
 }
 
+/* Atmosphere layout: the scene explains the current link state while the form stays task-first. */
+.rift-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.92fr) minmax(360px, 1.08fr);
+  min-height: 500px;
+}
+
+.rift-visual {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  overflow: hidden;
+  padding: 24px 24px 22px;
+  border-right: 1px solid color-mix(in srgb, var(--cyber-line) 35%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 11%, transparent), transparent 48%),
+    color-mix(in srgb, var(--bg) 68%, var(--panel));
+}
+
+.rift-visual::before,
+.rift-visual::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+.rift-visual::before {
+  inset: 0;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--cyber-line) 28%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--cyber-line) 28%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+}
+
+.rift-visual::after {
+  top: 0;
+  right: -20%;
+  width: 42%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 14%, transparent), transparent);
+  transform: translateX(-160%);
+  animation: visualScan 5.5s ease-in-out infinite;
+}
+
+.visual-header,
+.visual-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-mono, monospace);
+}
+
+.visual-header {
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.visual-code {
+  opacity: 0.62;
+}
+
+.signal-field {
+  position: relative;
+  width: min(250px, 76%);
+  aspect-ratio: 1;
+  margin: 24px auto;
+  border: 1px solid color-mix(in srgb, var(--cyber-line) 28%, transparent);
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 13%, transparent), transparent 58%);
+  transform: rotate(-8deg);
+  animation: fieldFloat 7s ease-in-out infinite;
+}
+
+.signal-field::before,
+.signal-field::after {
+  content: '';
+  position: absolute;
+  inset: 12%;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  transform: rotate(45deg);
+}
+
+.signal-field::after {
+  inset: 26%;
+  border-color: color-mix(in srgb, var(--cyber-line) 35%, transparent);
+  transform: rotate(0deg);
+}
+
+.signal-ring,
+.signal-cross,
+.signal-core,
+.signal-scan {
+  position: absolute;
+  display: block;
+}
+
+.signal-ring {
+  top: 50%;
+  left: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 54%, transparent);
+  border-radius: 0;
+  transform: translate(-50%, -50%);
+}
+
+.signal-ring--outer {
+  width: 78%;
+  height: 78%;
+  opacity: 0.45;
+  animation: ringSpin 18s linear infinite;
+}
+
+.signal-ring--middle {
+  width: 54%;
+  height: 54%;
+  border-style: dashed;
+  opacity: 0.68;
+  animation: ringSpinReverse 11s linear infinite;
+}
+
+.signal-ring--inner {
+  width: 30%;
+  height: 30%;
+  border-color: var(--cyber-line);
+  box-shadow: 0 0 28px var(--accent-glow);
+  animation: ringPulse 2.6s ease-in-out infinite;
+}
+
+.signal-cross {
+  top: 50%;
+  left: 50%;
+  background: color-mix(in srgb, var(--cyber-line) 48%, transparent);
+  transform: translate(-50%, -50%);
+}
+
+.signal-cross--x {
+  width: 92%;
+  height: 1px;
+}
+
+.signal-cross--y {
+  width: 1px;
+  height: 92%;
+}
+
+.signal-core {
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: var(--cyber-line);
+  box-shadow: 0 0 16px var(--cyber-line);
+  transform: translate(-50%, -50%);
+  animation: coreBlink 2.2s ease-in-out infinite;
+}
+
+.signal-core.is-active {
+  background: var(--el-color-success);
+  box-shadow: 0 0 18px var(--el-color-success);
+}
+
+.signal-scan {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  animation: fieldScan 3.8s ease-in-out infinite;
+}
+
+.visual-footer {
+  align-items: flex-end;
+  flex-direction: column;
+  color: var(--ink);
+}
+
+.visual-footer strong {
+  font-family: var(--font-sans, sans-serif);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.visual-footer span {
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.7;
+}
+
+.rift-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 32px 34px 34px;
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+}
+
+.rift-content .rift-form {
+  width: min(100%, 420px);
+  margin: 0 auto;
+}
+
+.rift-content .info-panel {
+  width: min(100%, 420px);
+  margin: 0 auto;
+}
+
+.rift-layout.is-connected .rift-content {
+  justify-content: center;
+}
+
+@keyframes visualScan {
+  0%,
+  16% {
+    transform: translateX(-160%);
+  }
+  50%,
+  70% {
+    transform: translateX(320%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+@keyframes fieldFloat {
+  0%,
+  100% {
+    transform: rotate(-8deg) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: rotate(-4deg) translate3d(0, -6px, 0);
+  }
+}
+
+@keyframes ringSpin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes ringSpinReverse {
+  to {
+    transform: translate(-50%, -50%) rotate(-360deg);
+  }
+}
+
+@keyframes ringPulse {
+  0%,
+  100% {
+    opacity: 0.38;
+    transform: translate(-50%, -50%) scale(0.94);
+  }
+  50% {
+    opacity: 0.94;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+}
+
+@keyframes coreBlink {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes fieldScan {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  20%,
+  75% {
+    opacity: 0.82;
+  }
+  86% {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 720px) {
+  .rift-float {
+    margin-left: calc(-50vw + 16px);
+    margin-top: -276px;
+  }
+
+  .rift-stage {
+    width: calc(100vw - 32px);
+  }
+
+  .rift-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .rift-visual {
+    min-height: 188px;
+    padding: 18px 20px 16px;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--cyber-line) 35%, transparent);
+  }
+
+  .signal-field {
+    width: 132px;
+    margin: 12px auto 8px;
+  }
+
+  .visual-footer {
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .rift-content {
+    padding: 24px 20px 22px;
+  }
+
+  .rift-body {
+    max-height: calc(100vh - 72px);
+    overflow-y: auto;
+  }
+}
+
+@media (max-height: 700px) and (min-width: 721px) {
+  .rift-body {
+    max-height: calc(100vh - 54px);
+    overflow-y: auto;
+  }
+
+  .rift-layout {
+    min-height: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .btn::after {
     display: none;
@@ -580,5 +925,12 @@ html.dark .btn--primary {
   }
   .rift-light > div {
     transition: none;
+  }
+  .rift-visual::after,
+  .signal-field,
+  .signal-ring,
+  .signal-core,
+  .signal-scan {
+    animation: none;
   }
 }

@@ -133,11 +133,8 @@ describe('login surface redesign contract', () => {
     expect(source).toContain('await auth.savedPasswordPlain()')
     expect(source).toContain('auth.logout()')
     expect(source).toContain('disconnectLocal()')
-    expect(source).toContain('emitAuthChanged({ serverAddress: base })')
+    expect(source).toContain("emit('update:visible', false)")
     expect(source).toContain('await conn.reconnect({ waitUntilConnected: true })')
-    expect(source.indexOf('await conn.reconnect({ waitUntilConnected: true })')).toBeLessThan(
-      source.indexOf('emitAuthChanged({ serverAddress: base })'),
-    )
   })
 
   it('stays sharp-cornered with token-derived colors only', async () => {

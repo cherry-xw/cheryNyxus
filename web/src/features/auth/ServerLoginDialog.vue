@@ -76,6 +76,26 @@ const loginState = computed(() =>
 const loggedIn = computed(() => loginState.value === 'authenticated' && auth.isRemote)
 /** 本地 loopback 已连接成功 → 显示「已连接」态（地址 + 状态 + 断开连接），不再可重新连接。 */
 const localConnected = computed(() => loginState.value === 'authenticated' && !auth.isRemote)
+const stateLabel = computed(() => {
+  switch (loginState.value) {
+    case 'authenticating':
+      return '正在建立安全连接'
+    case 'authenticated':
+      return '链路已确认'
+    default:
+      return '等待目标服务'
+  }
+})
+const stateCode = computed(() => {
+  switch (loginState.value) {
+    case 'authenticating':
+      return 'AUTH / 02'
+    case 'authenticated':
+      return 'LINK / OK'
+    default:
+      return 'AUTH / 01'
+  }
+})
 /** 信息面板展示的服务地址（远端已登录 / 本地已连接共用）。 */
 const displayServer = computed(() => auth.serverAddress || address.value || defaultAddress.value)
 
@@ -424,6 +444,27 @@ onBeforeUnmount(stopLight)
             </header>
 
             <div v-show="!minimized" class="rift-body">
+              <div class="rift-layout" :class="{ 'is-connected': loggedIn || localConnected }">
+                <aside class="rift-visual" aria-hidden="true">
+                  <div class="visual-header">
+                    <span class="visual-kicker">NYXUS / GATEWAY</span>
+                    <span class="visual-code">{{ stateCode }}</span>
+                  </div>
+                  <div class="signal-field">
+                    <span class="signal-ring signal-ring--outer" />
+                    <span class="signal-ring signal-ring--middle" />
+                    <span class="signal-ring signal-ring--inner" />
+                    <span class="signal-cross signal-cross--x" />
+                    <span class="signal-cross signal-cross--y" />
+                    <span class="signal-core" :class="{ 'is-active': loggedIn || localConnected }" />
+                    <span class="signal-scan" />
+                  </div>
+                  <div class="visual-footer">
+                    <strong>{{ stateLabel }}</strong>
+                    <span>{{ isLocal ? 'LOCAL LOOPBACK' : 'REMOTE ENDPOINT' }}</span>
+                  </div>
+                </aside>
+                <div class="rift-content">
               <!-- 已连接态：远端已登录 → 用户信息 + 登出；本地已连接 → 地址 + 状态 + 断开连接 -->
               <template v-if="loggedIn || localConnected">
                 <div class="info-panel">
@@ -544,7 +585,9 @@ onBeforeUnmount(stopLight)
                     {{ busy ? (isLocal ? '连接中…' : '登录中…') : isLocal ? '连接' : '登录并连接' }}
                   </button>
                 </div>
-              </form>
+                  </form>
+                </div>
+              </div>
             </div>
           </div>
 
