@@ -50,6 +50,11 @@ export interface HistoryItem {
   createdAt?: number
   msgId?: string
   agentChatId?: string
+  /** Pending input lifecycle state, present only while the canonical user node has not replaced it. */
+  pendingInputState?: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
+  pendingInputId?: string
+  pendingClientMessageId?: string
+  pendingInputQueueSequence?: number
   contextCompaction?: boolean
   contextCompactionTokens?: number
   termination?: TerminationFact

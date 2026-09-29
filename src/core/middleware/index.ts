@@ -154,6 +154,11 @@ export default class AgentSession<T = unknown> {
     return this.journal.getPendingInputs()
   }
 
+  /** 撤回排队输入（内存队列）；返回是否命中移除。 */
+  removeInput(matcher: { inputId?: string; clientMessageId?: string; commandId?: string }) {
+    return this.journal.removeUserInput(matcher)
+  }
+
   /**
    * 注入角色回复消息（子完成唤醒主，见 docs/shared/architecture/agent-orchestration.md §5.4 唤醒策略调度器）。
    * 委托 MessageJournal（守单一写者）。DB 落库由 service wakeParent addMessage。

@@ -53,6 +53,7 @@ export const Method = {
   CHAT_USAGE_OPERATIONS: 'chat.taskUsage.operations',
   CHAT_CONTEXT_CONTENT: 'chat.contextContent',
   CHAT_INPUT_SUBMIT: 'chat.input.submit',
+  CHAT_INPUT_WITHDRAW: 'chat.input.withdraw',
   CHAT_TIMELINE_GET: 'chat.timeline.get',
   CHAT_TIMELINE_GENERATION_GET: 'chat.timeline.generation.get',
   CHAT_TIMELINE_NODE_GET: 'chat.timeline.node.get',

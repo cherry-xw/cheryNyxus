@@ -497,6 +497,11 @@
 .lite-history-row.is-round-start {
   border-color: color-mix(in srgb, var(--el-color-primary) 38%, var(--el-border-color));
 }
+.lite-history-row.is-queued {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--el-text-color-secondary) 48%, var(--el-border-color));
+  background: color-mix(in srgb, var(--el-fill-color-light) 62%, transparent);
+}
 .lite-history-row.is-cluster {
   border-style: dashed;
   border-color: var(--el-border-color);
@@ -560,6 +565,23 @@
 .lite-history-status {
   font-size: 13px;
   color: var(--el-text-color-secondary);
+}
+.lite-history-row.is-queued .lite-history-content {
+  opacity: 0.68;
+}
+.lite-queued-withdraw {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 42%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--el-color-danger);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lite-queued-withdraw:hover {
+  background: color-mix(in srgb, var(--el-color-danger) 9%, transparent);
 }
 .lite-history-meta time {
   font-size: 13px;

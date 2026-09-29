@@ -405,6 +405,14 @@ const schemas = {
     epochs: z.array(epochSchema),
   }),
   [Method.CHAT_INPUT_SUBMIT]: inputAcceptedSchema,
+  [Method.CHAT_INPUT_WITHDRAW]: z.looseObject({
+    chatId: id,
+    inputId: id,
+    clientMessageId: id,
+    messageId: id,
+    state: z.literal('cancelled'),
+    withdrawnAt: z.number(),
+  }),
   [Method.CHAT_TIMELINE_GET]: z.looseObject({
     chatId: id,
     revision: nonNegativeInt,

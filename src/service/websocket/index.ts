@@ -26,7 +26,9 @@ import { disconnectGrace } from './disconnectGrace.js'
 const inFlightRequests = new Map<string, Promise<RpcResponse>>()
 
 function shouldPersistChatEvent(method: string): boolean {
-  return method === 'chat.send' || method === 'chat.resume' || method === 'chat.startSpawn'
+  // chat.send/chat.resume 已不作为线上 RPC 注册，事件改由内部 detached 路径直接
+  // prepareChatEventForDelivery 持久化；此处只剩仍经流式 RPC 入口的 startSpawn。
+  return method === 'chat.startSpawn'
 }
 
 function prepareChatEvent<T extends { chatId?: string; seq?: number }>(

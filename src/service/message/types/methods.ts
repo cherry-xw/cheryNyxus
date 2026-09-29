@@ -34,6 +34,8 @@ import type {
   ChatGetResponseData,
   ChatInputSubmitRequestData,
   ChatInputSubmitResponseData,
+  ChatInputWithdrawRequestData,
+  ChatInputWithdrawResponseData,
   ChatListRequestData,
   ChatListResponseData,
   ChatOpenRequestData,
@@ -44,14 +46,10 @@ import type {
   ChatOverviewOpenResponseData,
   ChatPromptSnapshotRequestData,
   ChatPromptSnapshotResponseData,
-  ChatResumeRequestData,
-  ChatResumeResponseData,
   ChatResumeTreeRequestData,
   ChatResumeTreeResponseData,
   ChatRouteSuggestRequestData,
   ChatRouteSuggestResponseData,
-  ChatSendRequestData,
-  ChatSendResponseData,
   ChatSendToChildRequestData,
   ChatSendToChildResponseData,
   ChatStartSpawnRequestData,
@@ -264,6 +262,7 @@ export const Method = {
   CHAT_USAGE_OPERATIONS: ProtocolMethod.CHAT_USAGE_OPERATIONS,
   CHAT_CONTEXT_CONTENT: ProtocolMethod.CHAT_CONTEXT_CONTENT,
   CHAT_INPUT_SUBMIT: 'chat.input.submit',
+  CHAT_INPUT_WITHDRAW: 'chat.input.withdraw',
   CHAT_TIMELINE_GET: 'chat.timeline.get',
   CHAT_TIMELINE_GENERATION_GET: 'chat.timeline.generation.get',
   // lite profile：按需拉取单个节点的完整详情（P0，canonical §3.6.3；低频用户触发，只读）
@@ -501,10 +500,13 @@ export interface RpcMethodMap {
     params: ChatEpochListRequestData
     result: ChatEpochListResponseData
   }
-  [InternalCommand.CHAT_SEND]: { params: ChatSendRequestData; result: ChatSendResponseData }
   [Method.CHAT_INPUT_SUBMIT]: {
     params: ChatInputSubmitRequestData
     result: ChatInputSubmitResponseData
+  }
+  [Method.CHAT_INPUT_WITHDRAW]: {
+    params: ChatInputWithdrawRequestData
+    result: ChatInputWithdrawResponseData
   }
   [Method.CHAT_TIMELINE_GET]: {
     params: ChatTimelineGetRequestData
@@ -518,7 +520,6 @@ export interface RpcMethodMap {
     params: ChatTimelineNodeGetRequestData
     result: ChatTimelineNodeGetResponseData
   }
-  [InternalCommand.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData }
   [Method.CHAT_RUN_RESUME]: {
     params: import('@chery/protocol').ChatRunResumeRequest
     result: import('@chery/protocol').ChatRunResumeResponse

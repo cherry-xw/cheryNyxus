@@ -6,6 +6,7 @@ import {
   agentApi,
   type ExecutionStep,
   type GraphToolCall,
+  type PendingInput,
   type RootTimelineSnapshot,
   type TimelineNode,
   type TimelineNodeDetailResponse,
@@ -677,6 +678,48 @@ describe('projectLiteHistory run-history projection', () => {
       '模型响应',
     ])
     expect(view.nodes.map((node) => node.roundIndex)).toEqual([0, 0, 0, 1, 1])
+  })
+
+  it('keeps queued user rows after the response currently in progress', () => {
+    const queued: PendingInput[] = [
+      {
+        inputId: 'queued-1',
+        clientMessageId: 'client-queued-1',
+        messageId: 'message-queued-1',
+        content: '后续问题',
+        state: 'queued',
+        queueSequence: 1,
+        acceptedAt: 15,
+      },
+    ]
+    const view = projectLiteHistory(
+      [userNode('first', '当前问题', 10)],
+      {
+        rootChatId: 'root',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: 10,
+        steps: [step({ id: 'current-response', kind: 'model', startedAt: 20, status: 'running' })],
+        agents: [],
+      },
+      100,
+      undefined,
+      undefined,
+      queued,
+    )
+
+    expect(view.nodes.at(-2)?.key).toBe('inflight:current-response')
+    expect(view.nodes.at(-1)).toMatchObject({
+      key: 'pending-input:queued-1',
+      pendingInputState: 'queued',
+      pendingInputId: 'queued-1',
+      pendingClientMessageId: 'client-queued-1',
+      status: 'completed',
+    })
+    expect(view.rows.at(-1)).toMatchObject({
+      kind: 'full',
+      node: { pendingInputState: 'queued' },
+    })
   })
 
   it('shows an accepted user input before its timeline node is committed', () => {

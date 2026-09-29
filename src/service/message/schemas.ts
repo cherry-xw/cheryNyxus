@@ -4,6 +4,7 @@ import { CONFIG_APPLY_VERSION, HooksDraftSchema } from '@chery/protocol'
 import { Method, type Method as MethodName, type ParamsOf } from './types.js'
 import {
   ChatInputSubmitRequestSchema,
+  ChatInputWithdrawRequestSchema,
   ChatCloseRequestSchema,
   ChatOpenRequestSchema,
   ChatRunResumeRequestSchema,
@@ -431,21 +432,8 @@ export const requestSchemas = {
     epochId: z.string().min(1).optional(),
   }),
   [Method.CHAT_EPOCH_LIST]: chatIdSchema,
-  [InternalCommand.CHAT_SEND]: z.object({
-    chatId: z.string(),
-    prompt: z.string(),
-    /** P4：结构化附件（替代 [[media:filename]] 文本标记）。旧客户端不发该字段 → 走 marker 兼容路径。 */
-    attachments: z
-      .array(
-        z.object({
-          assetId: z.string(),
-          kind: z.enum(['image', 'video', 'audio']),
-          mimeType: z.string(),
-        }),
-      )
-      .optional(),
-  }),
   [Method.CHAT_INPUT_SUBMIT]: ChatInputSubmitRequestSchema,
+  [Method.CHAT_INPUT_WITHDRAW]: ChatInputWithdrawRequestSchema,
   [Method.CHAT_TIMELINE_GET]: z
     .object({
       chatId: nonEmptyString.optional(),
@@ -498,7 +486,6 @@ export const requestSchemas = {
         })
       }
     }),
-  [InternalCommand.CHAT_RESUME]: chatIdSchema,
   [Method.CHAT_RUN_RESUME]: ChatRunResumeRequestSchema,
   [Method.CHAT_RESUME_TREE]: z.object({
     rootChatId: z.string().min(1),

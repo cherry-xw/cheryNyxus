@@ -63,6 +63,21 @@ export function getPendingChatInputs(chatId: string): Array<{
 }
 
 /**
+ * 撤回排队输入的内存队列部分（chat.input.withdraw 用）。
+ * - 'removed'：已从内存队列移除，可继续落 DB cancelled；
+ * - 'absent'：无 runtime（重启后尚未初始化），输入为 DB-only、从未被采用，可取消；
+ * - 'already-adopted'：有 runtime 但输入已不在队列（已被 drain 进当前轮次），拒绝撤回。
+ */
+export function removeQueuedChatInput(
+  chatId: string,
+  matcher: { inputId?: string; clientMessageId?: string },
+): 'removed' | 'absent' | 'already-adopted' {
+  const runtime = chatRuntimes.get(chatId)
+  if (!runtime) return 'absent'
+  return runtime.builder.removeInput(matcher) ? 'removed' : 'already-adopted'
+}
+
+/**
  * 查 chat 当前是否正在运行(有活跃 generator)。
  * chat.list 暴露 running 字段用(前端据此判断子 agent 是否还活着、主 chat 是否卡死)。
  */

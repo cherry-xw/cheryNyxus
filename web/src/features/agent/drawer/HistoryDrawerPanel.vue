@@ -64,6 +64,7 @@ const {
   promptSnap,
   removeOutgoing,
   retryOutgoing,
+  withdrawQueuedInput,
   runFeedbacks,
   runtimeForItem,
   scrollToBottomSmooth,
@@ -331,6 +332,7 @@ const {
               @jump-to-spawn="onJumpToSpawn"
               @retry-message="retryOutgoing"
               @remove-message="removeOutgoing"
+              @withdraw-input="withdrawQueuedInput"
             />
           </div>
         </template>

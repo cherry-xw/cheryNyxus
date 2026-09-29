@@ -7,6 +7,7 @@ import { useChatSessionsStore } from '../../src/stores/chats'
 import { createEmptySession } from '../../src/stores/chats/model/hydration'
 import { reduce } from '../../src/stores/chats/model/reducer'
 import { useInteractionsStore, validateInteractionAnswers } from '../../src/stores/interactions'
+import { registerNewNyxusSession } from '../../src/stores/agents/data/petLifecycle'
 
 function interaction(
   kind: InteractionRecord['kind'],
@@ -89,6 +90,28 @@ describe('canonical command and interaction lifecycle', () => {
       allowed: false,
       code: 'HYDRATING',
     })
+  })
+
+  it('unblocks a freshly created Nyxus empty session registered via catalog', () => {
+    const chats = readyRoot()
+    // createNyxusSession 路径：registerNewNyxusSession 生成 summary 并经 catalog.upsert 登记。
+    // 修复后该 summary 携带 messageCount: 0，freshEmptyRoot 成立，无需等待 hydration。
+    const summary = registerNewNyxusSession([], 'nyxus-new')[0]
+    chats.upsertCatalog(summary)
+    expect(chats.sessionsById['nyxus-new'].meta.messageCount).toBe(0)
+    expect(chats.sessionsById['nyxus-new'].sync.loaded).toBe(false)
+    expect(chats.commandAvailability('nyxus-new')).toEqual({ allowed: true })
+  })
+
+  it('backfills messageCount onto an existing entity during catalog refresh', () => {
+    const chats = readyRoot()
+    const session = chats.ensureEntity('root')
+    session.sync.loaded = false
+    // 目录刷新（fetchHistoryList）携带后端权威 messageCount，existing 分支须合并，
+    // 否则 entity 若此前以无 messageCount 方式登记（ensureEntity/Nyxus 首次登记）会残留 undefined。
+    chats.upsertCatalog({ chatId: 'root', parentChatId: null, messageCount: 0 })
+    expect(session.meta.messageCount).toBe(0)
+    expect(chats.commandAvailability('root')).toEqual({ allowed: true })
   })
 
   it('applies one done fact to final body, resume state, clock and completion timing', () => {

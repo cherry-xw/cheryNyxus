@@ -2,7 +2,7 @@ import { call, callList, uploadFile, fail } from './agentApiTransport'
 import { wsClient } from './ws'
 import type { ContextBreakdown } from '@/domain/chat/context'
 import type { PromptSnapshotTool, ChatSummary, ChatEpochSummary, ConversationRouteSuggestion, CreateAgentOptions, CreateAgentResult, TimelineSnapshot, TreeResumeResponse, ChatAbortResponse, TimelineNodeDetailResponse, ConversationBranchSummary, RootTimelineSnapshot, TimelineGenerationSnapshot, ChatOpenResponse, InputAccepted } from './agentApiTypes'
-import type { ChatInputSubmitRequest, ChatOpenRequest, ChatRunResumeRequest, ChatRunResumeResponse } from '@chery/protocol'
+import type { ChatInputSubmitRequest, ChatInputWithdrawRequest, ChatInputWithdrawResponse, ChatOpenRequest, ChatRunResumeRequest, ChatRunResumeResponse } from '@chery/protocol'
 import type { RuntimeSelection, SessionRuntimeSelection } from '@/domain/chat/runtime'
 import type { CommandConfigDataDto } from '@/domain/chat/commands'
 
@@ -116,6 +116,16 @@ export const chatApi = {
       messageId: params.messageId,
       content: params.content,
       ...(params.attachments?.length ? { attachments: params.attachments } : {}),
+    })
+  },
+
+  /** V2 command plane：撤回排队消息（服务端校验仅 queued）。 */
+  async withdrawChatInput(params: ChatInputWithdrawRequest): Promise<ChatInputWithdrawResponse> {
+    return call<ChatInputWithdrawResponse>('chat.input.withdraw', {
+      chatId: params.chatId,
+      commandId: params.commandId,
+      ...(params.inputId ? { inputId: params.inputId } : {}),
+      ...(params.clientMessageId ? { clientMessageId: params.clientMessageId } : {}),
     })
   },
 

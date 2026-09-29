@@ -106,6 +106,7 @@ const {
   uploading,
   userSegments,
   visibleRows,
+  withdrawQueuedInput,
 } = controller
 
 const activeLitePlan = computed(() => {
@@ -405,7 +406,10 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
               row.kind === 'cluster'
                 ? ['is-cluster']
                 : [`is-${row.node?.kind}`, { 'is-round-start': row.node?.kind === 'user' }],
-              { 'is-focused': isRowFocused(row) },
+              {
+                'is-focused': isRowFocused(row),
+                'is-queued': row.kind === 'full' && row.node?.pendingInputState === 'queued',
+              },
             ]"
           >
             <template v-if="row.kind === 'full' && row.node">
@@ -413,9 +417,37 @@ onBeforeUnmount(() => inputResizeObserver?.disconnect())
                 <span class="lite-history-icon" aria-hidden="true">{{ row.node.icon }}</span>
                 <div class="lite-history-meta">
                   <strong>{{ row.node.label }}</strong>
-                  <span class="lite-history-status">{{ runStatusLabel(row.node.status) }}</span>
-                  <time v-if="row.node.elapsedMs > 0" :class="row.node.active ? `lite-duration-${durationSeverity(row.node.elapsedMs, 60000, 180000)}` : ''"
-                    :style="row.node.active ? { color: durationColor(row.node.elapsedMs, 60000, 180000) } : undefined">{{ row.node.active ? nodeTime(row.node) : formatElapsed(row.node.elapsedMs) }}</time>
+                  <span class="lite-history-status">
+                    {{
+                      row.node.pendingInputState === 'queued'
+                        ? '排队中'
+                        : runStatusLabel(row.node.status)
+                    }}
+                  </span>
+                  <time
+                    v-if="row.node.elapsedMs > 0"
+                    :class="
+                      row.node.active
+                        ? `lite-duration-${durationSeverity(row.node.elapsedMs, 60000, 180000)}`
+                        : ''
+                    "
+                    :style="
+                      row.node.active
+                        ? { color: durationColor(row.node.elapsedMs, 60000, 180000) }
+                        : undefined
+                    "
+                  >
+                    {{ row.node.active ? nodeTime(row.node) : formatElapsed(row.node.elapsedMs) }}
+                  </time>
+                  <button
+                    v-if="row.node.pendingInputState === 'queued'"
+                    type="button"
+                    class="lite-queued-withdraw"
+                    :aria-label="`撤回排队消息：${row.node.content.slice(0, 30)}`"
+                    @click.stop="withdrawQueuedInput(row.node)"
+                  >
+                    撤回
+                  </button>
                 </div>
               </div>
               <!-- v2.8 行内「思考」：正文全文已直接在页面滚动展示，思考默认折叠在此补充；

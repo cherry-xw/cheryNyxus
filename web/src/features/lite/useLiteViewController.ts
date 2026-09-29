@@ -36,7 +36,7 @@ import {
   type MediaCapabilitiesDto,
 } from '@/application/backend/public'
 import { useChatSessionsStore } from '@/application/public'
-import type { UploadFile } from 'element-plus'
+import { ElMessage, type UploadFile } from 'element-plus'
 import type { MediaAttachment, MediaKind } from '@/features/agent/composables/useComposerMedia'
 import { useComposerMedia } from '@/features/agent/composables/useComposerMedia'
 
@@ -266,6 +266,20 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     if (autoScroll.value !== atBottom) autoScroll.value = atBottom
     queueScrollTopPatch()
   }
+  async function withdrawQueuedInput(node: LiteRunNode): Promise<void> {
+    if (node.pendingInputState !== 'queued' || !node.pendingInputId) return
+    const input = lite.pendingInputs.find(
+      (item) =>
+        item.state === 'queued' &&
+        (item.inputId === node.pendingInputId || (!!node.pendingClientMessageId && item.clientMessageId === node.pendingClientMessageId)),
+    )
+    if (!input) return
+    try {
+      await chatSessions.withdrawInput(props.rootChatId, input)
+    } catch (error) {
+      ElMessage.error(error instanceof Error ? error.message : '撤回排队消息失败')
+    }
+  }
   /** v1.2：内容塌陷防护——运行中投影重建使列表短暂清空时，滚动容器高度塌为 0、
       scrollTop 被浏览器钳到 0（「滚到底突然闪回顶部、像无限滚动」的根源）；
       行恢复后若用户没有主动回到顶部，则还原塌陷前记录的位置。 */
@@ -302,6 +316,10 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   watch(
     [
       () => history.value.nodes.length,
+      () =>
+        history.value.nodes
+          .map((node) => `${node.key}:${node.pendingInputState ?? ''}`)
+          .join('\u0000'),
       () => history.value.nodes.filter((node) => node.active).length,
       () => history.value.running,
     ],
@@ -872,6 +890,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     tipPos,
     toolCallStatus,
     toolCallTipText,
+    withdrawQueuedInput,
     toggleMediaVariant,
     toggleThinking,
     toggleRunDetail,

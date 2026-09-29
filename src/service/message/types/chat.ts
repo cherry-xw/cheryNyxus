@@ -19,6 +19,7 @@ import type {
   TimelineNode as ProtocolTimelineNode,
   RootTimelineSnapshot as ProtocolRootTimelineSnapshot,
   ChatInputSubmitRequest,
+  ChatInputWithdrawRequest,
   ChatOpenRequest,
   ChatOpenResponse,
 } from '@chery/protocol'
@@ -315,6 +316,18 @@ export type ChatInputSubmitRequestData = Omit<ChatInputSubmitRequest, 'attachmen
   attachments?: ChatSendAttachment[]
   /** Internal-only authorization marker. The websocket schema intentionally strips it. */
   controlRootChatId?: string
+}
+
+/** V2 command-plane input withdrawal. Only queued (not-yet-adopted) inputs are withdrawable. */
+export type ChatInputWithdrawRequestData = ChatInputWithdrawRequest
+
+export interface ChatInputWithdrawResponseData {
+  chatId: string
+  inputId: string
+  clientMessageId: string | null
+  messageId: string
+  state: 'cancelled'
+  withdrawnAt: number
 }
 
 export type ChatAttachmentKind = 'image' | 'video' | 'audio'

@@ -5,7 +5,7 @@ import { buildRootTimeline } from './timeline.js'
 import { handleChatTimelineGet } from './timelineGet.js'
 import { messagesToStagedEvents } from './stagedHistory.js'
 import { pendingInputSnapshot } from './pendingInputs.js'
-import { handleChatInputSubmit, handleChatStopChild } from './input.js'
+import { handleChatInputSubmit, handleChatInputWithdraw, handleChatStopChild } from './input.js'
 import { registerUsageHandlers } from './usage.js'
 export { handleChatDelete } from './archive.js'
 import type { HandlerContext } from '../message/router.js'
@@ -843,6 +843,7 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_TIMELINE_GENERATION_GET, handleChatTimelineGenerationGet)
   router.register(Method.CHAT_TIMELINE_NODE_GET, handleChatTimelineNodeGet) // lite P0：单节点按需详情
   router.register(Method.CHAT_INPUT_SUBMIT, handleChatInputSubmit)
+  router.register(Method.CHAT_INPUT_WITHDRAW, handleChatInputWithdraw)
   router.register(Method.CHAT_RESUME_TREE, handleChatResumeTree)
   router.register(Method.CHAT_OPEN, handleChatOpen)
   router.register(Method.CHAT_CLOSE, handleChatClose)

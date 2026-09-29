@@ -120,6 +120,15 @@ const emit = defineEmits<{
   (e: 'jumpToSpawn', payload: { senseCallId: string }): void
   (e: 'retryMessage', payload: { messageId: string; chatId?: string }): void
   (e: 'removeMessage', payload: { messageId: string; chatId?: string }): void
+  (
+    e: 'withdrawInput',
+    payload: {
+      inputId: string
+      clientMessageId?: string
+      messageId: string
+      chatId?: string
+    },
+  ): void
 }>()
 function retryDelivery(): void {
   if (props.item.msgId)
@@ -135,10 +144,28 @@ function removeDelivery(): void {
       ...(props.item.agentChatId ? { chatId: props.item.agentChatId } : {}),
     })
 }
+function withdrawQueuedInput(): void {
+  const inputId = props.item.pendingInputId
+  if (!inputId || props.item.pendingInputState !== 'queued' || !props.item.msgId) return
+  emit('withdrawInput', {
+    inputId,
+    messageId: props.item.msgId,
+    ...(props.item.pendingClientMessageId
+      ? { clientMessageId: props.item.pendingClientMessageId }
+      : {}),
+    ...(props.item.agentChatId ? { chatId: props.item.agentChatId } : {}),
+  })
+}
 </script>
 
 <template>
-  <div class="compact-entry" :class="{ 'is-compact-summary': isCompactSummary }">
+  <div
+    class="compact-entry"
+    :class="{
+      'is-compact-summary': isCompactSummary,
+      'is-queued-input': item.pendingInputState === 'queued',
+    }"
+  >
     <div v-if="isCompactSummary" class="context-divider" role="separator">
       <span>上下文已压缩并替换 · 释放约 {{ item.contextCompactionTokens ?? 0 }} tokens</span>
     </div>
@@ -185,6 +212,7 @@ function removeDelivery(): void {
         <div v-if="isCompactTrigger" class="compact-label">上下文压缩</div>
         <div v-if="isCompactSummary" class="compact-label">压缩后的上下文摘要</div>
         <div v-if="hasThinking || timeText" class="bubble-head">
+          <span v-if="item.pendingInputState === 'queued'" class="queued-state">排队中</span>
           <button
             v-if="hasThinking"
             type="button"
@@ -233,6 +261,10 @@ function removeDelivery(): void {
             :assets="props.item.mediaAssets"
             bring-back
           />
+        </div>
+        <div v-if="item.pendingInputState === 'queued'" class="queued-actions">
+          <span>排队等待处理</span>
+          <button type="button" @click="withdrawQueuedInput">撤回</button>
         </div>
         <div
           v-if="props.item.delivery"
@@ -401,6 +433,34 @@ function removeDelivery(): void {
     background: color-mix(in srgb, var(--surface) 90%, var(--success));
     border-color: rgba(42, 117, 72, 0.28);
   }
+}
+.compact-entry.is-queued-input .bubble {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--surface) 88%, var(--info));
+}
+.compact-entry.is-queued-input .content {
+  opacity: 0.68;
+}
+.queued-state,
+.queued-actions {
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
+  font-size: 13px;
+}
+.queued-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 3px;
+  border-top: 1px dashed color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.queued-actions button {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 40%, transparent);
+  background: transparent;
+  color: var(--el-color-danger);
+  font: inherit;
+  cursor: pointer;
 }
 .termination-tail {
   margin-top: 3px;

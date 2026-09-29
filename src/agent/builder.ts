@@ -226,6 +226,11 @@ export class AgentBuilder {
     return this.requireAgent().getPendingInputs()
   }
 
+  /** 撤回排队输入（内存队列）；返回是否命中移除。 */
+  removeInput(matcher: { inputId?: string; clientMessageId?: string; commandId?: string }) {
+    return this.requireAgent().removeInput(matcher)
+  }
+
   enqueueInput(content: string, metadata?: Omit<Partial<UserInputEntry>, 'content' | 'time'>) {
     return this.requireAgent().enqueueInput(content, metadata)
   }

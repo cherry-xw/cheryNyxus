@@ -26,7 +26,7 @@ function prepareChatEvent<T extends { chatId?: string; seq?: number }>(
   event: T,
 ): T {
   if (
-    (method === 'chat.send' || method === 'chat.resume' || method === 'chat.startSpawn') &&
+    method === 'chat.startSpawn' &&
     event.chatId
   ) {
     prepareChatEventForDelivery(event.chatId, event as Record<string, unknown>)

@@ -1,5 +1,9 @@
 import { useEpochSnapshotLoader } from './useEpochSnapshotLoader'
-import { pendingInputHistory, activeTurnHistory } from './historyTransient'
+import {
+  activeTurnHistory,
+  appendQueuedInputsAfterHistory,
+  pendingInputHistory,
+} from './historyTransient'
 /**
  * HistoryDrawerPanel：历史抽屉单面板（从 HistoryDrawer 拆出，CP4 栈化）。
  *
@@ -36,6 +40,7 @@ import type {
   ConversationBranchSummary,
   GenerationEntry,
   GraphToolCall,
+  PendingInput,
   RootTimelineSnapshot,
   RuntimeSelection,
   TimelineNode,
@@ -624,9 +629,12 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     }
 
     const transient: HistoryItem[] = []
+    const queued: HistoryItem[] = []
     if (layout.value === 'group') {
       const rootState = chatSessions.rootTimelineStates[props.chatId]
-      transient.push(...pendingInputHistory(rootState?.pendingInputs ?? [], props.chatId))
+      const pending = pendingInputHistory(rootState?.pendingInputs ?? [], props.chatId)
+      transient.push(...pending.filter((item) => item.pendingInputState !== 'queued'))
+      queued.push(...pending.filter((item) => item.pendingInputState === 'queued'))
       const rootSession = chatSessions.sessionsById[props.chatId]
       for (const messageId of rootSession?.messageOrder ?? []) {
         const message = rootSession?.messagesById[messageId]
@@ -635,7 +643,9 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       transient.push(...activeTurnHistory(rootState?.activeTurns ?? [], props.chatId))
     } else {
       const session = chatSessions.sessionsById[props.chatId]
-      transient.push(...pendingInputHistory(session?.pendingInputs ?? [], props.chatId))
+      const pending = pendingInputHistory(session?.pendingInputs ?? [], props.chatId)
+      transient.push(...pending.filter((item) => item.pendingInputState !== 'queued'))
+      queued.push(...pending.filter((item) => item.pendingInputState === 'queued'))
       transient.push(...activeTurnHistory(session?.activeTurns ?? [], props.chatId))
     }
     const canonicalIds = new Set(result.map((item) => item.msgId).filter(Boolean))
@@ -644,10 +654,11 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
         (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
       ),
     )
+    const positioned = appendQueuedInputsAfterHistory(merged, queued)
     // 子 agent 消息显示模式（show/collapse/round）：仅作用于主 chat 合并视图（group）。
     // 子 agent 数据仍可经主 pet 消息内 spawn_role sense call 的「详情」下钻查看；
     // 下钻打开的子 chat 自身抽屉（direct layout）必须照常显示，不受显示模式影响。
-    return applySubagentDisplay(merged)
+    return applySubagentDisplay(positioned)
   })
   const detailContextHistory = computed<HistoryItem[]>(() => {
     const currentIds = new Set(branchHistory.value.map((item) => item.msgId).filter(Boolean))
@@ -993,8 +1004,14 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   function scrollToItem(idx: number, align: 'start' | 'center' | 'end'): void {
     void virtualScrollRef.value?.scrollToIndex(idx, { align, behavior: 'smooth' })
   }
-  // 历史长度变化（流式累积）→ 滚到底
-  watch(() => history.value.length, scrollToBottom)
+  // 历史项增删或顺序变化（包括 accepted → queued 后被移到末尾）→ 滚到底。
+  watch(
+    () =>
+      history.value
+        .map((item, index) => `${getHistoryItemKey(item, index)}:${item.pendingInputState ?? ''}`)
+        .join('\u0000'),
+    scrollToBottom,
+  )
   // loaded 切 true（首批 staged 回放完成）→ 滚到底；对话模式用收敛滚动贴真底（挂载时数据
   // 可能尚未就绪，由这里兜底——一次性滚动在估算高度下会偏中）。
   watch(loaded, (v) => {
@@ -1058,6 +1075,30 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
   }
   function removeOutgoing(payload: { messageId: string; chatId?: string }): void {
     chatSessions.removeFailedInput(payload.chatId ?? props.chatId, payload.messageId)
+  }
+  async function withdrawQueuedInput(payload: {
+    inputId: string
+    clientMessageId?: string
+    messageId: string
+    chatId?: string
+  }): Promise<void> {
+    const chatId = payload.chatId ?? props.chatId
+    const candidates = [
+      ...(chatSessions.rootTimelineStates[props.chatId]?.pendingInputs ?? []),
+      ...(chatSessions.sessionsById[chatId]?.pendingInputs ?? []),
+    ]
+    const input = candidates.find(
+      (entry) =>
+        entry.state === 'queued' &&
+        (entry.inputId === payload.inputId ||
+          (!!payload.clientMessageId && entry.clientMessageId === payload.clientMessageId)),
+    )
+    if (!input) return
+    try {
+      await chatSessions.withdrawInput(chatId, input as PendingInput)
+    } catch (error) {
+      ElMessage.error(error instanceof Error ? error.message : '撤回排队消息失败')
+    }
   }
   // F：rail 点击把 idx 项对齐到视窗顶部（顶/底按钮不复用此：顶走 idx 0，底走 scrollToEnd）。
   function onRailJump(idx: number): void {
@@ -1210,6 +1251,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     ref,
     removeOutgoing,
     retryOutgoing,
+    withdrawQueuedInput,
     runFeedbacks,
     runtimeForItem,
     scrollToBottomSmooth,

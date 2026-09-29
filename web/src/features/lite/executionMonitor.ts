@@ -4,7 +4,12 @@ import type {
   ExecutionReadStep,
   ExecutionRootStatus,
 } from '@/application/chat/public'
-import type { ExecutionStep, GraphToolCall, PendingInput, TimelineNode } from '@/application/backend/public'
+import type {
+  ExecutionStep,
+  GraphToolCall,
+  PendingInput,
+  TimelineNode,
+} from '@/application/backend/public'
 import { executionStepKey } from '@/application/chat/public'
 import { toSenseNameZh } from '@/utils/senseName'
 
@@ -350,6 +355,11 @@ export interface LiteRunNode {
   /** 工具中文名（原名为 key，展示用 label） */
   toolNames: string[]
   status: LiteRunNodeStatus
+  /** Present on transient user rows until a canonical timeline node replaces them. */
+  pendingInputState?: PendingInput['state']
+  pendingInputId?: string
+  pendingClientMessageId?: string
+  pendingInputQueueSequence?: number
   /** 正在运行（仅运行中的工具/模型节点为 true，见需求 2：未运行节点不做倒计时） */
   active: boolean
   startedAt: number
@@ -815,18 +825,24 @@ export function projectLiteHistory(
         !committedNodeIds.has(input.messageId ?? input.inputId),
     )
     .slice()
-    .sort(
-      (a, b) =>
+    .sort((a, b) => {
+      if (a.state === 'queued' && b.state === 'queued') {
+        const sequenceOrder = (a.queueSequence ?? Infinity) - (b.queueSequence ?? Infinity)
+        if (sequenceOrder) return sequenceOrder
+      }
+      return (
         (a.acceptedAt ?? a.createdAt ?? 0) - (b.acceptedAt ?? b.createdAt ?? 0) ||
-        a.inputId.localeCompare(b.inputId),
-    )
+        a.inputId.localeCompare(b.inputId)
+      )
+    })
   const hasCommittedUser = committed.some(
     (node) => node.sourceChatId === model.rootChatId && node.actor?.kind === 'user',
   )
   let pendingRoundIndex = hasCommittedUser ? roundIndex + 1 : roundIndex
+  const queuedInputNodes: LiteRunNode[] = []
   for (const input of pending) {
     const startedAt = input.acceptedAt ?? input.createdAt ?? now
-    nodesOut.push({
+    const pendingNode: LiteRunNode = {
       key: `pending-input:${input.inputId}`,
       nodeId: input.messageId ?? input.inputId,
       kind: 'user',
@@ -844,8 +860,16 @@ export function projectLiteHistory(
       collapsed: false,
       sourceChatId: input.chatId ?? model.rootChatId,
       agentLabel: agentLabelOf(input.chatId ?? model.rootChatId),
-    })
-    pendingRoundIndex += 1
+      pendingInputState: input.state,
+      pendingInputId: input.inputId,
+      ...(input.queueSequence !== undefined
+        ? { pendingInputQueueSequence: input.queueSequence }
+        : {}),
+      ...(input.clientMessageId ? { pendingClientMessageId: input.clientMessageId } : {}),
+    }
+    if (input.state === 'queued') queuedInputNodes.push(pendingNode)
+    else nodesOut.push(pendingNode)
+    if (input.state !== 'queued') pendingRoundIndex += 1
   }
 
   // 需求 3 收尾（进行中节点）：turn.started / sense_started 在回合末才 commit，timeline 尚无
@@ -884,6 +908,9 @@ export function projectLiteHistory(
     })
   }
   nodesOut.sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))
+  // Queue rows belong after the response in progress, even if acceptedAt predates
+  // the eventual timeline node timestamp.
+  nodesOut.push(...queuedInputNodes)
 
   for (const run of nodesOut) {
     const isFinalAgentResponse =

@@ -1280,6 +1280,33 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     return pending
   }
 
+  /** 撤回排队消息（服务端校验仅 queued；started/consumed 拒绝）。成功后乐观移除本会话与根时间线的排队行；
+   *  服务端同时推 input.updated {state:'cancelled'} 通知（幂等）。失败 throw，由调用方反馈。 */
+  async function withdrawInput(chatId: string, input: PendingInput): Promise<void> {
+    const commandId = makeClientId('withdraw')
+    const rootChatId = rootIdOf(chatId)
+    await agentApi.withdrawChatInput({
+      chatId,
+      commandId,
+      inputId: input.inputId,
+      clientMessageId: input.clientMessageId,
+    })
+    const session = sessionsById.value[chatId]
+    if (session) {
+      session.pendingInputs = session.pendingInputs.filter(
+        (entry) =>
+          entry.inputId !== input.inputId && entry.clientMessageId !== input.clientMessageId,
+      )
+    }
+    const rootState = rootTimelineStates.value[rootChatId]
+    if (rootState) {
+      rootState.pendingInputs = rootState.pendingInputs.filter(
+        (entry) =>
+          entry.inputId !== input.inputId && entry.clientMessageId !== input.clientMessageId,
+      )
+    }
+  }
+
   /** Root 订阅活跃时，per-chat seq 因 root 流不推进而频发 false gap；此时 root 流权威，
    *  resync 不应开 per-session 订阅与 root observer 竞态，仅清态并重置 seq。 */
   function resyncOrClear(chatId: string, session: ChatSession): void {
@@ -1816,6 +1843,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     removeFailedInput,
     closeSession,
     submitInput,
+    withdrawInput,
     applyEvent,
     trackRequest,
     // hydration

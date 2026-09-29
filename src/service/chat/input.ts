@@ -7,6 +7,8 @@ import {
   type Notification,
   type ChatInputSubmitRequestData,
   type ChatInputSubmitResponseData,
+  type ChatInputWithdrawRequestData,
+  type ChatInputWithdrawResponseData,
   type ChatSendToChildRequestData,
   type ChatSendToChildResponseData,
   type ChatStopChildRequestData,
@@ -14,7 +16,7 @@ import {
 } from '../message/types.js'
 import { InternalCommand } from '../message/internalCommand.js'
 import { getRootChatId, getTimelineRevision, updateChatMetadata } from '@/db/chat.js'
-import { addPendingInput } from '@/db/pendingInput.js'
+import { addPendingInput, findPendingInput, cancelQueuedPendingInput } from '@/db/pendingInput.js'
 import {
   abandonRequest,
   appendChatEvent,
@@ -30,9 +32,9 @@ import { connectionManager } from '../websocket/connection.js'
 import { deliverToSockets } from '../websocket/deliver.js'
 import { assertChatExists } from './guards.js'
 import { ensureChat } from './runtime.js'
-import { getActiveChatRunId, getPendingChatInputs } from './runtimeCache.js'
+import { getActiveChatRunId, getPendingChatInputs, removeQueuedChatInput } from './runtimeCache.js'
 import { handleChatSend, attachmentsToPromptMarkers } from './send.js'
-import { recordWorkflowStep } from './workflowStepWriter.js'
+import { recordWorkflowStep, finishActiveWorkflowSteps } from './workflowStepWriter.js'
 import { buildTreeInterruptionNotice } from './treeInterruption.js'
 import {
   assertRootControlsChild,
@@ -219,6 +221,109 @@ export async function handleChatInputSubmit(
     // Queue/full/runtime validation failures happen after the journal claim.
     // Release that claim so a user retry with the same idempotency key can be
     // evaluated again instead of being permanently reported as active.
+    abandonRequest(data.commandId)
+    throw cause
+  }
+}
+
+/**
+ * V2 command-plane input withdrawal. Only queued (running, not-yet-adopted) inputs
+ * can be withdrawn (user-confirmed scope). The memory queue entry and durable
+ * pending_inputs row transition to cancelled, the workflow queue step is terminalized,
+ * and an input.updated {state:'cancelled'} notification removes the optimistic row
+ * from session consumers.
+ */
+export async function handleChatInputWithdraw(
+  _ctx: HandlerContext,
+  data: ChatInputWithdrawRequestData,
+): Promise<ChatInputWithdrawResponseData> {
+  const claimed = claimRequest(data.commandId, Method.CHAT_INPUT_WITHDRAW, data)
+  if (claimed.state === 'completed') {
+    return JSON.parse(claimed.responseJson) as ChatInputWithdrawResponseData
+  }
+  if (claimed.state === 'active') throw new Error('该撤回命令正在处理中')
+  if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
+
+  try {
+    assertRestartAdmission()
+    assertChatExists(data.chatId)
+    const pending = findPendingInput(data.chatId, {
+      inputId: data.inputId,
+      clientMessageId: data.clientMessageId,
+    })
+    if (!pending) throw new Error('排队消息不存在或已撤回')
+    const clientMessageId = pending.client_message_id ?? data.clientMessageId ?? ''
+    // 幂等：已取消直接返回原结果
+    if (pending.state === 'cancelled') {
+      const response: ChatInputWithdrawResponseData = {
+        chatId: data.chatId,
+        inputId: pending.input_id,
+        clientMessageId,
+        messageId: pending.message_id,
+        state: 'cancelled',
+        withdrawnAt: pending.consumed_at ?? Date.now(),
+      }
+      completeRequest(data.commandId, response)
+      return response
+    }
+    // 仅 queued 可撤回；started/consumed 拒绝（started 为正在响应的首条指令）
+    if (pending.state !== 'queued') {
+      throw new Error(`该消息处于 ${pending.state} 状态，无法撤回`)
+    }
+    // 内存队列：有 runtime 且输入已不在队列 → 已 drain 进当前轮次（已采用），拒绝。
+    const outcome = removeQueuedChatInput(data.chatId, {
+      inputId: pending.input_id,
+      clientMessageId: pending.client_message_id ?? undefined,
+    })
+    if (outcome === 'already-adopted') {
+      throw new Error('该消息已进入模型请求，无法撤回')
+    }
+    if (!cancelQueuedPendingInput(data.chatId, pending.input_id)) {
+      throw new Error('排队消息不存在或已撤回')
+    }
+    // 终态化 workflow queue 步骤（撤回即排队结束）
+    finishActiveWorkflowSteps(data.chatId, {
+      kind: 'queue',
+      anchor: { kind: 'message', id: pending.message_id },
+      status: 'cancelled',
+      reason: 'user',
+      eventKey: 'cancelled',
+    })
+    const withdrawnAt = Date.now()
+    // 会话平面通知：前端收到 state:'cancelled' 即按 inputId 移除排队消息
+    const inputUpdated = createNotification(
+      'input.updated',
+      undefined,
+      {
+        inputId: pending.input_id,
+        clientMessageId: pending.client_message_id ?? data.clientMessageId,
+        messageId: pending.message_id,
+        state: 'cancelled',
+        reason: 'withdrawn',
+      },
+      { chatId: data.chatId },
+    )
+    inputUpdated.seq = appendChatEvent(
+      data.chatId,
+      inputUpdated as unknown as Record<string, unknown>,
+    )
+    deliverToSockets(
+      connectionManager.getChatOutputs(data.chatId),
+      inputUpdated,
+      'chat.input.withdraw.output_failed',
+    )
+
+    const response: ChatInputWithdrawResponseData = {
+      chatId: data.chatId,
+      inputId: pending.input_id,
+      clientMessageId,
+      messageId: pending.message_id,
+      state: 'cancelled',
+      withdrawnAt,
+    }
+    completeRequest(data.commandId, response)
+    return response
+  } catch (cause) {
     abandonRequest(data.commandId)
     throw cause
   }

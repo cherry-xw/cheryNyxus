@@ -58,6 +58,27 @@ export class MessageJournal {
     return this.soul.userInputs.map((entry) => ({ ...entry }))
   }
 
+  /**
+   * 撤回排队输入：按 inputId/clientMessageId/commandId 从 userInputs 移除。
+   * 已被 checkpoint drain 进 messages（本轮已采用）则不在队列中，返回 false，撤回方应拒绝。
+   */
+  removeUserInput(matcher: {
+    inputId?: string
+    clientMessageId?: string
+    commandId?: string
+  }): boolean {
+    const index = this.soul.userInputs.findIndex((entry) => {
+      if (matcher.inputId !== undefined && entry.inputId === matcher.inputId) return true
+      if (matcher.clientMessageId !== undefined && entry.clientMessageId === matcher.clientMessageId)
+        return true
+      if (matcher.commandId !== undefined && entry.commandId === matcher.commandId) return true
+      return false
+    })
+    if (index === -1) return false
+    this.soul.userInputs.splice(index, 1)
+    return true
+  }
+
   /** 当前运行结束后移除模型专用临时消息，避免污染后续轮次。 */
   pruneEphemeralMessages(): void {
     if (!this.soul.messages?.some((message) => message.ephemeral)) return

@@ -108,6 +108,27 @@ export interface ChatInputSubmitResponse {
   acceptedAt: number
 }
 
+export const ChatInputWithdrawRequestSchema = z
+  .object({
+    chatId: z.string().min(1),
+    commandId: z.string().min(1),
+    inputId: z.string().min(1).optional(),
+    clientMessageId: z.string().min(1).optional(),
+  })
+  .refine((value) => !!value.inputId || !!value.clientMessageId, {
+    message: 'inputId 或 clientMessageId 至少提供一个',
+  })
+export type ChatInputWithdrawRequest = z.infer<typeof ChatInputWithdrawRequestSchema>
+
+export interface ChatInputWithdrawResponse {
+  chatId: string
+  inputId: string
+  clientMessageId: string | null
+  messageId: string
+  state: 'cancelled'
+  withdrawnAt: number
+}
+
 export const ChatTimelineGetRequestSchema = z
   .object({
     chatId: z.string().min(1).optional(),
