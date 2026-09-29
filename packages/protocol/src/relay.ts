@@ -1,4 +1,4 @@
-export const RELAY_PROTOCOL_VERSION = 1 as const
+export const RELAY_PROTOCOL_VERSION = 2 as const
 
 export const RELAY_ERROR_CODES = [
   'INVALID_REQUEST',
@@ -17,11 +17,21 @@ export const RELAY_ERROR_CODES = [
   'PASSWORD_LOGIN_DISABLED',
   'OIDC_LOGIN_UNAVAILABLE',
   'PASSWORD_LOGIN_COOLDOWN',
+  'BINDING_REQUEST_EXPIRED',
+  'BINDING_REQUEST_USED',
+  'BINDING_NOT_FOUND',
+  'USER_BACKEND_FORBIDDEN',
+  'USER_SESSION_EXPIRED',
+  'USER_PROOF_INVALID',
+  'USER_PROOF_EXPIRED',
+  'PUBLIC_DISCOVERY_DISABLED',
 ] as const
 
 export type RelayErrorCode = (typeof RELAY_ERROR_CODES)[number]
 export type RelayBackendStatus = 'online' | 'offline'
 export type RelayLoginMethod = 'password' | 'oidc'
+export type RelayUserSessionKind = 'oidc' | 'password'
+export type RelayBindingStatus = 'pending' | 'active' | 'revoked' | 'expired'
 
 export interface RelayErrorBody {
   error: {
@@ -44,6 +54,47 @@ export interface RelayBackendSummary {
   capabilities: RelayBackendCapabilities
   lastSeenAt: string
   loginMethods?: RelayLoginMethod[]
+  publicDiscovery?: boolean
+  remotePasswordEnabled?: boolean
+}
+
+/** Stable Pocket ID identity. Email and display name are never authorization keys. */
+export interface RelayUserIdentity {
+  issuer: string
+  subject: string
+}
+
+export interface RelayBindingSummary {
+  backendId: string
+  displayName: string
+  status: RelayBindingStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RelayBindingRequest {
+  requestId: string
+  backendId: string
+  displayName: string
+  publicKeyFingerprint: string
+  expiresAt: string
+  status: 'pending' | 'confirmed' | 'expired' | 'cancelled'
+  confirmationUrl: string
+  confirmationCode: string
+}
+
+/** Short-lived proof issued by the relay for exactly one backend and user session. */
+export interface RelayUserProofPayload {
+  version: 1
+  issuer: string
+  subject: string
+  backendId: string
+  bindingId: string
+  sessionId: string
+  issuedAt: string
+  expiresAt: string
+  nonce: string
+  purpose: 'backend-use'
 }
 
 export interface RelayDiscovery extends RelayBackendSummary {
@@ -84,6 +135,10 @@ export interface RelayAccepted {
   heartbeatIntervalMs: number
   leaseExpiresAt: string
   configVersion: number
+  /** Required once relay user-proof handoff is implemented (R3). */
+  relay?: {
+    userProofPublicKey: string
+  }
   tunnel: {
     httpService: string
     websocketService: string

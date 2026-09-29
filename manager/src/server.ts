@@ -5,7 +5,7 @@ import { freemem, loadavg, totalmem, uptime } from 'node:os'
 import yaml from 'js-yaml'
 import { ProcessController } from './processController.js'
 import { CredentialStore } from './credentials.js'
-import { OidcConfigStore } from './oidcConfig.js'
+import { RelayConfigStore } from './relayConfig.js'
 import { isTokenValid, loadOrCreateToken } from './tokenStore.js'
 import { verifyLogin } from './verifyLogin.js'
 import { writeManagerPage as writeRetroManagerPage } from './page.js'
@@ -43,7 +43,7 @@ export function createManager(options: ManagerOptions = {}) {
     configFile: options.configFile ?? `${cheryDir}/.chery/config.yaml`,
     credentialsFile: options.credentialsFile ?? `${cheryDir}/.chery/manager-credentials.json`,
   })
-  const oidcConfig = new OidcConfigStore(options.configFile ?? `${cheryDir}/.chery/config.yaml`)
+  const relayConfig = new RelayConfigStore(options.configFile ?? `${cheryDir}/.chery/config.yaml`)
   const server = createServer(async (req, res) => {
     const presented = readPresentedToken(req)
     const tokenAuthorized = isTokenValid(tokenState, presented)
@@ -147,19 +147,75 @@ export function createManager(options: ManagerOptions = {}) {
       json(res, 200, { credentials, backend, verification })
       return
     }
-    if (path === '/api/auth/oidc-config' && (req.method === 'GET' || req.method === 'PUT')) {
+    if (path === '/api/relay/config' && (req.method === 'GET' || req.method === 'PUT')) {
       if (presented !== controlToken) {
         unauthorized(res)
         return
       }
       try {
         const result = req.method === 'GET'
-          ? await oidcConfig.view()
-          : await oidcConfig.save(await readJsonBody(req))
+          ? await relayConfig.view()
+          : await relayConfig.save(await readJsonBody(req))
         json(res, 200, result)
       } catch (error) {
         json(res, 400, { error: (error as Error).message })
       }
+      return
+    }
+    if (path === '/api/relay/status' && req.method === 'GET') {
+      if (presented !== controlToken) {
+        unauthorized(res)
+        return
+      }
+      const config = await relayConfig.view()
+      json(res, 200, {
+        ...config,
+        configured: Boolean(config.url && config.backendId),
+        status: 'not_connected',
+        connection: 'not_connected',
+        binding: { status: 'unavailable', reason: 'relay_binding_api_not_connected' },
+        cooldown: { status: 'unavailable', reason: 'backend_cooldown_api_not_connected' },
+      })
+      return
+    }
+    if (path === '/api/relay/bindings' && req.method === 'GET') {
+      if (presented !== controlToken) {
+        unauthorized(res)
+        return
+      }
+      json(res, 200, { status: 'unavailable', reason: 'relay_binding_api_not_connected', bindings: [] })
+      return
+    }
+    if (path === '/api/relay/bindings/request' && req.method === 'POST') {
+      if (presented !== controlToken) {
+        unauthorized(res)
+        return
+      }
+      json(res, 503, { error: 'relay_binding_api_not_connected', status: 'unavailable' })
+      return
+    }
+    if (path === '/api/relay/bindings/revoke' && req.method === 'POST') {
+      if (presented !== controlToken) {
+        unauthorized(res)
+        return
+      }
+      json(res, 503, { error: 'relay_binding_api_not_connected', status: 'unavailable' })
+      return
+    }
+    if (path === '/api/relay/password-cooldown' && req.method === 'GET') {
+      if (presented !== controlToken) {
+        unauthorized(res)
+        return
+      }
+      json(res, 200, { status: 'unavailable', reason: 'backend_cooldown_api_not_connected' })
+      return
+    }
+    if (path === '/api/relay/password-cooldown/reset' && req.method === 'POST') {
+      if (presented !== controlToken) {
+        unauthorized(res)
+        return
+      }
+      json(res, 503, { error: 'backend_cooldown_api_not_connected', status: 'unavailable' })
       return
     }
     if (path === '/' || path === '/index.html') {

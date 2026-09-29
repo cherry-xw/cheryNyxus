@@ -31,7 +31,7 @@ if (fs.existsSync(rootEnvPath)) {
 }
 
 // 会话签名密钥持久化：确保后端同级的 .env（rootEnvPath）存在 CHERY_AUTH_SESSION_SECRET，跨重启复用。
-// 必须在 config.yaml 加载前注入 process.env，供 server.auth 鉴权（OAuth2Auth）读取。
+// 必须在 config.yaml 加载前注入 process.env，供 server.auth 会话签名读取。
 ensureAuthSessionSecret()
 let managedEnvFileValues = listEnvVarMap()
 
@@ -543,7 +543,7 @@ interface ServerConfig {
    * 不设则与 `startService` 默认路径一致；设错则启动期日志警告并跳过托管。
    */
   static_dir_override?: string
-  /** OIDC/OAuth2 authorization-code login for browser control-plane access. */
+  /** 本地后端用户名密码鉴权；OIDC 客户端只配置在公共中转。 */
   auth?: OAuth2Config
   /** Optional loopback-only listeners used by the rathole client. Ports may be 0 for allocation. */
   remote?: {

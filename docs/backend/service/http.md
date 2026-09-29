@@ -7,7 +7,7 @@
 HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口):
 
 - `GET /api/config` → 本地返回旧端口字段以及 `httpBaseUrl`、`wsUrl`、`httpPath`、`wsPath`；远程专用入口只返回 `remote`、路径和传输格式，不泄露 loopback 端口
-- `GET /api/auth/capabilities` → 返回非敏感的 `{password, oidc}` 登录能力；密码失败冷却由 challenge 和 login 同时执行
+- `GET /api/auth/capabilities` → 返回非敏感的 `{password}` 后端密码登录能力；Pocket ID/OIDC 由公共中转负责
 - `POST /api/media/upload` / `GET /api/media/:filename` → 上传和读取 `.chery/media/` 下的受控媒体资产
 - 其余路径 → 默认静态 serve 前端构建产物(`web/dist/`),SPA fallback 到 `index.html`
 - `server.serve_frontend=false` 或 `web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
@@ -17,8 +17,8 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 远程入口只供 rathole 连接，始终要求用户认证，不能继承本地 loopback 豁免。
 
 启用 `server.auth.enabled` 时，静态 SPA 仍可加载以显示登录遮罩，但 `GET /api/config` 及 WebSocket 控制面必须
-有 OAuth2 登录后的 HttpOnly 会话。认证端点为 `GET /api/auth/me`、`GET /api/auth/login`、
-`GET /api/auth/callback`、`POST /api/auth/logout`；仅服务端 OAuth2 callback 交换 token，浏览器不接触 client secret。
+有后端 Bearer token（本机 loopback 入口仍按实际来源保留免登录）。认证端点为 `GET /api/auth/me`、
+`POST /api/auth/logout` 以及下述密码 challenge/login/refresh；后端不再提供 OIDC 登录或 callback。
 
 **密码认证（`server.auth.username`+`password`）** 走另一组端点，凭据不落明文：前端先 `POST /api/auth/challenge`
 取一次性 `nonce`，用它作为 keyHex 经 SHA-256 CTR 流密码加密 `{username, password}` 信封后 `POST /api/auth/login`
@@ -33,7 +33,7 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 - **独立部署把 `dist/` 拷到 `/opt/chery/dist`**：`serve_frontend: true` + `static_dir_override: /opt/chery/dist` → HTTP 服务 serve 该目录
 - **容器/CI 一键脚本**：`serve_frontend: true` + 不设 `static_dir_override`，但设环境变量 `WEB_DIST_DIR=/path` → worker 读取 env，覆盖默认
 
-**为什么需要同源托管**：浏览器场景下，登录 cookie（HttpOnly）由后端通过同 origin 颁发。如前端走 vite dev（`:5173`）而后端在 `:8183`，浏览器会因端口不同视为跨域，OAuth 登录与 HttpOnly cookie 无法落定（开发期也会触发 CORS preflight）。开启 `serve_frontend` 让浏览器访问 `:8183` 同时拿到 UI 与 API，绕过跨域。
+**为什么需要同源托管**：浏览器场景下，前端和后端 API 使用同一 origin 可以避免跨域请求和 CORS preflight。开启 `serve_frontend` 让浏览器访问 `:8183` 同时拿到 UI 与 API。
 
 `server.serve_frontend=true` 但目录缺失时，worker 与 HTTP 服务都会 logger.warn，但**不会阻塞启动**（仅 API 模式生效），便于先启后端再补构建的反模式。
 
@@ -80,7 +80,7 @@ MIME 映射:自写 `Record<string, string>`(html/js/css/json/svg/png/...),无新
 
 ## 媒体资产 API
 
-媒体端点使用与控制面相同的认证：OAuth 开启时要求 HttpOnly 会话；本地 session-token 模式要求 `X-Chery-Session-Token`。`POST /api/media/upload` 接受原始二进制 body，`Content-Type` 是媒体 MIME、`X-Filename` 是原始文件名；成功返回资产元数据与 `/api/media/<filename>`。只允许图片、视频、音频白名单 MIME，大小由全局上传上限限制（默认 100 MiB）。`GET /api/media/:filename` 校验 UUID 文件名并返回 `private` 缓存响应。媒体资产链路见 [../model-capabilities.md](../agent/model-capabilities.md)。
+媒体端点使用与控制面相同的认证：远程入口要求后端 Bearer token；本地无密码模式要求 `X-Chery-Session-Token`。`POST /api/media/upload` 接受原始二进制 body，`Content-Type` 是媒体 MIME、`X-Filename` 是原始文件名；成功返回资产元数据与 `/api/media/<filename>`。只允许图片、视频、音频白名单 MIME，大小由全局上传上限限制（默认 100 MiB）。`GET /api/media/:filename` 校验 UUID 文件名并返回 `private` 缓存响应。媒体资产链路见 [../model-capabilities.md](../agent/model-capabilities.md)。
 
 ## 前端调用路径与 httpUrl helper
 

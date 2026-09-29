@@ -54,7 +54,7 @@ describe('remote listener authentication boundary', () => {
 
     const capabilities = await fetch(`http://127.0.0.1:${port}/api/auth/capabilities`)
     expect(capabilities.status).toBe(200)
-    expect(await capabilities.json()).toEqual({ password: true, oidc: false })
+    expect(await capabilities.json()).toEqual({ password: true })
 
     const tokens = auth.authenticate('admin', 'secret')
     expect(tokens).not.toBeNull()
@@ -127,6 +127,31 @@ describe('remote listener authentication boundary', () => {
         }
       })
       socket.once('error', () => undefined)
+    })
+  })
+
+  it('allows a same-origin LAN page to connect to the local WebSocket', async () => {
+    const wss = createWebSocketServer({
+      port: 0,
+      host: '127.0.0.1',
+      router: createRouter(),
+      authToken: 'local-session-token',
+      listener: 'local',
+    })
+    sockets.push(wss)
+    await waitForListening(wss)
+    const port = (wss.address() as { port: number }).port
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}?token=local-session-token`, {
+        headers: { Origin: `http://127.0.0.1:${port}` },
+      })
+      socket.once('open', () => {
+        socket.close()
+        resolve()
+      })
+      socket.once('unexpected-response', (_request, response) => reject(new Error(`unexpected ${response.statusCode}`)))
+      socket.once('error', reject)
     })
   })
 })

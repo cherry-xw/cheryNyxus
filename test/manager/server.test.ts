@@ -25,34 +25,29 @@ async function freePort(): Promise<number> {
 }
 
 describe('local manager', () => {
-  it('saves OIDC provider settings without changing password login or exposing the client secret', async () => {
+  it('stores relay controls without exposing a fake OIDC configuration', async () => {
     const root = await mkdtemp(join(tmpdir(), 'chery-manager-'))
     const configFile = join(root, 'config.yaml')
     await writeFile(configFile, 'server:\n  auth:\n    enabled: true\n    username: admin\n    password: scrypt$existing\n  port: 8182\n')
     const manager = createManager({ port: 0, controlToken: 'test-token', configFile, credentialsFile: join(root, 'credentials.json') })
     await manager.listen()
-    const base = `http://127.0.0.1:${manager.address()!.port}/api/auth/oidc-config`
+    const base = `http://127.0.0.1:${manager.address()!.port}`
     const headers = { 'Content-Type': 'application/json', 'X-Chery-Manager-Token': 'test-token' }
-    const input = { issuer: '', authorizationUrl: 'https://id.example/authorize', tokenUrl: 'https://id.example/token', userInfoUrl: 'https://id.example/me', clientId: 'chery', clientSecret: 'private-secret', redirectUri: 'https://app.example/api/auth/callback', adminUsers: ['owner@example.com'], adminClaim: '', adminValues: [] }
+    const input = { url: 'https://relay.example', backendId: 'home-nyxus', publicDiscovery: true, remotePasswordEnabled: false }
     try {
-      expect((await fetch(base)).status).toBe(401)
-      expect((await fetch(base, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })).status).toBe(401)
-      const saved = await fetch(base, { method: 'PUT', headers, body: JSON.stringify(input) })
+      expect((await fetch(`${base}/api/auth/oidc-config`)).status).toBe(404)
+      const saved = await fetch(`${base}/api/relay/config`, { method: 'PUT', headers, body: JSON.stringify(input) })
       expect(saved.status).toBe(200)
-      expect(await saved.text()).not.toContain('private-secret')
-      const read = await fetch(base, { headers })
-      expect(await read.json()).toMatchObject({ clientId: 'chery', hasClientSecret: true, passwordLoginActive: true })
-      const config = yaml.load(await readFile(configFile, 'utf8')) as { server: { auth: Record<string, unknown>; port: number } }
-      expect(config.server.auth).toMatchObject({ enabled: true, username: 'admin', password: 'scrypt$existing', clientSecret: 'private-secret', adminUsers: ['owner@example.com'] })
+      expect(await saved.json()).toMatchObject(input)
+      const read = await fetch(`${base}/api/relay/config`, { headers })
+      expect(await read.json()).toMatchObject(input)
+      const config = yaml.load(await readFile(configFile, 'utf8')) as { relay: Record<string, unknown>; server: { port: number } }
+      expect(config.relay).toMatchObject(input)
       expect(config.server.port).toBe(8182)
-      const invalid = await fetch(base, { method: 'PUT', headers, body: JSON.stringify({ ...input, tokenUrl: '', clientSecret: '' }) })
+      const invalid = await fetch(`${base}/api/relay/config`, { method: 'PUT', headers, body: JSON.stringify({ ...input, backendId: 'bad id' }) })
       expect(invalid.status).toBe(400)
-      const kept = await fetch(base, { method: 'PUT', headers, body: JSON.stringify({ ...input, clientSecret: '' }) })
-      expect(kept.status).toBe(200)
-      expect((yaml.load(await readFile(configFile, 'utf8')) as { server: { auth: { clientSecret: string } } }).server.auth.clientSecret).toBe('private-secret')
-      const cleared = await fetch(base, { method: 'PUT', headers, body: JSON.stringify({ ...input, clientSecret: '', clearClientSecret: true }) })
-      expect(cleared.status).toBe(200)
-      expect(await cleared.json()).toMatchObject({ hasClientSecret: false, passwordLoginActive: true })
+      expect((await fetch(`${base}/api/relay/bindings/request`, { method: 'POST', headers })).status).toBe(503)
+      await expect((await fetch(`${base}/api/relay/status`, { headers })).json()).resolves.toMatchObject({ status: 'not_connected', backendId: 'home-nyxus' })
     } finally {
       await manager.close()
     }
@@ -157,10 +152,12 @@ describe('local manager', () => {
       const page = await fetch(`${base}/`)
       expect(page.status).toBe(200)
       const html = await page.text()
-      // 内网门禁要求所有状态、凭据和 OAuth 配置请求都携带管理密钥。
-      expect(html.split('X-Chery-Manager-Token').length - 1).toBe(6)
+      // 内网门禁要求所有状态、凭据和中转配置请求都携带管理密钥。
+      expect(html.split('X-Chery-Manager-Token').length - 1).toBe(8)
       for (const [, script] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Script(script!)
-      expect(html).toContain('id="oidc-form"')
+      expect(html).toContain('id="relay-form"')
+      expect(html).not.toContain('id="oidc-form"')
+      expect(html).not.toContain('OAuth 2.0 / OIDC 预配置')
       // 状态请求不能退回无 token 的裸请求（内网访问会 401）。
       expect(html).not.toContain("fetch('/api/status');")
       // 页面不再整段打印状态 JSON，改为逐项状态行。

@@ -88,7 +88,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
             const origin = info.origin
             if (
               !origin ||
-              !(auth?.isTrustedOrigin(origin, info.req) || allowedOrigins.includes(origin))
+              !(auth?.isTrustedOrigin(origin, info.req) || allowedOrigins.includes(origin) || isSameOrigin(origin, info.req))
             ) {
               done(false, 403, 'WebSocket origin is not allowed')
               return
@@ -178,6 +178,19 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
 
   logger.info(`WebSocket 服务启动，地址: ${host ?? 'default'}:${port}`)
   return wss
+}
+
+/** Allow a browser page to use the backend's own LAN-hosted origin. */
+function isSameOrigin(origin: string, req: import('node:http').IncomingMessage): boolean {
+  try {
+    const originUrl = new URL(origin)
+    const host = String(req.headers.host ?? '').trim()
+    if (!host) return false
+    const requestUrl = new URL(`${originUrl.protocol}//${host}`)
+    return originUrl.protocol === requestUrl.protocol && originUrl.host.toLowerCase() === requestUrl.host.toLowerCase()
+  } catch {
+    return false
+  }
 }
 
 function constantTimeTokenEqual(actual: string, expected: string): boolean {

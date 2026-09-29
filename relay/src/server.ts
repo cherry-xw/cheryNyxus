@@ -1,4 +1,4 @@
-import { createPublicKey, randomBytes, verify } from 'node:crypto'
+import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocket, WebSocketServer } from 'ws'
@@ -20,8 +20,9 @@ import { BackendRegistry } from './registry.js'
 import {
   backendSessionCookie,
   createBackendSession,
-  readBackendSession,
+  readBackendSessionPayload,
 } from './session.js'
+import { AuthorizationStore } from './authorizationStore.js'
 
 const BACKEND_ID = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$/
 const HOP_BY_HOP = new Set([
@@ -54,10 +55,13 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
   const audit = options.logger ?? jsonAuditLogger
   const identities = options.identityStore ?? new IdentityStore(config.identityFile)
   await identities.load()
+  const authorizations = new AuthorizationStore(config.authorizationFile, { confirmationBaseUrl: config.publicOrigin + config.publicBasePath })
+  await authorizations.load()
   const registry = new BackendRegistry(identities, config)
   const limiter = new FixedWindowRateLimiter(config.limits.requestsPerMinutePerIp)
   const controlWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
   const browserWss = new WebSocketServer({ noServer: true, maxPayload: config.limits.maxRequestBytes })
+  const oidcStates = new Map<string, { verifier: string; expiresAt: number }>()
   let activeHttp = 0
 
   const server = createServer((req, res) => {
@@ -109,7 +113,10 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       if (!match?.[1]) throw new RelayError('INVALID_REQUEST', 'WebSocket path is not allowed')
       const backendId = match[1]
       assertBackendId(backendId)
-      requireBoundBackend(req, backendId)
+      const session = requireBoundBackend(req, backendId)
+      if (session.kind === 'oidc' && (!session.issuer || !session.subject || !authorizations.isAuthorized({ issuer: session.issuer, subject: session.subject }, backendId))) {
+        throw new RelayError('USER_BACKEND_FORBIDDEN', 'User is not authorized for this backend')
+      }
       registry.requireOnline(backendId)
       const release = registry.acquireBrowserWebSocket(backendId)
       browserWss.handleUpgrade(req, socket, head, (client) => {
@@ -153,8 +160,48 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       return { category: 'health' }
     }
     limiter.consume(clientIp(req))
+    if (route === '/api/auth/capabilities' && req.method === 'GET') {
+      writeJson(res, 200, { password: true, oidc: Boolean(config.oidc) })
+      return { category: 'binding' }
+    }
+    if (route === '/api/auth/oidc/start' && req.method === 'GET') {
+      if (!config.oidc) throw new RelayError('OIDC_LOGIN_UNAVAILABLE', 'Pocket ID is not configured on this relay')
+      const state = randomBytes(24).toString('base64url')
+      const verifier = randomBytes(32).toString('base64url')
+      oidcStates.set(state, { verifier, expiresAt: Date.now() + 5 * 60_000 })
+      const challenge = createHash('sha256').update(verifier).digest('base64url')
+      const url = new URL('/authorize', config.oidc.issuer)
+      url.searchParams.set('client_id', config.oidc.clientId); url.searchParams.set('redirect_uri', config.oidc.redirectUri)
+      url.searchParams.set('response_type', 'code'); url.searchParams.set('scope', 'openid profile'); url.searchParams.set('state', state)
+      url.searchParams.set('code_challenge', challenge); url.searchParams.set('code_challenge_method', 'S256')
+      res.writeHead(302, { Location: url.toString() }); res.end()
+      return { category: 'binding' }
+    }
+    if (route === '/api/auth/oidc/callback' && req.method === 'GET') {
+      if (!config.oidc) throw new RelayError('OIDC_LOGIN_UNAVAILABLE', 'Pocket ID is not configured on this relay')
+      const query = new URL(req.url ?? '/', config.publicOrigin).searchParams
+      const state = query.get('state') ?? ''; const code = query.get('code') ?? ''
+      const saved = oidcStates.get(state); oidcStates.delete(state)
+      if (!saved || saved.expiresAt < Date.now() || !code) throw new RelayError('AUTH_REQUIRED', 'OIDC callback is invalid or expired')
+      const tokenResponse = await fetch(new URL('/token', config.oidc.issuer), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: config.oidc.redirectUri, client_id: config.oidc.clientId, ...(config.oidc.clientSecret ? { client_secret: config.oidc.clientSecret } : {}), code_verifier: saved.verifier }) })
+      if (!tokenResponse.ok) throw new RelayError('AUTH_REQUIRED', 'OIDC token exchange failed')
+      const tokens = await tokenResponse.json() as { access_token?: string }
+      if (!tokens.access_token) throw new RelayError('AUTH_REQUIRED', 'OIDC token response is invalid')
+      const userResponse = await fetch(new URL('/userinfo', config.oidc.issuer), { headers: { Authorization: `Bearer ${tokens.access_token}` } })
+      if (!userResponse.ok) throw new RelayError('AUTH_REQUIRED', 'OIDC user information request failed')
+      const user = await userResponse.json() as { sub?: string }
+      if (!user.sub) throw new RelayError('AUTH_REQUIRED', 'OIDC user identity is missing')
+      const value = createBackendSession('*', config.sessionSecret, config.sessionTtlSeconds, { kind: 'oidc', issuer: config.oidc.issuer, subject: user.sub, sessionId: randomUUID() })
+      res.setHeader('Set-Cookie', backendSessionCookie({ value, basePath: config.publicBasePath, secure: new URL(config.publicOrigin).protocol === 'https:', maxAge: config.sessionTtlSeconds }))
+      res.writeHead(302, { Location: `${config.publicBasePath || ''}/` }); res.end()
+      return { category: 'binding' }
+    }
     if (route === '/api/backends' && req.method === 'GET') {
-      writeJson(res, 200, { backends: registry.list() })
+      const session = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
+      const backends = registry.list().filter((item) => item.status === 'online' && (session?.kind === 'oidc'
+        ? Boolean(session.subject && session.issuer && authorizations.isAuthorized({ issuer: session.issuer, subject: session.subject }, item.backendId))
+        : authorizations.getBackendPolicy(item.backendId).publicDiscovery))
+      writeJson(res, 200, { backends })
       return { category: 'list' }
     }
     const discovery = /^\/api\/backends\/([^/]+)$/.exec(route)
@@ -162,6 +209,10 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       const backendId = discovery[1]
       assertBackendId(backendId)
       const summary = registry.requireOnline(backendId)
+      const session = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
+      if (!authorizations.getBackendPolicy(backendId).publicDiscovery && !(session?.kind === 'oidc' && session.issuer && session.subject && authorizations.isAuthorized({ issuer: session.issuer, subject: session.subject }, backendId))) {
+        throw new RelayError('PUBLIC_DISCOVERY_DISABLED', 'Backend discovery is disabled')
+      }
       writeJson(res, 200, discoveryFor(summary))
       return { category: 'discovery', backendId }
     }
@@ -170,7 +221,13 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       if (typeof body.backendId !== 'string') throw new RelayError('INVALID_REQUEST', 'backendId is required')
       assertBackendId(body.backendId)
       const summary = registry.requireOnline(body.backendId)
-      const value = createBackendSession(body.backendId, config.sessionSecret, config.sessionTtlSeconds)
+      const userSession = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
+      if (userSession?.kind === 'oidc' && userSession.issuer && userSession.subject) {
+        if (!authorizations.isAuthorized({ issuer: userSession.issuer, subject: userSession.subject }, body.backendId)) throw new RelayError('USER_BACKEND_FORBIDDEN', 'User is not authorized for this backend')
+      } else {
+        if (!authorizations.getBackendPolicy(body.backendId).remotePasswordEnabled) throw new RelayError('PASSWORD_LOGIN_DISABLED', 'Remote password login is disabled')
+      }
+      const value = createBackendSession(body.backendId, config.sessionSecret, config.sessionTtlSeconds, userSession?.kind === 'oidc' ? { kind: 'oidc', issuer: userSession.issuer, subject: userSession.subject, sessionId: randomUUID() } : { kind: 'password' })
       res.setHeader('Set-Cookie', backendSessionCookie({
         value,
         basePath: config.publicBasePath,
@@ -196,7 +253,10 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
     const backendId = proxy[1]
     assertBackendId(backendId)
     assertSafeProxyUrl(req.url)
-    requireBoundBackend(req, backendId)
+    const session = requireBoundBackend(req, backendId)
+    if (session.kind === 'oidc' && (!session.issuer || !session.subject || !authorizations.isAuthorized({ issuer: session.issuer, subject: session.subject }, backendId))) {
+      throw new RelayError('USER_BACKEND_FORBIDDEN', 'User is not authorized for this backend')
+    }
     registry.requireOnline(backendId)
     if (activeHttp >= config.limits.maxConcurrentHttp) {
       throw new RelayError('CAPACITY_EXCEEDED', 'HTTP proxy capacity exceeded', 1)
@@ -322,10 +382,12 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
     return { ...summary, transport: 'binary', httpBasePath: root, wsPath: `${root}/ws` }
   }
 
-  function requireBoundBackend(req: IncomingMessage, backendId: string): void {
-    if (readBackendSession(req.headers.cookie, config.sessionSecret) !== backendId) {
+  function requireBoundBackend(req: IncomingMessage, backendId: string) {
+    const session = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
+    if (!session || session.backendId !== backendId) {
       throw new RelayError('SESSION_BACKEND_MISMATCH', 'Session is not bound to this backend')
     }
+    return session
   }
 
   function forwardedHeaders(headers: IncomingHttpHeaders, requestId: string): IncomingHttpHeaders {
@@ -335,6 +397,8 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       if (
         HOP_BY_HOP.has(lower) ||
         lower === 'host' ||
+        lower === 'authorization' ||
+        lower === 'cookie' ||
         lower === 'forwarded' ||
         lower.startsWith('x-forwarded-') ||
         lower.startsWith('x-chery-relay-')

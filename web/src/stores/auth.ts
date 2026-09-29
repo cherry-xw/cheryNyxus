@@ -13,6 +13,48 @@ const KEY_REMEMBER_PW = 'chery.rememberPassword'
 const KEY_SAVED_USER = 'chery.savedUsername'
 const KEY_SAVED_PW = 'chery.savedPassword'
 const KEY_PW_KEY = 'chery.pwKey'
+const KEY_TARGETS = 'chery.auth.targets.v1'
+
+export type AuthMode = 'local' | 'relay-password' | 'relay-oidc'
+
+export interface AuthTarget {
+  backendId: string
+  address: string
+  mode: AuthMode
+  username: string
+  accessToken: string
+  refreshToken: string
+  /** Token returned by a relay OIDC adapter, when the relay uses a separate session token. */
+  relaySessionToken?: string
+}
+
+export interface RelayOidcLoginInput {
+  address: string
+  backendId: string
+  /** The adapter owns the actual OIDC redirect and relay API contract. */
+  openLogin: () => Promise<{
+    username?: string
+    accessToken: string
+    refreshToken?: string
+    relaySessionToken?: string
+  }>
+}
+
+export interface RelayOidcAdapter {
+  login(input: RelayOidcLoginInput): Promise<{
+    username?: string
+    accessToken: string
+    refreshToken?: string
+    relaySessionToken?: string
+  }>
+}
+
+let relayOidcAdapter: RelayOidcAdapter | null = null
+
+/** Install the relay OIDC adapter without coupling the preload shell to relay endpoints. */
+export function configureRelayOidc(adapter: RelayOidcAdapter | null): void {
+  relayOidcAdapter = adapter
+}
 
 /**
  * 登录 / 连接失败的分类信息（用于 UI 渲染分类化错误卡片）。
@@ -196,9 +238,17 @@ async function decryptPasswordFromStorage(data: string): Promise<string | null> 
  * token 持久化 localStorage（refresh 自动续期需要）。
  */
 export const useAuthStore = defineStore('auth', () => {
-  const serverAddress = ref(localStorage.getItem(KEY_ADDR) ?? '')
-  const accessToken = ref(localStorage.getItem(KEY_ACCESS) ?? '')
+  const storedAddress = localStorage.getItem(KEY_ADDR) ?? ''
+  const storedAccessToken = localStorage.getItem(KEY_ACCESS) ?? ''
+  const serverAddress = ref(storedAddress)
+  const mode = ref<AuthMode>(
+    (localStorage.getItem('chery.auth.mode') as AuthMode | null) ??
+      (storedAccessToken && !isLoopbackHost(hostOf(storedAddress)) ? 'relay-password' : 'local'),
+  )
+  const backendId = ref(localStorage.getItem('chery.auth.backendId') ?? '')
+  const accessToken = ref(storedAccessToken)
   const refreshToken = ref(localStorage.getItem(KEY_REFRESH) ?? '')
+  const relaySessionToken = ref('')
   const username = ref(localStorage.getItem(KEY_USER) ?? '')
   /** 记住密码：默认关；勾选后密码 AES-GCM 加密存 localStorage，下次预填。 */
   const rememberPassword = ref(localStorage.getItem(KEY_REMEMBER_PW) === '1')
@@ -207,16 +257,53 @@ export const useAuthStore = defineStore('auth', () => {
   /** 已记住的密码密文（base64(iv||ct)）；未勾选记住密码时为空。 */
   const savedPassword = ref(localStorage.getItem(KEY_SAVED_PW) ?? '')
   const authenticating = ref(false)
+  const targets = ref<Record<string, AuthTarget>>(readTargets())
 
   /** 目标后端是否为远端（非 loopback）→ 需鉴权。 */
   const isRemote = computed(() => {
+    if (mode.value !== 'local') return true
     const host = hostOf(serverAddress.value)
     return host !== '' && !isLoopbackHost(host)
   })
-  const loggedIn = computed(() => !!accessToken.value)
+  const loggedIn = computed(() => mode.value === 'local' || !!accessToken.value)
+
+  function targetKey(id: string, address: string): string {
+    return `${id || '_address'}:${normalizeAddress(address)}`
+  }
+
+  function readTargets(): Record<string, AuthTarget> {
+    try {
+      const raw = localStorage.getItem(KEY_TARGETS)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw) as Record<string, AuthTarget>
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  function persistTargets(): void {
+    localStorage.setItem(KEY_TARGETS, JSON.stringify(targets.value))
+  }
+
+  function persistCurrentTarget(): void {
+    if (!serverAddress.value) return
+    targets.value[targetKey(backendId.value, serverAddress.value)] = {
+      backendId: backendId.value,
+      address: serverAddress.value,
+      mode: mode.value,
+      username: username.value,
+      accessToken: accessToken.value,
+      refreshToken: refreshToken.value,
+      relaySessionToken: relaySessionToken.value || undefined,
+    }
+    persistTargets()
+  }
 
   function persist(): void {
     localStorage.setItem(KEY_ADDR, serverAddress.value)
+    localStorage.setItem('chery.auth.mode', mode.value)
+    localStorage.setItem('chery.auth.backendId', backendId.value)
     localStorage.setItem(KEY_ACCESS, accessToken.value)
     localStorage.setItem(KEY_REFRESH, refreshToken.value)
     localStorage.setItem(KEY_USER, username.value)
@@ -227,6 +314,31 @@ export const useAuthStore = defineStore('auth', () => {
 
   function setServerAddress(addr: string): void {
     serverAddress.value = normalizeAddress(addr)
+    persist()
+  }
+
+  /** Select a backend and restore only that backend's session, if one exists. */
+  function selectTarget(input: { address: string; backendId?: string; mode?: AuthMode }): void {
+    const nextAddress = normalizeAddress(input.address)
+    const nextId = input.backendId ?? ''
+    const nextMode = input.mode ?? (isLoopbackHost(hostOf(nextAddress)) ? 'local' : 'relay-password')
+    const saved = targets.value[targetKey(nextId, nextAddress)]
+    serverAddress.value = nextAddress
+    backendId.value = nextId
+    mode.value = nextMode
+    username.value = saved?.username ?? ''
+    accessToken.value = saved?.accessToken ?? ''
+    refreshToken.value = saved?.refreshToken ?? ''
+    relaySessionToken.value = saved?.relaySessionToken ?? ''
+    persist()
+  }
+
+  function clearSession(): void {
+    accessToken.value = ''
+    refreshToken.value = ''
+    relaySessionToken.value = ''
+    username.value = ''
+    persistCurrentTarget()
     persist()
   }
 
@@ -245,12 +357,16 @@ export const useAuthStore = defineStore('auth', () => {
   /** 另一浏览器窗口更新 localStorage 后显式刷新本 Pinia 状态。 */
   function reloadFromStorage(): void {
     serverAddress.value = localStorage.getItem(KEY_ADDR) ?? ''
+    mode.value = (localStorage.getItem('chery.auth.mode') as AuthMode | null) ?? 'local'
+    backendId.value = localStorage.getItem('chery.auth.backendId') ?? ''
     accessToken.value = localStorage.getItem(KEY_ACCESS) ?? ''
     refreshToken.value = localStorage.getItem(KEY_REFRESH) ?? ''
+    relaySessionToken.value = ''
     username.value = localStorage.getItem(KEY_USER) ?? ''
     rememberPassword.value = localStorage.getItem(KEY_REMEMBER_PW) === '1'
     savedUsername.value = localStorage.getItem(KEY_SAVED_USER) ?? ''
     savedPassword.value = localStorage.getItem(KEY_SAVED_PW) ?? ''
+    targets.value = readTargets()
   }
 
   function getBaseUrl(): string {
@@ -301,7 +417,9 @@ export const useAuthStore = defineStore('auth', () => {
       accessToken: string
       refreshToken: string
     }
+    mode.value = 'relay-password'
     serverAddress.value = base
+    // The optional Backend ID is supplied by the relay target picker.
     username.value = data.username ?? ''
     accessToken.value = data.accessToken
     refreshToken.value = data.refreshToken
@@ -310,6 +428,46 @@ export const useAuthStore = defineStore('auth', () => {
     rememberPassword.value = rememberPw
     savedPassword.value = rememberPw ? await encryptPasswordForStorage(password) : ''
     persist()
+    persistCurrentTarget()
+  }
+
+  async function loginRelayPassword(
+    addr: string,
+    user: string,
+    password: string,
+    selectedBackendId = '',
+    rememberPw = false,
+  ): Promise<void> {
+    backendId.value = selectedBackendId
+    await login(addr, user, password, rememberPw)
+  }
+
+  /**
+   * Start the relay OIDC flow through an injected adapter. The web layer does not
+   * know relay routes, callback URLs, or Pocket ID details.
+   */
+  async function loginRelayOidc(input: RelayOidcLoginInput): Promise<void> {
+    if (!relayOidcAdapter) throw new Error('中转 OIDC 尚未配置')
+    const base = normalizeAddress(input.address)
+    const data = await relayOidcAdapter.login({ ...input, address: base })
+    mode.value = 'relay-oidc'
+    serverAddress.value = base
+    backendId.value = input.backendId
+    username.value = data.username ?? ''
+    accessToken.value = data.accessToken
+    refreshToken.value = data.refreshToken ?? ''
+    relaySessionToken.value = data.relaySessionToken ?? ''
+    persist()
+    targets.value[targetKey(input.backendId, base)] = {
+      backendId: input.backendId,
+      address: base,
+      mode: 'relay-oidc',
+      username: username.value,
+      accessToken: accessToken.value,
+      refreshToken: refreshToken.value,
+      relaySessionToken: data.relaySessionToken,
+    }
+    persistTargets()
   }
 
   /** 预填用：若勾选「记住密码」则解密返回明文密码，否则空串。失败（key/密文损坏）返回空串。 */
@@ -344,6 +502,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     accessToken.value = data.accessToken
     persist()
+    persistCurrentTarget()
     return true
   }
 
@@ -351,16 +510,22 @@ export const useAuthStore = defineStore('auth', () => {
     authenticating.value = false
     accessToken.value = ''
     refreshToken.value = ''
+    relaySessionToken.value = ''
     username.value = ''
     // 服务地址 + 用户名始终保留（下次预填）；记住密码时保留密文，否则清空。
     if (!rememberPassword.value) savedPassword.value = ''
+    persistCurrentTarget()
     persist()
   }
 
   return {
     serverAddress,
+    mode,
+    backendId,
+    targets,
     accessToken,
     refreshToken,
+    relaySessionToken,
     username,
     rememberPassword,
     savedUsername,
@@ -368,10 +533,14 @@ export const useAuthStore = defineStore('auth', () => {
     isRemote,
     loggedIn,
     setServerAddress,
+    selectTarget,
+    clearSession,
     reloadFromStorage,
     getBaseUrl,
     authHeader,
     login,
+    loginRelayPassword,
+    loginRelayOidc,
     savedPasswordPlain,
     authenticating,
     beginAuthentication,

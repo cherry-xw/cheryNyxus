@@ -80,14 +80,15 @@ export function wsUrl(cfg: ServerConfig): string {
     // "ws://192.168.68.164:8183:8182" 这种双端口 URL。
     return `${scheme}//${base.hostname}:${cfg.wsPort}`
   }
-  // /api/config 返回的完整地址包含实际监听端口和转发后的主机；优先消费它，
-  // 这样动态端口和本地反向代理不会被下面的兼容分支覆盖。
-  if (cfg.wsUrl) return cfg.wsUrl
   const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
   // dev:web（vite）：走同源 /ws（vite proxy 转 wsPort；跨机器访问只需暴露单端口 5173）
   if (import.meta.env.DEV) {
     return `${scheme}://${window.location.host}/ws`
   }
+  // 生产（后端静态 serve）优先使用后端按当前请求生成的完整地址。
+  // 开发模式必须在上面优先走 Vite 代理，否则 /api 代理的 Host 会让后端返回
+  // ws://localhost:<port>，局域网浏览器会错误地连接到浏览器所在机器。
+  if (cfg.wsUrl) return cfg.wsUrl
   // 生产（后端静态 serve）：直连 wsPort（8182 需对客户端开放）
   return `${scheme}://${window.location.hostname}:${cfg.wsPort}`
 }

@@ -17,12 +17,14 @@ export interface RelayConfig {
   publicBasePath: string
   publicOrigin: string
   identityFile?: string
+  authorizationFile?: string
   sessionSecret: string
   sessionTtlSeconds: number
   challengeTtlMs: number
   heartbeatIntervalMs: number
   leaseTtlMs: number
   limits: RelayLimits
+  oidc?: { issuer: string; clientId: string; clientSecret?: string; redirectUri: string }
 }
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -50,12 +52,17 @@ export function loadRelayConfig(env: NodeJS.ProcessEnv = process.env): RelayConf
   if (parsedOrigin.protocol !== 'http:' && parsedOrigin.protocol !== 'https:') {
     throw new Error('RELAY_PUBLIC_ORIGIN must use http or https')
   }
+  const oidcIssuer = env.RELAY_OIDC_ISSUER?.trim()
+  const oidc = oidcIssuer && env.RELAY_OIDC_CLIENT_ID
+    ? { issuer: new URL(oidcIssuer).origin, clientId: env.RELAY_OIDC_CLIENT_ID, ...(env.RELAY_OIDC_CLIENT_SECRET ? { clientSecret: env.RELAY_OIDC_CLIENT_SECRET } : {}), redirectUri: env.RELAY_OIDC_REDIRECT_URI ?? `${parsedOrigin.origin}${normalizeBasePath(env.RELAY_PUBLIC_BASE_PATH)}/api/auth/oidc/callback` }
+    : undefined
   return {
     host: env.RELAY_HOST ?? '127.0.0.1',
     port: positiveInteger(env.RELAY_PORT, 4080, 'RELAY_PORT'),
     publicBasePath: normalizeBasePath(env.RELAY_PUBLIC_BASE_PATH),
     publicOrigin: parsedOrigin.origin,
     identityFile: resolve(env.RELAY_IDENTITY_FILE ?? './relay-data/identities.json'),
+    authorizationFile: resolve(env.RELAY_AUTHORIZATION_FILE ?? './relay-data/authorizations.json'),
     sessionSecret,
     sessionTtlSeconds: positiveInteger(env.RELAY_SESSION_TTL_SECONDS, 8 * 60 * 60, 'RELAY_SESSION_TTL_SECONDS'),
     challengeTtlMs: positiveInteger(env.RELAY_CHALLENGE_TTL_MS, 30_000, 'RELAY_CHALLENGE_TTL_MS'),
@@ -71,5 +78,6 @@ export function loadRelayConfig(env: NodeJS.ProcessEnv = process.env): RelayConf
       requestsPerMinutePerIp: positiveInteger(env.RELAY_REQUESTS_PER_MINUTE, 120, 'RELAY_REQUESTS_PER_MINUTE'),
       upstreamTimeoutMs: positiveInteger(env.RELAY_UPSTREAM_TIMEOUT_MS, 30_000, 'RELAY_UPSTREAM_TIMEOUT_MS'),
     },
+    oidc,
   }
 }

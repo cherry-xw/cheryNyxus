@@ -1,577 +1,234 @@
-# 独立后端与中转网关
+# 独立后端与中转登录
 
-**文档创建时间：** 2026-09-20T17:16:52+08:00
+**文档创建时间：** 2026-09-29T16:30:00+08:00
 
 **状态：** 执行中
 
 ## 1. 计划定位
 
-本计划负责把[独立后端与中转网关需求](../../shared/architecture/relay-gateway-requirements.md)落实为可交付的后端、中转、本地管理器、前端、Electron、部署配置和验证资产。
-
-需求文档是跨模块契约和稳定事实的 owner；本文件只记录：
-
-- 实施顺序和依赖；
-- 每个阶段的实现边界、交付物和完成条件；
-- 代码、配置、文档和测试入口；
-- 当前仍会阻塞实现的决策；
-- 跨会话恢复和最终验收安排。
-
-不在本计划中重新定义 HTTP、WebSocket、认证或路径契约。契约落定后，应迁入共享协议、后端服务、前端和部署文档；计划只保留链接和验证入口。
-
-## 2. 目标与边界
-
-### 2.1 最终交付目标
-
-用户可以在本地独立运行 CheryNyxus 后端：
-
-1. 后端和 rathole client 主动连接公网中转，不要求开放本地业务端口；
-2. 浏览器和 Electron 前端通过在线列表或手动 `backendId` 选择一个后端；
-3. 前端通过发现 API 获取实际 HTTP/WS 地址，不依赖固定业务端口；
-4. 后端同时支持 Pocket ID OIDC 和现有用户名密码登录；
-5. 密码连续失败触发 15 次一档、逐档翻倍、最长 1 小时的冷却；
-6. 独立本地管理器在 `127.0.0.1:39980` 提供状态、连接信息、凭据、Agent 统计和启停操作；
-7. Linux 使用 systemd，Windows 使用无控制台窗口的托盘启动器；
-8. Electron 只承载前端，不启动、打包或管理后端；
-9. nginx、静态资源、HTTP、WebSocket、Cookie 和 OIDC 回调支持域名子路径部署；
-10. 中转只处理 CheryNyxus 规定的 HTTP `/api/*` 和 WebSocket 控制流量，不成为通用代理。
-
-### 2.2 非目标
-
-- 不实现任意 TCP、任意 HTTP、文件共享或端口转发服务；
-- 不把邀请码作为前端访问凭据；
-- 不要求前端同时操作多个后端；
-- 不在仓库内实现 Pocket ID；
-- 不把后端重新塞回 Electron；
-- 不在本任务中重写现有 Agent、数据库或 RPC 业务逻辑；
-- 不把中转日志作为凭据、Cookie、授权码或 token 的存储位置。
-
-## 3. 权威文档与现有入口
-
-| 主题           | 权威文档/入口                                                                                                       | 本计划中的使用方式                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| 总体需求和架构 | [`docs/shared/architecture/relay-gateway-requirements.md`](../../shared/architecture/relay-gateway-requirements.md) | 所有阶段的稳定边界和验收目标                        |
-| 后端服务装配   | [`docs/backend/service/README.md`](../../backend/service/README.md)                                                 | `src/service/index.ts`、HTTP、WS 和启动生命周期     |
-| 后端 HTTP      | [`docs/backend/service/http.md`](../../backend/service/http.md)                                                     | `/api/config`、静态服务和认证入口                   |
-| 后端 WebSocket | [`docs/backend/service/websocket.md`](../../backend/service/websocket.md)                                           | Upgrade、来源检查、会话和传输行为                   |
-| 后端认证       | [`src/service/auth/index.ts`](../../../src/service/auth/index.ts)                                                   | OIDC、密码认证、Cookie、loopback 边界和冷却实现入口 |
-| 后端启动       | [`src/index.ts`](../../../src/index.ts)                                                                             | 独立进程、guardian、信号和进程退出                  |
-| 前端连接抽象   | [`docs/frontend/env.md`](../../frontend/env.md)                                                                     | `platform.ts`、发现 API、HTTP/WS 地址和重连         |
-| 前端认证       | [`docs/frontend/auth-login.md`](../../frontend/auth-login.md)                                                       | 登录对话框、登录能力发现和双登录入口                |
-| 前端部署       | [`docs/frontend/deployment.md`](../../frontend/deployment.md)                                                       | 删除旧 Electron 内置后端描述并补充独立后端模式      |
-| 测试边界       | [`docs/quality/testing/baseline.md`](../../quality/testing/baseline.md)                                             | 自动检查、浏览器人工验收和回归范围                  |
-
-计划内的协议草案不能与共享协议形成第二个 owner；在 A 阶段落定后，应把稳定字段迁入 `docs/shared/protocol/`，此处只链接结果。
-
-## 4. 运行拓扑和数据流
-
-```text
-本地机器
-  本地管理器 :39980
-    ├─ 启停和监控 CheryNyxus 后端
-    ├─ 启停和监控 rathole client
-    ├─ 保存/读取本地凭据与运行摘要
-    └─ 提供本地管理页面和控制 API
-  CheryNyxus 后端
-    ├─ 可配置 HTTP 端口
-    ├─ 可配置 WebSocket 端口
-    ├─ /api/config 动态发现
-    └─ HTTP/WS 用户认证
-  rathole client
-        │ 主动出站连接
-        ▼
-公网服务器
-  rathole server + 中转控制服务
-    ├─ 后端在线状态和 Backend ID
-    ├─ CheryNyxus 路径白名单
-    ├─ HTTP/WS 反向路由
-    ├─ 来源限流、审计和资源限制
-    └─ 不记录用户凭据和会话机密
-  nginx
-    ├─ HTTPS
-    ├─ 前端静态资源
-    ├─ 可配置路径前缀
-    └─ HTTP/WS Upgrade 转发
-  Pocket ID
-        │ OIDC 授权码 + PKCE
-        ▼
-浏览器 / Electron
-  一个会话绑定一个 backendId
-  通过发现结果访问 HTTP 和 WebSocket
-```
-
-关键数据流必须保持以下顺序：
-
-1. 本地管理器启动后端并读取实际 HTTP/WS 监听信息；
-2. rathole client 主动连接中转，中转只建立 CheryNyxus 专用服务映射；
-3. 中转更新后端在线状态，不向浏览器下发本地真实端口；
-4. 前端读取列表或接受手动 `backendId`；
-5. 前端从本地或中转发现 API 获取有效 HTTP/WS 地址；
-6. 前端先完成选定后端的 Pocket ID 或用户名密码认证；
-7. 认证后的 HTTP 和 WS 请求沿同一后端绑定关系转发；
-8. 连接断开、后端重启或端口变化时重新发现，不继续盲用旧端口。
+本计划把[独立后端与中转网关需求](../../shared/architecture/relay-gateway-requirements.md)落实为可运行的本地直连、Pocket ID 中转登录和后端用户名密码登录。需求文档维护最终产品边界；共享协议维护跨进程字段；本计划只维护实施顺序、任务边界、依赖、状态和验证入口。
 
-## 5. 先决决策和阻塞项
+本轮已确认采用**破坏性替换**：删除每台后端自身的 OIDC 配置、登录入口和管理页配置，Pocket ID 只在公共中转配置一个 OIDC 应用。旧后端 OIDC 不保留兼容期。
 
-这些事项必须在相应阶段的代码实现前落定；未落定时只能写协议草案和测试夹具，不能把猜测实现成固定契约。
+## 2. 最终结果
 
-| 编号 | 必须落定的事项                     | 当前已知决定                                                                                                 | 负责阶段 | 阻塞影响                                       |
-| ---- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------- | ---------------------------------------------- |
-| D1   | “无需注册、直接连接”的后端身份握手 | 已确认：用户设置易读 Backend ID；本地 Ed25519 密钥挑战签名；中转首次信任持久绑定公钥；密码只用于后端用户登录 | A/B      | 已解除；撤销只走部署方本机管理操作             |
-| D2   | rathole service 映射               | 已确认：HTTP/WS 两个私有映射，只绑定中转机 loopback；服务名和短期 token 由中转下发                           | B        | 已解除；B 固定版本和配置生命周期               |
-| D3   | 中转列表访问边界                   | 已确认：公开最小列表/发现；只返回 ID、名称、状态、公开能力和网关地址；控制面仍由目标后端认证                 | A/E      | 已解除                                         |
-| D4   | 远程入口与 loopback 信任边界       | 已确认：新增独立远程 HTTP/WS 入口并强制认证；本地入口保留 loopback 豁免                                      | C        | 已解除                                         |
-| D5   | OIDC 回调拓扑                      | 已确认：中转保持同源路由并转发给目标后端；后端校验 state、换码、设置 Cookie                                  | C/E/F    | 已解除                                         |
-| D6   | 凭据文件与密码变更关系             | 本地受保护文件可重复查看；不经中转                                                                           | D/C      | 必须定义首次生成、手动修改、重新生成和文件权限 |
-| D7   | 管理器与后端 IPC                   | 已确认：管理器作为父进程管理 guardian 与 rathole，生命周期走子进程 IPC；39980 使用本机控制密钥               | D        | 已解除；D 细化停止中状态                       |
-| D8   | 子路径规则                         | 已确认：relay 去 Backend ID 路由段，向专用远程入口传递可信公共前缀；前端、Cookie 和 OIDC 使用该前缀          | F/G      | 已解除                                         |
+用户看到两种远程登录方式和一种本机方式：
 
-任何 D1-D8 的变更都要同步需求文档、受影响阶段、最终验证清单和恢复检查点。
+| 方式 | 入口 | 最终授权者 |
+| --- | --- | --- |
+| 本机直连 | 同机本地前端 → 本地后端 | 本地入口来源检查，免登录 |
+| Pocket ID | 公共前端 → 中转 OIDC → 已绑定后端 | 中转账号授权 + 后端短时用户证明 |
+| 后端密码 | 公共前端 → 中转路由 → 后端 challenge/login | 目标后端用户名密码 |
 
-## 6. 实施批次总览
+一次浏览器会话只使用一台后端。切换后端必须停止旧 HTTP/WS、清除旧目标临时状态和凭据使用权，再建立新目标会话。
 
-状态统一使用 `未开始 / 进行中 / 阻塞 / 已完成`。复杂度用于选择执行能力，不表示工期。
+## 3. 不变量
 
-| 编号 | 小任务                      | 状态   | 复杂度 | 复杂度依据                                                                                     | 依赖         | 主要交付物                                                                                                         |
-| ---- | --------------------------- | ------ | ------ | ---------------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------ |
-| A    | 中转协议与控制层            | 已完成 | 5      | 新建跨进程连接协议、列表、路由白名单、状态、限流和审计边界，涉及公共契约                       | 需求文档     | `relay/` 控制服务、共享协议、协议测试、D1/D3                                                                       |
-| B    | rathole 连接与动态下发      | 已完成 | 4      | 外部二进制、出站连接、配置生成、断线恢复和资源隔离                                             | A、D1        | rathole server/client 配置、连接管理、B 阶段测试                                                                   |
-| C    | 后端动态端口与认证安全      | 已完成 | 5      | 修改既有 HTTP/WS/Auth 入口，涉及 loopback 安全、双认证、Cookie、冷却和兼容                     | A、B、D4、D5 | 后端远程入口、动态发现、认证安全、C 阶段测试                                                                       |
-| D    | 本地管理器与运行入口        | 已完成 | 5      | 新的常驻控制进程、跨平台进程管理、凭据文件、统计和服务安装                                     | C、D6、D7    | `39980` 管理器、CLI、systemd、Windows 启动器                                                                       |
-| E    | 前端连接发现与双登录        | 已完成 | 4      | 改变前端连接目标、缓存、重连和登录状态，同时保持旧直连兼容；不新增 Backend ID 选择器           | A、C、D      | 本地管理器发现、动态 HTTP/WS、手动远程/relay 路径兼容、现有登录状态适配                                            |
-| F    | Electron 前端化与子路径适配 | 已完成 | 4      | 删除现有后端生命周期耦合，改造 preload、打包和资源/路径生成                                    | C、D、E、D8  | 纯前端 Electron、子路径 URL 适配、资源静态检查                                                                     |
-| G    | nginx、发布和操作文档       | 已完成 | 3      | 把多个进程和外部服务整理为可复用部署方式，涉及配置模板和平台说明                               | B、D、E、F   | nginx 模板、安装脚本、运行指南、配置说明                                                                           |
-| H    | 综合验证与用户验收          | 进行中 | 5      | 需要真实多进程、网络、认证、动态端口、子路径和桌面/系统服务验收；阶段一受外部 Web 类型错误阻塞 | A-G          | [`H-verification.md`](H-verification.md)、[`verify/manual-final.md`](verify/manual-final.md)、自动清单和人工操作卡 |
+- Backend ID 只定位设备；设备 Ed25519 密钥只证明设备身份；二者都不是用户授权。
+- 中转只保存 Pocket ID 用户身份、设备授权关系和短期会话，不保存后端密码、Cookie、授权码、access token 或 refresh token。
+- Pocket ID client secret 只存在中转，不下发浏览器、本地后端或本地管理页。
+- Pocket ID 路径只显示当前账号获准使用的后端；服务端每次选中、代理和 WebSocket 建连都再次检查授权。
+- 后端密码路径不要求 Pocket ID 或预先绑定；中转只建立受限路由，业务授权仍由后端完成。
+- 中转远程入口不能因为上游来自 127.0.0.1 而获得本地 loopback 免登录。
+- 本地管理器只在本机管理密钥保护下管理中转配置、绑定、撤销、公开发现和密码策略。
+- 后端自身 OIDC 删除后，任何后端配置、管理页和前端都不得再要求或读取后端 OIDC 参数。
 
-## 7. 批次实施规划
+## 4. 轮次总览
 
-### A. 中转协议与控制层
+状态统一使用 `未开始 / 进行中 / 已完成 / 阻塞`。每轮完成整体实现后才做该轮定向校验；全部轮次完成后执行综合验证。
 
-**目标：** 先定义中转只服务 CheryNyxus 的公共协议边界，再实现可测试的控制服务；不先实现任意反向代理。
+| 轮次 | 任务 | 依赖 | 可并行边界 | 主要完成条件 |
+| --- | --- | --- | --- | --- |
+| R0 | 共享契约与现状基线 | 用户目标 | 无 | 身份、绑定、会话、错误、退出和切换字段形成唯一 owner；旧冲突列清 |
+| R0L | 前端前置登录壳与懒加载骨架 | R0 | 入口壳、动态业务加载边界可并行设计 | 未认证时只加载登录页；认证并校验能力后才加载业务功能 |
+| R1 | 中转 Pocket ID 基础 | R0 | 中转模块内部可并行配置/会话/回调 | 指定 Pocket ID 可登录、退出、恢复；secret 不出中转 |
+| R2 | 设备绑定与授权关系 | R0、R1 | 中转授权存储与本地管理入口可并行设计 | 管理页发起申请，用户确认后建立 `issuer+sub → backendId`，可撤销 |
+| R3 | 后端远程身份边界 | R0、R2 | 后端 HTTP、WS、会话验证可拆分 | 中转远程入口强制用户证明；本地 loopback 规则保持独立 |
+| R4 | 中转 Pocket ID 使用链路 | R1、R2、R3 | 列表/选择与后端证明适配可并行 | “我的后端”只显示获准设备；后端核验短时证明并建立会话 |
+| R5 | 中转用户名密码链路 | R0、R3 | 中转受限转发与前端密码入口可并行 | 无 Pocket ID、无需绑定即可按 ID 登录；限流和后端冷却生效 |
+| R6 | 前端目标与登录状态机 | R0L、R3、R4、R5 | 目标选择、认证状态、切换清理可并行 | 本机/Pocket ID/密码三入口，单目标连接，退出与恢复正确 |
+| R7 | 本地管理页完整入口 | R2、R5 | 状态展示与控制 API 可并行 | 中转配置、绑定、撤销、公开发现、密码开关和冷却状态可管理 |
+| R8 | 删除后端自身 OIDC | R4、R5、R6、R7 | 文档清理与代码删除可并行，但共享入口串行集成 | 旧配置、接口、前端入口和管理页入口全部移除 |
+| R9 | 综合验证与收口 | R8 | 自动测试可按模块并行；真实 UI 由用户验收 | 多账号、多后端、撤销、过期、离线、切换、子路径和安全负向全部核对 |
 
-**实现范围：**
+## 5. 轮次任务说明
 
-- 新建 `relay/` 服务入口和配置加载；
-- 定义 Backend ID、在线状态、连接能力、配置版本和断线状态；
-- 定义后端直连握手、配置下发和心跳语义；
-- 定义前端后端列表、手动 Backend ID 查询和连接发现响应；
-- 定义 HTTP 路径白名单：只允许目标后端的 `/api/*`；
-- 定义 WebSocket Upgrade 路径和目标后端绑定；
-- 定义一个浏览器会话绑定一个 Backend ID 的生命周期；
-- 添加请求大小、连接数、速率、超时、空闲连接和在线后端数量限制；
-- 规定日志字段只包含 request id、Backend ID、路径类别、状态码、耗时和失败原因类别，不记录凭据；
-- 为不存在、离线、冲突、协议版本不兼容和资源超限定义稳定错误。
+### R0 · 共享契约与现状基线
 
-**不做：**
+**范围：** 更新共享协议和计划依赖，不改变业务代码。
 
-- 不在 A 阶段实现 Pocket ID 登录；
-- 不让中转解析或保存后端用户名密码；
-- 不把 rathole 原始 TCP 流暴露为通用端口；
-- 不在没有 D4 方案时放行 loopback 管理员逻辑。
+| 子任务 | 功能点 | 依赖 | 交付物 |
+| --- | --- | --- | --- |
+| R0-A | relay v2 类型、版本和错误状态 | 无 | `packages/protocol/src/relay.ts`、`relay/src/errors.ts` |
+| R0-B | 用户身份、绑定、后端证明和会话状态机 | R0-A | `docs/shared/protocol/relay.md` 的唯一契约 |
+| R0-C | 密码路径与公开发现边界 | R0-A | 路由白名单、限流和冷却规则 |
+| R0-D | 本地 loopback 与中转远程入口边界 | R0-A | HTTP/WS 来源和代理头清理规则 |
+| R0-E | 前置登录加载验收矩阵 | R0-A | 入口加载顺序、懒加载和能力校验条件 |
+| R0-F | 现状差异和旧后端 OIDC 清理清单 | R0-A | 受影响入口、测试和文档清单 |
 
-**交付物：**
+- 固定三条使用路径及其认证边界。
+- 定义 `issuer + sub` 用户身份、Backend ID、设备公钥、绑定申请、授权记录、目标会话、撤销和过期语义。
+- 定义 Pocket ID 回调、登录/退出、我的后端、绑定确认、路由绑定、后端用户证明和错误码。
+- 定义密码登录可访问的最小路由集合、限流、`429`/`Retry-After` 和后端冷却读取/恢复语义。
+- 定义本地入口与中转远程入口的来源边界。
+- 清理现有计划中把“后端自身 OIDC”当作目标的描述。
 
-- `relay/` 控制服务源代码和配置校验；
-- `docs/shared/protocol/relay.md` 或现有共享协议中的 relay 专题；
-- 中转 HTTP/WS 路由与拒绝规则测试；
-- D1、D2 前置协议决策记录迁入权威文档。
+**验证：** 协议字段可被 relay、backend、manager、web 共同引用；链接和文档检查通过。
 
-**完成条件：**
+### R1 · 中转 Pocket ID 基础
 
-- 未知路径、未知 Backend ID、越权后端和任意代理请求均有可断言的拒绝结果；
-- 列表和发现响应不包含本地真实端口或敏感配置；
-- 控制服务能在没有 rathole 实例时用测试适配器运行；
-- 协议字段、错误和状态可以被 B、C、E 直接消费。
+**代码范围：** `relay/` 配置、OIDC 客户端、会话和 HTTP 路由。
 
-**定向验证入口：** relay 单元/集成测试、HTTP 路由白名单测试、WS Upgrade 拒绝测试、日志脱敏测试。
+- 只允许指定 issuer；使用授权码 + PKCE；回调地址支持公共路径前缀。
+- 中转保存 client secret；浏览器只持有 HttpOnly、SameSite 会话 Cookie。
+- 使用 `issuer + sub` 作为稳定用户键；不使用邮箱或昵称授权。
+- 提供登录、回调、`me`、退出和会话过期处理。
+- 记录禁止写入日志的字段并补脱敏测试。
 
-### B. rathole 连接与动态下发
+**验证：** 未配置 OIDC 时明确不可用；配置错误、state 过期、issuer 不符、退出和过期均有可断言结果。
 
-**目标：** 让本地管理器可以启动 rathole client，后端主动建立专用连接，并在中转在线状态中可见。
+### R0L · 前端前置登录壳与懒加载骨架
 
-**实现范围：**
+**范围：** `web/src/main.ts`、入口路由/启动模块、登录页和动态导入边界；这一轮先建立加载顺序，不等待完整认证后端完成。
 
-- 固定 rathole 版本、下载来源、校验和、平台文件名和启动参数；
-- 定义 server/client 配置模板的生成与临时文件权限；
-- 定义“直接连接并下发配置”而非用户注册流程的握手方式；
-- 绑定 Backend ID、设备凭据、服务名和连接版本；
-- 处理首次连接、重复连接、断线、重连、配置版本变化和撤销；
-- 确保 rathole 只映射 CheryNyxus HTTP/WS，不暴露 39980 或任意本地端口；
-- 输出可供本地管理器读取的在线状态、最后心跳和错误类别；
-- 为 rathole 不存在、版本错误、token 错误、连接超时和服务映射错误提供可读状态。
+- 浏览器首个同步入口只加载最小登录壳、必要样式、登录状态和目标选择所需代码。
+- 未完成认证和连接确认前，不导入工作台、桌宠、设置、会话、工具渲染、Mermaid、文档内容或其他业务资源；这些模块必须通过动态导入进入。
+- 登录页只提供本机目标、Pocket ID 登录、后端用户名密码、目标后端选择所需的输入框和下拉选择，不显示任何业务功能、会话数据或工作台组件。
+- 首次打开、刷新、退出和切换目标都先回到登录壳；旧业务模块不能因为缓存的 token、迟到响应或断线重连提前显示。
+- 认证成功后按顺序执行：读取当前目标 `/api/auth/me` 或等价会话、读取并校验能力说明、确认 WebSocket 连接，再动态加载允许的业务入口。
+- 能力说明缺失、版本不兼容、必需能力缺失或目标变化时停留在登录壳，不加载完整业务功能。
+- `prefers-reduced-motion` 等登录页自身体验可保留，但不能引入业务资源依赖。
 
-**交付物：**
+**验收条件：**
 
-- rathole 进程适配器；
-- server/client 配置生成器和校验器；
-- 测试用假 rathole 进程或可替换 transport；
-- `docs/relay/README.md`、部署文档中的版本和权限说明；
-- 断线/重连/撤销测试。
+1. 未认证时页面只出现功能性登录页；业务 DOM、业务脚本和业务请求均未加载。
+2. 登录页只发起目标发现、认证、能力说明和建立连接所需请求，不读取会话列表、设置、工具或文档数据。
+3. 认证成功且能力说明有效后，才开始动态导入完整前端；导入失败可回到登录壳并显示可重试状态。
+4. 直接输入业务 URL、刷新、旧 token 恢复失败或 WebSocket 认证失败都不能绕过登录壳。
 
-**完成条件：**
+**验证：** 使用模块加载测试、请求顺序测试和构建产物静态检查；真实浏览器视觉和网络面板由用户在 R9 人工验收。
 
-- 后端下线或网络断开后，中转状态在限定时间内变为离线；
-- 重连不会产生重复 Backend ID、重复路由或失效旧配置继续可用；
-- 39980、后端管理接口和任意非白名单端口无法通过 rathole 访问；
-- 所有设备 token 和配置密钥不进入日志。
+### R2 · 设备绑定与授权关系
 
-**定向验证入口：** 配置生成测试、子进程退出测试、断线恢复测试、端口暴露负向测试。
+**代码范围：** `relay/` 授权存储与绑定接口、`manager/` 管理 API 和页面。
 
-### C. 后端动态端口与认证安全
+- 本地管理页发起短时一次性绑定申请。
+- 申请绑定设备公钥、Backend ID、过期时间和使用状态。
+- 中转确认页展示账号和设备，用户确认后才写授权关系。
+- 支持同一账号绑定多台后端、多账号绑定一台后端、撤销和状态查询。
+- 管理页显示申请中、已确认、已撤销和未完成状态。
 
-**目标：** 在不破坏本地直连行为的前提下，为隧道访问建立强制认证边界，并让前端只依赖发现结果连接动态端口。
+**验证：** 猜 Backend ID、仅登录 Pocket ID、重复使用申请或换设备公钥都不能取得授权。
 
-**实现范围：**
+### R3 · 后端远程身份边界
 
-- 扩展 `/api/config` 为权威连接发现响应，优先返回完整地址/路径，保留旧端口字段兼容；
-- 让 HTTP 和 WS 监听端口继续可配置，不把默认值写成协议要求；
-- 增加或隔离专用远程 HTTP/WS 入口，明确隧道请求不能获得本机 loopback 管理员豁免；
-- 保留普通本地 loopback 行为，确保既有本地访问不被改变；
-- 将密码认证和 OIDC 配置拆成可同时启用的能力；
-- 增加登录能力发现接口并定义其是否公开、返回哪些非敏感字段；
-- 复用现有密码 challenge、scrypt、access/refresh token 流程；
-- 添加密码失败计数、15 次分档、5 分钟起步、翻倍和 1 小时上限；
-- 冷却期间同时拒绝新 challenge 和旧 challenge 提交，并返回 `429`/`Retry-After`；
-- 成功密码登录清零失败状态；Pocket ID 失败不计入密码冷却；
-- 为 OIDC 回调、state、Cookie Path、trusted origin 和子路径传递准备配置入口；
-- 确保中转转发 Cookie、Set-Cookie、Host、Origin 和 forwarded proto 时不落日志。
+**代码范围：** `src/service/auth/`、`src/service/http/`、`src/service/websocket/`、服务装配。
 
-**兼容要求：**
+- 新增只供中转进入的远程认证边界，禁止继承本地 loopback 豁免。
+- 核验中转签发的短时、定向、一次性或可撤销用户证明。
+- 将目标 Backend ID、用户身份、签发方、过期时间和会话绑定在后端使用会话中。
+- HTTP 与 WS 后续请求都核验该会话；断开、撤销、过期和设备变化立即失效。
+- 保留本地直连免登录和后端密码登录。
 
-- 现有本地用户名密码登录仍可工作；
-- 仅启用 OIDC、仅启用密码、两者同时启用三种配置均可启动；
-- 旧配置字段在迁移期间继续读取，并明确冲突优先级；
-- 本地直连 WebSocket 不因新增远程入口而改变认证结果。
+**验证：** 伪造 `X-Forwarded-*`、从中转上游伪造 loopback、跨 Backend ID 复用证明均被拒绝。
 
-**交付物：**
+### R4 · 中转 Pocket ID 使用链路
 
-- `src/service/auth/index.ts` 及相关配置/会话改造；
-- `src/service/http/index.ts`、`src/service/websocket/`、`src/service/index.ts` 的远程入口和发现改造；
-- 认证能力发现、密码冷却和 loopback 隔离测试；
-- `docs/backend/service/auth.md`、HTTP/WS 文档同步。
+**代码范围：** `relay/` 列表/代理授权、后端用户证明适配、共享协议。
 
-**完成条件：**
+- `/api/backends` 不再返回全部在线设备给匿名用户。
+- 登录中转后只返回当前账号有授权的“我的后端”。
+- 选择后再次核验账号—设备授权，再建立单目标路由。
+- 中转向后端提供短时、只针对该设备的用户证明。
+- 后端核验成功后建立自己的 HTTP/WS 使用会话。
+- 退出中转账号、断开设备、撤销授权和会话过期分别处理。
 
-- 远程隧道流量不能通过来源地址伪造触发管理员权限；
-- 第 15 次失败进入 5 分钟冷却，后续档位翻倍且不超过 1 小时；
-- 冷却期间重新获取 challenge 无法绕过；
-- OIDC 和密码登录可同时开启且互不计数；
-- 端口变化后发现响应能被前端和中转适配器消费。
+**验证：** 未授权账号看不到设备且不能直接代理；同一账号多设备授权互不串用；设备离线和授权撤销立即阻断。
 
-**定向验证入口：** `src/service/auth` 相关测试、HTTP/WS auth 测试、配置兼容测试、动态端口启动测试、负向 loopback 测试。
+### R5 · 中转用户名密码链路
 
-### D. 本地管理器与运行入口
+**代码范围：** `relay/` 受限转发、`src/service/auth/` 密码策略、`web/` 密码入口。
 
-**目标：** 提供不依赖 Electron 的跨平台本地生命周期管理和管理页面；后端停止时 39980 仍然可用。
+- 不要求 Pocket ID 或预先绑定。
+- 支持最近连接、所有者公开发现和手动 Backend ID。
+- 登录前仅允许发现、challenge、login、refresh 等必要请求。
+- 登录成功后前端只使用目标后端签发的凭据。
+- 中转不保存密码、token、Cookie 或请求体日志。
+- 中转按来源限制列表、按 ID 查询、challenge 和 login；后端继续执行账号级冷却。
+- 管理页可读取冷却状态，并提供受保护的恢复操作。
 
-**实现范围：**
+**验证：** 未公开设备仍可按 ID 尝试密码；没有后端登录凭据不能访问业务；重取 challenge 不能绕过冷却；中转限流不能被伪造来源绕过。
 
-- 建立独立管理器进程，默认监听 `127.0.0.1:39980`，`CHERY_MANAGER_HOST` 可开放内网访问（见 [backend-runtime.md](../../guides/backend-runtime.md)）；
-- 定义管理器到后端、rathole client 的进程控制和状态读取协议；
-- 支持启动、停止、重启、退出码、崩溃、端口占用和启动超时；
-- 提供 `/api/connection`、运行状态、隧道状态、Backend ID、实际端口和 Agent 统计；
-- 提供本地页面的启停、重启、复制信息和错误展示；
-- 生成/读取受保护凭据文件，Linux 使用 `0600`，Windows 使用当前用户 ACL；
-- 定义用户名密码生成、重复查看、主动修改、重新生成和凭据文件不一致提示；
-- 提供 CLI：`info`、`service install`、`status`、`restart`、`uninstall` 等；
-- Linux 提供 user/system systemd 安装；
-- Windows 提供无控制台窗口托盘启动器，点击后使用默认浏览器打开 39980；
-- 管理器不把凭据通过中转发送，不把凭据写入普通日志。
+### R6 · 前端目标与登录状态机
 
-**交付物：**
+**代码范围：** `web/src/features/auth/`、`web/src/stores/auth.ts`、`web/src/services/`、连接状态；业务模块加载由 R0F 的入口壳控制。
 
-- 本地管理器源代码和管理页面；
-- CLI 入口及帮助文本；
-- Linux systemd unit、安装/卸载脚本；
-- Windows 托盘启动器和状态菜单；
-- 本地凭据文件格式、权限处理和迁移说明；
-- `docs/guides/backend-runtime.md`。
+- 首屏提供本机直连、Pocket ID、后端用户名密码三个清晰入口。
+- 登录页仍是所有业务功能之前的唯一可见页面；不能用“先加载完整 App 再弹登录窗”实现。
+- 先选择目标，再发现登录方式和恢复已有会话。
+- Pocket ID 使用中转 Cookie；密码使用目标后端 token；不能把一种凭据发给另一台后端。
+- 一次只保持一个 Backend ID；切换时停止旧 WS、清理请求、缓存和目标会话。
+- 认证成功但 WS 未连接时不能显示已登录完成。
+- 退出中转账号、退出后端会话、本机断开分别展示。
 
-**完成条件：**
+**验证：** 本机免登录、Pocket ID、多后端切换、迟到响应、旧 token、断线重连和过期恢复；同时确认未认证时无业务模块导入和业务请求。
 
-- 后端停止后 39980 仍能打开并执行重新启动；
-- 管理器能区分后端、rathole 和自身状态；
-- 管理器重启不会误删 Backend ID 或凭据；
-- 非本机连接默认无法访问 39980；开放内网访问时页面与全部 `/api/*` 都须携带启动日志 URL 上的管理密钥；
-- Windows 不出现控制台窗口；Linux systemd 能启动、停止、重启和自动恢复。
+### R7 · 本地管理页完整入口
 
-**定向验证入口：** 管理器 API 测试、凭据权限测试、CLI 命令测试、进程退出/重启测试、systemd unit 静态检查。Windows 托盘和真实 systemd 操作只进入 H 的人工清单。
+**代码范围：** `manager/src/page.ts`、`manager/src/server.ts`、凭据和状态存储。
 
-### E. 前端连接发现与双登录
+- 删除每台后端 OIDC 参数配置区。
+- 增加中转地址、连接状态、Backend ID、绑定申请、授权列表和撤销入口。
+- 增加公开发现和允许远程密码登录两个独立开关。
+- 展示后端密码冷却状态和受保护的恢复操作。
+- 保留密码凭据查看/轮换、后端和 rathole 启停、状态和统计。
+- 管理页继续只由管理密钥保护，不经中转公开。
 
-**目标：** 把前端从“按平台猜后端”改为“按连接目标和发现结果连接”，并在同一登录界面提供 Pocket ID 与用户名密码。
+**验证：** 后端停止时管理页仍可打开；每个控制操作均需要管理密钥；敏感字段不回传或写日志。
 
-**实现范围：**
+### R8 · 删除后端自身 OIDC
 
-- 在 `web/src/services/platform.ts` 建立连接目标、HTTP/WS 地址、路径前缀和发现响应的统一模型；
-- 在 `web/src/services/ws.ts` 处理动态 WS URL、刷新发现、端口变化和断线重连；
-- 把 Electron、浏览器、直连和中转从后端身份中解耦；
-- 支持本地管理器发现入口、中转发现入口和用户手动 HTTP/WS 地址；
-- 支持在线 Backend ID 列表、手动 Backend ID 查询、离线/不存在/无权限提示；
-- 一个浏览器会话锁定一个后端，切换后清理旧后端的 Cookie、token、WS 和缓存；
-- 增加登录能力发现；根据能力显示 Pocket ID 和用户名密码入口；
-- Pocket ID 使用浏览器跳转回调，密码继续使用现有 challenge/login/refresh 逻辑；
-- Cookie 模式使用 `credentials: include`，token 模式保持现有兼容路径；
-- 处理中转下的 `/api/auth/login`、callback、me、logout 和 WS Cookie；
-- 所有 URL 由公共路径前缀生成，不写死根路径 `/api` 或 `/ws`。
+**代码范围：** `src/service/auth/`、配置、manager、web、文档和测试。
 
-**交付物：**
+- 删除后端 OIDC client 配置、callback、provider 账号映射和旧 Cookie 流程。
+- 删除 `/api/auth/callback` 等后端自身 OIDC 入口。
+- 删除管理页 OIDC 配置读写和旧文案。
+- 删除前端把后端 OIDC 当作登录方式的分支。
+- 配置迁移明确删除旧字段；不保留兼容入口。
+- 更新后端、前端、共享协议和部署文档的现行事实。
 
-- `web/src/services/platform.ts`、`ws.ts`、`authContext.ts`、`stores/auth.ts` 的连接/认证改造；
-- `ServerLoginDialog.vue` 的双登录和 Backend ID 选择界面；
-- 连接目标和发现响应的前端模型测试；
-- `docs/frontend/relay-mode.md`、`docs/frontend/env.md`、`docs/frontend/auth-login.md`。
+**验证：** 后端只保留本地 loopback、用户名密码和中转用户证明三类后端入口；旧 OIDC 配置不会重新启用。
 
-**完成条件：**
+### R9 · 综合验证与收口
 
-- 前端不依赖固定 8182/8183；
-- 中转模式不把真实后端端口暴露到浏览器；
-- HTTP/WS 断线后重新发现并连接新端口；
-- 两种登录方式可同时显示、分别完成并正确退出；
-- 切换 Backend ID 后不会把旧后端会话发送给新后端。
+**范围：** 自动测试、隔离 fixture、文档检查和用户人工验收。
 
-**定向验证入口：** platform/ws/auth store 单元测试、登录能力显示测试、发现失败和重连测试、Cookie/WS 请求选项测试。
+- 多后端、多 Pocket ID 账号、单账号多设备和多账号单设备。
+- 绑定申请过期、重复使用、撤销、设备密钥变化和后端离线。
+- 本机直连与中转远程入口的 loopback 隔离。
+- 密码冷却、限流、公开发现开关和按 ID 登录。
+- 前端切换、退出、重连、旧响应和旧凭据隔离。
+- 子路径部署下静态资源、OIDC 回调、Cookie、HTTP 和 WS。
+- 用户负责真实浏览器视觉和交互验收；未获明确允许不截图、不读图。
 
-### F. Electron 前端化与子路径适配
+**验证入口：** 相关 `relay/test/`、`test/service/`、`test/manager/`、`web/test/`，以及项目既有 `pnpm test:*`、类型检查和文档检查命令。
 
-**目标：** 移除 Electron 对后端进程和固定端口的依赖，使 Electron 成为与浏览器等价的前端容器。
+## 6. 并行执行规则
 
-**实现范围：**
+- R0 完成前不改认证代码。
+- R0L 必须先建立入口壳和动态加载边界；后续前端功能不得把业务模块重新放回首屏同步依赖。
+- R1、R2 的中转内部任务可以并行，但共享协议字段先由 R0 固定。
+- R3 与 R2 的部分存储实现可并行；后端证明格式必须等 R0/R2 的字段确认。
+- R4、R5 可并行，但不能同时修改同一 relay 路由文件；由总负责人统一合并接口。
+- R6 等 R0L、R3、R4、R5 的稳定接口后执行，避免前端绑定临时字段或绕过前置加载。
+- R7 可与 R6 的纯 UI 设计并行，但控制 API 和状态字段以 R2/R5 为准。
+- R8 必须等新 OIDC 和密码路径已完成定向验证后执行。
+- R9 串行收口，不在自动测试尚未完成时开始人工验收。
 
-- 修改 `web/electron/main.ts`，删除后端 spawn、等待、guardian、重启和后端环境注入；
-- 修改 `web/electron/preload.ts`，删除后端配置、端口和刷新入口，只保留纯桌面能力；
-- 修改 `web/electron-builder.yml` 和打包脚本，移除后端 bundle、Node runtime、`.chery` 模板等资源；
-- 保留窗口、菜单、目录选择等确有桌面职责的桥接；
-- 让 Electron 首次启动显示连接目标选择或默认本地管理器发现入口，而非假设内置后端；
-- 处理 Electron `file://`、开发服务器和生产子路径的统一 URL 生成；
-- 使静态资源 base、API、WS Upgrade、OIDC redirect、Cookie Path 与公共前缀一致；
-- 同步 nginx 对前缀的保留/去除策略和 Vite/Electron 构建配置；
-- 保留浏览器根路径和子路径两类直连回归覆盖。
+每个子 Agent 必须回报：修改文件、稳定符号、依赖的协议字段、定向验证命令、未完成项和与其他任务的冲突风险。总负责人负责跨模块合并、需求逐项核对和最终验证。
 
-**交付物：**
+## 7. 当前状态与恢复入口
 
-- Electron 纯前端主进程/preload；
-- 打包配置和资源清单更新；
-- 子路径 URL 解析和构建配置；
-- `docs/frontend/electron.md`、`docs/frontend/deployment.md`、`docs/frontend/env.md` 更新。
+当前状态：**R0 进行中**。已完成目标需求与前置登录加载边界整理；已开始升级共享 relay 类型、错误映射和协议说明。尚未实现中转 OIDC、绑定、后端用户证明或前端懒加载代码。
 
-**完成条件：**
-
-- Electron 安装包不包含后端运行所需资源；
-- Electron 启动不会产生后端子进程；
-- Electron 可连接本地、远程和中转后端；
-- `/nyxus/` 等前缀下静态资源、API、WS、Cookie 和 OIDC 回调均使用同一前缀；
-- 根路径旧部署方式仍可工作。
-
-**定向验证入口：** TypeScript 类型检查、Electron 打包资源清单检查、URL/base 配置单元测试、构建产物静态扫描。Electron 实机操作只进入 H。
-
-### G. nginx、发布和操作文档
-
-**目标：** 把 relay、rathole、后端、管理器、Pocket ID 和前端的实际部署步骤整理成可重复执行的交付方式。
-
-**实现范围：**
-
-- nginx HTTPS、静态文件、子路径、HTTP API 和 WebSocket Upgrade 配置模板；
-- 明确 `Host`、`Origin`、`Cookie`、`Set-Cookie`、`X-Forwarded-Proto` 和 `X-Forwarded-Host` 的转发规则；
-- relay 服务安装、环境变量、日志、权限、限流和健康检查；
-- rathole 二进制版本、校验和、server/client 配置和升级步骤；
-- 外部 Pocket ID OIDC Client、回调 URL、issuer discovery、管理员映射和 trusted origin 配置；
-- Windows 后端包、托盘启动器和凭据查看步骤；
-- Linux 后端包、systemd user/system 服务和 CLI 步骤；
-- 动态端口、39980 固定管理端口和浏览器连接地址的区别；
-- 故障排查：后端离线、rathole 断线、OIDC 回调错误、Cookie 丢失、WS 失败、路径前缀错误和端口冲突；
-- 一键部署前的安全检查和最小权限说明。
-
-**交付物：**
-
-- nginx 配置模板；
-- relay/rathole/后端安装脚本或命令；
-- `docs/guides/relay-deployment.md`；
-- `.chery.template/docs/config.md` 的端口、双认证和本地管理说明；
-- 发布包检查清单和回滚步骤。
-
-**完成条件：**
-
-- 新部署者可按文档完成一台 relay、一台本地后端和一个子路径前端；
-- 部署文档不要求访问 node_modules 或逆向第三方实现；
-- 所有秘密均通过环境变量、受保护文件或平台密钥配置，不写入模板日志；
-- 文档中的路径、命令和配置键都能在仓库或发布脚本中定位。
-
-**定向验证入口：** 配置模板语法检查、部署脚本 dry-run、文档链接和路径检查、nginx 配置测试。真实部署和浏览器操作只进入 H。
-
-### H. 综合验证与用户验收
-
-**目标：** 在 A-G 完成后执行自动收口、必要人工验收和用户审批。H 之前不创建最终综合验证小任务；进入 H 时必须按最新台账重建清单。
-
-**创建时必须包含：**
-
-1. 顶部“反馈回填槽”，登记实施中产生的所有反馈和待补项；
-2. 自动验证清单，每行六列：编号、目标、命令、退出码、关键断言行、日期与产物路径；
-3. 手动验证清单，每项链接 `verify/manual-final.md` 的操作卡，单项不超过 1 分钟；
-4. 抽样信任记录，记录用户随机抽查自动命令退出码和断言行的结论。
-
-**自动验证范围：**
-
-- relay HTTP/WS 路径白名单和任意代理拒绝；
-- Backend ID 列表、手动查询、在线/离线状态和会话绑定；
-- rathole 配置、连接、断线、重连、撤销和非白名单端口阻断；
-- 动态 HTTP/WS 端口发现及端口变更后的重连；
-- loopback 管理员豁免隔离；
-- Pocket ID、用户名密码同时启用、退出和会话隔离；
-- 第 15 次失败冷却、递增档位、1 小时上限、challenge 绕过阻断和成功清零；
-- 39980 管理器 API、启停、状态、统计和本机绑定；
-- 凭据文件权限、日志脱敏和敏感响应字段；
-- Electron 打包资源不含后端且主进程不 spawn 后端；
-- 根路径与 `/nyxus/` 子路径的资源、API、WS、Cookie 和 OIDC URL；
-- nginx 配置、Upgrade、转发头和 Cookie 行为；
-- 现有普通本地 loopback 连接和旧用户名密码配置回归。
-
-**手动验证范围：**
-
-- Windows 托盘无控制台窗口、菜单和默认浏览器入口；
-- Linux systemd 开机启动、停止、自动恢复和 CLI 输出；
-- 39980 管理页面的启停、凭据复制、连接信息和 Agent 统计体验；
-- 浏览器和 Electron 在本地、远程、中转之间切换；
-- Pocket ID Passkey 跳转、回调、退出和重新登录；
-- 后端离线、网络恢复、动态端口变更和子路径页面的真实交互。
-
-失败时总任务退回“执行中”，登记修正小任务，修正完成后删除修正文档并从阶段一重新执行 H。
-
-## 8. 执行顺序与并行边界
-
-```text
-A 中转协议与控制层
-├─ B rathole 连接与动态下发
-└─ C 后端动态端口与认证安全
-    └─ D 本地管理器与运行入口
-        ├─ E 前端连接发现与双登录
-        └─ F Electron 前端化与子路径适配
-            └─ G nginx、发布和操作文档
-                └─ H 综合验证与用户验收
-```
-
-- A 必须先形成可消费的中转协议草案；B 和 C 可以分别准备适配器，但不能绕过 D1-D5；
-- C 是安全关键路径，远程入口隔离方案未落定前不得实现“隧道等同本地 loopback”；
-- D 依赖 C 的动态端口和认证边界，但管理器页面骨架可以提前建立；
-- E 依赖 A 的列表/发现契约和 C 的登录能力契约；
-- F 依赖 E 的连接抽象，不能继续从 `isElectron` 推断后端地址；
-- G 只能在 B、D、E、F 的实际配置字段稳定后编写最终模板；
-- H 必须最后执行，所有真实 UI、托盘、systemd 和跨设备操作集中在 H。
-
-## 9. 计划内文件和模块影响面
-
-这些是实施时的定位入口，不是要求一次性全部修改的文件清单。
-
-### 后端与共享协议
-
-- `src/service/auth/index.ts`：密码/OIDC 并存、Cookie、管理员判断和冷却；
-- `src/service/index.ts`：HTTP/WS 服务装配和监听信息；
-- `src/service/http/index.ts`：动态发现、远程入口、路径前缀和静态服务；
-- `src/service/websocket/`：Upgrade、来源、认证和传输；
-- `src/index.ts`：独立后端启动、guardian、信号和管理器托管边界；
-- `src/utils/config.ts` 及认证/端口相关配置：新旧配置兼容；
-- `relay/`：中转控制服务和 rathole 适配；
-- `docs/shared/protocol/`：稳定的 relay、连接发现和错误契约。
-
-### 前端与 Electron
-
-- `web/src/services/platform.ts`：连接目标和发现结果；
-- `web/src/services/ws.ts`、`web/src/services/http.ts`：动态 HTTP/WS 地址；
-- `web/src/stores/auth.ts`、`web/src/services/authContext.ts`：Cookie/OIDC/密码状态；
-- `web/src/features/auth/ServerLoginDialog.vue`：Backend ID、列表和双登录；
-- `web/electron/main.ts`：移除后端进程生命周期；
-- `web/electron/preload.ts`：移除后端配置注入；
-- `web/electron-builder.yml`、相关打包脚本：移除后端资源；
-- `web/vite.config.ts` 及静态资源 base 配置：子路径部署。
-
-### 管理器、部署和文档
-
-- 新建管理器/CLI/托盘/systemd 的源码或脚本目录，实际路径在 D 阶段确定后回写；
-- nginx、rathole、relay 部署模板和发布脚本；
-- `docs/backend/service/auth.md`、`docs/frontend/relay-mode.md`、`docs/guides/backend-runtime.md`、`docs/guides/relay-deployment.md`；
-- `.chery.template/docs/config.md`、前后端相关 README 和质量验证入口。
-
-## 10. 进度与恢复规则
-
-### 当前恢复检查点
-
-- 已完成：需求文档和本计划总入口；
-- 已确认：后端独立运行、Electron 只做前端、动态端口发现、前端列表/手动 Backend ID、Pocket ID 与密码并存、本地管理器 39980、子路径部署、开放中转但只服务本协议；
-- 当前小任务：H 阶段一自动收口；E-G 的代码、打包和部署资产已完成，真实托盘/systemd 操作仍归 H；
-- 当前阻塞决策：D1-D8 已确认；真实公网 relay/rathole、Pocket ID、nginx 和跨设备运行仍归 H；
-- 工作区约束：存在其他任务的未提交修改，不得 reset、覆盖、批量格式化或混入本任务；
-- 下一步：执行 `H-verification.md` 的自动清单并回填退出码、断言行和产物；用户再按 `verify/manual-final.md` 执行真实环境卡片。真实公网 relay/rathole 联调留待 H。
-
-### A 阶段执行记录
-
-- `packages/protocol/src/relay.ts`、`relay/src/`、`relay/test/relay.test.ts`：设备挑战签名、首次信任绑定、租约、发现、单后端会话、路径白名单、容量/速率限制、目标适配器和脱敏审计日志。
-- `docs/shared/protocol/relay.md`、`docs/relay/README.md`、`docs/shared/architecture/relay-gateway-requirements.md`：稳定契约、实现入口和已确认安全边界。
-- `pnpm relay:type-check`：退出码 0；A 阶段 relay 类型无错误。
-- `pnpm relay:test`：退出码 0；1 个测试文件、3 个断言用例通过，覆盖握手/发现/会话绑定、ID 冲突和限流。
-- `pnpm relay:build`：退出码 0；生成 `relay/dist/index.js`。
-- `pnpm type-check`：退出码 0；现有后端类型门控无新增错误。
-- `git diff --check`：退出码 0；无空白错误。
-
-### 连续实施进度（2026-09-21）
-
-- B：已加入后端控制客户端、挑战签名、租约心跳/退避重连、动态双服务 TOML、私有配置写入、rathole 进程替换和非敏感状态摘要；`pnpm relay:type-check`、`pnpm relay:test`、`pnpm relay:build`、`pnpm manager:type-check`、`pnpm manager:build`、`pnpm type-check` 和 `git diff --check` 均退出码 0；真实 rathole server/client 联调仍待 H。
-- C：已完成双认证能力发现、账号级密码失败冷却、入口级 loopback 隔离、仅 loopback 的动态远程 HTTP/WS 监听、发现响应分层、公共前缀 Cookie 和监听状态摘要；真实公网 relay/rathole 联调仍待 H。
-- D：已完成 manager CLI（`info`、`status`、`restart`、`service install/uninstall`）、Linux user systemd 安装脚本、Windows 隐藏托盘启动脚本、凭据/统计/管理页面；`pnpm manager:type-check`、`pnpm manager:build`、`pnpm type-check`、`pnpm web:type-check`、`pnpm web:build`、`pnpm exec vitest run test/manager/server.test.ts`、PowerShell 脚本解析和 `git diff --check` 均通过；真实托盘/systemd 操作仍待 H。
-- E：已完成本地管理器发现缓存刷新、动态 HTTP/WS 地址消费、手动远程/relay 公共路径兼容和现有双登录状态适配；按用户约束不新增 Backend ID 选择器，真实 relay 绑定与双设备流程进入 H。
-- F：已删除 Electron 后端 spawn、preload 后端配置注入、后端打包资源和后端运行时准备脚本；纯前端资源扫描与生产子路径真实交互进入 H。
-- G：已完成 nginx 静态前端/API/WS 模板、Windows/Linux 服务入口和运行/发布文档对齐；真实 nginx、Pocket ID、rathole 发布环境尚未运行。
-- H：已建立并执行自动清单；H-A01、H-A04-H-A13（除 H-A02/H-A03）退出码 0，H-A02/H-A03 被外部未提交 `PresetsTab.vue` 类型错误阻塞；人工卡和抽样信任尚未完成。
-- 自动检查：relay 3 个测试文件共 6 个测试通过，远程监听测试 4 个通过，管理器 API 测试 1 个通过；Vite 单独构建退出码 0；远程测试输出含第三方 sourcemap 缺失提示，不影响对应退出码。
-
-### C 阶段执行记录（2026-09-21）
-
-- `src/service/index.ts`、`src/service/http/index.ts`、`src/service/websocket/index.ts`：增加仅绑定 `127.0.0.1` 的远程 HTTP/WS 监听、动态端口 `ready` 结果和本地/远程发现分层。
-- `src/service/auth/index.ts`：增加入口级 loopback 策略、共享认证状态和远程 Cookie 公共前缀处理。
-- `src/worker.ts`、`manager/src/server.ts`、`.chery.template/config.yaml`：增加远程监听配置和不含秘密的实际端口状态摘要。
-- `docs/shared/protocol/websocket.md`、`docs/backend/service/README.md`、`docs/backend/service/http.md`、`docs/backend/service/websocket.md`：同步 C 的发现、监听和认证边界。
-- `test/service/remoteListener.test.ts`：HTTP/WS 远程认证、动态发现字段、本地 loopback 兼容和账号冷却共 4 个用例通过。
-- `pnpm type-check`：退出码 0。
-- `pnpm manager:type-check`：退出码 0。
-- `pnpm vitest run test/service/remoteListener.test.ts`：退出码 0；1 个测试文件、4 个用例通过。
-- `pnpm build`：退出码 0；既有 Windows `EBUSY` 原生文件锁提示不影响构建完成。
-- `pnpm manager:build`：退出码 0；生成 `manager/dist/index.js`。
-- `pnpm plan:lint`：退出码 0；计划入口和链接检查通过。
-- `pnpm exec prettier --check ...`：退出码 0；本轮涉及源文件格式通过。
-- `git diff --check`：退出码 0；无空白错误。
-
-### 每个小任务开始前
-
-1. 从 `docs/plan/README.md` 进入本 README；
-2. 复核本台账中的状态、复杂度、依赖和恢复检查点；
-3. 向用户说明该小任务复杂度和需要的能力特征，并等待具体 Agent/模型确认；
-4. 创建或更新该小任务的独立 `.md`，只记录当前未完成工作；
-5. 先读取该模块权威文档和验证基线，再修改代码或持久文档。
-
-### 小任务完成时
-
-按计划规范依次执行：
-
-1. 记录变更对象、自动命令、退出码、关键断言行和产物路径；
-2. 将台账状态改为“已完成”，移除该小任务链接；
-3. 把长期契约、操作方式和测试迁入权威文档/正式测试；
-4. 删除已完成的小任务文档；
-5. 更新本恢复检查点和 H 的待验证范围。
-
-## 11. 最终计划收口
-
-本计划采用项目配置规定的显式用户审批流程：
-
-1. A-G 全部完成并删除独立小任务文档后，创建 H 并将总任务状态改为“待综合验证”；
-2. H 阶段一自动清单全部执行，反馈回填槽清零；
-3. H 阶段二由用户按 `verify/manual-final.md` 完成人工操作卡；
-4. 登记用户对自动清单的抽样信任结论；
-5. 通过后将总任务改为“待用户审批”，向用户报告结果；
-6. 用户明确批准后，把长期验收证据迁入 `docs/quality/verification/relay-gateway/`；
-7. 删除 H、总任务目录和 `docs/plan/README.md` 中的任务行，不保留已完成计划残件。
-
-计划完成前，`docs/plan/relay-gateway/` 是跨会话恢复入口；计划完成后，稳定契约、部署操作和验收证据必须已经迁入各自权威位置。
-
-## 12. 用户审批
-
-- 需求方向：用户已确认；
-- 本实现计划：用户已确认，A 阶段进行中；
-- 最终交付：必须经过自动验证、必要人工验收和用户明确批准。
+恢复任务时先读取本文件，再读取[总体需求](../../shared/architecture/relay-gateway-requirements.md)、[中转协议](../../shared/protocol/relay.md)、[后端认证入口](../../../src/service/auth/index.ts)和对应轮次的任务说明。不得把旧计划中“已完成”的批次状态当作本计划的完成依据；以本文件的轮次验收条件和代码测试为准。

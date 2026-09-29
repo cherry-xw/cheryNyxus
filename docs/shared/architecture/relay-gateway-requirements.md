@@ -16,6 +16,8 @@
 - 中转只转发 CheryNyxus 的 HTTP `/api/*` 和 WebSocket 控制面。
 - 公共中转统一配置一个指定 Pocket ID 的 OIDC 客户端；每台后端不再各自配置 OIDC 客户端。
 - 前端支持中转 Pocket ID 登录和指定后端的用户名密码登录，两者是独立入口。
+- 登录页是浏览器前端的前置入口：未完成目标选择、认证、能力说明校验和连接确认前，只加载登录壳及其必要资源，不加载工作台、会话、设置、工具、桌宠、文档或其他业务资源。
+- 认证成功后，前端必须先读取并校验当前后端的分级能力，再按允许的能力动态加载业务模块；能力缺失、不兼容或连接失败时停留在登录壳。
 - 公共列表只展示后端所有者主动允许公开发现的在线后端；Pocket ID 用户另有“我的后端”列表；未公开的后端仍允许凭 Backend ID 尝试密码登录。
 - 本机打开本地前端时，可经本地 loopback 入口免登录连接本机后端；中转专用入口不继承此豁免。
 - 一个前端会话一次只绑定一个后端。
@@ -120,6 +122,21 @@ GET http://127.0.0.1:39980/api/connection
 | 公共前端 + 后端密码 | 最近连接记录、主动公开的列表或输入 Backend ID | 目标后端核验密码与后续会话 | 不要求 Pocket ID 账号或事先绑定 |
 
 同一浏览器会话一次只操作一个选中的后端；换后端必须重建连接，不得复用另一台后端的凭据。本机免登录仅适用于本机页面直连本地入口；公共网站脚本即使连接用户电脑的 `localhost`，也不得凭连接来自 loopback 获得管理员权限。
+
+### 5.1.1 登录前置加载边界
+
+登录不是完整前端加载后的弹窗，而是浏览器启动时的唯一可见页面。入口必须满足以下顺序：
+
+```text
+最小登录壳
+  → 目标发现/选择
+  → 登录方式发现与认证
+  → 当前目标能力说明读取与校验
+  → WebSocket 连接确认
+  → 按能力动态加载业务前端
+```
+
+登录壳只包含本机目标、Pocket ID、后端用户名密码、目标后端选择所需的输入框和下拉选择。未认证时不得导入或请求工作台、会话、设置、工具、桌宠、文档和其他业务资源；不能通过先加载完整 `App` 再用 `v-if` 隐藏来满足此要求。刷新、退出、目标切换、旧凭据失效和能力不兼容都必须回到登录壳。业务模块只能由认证和能力校验成功后的动态导入触发。
 
 ### 5.2 中转部署方的一次性 OIDC 配置
 
@@ -299,7 +316,7 @@ https://example.com/nyxus/
 
 - [`relay/src/server.ts`](../../../relay/src/server.ts) 的 `handleHttp()` 当前公开列出全部在线后端，`requireBoundBackend()` 只检查浏览器路由会话；[`relay/src/config.ts`](../../../relay/src/config.ts) 尚无 OIDC 应用配置、账号—设备关系及按归属筛选。中转设备签名验证见 [`relay/src/identityStore.ts`](../../../relay/src/identityStore.ts)，不能把设备身份当作用户身份。验证入口：[`relay/test/relay.test.ts`](../../../relay/test/relay.test.ts)。
 - [`src/service/auth/index.ts`](../../../src/service/auth/index.ts) 的 `OAuth2Auth` 当前由后端自身处理 OIDC 和密码：配置用户名时优先采用密码模式；本地入口按真实来源地址放行，远程专用入口不豁免。应将中转 OIDC 账号传递与后端授权设计为独立、可核验的机制，保留密码路径及本机直连。验证入口：[`test/manager/server.test.ts`](../../../test/manager/server.test.ts) 和对应服务认证测试。
-- [`manager/src/page.ts`](../../../manager/src/page.ts)、[`manager/src/oidcConfig.ts`](../../../manager/src/oidcConfig.ts) 当前提供的是“每台后端配置 OIDC 客户端”的预配置入口，与本目标不符；后续实施须按“绑定账号、公开发现及密码策略”重新定位，并维护原有凭据管理能力。管理入口在 [`manager/src/server.ts`](../../../manager/src/server.ts)。
+- [`manager/src/page.ts`](../../../manager/src/page.ts) 当前提供中转连接、绑定、公开发现及密码策略入口；管理入口在 [`manager/src/server.ts`](../../../manager/src/server.ts)。每台后端不再配置 OIDC 客户端。
 - 前端现有密码登录入口在 [`web/src/features/auth/ServerLoginDialog.vue`](../../../web/src/features/auth/ServerLoginDialog.vue)、[`web/src/stores/auth.ts`](../../../web/src/stores/auth.ts)。需增加独立的 Pocket ID 路径和两种设备选择视图，并区分本机直连与远程经中转。前端登录说明见 [`docs/frontend/auth-login.md`](../../frontend/auth-login.md)。
 
 实施必须同时更新[中转协议](../protocol/relay.md)、后端认证与前端登录说明，以及对应的中转、管理器、服务认证和前端定向测试；在上述变更完成前，本文仅为待实现的共同需求，不应据此将现有公开列表或后端 OIDC 预配置宣称为已安全上线的目标流程。
