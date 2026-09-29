@@ -16,7 +16,7 @@ const props = defineProps<{
   rootChatId: string
   /** 1-based，指向 GenerationEntry.index */
   generationIndex: number
-  foldMode: 'none' | 'partial' | 'full' | 'participant'
+  foldMode: 'none' | 'partial' | 'round' | 'participant'
 }>()
 const emit = defineEmits<{ close: [] }>()
 

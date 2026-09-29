@@ -10,7 +10,7 @@ import {
 } from '../graph/executionGraph'
 import {
   projectFoldExecutionGraph,
-  projectFullFoldExecutionGraph,
+  projectRoundExecutionGraph,
   projectParticipantFoldExecutionGraph,
 } from '../graph/foldProjection'
 import { projectCoreFlowExecutionGraph } from '../graph/coreFlowProjection'
@@ -110,7 +110,7 @@ export function useTreeGraphProjection(
   )
   const foldProjection = computed(() => {
     if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
-    if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
+    if (props.foldMode === 'round') return projectRoundExecutionGraph(liveGraph.value)
     if (props.foldMode === 'participant')
       return projectParticipantFoldExecutionGraph(liveGraph.value)
     return projectFoldExecutionGraph(liveGraph.value)

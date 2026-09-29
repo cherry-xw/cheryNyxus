@@ -8,7 +8,7 @@ import {
 
 describe('Nyxus workbench preferences and entry regressions', () => {
   it('uses compact columns only for the fourth fold level', () => {
-    const modes: FoldMode[] = ['none', 'partial', 'participant', 'full']
+    const modes: FoldMode[] = ['none', 'partial', 'participant', 'round']
 
     expect(modes.map(layoutModeForFoldMode)).toEqual([
       'timeline',

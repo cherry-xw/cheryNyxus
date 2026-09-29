@@ -53,7 +53,7 @@ export function useTreeCamera({
     projectExecutionPresentation(
       layoutEngine.layout(graph.value, {
         mode: props.layoutMode,
-        branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
+        branchPacking: props.foldMode === 'round' ? 'inward' : 'balanced',
       }),
       props.presentationMode ?? 'horizontal-signal',
     ),

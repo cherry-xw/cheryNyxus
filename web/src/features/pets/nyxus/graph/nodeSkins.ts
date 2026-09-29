@@ -18,6 +18,7 @@ export const NODE_SKINS: Record<NodeSkinKey, NodeSkin> = {
   'child-agent': { key: 'child-agent', glyph: '◆', accent: '#ff4fcb', label: '协作节点' },
   'tool-batch': { key: 'tool-batch', glyph: '⬡', accent: '#ffb51f', label: '工具执行' },
   fold: { key: 'fold', glyph: '⋯', accent: '#62dfff', label: '过程组' },
+  round: { key: 'round', glyph: '⟳', accent: '#ffc53d', label: '整轮' },
   return: { key: 'return', glyph: '↩', accent: '#00f59b', label: '结果返回' },
   dispatch: { key: 'dispatch', glyph: '⇢', accent: '#d867ff', label: '任务委派' },
   spawn: { key: 'spawn', glyph: '⑂', accent: '#d867ff', label: '创建协作节点' },
@@ -40,6 +41,7 @@ export const NODE_ACCENT_LIGHT: Record<NodeSkinKey, string> = {
   'child-agent': '#c000d8',
   'tool-batch': '#b86b00',
   fold: '#007d9f',
+  round: '#9a5f00',
   return: '#008d59',
   dispatch: '#8a32df',
   spawn: '#8a32df',
@@ -70,6 +72,7 @@ export const NODE_HOVER_DETAIL_KINDS: Partial<Record<ExecutionNodeKind, true>> =
   spawn: true,
   pack: true,
   fold: true,
+  round: true,
   epoch: true,
   input: true,
   unknown: true,
@@ -85,6 +88,7 @@ export function canPinNodeDetail(node: ExecutionNode): boolean {
     !!node.sourceFact?.termination ||
     node.kind === 'tool-batch' ||
     node.kind === 'fold' ||
+    node.kind === 'round' ||
     node.kind === 'return' ||
     node.kind === 'dispatch'
   )

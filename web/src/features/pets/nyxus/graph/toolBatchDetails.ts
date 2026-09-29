@@ -52,7 +52,7 @@ export function isQuestionCall(call: GraphToolCall): boolean {
 }
 
 export function toolBatchDetail(node: ExecutionNode): ToolBatchDetail | undefined {
-  if (node.kind === 'fold' && node.fold) {
+  if ((node.kind === 'fold' || node.kind === 'round') && node.fold) {
     const children = node.fold.members
       .map((member) => member.displayNode)
       .sort(

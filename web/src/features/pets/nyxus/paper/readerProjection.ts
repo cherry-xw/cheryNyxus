@@ -7,13 +7,13 @@ import {
 } from '../graph/executionGraph'
 import {
   projectFoldExecutionGraph,
-  projectFullFoldExecutionGraph,
+  projectRoundExecutionGraph,
   projectParticipantFoldExecutionGraph,
 } from '../graph/foldProjection'
 import { skinForNode, skinKeyForNode } from '../graph/nodeSkins'
 import { buildPaperStack, type PaperStackEntry } from './paperStackModel'
 
-export type NyxusReaderFoldMode = 'none' | 'partial' | 'full' | 'participant'
+export type NyxusReaderFoldMode = 'none' | 'partial' | 'round' | 'participant'
 
 export interface NyxusContentSelection {
   nodeId: string
@@ -39,7 +39,7 @@ export function projectNyxusFoldedGraph(
   if (!timeline) return emptyGraph(fallbackRootChatId)
   const graph = projectPersistentExecutionGraph(timeline)
   if (foldMode === 'none') return graph
-  if (foldMode === 'full') return projectFullFoldExecutionGraph(graph).graph
+  if (foldMode === 'round') return projectRoundExecutionGraph(graph).graph
   if (foldMode === 'participant') return projectParticipantFoldExecutionGraph(graph).graph
   return projectFoldExecutionGraph(graph).graph
 }
@@ -79,7 +79,7 @@ export function nyxusReaderNodeTitle(
     if (calls.length === 1) return toolName(calls[0]!.name, tools)
     return calls.length ? `工具执行 · ${calls.length} 项` : '工具执行'
   }
-  if (node.kind === 'fold') return skinForNode(node).label
+  if (node.kind === 'fold' || node.kind === 'round') return skinForNode(node).label
   if (node.kind === 'dispatch') return '任务委派'
   if (node.kind === 'spawn') return '创建协作节点'
   if (node.actor.kind === 'user') return node.actor.displayName?.trim() || '我'

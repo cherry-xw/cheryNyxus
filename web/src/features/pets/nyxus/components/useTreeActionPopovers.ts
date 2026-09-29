@@ -189,7 +189,7 @@ export function useTreeActionPopovers({
   ): { anchor: ExecutionNode; display: ExecutionNode } | undefined {
     const anchor = layout().nodes.find((node) => node.id === model.anchorNodeId)
     if (!anchor) return undefined
-    if (anchor.kind !== 'fold') return { anchor, display: anchor }
+    if (anchor.kind !== 'fold' && anchor.kind !== 'round') return { anchor, display: anchor }
     const member = memberContainingNode(anchor.fold?.members ?? [], model.displayNodeId)
     return { anchor, display: member?.displayNode ?? anchor }
   }

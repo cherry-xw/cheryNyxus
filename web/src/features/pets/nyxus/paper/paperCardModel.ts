@@ -147,6 +147,7 @@ function statusTone(status?: string): PaperGameCardModel['statusTone'] {
 
 function cardIdentity(node: ExecutionNode): Pick<PaperGameCardModel, 'kind' | 'icon' | 'kicker'> {
   if (node.kind === 'fold') return { kind: 'journal', icon: 'book', kicker: '任务日志' }
+  if (node.kind === 'round') return { kind: 'journal', icon: 'book', kicker: '整轮记录' }
   if (node.kind === 'tool-batch') return { kind: 'skill', icon: 'gear', kicker: '技能卡' }
   if (node.kind === 'return') return { kind: 'treasure', icon: 'chest', kicker: '战利品' }
   if (node.kind === 'dispatch' || node.kind === 'spawn') {

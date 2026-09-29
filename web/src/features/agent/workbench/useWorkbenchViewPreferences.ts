@@ -1,6 +1,6 @@
 import { ref, watch } from 'vue'
 
-export type FoldMode = 'none' | 'partial' | 'full' | 'participant'
+export type FoldMode = 'none' | 'partial' | 'round' | 'participant'
 
 type WorkbenchViewPreference = {
   foldMode: FoldMode
@@ -16,10 +16,10 @@ const DEFAULT_WORKBENCH_VIEW: WorkbenchViewPreference = {
   foldMode: 'participant',
 }
 const WORKBENCH_VIEW_STORAGE_PREFIX = 'nx-workbench-view:'
-const FOLD_MODES = new Set<FoldMode>(['none', 'partial', 'participant', 'full'])
+const FOLD_MODES = new Set<FoldMode>(['none', 'partial', 'participant', 'round'])
 
 export function layoutModeForFoldMode(mode: FoldMode): 'timeline' | 'topology' {
-  return mode === 'full' ? 'topology' : 'timeline'
+  return mode === 'round' ? 'topology' : 'timeline'
 }
 
 function loadPreference(presetId: string): WorkbenchViewPreference {

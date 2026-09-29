@@ -51,7 +51,7 @@ export function useTreeNodeLabels({
       if (detail?.calls.length === 1) return toolDisplayName(detail.calls[0]!.name)
       return detail?.calls.length ? `工具执行 · ${detail.calls.length} 项` : '工具执行'
     }
-    if (node.kind === 'fold') return skinForNode(node).label
+    if (node.kind === 'fold' || node.kind === 'round') return skinForNode(node).label
     if (node.kind === 'dispatch') return '任务委派'
     if (node.kind === 'spawn') return '创建协作节点'
     return actorLabel(node)

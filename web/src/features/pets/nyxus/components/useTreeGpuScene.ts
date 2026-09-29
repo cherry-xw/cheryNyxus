@@ -102,7 +102,9 @@ export function useTreeGpuScene({
         ...(node.sourceFact?.termination
           ? { termination: terminationDisplay(node.sourceFact.termination).label }
           : {}),
-        ...(node.kind === 'fold' && node.fold ? { foldCount: node.fold.members.length } : {}),
+        ...(node.kind === 'fold' || node.kind === 'round') && node.fold
+          ? { foldCount: node.fold.members.length }
+          : {},
         ...(node.kind === 'pack' && node.pack ? { foldCount: node.pack.nodeCount } : {}),
         running: runningTailIds.value.has(node.id),
         awaitingInteraction: awaitingInteractionNodeIds.value.has(node.id),

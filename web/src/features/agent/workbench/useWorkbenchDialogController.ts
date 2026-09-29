@@ -16,7 +16,7 @@ import ContextUsageBar from '../drawer/ContextUsageBar.vue'
 import WorkbenchAgentUsageBar from './WorkbenchAgentUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
-import { agentApi } from '@/application/backend/public'
+import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './useWorkbenchWindow'
 import {
   useAgentsStore,
@@ -255,7 +255,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const nyxusDraftActive = ref(false)
   const userClosedAfterTurn = ref(false)
   let composerTurn: ComposerTurnState = { active: false, awaitingInput: false }
-  /** 只持久化折叠档位；辅助侧栏每次进入工作台默认关闭。 */
+  /** 只持久化折叠档位；辅助侧栏每次进入工作台默认关闭，避免隐式建立 workflow lease。 */
   const { foldMode } = useWorkbenchViewPreferences(props.presetId)
   const sidePanel = ref<WorkbenchSidePanel>('none')
   const selectedContent = ref<NyxusContentSelection>()
@@ -411,12 +411,14 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
         [12, 21],
       ],
     },
-    full: {
-      paths: ['M12 3v18'],
+    round: {
+      paths: ['M20 12a8 8 0 1 1-8-8', 'M20 4v4h-4'],
       nodes: [
-        [12, 3],
+        [20, 4],
+        [20, 8],
+        [16, 8],
         [12, 12],
-        [12, 21],
+        [12, 20],
       ],
     },
   }
@@ -424,7 +426,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     none: '完整展示：显示全部节点与分支',
     partial: '局部收纳：收起同一参与者已完成的连续步骤',
     participant: '按参与者收纳：保留任务交接与结果返回关系',
-    full: '只看每轮主线：保留用户消息、分支起点与最终回复',
+    round: '整轮压缩：每一轮收起为一个节点（提问 / 步骤 / 结论）',
   }
   let foldCloseTimer: ReturnType<typeof setTimeout> | undefined
   function showFoldTool(): void {

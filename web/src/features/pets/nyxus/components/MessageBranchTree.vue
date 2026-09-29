@@ -27,6 +27,7 @@ const {
   FoldTabRail,
   GenerationTreeDialog,
   NodePaperStack,
+  RoundNodePopover,
   activateNode,
   agents,
   canvas,
@@ -42,6 +43,7 @@ const {
   detailAnchorStyle,
   detailDisplayNode,
   detailFoldMember,
+  detailRoundSections,
   detailMaxHeight,
   detailNode,
   detailPinned,
@@ -430,7 +432,11 @@ defineExpose({ resetLayout: controller.resetLayout })
             @wheel.stop
           >
             <FoldTabRail
-              v-if="detailNode.kind === 'fold' && detailNode.fold && detailPlacement"
+              v-if="
+                (detailNode.kind === 'fold' || detailNode.kind === 'round') &&
+                detailNode.fold &&
+                detailPlacement
+              "
               :members="detailNode.fold.members"
               :selected-member-id="detailFoldMember?.id"
               :unread-count="unreadFoldMembers.get(detailNode.id)"
@@ -440,8 +446,30 @@ defineExpose({ resetLayout: controller.resetLayout })
               @select="detailNode && selectFoldMember(detailNode.id, $event)"
               @interaction="detailNode && onFoldRailInteraction(detailNode.id, $event)"
             />
+            <RoundNodePopover
+              v-if="detailNode.kind === 'round' && detailRoundSections"
+              :round-node="detailNode"
+              :member-node="detailDisplayNode"
+              :related-edges="detailRelatedEdges"
+              :pinned="detailPinned"
+              :max-height="detailMaxHeight"
+              :selected-call-id="selectedCallId"
+              :detail-branch-available="detailBranchAvailable"
+              :detail-branch-unavailable-reason="detailBranchUnavailableReason"
+              :draggable="true"
+              :wrap="detailWrap"
+              :size-label="detailSizeLabel"
+              @select-call="selectedCallId = $event"
+              @branch="requestBranch"
+              @close="closeNodeDetail"
+              @drag="dragDetailPopover"
+              @drag-end="finishDetailDrag"
+              @toggle-wrap="toggleDetailWrap"
+              @cycle-size="cycleDetailSize"
+              @step-fold="stepFoldDetail"
+            />
             <ExecutionNodePopover
-              v-if="detailDisplayNode"
+              v-else-if="detailDisplayNode"
               :node="detailDisplayNode"
               :fold-node="detailNode.kind === 'fold' ? detailNode : undefined"
               :related-edges="detailRelatedEdges"

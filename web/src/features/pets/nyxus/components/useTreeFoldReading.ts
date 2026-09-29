@@ -70,10 +70,14 @@ export function useTreeFoldReading({
     }
     selectedCallId.value = undefined
   }
-  /** 常驻窗口标题分页器：按步进（-1/1）切换当前过程组的折叠成员页。 */
+  /** 常驻窗口标题分页器：按步进（-1/1）切换当前过程组/整轮的折叠成员页。 */
   function stepFoldDetail(delta: number): void {
     const node = detailNode()
-    if (node?.kind !== 'fold' || !node.fold?.members.length) return
+    if (
+      (node?.kind !== 'fold' && node?.kind !== 'round') ||
+      !node.fold?.members.length
+    )
+      return
     const members = node.fold.members
     const currentIndex = Math.max(
       0,

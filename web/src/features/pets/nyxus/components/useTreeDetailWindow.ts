@@ -59,7 +59,7 @@ export function useTreeDetailWindow({
     if (!hasNodeHoverDetail(node)) return
     cancelDetailHide()
     hoveredDetailNodeId.value = node.id
-    if (node.kind === 'fold') readingFoldId.value = node.id
+    if (node.kind === 'fold' || node.kind === 'round') readingFoldId.value = node.id
   }
   function hideNodeDetail(node: (typeof layout.value.nodes)[number]): void {
     if (props.paperMode) return
@@ -75,7 +75,8 @@ export function useTreeDetailWindow({
   }
   function keepNodeDetailOpen(): void {
     cancelDetailHide()
-    if (detailNode.value?.kind === 'fold') readingFoldId.value = detailNode.value.id
+    if (detailNode.value?.kind === 'fold' || detailNode.value?.kind === 'round')
+      readingFoldId.value = detailNode.value.id
   }
   function leaveNodeDetail(): void {
     if (pinnedDetailNodeId.value) return
@@ -110,8 +111,19 @@ export function useTreeDetailWindow({
   })
   const detailFoldMember = computed(() => selectedFoldMember(detailNode.value))
   const detailDisplayNode = computed(() =>
-    detailNode.value?.kind === 'fold' ? detailFoldMember.value?.displayNode : detailNode.value,
+    detailNode.value?.kind === 'fold' || detailNode.value?.kind === 'round'
+      ? detailFoldMember.value?.displayNode
+      : detailNode.value,
   )
+  /** 整轮三段式（轮次档位）：第一段用户提问与第三段主 Agent 最终回复节点。 */
+  const detailRoundSections = computed(() => {
+    const node = detailNode.value
+    if (node?.kind !== 'round' || !node.round || !node.fold) return undefined
+    const opening = node.fold.projectionNodes.find((item) => item.id === node.round!.openingNodeId)
+    const reply = node.fold.projectionNodes.find((item) => item.id === node.round!.replyNodeId)
+    if (!opening || !reply) return undefined
+    return { opening, reply }
+  })
   const detailPinned = computed(() => !!pinnedDetailNodeId.value && !!detailNode.value)
   function containsBranchAnchor(node: (typeof layout.value.nodes)[number]): boolean {
     const anchorId = props.branchAnchorNodeId
@@ -389,6 +401,7 @@ export function useTreeDetailWindow({
     detailNode,
     detailFoldMember,
     detailDisplayNode,
+    detailRoundSections,
     detailPinned,
     detailRelatedEdges,
     detailMaxHeight,

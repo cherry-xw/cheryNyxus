@@ -5,6 +5,7 @@ import { hasNodeHoverDetail } from '../graph/nodeSkins'
 import { toolBatchDetail } from '../graph/toolBatchDetails'
 import { usePianoEasterEgg } from '../composables/usePianoEasterEgg'
 import ExecutionNodePopover from './ExecutionNodePopover.vue'
+import RoundNodePopover from './RoundNodePopover.vue'
 import FoldTabRail from './FoldTabRail.vue'
 import AnchoredRunCrt from './AnchoredRunCrt.vue'
 import NodePaperStack from './NodePaperStack.vue'
@@ -168,6 +169,7 @@ export function useMessageBranchTreeController(
     detailNode,
     detailFoldMember,
     detailDisplayNode,
+    detailRoundSections,
     detailPinned,
     detailRelatedEdges,
     detailMaxHeight,
@@ -347,6 +349,7 @@ export function useMessageBranchTreeController(
   return {
     AnchoredRunCrt,
     ExecutionNodePopover,
+    RoundNodePopover,
     FoldTabRail,
     GenerationTreeDialog,
     NodePaperStack,
@@ -365,6 +368,7 @@ export function useMessageBranchTreeController(
     detailAnchorStyle,
     detailDisplayNode,
     detailFoldMember,
+    detailRoundSections,
     detailMaxHeight,
     detailNode,
     detailPinned,

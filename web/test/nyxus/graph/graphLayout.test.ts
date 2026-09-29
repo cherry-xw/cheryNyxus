@@ -13,7 +13,7 @@ import {
   layoutExecutionGraph,
 } from '../../../src/features/pets/nyxus/graph/executionLayout'
 import {
-  projectFullFoldExecutionGraph,
+  projectRoundExecutionGraph,
   projectParticipantFoldExecutionGraph,
 } from '../../../src/features/pets/nyxus/graph/foldProjection'
 import { executionEdgeGeometry } from '../../../src/features/pets/nyxus/graph/executionGeometry'
@@ -413,20 +413,24 @@ describe('execution layout and edge geometry', () => {
       ],
       diagnostics: [],
     }
-    const projected = projectFullFoldExecutionGraph(fullGraph).graph
+    const projected = projectRoundExecutionGraph(fullGraph).graph
     const timeline = layoutExecutionGraph(projected, { mode: 'timeline' })
     const topology = layoutExecutionGraph(projected, { mode: 'topology' })
 
-    const timelineFolds = timeline.nodes.filter((node) => node.kind === 'fold')
-    const topologyFolds = topology.nodes.filter((node) => node.kind === 'fold')
-    expect(topologyFolds).toHaveLength(2)
-    expect(new Set(timelineFolds.map((node) => node.y)).size).toBe(2)
-    expect(new Set(topologyFolds.map((node) => node.y)).size).toBe(1)
+    const roundNodes = projected.nodes.filter((node) => node.kind === 'round')
+    expect(roundNodes).toHaveLength(1)
+    expect(projected.nodes.every((node) => node.id === 'root' || node.kind === 'round')).toBe(true)
     for (const edge of projected.edges) {
+      expect(edge.from).not.toBe(edge.to)
       const from = topology.nodes.find((node) => node.id === edge.from)!
       const to = topology.nodes.find((node) => node.id === edge.to)!
       expect(to.y).toBeGreaterThan(from.y)
     }
+    const roundInTimeline = timeline.nodes.find((node) => node.kind === 'round')!
+    const roundInTopology = topology.nodes.find((node) => node.kind === 'round')!
+    const startY = topology.nodes.find((node) => node.id === 'root')!.y
+    expect(roundInTimeline.y).toBeGreaterThan(startY)
+    expect(roundInTopology.y).toBeGreaterThan(startY)
   })
 
   it('keeps topology compact when the parent leaves and re-enters around child returns', () => {
@@ -534,7 +538,7 @@ describe('execution layout and edge geometry', () => {
     expect(topology.nodes.every((candidate) => Number.isFinite(candidate.y))).toBe(true)
   })
 
-  it('does not let a full-fold summary cross a visible fork anchor', () => {
+  it('does not let a round-mode fallback summary cross a visible fork anchor', () => {
     const user = {
       ...executionNode('user', 1),
       actor: { kind: 'user' as const, actorId: 'human' },
@@ -575,7 +579,7 @@ describe('execution layout and edge geometry', () => {
       sourceChatId: 'root',
       targetChatId: 'root',
     }))
-    const projected = projectFullFoldExecutionGraph({
+    const projected = projectRoundExecutionGraph({
       rootChatId: 'root',
       nodes,
       edges,
@@ -768,7 +772,7 @@ describe('execution layout and edge geometry', () => {
       sourceChatId,
       targetChatId,
     })
-    const projected = projectFullFoldExecutionGraph({
+    const projected = projectRoundExecutionGraph({
       rootChatId: 'root',
       nodes,
       edges: [

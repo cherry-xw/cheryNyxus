@@ -17,7 +17,7 @@ import { projectEpochBoundaries, projectPackedGenerations } from './historyProje
 export type PersistentExecutionNodeKind =
   'message' | 'tool-batch' | 'return' | 'dispatch' | 'system' | 'spawn'
 export type ExecutionNodeKind =
-  'start' | PersistentExecutionNodeKind | 'pack' | 'epoch' | 'fold' | 'input' | 'unknown'
+  'start' | PersistentExecutionNodeKind | 'pack' | 'epoch' | 'fold' | 'round' | 'input' | 'unknown'
 export type PersistentExecutionEdgeKind = ExecutionEdgeFact['kind']
 export type ExecutionEdgeKind = 'start' | PersistentExecutionEdgeKind | 'input' | 'stream'
 export type ExecutionOrderSlot = 'start' | 'persistent' | 'transient'
@@ -45,6 +45,8 @@ export interface ExecutionNode {
   sourceFact?: TimelineNode
   inputState?: VirtualInputNode['state']
   fold?: ExecutionFold
+  /** kind === 'round' 时携带：轮次开头用户消息与主 Agent 最终回复锚点。 */
+  round?: ExecutionRound
   /** kind === 'pack' 时携带：代际索引 + 跳转锚点 + 徽标数据。 */
   pack?: ExecutionPack
 }
@@ -64,6 +66,14 @@ export interface ExecutionFold {
   members: ExecutionFoldMember[]
   /** All canonical nodes replaced by this projection, including structural owner messages. */
   projectionNodes: ExecutionNode[]
+}
+
+/** A whole conversation round collapsed into one node (轮次档位). */
+export interface ExecutionRound {
+  /** 轮次开头的用户消息节点 id（三段式第一段）。 */
+  openingNodeId: string
+  /** 轮次的主 Agent 最终回复节点 id（三段式第三段）。 */
+  replyNodeId: string
 }
 
 export interface ExecutionFoldMember {

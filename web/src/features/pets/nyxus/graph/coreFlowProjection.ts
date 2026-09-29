@@ -57,7 +57,7 @@ function collectCanonicalNodes(
   if (visiting.has(node.id)) return false
   if (result.has(node.id)) return true
   result.set(node.id, node)
-  if (node.kind !== 'fold') return true
+  if (node.kind !== 'fold' && node.kind !== 'round') return true
   const projectionNodes = node.fold?.projectionNodes
   if (!projectionNodes?.length) return false
   visiting.add(node.id)
@@ -123,6 +123,7 @@ function buildBranchMetadata(graph: Readonly<ExecutionGraph>): BranchMetadata | 
     if (
       node.kind === 'start' ||
       node.kind === 'fold' ||
+      node.kind === 'round' ||
       node.kind === 'pack' ||
       node.kind === 'epoch' ||
       node.orderSlot !== 'persistent'
@@ -191,7 +192,7 @@ export function projectCoreFlowExecutionGraph(graph: Readonly<ExecutionGraph>): 
 
   const classifyNode = (node: ExecutionNode, visiting = new Set<string>()): boolean => {
     if (node.kind === 'start') return true
-    if (node.kind === 'fold') {
+    if (node.kind === 'fold' || node.kind === 'round') {
       if (visiting.has(node.id)) return true
       const projected = node.fold?.projectionNodes
       if (!projected?.length) return true
@@ -211,7 +212,7 @@ export function projectCoreFlowExecutionGraph(graph: Readonly<ExecutionGraph>): 
 
   const classifyDetailNode = (node: ExecutionNode, visiting = new Set<string>()): boolean => {
     if (node.kind === 'start') return false
-    if (node.kind === 'fold') {
+    if (node.kind === 'fold' || node.kind === 'round') {
       if (visiting.has(node.id)) return false
       const projected = node.fold?.projectionNodes
       if (!projected?.length) return false

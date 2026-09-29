@@ -16,6 +16,7 @@ import type { useNyxusHost } from '../application/host'
 import type { useTreeCanvas } from '../composables/useTreeCanvas'
 import AnchoredRunCrt from './AnchoredRunCrt.vue'
 import ExecutionNodePopover from './ExecutionNodePopover.vue'
+import RoundNodePopover from './RoundNodePopover.vue'
 import FoldTabRail from './FoldTabRail.vue'
 import GenerationTreeDialog from './GenerationTreeDialog.vue'
 import NodePaperStack from './NodePaperStack.vue'
@@ -29,7 +30,7 @@ export type MessageBranchTreeControllerProps = {
   detailBranchUnavailableReason?: string
   layoutMode?: ExecutionLayoutMode
   presentationMode?: ExecutionPresentationMode
-  foldMode?: 'none' | 'partial' | 'full' | 'participant'
+  foldMode?: 'none' | 'partial' | 'round' | 'participant'
   focusSourceChatId?: string
   focusInteractionId?: string
   /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
@@ -111,6 +112,7 @@ export type RunCrtPlacement = CrtPlacement & { windowZ: number }
 export interface MessageBranchTreeController {
   AnchoredRunCrt: typeof AnchoredRunCrt
   ExecutionNodePopover: typeof ExecutionNodePopover
+  RoundNodePopover: typeof RoundNodePopover
   FoldTabRail: typeof FoldTabRail
   GenerationTreeDialog: typeof GenerationTreeDialog
   NodePaperStack: typeof NodePaperStack
@@ -129,6 +131,10 @@ export interface MessageBranchTreeController {
   detailAnchorStyle: ComputedRef<DetailPlacement['style'] | undefined>
   detailDisplayNode: ComputedRef<ExecutionNode | undefined>
   detailFoldMember: ComputedRef<ExecutionFoldMember | undefined>
+  detailRoundSections: ComputedRef<
+    | { opening: ExecutionNode; reply: ExecutionNode }
+    | undefined
+  >
   detailMaxHeight: ComputedRef<number>
   detailNode: ComputedRef<PositionedExecutionNode | undefined>
   detailPinned: ComputedRef<boolean>

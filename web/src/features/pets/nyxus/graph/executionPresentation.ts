@@ -78,6 +78,7 @@ export const SIGNAL_NODE_VISUAL_KINDS = [
   'reply',
   'error',
   'fold',
+  'round',
   'process',
   'dispatch',
   'return',
@@ -96,6 +97,7 @@ const HERO_KINDS = new Set<SignalNodeVisualKind>(['start', 'input', 'reply', 'er
 
 const STRUCTURAL_KINDS = new Set<SignalNodeVisualKind>([
   'fold',
+  'round',
   'process',
   'dispatch',
   'return',
@@ -137,6 +139,7 @@ const SIGNAL_ACCENTS_DARK: Record<SignalNodeVisualKind, string> = {
   reply: '#00f59b',
   error: '#ff4268',
   fold: '#9b7cff',
+  round: '#ffc53d',
   process: '#4d8dff',
   dispatch: '#d867ff',
   return: '#00f59b',
@@ -169,6 +172,7 @@ const SIGNAL_ACCENTS_LIGHT: Record<SignalNodeVisualKind, string> = {
   reply: '#008d59',
   error: '#d9003f',
   fold: '#653ee0',
+  round: '#9a5f00',
   process: '#1762e8',
   dispatch: '#9a16bf',
   return: '#008d59',
@@ -199,10 +203,10 @@ export function signalAccentForTheme(theme: 'light' | 'dark', kind: SignalNodeVi
   return (theme === 'light' ? SIGNAL_ACCENTS_LIGHT : SIGNAL_ACCENTS_DARK)[kind]
 }
 
-/** A Fold keeps its canonical members, so visual summaries can surface hidden failures. */
+/** A Fold/Round keeps its canonical members, so visual summaries can surface hidden failures. */
 export function foldContainsErrorMessage(node: ExecutionNode): boolean {
   return (
-    node.kind === 'fold' &&
+    (node.kind === 'fold' || node.kind === 'round') &&
     !!node.fold?.projectionNodes.some(
       (member) =>
         member.sourceFact?.termination?.code === 'error' ||
@@ -275,6 +279,7 @@ export function signalVisualKindFor(
 ): SignalNodeVisualKind {
   if (node.kind === 'start') return 'start'
   if (node.kind === 'fold' || node.kind === 'pack') return 'fold'
+  if (node.kind === 'round') return 'round'
   if (node.kind === 'tool-batch') return toolVisualKindFor(node)
   if (node.kind === 'spawn' || node.kind === 'dispatch') return 'dispatch'
   if (node.kind === 'return') return 'return'

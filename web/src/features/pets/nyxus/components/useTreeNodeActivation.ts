@@ -106,13 +106,13 @@ export function useTreeNodeActivation({
     } else if (canPinNodeDetail(node)) {
       pinnedDetailNodeId.value = node.id
       hoveredDetailNodeId.value = node.id
-      if (node.kind === 'fold') readingFoldId.value = node.id
+      if (node.kind === 'fold' || node.kind === 'round') readingFoldId.value = node.id
     } else if (pinnedDetailNodeId.value && hasNodeHoverDetail(node)) {
       // 常驻窗口已固定（拖拽/点击过某个节点）后，点击任意有详情内容的节点
       // 即把窗口内容切换到该节点；窗口停留在用户手动放置的位置。
       pinnedDetailNodeId.value = node.id
       hoveredDetailNodeId.value = node.id
-      if (node.kind === 'fold') readingFoldId.value = node.id
+      if (node.kind === 'fold' || node.kind === 'round') readingFoldId.value = node.id
     }
   }
   function focusNode(node: PositionedExecutionNode): void {

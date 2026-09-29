@@ -13,12 +13,12 @@ import {
 } from '../../../src/features/pets/nyxus/graph/executionGraph'
 import {
   computeFoldRanges,
-  computeFullFoldRanges,
   projectFoldExecutionGraph,
-  projectFullFoldExecutionGraph,
+  projectRoundExecutionGraph,
   projectParticipantFoldExecutionGraph,
 } from '../../../src/features/pets/nyxus/graph/foldProjection'
 import { foldTabForMember, foldWheelView } from '../../../src/features/pets/nyxus/graph/foldTabs'
+import { foldContainsErrorMessage } from '../../../src/features/pets/nyxus/graph/executionPresentation'
 import {
   oppositePopoverPlacement,
   selectedToolCall,
@@ -369,7 +369,7 @@ describe('Agent-local Fold projection', () => {
     for (const result of [
       projectFoldExecutionGraph(projected),
       projectParticipantFoldExecutionGraph(projected),
-      projectFullFoldExecutionGraph(projected),
+      projectRoundExecutionGraph(projected),
     ]) {
       expect(result.graph.nodes.some((node) => node.id === marker.id)).toBe(true)
       expect(
@@ -488,7 +488,7 @@ describe('Agent-local Fold projection', () => {
     projectFoldExecutionGraph(canonical)
     expect(canonical).toEqual(before)
 
-    const [treeSource, railSource, dialogSource, generationSource] = await Promise.all([
+    const [treeSource, railSource, dialogSource, generationSource, gpuSceneSource] = await Promise.all([
       readComponentSource(
         resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
         'utf8',
@@ -502,14 +502,19 @@ describe('Agent-local Fold projection', () => {
         resolve('web/src/features/pets/nyxus/components/GenerationTreeDialog.vue'),
         'utf8',
       ),
+      readComponentSource(
+        resolve('web/src/features/pets/nyxus/components/useTreeGpuScene.ts'),
+        'utf8',
+      ),
     ])
-    expect(treeSource).toContain("props.foldMode === 'full'")
-    expect(treeSource).toContain('projectFullFoldExecutionGraph')
+    expect(treeSource).toContain('RoundNodePopover')
+    expect(treeSource).toContain("detailNode.kind === 'round'")
     // The fourth fold level must not vary with the row-overlap layout toggle.
     expect(treeSource).not.toContain('strategy: props.layoutMode')
     expect(treeSource).not.toContain('node-detail-bookmark')
     expect(treeSource).not.toContain('class="fold-card"')
-    expect(treeSource).toContain('foldCount: node.fold.members.length')
+    expect(gpuSceneSource).toContain('foldCount: node.fold.members.length')
+    expect(gpuSceneSource).toContain("node.kind === 'round'")
     const rendererSource = await readComponentSource(
       resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
       'utf8',
@@ -545,7 +550,7 @@ describe('Agent-local Fold projection', () => {
   })
 })
 
-describe('Full-fold projection', () => {
+describe('Round fold projection', () => {
   function userMessage(id: string, orderKey: number, sourceChatId = rootChatId): TimelineNode {
     return message(id, orderKey, sourceChatId, {
       actor: { kind: 'user', actorId: 'human' },
@@ -554,7 +559,7 @@ describe('Full-fold projection', () => {
     })
   }
 
-  it('keeps a lone execution node canonical instead of wrapping it in a process group', () => {
+  it('compresses a fully finished round into one round node with question/reply anchors', () => {
     const canonical = graph([
       userMessage('u1', 1),
       ...unit('tool-a', 2),
@@ -563,15 +568,20 @@ describe('Full-fold projection', () => {
       ...unit('tool-b', 6),
       message('reply-2', 8),
     ])
-    const projected = projectFullFoldExecutionGraph(canonical)
+    const projected = projectRoundExecutionGraph(canonical)
 
     const visibleIds = new Set(projected.graph.nodes.map((node) => node.id))
-    for (const keep of ['message:u1', 'message:reply-1', 'message:u2', 'message:reply-2']) {
-      expect(visibleIds.has(keep)).toBe(true)
+    expect(visibleIds.has('message:u1')).toBe(false)
+    expect(visibleIds.has('message:reply-1')).toBe(false)
+    expect(visibleIds.has('batch:tool-a')).toBe(false)
+    expect(projected.ranges).toHaveLength(2)
+    for (const range of projected.ranges) {
+      expect(range.type).toBe('round')
+      expect(range.round).toBeDefined()
+      expect(range.round!.openingNodeId).toBe(range.nodes[0]!.id)
+      expect(range.round!.replyNodeId).toBe(range.nodes.at(-1)!.id)
+      expect(projected.graph.nodes.find((node) => node.id === range.id)?.kind).toBe('round')
     }
-    expect(visibleIds.has('batch:tool-a')).toBe(true)
-    expect(visibleIds.has('batch:tool-b')).toBe(true)
-    expect(projected.ranges).toHaveLength(0)
   })
 
   it('keeps the running node visible while collecting an already completed prefix', () => {
@@ -594,7 +604,7 @@ describe('Full-fold projection', () => {
         },
       ],
     )
-    const projected = projectFullFoldExecutionGraph(canonical)
+    const projected = projectRoundExecutionGraph(canonical)
 
     expect(projected.ranges).toHaveLength(1)
     expect(projected.graph.nodes.some((n) => n.id === 'batch:running')).toBe(true)
@@ -625,7 +635,7 @@ describe('Full-fold projection', () => {
 
       for (const projected of [
         projectParticipantFoldExecutionGraph(canonical),
-        projectFullFoldExecutionGraph(canonical),
+        projectRoundExecutionGraph(canonical),
       ]) {
         expect(projected.ranges).toHaveLength(1)
         expect(projected.graph.nodes.some((node) => node.id === pending.id)).toBe(true)
@@ -655,7 +665,7 @@ describe('Full-fold projection', () => {
 
     for (const projected of [
       projectParticipantFoldExecutionGraph(canonical),
-      projectFullFoldExecutionGraph(canonical),
+      projectRoundExecutionGraph(canonical),
     ]) {
       expect(projected.graph.nodes.some((node) => node.id === question.id)).toBe(true)
       expect(
@@ -685,11 +695,17 @@ describe('Full-fold projection', () => {
     for (const projected of [
       projectFoldExecutionGraph(canonical),
       projectParticipantFoldExecutionGraph(canonical),
-      projectFullFoldExecutionGraph(canonical),
     ]) {
       expect(projected.ranges).toHaveLength(1)
       expect(projected.ranges[0]!.nodes.map((node) => node.id)).toEqual([first.id, second.id])
     }
+    const roundProjected = projectRoundExecutionGraph(canonical)
+    expect(roundProjected.ranges).toHaveLength(1)
+    expect(roundProjected.ranges[0]!.type).toBe('round')
+    expect(roundProjected.ranges[0]!.members.map((member) => member.id).sort()).toEqual([
+      first.id,
+      second.id,
+    ])
   })
 
   it('retains the input, final reply and fork anchor for every branch', () => {
@@ -703,7 +719,7 @@ describe('Full-fold projection', () => {
       ...unit('tool-b', 6).map((node) => ({ ...node, branchId: branchB })),
       { ...message('reply-b', 8), branchId: branchB },
     ])
-    const projected = projectFullFoldExecutionGraph(canonical)
+    const projected = projectRoundExecutionGraph(canonical)
     const visibleIds = new Set(projected.graph.nodes.map((node) => node.id))
 
     for (const keep of ['message:ua', 'message:reply-a', 'message:ub', 'message:reply-b']) {
@@ -714,7 +730,7 @@ describe('Full-fold projection', () => {
     expect(visibleIds.has('batch:tool-b')).toBe(true)
   })
 
-  it('keeps parallel participant branches as separate process groups', () => {
+  it('compresses a round with parallel participant branches into one round node', () => {
     const canonical = graph([
       userMessage('u1', 1),
       message('left-1', 2, 'left'),
@@ -725,17 +741,17 @@ describe('Full-fold projection', () => {
       message('right-3', 7, 'right'),
       message('reply', 8),
     ])
-    const projected = projectFullFoldExecutionGraph(canonical)
+    const projected = projectRoundExecutionGraph(canonical)
 
-    expect(projected.ranges).toHaveLength(2)
-    expect(projected.ranges.map((range) => range.sourceChatId).sort()).toEqual(['left', 'right'])
-    expect(projected.graph.nodes.filter((node) => node.kind === 'fold')).toHaveLength(2)
+    expect(projected.ranges).toHaveLength(1)
+    expect(projected.ranges[0]!.type).toBe('round')
+    expect(projected.graph.nodes.filter((node) => node.kind === 'round')).toHaveLength(1)
     expect(projected.graph.edges.every((edge) => edge.from !== edge.to)).toBe(true)
     const edgeKeys = projected.graph.edges.map((edge) => `${edge.from}:${edge.to}:${edge.kind}`)
     expect(new Set(edgeKeys).size).toBe(edgeKeys.length)
   })
 
-  it('collects consecutive task handoffs without hiding an isolated return', () => {
+  it('hides a delegated handoff inside the round node while participant keeps it visible', () => {
     const spawn = batch('spawn', 3, rootChatId, {
       toolCalls: [
         {
@@ -757,25 +773,116 @@ describe('Full-fold projection', () => {
       message('reply', 5),
     ])
     const participant = projectParticipantFoldExecutionGraph(canonical)
-    const full = projectFullFoldExecutionGraph(canonical)
+    const roundProjected = projectRoundExecutionGraph(canonical)
     const participantIds = new Set(participant.graph.nodes.map((node) => node.id))
-    const fullIds = new Set(full.graph.nodes.map((node) => node.id))
+    const roundIds = new Set(roundProjected.graph.nodes.map((node) => node.id))
 
     for (const id of ['message:dispatch', 'batch:spawn', 'message:return'])
       expect(participantIds.has(id)).toBe(true)
-    expect(fullIds.has('message:dispatch')).toBe(false)
-    expect(fullIds.has('batch:spawn')).toBe(false)
-    expect(fullIds.has('message:return')).toBe(true)
-    expect(full.ranges).toHaveLength(1)
+    for (const id of ['message:dispatch', 'batch:spawn', 'message:return'])
+      expect(roundIds.has(id)).toBe(false)
+    expect(roundProjected.ranges).toHaveLength(1)
+    expect(roundProjected.ranges[0]!.type).toBe('round')
   })
 
-  it('does not fold a boundary-less leading segment', () => {
-    const canonical = graph([...unit('a', 1), userMessage('u1', 3), message('reply', 4)])
-    const projected = projectFullFoldExecutionGraph(canonical)
+  it('compresses a pure Q&A round into a round node with no internal members', () => {
+    const canonical = graph([userMessage('u1', 1), message('reply', 2)])
+    const projected = projectRoundExecutionGraph(canonical)
 
-    expect(projected.ranges).toHaveLength(0)
+    expect(projected.ranges).toHaveLength(1)
+    expect(projected.ranges[0]!.type).toBe('round')
+    expect(projected.ranges[0]!.members).toHaveLength(0)
+    expect(projected.ranges[0]!.round).toEqual({
+      openingNodeId: 'message:u1',
+      replyNodeId: 'message:reply',
+    })
+  })
+
+  it('does not compress a round containing an epoch or pack boundary', () => {
+    const canonical = graph([userMessage('u1', 1), ...unit('tool-a', 2)])
+    const withEpoch = {
+      ...canonical,
+      nodes: [
+        ...canonical.nodes,
+        {
+          id: 'epoch:mark',
+          rootChatId,
+          sourceChatId: rootChatId,
+          kind: 'epoch' as const,
+          actor: { kind: 'agent', chatId: rootChatId },
+          direction: 'internal' as const,
+          visibility: 'detail' as const,
+          content: '',
+          orderKey: 3,
+          createdAt: 3,
+          updatedAt: 3,
+          status: 'committed' as const,
+          orderSlot: 'persistent' as const,
+          epochId: 'epoch-1',
+          activeRuns: [],
+        },
+      ],
+    }
+    const projected = projectRoundExecutionGraph(withEpoch)
+    expect(
+      projected.graph.nodes.filter((node) => node.kind === 'round'),
+    ).toHaveLength(0)
+  })
+
+  it('does not fold a boundary-less leading segment but compresses the real round after it', () => {
+    const canonical = graph([...unit('a', 1), userMessage('u1', 3), message('reply', 4)])
+    const projected = projectRoundExecutionGraph(canonical)
+
+    expect(projected.ranges).toHaveLength(1)
+    expect(projected.ranges[0]!.type).toBe('round')
     expect(projected.graph.nodes.some((n) => n.id === 'message:a')).toBe(false)
     expect(projected.graph.nodes.some((n) => n.id === 'batch:a')).toBe(true)
+  })
+
+  it('keeps round-mode canonical nodes a subset of participant-mode coverage', () => {
+    const canonical = graph([
+      userMessage('u1', 1),
+      ...unit('root-a', 2),
+      message('child-1', 4, 'child'),
+      ...unit('child-2', 5, 'child'),
+      message('return', 7, 'child', { kind: 'return' }),
+      message('reply', 8),
+    ])
+    const roundProjected = projectRoundExecutionGraph(canonical)
+    const participantProjected = projectParticipantFoldExecutionGraph(canonical)
+
+    const participantVisible = new Set(participantProjected.graph.nodes.map((node) => node.id))
+    const participantCovered = new Set(participantVisible)
+    for (const range of participantProjected.ranges)
+      for (const node of range.nodes) participantCovered.add(node.id)
+
+    const roundNodes = roundProjected.graph.nodes.filter((node) => node.kind === 'round')
+    expect(roundNodes.length).toBeGreaterThan(0)
+    for (const roundNode of roundNodes)
+      for (const member of roundNode.fold?.projectionNodes ?? [])
+        expect(participantCovered.has(member.id)).toBe(true)
+  })
+
+  it('marks a finished round that contains an error so the round node stays visibly red', () => {
+    const error = batch('broken', 2, rootChatId, {
+      toolCalls: [
+        {
+          callId: 'call:broken',
+          index: 0,
+          name: 'broken_tool',
+          arguments: '{}',
+          result: '',
+          status: 'error',
+        },
+      ],
+    })
+    const canonical = graph([userMessage('u1', 1), error, message('reply', 3)])
+    const projected = projectRoundExecutionGraph(canonical)
+
+    expect(projected.ranges).toHaveLength(1)
+    const roundNode = projected.graph.nodes.find((node) => node.kind === 'round')
+    expect(roundNode).toBeDefined()
+    expect(foldContainsErrorMessage(roundNode!)).toBe(true)
   })
 })
 
@@ -1104,10 +1211,11 @@ describe('Participant fold projection', () => {
         edge('root-b-final', 109, 'batch:root-b', 'message:final', 'sequence'),
       ],
     )
-    const projected = projectFullFoldExecutionGraph(canonical)
+    const projected = projectRoundExecutionGraph(canonical)
 
-    expect(projected.ranges).toHaveLength(2)
-    expect(projected.graph.nodes.filter((node) => node.kind === 'fold')).toHaveLength(2)
+    expect(projected.ranges).toHaveLength(1)
+    expect(projected.ranges[0]!.type).toBe('round')
+    expect(projected.graph.nodes.filter((node) => node.kind === 'round')).toHaveLength(1)
     expect(projected.graph.edges.every((e) => e.from !== e.to)).toBe(true)
     const edgeKeys = projected.graph.edges.map((e) => `${e.from}:${e.to}:${e.kind}`)
     expect(new Set(edgeKeys).size).toBe(edgeKeys.length)

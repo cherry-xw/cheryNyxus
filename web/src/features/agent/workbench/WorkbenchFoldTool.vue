@@ -23,7 +23,7 @@ const emit = defineEmits<{
     @pointerleave="emit('schedule-close')"
   >
     <el-tooltip
-      v-for="mode in ['none', 'partial', 'participant', 'full'] as FoldMode[]"
+      v-for="mode in ['none', 'partial', 'participant', 'round'] as FoldMode[]"
       :key="mode"
       :content="tips[mode]"
       placement="top"

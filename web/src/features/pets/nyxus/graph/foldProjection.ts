@@ -13,6 +13,10 @@ export interface FoldRange {
   lastNodeId: string
   members: ExecutionFoldMember[]
   nodes: ExecutionNode[]
+  /** round 档位：整轮压缩为一个 round 节点（三段式），缺省为过程组 fold。 */
+  type?: 'round'
+  /** type === 'round' 时携带：轮次开头用户消息与主 Agent 最终回复锚点。 */
+  round?: { openingNodeId: string; replyNodeId: string }
 }
 
 export interface FoldProjectionResult {
@@ -318,6 +322,32 @@ function foldNode(range: FoldRange, rootChatId: string): ExecutionNode {
   }
 }
 
+function roundNode(range: FoldRange, rootChatId: string): ExecutionNode {
+  const first = range.nodes[0]!
+  return {
+    id: range.id,
+    kind: 'round',
+    rootChatId,
+    sourceChatId: range.sourceChatId,
+    actor: first.actor,
+    direction: first.direction,
+    content: '',
+    createdAt: first.createdAt,
+    status: 'transient',
+    main: first.main,
+    orderSlot: 'persistent',
+    orderKey: first.orderKey,
+    activeRuns: [],
+    fold: {
+      firstNodeId: range.firstNodeId,
+      lastNodeId: range.lastNodeId,
+      members: range.members,
+      projectionNodes: range.nodes,
+    },
+    round: range.round,
+  }
+}
+
 function projectedEdge(edge: ExecutionEdge, from: string, to: string): ExecutionEdge {
   if (from === edge.from && to === edge.to) return edge
   return { ...edge, id: `fold-edge:${edge.id}:${from}:${to}`, from, to }
@@ -348,7 +378,7 @@ function toFullRange(
     nodes: [node],
   }))
   return {
-    id: `full-fold:${currentBranchId}:${sourceChatId}:${first.id}`,
+    id: `mainline-fold:${currentBranchId}:${sourceChatId}:${first.id}`,
     sourceChatId,
     firstNodeId: first.id,
     lastNodeId: foldNodes.at(-1)!.id,
@@ -362,16 +392,12 @@ function hasMultipleFoldMembers(nodes: readonly ExecutionNode[]): boolean {
 }
 
 /**
- * Round-fold core: within each conversation round (user-led message → next user
- * message), keep direct-attention facts and each participant's final reply.
- * Completed details fold independently per participant so parallel branches
- * remain available to topology layout instead of collapsing into one backbone.
+ * 把持久节点按「分支 → 轮次（用户消息开新轮）」切分，供各折叠档位复用。
  */
-function computeRoundFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
+function splitRounds(graph: Readonly<ExecutionGraph>): ExecutionNode[][] {
   const persistent = graph.nodes
     .filter((item) => item.orderSlot === 'persistent')
     .sort(compareNodes)
-
   const rounds: ExecutionNode[][] = []
   const byBranch = new Map<string, ExecutionNode[]>()
   for (const node of persistent) {
@@ -389,75 +415,152 @@ function computeRoundFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
     }
     if (current.length > 0) rounds.push(current)
   }
+  return rounds
+}
 
+/**
+ * Round-fold mainline fallback: within a conversation round (user-led message →
+ * next user message), keep direct-attention facts and each participant's final
+ * reply. Completed details fold independently per participant so parallel
+ * branches remain available to topology layout instead of collapsing into one
+ * backbone. Used when a round must stay expanded (in-flight / pending / anchors).
+ */
+function mainlineRangesForRound(
+  round: ExecutionNode[],
+  graph: Readonly<ExecutionGraph>,
+): FoldRange[] {
   const ranges: FoldRange[] = []
-  for (const round of rounds) {
-    // Only genuine user-led rounds fold; boundary-less leading segments stay expanded.
+  const roundIds = new Set(round.map((node) => node.id))
+  const roundEdges = graph.edges.filter(
+    (edge) => roundIds.has(edge.from) && roundIds.has(edge.to),
+  )
+  const incidentChats = new Map<string, Set<string>>()
+  for (const edge of roundEdges) {
+    for (const nodeId of [edge.from, edge.to]) {
+      const chats = incidentChats.get(nodeId) ?? new Set<string>()
+      chats.add(edge.sourceChatId)
+      chats.add(edge.targetChatId)
+      incidentChats.set(nodeId, chats)
+    }
+  }
+  const keepIds = new Set<string>()
+  for (const node of round) if (isAlwaysVisible(node)) keepIds.add(node.id)
+  for (const id of latestFailureIdsByChat(round)) keepIds.add(id)
+  const finalReplyChats = new Set<string>()
+  for (const node of [...round].reverse()) {
+    if (!isAgentReply(node) || finalReplyChats.has(node.sourceChatId)) continue
+    finalReplyChats.add(node.sourceChatId)
+    keepIds.add(node.id)
+  }
+
+  const pendingByChat = new Map<string, ExecutionNode[]>()
+  const flush = (chatId: string): void => {
+    const segment = pendingByChat.get(chatId)
+    if (!segment?.length) return
+    if (hasMultipleFoldMembers(segment)) ranges.push(toFullRange(round, segment, chatId))
+    pendingByChat.delete(chatId)
+  }
+  for (const node of round) {
+    if (!keepIds.has(node.id)) {
+      const pending = pendingByChat.get(node.sourceChatId) ?? []
+      pending.push(node)
+      pendingByChat.set(node.sourceChatId, pending)
+      continue
+    }
+
+    if (node.kind === 'epoch') {
+      for (const chatId of [...pendingByChat.keys()]) flush(chatId)
+      continue
+    }
+    const affectedChats = new Set<string>([node.sourceChatId])
+    if (node.actor.kind === 'agent') affectedChats.add(node.actor.chatId)
+    if (node.target?.kind === 'agent') affectedChats.add(node.target.chatId)
+    for (const chatId of incidentChats.get(node.id) ?? []) affectedChats.add(chatId)
+    for (const chatId of affectedChats) flush(chatId)
+  }
+  for (const chatId of [...pendingByChat.keys()]) flush(chatId)
+  return ranges
+}
+
+/** 主 Agent 的本轮最终回复（三段式第三段）。 */
+function isRootReply(node: ExecutionNode, rootChatId: string): boolean {
+  return isAgentReply(node) && node.sourceChatId === rootChatId
+}
+
+/** 已结束且无必须直接可见内容的轮次才可整轮压缩。 */
+function isRoundCompressible(round: readonly ExecutionNode[]): boolean {
+  for (const node of round) {
+    if (node.kind === 'epoch' || node.kind === 'pack' || node.kind === 'input') return false
+    if (node.sourceFact?.forkAnchor || node.status === 'revoked') return false
+    if (hasDirectRunState(node)) return false
+    if (isToolBatchActive(node)) return false
+  }
+  return true
+}
+
+/** 轮次内部步骤成员（不含开头用户消息与最终回复），消息+工具批次合并为一个成员。 */
+function buildRoundMembers(nodes: readonly ExecutionNode[]): ExecutionFoldMember[] {
+  const members: ExecutionFoldMember[] = []
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index]!
+    const next = nodes[index + 1]
+    if (
+      isSelfAgentMessage(node) &&
+      next &&
+      isFoldableBatch(next) &&
+      node.sourceFact?.sourceMessageId === next.sourceFact?.sourceMessageId
+    ) {
+      members.push({ id: next.id, displayNode: next, nodes: [node, next] })
+      index += 1
+      continue
+    }
+    members.push({ id: node.id, displayNode: node, nodes: [node] })
+  }
+  return members
+}
+
+/** 整轮压缩为一个 round 节点范围；缺少开头用户消息或主 Agent 最终回复时返回 undefined。 */
+function roundRange(round: ExecutionNode[], graph: Readonly<ExecutionGraph>): FoldRange | undefined {
+  const opening = round[0]
+  if (!opening || !isUserMessage(opening)) return undefined
+  const reply = [...round].reverse().find((node) => isRootReply(node, graph.rootChatId))
+  if (!reply || reply.id === opening.id) return undefined
+  const internal = round.filter((node) => node.id !== opening.id && node.id !== reply.id)
+  const first = round[0]!
+  return {
+    id: `round-fold:${branchId(first)}:${first.id}`,
+    type: 'round',
+    sourceChatId: opening.sourceChatId,
+    firstNodeId: first.id,
+    lastNodeId: round[round.length - 1]!.id,
+    members: buildRoundMembers(internal),
+    nodes: round.slice(),
+    round: { openingNodeId: opening.id, replyNodeId: reply.id },
+  }
+}
+
+/**
+ * Round fold: compress each finished round into one round node (三段式：用户提问 /
+ * 内部步骤左轮 / 主 Agent 最终回复). Rounds that must stay visible (in-flight,
+ * pending tool calls, unanswered questions, branch anchors) fall back to the
+ * per-participant mainline fold.
+ */
+export function computeRoundRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
+  const ranges: FoldRange[] = []
+  for (const round of splitRounds(graph)) {
     if (!round.some(isUserMessage)) continue
-    const roundIds = new Set(round.map((node) => node.id))
-    const roundEdges = graph.edges.filter(
-      (edge) => roundIds.has(edge.from) && roundIds.has(edge.to),
-    )
-    const incidentChats = new Map<string, Set<string>>()
-    for (const edge of roundEdges) {
-      for (const nodeId of [edge.from, edge.to]) {
-        const chats = incidentChats.get(nodeId) ?? new Set<string>()
-        chats.add(edge.sourceChatId)
-        chats.add(edge.targetChatId)
-        incidentChats.set(nodeId, chats)
-      }
+    if (isRoundCompressible(round)) {
+      const range = roundRange(round, graph)
+      if (range) ranges.push(range)
+    } else {
+      ranges.push(...mainlineRangesForRound(round, graph))
     }
-    const keepIds = new Set<string>()
-    for (const node of round) if (isAlwaysVisible(node)) keepIds.add(node.id)
-    for (const id of latestFailureIdsByChat(round)) keepIds.add(id)
-    const finalReplyChats = new Set<string>()
-    for (const node of [...round].reverse()) {
-      if (!isAgentReply(node) || finalReplyChats.has(node.sourceChatId)) continue
-      finalReplyChats.add(node.sourceChatId)
-      keepIds.add(node.id)
-    }
-
-    const pendingByChat = new Map<string, ExecutionNode[]>()
-    const flush = (chatId: string): void => {
-      const segment = pendingByChat.get(chatId)
-      if (!segment?.length) return
-      if (hasMultipleFoldMembers(segment)) ranges.push(toFullRange(round, segment, chatId))
-      pendingByChat.delete(chatId)
-    }
-    for (const node of round) {
-      if (!keepIds.has(node.id)) {
-        const pending = pendingByChat.get(node.sourceChatId) ?? []
-        pending.push(node)
-        pendingByChat.set(node.sourceChatId, pending)
-        continue
-      }
-
-      if (node.kind === 'epoch') {
-        for (const chatId of [...pendingByChat.keys()]) flush(chatId)
-        continue
-      }
-      const affectedChats = new Set<string>([node.sourceChatId])
-      if (node.actor.kind === 'agent') affectedChats.add(node.actor.chatId)
-      if (node.target?.kind === 'agent') affectedChats.add(node.target.chatId)
-      for (const chatId of incidentChats.get(node.id) ?? []) affectedChats.add(chatId)
-      for (const chatId of affectedChats) flush(chatId)
-    }
-    for (const chatId of [...pendingByChat.keys()]) flush(chatId)
   }
   return ranges.sort(
     (a, b) =>
       (a.nodes[0]?.orderKey ?? Number.MAX_SAFE_INTEGER) -
         (b.nodes[0]?.orderKey ?? Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id),
   )
-}
-
-/**
- * Full fold: keep each branch visible but collect its completed details as far as
- * direct-attention boundaries allow. Fold granularity is independent of layout;
- * topology layout may then place unrelated branch groups in the same column.
- */
-export function computeFullFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
-  return computeRoundFoldRanges(graph)
 }
 
 /**
@@ -587,7 +690,13 @@ function projectRanges(graph: Readonly<ExecutionGraph>, ranges: FoldRange[]): Fo
   for (const range of ranges) for (const node of range.nodes) foldByNode.set(node.id, range)
   const hiddenIds = new Set(foldByNode.keys())
   const nodes = graph.nodes.filter((node) => !hiddenIds.has(node.id))
-  nodes.push(...ranges.map((range) => foldNode(range, graph.rootChatId)))
+  nodes.push(
+    ...ranges.map((range) =>
+      range.type === 'round'
+        ? roundNode(range, graph.rootChatId)
+        : foldNode(range, graph.rootChatId),
+    ),
+  )
   const projectedEdges = graph.edges.flatMap((edge) => {
     const from = foldByNode.get(edge.from)?.id ?? edge.from
     const to = foldByNode.get(edge.to)?.id ?? edge.to
@@ -608,10 +717,10 @@ export function projectFoldExecutionGraph(graph: Readonly<ExecutionGraph>): Fold
   return projectRanges(graph, computeFoldRanges(graph))
 }
 
-export function projectFullFoldExecutionGraph(
+export function projectRoundExecutionGraph(
   graph: Readonly<ExecutionGraph>,
 ): FoldProjectionResult {
-  return projectRanges(graph, computeFullFoldRanges(graph))
+  return projectRanges(graph, computeRoundRanges(graph))
 }
 
 export function projectParticipantFoldExecutionGraph(
