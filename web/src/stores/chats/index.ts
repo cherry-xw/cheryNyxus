@@ -352,6 +352,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         workspaceValid: summary.workspaceValid ?? existing.meta.workspaceValid,
         preview: summary.preview ?? existing.meta.preview,
         turnCount: summary.turnCount ?? existing.meta.turnCount,
+        // 目录刷新（含 includePreview）也同步 messageCount，避免已存在 entity
+        // 因缺失该字段（如 registerNewNyxusSession 首次登记）而残留 undefined，
+        // 令 commandGate freshEmptyRoot 的 messageCount===0 判定失真。
+        messageCount: summary.messageCount ?? existing.meta.messageCount,
       })
       if (summary.canResume !== undefined) existing.context.canResume = summary.canResume
       // A loaded session owns its event-derived run state. Catalog-only entities instead need

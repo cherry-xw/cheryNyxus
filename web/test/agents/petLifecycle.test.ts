@@ -13,6 +13,7 @@ describe('registerNewNyxusSession', () => {
         createdAt: 100,
         updatedAt: 100,
         preset: CHERY_NYXUS_PRESET,
+        messageCount: 0,
       },
     ])
   })

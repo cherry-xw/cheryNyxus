@@ -48,6 +48,9 @@ export function registerNewNyxusSession(
     createdAt: now,
     updatedAt: now,
     preset: CHERY_NYXUS_PRESET,
+    // 新会话无任何消息；补 messageCount 让 commandGate 的 freshEmptyRoot 判定
+    // （messageCount===0 视为空会话、可先接收输入）对 Nyxus 新会话同样成立。
+    messageCount: 0,
   }
   return [summary, ...sessions.filter((session) => session.chatId !== chatId)]
 }
