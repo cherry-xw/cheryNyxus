@@ -1,8 +1,5 @@
-.dialog-overlay.is-native,
 .dialog-overlay.is-embedded {
-  // 铺满 WindowFrame body（position:relative），不盖标题栏；绝对定位避免 fixed 覆盖整个 viewport。
-  // 保持 flex（对齐 settings/workbench native 先例：仅 center→stretch）——display:block 会摧毁
-  // 内部 flex 布局链，导致 .dialog-composer-content（角色编制/发送区）塌缩不可见。
+  // 嵌入浏览器工作区窗口，保持内部 flex 布局。
   position: absolute;
   inset: 0;
   display: flex;
@@ -11,9 +8,7 @@
   background: transparent;
   backdrop-filter: none;
   overflow: hidden;
-  // pet 来源 activeDialogSource==='pet' → isFloatingOverlay=true → .dialog-overlay.is-floating
-  // 置 pointer-events:none（scoped 带 [data-v-x] 优先级更高）。native 整窗铺满必须可点，
-  // 复合选择器抬升优先级并晚声明，确保覆盖。
+  // 覆盖浮动会话的指针透传规则，嵌入内容保持可操作。
   pointer-events: auto;
   &.is-floating {
     pointer-events: auto;
@@ -34,7 +29,7 @@
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    // 与 WindowFrame 统一：内容区底色 --bg（标题栏 --panel 对比清晰），panel 卡片底色让位
+    // 内容区底色与浏览器窗口标题栏区分。
     background: var(--bg);
     overflow: hidden;
   }

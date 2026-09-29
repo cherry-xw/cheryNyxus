@@ -37,7 +37,7 @@
 
 实现与文档已更新。恢复时先读取 [T07](T07-verification.md) 的反馈回填槽和自动记录，再执行选定剩余项；人工操作统一见 [manual-final](verify/manual-final.md)。当前主机、SSH 回环服务、路径限制和输入规则有自动验证；真实界面、外部 SSH 服务器与完整安装包尚未人工验收。Windows node-pty 关闭过程的问题仍开放，不进入“待用户审批”。
 
-长期说明：[前端](../../frontend/workbench-files.md)、[后端](../../backend/service/workspace-files-terminal.md)、[共享协议](../../shared/protocol/workspace-files-terminal.md)、[桌面依赖准备](../../frontend/pack-guide.md)。
+长期说明：[前端](../../frontend/workbench-files.md)、[后端](../../backend/service/workspace-files-terminal.md)、[共享协议](../../shared/protocol/workspace-files-terminal.md)。
 
 ## 完成标准
 

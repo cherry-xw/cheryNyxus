@@ -58,7 +58,6 @@
 | 前端连接抽象   | [`docs/frontend/env.md`](../../frontend/env.md)                                                                     | `platform.ts`、发现 API、HTTP/WS 地址和重连         |
 | 前端认证       | [`docs/frontend/auth-login.md`](../../frontend/auth-login.md)                                                       | 登录对话框、登录能力发现和双登录入口                |
 | 前端部署       | [`docs/frontend/deployment.md`](../../frontend/deployment.md)                                                       | 删除旧 Electron 内置后端描述并补充独立后端模式      |
-| Electron       | [`docs/frontend/electron.md`](../../frontend/electron.md)                                                           | 主进程、preload 和纯前端容器边界                    |
 | 测试边界       | [`docs/quality/testing/baseline.md`](../../quality/testing/baseline.md)                                             | 自动检查、浏览器人工验收和回归范围                  |
 
 计划内的协议草案不能与共享协议形成第二个 owner；在 A 阶段落定后，应把稳定字段迁入 `docs/shared/protocol/`，此处只链接结果。

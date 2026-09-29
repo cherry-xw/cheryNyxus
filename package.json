@@ -59,16 +59,12 @@
     "jscpd:health": "jscpd --config .jscpd.json --dashboard --no-tips",
     "regression:code": "pnpm jscpd:dup:check && pnpm jscpd:deadcode && pnpm jscpd:complexity",
     "web:dev": "pnpm --filter web dev:web",
-    "electron:dev": "pnpm --filter web dev:electron",
     "web:build": "pnpm --filter web build",
     "web:preview": "pnpm --filter web preview",
     "web:type-check": "pnpm --filter web type-check",
     "dev:all": "concurrently -n backend,web -c blue,green \"pnpm dev\" \"pnpm --filter web dev:web\"",
     "build:all": "pnpm type-check:all && pnpm build && pnpm --filter web build",
-    "type-check:all": "pnpm type-check && pnpm --filter web type-check",
-    "electron:pack": "node scripts/pack-electron.mjs",
-    "electron:pack:fast": "node scripts/pack-electron.mjs --skip-deps --skip-check --only-build",
-    "electron:pack:force": "node scripts/pack-electron.mjs --force"
+    "type-check:all": "pnpm type-check && pnpm --filter web type-check"
   },
   "repository": {
     "type": "git",
@@ -83,12 +79,6 @@
     "url": "https://github.com/cherry-xw/CheryNyxus/issues"
   },
   "homepage": "https://github.com/cherry-xw/CheryNyxus#readme",
-  "packConfig": {
-    "nodeVersion": "22.11.0",
-    "httpProxy": "http://127.0.0.1:7890",
-    "electronMirror": "https://npmmirror.com/mirrors/electron/",
-    "builderBinariesMirror": "https://npmmirror.com/mirrors/electron-builder-binaries/"
-  },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
     "@types/js-yaml": "^4.0.9",

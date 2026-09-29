@@ -14,17 +14,4 @@ describe('Pet composer and workbench exclusivity', () => {
     expect(source).toContain('!!chatId.value && !petWorkbenchOpen.value')
   })
 
-  it('restores the native composer when its workbench closes', async () => {
-    const [dialog, main] = await Promise.all([
-      readComponentSource(
-        fileURLToPath(new URL('../../src/features/agent/chat/AgentDialog.vue', import.meta.url)),
-        'utf8',
-      ),
-      readComponentSource(fileURLToPath(new URL('../../electron/main.ts', import.meta.url)), 'utf8'),
-    ])
-
-    expect(dialog).toContain("returnToComposer: agents.activeDialogSource === 'pet'")
-    expect(main).toContain("entry.restoreWindowKeyOnHide = 'composer'")
-    expect(main).toContain('restoreSourceWindow(entry)')
-  })
 })

@@ -138,7 +138,7 @@ article header small .countdown.is-expired {
   color: #c02e47;
 }
 // kind 标签双色高对比（需确认=金 / 需回答=紫）：实色底 + 白字，深/浅主题下对比度恒定，
-// native 与浮动窗全局统一（杜绝 color-mix 混主题色在深色下底色文字同色系看不清）
+// 嵌入窗口与浮动窗全局统一（避免深色模式背景和文字对比不足）
 .kind {
   flex: none;
   padding: 3px 7px;

@@ -200,7 +200,7 @@ const {
   createSession, creating, detailBranchAvailability,
   editorRefFn, effectiveMode, error, executeSessionControl,
   foldMode, foldToolOpen,
-  isEmbedded, isNative, isShellless, liteViewVisible, loading,
+  isEmbedded, isShellless, liteViewVisible, loading,
   matchingRoleMentions,
   matchingFiles, showFileMenu, activeFileIndex, fileMenuHint,
   maxControlState,
@@ -276,7 +276,6 @@ defineExpose({
       class="dialog-overlay is-nyxus-layout"
       :class="{
         'is-windowed-workbench': effectiveMode === 'window',
-        'is-native': isNative,
         'is-embedded': isEmbedded,
       }"
       :style="{
@@ -300,7 +299,6 @@ defineExpose({
         :class="
           `is-${effectiveMode}` +
           (isShellless ? ' is-shellless' : '') +
-          (isNative ? ' is-native' : '') +
           (liteViewVisible ? ' is-lite' : '') +
           (conversationViewVisible ? ' is-conversation' : '')
         "
@@ -425,7 +423,6 @@ defineExpose({
           :class="{
             'is-draggable': effectiveMode === 'window',
             'has-attention': windowBlink,
-            'is-native': isNative,
           }"
           @pointerdown="onTitlePointerDown"
         >

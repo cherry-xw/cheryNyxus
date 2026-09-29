@@ -88,7 +88,7 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
       release(open)
     },
     async loadHistory(chatId: string, ownerId = 'history-drawer') {
-      // A native history window starts without the archived catalog. Resolve
+      // A history window may start without the archived catalog. Resolve
       // ancestry before selecting root vs direct conversation loading.
       if (!chatSessions.sessionsById[chatId]?.meta.lifecycle) {
         const summaries = await agentApi.listChats({ scope: 'history' })

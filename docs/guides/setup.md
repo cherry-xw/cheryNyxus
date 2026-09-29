@@ -44,7 +44,6 @@
 | macOS | Xcode Command Line Tools：`xcode-select --install` |
 | Windows | 「Visual Studio Build Tools」含 C++ 桌面开发 workload + Python 3 |
 
-> ⚠️ **Electron 运行模式 ABI 坑**：开发期 Node 直跑没问题；若要跑 Electron 一体模式（`pnpm electron:dev`），`better-sqlite3` 需按 Electron ABI 重编译（`pnpm --filter web rebuild`）。该问题待彻底解决，详见 [web/electron.md](../frontend/electron.md)。**开发期可先用浏览器模式绕开。**
 
 ---
 
@@ -147,7 +146,6 @@ pnpm dev:all      # concurrently 同时拉起 backend + web
 | `pnpm dev:all` | 同时起 backend + web |
 | `pnpm type-check` / `pnpm lint` | 后端类型检查 / lint（改码后必跑） |
 | `pnpm test` | vitest 单测 |
-| `pnpm electron:pack` | Electron 打包（详见 [web/pack-guide.md](../frontend/pack-guide.md)） |
 
 ---
 
@@ -157,5 +155,4 @@ pnpm dev:all      # concurrently 同时拉起 backend + web
 - **启动报空 key / `assertChatOptions` 拦截** → `.env` 变量名与 `config.yaml` 的 `$XXX` 不一致，或 key 为空；检查 §3.1 / §3.2。
 - **agent 不干活 / 报 workspace 不存在** → `presets.<name>.workspace` 没改成真实路径；检查 §3.2-2。
 - **`pnpm dev` 端口冲突** → 改 `config.yaml` 的 `server.port`。
-- **Electron 模式 better-sqlite3 崩溃** → ABI 不匹配，见 §1.4 + [web/electron.md](../frontend/electron.md)；开发期用浏览器模式。
 - **前端连不上后端** → 前端通过 `/api/config` 自动发现 WS 地址，确认后端 `server.host`/`port` 可达、防火墙放行。

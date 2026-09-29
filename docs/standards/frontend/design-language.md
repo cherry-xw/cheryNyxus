@@ -2,7 +2,7 @@
 
 > **状态：强制执行。** 本文是 `web/` 所有用户可见 UI、排版、控件、窗口、内容渲染、动效和界面分面设计的唯一入口。
 >
-> 适用范围：`web/src/**` 的浏览器界面、Electron 窗口外壳、Pixi 画布、桌宠、Agent 工作台、Lite 视图、登录和设置中心。
+> 适用范围：`web/src/**` 的浏览器界面、Pixi 画布、桌宠、Agent 工作台、Lite 视图、登录和设置中心。
 >
 > 本文同时回答两件事：前端 UI 现在如何实现，以及后续 UI 应遵守什么设计思想。代码级事实以文中链接的源文件和测试为准；本文不替代[前端架构规范](./web-frontend-architecture.md)和[Vue 视图规范](./vue3-page-building-standard.md)。
 
@@ -97,7 +97,7 @@ CSS / GSAP / Pixi / Worker 等渲染后端
 
 ### 3.1 启动顺序
 
-[`web/src/main.ts`](../../../web/src/main.ts#L1-L83) 是浏览器和 Electron renderer 共用的初始化入口：
+[`web/src/main.ts`](../../../web/src/main.ts) 是浏览器初始化入口：
 
 1. 先加载 Element Plus 样式、深色 css variables 和项目主题 token；
 2. 创建 Vue 应用与 Pinia；
@@ -109,20 +109,11 @@ CSS / GSAP / Pixi / Worker 等渲染后端
 
 新增全局 UI 基础设施时，应先判断它属于启动初始化、全局样式、application runtime 还是 feature。不要把启动副作用塞进单个窗口组件，也不要在多个 feature 各自初始化同一套 transport、主题或持续帧任务。
 
-### 3.2 Surface 是界面组装边界
+### 3.2 浏览器工作区是界面组装边界
 
-[`web/src/App.vue`](../../../web/src/App.vue#L35-L81) 根据 URL 参数和宿主环境分发运行面。当前主要 surface 包括：
+[`web/src/App.vue`](../../../web/src/App.vue) 组装浏览器桌面、桌宠与应用内的工作台、会话、历史、设置、任务中心和终端窗口。
 
-| Surface | 作用 | 典型内容 |
-| --- | --- | --- |
-| 浏览器完整面 | 单页工作区 | 桌宠、Agent、桌面外壳、多个浏览器工作窗 |
-| `desktop` | Electron 透明桌宠面 | 桌宠和无遮罩浮动交互 |
-| `settings` | Electron 原生设置窗 | `WindowFrame` + 设置中心 |
-| `workbench` | 每个预设一个原生工作窗 | `WindowFrame` + 工作台三视图 |
-| `composer` | 独立发送窗 | `WindowFrame` + Agent Composer |
-| Terminal | 独立终端面 | `WindowFrame` + xterm |
-
-重型面通过 `defineAsyncComponent()` 按实际状态加载。设置、历史、会话、Pixi 工作台、终端和桌面壳不应在冷启动时全部解析。关闭 surface 时必须让组件、Worker、Pixi、GSAP context、帧订阅和事件监听完整释放。
+重型面通过 `defineAsyncComponent()` 按实际状态加载。关闭窗口时必须让组件、Worker、Pixi、GSAP context、帧订阅和事件监听完整释放。
 
 ### 3.3 依赖方向和 UI 文件职责
 
@@ -224,22 +215,19 @@ Element Plus 的实际使用方式是：[`web/src/main.ts`](../../../web/src/mai
 1. `toggle()` 负责持久化、应用并广播；
 2. `applyFrom()` 只应用外部主题，不再次广播，避免回环；
 3. 首次挂载前必须应用主题；
-4. 浏览器窗口通过 `storage`/`BroadcastChannel` 同步；Electron 窗口还可以通过桌面桥接同步；
+4. 浏览器窗口通过 `storage`/`BroadcastChannel` 同步；
 5. CSS 使用 `data-theme`，Element Plus 使用 `html.dark`；
 6. Pixi 使用 `useThemeTokens.ts` 的 `PIXI_CANVAS_PALETTES`，不能直接读取 CSS 变量；
 7. Mermaid 监听 `data-theme` 变化后重绘已有图表；
-8. Electron 原生窗锁定根 `color-scheme` 并使用 `window-surface` 背景，避免系统灰边。
 
 任何新渲染后端都必须回答：主题从哪里读取、主题切换时如何更新、卸载时如何取消监听、深浅色是否都能读清。组件不能自行保存第二份主题状态。
 
 ## 6. 窗口、overlay 与层级方案
 
-### 6.1 两类窗口外壳
+### 6.1 浏览器窗口外壳
 
 - `CyberWindow` 是浏览器工作区中的可移动、可缩放、可聚焦、可最小化窗口；几何和 z-order 来自 workspace state。
-- `WindowFrame` 是 Electron 原生独立窗通用外壳；标题栏、三键、拖动、最大化状态和根背景由它统一处理。
-
-两者共享深空电光窗口语法，但不应互相复制生命周期逻辑。原生面不重复渲染内部标题栏；浏览器面不假设存在 Electron IPC。
+窗口内容使用嵌入态交给 `CyberWindow` 承载，不重复渲染第二层窗口标题栏。
 
 窗口标题栏的核心约束：
 
@@ -266,7 +254,7 @@ Nyxus 工作台当前内部值是：`canvas 0`、`nodeHitTarget 10`、`runCrt 30
 
 ### 6.3 遮罩与穿透
 
-Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 Nyxus 的快速发送窗保持无遮罩并可拖动。Electron 透明桌宠面中，全屏 overlay 不能拦截桌面穿透命中测试，只有实际 panel 恢复 pointer events。
+Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 Nyxus 的快速发送窗保持无遮罩并可拖动。嵌入浏览器工作区窗口时，内容区域保持可交互。
 
 持续动画场景不使用 `backdrop-filter`。遮罩应使用 `--scrim`，并在 reduced 模式下仍保持明确的前后关系。
 
@@ -437,14 +425,14 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 
 **任务：**把多个可独立操作的能力窗组织成有焦点、有层次、有状态反馈的工作区。
 
-入口包括 `CyberDesktopHost.vue`、`CyberWindow.vue`、`WindowFrame.vue`、`ConnectionStatusChip.vue` 和 `useCyberWindowMotion.ts`。
+入口包括 `CyberDesktopHost.vue`、`CyberWindow.vue`、`ConnectionStatusChip.vue` 和 `useCyberWindowMotion.ts`。
 
 - `--cyber-*` 只属于桌面、窗口、标题栏和任务栏；
 - channel、signal、角线、扫描带和任务栏活动标记是外壳识别；
-- 当前窗口最小尺寸 `360×260`，原生标题栏高度约 `38–40px`；
+- 当前窗口最小尺寸 `360×260`；
 - 聚焦使用边框和受控辉光，attention 用待处理状态表达；
 - 窗口展开、收起、聚焦和 glitch 经 GSAP，reduced 直接显示最终状态；
-- 原生面和浏览器面共享语法，但分别服从 Electron window control 和 workspace state 生命周期。
+- 浏览器工作区窗口的生命周期由 workspace state 管理。
 
 ### 11.5 登录：暗房手电光
 
@@ -494,7 +482,7 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 
 新增或修改 UI 按以下顺序检查：
 
-1. **确定任务面**：这是浏览器工作区、Electron 原生窗、透明桌宠面、工作台、Lite、登录还是设置？
+1. **确定任务面**：这是浏览器工作区、桌宠、工作台、Lite、登录还是设置？
 2. **确定状态 owner**：当前状态来自哪个 application port、store、domain projection 或 feature controller？
 3. **确定内容优先级**：用户要读什么、做什么、为什么不能做、完成后如何确认？
 4. **确定渲染后端**：静态 CSS、CSS 过渡、GSAP、Pixi、Worker 或成熟组件分别负责什么？
@@ -566,7 +554,7 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 
 - `web/src/styles/dialog.less` 当前未被引用，不能作为新弹窗样式入口；
 - `--radius-control`、`--radius-panel` 仍有历史消费，新实现不要因为 token 存在而继续使用；
-- `WindowFrame.vue` 等历史注释可能保留“暖橙”等旧词，实际颜色以 `theme.css`、`--cyber-*` 和 `--accent` 的当前实现为准；
+- 历史注释可能保留“暖橙”等旧词，实际颜色以 `theme.css`、`--cyber-*` 和 `--accent` 的当前实现为准；
 - 存量圆角、旧窗口样式和局部硬编码在触及对应组件时处理，不进行没有用户目标的全仓批量改写；
 - `motion-v` 仍可能出现在依赖清单，但现行 DOM 动效入口是 GSAP；新增 DOM 动效不得重新使用已退役方案。
 

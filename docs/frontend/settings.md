@@ -2,7 +2,7 @@
 
 设置中心采用“一级 Tab + 资源工作台”的桌面布局。一级 Tab 切换配置域；角色、大脑、感官组、MCP、媒体等多实例资源在 Tab 内使用左侧资源卡片栏，右侧只编辑当前项。技能与插件保留高密度搜索分页列表，避免数百条资源同时挂载 DOM。
 
-标题栏：Electron 原生设置窗由 `WindowFrame` 公共标题栏承载（标题 + 最小化/最大化/关闭三键），`SettingsDialog` 自身 header 仅浏览器 overlay 路径渲染（native 面隐藏，避免双层标题）；「打开配置文件夹」为公共组件 `OpenConfigDirButton`（icon / ghost 两变体），native 面由 `App.vue` 放入 `WindowFrame` 的 `title-actions` slot（**紧贴标题右侧、与标题同行垂直居中**，即标题位置扩展点），浏览器路径 header 与错误弹窗 footer 复用同款。
+设置中心嵌入浏览器工作区窗口，由 `WorkspaceCyberWindow` 提供窗口标题栏；「打开配置文件夹」由 `OpenConfigDirButton` 提供，错误弹窗 footer 复用同款。
 
 ## 通用交互
 
@@ -33,7 +33,7 @@
 
 同一时间只有一个保存会基于当前 `baseRevision` 提交。普通修改点击一次保存即提交；涉及删除、权限或正在运行的会话时，明确弹出影响确认框，确认后直接按“等待”策略提交本次快照，取消则保留草稿。其他窗口或外部编辑已经保存时，本窗口会保留未保存草稿并提示冲突；重新读取、核对差异后再保存，不会静默覆盖。
 
-保存基线只推进到本次提交的配置与 Hooks 快照，保存期间继续编辑的内容仍为未保存。保存失败保留全部草稿；保存进行中不可关闭或重新载入。内部关闭、浏览器窗口关闭和原生标题栏关闭共用草稿确认，取消后继续编辑；页面刷新/退出由卸载保护提醒。设置页常驻展示未保存状态。窗口外壳不得绕过内容的 `confirmClose`。
+保存基线只推进到本次提交的配置与 Hooks 快照，保存期间继续编辑的内容仍为未保存。保存失败保留全部草稿；保存进行中不可关闭或重新载入。内部关闭和浏览器工作区窗口关闭共用草稿确认，取消后继续编辑；页面刷新/退出由卸载保护提醒。设置页常驻展示未保存状态。窗口外壳不得绕过内容的 `confirmClose`。
 
 普通设置不会让客户端主动断开或要求重新连接。运行参数、编辑器、日志、媒体和内存限制在下一次对应操作采用；大脑连接参数在下一次请求采用；语义、角色、预设、感官组、MCP 和非 Hooks 资产等待受影响节点树的安全边界。端口、host、transport、认证初始化、根路径和数据库等进程级绑定仍需要重启。
 
@@ -41,9 +41,9 @@
 
 动效偏好提供“跟随系统 / 完整 / 精简”三档，默认跟随客户端 `prefers-reduced-motion`。选择会写入 `chery-motion`，并通过 storage event 与 BroadcastChannel 同步到同源窗口；精简档保留必要的透明度反馈，关闭循环装饰、位移和 stagger。
 
-动效偏好入口位于「全局」的「界面动效」卡片，在浏览器内嵌和原生窗口中同样可见；选择立即在当前客户端生效并保存，无需点击配置保存按钮。全局卡片入场和交互也遵循该偏好。
+动效偏好入口位于「全局」的「界面动效」卡片；选择立即在当前浏览器生效并保存，无需点击配置保存按钮。全局卡片入场和交互也遵循该偏好。
 
-鼠标点击特效（ba-click-fx）默认开启，覆盖浏览器单页与全部 Electron 窗口；桌面透明窗按官方透明宿主配置接入。入口位于「全局」的「点击特效」卡片，选择写入 `chery-click-fx`，并经 storage event 与 BroadcastChannel 同步到同源窗口，立即生效；「界面动效」处于「精简」档时点击特效自动停用。
+鼠标点击特效（ba-click-fx）默认开启，覆盖浏览器界面。入口位于「全局」的「点击特效」卡片，选择写入 `chery-click-fx`，并经 storage event 与 BroadcastChannel 同步到同源窗口，立即生效；「界面动效」处于「精简」档时点击特效自动停用。
 
 ## 角色图鉴与装备
 
@@ -120,7 +120,7 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 
 **布局**：会话路由、工作区、审批规则三组选择并排一行（紧凑 `card-grid-3`）。三组字段的 label 均挂 info 图标（hover 出 tip，见下方「tip 排版与配色」）。工作区校验告警（后端 `config.save` 返回的 warning / 前端格式错误）显示在「工作区」字段内部、输入框正下方，不放整个三列块底部。
 
-**工作区选择**：目录选择按钮按运行模式互斥展示——Electron 模式显示「选择目录」原生按钮（`dialog.showOpenDialog`，选的是后端同机绝对路径）；浏览器模式显示「浏览」按钮，通过 `config.workspace.browse.*` 协议打开「面包屑 + 目录列表」弹层，逐层懒加载服务端文件系统并选中目录回填。**默认全盘可浏览**（POSIX 从 `/`、win32 全部盘符），权限由系统对后端的实际访问报错把关——目录无权限时列表行内提示「下级无法加载（无权限）」，不可再钻取；`.chery` 系统配置目录恒不可见。配置 `server.workspace_browse.roots` 可收窄浏览范围。选中目录走既有 `updateWorkspace` → `workspaceChange` → 即时校验链路（`config.workspace.validate`）。手动输入绝对路径不受影响。
+**工作区选择**：浏览器中的「浏览」按钮通过 `config.workspace.browse.*` 协议打开「面包屑 + 目录列表」弹层，逐层懒加载服务端文件系统并选中目录回填。**默认全盘可浏览**（POSIX 从 `/`、win32 全部盘符），权限由系统对后端的实际访问报错把关——目录无权限时列表行内提示「下级无法加载（无权限）」，不可再钻取；`.chery` 系统配置目录恒不可见。配置 `server.workspace_browse.roots` 可收窄浏览范围。选中目录走既有 `updateWorkspace` → `workspaceChange` → 即时校验链路（`config.workspace.validate`）。手动输入绝对路径不受影响。
 
 **Cherry Nexus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（模板默认为 roles=[cheryNyxus, roleArchitect, roleAcceptance, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。其中 `curator` / `roleArchitect` / `roleAcceptance` 是系统锁定角色（锁定时不可删改、非公共），`explanation` 为种子公共角色。工作台内「编辑角色」仍可进入查看，但职责按钮（组长/解释角色）与成员增删对固定预设禁用；固定预设卡片表面职责区同样不可调整。
 
@@ -138,7 +138,7 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 | --- | --- | --- |
 | 保存竞态与关闭保护 | [useSettingsDialogController.ts](../../web/src/features/agent/settings/useSettingsDialogController.ts) 的 `save`、`confirmClose`；[App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose` | `pnpm test:web`、`pnpm web:type-check`；浏览器与原生关闭验收 |
 | 设置入口、动效偏好与标签导航 | [SettingsDialog.vue](../../web/src/features/agent/settings/SettingsDialog.vue) 的 `controller`、`selectTab` | `web/test/architecture/settingsTabVisibility.test.ts` |
-| 会话归档、筛选与整组永久删除 | [ArchiveTab.vue](../../web/src/features/agent/settings/tabs/archive/ArchiveTab.vue) 与 `useArchiveTab`；跨窗口失效入口为 [startApplicationRuntime.ts](../../web/src/application/runtime/startApplicationRuntime.ts) | `web/test/settings/archive.test.ts`、`pnpm web:type-check`；浏览器与 Electron 人工验收 |
+| 会话归档、筛选与整组永久删除 | [ArchiveTab.vue](../../web/src/features/agent/settings/tabs/archive/ArchiveTab.vue) 与 `useArchiveTab`；跨窗口失效入口为 [startApplicationRuntime.ts](../../web/src/application/runtime/startApplicationRuntime.ts) | `web/test/settings/archive.test.ts`、`pnpm web:type-check`；浏览器人工验收 |
 
 新增配置域从 `config/constants.ts` 的 `TABS` 和 `SettingsDialog.vue` 内容分支接入；保存继续统一经过父级控制器，子页不得自行重置保存基线。
 

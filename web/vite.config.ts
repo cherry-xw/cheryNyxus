@@ -1,10 +1,6 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import electron from 'vite-plugin-electron/simple'
-
-// ELECTRON_ENABLED=false → 纯浏览器开发（跳过 electron 构建/启动，无 X server 环境可用）
-const electronEnabled = process.env.ELECTRON_ENABLED !== 'false'
 
 /**
  * 把 node_modules 中的依赖按职能拆到独立的 vendor chunk，便于浏览器并行加载与长期缓存。
@@ -31,17 +27,7 @@ function manualChunks(id: string): string | undefined {
 }
 
 export default defineConfig({
-  plugins: [
-    vue(),
-    electronEnabled &&
-      electron({
-        main: {
-          entry: 'electron/main.ts',
-        },
-        preload: { input: 'electron/preload.ts' },
-        renderer: {},
-      }),
-  ].filter(Boolean),
+  plugins: [vue()],
   base: './',
   resolve: {
     alias: {
@@ -54,7 +40,7 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
-    // fs.inotify.max_user_watches 默认 65536，被 web 的大 deps + electron plugin
+    // fs.inotify.max_user_watches 默认 65536，大量依赖
     // 同时扫描耗尽，dev 报 EMFILE。改 polling 不占 inotify watcher（CPU 几乎无感）。
     watch: {
       usePolling: true,

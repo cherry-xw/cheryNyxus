@@ -1,63 +1,9 @@
-# Web 端环境抽象层（platform.ts）
+# 浏览器连接与地址构造
 
-> 源码 [web/src/services/platform.ts](../../web/src/services/platform.ts) ｜ 上级 [README.md](README.md) ｜ 相关 [./electron.md](electron.md)、[./deployment.md](deployment.md)
+> 实现入口：[platform.ts](../../web/src/services/platform.ts)；部署边界见[部署说明](deployment.md)。
 
-## 职责
+浏览器通过当前站点或已保存的远端服务地址获取 `/api/config`。`httpUrl()` 为本地同源请求保留相对路径，远端请求使用已选目标地址；`wsUrl()` 优先使用服务提供的公开 WebSocket 地址或路径，并在开发环境使用同源 `/ws`。远端认证头来自登录状态，本地 WebSocket 使用 `/api/config` 提供的短期 `sessionToken`。
 
-封装渲染进程运行在哪种容器、后端连接目标是什么、HTTP/WS 地址如何生成。纯前端 Electron 不注入后端端口；连接目标由本地管理器、直连地址或 relay 发现提供。
+`getServerConfig({ refresh: true })` 在重连时重新读取配置；请求超时后由 [ws.ts](../../web/src/services/ws.ts) 的重连流程重试。本地管理器是独立的服务管理入口，其控制接口与浏览器业务连接互不混用。连接目标的选择和登录优先改造见[进行中的计划](../plan/login-first-capabilities/README.md)。
 
-## 导出 API
-
-```ts
-export const isElectron: boolean
-export interface ServerConfig {
-  wsPort: number
-  webPort: number
-  transport: 'binary' | 'json'
-  sessionToken?: string
-  backendId?: string
-  httpBasePath?: string
-  wsPath?: string
-  httpBaseUrl?: string
-  wsUrl?: string
-}
-export function httpUrl(path: string): string
-export function wsUrl(config: ServerConfig): string
-export async function getServerConfig(options?: { refresh?: boolean }): Promise<ServerConfig>
-export function clearManagedBackendDiscovery(): void
-```
-
-## 本地管理器发现
-
-纯前端 Electron 在没有旧版 `__BACKEND_CONFIG__` 和 `__BACKEND_HTTP_URL__` 时，先访问固定的本机管理器：
-
-```text
-GET http://127.0.0.1:39980/api/connection
-  → backendListener.addresses.local.httpPort
-GET http://127.0.0.1:<实际端口>/api/config
-```
-
-管理器只绑定 loopback，不能通过 relay 或 nginx 访问。发现结果只用于连接本机后端，不提供 Backend ID 选择界面。
-
-`getServerConfig({ refresh: true })` 会先调用 `clearManagedBackendDiscovery()`，再重新读取管理器状态和后端 `/api/config`。后端重启、session token 轮换或动态端口变化后的自动/手动重连必须使用 refresh。
-
-## HTTP 与 WS 地址
-
-- 远端登录模式使用认证服务保存的目标地址和访问 token。
-- 纯前端 Electron 使用管理器发现的 HTTP 地址和 `/api/config` 返回的 WS 信息。
-- 浏览器开发模式使用同源 `/ws` 代理。
-- 浏览器生产模式使用后端发现的 WS 端口或公共路径。
-- `httpBasePath`、`wsPath`、`httpBaseUrl` 和 `wsUrl` 优先于默认端口拼接，用于 relay 和子路径部署。
-
-渲染业务不得直接读取 preload 全局；统一使用 `platform.ts` 的 `httpUrl()`、`wsUrl()` 和 `getServerConfig()`。
-
-## 会话 token 与重连
-
-本地 `sessionToken` 是后端 loopback WebSocket 的短期能力，worker 重启时会轮换。`ws.ts` 在重连前调用 `getServerConfig({ refresh: true })`，确保不会继续发送旧 token 或旧端口。配置请求带 5 秒超时，失败后由 WS 客户端按既有退避时间重试。
-
-## 关联模块
-
-- [`web/src/services/ws.ts`](../../web/src/services/ws.ts)：消费动态 WS 地址并处理 refresh/reconnect。
-- [`web/src/services/http.ts`](../../web/src/services/http.ts)：保留 `httpUrl` 转发入口。
-- [`manager/src/server.ts`](../../manager/src/server.ts)：提供本地连接发现。
-- [`docs/frontend/electron.md`](electron.md)：说明 Electron 纯前端壳边界。
+验证：`pnpm web:type-check`、`pnpm web:build`；HTTP/WS 路径和重连由相应前端测试验证，真实连接由用户人工复核。

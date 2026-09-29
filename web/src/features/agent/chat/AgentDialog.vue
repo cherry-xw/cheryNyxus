@@ -24,15 +24,11 @@ import {
 import { WorkspaceSessionBrowser } from '../attention/public'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { ownerOverlayZIndex } from '@/styles/overlayLayers'
 import { useAgentsStore, useInteractionsStore } from '@/application/public'
 
-const props = withDefaults(defineProps<{ native?: boolean; embedded?: boolean }>(), {
-  native: false,
-  embedded: false,
-})
-const shellless = computed(() => props.native || props.embedded)
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+const shellless = computed(() => props.embedded)
 const agents = useAgentsStore()
 const interactions = useInteractionsStore()
 // 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 且非 pet/nyxus 来源时其蒙层带 blur，否则透明。
@@ -47,7 +43,7 @@ const isTopMask = computed(
 
 const overlayMotion = useOverlayTransitionHooks('dialog')
 
-// desktop surface（Electron 全工作区透明窗）：pet/nyxus 来源为无遮罩浮动窗，overlay 的
+// pet/nyxus 来源为无遮罩浮动窗，overlay 的
 // 全屏 DOM 不能拦截命中测试——置 pointer-events:none 让穿透判定只认 panel 实体，
 // panel 内部恢复 auto（agentDialog.less 的 .dialog-panel）。
 const isFloatingOverlay = computed(
@@ -274,7 +270,6 @@ function bindPanelEl(el: unknown): void {
     el instanceof HTMLElement ? el : ((el as { $el?: HTMLElement } | null)?.$el ?? null)
 }
 function onHeaderPointerDown(e: PointerEvent): void {
-  if (props.native) return
   const target = e.target as HTMLElement
   if (target.closest('button, input, a, [contenteditable="true"], .el-tooltip')) return
   const panel = panelEl.value
@@ -342,7 +337,6 @@ const dragPreviewStyle = computed(() =>
 )
 /** 路由小窗锚定在发送面板右侧；实时读面板 rect，拖动/布局变化自适应。 */
 const traceWindowPos = computed(() => {
-  if (props.native) return { left: '12px', top: '52px' }
   void panelPos.value // 面板拖动变更时触发重算；未拖动时读当前居中布局的实际 rect。
   const panel = panelEl.value
   if (!panel) return { left: '0px', top: '0px' }
@@ -433,18 +427,6 @@ function openWorkbenchForChat(): void {
   const preset = quickPresetId.value
   if (!preset) return
   const presetName = quickPresetName.value
-  // desktop surface：工作台由 Electron 原生独立窗承载（每预设一窗）；浏览器保持应用内多窗口
-  const bridge = desktopBridge()
-  if (bridge) {
-    bridge.openWindow({
-      kind: 'workbench',
-      presetId: preset,
-      presetName,
-      chatId: chatId.value ?? undefined,
-      returnToComposer: agents.activeDialogSource === 'pet',
-    })
-    return
-  }
   const id = agents.openWorkbenchWindow(preset, presetName)
   if (chatId.value) agents.setWorkbenchWindowChat(id, chatId.value)
 }
@@ -459,19 +441,6 @@ async function openWorkspaceTree(
   const preset = quickPresetId.value
   if (!preset) return
   const presetName = quickPresetName.value
-  // desktop surface：工作台渲染在另一原生窗（本 renderer 不承载），必须经 main 建窗/聚焦并下发焦点定位
-  const bridge = desktopBridge()
-  if (bridge) {
-    bridge.openWindow({
-      kind: 'workbench',
-      presetId: preset,
-      presetName,
-      chatId: rootChatId,
-      returnToComposer: agents.activeDialogSource === 'pet',
-      focus: { sourceChatId, interactionId, anchorNodeId },
-    })
-    return
-  }
   const id = agents.openWorkbenchWindow(preset, presetName)
   agents.setWorkbenchWindowChat(id, rootChatId)
   agents.setWorkbenchWindowFocus(id, {
@@ -482,10 +451,6 @@ async function openWorkspaceTree(
 }
 
 function closeDialog(): void {
-  if (props.native) {
-    desktopBridge()?.windowControl('close')
-    return
-  }
   agents.closeAllHistory()
   closeAgentDialog()
 }
@@ -535,7 +500,6 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
 /** dialog-head 工作区模式：workspace 有值时 pet name 前 📁（路径失效改 ⚠ 红色），hover 显全路径。无 workspace 纯文本。 */
 const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 
-// WindowFrame consumes the native title actions and their reactive state.
 defineExpose({
   openWorkbenchForChat,
   openWorkspaceTree,
@@ -562,7 +526,6 @@ defineExpose({
       :class="{
         'is-top-mask': isTopMask,
         'is-floating': isFloatingOverlay,
-        'is-native': native,
         'is-embedded': embedded,
       }"
     >
@@ -638,7 +601,7 @@ defineExpose({
         <WorkspaceSessionBrowser
           v-show="dialogView === 'attention'"
           :preset-id="quickPresetId"
-          :native="shellless"
+          :grouped="shellless"
           @tree="openWorkspaceTree"
         />
 

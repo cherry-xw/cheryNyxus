@@ -1,7 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", "dist-electron/**"] },
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
     "test": {},
     "type-check": {},
     "dev": { "cache": false, "persistent": true },

@@ -96,7 +96,7 @@ async function dispatch<TIn, TOut>(
 1. registry 查 event → 合并全局 + brain 级 handler 列表
 2. 按 matcher 过滤 → 按 `if` 谓词过滤
 3. **顺序执行**（不支持并发：避免 stdout 竞态）handler：
-   - spawn `<resolved> -c command`（经 `resolvePosixShell()` 解析，见「跨平台执行」），stdin 写 `{event, payload, ctx}` JSON；任何 spawn 控制台子进程都须带 `windowsHide: true` 防漏（约定见 [web/electron.md](../../frontend/electron.md#electron-spawn-后端模式-2)）
+   - spawn `<resolved> -c command`（经 `resolvePosixShell()` 解析，见「跨平台执行」），stdin 写 `{event, payload, ctx}` JSON；Windows 控制台子进程须带 `windowsHide: true` 防止弹出窗口。
    - 解析 stdout JSON（catch 单行解析失败，跳过该 handler）
    - 应用决策：
      - `{body}` → 替换 `payload.body`

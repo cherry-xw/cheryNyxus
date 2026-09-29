@@ -16,9 +16,8 @@
 | DB | `src/db/` | [docs/db.md](../docs/db.md) | 持久化：多 sqlite 实例、soul.db + 按月分片 YYYY-MM.db |
 | Utils | `src/utils/` | [docs/utils/](../docs/utils/) | 工具：config、drain、logger、hash/json/generator |
 | 配置 | `.chery/` + `.chery/db/` | — | 运行时配置 + 数据库（不走打包，运行时读取） |
-| 打包 | `scripts/` | [docs/web/pack-guide.md](../docs/frontend/pack-guide.md) | Electron 打包：`pnpm electron:pack` |
 
-> 前端 `web/`（pnpm workspace 独立 package，Vue3 + Vite 8 + Electron 43）架构说明见 [docs/web/](../docs/web/)。
+> 前端 `web/`（pnpm workspace 独立 package，Vue3 + Vite 8）说明见 [docs/frontend/](../docs/frontend/README.md)。
 
 ## 常用命令
 

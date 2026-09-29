@@ -18,6 +18,6 @@ Agent 消息中间件消费最新用户消息中的 `[[file:...]]`，验证后�
 
 Terminal manager 持有 node-pty 本机伪终端和 SSH2 client/channel。本机工作目录必须在当前 chat 工作区内；SSH 使用 keepalive 和后端首次信任（TOFU）：首次成功认证后由服务端保存目标的 SHA256 主机指纹，后续连接发现指纹变化即拒绝。可使用临时密码、临时私钥或 secretStore 保存的密码。设置页预设只保存凭据标识，密码在服务端以密文保存，创建 SSH 会话时由后端临时解密并交给 `ssh2` 完成认证，不向前端返回明文。主机指纹也只保存在服务端，不通过 RPC 返回前端。会话只属于创建它的 WebSocket 连接，每连接最多 4 个，全局最多 32 个。关闭、断线、30 分钟无输入和服务停止时移除会话记录并调用依赖的关闭接口；输出分段发送，连接积压超过 2 MiB 时关闭。
 
-`ssh2` 与 `node-pty` 在创建终端时通过 Node 的 `createRequire` 加载，不能作为 SSR 静态导入打包：SSH 的可选本机加速模块可能没有构建产物。桌面运行依赖准备与验证见[打包手册](../../frontend/pack-guide.md)。
+`ssh2` 与 `node-pty` 在创建终端时通过 Node 的 `createRequire` 加载，不能作为 SSR 静态导入打包：SSH 的可选本机加速模块可能没有构建产物。终端由独立后端提供，浏览器只承载界面。
 
 实现入口为 `src/service/workspace/` 与 `src/service/terminal/`，RPC 注册在 `src/service/index.ts`，公共类型归 `src/service/message/types.ts`。验证入口为 `test/service/workspace/files.test.ts` 与 `test/service/terminal/manager.test.ts`；后者使用本机伪终端和临时回环 SSH 服务验证输入输出、连接归属和主机指纹。

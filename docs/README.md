@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 后端 | [backend/](./backend/README.md) | `src/` 中的 Agent、Core、数据库、记忆、服务与工具模块 |
 | 中转服务 | [relay/](./relay/README.md) | 独立中转进程、设备握手、后端发现与受限路由 |
-| 前端 | [frontend/](./frontend/README.md) | `web/` 应用、工作台、设置、桌宠与 Electron 平台能力 |
+| 前端 | [frontend/](./frontend/README.md) | `web/` 浏览器应用、工作台、设置与桌宠 |
 | 跨端共享 | [shared/](./shared/README.md) | 前后端共同遵守的架构、协议、状态机与设备 profile |
 | 质量 | [quality/](./quality/README.md) | 测试基线、流程测试与测试工具 |
 | 指南 | [guides/](./guides/README.md) | 面向开发者和维护者的操作指南 |
@@ -27,7 +27,7 @@
 | 我想做什么 | 先读 | 下一步 |
 | --- | --- | --- |
 | 修改 Agent、模型、感官、提示词或后端运行流程 | [后端文档](./backend/README.md) | 从对应模块的任务定位表进入专题、代码入口和测试 |
-| 修改 Web、Electron、工作台、设置或桌宠 | [前端文档](./frontend/README.md) | 从前端模块导航和任务路由进入页面规范与代码入口 |
+| 修改浏览器工作台、设置或桌宠 | [前端文档](./frontend/README.md) | 从前端模块导航和任务路由进入页面规范与代码入口 |
 | 修改前后端共同遵守的协议、状态或数据模型 | [跨端共享文档](./shared/README.md) | 先确认共享契约，再进入后端或前端实现入口 |
 | 修改中转服务、设备绑定或远程连接 | [中转服务文档](./relay/README.md) | 先读中转协议，再进入 relay 或前端中转连接入口 |
 | 判断测试、人工验收或长期证据如何保存 | [质量文档](./quality/README.md) | 按验证类型进入测试、证据或已知问题入口 |

@@ -23,7 +23,7 @@ import {
 } from 'vue'
 import { ArrowLeft, ArrowRight, Close } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
-import { useAgentsStore, useConfigApplyStore, useConnectionStore } from '@/application/public'
+import { useAgentsStore, useConfigApplyStore } from '@/application/public'
 import {
   agentApi,
   type ConfigDto,
@@ -45,7 +45,6 @@ import {
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import { uuid } from '@/utils/uuid'
 import type { IconInput } from 'morphicons/vue'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
 import BrainsTab from './tabs/brain/BrainsTab.vue'
 import SensesTab from './tabs/tools/SensesTab.vue'
 import PresetsTab from './tabs/agent/PresetsTab.vue'
@@ -59,12 +58,11 @@ import PluginsTab from './tabs/tools/PluginsTab.vue'
 import HooksTab from './tabs/hooks/HooksTab.vue'
 import SkeletonTab from './tabs/SkeletonTab.vue'
 import OpenConfigDirButton from './components/OpenConfigDirButton.vue'
-import type { SettingsSection } from '@/domain/shell/desktopBridge'
+import type { SettingsSection } from '@/domain/shell/settingsSection'
 import { externalRevisionAction, isRevisionConflict } from './config/revisionSync'
 import { previewConfirmationMessage, previewRequiresConfirmation } from './config/applyPresentation'
 
 export type SettingsDialogControllerProps = {
-  native?: boolean
   embedded?: boolean
   initialSection?: SettingsSection
 }
@@ -79,17 +77,11 @@ const SETTINGS_TAB_BY_SECTION: Record<SettingsSection, TabKey> = {
 export function useSettingsDialogController(props: SettingsDialogControllerProps) {
   const agents = useAgentsStore()
   const configApply = useConfigApplyStore()
-  const connection = useConnectionStore()
-  /** Electron 原生设置窗面（WindowFrame 外壳内）：铺满窗、去自绘拖拽/三键、关闭走 windowControl；
-   *  浏览器 overlay 路径（native=false）逐字节不变。 */
-  const isNative = computed(() => !!props.native && !!desktopBridge())
   const isEmbedded = computed(() => !!props.embedded)
-  const isShellless = computed(() => isNative.value || isEmbedded.value)
-  const bridge = desktopBridge()
+  const isShellless = isEmbedded
   const draft = ref<ConfigDto | null>(null)
   const configBaseline = ref('')
   let settingsLoadSeq = 0
-  let allowNativeUnload = false
   let closeConfirmation: Promise<boolean> | null = null
   const initialTab = props.initialSection
     ? SETTINGS_TAB_BY_SECTION[props.initialSection]
@@ -156,7 +148,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     ...(isShellless.value ? {} : panelStyle.value),
   }))
   function onTitlePointerDown(e: PointerEvent): void {
-    // native 面拖拽归 WindowFrame（-webkit-app-region: drag），本面板不做 pointer 拖
     if (isShellless.value) return
     if (e.button !== 0) return
     if ((e.target as Element | null)?.closest('button')) return
@@ -322,7 +313,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
 
   watch(activeTab, (tab) => {
     // 浏览器 overlay 关闭时只复位状态，不启动一次不可见的切换动画。
-    if (!isNative.value && !agents.settingsOpen) {
+    if (!agents.settingsOpen) {
       tabRenderSeq += 1
       renderedTab.value = tab
       tabSwitching.value = false
@@ -332,7 +323,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   })
 
   /** 打开设置时拉取全量数据（config + 工具/角色/规则/env/技能/插件清单）。
-   *  浏览器路径每次打开调用；native 面挂载即调用（settingsOpen 永不翻转）。 */
+   *  浏览器设置窗口每次打开调用。 */
   async function loadSettingsData(resetHooks = false): Promise<void> {
     const seq = ++settingsLoadSeq
     const initialDraft = JSON.stringify(draft.value)
@@ -417,7 +408,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     async (open) => {
       // 原生设置窗由 loadNativeSettings 等待独立 renderer 的 WS 连通后再加载。
       // 浏览器设置改为按需挂载后，组件创建时 settingsOpen 已经为 true，必须立即执行本监听。
-      if (isNative.value) return
       if (!open) {
         settingsLoadSeq += 1
         draft.value = null
@@ -515,20 +505,13 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   }
   async function close(): Promise<void> {
     if (!(await confirmClose())) return
-    if (isNative.value) {
-      allowNativeUnload = true
-      // 原生设置窗关闭由 main 进程统一处理（默认销毁；工作台窗才是 hide 保活）
-      bridge?.windowControl('close')
-      return
-    }
     agents.settingsSection = null
     agents.settingsOpen = false
   }
   function onBeforeUnload(event: BeforeUnloadEvent): void {
-    if (allowNativeUnload || (!saving.value && !hasUnsavedChanges.value)) return
+    if (!saving.value && !hasUnsavedChanges.value) return
     event.preventDefault()
     event.returnValue = ''
-    if (isNative.value) void close()
   }
   function onError(msg: string): void {
     error.value = msg || null
@@ -705,7 +688,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   watch(
     () => configApply.savedRevision,
     (revision) => {
-      if (!isNative.value && !agents.settingsOpen) return
+      if (!agents.settingsOpen) return
       const action = externalRevisionAction({
         revision,
         baseRevision,
@@ -720,47 +703,12 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       void reloadServerVersion()
     },
   )
-  /**
-   * native 面数据加载：settings 窗 renderer 的 WS 是独立异步建连（bootstrap() 在 App.vue onMounted
-   * 才执行，而 SettingsDialog 作为子组件先挂载）——若挂载立即 RPC，`config.get` 会因 wsClient 未
-   * connected 抛「还没连上服务器」。故等待 `connection.status === 'connected'` 后再拉数据。
-   */
-  let nativeConnectWatch: (() => void) | undefined
-  let nativeSectionCleanup: (() => void) | undefined
-  function loadNativeSettings(): void {
-    if (!isNative.value) return
-    if (connection.status === 'connected') {
-      void loadSettingsData()
-      nextTick(setupTabScroll)
-      return
-    }
-    nativeConnectWatch = watch(
-      () => connection.status,
-      (status) => {
-        if (status !== 'connected') return
-        nativeConnectWatch?.()
-        nativeConnectWatch = undefined
-        void loadSettingsData()
-        nextTick(setupTabScroll)
-      },
-    )
-  }
   onMounted(() => {
     window.addEventListener('beforeunload', onBeforeUnload)
-    if (isNative.value) {
-      nativeSectionCleanup = bridge?.onSettingsSection((section) => {
-        activeTab.value = SETTINGS_TAB_BY_SECTION[section]
-      })
-    }
-    // native 面：settingsOpen 永不翻转（窗开即挂载），等 WS 连接后拉数据 + 挂 tab 滚动；
-    // 浏览器路径由 immediate watch(settingsOpen) 驱动，此处 no-op。
-    loadNativeSettings()
   })
   onUnmounted(() => {
     settingsLoadSeq += 1
     window.removeEventListener('beforeunload', onBeforeUnload)
-    nativeConnectWatch?.()
-    nativeSectionCleanup?.()
     dragCleanup?.()
     teardownTabScroll()
   })
@@ -821,7 +769,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   watch(
     () => agents.settingsOpen,
     (open) => {
-      if (isNative.value) return
       if (open) nextTick(setupTabScroll)
       else teardownTabScroll()
     },
@@ -878,7 +825,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     hooksState,
     hasUnsavedChanges,
     indexCount,
-    isNative,
     isEmbedded,
     isShellless,
     loading,

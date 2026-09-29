@@ -1,15 +1,10 @@
 # 登录窗（auth / ServerLoginDialog）
 
-> 状态：设计规格（Doc-First，先于实现落稿）｜ 源码 `web/src/features/auth/` ｜ 相关 [electron.md](electron.md)（原生 login 窗）、[设计语言规范](../standards/frontend/design-language.md)（全直角 / 字重 400 / 深空电光 token）
+> 源码 `web/src/features/auth/` ｜ 相关 [设计语言规范](../standards/frontend/design-language.md)；登录先行改造见[实施计划](../plan/login-first-capabilities/README.md)。
 
 ## 定位
 
-后端服务对接入口，两个共用同一组件的使用形态：
-
-| 形态 | 挂载点 | `native` | 关闭方式 |
-|---|---|---|---|
-| Electron 原生登录窗 | `LoginSurface.vue`（`?surface=login`，WindowFrame 外壳 `ACCESS CONTROL // NYXUS_OS`） | `true` | WindowFrame 三键 |
-| 应用内浮动弹窗 | `NyxusCore.vue` 工具环「连接」按钮（desktop 透明窗内，`data-desktop-hit` 命中） | 缺省（浮动：offset 拖拽 + ESC + 退出符） | ESC / 退出符 |
+当前后端服务对接入口是 `NyxusCore.vue` 工具环的「连接」按钮，打开应用内可拖动的 `ServerLoginDialog`。登录前置及服务选择尚按[计划](../plan/login-first-capabilities/README.md)实施。
 
 状态与提交逻辑走 `stores/auth.ts`（`login` / `savedPasswordPlain` / `logout` 等），本模块只负责视图与动效；本地 loopback 直连不鉴权（只设地址），远端需用户名/密码。
 
@@ -25,7 +20,6 @@
 - **三键行为**（弹窗自包含，不依赖工作台窗口管理）：最小化 = **卷帘收缩**（窗体缩为只剩标题栏，点标题栏或再按 `_` 恢复）；最大化 = 铺满视口（再按还原）；关闭 = `close()`。
 - **角括号**：四角 corner 括号标记（CyberWindow 同款装饰层；扫描线装饰已按用户要求移除）。
 - `--cyber-line` 派生描边 + `--panel` 底；出错时面板描边静态转红 + 错误卡片。
-- **native 形态全部对齐**：`WindowFrame`（所有 Electron 原生窗公共外壳）标题栏同步 CyberWindow 视觉——channel 徽记（可选 `channel` prop，登录窗传 `AUTH`）+ signal `01 ▰▰▰` + 文字三键（样式同 CyberWindow，行为仍走 `window:control` IPC）；登录窗 native 面不再渲染内部标题栏（WindowFrame 承担）。
 
 ### v5 bug 修复记录
 
@@ -79,7 +73,7 @@
 
 | 修改意图 | 稳定入口与关键符号 | 验证 |
 | --- | --- | --- |
-| 初始化、提交与重试 | [ServerLoginDialog.vue](../../web/src/features/auth/ServerLoginDialog.vue) 的 `submit`、`visible` 监听 | `pnpm test:web`、`pnpm web:type-check`；原生首次打开与断连重试 |
+| 初始化、提交与重试 | [ServerLoginDialog.vue](../../web/src/features/auth/ServerLoginDialog.vue) 的 `submit`、`visible` 监听 | `pnpm test:web`、`pnpm web:type-check`；浏览器首次打开与断连重试 |
 | 连接结果 | [connection.ts](../../web/src/stores/connection.ts) 的 `reconnect` | 同上；仅连接状态归 store，鉴权归 auth store |
 | 登录状态与 Nyxus 视觉一致性 | [`loginState.ts`](../../web/src/domain/auth/loginState.ts) 的 `resolveLoginState()` | [`web/test/auth/loginState.test.ts`](../../web/test/auth/loginState.test.ts)、[`web/test/nyxus/cosmicScheduler.test.ts`](../../web/test/nyxus/cosmicScheduler.test.ts) |
 
@@ -87,10 +81,9 @@
 
 - [ ] 浮动窗与工作台 CyberWindow 一致：AUTH channel 徽记 + signal + 文字三键 + 角括号 + `--cyber-line` 描边
 - [ ] 三键：最小化卷帘收缩（点标题栏恢复）、最大化铺满/还原、关闭
-- [ ] native 窗：WindowFrame 标题栏同视觉（AUTH 徽记 + signal + 文字三键），登录内容无重复标题栏
 - [ ] 密码常态由原生 `type="password"` 遮蔽，开灯切换 `type="text"`；模板无密码 `value` 属性，DOM 中无额外原文文本层
 - [ ] 手电光束：光源在手电 icon 灯头口，细长锥形右细左粗、贯穿窗口并溢出左缘；尾部 ±1.5° 角度摆动 + 微抖、发射点微动（无大幅整体平移）；手电 icon 与光束刚体一致（同角旋转 + 同相浮动）；粗细/长度随输入井与按钮尺寸实测派生
 - [ ] 深色暖黄光 / 浅色黑光白字，两态几何动态一致
 - [ ] 出错：面板描边转红 + 错误卡片
 - [ ] 全直角、正文 400、中文 ≥12px、无新增硬编码色
-- [ ] native 与浮动两种形态、ESC、记住密码、已连接态（登出/断开）、错误展开均可用
+- [ ] 浏览器浮动窗、ESC、记住密码、已连接态（登出/断开）、错误展开均可用

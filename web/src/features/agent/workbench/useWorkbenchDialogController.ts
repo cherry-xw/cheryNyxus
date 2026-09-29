@@ -35,9 +35,6 @@ import { resolveWorkspaceRootChatId } from '@/features/agent/attention/public'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import {
   ConnectionStatusChip,
-  desktopBridge,
-  lockWindowRootColorScheme,
-  useWindowFrame,
 } from '@/features/desktop/public'
 import { LiteView, useLiteStore } from '@/features/lite/public'
 import { useWorkbenchViewMode } from './useWorkbenchViewMode'
@@ -62,7 +59,6 @@ import {
 export type WorkbenchDialogControllerProps = {
   windowId: string
   presetId: string
-  native?: boolean
   embedded?: boolean
 }
 export type { FoldMode } from './useWorkbenchViewPreferences'
@@ -76,10 +72,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const taskOverview = useTaskOverviewStore()
   const taskBrowser = useTaskBrowserOverlay(props.windowId)
   const taskBrowserState = taskBrowser.state
-  /** 三视图模式（树 / 对话 / 精简，T33 L0 扩展）：标题栏三档切换，per-window 持久化（§2.1）。
-   * Electron 面（surface=workbench）标题栏由 WindowFrame title-actions 承载，与 App.vue
-   * 共用 useWorkbenchViewMode 保证各入口状态一致（native 模式 WorkbenchDialog 内部 titlebar
-   * 被 v-if="!isNative" 隐藏，切换入口在 App.vue title-actions）。 */
+  /** 三视图模式（树 / 对话 / 精简），按工作台窗口保存。 */
   const liteUi = useLiteStore()
   const { viewMode, setViewMode } = useWorkbenchViewMode(props.windowId)
   /** 对话模式局部会话（per-window）：下拉切换只改本值，不影响窗口会话与树/精简视图。
@@ -89,28 +82,17 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const win = computed(() => agents.workbenchWindows[props.windowId])
   /** Phase E：需用户操作（审批/提问）时窗口闪烁。非聚焦窗由 store 置位，点击窗口熄灭。 */
   const windowBlink = computed(() => win.value?.attentionBlink ?? false)
-  /** Electron 原生工作台窗面（surface=workbench）：shell 恒铺满窗口（即"全屏"），
-   *  保留自身 .workbench-titlebar 逐像素外观，只换驱动层（OS 拖拽 + windowControl 三键）。
-   *  浏览器 overlay 路径（native=false）逐字节不变。 */
-  const isNative = computed(() => !!props.native && !!desktopBridge())
-  const isEmbedded = computed(() => !!props.embedded && !isNative.value)
-  const isShellless = computed(() => isNative.value || isEmbedded.value)
-  /** 原生窗最大化态回推（双击标题栏 / Win+↑ / 拖边缘）；非 Electron 下恒 false（no-op）。 */
-  const { maximized: nativeMaximized, control: nativeWindowControl } = useWindowFrame()
-  /** 生效窗口模式：native 恒全屏（窗口即画布）；浏览器跟随 useWorkbenchWindow 持久化模式。 */
+  const isEmbedded = computed(() => !!props.embedded)
+  const isShellless = isEmbedded
   const effectiveMode = computed<WorkbenchMode>(() =>
     isShellless.value ? 'fullscreen' : workbenchMode.value,
   )
-  /** 最大化键显示态：native 跟随原生窗最大化回推，浏览器跟随 workbench 模式。 */
   const maxControlState = computed(() => {
-    if (isNative.value) return nativeMaximized.value ? 'restore' : 'maximize'
     return workbenchMode.value === 'fullscreen' ? 'restore' : 'maximize'
   })
   /** 点击标题栏即视为用户已注意到该窗口 → 熄灭闪烁。 */
   function onTitlePointerDown(e: PointerEvent): void {
     agents.setWorkbenchWindowBlink(props.windowId, false)
-    // native 面：拖拽归 OS（-webkit-app-region: drag），不进入 pointer 拖
-    if (isNative.value) return
     workbenchWindow.onTitlePointerDown(e)
   }
   const {
@@ -199,7 +181,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       workbenchSize.value.height,
     ],
     () => {
-      // native 面几何由原生窗管理（main 进程持久化 bounds），本窗 store 记录不写
+      // 嵌入浏览器桌面时，几何位置由父窗口管理。
       if (isShellless.value) return
       agents.setWorkbenchWindowGeometry(props.windowId, {
         mode: workbenchMode.value,
@@ -944,30 +926,16 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     error.value = null
     // 只清理本窗口的 Lite 草稿/展开/滚动等 UI state；canonical root 数据与其它窗口不动。
     liteUi.clearWindow(props.windowId)
-    if (isNative.value) {
-      // 原生窗：释放本窗根时间线订阅后交 main 关闭（工作台窗 close=hide，任务继续、WS 保持）
-      releaseCurrentRoot()
-      nativeWindowControl('close')
-      return
-    }
     agents.closeWorkbenchWindow(props.windowId)
     releaseCurrentRoot()
   }
   function minimizeWorkbench(): void {
-    if (isNative.value) {
-      nativeWindowControl('minimize')
-      return
-    }
     // 最小化不改焦点（2026-09-03 胶囊移除）：缩后窗不保持 focused，任务栏 tag 高亮才不失真；
     // setWorkbenchWindowMinimized 内部联动 minimizeWorkspaceWindow 把焦点转移给下一个可见窗。
     agents.setWorkbenchWindowMinimized(props.windowId, true)
   }
-  /** 最大化/还原：native 走原生窗（main 处理，回推更新图标）；浏览器切 workbench 模式。 */
+  /** 最大化/还原浏览器工作台窗口。 */
   function onMaximizeClick(): void {
-    if (isNative.value) {
-      nativeWindowControl(nativeMaximized.value ? 'restore' : 'maximize')
-      return
-    }
     workbenchWindow.toggleMode()
   }
   function onDialogEditorKeydown(e: KeyboardEvent): void {
@@ -987,8 +955,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   }
   // ── 斜杠指令菜单定位（Teleport 到 body 后用 fixed 定位；锚定 .msg-input 顶部，向上展开） ──
   onMounted(() => {
-    // native 面（无 WindowFrame 外壳）：锁定根画布 color-scheme + 加 window-surface class（灰边修复）
-    if (isNative.value) lockWindowRootColorScheme()
     syncDocumentForeground()
     window.addEventListener('focus', syncDocumentForeground)
     window.addEventListener('blur', syncDocumentForeground)
@@ -1137,7 +1103,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     foldMode,
     foldToolOpen,
     focusAttentionTree,
-    isNative,
     isEmbedded,
     isShellless,
     isNyxus,

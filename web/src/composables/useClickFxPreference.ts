@@ -6,7 +6,7 @@ import { readonly, ref } from 'vue'
  * 与 useMotionPreference 同模式：localStorage 持久化 + storage event /
  * BroadcastChannel 跨窗口同步，选择立即生效，无需进入配置保存流程。
  * 打开设置窗时选择「开启 / 关闭」即写入，所有同源窗口（浏览器单页、
- * Electron 各原生窗）实时一致。
+ * 多个同源浏览器窗口）实时一致。
  */
 const STORAGE_KEY = 'chery-click-fx'
 const CHANNEL_NAME = 'chery-click-fx'

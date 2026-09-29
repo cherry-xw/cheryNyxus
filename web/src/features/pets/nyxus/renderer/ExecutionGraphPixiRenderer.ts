@@ -230,10 +230,6 @@ function lerpColor(from: number, to: number, t: number): number {
   return (r << 16) | (g << 8) | b
 }
 
-function isElectronRuntime(): boolean {
-  return /\bElectron\//.test(navigator.userAgent)
-}
-
 export function rendererResolution(tier: RenderQualityTier = 'balanced'): number {
   const dpr = window.devicePixelRatio || 1
   return Math.min(dpr, renderQualityProfile(tier).graphDpr)
@@ -250,10 +246,7 @@ async function initializeApplication(
     autoDensity: true,
     resolution: rendererResolution(tier),
   }
-  // Electron uses several simultaneous transparent/non-transparent windows. The previous GPU crash
-  // was not isolated from WebGPU device creation, so retain hardware composition while using mature
-  // D3D-backed WebGL for Pixi. Normal browsers can still select WebGPU.
-  if (!isElectronRuntime() && 'gpu' in navigator) {
+  if ('gpu' in navigator) {
     const app = new Application()
     try {
       // 不给 WebGPU requestAdapter 传 powerPreference：Windows 上该选项被忽略（crbug 369219127）

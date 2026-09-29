@@ -10,7 +10,7 @@
   padding: 16px;
   background: var(--scrim);
   /* 同上：禁 backdrop-filter blur——桌面 pet/Nyxus 持续 rAF 动画下每帧重采样整屏重绘，
-     见 docs/frontend/renderer.md 遮罩实现约束（Electron native 面本就 none，两形态一致） */
+      见 docs/frontend/renderer.md 遮罩实现约束。 */
 }
 
 .settings-panel {
@@ -60,11 +60,7 @@
   height: 100%;
   border-radius: 0;
 }
-// native 面（Electron 原生设置窗，WindowFrame 外壳内）：overlay 去蒙层/居中内边距/模糊。
-// ⚠ 定位必须改 absolute（相对 WindowFrame body 的 position:relative 铺满），不能保留基类的
-//   fixed inset:0 —— 否则透明遮罩覆盖整个窗口，拦截标题栏（-webkit-app-region: drag 拖拽 +
-//   最小化/最大化/关闭三键）的鼠标事件，三键灰色暗淡、无法点击。
-.settings-overlay.is-native,
+// 嵌入浏览器窗口时由窗口外壳负责遮罩与定位。
 .settings-overlay.is-embedded {
   position: absolute;
   inset: 0;
@@ -72,8 +68,7 @@
   background: transparent;
   backdrop-filter: none;
 }
-// native 面：panel 100% 铺满（不再居中 1040px），去阴影/圆角/边框/transform 过渡
-.settings-panel.is-native,
+// 嵌入时填满浏览器窗口。
 .settings-panel.is-embedded {
   width: 100%;
   max-width: none;

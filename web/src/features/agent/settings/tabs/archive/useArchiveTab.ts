@@ -7,7 +7,6 @@ import {
   useConnectionStore,
   useWorkspaceStore,
 } from '@/application/public'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { archiveTree, deletionImpact } from './model'
 
 export function useArchiveTab() {
@@ -96,9 +95,7 @@ export function useArchiveTab() {
     selected.value = allSelected.value ? [] : groups.value.map((group) => group.rootChatId)
   }
   function viewChat(chatId: string) {
-    const bridge = desktopBridge()
-    if (bridge) bridge.openWindow({ kind: 'history', chatId, source: 'history' })
-    else workspace.openHistoryRoot(chatId)
+    workspace.openHistoryRoot(chatId)
   }
   async function remove(groupsToDelete: ArchiveGroup[]) {
     if (busy.value || !groupsToDelete.length) return

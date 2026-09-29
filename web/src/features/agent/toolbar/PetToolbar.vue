@@ -11,7 +11,6 @@ import { computed } from 'vue'
 import type { PetInstance } from '@/domain/pets/types'
 import { useAgentsStore } from '@/application/public'
 import { collectDescendantChatIds } from '@/domain/chat/sessionTree'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
 
 const CLOCK_EMOJIS = [
   '🕐',
@@ -72,17 +71,6 @@ function openWorkbench(): void {
   const presetId = workbenchPresetId.value
   if (!presetId) return
   const presetName = workbenchPresetName.value ?? undefined
-  // desktop surface：工作台渲染在另一原生窗（本 renderer 不承载），经 main 建窗/聚焦并下发会话
-  const bridge = desktopBridge()
-  if (bridge) {
-    bridge.openWindow({
-      kind: 'workbench',
-      presetId,
-      presetName,
-      chatId: agents.activeRootForPet(props.pet) ?? undefined,
-    })
-    return
-  }
   const id = agents.openWorkbenchWindow(presetId, presetName)
   // 仅新建窗口（chatId 为空）时恢复该 preset 活跃根会话，避免打开即空树；已存在窗口不覆盖当前浏览。
   if (!agents.workbenchWindows[id]?.chatId) {

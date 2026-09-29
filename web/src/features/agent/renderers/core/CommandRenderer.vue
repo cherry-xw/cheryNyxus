@@ -143,7 +143,7 @@ async function copyCommand(): Promise<void> {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(cmd)
     } else {
-      // 降级：execCommand（兼容非 HTTPS / 旧 Electron webview）
+      // 降级：execCommand（兼容非 HTTPS 页面）
       const ta = document.createElement('textarea')
       ta.value = cmd
       ta.style.position = 'fixed'

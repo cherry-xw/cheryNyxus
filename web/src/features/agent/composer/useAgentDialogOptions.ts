@@ -21,7 +21,6 @@ import {
 } from '@/application/backend/public'
 import type { PetInstance } from '@/domain/pets/types'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { ownerOverlayZIndex } from '@/styles/overlayLayers'
 import { createRoleConfigModel } from '@/features/agent/runtime/roleConfigModel'
 import {
@@ -62,7 +61,7 @@ const composerDrafts = new Map<string, { text: string; media: MediaAttachment[] 
 // Keep refresh protection after the last browser panel has unmounted.
 if (typeof window !== 'undefined')
   window.addEventListener('beforeunload', (event) => {
-    if (!composerDrafts.size || desktopBridge()) return
+    if (!composerDrafts.size) return
     event.preventDefault()
     event.returnValue = ''
   })
@@ -581,12 +580,6 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   function guardDraftUnload(event: BeforeUnloadEvent): void {
     stashDraft()
     if (!composerDrafts.size && !uploading.value && !sending.value) return
-    if (
-      desktopBridge() &&
-      !sending.value &&
-      window.confirm('有未提交的输入或附件。退出窗口并放弃这些草稿？')
-    )
-      return
     event.preventDefault()
     event.returnValue = ''
   }

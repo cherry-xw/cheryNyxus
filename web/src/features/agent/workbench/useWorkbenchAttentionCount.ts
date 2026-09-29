@@ -11,7 +11,7 @@ import { resolveWorkspaceRootChatId } from '@/features/agent/attention/public'
  * 对话/精简模式有各自的待处理入口（消息内 / 工具图标），计数归零、指示器不显示。
  *
  * 数据全部来自 Pinia store（窗口注册表 + 会话订阅 + 交互 store），
- * 因此 WorkbenchDialog 内部标题栏与外层标题栏（Electron 原生窗 WindowFrame、
+ * 因此 WorkbenchDialog 内部标题栏与外层浏览器工作区标题栏（
  * 浏览器多窗 CyberWindow 的 title-actions）读取到的是同一份事实。
  */
 export function useWorkbenchAttentionCount(

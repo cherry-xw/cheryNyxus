@@ -54,7 +54,6 @@ const {
   hasUnsavedChanges,
   indexCount,
   isEmbedded,
-  isNative,
   isShellless,
   loading,
   maximized,
@@ -148,10 +147,10 @@ onBeforeUnmount(() => {
     @leave-cancelled="settingsMotion.onLeaveCancelled"
   >
     <div
-      v-if="isNative || agents.settingsOpen"
+      v-if="agents.settingsOpen"
       key="overlay"
       class="settings-overlay"
-      :class="{ 'is-native': isNative, 'is-embedded': isEmbedded }"
+      :class="{ 'is-embedded': isEmbedded }"
       :style="{ zIndex: OVERLAY_Z_INDEX.modal }"
     >
       <div
@@ -161,7 +160,6 @@ onBeforeUnmount(() => {
         :class="{
           'is-maximized': maximized,
           'is-dragging': dragging,
-          'is-native': isNative,
           'is-embedded': isEmbedded,
         }"
         :style="panelStyles"

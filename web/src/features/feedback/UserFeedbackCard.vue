@@ -2,7 +2,6 @@
 import { ref } from 'vue'
 import type { FeedbackAction, UserFeedback } from '@chery/protocol'
 import { useAgentsStore, useChatSessionsStore, useConnectionStore } from '@/application/public'
-import { desktopBridge, openQuickComposerWindow } from '@/features/desktop/desktopBridge'
 import { FEEDBACK_ACTION_LABEL } from '@/domain/chat/runOutcome'
 
 const props = defineProps<{
@@ -37,19 +36,13 @@ async function execute(action: FeedbackAction): Promise<void> {
     } else if (action.type === 'reconnect') {
       await connection.reconnect()
     } else if (action.type === 'open_settings') {
-      const bridge = desktopBridge()
-      if (bridge) bridge.openWindow({ kind: 'settings', settingsSection: action.section })
-      else {
-        agents.settingsSection = action.section
-        agents.settingsOpen = true
-      }
+      agents.settingsSection = action.section
+      agents.settingsOpen = true
     } else if (action.type === 'resend_input' || action.type === 'select_chat') {
-      if (!openQuickComposerWindow(props.chatId, 'pet')) {
-        agents.workbenchMinimized = false
-        agents.activeDialogSource = 'pet'
-        agents.activeDialogView = 'composer'
-        agents.activeDialogChatId = props.chatId
-      }
+      agents.workbenchMinimized = false
+      agents.activeDialogSource = 'pet'
+      agents.activeDialogView = 'composer'
+      agents.activeDialogChatId = props.chatId
     }
   } finally {
     busyAction.value = undefined

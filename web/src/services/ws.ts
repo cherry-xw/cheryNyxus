@@ -37,7 +37,7 @@ interface PendingRequest {
 
 const RECONNECT_DELAY = 2000
 /**
- * 心跳间隔（ms）。浏览器/Electron 渲染进程的 WebSocket API 无法主动发协议层 ping 帧，
+ * 心跳间隔（ms）。浏览器 WebSocket API 无法主动发协议层 ping 帧，
  * 只能定时发应用层纯 JSON `{kind:'ping'}` 探测（后端原样回 `{kind:'pong'}`，见
  * src/service/websocket/index.ts handleMessage）。用于检测 worker 重启时的半开连接。
  */
@@ -149,11 +149,10 @@ export class WsClient {
   }
 
   /**
-   * 建立连接。serverConfig 缓存后默认复用（Electron preload 注入快照）；
+   * 建立连接。serverConfig 缓存后默认复用；
    * `refresh: true` 强制重新拉取最新配置——worker 重启会轮换本地 sessionToken，
    * **任何「重启后重连/手动重连」必须传 refresh**，否则缓存旧 token 会被服务端
-   * verifyClient 401 拒绝。Electron 下刷新经 main 进程 IPC（渲染进程直接 fetch
-   * /api/config 会被 CORS 拦截），浏览器走同源 fetch，见 [./platform.ts](./platform.ts)。
+   * verifyClient 401 拒绝。浏览器从选定服务重新读取配置，见 [./platform.ts](./platform.ts)。
    */
   async connect(
     options: { refresh?: boolean; query?: Record<string, string> } = {},

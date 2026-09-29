@@ -13,13 +13,13 @@ const props = withDefaults(
     presetId?: string
     rootChatId?: string
     excludeRootChatId?: string
-    native?: boolean
+    grouped?: boolean
     pendingOnly?: boolean
     /** 纸牌堆叠模式（工作台决策窗口）：多个事项批次同时堆叠，一次完整展示一张卡。 */
     stepper?: boolean
   }>(),
   {
-    native: false,
+    grouped: false,
     stepper: false,
   },
 )
@@ -51,7 +51,7 @@ const pendingCount = computed(
     ).length,
 )
 
-// ── native 整窗模式：按 rootChatId 会话分组（native 定位"待处理指向谁"） ──
+// ── 嵌入窗口时按根会话分组，方便定位待处理内容 ──
 interface PendingGroup {
   id: string
   name: string
@@ -65,7 +65,7 @@ function nameOfRoot(rootChatId: string): string {
   return summary?.preset ?? summary?.presetId ?? '会话'
 }
 const groups = computed<PendingGroup[]>(() => {
-  if (!props.native) return []
+  if (!props.grouped) return []
   const byRoot = new Map<string, InteractionRecord[]>()
   for (const item of scoped.value) {
     const list = byRoot.get(item.rootChatId) ?? []
@@ -83,9 +83,9 @@ const groups = computed<PendingGroup[]>(() => {
       )
   )
 })
-/** 统一渲染源：native 用分组；非 native 保持单列表现状（单组无头）。 */
+/** 统一渲染源：嵌入窗口分组，其余保持单列表现状。 */
 const displayGroups = computed<PendingGroup[]>(() =>
-  props.native ? groups.value : [{ id: '__all', name: '', items: scoped.value }],
+  props.grouped ? groups.value : [{ id: '__all', name: '', items: scoped.value }],
 )
 // 分组定位：导航 chip / 分组头点击 → 滚动到对应分组
 const groupEls = new Map<string, HTMLElement>()
@@ -208,7 +208,7 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="interaction-inbox"
-    :class="{ 'is-native': native, 'is-deck': stepper, 'is-pending-prompt': pendingOnly }"
+    :class="{ 'is-grouped': grouped, 'is-deck': stepper, 'is-pending-prompt': pendingOnly }"
     aria-label="待处理交互"
   >
     <div v-if="!pendingOnly" class="inbox-toolbar">
@@ -250,9 +250,9 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <!-- native 分组导航：每会话一个 chip，点击滚动定位到对应分组；「全部」回列表顶部 -->
+    <!-- 分组导航：每会话一个 chip，点击滚动定位到对应分组；「全部」回列表顶部 -->
     <nav
-      v-if="native && !pendingOnly && groups.length > 1"
+      v-if="grouped && !pendingOnly && groups.length > 1"
       class="inbox-nav"
       aria-label="待处理会话导航"
     >
@@ -369,11 +369,11 @@ onBeforeUnmount(() => {
       <section
         v-for="group in displayGroups"
         :key="group.id"
-        :ref="native ? (el) => bindGroupEl(group.id, el) : undefined"
+        :ref="grouped ? (el) => bindGroupEl(group.id, el) : undefined"
         class="inbox-group"
       >
         <h4
-          v-if="native && !pendingOnly"
+          v-if="grouped && !pendingOnly"
           class="group-head"
           title="滚动定位到本会话"
           @click="scrollToGroup(group.id)"
@@ -416,32 +416,32 @@ onBeforeUnmount(() => {
   font-size: 15px;
 }
 
-// native 整窗模式：铺满 WindowFrame body、无二次内外边距；toolbar 固定、列表区 flex:1 内部滚动
+// 嵌入窗口的分组模式：toolbar 固定、列表区内部滚动。
 // （浮动窗保持 padding + max-height 内滚现状，互不干扰）
-.is-native.interaction-inbox {
+.is-grouped.interaction-inbox {
   display: flex;
   flex-direction: column;
   min-height: 0;
   padding: 0;
 }
-.is-native .inbox-toolbar {
+.is-grouped .inbox-toolbar {
   flex: none;
   margin-bottom: 10px;
   padding: 0;
 }
-.is-native .inbox-list {
+.is-grouped .inbox-list {
   flex: 1;
   min-height: 0;
   max-height: none;
   gap: 0;
   .inner-scrollbar();
 }
-.is-native .inbox-group + .inbox-group {
+.is-grouped .inbox-group + .inbox-group {
   margin-top: 14px;
 }
 
 // 分组导航：每会话一个 chip（accent 描边 + 计数徽标），点击滚动定位
-.is-native .inbox-nav {
+.is-grouped .inbox-nav {
   flex: none;
   display: flex;
   align-items: center;

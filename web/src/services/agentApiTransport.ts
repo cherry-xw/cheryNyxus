@@ -81,8 +81,7 @@ export function clearServerConfigCache(): void {
 export async function fetchServerConfig(): Promise<ConfigDefault> {
   if (serverConfigCache) return serverConfigCache
   try {
-    // Electron 渲染进程不能跨源直取 /api/config，必须经 preload/main IPC；
-    // 浏览器与远端则由 platform 门面选择同源 fetch / 鉴权 fetch。
+    // 浏览器与远端由 platform 门面选择同源请求或带认证的请求。
     // refresh=true 保证设置保存并重启 worker 后拿到最新预设与 sessionToken。
     serverConfigCache = (await getServerConfig({ refresh: true })) as ConfigDefault
     return serverConfigCache

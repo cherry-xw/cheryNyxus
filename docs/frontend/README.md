@@ -1,6 +1,6 @@
 # 前端文档
 
-本目录对应 `web/`，维护浏览器界面、桌面端容器、工作台和桌宠等前端能力。跨前后端的消息格式与状态契约统一归入 [共享协议](../shared/protocol/README.md)，可复用的强制约束统一归入 [前端规范](../standards/frontend/README.md)。
+本目录对应 `web/`，维护浏览器界面、工作台和桌宠等前端能力。跨前后端的消息格式与状态契约统一归入 [共享协议](../shared/protocol/README.md)，可复用的强制约束统一归入 [前端规范](../standards/frontend/README.md)。
 
 ## 模块导航
 
@@ -9,7 +9,7 @@
 | 桌宠与 Nyxus | [pet/](./pet/README.md) | 桌宠领域模型、状态、运动、渲染及节点树工作台 |
 | 身份认证 | [auth-login.md](./auth-login.md) | 修改首次登录、连接完成反馈与失败重试 |
 | 桌面工作区 | [desktop-cyber-workspace.md](./desktop-cyber-workspace.md) | 修改窗口组织、关闭保护、菜单层级与诊断入口 |
-| 多窗口工作台 | [workbench-multi-window.md](./workbench-multi-window.md) | 修改会话草稿、附件提交、分支与 Electron 多窗协作 |
+| 多窗口工作台 | [workbench-multi-window.md](./workbench-multi-window.md) | 修改会话草稿、附件提交、分支与浏览器多窗协作 |
 | 工作台文件与 Terminal | [workbench-files.md](./workbench-files.md) | 三模式统一输入、工作区文件列表与只读查看、文件引用和 Terminal 展示 |
 | 设置中心 | [settings.md](./settings.md) | 修改保存与重载、未保存提示、标签导航和动效偏好 |
 | 协议绑定 | [frontend-protocol-binding.md](./frontend-protocol-binding.md) | RPC、通知和流式数据到前端状态的映射 |
@@ -20,10 +20,8 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [env.md](./env.md) | 浏览器与 Electron 的运行环境抽象 |
-| [electron.md](./electron.md) | Electron 主进程、preload 与窗口管理 |
+| [env.md](./env.md) | 浏览器 HTTP/WS 连接与地址构造 |
 | [deployment.md](./deployment.md) | Web 前端部署拓扑 |
-| [pack-guide.md](./pack-guide.md) | Electron 打包操作 |
 
 ## 常见任务路由
 
@@ -32,7 +30,7 @@
 | 修改工作台、会话窗口、文件引用或 Terminal | [工作台文件与 Terminal](./workbench-files.md)、[多窗口工作台](./workbench-multi-window.md) |
 | 修改设置保存、重载、Tab 或配置界面 | [设置中心](./settings.md) |
 | 修改登录、连接发现或中转绑定 | [身份认证](./auth-login.md)、[中转连接模式](./relay-mode.md) |
-| 修改 Electron 窗口、preload、托盘或打包 | [Electron 集成](./electron.md)、[打包指南](./pack-guide.md) |
+| 修改浏览器部署或本地管理器 | [部署说明](./deployment.md)、[连接方式](./env.md) |
 | 修改工具调用、Markdown、媒体或结果展示 | [工具渲染](./renderer.md) |
 | 修改桌宠、节点树或桌宠视觉行为 | [桌宠与 Nyxus](./pet/README.md) |
 

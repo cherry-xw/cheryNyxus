@@ -1,6 +1,6 @@
 # 赛博桌面工作区（Cyber Workspace）
 
-> 记录浏览器面"赛博 OS 多窗口桌面"层（commit `143af38` 引入）的窗口模型与桌面 chrome 契约。Electron 原生独立窗（settings/workbench）见 [workbench-multi-window.md](workbench-multi-window.md)——两层互不替代：Electron 面窗口外壳归 `WindowFrame`，浏览器面功能窗外壳只归 `CyberWindow`。
+> 浏览器「赛博 OS 多窗口桌面」的窗口模型与桌面外壳契约。功能窗由 `CyberWindow` 承载；工作台内容见[多窗口工作台](workbench-multi-window.md)。
 
 ## 组件与模型
 

@@ -340,7 +340,7 @@ const modelModel = computed({
   },
 })
 
-/** 复制文本到剪贴板（非 HTTPS / 旧 Electron 走 execCommand 降级）。 */
+/** 复制文本到剪贴板（非 HTTPS 页面走 execCommand 降级）。 */
 async function copyMessage(text: string): Promise<void> {
   try {
     if (navigator.clipboard?.writeText) {

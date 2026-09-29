@@ -10,7 +10,6 @@
   "ignore": [
     "**/node_modules/**",
     "**/dist/**",
-    "**/dist-electron/**",
     "**/build/**",
     "**/report/**",
     "**/.tmp/**",

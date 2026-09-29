@@ -52,10 +52,10 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('if (!this.app || this.reduceMotion || document.hidden) return')
   })
 
-  it('keeps Electron on WebGL while bounding the backing buffer by adaptive quality', async () => {
+  it('bounds the browser backing buffer by adaptive quality', async () => {
     const source = await rendererSource()
 
-    expect(source).toContain("if (!isElectronRuntime() && 'gpu' in navigator)")
+    expect(source).toContain("if ('gpu' in navigator)")
     expect(source).toContain("preference: 'webgl'")
     expect(source).toContain('return Math.min(dpr, renderQualityProfile(tier).graphDpr)')
     expect(source).toContain("private qualityTier: RenderQualityTier = 'balanced'")

@@ -76,7 +76,7 @@ CheryNyxus/
 | `startBackend()` | spawn 系统 node，设 CHERY_DIR |
 | `ensureEnvSeed()` + `loadEnvFile()` | 先只补缺失 `.env`，再读取；不覆盖用户文件、OS env，空值不灌进 process.env |
 | `getRuntimeRoot()` | 打包后 `process.env.CHERY_DIR || dirname(process.execPath)`；开发期项目根 |
-| afterPack 钩子 | [web/scripts/post-pack.mjs](../../../web/scripts/post-pack.mjs) 验证不可变模板，并清理旧构建残留的运行时副本 |
+| afterPack 钩子（已移除） | 当时用于验证模板并清理旧构建残留的运行时副本 |
 | workspace 升级 | 后端 guardian 启动前按官方哈希同步 `.chery.template/`；保留用户修改/删除，替换前备份 |
 | 配置目录入口 | 设置面板调用后端 `utils.openConfigDir` WebSocket RPC，由后端系统默认打开器打开 `<CHERY_DIR>/.chery`；不再维护专用 Electron IPC |
 | preload 注入 | `__BACKEND_CONFIG__` + `__BACKEND_HTTP_URL__` |
@@ -173,7 +173,7 @@ targets: win=nsis, mac=dmg, linux=AppImage
 - `DB_DIR`：始终 `app.getPath('userData')/.chery/db/`（避开 Program Files 权限问题）。
 - 升级：`.env` 仅补缺失；`.chery` 按 manifest 中的官方哈希增量更新并在替换前备份。
 
-详见 [electron.md#主进程路径解析](../electron.md#主进程路径解析)。
+此文为已归档的历史实施记录，原生主进程已移除。
 
 ## 6. 实现细节记录
 

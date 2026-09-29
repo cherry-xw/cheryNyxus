@@ -9,11 +9,10 @@
  * 授权规则：本地 loopback 直连不鉴权（隐藏用户名/密码）；远端地址需登录（签发双 token）。
  * 安全：远端登录凭据经「挑战式 AES-256-GCM 加密」传输（先取 challenge，再加密信封）。
  * 存储：服务地址 + 用户名始终默认记住；「记住密码」默认关，勾选后密码 AES-GCM 加密存本地并预填。
- * 地址默认：web = 当前域名/IP+端口（window.location.origin）；Electron = 本地服务（http://localhost:<webPort>），均可改。
+ * 地址默认使用当前页面 origin，可手动修改。
  *
  * 浮动窗形态（工作台弹窗一致）：无全屏遮罩、标题区可拖动、ESC 关闭、`data-desktop-hit`
- * 标记（Electron desktop 透明窗穿透命中测试）。native 形态由 WindowFrame 承担窗口控制
- * （WindowFrame 标题栏已同步 CyberWindow 视觉，native 面不再渲染内部标题栏）。
+ * 浮动登录窗由自身提供标题栏和窗口按钮。
  */
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
@@ -26,11 +25,9 @@ import {
 } from '@/application/auth/public'
 import { resolveLoginState } from '@/domain/auth/loginState'
 import { useThemeStore } from '@/application/public'
-import { isElectron } from '@/application/platform/public'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
 import LampPasswordField from './LampPasswordField.vue'
 
-const props = withDefaults(defineProps<{ visible: boolean; native?: boolean }>(), { native: false })
+const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'update:visible', v: boolean): void }>()
 
 const auth = useAuthStore()
@@ -44,9 +41,8 @@ const isLight = computed(() => themeStore.theme === 'light')
 const minimized = ref(false)
 const maximized = ref(false)
 
-/** 平台默认地址：Electron 本地服务；web 当前 origin。无既存地址时作为占位。 */
+/** 默认地址为当前页面；无地址时使用本地服务作为占位。 */
 const defaultAddress = computed(() => {
-  if (isElectron && window.__BACKEND_HTTP_URL__) return window.__BACKEND_HTTP_URL__
   if (typeof window !== 'undefined' && window.location.origin) return window.location.origin
   return 'http://localhost:8183'
 })
@@ -133,7 +129,6 @@ function close(): void {
 
 /** 标题区拖拽（与 SettingsDialog/WorkbenchDialog 一致的 offset 方案）。 */
 function onTitlePointerDown(e: PointerEvent): void {
-  if (props.native) return
   if (e.button !== 0) return
   if ((e.target as Element | null)?.closest('button')) return
   e.preventDefault()
@@ -259,7 +254,6 @@ async function submit(): Promise<void> {
     if (conn.status !== 'connected')
       throw new Error(conn.error || '未能连接服务器，请检查地址后重试。')
     notify(isLocal.value ? '连接成功' : '登录并连接成功')
-    desktopBridge()?.emitAuthChanged({ serverAddress: base })
     emit('update:visible', false)
     // 应用内重建连接（替代 reload）：bootstrap 首次连 401 后 serverConfig 为空，
     // reconnect 会带新 token 重拉 /api/config + 重连 WS，App.vue 顶层 onStatus 自动恢复。
@@ -284,7 +278,6 @@ async function submit(): Promise<void> {
 function logout(): void {
   conn.disconnect()
   auth.logout()
-  desktopBridge()?.emitAuthChanged({ loggedOut: true })
   notify('已登出')
 }
 
@@ -385,7 +378,6 @@ onBeforeUnmount(stopLight)
         v-if="visible"
         class="rift-float"
         :class="{
-          'is-native': native,
           'is-light': isLight,
           'is-lit': lampLit,
           'is-min': minimized,
@@ -394,14 +386,13 @@ onBeforeUnmount(stopLight)
         data-desktop-hit
         role="dialog"
         aria-label="连接后端服务"
-        :style="native ? undefined : { transform: `translate(${offset.x}px, ${offset.y}px)` }"
+        :style="{ transform: `translate(${offset.x}px, ${offset.y}px)` }"
       >
         <div ref="stageRef" class="rift-stage">
           <div class="rift-panel" :class="{ 'is-error': !!error }">
             <span class="cyber-corners" aria-hidden="true" />
-            <!-- 标题栏（CyberWindow 同款：channel + 标题 + signal + 三键；native 由 WindowFrame 承担） -->
+            <!-- 标题栏与浏览器工作区窗口保持同一视觉语言。 -->
             <header
-              v-if="!native"
               class="rift-head"
               @pointerdown="onTitlePointerDown"
               @dblclick="maximized = !maximized"
@@ -540,7 +531,7 @@ onBeforeUnmount(stopLight)
                 </div>
 
                 <div class="actions">
-                  <button v-if="!native" type="button" class="btn btn--ghost" @click="close">
+                  <button type="button" class="btn btn--ghost" @click="close">
                     取消
                   </button>
                   <button

@@ -85,7 +85,7 @@
 | 任务范围 | 文档入口 |
 | --- | --- |
 | `src/` 中的 Agent、Core、数据库、记忆、服务与工具 | [`docs/backend/`](docs/backend/README.md) |
-| `web/`、工作台、设置、桌宠与 Electron | [`docs/frontend/`](docs/frontend/README.md) |
+| `web/`、工作台、设置与桌宠 | [`docs/frontend/`](docs/frontend/README.md) |
 | 前后端共同遵守的架构、协议、状态机与数据模型 | [`docs/shared/`](docs/shared/README.md) |
 | 测试基线、流程测试、测试工具与验证边界 | [`docs/quality/`](docs/quality/README.md) |
 | 面向开发者和维护者的操作步骤 | [`docs/guides/`](docs/guides/README.md) |

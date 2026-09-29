@@ -1,5 +1,5 @@
 import { computed, ref, type ComputedRef } from 'vue'
-import type { SettingsSection } from '@/domain/shell/desktopBridge'
+import type { SettingsSection } from '@/domain/shell/settingsSection'
 import { loadWorkspaceLayout, saveWorkspaceLayout } from './windowPersistence'
 import {
   clampWorkspaceGeometry,

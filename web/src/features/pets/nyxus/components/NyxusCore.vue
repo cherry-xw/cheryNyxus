@@ -8,7 +8,6 @@ import { useNyxusWorkState } from '../composables/useNyxusWorkState'
 import { useStandaloneNyxusMotion } from '../composables/useStandaloneNyxusMotion'
 import { createClickDisambiguator } from '../composables/clickDisambiguator'
 import { closeNyxusMenu, nyxusMenuOpen, toggleNyxusMenu } from '../nyxusUiState'
-import { desktopBridge, openQuickComposerWindow } from '@/features/desktop/desktopBridge'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 import { resolveLoginState } from '@/domain/auth/loginState'
 
@@ -77,12 +76,6 @@ async function openNyxusDialog(): Promise<void> {
   error.value = null
   try {
     const chatId = await agents.getActiveNyxus()
-    // Electron desktop uses the exact same native quick composer as Pet.
-    // The source only preserves conversation identity; the window and feature set are shared.
-    if (openQuickComposerWindow(chatId, 'nyxus')) {
-      closeNyxusMenu()
-      return
-    }
     // 双击打开的 nyxus 直接发消息窗：浮动、无遮罩（同 pet），目标固定为活跃 nyxus 会话。
     agents.activeDialogSource = 'nyxus'
     // getActiveNyxus 的轻量 catalog 已足够建立钢琴索引；节点正文由树挂载后
@@ -123,14 +116,8 @@ async function runCreate(opts: {
 
 function openSettings(): void {
   if (loginState.value !== 'authenticated') return
-  // desktop surface：设置由 Electron 原生独立窗承载（get-or-create，聚焦复用）；浏览器保持应用内弹窗
-  const bridge = desktopBridge()
-  if (bridge) {
-    bridge.openWindow({ kind: 'settings', settingsSection: 'provider' })
-  } else {
-    agents.settingsSection = 'provider'
-    agents.settingsOpen = true
-  }
+  agents.settingsSection = 'provider'
+  agents.settingsOpen = true
   closeNyxusMenu()
 }
 
@@ -165,21 +152,7 @@ async function openWorkbench(): Promise<void> {
     console.error('[CherryNyxus] load workbench catalog failed:', cause)
     return
   }
-  // desktop surface：工作台由 Electron 原生独立窗承载（每预设一窗，main 层 get-or-create 聚焦复用）；
-  // 浏览器保持应用内多窗口。presetId 必须是配置稳定 ID（chat.task.list 按 chats.metadata.presetId
-  // 精确过滤，名字会一条都查不到）；presetName 随窗携带：空白工作台角色编制据名字解析
-  // （不靠会话推导——独立 store 下 historyList 初始为空）。
-  const bridge = desktopBridge()
-  if (bridge) {
-    bridge.openWindow({
-      kind: 'workbench',
-      presetId: nyxusPresetId.value,
-      presetName: CHERY_NYXUS_PRESET,
-      chatId: agents.activeNyxusChatId ?? undefined,
-    })
-    closeNyxusMenu()
-    return
-  }
+  // presetId 必须是配置稳定 ID，任务目录据此过滤会话。
   const id = agents.openWorkbenchWindow(nyxusPresetId.value, CHERY_NYXUS_PRESET)
   // 仅新建窗口（chatId 为空）时恢复活跃 Nyxus 会话，避免打开即空树；已存在窗口不覆盖当前浏览。
   if (!agents.workbenchWindows[id]?.chatId) {

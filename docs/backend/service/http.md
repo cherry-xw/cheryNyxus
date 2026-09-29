@@ -82,40 +82,24 @@ MIME 映射:自写 `Record<string, string>`(html/js/css/json/svg/png/...),无新
 
 媒体端点使用与控制面相同的认证：OAuth 开启时要求 HttpOnly 会话；本地 session-token 模式要求 `X-Chery-Session-Token`。`POST /api/media/upload` 接受原始二进制 body，`Content-Type` 是媒体 MIME、`X-Filename` 是原始文件名；成功返回资产元数据与 `/api/media/<filename>`。只允许图片、视频、音频白名单 MIME，大小由全局上传上限限制（默认 100 MiB）。`GET /api/media/:filename` 校验 UUID 文件名并返回 `private` 缓存响应。媒体资产链路见 [../model-capabilities.md](../agent/model-capabilities.md)。
 
-## 前端调用路径与 httpUrl helper（Electron 模式）
+## 前端调用路径与 httpUrl helper
 
-`/api/*`（`/api/config`、`/api/media/upload`、`/api/media/:filename`、`/api/auth/me` 等）在浏览器模式下走同源相对路径直连本服务端口（8183）；在 Electron `file://` 加载下，`window.location.origin === "null"`，相对路径失败，必须显式 base URL。
+`/api/*`（`/api/config`、`/api/media/upload`、`/api/media/:filename`、`/api/auth/me` 等）在浏览器本地模式走同源相对路径；已选远端目标则经认证状态中的服务地址构造请求 URL。
 
-约定：Electron main 进程在 `waitForBackend` 就绪后经 [preload](../../frontend/electron.md#ipc-通道边界) `contextBridge.exposeInMainWorld("__BACKEND_HTTP_URL__", ...)` 同步注入 `http://localhost:<webPort>`。前端统一用 `httpUrl(path)` helper：
+前端统一用 [platform.ts](../../../web/src/services/platform.ts) 的 `httpUrl(path)` 与 `getServerConfig()`；浏览器和后端通过同源部署避免跨域配置请求。
 
-```ts
-// web/src/services/http.ts
-export function httpUrl(path: string): string {
-  // window.__BACKEND_HTTP_URL__ 由 Electron preload 注入；浏览器模式不存在 → 走空串（相对路径）
-  const base = (globalThis as { __BACKEND_HTTP_URL__?: string }).__BACKEND_HTTP_URL__ ?? "";
-  return `${base}${path}`;
-}
-```
-
-使用范围：所有 `/api/*` HTTP 调用（`fetch` 入口）；WS 连接仍走 [./websocket.md](websocket.md) 自身逻辑（preload `__BACKEND_CONFIG__`）。具体替换：
-
-| 文件 | 调用点 |
-|------|------|
-| [web/src/App.vue](../../../web/src/App.vue) | `fetch(httpUrl("/api/auth/me"), ...)`、`window.location.assign(httpUrl("/api/auth/login?returnTo=..."))` |
-| [web/src/services/agentApi.ts](../../../web/src/services/agentApi.ts) | `fetch(httpUrl("/api/config"))`、`fetch(httpUrl("/api/media/upload"), ...)` |
-| [web/src/services/ws.ts](../../../web/src/services/ws.ts) | `fetch(httpUrl("/api/config"))`（Electron 模式仅 wsPort，无 base URL 需求；保留相对路径作 dev:web fallback） |
+HTTP 请求使用 `httpUrl()`；WebSocket 配置由 [ws.ts](../../../web/src/services/ws.ts) 调用 `getServerConfig()` 并构造地址。详情见[浏览器连接](../../frontend/env.md)。
 
 ## 依赖与关联 ⭐
 
 - **依赖**:`config`(`config.server` 读端口 + transport,见 [utils/config.ts](../../../src/utils/config.ts))、`logger`(启动 + 错误日志,见 [utils/logger.md](../utils/logger.md))。无第三方 dep(纯 `node:http` + `node:fs`)。
 - **被依赖**:仅 [src/service/index.ts](../../../src/service/index.ts) `startService` 调用,与 `createWebSocketServer` 同进程启动。
 - **协议规范**:[../protocol.md](../../shared/protocol/websocket.md)「HTTP API」段定义 `/api/config` 响应结构。
-- **关联模式**:[docs/frontend/deployment.md](../../frontend/deployment.md) 模式 3(Web 浏览器)由此模块 serve 前端;模式 2(Electron)前端 `loadFile` 不依赖此模块,但 main `waitForBackend` 轮询 `/api/config` 确认后端就绪。
-- **关联文档**:[../web/electron.md#ipc-通道边界](../../frontend/electron.md#ipc-通道边界) 描述 `__BACKEND_HTTP_URL__` 注入。
+- **关联模式**:[部署说明](../../frontend/deployment.md)解释浏览器、独立后端与 relay 的边界。
 
 ## 扩展点
 
-- **CORS**:当前不带跨域头(浏览器模式同源,Electron 模式 preload 注入不走 fetch)。若前端跨域访问 `/api/config`,在 `handleRequest` 加 `Access-Control-Allow-Origin`。
+- **CORS**:当前浏览器同源请求不带跨域头；如需跨域访问 `/api/config`，须先明确认证与跨域边界。
 - **mime 扩展**:`MIME` map 加新扩展名。
 - **SPA fallback**:`createWebHashHistory` 下所有未知路径回 `index.html`;若改 `createWebHistory` 需保证 fallback 覆盖所有路由。
 - **静态目录来源**:`startService` 调用方决定 `staticDir`([src/index.ts](../../../src/index.ts) 默认 `../web/dist`,或 `WEB_DIST_DIR` env 覆盖,打包时由 Electron main 注入)。

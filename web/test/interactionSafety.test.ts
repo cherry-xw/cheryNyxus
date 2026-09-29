@@ -71,7 +71,7 @@ function settingsFixture(requiresConfirmation = false) {
       useConnectionStore: () => ({ status: 'connected' }),
     },
     '@/application/backend/public': { agentApi: api },
-    '@/features/desktop/desktopBridge': { desktopBridge: () => undefined },
+    '@/utils/uuid': { uuid: () => 'test-request' },
     '@/styles/overlayLayers': { OVERLAY_Z_INDEX: { modal: 10100 } },
     './config/constants': {
       TABS: [],
@@ -130,29 +130,6 @@ describe('settings save and close safety', () => {
     expect(c.hasUnsavedChanges.value).toBe(false)
   })
 
-  it('runs exactly one WindowFrame action, including void overrides', () => {
-    const source = readFileSync('web/src/features/desktop/WindowFrame.vue', 'utf8')
-    for (const name of ['minimize', 'maximize', 'close']) {
-      const expression = [...source.matchAll(/@click="([^"]+)"/g)]
-        .map((match) => match[1]!)
-        .find((value) => value.startsWith(`${name} ?`))!
-      const override = vi.fn(),
-        fallback = vi.fn()
-      const run = new Function(
-        'minimize',
-        'maximize',
-        'close',
-        'control',
-        'toggleMaximize',
-        expression,
-      )
-      run(override, override, override, fallback, fallback)
-      expect(override).toHaveBeenCalledOnce()
-      expect(fallback).not.toHaveBeenCalled()
-      run(undefined, undefined, undefined, fallback, fallback)
-      expect(fallback).toHaveBeenCalledOnce()
-    }
-  })
   it('baselines the submitted snapshot and keeps edits made during save dirty', async () => {
     const { controller: c, pending, api } = settingsFixture()
     c.updateHooksHandlers({ before: [{ value: 'hook A' }] })
@@ -219,8 +196,8 @@ function composerFixture() {
     '@/application/backend/public': {
       agentApi: { uploadMedia: () => upload.promise, listBrains: () => new Promise(() => {}) },
     },
+    '@/application/platform/public': { httpUrl: (path: string) => path },
     '@/domain/pets/presets': { CHERY_NYXUS_PRESET: 'nyxus' },
-    '@/features/desktop/desktopBridge': { desktopBridge: () => undefined },
     '@/styles/overlayLayers': { ownerOverlayZIndex: () => 501 },
     '@/features/agent/composables/commands': {
       COMPACT_COMMAND: {},

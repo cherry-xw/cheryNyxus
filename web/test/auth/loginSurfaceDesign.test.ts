@@ -6,7 +6,7 @@ import { readComponentSource } from '../helpers/componentSource'
  * 登录窗 2026-09 重置 v5（CyberWindow 一致壳 + bug 修复）设计契约：
  * 源码字符串断言（套件惯例，无 jsdom），锁定 CyberWindow 同款标题栏三键、
  * 密文默认使用原生 password input、is-light 黑光切换（无 :global(html:not(.dark))）、细长光束溢出、
- * 全直角、token 派生配色、双形态（native / 浮动）与状态机保留。
+ * 全直角、token 派生配色、浏览器浮动窗与状态机保留。
  */
 describe('login surface redesign contract', () => {
   it('wires a CyberWindow-consistent shell with channel, signal and text controls', async () => {
@@ -28,15 +28,14 @@ describe('login surface redesign contract', () => {
     expect(source).not.toContain('CyberPanel')
   })
 
-  it('keeps native and floating forms, ESC close and drag offset', async () => {
+  it('keeps the browser floating form, ESC close and drag offset', async () => {
     const source = await readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue'))
 
     expect(source).toContain('data-desktop-hit')
     expect(source).toContain('@pointerdown="onTitlePointerDown"')
     expect(source).toContain("e.key === 'Escape'")
-    // native 面不渲染内部标题栏（WindowFrame 承担）
-    expect(source).toContain('v-if="!native"\n              class="rift-head"')
-    expect(source).toContain('v-if="!native" type="button" class="btn btn--ghost"')
+    expect(source).toContain('class="rift-head"')
+    expect(source).toContain('type="button" class="btn btn--ghost"')
   })
 
   it('uses one native input and only switches its type when the lamp is toggled', async () => {
@@ -160,17 +159,4 @@ describe('login surface redesign contract', () => {
     expect(all).toContain('--lamp-warm')
   })
 
-  it('unifies the native WindowFrame chrome with the CyberWindow vocabulary', async () => {
-    const [frame, app] = await Promise.all([
-      readComponentSource(resolve('web/src/features/desktop/WindowFrame.vue')),
-      readComponentSource(resolve('web/src/App.vue')),
-    ])
-
-    // channel 徽记（可选 prop）+ signal + 文字三键；登录窗传 AUTH
-    expect(frame).toContain('channel?: string')
-    expect(frame).toContain('window-frame-channel')
-    expect(frame).toContain('01 ▰▰▰')
-    expect(frame).toContain("{{ maximized ? '❐' : '□' }}")
-    expect(app).toContain('channel="AUTH"')
-  })
 })

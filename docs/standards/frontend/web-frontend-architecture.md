@@ -22,7 +22,7 @@
 web/src/
 ├── application/   # 稳定用例端口、composition root、宿主 adapter
 ├── domain/        # 无 Vue/Pinia/浏览器 I/O 的领域模型、reducer、projection、算法
-├── services/      # WebSocket/HTTP/Electron 等基础设施 adapter 与协议调用
+├── services/      # WebSocket/HTTP 等基础设施 adapter 与协议调用
 ├── stores/        # Pinia 状态 owner 与用例编排
 ├── features/      # 按用户能力垂直切分的 UI、controller、局部 presenter
 ├── components/    # 跨 feature、无业务 owner 的共享展示组件
@@ -42,7 +42,7 @@ web/src/
 ### 2.2 `domain/`
 
 - 只放确定性、可独立测试的业务模型和算法；允许依赖同层模块及 `@chery/protocol` 的纯类型/常量。
-- 禁止依赖 Vue、Pinia、store、service、application、feature、DOM 和 Electron。
+- 禁止依赖 Vue、Pinia、store、service、application、feature 和 DOM。
 - 目录按领域 owner 分组，例如 `domain/chat/`、`domain/pets/`；算法因被两个上层消费者复用而进入 domain，不因“看起来像工具”进入 `utils/`。
 
 ### 2.3 `services/`

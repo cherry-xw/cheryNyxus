@@ -4,7 +4,6 @@ import { agentApi, type RootTimelineSnapshot } from '@/application/backend/publi
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
 import { terminalActionMode } from '@/features/pets/nyxus/public'
 import { selectCanResume } from '@/application/chat/public'
-import { desktopBridge } from '@/features/desktop/public'
 
 type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root'
 
@@ -126,15 +125,10 @@ export function useWorkbenchTaskController(options: {
     if ((cause as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {
       const chatId = toValue(options.chatId)
       if (!chatId) return
-      const bridge = desktopBridge()
-      if (bridge) {
-        bridge.openWindow({ kind: 'composer', chatId, source: 'history', view: 'composer' })
-      } else {
-        agents.closeWorkbenchWindow(options.windowId)
-        agents.activeDialogSource = 'history'
-        agents.activeDialogView = 'composer'
-        agents.activeDialogChatId = chatId
-      }
+      agents.closeWorkbenchWindow(options.windowId)
+      agents.activeDialogSource = 'history'
+      agents.activeDialogView = 'composer'
+      agents.activeDialogChatId = chatId
       ElMessage.warning('请先选择当前运行配置，再继续该历史任务')
       return
     }

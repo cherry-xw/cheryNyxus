@@ -20,7 +20,7 @@ function readStoredTheme(): ThemeMode {
  * apply() 把 theme 落到 documentElement 的 data-theme 属性 + Element Plus 的 html.dark class。
  * store 定义即 apply（首渲前应用，避免浅色一闪）。
  *
- * 跨窗主题同步（Electron 原生窗）：
+ * 跨浏览器窗口主题同步：
  * - toggle()（本地主动切换）→ notifyChanged() → App.vue 桥接层经 IPC 广播其它窗；
  * - applyFrom()（接收 main 广播的其它窗主题）→ 只应用、**不 notify**——避免回环
  *   （广播终点再广播会形成 toggle→emit→applyFrom→emit 死循环）。

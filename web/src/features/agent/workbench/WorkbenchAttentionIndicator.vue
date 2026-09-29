@@ -9,7 +9,7 @@
  * 无待处理事项或处于对话/精简模式时整体不渲染。
  *
  * 三处标题栏共用本组件：WorkbenchDialog 内部标题栏（overlay 面），以及
- * Electron 原生窗 WindowFrame / 浏览器多窗 CyberWindow 的 title-actions——
+ * 浏览器多窗口 CyberWindow 的 title-actions——
  * 后两处 WorkbenchDialog 内部标题栏不渲染（isShellless），提示必须挂在外层。
  */
 import { ElTooltip } from 'element-plus'

@@ -6,23 +6,15 @@ import { useMotionPreference } from './useMotionPreference'
 /**
  * 鼠标点击特效（ba-click-fx，蔚蓝档案风格）全局宿主。
  *
- * 在 App.vue 挂载（所有 surface 的公共入口）调用一次：
+ * 在 App.vue 挂载一次：
  *  - 动态 import ba-click-fx，不进入首屏 chunk；
- *  - 按 surface 选配置：desktop 透明桌宠窗用官方「透明窗口」配置，
- *    其余 DOM 窗口用官方「普通网页覆盖层」推荐配置；
+ *  - 使用普通网页覆盖层配置；
  *  - 尊重用户偏好：关闭或 reduced 动效模式时销毁实例，恢复时重新创建；
  *  - 卸载时销毁实例（释放监听与 Canvas）。
  *
- * 配置依据官方 README / rendering-guide：
- *  普通网页：outputCompositing browser-overlay + screen + dom-backdrop；
- *  透明桌面：browser-overlay + source-over + transparent-window + 完整 WebGL2。
+ * 配置依据官方 README / rendering-guide：普通网页覆盖层。
  */
-export interface ClickFxLayerOptions {
-  /** 当前 surface 是否为 Electron 透明桌宠窗（desktop）。 */
-  transparentWindow?: boolean
-}
-
-export function useClickFxLayer(options: ClickFxLayerOptions = {}) {
+export function useClickFxLayer() {
   const { enabled } = useClickFxPreference()
   const { effectiveMode } = useMotionPreference()
   let fx: BAClickFXInstance | null = null
@@ -37,29 +29,13 @@ export function useClickFxLayer(options: ClickFxLayerOptions = {}) {
     if (disposed) return
     const { BAClickFX } = await import('ba-click-fx')
     if (disposed || fx) return
-    const config: BAClickFXOptions = options.transparentWindow
-      ? {
-          // 官方「透明桌面宿主推荐」配置：完整 WebGL2 + 透明覆盖层输出
-          scale: 0.6,
-          trailAlways: true,
-          effectBackend: 'webgl2',
-          bloomBackend: 'webgl2',
-          outputCompositing: 'browser-overlay',
-          overlayAlphaPolicy: 'coverage',
-          overlayColorCompensation: 'none',
-          overlayAlphaLimit: 250 / 255,
-          hostCompositing: 'source-over',
-          hostCompositingSurface: 'transparent-window',
-          lightBackgroundContrastAlpha: 0,
-        }
-      : {
-          // 官方「普通网页覆盖层」推荐配置：透明覆盖层 + DOM Add 近似
-          scale: 0.6,
-          trailAlways: true,
-          outputCompositing: 'browser-overlay',
-          hostCompositing: 'screen',
-          hostCompositingSurface: 'dom-backdrop',
-        }
+    const config: BAClickFXOptions = {
+      scale: 0.6,
+      trailAlways: true,
+      outputCompositing: 'browser-overlay',
+      hostCompositing: 'screen',
+      hostCompositingSurface: 'dom-backdrop',
+    }
     try {
       fx = new BAClickFX(config)
     } catch (error) {

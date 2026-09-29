@@ -73,7 +73,7 @@ describe('settings tab visibility', () => {
     )
 
     expect(settingsOpenWatch).not.toBeNull()
-    expect(settingsOpenWatch?.[1]).toContain('if (isNative.value) return')
+    expect(settingsOpenWatch?.[1]).not.toContain('isNative')
     expect(settingsOpenWatch?.[1]).toContain('await loadSettingsData()')
   })
 

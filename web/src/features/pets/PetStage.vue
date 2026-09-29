@@ -7,11 +7,9 @@ import type { StreamState } from '@/application/public'
 import { selectOwnTimeline, selectActiveMessage } from '@/application/chat/public'
 import type { PetInstance } from '@/domain/pets/types'
 import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/composables/commands'
-import { desktopBridge, openQuickComposerWindow } from '@/features/desktop/desktopBridge'
 
 /**
- * 透明模式（Electron desktop surface）：清除网格纹理与渐变背景，只保留 sprite——
- * 全工作区透明覆盖窗下实体外区域全部让给桌面。
+  * 浏览器桌面背景由工作区负责，透明模式只绘制宠物。
  */
 const props = withDefaults(defineProps<{ transparent?: boolean }>(), {
   transparent: false,
@@ -88,9 +86,6 @@ const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet, positionRefFo
  */
 async function handleClick(pet: PetInstance): Promise<void> {
   if (pet.isMaster) {
-    // Electron desktop 面：发消息改走 composer 原生窗（WindowFrame 外壳承载标题/能力按钮/三键），
-    // 会话切换经 main `surface:retarget` 下发，水合由 composer 窗内 App.vue 负责（本面不再管）。
-    if (openQuickComposerWindow(activeRoot(pet), 'pet')) return
     const restoringMinimizedWorkbench =
       agents.workbenchMinimized && agents.activeDialogChatId === activeRoot(pet)
     agents.workbenchMinimized = false
@@ -115,8 +110,6 @@ async function handleClick(pet: PetInstance): Promise<void> {
 
 function handleDoubleClick(pet: PetInstance): void {
   if (!pet.isMaster) return
-  // Electron desktop 面：双击与单击同语义（打开 composer 原生窗）
-  if (openQuickComposerWindow(activeRoot(pet), 'pet')) return
   const restoringMinimizedWorkbench =
     agents.workbenchMinimized && agents.activeDialogChatId === activeRoot(pet)
   agents.workbenchMinimized = false
@@ -187,17 +180,6 @@ async function handleAttention(pet: PetInstance): Promise<void> {
     root = byId.get(root.parentChatId) ?? root
     if (!root.parentChatId) break
   }
-  // Electron desktop 面：待处理交互在 composer 原生窗以 attention 视图打开（不抢占 desktop 面状态）。
-  const bridge = desktopBridge()
-  if (bridge) {
-    bridge.openWindow({
-      kind: 'composer',
-      chatId: root.chatId,
-      source: 'history',
-      view: 'attention',
-    })
-    return
-  }
   agents.activeDialogSource = 'history'
   agents.activatePresetSession(pet.presetId, root.chatId)
   agents.activeDialogView = 'attention'
@@ -222,7 +204,6 @@ async function handleResume(pet: PetInstance): Promise<void> {
     await chatSessions.resumeAgent(chatId)
   } catch (e) {
     if ((e as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {
-      if (openQuickComposerWindow(chatId, 'pet')) return
       agents.workbenchMinimized = false
       agents.activeDialogSource = 'pet'
       agents.activeDialogView = 'composer'
@@ -310,7 +291,7 @@ async function handleResume(pet: PetInstance): Promise<void> {
       linear-gradient(0deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 32%);
   }
 
-  // desktop surface：背景全清（含 ::before），透明窗下只保留 sprite 实体
+  // 浏览器工作区已有背景，此处只保留宠物实体。
   &.is-transparent {
     background: none;
     color: inherit;

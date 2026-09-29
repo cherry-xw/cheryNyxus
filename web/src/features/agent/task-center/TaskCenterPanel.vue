@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTaskOverviewStore, useWorkspaceStore } from '@/application/public'
 import type { InteractionRecord, TaskOverview } from '@/application/backend/public'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
 import TaskCenterAttentionWorkspace from './TaskCenterAttentionWorkspace.vue'
 
 type WorkspaceMode = 'overview' | 'attention'
@@ -82,20 +81,6 @@ watch(
 
 onMounted(() => {
   workspace.setWorkspaceWindowAttention('window:task-center', false)
-  const bridge = desktopBridge()
-  if (bridge) {
-    cleanup.push(
-      bridge.onWindowFocused((focused) => {
-        if (focused) bridge.flashFrame(false)
-      }),
-      watch(
-        () => overview.pendingCount,
-        (count, previous) => {
-          if (count > previous && !document.hasFocus()) bridge.flashFrame(true)
-        },
-      ),
-    )
-  }
 })
 
 onBeforeUnmount(() => cleanup.splice(0).forEach((stop) => stop()))
@@ -157,24 +142,6 @@ function toggleSelectedPin(): void {
 function openWorkbench(task: TaskOverview, focus?: InteractionRecord): void {
   if (!task.presetId) {
     workspace.openHistoryRoot(focus?.chatId ?? task.rootChatId)
-    return
-  }
-  const bridge = desktopBridge()
-  if (bridge) {
-    bridge.openWindow({
-      kind: 'workbench',
-      presetId: task.presetId,
-      presetName: task.preset,
-      chatId: task.openChatId,
-      view: 'tree',
-      focus: focus
-        ? {
-            sourceChatId: focus.chatId,
-            interactionId: focus.interactionId,
-            anchorNodeId: focus.anchorNodeId,
-          }
-        : { sourceChatId: task.openChatId },
-    })
     return
   }
   const windowId = workspace.openWorkbenchWindow(task.presetId, task.preset)

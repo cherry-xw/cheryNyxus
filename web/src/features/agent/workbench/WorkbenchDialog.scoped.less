@@ -83,9 +83,9 @@
   display: flex;
   flex-direction: column;
 }
-/* v0.4.2 修复：非 native 面 titlebar 为 absolute（inset:0 0 auto; height:40px）悬浮于 shell 顶部，
+/* titlebar 为 absolute（inset:0 0 auto; height:40px）悬浮于 shell 顶部，
    且 .is-lite 未隐藏它（⚡ 切换钮/窗口控制在其上）——lite 内容必须从 titlebar 下方开始，
-   否则 .lite-view 顶部被标题栏遮挡（lite-body 与 title 重叠、上下不对称的根因）。native 面无 titlebar，保持从顶。 */
+   否则 .lite-view 顶部会被标题栏遮挡。嵌入窗口的内容从顶部开始。 */
 .workbench-shell.is-lite:not(.is-shellless) {
   padding-top: 40px;
 }
@@ -174,17 +174,6 @@
 .dialog-overlay.is-windowed-workbench {
   pointer-events: none;
 }
-// native 面（Electron 原生工作台窗，WindowFrame 外壳内）：overlay 改为 absolute 只铺满
-// 外壳 body（不盖 WindowFrame 标题栏），stretch 填满去 flex-end/padding；titlebar 已隐藏，
-// 原 40px 偏移元素（画布 / ctx-bar / 抽屉）全部归零从顶开始。
-.dialog-overlay.is-native {
-  position: absolute;
-  inset: 0;
-  padding: 0;
-  align-items: stretch;
-  background: transparent;
-  backdrop-filter: none;
-}
 .dialog-overlay.is-embedded {
   position: absolute;
   inset: 0;
@@ -199,12 +188,10 @@
 .workbench-shell.is-shellless .workbench-ctx-bar {
   bottom: 0;
 }
-.workbench-shell.is-shellless .workbench-context-drawer,
-.workbench-shell.is-native .workbench-context-drawer {
+.workbench-shell.is-shellless .workbench-context-drawer {
   top: 0;
 }
-.workbench-shell.is-shellless :deep(.analytics-panel),
-.workbench-shell.is-native :deep(.analytics-panel) {
+.workbench-shell.is-shellless :deep(.analytics-panel) {
   top: 0;
 }
 
@@ -216,12 +203,6 @@
 
 .workbench-shell.is-shellless .workbench-task-browser {
   inset: 0;
-}
-.workbench-shell.is-native .nyxus-branch-top {
-  inset: 0;
-}
-.workbench-shell.is-native .workbench-ctx-bar {
-  bottom: 0;
 }
 .workbench-shell.is-fullscreen {
   inset: 0;
@@ -299,15 +280,6 @@
   height: 40px;
   display: flex;
   align-items: stretch;
-}
-// native 面（Electron 原生工作台窗）：标题栏由 OS 拖拽移动，三键区域恢复点击；
-// 外观（渐变/字号/间距）逐像素不变，只换驱动层。
-.workbench-titlebar.is-native {
-  -webkit-app-region: drag;
-  cursor: default;
-}
-.workbench-titlebar.is-native .workbench-window-actions {
-  -webkit-app-region: no-drag;
 }
 :deep(.window-control) {
   position: relative;
@@ -679,7 +651,7 @@
     transform: rotate(360deg);
   }
 }
-// 浏览器面自绘标题栏的连接状态 chip（native 面由 App.vue WindowFrame title-actions 承载）。
+// 浏览器工作台标题栏的连接状态 chip。
 .workbench-titlebar .workbench-conn-chip {
   margin-left: 2px;
 }
@@ -868,8 +840,7 @@
 .workbench-shell:not(.is-shellless) .nyxus-branch-top {
   bottom: 27px;
 }
-.workbench-shell.is-shellless .nyxus-branch-top,
-.workbench-shell.is-native .nyxus-branch-top {
+.workbench-shell.is-shellless .nyxus-branch-top {
   bottom: 27px;
 }
 .workbench-shell .nyxus-branch-top.has-usage-subagents {

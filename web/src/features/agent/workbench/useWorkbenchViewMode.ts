@@ -4,7 +4,7 @@ import { useLiteStore, type WorkbenchViewMode } from '@/features/lite/liteStore'
 /**
  * useWorkbenchViewMode：工作台三视图模式切换（树 / 对话 / 精简）。
  * 以 liteStore.viewModeByWindow 为单一事实源（computed 派生），persist 到 localStorage。
- * 浏览器面 WorkbenchDialog 自绘 titlebar 与 Electron 面 App.vue WindowFrame
+ * 浏览器工作台窗口与工作台视图
  * title-actions 共用同一 composable，同一 windowId 下各处视图状态天然同步
  * （读写同一 store + 同一 localStorage key）。
  * 旧两档键（cherynyxus:workbench-lite-view，'1'=精简）读取时迁移到三档键。

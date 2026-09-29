@@ -10,7 +10,6 @@
 import { computed, ref } from 'vue'
 import { Check, Delete, Lock, User, WarningFilled } from '@element-plus/icons-vue'
 import type { ConfigDto, SenseToolInfo } from '@/application/backend/public'
-import { pickDirectory, isElectron } from '@/application/platform/public'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/features/agent/settings/controls/EditableTitle.vue'
 import LabelTip from '../config/LabelTip.vue'
@@ -184,22 +183,12 @@ function selectRoleDuty(pname: string, role: string): void {
   else setLeader(pname, role)
 }
 
-/** 目录选择按钮按运行模式互斥展示：Electron 用原生「选择目录」（后端同机绝对路径）；浏览器用「浏览」服务端目录弹层（前端机器路径与后端无关）。 */
-const canPickDir = isElectron
-
 /** 每预设的绝对路径格式错误提示（前端即时校验；存在性由后端 validateWorkspace RPC 校验）。 */
 const workspaceFormatErrors = ref<Record<string, string>>({})
 
 /** 绝对路径格式校验：POSIX `/` 开头；Windows `C:\`、`C:/` 或 UNC `\\server\share`。 */
 function isAbsolutePathFormat(p: string): boolean {
   return /^\//.test(p) || /^[A-Za-z]:[\\/]/.test(p) || /^\\\\[^\\]/.test(p)
-}
-
-/** 调 Electron 原生目录选择器选工作区（后端同机绝对路径）；取消（null）不改值。 */
-async function onPickWorkspace(pname: string): Promise<void> {
-  const dir = await pickDirectory()
-  const p = props.draft.presets?.[pname]
-  if (dir && p) updateWorkspace(pname, dir)
 }
 
 /** 输入与目录选择共用：写 draft 后立刻通知外壳按该预设单独校验；前端同时做绝对路径格式校验。 */
@@ -547,7 +536,7 @@ const indexItems = computed<IndexItem[]>(() => {
             <label class="field">
               <LabelTip
                 label="工作区"
-                :tip="'该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）：\n· 留空则不限定\n· 「选择目录」打开系统目录选择器（Electron）或「浏览」逐层选择服务端目录（浏览器），受 server.workspace_browse.roots 白名单限制\n· 也可手动填写绝对路径'"
+                :tip="'该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）：\n· 留空则不限定\n· 「浏览」逐层选择服务端目录，受 server.workspace_browse.roots 白名单限制\n· 也可手动填写绝对路径'"
               />
               <div class="workspace-row">
                 <el-input
@@ -569,15 +558,6 @@ const indexItems = computed<IndexItem[]>(() => {
                   @update:model-value="(v: string) => updateWorkspace(pname as string, v)"
                 />
                 <button
-                  v-if="canPickDir"
-                  type="button"
-                  class="ghost-btn"
-                  @click="onPickWorkspace(pname as string)"
-                >
-                  选择目录
-                </button>
-                <button
-                  v-else
                   type="button"
                   class="ghost-btn"
                   title="浏览服务端文件系统，逐层选择目录"

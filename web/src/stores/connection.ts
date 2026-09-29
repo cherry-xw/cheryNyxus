@@ -18,11 +18,7 @@ export const useConnectionStore = defineStore('connection', () => {
       if (s === 'connected') error.value = null
     })
     try {
-      // 首次连接不 refresh：main 进程在创建窗口前已 waitForBackend 就绪，preload 注入的
-      // __BACKEND_CONFIG__ 快照 token 有效，直接用快照建 WS（省一次 IPC 刷新）。
-      // 即便快照 token 因罕见竞态失效，WS onclose → shouldReconnect → reconnect() 会
-      // refresh 拿最新 token 兜底。注意不可在此强制 refresh——Electron 渲染进程刷新走
-      // main 进程 IPC，若后端尚未就绪会整体失败且 init() 不重试，启动即断连。
+      // 首次连接读取后端配置；失败时由重连路径重新发现。
       await wsClient.connect()
     } catch (e) {
       error.value = (e as Error).message

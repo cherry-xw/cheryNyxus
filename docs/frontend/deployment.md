@@ -1,54 +1,14 @@
-# 前后端连接与部署模式
+# 浏览器前端与独立后端部署
 
-## 职责
+## 连接边界
 
-本文档说明前端静态资源、独立后端、本地管理器、relay 和 Electron 壳之间的连接边界。后端永远独立编译和运行；Electron 只承载前端。
+浏览器由后端静态服务或开发期 Vite 提供页面，同源 `/api/config` 给出实际服务连接信息；后端独立编译、运行，管理器及其 Windows 托盘/Linux systemd 负责本地后端生命周期。浏览器多窗口由工作区组件管理，不启动本机进程。
 
-## 模式 1：独立后端与浏览器
+远端部署中，后端经 rathole 接入 relay，浏览器从已知连接目标访问专用 HTTP/WS 入口。relay 只转发业务服务，不映射管理器端口 `39980`。反向代理部署时，HTTP API、WS 升级、Cookie Path、OIDC callback 和静态资源需使用同一公共前缀；模板见 [`deploy/nginx/cherynyxus.conf.template`](../../deploy/nginx/cherynyxus.conf.template)。服务选择与登录先行方案仍在[实施计划](../plan/login-first-capabilities/README.md)。
 
-```text
-node dist/index.js
-  ├─ HTTP：实际 web_port，提供 /api/config 和静态资源
-  └─ WS：实际 port，提供控制连接
-浏览器 → 后端 HTTP / 管理器发现结果 → 后端 WS
-```
+## 实现与验证
 
-端口不是协议固定值。前端从同源 `/api/config` 或连接目标获得实际地址；本地管理器默认入口 `127.0.0.1:39980`（在 `.chery/config.yaml` 的 `manager.host` 设置 `0.0.0.0` 或内网 IP 可开放内网访问，访问需携带启动日志 URL 上的管理密钥；开放内网时页面显示危险警告），不能通过 nginx、relay 或浏览器公网访问。
-
-## 模式 2：纯前端 Electron
-
-```text
-Electron main/preload → 只提供窗口和桌面能力
-渲染进程 → 127.0.0.1:39980/api/connection → 后端实际 HTTP /api/config
-渲染进程 → 后端实际 HTTP 与 WS
-```
-
-Electron 不 spawn 后端、不等待后端、不打包后端 bundle、Node runtime 或 `.chery` 模板。后端应由用户单独启动，通常使用 manager CLI、Windows 托盘或 Linux systemd。
-
-## 模式 3：relay 与远程后端
-
-```text
-本地后端 → rathole client → relay/rathole server
-浏览器/Electron → relay 列表或已知连接目标 → 专用 HTTP/WS 入口
-```
-
-relay 只映射 CheryNyxus HTTP/WS 服务，不映射 `39980` 或任意本地端口。浏览器不获得本地真实业务端口；连接发现结果只提供专用入口和路径。
-
-## 子路径
-
-nginx 和 relay 必须保持同一公共前缀。HTTP API、WS Upgrade、Cookie Path、OIDC callback、静态资源 base 都由前端连接目标和后端转发头共同生成。模板见 [`deploy/nginx/cherynyxus.conf.template`](../../deploy/nginx/cherynyxus.conf.template)。真实 nginx、Pocket ID 和公网 relay 部署留到 H。
-
-## 当前实现入口
-
-| 能力 | 入口 |
-| --- | --- |
-| Electron 主进程 | [`web/electron/main.ts`](../../web/electron/main.ts) |
-| Electron preload | [`web/electron/preload.ts`](../../web/electron/preload.ts) |
-| HTTP/WS 地址发现 | [`web/src/services/platform.ts`](../../web/src/services/platform.ts) |
-| WS 动态重连 | [`web/src/services/ws.ts`](../../web/src/services/ws.ts) |
-| 本地管理器 | [`manager/src/server.ts`](../../manager/src/server.ts) |
-| 服务安装入口 | [`manager/src/cli.ts`](../../manager/src/cli.ts) |
-
-## 验证边界
-
-自动检查使用 `pnpm web:type-check`、`pnpm web:build`、`pnpm manager:type-check`、`pnpm manager:build` 和 Electron 资源静态扫描。Electron 实机、托盘、systemd、真实 nginx、Pocket ID、rathole 公网联调和跨设备连接属于 H。
+- 浏览器入口：[main.ts](../../web/src/main.ts)、[App.vue](../../web/src/App.vue)。
+- HTTP/WS 地址与重连：[platform.ts](../../web/src/services/platform.ts)、[ws.ts](../../web/src/services/ws.ts)。
+- 本地管理器：[server.ts](../../manager/src/server.ts)、[cli.ts](../../manager/src/cli.ts)。
+- 自动检查：`pnpm web:type-check`、`pnpm web:build`、`pnpm manager:type-check`、`pnpm manager:build`。真实 nginx、relay、跨设备及本地托盘交互由用户人工复核。

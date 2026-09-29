@@ -242,7 +242,7 @@ export const useAuthStore = defineStore('auth', () => {
     authenticating.value = false
   }
 
-  /** Electron 多 renderer：另一个原生窗更新 localStorage 后显式刷新本 Pinia 投影。 */
+  /** 另一浏览器窗口更新 localStorage 后显式刷新本 Pinia 状态。 */
   function reloadFromStorage(): void {
     serverAddress.value = localStorage.getItem(KEY_ADDR) ?? ''
     accessToken.value = localStorage.getItem(KEY_ACCESS) ?? ''

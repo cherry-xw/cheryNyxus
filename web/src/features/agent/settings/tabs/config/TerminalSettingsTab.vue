@@ -14,7 +14,6 @@ import {
   writeTerminalPresets,
   type TerminalPreset,
 } from '@/features/agent/workbench/terminal/presets'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import TerminalPresetForm, { type TerminalDraft } from './TerminalPresetForm.vue'
@@ -89,11 +88,6 @@ function remove(id: string): void {
   void writeTerminalPresets(presets.value)
 }
 function openTerminal(preset: TerminalPreset): void {
-  const bridge = desktopBridge()
-  if (bridge) {
-    bridge.openWindow({ kind: 'terminal', presetId: preset.id, presetName: preset.label })
-    return
-  }
   workspace.openOrFocusWindow({
     resourceKey: `terminal:${preset.id}`,
     title: preset.label ? `Terminal // ${preset.label}` : 'Terminal',

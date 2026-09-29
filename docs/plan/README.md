@@ -9,7 +9,7 @@
 | [排队消息三模式虚化展示与撤回](virtual-message-interaction/README.md) | 执行中 | 精简模式发送后即时显示修复、死亡 RPC chat.send/chat.resume 清理、chat.input.withdraw 撤回 RPC、树/对话/精简三模式排队消息虚化展示与末尾定位 |
 | [工作台任务进度标记](workbench-todo-progress/README.md) | 执行中 | 精确任务归属协议，以及节点树、对话、精简三种工作台模式的 To-do 进度标记 |
 | [工作台文件引用与 Terminal](workbench-files-terminal/README.md) | 待综合验证 | 三种工作台模式统一输入、工作区文件列表与只读查看、文件引用执行、本机与 SSH Terminal |
-| [独立后端与中转网关](relay-gateway/README.md) | 执行中 | 独立后端、rathole 中转、Pocket ID 与密码双认证、动态端口、本地管理器、Electron 前端化和子路径部署 |
+| [独立后端与中转网关](relay-gateway/README.md) | 执行中 | 独立后端、rathole 中转、Pocket ID 与密码双认证、动态端口、本地管理器、浏览器前端和子路径部署 |
 | [MiniMax 多模态图片能力对接](minimax-multimodal/README.md) | 规划中 | MiniMax 图片理解/生成接入：上传、展示、对话携带、多轮上下文保留与回溯的完整链路 |
 | [媒体外部服务化与工具能力声明](media-external-service/README.md) | 待综合验证 | 多媒体并入自定义工具机制（外部服务）：工具能力声明 accepts/produces/preprocess/batchSize、生成类从大脑双门解放、理解类前置执行、密钥 env 解耦、CherryNexus 自动生成；破坏性收尾删除旧媒体网关链路（config.media / 内置 generate_* / 旧路径兜底 / MediaTab），媒体能力统一由自定义 sense + .env + 感官组承担 |
 | [预设与角色 Tab 合并](presets-roles-merge/README.md) | 执行中 | 设置中心合并「预设」与「角色」为单一 Tab：外层预设列表 + 内层该预设角色工作台；阶段一只做前端，结构变更为后续任务 |
@@ -17,6 +17,8 @@
 | [F 表大文件拆分](refactor-f-table/README.md) | 执行中 | 按重构基线完成 F-01～F-19，保持行为并直接切换到拆分后的实现 |
 | [精简模式工具展示层重构](lite-tool-display/README.md) | 待综合验证 | 精简模式工具展示层：工具线框标记、正文消失 bug 修复、详情抽屉工具展示破坏性重构（工具链分割线/简介入口/内置工具专有 UI/第三方通用渲染） |
 | [节点树折叠系统：轮次档位替换与阅读导航设计点](node-tree-fold-round/README.md) | 待综合验证 | 第四档替换为整轮压缩节点，补充四档必要性调研和后续阅读导航设计点 |
+| [登录优先启动与后端能力分级](login-first-capabilities/README.md) | 执行中 | 依据独立后端与中转网关需求实现服务选择、Pocket ID/后端密码认证、能力说明和按能力启动 |
+| [移除 Electron 前端壳](remove-electron/README.md) | 待综合验证 | Electron 原生入口、桥接与打包已移除；自动回归尚有已记录失败，人工浏览器回归已由用户完成 |
 
 ## 使用规则
 

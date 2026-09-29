@@ -2,7 +2,7 @@
 /**
  * ConnectionStatusChip：标题栏常驻 WS 连接状态 chip。
  * 零 props——自取 useConnectionStore；绿点已连接 / 黄点呼吸连接中 / 红点未连接。
- * 使用方：workbench 面（App.vue WindowFrame title-actions）与浏览器面 WorkbenchDialog 自绘 titlebar。
+ * 使用方：浏览器工作台的窗口标题栏。
  * 仅作状态展示；断连遮罩与重试由 WorkbenchDialog 负责（connecting 不遮罩，避免启动闪遮罩）。
  */
 import { computed } from 'vue'
