@@ -1,10 +1,13 @@
 <script setup lang="ts">
 /**
- * LiteToolCallDetail：单条工具调用的结构化详情（问题 2：不同类型分开展示 + JSON 解析 + 英文→中文）。
- * - 外层卡片（.lite-tool-call / .is-focused）由 DetailDrawer 提供，本组件只渲染卡片内部；
+ * LiteToolCallDetail：单条工具调用的详情卡（问题 2：不同类型分开展示 + JSON 解析 + 英文→中文）。
+ * - 外层结构（分割线 + 工具中文名 + 焦点高亮）由 DetailDrawer 的工具链容器提供，本组件只渲染卡片内部；
  * - 参数 / 结果各自：解析 JSON → 按工具类型高亮关键字段（命令、路径、URL、任务说明…），
  *   嵌套对象 / 数组递归翻译键后 pretty-print；
- * - 解析失败回退原文 <pre>。
+ * - 解析失败回退原文 <pre>；
+ * - 有待处理交互（审批/提问）时渲染 LiteInteractionView，其余只读展示；
+ * - 内置工具走各自专有 UI（含内置 sense 与媒体生成工具），
+ *   外部工具保留本组件「简介 + 参数 + 结果」通用排版。
  */
 import { computed, ref } from 'vue'
 import { MorphIcon, type IconInput } from 'morphicons/vue'
@@ -18,6 +21,21 @@ import RiskBadge from '@/components/RiskBadge.vue'
 import ToolDescriptionDisclosure from '@/features/agent/renderers/ToolDescriptionDisclosure.vue'
 import LiteFieldRows from './LiteFieldRows.vue'
 import LiteInteractionView from './LiteInteractionView.vue'
+import LiteTodoPanel from './LiteTodoPanel.vue'
+import LiteFileWriteDetail from './LiteFileWriteDetail.vue'
+import LiteCommandDetail from './LiteCommandDetail.vue'
+import LiteReadFileDetail from './LiteReadFileDetail.vue'
+import LiteMediaDetail from './LiteMediaDetail.vue'
+import LiteSearchDetail from './LiteSearchDetail.vue'
+import LiteRoleDetail from './LiteRoleDetail.vue'
+import LiteSkillDetail from './LiteSkillDetail.vue'
+import LiteHistoryRecallDetail from './LiteHistoryRecallDetail.vue'
+import LiteChildControlDetail from './LiteChildControlDetail.vue'
+import LiteMemoryDetail from './LiteMemoryDetail.vue'
+import LiteInstallSkillDetail from './LiteInstallSkillDetail.vue'
+import LiteRoleAcceptanceDetail from './LiteRoleAcceptanceDetail.vue'
+import LiteConversationSelectionDetail from './LiteConversationSelectionDetail.vue'
+import { isBuiltinToolName } from './builtinToolNames'
 import {
   detectSelectPattern,
   isPrimaryField,
@@ -101,6 +119,56 @@ const argsCount = computed(() => {
 })
 
 const waiting = computed(() => props.call.status === 'pending' || props.call.status === 'accepted')
+
+/** 精简模式内置工具专有内容区分发；外部工具走下方通用「参数 + 结果」渲染。 */
+const builtinComponent = computed(() => {
+  switch (props.call.name) {
+    case 'update_todo':
+      return LiteTodoPanel
+    case 'write_file':
+      return LiteFileWriteDetail
+    case 'execute_command':
+      return LiteCommandDetail
+    case 'read_file':
+      return LiteReadFileDetail
+    case 'generate_image':
+    case 'generate_video':
+    case 'generate_audio':
+      return LiteMediaDetail
+    case 'search_codebase':
+      return LiteSearchDetail
+    case 'spawn_role':
+      return LiteRoleDetail
+    case 'skill':
+      return LiteSkillDetail
+    case 'history_recall':
+      return LiteHistoryRecallDetail
+    case 'stop_child':
+    case 'send_to_child':
+      return LiteChildControlDetail
+    case 'memory_manage':
+      return LiteMemoryDetail
+    case 'install_skill':
+      return LiteInstallSkillDetail
+    case 'role_acceptance':
+      return LiteRoleAcceptanceDetail
+    case 'select_conversation':
+      return LiteConversationSelectionDetail
+    default:
+      return null
+  }
+})
+/** 参数是显性信息的工具（提问 / 配置管理）：不用「参数」折叠包裹，默认直接展示在外面。 */
+const showArgsDirect = computed(
+  () => props.call.name === 'ask_user_question' || props.call.name === 'config_manage',
+)
+/** 内置/已知/特定工具：使用专有展示方案，不套用通用「简介/详情折叠 + 参数 + 结果预览」展示
+ * （用户原则 2026-09：内置工具只保留核心能力信息，折叠展开功能直接去掉；通用展示只留给外部工具）。 */
+const isBuiltinTool = computed(
+  () => builtinComponent.value != null || isBuiltinToolName(props.call.name),
+)
+/** 内置工具的结果直接全量展示（不做 180 字预览 + 点击展开的折叠）。 */
+const resultShown = computed(() => (isBuiltinTool.value ? resultRaw.value : resultDisplay.value))
 // 结果区：默认只显示摘要；点击正文后请求并展示完整结果，也可再次点击收回摘要。
 const resultExpanded = ref(false)
 function toggleResult(): void {
@@ -141,11 +209,16 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
           spring="snappy"
         />
       </span>
+      <!-- 简介入口：仅外部/第三方工具保留（通用展示方案）。内置工具走专有展示，
+           不再提供「简介/详情」折叠按钮（用户原则 2026-09：内置工具直接展示核心信息）。
+           triggerLabel='简介' 仅改触发按钮文案，面板标题/匹配仍用 toolName。 -->
       <ToolDescriptionDisclosure
+        v-if="!isBuiltinTool"
         class="lite-tool-call-name"
         :tool-name="label"
         :tool-key="call.name"
         :chat-id="rootChatId"
+        :trigger-label="'简介'"
       />
       <!-- 工具调用的安全判定徽章（compact；缺省 = 未知）。
            标题 / 工具类型 / 执行状态已由抽屉顶部标题栏承担，此处不再重复展示（用户需求 2026-11）。 -->
@@ -162,9 +235,18 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
       :question-id="call.callId"
     />
 
+    <!-- 内置工具专有内容区（待办 / 写文件 / …），只渲染内容；头部与交互区由本卡统一承载。 -->
+    <component :is="builtinComponent" v-else-if="builtinComponent" :call="call" :label="label" />
+
     <template v-else>
-      <details class="lite-tool-call-args">
-        <summary>
+      <!-- 提问/配置管理等显性参数工具：details 强制展开且隐藏「参数」summary，参数直接展示在外；
+           其余第三方工具保留「参数」折叠（summary 可手动展开/收起，不受 :open 绑定影响）。 -->
+      <details
+        class="lite-tool-call-args"
+        :class="{ 'is-direct': showArgsDirect }"
+        :open="showArgsDirect || undefined"
+      >
+        <summary v-if="!showArgsDirect">
           <span>参数</span>
           <span class="lite-tool-call-count">（{{ argsCount }}）</span>
         </summary>
@@ -222,22 +304,24 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
         <p v-else class="lite-drawer-hint is-muted">（无参数）</p>
       </details>
 
-      <!-- 结果区：提问工具已把结果渲染进选项，不再单列结果 -->
+      <!-- 结果区：提问工具已把结果渲染进选项，不再单列结果。
+           内置工具（配置管理等）直接全量展示结果，不做预览折叠（通用展示只留给外部工具）。 -->
       <template v-if="!selectPattern">
         <section class="lite-tool-call-result">
           <h5>执行结果</h5>
           <div
-            v-if="resultDisplay"
+            v-if="resultShown"
             class="lite-result-content"
-            role="button"
-            tabindex="0"
-            aria-label="点击切换执行结果显示范围"
-            :aria-expanded="resultExpanded"
-            :aria-busy="resultLoading"
-            @click="toggleResult"
-            @keydown="onResultPreviewKeydown"
+            :class="{ 'is-expandable': !isBuiltinTool }"
+            :role="isBuiltinTool ? undefined : 'button'"
+            :tabindex="isBuiltinTool ? undefined : 0"
+            :aria-label="isBuiltinTool ? undefined : '点击切换执行结果显示范围'"
+            :aria-expanded="isBuiltinTool ? undefined : resultExpanded"
+            :aria-busy="isBuiltinTool ? undefined : resultLoading"
+            @click="isBuiltinTool ? undefined : toggleResult()"
+            @keydown="isBuiltinTool ? undefined : onResultPreviewKeydown"
           >
-            {{ resultDisplay }}
+            {{ resultShown }}
           </div>
           <p v-else class="lite-drawer-hint is-muted">
             {{ waiting ? '等待工具返回…' : '（无结果）' }}
@@ -254,10 +338,9 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
   padding: 12px 14px;
   border-radius: 0;
 }
-.lite-tool-call + .lite-tool-call {
-  padding-top: 13px;
-  border-top: 1px solid var(--el-border-color-lighter);
-}
+/* 工具卡之间的视觉分隔由 DetailDrawer 的简单分割线承担（中文名写在线上），卡片自身不叠边。
+   通用样式规范（用户 2026-09）：禁止「左侧高亮线 + 右侧底色背景」类样式——工具卡不设左竖线；
+   焦点定位由工具链分割线（线 + 图标 + 名字变主色）指示，卡片本体不再叠加任何左缘标记。 */
 .lite-tool-call-head {
   display: flex;
   align-items: center;
@@ -306,7 +389,11 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
 }
 /* 工具名称 = ToolDescriptionDisclosure 触发按钮（共享组件内部已处理长名省略）。 */
 /* 工具类型 / 执行状态 tag 已由抽屉顶部标题栏承担，工具卡头部仅保留图标 + 名称 + 风险徽章。
-   共享 RiskBadge（compact）拉齐到同套 tag 尺寸（圆角随 RiskBadge 基样式）。 */
+   「简介」只保留文字（隐藏展开箭头 ▸）；「安全」只保留徽章文字（隐藏语义色圆点），
+   图标统一由工具链分割线承担（用户 2026-09：去掉简介/安全前的 icon）。 */
+.lite-tool-call-head :deep(.tool-description-caret) {
+  display: none;
+}
 .lite-tool-call-head :deep(.risk-badge) {
   flex: none;
   display: inline-flex;
@@ -322,8 +409,7 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
   border-radius: 999px;
 }
 .lite-tool-call-head :deep(.risk-dot) {
-  width: 7px;
-  height: 7px;
+  display: none;
 }
 .lite-tool-call-args > summary {
   display: flex;
@@ -476,7 +562,6 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
 .lite-select-note {
   margin-top: 2px;
   padding-left: 5px;
-  border-left: 2px solid color-mix(in srgb, var(--el-color-primary) 50%, transparent);
   color: var(--el-color-primary);
   font-size: 14px;
   line-height: 1.5;

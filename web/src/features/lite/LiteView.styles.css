@@ -757,8 +757,12 @@
 .lite-tool-call:hover {
   filter: brightness(1.18);
 }
+/* 选中工具（其详情已在抽屉打开）：用线框把该工具框起来，不做图标变色（用户需求 2026-09）。
+   outline 不占布局尺寸；outline-offset 在 icon 四周留出框距，让「已打开」状态一眼可见，
+   抽屉遮罩（42% 暗化）下仍清晰可辨。 */
 .lite-tool-call.is-selected {
-  filter: brightness(1.28);
+  outline: 1px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 /* 尚未消费的提问必须独立于工具运行状态持续提醒，避免用户只看到普通工具图标。 */
 .lite-tool-call.is-attention .lite-tool-call-icon {

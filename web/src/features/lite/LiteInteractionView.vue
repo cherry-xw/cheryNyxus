@@ -442,7 +442,6 @@ const blocked = computed(
   gap: 8px;
   margin: 0;
   padding: 8px 10px;
-  border-left: 3px solid var(--el-color-warning);
   background: color-mix(in srgb, var(--el-color-warning) 8%, transparent);
   color: var(--el-text-color-regular);
   font-size: 14px;

@@ -1,16 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { MorphIcon } from 'morphicons/vue'
 import { useLiteStore } from './liteStore'
 import { useLiteCanonicalView } from './useLiteCanonicalView'
-import {
-  classifyToolType,
-  formatElapsed,
-  toolTypeGlyph,
-  toolTypeLabel,
-  type LiteRunNode,
-  type LiteRunNodeKind,
-  type LiteRunNodeStatus,
-} from './executionMonitor'
+import { classifyToolType, type LiteRunNode, type LiteRunNodeKind } from './executionMonitor'
 import { toolCallIcon } from './clusterIcons'
 import {
   createLiteDetailSectionState,
@@ -57,8 +50,6 @@ const loadingNodeIds = ref<Record<string, boolean>>({})
 const sectionLoading = ref<Record<string, boolean>>({})
 /** 思考分节折叠态：默认收起（降低思考内容的视觉权重），点击标题展开。 */
 const thinkingOpen = ref(false)
-/** 工具节点正文是否已经发起过全文请求；摘要本身不在前端通过隐藏全文来模拟折叠。 */
-const contentFullRequested = ref(false)
 // 数据放宽（需求：适当放宽一次响应回来的内容数据量；其余交互不放开）
 const DETAIL_PAGE_LIMIT = 30000
 
@@ -107,20 +98,6 @@ function onResizeStart(event: PointerEvent): void {
   handle.addEventListener('pointercancel', onEnd)
 }
 
-function runStatusLabel(status: LiteRunNodeStatus): string {
-  switch (status) {
-    case 'running':
-      return '执行中'
-    case 'completed':
-      return '已完成'
-    case 'failed':
-      return '失败'
-    case 'rejected':
-      return '已拒绝'
-    case 'cancelled':
-      return '已取消'
-  }
-}
 function kindLabel(kind: LiteRunNodeKind): string {
   switch (kind) {
     case 'user':
@@ -143,6 +120,18 @@ function kindLabel(kind: LiteRunNodeKind): string {
 }
 function toolLabel(call: { name: string }): string {
   return lite.toolMeta(call.name)?.label?.trim() || toSenseNameZh(call.name)
+}
+
+/** 工具链分割线名称旁的图标：优先工具元信息的字形图标，缺省回退按类型生成的 lucide 图标。 */
+function chainGlyph(call: { name: string }): string | undefined {
+  return lite.toolMeta(call.name)?.icon
+}
+
+/** 抽屉标题：工具节点展示其所属 Agent 的 LLM 响应上下文（tool-batch 是该次响应的工具批），
+ *  其余节点沿用类型 label（用户问题 / 结果返回 / 模型响应等）。 */
+function drawerTitle(): string {
+  if (props.node?.kind === 'tool') return `${props.node.agentLabel} 响应`
+  return props.node?.label ?? ''
 }
 
 /** 按节点类型列出要展示的详情分节：用户→正文；工具→工具调用（合并同一次 LLM 响应时附思考/正文）；主·子 Agent→思考+正文；其余事件→正文。 */
@@ -183,26 +172,6 @@ function isSectionLoading(section: LiteDetailSectionName): boolean {
 }
 function isLoadingNode(): boolean {
   return props.node ? (loadingNodeIds.value[props.node.nodeId] ?? false) : false
-}
-
-const showContentPreview = computed(
-  () =>
-    props.node?.kind === 'tool' &&
-    !contentFullRequested.value &&
-    sectionLoaded('content') &&
-    Boolean(sectionText('content')),
-)
-
-function requestFullContent(): void {
-  if (contentFullRequested.value || isSectionLoading('content')) return
-  contentFullRequested.value = true
-  void loadSection('content')
-}
-
-function onContentPreviewKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Enter' && event.key !== ' ') return
-  event.preventDefault()
-  requestFullContent()
 }
 
 /** 工具详情游标链页数上限（每页 = 一个调用的一个字段块）。 */
@@ -256,13 +225,14 @@ async function loadSection(section: LiteDetailSectionName): Promise<void> {
   // and the full text is requested from the execution-node endpoint on click.
   const localText = section === 'content' ? props.node?.content : props.node?.thinking
   if (section === 'content' && props.node?.kind === 'tool' && !state.loaded) {
-    // 工具节点的 content 是时间线摘要：首次只展示它，正文全文必须由用户点击后通过 node.get 获取。
+    // 工具节点的正文 = 同一次 LLM 响应的 message 正文（前端合并、canonical timeline 已携带全文），
+    // 直接作为完整内容展示；tool-batch 节点自身在后端没有 content，不能再去 node.get 拉全文。
     liteUi.patchDetailSection(props.windowId, props.rootChatId, nodeId, section, {
       ...state,
       loaded: true,
       text: localText ?? '',
-      offset: 0,
-      hasMore: Boolean(localText),
+      offset: (localText ?? '').length,
+      hasMore: false,
       error: null,
     })
     return
@@ -383,7 +353,6 @@ watch(
     closeButtonRef.value?.focus()
     if (bodyRef.value) bodyRef.value.scrollTop = 0
     if (isNewNode) {
-      contentFullRequested.value = false
       loadNodeSections()
     } else if (initialSection) {
       // 审批等带初始工具详情的入口：保证目标分节已加载
@@ -417,21 +386,7 @@ watch(
       <div class="lite-drawer-resize" aria-hidden="true" @pointerdown="onResizeStart" />
       <header class="lite-drawer-head">
         <span class="lite-drawer-icon" aria-hidden="true">{{ props.node.icon }}</span>
-        <strong id="lite-detail-title">{{
-          props.node.kind === 'tool' ? '工具调用' : props.node.label
-        }}</strong>
-        <span class="lite-drawer-status" :data-status="props.node.status">{{
-          runStatusLabel(props.node.status)
-        }}</span>
-        <span
-          v-if="props.node.kind === 'tool'"
-          class="lite-drawer-type"
-          :data-tooltype="props.node.toolType"
-          >{{ toolTypeGlyph(props.node.toolType) }} {{ toolTypeLabel(props.node.toolType) }}</span
-        >
-        <time v-if="props.node.elapsedMs > 0" class="lite-drawer-elapsed">{{
-          formatElapsed(props.node.elapsedMs)
-        }}</time>
+        <strong id="lite-detail-title">{{ drawerTitle() }}</strong>
         <span class="lite-drawer-meta"
           >{{ kindLabel(props.node.kind)
           }}{{ nodeIndex !== undefined ? ' · 节点 ' + (nodeIndex + 1) : '' }}</span
@@ -494,21 +449,6 @@ watch(
             </p>
             <template v-else>
               <p v-if="!sectionLoaded('content')" class="lite-drawer-hint is-muted">加载中…</p>
-              <p v-else-if="isSectionLoading('content')" class="lite-drawer-hint is-muted">
-                获取完整正文…
-              </p>
-              <div
-                v-else-if="showContentPreview"
-                class="lite-content-preview"
-                role="button"
-                tabindex="0"
-                aria-label="点击获取完整正文"
-                @click="requestFullContent"
-                @keydown="onContentPreviewKeydown"
-              >
-                <LiteMarkdown :text="sectionText('content')" />
-                <span class="lite-content-preview-hint">点击查看完整正文</span>
-              </div>
               <template v-else-if="sectionText('content')">
                 <LiteMarkdown :text="sectionText('content')" :plain="props.node.kind === 'user'" />
                 <button
@@ -526,31 +466,53 @@ watch(
           </section>
 
           <section v-if="sections.includes('toolCalls')" class="lite-node-detail-block">
-            <h4>工具调用</h4>
+            <h4>工具链</h4>
             <p v-if="sectionError('toolCalls')" class="lite-drawer-error" role="alert">
               {{ sectionError('toolCalls') }}
             </p>
             <template v-else>
               <p v-if="!sectionLoaded('toolCalls')" class="lite-drawer-hint is-muted">加载中…</p>
               <template v-else-if="sectionToolCalls().length">
-                <!-- 专用渲染：按工具类型解析参数 / 结果（命令、路径、URL、任务说明…）+ JSON 键中文翻译。
-                     有待处理交互（审批/提问）的调用渲染交互区（LiteInteractionView），其余只读展示。 -->
-                <LiteToolCallDetail
-                  v-for="call in sectionToolCalls()"
-                  :key="call.callId"
-                  :call="call"
-                  :label="toolLabel(call)"
-                  :icon="toolCallIcon(call.name)"
-                  :glyph="lite.toolMeta(call.name)?.icon"
-                  :type="classifyToolType(call.name)"
-                  :focused="call.callId === props.focusToolCallId"
-                  :window-id="props.windowId"
-                  :root-chat-id="props.rootChatId"
-                  :result-has-more="sectionHasMore('toolCalls')"
-                  :result-loading="isSectionLoading('toolCalls')"
-                  :interaction="interactions.interactionForCall(call.callId)"
-                  @expand-result="loadSection('toolCalls')"
-                />
+                <!-- 工具链：同一次 LLM 响应内的多个工具调用，用一条简单分割线分隔、图标 + 中文名写在线上。
+                     不做嵌套边框/背景（层级保持扁平，禁止一层框套一层框）；焦点定位只让
+                     分割线、图标与中文名变主色，不占空间不套框。 -->
+                <template v-for="call in sectionToolCalls()" :key="call.callId">
+                  <div
+                    class="lite-tool-chain-head"
+                    :class="{ 'is-focused': call.callId === props.focusToolCallId }"
+                  >
+                    <span class="lite-tool-chain-line" aria-hidden="true" />
+                    <span class="lite-tool-chain-icon" aria-hidden="true">
+                      <span v-if="chainGlyph(call)" class="lite-tool-chain-glyph">{{
+                        chainGlyph(call)
+                      }}</span>
+                      <MorphIcon
+                        v-else
+                        :icon="toolCallIcon(call.name)"
+                        :size="15"
+                        :stroke-width="2"
+                        :reduced-motion="'always'"
+                        spring="snappy"
+                      />
+                    </span>
+                    <span class="lite-tool-chain-name">{{ toolLabel(call) }}</span>
+                    <span class="lite-tool-chain-line" aria-hidden="true" />
+                  </div>
+                  <LiteToolCallDetail
+                    :call="call"
+                    :label="toolLabel(call)"
+                    :icon="toolCallIcon(call.name)"
+                    :glyph="lite.toolMeta(call.name)?.icon"
+                    :type="classifyToolType(call.name)"
+                    :focused="call.callId === props.focusToolCallId"
+                    :window-id="props.windowId"
+                    :root-chat-id="props.rootChatId"
+                    :result-has-more="sectionHasMore('toolCalls')"
+                    :result-loading="isSectionLoading('toolCalls')"
+                    :interaction="interactions.interactionForCall(call.callId)"
+                    @expand-result="loadSection('toolCalls')"
+                  />
+                </template>
                 <el-tooltip
                   v-if="sectionHasMore('toolCalls')"
                   content="参数或结果内容较长，未全部取回；点击继续加载剩余内容"
@@ -640,32 +602,6 @@ watch(
   /* 强制字重规则：lite 内容一律 400，标题亦收敛（不随 <strong> 默认加粗）。 */
   font-weight: 400;
 }
-.lite-drawer-status {
-  flex: none;
-  height: 20px;
-  box-sizing: border-box;
-  padding: 0 8px;
-  border-radius: 0;
-  border: 1px solid var(--el-border-color);
-  font-size: 12.5px;
-  line-height: 20px;
-  color: var(--el-text-color-secondary);
-}
-.lite-drawer-status[data-status='running'] {
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-}
-.lite-drawer-status[data-status='failed'],
-.lite-drawer-status[data-status='rejected'] {
-  border-color: var(--el-color-danger);
-  color: var(--el-color-danger);
-}
-.lite-drawer-elapsed {
-  font-size: 14px;
-  color: var(--el-text-color-secondary);
-  flex: none;
-  font-variant-numeric: tabular-nums;
-}
 .lite-drawer-meta {
   flex: 1;
   text-align: right;
@@ -724,20 +660,57 @@ watch(
   font-weight: 400;
   letter-spacing: 0.02em;
 }
-.lite-content-preview {
-  cursor: pointer;
-  outline: none;
+/* 工具链：同一次 LLM 响应内的多个工具调用，用一条简单分割线分隔、中文名写在线上。
+   不做嵌套边框/背景（层级保持扁平，禁止一层框套一层框）。 */
+.lite-tool-chain-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 8px;
 }
-.lite-content-preview:hover .lite-content-preview-hint,
-.lite-content-preview:focus-visible .lite-content-preview-hint {
+.lite-tool-chain-head:first-child {
+  margin-top: 0;
+}
+.lite-tool-chain-line {
+  flex: 1;
+  height: 1px;
+  background: var(--el-border-color);
+}
+.lite-tool-chain-name {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--el-text-color-secondary);
+}
+/* 分割线上的工具图标：位于中文名左侧，与名字同高同色。 */
+.lite-tool-chain-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--el-text-color-secondary);
+  line-height: 1;
+}
+.lite-tool-chain-glyph {
+  font-size: 14px;
+  line-height: 1;
+}
+.lite-tool-chain-head.is-focused .lite-tool-chain-icon {
   color: var(--el-color-primary);
 }
-.lite-content-preview-hint {
-  display: block;
-  margin-top: 6px;
-  color: var(--el-text-color-placeholder);
-  font-size: 13px;
-  line-height: 1.4;
+/* 焦点定位（点击 cluster 工具 → 抽屉定位该工具）：分割线 + 中文名变主色，
+   不套框、不占布局空间（配合 cluster 的线框标记，不叠加嵌套边框）。 */
+.lite-tool-chain-head.is-focused .lite-tool-chain-name {
+  color: var(--el-color-primary);
+}
+.lite-tool-chain-head.is-focused .lite-tool-chain-line {
+  background: color-mix(in srgb, var(--el-color-primary) 55%, var(--el-border-color));
 }
 /* 思考分节标题（可点击折叠切换，替代 h4；样式与 h4 一致） */
 .lite-drawer-section-toggle {
@@ -772,45 +745,6 @@ watch(
 /* 思考内容弱化：与正文（--el-text-color-primary）区分，降低视觉权重 */
 .lite-node-detail-block.is-thinking .lite-thinking-content :deep(.lite-md) {
   color: var(--el-text-color-secondary);
-}
-.lite-drawer-type {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 20px;
-  box-sizing: border-box;
-  padding: 0 8px;
-  border-radius: 0;
-  font-size: 12.5px;
-  line-height: 20px;
-  border: 1px solid var(--el-border-color);
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
-}
-.lite-drawer-type[data-tooltype='exec'] {
-  border-color: color-mix(in srgb, #9b59b6 55%, var(--el-border-color));
-  color: #9b59b6;
-}
-.lite-drawer-type[data-tooltype='read'] {
-  border-color: color-mix(in srgb, #6b7f92 55%, var(--el-border-color));
-  color: #6b7f92;
-}
-.lite-drawer-type[data-tooltype='write'] {
-  border-color: color-mix(in srgb, #2f9e63 55%, var(--el-border-color));
-  color: #2f9e63;
-}
-.lite-drawer-type[data-tooltype='web'] {
-  border-color: color-mix(in srgb, #00a8a8 55%, var(--el-border-color));
-  color: #00a8a8;
-}
-.lite-drawer-type[data-tooltype='dispatch'] {
-  border-color: color-mix(in srgb, #e67e22 55%, var(--el-border-color));
-  color: #e67e22;
-}
-.lite-drawer-type[data-tooltype='other'] {
-  border-color: color-mix(in srgb, #c58a1f 55%, var(--el-border-color));
-  color: #c58a1f;
 }
 .lite-drawer-error {
   margin: 0;
@@ -849,27 +783,5 @@ watch(
 .lite-drawer-more:disabled {
   opacity: 0.5;
   cursor: default;
-}
-</style>
-
-<!-- 深色模式提亮（无 scoped 块，理由见 ContextUsageBar.vue）：仅提亮前景文字。 -->
-<style>
-[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='exec'] {
-  color: #c084fc;
-}
-[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='read'] {
-  color: #94a3b8;
-}
-[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='write'] {
-  color: #34d399;
-}
-[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='web'] {
-  color: #2dd4bf;
-}
-[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='dispatch'] {
-  color: #fb923c;
-}
-[data-theme='dark'] .lite-drawer-head .lite-drawer-type[data-tooltype='other'] {
-  color: #facc15;
 }
 </style>

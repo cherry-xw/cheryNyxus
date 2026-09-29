@@ -6,7 +6,17 @@
  * - 思考标记：模型思考/正文用 brain / brain-cog 双图标，运行中由视图层做图标
  *   切换与主题色呼吸动画（见 LiteView.vue）。
  */
-import { BookOpen, Brain, BrainCog, Forward, Globe, PenLine, SquareTerminal, Wrench } from 'lucide'
+import {
+  BookOpen,
+  Brain,
+  BrainCog,
+  Forward,
+  Globe,
+  MessageCircleQuestionMark,
+  PenLine,
+  SquareTerminal,
+  Wrench,
+} from 'lucide'
 import type { IconInput } from 'morphicons/vue'
 import { classifyToolType } from './executionMonitor'
 import type { LiteToolType } from './executionMonitor'
@@ -21,8 +31,10 @@ const TOOL_TYPE_ICONS: Readonly<Record<LiteToolType, IconInput>> = {
   other: Wrench,
 }
 
-/** 单个工具调用 → 本源图标（按该工具的类型分类）。 */
+/** 单个工具调用 → 本源图标（按该工具的类型分类；提问工具展示提问专属图标）。 */
 export function toolCallIcon(name: string): IconInput {
+  // 提问工具（ask_user_question）：展示问号气泡图标，不再落回通用扳手。
+  if (name === 'ask_user_question') return MessageCircleQuestionMark
   return TOOL_TYPE_ICONS[classifyToolType(name)] ?? Wrench
 }
 

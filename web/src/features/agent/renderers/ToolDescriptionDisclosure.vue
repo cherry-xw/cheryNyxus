@@ -18,6 +18,9 @@ const props = defineProps<{
   chatId?: string
   /** 面板主题覆写（CSS 变量），供 CRT 终端等宿主传入与自身调色板协调的变量。 */
   theme?: Record<string, string>
+  /** 触发按钮显示文案；缺省显示 toolName。部分宿主已把工具名单独展示（如 lite 工具链分割线），
+   *  触发按钮只需显示「简介」。 */
+  triggerLabel?: string
 }>()
 
 const open = ref(false)
@@ -148,7 +151,7 @@ onBeforeUnmount(() => {
       @click="toggle"
     >
       <span class="tool-description-caret" :class="{ open }" aria-hidden="true">▸</span>
-      <span class="tool-description-name">{{ toolName }}</span>
+      <span class="tool-description-name">{{ triggerLabel ?? toolName }}</span>
     </button>
   </div>
 
