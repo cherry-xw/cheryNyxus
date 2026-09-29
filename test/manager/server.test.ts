@@ -3,6 +3,8 @@ import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import yaml from 'js-yaml'
+import { Script } from 'node:vm'
 import {
   createManager,
   isLoopbackAddress,
@@ -23,6 +25,38 @@ async function freePort(): Promise<number> {
 }
 
 describe('local manager', () => {
+  it('saves OIDC provider settings without changing password login or exposing the client secret', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'chery-manager-'))
+    const configFile = join(root, 'config.yaml')
+    await writeFile(configFile, 'server:\n  auth:\n    enabled: true\n    username: admin\n    password: scrypt$existing\n  port: 8182\n')
+    const manager = createManager({ port: 0, controlToken: 'test-token', configFile, credentialsFile: join(root, 'credentials.json') })
+    await manager.listen()
+    const base = `http://127.0.0.1:${manager.address()!.port}/api/auth/oidc-config`
+    const headers = { 'Content-Type': 'application/json', 'X-Chery-Manager-Token': 'test-token' }
+    const input = { issuer: '', authorizationUrl: 'https://id.example/authorize', tokenUrl: 'https://id.example/token', userInfoUrl: 'https://id.example/me', clientId: 'chery', clientSecret: 'private-secret', redirectUri: 'https://app.example/api/auth/callback', adminUsers: ['owner@example.com'], adminClaim: '', adminValues: [] }
+    try {
+      expect((await fetch(base)).status).toBe(401)
+      expect((await fetch(base, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })).status).toBe(401)
+      const saved = await fetch(base, { method: 'PUT', headers, body: JSON.stringify(input) })
+      expect(saved.status).toBe(200)
+      expect(await saved.text()).not.toContain('private-secret')
+      const read = await fetch(base, { headers })
+      expect(await read.json()).toMatchObject({ clientId: 'chery', hasClientSecret: true, passwordLoginActive: true })
+      const config = yaml.load(await readFile(configFile, 'utf8')) as { server: { auth: Record<string, unknown>; port: number } }
+      expect(config.server.auth).toMatchObject({ enabled: true, username: 'admin', password: 'scrypt$existing', clientSecret: 'private-secret', adminUsers: ['owner@example.com'] })
+      expect(config.server.port).toBe(8182)
+      const invalid = await fetch(base, { method: 'PUT', headers, body: JSON.stringify({ ...input, tokenUrl: '', clientSecret: '' }) })
+      expect(invalid.status).toBe(400)
+      const kept = await fetch(base, { method: 'PUT', headers, body: JSON.stringify({ ...input, clientSecret: '' }) })
+      expect(kept.status).toBe(200)
+      expect((yaml.load(await readFile(configFile, 'utf8')) as { server: { auth: { clientSecret: string } } }).server.auth.clientSecret).toBe('private-secret')
+      const cleared = await fetch(base, { method: 'PUT', headers, body: JSON.stringify({ ...input, clientSecret: '', clearClientSecret: true }) })
+      expect(cleared.status).toBe(200)
+      expect(await cleared.json()).toMatchObject({ hasClientSecret: false, passwordLoginActive: true })
+    } finally {
+      await manager.close()
+    }
+  })
   it('keeps credential mutation loopback and token protected', async () => {
     const root = await mkdtemp(join(tmpdir(), 'chery-manager-'))
     const configFile = join(root, 'config.yaml')
@@ -123,8 +157,10 @@ describe('local manager', () => {
       const page = await fetch(`${base}/`)
       expect(page.status).toBe(200)
       const html = await page.text()
-      // 内网门禁要求全部 /api/* 带密钥：页面内部 status/credentials/rotate 三个请求 + 续期读取共 4 处。
-      expect(html.split('X-Chery-Manager-Token').length - 1).toBe(4)
+      // 内网门禁要求所有状态、凭据和 OAuth 配置请求都携带管理密钥。
+      expect(html.split('X-Chery-Manager-Token').length - 1).toBe(6)
+      for (const [, script] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Script(script!)
+      expect(html).toContain('id="oidc-form"')
       // 状态请求不能退回无 token 的裸请求（内网访问会 401）。
       expect(html).not.toContain("fetch('/api/status');")
       // 页面不再整段打印状态 JSON，改为逐项状态行。
@@ -138,10 +174,10 @@ describe('local manager', () => {
       expect(html).toContain('id="toggle-password"')
       expect(html).toContain('<label for="username">')
       expect(html).toContain('<label for="password">')
-      // 轮换后如实上报：成功自检 / 后端不可达 / 未生效三种文案 + 引导重新登录。
+      // 轮换后按自检结果报告已生效、不可达或未确认。
       expect(html).toContain('保存凭据并生效')
-      expect(html).toContain('新密码已确认生效')
-      expect(html).toContain('请确认后端已启动')
+      expect(html).toContain('凭据已更新并确认生效')
+      expect(html).toContain('凭据已更新，但后端暂时无法确认')
       // 仅本机监听时页面不应出现局域网安全警告。
       expect(html).not.toContain('局域网访问已开启')
     } finally {

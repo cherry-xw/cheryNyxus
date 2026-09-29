@@ -126,7 +126,7 @@ async function writeProtectedJson(file: string, value: StoredCredentials): Promi
   await writeProtected(file, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-async function writeYaml(file: string, value: Record<string, unknown>): Promise<void> {
+export async function writeYaml(file: string, value: Record<string, unknown>): Promise<void> {
   await writeProtected(file, yaml.dump(value, { lineWidth: -1 }))
 }
 

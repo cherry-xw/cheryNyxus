@@ -5,6 +5,7 @@ import { freemem, loadavg, totalmem, uptime } from 'node:os'
 import yaml from 'js-yaml'
 import { ProcessController } from './processController.js'
 import { CredentialStore } from './credentials.js'
+import { OidcConfigStore } from './oidcConfig.js'
 import { isTokenValid, loadOrCreateToken } from './tokenStore.js'
 import { verifyLogin } from './verifyLogin.js'
 import { writeManagerPage as writeRetroManagerPage } from './page.js'
@@ -42,6 +43,7 @@ export function createManager(options: ManagerOptions = {}) {
     configFile: options.configFile ?? `${cheryDir}/.chery/config.yaml`,
     credentialsFile: options.credentialsFile ?? `${cheryDir}/.chery/manager-credentials.json`,
   })
+  const oidcConfig = new OidcConfigStore(options.configFile ?? `${cheryDir}/.chery/config.yaml`)
   const server = createServer(async (req, res) => {
     const presented = readPresentedToken(req)
     const tokenAuthorized = isTokenValid(tokenState, presented)
@@ -143,6 +145,21 @@ export function createManager(options: ManagerOptions = {}) {
         credentials.password ?? '',
       )
       json(res, 200, { credentials, backend, verification })
+      return
+    }
+    if (path === '/api/auth/oidc-config' && (req.method === 'GET' || req.method === 'PUT')) {
+      if (presented !== controlToken) {
+        unauthorized(res)
+        return
+      }
+      try {
+        const result = req.method === 'GET'
+          ? await oidcConfig.view()
+          : await oidcConfig.save(await readJsonBody(req))
+        json(res, 200, result)
+      } catch (error) {
+        json(res, 400, { error: (error as Error).message })
+      }
       return
     }
     if (path === '/' || path === '/index.html') {

@@ -17,6 +17,8 @@
 
 管理器还提供凭据查看和轮换入口：`GET /api/credentials` 与 `POST /api/credentials/rotate`。两者都要求管理控制密钥（本机或内网访问均须携带）；凭据文件位于 `.chery/manager-credentials.json`，非 Windows 使用 `0600`，后端 `config.yaml` 只保存 scrypt 哈希。轮换后：后端若是管理器子进程则自动重启；否则不拉起会因端口占用崩溃的副本，交由后端自身的配置监听器自动重载新凭据（通常 1 秒内）。管理器随后用新凭据对后端做登录自检，页面按结果提示「已确认生效 / 后端不可达 / 未确认需手动重启」，并引导用新用户名/密码重新登录。若用户直接编辑配置导致哈希与凭据文件不一致，页面会显示不一致状态。
 
+管理页另有 OAuth 2.0 / OIDC 预配置入口：`GET /api/auth/oidc-config` 与 `PUT /api/auth/oidc-config` 仅接受当前管理密钥，读写 `.chery/config.yaml` 的 `server.auth` 中的提供方地址、客户端信息与管理员映射；读取只返回客户端密钥是否已配置，不回传密钥原文，留空保存则保留原密钥。保存保持原有用户名、密码及其他认证字段不变。当前用户名/密码登录优先于 OIDC，且应用登录窗尚无 OIDC 跳转入口，所以管理页保存只代表预配置完成，不表示已启用 OAuth 登录；认证初始化变更需后端重启才可采用。实现入口为 [`manager/src/oidcConfig.ts`](../../manager/src/oidcConfig.ts) 的 `OidcConfigStore`、[`manager/src/server.ts`](../../manager/src/server.ts) 的 `createManager`、[`manager/src/page.ts`](../../manager/src/page.ts) 的 `writeManagerPage`；验证见 [`test/manager/server.test.ts`](../../test/manager/server.test.ts)。
+
 `GET /api/status` 和 `GET /api/connection` 会分别显示管理器、后端和 rathole 状态。后端运行状态由管理器自行探测：探测 `config.yaml` 的 `server.port`（默认 8182）端口可连接即视为运行中；若后端设置了 `CHERY_BACKEND_STATUS_FILE`，管理器还会并入其写入的监听地址与非敏感 Agent 统计摘要（初始化会话数、运行中会话数、活跃运行数），不包含密码、token 或私钥。管理页面按行显示各进程状态（后端 / 中转 rathole / 中继 relay），后端运行中时给出可点击的访问地址。
 
 管理器命令行入口在构建后运行 `node manager/dist/index.js <命令>`，也可使用 `pnpm manager:cli <命令>`：
