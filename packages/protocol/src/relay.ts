@@ -13,10 +13,15 @@ export const RELAY_ERROR_CODES = [
   'CAPACITY_EXCEEDED',
   'BACKEND_UNAVAILABLE',
   'BACKEND_TIMEOUT',
+  'AUTH_REQUIRED',
+  'PASSWORD_LOGIN_DISABLED',
+  'OIDC_LOGIN_UNAVAILABLE',
+  'PASSWORD_LOGIN_COOLDOWN',
 ] as const
 
 export type RelayErrorCode = (typeof RELAY_ERROR_CODES)[number]
 export type RelayBackendStatus = 'online' | 'offline'
+export type RelayLoginMethod = 'password' | 'oidc'
 
 export interface RelayErrorBody {
   error: {
@@ -38,12 +43,19 @@ export interface RelayBackendSummary {
   status: RelayBackendStatus
   capabilities: RelayBackendCapabilities
   lastSeenAt: string
+  loginMethods?: RelayLoginMethod[]
 }
 
 export interface RelayDiscovery extends RelayBackendSummary {
   transport: 'binary'
   httpBasePath: string
   wsPath: string
+}
+
+/** Public discovery must not contain credentials, tunnel secrets, or local ports. */
+export interface RelayBackendLoginCapabilities {
+  backendId: string
+  loginMethods: RelayLoginMethod[]
 }
 
 export interface RelayChallenge {
