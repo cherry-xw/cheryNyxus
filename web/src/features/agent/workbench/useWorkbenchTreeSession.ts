@@ -82,7 +82,14 @@ export function useWorkbenchTreeSession(options: {
           void chatSessions.releaseRootTimeline(previousRootChatId, rootSubscriptionOwner)
         return
       }
-      void observeTreeRoot(rootChatId, previousRootChatId)
+      // A restored window can mount before the application WebSocket connects.
+      // wsClient.rpc rejects immediately in that state, so defer observation to
+      // onConnectionReady instead of leaving the restored session unhydrated.
+      if (connection.status === 'connected') {
+        void observeTreeRoot(rootChatId, previousRootChatId)
+      } else if (previousRootChatId) {
+        void chatSessions.releaseRootTimeline(previousRootChatId, rootSubscriptionOwner)
+      }
     },
     { immediate: true },
   )
@@ -122,7 +129,9 @@ export function useWorkbenchTreeSession(options: {
       if (latest) agents.setWorkbenchWindowChat(options.windowId, latest)
     }
     const rootChatId = treeRootChatId.value
-    if (rootChatId && !chatSessions.rootTimeline(rootChatId, 'tree')) {
+    // Always acquire the restored root on connection: a cached tree snapshot
+    // does not imply this renderer owns a live root subscription.
+    if (rootChatId) {
       void observeTreeRoot(rootChatId)
     }
   }
