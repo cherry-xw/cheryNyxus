@@ -229,6 +229,6 @@
 
 ## 7. 当前状态与恢复入口
 
-当前状态：**R0 进行中**。已完成目标需求与前置登录加载边界整理；已开始升级共享 relay 类型、错误映射和协议说明。尚未实现中转 OIDC、绑定、后端用户证明或前端懒加载代码。
+当前状态：**R1～R7 进行中**。已接入 relay OIDC PKCE 状态 Cookie、一次性绑定申请/确认/撤销 API、默认 loopback 隧道适配器、密码登录的目标会话绑定、远程 Bearer 转发、前端 Cookie 携带和单目标切换清理。仍未完成后端可独立验证的 Pocket ID 用户证明、管理器冷却查询/恢复、真实 rathole server 动态配置，以及 Pocket ID 回调后的完整前端选择恢复；因此不能标记为交付完成。
 
 恢复任务时先读取本文件，再读取[总体需求](../../shared/architecture/relay-gateway-requirements.md)、[中转协议](../../shared/protocol/relay.md)、[后端认证入口](../../../src/service/auth/index.ts)和对应轮次的任务说明。不得把旧计划中“已完成”的批次状态当作本计划的完成依据；以本文件的轮次验收条件和代码测试为准。

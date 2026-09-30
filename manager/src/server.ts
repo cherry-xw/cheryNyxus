@@ -23,6 +23,7 @@ export interface ManagerOptions {
   backendStatusFile?: string
   configFile?: string
   credentialsFile?: string
+  relayAdminToken?: string
 }
 
 export function createManager(options: ManagerOptions = {}) {
@@ -44,6 +45,7 @@ export function createManager(options: ManagerOptions = {}) {
     credentialsFile: options.credentialsFile ?? `${cheryDir}/.chery/manager-credentials.json`,
   })
   const relayConfig = new RelayConfigStore(options.configFile ?? `${cheryDir}/.chery/config.yaml`)
+  const relayAdminToken = options.relayAdminToken ?? process.env.CHERY_RELAY_ADMIN_TOKEN ?? ''
   const server = createServer(async (req, res) => {
     const presented = readPresentedToken(req)
     const tokenAuthorized = isTokenValid(tokenState, presented)
@@ -156,6 +158,16 @@ export function createManager(options: ManagerOptions = {}) {
         const result = req.method === 'GET'
           ? await relayConfig.view()
           : await relayConfig.save(await readJsonBody(req))
+        if (req.method === 'PUT' && result.url && result.backendId) {
+          await relayRequest(result, '/api/admin/backends/policy', {
+            method: 'PUT',
+            body: JSON.stringify({
+              backendId: result.backendId,
+              publicDiscovery: result.publicDiscovery,
+              remotePasswordEnabled: result.remotePasswordEnabled,
+            }),
+          }, relayAdminToken)
+        }
         json(res, 200, result)
       } catch (error) {
         json(res, 400, { error: (error as Error).message })
@@ -168,12 +180,15 @@ export function createManager(options: ManagerOptions = {}) {
         return
       }
       const config = await relayConfig.view()
+      const health = config.url
+        ? await relayRequest(config, '/healthz', { method: 'GET' }, relayAdminToken).catch(() => null)
+        : null
       json(res, 200, {
         ...config,
         configured: Boolean(config.url && config.backendId),
-        status: 'not_connected',
-        connection: 'not_connected',
-        binding: { status: 'unavailable', reason: 'relay_binding_api_not_connected' },
+        status: health ? 'online' : 'not_connected',
+        connection: health ? 'online' : 'not_connected',
+        binding: health ? 'available' : { status: 'unavailable', reason: 'relay_unreachable' },
         cooldown: { status: 'unavailable', reason: 'backend_cooldown_api_not_connected' },
       })
       return
@@ -183,7 +198,13 @@ export function createManager(options: ManagerOptions = {}) {
         unauthorized(res)
         return
       }
-      json(res, 200, { status: 'unavailable', reason: 'relay_binding_api_not_connected', bindings: [] })
+      const config = await relayConfig.view()
+      if (!config.url || !config.backendId) {
+        json(res, 200, { status: 'unavailable', reason: 'relay_not_configured', bindings: [] })
+        return
+      }
+      const result = await relayRequest(config, `/api/admin/bindings?backendId=${encodeURIComponent(config.backendId)}`, { method: 'GET' }, relayAdminToken)
+      json(res, 200, await result.json())
       return
     }
     if (path === '/api/relay/bindings/request' && req.method === 'POST') {
@@ -191,7 +212,16 @@ export function createManager(options: ManagerOptions = {}) {
         unauthorized(res)
         return
       }
-      json(res, 503, { error: 'relay_binding_api_not_connected', status: 'unavailable' })
+      const config = await relayConfig.view()
+      if (!config.url || !config.backendId) {
+        json(res, 400, { error: 'relay_not_configured' })
+        return
+      }
+      const result = await relayRequest(config, '/api/admin/bindings/request', {
+        method: 'POST',
+        body: JSON.stringify({ backendId: config.backendId }),
+      }, relayAdminToken)
+      json(res, result.status, await result.json())
       return
     }
     if (path === '/api/relay/bindings/revoke' && req.method === 'POST') {
@@ -199,7 +229,13 @@ export function createManager(options: ManagerOptions = {}) {
         unauthorized(res)
         return
       }
-      json(res, 503, { error: 'relay_binding_api_not_connected', status: 'unavailable' })
+      const body = await readJsonBody(req)
+      const config = await relayConfig.view()
+      const result = await relayRequest(config, '/api/admin/bindings/revoke', {
+        method: 'POST',
+        body: JSON.stringify({ bindingId: body.bindingId }),
+      }, relayAdminToken)
+      json(res, result.status, await result.json())
       return
     }
     if (path === '/api/relay/password-cooldown' && req.method === 'GET') {
@@ -311,6 +347,24 @@ export function isLoopbackHost(host: string | undefined): boolean {
 function unauthorized(res: import('node:http').ServerResponse): void {
   res.writeHead(401, { 'Cache-Control': 'no-store' })
   res.end('Unauthorized')
+}
+
+async function relayRequest(
+  config: { url: string },
+  path: string,
+  init: RequestInit,
+  adminToken: string,
+): Promise<Response> {
+  if (!adminToken) throw new Error('CHERY_RELAY_ADMIN_TOKEN is required for relay management')
+  const base = config.url.replace(/\/$/, '')
+  return fetch(`${base}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Chery-Relay-Admin-Token': adminToken,
+      ...(init.headers ?? {}),
+    },
+  })
 }
 
 async function readJsonBody(req: import('node:http').IncomingMessage): Promise<Record<string, unknown>> {
