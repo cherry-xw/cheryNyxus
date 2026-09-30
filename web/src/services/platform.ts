@@ -33,6 +33,7 @@ async function fetchConfig(path: string): Promise<Response> {
   try {
     return await fetch(path, {
       cache: 'no-store',
+      credentials: 'include',
       headers: sessionHeaders({}),
       signal: controller.signal,
     })

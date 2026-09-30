@@ -83,7 +83,7 @@ export class OAuth2Auth {
     const allowLoopback = options?.allowLoopback ?? this.cfg.allowLoopback !== false
     if (allowLoopback && isLoopback(req)) return { sub: 'local', username: 'local', isAdmin: true }
     // 远端：校验 access token（Authorization: Bearer / WS ?token=）。
-    const token = readBearer(req) ?? readTokenQuery(req)
+    const token = readBearer(req) ?? readRelayBearer(req) ?? readTokenQuery(req)
     const payload = token ? this.verifyAuthToken(token) : null
     return payload ? { sub: payload.sub, username: payload.username, isAdmin: true } : null
   }
@@ -346,6 +346,12 @@ function base64url(value: Buffer): string {
 }
 function readBearer(req: IncomingMessage): string | undefined {
   const header = req.headers.authorization ?? ''
+  const [scheme, token, ...extra] = header.split(/\s+/)
+  return scheme?.toLowerCase() === 'bearer' && token && extra.length === 0 ? token : undefined
+}
+function readRelayBearer(req: IncomingMessage): string | undefined {
+  const header = req.headers['x-chery-relay-authorization']
+  if (typeof header !== 'string') return undefined
   const [scheme, token, ...extra] = header.split(/\s+/)
   return scheme?.toLowerCase() === 'bearer' && token && extra.length === 0 ? token : undefined
 }

@@ -177,6 +177,7 @@ async function fetchChallenge(base: string, username: string): Promise<LoginChal
   try {
     res = await fetch(`${base}/api/auth/challenge`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),
     })
@@ -323,6 +324,10 @@ export const useAuthStore = defineStore('auth', () => {
     const nextId = input.backendId ?? ''
     const nextMode = input.mode ?? (isLoopbackHost(hostOf(nextAddress)) ? 'local' : 'relay-password')
     const saved = targets.value[targetKey(nextId, nextAddress)]
+    if (mode.value !== 'local' && serverAddress.value && (nextAddress !== serverAddress.value || nextId !== backendId.value)) {
+      const relayBase = serverAddress.value.replace(/\/backend\/[^/]+\/?$/, '')
+      void fetch(`${relayBase}/api/session/backend`, { method: 'DELETE', credentials: 'include' }).catch(() => undefined)
+    }
     serverAddress.value = nextAddress
     backendId.value = nextId
     mode.value = nextMode
@@ -400,6 +405,7 @@ export const useAuthStore = defineStore('auth', () => {
       )
       res = await fetch(`${base}/api/auth/login`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sealed),
       })
@@ -438,8 +444,20 @@ export const useAuthStore = defineStore('auth', () => {
     selectedBackendId = '',
     rememberPw = false,
   ): Promise<void> {
+    if (!selectedBackendId) throw new Error('请选择要连接的 Backend ID')
+    const relay = normalizeAddress(addr)
+    const bindResponse = await fetch(`${relay}/api/session/backend`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backendId: selectedBackendId }),
+    })
+    if (!bindResponse.ok) {
+      const body = (await bindResponse.json().catch(() => null)) as { error?: { message?: string } } | null
+      throw classifyError(new Error(body?.error?.message ?? `HTTP ${bindResponse.status}`), bindResponse.status)
+    }
     backendId.value = selectedBackendId
-    await login(addr, user, password, rememberPw)
+    await login(`${relay}/backend/${selectedBackendId}`, user, password, rememberPw)
   }
 
   /**
@@ -483,6 +501,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       res = await fetch(`${serverAddress.value}/api/auth/refresh`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: refreshToken.value }),
       })
@@ -507,6 +526,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout(): void {
+    if (mode.value !== 'local' && serverAddress.value) {
+      const relayBase = serverAddress.value.replace(/\/backend\/[^/]+\/?$/, '')
+      void fetch(`${relayBase}/api/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => undefined)
+    }
     authenticating.value = false
     accessToken.value = ''
     refreshToken.value = ''

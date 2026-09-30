@@ -51,6 +51,7 @@ export async function uploadFile<T>(
   const server = await fetchServerConfig()
   const response = await fetch(httpUrl(path), {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': options?.contentType ?? file.type,
       'X-Filename': file.name,

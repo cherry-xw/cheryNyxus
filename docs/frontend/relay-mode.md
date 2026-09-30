@@ -6,5 +6,6 @@
 - `discoverRelayBackend()`：读取指定后端的公共连接描述。
 - `bindRelayBackend()` / `unbindRelayBackend()`：维护 HttpOnly 会话绑定。
 - `relayHttpUrl()` / `relayWsUrl()`：根据发现响应构造路径。
+- 后端用户名密码登录必须先请求 `/api/session/backend` 建立目标 Backend ID 会话，再访问 `/backend/<backendId>/api/auth/*`；请求使用 `credentials: include`，中转 Cookie 不进入前端状态。
 
 每个浏览器会话只允许绑定一个 Backend ID。中转列表不代表已登录；目标后端仍需完成 OIDC 或用户名密码认证。浏览器使用 `credentials: include`，不能读取或保存中转会话 Cookie。
