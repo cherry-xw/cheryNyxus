@@ -17,6 +17,7 @@ interface ActiveBackend {
   leaseId: string
   leaseExpiresAt: number
   configVersion: number
+  tunnel: { httpBindAddr: string; websocketBindAddr: string }
 }
 
 export class BackendRegistry {
@@ -49,11 +50,20 @@ export class BackendRegistry {
     const leaseId = randomBytes(18).toString('base64url')
     const opaque = randomBytes(18).toString('base64url')
     const token = randomBytes(32).toString('base64url')
+    const usedHttpPorts = new Set([...this.active.values()].map((item) => Number(item.tunnel.httpBindAddr.split(':').pop())))
+    const usedWsPorts = new Set([...this.active.values()].map((item) => Number(item.tunnel.websocketBindAddr.split(':').pop())))
+    const httpPort = findFreePort(this.config.tunnelHttpPortStart ?? 42000, usedHttpPorts)
+    const websocketPort = findFreePort(this.config.tunnelWebsocketPortStart ?? 43000, usedWsPorts)
+    const tunnel = {
+      httpBindAddr: `${this.config.tunnelBindHost ?? '127.0.0.1'}:${httpPort}`,
+      websocketBindAddr: `${this.config.tunnelBindHost ?? '127.0.0.1'}:${websocketPort}`,
+    }
     const leaseExpiresAt = Date.now() + this.config.leaseTtlMs
     this.active.set(input.identity.backendId, {
       ...input,
       leaseId,
       leaseExpiresAt,
+      tunnel,
     })
     return {
       type: 'accepted',
@@ -67,6 +77,7 @@ export class BackendRegistry {
         httpService: `http-${opaque}`,
         websocketService: `ws-${opaque}`,
         token,
+        ...tunnel,
       },
     }
   }
@@ -131,6 +142,12 @@ export class BackendRegistry {
     }
   }
 
+  tunnelAddresses(backendId: string): { httpBindAddr: string; websocketBindAddr: string } {
+    const active = this.active.get(backendId)
+    if (!active || active.leaseExpiresAt <= Date.now()) throw new RelayError('BACKEND_OFFLINE', 'Backend is offline')
+    return { ...active.tunnel }
+  }
+
   private summary(identity: KnownBackendIdentity): RelayBackendSummary {
     const active = this.active.get(identity.backendId)
     const online = Boolean(active && active.leaseExpiresAt > Date.now())
@@ -142,4 +159,9 @@ export class BackendRegistry {
       lastSeenAt: identity.lastSeenAt,
     }
   }
+}
+
+function findFreePort(start: number, used: Set<number>): number {
+  for (let port = start; port <= 65535; port += 1) if (!used.has(port)) return port
+  throw new RelayError('CAPACITY_EXCEEDED', 'No private tunnel port is available', 30)
 }

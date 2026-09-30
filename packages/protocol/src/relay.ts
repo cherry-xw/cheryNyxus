@@ -143,6 +143,9 @@ export interface RelayAccepted {
     httpService: string
     websocketService: string
     token: string
+    /** Loopback addresses on the relay side of the private tunnel. */
+    httpBindAddr?: string
+    websocketBindAddr?: string
   }
 }
 

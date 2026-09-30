@@ -19,10 +19,15 @@ export interface RelayConfig {
   identityFile?: string
   authorizationFile?: string
   sessionSecret: string
+  /** Secret used only by the loopback manager to mutate relay policy. */
+  adminSecret?: string
   sessionTtlSeconds: number
   challengeTtlMs: number
   heartbeatIntervalMs: number
   leaseTtlMs: number
+  tunnelBindHost?: string
+  tunnelHttpPortStart?: number
+  tunnelWebsocketPortStart?: number
   limits: RelayLimits
   oidc?: { issuer: string; clientId: string; clientSecret?: string; redirectUri: string }
 }
@@ -64,10 +69,14 @@ export function loadRelayConfig(env: NodeJS.ProcessEnv = process.env): RelayConf
     identityFile: resolve(env.RELAY_IDENTITY_FILE ?? './relay-data/identities.json'),
     authorizationFile: resolve(env.RELAY_AUTHORIZATION_FILE ?? './relay-data/authorizations.json'),
     sessionSecret,
+    ...(env.RELAY_ADMIN_SECRET ? { adminSecret: env.RELAY_ADMIN_SECRET } : {}),
     sessionTtlSeconds: positiveInteger(env.RELAY_SESSION_TTL_SECONDS, 8 * 60 * 60, 'RELAY_SESSION_TTL_SECONDS'),
     challengeTtlMs: positiveInteger(env.RELAY_CHALLENGE_TTL_MS, 30_000, 'RELAY_CHALLENGE_TTL_MS'),
     heartbeatIntervalMs: positiveInteger(env.RELAY_HEARTBEAT_INTERVAL_MS, 15_000, 'RELAY_HEARTBEAT_INTERVAL_MS'),
     leaseTtlMs: positiveInteger(env.RELAY_LEASE_TTL_MS, 45_000, 'RELAY_LEASE_TTL_MS'),
+    tunnelBindHost: env.RELAY_TUNNEL_BIND_HOST ?? '127.0.0.1',
+    tunnelHttpPortStart: positiveInteger(env.RELAY_TUNNEL_HTTP_PORT_START, 42000, 'RELAY_TUNNEL_HTTP_PORT_START'),
+    tunnelWebsocketPortStart: positiveInteger(env.RELAY_TUNNEL_WS_PORT_START, 43000, 'RELAY_TUNNEL_WS_PORT_START'),
     limits: {
       maxOnlineBackends: positiveInteger(env.RELAY_MAX_ONLINE_BACKENDS, 1_000, 'RELAY_MAX_ONLINE_BACKENDS'),
       maxControlConnections: positiveInteger(env.RELAY_MAX_CONTROL_CONNECTIONS, 1_100, 'RELAY_MAX_CONTROL_CONNECTIONS'),

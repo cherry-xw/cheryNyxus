@@ -20,7 +20,7 @@ export interface RelayHttpResponse {
 export interface RelayWebSocketRequest {
   requestId: string
   backendId: string
-  path: '/ws'
+  path: string
   headers: IncomingHttpHeaders
   client: WebSocket
 }

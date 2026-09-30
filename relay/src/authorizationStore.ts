@@ -108,7 +108,10 @@ export class AuthorizationStore {
     return policy ? { ...policy } : {
       backendId,
       publicDiscovery: false,
-      remotePasswordEnabled: false,
+      // Password login is an independent route. Discovery stays private by
+      // default, while a user who knows the Backend ID may still try the
+      // backend's own credentials unless the local owner disables it.
+      remotePasswordEnabled: true,
       updatedAt: new Date(0).toISOString(),
     }
   }

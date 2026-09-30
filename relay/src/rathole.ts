@@ -105,18 +105,19 @@ export function servicesFromAccepted(input: {
   addresses: RelayTunnelAddresses
   bindAddresses: { httpBindAddr: string; wsBindAddr: string }
 }): RatholeService[] {
+  const accepted = input.accepted.tunnel
   const services = [
     {
       name: input.accepted.tunnel.httpService,
       token: input.accepted.tunnel.token,
       localAddr: input.addresses.httpLocalAddr,
-      bindAddr: input.bindAddresses.httpBindAddr,
+      bindAddr: accepted.httpBindAddr ?? input.bindAddresses.httpBindAddr,
     },
     {
       name: input.accepted.tunnel.websocketService,
       token: input.accepted.tunnel.token,
       localAddr: input.addresses.websocketLocalAddr,
-      bindAddr: input.bindAddresses.wsBindAddr,
+      bindAddr: accepted.websocketBindAddr ?? input.bindAddresses.wsBindAddr,
     },
   ]
   if (!services.every((service) => /^[A-Za-z0-9_-]{1,80}$/.test(service.name))) {

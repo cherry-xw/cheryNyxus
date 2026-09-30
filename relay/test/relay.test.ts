@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from 'node:crypto'
 import { request } from 'node:http'
 import { WebSocket } from 'ws'
 import { describe, expect, it } from 'vitest'
-import { relaySignaturePayload } from '@chery/protocol/relay'
+import { RELAY_PROTOCOL_VERSION, relaySignaturePayload } from '@chery/protocol/relay'
 import { createRelayService } from '../src/server.js'
 import { IdentityStore } from '../src/identityStore.js'
 import { FixedWindowRateLimiter } from '../src/rateLimit.js'
@@ -61,12 +61,12 @@ describe('relay control service', () => {
     const backendId = 'home-nyxus'
     const signature = sign(
       null,
-      Buffer.from(relaySignaturePayload({ nonce: challenge.nonce, backendId, protocolVersion: 1, configVersion: 1 })),
+      Buffer.from(relaySignaturePayload({ nonce: challenge.nonce, backendId, protocolVersion: RELAY_PROTOCOL_VERSION, configVersion: 1 })),
       privateKey,
     ).toString('base64url')
     socket.send(JSON.stringify({
       type: 'hello',
-      protocolVersion: 1,
+      protocolVersion: RELAY_PROTOCOL_VERSION,
       backendId,
       displayName: 'Home',
       publicKey: publicKeyDer,
@@ -79,8 +79,9 @@ describe('relay control service', () => {
 
     const list = await getJson(`${base}/nyxus/api/backends`)
     expect(list.status).toBe(200)
-    expect(list.body.backends[0]).toMatchObject({ backendId, status: 'online' })
-    expect(list.body.backends[0]).not.toHaveProperty('fingerprint')
+    // Public discovery is disabled by default; the device remains reachable
+    // through a manually entered Backend ID.
+    expect(list.body.backends).toEqual([])
 
     const unauthenticated = await postJson(`${base}/nyxus/backend/${backendId}/api/echo`, 'x')
     expect(unauthenticated.status).toBe(403)

@@ -12,6 +12,8 @@
 - 每个后端首次启动生成 Ed25519 密钥对。私钥只保存在后端本机受保护文件中，公钥用于中转验证挑战签名。
 - 中转采用首次信任：某个 `backendId` 首次成功握手后持久绑定公钥指纹；后续不同公钥使用同一 ID 时返回 `BACKEND_ID_CONFLICT`。解除绑定必须走部署方的本机管理操作，不通过公开协议完成。
 - 后端用户名密码只认证最终用户，不参与设备握手，中转不得保存或校验。
+- 密码登录先由中转创建仅绑定一个 `backendId` 的 HttpOnly 会话；后端 challenge/login 和后续 Bearer token 仍由目标后端校验，中转只转发，不保存凭据。
+- 中转向后端转发浏览器的 Bearer token 时使用 `X-Chery-Relay-Authorization`，后端远程监听器只在受信的中转通道上读取该头。
 - 设备签名只证明身份，不自行加密业务载荷。公网机密性由 HTTPS/WSS 和 rathole 加密连接提供；生产部署禁止明文公网控制连接。
 
 ## 3. 后端控制 WebSocket
@@ -23,7 +25,7 @@
 ```json
 {
   "type": "challenge",
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "nonce": "base64url random bytes",
   "expiresAt": "2026-09-20T15:10:00.000Z"
 }
@@ -66,7 +68,9 @@ cherynyxus-relay-v1\n<nonce>\n<backendId>\n<protocolVersion>\n<configVersion>
   "tunnel": {
     "httpService": "opaque service name",
     "websocketService": "opaque service name",
-    "token": "short-lived secret"
+    "token": "short-lived secret",
+    "httpBindAddr": "127.0.0.1:42000",
+    "websocketBindAddr": "127.0.0.1:43000"
   }
 }
 ```
@@ -86,10 +90,8 @@ HTTP 与 WebSocket 使用两个只对中转机 loopback 可见的 rathole 私有
 | 方法与路径 | 认证 | 作用 |
 | --- | --- | --- |
 | `GET /api/auth/capabilities` | 公开 | 返回中转是否已配置 Pocket ID |
-| `GET /api/auth/login` | 公开 | 发起 OIDC 登录 |
-| `GET /api/auth/callback` | state Cookie | 校验 state、交换授权码并建立中转会话 |
-| `GET /api/auth/me` | 中转会话 | 返回当前稳定用户身份摘要 |
-| `POST /api/auth/logout` | 中转会话 | 清除中转会话 |
+| `GET /api/auth/oidc/start` | 公开 | 发起 OIDC 登录 |
+| `GET /api/auth/oidc/callback` | state Cookie | 校验 state、交换授权码并建立中转会话 |
 
 OIDC 未配置时返回稳定的 `OIDC_LOGIN_UNAVAILABLE`；state、PKCE verifier、授权码和 token 不写入普通日志。
 
@@ -99,17 +101,17 @@ OIDC 未配置时返回稳定的 `OIDC_LOGIN_UNAVAILABLE`；state、PKCE verifie
 
 | 方法与路径 | 认证 | 作用 |
 | --- | --- | --- |
-| `POST /api/bindings/requests` | 本地管理通道 | 创建绑定申请 |
-| `GET /api/bindings/requests/<requestId>` | 确认页会话 | 查看设备摘要和申请状态 |
-| `POST /api/bindings/requests/<requestId>/confirm` | Pocket ID 会话 | 当前用户明确确认绑定 |
-| `GET /api/me/backends` | Pocket ID 会话 | 返回当前用户已获准使用的后端 |
-| `DELETE /api/me/backends/<backendId>` | 管理授权 | 撤销用户与后端关系 |
+| `POST /api/admin/bindings/request` | relay 管理密钥 | 创建绑定申请 |
+| `GET /bindings/<requestId>` | Pocket ID 会话 | 查看设备摘要和申请状态 |
+| `POST /bindings/<requestId>` | Pocket ID 会话 | 当前用户明确确认绑定 |
+| `GET /api/backends` | Pocket ID 会话 | 返回当前用户已获准使用的后端 |
+| `POST /api/admin/bindings/revoke` | relay 管理密钥 | 撤销绑定关系 |
 
 绑定记录使用 `issuer + sub` 与 `backendId` 的关系，支持一个用户多台后端和一台后端多个用户。猜 Backend ID、单独登录 Pocket ID、重复使用申请或换设备公钥均不能建立授权。
 
 ### 4.3 后端用户证明
 
-Pocket ID 用户选择已授权后端后，中转签发短时、只针对该设备的用户证明。证明载荷包含：`version`、`issuer`、`subject`、`backendId`、`bindingId`、`sessionId`、`issuedAt`、`expiresAt`、`nonce` 和 `purpose=backend-use`，并由中转签名。后端检查签名、目标设备、有效期、nonce 防重放、本机授权记录和撤销状态；仅传用户名、邮箱或普通请求头不能授权。
+Pocket ID 用户选择已授权后端后，中转目前通过签名会话 Cookie 和每次代理前的授权存储复核保护设备使用；短时、后端可独立验证的用户证明仍是后端接入阶段的待完成项。仅传用户名、邮箱或普通请求头不能授权。
 
 以下入口相对于公共前缀：
 

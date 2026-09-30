@@ -24,11 +24,12 @@
 - `relay/src/server.ts`：HTTP、WS、握手和受限路由。
 - `relay/src/registry.ts`：在线租约、容量和浏览器 WS 计数。
 - `relay/src/identityStore.ts`：Backend ID 到设备公钥指纹的首次信任绑定。
-- `relay/src/adapter.ts`：后端 HTTP/WS 目标适配器；测试可以注入假适配器。
+- `relay/src/adapter.ts`：后端 HTTP/WS 目标适配器契约；测试可以注入假适配器。
+- `relay/src/tunnelAdapter.ts`：默认只连接 registry 分配的两个 loopback rathole 端点，不接受任意目标地址。
 - `relay/src/client.ts`：后端控制 WebSocket 客户端、设备密钥、租约心跳、重连和动态 client 配置。
 - `relay/src/rathole.ts`：HTTP/WS 两服务校验、client/server TOML、私有配置和 rathole 子进程适配。
 - `packages/protocol/src/relay.ts`：跨进程共享类型和签名原文。
 
-普通日志只允许 request id、Backend ID、路径类别、状态码、耗时和错误类别；不得添加凭据、Cookie、token、密钥或请求体。
+普通日志只允许 request id、Backend ID、路径类别、状态码、耗时和错误类别；不得添加凭据、Cookie、token、密钥或请求体。中转管理接口使用 `X-Chery-Relay-Admin-Token`，由 `RELAY_ADMIN_SECRET` 配置，不能下发到浏览器。
 
 后端控制客户端可以把不含 token、密钥和 Cookie 的状态摘要写入本机受保护状态文件；本地管理器通过配置的 `CHERY_RELAY_STATUS_FILE` 读取该摘要，不经中转返回。
