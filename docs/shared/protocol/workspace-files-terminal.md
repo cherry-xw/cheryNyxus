@@ -9,7 +9,7 @@
 ```text
 [[command:/compact]]
 [[role:@角色名]]
-[[file:src/service/chat/handler.ts]]
+[[file:apps/backend/src/service/chat/handler.ts]]
 ```
 
 `file` token 只保存工作区相对路径或以 `/` 结尾的目录路径。发送时服务端根据当前 chat 的 `metadata.workspace` 校验路径、拒绝路径穿越和软链逃逸，并把受控引用交给 Agent；服务端不自动读取正文、不把正文注入用户消息。Agent 需要内容时使用已有 `read_file`，读取失败沿现有工具错误语义返回。

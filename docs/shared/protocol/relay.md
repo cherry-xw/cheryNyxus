@@ -36,7 +36,7 @@
 ```json
 {
   "type": "hello",
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "backendId": "home-nyxus",
   "displayName": "Home Nyxus",
   "publicKey": "base64url DER SPKI",
@@ -59,7 +59,7 @@ cherynyxus-relay-v1\n<nonce>\n<backendId>\n<protocolVersion>\n<configVersion>
 ```json
 {
   "type": "accepted",
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "backendId": "home-nyxus",
   "leaseId": "opaque id",
   "heartbeatIntervalMs": 15000,

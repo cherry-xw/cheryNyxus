@@ -6,25 +6,25 @@
 
 ### TODO-A01 · Application 兼容端口仍过宽
 
-- **位置**：`web/src/application/public.ts`、`application/backend/public.ts`、`application/transport/public.ts`。
+- **位置**：`apps/web/src/application/public.ts`、`application/backend/public.ts`、`application/transport/public.ts`。
 - **现状/风险**：为先切断 feature 对 store/service 的穿透，迁移端口仍显式转发较宽的 store/client/DTO 表面；边界已可门禁，但用例契约尚不够窄。
-- **完成条件**：feature 只消费按用例命名的 command/query port；`application/public.ts` 不再导出完整 Pinia store，backend/transport 兼容端口删除。
+- **完成条件**：feature 只消费按用例命名的 command/query port；`application/public.ts` 不再导出完整 Pinia store，apps/backend/transport 兼容端口删除。
 
 ### TODO-A02 · `agents` 兼容 facade 尚未删除
 
-- **位置**：`web/src/stores/agents/**`。
+- **位置**：`apps/web/src/stores/agents/**`。
 - **现状/风险**：canonical 会话事实已经由 ChatSession owner 持有，但 Pet/tool 展示仍经 legacy facade 投影，增加概念入口。
 - **完成条件**：所有 feature 改用 chat/workspace/pets 用例端口；PetPresentation 直接由 runtime 投影；`agents` 无生产引用后删除。
 
 ### TODO-A03 · 巨型协议 client 与 controller 仍需按纯模型/用例拆分
 
-- **位置**：`web/src/services/agentApi.ts`、`features/pets/nyxus/components/useMessageBranchTreeController.ts`、Workbench/Lite/History 等大 controller。
+- **位置**：`apps/web/src/services/agentApi.ts`、`features/pets/nyxus/components/useMessageBranchTreeController.ts`、Workbench/Lite/History 等大 controller。
 - **现状/风险**：它们已被依赖门禁包住，但单文件仍混合多个变更轴，review 与单测定位成本高。机械按函数或文件数拆分会掩盖问题。
 - **完成条件**：协议 DTO 迁到 `@chery/protocol` 或语义 owner；client 按后端能力形成 adapter；controller 中确定性计算先迁到 `model/` 并有单测，Vue binding 保持薄层。
 
 ### TODO-A04 · 会话目标路由 UI 行为与旧测试基线不一致
 
-- **位置**：`web/src/features/agent/composer/conversationTargetRouting.ts`、`web/test/agents/conversationTargetRouting.test.ts`。
+- **位置**：`apps/web/src/features/agent/composer/conversationTargetRouting.ts`、`apps/web/test/agents/conversationTargetRouting.test.ts`。
 - **现状/风险**：当前实现采用 `idle → full → half → idle` 且默认可见会话数为 6；旧测试仍期待 `idle → half → full → idle` 与更小列表。本轮目录重构不替用户决定交互行为。
 - **完成条件**：产品确认交互后，只选择一侧调整（实现或测试），删除对应代码 TODO，并让该测试通过。
 

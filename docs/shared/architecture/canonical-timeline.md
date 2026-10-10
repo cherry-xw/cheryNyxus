@@ -300,7 +300,7 @@ interface ExecutionStep {
 
 ### 3.5 长会话代际分割（Generations）
 
-compact 事件（手动 `[[command:/compact]]` 与 autoCompact 统一）把历史切为**代（Generation）**：第 k 次压缩的摘要 assistant 消息即第 k 代的定稿边界（消息行携带 `context_compaction=1`）。代际为**推导计算**（`src/service/chat/generations.ts` `computeGenerations`），不落新表：
+compact 事件（手动 `[[command:/compact]]` 与 autoCompact 统一）把历史切为**代（Generation）**：第 k 次压缩的摘要 assistant 消息即第 k 代的定稿边界（消息行携带 `context_compaction=1`）。代际为**推导计算**（`apps/backend/src/service/chat/generations.ts` `computeGenerations`），不落新表：
 
 ```ts
 interface GenerationEntry {
@@ -485,38 +485,15 @@ chat 的 per-chat cursor fence，这样做会把正常 source 序号误判为缺
 subscription，不能删除同连接上的 root subscription。事件路由同时匹配两者时，root envelope 保持
 权威并抑制重复 direct envelope。
 
-## 6. 迁移步骤
+## 6. 实现状态
 
-### Phase 1：建立可审计关联
+当前已落地：
 
-1. 增加 `message_links` 及迁移脚本。
-2. 修改 spawn、child 输入、observer、wake 写入路径，确保新数据完整写 link。
-3. 为旧数据提供 best-effort backfill：由 `parent_chat_id`、spawn metadata 和已知 `spawnSenseCallId` 补充；无法可靠关联的记录标记 `relation='legacy_unknown'`，不伪造关系。
-
-### Phase 2：实现只读 projector（implemented）
-
-1. 实现 `RootTimelineProjector` 和单元测试。
-2. 扩展现有 `chat.timeline.get`，接受 `rootChatId` 与 `view` 并返回 `rootTimeline`（不另造 `chat.rootTimeline.get` RPC）。
-3. 对比旧 UI 与新 projection：工具不独立冒泡、child 消息头像正确、回传不重复。
-
-### Phase 3：root 订阅（in progress）
-
-1. root 维度 event journal 和 revision；
-2. `chat.open(rootChatId)` 原子 fence；
-3. 子 chat 的 turn / tool / spawn / return 统一路由至 root subscription；
-4. 验证刷新中 child 正在输出时可恢复当前文本并继续打字。
-
-### Phase 4：前端切换（partially implemented）
-
-1. 新建 RootTimelineStore 和 `TimelineNode` renderer；
-2. HistoryDrawer、Pet 气泡、树视图切到该 store；
-3. 删除 V2-to-legacy `StreamState` 展示桥和前端 `mergeChildReplyHistory` 业务去重；
-4. 旧 `chat.get/chat.sync/chat.attach` 仅保留兼容期，之后移除。
-
-### Phase 5：lite profile 精简投影（implemented，P0；P1 体验补全 in_progress）
-
-1. 按 §3.6 与 [mcu-lite-api.md](../protocol/profiles/mcu-lite.md) P0 分期实施：prepareSessionEvent profile 分支、interaction.changed 广播与 RPC Response 两个旁路插入点、LeanTimelineNode 投影、chat.timeline.node.get。
-2. 状态在本文件与 protocol.md 同步回写。
+- `message_links` 关联：spawn、child 输入、observer、wake 写入路径完整写 link；旧数据由 `parent_chat_id`、spawn metadata 和已知 `spawnSenseCallId` 懒回填，无法可靠关联的记录保持未关联，不伪造关系。
+- 只读 projector：`RootTimelineProjector` 与单元测试；`chat.timeline.get` 接受 `rootChatId` 与 `view` 并返回 `rootTimeline`（不另造 `chat.rootTimeline.get` RPC）。
+- root 订阅：root 维度 event journal 和 revision；`chat.open(rootChatId)` 原子 fence；子 chat 的 turn / tool / spawn / return 统一路由至 root subscription。
+- 前端切换：RootTimelineStore 和 `TimelineNode` renderer 已建；HistoryDrawer 已接入。Pet 气泡及部分审批/问题组件仍保留 ChatSession/legacy agents store 兼容桥，旧 `chat.get/chat.sync/chat.attach` 兼容路径继续保留（见 §9）。
+- lite profile 精简投影（P0）：prepareSessionEvent profile 分支、interaction.changed 广播与 RPC Response 两个旁路插入点、LeanTimelineNode 投影、chat.timeline.node.get；P1 体验补全进行中，状态以 [mcu-lite-api.md](../protocol/profiles/mcu-lite.md) §5 为准。
 
 ## 7. 验收标准
 
@@ -530,8 +507,8 @@ subscription，不能删除同连接上的 root subscription。事件路由同�
 6. 多层子 agent，头像和 caller 徽章按 `actor/target` 正确区分。
 7. timeline patch 或 eventSeq 断档时自动全量重取，不能混入重复/错序节点。
 8. 服务重启后，持久化的输入队列、child task、已提交 timeline 与因果关系可完整恢复。
-9. 【implemented】lite 连接的 timeline.get/open/patch 均返回 LeanTimelineNode，revision/knownRevision 语义与富前端路径一致；同一 root 双端（富+lite）看到的 revision 与 orderKey 序列一致。
-10. 【implemented】lean 摘要经 chat.timeline.node.get 可取回与完整 TimelineNode 一致的全文（分段）；投影不改变归属三元组语义。
+9. lite 连接的 timeline.get/open/patch 均返回 LeanTimelineNode，revision/knownRevision 语义与富前端路径一致；同一 root 双端（富+lite）看到的 revision 与 orderKey 序列一致。
+10. lean 摘要经 chat.timeline.node.get 可取回与完整 TimelineNode 一致的全文（分段）；投影不改变归属三元组语义。
 
 ## 8. 反模式
 
@@ -544,9 +521,9 @@ subscription，不能删除同连接上的 root subscription。事件路由同�
 
 ## 9. 当前实现状态
 
-> **lite profile 精简投影（§3.6）为 implemented（P0 已落地：T15 事件/Response 投影、T16 数据面、T20 D13 错误码；测试见 test/service/websocket/liteProjection.test.ts 与 test/service/interaction/errorCodes.test.ts）**——设计定稿见 [mcu-lite-api.md](../protocol/profiles/mcu-lite.md)（v3.1/v3.2，D1–D19 已落定）；P1（turn.delta 可选订阅/分页细化/折叠调优/参考固件）为 **in_progress（P1 实现中，见 mcu-lite-api.md §5 P1 行）**；P2（HTTP lite 面/短键名/maxFrameBytes 协商）保持 planned。
+> **lite profile 精简投影（§3.6）P0 已落地**（事件/Response 投影、数据面、D13 错误码；测试见 apps/backend/test/service/websocket/liteProjection.test.ts 与 apps/backend/test/service/interaction/errorCodes.test.ts）——设计见 [mcu-lite-api.md](../protocol/profiles/mcu-lite.md)；P1（turn.delta 可选订阅/分页细化/折叠调优/参考固件）实现中；P2（HTTP lite 面/短键名/maxFrameBytes 协商）未开始。
 
-本轮已落地：
+已落地范围：
 
 - `message_links` schema、索引、消息写入与 child-return 持久化；
 - root timeline revision 随后代消息提交同步推进；

@@ -220,7 +220,7 @@
 
 #### 前端目标选择状态（quickTarget）生命周期约定
 
-> 2026-08-20 修复「指定历史会话发送仍莫名新建会话」引入。根因：`quickTarget`（AgentDialog/WorkbenchDialog 内持有的发送目标选择，含 `{target:'new'}`）此前无任何重置时机，且 composer 原生窗 keepAlive（close=hide 不销毁组件），残留的 `'new'` 会在后续发送时跳过用户确认直接 `chat.create` 新会话。
+> `quickTarget`（AgentDialog/WorkbenchDialog 内持有的发送目标选择，含 `{target:'new'}`）有重置时机约束：composer 原生窗 keepAlive（close=hide 不销毁组件），残留的 `'new'` 会在后续发送时跳过用户确认直接 `chat.create` 新会话；发送成功或切换目标后必须重置。
 
 | 清空时机                               | 理由                                                                                                                 |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -353,7 +353,7 @@ C→S chat.resumeTree {rootChatId:root,pauseId,commandId}
 
 - `chat.resume` **拒绝**带 pending 批的直接调用（防御守卫），避免带着未答问题跑执行死循环。
 - 前端**必须保证**工作台/会话打开即恢复提问快照（hydrateTree→syncOne→pendingQuestionBatches），不得出现"无卡片无按钮"的硬死锁。
-- 孤立 pending 批（`status='pending'` 但零 `status='pending'` 的 item）视为僵尸，会被读时自愈清扫标 `completed`，不再阻塞 `canResume`。清扫语义单测见 [test/db/questionOrphanSweep.test.ts](../../../test/db/questionOrphanSweep.test.ts)。
+- 孤立 pending 批（`status='pending'` 但零 `status='pending'` 的 item）视为僵尸，会被读时自愈清扫标 `completed`，不再阻塞 `canResume`。清扫语义单测见 [apps/backend/test/db/questionOrphanSweep.test.ts](../../../apps/backend/test/db/questionOrphanSweep.test.ts)。
 
 暂停后用户直接发送新消息时，不等价于 `chat.resumeTree`：服务端只启动根 Agent。若本次暂停还有子 Agent 目标，则在用户消息之后追加一条持久 system 执行事件，列出角色、`chatId` 和 `pauseId`；根 Agent 据此决定是否调用 `send_to_child`。事件 ID 由 `pauseId + 输入 commandId` 稳定派生；若进程在输入确认后、事件落库前退出，恢复 accepted input 时必须检测并补回，已存在则不得重复。被 `send_to_child` 接管的目标标记为 `delegated`，旧暂停命令不再恢复它。
 

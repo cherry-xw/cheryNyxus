@@ -1,6 +1,6 @@
 # 配置修订、上下文纪元与删除生命周期
 
-本文定义配置被创建、修改或删除后，历史会话如何保持可审计、当前会话如何继续安全运行，以及系统如何处理手工修改和损坏配置。实现入口为 [src/db/epoch.ts](../../../src/db/epoch.ts)、[src/service/config/revision.ts](../../../src/service/config/revision.ts)、[src/service/config/roleLifecycle.ts](../../../src/service/config/roleLifecycle.ts) 和 [src/service/config/watcher.ts](../../../src/service/config/watcher.ts)。
+本文定义配置被创建、修改或删除后，历史会话如何保持可审计、当前会话如何继续安全运行，以及系统如何处理手工修改和损坏配置。实现入口为 [apps/backend/src/db/epoch.ts](../../../apps/backend/src/db/epoch.ts)、[apps/backend/src/service/config/revision.ts](../../../apps/backend/src/service/config/revision.ts)、[apps/backend/src/service/config/roleLifecycle.ts](../../../apps/backend/src/service/config/roleLifecycle.ts) 和 [apps/backend/src/service/config/watcher.ts](../../../apps/backend/src/service/config/watcher.ts)。
 
 ## 核心结论
 
