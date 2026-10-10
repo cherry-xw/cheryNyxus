@@ -1,13 +1,17 @@
 import { once } from 'node:events'
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { request } from 'node:http'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { WebSocket } from 'ws'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { RELAY_PROTOCOL_VERSION, relaySignaturePayload } from '@chery/protocol/relay'
 import { createRelayService } from '../src/server.js'
 import { IdentityStore } from '../src/identityStore.js'
 import { FixedWindowRateLimiter } from '../src/rateLimit.js'
 import { RelayError } from '../src/errors.js'
+import { AuthorizationStore } from '../src/authorizationStore.js'
 
 const config = {
   host: '127.0.0.1',
@@ -32,9 +36,64 @@ const config = {
 } as const
 
 describe('relay control service', () => {
-  it('authenticates a device, exposes minimal discovery and enforces session binding', async () => {
+  it.each([
+    { protocolVersion: 1, invalidSignature: false, code: 'PROTOCOL_VERSION_UNSUPPORTED', closeCode: 4006 },
+    { protocolVersion: RELAY_PROTOCOL_VERSION, invalidSignature: true, code: 'BACKEND_AUTH_FAILED', closeCode: 4003 },
+  ])('rejects hello with version $protocolVersion and invalid signature $invalidSignature', async ({ protocolVersion, invalidSignature, code, closeCode }) => {
+    const identities = new IdentityStore()
+    const service = await createRelayService({ config, identityStore: identities, logger: () => undefined })
+    let socket: WebSocket | undefined
+    try {
+      const address = await service.listen()
+      socket = new WebSocket(`ws://127.0.0.1:${address.port}/nyxus/control/backend`)
+      const [challengeRaw] = await once(socket, 'message')
+      const challenge = JSON.parse(String(challengeRaw)) as { nonce: string; protocolVersion: number }
+      expect(challenge.protocolVersion).toBe(RELAY_PROTOCOL_VERSION)
+      const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+      const backendId = 'rejected-device'
+      const signature = sign(null, Buffer.from(relaySignaturePayload({
+        nonce: invalidSignature ? 'wrong-nonce' : challenge.nonce,
+        backendId,
+        protocolVersion,
+        configVersion: 1,
+      })), privateKey).toString('base64url')
+      const response = once(socket, 'message')
+      const closed = once(socket, 'close')
+      socket.send(JSON.stringify({
+        type: 'hello',
+        protocolVersion,
+        backendId,
+        displayName: 'Rejected device',
+        publicKey: publicKey.export({ format: 'der', type: 'spki' }).toString('base64url'),
+        signature,
+        configVersion: 1,
+        capabilities: { http: true, websocket: true },
+      }))
+      const [errorRaw] = await response
+      expect(JSON.parse(String(errorRaw))).toMatchObject({ type: 'error', error: { code } })
+      const [actualCloseCode, reason] = await closed
+      expect(actualCloseCode).toBe(closeCode)
+      expect(String(reason)).toBe(code)
+      expect(identities.get(backendId)).toBeUndefined()
+      expect(service.registry.isOnline(backendId)).toBe(false)
+    } finally {
+      socket?.terminate()
+      await service.close()
+    }
+  })
+
+  it.each([false, true])('authenticates a device and enforces discovery/password policy enabled=%s', async (enabled) => {
+    const root = await mkdtemp(join(tmpdir(), 'nyxus-relay-policy-'))
+    onTestFinished(() => rm(root, { recursive: true, force: true }))
+    const authorizationFile = join(root, 'authorizations.json')
+    const policies = new AuthorizationStore(authorizationFile)
+    await policies.setBackendPolicy({
+      backendId: 'home-nyxus',
+      publicDiscovery: enabled,
+      remotePasswordEnabled: enabled,
+    })
     const service = await createRelayService({
-      config,
+      config: { ...config, authorizationFile },
       identityStore: new IdentityStore(),
       adapter: {
         async forwardHttp(input) {
@@ -51,13 +110,17 @@ describe('relay control service', () => {
       logger: () => undefined,
     })
     const address = await service.listen()
+    onTestFinished(() => service.close())
     const base = `http://127.0.0.1:${address.port}`
     const { publicKey, privateKey } = generateKeyPairSync('ed25519')
     const publicKeyDer = publicKey.export({ format: 'der', type: 'spki' }).toString('base64url')
 
     const socket = new WebSocket(`${base}/nyxus/control/backend`)
+    onTestFinished(() => socket.terminate())
     const [challengeRaw] = await once(socket, 'message')
-    const challenge = JSON.parse(String(challengeRaw)) as { nonce: string }
+    const challenge = JSON.parse(String(challengeRaw)) as { nonce: string; protocolVersion: number }
+    expect(RELAY_PROTOCOL_VERSION).toBe(2)
+    expect(challenge.protocolVersion).toBe(RELAY_PROTOCOL_VERSION)
     const backendId = 'home-nyxus'
     const signature = sign(
       null,
@@ -75,17 +138,35 @@ describe('relay control service', () => {
       capabilities: { http: true, websocket: true },
     }))
     const [acceptedRaw] = await once(socket, 'message')
-    expect(JSON.parse(String(acceptedRaw)).type).toBe('accepted')
+    expect(JSON.parse(String(acceptedRaw))).toMatchObject({
+      type: 'accepted',
+      protocolVersion: RELAY_PROTOCOL_VERSION,
+      backendId,
+    })
 
     const list = await getJson(`${base}/nyxus/api/backends`)
     expect(list.status).toBe(200)
-    // Public discovery is disabled by default; the device remains reachable
-    // through a manually entered Backend ID.
-    expect(list.body.backends).toEqual([])
+    if (enabled) {
+      expect(list.body.backends).toHaveLength(1)
+      expect(list.body.backends[0]).toMatchObject({ backendId, status: 'online' })
+      expect(list.body.backends[0]).not.toHaveProperty('fingerprint')
+    } else {
+      expect(list.body.backends).toEqual([])
+      const discovery = await getJson(`${base}/nyxus/api/backends/${backendId}`)
+      expect(discovery.status).toBe(404)
+      expect(discovery.body.error.code).toBe('PUBLIC_DISCOVERY_DISABLED')
+    }
 
     const unauthenticated = await postJson(`${base}/nyxus/backend/${backendId}/api/echo`, 'x')
     expect(unauthenticated.status).toBe(403)
+    expect(unauthenticated.body.error.code).toBe('SESSION_BACKEND_MISMATCH')
     const bound = await postJson(`${base}/nyxus/api/session/backend`, JSON.stringify({ backendId }))
+    if (!enabled) {
+      expect(bound.status).toBe(403)
+      expect(bound.body.error.code).toBe('PASSWORD_LOGIN_DISABLED')
+      expect(bound.headers['set-cookie']).toBeUndefined()
+      return
+    }
     expect(bound.status).toBe(200)
     const cookie = String(bound.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? ''
     const proxied = await postJson(
@@ -95,9 +176,6 @@ describe('relay control service', () => {
     )
     expect(proxied.status).toBe(200)
     expect(proxied.body).toBe('hello')
-
-    socket.close()
-    await service.close()
   })
 })
 

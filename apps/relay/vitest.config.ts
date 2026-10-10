@@ -1,15 +1,10 @@
-import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      '@chery/protocol/relay': resolve(import.meta.dirname, '../packages/protocol/src/relay.ts'),
-    },
-  },
+  root: import.meta.dirname,
   test: {
     environment: 'node',
-    include: ['relay/test/**/*.test.ts'],
+    include: ['test/**/*.test.ts'],
     testTimeout: 10_000,
   },
 })

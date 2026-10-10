@@ -1,12 +1,18 @@
 {
-  "extends": "../tsconfig.json",
   "compilerOptions": {
-    "baseUrl": "..",
-    "noEmit": true,
-    "paths": {
-      "@chery/protocol/relay": ["packages/protocol/src/relay.ts"]
-    }
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "../packages/protocol/src/relay.ts"],
-  "exclude": ["../node_modules", "../dist", "../web"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
 }

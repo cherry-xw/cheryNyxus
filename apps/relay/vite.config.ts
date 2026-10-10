@@ -2,11 +2,6 @@ import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      '@chery/protocol/relay': resolve(import.meta.dirname, '../packages/protocol/src/relay.ts'),
-    },
-  },
   build: {
     ssr: true,
     outDir: resolve(import.meta.dirname, 'dist'),
