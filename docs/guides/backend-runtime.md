@@ -1,34 +1,28 @@
 # 独立后端运行
 
-后端以独立 Node 进程运行，Electron 不再内置或启动它。开发环境可使用 `pnpm build` 后运行 `node dist/index.js`；正式环境由本地管理器或 Linux systemd 启动。
+后端以独立 Node 进程运行。正式 Backend 的唯一常驻入口是 `apps/backend/src/index.ts` 构建出的 `node dist/index.js`：入口负责 guardian/worker 生命周期，worker 在启动服务前创建核心运行时并由 `startService()` 装配 WebSocket、HTTP 和 Ingress Plugin Host。Runtime QQPlugin 只能由该 Host 注入和启动，不单独运行 QQ 后端服务。开发环境可使用 `pnpm build` 后运行 `node dist/index.js`；正式环境由本地管理器、Docker 或 Linux systemd 启动。已删除的 Electron 壳不参与启动。
 
-本地管理器默认监听 `127.0.0.1:39980`，后端停止时管理页面仍然可用。开放内网访问：在 `.chery/config.yaml` 的 `manager.host` 填写 `0.0.0.0` 或具体内网 IP（也可用环境变量 `CHERY_MANAGER_HOST`，优先级更高），启动时管理器会读取该配置；启动日志会打印带管理密钥的可点击地址 `http://<内网IP>:39980/?token=<密钥>`。内网访问的页面与全部 `/api/*` 都必须携带该密钥（URL `?token=` / `X-Chery-Manager-Token` 请求头 / 密钥 Cookie）；本机回环访问只读接口仍免密钥。管理器的启停与凭据接口始终要求当前密钥，不能通过 rathole 或公网访问。
+## Manager 登录与机器控制
 
-### 管理密钥生命周期
+本地管理器默认监听 `127.0.0.1:39980`，后端停止时仍可登录和管理。启动入口为 [`apps/manager/src/index.ts`](../../apps/manager/src/index.ts)，普通 API 分发为 `createManager`。独立 Manager 账号、Session、OIDC、可信访问地址和机器隔离规则只由 [Manager 认证协议](../shared/protocol/manager-auth.md) 定义；具体部署步骤见 [部署指南](relay-deployment.md)。
 
-- **持久化**：未设置 `CHERY_MANAGER_TOKEN` 时，密钥持久化到 `.chery/manager-token.json`（0600），重启后保持不变，收藏的访问 URL 不会失效。
-- **轮换**：密钥创建超过 **7 天**后，下次启动时自动轮换为新密钥，旧密钥进入 24 小时宽限期（仍可读取状态、自动续期，不能执行控制操作）。
-- **记忆与续期**：首次用 URL 打开页面时，密钥写入浏览器 localStorage，并从地址栏移除（用后即消失）；服务端对已认证请求响应续期头 `X-Chery-Manager-Token` 与密钥 Cookie，页面检测到变化会自动更新本地记录，刷新页面无需再带 URL 密钥。
-- **安全注意**：密钥本来就明文打印在启动日志中；泄漏后的可用时长被限制在「轮换周期 + 宽限期 ≈ 8 天」以内。
+首次设置运行 `pnpm manager:dev auth setup`，恢复运行 `pnpm manager:dev auth reset`，均须本机交互终端隐藏输入密码。浏览器不再使用 URL token、header token、可读 token Cookie 或 localStorage，回环普通 API 也必须登录。机器密钥文件继续保留，仅给本机 CLI 使用，不打印秘密。
 
-### 局域网访问安全警告
-
-开放内网访问（监听非回环地址）时，管理页面顶部显示醒目的危险警告：同网段任意设备均可访问管理页，管理密钥是唯一保护，可查看 / 修改后端登录凭据、启停后端与中转；启动日志同步输出警告。建议仅在受信任网络使用，使用后把 `manager.host` 改回 `127.0.0.1`。
-
-管理器还提供凭据查看和轮换入口：`GET /api/credentials` 与 `POST /api/credentials/rotate`。两者都要求管理控制密钥（本机或内网访问均须携带）；凭据文件位于 `.chery/manager-credentials.json`，非 Windows 使用 `0600`，后端 `config.yaml` 只保存 scrypt 哈希。轮换后：后端若是管理器子进程则自动重启；否则不拉起会因端口占用崩溃的副本，交由后端自身的配置监听器自动重载新凭据（通常 1 秒内）。管理器随后用新凭据对后端做登录自检，页面按结果提示「已确认生效 / 后端不可达 / 未确认需手动重启」，并引导用新用户名/密码重新登录。若用户直接编辑配置导致哈希与凭据文件不一致，页面会显示不一致状态。
-
-Pocket ID 只在公共中转配置 OIDC 应用；本地管理页通过 [`manager/src/server.ts`](../../manager/src/server.ts) 的 `createManager` 管理中转连接、绑定和密码策略。后端自身不再保存 OIDC 参数。验证见 [`test/manager/server.test.ts`](../../test/manager/server.test.ts)。
-
-`GET /api/status` 和 `GET /api/connection` 会分别显示管理器、后端和 rathole 状态。后端运行状态由管理器自行探测：探测 `config.yaml` 的 `server.port`（默认 8182）端口可连接即视为运行中；若后端设置了 `CHERY_BACKEND_STATUS_FILE`，管理器还会并入其写入的监听地址与非敏感 Agent 统计摘要（初始化会话数、运行中会话数、活跃运行数），不包含密码、token 或私钥。管理页面按行显示各进程状态（后端 / 中转 rathole / 中继 relay），后端运行中时给出可点击的访问地址。
-
-管理器命令行入口在构建后运行 `node manager/dist/index.js <命令>`，也可使用 `pnpm manager:cli <命令>`：
+构建后运行 `node apps/manager/server-dist/index.js <命令>` 或 `pnpm manager:cli <命令>`：
 
 ```text
-info                         显示连接发现信息
-status                       显示管理器、后端和 rathole 状态
-restart [backend|rathole]   重启指定进程，需要 CHERY_MANAGER_TOKEN
-service install              安装当前平台的本地服务入口
-service uninstall            卸载当前平台的本地服务入口
+auth setup / auth reset       设置或恢复独立 Manager 账号
+info / status                 从隔离的机器接口读取状态
+start/stop/restart [backend|rathole]  控制 Manager 子进程（external 模式下 Backend 由部署工具管理）
+service install / uninstall   安装或卸载本地服务入口
 ```
 
-Linux 的安装命令写入用户级 systemd；Windows 的安装命令注册登录启动任务并运行独立托盘脚本。Electron 不参与上述进程管理。真实开机启动、自动恢复、托盘交互和跨设备连接属于 H 的人工验收。
+监听地址由 `manager.host` 配置，`CHERY_MANAGER_HOST` 优先。开放内网必须显式登记可信 origin；远程部署使用 HTTPS，反代信任也必须显式设置。不得用 rathole 映射 Manager 端口。
+
+## 后端凭据与状态
+
+登录后通过 `/api/credentials` 查看后端凭据、通过 `/api/credentials/rotate` 更新。这是后端账号，不是 Manager 账号；后端凭据仍在 `.chery/manager-credentials.json`（Unix 0600），后端配置只保存 scrypt 哈希。轮换后仅重启 Manager 自己的子进程；外部启动的后端不拉起副本。随后执行 challenge/login 自检，明确区分 verified、unreachable 和 stale，不把保存成功等同于后端已生效。
+
+`/api/status` 与 `/api/connection` 展示 Manager、后端和 rathole 状态。后端检测读取状态文件并探测实际配置端口；文件和端口只提供运行摘要，不包含认证秘密。Manager 本身的登录、进程控制和凭据保存不依赖后端在线。
+
+自动回归运行 `pnpm manager:test`，HTTP/OIDC 与入口测试在 [`apps/manager/test/`](../../apps/manager/test)，辅助函数回归在 [`apps/manager/test/server.test.ts`](../../apps/manager/test/server.test.ts)。真实 OIDC、跨设备访问、Linux systemd 和 Windows 托盘行为留给最终环境验证；不以构建通过代替部署证据。

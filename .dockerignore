@@ -1,0 +1,15 @@
+**
+!.chery.template/**
+!package.json
+!pnpm-workspace.yaml
+!node_modules/**
+!apps/backend/dist/**
+apps/backend/dist/.env
+!apps/manager/server-dist/**
+!apps/manager/dist/ui/**
+!plugins/qq/dist/**
+!plugins/settings/dist/**
+!apps/backend/deploy/docker/**
+!apps/manager/deploy/docker/**
+!apps/web/deploy/docker/**
+!dist/web/**
