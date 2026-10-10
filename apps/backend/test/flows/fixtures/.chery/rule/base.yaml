@@ -1,0 +1,7 @@
+# 审批规则基准：flow 测试 fixtures 与 .chery.template/rule/base.yaml 保持同源（trusted 角色写文件依赖本表的 false 硬开关才进审批）。
+# ⚠ 不能改成手动维护的双份拷贝：模板基准演进时本文件必须同步，否则 flow 测试与生产行为脱钩。
+write_file: false
+spawn_role: false
+memory_manage: false
+skill: false
+install_skill: false

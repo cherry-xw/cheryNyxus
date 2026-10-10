@@ -1,5 +1,5 @@
 /**
- * Tier 2 流程测试 S2C 事件断言 helper：对称 test/agent/helpers/chunkAssert.ts，
+ * Tier 2 流程测试 S2C 事件断言 helper：对称 apps/backend/test/agent/helpers/chunkAssert.ts，
  * 但处理线上层（已编码）的 Chunk | Notification（来自 @/service/message/types），
  * 而非中间件层 MiddlewareChunk。
  *

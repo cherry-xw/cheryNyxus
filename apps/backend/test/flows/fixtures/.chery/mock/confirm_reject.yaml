@@ -7,5 +7,5 @@ script:
     senseCalls:
       - id: "confirm-wf-reject-0"
         name: "write_file"
-        arguments: '{"path":"/tmp/cheryclaw-mock-reject.txt","content":"hello"}'
+        arguments: '{"path":"{{CHERY_DIR}}/approval-reject.txt","content":"hello"}'
   - content: "文件已处理完毕"

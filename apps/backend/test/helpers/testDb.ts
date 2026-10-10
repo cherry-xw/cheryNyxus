@@ -4,8 +4,8 @@ import { createTempDir, cleanupTempDir } from "./tempDir.js";
 /**
  * 临时 db 目录 helper —— 供 db 层测试隔离。
  *
- * src/db/index.ts 的 dbCache 是模块级单例，且 config.global.db_dir 在 setup.ts 中
- * 固定指向 test/flows/fixtures。若 db 测试直接用真实 db，跨测试文件（vitest forks 并行）
+ * apps/backend/src/db/index.ts 的 dbCache 是模块级单例，且 config.global.db_dir 在 setup.ts 中
+ * 固定指向 apps/backend/test/flows/fixtures。若 db 测试直接用真实 db，跨测试文件（vitest forks 并行）
  * 会共享同一物理文件、数据互相污染。
  *
  * 方案：每个 db 测试文件 vi.mock("@/utils/config.js")，将 global.db_dir 重定向到每测试

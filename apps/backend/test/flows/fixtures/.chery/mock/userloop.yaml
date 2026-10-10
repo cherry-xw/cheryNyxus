@@ -11,6 +11,6 @@ script:
     senseCalls:
       - id: "userloop-wf-0"
         name: "write_file"
-        arguments: '{"path":"/tmp/cheryclaw-userloop.txt","content":"x"}'
+        arguments: '{"path":"{{CHERY_DIR}}/cheryclaw-userloop.txt","content":"x"}'
   # 轮2：content done（loop iter2，checkpoint 消费第二条 user）
   - content: "文件已处理完毕。"

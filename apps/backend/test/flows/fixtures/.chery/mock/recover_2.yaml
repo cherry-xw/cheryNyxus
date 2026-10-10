@@ -7,5 +7,5 @@ script:
     senseCalls:
       - id: "recover-wf-2"
         name: "write_file"
-        arguments: '{"path":"/tmp/cheryclaw-recover-2.txt","content":"x"}'
+        arguments: '{"path":"{{CHERY_DIR}}/cheryclaw-recover-2.txt","content":"x"}'
   - content: "文件已处理完毕"

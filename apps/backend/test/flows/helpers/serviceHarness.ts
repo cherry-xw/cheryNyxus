@@ -2,7 +2,7 @@
  * Tier 2 流程测试服务 harness：启动真实 WS+HTTP 服务（全 handler 注册 + disconnectGrace 配置），
  * 临时端口 + 固定 sessionToken（startService 内部生成但不返回，故显式注入）。
  *
- * 复用 test/flows/setup.ts 全局环境（CHERY_DIR=fixtures、binary transport、DB 清理）。
+ * 复用 apps/backend/test/flows/setup.ts 全局环境（CHERY_DIR=fixtures、binary transport、DB 清理）。
  * staticDir 取 CHERY_DIR（fixtures 目录，已存在），HTTP 静态服务对此目录无害。
  */
 import { createRequire } from 'node:module'

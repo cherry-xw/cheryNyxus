@@ -1,7 +1,7 @@
 /**
  * Tier 2 流程测试 RPC 客户端：真实 WebSocket + binary 帧编解码 + 断连重连。
  *
- * 对齐 src/service/websocket/transport.ts 的线上格式（binary 模式）：
+ * 对齐 apps/backend/src/service/websocket/transport.ts 的线上格式（binary 模式）：
  * - C→S Request：纯 JSON 文本（服务端 parseMessage = toString+JSON.parse，无帧前缀）
  * - S→C Response：纯 JSON 文本（serializeMessage = JSON.stringify，以 `{` 0x7B 起首）
  * - S→C stream chunk：`[0x01][reqId_len:1][reqId][payload_json]`，payload 可为裸 StreamChunkData

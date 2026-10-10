@@ -2,7 +2,7 @@
  * vitest setupFiles —— 必须在所有测试文件 import 之前执行。
  *
  * 职责（仅环境隔离，不 import 任何 config 链，避免提前触发 loadConfig）：
- * 1. 将 test/flows/fixtures 复制到每个测试文件独立的临时目录并设置 CHERY_DIR
+ * 1. 将 apps/backend/test/flows/fixtures 复制到每个测试文件独立的临时目录并设置 CHERY_DIR
  * 2. 设置 CHERY_TRANSPORT=binary（验证真实二进制帧）
  * 3. 清理上一次运行的 DB 目录（保证隔离）
  */
@@ -24,4 +24,6 @@ cpSync(fixturesDir, testDir, { recursive: true });
 
 // 环境变量必须在 import config 之前设置
 process.env.CHERY_DIR = testDir;
+process.env.CHERY_ENV_FILE = join(testDir, "test.env");
+process.env.DB_DIR = join(testDir, ".chery/db");
 process.env.CHERY_TRANSPORT = "binary";
