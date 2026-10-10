@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-/** Checks the CheryClaw plan directory without duplicating plan-viewer rules. */
+/** Checks the cheryNyxus plan directory without duplicating plan-viewer rules. */
 
 import path from 'node:path';
 import { existsSync, statSync } from 'node:fs';

@@ -22,7 +22,7 @@ export const docsConfig = Object.freeze({
       note: '模板文档的相对路径由模板同步和安装环境解析，不按仓库相对路径检查',
     },
     { path: 'tools/plan-viewer', entry: 'tools/plan-viewer/README.md', navigation: 'standalone' },
-    { path: 'firmware', entry: 'firmware/README.md', navigation: 'standalone' },
+    { path: 'platform/ESP32', entry: 'platform/ESP32/README.md', navigation: 'standalone' },
   ],
   rootEntries: ['AGENTS.md', 'README.md'],
   orphanExclusions: [
