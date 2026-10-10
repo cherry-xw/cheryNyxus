@@ -13,17 +13,22 @@ pnpm relay:build
 RELAY_SESSION_SECRET='change-this-to-a-random-secret-of-32-bytes-or-more' pnpm relay:start
 ```
 
-生产环境用 HTTPS/WSS 终止 TLS，并让 nginx 按 [`deploy/nginx/cherynyxus.conf.template`](../../deploy/nginx/cherynyxus.conf.template) 同时提供静态前端、`/api/` 和 `/backend/` WebSocket 路由。公共前缀必须与 relay 的 `RELAY_PUBLIC_BASE_PATH` 相同。管理器 `39980` 和 rathole 两个私有服务映射不得通过 nginx 暴露。
+生产环境用 HTTPS/WSS 终止 TLS，并让 nginx 按 [`deployment/nginx/cherynyxus.conf.template`](../../deployment/nginx/cherynyxus.conf.template) 同时提供静态前端、`/api/` 和 `/backend/` WebSocket 路由。公共前缀必须与 relay 的 `RELAY_PUBLIC_BASE_PATH` 相同。管理器 `39980` 和 rathole 两个私有服务映射不得通过 nginx 暴露。
 
 ## 本地管理器
 
 ```bash
 pnpm manager:type-check
-pnpm exec vite build --config manager/vite.config.ts
-CHERY_MANAGER_TOKEN='another-local-secret' node manager/dist/index.js
+pnpm exec vite build --config apps/manager/vite.config.ts
+node apps/manager/server-dist/index.js auth setup
+node apps/manager/server-dist/index.js
 ```
 
-管理器默认只绑定 `127.0.0.1:39980`；在 `.chery/config.yaml` 的 `manager.host` 填写 `0.0.0.0`（或用环境变量 `CHERY_MANAGER_HOST`，优先级更高）可开放内网访问，访问需携带启动日志 URL 上的管理密钥（URL `?token=` / `X-Chery-Manager-Token` 请求头 / 密钥 Cookie），未设置 `CHERY_MANAGER_TOKEN` 时密钥持久化并在 7 天后自动轮换。启动、停止和重启接口始终要求当前密钥。开放内网时页面显示危险警告。Linux unit 模板见 [`deploy/systemd/cherynyxus-manager.service`](../../deploy/systemd/cherynyxus-manager.service)，构建后可用 `node manager/dist/index.js service install` 安装用户级 systemd 服务；卸载使用同一命令的 `service uninstall`。Windows 使用 `node manager/dist/index.js service install`，实际入口是 [`deploy/windows/service.ps1`](../../deploy/windows/service.ps1) 和 [`deploy/windows/tray-manager.ps1`](../../deploy/windows/tray-manager.ps1)。托盘和 systemd 的真实机器行为留到 H。
+管理器默认只绑定 `127.0.0.1:39980`；`manager.host` 或优先级更高的 `CHERY_MANAGER_HOST` 可改变监听地址。首次设置及恢复账号必须使用本机交互终端：`auth setup` / `auth reset`，隐藏输入密码，不传密码参数。浏览器使用 Manager 自身账号或显式配置的 OIDC，不使用启动 URL 密钥。开放局域网或 HTTPS 反代前，必须配置 `manager.auth.trustedOrigins`；反代另需 `trustedProxies` 并覆盖转发头。配置、会话、CSRF、OIDC 和机器接口规则见唯一权威说明 [Manager 认证](../shared/protocol/manager-auth.md)。OIDC 的真实 issuer/clientId/clientSecret/redirectUri/adminSubjects 由部署者提供，空名单禁用，不能猜值。
+
+原 `.chery/manager-token.json` 和 `CHERY_MANAGER_TOKEN` 只用于本机机器 CLI，不删除密钥文件、不再用于页面。`node apps/manager/server-dist/index.js status`、`info`、`start/stop/restart [backend|rathole]` 自动读取机器密钥，不能管理浏览器会话或后端凭据。Manager 重启使浏览器会话失效；变更认证配置后必须重启。
+
+Linux unit 模板见 [`apps/manager/deploy/systemd/cherynyxus-manager.service`](../../apps/manager/deploy/systemd/cherynyxus-manager.service)，构建后可用 `node apps/manager/server-dist/index.js service install` 安装用户级 systemd 服务；卸载为 `service uninstall`。Windows 使用同一入口，实际脚本是 [`apps/manager/deploy/windows/service.ps1`](../../apps/manager/deploy/windows/service.ps1) 和 [`apps/manager/deploy/windows/tray-manager.ps1`](../../apps/manager/deploy/windows/tray-manager.ps1)。托盘只打开普通登录页，不保存机器密钥。Windows 部署者需限制 `.chery` 的 ACL。真实 OIDC、托盘、systemd 与 HTTPS 部署仍需最终环境验证，构建或 mock 测试不等于已部署。
 
 ## Rathole
 

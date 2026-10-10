@@ -13,5 +13,6 @@
 | --- | --- |
 | 搭建并验证本地开发环境 | [环境搭建](./setup.md) |
 | 启动、构建或排查后端运行时 | [后端运行指南](./backend-runtime.md) |
+| 部署统一 Backend、独立 Web/Manager，迁移旧 QQ 服务 | [运行环境迁移](./nyxus-deployment.md) |
 | 部署中转服务和远程连接 | [中转部署](./relay-deployment.md) |
 | 修改代码前判断文档和验证边界 | [开发规范](../standards/README.md)、[质量文档](../quality/README.md) |

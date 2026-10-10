@@ -147,7 +147,7 @@ GET http://127.0.0.1:39980/api/connection
 ### 5.3 普通用户首次绑定自己的后端
 
 1. 本地后端用设备密钥向中转证明身份并保持在线；Backend ID 只是路由名，不能证明设备所有权。
-2. 所有者在受管理密钥保护的 `39980` 管理页选择中转并发起短时、一次性绑定申请。后端用设备身份提交；管理页显示目标设备、确认链接或代码及有效期限，不要求输入 OIDC 客户端密钥。
+2. 所有者在受 Manager 登录会话保护的 `39980` 管理页选择中转并发起短时、一次性绑定申请。后端用设备身份提交；管理页显示目标设备、确认链接或代码及有效期限，不要求输入中转 OIDC 客户端密钥。
 3. 用户打开中转的确认页，经指定 Pocket ID 登录；页面明确显示当前账号与目标 Backend ID、设备名称。中转核对申请来自该设备、经本地管理操作发起、未过期且未用过；用户主动确认后才建立关系。
 4. 中转记录 `issuer + sub` 与设备身份的关系，后端取得可核验的绑定结果并记录该账号的使用或管理权限；任何一侧尚未确认成功，不得显示“已可使用”。
 5. 管理页显示绑定账号、权限和撤销入口。已经绑定的设备新增其他账号或更改权限，必须由有本地管理权或已明确授予管理权的用户批准；不能让第一个猜到 Backend ID 或拿到普通访问链接的人抢占设备。
@@ -219,7 +219,7 @@ http://127.0.0.1:39980
 - 展示 Agent 数量等基础运行统计；
 - 提供复制连接信息和配置的操作。
 
-39980 默认只绑定 loopback，不经过 nginx 或 rathole；在 `.chery/config.yaml` 的 `manager.host` 设置 `0.0.0.0` 或内网 IP（或用环境变量 `CHERY_MANAGER_HOST`，优先级更高）可开放内网访问，内网访问必须携带启动日志 URL 上的管理密钥（URL `?token=` / `X-Chery-Manager-Token` 请求头 / 密钥 Cookie），本机回环只读访问仍免密钥。管理密钥持久化（重启稳定，7 天自动轮换 + 24 小时宽限），页面用后从地址栏移除密钥；开放内网访问时页面顶部显示危险警告。后端停止后管理页面仍应可访问，以便用户重新启动后端。
+39980 默认只绑定 loopback，不通过 rathole 暴露。Manager 自身采用独立账号或显式 OIDC 登录；普通 API（包括回环）必须有服务端 Session，机器凭据不授予浏览器权限。可信 Host/Origin、反代信任、账号恢复和会话规则由 [Manager 认证](../protocol/manager-auth.md) 唯一定义，不沿用旧 URL token 或回环只读豁免。后端停止后 Manager 仍可登录和控制自己的子进程。
 
 Linux 使用 systemd 注册和管理；Windows 使用无控制台窗口的托盘启动器。托盘启动器点击后调用系统浏览器打开 39980，不使用 Electron 窗口承载管理页。
 
@@ -314,9 +314,9 @@ https://example.com/nyxus/
 
 本节用于避免把目标需求误读为现有能力；实施时以第 5 节为验收目标，以[中转协议](../protocol/relay.md)维护最终请求路径、字段、错误及会话条件，不在需求文档中预设尚未实现的接口名称。
 
-- [`relay/src/server.ts`](../../../relay/src/server.ts) 的 `handleHttp()` 当前公开列出全部在线后端，`requireBoundBackend()` 只检查浏览器路由会话；[`relay/src/config.ts`](../../../relay/src/config.ts) 尚无 OIDC 应用配置、账号—设备关系及按归属筛选。中转设备签名验证见 [`relay/src/identityStore.ts`](../../../relay/src/identityStore.ts)，不能把设备身份当作用户身份。验证入口：[`relay/test/relay.test.ts`](../../../relay/test/relay.test.ts)。
-- [`src/service/auth/index.ts`](../../../src/service/auth/index.ts) 的 `OAuth2Auth` 当前由后端自身处理 OIDC 和密码：配置用户名时优先采用密码模式；本地入口按真实来源地址放行，远程专用入口不豁免。应将中转 OIDC 账号传递与后端授权设计为独立、可核验的机制，保留密码路径及本机直连。验证入口：[`test/manager/server.test.ts`](../../../test/manager/server.test.ts) 和对应服务认证测试。
-- [`manager/src/page.ts`](../../../manager/src/page.ts) 当前提供中转连接、绑定、公开发现及密码策略入口；管理入口在 [`manager/src/server.ts`](../../../manager/src/server.ts)。每台后端不再配置 OIDC 客户端。
-- 前端现有密码登录入口在 [`web/src/features/auth/ServerLoginDialog.vue`](../../../web/src/features/auth/ServerLoginDialog.vue)、[`web/src/stores/auth.ts`](../../../web/src/stores/auth.ts)。需增加独立的 Pocket ID 路径和两种设备选择视图，并区分本机直连与远程经中转。前端登录说明见 [`docs/frontend/auth-login.md`](../../frontend/auth-login.md)。
+- [`apps/relay/src/server.ts`](../../../apps/relay/src/server.ts) 的 `handleHttp()` 当前公开列出全部在线后端，`requireBoundBackend()` 只检查浏览器路由会话；[`apps/relay/src/config.ts`](../../../apps/relay/src/config.ts) 尚无 OIDC 应用配置、账号—设备关系及按归属筛选。中转设备签名验证见 [`apps/relay/src/identityStore.ts`](../../../apps/relay/src/identityStore.ts)，不能把设备身份当作用户身份。验证入口：[`apps/relay/test/relay.test.ts`](../../../apps/relay/test/relay.test.ts)。
+- [`apps/backend/src/service/auth/index.ts`](../../../apps/backend/src/service/auth/index.ts) 的 `OAuth2Auth` 当前由后端自身处理 OIDC 和密码：配置用户名时优先采用密码模式；本地入口按真实来源地址放行，远程专用入口不豁免。应将中转 OIDC 账号传递与后端授权设计为独立、可核验的机制，保留密码路径及本机直连。Manager 的认证独立于该后端机制，验证入口为 [`apps/manager/test/`](../../../apps/manager/test)（`pnpm manager:test`）；后端认证另见对应服务认证测试。
+- [`apps/manager/src/page.ts`](../../../apps/manager/src/page.ts) 当前提供中转连接、绑定、公开发现及密码策略入口；管理入口在 [`apps/manager/src/server.ts`](../../../apps/manager/src/server.ts)。每台后端不再配置 OIDC 客户端。
+- 前端现有密码登录入口在 [`apps/web/src/features/auth/ServerLoginDialog.vue`](../../../apps/web/src/features/auth/ServerLoginDialog.vue)、[`apps/web/src/stores/auth.ts`](../../../apps/web/src/stores/auth.ts)。需增加独立的 Pocket ID 路径和两种设备选择视图，并区分本机直连与远程经中转。前端登录说明见 [`docs/frontend/auth-login.md`](../../frontend/auth-login.md)。
 
 实施必须同时更新[中转协议](../protocol/relay.md)、后端认证与前端登录说明，以及对应的中转、管理器、服务认证和前端定向测试；在上述变更完成前，本文仅为待实现的共同需求，不应据此将现有公开列表或后端 OIDC 预配置宣称为已安全上线的目标流程。

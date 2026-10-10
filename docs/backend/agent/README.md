@@ -1,6 +1,6 @@
 # Agent 层（具体实现）
 
-> 源码 [src/agent/](../../../src/agent/) ｜ 横切 [交互流程](../../shared/protocol/interactions.md) ｜ 协议 [protocol.md](../../shared/protocol/websocket.md)
+> 源码 [apps/backend/src/agent/](../../../apps/backend/src/agent) ｜ 横切 [交互流程](../../shared/protocol/interactions.md) ｜ 协议 [protocol.md](../../shared/protocol/websocket.md)
 
 ## 职责
 
@@ -14,51 +14,54 @@ agent 层**不**直接处理 WebSocket / DB / 审批副作用——这些由 [se
 chat.send → AgentBuilder.run(input)
           → Middleware 洋葱链（checkpoint→sense→retry→chat，外到内）
           → loopHandler 循环 runChain 直到无 senseCalls
-          → chunks 流回 service observer（DB 持久化 + 审批注册）
+          → chunks（含 effect）流回 service observer（DB 持久化 + 审批注册）
 ```
+
+Sense 结果可附带 `ObservationEnvelope` 结构化来源信息；执行结果仍通过 `content/hash` 回灌，确保旧 Sense 和多轮 loop 兼容。来源、截断和不可信标记由 core Sense 契约维护，具体实现见 [core/sense.md](../core/sense.md)。
 
 ## 子模块导航
 
 主 Agent 执行边界的可选观察与最终结果记录见[服务观察专题](../service/workflow.md)。中间件仅报告真实边界，不为展示改变执行顺序；提示词资源摘要复用同次构建结果。
 
-| 文档 | 对应源码 | 内容 |
-|------|----------|------|
-| [./middleware.md](middleware.md) | [middleware/](../../../src/agent/middleware/) | 5 个中间件 + loopHandler + 洋葱执行顺序 + Chunk 流向 + 审批流程（agent 侧） |
-| [./prompt.md](prompt.md) | [prompt/](../../../src/agent/prompt/) | system prompt 构建 + SKILL.md frontmatter 解析 |
-| [./provider.md](provider.md) | [provider/](../../../src/agent/provider/) | openai/ollama/mock 三 Provider 的 LLM/Message/Sense Adapter 注册 |
-| [./sense.md](sense.md) | [sense/](../../../src/agent/sense/) | 内置感官（execute_command/read_file/write_file/skill）+ bash 进程注册表 + reloadSenses + 编译产物加载 |
-| [./plugin.md](plugin.md) | [service/plugin/](../../../src/service/plugin/) + [prompt/loadSkill.ts](../../../src/agent/prompt/loadSkill.ts) | 插件整仓 git 导入（分支选择 + 凭据池 + 版本检查）+ `<plugin>__<skill>` 命名空间发现（跨 service/agent） |
-| [./config-manage.md](config-manage.md) | [sense/configManage.ts](../../../src/agent/sense/configManage.ts) + [service/config/operations.ts](../../../src/service/config/operations.ts) | `config_manage` 感官（get/patch/rollback）+ 强类型增量候选、版本冲突校验与空闲重启 |
-| [./skill-install.md](skill-install.md) | [sense/installSkill.ts](../../../src/agent/sense/installSkill.ts) + [utils/pathGuard.ts](../../../src/utils/pathGuard.ts) | `install_skill` 感官（stage/commit 两阶段 + 三态分发）+ `.chery/` 路径守卫 |
-| [./role-design.md](role-design.md) | [.chery.template/skills/role-design/](../../../.chery.template/skills/role-design/) + [.chery.template/prompt/roleArchitect/](../../../.chery.template/prompt/roleArchitect/) | 任意岗位研究、开放文本能力诉求、真实工具映射与职责分离 |
-| [./role-acceptance.md](role-acceptance.md) | 角色验收流程 | 角色创建后的隔离验收步骤与判定 |
-| [./role-security.md](role-security.md) | Agent 运行时安全边界 | 角色能力隔离与安全约束 |
-| [./command.md](command.md) | [prompt/loadCommand.ts](../../../src/agent/prompt/loadCommand.ts) | 指令加载、序列化与执行约定 |
-| [./hooks.md](hooks.md) | [hooks/](../../../src/agent/hooks/) | Agent hook 的匹配、注册和分发 |
-| [./curator.md](curator.md) | Curator 角色 | 文档整理角色的职责与工作流 |
-| [./system-prompt.md](system-prompt.md) | [prompt/](../../../src/agent/prompt/) | 系统提示词组成与装配顺序 |
-| [./prompt-guide.md](prompt-guide.md) | 提示词维护 | 提示词编写指南 |
-| [./model-capabilities.md](model-capabilities.md) | 模型运行时 | 模型能力与媒体处理 |
-| [./model-catalog.md](model-catalog.md) | [utils/modelCatalog.ts](../../../src/utils/modelCatalog.ts) | 模型事实、推荐与 wire 映射目录 |
+| 文档                                             | 对应源码                                                                                                                                                                      | 内容                                                                                                    |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| [./middleware.md](middleware.md)                 | [middleware/](../../../apps/backend/src/agent/middleware)                                                                                                                                 | 5 个中间件 + loopHandler + 洋葱执行顺序 + Chunk 流向 + 审批流程（agent 侧）                             |
+| [./prompt.md](prompt.md)                         | [prompt/](../../../apps/backend/src/agent/prompt)                                                                                                                                         | system prompt 构建 + SKILL.md frontmatter 解析                                                          |
+| [./provider.md](provider.md)                     | [provider/](../../../apps/backend/src/agent/provider)                                                                                                                                     | openai/ollama/mock 三 Provider 的 LLM/Message/Sense Adapter 注册                                        |
+| [./sense.md](sense.md)                           | [sense/](../../../apps/backend/src/agent/sense)                                                                                                                                           | 内置感官（execute_command/read_file/write_file/skill）+ bash 进程注册表 + reloadSenses + 编译产物加载   |
+| [网络搜索与网页读取](web-search.md)               | [webSearch.ts](../../../apps/backend/src/agent/sense/webSearch.ts) / [apps/web/fetch.ts](../../../apps/backend/src/agent/sense/web/fetch.ts)                                                                | 只读搜索、公开网页读取、SSRF 防护、取消与输出预算                                                        |
+| [./plugin.md](plugin.md)                         | [service/plugin/](../../../apps/backend/src/service/plugin) + [prompt/loadSkill.ts](../../../apps/backend/src/agent/prompt/loadSkill.ts)                                                               | 插件整仓 git 导入（分支选择 + 凭据池 + 版本检查）+ `<plugin>__<skill>` 命名空间发现（跨 service/agent） |
+| [./config-manage.md](config-manage.md)           | [sense/configManage.ts](../../../apps/backend/src/agent/sense/configManage.ts) + [service/config/operations.ts](../../../apps/backend/src/service/config/operations.ts)                                 | `config_manage` 感官（get/patch/rollback）+ 强类型增量候选、版本冲突校验与空闲重启                      |
+| [./skill-install.md](skill-install.md)           | [sense/installSkill.ts](../../../apps/backend/src/agent/sense/installSkill.ts) + [utils/pathGuard.ts](../../../apps/backend/src/utils/pathGuard.ts)                                                     | `install_skill` 感官（stage/commit 两阶段 + 三态分发）+ `.chery/` 路径守卫                              |
+| [./role-design.md](role-design.md)               | [.chery.template/skills/role-design/](../../../.chery.template/skills/role-design/) + [.chery.template/prompt/roleArchitect/](../../../.chery.template/prompt/roleArchitect/) | 任意岗位研究、开放文本能力诉求、真实工具映射与职责分离                                                  |
+| [./role-acceptance.md](role-acceptance.md)       | 角色验收流程                                                                                                                                                                  | 角色创建后的隔离验收步骤与判定                                                                          |
+| [./role-security.md](role-security.md)           | Agent 运行时安全边界                                                                                                                                                          | 角色能力隔离与安全约束                                                                                  |
+| [./command.md](command.md)                       | [prompt/loadCommand.ts](../../../apps/backend/src/agent/prompt/loadCommand.ts)                                                                                                             | 指令加载、序列化与执行约定                                                                              |
+| [./hooks.md](hooks.md)                           | [hooks/](../../../apps/backend/src/agent/hooks)                                                                                                                                           | Agent hook 的匹配、注册和分发                                                                           |
+| [./curator.md](curator.md)                       | Curator 角色                                                                                                                                                                  | 文档整理角色的职责与工作流                                                                              |
+| [./system-prompt.md](system-prompt.md)           | [prompt/](../../../apps/backend/src/agent/prompt)                                                                                                                                         | 系统提示词组成与装配顺序                                                                                |
+| [./prompt-guide.md](prompt-guide.md)             | 提示词维护                                                                                                                                                                    | 提示词编写指南                                                                                          |
+| [./model-capabilities.md](model-capabilities.md) | 模型运行时                                                                                                                                                                    | 模型能力与媒体处理                                                                                      |
+| [./model-catalog.md](model-catalog.md)           | [utils/modelCatalog.ts](../../../apps/backend/src/utils/modelCatalog.ts)                                                                                                                   | 模型事实、推荐与 wire 映射目录                                                                          |
 
 ## 文件清单
 
 ### 入口三件套
 
-| 文件 | 职责 |
-|------|------|
-| [bootstrap.ts](../../../src/agent/bootstrap.ts) | `bootstrapAgentRuntime()`：启动期一次性注册 Provider + 重建 Sense registry |
-| [builder.ts](../../../src/agent/builder.ts) | `AgentBuilder`：AgentSession 工厂 + RuntimeConfig 装配 + 门面方法转发 |
-| [runtimeResolver.ts](../../../src/agent/runtimeResolver.ts) | `RuntimeResolver`：原子解析 brain（→adapters）+ senseGroup（→builtSenses + senseTable） |
+| 文件                                                        | 职责                                                                                    |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [bootstrap.ts](../../../apps/backend/src/agent/bootstrap.ts)             | `bootstrapAgentRuntime()`：启动期一次性注册 Provider + 重建 Sense registry              |
+| [builder.ts](../../../apps/backend/src/agent/builder.ts)                 | `AgentBuilder`：AgentSession 工厂 + RuntimeConfig 装配 + 门面方法转发                   |
+| [runtimeResolver.ts](../../../apps/backend/src/agent/runtimeResolver.ts) | `RuntimeResolver`：原子解析 brain（→adapters）+ senseGroup（→builtSenses + senseTable） |
 
 ### 子目录
 
-| 路径 | 说明 |
-|------|------|
-| [middleware/](../../../src/agent/middleware/) | 5 个中间件 + loopHandler，详见 [./middleware.md](middleware.md) |
-| [prompt/](../../../src/agent/prompt/) | system prompt 与 skill 加载，详见 [./prompt.md](prompt.md) |
-| [provider/](../../../src/agent/provider/) | Provider adapter 注册，详见 [./provider.md](provider.md) |
-| [sense/](../../../src/agent/sense/) | 内置感官与重载逻辑，详见 [./sense.md](sense.md) |
+| 路径                                          | 说明                                                            |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| [middleware/](../../../apps/backend/src/agent/middleware) | 5 个中间件 + loopHandler，详见 [./middleware.md](middleware.md) |
+| [prompt/](../../../apps/backend/src/agent/prompt)         | system prompt 与 skill 加载，详见 [./prompt.md](prompt.md)      |
+| [provider/](../../../apps/backend/src/agent/provider)     | Provider adapter 注册，详见 [./provider.md](provider.md)        |
+| [sense/](../../../apps/backend/src/agent/sense)           | 内置感官与重载逻辑，详见 [./sense.md](sense.md)                 |
 
 ## 核心概念
 
@@ -73,16 +76,16 @@ builder.ts      ── 每 chat 一个：build() + configureRuntime() + init()
                                     （门面方法转发 AgentSession）
 ```
 
-**职责解耦的关键：** Provider 与 Sense 都是进程级 registry，**不由 Builder 懒加载或校验**——bootstrap 在服务启动前显式完成注册，Builder 只消费 registry（[bootstrap.ts](../../../src/agent/bootstrap.ts) 注释）。
+**职责解耦的关键：** Provider 与 Sense 都是进程级 registry，**不由 Builder 懒加载或校验**——bootstrap 在服务启动前显式完成注册，Builder 只消费 registry（[bootstrap.ts](../../../apps/backend/src/agent/bootstrap.ts) 注释）。
 
 ### bootstrapAgentRuntime
 
 ```ts
 // bootstrap.ts
 export async function bootstrapAgentRuntime(): Promise<void> {
-  registerBuiltinProviders();   // 注册 openai/ollama/mock 三 Provider
-  await reloadSenses();         // resetSenses + 内置感官 + 编译产物
-  await loadMcpSenses();         // 连接 config 声明的 MCP server 并注册其 senses
+  registerBuiltinProviders() // 注册 openai/ollama/mock 三 Provider
+  await reloadSenses() // resetSenses + 内置感官 + 编译产物
+  await loadMcpSenses() // 连接 config 声明的 MCP server 并注册其 senses
 }
 ```
 
@@ -93,30 +96,32 @@ export async function bootstrapAgentRuntime(): Promise<void> {
 ```ts
 // runtimeResolver.ts
 export interface RuntimeSelection {
-  brain: string;            // brain 名称（→ config.llm.brain[name]）
-  senseGroup: string;       // 感官组名；无 Tool Call brain 时为空字符串
-  mcpServers: string[];     // 启用的 MCP server 名数组（已连接 server 的全部 MCP sense 合并进 schema）
+  brain: string // brain 名称（→ config.llm.brain[name]）
+  senseGroup: string // 感官组名；无 Tool Call brain 时为空字符串
+  mcpServers: string[] // 启用的 MCP server 名数组（已连接 server 的全部 MCP sense 合并进 schema）
 }
 
 export class RuntimeResolver {
-  resolve(selection: RuntimeSelection): RuntimeConfig { /* ... */ }
+  resolve(selection: RuntimeSelection): RuntimeConfig {
+    /* ... */
+  }
 }
 ```
 
-`RuntimeConfig` 字段（来自 [core/middleware/types](../../../src/core/middleware/types.ts)）：
+`RuntimeConfig` 字段（来自 [core/middleware/types](../../../apps/backend/src/core/middleware/types.ts)）：
 
-| 字段 | 来源 | 用途 |
-|------|------|------|
-| `brain` | `config.llm.brain[name]` | model/url/key/thinking/provider |
-| `adapters` | `getLLMAdapter/getMessageAdapter/getSenseAdapter(provider)` | LLM/Message/Sense 三件套 |
-| `builtSenses` | `senseAdapter.buildSenses(senses)` | 给 LLM 的 function 列表 |
-| `senseTable` | `Map<name, SenseEntry>` | name → 监管等级 + 执行器 |
+| 字段          | 来源                                                        | 用途                            |
+| ------------- | ----------------------------------------------------------- | ------------------------------- |
+| `brain`       | `config.llm.brain[name]`                                    | model/url/key/thinking/provider |
+| `adapters`    | `getLLMAdapter/getMessageAdapter/getSenseAdapter(provider)` | LLM/Message/Sense 三件套        |
+| `builtSenses` | `senseAdapter.buildSenses(senses)`                          | 给 LLM 的 function 列表         |
+| `senseTable`  | `Map<name, SenseEntry>`                                     | name → 监管等级 + 执行器        |
 
 `mcpServers` 绕过 `sense_groups`：enabled server 的全部 `mcp__<server>__*` sense 会合并进 `builtSenses/senseTable`，监管等级来自 MCP server 默认值。启用未连接 server 会 fail loud。
 
 **能力约束：** `brain.capabilities.toolCall !== false` 时必须选择非空 `senseGroup`；`toolCall:false` 时 `senseGroup` 必须为空且 `mcpServers` 必须为空，resolver 返回空 `builtSenses/senseTable`。生成/媒体类工具由自定义 sense 声明 `capabilities` 并提供（旧内置 `generate_image/video/audio` 已删除）。完整能力与媒体链见 [../model-capabilities.md](model-capabilities.md)。
 
-**监管等级优先级链**（[runtimeResolver.ts resolveSense](../../../src/agent/runtimeResolver.ts)）：
+**监管等级优先级链**（[runtimeResolver.ts resolveSense](../../../apps/backend/src/agent/runtimeResolver.ts)）：
 
 ```text
 感官组 ":level" 后缀覆盖（如 "execute_command:auto"）
@@ -135,20 +140,20 @@ global.supervision
 ```ts
 // builder.ts
 const agent = new AgentBuilder()
-  .build()                                  // ① 创建空 AgentSession（注入 global/handlers/loopHandler）
+  .build() // ① 创建空 AgentSession（注入 global/handlers/loopHandler）
   .configureRuntime({ brain, senseGroup, mcpServers }) // ② 原子解析 runtime 并注入
-  .init(chatId, history);                   // ③ 绑定 chatId + 注入历史（无则首条 system prompt）
+  .init(chatId, history) // ③ 绑定 chatId + 注入历史（无则首条 system prompt）
 
-agent.run(input);       // send
-agent.resume();         // chat.resume（无 prompt）
-agent.revokeTrailingCycle();  // 撤回末尾整个当前周期 AI 响应
+agent.run(input) // send
+agent.resume() // chat.resume（无 prompt）
+agent.revokeTrailingCycle() // 撤回末尾整个当前周期 AI 响应
 ```
 
 **三阶段为何分离：**
 
 - `build()` 只注入**跨轮不变项**（global config + handlers + loopHandler），不感知具体 brain/sense。
-- `configureRuntime()` **原子**注入 brain + adapters + builtSenses + senseTable——避免 Provider 与工具定义处于半配置状态（[builder.ts configureRuntime 注释](../../../src/agent/builder.ts)）。
-- `init()` 仅一次（AgentSession 用 `inited` 守卫），绑 chatId 并注入历史/首条 system prompt。runtime 缓存（`chatRuntimes: Map<chatId, {builder, selection}>`）在 [service/chat/runtime.ts](../../../src/service/chat/runtime.ts)，**不在** AgentSession 内。
+- `configureRuntime()` **原子**注入 brain + adapters + builtSenses + senseTable——避免 Provider 与工具定义处于半配置状态（[builder.ts configureRuntime 注释](../../../apps/backend/src/agent/builder.ts)）。
+- `init()` 仅一次（AgentSession 用 `inited` 守卫），绑 chatId 并注入历史/首条 system prompt。runtime 缓存（`chatRuntimes: Map<chatId, {builder, selection}>`）在 [service/chat/runtime.ts](../../../apps/backend/src/service/chat/runtime.ts)，**不在** AgentSession 内。
 
 `run()` 直接透传 `AgentSession.send(input)`，`resume()` 在 `hasPendingTrailingSense()` 时置 `resumePending=true` 后 `run("")`（详见 [./middleware.md](middleware.md) 的 sense 中间件 resume 分支）。
 
@@ -176,7 +181,7 @@ service 收到 chat.send(chatId, prompt)
 ### 启动序列
 
 ```text
-src/index.ts（服务入口）
+apps/backend/src/index.ts（服务入口）
   → await bootstrapAgentRuntime()
        ├─ registerBuiltinProviders()  （openai/ollama/mock）
        ├─ await reloadSenses()
@@ -190,54 +195,54 @@ src/index.ts（服务入口）
 
 ### 依赖（agent → 其他层）
 
-| 依赖项 | 路径 | 用途 |
-|--------|------|------|
-| core/middleware | [core/middleware/](../../../src/core/middleware/) | `AgentSession` 门面、`MiddlewarePipeline`、`MessageJournal`、`MiddlewareContext`/`RuntimeConfig`/各 Chunk 类型、`compose` |
-| core/sense | [core/sense/](../../../src/core/sense/) | `sense()` 工厂、`Sense`/`SenseResult`/`SenseSharedData`、`registerSenses/resetSenses/getSense`、`createApproval`（审批 Promise） |
-| core/llm/adapter | [core/llm/adapter.ts](../../../src/core/llm/adapter.ts) | `LLMAdapter` 接口、`getLLMAdapter` 注册表、`LLMOptions` |
-| core/message/adapter | [core/message/adapter.ts](../../../src/core/message/adapter.ts) | `MessageProviderAdapterConfig`、`registerMessageAdapter`、`LLMResponse`、`ReplaceInfo` |
-| core/sense/adapter | [core/sense/adapter.ts](../../../src/core/sense/adapter.ts) | `SenseAdapter` 接口、`registerSenseAdapter`、`SenseCallData`、`SenseFunction` |
-| core/config | [core/config.ts](../../../src/core/config.ts) | `SupervisionLevel` 枚举（auto=0/smart=1/manual=2） |
-| utils/config | [utils/config.ts](../../../src/utils/config.ts) | `config.global`、`config.llm.brain`、`config.sense_groups`、`BrainConfig`/`MockScriptResponse` 类型 |
-| utils/hash | [utils/hash.ts](../../../src/utils/hash.ts) | `hashGenerator`（read_file/write_file/skill 的去重 hash） |
-| utils/drain | [utils/drain/](../../../src/utils/drain/) | `compressLog`（read_file 大日志文件去重） |
-| utils/rateLimiter | [utils/rateLimiter.ts](../../../src/utils/rateLimiter.ts) | `getRateLimiter`（OpenAI Provider 的 RPM 滑动窗口节流） |
-| utils/logger | [utils/logger/](../../../src/utils/logger/) | `logger.info/warn/error/tools.*`（含 `BashLogInfo`、bash 日志工具） |
-| 第三方 | openai、ollama、zod、js-yaml、dayjs | 各 Provider SDK + schema/frontmatter/时间 |
+| 依赖项               | 路径                                                            | 用途                                                                                                                             |
+| -------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| core/middleware      | [core/middleware/](../../../apps/backend/src/core/middleware)               | `AgentSession` 门面、`MiddlewarePipeline`、`MessageJournal`、`MiddlewareContext`/`RuntimeConfig`/各 Chunk 类型、`compose`        |
+| core/sense           | [core/sense/](../../../apps/backend/src/core/sense)                         | `sense()` 工厂、`Sense`/`SenseResult`/`SenseSharedData`、`registerSenses/resetSenses/getSense`、`createApproval`（审批 Promise） |
+| core/llm/adapter     | [core/llm/adapter.ts](../../../apps/backend/src/core/llm/adapter.ts)         | `LLMAdapter` 接口、`getLLMAdapter` 注册表、`LLMOptions`                                                                          |
+| core/message/adapter | [core/message/adapter.ts](../../../apps/backend/src/core/message/adapter.ts) | `MessageProviderAdapterConfig`、`registerMessageAdapter`、`LLMResponse`、`ReplaceInfo`                                           |
+| core/sense/adapter   | [core/sense/adapter.ts](../../../apps/backend/src/core/sense/adapter.ts)     | `SenseAdapter` 接口、`registerSenseAdapter`、`SenseCallData`、`SenseFunction`                                                    |
+| core/config          | [core/config.ts](../../../apps/backend/src/core/config.ts)                   | `SupervisionLevel` 枚举（auto=0/smart=1/manual=2）                                                                               |
+| utils/config         | [utils/config.ts](../../../apps/backend/src/utils/config.ts)                 | `config.global`、`config.llm.brain`、`config.sense_groups`、`BrainConfig`/`MockScriptResponse` 类型                              |
+| utils/hash           | [utils/hash.ts](../../../apps/backend/src/utils/hash.ts)                     | `hashGenerator`（read_file/write_file/skill 的去重 hash）                                                                        |
+| utils/drain          | [utils/drain/](../../../apps/backend/src/utils/drain)                       | `compressLog`（read_file 大日志文件去重）                                                                                        |
+| utils/rateLimiter    | [utils/rateLimiter.ts](../../../apps/backend/src/utils/rateLimiter.ts)       | `getRateLimiter`（OpenAI Provider 的 RPM 滑动窗口节流）                                                                          |
+| utils/logger         | [utils/logger/](../../../apps/backend/src/utils/logger)                     | `logger.info/warn/error/tools.*`（含 `BashLogInfo`、bash 日志工具）                                                              |
+| 第三方               | openai、ollama、zod、js-yaml、dayjs                             | 各 Provider SDK + schema/frontmatter/时间                                                                                        |
 
 ### 被依赖（谁调用 agent）
 
-| 调用方 | 调用点 |
-|--------|--------|
-| [service/chat/send.ts](../../../src/service/chat/send.ts) | `AgentBuilder`、`parseRuntimeSelection`、`RuntimeResolver`、observer 消费 agent 输出的 effect chunk |
-| [service/chat/handler.ts](../../../src/service/chat/handler.ts) | `parseRuntimeSelection`（chat.create/runtime.set 校验） |
-| [src/index.ts](../../../src/index.ts) | `bootstrapAgentRuntime()`、`compile-senses` 子命令（用 `reportSenseCompileResult`） |
+| 调用方                                                          | 调用点                                                                                              |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [service/chat/send.ts](../../../apps/backend/src/service/chat/send.ts)       | `AgentBuilder`、`parseRuntimeSelection`、`RuntimeResolver`、observer 消费 agent 输出的 effect chunk |
+| [service/chat/handler.ts](../../../apps/backend/src/service/chat/handler.ts) | `parseRuntimeSelection`（chat.create/runtime.set 校验）                                             |
+| [apps/backend/src/index.ts](../../../apps/backend/src/index.ts)                           | `bootstrapAgentRuntime()`、`compile-senses` 子命令（用 `reportSenseCompileResult`）                 |
 
 ### 横切参考
 
-| 文档 | 何时参考 |
-|------|----------|
-| [../service/chat.md](../service/chat.md) | 审批流程的 service 侧（`ApprovalManager`、`fillApprovalResult`）、observer 如何消费 effect chunk |
-| [../interaction.md](../../shared/protocol/interactions.md) | chat.send/resume 的完整 C↔S 交互序列、撤回/续接规则 |
-| [../mock.md](../../quality/testing/mock-provider.md) | mock Provider 的脚本回放机制与测试场景对照 |
-| [../protocol.md](../../shared/protocol/websocket.md) | chunk 类型到 wire 帧的映射 |
+| 文档                                                       | 何时参考                                                                                         |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [../service/chat.md](../service/chat.md)                   | 审批流程的 service 侧（`ApprovalManager`、`fillApprovalResult`）、observer 如何消费 effect chunk |
+| [../interaction.md](../../shared/protocol/interactions.md) | chat.send/resume 的完整 C↔S 交互序列、撤回/续接规则                                              |
+| [../mock.md](../../quality/testing/mock-provider.md)       | mock Provider 的脚本回放机制与测试场景对照                                                       |
+| [../protocol.md](../../shared/protocol/websocket.md)       | chunk 类型到 wire 帧的映射                                                                       |
 
 ## 扩展点
 
 ### 添加 Provider
 
-详见 [./provider.md](provider.md)「扩展点」。要点：在 `provider/` 新增 `<name>.ts`，导出 `register<Name>Adapter()`，在 [provider/index.ts](../../../src/agent/provider/index.ts) 的 `registerBuiltinProviders()` 中调用。
+详见 [./provider.md](provider.md)「扩展点」。要点：在 `provider/` 新增 `<name>.ts`，导出 `register<Name>Adapter()`，在 [provider/index.ts](../../../apps/backend/src/agent/provider/index.ts) 的 `registerBuiltinProviders()` 中调用。
 
 ### 添加内置 Sense
 
-详见 [./sense.md](sense.md)「扩展点」。要点：在 `sense/` 新增 `<name>.ts` 用 `sense()` 工厂创建，在 [sense/index.ts](../../../src/agent/sense/index.ts) 的 `registerBuiltinSenses()` 中 `registerSenses([...])`。
+详见 [./sense.md](sense.md)「扩展点」。要点：在 `sense/` 新增 `<name>.ts` 用 `sense()` 工厂创建，在 [sense/index.ts](../../../apps/backend/src/agent/sense/index.ts) 的 `registerBuiltinSenses()` 中 `registerSenses([...])`。
 
 角色创建后的独立隔离验收见 [role-acceptance.md](role-acceptance.md)。该流程使用目标角色真实提示词和安全工具，但以临时工作区、工具交集和运行时安全覆盖层阻断配置修改、外部副作用与自我认证。
 
 ### 添加外部（编译产物）Sense
 
-在 `.chery/senses/<name>.ts` 创建文件，系统启动时由 `loadCustomSenses` 用 `new Function()` 执行（注入 `z`/`sense`/`SupervisionLevel`/`registerSenses`）。编译机制见 [core/sense/compiler](../../../src/core/sense/compiler/)。
+在 `.chery/senses/<name>.ts` 创建文件，系统启动时由 `loadCustomSenses` 用 `new Function()` 执行（注入 `z`/`sense`/`SupervisionLevel`/`registerSenses`）。编译机制见 [core/sense/compiler](../../../apps/backend/src/core/sense/compiler)。
 
 ### 添加中间件
 
-详见 [./middleware.md](middleware.md)「扩展点」。要点：在 `middleware/` 新增文件实现 `MiddlewareHandler`，在 [middleware/index.ts](../../../src/agent/middleware/index.ts) 的 `defaultHandlers` 数组按顺序插入（位置决定洋葱层级）。
+详见 [./middleware.md](middleware.md)「扩展点」。要点：在 `middleware/` 新增文件实现 `MiddlewareHandler`，在 [middleware/index.ts](../../../apps/backend/src/agent/middleware/index.ts) 的 `defaultHandlers` 数组按顺序插入（位置决定洋葱层级）。
