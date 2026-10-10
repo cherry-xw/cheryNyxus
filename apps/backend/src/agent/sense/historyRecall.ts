@@ -38,6 +38,10 @@ const HistoryRecallSchema = z.object({
     .enum(['list_generations', 'search'])
     .describe('操作：list_generations=列代际目录；search=按关键词检索被压缩的历史消息'),
   query: z.string().describe('search 必填：关键词（大小写不敏感子串匹配消息正文）').optional(),
+  scope: z
+    .enum(['archived', 'current', 'all'])
+    .default('archived')
+    .describe('检索范围：archived=已定稿代际（默认）；current=当前未压缩代；all=两者'),
   generation: z
     .number()
     .int()
@@ -46,6 +50,24 @@ const HistoryRecallSchema = z.object({
     .optional(),
   role: z.string().describe('限定消息角色（如 user/assistant/role）；缺省不限').optional(),
   limit: z.number().int().min(1).max(50).describe('命中条数上限，默认 10').optional(),
+  after: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('仅返回 createdAt 大于该 epoch 毫秒的消息')
+    .optional(),
+  before: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('仅返回 createdAt 小于等于该 epoch 毫秒的消息')
+    .optional(),
+  max_output_chars: z
+    .number()
+    .int()
+    .min(1)
+    .describe('本次输出上限；仍受 global.history_recall.max_output_chars 限制')
+    .optional(),
 })
 
 interface HistoryMessage {
@@ -103,14 +125,37 @@ interface SearchHit {
 function searchGenerations(
   generations: GenerationEntry[],
   messages: HistoryMessage[],
-  input: { query: string; generation?: number; role?: string; limit: number },
+  input: {
+    query: string
+    generation?: number
+    role?: string
+    limit: number
+    scope: 'archived' | 'current' | 'all'
+    after?: number
+    before?: number
+  },
 ): SenseResult {
-  const lastBoundary = generations[generations.length - 1]!
+  const lastBoundary = generations.at(-1)
+  const scope = input.scope ?? 'archived'
 
   // 检索窗口：指定 generation → 该代时间窗 (上一代边界, 本代边界]；缺省 → 全部已定稿代 [0, 最近边界]
   let fromTime = 0
-  let toTime = lastBoundary.createdAt
+  let toTime = Number.POSITIVE_INFINITY
+  if (scope === 'archived') toTime = lastBoundary?.createdAt ?? 0
+  if (scope === 'current') fromTime = lastBoundary?.createdAt ?? 0
+  if (scope === 'all') {
+    fromTime = 0
+    toTime = Number.POSITIVE_INFINITY
+  }
   if (input.generation !== undefined) {
+    if (scope === 'current') {
+      return {
+        content: 'current 范围不能同时指定 generation；请去掉 generation 或改用 archived/all。',
+      }
+    }
+    if (!lastBoundary) {
+      return { content: '当前还没有已定稿代际，不能按 generation 查询。' }
+    }
     const genIndex = input.generation
     const gen = generations.find((entry) => entry.index === genIndex)
     if (!gen) {
@@ -122,6 +167,9 @@ function searchGenerations(
     fromTime = prev ? prev.createdAt : 0
     toTime = gen.createdAt
   }
+
+  if (input.after !== undefined) fromTime = Math.max(fromTime, input.after)
+  if (input.before !== undefined) toTime = Math.min(toTime, input.before)
 
   const needle = input.query.toLowerCase()
   const hits: SearchHit[] = []
@@ -145,22 +193,31 @@ function searchGenerations(
   }
 
   if (hits.length === 0) {
-    const scope = input.generation !== undefined ? `第 ${input.generation} 代` : '全部已定稿代'
+    const messageScope =
+      input.generation !== undefined
+        ? `第 ${input.generation} 代`
+        : scope === 'current'
+          ? '当前未定稿代'
+          : scope === 'all'
+            ? '全部历史'
+            : '全部已定稿代'
     return {
-      content: `在${scope}的 ${scanned} 条历史消息中未找到包含 "${input.query}" 的内容。可尝试更换关键词、放宽 role 限制或去掉 generation 限定。`,
+      content: `在${messageScope}的 ${scanned} 条历史消息中未找到包含 "${input.query}" 的内容。可尝试更换关键词、放宽 role 限制或去掉 generation 限定。`,
     }
   }
 
   const lines = [
-    `命中 ${hits.length} 条（范围：${input.generation !== undefined ? `第 ${input.generation} 代` : `全部已定稿代（第 1 ~ ${generations.length} 代）`}，query="${input.query}"${input.role ? `，role=${input.role}` : ''}）：`,
+    `命中 ${hits.length} 条（范围：${input.generation !== undefined ? `第 ${input.generation} 代` : scope === 'current' ? '当前未定稿代' : scope === 'all' ? '全部历史' : `全部已定稿代（第 1 ~ ${generations.length} 代）`}，query="${input.query}"${input.role ? `，role=${input.role}` : ''}）：`,
     ...hits.map((hit, i) => `${i + 1}. [第${hit.generation}代] ${hit.role}: ${hit.snippet}`),
   ]
   return { content: lines.join('\n') }
 }
 
 /** 硬字符上限截断：超限截到上限内并显式注明（确定性代码，非 LLM 判断）。 */
-function applyOutputCap(text: string): SenseResult {
-  const maxChars = config.global.history_recall?.max_output_chars ?? DEFAULT_MAX_OUTPUT_CHARS
+function applyOutputCap(text: string, requestedMaxChars?: number): SenseResult {
+  const configuredMaxChars =
+    config.global.history_recall?.max_output_chars ?? DEFAULT_MAX_OUTPUT_CHARS
+  const maxChars = Math.min(requestedMaxChars ?? configuredMaxChars, configuredMaxChars)
   if (text.length <= maxChars) return { content: text }
   const notice = `\n\n[已截断：结果超出上限 ${maxChars} 字符，请缩小 query 范围或指定 generation 分代查询]`
   return { content: text.slice(0, Math.max(0, maxChars - notice.length)) + notice }
@@ -170,8 +227,8 @@ export default sense(
   'history_recall',
   '回忆被压缩的长会话历史（只读）。此前对话经过 compact 压缩后仅保留摘要，本工具可检索完整历史。' +
     'action="list_generations" 列出代际目录（每代摘要索引）；' +
-    'action="search" 按关键词在已定稿代际的历史消息中做大小写不敏感子串检索，' +
-    '返回命中片段（角色 + 前后约150字符上下文 + 所在代），可选 generation 限定代、role 限定角色、limit 限条数（默认10）。' +
+    'action="search" 按关键词在已定稿代际、当前代或全部历史消息中做大小写不敏感子串检索，' +
+    '返回命中片段（角色 + 前后约150字符上下文 + 所在代），可选 scope、generation、role、after、before、limit 和 max_output_chars。' +
     '当用户询问较早之前聊过的内容、而你当前上下文中只有摘要时，使用本工具。',
   HistoryRecallSchema,
   async (
@@ -182,9 +239,10 @@ export default sense(
     if (!ctx?.chatId) {
       return { content: '错误：缺少会话上下文（chatId），无法定位历史会话' }
     }
+
     const rootChatId = getRootChatId(ctx.chatId)
     const generations = computeGenerations(rootChatId)
-    if (generations.length === 0) {
+    if (generations.length === 0 && input.action === 'list_generations') {
       return {
         content:
           '当前会话还没有已定稿的压缩代际（无 compact 历史），完整对话本就在上下文中，无需回忆检索。',
@@ -192,7 +250,7 @@ export default sense(
     }
 
     if (input.action === 'list_generations') {
-      return applyOutputCap(listGenerations(generations).content)
+      return applyOutputCap(listGenerations(generations).content, input.max_output_chars)
     }
 
     const query = input.query?.trim()
@@ -209,7 +267,11 @@ export default sense(
         generation: input.generation,
         role: input.role,
         limit: input.limit ?? DEFAULT_LIMIT,
+        scope: input.scope ?? 'archived',
+        after: input.after,
+        before: input.before,
       }).content,
+      input.max_output_chars,
     )
   },
   SupervisionLevel.auto,

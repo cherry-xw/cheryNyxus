@@ -19,6 +19,7 @@ import config from '@/utils/config'
 import historyRecallSense from '@/agent/sense/historyRecall.js'
 import { SupervisionLevel } from '@/core/config.js'
 
+
 const exec = historyRecallSense.executor.execute.bind(historyRecallSense.executor)
 const sharedData = new Map<string, Map<string, unknown>>()
 
@@ -83,6 +84,7 @@ describe('history_recall sense 定义', () => {
 })
 
 describe('history_recall 输入与前置校验', () => {
+
   it('缺 chatId → 友好错误', async () => {
     const r = await exec({ action: 'list_generations' }, sharedData)
     expect(r.content).toContain('错误')
@@ -165,6 +167,37 @@ describe('history_recall search', () => {
     ready(chatId)
     const r = await exec({ action: 'search', query: '收尾' }, sharedData, { chatId })
     expect(r.content).toContain('未找到')
+  })
+
+  it('scope=current 检索当前未压缩代，scope=all 同时覆盖两者', async () => {
+    const chatId = newRootChat()
+    await seedTwoGenerationChat(chatId)
+    ready(chatId)
+    const current = await exec({ action: 'search', query: '收尾', scope: 'current' }, sharedData, { chatId })
+    expect(current.content).toContain('当前代：收尾')
+    const all = await exec({ action: 'search', query: '收尾', scope: 'all' }, sharedData, { chatId })
+    expect(all.content).toContain('当前代：收尾')
+  })
+
+  it('支持 after/before 时间过滤和单次 max_output_chars（不超过全局上限）', async () => {
+    const chatId = newRootChat()
+    await seedTwoGenerationChat(chatId)
+    ready(chatId)
+    const all = await exec({ action: 'search', query: '轮', scope: 'all' }, sharedData, { chatId })
+    expect(all.content).toContain('命中')
+    const beforeOnly = await exec(
+      { action: 'search', query: '轮', scope: 'all', before: 1_000_000_000_000 },
+      sharedData,
+      { chatId },
+    )
+    expect(beforeOnly.content).toContain('未找到')
+    const capped = await exec(
+      { action: 'search', query: '轮', scope: 'all', max_output_chars: 120 },
+      sharedData,
+      { chatId },
+    )
+    expect(capped.content.length).toBeLessThanOrEqual(120)
+    expect(capped.content).toContain('已截断')
   })
 
   it('后代 chat 消息计入数据源', async () => {

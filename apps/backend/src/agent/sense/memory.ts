@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod'
+
 import { sense, type SenseResult, type SenseSharedData } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
 import { hashGenerator } from '@/utils/hash.js'
@@ -31,9 +32,7 @@ const MemoryScopeSchema = z.enum(['global', 'workspace'])
 const MemoryManageSchema = z.object({
   action: MemoryAction.describe('操作类型'),
   /** 必填：选择记忆作用域。两层独立、互相不干扰。AI 显式选择写入/读取哪一层。 */
-  scope: MemoryScopeSchema.describe(
-    '作用域：global（跨 chat 共享）/ workspace（per 项目；要求 chat 已配置 workspace）',
-  ),
+  scope: MemoryScopeSchema.describe('作用域：global为全局记忆，workspace为当前项目记忆'),
   /** add/update/remove 时必填 */
   name: z.string().optional().describe('记忆标识名（kebab-case）'),
   /** add 时必填；update 可选 */
@@ -77,7 +76,7 @@ async function handler(
     }
   }
   const workspace = chatWorkspace // 已校验非 undefined（当 scope=workspace 时）
-  const memoryScope: MemoryScope = scope
+  const memoryScope: MemoryScope = scope as MemoryScope
 
   switch (action) {
     case 'add': {
