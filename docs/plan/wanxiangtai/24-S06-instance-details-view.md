@@ -21,8 +21,8 @@
 
 ## 允许修改的范围
 
-- `web/src/features/wanxiangtai/components/InstanceDetails.vue 及同址专属样式`
-- `web/test/wanxiangtai/instance-details.test.ts`
+- `apps/web/src/features/wanxiangtai/components/InstanceDetails.vue 及同址专属样式`
+- `apps/web/test/wanxiangtai/instance-details.test.ts`（拟新增测试，当前尚未创建，不是可执行入口）
 - 上述新路径为本任务专属目标；若前置契约指定了同职责等价路径，由总负责人记录映射后采用，不创建重复入口。
 
 ## 范围与非目标
@@ -46,7 +46,7 @@
 - 前端类型和静态检查，遵守主题、字重、字号及直角规则。
 
 ```text
-pnpm exec vitest run --config web/vitest.config.ts web/test/wanxiangtai/instance-details.test.ts
+pnpm exec vitest run --config apps/web/vitest.config.ts apps/web/test/wanxiangtai/instance-details.test.ts
 pnpm web:type-check
 ```
 
@@ -71,7 +71,7 @@ pnpm web:type-check
 - 每完成一个步骤更新本任务；由总负责人同步总计划的步骤统计，避免多 Agent 同写总文件。
 - 最终回归发现问题时在父计划登记新的修正小任务，不恢复已删除任务，也不改写原完成摘要。
 
-## 已完成事实与执行记录
+## 当前状态与剩余条件
 
 仅完成本任务文档准备；产品实现、定向验证和交接均未开始。
 

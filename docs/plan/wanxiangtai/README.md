@@ -57,7 +57,7 @@
 | 共享点                             | 所属任务及限制                                           |
 | ---------------------------------- | -------------------------------------------------------- |
 | packages/protocol 公共类型与导出   | C01负责初始契约，后续扩展由总负责人安排串行；S不修改     |
-| src/db/index.ts 与数据库唯一约束   | C01建立，C03/C07/C11等需求交核心负责人集成，不能并行覆盖 |
+| apps/backend/src/db/index.ts 与数据库唯一约束   | C01建立，C03/C07/C11等需求交核心负责人集成，不能并行覆盖 |
 | chat 创建、send/resume、journal    | C05/C07/C08/C10/C14 接线有共享，分配具体函数并串行集成   |
 | 安全路径与执行沙箱                 | C02/C04/C13 各有用途，不放宽系统全局保护以省事           |
 | overview/store/application/desktop | C06/C15/C17 共用状态和入口，C系列管理；S组件只局部文件   |
@@ -69,7 +69,7 @@
 - 已完成事实：需求与子任务文档已整理，产品实现和定向测试均未开始。
 - 基准：本次文档整理基于 `b50f439`；无万象台实施提交或测试证据。
 - 下一步：C01 或 S01；每项完整依赖以其子计划为准，未解锁不等于阻塞。
-- 下一条验证命令：C01 交付目标测试后执行 `pnpm exec vitest run test/wanxiangtai/contracts.test.ts`，当前测试文件尚未创建。
+- 下一条验证命令：C01 交付目标测试后执行 `pnpm exec vitest run --config apps/backend/vite.config.ts apps/backend/test/wanxiangtai/contracts.test.ts`，当前测试文件尚未创建。
 
 ## 最终综合验证与用户审批
 

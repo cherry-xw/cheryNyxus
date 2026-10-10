@@ -15,16 +15,16 @@
 
 先读[完整设计记录](design-and-history.md) §2～§10 的有效方案，再读下列入口。标为前置产物的文件由前置任务创建；其他列出的入口用于定位现有实现，不代表本任务必须修改所有文件。
 
-- `src/core/security/sandbox.ts`
-- `src/core/security/rolePolicy.ts`
-- `src/agent/middleware/tool.ts`
-- `src/agent/sense/read.ts`
+- `apps/backend/src/core/security/sandbox.ts`
+- `apps/backend/src/core/security/rolePolicy.ts`
+- `apps/backend/src/agent/middleware/tool.ts`
+- `apps/backend/src/agent/sense/read.ts`
 
 ## 范围与非目标
 
 允许承担的修改范围：
 
-- src/service/wanxiangtai/workspaces.ts
+- apps/backend/src/service/wanxiangtai/workspaces.ts
 - 文件工具、命令沙箱及运行时工作区绑定的必要接线
 - docs/ 下执行隔离和资源说明
 
@@ -43,10 +43,10 @@
 - 只改 cwd 不视为隔离完成：文件工具与 shell 中的绝对路径都要验证。
 - 无 Git 历史的复制环境遇到依赖仓库元数据的验证命令，预检或执行明确阻塞。
 
-新增定向测试入口：`test/wanxiangtai/workspaces.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
+新增定向测试入口：`apps/backend/test/wanxiangtai/workspaces.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
 
 ```text
-pnpm exec vitest run test/wanxiangtai/workspaces.test.ts
+pnpm exec vitest run --config apps/backend/vite.config.ts apps/backend/test/wanxiangtai/workspaces.test.ts
 pnpm type-check
 ```
 
@@ -69,7 +69,7 @@ pnpm type-check
 - 每完成一个步骤更新本任务；由总负责人同步总计划的步骤统计，避免多 Agent 同写总文件。
 - 最终回归发现问题时在父计划登记新的修正小任务，不恢复已删除任务，也不改写原完成摘要。
 
-## 已完成事实与执行记录
+## 当前状态与剩余条件
 
 仅完成本任务文档准备；产品实现、定向验证和交接均未开始。
 

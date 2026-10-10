@@ -1,7 +1,7 @@
 # 万象台设计可行性与缺陷分析（feasibility-findings）
 
 > 评审对象：[design-and-history.md](../design-and-history.md) §1～§10（当前有效方案）+ [README](../README.md)（28 子任务）+ 11 份关键子计划。
-> 评审方式：全文通读 + 只读核对 §3「现状事实」对应源码（`src/`、`web/`，未触碰 node_modules）+ 三维度推演 + 场景压测。
+> 评审方式：全文通读 + 只读核对 §3「现状事实」对应源码（`apps/backend/src/`、`apps/web/`，未触碰 node_modules）+ 三维度推演 + 场景压测。
 > 结论先行：**有条件可行**。设计整体技术成立，主链机制（快照、投递幂等、回合调度、决策版本、恢复顺序）算法清晰；最大风险集中在三个「跨模块交互缝隙」（执行读边界、审批×看门狗、阶段更新边界）与整体工程量。条件清单见 §7。
 
 ---
@@ -12,20 +12,20 @@
 
 | # | 设计条目（§3） | 核对文件 | 结论 | 关键证据 |
 |---|---|---|---|---|
-| 1 | chat.create 已接收 parentChatId 并解析预设 | `src/service/chat/handler.ts` | ✅ 符合 | `handleChatCreate` 走 `resolvePresetSelection(p.preset)`，`createChat(chatId, metadata, p.parentChatId)`；仅 cheryNyxus 禁止作子实例（L172-177），普通预设可带 parentChatId 创建为子会话（C05「调度者→组长」关系的可行基础）。另确认：`metadata.spawnTypes` 在 chat.create 锁定 roster（L222）；空白复用仅在 `!p.parentChatId && !p.chatId` 时触发（L190），万象台批量建组长天然规避误复用 |
-| 2 | 子角色可递归派发，预设限层不天然约束成员 | `src/agent/sense/spawn.ts` | ✅ 符合 | `resolveSpawnRoster`：preset chat 限 `metadata.spawnTypes`；**子 chat（无 preset）→ 全集 `config.roles`，递归可 spawn**（L99、L180-181）。C05 step3「成员不能继续派发」必须新增作用域 gate，与 §3 判断一致 |
-| 3 | wakeScheduler 基于父子和 finished 状态 | `src/service/chat/wakeScheduler.ts` | ✅ 符合 | `onChildDone` 先取 `getWaitedParent`，无注册父子边直接忽略；barrier/finished 全扫 `findChatsByParent`。会议回复不走 child_done 的判断成立 |
-| 4 | wake 有回传、journal 双写、幂等与投递代际 | `src/service/chat/wake.ts` | ✅ 符合 | `[角色 type]` 前缀注入（L78-80）、`builder.appendRoleReply` + `addMessage` 双写（L122-136）、`child_return` 链接查重 + `roleInjected` 幂等（L91-106、L152）、`deliveryGeneration`/`deliveryChatId` 代际栅栏重定向（L112-119）、`rebuildWaitedChildren` **只扫 spawn task（父子链）**（L415-490）——peer 停等重启恢复确无现状机制 |
-| 5 | 审批已有 chatId，缺团队/实例映射 | `src/service/approval/manager.ts` | ✅ 符合 | `ApprovalPayload = { chatId, senseName, ... }`，无任何 team/instance 维度；interaction 表持久化 + deadline 定时器，超时→`reject`（"审批超时，工具未执行"），断连→`park` |
-| 6 | overview 已有任务中心投影 | `src/service/chat/overview.ts` | ✅ 符合 | `buildTaskOverview` 按 rootChatId 聚合 chat 树，agents 为平铺 `TaskAgentOverview`，无团队中间层 |
-| 7 | autoCompact 以 send 预检为主 | `src/service/chat/autoCompact.ts` | ✅ 符合 | `injectCommands` 是唯一预算判定入口（send 预检阶段调用）；`maybeAutoCompactAfterDone` 仅发事件不改 prompt。**`wakeParent` 注入 role 消息不经任何预算检查**（见 wake.ts），会议唤醒/压缩路径确实未覆盖 |
-| 8 | token 字符数/4 非可靠硬上限 | `src/utils/token.ts` | ✅ 符合 | `estimateTokens = ceil(len/4)`；**对中文是系统性低估**（中文约 0.6~1 token/字符，/4 不足实际 1/2），代码注释「中文偏保守」方向相反。§7.4「不以字符数/4 作硬限制」必要且正确 |
-| 9 | pathGuard 按 .chery 路径段拦截 | `src/utils/pathGuard.ts` | ✅ 符合 | `.chery` 段正则 + 绝对路径 resolve 双判；豁免 `install_skill`/config-read/规则目录；**尚无任何 `.agent` 守卫**（见 F-12） |
-| 10 | sandbox 已校验 cwd 与真实路径，但隔离未完成 | `src/core/security/sandbox.ts` | ✅ 符合，且**比 §3 更严重** | `canonicalExistingDirectory`+`assertInside` 只约束 cwd；macOS profile `(allow file-read*)` **全局放行读**，Linux bwrap `--ro-bind / /` 同样全局读，Windows ACL 后端仅两档模式、danger-full-access 被钳制为 workspace-write（写边界）。shell 绝对路径可读原项目实时文件与其他实例 work 目录（详见 F-01） |
-| 11 | 记忆按 workspace 路径散列 | `src/memory/path.ts` | ✅ 符合 | `sha256(workspacePath)[:12]` → 实例 work 目录路径不同 → 记忆按实例碎裂，需稳定项目身份（§3 判断成立） |
-| 附 | runtime 摘要后消息可恢复 | `src/service/chat/runtime.ts`（抽查） | ✅ 符合 | L473-490：取最后一条 compact 摘要为重建起点，其后全部对话一并加载 |
-| 附 | historyRecall 根代际不保证成员独立压缩正确 | `src/agent/sense/historyRecall.ts`（抽查） | ✅ 符合 | `computeGenerations(rootChatId)` 以根会话时间线切代，成员独立压缩会错位 |
-| 附 | 看门狗语义 | `src/agent/spawnBroker.ts`（抽查） | ✅ 补充事实 | feed-dog：每条 chunk 重置计时，默认 5min（`timeout_ms`），`wake_on_timeout` 默认 false。**审批挂起期间无 chunk → 5min 后 runtime 被 abort**（见 F-02） |
+| 1 | chat.create 已接收 parentChatId 并解析预设 | `apps/backend/src/service/chat/handler.ts` | ✅ 符合 | `handleChatCreate` 走 `resolvePresetSelection(p.preset)`，`createChat(chatId, metadata, p.parentChatId)`；仅 cheryNyxus 禁止作子实例（L172-177），普通预设可带 parentChatId 创建为子会话（C05「调度者→组长」关系的可行基础）。另确认：`metadata.spawnTypes` 在 chat.create 锁定 roster（L222）；空白复用仅在 `!p.parentChatId && !p.chatId` 时触发（L190），万象台批量建组长天然规避误复用 |
+| 2 | 子角色可递归派发，预设限层不天然约束成员 | `apps/backend/src/agent/sense/spawn.ts` | ✅ 符合 | `resolveSpawnRoster`：preset chat 限 `metadata.spawnTypes`；**子 chat（无 preset）→ 全集 `config.roles`，递归可 spawn**（L99、L180-181）。C05 step3「成员不能继续派发」必须新增作用域 gate，与 §3 判断一致 |
+| 3 | wakeScheduler 基于父子和 finished 状态 | `apps/backend/src/service/chat/wakeScheduler.ts` | ✅ 符合 | `onChildDone` 先取 `getWaitedParent`，无注册父子边直接忽略；barrier/finished 全扫 `findChatsByParent`。会议回复不走 child_done 的判断成立 |
+| 4 | wake 有回传、journal 双写、幂等与投递代际 | `apps/backend/src/service/chat/wake.ts` | ✅ 符合 | `[角色 type]` 前缀注入（L78-80）、`builder.appendRoleReply` + `addMessage` 双写（L122-136）、`child_return` 链接查重 + `roleInjected` 幂等（L91-106、L152）、`deliveryGeneration`/`deliveryChatId` 代际栅栏重定向（L112-119）、`rebuildWaitedChildren` **只扫 spawn task（父子链）**（L415-490）——peer 停等重启恢复确无现状机制 |
+| 5 | 审批已有 chatId，缺团队/实例映射 | `apps/backend/src/service/approval/manager.ts` | ✅ 符合 | `ApprovalPayload = { chatId, senseName, ... }`，无任何 team/instance 维度；interaction 表持久化 + deadline 定时器，超时→`reject`（"审批超时，工具未执行"），断连→`park` |
+| 6 | overview 已有任务中心投影 | `apps/backend/src/service/chat/overview.ts` | ✅ 符合 | `buildTaskOverview` 按 rootChatId 聚合 chat 树，agents 为平铺 `TaskAgentOverview`，无团队中间层 |
+| 7 | autoCompact 以 send 预检为主 | `apps/backend/src/service/chat/autoCompact.ts` | ✅ 符合 | `injectCommands` 是唯一预算判定入口（send 预检阶段调用）；`maybeAutoCompactAfterDone` 仅发事件不改 prompt。**`wakeParent` 注入 role 消息不经任何预算检查**（见 wake.ts），会议唤醒/压缩路径确实未覆盖 |
+| 8 | token 字符数/4 非可靠硬上限 | `apps/backend/src/utils/token.ts` | ✅ 符合 | `estimateTokens = ceil(len/4)`；**对中文是系统性低估**（中文约 0.6~1 token/字符，/4 不足实际 1/2），代码注释「中文偏保守」方向相反。§7.4「不以字符数/4 作硬限制」必要且正确 |
+| 9 | pathGuard 按 .chery 路径段拦截 | `apps/backend/src/utils/pathGuard.ts` | ✅ 符合 | `.chery` 段正则 + 绝对路径 resolve 双判；豁免 `install_skill`/config-read/规则目录；**尚无任何 `.agent` 守卫**（见 F-12） |
+| 10 | sandbox 已校验 cwd 与真实路径，但隔离未完成 | `apps/backend/src/core/security/sandbox.ts` | ✅ 符合，且**比 §3 更严重** | `canonicalExistingDirectory`+`assertInside` 只约束 cwd；macOS profile `(allow file-read*)` **全局放行读**，Linux bwrap `--ro-bind / /` 同样全局读，Windows ACL 后端仅两档模式、danger-full-access 被钳制为 workspace-write（写边界）。shell 绝对路径可读原项目实时文件与其他实例 work 目录（详见 F-01） |
+| 11 | 记忆按 workspace 路径散列 | `apps/backend/src/memory/path.ts` | ✅ 符合 | `sha256(workspacePath)[:12]` → 实例 work 目录路径不同 → 记忆按实例碎裂，需稳定项目身份（§3 判断成立） |
+| 附 | runtime 摘要后消息可恢复 | `apps/backend/src/service/chat/runtime.ts`（抽查） | ✅ 符合 | L473-490：取最后一条 compact 摘要为重建起点，其后全部对话一并加载 |
+| 附 | historyRecall 根代际不保证成员独立压缩正确 | `apps/backend/src/agent/sense/historyRecall.ts`（抽查） | ✅ 符合 | `computeGenerations(rootChatId)` 以根会话时间线切代，成员独立压缩会错位 |
+| 附 | 看门狗语义 | `apps/backend/src/agent/spawnBroker.ts`（抽查） | ✅ 补充事实 | feed-dog：每条 chunk 重置计时，默认 5min（`timeout_ms`），`wake_on_timeout` 默认 false。**审批挂起期间无 chunk → 5min 后 runtime 被 abort**（见 F-02） |
 
 **结论：§3 现状事实表 13 项全部与代码相符，未发现不实陈述。** 设计者对现状边界的自我认知（读边界未隔离、peer 无恢复、审批无归属、token 不可靠）准确。
 
@@ -73,7 +73,7 @@
 5. **调度者上下文膨胀**：三层上下文+摘要注入+历史索引有界（§7.4、C10）。✅ 已覆盖（L4 覆盖）；残余为实现层保证。
 6. **集成三方合并冲突与语义验证**：文本三方/二进制上报/无冲突也验证（§6.2）+「语义测试失败不发布」（C12 测试）。⚠️ 缺合并原语与算法规格→F-04；跨文件语义冲突（各自编译通过、合并后失败）由关联验证兜底，成立。
 7. **回写失败与恢复**：恢复日志逐文件回滚、用户再改动停止自动覆盖（§6.4）。✅ 设计充分；残余为产品复杂度。
-8. **克隆体状态机（被顶替但运行中）**：运行/展示/资格/对话位四维分离（§8）+ C14 验证「运行中被顶替仍可见」。✅ M1 已修复。残余：**「当前对话位」未点名为系统库持久化字段**，重启后判定依据悬空→F-11（H3.2 部分覆盖）。
+8. **克隆体状态机（被顶替但运行中）**：运行/展示/资格/对话位四维分离（§8）+ C14 验证「运行中被顶替仍可见」。当前未决：**「当前对话位」未点名为系统库持久化字段**，重启后判定依据悬空→F-11（H3.2 部分覆盖）。
 9. **磁盘/并发/队列资源耗尽**：四类容量分开管理+硬超限明确失败+排队不占模型槽（§5.5、§10、R21）+ 崩溃释放预留（C04 step4、C14「无资源预留泄漏」）。✅ 已覆盖；记账精度（预留 vs 实际增量）为低风险残余。
 10. **纯讨论实例与执行实例混合编排**：R18 + §5.4 纯讨论按需提供资料/议题记录/交付目录。⚠️ 纯讨论实例产出文档（如需求文档）时写入哪个目录、是否参与验证、交付目录生命周期未细→F-10。
 
@@ -106,7 +106,7 @@
 - H1（任务中心冲突）：任务中心计划已退役删除（附录 8.1 自注），当前方案 §3「overview 共享业务事实」已消解，无残留缺陷。
 - H2（跨层强制面）：§7.3/C05 gate + fail loud 项目传统，已覆盖。
 - H3（持久化与重启恢复）：C07/C08/C14 已系统覆盖；仅 F-02（审批×狗）与 F-11（对话位字段）为残余细化。
-- M1（被顶替但运行中）：§8 四维状态分离+C14 验证项，已修复。
+- M1（被顶替但运行中）：§8 四维状态分离+C14 验证项，按当前设计核对。
 - M2（同组长并发排队）：C08 step1，已覆盖。
 - M3（审批延迟级联）：部分覆盖——原则有了（§10），机制缺失（F-02/F-08）。
 - M4（并发限流）：部分覆盖——上限有了，优先级/退避缺失（F-06）。

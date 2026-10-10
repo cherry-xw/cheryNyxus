@@ -10,7 +10,7 @@
 
 允许承担的修改范围：
 
-- test/wanxiangtai/ 和 web/test/wanxiangtai/ 端到端场景
+- apps/backend/test/wanxiangtai/ 和 apps/web/test/wanxiangtai/ 端到端场景
 - 必要的回归修复（须登记新的修正小任务）
 - 总计划验收证据与模块验收说明
 
@@ -41,10 +41,10 @@
 - 并发、数据完整性、等待/权限和恢复失败必须解决。
 - 当前任务中心遗留问题重新核实，不能沿用历史测试数当本次结果。
 
-新增定向测试入口：`test/wanxiangtai/full-workflow.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
+新增定向测试入口：`apps/backend/test/wanxiangtai/full-workflow.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
 
 ```text
-pnpm exec vitest run test/wanxiangtai/full-workflow.test.ts
+pnpm exec vitest run --config apps/backend/vite.config.ts apps/backend/test/wanxiangtai/full-workflow.test.ts
 pnpm type-check
 ```
 

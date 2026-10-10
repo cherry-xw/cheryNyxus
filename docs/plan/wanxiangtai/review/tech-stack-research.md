@@ -307,9 +307,9 @@
 
 | 方案 | 能力 | 取舍 |
 | --- | --- | --- |
-| **LiteLLM（Router/Proxy）** | 每 deployment 的 rpm/tpm 限制、`allowed_fails`＋cooldown 熔断、优先级路由（priority-based）、重试＋指数退避＋多 deployment 负载均衡；429 时尊重 Retry-After（近期 PR 已在路由错误上透传 Retry-After） | 语义最全，但是 **Python 代理**：CheryClaw（Node/TS 单机产品）要么内嵌 sidecar 进程要么要求用户部署，运维面/打包体积不划算。**语义值得抄，进程不建议嵌** |
+| **LiteLLM（Router/Proxy）** | 每 deployment 的 rpm/tpm 限制、`allowed_fails`＋cooldown 熔断、优先级路由（priority-based）、重试＋指数退避＋多 deployment 负载均衡；429 时尊重 Retry-After（近期 PR 已在路由错误上透传 Retry-After） | 语义最全，但是 **Python 代理**：cheryNyxus（Node/TS 单机产品）要么内嵌 sidecar 进程要么要求用户部署，运维面/打包体积不划算。**语义值得抄，进程不建议嵌** |
 | **OpenRouter** | 托管统一网关，自带按 credits/模型的 rate limits（402/429 明确语义） | 引入外部依赖、数据路径与费用，限流策略不在自己手里；**只适合作为可选 provider 接入，不适合当内部网关** |
-| **自建进程内网关（推荐）** | Node 生态：`p-limit`（并发信号量）/ `p-queue`（并发＋interval＋优先级＋暂停/恢复）按 (provider, key) 建队列组 | 与现有 `src/service/chat` 同进程，"排队不占模型槽位"天然成立（排队只是不发起请求）；可控、可持久化任务配额 |
+| **自建进程内网关（推荐）** | Node 生态：`p-limit`（并发信号量）/ `p-queue`（并发＋interval＋优先级＋暂停/恢复）按 (provider, key) 建队列组 | 与现有 `apps/backend/src/service/chat` 同进程，"排队不占模型槽位"天然成立（排队只是不发起请求）；可控、可持久化任务配额 |
 
 **自建要点（吸收 LiteLLM 语义）**：
 

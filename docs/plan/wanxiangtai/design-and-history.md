@@ -83,20 +83,20 @@
 
 | 现有能力                            | 事实和影响                                                                                       |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `src/service/chat/handler.ts`       | `chat.create` 已接收 parentChatId 并解析预设；团队可以复用创建基础，但不是已经具备跨团队派发能力 |
-| `src/agent/sense/spawn.ts`          | 当前子角色可递归派发；万象台作用域需额外限制，不能认为“预设限层”天然限制成员递归                 |
-| `src/service/chat/wakeScheduler.ts` | 基于父子和 finished 状态；会议回复不能直接伪装成 child_done                                      |
-| `src/service/chat/wake.ts`          | 已有角色回传、journal 写入、幂等和结果投递代际；新增讨论需保留单写者和来源语义                   |
-| `src/service/approval/manager.ts`   | 审批已有 chatId；应增加团队/实例映射，不宣称来源字段完全缺失                                     |
-| `src/service/chat/overview.ts`      | 已有任务中心投影；三视图需要共享业务事实，不另造重复待办和控制源                                 |
+| `apps/backend/src/service/chat/handler.ts`       | `chat.create` 已接收 parentChatId 并解析预设；团队可以复用创建基础，但不是已经具备跨团队派发能力 |
+| `apps/backend/src/agent/sense/spawn.ts`          | 当前子角色可递归派发；万象台作用域需额外限制，不能认为“预设限层”天然限制成员递归                 |
+| `apps/backend/src/service/chat/wakeScheduler.ts` | 基于父子和 finished 状态；会议回复不能直接伪装成 child_done                                      |
+| `apps/backend/src/service/chat/wake.ts`          | 已有角色回传、journal 写入、幂等和结果投递代际；新增讨论需保留单写者和来源语义                   |
+| `apps/backend/src/service/approval/manager.ts`   | 审批已有 chatId；应增加团队/实例映射，不宣称来源字段完全缺失                                     |
+| `apps/backend/src/service/chat/overview.ts`      | 已有任务中心投影；三视图需要共享业务事实，不另造重复待办和控制源                                 |
 | 配置修订、纪元和受控重启            | 系统已有相关机制；一期不修改任务中的预设定义，但新建预设实例不等于配置修改                       |
-| `src/service/chat/autoCompact.ts`   | 自动压缩以 send 预检为主；需要覆盖会议唤醒、resume 和每个实际模型请求                            |
-| `src/service/chat/runtime.ts`       | 最近摘要与其后消息能够恢复；不可忽略摘要后的待消费消息                                           |
-| `src/agent/sense/historyRecall.ts`  | 有历史回忆，但现有根代际选择不能直接保证成员独立压缩后的检索正确                                 |
-| `src/utils/token.ts`                | 字符数/4 为近似估计，不能作为中文和工具混合输入的可靠硬上限                                      |
-| `src/utils/pathGuard.ts`            | 按 .chery 路径段拦截；系统 .chery 与项目 .agent 必须按职责分离                                   |
-| `src/core/security/sandbox.ts`      | cwd 与真实路径已有校验；仍需验证 shell 绝对路径和外部项目读取，不能只改 workdir 就宣称隔离完成   |
-| `src/memory/path.ts`                | 记忆按 workspace 路径散列；实例独立路径需另有稳定项目身份，避免项目知识碎裂                      |
+| `apps/backend/src/service/chat/autoCompact.ts`   | 自动压缩以 send 预检为主；需要覆盖会议唤醒、resume 和每个实际模型请求                            |
+| `apps/backend/src/service/chat/runtime.ts`       | 最近摘要与其后消息能够恢复；不可忽略摘要后的待消费消息                                           |
+| `apps/backend/src/agent/sense/historyRecall.ts`  | 有历史回忆，但现有根代际选择不能直接保证成员独立压缩后的检索正确                                 |
+| `apps/backend/src/utils/token.ts`                | 字符数/4 为近似估计，不能作为中文和工具混合输入的可靠硬上限                                      |
+| `apps/backend/src/utils/pathGuard.ts`            | 按 .chery 路径段拦截；系统 .chery 与项目 .agent 必须按职责分离                                   |
+| `apps/backend/src/core/security/sandbox.ts`      | cwd 与真实路径已有校验；仍需验证 shell 绝对路径和外部项目读取，不能只改 workdir 就宣称隔离完成   |
+| `apps/backend/src/memory/path.ts`                | 记忆按 workspace 路径散列；实例独立路径需另有稳定项目身份，避免项目知识碎裂                      |
 
 任务中心原计划已进入集成阶段；不再使用“批次3合入前裁定”作为当前时间条件。
 
@@ -432,7 +432,7 @@ Git 来源纳入当前存在的已跟踪文件与未忽略新文件，保存已�
 
 ## 2. 现状事实基础（讨论前从代码确认，非推测）
 
-以下事实来自 `src/agent/builder.ts`、`src/agent/sense/spawn.ts`、`src/agent/spawnBroker.ts`、`src/service/chat/wake.ts`、`web/src/features/agent/settings/tabs/agent/PresetsTab.vue` 等现有实现：
+以下事实来自 `apps/backend/src/agent/builder.ts`、`apps/backend/src/agent/sense/spawn.ts`、`apps/backend/src/agent/spawnBroker.ts`、`apps/backend/src/service/chat/wake.ts`、`apps/web/src/features/agent/settings/tabs/agent/PresetsTab.vue` 等现有实现：
 
 1. **预设（preset）**：`config.presets` = 成员多选（引用 `config.roles`）+ 组长 `leader` + 可选 `detailRole` + 影子角色/工作区/审批规则等。`chat.create` 按预设一键创建多角色协作会话。
 2. **现有通信只有父子树**：主会话用 `spawn_role` 派子 agent，子完成后经 `wakeParent` 把结果以 `[角色 type]` 前缀注入父消息流。**兄弟之间没有直接通道**——两个子角色的交流只能靠父聚合转发。

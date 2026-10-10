@@ -20,7 +20,7 @@
 
 ## 允许修改的范围
 
-- `test/fixtures/wanxiangtai/projects/ 下三份配置与说明`
+- `apps/backend/test/fixtures/wanxiangtai/projects/ 下三份配置与说明`
 - 上述新路径为本任务专属目标；若前置契约指定了同职责等价路径，由总负责人记录映射后采用，不创建重复入口。
 
 ## 范围与非目标
@@ -43,7 +43,7 @@
 - 使用 C02 项目配置测试加载全部示例并校验。
 - 核对三份示例均明确 source、validation 和预算；无环境密钥。
 
-执行 `pnpm exec vitest run test/wanxiangtai/project-config.test.ts`，在 C02 校验测试内读取样例；如需要增加样例测试，由 C02 负责人接纳，S02 不修改解析器。
+执行 `pnpm exec vitest run --config apps/backend/vite.config.ts apps/backend/test/wanxiangtai/project-config.test.ts`，在 C02 校验测试内读取样例；如需要增加样例测试，由 C02 负责人接纳，S02 不修改解析器。
 
 ## 完成标准
 
@@ -65,7 +65,7 @@
 - 每完成一个步骤更新本任务；由总负责人同步总计划的步骤统计，避免多 Agent 同写总文件。
 - 最终回归发现问题时在父计划登记新的修正小任务，不恢复已删除任务，也不改写原完成摘要。
 
-## 已完成事实与执行记录
+## 当前状态与剩余条件
 
 仅完成本任务文档准备；产品实现、定向验证和交接均未开始。
 

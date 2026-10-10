@@ -15,16 +15,16 @@
 
 先读[完整设计记录](design-and-history.md) §2～§10 的有效方案，再读下列入口。标为前置产物的文件由前置任务创建；其他列出的入口用于定位现有实现，不代表本任务必须修改所有文件。
 
-- `src/service/chat/wake.ts`
-- `src/db/delivery.ts`
-- `src/db/chat.ts`
-- `src/core/middleware/messageJournal.ts`
+- `apps/backend/src/service/chat/wake.ts`
+- `apps/backend/src/db/delivery.ts`
+- `apps/backend/src/db/chat.ts`
+- `apps/backend/src/core/middleware/messageJournal.ts`
 
 ## 范围与非目标
 
 允许承担的修改范围：
 
-- src/service/wanxiangtai/discussions.ts 与 delivery worker
+- apps/backend/src/service/wanxiangtai/discussions.ts 与 delivery worker
 - 讨论记录、待投递记录及关联消息持久模型
 - 相关历史与事件协议接线
 
@@ -43,10 +43,10 @@
 - 晚到旧轮回复保持可审计，但不计入新轮。
 - 失败不能通过创建假 child_return 来掩盖。
 
-新增定向测试入口：`test/wanxiangtai/discussion-storage.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
+新增定向测试入口：`apps/backend/test/wanxiangtai/discussion-storage.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
 
 ```text
-pnpm exec vitest run test/wanxiangtai/discussion-storage.test.ts
+pnpm exec vitest run --config apps/backend/vite.config.ts apps/backend/test/wanxiangtai/discussion-storage.test.ts
 pnpm type-check
 ```
 
@@ -69,7 +69,7 @@ pnpm type-check
 - 每完成一个步骤更新本任务；由总负责人同步总计划的步骤统计，避免多 Agent 同写总文件。
 - 最终回归发现问题时在父计划登记新的修正小任务，不恢复已删除任务，也不改写原完成摘要。
 
-## 已完成事实与执行记录
+## 当前状态与剩余条件
 
 仅完成本任务文档准备；产品实现、定向验证和交接均未开始。
 

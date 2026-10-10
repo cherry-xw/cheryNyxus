@@ -16,9 +16,9 @@
 先读[完整设计记录](design-and-history.md) §2～§10 的有效方案，再读下列入口。标为前置产物的文件由前置任务创建；其他列出的入口用于定位现有实现，不代表本任务必须修改所有文件。
 
 - `packages/protocol/src/chat.ts`
-- `src/db/index.ts`
-- `src/db/conversationBranch.ts`
-- `src/service/chat/handler.ts`
+- `apps/backend/src/db/index.ts`
+- `apps/backend/src/db/conversationBranch.ts`
+- `apps/backend/src/service/chat/handler.ts`
 - `docs/shared/architecture/context-epochs.md`
 
 ## 范围与非目标
@@ -26,7 +26,7 @@
 允许承担的修改范围：
 
 - packages/protocol/src/ 下的万象台契约及公开导出
-- src/db/ 下的万象台持久模型与迁移
+- apps/backend/src/db/ 下的万象台持久模型与迁移
 - docs/ 下相应领域与协议说明
 
 非目标：不顺手重构无关功能、不提前实现下游展示、不改用户项目原始文件来验证计划。具体物理文件可遵循仓库归属规范拆分，但若扩大共享写入范围，先由总负责人重新分配。不得将任务文档内算法建议升级为全局规范；需要形成规范时落入 docs/standards/。
@@ -44,10 +44,10 @@
 - 命令重试只产生一次业务效果；过期对象和伪造身份明确失败。
 - 新通知限定为万象台能力，旧工作台不被未知事件破坏。
 
-新增定向测试入口：`test/wanxiangtai/contracts.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
+新增定向测试入口：`apps/backend/test/wanxiangtai/contracts.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
 
 ```text
-pnpm exec vitest run test/wanxiangtai/contracts.test.ts
+pnpm exec vitest run --config apps/backend/vite.config.ts apps/backend/test/wanxiangtai/contracts.test.ts
 pnpm type-check
 ```
 
@@ -72,7 +72,7 @@ pnpm type-check
 - 每完成一个步骤更新本任务；由总负责人同步总计划的步骤统计，避免多 Agent 同写总文件。
 - 最终回归发现问题时在父计划登记新的修正小任务，不恢复已删除任务，也不改写原完成摘要。
 
-## 已完成事实与执行记录
+## 当前状态与剩余条件
 
 仅完成本任务文档准备；产品实现、定向验证和交接均未开始。
 

@@ -15,17 +15,17 @@
 
 先读[完整设计记录](design-and-history.md) §2～§10 的有效方案，再读下列入口。标为前置产物的文件由前置任务创建；其他列出的入口用于定位现有实现，不代表本任务必须修改所有文件。
 
-- `src/service/chat/autoCompact.ts`
-- `src/agent/middleware/chat.ts`
-- `src/service/chat/runtime.ts`
-- `src/agent/sense/historyRecall.ts`
-- `src/utils/token.ts`
+- `apps/backend/src/service/chat/autoCompact.ts`
+- `apps/backend/src/agent/middleware/chat.ts`
+- `apps/backend/src/service/chat/runtime.ts`
+- `apps/backend/src/agent/sense/historyRecall.ts`
+- `apps/backend/src/utils/token.ts`
 
 ## 范围与非目标
 
 允许承担的修改范围：
 
-- src/service/wanxiangtai/context.ts 与任务/议题记录读取
+- apps/backend/src/service/wanxiangtai/context.ts 与任务/议题记录读取
 - 所有模型请求共用的预算检查及必要 token 计量接线
 - 压缩恢复、历史分页和实例接替交接记录
 
@@ -44,10 +44,10 @@
 - 强约束和议题必需证据仍放不下时，明确拆分或阻塞，不能静默裁剪。
 - 子会话回忆不能仅依赖根会话已有压缩代际。
 
-新增定向测试入口：`test/wanxiangtai/context-management.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
+新增定向测试入口：`apps/backend/test/wanxiangtai/context-management.test.ts`。使用现有 Vitest，不另引入测试框架。该文件为实施目标，目前尚未创建。
 
 ```text
-pnpm exec vitest run test/wanxiangtai/context-management.test.ts
+pnpm exec vitest run --config apps/backend/vite.config.ts apps/backend/test/wanxiangtai/context-management.test.ts
 pnpm type-check
 ```
 
@@ -70,7 +70,7 @@ pnpm type-check
 - 每完成一个步骤更新本任务；由总负责人同步总计划的步骤统计，避免多 Agent 同写总文件。
 - 最终回归发现问题时在父计划登记新的修正小任务，不恢复已删除任务，也不改写原完成摘要。
 
-## 已完成事实与执行记录
+## 当前状态与剩余条件
 
 仅完成本任务文档准备；产品实现、定向验证和交接均未开始。
 
