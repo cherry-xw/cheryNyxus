@@ -1,18 +1,283 @@
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { SupervisionLevel } from '../config'
 import type { ToolAuthorization } from '../security/rolePolicy.js'
 
-/**
- * 感官执行结果
- *
- * hash 可选：
- * - 提供 hash = 触发历史去重（见 [tool.ts doExecuteSense](../../agent/middleware/tool.ts)，
- *   用于 read_file 等"内容稳定"型 sense）。命中同 hash 旧消息折叠为短说明。
- * - 不提供 hash = 不参与去重（适用于 spawn_role 等"派发标识"型 sense——见 [core/sense.md hash 语义约束](../../docs/backend/core/sense.md)）。
- */
-export interface SenseResult {
-  content: string
-  hash?: string
+import type { SenseResult, SenseExecutionError, ObservationEnvelope, SenseResultStatus, SenseCheckpoint, SenseCheckpointStatus, SenseRecoveryState, SenseLifecycleEvent, SenseExecutionBudget } from '@chery/plugin-api/sense'
+export type { SenseResult, SenseExecutionError, ObservationEnvelope, ObservationSource, ObservationKind, SenseResultStatus, SenseErrorCode, SenseCheckpoint, SenseCheckpointStatus, SenseRecoveryState, SenseLifecycleEvent, SenseExecutionBudget } from '@chery/plugin-api/sense'
+
+export const MAX_OBSERVATION_CONTENT_CHARS = 100_000
+
+export function normalizeObservation(observation: ObservationEnvelope): ObservationEnvelope {
+  if (!observation || !['observation', 'error'].includes(observation.kind))
+    throw new Error('Invalid observation kind')
+  if (typeof observation.content !== 'string') throw new Error('Invalid observation content')
+  if (observation.content.length > MAX_OBSERVATION_CONTENT_CHARS)
+    throw new Error('Observation content exceeds server limit')
+  const sources = observation.sources?.map((source) => {
+    if (!source || typeof source !== 'object') throw new Error('Invalid observation source')
+    if (source.url !== undefined) {
+      const url = new URL(source.url)
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+        throw new Error('Invalid observation source URL')
+    }
+    return { ...source }
+  })
+  return {
+    ...observation,
+    ...(sources ? { sources } : {}),
+    untrusted: observation.untrusted ?? true,
+  }
+}
+
+export function createSenseCheckpoint(input: {
+  operationId: string
+  senseCallId: string
+  status: SenseCheckpointStatus
+  startedAt?: number
+  completedAt?: number
+  error?: SenseExecutionError
+}): SenseCheckpoint {
+  return { version: 1, detached: false, ...input }
+}
+
+export function getSenseRecoveryState(checkpoint?: SenseCheckpoint): SenseRecoveryState {
+  if (!checkpoint) return { required: true, reason: 'process_restart' }
+  if (
+    checkpoint.version !== 1 ||
+    checkpoint.detached !== false ||
+    !checkpoint.operationId ||
+    !checkpoint.senseCallId ||
+    !['completed', 'rejected'].includes(checkpoint.status) ||
+    !Number.isFinite(checkpoint.completedAt)
+  )
+    return { required: true, reason: 'incomplete_checkpoint', checkpoint }
+  return { required: false, checkpoint }
+}
+
+export const SENSE_EXECUTION_LIMITS = Object.freeze({
+  timeoutMs: 120_000,
+  maxOutputChars: 100_000,
+  maxBytes: 400_000,
+  maxConcurrent: 8,
+})
+
+// Count actual handlers, not callers still waiting for their results.
+let inFlightSenseCalls = 0
+
+export function normalizeSenseExecutionBudget(
+  budget?: SenseExecutionBudget,
+): Required<SenseExecutionBudget> {
+  const limit = (value: number | undefined, maximum: number) =>
+    Math.max(1, Math.min(Number.isFinite(value) ? Math.floor(value!) : maximum, maximum))
+  return {
+    timeoutMs: limit(budget?.timeoutMs, SENSE_EXECUTION_LIMITS.timeoutMs),
+    maxOutputChars: limit(budget?.maxOutputChars, SENSE_EXECUTION_LIMITS.maxOutputChars),
+    maxBytes: limit(budget?.maxBytes, SENSE_EXECUTION_LIMITS.maxBytes),
+    maxConcurrent: limit(budget?.maxConcurrent, SENSE_EXECUTION_LIMITS.maxConcurrent),
+  }
+}
+
+/** Execute one Sense with server-owned timeout, cancellation and output boundaries. */
+async function executeControlledSense(
+  execute: (
+    input: Record<string, unknown>,
+    senseSharedData: SenseSharedData,
+    ctx?: SenseRuntimeContext,
+  ) => Promise<SenseResult>,
+  input: Record<string, unknown>,
+  sharedData: SenseSharedData,
+  context: SenseRuntimeContext,
+): Promise<SenseResult> {
+  const budget = normalizeSenseExecutionBudget(context.budget)
+  if (context.signal?.aborted) return { content: '', status: 'cancelled', errorCode: 'cancelled' }
+  if (context.deadlineAt !== undefined && context.deadlineAt <= Date.now())
+    return { content: '', status: 'timeout', errorCode: 'timeout' }
+  if (inFlightSenseCalls >= budget.maxConcurrent)
+    return {
+      content: '感官并发调用已达到服务端上限，请稍后重试。',
+      status: 'budget_exceeded',
+      errorCode: 'budget_exceeded',
+    }
+
+  inFlightSenseCalls++
+  let terminalStatus: SenseResultStatus = 'provider_error'
+  const controller = new AbortController()
+  let acceptingResult = true
+  const stoppedResult = (): SenseResult => {
+    terminalStatus = context.signal?.aborted ? 'cancelled' : 'timeout'
+    return {
+      content: '',
+      status: terminalStatus,
+      errorCode: terminalStatus,
+      error: { code: terminalStatus, message: terminalStatus },
+    }
+  }
+  // Install before invoking the handler: it may synchronously cancel the run.
+  let onStopped!: () => void
+  const stopped = new Promise<SenseResult>((resolve) => {
+    onStopped = () => resolve(stoppedResult())
+    controller.signal.addEventListener('abort', onStopped, { once: true })
+  })
+  const onAbort = () => controller.abort()
+  context.signal?.addEventListener('abort', onAbort, { once: true })
+  const deadlineMs =
+    context.deadlineAt === undefined
+      ? budget.timeoutMs
+      : Math.max(1, Math.min(budget.timeoutMs, context.deadlineAt - Date.now()))
+  const timer = setTimeout(() => controller.abort(), deadlineMs)
+  let operation: Promise<SenseResult> | undefined
+  try {
+    operation = Promise.resolve(
+      execute(input, sharedData, {
+        ...context,
+        budget,
+        deadlineAt: Date.now() + deadlineMs,
+        signal: controller.signal,
+        yieldTurn: context.yieldTurn
+          ? () => {
+              if (acceptingResult && !controller.signal.aborted) context.yieldTurn?.()
+            }
+          : undefined,
+      }),
+    ).finally(() => {
+      // A detached/uncooperative handler retains its slot until it settles.
+      inFlightSenseCalls--
+    })
+    const result = await Promise.race([stopped, operation])
+    if (controller.signal.aborted) return stoppedResult()
+    if (!result || typeof result.content !== 'string') {
+      terminalStatus = 'invalid_result'
+      return {
+        content: '',
+        status: terminalStatus,
+        errorCode: terminalStatus,
+        error: { code: terminalStatus, message: 'Sense provider returned an invalid result.' },
+      }
+    }
+    if (result.status && result.status !== 'ok') {
+      terminalStatus = result.status
+      return result
+    }
+    const limited = result.content.slice(0, budget.maxOutputChars)
+    const limitedResult: SenseResult =
+      limited.length === result.content.length
+        ? { ...result, status: result.status ?? 'ok' }
+        : {
+            ...result,
+            content: `${limited}\n[结果已按服务端上限截断]`,
+            status: 'budget_exceeded',
+            errorCode: 'budget_exceeded',
+          }
+    if (Buffer.byteLength(limitedResult.content, 'utf8') > budget.maxBytes) {
+      terminalStatus = 'budget_exceeded'
+      const marker = '\n[结果已按服务端字节上限截断]'
+      const markerBytes = Buffer.byteLength(marker, 'utf8')
+      const available = Math.max(0, budget.maxBytes - markerBytes)
+      let end = Math.min(limitedResult.content.length, available)
+      while (end > 0 && Buffer.byteLength(limitedResult.content.slice(0, end), 'utf8') > available)
+        end--
+      if (markerBytes > budget.maxBytes) {
+        end = Math.min(limitedResult.content.length, budget.maxBytes)
+        while (
+          end > 0 &&
+          Buffer.byteLength(limitedResult.content.slice(0, end), 'utf8') > budget.maxBytes
+        )
+          end--
+        return {
+          ...limitedResult,
+          content: limitedResult.content.slice(0, end),
+          status: 'budget_exceeded',
+          errorCode: 'budget_exceeded',
+        }
+      }
+      return {
+        ...limitedResult,
+        content: `${limitedResult.content.slice(0, end)}${marker}`,
+        status: 'budget_exceeded',
+        errorCode: 'budget_exceeded',
+      }
+    }
+    terminalStatus = limitedResult.status ?? 'ok'
+    return limitedResult
+  } catch (error) {
+    if (controller.signal.aborted) return stoppedResult()
+    terminalStatus = 'provider_error'
+    return {
+      content: `感官执行失败：${error instanceof Error ? error.message : String(error)}`,
+      status: terminalStatus,
+      errorCode: terminalStatus,
+      error: {
+        code: terminalStatus,
+        message: error instanceof Error ? error.message : String(error),
+        retryable: true,
+      },
+    }
+  } finally {
+    acceptingResult = false
+    // Synchronous throws have no promise whose finally can release the slot.
+    if (!operation) inFlightSenseCalls--
+    clearTimeout(timer)
+    controller.signal.removeEventListener('abort', onStopped)
+    context.signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+/** Single public execution boundary; lifecycle data never includes input or result text. */
+export async function executeSenseWithControl(
+  execute: (
+    input: Record<string, unknown>,
+    senseSharedData: SenseSharedData,
+    ctx?: SenseRuntimeContext,
+  ) => Promise<SenseResult>,
+  input: Record<string, unknown>,
+  sharedData: SenseSharedData,
+  context: SenseRuntimeContext,
+): Promise<SenseResult> {
+  const operationId = context.operationId ?? randomUUID()
+  const emit = (event: SenseLifecycleEvent): void => {
+    try {
+      context.onLifecycleEvent?.(event)
+    } catch {
+      // Optional diagnostic observers cannot change the result.
+    }
+  }
+  const startedAt = Date.now()
+  emit({ phase: 'start', operationId, senseCallId: context.messageId, at: startedAt })
+  const result = await executeControlledSense(execute, input, sharedData, {
+    ...context,
+    operationId,
+  })
+  const status = result.status ?? 'ok'
+  const normalized: SenseResult =
+    status === 'ok'
+      ? result
+      : {
+          ...result,
+          errorCode: status,
+          error: result.error ?? {
+            code: status,
+            message: status,
+            retryable: false,
+            ...(status === 'recovery_required' ? { recoveryRequired: true } : {}),
+          },
+        }
+  const completed: SenseResult = {
+    ...normalized,
+    operationId,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    ...(normalized.status === 'budget_exceeded' ? { truncated: true } : {}),
+  }
+  emit({
+    phase: 'finish',
+    operationId,
+    senseCallId: context.messageId,
+    at: Date.now(),
+    status,
+    errorCode: completed.errorCode,
+    detached: false,
+  })
+  return completed
 }
 
 export interface SenseFunction {
@@ -61,10 +326,23 @@ export interface SenseCapabilities {
 /**
  * 感官运行时上下文（P2-11：注入边界，取代 sharedData 注入 chatId 的临时方案）。
  *
- * executor 第 3 参数（optional，向后兼容 2-param handler）。当前仅 chatId；
- * workspaceRoot/config/logger/abortSignal 待产品决策后扩展（多 workspace / 热重载场景）。
+ * executor 第 3 参数（optional，兼容 2-param handler）。
+ * 取消信号来自当前 run；工具不能通过该上下文扩大授权。
  */
 export interface SenseRuntimeContext {
+  requestView?: Readonly<import('@/service/ingress/api.js').IngressRequestView>
+  /** 当前运行取消信号；支持取消的工具应透传至外部请求。 */
+  signal?: AbortSignal
+  /** Absolute deadline (epoch milliseconds), when supplied by the run owner. */
+  deadlineAt?: number
+  /** Server-side operation limits; values are clamped to SENSE_EXECUTION_LIMITS. */
+  budget?: SenseExecutionBudget
+  /** Stable correlation id for provider/runtime telemetry. */
+  operationId?: string
+  /** Optional non-blocking observer for durable lifecycle projections. */
+  onLifecycleEvent?: (event: SenseLifecycleEvent) => void
+  /** Detached execution is intentionally not part of the generic Sense contract. */
+  detached?: false
   /** 当前 chatId（bash 等需按会话归属的 sense 读取） */
   chatId: string
   /**
