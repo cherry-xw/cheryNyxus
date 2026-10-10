@@ -39,6 +39,13 @@ import { startScheduleService, stopScheduleService } from './schedule/scheduler.
 import { randomBytes } from 'node:crypto'
 import { OAuth2Auth, type OAuth2Config } from './auth/index.js'
 import type { AddressInfo } from 'node:net'
+import { IngressHost } from './ingress/host.js'
+import { registerIngressHandlers } from './ingress/handlers.js'
+import { logger } from '@/utils/logger/index.js'
+import type { Request } from './message/types.js'
+import { IngressStore } from './ingress/store.js'
+import { createIngressCoreAdapter, createIngressConnections } from './ingress/coreAdapter.js'
+import type { IngressCoreAdapter, IngressConnections } from './ingress/api.js'
 
 export { createWebSocketServer } from './websocket/index.js'
 export { createHttpServer } from './http/index.js'
@@ -82,7 +89,7 @@ export interface StartServiceOptions {
   /** HTTP 静态服务端口（config.server.web_port） */
   webPort: number
   /**
-   * 前端静态产物目录（web/dist/）。未提供或磁盘不存在时仅 serve /api/*，
+   * 前端静态产物目录（apps/web/dist/）。未提供或磁盘不存在时仅 serve /api/*，
    * 非 API 路径返回 JSON 404 提示前端未托管（让 vite proxy / 反向代理接管）。
    */
   staticDir?: string
@@ -91,10 +98,23 @@ export interface StartServiceOptions {
   /** Network binding. Defaults to loopback; set explicitly for an intranet deployment. */
   host?: string
   auth?: OAuth2Config
+  ingress?: {
+    cheryDir?: string
+    runtimeOptions?: Readonly<Record<string, string | boolean | number>>
+    core?: IngressCoreAdapter
+    connections?: IngressConnections
+  }
   /** Optional loopback-only HTTP/WS pair for the rathole tunnel. */
   remote?: {
     httpPort?: number
     websocketPort?: number
+  }
+  /** Deployment-injected channel credentials; never persisted by the service. */
+  channelAuth?: {
+    token?: string
+    credentialKind: string
+    header: string
+    readyNotification?: { type: string; data: unknown }
   }
 }
 
@@ -111,6 +131,8 @@ export interface ServiceHandle {
   ready: Promise<ServiceAddresses>
   /** 停止定时触发器（cron scheduler），测试/关闭时调用 */
   stopSchedule: () => void
+  ingress: IngressHost
+  stopIngress: () => Promise<void>
 }
 
 /**
@@ -121,10 +143,32 @@ export function startService(options: StartServiceOptions): ServiceHandle {
 
   // 注册 handlers
   registerAllHandlers(router)
-  // CP3 + T9：spawn broadcaster 注入 + wait=true 看门狗超时回调（spawn_role sense 用）。
+  const ingressStore = new IngressStore(options.ingress?.cheryDir)
+  const ingress = new IngressHost({
+    store: ingressStore,
+    router,
+    core: options.ingress?.core ?? createIngressCoreAdapter(),
+    connections: options.ingress?.connections ?? createIngressConnections(),
+    runtimeOptions: options.ingress?.runtimeOptions,
+    coreCall: async (method, params) => {
+      const response = await router.handle(
+        { kind: 'request', id: 'ingress-management', method, params } as Request,
+        { connectionId: 'ingress-management', credentialKind: 'control', log: logger },
+      )
+      if (Symbol.asyncIterator in response) throw new Error('UNSUPPORTED_MANAGEMENT_METHOD')
+      if (!response.success)
+        throw Object.assign(new Error('MANAGEMENT_CALL_FAILED'), {
+          code: response.error?.code,
+        })
+      return response.data
+    },
+  })
+  registerIngressHandlers(router, ingress, ingressStore, process.env.CHERY_INGRESS_INSTALL_ROOT)
+  const ingressReady = ingress.start()
+  // spawn broadcaster 注入 + wait=true 看门狗超时回调（spawn_role sense 用）。
   // 历史 subagent.result RPC 已废弃（wait=true 改后端注入唤醒，无需前端回传）。
   registerRole()
-  // T9.10：从持久化 metadata 重建 wait=true 唤醒链（finished 子补唤 / interrupted 子重建链+看门狗）。
+  // 从持久化 metadata 重建 wait=true 唤醒链（finished 子补唤 / interrupted 子重建链+看门狗）。
   // 须在 registerRole（注入 asyncWakeHandler）之后，使重建的看门狗超时可触发 wakeParent。
   void rebuildWaitedChildren()
   // 定时触发器：为每个 schedule.enabled !== false 的预设注册 cron 任务（典型：「维护」预设定时派 curator 做 Dream）。
@@ -164,6 +208,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     authToken: sessionToken,
     allowedOrigins,
     auth,
+    channelAuth: options.channelAuth,
     listener: 'local',
   })
 
@@ -185,6 +230,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
         router,
         allowedOrigins,
         auth,
+        channelAuth: options.channelAuth,
         listener: 'remote',
       })
     : undefined
@@ -202,6 +248,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   const remoteHttpForReady = remoteHttpServer
 
   const ready = Promise.all([
+    ingressReady,
     waitForListening(wss),
     waitForListening(httpServer),
     ...(remoteWssForReady ? [waitForListening(remoteWssForReady)] : []),
@@ -227,6 +274,8 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     remoteWss,
     remoteHttpServer,
     ready,
+    ingress,
+    stopIngress: () => ingress.stop(),
     stopSchedule: () => {
       closeAllTerminals()
       stopInteractionLifecycle()

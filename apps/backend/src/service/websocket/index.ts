@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import { timingSafeEqual } from 'node:crypto'
+
 import {
   RpcRouter,
   createResponse,
@@ -71,26 +72,58 @@ interface WebSocketServerConfig {
   auth?: OAuth2Auth
   /** Local keeps loopback compatibility; remote is always authenticated. */
   listener?: 'local' | 'remote'
+  /** Deployment-injected channel credentials; never loaded from project files. */
+  channelAuth?: {
+    token?: string
+    credentialKind: string
+    header: string
+    readyNotification?: { type: string; data: unknown }
+  }
 }
 
 /**
  * 创建 WebSocket 服务器
  */
 export function createWebSocketServer(config: WebSocketServerConfig): WebSocketServer {
-  const { port, router, host, authToken, allowedOrigins = [], auth, listener = 'local' } = config
+  const {
+    port,
+    router,
+    host,
+    authToken,
+    allowedOrigins = [],
+    auth,
+    listener = 'local',
+    channelAuth,
+  } = config
   const allowLoopback = listener === 'local'
   const wss = new WebSocketServer({
     port,
     ...(host ? { host } : {}),
     verifyClient:
-      authToken || auth?.enabled
+      authToken || auth?.enabled || channelAuth?.token
         ? (info, done) => {
             const origin = info.origin
+            const channelToken = channelAuth?.token
+            const channelHeader = channelAuth && info.req.headers[channelAuth.header.toLowerCase()]
+            const validChannelCredential =
+              listener === 'local' &&
+              !!channelToken &&
+              typeof channelHeader === 'string' &&
+              constantTimeTokenEqual(channelHeader, channelToken)
             if (
-              !origin ||
-              !(auth?.isTrustedOrigin(origin, info.req) || allowedOrigins.includes(origin) || isSameOrigin(origin, info.req))
+              (!origin && !validChannelCredential) ||
+              (origin &&
+                !(
+                  auth?.isTrustedOrigin(origin, info.req) ||
+                  allowedOrigins.includes(origin) ||
+                  isSameOrigin(origin, info.req)
+                ))
             ) {
               done(false, 403, 'WebSocket origin is not allowed')
+              return
+            }
+            if (channelHeader !== undefined) {
+              done(validChannelCredential, 401, 'WebSocket authentication failed')
               return
             }
             if (auth?.enabled) {
@@ -101,7 +134,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
             }
             const token =
               new URL(info.req.url ?? '/', 'ws://localhost').searchParams.get('token') ?? ''
-            if (!constantTimeTokenEqual(token, authToken!)) {
+            if (!authToken || !constantTimeTokenEqual(token, authToken)) {
               done(false, 401, 'WebSocket authentication failed')
               return
             }
@@ -136,6 +169,25 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
       return
     }
     const state = connectionManager.create(ws, liteProfile ?? undefined)
+    state.credentialKind = 'control'
+    const platformToken = channelAuth?.token
+    const presentedPlatformToken = channelAuth && req.headers[channelAuth.header.toLowerCase()]
+    if (
+      listener === 'local' &&
+      platformToken &&
+      typeof presentedPlatformToken === 'string' &&
+      constantTimeTokenEqual(presentedPlatformToken, platformToken)
+    ) {
+      state.credentialKind = channelAuth!.credentialKind
+
+      if (channelAuth?.readyNotification)
+        ws.send(
+          transport.serializeMessage({
+            kind: 'notification',
+            ...channelAuth.readyNotification,
+          }),
+        )
+    }
     logger.run({ connectionId: state.id }, () =>
       logger.event('conn.open', liteProfile ? { profile: 'lite', v: liteProfile.v } : undefined),
     )
@@ -187,7 +239,10 @@ function isSameOrigin(origin: string, req: import('node:http').IncomingMessage):
     const host = String(req.headers.host ?? '').trim()
     if (!host) return false
     const requestUrl = new URL(`${originUrl.protocol}//${host}`)
-    return originUrl.protocol === requestUrl.protocol && originUrl.host.toLowerCase() === requestUrl.host.toLowerCase()
+    return (
+      originUrl.protocol === requestUrl.protocol &&
+      originUrl.host.toLowerCase() === requestUrl.host.toLowerCase()
+    )
   } catch {
     return false
   }
@@ -238,6 +293,16 @@ async function handleRequest(
   request: Request,
   router: RpcRouter,
 ): Promise<void> {
+  if (router.isExtension(request.method) || state.credentialKind !== 'control') {
+    const result = await router.handle(request, {
+      requestId: request.id,
+      connectionId: state.id,
+      credentialKind: state.credentialKind,
+      log: logger,
+    })
+    if (!isAsyncGenerator(result)) sendResponse(ws, result)
+    return
+  }
   const claim = claimRequest(request.id, request.method, request.params)
   if (claim.state === 'mismatch') {
     const response = createResponse(
@@ -251,7 +316,7 @@ async function handleRequest(
   }
   if (claim.state === 'completed') {
     // 幂等重放：同一 requestId 重复调用时回放已存响应。lite 连接必须同样过投影——
-    // 否则 timeline.get 等大响应会以全量形态绕过 lean 裁剪直击设备缓冲（T28 预审修复）。
+    // 否则 timeline.get 等大响应会以全量形态绕过 lean 裁剪直击设备缓冲。
     if (ws.readyState === ws.OPEN) {
       let replayed: unknown
       try {
@@ -308,6 +373,7 @@ async function handleRequest(
   const ctx = {
     requestId: request.id,
     connectionId: state.id,
+    credentialKind: state.credentialKind,
     log: logger,
   }
 
