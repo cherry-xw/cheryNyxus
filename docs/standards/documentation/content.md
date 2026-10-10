@@ -110,9 +110,9 @@
 有效示例：
 
 ```md
-运行时解析从 [`src/agent/runtimeResolver.ts`](../../../src/agent/runtimeResolver.ts) 的
+运行时解析从 [`apps/backend/src/agent/runtimeResolver.ts`](../../../apps/backend/src/agent/runtimeResolver.ts) 的
 `RuntimeResolver.resolve()` 进入；定向验证见
-[`test/agent/runtimeResolver.test.ts`](../../../test/agent/runtimeResolver.test.ts)，筛选词 `sense group`。
+[`apps/backend/test/agent/runtimeResolver.test.ts`](../../../apps/backend/test/agent/runtimeResolver.test.ts)，筛选词 `sense group`。
 ```
 
 无效示例：
@@ -128,8 +128,8 @@
 | 内容                                         | 处理方式                                  |
 | -------------------------------------------- | ----------------------------------------- |
 | 可从类型或短函数直接读出的字段、参数和控制流 | 链接代码符号，不转抄                      |
-| 按日期不断追加的修复记录                     | 合并为现行规则；审计必要时按[结构规范](./structure.md)第 3 节归档 |
-| 已完成计划、步骤清单和交接过程               | 按[计划规范](./plans.md)删除；确有审计价值才归档        |
+| 按日期不断追加的修复记录                     | 合并为现行规则，不保留修复流水                  |
+| 已完成计划、步骤清单和交接过程               | 按[计划规范](./plans.md)删除；历史过程由版本控制承担   |
 | 多处重复的协议表、状态机和配置规则           | 保留唯一权威版本，其他位置只链接          |
 | 没有决策价值的背景叙述                       | 删除或压缩为一段“为什么”                  |
 | 完整文件树或会频繁变化的文件清单             | 改为稳定入口、核心目录和扩展点            |

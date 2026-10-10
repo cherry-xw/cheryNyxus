@@ -1,22 +1,14 @@
 # Provider URL 端点拼接与解析规范 v1.2
 
 > **状态**：强制执行。
-> **适用范围**：`src/agent/provider/**`（provider 实现）、`src/core/llm/urlPattern.ts`（注册表）、正式 chat / `utils.models` / `utils.testConnection` 三处 URL 行为。
-> **实现细节**：注册值与拼接实现见 [Agent Provider 模块文档](../../../backend/agent/provider.md)“URL 解析与端点拼接”；注册表代码见 `src/core/llm/urlPattern.ts`，统一入口见 `src/agent/provider/fetchBase.ts` 的 `resolveProviderUrl` / `buildEndpointUrl`。
-
-## 0. 修订记录
-
-| 版本 | 日期 | 说明 |
-| --- | --- | --- |
-| v1.0 | 2026-08-26 | 从记忆落为强制规范：URL 端点是注册 provider 必须提供的能力、统一入口、版本段交用户、fullUrl 不拼接 |
-| v1.1 | 2026-08-28 | §4 新增 `/models` openai 兼容协议常量豁免：utils.models anthropic 双尝试回退的拼接路径（buildEndpointUrl 直拼，仅 utils.models，三处一致性不变） |
-| v1.2 | 2026-09-07 | 归档到 Agent 模块规范目录，与全局及前端通用规范分离 |
+> **适用范围**：`apps/backend/src/agent/provider/**`（provider 实现）、`apps/backend/src/core/llm/urlPattern.ts`（注册表）、正式 chat / `utils.models` / `utils.testConnection` 三处 URL 行为。
+> **实现细节**：注册值与拼接实现见 [Agent Provider 模块文档](../../../backend/agent/provider.md)“URL 解析与端点拼接”；注册表代码见 `apps/backend/src/core/llm/urlPattern.ts`，统一入口见 `apps/backend/src/agent/provider/fetchBase.ts` 的 `resolveProviderUrl` / `buildEndpointUrl`。
 
 ## 1. 核心原则
 
-1. **URL 端点是注册 provider 必须提供的能力之一**：每个 provider 实现时，与 `registerLLMAdapter` 并列调用 `registerProviderUrlPattern`（`src/core/llm/urlPattern.ts`），声明 `chat` / `models` 两种 kind 的端点模式。
-2. **URL 拼接一律经统一入口 `resolveProviderUrl`**（`src/agent/provider/fetchBase.ts`），禁止在各 adapter 内自行拼 URL。
-3. **三处行为必须一致**：正式 chat、`utils.models` 拉取、`utils.testConnection` 均走同一入口，防止补全逻辑漂移——历史 404 bug 的根因正是 openai/anthropic/bigmodel/utils.models 各有一套补全。
+1. **URL 端点是注册 provider 必须提供的能力之一**：每个 provider 实现时，与 `registerLLMAdapter` 并列调用 `registerProviderUrlPattern`（`apps/backend/src/core/llm/urlPattern.ts`），声明 `chat` / `models` 两种 kind 的端点模式。
+2. **URL 拼接一律经统一入口 `resolveProviderUrl`**（`apps/backend/src/agent/provider/fetchBase.ts`），禁止在各 adapter 内自行拼 URL。
+3. **三处行为必须一致**：正式 chat、`utils.models` 拉取、`utils.testConnection` 均走同一入口，防止补全逻辑漂移。
 4. **版本段（`/v1` 等）由用户填写**：后端不自动补版本段，只拼端点。
 
 ## 2. 端点模式三态（`ProviderUrlPattern.chatEndpoint` / `modelsEndpoint`）
@@ -36,11 +28,11 @@
 ## 4. 例外与协议常量
 
 - **ollama 类 host 模式 provider 可不注册**：未注册 → `getProviderUrlPattern` 返回 undefined → host 模式不拼接。
-- **`/chat/completions` 是 openai 兼容协议常量**：`jsonRequest` / `streamSSE` 内的该端点不收敛、不走注册表；一致性由单测锁死（`test/agent/provider/fetchBase.test.ts`）。
-- **`/models` 是 utils.models anthropic 双尝试的 openai 兼容协议常量**（2026-08-28）：主尝试（Anthropic 原生 `/models?limit=1000`）无产出且未勾选 `fullUrl` 时，回退请求 `GET {base}/models`（Bearer）由 `buildEndpointUrl` 直拼，不走注册表——与 `/chat/completions` 同款豁免；回退仅存在于 `utils.models`，chat / `utils.testConnection` 行为不变，三处一致性不受影响。
+- **`/chat/completions` 是 openai 兼容协议常量**：`jsonRequest` / `streamSSE` 内的该端点不收敛、不走注册表；一致性由单测锁死（`apps/backend/test/agent/provider/fetchBase.test.ts`）。
+- **`/models` 是 utils.models anthropic 双尝试的 openai 兼容协议常量**：主尝试（Anthropic 原生 `/models?limit=1000`）无产出且未勾选 `fullUrl` 时，回退请求 `GET {base}/models`（Bearer）由 `buildEndpointUrl` 直拼，不走注册表——与 `/chat/completions` 同款豁免；回退仅存在于 `utils.models`，chat / `utils.testConnection` 行为不变，三处一致性不受影响。
 - **地址拼接只做简单拼接**（最多对结尾 `/` 归一），不做花哨兼容判断。
 
-## 5. 兼容性注意（2026-08 简化）
+## 5. 地址填写要求
 
 不再自动补版本段：url 未含版本段的旧配置会失效（如 openai 填根地址 `https://x:11411` 未勾选会请求到 `https://x:11411/chat/completions` 而非 `…/v1/chat/completions`），需在 url 中补上版本段（如 `https://x:11411/v1`）。前端地址输入框 placeholder 已注明此约定。
 

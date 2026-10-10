@@ -1,7 +1,7 @@
 # Agent 运行图交互入口规范 v2.0
 
 > **状态**：强制执行。
-> **适用范围**：`web/src/features/pets/nyxus/**`（树模式节点交互）、`web/src/features/agent/workbench/**` 及其待处理审批与提问入口。
+> **适用范围**：`apps/web/src/features/pets/nyxus/**`（树模式节点交互）、`apps/web/src/features/agent/workbench/**` 及其待处理审批与提问入口。
 > **事实说明**：当前布局与实现入口见 [Nyxus 节点树维护](../../../frontend/pet/nyxus-node-tree-maintenance.md)。
 
 ## 1. 入口所有权
