@@ -1,0 +1,15 @@
+id: cherynyxus-settings-module
+version: 2.0.2
+apiVersion: 2
+entry: index.mjs
+rpcNamespace: settings
+dependencies: []
+capabilities:
+  - rpc.management
+  - manager.ui
+ui:
+  - id: capabilities
+    title: 设置
+    entry: ui/index.html
+    apiPrefix: /api/modules/capabilities/
+    resourceVersion: 2.0.2
