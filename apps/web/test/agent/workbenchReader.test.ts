@@ -128,9 +128,9 @@ describe('workbench content reader projection', () => {
 
   it('keeps the Pixi tree mounted while auxiliary panels change locally', async () => {
     const [workbench, reader] = await Promise.all([
-      readComponentSource(resolve('web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
       readComponentSource(
-        resolve('web/src/features/pets/nyxus/components/NyxusContentReader.vue'),
+        resolve('apps/web/src/features/pets/nyxus/components/NyxusContentReader.vue'),
         'utf8',
       ),
     ])

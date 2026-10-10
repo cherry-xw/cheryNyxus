@@ -17,7 +17,7 @@ import {
   loadImageDims,
   shouldCompressImage,
 } from '@/utils/imageCompress'
-import { agentApi } from '@/services/agentApi'
+import { agentApi } from '@/application/backend/public'
 
 export type MediaKind = 'image' | 'video' | 'audio'
 

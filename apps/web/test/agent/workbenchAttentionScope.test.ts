@@ -10,7 +10,7 @@ describe('workbench attention and participation feedback', () => {
 
   it('refreshes persistent pending work when the workbench enters a connected root', () => {
     const controller = readFileSync(
-      'web/src/features/agent/workbench/useWorkbenchDialogController.ts',
+      'apps/web/src/features/agent/workbench/useWorkbenchDialogController.ts',
       'utf8',
     )
     expect(controller).toContain('[attentionRootChatId, () => connection.status]')

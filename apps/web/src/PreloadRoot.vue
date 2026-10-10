@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { getCurrentInstance, shallowRef } from 'vue'
+import './styles/theme.css'
 import type { Component, Ref } from 'vue'
 import PreloadLoginShell from '@/features/auth/PreloadLoginShell.vue'
 
@@ -67,6 +68,6 @@ async function loadBusinessApp(): Promise<void> {
 
 <style>
 html, body, #app { width: 100%; height: 100%; margin: 0; }
-body { overflow: hidden; background: #101316; }
-.business-loading { min-height: 100%; display: grid; place-items: center; color: #cbd2d6; font: 14px system-ui, sans-serif; }
+body { overflow: hidden; background: var(--bg); }
+.business-loading { min-height: 100%; display: grid; place-items: center; color: var(--ink); font: 14px system-ui, sans-serif; }
 </style>

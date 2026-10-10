@@ -9,7 +9,7 @@
  * 属**混淆级**——防明文落网/落盘 + 防重放（一次性 nonce），不防运行时提取。真实安全靠 HTTPS。
  *
  * 算法：`keystream = SHA-256(keyHex_U8 || BE32(counter))` 逐块拼接，与明文逐字节异或。
- * 与后端 Node 实现（src/service/auth/index.ts 的 xorDecrypt）严格一致。
+ * 与后端 Node 实现（apps/backend/src/utils/obfuscate.ts 的 xorDecrypt）严格一致。
  */
 
 // ---- base64 / hex ---------------------------------------------------------

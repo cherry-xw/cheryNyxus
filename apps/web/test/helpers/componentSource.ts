@@ -39,7 +39,7 @@ function pathOf(input: string | URL): string {
   const path = input instanceof URL ? fileURLToPath(input) : input
   if (existsSync(path)) return path
 
-  const webPath = resolve(process.cwd(), 'web', relative(process.cwd(), path))
+  const webPath = resolve(process.cwd(), 'apps/web', relative(process.cwd(), path))
   return existsSync(webPath) ? webPath : path
 }
 
@@ -47,7 +47,16 @@ function companionPaths(input: string | URL): string[] {
   const path = pathOf(input)
   if (extname(path) !== '.vue') return []
   const name = basename(path, '.vue')
-  return (COMPANIONS[name] ?? []).map((file) => resolve(dirname(path), file)).filter(existsSync)
+  const declaredStyles = [...nodeReadFileSync(path, 'utf8').matchAll(/<style\b[^>]*\bsrc=["']([^"']+)["']/g)]
+    .map((match) => resolve(dirname(path), match[1]!))
+  const viewControllers = ['useAgentDialogViewController', 'useWorkbenchDialogViewController',
+    'useLiteViewBindings', 'useExecutionNodePopoverViewController']
+    .filter((binding) => nodeReadFileSync(path, 'utf8').includes(`from './${binding}'`))
+    .map((binding) => resolve(dirname(path), `${binding}.ts`))
+  return [...new Set([
+    ...(COMPANIONS[name] ?? []).map((file) => resolve(dirname(path), file)),
+    ...declaredStyles, ...viewControllers,
+  ])].filter(existsSync)
 }
 
 export async function readComponentSource(

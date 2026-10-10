@@ -16,8 +16,8 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "paths": {
       "@/*": ["./src/*"],
-      "@chery/protocol": ["../packages/protocol/src/index.ts"],
-      "@chery/protocol/*": ["../packages/protocol/src/*"]
+      "@chery/protocol": ["../../packages/protocol/src/index.ts"],
+      "@chery/protocol/*": ["../../packages/protocol/src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "env.d.ts"]

@@ -1,5 +1,5 @@
 /**
- * 前端图片 token 估算（镜像后端 src/utils/token.ts 的 estimateImageTokens）。
+ * 前端图片 token 估算（镜像后端 apps/backend/src/utils/token.ts 的 estimateImageTokens）。
  * 用于上传前「原图/压缩图」两种选择预计 token 消耗的即时展示；绝对准确度以后端/官方预检为准。
  */
 export type ImageDetail = 'low' | 'default' | 'high'

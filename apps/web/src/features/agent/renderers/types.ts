@@ -5,7 +5,7 @@
  * 避免在组件内重复定义（如原 TodoSenseBox/TodoPanel）。
  *
  * 同步责任：
- * - 后端 schema 位于 src/agent/sense/*.ts（zod 定义）
+ * - 后端 schema 位于 apps/backend/src/agent/sense/*.ts（zod 定义）
  * - 前端类型需手动同步（通过文档约定）
  * - TypeScript 严格模式检查类型安全
  */

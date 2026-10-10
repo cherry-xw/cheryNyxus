@@ -1,10 +1,11 @@
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readComponentSource } from '../helpers/componentSource'
 
 describe('cyber window embedded shell ownership', () => {
   it('gives browser CyberWindow the only window chrome', async () => {
-    const app = await readComponentSource(resolve('web/src/App.vue'), 'utf8')
+    const app = await readComponentSource(resolve('apps/web/src/App.vue'), 'utf8')
     const browser = app.slice(app.indexOf('<CyberDesktopHost>'), app.indexOf('</CyberDesktopHost>'))
 
     expect(browser).toContain('<AgentDialog v-if="workspace.activeDialogChatId" embedded />')
@@ -23,8 +24,8 @@ describe('cyber window embedded shell ownership', () => {
 
   it('keeps title controls clickable and maximizes relative to the desktop stage', async () => {
     const [windowSource, hostSource] = await Promise.all([
-      readComponentSource(resolve('web/src/features/desktop/CyberWindow.vue'), 'utf8'),
-      readComponentSource(resolve('web/src/features/desktop/CyberDesktopHost.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/desktop/CyberWindow.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/desktop/CyberDesktopHost.vue'), 'utf8'),
     ])
 
     expect(windowSource).toContain('[data-window-interactive],button,input,select,textarea,a')
@@ -35,32 +36,36 @@ describe('cyber window embedded shell ownership', () => {
   })
 
   it('stretches embedded content and removes the legacy Agent and Settings shells', async () => {
-    const [windowSource, agentSource, settingsSource] = await Promise.all([
-      readComponentSource(resolve('web/src/features/desktop/CyberWindow.vue'), 'utf8'),
-      readComponentSource(resolve('web/src/features/agent/chat/AgentDialog.vue'), 'utf8'),
-      readComponentSource(resolve('web/src/features/agent/settings/SettingsDialog.vue'), 'utf8'),
-    ])
+    const [windowSource, agentSource, settingsSource, agentEmbeddedStyles, settingsEmbeddedStyles] =
+      await Promise.all([
+        readComponentSource(resolve('apps/web/src/features/desktop/CyberWindow.vue'), 'utf8'),
+        readComponentSource(resolve('apps/web/src/features/agent/chat/AgentDialog.vue'), 'utf8'),
+        readComponentSource(resolve('apps/web/src/features/agent/settings/SettingsDialog.vue'), 'utf8'),
+        readFile(resolve('apps/web/src/features/agent/chat/AgentDialog.popovers.less'), 'utf8'),
+        readFile(resolve('apps/web/src/features/agent/settings/SettingsDialog.styles.less'), 'utf8'),
+      ])
 
     expect(windowSource).toContain('.cyber-window-body > :deep(*)')
     expect(windowSource).toContain('min-width: 0;')
     expect(windowSource).toContain('min-height: 0;')
-    expect(agentSource).toContain(
-      'const shellless = computed(() => props.native || props.embedded)',
-    )
+    // C-3 抽取后 AgentDialog 仅剩 embedded 单例面板，native 外壳分支已删；
+    // isShellless 计算收进 useSettingsDialogController。
+    expect(agentSource).toContain('const shellless = computed(() => props.embedded)')
+    expect(agentSource).not.toContain('props.native')
     expect(agentSource).toContain('<header v-if="!shellless" class="dialog-head"')
-    expect(agentSource).toContain('.dialog-overlay.is-embedded')
-    expect(agentSource).toContain('.dialog-panel::before,')
-    expect(agentSource).toContain('display: none;')
-    expect(settingsSource).toContain('const isShellless = computed(')
+    expect(agentEmbeddedStyles).toContain('.dialog-overlay.is-embedded')
+    expect(agentEmbeddedStyles).toContain('.dialog-panel::before,')
+    expect(agentEmbeddedStyles).toContain('display: none;')
+    expect(settingsSource).toContain('isShellless,')
     expect(settingsSource).toContain('<header v-if="!isShellless" class="head"')
-    expect(settingsSource).toContain('.settings-panel.is-embedded')
-    expect(settingsSource).toContain('transform: none !important;')
+    expect(settingsEmbeddedStyles).toContain('.settings-panel.is-embedded')
+    expect(settingsEmbeddedStyles).toContain('transform: none !important;')
   })
 
   it('turns the embedded history drawer into full-size content with stack navigation', async () => {
     const [drawerSource, panelSource] = await Promise.all([
-      readComponentSource(resolve('web/src/features/agent/drawer/HistoryDrawer.vue'), 'utf8'),
-      readComponentSource(resolve('web/src/features/agent/drawer/HistoryDrawerPanel.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/drawer/HistoryDrawer.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/drawer/HistoryDrawerPanel.vue'), 'utf8'),
     ])
 
     expect(drawerSource).toContain(':embedded="embedded"')

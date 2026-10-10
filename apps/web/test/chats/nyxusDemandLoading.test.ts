@@ -4,7 +4,7 @@ import { readComponentSource } from '../helpers/componentSource'
 
 describe('Nyxus demand loading contract', () => {
   it('restores only running direct sessions from an atomic open snapshot', async () => {
-    const source = await readComponentSource(resolve('web/src/stores/chats/index.ts'), 'utf8')
+    const source = await readComponentSource(resolve('apps/web/src/stores/chats/index.ts'), 'utf8')
     const startup = source.slice(
       source.indexOf('async function startup()'),
       source.indexOf('async function reconnect()'),
@@ -20,7 +20,7 @@ describe('Nyxus demand loading contract', () => {
 
   it('keeps selected-root observation in the Workbench controller', async () => {
     const source = await readComponentSource(
-      resolve('web/src/features/agent/workbench/useWorkbenchTreeSession.ts'),
+      resolve('apps/web/src/features/agent/workbench/useWorkbenchTreeSession.ts'),
       'utf8',
     )
 
@@ -32,11 +32,11 @@ describe('Nyxus demand loading contract', () => {
 
   it('does not scan conversation previews when the Nyxus workspace opens', async () => {
     const core = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/components/NyxusCore.vue'),
+      resolve('apps/web/src/features/pets/nyxus/components/NyxusCore.vue'),
       'utf8',
     )
     const dialog = await readComponentSource(
-      resolve('web/src/features/agent/chat/AgentDialog.vue'),
+      resolve('apps/web/src/features/agent/chat/AgentDialog.vue'),
       'utf8',
     )
 
@@ -47,7 +47,7 @@ describe('Nyxus demand loading contract', () => {
   })
 
   it('keeps transport ownership out of the agents compatibility facade', async () => {
-    const source = await readComponentSource(resolve('web/src/stores/agents/index.ts'), 'utf8')
+    const source = await readComponentSource(resolve('apps/web/src/stores/agents/index.ts'), 'utf8')
     const startup = source.slice(source.indexOf('async function initFromChats()'))
 
     expect(startup).not.toContain('getHistory(')
@@ -58,7 +58,7 @@ describe('Nyxus demand loading contract', () => {
 
   it('queues the first draft before runtime RPC and root observation', async () => {
     const source = await readComponentSource(
-      resolve('web/src/features/agent/composer/useAgentDialogOptions.ts'),
+      resolve('apps/web/src/features/agent/composer/useAgentDialogOptions.ts'),
       'utf8',
     )
     const send = source.slice(
@@ -79,7 +79,7 @@ describe('Nyxus demand loading contract', () => {
 
   it('keeps protocol subscription ownership out of the tree renderer', async () => {
     const source = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
+      resolve('apps/web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
       'utf8',
     )
 
@@ -89,7 +89,7 @@ describe('Nyxus demand loading contract', () => {
   })
 
   it('does not reopen a root after its timeline patch enters the message reducer', async () => {
-    const source = await readComponentSource(resolve('web/src/stores/chats/index.ts'), 'utf8')
+    const source = await readComponentSource(resolve('apps/web/src/stores/chats/index.ts'), 'utf8')
     const applyEvent = source.slice(
       source.indexOf('function applyEvent('),
       source.indexOf('// ---- hydration'),
@@ -102,7 +102,7 @@ describe('Nyxus demand loading contract', () => {
 
   it('never creates a stage PetInstance for the cheryNyxus preset', async () => {
     const source = await readComponentSource(
-      resolve('web/src/stores/agents/data/petLifecycle.ts'),
+      resolve('apps/web/src/stores/agents/data/petLifecycle.ts'),
       'utf8',
     )
     const create = source.slice(

@@ -3,7 +3,7 @@ import { relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const WEB_SOURCE_ROOT = resolve(import.meta.dirname, '../../src')
-const REPOSITORY_ROOT = resolve(import.meta.dirname, '../../..')
+const REPOSITORY_ROOT = resolve(import.meta.dirname, '../../../..')
 
 async function sourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true })
@@ -105,7 +105,7 @@ describe('frontend architecture boundaries', () => {
   })
 
   it('does not register legacy chat routes on the backend router', async () => {
-    const source = await readFile(resolve(REPOSITORY_ROOT, 'src/service/chat/handler.ts'), 'utf8')
+    const source = await readFile(resolve(REPOSITORY_ROOT, 'apps/backend/src/service/chat/handler.ts'), 'utf8')
     const legacyConstants = [
       'CHAT_SEND',
       'CHAT_RESUME',

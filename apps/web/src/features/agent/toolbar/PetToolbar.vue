@@ -130,7 +130,7 @@ const showResume = computed(() => {
 })
 
 /**
- * CP8：destroy(=隐藏) 可用性。运行中（pet.isWorking 或任一后代 pet isWorking）禁用——
+ * destroy(=隐藏) 可用性。运行中（pet.isWorking 或任一后代 pet isWorking）禁用——
  * 避免隐藏运行中 pet 致孤儿流（无视觉但 stream 仍在写）。
  */
 const canHide = computed(() => {

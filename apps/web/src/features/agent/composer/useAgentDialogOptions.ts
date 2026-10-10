@@ -55,6 +55,10 @@ function runtimeSyncReference(error: unknown): string {
   return tracingId ? `追踪编号：${tracingId}` : '后端未返回具体原因'
 }
 
+/** 发送前本地编制校验失败（未触达后端）。文案已面向用户，catch 中直接展示原文，
+ * 不与「运行配置暂时未同步」的后端同步包装混同。 */
+class ComposerLocalValidationError extends Error {}
+
 export type { MediaAttachment, MediaKind } from '@/features/agent/composables/useComposerMedia'
 // Renderer-local drafts survive browser panel unmounts without persisting private input.
 const composerDrafts = new Map<string, { text: string; media: MediaAttachment[] }>()
@@ -672,7 +676,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     error.value = null
     let preparedInput: ReturnType<typeof chatSessions.prepareInput> | undefined
     try {
-      if (!primarySelection.value) throw new Error('主角色编制未加载完成')
+      if (!primarySelection.value) throw new ComposerLocalValidationError('主角色编制未加载完成')
       const safeRoles: Record<string, RuntimeSelection> = {}
       for (const [k, v] of Object.entries(roleSelections.value)) {
         if (!v.brain) {
@@ -682,12 +686,12 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
         safeRoles[k] = v
       }
       if (!primarySelection.value.brain) {
-        throw new Error(
+        throw new ComposerLocalValidationError(
           `主角色 brain 为空（${primaryRole.value}），roleSelections=${JSON.stringify(roleSelections.value)}`,
         )
       }
       if (supportsTools(primarySelection.value.brain) && !primarySelection.value.senseGroup) {
-        throw new Error('请先为主角色选择器官组。')
+        throw new ComposerLocalValidationError('请先为主角色选择器官组。')
       }
       const prompt = composeCommandPrompt(submittedText)
       if (submittedPreset === CHERY_NYXUS_PRESET) {
@@ -771,7 +775,9 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       if (submittedGeneration === draftGeneration) {
         error.value = isWaitingForInteractionError(e)
           ? '当前流程正在等待你的处理，请先完成或拒绝回答，再发送补充消息。'
-          : `运行配置暂时未同步。请先处理工作台中的待办问题或审批，完成或拒绝后再发送；如果没有待办，请刷新工作台后重试。（${runtimeSyncReference(e)}）`
+          : e instanceof ComposerLocalValidationError
+            ? e.message
+            : `运行配置暂时未同步。请先处理工作台中的待办问题或审批，完成或拒绝后再发送；如果没有待办，请刷新工作台后重试。（${runtimeSyncReference(e)}）`
       }
       // 历史 runtime 仅供展示。无法关联当前 preset/type 时保留后端错误，
       // 用户可直接在上方角色编制中选择当前运行配置后再次提交。
@@ -864,7 +870,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
         return
       }
     }
-    // v0.4.2 输入行为统一：Enter 发送、Shift+Enter 换行（contenteditable 默认插入换行，
+    // 输入行为统一：Enter 发送、Shift+Enter 换行（contenteditable 默认插入换行，
     // 由 shiftKey 分支放行不拦截；原 Cmd/Ctrl+Enter 发送废弃）。
     if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
       e.preventDefault()

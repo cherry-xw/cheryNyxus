@@ -10,7 +10,7 @@ import { readComponentSource } from '../helpers/componentSource'
  */
 describe('login surface redesign contract', () => {
   it('wires a CyberWindow-consistent shell with channel, signal and text controls', async () => {
-    const source = await readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue'))
+    const source = await readComponentSource(resolve('apps/web/src/features/auth/ServerLoginDialog.vue'))
 
     expect(source).toContain('<div class="rift-panel" :class="{ \'is-error\': !!error }">')
     // CyberWindow 同款标题栏：AUTH channel 徽记 + signal + 文字三键 + 角括号
@@ -29,7 +29,7 @@ describe('login surface redesign contract', () => {
   })
 
   it('keeps the browser floating form, ESC close and drag offset', async () => {
-    const source = await readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue'))
+    const source = await readComponentSource(resolve('apps/web/src/features/auth/ServerLoginDialog.vue'))
 
     expect(source).toContain('data-desktop-hit')
     expect(source).toContain('@pointerdown="onTitlePointerDown"')
@@ -40,8 +40,8 @@ describe('login surface redesign contract', () => {
 
   it('uses one native input and only switches its type when the lamp is toggled', async () => {
     const [lamp, dialog] = await Promise.all([
-      readComponentSource(resolve('web/src/features/auth/LampPasswordField.vue')),
-      readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue')),
+      readComponentSource(resolve('apps/web/src/features/auth/LampPasswordField.vue')),
+      readComponentSource(resolve('apps/web/src/features/auth/ServerLoginDialog.vue')),
     ])
 
     expect(lamp.match(/<input\b/g)).toHaveLength(1)
@@ -61,8 +61,8 @@ describe('login surface redesign contract', () => {
 
   it('switches black light via theme-driven is-light class instead of :global hacks', async () => {
     const [dialog, lamp] = await Promise.all([
-      readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue')),
-      readComponentSource(resolve('web/src/features/auth/LampPasswordField.vue')),
+      readComponentSource(resolve('apps/web/src/features/auth/ServerLoginDialog.vue')),
+      readComponentSource(resolve('apps/web/src/features/auth/LampPasswordField.vue')),
     ])
 
     // theme store 驱动（跨窗同步），纯 scoped class
@@ -84,7 +84,7 @@ describe('login surface redesign contract', () => {
   })
 
   it('emits a slim long beam from the flashlight icon muzzle overflowing the window', async () => {
-    const source = await readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue'))
+    const source = await readComponentSource(resolve('apps/web/src/features/auth/ServerLoginDialog.vue'))
 
     expect(source).toContain('function updateLight(')
     expect(source).toContain('requestAnimationFrame')
@@ -112,7 +112,7 @@ describe('login surface redesign contract', () => {
   })
 
   it('applies submit-first-disable (先选后测) while keeping click validation as fallback', async () => {
-    const source = await readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue'))
+    const source = await readComponentSource(resolve('apps/web/src/features/auth/ServerLoginDialog.vue'))
 
     expect(source).toContain(':disabled="!canSubmit || busy"')
     expect(source).toContain('请先填写后端服务地址')
@@ -124,7 +124,7 @@ describe('login surface redesign contract', () => {
   })
 
   it('preserves the auth state machine end to end', async () => {
-    const source = await readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue'))
+    const source = await readComponentSource(resolve('apps/web/src/features/auth/ServerLoginDialog.vue'))
 
     expect(source).toContain('auth.setServerAddress(base)')
     expect(source).toContain(
@@ -139,8 +139,8 @@ describe('login surface redesign contract', () => {
 
   it('stays sharp-cornered with token-derived colors only', async () => {
     const [dialog, lamp] = await Promise.all([
-      readComponentSource(resolve('web/src/features/auth/ServerLoginDialog.vue')),
-      readComponentSource(resolve('web/src/features/auth/LampPasswordField.vue')),
+      readComponentSource(resolve('apps/web/src/features/auth/ServerLoginDialog.vue')),
+      readComponentSource(resolve('apps/web/src/features/auth/LampPasswordField.vue')),
     ])
     const all = `${dialog}\n${lamp}`
 

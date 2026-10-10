@@ -43,7 +43,7 @@ describe('workbench tree timeline selection', () => {
 
   it('wires the revision-aware selection into the Pixi tree props', () => {
     const controller = readFileSync(
-      'web/src/features/agent/workbench/useWorkbenchDialogController.ts',
+      'apps/web/src/features/agent/workbench/useWorkbenchDialogController.ts',
       'utf8',
     )
 

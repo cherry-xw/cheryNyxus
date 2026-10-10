@@ -32,7 +32,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@chery/protocol': fileURLToPath(new URL('../packages/protocol/src', import.meta.url)),
+      '@chery/protocol': fileURLToPath(new URL('../../packages/protocol/src', import.meta.url)),
     },
   },
   server: {
@@ -66,13 +66,9 @@ export default defineConfig({
   build: {
     /**
      * SPA 产物路径：`<repo>/dist/web/`（与 SSR 产物 `<repo>/dist/index.js` 同级）。
-     * 单次 `pnpm build`（root 触发 web 也 build）即可得到单一可分发目录，
-     * 后端启动时（`server.serve_frontend=true`）直接同源 serve `/api/*` 与 SPA，无 CORS。
-     *
-     * 兼容：仍支持旧位置 `<repo>/web/dist/`，worker 启动时 resolveStaticDir 会按
-     * "dist/web/ → web/dist/" 顺序探测，dev 用户无需清理旧产物。
+     * `pnpm web:build` 构建；后端启动时通过默认静态目录或显式配置托管。
      */
-    outDir: '../dist/web',
+    outDir: '../../dist/web',
     emptyOutDir: true,
     sourcemap: true,
     // 关闭 lightningcss、改用 esbuild 做 CSS 压缩：

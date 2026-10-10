@@ -6,31 +6,32 @@ import { describe, expect, it } from 'vitest'
 /**
  * 2026-09-21 四个界面修复的回归契约（源码字符串断言，套件惯例，无 jsdom）。
  *
- * 1. 精简模式：工具图标从 13px 放大到 15px 并微上移（margin-bottom），
- *    与底部状态条留出空隙，不再粘连；
+ * 1. 精简模式：工具图标逐工具展示，运行状态由右上角悬浮小点表达（负偏移浮出图标，
+ *    不占布局尺寸），不与底部状态条粘连；
  * 2. 全部任务：卡片不再固定 200px 高 + overflow:hidden，内容随卡片撑开全部可见；
  * 3. 全部任务：移除顶部状态彩线与左侧未读亮条（边缘高亮），状态改由徽章+淡底色表达；
  * 4. 诊断弹窗：最小化/最大化/关闭按钮始终右对齐（margin-left:auto 挂在 actions 上，
  *    而非 signal——signal 在窄窗口会被容器查询隐藏导致按钮失去右对齐）。
  */
 describe('UI regression fixes (2026-09-21)', () => {
-  it('keeps the lite cluster icon larger and raised above the status bar', async () => {
+  it('keeps the lite cluster icon raised above the status bar with corner status dots', async () => {
     const [view, styles] = await Promise.all([
       readComponentSource(resolve('src/features/lite/LiteView.vue'), 'utf8'),
-      readFile(resolve('web/src/features/lite/LiteView.styles.css'), 'utf8'),
+      readFile(resolve('apps/web/src/features/lite/LiteView.styles.css'), 'utf8'),
     ])
 
-    // 图标放大：13 → 15px。
-    expect(view).toContain(':size="15"')
-    expect(view).not.toContain(':size="13"')
-    // 图标微上移，给底部状态条留空隙。
-    expect(styles).toContain('.lite-cluster-icon')
-    expect(styles).toContain('margin-bottom: 4px')
+    // cluster 重构后：逐工具 MorphIcon 图标 + 右上角悬浮状态点（负偏移浮出图标上缘，
+    // 不占布局尺寸），运行状态不再粘连底部状态条。
+    expect(view).toContain('class="lite-tool-call-icon"')
+    expect(view).toContain(':icon="toolCallIcon(call.name)"')
+    expect(styles).toContain('.lite-tool-call-dot {')
+    expect(styles).toContain('top: -2px;')
+    expect(styles).toContain('right: -2px;')
   })
 
   it('lets the task browser card grow with its content and drops edge highlight lines', async () => {
     const styles = await readFile(
-      resolve('web/src/features/agent/workbench/TaskBrowser.styles.less'),
+      resolve('apps/web/src/features/agent/workbench/TaskBrowser.styles.less'),
       'utf8',
     )
 
