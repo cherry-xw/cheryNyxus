@@ -2,8 +2,8 @@
  * 执行时间线（Root Timeline）wire 事实类型 —— 前后端单一事实源。
  *
  * 这组类型描述跨进程投递的执行图事实：节点、边、活动运行、待处理输入、
- * 代际索引、分支摘要与树控状态。后端（src/service/message/types.ts）与前端
- * （web/src/services/agentApi.ts）均以 `export type X = ProtocolX` 别名引用，
+ * 代际索引、分支摘要与树控状态。后端（apps/backend/src/service/message/types.ts）与前端
+ * （apps/web/src/services/agentApi.ts）均以 `export type X = ProtocolX` 别名引用，
  * 不再各自声明（TerminationFact 先例）。
  *
  * 设计约定：

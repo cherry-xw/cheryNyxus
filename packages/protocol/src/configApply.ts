@@ -60,6 +60,12 @@ export const HooksDraftSchema = z.partialRecord(
     'Stop',
     'PreCompact',
     'PostCompact',
+    'RequestPrepare',
+    'ToolFailed',
+    'RequestCompleted',
+    'RequestFailed',
+    'RequestCancelled',
+    'ChannelSendResult',
   ]),
   z.array(
     z
@@ -68,6 +74,7 @@ export const HooksDraftSchema = z.partialRecord(
         matcher: z.string().optional(),
         if: z.string().optional(),
         timeout: z.number().positive().optional(),
+        required: z.boolean().optional(),
       })
       .strict(),
   ),
