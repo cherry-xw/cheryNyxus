@@ -1,7 +1,7 @@
 /**
  * 凭据池 RPC（通用：plugins / skills / 未来 commands 共享）。
  *
- * 密令后端 AES-256-GCM 加密存储（见 src/utils/secretStore.ts），list/save/delete 仅操作脱敏视图；
+ * 密令后端 AES-256-GCM 加密存储（见 apps/backend/src/utils/secretStore.ts），list/save/delete 仅操作脱敏视图；
  * 密令永不回前端（list 只返 id/label/username）。字段名 password 命中 logger 自动脱敏。
  */
 import type { HandlerContext } from '../message/router.js'

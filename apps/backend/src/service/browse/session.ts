@@ -3,7 +3,7 @@
  *
  * 会话承担：sessionId 鉴权（后续 list 必须出示）+ 固定窗口限流（每会话 rpm）+
  * TTL 过期清理（create/consume 时机会式 sweep，max_sessions 上限内无成本）。
- * 不用 src/utils/rateLimiter.ts 的 getRateLimiter：其注册表键永不 GC 且溢出阻塞等待，
+ * 不用 apps/backend/src/utils/rateLimiter.ts 的 getRateLimiter：其注册表键永不 GC 且溢出阻塞等待，
  * 不适合「每会话」的 UI 钻取场景；本存储随会话一起被回收。
  */
 import { randomHex } from '@/utils/obfuscate.js'

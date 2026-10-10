@@ -42,7 +42,11 @@ export interface ImageTokenEstimate {
  * - high：85 + 170 × tile 数（不设上限，适配大图）
  * 用于原图/压缩图选择对比与本地进度估算；绝对准确度以官方预检接口为准（见 3.2）。
  */
-export function estimateImageTokens({ width, height, detail = 'default' }: ImageTokenEstimate): number {
+export function estimateImageTokens({
+  width,
+  height,
+  detail = 'default',
+}: ImageTokenEstimate): number {
   if (!width || !height || width <= 0 || height <= 0) return 0
   if (detail === 'low') return 85
   const tiles = Math.ceil(width / 512) * Math.ceil(height / 512)
@@ -69,9 +73,7 @@ function mediaTokensInContent(content: string | undefined | null): number {
 function sumRowTokens(row: MessageRow): number {
   if (row.revoked === 1) return 0
   return (
-    estimateTokens(row.content) +
-    mediaTokensInContent(row.content) +
-    estimateTokens(row.thinking)
+    estimateTokens(row.content) + mediaTokensInContent(row.content) + estimateTokens(row.thinking)
   )
 }
 

@@ -33,6 +33,41 @@ function appendDetailsAction(actions: FeedbackAction[], detail?: string): Feedba
 type RpcPresentation = { title: string; guidance?: string; actions: FeedbackAction[] }
 
 const RPC_PRESENTATION: Record<ErrorCode, RpcPresentation> = {
+  [ErrorCode.API_VERSION_MISMATCH]: { title: '插件接口版本不兼容', actions: [{ type: 'dismiss' }] },
+  [ErrorCode.DEPENDENCY_CYCLE]: { title: '插件存在循环依赖', actions: [{ type: 'dismiss' }] },
+  [ErrorCode.DEPENDENCY_UNAVAILABLE]: {
+    title: '插件依赖未启用或不可用',
+    actions: [{ type: 'dismiss' }],
+  },
+  [ErrorCode.DEPENDENCY_VERSION_MISMATCH]: {
+    title: '插件依赖版本不一致',
+    actions: [{ type: 'dismiss' }],
+  },
+  [ErrorCode.REGISTRATION_CONFLICT]: {
+    title: '插件注册名称已被使用',
+    actions: [{ type: 'dismiss' }],
+  },
+  [ErrorCode.CAPABILITY_DENIED]: { title: '插件未获准执行此操作', actions: [{ type: 'dismiss' }] },
+  [ErrorCode.IDENTITY_REJECTED]: {
+    title: '请求身份已失效或未经验证',
+    actions: [{ type: 'dismiss' }],
+  },
+  [ErrorCode.TOOL_UNAVAILABLE]: { title: '当前工具不可用', actions: [{ type: 'dismiss' }] },
+  [ErrorCode.STOP_TIMEOUT]: {
+    title: '插件未能按时停止',
+    guidance: '请重启宿主后再执行卸载。',
+    actions: [{ type: 'dismiss' }],
+  },
+  [ErrorCode.REVISION_CONFLICT]: {
+    title: '配置或插件状态已改变',
+    guidance: '请重新读取当前状态。',
+    actions: [{ type: 'dismiss' }],
+  },
+  [ErrorCode.REQUEST_ID_CONFLICT]: {
+    title: '同一请求标识对应了不同操作',
+    actions: [{ type: 'dismiss' }],
+  },
+  [ErrorCode.UNAVAILABLE]: { title: '插件当前不可用', actions: [{ type: 'dismiss' }] },
   [ErrorCode.METHOD_NOT_FOUND]: {
     title: '当前版本不支持此操作',
     guidance: '请确认桌面端与服务端版本一致；如果只升级过一端，请同步升级另一端后重试。',

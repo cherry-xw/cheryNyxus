@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import yaml from 'js-yaml'
-import { ensureEnvSeed, syncCheryTemplate } from '../../scripts/lib/chery-template-sync.mjs'
+import { ensureEnvSeed, syncCheryTemplate } from '../../../../scripts/lib/chery-template-sync.mjs'
 
 const roots: string[] = []
 

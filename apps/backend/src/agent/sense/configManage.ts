@@ -31,7 +31,7 @@ import path from 'node:path'
  *   - rollback：从 .chery/backups/ 恢复指定（或缺省最近）备份到 config.yaml。
  *
  * 结构化感官（action 参数无路径）→ extractSensePaths 返回 []，天然不触发 .chery/ 路径守卫。
- * 仅 cheryNyxus 的 senseGroup（chery_nexus）含此感官 → 其他角色 senseTable 无此感官 → 调不到。
+ * 仅 cheryNyxus 的 senseGroup（cheryNyxus）含此感官 → 其他角色 senseTable 无此感官 → 调不到。
  * 监管 smart：写配置 = 高影响操作，需规则表放行（默认确认）。
  * 缺/未知 action → fail-loud 返回用法引导（绝不静默兜底为 rollback，避免误报"备份目录不存在"）。
  *

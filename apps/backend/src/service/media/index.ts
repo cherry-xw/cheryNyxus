@@ -137,7 +137,8 @@ export async function saveMediaAsset(
   const kind = mediaKindForMime(mimeType)
   if (!kind) throw new Error('暂不支持这种媒体类型')
   const maxBytes = DEFAULT_MAX_UPLOAD_MB * 1024 * 1024
-  if (body.length === 0 || body.length > maxBytes) throw new Error(`媒体太大了（上限 ${DEFAULT_MAX_UPLOAD_MB}MiB）`)
+  if (body.length === 0 || body.length > maxBytes)
+    throw new Error(`媒体太大了（上限 ${DEFAULT_MAX_UPLOAD_MB}MiB）`)
   const id = randomUUID()
   const extension =
     extname(basename(originalName)).replace(/[^.a-z0-9]/gi, '') ||
@@ -176,5 +177,3 @@ export async function readMediaAsset(
     mimeType: mimeByExtension[extname(filename).toLowerCase()] ?? 'application/octet-stream',
   }
 }
-
-

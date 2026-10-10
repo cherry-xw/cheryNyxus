@@ -13,6 +13,8 @@ import yaml from 'js-yaml'
 import config from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
 import { estimateTokens } from '@/utils/token.js'
+import type { IngressRequestIdentity } from '@/service/ingress/api.js'
+import { pluginSkillLocations } from '@/service/ingress/resources.js'
 
 export interface SkillData {
   name: string
@@ -193,7 +195,7 @@ export function discoverSkillRoots(pluginDir: string): SkillLocation[] {
  * 枚举全部 skill 位置：`.chery/skills/<name>/`（独立）+ `.chery/plugins/<plugin>/...`（插件）。
  * 返回的 defaultName 尚未做命名空间处理；调用方按 plugin 决定是否前缀化。
  */
-function scanSkillLocations(): SkillLocation[] {
+function scanSkillLocations(identity?: IngressRequestIdentity): SkillLocation[] {
   const locations: SkillLocation[] = []
   const skillsDir = config.global.skills_dir
   if (existsSync(skillsDir)) {
@@ -214,14 +216,15 @@ function scanSkillLocations(): SkillLocation[] {
       }
     }
   }
+  locations.push(...pluginSkillLocations(identity))
   return locations
 }
 
 /** 扫描轻量目录；未变化文件复用 frontmatter 缓存，不读取正文。 */
-function scanSkillCatalog(): SkillCatalogEntry[] {
+function scanSkillCatalog(identity?: IngressRequestIdentity): SkillCatalogEntry[] {
   const entries: SkillCatalogEntry[] = []
   const alive = new Set<string>()
-  for (const loc of scanSkillLocations()) {
+  for (const loc of scanSkillLocations(identity)) {
     let files: string[]
     try {
       files = readdirSync(loc.skillDir)
@@ -290,7 +293,7 @@ function loadCatalogEntry(entry: SkillCatalogEntry): SkillData | undefined {
 /**
  * 遍历全部 skill 位置（独立 + 插件），读取所有 SKILL.md/skill.md（实时，不缓存）。
  * 插件 skill 名加 `<plugin>__` 前缀做命名空间隔离。同名冲突 warn + 后者覆盖。
- * P1-4：原模块级缓存导致新增/改动不反映；改为实时遍历，保证热更可见（类比 sense reloadSenses）。
+ * 实时遍历技能文件，保证下一次读取可见文件改动。
  */
 function readAllSkills(): SkillData[] {
   const result: SkillData[] = []
@@ -314,8 +317,9 @@ function readAllSkills(): SkillData[] {
  */
 export function getSkillRealtime(
   name: string,
+  identity?: IngressRequestIdentity,
 ): { skill: SkillData; size: number; mtimeMs: number } | undefined {
-  const entry = scanSkillCatalog().find((item) => item.name === name)
+  const entry = scanSkillCatalog(identity).find((item) => item.name === name)
   if (entry) {
     const skill = loadCatalogEntry(entry)
     if (skill) return { skill, size: entry.size, mtimeMs: entry.mtimeMs }
@@ -422,10 +426,7 @@ export interface SkillFilter {
 }
 
 /** 判断单个 skill 是否通过 role 过滤（无 filter = 全部通过，向后兼容）。 */
-function matchSkillFilter(
-  s: Pick<SkillData, 'name' | 'plugin'>,
-  filter?: SkillFilter,
-): boolean {
+export function matchSkillFilter(s: Pick<SkillData, 'name' | 'plugin'>, filter?: SkillFilter): boolean {
   if (!filter) return true
   if (s.plugin) {
     return filter.plugins === undefined || filter.plugins.includes(s.plugin)
@@ -443,6 +444,16 @@ export function getSkillMetas(filter?: SkillFilter): Array<SkillData & SkillToke
 }
 
 /** skills.list 分页参数（与 SkillsListRequestData 对齐）。 */
+export function getRequestPluginSkills(identity: IngressRequestIdentity, filter?: SkillFilter): SkillData[] {
+  return pluginSkillLocations(identity).flatMap(location => {
+    const skill = loadSkillFromFolder(location.skillDir, {
+      plugin: location.plugin,
+      defaultName: location.defaultName,
+    })
+    return skill && matchSkillFilter(skill, filter) ? [skill] : []
+  })
+}
+
 export interface SkillPaginationParams {
   page?: number
   pageSize?: number

@@ -27,9 +27,7 @@ const lastError = new Map<string, { message: string; candidate?: boolean }>()
 let operation: Promise<void> = Promise.resolve()
 let applyStatus: ((name: string) => Pick<McpServerInfo, 'applyStatus' | 'applyReason'>) | undefined
 
-export function setMcpReloadCoordinator(
-  status?: typeof applyStatus,
-): void {
+export function setMcpReloadCoordinator(status?: typeof applyStatus): void {
   applyStatus = status
 }
 
@@ -226,6 +224,7 @@ export async function prepareMcpChanges(
           if (!entry.disconnected) {
             if (entry.lifetime.retired && !entry.lifetime.revive())
               throw new Error('MCP 旧连接正在关闭，请重试')
+            unregisterSenses(old.get(name)?.senseNames ?? [])
             registerSenses(entry.senses)
           }
           connectedServers.set(name, entry)

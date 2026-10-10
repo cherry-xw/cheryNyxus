@@ -14,6 +14,7 @@ export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' |
  * 各 provider 按需读取；model 必选，其余可选。
  */
 export interface LLMOptions {
+  requestView?: Readonly<import('@/service/ingress/api.js').IngressRequestView>
   /** Internal observation only; never included in a provider request body. */
   observation?: import('./usage.js').RequestObservation
   model: string

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { randomHex, xorDecrypt, xorEncrypt } from '@/utils/obfuscate.js'
 
 /**
- * 固定 nonce 的 golden vector 由 **web/src/utils/obfuscate.ts**（纯 JS SHA-256 + TextEncoder/btoa，
+ * 固定 nonce 的 golden vector 由 **apps/web/src/utils/obfuscate.ts**（纯 JS SHA-256 + TextEncoder/btoa，
  * 与 Node createHash 实现相互独立）一次性脚本产出——跨实现逐字节一致即证明 Node 迁移未破坏算法。
  */
 const NONCE = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'

@@ -9,8 +9,10 @@ import {
   type WorkspaceFilesListResponseData,
   type WorkspaceFilesReadRequestData,
   type WorkspaceFilesReadResponseData,
-  type WorkspaceGitStatusRequestData, type WorkspaceGitStatusResponseData,
-  type WorkspaceGitCheckoutRequestData, type WorkspaceGitCheckoutResponseData,
+  type WorkspaceGitStatusRequestData,
+  type WorkspaceGitStatusResponseData,
+  type WorkspaceGitCheckoutRequestData,
+  type WorkspaceGitCheckoutResponseData,
 } from '../message/types.js'
 import { resolveChatWorkspaceEntry, resolveWorkspaceEntry } from './sandbox.js'
 import { redactEnvKeys } from '@/utils/envGuard.js'
@@ -29,7 +31,13 @@ const IMAGE_MIME: Record<string, string> = {
 }
 const execFileAsync = promisify(execFile)
 async function git(root: string, args: string[]): Promise<string> {
-  const result = await execFileAsync('git', args, { cwd: root, windowsHide: true, maxBuffer: 2 * 1024 * 1024, timeout: 10_000, killSignal: 'SIGKILL' })
+  const result = await execFileAsync('git', args, {
+    cwd: root,
+    windowsHide: true,
+    maxBuffer: 2 * 1024 * 1024,
+    timeout: 10_000,
+    killSignal: 'SIGKILL',
+  })
   return result.stdout
 }
 function parseGitStatus(output: string): WorkspaceGitStatusResponseData['files'] {
@@ -40,20 +48,32 @@ function parseGitStatus(output: string): WorkspaceGitStatusResponseData['files']
     const code = record.slice(0, 2)
     const filePath = record.slice(3)
     if (filePath && !code.includes('D'))
-      files.push({ path: filePath, status: code.includes('A') || code.includes('?') ? 'added' : 'modified' })
+      files.push({
+        path: filePath,
+        status: code.includes('A') || code.includes('?') ? 'added' : 'modified',
+      })
     if (code.includes('R') || code.includes('C')) index += 1
   }
   return files
 }
-export async function gitStatus(_ctx: HandlerContext, data: WorkspaceGitStatusRequestData): Promise<WorkspaceGitStatusResponseData> {
+export async function gitStatus(
+  _ctx: HandlerContext,
+  data: WorkspaceGitStatusRequestData,
+): Promise<WorkspaceGitStatusResponseData> {
   const { root } = await resolveChatWorkspaceEntry(data.chatId, '')
   const branch = (await git(root, ['branch', '--show-current'])).trim()
-  const branches = (await git(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'])).split(/\r?\n/).map((v) => v.trim()).filter(Boolean)
+  const branches = (await git(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/']))
+    .split(/\r?\n/)
+    .map((v) => v.trim())
+    .filter(Boolean)
   const status = await git(root, ['status', '--short', '-z'])
   const files = parseGitStatus(status)
   return { chatId: data.chatId, branch, branches, dirty: status.length > 0, files }
 }
-export async function gitCheckout(_ctx: HandlerContext, data: WorkspaceGitCheckoutRequestData): Promise<WorkspaceGitCheckoutResponseData> {
+export async function gitCheckout(
+  _ctx: HandlerContext,
+  data: WorkspaceGitCheckoutRequestData,
+): Promise<WorkspaceGitCheckoutResponseData> {
   const { root } = await resolveChatWorkspaceEntry(data.chatId, '')
   if (!data.branch.trim() || data.branch.startsWith('-') || data.branch.includes('\0'))
     throw operationError('鍒嗘敮鍚嶆棤鏁堬紝璇疯閫夋嫨涓€涓凡鏈夊垎鏀?')
@@ -179,6 +199,10 @@ export function registerWorkspaceHandlers(router: RpcRouter): void {
   router.register(Method.WORKSPACE_FILES_READ, (ctx, data) =>
     userOperation(() => readFile(ctx, data), '文件读取失败，请刷新后重试'),
   )
-  router.register(Method.WORKSPACE_GIT_STATUS, (ctx, data) => userOperation(() => gitStatus(ctx, data), 'Git 状态读取失败'))
-  router.register(Method.WORKSPACE_GIT_CHECKOUT, (ctx, data) => userOperation(() => gitCheckout(ctx, data), 'Git 分支切换失败'))
+  router.register(Method.WORKSPACE_GIT_STATUS, (ctx, data) =>
+    userOperation(() => gitStatus(ctx, data), 'Git 状态读取失败'),
+  )
+  router.register(Method.WORKSPACE_GIT_CHECKOUT, (ctx, data) =>
+    userOperation(() => gitCheckout(ctx, data), 'Git 分支切换失败'),
+  )
 }

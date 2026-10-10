@@ -319,7 +319,7 @@ async function handleRequest(
     JSON.stringify({
       error: 'Not Found',
       hint: root
-        ? '静态资源未找到，请先 pnpm web:build 生成 web/dist/，或将前端通过 vite dev / 反向代理托管'
+        ? '静态资源未找到，请先 pnpm web:build 生成 apps/web/dist/，或将前端通过 vite dev / 反向代理托管'
         : '后端未托管前端 SPA（server.serve_frontend=false）。请通过 vite dev（:5173）或反向代理访问前端',
       path: url,
     }),

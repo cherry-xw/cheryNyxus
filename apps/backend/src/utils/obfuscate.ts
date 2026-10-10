@@ -1,7 +1,7 @@
 /**
  * 轻量对称加解密（SHA-256 CTR 流密码，Node 实现）。
  *
- * 与前端 web/src/utils/obfuscate.ts、auth 登录信封（原 src/service/auth/index.ts xorDecrypt）
+ * 与前端 apps/web/src/utils/obfuscate.ts、auth 登录信封（原 apps/backend/src/service/auth/index.ts xorDecrypt）
  * 严格一致：`keystream = SHA-256(keyHex_U8 || BE32(counter))` 逐块拼接，与明文逐字节异或。
  *
  * 安全边界：key（一次性 nonce）参与方可见，属**混淆级**——防被动嗅探/日志明文泄漏 + 防重放

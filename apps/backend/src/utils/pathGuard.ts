@@ -8,7 +8,7 @@
  *   （执行前拒）。参考 envGuard 的"统一拦截层位置 + 注入说明"模式，语义不同。
  *
  * 豁免：install_skill（配置管理核心角色 cheryNyxus 专用感官，合法写 .chery/skills/）。
- * install_skill 只在 cheryNyxus senseGroup（chery_nexus）→ 其他角色 senseTable 无此感官 →
+ * install_skill 只在 cheryNyxus senseGroup（cheryNyxus）→ 其他角色 senseTable 无此感官 →
  * 双重隔离（调不到 + 写 .chery 被拦）。
  * 另：配置管理核心角色（senseTable 含 install_skill）额外豁免 .chery/rule/ 的读写，用于生成/
  *   修改审批规则文件（与基准 base.yaml 深合并）。仅限该目录，.chery/ 其余路径仍拦。
@@ -131,7 +131,7 @@ export const CHERY_GUARD_MESSAGE =
   '它可完整替代对配置文件的直接指令读写；禁止用 cat/type/grep/head 等读取配置内容、' +
   '或用 cp/mv/rm/echo 重定向等修改 .chery（会绕过脱敏并可能损坏配置）。' +
   '仅信息获取类命令（ls/dir/find/stat 等列目录、查询状态）放行。' +
-  '安装或修改技能请用 spawn_role 派出「Cherry Nexus」角色（type: cheryNyxus）完成。'
+  '安装或修改技能请用 spawn_role 派出「cheryNyxus」角色（type: cheryNyxus）完成。'
 
 export interface CheryGuardOptions {
   /**

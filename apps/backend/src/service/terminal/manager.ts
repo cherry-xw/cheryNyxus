@@ -194,7 +194,8 @@ export async function createTerminal(
           keepaliveInterval: 10000,
           keepaliveCountMax: 3,
           hostVerifier: (key: Buffer) => {
-            observedHostKey = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
+            observedHostKey =
+              'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
             hostRejected = !!expectedHostKey && observedHostKey !== expectedHostKey
             return !hostRejected
           },

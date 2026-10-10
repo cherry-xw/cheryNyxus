@@ -1,8 +1,8 @@
 /**
  * 集成式 agent 测试 harness：装配真实 AgentBuilder 跑洋葱链。
  *
- * 复用全局 setupFiles（vite.config test.setupFiles = test/flows/setup.ts）已设
- * CHERY_DIR = test/flows/fixtures，故 config.yaml（mock brain + sense_groups）已就绪，
+ * 复用全局 setupFiles（vite.config test.setupFiles = apps/backend/test/flows/setup.ts）已设
+ * CHERY_DIR = apps/backend/test/flows/fixtures，故 config.yaml（mock brain + sense_groups）已就绪，
  * bootstrapAgentRuntime 注册 mock provider + 内置 senses（bash/read/write/skill）。
  *
  * 与 flows/ WS 端到端测试不同：此处不走 service/WS/DB，直接在 middleware 层跑，
@@ -61,7 +61,7 @@ export function createAgent(opts: CreateAgentOptions): AgentBuilder {
       undefined,
       'reviewer',
     );
-  agent.init(opts.chatId ?? randomUUID(), opts.history);
+  agent.init(opts.chatId ?? randomUUID(), { messages: opts.history });
   return agent;
 }
 

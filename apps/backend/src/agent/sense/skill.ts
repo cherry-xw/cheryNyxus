@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { sense, type SenseResult } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
-import { formatSkillActivationContent, getSkillRealtime } from '@/agent/prompt/loadSkill'
+import { formatSkillActivationContent, getSkillRealtime, matchSkillFilter } from '@/agent/prompt/loadSkill'
 import { hashGenerator } from '@/utils/hash.js'
+import { getChatSkillFilter } from '@/db/chat.js'
 
 /**
  * 加载 skill content 的 sense
@@ -19,10 +20,11 @@ export default sense(
   z.object({
     name: z.string().describe('技能名称，必须与 <skill> 中的`name`字段完全一致'),
   }),
-  async ({ name }): Promise<SenseResult> => {
-    const result = getSkillRealtime(name)
+  async ({ name }, _shared, ctx): Promise<SenseResult> => {
+    ctx?.signal?.throwIfAborted()
+    const result = getSkillRealtime(name, ctx?.requestView?.identity)
 
-    if (!result) {
+    if (!result || (ctx && !matchSkillFilter(result.skill, getChatSkillFilter(ctx.chatId)))) {
       return {
         content: `Error: skill "${name}" not found`,
         hash: '', // 错误情况不参与去重

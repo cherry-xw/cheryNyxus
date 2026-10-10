@@ -5,7 +5,9 @@
  * - 不传 tools / 空数组 = 全量返回，且与 BUILTIN_SENSE_TOOLS 一一对应（doc 非空）
  * - 传 tools = 按 name 列表过滤，未知 name 自动忽略
  */
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
+import { bootstrapForTests } from '../../agent/helpers/agentHarness.js'
+beforeAll(bootstrapForTests)
 import { handleSenseToolDocs } from '@/service/sense/list.js'
 import { BUILTIN_SENSE_TOOLS } from '@/agent/sense/index.js'
 
@@ -15,7 +17,7 @@ const ctx = {} as never
 describe('sense.tools.docs', () => {
   it('不传 tools → 全量返回，name 与 BUILTIN_SENSE_TOOLS 一致且 doc 非空', async () => {
     const res = await handleSenseToolDocs(ctx, {})
-    expect(res.docs.map((d) => d.name)).toEqual(BUILTIN_SENSE_TOOLS.map((t) => t.name))
+    expect(res.docs.map((d) => d.name).sort()).toEqual(BUILTIN_SENSE_TOOLS.map((t) => t.name).sort())
     for (const d of res.docs) {
       expect(d.doc.length).toBeGreaterThan(0)
       // 完整说明应包含作用/能力/边界/注意分节

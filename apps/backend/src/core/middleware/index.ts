@@ -13,6 +13,8 @@ import type { LLMResponse } from '../message/adapter'
 import type { GlobalConfig } from '@/utils/config'
 import { logger } from '@/utils/logger/index.js'
 import { getSenseRegistryVersion } from '../sense/senseRegistry.js'
+import { dispatch } from '@/agent/hooks/dispatch.js'
+import { requestHookContext, finishRequest } from '@/agent/hooks/request.js'
 
 export * from './types'
 export type { MiddlewareHandler, LoopHandler }
@@ -77,11 +79,26 @@ export default class AgentSession<T = unknown> {
    * 原子配置运行时（每轮可换）。
    * brain/adapters/builtSenses/senseTable 必须来自同一次上层解析，避免 provider 与工具定义混用。
    */
-  configureRuntime(runtime: RuntimeConfig, global: GlobalConfig = this.ctx.global): void {
+  configureRuntime(
+    runtime: RuntimeConfig,
+    global: GlobalConfig = this.ctx.global,
+    refresh?: () => void,
+  ): void {
     this.runtime = runtime
     this.ctx.global = global
     this.ctx.runtime = runtime
+    if (refresh) this.ctx.refreshRequestRuntime = refresh
     this.senseTableVersion = getSenseRegistryVersion()
+  }
+
+  async endSession(reason: 'close' | 'user_stop' | 'error' | 'unknown' = 'close'): Promise<void> {
+    if (!this.ctx.requestSessionStarted) return
+    this.ctx.requestSessionStarted = false
+    await dispatch(
+      'SessionEnd',
+      { chatId: this.ctx.soul.chatId, reason },
+      requestHookContext(this.ctx),
+    )
   }
 
   /**
@@ -134,8 +151,30 @@ export default class AgentSession<T = unknown> {
     if (!options?.inputAlreadyQueued) this.journal.appendUserInput(input, options?.inputMeta)
     try {
       yield* this.pipeline.run()
-      if (compactRequested) this.journal.compactToLatestSummary()
+      if (compactRequested) {
+        const tokenCount = this.journal
+          .getMessages()
+          .reduce((total, message) => total + message.content.length, 0)
+        await dispatch(
+          'PreCompact',
+          { chatId: this.ctx.soul.chatId, tokenCount },
+          requestHookContext(this.ctx),
+        )
+        this.journal.compactToLatestSummary()
+        await dispatch(
+          'PostCompact',
+          {
+            chatId: this.ctx.soul.chatId,
+            summary:
+              this.journal.getMessages().findLast((message) => message.contextCompaction)
+                ?.content ?? '',
+            tokenCount,
+          },
+          requestHookContext(this.ctx),
+        )
+      }
     } finally {
+      await finishRequest(this.ctx, this.pipeline.isAbortRequested() ? 'cancelled' : 'failed')
       this.journal.pruneEphemeralMessages()
     }
   }
