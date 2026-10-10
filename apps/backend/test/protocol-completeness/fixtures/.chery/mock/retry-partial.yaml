@@ -1,0 +1,25 @@
+{
+  "script": [
+    {
+      "attempts": [
+        {
+          "chunks": [
+            {
+              "content": "discarded-partial"
+            },
+            {
+              "error": {
+                "message": "synthetic network",
+                "category": "network",
+                "source": "brain"
+              }
+            }
+          ]
+        },
+        {
+          "content": "retry-clean-success"
+        }
+      ]
+    }
+  ]
+}

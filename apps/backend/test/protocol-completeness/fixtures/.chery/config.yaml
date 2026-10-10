@@ -1,0 +1,258 @@
+{
+  "global": {
+    "thinking": true,
+    "supervision": "auto",
+    "stream": true,
+    "logger": {
+      "level": "warn",
+      "output": [
+        "console"
+      ]
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "webPort": 0,
+    "serve_frontend": false
+  },
+  "llm": {
+    "brain": {
+      "protocol_content": {
+        "model": "protocol_content",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/content.yaml"
+        }
+      },
+      "protocol_read_file": {
+        "model": "protocol_read_file",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/read-file.yaml"
+        }
+      },
+      "protocol_retry": {
+        "model": "protocol_retry",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/retry.yaml"
+        }
+      },
+      "protocol_auth_failure": {
+        "model": "protocol_auth_failure",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/auth-failure.yaml"
+        }
+      },
+      "protocol_approval": {
+        "model": "protocol_approval",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/approval.yaml"
+        }
+      },
+      "protocol_question": {
+        "model": "protocol_question",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/question.yaml"
+        }
+      },
+      "protocol_abort": {
+        "model": "protocol_abort",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/abort.yaml"
+        }
+      },
+      "protocol_stream": {
+        "model": "protocol_stream",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/stream.yaml"
+        }
+      },
+      "protocol_queue": {
+        "model": "protocol_queue",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/queue.yaml"
+        }
+      },
+      "protocol_retry_partial": {
+        "model": "protocol_retry_partial",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/retry-partial.yaml"
+        }
+      },
+      "protocol_spawn_reader": {
+        "model": "protocol_spawn_reader",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/spawn-reader.yaml"
+        }
+      },
+      "protocol_spawn_failure": {
+        "model": "protocol_spawn_failure",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/spawn-failure.yaml"
+        }
+      },
+      "protocol_spawn_slow": {
+        "model": "protocol_spawn_slow",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/spawn-slow.yaml"
+        }
+      },
+      "protocol_spawn_replacement": {
+        "model": "protocol_spawn_replacement",
+        "provider": "mock",
+        "mock": {
+          "enabled": true,
+          "file": "mock/spawn-replacement.yaml"
+        }
+      }
+    }
+  },
+  "sense_groups": {
+    "protocol_none": [],
+    "protocol_files": [
+      "read_file:auto"
+    ],
+    "protocol_write": [
+      "write_file:manual"
+    ],
+    "protocol_questions": [
+      "ask_user_question:auto"
+    ],
+    "protocol_spawn": [
+      "spawn_role:auto"
+    ],
+    "protocol_spawn_v2": [
+      "spawn_role:auto"
+    ]
+  },
+  "mcp_servers": {},
+  "roles": {
+    "protocol_leader": {
+      "scope": "private",
+      "brain": "protocol_content",
+      "senseGroup": "protocol_none",
+      "mcpServers": [],
+      "permissions": {
+        "template": "trusted"
+      }
+    },
+    "protocol_reader": {
+      "scope": "public",
+      "brain": "protocol_read_file",
+      "senseGroup": "protocol_files",
+      "mcpServers": [],
+      "permissions": {
+        "template": "trusted"
+      }
+    },
+    "protocol_failing": {
+      "scope": "public",
+      "brain": "protocol_auth_failure",
+      "senseGroup": "protocol_none",
+      "mcpServers": [],
+      "permissions": {
+        "template": "trusted"
+      }
+    },
+    "protocol_slow": {
+      "scope": "public",
+      "brain": "protocol_abort",
+      "senseGroup": "protocol_none",
+      "mcpServers": [],
+      "permissions": {
+        "template": "trusted"
+      }
+    },
+    "protocol_replacement": {
+      "scope": "public",
+      "brain": "protocol_content",
+      "senseGroup": "protocol_none",
+      "mcpServers": [],
+      "permissions": {
+        "template": "trusted"
+      }
+    },
+    "protocol_reader_leader": {
+      "scope": "private",
+      "brain": "protocol_spawn_reader",
+      "senseGroup": "protocol_spawn",
+      "mcpServers": [],
+      "permissions": {
+        "template": "trusted"
+      }
+    },
+    "protocol_failure_leader": {
+      "scope": "private",
+      "brain": "protocol_spawn_failure",
+      "senseGroup": "protocol_spawn",
+      "mcpServers": [],
+      "permissions": {
+        "template": "trusted"
+      }
+    },
+    "protocol_slow_leader": {
+      "scope": "private",
+      "brain": "protocol_spawn_slow",
+      "senseGroup": "protocol_spawn",
+      "mcpServers": [],
+      "permissions": {
+        "template": "trusted"
+      }
+    }
+  },
+  "presets": {
+    "默认": {
+      "leader": "protocol_leader",
+      "roles": [
+        "protocol_leader"
+      ]
+    },
+    "protocol-spawn-reader": {
+      "leader": "protocol_reader_leader",
+      "roles": [
+        "protocol_reader_leader",
+        "protocol_reader",
+        "protocol_replacement"
+      ]
+    },
+    "protocol-spawn-failure": {
+      "leader": "protocol_failure_leader",
+      "roles": [
+        "protocol_failure_leader",
+        "protocol_failing"
+      ]
+    },
+    "protocol-spawn-slow": {
+      "leader": "protocol_slow_leader",
+      "roles": [
+        "protocol_slow_leader",
+        "protocol_slow"
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "script": [
+    {
+      "error": {
+        "message": "synthetic auth",
+        "category": "auth",
+        "source": "brain"
+      }
+    }
+  ]
+}

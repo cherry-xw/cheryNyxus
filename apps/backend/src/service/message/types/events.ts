@@ -98,7 +98,7 @@ export type NotificationType =
   | 'notice' // 非终态用户提醒
   | 'replaced' // 感官去重命中：历史 sense 结果被新读取替换
   | 'role_created' // 角色（子 pet）派发（spawn_role sense 执行时推送给主 chat 所属连接）
-  | 'role_destroyed' // 角色销毁（destroy_role sense 执行时推送给主 chat 所属连接，CP6）
+  | 'role_destroyed' // 角色销毁（destroy_role sense 执行时推送给主 chat 所属连接）
   | 'role_reply' // wake=immediate 子完成/策略满足唤主时推（前端 chat.resume 续跑）；deferred/barrier silent 路径不推
   | 'child_abandoned' // 看门狗超时(wake_on_timeout=true)子 agent 被掐断：前端据 childChatId 即时转 ghost（与 role_reply 并列，不唤主不注入历史）
   | 'question_requested' // ask_user_question 旧版逐题事件（兼容历史事件重放）

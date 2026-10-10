@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { fail } from '../../../web/src/services/agentApi'
-import { wsClient, type ConnectionStatus, type RpcResponse } from '../../../web/src/services/ws'
-import { createEmptySession } from '../../../web/src/stores/chats/model/hydration'
-import { reduce } from '../../../web/src/stores/chats/model/reducer'
-import { useChatSessionsStore } from '../../../web/src/stores/chats'
+import { fail } from '../../../../web/src/services/agentApi'
+import { wsClient, type ConnectionStatus, type RpcResponse } from '../../../../web/src/services/ws'
+import { createEmptySession } from '../../../../web/src/stores/chats/model/hydration'
+import { reduce } from '../../../../web/src/stores/chats/model/reducer'
+import { useChatSessionsStore } from '../../../../web/src/stores/chats'
 
 const protocolError = {
   code: 'RATE_LIMITED',

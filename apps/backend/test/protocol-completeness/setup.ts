@@ -21,5 +21,7 @@ cpSync(fixturesDir, testDir, { recursive: true })
 // These values must be installed before any config-dependent production
 // module is imported by a test file.
 process.env.CHERY_DIR = testDir
+process.env.CHERY_ENV_FILE = join(testDir, 'test.env')
+process.env.DB_DIR = join(testDir, '.chery/db')
 process.env.CHERY_MOCK_STRICT = 'true'
 process.env.CHERY_TRANSPORT = 'binary'

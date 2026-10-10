@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Chunk } from '@/service/message/types.js'
 import { Transport } from '@/service/websocket/transport.js'
-import { decodeMessage } from '../../../web/src/services/transport'
+import { decodeMessage } from '../../../../web/src/services/transport'
 
 describe('binary transient stream envelope', () => {
   it('preserves the transient marker without adding a durable cursor', () => {

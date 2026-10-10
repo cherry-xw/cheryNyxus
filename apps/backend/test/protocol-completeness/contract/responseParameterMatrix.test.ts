@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Method, PUBLIC_METHODS } from '@chery/protocol'
+import { Method, PUBLIC_METHODS, QQResponseSchemas, QQDefaultConfig } from '@chery/protocol'
 import { responseSchemas } from '@/service/message/responseSchemas.js'
 
 const runtime = { chatId: 'chat-1', brain: 'brain-1', senseGroup: 'tools', mcpServers: [] }
@@ -111,7 +111,37 @@ const config = {
   llm: { brain: { mock: { model: 'mock-model', provider: 'mock' } } },
 }
 
+const ingressStatus = { id: 'sample', apiVersion: 2, installed: true, enabled: false, savedVersion: '1.0.0', activeVersion: null, state: 'inactive', requiresRestart: true, savedRevision: 0, appliedRevision: null, apply: 'pending', grantedCapabilities: [], dependencies: [] }
+const mutation = { contractVersion: 2, requestId: 'fixture', registryRevision: 0, saved: true, status: ingressStatus }
+const ingressConfig = { contractVersion: 2, id: 'sample', config: {}, baseRevision: 0, apply: { state: 'pending', revision: 0 } }
+const qqConfig = { config: QQDefaultConfig, baseRevision: 0, apply: { state: 'pending', revision: 0 } }
+const responseFor = (method: Method) => responseSchemas[method] ?? QQResponseSchemas[method as keyof typeof QQResponseSchemas]
+
 const validResponses: Record<Method, unknown> = {
+  [Method.INGRESS_LIST]: { contractVersion: 2, hostApiVersion: 2, registryRevision: 0, plugins: [] },
+  [Method.INGRESS_INSTALL]: mutation,
+  [Method.INGRESS_UPGRADE]: mutation,
+  [Method.INGRESS_ENABLE]: mutation,
+  [Method.INGRESS_DISABLE]: mutation,
+  [Method.INGRESS_UNINSTALL]: mutation,
+  [Method.INGRESS_CONFIG_GET]: ingressConfig,
+  [Method.INGRESS_CONFIG_SAVE]: { ...ingressConfig, saved: true },
+  [Method.INGRESS_UI_LIST]: { contractVersion: 2, registryRevision: 0, modules: [] },
+  [Method.INGRESS_UI_READ]: { contractVersion: 2, contentType: 'text/html', contentBase64: '', resourceVersion: '1' },
+  [Method.INGRESS_MANAGEMENT_CALL]: { contractVersion: 2, status: 200, body: { data: {} } },
+  [Method.QQ_PLUGIN_HELLO]: { protocolVersion: 1, backendVersion: '1.0.0', selfId: '12345', authenticated: true, capabilities: [] },
+  [Method.QQ_IDENTITY_BIND]: { bound: true, selfId: '12345', sourceType: 'napcat-action', validation: 'accepted' },
+  [Method.QQ_EVENT_SUBMIT]: { eventId: 'fixture', accepted: true },
+  [Method.QQ_DELIVERY_RESULT]: { eventId: 'fixture', recorded: true },
+  [Method.QQ_REQUEST_RECOVER]: { events: [] },
+  [Method.QQ_CONFIG_GET]: qqConfig,
+  [Method.QQ_CONFIG_SAVE]: { ...qqConfig, saved: true },
+  [Method.QQ_STATUS_GET]: { installed: true, enabled: false, activeVersion: null, savedVersion: '1.0.0', savedRevision: 0, appliedRevision: 0, apply: { state: 'pending', revision: 0 }, napcatConnected: false, trustedIdentity: false, qqOnline: null, paused: true, pausedTargets: 0, reasons: [], channels: { group: { enabled: false }, private: { enabled: false } }, missingBindings: [], missingResources: [] },
+  [Method.QQ_QUEUE_GET]: { entries: [] },
+  [Method.QQ_HISTORY_GET]: { entries: [] },
+  [Method.CHAT_INPUT_WITHDRAW]: { chatId: 'chat', inputId: 'input', clientMessageId: 'client', messageId: 'message', state: 'cancelled', withdrawnAt: 1 },
+  [Method.WORKSPACE_GIT_STATUS]: { chatId: 'chat', branch: 'main', branches: [], dirty: false, files: [] },
+  [Method.WORKSPACE_GIT_CHECKOUT]: { chatId: 'chat', branch: 'main' },
   [Method.BRAIN_LIST]: { brains: [], mcpServers: [] },
   [Method.SENSE_LIST]: { senseGroups: [] },
   [Method.SENSE_TOOLS]: { tools: [] },
@@ -427,17 +457,17 @@ const validResponses: Record<Method, unknown> = {
 const explicitlyEmpty = new Set<Method>([Method.UTILS_OPEN_FILE, Method.UTILS_OPEN_CONFIG_DIR])
 
 describe('public RPC response parameter matrix', () => {
-  it('defines a valid minimal response for all 82 public methods', () => {
+  it('defines a valid minimal response for every public method', () => {
     expect(Object.keys(validResponses).sort()).toEqual([...PUBLIC_METHODS].sort())
   })
 
   it.each(PUBLIC_METHODS)('%s accepts its minimal valid response', (method) => {
-    expect(responseSchemas[method].safeParse(validResponses[method]).success).toBe(true)
+    expect(responseFor(method).safeParse(validResponses[method]).success).toBe(true)
   })
 
   it.each(PUBLIC_METHODS.filter((method) => !explicitlyEmpty.has(method)))(
     '%s rejects a response missing every required field',
-    (method) => expect(responseSchemas[method].safeParse({}).success).toBe(false),
+    (method) => expect(responseFor(method).safeParse({}).success).toBe(false),
   )
 
   it('rejects wrong primitive types in representative response families', () => {

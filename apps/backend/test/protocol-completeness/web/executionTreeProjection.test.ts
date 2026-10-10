@@ -3,8 +3,8 @@ import type {
   ExecutionEdgeFact,
   RootTimelineSnapshot,
   TimelineNode,
-} from '../../../web/src/services/agentApi'
-import { projectPersistentExecutionGraph } from '../../../web/src/features/pets/nyxus/graph/executionGraph'
+} from '../../../../web/src/services/agentApi'
+import { projectPersistentExecutionGraph } from '../../../../web/src/features/pets/nyxus/graph/executionGraph'
 import { buildReferenceCanonicalTimelineTree } from '../graph/referenceExecutionTree'
 
 const rootChatId = 'root-chat'

@@ -134,7 +134,7 @@ export interface ConsumedNotificationData {
 }
 
 /**
- * chat.send/resume loop 结束（done notification data）。CP7。
+ * chat.send/resume loop 结束（done notification data）。
  * contextUsage = 当前 chat 总 token / brain.contextLimit（0-1），前端据实时更新 pet.contextUsage。
  */
 export interface DoneNotificationData {
@@ -264,7 +264,7 @@ export interface RoleReplyNotificationData {
 }
 
 /**
- * 角色销毁（destroy_role sense 执行时推送，CP6）。
+ * 角色销毁（destroy_role sense 执行时推送）。
  * 前端据 chatId 移除对应子 pet 并关闭子 chat UI。
  * requestId 为主 chat id（与 role_created 同路由规则）。
  */

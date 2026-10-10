@@ -1,0 +1,20 @@
+{
+  "script": [
+    {
+      "chunks": [
+        {
+          "thinking": "protocol-thought-1"
+        },
+        {
+          "thinking": "protocol-thought-2"
+        },
+        {
+          "content": "protocol-content-1"
+        },
+        {
+          "content": "protocol-content-2"
+        }
+      ]
+    }
+  ]
+}

@@ -144,6 +144,7 @@ export interface HooksHandlerDTO {
   if?: string
   command: string
   timeout?: number
+  required?: boolean
 }
 
 /** hooks.events 响应：静态事件元数据 */

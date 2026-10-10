@@ -26,7 +26,7 @@ export interface ChatListResponseData {
     messageCount: number
     /**
      * 角色（子 pet）关联主 chat 的 chatId；主 chat 为 null。
-     * 前端据此溯源重建 pet 树（主 chat → 主 pet，子 chat 挂主 pet 附近）。CP1。
+     * 前端据此溯源重建 pet 树（主 chat → 主 pet，子 chat 挂主 pet 附近）。
      */
     parentChatId: string | null
     /** Current immutable runtime epoch; only this epoch may execute. */
@@ -55,11 +55,11 @@ export interface ChatListResponseData {
     workspaceValid?: boolean
     /**
      * 首条 user 消息截断（≤40 字符），供会话列表辨识。"指令"跳过规则待定（默认取首条 user 消息）。
-     * 仅 includePreview=true 时返。CP8。
+     * 仅 includePreview=true 时返。
      */
     preview?: string
     /**
-     * user 角色消息数 = 会话轮次。仅 includePreview=true 时返。CP8。
+     * user 角色消息数 = 会话轮次。仅 includePreview=true 时返。
      */
     turnCount?: number
     /**

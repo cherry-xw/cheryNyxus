@@ -1,7 +1,7 @@
 /**
  * lite profile 发送端投影（MCU 精简 API，Track 1）
  *
- * 契约：docs/shared/architecture/canonical-timeline.md §3.6 + docs/shared/protocol/profiles/mcu-lite.md（v3.1 定稿）。
+ * 契约：docs/shared/architecture/canonical-timeline.md §3.6 + docs/shared/protocol/profiles/mcu-lite.md。
  * 设计红线：
  * - 单一事件产生面（streamMapper 等）不改写；裁剪只发生在发送端三出口
  *   （prepareSessionEvent 主收口 / interaction.changed 广播旁路 / RPC Response 帧）。
@@ -78,7 +78,7 @@ const PASSTHROUGH_NOTIFICATION_TYPES = new Set([
   'role_destroyed',
   'child_abandoned',
   'auto_compacted',
-  'question_batch_requested', // 全量（G4）；2KB 硬保证属 T16 有界负载
+  'question_batch_requested', // 交互信息由字段裁剪与响应预算处理
   'error', // message 含 [tracingId] 前缀原样（F11）
   'question_requested', // 兼容历史重放的轻量事件，透传
   'question_answered',
@@ -285,7 +285,7 @@ function projectNotificationData(
       // §3.4 DoneLeanData：去 contextBreakdown/used/total；finalMessage 截断。
       const projected: UnknownRecord = pick(data, ['canResume', 'finished', 'completedAt'])
       // B-3（§3.9）：done.serverNow 每轮免费时钟校准——事件产生面（streamMapper）不改，
-      // lite 投影层注入（wire 字段已在 DoneLeanData 契约与固件 model.c 消费，T28 补缺）。
+      // lite 投影层注入（wire 字段已在 DoneLeanData 契约与固件 model.c 消费）。
       projected.serverNow = Date.now()
       const fm = asRecord(data.finalMessage)
       if (fm) {
@@ -849,7 +849,7 @@ function projectTimelineSnapshot(
       .sort((a, b) => a.orderKey - b.orderKey)
       .slice(total - cursorLimit)
   }
-  // T30（§3.7 有界负载）：lite 连接按 maxFrameBytes 自动收缩 limit——chat.open 首页
+  // 有界负载：lite 连接按 maxFrameBytes 自动收缩 limit——chat.open 首页
   // 与 timeline.get 在 lite 上天然 ≤maxFrameBytes。从最新端（orderKey 大者）逐节点
   // 按 lean 实际序列化字节数装箱（JSON.stringify 精确口径，非估算），超预算即止；
   // 至少保留 1 节点（进度可见），hasMore/nextCursor 续拉补齐。请求 limit 仍有效（作为上界约束前的页大小）。
@@ -875,17 +875,17 @@ function projectTimelineSnapshot(
   return {
     ...timeline,
     nodes: page,
-    // T30：hasMore 判定用实际下发页 vs total（含字节收缩场景：total ≤ limit 但超 maxFrameBytes）。
+    // ：hasMore 判定用实际下发页 vs total（含字节收缩场景：total ≤ limit 但超 maxFrameBytes）。
     ...(total > page.length ? { nodeCount: total, hasMore: true } : { nodeCount: total }),
     ...nextCursor,
     edges: [], // D7：edges 不投影
-    // activeRuns/pendingInputs/generations 等保留（低频快照，有界负载归 T16）
+    // activeRuns/pendingInputs/generations 等保留（低频快照，仍需核对响应预算）
   }
 }
 
 /**
  * 对 lite 连接应用 RPC Response 帧投影（timeline.get/open 的 LeanTimelineNode 投影，三处共用）。
- * 只做传输层裁剪，不改 handler 响应结构（serverNow/maxItems/node.get 等增强归 T16）。
+ * 只做传输层裁剪，不改 handler 响应结构。
  * @returns 投影后 Response；非 lite 或非目标方法原样返回。
  */
 export function applyLiteResponse(

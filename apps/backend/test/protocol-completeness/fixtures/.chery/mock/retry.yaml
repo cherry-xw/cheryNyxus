@@ -1,0 +1,25 @@
+{
+  "script": [
+    {
+      "attempts": [
+        {
+          "error": {
+            "message": "synthetic network",
+            "category": "network",
+            "source": "brain"
+          }
+        },
+        {
+          "error": {
+            "message": "synthetic timeout",
+            "category": "timeout",
+            "source": "brain"
+          }
+        },
+        {
+          "content": "retry recovered on attempt three"
+        }
+      ]
+    }
+  ]
+}

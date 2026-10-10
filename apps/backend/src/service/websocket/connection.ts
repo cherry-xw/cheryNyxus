@@ -76,6 +76,7 @@ function backgroundControlEvent(
  * 连接状态
  */
 export interface ConnectionState {
+  credentialKind?: string
   id: string
   ws: WebSocket
   pendingRequests: Map<string, PendingRequest>
@@ -87,12 +88,15 @@ export interface ConnectionState {
  * 连接管理器
  */
 export class ConnectionManager {
+  getCredentialKind(id: string): string | undefined {
+    return [...this.connections.values()].find((state) => state.id === id)?.credentialKind
+  }
   private connections = new Map<WebSocket, ConnectionState>()
   private closeListeners = new Set<(connectionId: string) => void>()
   /** chatId → 最近一次启动该 chat run 的 connectionId（仅供 eager spawn 取 fallback ws）。 */
   private activeChatConnections = new Map<string, string>()
   /**
-   * chatId → connectionId：持久 owner 映射（T9 role_reply 唤醒通知用）。
+   * chatId → connectionId：持久 owner 映射（role_reply 唤醒通知用）。
    * bindChatConnection 同步设；releaseChatConnection **不清**（turn 结束仍记 owner，供后端 turn 后推 notification）；
    * 仅 connection.close / chat delete（forceReleaseChatConnection）清。
    */
@@ -207,7 +211,7 @@ export class ConnectionManager {
   }
 
   /**
-   * 持久 owner 反查（T9 role_reply 唤醒通知用）。
+   * 持久 owner 反查（role_reply 唤醒通知用）。
    * 与 findWsByChatId 区别：activeChatConnections turn 结束即释放；chatOwnerConnections 持续到连接关闭/chat 删除。
    * 主 turn 已结束（activeChatConnections 已释放）时仍可据此推送 role_reply notification。
    * @returns owner 所属 ws；未绑定或已断开返回 undefined
@@ -516,7 +520,7 @@ export class ConnectionManager {
         this.activeChatConnections.delete(chatId)
       }
     }
-    // T9：同步清持久 owner（连接关闭 → 该连接 owner 的 chat 不再可达）
+    // 同步清持久 owner（连接关闭 → 该连接 owner 的 chat 不再可达）
     for (const [chatId, owners] of this.chatOwnerConnections) {
       owners.delete(state.id)
       if (owners.size === 0) this.chatOwnerConnections.delete(chatId)

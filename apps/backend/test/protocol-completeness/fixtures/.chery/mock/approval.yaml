@@ -1,0 +1,15 @@
+{
+  "script": [
+    {
+      "senseCalls": [
+        {
+          "name": "write_file",
+          "arguments": "{\"path\": \"{{CHERY_DIR}}/workspace/approval-output.txt\", \"content\": \"approved protocol write\"}"
+        }
+      ]
+    },
+    {
+      "content": "protocol approval completed"
+    }
+  ]
+}

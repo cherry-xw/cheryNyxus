@@ -1,0 +1,15 @@
+{
+  "script": [
+    {
+      "senseCalls": [
+        {
+          "name": "ask_user_question",
+          "arguments": "{\"question\": \"Choose a protocol option\", \"header\": \"Protocol\", \"rationale\": \"One explicit choice is needed.\", \"nextStep\": \"Acknowledge the selected option.\", \"options\": [{\"label\": \"Alpha\"}, {\"label\": \"Beta\"}], \"multiSelect\": false}"
+        }
+      ]
+    },
+    {
+      "content": "question answer acknowledged"
+    }
+  ]
+}

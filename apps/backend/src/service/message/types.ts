@@ -96,6 +96,10 @@ export interface SenseListResponseData {
  * 供发送门控判断「感官组是否有可处理某媒体类型的工具」。
  */
 export interface SenseToolMeta {
+  source?: 'builtin' | 'custom' | 'mcp' | 'plugin'
+  pluginId?: string
+  pluginVersion?: string
+  unavailableReason?: string
   name: string
   label: string
   description: string

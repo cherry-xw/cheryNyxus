@@ -56,7 +56,7 @@ export interface ChatAbortResponseData {
   aborted: boolean
   /** 统一暂停语义：级联暂停的后代 chat 数（主 abort 时递归暂停所有后代）。 */
   cascaded?: number
-  /** Per-target audit result. Present for CP8-aware clients. */
+  /** Per-target audit result. Present for clients of the audit response. */
   results?: ChildControlTargetResult[]
 }
 

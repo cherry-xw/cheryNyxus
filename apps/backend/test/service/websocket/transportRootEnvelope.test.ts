@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Chunk } from '@/service/message/types.js'
 import { Transport } from '@/service/websocket/transport.js'
-import { decodeMessage } from '../../../web/src/services/transport'
-import { WsClient } from '../../../web/src/services/ws'
+import { decodeMessage } from '../../../../web/src/services/transport'
+import { WsClient } from '../../../../web/src/services/ws'
 
 vi.mock('../../../web/src/services/platform', () => ({
   getServerConfig: vi.fn(),

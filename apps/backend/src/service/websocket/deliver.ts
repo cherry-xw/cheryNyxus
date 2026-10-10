@@ -49,7 +49,11 @@ export function deliverToSockets(
       try {
         ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
       } catch (err) {
-        logger.event(failureEvent, { ...failureData, message: (err as Error).message }, failureLevel)
+        logger.event(
+          failureEvent,
+          { ...failureData, message: (err as Error).message },
+          failureLevel,
+        )
       }
     }
   }

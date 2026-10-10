@@ -36,7 +36,7 @@ export interface ChatCreateRequestData {
   senseGroup?: string
   /** 启用的 MCP server 名（绕过 sense_groups，其全部 tools 合并进 schema）。缺省 []。 */
   mcpServers?: string[]
-  /** 角色（子 pet）关联主 chat 的 chatId；主 chat 不携带（DB 存 NULL）。主从 Agent 桌宠系统 CP1。 */
+  /** 角色（子 pet）关联主 chat 的 chatId；主 chat 不携带（DB 存 NULL）。主从 Agent 桌宠系统。 */
   parentChatId?: string
   /**
    * 空白复用检查开关（默认 false = 启用检查）：仅预设路径 + 主 chat + 未显式指定 chatId 时生效。
@@ -575,7 +575,7 @@ export interface ChatAbortRequestData {
   chatId: string
   /** 仅中止该运行；与当前 active run 不一致时返回 CONFLICT，防止旧页面误杀新一轮。 */
   runId?: string
-  /** Optional idempotency key used by the CP8 global pause command. */
+  /** Optional idempotency key used by the global pause command. */
   commandId?: string
 }
 
