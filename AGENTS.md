@@ -1,5 +1,20 @@
 # 项目统一入口
 
+## 项目统一命名（强制）
+
+**项目名称是 `cheryNyxus`。严禁出现任何其他项目名字。此项是必须遵守的最基础项目命名规范，优先于历史实现、旧文档和个人习惯。**
+
+**任何项目名称使用错误、大小写错误或拼写错误都严禁出现，都是不可接受、极其错误的行为。发现后必须立刻改正，立刻删除错误名称，并强制反思为什么会用错名字：查明错误来源、遗漏的检查以及防止再次发生的措施。不得只道歉、不改正，或以“兼容”为理由继续采用错误项目名称。**
+
+- 本项目唯一正式名称为 `cheryNyxus`，大小写必须保持一致。所有项目自有的运行层、控制面、扩展宿主、业务模块、适配器、协议、界面、配置及文档描述必须遵守这一规范。
+- NapCat 侧插件必须遵守 NapCat 技术规范：包名和加载 ID统一为 `napcat-plugin-cherynyxus`，用户可见名称为 `NapCat Plugin Chery Nyxus`。后端运行服务及其 QQ 业务模块按职责命名，不以 NapCat 插件 ID代替逻辑职责名称。
+- 推荐职责命名为：运行层 `cheryNyxus-runtime`、控制面 `cheryNyxus-control`、扩展宿主 `cheryNyxus-extension-host`、QQ 业务模块 `cheryNyxus-qq-module`、NapCat 适配器 `cheryNyxus-qq-adapter-napcat`、QQ 协议 `cheryNyxus-qq-protocol`、QQ 连接凭据 `cheryNyxus-qq-connection-token`。这些逻辑名称不能覆盖 NapCat 的技术 ID规则。
+- QQ、NapCatQQ、Backend、Manager 等第三方名称或职责术语不是项目别名；不得为了统一项目名称而篡改其含义。
+- 历史项目名称只能在明确标注的现状清单或迁移映射中用于定位，不能作为正式项目名称继续使用。NapCat 插件也必须使用 `napcat-plugin-cherynyxus`，不得保留旧名称作为技术 ID。
+- 通用组件重命名必须同步检查包 ID、注册表、协议权限、路由、配置与数据目录、构建部署及测试。NapCat 插件必须同步修改加载器允许列表、启用配置、部署目录和路由。保留登录数据、凭据、队列和持久化配置，不保留旧项目名称。
+- 架构与命名整理入口：[后端与插件架构及命名](docs/shared/architecture/cheryNyxus-components.md)。其中待确认事项不能直接当作已实施事实。
+
+
 ## 动手前必须理解目标（强制，严禁跳过）
 
 **没有分析清楚需求的目的、目标和验收条件之前，禁止修改代码。严禁看到一句要求就凭第一反应猜测做法、立即执行，再让用户通过反复纠错补齐分析。反复违背已经明确的要求，造成返工和资源浪费，是不可接受的执行失误。**
@@ -59,6 +74,10 @@
 
 ## 通用文档执行基线
 
+所有文档和代码注释均描述当前状态，不得记录任何 AI 历史修改记录。更新当前状态描述不得将尚未确认的实现偏差写成新的业务规则。
+  --比如某次开发工作临时规划了phase1到phase5阶段，那么任何文档不允许记录phase1-phase5相关字段描述，只需要按照代码和项目现状更新文档内容即可。
+  --比如某次开发需求A决策是当前项目现状，B决策是这次开发任务新的决策，且A决策作废，那么文档记录就不能留下A决策的历史，只需要记录这次新的决策B。
+
 以下基线在开始任务时适用。通用规则包位于 [docs/standards/documentation/](docs/standards/documentation/README.md)。
 
 - 相关操作开始前按下表读取规范，并根据项目路由读取目标领域或模块文档；不得在任务结束后才补读。已读取且未变化的内容无需重复读取。
@@ -78,14 +97,14 @@
 | 给其他项目采用本方案 | [采用指南](docs/standards/documentation/adoption-guide.md)及[入口模板](docs/standards/documentation/entry-template.md) |
 | 老项目没有文档，或现有文档无法可靠定位 | [存量项目梳理指南](docs/standards/documentation/existing-project-guide.md) |
 
-## 项目配置：CheryClaw
+## 项目配置：cheryNyxus
 
 以下稳定路由由本区维护，领域变化时同步文档总索引。直接进入目标 README；范围不明时读取 [docs/README.md](docs/README.md)，无需先枚举目录。
 
 | 任务范围 | 文档入口 |
 | --- | --- |
-| `src/` 中的 Agent、Core、数据库、记忆、服务与工具 | [`docs/backend/`](docs/backend/README.md) |
-| `web/`、工作台、设置与桌宠 | [`docs/frontend/`](docs/frontend/README.md) |
+| `apps/backend/src/` 中的 Agent、Core、数据库、记忆、服务与工具 | [`docs/backend/`](docs/backend/README.md) |
+| `apps/web/`、工作台、设置与桌宠 | [`docs/frontend/`](docs/frontend/README.md) |
 | 前后端共同遵守的架构、协议、状态机与数据模型 | [`docs/shared/`](docs/shared/README.md) |
 | 测试基线、流程测试、测试工具与验证边界 | [`docs/quality/`](docs/quality/README.md) |
 | 面向开发者和维护者的操作步骤 | [`docs/guides/`](docs/guides/README.md) |
