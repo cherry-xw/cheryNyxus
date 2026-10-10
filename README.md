@@ -60,10 +60,10 @@ CheryNyxus 采用拟人化隐喻设计：
 
 | 文档 | 内容 |
 |------|------|
-| [协议规范](docs/protocol.md) | 传输格式、消息结构、字段定义、方法列表、错误处理 |
-| [交互流程示例](docs/interaction.md) | 各方法完整消息序列、端到端流程、错误路径 |
-| [主从 Agent 桌宠系统](docs/agent-pet.md) | pet↔chat 绑定、spawn_subagent 前端驱动、CP0-CP7 分阶段实施（已全部落地） |
-| [Mock Provider](docs/mock.md) | 脚本化 LLM 离线测试（send/resume/revoke/loop 流程验证） |
+| [协议规范](docs/shared/protocol/README.md) | 传输格式、消息结构、字段定义、方法列表、错误处理 |
+| [交互流程示例](docs/shared/protocol/interactions.md) | 各方法完整消息序列、端到端流程、错误路径 |
+| [主从 Agent 桌宠系统](docs/frontend/pet/README.md) | pet↔chat 绑定、spawn_subagent 前端驱动、CP0-CP7 分阶段实施（已全部落地） |
+| [Mock Provider](docs/quality/testing/mock-provider.md) | 脚本化 LLM 离线测试（send/resume/revoke/loop 流程验证） |
 
 **模块文档**（按源码模块组织的实现细节，AI 知识地图）：
 
