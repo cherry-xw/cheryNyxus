@@ -1,24 +1,24 @@
 # Middleware（洋葱模型与单 Chat 执行器）
 
-> 源码 [src/core/middleware/](../../../src/core/middleware/) ｜ 上级 [core/README.md](README.md) ｜ 相关 [sense.md](sense.md)、[message.md](message.md)、[interaction.md](../../shared/protocol/interactions.md)
+> 源码 [apps/backend/src/core/middleware/](../../../apps/backend/src/core/middleware) ｜ 上级 [core/README.md](README.md) ｜ 相关 [sense.md](sense.md)、[message.md](message.md)、[interaction.md](../../shared/protocol/interactions.md)
 
 ## 职责
 
 `core/middleware/` 是 Agent 执行链的核心：把多个中间件按洋葱模型组合成一条 generator 链，再由 `AgentSession` 门面承载**单个 chat 的执行会话**。会话内部组合 `MiddlewarePipeline`（链执行/abort/运行态）与 `MessageJournal`（消息历史、输入队列、撤回、resume 判定），对外暴露 `init` / `configureRuntime` / `send` / `abort` / `revokeTrailingCycle` 等门面方法。
 
-它是洋葱模型的引擎，但**不定义中间件的具体行为**——`checkpointMiddleware`、`senseMiddleware`、`retryMiddleware`、`chatMiddleware`、`loopHandler` 都在 [`agent/middleware/`](../../../src/agent/middleware/) 实现，通过 `AgentSession` 构造参数注入。core 只定义契约（`MiddlewareHandler` / `LoopHandler` / `MiddlewareContext` / 全部 Chunk 类型）和组合机制（`compose`）。
+它是洋葱模型的引擎，但**不定义中间件的具体行为**——`checkpointMiddleware`、`senseMiddleware`、`retryMiddleware`、`chatMiddleware`、`loopHandler` 都在 [`agent/middleware/`](../../../apps/backend/src/agent/middleware) 实现，通过 `AgentSession` 构造参数注入。core 只定义契约（`MiddlewareHandler` / `LoopHandler` / `MiddlewareContext` / 全部 Chunk 类型）和组合机制（`compose`）。
 
 ## 文件清单
 
 | 文件 | 职责 |
 |------|------|
-| [compose.ts](../../../src/core/middleware/compose.ts) | `compose()` 组合器、`ComposedMiddleware`（`run` 启动链 / `abort` 注入错误退出） |
-| [middlewarePipeline.ts](../../../src/core/middleware/middlewarePipeline.ts) | `MiddlewarePipeline`：封装 compose/run/abort 与运行态 |
-| [messageJournal.ts](../../../src/core/middleware/messageJournal.ts) | `MessageJournal`：集中 messages/userInputs/revoke/pending/resume 等消息周期规则 |
-| [types.ts](../../../src/core/middleware/types.ts) | `MiddlewareContext`、`SoulGroup`、`RuntimeConfig`、全部 Chunk 类型、`MiddlewareHandler` / `LoopHandler` |
-| [index.ts](../../../src/core/middleware/index.ts) | `AgentSession` 类（默认导出，单 chat 绑定，组合 Pipeline + Journal 的门面） |
+| [compose.ts](../../../apps/backend/src/core/middleware/compose.ts) | `compose()` 组合器、`ComposedMiddleware`（`run` 启动链 / `abort` 注入错误退出） |
+| [middlewarePipeline.ts](../../../apps/backend/src/core/middleware/middlewarePipeline.ts) | `MiddlewarePipeline`：封装 compose/run/abort 与运行态 |
+| [messageJournal.ts](../../../apps/backend/src/core/middleware/messageJournal.ts) | `MessageJournal`：集中 messages/userInputs/revoke/pending/resume 等消息周期规则 |
+| [types.ts](../../../apps/backend/src/core/middleware/types.ts) | `MiddlewareContext`、`SoulGroup`、`RuntimeConfig`、全部 Chunk 类型、`MiddlewareHandler` / `LoopHandler` |
+| [index.ts](../../../apps/backend/src/core/middleware/index.ts) | `AgentSession` 类（默认导出，单 chat 绑定，组合 Pipeline + Journal 的门面） |
 
-> ⚠ CLAUDE.md 旧描述提到「`chatMap` / `createChat` / `send`」顶层导出，**真实代码不存在**。Chat 多路复用与缓存发生在 [`service/chat/`](../../../src/service/chat/)；core 层的 `AgentSession` 是**单 chat** 的，service 层为每个 chatId 创建独立实例。
+> ⚠ CLAUDE.md 旧描述提到「`chatMap` / `createChat` / `send`」顶层导出，**真实代码不存在**。Chat 多路复用与缓存发生在 [`service/chat/`](../../../apps/backend/src/service/chat)；core 层的 `AgentSession` 是**单 chat** 的，service 层为每个 chatId 创建独立实例。
 
 ## 核心概念 / 导出
 
@@ -74,8 +74,8 @@ export interface MiddlewareContext {
 | `soul` | `userInputs: UserInputEntry[]` | `send()` 入队，checkpoint 消费；容量上限 16，超限丢最早（背压） |
 | `soul` | `messages?: LLMResponse[]` | 内存对话历史，`init()` 注入、checkpoint 追加、`buildMessages` 时过滤 `revoked` |
 | `soul` | `resumePending?: boolean` | `chat.resume` Case1 标志，首轮 senseMiddleware 检测后 skip chat 层 |
-| `global` | `thinking / supervision / stream / maxLoopCount` | 来自 [`config.global`](../../../src/utils/config.ts)，构造时注入 |
-| `runtime` | `brain / adapters / builtSenses / senseTable` | [`AgentBuilder.configureRuntime`](../../../src/agent/builder.ts) 每轮原子注入 |
+| `global` | `thinking / supervision / stream / maxLoopCount` | 来自 [`config.global`](../../../apps/backend/src/utils/config.ts)，构造时注入 |
+| `runtime` | `brain / adapters / builtSenses / senseTable` | [`AgentBuilder.configureRuntime`](../../../apps/backend/src/agent/builder.ts) 每轮原子注入 |
 | `log` | `logger` | AgentSession 构造时注入，供中间件写结构化日志 |
 | `journal` | `MessageJournal` | AgentSession 构造时注入，集中 messages/userInputs 的所有写操作 |
 
@@ -94,7 +94,7 @@ export interface RuntimeConfig {
 
 ### Chunk 类型（中间件 yield 的数据单元）
 
-`MiddlewareChunk` 是以下 13 种的联合（详见 [types.ts](../../../src/core/middleware/types.ts)）：
+`MiddlewareChunk` 是以下 13 种的联合（详见 [types.ts](../../../apps/backend/src/core/middleware/types.ts)）：
 
 | Chunk | 触发层 | 用途 |
 |------|------|------|
@@ -114,7 +114,7 @@ export interface RuntimeConfig {
 
 > **P1-11 解耦设计**：`SenseTriggerChunk` / `SensePendingChunk` **不再携带 `approvalResolve` 函数指针**，审批 Promise 改由 [`core/sense/approvalRegistry`](sense.md) 管理。chunk 只产 `{approvalId, supervisionLevel, needsApproval}` 事实，service `ApprovalManager` 经 `resolveApproval/rejectApproval` 触发对应 Promise。core↔service 分层由此干净。
 
-> **T9 多级 spawn 设计**：`ChildYieldChunk` 与 `ChildDoneChunk` 区分子 agent 的"本轮暂停"与"真正完成"。子 agent spawn 孙 agent（wait=true）后 yield turn，loop 结束时 yield `ChildYieldChunk`（不唤醒主，不设 finished）；孙 agent 完成后子 agent resume 继续运行，真正完成时 yield `ChildDoneChunk`（唤醒主，设 finished）。详见 [agent-pet.md](../../shared/architecture/agent-orchestration.md)。
+> **多级子角色运行**：`ChildYieldChunk` 与 `ChildDoneChunk` 区分子 agent 的"本轮暂停"与"真正完成"。子 agent spawn 孙 agent（wait=true）后 yield turn，loop 结束时 yield `ChildYieldChunk`（不唤醒主，不设 finished）；孙 agent 完成后子 agent resume 继续运行，真正完成时 yield `ChildDoneChunk`（唤醒主，设 finished）。详见 [agent-pet.md](../../shared/architecture/agent-orchestration.md)。
 
 ### AgentSession 类（门面 + 状态机）
 
@@ -164,7 +164,7 @@ send(input)                      ── agent/builder.ts 门面转发 ──
             service observer 消费 effect chunk → 落库 / 注册审批
 ```
 
-### compose catch 的错误处理（[compose.ts](../../../src/core/middleware/compose.ts) `executeChain`）
+### compose catch 的错误处理（[compose.ts](../../../apps/backend/src/core/middleware/compose.ts) `executeChain`）
 
 洋葱链 `executeChain` 的 catch 块对错误分类处理，按 [错误信息分层规范](../../shared/protocol/errors.md)：
 
@@ -205,18 +205,18 @@ send(input):
 
 - **依赖**：
   - 类型：[`LLMResponse`](message.md)（`core/message/adapter`）、[`LLMAdapter`](llm.md)、[`SenseAdapter` / `SenseCallData` / `SenseFunction`](sense.md)、[`SenseResult` / `SenseSharedData`](sense.md)（`core/sense/senseCreator`）、[`SupervisionLevel`](README.md#supervisionlevel-枚举)（`core/config`）。
-  - 配置类型：[`GlobalConfig` / `BrainConfig`](../../../src/utils/config.ts)。
-  - 工具：[`utils/logger`](../../../src/utils/logger/index.ts)（背压告警）。
+  - 配置类型：[`GlobalConfig` / `BrainConfig`](../../../apps/backend/src/utils/config.ts)。
+  - 工具：[`utils/logger`](../../../apps/backend/src/utils/logger/index.ts)（背压告警）。
 - **被依赖**：
-  - [`agent/middleware/index.ts`](../../../src/agent/middleware/index.ts) —— `defaultHandlers` / `createLoopHandler` 注入。
-  - [`agent/builder.ts`](../../../src/agent/builder.ts) —— `new AgentSession(...)` 构造，并把 `AgentBuilder` 全部门面方法转发给 `AgentSession` 实例。
-  - [`agent/middleware/{checkpoint,sense,retry,chat,loop,checkpointState}.ts`](../../../src/agent/middleware/) —— 实现各 `MiddlewareHandler`，依赖 `types.ts` 的 Context/Chunk。
-  - [`service/chat/`](../../../src/service/chat/) —— 经 `AgentBuilder` 间接驱动；observer 消费 effect chunk 落库 / 注册审批。
+  - [`agent/middleware/index.ts`](../../../apps/backend/src/agent/middleware/index.ts) —— `defaultHandlers` / `createLoopHandler` 注入。
+  - [`agent/builder.ts`](../../../apps/backend/src/agent/builder.ts) —— `new AgentSession(...)` 构造，并把 `AgentBuilder` 全部门面方法转发给 `AgentSession` 实例。
+  - [`agent/middleware/{checkpoint,sense,retry,chat,loop,checkpointState}.ts`](../../../apps/backend/src/agent/middleware) —— 实现各 `MiddlewareHandler`，依赖 `types.ts` 的 Context/Chunk。
+  - [`service/chat/`](../../../apps/backend/src/service/chat) —— 经 `AgentBuilder` 间接驱动；observer 消费 effect chunk 落库 / 注册审批。
 - **横切参考**：[interaction.md](../../shared/protocol/interactions.md)（send/resume/revoke 状态机完整语义）、[protocol.md](../../shared/protocol/websocket.md)（Chunk → wire chunk 映射）、[db.md](../db/README.md)（`revoked` 与 message 落库）。
 
 ## 扩展点：加中间件
 
-1. 在 `src/agent/middleware/<name>.ts` 实现 `MiddlewareHandler`（签名见上）。
-2. 决定洋葱层级（`next()` 调用前后做什么），在 [`agent/middleware/index.ts`](../../../src/agent/middleware/index.ts) 的 `defaultHandlers` 数组中按序插入——数组顺序即洋葱外→内顺序。
+1. 在 `apps/backend/src/agent/middleware/<name>.ts` 实现 `MiddlewareHandler`（签名见上）。
+2. 决定洋葱层级（`next()` 调用前后做什么），在 [`agent/middleware/index.ts`](../../../apps/backend/src/agent/middleware/index.ts) 的 `defaultHandlers` 数组中按序插入——数组顺序即洋葱外→内顺序。
 3. 若需在 loop 外层加策略（如自定义收敛条件），实现 `LoopHandler` 并传给 `AgentSession` 构造的第三参数（默认走 `createLoopHandler(maxLoopCount)`）。
 4. core/ 本身无需改动——`compose` / `MiddlewarePipeline` / `AgentSession` 与具体 handler 无关。

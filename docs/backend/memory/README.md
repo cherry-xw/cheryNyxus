@@ -39,11 +39,11 @@
 
 | 文件 | 职责 |
 |------|------|
-| `src/memory/types.ts` | 类型定义：Memory / HistoryEntry / Frontmatter / IndexEntry；导出 `MemoryScope` |
-| `src/memory/path.ts` | 路径计算：scope=global → `.chery/memory/`；scope=workspace + workspace → `.chery/workspace/<hash>/memory/`；scope=workspace + 无 → 抛错 |
-| `src/memory/store.ts` | MD 文件读写：frontmatter 解析/序列化 + main.md 索引 + 平铺 *.md + history/ 归档 |
-| `src/memory/manager.ts` | 业务逻辑：add/remove/update/list/history + 按 scope 独立限制淘汰 |
-| `src/memory/index.ts` | 统一导出（含 `MemoryScope` 类型） |
+| `apps/backend/src/memory/types.ts` | 类型定义：Memory / HistoryEntry / Frontmatter / IndexEntry；导出 `MemoryScope` |
+| `apps/backend/src/memory/path.ts` | 路径计算：scope=global → `.chery/memory/`；scope=workspace + workspace → `.chery/workspace/<hash>/memory/`；scope=workspace + 无 → 抛错 |
+| `apps/backend/src/memory/store.ts` | MD 文件读写：frontmatter 解析/序列化 + main.md 索引 + 平铺 *.md + history/ 归档 |
+| `apps/backend/src/memory/manager.ts` | 业务逻辑：add/remove/update/list/history + 按 scope 独立限制淘汰 |
+| `apps/backend/src/memory/index.ts` | 统一导出（含 `MemoryScope` 类型） |
 
 ## 存储结构
 
@@ -172,7 +172,7 @@ memory:
 
 ### memory_manage sense
 
-`src/agent/sense/memory.ts` — 主 agent 硬编码注入的 sense 工具。
+`apps/backend/src/agent/sense/memory.ts` — 主 agent 硬编码注入的 sense 工具。
 
 **必填参数：** `scope: "global" | "workspace"`（AI 显式选择写入层）。
 
@@ -252,10 +252,10 @@ memory:
 
 | 职责 | 触发 | 实现 |
 |------|------|------|
-| **Extract**（每轮提取） | 主 agent 一轮 done 后（observer 自然结束） | `src/service/chat/extractTrigger.ts` → `runMaintenanceChat`（子 chat, wake=deferred 不唤主） |
-| **Dream**（定期整理） | 「维护」预设 `schedule.cron` 到点 | `src/service/schedule/scheduler.ts` Cron → `runMaintenanceChat`（独立主 chat） |
+| **Extract**（提取任务） | 当前未发现对话完成后的自动触发接线 | 维护角色的提取指令见 [curator](../agent/curator.md)，自动触发需求待确认 |
+| **Dream**（定期整理） | 「维护」预设 `schedule.cron` 到点 | `apps/backend/src/service/schedule/scheduler.ts` Cron → `runMaintenanceChat`（独立主 chat） |
 
-curator 通过 `memory_manage` sense 写记忆（路径由 sense 内部 scope 参数收敛，无需 Cherry Nexus 的 config_manage 权限）。角色 prompt 见 [.chery.template/prompt/curator/curator.md](../../../.chery.template/prompt/curator/curator.md)；角色文档见 [docs/backend/agent/curator.md](../agent/curator.md)。
+curator 通过 `memory_manage` sense 写记忆（路径由 sense 内部 scope 参数收敛，无需 cheryNyxus 的 config_manage 权限）。角色 prompt 见 [.chery.template/prompt/curator/curator.md](../../../.chery.template/prompt/curator/curator.md)；角色文档见 [docs/backend/agent/curator.md](../agent/curator.md)。
 
 **互斥**：curator Extract prompt 指示「主 agent 本轮已写记忆则跳过」+ 调 `memory_manage list` 比对 manifest 判断重复。
 
@@ -263,7 +263,7 @@ curator 通过 `memory_manage` sense 写记忆（路径由 sense 内部 scope �
 
 ## 定时触发器（preset.schedule）
 
-`PresetConfig.schedule` 字段（见 [src/utils/config.ts](../../../src/utils/config.ts)）：
+`PresetConfig.schedule` 字段（见 [apps/backend/src/utils/config.ts](../../../apps/backend/src/utils/config.ts)）：
 
 ```yaml
 presets:
@@ -277,7 +277,7 @@ presets:
       enabled: true          # [可选] 缺省 true
 ```
 
-后端 cron scheduler（`src/service/schedule/scheduler.ts`，依赖 `croner`）在 `startService` 期注册：遍历 `config.presets`，对 `schedule.enabled !== false` 的预设 `new Cron(cron, triggerMaintenance)`。到点 `resolvePresetSelection` 取 leader 编制 → `runMaintenanceChat` 创建独立维护 chat 后台跑 task。
+后端 cron scheduler（`apps/backend/src/service/schedule/scheduler.ts`，依赖 `croner`）在 `startService` 期注册：遍历 `config.presets`，对 `schedule.enabled !== false` 的预设 `new Cron(cron, triggerMaintenance)`。到点 `resolvePresetSelection` 取 leader 编制 → `runMaintenanceChat` 创建独立维护 chat 后台跑 task。
 
 **生命周期**：进程重启后 `startScheduleService` 重建；`ServiceHandle.stopSchedule()` 停止所有 cron 任务（测试/关闭用）。
 
@@ -285,11 +285,11 @@ presets:
 
 | 方向 | 模块 | 关系 |
 |------|------|------|
-| 依赖 | `src/utils/config.ts` | 读取 `config.memory.global.{max_count,max_chars}` + `config.memory.workspace.{max_count,max_chars}` + `config.global.memory_dir` |
-| 依赖 | `src/db/chat.ts` | `getChatWorkspace(chatId)` 获取 workspace 路径（仅 `scope="workspace"` 时使用） |
-| 被依赖 | `src/agent/sense/memory.ts` | memory_manage sense 调用管理器函数（强制带 scope） |
-| 被依赖 | `src/agent/prompt/index.ts` | 同时调用 `readMemoryIndexContent(undefined, "global")` 与 `readMemoryIndexContent(workspace, "workspace")` |
-| 被依赖 | `src/agent/runtimeResolver.ts` | 硬编码注入 memory_manage 到主 agent senseTable |
+| 依赖 | `apps/backend/src/utils/config.ts` | 读取 `config.memory.global.{max_count,max_chars}` + `config.memory.workspace.{max_count,max_chars}` + `config.global.memory_dir` |
+| 依赖 | `apps/backend/src/db/chat.ts` | `getChatWorkspace(chatId)` 获取 workspace 路径（仅 `scope="workspace"` 时使用） |
+| 被依赖 | `apps/backend/src/agent/sense/memory.ts` | memory_manage sense 调用管理器函数（强制带 scope） |
+| 被依赖 | `apps/backend/src/agent/prompt/index.ts` | 同时调用 `readMemoryIndexContent(undefined, "global")` 与 `readMemoryIndexContent(workspace, "workspace")` |
+| 被依赖 | `apps/backend/src/agent/runtimeResolver.ts` | 硬编码注入 memory_manage 到主 agent senseTable |
 
 ## 扩展点
 

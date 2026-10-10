@@ -1,6 +1,6 @@
 # HTTP 服务模块
 
-> 源码 [src/service/http/index.ts](../../../src/service/http/index.ts) ｜ 上级 [service/README.md](README.md) ｜ 相关 [../protocol.md](../../shared/protocol/websocket.md)「HTTP API」、[./websocket.md](websocket.md)
+> 源码 [apps/backend/src/service/http/index.ts](../../../apps/backend/src/service/http/index.ts) ｜ 上级 [service/README.md](README.md) ｜ 相关 [../protocol.md](../../shared/protocol/websocket.md)「HTTP API」、[./websocket.md](websocket.md)
 
 ## 职责
 
@@ -9,8 +9,8 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 - `GET /api/config` → 本地返回旧端口字段以及 `httpBaseUrl`、`wsUrl`、`httpPath`、`wsPath`；远程专用入口只返回 `remote`、路径和传输格式，不泄露 loopback 端口
 - `GET /api/auth/capabilities` → 返回非敏感的 `{password}` 后端密码登录能力；Pocket ID/OIDC 由公共中转负责
 - `POST /api/media/upload` / `GET /api/media/:filename` → 上传和读取 `.chery/media/` 下的受控媒体资产
-- 其余路径 → 默认静态 serve 前端构建产物(`web/dist/`),SPA fallback 到 `index.html`
-- `server.serve_frontend=false` 或 `web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
+- 其余路径 → 默认静态 serve 前端构建产物(`apps/web/dist/`),SPA fallback 到 `index.html`
+- `server.serve_frontend=false` 或 `apps/web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
 
 本地服务端口由 `config.server.webPort`（默认 8183）和 `config.server.port`（默认 8182）配置；可选的
 `config.server.remote` 会额外创建两个仅绑定 `127.0.0.1` 的远程专用入口，端口为 `0` 时由系统动态分配。
@@ -28,7 +28,7 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 
 `server.serve_frontend`（默认 `true`）+ 可选 `server.static_dir_override` 控制 HTTP 服务是否同时托管前端 SPA。典型场景：
 
-- **开发产物已构建**（`pnpm web:build` 输出 `web/dist/`）：`serve_frontend: true`（默认）+ 不设 `static_dir_override` → HTTP 服务 serve `web/dist/`，SPA fallback 到 `index.html`
+- **开发产物已构建**（`pnpm web:build` 输出 `apps/web/dist/`）：`serve_frontend: true`（默认）+ 不设 `static_dir_override` → HTTP 服务 serve `apps/web/dist/`，SPA fallback 到 `index.html`
 - **反向代理（nginx/caddy）已托管 SPA**：`serve_frontend: false` → HTTP 服务仅 serve `/api/*`；其他路径返回 JSON 404
 - **独立部署把 `dist/` 拷到 `/opt/chery/dist`**：`serve_frontend: true` + `static_dir_override: /opt/chery/dist` → HTTP 服务 serve 该目录
 - **容器/CI 一键脚本**：`serve_frontend: true` + 不设 `static_dir_override`，但设环境变量 `WEB_DIST_DIR=/path` → worker 读取 env，覆盖默认
@@ -41,7 +41,7 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 
 | 文件 | 一句话 |
 |------|--------|
-| [src/service/http/index.ts](../../../src/service/http/index.ts) | `createHttpServer({webPort, staticDir})`:http.createServer + /api/config + 静态 serve + SPA fallback |
+| [apps/backend/src/service/http/index.ts](../../../apps/backend/src/service/http/index.ts) | `createHttpServer({webPort, staticDir})`:http.createServer + /api/config + 静态 serve + SPA fallback |
 
 ## 核心导出
 
@@ -53,7 +53,7 @@ export interface CreateHttpServerOptions {
 export function createHttpServer(options: CreateHttpServerOptions): Server;
 ```
 
-返回 `http.Server`,供 [src/index.ts](../../../src/index.ts) 优雅关闭(`httpServer.close()`)。
+返回 `http.Server`,供 [apps/backend/src/index.ts](../../../apps/backend/src/index.ts) 优雅关闭(`httpServer.close()`)。
 
 ## 关键流程
 
@@ -86,14 +86,14 @@ MIME 映射:自写 `Record<string, string>`(html/js/css/json/svg/png/...),无新
 
 `/api/*`（`/api/config`、`/api/media/upload`、`/api/media/:filename`、`/api/auth/me` 等）在浏览器本地模式走同源相对路径；已选远端目标则经认证状态中的服务地址构造请求 URL。
 
-前端统一用 [platform.ts](../../../web/src/services/platform.ts) 的 `httpUrl(path)` 与 `getServerConfig()`；浏览器和后端通过同源部署避免跨域配置请求。
+前端统一用 [platform.ts](../../../apps/web/src/services/platform.ts) 的 `httpUrl(path)` 与 `getServerConfig()`；浏览器和后端通过同源部署避免跨域配置请求。
 
-HTTP 请求使用 `httpUrl()`；WebSocket 配置由 [ws.ts](../../../web/src/services/ws.ts) 调用 `getServerConfig()` 并构造地址。详情见[浏览器连接](../../frontend/env.md)。
+HTTP 请求使用 `httpUrl()`；WebSocket 配置由 [ws.ts](../../../apps/web/src/services/ws.ts) 调用 `getServerConfig()` 并构造地址。详情见[浏览器连接](../../frontend/env.md)。
 
 ## 依赖与关联 ⭐
 
-- **依赖**:`config`(`config.server` 读端口 + transport,见 [utils/config.ts](../../../src/utils/config.ts))、`logger`(启动 + 错误日志,见 [utils/logger.md](../utils/logger.md))。无第三方 dep(纯 `node:http` + `node:fs`)。
-- **被依赖**:仅 [src/service/index.ts](../../../src/service/index.ts) `startService` 调用,与 `createWebSocketServer` 同进程启动。
+- **依赖**:`config`(`config.server` 读端口 + transport,见 [utils/config.ts](../../../apps/backend/src/utils/config.ts))、`logger`(启动 + 错误日志,见 [utils/logger.md](../utils/logger.md))。无第三方 dep(纯 `node:http` + `node:fs`)。
+- **被依赖**:仅 [apps/backend/src/service/index.ts](../../../apps/backend/src/service/index.ts) `startService` 调用,与 `createWebSocketServer` 同进程启动。
 - **协议规范**:[../protocol.md](../../shared/protocol/websocket.md)「HTTP API」段定义 `/api/config` 响应结构。
 - **关联模式**:[部署说明](../../frontend/deployment.md)解释浏览器、独立后端与 relay 的边界。
 
@@ -102,4 +102,4 @@ HTTP 请求使用 `httpUrl()`；WebSocket 配置由 [ws.ts](../../../web/src/ser
 - **CORS**:当前浏览器同源请求不带跨域头；如需跨域访问 `/api/config`，须先明确认证与跨域边界。
 - **mime 扩展**:`MIME` map 加新扩展名。
 - **SPA fallback**:`createWebHashHistory` 下所有未知路径回 `index.html`;若改 `createWebHistory` 需保证 fallback 覆盖所有路由。
-- **静态目录来源**:`startService` 调用方决定 `staticDir`([src/index.ts](../../../src/index.ts) 默认 `../web/dist`,或 `WEB_DIST_DIR` env 覆盖,打包时由 Electron main 注入)。
+- **静态目录来源**:`startService` 调用方决定 `staticDir`([apps/backend/src/index.ts](../../../apps/backend/src/index.ts) 默认 `../web/dist`,或 `WEB_DIST_DIR` env 覆盖,打包时由 Electron main 注入)。

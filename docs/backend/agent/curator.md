@@ -21,8 +21,8 @@
 - **唯一操作对象**：项目记忆（双层 `.chery/memory/` + `.chery/workspace/<hash>/memory/`）
 - **唯一写入口**：`memory_manage` 感官（带 scope）；不直接 `write_file` 落盘记忆文件，保证 frontmatter / 索引 / 淘汰元数据一致
 - **只读辅助**：`read_file` / `search_codebase`（仅 Dream 阶段核查矛盾）
-- **不碰** `.chery/config.yaml` / skills / hooks（Cherry Nexus 职责）
-- `memory_manage` sense 主 agent 硬编码注入（[runtimeResolver.ts:206-214](../../../src/agent/runtimeResolver.ts#L206)），curator 作为子 agent 通过 senseGroup 显式列 `memory_manage` 获取——无需改 runtimeResolver
+- **不碰** `.chery/config.yaml` / skills / hooks（cheryNyxus 职责）
+- `memory_manage` sense 主 agent 硬编码注入（[runtimeResolver.ts:206-214](../../../apps/backend/src/agent/runtimeResolver.ts#L206)），curator 作为子 agent 通过 senseGroup 显式列 `memory_manage` 获取——无需改 runtimeResolver
 
 ## Extract 流程
 
@@ -48,18 +48,16 @@
 
 ## 触发机制
 
-### Extract（`src/service/chat/extractTrigger.ts`）
-- observer `observeAgentChunks` 主 agent 一轮**正常完成**（`completedNormally`，非 abort/park）后调 `maybeTriggerExtract(chatId)`
-- 仅主 agent（`parent_chat_id` 为空）触发；维护 chat 自身（`metadata.maintenance=true`）跳过避免递归
-- 配置了「维护」预设才触发 → `resolvePresetSelection('维护')` 取 curator 编制 → `runMaintenanceChat` 创建子 chat（parent=主 chatId, wake=deferred 不唤主）
-- fire-and-forget，错误隔离在 `maybeTriggerExtract` 内部
+### 对话完成后的自动 Extract
 
-### Dream（`src/service/schedule/scheduler.ts`）
+当前源码不存在 `extractTrigger.ts` 或 `maybeTriggerExtract` 调用。不能将普通对话完成后自动提取记忆描述为已接通行为。维护角色能够执行 Extract 任务，不代表观察器会自动触发；该自动触发需求及接线仍待确认。
+
+### Dream（`apps/backend/src/service/schedule/scheduler.ts`）
 - `startService` 期 `startScheduleService()` 遍历 `config.presets`，对 `schedule.enabled !== false` 的预设 `new Cron(cron, triggerMaintenance)`
 - 到点 `triggerMaintenance(presetName)` → `resolvePresetSelection` → `runMaintenanceChat`（独立主 chat，无 parent）
 - `croner` 纯 JS 计时（无 native 依赖）；进程重启自动重建；`ServiceHandle.stopSchedule()` 停止
 
-### runMaintenanceChat（`src/service/schedule/maintenanceChat.ts`）
+### runMaintenanceChat（`apps/backend/src/service/schedule/maintenanceChat.ts`）
 - 创建独立维护 chat（`metadata.maintenance=true` 标记）→ `ensureChat` + `agent.run(task)` + `observeAgentChunks`
 - 脱离 RPC ctx / 无 parent ws / 无 chunk 推送（维护任务无前端订阅者，输出仅落 DB + logger）
 - 完成 `updateChatMetadata(finished=true)`；失败不标 finished（中断态，孤儿行可接受）
@@ -78,4 +76,4 @@
 
 - 记忆模块：[docs/backend/memory/README.md](../memory/README.md)（存储结构 / 类型 / 漂移防护 / 定时触发器）
 - 配置管理角色（对比）：[.chery.template/docs/README.md](../../../.chery.template/docs/README.md)
-- spawn_role sense：[src/agent/sense/spawn.ts](../../../src/agent/sense/spawn.ts)
+- spawn_role sense：[apps/backend/src/agent/sense/spawn.ts](../../../apps/backend/src/agent/sense/spawn.ts)

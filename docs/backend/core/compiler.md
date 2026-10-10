@@ -1,10 +1,10 @@
 # Sense Compiler（外部感官编译器）
 
-> 源码 [src/core/sense/compiler/](../../../src/core/sense/compiler/) ｜ 上级 [core/README.md](README.md) ｜ 相关 [sense.md](sense.md)
+> 源码 [apps/backend/src/core/sense/compiler/](../../../apps/backend/src/core/sense/compiler) ｜ 上级 [core/README.md](README.md) ｜ 相关 [sense.md](sense.md)
 
 ## 职责
 
-把用户写在 `.chery/senses/*.ts` 的**外部感官源码**编译为可在主进程执行的 JS 产物，供 [`agent/sense/index.ts`](../../../src/agent/sense/index.ts) `loadCustomSenses` 通过 `new Function()` 动态加载。它是 core/ 中**唯一带文件系统 I/O** 的子模块。
+把用户写在 `.chery/senses/*.ts` 的**外部感官源码**编译为可在主进程执行的 JS 产物，供 [`agent/sense/index.ts`](../../../apps/backend/src/agent/sense/index.ts) `loadCustomSenses` 通过 `new Function()` 动态加载。它是 core/ 中**唯一带文件系统 I/O** 的子模块。
 
 核心机制：用 `@swc/wasm` 把 TypeScript 转 ES2022，**剥离所有 import 语句**（编译产物是纯代码体），运行时再由 `new Function("z","sense","SupervisionLevel","registerSenses", code)` 把这些标识符作为函数参数注入——这样用户源码可正常写 `import { z } from "zod"` 享受 IDE 类型检查，而编译产物不依赖打包器解析 ESM。编译产物首行嵌入“源码 + 文件名 + 产物格式版本”的 hash，**均未变动时跳过重编**（增量缓存）；加载协议升级会自动失效旧缓存。
 
@@ -12,10 +12,10 @@
 
 | 文件 | 职责 |
 |------|------|
-| [core.ts](../../../src/core/sense/compiler/core.ts) | `compileSenses()` 主流程、`parseTestCases()`、swc 调用、hash 缓存、import 剥离 |
-| [types.ts](../../../src/core/sense/compiler/types.ts) | `TestCase`、`CompiledSenseInfo`、`SenseCompileFailure`、`SenseCompileSummary` |
-| [utils.ts](../../../src/core/sense/compiler/utils.ts) | `buildBaseSenseFunction()`（provider 构造 SenseFunction 的共享 helper） |
-| [index.ts](../../../src/core/sense/compiler/index.ts) | barrel：聚合导出 core.ts / types.ts |
+| [core.ts](../../../apps/backend/src/core/sense/compiler/core.ts) | `compileSenses()` 主流程、`parseTestCases()`、swc 调用、hash 缓存、import 剥离 |
+| [types.ts](../../../apps/backend/src/core/sense/compiler/types.ts) | `TestCase`、`CompiledSenseInfo`、`SenseCompileFailure`、`SenseCompileSummary` |
+| [utils.ts](../../../apps/backend/src/core/sense/compiler/utils.ts) | `buildBaseSenseFunction()`（provider 构造 SenseFunction 的共享 helper） |
+| [index.ts](../../../apps/backend/src/core/sense/compiler/index.ts) | barrel：聚合导出 core.ts / types.ts |
 
 ## 核心概念 / 导出
 
@@ -39,6 +39,12 @@ export interface TestCase {
 }
 ```
 
+### 产物位置
+
+编译、源码热应用和 `reloadSenses()` 共用 [`resolveSenseArtifactPaths()`](../../../apps/backend/src/core/sense/artifactPaths.ts)，不依赖启动时的工作目录。源码运行使用 `apps/backend/dist/`；单文件构建使用构建文件所在目录，因此 Backend 容器仍使用 `/app/dist/`。以下 `dist/` 均指这个解析结果，用户源码目录仍由 `config.global.senses_dir` 指定，不移动持久数据。测试可以显式指定临时输出目录。
+
+验证入口：[`artifactPaths.test.ts`](../../../apps/backend/test/core/sense/artifactPaths.test.ts) 检查源码、构建和容器路径；[`artifactReload.test.ts`](../../../apps/backend/test/agent/sense/artifactReload.test.ts) 实际编译临时 Sense，执行注册后的工具，并检查热应用、回滚与再次加载。
+
 ### compileSenses()（编译入口）
 
 ```ts
@@ -59,7 +65,7 @@ export async function compileSenses(): Promise<SenseCompileSummary>;
 export function parseTestCases(sourceContent: string): TestCase[];
 ```
 
-正则匹配源码中的 `/* @test [...] */` 注释块（`gm` 多行），解析为 JSON 数组，过滤出 `input` / `output.content` / `output.hash` 结构合法的项。供 [`agent/sense/index.ts` `runSenseTests`](../../../src/agent/sense/index.ts) 跑感官自测。
+正则匹配源码中的 `/* @test [...] */` 注释块（`gm` 多行），解析为 JSON 数组，过滤出 `input` / `output.content` / `output.hash` 结构合法的项。供 [`agent/sense/index.ts` `runSenseTests`](../../../apps/backend/src/agent/sense/index.ts) 跑感官自测。
 
 ### buildBaseSenseFunction()（共享 helper）
 
@@ -108,14 +114,14 @@ dist/senses/<name>.js  ── 读全文，移除首行 hash 注释 ──►  pu
 - **依赖**：
   - `@swc/wasm`（TypeScript → JS 转译）—— 优先加载 vendor 路径 `core/sense/compiler/lib/@swc/wasm/wasm.js`，回退到 npm 包。
   - Node 内建：`fs`（`readFileSync` / `writeFileSync` / `existsSync` / `mkdirSync` / `readdirSync` / `rmSync`）、`path`、`url`、`module`（`createRequire`）。
-  - [`utils/config.ts`](../../../src/utils/config.ts) `default export`（取 `config.global.senses_dir`）。
-  - [`utils/hash.ts`](../../../src/utils/hash.ts) `hashGenerator`（源码 hash）。
+  - [`utils/config.ts`](../../../apps/backend/src/utils/config.ts) `default export`（取 `config.global.senses_dir`）。
+  - [`utils/hash.ts`](../../../apps/backend/src/utils/hash.ts) `hashGenerator`（源码 hash）。
   - 类型：[`Sense` / `SenseFunction`](sense.md)。
 - **被依赖**：
-  - [`index.ts`](../../../src/index.ts)（项目入口）—— `compile-senses` 子命令调 `compileSenses()`，结束后调 `reloadSenses()` 热重建 registry。
-  - [`agent/sense/index.ts`](../../../src/agent/sense/index.ts) —— `reloadSenses` 调 `loadCustomSenses` 读 `dist/senses/` 产物；`runSenseTests` 用 `parseTestCases` 的 `TestCase[]`。
-  - [`agent/sense/compileToolsReporter.ts`](../../../src/agent/sense/compileToolsReporter.ts) —— 渲染 `compileSenses()` 的 `SenseCompileSummary` 为命令行报告。
-  - [`agent/provider/{openai,ollama,mock}.ts`](../../../src/agent/provider/) —— `buildBaseSenseFunction`（utils.ts）。
+  - [`index.ts`](../../../apps/backend/src/index.ts)（项目入口）—— `compile-senses` 子命令调 `compileSenses()`，结束后调 `reloadSenses()` 热重建 registry。
+  - [`agent/sense/index.ts`](../../../apps/backend/src/agent/sense/index.ts) —— `reloadSenses` 调 `loadCustomSenses` 读 `dist/senses/` 产物；`runSenseTests` 用 `parseTestCases` 的 `TestCase[]`。
+  - [`agent/sense/compileToolsReporter.ts`](../../../apps/backend/src/agent/sense/compileToolsReporter.ts) —— 渲染 `compileSenses()` 的 `SenseCompileSummary` 为命令行报告。
+  - [`agent/provider/{openai,ollama,mock}.ts`](../../../apps/backend/src/agent/provider) —— `buildBaseSenseFunction`（utils.ts）。
 - **横切参考**：[sense.md](sense.md)（感官注册与 reloadSenses 全流程）、[根 README](../../../README.md)（`compile-senses` 子命令）。
 
 ## 扩展点
@@ -147,4 +153,4 @@ dist/senses/<name>.js  ── 读全文，移除首行 hash 注释 ──►  pu
 
 ### 修改编译目标 / 缓存策略
 
-改 [core.ts](../../../src/core/sense/compiler/core.ts) 的 swc options（`jsc.target` / `module.type`）或 hash 比对逻辑（`readEmbeddedHash` / `computeSourceHash`）。注意：hash 算法变更会让所有产物失效、触发全量重编。
+改 [core.ts](../../../apps/backend/src/core/sense/compiler/core.ts) 的 swc options（`jsc.target` / `module.type`）或 hash 比对逻辑（`readEmbeddedHash` / `computeSourceHash`）。注意：hash 算法变更会让所有产物失效、触发全量重编。

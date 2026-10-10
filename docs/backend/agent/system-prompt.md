@@ -14,7 +14,7 @@
 
 ## 快速结论
 
-主 system message 由 [src/agent/prompt/index.ts](../../../src/agent/prompt/index.ts) 的 `buildFirstSystemPrompt()` 构建，固定顺序为：
+主 system message 由 [apps/backend/src/agent/prompt/index.ts](../../../apps/backend/src/agent/prompt/index.ts) 的 `buildFirstSystemPrompt()` 构建，固定顺序为：
 
 ```text
 <system-reminder>
@@ -134,7 +134,7 @@ Preset 配置了 `workspace` 时注入：
 </workspace>
 ```
 
-Workspace 从 preset 写入 chat metadata，子 chat 继承主 chat workspace。VCS 信息由 [src/utils/vcs.ts](../../../src/utils/vcs.ts) 检测并格式化。
+Workspace 从 preset 写入 chat metadata，子 chat 继承主 chat workspace。VCS 信息由 [apps/backend/src/utils/vcs.ts](../../../apps/backend/src/utils/vcs.ts) 检测并格式化。
 
 该段同时是角色文件范围检查与 `execute_command` OS 沙箱的工作区根。命令的 `workdir` 必须位于其中；没有有效工作区时命令执行会 fail closed。
 
@@ -283,13 +283,13 @@ chat.send
 
 关键实现：
 
-- 主 Prompt 组装：[src/agent/prompt/index.ts](../../../src/agent/prompt/index.ts)。
-- 首条 system message 创建：[src/agent/builder.ts](../../../src/agent/builder.ts)。
-- Preset/Role 解析：[src/agent/runtimeResolver.ts](../../../src/agent/runtimeResolver.ts)。
-- metadata、历史和压缩摘要恢复：[src/service/chat/runtime.ts](../../../src/service/chat/runtime.ts)。
-- 媒体能力临时注入：[src/agent/middleware/chat.ts](../../../src/agent/middleware/chat.ts)。
-- Command 注入：[src/service/chat/autoCompact.ts](../../../src/service/chat/autoCompact.ts)。
-- Provider 最终请求：[src/agent/provider/](../../../src/agent/provider/)。
+- 主 Prompt 组装：[apps/backend/src/agent/prompt/index.ts](../../../apps/backend/src/agent/prompt/index.ts)。
+- 首条 system message 创建：[apps/backend/src/agent/builder.ts](../../../apps/backend/src/agent/builder.ts)。
+- Preset/Role 解析：[apps/backend/src/agent/runtimeResolver.ts](../../../apps/backend/src/agent/runtimeResolver.ts)。
+- metadata、历史和压缩摘要恢复：[apps/backend/src/service/chat/runtime.ts](../../../apps/backend/src/service/chat/runtime.ts)。
+- 媒体能力临时注入：[apps/backend/src/agent/middleware/chat.ts](../../../apps/backend/src/agent/middleware/chat.ts)。
+- Command 注入：[apps/backend/src/service/chat/autoCompact.ts](../../../apps/backend/src/service/chat/autoCompact.ts)。
+- Provider 最终请求：[apps/backend/src/agent/provider/](../../../apps/backend/src/agent/provider)。
 
 ## 生命周期与更新时机
 
@@ -348,8 +348,8 @@ chat.send
 | 修改 Skill 完整执行规范 | `SKILL.md` 正文 |
 | 修改一次性内置指令 | `.chery.template/command/<name>.md`，并同步运行目录 |
 | 修改工具名称、描述、参数 | 对应 Sense 定义 |
-| 修改主 Prompt XML 结构或顺序 | [src/agent/prompt/index.ts](../../../src/agent/prompt/index.ts) |
-| 修改媒体能力临时提示 | [src/agent/middleware/chat.ts](../../../src/agent/middleware/chat.ts) |
+| 修改主 Prompt XML 结构或顺序 | [apps/backend/src/agent/prompt/index.ts](../../../apps/backend/src/agent/prompt/index.ts) |
+| 修改媒体能力临时提示 | [apps/backend/src/agent/middleware/chat.ts](../../../apps/backend/src/agent/middleware/chat.ts) |
 
 ## 相关文档
 

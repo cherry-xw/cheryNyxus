@@ -10,16 +10,16 @@
 
 | 修改意图 | 当前入口 | 验证重点 |
 | --- | --- | --- |
-| 运行边界报告 | [workflowRecorder.ts](../../../src/service/chat/workflowRecorder.ts) `startWorkflowRunRecorder`、[workflowStepWriter.ts](../../../src/service/chat/workflowStepWriter.ts) `recordWorkflowStep` | UI 关闭仍记录；回调与写入异常隔离 |
-| 持久写入 | [workflowJournal.ts](../../../src/db/workflowJournal.ts) `appendWorkflowJournalEvents`、`recordWorkflowJournalGap`、`readWorkflowStepSnapshot` | 幂等、单调 sequence、短事务、删除/归档生命周期 |
-| 内容与状态来源 | [observer.ts](../../../src/service/chat/observer.ts) `observeAgentChunks` 及真实 middleware/Loop/协作边界 | 不复制正文、不猜锚点、不把局部失败提升为 run 失败 |
-| 界面资源摘要 | [workflowHistory.ts](../../../src/service/chat/workflowHistory.ts) `workflowResources`、`workflowStageId` | 复用冻结资源快照，不新造数据源 |
+| 运行边界报告 | [workflowRecorder.ts](../../../apps/backend/src/service/chat/workflowRecorder.ts) `startWorkflowRunRecorder`、[workflowStepWriter.ts](../../../apps/backend/src/service/chat/workflowStepWriter.ts) `recordWorkflowStep` | UI 关闭仍记录；回调与写入异常隔离 |
+| 持久写入 | [workflowJournal.ts](../../../apps/backend/src/db/workflowJournal.ts) `appendWorkflowJournalEvents`、`recordWorkflowJournalGap`、`readWorkflowStepSnapshot` | 幂等、单调 sequence、短事务、删除/归档生命周期 |
+| 内容与状态来源 | [observer.ts](../../../apps/backend/src/service/chat/observer.ts) `observeAgentChunks` 及真实 middleware/Loop/协作边界 | 不复制正文、不猜锚点、不把局部失败提升为 run 失败 |
+| 界面资源摘要 | [workflowHistory.ts](../../../apps/backend/src/service/chat/workflowHistory.ts) `workflowResources`、`workflowStageId` | 复用冻结资源快照，不新造数据源 |
 
 ## 3. 现行实现边界
 
 详细记录随执行边界存在，不随任何界面开关创建或销毁。记录器在请求、模型、批次、逐调用校验/审批/执行/结果、记录及 Loop 边界维护明确的前驱身份，写入既有 `causeOccurrenceId`。批次关联可以在清单确定后补入；同一调用的身份不能因另一个调用交错而改变。实际输入落库将提交、队列和消费关联起来；消息后补锚点复用原模型实例。请求保留消费/指令作为执行前驱；同一 run 内已完成的 context 与 request 由前端投影为并行资源供给，不替换单一 cause。旧测试数据不迁移，可清空后重新生成。
 
-`src/core/middleware/workflowObservation.ts` 提供只读边界回调，单个回调失败不会阻断其他观察者或执行。旧兼容历史仍复用：
+`apps/backend/src/core/middleware/workflowObservation.ts` 提供只读边界回调，单个回调失败不会阻断其他观察者或执行。旧兼容历史仍复用：
 
 | 位置 | 已有内容 |
 | --- | --- |
@@ -57,7 +57,7 @@
 
 工具链记录时机：`tool-list`（调用清单）在首个工具链事件（`sense_pending`/`sense_end`）到达时提前建立（running，收集中），批次边界只补真实 `batchId` 与 succeeded 终态；`tool-approval` 的 started 记录在 `sense_end`（授权之后），使清单→校验→授权→审批的 firstSequence 顺序与模板链一致。审批注册（`sense_pending`）本身仍在模型流中发生，仅记录时机延后，不改变审批 UI 与执行语义。
 
-模型 occurrence 的终态化时机：模型响应消息（含工具调用）在 checkpoint 中间件提交时（message_created，先于 sense_pending/sense_end）即 succeeded（reason=response），而不是拖到 Phase 2 批次边界。这样“大模型响应”节点与 model→response→channels→tool-list 前驱连线能随工具链同批点亮（前端 response 槽位要求模型已终态、前驱路径证明要求 cause.status === 'succeeded'）。纯文本轮（无工具）由 done 收口，仍以消息 anchor 点亮响应节点。
+模型 occurrence 的终态化时机：模型响应消息（含工具调用）在 checkpoint 中间件提交时（message_created，先于 sense_pending/sense_end）即 succeeded（reason=response），而不是拖到 工具执行批次边界。这样“大模型响应”节点与 model→response→channels→tool-list 前驱连线能随工具链同批点亮（前端 response 槽位要求模型已终态、前驱路径证明要求 cause.status === 'succeeded'）。纯文本轮（无工具）由 done 收口，仍以消息 anchor 点亮响应节点。
 
 上下文 occurrence 的时机：不在 recorder 创建时抢占首位（避免流程开始时“上下文构建”先于“消费与输入记录”点亮，与模板链不符）。整个 run 只建立一个 run 级 context occurrence（不携带 iteration/attempt），在第一个“准备请求”边界随 request 一并记录，firstSequence 位于 input 之后、request 之前，使点亮顺序与模板链一致。
 
@@ -75,7 +75,7 @@ Checkpoint（内容记录）只建立一个 occurrence：checkpoint 边界（记
 
 ## 6. 删除与失效
 
-聊天删除流程中，对每个存续的受影响 root，在 soul.db 同一事务内递增 `workflow_journal_roots` 的 revision（[chat.ts `updateWorkflowAfterChatDeletion`](../../../src/db/chat.ts)）。删除前必须完成同级 chat、消息、epoch、execution 与 branch/task 清理，避免孤儿步骤。
+聊天删除流程中，对每个存续的受影响 root，在 soul.db 同一事务内递增 `workflow_journal_roots` 的 revision（[chat.ts `updateWorkflowAfterChatDeletion`](../../../apps/backend/src/db/chat.ts)）。删除前必须完成同级 chat、消息、epoch、execution 与 branch/task 清理，避免孤儿步骤。
 
 恢复语义：从持久事件折叠 occurrence。没有终态的旧 run 显示 unknown，明确 waiting/cancelled/interrupted 按原事实恢复。只有 compaction applied 事件切换 context stage；不能用当前配置或新的 active branch 重写旧事实。
 
@@ -83,4 +83,4 @@ Checkpoint（内容记录）只建立一个 occurrence：checkpoint 边界（记
 
 新增步骤 kind 前先确认真实边界、隐私预算、幂等 source key、所属 run/attempt/call、终态和内容 owner。协议 Zod、持久 schema 与记录器必须同批演进；不能只添加视觉节点。
 
-正式测试覆盖工具链记录顺序与 root 事件流（`test/service/chat/workflowRecorder.test.ts`、`test/service/chat/flowSync.test.ts`，入口 `pnpm test:backend`）。后端 `test/` 冻结期间不得修改或运行，也不得访问用户数据库；真实界面由用户验收。
+正式测试覆盖工具链记录顺序与 root 事件流（`apps/backend/test/service/chat/workflowRecorder.test.ts`、`apps/backend/test/service/chat/flowSync.test.ts`，入口 `pnpm test:backend`）。后端 `apps/backend/test/` 冻结期间不得修改或运行，也不得访问用户数据库；真实界面由用户验收。

@@ -1,6 +1,6 @@
 # 命令系统（Commands）
 
-> 源码 [src/service/command/handler.ts](../../../src/service/command/handler.ts) ｜ [src/service/chat/autoCompact.ts](../../../src/service/chat/autoCompact.ts) ｜ [src/agent/prompt/loadCommand.ts](../../../src/agent/prompt/loadCommand.ts)
+> 源码 [apps/backend/src/service/command/handler.ts](../../../apps/backend/src/service/command/handler.ts) ｜ [apps/backend/src/service/chat/autoCompact.ts](../../../apps/backend/src/service/chat/autoCompact.ts) ｜ [apps/backend/src/agent/prompt/loadCommand.ts](../../../apps/backend/src/agent/prompt/loadCommand.ts)
 
 ## 职责
 
@@ -34,7 +34,7 @@
 
 ### 2. send 预检自动压缩
 
-`handleChatSend`（[src/service/chat/send.ts](../../../src/service/chat/send.ts)）进入 bind + activateChatRun
+`handleChatSend`（[apps/backend/src/service/chat/send.ts](../../../apps/backend/src/service/chat/send.ts)）进入 bind + activateChatRun
 之后，调 `injectCommands(chatId, prompt)`：
 
 - 若 `shouldAutoCompact` 返回 `"usage" | "overflow"` →
@@ -45,7 +45,7 @@
 
 ### 3. loop done 后复检
 
-`streamAgentChunks`（[src/service/chat/streamMapper.ts](../../../src/service/chat/streamMapper.ts)）
+`streamAgentChunks`（[apps/backend/src/service/chat/streamMapper.ts](../../../apps/backend/src/service/chat/streamMapper.ts)）
 在 `done notification` 之前调 `maybeAutoCompactAfterDone(chatId)`；命中则同样推 `auto_compacted`
 让前端亮 compact 按钮，**不改 prompt**（本轮已结束；下次 send 才真正触发）。
 
@@ -135,7 +135,7 @@ Assistant: <按 compact 指令生成的摘要 contextCompaction=true>           
 压缩回复按 [compact.md](../../../.chery/command/compact.md) 约定为 `<analysis>…</analysis>` + `<summary>…</summary>` 两块。注入后续 LLM 上下文时仅取 `<summary>` 块正文（`extractSummaryBlock`，正则 `<summary>([\s\S]*?)</summary>` 大小写不敏感），丢弃 analysis 中间过程；模型未按格式输出（无标签）→ 用整个 content（容错）。
 
 - **DB 存完整**：observer 落库原始 content（analysis+summary），前端 `chat.get` 可见完整过程。
-- **仅上下文注入提取**：[compactToLatestSummary](../../../src/core/middleware/messageJournal.ts)（热路径内存裁剪）+ [loadHistory](../../../src/service/chat/runtime.ts)（冷路径重建）两处注入时提取，冷热对齐。
+- **仅上下文注入提取**：[compactToLatestSummary](../../../apps/backend/src/core/middleware/messageJournal.ts)（热路径内存裁剪）+ [loadHistory](../../../apps/backend/src/service/chat/runtime.ts)（冷路径重建）两处注入时提取，冷热对齐。
 - **tokens 对齐**：`contextCompactionTokens`（被压缩掉的旧上下文量）减数改用提取后 summary，与实际注入量自洽。
 
 ## 协议
@@ -176,29 +176,29 @@ Assistant: <按 compact 指令生成的摘要 contextCompaction=true>           
 
 | 文件 | 职责 |
 |------|------|
-| [src/agent/prompt/loadCommand.ts](../../../src/agent/prompt/loadCommand.ts) | `getSystemCommand(name)` 实时读 `.chery/command/<name>.md` |
-| [src/agent/prompt/loadSkill.ts](../../../src/agent/prompt/loadSkill.ts) | `getSkillMetas()` 提供 skill 名集合，injectCommands 跳过 skill 类 |
-| [src/service/chat/autoCompact.ts](../../../src/service/chat/autoCompact.ts) | `isCompactEnabled` / `shouldAutoCompact` / `injectCommands` / `maybeAutoCompactAfterDone` |
-| [src/service/command/handler.ts](../../../src/service/command/handler.ts) | `handleCommandList/Read/Save/Delete` + `registerCommandHandlers` |
-| [src/service/chat/send.ts](../../../src/service/chat/send.ts) | handleChatSend 中调 injectCommands；首推 `auto_compacted` notification |
-| [src/service/chat/streamMapper.ts](../../../src/service/chat/streamMapper.ts) | done 段前调 `maybeAutoCompactAfterDone`；推 `auto_compacted` |
-| [src/service/chat/handler.ts](../../../src/service/chat/handler.ts) | chat.get / chat.contextUsage response 携带 `commandConfig` |
-| [src/core/middleware/index.ts](../../../src/core/middleware/index.ts) | `AgentSession.send(input, options?)` 接受 `extraUserMessages` 选项 |
-| [src/agent/builder.ts](../../../src/agent/builder.ts) | `AgentBuilder.run(input, options?)` 转发 `extraUserMessages` |
-| [web/src/features/agent/settings/tabs/CommandsTab.vue](../../../web/src/features/agent/settings/tabs/config/CommandsTab.vue) | settings 第八项「指令」tab 视图 |
-| [web/src/features/agent/composables/commands.ts](../../../web/src/features/agent/composables/commands.ts) | token 序列化 / 历史消息拆分 |
-| [web/src/features/agent/PetToolbar.vue](../../../web/src/features/agent/toolbar/PetToolbar.vue) | compact 按钮门槛（contextTotal ≥ minContextLimit） |
+| [apps/backend/src/agent/prompt/loadCommand.ts](../../../apps/backend/src/agent/prompt/loadCommand.ts) | `getSystemCommand(name)` 实时读 `.chery/command/<name>.md` |
+| [apps/backend/src/agent/prompt/loadSkill.ts](../../../apps/backend/src/agent/prompt/loadSkill.ts) | `getSkillMetas()` 提供 skill 名集合，injectCommands 跳过 skill 类 |
+| [apps/backend/src/service/chat/autoCompact.ts](../../../apps/backend/src/service/chat/autoCompact.ts) | `isCompactEnabled` / `shouldAutoCompact` / `injectCommands` / `maybeAutoCompactAfterDone` |
+| [apps/backend/src/service/command/handler.ts](../../../apps/backend/src/service/command/handler.ts) | `handleCommandList/Read/Save/Delete` + `registerCommandHandlers` |
+| [apps/backend/src/service/chat/send.ts](../../../apps/backend/src/service/chat/send.ts) | handleChatSend 中调 injectCommands；首推 `auto_compacted` notification |
+| [apps/backend/src/service/chat/streamMapper.ts](../../../apps/backend/src/service/chat/streamMapper.ts) | done 段前调 `maybeAutoCompactAfterDone`；推 `auto_compacted` |
+| [apps/backend/src/service/chat/handler.ts](../../../apps/backend/src/service/chat/handler.ts) | chat.get / chat.contextUsage response 携带 `commandConfig` |
+| [apps/backend/src/core/middleware/index.ts](../../../apps/backend/src/core/middleware/index.ts) | `AgentSession.send(input, options?)` 接受 `extraUserMessages` 选项 |
+| [apps/backend/src/agent/builder.ts](../../../apps/backend/src/agent/builder.ts) | `AgentBuilder.run(input, options?)` 转发 `extraUserMessages` |
+| [apps/web/src/features/agent/settings/tabs/CommandsTab.vue](../../../apps/web/src/features/agent/settings/tabs/config/CommandsTab.vue) | settings 第八项「指令」tab 视图 |
+| [apps/web/src/features/agent/composables/commands.ts](../../../apps/web/src/features/agent/composables/commands.ts) | token 序列化 / 历史消息拆分 |
+| [apps/web/src/features/agent/PetToolbar.vue](../../../apps/web/src/features/agent/toolbar/PetToolbar.vue) | compact 按钮门槛（contextTotal ≥ minContextLimit） |
 
 ## 依赖与关联
 
 | 依赖 | 用途 |
 |------|------|
-| [agent/prompt/loadCommand](../../../src/agent/prompt/loadCommand.ts) | frontmatter 解析（`getSystemCommand`） |
-| [agent/prompt/loadSkill](../../../src/agent/prompt/loadSkill.ts) | `getSkillMetas` 区分 skill vs builtin |
-| [utils/token](../../../src/utils/token.ts) | `computeContextUsage` 提供 usage/used/total |
-| [utils/config](../../../src/utils/config.ts) | `config.global.command` 配置块 |
-| [db/chat](../../../src/db/chat.ts) | `getChatRuntimeSelection` 取 chat 绑定 brain |
-| [core/middleware](../../../src/core/middleware/index.ts) | `AgentSession.send` 接受 `extraUserMessages` 选项入队 |
+| [agent/prompt/loadCommand](../../../apps/backend/src/agent/prompt/loadCommand.ts) | frontmatter 解析（`getSystemCommand`） |
+| [agent/prompt/loadSkill](../../../apps/backend/src/agent/prompt/loadSkill.ts) | `getSkillMetas` 区分 skill vs builtin |
+| [utils/token](../../../apps/backend/src/utils/token.ts) | `computeContextUsage` 提供 usage/used/total |
+| [utils/config](../../../apps/backend/src/utils/config.ts) | `config.global.command` 配置块 |
+| [db/chat](../../../apps/backend/src/db/chat.ts) | `getChatRuntimeSelection` 取 chat 绑定 brain |
+| [core/middleware](../../../apps/backend/src/core/middleware/index.ts) | `AgentSession.send` 接受 `extraUserMessages` 选项入队 |
 | 第三方 `js-yaml` | 命令文件 frontmatter 解析 |
 
 ## 扩展点
@@ -206,7 +206,7 @@ Assistant: <按 compact 指令生成的摘要 contextCompaction=true>           
 ### 新增内置命令
 
 1. 在 `.chery/command/` 下新增 `<name>.md`（文件系统维护，**前端 Tab 不可增删改**）——按上述 frontmatter 格式书写正文。
-2. （可选）在前端 `MessageCommand`（[web/src/features/agent/composables/commands.ts](../../../web/src/features/agent/composables/commands.ts)）
+2. （可选）在前端 `MessageCommand`（[apps/web/src/features/agent/composables/commands.ts](../../../apps/web/src/features/agent/composables/commands.ts)）
    注册按钮入口；token `[[command:/<name>]]` 自身即触发，无需前端额外步骤。
 3. 无需重启 — 文件系统 `.chery/command/` 实时读取。
 

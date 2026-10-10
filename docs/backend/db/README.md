@@ -1,6 +1,6 @@
 # DB 数据持久化模块
 
-> 源码 [src/db/](../../../src/db/) ｜ 上级 [README](README.md) ｜ 相关 [service/chat.md](../service/chat.md)（observer 调用 DB 写）、[协议规范](../../shared/protocol/websocket.md)、[交互流程](../../shared/protocol/interactions.md)
+> 源码 [apps/backend/src/db/](../../../apps/backend/src/db) ｜ 上级 [README](README.md) ｜ 相关 [service/chat.md](../service/chat.md)（observer 调用 DB 写）、[协议规范](../../shared/protocol/websocket.md)、[交互流程](../../shared/protocol/interactions.md)
 
 本文档吸收并取代了旧版 `docs/database.md`（schema + 分片 + revoked/审批状态机制）。chats/messages 的全部表结构、字段含义、状态判定规则以本文档为准。
 
@@ -32,14 +32,14 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [src/db/index.ts](../../../src/db/index.ts) | 多 SQLite 实例管理：`getSoulDb`/`getMonthlyDb` 单例缓存、chats/messages 建表、列迁移、`closeAllDbs` |
-| [src/db/chat.ts](../../../src/db/chat.ts) | 会话创建、查找、元数据和跨库删除的编排 |
-| [src/db/message.ts](../../../src/db/message.ts) | 按固定月份分片读写消息、预览、撤回、审批回填及计数对账；`MessageRow` / `MessageData` |
-| [src/db/messageLink.ts](../../../src/db/messageLink.ts) | 跨会话消息关系写入、读取与默认关联判定 |
-| [src/db/chatStorage.ts](../../../src/db/chatStorage.ts) | 查找会话固定月份分片与写入命中断言 |
-| [src/db/pendingInput.ts](../../../src/db/pendingInput.ts) | `addPendingInput` / `listPendingInputs` / `markPendingInputsConsumed`：持久输入排队与代际过滤 |
-| [src/db/chatFamily.ts](../../../src/db/chatFamily.ts) | `listChatFamilies` / `getChatFamily`：把父子 Agent 与同任务分支归并到唯一组主会话 |
-| [src/db/question.ts](../../../src/db/question.ts) | QuestionBatch/QuestionItem 持久化、旧占位消息回填、权威快照与原子批量回答 |
+| [apps/backend/src/db/index.ts](../../../apps/backend/src/db/index.ts) | 多 SQLite 实例管理：`getSoulDb`/`getMonthlyDb` 单例缓存、chats/messages 建表、列迁移、`closeAllDbs` |
+| [apps/backend/src/db/chat.ts](../../../apps/backend/src/db/chat.ts) | 会话创建、查找、元数据和跨库删除的编排 |
+| [apps/backend/src/db/message.ts](../../../apps/backend/src/db/message.ts) | 按固定月份分片读写消息、预览、撤回、审批回填及计数对账；`MessageRow` / `MessageData` |
+| [apps/backend/src/db/messageLink.ts](../../../apps/backend/src/db/messageLink.ts) | 跨会话消息关系写入、读取与默认关联判定 |
+| [apps/backend/src/db/chatStorage.ts](../../../apps/backend/src/db/chatStorage.ts) | 查找会话固定月份分片与写入命中断言 |
+| [apps/backend/src/db/pendingInput.ts](../../../apps/backend/src/db/pendingInput.ts) | `addPendingInput` / `listPendingInputs` / `markPendingInputsConsumed`：持久输入排队与代际过滤 |
+| [apps/backend/src/db/chatFamily.ts](../../../apps/backend/src/db/chatFamily.ts) | `listChatFamilies` / `getChatFamily`：把父子 Agent 与同任务分支归并到唯一组主会话 |
+| [apps/backend/src/db/question.ts](../../../apps/backend/src/db/question.ts) | QuestionBatch/QuestionItem 持久化、旧占位消息回填、权威快照与原子批量回答 |
 
 ## 核心概念 / 导出
 
@@ -104,7 +104,7 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 -- item 保存结构化问题、单/多选标记、pending/answered/cancelled 和答案审计字段。
 ```
 
-> **compact 代际（Generations）无新表**：代际索引（`computeGenerations`，src/service/chat/generations.ts）为纯推导计算——以 messages 行 `context_compaction=1` 的 assistant 消息（observer 按 `addMessage` data.contextCompaction 落库，手动/自动 compact 统一携带）为边界，配合 `execution_nodes` 按 orderKey 区间统计 nodeCount。每次查询现算，不持久化、无迁移。注意 autoCompact 注入的 `[[command:/compact]]` token 经 `persistedContent` 剥离不落库，代际检测不得依赖 token 扫描。
+> **compact 代际（Generations）无新表**：代际索引（`computeGenerations`，apps/backend/src/service/chat/generations.ts）为纯推导计算——以 messages 行 `context_compaction=1` 的 assistant 消息（observer 按 `addMessage` data.contextCompaction 落库，手动/自动 compact 统一携带）为边界，配合 `execution_nodes` 按 orderKey 区间统计 nodeCount。每次查询现算，不持久化、无迁移。注意 autoCompact 注入的 `[[command:/compact]]` token 经 `persistedContent` 剥离不落库，代际检测不得依赖 token 扫描。
 
 ### chat metadata 字段语义表（冻结 / 活引用 / 派生）
 
@@ -121,7 +121,7 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 
 ### 角色改名迁移（config.save 触点）
 
-`config.save` 成功后，service 层比对保存前后 `roles`（同 `id` 不同名 = 改名），对每个改名执行 `migrateRoleRename(old, new)`（src/service/config/roleRename.ts）：
+`config.save` 成功后，service 层比对保存前后 `roles`（同 `id` 不同名 = 改名），对每个改名执行 `migrateRoleRename(old, new)`（apps/backend/src/service/config/roleRename.ts）：
 
 - `UPDATE spawn_tasks SET type = new WHERE type = old`（session.runtime.set 回灌按 type 匹配子 chat 的关联键）。
 - 遍历 `metadata.type = old` 的 chats（`json_extract` 定位）：重写 `type`，并同步替换 `metadata.spawnTypes` 数组中的旧名条目（spawn roster gate 快照）。
@@ -218,18 +218,18 @@ getMessages(chatId) / fillApprovalResult / markMessagesRevoked / markMessageRepl
 
 **被依赖（谁调用 db）：**
 
-- [service/chat/observer.ts](../../../src/service/chat/observer.ts)：`addMessage`（message_created effect + abort finally flush）、`fillApprovalResult`（message_updated 非 replace）、`markMessageReplaced`（message_updated 带 replace = 感官去重）。
-- [service/chat/handler.ts](../../../src/service/chat/handler.ts)：`createChat`/`listAllChats`/`getChat`/`getMessages`/`deleteChat`/`parseMessageRow`（chat.create/list/get/delete）。
-- [service/chat/runtime.ts](../../../src/service/chat/runtime.ts)：`getMessages`/`parseMessageRow`（loadHistory）、`getChatRuntimeSelection`/`updateChatMetadata`（持久化 runtime selection 到 metadata.runtime）。
-- [service/chat/send.ts](../../../src/service/chat/send.ts)：`getChat`（存在校验）、`markMessagesRevoked`（chat.send 恢复场景撤回）。
-- [service/runtime/set.ts](../../../src/service/runtime/set.ts)：`getChat`（存在校验）。
-- [src/index.ts](../../../src/index.ts)：`getSoulDb()`（启动时初始化）、`closeAllDbs()`（SIGINT/SIGTERM）。
+- [service/chat/observer.ts](../../../apps/backend/src/service/chat/observer.ts)：`addMessage`（message_created effect + abort finally flush）、`fillApprovalResult`（message_updated 非 replace）、`markMessageReplaced`（message_updated 带 replace = 感官去重）。
+- [service/chat/handler.ts](../../../apps/backend/src/service/chat/handler.ts)：`createChat`/`listAllChats`/`getChat`/`getMessages`/`deleteChat`/`parseMessageRow`（chat.create/list/get/delete）。
+- [service/chat/runtime.ts](../../../apps/backend/src/service/chat/runtime.ts)：`getMessages`/`parseMessageRow`（loadHistory）、`getChatRuntimeSelection`/`updateChatMetadata`（持久化 runtime selection 到 metadata.runtime）。
+- [service/chat/send.ts](../../../apps/backend/src/service/chat/send.ts)：`getChat`（存在校验）、`markMessagesRevoked`（chat.send 恢复场景撤回）。
+- [service/runtime/set.ts](../../../apps/backend/src/service/runtime/set.ts)：`getChat`（存在校验）。
+- [apps/backend/src/index.ts](../../../apps/backend/src/index.ts)：`getSoulDb()`（启动时初始化）、`closeAllDbs()`（SIGINT/SIGTERM）。
 
 **依赖：**
 
 - `better-sqlite3`：同步 SQLite 驱动。
-- [@/utils/config](../../../src/utils/config.ts)：`config.global.db_dir`（库目录，默认 `.chery/db`）。
-- [@/utils/json](../../../src/utils/json.ts)：`safeJsonParse`（metadata / sense_calls 解析兜底）。
+- [@/utils/config](../../../apps/backend/src/utils/config.ts)：`config.global.db_dir`（库目录，默认 `.chery/db`）。
+- [@/utils/json](../../../apps/backend/src/utils/json.ts)：`safeJsonParse`（metadata / sense_calls 解析兜底）。
 
 **横切参考：**
 

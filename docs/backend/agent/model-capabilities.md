@@ -1,6 +1,6 @@
 # 模型能力与媒体处理
 
-> 配置 [src/utils/config.ts](../../../src/utils/config.ts) ｜ 运行时 [src/agent/runtimeResolver.ts](../../../src/agent/runtimeResolver.ts) ｜ 媒体服务 [src/service/media/index.ts](../../../src/service/media/index.ts) ｜ 前端 [web/src/features/agent/chat/AgentDialog.vue](../../../web/src/features/agent/chat/AgentDialog.vue)
+> 配置 [apps/backend/src/utils/config.ts](../../../apps/backend/src/utils/config.ts) ｜ 运行时 [apps/backend/src/agent/runtimeResolver.ts](../../../apps/backend/src/agent/runtimeResolver.ts) ｜ 媒体服务 [apps/backend/src/service/media/index.ts](../../../apps/backend/src/service/media/index.ts) ｜ 前端 [apps/web/src/features/agent/chat/AgentDialog.vue](../../../apps/web/src/features/agent/chat/AgentDialog.vue)
 
 ## 目标
 
@@ -72,8 +72,8 @@ llm:
 约束：
 
 - **不持久化**：`attachments` 仅在 chat middleware 调用 provider 时构造，**不**进 `LLMResponse`、**不**进 DB；provider 调用后丢弃。原始 `[[media:...]]` 标记留在 `LLMResponse.content` 不动，跨模型回放可重 enrich。
-- **provider 范围**：`src/agent/provider/openaiCompat.ts`（openai-chat-completions，MiniMax 默认）、`anthropic.ts`、`openaiResponses.ts` 均实现多模态并支持按 `messageId` 归属挂图；`mock.ts`/`ollama.ts` 签名对齐接口但忽略 `attachments`（provider 内部注释说明）。
-- **入口**：[src/agent/middleware/chat.ts](../../../src/agent/middleware/chat.ts) `enrichMediaInputs`（多模态旁路 `enrichMediaInputsMultimodal` + 前置调度 `enrichMediaInputsPreprocess`）；adapter 接口见 [src/core/message/adapter.ts](../../../src/core/message/adapter.ts) `LLMAttachment` / `groupAttachmentsByMessage` / `buildMessages(history, attachments?)`。
+- **provider 范围**：`apps/backend/src/agent/provider/openaiCompat.ts`（openai-chat-completions，MiniMax 默认）、`anthropic.ts`、`openaiResponses.ts` 均实现多模态并支持按 `messageId` 归属挂图；`mock.ts`/`ollama.ts` 签名对齐接口但忽略 `attachments`（provider 内部注释说明）。
+- **入口**：[apps/backend/src/agent/middleware/chat.ts](../../../apps/backend/src/agent/middleware/chat.ts) `enrichMediaInputs`（多模态旁路 `enrichMediaInputsMultimodal` + 前置调度 `enrichMediaInputsPreprocess`）；adapter 接口见 [apps/backend/src/core/message/adapter.ts](../../../apps/backend/src/core/message/adapter.ts) `LLMAttachment` / `groupAttachmentsByMessage` / `buildMessages(history, attachments?)`。
 - **MiniMax 图片协议**：走 `openaiCompat` 的 `image_url` data URI base64 透传；单图≤10MB、请求≤64MB。文生图/图生图等生成能力由自定义 sense 承担（出参归一化后落盘 `/api/media/`）。token 预检可调 MiniMax `POST /v1/responses/input_tokens` 或 Anthropic `count_tokens`（见 3.2）。
 
 **图片进上下文的官方形态（调研结论，后续方案直接引用）**：MiniMax-M3 的对话接口中，图片输入**只有「URL 或 base64」两种形态，没有 file_id 方案**——OpenAI 兼容（`image_url` 内容块）与 Anthropic 兼容（`type="image"` 内容块）两套接口均如此（见官方 [OpenAI SDK 文档](https://platform.minimaxi.com/docs/api-reference/text-openai-api) 与 [Anthropic SDK 文档](https://platform.minimaxi.com/docs/api-reference/text-anthropic-api) 的多模态输入段）。`mm_file://{file_id}` 只出现在**视频**的说明里。官方文件上传接口 `POST /v1/files/upload`（[官方文档](https://platform.minimaxi.com/docs/api-reference/file-management-upload)）的 `purpose` 合法值仅 5 个：`voice_clone`、`prompt_audio`、`t2a_async_input`、`video_understanding`（视频理解，`mm_file://` 引用，保留 7 天）、`video_generation_input`（视频生成素材，可含图片 ≤30MB，但只喂视频生成接口，不进对话上下文）。**没有「图片理解」用途，因此图片不存在 file_id 方案**。项目媒体存本地 `.chery/media/`、无公网 URL，故 base64 是本地存储约束下的唯一正确选择；URL 形态要求公网可达地址，与「不引入公网存储」决策冲突。未来接入**视频理解**（单视频 >50MB 无法 base64）时才需引入 Files API + `mm_file://{file_id}` 方案。

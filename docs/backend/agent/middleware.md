@@ -1,6 +1,6 @@
 # Agent Middleware（中间件链）
 
-> 源码 [src/agent/middleware/](../../../src/agent/middleware/) ｜ 上级 [agent](README.md) ｜ 审批 service 侧 [../service/chat.md](../service/chat.md) ｜ 交互 [../interaction.md](../../shared/protocol/interactions.md)
+> 源码 [apps/backend/src/agent/middleware/](../../../apps/backend/src/agent/middleware) ｜ 上级 [agent](README.md) ｜ 审批 service 侧 [../service/chat.md](../service/chat.md) ｜ 交互 [../interaction.md](../../shared/protocol/interactions.md)
 
 ## 职责
 
@@ -10,17 +10,17 @@
 
 | 文件                                                                | 一句话                                                                                                      |
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [index.ts](../../../src/agent/middleware/index.ts)                     | 聚合导出 + `defaultHandlers` 数组（定义洋葱执行顺序）                                                       |
-| [checkpoint.ts](../../../src/agent/middleware/checkpoint.ts)           | 第 1 层：归纳 delta → staged chunk，构建 messages，声明 message/sense effect                                |
-| [checkpointState.ts](../../../src/agent/middleware/checkpointState.ts) | checkpoint 的状态封装：累积 delta、flushAssistant、sense 结果回写、senseDelta 合并                          |
-| [tool.ts](../../../src/agent/middleware/tool.ts)                       | 第 2 层（sense）：Phase 1 收集 senseDelta + 触发；Phase 2 auto/smart/manual 批量执行 + 审批                 |
-| [retry.ts](../../../src/agent/middleware/retry.ts)                     | 第 3 层：捕获 chat 层错误，分类重试 MAX_RETRIES 次，失败 yield ErrorChunk                                   |
-| [chat.ts](../../../src/agent/middleware/chat.ts)                       | 第 4 层（最内）：调用 LLM（流式/非流式），yield StreamChunk                                                 |
-| [loop.ts](../../../src/agent/middleware/loop.ts)                       | `createLoopHandler`：循环 runChain 直到无 senseCalls，超 maxLoop yield RunPausedChunk，最终 yield DoneChunk |
+| [index.ts](../../../apps/backend/src/agent/middleware/index.ts)                     | 聚合导出 + `defaultHandlers` 数组（定义洋葱执行顺序）                                                       |
+| [checkpoint.ts](../../../apps/backend/src/agent/middleware/checkpoint.ts)           | 第 1 层：归纳 delta → staged chunk，构建 messages，声明 message/sense effect                                |
+| [checkpointState.ts](../../../apps/backend/src/agent/middleware/checkpointState.ts) | checkpoint 的状态封装：累积 delta、flushAssistant、sense 结果回写、senseDelta 合并                          |
+| [tool.ts](../../../apps/backend/src/agent/middleware/tool.ts)                       | 第 2 层（sense）：收集步骤 收集 senseDelta + 触发；执行步骤 auto/smart/manual 批量执行 + 审批                 |
+| [retry.ts](../../../apps/backend/src/agent/middleware/retry.ts)                     | 第 3 层：捕获 chat 层错误，分类重试 MAX_RETRIES 次，失败 yield ErrorChunk                                   |
+| [chat.ts](../../../apps/backend/src/agent/middleware/chat.ts)                       | 第 4 层（最内）：调用 LLM（流式/非流式），yield StreamChunk                                                 |
+| [loop.ts](../../../apps/backend/src/agent/middleware/loop.ts)                       | `createLoopHandler`：循环 runChain 直到无 senseCalls，超 maxLoop yield RunPausedChunk，最终 yield DoneChunk |
 
 ## 核心概念
 
-`chatMiddleware` 在 [chat.ts](../../../src/agent/middleware/chat.ts) 编排模型请求；[mediaEnrichment.ts](../../../src/agent/middleware/mediaEnrichment.ts) 负责媒体标记解析、前置工具处理与多轮原生媒体保留。两者只影响本轮模型输入，不改写已保存消息；相关校验见 `test/agent/middleware/mediaPreprocess.test.ts` 与 `mediaRetention.test.ts`。
+`chatMiddleware` 在 [chat.ts](../../../apps/backend/src/agent/middleware/chat.ts) 编排模型请求；[mediaEnrichment.ts](../../../apps/backend/src/agent/middleware/mediaEnrichment.ts) 负责媒体标记解析、前置工具处理与多轮原生媒体保留。两者只影响本轮模型输入，不改写已保存消息；相关校验见 `apps/backend/test/agent/middleware/mediaPreprocess.test.ts` 与 `mediaRetention.test.ts`。
 
 ### 单次模型请求超时
 
@@ -40,7 +40,7 @@ export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [
 
 **含义：** 入站时 `checkpoint → sense → retry → chat`，出站 chunk 反向流回。每层 `yield* next()` 把控制权交给内层，再处理内层 yield 的 chunk。
 
-每层职责（[index.ts 注释](../../../src/agent/middleware/index.ts)）：
+每层职责（[index.ts 注释](../../../apps/backend/src/agent/middleware/index.ts)）：
 
 | 层         | 职责                                                                                                                                                                            |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -51,7 +51,7 @@ export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [
 
 ### Chunk 类型（运行时产出的子集）
 
-来自 [core/middleware/types.ts](../../../src/core/middleware/types.ts)。**agent 真正 yield 的 chunk：**
+来自 [core/middleware/types.ts](../../../apps/backend/src/core/middleware/types.ts)。**agent 真正 yield 的 chunk：**
 
 | chunk type                            | 产出层     | 说明                                                                                   |
 | ------------------------------------- | ---------- | -------------------------------------------------------------------------------------- |
@@ -94,7 +94,7 @@ checkpoint  收到 sense_end：
                ③ flushAssistant → push assistant + yield message_created    ← assistant.senseCalls 含 security
                ④ supervision=auto，不创建 pending sense 消息
                  ↓
-sense 层     Phase 2：auto 直接执行 doExecuteSense
+sense 层     执行步骤：auto 直接执行 doExecuteSense
              yield sense_started(id, name, args, security)                ← 真实执行边界携带最终授权
              yield sense_accept(id, name, result, hash)
                  ↓
@@ -119,7 +119,7 @@ chat → checkpoint → finally → assistant(无 senseCalls)
 完整跨模块流程见 [../interaction.md 流程 C](../../shared/protocol/interactions.md) 与 [../service/chat.md](../service/chat.md)。agent 侧的关键节点：
 
 ```text
-sense 层 Phase 1：buildSenseTrigger(ctx, id, name, args)
+sense 层 收集步骤：buildSenseTrigger(ctx, id, name, args)
   ├─ supervisionLevel > auto？
   │    └─ 是：approvalPromise = createApproval(id)   ← core/sense/approvalRegistry
   └─ yield sense_end(id, name, args, supervisionLevel)
@@ -133,7 +133,7 @@ checkpoint 收到 sense_end：
   │    └─ yield sense_pending(approvalId, ...) effect  ← observer 注册 ApprovalManager
   └─ supervision = 0：无 pending 创建
 
-sense 层 Phase 2：executeCollectedCalls
+sense 层 执行步骤：executeCollectedCalls
   ├─ auto calls → 立即 doExecuteSense → yield sense_accept
   └─ needsApproval（smart/manual）：
        ├─ await Promise.all(approvalPromise)           ← 阻塞，等 service.confirm
@@ -146,11 +146,11 @@ sense 层 Phase 2：executeCollectedCalls
                           reject → yield sense_reject(id, name, reason)
 ```
 
-**几个非显然设计（[tool.ts](../../../src/agent/middleware/tool.ts) 注释）：**
+**几个非显然设计（[tool.ts](../../../apps/backend/src/agent/middleware/tool.ts) 注释）：**
 
-- `approvalPromise` 不随 chunk 传递——P1-11 重构后改为 `createApproval(id)` 在 core 的 `approvalRegistry` 管理，service 调 `resolveApproval/rejectApproval` 触发。chunk 只带 `approvalId` 字符串。
+- `approvalPromise` 不随 chunk 传递——审批由 `createApproval(id)` 在 core 的 `approvalRegistry` 管理，service 调 `resolveApproval/rejectApproval` 触发。chunk 只带 `approvalId` 字符串。
 - 审批被 abort/park 时 **throw 而非 return**：return 只结束 `senseMiddleware`，loop 会误以为本轮完成继续第二轮 LLM 调用，破坏「应停在 pending sense 待 canResume」的语义。
-- **控制流暂停语义（park ≡ abort）**：WS 断连在 `global.disconnect_grace_ms` 宽限期内不打断当前 loop；宽限期到期只设置“当前 `runChain` 输出结束后暂停”标记，loop 在下一轮决策前抛 `AgentParkError`。用户 `chat.abort` 仍立即抛 `AgentAbortError`（前者继承后者）。两者都 throw 保 pending NULL，[observer](../../../src/service/chat/observer.ts) catch 对其一视同仁归 paused——均不 `wakeParent`、不写 finished、不注入错误 role；子 chat 末条保持原样，由 `computeCanResume` 派生 `canResume=true` 待用户点击 resume。保留两类型仅为日志区分来源（park=断连超时后安全边界暂停 / abort=用户主动）。审批挂起时断连同样等待宽限期，超时才由 `approvalManager.park` 解除 await。自然完成归 completed；AI/工具真实故障归 failed；中断、断连超时、提问中和等子归 paused。`canResume` 与终态独立。
+- **控制流暂停语义（park ≡ abort）**：WS 断连在 `global.disconnect_grace_ms` 宽限期内不打断当前 loop；宽限期到期只设置“当前 `runChain` 输出结束后暂停”标记，loop 在下一轮决策前抛 `AgentParkError`。用户 `chat.abort` 仍立即抛 `AgentAbortError`（前者继承后者）。两者都 throw 保 pending NULL，[observer](../../../apps/backend/src/service/chat/observer.ts) catch 对其一视同仁归 paused——均不 `wakeParent`、不写 finished、不注入错误 role；子 chat 末条保持原样，由 `computeCanResume` 派生 `canResume=true` 待用户点击 resume。保留两类型仅为日志区分来源（park=断连超时后安全边界暂停 / abort=用户主动）。审批挂起时断连同样等待宽限期，超时才由 `approvalManager.park` 解除 await。自然完成归 completed；AI/工具真实故障归 failed；中断、断连超时、提问中和等子归 paused。`canResume` 与终态独立。
 
 ### C. 问答流程（ask_user_question，agent 侧）
 
@@ -193,7 +193,7 @@ ask_user_question 是特殊感官：`SupervisionLevel.auto`（不走 approval �
 
 ### C. checkpoint 的三 delta 状态机
 
-[checkpoint.ts](../../../src/agent/middleware/checkpoint.ts) 用两个布尔标记 `thinkingActive`/`contentActive` 跟踪当前阶段，按 stream chunk 的 delta 字段切换：
+[checkpoint.ts](../../../apps/backend/src/agent/middleware/checkpoint.ts) 用两个布尔标记 `thinkingActive`/`contentActive` 跟踪当前阶段，按 stream chunk 的 delta 字段切换：
 
 | chunk 字段      | 切换动作                                                                                         |
 | --------------- | ------------------------------------------------------------------------------------------------ |
@@ -206,7 +206,7 @@ ask_user_question 是特殊感官：`SupervisionLevel.auto`（不走 approval �
 
 ### D. senseDelta 合并（流式 sense_call 重组）
 
-OpenAI 流式响应把一次 tool_call 拆成多个 delta（首个带 id/name，后续只有 arguments 片段）。[checkpointState.ts mergeSenseDeltas](../../../src/agent/middleware/checkpointState.ts) 按 `index` 累积：
+OpenAI 流式响应把一次 tool_call 拆成多个 delta（首个带 id/name，后续只有 arguments 片段）。[checkpointState.ts mergeSenseDeltas](../../../apps/backend/src/agent/middleware/checkpointState.ts) 按 `index` 累积：
 
 ```ts
 // 按 index 累积，首 delta 的 id/name 保留，arguments 拼接
@@ -222,13 +222,13 @@ for (const delta of deltas) {
 }
 ```
 
-sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../../src/agent/middleware/tool.ts)）做同样的事，但**以 index 变化作为「上一个 call 已完整」的信号**触发 `sense_end`，剩余的最后一个 call 在流结束后统一触发。
+sense 中间件自己的 `senseDeltaMap`（[tool.ts 收集步骤](../../../apps/backend/src/agent/middleware/tool.ts)）做同样的事，但**以 index 变化作为「上一个 call 已完整」的信号**触发 `sense_end`，剩余的最后一个 call 在流结束后统一触发。
 
 **安全判定随 senseCalls 落库**：checkpoint 收到 `sense_end` trigger（携带 `security`）时调 `state.recordSecurity(callId, security)` 维护 `callId → ToolAuthorization` 映射；`flushAssistant` / `reconcileAssistantSenseCalls` / `appendResponseMessages` 构造 `assistant.senseCalls` 时经统一 `buildSenseCalls()` 按 call id 附上对应 `security`（有值才写字段，`senseCalls[i].security`）。同批多个调用的后续 trigger 会触发内容级 reconcile，即使调用数量未变化也会补写各自的 security；`retry_reset` 会清空映射，避免复用 call id 时串入上次尝试的判定。该映射随 `message_created` / `message_updated` effect 由 observer 写入 `messages.sense_calls`（TEXT JSON，round-trip 无需 migration），历史回放 staged `sense_end` 由此携带 security。
 
 ### E. loop 的停止判定
 
-[loop.ts createLoopHandler](../../../src/agent/middleware/loop.ts) 每轮 `runChain()` 后基于 `ctx.soul.messages` 的**最后一条可见消息**（跳过 `revoked`）判定：
+[loop.ts createLoopHandler](../../../apps/backend/src/agent/middleware/loop.ts) 每轮 `runChain()` 后基于 `ctx.soul.messages` 的**最后一条可见消息**（跳过 `revoked`）判定：
 
 | lastVisible                                    | 判定                                           |
 | ---------------------------------------------- | ---------------------------------------------- |
@@ -239,11 +239,11 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../../src/agent/
 
 `maxLoop`（默认 30，来自 `config.global.maxLoopCount`）耗尽时 yield `run_paused` chunk，而不是 `error`。streamMapper 将其映射为 `paused + RUN_LOOP_LIMIT_REACHED + warning`，保留继续运行和打开限制设置的操作。**重要：** `stopped` 标记区分 break（正常停止）vs while 条件耗尽——避免在第 maxLoop 轮正常 break 时误报超限。
 
-仅自然完成时 yield `done`；保护性暂停和真实失败已有各自终态，不再追加 `done`（[loop.ts 末尾](../../../src/agent/middleware/loop.ts)）。
+仅自然完成时 yield `done`；保护性暂停和真实失败已有各自终态，不再追加 `done`（[loop.ts 末尾](../../../apps/backend/src/agent/middleware/loop.ts)）。
 
 ### G. 唤醒策略调度器（spawn 唤主判定的单一入口）
 
-取代旧「子完成即唤主」1:1 硬编码。介于 observer.child_done 与 wakeParent 之间，按 spawn 时声明的 **`WakePolicy`** 决定 silent 暂存 / resume 唤主。源码 [src/service/chat/wakeScheduler.ts](../../../src/service/chat/wakeScheduler.ts)、类型 [src/agent/spawnBroker.ts `WakePolicy`](../../../src/agent/spawnBroker.ts)。
+取代旧「子完成即唤主」1:1 硬编码。介于 observer.child_done 与 wakeParent 之间，按 spawn 时声明的 **`WakePolicy`** 决定 silent 暂存 / resume 唤主。源码 [apps/backend/src/service/chat/wakeScheduler.ts](../../../apps/backend/src/service/chat/wakeScheduler.ts)、类型 [apps/backend/src/agent/spawnBroker.ts `WakePolicy`](../../../apps/backend/src/agent/spawnBroker.ts)。
 
 **三值语义**（`WakePolicy`）：
 
@@ -261,17 +261,17 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../../src/agent/
 | first（无 barrier 子）               | `immediate`       | **唤主**（聚合已完成子结果）                                            |
 | first（无 barrier 子）               | `deferred`        | 暂存；若碰巧 `allChildrenFinished` 则唤主（兜底，覆盖全 deferred 场景） |
 
-**spawn 总是 set yieldTurn + 后端 eager 启动**（[agent/sense/spawn.ts](../../../src/agent/sense/spawn.ts)，2026-07-23 收敛）：spawn_role sense 完成时 fire-and-forget 调 `startChildEager(taskId, parentChatId)` → [runChildTaskInBackground](../../../src/service/chat/spawnEager.ts) 同步触发 handleChatStartSpawn claim + handleChatSend 绑子 chatId + streamAgentChunks 推 ws 到主连接。**端到端路径与主 agent `chat.send` 完全一致**（user 原意：「子 agent 应该和主 agent 走同一条 API 路径」），前端不再调 `chat.startSpawn` RPC 触发子跑；该 RPC 退化为 recovery-only（重连 / 抢占 / 中断续跑）。主一轮内可连续 `spawn_role` 多子，yieldTurn 累积；本轮 LLM 结束 loop 检测 yieldTurn 统一停等。取消了旧 `wait=false` 「主继续本轮」分支——子群独立 loop 并行跑，按各自 wake 策略唤主。唤醒链递归天然支持（任何 agent 的 spawn 子都在 `waitedChildren`，子可再 spawn）。
+**spawn 总是 set yieldTurn + 后端 eager 启动**（[agent/sense/spawn.ts](../../../apps/backend/src/agent/sense/spawn.ts)）：spawn_role sense 完成时 fire-and-forget 调 `startChildEager(taskId, parentChatId)` → [runChildTaskInBackground](../../../apps/backend/src/service/chat/spawnEager.ts) 同步触发 handleChatStartSpawn claim + handleChatSend 绑子 chatId + streamAgentChunks 推 ws 到主连接。**端到端路径与主 agent `chat.send` 完全一致**，前端不调 `chat.startSpawn` RPC 触发子跑；该 RPC 为 recovery-only（重连 / 抢占 / 中断续跑）。主一轮内可连续 `spawn_role` 多子，yieldTurn 累积；本轮 LLM 结束 loop 检测 yieldTurn 统一停等。子群独立 loop 并行跑，按各自 wake 策略唤主。唤醒链递归天然支持（任何 agent 的 spawn 子都在 `waitedChildren`，子可再 spawn）。
 
-**wakeParent silent 参数**（[service/chat/wake.ts](../../../src/service/chat/wake.ts)）：`silent=true` 只注入 role + DB 写 + 释放唤醒链（不置 `resumePending` / 不推 role_reply / 不 WS，deferred/barrier 暂存）；`silent=false` 完整唤主。调度器调 `wakeParent(..., { silent: !shouldWake })`。
+**wakeParent silent 参数**（[service/chat/wake.ts](../../../apps/backend/src/service/chat/wake.ts)）：`silent=true` 只注入 role + DB 写 + 释放唤醒链（不置 `resumePending` / 不推 role_reply / 不 WS，deferred/barrier 暂存）；`silent=false` 完整唤主。调度器调 `wakeParent(..., { silent: !shouldWake })`。
 
-**feed-dog 看门狗**（取代旧固定 5min setTimeout）：[observer.ts](../../../src/service/chat/observer.ts) for-await 每条 chunk 调 `feedWatchdog(chatId)` 重置计时。子 timeout_ms（`config.global.watchdog.timeout_ms`，默认 300000）内无 chunk 喂狗 → 判定卡死 → `handleAsyncWakeTimeout` 按 `config.global.watchdog.wake_on_timeout` 分支：`true` 唤主告知「已暂停可继续」/ `false`（默认）仅 abort 子不碰主（看门狗与唤醒链解耦）。
+**feed-dog 看门狗**（取代旧固定 5min setTimeout）：[observer.ts](../../../apps/backend/src/service/chat/observer.ts) for-await 每条 chunk 调 `feedWatchdog(chatId)` 重置计时。子 timeout_ms（`config.global.watchdog.timeout_ms`，默认 300000）内无 chunk 喂狗 → 判定卡死 → `handleAsyncWakeTimeout` 按 `config.global.watchdog.wake_on_timeout` 分支：`true` 唤主告知「已暂停可继续」/ `false`（默认）仅 abort 子不碰主（看门狗与唤醒链解耦）。
 
 **子 chat 终态 yield**（loop 末尾，主 chat 不发）：本 chat 是被注册的子（`getWaitedParent` 命中——spawn 总是 register 唤醒链 + set yieldTurn，见下方「唤醒策略调度器」）且 `!failed` 时，据子 loop 本身是否让出 turn 判：`child_yield`（子又 spawn 孙后 yield turn，本轮暂停不唤主）/ `child_done`（子真正完成 → observer 标 finished + wakeScheduler 按策略唤主/暂存，见 [agent-pet.md §5.4](../../shared/architecture/agent-orchestration.md)）。spawn 取消了旧 `wait=false` 继续本轮的分支：主一律 yieldTurn，一轮内可连续 spawn 多子，yieldTurn 累积，本轮 LLM 结束统一停等；子群独立 loop 并行跑，按各自 wake 策略唤主。
 
 ### F. retry 的回滚
 
-[retry.ts](../../../src/agent/middleware/retry.ts) 在每轮 try 前 snapshot `messages.length`。chat 层中途失败时，外层 checkpoint 可能已 push 半截 assistant message——重试前 `messages.length = snapshot` 回滚，避免重复 append 污染历史。
+[retry.ts](../../../apps/backend/src/agent/middleware/retry.ts) 在每轮 try 前 snapshot `messages.length`。chat 层中途失败时，外层 checkpoint 可能已 push 半截 assistant message——重试前 `messages.length = snapshot` 回滚，避免重复 append 污染历史。
 
 | 错误分类（classifyError）    | 可恢复？ | 处理                  |
 | ---------------------------- | -------- | --------------------- |
@@ -289,23 +289,23 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../../src/agent/
 
 | 依赖                                                                    | 用途                                                                                          |
 | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| [core/middleware](../../../src/core/middleware/)                           | `compose`（洋葱执行器）、`MiddlewareHandler`、`LoopHandler`                                   |
-| [core/middleware/types](../../../src/core/middleware/types.ts)             | `MiddlewareContext`、`RuntimeConfig`、所有 Chunk 类型                                         |
-| [core/config](../../../src/core/config.ts)                                 | `SupervisionLevel` 枚举                                                                       |
-| [core/sense](../../../src/core/sense/)                                     | `createApproval`（[tool.ts](../../../src/agent/middleware/tool.ts) 构建审批 Promise）            |
-| [core/message/adapter](../../../src/core/message/adapter.ts)               | `ReplaceInfo`（sense 历史替换）、`LLMResponse`                                                |
-| [core/sense/adapter](../../../src/core/sense/adapter.ts)                   | `SenseCallData`、`SenseFunction`                                                              |
-| [core/llm/adapter](../../../src/core/llm/adapter.ts)                       | `LLMOptions`                                                                                  |
-| [agent/sense/processRegistry](../../../src/agent/sense/processRegistry.ts) | bash 子进程按 chatId 注册/查询/kill；chatId 由 `SenseRuntimeContext` 第 3 参传入              |
-| [agent/prompt/index](../../../src/agent/prompt/index.ts)                   | `buildFirstSystemPrompt`（[builder.ts init](../../../src/agent/builder.ts) 首条 system 消息）    |
-| [utils/json](../../../src/utils/json.ts)                                   | `safeJsonParse`（[tool.ts doExecuteSense](../../../src/agent/middleware/tool.ts) 解析 argsJson） |
-| [utils/logger](../../../src/utils/logger/)                                 | 全文大量日志                                                                                  |
+| [core/middleware](../../../apps/backend/src/core/middleware)                           | `compose`（洋葱执行器）、`MiddlewareHandler`、`LoopHandler`                                   |
+| [core/middleware/types](../../../apps/backend/src/core/middleware/types.ts)             | `MiddlewareContext`、`RuntimeConfig`、所有 Chunk 类型                                         |
+| [core/config](../../../apps/backend/src/core/config.ts)                                 | `SupervisionLevel` 枚举                                                                       |
+| [core/sense](../../../apps/backend/src/core/sense)                                     | `createApproval`（[tool.ts](../../../apps/backend/src/agent/middleware/tool.ts) 构建审批 Promise）            |
+| [core/message/adapter](../../../apps/backend/src/core/message/adapter.ts)               | `ReplaceInfo`（sense 历史替换）、`LLMResponse`                                                |
+| [core/sense/adapter](../../../apps/backend/src/core/sense/adapter.ts)                   | `SenseCallData`、`SenseFunction`                                                              |
+| [core/llm/adapter](../../../apps/backend/src/core/llm/adapter.ts)                       | `LLMOptions`                                                                                  |
+| [agent/sense/processRegistry](../../../apps/backend/src/agent/sense/processRegistry.ts) | bash 子进程按 chatId 注册/查询/kill；chatId 由 `SenseRuntimeContext` 第 3 参传入              |
+| [agent/prompt/index](../../../apps/backend/src/agent/prompt/index.ts)                   | `buildFirstSystemPrompt`（[builder.ts init](../../../apps/backend/src/agent/builder.ts) 首条 system 消息）    |
+| [utils/json](../../../apps/backend/src/utils/json.ts)                                   | `safeJsonParse`（[tool.ts doExecuteSense](../../../apps/backend/src/agent/middleware/tool.ts) 解析 argsJson） |
+| [utils/logger](../../../apps/backend/src/utils/logger)                                 | 全文大量日志                                                                                  |
 
 ### 被依赖
 
 | 调用方                                         | 用途                                                                                       |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [agent/builder.ts](../../../src/agent/builder.ts) | `build()` 注入 `defaultHandlers` 与 `createLoopHandler(maxLoopCount)` 到 `Middleware` 构造 |
+| [agent/builder.ts](../../../apps/backend/src/agent/builder.ts) | `build()` 注入 `defaultHandlers` 与 `createLoopHandler(maxLoopCount)` 到 `Middleware` 构造 |
 
 ### 横切参考
 
@@ -315,7 +315,7 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../../src/agent/
 
 ## 5 个中间件详解
 
-### 1. checkpointMiddleware（[checkpoint.ts](../../../src/agent/middleware/checkpoint.ts)）
+### 1. checkpointMiddleware（[checkpoint.ts](../../../apps/backend/src/agent/middleware/checkpoint.ts)）
 
 **职责：** 入站处理用户输入、出站归纳状态、构建并维护消息历史、声明副作用。
 
@@ -351,22 +351,22 @@ async function* checkpointMiddleware(ctx, next) {
 }
 ```
 
-**为什么 sense_end 时就 flushAssistant（而不是 finally）：** 见 [checkpointState.ts flushAssistant 注释](../../../src/agent/middleware/checkpointState.ts)：
+**为什么 sense_end 时就 flushAssistant（而不是 finally）：** 见 [checkpointState.ts flushAssistant 注释](../../../apps/backend/src/agent/middleware/checkpointState.ts)：
 
 1. **顺序**：pending sense 在 sense_end push，assistant 若拖到 finally push 会排成 `[user, sense, assistant]`，破坏 LLM 消息顺序（assistant 应在 tool result 前），导致 `revokeTrailingCycle` 找不到前置 assistant、resume Case1 判定错误。
 2. **abort 落库**：sense_end 在 for-await 循环内，yield 的 effect 已被 observer 消费落库；abort 时（`gen.return` 传播下 finally 的 yield 会死锁不执行）此路径已执行，assistant 已在 DB。
 
-> checkpoint **不再 yield done**——由 [loop.ts](../../../src/agent/middleware/loop.ts) 负责。
+> checkpoint **不再 yield done**——由 [loop.ts](../../../apps/backend/src/agent/middleware/loop.ts) 负责。
 
-### 2. senseMiddleware（[tool.ts](../../../src/agent/middleware/tool.ts)）
+### 2. senseMiddleware（[tool.ts](../../../apps/backend/src/agent/middleware/tool.ts)）
 
 > 文件名 `tool.ts` 是历史命名，内容是 sense 中间件（待重构）。
 
-**职责：** Phase 1 收集 senseDelta + 触发；Phase 2 按监管等级执行；resume 续接跳过 chat 层。
+**职责：** 收集步骤 收集 senseDelta + 触发；执行步骤 按监管等级执行；resume 续接跳过 chat 层。
 
-**resume Case1 入口（[tool.ts executeResumePending](../../../src/agent/middleware/tool.ts)）：** `ctx.soul.resumePending === true` 时，**首轮 skip chat 层**（不调 next/LLM），从历史末尾向前收集连续空 content 的 sense 消息重建 trigger 执行。工具不在当前 senseTable → 静默写「无此工具:{name}」（作 accept，LLM 据此感知工具不存在）。service 层 `AgentBuilder.resume()` 检测到 `hasPendingTrailingSense()` 时置此标志。
+**resume Case1 入口（[tool.ts executeResumePending](../../../apps/backend/src/agent/middleware/tool.ts)）：** `ctx.soul.resumePending === true` 时，**首轮 skip chat 层**（不调 next/LLM），从历史末尾向前收集连续空 content 的 sense 消息重建 trigger 执行。工具不在当前 senseTable → 静默写「无此工具:{name}」（作 accept，LLM 据此感知工具不存在）。service 层 `AgentBuilder.resume()` 检测到 `hasPendingTrailingSense()` 时置此标志。
 
-**Phase 1 — 收集与触发：**
+**收集步骤 — 收集与触发：**
 
 ```ts
 const senseDeltaMap = new Map<number, {...}>();
@@ -379,7 +379,7 @@ for await (const chunk of next()) {             // ← 调内层 retry/chat
 // 流结束：处理剩余 sense calls（最后一个 index 的 call）
 ```
 
-**Phase 2 — 批量执行（[tool.ts executeCollectedCalls](../../../src/agent/middleware/tool.ts)）：**
+**执行步骤 — 批量执行（[tool.ts executeCollectedCalls](../../../apps/backend/src/agent/middleware/tool.ts)）：**
 
 ```ts
 // auto 先执行（不等审批）
@@ -401,28 +401,28 @@ if (needsApproval.length > 0) {
 }
 ```
 
-**doExecuteSense 的历史替换（[tool.ts doExecuteSense](../../../src/agent/middleware/tool.ts)）：** 若 `result.hash` 命中历史某条 sense 消息的 hash（read_file hash 含 mtime，命中 = 文件未变动），把旧消息 content 替换为短说明「已被新读取取代」，长内容移至 `originalContent` 折叠——剔除冗长重复上下文。文件若被改动 → mtime 变 → hash 不同 → 各自独立留存。
+**doExecuteSense 的历史替换（[tool.ts doExecuteSense](../../../apps/backend/src/agent/middleware/tool.ts)）：** 若 `result.hash` 命中历史某条 sense 消息的 hash（read_file hash 含 mtime，命中 = 文件未变动），把旧消息 content 替换为短说明「已被新读取取代」，长内容移至 `originalContent` 折叠——剔除冗长重复上下文。文件若被改动 → mtime 变 → hash 不同 → 各自独立留存。
 
 **hash 黑名单（90ecacf2 案例）：** `tool.ts` 维护 `NON_DEDUPABLE_SENSES` 黑名单（当前含 `spawn_role`），这些 sense 即使返回 hash 也不触发 `replaceSense` 折叠。spawn_role 的 hash 是"派发标识"（`hashGenerator("spawn_role", childChatId, type, mode)`），命中 ≠ 重复派发任务（实际可能是"不同任务复用未完成子 chat"），折叠会破坏原始 prompt 参数 + 链式替换。**双保险**：`spawn_role` 自身不返回 hash + 黑名单兜底。
 
 **流式多 sense_call reconcile（90ecacf2 案例）：** OpenAI 流式 tool_calls delta 分散到达——首个 sense_end 触发 `flushAssistant` 时 `state.senseDeltas` 未累积完整（yield trigger 早于 ingest chunk），assistant 的 `senseCalls` 字段可能只记部分 trigger。LLM 下一轮 buildMessages 重建 OpenAI `tool_calls` 字段会丢失 trigger，对应 tool result 成"孤儿"，上下文错乱。
 
-修复：CheckpointState 暴露 `flushedAssistantId` + `flushedAssistantSenseCalls`；流结束后（[checkpoint.ts finally](../../../src/agent/middleware/checkpoint.ts)）调 `state.reconcileAssistantSenseCalls()` 比对「flush 时」与最终调用内容（含逐调用 `security`），有新增或判定补齐则 **双写**：① `ctx.journal.updateAssistantSenseCalls` 回写**内存 journal**；② yield `message_updated` patch（`kind:"content"` + `senseCalls`）由 [observer.ts](../../../src/service/chat/observer.ts) 调 `updateAssistantSenseCalls` 持久化到 DB（独立 UPDATE `sense_calls` 列）。保留"assistant 在 sense 之前入库"语义（[checkpoint.ts:122-124](../../../src/agent/middleware/checkpoint.ts#L122-L124)），仅 in-place 补充 senseCalls 字段。
+修复：CheckpointState 暴露 `flushedAssistantId` + `flushedAssistantSenseCalls`；流结束后（[checkpoint.ts finally](../../../apps/backend/src/agent/middleware/checkpoint.ts)）调 `state.reconcileAssistantSenseCalls()` 比对「flush 时」与最终调用内容（含逐调用 `security`），有新增或判定补齐则 **双写**：① `ctx.journal.updateAssistantSenseCalls` 回写**内存 journal**；② yield `message_updated` patch（`kind:"content"` + `senseCalls`）由 [observer.ts](../../../apps/backend/src/service/chat/observer.ts) 调 `updateAssistantSenseCalls` 持久化到 DB（独立 UPDATE `sense_calls` 列）。保留"assistant 在 sense 之前入库"语义（[checkpoint.ts:122-124](../../../apps/backend/src/agent/middleware/checkpoint.ts#L122-L124)），仅 in-place 补充 senseCalls 字段。
 
 **回写内存 journal 必不可少（a684b 案例）：** loop 下一轮 `buildMessages` 从**内存 journal**（非 DB）组装请求——只落库不回写时，内存中 assistant.senseCalls 永远停留在 flush 时刻的部分集合，下一轮请求 tool result 数多于 assistant.tool_calls，上游（MiniMax/GLM 2013）报 `tool result's tool id(...) not found` 400，且 4xx 归 validation 隐藏「继续」按钮形成死局。触发条件：单轮 ≥2 个 sense call 且首个 sense_end 早于流结束（单 sense call 无差异不触发）。纵深防御见 [provider.md 共享件](provider.md#共享件openaicompatts) 的 `validateToolResultPairing`。
 
-**chatId 注入（[tool.ts doExecuteSense](../../../src/agent/middleware/tool.ts) + processRegistry）：** executor 支持可选第 3 参 `SenseRuntimeContext`。`doExecuteSense` 调 `senseEntry.execute(args, ctx.soul.senseSharedData, { chatId: ctx.soul.chatId })`，bash executor 读取 `senseCtx?.chatId` 后注册子进程；不再占用 sharedData 的保留 namespace。
+**chatId 注入（[tool.ts doExecuteSense](../../../apps/backend/src/agent/middleware/tool.ts) + processRegistry）：** executor 支持可选第 3 参 `SenseRuntimeContext`。`doExecuteSense` 调 `senseEntry.execute(args, ctx.soul.senseSharedData, { chatId: ctx.soul.chatId })`，bash executor 读取 `senseCtx?.chatId` 后注册子进程；不再占用 sharedData 的保留 namespace。
 
-**路径守卫（[pathGuard.ts](../../../src/utils/pathGuard.ts) + [tool.ts doExecuteSense](../../../src/agent/middleware/tool.ts) 前置拦截）：** 感官 execute 前，`doExecuteSense` 调 `checkCheryGuard(name, args, opts)`——若感官名不在 `GUARD_EXEMPT`（当前仅 `install_skill`）且提取的路径参数命中 `isCheryPath`（`.chery` 作为路径段），直接返回拦截文案、**不执行 handler**。
+**路径守卫（[pathGuard.ts](../../../apps/backend/src/utils/pathGuard.ts) + [tool.ts doExecuteSense](../../../apps/backend/src/agent/middleware/tool.ts) 前置拦截）：** 感官 execute 前，`doExecuteSense` 调 `checkCheryGuard(name, args, opts)`——若感官名不在 `GUARD_EXEMPT`（当前仅 `install_skill`）且提取的路径参数命中 `isCheryPath`（`.chery` 作为路径段），直接返回拦截文案、**不执行 handler**。
 
 - 覆盖感官：`write_file`/`read_file`/`search_codebase` 取 `args.path`，`execute_command` 取 `args.command`（含 `.chery` 路径段且非信息获取即拦）。
 - **execute_command 分级**（`isCheryInfoOnlyCommand`）：命令命中信息获取白名单（ls/dir/find/stat/du/df/pwd/tree/where/which 等，含 PowerShell 版）且无文件重定向/命令替换/读取写入动词时放行（如 `ls -la .chery/`、`find .chery -type f`）；`cat/type/grep/head` 等读配置内容、cp/mv/rm/echo 重定向等修改、以及未知动词均 fail-closed 拦截。
 - **读放行（`allowConfigRead`）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`，能力驱动）对 `read_file`/`search_codebase` 读 `.chery/` **全树放行**（按工具名旁路，优先级在 `allowRuleDir` 与 `isCheryPath` 之前）——其定位就是读写全部配置；`write_file`/`execute_command` 对 `.chery/` 的**修改**仍拦（写走 config_manage/install_skill 结构化通道；execute_command 的 `cat .chery/config.yaml` 会泄露非 .env 字面密钥、绕过结构化脱敏层）。
-- 与 `.env` 后置脱敏（[envGuard.ts](../../../src/utils/envGuard.ts) `redactEnvKeys` + [tool.ts doExecuteSense](../../../src/agent/middleware/tool.ts) L474，执行后遮蔽 `.env` 敏感 key 的值——key 名保留、值 → `[REDACTED]`）的区别：守卫是**前置拦截**（执行前拒，不执行）。参考 envGuard 的「统一拦截层位置 + 注入说明」模式，语义不同。
-- 双重隔离：install_skill / config_manage 只在 Cherry Nexus（chery_nexus 组）→ 其他角色调不到；守卫 `GUARD_EXEMPT` 只豁免 install_skill → 其他角色绕路用 write_file/bash 写 `.chery/` 也被拦。
+- 与 `.env` 后置脱敏（[envGuard.ts](../../../apps/backend/src/utils/envGuard.ts) `redactEnvKeys` + [tool.ts doExecuteSense](../../../apps/backend/src/agent/middleware/tool.ts) L474，执行后遮蔽 `.env` 敏感 key 的值——key 名保留、值 → `[REDACTED]`）的区别：守卫是**前置拦截**（执行前拒，不执行）。参考 envGuard 的「统一拦截层位置 + 注入说明」模式，语义不同。
+- 双重隔离：install_skill / config_manage 只在 cheryNyxus（cheryNyxus 感官组）→ 其他角色调不到；守卫 `GUARD_EXEMPT` 只豁免 install_skill → 其他角色绕路用 write_file/bash 写 `.chery/` 也被拦。
 - 详见 [agent/skill-install.md](skill-install.md)。
 
-### 3. retryMiddleware（[retry.ts](../../../src/agent/middleware/retry.ts)）
+### 3. retryMiddleware（[retry.ts](../../../apps/backend/src/agent/middleware/retry.ts)）
 
 **职责：** 捕获 chat 层错误，分类重试，失败 yield ErrorChunk。详见「关键流程 F」。
 
@@ -430,7 +430,7 @@ if (needsApproval.length > 0) {
 
 **重试间隔（指数退避 + jitter）：** 第 `attempt` 次失败后等待 `1000 * 2^(attempt-1)` ms（1s/2s/4s/8s/16s）± 20% 随机抖动，累计约 31s。jitter 避免多 pet/多会话同时失败时同步重试形成限流风暴。
 
-### 4. chatMiddleware（[chat.ts](../../../src/agent/middleware/chat.ts)）
+### 4. chatMiddleware（[chat.ts](../../../apps/backend/src/agent/middleware/chat.ts)）
 
 **职责：** 调用 LLM，yield StreamChunk（含 senseDelta）。
 
@@ -445,21 +445,21 @@ if (needsApproval.length > 0) {
 | `ctx.global.stream === true` | `llmAdapter.chatStream` | for-await 流，每 chunk yield 一个 StreamChunk                        |
 | `false`                      | `llmAdapter.chat`       | 单次响应，yield 单个 StreamChunk（content/thinking/senseDelta 整体） |
 
-`options` 构造（[chat.ts](../../../src/agent/middleware/chat.ts)）：`{ model, url, key, thinking?, rpm? }`，仅当 `brain.thinking`/`brain.rpm` 为真时展开（OpenAI Provider 的 RPM 限流据此触发）。
+`options` 构造（[chat.ts](../../../apps/backend/src/agent/middleware/chat.ts)）：`{ model, url, key, thinking?, rpm? }`，仅当 `brain.thinking`/`brain.rpm` 为真时展开（OpenAI Provider 的 RPM 限流据此触发）。
 
 执行下游：`yield* next()`（chat 是最内层，next 实际是空 generator，但保持洋葱结构一致）。
 
-### 5. createLoopHandler（[loop.ts](../../../src/agent/middleware/loop.ts)）
+### 5. createLoopHandler（[loop.ts](../../../apps/backend/src/agent/middleware/loop.ts)）
 
 **职责：** 循环 runChain 直到无 senseCalls，maxLoop 超限 yield `run_paused`，最终 yield `done`。传输层只保留首个权威终态，因此超限后的尾部 `done` 不会覆盖具体的暂停原因。详见「关键流程 E」。
 
-`AgentBuilder.build()` 注入 `createLoopHandler(config.global.maxLoopCount)`。它不是 `MiddlewareHandler` 而是 `LoopHandler`——由 [core/middleware](../../../src/core/middleware/) 的 `Middleware` 构造期绑定（`generator = loopHandler.bind(this, ctx, () => runChain(ctx))`）。
+`AgentBuilder.build()` 注入 `createLoopHandler(config.global.maxLoopCount)`。它不是 `MiddlewareHandler` 而是 `LoopHandler`——由 [core/middleware](../../../apps/backend/src/core/middleware) 的 `Middleware` 构造期绑定（`generator = loopHandler.bind(this, ctx, () => runChain(ctx))`）。
 
 ## 扩展点
 
 ### 添加中间件
 
-1. 在 [middleware/](../../../src/agent/middleware/) 新增 `<name>.ts`，实现 `MiddlewareHandler<MiddlewareChunk>` 签名：
+1. 在 [middleware/](../../../apps/backend/src/agent/middleware) 新增 `<name>.ts`，实现 `MiddlewareHandler<MiddlewareChunk>` 签名：
 
    ```ts
    export async function* myMiddleware(
@@ -470,7 +470,7 @@ if (needsApproval.length > 0) {
    }
    ```
 
-2. 在 [index.ts](../../../src/agent/middleware/index.ts) 的 `defaultHandlers` 数组**按位置插入**——位置决定洋葱层级（越靠前越外层）。例如想插入到 retry 与 chat 之间：
+2. 在 [index.ts](../../../apps/backend/src/agent/middleware/index.ts) 的 `defaultHandlers` 数组**按位置插入**——位置决定洋葱层级（越靠前越外层）。例如想插入到 retry 与 chat 之间：
 
    ```ts
    export const defaultHandlers = [
@@ -486,10 +486,10 @@ if (needsApproval.length > 0) {
 
 ### 修改 loop 停止策略
 
-替换 [builder.ts](../../../src/agent/builder.ts) 传给 `Middleware` 构造的 `createLoopHandler(maxLoop)`——可自定义 `LoopHandler` 实现。当前判定基于 `ctx.soul.messages` 的 lastVisible 消息，自定义时注意 `revoked` 过滤（撤回场景）。
+替换 [builder.ts](../../../apps/backend/src/agent/builder.ts) 传给 `Middleware` 构造的 `createLoopHandler(maxLoop)`——可自定义 `LoopHandler` 实现。当前判定基于 `ctx.soul.messages` 的 lastVisible 消息，自定义时注意 `revoked` 过滤（撤回场景）。
 
 ### 调整 retry 策略
 
-[retry.ts](../../../src/agent/middleware/retry.ts) 的 `MAX_RETRIES` / `RETRY_BASE_DELAY_MS` / `classifyError` / `isRecoverable` 均可改。注意保持 `approval aborted` 的 re-throw 语义（否则 abort 不能穿透 retry）。
+[retry.ts](../../../apps/backend/src/agent/middleware/retry.ts) 的 `MAX_RETRIES` / `RETRY_BASE_DELAY_MS` / `classifyError` / `isRecoverable` 均可改。注意保持 `approval aborted` 的 re-throw 语义（否则 abort 不能穿透 retry）。
 
-**错误身份保持（429 等限流可重试的前提）：** [compose.ts](../../../src/core/middleware/compose.ts) 的 `executeChain` 对 `ClassifiedError` **原样上浮**（不转用户面、保留 `category`/`source` 身份），保证 retry 层能以 `instanceof ClassifiedError` 识别 provider/network/timeout 可重试错误。仅未被任何中间件处理的 `ClassifiedError` 在最外层 `executeChain(0)` 兜底转用户面。若此处改为提前 `throwUserFacing` 转换，会丢失分类身份——retry 只能判为 `unknown`/不可恢复，限流 429 将一次失败即整轮报错。
+**错误身份保持（429 等限流可重试的前提）：** [compose.ts](../../../apps/backend/src/core/middleware/compose.ts) 的 `executeChain` 对 `ClassifiedError` **原样上浮**（不转用户面、保留 `category`/`source` 身份），保证 retry 层能以 `instanceof ClassifiedError` 识别 provider/network/timeout 可重试错误。仅未被任何中间件处理的 `ClassifiedError` 在最外层 `executeChain(0)` 兜底转用户面。若此处改为提前 `throwUserFacing` 转换，会丢失分类身份——retry 只能判为 `unknown`/不可恢复，限流 429 将一次失败即整轮报错。

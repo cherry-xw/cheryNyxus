@@ -1,10 +1,10 @@
 # Core 模块总览
 
-> 源码 [src/core/](../../../src/core/) ｜ 上级 [docs](../../) ｜ 相关 [protocol.md](../../shared/protocol/websocket.md)、[db.md](../db/README.md)
+> 源码 [apps/backend/src/core/](../../../apps/backend/src/core) ｜ 上级 [docs](../../) ｜ 相关 [protocol.md](../../shared/protocol/websocket.md)、[db.md](../db/README.md)
 
 ## 职责
 
-`core/` 是 CheryNyxus 的**框架抽象层**：定义 Agent 运行所需的全部接口、类型与组合机制，但**不含任何具体实现**。所有 Provider（OpenAI/Ollama/Mock）、内置感官（bash/read/write/skill）、中间件行为（retry/checkpoint/chat/sense/loop）都在 [`agent/`](../../../src/agent/) 中实现并通过 `core/` 暴露的注册表注入。
+`core/` 是 CheryNyxus 的**框架抽象层**：定义 Agent 运行所需的全部接口、类型与组合机制，但**不含任何具体实现**。所有 Provider（OpenAI/Ollama/Mock）、内置感官（bash/read/write/skill）、中间件行为（retry/checkpoint/chat/sense/loop）都在 [`agent/`](../../../apps/backend/src/agent) 中实现并通过 `core/` 暴露的注册表注入。
 
 这一层是「AI 知识地图」的根：要改 Agent 行为（接新模型、加工具、改监管、调执行链），先读 core/ 理解契约，再去 agent/ 找对应实现。core/ 本身保持薄、零 I/O 假设（两个例外：`sense/compiler/` 读写文件系统编译外部感官，`mcp/` 连接外部 MCP server）。
 
@@ -14,13 +14,13 @@
 
 | 文件 / 目录 | 职责 |
 |------|------|
-| [config.ts](../../../src/core/config.ts) | `SupervisionLevel` 枚举（auto/smart/manual），core 唯一的运行时常量定义 |
-| [llm/](../../../src/core/llm/) | LLM Adapter 接口与注册表（`chat` / `chatStream` 契约）→ [llm.md](llm.md) |
-| [message/](../../../src/core/message/) | Message Adapter 接口、`LLMResponse` 统一响应结构、`SenseCallInfo` → [message.md](message.md) |
-| [middleware/](../../../src/core/middleware/) | 洋葱模型组合器 `compose()`、`AgentSession`、`MiddlewarePipeline`、`MessageJournal`、Context/Chunk 全部类型 → [middleware.md](middleware.md) |
-| [sense/](../../../src/core/sense/) | Sense Adapter 接口、`sense()` 工厂、感官注册表、审批 Promise 注册表 → [sense.md](sense.md) |
-| [sense/compiler/](../../../src/core/sense/compiler/) | 外部感官（`.chery/senses/*.ts`）编译器，core 两个带 I/O 的子模块之一 → [compiler.md](compiler.md) |
-| [mcp/](../../../src/core/mcp/) | MCP server 接入：tools/resources/prompts → Sense，core 两个带 I/O 的子模块之二 → [mcp.md](mcp.md) |
+| [config.ts](../../../apps/backend/src/core/config.ts) | `SupervisionLevel` 枚举（auto/smart/manual），core 唯一的运行时常量定义 |
+| [llm/](../../../apps/backend/src/core/llm) | LLM Adapter 接口与注册表（`chat` / `chatStream` 契约）→ [llm.md](llm.md) |
+| [message/](../../../apps/backend/src/core/message) | Message Adapter 接口、`LLMResponse` 统一响应结构、`SenseCallInfo` → [message.md](message.md) |
+| [middleware/](../../../apps/backend/src/core/middleware) | 洋葱模型组合器 `compose()`、`AgentSession`、`MiddlewarePipeline`、`MessageJournal`、Context/Chunk 全部类型 → [middleware.md](middleware.md) |
+| [sense/](../../../apps/backend/src/core/sense) | Sense Adapter 接口、`sense()` 工厂、感官注册表、审批 Promise 注册表 → [sense.md](sense.md) |
+| [sense/compiler/](../../../apps/backend/src/core/sense/compiler) | 外部感官（`.chery/senses/*.ts`）编译器，core 两个带 I/O 的子模块之一 → [compiler.md](compiler.md) |
+| [mcp/](../../../apps/backend/src/core/mcp) | MCP server 接入：tools/resources/prompts → Sense，core 两个带 I/O 的子模块之二 → [mcp.md](mcp.md) |
 
 ## 三大抽象 + 一个运行时常量
 
@@ -49,7 +49,7 @@ core/ 围绕三条解耦轴组织，对应三套 Adapter 注册表；再加 `Sup
 
 ### SupervisionLevel 枚举
 
-[config.ts](../../../src/core/config.ts) 全文即此枚举，是 core 层唯一的运行时常量，驱动 sense 执行流的分支（见 [sense.md](sense.md) 监管等级表）。
+[config.ts](../../../apps/backend/src/core/config.ts) 全文即此枚举，是 core 层唯一的运行时常量，驱动 sense 执行流的分支（见 [sense.md](sense.md) 监管等级表）。
 
 ```ts
 export enum SupervisionLevel {
@@ -80,7 +80,7 @@ export enum SupervisionLevel {
 
 ## 依赖与关联
 
-- **依赖**：`core/` 只依赖 `zod`（sense 工厂 schema）与 Node 内建（compiler 子模块用 `fs`/`path`）；类型上引用 [`utils/config.ts`](../../../src/utils/config.ts) 的 `GlobalConfig` / `BrainConfig`（middleware/types.ts）。
+- **依赖**：`core/` 只依赖 `zod`（sense 工厂 schema）与 Node 内建（compiler 子模块用 `fs`/`path`）；类型上引用 [`utils/config.ts`](../../../apps/backend/src/utils/config.ts) 的 `GlobalConfig` / `BrainConfig`（middleware/types.ts）。
 - **被依赖**：`agent/` 全量依赖 core —— `agent/provider/*` 调注册表、`agent/middleware/*` 用 Context/Chunk 类型、`agent/sense/*` 用 `sense()` 与 registry、`agent/builder.ts` 组装 `Middleware`；`service/` 间接经 agent 消费，唯一直接引用是 `service/chat/observer.ts`、`service/chat/runtime.ts` 用 `LLMResponse`，`service/approval/manager.ts` 调 `resolveApproval/rejectApproval`。
 - **横切参考**：[protocol.md](../../shared/protocol/websocket.md)（Chunk → wire 映射）、[interaction.md](../../shared/protocol/interactions.md)（send/resume 状态机）、[db.md](../db/README.md)（消息持久化与 `revoked` 语义）。
 

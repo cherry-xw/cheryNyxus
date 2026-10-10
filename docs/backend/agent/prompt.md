@@ -1,6 +1,6 @@
 # Agent Prompt（系统提示与技能加载）
 
-> 源码 [src/agent/prompt/](../../../src/agent/prompt/) ｜ 上级 [agent](README.md) ｜ 总览 [System Prompt 生成总览](system-prompt.md) ｜ 相关 [./sense.md](sense.md)（skill 感官）
+> 源码 [apps/backend/src/agent/prompt/](../../../apps/backend/src/agent/prompt) ｜ 上级 [agent](README.md) ｜ 总览 [System Prompt 生成总览](system-prompt.md) ｜ 相关 [./sense.md](sense.md)（skill 感官）
 
 ## 职责
 
@@ -10,13 +10,13 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [index.ts](../../../src/agent/prompt/index.ts) | `buildFirstSystemPrompt()`（拼装 `<system-reminder>`+`<environment>`+`<workspace>`+`<skills>`，**全局 base + override 合并**）+ `buildSystemPromptSegments()`（分段计量） |
-| [loadSkill.ts](../../../src/agent/prompt/loadSkill.ts) | SKILL.md frontmatter 解析 + 实时遍历 skills 目录（无缓存） |
-| [listPrompts.ts](../../../src/agent/prompt/listPrompts.ts) | `listPrompts()`：递归遍历 `.chery/prompt/`，返相对路径列表（供 `prompts.list` RPC + 前端级联选择器）；**排除全局 base `system.md`** |
+| [index.ts](../../../apps/backend/src/agent/prompt/index.ts) | `buildFirstSystemPrompt()`（拼装 `<system-reminder>`+`<environment>`+`<workspace>`+`<skills>`，**全局 base + override 合并**）+ `buildSystemPromptSegments()`（分段计量） |
+| [loadSkill.ts](../../../apps/backend/src/agent/prompt/loadSkill.ts) | SKILL.md frontmatter 解析 + 实时遍历 skills 目录（无缓存） |
+| [listPrompts.ts](../../../apps/backend/src/agent/prompt/listPrompts.ts) | `listPrompts()`：递归遍历 `.chery/prompt/`，返相对路径列表（供 `prompts.list` RPC + 前端级联选择器）；**排除全局 base `system.md`** |
 
 ## 核心概念 / 导出
 
-### buildFirstSystemPrompt（[index.ts](../../../src/agent/prompt/index.ts)）
+### buildFirstSystemPrompt（[index.ts](../../../apps/backend/src/agent/prompt/index.ts)）
 
 ```ts
 export default function buildFirstSystemPrompt(
@@ -68,11 +68,11 @@ export default function buildFirstSystemPrompt(
 </skills>
 ```
 
-**全局 system prompt 路径：** 固定为 `config.global.prompts_dir + "/system.md"`（即 `CHERY_DIR/.chery/prompt/system.md`，单一目录源；不再经 `config.global.system_prompt` 配置字段，见 [utils/config.ts](../../../src/utils/config.ts)）。模块加载时一次性读取并 `.trim()`；文件不存在则空串。
+**全局 system prompt 路径：** 固定为 `config.global.prompts_dir + "/system.md"`（即 `CHERY_DIR/.chery/prompt/system.md`，单一目录源；不再经 `config.global.system_prompt` 配置字段，见 [utils/config.ts](../../../apps/backend/src/utils/config.ts)）。模块加载时一次性读取并 `.trim()`；文件不存在则空串。
 
-**skills 段：** 调用 [getSkillMetas(skillFilter)](../../../src/agent/prompt/loadSkill.ts)，扫描 `.chery/skills/`（独立）+ `.chery/plugins/*/`（插件）下所有 SKILL.md，每个 skill 仅含 `name`/`description`/`trigger`（**不含 content**）——完整指令按需由 [skill 感官](../../../src/agent/sense/skill.ts) 加载，避免 system prompt 膨胀。trigger 缺省则省略「触发条件」行。插件 skill 的 `name` 为 `<plugin>__<skill>`。`skillFilter` 给出时仅保留通过 `matchSkillFilter` 的子集（per-role 裁剪，详见下文「Plugins」段）。
+**skills 段：** 调用 [getSkillMetas(skillFilter)](../../../apps/backend/src/agent/prompt/loadSkill.ts)，扫描 `.chery/skills/`（独立）+ `.chery/plugins/*/`（插件）下所有 SKILL.md，每个 skill 仅含 `name`/`description`/`trigger`（**不含 content**）——完整指令按需由 [skill 感官](../../../apps/backend/src/agent/sense/skill.ts) 加载，避免 system prompt 膨胀。trigger 缺省则省略「触发条件」行。插件 skill 的 `name` 为 `<plugin>__<skill>`。`skillFilter` 给出时仅保留通过 `matchSkillFilter` 的子集（per-role 裁剪，详见下文「Plugins」段）。
 
-- 调用时机：[AgentBuilder.init()](../../../src/agent/builder.ts) `init(chatId, options?)`——选项包含 `messages`、`systemPromptFile`、`workspace`、`skillFilter`、`roleMentions`、`historyGenerations`、`frozenSystemPrompt`，并构造首条 `{role:"system"}` 消息。`skillFilter`（per-role 技能组/插件组过滤，详见下文「Plugins」段）仅作用于 `<skills>` 块注入，`undefined` = 全部 skill。
+- 调用时机：[AgentBuilder.init()](../../../apps/backend/src/agent/builder.ts) `init(chatId, options?)`——选项包含 `messages`、`systemPromptFile`、`workspace`、`skillFilter`、`roleMentions`、`historyGenerations`、`frozenSystemPrompt`，并构造首条 `{role:"system"}` 消息。`skillFilter`（per-role 技能组/插件组过滤，详见下文「Plugins」段）仅作用于 `<skills>` 块注入，`undefined` = 全部 skill。
 
 **`<history_generations>` 段（LLM 历史回忆 L0 索引）**：`historyGenerations` 非空（该 chat 存在已定稿 compact 代际）时注入，每代一行摘要索引；`undefined` / 空数组 → 不注入（无 compact 历史零开销）。数据流：
 ```text
@@ -82,11 +82,11 @@ export default function buildFirstSystemPrompt(
 ```
 注入时机为 **chat 初始化**（system 消息构造时一次性注入，内存首条 system 随后不变）——进程内新增 compact 后索引滞后一代，重启 / 切回 chat 重建时刷新；细粒度回忆由 `history_recall` 感官承担（见 [core/sense.md](../core/sense.md)「内置感官：history_recall」）。`contextUsage` / `promptSnapshot` 重建时同样传入（token 计量与快照展示一致）。
 
-### 重启 persona 修复 + per-subagent system prompt
+### 重启 persona 保持 + per-subagent system prompt
 
-**persona 丢失 bug（已修复）**：`observer` 不持久化 system 消息（[service/chat/observer.md](../service/chat.md)），重启后 `loadHistory` 返回的 messages 不含 system → 原 `init`「有历史就不加 system」逻辑致主/子 agent 丢 persona。修复：`init` 统一保证内存 messages 首条为 system——历史存在但首条非 system（重启场景）则 `prepend createInitialMessages(systemPromptFile)`，首条已是 system 则原样用，无历史则 `[systemMsg]`。
+**persona 保持**：`init` 统一保证内存 messages 首条为 system——历史存在但首条非 system（重启场景，`observer` 不持久化 system 消息，见 [service/chat/observer.md](../service/chat.md)）则 `prepend createInitialMessages(systemPromptFile)`，首条已是 system 则原样用，无历史则 `[systemMsg]`。
 
-**per-agent system prompt（T7，主/子通用，T6 扩展至预设）**：主/子 agent 均可配专属 system prompt，数据流：
+**per-agent system prompt（主/子通用，覆盖预设）**：主/子 agent 均可配专属 system prompt，数据流：
 ```text
 来源：config.roles[type].systemPrompt（角色）或 config.presets[preset].leader.systemPrompt（预设主 agent）
   （文件路径，相对 .chery；作为补充合并到全局 base 之后）
@@ -96,7 +96,7 @@ export default function buildFirstSystemPrompt(
    → builder.init(chatId, { messages: history, systemPromptFile, ... })
   → buildFirstSystemPrompt(systemPromptFile) 合并「全局 base + 角色补充」→ 首条 system
 ```
-无 `systemPromptFile`（metadata 无此字段：非预设主 agent / 旧 chat）→ 仅全局 base（`.chery/prompt/system.md`）。字段名演进：subagentPromptPath（T6 之前）→ promptPathOverride（T6 通用化）→ systemPromptFile（语义修正：合并补充而非替换）。
+无 `systemPromptFile`（metadata 无此字段：非预设主 agent / 旧 chat）→ 仅全局 base（`.chery/prompt/system.md`）。
 
 **per-preset workspace（项目工作目录，提示词层注入）**：预设可配 `workspace` 字段声明该预设创建的会话专属某个项目，数据流：
 ```text
@@ -109,9 +109,9 @@ export default function buildFirstSystemPrompt(
 ```
 **仅提示词层声明**：workspace 只在 system prompt 注入一段说明，**不**改变 bash/read_file/write_file 等感官的实际行为（无 cwd 收束、无路径沙箱）。无 `workspace`（非预设 chat / 预设未配 / 旧 chat）→ 不注入该段，行为同系统全局。
 
-### prompts 目录与列举（[listPrompts.ts](../../../src/agent/prompt/listPrompts.ts)）
+### prompts 目录与列举（[listPrompts.ts](../../../apps/backend/src/agent/prompt/listPrompts.ts)）
 
-**`.chery/prompt/`** 是唯一 prompt 目录——含全局 base `system.md`（模块加载期缓存，详见 [index.ts](../../../src/agent/prompt/index.ts)）+ per-agent override 子文件夹（如 `prompt/prefebMain/{leader,planner,coder,reviewer}.md`）。**支持任意层级子文件夹**——一个子文件夹即「一组」相关角色 prompt。`systemPrompt` 配置值相对 `.chery/`，可含子目录（如 `prompt/prefebMain/leader.md`），路径解析与 `existsSync` 校验对子目录透明。
+**`.chery/prompt/`** 是唯一 prompt 目录——含全局 base `system.md`（模块加载期缓存，详见 [index.ts](../../../apps/backend/src/agent/prompt/index.ts)）+ per-agent override 子文件夹（如 `prompt/prefebMain/{leader,planner,coder,reviewer}.md`）。**支持任意层级子文件夹**——一个子文件夹即「一组」相关角色 prompt。`systemPrompt` 配置值相对 `.chery/`，可含子目录（如 `prompt/prefebMain/leader.md`），路径解析与 `existsSync` 校验对子目录透明。
 
 ```ts
 // 递归遍历 config.global.prompts_dir，仅收 .md（排除 system.md），返相对 .chery/ 路径（含 prompt/ 前缀）
@@ -120,11 +120,11 @@ export function listPrompts(): string[];
 
 目录不存在或空 → 返 `[]`（合法状态，不 fail loud）。实时遍历不缓存（类比 `readAllSkills`），新增/改动/新建子文件夹下次调用即反映。
 
-> **RPC `prompts.list`**：[service/prompt/list.ts](../../../src/service/prompt/list.ts) 的 `handlePromptsList` 包一层返 `{ prompts: listPrompts() }`，供前端设置面板构建可搜索的提示词选择面板——叶节点 `value` = 全路径（= 存储值），顶层 `prompts` 段剥掉。详见 [protocol.md](../../shared/protocol/websocket.md) 方法表。
+> **RPC `prompts.list`**：[service/prompt/list.ts](../../../apps/backend/src/service/prompt/list.ts) 的 `handlePromptsList` 包一层返 `{ prompts: listPrompts() }`，供前端设置面板构建可搜索的提示词选择面板——叶节点 `value` = 全路径（= 存储值），顶层 `prompts` 段剥掉。详见 [protocol.md](../../shared/protocol/websocket.md) 方法表。
 
 设置中心的技能目录不再为列表请求读取全部正文：目录层按 SKILL.md 路径、mtime、size 缓存 frontmatter，搜索/筛选后只对当前页读取正文并计算 token。角色装备摘要使用同一目录元数据，避免另建一套 token 估算。
 
-### loadSkill（[loadSkill.ts](../../../src/agent/prompt/loadSkill.ts)）
+### loadSkill（[loadSkill.ts](../../../apps/backend/src/agent/prompt/loadSkill.ts)）
 
 ```ts
 export interface SkillData {
@@ -267,7 +267,7 @@ export function buildSystemPromptSegments(
 };
 ```
 
-完整 **6 段上下文计量**（[utils/token.ts](../../../src/utils/token.ts) `computeContextBreakdown`）：
+完整 **6 段上下文计量**（[utils/token.ts](../../../apps/backend/src/utils/token.ts) `computeContextBreakdown`）：
 
 | 段 | 来源 | token 计算 | count |
 |----|------|------------|-------|
@@ -276,13 +276,13 @@ export function buildSystemPromptSegments(
 | 记忆 | `<memory global>` + `<memory workspace>` | estimateTokens(text) | 记忆条数 |
 | 技能 | `<skills>` 元数据 | `Σ triggerTokens`（loadSkill 预计算，单一来源） | skill 数 |
 | 工具定义 | runtime senseTable 各 sense `definition` schema | Σ estimateTokens(JSON.stringify(sense)) | tool 数 |
-| 用户对话 | DB 消息行 role∈user/assistant/role/subagent/**sense**（含感官调用结果） | Σ estimateTokens(content+thinking)（另加 content 里 `[[media:]]` 图片按宽高估算的 token，见 [utils/token.ts](../../../src/utils/token.ts) `mediaTokensInContent`） | 消息条数 |
+| 用户对话 | DB 消息行 role∈user/assistant/role/subagent/**sense**（含感官调用结果） | Σ estimateTokens(content+thinking)（另加 content 里 `[[media:]]` 图片按宽高估算的 token，见 [utils/token.ts](../../../apps/backend/src/utils/token.ts) `mediaTokensInContent`） | 消息条数 |
 
 **conversation 段 thinking 拆分（展示用，不改计量）：** `Segment.thinking?` 单独暴露用户对话段中 thinking 部分的 token 估算（`Σ estimateTokens(thinking)`）；`tokens` 仍 = content+thinking 合计，**计量口径与 usage/total 全不变**，thinking 仅作前端拆分展示（ContextBar hover 追加"(含思考 N)"注脚）。仅 conversation 段填该字段，其余 5 段不填。
 
-**skills 段 token 来源（单一来源原则）：** `computeSkillTokens` 在 [loadSkill.ts](../../../src/agent/prompt/loadSkill.ts) 一次性算好 `nameDescTokens`/`triggerTokens`/`contentTokens`/`promptTokens`/`contextTokens`，`buildPromptPieces` 累加成 `skillsTokens`，`buildSystemPromptSegments.skills` 直接返回，`computeContextBreakdown.skills` 复用 `triggerTokens`——**不在 contextUsage 重新 estimateTokens**，避免重复计算和口径不一致。
+**skills 段 token 来源（单一来源原则）：** `computeSkillTokens` 在 [loadSkill.ts](../../../apps/backend/src/agent/prompt/loadSkill.ts) 一次性算好 `nameDescTokens`/`triggerTokens`/`contentTokens`/`promptTokens`/`contextTokens`，`buildPromptPieces` 累加成 `skillsTokens`，`buildSystemPromptSegments.skills` 直接返回，`computeContextBreakdown.skills` 复用 `triggerTokens`——**不在 contextUsage 重新 estimateTokens**，避免重复计算和口径不一致。
 
-**计量时机（recompute-at-compute）：** `computeContextBreakdown(chatId)` 从 chat metadata 取 `systemPromptFile`+`workspace`+`skillFilter`、从 `getChatRuntimeSelection` 取 runtime，重建各段文本与 senseTable。skills 段 token 直接复用预计算字段；其他段按需 estimateTokens。**不持久化 breakdown**——系统消息不入库，memory 按设计仅 init 一次性注入、recompute 偏差可忽略。详见 [utils/token.ts](../../../src/utils/token.ts)。
+**计量时机（recompute-at-compute）：** `computeContextBreakdown(chatId)` 从 chat metadata 取 `systemPromptFile`+`workspace`+`skillFilter`、从 `getChatRuntimeSelection` 取 runtime，重建各段文本与 senseTable。skills 段 token 直接复用预计算字段；其他段按需 estimateTokens。**不持久化 breakdown**——系统消息不入库，memory 按设计仅 init 一次性注入、recompute 偏差可忽略。详见 [utils/token.ts](../../../apps/backend/src/utils/token.ts)。
 
 ## 关键流程
 
@@ -316,7 +316,7 @@ LLM 决定触发某 skill（基于 system prompt 中的 trigger 软提示）
        → 返回给 LLM 作为感官结果
 ```
 
-**为什么实时遍历不缓存：** P1-4 重构（[loadSkill.ts readAllSkills 注释](../../../src/agent/prompt/loadSkill.ts)）。原模块级 `skillMap` 缓存导致新增/改动 SKILL.md 不反映；改为实时遍历保证配置热更可见（类比 sense 的 `reloadSenses`）。
+**为什么实时遍历不缓存：** 模块级缓存会导致新增/改动 SKILL.md 不反映；实时遍历保证配置热更可见（类比 sense 的 `reloadSenses`）。
 
 ### skills 目录查找规则
 
@@ -360,7 +360,7 @@ const pluginsDir = config.global.plugins_dir;     // .chery/plugins（插件整�
 - 各字段 `undefined` = 该维度不限制（全部通过）；二者皆 `undefined` → 无 filter，全部 skill（向后兼容，旧 chat / 无 RoleConfig.skills·plugins 的角色）。
 - `[]` 显式空数组 = 该维度全禁（独立 skill 或插件 skill 全不注入）。
 - **仅过滤 `<skills>` 提示块**；`getSkillRealtime`（运行时 skill 感官激活）不受影响——LLM 仍可调任意 skill 名，但元数据块未列出的 skill 不会被提示存在。
-- 分段计量同步复用：`computeContextBreakdown` 经 `getChatSkillFilter(chatId)` 重建 skills 段（[chat/contextUsage.ts](../../../src/service/chat/contextUsage.ts)）。
+- 分段计量同步复用：`computeContextBreakdown` 经 `getChatSkillFilter(chatId)` 重建 skills 段（[chat/contextUsage.ts](../../../apps/backend/src/service/chat/contextUsage.ts)）。
 
 ## 依赖与关联 ⭐
 
@@ -368,7 +368,7 @@ const pluginsDir = config.global.plugins_dir;     // .chery/plugins（插件整�
 
 | 依赖 | 用途 |
 |------|------|
-| [utils/config](../../../src/utils/config.ts) | `config.global.skills_dir`（独立 skill 目录）、`config.global.plugins_dir`（插件整仓目录）、`config.global.prompts_dir`（唯一 prompt 目录：含全局 base `system.md` + per-agent override 子文件夹） |
+| [utils/config](../../../apps/backend/src/utils/config.ts) | `config.global.skills_dir`（独立 skill 目录）、`config.global.plugins_dir`（插件整仓目录）、`config.global.prompts_dir`（唯一 prompt 目录：含全局 base `system.md` + per-agent override 子文件夹） |
 | 第三方 `js-yaml` | frontmatter YAML 解析 |
 | 第三方 `dayjs` | 当前日期/时间格式化 |
 | Node `fs`/`os` | 文件读取、操作系统信息 |
@@ -377,8 +377,8 @@ const pluginsDir = config.global.plugins_dir;     // .chery/plugins（插件整�
 
 | 调用方 | 用途 |
 |--------|------|
-| [agent/builder.ts](../../../src/agent/builder.ts) | `buildFirstSystemPrompt()`（首条 system 消息） |
-| [agent/sense/skill.ts](../../../src/agent/sense/skill.ts) | `getSkillRealtime(name)`（skill 感官加载完整指令） |
+| [agent/builder.ts](../../../apps/backend/src/agent/builder.ts) | `buildFirstSystemPrompt()`（首条 system 消息） |
+| [agent/sense/skill.ts](../../../apps/backend/src/agent/sense/skill.ts) | `getSkillRealtime(name)`（skill 感官加载完整指令） |
 
 ### 横切参考
 
@@ -410,6 +410,6 @@ const pluginsDir = config.global.plugins_dir;     // .chery/plugins（插件整�
 
 ### 修改 system prompt 模板
 
-system prompt 主体内容由固定路径 `.chery/prompt/system.md` 决定（模块加载期读取并缓存）。**结构**（XML 标签包裹顺序）由 [index.ts](../../../src/agent/prompt/index.ts) 硬编码——若要改三段顺序、增删段，改 [index.ts](../../../src/agent/prompt/index.ts) 的模板字符串。
+system prompt 主体内容由固定路径 `.chery/prompt/system.md` 决定（模块加载期读取并缓存）。**结构**（XML 标签包裹顺序）由 [index.ts](../../../apps/backend/src/agent/prompt/index.ts) 硬编码——若要改三段顺序、增删段，改 [index.ts](../../../apps/backend/src/agent/prompt/index.ts) 的模板字符串。
 
 > 注意：`buildFirstSystemPrompt` 在 chat 创建（`ensureChat`→`init`）时调一次；改 system prompt 文件后**存量 chat 内存首条 system 已固化**。但服务**重启**后 `init` 会因「历史无 system」重新 prepend（persona 修复），故重启后存量 chat 反映新 prompt；运行期改文件需重启生效。

@@ -1,298 +1,73 @@
-# Hooks（事件驱动扩展点）
+# Hooks 运行阶段契约
 
-> 源码 [src/agent/hooks/](../../../src/agent/hooks/) ｜ 上级 [agent](README.md) ｜ 相关 [provider.md](provider.md)｜[interaction.md](../../shared/protocol/interactions.md)
+源码入口 [hooks/](../../../apps/backend/src/agent/hooks)，上级 [Agent](README.md)。本文唯一负责阶段、载荷、允许返回字段、执行顺序和结果应用。跨模块请求身份/请求视图、注册归属与包版本由 [统一宿主](../../shared/architecture/ingress-plugins.md) 定义，不在这里再建身份对象。
 
-## 职责
+状态：阶段契约已实现并经通用宿主与QQ包定向离线测试覆盖；部署和用户验收尚未执行。
 
-让用户在 `.chery/hooks/hooks.json` 声明「事件→handler」映射，由 dispatcher 在 LLM 调用/工具执行/会话生命周期等关键点触发 shell handler，读 stdin JSON、写 stdout JSON，框架据此改写请求/响应、阻断动作、注入上下文。是**仿 Claude Code hooks 风格的事件驱动扩展机制**，**不是** LLM 工具感官。
+## 任务定位
 
-核心诉求：解决「anthropic 兼容端点 thinking 参数适配不完整」问题——通过 `PreLLMRequest` 事件在请求发送前改写 `body`（含 `thinking`/`max_tokens`/`tools` 等任意字段），覆盖任意怪异端点。
+| 修改意图 | 入口与关键符号 | 验证入口 |
+| --- | --- | --- |
+| 阶段输入与输出类型 | [types.ts](../../../apps/backend/src/agent/hooks/types.ts)：HookEvent、HookPayloadMap、HookDecisionMap | [dispatch.test.ts](../../../apps/backend/test/agent/hooks/dispatch.test.ts) |
+| 调度与命令执行 | [dispatch.ts](../../../apps/backend/src/agent/hooks/dispatch.ts)：dispatch、runHandler、applyDecisionToPayload | 同上 |
+| 函数注册与身份投影 | [functions.ts](../../../apps/backend/src/agent/hooks/functions.ts)、[decisions.ts](../../../apps/backend/src/agent/hooks/decisions.ts)、[request.ts](../../../apps/backend/src/agent/hooks/request.ts) | [ingressApi2.test.ts](../../../apps/backend/test/service/ingressApi2.test.ts)、[ingressRequest.test.ts](../../../apps/backend/test/service/ingressRequest.test.ts) |
+| 命令配置、筛选与加载 | [registry.ts](../../../apps/backend/src/agent/hooks/registry.ts)：loadHookRegistry；[matcher.ts](../../../apps/backend/src/agent/hooks/matcher.ts)：matches、evalIf、expandCommandTemplate | [registry.test.ts](../../../apps/backend/test/agent/hooks/registry.test.ts)、[matcher.test.ts](../../../apps/backend/test/agent/hooks/matcher.test.ts) |
+| 请求上下文与响应结果 | [chat.ts](../../../apps/backend/src/agent/middleware/chat.ts)：prepareModelHistory、dispatchPostLLMResponse、dispatchStop | 现有dispatch测试 |
+| 工具前后与固定安全检查 | [tool.ts](../../../apps/backend/src/agent/middleware/tool.ts)：doExecuteSense | [middleware测试目录](../../../apps/backend/test/agent/middleware) |
+| 协议参数修改 | [protocolHook.ts](../../../apps/backend/src/agent/provider/protocolHook.ts) 供各 provider 在构造后 fetch 前调用 | [anthropic.test.ts](../../../apps/backend/test/agent/provider/anthropic.test.ts) |
 
-## 文件清单
+## 阶段契约
 
-| 文件 | 职责 |
-|------|------|
-| [types.ts](../../../src/agent/hooks/types.ts) | 事件枚举 + 每个事件的 input/output/decision 类型 |
-| [matcher.ts](../../../src/agent/hooks/matcher.ts) | matcher（provider/exact/regex）+ `if` 谓词（jq-lite 子集） |
-| [registry.ts](../../../src/agent/hooks/registry.ts) | 加载 `.chery/hooks/hooks.json` + brain 级 hooks；schema 校验；mtime 重读 |
-| [dispatch.ts](../../../src/agent/hooks/dispatch.ts) | `dispatch(event, payload, ctx)` 主流程；spawn 解析后的 POSIX shell `-c`（见「跨平台执行」）；解析 stdout JSON；应用决策 |
-| [index.ts](../../../src/agent/hooks/index.ts) | barrel：聚合导出 |
+当前命令全局在前、brain在后；返回字段Object.assign后置覆盖。shell/启动错误与超时抛ClassifiedError，非0/2退出、JSON解析失败记录后继续。runHandler未接收AbortSignal，也未给stdout/stderr设置收集上限。命令处理器有主进程权限，不是沙箱。
 
-## 事件清单
+现行调度入口为 `dispatch`，命令入口为 `runCommand`；[`functions.ts`](../../../apps/backend/src/agent/hooks/functions.ts) 管理插件函数和身份投影，[`decisions.ts`](../../../apps/backend/src/agent/hooks/decisions.ts) 校验阶段返回字段，[`request.ts`](../../../apps/backend/src/agent/hooks/request.ts) 实施 `prepareRequest/finishRequest/endSession`，[`protocolHook.ts`](../../../apps/backend/src/agent/provider/protocolHook.ts) 供模型协议调用。当前拒绝直接阻止对应操作，只读事件失败仅记录，超时及取消隔离迟到返回。正式调用验证见 [`ingressApi2.test.ts`](../../../apps/backend/test/service/ingressApi2.test.ts)、[`ingressRequest.test.ts`](../../../apps/backend/test/service/ingressRequest.test.ts) 和模型/工具测试。
 
-| 事件 | 触发点 | input | output / 决策 | 实现状态（本轮）|
-|------|-------|-------|--------------|-----------------|
-| `SessionStart` | chat 第一轮前 | `{chatId, brain}` | `{additionalContext?}` | stub |
-| `SessionEnd` | chat 终止 | `{chatId, reason}` | `{}` | stub |
-| `UserPromptSubmit` | 用户消息到、LLM 调用前 | `{chatId, prompt, role}` | `{decision?, reason?, additionalContext?}` | **完整**（chat.ts 接线）|
-| **`PreLLMRequest`** | **provider 构造 body 后、fetch 前** | `{provider, model, url, thinking, stream, body}` | `{body?, decision?, reason?, metadata?}` | **完整**（anthropic provider 接线）|
-| `PostLLMResponse` | LLM 响应解析后 | `{provider, model, content, thinking, senseCalls}` | `{content?, thinking?, senseCalls?, additionalContext?}` | **完整**（chat.ts 接线）|
-| `PreToolUse` | tool middleware `doExecuteSense` 前 | `{name, args, chatId}` | `{decision?, updatedInput?, reason?}` | **完整**（tool.ts 接线）|
-| `PostToolUse` | 感官执行成功后 | `{name, args, result, hash, chatId}` | `{decision?, reason?, additionalContext?}` | **完整**（tool.ts 接线）|
-| `Stop` | LLM 返回 stop_reason=end_turn 后、yield 前 | `{chatId, message, stopReason}` | `{decision?, reason?, additionalContext?}` | **完整**（chat.ts 接线，decision:block 本轮仅 log）|
-| `PreCompact` | context compaction 前 | `{chatId, tokenCount}` | `{decision?, reason?}` | stub |
-| `PostCompact` | context compaction 后 | `{chatId, summary, tokenCount}` | `{}` | stub |
+## 命令配置的保留部分
 
-> stub = dispatcher 触发后 logger.event 记录事件，不调 handler；调用方代码已经预留。后续按用户反馈补齐（SessionStart/SessionEnd/PreCompact/PostCompact）。
+保留 `.chery/hooks/hooks.json` 按事件数组配置以及 brain 的相对 hooks 路径。条目使用 `command`、可选 `matcher`、`if`、`timeout`（秒）、`required?:boolean`。matcher仍为精确字符串/分隔集合/正则，if仍使用已有字段比较子集。注册表准备后局部发布，失败保留旧表；开始的处理器不重跑。
 
-## 核心概念
+POSIX命令继续通过 [resolvePosixShell](../../../apps/backend/src/core/security/sandbox.ts) 解析：Linux/macOS使用sh；Windows依次探测PATH bash/sh、Git for Windows的bash及已有常见安装位置。不可用返回HOOK_SHELL_UNAVAILABLE；不改用cmd解释POSIX脚本。Windows子进程windowsHide=true。具体配置状态仍沿既有hooks.get与shellInfo，不在插件内部另造配置副本。
 
-### 1. Handler 类型：`command`
+## 阶段定义
 
-**仅支持 shell 脚本 handler**（仿 Claude Code command hook，简化版）。handler 进程：
-- **stdin**：框架写 `{event, payload, ctx}` JSON
-- **stdout**：handler 写决策 JSON（任意字段缺失则视为未设）
-- **退出码**：
-  - `exit 0` + stdout JSON → 解析为决策
-  - `exit 2` → 阻断式错误（PreLLMRequest/PreToolUse/PreCompact 阻断对应动作；stderr 喂回 LLM 或用户）
-  - 其它非零 → 非阻断错误，记 `logger.event("hook.failed",...)`，**继续下一个 handler**
+新增函数注册类型 `IngressHookRegistration<E>` 由公开宿主API导出并引用这里的HookPayloadMap/HookDecisionMap：`{event:E,priority?:number,required?:boolean,timeoutMs?:number,handler:(payload:Readonly<HookPayloadMap[E]>,ctx:IngressHookContext)=>void|HookDecisionMap[E]|Promise<void|HookDecisionMap[E]>}`。priority为[-1000,1000]整数、默认0，较小先执行；required默认true，timeoutMs默认10000、范围[1,30000]。command timeout继续秒单位、相同默认与上限。只读阶段默认required=false，但失败必须记录。
 
-> 不支持 `prompt`/`agent`/`http`/`mcp_tool` handler 类型（Claude Code 支持但本轮不引入，保持简单）。
+`IngressHookContext` 为 `{requestId?:string,inputId?:string,chatId?:string,brain:string,requestView?:Readonly<IngressRequestView>,signal:AbortSignal}`。RequestPrepare使用尚未带contexts的view，其余请求阶段使用同一冻结view；Session级可无requestId。subject按宿主授予的身份权限投影。命令stdin为 `{event,payload,ctx}` 的可序列化安全投影，不含AbortSignal、身份句柄、subject、秘密/header/认证材料；原始输入和工具参数只在相应阶段传给可信本地处理器，不写日志。函数与命令不得返回任意核心对象引用。
 
-### 2. 配置：`.chery/hooks/hooks.json`
+以下各行列出公开字段和唯一允许输出。RequestPrepare、ToolFailed、RequestCompleted、RequestFailed、RequestCancelled、ChannelSendResult 由请求与回执路径触发；其余现有事件按本表语义执行，不保留无限字段接口。
 
-```jsonc
-{
-  "PreLLMRequest": [
-    {
-      "matcher": "anthropic",                    // 可选：按 provider 过滤（exact/regex）
-      "if": "thinking == 'high'",                // 可选：jq-lite 谓词（基于 stdin payload+ctx）
-      "command": "${CHERY_DIR}/.chery/hooks/anthropic-thinking.sh",
-      "timeout": 10                              // 秒，默认 10
-    }
-  ],
-  "PreToolUse": [
-    {
-      "matcher": "write_file|read_file",
-      "command": "${CHERY_DIR}/.chery/hooks/guard.sh"
-    }
-  ]
-}
-```
+| 阶段 | payload字段 | output字段白名单与应用点 |
+| --- | --- | --- |
+| SessionStart | `{chatId,brain}` | `{additionalContext?:string}`，只用于本次请求准备，不写会话历史 |
+| SessionEnd | `{chatId,reason:'user_stop'|'error'|'close'|'unknown'}` | 无；只读 |
+| UserPromptSubmit | `{chatId,prompt,role:'user'|'role'|'subagent'}` | `{decision?:'block'|'allow',reason?,additionalContext?}`；新输入准备前，block拒绝该输入，不重复在每次工具循环调用 |
+| RequestPrepare | `{requestId,inputId,chatId}`，配置/身份/工具从ctx.requestView取 | `{decision?:'block'|'allow',reason?,contexts?:Array<{key:string,content:string,configRevision:number}>}`；每新输入一次，owner由宿主补，QQ记忆在这里读取，循环复用 |
+| PreLLMRequest | `{provider,model,url,thinking,stream,body}`，保留当前字段 | `{decision?:'block'|'allow',reason?,body?:Record<string,unknown>}`；所有模型协议在构造后fetch前调用，只修改协议参数，不重新生成身份/工具/记忆 |
+| PostLLMResponse | `{provider,model,content,thinking?,thinkingBlocks?,senseCalls?}` | `{decision?:'block'|'allow',reason?}`；先应用拒绝再向工具/最终回答推进；不允许改工具名/调用/签名thinking blocks或悄悄改响应 |
+| PreToolUse | `{name,args,chatId}` | `{decision?:'allow'|'deny'|'ask',updatedInput?:Record<string,unknown>,reason?}`；参数按序patch，全部后重检schema、可用性、路径、范围与精确参数授权；deny不执行，ask走现有审批（QQ无审批入口则拒绝） |
+| PostToolUse | `{name,args,result:{content,hash?,replaced?},hash?,chatId}` | 无；只读已完成工具事实，不能用拒绝改写实际执行结果 |
+| ToolFailed | `{name,chatId,operationId,status,errorCode}` | 无；只读，status取既有执行控制非成功终态，不带Error原文 |
+| Stop | `{chatId,message,stopReason}` | 无；只读最终模型结束，不承诺强制继续或覆写取消 |
+| PreCompact | `{chatId,tokenCount}` | `{decision?:'block'|'allow',reason?}`；压缩写入之前，block拒绝压缩 |
+| PostCompact | `{chatId,summary,tokenCount}` | 无；只读压缩已提交事实 |
+| RequestCompleted | `{requestId,inputId,chatId,completedAt}` | 无；只读核心请求完成，不等于QQ已送达 |
+| RequestFailed | `{requestId,inputId,chatId,failedAt,errorCode}` | 无；只读失败，不触发自动重试 |
+| RequestCancelled | `{requestId,inputId,chatId,cancelledAt,reasonCode}` | 无；只读取消，不继续模型循环 |
+| ChannelSendResult | `{requestId,eventId,channel,status:'sent'|'unknown',terminal:boolean,recordedAt}` | 无；在可信渠道回执校验并持久化后，sent才表示渠道发送确认，不用核心RequestCompleted代替 |
 
-**matcher 规则**（仿 Claude Code）：
-- 字符串仅含字母数字/`_`/`-`/`,`/`|``/空格 → 精确字符串或 `|`/`,` 分隔的字符串集合
-- 含其它字符 → JS 正则（unanchored）
-- 省略或 `*` → 匹配全部
+未知输出字段一律拒绝，不通过类型断言默许。只读输出必须空对象/undefined；返回修改视为处理器失败，但不得撤销已发生业务事实。additionalContext/key/content须字符串，key非空最多100字符，reason为安全文案最多500字符；contexts总限由宿主请求视图规定。brain传实际已选择名称，不再调用处固定空字符串。
 
-**`if` 谓词**：jq-lite 子集，仅支持 `{field} ==/!= "value"`、`{field}` truthy/falsy、`{field1} == {field2}`。基于 dispatcher 喂给 handler 的 `{event, payload, ctx}` 对象访问字段。
+PreLLMRequest的body是完整候选body，但只允许更改以下协议参数：`thinking`、`reasoning`、`reasoning_effort`、`max_tokens`、`max_output_tokens`、`max_completion_tokens`、`temperature`、`top_p`、`top_k`、`stop`、`stop_sequences`。其他字段须与构造结果保持一致：messages/input/system/tools/tool_choice/model/stream以及安全身份不可改变；不改URL、认证header或provider。不同协议只接受它支持的字段与类型，协议适配器校验范围/模型限制，未知字段或错类型拒绝，不把上层动态上下文塞进此Hook。
 
-### 3. Brain 级覆盖
+### 顺序、合并和失败
 
-`BrainConfig.hooks?: string`（相对 `.chery/` 路径）指向一个 brain-specific `hooks.json`，事件 handler 与全局**合并**（全局在前、brain 级在后；brain 级决策覆盖全局）。
+1. 只使用已发布业务Hooks。插件按宿主依赖顺序及ID、插件内priority和注册序执行；然后全局命令按配置序，最后brain命令按配置序。brain不能覆盖拒绝。相同阶段保持稳定序，不并发修改。
+2. block/deny一旦出现即为最终拒绝；可立即短路，不执行后续allow。ask不能覆盖deny；固定安全检查的deny优先于所有Hooks。上下文按实际执行顺序收集；合法参数patch按序作用于候选值，后续处理器读取前序候选，但不能篡改原请求view。
+3. 必需处理器异常、非法输出、非零退出（除明确exit2拒绝）、超时、shell不可用都拒绝当前操作；可选处理器同类失败只记录安全code并继续。显式block/deny或exit2无论required取值均拒绝。命令空stdout等同无返回，非法非空JSON是失败，不默默忽略。
+4. 请求signal、插件停用和处理器deadline传播AbortSignal；取消优先且不可恢复为allow。命令取消终止进程及已登记子进程，函数忽略signal不能让迟到结果生效；达到30000ms上限后不等待。stdout/stderr各最多256KiB，超过按失败处理，不无限收集；不把stderr原文当公开错误或完整写日志。
+5. 观察只读完成/失败/取消/发送结果时，业务事实已经确定。观察失败只记安全诊断，不改成功为失败、不重新发QQ、不重复工具副作用。每requestId只有一个核心终态观察；实际发送可有多个eventId，同eventId同状态重复回执不重复观察；unknown经可信核实转sent可再记录一次，按宿主reportSendResult契约执行。
+6. 安全校验与执行前再次检查由固定代码实施，不是可选插件。日志仅owner/event/requestId/终态/安全code/耗时，不记录消息、用户号、记忆、参数、模型Key、Cookie或原始Error。
 
-仿 mock 自读 config（`findMockFile` 先例）—— dispatcher 按 brain name 加载合并表，**不需经 LLMOptions**。
+## 验证边界
 
-### 4. Dispatch 流程
-
-```ts
-async function dispatch<TIn, TOut>(
-  event: HookEvent,
-  payload: TIn,
-  ctx: { brain: string },
-): Promise<TOut | undefined>
-```
-
-1. registry 查 event → 合并全局 + brain 级 handler 列表
-2. 按 matcher 过滤 → 按 `if` 谓词过滤
-3. **顺序执行**（不支持并发：避免 stdout 竞态）handler：
-   - spawn `<resolved> -c command`（经 `resolvePosixShell()` 解析，见「跨平台执行」），stdin 写 `{event, payload, ctx}` JSON；Windows 控制台子进程须带 `windowsHide: true` 防止弹出窗口。
-   - 解析 stdout JSON（catch 单行解析失败，跳过该 handler）
-   - 应用决策：
-     - `{body}` → 替换 `payload.body`
-     - `{decision:"block"}` → 抛 `ClassifiedError(category:"validation", userMessage:reason ?? "被钩子拦截")` 阻断
-     - `{additionalContext}` → 注入 chat 上下文
-     - exit 2 → 阻断（stderr 喂回上游）
-4. 任一 handler 异常（非 0/2）：log `logger.event("hook.failed",...)`，**继续下一个**
-
-### 5. 加载策略与保存生效
-
-- `bootstrapAgentRuntime` 启动期读 `.chery/hooks/hooks.json` + 各 brain 级 hooks.json，校验 schema。
-- 设置页保存 Hooks 时，统一配置协调器先准备新注册表，再在资源边界局部发布；不会请求 worker 重启，也不会由 watcher 再次触发一轮重启。
-- 资源准备失败时保留现有注册表，设置状态显示失败原因；已经开始的 handler 或维护任务不重新执行。
-- **handler 进程不预热**：每次 dispatch 按需 read+spawn；脚本的下一次触发可采用已保存内容。
-- `.chery/hooks/*.sh` 是脚本，按需 `cat`/`exec`；不是闭包，不需缓存。
-
-### 6. 跨平台执行（POSIX shell 解析）
-
-hooks 的 command 是 **POSIX shell 语法**（`$VAR` 展开、管道、单引号、`.sh` 脚本 shebang），不能用 `cmd /c` 执行。dispatcher 统一经 `resolvePosixShell()`（[core/security/sandbox.ts](../../../src/core/security/sandbox.ts)）解析执行器：
-
-- **Linux / macOS**：直接 `sh`（历史行为不变）
-- **Windows** 探测链（模块级缓存，仿 `resolveShellExecutable('powershell')` 的探测→降级→缓存先例）：
-  1. PATH 上的 `bash`（`bash -c true` 探测）
-  2. PATH 上的 `sh`
-  3. `where git` 反查 git.exe 安装位置 → 推导 `<Git 安装目录>/usr/bin/bash.exe`（Git for Windows 标准布局）
-  4. 常见安装路径直查（如 `C:\Program Files\Git\usr\bin\bash.exe`）
-  5. 全部失败 → 抛 `HOOK_SHELL_UNAVAILABLE`（userMessage 附安装指引）
-
-Git Bash 的 `bash` 完全兼容 `/bin/sh` 脚本与 POSIX 语法；`${CHERY_DIR}` 等模板展开由框架完成（`expandCommandTemplate`），与平台无关；handler 脚本自身的工具依赖（如 `jq`）由脚本保证，缺失时以 exit 非零落回非阻断语义。
-
-**失败语义表**（区分「平台缺失」与「handler 业务失败」）：
-
-| 情形 | 行为 | 依据 |
-|------|------|------|
-| shell 解析失败 / spawn ENOENT | **阻断**（fail-loud）：抛 ClassifiedError，userMessage 指路（装 Git Bash 或删该 handler） | 对安全类 handler 静默跳过 = fail-open，不可接受 |
-| exit 0 + stdout JSON | 解析为决策 | 正常路径 |
-| exit 2 | 阻断，stderr 作为 reason | handler 显式阻断 |
-| exit 其他非零 | **非阻断**：log `hook.failed`，继续下一 handler | handler 业务失败 |
-| timeout | kill + log `hook.timeout`，跳过该 handler | 超时防护 |
-
-**启动期健康检查**：`loadHookRegistry()` 首次构建表后，若注册了任何 handler，立即探测 shell；失败打 `hooks.registry.shell_unavailable` warn（先例：git 导入的 `gitNotInstalled` 预探测）——平台缺失在**事故前**暴露，而非在会话中反复撞墙。
-
-**设置页状态**：`hooks.get` 响应携带 `shellInfo { platform, available, executable?, hint? }`，HooksTab 页头展示当前解析结果。
-
-**Windows 前提**：安装 Git for Windows（或任何把 bash.exe 放进 PATH 的环境，如 MSYS2）。
-
-## 关键流程
-
-### Thinking 适配（核心用例）
-
-```mermaid
-sequenceDiagram
-    participant Chat as chat middleware
-    participant Anthropic as anthropic.ts
-    participant Dispatch as hooks dispatch
-    participant Shell as .chery/hooks/anthropic-thinking.sh
-    participant API as {base}/messages
-    Note over API: base URL = brain.url（用户配置，含 /v1 等版本前缀）
-
-    Chat->>Anthropic: chat(messages, senses, options)
-    Anthropic->>Anthropic: 构造 body (内置 thinking 默认)
-    Anthropic->>Dispatch: dispatch("PreLLMRequest", {body, provider, thinking, ...})
-    Dispatch->>Shell: spawn resolved-shell -c, stdin = {event,payload,ctx}
-    Shell->>Shell: 修改 body.thinking 或 max_tokens
-    Shell-->>Dispatch: stdout = {body: <new>}  (exit 0)
-    Dispatch-->>Anthropic: payload.body (已替换)
-    Anthropic->>API: fetch POST {base}/messages
-```
-
-### matcher + if 谓词
-
-```ts
-// matcher.ts
-type Matcher = string  // exact / 分隔集合 / 正则
-function matches(matcher: Matcher | undefined, value: string): boolean
-
-// 简化版 if 谓词（jq-lite）
-// 支持：'field == "x"'、'field != "x"'、'field' (truthy)
-// 不支持：算术/函数调用/复杂表达式
-function evalIf(expr: string, ctx: Record<string, unknown>): boolean
-```
-
-## PreLLMRequest 详细契约
-
-**input**（stdin JSON）：
-```ts
-{
-  event: 'PreLLMRequest',
-  payload: {
-    provider: string         // 'anthropic' | 'openai' | ...
-    model: string
-    url: string              // base URL（含版本前缀如 /v1）
-    thinking: 'off'|'on'|'low'|'medium'|'high'|undefined
-    stream: boolean
-    body: Record<string, unknown>  // provider 构造的完整请求体
-  },
-  ctx: {
-    brain: string            // brain name
-  }
-}
-```
-
-**output**（stdout JSON）：
-```ts
-{
-  body?: Record<string, unknown>   // 替换 body（最常用）
-  decision?: 'block'|'allow'       // 'block' → 抛 ClassifiedError 阻断
-  reason?: string                  // 阻断时的 user-facing 文案
-  metadata?: Record<string, unknown>  // 附加元数据（不修改 body，仅记录到日志）
-}
-```
-
-**示例 handler（`anthropic-thinking.sh`）**：
-```bash
-#!/bin/sh
-# 读取 stdin JSON
-INPUT=$(cat)
-
-# jq 提取 thinking/model
-THINKING=$(echo "$INPUT" | jq -r '.payload.thinking // "off"')
-MODEL=$(echo "$INPUT" | jq -r '.payload.model')
-BODY=$(echo "$INPUT" | jq -c '.payload.body')
-
-# 不同模型/档位适配
-case "$MODEL" in
-  *sonnet*|*haiku*|*opus*)
-    # 官方 API：body 不动
-    echo "$INPUT" | jq '{body: .payload.body}'
-    ;;
-  *)
-    # 聚合端点：thinking 改成 enabled+budget_tokens
-    NEW_BODY=$(echo "$BODY" | jq --arg t "$THINKING" '
-      . + {
-        thinking: (
-          if $t == "high" then { type: "enabled", budget_tokens: 8000 }
-          elif $t == "medium" then { type: "enabled", budget_tokens: 4000 }
-          elif $t == "low" then { type: "enabled", budget_tokens: 2000 }
-          else { type: "disabled" }
-          end
-        )
-      } | del(.output_config)
-    ')
-    echo "$INPUT" | jq --arg nb "$NEW_BODY" '{body: ($nb | fromjson)}'
-    ;;
-esac
-```
-
-## 依赖与关联
-
-| 依赖 | 用途 |
-|------|------|
-| [src/utils/config.ts](../../../src/utils/config.ts) | 读 `BrainConfig.hooks`（相对 `.chery/`） |
-| [src/utils/error.ts](../../../src/utils/error.ts) | `ClassifiedError` 抛阻断错误 |
-| [src/utils/logger](../../../src/utils/logger/) | `logger.event('hook.failed',...)` 落盘 |
-| Node 内建 | `child_process.spawn`/`fs.readFileSync`/`path.join` |
-
-### 被依赖
-
-| 调用方 | 用途 |
-|--------|------|
-| [agent/middleware/chat.ts](../../../src/agent/middleware/chat.ts) | UserPromptSubmit / PreLLMRequest / PostLLMResponse / Stop dispatch |
-| [agent/middleware/tool.ts](../../../src/agent/middleware/tool.ts) | PreToolUse / PostToolUse dispatch |
-| [agent/middleware/checkpoint.ts](../../../src/agent/middleware/checkpoint.ts) | PreCompact / PostCompact dispatch |
-| [agent/bootstrap.ts](../../../src/agent/bootstrap.ts) | 启动期 `loadHookRegistry()` |
-| [agent/provider/anthropic.ts](../../../src/agent/provider/anthropic.ts) | fetch 前自动 dispatch PreLLMRequest（thinking 适配） |
-
-## 扩展点
-
-### 加事件
-
-1. 在 [types.ts](../../../src/agent/hooks/types.ts) 加事件名到 `HookEvent` 联合 + 该事件的 `Payload`/`Decision` 类型
-2. 在 [dispatch.ts](../../../src/agent/hooks/dispatch.ts) `dispatch` 函数内加 `case "<Event>": logger.event(...)`（stub）或完整 handler 调用
-3. 在调用方（chat/tool/checkpoint）加 `dispatch("<Event>", payload, ctx)`
-
-### 改 matcher / if 谓词
-
-仿 Claude Code matcher 规则改 [matcher.ts](../../../src/agent/hooks/matcher.ts)。`if` 谓词当前 jq-lite 子集，扩展需在 `evalIf` 内加 token。
-
-## 安全边界
-
-- **信任边界**：`.chery/hooks/`（同 `.chery/senses/`、`installSkill` staging 隔离）——本地用户配置，与项目代码同级可信
-- **任意 shell 无沙箱**：handler 进程以主进程用户权限执行，可调任意 global（process/fs/network）——文档明示，**不沙箱**
-- **凭据泄露面**：handler 脚本不应包含 secrets（应从环境变量读，如 `${CHERY_DIR}` 注入）；dispatcher **不**把 `key/token` 喂给 handler
-- **pathGuard 协同**：`.chery/hooks/` 受 pathGuard 保护（`GUARD_EXEMPT` 暂无 hooks 写入场景；如需工具通过 hooks 写 `.chery/hooks/`，需手工加豁免）
-- **handler 失败不阻断**：单 handler 异常 → log + 继续下一个；exit 2 → 阻断（设计如此，区分异常与显式拒绝）
-
-## 最小可用 vs 完整版（本轮范围）
-
-本轮已实现 6 个核心事件完整路径 + 接线：
-- **PreLLMRequest**：完整（anthropic provider 在 fetch 前 dispatch；body 替换 / block 阻断）
-- **UserPromptSubmit**：完整（chat.ts 入口 dispatch；block 抛 ClassifiedError 终止 chat）
-- **PostLLMResponse**：完整（chat.ts handleStream/handleNonStream 末尾 dispatch；审计）
-- **PreToolUse**：完整（tool.ts doExecuteSense 前 dispatch；updatedInput 改 args / block 阻断）
-- **PostToolUse**：完整（tool.ts doExecuteSense 后 dispatch；block 改 content 为 reason）
-- **Stop**：完整（chat.ts 末尾 dispatch；decision:block 本轮仅 log，"强制继续"需 loop.ts 配合后续扩展）
-
-仍 stub（4 个）：SessionStart / SessionEnd / PreCompact / PostCompact——dispatch 触发时 logger 后返回 undefined，调用方代码已预留，后续按需补 handler 调用。
-
-Brain 级覆盖、matcher + if 谓词均已完整实现。
+自动验证仅离线合成处理器和mock provider，无真实模型/QQ发送、浏览器、图片或界面操作；真实部署、真实QQ回执和用户验收另行执行。本文发布只检查文档。

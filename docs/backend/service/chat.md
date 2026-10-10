@@ -1,6 +1,6 @@
 # Chat 子系统（service/chat）
 
-> 源码 [src/service/chat/](../../../src/service/chat/) ｜ 上级 [service/README.md](README.md) ｜ 相关 [./message.md](message.md)、[./websocket.md](websocket.md)、[../agent/middleware.md](../agent/middleware.md)、[db.md](../db/README.md)、[../interaction.md](../../shared/protocol/interactions.md)
+> 源码 [apps/backend/src/service/chat/](../../../apps/backend/src/service/chat) ｜ 上级 [service/README.md](README.md) ｜ 相关 [./message.md](message.md)、[./websocket.md](websocket.md)、[../agent/middleware.md](../agent/middleware.md)、[db.md](../db/README.md)、[../interaction.md](../../shared/protocol/interactions.md)
 
 ## 职责
 
@@ -41,7 +41,7 @@ service 层的核心枢纽。把 RPC 请求（`chat.*` / `interaction.*`）转�
 
 ## 工作台任务目录
 
-工作台全部任务页使用任务级只读目录，不能把 `chat.list` 的根会话分页当作任务分页。跨端字段与方法以[共享协议](../../shared/protocol/websocket.md#工作台任务目录与结果查看记录)为唯一 owner；`src/service/chat/taskCatalog.ts` 的 `handleChatTaskList`、`handleChatTaskResultView` 与 `src/service/chat/overview.ts` 的 `buildTaskOverview` 负责以下实现边界，定向验证见 `test/service/chat/taskCatalog.test.ts`：
+工作台全部任务页使用任务级只读目录，不能把 `chat.list` 的根会话分页当作任务分页。跨端字段与方法以[共享协议](../../shared/protocol/websocket.md#工作台任务目录与结果查看记录)为唯一 owner；`apps/backend/src/service/chat/taskCatalog.ts` 的 `handleChatTaskList`、`handleChatTaskResultView` 与 `apps/backend/src/service/chat/overview.ts` 的 `buildTaskOverview` 负责以下实现边界，定向验证见 `apps/backend/test/service/chat/taskCatalog.test.ts`：
 
 - 先用 `conversation_tasks.original_chat_id` 或无分支旧根的 chat id 得到稳定 `taskKey`，再合并分支、计算状态和分页；不得先分页 chat 后在前端去重。
 - 普通打开目标解析为活动 `original`/`continuation` 分支，`detail` 不参与主流程选择。搜索可以命中全部分支，但标题、最近要求和最新任务结果取活动主流程。
@@ -80,26 +80,26 @@ running chat hydration 顺序固定：`chat.open`/`chat.attach` 先建立实时�
 
 | 文件                                                                                | 一句话                                                                                                                                                                                                                  |
 | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [src/service/chat/send.ts](../../../src/service/chat/send.ts)                       | `handleChatSend` / `handleChatResume` / `handleChatAbort` + `registerChatHandlers`（chat.run.resume / chat.abort）                                                                                                      |
-| [src/service/chat/handler.ts](../../../src/service/chat/handler.ts)                 | `handleChatCreate` / `handleChatList` / `handleChatGet`（流式历史 + canResume）+ `registerChatManageHandlers`                                                                                                           |
-| [src/service/chat/archive.ts](../../../src/service/chat/archive.ts)                 | `handleChatArchive` / `handleArchiveList` / `handleChatDelete`：整组归档、归档目录与永久清理                                                                                                                            |
-| [src/service/chat/lifecycleEvents.ts](../../../src/service/chat/lifecycleEvents.ts) | `broadcastChatLifecycle`：向全部窗口广播归档或删除后的目录失效通知                                                                                                                                                      |
-| [src/service/chat/contextUsage.ts](../../../src/service/chat/contextUsage.ts)       | `computeContextBreakdown`：计算 6 段 token 用量；selection 优先内存 runtime，缺失时回退 DB 持久化 `metadata.runtime`（重启后仍可展示）                                                                                  |
-| [src/service/chat/generations.ts](../../../src/service/chat/generations.ts)         | `computeGenerations`（compact 边界推导代际索引）+ `handleChatTimelineGenerationGet`（chat.timeline.generation.get）+ 分支代际校验辅助                                                                                   |
-| [src/service/chat/promptSnapshot.ts](../../../src/service/chat/promptSnapshot.ts)   | `handleChatPromptSnapshot`：重建 chat 当前 runtime 的 system prompt 全文 + 工具定义（chat.promptSnapshot RPC，供历史抽屉「上下文」hover 面板）                                                                          |
-| [src/service/chat/observer.ts](../../../src/service/chat/observer.ts)               | `observeAgentChunks`：消费 effect chunk 做 DB 副作用 + 审批注册 + child_done 调度，finally abort flush + 每条 chunk feed-dog 喂狗                                                                                       |
-| [src/service/chat/streamMapper.ts](../../../src/service/chat/streamMapper.ts)       | `streamAgentChunks`：MiddlewareChunk → 协议 Chunk/Notification 映射                                                                                                                                                     |
-| [src/service/chat/timeline.ts](../../../src/service/chat/timeline.ts)               | `buildCanonicalTimeline` / `buildRootTimeline`：消息与多 Agent 根时间线投影                                                                                                                                             |
-| [src/service/chat/activeTurns.ts](../../../src/service/chat/activeTurns.ts)         | `buildActiveTurns`：持久事件与内存累计文本合并为运行中 turn 快照                                                                                                                                                        |
-| [src/service/chat/input.ts](../../../src/service/chat/input.ts)                     | `handleChatInputSubmit` / `dispatchToChild` / `handleChatStopChild`：输入接收与子 Agent 派发                                                                                                                            |
-| [src/service/chat/timelineGet.ts](../../../src/service/chat/timelineGet.ts)         | `handleChatTimelineGet`：任务/根/单会话读取及游标分页                                                                                                                                                                   |
-| [src/service/chat/stagedHistory.ts](../../../src/service/chat/stagedHistory.ts)     | `messagesToStagedEvents`：持久消息回放为 staged 事件                                                                                                                                                                    |
-| [src/service/chat/runtime.ts](../../../src/service/chat/runtime.ts)                 | `ensureChat` / `setRuntime` / `clearChatRuntime` / `loadHistory`、会话启动和恢复编排                                                                                                              |
-| [src/service/chat/runtimeCache.ts](../../../src/service/chat/runtimeCache.ts) | 单 chat 的 builder 缓存、运行标识与中止/安全边界处理 |
-| [src/service/chat/sessionRoleRuntime.ts](../../../src/service/chat/sessionRoleRuntime.ts) | 会话级角色临时编制、子角色覆盖及配置变更处理 |
-| [src/service/chat/treeRuntimeRefresh.ts](../../../src/service/chat/treeRuntimeRefresh.ts) | 节点树配置切换时准备新 builder 与发布快照 |
-| [src/service/chat/wakeScheduler.ts](../../../src/service/chat/wakeScheduler.ts)     | 唤醒策略调度器：`onChildDone` + `evalWakePolicy`（hasBarrier→all / first+immediate→唤 / first+deferred→兜底）+ `allChildrenFinished` + `parentHasBarrier`                                                               |
-| [src/service/chat/wake.ts](../../../src/service/chat/wake.ts)                       | `wakeParent(silent?)`（deferred/barrier 静默注入 / immediate 完整唤主）+ `handleAsyncWakeTimeout`（按 `watchdog.wake_on_timeout` 分支）+ `resolveQuestionBatch` + `rebuildWaitedChildren`（启动期按 policy 重建唤醒链） |
+| [apps/backend/src/service/chat/send.ts](../../../apps/backend/src/service/chat/send.ts)                       | `handleChatSend` / `handleChatResume` / `handleChatAbort` + `registerChatHandlers`（chat.run.resume / chat.abort）                                                                                                      |
+| [apps/backend/src/service/chat/handler.ts](../../../apps/backend/src/service/chat/handler.ts)                 | `handleChatCreate` / `handleChatList` / `handleChatGet`（流式历史 + canResume）+ `registerChatManageHandlers`                                                                                                           |
+| [apps/backend/src/service/chat/archive.ts](../../../apps/backend/src/service/chat/archive.ts)                 | `handleChatArchive` / `handleArchiveList` / `handleChatDelete`：整组归档、归档目录与永久清理                                                                                                                            |
+| [apps/backend/src/service/chat/lifecycleEvents.ts](../../../apps/backend/src/service/chat/lifecycleEvents.ts) | `broadcastChatLifecycle`：向全部窗口广播归档或删除后的目录失效通知                                                                                                                                                      |
+| [apps/backend/src/service/chat/contextUsage.ts](../../../apps/backend/src/service/chat/contextUsage.ts)       | `computeContextBreakdown`：计算 6 段 token 用量；selection 优先内存 runtime，缺失时回退 DB 持久化 `metadata.runtime`（重启后仍可展示）                                                                                  |
+| [apps/backend/src/service/chat/generations.ts](../../../apps/backend/src/service/chat/generations.ts)         | `computeGenerations`（compact 边界推导代际索引）+ `handleChatTimelineGenerationGet`（chat.timeline.generation.get）+ 分支代际校验辅助                                                                                   |
+| [apps/backend/src/service/chat/promptSnapshot.ts](../../../apps/backend/src/service/chat/promptSnapshot.ts)   | `handleChatPromptSnapshot`：重建 chat 当前 runtime 的 system prompt 全文 + 工具定义（chat.promptSnapshot RPC，供历史抽屉「上下文」hover 面板）                                                                          |
+| [apps/backend/src/service/chat/observer.ts](../../../apps/backend/src/service/chat/observer.ts)               | `observeAgentChunks`：消费 effect chunk 做 DB 副作用 + 审批注册 + child_done 调度，finally abort flush + 每条 chunk feed-dog 喂狗                                                                                       |
+| [apps/backend/src/service/chat/streamMapper.ts](../../../apps/backend/src/service/chat/streamMapper.ts)       | `streamAgentChunks`：MiddlewareChunk → 协议 Chunk/Notification 映射                                                                                                                                                     |
+| [apps/backend/src/service/chat/timeline.ts](../../../apps/backend/src/service/chat/timeline.ts)               | `buildCanonicalTimeline` / `buildRootTimeline`：消息与多 Agent 根时间线投影                                                                                                                                             |
+| [apps/backend/src/service/chat/activeTurns.ts](../../../apps/backend/src/service/chat/activeTurns.ts)         | `buildActiveTurns`：持久事件与内存累计文本合并为运行中 turn 快照                                                                                                                                                        |
+| [apps/backend/src/service/chat/input.ts](../../../apps/backend/src/service/chat/input.ts)                     | `handleChatInputSubmit` / `dispatchToChild` / `handleChatStopChild`：输入接收与子 Agent 派发                                                                                                                            |
+| [apps/backend/src/service/chat/timelineGet.ts](../../../apps/backend/src/service/chat/timelineGet.ts)         | `handleChatTimelineGet`：任务/根/单会话读取及游标分页                                                                                                                                                                   |
+| [apps/backend/src/service/chat/stagedHistory.ts](../../../apps/backend/src/service/chat/stagedHistory.ts)     | `messagesToStagedEvents`：持久消息回放为 staged 事件                                                                                                                                                                    |
+| [apps/backend/src/service/chat/runtime.ts](../../../apps/backend/src/service/chat/runtime.ts)                 | `ensureChat` / `setRuntime` / `clearChatRuntime` / `loadHistory`、会话启动和恢复编排                                                                                                              |
+| [apps/backend/src/service/chat/runtimeCache.ts](../../../apps/backend/src/service/chat/runtimeCache.ts) | 单 chat 的 builder 缓存、运行标识与中止/安全边界处理 |
+| [apps/backend/src/service/chat/sessionRoleRuntime.ts](../../../apps/backend/src/service/chat/sessionRoleRuntime.ts) | 会话级角色临时编制、子角色覆盖及配置变更处理 |
+| [apps/backend/src/service/chat/treeRuntimeRefresh.ts](../../../apps/backend/src/service/chat/treeRuntimeRefresh.ts) | 节点树配置切换时准备新 builder 与发布快照 |
+| [apps/backend/src/service/chat/wakeScheduler.ts](../../../apps/backend/src/service/chat/wakeScheduler.ts)     | 唤醒策略调度器：`onChildDone` + `evalWakePolicy`（hasBarrier→all / first+immediate→唤 / first+deferred→兜底）+ `allChildrenFinished` + `parentHasBarrier`                                                               |
+| [apps/backend/src/service/chat/wake.ts](../../../apps/backend/src/service/chat/wake.ts)                       | `wakeParent(silent?)`（deferred/barrier 静默注入 / immediate 完整唤主）+ `handleAsyncWakeTimeout`（按 `watchdog.wake_on_timeout` 分支）+ `resolveQuestionBatch` + `rebuildWaitedChildren`（启动期按 policy 重建唤醒链） |
 
 ## 核心概念 / 导出
 
@@ -311,7 +311,7 @@ finally:                                                // abort 兜底 flush
 
 `agent.resume()`（builder.ts）：末尾有 pending sense → 置 `resumePending=true`，首轮 senseMiddleware skip chat 层、重发 `sense_end`→`interrupt`（按监管等级）；全 done → `run("")` 正常 loop。续接规则与交互序列见 [../interaction.md](../../shared/protocol/interactions.md) chat.resume，agent 侧实现见 [../agent/middleware.md](../agent/middleware.md)。
 
-**防御性 finalize**（[spawnFinalize.ts](../../../src/service/chat/spawnFinalize.ts) `finalizeSpawnChildIfDone`）：done 分支构造前（streamMapper.ts done 分支）先调一次——子 chat 走独立 `chat.resume` 续跑完成的场景，loop 不 yield `child_done`、observer 不在流内设 finished，此调用使 done 通知携带 `finished:true`（修复时序竞态：原兜底在 send.ts 末尾、done 通知之后执行，为时已晚）。判定：末条 assistant **且无 sense_calls**（带 sense_calls = yield-turn 子 spawn 孙后等待，不标）→ `finishSpawnTask` + `updateChatMetadata({finished:true})`；幂等（非子 chat / 已 finished / 末条非 assistant / 带 sense_calls 均短路），不调 wakeParent 避免重复唤主。`handleChatSend`/`handleChatResume` 末尾的调用保留为防御性兜底。真实故障归 failed 且不标 finished；若 `canResume=true`，最终一次 resume 自然跑完后才标 finished。
+**防御性 finalize**（[spawnFinalize.ts](../../../apps/backend/src/service/chat/spawnFinalize.ts) `finalizeSpawnChildIfDone`）：done 分支构造前（streamMapper.ts done 分支）先调一次——子 chat 走独立 `chat.resume` 续跑完成的场景，loop 不 yield `child_done`、observer 不在流内设 finished，此调用使 done 通知携带 `finished:true`（修复时序竞态：原兜底在 send.ts 末尾、done 通知之后执行，为时已晚）。判定：末条 assistant **且无 sense_calls**（带 sense_calls = yield-turn 子 spawn 孙后等待，不标）→ `finishSpawnTask` + `updateChatMetadata({finished:true})`；幂等（非子 chat / 已 finished / 末条非 assistant / 带 sense_calls 均短路），不调 wakeParent 避免重复唤主。`handleChatSend`/`handleChatResume` 末尾的调用保留为防御性兜底。真实故障归 failed 且不标 finished；若 `canResume=true`，最终一次 resume 自然跑完后才标 finished。
 
 ### chat.get 流式载入历史（handler.ts `handleChatGet`）
 
@@ -334,9 +334,9 @@ return {chatId, canResume}
 
 ### 唤醒策略调度器（wakeScheduler.ts + wake.ts）
 
-子完成唤主的单一调度入口，取代旧「child_done 直调 wakeParent」1:1 硬编码。介于 [observer.ts](../../../src/service/chat/observer.ts) 的 child_done 分支与 `wakeParent` 之间，按 spawn 时声明的 **`WakePolicy`**（immediate/deferred/barrier，类型见 [spawnBroker.ts](../../../src/agent/spawnBroker.ts)）决定 silent 暂存 / resume 唤主。
+子完成唤主的单一调度入口，取代旧「child_done 直调 wakeParent」1:1 硬编码。介于 [observer.ts](../../../apps/backend/src/service/chat/observer.ts) 的 child_done 分支与 `wakeParent` 之间，按 spawn 时声明的 **`WakePolicy`**（immediate/deferred/barrier，类型见 [spawnBroker.ts](../../../apps/backend/src/agent/spawnBroker.ts)）决定 silent 暂存 / resume 唤主。
 
-**onChildDone 流程**（[wakeScheduler.ts](../../../src/service/chat/wakeScheduler.ts)）：
+**onChildDone 流程**（[wakeScheduler.ts](../../../apps/backend/src/service/chat/wakeScheduler.ts)）：
 
 ```
 observer 收 child_done chunk
@@ -355,7 +355,7 @@ observer 收 child_done chunk
 | first（无 barrier 子）               | `immediate`       | **唤主**（聚合已完成子结果）                      |
 | first（无 barrier 子）               | `deferred`        | 暂存；若碰巧 `allChildrenFinished` 则唤主（兜底） |
 
-**wakeParent silent 参数**（[wake.ts](../../../src/service/chat/wake.ts)）：
+**wakeParent silent 参数**（[wake.ts](../../../apps/backend/src/service/chat/wake.ts)）：
 
 ```
 wakeParent(parentChatId, childChatId, type, content, { silent? })
@@ -373,7 +373,7 @@ wakeParent(parentChatId, childChatId, type, content, { silent? })
        └─ ws 离线：logger.event('wake.offline')（resumePending 已落 DB，前端重连恢复）
 ```
 
-**handleAsyncWakeTimeout（feed-dog 看门狗超时分支）**（[wake.ts](../../../src/service/chat/wake.ts)，service 启动期 `setAsyncWakeHandler` 注入）：
+**handleAsyncWakeTimeout（feed-dog 看门狗超时分支）**（[wake.ts](../../../apps/backend/src/service/chat/wake.ts)，service 启动期 `setAsyncWakeHandler` 注入）：
 
 ```
 子 timeout_ms（config.global.watchdog.timeout_ms，默认 5min）内无 chunk 喂狗 → 判定卡死
@@ -395,7 +395,7 @@ wakeParent(parentChatId, childChatId, type, content, { silent? })
 
 **看门狗与唤醒链解耦**（修问题2根因）：`wake_on_timeout=false`（默认）下，子卡死不影响主——主继续等真正完成的子唤主；子被 abort 后可由用户从子会话 resume 续跑。false 分支仍向子订阅端推 `run.updated{paused}` 终态（复用 role_reply/child_abandoned 的 createNotification + appendChatEvent + broadcastChatNotification 模式），使前端子 pet/CRT 的「工作中」状态随看门狗超时复位，不留 running 残留。
 
-**rebuildWaitedChildren（启动重建）**（[wake.ts](../../../src/service/chat/wake.ts)，service/index.ts init 调，broadcaster / asyncWake 注入之后）：扫所有子 chat（parent_chat_id 非空）按 wake 策略分流：
+**rebuildWaitedChildren（启动重建）**（[wake.ts](../../../apps/backend/src/service/chat/wake.ts)，service/index.ts init 调，broadcaster / asyncWake 注入之后）：扫所有子 chat（parent_chat_id 非空）按 wake 策略分流：
 
 - `finished=true`（子完成、崩溃前未唤主）→ 从 DB 末条 assistant content `wakeParent` 补注入：`wake='immediate'`（或旧记录无 wake 默认）→ `silent:false` 补唤主；`wake='deferred'/'barrier'`→ `silent:true` 静默注入。
 - `finished!==true`（interrupted，turn 中断）→ `registerWaitedChild(childChatId, parentChatId, type, policy)` 重建链 + 重启看门狗（带 policy，待前端重连续跑子）。
@@ -405,7 +405,7 @@ wakeParent(parentChatId, childChatId, type, content, { silent? })
 
 ## 审批 service 侧流程（跨模块）
 
-**P1-11 解耦后**：core（senseMiddleware）在 [core/sense/approvalRegistry.ts](../../../src/core/sense/approvalRegistry.ts) 创建审批 Promise 并 `await`；service `ApprovalManager` 只存 `Set<approvalId>`，`confirm/abort` 转调 core registry。
+**P1-11 解耦后**：core（senseMiddleware）在 [core/sense/approvalRegistry.ts](../../../apps/backend/src/core/sense/approvalRegistry.ts) 创建审批 Promise 并 `await`；service `ApprovalManager` 只存 `Set<approvalId>`，`confirm/abort` 转调 core registry。
 
 > ⚠ `.claude/CLAUDE.md` 仍写「ApprovalManager 存 approvalResolve 回调」——**与代码不符**，以本文档为准。
 
@@ -439,9 +439,9 @@ agent 侧（SenseTriggerChunk 生成、await Promise、tool.ts）见 [../agent/m
 
 **被依赖：**
 
-- [service/index.ts](../../../src/service/index.ts)：`registerChatHandlers` + `registerChatManageHandlers`。
-- [service/runtime/set.ts](../../../src/service/runtime/set.ts)：`setRuntime`（runtime.set handler 调）。
-- [service/chat/handler.ts](../../../src/service/chat/handler.ts)：`ensureChat` / `clearChatRuntime`（chat.create / chat.delete）。
+- [service/index.ts](../../../apps/backend/src/service/index.ts)：`registerChatHandlers` + `registerChatManageHandlers`。
+- [service/runtime/set.ts](../../../apps/backend/src/service/runtime/set.ts)：`setRuntime`（runtime.set handler 调）。
+- [service/chat/handler.ts](../../../apps/backend/src/service/chat/handler.ts)：`ensureChat` / `clearChatRuntime`（chat.create / chat.delete）。
 
 **依赖（模块内）：**
 
@@ -451,15 +451,15 @@ agent 侧（SenseTriggerChunk 生成、await Promise、tool.ts）见 [../agent/m
 
 **依赖（跨模块）：**
 
-- [@/agent/builder](../../../src/agent/builder.ts)：`AgentBuilder`（build / configureRuntime / init / run / resume / revokeTrailingCycle / isRunning / getMessages / abort / hasPendingTrailingSense / setResumePending）。
-- [@/agent/runtimeResolver](../../../src/agent/runtimeResolver.ts)：`parseRuntimeSelection`（chat.create / runtime.set 校验）+ `RuntimeSelection` 类型。
-- [@/core/middleware/types](../../../src/core/middleware/types.ts)：`MiddlewareChunk` 各 variant、`LLMResponse` 类型。
-- [@/core/message/adapter](../../../src/core/message/adapter.ts)：`LLMResponse` 类型（observer getMessages 返回）。
-- [@/core/config](../../../src/core/config.ts)：`SupervisionLevel`（streamMapper 算 `needsApproval`）。
-- [@/db/chat](../../../src/db/chat.ts)：`createChat`/`listAllChats`/`getChat`/`deleteChat`/`updateChatMetadata`/`getChatRuntimeSelection`；[@/db/message](../../../src/db/message.ts)：`getMessages`/`parseMessageRow`/`addMessage`/`fillApprovalResult`/`markMessagesRevoked`/`markMessageReplaced`；[@/db/messageLink](../../../src/db/messageLink.ts)：跨会话消息关联。详见 [db.md](../db/README.md)。
-- [../approval/manager](../../../src/service/approval/manager.ts)：`approvalManager.register`（observer）/ `confirm`（interaction/handler.ts `handleApprovalDecide`）。
-- [../websocket/connection](../../../src/service/websocket/connection.ts)：`connectionManager.bindChatConnection` / `releaseChatConnection` / `forceReleaseChatConnection`。
-- [@/utils/logger](../../../src/utils/logger/index.ts)：send/streamMapper 全流程日志。
+- [@/agent/builder](../../../apps/backend/src/agent/builder.ts)：`AgentBuilder`（build / configureRuntime / init / run / resume / revokeTrailingCycle / isRunning / getMessages / abort / hasPendingTrailingSense / setResumePending）。
+- [@/agent/runtimeResolver](../../../apps/backend/src/agent/runtimeResolver.ts)：`parseRuntimeSelection`（chat.create / runtime.set 校验）+ `RuntimeSelection` 类型。
+- [@/core/middleware/types](../../../apps/backend/src/core/middleware/types.ts)：`MiddlewareChunk` 各 variant、`LLMResponse` 类型。
+- [@/core/message/adapter](../../../apps/backend/src/core/message/adapter.ts)：`LLMResponse` 类型（observer getMessages 返回）。
+- [@/core/config](../../../apps/backend/src/core/config.ts)：`SupervisionLevel`（streamMapper 算 `needsApproval`）。
+- [@/db/chat](../../../apps/backend/src/db/chat.ts)：`createChat`/`listAllChats`/`getChat`/`deleteChat`/`updateChatMetadata`/`getChatRuntimeSelection`；[@/db/message](../../../apps/backend/src/db/message.ts)：`getMessages`/`parseMessageRow`/`addMessage`/`fillApprovalResult`/`markMessagesRevoked`/`markMessageReplaced`；[@/db/messageLink](../../../apps/backend/src/db/messageLink.ts)：跨会话消息关联。详见 [db.md](../db/README.md)。
+- [../approval/manager](../../../apps/backend/src/service/approval/manager.ts)：`approvalManager.register`（observer）/ `confirm`（interaction/handler.ts `handleApprovalDecide`）。
+- [../websocket/connection](../../../apps/backend/src/service/websocket/connection.ts)：`connectionManager.bindChatConnection` / `releaseChatConnection` / `forceReleaseChatConnection`。
+- [@/utils/logger](../../../apps/backend/src/utils/logger/index.ts)：send/streamMapper 全流程日志。
 
 **横切参考：**
 

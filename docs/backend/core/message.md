@@ -1,6 +1,6 @@
 # Message Adapter（响应归一与消息构建）
 
-> 源码 [src/core/message/adapter.ts](../../../src/core/message/adapter.ts) ｜ 上级 [core/README.md](README.md) ｜ 相关 [llm.md](llm.md)、[sense.md](sense.md)
+> 源码 [apps/backend/src/core/message/adapter.ts](../../../apps/backend/src/core/message/adapter.ts) ｜ 上级 [core/README.md](README.md) ｜ 相关 [llm.md](llm.md)、[sense.md](sense.md)
 
 ## 职责
 
@@ -12,9 +12,9 @@
 
 | 文件 | 职责 |
 |------|------|
-| [adapter.ts](../../../src/core/message/adapter.ts) | `Role`、`SenseCallInfo`、`ReplaceInfo`、`LLMResponse`、`MessageProviderAdapterConfig`、注册表三件套 |
+| [adapter.ts](../../../apps/backend/src/core/message/adapter.ts) | `Role`、`SenseCallInfo`、`ReplaceInfo`、`LLMResponse`、`MessageProviderAdapterConfig`、注册表三件套 |
 
-> ⚠ 真实代码**没有** `src/core/message/index.ts`；整个 message 子模块就一个 `adapter.ts`。
+消息适配契约与注册表统一由 `adapter.ts` 维护。
 
 ## 核心概念 / 导出
 
@@ -45,7 +45,7 @@ export interface LLMResponse {
 ```
 
 - **`revoked`**：由 [`Middleware.revokeTrailingCycle`](middleware.md) 在 `chat.send` 恢复场景打标，`buildMessages` 构建给 LLM 的上下文时过滤掉。详见 [interaction.md](../../shared/protocol/interactions.md)。
-- **`hash` + `replace`**：感官执行结果按内容算 hash；若新读取命中历史相同 hash（文件未变动），旧 sense 消息被替换为短说明，长内容移到 `originalContent`。去重逻辑在 [`agent/middleware/tool.ts`](../../../src/agent/middleware/tool.ts) `doExecuteSense`。
+- **`hash` + `replace`**：感官执行结果按内容算 hash；若新读取命中历史相同 hash（文件未变动），旧 sense 消息被替换为短说明，长内容移到 `originalContent`。去重逻辑在 [`agent/middleware/tool.ts`](../../../apps/backend/src/agent/middleware/tool.ts) `doExecuteSense`。
 
 ### SenseCallInfo
 
@@ -96,9 +96,9 @@ export interface LLMAttachment {
 }
 ```
 
-由 [`chatMiddleware`](../../../src/agent/middleware/chat.ts) `enrichMediaInputs` 据脑 `capabilities.input` + 消息正文里的 `[[media:<filename>]]` marker 现场构造（`readMediaAsset` 同步读 base64），provider 调用后丢弃。多模态走**原生旁路**（多轮保留）还是**旧路径**（仅最后一条 user 消息 + 文本转写），由 `chatMiddleware` 据 `capabilities.input` gate，见 [model-capabilities.md](../agent/model-capabilities.md)。
+由 [`chatMiddleware`](../../../apps/backend/src/agent/middleware/chat.ts) `enrichMediaInputs` 据脑 `capabilities.input` + 消息正文里的 `[[media:<filename>]]` marker 现场构造（`readMediaAsset` 同步读 base64），provider 调用后丢弃。多模态走**原生旁路**（多轮保留）还是**旧路径**（仅最后一条 user 消息 + 文本转写），由 `chatMiddleware` 据 `capabilities.input` gate，见 [model-capabilities.md](../agent/model-capabilities.md)。
 
-**多轮保留形态（多模态旁路）**：`enrichMediaInputsMultimodal` 解析全历史 `[[media:...]]` 标记，近 3 轮用户消息的图片全程重发（压缩版，挂回原消息位置，`attachments` 带 `messageId`），更早的转一行文字占位；上限总数≤10 / 单轮≤5 / 图片字节≤16MB，超限按「新→旧」保留最新、最旧转占位。三个 provider 的 `buildMessages` 用 [`groupAttachmentsByMessage`](../../../src/core/message/adapter.ts) 把附件按 `messageId` 归组，只把归属附件挂到对应 user 消息。已知局限：anthropic 协议下连续 user 消息合并时，被合并消息的图归属会丢失（MiniMax 走 openaiCompat，非关键路径）。
+**多轮保留形态（多模态旁路）**：`enrichMediaInputsMultimodal` 解析全历史 `[[media:...]]` 标记，近 3 轮用户消息的图片全程重发（压缩版，挂回原消息位置，`attachments` 带 `messageId`），更早的转一行文字占位；上限总数≤10 / 单轮≤5 / 图片字节≤16MB，超限按「新→旧」保留最新、最旧转占位。三个 provider 的 `buildMessages` 用 [`groupAttachmentsByMessage`](../../../apps/backend/src/core/message/adapter.ts) 把附件按 `messageId` 归组，只把归属附件挂到对应 user 消息。已知局限：anthropic 协议下连续 user 消息合并时，被合并消息的图归属会丢失（MiniMax 走 openaiCompat，非关键路径）。
 
 ### 注册表
 
@@ -132,14 +132,14 @@ ctx.soul.messages: LLMResponse[]
 
 - **依赖**：无（纯类型与函数，不引用其他 core 子模块）。
 - **被依赖**：
-  - [`agent/provider/{openai,ollama,mock}.ts`](../../../src/agent/provider/) —— 实现并 `registerMessageAdapter`。
-  - [`agent/middleware/chat.ts`](../../../src/agent/middleware/chat.ts) —— 运行期调 `extractStreamDelta` / `buildMessages`。
-  - [`agent/middleware/checkpointState.ts`](../../../src/agent/middleware/checkpointState.ts) —— 用 `LLMResponse` 聚合状态。
-  - [`agent/middleware/tool.ts`](../../../src/agent/middleware/tool.ts) —— 用 `ReplaceInfo` 做 sense 历史替换。
-  - [`agent/builder.ts`](../../../src/agent/builder.ts) —— 初始 system 消息构造为 `LLMResponse`。
-  - [`agent/runtimeResolver.ts`](../../../src/agent/runtimeResolver.ts) —— 取 `getMessageAdapter`。
-  - [`service/chat/observer.ts`](../../../src/service/chat/observer.ts)、[`service/chat/runtime.ts`](../../../src/service/chat/runtime.ts) —— 用 `LLMResponse` 落库 / 回显。
-   - [`db/message.ts`](../../../src/db/message.ts) —— 消息数据 ↔ DB 行互转。
+  - [`agent/provider/{openai,ollama,mock}.ts`](../../../apps/backend/src/agent/provider) —— 实现并 `registerMessageAdapter`。
+  - [`agent/middleware/chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts) —— 运行期调 `extractStreamDelta` / `buildMessages`。
+  - [`agent/middleware/checkpointState.ts`](../../../apps/backend/src/agent/middleware/checkpointState.ts) —— 用 `LLMResponse` 聚合状态。
+  - [`agent/middleware/tool.ts`](../../../apps/backend/src/agent/middleware/tool.ts) —— 用 `ReplaceInfo` 做 sense 历史替换。
+  - [`agent/builder.ts`](../../../apps/backend/src/agent/builder.ts) —— 初始 system 消息构造为 `LLMResponse`。
+  - [`agent/runtimeResolver.ts`](../../../apps/backend/src/agent/runtimeResolver.ts) —— 取 `getMessageAdapter`。
+  - [`service/chat/observer.ts`](../../../apps/backend/src/service/chat/observer.ts)、[`service/chat/runtime.ts`](../../../apps/backend/src/service/chat/runtime.ts) —— 用 `LLMResponse` 落库 / 回显。
+   - [`db/message.ts`](../../../apps/backend/src/db/message.ts) —— 消息数据 ↔ DB 行互转。
 - **横切参考**：[llm.md](llm.md)（上游）、[sense.md](sense.md)（senseCalls 协同）、[db.md](../db/README.md)（`revoked` / `replace` 字段的持久化列）。
 
 ## 扩展点

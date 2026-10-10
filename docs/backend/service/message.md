@@ -1,6 +1,6 @@
 # Message 消息类型与 RPC 路由
 
-> 源码 [src/service/message/](../../../src/service/message/) ｜ 上级 [service/README.md](README.md) ｜ 相关 [./websocket.md](websocket.md)（传输层）、[../protocol.md](../../shared/protocol/websocket.md)（协议规范）
+> 源码 [apps/backend/src/service/message/](../../../apps/backend/src/service/message) ｜ 上级 [service/README.md](README.md) ｜ 相关 [./websocket.md](websocket.md)（传输层）、[../protocol.md](../../shared/protocol/websocket.md)（协议规范）
 
 本文档讲 RPC **消息类型定义**与 **RpcRouter 方法路由机制**（service/message/ 模块实现）。协议规范（消息结构详表、传输二进制帧格式、错误码全集、方法列表交互说明）见 [../protocol.md](../../shared/protocol/websocket.md)，本文不重复。
 
@@ -14,21 +14,21 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [src/service/message/types.ts](../../../src/service/message/types.ts) | 后端 RPC 类型公共入口、`ErrorCode` 常量、`createResponse/Chunk/Notification/Error` 工厂、`isRequest/isResponse` 类型守卫 |
-| [src/service/message/types/events.ts](../../../src/service/message/types/events.ts) | 消息外壳与流式数据类型，共用 `EventEnvelopeBase` |
-| [src/service/message/types/methods.ts](../../../src/service/message/types/methods.ts) | `Method` 常量和 `RpcMethodMap` 方法参数结果映射 |
-| [src/service/message/types/chat.ts](../../../src/service/message/types/chat.ts) | chat 请求、任务及 timeline 协议别名 |
-| [src/service/message/types/chatSnapshots.ts](../../../src/service/message/types/chatSnapshots.ts) | 会话读取、问题与历史快照结构 |
-| [src/service/message/types/chatTimeline.ts](../../../src/service/message/types/chatTimeline.ts) | 图、任务概览与时间线增量结构 |
-| [src/service/message/types/chatResponses.ts](../../../src/service/message/types/chatResponses.ts) | 运行、子 Agent 与命令响应结构 |
-| [src/service/message/types/notification.ts](../../../src/service/message/types/notification.ts) | 推送数据结构及联合类型 |
-| [src/service/message/types/settingsRequests.ts](../../../src/service/message/types/settingsRequests.ts) | 设置、MCP、工作区和工具请求结构 |
-| [src/service/message/types/settingsResponses.ts](../../../src/service/message/types/settingsResponses.ts) | 设置、MCP、模型与工具响应结构 |
-| [src/service/message/types/plugins.ts](../../../src/service/message/types/plugins.ts) | 插件管理请求、列表与更新结果类型；由 `types.ts` 转发 |
-| [src/service/message/types/skills.ts](../../../src/service/message/types/skills.ts) | 技能列表、导入和来源管理类型；由 `types.ts` 转发 |
-| [src/service/message/types/terminal.ts](../../../src/service/message/types/terminal.ts) | Terminal 目标、会话请求与事件类型；由 `types.ts` 转发 |
-| [src/service/message/router.ts](../../../src/service/message/router.ts) | `RpcRouter` 类、`HandlerContext`/`HandlerFn` 类型、`createRouter()` 工厂、流式包装与错误转换 |
-| [src/service/message/index.ts](../../../src/service/message/index.ts) | barrel：`export * from types + router` |
+| [apps/backend/src/service/message/types.ts](../../../apps/backend/src/service/message/types.ts) | 后端 RPC 类型公共入口、`ErrorCode` 常量、`createResponse/Chunk/Notification/Error` 工厂、`isRequest/isResponse` 类型守卫 |
+| [apps/backend/src/service/message/types/events.ts](../../../apps/backend/src/service/message/types/events.ts) | 消息外壳与流式数据类型，共用 `EventEnvelopeBase` |
+| [apps/backend/src/service/message/types/methods.ts](../../../apps/backend/src/service/message/types/methods.ts) | `Method` 常量和 `RpcMethodMap` 方法参数结果映射 |
+| [apps/backend/src/service/message/types/chat.ts](../../../apps/backend/src/service/message/types/chat.ts) | chat 请求、任务及 timeline 协议别名 |
+| [apps/backend/src/service/message/types/chatSnapshots.ts](../../../apps/backend/src/service/message/types/chatSnapshots.ts) | 会话读取、问题与历史快照结构 |
+| [apps/backend/src/service/message/types/chatTimeline.ts](../../../apps/backend/src/service/message/types/chatTimeline.ts) | 图、任务概览与时间线增量结构 |
+| [apps/backend/src/service/message/types/chatResponses.ts](../../../apps/backend/src/service/message/types/chatResponses.ts) | 运行、子 Agent 与命令响应结构 |
+| [apps/backend/src/service/message/types/notification.ts](../../../apps/backend/src/service/message/types/notification.ts) | 推送数据结构及联合类型 |
+| [apps/backend/src/service/message/types/settingsRequests.ts](../../../apps/backend/src/service/message/types/settingsRequests.ts) | 设置、MCP、工作区和工具请求结构 |
+| [apps/backend/src/service/message/types/settingsResponses.ts](../../../apps/backend/src/service/message/types/settingsResponses.ts) | 设置、MCP、模型与工具响应结构 |
+| [apps/backend/src/service/message/types/plugins.ts](../../../apps/backend/src/service/message/types/plugins.ts) | 插件管理请求、列表与更新结果类型；由 `types.ts` 转发 |
+| [apps/backend/src/service/message/types/skills.ts](../../../apps/backend/src/service/message/types/skills.ts) | 技能列表、导入和来源管理类型；由 `types.ts` 转发 |
+| [apps/backend/src/service/message/types/terminal.ts](../../../apps/backend/src/service/message/types/terminal.ts) | Terminal 目标、会话请求与事件类型；由 `types.ts` 转发 |
+| [apps/backend/src/service/message/router.ts](../../../apps/backend/src/service/message/router.ts) | `RpcRouter` 类、`HandlerContext`/`HandlerFn` 类型、`createRouter()` 工厂、流式包装与错误转换 |
+| [apps/backend/src/service/message/index.ts](../../../apps/backend/src/service/message/index.ts) | barrel：`export * from types + router` |
 
 ## 核心概念 / 导出
 
@@ -57,7 +57,7 @@ export type NotificationType =
   | "replaced";    // 感官去重命中：历史 sense 结果被新读取替换（web 实时更新历史 sense block）
 ```
 
-`replaced` 由 [chat/streamMapper.ts](../../../src/service/chat/streamMapper.ts) 在 `message_updated` 携带 `replace` 时生成。详见 [./chat.md](chat.md)。
+`replaced` 由 [chat/streamMapper.ts](../../../apps/backend/src/service/chat/streamMapper.ts) 在 `message_updated` 携带 `replace` 时生成。详见 [./chat.md](chat.md)。
 
 ### Method 与 RpcMethodMap
 
@@ -187,16 +187,16 @@ async function* wrapStreamingHandler(generator, requestId):
 
 **被依赖（谁用类型/路由）：**
 
-- [service/index.ts](../../../src/service/index.ts)：`createRouter()` + 调各模块 `register*Handlers(router)` 注册全部方法。
-- [service/websocket/index.ts](../../../src/service/websocket/index.ts)：`router.handle(request, ctx)` 分发；`isAsyncGenerator` 判断流式；用 `createResponse`/`createError`/`ErrorCode` 发错误兜底。
-- [service/websocket/connection.ts](../../../src/service/websocket/connection.ts)：`import type { RpcRouter }`（仅类型）。
+- [service/index.ts](../../../apps/backend/src/service/index.ts)：`createRouter()` + 调各模块 `register*Handlers(router)` 注册全部方法。
+- [service/websocket/index.ts](../../../apps/backend/src/service/websocket/index.ts)：`router.handle(request, ctx)` 分发；`isAsyncGenerator` 判断流式；用 `createResponse`/`createError`/`ErrorCode` 发错误兜底。
+- [service/websocket/connection.ts](../../../apps/backend/src/service/websocket/connection.ts)：`import type { RpcRouter }`（仅类型）。
 - 所有 handler（brain/sense/runtime/chat/bash）：import `Method`/`Request/Response Data` 类型 + `HandlerContext`/`HandlerFn` + `createChunk`/`createNotification` 工厂。
-- [service/chat/streamMapper.ts](../../../src/service/chat/streamMapper.ts)：`createChunk`/`createNotification` + `Chunk`/`Notification` 类型。
+- [service/chat/streamMapper.ts](../../../apps/backend/src/service/chat/streamMapper.ts)：`createChunk`/`createNotification` + `Chunk`/`Notification` 类型。
 
 **依赖：**
 
-- [@/utils/generator](../../../src/utils/generator.ts)：`isAsyncGenerator`（区分普通 Promise 与流式 handler）。
-- [@/utils/logger](../../../src/utils/logger/index.ts)：router 内 `logger.error` 记录 handler 失败。
+- [@/utils/generator](../../../apps/backend/src/utils/generator.ts)：`isAsyncGenerator`（区分普通 Promise 与流式 handler）。
+- [@/utils/logger](../../../apps/backend/src/utils/logger/index.ts)：router 内 `logger.error` 记录 handler 失败。
 - `crypto.randomUUID`：工厂函数生成 message id。
 - `@/core/config`：仅 `SupervisionLevel` 枚举（用于 `InterruptNotificationData.supervisionLevel`、`SenseListResponseData.supervision`）。
 

@@ -1,8 +1,6 @@
 # 提示词编写规范 + 问题排查清单（Prompt Guide）
 
-> 目的：沉淀 LLM 工具链（Sense/提示词）编写中反复踩坑的设计要点，并分门别类记录历史 bug 诊断，保证"遇到过的问题不再多次触犯"。新增感官 / 修改系统提示词前必读。
->
-> 来源案例：对话 `25c894db-adff-42b2-806a-71ace90934aa`（2026-08-23，cherryNyxus 配置管理角色清配置任务，6 个节点全部异常）。
+> 目的：沉淀 LLM 工具链（Sense/提示词）编写中反复踩坑的设计要点，并分门别类记录问题诊断模式，保证"遇到过的问题不再多次触犯"。新增感官 / 修改系统提示词前必读。
 
 ## 一、提示词编写规范（设计要点）
 
@@ -10,7 +8,7 @@
 
 **规则**：系统提示词必须给 LLM 至少一个**绝对路径锚点**（`.chery` 配置目录位置 / preset workspace），否则"感官要求绝对路径 + 系统不提供任何路径信息"自相矛盾。
 
-- 教训：`<environment>` 段只有 OS/日期/时间（`src/agent/prompt/index.ts`），不含 cwd/`.chery` 位置 → LLM 无从构造绝对路径 → 只能猜相对路径 `.chery` 或用 `pwd` 自救。
+- 教训：`<environment>` 段只有 OS/日期/时间（`apps/backend/src/agent/prompt/index.ts`），不含 cwd/`.chery` 位置 → LLM 无从构造绝对路径 → 只能猜相对路径 `.chery` 或用 `pwd` 自救。
 - 现状：`<environment>` 段已补充 `.chery` 配置目录绝对路径（`buildPromptPieces`）；preset 配了 `workspace` 时额外注入 `<workspace>` 段。
 - 新增提示词段时必须自检：**LLM 能否据此回答"某个文件的绝对路径是什么"？**
 
@@ -35,7 +33,7 @@
 
 **规则**：sense 执行前必须对参数做 `safeParse`，校验失败返回结构化错误（列出缺失/非法字段），而非把原始参数直接丢给 handler。
 
-- 教训：`doExecuteSense`（`src/agent/middleware/tool.ts`）此前直接 `senseEntry.execute(args)` 不 parse → 空参数直达 handler → 靠 handler 内部 fallback 兜底。
+- 教训：`doExecuteSense`（`apps/backend/src/agent/middleware/tool.ts`）不 parse 直接执行会让空参数直达 handler，靠 handler 内部 fallback 兜底。
 - 现状：执行前统一 `safeParse`，失败返回"缺参 + 用法"错误，不再产生空调用进审批。
 - 附带收益：缺参调用在进入监管审批**之前**就被拦截，避免"空调用进审批 → 超时被拒"的恶性循环。
 

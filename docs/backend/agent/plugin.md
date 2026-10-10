@@ -1,10 +1,10 @@
 # 插件系统（Plugins）
 
-> 源码 [src/service/plugin/](../../../src/service/plugin/) ｜ [src/service/skill/gitClone.ts](../../../src/service/skill/gitClone.ts) ｜ [src/service/skill/importShared.ts](../../../src/service/skill/importShared.ts) ｜ [src/utils/secretStore.ts](../../../src/utils/secretStore.ts) ｜ [src/agent/prompt/loadSkill.ts](../../../src/agent/prompt/loadSkill.ts)
+> 源码 [apps/backend/src/service/plugin/](../../../apps/backend/src/service/plugin) ｜ [apps/backend/src/service/skill/gitClone.ts](../../../apps/backend/src/service/skill/gitClone.ts) ｜ [apps/backend/src/service/skill/importShared.ts](../../../apps/backend/src/service/skill/importShared.ts) ｜ [apps/backend/src/utils/secretStore.ts](../../../apps/backend/src/utils/secretStore.ts) ｜ [apps/backend/src/agent/prompt/loadSkill.ts](../../../apps/backend/src/agent/prompt/loadSkill.ts)
 
 ## 职责
 
-插件 = **superpowers 风格的整仓关联技能包**：从一个 GitHub 仓库 `git clone` 全仓到 `.chery/plugins/<name>/`，附 `.chery-plugin.json` manifest 记录来源、版本与检查更新状态。loader 实时扫描 `plugins_dir`，每个 skill 以 `<plugin>__<skill>` 命名空间注入（与独立 skill 共用 [loadSkill.discoverSkillRoots](../../../src/agent/prompt/loadSkill.ts)，区别仅在 `plugin` 字段）。
+插件 = **superpowers 风格的整仓关联技能包**：从一个 GitHub 仓库 `git clone` 全仓到 `.chery/plugins/<name>/`，附 `.chery-plugin.json` manifest 记录来源、版本与检查更新状态。loader 实时扫描 `plugins_dir`，每个 skill 以 `<plugin>__<skill>` 命名空间注入（与独立 skill 共用 [loadSkill.discoverSkillRoots](../../../apps/backend/src/agent/prompt/loadSkill.ts)，区别仅在 `plugin` 字段）。
 
 > **manifest 即真相**：检查更新结果（`lastCheckedAt` / `latestSha` / `latestDate` / `updateAvailable`）直接写入各插件 `.chery-plugin.json`，不进数据库。删除插件文件夹即连同状态一并消失，手工编辑 manifest 即时生效，无 DB 与文件不同步风险。
 
@@ -191,40 +191,40 @@ pathname 正则（贪婪锚定，修原惰性量词截断 bug）：
 
 ## 与 loader 关系
 
-插件 skill 的发现完全复用 [loadSkill.discoverSkillRoots](../../../src/agent/prompt/loadSkill.ts)：
+插件 skill 的发现完全复用 [loadSkill.discoverSkillRoots](../../../apps/backend/src/agent/prompt/loadSkill.ts)：
 
 - `discoverSkillRoots` 扫描 `skills_dir`（独立）+ `plugins_dir/*`（插件），插件 skill 的 `name` 自动加 `<plugin>__` 前缀避免命名冲突。
 - 插件 manifest `.chery-plugin.json` 仅记录来源/版本，**不影响 skill 发现**——发现完全依据文件系统布局。
-- `skills.list`（[skill/list.ts](../../../src/service/skill/list.ts)）实时读两个根，故插件 commit 后无需重启即可见。
+- `skills.list`（[skill/list.ts](../../../apps/backend/src/service/skill/list.ts)）实时读两个根，故插件 commit 后无需重启即可见。
 - 插件 skill 删除走 `plugins.uninstall`（整仓删除），**不走** `skills.delete`（仅独立 skill）。
 
 ## 文件清单
 
 | 文件 | 职责 |
 |------|------|
-| [src/service/plugin/import.ts](../../../src/service/plugin/import.ts) | `handlePluginsPreImportUrl`/`handlePluginsImportUrl`/`handlePluginsCommit`/`handlePluginsUpdate`/`handlePluginsUninstall` + `installPlugin`（staging→plugins_dir 落盘 + manifest 写入） |
-| [src/service/plugin/list.ts](../../../src/service/plugin/list.ts) | `handlePluginsList` + `buildPluginInfo`（manifest + skills 扫描，loader 共用） |
-| [src/service/plugin/registry.ts](../../../src/service/plugin/registry.ts) | `PluginManifest` 类型（含 `cloneUrl/branch/commitSha/commitDate` + 检查字段 `lastCheckedAt/latestSha/latestDate/updateAvailable`）+ `readManifest`（容忍缺字段） |
-| [src/service/plugin/index.ts](../../../src/service/plugin/index.ts) | barrel：`registerPluginHandlers`（8 个方法） |
-| [src/service/skill/importShared.ts](../../../src/service/skill/importShared.ts) | `parseGithubUrl`（URL 规范化）+ `createStaging`/`removeStaging`/`sanitizeName`/`pluginDirExists`/`extractZipBuffer` |
-| [src/service/skill/gitClone.ts](../../../src/service/skill/gitClone.ts) | git 预检 + `listRemoteBranches`/`cloneRepo`/`checkRemoteVersion` + `authEnv`（构造 `GIT_CONFIG_PARAMETERS`+`GIT_TERMINAL_PROMPT=0`），被 plugin & skill 共享 |
-| [src/service/credentials/handler.ts](../../../src/service/credentials/handler.ts) | `handleCredentialsList/Save/Delete` + `registerCredentialsHandlers`（包 secretStore） |
-| [src/utils/secretStore.ts](../../../src/utils/secretStore.ts) | AES-256-GCM 加密 + 凭据 CRUD，详见 [../utils/secretStore.md](../utils/secretStore.md) |
-| [src/service/skill/import.ts](../../../src/service/skill/import.ts) | `handleSkillsImportUrl` 走 parseGithubUrl→cloneRepo（默认分支，无鉴权 UI） |
-| [web/src/features/agent/settings/tabs/PluginsTab.vue](../../../web/src/features/agent/settings/tabs/tools/PluginsTab.vue) | settings「插件」tab 单文件视图：顶部「检查更新」工具栏 + 卡片（版本元信息默认展示 + 彩色技能 tag + 条件「拉取最新」按钮）+ 导入栏（URL → 确认拉分支 → 分支 + 文件夹名 + 导入）+ 预览 dialog |
+| [apps/backend/src/service/plugin/import.ts](../../../apps/backend/src/service/plugin/import.ts) | `handlePluginsPreImportUrl`/`handlePluginsImportUrl`/`handlePluginsCommit`/`handlePluginsUpdate`/`handlePluginsUninstall` + `installPlugin`（staging→plugins_dir 落盘 + manifest 写入） |
+| [apps/backend/src/service/plugin/list.ts](../../../apps/backend/src/service/plugin/list.ts) | `handlePluginsList` + `buildPluginInfo`（manifest + skills 扫描，loader 共用） |
+| [apps/backend/src/service/plugin/registry.ts](../../../apps/backend/src/service/plugin/registry.ts) | `PluginManifest` 类型（含 `cloneUrl/branch/commitSha/commitDate` + 检查字段 `lastCheckedAt/latestSha/latestDate/updateAvailable`）+ `readManifest`（容忍缺字段） |
+| [apps/backend/src/service/plugin/index.ts](../../../apps/backend/src/service/plugin/index.ts) | barrel：`registerPluginHandlers`（8 个方法） |
+| [apps/backend/src/service/skill/importShared.ts](../../../apps/backend/src/service/skill/importShared.ts) | `parseGithubUrl`（URL 规范化）+ `createStaging`/`removeStaging`/`sanitizeName`/`pluginDirExists`/`extractZipBuffer` |
+| [apps/backend/src/service/skill/gitClone.ts](../../../apps/backend/src/service/skill/gitClone.ts) | git 预检 + `listRemoteBranches`/`cloneRepo`/`checkRemoteVersion` + `authEnv`（构造 `GIT_CONFIG_PARAMETERS`+`GIT_TERMINAL_PROMPT=0`），被 plugin & skill 共享 |
+| [apps/backend/src/service/credentials/handler.ts](../../../apps/backend/src/service/credentials/handler.ts) | `handleCredentialsList/Save/Delete` + `registerCredentialsHandlers`（包 secretStore） |
+| [apps/backend/src/utils/secretStore.ts](../../../apps/backend/src/utils/secretStore.ts) | AES-256-GCM 加密 + 凭据 CRUD，详见 [../utils/secretStore.md](../utils/secretStore.md) |
+| [apps/backend/src/service/skill/import.ts](../../../apps/backend/src/service/skill/import.ts) | `handleSkillsImportUrl` 走 parseGithubUrl→cloneRepo（默认分支，无鉴权 UI） |
+| [apps/web/src/features/agent/settings/tabs/PluginsTab.vue](../../../apps/web/src/features/agent/settings/tabs/tools/PluginsTab.vue) | settings「插件」tab 单文件视图：顶部「检查更新」工具栏 + 卡片（版本元信息默认展示 + 彩色技能 tag + 条件「拉取最新」按钮）+ 导入栏（URL → 确认拉分支 → 分支 + 文件夹名 + 导入）+ 预览 dialog |
 
 ## 依赖与关联
 
 | 依赖 | 用途 |
 |------|------|
-| [utils/secretStore](../../../src/utils/secretStore.ts) | 凭据加密存储（AES-256-GCM） |
-| [utils/config](../../../src/utils/config.ts) | `config.global.plugins_dir` / `skills_dir` 路径 |
-| [utils/logger](../../../src/utils/logger/index.ts) | 字段名自动脱敏（`password`/`token`/`credential` → `[REDACTED]`） |
-| [agent/prompt/loadSkill](../../../src/agent/prompt/loadSkill.ts) | `discoverSkillRoots` 插件 skill 发现（共用） |
-| [service/skill/importShared](../../../src/service/skill/importShared.ts) | staging/sanitize/extract 共享 |
-| [service/skill/gitClone](../../../src/service/skill/gitClone.ts) | git CLI 包装（clone/ls-remote/log） |
-| [service/utils/handler](../../../src/service/utils/handler.ts) | `execFile`+`promisify` 模式参考 |
-| [utils/vcs](../../../src/utils/vcs.ts) | `windowsHide`/`stdio`/`timeout` 参考 |
+| [utils/secretStore](../../../apps/backend/src/utils/secretStore.ts) | 凭据加密存储（AES-256-GCM） |
+| [utils/config](../../../apps/backend/src/utils/config.ts) | `config.global.plugins_dir` / `skills_dir` 路径 |
+| [utils/logger](../../../apps/backend/src/utils/logger/index.ts) | 字段名自动脱敏（`password`/`token`/`credential` → `[REDACTED]`） |
+| [agent/prompt/loadSkill](../../../apps/backend/src/agent/prompt/loadSkill.ts) | `discoverSkillRoots` 插件 skill 发现（共用） |
+| [service/skill/importShared](../../../apps/backend/src/service/skill/importShared.ts) | staging/sanitize/extract 共享 |
+| [service/skill/gitClone](../../../apps/backend/src/service/skill/gitClone.ts) | git CLI 包装（clone/ls-remote/log） |
+| [service/utils/handler](../../../apps/backend/src/service/utils/handler.ts) | `execFile`+`promisify` 模式参考 |
+| [utils/vcs](../../../apps/backend/src/utils/vcs.ts) | `windowsHide`/`stdio`/`timeout` 参考 |
 | 第三方 `node:crypto` | AES-256-GCM + scrypt（凭据加密） |
 | 第三方 `node:child_process` | git CLI 执行 |
 

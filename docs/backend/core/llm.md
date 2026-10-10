@@ -1,10 +1,10 @@
 # LLM Adapter（模型调用契约）
 
-> 源码 [src/core/llm/adapter.ts](../../../src/core/llm/adapter.ts) ｜ 上级 [core/README.md](README.md) ｜ 相关 [message.md](message.md)、[sense.md](sense.md)
+> 源码 [apps/backend/src/core/llm/adapter.ts](../../../apps/backend/src/core/llm/adapter.ts) ｜ 上级 [core/README.md](README.md) ｜ 相关 [message.md](message.md)、[sense.md](sense.md)
 
 ## 职责
 
-定义「调用一个大模型」的最小契约：给定消息序列、可用感官（工具）、模型选项，返回**完整响应**或**流式 chunk 异步迭代器**。core 只给接口和注册表，真正的 HTTP/SDK 调用在 [`agent/provider/`](../../../src/agent/provider/) 里实现（openai / ollama / mock 三套）。
+定义「调用一个大模型」的最小契约：给定消息序列、可用感官（工具）、模型选项，返回**完整响应**或**流式 chunk 异步迭代器**。core 只给接口和注册表，真正的 HTTP/SDK 调用在 [`agent/provider/`](../../../apps/backend/src/agent/provider) 里实现（openai / ollama / mock 三套）。
 
 注意：此文件**不关心响应内容的解析**——它吐出 provider 原生响应对象（`TResponse` / `TStreamChunk`），由 [`MessageAdapter`](message.md) 负责把原生响应归一为 `LLMResponse`、由 [`SenseAdapter`](sense.md) 提取 senseCalls。
 
@@ -12,12 +12,12 @@
 
 | 文件 | 职责 |
 |------|------|
-| [adapter.ts](../../../src/core/llm/adapter.ts) | `LLMOptions`、`LLMAdapter` 接口、`registerLLMAdapter` / `getLLMAdapter` / `resetLLMAdapters` 注册表 |
-| [urlPattern.ts](../../../src/core/llm/urlPattern.ts) | `ProviderUrlPattern`、`registerProviderUrlPattern` / `getProviderUrlPattern` 注册表（纯数据，零 import） |
+| [adapter.ts](../../../apps/backend/src/core/llm/adapter.ts) | `LLMOptions`、`LLMAdapter` 接口、`registerLLMAdapter` / `getLLMAdapter` / `resetLLMAdapters` 注册表 |
+| [urlPattern.ts](../../../apps/backend/src/core/llm/urlPattern.ts) | `ProviderUrlPattern`、`registerProviderUrlPattern` / `getProviderUrlPattern` 注册表（纯数据，零 import） |
 
-> ⚠ 真实代码**没有** `src/core/llm/index.ts`（CLAUDE.md 旧描述与源码不符）；llm 子模块就 `adapter.ts` + `urlPattern.ts` 两个文件。
+模型调用契约与注册表由 `adapter.ts` 维护，URL 模式注册由 `urlPattern.ts` 维护。
 
-`urlPattern.ts` 只持类型 + Map，URL 解析逻辑（`resolveProviderUrl`）在 agent 层的 [fetchBase.ts](../../../src/agent/provider/fetchBase.ts)（agent 依赖 core 方向合法，core 不反向依赖 agent）。详见 [provider.md](../agent/provider.md)「URL 解析与端点拼接」。
+`urlPattern.ts` 只持类型 + Map，URL 解析逻辑（`resolveProviderUrl`）在 agent 层的 [fetchBase.ts](../../../apps/backend/src/agent/provider/fetchBase.ts)（agent 依赖 core 方向合法，core 不反向依赖 agent）。详见 [provider.md](../agent/provider.md)「URL 解析与端点拼接」。
 
 ## 核心概念 / 导出
 
@@ -118,16 +118,16 @@ AgentBuilder.configureRuntime(selection)
 
 - **依赖**：仅类型引用 [`SenseFunction`](sense.md)（来自 `core/sense/adapter`），无运行时依赖。
 - **被依赖**：
-  - [`agent/provider/{openai,ollama,mock}.ts`](../../../src/agent/provider/) —— `registerLLMAdapter(...)` 注册实现。
-  - [`agent/middleware/chat.ts`](../../../src/agent/middleware/chat.ts) —— 运行期调 `chatStream`。
-  - [`agent/runtimeResolver.ts`](../../../src/agent/runtimeResolver.ts) —— 解析 brain 时 `getLLMAdapter`。
-  - [`agent/builder.ts`](../../../src/agent/builder.ts) —— 间接经 RuntimeConfig 注入。
+  - [`agent/provider/{openai,ollama,mock}.ts`](../../../apps/backend/src/agent/provider) —— `registerLLMAdapter(...)` 注册实现。
+  - [`agent/middleware/chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts) —— 运行期调 `chatStream`。
+  - [`agent/runtimeResolver.ts`](../../../apps/backend/src/agent/runtimeResolver.ts) —— 解析 brain 时 `getLLMAdapter`。
+  - [`agent/builder.ts`](../../../apps/backend/src/agent/builder.ts) —— 间接经 RuntimeConfig 注入。
 - **横切参考**：[message.md](message.md)（响应归一）、[sense.md](sense.md)（工具定义格式）、[mock.md](../../quality/testing/mock-provider.md)（mock provider 测试用法）。
 
 ## 扩展点：接新 Provider
 
-1. 在 `src/agent/provider/<name>.ts` 实现 `LLMAdapter`（`chat` / `chatStream`）。
+1. 在 `apps/backend/src/agent/provider/<name>.ts` 实现 `LLMAdapter`（`chat` / `chatStream`）。
 2. 同文件一并实现并注册 [`MessageAdapter`](message.md) 和 [`SenseAdapter`](sense.md)（三者通常成套，因为响应格式同源）。
-3. 调 `registerLLMAdapter("<provider>", adapter)`，在 [`agent/provider/index.ts`](../../../src/agent/provider/index.ts) 的 `registerBuiltinProviders()` 中调用注册函数。
+3. 调 `registerLLMAdapter("<provider>", adapter)`，在 [`agent/provider/index.ts`](../../../apps/backend/src/agent/provider/index.ts) 的 `registerBuiltinProviders()` 中调用注册函数。
 4. 调 `registerProviderUrlPattern("<provider>", { chatEndpoint, modelsEndpoint })` 声明 URL 端点拼接能力（**必须提供**，见 [provider.md](../agent/provider.md)「URL 解析与端点拼接」）；host 模式的 provider（ollama 类）可不注册。
 5. 在 `.chery/config.yaml` 添加 brain 配置，`provider` 字段对应注册名。

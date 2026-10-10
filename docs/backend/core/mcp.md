@@ -1,6 +1,6 @@
 # MCP（Model Context Protocol 接入）
 
-> 源码 [src/core/mcp/](../../../src/core/mcp/) ｜ 上级 [core/README.md](README.md) ｜ 相关 [sense.md](sense.md)、[compiler.md](compiler.md)
+> 源码 [apps/backend/src/core/mcp/](../../../apps/backend/src/core/mcp) ｜ 上级 [core/README.md](README.md) ｜ 相关 [sense.md](sense.md)、[compiler.md](compiler.md)
 
 ## 职责
 
@@ -10,8 +10,8 @@
 
 | 层 | 职责 | 入口 |
 |----|------|------|
-| **连接层**（global registry） | 哪些 server 连着、sense 在 registry；支持运行期 connect/disconnect/reload，配置保存经统一协调器在安全边界切换 | `core/mcp/loader` 状态机；`mcp.*` RPC（[service/mcp/handler](../../../src/service/mcp/handler.ts)） |
-| **挂载层**（per-chat schema） | chat 启用哪些**已连** server → 其全部 `mcp__<server>__*` 合并进该 chat schema，**不走 sense_groups** | [runtimeResolver](../../../src/agent/runtimeResolver.ts) `RuntimeSelection.mcpServers` |
+| **连接层**（global registry） | 哪些 server 连着、sense 在 registry；支持运行期 connect/disconnect/reload，配置保存经统一协调器在安全边界切换 | `core/mcp/loader` 状态机；`mcp.*` RPC（[service/mcp/handler](../../../apps/backend/src/service/mcp/handler.ts)） |
+| **挂载层**（per-chat schema） | chat 启用哪些**已连** server → 其全部 `mcp__<server>__*` 合并进该 chat schema，**不走 sense_groups** | [runtimeResolver](../../../apps/backend/src/agent/runtimeResolver.ts) `RuntimeSelection.mcpServers` |
 
 与 [compiler.md](compiler.md)（编译本地 `.chery/senses/*.ts` 外部感官）并列——两者都往 senseRegistry 注入 Sense：compiler 注入本地源码产物，mcp 注入远程/子进程 server 的能力。mcp/ 是 core/ 第二个带 I/O 的子模块（网络 / 子进程）。
 
@@ -19,11 +19,11 @@
 
 | 文件 | 职责 |
 |------|------|
-| [types.ts](../../../src/core/mcp/types.ts) | `McpClientHandle`、`McpSenseContext`、`McpServerInfo`、`McpServerError`、命名常量（`MCP_PREFIX="mcp__"`） |
-| [client.ts](../../../src/core/mcp/client.ts) | `connectMcpServer()`：按 transport（stdio / streamable-http）构造 transport，Client 握手 |
-| [convert.ts](../../../src/core/mcp/convert.ts) | `toolToSense` / `resourceToSense` / `promptToSense`：MCP 能力 → `Sense` |
-| [loader.ts](../../../src/core/mcp/loader.ts) | 连接层状态机：`Map<name,{handle,senseNames}>` + lastError；导出 `listMcpServers`/`getMcpServer`/`connectMcpServerByName`/`disconnectMcpServer`/`getConnectedServerSenseNames`/`listConnectedServerNames`；`loadMcpSenses`/`closeMcpClients` 为启动/关闭 wrapper；`setMcpReloadCoordinator` 注册配置协调器的 apply 状态回调 |
-| [index.ts](../../../src/core/mcp/index.ts) | barrel |
+| [types.ts](../../../apps/backend/src/core/mcp/types.ts) | `McpClientHandle`、`McpSenseContext`、`McpServerInfo`、`McpServerError`、命名常量（`MCP_PREFIX="mcp__"`） |
+| [client.ts](../../../apps/backend/src/core/mcp/client.ts) | `connectMcpServer()`：按 transport（stdio / streamable-http）构造 transport，Client 握手 |
+| [convert.ts](../../../apps/backend/src/core/mcp/convert.ts) | `toolToSense` / `resourceToSense` / `promptToSense`：MCP 能力 → `Sense` |
+| [loader.ts](../../../apps/backend/src/core/mcp/loader.ts) | 连接层状态机：`Map<name,{handle,senseNames}>` + lastError；导出 `listMcpServers`/`getMcpServer`/`connectMcpServerByName`/`disconnectMcpServer`/`getConnectedServerSenseNames`/`listConnectedServerNames`；`loadMcpSenses`/`closeMcpClients` 为启动/关闭 wrapper；`setMcpReloadCoordinator` 注册配置协调器的 apply 状态回调 |
+| [index.ts](../../../apps/backend/src/core/mcp/index.ts) | barrel |
 
 ## 配置
 
@@ -44,7 +44,7 @@ mcp_servers:
 
 - `transport`：`stdio`（本地子进程，需 `command`/`args`/`env`）或 `streamable-http`（远程 HTTP，需 `url`）。
 - `supervision`：server 级默认监管等级，覆盖 `global.supervision`。MCP 绕过 sense_groups，**无 `:level` 后缀覆盖**（详见下「监管优先级链」）。
-- 配置类型见 [`utils/config.ts`](../../../src/utils/config.ts) `McpServerConfig`。
+- 配置类型见 [`utils/config.ts`](../../../apps/backend/src/utils/config.ts) `McpServerConfig`。
 
 ## 核心概念 / 导出
 
@@ -65,7 +65,7 @@ mcp_servers:
 绕过 [`sense()`](sense.md) 工厂——MCP tool 自带 JSON Schema（inputSchema），反向转 zod 易丢精度；直接构造 `Sense<ZodType>`：
 
 - `definition`：用 MCP 的 inputSchema 补全为 `SenseFunction.parameters`（`additionalProperties:false`）。
-- `executor.schema`：占位 `z.record(z.string(), z.unknown())`——运行期 [`doExecuteSense`](../../../src/agent/middleware/tool.ts) 用 `safeJsonParse` 得 args 直传 execute，**不 parse schema**；参数校验由 MCP server 侧负责。
+- `executor.schema`：占位 `z.record(z.string(), z.unknown())`——运行期 [`doExecuteSense`](../../../apps/backend/src/agent/middleware/tool.ts) 用 `safeJsonParse` 得 args 直传 execute，**不 parse schema**；参数校验由 MCP server 侧负责。
 - `executor.execute`：调 `client.callTool({name, arguments})`，提取返回 content 中的 text；非 text（图片/二进制）降级为占位说明。
 - `hash`：恒空字符串——MCP 调用无"内容未变"语义，不参与历史去重（与 write_file 一致）。
 - `supervisionLevel`：server 级默认值。
@@ -76,7 +76,7 @@ MCP tool 名只能经 server API 发现，逼用户手写进 `sense_groups` 认�
 
 - `RuntimeSelection` 增 `mcpServers: string[]`（enabled server 名，与 `senseGroup` 同层级、同原子性）。
 - 经 `chat.create` / `runtime.set` 原子携带（brain + senseGroup + mcpServers），不新增 RPC 方法。前端按 server 渲染开关（`brain.list` 返回 `mcpServers` = 当前已连 server 名）。
-- [runtimeResolver](../../../src/agent/runtimeResolver.ts) `resolveSense`：sense_groups 解析后追加遍历 `selection.mcpServers` → `getConnectedServerSenseNames(name)` → 每个 `getSense` → 合并进 resolved Map（去重冲突 MCP 覆盖）。
+- [runtimeResolver](../../../apps/backend/src/agent/runtimeResolver.ts) `resolveSense`：sense_groups 解析后追加遍历 `selection.mcpServers` → `getConnectedServerSenseNames(name)` → 每个 `getSense` → 合并进 resolved Map（去重冲突 MCP 覆盖）。
 - enabled server 的**全部** `mcp__<server>__*` sense 进 builtSenses + senseTable；持久化随 `metadata.runtime` 自动写入，重启 `ensureChat` 恢复；旧 chat 无此字段视为 `[]`。
 - **唯一挂载路径** = `mcpServers` 开关；不再把 `mcp__` 写进 sense_groups。
 
@@ -137,7 +137,7 @@ mcp.reload  → reloadMcpConfiguration(name)   协调器引擎：name 给出→�
     3. stdio 等不能双开的资源先等待安全边界，确认旧连接关闭后再启动新连接
   全量 reload: reloadMcpConfiguration() 重读磁盘 config → 经协调器引擎（engine.submit + retry）提交差异 → 断开已移除 server → 逐个原子重载
 
-─── 关闭期（src/index.ts SIGINT/SIGTERM 钩子） ──────────────────
+─── 关闭期（apps/backend/src/index.ts SIGINT/SIGTERM 钩子） ──────────────────
 closeMcpClients() → 各 disconnectMcpServer (unregister + handle.close)
 ```
 
@@ -149,15 +149,15 @@ closeMcpClients() → 各 disconnectMcpServer (unregister + handle.close)
 
 - **依赖**：
   - `@modelcontextprotocol/sdk`（官方 SDK：`Client` / `StdioClientTransport` / `StreamableHTTPClientTransport`）。
-  - [`core/sense`](../../../src/core/sense/) `registerSenses` / `unregisterSenses` / `getSense`、`Sense`/`SenseResult`/`SenseFunction` 类型。
-  - [`utils/config.ts`](../../../src/utils/config.ts) `config.mcp_servers`、`McpServerConfig`。
+  - [`core/sense`](../../../apps/backend/src/core/sense) `registerSenses` / `unregisterSenses` / `getSense`、`Sense`/`SenseResult`/`SenseFunction` 类型。
+  - [`utils/config.ts`](../../../apps/backend/src/utils/config.ts) `config.mcp_servers`、`McpServerConfig`。
   - [`utils/logger`](../utils/README.md)。
 - **被依赖**：
-  - [`agent/bootstrap.ts`](../../../src/agent/bootstrap.ts) —— `loadMcpSenses()`（启动期）。
-  - [`agent/runtimeResolver.ts`](../../../src/agent/runtimeResolver.ts) —— `getConnectedServerSenseNames` / `listConnectedServerNames`（挂载层合并进 schema）。
-  - [`service/mcp/handler.ts`](../../../src/service/mcp/handler.ts) —— `mcp.*` RPC（连接层管理）。
-  - [`service/brain/list.ts`](../../../src/service/brain/list.ts) / [`chat/handler.ts`](../../../src/service/chat/handler.ts) / [`runtime/set.ts`](../../../src/service/runtime/set.ts) —— `mcpServers` 透传。
-  - [`src/index.ts`](../../../src/index.ts) —— `closeMcpClients()`（SIGINT/SIGTERM 钩子）。
+  - [`agent/bootstrap.ts`](../../../apps/backend/src/agent/bootstrap.ts) —— `loadMcpSenses()`（启动期）。
+  - [`agent/runtimeResolver.ts`](../../../apps/backend/src/agent/runtimeResolver.ts) —— `getConnectedServerSenseNames` / `listConnectedServerNames`（挂载层合并进 schema）。
+  - [`service/mcp/handler.ts`](../../../apps/backend/src/service/mcp/handler.ts) —— `mcp.*` RPC（连接层管理）。
+  - [`service/brain/list.ts`](../../../apps/backend/src/service/brain/list.ts) / [`chat/handler.ts`](../../../apps/backend/src/service/chat/handler.ts) / [`runtime/set.ts`](../../../apps/backend/src/service/runtime/set.ts) —— `mcpServers` 透传。
+  - [`apps/backend/src/index.ts`](../../../apps/backend/src/index.ts) —— `closeMcpClients()`（SIGINT/SIGTERM 钩子）。
 - **横切参考**：[sense.md](sense.md)（senseRegistry / 监管等级 / `doExecuteSense` 执行路径）、[compiler.md](compiler.md)（另一个 sense 注入源）、[agent/middleware.md](../agent/middleware.md)（sense 中间件复用）、[protocol.md](../../shared/protocol/websocket.md)「MCP 管理 API」。
 
 ## 扩展点
@@ -170,7 +170,7 @@ closeMcpClients() → 各 disconnectMcpServer (unregister + handle.close)
 
 ### 加 transport 类型
 
-在 [client.ts](../../../src/core/mcp/client.ts) `buildTransport()` 加分支 + `McpServerConfig.transport` 联合类型扩成员。
+在 [client.ts](../../../apps/backend/src/core/mcp/client.ts) `buildTransport()` 加分支 + `McpServerConfig.transport` 联合类型扩成员。
 
 ### schema 双轨（冲突说明）
 

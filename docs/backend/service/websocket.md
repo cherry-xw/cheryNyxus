@@ -1,6 +1,6 @@
 # WebSocket 传输模块
 
-> 源码 [src/service/websocket/](../../../src/service/websocket/) ｜ 上级 [service/README.md](README.md) ｜ 相关 [./message.md](message.md)（RPC 路由/类型）、[../protocol.md](../../shared/protocol/websocket.md)（协议规范）
+> 源码 [apps/backend/src/service/websocket/](../../../apps/backend/src/service/websocket) ｜ 上级 [service/README.md](README.md) ｜ 相关 [./message.md](message.md)（RPC 路由/类型）、[../protocol.md](../../shared/protocol/websocket.md)（协议规范）
 
 > **本文档范围**：传输模块**实现**——WebSocketServer 封装、ConnectionManager 连接状态管理、二进制帧编解码（transport）。
 > **协议规范**（消息结构、Method 列表、Notification/Chunk 字段、错误码、HTTP `/api/config`）见 [../protocol.md](../../shared/protocol/websocket.md)，本文不重复。
@@ -16,10 +16,10 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [src/service/websocket/index.ts](../../../src/service/websocket/index.ts) | `createWebSocketServer({port, router})`：ws 服务、消息分发、流式迭代推送、interrupt→记 approvalId、错误兜底 |
-| [src/service/websocket/connection.ts](../../../src/service/websocket/connection.ts) | `ConnectionManager`/`connectionManager` 单例：连接状态、chat 活跃绑定、pendingRequest approvalId 映射、close park |
-| [src/service/websocket/transport.ts](../../../src/service/websocket/transport.ts) | `Transport`/`transport` 单例：`encode`（Chunk/Notification→Buffer/string）、`parseMessage`/`serializeMessage`（Request/Response JSON） |
-| [src/service/websocket/liteProjection.ts](../../../src/service/websocket/liteProjection.ts) | `applyLiteEvent` / `applyLiteResponse`：设备通知、节点详情与时间线快照的有界投影；相关校验见 `test/service/websocket/liteProjection.test.ts` |
+| [apps/backend/src/service/websocket/index.ts](../../../apps/backend/src/service/websocket/index.ts) | `createWebSocketServer({port, router})`：ws 服务、消息分发、流式迭代推送、interrupt→记 approvalId、错误兜底 |
+| [apps/backend/src/service/websocket/connection.ts](../../../apps/backend/src/service/websocket/connection.ts) | `ConnectionManager`/`connectionManager` 单例：连接状态、chat 活跃绑定、pendingRequest approvalId 映射、close park |
+| [apps/backend/src/service/websocket/transport.ts](../../../apps/backend/src/service/websocket/transport.ts) | `Transport`/`transport` 单例：`encode`（Chunk/Notification→Buffer/string）、`parseMessage`/`serializeMessage`（Request/Response JSON） |
+| [apps/backend/src/service/websocket/liteProjection.ts](../../../apps/backend/src/service/websocket/liteProjection.ts) | `applyLiteEvent` / `applyLiteResponse`：设备通知、节点详情与时间线快照的有界投影；相关校验见 `apps/backend/test/service/websocket/liteProjection.test.ts` |
 
 ## 核心概念 / 导出
 
@@ -36,7 +36,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
 3. `ws.on("close", () => connectionManager.close(ws))`。
 4. `ws.on("error", ...)` 仅日志。
 
-**端口监听失败（EADDRINUSE）**：`new WebSocketServer({ port })` 内部 `_server.listen()` 被占用时触发底层 server 的 `error` 事件（无监听会直接崩溃）。本层给 `_server` 挂 `error` 处理：`EADDRINUSE` → 调 `reportFatalStartupError({code, port})`（见 [fatalStartup.ts](../../../src/service/fatalStartup.ts)）经 IPC 通知 guardian 停止重试并给出端口占用提示；其他错误仅日志（不退出）。端口占用 → guardian 行为见 [./README.md](README.md)「启动流程」。
+**端口监听失败（EADDRINUSE）**：`new WebSocketServer({ port })` 内部 `_server.listen()` 被占用时触发底层 server 的 `error` 事件（无监听会直接崩溃）。本层给 `_server` 挂 `error` 处理：`EADDRINUSE` → 调 `reportFatalStartupError({code, port})`（见 [fatalStartup.ts](../../../apps/backend/src/service/fatalStartup.ts)）经 IPC 通知 guardian 停止重试并给出端口占用提示；其他错误仅日志（不退出）。端口占用 → guardian 行为见 [./README.md](README.md)「启动流程」。
 
 ### handleMessage / handleRequest 流程
 
@@ -190,19 +190,19 @@ chat.attach(chatId):
 
 **被依赖：**
 
-- [service/index.ts](../../../src/service/index.ts)：`createWebSocketServer({ port, router })`。
-- [service/chat/send.ts](../../../src/service/chat/send.ts)：`connectionManager.bindChatConnection` / `releaseChatConnection` / `forceReleaseChatConnection`（chat.abort）。
-- [service/approval/manager.ts](../../../src/service/approval/manager.ts)：`connection.ts` import `approvalManager`（close 时 abort pending approval）。
+- [service/index.ts](../../../apps/backend/src/service/index.ts)：`createWebSocketServer({ port, router })`。
+- [service/chat/send.ts](../../../apps/backend/src/service/chat/send.ts)：`connectionManager.bindChatConnection` / `releaseChatConnection` / `forceReleaseChatConnection`（chat.abort）。
+- [service/approval/manager.ts](../../../apps/backend/src/service/approval/manager.ts)：`connection.ts` import `approvalManager`（close 时 abort pending approval）。
 
 **依赖：**
 
 - `ws`（WebSocketServer / WebSocket）。
-- [./message](../../../src/service/message/index.ts)：`RpcRouter`、`Request`、`createResponse`/`createError`/`ErrorCode`/`isRequest`/`isAsyncGenerator`。
-- [./connection](../../../src/service/websocket/connection.ts)（index.ts 用 connectionManager）、[./transport](../../../src/service/websocket/transport.ts)（index.ts 用 transport）。
-- [@/utils/generator](../../../src/utils/generator.ts)：`isAsyncGenerator`。
-- [@/utils/logger](../../../src/utils/logger/index.ts)：全流程日志。
-- [@/utils/config](../../../src/utils/config.ts)：`config.server.transport`（binary/json 模式切换）。
-- [@/utils/json](../../../src/utils/json.ts)：`safeJsonParse`（parseMessage 兜底）。
+- [./message](../../../apps/backend/src/service/message/index.ts)：`RpcRouter`、`Request`、`createResponse`/`createError`/`ErrorCode`/`isRequest`/`isAsyncGenerator`。
+- [./connection](../../../apps/backend/src/service/websocket/connection.ts)（index.ts 用 connectionManager）、[./transport](../../../apps/backend/src/service/websocket/transport.ts)（index.ts 用 transport）。
+- [@/utils/generator](../../../apps/backend/src/utils/generator.ts)：`isAsyncGenerator`。
+- [@/utils/logger](../../../apps/backend/src/utils/logger/index.ts)：全流程日志。
+- [@/utils/config](../../../apps/backend/src/utils/config.ts)：`config.server.transport`（binary/json 模式切换）。
+- [@/utils/json](../../../apps/backend/src/utils/json.ts)：`safeJsonParse`（parseMessage 兜底）。
 
 **横切参考：**
 

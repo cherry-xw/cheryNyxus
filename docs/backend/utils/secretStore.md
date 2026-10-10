@@ -1,6 +1,6 @@
 # SecretStore 凭据加密存储
 
-> 源码 [src/utils/secretStore.ts](../../../src/utils/secretStore.ts) ｜ 上级 [README](README.md) ｜ 相关 [../agent/plugin.md](../agent/plugin.md)
+> 源码 [apps/backend/src/utils/secretStore.ts](../../../apps/backend/src/utils/secretStore.ts) ｜ 上级 [README](README.md) ｜ 相关 [../agent/plugin.md](../agent/plugin.md)
 
 ## 职责
 
@@ -133,16 +133,16 @@ getCredentialSecret(id):
 
 | 源 | 目标 | 性质 |
 |----|------|------|
-| [secretStore.ts](../../../src/utils/secretStore.ts) | `node:crypto`（内置） | encrypt/decrypt/scrypt/randomBytes |
-| [secretStore.ts](../../../src/utils/secretStore.ts) | `node:os`（内置） | hostname / userInfo 取 scrypt salt |
+| [secretStore.ts](../../../apps/backend/src/utils/secretStore.ts) | `node:crypto`（内置） | encrypt/decrypt/scrypt/randomBytes |
+| [secretStore.ts](../../../apps/backend/src/utils/secretStore.ts) | `node:os`（内置） | hostname / userInfo 取 scrypt salt |
 
 ### 被外部依赖
 
 | 调用方 | 调用点 |
 |--------|--------|
-| [service/credentials/handler.ts](../../../src/service/credentials/handler.ts) | `handleCredentialsList/Save/Delete` 包装 RPC，调 `listCredentials/saveCredential/deleteCredential` |
-| [service/plugin/import.ts](../../../src/service/plugin/import.ts) | `handlePluginsImportUrl` inline 鉴权 + `remember=true` 时调 saveCredential；`credentialId` 复用时调 getCredentialSecret 解密注入 git env |
-| [service/skill/import.ts](../../../src/service/skill/import.ts) | （预留）未来若 skills 支持私有仓鉴权时复用 |
+| [service/credentials/handler.ts](../../../apps/backend/src/service/credentials/handler.ts) | `handleCredentialsList/Save/Delete` 包装 RPC，调 `listCredentials/saveCredential/deleteCredential` |
+| [service/plugin/import.ts](../../../apps/backend/src/service/plugin/import.ts) | `handlePluginsImportUrl` inline 鉴权 + `remember=true` 时调 saveCredential；`credentialId` 复用时调 getCredentialSecret 解密注入 git env |
+| [service/skill/import.ts](../../../apps/backend/src/service/skill/import.ts) | （预留）未来若 skills 支持私有仓鉴权时复用 |
 
 ### 横切参考
 

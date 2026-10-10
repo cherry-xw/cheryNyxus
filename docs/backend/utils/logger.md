@@ -1,6 +1,6 @@
 # Logger 统一日志（结构化事件 Trace）
 
-> 源码 [src/utils/logger/](../../../src/utils/logger/) ｜ 上级 [./README.md](README.md) ｜ 相关 [./drain.md](drain.md) ｜ 配置 [./README.md#config](README.md)
+> 源码 [apps/backend/src/utils/logger/](../../../apps/backend/src/utils/logger) ｜ 上级 [./README.md](README.md) ｜ 相关 [./drain.md](drain.md) ｜ 配置 [./README.md#config](README.md)
 
 ## 职责
 
@@ -19,14 +19,14 @@ CheryNyxus 全项目唯一日志出口。每条日志 = **一个 JSON 事件（�
 
 | 文件 | 一句话 |
 |------|--------|
-| [types.ts](../../../src/utils/logger/types.ts) | `LogLevel` / `LogScope` / `LogEvent` / `InternalLoggerConfig` / `Logger` / `LoggerTools` / `BashLogInfo`；仅类型 |
-| [index.ts](../../../src/utils/logger/index.ts) | `createLogger` 闭包工厂 + ALS 引擎（`runScope`/`getScope`）+ `event` JSON 格式化 + 默认 Proxy `logger` + `initLogger` + bash/文件工具 |
+| [types.ts](../../../apps/backend/src/utils/logger/types.ts) | `LogLevel` / `LogScope` / `LogEvent` / `InternalLoggerConfig` / `Logger` / `LoggerTools` / `BashLogInfo`；仅类型 |
+| [index.ts](../../../apps/backend/src/utils/logger/index.ts) | `createLogger` 闭包工厂 + ALS 引擎（`runScope`/`getScope`）+ `event` JSON 格式化 + 默认 Proxy `logger` + `initLogger` + bash/文件工具 |
 
 ## 核心概念
 
 ### 配置
 
-`.chery/config.yaml` 的 `global.logger`（[config.ts `LoggerConfig`](../../../src/utils/config.ts#L86-L93)）：
+`.chery/config.yaml` 的 `global.logger`（[config.ts `LoggerConfig`](../../../apps/backend/src/utils/config.ts#L86-L93)）：
 
 ```yaml
 global:
@@ -101,7 +101,7 @@ interface Logger {
 
 ### ALS 传播边界（唯一有效点 = `handleRequest`）
 
-ALS 只在 `als.run` 回调的**同步执行期**保持 store；async generator 的 body 在 `.next()` 时运行。故 **scope 必须包「迭代」而非「创建」**。流式链的最外层 `.next()` 在 [websocket/index.ts `handleRequest`](../../../src/service/websocket/index.ts)（普通 async 函数，非 generator）—— 这是唯一能生效的 `logger.run` 边界：
+ALS 只在 `als.run` 回调的**同步执行期**保持 store；async generator 的 body 在 `.next()` 时运行。故 **scope 必须包「迭代」而非「创建」**。流式链的最外层 `.next()` 在 [websocket/index.ts `handleRequest`](../../../apps/backend/src/service/websocket/index.ts)（普通 async 函数，非 generator）—— 这是唯一能生效的 `logger.run` 边界：
 
 ```
 handleRequest:
@@ -141,8 +141,8 @@ handleRequest:
 
 | 派生点 | 事件 |
 |---|---|
-| [streamMapper.ts](../../../src/service/chat/streamMapper.ts) | `staged`、`sense.trigger`、`sense.result`、`sense.rejected`、`input.consumed`、`chat.run.error`、`chat.run.done`、`message.replaced` |
-| [observer.ts](../../../src/service/chat/observer.ts) | `message.created`、`message.updated`、`message.replaced.db`、`approval.pending` |
+| [streamMapper.ts](../../../apps/backend/src/service/chat/streamMapper.ts) | `staged`、`sense.trigger`、`sense.result`、`sense.rejected`、`input.consumed`、`chat.run.error`、`chat.run.done`、`message.replaced` |
+| [observer.ts](../../../apps/backend/src/service/chat/observer.ts) | `message.created`、`message.updated`、`message.replaced.db`、`approval.pending` |
 
 ### B. 显式事件
 
@@ -158,7 +158,7 @@ handleRequest:
 | provider | `mock.turn` / `mock.script.missing` / `mock.script.empty` / `mock.exhausted.*`、`ollama.toolcall.unreliable` |
 | 诊断（debug） | `rateLimit.wait`、`conn.closing` |
 
-> 未迁移的 legacy 调用（启动 `src/index.ts`、`web/server.ts`、`agent/sense/index.ts` 加载、`drainBase` tree、`compileToolsReporter` ASCII 表、`loadSkill`）仍以 `log.<level>` 事件出，非用户步骤 trace。
+普通日志与用户步骤追踪是不同信息：入口启动、工具加载及诊断输出不能仅凭日志存在认定属于某个用户步骤。实际事件来源以当前调用方为准。
 
 ## 解读模块契约（后续实现）
 
@@ -184,8 +184,8 @@ handleRequest:
 
 | 源 | 目标 | 性质 |
 |----|------|------|
-| [index.ts](../../../src/utils/logger/index.ts) | `node:async_hooks` / `node:crypto` / `fs` / `path` / `os` / `dayjs` | runtime |
-| [index.ts](../../../src/utils/logger/index.ts) / [types.ts](../../../src/utils/logger/types.ts) | `@/utils/config.js`（`LoggerConfig` 类型） | 仅类型（无环） |
+| [index.ts](../../../apps/backend/src/utils/logger/index.ts) | `node:async_hooks` / `node:crypto` / `fs` / `path` / `os` / `dayjs` | runtime |
+| [index.ts](../../../apps/backend/src/utils/logger/index.ts) / [types.ts](../../../apps/backend/src/utils/logger/types.ts) | `@/utils/config.js`（`LoggerConfig` 类型） | 仅类型（无环） |
 
 ### 被依赖（全项目几乎所有非纯算法模块）
 
@@ -195,14 +195,14 @@ handleRequest:
 | **agent** | middleware（chat/loop/tool/retry/checkpointState 事件）、provider（mock/ollama 事件）、sense（processRegistry/bash 事件）、prompt |
 | **service** | chat（send/handler/observer/streamMapper 事件）、message/router（req 事件 + `HandlerContext.log`）、websocket（conn/req 事件 + ALS 边界）、runtime/bash |
 | **utils** | `drain/drainBase`（legacy）、`rateLimiter`（`rateLimit.wait` debug） |
-| **入口** | `index.ts`、`web/server`（legacy 启动日志） |
+| **入口** | `apps/backend/src/index.ts` 的启动日志；其他进程按各自实际入口核实 |
 
 logger 是事实上的全局副作用出口，自身保持零业务依赖（仅类型依赖 config）。
 
 ### ALS 边界点
 
-- [websocket/index.ts `handleRequest`](../../../src/service/websocket/index.ts)：request scope（`connectionId` + `requestId` + `traceId`）—— **唯一传播边界**。
-- [websocket/index.ts](../../../src/service/websocket/index.ts) `wss.on("connection"/"close"/"error")`：conn scope（临时注入 `connectionId`）。
+- [websocket/index.ts `handleRequest`](../../../apps/backend/src/service/websocket/index.ts)：request scope（`connectionId` + `requestId` + `traceId`）—— **唯一传播边界**。
+- [websocket/index.ts](../../../apps/backend/src/service/websocket/index.ts) `wss.on("connection"/"close"/"error")`：conn scope（临时注入 `connectionId`）。
 
 ## 扩展点
 
@@ -212,7 +212,7 @@ logger 是事实上的全局副作用出口，自身保持零业务依赖（仅�
 
 ### 新增输出目标（loki/elasticsearch 等）
 
-`emit()`（[index.ts](../../../src/utils/logger/index.ts)）当前分支 console / file stream。新增：`LoggerConfig.output` 联合类型加值 → `loadLoggerConfig` 解析 → `createLogger` 初始化客户端 → `emit` 加分支 → `close` 释放。
+`emit()`（[index.ts](../../../apps/backend/src/utils/logger/index.ts)）当前分支 console / file stream。新增：`LoggerConfig.output` 联合类型加值 → `loadLoggerConfig` 解析 → `createLogger` 初始化客户端 → `emit` 加分支 → `close` 释放。
 
 ### 调试某会话
 

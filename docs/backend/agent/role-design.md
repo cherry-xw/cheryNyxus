@@ -5,13 +5,13 @@
 
 ## 设计目标
 
-角色创建不依赖“岗位名 → 固定工具列表”的封闭字典。岗位知识和职责描述保持开放文本；只有在 Cherry Nexus 读取当前真实工具后，才把能力诉求收敛为可校验的工具与配置决策。
+角色创建不依赖“岗位名 → 固定工具列表”的封闭字典。岗位知识和职责描述保持开放文本；只有在 cheryNyxus 读取当前真实工具后，才把能力诉求收敛为可校验的工具与配置决策。
 
 ```text
 用户目标
   → role-design 方法约束
   → roleArchitect 研究岗位并输出蓝图
-  → Cherry Nexus 读取当前配置与真实工具
+  → cheryNyxus 读取当前配置与真实工具
   → allow / ask / deny 映射 + 系统提示词用途契约
   → 原子保存资产与配置
   → 独立端到端验收
@@ -23,7 +23,7 @@
 |--------|------|--------|
 | `role-design` 技能 | 研究步骤、风险准则、蓝图格式 | 枚举所有岗位、直接授权工具 |
 | `roleArchitect` | 岗位研究、职责/交付物/风险/自然语言能力诉求、验收场景 | 修改 `.chery`、选择最终工具、宣布验收通过 |
-| Cherry Nexus | 读取真实配置、完成工具映射、生成用途契约、原子写入配置与资产 | 把网页内容直接当成授权依据 |
+| cheryNyxus | 读取真实配置、完成工具映射、生成用途契约、原子写入配置与资产 | 把网页内容直接当成授权依据 |
 | 独立验收器 | 在新配置生效后验证允许和禁止行为 | 参与角色设计或放宽权限 |
 
 `roleArchitect` 被加入固定 `cheryNyxus` 预设，但使用独立的 `role_architect` 感官组。该组只有技能加载、文件读取、代码搜索和用户提问能力，不包含 `config_manage`、文件写入、命令执行或角色派发。
@@ -37,7 +37,7 @@
 
 ## 权限表达
 
-蓝图中的 `capability_requests.intent` 使用自然语言，例如“读取项目资料”“运行测试”“查询公开市场信息”，不绑定 `read_file`、`execute_command` 等工具名。Cherry Nexus 基于当时真实存在的工具逐项形成：
+蓝图中的 `capability_requests.intent` 使用自然语言，例如“读取项目资料”“运行测试”“查询公开市场信息”，不绑定 `read_file`、`execute_command` 等工具名。cheryNyxus 基于当时真实存在的工具逐项形成：
 
 ```yaml
 tool_decisions:
@@ -62,7 +62,7 @@ tool_decisions:
 
 ## 创建与生效
 
-1. Cherry Nexus 激活 `role-design` 并在必要时一次性补问目标、环境和风险边界。
+1. cheryNyxus 激活 `role-design` 并在必要时一次性补问目标、环境和风险边界。
 2. 派发 `roleArchitect`，获取不含最终工具授权的角色蓝图。
 3. 用 `config_manage(action="get")` 读取当前角色、感官组和 MCP 配置，结合本轮真实工具定义完成映射。
 4. 先以 `asset_save` 保存独立提示词，再以一次 `patch` 闭合 senseGroup、role 和 preset 引用。

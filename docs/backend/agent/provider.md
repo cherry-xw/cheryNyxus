@@ -1,6 +1,6 @@
 # Agent Provider（LLM 服务适配）
 
-> 源码 [src/agent/provider/](../../../src/agent/provider/) ｜ 上级 [agent](README.md) ｜ Mock 脚本 [../mock.md](../../quality/testing/mock-provider.md)
+> 源码 [apps/backend/src/agent/provider/](../../../apps/backend/src/agent/provider) ｜ 上级 [agent](README.md) ｜ Mock 脚本 [../mock.md](../../quality/testing/mock-provider.md)
 
 ## 职责
 
@@ -11,7 +11,7 @@ LLM 运行配置拆成两个正交概念：
 
 模型目录不是第三个运行配置维度：`model-catalog.yaml` 依据模型名提供事实、编辑器推荐和协议 wire 映射，brain 中不保存 profile。
 
-新配置由 [RuntimeResolver](../../../src/agent/runtimeResolver.ts) 按 `brain.protocol` 取 Adapter。没有
+新配置由 [RuntimeResolver](../../../apps/backend/src/agent/runtimeResolver.ts) 按 `brain.protocol` 取 Adapter。没有
 `protocol` 的旧配置继续按 `brain.provider` 路由，保证现有 deepseek/bigmodel 等配置兼容。
 
 ```yaml
@@ -36,18 +36,18 @@ registerSenseAdapter<Msg, Raw>(name, cfg)      ← core/sense/adapter
 
 | 文件                                                              | 一句话                                                                                                  |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| [index.ts](../../../src/agent/provider/index.ts)                     | `registerBuiltinProviders()`：幂等注册 openai/deepseek/ollama/mock/bigmodel/anthropic                   |
-| [openai.ts](../../../src/agent/provider/openai.ts)                   | OpenAI（含兼容服务）三件套，含 RPM 限流、`thinkingParams` 直传、`reasoning_content` 提取、`strict:true` |
-| [openaiResponses.ts](../../../src/agent/provider/openaiResponses.ts) | OpenAI Responses 三件套，使用 `input/output` item、Responses 流事件与扁平 function tools                |
-| [ollama.ts](../../../src/agent/provider/ollama.ts)                   | Ollama 三件套，含 `tool_calls` 处理与流式不可靠警告                                                     |
-| [mock.ts](../../../src/agent/provider/mock.ts)                       | 脚本回放 provider（离线测试），按 LLM 调用序逐条回放                                                    |
-| [bigmodel.ts](../../../src/agent/provider/bigmodel.ts)               | 智谱 BigModel 三件套（fetch 实现），`thinkingParams` 直传、`reasoning_content` 提取、image 多模态       |
-| [anthropic.ts](../../../src/agent/provider/anthropic.ts)             | Anthropic Messages API 三件套（fetch 实现），native fetch + x-api-key + typed SSE + PreLLMRequest hook  |
-| [deepseek.ts](../../../src/agent/provider/deepseek.ts)               | DeepSeek 旧配置的 Chat Completions 三件套；新配置按通用协议 Adapter 路由                                |
+| [index.ts](../../../apps/backend/src/agent/provider/index.ts)                     | `registerBuiltinProviders()`：幂等注册 openai/deepseek/ollama/mock/bigmodel/anthropic                   |
+| [openai.ts](../../../apps/backend/src/agent/provider/openai.ts)                   | OpenAI（含兼容服务）三件套，含 RPM 限流、`thinkingParams` 直传、`reasoning_content` 提取、`strict:true` |
+| [openaiResponses.ts](../../../apps/backend/src/agent/provider/openaiResponses.ts) | OpenAI Responses 三件套，使用 `input/output` item、Responses 流事件与扁平 function tools                |
+| [ollama.ts](../../../apps/backend/src/agent/provider/ollama.ts)                   | Ollama 三件套，含 `tool_calls` 处理与流式不可靠警告                                                     |
+| [mock.ts](../../../apps/backend/src/agent/provider/mock.ts)                       | 脚本回放 provider（离线测试），按 LLM 调用序逐条回放                                                    |
+| [bigmodel.ts](../../../apps/backend/src/agent/provider/bigmodel.ts)               | 智谱 BigModel 三件套（fetch 实现），`thinkingParams` 直传、`reasoning_content` 提取、image 多模态       |
+| [anthropic.ts](../../../apps/backend/src/agent/provider/anthropic.ts)             | Anthropic Messages API 三件套（fetch 实现），native fetch + x-api-key + typed SSE + PreLLMRequest hook  |
+| [deepseek.ts](../../../apps/backend/src/agent/provider/deepseek.ts)               | DeepSeek 旧配置的 Chat Completions 三件套；新配置按通用协议 Adapter 路由                                |
 
 ## 核心概念 / 导出
 
-### registerBuiltinProviders（[index.ts](../../../src/agent/provider/index.ts)）
+### registerBuiltinProviders（[index.ts](../../../apps/backend/src/agent/provider/index.ts)）
 
 ```ts
 let builtinProvidersRegistered = false
@@ -60,7 +60,7 @@ export function registerBuiltinProviders(): void {
 }
 ```
 
-由 [bootstrap.ts](../../../src/agent/bootstrap.ts) 在服务启动前显式调用——避免 `import AgentBuilder` 时产生注册副作用。
+由 [bootstrap.ts](../../../apps/backend/src/agent/bootstrap.ts) 在服务启动前显式调用——避免 `import AgentBuilder` 时产生注册副作用。
 
 ### Provider / Protocol / Model Catalog
 
@@ -75,7 +75,7 @@ export function registerBuiltinProviders(): void {
 | `ollama-chat`             | Ollama `/api/chat`  | `ollama.ts`          |
 | `mock`                    | 无网络              | `mock.ts`            |
 
-模型目录由 [modelCatalog.ts](../../../src/utils/modelCatalog.ts) 解析
+模型目录由 [modelCatalog.ts](../../../apps/backend/src/utils/modelCatalog.ts) 解析
 `.chery/model-catalog.yaml` 中用户可调整的全部规则；代码不内置具体厂商模型。匹配支持精确、glob 和正则；`recommend` 只写设置草稿，`wire` 按 protocol 声明 thinking 参数和历史思考编码。
 
 DeepSeek 官方 Provider 同时开放三种协议。Chat Completions 与 Responses 的 base URL 是
@@ -90,9 +90,9 @@ Provider 目录按 protocol 解析默认地址，显式配置的 `brain.url` 仍
 
 | Adapter | 接口                                                                      | 文件                                                         |
 | ------- | ------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| LLM     | `chat()/chatStream()` 调用 LLM                                            | [core/llm/adapter.ts](../../../src/core/llm/adapter.ts)         |
-| Message | `content/thinking/extractStreamDelta/extractStreamThinking/buildMessages` | [core/message/adapter.ts](../../../src/core/message/adapter.ts) |
-| Sense   | `buildSenses/senseCalls/extractSenseCallDeltas`                           | [core/sense/adapter.ts](../../../src/core/sense/adapter.ts)     |
+| LLM     | `chat()/chatStream()` 调用 LLM                                            | [core/llm/adapter.ts](../../../apps/backend/src/core/llm/adapter.ts)         |
+| Message | `content/thinking/extractStreamDelta/extractStreamThinking/buildMessages` | [core/message/adapter.ts](../../../apps/backend/src/core/message/adapter.ts) |
+| Sense   | `buildSenses/senseCalls/extractSenseCallDeltas`                           | [core/sense/adapter.ts](../../../apps/backend/src/core/sense/adapter.ts)     |
 
 ### 设置页连接测试
 
@@ -129,7 +129,7 @@ Provider 目录按 protocol 解析默认地址，显式配置的 `brain.url` 仍
 实现细节：
 
 - **双轨并存**：`LLMResponse.thinking` 保留拼接字符串（UI 展示 + token 估算 + 非 Anthropic 回退），新增 `LLMResponse.thinkingBlocks?: ThinkingBlock[]`（Anthropic 专属 round-trip 用）。两者独立填充，UI 不读 blocks。
-- **流式累积**：`anthropicMessageAdapterConfig.extractStreamThinkingBlocks` 把 SSE 事件翻译成 `ThinkingBlockDelta[]`（start/text/signature/stop），由 `chat.ts` / `checkpointState.ts` 内的 `ThinkingBlockAssembler`（[src/agent/provider/thinkingBlockAssembler.ts](../../../src/agent/provider/thinkingBlockAssembler.ts)）按 index 累积，产出 `ThinkingBlock[]`。
+- **流式累积**：`anthropicMessageAdapterConfig.extractStreamThinkingBlocks` 把 SSE 事件翻译成 `ThinkingBlockDelta[]`（start/text/signature/stop），由 `chat.ts` / `checkpointState.ts` 内的 `ThinkingBlockAssembler`（[apps/backend/src/agent/provider/thinkingBlockAssembler.ts](../../../apps/backend/src/agent/provider/thinkingBlockAssembler.ts)）按 index 累积，产出 `ThinkingBlock[]`。
 - **落库**：`messages.thinking_blocks TEXT` JSON 列（与 `thinking` 并存）。schema migration 自动 `ALTER TABLE ADD COLUMN thinking_blocks TEXT` 兜底旧库。
 - **回传**：`anthropic.ts` 的 `pushThinkingBlocks` 在 `buildMessages` 时优先用 `m.thinkingBlocks`（含 signature），无则降级 `m.thinking` 字符串（legacy fallback — Anthropic 会拒 400，已文档化）。
 - **协议违规兜底**：thinking 块缺 signature 时仍按原样 emit；调用方应据 `thinkingBlocks` 完整性判断是否使用 Anthropic brain。
@@ -162,13 +162,11 @@ llm:
 
 ### URL 解析与端点拼接（provider 注册能力）
 
-**背景**：早期 anthropic provider 曾自动在 base URL 后拼 `/v1/messages`；后改为「版本前缀由用户在 `cfg.url` 自己写」但未做迁移提示，导致旧配置（url 不带 `/v1`）静默失效——请求落到网关的 Web 控制台回退页（200 + HTML），表现为「run 空转、无任何报错」（见下节流完整性校验）。现收敛为**注册 provider 必须提供的能力**：`ProviderUrlPattern` 注册表 + 统一入口 `resolveProviderUrl`，地址只做简单拼接，最多对结尾 `/` 做归一（`https://x:11411/` 与 `https://x:11411` 等价）。
-
-**规则（2026-08 简化）**：**版本段（`/v1` 等）由用户填写，后端只自动拼端点**（`/chat/completions`、`/messages`、`/models`）——不再自动补 `/v1`。未勾选「完整 URL」时 url 须含版本段，如 `https://yz.xcherry.top:11411/v1`，请求落点为 `…/v1/chat/completions`。前端地址输入框 placeholder 已注明此约定。
+**规则**：**版本段（`/v1` 等）由用户填写，后端只自动拼端点**（`/chat/completions`、`/messages`、`/models`）。未勾选「完整 URL」时 url 须含版本段，如 `https://yz.xcherry.top:11411/v1`，请求落点为 `…/v1/chat/completions`；url 缺版本段会请求到错误路径（如网关回退到 Web 控制台页，200 + HTML，表现为「run 空转」）。前端地址输入框 placeholder 已注明此约定。实现收敛为**注册 provider 必须提供的能力**：`ProviderUrlPattern` 注册表 + 统一入口 `resolveProviderUrl`，地址只做简单拼接，最多对结尾 `/` 做归一（`https://x:11411/` 与 `https://x:11411` 等价）。
 
 #### 能力声明（`ProviderUrlPattern`）
 
-URL 端点是 provider 的**注册能力**，不是全局通用逻辑——endpoint 路径是 provider 协议的一部分，不能全局统一。每个 provider 注册时声明 `chat` / `models` 两种 kind 的端点模式（[core/llm/urlPattern.ts](../../../src/core/llm/urlPattern.ts)，纯数据注册表，零 import）：
+URL 端点是 provider 的**注册能力**，不是全局通用逻辑——endpoint 路径是 provider 协议的一部分，不能全局统一。每个 provider 注册时声明 `chat` / `models` 两种 kind 的端点模式（[core/llm/urlPattern.ts](../../../apps/backend/src/core/llm/urlPattern.ts)，纯数据注册表，零 import）：
 
 | provider      | `chatEndpoint`                  | `modelsEndpoint`              | 说明                                                                                                                                                                    |
 | ------------- | ------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -190,8 +188,8 @@ URL 端点是 provider 的**注册能力**，不是全局通用逻辑——endpo
 resolveProviderUrl(provider, url, { fullUrl, kind }) // kind ∈ 'chat' | 'models'
 ```
 
-- 定义在 [`agent/provider/fetchBase.ts`](../../../src/agent/provider/fetchBase.ts)：查注册表取 `pattern[kind]` → `undefined` 走 host 模式（原样去尾斜杠），否则交 `buildEndpointUrl` 两分支（`fullUrl` 原样 / 否则 `base + endpoint`）。
-- 注册表在 [`core/llm/urlPattern.ts`](../../../src/core/llm/urlPattern.ts)：只持类型 + Map（`registerProviderUrlPattern` / `getProviderUrlPattern`），**零 import**；解析逻辑放 agent 层（core 不反向依赖 agent）。
+- 定义在 [`agent/provider/fetchBase.ts`](../../../apps/backend/src/agent/provider/fetchBase.ts)：查注册表取 `pattern[kind]` → `undefined` 走 host 模式（原样去尾斜杠），否则交 `buildEndpointUrl` 两分支（`fullUrl` 原样 / 否则 `base + endpoint`）。
+- 注册表在 [`core/llm/urlPattern.ts`](../../../apps/backend/src/core/llm/urlPattern.ts)：只持类型 + Map（`registerProviderUrlPattern` / `getProviderUrlPattern`），**零 import**；解析逻辑放 agent 层（core 不反向依赖 agent）。
 - **chat / models 拉取 / 测试连接全部走同一入口**：正式 chat、`utils.models`、`utils.testConnection` 三处 URL 行为一致，不会出现「测试连通、实际跑挂」的拼接不一致。
 
 #### 分层调用
@@ -207,21 +205,21 @@ resolveProviderUrl(provider, url, { fullUrl, kind }) // kind ∈ 'chat' | 'model
 - ⚠️ **openai 勾选 fullUrl 的语义**：openai SDK 强制在 baseURL 后拼 `/chat/completions` / `/models`，无法做到「零拼接」。因此勾选 fullUrl 后 openai 的 `chat`/`chatStream` **绕开 SDK**，改走 fetchBase 的 `jsonRequest` / `streamSSE`（与 bigmodel/deepseek 的 fetch 路径同款），models 拉取改原生 fetch——**实际请求 URL = 用户填写的值本身**（仅去尾斜杠），彻底兑现「完整 URL 完全自负责」。请求体仍为 OpenAI 兼容协议（POST 到用户 URL）。
 - ⚠️ `jsonRequest` / `streamSSE`（fetchBase.ts）内部的 `/chat/completions` 是 **openai 兼容协议常量**（bigmodel/deepseek 共用），非 provider 特性，**保持不收敛**——它们已正确透传 `fullUrl`，与注册值的一致性由单测锁死防漂移。
 - `fullUrl` 经 `BrainConfig` → `LLMOptions` → provider 逐层透传（[middleware.md chat.ts](middleware.md)）；前端 BrainCard 显示「完整 URL」勾选，与 yaml 同步。勾选后**后端不做任何拼接**（仅去尾斜杠），请求 URL 即用户填写的原值。
-- ⚠️ `fullUrl` 语义（2026-08）：勾选 = **完全不拼接**。若勾选且 url 未含完整端点，请求直接落到该地址（如填 `…/v1` 访问 anthropic 会 404）——fullUrl 下 url 由用户完全自负责。
+- ⚠️ `fullUrl` 语义：勾选 = **完全不拼接**。若勾选且 url 未含完整端点，请求直接落到该地址（如填 `…/v1` 访问 anthropic 会 404）——fullUrl 下 url 由用户完全自负责。
 - ⚠️ 已知边界：anthropic 勾选 fullUrl 后，「刷新模型」请求地址 = 用户填写的完整 URL（须含 `/models` 端点），与 chat 的 `…/v1/messages` 同用一个 `url` 字段**不可兼得**——fullUrl「完全自负责」语义的固有张力，填完整 URL 时按需取舍。
-- ⚠️ 兼容性（2026-08 简化）：**不再自动补版本段**——url 未含版本段的旧配置会失效（如 openai 填 `https://x:11411` 未勾选会请求到 `https://x:11411/chat/completions` 而非 `…/v1/chat/completions`），需在 url 中补上版本段（如 `https://x:11411/v1`）。placeholder 已提示。
+- ⚠️ url 未含版本段的配置会请求到错误路径（如 openai 填 `https://x:11411` 未勾选会请求到 `https://x:11411/chat/completions` 而非 `…/v1/chat/completions`），需在 url 中补上版本段（如 `https://x:11411/v1`）。placeholder 已提示。
 
-- ⚠️ `utils.models` openai SDK 路径的端点兼容、200 错误与空列表提示（2026-09-04）：用户填写的 URL 已以 `/models` 结尾时，无论 `fullUrl` 是否勾选，均以原生 fetch 原样请求，避免 SDK 再次拼接为 `/models/models`。其余非完整 URL 仍由 SDK 拼端点，并通过 `asResponse()` 读取原始 2xx 响应：若网关以 HTTP 200 返回 `error.message`、字符串 `error` 或顶层 `message`，返回「原始错误；排查建议」供前端同时展示；真空 `data` 仍提示**地址末尾补版本段（如 /v1）后重试**（也可手填模型名），并附实际请求地址；非 JSON 响应也附带不超过 200 字符的原文摘要。
+- ⚠️ `utils.models` openai SDK 路径的端点兼容、200 错误与空列表提示：用户填写的 URL 已以 `/models` 结尾时，无论 `fullUrl` 是否勾选，均以原生 fetch 原样请求，避免 SDK 再次拼接为 `/models/models`。其余非完整 URL 仍由 SDK 拼端点，并通过 `asResponse()` 读取原始 2xx 响应：若网关以 HTTP 200 返回 `error.message`、字符串 `error` 或顶层 `message`，返回「原始错误；排查建议」供前端同时展示；真空 `data` 仍提示**地址末尾补版本段（如 /v1）后重试**（也可手填模型名），并附实际请求地址；非 JSON 响应也附带不超过 200 字符的原文摘要。
 
-- ⚠️ `utils.models` 错误透传——「猜测说明 + 原始错误」（2026-09-04）：诊断接口 Fail Loud，`handleUtilsModels` 外层 catch 不再把原始错误只丢进日志、给前端仅返回 `friendlyMessage` 泛化文案，改为**拼装透传**：`{猜测说明}（原始错误：{err.message}）`——前半是按 `classifyError` 类别映射的中文猜测说明，括号内保留原始错误内容（openai-node v6 的 `APIError.message` 本身已含 `status + 上游 error.message`，见其 `core/error.mjs` 的 `makeMessage`；ollama 连接错误为英文原文）。配套两处补齐：openai **fullUrl 分支非 2xx** 从 `upstream {status}`（丢弃响应体）改为 `接口返回 {status}：{readErrorSnippet 200 字符摘要}`，与 anthropic 原生路径同款格式；snippet 拼装前压平换行，避免前端 tooltip 多行渲染异常。原始 message 仍照旧写日志（`utils.models.error`）供 tracingId 检索。
+- ⚠️ `utils.models` 错误透传——「猜测说明 + 原始错误」：诊断接口 Fail Loud，`handleUtilsModels` 外层 catch **拼装透传**：`{猜测说明}（原始错误：{err.message}）`——前半是按 `classifyError` 类别映射的中文猜测说明，括号内保留原始错误内容（openai-node v6 的 `APIError.message` 本身已含 `status + 上游 error.message`，见其 `core/error.mjs` 的 `makeMessage`；ollama 连接错误为英文原文）。配套：openai **fullUrl 分支非 2xx** 返回 `接口返回 {status}：{readErrorSnippet 200 字符摘要}`，与 anthropic 原生路径同款格式；snippet 拼装前压平换行，避免前端 tooltip 多行渲染异常。原始 message 仍照旧写日志（`utils.models.error`）供 tracingId 检索。
 
-#### anthropic 模型列表双尝试（2026-08-28）
+#### anthropic 模型列表双尝试
 
 **背景**：网关的 Anthropic 兼容 base 与 OpenAI 兼容 base 常是不同路径（如 MiniMax：`…/anthropic/v1` vs `…/v1`），且部分网关 models 端点只认 `Authorization: Bearer`（Anthropic 原生是 `x-api-key`）——只发 Anthropic 原生请求会 401/404/伪 200，而诊断场景（选模型）只需要一份可用列表。
 
-**规则**（实现于 [service/utils/handler.ts](../../../src/service/utils/handler.ts) 的 `fetchAnthropicModels`）：
+**规则**（实现于 [service/utils/handler.ts](../../../apps/backend/src/service/utils/handler.ts) 的 `fetchAnthropicModels`）：
 
-1. **主尝试**：Anthropic 原生 `GET {base}/models?limit=1000`（`x-api-key` + `anthropic-version`），行为与此前一致；
+1. **主尝试**：Anthropic 原生 `GET {base}/models?limit=1000`（`x-api-key` + `anthropic-version`）；
 2. **回退触发**：主尝试**无模型产出**（非 2xx / 非 JSON / 网络错误 / 空列表），且 `fullUrl=false`——`fullUrl=true` 属「完全自负责」，不做协议回退（回退 URL 无法从用户给的完整端点推导）；
 3. **回退请求**：OpenAI 兼容 `GET {base}/models`，仅带 `Authorization: Bearer`。`/models` 是 **openai 兼容协议常量**（与 `/chat/completions` 同款豁免，`buildEndpointUrl` 直拼，不走注册表）；
 4. **错误聚合**：两边都无产出时，`error` 同时携带主尝试与回退的失败原因（各自带 status/片段），诊断信息不打折；
@@ -230,7 +228,7 @@ resolveProviderUrl(provider, url, { fullUrl, kind }) // kind ∈ 'chat' | 'model
 
 ### 流完整性校验（伪 200 / 空流拦截）
 
-网关（new-api/one-api 类）对未知 API 路径常回退到 Web 控制台 SPA（**HTTP 200 + HTML**）；若端点异常也可能返回 200 但流内 0 个事件。两者原先都被 SSE 解析器当「正常空响应」静默吞掉，用户只看到「点了运行但毫无动静」。现两条路径都显式拦截：
+网关（new-api/one-api 类）对未知 API 路径常回退到 Web 控制台 SPA（**HTTP 200 + HTML**）；若端点异常也可能返回 200 但流内 0 个事件。两者若被 SSE 解析器当「正常空响应」静默吞掉，用户只会看到「点了运行但毫无动静」。两条路径均显式拦截：
 
 | 场景                                                               | 检测点                           | 错误分类     | 用户文案                                                                      | retry 行为                             |
 | ------------------------------------------------------------------ | -------------------------------- | ------------ | ----------------------------------------------------------------------------- | -------------------------------------- |
@@ -238,13 +236,13 @@ resolveProviderUrl(provider, url, { fullUrl, kind }) // kind ∈ 'chat' | 'model
 | 空流（流正常结束但 0 个有效事件）                                  | SSE 行循环结束处                 | `provider`   | 大模型调用失败：响应流为空                                                    | 按 provider 类可重试一次，仍空则报前端 |
 | 非流式响应体非 JSON（`res.json()` 失败）                           | `anthropicFetch` / `jsonRequest` | `validation` | 同伪 200                                                                      | 不重试                                 |
 
-覆盖文件：[anthropic.ts](../../../src/agent/provider/anthropic.ts)（`anthropicFetch`/`anthropicStreamSSE`）与 [fetchBase.ts](../../../src/agent/provider/fetchBase.ts)（`jsonRequest`/`streamSSE`）——openai SDK 路径的等价校验由 SDK 自身抛错 + `classifyBrainError` 兜底。错误经 `ClassifiedError` → retry 中间件 → streamMapper 出口（`[tracingId] 文案`）到达前端。
+覆盖文件：[anthropic.ts](../../../apps/backend/src/agent/provider/anthropic.ts)（`anthropicFetch`/`anthropicStreamSSE`）与 [fetchBase.ts](../../../apps/backend/src/agent/provider/fetchBase.ts)（`jsonRequest`/`streamSSE`）——openai SDK 路径的等价校验由 SDK 自身抛错 + `classifyBrainError` 兜底。错误经 `ClassifiedError` → retry 中间件 → streamMapper 出口（`[tracingId] 文案`）到达前端。
 
 ### 三 Provider 共有约定
 
 - **sense 消息转 tool result：** openai/ollama 的 `buildMessages` 都把 `role:"sense"` 历史消息转成 provider 的 tool 结果消息（openai 用 `tool_call_id`，ollama 用 `role:"tool"`），并处理 `replace.state`（历史 hash 替换）时改用 `replace.content`。
 - **revoked 过滤：** 三者 `buildMessages` 都 `filter(m => !m.revoked)` 排除撤回消息（撤回场景见 [../interaction.md](../../shared/protocol/interactions.md)）。
-- **buildBaseSenseFunction：** 三者 `buildSenses` 都调 [core/sense/compiler/utils.ts](../../../src/core/sense/compiler/utils.ts) 的 `buildBaseSenseFunction(s)` 生成统一的 `function.name/description/parameters` 字段，再各自补 provider 特定字段（openai 加 `strict`）。
+- **buildBaseSenseFunction：** 三者 `buildSenses` 都调 [core/sense/compiler/utils.ts](../../../apps/backend/src/core/sense/compiler/utils.ts) 的 `buildBaseSenseFunction(s)` 生成统一的 `function.name/description/parameters` 字段，再各自补 provider 特定字段（openai 加 `strict`）。
 
 ## 关键流程
 
@@ -279,7 +277,7 @@ chatMiddleware → ctx.runtime.adapters
         → yield 单个 StreamChunk
 ```
 
-### OpenAI 的 RPM 限流（[openai.ts acquireRpm](../../../src/agent/provider/openai.ts)）
+### OpenAI 的 RPM 限流（[openai.ts acquireRpm](../../../apps/backend/src/agent/provider/openai.ts)）
 
 ```ts
 async function acquireRpm(options?: LLMOptions): Promise<void> {
@@ -290,9 +288,9 @@ async function acquireRpm(options?: LLMOptions): Promise<void> {
 }
 ```
 
-`brain.rpm` 配置时，`chatMiddleware` 构造 `options` 会展开 `rpm`（[chat.ts](../../../src/agent/middleware/chat.ts)），`acquireRpm` 在每次 `chat`/`chatStream` 前节流。
+`brain.rpm` 配置时，`chatMiddleware` 构造 `options` 会展开 `rpm`（[chat.ts](../../../apps/backend/src/agent/middleware/chat.ts)），`acquireRpm` 在每次 `chat`/`chatStream` 前节流。
 
-### Mock 的索引机制（[mock.ts pickScriptItem](../../../src/agent/provider/mock.ts)）
+### Mock 的索引机制（[mock.ts pickScriptItem](../../../apps/backend/src/agent/provider/mock.ts)）
 
 ```ts
 const index = messages.filter((m) => m.role === 'assistant').length
@@ -311,21 +309,21 @@ const index = messages.filter((m) => m.role === 'assistant').length
 
 | 依赖                                                                | 用途                                                                           |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [core/llm/adapter](../../../src/core/llm/adapter.ts)                   | `LLMAdapter` 接口、`registerLLMAdapter`、`LLMOptions`                          |
-| [core/message/adapter](../../../src/core/message/adapter.ts)           | `MessageProviderAdapterConfig`、`registerMessageAdapter`、`LLMResponse`        |
-| [core/sense](../../../src/core/sense/)                                 | `registerSenseAdapter`、`Sense`/`SenseCallData`/`SenseFunction`/`SenseAdapter` |
-| [core/sense/compiler/utils](../../../src/core/sense/compiler/utils.ts) | `buildBaseSenseFunction`（统一 function 字段生成）                             |
-| [utils/config](../../../src/utils/config.ts)                           | `config.llm.brain`（mock 找脚本文件路径）、`MockScriptResponse` 类型           |
-| [utils/rateLimiter](../../../src/utils/rateLimiter.ts)                 | `getRateLimiter`（仅 openai）                                                  |
-| [utils/logger](../../../src/utils/logger/)                             | ollama 流式警告、mock 日志                                                     |
+| [core/llm/adapter](../../../apps/backend/src/core/llm/adapter.ts)                   | `LLMAdapter` 接口、`registerLLMAdapter`、`LLMOptions`                          |
+| [core/message/adapter](../../../apps/backend/src/core/message/adapter.ts)           | `MessageProviderAdapterConfig`、`registerMessageAdapter`、`LLMResponse`        |
+| [core/sense](../../../apps/backend/src/core/sense)                                 | `registerSenseAdapter`、`Sense`/`SenseCallData`/`SenseFunction`/`SenseAdapter` |
+| [core/sense/compiler/utils](../../../apps/backend/src/core/sense/compiler/utils.ts) | `buildBaseSenseFunction`（统一 function 字段生成）                             |
+| [utils/config](../../../apps/backend/src/utils/config.ts)                           | `config.llm.brain`（mock 找脚本文件路径）、`MockScriptResponse` 类型           |
+| [utils/rateLimiter](../../../apps/backend/src/utils/rateLimiter.ts)                 | `getRateLimiter`（仅 openai）                                                  |
+| [utils/logger](../../../apps/backend/src/utils/logger)                             | ollama 流式警告、mock 日志                                                     |
 | 第三方                                                              | `openai`、`ollama`、`zod`、`js-yaml`、`fs`/`path`                              |
 
 ### 被依赖
 
 | 调用方                                                       | 用途                                    |
 | ------------------------------------------------------------ | --------------------------------------- |
-| [agent/provider/index.ts](../../../src/agent/provider/index.ts) | `registerBuiltinProviders()` 串联       |
-| [agent/bootstrap.ts](../../../src/agent/bootstrap.ts)           | 启动期调用 `registerBuiltinProviders()` |
+| [agent/provider/index.ts](../../../apps/backend/src/agent/provider/index.ts) | `registerBuiltinProviders()` 串联       |
+| [agent/bootstrap.ts](../../../apps/backend/src/agent/bootstrap.ts)           | 启动期调用 `registerBuiltinProviders()` |
 
 ### 横切参考
 
@@ -335,7 +333,7 @@ const index = messages.filter((m) => m.role === 'assistant').length
 
 ## 三 Provider 详解
 
-### OpenAI（[openai.ts](../../../src/agent/provider/openai.ts)）
+### OpenAI（[openai.ts](../../../apps/backend/src/agent/provider/openai.ts)）
 
 **LLM Adapter：**
 
@@ -372,7 +370,7 @@ const index = messages.filter((m) => m.role === 'assistant').length
 
 **key 缺失策略**：`brain.key` 不参与启动校验（缺失不阻止启动），运行期 `chat`/`chatStream` 调用时按以下顺序检查：
 
-1. **占位符检测**：key 形如 `^\$([A-Z_][A-Z0-9_]*)$` → 抛 `${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启 [${tracingId}]`。[replaceEnvVars](../../../src/utils/config.ts) 在 env 缺失时**原样返回占位符**，必须也视为缺失。
+1. **占位符检测**：key 形如 `^\$([A-Z_][A-Z0-9_]*)$` → 抛 `${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启 [${tracingId}]`。[replaceEnvVars](../../../apps/backend/src/utils/config.ts) 在 env 缺失时**原样返回占位符**，必须也视为缺失。
 2. **完全缺失**：`!key`（undefined / 空串）→ 抛 `${model} 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段 [${tracingId}]`。
 
 **错误信息分层原则**：
@@ -392,7 +390,7 @@ const index = messages.filter((m) => m.role === 'assistant').length
 | `extractStreamThinking` | `chunk.choices[0]?.delta?.reasoning_content`                 |
 | `buildMessages`         | 见下方                                                       |
 
-buildMessages 关键转换（[openai.ts](../../../src/agent/provider/openai.ts)）：
+buildMessages 关键转换（[openai.ts](../../../apps/backend/src/agent/provider/openai.ts)）：
 
 | 历史消息                         | 转换                                                                                                    |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -408,7 +406,7 @@ senseCalls(response) { /* 从 response.choices[0].message.tool_calls 提取 */ }
 extractSenseCallDeltas(chunk) { /* 从 chunk.choices[0].delta.tool_calls 提取，index 定位 */ }
 ```
 
-### Ollama（[ollama.ts](../../../src/agent/provider/ollama.ts)）
+### Ollama（[ollama.ts](../../../apps/backend/src/agent/provider/ollama.ts)）
 
 **与 OpenAI 的差异：**
 
@@ -419,9 +417,9 @@ extractSenseCallDeltas(chunk) { /* 从 chunk.choices[0].delta.tool_calls 提取�
 - `chat` / `chatStream` 每次按 `LLMOptions.url` 创建 `Ollama({ host })` 客户端，保证配置地址、设置页连接测试与正式请求一致；缺地址时按现有 SDK 默认地址处理。
 - **无 RPM 限流**（未调 `acquireRpm`）。
 
-**P1-2 流式感官不可靠警告（[ollama.ts extractSenseCallDeltas 注释](../../../src/agent/provider/ollama.ts)）：** Ollama 流式响应**不稳定**返回 `tool_calls`（多数场景流式不产生 tool_call），且无 `tool_call.id`。`randomUUID` 仅占位，同 call 多 chunk 由 `checkpointState.mergeSenseDeltas` 取首 delta id 合并。**建议需要感官调用时走非流式（`senseCalls`）路径**——`chatStream` 检测到 `senses.length > 0` 时会 `logger.warn`。
+**P1-2 流式感官不可靠警告（[ollama.ts extractSenseCallDeltas 注释](../../../apps/backend/src/agent/provider/ollama.ts)）：** Ollama 流式响应**不稳定**返回 `tool_calls`（多数场景流式不产生 tool_call），且无 `tool_call.id`。`randomUUID` 仅占位，同 call 多 chunk 由 `checkpointState.mergeSenseDeltas` 取首 delta id 合并。**建议需要感官调用时走非流式（`senseCalls`）路径**——`chatStream` 检测到 `senses.length > 0` 时会 `logger.warn`。
 
-### Mock（[mock.ts](../../../src/agent/provider/mock.ts)）
+### Mock（[mock.ts](../../../apps/backend/src/agent/provider/mock.ts)）
 
 **自定义 raw 格式：**
 
@@ -467,7 +465,7 @@ interface MockResponse {
 
 **Message/Sense Adapter：** 极简——`buildMessages` 直接 `filter(!revoked)` 透传 LLMResponse（mock 不接真实 API，无需格式转换）；`buildSenses` 仅包 `{type:"function", function: buildBaseSenseFunction(s)}`；`extractSenseCallDeltas` 从 `MockStreamChunk.toolCalls` 直接提取。
 
-**脚本文件查找（[mock.ts findMockFile/loadScriptFile](../../../src/agent/provider/mock.ts)）：**
+**脚本文件查找（[mock.ts findMockFile/loadScriptFile](../../../apps/backend/src/agent/provider/mock.ts)）：**
 
 - `findMockFile(model)`：遍历 `config.llm.brain`，匹配 `provider==="mock" && model` → 取 `b.mock.file`。
 - `loadScriptFile(file)`：读 `.chery/<file>`（不缓存——dev 改脚本免重启）；文件不存在 warn 返回 `{script:[]}`。
@@ -478,8 +476,8 @@ interface MockResponse {
 
 ### 添加 Provider
 
-1. 在 [provider/](../../../src/agent/provider/) 新增 `<name>.ts`。
-2. 定义三层 adapter 配置对象（参考 [ollama.ts](../../../src/agent/provider/ollama.ts) 最简模板）：
+1. 在 [provider/](../../../apps/backend/src/agent/provider) 新增 `<name>.ts`。
+2. 定义三层 adapter 配置对象（参考 [ollama.ts](../../../apps/backend/src/agent/provider/ollama.ts) 最简模板）：
 
    ```ts
    import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm/adapter";
@@ -499,18 +497,18 @@ interface MockResponse {
    }
    ```
 
-3. 在 [index.ts](../../../src/agent/provider/index.ts) 的 `registerBuiltinProviders()` 中调用 `registerMyProviderAdapter()`。
+3. 在 [index.ts](../../../apps/backend/src/agent/provider/index.ts) 的 `registerBuiltinProviders()` 中调用 `registerMyProviderAdapter()`。
 4. 在 `config.yaml` 的 `llm.brain.<name>` 配置 `provider: myname`。
 5. ⚠ 三层 adapter 必须用**同一 provider name** 注册——`RuntimeResolver.resolveBrain` 用 `brain.provider` 同时取三个，任一缺失抛 `Provider "..." adapters not registered`。
 
 ### 实现要点
 
-- **流式与非流式都要实现**：`ctx.global.stream` 切换路径（[chat.ts](../../../src/agent/middleware/chat.ts)）。
+- **流式与非流式都要实现**：`ctx.global.stream` 切换路径（[chat.ts](../../../apps/backend/src/agent/middleware/chat.ts)）。
 - **buildMessages 必须过滤 revoked**：否则撤回后旧消息仍进入 LLM 上下文。
-- **buildMessages 必须处理 `replace.state`**：sense 历史 hash 替换时用 `replace.content` 替代原 content（[tool.ts doExecuteSense](../../../src/agent/middleware/tool.ts) 的去重逻辑）。
+- **buildMessages 必须处理 `replace.state`**：sense 历史 hash 替换时用 `replace.content` 替代原 content（[tool.ts doExecuteSense](../../../apps/backend/src/agent/middleware/tool.ts) 的去重逻辑）。
 - **tool_call.id 不可省**：openai 要求 assistant 的 `tool_calls[i].id` 与 tool 结果的 `tool_call_id` 配对；provider 没有真实 id 时用 `randomUUID()`，但要注意流式场景同 call 多 chunk 的 id 一致性（由 `mergeSenseDeltas` 取首 delta id 合并）。
 
-### fetch 基座（[fetchBase.ts](../../../src/agent/provider/fetchBase.ts)）
+### fetch 基座（[fetchBase.ts](../../../apps/backend/src/agent/provider/fetchBase.ts)）
 
 新 provider **优先用原生 fetch 而非引第三方 SDK**（Node ≥20 自带 fetch/ReadableStream/AbortController）。基座提供：
 
@@ -535,17 +533,17 @@ provider **不再内置任何档位词映射**。chat middleware 用 `resolveCat
 
 前端 BrainCard 经 `utils.modelRecommendation` 同时取得规则识别、事实、推荐和当前协议的思考档位。模型选择时推荐写入编辑草稿，保存后才生效；未知模型返回空档位并显示“跟随服务默认”，不会再伪造 `["off","on"]`。
 
-### 共享件（[openaiCompat.ts](../../../src/agent/provider/openaiCompat.ts)）
+### 共享件（[openaiCompat.ts](../../../apps/backend/src/agent/provider/openaiCompat.ts)）
 
 OpenAI 兼容协议的 provider（openai / bigmodel）共享 message/sense adapter 配置 + `acquireRpm` + `assertChatOptions`，抽到 `openaiCompat.ts`。openai.ts 用 SDK 实现 LLMAdapter、bigmodel.ts 用 fetch 实现 LLMAdapter，二者复用同一套 message/sense adapter（结构同形，鸭子类型解析）。
 
 **发送前防御校验（`validateToolResultPairing`）：** `buildOpenAICompatibleMessages` 构造后逐条校验——每条 `role:"tool"` 的 `tool_call_id` 必须能在前置 assistant 的 `tool_calls` 中找到，否则抛 `ClassifiedError`（category=`unknown`、source=`system`，detail 携带缺失 id）。背景：框架内部缺陷（如历史组装不一致）会让 tool result 成"孤儿"，上游报 `tool result's tool id(...) not found` 400 被误判为 brain 配置问题（validation、retryable=false）；本地拦截把它还原为明确的系统错误（用户面"会话数据出了点问题"+ detail 可见线索）。Anthropic 等非 OpenAI 兼容 provider 的配对结构不同，暂不加同款校验，按需补齐。
 
-### bigmodel provider（[bigmodel.ts](../../../src/agent/provider/bigmodel.ts)）
+### bigmodel provider（[bigmodel.ts](../../../apps/backend/src/agent/provider/bigmodel.ts)）
 
 智谱 BigModel，OpenAI 兼容协议，base_url 默认 `https://open.bigmodel.cn/api/paas/v4/`（可配，也能指向聚合端点）。LLMAdapter 用 fetch 基座：`chat` 走 `jsonRequest`、`chatStream` 走 `streamSSE`，请求体 `{model, messages, stream, tools?, ...thinkingParams}`；message/sense adapter 复用 openaiCompat（自动获得 `reasoning_content` 解析 + image 多模态 + tool_calls）。注册名 `"bigmodel"`。
 
-### anthropic provider（[anthropic.ts](../../../src/agent/provider/anthropic.ts)）
+### anthropic provider（[anthropic.ts](../../../apps/backend/src/agent/provider/anthropic.ts)）
 
 Anthropic Messages API（endpoint `/messages`，版本前缀如 `/v1`、`/v4` 由用户在 `cfg.url` 自己负责，与 openai 模式对齐），原生 fetch 实现（遵项目扩展点约定，不引 `@anthropic-ai/sdk`）。message/sense adapter 不可复用 openaiCompat（Anthropic 用 content-block + 顶层 `system` + tool_use/input 对象），需自写。LLMAdapter 也**不复用** fetchBase 的 `jsonRequest/streamSSE`（硬编码 `/chat/completions`+Bearer+`[DONE]`），需写私有 `anthropicFetch`/`anthropicStreamSSE`。
 
@@ -555,7 +553,7 @@ anthropic provider 不再内置 `buildThinkingParam` 映射——`thinking:{type
 
 `max_tokens` 硬常量 `16384`（Anthropic 强制必填，钩子可覆盖）。**`PreLLMRequest` hook 是覆盖逃生口**——适配怪异端点的 thinking 字段（详见 [hooks.md](hooks.md)）。
 
-**请求体组装（[anthropic.ts chat](../../../src/agent/provider/anthropic.ts)）：**
+**请求体组装（[anthropic.ts chat](../../../apps/backend/src/agent/provider/anthropic.ts)）：**
 
 ```ts
 let body: AnthropicBody = {

@@ -20,4 +20,4 @@ Terminal manager 持有 node-pty 本机伪终端和 SSH2 client/channel。本机
 
 `ssh2` 与 `node-pty` 在创建终端时通过 Node 的 `createRequire` 加载，不能作为 SSR 静态导入打包：SSH 的可选本机加速模块可能没有构建产物。终端由独立后端提供，浏览器只承载界面。
 
-实现入口为 `src/service/workspace/` 与 `src/service/terminal/`，RPC 注册在 `src/service/index.ts`，公共类型归 `src/service/message/types.ts`。验证入口为 `test/service/workspace/files.test.ts` 与 `test/service/terminal/manager.test.ts`；后者使用本机伪终端和临时回环 SSH 服务验证输入输出、连接归属和主机指纹。
+实现入口为 `apps/backend/src/service/workspace/` 与 `apps/backend/src/service/terminal/`，RPC 注册在 `apps/backend/src/service/index.ts`，公共类型归 `apps/backend/src/service/message/types.ts`。验证入口为 `apps/backend/test/service/workspace/files.test.ts` 与 `apps/backend/test/service/terminal/manager.test.ts`；后者使用本机伪终端和临时回环 SSH 服务验证输入输出、连接归属和主机指纹。

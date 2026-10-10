@@ -1,6 +1,6 @@
 # Drain 日志模板挖掘
 
-> 源码 [src/utils/drain/](../../../src/utils/drain/) ｜ 上级 [./README.md](README.md) ｜ 相关 [./logger.md](logger.md) ｜ [../README.md](../../../src/agent/sense/read.ts)（消费方）
+> 源码 [apps/backend/src/utils/drain/](../../../apps/backend/src/utils/drain) ｜ 上级 [./README.md](README.md) ｜ 相关 [./logger.md](logger.md) ｜ [../README.md](../../../apps/backend/src/agent/sense/read.ts)（消费方）
 
 ## 职责
 
@@ -9,7 +9,7 @@
 - 输入：一坨原始日志行。
 - 输出：每行归类到一个「**模板**」（token 序列，可变部分用通配 `<*>` 表示），如 `"User <*> logged in from <*>:<*>"`。
 
-在 CheryNyxus 中的**唯一消费场景**：[`agent/sense/read.ts`](../../../src/agent/sense/read.ts) 读取大日志文件时，若 `compression: "drain"`（或 `auto` 且判定为日志），调用本模块导出的 `compressLog()` 把海量重复日志行归纳成「模板摘要 + 前若干实例」，大幅缩减喂给 LLM 的 token 数。
+在 CheryNyxus 中的**唯一消费场景**：[`agent/sense/read.ts`](../../../apps/backend/src/agent/sense/read.ts) 读取大日志文件时，若 `compression: "drain"`（或 `auto` 且判定为日志），调用本模块导出的 `compressLog()` 把海量重复日志行归纳成「模板摘要 + 前若干实例」，大幅缩减喂给 LLM 的 token 数。
 
 > 这是一个自包含、零业务依赖的纯算法模块（除 drainBase.ts 内部用 logger 打印调试树）。可独立测试、独立复用。
 
@@ -17,15 +17,15 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [types.ts](../../../src/utils/drain/types.ts) | 全部 interface/type 定义：`LogClusterInterface` / `NodeInterface` / `Serialized*` / `DrainState` / `ChangeType` / `TemplateMinerResult` / `DrainResult` |
-| [node.ts](../../../src/utils/drain/node.ts) | `LogCluster`（日志簇）+ `Node`（前缀树节点）两个实现 class |
-| [drainBase.ts](../../../src/utils/drain/drainBase.ts) | `DrainBase` 抽象基类：前缀树管理、token 化、`addLogMessage` 主流程、`fastMatch`、LRU 簇缓存、`NullProfiler`；定义 `DrainUpdateType` 枚举与 `Profiler` 接口 |
-| [drain.ts](../../../src/utils/drain/drain.ts) | `Drain extends DrainBase`：实现 `treeSearch` / `addSeqToPrefixTree` / `getSeqDistance` / `createTemplate` / `match` 五个抽象方法（核心算法） |
-| [templateMinerConfig.ts](../../../src/utils/drain/templateMinerConfig.ts) | `TemplateMinerConfig` + `TemplateMinerOptions`：Drain 超参 + 快照配置；含 `fromObject()` 静态工厂 |
-| [templateMiner.ts](../../../src/utils/drain/templateMiner.ts) | `TemplateMiner`：封装 `Drain` 的高层门面，含预处理、快照持久化（gzip）、`initialize/addLogMessage/getTemplate/saveSnapshot/close` |
-| [persistenceHandler.ts](../../../src/utils/drain/persistenceHandler.ts) | `PersistenceHandler` 抽象类：`save/load/close/delete` 四方法 |
-| [inMemoryPersistence.ts](../../../src/utils/drain/inMemoryPersistence.ts) | `InMemoryPersistenceHandler extends PersistenceHandler`：内存 + `structuredClone` 深拷贝的实现 |
-| [index.ts](../../../src/utils/drain/index.ts) | 导出 + 对外简化入口 `compressLog(content, previewCount)` |
+| [types.ts](../../../apps/backend/src/utils/drain/types.ts) | 全部 interface/type 定义：`LogClusterInterface` / `NodeInterface` / `Serialized*` / `DrainState` / `ChangeType` / `TemplateMinerResult` / `DrainResult` |
+| [node.ts](../../../apps/backend/src/utils/drain/node.ts) | `LogCluster`（日志簇）+ `Node`（前缀树节点）两个实现 class |
+| [drainBase.ts](../../../apps/backend/src/utils/drain/drainBase.ts) | `DrainBase` 抽象基类：前缀树管理、token 化、`addLogMessage` 主流程、`fastMatch`、LRU 簇缓存、`NullProfiler`；定义 `DrainUpdateType` 枚举与 `Profiler` 接口 |
+| [drain.ts](../../../apps/backend/src/utils/drain/drain.ts) | `Drain extends DrainBase`：实现 `treeSearch` / `addSeqToPrefixTree` / `getSeqDistance` / `createTemplate` / `match` 五个抽象方法（核心算法） |
+| [templateMinerConfig.ts](../../../apps/backend/src/utils/drain/templateMinerConfig.ts) | `TemplateMinerConfig` + `TemplateMinerOptions`：Drain 超参 + 快照配置；含 `fromObject()` 静态工厂 |
+| [templateMiner.ts](../../../apps/backend/src/utils/drain/templateMiner.ts) | `TemplateMiner`：封装 `Drain` 的高层门面，含预处理、快照持久化（gzip）、`initialize/addLogMessage/getTemplate/saveSnapshot/close` |
+| [persistenceHandler.ts](../../../apps/backend/src/utils/drain/persistenceHandler.ts) | `PersistenceHandler` 抽象类：`save/load/close/delete` 四方法 |
+| [inMemoryPersistence.ts](../../../apps/backend/src/utils/drain/inMemoryPersistence.ts) | `InMemoryPersistenceHandler extends PersistenceHandler`：内存 + `structuredClone` 深拷贝的实现 |
+| [index.ts](../../../apps/backend/src/utils/drain/index.ts) | 导出 + 对外简化入口 `compressLog(content, previewCount)` |
 
 ## 核心概念 / 导出
 
@@ -129,10 +129,10 @@ root (depth 0)
 
 参数关系：`logClusterDepth = depth`（构造入参），`maxNodeDepth = depth - 2`。depth 至少 3（root / token 数桶 / 至少一层 token 节点）。
 
-**新增一条日志 `addLogMessage(content)` 主流程**（[drainBase.ts](../../../src/utils/drain/drainBase.ts#L265-L317)）：
+**新增一条日志 `addLogMessage(content)` 主流程**（[drainBase.ts](../../../apps/backend/src/utils/drain/drainBase.ts#L265-L317)）：
 
 1. **token 化** `getContentAsTokens(content)`：先 trim，再按 `extraDelimiters` 拆分替换为空格，最后按 `\s+` 切分过滤空串。
-2. **树搜** `treeSearch(rootNode, tokens, simTh, includeParams=false)`（[drain.ts](../../../src/utils/drain/drain.ts#L9-L52)）：
+2. **树搜** `treeSearch(rootNode, tokens, simTh, includeParams=false)`（[drain.ts](../../../apps/backend/src/utils/drain/drain.ts#L9-L52)）：
    - 按 `tokens.length` 进入第一层桶 `<L=N>`；不存在则返回 null。
    - 逐 token 向下走：先尝试精确 token 子节点，回落到通配 `<*>` 子节点；到 `maxNodeDepth` 或 token 用尽停止。
    - 在到达节点的 `clusterIds` 上调 `fastMatch`，选 `getSeqDistance` 相似度最高（并列时参数多的优先）且 `≥ simTh` 的簇；否则 null。
@@ -144,9 +144,9 @@ root (depth 0)
    - `cluster.size += 1`；若启用 `maxClusters`，通过 `idToCluster.get(id)` 触发 LRU touch（依赖 `LogClusterCache.get()` 的 delete+set 副作用更新访问顺序）。
 4. 返回 `[cluster, updateType]`。
 
-**相似度 `getSeqDistance(seq1, seq2, includeParams)`**（[drain.ts](../../../src/utils/drain/drain.ts#L127-L162)）：两序列长度必须相等。逐位比较，`<*>` 计入 `paramCount` 不算相似；`includeParams=true` 时把 `<*>` 也算相似分母。返回 `[similarTokens/len, paramCount]`。
+**相似度 `getSeqDistance(seq1, seq2, includeParams)`**（[drain.ts](../../../apps/backend/src/utils/drain/drain.ts#L127-L162)）：两序列长度必须相等。逐位比较，`<*>` 计入 `paramCount` 不算相似；`includeParams=true` 时把 `<*>` 也算相似分母。返回 `[similarTokens/len, paramCount]`。
 
-**仅匹配不创建 `match(content, fullSearchStrategy="never")`**（[drain.ts](../../../src/utils/drain/drain.ts#L180-L212)）：用 `simTh=1.0`（要求严格全等模板）。先走 treeSearch；`fullSearchStrategy="always"` 或 treeSearch 失败且策略非 `"never"` 时，对同 token 数的所有簇做全量 `fastMatch`。
+**仅匹配不创建 `match(content, fullSearchStrategy="never")`**（[drain.ts](../../../apps/backend/src/utils/drain/drain.ts#L180-L212)）：用 `simTh=1.0`（要求严格全等模板）。先走 treeSearch；`fullSearchStrategy="always"` 或 treeSearch 失败且策略非 `"never"` 时，对同 token 数的所有簇做全量 `fastMatch`。
 
 ### TemplateMiner 门面数据流
 
@@ -175,11 +175,11 @@ loadState()  (initialize 时调)
   └─ restoreDrainFromState(JSON.parse)     // new Drain() + 逐簇 LogCluster + 递归 deserializeNode
 ```
 
-`serializeNode` / `deserializeNode`（[templateMiner.ts](../../../src/utils/drain/templateMiner.ts#L297-L324)）递归把 `Node.children: Map` 与 `SerializedNode.keyToChildNode: Record` 互转。
+`serializeNode` / `deserializeNode`（[templateMiner.ts](../../../apps/backend/src/utils/drain/templateMiner.ts#L297-L324)）递归把 `Node.children: Map` 与 `SerializedNode.keyToChildNode: Record` 互转。
 
 ### compressLog（对外简化入口）数据流
 
-[源码 index.ts](../../../src/utils/drain/index.ts#L38-L111)：
+[源码 index.ts](../../../apps/backend/src/utils/drain/index.ts#L38-L111)：
 
 ```
 compressLog(content, previewCount=3)
@@ -221,21 +221,21 @@ index.ts
 
 | 源 | 目标 | 性质 |
 |----|------|------|
-| [drainBase.ts](../../../src/utils/drain/drainBase.ts) | `@/utils/logger/index.js` | runtime：`writeLine()` 默认走 `logger.info`（打印 prefix tree 时） |
-| [templateMiner.ts](../../../src/utils/drain/templateMiner.ts) | `node:perf_hooks`、`node:util`、`node:zlib` | runtime：性能计时、`promisify(gzip/gunzip)` |
+| [drainBase.ts](../../../apps/backend/src/utils/drain/drainBase.ts) | `@/utils/logger/index.js` | runtime：`writeLine()` 默认走 `logger.info`（打印 prefix tree 时） |
+| [templateMiner.ts](../../../apps/backend/src/utils/drain/templateMiner.ts) | `node:perf_hooks`、`node:util`、`node:zlib` | runtime：性能计时、`promisify(gzip/gunzip)` |
 | 整个 drain 模块 | **无任何业务层依赖** | 纯算法 + Node 标准库 + logger |
 
 ### 被依赖
 
 | 模块 | 用途 |
 |------|------|
-| [agent/sense/read.ts](../../../src/agent/sense/read.ts) | `import { compressLog }` —— `read_file` 感官读大日志文件时，`compression: "drain"`（或 `auto` 判定为日志扩展名）触发，失败回退截断策略 |
+| [agent/sense/read.ts](../../../apps/backend/src/agent/sense/read.ts) | `import { compressLog }` —— `read_file` 感官读大日志文件时，`compression: "drain"`（或 `auto` 判定为日志扩展名）触发，失败回退截断策略 |
 
-drain 的输出 `compressionRatio` 还会写进 `read_file` 返回给 LLM 的压缩说明（[read.ts 第 114 行附近](../../../src/agent/sense/read.ts)）。
+drain 的输出 `compressionRatio` 还会写进 `read_file` 返回给 LLM 的压缩说明（[read.ts 第 114 行附近](../../../apps/backend/src/agent/sense/read.ts)）。
 
 ### 横切参考
 
-- `read_file` 感官的压缩决策（auto/truncate/drain/none）与 `config.global.file_compression`：[./README.md#config](README.md)、[../../src/agent/sense/read.ts](../../../src/agent/sense/read.ts)
+- `read_file` 感官的压缩决策（auto/truncate/drain/none）与 `config.global.file_compression`：[./README.md#config](README.md)、[../../src/agent/sense/read.ts](../../../apps/backend/src/agent/sense/read.ts)
 - drain 打印调试树时用到的 logger：[./logger.md](logger.md)
 - config.yaml 的 `file_compression.log_file_extensions`（决定 auto 模式何时判定为日志）：[.chery/config.yaml](../../../.chery/config.yaml)
 
@@ -260,7 +260,7 @@ drain 的输出 `compressionRatio` 还会写进 `read_file` 返回给 LLM 的压
 
 ### 复用 Drain 不走 TemplateMiner
 
-`Drain` 类（[drain.ts](../../../src/utils/drain/drain.ts)）可独立实例化，直接 `addLogMessage(content)` 同步获取簇；`TemplateMiner` 仅多加了预处理、持久化、性能计时。若要做实时日志流聚类（非 read_file 的批处理压缩），可直接用 `Drain` + `match()` 仅匹配模式。
+`Drain` 类（[drain.ts](../../../apps/backend/src/utils/drain/drain.ts)）可独立实例化，直接 `addLogMessage(content)` 同步获取簇；`TemplateMiner` 仅多加了预处理、持久化、性能计时。若要做实时日志流聚类（非 read_file 的批处理压缩），可直接用 `Drain` + `match()` 仅匹配模式。
 
 ### 已知局限（待确认）
 
