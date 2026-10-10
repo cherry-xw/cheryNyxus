@@ -12,7 +12,7 @@ import type {
   SenseGroupOption,
   SenseToolInfo,
   ThinkingLevel,
-} from '@/services/agentApi'
+} from '@/application/backend/public'
 
 /** 角色配置数据源访问器（ref / props 均以 getter 注入，保持响应式读取）。 */
 export interface RoleConfigSource {

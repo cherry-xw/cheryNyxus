@@ -21,7 +21,7 @@ import {
 } from '@/application/backend/public'
 import ImportConfirmDialog from './ImportConfirmDialog.vue'
 import ImportPortalFrame, { type PortalPhase } from './ImportPortalFrame.vue'
-import LabelTip from '../../../tabs/config/LabelTip.vue'
+import LabelTip from '../../config/LabelTip.vue'
 import { classifyImportError, type ImportErrorInfo } from './importError'
 
 const props = defineProps<{ visible: boolean; resyncSourceId?: string }>()

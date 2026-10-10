@@ -87,8 +87,14 @@ describe('preset-scoped role workbench', () => {
 describe('public role dual-track', () => {
   it('introduces the scope field in the config dto type', async () => {
     const api = await readFile(API, 'utf8')
+    const dto = await readFile(
+      resolve(import.meta.dirname, '../../src/services/agentApiTypes.ts'),
+      'utf8',
+    )
 
-    expect(api).toContain("scope?: 'public' | 'private'")
+    // DTO 类型定义集中在 agentApiTypes.ts（agentApi.ts 导出该类型的公共门面）。
+    expect(api).toContain("export type * from './agentApiTypes'")
+    expect(dto).toContain("scope?: 'public' | 'private'")
   })
 
   it('exposes public role detection, reference pool and read-only flag in the controller', async () => {

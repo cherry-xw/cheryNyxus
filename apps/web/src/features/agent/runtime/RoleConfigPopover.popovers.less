@@ -1,0 +1,65 @@
+.role-detail-popper.el-popper {
+  --el-popper-padding: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 8px;
+  background: var(--surface-hover);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 20%, transparent);
+  color: var(--ink);
+
+  .role-detail {
+    display: grid;
+    gap: 5px;
+  }
+
+  .role-detail-title {
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .role-detail-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  .role-detail-key {
+    color: color-mix(in srgb, var(--ink) 54%, transparent);
+  }
+
+  .role-detail-value {
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+  }
+
+  .sense-detail-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 240px;
+  }
+
+  .sense-detail-tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+    border-radius: 6px;
+    background: var(--surface);
+    font-size: 13px;
+    line-height: 1;
+    cursor: default;
+  }
+
+  .sense-detail-empty {
+    color: color-mix(in srgb, var(--ink) 44%, transparent);
+    font-size: 13px;
+  }
+}

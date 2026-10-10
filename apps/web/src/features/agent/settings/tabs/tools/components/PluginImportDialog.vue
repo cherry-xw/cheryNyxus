@@ -16,7 +16,7 @@ import {
   type PluginPreImportResult,
   type CredentialListItemDTO,
 } from '@/application/backend/public'
-import LabelTip from '../../../tabs/config/LabelTip.vue'
+import LabelTip from '../../config/LabelTip.vue'
 import ImportPortalFrame, { type PortalPhase } from './ImportPortalFrame.vue'
 import { classifyImportError, type ImportErrorInfo } from './importError'
 

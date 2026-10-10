@@ -117,7 +117,7 @@ export function useRolesTabController(
   /** 是否公共角色管理视图（全局维护层）：无预设、只列公共角色。 */
   const publicMode = computed(() => props.mode === 'public')
 
-  /** 角色是否公共角色：显式 scope==='public'，或存量兼容——固定预设（cheryNexus）的非锁定普通成员角色视为公共。 */
+  /** 角色是否公共角色：显式 scope==='public'，或存量兼容——固定预设（cheryNyxus）的非锁定普通成员角色视为公共。 */
   function isPublicRole(name: string): boolean {
     return sharedIsPublicRole(props.draft.roles, props.draft.presets, name)
   }

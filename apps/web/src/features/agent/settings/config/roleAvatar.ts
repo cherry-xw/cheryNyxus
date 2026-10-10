@@ -1,4 +1,4 @@
-/** 必须与后端 src/utils/roleAvatar.ts 顺序一致，确保旧配置的默认头像前后端相同。 */
+/** 必须与后端 apps/backend/src/utils/roleAvatar.ts 顺序一致，确保旧配置的默认头像前后端相同。 */
 export const ROLE_AVATAR_POOL = [
   '🧭',
   '🛠️',

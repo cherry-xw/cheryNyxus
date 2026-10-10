@@ -1,6 +1,6 @@
 /**
  * 行为权限展示层元数据与生效解析。
- * defaultPolicy / resolveEffectivePolicy 是后端 src/core/security/rolePolicy.ts
+ * defaultPolicy / resolveEffectivePolicy 是后端 apps/backend/src/core/security/rolePolicy.ts
  * 的 defaultPolicy + mergePolicy 前端镜像，仅用于 UI 展示（模板卡片摘要、生效预览条）；
  * 真实裁决仍以服务端为准，后端模板默认值变更时需同步此处。
  */

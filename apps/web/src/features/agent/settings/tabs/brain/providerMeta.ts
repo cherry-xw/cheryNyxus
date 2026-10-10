@@ -3,7 +3,7 @@
  *  - value 与 PROVIDERS[i] 对应，是 brain.cfg.provider 写入/读取的枚举值。
  *  - label 命名约定：**中文在前，英文/协议名在后**。有自然中文品牌名时拼接（如「智谱 BigModel」、
  *    「深度求索 DeepSeek」），无自然中文品牌名时单独保留英文名（OpenAI / Ollama / Anthropic）。
- *  - icon 优先用 `web/src/assets/ai-icons/` 的 PNG；该目录下 mock 等无品牌素材时退到 emoji。
+ *  - icon 优先用 `apps/web/src/assets/ai-icons/` 的 PNG；该目录下 mock 等无品牌素材时退到 emoji。
  *  - 模板渲染同名时省略 value（如「openai / OpenAI」折叠成「OpenAI」）。
  *
  * 拆到独立文件而非塞 constants.ts，是因为 PNG 资源与「品牌名 label」语义归属各组件目录：

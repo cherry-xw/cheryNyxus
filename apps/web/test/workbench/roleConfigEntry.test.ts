@@ -26,7 +26,7 @@ describe('workbench role config entry migration', () => {
         resolve('src/features/agent/workbench/useWorkbenchDialogController.ts'),
         'utf8',
       ),
-      readFile(resolve('web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
+      readFile(resolve('apps/web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
     ])
 
     // 1) composer 内不再内置小组角色编制（⚙ 触发器与折叠面板移除）。
@@ -76,7 +76,7 @@ describe('workbench role config entry migration', () => {
   it('renders complete editable role cards with direct model choices', async () => {
     const [dialog, roleCard] = await Promise.all([
       readComponentSource(resolve('src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
-      readFile(resolve('web/src/features/agent/runtime/RoleConfigPopover.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/runtime/RoleConfigPopover.vue'), 'utf8'),
     ])
 
     expect(dialog).toContain('<RoleConfigPopover')

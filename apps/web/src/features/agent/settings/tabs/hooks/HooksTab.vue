@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * HooksTab：钩子事件信息面板 + Cherry Nexus 引导。
+ * HooksTab：钩子事件信息面板 + cheryNyxus 引导。
  *
  * 职责：
  * - 展示 10 个 HookEvent（中文名 + 能力 chips + 描述 + matcher 字段）
  * - 展示已有 handler 列表（matcher + if + command + timeout），支持删除
- * - Cherry Nexus 引导卡：提示用户通过 Cherry Nexus 配置 hooks
+ * - cheryNyxus 引导卡：提示用户通过 cheryNyxus 配置 hooks
  * - Brain 级 hooks 只读展示
  *
  * 风格：新拟物化（Neumorphism）事件卡 + 凹陷 handler 行；能力 chip 用语义色。
@@ -144,20 +144,20 @@ const brainList = computed(() =>
         </span>
       </div>
 
-      <!-- Cherry Nexus 引导卡（顶部：先讲清楚怎么用，再列事件细节）-->
+      <!-- cheryNyxus 引导卡（顶部：先讲清楚怎么用，再列事件细节）-->
       <article class="neu-card guide-card">
         <header class="guide-head">
           <span class="guide-icon">🤖</span>
-          <span class="guide-title">使用 Cherry Nexus 配置钩子</span>
+          <span class="guide-title">使用 cheryNyxus 配置钩子</span>
         </header>
         <div class="guide-body">
           <p class="guide-text">
-            钩子需要编写 shell 脚本，建议通过 Cherry Nexus（配置管理核心角色）自动配置：
+            钩子需要编写 shell 脚本，建议通过 cheryNyxus（配置管理核心角色）自动配置：
           </p>
           <ol class="guide-steps">
             <li>对话中输入 <code>@CherryNexus</code>（或让它接管配置需求）</li>
             <li>告诉它你要配置哪个事件的钩子（如 PreLLMRequest 改 body）</li>
-            <li>Cherry Nexus 会读取参考文档、编写脚本、确认后落盘到 hooks.json</li>
+            <li>cheryNyxus 会读取参考文档、编写脚本、确认后落盘到 hooks.json</li>
           </ol>
           <p class="guide-file">配置文件：<code>.chery/hooks/hooks.json</code></p>
         </div>
@@ -548,7 +548,7 @@ const brainList = computed(() =>
   height: 12px;
 }
 
-// ============ Cherry Nexus 引导卡 ============
+// ============ cheryNyxus 引导卡 ============
 
 // ============ Shell 执行器状态条 ============
 
