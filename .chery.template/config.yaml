@@ -40,7 +40,7 @@ llm:
       provider: openai
       protocol: openai-chat-completions
 sense_groups:
-  chery_nexus:
+  cheryNyxus:
     - read_file
     - skill
     - write_file
@@ -75,7 +75,7 @@ roles:
     brain: default
     avatar: 🐈
     description: Chery Nyxus：系统配置管理核心角色（管理所有角色配置）+ 桌宠组长
-    senseGroup: chery_nexus
+    senseGroup: cheryNyxus
     mcpServers: []
     systemPrompt: prompt/cheryNyxus/cheryNyxus.md
     lock: true
@@ -161,7 +161,7 @@ server:
     enabled: false
     httpPort: 0
     websocketPort: 0
-# 本地管理器监听地址（manager/ 独立进程，缺省 127.0.0.1；0.0.0.0 或内网 IP 开放内网访问，
+# 本地管理器监听地址（apps/manager/ 独立进程，缺省 127.0.0.1；0.0.0.0 或内网 IP 开放内网访问，
 # 访问需携带启动日志 URL 上的管理密钥；优先级 CHERY_MANAGER_HOST > 本字段）。
 manager:
   host: 127.0.0.1

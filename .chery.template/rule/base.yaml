@@ -69,10 +69,10 @@ search_codebase:
     - 'private_key'
 
 # ── 无害操作：不登记 → 默认放行（fail-open）──
-# ask_user_question：sense 内置 auto（src/agent/sense/ask.ts），根本不进此表。
+# ask_user_question：sense 内置 auto（apps/backend/src/agent/sense/ask.ts），根本不进此表。
 #   旧白名单版曾配 /^/ 表达全 safe；黑名单下 dangerPatterns 的 /^/ 会倒置成全 danger（荒谬），故删除条目。
 # update_todo：todos 为数组、extract 取不到 string；操作无损，不登记 = 放行。
-# history_recall：只读历史检索，sense 内置 auto（src/agent/sense/historyRecall.ts），不进此表。
+# history_recall：只读历史检索，sense 内置 auto（apps/backend/src/agent/sense/historyRecall.ts），不进此表。
 
 # ── 破坏性 / 资源消耗 / 外部副作用：硬开关 false（无条件需确认）──
 write_file: false
