@@ -36,7 +36,7 @@ export function startUsageRecorder(chatId: string): {
       safely(() => {
         if (chunk.type === 'sense_started') {
           const operation: StoredUsageOperation = {
-            id: `${chatId}:${runId ?? ''}:${chunk.id}:${chunk.startedAt}`,
+            id: chunk.operationId ?? `${chatId}:${runId ?? ''}:${chunk.id}:${chunk.startedAt}`,
             taskKey: identity.rootChatId,
             chatId,
             attemptId,
@@ -46,12 +46,40 @@ export function startUsageRecorder(chatId: string): {
           }
           operations.set(chunk.id, operation)
           saveUsageOperation(operation)
+          logger.event('sense.lifecycle', {
+            phase: 'start',
+            operationId: chunk.id,
+            correlationId: chatId,
+            sense: chunk.name,
+            operationClass: 'sense',
+          })
         } else if (chunk.type === 'sense_accept' || chunk.type === 'sense_reject') {
           const operation = operations.get(chunk.id)
           if (!operation) return
-          operation.endedAt = Date.now()
-          operation.status = chunk.type === 'sense_accept' ? 'completed' : 'rejected'
+          operation.endedAt =
+            operation.startedAt +
+            (chunk.durationMs ?? Math.max(0, Date.now() - operation.startedAt))
+          const terminalStatus = chunk.status ?? (chunk.type === 'sense_accept' ? 'ok' : undefined)
+          operation.status =
+            terminalStatus && terminalStatus !== 'ok'
+              ? terminalStatus
+              : chunk.type === 'sense_accept'
+                ? 'completed'
+                : 'rejected'
+          operation.errorCode = chunk.errorCode
+          operation.truncated = chunk.truncated ?? terminalStatus === 'budget_exceeded'
           saveUsageOperation(operation)
+          logger.event('sense.lifecycle', {
+            phase: 'finish',
+            operationId: chunk.id,
+            correlationId: chatId,
+            sense: operation.toolName,
+            operationClass: 'sense',
+            durationMs: operation.endedAt - operation.startedAt,
+            outcome: operation.status,
+            truncated: operation.truncated ?? false,
+            errorCode: operation.errorCode,
+          })
           operations.delete(chunk.id)
         }
       })
@@ -61,6 +89,17 @@ export function startUsageRecorder(chatId: string): {
       for (const operation of operations.values())
         safely(() => {
           saveUsageOperation({ ...operation, endedAt: Date.now(), status: 'interrupted' })
+          logger.event('sense.lifecycle', {
+            phase: 'finish',
+            operationId: operation.id,
+            correlationId: chatId,
+            sense: operation.toolName,
+            operationClass: 'sense',
+            durationMs: Date.now() - operation.startedAt,
+            outcome: 'interrupted',
+            truncated: false,
+            errorCode: 'cancelled',
+          })
         })
       operations.clear()
     },

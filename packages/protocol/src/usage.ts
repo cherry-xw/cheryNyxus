@@ -41,7 +41,20 @@ export const UsageOperationSchema = z.object({
   toolName: z.string(),
   startedAt: count,
   endedAt: count.optional(),
-  status: z.enum(['running', 'completed', 'rejected', 'interrupted']),
+  status: z.enum([
+    'running',
+    'completed',
+    'rejected',
+    'interrupted',
+    'timeout',
+    'cancelled',
+    'budget_exceeded',
+    'provider_error',
+    'invalid_result',
+    'recovery_required',
+  ]),
+  truncated: z.boolean().optional(),
+  errorCode: z.string().optional(),
 })
 export type UsageOperation = z.infer<typeof UsageOperationSchema>
 

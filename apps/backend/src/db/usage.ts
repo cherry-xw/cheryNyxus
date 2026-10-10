@@ -15,7 +15,19 @@ export interface StoredUsageOperation {
   toolName: string
   startedAt: number
   endedAt?: number
-  status: 'running' | 'completed' | 'rejected' | 'interrupted'
+  status:
+    | 'running'
+    | 'completed'
+    | 'rejected'
+    | 'interrupted'
+    | 'timeout'
+    | 'cancelled'
+    | 'budget_exceeded'
+    | 'provider_error'
+    | 'invalid_result'
+    | 'recovery_required'
+  truncated?: boolean
+  errorCode?: string
 }
 
 export function saveRequestUsage(record: StoredRequestUsage): void {
