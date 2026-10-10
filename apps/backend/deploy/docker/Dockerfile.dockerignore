@@ -1,0 +1,8 @@
+# BuildKit 专用忽略文件（与 Dockerfile 同名配对），路径相对构建上下文（仓库根）。
+# 注意：node_modules、apps/web/node_modules 与 dist 必须进入上下文（离线 COPY 进镜像），不能排除。
+.git
+.gitignore
+apps/manager
+apps/relay/dist
+docs
+**/*.log

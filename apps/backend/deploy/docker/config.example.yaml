@@ -1,0 +1,45 @@
+# Dedicated QQ backend config. All real provider settings must be supplied locally.
+llm:
+  brain:
+    qq:
+      provider: openai
+      protocol: openai-chat-completions
+      url: ''
+      model: UNCONFIGURED
+      key: $QQBOT_MODEL_KEY
+      contextLimit: 128000
+sense_groups:
+  qq: []
+roles:
+  qq:
+    id: role-qqbot-dev-local
+    brain: qq
+    senseGroup: qq
+    mcpServers: []
+presets:
+  qq:
+    id: preset-qqbot-dev-local
+    leader: qq
+    roles: [qq]
+server:
+  host: 0.0.0.0
+  port: 8282
+  webPort: 8283
+  transport: json
+  serve_frontend: false
+  auth:
+    enabled: false
+  remote:
+    enabled: false
+global:
+  thinking: true
+  stream: false
+  supervision: auto
+  logger:
+    level: info
+    output: [console]
+manager:
+  connectionCredentials:
+    qq: /app/platform/qqbot/.chery/qq-connection-token.json
+  plugins:
+    packageSourceRoot: /app/opt

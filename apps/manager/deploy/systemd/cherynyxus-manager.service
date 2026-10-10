@@ -1,0 +1,16 @@
+[Unit]
+Description=cheryNyxus local manager
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.cherynyxus
+ExecStart=/usr/bin/node %h/.cherynyxus/apps/manager/server-dist/index.js
+Environment=CHERY_DIR=%h/.cherynyxus
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

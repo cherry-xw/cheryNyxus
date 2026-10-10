@@ -1,0 +1,4 @@
+qqbot.env
+secrets/*
+!secrets/.gitkeep
+qqbot-data/
