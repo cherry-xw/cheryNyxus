@@ -1,5 +1,5 @@
 /**
- * Spawn Broker（主从 Agent 桌宠系统 CP3 / wait=true 唤醒链）
+ * Spawn Broker（主从 Agent 桌宠系统 / wait=true 唤醒链）
  *
  * 职责（2026-07-09 重构：废除阻塞心跳，改 yield turn + 子完成唤醒，见 docs/shared/architecture/agent-orchestration.md §5.4）：
  * 1. 唤醒链 `waitedChildren`（childChatId → {parentChatId, type}）：spawn 时注册（覆盖 wait=true/false），

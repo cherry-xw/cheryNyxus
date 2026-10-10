@@ -36,6 +36,12 @@ import { createTempDir, cleanupTempDir, createTempFile } from "../../helpers/tem
 import { AgentAbortError } from "@/core/middleware/errors.js";
 import { SupervisionLevel } from "@/core/config.js";
 import { z } from "zod";
+import config from '@/utils/config.js'
+
+beforeAll(async () => {
+  await bootstrapForTests();
+  config.sense_groups.confirm_senses = ['write_file:manual'];
+});
 
 describe("senseMiddleware 集成：auto 执行", () => {
   beforeAll(async () => {
@@ -85,7 +91,7 @@ describe("senseMiddleware 集成：confirm 审批", () => {
     const chunks = await runSendWithApproval(agent, "写文件", () => "accept");
     const pending = sensePendings(chunks);
     expect(pending.length).toBeGreaterThanOrEqual(1);
-    expect(pending[0]?.supervisionLevel).toBe(1); // confirm
+    expect(pending[0]?.supervisionLevel).toBe(2); // explicit approval
     expect(pending[0]?.senseName).toBe("write_file");
     expect(senseAccepts(chunks).length).toBeGreaterThanOrEqual(1);
     expect(senseRejects(chunks)).toHaveLength(0);

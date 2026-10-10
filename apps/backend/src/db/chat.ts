@@ -590,7 +590,7 @@ export function deleteChat(chatId: string): void {
 }
 
 /**
- * 查主 chat 的所有子 chat（CP8：chat.delete 级联用）。
+ * 查主 chat 的所有子 chat（chat.delete 级联用）。
  * 按 parent_chat_id 索引查 soul.db（子 chat 与主 chat 同库，messages 各自按月分片）。
  */
 export function findChatsByParent(parentChatId: string): ChatRow[] {

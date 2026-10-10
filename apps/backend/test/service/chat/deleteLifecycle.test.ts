@@ -5,7 +5,7 @@ import { createSpawnTask, appendChatEvent } from '@/db/delivery.js'
 import { ensureActiveChatEpoch } from '@/db/epoch.js'
 import { createTreePause, addTreePauseTarget } from '@/db/treeControl.js'
 import { getSoulDb } from '@/db/index.js'
-import { handleChatDelete } from '@/service/chat/handler.js'
+import { handleChatDelete, handleChatArchive } from '@/service/chat/archive.js'
 import type { HandlerContext } from '@/service/message/router.js'
 import { logger } from '@/utils/logger/index.js'
 
@@ -30,9 +30,10 @@ describe('chat physical deletion', () => {
     addTreePauseTarget(pauseId, child, 'run-child')
     appendChatEvent(root, { kind: 'notification', type: 'test', data: {}, chatId: root })
 
+    await handleChatArchive({ log: logger } as HandlerContext, { chatId: root })
     const result = await handleChatDelete({ log: logger } as HandlerContext, { chatId: root })
 
-    expect(result.deletedChatIds).toEqual([child, root])
+    expect(new Set(result.deletedChatIds)).toEqual(new Set([child, root]))
     expect(getChat(root)).toBeUndefined()
     expect(getChat(child)).toBeUndefined()
     const db = getSoulDb()

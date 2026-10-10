@@ -90,7 +90,7 @@ describe("AgentBuilder 集成（门面转发 Middleware）", () => {
     const b = new AgentBuilder()
       .build()
       .configureRuntime({ brain: "mock_content", senseGroup: "auto_senses", mcpServers: [] })
-      .init("chat-custom", history);
+      .init("chat-custom", { messages: history });
     // Source always prepends system prompt; custom history follows
     expect(b.getMessages()[0]!.role).toBe("system");
     expect(b.getMessages().some((m) => m.content === "custom")).toBe(true);

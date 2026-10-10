@@ -395,7 +395,7 @@ export async function handleAsyncWakeTimeout(child: {
 }
 
 /**
- * 后端启动重建唤醒链（T9.10 重启容错，见 docs/shared/architecture/agent-orchestration.md §5.8）。
+ * 后端启动重建唤醒链（重启容错，见 docs/shared/architecture/agent-orchestration.md §5.8）。
  * 扫所有子 chat（parent_chat_id 非空）按 wake 策略分流：
  * - spawn task timed_out 且尚未 roleInjected → 以稳定 termination 因果补写超时回传。
  * - abandoned=true（已处理的 ghost）→ 跳过，避免重启后重复唤主。

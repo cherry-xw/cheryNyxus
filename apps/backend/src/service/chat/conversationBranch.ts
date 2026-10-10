@@ -24,7 +24,14 @@ import {
   insertConversationBranch,
   listConversationBranches,
 } from '@/db/conversationBranch.js'
-import { createChat, deleteChat, getChat, getChatMetadata, getChatRuntimeSelection, getRootChatId } from '@/db/chat.js'
+import {
+  createChat,
+  deleteChat,
+  getChat,
+  getChatMetadata,
+  getChatRuntimeSelection,
+  getRootChatId,
+} from '@/db/chat.js'
 import { addMessage, getLastMessage } from '@/db/message.js'
 import {
   abandonRequest,

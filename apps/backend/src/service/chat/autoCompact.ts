@@ -29,7 +29,7 @@ import config, { type Threshold, DEFAULT_COMMAND_CONFIG } from '@/utils/config'
 /** 触发原因：usage 达强制门 / 估算会溢出。 */
 export type AutoCompactReason = 'usage' | 'overflow'
 
-/** token 形态：与 web/features/agent/commands.ts 中的 COMMAND_TOKEN_PATTERN 保持一致 */
+/** token 形态：与 apps/web/features/agent/commands.ts 中的 COMMAND_TOKEN_PATTERN 保持一致 */
 const COMMAND_TOKEN_PATTERN = /\[\[command:(\/[^\]\s]+)\]\]/g
 
 /** 注入结果：

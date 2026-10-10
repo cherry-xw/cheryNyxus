@@ -8,7 +8,7 @@ import {
   listBranchFamilyChatIds,
   listConversationBranches,
 } from '@/db/conversationBranch.js'
-import { handleChatDelete } from '@/service/chat/handler.js'
+import { handleChatDelete, handleChatArchive } from '@/service/chat/archive.js'
 import type { HandlerContext } from '@/service/message/router.js'
 
 const cleanup: string[] = []
@@ -29,6 +29,7 @@ describe('chat.delete', () => {
     createChat(childChatId, {}, rootChatId)
     createChat(grandchildChatId, {}, childChatId)
 
+    await handleChatArchive({} as HandlerContext, { chatId: rootChatId })
     const result = await handleChatDelete({} as HandlerContext, { chatId: rootChatId })
 
     expect(new Set(result.deletedChatIds)).toEqual(
@@ -63,6 +64,7 @@ describe('chat.delete', () => {
        VALUES (?, ?, ?, 'detail', ?, '{}', ?, ?)`,
     ).run('family-detail', task.taskId, detailChatId, task.activeBranchId, now, now)
 
+    await handleChatArchive({} as HandlerContext, { chatId: rootChatId })
     const result = await handleChatDelete({} as HandlerContext, { chatId: rootChatId })
 
     expect(new Set(result.deletedChatIds)).toEqual(
@@ -77,7 +79,7 @@ describe('chat.delete', () => {
     expect(getConversationTask(task.taskId)).toBeUndefined()
   })
 
-  it('cascades the whole family when deleting a branch root directly', async () => {
+  it('rejects deleting a branch root directly and preserves the whole family', async () => {
     const rootChatId = randomUUID()
     const continuationChatId = randomUUID()
     cleanup.push(rootChatId, continuationChatId)
@@ -91,11 +93,9 @@ describe('chat.delete', () => {
        VALUES (?, ?, ?, 'continuation', ?, '{}', ?, ?)`,
     ).run('family-continuation-b', task.taskId, continuationChatId, task.activeBranchId, now, now)
 
-    const result = await handleChatDelete({} as HandlerContext, { chatId: continuationChatId })
-
-    expect(new Set(result.deletedChatIds)).toEqual(new Set([rootChatId, continuationChatId]))
-    expect(getChat(rootChatId)).toBeUndefined()
-    expect(getChat(continuationChatId)).toBeUndefined()
+    await expect(handleChatDelete({} as HandlerContext, { chatId: continuationChatId })).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(getChat(rootChatId)).toBeDefined()
+    expect(getChat(continuationChatId)).toBeDefined()
   })
 
   it('leaves a never-branched root untouched by the family cascade', async () => {
@@ -106,6 +106,8 @@ describe('chat.delete', () => {
     createChat(childChatId, {}, rootChatId)
 
     expect(listBranchFamilyChatIds(rootChatId)).toEqual([])
+    await expect(handleChatDelete({} as HandlerContext, { chatId: rootChatId })).rejects.toMatchObject({ code: 'CONFLICT' })
+    await handleChatArchive({} as HandlerContext, { chatId: rootChatId })
     const result = await handleChatDelete({} as HandlerContext, { chatId: rootChatId })
 
     expect(new Set(result.deletedChatIds)).toEqual(new Set([rootChatId, childChatId]))

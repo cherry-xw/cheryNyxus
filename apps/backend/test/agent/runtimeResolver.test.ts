@@ -94,10 +94,12 @@ describe("RuntimeResolver.resolve", () => {
     expect(() => new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "nope", mcpServers: [] })).toThrow("感官组");
   });
 
-  it("group 含不存在 sense → throw", () => {
+  it("group 含不存在 sense → 排除并说明原因", () => {
     config.sense_groups!["__test_missing"] = ["nonexistent_sense"];
     try {
-      expect(() => new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "__test_missing", mcpServers: [] })).toThrow("感官");
+      const runtime = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "__test_missing", mcpServers: [] });
+      expect(runtime.builtSenses.some(tool => tool.function.name === 'nonexistent_sense')).toBe(false);
+      expect(runtime.unavailableTools).toContainEqual(expect.objectContaining({ name: "nonexistent_sense", reason: "not_found" }));
     } finally {
       delete config.sense_groups!["__test_missing"];
     }

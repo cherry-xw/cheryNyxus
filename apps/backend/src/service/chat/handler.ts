@@ -34,7 +34,21 @@ import {
   type ChatStartSpawnResponseData,
   type Response as RpcResponse,
 } from '../message/types.js'
-import { createChat, listAllChats, listRootChatsForPresets, countRootChatsForPresets, listChatTrees, getChat, deleteChat, collectDescendantsChatIds, updateChatMetadata, getChatWorkspace, getChatPreset, getChatRuntimeSelection, getTimelineRevision } from '@/db/chat.js'
+import {
+  createChat,
+  listAllChats,
+  listRootChatsForPresets,
+  countRootChatsForPresets,
+  listChatTrees,
+  getChat,
+  deleteChat,
+  collectDescendantsChatIds,
+  updateChatMetadata,
+  getChatWorkspace,
+  getChatPreset,
+  getChatRuntimeSelection,
+  getTimelineRevision,
+} from '@/db/chat.js'
 import { getMessages, getLastMessage, getChatPreviews } from '@/db/message.js'
 import { listPendingInputs } from '@/db/pendingInput.js'
 import { clearChatRuntime, ensureChat } from './runtime.js'
@@ -232,7 +246,7 @@ function buildChatSessionSnapshot(chatId: string): ChatSessionSnapshotData {
 }
 
 /**
- * CP8：includePreview=true 时每项增返 preview（首条 user 消息截断）+ turnCount（user 消息数），
+ * includePreview=true 时每项增返 preview（首条 user 消息截断）+ turnCount（user 消息数），
  *   按 messages_month 分组批量查，供会话列表渲染；省略=lean，供初始化重建 pet 树（免 N+1）。
  */
 export async function handleChatList(

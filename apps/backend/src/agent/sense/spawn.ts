@@ -19,7 +19,10 @@ import {
 import { emitRoleCreated, registerWaitedChild, startChildEager } from '@/agent/spawnBroker.js'
 import { logger } from '@/utils/logger/index.js'
 import { getActiveChatRunId } from '@/service/chat/runtimeCache.js'
-import { getSessionRoleRuntime, setEphemeralChatRuntime } from '@/service/chat/sessionRoleRuntime.js'
+import {
+  getSessionRoleRuntime,
+  setEphemeralChatRuntime,
+} from '@/service/chat/sessionRoleRuntime.js'
 import { createSpawnTask, getSpawnTaskByChild, setSpawnTaskOwnership } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
 import { getToolCallOwner } from '@/db/executionGraph.js'
@@ -112,7 +115,7 @@ export function resolveSpawnRoster(chatId: string): string[] {
  * 由给定 roster 构造 spawn_role Sense（定义随 roster 裁剪，「可见即可选」）。
  * roster 为空 → type 回退 z.string()（z.enum([]) 构造抛错），执行期 gate 兜底全部拒绝。
  *
- * spawn_role 架构（主从 Agent 桌宠系统 CP3，前端驱动，见 docs/shared/architecture/agent-orchestration.md §2/§5.1/§5.4）：
+ * spawn_role 架构（主从 Agent 桌宠系统，见 docs/shared/architecture/agent-orchestration.md §2/§5.1/§5.4）：
  *   1. 后端创建子 chat 行（parent_chat_id 关联主 chat）+ 推 role_created notification
  *   2. 前端收 notification → 创建子 pet + 调 chat.startSpawn 原子领取任务（同 WS 连接按 chatId 路由 chunk）
  *   3. registerWaitedChild（带 wake 策略）+ yieldTurn（主 loop 本轮结束停等）；子完成后后端注入角色回复
@@ -274,7 +277,7 @@ async function spawnHandler(
         ...(skillFilter ? { skillFilter } : {}),
         ...(parentWorkspace ? { workspace: parentWorkspace } : {}),
         ...(parentRule ? { rule: parentRule } : {}),
-        // T9.10 重启容错：wake+type 持久化，rebuildWaitedChildren 扫 metadata.wake 按策略重建唤醒链
+        // 重启容错：wake+type 持久化，rebuildWaitedChildren 扫 metadata.wake 按策略重建唤醒链
         wake,
         type,
         // 角色稳定身份 id（getChatType ID 优先反查当前名；config.save 改名迁移同步更新）

@@ -425,7 +425,7 @@ function* handleErrorChunk(
 
 function* handleDoneChunk(context: StreamContext): Generator<Notification> {
   const { rid, chatId, runId } = context
-  // CP7：done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
+  // done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
   const ctxBd = computeContextBreakdown(chatId)
   // P5：loop done 后复检——若本轮又让上下文逼近阈值，下一次 send 出发自动压缩；
   // 推送 auto_compacted 让前端可亮 compact 按钮或做 toast 提示（本轮已结束，不改 prompt）。
@@ -447,7 +447,6 @@ function* handleDoneChunk(context: StreamContext): Generator<Notification> {
   // 恢复路径（chat.resume 完成的子不在 wait 链上，observer 不 yield child_done）在此前置兜底：
   // done 通知生成前先跑 finalizeSpawnChildIfDone（幂等：非子 chat / 已 finished /
   // 末条非 assistant / 带 sense_calls 均短路），使下方读 metadata 时 finished 已就位。
-  // 修复时序竞态——原兜底 finalizeSpawnChildIfDone 在 send.ts 末尾（stream 之后）执行，为时已晚。
   finalizeSpawnChildIfDone(chatId)
   // 读取 DB 中 chat metadata.finished，传递给前端用于 ghost 转换
   const chatRow = getChat(chatId)
@@ -764,7 +763,7 @@ function* handleStreamFailure(err: unknown, context: StreamContext): Generator<N
  * 将 agent generator 的 MiddlewareChunk 转换为 WebSocket 协议的 Chunk/Notification
  * （P2-1 从 send.ts 拆出）。handleChatSend 和 handleChatResume 共用。
  *
- * chatId 用于 done notification 时计算 contextUsage（CP7）：跑完一轮 loop 后实时
+ * chatId 用于 done notification 时计算 contextUsage）：跑完一轮 loop 后实时
  * 重算 chat 总 token / brain.contextLimit 推送给前端，ContextBar 随每轮更新。
  *
  * `run.outcome` 是权威终态：真实 ErrorChunk 归 failed，保护性限制归 paused，控制流

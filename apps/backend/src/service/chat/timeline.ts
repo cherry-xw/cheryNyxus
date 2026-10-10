@@ -10,9 +10,18 @@ import type {
   ActiveRunFact,
   RootTimelineSnapshot,
 } from '../message/types.js'
-import { getChat, collectDescendantsChatIds, getTimelineRevision, bumpTimelineRevision } from '@/db/chat.js'
+import {
+  getChat,
+  collectDescendantsChatIds,
+  getTimelineRevision,
+  bumpTimelineRevision,
+} from '@/db/chat.js'
 import { getMessages, parseMessageRow, getLastMessage } from '@/db/message.js'
-import { getChildReturnMessageIds, getMessageLinksForRoot, upsertMessageLink } from '@/db/messageLink.js'
+import {
+  getChildReturnMessageIds,
+  getMessageLinksForRoot,
+  upsertMessageLink,
+} from '@/db/messageLink.js'
 import { listPendingInputs } from '@/db/pendingInput.js'
 import {
   annotateExecutionNode,

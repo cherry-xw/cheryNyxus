@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { getChat, getRootChatId, listChatTrees, listRootChatsForPresets, type ChatRow } from '@/db/chat.js'
+import {
+  getChat,
+  getRootChatId,
+  listChatTrees,
+  listRootChatsForPresets,
+  type ChatRow,
+} from '@/db/chat.js'
 import { getMessages, type MessageRow } from '@/db/message.js'
 import {
   getConversationBranch,

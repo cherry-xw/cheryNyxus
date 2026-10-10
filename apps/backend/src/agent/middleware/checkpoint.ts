@@ -9,6 +9,7 @@ import { CheckpointState } from './checkpointState.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { ModelRequestTimeoutError } from './requestTimeout.js'
+import { prepareRequest, finishRequest } from '@/agent/hooks/request.js'
 
 /**
  * Checkpoint Middleware
@@ -26,6 +27,11 @@ export async function* checkpointMiddleware(
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   // === 先处理 userInputs：转为 messages（在 next() 调用前）===
+  const newInput = ctx.soul.userInputs.find((input) => !input.ephemeral)
+  if (newInput) {
+    await finishRequest(ctx, 'completed')
+    await prepareRequest(ctx, newInput)
+  }
   const { messages: consumedMessages, consumedCount } = ctx.journal.appendUserMessages()
   if (consumedCount > 0)
     reportWorkflow(ctx.soul.chatId, {

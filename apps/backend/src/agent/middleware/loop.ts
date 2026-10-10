@@ -12,6 +12,7 @@ import { LogLevel } from '@/utils/logger/types.js'
 import { getWaitedParent } from '@/agent/spawnBroker.js'
 import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
+import { finishRequest, requestSignal } from '@/agent/hooks/request.js'
 
 /**
  * 创建 agent 层循环策略
@@ -35,6 +36,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
     logger.event('loop.start', { max: runLimit })
 
     while (times < runLimit) {
+      requestSignal(ctx)?.throwIfAborted()
       // watchdog/user abort 的 durable fence：即使 compose.throw 在前一轮 stream 的
       // yield* 边界被吞掉，旧 run 也绝不能据 last-sense 开启下一轮 LLM。
       if (ctx.pipeline?.isAbortRequested()) throw new AgentAbortError()
@@ -58,6 +60,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
       } catch (err) {
         // runChain 直接 throw（非 yield ErrorChunk）：同样标记失败，让错误传播。
         failed = true
+        await finishRequest(ctx, requestSignal(ctx)?.aborted ? 'cancelled' : 'failed')
         throw err
       }
       if (failed) break
@@ -114,7 +117,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
         break
       }
 
-      // T9：yieldTurn（spawn_role wait=true 置位）→ 主 loop 立即结束本 turn
+      // yieldTurn（spawn_role wait=true 置位）→ 主 loop 立即结束本 turn
       // （子完成后后端注入角色回复唤起新一轮）。break（非 continue）跳 maxLoop 误报、done 正常发。
       if (ctx.soul.yieldTurn) {
         logger.event('loop.decision', { decision: 'stop', reason: 'yield-turn' })
@@ -128,7 +131,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
         continue
       }
 
-      // T9：最后一条是角色回复（wait=true 子完成注入，role 或旧历史 subagent）→ 继续 loop（LLM 响应注入的回复）
+      // 最后一条是角色回复（wait=true 子完成注入，role 或旧历史 subagent）→ 继续 loop（LLM 响应注入的回复）
       if (lastVisible.role === 'role' || lastVisible.role === 'subagent') {
         logger.event('loop.decision', { decision: 'continue', reason: 'last-role' })
         continue
@@ -173,8 +176,12 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
     }
 
     logger.event('loop.end', { iterations: times })
+    await finishRequest(
+      ctx,
+      failed ? 'failed' : requestSignal(ctx)?.aborted ? 'cancelled' : 'completed',
+    )
 
-    // T9：本 chat 是被 wait 的子（waitedChildren 命中）→ loop 结束时判断是"本轮暂停"还是"真正完成"。
+    // 本 chat 是被 wait 的子（waitedChildren 命中）→ loop 结束时判断是"本轮暂停"还是"真正完成"。
     // - yieldTurn=true（spawn 孙 agent wait=true 触发）→ yield child_yield（不唤醒主，不设 finished）
     // - yieldTurn=false（无 spawn 孙或所有任务完成）→ yield child_done（唤醒主，设 finished）
     // getWaitedParent 守卫：仅被注册唤醒的子 chat 发（wait=true/false 均注册），过滤主 agent。

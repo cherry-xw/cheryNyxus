@@ -104,7 +104,7 @@ export function recordTerminationFact(input: {
   return node as unknown as TimelineNode
 }
 
-/** CP2 internal entry point; user-facing redispatch commands are deferred to CP8. */
+/** Internal entry point; user-facing redispatch commands go through the public command layer. */
 export function recordDispatchFact(input: {
   rootChatId: string
   parentChatId: string

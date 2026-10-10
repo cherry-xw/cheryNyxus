@@ -7,7 +7,7 @@
  *  - 健康批（有 pending item）不被清扫。
  *  - sweepOrphanQuestionBatches 返回清扫批数；sweepOrphanQuestionBatchesAcrossRoots 跨所有 chat 清扫。
  *
- * 与 chatRecovery.test.ts 同款模式：复用 test/flows/fixtures 的真实 db（setup.ts 启动时清理），
+ * 与 chatRecovery.test.ts 同款模式：复用 apps/backend/test/flows/fixtures 的真实 db（setup.ts 启动时清理），
  * afterEach 逐 chat 删除自愈。问题数据按 UUID key，无跨文件碰撞。
  */
 import { randomUUID } from 'node:crypto'

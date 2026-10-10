@@ -1,0 +1,12 @@
+{
+  "script": [
+    {
+      "senseCalls": [
+        {
+          "name": "spawn_role",
+          "arguments": "{\"type\": \"protocol_reader\", \"prompt\": \"synthetic child task\", \"wake\": \"immediate\"}"
+        }
+      ]
+    }
+  ]
+}

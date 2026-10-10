@@ -465,9 +465,10 @@ function createWorkflowRunRecorder(chatId: string): WorkflowRunRecorder {
       const pendingMapKey = `${iteration}:${attempt}:tool-list:${pendingKey}`
       let list = keyedOccurrences.get(pendingMapKey)
       if (list) keyedOccurrences.delete(pendingMapKey)
-      else list = startOnce('tool-list', boundary.batch.id, {
-        batchId: boundary.batch.id,
-      })
+      else
+        list = startOnce('tool-list', boundary.batch.id, {
+          batchId: boundary.batch.id,
+        })
       status(list, 'tool-list', 'succeeded', {
         reason: 'normal',
         batchId: boundary.batch.id,

@@ -137,10 +137,15 @@ export async function handleChatPromptSnapshot(
         }
       }
     }
-    if (chat.lifecycle !== 'active') return {
-      chatId, systemPrompt: '', tools: [], snapshotQuality: 'partial',
-      origin: 'missing', contentState: 'missing',
-    }
+    if (chat.lifecycle !== 'active')
+      return {
+        chatId,
+        systemPrompt: '',
+        tools: [],
+        snapshotQuality: 'partial',
+        origin: 'missing',
+        contentState: 'missing',
+      }
     const { systemPrompt, tools } = buildLivePromptSnapshot(chatId)
     return {
       chatId,
