@@ -1,0 +1,11 @@
+{
+  "name": "napcat-plugin-cherynyxus",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "cd ../.. && vitest run --config apps/backend/vite.config.ts apps/backend/test/service/qqPluginWire.test.ts apps/backend/test/service/qqProtocolContract.test.ts --no-file-parallelism",
+    "build": "vite build --config vite.config.ts"
+  }
+}

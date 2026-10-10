@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NapCat Plugin Chery Nyxus</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 20px; color: #222; }
+    h1 { font-size: 22px; }
+    label { display: block; margin: 18px 0 6px; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #bbb; border-radius: 4px; }
+    button { margin: 20px 10px 0 0; padding: 10px 16px; border: 0; border-radius: 4px; background: #1677ff; color: white; cursor: pointer; }
+    button.secondary { background: #666; }
+    #status { margin-top: 24px; padding: 14px; background: #f5f5f5; border-radius: 4px; white-space: pre-wrap; }
+    .error { color: #b42318; }
+    small { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>NapCat Plugin Chery Nyxus 设置</h1>
+  <p>配置 NapCatQQ 到 CheryNyxus Backend 的连接。Token 只用于连接认证，不会出现在状态响应中。</p>
+  <label for="url">Backend 地址</label>
+  <input id="url" placeholder="ws://backend:8282">
+  <label for="token">QQ 连接 Token</label>
+  <input id="token" type="password" autocomplete="off" placeholder="从 Manager QQ 设置复制">
+  <small>保存后会立即关闭旧连接并重新执行 hello、身份绑定和恢复。</small>
+  <div>
+    <button id="save">保存并连接</button>
+    <button id="refresh" class="secondary">刷新状态</button>
+  </div>
+  <div id="status">正在读取状态...</div>
+  <script>
+    const base='/api/Plugin/ext/napcat-plugin-cherynyxus';
+    const $ = (id) => document.getElementById(id);
+    function show(value) {
+      $('status').textContent = JSON.stringify(value, null, 2);
+      $('status').className = value.error ? 'error' : '';
+    }
+    async function load() {
+      const config = await (await fetch(base + '/config')).json();
+      $('url').value = config.backendUrl || '';
+      show(await (await fetch(base + '/status')).json());
+    }
+    async function save() {
+      show({ state: 'connecting' });
+      const response = await fetch(base + '/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ backendUrl: $('url').value, backendToken: $('token').value }),
+      });
+      $('token').value = '';
+      show(await response.json());
+    }
+    $('save').onclick = save;
+    $('refresh').onclick = load;
+    load().catch(() => show({ error: '无法读取插件状态' }));
+    setInterval(() => load().catch(() => show({ error: '无法读取插件状态' })), 3000);
+  </script>
+</body>
+</html>
