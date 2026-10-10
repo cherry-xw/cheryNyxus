@@ -25,7 +25,7 @@ export function createMainInputState(draftKey: string): MainInputState {
   return { phase: 'idle', draftKey, content: '' }
 }
 
-/** Pure CP5 lifecycle reducer. Invalid or stale events leave the state unchanged. */
+/** Pure lifecycle reducer. Invalid or stale events leave the state unchanged. */
 export function reduceMainInputState(
   state: Readonly<MainInputState>,
   event: MainInputEvent,

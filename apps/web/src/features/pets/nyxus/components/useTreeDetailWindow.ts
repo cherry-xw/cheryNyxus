@@ -183,7 +183,7 @@ export function useTreeDetailWindow({
     return canvas.worldToScreen({ x: node.x, y: bounds.bottom })
   }
   /**
-   * 详情弹窗拖拽（2026-09-02 返工契约）：hover 窗口首次产生有效位移时
+   * 详情弹窗拖拽：hover 窗口首次产生有效位移时
    * 立即升级为常驻窗口，此后鼠标移出不再自动关闭；pointermove 期间 quickSetter 直写
    * transform x/y（与树平移的 CSS `translate` 属性分属不同通道，可叠加），不触发
    * 每帧响应式 patch；`finishDetailDrag`（弹窗 dragEnd）才把终值一次性落回

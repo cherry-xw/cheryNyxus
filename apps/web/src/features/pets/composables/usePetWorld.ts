@@ -37,7 +37,7 @@ const hoverCooldownUntil = new Map<string, number>()
 
 /**
  * pet 世界 composable：RAF 运动循环 + 拖拽/hover/click 交互。
- * CP1 起 pets 数据源由调用方注入（agents store 单一数据源）；未注入时回退本地 reactive（独立可用）。
+ * pets 数据源由调用方注入（agents store 单一数据源）；未注入时回退本地 reactive（独立可用）。
  * 装饰交互（invokeTool/randomEmotion/addPet/summonSub/maybeTriggerChats/triggerChat/faceEachOther/masterTools）已移除。
  * 工厂 createPetInstance + 纯辅助（rand/pick/clamp/randomTarget/moodForAction/actionTalk）抽到 petFactory.ts；
  * 目标选取 retarget/findMaster 抽到 motion/petTargeting.ts（纯函数，显式入参 pets/bounds）。
@@ -190,7 +190,7 @@ export function usePetWorld(
     }
 
     if (pet.action === 'chatting') {
-      // agent 工作态复用 chatting action（CP2 由 isWorking 触发）；到期回落 walk
+      // agent 工作态复用 chatting action（由 isWorking 触发）；到期回落 walk
       if (pet.interactionUntil && pet.interactionUntil < now) {
         pet.action = 'walk'
         pet.mood = restMood(pet, status)
@@ -290,7 +290,7 @@ export function usePetWorld(
     const { now, deltaSeconds: dt } = frame
 
     if (!isPaused.value && bounds.width > 0 && bounds.height > 0) {
-      // 装饰 chatting（maybeTriggerChats）已移除；agent 工作态 chatting 由 store 触发（CP2）
+      // 装饰 chatting（maybeTriggerChats）已移除；agent 工作态 chatting 由 store 触发
       const worldPets = activePets()
       for (const pet of worldPets) {
         tickPet(pet, now, dt, worldPets)

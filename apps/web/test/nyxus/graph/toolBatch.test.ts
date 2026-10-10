@@ -177,13 +177,18 @@ describe('topology and streaming fixtures', () => {
 
   it('isolates popover selection, scrolling and pointer gestures from the canvas', async () => {
     const source = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
+      resolve('apps/web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
       'utf8',
     )
     expect(source).toContain('@pointerdown.stop')
     expect(source).toContain('@pointermove.stop')
     expect(source).toContain('@pointerup.stop')
     expect(source).toContain('@wheel.stop')
-    expect(source).toContain('window.addEventListener(\'keydown\', onEscape)')
+    // Escape 逃生监听收进 useTreeViewportLifecycle（controller 组合），仍挂 window keydown。
+    const lifecycle = await readComponentSource(
+      resolve('apps/web/src/features/pets/nyxus/components/useTreeViewportLifecycle.ts'),
+      'utf8',
+    )
+    expect(lifecycle).toContain("window.addEventListener('keydown', onEscape)")
   })
 })

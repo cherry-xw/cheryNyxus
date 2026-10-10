@@ -1123,7 +1123,7 @@ export class ExecutionGraphPixiRenderer {
               .stroke({ color: accent, width: 1.5, alpha: 0.65 * (1 - phase) })
           }
         } else if (node.effect === 'orbit') {
-          // 2026-09-02 返工：三环公转（"飞碟"动效）降为与 Classic 同构的单环脉冲，
+          // 三环公转（"飞碟"动效）降为与 Classic 同构的单环脉冲，
           // 共享同一条 phase 曲线与 graphEffectNodes 预算。
           this.motionNodes.circle(node.x, node.y, nodeHeight / 2 + 7 + 19 * phase).stroke({
             color: accent,

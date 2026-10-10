@@ -361,8 +361,9 @@ describe('horizontal Signal Grid presentation', () => {
     expect(toolVisualKindFor(toolNode('custom_unknown'))).toBe('tool-generic')
   })
 
-  it('registers all 29 icon kinds and keeps every icon in one compact square frame', () => {
-    expect(SIGNAL_NODE_VISUAL_KINDS).toHaveLength(29)
+  it('registers all 30 icon kinds and keeps every icon in one compact square frame', () => {
+    // 种类数冻结：新增 visual kind 必须显式登记图标与尺寸后同步此数。
+    expect(SIGNAL_NODE_VISUAL_KINDS).toHaveLength(30)
     expect(Object.keys(SIGNAL_NODE_ICONS).sort()).toEqual([...SIGNAL_NODE_VISUAL_KINDS].sort())
     expect(signalNodeTierFor('start')).toBe('hero')
     expect(signalNodeTierFor('fold')).toBe('structural')

@@ -490,20 +490,20 @@ describe('Agent-local Fold projection', () => {
 
     const [treeSource, railSource, dialogSource, generationSource, gpuSceneSource] = await Promise.all([
       readComponentSource(
-        resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
+        resolve('apps/web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
         'utf8',
       ),
       readComponentSource(
-        resolve('web/src/features/pets/nyxus/components/FoldTabRail.vue'),
+        resolve('apps/web/src/features/pets/nyxus/components/FoldTabRail.vue'),
         'utf8',
       ),
-      readComponentSource(resolve('web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
       readComponentSource(
-        resolve('web/src/features/pets/nyxus/components/GenerationTreeDialog.vue'),
+        resolve('apps/web/src/features/pets/nyxus/components/GenerationTreeDialog.vue'),
         'utf8',
       ),
       readComponentSource(
-        resolve('web/src/features/pets/nyxus/components/useTreeGpuScene.ts'),
+        resolve('apps/web/src/features/pets/nyxus/components/useTreeGpuScene.ts'),
         'utf8',
       ),
     ])
@@ -516,7 +516,7 @@ describe('Agent-local Fold projection', () => {
     expect(gpuSceneSource).toContain('foldCount: node.fold.members.length')
     expect(gpuSceneSource).toContain("node.kind === 'round'")
     const rendererSource = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
+      resolve('apps/web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
       'utf8',
     )
     expect(rendererSource).toContain('if (node.foldCount)')

@@ -5,7 +5,7 @@ import { readComponentSource } from '../../helpers/componentSource'
 describe('Nyxus particle performance contract', () => {
   it('caps pixels and decouples rendering, simulation and atmosphere rates', async () => {
     const source = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/components/NyxusParticle.vue'),
+      resolve('apps/web/src/features/pets/nyxus/components/NyxusParticle.vue'),
       'utf8',
     )
 
@@ -20,7 +20,7 @@ describe('Nyxus particle performance contract', () => {
 
   it('pauses offscreen or hidden canvases and lowers covered surfaces to low quality', async () => {
     const source = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/components/NyxusParticle.vue'),
+      resolve('apps/web/src/features/pets/nyxus/components/NyxusParticle.vue'),
       'utf8',
     )
 

@@ -145,7 +145,7 @@ describe('performance and recovery boundaries', () => {
 
   it('keeps keyboard, aria, diagnostics and reduced-motion contracts in the tree renderer', async () => {
     const source = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
+      resolve('apps/web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
       'utf8',
     )
     expect(source).toContain(':aria-label="nodeAriaLabel(node)"')
@@ -155,7 +155,7 @@ describe('performance and recovery boundaries', () => {
     expect(source).toContain('@keydown.home.prevent.stop')
     expect(source).toContain('class="graph-diagnostic" role="alert"')
     const renderer = await readComponentSource(
-      resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
+      resolve('apps/web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
       'utf8',
     )
     expect(renderer).toContain("matchMedia('(prefers-reduced-motion: reduce)')")

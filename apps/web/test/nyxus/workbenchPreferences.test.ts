@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { readComponentSource } from '../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -95,14 +96,16 @@ describe('Nyxus workbench preferences and entry regressions', () => {
   })
 
   it('provides explicit high-contrast context colors in dark mode', async () => {
-    const source = await readComponentSource(
-      resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
-      'utf8',
-    )
+    const [source, styles] = await Promise.all([
+      readComponentSource(resolve('src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
+      readFile(resolve('apps/web/src/features/agent/workbench/WorkbenchDialog.scoped.less'), 'utf8'),
+    ])
 
-    expect(source).toContain(":global([data-theme='dark']) .role-usage-chip.usage-low")
-    expect(source).toContain('color: #86efac;')
-    expect(source).toContain('color: #fde047;')
-    expect(source).toContain('color: #fca5a5;')
+    // 深色高对比角色用量配色搬进 WorkbenchDialog.scoped.less（仍以 scoped 挂载）。
+    expect(source).toContain('WorkbenchDialog.scoped.less')
+    expect(styles).toContain("[data-theme='dark'] .role-usage-chip.usage-low")
+    expect(styles).toContain('color: #86efac;')
+    expect(styles).toContain('color: #fde047;')
+    expect(styles).toContain('color: #fca5a5;')
   })
 })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * PetIcons：pet 头部右侧的 icon slot（CP5 扩展 + history 接入）。
+ * PetIcons：pet 头部右侧的 icon slot（含 history 接入）。
  *
  * 两列布局：
  *   history 列（左）：本 chat 最近 5 条 HistoryItem 小气泡，按 createdAt DESC 排列。

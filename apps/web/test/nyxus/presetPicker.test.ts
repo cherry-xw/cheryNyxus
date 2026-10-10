@@ -4,23 +4,26 @@ import { describe, expect, it } from 'vitest'
 
 describe('Nyxus preset picker regressions', () => {
   it('loads bootstrap config through the Electron-safe platform channel', async () => {
-    const api = await readFile(resolve('web/src/services/agentApi.ts'), 'utf8')
-    const fetchConfig = api.slice(
-      api.indexOf('export async function fetchServerConfig'),
-      api.indexOf('\n}', api.indexOf('export async function fetchServerConfig')) + 2,
+    const api = await readFile(resolve('apps/web/src/services/agentApi.ts'), 'utf8')
+    const transport = await readFile(resolve('apps/web/src/services/agentApiTransport.ts'), 'utf8')
+    const fetchConfig = transport.slice(
+      transport.indexOf('export async function fetchServerConfig'),
+      transport.indexOf('\n}', transport.indexOf('export async function fetchServerConfig')) + 2,
     )
 
+    // 实现在 agentApiTransport.ts（agentApi.ts 仅 re-export 公共门面）。
+    expect(api).toContain("export { fail, fetchServerConfig } from './agentApiTransport'")
     expect(fetchConfig).toContain('getServerConfig({ refresh: true })')
     expect(fetchConfig).not.toContain("fetch(httpUrl('/api/config')")
   })
 
   it('never turns a missing or failed preset catalog into an invalid brain-only chat', async () => {
     const picker = await readFile(
-      resolve('web/src/features/agent/toolbar/PresetPicker.vue'),
+      resolve('apps/web/src/features/agent/toolbar/PresetPicker.vue'),
       'utf8',
     )
     const core = await readFile(
-      resolve('web/src/features/pets/nyxus/components/NyxusCore.vue'),
+      resolve('apps/web/src/features/pets/nyxus/components/NyxusCore.vue'),
       'utf8',
     )
 

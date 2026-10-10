@@ -557,7 +557,7 @@ onBeforeUnmount(() => {
     monospace;
 }
 
-// 二轮返工适配（2026-09-02）：卡内事件驱动动效——步进时新 active 卡「通电」
+// 卡内事件驱动动效——步进时新 active 卡「通电」
 // （accent 边框扫入 + glyph 闪烁 220ms），hover 点亮状态点，unread pop 入场；
 // 全部事件驱动无常驻循环，reduced-motion 下关闭。
 @keyframes fold-wheel-glyph-flicker {

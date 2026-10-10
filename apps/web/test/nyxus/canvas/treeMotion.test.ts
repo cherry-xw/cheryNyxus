@@ -1,3 +1,4 @@
+import ts from 'typescript'
 import { readComponentSource } from '../../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -15,28 +16,28 @@ import {
 
 async function rendererSource(): Promise<string> {
   return readComponentSource(
-    resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
+    resolve('apps/web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
     'utf8',
   )
 }
 
 async function treeComponentSource(): Promise<string> {
   return readComponentSource(
-    resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
+    resolve('apps/web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
     'utf8',
   )
 }
 
 async function treeCameraSource(): Promise<string> {
   return readComponentSource(
-    resolve('web/src/features/pets/nyxus/components/useTreeCamera.ts'),
+    resolve('apps/web/src/features/pets/nyxus/components/useTreeCamera.ts'),
     'utf8',
   )
 }
 
 async function treeGpuSource(): Promise<string> {
   return readComponentSource(
-    resolve('web/src/features/pets/nyxus/components/useTreeGpuScene.ts'),
+    resolve('apps/web/src/features/pets/nyxus/components/useTreeGpuScene.ts'),
     'utf8',
   )
 }
@@ -98,7 +99,7 @@ describe('Nyxus tree motion contract', () => {
       treeComponentSource(),
       treeGpuSource(),
       readComponentSource(
-        resolve('web/src/features/pets/nyxus/components/useTreePointerHighlight.ts'),
+        resolve('apps/web/src/features/pets/nyxus/components/useTreePointerHighlight.ts'),
         'utf8',
       ),
     ])
@@ -130,9 +131,27 @@ describe('Nyxus tree motion contract', () => {
     expect(controller).toContain('() => layout.value.bounds.maxY')
     expect(controller).toContain('() => viewportSize.value.height')
     expect(component).toContain('@click.stop="resetLayout"')
-    // 2026-09-27：pointerdown 表达式换行重排（多行属性），断言按实际排版匹配。
-    expect(component).toContain('onNodePointerDown($event, node)')
-    expect(component).toContain('canvas.onPointerDown($event)')
+    // Verify the wired handler's ordered calls, independent of source formatting.
+    expect(component).toContain('@pointerdown="handleNodePointerDown($event, node)"')
+    const script = component.match(/<script setup[^>]*>([\s\S]*?)<\/script>/)?.[1]
+    expect(script).toBeDefined()
+    const ast = ts.createSourceFile('MessageBranchTree.ts', script!, ts.ScriptTarget.Latest, true)
+    const handler = ast.statements.find(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) && statement.name?.text === 'handleNodePointerDown',
+    )
+    expect(handler?.parameters.map((parameter) => parameter.name.getText(ast))).toEqual(['event', 'node'])
+    const calls = handler?.body?.statements.map((statement) => {
+      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return null
+      return {
+        target: statement.expression.expression.getText(ast),
+        arguments: statement.expression.arguments.map((argument) => argument.getText(ast)),
+      }
+    })
+    expect(calls).toEqual([
+      { target: 'onNodePointerDown', arguments: ['event', 'node'] },
+      { target: 'canvas.onPointerDown', arguments: ['event'] },
+    ])
   })
 
   it('keeps the enlarged static cache out of the per-frame animation loops', async () => {
@@ -233,7 +252,7 @@ describe('Nyxus tree motion contract', () => {
     const [controller, canvasSource] = await Promise.all([
       treeCameraSource(),
       readComponentSource(
-        resolve('web/src/features/pets/nyxus/composables/useTreeCanvas.ts'),
+        resolve('apps/web/src/features/pets/nyxus/composables/useTreeCanvas.ts'),
         'utf8',
       ),
     ])

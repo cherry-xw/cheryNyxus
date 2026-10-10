@@ -81,7 +81,7 @@ const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet, positionRefFo
 
 /**
  * 主 pet 点击 → 打开 AgentDialog（设 activeDialogChatId）。
- * 子 pet 点击 → 沿用装饰 clickPet（CP3+ 改路由 HistoryDrawer）。
+ * 子 pet 点击 → 点击路由到 HistoryDrawer。
  * 工作中主 pet 仍可点击（用户可排队下一条）。
  */
 async function handleClick(pet: PetInstance): Promise<void> {
@@ -149,7 +149,7 @@ async function handleAbort(pet: PetInstance): Promise<void> {
 }
 
 function handleDestroy(pet: PetInstance): void {
-  // CP8: stage destroy = 隐藏（仅前端移除 pets 含子 pet，不删 DB）；
+  // stage destroy = 隐藏（仅前端移除 pets 含子 pet，不删 DB）；
   //   运行中（isWorking 或任一子 isWorking）由 PetToolbar canHide 守卫禁用按钮
   agents.hide(pet.chatId)
 }
