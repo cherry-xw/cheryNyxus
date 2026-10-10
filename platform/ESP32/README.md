@@ -1,6 +1,6 @@
 # MCU 参考固件（ESP32-C3 档）— lite profile 落地验证
 
-> **状态：host/static 验证通过，未实机烧录验证。** 本目录对齐 [MCU Lite 协议](../docs/shared/protocol/profiles/mcu-lite.md) 的执行计时契约，目标是在 ESP32-C3 档设备上用固定内存显示当前问题、总计时、并行模型/工具步骤，并按键懒加载详情。可读性与契约正确性优先，非生产代码。
+> **状态：host/static 验证通过，未实机烧录验证。** 本目录对齐 [MCU Lite 协议](../../docs/shared/protocol/profiles/mcu-lite.md) 的执行计时契约，目标是在 ESP32-C3 档设备上用固定内存显示当前问题、总计时、并行模型/工具步骤，并按键懒加载详情。可读性与契约正确性优先，非生产代码。
 
 ## 文件
 
@@ -91,7 +91,7 @@
 运行：
 
 ```powershell
-cmake -S firmware/test -B build/firmware-host -G Ninja -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe
+cmake -S platform/ESP32/test -B build/firmware-host -G Ninja -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe
 cmake --build build/firmware-host
 ctest --test-dir build/firmware-host --output-on-failure
 ```

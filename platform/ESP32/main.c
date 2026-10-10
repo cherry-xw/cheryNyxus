@@ -158,7 +158,7 @@ static void on_json_frame(const char *json, size_t len) {
                 jl_view it = jl_array_at(&doc, &its, i);
                 jl_view st = jl_get_in(&doc, &it, "status");
                 /* wire 默认返回 pending/resolving/blocked 三态（protocol.md interactions 节）——
-                 * 三态均需登记审批槽：resolving=决定执行中（可显示已受理）、blocked=可重试（T28 修复）。 */
+                 * 三态均需登记审批槽：resolving=决定执行中（可显示已受理）、blocked=可重试。 */
                 if (st.found && !jl_streq(&st, "pending") && !jl_streq(&st, "resolving") && !jl_streq(&st, "blocked")) continue;
                 approval_slot *a = model_approval_alloc();
                 if (!a) break;
