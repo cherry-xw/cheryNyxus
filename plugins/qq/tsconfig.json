@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "ignoreDeprecations": "6.0"
+  },
+  "include": [
+    "src/**/*.ts",
+    "ui/**/*.ts",
+    "../../packages/manager-ui/src/env.d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "ui-built",
+    "node_modules"
+  ]
+}

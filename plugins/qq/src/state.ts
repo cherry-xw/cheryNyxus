@@ -1,0 +1,122 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { randomUUID, createHash } from 'node:crypto'
+import { z } from 'zod'
+import {
+  QQConfigSchema,
+  QQEventSubmitRequestSchema,
+  QQNotificationSchema,
+} from '../../../packages/protocol/src/qq.js'
+
+export const JobSchema = z.object({
+  requestId: z.string(),
+  coreRequestId: z.string().optional(),
+  input: QQEventSubmitRequestSchema,
+  target: z.string(),
+  conversationKey: z.string(),
+  snapshot: z.object({
+    revision: z.number().int().nonnegative(),
+    config: QQConfigSchema,
+    preset: z.string(),
+    brain: z.string(),
+    senseGroup: z.string(),
+    presetId: z.string(),
+  }),
+  state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused']),
+  acceptedAt: z.number(),
+  reason: z.string().optional(),
+  reply: z.string(),
+  toolIds: z.array(z.string()),
+  douyinUrl: z.string().optional(),
+  pendingIcons: z.array(z.string()).default([]),
+  sentIcons: z.array(z.string()).default([]),
+  waits: z.number().int().nonnegative(),
+  nextWaitAt: z.number().optional(),
+  outcome: z.string().optional(),
+})
+export type Job = z.infer<typeof JobSchema>
+export const OutboxSchema = z.object({
+  frame: QQNotificationSchema,
+  status: z.enum(['pending', 'inflight', 'sent', 'unknown']),
+  issuedAt: z.number().optional(),
+  confirmedAt: z.number().optional(),
+  resultHash: z.string().optional(),
+})
+export type Outbox = z.infer<typeof OutboxSchema>
+export const StateSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    jobs: z.array(JobSchema),
+    outbox: z.array(OutboxSchema),
+    seq: z.record(z.string(), z.number().int().nonnegative()),
+    receipts: z.record(z.string(), z.object({ hash: z.string(), accepted: z.boolean() })),
+    windows: z.record(
+      z.string(),
+      z.object({ remaining: z.number().int().min(0).max(5), expiresAt: z.number() }),
+    ),
+    migrated: z.array(z.unknown()).default([]),
+    configWrites: z
+      .record(z.string(), z.object({ hash: z.string(), response: z.unknown() }))
+      .default({}),
+    identityBinding: z.object({ selfId: z.string().regex(/^[1-9]\d{0,19}$/), sourceType: z.literal('napcat-action'), verifiedAt: z.number().int().positive(), sourceVersion: z.string().regex(/^[a-z0-9.-]{1,64}$/) }).optional(),
+  })
+  .strict()
+export type State = z.infer<typeof StateSchema>
+export function emptyState(): State {
+  return {
+    schemaVersion: 1,
+    jobs: [],
+    outbox: [],
+    seq: {},
+    receipts: {},
+    windows: {},
+    migrated: [],
+    configWrites: {},
+  }
+}
+export function digest(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
+export function targetOf(e: { conversationType: string; targetId: string }): string {
+  return e.conversationType === 'group' ? `group:${e.targetId}` : `private:user:${e.targetId}`
+}
+export function safePath(file: string): void {
+  let cursor = path.parse(path.resolve(file)).root
+  for (const part of path.resolve(file).slice(cursor.length).split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, part)
+    try {
+      if (fs.lstatSync(cursor).isSymbolicLink()) throw new Error('Symlink rejected')
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    }
+  }
+}
+export function atomicJson(file: string, value: unknown): void {
+  safePath(file)
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  const temporary = `${file}.${randomUUID()}.next`
+  const fd = fs.openSync(temporary, 'wx', 0o600)
+  try {
+    fs.writeFileSync(fd, JSON.stringify(value))
+    fs.fsyncSync(fd)
+  } finally {
+    fs.closeSync(fd)
+  }
+  fs.renameSync(temporary, file)
+  const directory = fs.openSync(path.dirname(file), 'r')
+  try {
+    fs.fsyncSync(directory)
+  } finally {
+    fs.closeSync(directory)
+  }
+}
+export function readState(file: string): State {
+  safePath(file)
+  if (!fs.existsSync(file)) return emptyState()
+  try {
+    return StateSchema.parse(JSON.parse(fs.readFileSync(file, 'utf8')))
+  } catch {
+    // Corrupt queue state must isolate this plugin rather than drop deliveries.
+    throw new Error('Invalid QQ plugin state')
+  }
+}
