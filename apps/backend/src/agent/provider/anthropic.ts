@@ -47,7 +47,7 @@ import {
   readErrorSnippet,
 } from './fetchBase.js'
 import { acquireRpm } from './openaiCompat.js'
-import { dispatch, type HookPayloadMap } from '@/agent/hooks/index.js'
+import { applyProtocolHook } from './protocolHook.js'
 import { LlmProtocol } from '@chery/protocol'
 
 // ========== 常量 ==========
@@ -498,7 +498,14 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
       if (options?.skipHooks !== true) body = await applyPreLLMRequest(body, options)
 
       options?.observation?.start(body.model)
-      return anthropicFetch(url, body, key, options?.fullUrl === true, options?.observation)
+      return anthropicFetch(
+        url,
+        body,
+        key,
+        options?.fullUrl === true,
+        options?.observation,
+        options?.signal,
+      )
     },
 
     async chatStream(
@@ -545,22 +552,11 @@ async function applyPreLLMRequest(
   body: AnthropicBody,
   options?: LLMOptions,
 ): Promise<AnthropicBody> {
-  const payload: HookPayloadMap['PreLLMRequest'] = {
-    provider: 'anthropic',
-    model: body.model,
-    url: options?.url ?? '',
-    thinking: options?.thinking,
-    stream: body.stream === true,
-    body: body as unknown as Record<string, unknown>,
-  }
-
-  await dispatch('PreLLMRequest', payload, { brain: options?.brain ?? '' })
-
-  // dispatch 内部已反写 payload.body（若 decision.body 存在）
-  if (payload.body !== (body as unknown as Record<string, unknown>)) {
-    return payload.body as unknown as AnthropicBody
-  }
-  return body
+  return (await applyProtocolHook(
+    body as unknown as Record<string, unknown>,
+    options,
+    'anthropic',
+  )) as unknown as AnthropicBody
 }
 
 // ========== fetch + SSE ==========
@@ -591,13 +587,16 @@ async function anthropicFetch(
   key: string,
   fullUrl = false,
   observation?: LLMOptions['observation'],
+  signal?: AbortSignal,
 ): Promise<AnthropicResponse> {
+  signal?.throwIfAborted()
   let res: Response
   try {
     res = await fetch(joinAnthropicUrl(url, fullUrl), {
       method: 'POST',
       headers: anthropicHeaders(key, false),
       body: JSON.stringify(body),
+      signal,
     })
   } catch (err) {
     throw brainNetworkError((err as Error).message, err)

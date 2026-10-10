@@ -1,5 +1,6 @@
 import type { LLMOptions } from '@/core/llm/adapter'
 import { observedFetch } from './requestObservation.js'
+import { applyProtocolHook } from './protocolHook.js'
 import { getProviderUrlPattern, type ProviderUrlKind } from '@/core/llm/urlPattern'
 import { ErrorId, type ErrorId as ErrorIdValue } from '@chery/protocol'
 import { ClassifiedError, classifyError, type ErrorCategory } from '@/utils/error.js'
@@ -282,8 +283,15 @@ export async function jsonRequest(
   body: unknown,
   key: string,
   signal?: AbortSignal,
-  opts?: { fullUrl?: boolean; endpoint?: string; observation?: LLMOptions['observation'] },
+  opts?: {
+    fullUrl?: boolean
+    endpoint?: string
+    observation?: LLMOptions['observation']
+    hookOptions?: LLMOptions
+  },
 ): Promise<Record<string, unknown>> {
+  if (opts?.hookOptions)
+    body = await applyProtocolHook(body as Record<string, unknown>, opts.hookOptions)
   const endpoint = buildEndpointUrl(url, {
     fullUrl: opts?.fullUrl,
     endpoint: opts?.endpoint ?? '/chat/completions',
@@ -337,8 +345,15 @@ export async function* streamSSE(
   body: unknown,
   key: string,
   signal?: AbortSignal,
-  opts?: { fullUrl?: boolean; endpoint?: string; observation?: LLMOptions['observation'] },
+  opts?: {
+    fullUrl?: boolean
+    endpoint?: string
+    observation?: LLMOptions['observation']
+    hookOptions?: LLMOptions
+  },
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
+  if (opts?.hookOptions)
+    body = await applyProtocolHook(body as Record<string, unknown>, opts.hookOptions)
   const endpoint = buildEndpointUrl(url, {
     fullUrl: opts?.fullUrl,
     endpoint: opts?.endpoint ?? '/chat/completions',

@@ -46,7 +46,11 @@ const deepseekLLMAdapter: LLMAdapter = {
       },
       key,
       options?.signal,
-      { fullUrl: options?.fullUrl === true, observation: options?.observation },
+      {
+        fullUrl: options?.fullUrl === true,
+        observation: options?.observation,
+        hookOptions: { ...options!, provider: 'deepseek' },
+      },
     )
   },
   async chatStream(
@@ -67,7 +71,11 @@ const deepseekLLMAdapter: LLMAdapter = {
       },
       key,
       options?.signal,
-      { fullUrl: options?.fullUrl === true, observation: options?.observation },
+      {
+        fullUrl: options?.fullUrl === true,
+        observation: options?.observation,
+        hookOptions: { ...options!, provider: 'deepseek' },
+      },
     )
   },
 }

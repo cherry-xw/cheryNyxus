@@ -1,4 +1,5 @@
 import { Ollama } from 'ollama'
+import { applyProtocolHook } from './protocolHook.js'
 import { randomUUID } from 'crypto'
 import type { ChatResponse, ToolCall, Message } from 'ollama'
 import { registerMessageAdapter, type LLMResponse } from '@/core/message/adapter'
@@ -87,6 +88,20 @@ function createOllamaClient(options?: LLMOptions): Ollama {
   return options?.url ? new Ollama({ host: options.url }) : new Ollama()
 }
 
+function ollamaParameters<T extends { model: string; messages: Message[] }>(body: T): T {
+  const mapped: Record<string, unknown> = { ...body }
+  const generation: Record<string, unknown> = {}
+  for (const name of ['temperature', 'top_p', 'top_k', 'stop', 'max_tokens']) {
+    if (mapped[name] !== undefined)
+      generation[name === 'max_tokens' ? 'num_predict' : name] = mapped[name]
+    delete mapped[name]
+  }
+  if (Object.keys(generation).length) mapped.options = generation
+  if (mapped.thinking !== undefined) mapped.think = mapped.thinking
+  delete mapped.thinking
+  return mapped as T
+}
+
 // LLM Adapter 定义
 const ollamaLLMAdapter: LLMAdapter = {
   async chat(messages: unknown[], senses: SenseFunction[], options?: LLMOptions): Promise<unknown> {
@@ -102,11 +117,22 @@ const ollamaLLMAdapter: LLMAdapter = {
     try {
       const client = createOllamaClient(options)
       options?.observation?.start(model)
-      const response = await client.chat({
-        model,
-        messages: msgArray,
-        ...(senses.length > 0 && { tools: senses }),
-      })
+      const body = await applyProtocolHook(
+        {
+          model,
+          messages: msgArray,
+          stream: false,
+          ...(senses.length > 0 && { tools: senses }),
+        },
+        options,
+        'ollama',
+      )
+      const abort = () => client.abort()
+      options?.signal?.throwIfAborted()
+      options?.signal?.addEventListener('abort', abort, { once: true })
+      const response = await client
+        .chat({ ...ollamaParameters(body), stream: false })
+        .finally(() => options?.signal?.removeEventListener('abort', abort))
       options?.observation?.response(response)
       return response
     } catch (err) {
@@ -138,15 +164,34 @@ const ollamaLLMAdapter: LLMAdapter = {
     try {
       const client = createOllamaClient(options)
       options?.observation?.start(model)
-      const stream = await client.chat({
-        model,
-        messages: msgArray,
-        stream: true,
-        ...(senses.length > 0 && { tools: senses }),
-      })
-      return wrapBrainStream(stream as AsyncIterable<unknown>, (chunk) =>
-        options?.observation?.response(chunk),
+      const body = await applyProtocolHook(
+        {
+          model,
+          messages: msgArray,
+          stream: true,
+          ...(senses.length > 0 && { tools: senses }),
+        },
+        options,
+        'ollama',
       )
+      const abort = () => client.abort()
+      options?.signal?.throwIfAborted()
+      options?.signal?.addEventListener('abort', abort, { once: true })
+      try {
+        const stream = await client.chat({ ...ollamaParameters(body), stream: true })
+        return (async function* () {
+          try {
+            yield* wrapBrainStream(stream as AsyncIterable<unknown>, (chunk) =>
+              options?.observation?.response(chunk),
+            )
+          } finally {
+            options?.signal?.removeEventListener('abort', abort)
+          }
+        })()
+      } catch (error) {
+        options?.signal?.removeEventListener('abort', abort)
+        throw error
+      }
     } catch (err) {
       throw classifyBrainError(err)
     }

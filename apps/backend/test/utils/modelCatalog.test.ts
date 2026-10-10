@@ -169,7 +169,7 @@ models: []
   it('matches default catalog rules by stable model family and version boundaries', async () => {
     const catalog = await loadDefaultCatalog()
 
-    expect(catalog.resolveModelCatalog({ model: 'relay/MiniMax_M2-7-20260901' }).id).toBe(
+    expect(catalog.resolveModelCatalog({ model: 'apps/relay/MiniMax_M2-7-20260901' }).id).toBe(
       'minimax-m2.7',
     )
     expect(catalog.resolveModelCatalog({ model: 'newapi-deepseek_v3_2-chat' }).id).toBe(
@@ -310,14 +310,14 @@ models:
 
     expect(
       catalog.resolveCatalogThinkingParams({
-        model: 'relay/GLM-5.3-flash',
+        model: 'apps/relay/GLM-5.3-flash',
         protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
         display: 'max',
       }),
     ).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'max' })
     expect(
       catalog.resolveModelCatalog({
-        model: 'relay/GLM-5.3-flash',
+        model: 'apps/relay/GLM-5.3-flash',
         protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
       }),
     ).toMatchObject({
@@ -367,7 +367,7 @@ models:
   it('matches the GPT-6 family and recommends the OpenAI service', async () => {
     const catalog = await loadDefaultCatalog()
     // Astra 官方不支持 none（off），档位从 low 到 max
-    for (const model of ['gpt-6-astra', 'relay/gpt-6-astra-pro']) {
+    for (const model of ['gpt-6-astra', 'apps/relay/gpt-6-astra-pro']) {
       expect(
         catalog.resolveModelCatalog({ model, protocol: LlmProtocol.OPENAI_RESPONSES }),
       ).toMatchObject({

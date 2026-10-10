@@ -296,6 +296,7 @@ const responsesLLMAdapter: LLMAdapter = {
         fullUrl: options?.fullUrl === true,
         endpoint: '/responses',
         observation: options?.observation,
+        hookOptions: { ...options!, protocol: 'openai-responses' },
       },
     )
   },
@@ -317,6 +318,7 @@ const responsesLLMAdapter: LLMAdapter = {
         fullUrl: options?.fullUrl === true,
         endpoint: '/responses',
         observation: options?.observation,
+        hookOptions: { ...options!, protocol: 'openai-responses' },
       },
     )
   },

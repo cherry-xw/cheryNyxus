@@ -9,7 +9,7 @@ const { mockDispatch } = vi.hoisted(() => ({
   mockDispatch: vi.fn(async () => undefined),
 }))
 
-vi.mock('@/agent/hooks/index.js', () => ({ dispatch: mockDispatch }))
+vi.mock('@/agent/hooks/dispatch.js', () => ({ dispatch: mockDispatch }))
 
 const fetchMock = vi.fn()
 const options = {

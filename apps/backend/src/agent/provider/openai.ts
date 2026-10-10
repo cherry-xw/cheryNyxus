@@ -10,6 +10,7 @@
  * 详见 [docs/backend/agent/provider.md](../../../docs/backend/agent/provider.md)。
  */
 import OpenAI from 'openai'
+import { applyProtocolHook } from './protocolHook.js'
 import { observedFetch } from './requestObservation.js'
 import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
@@ -48,7 +49,7 @@ const openaiLLMAdapter: LLMAdapter = {
         },
         key,
         options?.signal,
-        { fullUrl: true, observation: options?.observation },
+        { fullUrl: true, observation: options?.observation, hookOptions: options },
       )
     }
     // 未勾选：SDK 自拼 /chat/completions，baseURL 原样（版本段由用户填写，见 resolveProviderUrl）
@@ -66,7 +67,11 @@ const openaiLLMAdapter: LLMAdapter = {
         ...(senses.length > 0 && { tools: senses }),
       }
       return await client.chat.completions.create(
-        params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+        (await applyProtocolHook(
+          params,
+          options,
+        )) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+        options?.signal ? { signal: options.signal } : undefined,
       )
     } catch (err) {
       throw classifyBrainError(err)
@@ -95,7 +100,7 @@ const openaiLLMAdapter: LLMAdapter = {
         },
         key,
         options?.signal,
-        { fullUrl: true, observation: options?.observation },
+        { fullUrl: true, observation: options?.observation, hookOptions: options },
       )
     }
     const client = new OpenAI({
@@ -114,7 +119,10 @@ const openaiLLMAdapter: LLMAdapter = {
         ...(senses.length > 0 && { tools: senses }),
       }
       const stream = await client.chat.completions.create(
-        params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+        (await applyProtocolHook(
+          params,
+          options,
+        )) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
         options?.signal ? { signal: options.signal } : undefined,
       )
       // 包裹迭代：流中途抛错（连接中断/限流/鉴权）映射为大脑 ClassifiedError，避免裸抛漏到 compose 兜底。

@@ -508,7 +508,7 @@ export function resolveCatalogReasoningHistory(input: {
     ?.reasoningHistory
 }
 
-/** Known facts are advisory for relay/custom providers, so callers should warn rather than block. */
+/** Known facts are advisory for apps/relay/custom providers, so callers should warn rather than block. */
 export function modelCatalogSupportsProtocol(input: {
   model: string
   provider?: string

@@ -32,7 +32,11 @@ const bigmodelLLMAdapter: LLMAdapter = {
       ...(options?.thinkingParams ?? {}),
       ...(senses.length > 0 && { tools: senses }),
     }
-    return jsonRequest(url, body, key, options?.signal, { fullUrl: options?.fullUrl === true, observation: options?.observation })
+    return jsonRequest(url, body, key, options?.signal, {
+      fullUrl: options?.fullUrl === true,
+      observation: options?.observation,
+      hookOptions: { ...options!, provider: 'bigmodel' },
+    })
   },
   async chatStream(
     messages: unknown[],
@@ -48,7 +52,11 @@ const bigmodelLLMAdapter: LLMAdapter = {
       ...(options?.thinkingParams ?? {}),
       ...(senses.length > 0 && { tools: senses }),
     }
-    return streamSSE(url, body, key, options?.signal, { fullUrl: options?.fullUrl === true, observation: options?.observation })
+    return streamSSE(url, body, key, options?.signal, {
+      fullUrl: options?.fullUrl === true,
+      observation: options?.observation,
+      hookOptions: { ...options!, provider: 'bigmodel' },
+    })
   },
 }
 
