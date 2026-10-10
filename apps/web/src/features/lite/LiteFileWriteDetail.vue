@@ -125,12 +125,12 @@ const diffLines = computed<FileChangeDiffLine[] | null>(() => {
   scrollbar-width: none;
 }
 .lite-fw-diff .add {
-  color: #16803a;
-  background: #dcfce7;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
 }
 .lite-fw-diff .remove {
-  color: #b42318;
-  background: #fee2e2;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
 }
 .lite-fw-diff .same {
   color: var(--el-text-color-primary);

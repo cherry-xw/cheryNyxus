@@ -79,7 +79,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     }
     return map
   })
-  /** 运行历史：从开始节点往下，用户问题 / 工具运行 / 大模型响应 关键节点（需求 1c），工具名走中文（sense.tools）。 */
+  /** 运行历史：从开始节点往下，用户问题 / 工具运行 / 大模型响应 关键节点，工具名走中文（sense.tools）。 */
   const history = computed(() =>
     projectLiteHistory(
       lite.runNodes,
@@ -90,7 +90,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       lite.pendingInputs,
     ),
   )
-  // ── 需求 4：正文列表一次只显示一条链路（主 Agent 链路 / 子 Agent 链路），点击行头 name 切换 ──
+  // ── 正文列表一次只显示一条链路（主 Agent 链路 / 子 Agent 链路），点击行头 name 切换 ──
   const activeLane = ref<string>(props.rootChatId)
   watch(
     () => [props.windowId, props.rootChatId] as const,
@@ -99,7 +99,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     },
     { immediate: true },
   )
-  /** 节点归属链路 id：用户消息并入主 Agent 链路（需求 5：用户消息发给主 Agent）。 */
+  /** 节点归属链路 id：用户消息并入主 Agent 链路。 */
   function laneIdOf(node: LiteRunNode): string {
     return node.kind === 'user' ? props.rootChatId : node.sourceChatId
   }
@@ -117,12 +117,12 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   function isPlainRowContent(node: LiteRunNode): boolean {
     return node.kind === 'user'
   }
-  /** 用户指令性消息正文拆分（v2.8）：[[command:…]] / [[role:@…]] token 渲染为样式化标签，
+  /** 用户指令性消息正文拆分（）：[[command:…]] / [[role:@…]] token 渲染为样式化标签，
       与对话模式 MessageBubble 同源（splitCommandPrompt）；普通文本原样保留（含换行）。 */
   function userSegments(node: LiteRunNode): CommandPromptSegment[] {
     return splitCommandPrompt(node.content || '')
   }
-  /** 正文行内「思考」折叠态（v2.8）：按节点 key 独立记录，默认收起；点击标题展开/收起。 */
+  /** 正文行内「思考」折叠态（）：按节点 key 独立记录，默认收起；点击标题展开/收起。 */
   const thinkingOpenKeys = ref(new Set<string>())
   function isThinkingOpen(node: LiteRunNode): boolean {
     return thinkingOpenKeys.value.has(node.key)
@@ -133,7 +133,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     else next.add(node.key)
     thinkingOpenKeys.value = next
   }
-  // ── v0.5 链路标签栏：正文列表顶部常驻，主 Agent ✧ + 各子 Agent ◆ 角色名，激活高亮、点击切换 activeLane，
+  // ── 链路标签栏：正文列表顶部常驻，主 Agent ✧ + 各子 Agent ◆ 角色名，激活高亮、点击切换 activeLane，
   // 与轨迹行头角色名按钮联动（链路展示改造：切换入口从轨迹行头移到正文顶部，直观可见）。 ──
   interface LaneTab {
     chatId: string
@@ -159,7 +159,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     // 主 Agent 链路固定最前，子 Agent 按出现顺序。
     return [...rootTabs, ...childTabs]
   })
-  // ── v0.5 子 Agent 入口消息：主 Agent 派发给该子 Agent 的任务（dispatch 节点 content），
+  // ── 子 Agent 入口消息：主 Agent 派发给该子 Agent 的任务（dispatch 节点 content），
   // 取最早一条 targetChatId = activeLane 的委派节点，正文列表顶部独立块展示。 ──
   const entryDispatch = computed<LiteRunNode | null>(() => {
     if (activeLane.value === props.rootChatId) return null
@@ -202,7 +202,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     if (lite.hydration === 'failed') return `加载失败：${lite.hydrationError ?? '未知错误'}`
     return ''
   })
-  /** 轻量状态 + 节点数（需求 2：窗体顶部去掉「已连接」，改为轻量状态/节点数展示）。 */
+  /** 轻量状态 + 节点数。 */
   const liteStatus = computed(() => {
     if (lite.hydration === 'chat-open') return { text: '加载执行记录…', tone: 'busy' as const }
     if (lite.hydration === 'failed') return { text: '加载失败', tone: 'danger' as const }
@@ -245,7 +245,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     set: (value: boolean) =>
       liteUi.patchRootUi(props.windowId, props.rootChatId, { autoScroll: value }),
   })
-  /** v1.2：scrollTop 回写节流（rAF）——原实现每个 scroll 事件都整包替换 rootUi，
+  /** scrollTop 回写节流（rAF）——原实现每个 scroll 事件都整包替换 rootUi，
       滚动期间持续触发全视图重渲染，与自动滚动互相打架。 */
   let scrollTopPatchQueued = false
   function queueScrollTopPatch(): void {
@@ -280,7 +280,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       ElMessage.error(error instanceof Error ? error.message : '撤回排队消息失败')
     }
   }
-  /** v1.2：内容塌陷防护——运行中投影重建使列表短暂清空时，滚动容器高度塌为 0、
+  /** 内容塌陷防护——运行中投影重建使列表短暂清空时，滚动容器高度塌为 0、
       scrollTop 被浏览器钳到 0（「滚到底突然闪回顶部、像无限滚动」的根源）；
       行恢复后若用户没有主动回到顶部，则还原塌陷前记录的位置。 */
   let collapsedScrollTop: number | null = null
@@ -349,7 +349,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
         for (const a of mediaAttachments.value) URL.revokeObjectURL(a.previewUrl)
         mediaAttachments.value = []
         mediaHint.value = ''
-        // v0.4.2 多行输入：清空后等 DOM 更新，把 textarea 高度重置回单行
+        // 多行输入：清空后等 DOM 更新，把 textarea 高度重置回单行
         await nextTick()
         autoGrowInput()
       }
@@ -358,7 +358,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     }
   }
   /**
-   * 回车发送（v0.4.2 多行输入框）：Enter 直接发送、Shift+Enter 换行（textarea 默认插入换行，不做 preventDefault）；
+   * 回车发送（多行输入框）：Enter 直接发送、Shift+Enter 换行（textarea 默认插入换行，不做 preventDefault）；
    * 中文输入法组合确认（isComposing / keyCode 229）时不触发，避免误发。
    */
   function onInputKeydown(event: KeyboardEvent): void {
@@ -367,7 +367,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     event.preventDefault()
     void onSend()
   }
-  /** v0.4.2：多行自适应增高——默认单行（rows=1），换行/长内容时按 scrollHeight 自动撑高，上限内滚动。
+  /** 多行自适应增高——默认单行（rows=1），换行/长内容时按 scrollHeight 自动撑高，上限内滚动。
    * box-sizing: border-box 下 height 需补上边框高度，否则盒子比内容矮 1px×2，空内容也挤出右侧细滚动条；
    * 展开态有 min-height 撑高盒子，测真实内容行数前先临时解除。 */
   /** 输入框可视行数（含自动换行）：>2 行时组件才显示「展开输入框」按钮（默认隐藏）。 */
@@ -493,7 +493,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
       detailFocusToolCallId: focusToolCallId,
     })
   }
-  /** 节点「详情」（需求 3）：只展示该节点本身的信息（思考/正文/工具调用）。 */
+  /** 节点「详情」：只展示该节点本身的信息（思考/正文/工具调用）。 */
   function openNodeDetail(node: LiteRunNode, event: Event): void {
     showDetail(node.nodeId, node.kind === 'tool' ? 'toolCalls' : null, null, event)
   }
@@ -647,7 +647,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     if (nodeId) void locateNode(nodeId)
   }
   // ── 时间瀑布流（v3 共享压缩时间轴）──
-  // 所有链路共享一条全局时间轴：节点按 startedAt 绝对定位（需求 3/6：不是每条链路从头画起），
+  // 所有链路共享一条全局时间轴：节点按 startedAt 绝对定位，
   // 同一时间轴上大段等待被压缩（封顶 MAX_GAP_PX），执行时长差异保留可见性。
   // 执行节点（工具 / 主·子 Agent 响应）宽 = 真实执行耗时秒数 × 1px，两档上限：
   //   · 正常档（空间足够）：1s=1px，超过 180s 封顶 180px（MAX_BAR_PX）；
@@ -697,7 +697,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   function resetTrajectoryZoom(): void {
     trajectoryZoom.value = 1
   }
-  // ── 详情抽屉：只展示选中的那一个节点（需求 3）──
+  // ── 详情抽屉：只展示选中的那一个节点──
   const detailNode = computed<LiteRunNode | null>(() => {
     const id = rootUi.value.detailNodeId
     if (!id) return null

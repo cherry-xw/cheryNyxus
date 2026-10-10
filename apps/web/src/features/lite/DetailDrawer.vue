@@ -17,7 +17,7 @@ import { useLiteInteractions } from './useLiteInteractions'
 import { toSenseNameZh } from '@/utils/senseName'
 
 /**
- * DetailDrawer：单个节点的详情抽屉（需求 3：点击详情只展示该节点本身的信息，
+ * DetailDrawer：单个节点的详情抽屉（点击详情只展示该节点本身的信息，
  * 思考/正文/工具调用 全部列出，不做成三个折叠区块）。
  * - 带半透明遮罩：点击遮罩即可关闭（需求：抽屉没有遮罩、点周围关不掉的问题）。
  * - 不含轨迹时间线（轨迹已上移到页面顶部，见 LiteView）。
@@ -53,7 +53,7 @@ const thinkingOpen = ref(false)
 // 数据放宽（需求：适当放宽一次响应回来的内容数据量；其余交互不放开）
 const DETAIL_PAGE_LIMIT = 30000
 
-// ── v1.2 抽屉宽度可拖拽：左缘手柄横向拖拽，宽度 clamp(320px, 拖拽值, 92% 容器)，
+// ── 抽屉宽度可拖拽：左缘手柄横向拖拽，宽度 clamp(320px, 拖拽值, 92% 容器)，
 // 拖拽中走本地 ref（不逐帧打 store），松手时持久化到 rootUi（按窗口 × 会话记忆）。 ──
 const DRAWER_MIN_WIDTH = 320
 const DRAWER_DEFAULT_WIDTH = 460
@@ -382,7 +382,7 @@ watch(
       tabindex="-1"
       @keydown="onDialogKeydown"
     >
-      <!-- v1.2：左缘拖拽手柄——横向拖拽调整抽屉宽度 -->
+      <!-- 左缘拖拽手柄——横向拖拽调整抽屉宽度 -->
       <div class="lite-drawer-resize" aria-hidden="true" @pointerdown="onResizeStart" />
       <header class="lite-drawer-head">
         <span class="lite-drawer-icon" aria-hidden="true">{{ props.node.icon }}</span>
@@ -568,7 +568,7 @@ watch(
   outline: none;
   color: var(--el-text-color-primary);
 }
-/* v1.2：左缘拖拽手柄（ew-resize），hover 主色提示可拖拽 */
+/* 左缘拖拽手柄（ew-resize），hover 主色提示可拖拽 */
 .lite-drawer-resize {
   position: absolute;
   top: 0;
@@ -631,7 +631,7 @@ watch(
   min-height: 0;
   overflow: auto;
   padding: 12px 14px 20px;
-  /* v1.2：滚动链隔离 + 恢复主题化细滚动条（工具详情可能超长，纯滚轮太慢） */
+  /* 滚动链隔离 + 恢复主题化细滚动条（工具详情可能超长，纯滚轮太慢） */
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--el-border-color-darker) transparent;

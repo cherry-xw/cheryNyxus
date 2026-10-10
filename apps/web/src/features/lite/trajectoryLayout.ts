@@ -54,11 +54,11 @@ export function computeTrajectoryLayout(
   zoom: number,
   rootChatId: string,
 ): TrajectoryLayout {
-  // 需求 5：用户消息并入主 Agent 链路（用户消息发给主 Agent）；其余按归属 Agent（sourceChatId）分链路。
+  // 用户消息并入主 Agent 链路（用户消息发给主 Agent）；其余按归属 Agent（sourceChatId）分链路。
   const laneIdOf = (node: LiteRunNode): string =>
     node.kind === 'user' ? rootChatId : node.sourceChatId
 
-  // 需求 3/6：全局共享压缩时间轴——所有节点按 startedAt 绝对定位，而非每条链路从头画起。
+  // 全局共享压缩时间轴——所有节点按 startedAt 绝对定位，而非每条链路从头画起。
   // 逐个全局事件累加压缩间隔，得到每个节点在时间轴上的 X 坐标（大段等待被封顶剔除）。
   const sorted = [...nodes].sort(
     (a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key),
@@ -91,7 +91,7 @@ export function computeTrajectoryLayout(
       const laneSorted = [...list].sort(
         (a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key),
       )
-      // v0.5.2：序列化推进——left 取「时间 gap 位置」与「前一块右缘 + 1px」的较大者，
+      // 序列化推进——left 取「时间 gap 位置」与「前一块右缘 + 1px」的较大者，
       // 线性流程同一轨道内块间最低 1px 间隔、绝不互相遮挡（gap 增量上限 24px 远小于
       // 块宽上限 180px，纯时间定位下长耗时块必然压住后续块）；时间 gap 在块不挤时仍占位。
       const bars: TrajectoryBar[] = []
@@ -124,12 +124,12 @@ export function computeTrajectoryLayout(
         bars,
       })
     }
-    // 需求 2：上下链路之间按发起时间线性排序（最早发起自然靠上）。
+    // 上下链路之间按发起时间线性排序（最早发起自然靠上）。
     tracks.sort((a, b) => a.firstStartedAt - b.firstStartedAt || a.chatId.localeCompare(b.chatId))
     return { tracks, contentWidth, compactWidth }
   }
 
-  // 需求（本次）：空间足够 → 1s=1px（封顶 180px）；一行放不下 → 整体挤压到 [10, 30]。
+  // 需求：空间足够 → 1s=1px（封顶 180px）；一行放不下 → 整体挤压到 [10, 30]。
   // 先用正常档排布，若紧凑口径内容宽度超出视口（width），改用压缩档重排。
   let { tracks, contentWidth, compactWidth } = buildTracks(MAX_BAR_PX)
   if (compactWidth > width) {

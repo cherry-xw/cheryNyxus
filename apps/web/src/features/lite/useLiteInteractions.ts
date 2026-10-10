@@ -56,7 +56,7 @@ export function useLiteInteractions(windowId: () => string, rootChatId: () => st
 
   // ── 工具调用 → 待处理交互匹配（详情抽屉用）────────────────────────────
   // 审批：interactionId = 该次工具调用的 callId（§4.3 契约）；
-  // 提问：批内每题的 questionId = 触发它的 callId（src/db/question.ts 以 call.id 落 question_items）。
+  // 提问：批内每题的 questionId = 触发它的 callId（apps/backend/src/db/question.ts 以 call.id 落 question_items）。
   // pending（待处理）/ resolving（提交中）都命中——提交中保持交互视图（显示「处理中…」），
   // 完成后不再命中，工具卡自然回到只读展示。
   function interactionActive(interaction: LiteInteraction): boolean {

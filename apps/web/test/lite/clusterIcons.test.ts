@@ -3,40 +3,39 @@ import {
   BookOpen,
   Forward,
   Globe,
+  MessageCircleQuestionMark,
   PenLine,
-  Sparkles,
   SquareTerminal,
-  UserRound,
   Wrench,
 } from 'lucide'
-import { clusterNodeIcon } from '../../src/features/lite/clusterIcons'
+import { toolCallIcon, THINKING_ICONS } from '../../src/features/lite/clusterIcons'
+import { Brain, BrainCog } from 'lucide'
 
 /**
- * 精简视图 cluster 小按钮的可变形图标映射（morphicons + lucide）。
- * 约定（阶段1确认）：图标类型固定关联工具类型，运行状态与成功/失败由 icon 右上角
- * 状态点表达（v3.1 起，见 LiteView.styles.css `.lite-tool-call-dot`），
- * 不再把图标统一替换成状态图标。
+ * 精简视图 cluster 行的图标映射（morphicons + lucide）。
+ * 约定：图标类型固定关联工具类型（按工具名分类），运行状态与成功/失败由 icon 右上角
+ * 状态点表达（v3.1 起，见 LiteView.styles.css `.lite-tool-call-dot`），不再把图标统一
+ * 替换成状态图标；提问工具展示问号气泡，不落回通用扳手。
  */
-describe('clusterNodeIcon morph mapping', () => {
-  it('maps tool types to their lucide source icon regardless of status', () => {
-    expect(clusterNodeIcon({ kind: 'tool', toolType: 'exec' })).toBe(SquareTerminal)
-    expect(clusterNodeIcon({ kind: 'tool', toolType: 'read' })).toBe(BookOpen)
-    expect(clusterNodeIcon({ kind: 'tool', toolType: 'write' })).toBe(PenLine)
-    expect(clusterNodeIcon({ kind: 'tool', toolType: 'web' })).toBe(Globe)
-    expect(clusterNodeIcon({ kind: 'tool', toolType: 'dispatch' })).toBe(Forward)
-    // 终态不再替换为统一状态图标（工具类型差异保留）
-    expect(clusterNodeIcon({ kind: 'tool', toolType: 'exec', status: 'completed' })).toBe(
-      SquareTerminal,
-    )
-    expect(clusterNodeIcon({ kind: 'tool', toolType: 'exec', status: 'failed' })).toBe(
-      SquareTerminal,
-    )
+describe('toolCallIcon morph mapping', () => {
+  it('maps tool names to their lucide source icon by classified tool type', () => {
+    expect(toolCallIcon('exec_command')).toBe(SquareTerminal)
+    expect(toolCallIcon('read_file')).toBe(BookOpen)
+    expect(toolCallIcon('write_file')).toBe(PenLine)
+    expect(toolCallIcon('web_search')).toBe(Globe)
+    expect(toolCallIcon('dispatch_agent')).toBe(Forward)
   })
 
-  it('maps non-tool kinds and falls back to the wrench for unknown tool types', () => {
-    expect(clusterNodeIcon({ kind: 'user' })).toBe(UserRound)
-    expect(clusterNodeIcon({ kind: 'root-agent' })).toBe(Sparkles)
-    expect(clusterNodeIcon({ kind: 'child-agent' })).toBe(Sparkles)
-    expect(clusterNodeIcon({ kind: 'tool', toolType: undefined })).toBe(Wrench)
+  it('keeps the ask-user-question icon distinct instead of the generic wrench', () => {
+    expect(toolCallIcon('ask_user_question')).toBe(MessageCircleQuestionMark)
+  })
+
+  it('falls back to the wrench for unknown tool names', () => {
+    expect(toolCallIcon('totally_unknown_tool')).toBe(Wrench)
+  })
+
+  it('exposes the thinking marker icons for idle/active states', () => {
+    expect(THINKING_ICONS.idle).toBe(Brain)
+    expect(THINKING_ICONS.active).toBe(BrainCog)
   })
 })

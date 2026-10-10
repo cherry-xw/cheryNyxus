@@ -36,7 +36,7 @@ export interface LiteRootUiState {
   detailCache: Record<string, LiteNodeDetailCache>
   interactionDrafts: Record<string, Record<string, LiteQuestionDraft>>
   commandError: { code: string; message: string; interactionId?: string } | null
-  /** 详情抽屉拖拽宽度（v1.2，px）：null=默认 min(460px, 92%)；按窗口 × 根会话隔离。 */
+  /** 详情抽屉拖拽宽度（，px）：null=默认 min(460px, 92%)；按窗口 × 根会话隔离。 */
   detailDrawerWidth: number | null
 }
 

@@ -97,7 +97,7 @@ const remainingSecondaryArgs = computed(() => {
 })
 const visibleArgs = computed(() => [...remainingArgs.value, ...remainingSecondaryArgs.value])
 // 提问工具：结构化参数（问题/选项/标题）与答案（已答/取消/等待）。答案由后端序列化为
-// 「用户回答: <label>（补充: <note>）, 其他: <text>」（src/db/question.ts），直接渲染进选项。
+// 「用户回答: <label>（补充: <note>）, 其他: <text>」（apps/backend/src/db/question.ts），直接渲染进选项。
 const questionArgs = computed(() => parseQuestionArgs(props.call.arguments))
 const answer = computed(() =>
   parseQuestionAnswer(props.call.result, props.call.status, questionArgs.value),

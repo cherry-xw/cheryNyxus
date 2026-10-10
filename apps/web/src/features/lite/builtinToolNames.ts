@@ -1,5 +1,5 @@
 /**
- * 精简模式内置工具判定，与 src/agent/sense/index.ts 的 BUILTIN_SENSE_TOOLS 同步。
+ * 精简模式内置工具判定，与 apps/backend/src/agent/sense/index.ts 的 BUILTIN_SENSE_TOOLS 同步。
  * generate_* 是媒体生成器，虽不属于 sense.tools 清单，也在精简模式使用专有展示。
  */
 const BUILTIN_TOOL_NAMES = new Set([

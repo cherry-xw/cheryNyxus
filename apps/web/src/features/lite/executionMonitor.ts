@@ -360,7 +360,7 @@ export interface LiteRunNode {
   pendingInputId?: string
   pendingClientMessageId?: string
   pendingInputQueueSequence?: number
-  /** 正在运行（仅运行中的工具/模型节点为 true，见需求 2：未运行节点不做倒计时） */
+  /** 正在运行（仅运行中的工具/模型节点为 true，见未运行节点不做倒计时） */
   active: boolean
   startedAt: number
   completedAt?: number
@@ -412,7 +412,7 @@ export interface LiteRunHistoryView {
 }
 
 /**
- * 行布局（需求 4a / 需求 4 链路过滤）：把节点列表拆成「独占一行」与「cluster 小按钮行」。
+ * 行布局：把节点列表拆成「独占一行」与「cluster 小按钮行」。
  * - 独占一行：事件类节点（用户提问 / 结果返回 / 任务委派 / 创建协作节点 / 系统事件）与轮末 Agent 响应；
  * - cluster：中间的思考 / 工具节点挤成一行小按钮（可换行）；工具即使暂居轮末也不得展开为内容行。
  * 独立导出供链路过滤复用（正文列表按选中链路重建行时使用同一规则）。
@@ -516,8 +516,8 @@ function matchStep(
  * 详情抽屉的轨迹/折叠节点展示共用。
  *
  * - 轮次：每条根用户消息开启新轮；工具/模型节点归入其发生时的轮次。
- * - 折叠（需求 3d-1）：非用户消息且非轮末消息的节点折叠，只保留消息本身。
- * - 倒计时（需求 2）：仅运行中的工具节点 active；终态节点不再计算进行时耗时。
+ * - 折叠：非用户消息且非轮末消息的节点折叠，只保留消息本身。
+ * - 倒计时：仅运行中的工具节点 active；终态节点不再计算进行时耗时。
  * - 计时优先叠加 execution step 的实时事实，缺失时回退节点 createdAt/updatedAt。
  */
 export function projectLiteHistory(
@@ -674,7 +674,7 @@ export function projectLiteHistory(
       }
     })
     const toolType = classifyToolType(toolCalls[0]?.name ?? '')
-    // v0.5.2：主/子 Agent 节点不再要求 direction==='agent-to-user' 才匹配 model step——
+    // 主/子 Agent 节点不再要求 direction==='agent-to-user' 才匹配 model step——
     // canonical rootTimeline 不投影 direction 字段，原条件恒不成立导致模型节点全部回退
     // 0 耗时、宽度全落 10px 下限；直接按 sourceChatId + createdAt 匹配（窗口 5 分钟）。
     const matchedStep =
@@ -692,7 +692,7 @@ export function projectLiteHistory(
       icon: kind === 'tool' ? toolTypeGlyph(toolType) : LITE_NODE_GLYPHS[kind],
       content: kind === 'tool' ? (merge?.content ?? '') : node.content,
       // 工具节点：思考来自合并的 message 事实（同一次 LLM 响应的 thinking/content 并入 tool-batch）；
-      // 其余节点（主/子 Agent 消息等）直接透出节点自身 thinking——供正文行内「思考」折叠展示（v2.8）。
+      // 其余节点（主/子 Agent 消息等）直接透出节点自身 thinking——供正文行内「思考」折叠展示（）。
       ...(kind === 'tool'
         ? merge?.thinking
           ? { thinking: merge.thinking }
@@ -788,7 +788,7 @@ export function projectLiteHistory(
       next.elapsedMs = Math.max(0, matchedStep.completedAt - matchedStep.startedAt)
       return next
     }
-    // 无实时 step 回退：仅运行中的节点以 now 计时（需求 2），终态节点用固定耗时。
+    // 无实时 step 回退：仅运行中的节点以 now 计时，终态节点用固定耗时。
     if (run.kind === 'tool') {
       const status = toolBatchStatus(node.toolCalls)
       const active = status === 'running' && rootRunning
@@ -918,7 +918,7 @@ export function projectLiteHistory(
     run.collapsed = !(isStandaloneNodeKind(run.kind) || isFinalAgentResponse)
   }
 
-  // 行布局（需求 4a）：用户消息与轮末响应单独占一行；中间的思考/工具节点
+  // 行布局：用户消息与轮末响应单独占一行；中间的思考/工具节点
   // 挤成一个 cluster 小按钮行（可换行），不单独占行。复用 buildLiteRows 统一规则。
   return {
     nodes: nodesOut,
