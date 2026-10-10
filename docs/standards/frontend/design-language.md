@@ -1,8 +1,8 @@
-# CheryClaw 前端 UI 技术与设计语言规范
+# cheryNyxus 前端 UI 技术与设计语言规范
 
-> **状态：强制执行。** 本文是 `web/` 所有用户可见 UI、排版、控件、窗口、内容渲染、动效和界面分面设计的唯一入口。
+> **状态：强制执行。** 本文是 `apps/web/` 所有用户可见 UI、排版、控件、窗口、内容渲染、动效和界面分面设计的唯一入口。
 >
-> 适用范围：`web/src/**` 的浏览器界面、Pixi 画布、桌宠、Agent 工作台、Lite 视图、登录和设置中心。
+> 适用范围：`apps/web/src/**` 的浏览器界面、Pixi 画布、桌宠、Agent 工作台、Lite 视图、登录和设置中心。
 >
 > 本文同时回答两件事：前端 UI 现在如何实现，以及后续 UI 应遵守什么设计思想。代码级事实以文中链接的源文件和测试为准；本文不替代[前端架构规范](./web-frontend-architecture.md)和[Vue 视图规范](./vue3-page-building-standard.md)。
 
@@ -29,7 +29,7 @@
 
 ### 2.1 统一基础，不统一外观
 
-CheryClaw 不是把所有页面做成同一套卡片皮肤。它使用一套共享的主题、文字、状态、层级和动效基础，再让不同界面根据任务表达不同气质：
+cheryNyxus 不是把所有页面做成同一套卡片皮肤。它使用一套共享的主题、文字、状态、层级和动效基础，再让不同界面根据任务表达不同气质：
 
 - 工作台帮助用户观察 Agent 的执行过程；
 - Lite 帮助用户快速读懂任务状态和时间轨迹；
@@ -97,7 +97,7 @@ CSS / GSAP / Pixi / Worker 等渲染后端
 
 ### 3.1 启动顺序
 
-[`web/src/main.ts`](../../../web/src/main.ts) 是浏览器初始化入口：
+[`apps/web/src/main.ts`](../../../apps/web/src/main.ts) 是浏览器初始化入口：
 
 1. 先加载 Element Plus 样式、深色 css variables 和项目主题 token；
 2. 创建 Vue 应用与 Pinia；
@@ -111,7 +111,7 @@ CSS / GSAP / Pixi / Worker 等渲染后端
 
 ### 3.2 浏览器工作区是界面组装边界
 
-[`web/src/App.vue`](../../../web/src/App.vue) 组装浏览器桌面、桌宠与应用内的工作台、会话、历史、设置、任务中心和终端窗口。
+[`apps/web/src/App.vue`](../../../apps/web/src/App.vue) 组装浏览器桌面、桌宠与应用内的工作台、会话、历史、设置、任务中心和终端窗口。
 
 重型面通过 `defineAsyncComponent()` 按实际状态加载。关闭窗口时必须让组件、Worker、Pixi、GSAP context、帧订阅和事件监听完整释放。
 
@@ -130,13 +130,13 @@ application runtime = 负责组装依赖的唯一例外
 - **Presenter / model**：不依赖 Vue、DOM、store、service；把领域数据变成展示模型或状态迁移结果。
 - **Store / application port**：拥有跨组件的 canonical state；其他 UI 只调用公开 action/selector。
 - **Shared component**：不知道 Agent、Chat、Pet 等业务 owner；只接受普通 props/slots 并发出事件。
-- **Styles**：全局 token 和跨应用层级放 `src/styles/`；组件专属样式与唯一消费者同址。
+- **Styles**：全局 token 和跨应用层级放 `apps/web/src/styles/`；组件专属样式与唯一消费者同址。
 
 ## 4. 全局视觉基础层
 
 ### 4.1 主题基础
 
-[`web/src/styles/theme.css`](../../../web/src/styles/theme.css#L20-L170) 是全局 token 的唯一来源。浅色是冷白和靛蓝，深色是深空蓝紫和电光青：
+[`apps/web/src/styles/theme.css`](../../../apps/web/src/styles/theme.css#L20-L170) 是全局 token 的唯一来源。浅色是冷白和靛蓝，深色是深空蓝紫和电光青：
 
 | 类别 | 主要 token | 设计作用 |
 | --- | --- | --- |
@@ -193,9 +193,9 @@ application runtime = 负责组装依赖的唯一例外
 - 非 scoped less：直接写 `[data-theme='dark']` 前缀。
 - 覆盖选择器的末段复合选择器必须涵盖基础选择器（例如基础 `.label-system` 由 `.ctx-legend-label.label-system` 覆盖）；特异性不得低于带 `[data-v]` 的基础 scoped 规则（相等时覆盖块必须位于基础块之后）。
 
-豁免：独立视觉身份不纳入强制提亮——nyxus CRT（`--nx-*`）、paper/import 弹窗、Pixi/particle、桌宠、settings 的 `--neon-*`/`--cyber-*`；以及固定浅底/白底/彩底徽章。完整豁免名单由扫描用例维护（新增豁免必须能说明理由），见 [`web/test/styles/colorReadability.test.ts`](../../../web/test/styles/colorReadability.test.ts) 的 `hardcoded foreground colors stay readable` 用例：该用例扫描 `web/src` 全部 `.vue`/`.less`/`.css` 的硬编码前景声明（解析 `var(--token)`/`color-mix`），对深浅两套背景断言正文 4.5、控件/图标 3.0，并校验「依赖同文件 dark 覆盖的基础声明，覆盖特异性 ≥ 基础 scoped 规则」，不达标即 `pnpm test:web` 失败，防止回归。新增硬编码前景色后必须通过该用例。
+豁免：独立视觉身份不纳入强制提亮——nyxus CRT（`--nx-*`）、paper/import 弹窗、Pixi/particle、桌宠、settings 的 `--neon-*`/`--cyber-*`；以及固定浅底/白底/彩底徽章。完整豁免名单由扫描用例维护（新增豁免必须能说明理由），见 [`apps/web/test/styles/colorReadability.test.ts`](../../../apps/web/test/styles/colorReadability.test.ts) 的 `hardcoded foreground colors stay readable` 用例：该用例扫描 `apps/web/src` 全部 `.vue`/`.less`/`.css` 的硬编码前景声明（解析 `var(--token)`/`color-mix`），对深浅两套背景断言正文 4.5、控件/图标 3.0，并校验「依赖同文件 dark 覆盖的基础声明，覆盖特异性 ≥ 基础 scoped 规则」，不达标即 `pnpm test:web` 失败，防止回归。新增硬编码前景色后必须通过该用例。
 
-Element Plus 的实际使用方式是：[`web/src/main.ts`](../../../web/src/main.ts#L44-L68) 显式注册组件；[`web/src/styles/element/index.scss`](../../../web/src/styles/element/index.scss) 覆盖浅色变量；`theme.css` 的 `html.dark` 覆盖深色 css-vars。不要在组件内重新定义一套 primary。
+Element Plus 的实际使用方式是：[`apps/web/src/main.ts`](../../../apps/web/src/main.ts#L44-L68) 显式注册组件；[`apps/web/src/styles/element/index.scss`](../../../apps/web/src/styles/element/index.scss) 覆盖浅色变量；`theme.css` 的 `html.dark` 覆盖深色 css-vars。不要在组件内重新定义一套 primary。
 
 ### 4.4 全局样式入口
 
@@ -210,7 +210,7 @@ Element Plus 的实际使用方式是：[`web/src/main.ts`](../../../web/src/mai
 
 主题不是单纯换 CSS 颜色，而是一个跨窗口、跨渲染后端的状态协议。
 
-[`web/src/stores/theme.ts`](../../../web/src/stores/theme.ts#L18-L91) 的不变量：
+[`apps/web/src/stores/theme.ts`](../../../apps/web/src/stores/theme.ts#L18-L91) 的不变量：
 
 1. `toggle()` 负责持久化、应用并广播；
 2. `applyFrom()` 只应用外部主题，不再次广播，避免回环；
@@ -240,7 +240,7 @@ Element Plus 的实际使用方式是：[`web/src/main.ts`](../../../web/src/mai
 
 ### 6.2 层级协议
 
-[`web/src/styles/overlayLayers.ts`](../../../web/src/styles/overlayLayers.ts#L1-L53) 中的 `OVERLAY_Z_INDEX`、`WORKSPACE_WINDOW_Z_INDEX_BASE` 和 `NYXUS_WORKBENCH_Z_INDEX` 是唯一层级 owner：
+[`apps/web/src/styles/overlayLayers.ts`](../../../apps/web/src/styles/overlayLayers.ts#L1-L53) 中的 `OVERLAY_Z_INDEX`、`WORKSPACE_WINDOW_Z_INDEX_BASE` 和 `NYXUS_WORKBENCH_Z_INDEX` 是唯一层级 owner：
 
 - 浏览器工作区窗口从 `500` 起，按 `2` 递增；
 - 全局 composer `300`，会话菜单 `9900`，历史抽屉 `10000`，modal `10100`，approval `10200`，tooltip `10300`；
@@ -290,7 +290,7 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 
 ### 8.2 GSAP 与过渡回收
 
-[`web/src/utils/gsapCore.ts`](../../../web/src/utils/gsapCore.ts) 只初始化一次 `autoSleep: 120`、`force3D: 'auto'` 和 `nullTargetWarn: true`，禁止设置全局 `gsap.defaults()`。
+[`apps/web/src/utils/gsapCore.ts`](../../../apps/web/src/utils/gsapCore.ts) 只初始化一次 `autoSleep: 120`、`force3D: 'auto'` 和 `nullTargetWarn: true`，禁止设置全局 `gsap.defaults()`。
 
 语义时长：`feedback .08s`、`micro .12s`、`control .16s`、`panel .22s`、`view .28s`、`sweep .42s`。普通组件使用 `useGsap()` 建立 scoped context；overlay 使用 `useOverlayTransitionHooks()` 接入 Vue `Transition`。
 
@@ -326,7 +326,7 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 
 ### 9.1 流式 Markdown
 
-[`useRenderedMarkdown()`](../../../web/src/composables/useRenderedMarkdown.ts#L4-L89) 的用户体验承诺是“先有反馈，再稳定更新”：
+[`useRenderedMarkdown()`](../../../apps/web/src/composables/useRenderedMarkdown.ts#L4-L89) 的用户体验承诺是“先有反馈，再稳定更新”：
 
 - 首个非空结果立即渲染；
 - 后续 delta 默认按 `240ms trailing` 合并；
@@ -539,10 +539,10 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 - `pnpm --filter web lint`：源码静态规则；
 - `pnpm test:web`：前端 Vitest；
 - `pnpm --filter web build`：生产构建和分包入口；
-- `web/test/styles/colorReadability.test.ts`：颜色可读性；
-- `web/test/styles/overlayLayers.test.ts`：层级契约；
-- `web/test/performance/*`：动效、质量档、帧协调和 Markdown；
-- `web/test/architecture/*`：依赖边界、SFC 预算和设置 tab 约束；
+- `apps/web/test/styles/colorReadability.test.ts`：颜色可读性；
+- `apps/web/test/styles/overlayLayers.test.ts`：层级契约；
+- `apps/web/test/performance/*`：动效、质量档、帧协调和 Markdown；
+- `apps/web/test/architecture/*`：依赖边界、SFC 预算和设置 tab 约束；
 - `git diff --check`：文档和源码空白错误；
 - 本地链接、仓库路径和锚点检查：文档引用是否仍可到达。
 
@@ -552,7 +552,7 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 
 以下内容是当前已确认的边界，不是新增功能计划：
 
-- `web/src/styles/dialog.less` 当前未被引用，不能作为新弹窗样式入口；
+- `apps/web/src/styles/dialog.less` 当前未被引用，不能作为新弹窗样式入口；
 - `--radius-control`、`--radius-panel` 仍有历史消费，新实现不要因为 token 存在而继续使用；
 - 历史注释可能保留“暖橙”等旧词，实际颜色以 `theme.css`、`--cyber-*` 和 `--accent` 的当前实现为准；
 - 存量圆角、旧窗口样式和局部硬编码在触及对应组件时处理，不进行没有用户目标的全仓批量改写；
@@ -563,9 +563,9 @@ Agent Composer 根据来源选择遮罩：历史模态使用遮罩，桌宠和 N
 - [`web-frontend-architecture.md`](./web-frontend-architecture.md)：目录职责、依赖方向、公开面和架构门禁；
 - [`vue3-page-building-standard.md`](./vue3-page-building-standard.md)：View、Controller、Presenter、状态、可访问性和测试分层；
 - [`docs/frontend/README.md`](../../frontend/README.md)：前端模块入口和专题导航；
-- [`web/src/styles/theme.css`](../../../web/src/styles/theme.css)：全局 token、主题和代码高亮；
-- [`web/src/styles/overlayLayers.ts`](../../../web/src/styles/overlayLayers.ts)：窗口和 overlay 层级；
-- [`web/src/composables/renderQuality.ts`](../../../web/src/composables/renderQuality.ts)：质量档和自适应 governor；
-- [`web/src/composables/useRenderedMarkdown.ts`](../../../web/src/composables/useRenderedMarkdown.ts)：流式 Markdown 更新策略；
-- [`web/src/main.ts`](../../../web/src/main.ts) 与 [`web/src/App.vue`](../../../web/src/App.vue)：应用初始化和 surface 组装；
-- [`web/test/`](../../../web/test/)：前端模型、交互、样式、架构和性能测试。
+- [`apps/web/src/styles/theme.css`](../../../apps/web/src/styles/theme.css)：全局 token、主题和代码高亮；
+- [`apps/web/src/styles/overlayLayers.ts`](../../../apps/web/src/styles/overlayLayers.ts)：窗口和 overlay 层级；
+- [`apps/web/src/composables/renderQuality.ts`](../../../apps/web/src/composables/renderQuality.ts)：质量档和自适应 governor；
+- [`apps/web/src/composables/useRenderedMarkdown.ts`](../../../apps/web/src/composables/useRenderedMarkdown.ts)：流式 Markdown 更新策略；
+- [`apps/web/src/main.ts`](../../../apps/web/src/main.ts) 与 [`apps/web/src/App.vue`](../../../apps/web/src/App.vue)：应用初始化和 surface 组装；
+- [`apps/web/test/`](../../../apps/web/test)：前端模型、交互、样式、架构和性能测试。

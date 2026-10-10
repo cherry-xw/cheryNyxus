@@ -25,7 +25,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 
 function configuredLinkRoots() {
-  return docsConfig.managedRoots.filter((root) => root.linkCheck !== false).map((root) => root.path);
+  return [...new Set([...docsConfig.rootEntries, ...docsConfig.managedRoots.filter((root) => root.linkCheck !== false).map((root) => root.path), '.chery.template/docs', 'apps/manager/src/modules', 'packages', 'deployment'])];
 }
 
 function parseArgs(argv) {
@@ -111,6 +111,12 @@ export function resolveTarget(sourceFile, href, repoRoot) {
   }
 
   const candidate = path.resolve(path.dirname(sourceFile), pathPart);
+  const relative = path.relative(repoRoot, candidate).split(path.sep).join('/');
+  const movedRoots = { src: 'apps/backend/src', web: 'apps/web', manager: 'apps/manager', relay: 'apps/relay', firmware: 'platform/ESP32' };
+  const root = relative.split('/')[0];
+  if (movedRoots[root]) {
+    return { error: `旧源码路径已迁移：${href}；使用 ${movedRoots[root]}` };
+  }
   const candidates = [candidate];
   if (!path.extname(candidate)) {
     candidates.push(`${candidate}.md`, `${candidate}.mdx`, path.join(candidate, 'README.md'));
