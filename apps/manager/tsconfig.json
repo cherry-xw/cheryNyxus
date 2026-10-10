@@ -1,6 +1,15 @@
 {
-  "extends": "../tsconfig.json",
-  "compilerOptions": { "baseUrl": "..", "paths": { "@chery/manager/*": ["manager/src/*"] } },
-  "include": ["src/**/*.ts"],
-  "exclude": ["../node_modules", "../dist", "../web"]
+  "extends": "../backend/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@/*": ["apps/backend/src/*"],
+      "@test/*": ["apps/backend/test/*"],
+      "@chery/protocol": ["packages/protocol/src/index.ts"],
+      "@chery/protocol/*": ["packages/protocol/src/*"],
+      "@chery/manager/*": ["apps/manager/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "ui/usePlugins.ts", "../../packages/manager-ui/src/**/*.ts"],
+  "exclude": ["../../node_modules", "../../dist", "../web"]
 }
