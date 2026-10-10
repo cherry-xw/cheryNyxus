@@ -1,0 +1,106 @@
+.manager {
+  position: relative;
+}
+.manager.manager-login {
+  width: min(100%, 560px);
+  min-height: 0;
+}
+.manager-login .login {
+  max-width: none;
+  margin: 10px 0 0;
+}
+.password-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.login .password-field input {
+  flex: 1;
+  min-width: 0;
+}
+.password-field button {
+  flex: none;
+}
+.plugin-desktop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+  overflow: hidden;
+}
+.plugin-window {
+  position: absolute;
+  width: min(960px, calc(100% - 32px));
+  height: min(740px, calc(100% - 32px));
+  min-height: 240px;
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  padding: 3px;
+  box-shadow: 3px 3px 0 #111;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+}
+.plugin-window-title {
+  flex: none;
+  touch-action: none;
+  user-select: none;
+  cursor: move;
+  align-items: center;
+  padding: 3px 6px;
+}
+.plugin-window-title button {
+  min-height: 22px;
+  margin: 0;
+  padding: 0 6px;
+}
+.plugin-window nav {
+  flex: none;
+  flex-wrap: wrap;
+}
+.plugin-window > p {
+  margin: 4px 8px;
+  flex: none;
+}
+.plugin-window-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.plugin-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.plugin-page p {
+  margin: 4px;
+  flex: none;
+}
+.plugin-page iframe {
+  flex: 1;
+  min-height: 160px;
+  width: 100%;
+  border: 2px inset #fff;
+  background: #d4d0c8;
+}
+.plugin-window textarea {
+  width: 100%;
+}
+@media (max-width: 600px) {
+  body {
+    padding: 8px;
+  }
+  .manager {
+    min-height: calc(100vh - 16px);
+  }
+  .manager header {
+    flex-wrap: wrap;
+  }
+  .manager nav {
+    flex-wrap: wrap;
+  }
+  .plugin-window {
+    width: calc(100% - 16px);
+  }
+}
