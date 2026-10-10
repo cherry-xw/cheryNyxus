@@ -5,6 +5,7 @@ import { LogLevel } from '@/utils/logger/types'
 import { estimateTokens } from '@/utils/token.js'
 import type { AgentMessage, AgentMessagePatch, SoulGroup, UserInputEntry } from './types'
 import type { ToolAuthorization } from '../security/rolePolicy.js'
+import type { ObservationEnvelope } from '../sense/senseCreator'
 
 /**
  * 消息变更结果（Journal 写操作的返回，供 checkpoint yield message_created/message_updated effect）。
@@ -69,7 +70,10 @@ export class MessageJournal {
   }): boolean {
     const index = this.soul.userInputs.findIndex((entry) => {
       if (matcher.inputId !== undefined && entry.inputId === matcher.inputId) return true
-      if (matcher.clientMessageId !== undefined && entry.clientMessageId === matcher.clientMessageId)
+      if (
+        matcher.clientMessageId !== undefined &&
+        entry.clientMessageId === matcher.clientMessageId
+      )
         return true
       if (matcher.commandId !== undefined && entry.commandId === matcher.commandId) return true
       return false
@@ -116,6 +120,9 @@ export class MessageJournal {
       content: trimmed,
       time: Date.now(),
       ...(metadata?.inputId ? { inputId: metadata.inputId } : {}),
+      ...(metadata?.requestIdentity ? { requestIdentity: metadata.requestIdentity } : {}),
+      ...(metadata?.requestExecution ? { requestExecution: metadata.requestExecution } : {}),
+      ...(metadata?.requestId ? { requestId: metadata.requestId } : {}),
       ...(metadata?.messageId ? { messageId: metadata.messageId } : {}),
       ...(metadata?.clientMessageId ? { clientMessageId: metadata.clientMessageId } : {}),
       ...(metadata?.commandId ? { commandId: metadata.commandId } : {}),
@@ -141,6 +148,7 @@ export class MessageJournal {
     const messages = this.soul.messages ?? []
     const created: AgentMessage[] = []
     for (const input of inputs) {
+      if (!input.ephemeral && created.some((message) => !message.ephemeral)) break
       const msgId = input.messageId ?? randomUUID()
       const updateAt = Date.now()
       messages.push({
@@ -165,7 +173,7 @@ export class MessageJournal {
       })
     }
     this.soul.messages = messages
-    inputs.length = 0 // drain（避免重复处理）
+    inputs.splice(0, created.length)
     return { messages: created, consumedCount: created.length }
   }
 
@@ -342,18 +350,24 @@ export class MessageJournal {
    * - normal（新 sense）：追加新消息，返回 created mutation。
    * 保留 findIndex-by-id + in-place 语义（resume Case1 依赖）。
    */
-  completeSense(result: { id: string; content: string; hash?: string }): MessageMutation {
+  completeSense(result: {
+    id: string
+    content: string
+    hash?: string
+    observation?: ObservationEnvelope
+  }): MessageMutation {
     const messages = this.soul.messages ?? []
     const existingIdx = messages.findIndex((m) => m.id === result.id)
     if (existingIdx !== -1) {
       const existing = messages[existingIdx]!
       existing.content = result.content
       if (result.hash) existing.hash = result.hash
+      if (result.observation) existing.observation = result.observation
       existing.updateAt = Date.now()
       return {
         type: 'updated',
         id: result.id,
-        patch: { content: result.content, hash: result.hash },
+        patch: { content: result.content, hash: result.hash, observation: result.observation },
       }
     }
     const senseMsg: LLMResponse = {
@@ -361,6 +375,7 @@ export class MessageJournal {
       role: 'sense',
       content: result.content,
       hash: result.hash,
+      observation: result.observation,
       createdAt: Date.now(),
       updateAt: Date.now(),
     }
@@ -368,7 +383,13 @@ export class MessageJournal {
     this.soul.messages = messages
     return {
       type: 'created',
-      message: { id: result.id, role: 'sense', content: result.content, hash: result.hash },
+      message: {
+        id: result.id,
+        role: 'sense',
+        content: result.content,
+        hash: result.hash,
+        observation: result.observation,
+      },
     }
   }
 

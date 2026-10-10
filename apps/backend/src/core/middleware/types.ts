@@ -7,7 +7,15 @@ import type {
 } from '../message/adapter'
 import type { LLMAdapter } from '../llm/adapter'
 import type { SenseAdapter, SenseCallData, SenseFunction } from '../sense/adapter'
-import type { SenseResult, SenseSharedData, SenseRuntimeContext } from '../sense/senseCreator'
+import type {
+  ObservationEnvelope,
+  SenseExecutionError,
+  SenseCheckpoint,
+  SenseRecoveryState,
+  SenseResult,
+  SenseSharedData,
+  SenseRuntimeContext,
+} from '../sense/senseCreator'
 import type { CompiledRuleSet } from '../sense/ruleLoader.js'
 import type { AcceptanceExecutionPolicy, CompiledRoleSecurity } from '../security/rolePolicy.js'
 import type { ToolAuthorization } from '../security/rolePolicy.js'
@@ -23,6 +31,13 @@ export type { LLMAdapter } from '../llm/adapter'
  * 用户输入条目
  */
 export interface UserInputEntry {
+  requestExecution?: {
+    signal?: AbortSignal
+    execution?: { toolHistory: 'request'; retry: 'never' }
+    validate(): void
+  }
+  requestId?: string
+  requestIdentity?: Readonly<import('@/service/ingress/api.js').IngressRequestIdentity>
   inputId?: string
   messageId?: string
   clientMessageId?: string
@@ -96,6 +111,8 @@ export interface SenseEntry {
  * 由 builder 层构建摊平后注入，ctx 运行期不再依赖 SenseManager。
  */
 export interface RuntimeConfig {
+  brainName?: string
+  unavailableTools?: import('@/service/ingress/api.js').IngressUnavailableTool[]
   /** Brain 服务配置（model/url/key/thinking/provider） */
   brain: BrainConfig
   /** Provider adapter 实例集合（llm/message/sense，随 brain.provider 决定） */
@@ -141,6 +158,8 @@ export interface AgentMessage {
   updateAt?: number
   /** 感官执行结果的 hash */
   hash?: string
+  /** Optional structured observation metadata for sense results. */
+  observation?: ObservationEnvelope
   /** 已撤回 */
   revoked?: boolean
   /** Incomplete model turn kept for display but excluded from later model requests. */
@@ -174,6 +193,7 @@ export type AgentMessagePatch =
         security?: ToolAuthorization
       }>
       hash?: string
+      observation?: ObservationEnvelope
     }
   | {
       kind: 'replace'
@@ -187,6 +207,14 @@ export type AgentMessagePatch =
  * 中间件上下文 - 简化结构
  */
 export interface MiddlewareContext {
+  requestExecution?: {
+    signal?: AbortSignal
+    execution?: { toolHistory: 'request'; retry: 'never' }
+    validate(): void
+  }
+  refreshRequestRuntime?: () => void
+  requestView?: Readonly<import('@/service/ingress/api.js').IngressRequestView>
+  requestSessionStarted?: boolean
   /** 灵魂分组：聊天标识和上下文关联 */
   soul: SoulGroup
   /** 请求分组：本次请求的输入和模式 */
@@ -284,6 +312,7 @@ export interface SenseStartedChunk {
   arguments: string
   /** 真正开始执行的时间戳（ms） */
   startedAt: number
+  operationId?: string
   /** 本次执行的最终安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧调用方） */
   security?: ToolAuthorization
 }
@@ -302,6 +331,17 @@ export interface SenseAcceptChunk {
   result: string
   /** 结果 hash（用于历史去重） */
   hash?: string
+  /** Typed observation metadata, retained alongside legacy result text. */
+  observation?: ObservationEnvelope
+  /** Machine-readable execution state; omitted means legacy success. */
+  status?: import('../sense/senseCreator').SenseResultStatus
+  errorCode?: import('../sense/senseCreator').SenseErrorCode
+  error?: SenseExecutionError
+  checkpoint?: SenseCheckpoint
+  recovery?: SenseRecoveryState
+  operationId?: string
+  durationMs?: number
+  truncated?: boolean
 }
 
 /**
@@ -316,6 +356,15 @@ export interface SenseRejectChunk {
   name: string
   /** 拒绝原因 */
   reason: string
+  /** Machine-readable execution state for an execution failure. */
+  status?: import('../sense/senseCreator').SenseResultStatus
+  errorCode?: import('../sense/senseCreator').SenseErrorCode
+  error?: SenseExecutionError
+  checkpoint?: SenseCheckpoint
+  recovery?: SenseRecoveryState
+  operationId?: string
+  durationMs?: number
+  truncated?: boolean
 }
 
 /**

@@ -6,6 +6,7 @@ import type { MessageLinkData } from './messageLink.js'
 import { safeJsonParse } from '@/utils/json.js'
 import type { ThinkingBlock } from '@/core/message/adapter.js'
 import type { ToolAuthorization } from '@/core/security/index.js'
+import type { ObservationEnvelope } from '@/core/sense/senseCreator.js'
 import { assertChanged, getChatMonthlyDb } from './chatStorage.js'
 
 export interface MessageRow {
@@ -18,6 +19,7 @@ export interface MessageRow {
   thinking_blocks: string | null
   sense_calls: string | null
   hash: string | null
+  observation: string | null
   replace_state: number | null
   replace_by: string | null
   replace_content: string | null
@@ -48,6 +50,7 @@ export interface MessageData {
     security?: ToolAuthorization
   }>
   hash?: string
+  observation?: ObservationEnvelope
   replace?: {
     state: boolean
     by: string
@@ -71,8 +74,8 @@ export interface MessageData {
 }
 
 /**
- * preview 单行规范化（CP8）：折叠空白 + 截断 ≤40 字符。
- * TODO(CP8 "指令"跳过)：当前默认取首条 user 消息（isDirective=false）。
+ * preview 单行规范化：折叠空白 + 截断 ≤40 字符。
+ * TODO("指令"跳过)：当前默认取首条 user 消息（isDirective=false）。
  *   定义指令标记后，改为取首条「非指令」user 消息（需查多条 user 消息）。
  */
 function normalizePreview(content: string | null): string {
@@ -81,7 +84,7 @@ function normalizePreview(content: string | null): string {
 }
 
 /**
- * 批量取 chat 的会话列表 preview + turnCount（CP8）。
+ * 批量取 chat 的会话列表 preview + turnCount。
  * 按 messages_month 分组（消息按月分片，跨月分别查），每 group 一条 SQL：
  *   首条 user 消息 content（相关子查询 MIN created_at）+ user 消息计数。
  * 返回 Map<chatId, {preview, turnCount}>；无 user 消息的 chat 默认 {preview:"",turnCount:0}。
@@ -154,8 +157,8 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
   const now = Date.now()
 
   const stmt = monthlyDb.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, model_excluded, created_at, runtime, context_compaction, context_compaction_tokens, epoch_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, observation, replace_state, replace_by, replace_content, original_content, revoked, model_excluded, created_at, runtime, context_compaction, context_compaction_tokens, epoch_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   stmt.run(
@@ -167,6 +170,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
     data.senseCall ? JSON.stringify(data.senseCall) : null,
     data.hash ?? null,
+    data.observation ? JSON.stringify(data.observation) : null,
     data.replace?.state ? 1 : 0,
     data.replace?.by ?? null,
     data.replace?.content ?? null,
@@ -197,6 +201,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     thinking_blocks: data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
     sense_calls: data.senseCall ? JSON.stringify(data.senseCall) : null,
     hash: data.hash ?? null,
+    observation: data.observation ? JSON.stringify(data.observation) : null,
     replace_state: data.replace?.state ? 1 : 0,
     replace_by: data.replace?.by ?? null,
     replace_content: data.replace?.content ?? null,
@@ -251,7 +256,7 @@ export function getLastMessage(chatId: string): MessageRow | null {
 export function fillApprovalResult(
   chatId: string,
   messageId: string,
-  fields: { content?: string; hash?: string },
+  fields: { content?: string; hash?: string; observation?: ObservationEnvelope },
 ): void {
   const monthlyDb = getChatMonthlyDb(chatId)
   if (!monthlyDb) return
@@ -265,6 +270,10 @@ export function fillApprovalResult(
   if (fields.hash !== undefined) {
     sets.push('hash = ?')
     vals.push(fields.hash)
+  }
+  if (fields.observation !== undefined) {
+    sets.push('observation = ?')
+    vals.push(JSON.stringify(fields.observation))
   }
   if (sets.length === 0) return
 
@@ -393,6 +402,9 @@ export function parseMessageRow(row: MessageRow): MessageData {
       : undefined,
     senseCall: row.sense_calls ? safeJsonParse(row.sense_calls, undefined) : undefined,
     hash: row.hash ?? undefined,
+    observation: row.observation
+      ? safeJsonParse<ObservationEnvelope | undefined>(row.observation, undefined)
+      : undefined,
     replace: row.replace_state
       ? { state: true, by: row.replace_by ?? '', content: row.replace_content ?? '' }
       : undefined,

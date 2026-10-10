@@ -264,6 +264,32 @@ describe('CheckpointState.appendResponseMessages', () => {
     expect(ctx.soul.messages!.some((m) => m.id === 'new-sense' && m.role === 'sense')).toBe(true)
   })
 
+  it('结构化 observation 随结果消息回灌并保留来源', () => {
+    const s = new CheckpointState()
+    s.ingest({
+      type: 'sense_accept',
+      id: 'observation-sense',
+      name: 'web_search',
+      result: 'external data',
+      observation: {
+        kind: 'observation',
+        content: 'external data',
+        sources: [{ url: 'https://example.com', citationId: 'c1' }],
+        observedAt: '2026-10-03T00:00:00.000Z',
+        untrusted: true,
+      },
+    })
+    const mutations = s.appendResponseMessages(createMockContext({ messages: [] }))
+    const created = mutations.find((m) => m.type === 'created' && m.message.role === 'sense')
+    expect(
+      created && created.type === 'created' ? created.message.observation : undefined,
+    ).toMatchObject({
+      kind: 'observation',
+      sources: [{ citationId: 'c1' }],
+      untrusted: true,
+    })
+  })
+
   it('sense result 已存在（recovery）→ updated 原地更新', () => {
     const s = new CheckpointState()
     s.ingest({

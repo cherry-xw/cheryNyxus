@@ -21,6 +21,7 @@ import { newTracingId } from '@/utils/error.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import type { Logger } from '@/utils/logger/types.js'
+import type { IngressRpcRegistration } from '../ingress/api.js'
 
 // ========== Handler 类型 ==========
 
@@ -30,6 +31,7 @@ import type { Logger } from '@/utils/logger/types.js'
 export interface HandlerContext {
   requestId?: string
   connectionId: string
+  credentialKind?: string
   /** 作用域 Logger 句柄（= 全局 logger，读 ALS 取 scope） */
   log: Logger
 }
@@ -67,20 +69,45 @@ interface HandlerDefinition {
  */
 export class RpcRouter {
   private handlers = new Map<Method, HandlerDefinition>()
+  private extensions = new Map<string, IngressRpcRegistration<unknown, unknown>>()
+
+  /** Dynamic packages must supply both schemas and an explicit permission check. */
+  registerExtension<P, R>(definition: IngressRpcRegistration<P, R>): () => void {
+    if (
+      !/^[a-z][a-zA-Z0-9_.-]{1,127}$/.test(definition.method) ||
+      this.handlers.has(definition.method as Method) ||
+      this.extensions.has(definition.method) ||
+      requestSchemaFor(definition.method as Method)
+    ) {
+      throw new Error(`Duplicate or reserved RPC method: ${definition.method}`)
+    }
+    const erased = definition as IngressRpcRegistration<unknown, unknown>
+
+    this.extensions.set(definition.method, erased)
+    return () => {
+      if (this.extensions.get(definition.method) === erased)
+        this.extensions.delete(definition.method)
+    }
+  }
 
   /**
    * 注册 handler
    */
   register<M extends Method>(method: M, handler: HandlerFn<M>): void {
-    if (this.handlers.has(method)) {
+    if (this.handlers.has(method) || this.extensions.has(method)) {
       throw new Error(`Duplicate RPC handler registration: ${method}`)
     }
     this.handlers.set(method, { method, handler: handler as unknown as ErasedHandlerFn })
   }
 
   /** Stable read-only snapshot used by startup assertions and contract tests. */
+  isExtension(method: string): boolean {
+    return this.extensions.has(method)
+  }
   registeredMethods(): readonly Method[] {
-    return Object.freeze([...this.handlers.keys()].sort())
+    return Object.freeze(
+      [...this.handlers.keys(), ...(this.extensions.keys() as Iterable<Method>)].sort(),
+    )
   }
 
   /**
@@ -90,6 +117,57 @@ export class RpcRouter {
     request: Request,
     ctx: HandlerContext,
   ): Promise<Response | AsyncGenerator<Chunk | Notification, Response, unknown>> {
+    if (
+      ctx.credentialKind &&
+      ctx.credentialKind !== 'control' &&
+      !this.extensions.has(request.method)
+    ) {
+      return createResponse(
+        request.id,
+        false,
+        undefined,
+        createError(ErrorCode.INVALID_PARAMS, '此连接没有操作权限'),
+      )
+    }
+    const extension = this.extensions.get(request.method)
+    if (extension) {
+      try {
+        if (!(await extension.authorize(ctx)))
+          return createResponse(
+            request.id,
+            false,
+            undefined,
+            createError('FORBIDDEN', '此连接没有操作权限'),
+          )
+        const params = extension.request.safeParse(request.params)
+        if (!params.success)
+          return createResponse(
+            request.id,
+            false,
+            undefined,
+            createError(ErrorCode.INVALID_PARAMS, '请求参数无效'),
+          )
+        const result = await extension.handler(ctx, params.data)
+        const data = extension.response.safeParse(result)
+        if (!data.success)
+          return createResponse(
+            request.id,
+            false,
+            undefined,
+            createError(ErrorCode.INTERNAL, '插件返回了无效数据'),
+          )
+        // The wire envelope is shared; dynamic payload types are owned by their schemas.
+        return createResponse(request.id, true, data.data as ResponseData)
+      } catch (error) {
+        const rpcError = toRpcError(error)
+        return createResponse(
+          request.id,
+          false,
+          undefined,
+          createError(rpcError.code, rpcError.message),
+        )
+      }
+    }
     const definition = this.handlers.get(request.method)
     if (!definition) {
       return createResponse(

@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto'
+import { ingressExecution } from '../ingress/request.js'
+
 import type { HandlerContext } from '../message/router.js'
 import {
   createNotification,
@@ -54,6 +56,8 @@ export async function handleChatInputSubmit(
   data: ChatInputSubmitRequestData,
 ): Promise<ChatInputSubmitResponseData> {
   if (!data.content.trim()) throw new Error('输入内容不能为空')
+  if ('platformIdentity' in data || 'contextLimit' in data) throw new Error('IDENTITY_REJECTED')
+  ingressExecution.getStore()?.validate()
   const claimed = claimRequest(data.commandId, Method.CHAT_INPUT_SUBMIT, data)
   if (claimed.state === 'completed') {
     return JSON.parse(claimed.responseJson) as ChatInputSubmitResponseData
@@ -67,9 +71,12 @@ export async function handleChatInputSubmit(
     if (chat.parent_chat_id && data.controlRootChatId !== getRootChatId(data.chatId)) {
       throw new Error('用户输入只能提交到主 Agent')
     }
+
     const agent = await ensureChat(data.chatId)
     assertRestartAdmission()
     const running = agent.isRunning()
+    if (ingressExecution.getStore()?.execution?.toolHistory === 'request' && running)
+      throw new Error('Request-local inputs must wait for the previous run')
     const pending = getPendingChatInputs(data.chatId)
     if (pending.length >= 16) throw new UserInputQueueFullError()
 
@@ -77,7 +84,9 @@ export async function handleChatInputSubmit(
     const messageId = data.messageId
     const runId = getActiveChatRunId(data.chatId) ?? ctx.requestId ?? randomUUID()
     const acceptedAt = Date.now()
-    updateChatMetadata(data.chatId, { lastUserActivityAt: acceptedAt })
+    updateChatMetadata(data.chatId, {
+      lastUserActivityAt: acceptedAt,
+    })
     // The active input has already left builder.pending when a later command
     // arrives, but it remains sequence 1 in the current run.
     const queueSequence = pending.length + (running ? 2 : 1)
@@ -87,6 +96,9 @@ export async function handleChatInputSubmit(
       messageId,
       clientMessageId: data.clientMessageId,
       commandId: data.commandId,
+      requestIdentity: ingressExecution.getStore()?.identity,
+      requestExecution: ingressExecution.getStore(),
+      requestId: running ? randomUUID() : runId,
     })
     if (!entry) throw new Error('输入内容不能为空')
 
@@ -180,7 +192,7 @@ export async function handleChatInputSubmit(
 
     // Start the normal stream out-of-band. Existing chat.send remains unchanged;
     // this path only feeds the pre-enqueued, ID-bearing input into that runner.
-    void (async () => {
+    const execute = async () => {
       try {
         const generator = handleChatSend(
           { ...ctx, requestId: runId },
@@ -211,10 +223,11 @@ export async function handleChatInputSubmit(
       } catch (err) {
         logger.event('chat.input.submit.run_failed', {
           chatId: data.chatId,
-          message: (err as Error).message,
+          message: ingressExecution.getStore() ? 'Plugin run failed' : (err as Error).message,
         })
       }
-    })()
+    }
+    void execute()
 
     return response
   } catch (cause) {

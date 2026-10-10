@@ -1,5 +1,10 @@
 import { updateChatMetadata, getTimelineRevision } from '@/db/chat.js'
-import { addMessage, fillApprovalResult, markMessageReplaced, updateAssistantSenseCalls } from '@/db/message.js'
+import {
+  addMessage,
+  fillApprovalResult,
+  markMessageReplaced,
+  updateAssistantSenseCalls,
+} from '@/db/message.js'
 import { getActiveChatRunId, getChatRuntimeProvenance } from './runtimeCache.js'
 import { approvalManager } from '../approval/manager.js'
 import { getSense } from '@/core/sense/senseRegistry.js'
@@ -105,6 +110,7 @@ export async function* observeAgentChunks(
             thinkingBlocks: chunk.message.thinkingBlocks,
             senseCall: chunk.message.senseCalls,
             hash: chunk.message.hash,
+            observation: chunk.message.observation,
             contextCompaction: chunk.message.contextCompaction,
             contextCompactionTokens: chunk.message.contextCompactionTokens,
             // 仅 user 消息记 runtime（发送时配置 + brain model/provider 溯源快照）；assistant/sense 不记 NULL
@@ -163,6 +169,7 @@ export async function* observeAgentChunks(
         fillApprovalResult(chatId, chunk.id, {
           content: chunk.patch.content,
           hash: chunk.patch.hash,
+          observation: chunk.patch.observation,
         })
         if (chunk.patch.content !== undefined && !chunk.patch.senseCalls)
           workflowRecorder.recordCommittedMessage({ id: chunk.id, role: 'sense' })

@@ -18,6 +18,7 @@ import { buildSpawnRoleSense } from './sense/spawn.js'
 import { compileRoleSecurity } from '@/core/security/index.js'
 import type { AcceptanceExecutionPolicy } from '@/core/security/rolePolicy.js'
 import { getChatType } from '@/db/chat.js'
+import { getSenseOrigin, getUnavailableSense } from '@/core/sense/senseRegistry.js'
 
 export interface RuntimeSelection {
   brain: string
@@ -221,7 +222,7 @@ export class RuntimeResolver {
         ? { ...resolved.brain, thinking: selection.thinking }
         : resolved.brain
     const { adapters } = resolved
-    let { builtSenses, senseTable } = this.resolveSense(
+    const resolvedSenses = this.resolveSense(
       config,
       adapters.senseAdapter,
       selection.senseGroup,
@@ -229,6 +230,8 @@ export class RuntimeResolver {
       opts?.injectMemoryManage ?? true,
       opts?.chatId,
     )
+    let { builtSenses, senseTable } = resolvedSenses
+    const { unavailableTools } = resolvedSenses
 
     if (opts?.acceptance) {
       const allowed = new Set(opts.acceptance.allowedTools)
@@ -238,6 +241,8 @@ export class RuntimeResolver {
 
     const roleType = opts?.roleName ?? (opts?.chatId ? getChatType(opts.chatId) : undefined)
     return {
+      brainName: selection.brain,
+      unavailableTools,
       brain,
       adapters,
       builtSenses,
@@ -304,7 +309,11 @@ export class RuntimeResolver {
     mcpServers: string[],
     injectMemoryManage = true,
     chatId?: string,
-  ): { builtSenses: SenseFunction[]; senseTable: Map<string, SenseEntry> } {
+  ): {
+    builtSenses: SenseFunction[]
+    senseTable: Map<string, SenseEntry>
+    unavailableTools?: import('@/service/ingress/api.js').IngressUnavailableTool[]
+  } {
     const resolved = new Map<string, Sense<ZodType>>()
 
     if (!senseGroup) return { builtSenses: [], senseTable: new Map() }
@@ -323,9 +332,7 @@ export class RuntimeResolver {
       )
         continue
       let original = getSense(senseName)
-      if (!original) {
-        throw new Error(`感官 "${senseName}" 不存在，请在设置里检查`)
-      }
+      if (!original || getSenseOrigin(senseName)?.available?.() === false) continue
 
       // spawn_role：「可见即可选」——按当前 chat roster 裁剪工具定义（preset 编制 + self-spawn 排除）。
       // 工具 type 枚举只暴露本 chat 可派发角色，LLM 不再选到别处角色（原有执行期 roster gate 保留为纵深防御）。
@@ -367,6 +374,21 @@ export class RuntimeResolver {
     return {
       builtSenses: senseAdapter.buildSenses(senses),
       senseTable: this.buildSenseTable(senses, config),
+      unavailableTools: group.flatMap((entry) => {
+        const { senseName: name } = this.parseSenseGroupEntry(entry)
+        if (resolved.has(name)) return []
+        const origin = getSenseOrigin(name)
+        return [
+          {
+            name,
+            source: origin?.source,
+            pluginId: origin?.pluginId,
+            reason:
+              getUnavailableSense(name)?.reason ??
+              (origin?.pluginId ? ('plugin_disabled' as const) : ('not_found' as const)),
+          },
+        ]
+      }),
     }
   }
 
@@ -403,10 +425,32 @@ export class RuntimeResolver {
     const senseTable = new Map<string, SenseEntry>()
     for (const s of senses) {
       const name = s.definition.function.name
+      const registeredExecutor = getSense(name)?.executor
       senseTable.set(name, {
         supervisionLevel: s.supervisionLevel ?? config.global.supervision,
-        execute: (args, sharedData, ctx) =>
-          s.executor.execute(args as Parameters<typeof s.executor.execute>[0], sharedData, ctx),
+        execute: (args, sharedData, ctx) => {
+          const origin = getSenseOrigin(name)
+          if (
+            !registeredExecutor ||
+            getSense(name)?.executor !== registeredExecutor ||
+            origin?.available?.() === false
+          )
+            return Promise.resolve({
+              content: JSON.stringify({
+                status: 'unavailable',
+                error: {
+                  code: 'TOOL_UNAVAILABLE',
+                  reason: getUnavailableSense(name)?.reason ?? 'plugin_disabled',
+                  toolName: name,
+                },
+              }),
+            })
+          return s.executor.execute(
+            args as Parameters<typeof s.executor.execute>[0],
+            sharedData,
+            ctx,
+          )
+        },
         // 透传 schema 供 senseMiddleware 执行前 safeParse（运行时校验拦截缺参调用）
         schema: s.executor.schema,
         // 透传工具能力声明（前置调度 / 发送门控 / 生成注入判断用）

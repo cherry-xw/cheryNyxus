@@ -115,6 +115,12 @@ export async function* retryMiddleware(
       }
       return // 成功，结束
     } catch (error) {
+      if (ctx.requestExecution?.execution?.retry === 'never') {
+        // Restarting this chain could repeat an already executed request-local tool.
+        if (ctx.pipeline?.isAbortRequested() || isAgentAbortError(error))
+          throw new AgentAbortError()
+        throw error // Preserve the original classified failure without replaying side effects.
+      }
       if (error instanceof ModelRequestTimeoutError) throw error
       // provider 因 AbortSignal 抛出的网络错误不能落入 retry；watchdog 已终止此 run。
       if (ctx.pipeline?.isAbortRequested()) throw new AgentAbortError()

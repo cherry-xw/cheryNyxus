@@ -1,3 +1,4 @@
+import { registerSearchSettingsHandlers } from './searchSettings.js'
 import type { HandlerContext } from '../message/router.js'
 import {
   Method,
@@ -9,6 +10,7 @@ import {
 import config from '@/utils/config'
 import { BUILTIN_SENSE_TOOLS } from '@/agent/sense/index.js'
 import { getSense } from '@/core/sense'
+import { listRegisteredSenses, getUnavailableSense } from '@/core/sense/senseRegistry.js'
 
 /**
  * 列出所有可用 sense group（config.yaml 中 sense_groups 的键）
@@ -34,18 +36,46 @@ export async function handleSenseTools(
   _params: unknown,
 ): Promise<SenseToolsResponseData> {
   return {
-    tools: BUILTIN_SENSE_TOOLS.map(({ name, label, description, icon }) => {
-      const capabilities = getSense(name)?.capabilities
-      return {
-        name,
-        label,
-        description,
-        icon,
-        ...(capabilities?.accepts?.length ? { accepts: capabilities.accepts } : {}),
-        ...(capabilities?.produces?.length ? { produces: capabilities.produces } : {}),
-        ...(capabilities?.preprocess ? { preprocess: true } : {}),
-      }
-    }),
+    tools: [
+      ...toolMetadata().map(
+        ({ name, label, description, icon, source, pluginId, pluginVersion }) => {
+          const capabilities = getSense(name)?.capabilities
+          return {
+            name,
+            label,
+            description,
+            icon,
+            source,
+            pluginId,
+            pluginVersion,
+            ...(capabilities?.accepts?.length ? { accepts: capabilities.accepts } : {}),
+            ...(capabilities?.produces?.length ? { produces: capabilities.produces } : {}),
+            ...(capabilities?.preprocess ? { preprocess: true } : {}),
+          }
+        },
+      ),
+      ...[
+        ...new Set(
+          Object.values(config.sense_groups ?? {})
+            .flat()
+            .map((entry) => entry.split(':')[0]!.trim()),
+        ),
+      ]
+        .filter((name) => !getSense(name))
+        .map((name) => {
+          const origin = getUnavailableSense(name)
+          return {
+            name,
+            label: origin?.metadata?.label ?? name,
+            description: origin?.metadata?.description ?? '',
+            icon: origin?.metadata?.icon ?? '⚙',
+            source: origin?.source,
+            pluginId: origin?.pluginId,
+            pluginVersion: origin?.pluginVersion,
+            unavailableReason: origin?.reason ?? 'not_found',
+          }
+        }),
+    ],
   }
 }
 
@@ -60,10 +90,12 @@ export async function handleSenseToolDocs(
   params: SenseToolsDocsRequestData,
 ): Promise<SenseToolsDocsResponseData> {
   const want = params.tools?.length ? new Set(params.tools) : null
-  const docs = BUILTIN_SENSE_TOOLS.filter((t) => !want || want.has(t.name)).map((t) => ({
-    name: t.name,
-    doc: t.doc,
-  }))
+  const docs = toolMetadata()
+    .filter((t) => !want || want.has(t.name))
+    .map((t) => ({
+      name: t.name,
+      doc: t.doc,
+    }))
   return { docs }
 }
 
@@ -71,7 +103,30 @@ export async function handleSenseToolDocs(
  * 注册 Sense handlers
  */
 export function registerSenseHandlers(router: import('../message/router.js').RpcRouter): void {
+  registerSearchSettingsHandlers(router)
   router.register(Method.SENSE_LIST, handleSenseList)
   router.register(Method.SENSE_TOOLS, handleSenseTools)
   router.register(Method.SENSE_TOOLS_DOCS, handleSenseToolDocs)
+}
+
+function toolMetadata() {
+  const builtin = new Map(BUILTIN_SENSE_TOOLS.map((item) => [item.name, item]))
+  return listRegisteredSenses().map(({ name, sense, origin }) => ({
+    name,
+    label: origin?.metadata?.label ?? builtin.get(name)?.label ?? name,
+    description:
+      origin?.metadata?.description ??
+      builtin.get(name)?.description ??
+      sense.definition.function.description ??
+      '',
+    icon: origin?.metadata?.icon ?? builtin.get(name)?.icon ?? '⚙',
+    doc:
+      origin?.metadata?.doc ??
+      builtin.get(name)?.doc ??
+      sense.definition.function.description ??
+      '',
+    source: origin?.source ?? ('builtin' as const),
+    pluginId: origin?.pluginId,
+    pluginVersion: origin?.pluginVersion,
+  }))
 }

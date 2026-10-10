@@ -93,6 +93,7 @@ export class CheckpointState {
     result?: string
     reason?: string
     hash?: string
+    observation?: import('@/core/sense/senseCreator.js').ObservationEnvelope
   }): void {
     switch (chunk.type) {
       case 'stream':
@@ -236,8 +237,9 @@ export class CheckpointState {
     // completeSense 内部区分 recovery（原地更新）/ normal（新建），保留 findIndex-by-id + in-place 语义。
     for (const r of this.senseResults) {
       const hash = r.type === 'sense_accept' ? r.hash : undefined
+      const observation = r.type === 'sense_accept' ? r.observation : undefined
       const content = r.type === 'sense_accept' ? r.result : `被拒绝: ${r.reason}`
-      mutations.push(ctx.journal.completeSense({ id: r.id, content, hash }))
+      mutations.push(ctx.journal.completeSense({ id: r.id, content, hash, observation }))
     }
 
     return mutations

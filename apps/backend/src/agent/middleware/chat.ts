@@ -1,4 +1,7 @@
 import { enrichMediaInputs } from './mediaEnrichment.js'
+
+import { executeRequestTool } from './tool.js'
+import { randomUUID } from 'node:crypto'
 import type {
   MiddlewareContext,
   MiddlewareChunk,
@@ -18,12 +21,16 @@ import type { LLMResponse, LLMAttachment, ThinkingBlockDelta } from '@/core/mess
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
 import config from '@/utils/config.js'
 import { dispatch } from '@/agent/hooks/index.js'
-import { ClassifiedError } from '@/utils/error.js'
+import { functionHooks } from '@/agent/hooks/functions.js'
+import { loadHookRegistry } from '@/agent/hooks/registry.js'
+import { ClassifiedError, classifyError } from '@/utils/error.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { createRequestObservation } from '@/agent/provider/requestObservation.js'
 import { estimateTokens } from '@/utils/token.js'
 import { describeFileReferences } from '@/service/workspace/handler.js'
 import { ModelRequestTimeoutError } from './requestTimeout.js'
+import { SenseCallAssembler } from './senseCallAssembler.js'
+import { requestHookContext, requestSignal } from '@/agent/hooks/request.js'
 
 /**
  * Chat Middleware
@@ -89,7 +96,9 @@ export async function* chatMiddleware(
           (ctx.runtime.brain.protocol === 'anthropic-messages' &&
             (ctx.runtime.brain.provider === 'anthropic' ||
               ctx.runtime.brain.provider === 'minimax'))),
-    signal: ctx.pipeline?.getAbortSignal(),
+    signal: requestSignal(ctx),
+    brain: ctx.runtime.brainName,
+    requestView: ctx.requestView,
   }
 
   const messages = messageAdapter.buildMessages(
@@ -194,7 +203,13 @@ export async function* chatMiddleware(
       : undefined
   let completed = false
   try {
-    if (ctx.global.stream) {
+    if (ctx.requestExecution?.execution?.toolHistory === 'request') {
+      yield* withModelDeadline(
+        handleRequestLocal(ctx, options, historyForBuild, attachments),
+        deadline,
+        timeoutMs > 0,
+      )
+    } else if (ctx.global.stream) {
       // 流式调用
       yield* withModelDeadline(
         handleStream(ctx, options, llmAdapter, messageAdapter, senseAdapter, messages, senses),
@@ -233,20 +248,6 @@ async function prepareModelHistory(ctx: MiddlewareContext): Promise<{
 }> {
   const enriched = await enrichMediaInputs(ctx, ctx.soul.messages || [])
 
-  // UserPromptSubmit hook：LLM 调用前验证/增强 prompt；decision:'block' 抛 ClassifiedError 终止本 chat
-  await runHookFailOpen('UserPromptSubmit', async () => {
-    const lastUser = [...enriched.history].reverse().find((m) => m.role === 'user')
-    await dispatch(
-      'UserPromptSubmit',
-      {
-        chatId: ctx.soul.chatId,
-        prompt: lastUser?.content ?? '',
-        role: (lastUser?.role ?? 'user') as 'user' | 'role' | 'subagent',
-      },
-      { brain: '' },
-    )
-  })
-
   // 运行时注入 <self-capabilities> system message（仅当有 [[media:]] marker 时生成）。
   // 浅拷贝 history 避免污染 soul（checkpoint 中间件不持久化此段）。
   let historyForBuild = enriched.history
@@ -277,7 +278,129 @@ async function prepareModelHistory(ctx: MiddlewareContext): Promise<{
       } as LLMResponse,
     ]
 
+  const dynamic = ctx.requestView?.contexts ?? []
+  if (dynamic.length)
+    historyForBuild = [
+      ...dynamic.map((item) => ({
+        id: randomUUID(),
+        role: 'system' as const,
+        content: item.content,
+        createdAt: Date.now(),
+        updateAt: Date.now(),
+      })),
+      ...historyForBuild,
+    ]
   return { historyForBuild, attachments: enriched.attachments }
+}
+
+/** Only the final answer leaves this request-local model/tool history. */
+async function* handleRequestLocal(
+  ctx: MiddlewareContext,
+  options: LLMOptions,
+  initial: LLMResponse[],
+  attachments?: LLMAttachment[],
+): AsyncGenerator<MiddlewareChunk> {
+  const runtime = ctx.runtime!
+  const { llmAdapter, messageAdapter, senseAdapter } = runtime.adapters
+  const history = [...initial]
+  for (let turn = 0; turn < (ctx.global.maxLoopCount ?? 30); turn++) {
+    if (options.signal?.aborted) throw new Error('Request cancelled')
+    const messages = messageAdapter.buildMessages(
+      history.filter((m) => !m.modelExcluded && !m.revoked),
+      attachments,
+      { anthropicOfficial: options.anthropicOfficial, protocol: options.protocol },
+    )
+    let content = '',
+      thinking = ''
+    let calls: SenseCallData[]
+    const blocks = new ThinkingBlockAssembler()
+    try {
+      if (ctx.global.stream) {
+        const assembler = new SenseCallAssembler()
+        const stream = await llmAdapter.chatStream(messages, runtime.builtSenses, options)
+        for await (const raw of stream) {
+          options.observation?.response(raw)
+          content += messageAdapter.extractStreamDelta(raw) || ''
+          thinking += messageAdapter.extractStreamThinking?.(raw) || ''
+          for (const op of messageAdapter.extractStreamThinkingBlocks?.(raw) ?? []) blocks.push(op)
+          for (const delta of senseAdapter.extractSenseCallDeltas(raw)) assembler.push(delta)
+        }
+        calls = assembler.toArray()
+      } else {
+        const response = await llmAdapter.chat(messages, runtime.builtSenses, options)
+        options.observation?.response(response)
+        content = messageAdapter.content(response) || ''
+        thinking = messageAdapter.thinking?.(response) || ''
+        calls = senseAdapter.senseCalls(response)
+      }
+    } catch (error) {
+      if (options.signal?.aborted) throw error
+      const status =
+        typeof error === 'object' &&
+        error !== null &&
+        'status' in error &&
+        Number.isInteger(error.status)
+          ? Number(error.status)
+          : undefined
+      logger.event(
+        'plugin.model.failed',
+        { category: classifyError(error), ...(status ? { status } : {}) },
+        LogLevel.error,
+      )
+      throw new ClassifiedError({
+        message: 'Plugin model request failed',
+        category: classifyError(error),
+        source: 'brain',
+        userMessage: '请求后端模型失败，请稍后再试。',
+      })
+    }
+    options.signal?.throwIfAborted()
+    await dispatchPostLLMResponse(ctx, {
+      provider: runtime.brain.provider,
+      content,
+      thinking: thinking || undefined,
+      thinkingBlocks: blocks.toArray(),
+      senseCalls: calls.map((call) => ({
+        id: call.id,
+        name: call.name ?? '',
+        arguments: call.arguments,
+      })),
+    })
+    options.signal?.throwIfAborted()
+    if (!calls.length) {
+      await dispatchStop(ctx, { chatId: ctx.soul.chatId, message: content, stopReason: 'end_turn' })
+      yield { type: 'stream', contentDelta: content, thinkingDelta: '' }
+      return
+    }
+    const now = Date.now()
+    const complete = calls.map((call) => ({
+      id: call.id || randomUUID(),
+      name: call.name || '',
+      arguments: call.arguments,
+    }))
+    history.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content,
+      thinking,
+      thinkingBlocks: blocks.toArray(),
+      senseCalls: complete,
+      createdAt: now,
+      updateAt: now,
+    })
+    for (const call of complete) {
+      if (options.signal?.aborted) throw new Error('Request cancelled')
+      const result = yield* executeRequestTool(ctx, call.name, call.arguments, call.id)
+      history.push({
+        id: call.id,
+        role: 'sense',
+        content: result,
+        createdAt: now,
+        updateAt: Date.now(),
+      })
+    }
+  }
+  throw new Error('Request tool iteration limit reached')
 }
 
 /** Stop waiting even if an upstream adapter fails to settle after its signal is aborted. */
@@ -331,6 +454,13 @@ async function* handleStream(
   const senseCallsAccumulated: SenseCallData[] = []
   // Anthropic 扩展：累积 thinking blocks（含 signature）；仅当 provider 实现 extractStreamThinkingBlocks 时填充。
   const thinkingAssembler = new ThinkingBlockAssembler()
+  const pending: StreamChunk[] = []
+  // Response policies hold output until approval; streams without a policy stay live.
+  const holdOutput =
+    functionHooks('PostLLMResponse').length > 0 ||
+    (loadHookRegistry().PostLLMResponse ?? []).some(
+      (hook) => !hook.brain || hook.brain === options.brain,
+    )
 
   for await (const rawChunk of streamIterator) {
     options.observation?.response(rawChunk)
@@ -355,13 +485,15 @@ async function* handleStream(
 
     // yield stream chunk（包含 senseDelta）
     if (thinkingDelta || contentDelta || senseDelta.length > 0 || thinkingBlocksDelta.length > 0) {
-      yield {
+      const chunk: StreamChunk = {
         type: 'stream',
         thinkingDelta,
         contentDelta,
         senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
         thinkingBlocksDelta: thinkingBlocksDelta.length > 0 ? thinkingBlocksDelta : undefined,
       }
+      if (holdOutput) pending.push(chunk)
+      else yield chunk
     }
   }
 
@@ -376,6 +508,7 @@ async function* handleStream(
   })
 
   // PostLLMResponse + Stop hook（流式末尾）
+  options.signal?.throwIfAborted()
   await dispatchPostLLMResponse(ctx, {
     provider: ctx.runtime?.brain.provider ?? '',
     content: contentAccumulated,
@@ -388,11 +521,14 @@ async function* handleStream(
       arguments: sc.arguments,
     })),
   })
-  await dispatchStop({
-    chatId: ctx.soul.chatId,
-    message: contentAccumulated,
-    stopReason: 'end_turn',
-  })
+  options.signal?.throwIfAborted()
+  if (!senseCallsAccumulated.length)
+    await dispatchStop(ctx, {
+      chatId: ctx.soul.chatId,
+      message: contentAccumulated,
+      stopReason: 'end_turn',
+    })
+  for (const chunk of pending) yield chunk
 }
 
 /**
@@ -431,17 +567,8 @@ async function* handleNonStream(
     senseCalls: senseDelta.length,
   })
 
-  // yield stream chunk（包含 senseDelta）
-  if (content || thinking || senseDelta.length > 0) {
-    yield {
-      type: 'stream',
-      thinkingDelta: thinking || '',
-      contentDelta: content || '',
-      senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
-    }
-  }
-
   // PostLLMResponse + Stop hook（非流式末尾）
+  options.signal?.throwIfAborted()
   await dispatchPostLLMResponse(ctx, {
     provider: ctx.runtime?.brain.provider ?? '',
     content,
@@ -452,11 +579,20 @@ async function* handleNonStream(
       arguments: sc.arguments,
     })),
   })
-  await dispatchStop({
-    chatId: ctx.soul.chatId,
-    message: content,
-    stopReason: 'end_turn',
-  })
+  options.signal?.throwIfAborted()
+  if (!senseDelta.length)
+    await dispatchStop(ctx, {
+      chatId: ctx.soul.chatId,
+      message: content,
+      stopReason: 'end_turn',
+    })
+  if (content || thinking || senseDelta.length > 0)
+    yield {
+      type: 'stream',
+      thinkingDelta: thinking || '',
+      contentDelta: content || '',
+      senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
+    }
 }
 
 // ========== Hooks dispatch helpers ==========
@@ -490,46 +626,31 @@ async function dispatchPostLLMResponse(
     senseCalls?: { id: string; name: string; arguments: string }[]
   },
 ): Promise<void> {
-  await runHookFailOpen(
-    'PostLLMResponse',
-    async () => {
-      await dispatch(
-        'PostLLMResponse',
-        {
-          ...payload,
-          model: ctx.runtime?.brain.model ?? '',
-        },
-        { brain: '' },
-      )
-    },
-    (error) => {
-      logger.event(
-        'hook.blocked',
-        { event: 'PostLLMResponse', reason: error.userMessage },
-        LogLevel.error,
-      )
-    },
-  )
+  await runHookFailOpen('PostLLMResponse', async () => {
+    await dispatch(
+      'PostLLMResponse',
+      {
+        ...payload,
+        model: ctx.runtime?.brain.model ?? '',
+      },
+      requestHookContext(ctx),
+    )
+  })
 }
 
 /** Stop dispatch：LLM 响应结束后审计；decision:'block' 仅 log warn（本轮不阻断） */
-async function dispatchStop(payload: {
-  chatId: string
-  message: string
-  stopReason: string
-}): Promise<void> {
+async function dispatchStop(
+  ctx: MiddlewareContext,
+  payload: {
+    chatId: string
+    message: string
+    stopReason: string
+  },
+): Promise<void> {
   await runHookFailOpen(
     'Stop',
     async () => {
-      const decision = await dispatch('Stop', payload, { brain: '' })
-      if (decision?.decision === 'block') {
-        // 本轮仅审计 log：真正的"强制继续"需 loop.ts 配合（后续扩展）
-        logger.event('hook.stop.block', {
-          chatId: payload.chatId,
-          reason: decision.reason,
-          note: '本轮仅审计，未阻断',
-        })
-      }
+      await dispatch('Stop', payload, requestHookContext(ctx))
     },
     (error) => {
       logger.event('hook.dispatch.failed', { event: 'Stop', error: error.message })

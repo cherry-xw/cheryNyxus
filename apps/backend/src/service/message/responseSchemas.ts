@@ -1,5 +1,14 @@
 import { z } from 'zod'
-import { TaskUsageDetailSchema, UsageBatchResponseSchema, UsageRequestsResponseSchema, UsageOperationsResponseSchema, UsageDailyResponseSchema, UsageDayTasksResponseSchema, ContextContentResponseSchema } from '@chery/protocol'
+import { IngressResponseSchemas } from '@chery/protocol'
+import {
+  TaskUsageDetailSchema,
+  UsageBatchResponseSchema,
+  UsageRequestsResponseSchema,
+  UsageOperationsResponseSchema,
+  UsageDailyResponseSchema,
+  UsageDayTasksResponseSchema,
+  ContextContentResponseSchema,
+} from '@chery/protocol'
 import { ArchiveListResponseSchema } from '@chery/protocol'
 import {
   ConfigApplyStateSchema,
@@ -266,6 +275,7 @@ const testConnectionResponseSchema = z.discriminatedUnion('ok', [
 ])
 
 const schemas = {
+  ...IngressResponseSchemas,
   [Method.BRAIN_LIST]: z.looseObject({ brains: objectArray, mcpServers: stringArray }),
   [Method.SENSE_LIST]: z.looseObject({ senseGroups: objectArray }),
   [Method.SENSE_TOOLS]: z.looseObject({ tools: objectArray }),
@@ -532,7 +542,16 @@ const schemas = {
     chatId: id,
     workspace: z.string(),
     path: z.string(),
-    entries: z.array(z.looseObject({ name: z.string(), path: z.string(), kind: z.enum(['file', 'directory']), size: nonNegativeInt, modifiedAt: z.number(), extension: z.string() })),
+    entries: z.array(
+      z.looseObject({
+        name: z.string(),
+        path: z.string(),
+        kind: z.enum(['file', 'directory']),
+        size: nonNegativeInt,
+        modifiedAt: z.number(),
+        extension: z.string(),
+      }),
+    ),
     nextOffset: nonNegativeInt.optional(),
   }),
   [Method.WORKSPACE_FILES_READ]: z.looseObject({
@@ -624,9 +643,13 @@ const schemas = {
   [Method.CREDENTIALS_LIST]: z.looseObject({ credentials: z.array(credentialSchema) }),
   [Method.CREDENTIALS_SAVE]: z.looseObject({ credential: credentialSchema }),
   [Method.CREDENTIALS_DELETE]: trueResult,
-} satisfies Record<MethodName, z.ZodTypeAny>
+} satisfies Record<
+  Exclude<MethodName, keyof typeof import('@chery/protocol').QQResponseSchemas>,
+  z.ZodTypeAny
+>
 
-export const responseSchemas: Readonly<Record<MethodName, z.ZodTypeAny>> = Object.freeze(schemas)
+export const responseSchemas: Readonly<Partial<Record<MethodName, z.ZodTypeAny>>> =
+  Object.freeze(schemas)
 
 export function responseSchemaFor<M extends MethodName>(method: M): z.ZodType<ResultOf<M>> {
   return responseSchemas[method] as z.ZodType<ResultOf<M>>

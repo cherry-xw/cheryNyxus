@@ -1,4 +1,5 @@
 import type { HandlerContext } from '../message/router.js'
+import { ingressExecution } from '../ingress/request.js'
 import {
   createChunk,
   createError,
@@ -17,7 +18,13 @@ import {
   type ChatAbortResponseData,
   type ChildControlTargetResult,
 } from '../message/types.js'
-import { updateChatMetadata, collectDescendantsChatIds, getTimelineRevision, getRootChatId, bumpTimelineRevision } from '@/db/chat.js'
+import {
+  updateChatMetadata,
+  collectDescendantsChatIds,
+  getTimelineRevision,
+  getRootChatId,
+  bumpTimelineRevision,
+} from '@/db/chat.js'
 import { markMessagesRevoked } from '@/db/message.js'
 import { assertChatExists } from './guards.js'
 import { deliverToSockets } from '../websocket/deliver.js'
@@ -26,7 +33,13 @@ import { hasPendingQuestionBatches } from '@/db/question.js'
 import type { StagedReverseChunkData } from '@chery/protocol'
 import { connectionManager } from '../websocket/connection.js'
 import { ensureChat, clearChatRuntime } from './runtime.js'
-import { abortChatRuntime, getChatSelection, getActiveChatRunId, activateChatRun, releaseChatRun } from './runtimeCache.js'
+import {
+  abortChatRuntime,
+  getChatSelection,
+  getActiveChatRunId,
+  activateChatRun,
+  releaseChatRun,
+} from './runtimeCache.js'
 import { clearWaitedChildrenByParent } from '@/agent/spawnBroker.js'
 import { observeAgentChunks } from './observer.js'
 import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
@@ -108,7 +121,7 @@ export async function* handleChatSend(
     chatId,
     runtime: getChatSelection(chatId),
     promptLen: data.prompt.length,
-    promptPreview: data.prompt.slice(0, 200),
+    ...(ingressExecution.getStore() ? {} : { promptPreview: data.prompt.slice(0, 200) }),
     attachmentCount: data.attachments?.length ?? 0,
   })
 
@@ -272,7 +285,7 @@ export async function* handleChatSend(
  * TODO(统一暂停语义-级联resume)：主 resume 时应级联 resume 所有因级联 abort 而暂停的后代
  *   （用户需求"主启动级联子"）。未实现——低频触发（主 spawn wait=true 后处于等待 idle 无 resume 按钮；
  *   主被 abort 时通常无 wait=true 子在等），且实现需 spawn 状态机加固（区分"暂停的子"vs"等孙的子"，
- *   避免重复 spawn 孙）。当代价路径：①子完成后 role_reply 自动唤主；②用户手动点子 pet 继续（Phase 3 放开 isMaster 守卫）。
+ *   避免重复 spawn 孙）。当代价路径：①子完成后 role_reply 自动唤主；②用户手动点子 pet 继续。
  */
 export async function* handleChatResume(
   ctx: HandlerContext,

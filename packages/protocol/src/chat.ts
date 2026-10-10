@@ -93,8 +93,9 @@ export const ChatInputSubmitRequestSchema = z.object({
   clientMessageId: z.string().min(1),
   messageId: z.string().min(1),
   content: z.string(),
+
   attachments: z.array(ChatAttachmentSchema).optional(),
-})
+}).strict()
 export type ChatInputSubmitRequest = z.infer<typeof ChatInputSubmitRequestSchema>
 
 export interface ChatInputSubmitResponse {

@@ -9,12 +9,19 @@ import type { ReplaceInfo } from '@/core/message/adapter'
 import { reportWorkflow, hasWorkflowObserver } from '@/core/middleware/workflowObservation.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { SupervisionLevel } from '@/core/config'
-import { createApproval, isSafeSenseCall } from '@/core/sense'
+import {
+  createApproval,
+  isSafeSenseCall,
+  executeSenseWithControl,
+  normalizeObservation,
+} from '@/core/sense'
 import { logger } from '@/utils/logger/index.js'
 import { redactEnvKeys } from '@/utils/envGuard.js'
 import { checkCheryGuard } from '@/utils/pathGuard.js'
 import { SenseCallAssembler } from './senseCallAssembler.js'
 import { dispatch } from '@/agent/hooks/index.js'
+import { requestHookContext, requestSignal } from '@/agent/hooks/request.js'
+import { getSense, getSenseOrigin } from '@/core/sense/senseRegistry.js'
 import { ClassifiedError } from '@/utils/error.js'
 import { trackRestartActivity } from '@/service/restartCoordinator.js'
 import {
@@ -24,6 +31,7 @@ import {
 } from '@/core/security/index.js'
 import { getChatWorkspace } from '@/db/chat.js'
 import config from '@/utils/config.js'
+
 import {
   approvalPreview,
   approvalSnapshotMatches,
@@ -71,8 +79,8 @@ function isConfigManager(senseTable: { has(name: string): boolean }): boolean {
 /**
  * Sense Middleware（批量模式）
  * 职责：
- * 1. Phase 1：从 stream chunks 收集 senseDelta，检测完整 sense call，yield sense_end 触发器
- * 2. Phase 2：流结束后，auto sense 先执行；smart/manual 批量 await Promise.all 等待审批后执行
+ * 1. 收集步骤：从 stream chunks 收集 senseDelta，检测完整 sense call，yield sense_end 触发器
+ * 2. 执行步骤：流结束后，auto sense 先执行；smart/manual 批量 await Promise.all 等待审批后执行
  * pending sense 不再自动恢复执行，改由 chat.resume 撤回重跑（见 service/chat/send.ts handleChatResume）
  *
  * trace 日志：sense 触发/执行/拒绝由 chokepoint（streamMapper 的 sense.trigger/result/rejected）
@@ -98,7 +106,7 @@ export async function* senseMiddleware(
     return
   }
 
-  // Phase 1: 收集 sense calls + yield sense_end 触发器
+  // 收集步骤: 收集 sense calls + yield sense_end 触发器
   // SenseCallAssembler 统一 tool.ts（流式 index 切换触发 sense_end）与 checkpointState.ts（批量合并落库）的 delta 合并语义。
   const assembler = new SenseCallAssembler()
 
@@ -136,14 +144,14 @@ export async function* senseMiddleware(
     }
   }
 
-  // Phase 2: 批量执行
+  // 执行步骤: 批量执行
   if (collectedCalls.length > 0) {
     yield* executeCollectedCalls(ctx, collectedCalls)
   }
 }
 
 /**
- * 批量执行收集到的 sense calls（Phase 2）
+ * 批量执行收集到的 sense calls（执行步骤）
  */
 async function* executeCollectedCalls(
   ctx: MiddlewareContext,
@@ -185,7 +193,19 @@ async function* executeCollectedCalls(
       }
       continue
     }
-    const { content, hash, replaced, rejected } = yield* doExecuteSense(
+    const {
+      content,
+      hash,
+      observation,
+      status,
+      errorCode,
+      error,
+      operationId,
+      durationMs,
+      truncated,
+      replaced,
+      rejected,
+    } = yield* doExecuteSense(
       ctx,
       call.name,
       call.argsJson,
@@ -194,10 +214,30 @@ async function* executeCollectedCalls(
       call.approvalSnapshot,
     )
     if (rejected) {
-      yield { type: 'sense_reject', id: call.id, name: call.name, reason: rejected }
+      yield {
+        type: 'sense_reject',
+        id: call.id,
+        name: call.name,
+        reason: rejected,
+        status,
+        errorCode,
+      }
       continue
     }
-    yield { type: 'sense_accept', id: call.id, name: call.name, result: content, hash }
+    yield {
+      type: 'sense_accept',
+      id: call.id,
+      name: call.name,
+      result: content,
+      hash,
+      observation,
+      status,
+      errorCode,
+      error,
+      operationId,
+      durationMs,
+      truncated,
+    }
     // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
     for (const r of replaced) {
       yield {
@@ -214,7 +254,7 @@ async function* executeCollectedCalls(
   }
 
   // Confirm/manual senses — 逐个审批执行（sequential：approve A→exec A→approve B→exec B）
-  // 无 Promise.all 屏障：已批准 call 不被未决 call 阻塞（P1.9 互阻修复）。
+  // 无 Promise.all 屏障：已批准 call 不被未决 call 阻塞。
   const needsApproval = calls.filter((c) => c.approvalPromise)
   if (needsApproval.length > 0) {
     logger.event('approval.wait', {
@@ -244,7 +284,19 @@ async function* executeCollectedCalls(
       const decision = await call.approvalPromise!
 
       if (decision.action === 'accept') {
-        const { content, hash, replaced, rejected } = yield* doExecuteSense(
+        const {
+          content,
+          hash,
+          observation,
+          status,
+          errorCode,
+          error,
+          operationId,
+          durationMs,
+          truncated,
+          replaced,
+          rejected,
+        } = yield* doExecuteSense(
           ctx,
           call.name,
           call.argsJson,
@@ -253,10 +305,34 @@ async function* executeCollectedCalls(
           call.approvalSnapshot,
         )
         if (rejected) {
-          yield { type: 'sense_reject', id: call.id, name: call.name, reason: rejected }
+          yield {
+            type: 'sense_reject',
+            id: call.id,
+            name: call.name,
+            reason: rejected,
+            status,
+            errorCode,
+            error,
+            operationId,
+            durationMs,
+            truncated,
+          }
           continue
         }
-        yield { type: 'sense_accept', id: call.id, name: call.name, result: content, hash }
+        yield {
+          type: 'sense_accept',
+          id: call.id,
+          name: call.name,
+          result: content,
+          hash,
+          observation,
+          status,
+          errorCode,
+          error,
+          operationId,
+          durationMs,
+          truncated,
+        }
         // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
         for (const r of replaced) {
           yield {
@@ -330,11 +406,31 @@ async function* executeResumePending(ctx: MiddlewareContext): AsyncGenerator<Mid
  * trigger 携带 approvalResolve 供 service 层注册到 ApprovalManager
  * call 携带 approvalPromise 供 senseMiddleware 批量 await
  */
+export async function* executeRequestTool(
+  ctx: MiddlewareContext,
+  name: string,
+  argsJson: string,
+  id: string,
+): AsyncGenerator<SenseStartedChunk | SenseTriggerChunk, string> {
+  const { call } = buildSenseTrigger(ctx, id, name, argsJson, true)
+  if (call.preDenied) return '工具调用被拒绝。'
+  if (call.supervisionLevel !== SupervisionLevel.auto)
+    return '此入口无法进行人工审批，不能自动批准。'
+  const execution = doExecuteSense(ctx, name, argsJson, id, call.authorization)
+  let step = await execution.next()
+  while (!step.done) {
+    yield step.value
+    step = await execution.next()
+  }
+  return step.value.rejected ? '工具调用被拒绝。' : step.value.content
+}
+
 function buildSenseTrigger(
   ctx: MiddlewareContext,
   id: string,
   name: string,
   argsJson: string,
+  requestOnly = false,
 ): { trigger: SenseTriggerChunk; call: PendingSenseCall } {
   if (!ctx.runtime) throw new Error('Runtime not configured.')
   const senseEntry = ctx.runtime.senseTable.get(name)
@@ -344,7 +440,7 @@ function buildSenseTrigger(
   // 运行时 schema 校验：审批创建前拦截缺参/非法参数调用（纵深防御）。
   // 背景：zod schema 转 JSON Schema 可能丢失 required（如 z.discriminatedUnion 顶层 required 缺失，
   //   见 docs/backend/agent/prompt-guide.md 规范 #3），且 LLM 可能漏传必填参数（历史事故：config_manage 空调用）。
-  // 校验失败 → 构造 deny 授权 + preDenied call → Phase 2 直接 yield sense_reject，
+  // 校验失败 → 构造 deny 授权 + preDenied call → 执行步骤 直接 yield sense_reject，
   //   不进审批（避免"空调用进 smart 审批 → 超时被拒"恶性循环）。schema 缺省（MCP 等入口）跳过校验。
   const entrySchema = senseEntry?.schema
   if (entrySchema) {
@@ -420,7 +516,7 @@ function buildSenseTrigger(
 
   let approvalPromise: Promise<{ action: 'accept' | 'reject'; reason?: string }> | undefined
 
-  if (effectiveLevel > SupervisionLevel.auto) {
+  if (effectiveLevel > SupervisionLevel.auto && !requestOnly) {
     // P1-11：审批 Promise 由 core approvalRegistry 管理，resolve/reject 不再随 chunk 传 service。
     //   service ApprovalManager.confirm/abort 调 resolveApproval/rejectApproval 触发本 await。
     // G2：approval_timeout=0（不限时）时 hardTimeoutMs（global.approval_hard_timeout）兜底释放。
@@ -465,10 +561,17 @@ async function* doExecuteSense(
   authorization: ToolAuthorization,
   approvalSnapshot?: ApprovalSnapshot,
 ): AsyncGenerator<
-  SenseStartedChunk,
+  SenseStartedChunk | SenseTriggerChunk,
   {
     content: string
     hash?: string
+    observation?: import('@/core/sense/senseCreator.js').ObservationEnvelope
+    status?: import('@/core/sense/senseCreator.js').SenseResultStatus
+    errorCode?: import('@/core/sense/senseCreator.js').SenseErrorCode
+    error?: import('@/core/sense/senseCreator.js').SenseExecutionError
+    operationId?: string
+    durationMs?: number
+    truncated?: boolean
     rejected?: string
     replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }>
   },
@@ -482,6 +585,7 @@ async function* doExecuteSense(
   }> = []
   try {
     if (!ctx.runtime) throw new Error('Runtime not configured.')
+    requestSignal(ctx)?.throwIfAborted()
     if (approvalSnapshot && !approvalSnapshotMatches(approvalSnapshot)) {
       const rejected = '文件已在审批后发生变化；为避免覆盖他人修改，请重新发起并审核新的差异。'
       return { content: rejected, rejected, replaced }
@@ -491,6 +595,9 @@ async function* doExecuteSense(
     if (!senseEntry) {
       return { content: `没有 "${name}" 这个感官`, replaced }
     }
+    const origin = getSenseOrigin(name)
+    if (origin?.pluginId && (!getSense(name) || origin.available?.() === false))
+      return { content: '工具已停用，不能执行', rejected: 'TOOL_UNAVAILABLE', replaced }
     // 配置管理核心角色：能力驱动（senseTable 含 config_manage/install_skill），同源用于守卫 + 重授权
     const configManager = isConfigManager(ctx.runtime.senseTable)
     // 路径守卫：拦 .chery/ 直接读写（仅 install_skill 豁免），引导走配置管理核心角色
@@ -511,14 +618,41 @@ async function* doExecuteSense(
       const preDecision = await dispatch(
         'PreToolUse',
         { name, args, chatId: ctx.soul.chatId },
-        { brain: '' },
+        requestHookContext(ctx),
       )
       if (preDecision?.updatedInput) {
         args = { ...args, ...preDecision.updatedInput }
       }
+      if (preDecision?.decision === 'ask') {
+        if (ctx.requestView?.identity.source === 'plugin')
+          return {
+            content: '本消息入口无法进行人工审批',
+            rejected: 'APPROVAL_UNAVAILABLE',
+            replaced,
+          }
+        const approval = createApproval(id, 0, ctx.global.approval_hard_timeout)
+        yield {
+          type: 'sense_end',
+          id,
+          name,
+          arguments: JSON.stringify(args),
+          supervisionLevel: SupervisionLevel.manual,
+          approvalTimeoutMs: ctx.global.approval_timeout ?? 0,
+          security: authorization,
+        }
+        const result = await approval
+        if (result.action !== 'accept')
+          return { content: '人工审批未通过', rejected: 'HOOK_APPROVAL_REJECTED', replaced }
+      }
+      if (senseEntry.schema && !senseEntry.schema.safeParse(args).success)
+        return { content: '工具参数无效', rejected: 'INVALID_TOOL_ARGUMENTS', replaced }
+      if (
+        checkCheryGuard(name, args, { allowRuleDir: configManager, allowConfigRead: configManager })
+      )
+        return { content: '工具参数未通过路径检查', rejected: 'INVALID_TOOL_PATH', replaced }
     } catch (err) {
       if (err instanceof ClassifiedError) {
-        return { content: err.userMessage, replaced }
+        return { content: err.userMessage, rejected: 'HOOK_DENIED', replaced }
       }
       throw err
     }
@@ -555,7 +689,7 @@ async function* doExecuteSense(
 
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案），
     // bash 等需按会话归属的 sense 从 ctx.chatId 读取。
-    // T9：yieldTurn 闭包让 sense（spawn_role wait=true）请求 loop 本轮后立即结束（置 soul.yieldTurn）。
+    // yieldTurn 闭包让 sense（spawn_role wait=true）请求 loop 本轮后立即结束（置 soul.yieldTurn）。
     // 真实执行边界：只有审批与所有执行前校验通过后才产生 started；下游先持久化并
     // 发送该事实，generator 下一次推进时才真正调用工具 handler。
     yield {
@@ -564,6 +698,7 @@ async function* doExecuteSense(
       name,
       arguments: argsJson,
       startedAt: Date.now(),
+      operationId: id,
       security: currentAuthorization,
     }
     const release = trackRestartActivity({
@@ -572,9 +707,23 @@ async function* doExecuteSense(
       chatId: ctx.soul.chatId,
     })
     const result = await Promise.resolve()
-      .then(() =>
-        senseEntry.execute(args, ctx.soul.senseSharedData, {
+      .then(() => {
+        ctx.requestExecution?.validate()
+        requestSignal(ctx)?.throwIfAborted()
+        if (origin?.pluginId && (!getSense(name) || origin.available?.() === false))
+          throw new Error('TOOL_UNAVAILABLE')
+        return executeSenseWithControl(senseEntry.execute, args, ctx.soul.senseSharedData, {
           chatId: ctx.soul.chatId,
+          signal: requestSignal(ctx),
+          requestView: ctx.requestView,
+          deadlineAt: Date.now() + 120_000,
+          budget: {
+            timeoutMs: 120_000,
+            maxOutputChars: 100_000,
+            maxBytes: 400_000,
+            maxConcurrent: 8,
+          },
+          operationId: id,
           yieldTurn: () => {
             ctx.soul.yieldTurn = true
           },
@@ -583,8 +732,8 @@ async function* doExecuteSense(
           security: currentAuthorization,
           workspaceRoot:
             ctx.runtime?.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId),
-        }),
-      )
+        })
+      })
       .finally(release)
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
@@ -593,7 +742,11 @@ async function* doExecuteSense(
     // 故 hash 保留 mtime：它是"内容是否变动"的关键判据，去掉会让等长改写误判为相同。
     //
     // 黑名单过滤：spawn_role 等"派发标识"型 hash 不参与去重（详见 NON_DEDUPABLE_SENSES 注释）。
-    if (result.hash && !NON_DEDUPABLE_SENSES.has(name)) {
+    if (
+      ctx.requestExecution?.execution?.toolHistory !== 'request' &&
+      result.hash &&
+      !NON_DEDUPABLE_SENSES.has(name)
+    ) {
       // 历史去重：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
       // 旧 sense 内容改写为短说明（长内容折叠 originalContent），由 message_updated effect 落库。
       // 单一写者：in-place 改 originalContent/content/replace 经 ctx.journal.replaceSense。
@@ -603,6 +756,21 @@ async function* doExecuteSense(
 
     // 环境变量脱敏：在返回前替换所有 .env 中定义的敏感变量名
     const redactedContent = redactEnvKeys(result.content)
+    let observation = result.observation
+    if (observation) {
+      try {
+        observation = normalizeObservation({
+          ...observation,
+          content: redactEnvKeys(observation.content),
+        })
+      } catch {
+        return {
+          content: '感官执行失败：结果格式无效。',
+          rejected: '感官返回了无效的结构化观察结果。',
+          replaced,
+        }
+      }
+    }
 
     // PostToolUse hook：执行后审计；handler 抛 ClassifiedError → content 改写为 reason
     try {
@@ -615,7 +783,7 @@ async function* doExecuteSense(
           hash: result.hash,
           chatId: ctx.soul.chatId,
         },
-        { brain: '' },
+        requestHookContext(ctx),
       )
     } catch (err) {
       if (err instanceof ClassifiedError) {
@@ -624,9 +792,51 @@ async function* doExecuteSense(
       throw err
     }
 
-    return { content: redactedContent, hash: result.hash, replaced }
+    if (result.status && result.status !== 'ok')
+      await dispatch(
+        'ToolFailed',
+        {
+          name,
+          chatId: ctx.soul.chatId,
+          operationId: result.operationId ?? id,
+          status: result.status,
+          errorCode: result.errorCode ?? 'TOOL_FAILED',
+        },
+        requestHookContext(ctx),
+      )
+    return {
+      content: redactedContent,
+      hash: result.hash,
+      observation,
+      status: result.status,
+      errorCode: result.errorCode,
+      error: result.error,
+      operationId: result.operationId ?? id,
+      durationMs: result.durationMs,
+      truncated: result.truncated,
+      ...(result.status && result.status !== 'ok'
+        ? { rejected: result.errorCode ?? result.status }
+        : {}),
+      replaced,
+    }
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error)
+    await dispatch(
+      'ToolFailed',
+      {
+        name,
+        chatId: ctx.soul.chatId,
+        operationId: id,
+        status: requestSignal(ctx)?.aborted ? 'cancelled' : 'failed',
+        errorCode: 'TOOL_FAILED',
+      },
+      requestHookContext(ctx),
+    )
+    const errorMsg =
+      ctx.requestView?.identity.source === 'plugin'
+        ? 'Plugin tool failed'
+        : error instanceof Error
+          ? error.message
+          : String(error)
     return { content: `感官执行失败：${errorMsg}`, replaced }
   }
 }

@@ -39,6 +39,7 @@ export class AgentBuilder {
   private releaseMcp?: () => void
 
   dispose(): void {
+    void this.agent?.endSession()
     this.releaseMcp?.()
     this.releaseMcp = undefined
   }
@@ -82,7 +83,10 @@ export class AgentBuilder {
       },
       config,
     )
-    this.requireAgent().configureRuntime(runtime, config.global)
+
+    this.requireAgent().configureRuntime(runtime, config.global, () => {
+      this.configureRuntime(selection, injectMemoryManage, ruleName, chatId, roleName, acceptance)
+    })
     const release = retainMcpExecutors(runtime.senseTable.values(), this, !!chatId)
     this.releaseMcp?.()
     this.releaseMcp = release
@@ -95,7 +99,7 @@ export class AgentBuilder {
    *   （主 agent 来自 preset.leader.systemPrompt，子 agent 来自 config.roles[type].systemPrompt；
    *   与全局 base **合并**而非替换）。透传 buildFirstSystemPrompt。
    *
-   * persona 修复：observer 不持久化 system 消息 → 重启后 loadHistory 返回 messages 无 system 首条。
+   * observer 不持久化 system 消息，加载历史时首条可能不是system。
    * 故统一保证内存 messages 首条为 system：历史存在但首条非 system → prepend；首条已是 system → 原样；无历史 → [systemMsg]。
    */
   init(chatId: string, options: AgentChatInitOptions = {}): this {

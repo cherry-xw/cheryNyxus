@@ -272,7 +272,7 @@ function initSoulTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_root_events_retention
       ON root_events(root_chat_id, created_at);
 
-    /* CP2 canonical execution graph facts. Payload JSON keeps the protocol
+    /* canonical execution graph facts. Payload JSON keeps the protocol
        extensible while indexed identity/order columns make snapshots auditable. */
     CREATE TABLE IF NOT EXISTS execution_graph_counters (
       root_chat_id TEXT PRIMARY KEY,
@@ -494,7 +494,7 @@ function initSoulTables(db: Database.Database): void {
   // V2 timeline monotonic revision. A revision is advanced whenever a
   // persisted message projection changes; old databases are upgraded lazily.
   ensureChatColumn(db, 'timeline_revision', 'INTEGER NOT NULL DEFAULT 0')
-  // CP1 主从 Agent：旧库缺 parent_chat_id 列，按列检查补 ALTER（TEXT 缺省 NULL，无需回填）。
+  // 主从 Agent：旧库缺 parent_chat_id 列，按列检查补 ALTER（TEXT 缺省 NULL，无需回填）。
   ensureChatColumn(db, 'parent_chat_id', 'TEXT')
   ensureChatColumn(db, 'active_epoch_id', 'TEXT')
   ensureChatColumn(db, 'lifecycle', "TEXT NOT NULL DEFAULT 'active'")
@@ -580,6 +580,7 @@ function initMonthlyTables(db: Database.Database): void {
       content TEXT,
       thinking TEXT,
       thinking_blocks TEXT,
+      observation TEXT,
       sense_calls TEXT,
       hash TEXT,
       replace_state INTEGER DEFAULT 0,
@@ -647,6 +648,7 @@ function initMonthlyTables(db: Database.Database): void {
   `)
 
   ensureMessageColumn(db, 'thinking_blocks', 'TEXT')
+  ensureMessageColumn(db, 'observation', 'TEXT')
   ensureMessageColumn(db, 'revoked', 'INTEGER DEFAULT 0')
   ensureMessageColumn(db, 'model_excluded', 'INTEGER DEFAULT 0')
   ensureMessageColumn(db, 'runtime', 'TEXT')

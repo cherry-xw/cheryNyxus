@@ -1,5 +1,6 @@
 import type { MediaKind } from '@/service/media/index.js'
 import type { ToolAuthorization } from '@/core/security/index.js'
+import type { ObservationEnvelope } from '@/core/sense/senseCreator.js'
 import type { LlmProtocol } from '@chery/protocol'
 
 /**
@@ -67,6 +68,8 @@ export interface LLMResponse {
   updateAt: number
   /** 感官执行结果的 hash（仅 sense 消息有） */
   hash?: string
+  /** Structured observation metadata; absent on legacy sense messages. */
+  observation?: ObservationEnvelope
   /** 替换信息（sense消息被后续相同hash调用替换时） */
   replace?: ReplaceInfo
   /** 原内容（被替换时保留，用于溯源/前端显示） */

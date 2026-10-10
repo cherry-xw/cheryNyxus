@@ -1,4 +1,6 @@
 import { Method as ProtocolMethod } from '@chery/protocol'
+import type { QQMethodMap as importQQMethodMap } from '@chery/protocol'
+import type { IngressMethodMap } from '@chery/protocol'
 import { InternalCommand } from '../internalCommand.js'
 import type { ConfigRaw } from '@/utils/config.js'
 import type {
@@ -203,6 +205,27 @@ import type {
 // ========== 方法常量 ==========
 
 export const Method = {
+  INGRESS_LIST: ProtocolMethod.INGRESS_LIST,
+  INGRESS_INSTALL: ProtocolMethod.INGRESS_INSTALL,
+  INGRESS_UPGRADE: ProtocolMethod.INGRESS_UPGRADE,
+  INGRESS_ENABLE: ProtocolMethod.INGRESS_ENABLE,
+  INGRESS_DISABLE: ProtocolMethod.INGRESS_DISABLE,
+  INGRESS_UNINSTALL: ProtocolMethod.INGRESS_UNINSTALL,
+  INGRESS_CONFIG_GET: ProtocolMethod.INGRESS_CONFIG_GET,
+  INGRESS_CONFIG_SAVE: ProtocolMethod.INGRESS_CONFIG_SAVE,
+  INGRESS_UI_LIST: ProtocolMethod.INGRESS_UI_LIST,
+  INGRESS_UI_READ: ProtocolMethod.INGRESS_UI_READ,
+  INGRESS_MANAGEMENT_CALL: ProtocolMethod.INGRESS_MANAGEMENT_CALL,
+  QQ_PLUGIN_HELLO: ProtocolMethod.QQ_PLUGIN_HELLO,
+  QQ_IDENTITY_BIND: ProtocolMethod.QQ_IDENTITY_BIND,
+  QQ_EVENT_SUBMIT: ProtocolMethod.QQ_EVENT_SUBMIT,
+  QQ_DELIVERY_RESULT: ProtocolMethod.QQ_DELIVERY_RESULT,
+  QQ_REQUEST_RECOVER: ProtocolMethod.QQ_REQUEST_RECOVER,
+  QQ_CONFIG_GET: ProtocolMethod.QQ_CONFIG_GET,
+  QQ_CONFIG_SAVE: ProtocolMethod.QQ_CONFIG_SAVE,
+  QQ_STATUS_GET: ProtocolMethod.QQ_STATUS_GET,
+  QQ_QUEUE_GET: ProtocolMethod.QQ_QUEUE_GET,
+  QQ_HISTORY_GET: ProtocolMethod.QQ_HISTORY_GET,
   // Brain / Sense 列表
   BRAIN_LIST: 'brain.list',
   SENSE_LIST: 'sense.list',
@@ -365,7 +388,7 @@ export type Method = (typeof Method)[keyof typeof Method]
  * RPC 方法级契约：Method 与 params/result 保持一一对应。
  * RequestData/ResponseData 仅是动态传输边界的派生联合；业务 handler 使用 ParamsOf/ResultOf。
  */
-export interface RpcMethodMap {
+export interface RpcMethodMap extends importQQMethodMap, IngressMethodMap {
   [Method.BRAIN_LIST]: { params: BrainListRequestData; result: BrainListResponseData }
   [Method.SENSE_LIST]: { params: SenseListRequestData; result: SenseListResponseData }
   [Method.SENSE_TOOLS]: { params: SenseToolsRequestData; result: SenseToolsResponseData }
