@@ -1,0 +1,15 @@
+{
+  "name": "@chery/plugin-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./hooks": "./src/hooks.ts",
+    "./sense": "./src/sense.ts"
+  },
+  "dependencies": {
+    "@chery/protocol": "workspace:*",
+    "zod": "^4.4.1"
+  }
+}
