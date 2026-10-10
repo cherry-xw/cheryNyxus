@@ -1,5 +1,6 @@
 import type { HandlerContext } from '../message/router.js'
 import { Method, type PromptsListResponseData } from '../message/types.js'
+import { registerPresetPromptHandlers } from './preset.js'
 import { listPrompts } from '@/agent/prompt/listPrompts.js'
 
 /**
@@ -18,4 +19,5 @@ export async function handlePromptsList(
  */
 export function registerPromptHandlers(router: import('../message/router.js').RpcRouter): void {
   router.register(Method.PROMPTS_LIST, handlePromptsList)
+  registerPresetPromptHandlers(router)
 }
