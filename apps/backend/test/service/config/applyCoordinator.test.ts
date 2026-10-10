@@ -107,6 +107,30 @@ describe('config apply coordinator', () => {
     })
     expect(handler.prepare).not.toHaveBeenCalled()
   })
+  it.each(['create', 'edit', 'delete'] as const)(
+    'classifies role scope %s at the tree boundary without accepting unknown fields',
+    (operation) => {
+      const before = image()
+      const role = { brain: 'a', senseGroup: 'empty', scope: 'private' as const }
+      before.config.roles = operation === 'create' ? {} : { leader: role }
+      const after = structuredClone(before)
+      after.config.roles =
+        operation === 'delete'
+          ? {}
+          : {
+              leader: { ...role, scope: operation === 'edit' ? 'public' : 'private' },
+            }
+      const impact = diffResources(resources(before), resources(after), '').find(
+        (entry) => entry.resource === '["roles","leader"]',
+      )!
+      expect(impact).toMatchObject({ boundary: 'tree', semantic: true })
+      expect(impact.semanticPaths).toContain('/roles/leader/scope')
+      Object.assign(after.config.roles, { alien: { ...role, unexpected: true } })
+      expect(diffResources(resources(before), resources(after), '')).toContainEqual(
+        expect.objectContaining({ resource: '["roles","alien"]', boundary: 'unsupported' }),
+      )
+    },
+  )
   it('unregistered modules remain explicitly pending', async () => {
     const after = image(),
       engine = new ConfigApplyCoordinator(image())

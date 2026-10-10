@@ -25,6 +25,7 @@ import {
 } from '@/service/config/revision.js'
 import { detectRetiredRoleIdentities } from '@/service/config/roleLifecycle.js'
 import { treeBoundaryReason } from '@/service/config/treeBoundary.js'
+
 import { clearChatRuntime, ensureChat, resolveEffectiveSelection, setSessionRoleRuntimes } from '@/service/chat/runtime.js'
 import { activateChatRun, getChatSelection, releaseChatRun } from '@/service/chat/runtimeCache.js'
 import { getSessionRoleConfiguration, setEphemeralChatRuntime } from '@/service/chat/sessionRoleRuntime.js'
@@ -79,6 +80,56 @@ function setup(change: (image: ConfigImage) => void) {
 }
 
 describe('tree semantic publication', () => {
+  it('creates then removes the last named resources without empty parents erasing new members', async () => {
+    const raw = getAppliedRawConfig()
+    raw.roles = {}
+    raw.presets = {}
+    raw.sense_groups = {}
+    replaceRuntimeConfig(raw)
+    const engine = setup((image) => {
+      image.config.sense_groups = { first: [] }
+      image.config.roles = {
+        first: { id: 'role-first-resource', brain: 'mock_content', senseGroup: 'first', scope: 'private' },
+      }
+      image.config.presets = { first: { id: 'preset-first-resource', leader: 'first', roles: ['first'] } }
+    })
+    await engine.retry()
+    expect(engine.getState().status).toBe('applied')
+    expect(captureRuntimeConfig().presets!.first!.leader).toBe('first')
+    expect(captureRuntimeConfig().roles!.first!.scope).toBe('private')
+    expect(captureRuntimeConfig().sense_groups!.first).toEqual([])
+    const removed = setup((image) => {
+      image.config.presets = {}
+      image.config.roles = {}
+      image.config.sense_groups = {}
+    })
+    await removed.retry()
+    expect(removed.getState().status).toBe('applied')
+    expect(captureRuntimeConfig().presets).toEqual({})
+    expect(captureRuntimeConfig().roles).toEqual({})
+    expect(captureRuntimeConfig().sense_groups).toEqual({})
+  })
+  it('publishes explicit private scope only after the affected tree is idle', async () => {
+    const id = await root()
+    const oldConfig = captureRuntimeConfig()
+    const oldEpoch = getActiveChatEpoch(id)!.epochId
+    activateChatRun(id, 'scope-run')
+    const engine = setup((image) => {
+      image.config.roles!.hot_a!.scope = 'private'
+    })
+    await engine.retry()
+    expect(engine.getState()).toMatchObject({
+      status: 'pending',
+      impacts: [expect.objectContaining({ boundary: 'tree', semantic: true })],
+    })
+    expect(captureRuntimeConfig()).toBe(oldConfig)
+    expect(getActiveChatEpoch(id)!.epochId).toBe(oldEpoch)
+    releaseChatRun(id, 'scope-run')
+    await engine.retry()
+    expect(engine.getState().status).toBe('applied')
+    expect(captureRuntimeConfig().roles!.hot_a!.scope).toBe('private')
+    expect(getActiveChatEpoch(id)!.epochId).not.toBe(oldEpoch)
+  })
   it('adopts a renamed brain when an idle session still selects its removed name', async () => {
     const id = await root()
     await setSessionRoleRuntimes(

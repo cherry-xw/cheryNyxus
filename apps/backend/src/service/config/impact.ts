@@ -48,7 +48,12 @@ export function resources(image: ConfigImage): Map<string, ConfigResource> {
         }
     }
     if (entries && typeof entries === 'object' && !Array.isArray(entries)) {
-      if (!Object.keys(entries).length)
+      // Named collections are represented by their members, not an empty parent
+      // resource whose removal could erase newly added members in the same batch.
+      if (
+        !Object.keys(entries).length &&
+        !['llm', 'roles', 'presets', 'sense_groups'].includes(root)
+      )
         result.set(JSON.stringify(prefix), { path: prefix, value: entries })
       for (const [name, entry] of Object.entries(entries)) {
         const path = [...prefix, name]
@@ -137,17 +142,9 @@ const fields: Record<string, string[]> = {
     'plugins',
     'permissions',
     'lock',
+    'scope',
   ],
-  presets: [
-    'id',
-    'shadows',
-    'detailRole',
-    'leader',
-    'roles',
-    'workspace',
-    'rule',
-    'schedule',
-  ],
+  presets: ['id', 'shadows', 'detailRole', 'leader', 'roles', 'workspace', 'rule', 'schedule'],
   mcp_servers: ['transport', 'command', 'args', 'env', 'url', 'supervision'],
   memory: ['max_count', 'max_chars'],
 }
