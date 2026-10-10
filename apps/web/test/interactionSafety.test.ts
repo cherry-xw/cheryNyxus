@@ -5,6 +5,18 @@ import ts from 'typescript'
 import * as vue from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as applyPresentation from '../src/features/agent/settings/config/applyPresentation'
+// 媒体编排与角色编制模型是纯逻辑模块（无组件/浏览器依赖），作为真实实现注入被测模块。
+import * as useComposerMediaModule from '../src/features/agent/composables/useComposerMedia'
+import { createRoleConfigModel } from '../src/features/agent/runtime/roleConfigModel'
+
+// 真实 useComposerMedia 直接 import @/services/agentApi（不走被测模块的 require 注入面），
+// 用 vi.mock 拦截并转发到 composerFixture 注入的 deferred（mediaUpload.impl）。
+const mediaUpload = vi.hoisted(() => ({ impl: null as null | (() => Promise<unknown>) }))
+vi.mock('@/services/agentApi', () => ({
+  agentApi: {
+    uploadMedia: () => mediaUpload.impl?.() ?? Promise.reject(new Error('upload not wired')),
+  },
+}))
 
 function deferred<T = any>() {
   let resolve!: (value: T) => void
@@ -64,7 +76,7 @@ function settingsFixture(requiresConfirmation = false) {
   }
   const agents = { settingsOpen: true, settingsSection: null }
   const configApply = { savedRevision: '', apply: vi.fn() }
-  const module = loadController('web/src/features/agent/settings/useSettingsDialogController.ts', {
+  const module = loadController('apps/web/src/features/agent/settings/useSettingsDialogController.ts', {
     '@/application/public': {
       useAgentsStore: () => agents,
       useConfigApplyStore: () => configApply,
@@ -176,10 +188,19 @@ describe('settings save and close safety', () => {
 
 function composerFixture() {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} })
+  // node 测试环境无 URL.createObjectURL/revokeObjectURL（媒体预览用），补最小 stub。
+  class URLWithObjectRefs extends URL {
+    static createObjectURL(): string {
+      return 'blob:test'
+    }
+    static revokeObjectURL(): void {}
+  }
+  vi.stubGlobal('URL', URLWithObjectRefs)
   const upload = deferred()
+  mediaUpload.impl = () => upload.promise
   const submit = vi.fn().mockResolvedValue(undefined)
   const runtime = vi.fn().mockResolvedValue({ applied: [], deferredRunning: [] })
-  const module = loadController('web/src/features/agent/composer/useAgentDialogOptions.ts', {
+  const module = loadController('apps/web/src/features/agent/composer/useAgentDialogOptions.ts', {
     '@/application/public': {
       useAgentsStore: () => ({
         activeDialogChatId: 'chat-a',
@@ -203,12 +224,15 @@ function composerFixture() {
       COMPACT_COMMAND: {},
       composeCommandPrompt: (text: string) => text,
     },
+    // 媒体链路与角色编制模型为纯逻辑模块，直接使用真实实现（与产品行为一致）。
+    '@/features/agent/composables/useComposerMedia': useComposerMediaModule,
+    '@/features/agent/runtime/roleConfigModel': { createRoleConfigModel },
   })
   const chatId = vue.ref('chat-a')
   const c = module.exports.useAgentDialogOptions({ chatId })
   c.roleSelections.value = { 主角色: { brain: 'brain', senseGroup: 'default' } }
   c.config.value = {
-    llm: { brain: {} },
+    llm: { brain: { brain: { capabilities: { input: { image: true } } } } },
     media: { images: { type: 'image', enabled: true, url: 'test' } },
   }
   c.text.value = 'message'
@@ -257,8 +281,11 @@ describe('composer draft and attachment safety', () => {
 
   it('blocks send during upload and discards results after reset', async () => {
     const { c, upload, submit } = composerFixture()
-    const pending = c.onMediaSelected({ raw: { name: 'image.png', type: 'image/png' } })
-    expect(c.uploading.value).toBe(true)
+    const pending = c.onMediaSelected({
+      raw: new Blob(['image-bytes'], { type: 'image/png' }),
+    })
+    // 共享上传编排先过 prepare 微任务才置 uploading，等待置位后断言发送被阻塞。
+    await vi.waitFor(() => expect(c.uploading.value).toBe(true))
     expect(await c.handleSend()).toBe(false)
     expect(submit).not.toHaveBeenCalled()
     c.resetMedia()

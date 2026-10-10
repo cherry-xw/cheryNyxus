@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * ApprovalCard：sense 审批卡片（CP5）。
+ * ApprovalCard：sense 审批卡片。
  * 触发：interrupt notification → chats store reducer 设 stream.approval（或入队 approvalQueue）。
  * 操作：
  *   - accept / reject → chatSessions.submitApproval(...) → interactions store 统一校验、幂等提交并关闭

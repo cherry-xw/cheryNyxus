@@ -89,7 +89,7 @@ function syncDraft(): void {
 
 watch([selectedLabels, otherText, otherExpanded, optionNotes], syncDraft)
 
-// Bug 3 修复：进入新问题（"下一步"推进，questionId 变化）时重置本地草稿态——
+// 进入新问题（"下一步"推进，questionId 变化）时重置本地草稿态——
 // 新问题节点与上一题完全无关联。工作台 popover 用 :key=batchId 复用组件实例，
 // questionId 变化即代表切换题目；pet 气泡同样经 store 切换 question 对象。
 watch(

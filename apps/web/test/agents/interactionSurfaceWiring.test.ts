@@ -27,9 +27,10 @@ describe('approval and question surface wiring', () => {
   })
 
   it('routes cards, Lite and attention workspaces through the one interaction store', async () => {
-    const [chatStore, liteCanonical, liteView, interactionView, taskCenter, decisionContext] =
+    const [chatStore, chatCommands, liteCanonical, liteView, interactionView, taskCenter, decisionContext] =
       await Promise.all([
         source('stores/chats/index.ts'),
+        source('stores/chats/commands/interactionCommands.ts'),
         source('features/lite/useLiteCanonicalView.ts'),
         source('features/lite/LiteView.vue'),
         source('features/lite/LiteInteractionView.vue'),
@@ -37,8 +38,11 @@ describe('approval and question surface wiring', () => {
         source('features/agent/attention/InteractionDecisionContext.vue'),
       ])
 
-    expect(chatStore).toContain('await interactions.decide(record, action)')
-    expect(chatStore).toContain('await interactions.answer(')
+    // 会话实体的审批/提问命令路由抽到 commands/interactionCommands.ts（index 装配），
+    // 仍统一经唯一的 interactions store 下发。
+    expect(chatStore).toContain('createInteractionCommands(')
+    expect(chatCommands).toContain('await interactions.decide(record, action)')
+    expect(chatCommands).toContain('await interactions.answer(')
     expect(liteCanonical).toContain('await interactions.decide(interaction, action)')
     expect(liteCanonical).toContain('await interactions.answer(')
     // v2026-11：审批/提问交互迁入详情抽屉（LiteInteractionView），主视图不再直接持有交互动作。

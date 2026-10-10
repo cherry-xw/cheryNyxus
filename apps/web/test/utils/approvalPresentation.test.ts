@@ -22,10 +22,10 @@ describe('createApprovalPresentation 关键信息（keyFacts）', () => {
   })
 
   it('文件读取：关键信息 = 工具名称 + 文件路径', () => {
-    const p = createApprovalPresentation('read_file', { path: 'src/index.ts' })
+    const p = createApprovalPresentation('read_file', { path: 'apps/backend/src/index.ts' })
     expect(p.keyFacts).toEqual([
       { label: '工具名称', value: '文件读取' },
-      { label: '文件路径', value: 'src/index.ts' },
+      { label: '文件路径', value: 'apps/backend/src/index.ts' },
     ])
   })
 

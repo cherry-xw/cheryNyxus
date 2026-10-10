@@ -17,7 +17,7 @@ export interface QuestionArgsView {
 
 /**
  * 对话列表提问卡片的可交互匹配：提问批 item 的 questionId = 工具调用 call.id
- * （src/db/question.ts 以 call.id 落 question_items.question_id），且仅 status='pending'
+ * （apps/backend/src/db/question.ts 以 call.id 落 question_items.question_id），且仅 status='pending'
  * 可提交。命中后渲染器切换为列表内直接作答（选项点选 + 补充 + 提交走 interactions.answer）。
  * 未命中（提问已答/取消、交互数据未加载）保持历史只读展示。
  */
@@ -81,7 +81,7 @@ interface SerializedLabelMatch {
   notes: Record<string, string>
 }
 
-/** 后端选项补充注记分隔：`label（补充: note）`（src/db/question.ts）。 */
+/** 后端选项补充注记分隔：`label（补充: note）`（apps/backend/src/db/question.ts）。 */
 const NOTE_SUFFIX = '（补充: '
 
 function matchSerializedLabels(

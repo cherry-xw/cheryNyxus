@@ -76,11 +76,11 @@ describe('findInteractiveQuestion', () => {
 describe('question renderer in-list answering contract', () => {
   it('renders clickable options and submits via interactions.answer while pending', async () => {
     const source = await readComponentSource(
-      resolve('web/src/features/agent/renderers/core/QuestionRenderer.vue'),
+      resolve('apps/web/src/features/agent/renderers/core/QuestionRenderer.vue'),
       'utf8',
     )
     const display = await readComponentSource(
-      resolve('web/src/features/agent/renderers/core/questionDisplay.ts'),
+      resolve('apps/web/src/features/agent/renderers/core/questionDisplay.ts'),
       'utf8',
     )
 
