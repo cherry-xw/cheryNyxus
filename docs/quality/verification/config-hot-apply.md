@@ -8,9 +8,9 @@
 
 ## 第 12 项阶段验证（2026-09-06）
 
-平台：Windows，Node 22.23.0，Vitest 4.1.9。此次新增 [workerContinuity.test.ts](../../../test/service/config/workerContinuity.test.ts)，通过 `src/index.ts --worker` 启动真实独立进程；临时 CHERY_DIR、DB_DIR、HTTP 模型服务与两个 RPC 连接均由测试管理，结束后关闭并清理。
+平台：Windows，Node 22.23.0，Vitest 4.1.9。此次新增 [workerContinuity.test.ts](../../../apps/backend/test/service/config/workerContinuity.test.ts)，通过 `apps/backend/src/index.ts --worker` 启动真实独立进程；临时 CHERY_DIR、DB_DIR、HTTP 模型服务与两个 RPC 连接均由测试管理，结束后关闭并清理。
 
-运行命令：`node node_modules/vitest/vitest.mjs run test/service/config/workerContinuity.test.ts`，1/1 通过。该命令直接使用仓库依赖入口，避免当前沙箱中部分 `pnpm exec` shim 无法解析的问题。
+运行命令：`node node_modules/vitest/vitest.mjs run apps/backend/test/service/config/workerContinuity.test.ts`，1/1 通过。该命令直接使用仓库依赖入口，避免当前沙箱中部分 `pnpm exec` shim 无法解析的问题。
 
 已断言：无变化保存成功；收到首段流后修改连接参数；worker 不退出且未发送 restart-ready；两个连接均未重连且仍可查询；旧版本保存返回 baseRevision 过期；另一连接收到生效通知；首轮所有流事件保持同一 runId；首次消息只有一条 user 和一条 assistant，内容连续完整；纪元 ID 与纪元数量不变；第二轮 HTTP 请求实际改用新 URL 和测试密钥；通知及 worker 输出不包含测试密钥。
 
@@ -27,7 +27,7 @@
 | `pnpm --filter web lint` | 通过；0 errors、19 warnings。Vue 表单允许修改父级响应式草稿的深层字段，但仍禁止直接替换 prop |
 | 新测试 ESLint、Prettier 和 `git diff --check` | 通过；未跟踪的新测试另外执行了 ESLint/Prettier |
 
-后端失败分离：`test/web/approvalSurfaces.test.ts` 仍读取已不存在的 `PendingOperationsPanel.vue`，属于已有基线问题；`test/core/security/sandbox.test.ts` 的 Windows ACL 用例在外层沙箱内返回 127，在获准的沙箱外单独重跑为 4/4 通过，不能据此宣称沙箱内全量已通过。
+后端失败分离：`apps/backend/test/web/approvalSurfaces.test.ts` 仍读取已不存在的 `PendingOperationsPanel.vue`，属于已有基线问题；`apps/backend/test/core/security/sandbox.test.ts` 的 Windows ACL 用例在外层沙箱内返回 127，在获准的沙箱外单独重跑为 4/4 通过，不能据此宣称沙箱内全量已通过。
 
 Electron 包此前缺少二进制，默认下载源在沙箱内外均失败；使用仓库 packConfig 指定的 `https://npmmirror.com/mirrors/electron/` 后下载成功。当前会话没有 browser 技能所需的浏览器控制工具；恢复 Electron 二进制不代表已完成 Electron UI 验收。
 
