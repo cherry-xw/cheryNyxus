@@ -5,7 +5,7 @@ import prettierConfig from 'eslint-config-prettier'
 export default tseslint.config(
   // Base ignores
   {
-    ignores: ['dist/', 'node_modules/', 'web/', '.chery/', '*.js'],
+    ignores: ['dist/', 'node_modules/', 'apps/web/', '.chery/', '*.js'],
   },
 
   // TypeScript files
@@ -24,7 +24,7 @@ export default tseslint.config(
 
   // Project-specific overrides
   {
-    files: ['src/**/*.ts'],
+    files: ['apps/backend/src/**/*.ts'],
     rules: {
       // TSC already handles these with stricter settings
       '@typescript-eslint/no-unused-vars': [

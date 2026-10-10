@@ -1,0 +1,3 @@
+import { defineConfig } from 'vitest/config'
+import { resolve } from 'node:path'
+export default defineConfig({ envDir: false, resolve: { alias: { '@': resolve(import.meta.dirname, '../apps/backend/src'), '@test': resolve(import.meta.dirname, '../apps/backend/test'), '@chery/protocol': resolve(import.meta.dirname, '../packages/protocol/src'), '@chery/plugin-api': resolve(import.meta.dirname, '../packages/plugin-api/src/index.ts') } }, test: { include: ['plugins/*/test/**/*.test.ts'], globalSetup: ['apps/backend/test/globalSetup.ts'], setupFiles: ['apps/backend/test/flows/setup.ts'], fileParallelism: false, testTimeout: 15000 } })

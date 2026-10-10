@@ -1,5 +1,5 @@
 {
-  "path": ["./src", "./web/src", "./packages", "./manager", "./relay"],
+  "path": ["./apps/backend/src", "./plugins", "./apps/web/src", "./packages", "./apps/manager", "./apps/relay"],
   "reporters": ["console", "json"],
   "output": ".tmp/jscpd",
   "format": ["typescript", "javascript", "vue"],

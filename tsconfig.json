@@ -1,53 +1,26 @@
 {
-  // Visit https://aka.ms/tsconfig to read more about this file
+  "extends": "./apps/backend/tsconfig.json",
   "compilerOptions": {
-    // Environment Settings
-    // See also https://aka.ms/tsconfig/module
-    "target": "esnext",
-    "types": ["node"],
-
-    // Other Outputs
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
-
-    // Stricter Typechecking Options
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": false,
-    "ignoreDeprecations": "6.0",
-
-    // Style Options
-    // "noImplicitReturns": true,
-    // "noImplicitOverride": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    // "noFallthroughCasesInSwitch": true,
-    // "noPropertyAccessFromIndexSignature": true,
-
-    // Recommended Options
-    "strict": true,
-    "jsx": "react-jsx",
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "noUncheckedSideEffectImports": true,
-    "moduleDetection": "force",
-    "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
-    "noEmit": true,
-    "rewriteRelativeImportExtensions": true,
-
-    // 为了和 esbuild/tsx 配合，使用 bundler 模块解析
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@test/*": ["test/*"],
-      "@chery/protocol": ["packages/protocol/src/index.ts"],
-      "@chery/protocol/*": ["packages/protocol/src/*"]
-    },
-    "baseUrl": "."
-
+      "@/*": [
+        "apps/backend/src/*"
+      ],
+      "@test/*": [
+        "apps/backend/test/*"
+      ],
+      "@chery/protocol": [
+        "packages/protocol/src/index.ts"
+      ],
+      "@chery/protocol/*": [
+        "packages/protocol/src/*"
+      ],
+      "@chery/plugin-api": [
+        "packages/plugin-api/src/index.ts"
+      ]
+    }
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "test", "web"]
+  "include": [
+    "apps/backend/src/**/*.ts"
+  ]
 }

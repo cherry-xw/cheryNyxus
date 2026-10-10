@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
  * 释放前后端 dev 端口：若被占用则 kill 占用进程。
  *
  * 默认端口：
- *   5173  前端 Vite dev（web/vite.config.ts strictPort）
+ *   5173  前端 Vite dev（apps/web/vite.config.ts strictPort）
  *   8182  后端 WebSocket（config.server.port）
  *   8183  后端 HTTP / WEB_PORT
  *

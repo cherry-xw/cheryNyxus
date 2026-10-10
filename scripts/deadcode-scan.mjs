@@ -3,11 +3,11 @@
  * 死代码交叉扫描：knip（unused exports/types/deps）∩ CodeGraph（零引用符号图）。
  *
  * 三组输出：
- *   GROUP 1  knip ∩ codegraph 零引用      -> 高置信死代码（删前仍需 grep test/+web/ 二次确认）
+ *   GROUP 1  knip ∩ codegraph 零引用      -> 高置信死代码（删前仍需 grep apps/backend/test/+apps/web/ 二次确认）
  *   GROUP 2  codegraph 零引用但 knip 未报 -> 多为 CodeGraph 误标局部变量；真模块级项需人工甄别
  *   GROUP 3  knip 报但 codegraph 有引用    -> 动态注册/分发误报，排除
  *
- * 依赖：root 已装 knip；.codegraph/ 已索引。仅扫 src/（root 后端），不含 web/test。
+ * 依赖：root 已装 knip；.codegraph/ 已索引。仅扫 apps/backend/src/，不含 apps/web/test。
  *
  * 用法：pnpm deadcode:scan
  */
@@ -46,8 +46,8 @@ const zero = db
     `SELECT n.file_path, n.kind, n.name, n.start_line
      FROM nodes n
      WHERE n.is_exported = 1
-       AND n.file_path LIKE 'src/%'
-       AND n.file_path NOT IN ('src/index.ts','src/worker.ts')
+       AND n.file_path LIKE 'apps/backend/src/%'
+       AND n.file_path NOT IN ('apps/backend/src/index.ts','apps/backend/src/worker.ts')
        AND EXISTS (SELECT 1 FROM edges e JOIN nodes s ON e.source=s.id WHERE e.target=n.id AND e.kind='contains' AND s.kind='file')
        AND NOT EXISTS (SELECT 1 FROM edges e JOIN nodes s ON e.source=s.id WHERE e.target=n.id AND e.kind='contains' AND s.kind IN ('function','method','class'))
        AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.target=n.id AND e.kind IN (${REF_KINDS.map(() => '?').join(',')}))`,
@@ -69,7 +69,7 @@ for (const [key, k] of knipMap) if (!cgZeroMap.has(key)) group3.push(k)
 const fmt = (z) => `${z.file_path || z.file}:${z.start_line || z.line}  ${z.kind || z.cat}  ${z.name}`
 
 console.log(`=== GROUP 1: 高置信死代码 (knip ∩ codegraph 零引用): ${group1.length} ===`)
-console.log('    删前仍需 grep test/ + web/ 二次确认（动态调用/注释提及）')
+console.log('    删前仍需 grep apps/backend/test/ + apps/web/ 二次确认（动态调用/注释提及）')
 for (const z of group1.sort((a, b) => (a.file_path || '').localeCompare(b.file_path || ''))) console.log('  ' + fmt(z))
 
 console.log(`\n=== GROUP 2: codegraph-only 零引用 (knip 未报; 多为局部变量噪声，模块级项需人工): ${group2.length} ===`)

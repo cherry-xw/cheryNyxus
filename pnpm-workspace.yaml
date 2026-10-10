@@ -1,5 +1,9 @@
 packages:
-  - web
+  - apps/backend
+  - apps/manager
+  - apps/relay
+  - apps/web
+  - plugins/*
   - packages/*
 allowBuilds:
   better-sqlite3: true
