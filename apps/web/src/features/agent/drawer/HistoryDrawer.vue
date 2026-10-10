@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * HistoryDrawer：右侧抽屉栈容器（CP4 栈化重构）。
+ * HistoryDrawer：右侧抽屉栈容器。
  *
  * 栈驱动：manager.stack（store uiState historyDrawerStack）非空时滑入；空时滑出。
  * - PetStage openRoot / SpawnRenderer drillChild / jumpToSpawn 等经 manager 改栈

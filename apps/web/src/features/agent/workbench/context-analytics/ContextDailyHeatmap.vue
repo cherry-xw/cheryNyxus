@@ -17,7 +17,7 @@ import {
 } from './dailyModel'
 import { formatTokens } from './presentation'
 import { agentApi } from '@/application/backend/public'
-import { wsClient } from '@/services/ws'
+import { wsClient } from '@/application/transport/public'
 import { DAILY_CHART_TOP, DAILY_CHART_LEFT, DAILY_COLOR_BANDS, dailyCellColor, dailyCellLayout } from './dailyChart'
 
 const props = withDefaults(

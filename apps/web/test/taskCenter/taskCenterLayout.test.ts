@@ -35,7 +35,7 @@ describe('task center information architecture', () => {
     expect(attention).toContain('查看原详情 ↗')
     expect(attention).toContain('await interactions.decide(item, action)')
     expect(attention).toContain('await interactions.answer(item, answers)')
-    expect(panel).toContain("view: 'tree'")
     expect(panel).toContain("workspace.setWorkbenchWindowView(windowId, 'tree')")
+    expect(panel).toContain("workspace.setWorkbenchWindowChat(windowId, task.openChatId)")
   })
 })

@@ -1,5 +1,5 @@
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
-import { useChatSessionsStore, useInteractionsStore, useWorkspaceStore } from '@/stores'
+import { useChatSessionsStore, useInteractionsStore, useWorkspaceStore } from '@/application/public'
 import { useLiteStore } from '@/features/lite/public'
 import { resolveWorkspaceRootChatId } from '@/features/agent/attention/public'
 

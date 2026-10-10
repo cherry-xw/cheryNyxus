@@ -12,10 +12,10 @@ import { readComponentSource } from '../helpers/componentSource'
 describe('workbench conversation view input', () => {
   it('keeps the conversation input wired to the shared composer draft and send pipeline', async () => {
     const [view, dialog, controller] = await Promise.all([
-      readComponentSource(resolve('web/src/features/agent/workbench/ConversationView.vue'), 'utf8'),
-      readComponentSource(resolve('web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/workbench/ConversationView.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
       readComponentSource(
-        resolve('web/src/features/agent/workbench/useWorkbenchDialogController.ts'),
+        resolve('apps/web/src/features/agent/workbench/useWorkbenchDialogController.ts'),
         'utf8',
       ),
     ])
@@ -54,10 +54,10 @@ describe('workbench conversation view input', () => {
 
   it('keeps tree attention controls out of conversation mode and refreshes in-list interactions', async () => {
     const [view, dialog, approvalRenderer] = await Promise.all([
-      readComponentSource(resolve('web/src/features/agent/workbench/ConversationView.vue'), 'utf8'),
-      readComponentSource(resolve('web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/workbench/ConversationView.vue'), 'utf8'),
+      readComponentSource(resolve('apps/web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
       readComponentSource(
-        resolve('web/src/features/agent/renderers/core/ApprovalInteractionRenderer.vue'),
+        resolve('apps/web/src/features/agent/renderers/core/ApprovalInteractionRenderer.vue'),
         'utf8',
       ),
     ])

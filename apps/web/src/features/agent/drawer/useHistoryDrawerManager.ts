@@ -7,7 +7,7 @@ import type { HistoryDrawerAnchor, HistoryDrawerMode } from '@/application/workb
 /**
  * useHistoryDrawerManager：历史抽屉跨层管理层。
  *
- * 设计动机（CP4 演进）：spawn 多级下钻需要"点击子会话 → 打开新抽屉盖在当前之上"。
+ * 设计动机：spawn 多级下钻需要"点击子会话 → 打开新抽屉盖在当前之上"。
  * 渲染器（SpawnRenderer）触发下钻时不直接耦合 store 数据层，而是经本管理层（App 顶层
  * provide、任意后代 inject）。管理层同时是消息缓存的天然承载点（当前预留，未启用）。
  *
@@ -17,7 +17,7 @@ import type { HistoryDrawerAnchor, HistoryDrawerMode } from '@/application/workb
  * 3. 历史加载 + 缓存预留：loadHistory 透传 store.getHistory；historyCache 接口预留命中逻辑，
  *    实时对话一致性需脏标记/版本号失效配合，当前一律全量，避免陈旧。
  *
- * 详见 docs/frontend/pet/agent-integration.md CP4、docs/frontend/renderer.md「跨层服务」。
+ * 详见 docs/frontend/pet/agent-integration.md、docs/frontend/renderer.md「跨层服务」。
  */
 
 /** 缓存条目结构（预留，当前 loadHistory 不启用命中）。 */
@@ -96,7 +96,7 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
       }
       const isChild = Boolean(chatSessions.sessionsById[chatId]?.meta.parentChatId)
       if (isChild) {
-        // Direct drill-down remains a per-chat compatibility view during CP1.
+        // Direct drill-down remains a per-chat compatibility view.
         await chatSessions.openSession(chatId)
       } else {
         // Group history has exactly one source: the root snapshot + root

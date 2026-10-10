@@ -5,7 +5,7 @@ import {
   pendingInputHistory,
 } from './historyTransient'
 /**
- * HistoryDrawerPanel：历史抽屉单面板（从 HistoryDrawer 拆出，CP4 栈化）。
+ * HistoryDrawerPanel：历史抽屉单面板（从 HistoryDrawer 拆出）。
  *
  * 由 HistoryDrawer 栈容器 v-for 渲染，每实例对应栈中一个 chatId：
  * - chatId 驱动 pet/layout/history 解析 + 历史载入（经 manager.loadHistory，预留缓存层）

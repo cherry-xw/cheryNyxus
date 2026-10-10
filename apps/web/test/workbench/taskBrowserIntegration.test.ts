@@ -107,7 +107,7 @@ describe('task browser workbench integration', () => {
     const browser = readComponentSourceSync(resolve('src/features/agent/workbench/TaskBrowser.vue'))
     const workbenchSource = existsSync(resolve('src/features/agent/workbench'))
       ? resolve('src/features/agent/workbench')
-      : resolve('web/src/features/agent/workbench')
+      : resolve('apps/web/src/features/agent/workbench')
 
     expect(dialog).toContain('<TaskBrowser')
     expect(dialog).toContain('@analytics="openContextAnalyticsFromBrowser"')
