@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { hostOf, isLoopbackHost, normalizeAddress } from '@/domain/auth/serverAddress'
-import { useAuthStore, type AuthError, type AuthMode } from '@/stores/auth'
-import { useConnectionStore } from '@/stores/connection'
+import { useAuthStore, type AuthError, type AuthMode } from '@/application/auth/public'
+import { useConnectionStore } from '@/application/auth/public'
 
 const emit = defineEmits<{ ready: [] }>()
 const auth = useAuthStore()
@@ -71,7 +71,7 @@ async function submit(): Promise<void> {
 <template>
   <main class="preload-shell" aria-labelledby="preload-title">
     <form class="preload-form" @submit.prevent="submit">
-      <p class="preload-kicker">CHERYCLAW / AUTH</p>
+      <p class="preload-kicker">cheryNyxus / AUTH</p>
       <h1 id="preload-title">连接后端</h1>
       <label>
         <span>登录方式</span>
@@ -117,8 +117,8 @@ async function submit(): Promise<void> {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: #101316;
-  color: #f3f5f6;
+  background: var(--bg);
+  color: var(--ink);
   font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
 }
 .preload-form {
@@ -128,34 +128,34 @@ async function submit(): Promise<void> {
 }
 .preload-kicker {
   margin: 0;
-  color: #aab4bb;
+  color: var(--ink);
   font: 11px/1.2 ui-monospace, SFMono-Regular, monospace;
   letter-spacing: .08em;
 }
 h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
 label { display: grid; gap: 6px; }
-label span { color: #cbd2d6; font-size: 12px; }
+label span { color: var(--ink); font-size: 12px; }
 input, button {
   min-height: 40px;
-  border: 1px solid #3e484f;
+  border: 1px solid var(--border-strong);
   border-radius: 0;
-  background: #171c20;
+  background: var(--surface);
   color: inherit;
   font: inherit;
   padding: 9px 10px;
 }
 select {
   min-height: 40px;
-  border: 1px solid #3e484f;
+  border: 1px solid var(--border-strong);
   border-radius: 0;
-  background: #171c20;
+  background: var(--surface);
   color: inherit;
   font: inherit;
   padding: 9px 10px;
 }
-input:focus { outline: 2px solid #7fd6c2; outline-offset: 1px; }
-button { background: #7fd6c2; border-color: #7fd6c2; color: #10201d; cursor: pointer; }
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+button { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); cursor: pointer; }
 button:disabled { cursor: wait; opacity: .55; }
-.preload-note { margin: -2px 0 0; color: #aab4bb; font-size: 12px; }
-.preload-error { margin: 0; color: #ff9d9d; font-size: 12px; }
+.preload-note { margin: -2px 0 0; color: var(--ink); font-size: 12px; }
+.preload-error { margin: 0; color: var(--danger); font-size: 12px; }
 </style>
