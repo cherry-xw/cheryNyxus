@@ -39,7 +39,7 @@ const RECONNECT_DELAY = 2000
 /**
  * 心跳间隔（ms）。浏览器 WebSocket API 无法主动发协议层 ping 帧，
  * 只能定时发应用层纯 JSON `{kind:'ping'}` 探测（后端原样回 `{kind:'pong'}`，见
- * src/service/websocket/index.ts handleMessage）。用于检测 worker 重启时的半开连接。
+ * apps/backend/src/service/websocket/index.ts handleMessage）。用于检测 worker 重启时的半开连接。
  */
 const HEARTBEAT_INTERVAL_MS = 30000
 /** 心跳探测超时（ms）：发出 ping 后 PONG_TIMEOUT 内无 pong → 下次心跳判定半开、主动 close 走重连。 */
@@ -157,7 +157,7 @@ export class WsClient {
   async connect(
     options: { refresh?: boolean; query?: Record<string, string> } = {},
   ): Promise<void> {
-    // query（T33 lite）：附加 URL 查询参数，随实例持久、重连自动携带。仅供独立 lite
+    // query：附加 URL 查询参数，随实例持久、重连自动携带。仅供独立 lite
     // 实例使用——主 UI 单例不得传（lite 连接信封最小化会破坏主 UI gap-buffer/replay 协议）。
     if (options.query) this.extraQuery = options.query
     if (!this.serverConfig || options.refresh) {

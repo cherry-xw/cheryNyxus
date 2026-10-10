@@ -136,7 +136,7 @@ export function createPetLifecycle(
   activeNyxusChatId: Ref<string | null>,
 ) {
   /**
-   * 从 chat 摘要建主 pet + 全部后代子 pet，push 进 pets（CP8 抽出，initFromChats / loadSession 复用）。
+   * 从 chat 摘要建主 pet + 全部后代子 pet，push 进 pets（抽出，initFromChats / loadSession 复用）。
    * 主 pet = kaomoji face，子 pet = emoji face 落主附近（findSpawnPosition）。
    * face 去重：usedFaces 跨调用累积，避同批撞脸。
    */
@@ -206,10 +206,10 @@ export function createPetLifecycle(
   }
 
   /**
-   * 创建主 agent（FAB 点击触发，CP2 接 AgentFab）。
+   * 创建主 agent（FAB 点击触发）。
    * 调 chat.create → 主 pet 入 pets；cheryNyxus 预设除外：不建 PetInstance（独立核心 NyxusCore 渲染），
    * 只返回 chatId。返回新 chatId。
-   * opts 必填（brain/senseGroups 来自 config.default，CP2 由调用方读取）。
+   * opts 必填（brain/senseGroups 来自 config.default，由调用方读取）。
    */
   async function createMasterPet(opts: {
     /** 预设名（T6）：给出则后端从预设解析编制，brain/senseGroup 可省 */
@@ -306,7 +306,7 @@ export function createPetLifecycle(
   }
 
   /**
-   * 隐藏 stage pet（CP8：仅前端移除，**不删 DB**）。主 pet 隐藏 → 自身及全部后代子 pet 移除。
+   * 隐藏 stage pet（仅前端移除，**不删 DB**）。主 pet 隐藏 → 自身及全部后代子 pet 移除。
    * runtime 随 pet 移除丢失（loadSession 重建后退 default 预选）；清 streams/active 焦点。
    * 调用方须保证非 isWorking（PetToolbar destroy 按钮 disabled 守卫：pet.isWorking || hasWorkingChild）。
    */
@@ -317,7 +317,7 @@ export function createPetLifecycle(
   }
 
   /**
-   * 删除会话（CP8：会话列表 ✕ 调用）。后端 chat.delete 级联全部后代 chat，
+   * 删除会话（会话列表 ✕ 调用）。后端 chat.delete 级联全部后代 chat，
    * 前端同步移除 historyList + pets（若在 stage）+ active 焦点。
    */
   async function deleteSession(chatId: string): Promise<void> {
@@ -326,7 +326,7 @@ export function createPetLifecycle(
   }
 
   /**
-   * 从历史列表加载会话到 stage（CP8）。建主+子 pet 入 pets（允许 >5，不挤）。
+   * 从历史列表加载会话到 stage。建主+子 pet 入 pets（允许 >5，不挤）。
    * 已在 stage 则仅关抽屉；historyList 缺该会话则 warn（fail loud）。
    */
   function loadSession(chatId: string): void {

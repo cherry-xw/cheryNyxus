@@ -164,7 +164,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       return
     }
     if (role === 'role' || role === 'subagent') {
-      // T9：wait=true 子完成注入的回复（后端 role:role/subagent）。该消息保留为主 chat
+      // wait=true 子完成注入的回复（后端 role:role/subagent）。该消息保留为主 chat
       // 原始记录；与子 chat 的相同响应仅在 HistoryDrawer 的展示层安全合并。
       const content = d.content ?? ''
       const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content)
@@ -180,7 +180,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       })
       return
     }
-    // role=system / role=undefined：暂不展示（CP4 不渲染 system 消息），忽略
+    // role=system / role=undefined：暂不展示（不渲染 system 消息），忽略
     return
   }
 

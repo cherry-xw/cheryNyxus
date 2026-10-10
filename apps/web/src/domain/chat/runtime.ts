@@ -1,4 +1,4 @@
-import type { ThinkingLevel } from '@/application/backend/public'
+import type { ThinkingLevel } from '@chery/protocol'
 
 /** 每轮可切换的 runtime selection。 */
 export interface RuntimeSelection {

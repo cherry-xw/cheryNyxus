@@ -1,5 +1,5 @@
 /**
- * 前端传输层 —— 镜像后端 src/service/websocket/transport.ts 编解码。
+ * 前端传输层 —— 镜像后端 apps/backend/src/service/websocket/transport.ts 编解码。
  *
  * 协议（docs/shared/protocol/websocket.md）：
  * - Request/Response：纯 JSON 字符串

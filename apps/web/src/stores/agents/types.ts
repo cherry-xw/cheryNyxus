@@ -157,10 +157,10 @@ export interface QuestionBatchState {
 
 /**
  * 单条 chat 的流式累积状态。
- * CP1 骨架：thinking/content 累积字符串 + isWorking。
- * CP2 细化双气泡（thinking 阶段全空间显 thinking；thinking 结束主气泡 content + 左侧小气泡 thinking）。
- * CP4 history：chat.get staged 回放累积（与实时 stream 累积分流）。
- * CP5 approval：interrupt/accept/rejected 驱动 ApprovalCard；approvalQueue 保存被用户关闭但未处理的审批供重新唤起。
+ * 骨架：thinking/content 累积字符串 + isWorking。
+ * 双气泡（thinking 阶段全空间显 thinking；thinking 结束主气泡 content + 左侧小气泡 thinking）。
+ * history：chat.get staged 回放累积（与实时 stream 累积分流）。
+ * approval：interrupt/accept/rejected 驱动 ApprovalCard；approvalQueue 保存被用户关闭但未处理的审批供重新唤起。
  * CP-ask：question_batch_requested/completed + 权威快照驱动 QuestionCard。
  */
 export interface StreamState {
@@ -193,7 +193,7 @@ export interface StreamState {
   /** 当前 pending 审批（无则 undefined）。被用户 Accept/Reject/✕ 关闭时移到 approvalQueue 或清空。 */
   approval?: ApprovalState
   /**
-   * 已隐藏但未处理的审批队列（CP5 扩展）：用户点 ✕ 关闭、新轮 sendMessage 触发、服务端并发 interrupt 等场景下保留审批不丢失。
+   * 已隐藏但未处理的审批队列：用户点 ✕ 关闭、新轮 sendMessage 触发、服务端并发 interrupt 等场景下保留审批不丢失。
    * - 渲染为 PetIcons 右侧 approval 列的闪烁 icon（频率=剩余时间）
    * - 点击 icon → 移到 `approval` 重新唤起气泡
    * - 自动推进：Accept/Reject 后从 queue head pop 下一个进 `approval`

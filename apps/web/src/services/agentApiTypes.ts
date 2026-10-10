@@ -84,7 +84,7 @@ export interface PromptSnapshotTool {
 }
 
 /**
- * 当前态快照（镜像后端 src/service/message/types.ts CurrentStateData）。
+ * 当前态快照（镜像后端 apps/backend/src/service/message/types/chatSnapshots.ts CurrentStateData）。
  * chat.get / chat.sync / chat.attach response 携带；前端 applyCurrentState 权威 replace StreamState 字段。
  * - pendingApproval：仍存活的挂起审批（approvalManager 内存命中）。run 已 paused 时省略 → 前端显继续按钮。
  *   含 waitTime/createdAt 用于前端算倒计时。
@@ -139,9 +139,9 @@ export interface ChatSummary {
   /** 子 chat 的角色 type 与头像；主 chat 缺省。 */
   agentType?: string
   avatar?: string
-  /** 仅 includePreview=true 返：首条 user 消息截断（≤40），会话列表辨识用。CP8 */
+  /** 仅 includePreview=true 返：首条 user 消息截断（≤40），会话列表辨识用 */
   preview?: string
-  /** 仅 includePreview=true 返：user 消息数 = 会话轮次。CP8 */
+  /** 仅 includePreview=true 返：user 消息数 = 会话轮次 */
   turnCount?: number
   /** 子 agent 是否已完成（后端 metadata.finished）。前端据 finished===true 重建子 pet 为 ghost。主 chat 恒 undefined。 */
   finished?: boolean
@@ -356,7 +356,7 @@ export interface CreateAgentOptions {
   mcpServers?: string[]
   /** 可选，未给则后端生成 */
   chatId?: string
-  /** 子 agent 关联主 chat（CP3 子 agent 用） */
+  /** 子 agent 关联主 chat（子 agent 用） */
   parentChatId?: string
 }
 

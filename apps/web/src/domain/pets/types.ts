@@ -86,11 +86,11 @@ export interface PetInstance extends PetPreset {
   moodUntil: number
   interactionUntil: number
   lastInteractionAt: number
-  /** 情绪值 0-100：交互驱动，随时间缓降。低值 → sad/angry 基础 mood。CP1 保留为内部 mood 驱动（移除交互增量）。 */
+  /** 情绪值 0-100：交互驱动，随时间缓降。低值 → sad/angry 基础 mood。保留为内部 mood 驱动。 */
   emotion: number
   /**
    * 疲劳值 0-100：认知/上下文负担。当前由移动/拖拽累积，≥80 自动休息。
-   * 语义逐步让位给 contextUsage（真实 token 上下文）；CP1 两者并存，contextUsage 默认 0。
+   * 语义逐步让位给 contextUsage（真实 token 上下文）；两者并存，contextUsage 默认 0。
    */
   fatigue: number
   dragOffsetX: number
@@ -99,7 +99,7 @@ export interface PetInstance extends PetPreset {
   pairCooldowns: Record<string, number>
   rapidClicks: number
   lastClickAt: number
-  // ===== agent 绑定（CP1 新增） =====
+  // ===== agent 绑定 =====
   /** 绑定的 chat id（agent 会话实体）。主 pet = 主 agent chat；子 pet = 子 agent chat。 */
   chatId: string
   /** Stable preset workspace identity. Master Pet chatId remains its creation identity; active root lives in UI state. */
@@ -108,9 +108,9 @@ export interface PetInstance extends PetPreset {
   parentChatId?: string
   /** 角色类型（roles 模块名，主 pet 为 undefined）。 */
   agentType?: string
-  /** 工作状态（流式中）。true 时 pet 视觉显工作态（CP2 双气泡）。 */
+  /** 工作状态（流式中）。true 时 pet 视觉显工作态（双气泡）。 */
   isWorking: boolean
-  /** 上下文用量 0-1（token / brain.contextLimit）。CP1 默认 0 不计算，CP7 接 tokenizer。 */
+  /** 上下文用量 0-1（token / brain.contextLimit）。默认 0 不计算。 */
   contextUsage: number
   /** 已用 token 数（估算值，字符数/4）。配合 contextTotal 显示 "used/total" 详情。 */
   contextUsed: number
