@@ -8,7 +8,7 @@
 
 所有可改的字段定义在 `.chery.template/docs/`（与运行时目录同级，模板化的字段参考表）。修改前必读：
 - 总索引：[.chery.template/docs/README.md](../../docs/README.md)（含「AI 自动修改配置」章节）
-- 字段参考：[config.md](../../docs/config.md) / [model-thinking.md](../../docs/model-thinking.md) / [hooks.md](../../docs/hooks.md) 等
+- 字段参考：[config.md](../../docs/config.md) / [docs/backend/agent/model-capabilities.md](../../../docs/backend/agent/model-capabilities.md) / [hooks.md](../../docs/hooks.md) 等
 
 ### `model-catalog.yaml` 规则
 
@@ -72,4 +72,4 @@
 
 - 字段参考：[.chery.template/docs/](../../docs/)
 - 管家入口索引：[.chery.template/docs/README.md](../../docs/README.md)「AI 自动修改配置」章节
-- 加载入口：[src/agent/prompt/](../../../src/agent/prompt/) ｜ 提示词系统：[../../../docs/system-prompt.md](../../../docs/backend/agent/system-prompt.md)
+- 加载入口：[apps/backend/src/agent/prompt/](../../../apps/backend/src/agent/prompt) ｜ 提示词系统：[../../../docs/system-prompt.md](../../../docs/backend/agent/system-prompt.md)

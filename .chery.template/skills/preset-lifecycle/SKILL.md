@@ -6,7 +6,7 @@ trigger: 用户要求创建、重建、删除预设，或连带清理角色、�
 
 # Preset Lifecycle
 
-本技能只用于 Cherry Nexus 的预设全生命周期操作。执行时必须使用 `config_manage`，不得用命令或通用文件工具改 `.chery`。
+本技能只用于 cheryNyxus 的预设全生命周期操作。执行时必须使用 `config_manage`，不得用命令或通用文件工具改 `.chery`。
 
 ## 删除
 
