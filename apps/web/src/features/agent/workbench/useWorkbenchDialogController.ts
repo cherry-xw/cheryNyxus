@@ -599,7 +599,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     await handleSend(targetChatId, { keepOpen: true })
     if (text.value) nyxusDraftActive.value = true
   }
-  /** 任意入口（标题栏三档切换钮；rail「对话模式」按钮 v2.1 移除）离开对话模式都清理代际二层视图。
+  /** 任意入口（标题栏三档切换钮；rail「对话模式」按钮 移除）离开对话模式都清理代际二层视图。
    *  从对话模式切回节点树时打开输入区：对话模式常驻输入框，切回后允许继续输入。 */
   watch(viewMode, (mode, previousMode) => {
     if (mode !== 'conversation') agents.closeHistoryGeneration()
@@ -809,7 +809,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const attentionCount = computed(
     () => interactions.pending.filter((item) => item.rootChatId !== attentionRootChatId.value).length,
   )
-  const workspaceBrowserOpen = ref(false)
+  const attentionSurfaceOpen = ref(false)
   // 独立保存审核窗口的显示状态，切换树/对话/经典模式时不重置。
   const attentionSurfaceInitialized = ref(false)
   watch(
@@ -821,15 +821,15 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       }
       if (attentionSurfaceInitialized.value) return
       attentionSurfaceInitialized.value = true
-      workspaceBrowserOpen.value = true
+      attentionSurfaceOpen.value = true
     },
     { immediate: true },
   )
   function closeWorkspaceBrowser(): void {
-    workspaceBrowserOpen.value = false
+    attentionSurfaceOpen.value = false
   }
   function toggleWorkspaceBrowser(): void {
-    workspaceBrowserOpen.value = !workspaceBrowserOpen.value
+    attentionSurfaceOpen.value = !attentionSurfaceOpen.value
     agents.setWorkbenchWindowBlink(props.windowId, false)
     void interactions.refresh().catch(() => undefined)
   }
@@ -838,7 +838,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     interactionId?: string
     anchorNodeId?: string
   }): void {
-    workspaceBrowserOpen.value = true
+    attentionSurfaceOpen.value = true
     agents.setWorkbenchWindowBlink(props.windowId, false)
     void interactions.refresh().catch(() => undefined)
   }
@@ -1052,6 +1052,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     branchAnchorKind: branchTarget.value?.type,
     detailBranchAvailable: detailBranchAvailability.value.available,
     detailBranchUnavailableReason: detailBranchAvailability.value.reason,
+    focusNonce: treeFocusNonce.value,
   }))
 
   return {
@@ -1212,7 +1213,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     retryTree,
     treeUsage,
     treeUsagePct,
-    workspaceBrowserOpen,
+    attentionSurfaceOpen,
     hasPresetWorkspace,
     agentUsage,
     uploading,
