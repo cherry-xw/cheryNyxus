@@ -1,8 +1,8 @@
 # hooks — 事件驱动扩展
 
 > 模板目录：`.chery.template/hooks/` ｜ 运行位置：`.chery/hooks/`
-> 加载入口：[src/agent/hooks/](../../src/agent/hooks/)（registry / dispatch / matcher）
-> 详细机制：[../../docs/agent/hooks.md](../../docs/agent/hooks.md)
+> 加载入口：[apps/backend/src/agent/hooks/](../../apps/backend/src/agent/hooks)（registry / dispatch / matcher）
+> 详细机制：[../../docs/backend/agent/hooks.md](../../docs/backend/agent/hooks.md)
 
 ## 用途
 
@@ -32,7 +32,7 @@
 
 ### 顶层 key：事件名
 
-**当前实现状态**（[src/agent/hooks/dispatch.ts](../../src/agent/hooks/dispatch.ts)）：
+**当前实现状态**（[apps/backend/src/agent/hooks/dispatch.ts](../../apps/backend/src/agent/hooks/dispatch.ts)）：
 
 | 事件 | 状态 | input | output / 决策 |
 |------|------|-------|--------------|
@@ -173,6 +173,6 @@ dispatch(event, payload, ctx)
 
 ## 关联
 
-- 详细契约：[../../docs/agent/hooks.md](../../docs/agent/hooks.md)
-- Anthropic provider：[docs/agent/provider.md](../../docs/backend/agent/provider.md)
+- 详细契约：[../../docs/backend/agent/hooks.md](../../docs/backend/agent/hooks.md)
+- Anthropic provider：[docs/backend/agent/provider.md](../../docs/backend/agent/provider.md)
 - 模板示例：[../hooks/anthropic-thinking.sh](../hooks/anthropic-thinking.sh)

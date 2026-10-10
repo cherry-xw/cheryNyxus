@@ -3,7 +3,7 @@
 > 给 AI 看的「错误 → 设置项」对照表。
 > 当 AI 把后端抛出的错误信息呈现给用户（toast / banner / 聊天流）时，按本文档的分类定位**该让用户改哪个设置**。
 >
-> **Why**：错误信息按 [docs/error-conventions.md](../../docs/error-conventions.md) 只带 `tracingId` + 一行中文，用户无法仅凭消息字面知道去哪个面板改什么。本文档维护**唯一权威映射**——AI 不要凭直觉给建议，先查这里。
+> **Why**：错误信息按 [docs/shared/protocol/errors.md](../../docs/shared/protocol/errors.md) 只带 `tracingId` + 一行中文，用户无法仅凭消息字面知道去哪个面板改什么。本文档维护**唯一权威映射**——AI 不要凭直觉给建议，先查这里。
 >
 > **How to apply**：
 > 1. 看到错误信息 → 在下表**按消息片段**或 `[tracingId]` 反查
@@ -27,7 +27,7 @@
 
 | 用户面消息（含 `[tracingId]` 前缀示例） | 触发条件 | 设置项 / 排查 | 状态 |
 |---------------------------------|----------|--------------|------|
-| `[xxxxxxxx] 大脑没配好（缺 model 或地址），请在设置里检查` | brain 缺 `model` 或 `url` | `llm.brain.<name>.model` / `.url`；切换/新建 brain 见 [./config.md#llmbrain-name-字段](./config.md#llmbrain-name-字段) | ✓ |
+| `[xxxxxxxx] 大脑没配好（缺 model 或地址），请在设置里检查` | brain 缺 `model` 或 `url` | `llm.brain.<name>.model` / `.url`；切换/新建 brain 见 [./config.md#llmbrain-字段](./config.md#llmbrain-字段) | ✓ |
 | `[xxxxxxxx] 大脑的钥匙没配好（<model>），请在设置里检查` | brain 缺 `key` 或 `key` 仍是 `$ENV` 占位符（环境变量未注入） | `llm.brain.<name>.key`——支持 `$VAR` 从环境注入；查进程 env 或 `.env` 是否设置；详见 [./config.md#env-占位符](./config.md#env-占位符) | ✓ |
 | `[xxxxxxxx] 大脑的钥匙不对，请在设置里检查 key` | 上游返回 HTTP 401/403（OpenAI / Anthropic / BigModel / 兼容聚合） | `llm.brain.<name>.key`——可能 key 失效、过期、被吊销、或填到了错的 brain；同 key 在 OpenAI 控制台自测 | ✓ |
 | `[xxxxxxxx] 脑子忙不过来了，稍后再试` | 上游返回 HTTP 429（限流）或上游 provider 类错误 | `llm.brain.<name>.rpm`——降低或留空；切到备用 brain；等待上游恢复 | ✓ |
@@ -35,7 +35,7 @@
 | `[xxxxxxxx] 脑子回话不太对` | 上游返回其他非 2xx（如 400 业务错误） | 检查 `model` 拼写是否被上游识别；查上游返回详情（日志 `req.no_schema` / 上游 snippet） | ✓ |
 | `[xxxxxxxx] 连不上我的脑子了` | DNS / TCP / TLS 连接失败（ECONNREFUSED / ENOTFOUND / fetch failed） | `llm.brain.<name>.url`——自测 `curl <url>`；Ollama 场景确认 `ollama serve` 已启动并监听 | ✓ |
 | `[xxxxxxxx] 脑子反应太慢了` | 网络或上游超时（`timeout` / `timed out` 关键词命中） | 调大 `global.sense_execute_timeout`（不直接治大脑，仅放宽感受官超时）；排查网络链路；切换 brain | ✓ |
-| `[xxxxxxxx] 脑子没听懂这个请求` | provider 返回 4xx 校验类错误（schema / 参数非法） | 检查 `model` 是否支持当前 thinking 档位（[./model-thinking.md](./model-thinking.md)）；某些 o1 系模型不接 `tools` 时降级或换 brain | ✓ |
+| `[xxxxxxxx] 脑子没听懂这个请求` | provider 返回 4xx 校验类错误（schema / 参数非法） | 检查 `model` 是否支持当前 thinking 档位（[../../docs/backend/agent/model-capabilities.md](../../docs/backend/agent/model-capabilities.md)）；某些 o1 系模型不接 `tools` 时降级或换 brain | ✓ |
 | `[xxxxxxxx] 脑子出了点小问题` | 兜底（`unknown` 分类） | 看日志 `compose.unhandled` 还原上下文；必要时切换 brain | ✓ |
 
 ### 来源：system（compose 兜底 / RPC router）
@@ -177,7 +177,7 @@ grep -r "compose.unhandled\|llm.key.missing\|req.invalid_params" .chery/logs/ | 
 
 ## 实施原则
 
-1. **不创造新错误出口**——新错误遵循 [../../docs/error-conventions.md](../../docs/error-conventions.md)（throwUserFacing / ClassifiedError），本表随源更新
+1. **不创造新错误出口**——新错误遵循 [../../docs/shared/protocol/errors.md](../../docs/shared/protocol/errors.md)（throwUserFacing / ClassifiedError），本表随源更新
 2. **不向用户暴露技术字段**——错误信息禁止带 HTTP status / request id / 栈帧；引导改设置而非"反馈开发"
 3. **advice 不超出本表**——AI 给用户的设置项建议必须能映射到上表某行；映射不到的转人工
 4. **更新本文档**：任何 throwUserFacing / ClassifiedError.userMessage 新增 / 修改 → 同步本表对应行
@@ -185,9 +185,9 @@ grep -r "compose.unhandled\|llm.key.missing\|req.invalid_params" .chery/logs/ | 
 
 ## 关联
 
-- 错误分层规范（必读）：[../../docs/error-conventions.md](../../docs/error-conventions.md)
+- 错误分层规范（必读）：[../../docs/shared/protocol/errors.md](../../docs/shared/protocol/errors.md)
 - 主配置字段：[./config.md](./config.md)
-- 模型思考档位：[./model-thinking.md](./model-thinking.md)
+- 模型思考档位：[../../docs/backend/agent/model-capabilities.md](../../docs/backend/agent/model-capabilities.md)
 - 钩子配置：[./hooks.md](./hooks.md)
 - 自定义感官：[./senses.md](./senses.md)
 - 索引：[./README.md](./README.md)

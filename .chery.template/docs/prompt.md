@@ -1,7 +1,7 @@
 # prompt — System Prompt 与角色提示词
 
 > 模板目录：`.chery.template/prompt/` ｜ 运行位置：`.chery/prompt/`
-> 加载入口：[src/agent/prompt/](../../src/agent/prompt/) ｜ 详细文档：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)
+> 加载入口：[apps/backend/src/agent/prompt/](../../apps/backend/src/agent/prompt) ｜ 详细文档：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)
 
 ## 用途
 
@@ -17,7 +17,7 @@ prompt/
     planner.md
     coder.md
     reviewer.md
-  cheryNyxus/                    # Cherry Nexus 专属提示词（配置管理核心角色）
+  cheryNyxus/                    # cheryNyxus 专属提示词（配置管理核心角色）
     cheryNyxus.md
   roleArchitect/                 # 任意岗位研究与角色蓝图；不写配置
     roleArchitect.md
@@ -34,7 +34,7 @@ prompt/
 | `prefebMain/planner.md` | 计划角色（plan）的专属指令 | `roles.plan.systemPrompt` |
 | `prefebMain/coder.md` | 编码角色（coder）的专属指令 | `roles.coder.systemPrompt` |
 | `prefebMain/reviewer.md` | 审查角色（reviewer）的专属指令 | `roles.reviewer.systemPrompt` |
-| `cheryNyxus/cheryNyxus.md` | Cherry Nexus（配置管理核心角色：管理角色/感官/全局/llm 配置 + 组长） | `roles.cheryNyxus.systemPrompt` |
+| `cheryNyxus/cheryNyxus.md` | cheryNyxus（配置管理核心角色：管理角色/感官/全局/llm 配置 + 组长） | `roles.cheryNyxus.systemPrompt` |
 | `roleArchitect/roleArchitect.md` | Role Architect（研究岗位、输出职责/风险/能力诉求/验收蓝图，不修改配置） | `roles.roleArchitect.systemPrompt` |
 | `roleAcceptance/roleAcceptance.md` | 独立验收器（只依据隔离证据返回结构化 verdict，不执行目标任务） | `roles.roleAcceptance.systemPrompt` |
 
@@ -69,7 +69,7 @@ prompt/
 ## 模板示例（cherryNyxus）
 
 ```md
-你是 Cherry Nexus：系统的配置管理核心角色，也是桌宠组长。
+你是 cheryNyxus：系统的配置管理核心角色，也是桌宠组长。
 你的核心任务是管理所有角色配置相关的任务（对设置相关信息进行维护调整）。
 
 ## 职责
@@ -103,11 +103,11 @@ prompt/
 
 ## 关联
 
-- 角色配置：[./config.md#rolesrole-字段](./config.md#rolesrole-字段)
+- 角色配置：[./config.md#roles-字段](./config.md#roles-字段)
 - 提示词系统：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)
-- Cherry Nexus 提示词：[../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md)（配置管理 + 组长）
+- cheryNyxus 提示词：[../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md)（配置管理 + 组长）
 - Role Architect 提示词：[../prompt/roleArchitect/roleArchitect.md](../prompt/roleArchitect/roleArchitect.md)（岗位研究 + 蓝图，不授权工具）
 - Role Acceptance 提示词：[../prompt/roleAcceptance/roleAcceptance.md](../prompt/roleAcceptance/roleAcceptance.md)（隔离证据独立评估，无工具）
 - 任意岗位角色设计：[./role-design.md](./role-design.md)
 - 角色端到端验收：[./role-acceptance.md](./role-acceptance.md)
-- 配置管理感官：[../../docs/core/sense.md](../../docs/core/sense.md#config_manage-感官)（get/patch/backup/rollback）
+- 配置管理感官：[../../docs/backend/agent/config-manage.md](../../docs/backend/agent/config-manage.md)（get/patch/backup/rollback）

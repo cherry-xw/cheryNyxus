@@ -1,8 +1,8 @@
 # config.yaml — 主配置参考表
 
 > 模板文件：`.chery.template/config.yaml` ｜ 运行位置：`.chery/config.yaml`（gitignored）
-> 加载入口与类型：[src/utils/config.ts](../../src/utils/config.ts)
-> 相关文档：[../../docs/utils/README.md](../../docs/utils/README.md)（加载/校验流程）
+> 加载入口与类型：[apps/backend/src/utils/config.ts](../../apps/backend/src/utils/config.ts)
+> 相关文档：[../../docs/backend/utils/README.md](../../docs/backend/utils/README.md)（加载/校验流程）
 
 ## 用途
 
@@ -18,7 +18,7 @@
 | `roles` | object | ✅（如启用角色） | 角色定义（brain、工具组、提示词和权限） |
 | `presets` | object | ✅ | 预设配置（leader、成员、可选 workspace 与监管规则） |
 | `server` | object | ❌ | WebSocket 服务监听配置（默认 port 8182 / transport binary / host 127.0.0.1） |
-| `manager` | object | ❌ | 本地管理器监听配置（`manager/` 独立进程，默认 host 127.0.0.1；见 [manager 字段](#manager-字段)） |
+| `manager` | object | ❌ | 本地管理器监听配置（`apps/manager/` 独立进程，默认 host 127.0.0.1；见 [manager 字段](#manager-字段)） |
 | `memory` | object | ❌ | 长期记忆参数（`max_count` / `max_chars`） |
 
 ## global 字段
@@ -107,7 +107,7 @@
 
 ```yaml
 sense_groups:
-  leader:                    # 纯组长组：不配配置管理感官，配置需交 Cherry Nexus
+  leader:                    # 纯组长组：不配配置管理感官，配置需交 cheryNyxus
     - read_file
     - skill
     - write_file
@@ -116,7 +116,7 @@ sense_groups:
     - spawn_role
     - ask_user_question
     - history_recall
-  chery_nexus:               # Cherry Nexus 专属组：组长能力 + 配置管理（install_skill/config_manage 独占）
+  cheryNyxus:                # cheryNyxus 专属组：组长能力 + 配置管理（install_skill/config_manage 独占）
     - read_file
     - skill
     - write_file
@@ -125,8 +125,8 @@ sense_groups:
     - spawn_role
     - ask_user_question
     - history_recall
-    - install_skill                # 技能安装（Cherry Nexus 职责）
-    - config_manage                # 配置管理（Cherry Nexus 独占，.chery/ 路径守卫天然豁免）
+    - install_skill                # 技能安装（cheryNyxus 职责）
+    - config_manage                # 配置管理（cheryNyxus 独占，.chery/ 路径守卫天然豁免）
   reviewer:                  # 只读组
     - read_file
     - search_codebase
@@ -153,7 +153,7 @@ sense_groups:
 
 **校验（启动期）：** `brain` 必须存在；配置了 `systemPrompt` 时文件必须存在；无 Tool Call 能力的 brain 不得配置 `senseGroup` / `mcpServers`。
 
-**公共 / 私有语义：** `scope: 'public'` 表示公共角色——全局共享单一源、不归属任何预设，可被任意预设引用为成员（引用不复制，改动对所有引用预设生效）。缺省或 `private` 为预设内私有角色（归属单一预设、删除连全局删）。**组长（`presets.<name>.leader`）必须是私有角色，不能是公共角色**——这是 `validateRawConfig` 的硬校验，保存时违反会报错。模板中解释角色 `explanation` 是固定预设 `cheryNyxus` 的种子公共角色（由固定预设成员推导，禁止删除）；`curator` / `roleArchitect` / `roleAcceptance` 是**系统锁定角色**（`lock: true`、非公共），供 Cherry Nexus 内部流程使用，保留在固定预设成员内以保证 `spawn_role` 可派发。旧配置无 `scope` 字段时，设置页按「固定预设成员（非组长、非锁定）」推导为公共。
+**公共 / 私有语义：** `scope: 'public'` 表示公共角色——全局共享单一源、不归属任何预设，可被任意预设引用为成员（引用不复制，改动对所有引用预设生效）。缺省或 `private` 为预设内私有角色（归属单一预设、删除连全局删）。**组长（`presets.<name>.leader`）必须是私有角色，不能是公共角色**——这是 `validateRawConfig` 的硬校验，保存时违反会报错。模板中解释角色 `explanation` 是固定预设 `cheryNyxus` 的种子公共角色（由固定预设成员推导，禁止删除）；`curator` / `roleArchitect` / `roleAcceptance` 是**系统锁定角色**（`lock: true`、非公共），供 cheryNyxus 内部流程使用，保留在固定预设成员内以保证 `spawn_role` 可派发。旧配置无 `scope` 字段时，设置页按「固定预设成员（非组长、非锁定）」推导为公共。
 
 ## presets.<name> 字段
 
@@ -173,7 +173,7 @@ sense_groups:
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
 | `port` | number | 8182 | WebSocket 监听端口 |
-| `transport` | enum | `binary` | 传输格式：`binary` / `json`（详见 [docs/protocol.md](../../docs/protocol.md)） |
+| `transport` | enum | `binary` | 传输格式：`binary` / `json`（详见 [docs/shared/protocol/websocket.md](../../docs/shared/protocol/websocket.md)） |
 | `host` | string | `127.0.0.1` | 监听地址 |
 | `workspace_browse` | object | — | 文件夹浏览协议（`config.workspace.browse.*`）配置，见下 |
 
@@ -189,13 +189,13 @@ sense_groups:
 | `rpm` | number | 60 | 每会话每分钟请求上限 |
 | `max_sessions` | number | 20 | 并发浏览会话上限 |
 
-> ⚠ `workspace_browse` 是 **server 侧专属**：被 `config.get` 剥离（设置面板不可编辑）、`config.save` 原样保留；改配置需直接编辑 `.chery/config.yaml` 后重启生效。载荷加密为混淆级（协议见 [docs/protocol.md](../../docs/protocol.md) `config.workspace.browse.*`）。
+> ⚠ `workspace_browse` 是 **server 侧专属**：被 `config.get` 剥离（设置面板不可编辑）、`config.save` 原样保留；改配置需直接编辑 `.chery/config.yaml` 后重启生效。载荷加密为混淆级（协议见 [docs/shared/protocol/websocket.md](../../docs/shared/protocol/websocket.md) `config.workspace.browse.*`）。
 
 > ⚠ Web 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定。
 
 ## manager 字段
 
-本地管理器（`manager/` 独立进程，管理页面端口固定 39980）的监听配置，**server 侧专属**。
+本地管理器（`apps/manager/` 独立进程，管理页面端口固定 39980）的监听配置，**server 侧专属**。
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
@@ -253,9 +253,9 @@ llm:
 
 ## 关联
 
-- 模板加载：[src/utils/config.ts](../../src/utils/config.ts) `loadConfig()`
-- 类型定义：[src/utils/config.ts](../../src/utils/config.ts#L55-L132)
-- 校验逻辑：[src/utils/config.ts](../../src/utils/config.ts) `validateRawConfig()`
+- 模板加载：[apps/backend/src/utils/config.ts](../../apps/backend/src/utils/config.ts) `loadConfig()`
+- 类型定义：[apps/backend/src/utils/config.ts](../../apps/backend/src/utils/config.ts#L55-L132)
+- 校验逻辑：[apps/backend/src/utils/config.ts](../../apps/backend/src/utils/config.ts) `validateRawConfig()`
 - RPC：`config.get` / `config.save` / `config.workspace.validate`（设置面板读写）
 - 同步规则：模板只初始化全新 workspace；已有 `.chery/config.yaml` 不做整文件覆盖
 - AI 修改入口：见 [`./README.md`](./README.md)「AI 自动修改配置」章节

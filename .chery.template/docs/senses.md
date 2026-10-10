@@ -2,7 +2,7 @@
 
 > 模板目录：`.chery.template/senses/` ｜ 运行位置：`.chery/senses/`
 > 编译命令：`pnpm compile:senses`（开发期 `--watch`）
-> 编译入口：[src/core/sense/compiler/](../../src/core/sense/compiler/) ｜ 详细文档：[../../docs/core/sense.md](../../docs/core/sense.md)、[../../docs/core/compiler.md](../../docs/backend/core/compiler.md)
+> 编译入口：[apps/backend/src/core/sense/compiler/](../../apps/backend/src/core/sense/compiler) ｜ 详细文档：[../../docs/backend/core/sense.md](../../docs/backend/core/sense.md)、[../../docs/core/compiler.md](../../docs/backend/core/compiler.md)
 
 ## 用途
 
@@ -184,10 +184,10 @@ execute_command:
 - 黑名单 fail-open：未命中 `dangerPatterns` / 未知 sense / 无条目 → 默认放行（降 auto）。破坏性 sense 必须显式 `false` 兜底，否则自动执行。
 - 命中 `dangerPatterns` / `false` 硬开关 / 有条目但取参异常 → 需确认（保守）。
 - 基准/覆盖文件缺失 → 回退（不阻塞启动；空 ruleSet = 全放行）。
-- 详细合并语义与数据流见开发文档 `docs/core/sense.md`「smart 规则表」。
+- 详细合并语义与数据流见开发文档 `docs/backend/core/sense.md`「smart 规则表」。
 
 ## 关联
 
-- Sense 框架文档：[../../docs/core/sense.md](../../docs/core/sense.md)
+- Sense 框架文档：[../../docs/backend/core/sense.md](../../docs/backend/core/sense.md)
 - 外部编译器：[../../docs/core/compiler.md](../../docs/backend/core/compiler.md)
 - 模板示例：[../senses/echo_text.ts](../senses/echo_text.ts)

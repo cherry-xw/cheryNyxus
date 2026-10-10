@@ -2,7 +2,7 @@
 
 > 运行资产：`.chery/skills/role-design/SKILL.md`、`.chery/prompt/roleArchitect/roleArchitect.md`
 > 配置入口：`roles.roleArchitect`、`presets.cheryNyxus.roles`
-> 最终执行者：Cherry Nexus（`cheryNyxus`）
+> 最终执行者：cheryNyxus
 
 ## 目标
 
@@ -23,7 +23,7 @@
 
 - `roleArchitect`：研究岗位特征，产出角色蓝图；不写配置、不创建角色、不自行授权。
 - `role-design` 技能：提供统一研究步骤、安全准则和蓝图格式。
-- Cherry Nexus：读取当前配置和工具现状，校验蓝图，按最小权限生成提示词并原子写入配置。
+- cheryNyxus：读取当前配置和工具现状，校验蓝图，按最小权限生成提示词并原子写入配置。
 - 独立验收器：在新配置生效后通过 `role-acceptance` 技能与 `role_acceptance` 感官使用隔离会话验证角色，不由设计者自行宣布通过。
 
 ## 研究规则
@@ -71,7 +71,7 @@ acceptance_scenarios:
     forbidden: string
 ```
 
-`capability_requests.intent` 是自然语言能力诉求，不绑定工具名。Cherry Nexus 必须在创建时读取当前实际工具，再形成最终工具映射：
+`capability_requests.intent` 是自然语言能力诉求，不绑定工具名。cheryNyxus 必须在创建时读取当前实际工具，再形成最终工具映射：
 
 ```yaml
 tool_decisions:
@@ -88,13 +88,13 @@ tool_decisions:
 
 新创建的角色缺省为**私有**（`scope` 缺省），归属其加入的预设、删除连全局删。确需被多个预设共享的基础角色才标 `scope: 'public'`——全局共享单一源，任意预设可引用为成员，改动对所有引用它的预设生效（模板中解释角色 `explanation` 即固定预设的公共角色）。
 
-`curator` / `roleArchitect` / `roleAcceptance` 是**系统锁定角色**（`lock: true`、非公共）：它们是 Cherry Nexus 记忆维护、任意岗位设计与独立验收流程的执行者，保留在固定预设成员内以保证 `spawn_role` 可派发，用户不可删除或改为公共。
+`curator` / `roleArchitect` / `roleAcceptance` 是**系统锁定角色**（`lock: true`、非公共）：它们是 cheryNyxus 记忆维护、任意岗位设计与独立验收流程的执行者，保留在固定预设成员内以保证 `spawn_role` 可派发，用户不可删除或改为公共。
 
 **组长必须是私有角色**：`presets.<name>.leader` 不能引用公共角色或系统锁定角色（`validateRawConfig` 硬校验，违反会报错）。因此创建预设时，组长应从该预设自己的私有角色中选。
 
 ## 创建流程
 
-1. Cherry Nexus 激活 `role-design` 技能。
+1. cheryNyxus 激活 `role-design` 技能。
 2. 信息不足时先向用户补问目标、交付物、工作环境和风险容忍度。
 3. 派发 `roleArchitect`，要求其研究并返回蓝图；专业场景优先使用可用网络能力。
 4. Nexus 通过 `config_manage(get)` 读取当前角色、感官组和 MCP 配置，结合运行时工具定义完成映射。
