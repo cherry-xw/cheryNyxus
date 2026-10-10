@@ -1,5 +1,5 @@
 /**
- * 全局深浅色主题 token（深空电光系，v2.0，2026-09-01 随前端设计语言规范改版）。
+ * 全局深浅色主题 token（深空电光系，，2026-09-01 随前端设计语言规范改版）。
  *
  * 语义 CSS 变量在 :root（浅）与 [data-theme="dark"]（深）各定义一套。
  * 深 = 深空蓝紫基底 + 电光青强调；浅 = 冷白基底 + 靛蓝强调（电光青在浅底对比度不足，见规范 §4.1）。
@@ -232,7 +232,7 @@ html.dark {
 
 /* ── 代码高亮浅色（走语义 token 自动跟随）────────────
  * 浅色默认引入 highlight.js 官方 github.css，此处以同特异性
- * `:root .hljs-*` 覆盖为语义 token 派生（v1.4 起冷色系，允许蓝系）；
+ * `:root .hljs-*` 覆盖为语义 token 派生（冷色系，允许蓝系）；
  * 该块必须位于深色块之前——深色模式两块同特异性，
  * 后加载的 [data-theme='dark'] 块胜出（顺序决定），浅色模式仅本块生效。
  * 背景 transparent，随宿主 pre 底色。 */
@@ -302,7 +302,7 @@ html.dark {
 /* ── 代码高亮（highlight.js github 浅色主题）深色翻转 ──────────────────
  * main.ts 全局 import github.css（浅底深字）。深色下必须整组覆盖 token 色，
  * 否则 markdown 代码块白底黑字。背景 transparent，随宿主 pre 底色。
- * 调色板为深空电光冷色系（Tokyo-night 方向，v1.4 允许蓝系）：
+ * 调色板为深空电光冷色系（Tokyo-night 方向，允许蓝系）：
  * 关键词紫 / 数字橙 / 字符串绿 / 标题青 / 标签绿 / 符号电光青 / 注释灰蓝。 */
 [data-theme='dark'] .hljs {
   background: transparent;

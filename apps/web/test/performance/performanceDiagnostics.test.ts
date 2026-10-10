@@ -27,7 +27,7 @@ describe('performance diagnostics frame summary', () => {
   })
 
   it('records each shared display frame for the development snapshot', async () => {
-    const source = await readComponentSource(resolve('web/src/utils/frameCoordinator.ts'), 'utf8')
+    const source = await readComponentSource(resolve('apps/web/src/utils/frameCoordinator.ts'), 'utf8')
 
     expect(source).toContain('recordPerformanceFrame(deltaMs)')
   })

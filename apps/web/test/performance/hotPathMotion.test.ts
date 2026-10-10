@@ -4,14 +4,14 @@ import { describe, expect, it } from 'vitest'
 
 async function standaloneNyxusMotionSource(): Promise<string> {
   return readComponentSource(
-    resolve('web/src/features/pets/nyxus/composables/useStandaloneNyxusMotion.ts'),
+    resolve('apps/web/src/features/pets/nyxus/composables/useStandaloneNyxusMotion.ts'),
     'utf8',
   )
 }
 
 async function nyxusCoreSource(): Promise<string> {
   return readComponentSource(
-    resolve('web/src/features/pets/nyxus/components/NyxusCore.vue'),
+    resolve('apps/web/src/features/pets/nyxus/components/NyxusCore.vue'),
     'utf8',
   )
 }

@@ -84,7 +84,7 @@ describe('theme foreground/background pairing', () => {
   })
 
   it('keeps semantic text and solid accent labels readable in both themes', () => {
-    const css = readFileSync('web/src/styles/theme.css', 'utf8')
+    const css = readFileSync('apps/web/src/styles/theme.css', 'utf8')
     for (const selector of [':root', "[data-theme='dark']"]) {
       const start = css.indexOf(`${selector} {`)
       const block = css.slice(start, css.indexOf('\n}', start))
@@ -104,7 +104,7 @@ describe('theme foreground/background pairing', () => {
   it('keeps primary tree edges visible after alpha blending', () => {
     // 连线改为两端节点色的渐变后，端点色（节点语义色 + Signal 状态覆盖色）即边色来源；
     // 该用例确保这些端点色在边线透明度混合后仍与画布背景可区分。
-    const palette = readFileSync('web/src/composables/useThemeTokens.ts', 'utf8')
+    const palette = readFileSync('apps/web/src/composables/useThemeTokens.ts', 'utf8')
     const signalKinds: SignalNodeVisualKind[] = [
       'start',
       'input',
@@ -187,7 +187,7 @@ describe('theme foreground/background pairing', () => {
 //   3) 基础声明在浅色表面 ≥3.0（宽松阈值 + 豁免名单；浅色不是本次主战场）；
 //   4) 依赖同文件 dark 覆盖的基础声明，覆盖选择器特异性必须 ≥ 基础规则（否则覆盖
 //      在浏览器里输给带 [data-v] 的 scoped 基础规则而不生效，扫描却误判为已覆盖）。
-// 扫描文件范围：web/src 全部 .vue / .less / .css（.css 曾漏扫 LiteView.styles.css 的图标色）。
+// 扫描文件范围：apps/web/src 全部 .vue / .less / .css（.css 曾漏扫 LiteView.styles.css 的图标色）。
 //
 // 独立视觉身份（nyxus CRT --nx-*、paper/import 弹窗、Pixi、particle、桌宠、
 // settings --neon-* / --cyber-*）与固定浅底/彩底徽章在豁免名单内，不纳入强制提亮。
@@ -202,13 +202,13 @@ interface ForegroundDecl {
   darkContext: boolean
 }
 
-const SRC_ROOT = 'web/src'
+const SRC_ROOT = 'apps/web/src'
 const DARK_SURFACES = ['#0b1020', '#10162e', '#161d38', '#1b2444']
 const LIGHT_SURFACES = ['#f5f7fc', '#fbfcff', '#ffffff']
 
 /** 从 theme.css 提取 :root（浅）与 [data-theme='dark']（深）的十六进制 token。 */
 function readThemeTokens(): Record<'light' | 'dark', Record<string, string>> {
-  const css = readFileSync('web/src/styles/theme.css', 'utf8')
+  const css = readFileSync('apps/web/src/styles/theme.css', 'utf8')
   const read = (selector: string): Record<string, string> => {
     const start = css.indexOf(`${selector} {`)
     const block = css.slice(start, css.indexOf('\n}', start))
@@ -595,7 +595,7 @@ const LIGHT_EXEMPT: { file: RegExp; selector?: string | RegExp }[] = [
   { file: /LabelTip\.vue$/ },
   { file: /WorkbenchDialog\.scoped\.less$/, selector: /nyxus-role-configs/ },
   { file: /TaskBrowser\.styles\.less$/, selector: /is-needs_user/ },
-  // LiteView.styles.css 的 tooltype 图标基础色：web/dispatch/other 三色为既有浅色装饰图标色
+  // LiteView.styles.css 的 tooltype 图标基础色：apps/web/dispatch/other 三色为既有浅色装饰图标色
   // （浅底 2.7 左右），深色已由同文件 [data-theme='dark'] 提亮块覆盖，浅色不纳入强制。
   { file: /LiteView\.styles\.css$/, selector: /data-tooltype=['"](web|dispatch|other)/ },
 ]

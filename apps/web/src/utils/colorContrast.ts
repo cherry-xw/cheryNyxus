@@ -2,7 +2,7 @@
  * 颜色对比度工具（WCAG 2.x 相对亮度与对比度）。
  *
  * 供两处复用：
- * - 颜色可读性扫描测试（web/test/styles/colorReadability.test.ts）计算硬编码前景色对比度；
+ * - 颜色可读性扫描测试（apps/web/test/styles/colorReadability.test.ts）计算硬编码前景色对比度；
  * - 未来选用新颜色时在组件内做一次快速自查，避免再次引入深色下不可读的硬编码色。
  *
  * 只含纯函数，不依赖 DOM；透明度不做合成，十六进制 4/8 位形式按不透明 RGB 处理。
