@@ -5,6 +5,7 @@ import { createRequire } from 'module'
 import config from '@/utils/config.js'
 import { hashGenerator } from '@/utils/hash.js'
 import type { TestCase, SenseCompileSummary } from './types.js'
+import { resolveSenseArtifactPaths } from '../artifactPaths.js'
 
 function loadSwcWasm(): { transformSync: (code: string, opts: unknown) => { code: string } } {
   const require = createRequire(import.meta.url)
@@ -81,13 +82,14 @@ async function compileSenseFile(
       module: { type: 'es6' },
     })
 
-    const exportPattern = /^export default\s+/m
+    // SWC may print a leading @test comment and the export on the same line.
+    const exportPattern = /^(\s*(?:\/\*[\s\S]*?\*\/\s*)*)export default\s+/m
     if (!exportPattern.test(result.code)) {
       throw new Error('自定义感官必须使用 export default 导出 sense(...)')
     }
     // Compiled senses are function bodies evaluated with the runtime z/sense context. Converting
     // the default export to a return keeps tests and runtime loading on the same executable format.
-    const executableCode = result.code.replace(exportPattern, 'return ')
+    const executableCode = result.code.replace(exportPattern, '$1return ')
     const outputContent = `// hash:${sourceHash}\n${executableCode}`
     writeFileSync(outputPath, outputContent, 'utf-8')
     return outputPath
@@ -137,8 +139,9 @@ export async function compileSenses(options?: {
 }): Promise<SenseCompileSummary> {
   const sensesDir = config.global.senses_dir
 
-  const outputDir = options?.outputDir ?? join(process.cwd(), 'dist', 'senses')
-  const tempDir = options?.tempDir ?? join(process.cwd(), 'dist', '.sense-temp')
+  const paths = resolveSenseArtifactPaths()
+  const outputDir = options?.outputDir ?? paths.sensesDir
+  const tempDir = options?.tempDir ?? paths.tempDir
 
   if (!existsSync(sensesDir)) {
     return { succeeded: [], failed: [] }

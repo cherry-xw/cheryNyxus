@@ -11,6 +11,55 @@ import type { Sense } from './senseCreator'
  * 解析时实现（决定可见感官子集与监管等级），而非此注册表本身。
  */
 const senseRegistry: Record<string, Sense<ZodType>> = {}
+export interface SenseOrigin {
+  source: 'builtin' | 'custom' | 'mcp' | 'plugin'
+  pluginId?: string
+  pluginVersion?: string
+  channels?: readonly string[]
+  metadata?: { label: string; description: string; icon: string; doc: string }
+  available?: () => boolean
+}
+const origins = new Map<string, SenseOrigin>()
+const unavailable = new Map<
+  string,
+  SenseOrigin & { reason: 'plugin_disabled' | 'plugin_uninstalled' | 'plugin_failed' }
+>()
+export function getSenseOrigin(name: string): SenseOrigin | undefined {
+  return origins.get(name) ?? unavailable.get(name)
+}
+export function getUnavailableSense(name: string) {
+  return unavailable.get(name)
+}
+export function listRegisteredSenses() {
+  return Object.entries(senseRegistry).map(([name, sense]) => ({
+    name,
+    sense,
+    origin: origins.get(name),
+  }))
+}
+export function registerPluginSense(sense: Sense<ZodType>, origin: SenseOrigin): () => void {
+  const name = sense.definition.function.name
+  if (!name || senseRegistry[name])
+    throw Object.assign(new Error('REGISTRATION_CONFLICT'), { code: 'REGISTRATION_CONFLICT' })
+  senseRegistry[name] = sense
+  origins.set(name, origin)
+  unavailable.delete(name)
+  senseRegistryVersion++
+  return () => {
+    if (senseRegistry[name] !== sense) return
+    delete senseRegistry[name]
+    origins.delete(name)
+    unavailable.set(name, { ...origin, reason: 'plugin_disabled' })
+    senseRegistryVersion++
+  }
+}
+export function markPluginSensesUnavailable(
+  pluginId: string,
+  reason: 'plugin_disabled' | 'plugin_uninstalled' | 'plugin_failed',
+): void {
+  for (const [name, origin] of unavailable)
+    if (origin.pluginId === pluginId) unavailable.set(name, { ...origin, reason })
+}
 let localSenseNames = new Set<string>()
 
 /**
@@ -24,11 +73,17 @@ let senseRegistryVersion = 0
 export function captureSenseRegistryRestore(): () => void {
   const senses = { ...senseRegistry }
   const local = new Set(localSenseNames)
+  const savedOrigins = new Map(origins)
+  const savedUnavailable = new Map(unavailable)
   const version = senseRegistryVersion
   return () => {
     for (const name of Object.keys(senseRegistry)) delete senseRegistry[name]
     Object.assign(senseRegistry, senses)
     localSenseNames = local
+    origins.clear()
+    unavailable.clear()
+    for (const [name, origin] of savedOrigins) origins.set(name, origin)
+    for (const [name, origin] of savedUnavailable) unavailable.set(name, origin)
     senseRegistryVersion = version
   }
 }
@@ -42,9 +97,15 @@ export function getSenseRegistryVersion(): number {
  * 批量注册感官到全局注册表
  */
 export function registerSenses(senses: Sense<ZodType>[]): void {
+  const names = senses.map((s) => s?.definition?.function?.name)
+  if (names.some((name) => !name || senseRegistry[name]) || new Set(names).size !== names.length)
+    throw Object.assign(new Error('REGISTRATION_CONFLICT'), { code: 'REGISTRATION_CONFLICT' })
   for (const s of senses) {
     if (s?.definition?.function?.name) {
       senseRegistry[s.definition.function.name] = s
+      origins.set(s.definition.function.name, {
+        source: s.definition.function.name.startsWith('mcp__') ? 'mcp' : 'custom',
+      })
     }
   }
   senseRegistryVersion++
@@ -58,6 +119,8 @@ export function resetSenses(): void {
   for (const name of Object.keys(senseRegistry)) {
     delete senseRegistry[name]
   }
+  origins.clear()
+  unavailable.clear()
   senseRegistryVersion++
   localSenseNames = new Set()
 }
@@ -73,8 +136,15 @@ export function prepareLocalSenseReplacement(senses: Sense<ZodType>[]): () => vo
     next.set(name, item)
   }
   return () => {
+    for (const name of next.keys())
+      if (senseRegistry[name] && !localSenseNames.has(name))
+        throw Object.assign(new Error('REGISTRATION_CONFLICT'), { code: 'REGISTRATION_CONFLICT' })
     for (const name of localSenseNames) delete senseRegistry[name]
-    for (const [name, item] of next) senseRegistry[name] = item
+    for (const name of localSenseNames) origins.delete(name)
+    for (const [name, item] of next) {
+      senseRegistry[name] = item
+      origins.set(name, { source: 'builtin' })
+    }
     localSenseNames = new Set(next.keys())
     senseRegistryVersion++
   }
@@ -92,6 +162,7 @@ export function replaceLocalSenses(senses: Sense<ZodType>[]): void {
 export function unregisterSenses(names: string[]): void {
   for (const name of names) {
     delete senseRegistry[name]
+    origins.delete(name)
   }
   senseRegistryVersion++
 }

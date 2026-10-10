@@ -42,24 +42,24 @@ describe("senseRegistry", () => {
       expect(getSense("b")).toBeDefined();
     });
 
-    it("overwrites same-named sense on re-register", async () => {
+    it("rejects same-named sense without replacing the published executor", async () => {
       const { registerSenses, getSense } = await getRegistry();
       const s1 = createSense("dup");
       const s2 = createSense("dup");
       registerSenses([s1]);
-      registerSenses([s2]);
-      expect(getSense("dup")).toBe(s2);
+      expect(() => registerSenses([s2])).toThrow('REGISTRATION_CONFLICT');
+      expect(getSense("dup")).toBe(s1);
     });
 
-    it("skips entries without definition.function.name", async () => {
+    it("rejects malformed batches without publishing any entry", async () => {
       const { registerSenses, getSense } = await getRegistry();
-      registerSenses([
+      expect(() => registerSenses([
         null as any,
         undefined as any,
         { definition: {} } as any,
         createSense("valid"),
-      ]);
-      expect(getSense("valid")).toBeDefined();
+      ])).toThrow('REGISTRATION_CONFLICT');
+      expect(getSense("valid")).toBeUndefined();
     });
   });
 

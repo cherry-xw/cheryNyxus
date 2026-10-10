@@ -1,18 +1,20 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
-import { compileSenses, parseTestCases } from "@/core/sense/compiler/index.js";
+import { compileSenses as compileSensesToDirectory, parseTestCases } from "@/core/sense/compiler/index.js";
 import { loadCompiledSense, runSenseTests } from "@/agent/sense/index.js";
 import { sense } from "@/core/sense/index.js";
 import { SupervisionLevel } from "@/core/config.js";
 import { hashGenerator } from "@/utils/hash.js";
 import { z } from "zod";
-import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { existsSync, readdirSync, readFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
+import { tmpdir } from "os";
 
-// 隔离输入目录，避免污染项目实际 .chery/senses
-const testDir = join(process.cwd(), ".chery", "_compiler_test_senses");
-// 编译器硬编码输出路径（compileSenses 内部）
-const distDir = join(process.cwd(), "dist", "senses");
-const tempDir = join(process.cwd(), "dist", ".sense-temp");
+// Keep both source and compiled artifacts outside the repository/runtime workspace.
+const workspace = mkdtempSync(join(tmpdir(), "chery-sense-compiler-"));
+const testDir = join(workspace, "source");
+const distDir = join(workspace, "dist", "senses");
+const tempDir = join(workspace, "dist", ".sense-temp");
+const compileSenses = () => compileSensesToDirectory({ outputDir: distDir, tempDir });
 
 // mock config：仅 senses_dir 由 beforeAll 注入，避免 hoisting TDZ
 // 同时提供 prompts_dir / roles / llm.brain 防止 agent/sense → spawn → builder → prompt/index 链崩溃
@@ -52,8 +54,16 @@ describe("toolCompiler", () => {
   });
 
   afterAll(() => {
-    if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
-    if (existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('compiles and executes a leading self-test comment adjacent to the default export', async () => {
+    writeSense('comment_export', `/* @test [{"input":{},"output":{"content":"ok","hash":""}}] */
+export default sense('comment_export', 'comment export', z.object({}), async () => ({content:'ok',hash:''}));`);
+    const summary = await compileSenses();
+    expect(summary.failed).toEqual([]);
+    const compiled = summary.succeeded[0]!;
+    expect((await runSenseTests(loadCompiledSense(compiled.compiledPath), compiled.testCases)).passed).toBe(true);
   });
 
   it("compiles sense file to JS in dist/senses", async () => {
@@ -97,7 +107,7 @@ export default sense(
   });
 
   it("returns empty succeeded when no .ts files found", async () => {
-    const emptyDir = join(process.cwd(), ".chery", "_compiler_empty");
+    const emptyDir = join(workspace, "empty");
     if (!existsSync(emptyDir)) mkdirSync(emptyDir, { recursive: true });
     const orig = config.global.senses_dir;
     config.global.senses_dir = emptyDir;
