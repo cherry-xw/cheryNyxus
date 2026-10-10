@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
-import { syncCheryTemplate } from '../scripts/lib/chery-template-sync.mjs'
+import { syncCheryTemplate } from '../../../scripts/lib/chery-template-sync.mjs'
 
 const WORKER_FLAG = '--worker'
 const MAX_BACKOFF_MS = 10_000
@@ -20,7 +20,8 @@ function configRoot(): string {
 
 function templateRoot(): string {
   if (process.env.CHERY_TEMPLATE_DIR) return path.resolve(process.env.CHERY_TEMPLATE_DIR)
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.chery.template')
+  const parent = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  return path.join(path.basename(parent) === 'backend' ? path.resolve(parent, '../..') : parent, '.chery.template')
 }
 
 /** Template upgrades are best-effort: an existing workspace must remain bootable on sync failure. */
@@ -189,6 +190,12 @@ async function waitForWorkerHealth(child: ChildProcess): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // Ingress maintenance must remain usable without loading business/core config.
+  if (process.argv[2] === 'ingress') {
+    const { runIngressCommand } = await import('./service/ingress/commands.js')
+    runIngressCommand(process.argv.slice(3))
+    return
+  }
   if (process.argv[2] === WORKER_FLAG) {
     const { startWorker: runWorker } = await import('./worker.js')
     await runWorker(process.argv.slice(3))

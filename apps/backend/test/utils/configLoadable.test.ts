@@ -12,7 +12,7 @@ import { validateLoadable } from '@/utils/config.js'
 import type { ConfigRaw } from '@/utils/config.js'
 
 let tempDir: string
-const ENV_NAME = 'CHERY_CLAW_TEST_ENV'
+const ENV_NAME = 'CHERY_NYXUS_TEST_ENV'
 
 function validRaw(): ConfigRaw {
   return {

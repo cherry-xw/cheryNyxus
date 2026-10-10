@@ -50,8 +50,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
  * 解析前端静态目录，优先级：
  * 1. `server.static_dir_override`（绝对路径，用户在 config.yaml 显式指定）
  * 2. `WEB_DIST_DIR` 环境变量（脚本/容器场景）
- * 3. 默认 `<repo>/dist/web/`（当前构建布局，pnpm web:build 与 pnpm build 输出到此处）
- * 4. 兼容 fallback `<repo>/web/dist/`（旧 vite.config 的 outDir，新工程无需）
+ * 3. 默认 `<repo>/dist/web/`（pnpm web:build 输出到此处）
  *
  * `server.serve_frontend=false` 时返回 `undefined` → 不挂文件 handler，仅 serve /api/*。
  * 探测到路径但磁盘不存在时仍返回路径（createHttpServer 内部日志警告并降级）。
@@ -61,10 +60,11 @@ function resolveStaticDir(): string | undefined {
   const fromConfig = config.server.static_dir_override
   if (fromConfig) return fromConfig
   if (process.env.WEB_DIST_DIR) return process.env.WEB_DIST_DIR
-  const newLayout = path.resolve(__dirname, '..', 'dist', 'web')
-  if (existsSync(newLayout)) return newLayout
-  const legacyLayout = path.resolve(__dirname, '..', 'web', 'dist')
-  return existsSync(legacyLayout) ? legacyLayout : newLayout
+  const componentRoot = path.resolve(__dirname, '..')
+  const repoRoot = path.basename(componentRoot) === 'backend'
+    ? path.resolve(componentRoot, '../..')
+    : componentRoot
+  return path.resolve(repoRoot, 'dist/web')
 }
 
 /** 业务 worker 入口；可由守护进程 IPC 拉起，也可为维护子命令直接运行。 */
@@ -195,6 +195,14 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
     staticDir,
     host: config.server.host,
     auth: config.server.auth,
+    channelAuth: process.env.CHERY_CHANNEL_AUTH
+      ? JSON.parse(process.env.CHERY_CHANNEL_AUTH)
+      : undefined,
+    ingress: {
+      runtimeOptions: process.env.CHERY_PLUGIN_RUNTIME_OPTIONS
+        ? JSON.parse(process.env.CHERY_PLUGIN_RUNTIME_OPTIONS)
+        : undefined,
+    },
     remote: config.server.remote?.enabled
       ? {
           httpPort: config.server.remote.httpPort,
@@ -229,6 +237,8 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
     if (shuttingDown) return
     shuttingDown = true
     logger.info(`\n收到 ${signal}，正在关闭服务...`)
+    await service.stopIngress()
+    service.stopSchedule()
     closeAllConnections(wss)
     clearAllApprovals()
     clearAllWaitedChildren()
@@ -287,7 +297,7 @@ function writeBackendStatus(addresses: unknown): void {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(
       file,
-       `${JSON.stringify({ status: 'running', addresses, agents: getAgentRuntimeStats(), updatedAt: new Date().toISOString() })}\n`,
+      `${JSON.stringify({ status: 'running', addresses, agents: getAgentRuntimeStats(), updatedAt: new Date().toISOString() })}\n`,
       { mode: 0o600 },
     )
     if (process.platform !== 'win32') fs.chmodSync(file, 0o600)
