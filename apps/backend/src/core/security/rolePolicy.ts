@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { directContainerExecution } from './executionMode.js'
 import { existsSync, realpathSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { SupervisionLevel } from '@/core/config.js'
@@ -54,12 +55,7 @@ const ACCEPTANCE_DENIED_COMMAND_CATEGORIES = new Set([
   'unknown',
 ])
 
-const MUTATING_TOOLS = new Set([
-  'write_file',
-  'memory_manage',
-  'install_skill',
-  'destroy_role',
-])
+const MUTATING_TOOLS = new Set(['write_file', 'memory_manage', 'install_skill', 'destroy_role'])
 /**
  * config_manage 的只读操作（不写盘、不改配置，可放行）；其余动作（patch/save/rollback/
  * asset_save/asset_archive 等）修改 .chery 配置或受管资产，属中风险变更。
@@ -208,6 +204,22 @@ export function authorizeToolCall(input: {
   acceptance?: AcceptanceExecutionPolicy
 }): ToolAuthorization {
   const { security, name, args } = input
+  if (name === 'execute_command' && directContainerExecution()) {
+    const valid =
+      (args.shell === 'bash' || args.shell === 'powershell') && typeof args.command === 'string'
+    return {
+      decision: valid ? 'allow' : 'deny',
+      roleType: security.roleType,
+      policyHash: security.policyHash,
+      requiredSandboxMode: 'danger-full-access',
+      findings: [],
+      assessmentHash: hashAuthorization({
+        mode: 'container-direct',
+        args,
+        policyHash: security.policyHash,
+      }),
+    }
+  }
   const workspace = input.acceptance?.workspaceRoot ?? input.workspace
   const { policy } = security
   const findings: SecurityFinding[] = []
@@ -261,7 +273,12 @@ export function authorizeToolCall(input: {
         : policy.filesystem?.read
     if (scope === 'deny') decision = 'deny'
     else if (scope === 'workspace' && !contained(workspace, path)) decision = 'deny'
-    else if (write && scope === 'any-with-approval' && !contained(workspace, path))
+    else if (
+      write &&
+      scope === 'any-with-approval' &&
+      policy.template !== 'trusted' &&
+      !contained(workspace, path)
+    )
       decision = addEffect(decision, 'ask')
     if (decision !== 'allow')
       findings.push({
@@ -329,7 +346,11 @@ export function authorizeToolCall(input: {
         message: `角色 ${security.roleType} 不允许使用 ${shell}`,
       })
     } else {
-      if (typeof args.workdir === 'string' && !contained(workspace, args.workdir)) {
+      if (
+        input.acceptance &&
+        typeof args.workdir === 'string' &&
+        !contained(workspace, args.workdir)
+      ) {
         decision = 'deny'
         findings.push({
           code: 'role.workdir-denied',
@@ -344,7 +365,10 @@ export function authorizeToolCall(input: {
       requiredSandboxMode = commandAssessment.requiredMode
       const maxMode = policy.commands?.maxSandboxMode ?? 'read-only'
       if (sandboxModeRank(requiredSandboxMode) > sandboxModeRank(maxMode)) decision = 'deny'
-      else if (commandAssessment.decision === 'approval-required')
+      else if (
+        commandAssessment.decision === 'approval-required' &&
+        !(policy.template === 'trusted' && input.configuredLevel === SupervisionLevel.auto)
+      )
         decision = addEffect(decision, 'ask')
       else if (policy.template === 'supervised' && requiredSandboxMode !== 'read-only')
         decision = addEffect(decision, 'ask')

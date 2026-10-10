@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SupervisionLevel } from '@/core/config.js'
 import { authorizeToolCall, compileRoleSecurity } from '@/core/security/rolePolicy.js'
 import type { AcceptanceExecutionPolicy } from '@/core/security/rolePolicy.js'
+
+import * as executionMode from '@/core/security/executionMode.js'
 
 const workspace = process.cwd()
 const role = (template: 'read-only' | 'workspace-developer' | 'supervised' | 'trusted') => ({
@@ -9,6 +11,31 @@ const role = (template: 'read-only' | 'workspace-developer' | 'supervised' | 'tr
 })
 
 describe('角色行为权限', () => {
+  it('容器直接模式覆盖命令审批与角色禁止但不影响文件策略', () => {
+    const mock = vi.spyOn(executionMode, 'directContainerExecution').mockReturnValue(true)
+    try {
+      const security = compileRoleSecurity('reader', role('read-only'))
+      const base = { security, configuredLevel: SupervisionLevel.manual }
+      expect(authorizeToolCall({ ...base, name: 'execute_command', args: { shell: 'bash', command: 'curl https://example.com' } }).decision).toBe('allow')
+      expect(authorizeToolCall({ ...base, name: 'write_file', args: { path: '/tmp/test' } }).decision).toBe('deny')
+      expect(authorizeToolCall({ ...base, name: 'execute_command', args: { shell: 'invalid', command: 'pwd' } }).decision).toBe('deny')
+    } finally { mock.mockRestore() }
+  })
+
+  it('trusted + auto allows network commands and outside-workspace writes without approval', () => {
+    const security = compileRoleSecurity('trusted-test', role('trusted'))
+    const base = { security, workspace, configuredLevel: SupervisionLevel.auto }
+    const command = authorizeToolCall({ ...base, name: 'execute_command', args: { shell: 'bash', command: 'curl -s https://wttr.in', workdir: '/tmp' } })
+    expect(command.decision).toBe('allow')
+    expect(command.findings.some(f => f.code === 'shell.network')).toBe(true)
+    expect(authorizeToolCall({ ...base, name: 'write_file', args: { path: '/tmp/trusted-test.txt' } }).decision).toBe('allow')
+    expect(authorizeToolCall({ ...base, configuredLevel: SupervisionLevel.manual, name: 'execute_command', args: { shell: 'bash', command: 'curl https://wttr.in' } }).decision).toBe('ask')
+  })
+  it('trusted retains explicit denies and malformed-command validation', () => {
+    const security = compileRoleSecurity('trusted-test', { ...role('trusted'), permissions: { template: 'trusted', tools: { write_file: 'deny' } } })
+    expect(authorizeToolCall({ security, workspace, configuredLevel: SupervisionLevel.auto, name: 'write_file', args: { path: '/tmp/test.txt' } }).decision).toBe('deny')
+    expect(authorizeToolCall({ security, workspace, configuredLevel: SupervisionLevel.auto, name: 'execute_command', args: { shell: 'invalid', command: 'pwd' } }).decision).toBe('deny')
+  })
   it('同一个 write_file 可按角色分别拒绝、允许或审核', () => {
     const input = { name: 'write_file', args: { path: 'safe.txt' }, workspace, configuredLevel: SupervisionLevel.auto }
     expect(authorizeToolCall({ ...input, security: compileRoleSecurity('reader', role('read-only')) }).decision).toBe('deny')
@@ -33,7 +60,7 @@ describe('角色行为权限', () => {
       security, name: 'execute_command', args: { shell: 'bash', command: 'pwd', workdir: '..' }, workspace,
       configuredLevel: SupervisionLevel.auto,
     })
-    expect(outside.decision).toBe('deny')
+    expect(outside.decision).toBe('allow')
     const wrongShell = authorizeToolCall({
       security, name: 'execute_command', args: { shell: 'powershell', command: 'Get-Location' }, workspace,
       configuredLevel: SupervisionLevel.auto,

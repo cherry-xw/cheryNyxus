@@ -7,7 +7,7 @@
 - `read-only`：禁止写工具，命令只允许只读沙箱，MCP 与派遣默认拒绝。
 - `workspace-developer`：允许工作区内读写；未知 MCP 要审核；命令最多使用工作区可写沙箱。
 - `supervised`：变更类工具、未知 MCP 与派遣默认审核；这是未声明策略的安全默认值。
-- `trusted`：减少语义审批，但仍不能绕过系统路径守卫、参数绑定和 OS 沙箱。
+- `trusted`：显式信任角色。感官组中设为 `auto` 的工具不再因默认命令风险（含网络、未知程序）或默认工作区写入审批而要求确认；命令可选择工作区外的工作目录。风险项仍保留用于诊断。显式 `deny`、显式访问范围和 shell/沙箱上限、参数校验及角色验收隔离仍有效；工具设为 `manual` 时仍需确认。其他模板不变。此策略允许模型自动执行具有副作用的操作，只应授予可信预设。
 
 可继续配置 `filesystem.read/write`、`commands.shells/maxSandboxMode/categories`、`mcp.default/tools`、`spawn.effect/allowedRoles` 与工具名通配规则 `tools`。设置页进入预设 → 「编辑角色」→ 角色详情「行为权限」提供常用选项。
 
@@ -24,7 +24,7 @@
 }
 ```
 
-Bash 使用 `unbash` AST；PowerShell 使用 `System.Management.Automation.Language.Parser.ParseInput`。分析器遍历嵌套命令，识别删除、系统修改、提权、网络、凭据、动态代码、混淆、重定向与未知程序。解析失败、动态命令名和未知命令均不能自动放行。
+Bash 使用 `unbash` AST；PowerShell 使用 `System.Management.Automation.Language.Parser.ParseInput`。分析器遍历嵌套命令，识别删除、系统修改、提权、网络、凭据、动态代码、混淆、重定向与未知程序。非信任模板下，解析失败、动态命令名和未知命令不能自动放行；`trusted` 配合 `auto` 时，风险判断只记录风险、不额外要求审批，仍须满足参数和执行环境要求。
 
 审批卡显示角色、风险项、源码片段和要求的沙箱模式。批准只绑定当前工具参数、风险评估哈希和角色策略哈希；参数被 Hook 修改或策略变化后，旧批准立即失效。
 
@@ -39,10 +39,21 @@ Bash 使用 `unbash` AST；PowerShell 使用 `System.Management.Automation.Langu
 
 **config_manage（配置管理）**：已声明副作用，不再落入「未知」。读操作（`get` / `asset_get`）在受监管角色直接放行且无判定（安全）；写操作（`patch` 等）要求审批并给出**中风险**判定（将修改 `.chery` 配置或受管资产，批准后才会落盘）。前端 lite 详情抽屉的徽章呈现见 `mcu-lite-workbench-ui.md` §4.4。
 
-## OS 沙箱
+## 容器命令执行配置
+
+部署变量 `CHERY_COMMAND_DIRECT` 只接受 `0` 或 `1`，缺省为 `0`；Docker Compose 默认显式设置为 `1`。
+
+- `1`：仅允许容器中启用。命令直接使用容器进程权限和网络，不调用二次 OS 沙箱，不进行角色命令风险审批、shell 策略或验收命令限制。工具参数仍必须符合格式，目录必须存在。此开关只影响命令工具，不取消管理认证或其他工具的策略。
+- `0`：恢复原有角色审核和 OS 沙箱执行；依赖缺失时拒绝执行，不自动退回直接模式。
+
+容器不等于完全安全：直接模式能读取容器凭据、修改可写挂载数据并访问网络，不能突破只读文件系统和进程权限。
+
+Backend 镜像提供 Node/npm/npx/pnpm、Python/pip/venv、curl/wget、git、jq、压缩及编译工具。`tool-home` 位于现有持久数据挂载下；默认 Python 使用其中的虚拟环境，npm 全局用户包与缓存也保存在这里。重建容器保留依赖；系统目录仍只读。
+
+## OS 沙箱（模式 0）
 
 - Windows：DeepSeek Harness 的 `@deepseek-ai/dsh-sandbox-windows-acl` restricted-token/ACL runner。
 - Linux：Bubblewrap（`bwrap`），不可用时拒绝执行。
 - macOS：Seatbelt `sandbox-exec`，不可用时拒绝执行。
 
-执行始终采用精确 argv，禁用 Node `shell: true`。没有有效会话工作区、沙箱不可用或初始化失败时均 fail closed，不会静默重试为裸命令。Windows ACL 后端主要限制写入；读取、网络和进程可见性仍受其平台机制限制，不能视为完整机密隔离。
+执行始终采用精确 argv，禁用 Node `shell: true`。命令执行不要求预设或会话工作区：`workdir` 独立解析，缺省为服务进程当前目录，相对路径也以该目录为基准；显式目录必须存在。角色验收仍限制临时目录。沙箱不可用或初始化失败时均 fail closed，不会静默重试为裸命令。Windows ACL 后端主要限制写入；读取、网络和进程可见性仍受其平台机制限制，不能视为完整机密隔离。

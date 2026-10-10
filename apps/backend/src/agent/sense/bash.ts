@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { directContainerExecution } from '@/core/security/executionMode.js'
 import { writeFileSync } from 'fs'
 import { sense, type SenseResult } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
@@ -7,7 +8,7 @@ import { logger, type BashLogInfo } from '@/utils/logger/index.js'
 import { registerBashProcess, unregisterBashProcess } from './processRegistry.js'
 import {
   resolveShellExecutable,
-  resolveWorkdir,
+  resolveCommandWorkdir,
   spawnSandboxedCommand,
 } from '@/core/security/sandbox.js'
 
@@ -57,12 +58,15 @@ const BashSchema = z.object({
   shell: z.enum(['bash', 'powershell']).describe('脚本方言，必须显式指定'),
   command: z.string().describe('要执行的脚本源码'),
   description: z.string().describe('命令说明描述命令用途'),
-  workdir: z.string().optional().describe('工作目录（相对会话工作区，缺省为工作区根目录）'),
+  workdir: z
+    .string()
+    .optional()
+    .describe('命令工作目录；相对路径以服务进程当前目录为基准，缺省为服务进程当前目录'),
 })
 
 export default sense(
   'execute_command',
-  `在 OS 沙箱中按精确 argv 执行 Bash 或 PowerShell。必须显式指定 shell；workdir 只能位于会话工作区内。`,
+  `按部署配置直接执行或在 OS 沙箱中按精确 argv 执行 Bash 或 PowerShell。必须显式指定 shell；workdir 独立于会话工作区，缺省为服务进程当前目录。`,
   BashSchema,
   async (input, _senseSharedData, senseCtx): Promise<SenseResult> => {
     const { shell, command, description, workdir } = input
@@ -78,16 +82,7 @@ export default sense(
     // 测试场景（无 ctx）为 undefined → register 跳过，执行不受影响
     const chatId = senseCtx?.chatId
 
-    if (!senseCtx?.workspaceRoot) {
-      return {
-        content:
-          '状态: error\n说明: 当前会话没有有效工作区（preset 未配置 workspace），无法执行命令。' +
-          '本会话没有可用的工作目录基准：路径类操作（read_file / search_codebase 等）请以系统提示词 ' +
-          '<environment> 段的「配置目录」绝对路径为锚点推导，不要使用相对路径或 pwd 猜测；' +
-          '读取/修改 .chery 配置请改用 config_manage 感官（action="get"/"patch"/"rollback"）。',
-      }
-    }
-    if (!senseCtx.security?.requiredSandboxMode) {
+    if (!directContainerExecution() && !senseCtx?.security?.requiredSandboxMode) {
       return {
         content:
           '状态: error\n说明: 缺少已复核的沙箱授权，已拒绝执行命令。请通过统一工具门的审批后重试。',
@@ -97,14 +92,16 @@ export default sense(
     let cwd: string
     let sandboxed: ReturnType<typeof spawnSandboxedCommand>
     try {
-      cwd = resolveWorkdir(senseCtx.workspaceRoot, workdir)
+      cwd = resolveCommandWorkdir(workdir)
       const shellCommand = resolveShellExecutable(shell)
       sandboxed = spawnSandboxedCommand({
         executable: shellCommand.executable,
         args: [...shellCommand.args, command],
         cwd,
-        workspaceRoot: senseCtx.workspaceRoot,
-        mode: senseCtx.security.requiredSandboxMode,
+
+        mode: directContainerExecution()
+          ? 'danger-full-access'
+          : senseCtx!.security!.requiredSandboxMode!,
       })
     } catch (error) {
       return { content: `状态: error\n说明: ${(error as Error).message}` }

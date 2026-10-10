@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { directContainerExecution } from './executionMode.js'
 import type { SandboxMode } from './commandRisk.js'
 
 export interface SandboxedCommand {
@@ -23,6 +24,11 @@ function canonicalExistingDirectory(path: string): string {
     throw new Error(`安全执行需要存在的工作目录：${absolute}`)
   }
   return realpathSync.native(absolute)
+}
+
+/** Command cwd is independent of preset workspace. */
+export function resolveCommandWorkdir(workdir?: string): string {
+  return canonicalExistingDirectory(resolve(process.cwd(), workdir ?? '.'))
 }
 
 function assertInside(root: string, candidate: string): string {
@@ -141,13 +147,15 @@ function macosPlan(spec: SandboxedCommand): {
  * 本函数没有不受限 fallback。
  */
 export function spawnSandboxedCommand(
-  input: SandboxedCommand & { workspaceRoot: string },
+  input: SandboxedCommand & { workspaceRoot?: string },
 ): SandboxedProcess {
-  const workspace = canonicalExistingDirectory(input.workspaceRoot)
-  const cwd = assertInside(workspace, input.cwd)
+  const cwd = input.workspaceRoot
+    ? assertInside(canonicalExistingDirectory(input.workspaceRoot), input.cwd)
+    : canonicalExistingDirectory(input.cwd)
   const spec = { ...input, cwd }
-  const plan =
-    process.platform === 'win32'
+  const plan = directContainerExecution()
+    ? { command: spec.executable, args: spec.args, cleanup: () => {} }
+    : process.platform === 'win32'
       ? windowsPlan(spec)
       : process.platform === 'linux'
         ? linuxPlan(spec)
