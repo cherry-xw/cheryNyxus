@@ -255,6 +255,16 @@ function powershellExecutable(): { command: string; args: string[] } | undefined
   return undefined
 }
 
+/**
+ * 当前进程内是否存在可用的 PowerShell 解析器（pwsh 或 Windows 自带
+ * powershell.exe）。结果会缓存，与 powershellCommands 的 fail-closed
+ * 分支使用同一探测路径；供测试区分“AST 断言”与“无解析器 fail-closed”
+ * 两类互斥前提。
+ */
+export function hasPowerShellParser(): boolean {
+  return powershellExecutable() !== undefined
+}
+
 function powershellCommands(source: string): { commands: ParsedCommand[]; errors: string[] } {
   const executable = powershellExecutable()
   if (!executable) return { commands: [], errors: ['PowerShell parser unavailable'] }
