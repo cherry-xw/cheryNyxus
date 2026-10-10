@@ -1,10 +1,10 @@
 /**
- * Manager 管理密钥的持久化与轮换。
+ * Manager 本机机器密钥的持久化与轮换；不授权浏览器或普通 API。
  *
  * 设计目标（见 docs/guides/backend-runtime.md）：
- * - 密钥持久化到 .chery/manager-token.json（0600），重启后保持稳定，收藏的访问 URL 不失效；
+ * - 密钥持久化到 .chery/manager-token.json（0600），供本机 CLI 读取，绝不放入 URL；
  * - 超过 ROTATE_AFTER_MS（默认 7 天）后下次启动时惰性轮换新密钥，旧密钥进入 previous；
- * - previous 旧密钥在 GRACE_MS（默认 24 小时）内仍视为有效（读取/续期），控制操作仍要求当前密钥；
+ * - previous 只保留文件结构；机器 HTTP 始终要求当前密钥，不调用旧宽限校验；
  * - 显式配置（CHERY_MANAGER_TOKEN 环境变量）优先，且不落盘、不轮换。
  */
 import { randomBytes } from 'node:crypto'
