@@ -1,4 +1,4 @@
-import { xorEncrypt } from '../../src/utils/obfuscate.js'
+import { xorEncrypt } from '../../backend/src/utils/obfuscate.js'
 
 export type VerifyStatus = 'verified' | 'stale' | 'unreachable'
 
