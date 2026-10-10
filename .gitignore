@@ -3,6 +3,7 @@ coverage/
 
 # Environment variables
 .env
+/platform/qqbot/data/
 
 # Dependencies
 node_modules/
@@ -11,11 +12,11 @@ node_modules/
 dist/
 *.js.map
 *.d.ts
-!src/**/*.d.ts
+!apps/backend/src/**/*.d.ts
 # web 端手写 .d.ts（vite/client 类型、模块声明等）需入库
-!web/src/**/*.d.ts
-!web/env.d.ts
-# TypeScript 增量编译缓存（web/.gitignore 同款约定）
+!apps/web/src/**/*.d.ts
+!apps/web/env.d.ts
+# TypeScript 增量编译缓存（apps/web/.gitignore 同款约定）
 *.tsbuildinfo
 
 # electron-pack 产物：Node 二进制（scripts/electron-pack.mjs 下载生成，不入仓）
@@ -34,10 +35,20 @@ Thumbs.db
 
 # 运行时配置（用户本地），模板见 .chery.template/
 .chery/
+!apps/backend/test/protocol-completeness/fixtures/.chery/
+!apps/backend/test/protocol-completeness/fixtures/.chery/config.yaml
+!apps/backend/test/protocol-completeness/fixtures/.chery/mock/
+!apps/backend/test/protocol-completeness/fixtures/.chery/mock/*.yaml
+# flow fixtures 的 smart 监管规则基准（flowStandard S3-S6 依赖；与 .chery.template/rule/base.yaml 同步）。
+# 先反白名单目录本身（父目录被 .chery/ 排除时子级反白名单无效），再显式重新忽略含密钥的 .env。
+!apps/backend/test/flows/fixtures/.chery/
+apps/backend/test/flows/fixtures/.chery/.env
+!apps/backend/test/flows/fixtures/.chery/rule/
+!apps/backend/test/flows/fixtures/.chery/rule/base.yaml
 
 log/
 
-/test/flows/**/*.db
+/apps/backend/test/flows/**/*.db
 .agent-teams/
 .workbuddy/
 # 临时分析脚本与热应用测试配置（scratch，不入仓）
@@ -68,3 +79,25 @@ docs/standards/documentation/tools/lint.mjs
 
 # 文档规则包本地分发包（由 documentation/ 目录打包生成）
 plan-management-kit.zip
+
+# Local credentials, diagnostics and generated artifacts
+.cookies.json
+/apps/manager/server-dist/
+/plugins/*/ui-built/
+/apps/web/diag-*.png
+/apps/manager/test/zz*probe.test.ts
+/platform/*-backend-plugin/ui-built/
+/logs/
+/downloads/
+/*.log
+/*.tmp.mts
+/deploy/docker/backend/runtime/
+/apps/backend/deploy/docker/runtime/
+
+/.codegraph/
+
+/platform/napcat-plugin/artifacts/
+
+/.hermes/
+
+/docs/quality/verification/**/*.log
