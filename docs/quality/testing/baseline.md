@@ -1,69 +1,24 @@
-# 测试基线与门控索引
+# 测试范围与结果判定
 
-> 状态：test/ 模块当前**整体推迟**（用户 2026-07-12 指令，重构前不碰）。本文档作为 P1-P6 修复的**回归判定索引**：哪些错误属基线/非回归，哪些必须转绿。
+本文维护当前测试执行和失败判定原则。权限与人工验证边界以[项目文档配置](../../standards/global/project-documentation.md)及根 `AGENTS.md` 为准。
 
-## 测试门控：默认 src 走 TSC，计划可登记受限例外
+## 执行范围
 
-按 memory「test 模块推迟」：
+- 功能整体实现并确认满足需求后，再执行完整类型检查、构建与回归；实施期间仅做必要简单校验。
+- 从根 `package.json` 和组件自己的脚本确定实际命令，不引用不存在的历史测试文件作为入口。
+- 类型检查、单元测试、协议测试、构建、实际部署与用户验收分别记录当前状态，不能相互替代。
+- 流程测试方法见[flows.md](flows.md)，离线模型输入方法见[mock-provider.md](mock-provider.md)。离线通过不证明真实模型或 QQ 链路可用。
 
-- **不**新增 / 修改 / 跑 `test/` 下任何文件
-- **不**引用测试结果做回归门判定
-- src 端门控 = `pnpm type-check`（exit 0 = 通过；新增错误非基线 = 回归）
-- P1-P6 修复**不**写测试兜底
+## 失败判定
 
-### 独立后端与中转网关受限例外
+任何失败都必须定位实际断言、运行前提与受影响实现，不使用固定的历史失败数量作为通过阈值，也不以“存量”一词自动排除问题。
 
-用户于 2026-09-20 明确允许 `relay-gateway` 计划新增并运行安全与协议自动测试。例外仅覆盖：
+当前任务不处理的问题须有明确范围决定、影响和验证限制。记录已确认的未解决事项，不把实现偏差写成业务规则。问题解决后更新当前结论，不保留历次修复流水。
 
-- 新增的 relay、认证边界、动态发现、管理器、子路径和 Electron 解耦测试；
-- 为运行上述测试必须直接调整的现有测试入口；
-- 与本计划修改文件直接对应的既有定向套件。
+## 跳过与人工项
 
-本例外不授权整理、修复或全量运行无关旧测试，也不改变下述预存失败基线。每个计划小任务只运行其登记的定向命令，最终全量范围在综合验证阶段按最新实现重建。
+测试需要解析器、设备或外部服务时明确前提；缺少前提不能标为通过。若安全降级是功能要求，应独立验证降级路径。浏览器、图片和 DOM/CSS 验收遵守项目权限约定；必要人工项未完成时明确为未验证。
 
-## TSC 基线预存错误
+## 可核查结果
 
-历史基线记录的 4 处预存 TSC 错误（`src/service/brain/proxy/list.ts`、`src/db/chat.ts`、`web/src/features/agent/HistoryDrawer.vue`、`web/src/services/agentApi.ts`）已随各自修复清除，`pnpm type-check` 与 `pnpm --filter web type-check` 均回归 0 错误。当前不再有计入基线的 TSC 预存错误。
-
-## test/ 套件预存失败
-
-按历史基线记录：~86 个预存失败分四类，**非回归**，跑 `pnpm test` 时排除：
-
-| 类别 | 性质 |
-|------|------|
-| `mcpServers.*` | MCP server 测试与 src MCP 实现脱节 |
-| `send-runtime.*` | chat.send runtime 链路测试与重构后 src 不对齐 |
-| `startService.*` | 启动服务测试与重构后 index.ts 不对齐 |
-| `provider-router desync` | provider router 测试与重构后 registry 不对齐 |
-
-测试失败数 ≤ 86 = 不增不减 = 通过；新增失败 = 回归。
-
-## 既有的 P6 测试（保留不删）
-
-P6 阶段已写三组测试（按「test 模块推迟」指令保留不删、不扩展、不跑）：
-
-- `test/agent/middleware/retry.test.ts`：14 用例，含 3 个 P6a auth 分类测试（401/403/invalid api key → 1 次后 yield error，不重试）
-- `test/service/chat/send.test.ts`：16 用例，含 3 个 P2 回归门用例（streamAgentChunks onError → failureResponse success:false，done notification 抑制）
-- `test/service/media/index.test.ts`：16 用例，覆盖 mediaKindForMime/saveMediaAsset/readMediaAsset（原含的 understandMediaReference 用例已随旧媒体网关删除）
-
-## 回归判定流程
-
-```bash
-# 1. src 门控（必跑）
-pnpm type-check
-# 期望：0 错，exit 0（无 TSC 基线预存错误）
-
-# 2. test/ 不跑（按推迟指令）
-# pnpm test  # 跳过
-
-# 3. 前端验证（按约定交用户自验）
-# 用户自验 vue-tsc / vite build / vitest，不在 Claude 流程内
-```
-
-## 重构时机
-
-由用户决定，本索引解除前一律不碰 test/。
-
-## 依赖与关联
-
-- **关联文档**：[flows.md](flows.md)（流程测试规约——刷新重连改造 G1/G3/G8 验收点为例外，独立全绿，不计入 86 基线）、[mock-provider.md](mock-provider.md)（mock provider 脚本化离线测试，可手动跑 mock brain 验证修复）
+当前验证结论须对应实际命令、退出码、断言和适用代码状态。原始输出保存在仓库外的运行记录或任务系统，不将旧执行结果冒充本轮重跑，不以历史审批替代当前验收。

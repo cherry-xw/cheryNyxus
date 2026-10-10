@@ -6,7 +6,7 @@
 
 | 文档 | 定位 |
 | --- | --- |
-| [baseline.md](./baseline.md) | 仓库测试基线与门控约定：test/ 模块推迟、TSC 基线预存错误、套件预存失败与回归判定流程 |
+| [baseline.md](./baseline.md) | 仓库测试基线与门控约定：apps/backend/test/ 模块推迟、TSC 基线预存错误、套件预存失败与回归判定流程 |
 | [flows.md](./flows.md) | 主子 Agent、审批、工具、恢复等流程测试规约（S1–S17 场景矩阵） |
 | [mock-provider.md](./mock-provider.md) | 无网络环境下的脚本化 Provider 使用说明 |
 | [refactor-baseline.md](./refactor-baseline.md) | 重构结论基线：当前代码的可删死代码、冗余导出、相似逻辑、超长文件结论与回归对照方法（含 jscpd 回归工具与命令） |

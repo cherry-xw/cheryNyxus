@@ -2,7 +2,7 @@
 
 > 定位：大型任务收尾时执行的代码质量回归检查操作手册。它只说明「怎么跑、怎么判读、怎么维护基线」，不含一次性分析结论；未执行的重构目标如需登记，另行按计划或已知问题流程维护。
 >
-> 回归范围：扫描 `src/`、`web/src/`、`packages/`、`manager/`、`relay/`（配置见根 [`.jscpd.json`](../../../.jscpd.json)，排除测试与产物）。
+> 回归范围：扫描 `apps/backend/src/`、`apps/web/src/`、`packages/`、`apps/manager/`、`apps/relay/`（配置见根 [`.jscpd.json`](../../../.jscpd.json)，排除测试与产物）。
 
 ## 何时运行
 
@@ -44,24 +44,16 @@ pnpm regression:code
 - 改动 `.jscpd.json` 的扫描路径、`minTokens`/`minLines` 等配置后，基线指纹会失配，需用 `pnpm jscpd:baseline` 重新生成并提交。
 - 大规模清理/重构后，若确认当前状态可接受，执行 `pnpm jscpd:baseline` 刷新基线并提交。
 
-## 当前基线快照
+## 当前结果判定
 
-下列数字为 2026-09-27 实测（清理死代码后）。回归时对照：正常应**变小或保持**；异常增大时检查是否引入回归。
+规模、重复率、复杂度和测试结果均从当前代码重新检查，不保留旧测量快照作为现状。新增功能可能合理增加规模；不能仅凭行数增加认定回归，也不能以固定历史失败数量判定通过。测试执行及失败分类遵守[测试范围与结果判定](baseline.md)。
 
-| 指标 | 数值 | 说明 |
-| --- | --- | --- |
-| 代码规模 | 1203 文件 / 223,729 行 | jscpd 扫描范围（typescript 136.7k + vue 56.5k + less 17k + 其余） |
-| 重复代码 | 289 克隆 / 1.83%（typescript 2.1%） | `pnpm jscpd:dup`；dashboard Duplication 区为准 |
-| 死代码（默认口径） | 64 处 / 0.44% | unused-export 38、unused-symbol 26；真实未用文件 0、未用 import 0 |
-| 复杂度 | 总 28,797 / 均值 40.5 | 最复杂 CX 706：`web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts` |
-| 健康分 | 80 / B | duplication 99.7、dead-code 95.8、complexity 53.4（`pnpm jscpd:health`） |
-| TSC 基线 | `pnpm type-check` 0 错误（无预存） | [baseline.md](./baseline.md) |
-| test/ 预存失败 | ≤86 视为通过（当前 `test/` 模块推迟，不跑） | [baseline.md](./baseline.md) |
+本文件拥有质量工具的运行和基线维护方法；结构、引用和职责判断见[代码结构核对与回归](refactor-baseline.md)。原始报告保存在仓库外的运行记录中，本文不宣称这些工具已在当前工作区执行通过。
 
 测量命令（PowerShell，排除 `node_modules`/`dist`/`.d.ts`）：
 
 ```powershell
-foreach($d in @('src','web/src','packages','manager','relay')){
+foreach($d in @('src','apps/web/src','packages','manager','relay')){
   $files=Get-ChildItem -Recurse -File -Include *.ts,*.tsx,*.vue -Path $d |
     Where-Object { $_.FullName -notmatch 'node_modules|dist|\.d\.ts$' }
   $sum=($files | ForEach-Object { (Get-Content $_.FullName).Count } | Measure-Object -Sum).Sum

@@ -18,7 +18,7 @@
 
 ### 1.2 pnpm
 
-- 本仓是 pnpm workspace（[pnpm-workspace.yaml](../../pnpm-workspace.yaml)，含 `web/`），**必须用 pnpm**，不要用 npm / yarn。
+- 本仓是 pnpm workspace（[pnpm-workspace.yaml](../../pnpm-workspace.yaml)，含 `apps/web/`），**必须用 pnpm**，不要用 npm / yarn。
 - 推荐通过 corepack（随 Node 附带，不污染全局）：
 
   ```bash
@@ -122,7 +122,7 @@ pnpm dev:all      # concurrently 同时拉起 backend + web
 
 | 检查项 | 命令 | 期望 |
 |--------|------|------|
-| 类型检查（后端） | `pnpm type-check` | 通过（**注意**：`src/db/chat.ts`、`src/service/rule/list.ts` 等存在预存 TSC 错误基线，非本次回归；新增模块改动需保证自己的代码 0 错误） |
+| 类型检查（后端） | `pnpm type-check` | 通过（**注意**：`apps/backend/src/db/chat.ts`、`apps/backend/src/service/rule/list.ts` 等存在预存 TSC 错误基线，非本次回归；新增模块改动需保证自己的代码 0 错误） |
 | 类型检查（前端） | `pnpm --filter web type-check` | 通过（前端验证最终交用户自测） |
 | Lint | `pnpm lint` | 通过 |
 | 单测 | `pnpm test` | vitest；套件有预存失败基线，开发期以后端 TSC 为门控 |

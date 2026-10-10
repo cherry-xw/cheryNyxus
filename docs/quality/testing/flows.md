@@ -78,7 +78,7 @@
 | **运行时态** | `isChatRunning`、`approvalManager.approvals`（含/不含 id）、`computeCanResume`、`waitedChildren` |
 | **交互功能** | canonical RPC（`chat.input.submit`/`chat.run.resume`/`chat.abort`/`chat.open`/`chat.timeline.get`/`interaction.approval.decide`）是否按预期触发；ACK 与异步 session 事件是否正确解耦 |
 
-**canResume 权威语义**（[canResume.ts](../../../src/service/chat/canResume.ts) `computeCanResume`）：
+**canResume 权威语义**（[canResume.ts](../../../apps/backend/src/service/chat/canResume.ts) `computeCanResume`）：
 - `ended`（`canResume=false`）= 末条 visible assistant 且无 sense_calls（loop 自然完成）。
 - `paused`（`canResume=true`）= 末条 sense/user/role/subagent，或 assistant 带 sense_calls；abort/park/AI 报错/审批硬期限释放皆归此。
 
@@ -88,7 +88,7 @@
 
 分层：**Tier 1**（中间件级，`agentHarness`+`chunkAssert`，无 WS/DB）= S1–S7；**Tier 2**（service+WS 级，真实服务+`rpcClient`+DB）= S8–S17。G1/G2/G3/G8 改造验收点 = S6/S9/S11/S12。
 
-### A. 标准流程 `test/flows/agent/flowStandard.test.ts`（Tier 1）
+### A. 标准流程 `apps/backend/test/flows/agent/flowStandard.test.ts`（Tier 1）
 
 #### S1 纯文本
 - **前置**：mock 脚本 `[{content:"回复"}]`
@@ -131,7 +131,7 @@
 - **检查**：pending sense content NULL；`canResume=true`（paused）；hard=park（可续）**非** reject；全局待办保留同一稳定 interactionId，直接处理后自动恢复
 - **功能点**：FP-A5
 - **覆盖**：A5
-- **已落地测试**：[approvalRegistry.test.ts](../../../test/core/sense/approvalRegistry.test.ts)「hard-timeout（G2）」5 项（单元级，到点 reject(AgentParkError)、用户超时优先不叠加、accept/park 清 timer、无 hard 兼容）
+- **已落地测试**：[approvalRegistry.test.ts](../../../apps/backend/test/core/sense/approvalRegistry.test.ts)「hard-timeout（G2）」5 项（单元级，到点 reject(AgentParkError)、用户超时优先不叠加、accept/park 清 timer、无 hard 兼容）
 
 #### S7 todo list
 - **前置**：mock `[{content,senseCalls:[update_todo args={todos:[...]}]},{content}]`
@@ -140,7 +140,7 @@
 - **功能点**：FP-B3 / FP-C6（todo 态）
 - **覆盖**：B3、C6(todo)
 
-### B. 刷新 `test/flows/service/flowRefresh.test.ts`（Tier 2）
+### B. 刷新 `apps/backend/test/flows/service/flowRefresh.test.ts`（Tier 2）
 
 #### S8 流式中断刷新续跑
 - **前置**：S2 流式中（`chunkDelayMs` 使 close 落在流式窗口内）
@@ -155,7 +155,7 @@
 - **检查**：close 后 canonical run 与持久 interaction 仍存活；原 id 决策命中，且 `chat.open` 快照与实时 accept 同源
 - **功能点**：FP-C5（断「原 approvalId 不失效」= 改造C 验收核心）
 - **覆盖**：C5
-- **已落地测试**：[flowRefresh.test.ts](../../../test/flows/service/flowRefresh.test.ts) 验 canonical 端到端原 id 决策；[disconnectGrace.test.ts](../../../test/service/websocket/disconnectGrace.test.ts) 独立覆盖仍由传输请求拥有的 grace/rebind 机制
+- **已落地测试**：[flowRefresh.test.ts](../../../apps/backend/test/flows/service/flowRefresh.test.ts) 验 canonical 端到端原 id 决策；[disconnectGrace.test.ts](../../../apps/backend/test/service/websocket/disconnectGrace.test.ts) 独立覆盖仍由传输请求拥有的 grace/rebind 机制
 
 #### S10 canonical detached 审批硬期限释放
 - **前置**：`approval_timeout=0`、测试态 `approval_hard_timeout=400ms`；S3 审批挂起后断连
@@ -163,7 +163,7 @@
 - **检查**：运行注册表释放；metadata 无 finished；末条 sense → `canResume=true`；`chat.open.state.run` 为空
 - **功能点**：FP-C3
 - **覆盖**：C3
-- **已落地测试**：[flowGraceExpire.test.ts](../../../test/flows/service/flowGraceExpire.test.ts)（真实短 hard deadline + 完整 canonical input/observer 链：挂起审批→断连→agent.paused kind=park→重连 `chat.list canResume=true` / `chat.open` idle）
+- **已落地测试**：[flowGraceExpire.test.ts](../../../apps/backend/test/flows/service/flowGraceExpire.test.ts)（真实短 hard deadline + 完整 canonical input/observer 链：挂起审批→断连→agent.paused kind=park→重连 `chat.list canResume=true` / `chat.open` idle）
 
 #### S11 canonical 持久时间线（**G3 验收点**）
 - **前置**：真实 input 链生成包含 `update_todo` 的完整历史
@@ -171,7 +171,7 @@
 - **检查**：messages 来自持久消息存储，不依赖事件留存；消息 id、sense call 状态与 revision 稳定
 - **功能点**：FP-D1 / FP-D2 / FP-D3
 - **覆盖**：D1、D2、D3
-- **已落地测试**：[flowTimeline.test.ts](../../../test/flows/service/flowTimeline.test.ts) Tier 2 端到端 2 项（留存独立 + known revision 稳定）；底层历史转换仍由 [flowSync.test.ts](../../../test/service/chat/flowSync.test.ts) 覆盖
+- **已落地测试**：[flowTimeline.test.ts](../../../apps/backend/test/flows/service/flowTimeline.test.ts) Tier 2 端到端 2 项（留存独立 + known revision 稳定）；底层历史转换仍由 [flowSync.test.ts](../../../apps/backend/test/service/chat/flowSync.test.ts) 覆盖
 
 #### S17 `chat.open` 原子订阅边界（**M1+M2+M9 验收点**）
 - **前置**：idle chat、审批运行中 chat，以及 open 后再提交输入三类状态
@@ -179,7 +179,7 @@
 - **检查**：idle state 为空；running state 含 run/activeTurns/pendingApproval/runningTools；后续事件携同一 subscriptionId 且 eventSeq 严格大于打开边界并单调递增
 - **功能点**：原子 subscription boundary，消除旧 attach+sync 两调用间竞态
 - **覆盖**：idle hydration + running hydration + boundary 后事件顺序
-- **已落地测试**：[flowOpenBoundary.test.ts](../../../test/flows/service/flowOpenBoundary.test.ts) Tier 2 端到端 3 项
+- **已落地测试**：[flowOpenBoundary.test.ts](../../../apps/backend/test/flows/service/flowOpenBoundary.test.ts) Tier 2 端到端 3 项
 
 #### S12 刷新 currentState 快照（**G8 验收点**）
 - **前置**：S2/S3/S7 任一中断态刷新
@@ -187,9 +187,9 @@
 - **检查**：`state.pendingApproval`、`state.runningTools[]`、`state.run/activeTurns`；timeline 保留结构化 todo；**不持久化瞬态 Delta 作为第二水源**
 - **功能点**：FP-C6
 - **覆盖**：C6
-- **已落地测试**：[currentState.test.ts](../../../test/service/chat/currentState.test.ts) 4 项 + [flowCurrentState.test.ts](../../../test/flows/service/flowCurrentState.test.ts) Tier 2 端到端 2 项（todo 经 timeline，runningTools/pendingApproval 经 open）
+- **已落地测试**：[currentState.test.ts](../../../apps/backend/test/service/chat/currentState.test.ts) 4 项 + [flowCurrentState.test.ts](../../../apps/backend/test/flows/service/flowCurrentState.test.ts) Tier 2 端到端 2 项（todo 经 timeline，runningTools/pendingApproval 经 open）
 
-### C. 停止 `test/flows/service/flowAbort.test.ts`（Tier 2）
+### C. 停止 `apps/backend/test/flows/service/flowAbort.test.ts`（Tier 2）
 
 #### S13 停止后刷新仍 resume
 - **步骤**：`chat.abort` → `AgentAbortError` → paused(`clearChatRuntime`) → 刷新
@@ -197,10 +197,10 @@
 - **功能点**：FP-E1 / FP-E2
 - **覆盖**：E1、E2
 
-### D. 子 agent `test/flows/service/flowSpawn.test.ts`（Tier 2）
+### D. 子 agent `apps/backend/test/flows/service/flowSpawn.test.ts`（Tier 2）
 
 #### S14 spawn immediate 全链路
-- **步骤**：`spawn_role` → 后端 **eager 启动**（[spawnEager.ts](../../../src/service/chat/spawnEager.ts) `runChildTaskInBackground`）→ role_created 推主连接（background）→ 子 done → role_reply → 主 resume
+- **步骤**：`spawn_role` → 后端 **eager 启动**（[spawnEager.ts](../../../apps/backend/src/service/chat/spawnEager.ts) `runChildTaskInBackground`）→ role_created 推主连接（background）→ 子 done → role_reply → 主 resume
 - **关键差异**：`spawn_role` 成功后由后端唯一负责 eager 启动，客户端只消费角色生命周期事件
 - **检查**：role_created 到达 background（按 parentChatId 过滤）→ 主 yieldTurn → done；wakeScheduler immediate shouldWake → role_reply；`chat.run.resume` ACK 后按全局 journal 的 chatId 验完整输出
 - **功能点**：FP-F1 / FP-F2
@@ -221,7 +221,7 @@
 - **功能点**：FP-F4
 - **覆盖**：F4
 
-#### S14b/S16b spawn eager 启动 + live stream 推送（[flowSubAgentLive.test.ts](../../../test/flows/service/flowSubAgentLive.test.ts)）
+#### S14b/S16b spawn eager 启动 + live stream 推送（[flowSubAgentLive.test.ts](../../../apps/backend/test/flows/service/flowSubAgentLive.test.ts)）
 
 - **新增独立测试**（2026-07-23 收敛）：锁住后端 eager 启动 + WS 推送语义：
   - **T1 eager 启动**：spawn_role 后子 stream chunks 经 ws 推到 parent 连接；chunkDelayMs=2000 拉长窗口，验证 eager 启动实际 run
@@ -272,30 +272,30 @@
 
 ### Tier 1 — agent/中间件级（S1–S7）
 快、确定、无 WS/DB。直驱中间件洋葱链。
-- 复用 [agentHarness.ts](../../../test/agent/helpers/agentHarness.ts)：`createAgent`/`runSend`/`runSendWithApproval`/`runResume`/`approve`/`abortApproval`
-- 复用 [chunkAssert.ts](../../../test/agent/helpers/chunkAssert.ts)：`collectChunks`/`stagedTypes`/`senseEnds`/`senseAccepts`/`senseRejects`/`hasDone`
-- 复用 [mockScripts.ts](../../../test/agent/helpers/mockScripts.ts)：`addMockBrain` 动态注入脚本
-- 模式参照 [tool.test.ts](../../../test/agent/middleware/tool.test.ts)（auto/smart accept·reject/批量审批/resume pending）、[loop.test.ts](../../../test/agent/middleware/loop.test.ts)（done vs firstError 失败抑制）
+- 复用 [agentHarness.ts](../../../apps/backend/test/agent/helpers/agentHarness.ts)：`createAgent`/`runSend`/`runSendWithApproval`/`runResume`/`approve`/`abortApproval`
+- 复用 [chunkAssert.ts](../../../apps/backend/test/agent/helpers/chunkAssert.ts)：`collectChunks`/`stagedTypes`/`senseEnds`/`senseAccepts`/`senseRejects`/`hasDone`
+- 复用 [mockScripts.ts](../../../apps/backend/test/agent/helpers/mockScripts.ts)：`addMockBrain` 动态注入脚本
+- 模式参照 [tool.test.ts](../../../apps/backend/test/agent/middleware/tool.test.ts)（auto/smart accept·reject/批量审批/resume pending）、[loop.test.ts](../../../apps/backend/test/agent/middleware/loop.test.ts)（done vs firstError 失败抑制）
 
 ### Tier 2 — service+WS 级（S8–S17）
 慢、真实断连/重连/DB。**G1/G3/G8 验收主战场。**
-- 起真实服务：`createWebSocketServer` + router + 全 handler（[service/index.ts](../../../src/service/index.ts)）
-- 用 [serviceHarness.ts](../../../test/flows/helpers/serviceHarness.ts) 的 canonical helper 驱动 `chat.input.submit`、`chat.run.resume`、`chat.open`、`chat.timeline.get`、`interaction.approval.decide`；[rpcClient.ts](../../../test/helpers/rpcClient.ts) 保留全局接收 journal 以验收 ACK 后异步事件
-- DB 断言复用 [chatRecovery.test.ts](../../../test/service/chatRecovery.test.ts) 模式（createChat/addMessage/getMessages/getLastMessage + chat metadata + spawn_tasks）
-- 看门狗/wake/grace 时序用 `vi.useFakeTimers()`（参照 [spawnBroker.test.ts](../../../test/agent/spawnBroker.test.ts)）
+- 起真实服务：`createWebSocketServer` + router + 全 handler（[service/index.ts](../../../apps/backend/src/service/index.ts)）
+- 用 [serviceHarness.ts](../../../apps/backend/test/flows/helpers/serviceHarness.ts) 的 canonical helper 驱动 `chat.input.submit`、`chat.run.resume`、`chat.open`、`chat.timeline.get`、`interaction.approval.decide`；[rpcClient.ts](../../../apps/backend/test/helpers/rpcClient.ts) 保留全局接收 journal 以验收 ACK 后异步事件
+- DB 断言复用 [chatRecovery.test.ts](../../../apps/backend/test/service/chatRecovery.test.ts) 模式（createChat/addMessage/getMessages/getLastMessage + chat metadata + spawn_tasks）
+- 看门狗/wake/grace 时序用 `vi.useFakeTimers()`（参照 [spawnBroker.test.ts](../../../apps/backend/test/agent/spawnBroker.test.ts)）
 
 ### 需新建
-- `test/flows/agent/`（Tier 1）+ `test/flows/service/`（Tier 2）两组 `.test.ts`
-- 延迟 fixture `test/flows/fixtures/.chery/mock/flow_*.yaml`（显式设大 `chunkDelayMs`，使 close/重连可靠落在流式窗口）
-- WS 事件断言 helper `test/flows/helpers/eventsAssert.ts`（S2C Chunk/Notification 序列断言，对称 chunkAssert）
+- `apps/backend/test/flows/agent/`（Tier 1）+ `apps/backend/test/flows/service/`（Tier 2）两组 `.test.ts`
+- 延迟 fixture `apps/backend/test/flows/fixtures/.chery/mock/flow_*.yaml`（显式设大 `chunkDelayMs`，使 close/重连可靠落在流式窗口）
+- WS 事件断言 helper `apps/backend/test/flows/helpers/eventsAssert.ts`（S2C Chunk/Notification 序列断言，对称 chunkAssert）
 
 ---
 
 ## 6. Mock 延迟机制
 
-本地 mock 响应过快（零延迟、最多 3 delta chunk 背靠背 yield），无法测流式/刷新/计时。改造 [mock.ts](../../../src/agent/provider/mock.ts)：
+本地 mock 响应过快（零延迟、最多 3 delta chunk 背靠背 yield），无法测流式/刷新/计时。改造 [mock.ts](../../../apps/backend/src/agent/provider/mock.ts)：
 
-- `MockScriptResponse`（[config.ts](../../../src/utils/config.ts)）增 `chunkDelayMs?`（每 delta chunk 间 sleep）/ `preRespondMs?`（本轮首响应前 sleep）
+- `MockScriptResponse`（[config.ts](../../../apps/backend/src/utils/config.ts)）增 `chunkDelayMs?`（每 delta chunk 间 sleep）/ `preRespondMs?`（本轮首响应前 sleep）
 - `mock.ts` `gen()` 每个 yield 前 `await sleep(chunkDelayMs)`；`chatStream`/`chat` `pickScriptItem` 后 `await sleep(preRespondMs)`
 - 全局兜底：`brain.mock` 配置段 `chunkDelayMs`/`preRespondMs`，脚本项缺省取全局，默认 0（不拖慢单测）
 - 审批挂起非 mock 管：smart/manual 中断由 `approvalRegistry` await，测试用真实短超时或 `vi.useFakeTimers()`
@@ -306,37 +306,37 @@
 
 | 项 | 状态 |
 |----|------|
-| G1（disconnectGrace deferred-park） | **已落地** [disconnectGrace.test.ts](../../../test/service/websocket/disconnectGrace.test.ts) |
-| G2（hard-timeout） | **已落地** [approvalRegistry.test.ts](../../../test/core/sense/approvalRegistry.test.ts) |
-| G3（canonical timeline + 留存独立） | **已落地** [flowTimeline.test.ts](../../../test/flows/service/flowTimeline.test.ts) |
-| G8（currentState 快照） | **已落地** [currentState.test.ts](../../../test/service/chat/currentState.test.ts) |
-| Mock 延迟机制 | **已落地** [mock.ts](../../../src/agent/provider/mock.ts) |
-| S1–S7 标准流程（[flowStandard.test.ts](../../../test/flows/agent/flowStandard.test.ts)，Tier 1） | **已落地** 8 场景全绿 |
-| Tier 2 地基（[serviceHarness](../../../test/flows/helpers/serviceHarness.ts) + [rpcClient](../../../test/helpers/rpcClient.ts) binary 帧+reconnect + [eventsAssert](../../../test/flows/helpers/eventsAssert.ts)） | **已落地** 真实 startService + 临时端口 + per-process DB 隔离 |
-| S8 流式中断刷新续跑（[flowStream.test.ts](../../../test/flows/service/flowStream.test.ts)，打字机重建） | **已落地** chunkDelayMs=2000 造窗口 + liveOutput 重定向 |
-| S9 审批中断刷新原 id（[flowRefresh.test.ts](../../../test/flows/service/flowRefresh.test.ts)） | **已落地** `chat.open` 恢复原 interaction，原 approvalId 命中续跑 |
-| S13 停止后刷新仍 resume（[flowAbort.test.ts](../../../test/flows/service/flowAbort.test.ts)） | **已落地** abort→paused，`chat.list canResume=true` |
-| abort-during-approval src gap 修复 | **已落地** [send.ts](../../../src/service/chat/send.ts) handleChatAbort + [disconnectGrace.getPendingApprovalId](../../../src/service/websocket/disconnectGrace.ts)：对 pending approval 调 approvalManager.abort（rejectApproval(AgentAbortError)）可靠中断 approval.wait（gen.throw 注入外部 pending promise 不可靠） |
-| S10 canonical 审批硬期限释放（[flowGraceExpire.test.ts](../../../test/flows/service/flowGraceExpire.test.ts)） | **已落地** hard deadline→agent.paused(kind=park)→重连 `chat.list canResume=true` / `chat.open` idle |
-| S11 canonical timeline（[flowTimeline.test.ts](../../../test/flows/service/flowTimeline.test.ts)） | **已落地** `chat.timeline.get` 完整历史、事件留存独立、known revision 稳定 |
-| S12 currentState 快照（[flowCurrentState.test.ts](../../../test/flows/service/flowCurrentState.test.ts)） | **已落地** todo 经 timeline；runningTools+pendingApproval 经 open.state |
-| S14 immediate 全链路（[flowSpawn.test.ts](../../../test/flows/service/flowSpawn.test.ts)） | **已落地** spawn_role→role_created→eager 子 done→role_reply→canonical resume；DB 断言子 finished+parent_chat_id |
-| S15 deferred 静默批量唤主（[flowSpawn.test.ts](../../../test/flows/service/flowSpawn.test.ts)） | **已落地** 2 deferred 子：首子 silent 无 role_reply，全完成 allChildrenFinished→仅 1 条 role_reply |
-| S16 子刷新重连（[flowSpawn.test.ts](../../../test/flows/service/flowSpawn.test.ts)） | **已落地** reviewer_stream 子 running 断连→open(child)→跨断连续跑至 done |
-| S17 open 原子边界（[flowOpenBoundary.test.ts](../../../test/flows/service/flowOpenBoundary.test.ts)） | **已落地** idle/running hydration + subscription 边界后 eventSeq 单调 |
+| G1（disconnectGrace deferred-park） | **已落地** [disconnectGrace.test.ts](../../../apps/backend/test/service/websocket/disconnectGrace.test.ts) |
+| G2（hard-timeout） | **已落地** [approvalRegistry.test.ts](../../../apps/backend/test/core/sense/approvalRegistry.test.ts) |
+| G3（canonical timeline + 留存独立） | **已落地** [flowTimeline.test.ts](../../../apps/backend/test/flows/service/flowTimeline.test.ts) |
+| G8（currentState 快照） | **已落地** [currentState.test.ts](../../../apps/backend/test/service/chat/currentState.test.ts) |
+| Mock 延迟机制 | **已落地** [mock.ts](../../../apps/backend/src/agent/provider/mock.ts) |
+| S1–S7 标准流程（[flowStandard.test.ts](../../../apps/backend/test/flows/agent/flowStandard.test.ts)，Tier 1） | **已落地** 8 场景全绿 |
+| Tier 2 地基（[serviceHarness](../../../apps/backend/test/flows/helpers/serviceHarness.ts) + [rpcClient](../../../apps/backend/test/helpers/rpcClient.ts) binary 帧+reconnect + [eventsAssert](../../../apps/backend/test/flows/helpers/eventsAssert.ts)） | **已落地** 真实 startService + 临时端口 + per-process DB 隔离 |
+| S8 流式中断刷新续跑（[flowStream.test.ts](../../../apps/backend/test/flows/service/flowStream.test.ts)，打字机重建） | **已落地** chunkDelayMs=2000 造窗口 + liveOutput 重定向 |
+| S9 审批中断刷新原 id（[flowRefresh.test.ts](../../../apps/backend/test/flows/service/flowRefresh.test.ts)） | **已落地** `chat.open` 恢复原 interaction，原 approvalId 命中续跑 |
+| S13 停止后刷新仍 resume（[flowAbort.test.ts](../../../apps/backend/test/flows/service/flowAbort.test.ts)） | **已落地** abort→paused，`chat.list canResume=true` |
+| abort-during-approval src gap 修复 | **已落地** [send.ts](../../../apps/backend/src/service/chat/send.ts) handleChatAbort + [disconnectGrace.getPendingApprovalId](../../../apps/backend/src/service/websocket/disconnectGrace.ts)：对 pending approval 调 approvalManager.abort（rejectApproval(AgentAbortError)）可靠中断 approval.wait（gen.throw 注入外部 pending promise 不可靠） |
+| S10 canonical 审批硬期限释放（[flowGraceExpire.test.ts](../../../apps/backend/test/flows/service/flowGraceExpire.test.ts)） | **已落地** hard deadline→agent.paused(kind=park)→重连 `chat.list canResume=true` / `chat.open` idle |
+| S11 canonical timeline（[flowTimeline.test.ts](../../../apps/backend/test/flows/service/flowTimeline.test.ts)） | **已落地** `chat.timeline.get` 完整历史、事件留存独立、known revision 稳定 |
+| S12 currentState 快照（[flowCurrentState.test.ts](../../../apps/backend/test/flows/service/flowCurrentState.test.ts)） | **已落地** todo 经 timeline；runningTools+pendingApproval 经 open.state |
+| S14 immediate 全链路（[flowSpawn.test.ts](../../../apps/backend/test/flows/service/flowSpawn.test.ts)） | **已落地** spawn_role→role_created→eager 子 done→role_reply→canonical resume；DB 断言子 finished+parent_chat_id |
+| S15 deferred 静默批量唤主（[flowSpawn.test.ts](../../../apps/backend/test/flows/service/flowSpawn.test.ts)） | **已落地** 2 deferred 子：首子 silent 无 role_reply，全完成 allChildrenFinished→仅 1 条 role_reply |
+| S16 子刷新重连（[flowSpawn.test.ts](../../../apps/backend/test/flows/service/flowSpawn.test.ts)） | **已落地** reviewer_stream 子 running 断连→open(child)→跨断连续跑至 done |
+| S17 open 原子边界（[flowOpenBoundary.test.ts](../../../apps/backend/test/flows/service/flowOpenBoundary.test.ts)） | **已落地** idle/running hydration + subscription 边界后 eventSeq 单调 |
 
-跑改造验收点：`npx vitest run test/core/sense/approvalRegistry.test.ts test/service/chat/currentState.test.ts test/service/chat/flowSync.test.ts test/service/websocket/disconnectGrace.test.ts`
+跑改造验收点：`npx vitest run apps/backend/test/core/sense/approvalRegistry.test.ts apps/backend/test/service/chat/currentState.test.ts apps/backend/test/service/chat/flowSync.test.ts apps/backend/test/service/websocket/disconnectGrace.test.ts`
 
-跑 Tier 1 标准流程：`npx vitest run test/flows/agent/flowStandard.test.ts`
+跑 Tier 1 标准流程：`npx vitest run apps/backend/test/flows/agent/flowStandard.test.ts`
 
-跑 Tier 2 刷新/停止：`npx vitest run test/flows/service/`
+跑 Tier 2 刷新/停止：`npx vitest run apps/backend/test/flows/service/`
 
 ---
 
 ## 8. 门控
 
-- **必绿**：S1–S17 全绿方算流程测试验收。跑 `pnpm vitest run test/flows/`
-- **core/agent 覆盖**：改 `src/core`/`src/agent` 跑 `pnpm test`（core≥90%/agent≥70%）
+- **必绿**：S1–S17 全绿方算流程测试验收。跑 `pnpm vitest run apps/backend/test/flows/`
+- **core/agent 覆盖**：改 `apps/backend/src/core`/`apps/backend/src/agent` 跑 `pnpm test`（core≥90%/agent≥70%）
 - **协议契约**：改 types.ts/schemas.ts/config.ts 跑 `pnpm type-check`（排除 [baseline.md](baseline.md) 基线 4 处）+ `pnpm lint`
 - 流程测试独立于预存失败基线，不计入该基线
 - 前端验证交用户（约定）

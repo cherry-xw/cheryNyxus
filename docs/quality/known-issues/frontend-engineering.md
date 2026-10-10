@@ -2,9 +2,20 @@
 
 目录入口：[已知问题](./README.md)。本文件记录已确认但当前明确暂缓的小型工程问题；它们不等于本轮功能回归失败。
 
+## FE-AUTH-001 Web 本机直连用户名密码登录未通过
+
+- 模块：Web 登录与直连后端认证。
+- 类型/状态：暂缓处理 / 已知/暂缓。
+- 优先级：P1。
+- 现象：用户实际核对 Web 本机直连用户名密码登录未通过；原因尚未确认，不能推定为凭据、网络或认证实现缺陷。
+- 影响：该登录方式尚不能作为已通过的用户访问路径。
+- 当前决定：用户明确排除在组件结构迁移及 apps 目录调整验收之外，后续由 Web 登录任务处理；目录迁移通过不代表此问题已修复。
+- 处理入口：[登录与连接](../../frontend/auth-login.md)，需先取得具体复现环境和不含秘密的错误信息，再核对直连认证请求与返回。
+- 关闭条件：目标环境实际直连登录成功，并完成对应认证回归及用户确认。
+
 ## FE-ENG-001 全仓 Web lint 受存量 CRLF 影响
 
-- 模块：`web/` 工程格式基线。
+- 模块：`apps/web/` 工程格式基线。
 - 类型/状态：暂缓处理 / 已知/暂缓。
 - 优先级：P3。
 - 现象：`pnpm --filter web lint` 会在大量本轮未触及文件上报告 Prettier 行尾错误；针对本轮改动源文件的 ESLint 可单独达到 0 error。
@@ -21,6 +32,6 @@
 - 现象：最新生产构建中的 `WorkbenchDialog` JavaScript chunk 约 545 kB（压缩前），超过 Vite 默认 500 kB 告警线；冷启动入口仍使用异步组件加载。
 - 影响：不阻断构建，但首次打开 Workbench 时可能增加下载、解析和执行开销，低性能设备或慢网络更明显。
 - 当前决定：先保留告警，不为消除数字机械拆包；需要结合真实加载指标决定拆分边界。
-- 处理入口：从 [WorkbenchDialog.vue](../../../web/src/features/agent/workbench/WorkbenchDialog.vue) 的重依赖和可延迟面板入手，结合 [vite.config.ts](../../../web/vite.config.ts) 的 `manualChunks` 与 [bundleBoundaries.test.ts](../../../web/test/performance/bundleBoundaries.test.ts) 的冷启动边界评估。
-- 验证命令：`pnpm --filter web exec cross-env ELECTRON_ENABLED=false vite build`；同时保留 `pnpm test:web -- web/test/performance/bundleBoundaries.test.ts`。
+- 处理入口：从 [WorkbenchDialog.vue](../../../apps/web/src/features/agent/workbench/WorkbenchDialog.vue) 的重依赖和可延迟面板入手，结合 [vite.config.ts](../../../apps/web/vite.config.ts) 的 `manualChunks` 与 [bundleBoundaries.test.ts](../../../apps/web/test/performance/bundleBoundaries.test.ts) 的冷启动边界评估。
+- 验证命令：`pnpm --filter web exec cross-env ELECTRON_ENABLED=false vite build`；同时保留 `pnpm test:web -- apps/web/test/performance/bundleBoundaries.test.ts`。
 - 关闭条件：Workbench 首开指标达到约定预算，且构建不再产生该大 chunk 告警；不能只提高 `chunkSizeWarningLimit` 隐藏问题。

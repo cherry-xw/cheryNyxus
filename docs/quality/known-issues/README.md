@@ -9,6 +9,7 @@
 | FE-UI-001 | 前端主题与渲染 | 人工复核 | P2 | 待用户复核 | 双主题、Teleport 菜单、Canvas 和跨窗主题同步尚需实际界面确认 | [前端 UI](./frontend-ui.md#fe-ui-001-双主题与渲染效果待人工复核) |
 | FE-UI-002 | 设置/窗口/会话输入 | 人工复核 | P1 | 待用户复核 | 草稿保护、关闭、附件和分支反馈尚需真实操作确认 | [前端 UI](./frontend-ui.md#fe-ui-002-关键交互反馈待人工复核) |
 | FE-UI-003 | 登录与可用性 | 人工复核 | P2 | 待用户复核 | 登录反馈、键盘、触摸和小视口体验尚需真实操作确认 | [前端 UI](./frontend-ui.md#fe-ui-003-登录与多输入方式待人工复核) |
+| FE-AUTH-001 | Web 直连认证 | 暂缓处理 | P1 | 已知/暂缓 | 本机直连用户名密码登录未通过，原因未确认，目录调整验收明确排除 | [前端工程](./frontend-engineering.md#fe-auth-001-web-本机直连用户名密码登录未通过) |
 | FE-ENG-001 | 前端工程基线 | 暂缓处理 | P3 | 已知/暂缓 | 全仓 Web lint 受存量 CRLF 行尾影响 | [前端工程](./frontend-engineering.md#fe-eng-001-全仓-web-lint-受存量-crlf-影响) |
 | FE-PERF-001 | Workbench 构建 | 暂缓处理 | P3 | 已知/暂缓 | Workbench 生产 chunk 超过 Vite 500 kB 告警线 | [前端工程](./frontend-engineering.md#fe-perf-001-workbench-生产-chunk-超过告警线) |
 
