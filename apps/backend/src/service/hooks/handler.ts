@@ -115,6 +115,7 @@ function toDTO(h: HookHandlerConfig): HooksHandlerDTO {
     if: h.if,
     command: h.command,
     timeout: h.timeout,
+    required: h.required,
   }
 }
 

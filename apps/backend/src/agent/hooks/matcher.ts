@@ -17,6 +17,8 @@ export interface HookHandlerConfig {
   command: string
   /** 可选：超时（秒），默认 10 */
   timeout?: number
+  required?: boolean
+  brain?: string
 }
 
 /**

@@ -1,424 +1,210 @@
-/**
- * Hooks dispatcher：按事件触发 shell handler，解析 stdout JSON，应用决策。
- *
- * 设计：
- * - 顺序执行（不支持并发：避免 stdout 竞态）
- * - matcher 过滤 + if 谓词过滤（按 payload+ctx 评估）
- * - 单 handler 异常（非 0/2）→ log + 继续；exit 2 → 阻断
- * - PreLLMRequest 完整实现；其它 9 事件 stub（logger.event + 返回 undefined）
- *
- * 详见 [docs/backend/agent/hooks.md](../../../../docs/backend/agent/hooks.md)。
- */
-
 import { spawn } from 'node:child_process'
 import { logger, LogLevel } from '@/utils/logger/index.js'
 import { trackRestartActivity } from '@/service/restartCoordinator.js'
 import { ClassifiedError } from '@/utils/error.js'
-import { POSIX_SHELL_HINT, resolvePosixShell } from '@/core/security/sandbox.js'
+import { resolvePosixShell } from '@/core/security/sandbox.js'
 import { loadHookRegistry } from './registry.js'
 import { matches, evalIf, expandCommandTemplate, type HookHandlerConfig } from './matcher.js'
+import { functionHooks, invokeFunction, projectHookContext } from './functions.js'
+import { isReadonlyHook, validateDecision } from './decisions.js'
 import type { HookEvent, HookDispatchContext, HookPayloadMap, HookDecisionMap } from './types.js'
 
-/** runHandler 返回值：解析后的 decision 或特殊标记（exit 2 阻断） */
-type RunHandlerResult<TDecision> =
-  { ok: true; decision: TDecision | null } | { ok: false; error: ClassifiedError }
-
-/**
- * 通用 dispatch 入口。
- *
- * 各事件按 event type 走对应执行路径：handler 顺序执行 → 合并 decision → 应用到 payload
- * - PreLLMRequest：decision.body 替换 payload.body；decision:'block' 抛 ClassifiedError
- * - PreToolUse：decision.updatedInput 修改 args；decision:'deny' 抛 ClassifiedError
- * - PostToolUse / UserPromptSubmit / PostLLMResponse：decision.decision === 'block' 抛 ClassifiedError
- * - Stop：decision.decision === 'block' → chat 层强制继续（仅返回 decision，由调用方决策）
- * - 其它事件（SessionStart/SessionEnd/PreCompact/PostCompact）：stub
- */
+function failure(code: string, reason?: string): ClassifiedError {
+  return new ClassifiedError({
+    message: code,
+    userMessage: reason || '请求处理检查未完成，已拒绝操作',
+    category: 'validation',
+    source: 'hook',
+  })
+}
+/** Shared dispatch: published functions, global commands, then the selected brain's commands. */
 export async function dispatch<E extends HookEvent>(
   event: E,
   payload: HookPayloadMap[E],
   ctx: HookDispatchContext,
 ): Promise<HookDecisionMap[E] | undefined> {
-  const registry = loadHookRegistry()
-  const handlers = registry[event]
-  if (!handlers || handlers.length === 0) {
-    // 其它事件 stub（仅记录日志，handler 暂未启用）
-    if (event !== 'PreLLMRequest' && event !== 'PreToolUse') {
-      logger.event('hook.stub', { event, brain: ctx.brain }, LogLevel.debug)
-    }
-    return undefined
-  }
-
-  switch (event) {
-    case 'PreLLMRequest':
-      return dispatchWithPayload<'PreLLMRequest'>(
-        event,
-        payload as unknown as HookPayloadMap['PreLLMRequest'],
-        ctx,
-        handlers,
-      ) as Promise<HookDecisionMap[E] | undefined>
-    case 'PreToolUse':
-      return dispatchWithPayload<'PreToolUse'>(
-        event,
-        payload as unknown as HookPayloadMap['PreToolUse'],
-        ctx,
-        handlers,
-      ) as Promise<HookDecisionMap[E] | undefined>
-    case 'PostToolUse':
-    case 'UserPromptSubmit':
-    case 'PostLLMResponse':
-    case 'Stop':
-      return dispatchDecisionsOnly<E>(event, payload, ctx, handlers)
-    default:
-      logger.event('hook.stub', { event, brain: ctx.brain }, LogLevel.debug)
-      return undefined
-  }
-}
-
-/**
- * 通用 handler 执行循环：顺序执行匹配 handler，合并所有 decision（后置覆盖前置）。
- * 任何 handler 抛 {ok:false, error} → 立即抛 ClassifiedError（阻断）。
- * 返回合并后的 decision（如果所有 handler 都返回 null/空 → undefined）。
- */
-async function dispatchWithPayload<E extends HookEvent>(
-  event: E,
-  payload: HookPayloadMap[E],
-  ctx: HookDispatchContext,
-  handlers: HookHandlerConfig[],
-): Promise<HookDecisionMap[E] | undefined> {
-  // 用 mutable 容器承载 payload（handler 可能改 body / args）
-  const mutable = { payload: { ...(payload as unknown as Record<string, unknown>) } } as {
-    payload: Record<string, unknown>
-  }
+  const mutable = structuredClone(payload) as unknown as Record<string, unknown>
   const merged: Record<string, unknown> = {}
-
-  for (const handler of handlers) {
-    // matcher 过滤：按事件选字段
-    const matchValue = getMatcherValue(event, mutable.payload)
-    if (!matches(handler.matcher, matchValue)) continue
-
-    // if 谓词过滤
-    if (handler.if && !evalIf(handler.if, { event, payload: mutable.payload, ctx })) {
-      continue
+  const readonly = isReadonlyHook(event)
+  const functions = functionHooks(event)
+  const commands = [...(loadHookRegistry()[event] ?? [])]
+  const apply = (raw: unknown, ownerId: string) => {
+    const decision = validateDecision(event, raw, mutable)
+    if (decision.decision === 'block' || decision.decision === 'deny')
+      throw failure('HOOK_DENIED', decision.reason as string | undefined)
+    if (decision.contexts) {
+      merged.contexts = [
+        ...((merged.contexts ?? []) as unknown[]),
+        ...(decision.contexts as Record<string, unknown>[]).map((item) => ({ ...item, ownerId })),
+      ]
+      delete decision.contexts
     }
-
-    const result = await runHandler(handler, { event, payload: mutable.payload, ctx })
-    if (!result.ok) throw result.error
-
-    const decision = result.decision
-    if (!decision) continue
-
+    if (decision.additionalContext) {
+      merged.additionalContext = [merged.additionalContext, decision.additionalContext]
+        .filter(Boolean)
+        .join('\n')
+      delete decision.additionalContext
+    }
+    if (merged.decision === 'ask' && decision.decision === 'allow') delete decision.decision
     Object.assign(merged, decision)
-
-    // 阻断：立即返回
-    if (merged.decision === 'block') {
-      // 应用 decision 到 payload
-      applyDecisionToPayload(event, mutable.payload, merged as never)
-      throwDecision(event, merged as never)
-    }
+    if (event === 'PreLLMRequest' && decision.body) mutable.body = decision.body
+    if (event === 'PreToolUse' && decision.updatedInput)
+      mutable.args = { ...(mutable.args as object), ...(decision.updatedInput as object) }
+    if (event === 'PreToolUse' && decision.updatedInput) merged.updatedInput = mutable.args
   }
-
-  // 应用 merged 到 payload
-  if (Object.keys(merged).length > 0) {
-    applyDecisionToPayload(event, mutable.payload, merged as never)
-  }
-
-  // 反向写回 payload（调用方可读到最新值）
-  Object.assign(payload as unknown as Record<string, unknown>, mutable.payload)
-  if (Object.keys(merged).length > 0) {
-    return merged as HookDecisionMap[E]
-  }
-  return undefined
-}
-
-/**
- * 决策型事件：handler 返回 decision 后由调用方决策（不修改 payload），仅合并返回。
- * block 决策作为 error 抛（PreToolUse: 'deny' 视为 block）。
- */
-async function dispatchDecisionsOnly<E extends HookEvent>(
-  event: E,
-  payload: HookPayloadMap[E],
-  ctx: HookDispatchContext,
-  handlers: HookHandlerConfig[],
-): Promise<HookDecisionMap[E] | undefined> {
-  const merged: Record<string, unknown> = {}
-
-  for (const handler of handlers) {
-    const matchValue = getMatcherValue(event, payload as unknown as Record<string, unknown>)
-    if (!matches(handler.matcher, matchValue)) continue
-
-    if (handler.if && !evalIf(handler.if, { event, payload, ctx })) {
-      continue
-    }
-
-    const result = await runHandler(handler, { event, payload, ctx })
-    if (!result.ok) throw result.error
-
-    const decision = result.decision
-    if (!decision) continue
-
-    Object.assign(merged, decision)
-
-    if (merged.decision === 'block') {
-      // 阻断语义：抛 ClassifiedError（调用方 catch 后用 userMessage 响应）
-      throwDecision(event, merged as never)
-    }
-  }
-
-  if (Object.keys(merged).length === 0) return undefined
-  return merged as HookDecisionMap[E]
-}
-
-/** 选 matcher 比较字段 */
-function getMatcherValue(event: HookEvent, payload: Record<string, unknown>): string {
-  switch (event) {
-    case 'PreLLMRequest':
-      return String(payload.provider ?? '')
-    case 'PreToolUse':
-    case 'PostToolUse':
-      return String(payload.name ?? '')
-    case 'PostLLMResponse':
-      return String(payload.provider ?? '')
-    case 'UserPromptSubmit':
-      return String(payload.role ?? '')
-    case 'Stop':
-    case 'PreCompact':
-    case 'PostCompact':
-    case 'SessionStart':
-    case 'SessionEnd':
-      return ''
-  }
-}
-
-/** 应用 decision 到 payload（事件特定）*/
-function applyDecisionToPayload(
-  event: HookEvent,
-  payload: Record<string, unknown>,
-  decision: { body?: Record<string, unknown>; updatedInput?: Record<string, unknown> },
-): void {
-  if (event === 'PreLLMRequest' && decision.body) {
-    payload.body = decision.body
-  } else if (event === 'PreToolUse' && decision.updatedInput) {
-    // 合并 args（updatedInput 是 patch）
-    const args = (payload.args as Record<string, unknown> | undefined) ?? {}
-    payload.args = { ...args, ...decision.updatedInput }
-  }
-}
-
-/** 抛 ClassifiedError（hook 阻断） */
-function throwDecision(event: HookEvent, decision: { reason?: string; decision?: string }): never {
-  const reason = decision.reason ?? `被 ${event} 钩子拦截`
-  throw new ClassifiedError({
-    message: `${event} hook ${decision.decision}: ${reason}`,
-    userMessage: reason,
-    category: 'validation',
-    source: 'hook',
-  })
-}
-
-/**
- * 执行单个 handler：spawn 解析后的 POSIX shell（resolvePosixShell，见「跨平台执行」）执行
- * `shell -c command`，stdin 写 JSON，stdout 解析为 decision。
- *
- * 返回值：
- * - `{ok:true, decision}`：exit 0 + stdout JSON 解析成功（或空，decision=null）
- * - `{ok:false, error}`：exit 2（阻断）或 spawn 严重错误 → 调用方决定是否抛
- */
-async function runHandler<TDecision>(
-  handler: HookHandlerConfig,
-  stdinPayload: Record<string, unknown>,
-): Promise<RunHandlerResult<TDecision>> {
-  const cheryDir = process.env.CHERY_DIR || process.cwd()
-  const env: Record<string, string | undefined> = {
-    CHERY_DIR: cheryDir,
-    ...(process.env as Record<string, string | undefined>),
-  }
-  const expandedCommand = expandCommandTemplate(handler.command, env)
-  const timeoutMs = (handler.timeout ?? 10) * 1000
-
-  // 平台解析（Windows 无裸 sh，探测链见 docs/backend/agent/hooks.md「跨平台执行」）。
-  // 解析失败 fail-loud 阻断——静默跳过安全类 handler 等于 fail-open；userMessage 带安装指引。
-  let shellExecutable: string
-  try {
-    shellExecutable = resolvePosixShell().executable
-  } catch (err) {
-    const hint = (err as Error).message
-    logger.event('hook.shell_unavailable', { command: handler.command, error: hint }, LogLevel.warn)
-    return {
-      ok: false,
-      error: new ClassifiedError({
-        message: `Hook shell unavailable: ${handler.command}`,
-        userMessage: hint,
-        category: 'validation',
-        source: 'hook',
-      }),
-    }
-  }
-
-  return new Promise<RunHandlerResult<TDecision>>((resolve) => {
-    let stdout = ''
-    let stderr = ''
-    let timedOut = false
-    let child
-
+  const run = async (
+    action: (signal: AbortSignal) => Promise<unknown>,
+    ownerId: string,
+    required: boolean,
+    timeoutMs: number,
+    pluginSignal?: AbortSignal,
+  ) => {
+    if (ctx.signal?.aborted && !readonly) throw failure('HOOK_CANCELLED')
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    ctx.signal?.addEventListener('abort', abort, { once: true })
+    pluginSignal?.addEventListener('abort', abort, { once: true })
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      child = spawn(shellExecutable, ['-c', expandedCommand], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true, // Windows: 隐藏控制台窗口（约定见 docs/frontend/electron.md）
+      const stopped = new Promise<never>((_, reject) => {
+        controller.signal.addEventListener('abort', () => reject(failure('HOOK_CANCELLED')), {
+          once: true,
+        })
+        timer = setTimeout(() => {
+          reject(failure('HOOK_TIMEOUT'))
+          controller.abort()
+        }, timeoutMs)
       })
-    } catch (err) {
-      logger.event(
-        'hook.spawn_failed',
-        {
-          command: handler.command,
-          error: (err as Error).message,
-        },
-        LogLevel.warn,
-      )
-      resolve({
-        ok: false,
-        error: new ClassifiedError({
-          message: `Hook spawn failed: ${handler.command}`,
-          userMessage: '钩子启动失败',
-          category: 'validation',
-          source: 'hook',
-          cause: err,
-        }),
-      })
-      return
+      if (pluginSignal?.aborted || (ctx.signal?.aborted && !readonly)) controller.abort()
+      const value = await Promise.race([
+        Promise.resolve().then(() => action(controller.signal)),
+        stopped,
+      ])
+      if (controller.signal.aborted) throw failure('HOOK_CANCELLED')
+      apply(value, ownerId)
+    } catch (error) {
+      if (!readonly && error instanceof ClassifiedError && error.message === 'HOOK_DENIED')
+        throw error
+      if (!readonly && (required || ctx.signal?.aborted)) throw failure('HOOK_DENIED')
+      logger.event('hook.failed', { event, ownerId, code: 'HOOK_FAILED' }, LogLevel.warn)
+    } finally {
+      if (timer) clearTimeout(timer)
+      ctx.signal?.removeEventListener('abort', abort)
+      pluginSignal?.removeEventListener('abort', abort)
     }
-
+  }
+  for (const entry of functions)
+    await run(
+      (signal) =>
+        invokeFunction(entry, mutable as unknown as HookPayloadMap[HookEvent], ctx, signal),
+      entry.ownerId,
+      entry.definition.required ?? !readonly,
+      entry.definition.timeoutMs ?? 10000,
+      entry.signal,
+    )
+  for (const handler of commands) {
+    if (handler.brain && handler.brain !== ctx.brain) continue
+    const matcherValue = String(mutable.provider ?? mutable.name ?? mutable.role ?? '')
+    if (
+      !matches(handler.matcher, matcherValue) ||
+      (handler.if && !evalIf(handler.if, { event, payload: mutable, ctx }))
+    )
+      continue
+    await run(
+      async (signal) => {
+        const safeContext = projectHookContext(ctx)
+        delete safeContext.signal
+        return runCommand(handler, { event, payload: mutable, ctx: safeContext }, signal)
+      },
+      'command',
+      handler.required ?? !readonly,
+      Math.min(30000, Math.max(1, (handler.timeout ?? 10) * 1000)),
+    )
+  }
+  if (merged.body) (payload as unknown as Record<string, unknown>).body = mutable.body
+  if (merged.updatedInput) (payload as unknown as Record<string, unknown>).args = mutable.args
+  return Object.keys(merged).length ? (merged as HookDecisionMap[E]) : undefined
+}
+function runCommand(
+  handler: HookHandlerConfig,
+  input: unknown,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const command = expandCommandTemplate(handler.command, {
+    ...process.env,
+    CHERY_DIR: process.env.CHERY_DIR || process.cwd(),
+  })
+  const executable = resolvePosixShell().executable
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, ['-c', command], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+    })
     const release = trackRestartActivity({
       kind: 'hook',
       description: '等待 Hook 进程退出',
       pid: child.pid,
     })
-    // stdin 异步 error（如 EPIPE：handler 进程已退出，stdin 写入失败）→ 吞掉，不阻断
-    child.stdin?.on?.('error', () => {
-      // handler 已读 stdin 或已退出，写入端关闭属正常
-    })
-
-    const timer = setTimeout(() => {
-      timedOut = true
-      child?.kill('SIGKILL')
-      logger.event('hook.timeout', { command: handler.command, timeoutMs }, LogLevel.warn)
-      resolve({
-        ok: false,
-        error: new ClassifiedError({
-          message: `Hook timeout: ${handler.command}`,
-          userMessage: '钩子执行超时',
-          category: 'validation',
-          source: 'hook',
-        }),
-      })
-    }, timeoutMs)
-
-    child.stdout?.on('data', (chunk: Buffer) => {
+    let stdout = ''
+    let stdoutBytes = 0
+    let stderrBytes = 0
+    let settled = false
+    const kill = () => {
+      if (process.platform !== 'win32' && child.pid) {
+        try {
+          process.kill(-child.pid, 'SIGKILL')
+        } catch {}
+      }
+      child.kill('SIGKILL')
+    }
+    const finish = (error?: Error, value?: unknown) => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', abort)
+      release()
+      if (error) reject(error)
+      else resolve(value)
+    }
+    const abort = () => {
+      kill()
+      finish(failure('HOOK_CANCELLED'))
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+    child.stdin.on('error', () => {})
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBytes += chunk.length
+      if (stdoutBytes > 256 * 1024) {
+        kill()
+        finish(failure('HOOK_OUTPUT_LIMIT'))
+        return
+      }
       stdout += chunk.toString('utf8')
     })
-    child.stderr?.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8')
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrBytes += chunk.length
+      if (stderrBytes > 256 * 1024) {
+        kill()
+        finish(failure('HOOK_OUTPUT_LIMIT'))
+      }
     })
-
-    child.on('error', (err) => {
-      release()
-      clearTimeout(timer)
-      logger.event(
-        'hook.failed',
-        {
-          command: handler.command,
-          error: err.message,
-          stderr: stderr.slice(0, 200),
-        },
-        LogLevel.warn,
-      )
-      resolve({
-        ok: false,
-        error: new ClassifiedError({
-          message: `Hook spawn error: ${handler.command}`,
-          // 平台化指路（本次事故根因：ENOENT 只有短 ID 无法定位）：ENOENT = shell
-          // 本身启动失败，与 handler 业务失败（exit 非零，非阻断）区分开
-          userMessage: err.message.includes('ENOENT')
-            ? `钩子无法启动：${err.message}。${POSIX_SHELL_HINT}`
-            : `钩子执行失败：${err.message}`,
-          category: 'validation',
-          source: 'hook',
-          cause: err,
-        }),
-      })
-    })
-
+    child.on('error', () => finish(failure('HOOK_SPAWN_FAILED')))
     child.on('close', (code) => {
-      release()
-      clearTimeout(timer)
-      if (timedOut) return // 已 resolve
-
       if (code === 2) {
-        // 显式阻断
-        const reason = stderr.trim() || 'handler exit 2'
-        resolve({
-          ok: false,
-          error: new ClassifiedError({
-            message: `Hook exit 2 (block): ${handler.command}`,
-            userMessage: reason,
-            category: 'validation',
-            source: 'hook',
-          }),
-        })
+        finish(failure('HOOK_DENIED'))
         return
       }
-
       if (code !== 0) {
-        logger.event(
-          'hook.failed',
-          {
-            command: handler.command,
-            exitCode: code,
-            stderr: stderr.slice(0, 200),
-          },
-          LogLevel.warn,
-        )
-        resolve({ ok: true, decision: null })
-        return
-      }
-
-      // exit 0：解析 stdout JSON（最后一行非空）
-      const trimmed = stdout.trim()
-      if (!trimmed) {
-        resolve({ ok: true, decision: null })
+        finish(failure('HOOK_NONZERO_EXIT'))
         return
       }
       try {
-        const parsed = JSON.parse(trimmed) as TDecision
-        resolve({ ok: true, decision: parsed })
-      } catch (err) {
-        logger.event(
-          'hook.parse_failed',
-          {
-            command: handler.command,
-            error: (err as Error).message,
-            stdout: trimmed.slice(0, 200),
-          },
-          LogLevel.warn,
-        )
-        resolve({ ok: true, decision: null })
+        finish(undefined, stdout.trim() ? JSON.parse(stdout) : undefined)
+      } catch {
+        finish(failure('HOOK_INVALID_JSON'))
       }
     })
-
-    // 写 stdin
-    try {
-      child.stdin?.write(JSON.stringify(stdinPayload))
-      child.stdin?.end()
-    } catch (err) {
-      clearTimeout(timer)
-      logger.event(
-        'hook.stdin_failed',
-        {
-          command: handler.command,
-          error: (err as Error).message,
-        },
-        LogLevel.warn,
-      )
-      resolve({ ok: true, decision: null })
-    }
+    child.stdin.end(JSON.stringify(input))
   })
 }

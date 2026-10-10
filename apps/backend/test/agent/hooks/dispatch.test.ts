@@ -62,13 +62,13 @@ describe('hooks dispatch PreLLMRequest', () => {
       JSON.stringify({
         PreLLMRequest: [
           // echo 输出新 body JSON
-          { command: `echo '{"body":{"model":"claude-new","max_tokens":65536}}'` },
+          { command: `echo '{"body":{"model":"claude-sonnet-4","messages":[],"max_tokens":65536}}'` },
         ],
       }),
     )
     const payload = makePreLLMRequestPayload()
     await dispatch('PreLLMRequest', payload, { brain: '' })
-    expect(payload.body.model).toBe('claude-new')
+    expect(payload.body.model).toBe('claude-sonnet-4')
     expect(payload.body.max_tokens).toBe(65536)
   })
 
@@ -142,29 +142,29 @@ describe('hooks dispatch PreLLMRequest', () => {
         PreLLMRequest: [
           {
             if: 'payload.thinking == "high"',
-            command: `echo '{"body":{"model":"applied"}}'`,
+            command: `echo '{"body":{"model":"claude-sonnet-4","messages":[],"max_tokens":65536}}'`,
           },
         ],
       }),
     )
     const payload = makePreLLMRequestPayload({ thinking: 'high' })
     await dispatch('PreLLMRequest', payload, { brain: '' })
-    expect(payload.body.model).toBe('applied')
+    expect(payload.body.max_tokens).toBe(65536)
   })
 
   it('顺序执行：多 handler 串联，后置看到前置的修改', async () => {
     setupHooksJson(
       JSON.stringify({
         PreLLMRequest: [
-          { command: `echo '{"body":{"step":1}}'` },
+          { command: `echo '{"body":{"model":"claude-sonnet-4","messages":[],"max_tokens":1}}'` },
           // 第二个 handler 读 stdin payload（含 step:1）并附加 step2
-          { command: `node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));d.payload.body.step=2;process.stdout.write(JSON.stringify({body:d.payload.body}))"` },
+          { command: `node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));d.payload.body.max_tokens+=1;process.stdout.write(JSON.stringify({body:d.payload.body}))"` },
         ],
       }),
     )
     const payload = makePreLLMRequestPayload()
     await dispatch('PreLLMRequest', payload, { brain: '' })
-    expect(payload.body.step).toBe(2) // 第二个 handler 覆盖
+    expect(payload.body.max_tokens).toBe(2)
   })
 
   it('发布新表时在途 dispatch 继续使用启动时 handlers', async () => {
@@ -173,7 +173,7 @@ describe('hooks dispatch PreLLMRequest', () => {
         {
           PreLLMRequest: [
             {
-              command: `node -e "setTimeout(()=>process.stdout.write('{\\"body\\":{\\"model\\":\\"old\\"}}'),100)"`,
+              command: `node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));d.payload.body.max_tokens=100;setTimeout(()=>process.stdout.write(JSON.stringify({body:d.payload.body})),100)"`,
             },
           ],
         },
@@ -184,22 +184,22 @@ describe('hooks dispatch PreLLMRequest', () => {
     const inFlight = dispatch('PreLLMRequest', inFlightPayload, { brain: '' })
     publishHookRegistry(
       prepareHookRegistry(
-        { PreLLMRequest: [{ command: `echo '{"body":{"model":"new"}}'` }] },
+        { PreLLMRequest: [{ command: `echo '{"body":{"model":"claude-sonnet-4","messages":[],"max_tokens":200}}'` }] },
         {},
       ),
     )
 
     await inFlight
-    expect(inFlightPayload.body.model).toBe('old')
+    expect(inFlightPayload.body.max_tokens).toBe(100)
     const nextPayload = makePreLLMRequestPayload()
     await dispatch('PreLLMRequest', nextPayload, { brain: '' })
-    expect(nextPayload.body.model).toBe('new')
+    expect(nextPayload.body.max_tokens).toBe(200)
   })
 
   it('handler stdout 非法 JSON -> 跳过该 handler，不阻断', async () => {
     setupHooksJson(
       JSON.stringify({
-        PreLLMRequest: [{ command: `echo 'not-json'` }],
+        PreLLMRequest: [{ required: false, command: `echo 'not-json'` }],
       }),
     )
     const payload = makePreLLMRequestPayload()

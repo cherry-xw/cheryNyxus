@@ -64,7 +64,10 @@ function buildHookRegistry(
       const brainList = brainHooks[ev]
       if (!brainList) continue
       const globalList = merged[ev] ?? []
-      merged[ev] = [...globalList, ...brainList]
+      merged[ev] = [
+        ...globalList,
+        ...brainList.map((handler) => ({ ...handler, brain: brainName })),
+      ]
     }
   }
 
@@ -174,6 +177,12 @@ function validateHooksConfig(raw: Record<string, unknown>): HookHandlerMap {
     'Stop',
     'PreCompact',
     'PostCompact',
+    'RequestPrepare',
+    'ToolFailed',
+    'RequestCompleted',
+    'RequestFailed',
+    'RequestCancelled',
+    'ChannelSendResult',
   ])
   const result: HookHandlerMap = {}
   for (const [key, value] of Object.entries(raw)) {
@@ -202,6 +211,7 @@ function validateHooksConfig(raw: Record<string, unknown>): HookHandlerMap {
         if: typeof h.if === 'string' ? h.if : undefined,
         command: h.command,
         timeout: typeof h.timeout === 'number' ? h.timeout : undefined,
+        required: typeof h.required === 'boolean' ? h.required : undefined,
       })
     }
     if (handlers.length > 0) {
