@@ -1,15 +1,8 @@
 # Vue 3 视图与 Controller 规范 v2.0
 
 > **状态**：强制执行。  
-> **适用范围**：`web/src/**/*.vue` 及 feature 内 Vue controller/composable。  
+> **适用范围**：`apps/web/src/**/*.vue` 及 feature 内 Vue controller/composable。  
 > **配套规范**：目录归属与依赖方向以 [Web 前端架构与目录规范](web-frontend-architecture.md) 为准。
-
-## 0. 修订记录
-
-| 版本 | 日期 | 说明 |
-| --- | --- | --- |
-| v1.1 | 2025-08 | 将硬行数改为 review 信号，明确 container/composable 唯一调用链 |
-| v2.0 | 2026-08 | 适配本仓库的 feature/application 架构；移除仓库未采用的 `views/containers`、强制 Query/i18n/ErrorBoundary 等虚假门禁；明确 presenter/controller/view 与现有 CI 规则 |
 
 ## 1. 核心原则
 
@@ -74,7 +67,7 @@
 
 ## 6. 样式与资源
 
-- 全局 token、主题、reset 放 `src/styles/`；feature/组件专属样式与组件同址。
+- 全局 token、主题、reset 放 `apps/web/src/styles/`；feature/组件专属样式与组件同址。
 - 拆出的样式文件使用 `<Component>.styles.less|css` 或 `<Component>.scoped.less`，名称能反查唯一消费者。
 - 禁止将局部样式放入全局文件仅为减少 SFC 行数。
 - overlay/z-index 使用项目统一 layer token，不在组件内随意竞争常量。
@@ -96,7 +89,7 @@
 - presenter/model：关键状态与边界单测。
 - controller：测试用例触发、错误与清理；不依赖真实 store 内部形状。
 - component：对关键交互、props/emits 和可访问名称做测试。
-- `web/test/architecture/vueSfcSizeBudget.test.ts` 是回归预算；依赖边界由 ESLint 与 `dependencyBoundaries.test.ts` 强制。
+- `apps/web/test/architecture/vueSfcSizeBudget.test.ts` 是回归预算；依赖边界由 ESLint 与 `dependencyBoundaries.test.ts` 强制。
 - 修改后运行与风险相称的 lint、type-check、Vitest 和 build；不能把“由用户手测”当成跳过静态验证的理由。
 
 ## 10. Review 清单

@@ -1,6 +1,6 @@
 # Pet 桌宠与 Nyxus 模块
 
-本目录对应 [桌宠功能源码](../../../web/src/features/pets/) 与 [桌宠领域模型](../../../web/src/domain/pets/)。它维护桌宠的状态、运动和渲染，以及 Nyxus 节点树工作台的前端说明。跨前后端 Agent 编排事实以 [Agent 编排架构](../../shared/architecture/agent-orchestration.md) 为准。
+本目录对应 [桌宠功能源码](../../../apps/web/src/features/pets) 与 [桌宠领域模型](../../../apps/web/src/domain/pets)。它维护桌宠的状态、运动和渲染，以及 Nyxus 节点树工作台的前端说明。跨前后端 Agent 编排事实以 [Agent 编排架构](../../shared/architecture/agent-orchestration.md) 为准。
 
 ## 文档导航
 
@@ -19,11 +19,11 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| [web/src/domain/pets/](../../../web/src/domain/pets/) | 与 UI 无关的类型、预设、工厂和运动纯函数 |
-| [web/src/features/pets/components/](../../../web/src/features/pets/components/) | Pet 舞台与可视组件 |
-| [web/src/features/pets/composables/](../../../web/src/features/pets/composables/) | 交互、动画和生命周期编排 |
-| [web/src/features/pets/nyxus/](../../../web/src/features/pets/nyxus/) | Nyxus 入口、节点树、纸牌视图和粒子渲染 |
-| [web/src/stores/agents/](../../../web/src/stores/agents/) | Agent 会话及前端投影 |
-| [web/src/stores/pets/](../../../web/src/stores/pets/) | Pet 展示状态 |
+| [apps/web/src/domain/pets/](../../../apps/web/src/domain/pets) | 与 UI 无关的类型、预设、工厂和运动纯函数 |
+| [apps/web/src/features/pets/components/](../../../apps/web/src/features/pets/components) | Pet 舞台与可视组件 |
+| [apps/web/src/features/pets/composables/](../../../apps/web/src/features/pets/composables) | 交互、动画和生命周期编排 |
+| [apps/web/src/features/pets/nyxus/](../../../apps/web/src/features/pets/nyxus) | Nyxus 入口、节点树、纸牌视图和粒子渲染 |
+| [apps/web/src/stores/agents/](../../../apps/web/src/stores/agents) | Agent 会话及前端投影 |
+| [apps/web/src/stores/pets/](../../../apps/web/src/stores/pets) | Pet 展示状态 |
 
 新增主题先判断是否能并入现有专题；只有形成独立职责后才新增文件，并同步更新本索引。

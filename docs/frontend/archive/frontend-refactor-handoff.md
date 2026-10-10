@@ -39,7 +39,7 @@ services (RPC / HTTP adapters) ----> @chery/protocol ----> WebSocket transport
 - service 负责协议调用，不负责 UI 状态和领域归并；
 - store 负责状态所有权与用例编排，不内联协议 DTO 映射算法。
 
-这些规则同时由 ESLint 和 `web/test/architecture/dependencyBoundaries.test.ts` 强制，不能只靠评审约定。
+这些规则同时由 ESLint 和 `apps/web/test/architecture/dependencyBoundaries.test.ts` 强制，不能只靠评审约定。
 
 ## 3. 状态所有权
 
@@ -79,9 +79,9 @@ canonical 查询与订阅面：
 
 ## 5. 公开端口
 
-Feature 只能从 `web/src/application/public.ts` 或更窄的子端口导入应用能力。公开端口可以暴露用例 action、稳定 selector/read model、只读类型以及明确的 host/controller adapter。
+Feature 只能从 `apps/web/src/application/public.ts` 或更窄的子端口导入应用能力。公开端口可以暴露用例 action、稳定 selector/read model、只读类型以及明确的 host/controller adapter。
 
-公开端口不得暴露 `data/**`、reducer 内部 helper 或协议游标。端口的存在不代表可以无限制暴露整个 store；迁移期 backend/transport facade 的删除条件记录在 `docs/shared/architecture/issues.md`，后续应持续收窄为面向用例的接口。
+公开端口不得暴露 `data/**`、reducer 内部 helper 或协议游标。端口的存在不代表可以无限制暴露整个 store；迁移期 apps/backend/transport facade 的删除条件记录在 `docs/shared/architecture/issues.md`，后续应持续收窄为面向用例的接口。
 
 ## 6. Nyxus 边界
 
@@ -107,7 +107,7 @@ Nyxus component、graph、composable 和 presenter 不能 import store。测试�
 ```powershell
 pnpm type-check
 pnpm --filter web type-check
-pnpm test -- --root web test/architecture test/chats
+pnpm test -- --root web apps/backend/test/architecture apps/backend/test/chats
 pnpm --filter web build
 ```
 

@@ -1,7 +1,7 @@
 # Web 前端架构与目录规范 v1.0
 
 > **状态**：强制执行。  
-> **适用范围**：`web/src/**`、相关前端测试与前端架构文档。  
+> **适用范围**：`apps/web/src/**`、相关前端测试与前端架构文档。  
 > **目标**：目录表达职责，依赖表达边界；不使用文件数量制造伪架构。
 
 ## 1. 判定顺序
@@ -19,7 +19,7 @@
 ## 2. 顶层目录契约
 
 ```text
-web/src/
+apps/web/src/
 ├── application/   # 稳定用例端口、composition root、宿主 adapter
 ├── domain/        # 无 Vue/Pinia/浏览器 I/O 的领域模型、reducer、projection、算法
 ├── services/      # WebSocket/HTTP 等基础设施 adapter 与协议调用
@@ -138,13 +138,13 @@ application runtime = 组装上述依赖的唯一例外
 
 ## 6. 测试目录
 
-- `web/test/architecture/` 验证依赖与结构门禁；不得以源码字符串快照替代全部行为测试。
+- `apps/web/test/architecture/` 验证依赖与结构门禁；不得以源码字符串快照替代全部行为测试。
 - 领域算法测试按领域/能力分组；UI 测试按用户能力分组。测试目录无需逐文件镜像源码路径。
 - 移动文件必须同步测试导入；纯移动不得借机修改行为断言。
 
 ## 7. 机器门禁
 
-可静态判断的规则必须同时落在 `web/eslint.config.js` 与 `web/test/architecture/dependencyBoundaries.test.ts`。至少覆盖：
+可静态判断的规则必须同时落在 `apps/web/eslint.config.js` 与 `apps/web/test/architecture/dependencyBoundaries.test.ts`。至少覆盖：
 
 - domain 不依赖框架和上层；
 - services 不依赖 stores/features/application；

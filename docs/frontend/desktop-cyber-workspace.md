@@ -4,11 +4,11 @@
 
 ## 组件与模型
 
-- `web/src/features/desktop/CyberDesktopHost.vue`：桌面装配层——系统栏、任务栏、进程轨、功能窗渲染、视觉事件横幅。
-- `web/src/features/desktop/CyberWindow.vue`：浏览器功能窗唯一外壳（标题栏、层级、最小化/最大化/恢复、拖拽/缩放）。嵌入内容（Agent/History/Settings 等）必须为无壳 `embedded` 态铺满内容区，禁止出现"双壳"。**标题栏按钮右对齐（2026-09-21）**：最小化/最大化/关闭按钮组的 `margin-left: auto` 挂在 `.cyber-window-actions` 上（而非装饰 signal）——窗口 ≤620px 时 signal 被容器查询隐藏，右对齐职责随按钮组保留，按钮始终右上角居右、与标题保持间隙。**终端窗 title-actions 例外（2026-09-21）**：`title-actions` 容器默认带 `data-window-interactive`（整体不可拖拽、仅供内部按钮交互）；terminal 面 `App.vue` 把该容器设为 `flex:1` 撑满空白，并对容器加 `pointer-events: none`（子元素仍 `pointer-events: auto`，由 CyberWindow `:deep(*)` 规则保证）——空白区鼠标穿透到标题栏 pointer 拖拽，「已连接」与「清空」之间可拖动窗口，清空按钮照常可点。**终端连接状态按钮（2026-09-21）**：终端窗 title-actions 由 `TerminalTitleActions.vue` 渲染连接信息 + 连接状态按钮（lucide `Link`/`Unlink` 成对图标）+ 清空按钮：已连接点两下确认断开（发送 exit）、未连接/断开点一下直接重连、连接中静态展示；`TerminalSurface` 传 `titleReconnect` 使独立终端窗隐藏面板内「选择连接预设」表单（工作台文件区 Terminal 标签保留原表单）。
-- `web/src/stores/workspace/windowModel.ts`：纯窗口模型（类型、几何、层级、焦点、最小化、最大化、恢复、持久化）。业务数据留在既有 canonical state，窗口模型只承载 UI 事实。
-- `web/src/stores/workspace/uiState.ts`：窗口注册表与 actions；`focusWorkspaceWindow` 维护 z 序（`workspaceWindowOrder`，末尾=最上）。
-- `web/src/features/desktop/visualEvents.ts`：桌面视觉事件（故障横幅等）。
+- `apps/web/src/features/desktop/CyberDesktopHost.vue`：桌面装配层——系统栏、任务栏、进程轨、功能窗渲染、视觉事件横幅。
+- `apps/web/src/features/desktop/CyberWindow.vue`：浏览器功能窗唯一外壳（标题栏、层级、最小化/最大化/恢复、拖拽/缩放）。嵌入内容（Agent/History/Settings 等）必须为无壳 `embedded` 态铺满内容区，禁止出现"双壳"。**标题栏按钮右对齐（2026-09-21）**：最小化/最大化/关闭按钮组的 `margin-left: auto` 挂在 `.cyber-window-actions` 上（而非装饰 signal）——窗口 ≤620px 时 signal 被容器查询隐藏，右对齐职责随按钮组保留，按钮始终右上角居右、与标题保持间隙。**终端窗 title-actions 例外（2026-09-21）**：`title-actions` 容器默认带 `data-window-interactive`（整体不可拖拽、仅供内部按钮交互）；terminal 面 `App.vue` 把该容器设为 `flex:1` 撑满空白，并对容器加 `pointer-events: none`（子元素仍 `pointer-events: auto`，由 CyberWindow `:deep(*)` 规则保证）——空白区鼠标穿透到标题栏 pointer 拖拽，「已连接」与「清空」之间可拖动窗口，清空按钮照常可点。**终端连接状态按钮（2026-09-21）**：终端窗 title-actions 由 `TerminalTitleActions.vue` 渲染连接信息 + 连接状态按钮（lucide `Link`/`Unlink` 成对图标）+ 清空按钮：已连接点两下确认断开（发送 exit）、未连接/断开点一下直接重连、连接中静态展示；`TerminalSurface` 传 `titleReconnect` 使独立终端窗隐藏面板内「选择连接预设」表单（工作台文件区 Terminal 标签保留原表单）。
+- `apps/web/src/stores/workspace/windowModel.ts`：纯窗口模型（类型、几何、层级、焦点、最小化、最大化、恢复、持久化）。业务数据留在既有 canonical state，窗口模型只承载 UI 事实。
+- `apps/web/src/stores/workspace/uiState.ts`：窗口注册表与 actions；`focusWorkspaceWindow` 维护 z 序（`workspaceWindowOrder`，末尾=最上）。
+- `apps/web/src/features/desktop/visualEvents.ts`：桌面视觉事件（故障横幅等）。
 
 ## 任务栏展示序契约（2026-09-02 返工）
 
@@ -34,12 +34,12 @@
 
 共享 `OVERLAY_Z_INDEX.tooltip` 为最高提示层；用于工作台 info 的短暂只读悬浮说明，不接收指针、不固定显示。其他窗口、审批与 owner 菜单层级保持原契约。
 
-桌面只拥有窗口与可见状态，不拥有业务草稿；设置关闭先经 [App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose` 调用内容的 `confirmClose`，具体保存与丢弃语义归 [settings.md](settings.md)。非模态内嵌内容不声明 `aria-modal`。
+桌面只拥有窗口与可见状态，不拥有业务草稿；设置关闭先经 [App.vue](../../apps/web/src/App.vue) 的 `requestCyberWindowClose` 调用内容的 `confirmClose`，具体保存与丢弃语义归 [settings.md](settings.md)。非模态内嵌内容不声明 `aria-modal`。
 
 | 修改意图 | 代码入口与关键符号 | 验证入口 |
 | --- | --- | --- |
-| 启动入口与真实状态 | [CyberDesktopHost.vue](../../web/src/features/desktop/CyberDesktopHost.vue) 的 `openCapability`、`publish` | `web/test/workspace/uiStateTaskbar.test.ts`、`pnpm web:type-check` |
-| 窗口关闭与菜单层级 | [App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose`；[overlayLayers.ts](../../web/src/styles/overlayLayers.ts) 的 `ownerOverlayZIndex` | `web/test/styles/overlayLayers.test.ts`；多窗叠放验收 |
+| 启动入口与真实状态 | [CyberDesktopHost.vue](../../apps/web/src/features/desktop/CyberDesktopHost.vue) 的 `openCapability`、`publish` | `apps/web/test/workspace/uiStateTaskbar.test.ts`、`pnpm web:type-check` |
+| 窗口关闭与菜单层级 | [App.vue](../../apps/web/src/App.vue) 的 `requestCyberWindowClose`；[overlayLayers.ts](../../apps/web/src/styles/overlayLayers.ts) 的 `ownerOverlayZIndex` | `apps/web/test/styles/overlayLayers.test.ts`；多窗叠放验收 |
 
 - 桌面 chrome 动效遵循 [设计语言规范 §14.3](../standards/frontend/design-language.md#143-动效和性能)：GSAP 只管 DOM（`useGsap` scoped）；入场/切换只动 transform/opacity；系统栏/任务栏入场接 `useMotionTier`（full 档 stagger、reduced 档仅淡入）。
 - 视觉红线遵循 [设计语言规范](../standards/frontend/design-language.md)：全直角、字重 400/600 规则、色走 token。

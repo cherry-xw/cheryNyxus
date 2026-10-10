@@ -67,4 +67,4 @@ Nyxus 对宿主只暴露组件、props/events 与公共 controller 类型。图�
 - 不从 Pet 字段反向写回会话事实；
 - 不根据 UI 是否可见决定 transport ownership，订阅由 application runtime 和 ChatSession 管理。
 
-架构边界由 ESLint 与 `web/test/architecture/dependencyBoundaries.test.ts` 锁定；active-root Pet 投影由 `web/test/agents/presetWorkspaceFocus.test.ts` 覆盖。
+架构边界由 ESLint 与 `apps/web/test/architecture/dependencyBoundaries.test.ts` 锁定；active-root Pet 投影由 `apps/web/test/agents/presetWorkspaceFocus.test.ts` 覆盖。

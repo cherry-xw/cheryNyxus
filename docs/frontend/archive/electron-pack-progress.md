@@ -14,14 +14,14 @@
 
 ```
 CheryNyxus/
-├── src/                    # 后端源码（Node.js + better-sqlite3）
+├── apps/backend/src/                    # 后端源码（Node.js + better-sqlite3）
 ├── dist/                   # 后端 SSR 构建产物（vite build --ssr）
 │   ├── index.js
 │   └── lib/
 │       ├── better-sqlite3-*.node
 │       └── @swc/wasm/
-├── web/
-│   ├── src/                # 前端源码（Vue3 + Element Plus）
+├── apps/web/
+│   ├── apps/backend/src/                # 前端源码（Vue3 + Element Plus）
 │   ├── electron/
 │   │   ├── main.ts         # Electron 主进程
 │   │   └── preload.ts      # preload 桥接
@@ -61,9 +61,9 @@ CheryNyxus/
 
 | 项目 | 说明 |
 | --- | --- |
-| Vue3 构建 | `vue-tsc -b && vite build` → `web/dist/` |
-| Electron 主进程编译 | `vite-plugin-electron/simple` → `web/dist-electron/main.js` |
-| preload 编译 | → `web/dist-electron/preload.mjs` |
+| Vue3 构建 | `vue-tsc -b && vite build` → `apps/web/dist/` |
+| Electron 主进程编译 | `vite-plugin-electron/simple` → `apps/web/dist-electron/main.js` |
+| preload 编译 | → `apps/web/dist-electron/preload.mjs` |
 | base: './' | 兼容 Electron loadFile |
 | 开发 proxy | `/api` → :8183, `/ws` → :8182 |
 
@@ -102,7 +102,7 @@ targets: win=nsis, mac=dmg, linux=AppImage
 | 读取/导出 | `scripts/pack-config.mjs` | 读 package.json + env 覆盖，注入 process.env |
 | 底层执行 | `scripts/electron-pack.mjs` | Node 下载 + SQLite 预编译 + 构建 |
 | 一键串联 | `scripts/pack-electron.mjs` | 6 步全流程 |
-| builder 包装 | `web/scripts/dist-electron.mjs` | electron-builder + 注入镜像 env |
+| builder 包装 | `apps/web/scripts/dist-electron.mjs` | electron-builder + 注入镜像 env |
 
 ### 3.6 npm scripts ✅
 

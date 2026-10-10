@@ -4,13 +4,13 @@
 
 ## 模块边界
 
-- 节点树从 [`useMessageBranchTreeController.ts`](../../../web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts) 的 `useMessageBranchTreeController` 组合入口进入：[`useTreeGraphProjection.ts`](../../../web/src/features/pets/nyxus/components/useTreeGraphProjection.ts) 管图与卡牌投影，[`useTreeCamera.ts`](../../../web/src/features/pets/nyxus/components/useTreeCamera.ts) 管相机和视口筛选，[`useTreeCrtWindows.ts`](../../../web/src/features/pets/nyxus/components/useTreeCrtWindows.ts) 管运行窗口，[`useTreeFoldReading.ts`](../../../web/src/features/pets/nyxus/components/useTreeFoldReading.ts) 管折叠阅读，[`useTreeDetailWindow.ts`](../../../web/src/features/pets/nyxus/components/useTreeDetailWindow.ts) 管详情冻结定位，[`useTreeGpuScene.ts`](../../../web/src/features/pets/nyxus/components/useTreeGpuScene.ts) 管渲染场景与清理；节点激活、其他弹窗和根/模式切换由同目录专属控制器管理。图的事实与布局仍由 `graph/` 维护。定向检查见 [`treeMotion.test.ts`](../../../web/test/nyxus/canvas/treeMotion.test.ts)、[`detailPlacementFreeze.test.ts`](../../../web/test/nyxus/graph/detailPlacementFreeze.test.ts)。
+- 节点树从 [`useMessageBranchTreeController.ts`](../../../apps/web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts) 的 `useMessageBranchTreeController` 组合入口进入：[`useTreeGraphProjection.ts`](../../../apps/web/src/features/pets/nyxus/components/useTreeGraphProjection.ts) 管图与卡牌投影，[`useTreeCamera.ts`](../../../apps/web/src/features/pets/nyxus/components/useTreeCamera.ts) 管相机和视口筛选，[`useTreeCrtWindows.ts`](../../../apps/web/src/features/pets/nyxus/components/useTreeCrtWindows.ts) 管运行窗口，[`useTreeFoldReading.ts`](../../../apps/web/src/features/pets/nyxus/components/useTreeFoldReading.ts) 管折叠阅读，[`useTreeDetailWindow.ts`](../../../apps/web/src/features/pets/nyxus/components/useTreeDetailWindow.ts) 管详情冻结定位，[`useTreeGpuScene.ts`](../../../apps/web/src/features/pets/nyxus/components/useTreeGpuScene.ts) 管渲染场景与清理；节点激活、其他弹窗和根/模式切换由同目录专属控制器管理。图的事实与布局仍由 `graph/` 维护。定向检查见 [`treeMotion.test.ts`](../../../apps/web/test/nyxus/canvas/treeMotion.test.ts)、[`detailPlacementFreeze.test.ts`](../../../apps/web/test/nyxus/graph/detailPlacementFreeze.test.ts)。
 
-- `web/src/stores/chats/read-model/rootTimeline.ts` 只维护 canonical snapshot、root transient plane 和 patch 原子应用；revision gap 由 store 触发 resync。
-- `web/src/features/pets/nyxus/graph/executionGraph.ts` 只把显式节点、边和 active run facts 投影为 UI-neutral graph，不读取数据库结构，不按正文、时间相邻或角色名称推断关系。`projectActiveTurnNodes` 的 transient 锚点：`dispatch`/`spawn` 节点优先作为其 `target.chatId` 子 chat 的前驱（子 chat 流式回复从派发点连出），普通消息节点按 `createdAt` 取该 chat 最新（不依赖持久图数组遍历顺序）；同 chat 连续 stream 节点在单次投影内串联成链；子 chat 无任何持久/stream 节点时才 `?? start` 兜底。
-- `web/src/features/pets/nyxus/graph/executionLayout.ts` 只处理稳定 lane、全局纵向顺序和坐标缓存；流式正文变化复用坐标，拓扑变化才重算。
-- `web/src/features/pets/nyxus/graph/nodeSkins.ts`、`termination.ts` 和 `web/src/styles/overlayLayers.ts` 分别集中 skin、termination 文案和 overlay 层级。
-- 连线颜色不再按边类型固定，而是由**两端节点的当前显示色**决定：沿路径从来源节点色渐变到目标节点色（Signal 下错误/撤销/暂停覆盖为状态色，其余用节点语义色；Classic 恒用节点语义色）。端点色在 [`useTreeGpuScene.ts`](../../../web/src/features/pets/nyxus/components/useTreeGpuScene.ts) 的 `gpuNodeEndpointColor` 计算并随场景下发，渲染器在 [`ExecutionGraphPixiRenderer.ts`](../../../web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts) 按路径分段插值描边（`drawGradientCurve` + `lerpColor`），分段取点逻辑在 [`edgeGradient.ts`](../../../web/src/features/pets/nyxus/graph/edgeGradient.ts)（`gradientPathPoints`：默认逐采样点走以保住拐角、仅超预算时抽稀且不跨拐角），脉冲层随路径取当前位置渐变插值色；渐变分段预算（`graphEdgeGradientMaxSegments`）随 [`renderQuality.ts`](../../../web/src/composables/renderQuality.ts) 的性能档位取值，低档更省、高档更顺滑。`useThemeTokens.ts` 的 `PIXI_CANVAS_PALETTES` 提供边线透明度和分支标记色，沿现有 `setPalette` 重绘入口应用。改变颜色不改变节点、边、布局或聚焦弱化规则；验证用 `pnpm test:web` 加双主题画布截图，关注实际混合后边线对比度。
+- `apps/web/src/stores/chats/read-model/rootTimeline.ts` 只维护 canonical snapshot、root transient plane 和 patch 原子应用；revision gap 由 store 触发 resync。
+- `apps/web/src/features/pets/nyxus/graph/executionGraph.ts` 只把显式节点、边和 active run facts 投影为 UI-neutral graph，不读取数据库结构，不按正文、时间相邻或角色名称推断关系。`projectActiveTurnNodes` 的 transient 锚点：`dispatch`/`spawn` 节点优先作为其 `target.chatId` 子 chat 的前驱（子 chat 流式回复从派发点连出），普通消息节点按 `createdAt` 取该 chat 最新（不依赖持久图数组遍历顺序）；同 chat 连续 stream 节点在单次投影内串联成链；子 chat 无任何持久/stream 节点时才 `?? start` 兜底。
+- `apps/web/src/features/pets/nyxus/graph/executionLayout.ts` 只处理稳定 lane、全局纵向顺序和坐标缓存；流式正文变化复用坐标，拓扑变化才重算。
+- `apps/web/src/features/pets/nyxus/graph/nodeSkins.ts`、`termination.ts` 和 `apps/web/src/styles/overlayLayers.ts` 分别集中 skin、termination 文案和 overlay 层级。
+- 连线颜色不再按边类型固定，而是由**两端节点的当前显示色**决定：沿路径从来源节点色渐变到目标节点色（Signal 下错误/撤销/暂停覆盖为状态色，其余用节点语义色；Classic 恒用节点语义色）。端点色在 [`useTreeGpuScene.ts`](../../../apps/web/src/features/pets/nyxus/components/useTreeGpuScene.ts) 的 `gpuNodeEndpointColor` 计算并随场景下发，渲染器在 [`ExecutionGraphPixiRenderer.ts`](../../../apps/web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts) 按路径分段插值描边（`drawGradientCurve` + `lerpColor`），分段取点逻辑在 [`edgeGradient.ts`](../../../apps/web/src/features/pets/nyxus/graph/edgeGradient.ts)（`gradientPathPoints`：默认逐采样点走以保住拐角、仅超预算时抽稀且不跨拐角），脉冲层随路径取当前位置渐变插值色；渐变分段预算（`graphEdgeGradientMaxSegments`）随 [`renderQuality.ts`](../../../apps/web/src/composables/renderQuality.ts) 的性能档位取值，低档更省、高档更顺滑。`useThemeTokens.ts` 的 `PIXI_CANVAS_PALETTES` 提供边线透明度和分支标记色，沿现有 `setPalette` 重绘入口应用。改变颜色不改变节点、边、布局或聚焦弱化规则；验证用 `pnpm test:web` 加双主题画布截图，关注实际混合后边线对比度。
 - `MessageBranchTree.vue` 只编排画布、HTML overlay、输入和可访问性交互，不重新构造 canonical relation。
 - 节点树的指针高亮是单实例、非命中视觉层：精细鼠标进入画布后隐藏系统指针，空白处显示半透明直角方框和粗亮描边，进入节点后弹性吸附并完整包住节点，填充与描边均跟随节点语义色；不得抢占透明命中层、画布拖拽或 hover popover。节点本体使用比指针框更细、更亮的常态描边，错误、暂停和选中等状态仍保留更高视觉权重。
 - `MessageBranchTree.vue` 向 Pixi 同步场景时，去重签名必须覆盖节点坐标及边的起点、终点和路由坐标；切换折叠或同行布局即使不改变节点 ID，也必须把新的几何位置提交给 GPU 渲染器。
@@ -124,7 +124,7 @@
 开始 → 第 1 段旧历史 → 第 2 段旧历史 → 第 3 段实际节点（按当前档位）→ 第 4 段当前节点（按当前档位）
 ```
 
-当前实现由 [`historyProjection.ts`](../../../web/src/features/pets/nyxus/graph/historyProjection.ts) 统一处理。它按所属根会话分别计算 compact 段：最后一个已结束段继续使用实际节点，更早的每一段各生成一个“旧历史”节点。任务合并数据也携带各分支的旧历史目录；分支中的“旧历史”节点接在该分支真实的分叉线之后，点击时按它所属的根会话加载内容，不会与主分支同编号的节点混淆。
+当前实现由 [`historyProjection.ts`](../../../apps/web/src/features/pets/nyxus/graph/historyProjection.ts) 统一处理。它按所属根会话分别计算 compact 段：最后一个已结束段继续使用实际节点，更早的每一段各生成一个“旧历史”节点。任务合并数据也携带各分支的旧历史目录；分支中的“旧历史”节点接在该分支真实的分叉线之后，点击时按它所属的根会话加载内容，不会与主分支同编号的节点混淆。
 
 ### 纪元怎样影响节点树
 
@@ -143,13 +143,13 @@
 
 ### 实现与验证入口
 
-- 四档选择和提示文字：[`useWorkbenchDialogController.ts`](../../../web/src/features/agent/workbench/useWorkbenchDialogController.ts) 的 `FOLD_TIPS`。
-- 四档收纳计算：[`foldProjection.ts`](../../../web/src/features/pets/nyxus/graph/foldProjection.ts) 的 `computeFoldRanges()`、`computeParticipantFoldRanges()` 和 `computeRoundRanges()`；轮次投影由 `projectRoundExecutionGraph()` 接入。
-- 节点排列：[`executionLayout.ts`](../../../web/src/features/pets/nyxus/graph/executionLayout.ts)。
-- `compact` 旧历史节点和纪元分界：[`historyProjection.ts`](../../../web/src/features/pets/nyxus/graph/historyProjection.ts) 的 `projectPackedGenerations()` 和 `projectEpochBoundaries()`。
-- 旧历史只读二层树：[`GenerationTreeDialog.vue`](../../../web/src/features/pets/nyxus/components/GenerationTreeDialog.vue)。
+- 四档选择和提示文字：[`useWorkbenchDialogController.ts`](../../../apps/web/src/features/agent/workbench/useWorkbenchDialogController.ts) 的 `FOLD_TIPS`。
+- 四档收纳计算：[`foldProjection.ts`](../../../apps/web/src/features/pets/nyxus/graph/foldProjection.ts) 的 `computeFoldRanges()`、`computeParticipantFoldRanges()` 和 `computeRoundRanges()`；轮次投影由 `projectRoundExecutionGraph()` 接入。
+- 节点排列：[`executionLayout.ts`](../../../apps/web/src/features/pets/nyxus/graph/executionLayout.ts)。
+- `compact` 旧历史节点和纪元分界：[`historyProjection.ts`](../../../apps/web/src/features/pets/nyxus/graph/historyProjection.ts) 的 `projectPackedGenerations()` 和 `projectEpochBoundaries()`。
+- 旧历史只读二层树：[`GenerationTreeDialog.vue`](../../../apps/web/src/features/pets/nyxus/components/GenerationTreeDialog.vue)。
 - 纪元事实说明：[配置修订、上下文纪元与删除生命周期](../../shared/architecture/context-epochs.md)。
-- 定向验证：[`executionGraph.test.ts`](../../../web/test/nyxus/graph/executionGraph.test.ts)、[`fold.test.ts`](../../../web/test/nyxus/graph/fold.test.ts)、[`graphLayout.test.ts`](../../../web/test/nyxus/graph/graphLayout.test.ts) 和 [`generations.test.ts`](../../../test/service/chat/generations.test.ts)。
+- 定向验证：[`executionGraph.test.ts`](../../../apps/web/test/nyxus/graph/executionGraph.test.ts)、[`fold.test.ts`](../../../apps/web/test/nyxus/graph/fold.test.ts)、[`graphLayout.test.ts`](../../../apps/web/test/nyxus/graph/graphLayout.test.ts) 和 [`generations.test.ts`](../../../apps/backend/test/service/chat/generations.test.ts)。
 
 ## 展示语义
 
@@ -157,7 +157,7 @@
 - 任务可包含多个根分支，但 `activeBranchId` 指向唯一活动主干。活动主干固定占 lane 0；从分叉点被替换的旧主干后缀移动到 +1 或 -1，其他 continuation/detail 分支按稳定顺序继续向外扩展。共享前缀保持在中轴，不能仅按 chatId 给整条旧会话固定 lane。
 - `fork-continuation`/`fork-detail` 是合法的持久边；其目标分支必须获得区别于来源参与者及既有分支的独立 lane。任务聚合图中的 continuation/detail 分支允许各自的用户入口，不得按“用户直接输入子 Agent”报错。
 - 细节解释分支作为独立参与者；运行中只展开它自身所在轮次，不解除其他分支的折叠。
-- 工作台任务树以 `chatSessions.rootTimeline(rootChatId, 'tree')` 的订阅快照作为实时 canonical 数据源；`getTaskTimeline` 的任务聚合快照只在 live 快照缺失或 revision 落后时兜底。live revision 追平或更新后，[`useWorkbenchDialogController.ts`](../../../web/src/features/agent/workbench/useWorkbenchDialogController.ts) 不得继续向 `MessageBranchTree` 传入 `timelineOverride`，避免旧 canonical 拓扑与当前 transient 输入、运行态及 CRT 混合。代际二层弹窗的 `staticView` 不受此规则影响。
+- 工作台任务树以 `chatSessions.rootTimeline(rootChatId, 'tree')` 的订阅快照作为实时 canonical 数据源；`getTaskTimeline` 的任务聚合快照只在 live 快照缺失或 revision 落后时兜底。live revision 追平或更新后，[`useWorkbenchDialogController.ts`](../../../apps/web/src/features/agent/workbench/useWorkbenchDialogController.ts) 不得继续向 `MessageBranchTree` 传入 `timelineOverride`，避免旧 canonical 拓扑与当前 transient 输入、运行态及 CRT 混合。代际二层弹窗的 `staticView` 不受此规则影响。
 - Agent 消息节点优先显示 `roleType` 角色名；缺失时，根会话降级为“核心节点”，子会话降级为“协作节点”。界面文案不得出现 `Agent`、`Fold`、`Spawn` 等内部英文类型名。
 - 展示名称固定为：`start=任务起点`、`fold=过程组`、`round=整轮`、`tool-batch=工具执行`、`return=结果返回`、`dispatch=任务委派`、`spawn=创建协作节点`、`system=系统事件`、`input=我的指令`、`unknown=未识别节点`。
 - **过程组和轮次含错误红框（2026-09-04 / 2026-09-29）**：过程组或轮次（`fold`/`round`）折叠范围内含隐藏错误消息时（`foldContainsErrorMessage`：投影节点存在 `termination.code === 'error'` 的 message），该组外框在三种呈现形态一致显示红色且须醒目——vertical-classic 节点外圈加粗红描边 + 外圈光晕；horizontal-signal 主体外扩 4px 外框加粗红描边 + 光晕；paperMode 卡牌（`is-error-group`）亮色外圈层替换为红色 + 光晕、四角角饰同步变红，深棕内框不变。红色沿用各子系统错误色相（画布 `stateError`；卡牌经 color-mix 融入纸面）。
@@ -185,7 +185,7 @@
 - 节点悬浮框（hover 详情 / 常驻审批气泡 / 提问气泡）统一定位（2026-09-02 调整，横竖排版一致）：hover 详情弹窗优先出现在所属节点**正下方**（水平锚点取节点底沿中点居中；下方放不下时回退右侧优先的侧贴逻辑）。**过程组左轮（FoldTabRail）与弹窗并排、顶对齐，统一落在节点下方区域**：默认贴弹窗左侧（右缘距弹窗左缘 18px），左侧视口空间不足时改贴弹窗右侧；两侧都放不下时钳制在视口内（极窄视口才与弹窗轻微重叠）。左轮随弹窗容器移动（pinned 拖动弹窗时保持相对位置）。审批/提问等 action 弹窗仍走右侧优先侧贴。**定位高度一律使用实测内容高度**（未测量前用合理小初始值），不得用视口上限高度参与垂直钳制——否则矮窗会被 `viewport - 上限` 顶到视口顶部（“飘高”）。**详情弹窗定位一次显示只求值一次（2026-09-02 冻结契约）**：显示会话开始（hover 换到新节点，或弹窗关闭后重新显示）时一次性求值弹窗位置与左轮贴边并冻结；此后实测高度回填、画布缩放/平移、视口 resize 均不改变弹窗位置（屏幕坐标完全冻结，节点可能随相机移走）。hover → pinned 切换不算新显示会话，不重定位；pinned 手动拖拽经 `detailManualPos`、尺寸档位切换经 `detailSize` 覆盖冻结位置。求值时刻内容高度未实测则用初始值参与本次决策，不再随实测回填重排。悬浮框**不绘制锚点连线**：连线仅运行 CRT 保留（`crtPlacements`），审批/提问等 action 弹窗与详情弹窗均无连线。
 - 常驻悬浮框（pinned 详情 / 审批 / 提问气泡）标题栏可拖动：拖动后固定在用户放置的位置（钳制在视口内、保留标题栏可见），关闭重开即清除手动位置重新吸附回自动定位；hover 临时详情不参与拖拽。实现复用 CRT 的 pointer-capture 拖拽模式（`AnchoredRunCrt`），不走窗口间避碰。
 - **详情弹窗入场与拖拽直写（2026-09-02 返工契约）**：详情锚点容器经 `useOverlayTransitionHooks('panel')` 接入 Vue `<Transition :css="false">`（替代 CSS `node-detail` 过渡，参数收敛 MOTION token）；弹窗内部入场时间线为标题栏→页签→正文 stagger（总时长 ≤320ms，`useGsap` scoped、只动 transform/autoAlpha，组件挂载时执行一次，hover 切换节点不重放）。pinned 拖拽在 pointermove 期间用 `gsap.quickSetter` 直写元素（拖拽写 transform x/y，与树平移的 CSS `translate` 属性分属不同通道可叠加），**不触发每帧响应式 patch**；pointerup 才把终值一次性落回 `detailManualPos` 并清除直写 transform（落回与清写在同一帧内完成，无闪烁）。为此弹窗 emits 新增 `dragEnd`。**常驻窗口尺寸改由头部「尺寸切换」按钮在 S/M/L 三档间循环（`cycleDetailSize`/`detailSizeLabel`，2026-09-15 变更）**：取代原 8 向拖拽 resize 手柄，换档只更新 `detailSize`，未拖过位置的窗口继续自动定位、拖过的位置回收进视口；`detail-resize-handle` 样式与 `startDetailResize` 已删除。**档位定义（`detailSizePresets()`，2026-09-15 二次调整）**：S = 当前默认尺寸（640×520，即原 M 档，实测“刚刚好”）；M = S 宽度 +25%（800×650）；L = S 宽度 +50%（960×780）。**常驻窗口内容可点切（2026-09-15）**：窗口固定（拖拽/点击过某节点）后，点击任意有详情内容的节点，窗口内容即切换到该节点，窗口停留在手动放置位置；未固定时点击固定仍限 `canPinNodeDetail`（含终止/工具批/过程组/返回/委派）节点。**正文最小字号随档位缩放（--popover-content-font，2026-09-15 变更）**：S=12px / M=13px / L=13px，只作用于常驻（pinned）窗口正文，hover 临时弹窗始终 12px；头部/页签等窗口外壳字号固定。**常驻过程组标题分页器（2026-09-16）**：常驻（pinned）详情窗口展示过程组（fold）时，标题保持「过程组」文字，其右侧的数字以分页器呈现——`‹ X/Y ›`，前后箭头只围绕数字、按步进切换折叠成员页（popover `stepFold` emit → 树 `stepFoldDetail` → `selectFoldMember`，与左轮共用同一选中态 `selectedFoldMembers`）；hover 临时弹窗保持纯文本标题，左轮（FoldTabRail）仍同时可用。
-- 普通消息提交、流式节点追加和视口 ResizeObserver 不得自动修改用户当前相机；只有初次挂载、切根、切换折叠/布局档位和显式复位允许 fit。**横向 Signal 例外（新增节点跟随）**：初次挂载/切根/切换折叠/显式复位时保持节点默认尺寸（scale 1），最右节点右缘停在视口宽度 80% 处（距右缘 20%），树不 fit 铺满全宽、节点不缩小；此后新增节点不再重新 fit（避免节点随数量增多缩小），最右节点越过同一 80% 警戒线（距右缘不足 20%）时保持当前缩放整体左移，让新节点继续从右侧出现；用户手动平移/缩放后暂停自动跟随，仍由「回到最新」手动复位。实现入口为 [`useTreeCanvas.ts`](../../../web/src/features/pets/nyxus/composables/useTreeCanvas.ts) 的 `followContentEndX` 与 `calculateFitTransform` 的固定 `scale`/`tailRatio`，由 [`useMessageBranchTreeController.ts`](../../../web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts) 在横向 Signal 下按 `TREE_TAIL_EDGE_RATIO` 触发，定向验证见 `web/test/nyxus/canvas/treeCanvas.test.ts` 与 `treeMotion.test.ts`。
+- 普通消息提交、流式节点追加和视口 ResizeObserver 不得自动修改用户当前相机；只有初次挂载、切根、切换折叠/布局档位和显式复位允许 fit。**横向 Signal 例外（新增节点跟随）**：初次挂载/切根/切换折叠/显式复位时保持节点默认尺寸（scale 1），最右节点右缘停在视口宽度 80% 处（距右缘 20%），树不 fit 铺满全宽、节点不缩小；此后新增节点不再重新 fit（避免节点随数量增多缩小），最右节点越过同一 80% 警戒线（距右缘不足 20%）时保持当前缩放整体左移，让新节点继续从右侧出现；用户手动平移/缩放后暂停自动跟随，仍由「回到最新」手动复位。实现入口为 [`useTreeCanvas.ts`](../../../apps/web/src/features/pets/nyxus/composables/useTreeCanvas.ts) 的 `followContentEndX` 与 `calculateFitTransform` 的固定 `scale`/`tailRatio`，由 [`useMessageBranchTreeController.ts`](../../../apps/web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts) 在横向 Signal 下按 `TREE_TAIL_EDGE_RATIO` 触发，定向验证见 `apps/web/test/nyxus/canvas/treeCanvas.test.ts` 与 `treeMotion.test.ts`。
 - 工作台历史入口在任务含分支时固定打开 `activeBranchId`；标题栏按活动主干、其他继续分支、解释分支排序。`original` 仅表示最初分支，不再永久标记为“主流程”。用户可把任一 original/continuation 直接设为主干；该操作只切换身份与节点树 lane，不复制消息或启动执行。分支标题取该分支第一条用户消息。工作台会话列表不随主干切换增减条目：列表恒只列 `original` 分支（复用 `isPianoRootSession`，约定见 [rendering.md](rendering.md)「工作台会话切换（现状）」），continuation/detail 一律经工作台标题栏访问。
 - continuation 的首条用户消息之前必须展示一个持久“结果汇总”系统节点：其前方由来源锚点的 `fork-continuation` 连线接入，继承的已完成任务返回连入该节点；后方再连接新用户消息。迟到的继承任务结果分别显示为独立返回节点并连接到当前活动主干，不合并进旧汇总节点。
 
@@ -221,7 +221,7 @@ Signal（横向）模式是在 `executionLayout.ts` 纵向布局**之后**的纯
 
 ## 性能基线
 
-`web/test/nyxus/graph/performanceRecovery.test.ts` 使用 2,000 节点、1,999 边、8 个并发 CRT 和连续 120 次流式正文更新：
+`apps/web/test/nyxus/graph/performanceRecovery.test.ts` 使用 2,000 节点、1,999 边、8 个并发 CRT 和连续 120 次流式正文更新：
 
 - 静态拓扑只允许一次完整 layout；120 次正文更新不得增加重算次数。
 - 120 次增量刷新预算为 1,500ms（CI 硬门禁）；门禁计时取 3 轮循环的最小值——衡量投影本身的开销而非机器负载（全量套件并行时其他 worker 争核会抬高 wall-clock），空闲 CI 上与单轮等价。真实浏览器要求持续操作无明显掉帧、跳位或持续内存增长。
@@ -237,7 +237,7 @@ Signal（横向）模式是在 `executionLayout.ts` 纵向布局**之后**的纯
 
 1. 导出目标 root 的 audit/tree snapshot，并保存原始数据库备份。
 2. 服务端根据持久 tool-call owner、spawn task 和 message link 生成显式 edge facts。
-3. 运行 `vitest run --config web/vite.config.ts web/test/nyxus/graph/executionGraph.test.ts web/test/nyxus/graph/executionGraphFixtures.test.ts`，确认无 `legacy-relation-unresolved` 或 dangling diagnostics。
+3. 运行 `vitest run --config apps/web/vite.config.ts apps/web/test/nyxus/graph/executionGraph.test.ts apps/web/test/nyxus/graph/executionGraphFixtures.test.ts`，确认无 `legacy-relation-unresolved` 或 dangling diagnostics。
 4. 打开真实 root，验证历史抽屉仍消费 conversation timeline，节点树只消费 tree facts。
 
 ## 回滚

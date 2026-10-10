@@ -1,6 +1,6 @@
 # 前端文档
 
-本目录对应 `web/`，维护浏览器界面、工作台和桌宠等前端能力。跨前后端的消息格式与状态契约统一归入 [共享协议](../shared/protocol/README.md)，可复用的强制约束统一归入 [前端规范](../standards/frontend/README.md)。
+本目录对应 `apps/web/`，维护浏览器界面、工作台和桌宠等前端能力。跨前后端的消息格式与状态契约统一归入 [共享协议](../shared/protocol/README.md)，可复用的强制约束统一归入 [前端规范](../standards/frontend/README.md)。
 
 ## 模块导航
 

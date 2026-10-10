@@ -1,6 +1,6 @@
 # 渲染分层（PetSprite.vue）
 
-> 源码 [PetSprite.vue](../../../web/src/features/pets/components/PetSprite.vue) ｜ 上级 [README.md](README.md) ｜ 动画 variant 见 [motion.md](motion.md) ｜ 样式见 [style.md](style.md)
+> 源码 [PetSprite.vue](../../../apps/web/src/features/pets/components/PetSprite.vue) ｜ 上级 [README.md](README.md) ｜ 动画 variant 见 [motion.md](motion.md) ｜ 样式见 [style.md](style.md)
 
 ## Agent 数据边界
 
@@ -8,7 +8,7 @@ Pet 渲染层不拥有 Agent 会话状态。Pet presentation 只保存动作、�
 
 ### nyxus 独立核心（NyxusCore）
 
-Cherry Nyxus 是独立于 Pet/Agent 身份的弹窗入口（[NyxusCore.vue](../../../web/src/features/pets/nyxus/components/NyxusCore.vue)），全局挂载在 App 顶层（`position:fixed; z-index:250`），**不经过 PetStage/PetBody，也不是 PetInstance**。入口保留自主游走、向鼠标缓慢靠近、拖拽和边界约束，但不参与普通 Pet 避让或关联；单击切换创建、聊天和设置工具环，双击才取得活跃 Nyxus 会话并打开 AgentDialog。单击动作延迟到双击判定窗结束后执行，双击会取消待执行的单击，拖拽结束也会吞掉同一次 click，避免误开工具或弹窗。工作/错误气泡不在入口呈现，运行内容、审批与问题交互仍集中在 AgentDialog。
+Cherry Nyxus 是独立于 Pet/Agent 身份的弹窗入口（[NyxusCore.vue](../../../apps/web/src/features/pets/nyxus/components/NyxusCore.vue)），全局挂载在 App 顶层（`position:fixed; z-index:250`），**不经过 PetStage/PetBody，也不是 PetInstance**。入口保留自主游走、向鼠标缓慢靠近、拖拽和边界约束，但不参与普通 Pet 避让或关联；单击切换创建、聊天和设置工具环，双击才取得活跃 Nyxus 会话并打开 AgentDialog。单击动作延迟到双击判定窗结束后执行，双击会取消待执行的单击，拖拽结束也会吞掉同一次 click，避免误开工具或弹窗。工作/错误气泡不在入口呈现，运行内容、审批与问题交互仍集中在 AgentDialog。
 
 入口从 chatSessions 只投影一个 `working` 布尔值。`working=true` 时强制显示脉冲星 Loading 形态；运行结束立即恢复 idle 形态轮播，不再区分 thinking、toolRunning、waitingForUser、responding 或 error 的外部视觉。服务断连黑洞仍具有最高系统优先级。
 
@@ -82,7 +82,7 @@ Nyxus 消息输入不再投影 `input:draft:*` 虚拟节点，也不 Teleport �
 
 ### Nyxus 弹窗渲染主题
 
-节点树三类弹窗（hover 预览 popover / 常驻审批气泡 / 提问气泡）统一使用一套 CRT 终端风渲染主题，集中管理在独立的 [nyxusPopoverTheme.less](../../../web/src/features/pets/nyxus/styles/nyxusPopoverTheme.less)，由 `MessageBranchTree.vue` 的 `<style scoped lang="less">` 经 `@import` 引入。主题覆盖所有节点类型的弹窗内容：
+节点树三类弹窗（hover 预览 popover / 常驻审批气泡 / 提问气泡）统一使用一套 CRT 终端风渲染主题，集中管理在独立的 [nyxusPopoverTheme.less](../../../apps/web/src/features/pets/nyxus/styles/nyxusPopoverTheme.less)，由 `MessageBranchTree.vue` 的 `<style scoped lang="less">` 经 `@import` 引入。主题覆盖所有节点类型的弹窗内容：
 
 - **工具节点**：`SenseCallRenderer` 分发的全部专用渲染器（`CommandRenderer`/`SearchRenderer`/`SkillRenderer`/`FileReadRenderer`/`FileWriteRenderer`/`SpawnRenderer`/`MediaRenderer`/`QuestionRenderer`/`TodoRenderer`）与通用降级 `SenseCallBox`，统一复位其默认浅色卡片（去 `border`/白底/`border-radius`/`box-shadow`），内部 head/label/code 块/pre 块/toggle 折叠/copy-btn/彩色 badge/状态字形/输出区全部 CRT 化。
 - **审批气泡**：`ApprovalCard` + `ParsedArgs` 的参数行、按钮（2026-11 起无徽章；`ParsedArgs` 完整操作参数默认收起、无边框纯文字开关）。
@@ -110,7 +110,7 @@ popover 内所有 renderer 折叠区（命令输出/搜索结果/参数/结果/�
 <details>
 <summary>历史：NyxusSessionList popout 时代的行为（已删除）</summary>
 
-- **数据范围（按需拉取）**：仅该工作台预设的**原生 root 会话**（复用 `isPianoRootSession`：`!parentChatId` 且 `branchKind` 缺省或 `'original'`，剔 spawn 子角色与 continuation/detail 分支），按 `createdAt` 降序。**数据源是打开时按需 `agentApi.listChats({ scope: 'history', includePreview: true })`（全量目录）后在前端过滤**——不依赖后端 metadata 匹配，最稳。⚠️ 曾尝试 `scope:'preset' + presetId/preset` 双参：后端 `listRootChatsForPresets`（`src/db/chat.ts`）对 metadata **原始字段**精确匹配，会话 metadata 带非空 presetId 且与窗口 `props.presetId` 不一致时，`presetId=? OR (presetId IS NULL AND preset=?)` 两分支均 false → **列表全空**（2026-08-26 实测 bug），故放弃；也不复用 `agents.historyList`（`scope:'stage'` 每预设仅留最新 1 个 root 且 lean 无 preview）。`scope:'history'` 走 `listAllChats()` 全量返回（含 preview/turnCount），前端经 `isPianoRootSession && (preset===presetName || presetId===props.presetId)` 过滤、按 `createdAt` 降序注入 `NyxusSessionList`，配 `loading` 占位；拉取失败回退 `agents.historyList ?? []` 保证不空。
+- **数据范围（按需拉取）**：仅该工作台预设的**原生 root 会话**（复用 `isPianoRootSession`：`!parentChatId` 且 `branchKind` 缺省或 `'original'`，剔 spawn 子角色与 continuation/detail 分支），按 `createdAt` 降序。**数据源是打开时按需 `agentApi.listChats({ scope: 'history', includePreview: true })`（全量目录）后在前端过滤**——不依赖后端 metadata 匹配，最稳。⚠️ 曾尝试 `scope:'preset' + presetId/preset` 双参：后端 `listRootChatsForPresets`（`apps/backend/src/db/chat.ts`）对 metadata **原始字段**精确匹配，会话 metadata 带非空 presetId 且与窗口 `props.presetId` 不一致时，`presetId=? OR (presetId IS NULL AND preset=?)` 两分支均 false → **列表全空**（2026-08-26 实测 bug），故放弃；也不复用 `agents.historyList`（`scope:'stage'` 每预设仅留最新 1 个 root 且 lean 无 preview）。`scope:'history'` 走 `listAllChats()` 全量返回（含 preview/turnCount），前端经 `isPianoRootSession && (preset===presetName || presetId===props.presetId)` 过滤、按 `createdAt` 降序注入 `NyxusSessionList`，配 `loading` 占位；拉取失败回退 `agents.historyList ?? []` 保证不空。
 - **列表行**：全局序号（自 1 递增）+ 首条 user 消息预览（无则「无消息」）+ 末次时间（HH:mm / M/d）+ 轮次；标题单行 ellipsis（宽度受限），`title` 属性携带完整信息；当前会话行高亮 `.is-active`。
 - **滚动加载**：去掉翻页，列表为固定最大高度的滚动容器（`overflow-y: auto`），数据已一次拉全（该预设全部 root，行轻量）直接全量渲染，滚动浏览最自然；打开时滚动定位到含当前会话的位置。
 - **关闭逻辑**：点击行经 `switchSession(chatId)`（`useWorkbenchTreeSession`）切换**但不收起 popout**（用户可先确认切换效果）；鼠标移出 popout 区间后延迟关闭（复用 pointerenter/pointerleave + 160ms 延迟，鼠标移回即取消）。
@@ -151,7 +151,7 @@ div.pet-wrap                                                            // 根�
 
 **命中区**：`.head-row`（身体=face+hands）触发拖拽/点击/keydown（长按拖拽 + 短按抚摸）；**hover 检测扩到整个 `.pet`**（`pointerenter/leave` 绑 `.pet`）→ 悬浮即冻结移动，toolbar 可点中。Ghost 不进入此结构，`GhostDot` 整体为纯展示且 `pointer-events:none`。
 
-**交互（长按拖拽 + 短按抚摸）**：`pointerdown` 启 300ms 定时器（`LONG_PRESS_MS`）+ 记录落点；**长按超时或移动超阈值（`DRAG_THRESHOLD_PX=5`）**任一触发 → `startDrag`（`setPointerCapture` + 进入 `dragging`）；**短按（<300ms 且未超阈值）松开** → 取消定时器，不拖拽，让 `click` 触发 `clickPet` 抚摸。拖拽结束的 `pointerup` 紧随触发 `click` → `suppressClick` 标志抑制，避免拖拽完又抚摸。长按等待中离开 `.pet`（`pointerleave`）取消定时器。`onPointerMove` 在等待中检阈值，进入拖拽后透传 `drag`。（实现下沉 [usePetDrag.ts](../../../web/src/features/pets/composables/usePetDrag.ts)：常量 `LONG_PRESS_MS`/`DRAG_THRESHOLD_PX` + 私有态 + handler + `petHover` + `onBeforeUnmount` 清 `longPressTimer` 集中；行为不变。）
+**交互（长按拖拽 + 短按抚摸）**：`pointerdown` 启 300ms 定时器（`LONG_PRESS_MS`）+ 记录落点；**长按超时或移动超阈值（`DRAG_THRESHOLD_PX=5`）**任一触发 → `startDrag`（`setPointerCapture` + 进入 `dragging`）；**短按（<300ms 且未超阈值）松开** → 取消定时器，不拖拽，让 `click` 触发 `clickPet` 抚摸。拖拽结束的 `pointerup` 紧随触发 `click` → `suppressClick` 标志抑制，避免拖拽完又抚摸。长按等待中离开 `.pet`（`pointerleave`）取消定时器。`onPointerMove` 在等待中检阈值，进入拖拽后透传 `drag`。（实现下沉 [usePetDrag.ts](../../../apps/web/src/features/pets/composables/usePetDrag.ts)：常量 `LONG_PRESS_MS`/`DRAG_THRESHOLD_PX` + 私有态 + handler + `petHover` + `onBeforeUnmount` 清 `longPressTimer` 集中；行为不变。）
 
 **z-index（inline 动态，气泡与身体分离）**：`.pet-wrap` 无 z-index/position → 不创建 stacking context，故 `.speech` 与 `.pet` 的 z-index 在 stage 层级跨 pet 直接比较。z-index 由 inline `:style` 提供（CSS 仅 fallback）；原 `.is-master`/`.is-chatting`/`.is-dragging` 的 z-index 规则已移除。**hover 提层级**：`petBodyZIndex` 加 hovered 分支（z=15，低于 drag 20、高于普通 pet）-> 被悬停 pet（ghost 队列残余对角重叠时尤需）置顶，不被相邻遮挡。
 
@@ -217,7 +217,7 @@ Ghost 不再复用 PetBody。已完成子 Agent 使用独立的发光点渲染�
 
 ## Busy indicator
 
-> 源码派生 [useStreamBubble.ts](../../../web/src/features/pets/composables/useStreamBubble.ts) `isBusy` ｜ 渲染 [PetSprite.vue](../../../web/src/features/pets/components/PetSprite.vue) 模板 + `.busy-indicator` 样式
+> 源码派生 [useStreamBubble.ts](../../../apps/web/src/features/pets/composables/useStreamBubble.ts) `isBusy` ｜ 渲染 [PetSprite.vue](../../../apps/web/src/features/pets/components/PetSprite.vue) 模板 + `.busy-indicator` 样式
 
 **与气泡显示解耦**：busy-indicator 显隐走 `isBusy`（独立 computed），不再绑 `hasStream`。hasStream 复合条件（content/thinking 非空 + working/retain/hover）负责气泡显示生命周期；isBusy 仅表达"还在做事"。
 

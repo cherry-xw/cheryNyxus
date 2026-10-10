@@ -1,6 +1,6 @@
 # 核心模型
 
-> 源码 [types.ts](../../../web/src/domain/pets/types.ts) + [presetsFactory.ts](../../../web/src/domain/pets/presetsFactory.ts) ｜ 上级 [README.md](README.md) ｜ 状态见 [state.md](state.md) ｜ 主/子产生见 [movement.md](movement.md)
+> 源码 [types.ts](../../../apps/web/src/domain/pets/types.ts) + [presetsFactory.ts](../../../apps/web/src/domain/pets/presetsFactory.ts) ｜ 上级 [README.md](README.md) ｜ 状态见 [state.md](state.md) ｜ 主/子产生见 [movement.md](movement.md)
 
 ## 角色（PetPreset）— 程序化生成（部件池 + `generatePet`）
 
@@ -23,7 +23,7 @@ interface PetPreset {
 }
 ```
 
-- **程序化生成**：pet 不再是固定 preset 数组，由 [presetsFactory.ts](../../../web/src/domain/pets/presetsFactory.ts) 的 `generatePet(form, excludeFaces?)` 运行时组合部件产出 `PetPreset`：`face`（`KAOMOJI_FACES`/`EMOJI_FACES` 池）+ `hands`（`HAND_PAIRS` 每 mood 抽一对）+ `color`/`accent`（`COLOR_PARTS`）+ `talks`（`TALK_PARTS`）+ `name`（`NAME_POOL`）；`tools`/`behaviors` 沿用默认，`sleep` 不设（默认 `zZ`）。**face 去重**：`excludeFaces` 传入同类已用 face 集合（`Set`，按对象引用相等），`generatePet` 从池中排除已用项；池耗尽则回退全池随机（允许重复），`+pet`/`summon` 始终可用。仅 `face` 去重，`color`/`name`/`talks` 仍随机。
+- **程序化生成**：pet 不再是固定 preset 数组，由 [presetsFactory.ts](../../../apps/web/src/domain/pets/presetsFactory.ts) 的 `generatePet(form, excludeFaces?)` 运行时组合部件产出 `PetPreset`：`face`（`KAOMOJI_FACES`/`EMOJI_FACES` 池）+ `hands`（`HAND_PAIRS` 每 mood 抽一对）+ `color`/`accent`（`COLOR_PARTS`）+ `talks`（`TALK_PARTS`）+ `name`（`NAME_POOL`）；`tools`/`behaviors` 沿用默认，`sleep` 不设（默认 `zZ`）。**face 去重**：`excludeFaces` 传入同类已用 face 集合（`Set`，按对象引用相等），`generatePet` 从池中排除已用项；池耗尽则回退全池随机（允许重复），`+pet`/`summon` 始终可用。仅 `face` 去重，`color`/`name`/`talks` 仍随机。
 - **form 三态**（`PetForm`）：`'kaomoji'`=主池（颜文字 face）/ `'emoji'`=子池（emoji face）/ `'random'`=按池容量比例纯随机。导出 `masterFacePool`/`subFacePool` 两个 face 部件数组（即主/子池）。两池对象不相交 → face 去重只在同类内生效（主不与子撞脸）。
 - **手部配对池** `HAND_PAIRS: Record<PetMood, PetHands[]>`：每 mood ~8 配对，含颜文字手臂/装饰（参考 lddgo.net/common/emoticons）+ emoji 动效（跑→happy/panicked、汗→surprised/panicked、放屁→nagging、哭→sad、掀桌→angry）。`buildHands()` 每 mood 独立抽一对 → 跨 mood 混搭、单 mood L/R 协调。
 - **混合渲染**：emoji 角色 `face`=emoji、颜文字角色 `face`=眼睛/嘴部件；`hands` 跨类型混搭（颜文字 + emoji）。渲染拼装：`hands[mood].left` + `face[mood]` + `hands[mood].right`（无独立 body 字符）。详见 [rendering.md](rendering.md)。

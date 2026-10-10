@@ -9,7 +9,7 @@
 > 2. **后端改协议** —— 按组件反查「哪些 API 字段是哪些组件的依赖」，评估改字段的影响面。
 > 3. **多 agent 场景扩展** —— 已有组件是否要按 chat 类型分叉 / 新增独立组件 / 复用现有。
 
-> **V2 当前实现覆盖**：前端新增 `web/src/stores/chats` ChatSession 数据层与 root timeline 缓存。
+> **V2 当前实现覆盖**：前端新增 `apps/web/src/stores/chats` ChatSession 数据层与 root timeline 缓存。
 > `agentApi.getRootTimeline({ rootChatId, view })` 消费后端 `chat.timeline.get` 的
 > `RootTimelineSnapshot`；HistoryDrawer 的 group 视图从 `TimelineNode.actor/target/direction`
 > 映射头像和主→子/子→主样式，工具结果由后端归并。本文后续 `StreamState` / `chat.sync` 表格是
@@ -26,9 +26,9 @@
                   └──── store 编排 (agents.index.ts) ────────┘
 ```
 
-- **wire**：RPC 编解码 + envelope 排序（[`web/src/services/ws.ts`](../../web/src/services/ws.ts)）+ RPC 高层入口（[`web/src/services/agentApi.ts`](../../web/src/services/agentApi.ts)）；类型、通用调用和会话/技能/插件请求分别由同目录的 `agentApiTypes.ts`、`agentApiTransport.ts`、`chatApi.ts`、`skillsApi.ts`、`pluginsApi.ts` 维护。
-- **store**：[`web/src/stores/agents/`](../../web/src/stores/agents/) —— `useAgentsStore` + `StreamState` + `HistoryItem` + `PetInstance`
-- **组件**：[`web/src/features/agent/`](../../web/src/features/agent/) + [`web/src/features/pets/`](../../web/src/features/pets/)
+- **wire**：RPC 编解码 + envelope 排序（[`apps/web/src/services/ws.ts`](../../apps/web/src/services/ws.ts)）+ RPC 高层入口（[`apps/web/src/services/agentApi.ts`](../../apps/web/src/services/agentApi.ts)）；类型、通用调用和会话/技能/插件请求分别由同目录的 `agentApiTypes.ts`、`agentApiTransport.ts`、`chatApi.ts`、`skillsApi.ts`、`pluginsApi.ts` 维护。
+- **store**：[`apps/web/src/stores/agents/`](../../apps/web/src/stores/agents) —— `useAgentsStore` + `StreamState` + `HistoryItem` + `PetInstance`
+- **组件**：[`apps/web/src/features/agent/`](../../apps/web/src/features/agent) + [`apps/web/src/features/pets/`](../../apps/web/src/features/pets)
 
 **组件不直连 wsClient / 直读 agentApi**，只调 store 上暴露的编排方法（`store.sendMessage` / `store.abort` / `store.getHistory` ...） + 读 store ref/computed。
 
@@ -55,7 +55,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 
 ### 1.2 `StreamState` 字段（按组件读取）
 
-完整类型：[`web/src/stores/agents/types.ts:147-215`](../../web/src/stores/agents/types.ts#L147)
+完整类型：[`apps/web/src/stores/agents/types.ts`](../../apps/web/src/stores/agents/types.ts)
 
 | 字段 | 类型 | 写入路径 | 主要消费组件 |
 |------|------|---------|------------|
@@ -75,7 +75,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 
 ### 1.3 `PetInstance` 字段（按组件读取）
 
-完整类型：[`web/src/domain/pets/types.ts`](../../web/src/domain/pets/types.ts)
+完整类型：[`apps/web/src/domain/pets/types.ts`](../../apps/web/src/domain/pets/types.ts)
 
 | 字段 | 类型 | 来源 RPC 字段 | 主要消费组件 |
 |------|------|--------------|------------|
@@ -111,7 +111,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 |------|---------|---------|---------|
 | `AgentFab` | `connection.status`（门控：仅 `connected` 可点）/ `/api/config` → `presets[]` / `default` | — | `agentApi.createAgent({preset?, brain?, senseGroup?, mcpServers?})` → 创建成功后 `lifecycle.buildMasterAndChildren` → `setWorking(pet, true)` |
 
-**关键字段对照**（[agentApi.ts:842-869](../../web/src/services/agentApi.ts#L842)）：
+**关键字段对照**（[agentApi.ts:842-869](../../apps/web/src/services/agentApi.ts#L842)）：
 - `CreateAgentOptions.preset` → 后端 `chat.create({preset})` → `resolvePresetSelection` 解析 `config.roles[leader]` 为 `RuntimeSelection` + `systemPromptFile` + `spawnTypes` + `skillFilter`，全部入 `metadata.runtime`
 - `CreateAgentOptions.brain/senseGroup/mcpServers` → 后端 `parseRuntimeSelection` 校验后落 `metadata.runtime`
 - 响应 `CreateAgentResult`：`chatId` + 实际生效 `brain/senseGroup/mcpServers/workspace/workspaceValid` → 写 `pet.runtime`
@@ -126,13 +126,13 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | `ContextBreakdownTip.vue` | `contextBreakdown` 6 段 + `commandConfig` | — | — |
 | `MediaThumbStrip.vue` | `uploadedMedia[]`（小缩略图 + 「原图」tag 切换 + 同批次多图预览弹窗） | — | `agentApi.uploadMedia`（HTTP）→ 把 `UploadedMediaAsset` 附到 `attachments` |
 
-**关键字段对照**（[agents.index.ts:243-327](../../web/src/stores/agents/index.ts#L243) `sendMessage`）：
+**关键字段对照**（[agents.index.ts:243-327](../../apps/web/src/stores/agents/index.ts#L243) `sendMessage`）：
 - 入参 `runtime?: RuntimeSelection`（仅当与当前 `pet.runtime` 不同才发 `runtime.set`）→ 后端 `runtime.set` → `parseRuntimeSelection` → `configureRuntime`
 - 入参 `text` + `attachments: ChatSendAttachment[]` → `chat.send({chatId, prompt, attachments?})` 流式起流
 - 响应 `done` promise resolve → `data.userMsgId` 用于替换 stream.history 中的 `tempMsgId` 占位
 - 响应 `data.queued: true` → 仅入队，不持有独立事件流，释放 requestMap
 
-**RuntimeSelection 字段来源**：[agentApi.ts:132-137](../../web/src/services/agentApi.ts#L132)
+**RuntimeSelection 字段来源**：[agentApi.ts:132-137](../../apps/web/src/services/agentApi.ts#L132)
 - `brain`: 来自 `brain.list`（`BrainInfo.name`）
 - `senseGroup`: 来自 `sense.list`（组名）
 - `mcpServers?`: 来自 `brain.list.data.mcpServers`（已连 server 名）+ `runtime.set` / `chat.create` 时校验「必须 connected」
@@ -155,11 +155,11 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
   - 注入式：来自 `role_reply` notification，**无 `subPetChatId`**，但带 `petName=agentType` + `msgId`
 - `role=subagent` → 仅旧历史兼容
 
-**`agentChatId` 反向溯源**（[types.ts:87](../../web/src/stores/agents/types.ts#L87)）：
+**`agentChatId` 反向溯源**（[types.ts:87](../../apps/web/src/stores/agents/types.ts#L87)）：
 - `history.filter(item => item.agentChatId === X)` 取某 agent 完整 history
 - user/assistant = 当前 chatId；role reply = childChatId；**这是组件做子视图的官方字段**
 
-**`msgId` 幂等**（[streamAccumulator.ts:218-247](../../web/src/stores/agents/data/streamAccumulator.ts#L218)）：
+**`msgId` 幂等**（[streamAccumulator.ts:218-247](../../apps/web/src/stores/agents/data/streamAccumulator.ts#L218)）：
 - 三源（chat.get staged / 实时 staged / done.finalMessage）按 msgId 命中即就地补字段，不重复 push
 - `mergeChildReplyHistory` 按 (createdAt, agentChatId) 配对，不按 msgId（主 chat role:role 行 vs 子 chat assistant→role 改写行 msgId 不重复）
 
@@ -176,13 +176,13 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 
 **关键字段对照**：
 
-**ApprovalCard**（[types.ts:96-104](../../web/src/stores/agents/types.ts#L96) `ApprovalState`）：
+**ApprovalCard**（[types.ts:96-104](../../apps/web/src/stores/agents/types.ts#L96) `ApprovalState`）：
 - `approvalId` ← `interrupt.data.approvalId` → `sense.approval({approvalId, action})`
 - `waitTime` ← `interrupt.data.waitTime`（= `global.approval_timeout`，0=不限时不显倒计时）
 - `createdAt` ← `interrupt.data.createdAt` → 倒计时 = `waitTime - (now - createdAt)`
 - `args` ← `interrupt.data.arguments`（JSON 字符串）→ `ParsedArgs` 渲染
 
-**QuestionCard**（[types.ts:113-128](../../web/src/stores/agents/types.ts#L113) `QuestionItemState`）：
+**QuestionCard**（[types.ts:113-128](../../apps/web/src/stores/agents/types.ts#L113) `QuestionItemState`）：
 - `options: {label, description?}[]` ← `question_batch_requested.data.questions[].options`
 - `multiSelect` ← `question_batch_requested.data.questions[].multiSelect`
 - `localStatus: 'pending'\|'ready'` ← 前端草稿状态；提交时 `agents.advanceQuestion` 把当前题 `pending→ready`
@@ -200,37 +200,37 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 - **`pending` 提交锁成功路径必须复位**：`advanceOrSubmit`/`cancel` 完成后统一复位 `pending`（含成功路径），防止 store 层 guard 静默 return 时整卡永久 disabled
 - **decide/answer 失败状态兜底**：收件箱 `decide`/`answer` 失败后即使 `refresh()` 也失败，仍须把本地 `status` 还原为 `pending`，避免卡死 `resolving` 导致按钮不可再操作
 
-**RunningTools**（[types.ts:33-36](../../web/src/stores/agents/types.ts#L33) `RunningTool`）：
+**RunningTools**（[types.ts:33-36](../../apps/web/src/stores/agents/types.ts#L33) `RunningTool`）：
 - `id` ← `sense_started.data.id`（= sense call id）→ `accept.data.approvalId` 命中即 filter 移除
 - `name` ← `sense_started.data.senseName` → `agents.iconForTool(name)`（查 `senseTools[]`，fallback ⚙）
 - `security` ← `sense_started.data.security`（= `authorizeToolCall` 输出原样透传，缺省 undefined）→ `RunningTools.vue` 渲染 `RiskBadge`（运行态显危险性；旧协议/旧数据缺省 → 灰色「未知」，不会误标为安全）
 
-**TodoPanel**（[renderers/types.ts:14-32](../../web/src/features/agent/renderers/types.ts#L14)）：
-- 当前实现走 `walk back history` 找最近一次 `update_todo` senseCall 的 `args.todos`（[TodoPanel.vue:19-39](../../web/src/features/agent/cards/TodoPanel.vue#L19)）
+**TodoPanel**（[renderers/types.ts:14-32](../../apps/web/src/features/agent/renderers/types.ts#L14)）：
+- 当前实现走 `walk back history` 找最近一次 `update_todo` senseCall 的 `args.todos`（[TodoPanel.vue:19-39](../../apps/web/src/features/agent/cards/TodoPanel.vue#L19)）
 - **F5 收口后**改读 `stream.currentTodo`（来自 `applyCurrentState` 的 `currentState.currentTodo`）
-- 后端 sense `update_todo` 的 schema 在 `src/agent/sense/`，前端类型**手动同步**（[renderers/types.ts:1-10](../../web/src/features/agent/renderers/types.ts#L1) 注释强调）
+- 后端 sense `update_todo` 的 schema 在 `apps/backend/src/agent/sense/`，前端类型**手动同步**（[renderers/types.ts:1-10](../../apps/web/src/features/agent/renderers/types.ts#L1) 注释强调）
 
 ### 2.6 工具渲染器（`SenseCallBox` + `renderers/`）
 
-完整目录：[`web/src/features/agent/renderers/`](../../web/src/features/agent/renderers/)
+完整目录：[`apps/web/src/features/agent/renderers/`](../../apps/web/src/features/agent/renderers)
 
 | 渲染器 | 工具名 | 参数类型 | 后端 schema |
 |--------|-------|---------|-------------|
-| `FileReadRenderer.vue` | `read_file` | `ReadFileArgs{path,limit?,offset?,compression?}` | `src/agent/sense/readFile.ts` |
-| `FileWriteRenderer.vue` | `write_file` | `WriteFileArgs{path,content,offset?,limit?}` | `src/agent/sense/writeFile.ts` |
-| `ExecuteCommandRenderer` | `execute_command` | `ExecuteCommandArgs{command,description}` + `ExecuteCommandResult` | `src/agent/sense/bash.ts` |
-| `TodoRenderer.vue` | `update_todo` | `UpdateTodoArgs{todos: TodoItem[]}` | `src/agent/sense/updateTodo.ts` |
+| `FileReadRenderer.vue` | `read_file` | `ReadFileArgs{path,limit?,offset?,compression?}` | `apps/backend/src/agent/sense/read.ts` |
+| `FileWriteRenderer.vue` | `write_file` | `WriteFileArgs{path,content,offset?,limit?}` | `apps/backend/src/agent/sense/write.ts` |
+| `ExecuteCommandRenderer` | `execute_command` | `ExecuteCommandArgs{command,description}` + `ExecuteCommandResult` | `apps/backend/src/agent/sense/bash.ts` |
+| `TodoRenderer.vue` | `update_todo` | `UpdateTodoArgs{todos: TodoItem[]}` | `apps/backend/src/agent/sense/todo.ts` |
 | `MediaRenderer.vue` | 自定义生成类工具（如 `generate_image` 等，见 [renderer.md](renderer.md)） | `GenerateMediaArgs{prompt}` | 自定义 sense（`.chery/senses/`） |
-| `SearchRenderer.vue` | `search_codebase` | `SearchCodebaseArgs{mode?,path,query,regex?,maxResults?,contextLines?}` | `src/agent/sense/searchCodebase.ts` |
-| `SpawnRenderer.vue` | `spawn_role` | `SpawnRoleArgs{type,prompt,wake?}` | `src/agent/sense/spawn.ts` |
-| `SkillRenderer.vue` | `skill` | `SkillArgs{name}` | `src/agent/sense/skill.ts` |
-| `QuestionRenderer.vue` | `ask_user_question` | （旧协议，已被 question_batch 替代） | `src/agent/sense/ask.ts` |
+| `SearchRenderer.vue` | `search_codebase` | `SearchCodebaseArgs{mode?,path,query,regex?,maxResults?,contextLines?}` | `apps/backend/src/agent/sense/search.ts` |
+| `SpawnRenderer.vue` | `spawn_role` | `SpawnRoleArgs{type,prompt,wake?}` | `apps/backend/src/agent/sense/spawn.ts` |
+| `SkillRenderer.vue` | `skill` | `SkillArgs{name}` | `apps/backend/src/agent/sense/skill.ts` |
+| `QuestionRenderer.vue` | `ask_user_question` | （旧协议，已被 question_batch 替代） | `apps/backend/src/agent/sense/ask.ts` |
 
-**关键字段**（[renderers/types.ts:164-171](../../web/src/features/agent/renderers/types.ts#L164) `RendererProps`）：
+**关键字段**（[renderers/types.ts:164-171](../../apps/web/src/features/agent/renderers/types.ts#L164) `RendererProps`）：
 - `call: SenseCallRecord` ← `accumulateStaged` + `accept` 写入的 `args` + `result` + `security`
-- `parsedArgs?` ← 渲染器分发器预处理（[registry.ts](../../web/src/features/agent/renderers/registry.ts)）
+- `parsedArgs?` ← 渲染器分发器预处理（[registry.ts](../../apps/web/src/features/agent/renderers/registry.ts)）
 - 渲染器**只渲染，不发 RPC、不改 store**（types.ts 注释硬约束）
-- **风险徽章**：`SenseCallRenderer` 分发层（[renderers/index.ts](../../web/src/features/agent/renderers/index.ts)）在 `call.security` 存在时包一层 `RiskBadge`（`riskLevelOf` 判定安全/中/高/未知），**一处覆盖** MessageBubble 折叠 popover 与展开列表两条路径；历史回放 staged `sense_end` 携带 security → 同一渲染器自动显示
+- **风险徽章**：`SenseCallRenderer` 分发层（[renderers/index.ts](../../apps/web/src/features/agent/renderers/index.ts)）在 `call.security` 存在时包一层 `RiskBadge`（`riskLevelOf` 判定安全/中/高/未知），**一处覆盖** MessageBubble 折叠 popover 与展开列表两条路径；历史回放 staged `sense_end` 携带 security → 同一渲染器自动显示
 
 ### 2.7 续跑 + 中止 + 压缩（`PetToolbar` → store）
 
@@ -242,7 +242,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | 真删 | `SessionList` ✕ → `agents.deleteSession(chatId)` | `removePetsAndStreams` + `agentApi.destroyAgent(chatId)`（后端级联子 chat）| `chat.delete` |
 | 压缩 | `PetToolbar` emit `compact` → `agents.compactHistory(chatId)` | 发 `[[command:/compact]]` 走 `chat.send` | `chat.send`（特殊 prompt）|
 
-**PetToolbar 按钮显示门控**（[PetToolbar.vue:97-104](../../web/src/features/agent/toolbar/PetToolbar.vue#L97)）：
+**PetToolbar 按钮显示门控**（[PetToolbar.vue:97-104](../../apps/web/src/features/agent/toolbar/PetToolbar.vue#L97)）：
 - `showResume`：非 working + `canResume=true` + **无未完成子**（`allChatsCache.some(c => c.parentChatId === pet.chatId && c.finished !== true)`）
 - `showCompact`：`compactAvailable`（`contextTotal ≥ commandConfig.minContextLimit`）+ `contextUsage ≥ warn`
 - `compactUrgent`：`contextUsage ≥ auto`（高亮脉冲；后端此时自动压缩）
@@ -303,15 +303,15 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | `PetSprite` / `PetBody` | ✅ 完整功能 | ✅ 完整功能 | ✅ 完整功能 | **不分叉** — 共用渲染，按 `isMaster` 决定 ghost 排除 |
 | `PetToolbar` | ✅ 全部按钮 | ⚠️ **无继续按钮**（showResume 要求 `canResume=true` 且无 wait-子；子 chat 通常 finished=true 故不显） | ⚠️ 同子 | **不分叉** — computed 自动门控 |
 | `PetIcons` approval 列 | ✅ | ⚠️ 子 chat 通常无 pending 审批（spawn_role sense 内直接 eager 跑）| 同 | **不分叉** |
-| `HistoryDrawerPanel` layout | `group` | `direct` | `direct` | **不分叉** — `pet.parentChatId` 驱动 layout computed（[HistoryDrawerPanel.vue:89](../../web/src/features/agent/drawer/HistoryDrawerPanel.vue#L89)）|
-| `MessageBubble` 双头像 | `masterPetName` 来自当前 pet | `subPetName` 来自 `item.subPetChatId` 查 pets | 同子 + `callerPetName` | **不分叉** — props 透传即可，合并式/注入式 role 共用同一渲染（[MessageBubble.vue:23-44](../../web/src/features/agent/chat/MessageBubble.vue#L23)）|
+| `HistoryDrawerPanel` layout | `group` | `direct` | `direct` | **不分叉** — `pet.parentChatId` 驱动 layout computed（[HistoryDrawerPanel.vue:89](../../apps/web/src/features/agent/drawer/HistoryDrawerPanel.vue#L89)）|
+| `MessageBubble` 双头像 | `masterPetName` 来自当前 pet | `subPetName` 来自 `item.subPetChatId` 查 pets | 同子 + `callerPetName` | **不分叉** — props 透传即可，合并式/注入式 role 共用同一渲染（[MessageBubble.vue:23-44](../../apps/web/src/features/agent/chat/MessageBubble.vue#L23)）|
 | `MessageAvatar` hover 面板 | `masterPetName` + 当前 pet runtime | `subPetName` + caller pet（来自 `item.callerSubPetChatId`）| 同子 | **不分叉** — props 透传 |
 | `AgentDialog` 编制 | ✅ 主 pet runtime | ❌ **不渲染**（子 pet 无 drawer 入口）| ❌ | **不渲染** — `AgentDialog` 仅 `activeDialogChatId` 为主 chat 时 mount |
 | `ApprovalCard` | ✅ | ⚠️ | ⚠️ | **不分叉** — `PetBubbles` 按 `stream.approval` 自动渲染 |
 | `QuestionCard` | ✅ | ⚠️ | ⚠️ | **不分叉** |
 | `RunningTools` | ✅ | ✅（含 update_todo）| ✅ | **不分叉** |
 | `TodoPanel` | ✅ 主 pet todo | ✅ 子 pet todo（独立 senseCall）| ✅ | **不分叉** — 各自 chat 的 update_todo 独立累积 |
-| `ContextBar` | ✅ | ❌ **不渲染**（子 pet 无 contextUsage 字段，类型兜底 0）| ❌ | **不渲染** — 仅主 pet ContextBar 显（[petLifecycle](../../web/src/stores/agents/data/petLifecycle.ts) `buildMasterAndChildren` 不给子 pet 赋 contextUsage）|
+| `ContextBar` | ✅ | ❌ **不渲染**（子 pet 无 contextUsage 字段，类型兜底 0）| ❌ | **不渲染** — 仅主 pet ContextBar 显（[petLifecycle](../../apps/web/src/stores/agents/data/petLifecycle.ts) `buildMasterAndChildren` 不给子 pet 赋 contextUsage）|
 | `SessionList` | ✅ | ⚠️ 仅显主 chat（按 `parentChatId===null` 过滤）| ⚠️ | **不渲染** — 子 chat 在主 chat 抽屉合并视图，不进 SessionList |
 | `SettingsDialog` | ❌ 与 chat 无关 | ❌ | ❌ | — |
 
@@ -319,7 +319,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 
 ### 3.3 多级 spawn（A→B→C）的特殊处理点
 
-[A→B→C] 场景在 [types.ts:60-63](../../web/src/stores/agents/types.ts#L60) `callerSubPetChatId` 已支持：
+[A→B→C] 场景在 [types.ts:60-63](../../apps/web/src/stores/agents/types.ts#L60) `callerSubPetChatId` 已支持：
 
 | 场景 | 行为 |
 |------|------|
@@ -340,16 +340,16 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | Finished（finished=true）| PetSprite 灵魂态（ghost emoji + 半透明）| `done.data.finished===true` → `turnChildIntoGhost(pet)` |
 | Ghost from role_reply | 同上（兜底修复 finished 缺失历史） | `routeNotification(role_reply)` → `turnChildIntoGhost(subPetChatId)` |
 
-**`isGhost` 跨 chat 一致**：`turnChildIntoGhost` 按 pet 内存引用更新；刷新后靠 `chat.list.finished` 重建（[petLifecycle](../../web/src/stores/agents/data/petLifecycle.ts)）。
+**`isGhost` 跨 chat 一致**：`turnChildIntoGhost` 按 pet 内存引用更新；刷新后靠 `chat.list.finished` 重建（[petLifecycle](../../apps/web/src/stores/agents/data/petLifecycle.ts)）。
 
 ### 3.5 多 agent 数据合流的语义层
 
-**F4 单一缓存数组不变式**：[types.ts:153-161](../../web/src/stores/agents/types.ts#L153)
+**F4 单一缓存数组不变式**：[types.ts:153-161](../../apps/web/src/stores/agents/types.ts#L153)
 - 主 chat drawer（group）：合并主 + 所有后代 chat 的 history（按 createdAt 排序 + msgId 去重）
 - 子 chat drawer（direct）：仅该 chat 的 own history（**不递归合流**）
 - 孙 chat drawer（direct）：仅该 chat 的 own history（**不递归合流 C 的子 D**）
 
-**`mergeChildReplyHistory` 合并规则**（[historyProjection.ts](../../web/src/domain/chat/historyProjection.ts)）：
+**`mergeChildReplyHistory` 合并规则**（[historyProjection.ts](../../apps/web/src/domain/chat/historyProjection.ts)）：
 - 按 `(createdAt, agentChatId)` 配对，把子 chat 的 assistant→role 改写行插入主 chat 时间线
 - **不**按 msgId（主 chat 的 role:role 行 vs 子 chat 的 assistant→role 改写行 msgId 不同）
 - 仅 layout=group 触发
@@ -384,7 +384,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | 需要读后端哪些字段？ | 标到本手册 §1 + §2 的字段表 |
 | 字段当前是否已经到前端 store？ | 查 §1 StreamState/PetInstance 表 |
 | 若未到，是否需要新 RPC？ | 查后端 handler 是否暴露，必要时扩 `agentApi` |
-| 字段类型在前端是 union 还是 enum？ | 查 [agentApi.ts types](../../web/src/services/agentApi.ts) 与 [types.ts](../../web/src/stores/agents/types.ts) |
+| 字段类型在前端是 union 还是 enum？ | 查 [agentApi.ts types](../../apps/web/src/services/agentApi.ts) 与 [types.ts](../../apps/web/src/stores/agents/types.ts) |
 
 ### 4.2 多 agent 完备性
 
@@ -411,8 +411,8 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 
 | 问 | 答案写在 |
 |----|---------|
-| 后端契约是否需要 vitest 流程测试？ | 加 `test/flows/service/flowXxx.test.ts`（见 [docs/quality/testing/flows.md](../quality/testing/flows.md)）|
-| 前端 store 字段是否需要单测？ | `web/test/agents/` 已有 streamAccumulator/approvalQueue/historyRendering；新增字段按同模式加 |
+| 后端契约是否需要 vitest 流程测试？ | 加 `apps/backend/test/flows/service/flowXxx.test.ts`（见 [docs/quality/testing/flows.md](../quality/testing/flows.md)）|
+| 前端 store 字段是否需要单测？ | `apps/web/test/agents/` 已有 streamAccumulator/approvalQueue/historyRendering；新增字段按同模式加 |
 | 前端组件是否需要测？ | 当前无组件层测试；仅 store 单测覆盖 |
 | 多 agent 场景是否有专门 case？ | 子 chat finished 状态、子 chat resume 主唤起、孙 chat 路径 |
 
@@ -422,22 +422,21 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 
 | 文件 | 用途 |
 |------|------|
-| [`web/src/App.vue`](../../web/src/App.vue) | 装配入口：挂载后调 `startApplicationRuntime`（wsClient 订阅经 chats store `bindWsClient` 分发 → agents/chats/interactions 协同） |
-| [`web/src/services/ws.ts`](../../web/src/services/ws.ts) | WS client：rpc / rpcTrack / onChunk / onNotification / chatSeq 单调游标 |
-| [`web/src/services/agentApi.ts`](../../web/src/services/agentApi.ts) | RPC 高层入口；类型从 `agentApiTypes.ts` 转发，会话/技能/插件请求分别从 `chatApi.ts`、`skillsApi.ts`、`pluginsApi.ts` 组合 |
-| [`web/src/stores/agents/index.ts`](../../web/src/stores/agents/index.ts) | Pinia store 主入口：sendMessage / resumeAgent / startSpawn / getHistory / abort / applyCurrentState / applyQuestionSnapshot |
-| [`web/src/stores/chats/index.ts`](../../web/src/stores/chats/index.ts) | 会话 store 主入口：`bindWsClient` 统一订阅 chunk/notification 并分发（reducer 单写者 + 跨 session 事件路由） |
-| [`web/src/stores/agents/data/streamAccumulator.ts`](../../web/src/stores/agents/data/streamAccumulator.ts) | `accumulateStaged` / `pushHistoryItem`（msgId 幂等去重轴）|
-| [`web/src/domain/chat/historyProjection.ts`](../../web/src/domain/chat/historyProjection.ts) | `mergeChildReplyHistory`（按 createdAt+agentChatId 配对）；`collectDescendantChatIds` 在 [sessionTree.ts](../../web/src/domain/chat/sessionTree.ts) |
-| [`web/src/stores/agents/types.ts`](../../web/src/stores/agents/types.ts) | 公共类型：StreamState / HistoryItem / ApprovalState / QuestionBatchState / ChunkMessage / NotificationMessage |
-| `web/src/features/agent/AgentFab.vue`（已移除） | 历史创建会话入口；当前入口由工作台与 Nyxus 交互承担 |
-| [`web/src/features/agent/chat/AgentDialog.vue`](../../web/src/features/agent/chat/AgentDialog.vue) + `dialog/useAgentDialogOptions.ts` | 发消息 + 临时编制切换 |
-| [`web/src/features/agent/drawer/HistoryDrawerPanel.vue`](../../web/src/features/agent/drawer/HistoryDrawerPanel.vue) | 历史抽屉：layout=group/direct 切换 |
-| [`web/src/features/agent/chat/MessageBubble.vue`](../../web/src/features/agent/chat/MessageBubble.vue) + `MessageAvatar.vue` | 消息渲染（5 种 role）|
-| [`web/src/features/agent/cards/ApprovalCard.vue`](../../web/src/features/agent/cards/ApprovalCard.vue) + `QuestionCard.vue` + `RunningTools.vue` + `TodoPanel.vue` | 工具栏卡片（审批/提问/工具/todo）|
-| [`web/src/features/agent/toolbar/PetToolbar.vue`](../../web/src/features/agent/toolbar/PetToolbar.vue) | pet 工具栏（继续/中止/隐藏/压缩）|
-| [`web/src/features/agent/renderers/`](../../web/src/features/agent/renderers/) | 工具渲染器（按 sense name 分发）|
-| [`web/src/features/agent/settings/SettingsDialog.vue`](../../web/src/features/agent/settings/SettingsDialog.vue) + 10 tabs | 设置面板 |
+| [`apps/web/src/App.vue`](../../apps/web/src/App.vue) | 装配入口：挂载后调 `startApplicationRuntime`（wsClient 订阅经 chats store `bindWsClient` 分发 → agents/chats/interactions 协同） |
+| [`apps/web/src/services/ws.ts`](../../apps/web/src/services/ws.ts) | WS client：rpc / rpcTrack / onChunk / onNotification / chatSeq 单调游标 |
+| [`apps/web/src/services/agentApi.ts`](../../apps/web/src/services/agentApi.ts) | RPC 高层入口；类型从 `agentApiTypes.ts` 转发，会话/技能/插件请求分别从 `chatApi.ts`、`skillsApi.ts`、`pluginsApi.ts` 组合 |
+| [`apps/web/src/stores/agents/index.ts`](../../apps/web/src/stores/agents/index.ts) | Pinia store 主入口：sendMessage / resumeAgent / startSpawn / getHistory / abort / applyCurrentState / applyQuestionSnapshot |
+| [`apps/web/src/stores/chats/index.ts`](../../apps/web/src/stores/chats/index.ts) | 会话 store 主入口：`bindWsClient` 统一订阅 chunk/notification 并分发（reducer 单写者 + 跨 session 事件路由） |
+| [`apps/web/src/stores/agents/data/streamAccumulator.ts`](../../apps/web/src/stores/agents/data/streamAccumulator.ts) | `accumulateStaged` / `pushHistoryItem`（msgId 幂等去重轴）|
+| [`apps/web/src/domain/chat/historyProjection.ts`](../../apps/web/src/domain/chat/historyProjection.ts) | `mergeChildReplyHistory`（按 createdAt+agentChatId 配对）；`collectDescendantChatIds` 在 [sessionTree.ts](../../apps/web/src/domain/chat/sessionTree.ts) |
+| [`apps/web/src/stores/agents/types.ts`](../../apps/web/src/stores/agents/types.ts) | 公共类型：StreamState / HistoryItem / ApprovalState / QuestionBatchState / ChunkMessage / NotificationMessage |
+| [`apps/web/src/features/agent/chat/AgentDialog.vue`](../../apps/web/src/features/agent/chat/AgentDialog.vue) + `dialog/useAgentDialogOptions.ts` | 发消息 + 临时编制切换 |
+| [`apps/web/src/features/agent/drawer/HistoryDrawerPanel.vue`](../../apps/web/src/features/agent/drawer/HistoryDrawerPanel.vue) | 历史抽屉：layout=group/direct 切换 |
+| [`apps/web/src/features/agent/chat/MessageBubble.vue`](../../apps/web/src/features/agent/chat/MessageBubble.vue) + `MessageAvatar.vue` | 消息渲染（5 种 role）|
+| [`apps/web/src/features/agent/cards/ApprovalCard.vue`](../../apps/web/src/features/agent/cards/ApprovalCard.vue) + `QuestionCard.vue` + `RunningTools.vue` + `TodoPanel.vue` | 工具栏卡片（审批/提问/工具/todo）|
+| [`apps/web/src/features/agent/toolbar/PetToolbar.vue`](../../apps/web/src/features/agent/toolbar/PetToolbar.vue) | pet 工具栏（继续/中止/隐藏/压缩）|
+| [`apps/web/src/features/agent/renderers/`](../../apps/web/src/features/agent/renderers) | 工具渲染器（按 sense name 分发）|
+| [`apps/web/src/features/agent/settings/SettingsDialog.vue`](../../apps/web/src/features/agent/settings/SettingsDialog.vue) + 10 tabs | 设置面板 |
 
 > 行号随代码漂移，**以函数名/symbol 定位为准**。
 

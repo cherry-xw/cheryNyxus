@@ -1,6 +1,6 @@
-# 节点树工作台多窗口化（Part 2）实现汇总
+# 工作台多窗口
 
-> 本文档记录节点树工作台从**单实例**改造为**每预设一窗**多窗口架构的完整实现细节。需求确认见记忆 `workbench-multi-window-plan`；Part 1（待处理交互右侧抽屉）已单独落地，见 `AgentDialog.vue`/`overlayLayers.ts`。
+本文维护当前浏览器工作台的窗口状态、会话选择、交互入口与验证方法。窗口状态由工作区 store 维护；会话、运行和审批事实由对应状态模块维护。
 
 > 当前工作台由浏览器工作区窗口承载；每个预设拥有独立窗口状态。
 
@@ -10,12 +10,12 @@
 
 - **每预设一窗**：窗口内经**标题栏会话状态条**切换根会话（钢琴已降级为节点树彩蛋；切换入口 2026-09-16 从 rail 会话列表提升到标题栏 strip + 下拉）。
 - **多窗口布局**：窗口模式可拖动/缩放，多窗口层叠/平铺同时可见，后开的盖前开的。
-- **最小化**：**（2026-09-03 起废弃胶囊，改为赛博桌面底部任务栏 tag）**最小化窗从桌面消失、仅任务栏保留 tag；点击 tag 按 Windows 交互三态切换——最小化窗还原+聚焦 / 当前聚焦窗最小化 / 打开未聚焦窗聚焦。详见文末 [最小化任务栏化与胶囊移除（2026-09-03）](#最小化任务栏化与胶囊移除2026-09-03)。（历史方案：缩成「小胶囊」可拖摆放、层叠——已移除。）
-- **标题栏高亮**：收到需用户操作的通知时，窗口标题栏 + 胶囊加高亮闪烁。
+- **最小化**：窗口隐藏并保留任务栏入口，点击按当前窗口状态还原、聚焦或最小化，见[最小化与任务栏](#最小化与任务栏)。
+- **待处理提醒**：树节点与 `WorkbenchAttentionIndicator` 显示当前审批及提问状态；标题栏提醒字段是否具有完整触发链，须以实际调用为准。
 
 ## 架构
 
-### Store：窗口注册表（`web/src/stores/agents/ui/uiState.ts`）
+### Store：窗口注册表（`apps/web/src/stores/workspace/uiState.ts`）
 
 新增 `WorkbenchWindowState` 与 per-window actions，窗口 id = **presetId**（每预设一窗，重开复用状态）：
 
@@ -26,11 +26,10 @@ interface WorkbenchWindowState {
   presetName: string | null // 入口携带的预设名（空白工作台/会话未水合时角色编制据此解析，不靠会话推导）
   chatId: string | null // 当前根会话（会话列表切换）
   view
-  minimized // 胶囊态
+  minimized // 最小化状态
   mode
   position
   size // 窗口几何
-  capsulePos // 胶囊摆放位置（可拖，持久化）
   historyDrawerStack
   historyDrawerMode
   historyDrawerAnchor
@@ -41,10 +40,10 @@ interface WorkbenchWindowState {
 ```
 
 - refs：`workbenchWindows`、`workbenchWindowOrder`（末尾=最上）、`focusedWorkbenchWindowId`
-- actions：`openWorkbenchWindow(presetId, presetName?)` / `closeWorkbenchWindow` / `focusWorkbenchWindow` / `setWorkbenchWindowMinimized/Chat/View/Geometry/CapsulePos/Blink/Drawer/WorkspaceBrowser`
+- actions：`openWorkbenchWindow(presetId, presetName?)` / `closeWorkbenchWindow` / `focusWorkbenchWindow` / `setWorkbenchWindowMinimized/Chat/View/Geometry/Blink/Drawer/WorkspaceBrowser`
 - computed：`workbenchWindowsList`
 
-### 数据层：多根观察（`web/src/stores/chats/index.ts`）
+### 数据层：多根观察（`apps/web/src/stores/chats/index.ts`）
 
 移除模块级单例 `observedRootChatId`/`rootObservationEpoch`，删除 `closeStaleRootSubscriptions`，简化 `closeRootTimeline`/`observeRootTimeline` 支持并发多根订阅。底层 `rootSubscriptions` 本就按根 keyed，是历史硬阻塞，现可同开多根树。
 
@@ -58,11 +57,11 @@ interface WorkbenchWindowState {
 
 ## 组件
 
-### `WorkbenchDialog.vue`（新，`web/src/features/agent/workbench/`）
+### `WorkbenchDialog.vue`（新，`apps/web/src/features/agent/workbench/`）
 
 自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、角色 popout、右侧待处理抽屉、composer dock、resize handles。rail 的钢琴按钮已移除——钢琴仅经**节点树彩蛋**触发浮层出现（见 [pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。
 
-**rail 工具栏分组与 lite/对话显隐（2026-08-28，2026-09 对话模式扩展）**：右侧工具栏按三组划分——**主操作**（发送消息 / 暂停·继续任务树 / 暂停全部分支）、**会话**（新建会话 / 对话模式 / 查看上下文；会话列表 ≡ 按钮及其 popout 已于 2026-09-16 移除，切换入口上移标题栏会话状态条，见下「标题栏会话状态条」）、**视图与配置**（布局切换 / 卡牌阅读 / 折叠档位 / 角色配置）；布局切换按钮从标题栏下独立顶部位置挪入视图与配置组。会话组 icon 区分：对话模式用 ↺（回看完整对话，整屏会话视图）、查看上下文用 ❐（内容快照），替换原 ◷/◍ 双圆点避免混淆。**查看上下文侧边抽屉（2026-09-18）**：rail ❐ 按钮由 460px 小弹窗改为工作台内右侧抽屉（`workbench-context-drawer`，状态在 `useWorkbenchDialogController` 的 `contextDrawerOpen`）——与卡牌模式抽屉同款形态（参照 `MessageBranchTree` 的 tree-drawer）：遮罩 `--nx-z-drawer-mask` + 贴右缘面板 `--nx-z-drawer`，从标题栏下方延伸到底部、宽 `min(720px, 88%)`，40px 头部（标题 + ✕），占用条（inline）置于内容区顶部，主体滚动展示 `PromptSnapshotTip`（系统消息全文 + 工具定义）；内容排版统一 12px、去加粗（scoped `:deep()` 覆盖子组件样式）；Esc / 遮罩 / ✕ 关闭；历史抽屉内「上下文」hover 弹窗维持原样。**三视图模式（2026-09 扩展）**：标题栏 `WorkbenchViewToggle` 由两档（树/精简）扩为三档——**树 / 对话 / 精简**；对话模式（`ConversationView` 整屏会话视图）替代原「档案」docked 抽屉，精简是对话的紧凑展示方式（lite）。视图状态以 `liteStore.viewModeByWindow` 为单一事实源、per-window 持久化（`cherynyxus:workbench-view-mode:<windowId>`，旧两档键 `cherynyxus:workbench-lite-view` 读取时迁移），入口见 [`useWorkbenchViewMode.ts`](../../web/src/features/agent/workbench/useWorkbenchViewMode.ts)。**lite/对话模式下隐藏无对应界面的按钮**：树视图类（发送消息 / 布局切换 / 卡牌阅读 / 折叠档位 / 暂停全部分支）——lite 的发送入口是底部输入框、对话模式有同款底部输入框（2026-09 起，见「会话视图（对话模式）」节），rail 的「发送消息」只对树视图 composer 有效故隐藏；「暂停·继续任务树」保留（lite 顶部的停止/继续是 abort/resume，与任务树 pause/resume 互补，用户拍板保留）；对话模式隐藏 composer dock 与 ctx 分割线（`.is-conversation`），消息列表内提问可直接作答（`QuestionRenderer` 可交互形态，见下）。**待处理入口归属（2026-09-27 树模式改版）**：树模式审批/提问不再有左下角浮窗与右侧铃铛（`WorkbenchAttentionSurface` 与铃铛按钮、`attentionCollapsed`/`attentionWindowOpen`/`toggleAttentionWindow` 状态整体删除）——待处理节点在树上持续闪烁，点击节点打开锚定交互卡（见 [Agent 运行图交互入口规范](../standards/modules/agent/runtime-diagram-interactions.md)），工作台标题栏仅保留不可点击的待处理图标（`WorkbenchAttentionIndicator`，持续闪烁 + hover 显示数量；树模式且有 pending 事项时出现，overlay 内部标题栏与 native/embedded 外层 title-actions 三处共用同一组件）；对话模式走消息列表内交互；精简模式点击待处理工具图标进详情抽屉（原铃铛「定位待处理交互」请求 `rootUi.attentionOpenRequest` 随铃铛一并移除）。**角色编制（rail ♟）统一入口（2026-09-20）**：composer 内的「小组角色编制」折叠面板已移除（⚙ 按钮不再存在），rail ♟ 按钮成为树/对话/精简三视图共用的角色编制入口——点击后打开更宽的纵向像素身份卡堆（泰拉瑞亚式冒险面板语言）：Y 轴从上到下为 C→B→A（A 最前/上层、C 最后/下层），默认每张卡只露出上半部分头部，角色名标签位于卡片头部、与卡片一体移动；鼠标移入某张卡片时，只将它之前的卡片沿 Y 轴下移（悬停 B 时 A 下移露出 B、悬停 C 时 A 和 B 都下移露出 C、悬停 A 不动），当前卡片和后面的卡片保持默认位置；移动只改 Y 轴偏移、Z 层级永远固定，离开后恢复默认位置；悬停时正在查看的卡保持全亮、外圈升级为亮金色描边，其余卡强烈压暗变灰，卡片外圈以粗黑边+淡细线+投影表现前后分层，便于区分当前查看与已移开的卡片。每张卡直接展示角色身份、当前模型、模型参数、上下文用量、能力和器官组；模型选项以装备槽形式直接点击切换，其他配置也在卡内编辑。rail 按钮 hover/click 展开、延迟关闭、交互锁定与外部点击关闭逻辑保持不变。**角色卡大脑选择按钮名称/模型大小字互切（2026-09-24）**：大脑选择区（choice-slot）每个按钮内默认「大脑名大字 + 模型名小字（8-9px）」，区块标题旁的 ⇄ 按钮一键互换整组大小字，字号过渡带轻微过冲回弹（像两气球通气：同刻互偿，无气球/连线视觉）。**思考等级动态调整（2026-09-24，仅工作台堆叠卡）**：悬停卡片时卡头右上浮现「💭 思考 · 档位」入口，点击展开泰拉瑞亚风**滑动高亮 switch**——独立金色色块左右平移 + Q弹（位置移动用 `power3.out` 不过冲——档位多且等宽密集排列，标题栏式弹性回弹过冲会甩到相邻/最高档，Q弹只保留横向挤压-回弹）+ 文字变色由遮罩随色块矩形裁切揭示（同标题栏 树/对话/精简 switch 的实现手法），档位列表按选中大脑的模型从后端 `getModelRecommendation` 拉取（与设置页同源），仅列该模型实际支持档位；选中档位作为**本次会话该角色的临时覆盖**（`RuntimeSelection.thinking`）经 `session.runtime.set` 生效，新会话回落大脑配置默认档位；切换大脑时原覆盖不在新模型可用档位里自动清除。实现见 [`RoleConfigPopover.vue`](../../web/src/features/agent/runtime/RoleConfigPopover.vue)（`showThinkingControl`/`showRoleName` prop 门控，仅工作台堆叠卡开启，AgentDialog 角色卡保持原样）。
+**rail 工具栏分组与 lite/对话显隐（2026-08-28，2026-09 对话模式扩展）**：右侧工具栏按三组划分——**主操作**（发送消息 / 暂停·继续任务树 / 暂停全部分支）、**会话**（新建会话 / 对话模式 / 查看上下文；会话列表 ≡ 按钮及其 popout 已于 2026-09-16 移除，切换入口上移标题栏会话状态条，见下「标题栏会话状态条」）、**视图与配置**（布局切换 / 卡牌阅读 / 折叠档位 / 角色配置）；布局切换按钮从标题栏下独立顶部位置挪入视图与配置组。会话组 icon 区分：对话模式用 ↺（回看完整对话，整屏会话视图）、查看上下文用 ❐（内容快照），替换原 ◷/◍ 双圆点避免混淆。**查看上下文侧边抽屉（2026-09-18）**：rail ❐ 按钮由 460px 小弹窗改为工作台内右侧抽屉（`workbench-context-drawer`，状态在 `useWorkbenchDialogController` 的 `contextDrawerOpen`）——与卡牌模式抽屉同款形态（参照 `MessageBranchTree` 的 tree-drawer）：遮罩 `--nx-z-drawer-mask` + 贴右缘面板 `--nx-z-drawer`，从标题栏下方延伸到底部、宽 `min(720px, 88%)`，40px 头部（标题 + ✕），占用条（inline）置于内容区顶部，主体滚动展示 `PromptSnapshotTip`（系统消息全文 + 工具定义）；内容排版统一 12px、去加粗（scoped `:deep()` 覆盖子组件样式）；Esc / 遮罩 / ✕ 关闭；历史抽屉内「上下文」hover 弹窗维持原样。**三视图模式（2026-09 扩展）**：标题栏 `WorkbenchViewToggle` 由两档（树/精简）扩为三档——**树 / 对话 / 精简**；对话模式（`ConversationView` 整屏会话视图）替代原「档案」docked 抽屉，精简是对话的紧凑展示方式（lite）。视图状态以 `liteStore.viewModeByWindow` 为单一事实源、per-window 持久化（`cherynyxus:workbench-view-mode:<windowId>`，旧两档键 `cherynyxus:workbench-lite-view` 读取时迁移），入口见 [`useWorkbenchViewMode.ts`](../../apps/web/src/features/agent/workbench/useWorkbenchViewMode.ts)。**lite/对话模式下隐藏无对应界面的按钮**：树视图类（发送消息 / 布局切换 / 卡牌阅读 / 折叠档位 / 暂停全部分支）——lite 的发送入口是底部输入框、对话模式有同款底部输入框（2026-09 起，见「会话视图（对话模式）」节），rail 的「发送消息」只对树视图 composer 有效故隐藏；「暂停·继续任务树」保留（lite 顶部的停止/继续是 abort/resume，与任务树 pause/resume 互补，用户拍板保留）；对话模式隐藏 composer dock 与 ctx 分割线（`.is-conversation`），消息列表内提问可直接作答（`QuestionRenderer` 可交互形态，见下）。**待处理入口归属（2026-09-27 树模式改版）**：树模式审批/提问不再有左下角浮窗与右侧铃铛（`WorkbenchAttentionSurface` 与铃铛按钮、`attentionCollapsed`/`attentionWindowOpen`/`toggleAttentionWindow` 状态整体删除）——待处理节点在树上持续闪烁，点击节点打开锚定交互卡（见 [Agent 运行图交互入口规范](../standards/modules/agent/runtime-diagram-interactions.md)），工作台标题栏仅保留不可点击的待处理图标（`WorkbenchAttentionIndicator`，持续闪烁 + hover 显示数量；树模式且有 pending 事项时出现，overlay 内部标题栏与 native/embedded 外层 title-actions 三处共用同一组件）；对话模式走消息列表内交互；精简模式点击待处理工具图标进详情抽屉（原铃铛「定位待处理交互」请求 `rootUi.attentionOpenRequest` 随铃铛一并移除）。**角色编制（rail ♟）统一入口（2026-09-20）**：composer 内的「小组角色编制」折叠面板已移除（⚙ 按钮不再存在），rail ♟ 按钮成为树/对话/精简三视图共用的角色编制入口——点击后打开更宽的纵向像素身份卡堆（泰拉瑞亚式冒险面板语言）：Y 轴从上到下为 C→B→A（A 最前/上层、C 最后/下层），默认每张卡只露出上半部分头部，角色名标签位于卡片头部、与卡片一体移动；鼠标移入某张卡片时，只将它之前的卡片沿 Y 轴下移（悬停 B 时 A 下移露出 B、悬停 C 时 A 和 B 都下移露出 C、悬停 A 不动），当前卡片和后面的卡片保持默认位置；移动只改 Y 轴偏移、Z 层级永远固定，离开后恢复默认位置；悬停时正在查看的卡保持全亮、外圈升级为亮金色描边，其余卡强烈压暗变灰，卡片外圈以粗黑边+淡细线+投影表现前后分层，便于区分当前查看与已移开的卡片。每张卡直接展示角色身份、当前模型、模型参数、上下文用量、能力和器官组；模型选项以装备槽形式直接点击切换，其他配置也在卡内编辑。rail 按钮 hover/click 展开、延迟关闭、交互锁定与外部点击关闭逻辑保持不变。**角色卡大脑选择按钮名称/模型大小字互切（2026-09-24）**：大脑选择区（choice-slot）每个按钮内默认「大脑名大字 + 模型名小字（8-9px）」，区块标题旁的 ⇄ 按钮一键互换整组大小字，字号过渡带轻微过冲回弹（像两气球通气：同刻互偿，无气球/连线视觉）。**思考等级动态调整（2026-09-24，仅工作台堆叠卡）**：悬停卡片时卡头右上浮现「💭 思考 · 档位」入口，点击展开泰拉瑞亚风**滑动高亮 switch**——独立金色色块左右平移 + Q弹（位置移动用 `power3.out` 不过冲——档位多且等宽密集排列，标题栏式弹性回弹过冲会甩到相邻/最高档，Q弹只保留横向挤压-回弹）+ 文字变色由遮罩随色块矩形裁切揭示（同标题栏 树/对话/精简 switch 的实现手法），档位列表按选中大脑的模型从后端 `getModelRecommendation` 拉取（与设置页同源），仅列该模型实际支持档位；选中档位作为**本次会话该角色的临时覆盖**（`RuntimeSelection.thinking`）经 `session.runtime.set` 生效，新会话回落大脑配置默认档位；切换大脑时原覆盖不在新模型可用档位里自动清除。实现见 [`RoleConfigPopover.vue`](../../apps/web/src/features/agent/runtime/RoleConfigPopover.vue)（`showThinkingControl`/`showRoleName` prop 门控，仅工作台堆叠卡开启，AgentDialog 角色卡保持原样）。
 
 - chatId 来源：`useAgentDialogOptions({ chatId: () => win.chatId ?? null })`，不再读全局单例。
 - **presetName 来源**：`useAgentDialogOptions` 同传 `presetName: () => win.presetName ?? null`——窗口打开时由**入口携带**（Nyxus 传预设名 `'cheryNyxus'`、Pet 传历史 summary 的 `preset` 名），不依赖 pet/session/history 推导。空白工作台（无历史会话、会话未水合）下角色编制、Nyxus 判定、`quickTargetRequired`、`roleMentions` 等据此立即正确。
@@ -72,7 +71,7 @@ interface WorkbenchWindowState {
 
 ### 分支创建后的工作台切换契约（2026-08-24）
 
-输入草稿由 [useAgentDialogOptions.ts](../../web/src/features/agent/composer/useAgentDialogOptions.ts) 按输入面板与会话保存在当前浏览器内存中；切换会话、收起和重新打开面板不清空文本或已上传附件。刷新页面前提示未提交内容，草稿不写入服务器或持久存储。上传绑定当前草稿代次，切换后迟到结果不进入新会话；发送期间及上传期间禁止重复提交，只有输入 ACK 成功才移除本次提交的文本和附件，失败可直接重试。
+输入草稿由 [useAgentDialogOptions.ts](../../apps/web/src/features/agent/composer/useAgentDialogOptions.ts) 按输入面板与会话保存在当前浏览器内存中；切换会话、收起和重新打开面板不清空文本或已上传附件。刷新页面前提示未提交内容，草稿不写入服务器或持久存储。上传绑定当前草稿代次，切换后迟到结果不进入新会话；发送期间及上传期间禁止重复提交，只有输入 ACK 成功才移除本次提交的文本和附件，失败可直接重试。
 
 composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat（`WorkbenchDialog.sendFromComposer`）；现有分支协议不接收附件，因此分支模式禁用附件添加，已有附件必须移除或返回普通输入后发送。创建 ACK 与后续时间线刷新分开处理，刷新失败不可提示重新创建。创建成功后的切换行为**按分支类型区分**：
 
@@ -80,11 +79,11 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
 - **`detail`（解释该节点）**：**不切换**工作台会话/树——`setWorkbenchWindowChat` 与 `treeRootChatId` 均不更新，解释分支只作为轻量子分支渲染在当前树上（与子分支同级），核心主流程保持不变。
 - 两种类型创建成功后都**无条件刷新** `taskTimeline`（`getTaskTimeline({ taskId, view: 'tree' })`，让新分支出现在树上）并 `openSession(created.chatId)` 打开会话。
 
-与后端语义对齐：`detail` 永远不能成为 `active_branch_id` 主干（见 `src/service/chat/conversationBranch.ts` 与 [docs/backend/service/chat.md](../backend/service/chat.md#任务分支语义)「任务分支语义」），故前端只在 `continuation` 时切换工作台身份。
+与后端语义对齐：`detail` 永远不能成为 `active_branch_id` 主干（见 `apps/backend/src/service/chat/conversationBranch.ts` 与 [docs/backend/service/chat.md](../backend/service/chat.md#任务分支语义)「任务分支语义」），故前端只在 `continuation` 时切换工作台身份。
 
 ### 会话视图（对话模式）与历史抽屉分支管理契约（2026-08-24，2026-09 对话模式接管）
 
-工作台的「档案」docked 抽屉已于 2026-09 移除，其能力并入**对话模式**——整屏会话视图 `ConversationView.vue`（`web/src/features/agent/workbench/`），在 `.nyxus-branch-top` 内以 `embedded` 形态直接复用 `HistoryDrawerPanel`（消息气泡、分支级联切换、设为主流程、打包代际历史、工具折叠、子 Agent 显示模式、滚动 minimap 全部保留）。`ConversationView` 传 `conversation` 置位 + `taskBranches`（工作台 `liveTimeline.branches` 注入，按窗口隔离，不再写全局 `historyDrawerTaskBranches`）：
+工作台的「档案」docked 抽屉已于 2026-09 移除，其能力并入**对话模式**——整屏会话视图 `ConversationView.vue`（`apps/web/src/features/agent/workbench/`），在 `.nyxus-branch-top` 内以 `embedded` 形态直接复用 `HistoryDrawerPanel`（消息气泡、分支级联切换、设为主流程、打包代际历史、工具折叠、子 Agent 显示模式、滚动 minimap 全部保留）。`ConversationView` 传 `conversation` 置位 + `taskBranches`（工作台 `liveTimeline.branches` 注入，按窗口隔离，不再写全局 `historyDrawerTaskBranches`）：
 
 - **显示与入口**：标题栏 `WorkbenchViewToggle` 三档中的「对话」档 + rail 会话组「对话模式」按钮（两处共用 `useWorkbenchViewMode`，状态同步）；无当前会话时按钮禁用，画布显示既有空态「新建会话」。切换回树时 `closeHistoryGeneration()` 清理代际二层，避免残留展开。
 - **级联下拉结构与显示条件**（`cascadeOptions` / `dropdownAsTitle`，`HistoryDrawerPanel.vue`）按是否对话模式/`historyDrawerMode` 分家：
@@ -107,35 +106,13 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
 
 三种视图共用 `interactions` 状态和审批/提问提交结果，但入口分别归属于当前视图：树视图以待处理节点闪烁 + 点击节点打开锚定交互卡为入口（标题栏另有不可点击的待处理图标 `WorkbenchAttentionIndicator`，持续闪烁、hover 提示数量；2026-09-27 起替代旧左下角浮窗与铃铛）；对话视图在消息列表中直接处理提问，并在对应工具消息中显示可单独处理的审批气泡；精简视图点击待处理工具图标进入详情抽屉。精简视图中尚未消费的提问会让对应工具图标持续闪烁，开始提交后停止。
 
-### `WorkbenchCapsule.vue`（新，`web/src/features/agent/workbench/`）
-
-胶囊最小化 UI，`defineProps<{ windowId }>`。App.vue 按 `workbenchWindowsList` 中 `minimized===true` 渲染。
-
-- **可拖**：指针捕获模式（复用 `useWorkbenchWindow.beginPointerInteraction` 风格），写 `setWorkbenchWindowCapsulePos`。
-- **层叠**：`stackIndex` = minimized 列表位置，渲染 pos = capsulePos + index×偏移，后缩盖前缩，只露前标题。
-- **hover z**：`focusWorkbenchWindow` 提 z 到顶。
-- **还原**：`setWorkbenchWindowMinimized(false)` + `focusWorkbenchWindow`（mode/pos/size 保留）。
-- **关闭**：`closeWorkbenchWindow`；工作台已不持有 docked 历史抽屉（对话模式为整窗视图，随窗销毁），overlay 全局抽屉不受影响。
-
 ### `AgentDialog.vue`（精简）
 
 仅保留「快速发送 composer」单例面板（Pet 单击打开）。移除全部 workbench 子树/脚本/样式。head 的 ⑂ 按钮与待处理抽屉 `@tree` 改为 `openWorkbenchWindow(presetId)`。
 
-### `App.vue`（多渲染）
+### 桌面窗口承载
 
-authenticated 分支保留 `<AgentDialog />`，新增：
-
-```vue
-<WorkbenchDialog
-  v-for="win in agents.workbenchWindowsList"
-  :key="win.id"
-  :window-id="win.id"
-  :preset-id="win.presetId"
-/>
-<WorkbenchCapsule v-for="win in agents.workbenchWindowsList.filter((w) => w.minimized)" ... />
-```
-
-（胶囊渲染用 `template v-for` 包裹，避免 `v-for`+`v-if` 同元素作用域问题。）
+`WorkspaceCyberWindow.vue` 承载工作台，`CyberDesktopHost.vue` 提供任务栏。窗口和最小化状态由工作区 store 维护；工作台没有独立胶囊组件。
 
 ### 入口：`PetToolbar.vue`
 
@@ -143,144 +120,13 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 
 **打开即恢复会话**：新建窗口初始 `chatId: null`，空树不渲染。入口须在新建窗口时恢复该 preset 活跃根会话——Pet 用 `activeRootForPet(pet)`（`activeRootByPreset` 优先，回退 pet 当前会话），Nyxus 用 `activeNyxusChatId`（空则 `getActiveNyxus()` 取最近/新建）。仅当窗口 `chatId` 为空时设置，已存在窗口重开复用不覆盖当前浏览。
 
-**入口统一携带预设名（2026-08-21）**：窗口 id/presetId 语义双通道——Nyxus 入口直接传**预设名** `'cheryNyxus'`（`CHERY_NYXUS_PRESET`），Pet/AgentDialog 入口传**真实 presetId**。为让 `useAgentDialogOptions` 的 `presetName` 不依赖可能为空的会话数据（空白工作台根因），三处入口（`NyxusCore.openWorkbench` / `PetToolbar.openWorkbench` / `AgentDialog` 的 `openWorkbenchForChat`/`openWorkspaceTree`）在 `openWorkbenchWindow` 第二参 / `bridge.openWindow` 的 `OpenWindowRequest.presetName` 统一携带预设名；`WorkbenchWindowState.presetName` 打开时存入，已存在窗口重开时防御性补写（入口解析失败留下的旧窗 presetName 恒 null 也可被后续打开纠正）。Electron 原生窗经 `OpenWindowRequest` → main `extraParams` → URL `?presetName=` → App.vue 读入（见 [electron.md#electron-原生独立窗迁移part-3](#electron-原生独立窗迁移part-3)）。
+**入口携带预设名**：工作台入口把 `presetName` 与窗口身份一起传入；空白会话也使用窗口自己的预设信息解析角色编制，不依赖尚未加载的历史。浏览器窗口状态由工作区 store 维护。
 
 **空态新建会话**：窗口 `chatId` 为空且无任何会话时渲染空态「新建会话」按钮（`WorkbenchDialog.createSession`）。该场景下 `presetName`/`isNyxus` 不再推导不到——2026-08-21 起入口随窗携带 `presetName`（`win.presetName` 打开即定），预设判定优先用 `win.presetName`：等于 `'cheryNyxus'`（Nyxus 窗口以预设名开窗）→ `createNyxusSession()`；普通预设窗口（稳定 id）→ 复用空白会话或 `createMasterPet({ preset })`，无 preset 名可解析时明确报错而非静默失败（`props.presetId` 与 `win.presetName` 双保险，仍以窗口自身为准而非会话推导）。空白会话匹配键同样按窗口形态区分（Nyxus 用 `preset` 名、普通预设用 `presetId`），避免 Nyxus 空白会话永不命中而重复新建。
 
-## 通知高亮（Phase E）
+## 通知与待处理交互
 
-- **触发**（已随 `streamRouter` 删除而退休）：历史上由 `streamRouter.routeNotification` 在 `interrupt`（审批）/`question_batch_requested`（提问）时调 `setWorkbenchWindowBlinkForChat(chatId,true)` 置闪烁。**当前代码中 blink 只剩熄灭半边**（标题栏 pointerdown / 胶囊还原 → `setWorkbenchWindowBlink(id,false)`；Electron 原生窗经 `flashFrame` 映射任务栏闪烁仍走 `attentionBlink` watch），置真入口待工作台待处理入口改版后统一重建；当前窗口提醒由「树节点持续闪烁 + `WorkbenchAttentionIndicator`」承担（见上文「待处理入口归属」）。
-- **熄灭**：标题栏 pointerdown / 胶囊还原时清 blink；`accept`/`rejected`/`question_batch_completed` 后仅当该 chat 无挂起审批/提问批次才熄灭。
-- **动画**：`.has-attention` 加 accent（深空电光强调色，随主题经 `var(--accent)` 翻转）box-shadow 外发光 + 边框脉冲 `@keyframes` infinite 恒开（应用不跟随 `prefers-reduced-motion`，见 `docs/frontend/settings.md` 动效降级约定）。
-
-## 待操作面板（PendingOperationsPanel）交互优化（2026-08-22）
-
-工作台右上「待操作」面板收敛全部待确认交互（审批 + 提问批次）。本次优化：
-
-### 工具能力解释
-
-- 后端审批注册时从 senseRegistry 注入 sense 定义 `description` → `ApprovalPayload.senseDescription` → interaction payload（[manager.ts](../../src/service/approval/manager.ts) / [observer.ts](../../src/service/chat/observer.ts)）。
-- 审批卡不直接暴露「工具名 + 原始 action」。共享 [approvalPresentation.ts](../../web/src/utils/approvalPresentation.ts) 把 `senseName + arguments` 投影为标题（「大模型需要做什么」）+ **关键信息**（每类工具在 `TOOL_PRESENTATIONS` 声明 `keyFacts`：工具名称 + 具体目标，如技能加载 = 工具名称 + 技能名称），`ApprovalSummary` 把关键信息置前放大强调；未声明的工具（含未知自定义工具）回退能力/行为/对象模板、保留原名安全回退。**2026-11 精简**：审批界面不再显示「大模型发起 / 由你审批后执行」徽章与「批准后才会执行」总结句——`ApprovalSummary` 只留标题 + 关键信息（或通用能力/行为/对象回退），`InteractionCard` 卡头不再重复标题（标题由 `ApprovalSummary` 单一承载）。
-- `config_manage` 按实际 `action` 显示「获取/修改/恢复配置参数」或「获取/保存/归档角色资产」；技术值（如 `get`）仅在完整参数中作为追溯信息保留。
-- [ParsedArgs.vue](../../web/src/features/agent/cards/ParsedArgs.vue) 与递归 `ArgumentValue.vue` 解析 JSON 字符串、嵌套对象和数组，统一中文字段名；非法 JSON 仍以原文回退，不会丢失审批证据。**2026-11**：`完整操作参数` **默认收起**（点击 ▸ 展开），开关为**无边框纯文字**（内部已是 key:value 行，不再套胶囊边框）。
-- 后端注入的 sense `description` 保留为默认折叠的深入能力说明，不再承担审批主标题。
-
-### 节点展开与动画
-
-- **布局放宽**：面板 `width` 300px → **440px**，内容不再细长。
-- **展开限制 1**：`activeId` 状态一次只展开一个节点；点击卡片头切换（再点当前卡收起，`activeInitialized` 哨兵区分手动收起与 active 项移除）。
-- **短/长节点**：收起节点仅显示卡片头（kind + 标题 + 状态，固定高度）；active 节点展开完整内容，`grid-template-rows 0fr↔1fr` + opacity CSS 动画。
-- **隐藏动画**：`<TransitionGroup name="card">` —— 交互完成（decide/answer 后记录移出 pending）旧卡以 `translateX + scale + opacity` 渐隐消失，watch 自动激活下一个 pending 节点继续交互。
-- **标题细字体**：卡片头标题 `font-weight` → 400（全区域去加粗）。
-- **超高内容滚动（2026-08-22 修复）**：`.pending-card` 加 `flex-shrink: 0`。列表是 `flex-direction: column` + `max-height: min(52vh, 420px)`，卡片默认 `flex-shrink: 1` 会被 max-height 压缩 → grid 展开轨道 `1fr` 随之收缩、`.card-body` 的 `overflow: hidden` 裁剪超高选项 → 列表不出现滚动条，交互无法完成。`flex-shrink: 0` 令卡片高度 = 内容高度，超高内容撑起列表滚动（`.pending-panel-list` 的 `overflow-y: auto` 生效）。
-
-### 可读性规范（2026-08-22 实测修订）
-
-- **字号（2026-10 全局放大 +2，最小 12px）**：正文/按钮/选项 ≥ **15px**（卡片头标题 16px、次级/徽章 14px），弱化文字不低于 13px。`nyxusPopoverTheme.less` 节点弹窗随全局放大（原 8.5-11px → 12-13px，2026-10 → 14-15px）。
-- **字重**：待确认面板与节点树弹窗全部 **400**（原 600/700/800 加粗去除，避免小字号糊字）。
-- **工具解释排版**：`.sense-desc` 不设 `max-height` 滚动（避免内容被挤压小空间），随面板列表自然滚动；字号 15px（2026-10 全局放大后）、行高 1.65、正文色。
-- **倒计时**：approval 卡头状态旁显示 `剩余 Ns`（后端 `deadlineAt` = createdAt + approval_timeout），归零变红显示「已超时」，`now` 250ms 定时器驱动。
-- **语义标题**：待确认标题统一使用 `createApprovalPresentation`，不再只是 sense 英文名的中文替换。
-- **同步入口**：节点树工作台、Pet 气泡、设置窗待办与轻量工作台共用 `ApprovalSummary + ParsedArgs`，同一审批在不同入口的标题、参数展示一致（2026-11 起不再有「审批责任标记」徽章，`ParsedArgs` 完整操作参数默认收起、无边框纯文字开关）。
-
-### 左右分栏重构（2026-08-23）
-
-「待操作」面板由「单列卡片列表（点卡头展开）」改为**「入口行 + 左右两栏」**，一屏内完成全部交互、不依赖滚动：
-
-- **入口行**：`待操作` 标题 + 计数 + 下拉箭头 与 范围切换（当前树/全部）**同一行**（`.pending-panel-head` 为 flex 行，segmented 右对齐）；收起态不再重复 hint（切按钮自身即状态）。
-- **左栏任务导航**（`.task-nav`）：任务小按钮**顺序排列**（参考卡牌阅读器左侧 title-strip，但顺序不交错），点击切换右栏详情（=`activeId`，天然互斥，替代原 `toggleActive` 展开/收起）。每页固定 8 个，超出后**点击 ▲/▼ 翻页**（`.page-up`/`.page-down`，不用滚动条）；`activeId` 被移除或聚焦到页外任务时自动翻页定位（`syncPageToActive` watch）。
-- **右栏详情**（`.task-detail`）：当前任务内容**默认全部展开、不滚动**；顶部「在节点树中查看」链接 + sense 描述（`.sense-desc`），中部 ParsedArgs（审批）/ 选项表单（提问），底部**固定操作栏**（`.detail-actions`：接受/拒绝、提交回答），一屏可操作。
-- **窗体简化**：去掉 `.card-body-wrap` 的 `grid-template-rows 0fr↔1fr` 折叠动画与两层嵌套，改为单层 `.panel-main` 两栏 flex；宽度 440px → **600px**。
-- **保留契约**：`expanded`（整体收起/展开）、`scope`、`focusedInteraction` 聚焦、`locate` 事件、倒计时、draft 草稿、`pickNextActive` 自动激活——全部不变。
-
-### 二次优化（2026-08-23，布局对调 + 单选交互）
-
-- **左右对调**：内容展示固定**左栏**（`.task-detail`）；任务导航 + 操作按钮并入**右栏**（`.side-col`）：▲/▼ 分页 → 任务按钮 → 页码 → 底部操作区（`.side-actions`，`margin-top: auto` 贴列底）。操作不再占左内容底部整行，宽度不变、高度短一截。
-- **选项提示**：不额外显示「单选 · 再次点击可取消」或「可多选」说明，选项本身通过当前选中状态表达交互结果。
-- **提交状态关联**：`canSubmitOf` 前置判定——单选恰好 1 项或有「其他补充」输入、多选 ≥1，否则「提交回答」禁用（灰不可点）。
-- **同步**：[WorkspaceSessionBrowser.vue](../../web/src/features/agent/attention/WorkspaceSessionBrowser.vue)（会话浏览器）同步单选提示 + 提交禁用逻辑。
-
-### 内容撑开与空状态可见（2026-08-24 修复）
-
-`.pending-panel` 高度 auto（仅 `max-height` 上限工作台可用空间），展开后纵向 flex 链若用 `flex-basis: 0`，会在 auto-height 容器中无确定尺寸可 grow 而**逐层塌陷为 0**（`.pending-panel-body` → `.panel-main` → `.task-nav` → `.task-nav-list`），配合 `overflow: hidden` 把全部内容（含 `.pending-panel-empty` 空状态）裁剪掉——面板只剩几像素高、无法交互。
-
-**修复**：纵向 flex 链全部改 `flex-basis: auto`（保留 `flex-shrink` + `min-height: 0`）：
-
-- **内容少/空**：面板高度 = 内容高度（由内容自然撑开，空状态「没有待操作任务」正常显示）。
-- **内容超高**：面板被 `max-height` 截断为确定高度，左栏 `.task-detail` / 右栏 `.task-nav-list` 各自内部滚动（不超出工作台）。
-
-涉及选择器：`.pending-panel-body` / `.panel-main` / `.task-nav` / `.task-nav-list`（`flex: 1 1 0` → `flex: 1 1 auto`）。横向链不受影响：`.task-detail` 的 `flex: 1` 是宽度分配，其高度由 `.panel-main` 的 `align-items: stretch` 决定。
-
-### 高度上下限约束（2026-08-24）
-
-`.pending-panel` 增加显式高度约束（上节 flex-basis: auto 链不变，min/max 兜底两端极端态）：
-
-- **最小高度（仅展开态）**：`.pending-panel.is-expanded { min-height: 280px }`——内容少（如仅 1 个短任务）时也保证 1-2 个任务按钮 + 操作区 + 头部可容纳，不局促。收起态不撑高（收起态仅入口行约 36px，`min-height` 不应用避免产生透明拦截热区）。
-- **最大高度固定上限**：`.pending-panel { max-height: min(560px, calc(100% - 44px)) }`——固定上限 560px 叠加窗口可用空间约束（`min()` 取小者）：任务满一页（8 个）+ 操作区 + 头部也能完整容纳，且窗口过小时不溢出。任务再多由左栏 `.task-detail` / 右栏 `.task-nav-list` 内部滚动承接。
-- **native 面同步**：`.workbench-shell.is-native :deep(.pending-panel)` 同步为 `max-height: min(560px, calc(100% - 8px))` + `min-height: 280px`（仅保留其 `top: 8px` 定位差异），原生窗与浏览器 overlay 视觉一致。
-
-## 待操作面板聚焦流水线重构（2026-09-02）
-
-> 本节取代上方「左右分栏重构（2026-08-23）」「二次优化（2026-08-23）」「内容撑开与空状态可见（2026-08-24 修复）」「高度上下限约束（2026-08-24）」四节的**布局描述**（后两节的 flex-basis/高度约束结论仍适用，详见下方「保留契约」）；旧节仅存档。注意旧节「宽度 600px」记载与实现失真：重构前实际已是 820px。
-
-用例驱动：旧结构「右栏任务列表 + 左栏详情 + 左栏内嵌问题两栏 + 栏底操作」形成之字形动线、两套选择范式混用、选项下弹出输入框破坏选择的原子性，且样式未随全仓直角化收敛。参照队列决策类交互的市场范式（Linear triage / macOS 弹窗队列）重构为**「Interrupt Queue 聚焦流水线」**——单层无嵌套，屏上永远只有一张聚焦工作卡：
-
-### 新结构
-
-- **状态头** `.pending-panel-head`（收起/展开入口行保留）：IRQ 徽记 + 「待操作队列」+ `N 项 · X/Y` 进度 + 范围切换（当前树/全部）+ 刷新；展开/收起动画沿用 gsap Flip（`Flip.getState` → 改状态 → rAF 内 `Flip.from`，`MOTION.sweep`）。
-- **FOCUS CARD** `article.focus-card`（主体，唯一工作对象，全宽）：
-  - 任务头行：kind 徽记（确认/回答）+ 标题（`createApprovalPresentation`）+ 倒计时 + 「在节点树中查看」定位；
-  - approval：ApprovalSummary / 能力解释折叠块 / `<details>` 技术详情（ParsedArgs + FileChangeDiff）**全宽**展示；
-  - question_batch：**步进器** `QuestionStepper.vue`——横向进度点 ●─○─○ + `Q1/3` + 题标题，一次只渲染一个问题；选项为**选项卡**（整卡按钮）；选中后备注输入行**内嵌选项卡内部**以 gsap Flip 展开（对整个 `.options` 容器取 getState，nextTick 后 `Flip.from`，兄弟行位移被补偿；数据结构 `optionNotes` 不变）；「上一题/下一题」翻题；**不自动跳题**（每个选中选项都带可选备注输入，选中即跳会打断备注输入，翻题一律走步进器手动）；
-  - **底部动作栏两类任务同位** `footer.action-bar`：approval = [拒绝][接受]；question_batch = [提交回答]（`canSubmitOf` 前置禁用 + 已答 X/Y 进度文案）。
-- **QUEUE 队列缩略带** `PendingQueueStrip.vue`（面板底部）：横向 chips（kind 徽记 + 标题 + 倒计时/状态），点击切换聚焦任务；键盘 ←/→ 循环（roving tabindex）；`flex-wrap: nowrap` + `overflow-x: auto`，active chip 变化 `scrollIntoView({block:'nearest', inline:'nearest'})` 跟随；定高 + `flex-shrink: 0` 防塌陷。**废除 `PAGE_SIZE` ▲/▼ 分页**（`page`/`pageItems`/`syncPageToActive` 移除）。
-
-### 组件拆分
-
-- `PendingOperationsPanel.vue`：状态头 + FocusCard + 全部有状态逻辑（drafts、activeId、activeQuestion、倒计时 tick、scope、expanded、decide/answer/校验）——`interactionSurfaceWiring.test.ts` 以源码字符串断言 `await interactions.decide(item, action)` / `await interactions.answer(item, submit)` / `countdownOf(item).expired` / `'已超时'` 必须留在本文件，且 `PendingInteractionFocus` 接口必须从此文件导出。
-- `PendingQueueStrip.vue` / `QuestionStepper.vue`：纯展示子组件（props/emits），内联 scoped 样式（无伴生 less），不触 store、不 import gsap（动画由父级 `useGsap` context 统一调度）。OptionCard 不拆——备注行 Flip 须在选项列表层级取 getState 且直接读写 draft。
-
-### 动效（GSAP）
-
-- 全部经 `useGsap(panelRoot, setup)` 建立的 `gsap.Context`；事后触发的 tween（任务切换/题切换/Flip/stagger）一律 `ctx.add(fn)`，卸载 revert 全回收。
-- 时长/缓动取 `utils/gsapCore.ts` 的 `MOTION`（sweep/panel/view/micro + easePanel）；只动画 transform/opacity；布局变化（展开、备注行）用 Flip 插件补偿；body `<Transition>` 只保留 opacity。
-- 任务切换 crossfade+slide、题切换方向感知 slide、chips stagger 入场；`useMotionTier().spec.enter === 'opacityOnly'` 时位移/Flip 全部退化为 opacity，另保留 `matchMedia('(prefers-reduced-motion: reduce)')` 兜底。
-- 倒计时 tick 改 `interactions.calibratedNow()`（serverClockOffsetMs 校准；首次 refresh 前偏移为 0，expired 翻转可能随校准跳变数秒，属预期）。
-
-### 样式收敛
-
-全直角 `border-radius: 0`（含 chips/选项卡/输入框/徽记，禁 999px 胶囊）；**移除 `backdrop-filter`**（实色 `color-mix` 补偿层级感）；字重 400（标题/主按钮上限 600）；中文阅读内容 ≥12px；颜色全部 `var(--nx-*)` / `var(--accent)` / `color-mix` 派生；hover 只用 transform/opacity。保留根定位（`top:44px; right:52px; width:820px; max-height:min(620px, calc(100% - 44px))`）、`.is-expanded { min-height: 280px }`、clip-path 切角与网格纹理、`.has-tasks` 徽记脉冲 keyframes（reduced 关闭）、light 主题 `:global(html[data-theme='light'] …)` 覆盖。
-
-### 保留契约
-
-props `rootChatId`/`focusedInteraction`、emit `locate`、挂载点 `WorkbenchDialog.vue` 签名与根类名 `pending-panel` + `is-expanded`（`WorkbenchDialog.scoped.less` 四处 `:deep(.pending-panel)` 依赖）；stores/interactions 的 pending/decide/answer/refresh；drafts 跨刷新；`canSubmitOf`/`questionAnsweredOf` 前置禁用、单选与 freeText 互斥、提交前完整性校验跳第一未答题；双向定位（focusedInteraction watch → 展开选中）；有任务自动展开/无任务自动收起、active 移除自动激活下一个（`pickNextActive`）；纵向 flex 链 `flex-basis: auto` + `min-height: 0` 结论（防塌陷，见旧节 2026-08-24 修复）。
-
-### 本次改动文件
-
-| 文件                                                                  | 变更                                               |
-| --------------------------------------------------------------------- | -------------------------------------------------- |
-| `web/src/features/agent/attention/PendingOperationsPanel.vue`         | 重写：状态头 + FocusCard 单层结构 + GSAP/Flip 动效 |
-| `web/src/features/agent/attention/PendingOperationsPanel.styles.less` | 重写：全直角、去 backdrop-filter、token 色收敛     |
-| `web/src/features/agent/attention/PendingQueueStrip.vue`              | 新：底部队列缩略带（键盘循环 + scrollIntoView）    |
-| `web/src/features/agent/attention/QuestionStepper.vue`                | 新：问题步进器（进度点 + 上/下题）                 |
-| `web/test/agents/pendingOperationsLayout.test.ts`                     | 重写：旧 DOM 断言 → 聚焦流水线结构断言             |
-
-## 改动文件清单
-
-| 文件                                                                                             | 变更                                                |
-| ------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| `web/src/stores/agents/ui/uiState.ts`（后迁 `stores/workspace/uiState.ts`）                                     | 窗口注册表 + actions                                |
-| `web/src/stores/agents/ui/streamRouter.ts`（已删除：通知路由并入 chats store `bindWsClient`/reducer）           | 通知→blink 触发/熄灭                                |
-| `web/src/stores/chats/index.ts`                                                                  | 移除根观察单例守卫                                  |
-| `web/src/features/agent/workbench/WorkbenchDialog.vue`                                           | 新：自包含窗口组件                                  |
-| `web/src/features/agent/workbench/WorkbenchCapsule.vue`                                          | 新：胶囊最小化                                      |
-| `web/src/features/agent/composer/useAgentDialogOptions.ts`                                       | 参数化 chatId 来源（2026-08-21 加 presetName 入口） |
-| `web/src/features/agent/workbench/useWorkbenchWindow.ts`                                         | 参数化 windowId + per-window key                    |
-| `web/src/features/agent/chat/AgentDialog.vue`                                                    | 精简为 composer 单例                                |
-| `web/src/features/agent/toolbar/PetToolbar.vue`                                                  | 工作台 icon 入口（携带 presetName）                 |
-| `web/src/features/pets/nyxus/components/NyxusCore.vue`                                           | 工作台入口携带 `CHERY_NYXUS_PRESET`                 |
-| `web/src/App.vue`                                                                                | 多窗口/胶囊渲染（workbench 面读 URL `presetName`）  |
-| `web/src/features/desktop/desktopBridge.ts` + `web/electron/main.ts` + `web/electron/preload.ts` | `OpenWindowRequest` 透传 `presetName`               |
+审批与提问事实由交互状态模块维护。树视图通过节点和标题栏待处理指示器展示，对话视图在消息内处理，精简视图通过工具详情处理。窗口焦点、最小化和提醒显示不改变审批权限，也不替代提交结果。
 
 ## 保留耦合点 / 未来工作
 
@@ -290,21 +136,13 @@ props `rootChatId`/`focusedInteraction`、emit `locate`、挂载点 `WorkbenchDi
 
 ---
 
-## 最小化任务栏化与胶囊移除（2026-09-03）
+## 最小化与任务栏
 
-> 本节取代上文 Phase D「`WorkbenchCapsule.vue` 胶囊最小化 UI」章节及「目标」中的胶囊描述。胶囊组件与配套字段已删除。
+工作区窗口最小化后从桌面隐藏，底部任务栏仍保留对应入口。`CyberDesktopHost` 根据窗口状态处理点击：最小化窗口还原并聚焦，当前聚焦窗口最小化，未聚焦窗口仅聚焦。图谱窗口通过工作区 store 的工作台操作同步状态。
 
-赛博桌面（`CyberDesktopHost`）底部任务栏（「◫ 活动窗口」）本就展示全部 workspace 窗（`workspaceWindowsTaskbarList` 不滤 `lifecycle==='minimized'`），工作台最小化后旧胶囊与之重复，故统一收敛：
+最小化不停止后端运行；窗口关闭、会话订阅释放与任务停止是不同操作。窗口几何和生命周期由 `windowModel.ts`、`uiState.ts` 维护。
 
-- **`WorkbenchCapsule.vue` 删除**：App.vue 不再渲染胶囊；`WorkbenchWindowState.capsulePos` 字段与 `setWorkbenchWindowCapsulePos` action 移除。
-- **`minimizeWorkbench` 去掉缩后置焦**：旧逻辑缩后 `focusWorkbenchWindow` 让胶囊处于层叠最上层，任务栏化后最小化窗不应保持 focused（否则任务栏 tag 的 `active` 高亮失真），直接 `setWorkbenchWindowMinimized(id, true)` 即可（该 action 内部已联动 `minimizeWorkspaceWindow` 转移焦点到下一个可见窗）。
-- **任务栏 tag 点击 = Windows 三态**（`CyberDesktopHost.activate`）：
-  - `lifecycle === 'minimized'` → 还原+聚焦（graph 类经 `setWorkbenchWindowMinimized(presetId, false)`，其余经 `restoreWorkspaceWindow`）；
-  - 已聚焦 → 最小化（graph 经 `setWorkbenchWindowMinimized(presetId, true)`，其余经 `minimizeWorkspaceWindow`）；
-  - 打开未聚焦 → 仅聚焦（沿用原 activate 的会话/设置/历史/树定位副作用）。
-- **不涉及 Electron 原生工作台面**：native 窗最小化走 OS 三键/任务栏，无胶囊也无 web 任务栏，本变更不触达。
-
-## 卡牌阅读与图谱方向联动（2026-09-02 返工）
+## 卡牌阅读与图谱方向联动
 
 工作台图谱展示模式由**卡牌阅读开关单一入口**决定，不再提供独立的方向切换按钮：
 
@@ -313,22 +151,22 @@ props `rootChatId`/`focusedInteraction`、emit `locate`、挂载点 `WorkbenchDi
 - **fallback 豁免（实现结论：无需额外守卫）**：`fallbackToClassic`（`useWorkbenchDialogController.ts`）直接写 `presentationMode.value = 'vertical-classic'`，而联动 `watch` 只监听 `paperMode`，回退值不会被反向翻转；用户下次手动切换卡牌时联动按派生规则恢复，重载后派生值按 `paperMode` 重算（自然重试 Signal）。回退提示由既有 `graph.fallback` 视觉事件承担（「警告 // 图谱回退：Signal Grid 初始化失败，已回退 Classic」）。
 - 投影/渲染契约见 [pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约二轮修订](pet/nyxus-node-tree-maintenance.md#signal-grid-展示投影2026-09-02-返工契约二轮修订)。
 
-## 标题栏任务切换（2026-09-17）
+## 标题栏任务切换
 
 工作台标题栏以 `WorkbenchSessionStrip.vue` 提供稳定任务快捷位，现行位置、状态和 tip 规则见下节。旧 rail「会话列表」按钮及 popout 已移除，不再作为切换入口。
 
-- **双 surface 挂载**：浏览器工作台挂在 `CyberWindow #title-actions`，Electron 原生工作台挂在 `WindowFrame #title-actions`；两处都由 `WorkbenchSessionBar.vue` 组合，切换目标使用任务概要的活动主流程 `openChatId`，既有 draft、树订阅和窗口生命周期不变。浏览器面额外传入工作台前台状态，原生面使用文档可见性与窗口焦点，后台不持续闪烁。
-- **数据与偏好**：实时状态只读应用级 `chat.overview` 订阅；稳定快捷位由 `useSessionStripPreferences.ts` 按预设持久化，并通过同源存储事件与 BroadcastChannel 跨 renderer 同步。组件不自行建立任务订阅，也不清除未查看记录。
+- **标题栏挂载**：`App.vue` 在 `WorkspaceCyberWindow` 的 `title-actions` 插槽挂载 `WorkbenchSessionBar`，传入窗口、预设、活动会话和前台状态；选择任务后通过 `workspace.setWorkbenchWindowChat` 更新所属工作台。当前说明不提供Electron原生窗口入口。
+- **数据与偏好**：实时状态只读应用级 `chat.overview` 订阅；稳定快捷位由 `useSessionStripPreferences.ts` 按预设持久化，并通过同源存储事件与 BroadcastChannel 同源页面间同步。组件不自行建立任务订阅，也不清除未查看记录。
 - **全部任务入口**：`WorkbenchSessionBar.vue` 通过按 `windowId` 隔离的 `useTaskBrowserOverlay.ts` 打开所属工作台覆盖页；标题栏不再挂载会话下拉，`SessionDropdown.vue` 与专用分页逻辑已删除。
 
-### 标题栏与全部任务页替换契约（2026-09-17 已确认）
+### 标题栏与全部任务页
 
-任务目录接口、未查看记录、任务级概要字段、稳定标题栏和全部任务覆盖页均已接入浏览器与 Electron 工作台。任务页从 `TaskBrowser.vue` 进入，`useTaskBrowserController` 按工作台隔离查询与恢复状态，`taskBrowserModel.ts` 负责筛选请求、实时原位更新及纯文本命中片段，`useTaskBrowserOverlay.ts` 负责按窗口隔离开关、归档后的当前任务处理和查看确认前置判断。覆盖页打开时底层树、输入区、工具栏和离线操作不可接收交互，但工作台控制器、草稿状态与树订阅保持；结果查看只在目标树加载完成、窗口处于前台且覆盖页关闭后按 `resultId` 确认。定向验证见 `web/test/workbench/taskBrowser.test.ts`、`web/test/workbench/taskBrowserIntegration.test.ts` 与 `web/test/taskCenter/taskCatalogStore.test.ts`。
+任务目录接口、未查看记录、任务级概要字段、稳定标题栏和全部任务覆盖页在浏览器工作台有对应入口。任务页从 `TaskBrowser.vue` 进入，`useTaskBrowserController` 按工作台隔离查询与恢复状态，`taskBrowserModel.ts` 负责筛选请求、实时原位更新及纯文本命中片段，`useTaskBrowserOverlay.ts` 负责按窗口隔离开关、归档后的当前任务处理和查看确认前置判断。覆盖页打开时底层树、输入区、工具栏和离线操作不可接收交互，但工作台控制器、草稿状态与树订阅保持；结果查看只在目标树加载完成、窗口处于前台且覆盖页关闭后按 `resultId` 确认。定向验证见 `apps/web/test/workbench/taskBrowser.test.ts`、`apps/web/test/workbench/taskBrowserIntegration.test.ts` 与 `apps/web/test/taskCenter/taskCatalogStore.test.ts`。
 
 #### 稳定标题栏
 
 - 标题栏保持纯图标，不做水平滚动。每个预设保存 5 个稳定快捷位，并额外预留 1 个当前任务补位；宽窗口因此最多显示 6 个任务图标。当前任务已经占有可见快捷位时只高亮，不重复显示。
-- 快捷位按 `taskKey` 持久化在前端工作台偏好中，以稳定 `presetId` 分区，legacy 场景才回退预设名；通过既有同源存储通知或 BroadcastChannel 同步浏览器与 Electron renderer。它不进入聊天协议，也不与任务中心“关注任务”混为同一状态。
+- 快捷位按 `taskKey` 持久化在前端工作台偏好中，以稳定 `presetId` 分区，legacy 场景才回退预设名；通过既有同源存储通知或 BroadcastChannel 同步同源页面。它不进入聊天协议，也不与任务中心“关注任务”混为同一状态。
 - 新任务在首次满足“当前任务、运行中、待处理或存在未查看结果”且有空位时追加到末尾。任务状态变化、普通步骤推进、运行结束、查看结果和切换任务均不重排，也不自动移除；快捷位满时只更新“全部任务”入口提醒，不挤掉现有任务。
 - 手动收起记录任务当时的 `attentionKey`。同一 key 下的普通进度更新不能重新加入；新 run、新待处理事项或新终态结果产生新的 key 后，若有空位才可重新加入。手动收起当前任务只移除其稳定快捷位，当前任务补位在离开该任务前仍保留。
 - 窗口缩窄只改变可见数量，不修改持久顺序：从末尾暂时隐藏；当前任务的原槽被隐藏时，以当前任务补位显示且不形成第二份逻辑记录；恢复宽度后各项回到原位。至少保留当前任务补位与“全部任务”入口。
@@ -371,13 +209,13 @@ props `rootChatId`/`focusedInteraction`、emit `locate`、挂载点 `WorkbenchDi
 - 全部任务筛选区下方固定显示每日 Token 热力图。统计范围是当前工作台全部非归档任务，不随状态、最近活动或排序筛选改变；日期字段必须来自 Token 消耗记录，不能用任务 `updatedAt` 代替。日历默认显示最近 364 天并包含当前周的未来占位，最多不超过 366 个闭区间日期，页面明确显示 IANA 时区。
 - 日历使用 ECharts Calendar + Custom + VisualMap，矩形由 ECharts 创建并处理交互。完整、部分、未知、零消耗和未来日期保留数据语义；范围外、未来和无数据在视觉图例中合并为近乎透明的灰色，未知和未来不能补成零。选择日期后通过真实日期任务查询列出当天任务、Token 和覆盖状态，“查看统计”只打开该真实任务的只读统计，不触发普通任务卡片打开。
 - 热力图不使用斜线纹理，图例与日历网格必须分开留出空间；颜色使用可区分的低饱和紫色阶梯。保留“最近活动”筛选并与日历联动：全部时间显示完整范围，24 小时、7 天和 30 天只显示对应日期区间；点击日期后，任务卡片按该日已有 Token 记录筛选，不使用 `updatedAt` 冒充消耗日期。卡片中的最近要求和最新结果只显示一行，超出部分省略；任务卡使用自适应紧凑网格和状态跳色，避免长期任务列表中卡片过高。
-- 日历几何与独立调色板由 `context-analytics/dailyChart.ts` 维护：高度按容器可用高度分配七行，宽度按全年列数计算且不超过高度；切换日期范围不放大色块，窗口变化才重新分配。矩形圆角明确为 1px，横纵空隙均为 2px。使用 ECharts 官方 Custom 系列的矩形形状设置圆角，避免依赖 roundRect 默认半径；参考 [官方 Custom 文档](https://echarts.apache.org/en/option.html#series-custom)。范围外、未来、无数据共用近乎透明的灰色；零消耗为白色；正值从近白逐步过渡到深紫。图例和色块共用颜色表，悬浮与选中保持不透明。日期范围扩展到完整周，悬浮不触发日期筛选。定向验证见 `web/test/workbench/contextDailyChart.test.ts`，代码验证不代替实际视觉验收。任务卡使用最大 `280px × 200px` 的固定密度网格。
+- 日历几何与独立调色板由 `context-analytics/dailyChart.ts` 维护：高度按容器可用高度分配七行，宽度按全年列数计算且不超过高度；切换日期范围不放大色块，窗口变化才重新分配。矩形圆角明确为 1px，横纵空隙均为 2px。使用 ECharts 官方 Custom 系列的矩形形状设置圆角，避免依赖 roundRect 默认半径；参考 [官方 Custom 文档](https://echarts.apache.org/en/option.html#series-custom)。范围外、未来、无数据共用近乎透明的灰色；零消耗为白色；正值从近白逐步过渡到深紫。图例和色块共用颜色表，悬浮与选中保持不透明。日期范围扩展到完整周，悬浮不触发日期筛选。定向验证见 `apps/web/test/workbench/contextDailyChart.test.ts`，代码验证不代替实际视觉验收。任务卡使用最大 `280px × 200px` 的固定密度网格。
 - 任务卡第一行合并标题、状态和未读标记，右侧操作按钮缩小。环图旁只显示当前上下文、累计 Token、轮次、请求数和 Agent 数；最近要求与结果在下方各展示一次，标签与省略正文同行，阅读文字不小于 12px。
 - 任务列表和日详情的滚动区域使用统一的细窄自定义滚动条：透明轨道、低对比圆角滑块，悬浮时才使用强调色；不依赖浏览器默认滚动条外观。
 
-## 角色身份卡堆叠交互的分析教训与异议处理
+## 角色身份卡堆叠交互
 
-本节记录角色身份卡堆叠重构中暴露出的理解错误，作为后续修改工作台交互时的强制检查依据。它不是某次修改的流水账，以下内容描述当前应遵守的分析方法和不变量。
+本节描述角色身份卡的位置、遮挡和标签层级约束；实际视觉与交互效果仍由用户验收。
 
 ### 当前交互的不变量
 
@@ -398,32 +236,6 @@ props `rootChatId`/`focusedInteraction`、emit `locate`、挂载点 `WorkbenchDi
 | 悬浮 C | 下移距离 | `peek + 下移距离` | `2 × peek` | `A > B > C` |
 
 任何实现只要让当前卡片移动到 Y 轴第一位、改变主体 Z 轴顺序、重新排列角色数组，或让没有被要求移动的卡片发生整体位移，都不符合这张验收表。
-
-### 之前理解错误的原因
-
-1. **没有先把 A、B、C 的状态写成坐标表。**
-   之前直接从已有代码调整 `top`、`peek` 和 `z-index`，没有先列出默认、悬浮 A、悬浮 B、悬浮 C 四种状态。因此“悬浮 B 时 A 下移”被错误翻译成“把 B 置为第一张卡并重新排序”。
-
-2. **把“让卡片露出”误解成“把当前卡片置顶”。**
-   目标是移动遮挡当前卡片的前方卡片，实际实现却多次把当前卡片放到 Y 轴最上方，甚至提升到最高 Z 轴。两者的结果相反：前者保持当前卡片的位置，后者改变了整组卡片关系。
-
-3. **混淆了 Y 轴和 Z 轴。**
-   “上面的卡片”在不同语境中可能表示页面上的 Y 轴位置，也可能表示 Z 轴遮挡层。之前的算法没有在变量、注释和验收表中明确写出轴向，导致位置重排和层级重排被放进同一个逻辑。
-
-4. **把负间距列表模型当成了标签堆叠模型。**
-   `完整卡片高度 - 标签高度`表示两张卡片只在底部重叠一小段，并不表示下一张卡只露出一个标签。卡片默认位置应由 `peek` 直接决定，不能由完整高度减法推导。
-
-5. **错误地把固定 Z 轴方向写成了 `10 + index`。**
-   这让 C 覆盖 B、B 覆盖 A，导致悬浮 B 时 B 仍被 C 遮住。后来改成反向数值后又发现名字标签同样被完整卡片遮住，说明只改数字不能解决层级结构问题。
-
-6. **名字标签和完整卡片共用了同一个层级上下文。**
-   标签放在各自卡片内部时，最高层卡片会连同自己的主体一起遮住其他卡片的标签。标签必须作为独立覆盖层渲染，不能继续通过子元素 `z-index` 试图穿过父卡片层级。
-
-7. **额外的列表整体位移破坏了单卡规则。**
-   `roleStackShift` 会在单卡 Y 位置计算之后再次移动整个列表，使本来应该保持不动的当前卡片和后续卡片也发生变化。边界处理不能改变用户已经明确的卡片移动关系。
-
-8. **在错误模型上连续调参数，延长了错误。**
-   多次反馈已经说明“当前卡片置前”的模型不对，但之前仍继续尝试修改偏移量、顺序和层级。出现同类反馈两次时，应立即停止调数值，回到需求状态表和 DOM 层级重新分析。
 
 ### 后续发生理解异议时的处理方案
 

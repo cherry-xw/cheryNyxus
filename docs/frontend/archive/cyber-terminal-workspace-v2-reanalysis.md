@@ -37,10 +37,10 @@
 
 关键落点：
 
-- `web/src/stores/workspace/windowModel.ts`
-- `web/src/stores/workspace/windowPersistence.ts`
-- `web/src/features/desktop/CyberDesktopHost.vue`
-- `web/src/features/desktop/CyberWindow.vue`
+- `apps/web/src/stores/workspace/windowModel.ts`
+- `apps/web/src/stores/workspace/windowPersistence.ts`
+- `apps/web/src/features/desktop/CyberDesktopHost.vue`
+- `apps/web/src/features/desktop/CyberWindow.vue`
 
 ### 4.3 将既有能力迁入窗口，而不是重写能力
 
@@ -52,9 +52,9 @@ Agent、History、Settings、Capability 和 Diagnostic 等内容拆分为“壳�
 
 关键落点：
 
-- `web/src/features/pets/nyxus/graph/executionPresentation.ts`
-- `web/src/features/pets/nyxus/graph/executionGeometry.ts`
-- `web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts`
+- `apps/web/src/features/pets/nyxus/graph/executionPresentation.ts`
+- `apps/web/src/features/pets/nyxus/graph/executionGeometry.ts`
+- `apps/web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts`
 
 ### 4.5 用信息优先级驱动几何和交互
 

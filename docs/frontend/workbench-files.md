@@ -2,7 +2,7 @@
 
 **状态：** 实施中
 
-本文维护 `web/` 中三种工作台模式共用的输入、文件工作区和 Terminal 展示事实。跨端字段见[共享协议](../shared/protocol/workspace-files-terminal.md)，后端路径和会话安全见[服务层专题](../backend/service/workspace-files-terminal.md)。
+本文维护 `apps/web/` 中三种工作台模式共用的输入、文件工作区和 Terminal 展示事实。跨端字段见[共享协议](../shared/protocol/workspace-files-terminal.md)，后端路径和会话安全见[服务层专题](../backend/service/workspace-files-terminal.md)。
 
 ## 入口与布局
 

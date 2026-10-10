@@ -1,6 +1,6 @@
 # 工具渲染器架构
 
-> **源码位置**：[web/src/features/agent/renderers/](../../web/src/features/agent/renderers/)
+> **源码位置**：[apps/web/src/features/agent/renderers/](../../apps/web/src/features/agent/renderers)
 > **相关文档**：[前端总览](README.md)｜[Sense 核心概念](../backend/core/sense.md)｜[协议规范](../shared/protocol/websocket.md)
 
 ## 概述
@@ -33,7 +33,7 @@ RendererRegistry（按工具名查找）
 
 ### 1. 渲染器注册表
 
-**位置**：[web/src/features/agent/renderers/registry.ts](../../web/src/features/agent/renderers/registry.ts)
+**位置**：[apps/web/src/features/agent/renderers/registry.ts](../../apps/web/src/features/agent/renderers/registry.ts)
 
 管理工具名到渲染器组件的映射：
 
@@ -50,7 +50,7 @@ if (hasRenderer("update_todo")) { ... }
 
 ### 2. 渲染器组件契约
 
-**位置**：[web/src/features/agent/renderers/types.ts](../../web/src/features/agent/renderers/types.ts)
+**位置**：[apps/web/src/features/agent/renderers/types.ts](../../apps/web/src/features/agent/renderers/types.ts)
 
 所有渲染器组件必须遵循统一的 Props 契约：
 
@@ -67,7 +67,7 @@ interface RendererProps {
 
 ### 3. 统一分发入口
 
-**位置**：[web/src/features/agent/renderers/index.ts](../../web/src/features/agent/renderers/index.ts)
+**位置**：[apps/web/src/features/agent/renderers/index.ts](../../apps/web/src/features/agent/renderers/index.ts)
 
 `SenseCallRenderer` 组件负责动态分发：
 
@@ -83,24 +83,24 @@ interface RendererProps {
 
 | 工具名 | 渲染器 | 功能 | 大小 |
 |--------|--------|------|------|
-| `update_todo` | [TodoRenderer.vue](../../web/src/features/agent/renderers/io/TodoRenderer.vue) | 清单样式，状态动画（☐/▣/✓） | 1.61 kB |
-| `execute_command` | [CommandRenderer.vue](../../web/src/features/agent/renderers/core/CommandRenderer.vue) | 命令输出美化，错误高亮，超时提示，命令一键复制 | 3.83 kB |
-| `read_file` | [FileReadRenderer.vue](../../web/src/features/agent/renderers/io/FileReadRenderer.vue) | 文件预览，压缩信息，行数统计 | 2.68 kB |
-| `write_file` | [FileWriteRenderer.vue](../../web/src/features/agent/renderers/io/FileWriteRenderer.vue) | 写入模式，内容预览 | 2.65 kB |
-| `generate_image` | [MediaRenderer.vue](../../web/src/features/agent/renderers/io/MediaRenderer.vue) | 图片/视频/音频预览（共享渲染器） | 2.73 kB |
-| `generate_video` | [MediaRenderer.vue](../../web/src/features/agent/renderers/io/MediaRenderer.vue) | 图片/视频/音频预览（共享渲染器） | - |
-| `generate_audio` | [MediaRenderer.vue](../../web/src/features/agent/renderers/io/MediaRenderer.vue) | 图片/视频/音频预览（共享渲染器） | - |
-| `search_codebase` | [SearchRenderer.vue](../../web/src/features/agent/renderers/core/SearchRenderer.vue) | 搜索结果列表，文件路径高亮 | 2.80 kB |
-| `spawn_role` | [SpawnRenderer.vue](../../web/src/features/agent/renderers/io/SpawnRenderer.vue) | 角色信息卡片，会话「详情」下钻抽屉 | 2.32 kB |
-| `skill` | [SkillRenderer.vue](../../web/src/features/agent/renderers/core/SkillRenderer.vue) | 技能激活卡片，指令预览 | 2.35 kB |
+| `update_todo` | [TodoRenderer.vue](../../apps/web/src/features/agent/renderers/io/TodoRenderer.vue) | 清单样式，状态动画（☐/▣/✓） | 1.61 kB |
+| `execute_command` | [CommandRenderer.vue](../../apps/web/src/features/agent/renderers/core/CommandRenderer.vue) | 命令输出美化，错误高亮，超时提示，命令一键复制 | 3.83 kB |
+| `read_file` | [FileReadRenderer.vue](../../apps/web/src/features/agent/renderers/io/FileReadRenderer.vue) | 文件预览，压缩信息，行数统计 | 2.68 kB |
+| `write_file` | [FileWriteRenderer.vue](../../apps/web/src/features/agent/renderers/io/FileWriteRenderer.vue) | 写入模式，内容预览 | 2.65 kB |
+| `generate_image` | [MediaRenderer.vue](../../apps/web/src/features/agent/renderers/io/MediaRenderer.vue) | 图片/视频/音频预览（共享渲染器） | 2.73 kB |
+| `generate_video` | [MediaRenderer.vue](../../apps/web/src/features/agent/renderers/io/MediaRenderer.vue) | 图片/视频/音频预览（共享渲染器） | - |
+| `generate_audio` | [MediaRenderer.vue](../../apps/web/src/features/agent/renderers/io/MediaRenderer.vue) | 图片/视频/音频预览（共享渲染器） | - |
+| `search_codebase` | [SearchRenderer.vue](../../apps/web/src/features/agent/renderers/core/SearchRenderer.vue) | 搜索结果列表，文件路径高亮 | 2.80 kB |
+| `spawn_role` | [SpawnRenderer.vue](../../apps/web/src/features/agent/renderers/io/SpawnRenderer.vue) | 角色信息卡片，会话「详情」下钻抽屉 | 2.32 kB |
+| `skill` | [SkillRenderer.vue](../../apps/web/src/features/agent/renderers/core/SkillRenderer.vue) | 技能激活卡片，指令预览 | 2.35 kB |
 
 **总计**：10 个内置工具全部实现专用渲染器，平均大小 2.5 kB（gzip 压缩后约 1.2 kB）。
 
 ### execute_command 的 result 解析约定
 
-`execute_command` 的 result 是后端 [bash.ts](../../src/agent/sense/bash.ts) `formatBashResult` 生成的**中文 key 自然语言字符串**（非 JSON），供 LLM 阅读工具结果。前端 [CommandRenderer.vue](../../web/src/features/agent/renderers/core/CommandRenderer.vue) 用正则提取字段——**正则 key 必须与后端中文 key 严格一致**，否则解析失败、status 兜底为 `error`（表现为「永远显示失败」）。
+`execute_command` 的 result 是后端 [bash.ts](../../apps/backend/src/agent/sense/bash.ts) `formatBashResult` 生成的**中文 key 自然语言字符串**（非 JSON），供 LLM 阅读工具结果。前端 [CommandRenderer.vue](../../apps/web/src/features/agent/renderers/core/CommandRenderer.vue) 用正则提取字段——**正则 key 必须与后端中文 key 严格一致**，否则解析失败、status 兜底为 `error`（表现为「永远显示失败」）。
 
-后端输出格式（[bash.ts:27-53](../../src/agent/sense/bash.ts#L27-L53)）：
+后端输出格式（[bash.ts:27-53](../../apps/backend/src/agent/sense/bash.ts#L27-L53)）：
 
 ```text
 状态: success | timeout | error
@@ -114,7 +114,7 @@ interface RendererProps {
 <stdout+stderr 合并>
 ```
 
-前端正则映射（[CommandRenderer.vue](../../web/src/features/agent/renderers/core/CommandRenderer.vue)）：
+前端正则映射（[CommandRenderer.vue](../../apps/web/src/features/agent/renderers/core/CommandRenderer.vue)）：
 
 | 字段 | 后端 key | 正则 |
 |------|---------|------|
@@ -131,13 +131,13 @@ interface RendererProps {
 
 ### spawn_role 会话下钻与跨层服务
 
-`spawn_role` 渲染器 [SpawnRenderer.vue](../../web/src/features/agent/renderers/io/SpawnRenderer.vue) 从 result 提取子 chatId（正则 `/chatId=([a-f0-9-]+)/`），UI **隐藏原始 chatId**、改显「详情」文字链接。点击「详情」→ 打开**新一层抽屉**覆盖当前，展示子 chat 的 direct 历史。
+`spawn_role` 渲染器 [SpawnRenderer.vue](../../apps/web/src/features/agent/renderers/io/SpawnRenderer.vue) 从 result 提取子 chatId（正则 `/chatId=([a-f0-9-]+)/`），UI **隐藏原始 chatId**、改显「详情」文字链接。点击「详情」→ 打开**新一层抽屉**覆盖当前，展示子 chat 的 direct 历史。
 
-**跨层下发**：渲染器不直接耦合 store，而是经独立管理层 [useHistoryDrawerManager](../../web/src/features/agent/drawer/useHistoryDrawerManager.ts)（App 顶层 `provide`、任意后代 `inject`）。`inject(manager).drillChild(chatId)` 即触发下钻——**无需 MessageBubble / SenseCallRenderer 层层 emit 透传**。
+**跨层下发**：渲染器不直接耦合 store，而是经独立管理层 [useHistoryDrawerManager](../../apps/web/src/features/agent/drawer/useHistoryDrawerManager.ts)（App 顶层 `provide`、任意后代 `inject`）。`inject(manager).drillChild(chatId)` 即触发下钻——**无需 MessageBubble / SenseCallRenderer 层层 emit 透传**。
 
-**抽屉栈**：管理层维护 `historyDrawerStack`（栈，store uiState 持有，无限层上限 5），每层 z-index 递增（280 + N×10）。[HistoryDrawer.vue](../../web/src/features/agent/drawer/HistoryDrawer.vue) 是栈容器（v-for [HistoryDrawerPanel](../../web/src/features/agent/drawer/HistoryDrawerPanel.vue) + 单遮罩）；关闭（ESC/遮罩/✕）逐层返回（`closeTop`），下层 panel 已挂载被遮盖、关闭顶层即时显现。
+**抽屉栈**：管理层维护 `historyDrawerStack`（栈，store uiState 持有，无限层上限 5），每层 z-index 递增（280 + N×10）。[HistoryDrawer.vue](../../apps/web/src/features/agent/drawer/HistoryDrawer.vue) 是栈容器（v-for [HistoryDrawerPanel](../../apps/web/src/features/agent/drawer/HistoryDrawerPanel.vue) + 单遮罩）；关闭（ESC/遮罩/✕）逐层返回（`closeTop`），下层 panel 已挂载被遮盖、关闭顶层即时显现。
 
-**遮罩实现约束**：**所有全屏 overlay 遮罩**只用纯半透明背景 `var(--scrim)`，**禁止加 `backdrop-filter: blur()`**。适用实例：HistoryDrawer 单蒙层 `.drawer-overlay.is-top-mask`（[HistoryDrawer.vue](../../web/src/features/agent/drawer/HistoryDrawer.vue)）、AgentDialog 模态 `.dialog-overlay.is-top-mask`（[agentDialog.less](../../web/src/features/agent/composer/agentDialog.less)，`source='history'` 非 pet/nyxus 来源时启用）、SettingsDialog `.settings-overlay`（[SettingsDialog.vue](../../web/src/features/agent/settings/SettingsDialog.vue) 浏览器 overlay 形态；Electron 原生窗 native 变体同样 `backdrop-filter: none`）。`backdrop-filter` 要求每帧对遮罩下方整个内容重新采样做模糊；桌面层 pet 运动循环与 Nyxus 粒子持续 rAF 动画，会让遮罩区域每帧强制重绘（DevTools Paint flashing 持续闪烁、元素持续被标记刷新），即使文字内容毫无变化。视觉上纯色遮罩与带 blur 差异很小。
+**遮罩实现约束**：**所有全屏 overlay 遮罩**只用纯半透明背景 `var(--scrim)`，**禁止加 `backdrop-filter: blur()`**。适用实例：HistoryDrawer 单蒙层 `.drawer-overlay.is-top-mask`（[HistoryDrawer.vue](../../apps/web/src/features/agent/drawer/HistoryDrawer.vue)）、AgentDialog 模态 `.dialog-overlay.is-top-mask`（[agentDialog.less](../../apps/web/src/features/agent/composer/agentDialog.less)，`source='history'` 非 pet/nyxus 来源时启用）、SettingsDialog `.settings-overlay`（[SettingsDialog.vue](../../apps/web/src/features/agent/settings/SettingsDialog.vue) 浏览器 overlay 形态；Electron 原生窗 native 变体同样 `backdrop-filter: none`）。`backdrop-filter` 要求每帧对遮罩下方整个内容重新采样做模糊；桌面层 pet 运动循环与 Nyxus 粒子持续 rAF 动画，会让遮罩区域每帧强制重绘（DevTools Paint flashing 持续闪烁、元素持续被标记刷新），即使文字内容毫无变化。视觉上纯色遮罩与带 blur 差异很小。
 
 **标题栏会话级联切换**：panel 标题栏原「根会话」+「任务分支」两个下拉已合并为单个 `el-cascader` 两级菜单（仅 pet 直开的 overlay 抽屉显示；`workbench-docked` 模式隐藏全部切换下拉、只显静态标题，分支/会话切换走工作台自身节点树与会话浏览器）。第一级按 `ChatSummary.taskId` 分任务（无 taskId 的会话各自成组，组标签取组内最近会话的时间·预览）；第二级为该任务的分支会话--当前任务用 `getTaskTimeline` 分支摘要（主流程/解释/继续前缀，主流程排前），其他任务退化用 `ChatSummary.branchKind` 前缀（原流程/继续/解释）。`checkStrictly` + `emitPath:false`：点第一级任务节点直接切到其代表会话（当前任务=activeBranch，其他=最近会话），value 恒为 chatId，change 统一 `manager.openRoot(chatId)`。
 
@@ -153,7 +153,7 @@ interface RendererProps {
 
 #### 步骤 1：定义参数类型
 
-在 [types.ts](../../web/src/features/agent/renderers/types.ts) 中添加工具参数类型：
+在 [types.ts](../../apps/web/src/features/agent/renderers/types.ts) 中添加工具参数类型：
 
 ```typescript
 // 示例：execute_command
@@ -194,7 +194,7 @@ const args = computed(() => props.parsedArgs as ExecuteCommandArgs);
 
 #### 步骤 3：注册渲染器
 
-在 [index.ts](../../web/src/features/agent/renderers/index.ts) 中注册：
+在 [index.ts](../../apps/web/src/features/agent/renderers/index.ts) 中注册：
 
 ```typescript
 registerRenderer("execute_command", () => import("./CommandRenderer.vue"));
@@ -208,7 +208,7 @@ registerRenderer("execute_command", () => import("./CommandRenderer.vue"));
 
 ### 工具参数类型
 
-**位置**：[renderers/types.ts](../../web/src/features/agent/renderers/types.ts)
+**位置**：[renderers/types.ts](../../apps/web/src/features/agent/renderers/types.ts)
 
 集中定义所有工具的参数类型，供渲染器共享使用：
 

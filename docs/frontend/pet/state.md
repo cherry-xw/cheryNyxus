@@ -1,8 +1,8 @@
 # 状态系统（养桌宠）
 
-> 源码 [status.ts](../../../web/src/domain/pets/motion/status.ts) ｜ 上级 [README.md](README.md) ｜ 模型见 [model.md](model.md) ｜ 渲染见 [rendering.md](rendering.md)
+> 源码 [status.ts](../../../apps/web/src/domain/pets/motion/status.ts) ｜ 上级 [README.md](README.md) ｜ 模型见 [model.md](model.md) ｜ 渲染见 [rendering.md](rendering.md)
 
-> 数值算法（衰减/恢复速率、阈值、交互增量）抽到 [status.ts](../../../web/src/domain/pets/motion/status.ts) 的纯函数 + `StatusConfig` 默认值；`usePetWorld` 模块级 `status = resolveStatus()` 统一注入（可传 overrides 覆盖默认）。下方数值均为默认值。
+> 数值算法（衰减/恢复速率、阈值、交互增量）抽到 [status.ts](../../../apps/web/src/domain/pets/motion/status.ts) 的纯函数 + `StatusConfig` 默认值；`usePetWorld` 模块级 `status = resolveStatus()` 统一注入（可传 overrides 覆盖默认）。下方数值均为默认值。
 
 ## emotion（情绪值）
 
@@ -30,7 +30,7 @@
 - **自动休息**：`fatigue ≥ StatusConfig.fatigueSleep`（默认 80）→ `action="sleep"`（谓词 `shouldSleep`）。
 - **恢复**：休息时 `fatigue↓` 且 `emotion↑`（睡觉双回血），由 `stepVitals(pet, dt, status)` 在 sleep 分支处理。
 - **唤醒**：`fatigue ≤ StatusConfig.fatigueWake`（默认 10，谓词 `shouldWake`）或被鼠标交互打扰 → 醒（`walk`）。
-- **contextUsage 已接入**：pet 作为 agent 显示层，`contextUsage` 字段（独立于 fatigue）由当前执行完成时的 `done` notification 驱动（CP7，[src/utils/token.ts](../../../src/utils/token.ts)），由 [ContextBar](../../../web/src/features/agent/toolbar/ContextBar.vue) 渲染。纯历史查看不计算该值。
+- **contextUsage 已接入**：pet 作为 agent 显示层，`contextUsage` 字段（独立于 fatigue）由当前执行完成时的 `done` notification 驱动（CP7，[apps/backend/src/utils/token.ts](../../../apps/backend/src/utils/token.ts)），由 [ContextBar](../../../apps/web/src/features/agent/toolbar/ContextBar.vue) 渲染。纯历史查看不计算该值。
 
 ## Mood / Action / 触发
 

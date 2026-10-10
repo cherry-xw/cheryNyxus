@@ -64,7 +64,7 @@
 - **策略模板卡片**：模板不用下拉而用四张卡片选择器（复用「AI 大脑」choice-board 交互）。每卡三行：模板名（带风险色点，绿->红）+ 一句话定位 + 按维度摘要小字（`读/写/命令/MCP/派遣`，取自模板默认值）。切换模板不清除已有覆盖项，与后端 `mergePolicy` 行为一致。
 - **分组覆盖**：六个覆盖 select 按「文件（读取/写入范围）/ 命令（最大沙箱权限 + 允许脚本方言）/ 集成（MCP 默认/派遣角色）」三组重排；label 挂 LabelTip（走 `.label-tip-popper`），说明取值语义与「工作区」「区外需审核」等术语。选项文案自描述化（如写入范围「区内直写 · 区外需审核」）。
 - **自定义标记**：覆盖字段被显式设置（非 undefined）时 label 旁亮主题色小点与「已自定义」；清空 select（clearable）即回到继承模板并熄灭标记。MCP/派遣的「继承」值在 tip 中解释为「按模板与未知工具监管规则处理」。
-- **生效结果预览条**：区块底部常驻一行摘要，由前端 `resolveEffectivePolicy`（后端 `src/core/security/rolePolicy.ts` 的 `defaultPolicy` + `mergePolicy` 镜像，位于 `web/src/features/agent/settings/config/rolePermissions.ts`）计算模板 + 覆盖的合并结果；被自定义的维度以主题色高亮。`inherit` 解析为实际生效值（未受信模板下未知 MCP/派遣 ->「每次审核」）。
+- **生效结果预览条**：区块底部常驻一行摘要，由前端 `resolveEffectivePolicy`（后端 `apps/backend/src/core/security/rolePolicy.ts` 的 `defaultPolicy` + `mergePolicy` 镜像，位于 `apps/web/src/features/agent/settings/config/rolePermissions.ts`）计算模板 + 覆盖的合并结果；被自定义的维度以主题色高亮。`inherit` 解析为实际生效值（未受信模板下未知 MCP/派遣 ->「每次审核」）。
 
 「允许脚本方言」checkbox 归入命令组，不再是独立行。`commands.categories`、`tools` 通配与 `spawn.allowedRoles` 属高级项，不进 UI，仅在 tip 中提示可手改 config.yaml。
 
@@ -114,7 +114,7 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 
 每预设以「外层预设列表 ↔ 内层角色工作台」双视图管理：列表卡片维护媒体/工作区/审批规则/会话路由，点击「编辑角色」进入该预设的角色工作台；工作台左侧只列出该预设引用的普通角色成员，新增角色即成为本预设成员（可从其他预设复制现有角色后独立编辑），右侧编辑角色详情，卡片上设组长（leader）与解释角色（detailRole）。运行时采用组长角色配置，不在预设内重定义 brain/sense。影子角色保留全局区，作为工作台内「影子角色」分类子视图。
 
-**公共角色双轨**：角色分公共、私有与系统锁定三层。公共角色（`roles.<name>.scope: 'public'`，或固定预设 cheryNexus 的非锁定普通成员角色，如解释角色 `explanation`）全局共享单一源、不归属任何预设，可被任意预设「引用」为成员（引用不复制配置，改动对所有引用它的预设生效）；组长必须是私有角色。私有角色归属单一预设、删除连全局删。`curator` / `roleArchitect` / `roleAcceptance` 为**系统锁定角色**（`lock: true`、非公共），供 Cherry Nexus 记忆维护、任意岗位设计与独立验收流程使用，保留在固定预设成员内以保证 `spawn_role` 可派发，不可删除或改为公共。预设列表顶部有「公共角色」独立入口 → 公共角色管理视图（全局维护层，增删改公共角色配置；固定预设种子公共角色属系统模板不可删除）。预设工作台新增弹窗提供「引用公共角色」来源；引用后的公共角色带「公共」标记、配置只读（引导去公共层修改），职责可设解释角色、不可设组长，删除为「移出本预设」。
+**公共角色双轨**：角色分公共、私有与系统锁定三层。公共角色（`roles.<name>.scope: 'public'`，或固定预设 cheryNyxus 的非锁定普通成员角色，如解释角色 `explanation`）全局共享单一源、不归属任何预设，可被任意预设「引用」为成员（引用不复制配置，改动对所有引用它的预设生效）；组长必须是私有角色。私有角色归属单一预设、删除连全局删。`curator` / `roleArchitect` / `roleAcceptance` 为**系统锁定角色**（`lock: true`、非公共），供 cheryNyxus 记忆维护、任意岗位设计与独立验收流程使用，保留在固定预设成员内以保证 `spawn_role` 可派发，不可删除或改为公共。预设列表顶部有「公共角色」独立入口 → 公共角色管理视图（全局维护层，增删改公共角色配置；固定预设种子公共角色属系统模板不可删除）。预设工作台新增弹窗提供「引用公共角色」来源；引用后的公共角色带「公共」标记、配置只读（引导去公共层修改），职责可设解释角色、不可设组长，删除为「移出本预设」。
 
 **卡片职责区**：预设列表卡片表面保留「为成员指定职责」区——「设置组长 / 设置解释」两个模式按钮 + 点击成员卡指定职责（黄色角标=组长、青色角标=解释角色），与工作台内职责按钮并存、均可调整。固定预设成员与组长不可调整；公共角色不可设为组长；锁定系统角色不可指定职责。
 
@@ -122,11 +122,11 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 
 **工作区选择**：浏览器中的「浏览」按钮通过 `config.workspace.browse.*` 协议打开「面包屑 + 目录列表」弹层，逐层懒加载服务端文件系统并选中目录回填。**默认全盘可浏览**（POSIX 从 `/`、win32 全部盘符），权限由系统对后端的实际访问报错把关——目录无权限时列表行内提示「下级无法加载（无权限）」，不可再钻取；`.chery` 系统配置目录恒不可见。配置 `server.workspace_browse.roots` 可收窄浏览范围。选中目录走既有 `updateWorkspace` → `workspaceChange` → 即时校验链路（`config.workspace.validate`）。手动输入绝对路径不受影响。
 
-**Cherry Nexus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（模板默认为 roles=[cheryNyxus, roleArchitect, roleAcceptance, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。其中 `curator` / `roleArchitect` / `roleAcceptance` 是系统锁定角色（锁定时不可删改、非公共），`explanation` 为种子公共角色。工作台内「编辑角色」仍可进入查看，但职责按钮（组长/解释角色）与成员增删对固定预设禁用；固定预设卡片表面职责区同样不可调整。
+**cheryNyxus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（模板默认为 roles=[cheryNyxus, roleArchitect, roleAcceptance, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。其中 `curator` / `roleArchitect` / `roleAcceptance` 是系统锁定角色（锁定时不可删改、非公共），`explanation` 为种子公共角色。工作台内「编辑角色」仍可进入查看，但职责按钮（组长/解释角色）与成员增删对固定预设禁用；固定预设卡片表面职责区同样不可调整。
 
-**审批规则**：原「规则文件」改名为「审批规则」。下拉选择 `.chery/rule/` 下覆盖文件（`presets.<name>.rule`），与基准 `base.yaml` 深合并（详见 [后端 Sense 文档](../backend/core/sense.md) 的“smart 规则表”）。右侧「刷新」按钮重新拉取 `rules.list`——手动新建或与 Cherry Nexus 对话生成规则文件后立即可见。tip 含机制（命中危险拦截/未命中放行）+ 操作方案（与 Cherry Nexus 对话生成 / 手动编辑 `.chery/rule/` + 保存；实际采用时间以设置页生效状态为准）。
+**审批规则**：原「规则文件」改名为「审批规则」。下拉选择 `.chery/rule/` 下覆盖文件（`presets.<name>.rule`），与基准 `base.yaml` 深合并（详见 [后端 Sense 文档](../backend/core/sense.md) 的“smart 规则表”）。右侧「刷新」按钮重新拉取 `rules.list`——手动新建或与 cheryNyxus 对话生成规则文件后立即可见。tip 含机制（命中危险拦截/未命中放行）+ 操作方案（与 cheryNyxus 对话生成 / 手动编辑 `.chery/rule/` + 保存；实际采用时间以设置页生效状态为准）。
 
-**tip 排版与配色**：`.label-tip-popper`（web/src/styles/element/index.scss）全局 `pre-line` 换行（content 内 `\n` 分节）。配色由同文件全局 `.el-popper.is-dark` 规则统一覆盖——背景 `var(--panel)` / 文字 `var(--ink)`，随主题自动翻转（深色深底浅字、浅色浅底深字）；覆盖 el-tooltip 默认黑底（其「文字色当背景」在深色模式会反转成浅底深字）。影响所有 LabelTip 及全部 el-tooltip 悬浮提示（编辑器/插件导入/指令/大脑/技能导入/预设/工作台等）。
+**tip 排版与配色**：`.label-tip-popper`（apps/web/src/styles/element/index.scss）全局 `pre-line` 换行（content 内 `\n` 分节）。配色由同文件全局 `.el-popper.is-dark` 规则统一覆盖——背景 `var(--panel)` / 文字 `var(--ink)`，随主题自动翻转（深色深底浅字、浅色浅底深字）；覆盖 el-tooltip 默认黑底（其「文字色当背景」在深色模式会反转成浅底深字）。影响所有 LabelTip 及全部 el-tooltip 悬浮提示（编辑器/插件导入/指令/大脑/技能导入/预设/工作台等）。
 
 **tip/title 使用边界（硬性要求）**：任何提示性内容**默认必须用 tip 展示**（LabelTip / el-tooltip，走 `.label-tip-popper` 排版）；只有**非常不重要**的信息才允许降级为原生 `title` 属性。新增 UI 一律按此判定，不得以 `title` 作为提示性内容的默认载体。
 
@@ -136,15 +136,15 @@ Hooks 与其他设置使用同一次保存，但有独立草稿。Hooks 注册�
 
 | 修改意图 | 代码入口与关键符号 | 验证入口 |
 | --- | --- | --- |
-| 保存竞态与关闭保护 | [useSettingsDialogController.ts](../../web/src/features/agent/settings/useSettingsDialogController.ts) 的 `save`、`confirmClose`；[App.vue](../../web/src/App.vue) 的 `requestCyberWindowClose` | `pnpm test:web`、`pnpm web:type-check`；浏览器与原生关闭验收 |
-| 设置入口、动效偏好与标签导航 | [SettingsDialog.vue](../../web/src/features/agent/settings/SettingsDialog.vue) 的 `controller`、`selectTab` | `web/test/architecture/settingsTabVisibility.test.ts` |
-| 会话归档、筛选与整组永久删除 | [ArchiveTab.vue](../../web/src/features/agent/settings/tabs/archive/ArchiveTab.vue) 与 `useArchiveTab`；跨窗口失效入口为 [startApplicationRuntime.ts](../../web/src/application/runtime/startApplicationRuntime.ts) | `web/test/settings/archive.test.ts`、`pnpm web:type-check`；浏览器人工验收 |
+| 保存竞态与关闭保护 | [useSettingsDialogController.ts](../../apps/web/src/features/agent/settings/useSettingsDialogController.ts) 的 `save`、`confirmClose`；[App.vue](../../apps/web/src/App.vue) 的 `requestCyberWindowClose` | `pnpm test:web`、`pnpm web:type-check`；浏览器与原生关闭验收 |
+| 设置入口、动效偏好与标签导航 | [SettingsDialog.vue](../../apps/web/src/features/agent/settings/SettingsDialog.vue) 的 `controller`、`selectTab` | `apps/web/test/architecture/settingsTabVisibility.test.ts` |
+| 会话归档、筛选与整组永久删除 | [ArchiveTab.vue](../../apps/web/src/features/agent/settings/tabs/archive/ArchiveTab.vue) 与 `useArchiveTab`；跨窗口失效入口为 [startApplicationRuntime.ts](../../apps/web/src/application/runtime/startApplicationRuntime.ts) | `apps/web/test/settings/archive.test.ts`、`pnpm web:type-check`；浏览器人工验收 |
 
 新增配置域从 `config/constants.ts` 的 `TABS` 和 `SettingsDialog.vue` 内容分支接入；保存继续统一经过父级控制器，子页不得自行重置保存基线。
 
-- `web/src/features/agent/settings/SettingsDialog.vue`：一级 Tab、保存和错误弹窗。
-- `web/src/features/agent/settings/components/ConfigApplyStatus.vue`：保存后的生效状态、等待原因和重启待办。
-- `web/src/features/agent/settings/components/TabShell.vue`：统一资源导航。
-- `web/src/features/agent/settings/tabs/agent/RolesTab.vue`：角色工作台（图鉴与装备），由 `PresetsTab` 内部挂载；`useRolesTabController.ts` 承担预设范围限定、从其他预设复制、删除连全局清理，以及公共角色的引用/只读/移出本预设语义；`publicRole.ts` 提供公共角色判定（scope 字段 + 固定预设种子推导）。
-- `src/agent/prompt/loadSkill.ts`：技能目录缓存与分页元数据。
-- `src/service/skill/`：技能列表、来源检查、同步和 staging。
+- `apps/web/src/features/agent/settings/SettingsDialog.vue`：一级 Tab、保存和错误弹窗。
+- `apps/web/src/features/agent/settings/components/ConfigApplyStatus.vue`：保存后的生效状态、等待原因和重启待办。
+- `apps/web/src/features/agent/settings/components/TabShell.vue`：统一资源导航。
+- `apps/web/src/features/agent/settings/tabs/agent/RolesTab.vue`：角色工作台（图鉴与装备），由 `PresetsTab` 内部挂载；`useRolesTabController.ts` 承担预设范围限定、从其他预设复制、删除连全局清理，以及公共角色的引用/只读/移出本预设语义；`publicRole.ts` 提供公共角色判定（scope 字段 + 固定预设种子推导）。
+- `apps/backend/src/agent/prompt/loadSkill.ts`：技能目录缓存与分页元数据。
+- `apps/backend/src/service/skill/`：技能列表、来源检查、同步和 staging。

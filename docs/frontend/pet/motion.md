@@ -1,6 +1,6 @@
 # 动画（GSAP）
 
-> 描述符源码 [animation.ts](../../../web/src/domain/pets/motion/animation.ts) ｜ GSAP 执行器 [usePetMotion.ts](../../../web/src/features/pets/composables/usePetMotion.ts) ｜ 上级 [README.md](README.md) ｜ 渲染分层见 [rendering.md](rendering.md)
+> 描述符源码 [animation.ts](../../../apps/web/src/domain/pets/motion/animation.ts) ｜ GSAP 执行器 [usePetMotion.ts](../../../apps/web/src/features/pets/composables/usePetMotion.ts) ｜ 上级 [README.md](README.md) ｜ 渲染分层见 [rendering.md](rendering.md)
 
 ## 分层
 
