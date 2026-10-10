@@ -1,0 +1,53 @@
+dependencies:
+  espressif/esp_lvgl_port:
+    component_hash: bfb2778c063b05a6c47c1a8de6d166ee4d911bc86fe0b3ff9e6bab06d2812033
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: public
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.6.2
+  espressif/esp_websocket_client:
+    component_hash: c5a067a9fddea370c478017e66fac302f4b79c3d4027e9bdd42a019786cceb92
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.6.1
+  idf:
+    source:
+      type: idf
+    version: 5.4.2
+  lvgl/lvgl:
+    component_hash: 096c69af22eaf8a2b721e3913da91918c5e6bf1a762a113ec01f401aa61337a0
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 9.2.2
+  mooncake:
+    component_hash: 3a40d6487d2448ab5247c10bfba16fcd3947f95badebc5bf0e87e0032f736735
+    dependencies: []
+    source:
+      git: https://github.com/Forairaaaaa/mooncake.git
+      path: .
+      type: git
+    version: 572a7e488641f1c3f22e85d65c27f095ecf27d12
+direct_dependencies:
+- espressif/esp_lvgl_port
+- espressif/esp_websocket_client
+- idf
+- lvgl/lvgl
+- mooncake
+manifest_hash: a4442ce313c79fb9d158b99b09c166e59a5e7dff4105966e87c6f4fc32fad22b
+target: esp32s3
+version: 2.0.0

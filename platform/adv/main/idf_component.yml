@@ -1,0 +1,8 @@
+dependencies:
+  idf: "==5.4.2"
+  lvgl/lvgl: "==9.2.2"
+  espressif/esp_lvgl_port: "==2.6.2"
+  espressif/esp_websocket_client: "==1.6.1"
+  mooncake:
+    git: https://github.com/Forairaaaaa/mooncake.git
+    version: 572a7e488641f1c3f22e85d65c27f095ecf27d12

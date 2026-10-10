@@ -1,0 +1,14 @@
+menu "cheryNyxus Wi-Fi credential protection"
+choice ADV_WIFI_PROTECTION
+    prompt "Previously provisioned credential protection (never provision here)"
+    default ADV_WIFI_PROTECTION_OFF
+config ADV_WIFI_PROTECTION_OFF
+    bool "Off: reject secret persistence"
+config ADV_WIFI_PROTECTION_HMAC
+    bool "Existing read/write-protected HMAC eFuse key and Secure Boot"
+    depends on NVS_ENCRYPTION && NVS_SEC_KEY_PROTECT_USING_HMAC
+config ADV_WIFI_PROTECTION_FLASH
+    bool "Existing Flash Encryption, nvs_keys and Secure Boot"
+    depends on NVS_ENCRYPTION && NVS_SEC_KEY_PROTECT_USING_FLASH_ENC
+endchoice
+endmenu
