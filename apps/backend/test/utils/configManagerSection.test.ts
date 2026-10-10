@@ -1,7 +1,7 @@
 /**
  * config.yaml 中 manager 段（本地管理器监听配置）的读写行为：
  * - validateRawConfig 校验 manager.host 类型；
- * - readRawConfig 剥离 manager/media（设置面板不可见）；
+ * - readRawConfig 剥离 apps/manager/media（设置面板不可见）；
  * - saveRawConfig 从磁盘原样保留 manager（设置保存不丢）。
  *
  * 用临时 CHERY_DIR 隔离，避免污染真实 .chery/。

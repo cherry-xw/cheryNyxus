@@ -299,8 +299,7 @@ export function applyConfigOperations(
     }
     if (spec.expectedId) {
       const expectedId = (operation as unknown as Record<string, unknown>).expectedId as
-        | string
-        | undefined
+        string | undefined
       const currentId = (current as { id?: string }).id
       if (expectedId && currentId !== expectedId) {
         errors.push(

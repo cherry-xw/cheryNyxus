@@ -54,7 +54,7 @@ it('preserves a real worker and two sockets across a save during HTTP LLM stream
   const providerPort = (provider.address() as { port: number }).port
   const wsPort = await freePort()
   const webPort = await freePort()
-  cpSync(resolve('test/protocol-completeness/fixtures'), directory, { recursive: true })
+  cpSync(resolve('apps/backend/test/protocol-completeness/fixtures'), directory, { recursive: true })
   const configPath = join(directory, '.chery/config.yaml')
   const config = yaml.load(readFileSync(configPath, 'utf8')) as RuntimeConfigSource
   config.llm.brain.continuity = {
@@ -65,7 +65,7 @@ it('preserves a real worker and two sockets across a save during HTTP LLM stream
   }
   config.server = { host: '127.0.0.1', port: wsPort, webPort, serve_frontend: false }
   writeFileSync(configPath, yaml.dump(config))
-  const child = fork(resolve('src/index.ts'), ['--worker'], {
+  const child = fork(resolve('apps/backend/src/index.ts'), ['--worker'], {
     execArgv: ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href],
     cwd: directory,
     env: {
@@ -74,7 +74,7 @@ it('preserves a real worker and two sockets across a save during HTTP LLM stream
       DB_DIR: join(directory, '.chery/db'),
       CHERY_TRANSPORT: 'json',
       NODE_ENV: 'test',
-      TSX_TSCONFIG_PATH: resolve('tsconfig.json'),
+      TSX_TSCONFIG_PATH: resolve('apps/backend/tsconfig.json'),
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
