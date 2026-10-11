@@ -1,13 +1,26 @@
 /* Plan Viewer 前端逻辑 —— 原生 JS，无构建、无外部依赖
- * 视图层级：#/ 总览 → #/plan/<dir> 任务详情 → #/file/<path> 子任务文件
+ * 视图层级：#/ 总览、#/issues 差异、#/plan/<dir> 任务详情、#/file/<path> 文档
  */
 
 import { extractLinks, collectReferences, isReferenceDefinition, createHeadingSlugger, splitTableRow, stripMd } from './markdown.js';
 import { posixJoin, documentHref, parseRoute, createNavigation, loadCurrentFile } from './navigation.js';
+import { filterPlans, filterIssues } from './filters.js';
 
 const $app = document.getElementById('app');
 const $sidebar = document.getElementById('sidebar');
-const state = { data: null, error: null };
+const $refreshState = document.getElementById('refresh-state');
+const state = {
+  data: null,
+  error: null,
+  refreshError: null,
+  refreshing: false,
+  auditFilter: 'all',
+  issueQuery: '',
+  planQuery: '',
+  planStatus: 'all',
+  attentionOnly: false,
+  sidebarOpen: false,
+};
 const navigation = createNavigation();
 
 /* ---------------- 基础工具 ---------------- */
@@ -26,6 +39,7 @@ function escapeHtml(s) {
 
 const PLAN_STATUS_CLASS = {
   规划中: 'st-planning',
+  执行中: 'st-doing',
   待综合验证: 'st-verifying',
   待用户审批: 'st-approval',
   已完成: 'st-done',
@@ -34,13 +48,14 @@ const PLAN_STATUS_CLASS = {
 
 const CHIP_CLASS = {
   规划中: 'planning',
+  执行中: 'doing',
   待综合验证: 'verifying',
   待用户审批: 'approval',
   已完成: 'done',
   目录缺失: 'missing',
 };
 
-const TASK_CLASS = { 已完成: 'st-done', 进行中: 'st-doing', 未开始: 'st-todo', 待开始: 'st-todo' };
+const TASK_CLASS = { 已完成: 'st-done', 进行中: 'st-doing', 未开始: 'st-todo', 阻塞: 'st-other' };
 
 function planBadgeClass(status) {
   return PLAN_STATUS_CLASS[status] || 'st-other';
@@ -280,48 +295,113 @@ function progressBar(pr) {
     <div class="progress-legend">${legend.join('')}</div>`;
 }
 
+function issuePanel(issues, counts, title = '文档一致性') {
+  const errors = issues.filter((i) => i.severity === 'error').length;
+  const warnings = issues.filter((i) => i.severity === 'warning').length;
+  const visible = filterIssues(issues, { query: state.issueQuery, severity: state.auditFilter });
+  const filters = [['all', `全部 ${issues.length}`], ['error', `阻断错误 ${errors}`], ['warning', `待核对 ${warnings}`]];
+  const rows = visible.map((issue) => {
+    const available = issue.path === 'README.md' || state.data.plans.some((p) => p.exists && (issue.path === `${p.dir}/README.md` || (p.files || []).some((f) => issue.path === `${p.dir}/${f.file}`)));
+    const canLink = available && issue.path && !issue.path.startsWith('../') && issue.path.endsWith('.md');
+    const label = `${issue.path}:${issue.line || 1}`;
+    const location = canLink ? `<a href="#/file/${encodeURIComponent(issue.path)}">${escapeHtml(label)}</a>` : `<code>${escapeHtml(label)}</code>`;
+    return `<details class="audit-issue ${issue.severity}">
+      <summary><span>${issue.severity === 'error' ? '阻断错误' : '待核对'} · ${escapeHtml(issue.message)}</span><code>${escapeHtml(issue.code)}</code></summary>
+      <div class="audit-location">资料位置：${location}</div>
+      <dl class="audit-values"><div><dt>预期 / 对照</dt><dd>${escapeHtml(issue.expected)}</dd></div><div><dt>实际记录</dt><dd>${escapeHtml(issue.actual)}</dd></div></dl>
+      <p class="audit-action">建议：${escapeHtml(issue.action)}</p>
+    </details>`;
+  }).join('');
+  return `<section class="audit-panel" aria-label="${escapeHtml(title)}">
+    <div class="audit-heading"><h2>${escapeHtml(title)}</h2></div>
+    <p class="audit-note">检查时间：${escapeHtml(new Date(state.data.generatedAt).toLocaleString())}</p>
+    <div class="audit-counts">${counts.map(([label, value]) => `<span><strong>${escapeHtml(value)}</strong> ${escapeHtml(label)}</span>`).join('')}</div>
+    <p class="audit-note">${errors ? '存在基础不一致，交接或完成前需要修正。' : '未发现阻断错误。'}${warnings ? ' 待核对项需确认用途和当前事实。' : ''} 静态检查不代表功能验收通过。</p>
+    <div class="audit-filters" role="group" aria-label="筛选差异">${filters.map(([value, label]) => `<button type="button" data-audit-filter="${value}" aria-pressed="${state.auditFilter === value}">${label}</button>`).join('')}</div>
+    <label class="field-label" for="issue-search">查找差异</label>
+    <input id="issue-search" class="search-field" type="search" data-filter-input="issues" value="${escapeHtml(state.issueQuery)}" placeholder="描述、路径或检查编号" autocomplete="off" />
+    <div class="audit-list">${rows || `<p class="audit-empty">${issues.length ? '当前筛选下没有差异。' : '当前没有差异。'}</p>`}</div>
+  </section>`;
+}
+
+function planComparison(plan) {
+  if (plan.registered && plan.exists && plan.indexStatus === plan.readmeStatus) return '';
+  return `<div class="plan-comparison"><span>入口：<strong>${escapeHtml(plan.indexStatus || '未登记')}</strong></span><span>任务文档：<strong>${escapeHtml(plan.readmeStatus || '缺失')}</strong></span></div>`;
+}
+
 function planCard(plan) {
   if (!plan.exists) {
     return `<article class="card missing">
       <div class="card-head"><span class="card-title">${escapeHtml(plan.name)}</span>${statusBadge('目录缺失')}</div>
-      <p class="scope">${escapeHtml(plan.scope || '总入口已登记，但计划目录不存在（旧计划已归档或尚未创建）')}</p>
+      <p class="scope">${escapeHtml(plan.scope || '总入口已登记，但任务 README 不可读取，请核对差异。')}</p>
     </article>`;
   }
-  const docCount = (plan.files || []).filter((f) => f.inside).length;
+  const docCount = plan.counts?.documents || 0;
+  const issueCount = (plan.issues || []).length;
   return `<article class="card">
     <div class="card-head">
       <a class="card-title" href="#/plan/${encodeURIComponent(plan.dir)}">${escapeHtml(plan.name)}</a>
       ${statusBadge(plan.status)}
     </div>
+    ${planComparison(plan)}
     <p class="scope">${escapeHtml(plan.scope || plan.goal || '')}</p>
     ${progressBar(plan.progress)}
     <div class="card-meta">
       <span>子任务 ${plan.progress ? `${plan.progress.done}/${plan.progress.total} 完成` : '—'}</span>
-      ${docCount ? `<span>${docCount} 个关联文档</span>` : ''}
+      <span>${docCount} 个实际文档</span>
+      ${issueCount ? `<a class="audit-card-link" href="#/plan/${encodeURIComponent(plan.dir)}?anchor=plan-audit">${issueCount} 项差异需处理</a>` : '<span>基础记录一致</span>'}
     </div>
   </article>`;
 }
 
 function viewHome() {
   renderSidebar(null);
-  if (state.error) {
+  if (state.error && !state.data) {
     $app.innerHTML = `<div class="error-panel">数据加载失败：${escapeHtml(state.error)}<br>请确认服务已启动且 docs/plan 目录可访问，然后刷新重试。</div>`;
     return;
   }
-  const { summary, plans } = state.data;
+  const { summary, plans, audit } = state.data;
+  const visiblePlans = filterPlans(plans, { query: state.planQuery, status: state.planStatus, attention: state.attentionOnly });
+  const statuses = [['all', `全部 ${plans.length}`], ...['规划中', '执行中', '待综合验证', '待用户审批'].map((status) => [status, `${status} ${plans.filter((plan) => plan.status === status).length}`])];
+  const errors = audit.issues.filter((issue) => issue.severity === 'error').length;
+  const warnings = audit.issues.filter((issue) => issue.severity === 'warning').length;
   const chips = Object.entries(summary)
     .map(([k, v]) => `<span class="chip ${CHIP_CLASS[k] || 'unknown'}">${escapeHtml(k)} · ${v}</span>`)
     .join('');
   $app.innerHTML = `
-    <section class="stats">${chips}<span class="chip">共 ${plans.length} 项</span></section>
-    <section class="plan-list">${plans.map(planCard).join('')}</section>`;
+    ${refreshNotice()}
+    <section class="overview-head"><div><p class="eyebrow">活动计划</p><h1>任务总览</h1><p>按当前阶段和检查结果查找任务。检查只核对记录，不能替代业务验收。</p></div><span class="total-count">${plans.length} 项任务</span></section>
+    <section class="stats" aria-label="任务阶段">${chips}</section>
+    <a class="audit-summary" href="#/issues"><span>文档检查</span><strong>${errors ? `${errors} 项阻断错误` : '无阻断错误'}</strong><span>${warnings} 项待核对 <span aria-hidden="true">→</span></span></a>
+    <section class="plan-section" aria-label="任务列表">
+      <div class="section-head"><h2>任务列表</h2><span>显示 ${visiblePlans.length} / ${plans.length} 项</span></div>
+      <label class="field-label" for="plan-search">查找任务</label>
+      <input id="plan-search" class="search-field" type="search" data-filter-input="plans" value="${escapeHtml(state.planQuery)}" placeholder="名称、目录或范围" autocomplete="off" />
+      <div class="filter-row" role="group" aria-label="按阶段筛选">${statuses.map(([value, label]) => `<button type="button" data-plan-status="${value}" aria-pressed="${state.planStatus === value}">${label}</button>`).join('')}</div>
+      <button type="button" class="attention-filter" data-attention-only aria-pressed="${state.attentionOnly}">只看需要处理的任务 · ${plans.filter((plan) => (plan.issues || []).length).length}</button>
+      <div class="plan-list">${visiblePlans.map(planCard).join('') || '<p class="empty-state">没有符合条件的任务。可以清除搜索词或切换筛选条件。</p>'}</div>
+    </section>`;
+}
+
+function viewIssues() {
+  renderSidebar(null);
+  if (state.error && !state.data) return viewHome();
+  const { audit } = state.data;
+  $app.innerHTML = `${refreshNotice()}
+    <nav class="crumbs"><a href="#/">← 任务总览</a></nav>
+    <header class="section-head"><div><p class="eyebrow">计划记录</p><h1>检查差异</h1></div></header>
+    ${issuePanel(audit.issues, [['入口登记', audit.summary.registered], ['实际任务目录', audit.summary.directories], ['实际文档', audit.summary.documents]])}`;
+}
+
+function refreshNotice() {
+  return state.refreshError ? `<div class="error-panel refresh-error" role="alert">重新检查失败：${escapeHtml(state.refreshError)}。当前仍显示上次成功读取的结果。</div>` : '';
 }
 
 /* ---------------- 视图：侧栏目录树 ---------------- */
 
-/** 计划内可跳转的关联文档（排除计划自身 README 与计划目录外的链接） */
+/** 计划内可跳转的关联文档；服务端已经排除计划自身 README。 */
 function planDocs(plan) {
-  return (plan.files || []).filter((f) => f.inside && !/readme\.md$/i.test(f.file));
+  return (plan.files || []).filter((f) => f.inside);
 }
 
 /**
@@ -330,6 +410,7 @@ function planDocs(plan) {
  */
 function renderSidebar(plan, activeRel) {
   if (!plan) {
+    state.sidebarOpen = false;
     $sidebar.hidden = true;
     $sidebar.innerHTML = '';
     return;
@@ -353,6 +434,11 @@ function renderSidebar(plan, activeRel) {
   $sidebar.innerHTML = `<div class="tree-head">关联文档 · ${escapeHtml(plan.name)}</div>
     ${items ? `<nav class="tree">${items}</nav>` : '<div class="tree-empty">该计划暂无关联文档</div>'}`;
   $sidebar.hidden = false;
+  $sidebar.classList.toggle('is-open', state.sidebarOpen);
+}
+
+function sidebarToggle() {
+  return `<button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="sidebar" aria-expanded="${state.sidebarOpen}">${state.sidebarOpen ? '关闭目录' : '打开目录'}</button>`;
 }
 
 /* ---------------- 视图：任务详情 ---------------- */
@@ -366,14 +452,16 @@ function viewPlan(dir) {
   }
   renderSidebar(plan);
   $app.innerHTML = `
-    <nav class="crumbs"><a href="#/">← 总览</a><span class="sep">/</span><span>${escapeHtml(plan.name)}</span></nav>
+    ${refreshNotice()}
+    <nav class="crumbs"><a href="#/">← 总览</a><span class="sep">/</span><span>${escapeHtml(plan.name)}</span>${sidebarToggle()}</nav>
     <header class="plan-head">
       <h1>${escapeHtml(plan.name)}</h1>
       ${statusBadge(plan.status)}
-      ${plan.readmeStatus && plan.readmeStatus !== plan.status ? statusBadge(plan.readmeStatus) : ''}
     </header>
+    ${planComparison(plan)}
     ${progressBar(plan.progress)}
-    <article class="md">${mdToHtml(plan.markdown, `${plan.dir}/README.md`)}</article>`;
+    <section class="plan-document"><h2>计划文档</h2><article class="md">${mdToHtml(plan.markdown, `${plan.dir}/README.md`)}</article></section>
+    <div id="plan-audit">${issuePanel(plan.issues || [], [['台账关联小任务文件', plan.counts.ledgerFiles], ['带状态的小任务文件', plan.counts.taskFiles], ['全部文档', plan.counts.documents], ['入口可达文档', plan.counts.reachableDocuments]], '本任务差异')}</div>`;
 }
 
 /* ---------------- 视图：子任务文件 ---------------- */
@@ -384,29 +472,35 @@ async function viewFile(rel, ticket) {
   const plan = state.data.plans.find((p) => p.exists && p.dir === norm.split('/')[0]);
   const fileName = norm.split('/').slice(1).join('/') || norm;
   const crumbs = plan
-    ? `<nav class="crumbs"><a href="#/">← 总览</a><span class="sep">/</span><a href="#/plan/${encodeURIComponent(plan.dir)}">${escapeHtml(plan.name)}</a><span class="sep">/</span><span>${escapeHtml(fileName)}</span></nav>`
+    ? `<nav class="crumbs"><a href="#/">← 总览</a><span class="sep">/</span><a href="#/plan/${encodeURIComponent(plan.dir)}">${escapeHtml(plan.name)}</a><span class="sep">/</span><span>${escapeHtml(fileName)}</span>${sidebarToggle()}</nav>`
     : `<nav class="crumbs"><a href="#/">← 总览</a><span class="sep">/</span><span>${escapeHtml(norm)}</span></nav>`;
   $app.innerHTML = '<div class="loading">加载中…</div>';
   renderSidebar(plan || null, norm);
   try {
     const body = await loadCurrentFile(norm, ticket);
     if (!body || !ticket.isCurrent()) return;
-    $app.innerHTML = `${crumbs}
+    $app.innerHTML = `${refreshNotice()}${crumbs}
       <article class="md">${mdToHtml(body.markdown, norm)}</article>`;
   } catch (err) {
     if (!ticket.isCurrent()) return;
-    $app.innerHTML = `${crumbs}
+    $app.innerHTML = `${refreshNotice()}${crumbs}
       <div class="error-panel">无法读取文件：${escapeHtml(String(err.message || err))}</div>`;
   }
 }
 
 /* ---------------- 路由 ---------------- */
 
-async function route() {
+async function route({ preserveScroll = false, focusInput = null, cursor = null } = {}) {
+  const previousScroll = window.scrollY;
   const ticket = navigation.begin();
-  if (state.error) return viewHome();
+  if (state.error && !state.data) return viewHome();
   if (!state.data) return;
   const target = parseRoute(location.hash);
+  document.querySelectorAll('[data-top-nav]').forEach((link) => {
+    const active = target.kind === link.dataset.topNav || (link.dataset.topNav === 'home' && ['plan', 'file'].includes(target.kind));
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
   if (target.kind === 'invalid') {
     renderSidebar(null);
     $app.innerHTML = '<nav class="crumbs"><a href="#/">← 总览</a></nav><div class="error-panel">无法识别文档地址，请从总览重新打开。</div>';
@@ -414,22 +508,91 @@ async function route() {
   }
   if (target.kind === 'file') await viewFile(target.path, ticket);
   else if (target.kind === 'plan') viewPlan(target.path);
+  else if (target.kind === 'issues') viewIssues();
   else viewHome();
   if (!ticket.isCurrent()) return;
   if (target.anchor) document.getElementById(target.anchor)?.scrollIntoView();
+  else if (preserveScroll) window.scrollTo(0, previousScroll);
   else window.scrollTo(0, 0);
+  if (focusInput) {
+    const input = $app.querySelector(`[data-filter-input="${focusInput}"]`);
+    input?.focus();
+    if (cursor !== null && input?.setSelectionRange) input.setSelectionRange(cursor, cursor);
+  }
+}
+
+function updateRefreshUi() {
+  $refreshState.textContent = state.refreshing ? '正在检查…' : state.refreshError ? '刷新失败，显示上次结果' : state.data ? `检查于 ${new Date(state.data.generatedAt).toLocaleString()}` : '尚未读取计划';
+  document.querySelectorAll('[data-refresh]').forEach((button) => {
+    button.disabled = state.refreshing;
+    button.textContent = state.refreshing ? '检查中…' : '重新检查';
+  });
 }
 
 async function boot() {
+  if (state.refreshing) return;
+  const hadData = Boolean(state.data);
+  state.refreshing = true;
+  state.refreshError = null;
+  $app.querySelector('.refresh-error')?.remove();
+  updateRefreshUi();
   try {
     const res = await fetch('/api/plan');
     if (!res.ok) throw new Error(`API 返回 ${res.status}`);
-    state.data = await res.json();
+    const data = await res.json();
+    state.data = data;
+    state.error = null;
   } catch (err) {
-    state.error = String(err.message || err);
+    if (hadData) state.refreshError = String(err.message || err);
+    else state.error = String(err.message || err);
   }
-  route();
+  state.refreshing = false;
+  if (hadData && state.refreshError) {
+    $app.insertAdjacentHTML('afterbegin', refreshNotice());
+  } else {
+    await route({ preserveScroll: hadData });
+  }
+  updateRefreshUi();
 }
 
-window.addEventListener('hashchange', route);
+$app.addEventListener('click', (event) => {
+  const filter = event.target.closest('[data-audit-filter]');
+  if (filter) { state.auditFilter = filter.dataset.auditFilter; route({ preserveScroll: true }); return; }
+  const status = event.target.closest('[data-plan-status]');
+  if (status) { state.planStatus = status.dataset.planStatus; route({ preserveScroll: true }); return; }
+  if (event.target.closest('[data-attention-only]')) { state.attentionOnly = !state.attentionOnly; route({ preserveScroll: true }); return; }
+  const toggle = event.target.closest('[data-sidebar-toggle]');
+  if (toggle) {
+    state.sidebarOpen = !state.sidebarOpen;
+    $sidebar.classList.toggle('is-open', state.sidebarOpen);
+    toggle.setAttribute('aria-expanded', String(state.sidebarOpen));
+    toggle.textContent = state.sidebarOpen ? '关闭目录' : '打开目录';
+  }
+});
+$app.addEventListener('input', (event) => {
+  const kind = event.target.dataset.filterInput;
+  if (!kind) return;
+  if (kind === 'plans') state.planQuery = event.target.value;
+  if (kind === 'issues') state.issueQuery = event.target.value;
+  route({ preserveScroll: true, focusInput: kind, cursor: event.target.selectionStart });
+});
+$sidebar.addEventListener('click', (event) => {
+  if (!event.target.closest('a')) return;
+  state.sidebarOpen = false;
+  $sidebar.classList.remove('is-open');
+});
+document.addEventListener('click', (event) => {
+  if (event.target.closest('[data-refresh]')) boot();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.sidebarOpen) {
+    state.sidebarOpen = false;
+    $sidebar.classList.remove('is-open');
+    const toggle = $app.querySelector('[data-sidebar-toggle]');
+    toggle?.setAttribute('aria-expanded', 'false');
+    if (toggle) toggle.textContent = '打开目录';
+    toggle?.focus();
+  }
+});
+window.addEventListener('hashchange', () => { state.sidebarOpen = false; route(); });
 boot();

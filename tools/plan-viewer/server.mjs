@@ -16,9 +16,10 @@
  */
 
 import http from 'node:http';
+import { auditPlans } from './audit.mjs';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { findTables, extractLinks, stripMd, collectReferences, metadataValue, withoutFencedCode } from './public/markdown.js';
@@ -37,6 +38,7 @@ const EMBEDDED_WEB = {
   '/style.css': { type: 'text/css; charset=utf-8', data: '__PLAN_VIEWER_ASSET_STYLE__' },
   '/markdown.js': { type: 'text/javascript; charset=utf-8', data: '__PLAN_VIEWER_ASSET_MARKDOWN__' },
   '/navigation.js': { type: 'text/javascript; charset=utf-8', data: '__PLAN_VIEWER_ASSET_NAVIGATION__' },
+  '/filters.js': { type: 'text/javascript; charset=utf-8', data: '__PLAN_VIEWER_ASSET_FILTERS__' },
 };
 
 const EMBEDDED = !Object.values(EMBEDDED_WEB).some((a) => a.data.includes('__PLAN_VIEWER_ASSET_'));
@@ -127,7 +129,7 @@ function toPosix(p) {
 /* ---------------- Markdown 解析 ---------------- */
 
 /** 台账状态词 → 归一化分组 */
-const TASK_STATUS = { 已完成: 'done', 进行中: 'doing', 未开始: 'todo', 待开始: 'todo' };
+const TASK_STATUS = { 已完成: 'done', 进行中: 'doing', 未开始: 'todo', 阻塞: 'other' };
 
 function normalizeTaskStatus(raw) {
   const status = stripMd(raw || '').split(/[。;；,，]/)[0].trim();
@@ -139,41 +141,6 @@ function isRelMd(href) {
 }
 
 /* ---------------- 各类文档解析 ---------------- */
-
-/** 解析总入口 README：任务 / 状态 / 范围 表格 */
-function parseRootIndex(md) {
-  const refs = collectReferences(md);
-  const entries = [];
-  for (const table of findTables(md)) {
-    const header = table.columns.map(stripMd);
-    const taskCol = header.indexOf('任务');
-    const statusCol = header.findIndex((c) => c.includes('状态'));
-    const scopeCol = header.findIndex((c) => c.includes('范围'));
-    if (taskCol < 0) continue;
-    entries.push(...table.rows.map((cells) => {
-        const cell = cells[taskCol] || '';
-        const links = extractLinks(cell, refs).filter((l) => isRelMd(l.href));
-        const name = links.length ? links[0].text : stripMd(cell);
-        // href 形如 dir/README.md，去掉 README.md 得到任务目录
-        let dir = '';
-        if (links.length) {
-          try {
-            const file = decodeURIComponent(links[0].href.split('#')[0]);
-            if (isInsidePlan(file) && /^README\.md$/i.test(path.basename(file))) {
-              dir = toPosix(path.relative(PLAN_DIR, path.dirname(path.resolve(PLAN_DIR, file))));
-            }
-          } catch { /* Malformed encoded paths remain missing entries. */ }
-        }
-        return {
-          name,
-          dir,
-          status: stripMd(cells[statusCol] || ''),
-          scope: scopeCol >= 0 ? (cells[scopeCol] || '').trim() : '',
-        };
-      }));
-  }
-  return { entries };
-}
 
 /** 提取指定章节标题后的第一段非空文本（用于卡片摘要） */
 function extractSectionIntro(md, title) {
@@ -261,11 +228,9 @@ function parsePlanReadme(md, dir) {
   const cbDone = (prose.match(/^\s*[-*] \[[xX]\]/gm) || []).length;
   const cbTotal = (prose.match(/^\s*[-*] \[[xX ]\]/gm) || []).length;
 
-  // 进度口径优先级：声明进度行 > 台账统计 > checkbox 统计
+  // 进度口径优先级：台账统计 > 声明进度行 > checkbox 统计
   let progress = null;
-  if (progressMatch && Number.isSafeInteger(Number(progressMatch[2])) && Number(progressMatch[1]) <= Number(progressMatch[2])) {
-    progress = { done: Number(progressMatch[1]), total: Number(progressMatch[2]), source: '声明进度' };
-  } else if (ledger) {
+  if (ledger) {
     const counts = { done: 0, doing: 0, todo: 0, other: 0 };
     for (const row of ledger.rows) counts[row.group] += 1;
     const todo = ledger.rows.length - counts.done - counts.doing - counts.other;
@@ -277,6 +242,8 @@ function parsePlanReadme(md, dir) {
       total: ledger.rows.length,
       source: '台账统计',
     };
+  } else if (progressMatch && Number.isSafeInteger(Number(progressMatch[2])) && Number(progressMatch[1]) <= Number(progressMatch[2])) {
+    progress = { done: Number(progressMatch[1]), total: Number(progressMatch[2]), source: '声明进度' };
   } else if (cbTotal > 0) {
     progress = { done: cbDone, todo: cbTotal - cbDone, total: cbTotal, source: '清单勾选' };
   }
@@ -296,7 +263,10 @@ function parsePlanReadme(md, dir) {
 async function readPlanFile(rel) {
   if (!isInsidePlan(rel)) return null;
   try {
-    const content = await readFile(path.resolve(PLAN_DIR, rel), 'utf8');
+    const realRoot = await realpath(PLAN_DIR);
+    const realFile = await realpath(path.resolve(PLAN_DIR, rel));
+    if (!(realFile === realRoot || realFile.startsWith(realRoot + path.sep))) return null;
+    const content = await readFile(realFile, 'utf8');
     return content.length <= MAX_READ_BYTES ? content : content.slice(0, MAX_READ_BYTES);
   } catch {
     return null;
@@ -304,20 +274,17 @@ async function readPlanFile(rel) {
 }
 
 async function buildPlanData() {
-  const rootMd = await readPlanFile('README.md');
-  const index = rootMd ? parseRootIndex(rootMd) : { entries: [] };
+  const audit = auditPlans({ planDir: PLAN_DIR });
   const plans = [];
-  for (const entry of index.entries) {
-    if (!entry.dir) {
-      plans.push({ ...entry, exists: false });
-      continue;
-    }
-    const md = await readPlanFile(`${entry.dir}/README.md`);
+  for (const entry of audit.plans) {
+    const md = entry.exists ? await readPlanFile(`${entry.dir}/README.md`) : null;
     if (md == null) {
-      plans.push({ ...entry, exists: false });
+      plans.push({ ...entry, status: entry.indexStatus || '目录缺失' });
       continue;
     }
-    plans.push({ ...entry, exists: true, ...parsePlanReadme(md, entry.dir), markdown: md });
+    const parsed = parsePlanReadme(md, entry.dir);
+    const files = entry.files.filter((f) => f.file !== 'README.md').map((f) => ({ ...f, inside: true, name: f.file }));
+    plans.push({ ...entry, ...parsed, files, status: entry.readmeStatus || entry.indexStatus, markdown: md });
   }
   // 侧栏目录树第二行：逐个读取计划内关联文档的一级标题（文件数少，本地实时读盘）
   for (const plan of plans) {
@@ -332,7 +299,7 @@ async function buildPlanData() {
     const key = plan.exists ? plan.status || '未知' : '目录缺失';
     summary[key] = (summary[key] || 0) + 1;
   }
-  return { generatedAt: new Date().toISOString(), planDir: toPosix(PLAN_DIR), summary, plans };
+  return { generatedAt: new Date().toISOString(), planDir: toPosix(PLAN_DIR), summary, plans, audit: { summary: audit.summary, issues: audit.issues } };
 }
 
 /* ---------------- HTTP 服务 ---------------- */

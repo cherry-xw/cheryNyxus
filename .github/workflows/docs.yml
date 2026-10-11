@@ -46,5 +46,10 @@ jobs:
       - name: Run documentation tests
         run: pnpm docs:test
 
+      - name: Build and test portable plan tools
+        run: |
+          node tools/plan-viewer/build.mjs
+          node --test tools/plan-viewer/tests/*.test.mjs
+
       - name: Run documentation checks
         run: pnpm docs:check

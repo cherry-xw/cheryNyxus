@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, renameSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, cpSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -93,7 +93,12 @@ for (const entry of [path.join(tool, 'server.mjs'), path.join(tool, 'plan-viewer
     assert.equal(data.plans.length, 1);
     assert.equal(data.plans[0].dir, 'a');
     assert.equal(data.plans[0].readmeStatus, '规划中');
-    assert.deepEqual(data.plans[0].progress, { done: 0, total: 28, source: '声明进度' });
+    assert.equal(data.plans[0].progress.done, 1);
+    assert.equal(data.plans[0].progress.total, 1);
+    assert.equal(data.plans[0].progress.source, '台账统计');
+    assert.ok(data.audit.issues.some((i) => i.code === 'PROGRESS_MISMATCH'));
+    const cli = spawnSync(process.execPath, [path.join(tool, 'lint-source.mjs'), '--plan-dir=' + dir, '--json'], { encoding: 'utf8' });
+    assert.deepEqual(data.audit.issues, JSON.parse(cli.stdout).issues);
     assert.ok(data.plans[0].files.some((f) => f.file === 'verify/manual.md' && f.inside));
     for (const [file, status] of [['a/verify/manual.md', 200], ['../outside.md', 400], ['a/absent.md', 404], ['a/script.js', 400]]) {
       const res = await fetch(base + '/api/file?p=' + encodeURIComponent(file));
@@ -113,26 +118,28 @@ for (const entry of [path.join(tool, 'server.mjs'), path.join(tool, 'plan-viewer
     assert.equal(updated.plans[0].progress.todo, 1);
     assert.equal(updated.plans[0].progress.other, 0);
     assert.equal(updated.plans[0].progress.total, 3);
+    mkdirSync(path.join(dir, 'unregistered'));
+    writeFileSync(path.join(dir, 'unregistered/README.md'), '# Unregistered\n\n**状态：** 规划中');
+    const union = await (await fetch(base + '/api/plan')).json();
+    assert.equal(union.plans.length, 2);
+    assert.ok(union.plans.some((p) => p.dir === 'unregistered' && !p.registered));
+    assert.ok(union.audit.issues.some((i) => i.code === 'PLAN_UNREGISTERED'));
   });
 }
 
-test('build --if-missing skips when artifacts exist and rebuilds when missing', () => {
-  const local = path.join(tool, 'plan-viewer.mjs');
-  const before = readFileSync(local, 'utf8');
-  const skip = spawnSync(process.execPath, [path.join(tool, 'build.mjs'), '--if-missing'], { encoding: 'utf8', windowsHide: true });
-  assert.equal(skip.status, 0, skip.stderr);
-  assert.match(skip.stdout, /跳过构建/);
-  assert.equal(readFileSync(local, 'utf8'), before);
-  const bak = local + '.bak';
-  try {
-    renameSync(local, bak);
-    const rebuild = spawnSync(process.execPath, [path.join(tool, 'build.mjs'), '--if-missing'], { encoding: 'utf8', windowsHide: true });
-    assert.equal(rebuild.status, 0, rebuild.stderr);
-    assert.match(rebuild.stdout, /构建完成/);
-    assert.equal(readFileSync(local, 'utf8'), before);
-  } finally {
-    if (existsSync(bak)) renameSync(bak, local);
-  }
+test('build --if-missing skips and rebuilds in an isolated copy', (t) => {
+  const temp = mkdtempSync(path.join(os.tmpdir(), 'plan-build-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const isolated = path.join(temp, 'tools/plan-viewer');
+  mkdirSync(isolated, { recursive: true });
+  for (const name of ['build.mjs', 'server.mjs', 'lint-source.mjs', 'audit.mjs', 'public']) cpSync(path.join(tool, name), path.join(isolated, name), { recursive: true });
+  const build = () => spawnSync(process.execPath, [path.join(isolated, 'build.mjs'), '--if-missing'], { encoding: 'utf8', windowsHide: true });
+  const first = build(); assert.equal(first.status, 0, first.stderr);
+  const expected = readFileSync(path.join(isolated, 'plan-viewer.mjs'), 'utf8');
+  const skip = build(); assert.equal(skip.status, 0, skip.stderr); assert.match(skip.stdout, /跳过构建/);
+  rmSync(path.join(isolated, 'plan-viewer.mjs'));
+  const rebuild = build(); assert.equal(rebuild.status, 0, rebuild.stderr); assert.match(rebuild.stdout, /构建完成/);
+  assert.equal(readFileSync(path.join(isolated, 'plan-viewer.mjs'), 'utf8'), expected);
 });
 
 test('both portable scripts match their generated local copies and current source', () => {

@@ -1,6 +1,6 @@
 # 通用文档管理方案
 
-这是可整体复制到其他项目的独立规则包，包含文档内容、目录结构、计划生命周期、统一入口模板和采用指南。它不包含业务目录、工具命令、协作限制或验收政策；这些由每个采用项目在自己的项目配置中维护。
+这是可整体复制到其他项目的独立规则包，包含文档内容、目录结构、计划生命周期、统一入口模板和采用指南。它附带可选的独立计划检查和查看工具，不包含业务目录、项目协作限制或验收政策；这些由每个采用项目在自己的项目配置中维护。
 
 ## 快速采用
 
@@ -26,6 +26,8 @@
 | [content.md](./content.md) | 事实归属、任务定位、内容压缩与维护要求 |
 | [structure.md](./structure.md) | 目录角色、导航和文档生命周期 |
 | [plans.md](./plans.md) | 实施计划、恢复、验证和收口 |
+| [plan-checks.md](./plan-checks.md) | 静态检查契约、使用场景及差异展示 |
+| [tools/README.md](./tools/README.md) | 独立工具运行与通用包使用 |
 | [entry-template.md](./entry-template.md) | 根 `AGENTS.md` 可复制模板 |
 | [adoption-guide.md](./adoption-guide.md) | 迁移、检查、评估和升级步骤 |
 | [existing-project-guide.md](./existing-project-guide.md) | 无文档或文档混乱的存量项目梳理流程 |
@@ -39,7 +41,8 @@
 | `README.md` | 包入口、快速采用说明 | 术语约定、规则归属表 |
 | [content.md](./content.md) | 内容规范：事实归属、任务定位、内容压缩与维护要求 | 导航层级与四跳要求、事实冲突优先级、单一事实源、来源与生成内容、内容压缩、代码定位、变更同步矩阵、写作评审、自动化检查项 |
 | [structure.md](./structure.md) | 结构规范：目录角色、导航和文档生命周期 | 文档角色与默认位置、生成文档、外部来源镜像、兼容跳转页、归档、文档增删移动时的同步 |
-| [plans.md](./plans.md) | 计划规范：实施计划、恢复、验证和收口 | `docs/plan/` 结构与版本控制边界、任务状态、收口、验证资产分类、用户审批 |
+| [plans.md](./plans.md) | 计划规范：实施计划、恢复、验证和收口 | `docs/plan/` 结构、任务状态、同步责任、临时文件、验证与审批 |
+| [plan-checks.md](./plan-checks.md) | 检查契约 | 规则分类、报告结构、静态校验边界与差异展示 |
 | [entry-template.md](./entry-template.md) | 根 `AGENTS.md` 可复制模板 | 统一入口的执行基线、项目配置的定义与必填项 |
 | [adoption-guide.md](./adoption-guide.md) | 迁移、检查、评估和升级步骤 | 无，只引用规范 |
 | [existing-project-guide.md](./existing-project-guide.md) | 无文档或文档混乱的存量项目梳理流程 | 无，只引用规范 |

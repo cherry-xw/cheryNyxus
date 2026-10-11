@@ -35,6 +35,7 @@ export function documentHref(currentFile, href) {
 export function parseRoute(hash) {
   const [pathname, query = ''] = (hash || '#/').split('?');
   const anchor = new URLSearchParams(query).get('anchor') || '';
+  if (pathname === '#/issues') return { kind: 'issues', path: '', anchor };
   const match = pathname.match(/^#\/(plan|file)\/(.+)$/);
   if (match) {
     try { return { kind: match[1], path: decodeURIComponent(match[2]), anchor }; }

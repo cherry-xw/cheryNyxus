@@ -53,6 +53,8 @@ function printHuman(result) {
     const suffix = count === null ? '' : `，对象 ${count}`;
     console.log(`Docs ${name}：${issues === 0 ? '通过' : `${issues} 处问题`}${suffix}`);
   }
+  for (const issue of result.plan.warnings || []) console.warn(`Plan 待核对 ${issue.code} ${issue.path}:${issue.line}：${issue.message}`);
+  for (const issue of result.plan.issues || []) console.error(`Plan 错误 ${issue.code} ${issue.path}:${issue.line || 1}：${issue.message}`);
   const total = rows.reduce((sum, [, issues]) => sum + issues, 0);
   console.log(total === 0 ? 'Docs check 通过：全部文档检查通过' : `Docs check 失败：共 ${total} 处问题`);
 }

@@ -6,10 +6,10 @@
  * 用法：node build.mjs [--if-missing]   （或 pnpm --dir tools/plan-viewer build）
  *
  * --if-missing：产物齐全时跳过（无写入），任一产物缺失时全量重建；
- *               根目录 `pnpm plan` / `pnpm plan:lint` 借此在产物缺失时自愈。
+ *               仅显式构建使用；日常命令直接运行源码。
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,14 +26,21 @@ const ASSETS = [
   ['__PLAN_VIEWER_ASSET_STYLE__', 'style.css'],
   ['__PLAN_VIEWER_ASSET_MARKDOWN__', 'markdown.js'],
   ['__PLAN_VIEWER_ASSET_NAVIGATION__', 'navigation.js'],
+  ['__PLAN_VIEWER_ASSET_FILTERS__', 'filters.js'],
 ];
 
 function bundleSource(file) {
-  const source = readFileSync(file, 'utf8');
+  let source = readFileSync(file, 'utf8');
   const shared = readFileSync(path.join(PUBLIC_DIR, 'markdown.js'), 'utf8').replace(/^export /gm, '');
-  const pattern = /^import \{ ([^}]+) \} from '\.\/public\/markdown\.js';$/m;
-  if (!pattern.test(source)) throw new Error(`缺少共享解析器导入：${file}`);
-  return source.replace(pattern, (_match, names) => `const { ${names} } = (() => {\n${shared}\nreturn { ${names} };\n})();`);
+  const mdPattern = /^import \{ ([^}]+) \} from '\.\/public\/markdown\.js';$/m;
+  source = source.replace(mdPattern, (_match, names) => `const { ${names} } = (() => {\n${shared}\nreturn { ${names} };\n})();`);
+  if (source.includes("import { auditPlans } from './audit.mjs';")) {
+    let audit = readFileSync(path.join(__dirname, 'audit.mjs'), 'utf8');
+    audit = audit.replace(/^import .*$/gm, '').replace(/^export /gm, '');
+    const inline = `import * as auditFs from 'node:fs';\nimport auditPath from 'node:path';\nconst { auditPlans } = (() => {\n${shared}\n${audit}\nreturn { auditPlans };\n})();`;
+    source = source.replace("import { auditPlans } from './audit.mjs';", inline);
+  }
+  return source;
 }
 
 let out = bundleSource(SRC_FILE);
@@ -51,10 +58,9 @@ if (leftovers.length) {
 
 const lint = bundleSource(path.join(__dirname, 'lint-source.mjs'));
 const outputs = [[OUT_FILE, out], [path.join(__dirname, 'lint.mjs'), lint]];
-if (existsSync(PORTABLE_DIR)) {
-  outputs.push([path.join(PORTABLE_DIR, 'plan-viewer.mjs'), out], [path.join(PORTABLE_DIR, 'lint.mjs'), lint]);
-}
+outputs.push([path.join(PORTABLE_DIR, 'plan-viewer.mjs'), out], [path.join(PORTABLE_DIR, 'lint.mjs'), lint]);
 const check = process.argv.includes('--check');
+if (!check) mkdirSync(PORTABLE_DIR, { recursive: true });
 const ifMissing = process.argv.includes('--if-missing');
 if (check && ifMissing) throw new Error('--if-missing 不能与 --check 同用');
 if (ifMissing && outputs.every(([file]) => existsSync(file))) {

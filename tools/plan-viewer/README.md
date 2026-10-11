@@ -49,39 +49,40 @@ tools/plan-viewer/
 - **分发**：产物 `plan-viewer.mjs` 是唯一需要的文件；`docs/plan` 定位：`--plan-dir` > 环境变量 `PLAN_DIR` > 从脚本位置向上逐级查找。
 - **同步可迁移包**：发布新通用包时运行构建，同时生成本目录及 `docs/standards/documentation/tools/` 的查看器和 lint 单文件产物。`lint-source.mjs`、`server.mjs` 和 `public/` 是源码；不要手改生成脚本。构建不更新 ZIP。
 
-## 功能
+## 页面使用
 
-- **总览**：对总入口中当前登记的活动计划做状态统计并展示计划卡片（进度条、子任务完成数、范围摘要）；总入口已登记但目录缺失的计划灰显提示。按当前规范批准完成的计划应从总入口和计划目录删除。
-- **任务详情**：渲染计划 README（台账表格带状态徽标、checkbox 勾选态），关联文档以左侧目录树列出。
-- **子任务文件**：点开左侧目录树或台账/正文中引用的任意 `.md`（含 `verify/` 手册），文档内相对链接可继续跳转。章节定位使用 `#/file/<path>?anchor=<章节>` 或 `#/plan/<dir>?anchor=<章节>`，刷新、前进和后退保留文档与章节；旧请求不得覆盖当前路由。
-- **左侧目录树**：只列当前计划目录内的关联文档（排除计划自身 README），每项两行——第一行文件名，第二行取该文档正文首个一级标题（缺标题时退回 README 中的链接文字）。当前打开的文档高亮且不可点；总览视图不显示侧栏。
-- 数据每次请求实时读盘，无缓存无构建。
+页面采用管理控制台布局：侧栏切换任务总览与检查差异，顶栏显示最近检查和刷新状态。总览先显示任务阶段摘要，再提供任务列表；通过名称、目录或范围搜索，按阶段或“需要处理”筛选。默认优先显示有错误和待核对项的任务。
 
-## 进度统计口径
+每项任务展示名称与范围、当前阶段、完成数量、检查结果和详情入口。状态一致时只展示一次；入口与文档不一致时明确展示两边值。任务数量包含磁盘与入口并集，未登记和缺失资料仍显示。
 
-优先级：README 中的 `进度：x/y` 声明行 → 台账表「状态」列统计（已完成/进行中/未开始）→ checkbox 勾选统计。状态和进度元数据兼容普通行、加粗标签（包括 `**进度：**`）和引用块；代码块示例不参与解析。卡片与详情页标注当前采用的口径。
+检查页可按严重程度筛选、按描述或路径搜索；每个问题展开后显示预期、实际、处理建议及资料入口。无差异与筛选无结果分别说明。任务详情分为计划文档、检查差异和关联文档，文档章节深链接仍可用；窄屏可通过目录按钮展开导航，Escape 关闭。
 
-## Plan Lint（文档规则校验）
+重新检查期间显示忙碌状态并阻止重复请求；失败保留上一次数据并明确标记旧结果，可重试。刷新保持当前页面、筛选和滚动位置；普通导航切换到页面起点，章节链接定位目标。页面只读，不自动修改任务或删除资料。
 
-```bash
-pnpm plan:lint        # 仓库根，直接跑源码 lint-source.mjs
+## 静态检查与差异展示
+
+`pnpm plan:lint`、页面 API 与仓库文档检查共享 `audit.mjs`；界面交互不改检查规则。台账统计优先于手写进度。任务详情可查看入口状态、小任务文件数和实际文档数，设计参考资料不等同于执行小任务。
+
+```sh
+pnpm plan:lint
+node tools/plan-viewer/lint-source.mjs --json
+node tools/plan-viewer/lint-source.mjs --strict
 ```
 
-规则刻意保持最少，仅检查以下两条，不将通过结果解释为计划完整合规：
+使用场景、检查规则及退出码由[静态检查说明](../../docs/standards/documentation/plan-checks.md)维护。错误阻止静态校验通过，待核对项始终报告；业务完成和用户批准不能由脚本推断。
 
-- **R1** 总入口 README 任务表格中的每项必须包含可解析、位于计划根内且指向实际任务 README 文件的链接；不允许无链接或无法解析的条目静默跳过
-- **R2** 各计划目录的 README 必须有「状态：」行
+## 通用 ZIP
 
-内联链接、完整/折叠/简写引用式链接使用与查看器相同的解析函数；支持引用定义中的相对路径和可选标题，代码围栏中的示例表格与定义不参与校验。未定义的引用会报错。状态词枚举、台账列结构、进度一致性及创建时间等不在这两条规则的校验范围内；仍须按计划规范审查。违规退出码为 1。
+运行 `python3 tools/plan-viewer/package-kit.py --output=/tmp/plan-management-kit.zip`。打包器先生成独立工具，再按明确文件清单加入规则、源码、测试和演示计划；不包含本仓库真实任务或运行资料。附带文件 SHA-256 清单及 ZIP 校验文件。部署和解压使用见[通用包说明](../../docs/standards/documentation/tools/README.md)。
 
 ## 实现与验证入口
 
-共享 Markdown 解析位于 [public/markdown.js](public/markdown.js)（`findTables`、`extractLinks`、`metadataValue`）；HTTP 入口为 [server.mjs](server.mjs)，lint 源码为 [lint-source.mjs](lint-source.mjs)。路由和请求有效期由 [public/navigation.js](public/navigation.js) 维护，页面渲染从 [public/app.js](public/app.js) 进入。
+一致性检查由 [audit.mjs](audit.mjs) 唯一维护，CLI、服务及仓库检查均消费其报告。共享 Markdown 解析位于 [public/markdown.js](public/markdown.js)（`findTables`、`extractLinks`、`metadataValue`）；HTTP 入口为 [server.mjs](server.mjs)，lint 源码为 [lint-source.mjs](lint-source.mjs)。路由和请求有效期由 [public/navigation.js](public/navigation.js) 维护，页面渲染从 [public/app.js](public/app.js) 进入。
 
-修改 `public/` 后刷新页面即可在本地看到变化，无需构建。改 `server.mjs` / `lint-source.mjs` 时同步跑一次 `node tools/plan-viewer/build.mjs` 重生成 `plan-viewer.mjs` / `lint.mjs` 与 `docs/standards/documentation/tools/` 下同名产物（发布新通用包前必须做此同步，仓库提交中这三份产物应保持一致）。再运行 `node --test tools/plan-viewer/tests/*.test.mjs` 和 `pnpm plan:lint`。独立测试只使用 Node 内置模块、隔离临时数据及 HTTP，不启动浏览器，也不使用 DOM/CSS 检查替代界面验收。真实导航与滚动由用户手动验收。
+修改 `public/` 后刷新页面即可在本地看到变化，无需构建。改 `server.mjs` / `lint-source.mjs` 时同步跑一次 `node tools/plan-viewer/build.mjs` 重生成 `plan-viewer.mjs` / `lint.mjs` 与 `docs/standards/documentation/tools/` 下同名产物（发布新通用包前必须做此同步，分发前所有产物应保持一致）。再运行 `node --test tools/plan-viewer/tests/*.test.mjs` 和 `pnpm plan:lint`。独立测试只使用 Node 内置模块、隔离临时数据及 HTTP，不启动浏览器，也不使用 DOM/CSS 检查替代界面验收。真实导航与滚动由用户手动验收。
 
 ## 边界
 
-- 仅允许读取 `docs/plan/` 内的 `.md` 文件（`/api/file` 做路径越界校验）；指向 `docs/plan` 外部的文档链接以虚线样式提示、不可跳转。
-- 解析器对异构台账（列布局不一、状态词不标准、目录缺失）均容错降级，不因个别文档格式差异报错。
+- 页面仅允许读取 `docs/plan/` 内的 `.md` 文件（`/api/file` 检查路径和真实目标）；检查器可核对明确引用的项目内文件及 Markdown 章节，不读取业务源码正文。指向 `docs/plan` 外部的文档链接以虚线样式提示、不可跳转。
+- 解析器遇到异构台账仍展示资料；共享检查明确报告非法状态、缺失文件等差异，不静默判为通过。
 - 启动报端口占用时：`pnpm kill:ports`，或换端口 `pnpm plan -- --port=5000`。

@@ -23,6 +23,11 @@ test('invalid or outside links cannot become document routes', () => {
   assert.equal(parseRoute('#/file/%E0').kind, 'invalid');
 });
 
+test('checks page has a stable route', () => {
+  assert.deepEqual(parseRoute('#/issues'), { kind: 'issues', path: '', anchor: '' });
+  assert.equal(parseRoute('#/issues?anchor=details').anchor, 'details');
+});
+
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const response = (text) => ({ ok: true, json: async () => ({ markdown: text }) });
 
