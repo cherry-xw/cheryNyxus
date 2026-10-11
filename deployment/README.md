@@ -6,4 +6,4 @@
 
 入口为 `compose.yaml`。Web、Manager 属于 `management` profile；默认允许 LAN 监听，Backend 默认为 `QQ_INGRESS_PAUSED=1`。启动不自动安装或启用 QQ 包，安装须显式维护。不能用容器健康代替 QQ 在线或生产验收。
 
-定向检查：`node --test test/deployment/*.test.mjs`、`pnpm manager:test`；构建和合成容器恢复步骤见指南。秘密与实际数据不入版本控制。
+定向检查：`pnpm manager:test`；构建和合成容器恢复步骤见指南。秘密与实际数据不入版本控制。

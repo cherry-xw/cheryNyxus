@@ -45,6 +45,6 @@ Backend 健康只证明 HTTP `/api/config` 返回 200/401 且 RPC 可连接，�
 
 ## 验证入口与交付边界
 
-部署源在 `deployment/`、`apps/backend/deploy/docker/Dockerfile` 与 `apps/backend/deploy/docker/backend-entrypoint.sh`。`node --test test/deployment/*.test.mjs` 验证 Web 路径、HTTP/WS 代理和部署约束；`pnpm manager:test` 验证外部进程保护及认证；`pnpm type-check`、`pnpm qq-ingress:type-check` 检查源码。真实 Docker 构建/重建仅用独立合成目录、暂停插件和无真实模型。自动检查不证明真实 QQ/模型、OIDC、跨主机 LAN 或视觉体验。
+部署源在 `deployment/`、`apps/backend/deploy/docker/Dockerfile` 与 `apps/backend/deploy/docker/backend-entrypoint.sh`。`pnpm manager:test` 验证外部进程保护及认证；`pnpm type-check`、`pnpm qq-ingress:type-check` 检查源码。真实 Docker 构建/重建仅用独立合成目录、暂停插件和无真实模型。自动检查不证明真实 QQ/模型、OIDC、跨主机 LAN 或视觉体验。
 
 交付时分别列出命令和退出码、重建与持久恢复证据、需要重启和实际已重启服务、当前地址、旧服务状态以及未验证项。未执行真实环境迁移时不能声称生产部署完成。
