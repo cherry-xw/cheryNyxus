@@ -238,7 +238,11 @@ export class ManagerAuth {
         if (!await this.account.verify(account, account.username, body.currentPassword)) { sendJson(res, 400, { error: 'current_password_invalid' }); return false }
         await this.refresh()
         if (this.revision !== account.revision) { sendJson(res, 409, { error: 'account_changed' }); return false }
-        await this.account.save(account.username, body.newPassword, true)
+        try { await this.account.save(account.username, body.newPassword, true, account) }
+        catch (error) {
+          if ((error as Error).message !== 'account_changed') throw error
+          sendJson(res, 409, { error: 'account_changed' }); return false
+        }
         await this.refresh()
         this.setCookie(res, SESSION_COOKIE, '', origin, 0)
         sendJson(res, 200, { changed: true, loginRequired: true })

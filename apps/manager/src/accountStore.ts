@@ -1,6 +1,7 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
-import { chmod, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { replaceConfigText, transactionExpectedText, withConfigTransaction } from '../../backend/src/utils/configTransaction.js'
 
 export interface ManagerAccount {
   version: 1
@@ -42,7 +43,18 @@ export class AccountStore {
     }
   }
 
-  async save(username: string, password: string, reset = false): Promise<void> {
+  async save(username: string, password: string, reset = false, expectedAccount?: ManagerAccount): Promise<void> {
+    return withConfigTransaction(this.file, () => this.saveLocked(username, password, reset, expectedAccount))
+  }
+
+  private async saveLocked(username: string, password: string, reset: boolean, expectedAccount?: ManagerAccount): Promise<void> {
+    const expectedText = transactionExpectedText(this.file)
+    if (expectedAccount) {
+      const current = await this.read()
+      if (!current || current.revision !== expectedAccount.revision || current.passwordHash !== expectedAccount.passwordHash || current.salt !== expectedAccount.salt || current.username !== expectedAccount.username) {
+        throw new Error('account_changed')
+      }
+    }
     if (!username || username !== username.trim() || username.length > 128 || /[\x00-\x1f]/.test(username)) {
       throw new Error('用户名须为 1–128 字符，不能含控制字符或首尾空白')
     }
@@ -55,11 +67,7 @@ export class AccountStore {
       revision: randomBytes(32).toString('hex'),
     }
     await mkdir(dirname(this.file), { recursive: true })
-    const temporary = `${this.file}.tmp-${randomBytes(12).toString('hex')}`
-    await writeFile(temporary, `${JSON.stringify(account)}\n`, { mode: 0o600, flag: 'wx' })
-    if (process.platform !== 'win32') await chmod(temporary, 0o600)
-    await rename(temporary, this.file)
-    if (process.platform !== 'win32') await chmod(this.file, 0o600)
+    replaceConfigText(this.file, `${JSON.stringify(account)}\n`, expectedText)
   }
 
   async saveInitial(username: string, password: string): Promise<void> {

@@ -6,6 +6,8 @@ Manager 登录独立于后端。入口为 `apps/manager/src/index.ts`，HTTP 实
 
 本机运行 `pnpm manager:dev auth setup` 首次设置，运行 `pnpm manager:dev auth reset` 恢复账号。两者必须在交互终端输入用户名及两次隐藏密码；不接受密码参数，不输出密码。密码长度 12–1024 字符，不裁剪密码。受限文件 `.chery/manager-auth.json` 仅存版本、用户名、随机盐、scrypt 派生值和随机账号版本。Unix 权限为 0600；Windows 需由部署者限制目录 ACL。首次设置不覆盖已有文件，恢复替换账号版本，所有旧 Session 和待完成 OIDC 登录失效。不提供远程初始化/重置 API。
 
+网页登录后的改密通过 [`AccountStore.save`](../../../apps/manager/src/accountStore.ts) 保存：取得账号文件锁后，重新核对已验证账号的用户名、盐、密码派生值和版本；不一致返回 409 `account_changed`。保存前还比较文件原文，拒绝覆盖未使用文件锁的其他写入。并发保护验证见 [`accountTransactions.test.ts`](../../../apps/manager/test/accountTransactions.test.ts)，共享文件锁验证见 [`configTransaction.test.ts`](../../../apps/backend/test/service/configTransaction.test.ts)。
+
 `manager.host` 保留监听设置。`manager.auth` 配置以下启动参数（修改后重启 Manager）：
 
 监听端口默认 39980，可用 `CHERY_MANAGER_PORT` 明确覆盖；CLI 使用同一环境变量连接本机端口。启动测试可设为 0 取得临时端口，CLI 不接受 0。
