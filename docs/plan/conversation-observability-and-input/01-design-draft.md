@@ -26,15 +26,15 @@
 
 | 主题 | 已核对事实与入口 | 对规划的影响 |
 | --- | --- | --- |
-| 上下文组成 | [`computeContextBreakdown`](../../../src/service/chat/contextUsage.ts) 重建提示词与工具定义，返回系统、用户系统、记忆、技能、工具定义、对话六段；[`estimateTokens` / `sumChatConversationTokens`](../../../src/utils/token.ts) 用字符数除以 4 估算，对话按最近压缩边界截取 | 已有分类基础，但不是每次实际请求的精确记录；不能直接据此宣称模型实际计费或缓存命中 |
-| 现有统计入口 | [`WorkbenchDialog.vue`](../../../web/src/features/agent/workbench/WorkbenchDialog.vue) 使用 `ContextUsageBar`，侧边按钮打开 `PromptSnapshotTip`；[`useWorkbenchContextInspector`](../../../web/src/features/agent/workbench/useWorkbenchContextInspector.ts) 获取占用与提示词快照 | 侧边入口还提供系统提示词、工具定义、配置时期选择和快照质量；删除前必须承接这些能力 |
-| 模型返回数据 | [`LLMAdapter`](../../../src/core/llm/adapter.ts)、[`LLMResponse`](../../../src/core/message/adapter.ts) 及[项目 Provider 实现](../../../src/agent/provider/)未形成供本功能使用的统一逐次用量记录；Anthropic 原始响应类型可见 usage 字段 | 不能把“上游可能返回用量”写成“系统已有完整统计”；具体字段与能力在实施时按各服务官方文档核对 |
-| 重复工具结果 | [`MessageJournal.replaceSense`](../../../src/core/middleware/messageJournal.ts) 可按相同 hash 缩短旧工具结果，保留替换关系 | 这是历史内容去重，不足以证明工具没有执行，更不能证明模型输入缓存命中 |
-| To-do 工具 | [`update_todo`](../../../src/agent/sense/todo.ts) 每次替换整个列表，状态为待办、进行中、已完成，允许空数组清空；项目目前没有为每项定义稳定 ID | 可复用清单语义；跨版本逐项变化不能靠数组下标可靠判断 |
-| To-do 展示与恢复 | [`TodoPanel.vue`](../../../web/src/features/agent/cards/TodoPanel.vue) 读取 `currentTodo` 或历史最近一次调用，在 [`PetSprite.vue`](../../../web/src/features/pets/components/PetSprite.vue) 挂载；[`TodoRenderer.vue`](../../../web/src/features/agent/renderers/io/TodoRenderer.vue) 展示单次工具调用；[`computeCurrentState`](../../../src/service/chat/currentState.ts) 从 `sense_end` 参数恢复 `currentTodo` | 已有显示零件；工作台仍需持续进度入口。当前清单可来自工具参数生成阶段，后续要区分“准备更新”和“更新已成功” |
-| 连续消息接收 | [`handleChatInputSubmit`](../../../src/service/chat/input.ts) 预分配消息关联信息、记录待处理输入并发送 `input.updated`；运行中返回 `queued`，空闲时返回 `started`；使用 `commandId` 识别重复提交 | 接收确认不等于已发给模型；复用现有身份和持久记录，不新增一套仅存前端的队列 |
-| 实际并入时机 | [`checkpointMiddleware`](../../../src/agent/middleware/checkpoint.ts) 在调用内部处理流程前执行 `appendUserMessages`；[`createLoopHandler`](../../../src/agent/middleware/loop.ts) 在有残留输入时可继续循环，但仍受失败、暂停、等待子任务、步数上限等分支影响 | 正常路径是下一次循环采用累积输入；不是修改已经发出的请求，也不是固定等整项任务结束 |
-| 三模式消息基础 | [`useLiteCanonicalView`](../../../web/src/features/lite/useLiteCanonicalView.ts) 已复用共享会话状态；[`rootTimeline`](../../../web/src/stores/chats/read-model/rootTimeline.ts) 和 [`executionReadModel`](../../../web/src/stores/chats/read-model/executionReadModel.ts) 处理待输入与执行记录；[节点输入测试](../../../web/test/nyxus/graph/inputState.test.ts) 覆盖采用后正式节点尚未到达的情况 | 三种界面应共用状态含义，避免各自判断何时算发送成功或已采用 |
+| 上下文组成 | [`computeContextBreakdown`](../../../apps/backend/src/service/chat/contextUsage.ts) 重建提示词与工具定义，返回系统、用户系统、记忆、技能、工具定义、对话六段；[`estimateTokens` / `sumChatConversationTokens`](../../../apps/backend/src/utils/token.ts) 用字符数除以 4 估算，对话按最近压缩边界截取 | 已有分类基础，但不是每次实际请求的精确记录；不能直接据此宣称模型实际计费或缓存命中 |
+| 现有统计入口 | [`WorkbenchDialog.vue`](../../../apps/web/src/features/agent/workbench/WorkbenchDialog.vue) 使用 `ContextUsageBar`，侧边按钮打开 `PromptSnapshotTip`；[`useWorkbenchContextInspector`](../../../apps/web/src/features/agent/workbench/useWorkbenchContextInspector.ts) 获取占用与提示词快照 | 侧边入口还提供系统提示词、工具定义、配置时期选择和快照质量；删除前必须承接这些能力 |
+| 模型返回数据 | [`LLMAdapter`](../../../apps/backend/src/core/llm/adapter.ts)、[`LLMResponse`](../../../apps/backend/src/core/message/adapter.ts) 及[项目 Provider 实现](../../../apps/backend/src/agent/provider)未形成供本功能使用的统一逐次用量记录；Anthropic 原始响应类型可见 usage 字段 | 不能把“上游可能返回用量”写成“系统已有完整统计”；具体字段与能力在实施时按各服务官方文档核对 |
+| 重复工具结果 | [`MessageJournal.replaceSense`](../../../apps/backend/src/core/middleware/messageJournal.ts) 可按相同 hash 缩短旧工具结果，保留替换关系 | 这是历史内容去重，不足以证明工具没有执行，更不能证明模型输入缓存命中 |
+| To-do 工具 | [`update_todo`](../../../apps/backend/src/agent/sense/todo.ts) 每次替换整个列表，状态为待办、进行中、已完成，允许空数组清空；项目目前没有为每项定义稳定 ID | 可复用清单语义；跨版本逐项变化不能靠数组下标可靠判断 |
+| To-do 展示与恢复 | [`TodoPanel.vue`](../../../apps/web/src/features/agent/cards/TodoPanel.vue) 读取 `currentTodo` 或历史最近一次调用，在 [`PetSprite.vue`](../../../apps/web/src/features/pets/components/PetSprite.vue) 挂载；[`TodoRenderer.vue`](../../../apps/web/src/features/agent/renderers/io/TodoRenderer.vue) 展示单次工具调用；[`computeCurrentState`](../../../apps/backend/src/service/chat/currentState.ts) 从 `sense_end` 参数恢复 `currentTodo` | 已有显示零件；工作台仍需持续进度入口。当前清单可来自工具参数生成阶段，后续要区分“准备更新”和“更新已成功” |
+| 连续消息接收 | [`handleChatInputSubmit`](../../../apps/backend/src/service/chat/input.ts) 预分配消息关联信息、记录待处理输入并发送 `input.updated`；运行中返回 `queued`，空闲时返回 `started`；使用 `commandId` 识别重复提交 | 接收确认不等于已发给模型；复用现有身份和持久记录，不新增一套仅存前端的队列 |
+| 实际并入时机 | [`checkpointMiddleware`](../../../apps/backend/src/agent/middleware/checkpoint.ts) 在调用内部处理流程前执行 `appendUserMessages`；[`createLoopHandler`](../../../apps/backend/src/agent/middleware/loop.ts) 在有残留输入时可继续循环，但仍受失败、暂停、等待子任务、步数上限等分支影响 | 正常路径是下一次循环采用累积输入；不是修改已经发出的请求，也不是固定等整项任务结束 |
+| 三模式消息基础 | [`useLiteCanonicalView`](../../../apps/web/src/features/lite/useLiteCanonicalView.ts) 已复用共享会话状态；[`rootTimeline`](../../../apps/web/src/stores/chats/read-model/rootTimeline.ts) 和 [`executionReadModel`](../../../apps/web/src/stores/chats/read-model/executionReadModel.ts) 处理待输入与执行记录；[节点输入测试](../../../apps/web/test/nyxus/graph/inputState.test.ts) 覆盖采用后正式节点尚未到达的情况 | 三种界面应共用状态含义，避免各自判断何时算发送成功或已采用 |
 
 事实解释继续以[共享时间线](../../shared/architecture/canonical-timeline.md)、[上下文配置时期说明](../../shared/architecture/context-epochs.md)、[服务端会话模块](../../backend/service/chat.md)为准。规划不修改这些现行规则。
 
@@ -224,13 +224,13 @@
 
 | 领域 | 已有入口 | 后续需验证的重点 |
 | --- | --- | --- |
-| 输入接受与恢复 | [inputCommandLifecycle.test.ts](../../../test/service/chat/inputCommandLifecycle.test.ts) | 连发、重复命令、断连、队列满、停止与接受同时发生 |
-| 循环采用 | [loop.test.ts](../../../test/agent/middleware/loop.test.ts)、[checkpoint.test.ts](../../../test/agent/middleware/checkpoint.test.ts) | 多条一次采用；失败、上限、审批和子任务等待；采用后是否实际进入请求 |
-| 临时消息替换 | [inputState.test.ts](../../../web/test/nyxus/graph/inputState.test.ts)、[interactionStateMachine.test.ts](../../../web/test/chats/interactionStateMachine.test.ts)、[rootTimeline.test.ts](../../../web/test/chats/rootTimeline.test.ts) | 正式消息延迟、先后顺序变化、重试、跨窗口，不重复或闪空 |
-| 待办工具与恢复 | [todo.test.ts](../../../test/agent/sense/todo.test.ts)、[currentState.test.ts](../../../test/service/chat/currentState.test.ts)、[flowCurrentState.test.ts](../../../test/flows/service/flowCurrentState.test.ts) | 成功才替换、失败保留、空清单、乱序、历史未加载、子 Agent 隔离 |
-| 统计与缓存 | [`contextUsage.ts`](../../../src/service/chat/contextUsage.ts)、[`token.ts`](../../../src/utils/token.ts) 为当前实现入口；新请求统计测试待建立 | 分类不重复、总量与估算差异、零与未知、不同服务字段、缺失覆盖率、重试及压缩前后对比 |
+| 输入接受与恢复 | [inputCommandLifecycle.test.ts](../../../apps/backend/test/service/chat/inputCommandLifecycle.test.ts) | 连发、重复命令、断连、队列满、停止与接受同时发生 |
+| 循环采用 | [loop.test.ts](../../../apps/backend/test/agent/middleware/loop.test.ts)、[checkpoint.test.ts](../../../apps/backend/test/agent/middleware/checkpoint.test.ts) | 多条一次采用；失败、上限、审批和子任务等待；采用后是否实际进入请求 |
+| 临时消息替换 | [inputState.test.ts](../../../apps/web/test/nyxus/graph/inputState.test.ts)、[interactionStateMachine.test.ts](../../../apps/web/test/chats/interactionStateMachine.test.ts)、[rootTimeline.test.ts](../../../apps/web/test/chats/rootTimeline.test.ts) | 正式消息延迟、先后顺序变化、重试、跨窗口，不重复或闪空 |
+| 待办工具与恢复 | [todo.test.ts](../../../apps/backend/test/agent/sense/todo.test.ts)、[currentState.test.ts](../../../apps/backend/test/service/chat/currentState.test.ts)、[flowCurrentState.test.ts](../../../apps/backend/test/flows/service/flowCurrentState.test.ts) | 成功才替换、失败保留、空清单、乱序、历史未加载、子 Agent 隔离 |
+| 统计与缓存 | [`contextUsage.ts`](../../../apps/backend/src/service/chat/contextUsage.ts)、[`token.ts`](../../../apps/backend/src/utils/token.ts) 为当前实现入口；新请求统计测试待建立 | 分类不重复、总量与估算差异、零与未知、不同服务字段、缺失覆盖率、重试及压缩前后对比 |
 
-可复用命令示例：`pnpm exec vitest run test/service/chat/inputCommandLifecycle.test.ts test/agent/middleware/loop.test.ts test/agent/middleware/checkpoint.test.ts`；前端可按对应文件执行 `pnpm exec vitest run --config web/vitest.config.ts web/test/nyxus/graph/inputState.test.ts web/test/chats/interactionStateMachine.test.ts`。实施时根据实际改动补充场景，不为初稿添加测试代码。
+可复用命令示例：`pnpm exec vitest run --config apps/backend/vite.config.ts apps/backend/test/service/chat/inputCommandLifecycle.test.ts apps/backend/test/agent/middleware/loop.test.ts apps/backend/test/agent/middleware/checkpoint.test.ts`；前端可按对应文件执行 `pnpm exec vitest run --config apps/web/vitest.config.ts apps/web/test/nyxus/graph/inputState.test.ts apps/web/test/chats/interactionStateMachine.test.ts`。实施时根据实际改动补充场景，不为初稿添加测试代码。
 
 ### 7.3 最终综合验证保留目标
 

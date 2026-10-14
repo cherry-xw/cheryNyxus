@@ -19,4 +19,4 @@
 
 QQ Skill 由 QQ 包清单声明，宿主在成功启动后登记来源，停用时撤销。请求须同时通过可信渠道身份和角色插件白名单；模型不能用 Skill 名绕过身份过滤。公共边界见[统一插件宿主](ingress-plugins.md)。
 
-Manager 使用显式配置的通用受保护连接凭据接口；QQ 展示与轮换说明归 QQ 插件页面，接口边界见[Manager 插件](manager-plugins.md)。当前 apps 目录调整的隔离交付与未完成验收由[apps 目录调整计划](../../plan/apps-layout-migration/README.md)维护。
+Manager 使用显式配置的通用受保护连接凭据接口；QQ 展示与轮换说明归 QQ 插件页面，接口边界见[Manager 插件](manager-plugins.md)。
