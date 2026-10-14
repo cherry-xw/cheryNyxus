@@ -641,10 +641,6 @@ function initMonthlyTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_question_items_batch_position
       ON question_items(batch_id, position);
 
-    CREATE TABLE IF NOT EXISTS question_projection_meta (
-      chat_id TEXT PRIMARY KEY,
-      legacy_backfill_version INTEGER NOT NULL
-    );
   `)
 
   ensureMessageColumn(db, 'thinking_blocks', 'TEXT')
@@ -656,19 +652,6 @@ function initMonthlyTables(db: Database.Database): void {
   ensureMessageColumn(db, 'context_compaction_tokens', 'INTEGER')
   ensureMessageColumn(db, 'epoch_id', 'TEXT')
   ensureChatEventColumn(db, 'chat_seq', 'INTEGER')
-  // Development builds created before per-chat sequence migration used the
-  // global row id as `seq`. Backfill deterministic per-chat cursors so those
-  // databases can upgrade without a destructive table rebuild.
-  db.exec(`
-    WITH numbered AS (
-      SELECT rowid AS event_id, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY rowid) AS n
-      FROM chat_events
-      WHERE chat_seq IS NULL
-    )
-    UPDATE chat_events
-    SET chat_seq = (SELECT n FROM numbered WHERE numbered.event_id = chat_events.rowid)
-    WHERE rowid IN (SELECT event_id FROM numbered)
-  `)
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_chat_events_chat_seq_v2 ON chat_events(chat_id, chat_seq)',
   )

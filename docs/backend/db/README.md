@@ -17,8 +17,8 @@
 - **chat 生命周期 CRUD**：创建、查询、列出（含冗余 `message_count`）、更新时间戳、metadata JSON merge、归档和跨库永久删除。
 - **message CRUD**：路由到对应月份库的插入、查询、审批结果回填、批量撤回、感官去重 replace 标记。
 - **消息级 runtime 溯源**：仅 user 消息落库时记 `messages.runtime`（发送时 selection + 当时 brain 的 model/provider 快照）；回答「历史这一轮当时用的是什么模型」，与 chat 级 metadata 快照互补。
-- **问题批次投影**：`question_batches` + `question_items` 持久化 ask_user_question 批次；支持旧消息回填、事件游标快照和整批原子回答。
-- **运行时配置持久化**：`metadata.runtime` 存储 brain + senseGroup + mcpServers，服务重启后自动恢复（单组化：读时兼容旧 `senseGroups[]` 取首项）；预设创建的会话还快照 `metadata.workspace`（项目工作目录）、`metadata.systemPromptFile`（角色 systemPrompt 合并到全局 base 之后）、`metadata.skillFilter`（per-role 技能组/插件组白名单，`{skills?, plugins?}`，仅裁剪 system prompt `<skills>` 块），使后续更改 `config.yaml` 不影响历史会话。
+- **问题批次投影**：`question_batches` + `question_items` 持久化 ask_user_question 批次；只读取当前问题批次，支持事件游标快照和整批原子回答。
+- **运行时配置持久化**：`metadata.runtime` 存储 brain + senseGroup + mcpServers，服务重启后自动恢复（只读取当前 `senseGroup` 字段）；预设创建的会话还快照 `metadata.workspace`（项目工作目录）、`metadata.systemPromptFile`（角色 systemPrompt 合并到全局 base 之后）、`metadata.skillFilter`（per-role 技能组/插件组白名单，`{skills?, plugins?}`，仅裁剪 system prompt `<skills>` 块），使后续更改 `config.yaml` 不影响历史会话。
 - **稳定身份引用（ID 优先、名字回退）**：预设/角色在 config 中有稳定 `id`（`presets.<name>.id` / `roles.<name>.id`，加载/保存期 `ensurePresetIds`/`ensureRoleIds` 自动补全，旧配置缺省时按名字确定性生成 `legacyPresetId`/`legacyRoleId`）。chat metadata 双写 `presetId`/`roleId`（创建时快照），读取一律 ID 优先、名字回退（`getChatType`/`getChatPreset`），配置改名不改变关联。`config.save` 检测到同 id 改名时同步迁移存量 DB 引用（见「角色改名迁移」）。
 - **自动 schema 迁移**：旧库缺列时按列检查补 `ALTER TABLE ADD COLUMN`，无需手动迁移。
 
@@ -39,7 +39,7 @@
 | [apps/backend/src/db/chatStorage.ts](../../../apps/backend/src/db/chatStorage.ts) | 查找会话固定月份分片与写入命中断言 |
 | [apps/backend/src/db/pendingInput.ts](../../../apps/backend/src/db/pendingInput.ts) | `addPendingInput` / `listPendingInputs` / `markPendingInputsConsumed`：持久输入排队与代际过滤 |
 | [apps/backend/src/db/chatFamily.ts](../../../apps/backend/src/db/chatFamily.ts) | `listChatFamilies` / `getChatFamily`：把父子 Agent 与同任务分支归并到唯一组主会话 |
-| [apps/backend/src/db/question.ts](../../../apps/backend/src/db/question.ts) | QuestionBatch/QuestionItem 持久化、旧占位消息回填、权威快照与原子批量回答 |
+| [apps/backend/src/db/question.ts](../../../apps/backend/src/db/question.ts) | QuestionBatch/QuestionItem 持久化、权威快照与原子批量回答 |
 
 ## 核心概念 / 导出
 
@@ -137,7 +137,7 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 | `listAllChats()` | → `ChatRow[]` | 按 `updated_at DESC`，`message_count` 直接读冗余列 |
 | `updateChat(chatId)` | → void | 仅更新 `updated_at` |
 | `updateChatMetadata(chatId, patch)` | → void | JSON 浅合并到现有 metadata（保留其他 key） |
-| `getChatRuntimeSelection(chatId)` | → `{brain, senseGroup, mcpServers} \| undefined` | 读 `metadata.runtime`，重启后恢复用；兼容旧 `senseGroups[]`，缺失的 `mcpServers` 视为 `[]` |
+| `getChatRuntimeSelection(chatId)` | → `{brain, senseGroup, mcpServers} \| undefined` | 读 `metadata.runtime`，重启后恢复用；只接受 `senseGroup`，缺失的 `mcpServers` 视为 `[]` |
 | `getChatSkillFilter(chatId)` | → `{skills?, plugins?} \| undefined` | 读 `metadata.skillFilter`（per-role 技能组/插件组白名单快照，`getChatSystemPromptFile`/`getChatWorkspace` 同类）。任一维度缺省 = 该维度全部通过；二者皆缺省 → 返 `undefined`（全部 skill，向后兼容） |
 | `deleteChats(chatIds)` / `deleteChat(chatId)` | → void | 先逐分片清理消息、问题和事件，再由主库事务删除会话及直接依赖；分片失败保留主库记录，可重试，不承诺跨分片原子回滚 |
 | `addMessage(messageId, chatId, data)` | → `MessageRow` | messageId 调用方传入；`message_count++`；更新 `updated_at`；`data.runtime` 仅 user 消息传（发送时配置，记入 messages.runtime） |

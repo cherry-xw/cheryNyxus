@@ -164,21 +164,21 @@ describe("senseRegistry", () => {
   });
 
   describe("sense name aliases", () => {
-    it("getSense falls back to alias for spawn_subagent → spawn_role", async () => {
+    it("getSense rejects old spawn_subagent alias", async () => {
       const { registerSenses, getSense } = await getRegistry();
       const roleSense = createSense("spawn_role");
       registerSenses([roleSense]);
       // Direct lookup works
       expect(getSense("spawn_role")).toBe(roleSense);
-      // Alias lookup falls back
-      expect(getSense("spawn_subagent")).toBe(roleSense);
+      // Old aliases are not resolved
+      expect(getSense("spawn_subagent")).toBeUndefined();
     });
 
-    it("getSense falls back to alias for destroy_subagent → destroy_role", async () => {
+    it("getSense rejects old destroy_subagent alias", async () => {
       const { registerSenses, getSense } = await getRegistry();
       const roleSense = createSense("destroy_role");
       registerSenses([roleSense]);
-      expect(getSense("destroy_subagent")).toBe(roleSense);
+      expect(getSense("destroy_subagent")).toBeUndefined();
     });
 
     it("direct match takes priority over alias", async () => {

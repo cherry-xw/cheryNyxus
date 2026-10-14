@@ -6,12 +6,6 @@ type WorkbenchViewPreference = {
   foldMode: FoldMode
 }
 
-type LegacyWorkbenchViewPreference = Partial<WorkbenchViewPreference> & {
-  paperMode?: boolean
-  layout?: 'timeline' | 'topology'
-  presentationMode?: 'horizontal-signal' | 'vertical-classic'
-}
-
 const DEFAULT_WORKBENCH_VIEW: WorkbenchViewPreference = {
   foldMode: 'participant',
 }
@@ -27,7 +21,7 @@ function loadPreference(presetId: string): WorkbenchViewPreference {
   try {
     const value = JSON.parse(
       localStorage.getItem(`${WORKBENCH_VIEW_STORAGE_PREFIX}${presetId}`) ?? 'null',
-    ) as LegacyWorkbenchViewPreference | null
+    ) as Partial<WorkbenchViewPreference> | null
     return {
       foldMode:
         typeof value?.foldMode === 'string' && FOLD_MODES.has(value.foldMode as FoldMode)

@@ -1,8 +1,6 @@
 import { getMonthlyDb, getSoulDb } from './index.js'
 import { safeJsonParse } from '@/utils/json.js'
 
-export const LEGACY_QUESTION_PLACEHOLDER = '(等待用户回答…)'
-
 export interface QuestionOption {
   label: string
   description?: string
@@ -77,50 +75,11 @@ interface QuestionItemRow {
   answered_at: number | null
 }
 
-interface LegacyMessageRow {
-  id: string
-  role: string
-  content: string | null
-  sense_calls: string | null
-  revoked: number
-  created_at: number
-}
-
 function monthlyDbForChat(chatId: string) {
   const chat = getSoulDb().prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
     { messages_month: string } | undefined
   if (!chat) throw new Error(`Chat ${chatId} not found`)
   return getMonthlyDb(chat.messages_month)
-}
-
-function normalizeOptions(value: unknown): QuestionOption[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((option) => {
-    if (!option || typeof option !== 'object') return []
-    const raw = option as { label?: unknown; description?: unknown }
-    if (typeof raw.label !== 'string' || !raw.label.trim()) return []
-    return [
-      {
-        label: raw.label,
-        ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
-      },
-    ]
-  })
-}
-
-function parseQuestionArguments(
-  argumentsJson: string,
-): Omit<QuestionBatchItemInput, 'questionId' | 'createdAt'> | null {
-  const args = safeJsonParse<Record<string, unknown> | null>(argumentsJson, null)
-  if (!args || typeof args.question !== 'string') return null
-  const options = normalizeOptions(args.options)
-  if (options.length === 0) return null
-  return {
-    question: args.question,
-    ...(typeof args.header === 'string' ? { header: args.header } : {}),
-    options,
-    multiSelect: args.multiSelect === true,
-  }
 }
 
 function insertQuestionBatch(
@@ -181,70 +140,6 @@ export function createQuestionBatch(
   return getPendingQuestionBatches(chatId).find((batch) => batch.batchId === assistantMessageId)
 }
 
-/**
- * One-time compatibility bridge for conversations created before question batches were persisted.
- * Only assistant calls whose sense result is still the legacy placeholder are recovered.
- */
-function backfillLegacyPendingQuestionBatches(chatId: string): void {
-  const db = monthlyDbForChat(chatId)
-  const migrated = db
-    .prepare('SELECT legacy_backfill_version FROM question_projection_meta WHERE chat_id = ?')
-    .get(chatId) as { legacy_backfill_version: number } | undefined
-  if ((migrated?.legacy_backfill_version ?? 0) >= 1) return
-
-  const backfill = db.transaction(() => {
-    const messages = db
-      .prepare(
-        'SELECT id, role, content, sense_calls, revoked, created_at FROM messages WHERE chat_id = ? ORDER BY created_at ASC',
-      )
-      .all(chatId) as LegacyMessageRow[]
-    const senseById = new Map(
-      messages
-        .filter((message) => message.role === 'sense' && message.revoked === 0)
-        .map((message) => [message.id, message]),
-    )
-
-    for (const assistant of messages) {
-      if (assistant.role !== 'assistant' || assistant.revoked !== 0 || !assistant.sense_calls)
-        continue
-      const exists = db
-        .prepare('SELECT 1 FROM question_batches WHERE batch_id = ? AND chat_id = ?')
-        .get(assistant.id, chatId)
-      if (exists) continue
-
-      const calls = safeJsonParse<Array<{ id?: unknown; name?: unknown; arguments?: unknown }>>(
-        assistant.sense_calls,
-        [],
-      )
-      const pending: QuestionBatchItemInput[] = []
-      for (const call of calls) {
-        if (
-          call.name !== 'ask_user_question' ||
-          typeof call.id !== 'string' ||
-          typeof call.arguments !== 'string'
-        )
-          continue
-        const sense = senseById.get(call.id)
-        if (!sense || sense.content !== LEGACY_QUESTION_PLACEHOLDER) continue
-        const parsed = parseQuestionArguments(call.arguments)
-        if (!parsed) continue
-        pending.push({
-          questionId: call.id,
-          ...parsed,
-          createdAt: assistant.created_at,
-        })
-      }
-      if (pending.length > 0) insertQuestionBatch(db, chatId, assistant.id, pending)
-    }
-    db.prepare(
-      `INSERT INTO question_projection_meta (chat_id, legacy_backfill_version)
-       VALUES (?, 1)
-       ON CONFLICT(chat_id) DO UPDATE SET legacy_backfill_version = excluded.legacy_backfill_version`,
-    ).run(chatId)
-  })
-  backfill()
-}
-
 /** 清扫僵尸提问批：batch pending 但零 pending item → 标 completed（读时自愈，防止硬死锁 canResume）。 */
 function sweepOrphanQuestionBatchesIn(db: ReturnType<typeof getMonthlyDb>, chatId: string): number {
   const orphans = db
@@ -267,7 +162,6 @@ function sweepOrphanQuestionBatchesIn(db: ReturnType<typeof getMonthlyDb>, chatI
 
 /** per-chat 僵尸批清扫（公开入口，读时自愈与全局清扫共用）。返回清扫批数。 */
 export function sweepOrphanQuestionBatches(chatId: string): number {
-  backfillLegacyPendingQuestionBatches(chatId)
   return sweepOrphanQuestionBatchesIn(monthlyDbForChat(chatId), chatId)
 }
 
@@ -280,7 +174,6 @@ export function sweepOrphanQuestionBatchesAcrossRoots(): number {
   let total = 0
   for (const chat of chats) {
     // 与 findPendingQuestionBatchByQuestionId 同款跨库遍历：逐 chat 打开月库清扫
-    backfillLegacyPendingQuestionBatches(chat.id)
     total += sweepOrphanQuestionBatchesIn(getMonthlyDb(chat.messages_month), chat.id)
   }
   return total
@@ -331,7 +224,6 @@ function readPendingQuestionBatches(
 }
 
 export function getPendingQuestionBatches(chatId: string): PendingQuestionBatchSnapshot[] {
-  backfillLegacyPendingQuestionBatches(chatId)
   return readPendingQuestionBatches(monthlyDbForChat(chatId), chatId)
 }
 
@@ -350,7 +242,6 @@ export function getQuestionAnsweredAt(chatId: string, questionId: string): numbe
 
 /** Read the question projection and its event cursor in one SQLite snapshot. */
 export function getQuestionStateSnapshot(chatId: string): QuestionStateSnapshot {
-  backfillLegacyPendingQuestionBatches(chatId)
   const db = monthlyDbForChat(chatId)
   const read = db.transaction(() => {
     const seq = db
@@ -367,7 +258,6 @@ export function getQuestionStateSnapshot(chatId: string): QuestionStateSnapshot 
 }
 
 export function hasPendingQuestionBatches(chatId: string): boolean {
-  backfillLegacyPendingQuestionBatches(chatId)
   const db = monthlyDbForChat(chatId)
   sweepOrphanQuestionBatchesIn(db, chatId)
   return Boolean(
@@ -384,7 +274,6 @@ export function getPendingQuestionAttention(chatId: string): Array<{
   question: string
   createdAt: number
 }> {
-  backfillLegacyPendingQuestionBatches(chatId)
   const db = monthlyDbForChat(chatId)
   const rows = db
     .prepare(
@@ -469,7 +358,6 @@ export function completeQuestionBatch(
   batchId: string,
   answers: QuestionBatchAnswerInput[],
 ): CompletedQuestionBatch {
-  backfillLegacyPendingQuestionBatches(chatId)
   const db = monthlyDbForChat(chatId)
   const complete = db.transaction((): CompletedQuestionBatch => {
     const batch = db
@@ -553,7 +441,6 @@ export function findPendingQuestionBatchByQuestionId(
     messages_month: string
   }>
   for (const chat of chats) {
-    backfillLegacyPendingQuestionBatches(chat.id)
     const db = getMonthlyDb(chat.messages_month)
     const row = db
       .prepare(

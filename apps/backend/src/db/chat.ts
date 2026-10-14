@@ -265,17 +265,14 @@ export function getChatRuntimeSelection(chatId: string):
     | {
         brain?: string
         senseGroup?: string
-        senseGroups?: string[]
         mcpServers?: string[]
         thinking?: ThinkingLevel
       }
     | undefined
   if (!rt?.brain) return undefined
-  // 单组化：读 senseGroup（新）；兼容旧行 senseGroups[]（取首项）。无迁移脚本，旧 chat 继续可用。
-  const senseGroup =
-    rt.senseGroup ?? (Array.isArray(rt.senseGroups) ? rt.senseGroups[0] : undefined)
+  const senseGroup = rt.senseGroup
   if (!senseGroup) return undefined
-  // mcpServers 缺省 []：旧 chat metadata 无此字段，视为未启用任何 MCP server（向后兼容）
+  // 未启用 MCP 时使用空列表。
   const mcpServers = Array.isArray(rt.mcpServers) ? rt.mcpServers : []
   // thinking 缺省不写字段：无临时覆盖时运行沿用大脑配置默认档位。
   return {
@@ -442,7 +439,6 @@ function clearMonthlyChatData(chatId: string, chat: ChatRow): void {
       )
       .run(chatId)
     monthlyDb.prepare('DELETE FROM question_batches WHERE chat_id = ?').run(chatId)
-    monthlyDb.prepare('DELETE FROM question_projection_meta WHERE chat_id = ?').run(chatId)
     monthlyDb.prepare('DELETE FROM chat_events WHERE chat_id = ?').run(chatId)
     monthlyDb.prepare('DELETE FROM messages WHERE chat_id = ?').run(chatId)
   })

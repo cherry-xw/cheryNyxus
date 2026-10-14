@@ -167,22 +167,7 @@ export function unregisterSenses(names: string[]): void {
   senseRegistryVersion++
 }
 
-/**
- * 旧 sense 名 → 新名别名（向后兼容旧 config 的 sense_groups 引用）。
- * 子 agent→角色 重命名后，sense 名 spawn_subagent→spawn_role、destroy_subagent→destroy_role；
- * registerSenses 注册新名，此处仅在按旧名查找未命中时回退到新名（fail loud 之外的最小兼容）。
- */
-const SENSE_NAME_ALIASES: Record<string, string> = {
-  spawn_subagent: 'spawn_role',
-  destroy_subagent: 'destroy_role',
-}
-
-/**
- * 按名称获取单个感官实例（命中旧名别名时回退到新名，兼容历史/外部 sense_groups 配置）。
- */
+/** 按当前注册名称获取感官；不解析历史别名。 */
 export function getSense(name: string): Sense<ZodType> | undefined {
-  const direct = senseRegistry[name]
-  if (direct) return direct
-  const alias = SENSE_NAME_ALIASES[name]
-  return alias ? senseRegistry[alias] : undefined
+  return senseRegistry[name]
 }

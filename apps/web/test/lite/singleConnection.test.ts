@@ -166,10 +166,10 @@ describe('workbench Lite single-connection integration', () => {
     expect(localStorage.getItem('cherynyxus:workbench-view-mode:preset-a')).toBe('tree')
   })
 
-  it('migrates the legacy two-mode toggle entry into the three-mode key', () => {
+  it('does not import the old two-mode toggle entry', () => {
     localStorage.setItem('cherynyxus:workbench-lite-view:preset-legacy', '1')
     const { viewMode } = useWorkbenchViewMode('preset-legacy')
-    expect(viewMode.value).toBe('lite')
+    expect(viewMode.value).toBe('tree')
   })
 
   it('keeps Lite integration free of a private client, hydration and root guessing', async () => {

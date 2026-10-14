@@ -7,25 +7,17 @@ import { useLiteStore, type WorkbenchViewMode } from '@/features/lite/liteStore'
  * 浏览器工作台窗口与工作台视图
  * title-actions 共用同一 composable，同一 windowId 下各处视图状态天然同步
  * （读写同一 store + 同一 localStorage key）。
- * 旧两档键（cherynyxus:workbench-lite-view，'1'=精简）读取时迁移到三档键。
  */
 const VIEW_MODE_KEY_PREFIX = 'cherynyxus:workbench-view-mode'
-const LEGACY_LITE_KEY_PREFIX = 'cherynyxus:workbench-lite-view'
 
 export function viewModeKey(windowId: string): string {
   return `${VIEW_MODE_KEY_PREFIX}:${windowId}`
-}
-
-export function legacyLiteViewKey(windowId: string): string {
-  return `${LEGACY_LITE_KEY_PREFIX}:${windowId}`
 }
 
 export function readViewModePersisted(windowId: string): WorkbenchViewMode {
   try {
     const value = localStorage.getItem(viewModeKey(windowId))
     if (value === 'tree' || value === 'conversation' || value === 'lite') return value
-    // 旧两档键迁移：'1' 表示精简视图，其余缺省为树视图。
-    if (localStorage.getItem(legacyLiteViewKey(windowId)) === '1') return 'lite'
     return 'tree'
   } catch {
     return 'tree'
@@ -60,7 +52,6 @@ export function useWorkbenchViewMode(windowId: Ref<string> | string): {
     liteStore.setViewMode(currentId, mode)
     try {
       localStorage.setItem(viewModeKey(currentId), mode)
-      localStorage.removeItem(legacyLiteViewKey(currentId))
     } catch {
       /* localStorage 不可用时仅会话内生效 */
     }

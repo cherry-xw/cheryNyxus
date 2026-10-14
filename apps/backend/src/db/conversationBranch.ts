@@ -57,7 +57,7 @@ function branchFromRow(row: Record<string, unknown>): ConversationBranchRow {
   }
 }
 
-/** Lazily gives every legacy root chat an original task/branch identity. */
+/** Creates the current task/branch identity on first branch operation. */
 export function ensureConversationTask(
   rootChatId: string,
   runtimeSnapshot: Record<string, unknown>,
