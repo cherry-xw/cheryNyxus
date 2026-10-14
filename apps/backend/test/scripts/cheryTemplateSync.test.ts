@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import yaml from 'js-yaml'
+import { withConfigTransaction } from '../../src/utils/configTransaction.js'
 import { ensureEnvSeed, syncCheryTemplate } from '../../../../scripts/lib/chery-template-sync.mjs'
 
 const roots: string[] = []
@@ -67,6 +68,20 @@ afterEach(() => {
 })
 
 describe('syncCheryTemplate', () => {
+  it('refuses startup template synchronization while a Manager owns the shared YAML lock', async () => {
+    const root = tempRoot(); const templateDir = writeTemplate(root); const runtimeRoot = join(root, 'runtime')
+    const file = join(runtimeRoot, '.chery/config.yaml')
+    write(file, yaml.dump({ ...baseConfig(), manager: { identity: 'latest' }, otherEnd: { revision: 42 } }))
+    const before = readFileSync(file, 'utf8')
+    await withConfigTransaction(file, async () => {
+      expect(() => syncCheryTemplate({ templateDir, runtimeRoot })).toThrow()
+      expect(readFileSync(file, 'utf8')).toBe(before)
+    })
+    syncCheryTemplate({ templateDir, runtimeRoot })
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    const saved = yaml.load(readFileSync(file, 'utf8')) as any
+    expect(saved.manager).toEqual({ identity: 'latest' }); expect(saved.otherEnd).toEqual({ revision: 42 })
+  })
   it('ships one generic setup brain and an empty matching env key', () => {
     const template = yaml.load(readFileSync('.chery.template/config.yaml', 'utf8')) as any
     const brains = template.llm.brain
@@ -162,33 +177,14 @@ describe('syncCheryTemplate', () => {
     expect(report.warnings).toEqual([])
   })
 
-  it('upgrades the legacy empty model catalog without overwriting real user rules', () => {
-    const root = tempRoot()
-    const templateDir = writeTemplate(root)
-    const runtimeRoot = join(root, 'runtime')
-    write(join(templateDir, 'model-catalog.yaml'), 'version: 1\nmodels:\n  - id: glm-5.3\n')
-    write(
-      join(runtimeRoot, '.chery', 'model-catalog.yaml'),
-      [
-        'version: 1',
-        '',
-        'unknown:',
-        '  capabilities:',
-        '    toolCall: true',
-        '    input: { image: false, video: false, audio: false }',
-        '    generate: { image: false, video: false, audio: false }',
-        '',
-        'models: []',
-        '',
-      ].join('\n'),
-    )
-
+  it('preserves an untracked catalog rather than adopting old hashes', () => {
+    const root = tempRoot(); const templateDir = writeTemplate(root); const runtimeRoot = join(root, 'runtime')
+    write(join(templateDir, 'model-catalog.yaml'), 'version: 1\nmodels: []\n')
+    const file = join(runtimeRoot, '.chery', 'model-catalog.yaml')
+    write(file, 'untracked catalog')
     const report = syncCheryTemplate({ templateDir, runtimeRoot })
-
-    expect(report.updated).toContain('model-catalog.yaml')
-    expect(readFileSync(join(runtimeRoot, '.chery', 'model-catalog.yaml'), 'utf8')).toContain(
-      'id: glm-5.3',
-    )
+    expect(report.updated).not.toContain('model-catalog.yaml')
+    expect(readFileSync(file, 'utf8')).toBe('untracked catalog')
   })
 
   it.runIf(process.platform !== 'win32')('refuses a symlinked runtime .chery root', () => {
@@ -224,29 +220,12 @@ describe('syncCheryTemplate', () => {
     expect(readFileSync(join(runtimeRoot, '.chery'), 'utf8')).toBe('not a directory')
   })
 
-  it('migrates only missing built-ins and keeps the user brain and custom resources', () => {
-    const root = tempRoot()
-    const templateDir = writeTemplate(root)
-    const runtimeRoot = join(root, 'runtime')
-    write(join(runtimeRoot, '.chery', 'config.yaml'), yaml.dump(baseConfig()))
-    write(join(runtimeRoot, '.chery', 'prompt', 'cheryNyxus', 'cheryNyxus.md'), 'custom prompt')
-
-    const report = syncCheryTemplate({ templateDir, runtimeRoot })
-    const config = yaml.load(readFileSync(join(runtimeRoot, '.chery', 'config.yaml'), 'utf8')) as any
-
-    expect(report.configMigrated).toBe(true)
-    expect(config.roles.roleArchitect.brain).toBe('user-brain')
-    expect(config.roles.roleAcceptance.brain).toBe('user-brain')
-    expect(config.presets.cheryNyxus.roles).toEqual([
-      'cheryNyxus',
-      'curator',
-      'roleArchitect',
-      'roleAcceptance',
-    ])
-    expect(config.sense_groups.chery_nexus).toEqual(['skill', 'config_manage', 'role_acceptance'])
-    expect(readFileSync(join(runtimeRoot, '.chery', 'prompt', 'cheryNyxus', 'cheryNyxus.md'), 'utf8')).toBe(
-      'custom prompt',
-    )
+  it('does not import missing built-ins into an existing configuration', () => {
+    const root = tempRoot(); const templateDir = writeTemplate(root); const runtimeRoot = join(root, 'runtime')
+    const file = join(runtimeRoot, '.chery', 'config.yaml')
+    const before = yaml.dump(baseConfig()); write(file, before)
+    syncCheryTemplate({ templateDir, runtimeRoot })
+    expect(readFileSync(file, 'utf8')).toBe(before)
   })
 
   it('preserves supervision-qualified built-in senses without adding duplicates', () => {

@@ -33,7 +33,7 @@ function syncWorkspaceTemplate(): void {
     })
     for (const warning of report.warnings) console.warn(`[guardian] template sync: ${warning}`)
     console.log(
-      `[guardian] template sync: created=${report.created} copied=${report.copied.length} updated=${report.updated.length} preserved=${report.preserved.length} configMigrated=${report.configMigrated}`,
+      `[guardian] template sync: created=${report.created} copied=${report.copied.length} updated=${report.updated.length} preserved=${report.preserved.length}`,
     )
   } catch (error) {
     console.warn(

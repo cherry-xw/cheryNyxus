@@ -10,11 +10,11 @@
 
 这些是系统级依赖，AI 不能替你装，**漏一个 `pnpm install` 就会失败**。
 
-### 1.1 Node.js（>=20）
+### 1.1 Node.js（24.x）
 
-- 要求：`engines.node >=20`（见 [package.json](../../package.json)）。推荐 **Node 20 LTS** 或 **22**（打包固定 `22.11.0`，见 `packConfig.nodeVersion`）。
-- 验证：`node --version` 输出 `v20.x` 及以上。
-- 安装：[nodejs.org](https://nodejs.org/) 或 `nvm install 20`。多版本用 nvm / fnm 管理。
+- 要求：`engines.node >=24 <25`（见 [package.json](../../package.json)）。
+- 验证：`node --version` 输出 `v24.x`。
+- 安装：[nodejs.org](https://nodejs.org/) 或 `nvm install 24`。多版本用 nvm / fnm 管理。
 
 ### 1.2 pnpm
 
@@ -62,7 +62,7 @@ pnpm install
 | `.env.example` | `.env` | 仅目标缺失时创建，已有密钥永不覆盖 |
 | `.chery.template/` | `.chery/` | 全新 workspace 整体初始化；已有 workspace 按官方文件哈希增量同步 |
 
-> `.chery/.template-manifest.json` 记录上一版官方文件哈希。升级只替换仍保持官方原版的文件；用户修改或主动删除的资产保持不变。被替换的旧版文件与配置会先备份到 `.chery/backups/template/<timestamp>/`。`config.yaml` 不做整文件覆盖，只迁移当前版本缺失的内置角色、感官组和预设引用。
+> `.chery/.template-manifest.json` 记录上一版官方文件哈希。升级只替换仍保持官方原版的文件；用户修改或主动删除的资产保持不变。被替换的旧版资产会先备份到 `.chery/backups/template/<timestamp>/`。已有 `.chery/` 的 `config.yaml` 不参与同步，也不自动补入角色、感官组或预设；只有全新目录初始化时才复制模板配置。同步使用与配置保存相同的文件锁，锁冲突时拒绝同步。实现见 [syncCheryTemplate](../../scripts/lib/chery-template-sync.mjs)，验证见 [模板同步测试](../../apps/backend/test/scripts/cheryTemplateSync.test.ts)。
 >
 > 若种子没生成（比如模板当时未就绪），可手动运行 `node scripts/setup-env.mjs`。后端 guardian 正常启动和执行维护命令前也会做同样的增量同步；同步失败只告警，并继续尝试使用原 workspace 启动。
 >
@@ -76,7 +76,7 @@ pnpm install
 
 ### 3.1 配置 LLM API Key
 
-编辑 [.env](../../.env)（由 `.env.example` 首次复制，已有文件不会覆盖）：
+编辑运行目录的 `.env`（由 [.env.example](../../.env.example) 首次复制，已有文件不会覆盖）：
 
 ```bash
 LLM_API_KEY=你的真实密钥

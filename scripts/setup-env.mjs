@@ -9,7 +9,7 @@ const root = resolve(scriptDir, '..')
  * `pnpm install` 后初始化或升级开发 workspace：
  * - `.env` 只在缺失时由 `.env.example` 创建，已有值永不覆盖。
  * - `.chery.template` 通过受管哈希同步到 `.chery`；只升级仍为官方原版的文件，
- *   用户修改和主动删除都会保留，结构化配置仅迁移缺失的内置资源。
+ *   用户修改和主动删除都会保留，现有结构化配置不自动改写。
  */
 try {
   const env = ensureEnvSeed({ envExamplePath: resolve(root, '.env.example'), runtimeRoot: root })
@@ -22,7 +22,7 @@ try {
   })
   for (const warning of report.warnings) console.warn(`[setup] ${warning}`)
   console.log(
-    `[setup] .chery sync: created=${report.created} copied=${report.copied.length} updated=${report.updated.length} preserved=${report.preserved.length} configMigrated=${report.configMigrated}`,
+    `[setup] .chery sync: created=${report.created} copied=${report.copied.length} updated=${report.updated.length} preserved=${report.preserved.length}`,
   )
 } catch (error) {
   console.error(`[setup] workspace initialization failed: ${error?.message ?? error}`)
