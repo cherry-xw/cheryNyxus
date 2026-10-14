@@ -79,6 +79,7 @@ docs/standards/documentation/tools/lint.mjs
 
 # 文档规则包本地分发包（由 documentation/ 目录打包生成）
 plan-management-kit.zip
+plan-management-kit.zip.sha256
 
 # Local credentials, diagnostics and generated artifacts
 .cookies.json
@@ -95,6 +96,9 @@ plan-management-kit.zip
 /apps/backend/deploy/docker/runtime/
 
 /.codegraph/
+
+# 本机 QQ 启动调试脚本，不属于正式测试
+/.qq-start-probe.ts
 
 /platform/napcat-plugin/artifacts/
 
