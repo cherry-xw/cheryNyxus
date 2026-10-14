@@ -34,7 +34,7 @@ describe('chat context epochs', () => {
     expect(listChatEpochs(chatId)).toHaveLength(1)
   })
 
-  it('moves pre-versioning messages into reconstructed legacy-0', () => {
+  it('does not import unversioned messages into current epochs', () => {
     const chatId = randomUUID()
     cleanup.push(chatId)
     createChat(chatId)
@@ -43,9 +43,8 @@ describe('chat context epochs', () => {
     const result = ensureActiveChatEpoch({ chatId, revisionId: 'revision-a' })
     const epochs = listChatEpochs(chatId)
 
-    expect(result.legacyEpoch?.ordinal).toBe(0)
-    expect(epochs.map((epoch) => epoch.snapshotQuality)).toEqual(['reconstructed', 'exact'])
-    expect(getMessages(chatId, result.legacyEpoch!.epochId)).toHaveLength(1)
+    expect(epochs.map((epoch) => epoch.snapshotQuality)).toEqual(['exact'])
+    expect(getMessages(chatId)).toHaveLength(1)
     expect(getMessages(chatId, result.epoch.epochId)).toHaveLength(0)
   })
 

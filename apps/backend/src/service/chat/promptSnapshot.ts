@@ -185,7 +185,7 @@ export async function handleChatEpochList(
     epochs: epochs.map((epoch) => ({
       epochId: epoch.epochId,
       ordinal: epoch.ordinal,
-      label: epoch.transitionReason === 'legacy-migration' ? 'legacy-0' : `纪元 ${epoch.ordinal}`,
+      label: `纪元 ${epoch.ordinal}`,
       status: epoch.status,
       snapshotQuality: epoch.snapshotQuality,
       transitionReason: epoch.transitionReason,

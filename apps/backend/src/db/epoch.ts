@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { getMonthlyDb, getSoulDb } from './index.js'
+import { getSoulDb } from './index.js'
 
 export type ConfigRevisionStatus = 'candidate' | 'active' | 'rejected' | 'superseded'
 export type ChatEpochStatus = 'active' | 'historical' | 'archived'
@@ -10,7 +10,7 @@ export interface ConfigRevisionRecord {
   revisionId: string
   fingerprint: string
   status: ConfigRevisionStatus
-  source: 'structured' | 'manual' | 'startup' | 'legacy' | 'rollback'
+  source: 'structured' | 'manual' | 'startup' | 'rollback'
   snapshot: Record<string, unknown>
   resources: Record<string, unknown>
   validationError?: string
@@ -244,17 +244,6 @@ function setTreeActiveEpoch(rootChatId: string, epochId: string): void {
     .run(rootChatId, epochId)
 }
 
-function assignUnversionedMessages(
-  chats: Array<{ id: string; messages_month: string }>,
-  epochId: string,
-): void {
-  for (const chat of chats) {
-    getMonthlyDb(chat.messages_month)
-      .prepare('UPDATE messages SET epoch_id = ? WHERE chat_id = ? AND epoch_id IS NULL')
-      .run(epochId, chat.id)
-  }
-}
-
 function insertEpoch(input: {
   rootChatId: string
   ordinal: number
@@ -331,16 +320,15 @@ export function getChatEpochStats(chatId: string): {
 
 /**
  * Ensure that a chat tree has exactly one executable epoch for the supplied
- * validated configuration revision. Existing unversioned history is never
- * presented as an exact snapshot: it is assigned to historical legacy-0 and
- * a clean executable epoch is created beside it.
+ * validated configuration revision. Only current epoch records participate;
+ * unversioned historical messages are not imported.
  */
 export function ensureActiveChatEpoch(input: {
   chatId: string
   revisionId: string
   transitionReason?: string
   handoffSummary?: string
-}): { epoch: ChatEpochRecord; created: boolean; legacyEpoch?: ChatEpochRecord } {
+}): { epoch: ChatEpochRecord; created: boolean } {
   const db = getSoulDb()
   const lifecycle = db.prepare('SELECT lifecycle FROM chats WHERE id = ?').get(input.chatId) as
     { lifecycle: string } | undefined
@@ -356,7 +344,6 @@ export function ensureActiveChatEpoch(input: {
   const priorRows = db
     .prepare('SELECT * FROM chat_epochs WHERE root_chat_id = ? ORDER BY ordinal ASC')
     .all(rootChatId) as ChatEpochRow[]
-  let legacyEpoch: ChatEpochRecord | undefined
   let epoch: ChatEpochRecord
   const tx = db.transaction(() => {
     const now = Date.now()
@@ -365,19 +352,6 @@ export function ensureActiveChatEpoch(input: {
     ).run(now, rootChatId)
 
     let nextOrdinal = priorRows.length
-    if (priorRows.length === 0 && tree.some((chat) => chat.message_count > 0)) {
-      legacyEpoch = insertEpoch({
-        rootChatId,
-        ordinal: 0,
-        status: 'historical',
-        snapshotQuality: 'reconstructed',
-        transitionReason: 'legacy-migration',
-        handoffSummary:
-          '此纪元由版本化功能启用前的历史数据重建；配置、提示词和工具定义并非精确快照，仅供只读审计。',
-      })
-      nextOrdinal = 1
-    }
-
     epoch = insertEpoch({
       rootChatId,
       ordinal: nextOrdinal,
@@ -392,7 +366,6 @@ export function ensureActiveChatEpoch(input: {
   })
   tx()
 
-  if (legacyEpoch) assignUnversionedMessages(tree, legacyEpoch.epochId)
   const treeIds = tree.map((chat) => chat.id)
   if (treeIds.length > 0) {
     const placeholders = treeIds.map(() => '?').join(',')
@@ -402,7 +375,7 @@ export function ensureActiveChatEpoch(input: {
          AND state IN ('accepted', 'started', 'queued')`,
     ).run(epoch!.epochId, ...treeIds)
   }
-  return { epoch: epoch!, created: true, ...(legacyEpoch ? { legacyEpoch } : {}) }
+  return { epoch: epoch!, created: true }
 }
 
 /** Force a semantic boundary while retaining the validated deployment revision. */

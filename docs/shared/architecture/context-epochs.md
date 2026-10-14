@@ -11,7 +11,7 @@
 - **纪元是配置快照/审计边界，不是消息上下文边界**：纪元记录"该段历史产生于什么配置"，但历史消息跨纪元完整保留、完整进入后续 LLM 上下文。配置变更（语义面或运行时切换）只更换系统提示词与工具契约，**对话内容一个字不动**；旧纪元消息进入 LLM 上下文前剥离模型绑定物（thinking 签名等，见「历史连续性与兼容投影」）。
 - 配置修订的 fingerprint 只覆盖**语义面**——影响系统提示词、工具契约或角色编制的字段与资源；**连接面**变更（url/key/超时等）仅热更新运行配置，不产生新修订、不切纪元。语义变化后系统在安全边界激活新修订，并让后续执行进入新纪元（仅快照与提示词切换）。保存成功与激活成功是两个状态，前者不会改写正在执行的节点树。
 - 历史消息不会因为角色或预设删除而消失。旧纪元冻结当时的系统提示词、工具契约、运行选择和资源哈希，不保存密钥或可执行源代码。
-- 版本化功能启用前的历史进入 `legacy-0`，质量为 `reconstructed`，只供审计，不能假装是精确快照。
+- 未记录纪元的旧消息保留原文及空 `epoch_id`，不补建历史纪元、不补写配置快照。首次执行只创建当前配置的活动纪元；全部历史的读取仍包含旧消息，不能将它们归为当前配置产生的精确历史。验证见[纪元测试](../../../apps/backend/test/db/epoch.test.ts)的 `does not import unversioned messages into current epochs`。
 
 ## 数据模型
 
@@ -24,7 +24,7 @@
 | `revision_id` | 不可变修订 ID |
 | `fingerprint` | 脱敏配置**语义面**与资源哈希清单的 SHA-256，唯一（见下「语义面与连接面」） |
 | `status` | `candidate` / `active` / `rejected` / `superseded` |
-| `source` | `structured` / `manual` / `startup` / `legacy` / `rollback` |
+| `source` | `structured` / `manual` / `startup` / `rollback` |
 | `snapshot_json` | 脱敏后的结构化配置；不含明文凭据 |
 | `resources_json` | `.chery` 运行资源的路径、大小与 SHA-256；不含源文件内容 |
 | `validation_error` | 候选被拒绝时的错误 |
@@ -50,7 +50,7 @@ fingerprint 分两面，只有语义面参与指纹计算；连接面变更不�
 | `revision_id` | 该纪元使用的配置修订 |
 | `status` | `active` / `historical` / `archived` |
 | `snapshot_quality` | `exact` / `partial` / `reconstructed` |
-| `transition_reason` | 创建、配置变化、运行时变化或遗留迁移原因 |
+| `transition_reason` | 创建、配置变化或运行时变化原因 |
 | `handoff_summary` | 注入新纪元的边界摘要 |
 
 部分唯一索引保证同一根会话最多一个 `active` 纪元。`chats.active_epoch_id`、`messages.epoch_id`、`pending_inputs.epoch_id`、`spawn_tasks.epoch_id` 和 `execution_active_runs.epoch_id` 明确记录所有权，避免旧任务在新纪元恢复。
@@ -91,7 +91,7 @@ fingerprint 分两面，只有语义面参与指纹计算；连接面变更不�
 2. **兼容投影**（进入 LLM 上下文前，对旧纪元消息）：剥离 thinking blocks 与模型签名（DB 加载路径本就不带 `thinkingBlocks`，签名绑定模型的回传风险天然消除）；文本 `content`/`thinking`/工具调用记录原样保留。
 3. **过渡期产物过滤**：v1 纪元隔离实现落库的 `<epoch_carryover>` 消息在加载时过滤（其内容是旧纪元投影摘要，跨纪元全量加载后与原文冗余）；DB 行保留供审计。
 4. `<epoch_transition>` handoff 说明仍注入（system 消息）：声明配置快照已切换、历史完整保留、不得假定历史角色/工具当前仍存在。
-5. **空上下文守卫**：若因任何原因（历史数据损坏、`legacy-0` 无快照等）构建的消息列表仍无 user 内容，chat middleware 在 `buildMessages` 后直接抛 `validation` 类错误：「该会话当前纪元没有可延续的用户消息，请重新发送」，**不得**把纯 system 消息列表发往 LLM。该守卫为防御性兜底，正常路径不触发。
+5. **空上下文守卫**：若因历史数据损坏等原因构建的消息列表仍无 user 内容，chat middleware 在 `buildMessages` 后直接抛 `validation` 类错误：「该会话当前纪元没有可延续的用户消息，请重新发送」，**不得**把纯 system 消息列表发往 LLM。该守卫为防御性兜底，正常路径不触发。
 
 > **v1「初始上下文重构」已废除**：早期实现按 `epoch_id` 隔离加载（新纪元 0 条消息），以 `<epoch_carryover>` 文本投影重构上下文——该方案把配置快照边界错误强化为对话断裂，与本原则冲突，已移除。仅过渡期落库的 carryover 消息按第 3 条过滤。
 
@@ -145,7 +145,7 @@ fingerprint 分两面，只有语义面参与指纹计算；连接面变更不�
 
 每项增加 `activeEpochId?`、`epochCount` 和 `lifecycle`，供目录与工作台区分活动、退役、废弃和归档记录。
 
-## Nexus 配置和资产操作
+## cheryNyxus 配置和资产操作
 
 `config_manage` 支持：
 
