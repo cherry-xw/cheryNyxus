@@ -4,7 +4,7 @@
 
 ## 原生入口与实现状态
 
-原生后端五方法（包含 qq.identity.bind）由 `cheryNyxus-extension-host` 加载的 `cherynyxus-qq-module`（源目录 `plugins/qq/`）提供，显式安装、启用并由 `cheryNyxus-runtime` 启动后注册；它不是独立服务。未安装或禁用时不提供业务处理器。生命周期与管理接口见[统一宿主](../architecture/ingress-plugins.md)。插件接口为宿主API版本2，QQ/NapCat 传输 protocolVersion 仍为1；版本、身份句柄与迁移以宿主owner为准。部署、真实QQ与模型仍须另行验证，代码和合成测试不能证明生产已可用。
+原生后端五方法（包含 qq.identity.bind）由 `cheryNyxus-extension-host` 加载的 `cherynyxus-qq-module`（源目录 `plugins/qq/`）提供，显式安装、启用并由 `cheryNyxus-runtime` 启动后注册；它不是独立服务。未安装或禁用时不提供业务处理器。生命周期与管理接口见[统一宿主](../architecture/ingress-plugins.md)。插件接口为宿主API版本2，QQ/NapCat 传输 protocolVersion 仍为1；版本与身份句柄以宿主owner为准；不提供旧格式迁移。部署、真实QQ与模型仍须另行验证，代码和合成测试不能证明生产已可用。
 
 原生入口为 `platform/napcat-plugin/src/index.ts`，NapCat 技术插件 ID固定为 `napcat-plugin-cherynyxus`，用户可见名称为 `NapCat Plugin Chery Nyxus`；其逻辑职责名称为 `cheryNyxus-qq-adapter-napcat`。构建入口为目录内 `pnpm build`，生成 `dist/index.mjs`、`dist/package.json` 和 ZIP 安装包。NapCat 调用 `plugin_init`、`plugin_onmessage`、`plugin_cleanup`；QQ Action 使用官方四参数调用，不另建 OneBot 连接。安装、重载及真实 QQ 验证仍需用户批准。
 
@@ -92,4 +92,4 @@ NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含�
 
 后端正式入口为 `pnpm qq-ingress:build && pnpm qq-ingress:test`；[`qqPluginWire.test.ts`](../../../apps/backend/test/service/qqPluginWire.test.ts) 连接真实 WebSocket 和原生 `Adapter/BackendWire`，注入合成 QQ Action，并通过核心离线 mock provider 验证 QQ 与普通 Web 输入；[`qqProtocolContract.test.ts`](../../../apps/backend/test/service/qqProtocolContract.test.ts) 验证共享 DTO 对握手、身份、恢复、事件和 delivery 边界的拒绝规则；[`qqReviewBoundaries.test.ts`](../../../apps/backend/test/service/qqReviewBoundaries.test.ts) 验证记忆隔离和宿主启停状态；[`qqRequest.test.ts`](../../../apps/backend/test/agent/middleware/qqRequest.test.ts) 验证请求内工具、记忆隔离与审批拒绝。
 
-发送通知先持久化，再交给连接；每目标同时只有一条在途输出。15秒未收到结果停止该目标推进，不能假定已发送；同进程重连可回放同一eventId/seq，由NapCat日志避免重复。进程重启把在途输出标unknown，运行任务标paused，不回放未知输出、不重新调用模型。恢复仍返回暂停状态通知；解除未知发送或旧迁移待核实状态没有自动入口，需明确核对，不可删日志强行继续。活动倒计时使用后端收到有效sent确认的本机时间，不相信客户端sentAt来推进时间。
+发送通知先持久化，再交给连接；每目标同时只有一条在途输出。15秒未收到结果停止该目标推进，不能假定已发送；同进程重连可回放同一eventId/seq，由NapCat日志避免重复。进程重启把在途输出标unknown，运行任务标paused，不回放未知输出、不重新调用模型。恢复仍返回暂停状态通知；解除未知发送没有自动入口，需明确核对，不可删日志强行继续。活动倒计时使用后端收到有效sent确认的本机时间，不相信客户端sentAt来推进时间。

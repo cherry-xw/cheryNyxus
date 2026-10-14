@@ -307,10 +307,6 @@ export class IngressStore {
       fs.unlinkSync(target)
     }
   }
-  /** Offline migration shares the registry mutation lock. */
-  withMaintenanceLock<T>(action: () => T): T {
-    return this.lock(action)
-  }
 }
 export function ingressError(code: string): Error & { code: string } {
   return Object.assign(new Error(code), { code })

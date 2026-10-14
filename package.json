@@ -36,7 +36,7 @@
     "build:prod": "vite build --config apps/backend/vite.config.ts --ssr --mode prod",
     "compile:senses": "node apps/backend/dist/index.js compile-senses",
     "ingress:cli": "tsx apps/backend/src/service/ingress/cli.ts",
-    "ingress:test": "vitest run --config apps/backend/vite.config.ts apps/backend/test/service/ingress.test.ts apps/backend/test/service/ingressApi2.test.ts apps/backend/test/service/ingressRequest.test.ts apps/backend/test/service/ingressMigration.test.ts --no-file-parallelism",
+    "ingress:test": "vitest run --config apps/backend/vite.config.ts apps/backend/test/service/ingress.test.ts apps/backend/test/service/ingressApi2.test.ts apps/backend/test/service/ingressRequest.test.ts --no-file-parallelism",
     "qq-ingress:build": "vite build --config plugins/qq/vite.config.ts && vite build --config plugins/qq/ui.vite.config.ts && node plugins/qq/scripts/package.mjs",
     "qq-ingress:type-check": "tsc --noEmit -p plugins/qq/tsconfig.json",
     "settings-ingress:build": "vite build --config plugins/settings/vite.config.ts && vite build --config plugins/settings/ui.vite.config.ts && node plugins/settings/scripts/package.mjs",

@@ -72,7 +72,7 @@ status至少区分插件安装/启用/活动版本、配置保存/应用版本�
 
 ### QQ包定位与维护
 
-[`QQPlugin`](../../../plugins/qq/src/index.ts)负责五个传输RPC、五个管理RPC、策略快照和目标队列；[`state.ts`](../../../plugins/qq/src/state.ts)保存受限原子状态；[`migrateQQ`](../../../plugins/qq/src/migrate.ts)负责显式旧目录迁移。正式验证命令与边界见[QQ协议自动验证](../protocol/qqbot-plugin.md#自动验证)。
+[`QQPlugin`](../../../plugins/qq/src/index.ts)负责五个传输RPC、五个管理RPC、策略快照和目标队列；[`state.ts`](../../../plugins/qq/src/state.ts)保存受限原子状态；旧目录不导入；插件只接受当前格式。正式验证命令与边界见[QQ协议自动验证](../protocol/qqbot-plugin.md#自动验证)。
 
 构建 `pnpm qq-ingress:build` 生成完整目录 `plugins/qq/dist/`，必须一起安装清单、ESM入口、共享依赖文件和package.json，不能只复制index.mjs。先停旧消费者并经批准维护：`CHERY_DIR=<工作目录> pnpm ingress:cli -- install plugins/qq/dist`，`enable cherynyxus-qq-module`；已安装使用upgrade而非install。宿主下一次获准启动才活动，禁用仍遵守待重启约定。
 
@@ -86,7 +86,7 @@ status至少区分插件安装/启用/活动版本、配置保存/应用版本�
 
 通用宿主的当前实现：[`api.ts`](../../../apps/backend/src/service/ingress/api.ts) 提供 API2；[`ingress.ts`](../../../packages/protocol/src/ingress.ts) 提供共享管理 schema；[`handlers.ts`](../../../apps/backend/src/service/ingress/handlers.ts) 注册控制接口；[`identity.ts`](../../../apps/backend/src/service/ingress/identity.ts) 签发句柄并在停用、连接关闭时撤销；[`request.ts`](../../../apps/backend/src/agent/hooks/request.ts) 每输入准备一次请求视图。正式验证入口为 `pnpm ingress:test`、`apps/backend/test/agent/hooks/`、`apps/backend/test/agent/runtimeResolver.test.ts` 和 `apps/backend/test/agent/provider/`，只使用合成包及离线执行器。
 
-显式离线命令 `pnpm ingress:cli -- migrate-v1` 调用 [`migrateIngressV1`](../../../apps/backend/src/service/ingress/migrate.ts)，备份旧注册表和清单后转换存储格式，保留配置与数据，所有转换包停用且无默认授权。它不改写旧插件的执行代码，不代表 API1 实例已满足 API2；管理员必须安装已按 API2 改写的新版本并审核授予能力后才能启用。失败恢复旧注册表，重跑已完成迁移不覆盖数据。QQ 数据迁移和生产切换仍属于后续任务。
+当前宿主仅接受 API2 清单与当前注册表格式；不提供旧格式转换或导入命令。
 
 ### 包声明与能力授予
 

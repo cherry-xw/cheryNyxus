@@ -9,7 +9,6 @@ export default defineConfig({
     lib: {
       entry: {
         index: fileURLToPath(new URL('./src/index.ts', import.meta.url)),
-        migrate: fileURLToPath(new URL('./src/migrate.ts', import.meta.url)),
       },
       formats: ['es'],
       fileName: (_format, name) => `${name}.mjs`,

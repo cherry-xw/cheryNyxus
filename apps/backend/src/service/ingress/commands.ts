@@ -1,16 +1,9 @@
 import { IngressStore } from './store.js'
-import { migrateIngressV1 } from './migrate.js'
 
 /** Maintenance has no core config import and never starts services or executes packages. */
 export function runIngressCommand(args: readonly string[], store = new IngressStore()): void {
   const [command, operand, digest, ...extra] = args.filter((arg) => arg !== '--')
   if (extra.length) throw new Error('Unexpected ingress arguments')
-  if (command === 'migrate-v1') {
-    if (operand || digest) throw new Error('Unexpected ingress arguments')
-    migrateIngressV1(store)
-    console.log(JSON.stringify({ migrated: true, requiresReview: true }))
-    return
-  }
   if (command === 'install' || command === 'upgrade') {
     if (!operand) throw new Error('A built ESM package directory is required')
     if (digest !== undefined && !/^[a-f0-9]{64}$/.test(digest))
@@ -66,6 +59,6 @@ export function runIngressCommand(args: readonly string[], store = new IngressSt
     return
   }
   throw new Error(
-    'Usage: ingress install|upgrade <directory> [sha256] | enable|disable|uninstall <id> | status [id] | migrate-v1',
+    'Usage: ingress install|upgrade <directory> [sha256] | enable|disable|uninstall <id> | status [id]',
   )
 }
