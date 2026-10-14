@@ -1,9 +1,9 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { defineAsyncComponent, computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { BellFilled, Reading } from '@element-plus/icons-vue'
 import ConversationView from './ConversationView.vue'
 import WorkbenchAttentionSurface from './WorkbenchAttentionSurface.vue'
 import WorkbenchOfflineMask from './WorkbenchOfflineMask.vue'
-import TaskBrowser from './TaskBrowser.vue'
+const TaskBrowser = defineAsyncComponent(() => import('./TaskBrowser.vue'))
 import {
   useWorkbenchDialogController,
   type WorkbenchDialogControllerProps,
@@ -14,8 +14,8 @@ import WorkbenchViewToggle from './WorkbenchViewToggle.vue'
 import WorkbenchAttentionIndicator from './WorkbenchAttentionIndicator.vue'
 import WorkbenchFoldTool from './WorkbenchFoldTool.vue'
 import WorkbenchWindowControls from './WorkbenchWindowControls.vue'
-import ContextAnalyticsPanel from './context-analytics/ContextAnalyticsPanel.vue'
-import WorkbenchFilesWorkspace from './files/WorkbenchFilesWorkspace.vue'
+const ContextAnalyticsPanel = defineAsyncComponent(() => import('./context-analytics/ContextAnalyticsPanel.vue'))
+const WorkbenchFilesWorkspace = defineAsyncComponent(() => import('./files/WorkbenchFilesWorkspace.vue'))
 import { serializeFileMention } from '../composables/commands'
 
 export function useWorkbenchDialogViewController(props: Readonly<WorkbenchDialogControllerProps>, emit: (event: 'filesOpenChange', open: boolean) => void) {
