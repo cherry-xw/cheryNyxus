@@ -8,7 +8,9 @@ import {
   envPlaceholderFormatError,
   isMalformedEnvPlaceholder,
 } from './envPlaceholder.js'
-import fs from 'fs'
+import fs from 'node:fs'
+import { withConfigTransactionSync, replaceConfigText } from './configTransaction.js'
+import { configRecord, mergeBackendConfig } from './configOwnership.js'
 import path from 'path'
 import { createHash } from 'node:crypto'
 import { resolveEnvFile, loadEnvFile, ensureSessionSecret } from './envFile.js'
@@ -1036,10 +1038,11 @@ export function readRawConfig(): ConfigRaw {
     media?: unknown
   }
   // 端口/传输、管理器监听和已退役的媒体网关不通过面板编辑，读取时剥离。
-  const { server: _server, manager: _manager, media: _media, ...rest } = raw
+  const { server: _server, manager: _manager, media: _media, relay: _relay, ...rest } = raw as typeof raw & { relay?: unknown }
   void _server
   void _manager
   void _media
+  void _relay
   ensurePresetIds(rest.presets)
   ensureRoleIds(rest.roles)
   // routingBrain 已废弃；读取设置时主动剥离，下一次保存自然从磁盘删除。
@@ -1174,7 +1177,15 @@ export function rollbackConfig(backupName?: string): { backup: string } {
   const { backup, path: backupPath } = readConfigBackup(backupName)
   const cheryDir = process.env.CHERY_DIR || process.cwd()
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
-  fs.copyFileSync(backupPath, configPath)
+  withConfigTransactionSync(configPath, () => {
+    const expected = fs.readFileSync(configPath, 'utf8')
+    const current = configRecord(yaml.load(expected))
+    const backupText = fs.readFileSync(backupPath, 'utf8')
+    const parsed = yaml.load(backupText)
+    if (parsed === undefined) throw new Error('空备份不能恢复业务配置')
+    const previous = configRecord(parsed)
+    replaceConfigText(configPath, yaml.dump(mergeBackendConfig(current, previous), { lineWidth: -1 }), expected)
+  })
   return { backup }
 }
 
@@ -1220,9 +1231,14 @@ export function readConfigBackup(backupName?: string): {
 export function saveRawConfig(
   partial: ConfigRaw,
 ): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
+  const file = path.join(process.env.CHERY_DIR || process.cwd(), '.chery', 'config.yaml')
+  return withConfigTransactionSync(file, () => saveRawConfigUnlocked(partial))
+}
+function saveRawConfigUnlocked(partial: ConfigRaw): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
   const cheryDir = process.env.CHERY_DIR || process.cwd()
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
-  const disk = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & {
+  const expectedText = fs.readFileSync(configPath, 'utf8')
+  const disk = yaml.load(expectedText) as ConfigRaw & {
     server?: ServerConfig
     manager?: unknown
   }
@@ -1233,16 +1249,12 @@ export function saveRawConfig(
   ensurePresetIds(partial.presets)
   ensureRoleIds(partial.roles)
   // 写回保留盘上 server 与 manager 段不动（同 server 模式，manager 为 server 侧专属配置）。
-  const merged = {
-    ...partial,
-    server: disk.server ?? { port: 8182, transport: 'binary' as const },
-    ...(disk.manager ? { manager: disk.manager } : {}),
-  }
+  const merged = mergeBackendConfig(configRecord(disk), partial)
 
   // 写盘前备份旧配置（.chery/backups/，保留最近 BACKUP_KEEP 份）——回滚到修改前状态的唯一依据。
   // 校验失败路径已提前 return，不会走到这里，故不会产生无效备份。
   backupConfig(configPath)
-  fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }))
+  replaceConfigText(configPath, yaml.dump(merged, { lineWidth: -1 }), expectedText)
   return { ok: true }
 }
 

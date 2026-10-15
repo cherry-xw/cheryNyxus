@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { replaceConfigText, withConfigTransactionSync } from '@/utils/configTransaction.js'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
@@ -327,6 +328,10 @@ function atomicRestore(filename: string, content: Buffer | undefined): void {
 /** Synchronous validation/writes serialize commits; preparation and application
  * are separately serialized by the coordinator. No lifecycle effects here. */
 export function commitConfigCandidate(input: ConfigCommitInput): ConfigCommitResult {
+  try { return withConfigTransactionSync(configPaths().config, () => commitConfigCandidateLocked(input)) }
+  catch { return { ok: false, kind: 'save', errors: ['配置事务冲突或不可用，请重新读取后保存'], warnings: [] } }
+}
+function commitConfigCandidateLocked(input: ConfigCommitInput): ConfigCommitResult {
   const fingerprint = imageRevision(input)
   const previous = input.requestId ? requests.get(input.requestId) : undefined
   if (previous)
@@ -360,12 +365,14 @@ export function commitConfigCandidate(input: ConfigCommitInput): ConfigCommitRes
   const files = configPaths()
   const originals = new Map<string, Buffer | undefined>()
   let candidateRevisionId = ''
+  let writtenConfigText: string | undefined
   try {
     if (stable(before.config) !== stable(image.config)) {
       originals.set(files.config, fs.readFileSync(files.config))
       const saved = saveRawConfig(image.config)
       if (!saved.ok)
         return { ok: false, kind: 'validation', errors: saved.errors, warnings: saved.warnings }
+      writtenConfigText = fs.readFileSync(files.config, 'utf8')
     }
     if (stable(before.hooks) !== stable(image.hooks)) {
       originals.set(
@@ -379,7 +386,11 @@ export function commitConfigCandidate(input: ConfigCommitInput): ConfigCommitRes
     let partial = false
     for (const [filename, content] of [...originals].reverse()) {
       try {
-        atomicRestore(filename, content)
+        if (filename === files.config) {
+          // Never restore over an edit made by a nonparticipating writer.
+          if (writtenConfigText !== undefined && content !== undefined)
+            replaceConfigText(filename, content.toString('utf8'), writtenConfigText)
+        } else atomicRestore(filename, content)
       } catch {
         partial = true
       }

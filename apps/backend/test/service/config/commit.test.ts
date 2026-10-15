@@ -291,6 +291,25 @@ describe('serialized config commit', () => {
     expect(fs.readFileSync(filename)).toEqual(original)
     expect(result.ok === false && ['save', 'partial-save'].includes(result.kind)).toBe(true)
   })
+  it('does not restore a whole YAML snapshot over an unrelated edit after Hooks failure', () => {
+    const write = fs.writeFileSync
+    let externalText = ''
+    vi.spyOn(fs, 'writeFileSync').mockImplementation((...args: Parameters<typeof fs.writeFileSync>) => {
+      if (String(args[0]).startsWith(hooksFile)) {
+        const disk = yaml.load(fs.readFileSync(filename, 'utf8')) as Record<string, unknown>
+        externalText = yaml.dump({ ...disk, manager: { auth: { username: 'newer-manager' } } })
+        write(filename, externalText)
+        throw Error('injected Hooks failure with concurrent YAML edit')
+      }
+      return write(...args)
+    })
+    const request = input()
+    request.candidate.global.textEditor = 'new-editor'
+    const result = api.commitConfigCandidate({ ...request, hooks: { SessionStart: [{ command: 'echo isolated' }] } })
+    expect(result).toMatchObject({ ok: false, kind: 'partial-save' })
+    expect(fs.readFileSync(filename, 'utf8')).toBe(externalText)
+  })
+
   it('binds previews to revision and candidate without writing during preview', () => {
     const request = input()
     request.candidate.global.textEditor = 'preview-editor'

@@ -1,4 +1,8 @@
 import fs from 'node:fs'
+import yaml from 'js-yaml'
+import { randomUUID } from 'node:crypto'
+import { configRecord, mergeBackendConfig } from '@/utils/configOwnership.js'
+import { replaceConfigText, withConfigTransactionSync } from '@/utils/configTransaction.js'
 import {
   consumeHandledConfigImage,
   getConfigApplyCoordinator,
@@ -37,38 +41,35 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
   const watchers = new Map<string, fs.FSWatcher>()
   let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false
-  const acceptedRaw = readRawConfig()
-  let acceptedConfigText = fs.readFileSync(path.join(cheryRoot, 'config.yaml'), 'utf8')
+  const configPath = path.join(cheryRoot, 'config.yaml')
+  let acceptedBusiness = readRawConfig()
+  let recoveredText: string | undefined
+  const acceptedRaw = acceptedBusiness
   let acceptedImageRevision = imageRevision(readConfigImage())
-  let acceptedRevision = createConfigRevision({ raw: acceptedRaw, source: 'startup' })
-  let suppressRecoveredWrite = false
+  createConfigRevision({ raw: acceptedRaw, source: 'startup' })
 
   const restoreAcceptedConfig = (message: string): string | undefined => {
     const configPath = path.join(cheryRoot, 'config.yaml')
     const backupsDir = path.join(cheryRoot, 'backups')
     const rejectedPath = path.join(
       backupsDir,
-      `rejected-manual-${new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')}.yaml`,
+      `rejected-manual-${randomUUID()}.yaml`,
     )
-    const candidatePath = `${configPath}.recovery-${process.pid}`
     try {
+      const text = fs.readFileSync(configPath, 'utf8')
       fs.mkdirSync(backupsDir, { recursive: true })
-      fs.renameSync(configPath, rejectedPath)
-      fs.writeFileSync(candidatePath, acceptedConfigText, 'utf8')
-      fs.renameSync(candidatePath, configPath)
-      suppressRecoveredWrite = true
-      logger.event('config.manual.recovered', { rejectedPath, reason: message }, LogLevel.warn)
-      return rejectedPath
-    } catch (error) {
-      if (fs.existsSync(candidatePath)) fs.rmSync(candidatePath, { force: true })
-      if (!fs.existsSync(configPath) && fs.existsSync(rejectedPath)) {
-        fs.copyFileSync(rejectedPath, configPath)
+      fs.writeFileSync(rejectedPath, text, { flag: 'wx', mode: 0o600 })
+      try {
+        const current = configRecord(yaml.load(text))
+        const restored = yaml.dump(mergeBackendConfig(current, acceptedBusiness), { lineWidth: -1 })
+        replaceConfigText(configPath, restored, text)
+        recoveredText = restored
+        logger.event('config.manual.recovered', { rejectedPath, reason: message }, LogLevel.warn)
+      } catch {
+        logger.event('config.manual.recovery_refused', { rejectedPath, reason: message }, LogLevel.warn)
       }
-      logger.event(
-        'config.manual.recovery_failed',
-        { error: (error as Error).message, reason: message },
-        LogLevel.error,
-      )
+      return rejectedPath
+    } catch {
       return undefined
     }
   }
@@ -82,16 +83,16 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
   const validateCandidate = (): void => {
     timer = undefined
     if (closed) return
-    if (suppressRecoveredWrite) {
-      suppressRecoveredWrite = false
-      const currentText = fs.readFileSync(path.join(cheryRoot, 'config.yaml'), 'utf8')
-      if (currentText === acceptedConfigText) {
-        logger.event('config.manual.recovery_held', {
-          revisionId: acceptedRevision.revisionId,
-        })
-        return
-      }
+    try { withConfigTransactionSync(configPath, validateCandidateLocked) }
+    catch (error) {
+      logger.event('config.watcher.transaction_failed', { error: (error as Error).message }, LogLevel.warn)
+      schedule()
     }
+  }
+
+  const validateCandidateLocked = (): void => {
+    if (recoveredText !== undefined && fs.readFileSync(configPath, 'utf8') === recoveredText) return
+    recoveredText = undefined
     let raw: ReturnType<typeof readRawConfig>
     try {
       raw = readRawConfig()
@@ -101,7 +102,7 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
       enterMaintenanceMode('手工配置文件无法解析', [
         message,
         ...(rejectedPath
-          ? [`无效文件已保全到 ${rejectedPath}；已恢复最后一次可解析版本，等待用户确认保存。`]
+          ? [`无效文件已保全到 ${rejectedPath}；未覆盖其他配置，等待用户修正保存。`]
           : []),
       ])
       abortAllChatRuntimes()
@@ -116,7 +117,8 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
         status: 'rejected',
         validationError: validation.errors.join('\n'),
       })
-      enterMaintenanceMode('手工配置候选版本验证失败', validation.errors)
+      const rejectedPath = restoreAcceptedConfig(validation.errors.join('\n'))
+      enterMaintenanceMode('手工配置候选版本验证失败', [...validation.errors, ...(rejectedPath ? [`候选已保全到 ${rejectedPath}，仅恢复Backend业务分区；等待有效保存。`] : [])])
       abortAllChatRuntimes()
       logger.event(
         'config.manual.invalid',
@@ -147,14 +149,12 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
       return
     }
     const candidate = createConfigRevision({ raw: image.config, source: 'manual' })
-    const candidateText = fs.readFileSync(path.join(cheryRoot, 'config.yaml'), 'utf8')
     const nextImageRevision = imageRevision(image)
     const alreadyHandled = consumeHandledConfigImage(image)
     const unchanged = nextImageRevision === acceptedImageRevision
     if (alreadyHandled || unchanged) {
-      acceptedConfigText = candidateText
+      acceptedBusiness = raw
       acceptedImageRevision = nextImageRevision
-      acceptedRevision = candidate
       const recovering = getMaintenanceState().active
       if (recovering) {
         leaveMaintenanceMode()
@@ -169,9 +169,8 @@ export function startConfigRevisionWatcher(): ConfigWatcherHandle {
       return
     }
     const state = submitDiskConfigImage('manual')
-    acceptedConfigText = candidateText
+    acceptedBusiness = raw
     acceptedImageRevision = nextImageRevision
-    acceptedRevision = candidate
     const recovering = getMaintenanceState().active
     leaveMaintenanceMode()
     if (recovering) process.send?.({ type: 'maintenance-cleared' })

@@ -34,7 +34,7 @@ import { getConfigApplyCoordinator } from '@/service/config/commit.js'
 import { validateRestartCandidate } from '@/service/config/restartPreflight.js'
 import { stopScheduleService } from '@/service/schedule/scheduler.js'
 import fs from 'node:fs'
-import yaml from 'js-yaml'
+import { persistStartupPasswordHash } from './utils/configOwnership.js'
 import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 import { startConfigRevisionWatcher } from '@/service/config/watcher.js'
 import { getActiveConfigRevision } from '@/db/epoch.js'
@@ -118,9 +118,10 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   // 启动自检：server.auth.password 为明文 → 改写为 scrypt 哈希并自动重启（rule12 fail loud）。
   // 用户可直接在 config 写明文密码；本钩子保证运行时只用哈希，且不落明文。
   if (config.server.auth?.password && !isHashed(config.server.auth.password)) {
-    const hashed = hashPassword(config.server.auth.password)
+    const original = config.server.auth.password
+    const hashed = hashPassword(original)
+    ensurePasswordHashedOnDisk(original, hashed)
     config.server.auth.password = hashed
-    ensurePasswordHashedOnDisk(hashed)
     logger.info('检测到 server.auth.password 为明文，已改写为 scrypt 哈希，正在自动重启...')
     // 启动期无 chat 在跑 → isIdle()=true → 立即通知守护进程替换 worker。
     if (requestRestartWhenIdle() !== 'manual') return
@@ -280,14 +281,10 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
 let restartEngine: ReturnType<typeof getConfigApplyCoordinator> | undefined
 
 /** 将已哈希的 server.auth.password 写回盘上 config.yaml（保留字符串原文，含 $ 无需引号由 yaml 处理）。 */
-function ensurePasswordHashedOnDisk(hashed: string): void {
+function ensurePasswordHashedOnDisk(original: string, hashed: string): void {
   const cheryDir = process.env.CHERY_DIR || process.cwd()
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
-  const disk = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>
-  const server = (disk.server ??= {}) as Record<string, unknown>
-  const auth = (server.auth ??= {}) as Record<string, unknown>
-  auth.password = hashed
-  fs.writeFileSync(configPath, yaml.dump(disk, { lineWidth: -1 }))
+  persistStartupPasswordHash(configPath, original, hashed)
 }
 
 function writeBackendStatus(addresses: unknown): void {

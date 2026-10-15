@@ -39,6 +39,14 @@ Manager 是独立的统一管理入口；核心聊天仍在后端执行。管理
 
 删除使用核心 `config.preview` 获取影响预览并以 `wait` 策略提交 `config.save`，保留引用保护，不绕过核心删除检查。
 
+## 共享配置事务
+
+配置仍使用单一 YAML 文件。Backend 保存、回滚、运行中恢复和启动恢复使用同一文件锁，锁内重读后只改自己负责的字段，原子替换前比较原文；锁冲突时拒绝写入，不自动删除遗留锁。Backend 业务根字段限定为 `global`、`llm`、`sense_groups`、`mcp_servers`、`roles`、`presets`、`memory`；未知根字段及 `server`、`manager`、`relay` 保持盘上最新值。可解析但业务校验失败的候选先保全原文，再恢复最后认可的业务字段；恢复产生的文件事件不自动解除维护状态，仍需有效用户保存。无法解析的 YAML 只保全，不用整份旧备份覆盖。启动明文密码的哈希写回须在锁内核对磁盘密码与启动时一致，否则拒绝启动和写回。
+
+启动模板初始化和资产同步使用同一事务实现（`scripts/lib/config-transaction.mjs`），锁冲突时拒绝同步；已有配置不补入内置资源，具体规则见[环境搭建](../../guides/setup.md#2-安装依赖-ai-可执行)。guardian 启动恢复只恢复 Backend 业务分区，非法 YAML 只保全，不再整文件复制备份。Manager 自有账号的并发改密规则见[Manager 认证](../protocol/manager-auth.md#账号与配置)。事务释放后继承异步上下文不能继续写入。
+
+实现见 [configOwnership.ts](../../../apps/backend/src/utils/configOwnership.ts) 的 `mergeBackendConfig/persistStartupPasswordHash`、[configStartupRecovery.ts](../../../apps/backend/src/utils/configStartupRecovery.ts) 的 `recoverStartupConfig`。验证见 [Backend 跨进程锁测试](../../../apps/backend/test/service/configTransaction.test.ts)、[启动密码与字段归属测试](../../../apps/backend/test/service/configOwnership.test.ts)及[启动恢复测试](../../../apps/backend/test/service/configStartupRecovery.test.ts)。
+
 ## 保存流程与失败语义
 
 1. Manager 授权 Session、Origin，再把有限资源请求交给注册模块。
@@ -60,7 +68,7 @@ Manager 是独立的统一管理入口；核心聊天仍在后端执行。管理
 
 QQ 管理的固定 HTTP 路径、共享数字版本与状态类型见[接入插件](ingress-plugins.md#qq-管理api)。已安装 `cherynyxus-qq-module` 即保留管理页面；停用不撤配置诊断，卸载后页面与专用 API 返回404。运行服务离线返回503。页面只查看已有预设摘要，不复制能力编辑器。不读取旧平台业务文件，不启动旧QQ中转，不伪造保存成功。保存结果不确定时返回明确的未知写入错误，要求回读而非重试。
 
-旧QQ独立管理和生产中转入口退出后，仅保留旧数据供显式离线迁移；通用relay网关不属于旧QQ中转。Manager 本体离线不影响 Backend QQ 运行；插件页的停用按钮是明确的 Backend 插件操作，不是隐藏页面的开关。设置包不依赖 QQ。部署更新与真实QQ、界面验收仍由后续任务执行。
+旧QQ独立管理和生产中转入口退出后，仅保留旧数据供显式离线迁移；通用relay网关不属于旧QQ中转。Manager 本体离线不影响 Backend QQ 运行；插件页的停用按钮是明确的 Backend 插件操作，不是隐藏页面的开关。设置包不依赖 QQ。QQ 实际业务验收结论见[QQ 模块说明](../../../plugins/qq/README.md#当前限制与验证边界)，不代表 Manager 页面或其他部署操作已验收。
 
 ## 验证与部署
 

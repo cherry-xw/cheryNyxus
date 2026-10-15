@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import yaml from 'js-yaml'
 import {
   backupConfig,
   listConfigBackups,
@@ -96,22 +97,54 @@ describe('config 自动备份回滚', () => {
     setupConfigYaml(minimalConfigYaml())
     const backupsDir = join(tempCheryDir, '.chery', 'backups')
     mkdirSync(backupsDir, { recursive: true })
-    writeFileSync(join(backupsDir, 'config-20260820-010000.yaml'), '# older')
-    writeFileSync(join(backupsDir, 'config-20260820-020000.yaml'), '# newer')
+    writeFileSync(join(backupsDir, 'config-20260820-010000.yaml'), minimalConfigYaml() + 'memory: { max_count: 1 }\n')
+    writeFileSync(join(backupsDir, 'config-20260820-020000.yaml'), minimalConfigYaml() + 'memory: { max_count: 2 }\n')
     const { backup } = rollbackConfig()
     expect(backup).toBe('config-20260820-020000.yaml')
-    expect(readFileSync(join(tempCheryDir, '.chery', 'config.yaml'), 'utf8')).toBe('# newer')
+    expect((yaml.load(readFileSync(join(tempCheryDir, '.chery', 'config.yaml'), 'utf8')) as { memory: { max_count: number } }).memory.max_count).toBe(2)
   })
 
   it('rollbackConfig 指定 backup 文件名恢复', () => {
     setupConfigYaml(minimalConfigYaml())
     const backupsDir = join(tempCheryDir, '.chery', 'backups')
     mkdirSync(backupsDir, { recursive: true })
-    writeFileSync(join(backupsDir, 'config-20260820-010000.yaml'), '# older')
-    writeFileSync(join(backupsDir, 'config-20260820-020000.yaml'), '# newer')
+    writeFileSync(join(backupsDir, 'config-20260820-010000.yaml'), minimalConfigYaml() + 'memory: { max_count: 1 }\n')
+    writeFileSync(join(backupsDir, 'config-20260820-020000.yaml'), minimalConfigYaml() + 'memory: { max_count: 2 }\n')
     const { backup } = rollbackConfig('config-20260820-010000.yaml')
     expect(backup).toBe('config-20260820-010000.yaml')
-    expect(readFileSync(join(tempCheryDir, '.chery', 'config.yaml'), 'utf8')).toBe('# older')
+    expect((yaml.load(readFileSync(join(tempCheryDir, '.chery', 'config.yaml'), 'utf8')) as { memory: { max_count: number } }).memory.max_count).toBe(1)
+  })
+
+  it('rollback preserves current foreign roots instead of replaying their old identities', () => {
+    const configPath = setupConfigYaml(minimalConfigYaml() + 'manager: {auth: {username: current}}\nserver: {auth: {password: current}}\nrelay: {backendId: current}\notherEnd: {revision: 42}\n')
+    const backupsDir = join(tempCheryDir, '.chery', 'backups')
+    mkdirSync(backupsDir, { recursive: true })
+    writeFileSync(join(backupsDir, 'config-20260820-020000.yaml'), minimalConfigYaml() + 'manager: {auth: {username: stale}}\nserver: {auth: {password: stale}}\nrelay: {backendId: stale}\notherEnd: {revision: 1}\n')
+    rollbackConfig()
+    const disk = yaml.load(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+    expect(disk.manager).toEqual({ auth: { username: 'current' } })
+    expect(disk.server).toEqual({ auth: { password: 'current' } })
+    expect(disk.relay).toEqual({ backendId: 'current' })
+    expect(disk.otherEnd).toEqual({ revision: 42 })
+  })
+
+  it.each(['# empty', 'global: [', '- not-a-mapping'])('refuses unsafe backup without overwriting (%s)', (bad) => {
+    const configPath = setupConfigYaml(minimalConfigYaml())
+    const before = readFileSync(configPath, 'utf8')
+    const backupsDir = join(tempCheryDir, '.chery', 'backups')
+    mkdirSync(backupsDir, { recursive: true })
+    writeFileSync(join(backupsDir, 'config-20260820-020000.yaml'), bad)
+    expect(() => rollbackConfig()).toThrow()
+    expect(readFileSync(configPath, 'utf8')).toBe(before)
+  })
+
+  it('rollback refuses unparseable current disk, leaving it intact', () => {
+    const configPath = setupConfigYaml('manager: [')
+    const backupsDir = join(tempCheryDir, '.chery', 'backups')
+    mkdirSync(backupsDir, { recursive: true })
+    writeFileSync(join(backupsDir, 'config-20260820-020000.yaml'), minimalConfigYaml())
+    expect(() => rollbackConfig()).toThrow()
+    expect(readFileSync(configPath, 'utf8')).toBe('manager: [')
   })
 
   it('rollbackConfig 遇到格式错误的密钥占位符 → 拒绝恢复且保留当前配置', () => {

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
+import { recoverStartupConfig } from './utils/configStartupRecovery.js'
 import { syncCheryTemplate } from '../../../scripts/lib/chery-template-sync.mjs'
 
 const WORKER_FLAG = '--worker'
@@ -124,25 +125,18 @@ function startWorker(): void {
 function recoverConfigForMaintenance(reason: string): boolean {
   const root = configRoot()
   const configPath = path.join(root, 'config.yaml')
-  const backupsDir = path.join(root, 'backups')
-  if (!fs.existsSync(configPath) || !fs.existsSync(backupsDir)) return false
-  const backups = fs
-    .readdirSync(backupsDir)
-    .filter((name) => /^config-.*\.yaml$/i.test(name))
-    .sort((a, b) => b.localeCompare(a))
-  const fallback = backups[0]
-  if (!fallback) return false
-  const rejectedPath = path.join(
-    backupsDir,
-    `rejected-startup-${new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')}.yaml`,
-  )
-  fs.copyFileSync(configPath, rejectedPath)
-  fs.copyFileSync(path.join(backupsDir, fallback), configPath)
-  maintenanceReason = `启动配置无效，已保全原文件并进入维护模式：${reason}`
-  healthPort = readHealthPort()
-  console.error(`[guardian] ${maintenanceReason}`)
-  console.error(`[guardian] 原配置已保全到 ${rejectedPath}`)
-  return true
+  if (!fs.existsSync(configPath)) return false
+  try {
+    const result = recoverStartupConfig(configPath)
+    maintenanceReason = `启动配置无效，已保全原文件${result.restored ? '并仅恢复业务分区' : '，拒绝整文件恢复'}：${reason}`
+    healthPort = readHealthPort()
+    console.error(`[guardian] ${maintenanceReason}`)
+    console.error(`[guardian] 原配置已保全到 ${result.rejectedPath}`)
+    return result.restored
+  } catch (error) {
+    console.error(`[guardian] 配置恢复事务失败，未覆盖文件：${(error as Error).message}`)
+    return false
+  }
 }
 
 function restartWorker(): void {

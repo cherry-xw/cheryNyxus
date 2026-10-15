@@ -4,7 +4,7 @@
 
 ## 职责
 
-`utils/` 是 CheryNyxus 的**基础工具层**，为 `core/` / `agent/` / `service/` / `db/` / `apps/web/` 所有上层提供：
+`utils/` 是 cheryNyxus 的**基础工具层**，为 `core/` / `agent/` / `service/` / `db/` / `apps/web/` 所有上层提供：
 
 - **配置加载**：解析 `.chery/config.yaml`，做 `$ENV` 替换、路径补全、默认值兜底，产出全局 `Config` 单例。
 - **通用纯工具**：hash（cache key 生成）、json（安全解析）、generator（AsyncGenerator 判定）、rateLimiter（RPM 滑动窗口限流）。
@@ -106,7 +106,7 @@ export interface ConfigRaw {
 
 export function readRawConfig(): ConfigRaw;        // 读原文，剥离 server 段（config.get）
 export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; errors: string[] };
-//   校验(validateRawConfig) -> 读盘取 server 段 -> merge -> js-yaml dump(无注释) -> writeFileSync
+//   共享文件锁 -> 重读配置 -> 校验(validateRawConfig) -> 仅合并业务字段 -> 比较原文并原子替换
 export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，loadConfig 启动期亦调用
 export function validateLoadable(raw: ConfigRaw): { ok: true; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] };
 //   重启前 dry-run 预检：深拷贝模拟 loadConfig 关键步骤——validateRawConfig 全量业务校验为结构硬错误（阻塞重启），
@@ -138,7 +138,7 @@ export function validateLoadable(raw: ConfigRaw): { ok: true; warnings: string[]
 - `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP
 - **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）。前端 `env.list` 返回的密钥下拉**不做业务过滤**——凡 `.env` 中合法变量名（`listEnvVarNames` 按 `/^[A-Za-z_][A-Za-z0-9_]*$/` 校验）原样透出（2026-09 取消旧的后缀白名单：`API_KEY1` 这类数字尾缀命名此前会被吞掉）；运行时配置变量（`CHERY_DIR` / `*_HOST` / `*_URL` 等）也会出现在下拉，属预期行为。
 
-写回保留盘上 `server` 段不动（端口/传输不通过面板编辑），`js-yaml` dump 无注释；完整字段说明见 [.chery.template/docs/config.md](../../../.chery.template/docs/config.md)。
+业务保存和备份回滚通过共享事务，仅替换 Backend 业务根字段，保留盘上其他端及未知分区；写入和失败恢复均比较文本修订，非法 YAML 不整文件覆盖。分区及 watcher 恢复规则见 [Manager 共享配置事务](../../shared/architecture/manager-management.md#共享配置事务)，测试见 [配置归属](../../../apps/backend/test/service/configOwnership.test.ts)、[备份回滚](../../../apps/backend/test/utils/configBackup.test.ts)及 [watcher 恢复](../../../apps/backend/test/service/config/watcherRecovery.test.ts)。`js-yaml` dump 无注释；完整字段说明见 [.chery.template/docs/config.md](../../../.chery.template/docs/config.md)。
 
 ### hash.ts
 
@@ -249,7 +249,7 @@ provider.openai → limitByRpm(url, options)
 
 ### 横切参考
 
-- 配置文件真实样例：[.chery/config.yaml](../../../.chery/config.yaml)
+- 配置初始样例：[.chery.template/config.yaml](../../../.chery.template/config.yaml)；实际运行配置位于运行目录的 `.chery/config.yaml`，不入库。
 - mock provider（依赖 config.ts 的 `MockConfig` 类型）：[../mock.md](../../quality/testing/mock-provider.md)
 - `read_file` 感官如何调用 `compressLog` / 读 `file_compression`：[../../src/agent/sense/read.ts](../../../apps/backend/src/agent/sense/read.ts)
 - OpenAI provider 如何调用 `getRateLimiter`：[../../src/agent/provider/openai.ts](../../../apps/backend/src/agent/provider/openai.ts)

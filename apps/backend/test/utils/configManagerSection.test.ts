@@ -83,6 +83,20 @@ manager:
     expect('media' in raw).toBe(false)
   })
 
+  it('preserves foreign and unknown root fields and refuses forged owner updates', () => {
+    setupConfigYaml(`${minimalWithManager}server: {auth: {password: current-hash}}
+relay: {backendId: current-device}
+otherEnd: {revision: 42}
+`)
+    const candidate = Object.assign(candidateWithoutManager(), { manager: { host: 'stale' }, relay: {}, server: {}, otherEnd: {} })
+    expect(saveRawConfig(candidate)).toEqual({ ok: true })
+    const disk = loadRaw() as unknown as Record<string, unknown>
+    expect(disk.manager).toEqual({ host: '0.0.0.0' })
+    expect(disk.server).toEqual({ auth: { password: 'current-hash' } })
+    expect(disk.relay).toEqual({ backendId: 'current-device' })
+    expect(disk.otherEnd).toEqual({ revision: 42 })
+  })
+
   it('saveRawConfig 从磁盘原样保留 manager 段', () => {
     setupConfigYaml(minimalWithManager)
     // 前端候选不含 manager（config.get 已剥离），保存后磁盘 manager 段必须仍在。

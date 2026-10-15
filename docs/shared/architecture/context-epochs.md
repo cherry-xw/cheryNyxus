@@ -122,8 +122,8 @@ fingerprint 分两面，只有语义面参与指纹计算；连接面变更不�
 1. 文件事件经过静默窗口合并；结构化保存的指纹会被一次性确认，避免同一次写盘再被当作手工候选重复执行生命周期操作。
 2. 有效手工修改生成 `manual` 候选并进入与结构化保存相同的统一生效协调器：操作和运行边界可局部采用，节点树与资源边界等待受影响任务安全结束，进程级影响登记为重启待办。
 3. 无效的结构化保存不落盘，生成 `rejected` 修订。
-4. 运行中出现不可解析的手工配置时，系统立即中止 Agent、保全坏文件到 `.chery/backups/rejected-manual-*.yaml`、恢复最后一次可解析文本，并保持 fail-closed 维护模式，直到用户确认保存有效配置。
-5. 冷启动时配置无法加载，Guardian 保全坏文件为 `rejected-startup-*.yaml`，从最近 `config-*.yaml` 恢复后启动维护 worker。修复保存成功后清除维护状态；仅当仍有进程级影响时才在安全边界重启。
+4. 运行中的无效手工配置会中止 Agent，并保全到 `.chery/backups/rejected-manual-*.yaml`。可解析但业务校验失败时，只恢复最后认可的业务字段；无法解析时不自动覆盖原文件。维护状态持续到有效用户保存，恢复产生的文件事件不自动解除限制。配置归属与锁内写入规则见[共享配置事务](manager-management.md#共享配置事务)。
+5. 冷启动时配置无法加载，Guardian 保全坏文件为 `rejected-startup-*.yaml`。仅当当前文件与备份均可解析为配置对象时，尝试从最新可解析的 `config-*.yaml` 恢复业务字段，再由 worker 校验；无法恢复时不启动维护 worker，也不整文件覆盖身份配置。修复保存成功后清除维护状态；仅当仍有进程级影响时才在安全边界重启。验证见[启动恢复测试](../../../apps/backend/test/service/configStartupRecovery.test.ts)。
 
 维护模式下普通 Agent 的 `ensureChat` 会抛出 `MAINTENANCE_MODE`。设置与配置修复通道仍可用。
 
