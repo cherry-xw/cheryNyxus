@@ -1,9 +1,16 @@
 id: cherynyxus-qq-module
-version: 0.1.19
+version: 0.1.20
 apiVersion: 2
 entry: index.mjs
 rpcNamespace: qq
 resources:
+  - id: qq-information
+    kind: skill
+    path: skills/qq-information/SKILL.md
+    channel: qq
+  - id: qq-information-script
+    kind: script
+    path: skills/qq-information/scripts/query.mjs
   - id: douyin-download-send
     kind: skill
     path: skills/douyin-download-send/SKILL.md
@@ -32,4 +39,4 @@ ui:
     title: QQ
     entry: ui/index.html
     apiPrefix: /api/modules/qq/
-    resourceVersion: 0.1.19
+    resourceVersion: 0.1.20

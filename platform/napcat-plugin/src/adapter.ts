@@ -1,3 +1,4 @@
+import { queryInformation } from './information.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
@@ -28,7 +29,7 @@ type Journal = {
   events: Record<string, { hash: string; accepted: boolean }>
   outputs: Record<string, { status: 'unknown' | 'sent'; hash?: string; confirmation?: Record<string, unknown> }>
 }
-const VERSION = '0.1.0'
+const VERSION = '0.2.6'
 const idPattern = /^[1-9]\d{0,19}$/
 function qqId(value: unknown): string {
   if (typeof value === 'number') {
@@ -260,6 +261,12 @@ export class Adapter {
       event.data?.selfId !== this.selfId
     )
       return
+    if (event.type === 'qq.information.request') {
+      let success=false, result='{}'
+      try { result=JSON.stringify(await queryInformation((name,params)=>this.action(name,params),event.data));success=true } catch { /* explicit failure without profile/error disclosure */ }
+      await this.wire.request('qq.information.result',{selfId:this.selfId,lookupId:event.data.lookupId,targetId:String(event.data.targetId),success,result})
+      return
+    }
     if (event.type === 'qq.lookup.request') {
       let items: Array<{ id: string; name: string; card?: string }> = []
       let success = false

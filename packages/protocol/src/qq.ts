@@ -15,6 +15,7 @@ export const QQCapabilities = [
       'qq.reply.images',
       'qq.reply.action',
       'qq.lookup.request',
+      'qq.information.request',
   'qq.reply.completed',
   'qq.request.failed',
   'qq.request.recovered',
@@ -226,6 +227,7 @@ export const QQNotificationSchema = z
       'qq.reply.images',
       'qq.reply.action',
       'qq.lookup.request',
+      'qq.information.request',
       'qq.reply.completed',
       'qq.request.failed',
       'qq.request.recovered',
@@ -240,6 +242,7 @@ export const QQNotificationSchema = z
         character: z.string().max(100).optional(),
         completeReply: z.boolean().optional(),
         lookupId: identifier.optional(),
+        information: z.object({ kind: z.enum(['history','profile','group','members','member','notices','files','file_url','file_space','essence','albums','album_media','honor']), count: z.number().int().min(1).max(100), userId: QQIdSchema, folderId: z.string().max(256).optional(), fileId: z.string().max(256).optional(), albumId: z.string().max(256).optional() }).strict().optional(),
         lookupKind: z.enum(['members', 'voices']).optional(),
         mediaFile: z.string().regex(/^\d+\.mp4$/).max(64).optional(),
         mediaFiles: z.array(z.string().regex(/^\d+-\d+\.(?:jpg|png|gif)$/).max(64)).min(1).max(30).optional(),
@@ -348,6 +351,7 @@ export type QQNotification = z.infer<typeof QQNotificationSchema>
 export type QQStatus = z.infer<typeof QQStatusSchema>
 export type QQEntry = z.infer<typeof QQEntrySchema>
 export const QQRequestSchemas = {
+  'qq.information.result': z.object({ selfId: QQIdSchema, lookupId: identifier, targetId: QQIdSchema, success: z.boolean(), result: z.string().max(60000) }).strict(),
   'qq.lookup.result': z.object({ selfId: QQIdSchema, lookupId: identifier, groupId: QQIdSchema, kind: z.enum(['members', 'voices']), items: z.array(z.object({ id: z.string().max(100), name: z.string().max(200), card: z.string().max(200).optional() }).strict()).max(5000), success: z.boolean() }).strict(),
   'qq.plugin.hello': QQHelloRequestSchema,
   'qq.identity.bind': QQIdentityBindRequestSchema,
@@ -361,6 +365,7 @@ export const QQRequestSchemas = {
   'qq.history.get': QQEmptyRequestSchema,
 } as const
 export const QQResponseSchemas = {
+  'qq.information.result': z.object({ recorded: z.literal(true) }).strict(),
   'qq.lookup.result': z.object({ recorded: z.literal(true) }).strict(),
   'qq.plugin.hello': QQHelloResponseSchema,
   'qq.identity.bind': QQIdentityBindResponseSchema,

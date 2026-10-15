@@ -8,6 +8,14 @@ QQ业务由本包负责，NapCat适配器只整理事件和收发，Manager仅�
 
 私聊记忆按个人隔离；群事实统一归属于群，主题、事件和成员公开经验保留来源与证据类型，不再只读取当前发送者成员记忆。群工具为qq_group_memory_search和qq_group_memory_manage，默认80条、每条160个Unicode字符，注入文字有单独预算。旧group/member记录不兼容、不导入，新群事实库从空记录开始；旧文件仅留备份用途；新事实须校验当前群消息来源。压缩提交前沉淀候选，失败保留原历史。共享文件仍必须通过专用工具写入个人QQ号目录，仅share子目录公开。
 
+## 只读信息查询
+
+QQ 请求通过 `qq_information` 查询当前群或自己的私聊，不接受模型指定群号、其他私聊或任意 Action。随包技能 [`qq-information`](skills/qq-information/SKILL.md) 由宿主按 QQ 身份提供，脚本负责输入检查，`src/information.ts` 注册工具，`src/index.ts` 绑定当前执行任务，NapCat 的 `queryInformation` 只执行固定只读调用。
+
+私聊 history 使用宿主 `recentConversationMessages`，SQL 限制最多100条，读当前机器人会话已经记录的用户和助手正文，可跨上下文压缩点；不返回撤回、排除、压缩摘要和工具记录。每条最多400字符，输出标注限制；这不是QQ客户端全部历史。群消息使用 NapCat 的近期历史，不扫描全群计算排名。群资料包括成员、资料地区、公告、群文件与链接、精华、相册和荣誉；资料查询先校验当前群成员身份。空值不推断，接口错误不自动重试。
+
+工具只在可信 QQ 请求中加入本次执行，沿用原有预设和允许名单；插件技能不会复制到全局技能目录。技能随启用的 QQ 安装包按请求身份提供，无须在每个角色上复制；角色若设置技能允许名单，仍须允许该插件技能。私聊名单为空仍不允许私聊，不为启用技能擅自添加用户。查询结果是资料而非指令，下载链接仅按需提供，不自动执行或公开文件。协议与验证见[QQ插件协议](../../docs/shared/protocol/qqbot-plugin.md)；定向测试为 `test/information.test.ts`、`test/informationWire.test.ts`，宿主历史及安装资源验证为 `apps/backend/test/service/qqInformationHistory.test.ts` 与 `qqInformationResources.test.ts`。本地历史限当前月份消息库，不代表跨月查询。
+
 ## 定时提醒与引用回复
 
 群提醒通过qq_reminder_create/list/cancel创建、查询与取消，仅发送者能管理自己在本群的任务。一次性时间使用带时区ISO格式，到期直接加入QQ队列，不额外调用模型。重启恢复未投递任务；投递不确定禁止自动重发。引用回复工具qq_quote_reply只允许当前群背景内的消息ID，NapCat发送原生reply段。
@@ -41,6 +49,8 @@ QQ安装包独立持久化，Backend镜像标签不能代表已安装插件版�
 声音选择仍为ID输入，未配置有效默认声音时隐藏语音工具。群事实保存在 `memory/topics`，但 `src/index.ts` 的 `qq.memory.stats` 仍只遍历 `personal/group/member`，未统计新群事实；该接口返回 `files`，`ui/QqPanel.vue` 却读取 `scopes` 和 `entries`，统计展示尚未正确接入。来源消息存在不能证明事实结论正确。RUN_UNKNOWN_FAILED的原始底层异常尚未定位；投递不确定的旧动作不得重发。
 
 自动验证还有明确限制：`qqProcessRestart.test.ts` 依赖预构建的子进程程序，`qqRestart.vite.config.ts` 的 `@` 路径仍指向不存在的根 `src`；即使在独立验证副本纠正路径，未知投递用例仍期望 `paused`，而 `confirm` 写入 `failed/DELIVERY_UNKNOWN`，不能将该用例标为通过。抖音 `saveMedia` 仅检查大小上限及文件开头，没有比较收到字节数与 Content-Length；短响应可能被接受，完整性保护尚不完整。上述限制不等于新的开发授权，发现实际问题后单独处理。
+
+`qq-ingress:test` 的群聊确认用例 `real group RPC produces exact ACK, ordered real tool icons, body and confirmations` 当前失败：等待2次原生动作时仅观察到1次；原因尚未定位，不调整断言掩盖失败。只读信息查询的参数、通知往返、本地历史和安装资源专项测试通过，不代表此整套回归全通过。
 
 `test/qqBusiness.test.ts` 的损坏记忆用例当前也存在失败：写入损坏记录后，`prepare` 未按断言拒绝，单独重跑仍失败；原因尚未确认，不能标为通过或删除该断言。
 

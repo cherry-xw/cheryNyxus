@@ -1,5 +1,7 @@
 import { readFileSync, writeFileSync, copyFileSync, cpSync } from 'node:fs'
 // Resource source remains singular; packaging never publishes it into global runtime Skills.
+cpSync(new URL('../skills/qq-information', import.meta.url),
+  new URL('../dist/skills/qq-information', import.meta.url), { recursive: true })
 cpSync(new URL('../skills/douyin-download-send', import.meta.url),
   new URL('../dist/skills/douyin-download-send', import.meta.url), { recursive: true })
 cpSync(new URL('../ui-built', import.meta.url), new URL('../dist/ui', import.meta.url), {

@@ -62,6 +62,7 @@ NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含�
 - `qq.reply.video` / `qq.reply.images`：受限媒体文件名，由原生适配器发送并报告结果。
 - `qq.reply.action`：原生 mention/reaction/poke/voice/quote 动作；引用与成员身份须来自当前群背景，`completeReply` 表示是否结束正文回复。
 - `qq.lookup.request`：查询当前群成员或声音目录，原生适配器通过 `qq.lookup.result` 返回实际目录或明确失败，不生成目录数据。该辅助请求不表示 QQ 消息投递。
+- `qq.information.request`：当前可信任务发起的只读查询，data.information 使用固定 kind、count（1–100）与可选资源ID，目标由任务决定。NapCat 通过 `qq.information.result` 返回 `{selfId,lookupId,targetId,success,result}`，result 为最多60000字符的JSON；只接受当前连接和待处理ID对应的目标。不作为发送事件、不记录投递ACK、不重放查询。断开或30秒无结果明确失败。
 - `qq.reply.completed`：本次回复结束。
 - `qq.request.failed`：失败、取消或超时，使用固定用户可见文案。
 - `qq.request.recovered`：断线恢复后重新可观察的请求状态。
