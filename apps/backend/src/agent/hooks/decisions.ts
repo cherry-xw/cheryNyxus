@@ -6,7 +6,6 @@ const reason = z.string().max(500)
 const decision = z.enum(['block', 'allow']).optional()
 const readonlyEvents = new Set<HookEvent>([
   'SessionEnd',
-  'PostToolUse',
   'ToolFailed',
   'Stop',
   'PostCompact',
@@ -19,6 +18,7 @@ export function isReadonlyHook(event: HookEvent): boolean {
   return readonlyEvents.has(event)
 }
 const schemas: Partial<Record<HookEvent, z.ZodType>> = {
+  PostToolUse: z.object({ completeRequest: z.boolean().optional(), releaseToolPhase: z.boolean().optional() }).strict(),
   SessionStart: z.object({ additionalContext: z.string().optional() }).strict(),
   UserPromptSubmit: z
     .object({ decision, reason: reason.optional(), additionalContext: z.string().optional() })
@@ -27,6 +27,9 @@ const schemas: Partial<Record<HookEvent, z.ZodType>> = {
     .object({
       decision,
       reason: reason.optional(),
+      toolPhase: z.array(z.string().min(1).max(100)).max(20).optional(),
+      excludedTools: z.array(z.string().min(1).max(100)).max(30).optional(),
+      tools: z.array(z.string().min(1).max(100)).max(20).optional(),
       contexts: z
         .array(
           z

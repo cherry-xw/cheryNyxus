@@ -320,6 +320,25 @@ export class IngressHost {
           this.saveConfig(id, config, expectedBaseRevision),
       },
       core: {
+        conversationHistory: async (key: string) => {
+          requireActive()
+          if (!active.conversations.has(key) || !core.conversationHistory) throw ingressError('IDENTITY_REJECTED')
+          return core.conversationHistory(id, key)
+        },
+        commitSummary: async (key: string, summary: string) => {
+          requireActive()
+          if (!active.conversations.has(key) || !core.commitSummary) throw ingressError('IDENTITY_REJECTED')
+          await core.commitSummary(id, key, summary)
+          requireActive()
+        },
+        internalText: async (input: Parameters<NonNullable<IngressContext['core']['internalText']>>[0]) => {
+          requireActive()
+          if (!core.internalText) throw ingressError('NOT_SUPPORTED')
+          if (input.instruction.length > 20000 || input.content.length > 200000) throw ingressError('INVALID_PARAMS')
+          const text = await core.internalText(id, { ...input, signal: input.signal ? AbortSignal.any([input.signal, active.controller.signal]) : active.controller.signal })
+          requireActive()
+          return text
+        },
         listPresets: () => immutableSnapshot(core.listPresets()),
         resolvePreset: (name: string) => immutableSnapshot(core.resolvePreset(name)),
         ensureConversation: async (key: string, preset: string) => {

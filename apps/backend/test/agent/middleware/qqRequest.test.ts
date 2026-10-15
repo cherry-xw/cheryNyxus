@@ -10,6 +10,20 @@ import { registerFunctionHook } from '@/agent/hooks/functions.js'
 
 const execution = { execution: { toolHistory: 'request' as const, retry: 'never' as const }, validate() {} }
 describe('request-local tool loop', () => {
+  it('normally completes after a decision tool without another provider call', async () => {
+    const ctx = createMockContext({ messages: [{ id: 'u', role: 'user', content: 'decide', createdAt: 0, updateAt: 0 }], global: { stream: false, thinking: false, supervision: SupervisionLevel.auto } })
+    const execute = vi.fn(async () => { ctx.requestComplete = true; return { content: '{"action":"wait"}' } })
+    const chat = vi.fn(async () => ({ content: '', calls: [{ id: 'decision1', name: 'decision', arguments: '{}' }] }))
+    ctx.runtime = createMockRuntime({ senses: [createTestSense('decision', execute)], adapters: {
+      llmAdapter: mockLLMAdapter({ chat }), messageAdapter: mockMessageAdapter({ content: (r: any) => r.content }),
+      senseAdapter: mockSenseAdapter({ senseCalls: (r: any) => r.calls }) } })
+    ctx.requestExecution = execution
+    const chunks = await collectChunks(chatMiddleware(ctx, makeNext([])))
+    expect(ctx.soul.yieldTurn).not.toBe(true)
+    expect(chat).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(chunks.some(c => c.type === 'stream')).toBe(false)
+  })
   it('applies response rejection before publishing a request-local answer', async () => {
     const release = registerFunctionHook('response-policy', 0, [], new AbortController().signal,
       {event:'PostLLMResponse', handler:()=>({decision:'block'})})

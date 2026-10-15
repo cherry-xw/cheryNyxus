@@ -207,6 +207,9 @@ export type AgentMessagePatch =
  * 中间件上下文 - 简化结构
  */
 export interface MiddlewareContext {
+  requestToolPhase?: string[]
+  /** Finish this request normally after recording its tool result. */
+  requestComplete?: boolean
   requestExecution?: {
     signal?: AbortSignal
     execution?: { toolHistory: 'request'; retry: 'never' }
@@ -399,6 +402,7 @@ export interface StagedChunk {
  */
 export interface DoneChunk {
   type: 'done'
+  requestComplete?: boolean
   /** Existing Loop yield decision, exposed only as a result annotation. */
   waitingForChild?: boolean
 }

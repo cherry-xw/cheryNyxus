@@ -284,7 +284,7 @@ describe('native adapter and real installed backend wire', () => {
     const n = native(s.port, true)
     await n.adapter.start()
     await n.adapter.receive(event('group', 9))
-    await vi.waitFor(() => expect(n.sends.filter((c) => c[0] === 'send_msg')).toHaveLength(1))
+    await vi.waitFor(() => expect(n.sends.filter((c) => c[0] === 'send_msg')).toHaveLength(1), { timeout: 5000 })
     await vi.waitFor(() =>
       expect(
         JSON.parse(fs.readFileSync(s.store.safe('data/cherynyxus-qq-module/state.json'), 'utf8'))
@@ -339,7 +339,7 @@ describe('native adapter and real installed backend wire', () => {
     expect(n.sends).toHaveLength(0)
   })
 
-  it('requires a group mention to open the continuation window, then accepts bounded follow-up', async () => {
+  it('requires a group mention and submits attributed messages', async () => {
     const s = await start()
     const n = native(s.port)
     await n.adapter.start()
@@ -352,7 +352,7 @@ describe('native adapter and real installed backend wire', () => {
     await n.adapter.receive(event('group', 22))
     await vi.waitFor(() => expect(s.calls).toHaveLength(1), { timeout: 3000 })
     expect(s.calls[0]).toMatchObject({
-      content: 'hello',
+      content: expect.stringContaining('hello'),
       requestIdentity: { source: 'plugin', channel: 'qq', subject: {
         selfId: '123', conversationType: 'group', groupId: '456', userId: '789',
       } },

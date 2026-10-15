@@ -32,6 +32,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
     // yieldTurn 仅属于上一轮 spawn(wait=true) 的停止决定；同一 AgentSession 被 resume 时必须重置，
     // 否则已回传的 role 会在首轮 LLM 调用后再次被旧标记直接截断。
     ctx.soul.yieldTurn = false
+    ctx.requestComplete = false
 
     logger.event('loop.start', { max: runLimit })
 
@@ -119,6 +120,11 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
 
       // yieldTurn（spawn_role wait=true 置位）→ 主 loop 立即结束本 turn
       // （子完成后后端注入角色回复唤起新一轮）。break（非 continue）跳 maxLoop 误报、done 正常发。
+      if (ctx.requestComplete) {
+        logger.event('loop.decision', { decision: 'stop', reason: 'request-complete' })
+        stopped = true
+        break
+      }
       if (ctx.soul.yieldTurn) {
         logger.event('loop.decision', { decision: 'stop', reason: 'yield-turn' })
         stopped = true
@@ -226,7 +232,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
     // loop 结束后 yield done（表示整个流程完成）。真实失败与保护性暂停都已有各自终态，
     // 因此跳过 done，防止覆盖 ErrorChunk 或 RunPausedChunk 的具体原因。
     if (!failed && !paused) {
-      const doneChunk: DoneChunk = { type: 'done', waitingForChild: Boolean(ctx.soul.yieldTurn) }
+      const doneChunk: DoneChunk = { type: 'done', waitingForChild: Boolean(ctx.soul.yieldTurn), requestComplete: Boolean(ctx.requestComplete) }
       reportWorkflow(
         ctx.soul.chatId,
         ctx.soul.yieldTurn

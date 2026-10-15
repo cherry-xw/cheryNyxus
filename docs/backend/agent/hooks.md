@@ -2,7 +2,7 @@
 
 源码入口 [hooks/](../../../apps/backend/src/agent/hooks)，上级 [Agent](README.md)。本文唯一负责阶段、载荷、允许返回字段、执行顺序和结果应用。跨模块请求身份/请求视图、注册归属与包版本由 [统一宿主](../../shared/architecture/ingress-plugins.md) 定义，不在这里再建身份对象。
 
-状态：阶段契约已实现并经通用宿主与QQ包定向离线测试覆盖；部署和用户验收尚未执行。
+状态：阶段契约已实现并经通用宿主与QQ包定向离线测试覆盖；QQ 实际业务验收结论见[QQ 模块说明](../../../plugins/qq/README.md#当前限制与验证边界)，不代表其他 Hooks 使用场景均已验收。
 
 ## 任务定位
 
@@ -41,11 +41,11 @@ POSIX命令继续通过 [resolvePosixShell](../../../apps/backend/src/core/secur
 | SessionStart | `{chatId,brain}` | `{additionalContext?:string}`，只用于本次请求准备，不写会话历史 |
 | SessionEnd | `{chatId,reason:'user_stop'|'error'|'close'|'unknown'}` | 无；只读 |
 | UserPromptSubmit | `{chatId,prompt,role:'user'|'role'|'subagent'}` | `{decision?:'block'|'allow',reason?,additionalContext?}`；新输入准备前，block拒绝该输入，不重复在每次工具循环调用 |
-| RequestPrepare | `{requestId,inputId,chatId}`，配置/身份/工具从ctx.requestView取 | `{decision?:'block'|'allow',reason?,contexts?:Array<{key:string,content:string,configRevision:number}>}`；每新输入一次，owner由宿主补，QQ记忆在这里读取，循环复用 |
+| RequestPrepare | `{requestId,inputId,chatId}`，配置/身份/工具从ctx.requestView取 | `{decision?:'block'|'allow',reason?,contexts?:Array<{key:string,content:string,configRevision:number}>,tools?:string[],excludedTools?:string[],toolPhase?:string[]}`；每新输入一次，owner由宿主补；工具名称仅接受返回结果的插件自有工具，toolPhase 限制请求当前阶段可调用的工具 |
 | PreLLMRequest | `{provider,model,url,thinking,stream,body}`，保留当前字段 | `{decision?:'block'|'allow',reason?,body?:Record<string,unknown>}`；所有模型协议在构造后fetch前调用，只修改协议参数，不重新生成身份/工具/记忆 |
 | PostLLMResponse | `{provider,model,content,thinking?,thinkingBlocks?,senseCalls?}` | `{decision?:'block'|'allow',reason?}`；先应用拒绝再向工具/最终回答推进；不允许改工具名/调用/签名thinking blocks或悄悄改响应 |
 | PreToolUse | `{name,args,chatId}` | `{decision?:'allow'|'deny'|'ask',updatedInput?:Record<string,unknown>,reason?}`；参数按序patch，全部后重检schema、可用性、路径、范围与精确参数授权；deny不执行，ask走现有审批（QQ无审批入口则拒绝） |
-| PostToolUse | `{name,args,result:{content,hash?,replaced?},hash?,chatId}` | 无；只读已完成工具事实，不能用拒绝改写实际执行结果 |
+| PostToolUse | `{name,args,result:{content,hash?,replaced?},hash?,chatId}` | `{completeRequest?:boolean,releaseToolPhase?:boolean}`；工具结果记录后可正常结束请求或解除阶段工具限制，不撤销或改写已完成的工具事实 |
 | ToolFailed | `{name,chatId,operationId,status,errorCode}` | 无；只读，status取既有执行控制非成功终态，不带Error原文 |
 | Stop | `{chatId,message,stopReason}` | 无；只读最终模型结束，不承诺强制继续或覆写取消 |
 | PreCompact | `{chatId,tokenCount}` | `{decision?:'block'|'allow',reason?}`；压缩写入之前，block拒绝压缩 |

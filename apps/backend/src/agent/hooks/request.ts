@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { MiddlewareContext, UserInputEntry } from '@/core/middleware/types.js'
 import { immutableSnapshot, type IngressRequestContext } from '@/service/ingress/api.js'
-import { getSenseOrigin, getSenseRegistryVersion } from '@/core/sense/senseRegistry.js'
+import { getSense, getSenseOrigin, getSenseRegistryVersion } from '@/core/sense/senseRegistry.js'
 import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 import { getRequestPluginSkills } from '@/agent/prompt/loadSkill.js'
 import { getChatSkillFilter } from '@/db/chat.js'
@@ -120,6 +120,18 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
     { requestId, inputId, chatId: ctx.soul.chatId },
     context,
   )
+  for (const name of prepared?.excludedTools ?? []) {
+    runtime.builtSenses = runtime.builtSenses.filter(s => s.function.name !== name)
+    runtime.senseTable.delete(name)
+  }
+  ctx.requestToolPhase = prepared?.toolPhase
+  for (const name of prepared?.tools ?? []) {
+    const sense = getSense(name), origin = getSenseOrigin(name)
+    if (!sense || !origin || origin.pluginId !== identity.ownerId || origin.available?.() === false) continue
+    if (!runtime.builtSenses.some(s => s.function.name === name)) runtime.builtSenses.push(sense.definition)
+    runtime.senseTable.set(name, { supervisionLevel: sense.supervisionLevel ?? 0,
+      schema: sense.executor.schema, execute: (args, shared, context) => sense.executor.execute(args, shared, context) })
+  }
   for (const item of prepared?.contexts ?? []) contexts.push({ ...item, ownerId: item.ownerId! })
   const keys = contexts.map((item) => `${item.ownerId}:${item.key}`)
   if (

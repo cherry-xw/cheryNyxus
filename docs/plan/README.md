@@ -8,7 +8,7 @@
 | [上下文统计、待办进度与连续消息交互](conversation-observability-and-input/README.md) | 规划中 | 基于现有实现的设计初稿：上下文组成与增长、To-do 三模式展示、连续消息采用时机与状态 |
 | [MiniMax 多模态图片能力对接](minimax-multimodal/README.md) | 规划中 | MiniMax 图片理解/生成接入：上传、展示、对话携带、多轮上下文保留与回溯的完整链路 |
 | [登录优先启动与后端能力分级](login-first-capabilities/README.md) | 执行中 | 依据独立后端与中转网关需求实现服务选择、Pocket ID/后端密码认证、能力说明和按能力启动 |
-| [剩余改动核对](remaining-change-review/README.md) | 待用户审批 | 模板同步与旧历史纪元处理已获提交授权；其余分组及缺口待决定，排除 ADV |
+| [剩余改动核对](remaining-change-review/README.md) | 待用户审批 | 配置与 QQ／NapCat 按授权独立提交，真实发送与媒体已验收；其他分组及已知问题待决定，排除 ADV |
 
 ## 使用规则
 

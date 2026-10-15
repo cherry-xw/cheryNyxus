@@ -412,6 +412,7 @@ export async function* executeRequestTool(
   argsJson: string,
   id: string,
 ): AsyncGenerator<SenseStartedChunk | SenseTriggerChunk, string> {
+  if (ctx.requestToolPhase && !ctx.requestToolPhase.includes(name)) return '工具不属于当前请求阶段。'
   const { call } = buildSenseTrigger(ctx, id, name, argsJson, true)
   if (call.preDenied) return '工具调用被拒绝。'
   if (call.supervisionLevel !== SupervisionLevel.auto)
@@ -774,7 +775,7 @@ async function* doExecuteSense(
 
     // PostToolUse hook：执行后审计；handler 抛 ClassifiedError → content 改写为 reason
     try {
-      await dispatch(
+      const decision = await dispatch(
         'PostToolUse',
         {
           name,
@@ -785,6 +786,8 @@ async function* doExecuteSense(
         },
         requestHookContext(ctx),
       )
+      if (decision?.completeRequest) ctx.requestComplete = true
+      if (decision?.releaseToolPhase) ctx.requestToolPhase = undefined
     } catch (err) {
       if (err instanceof ClassifiedError) {
         return { content: err.userMessage, replaced }

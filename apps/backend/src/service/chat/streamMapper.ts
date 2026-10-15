@@ -423,7 +423,7 @@ function* handleErrorChunk(
   yield* completePendingTurns(context, completedAt)
 }
 
-function* handleDoneChunk(context: StreamContext): Generator<Notification> {
+function* handleDoneChunk(context: StreamContext, requestComplete = false): Generator<Notification> {
   const { rid, chatId, runId } = context
   // done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
   const ctxBd = computeContextBreakdown(chatId)
@@ -474,7 +474,7 @@ function* handleDoneChunk(context: StreamContext): Generator<Notification> {
             : {}),
         }
       : undefined
-  const canResume = computeCanResume(chatId)
+  const canResume = !requestComplete && computeCanResume(chatId)
   const completedAt = Date.now()
   recordRunFact({ chatId, runId, status: canResume ? 'paused' : 'completed' })
   // Canonical 与 Lite 共用同一时钟校准点；与 completion 同时取值，
@@ -833,7 +833,7 @@ export async function* streamAgentChunks(
           continue
         }
         context.terminated = true
-        yield* handleDoneChunk(context)
+        yield* handleDoneChunk(context, chunk.requestComplete === true)
       } else if (chunk.type === 'message_updated') {
         // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
         // 转 "replaced" notification 通知 web 实时更新历史 sense block；content kind 不传 web。

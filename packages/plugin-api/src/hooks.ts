@@ -232,6 +232,9 @@ export interface HookDecisionMap {
   RequestPrepare: {
     decision?: 'block' | 'allow'
     reason?: string
+    excludedTools?: string[]
+    tools?: string[]
+    toolPhase?: string[]
     contexts?: Array<{ ownerId?: string; key: string; content: string; configRevision: number }>
   }
   ToolFailed: Record<string, never>
@@ -245,7 +248,7 @@ export interface HookDecisionMap {
   PreLLMRequest: PreLLMRequestDecision
   PostLLMResponse: { decision?: 'block' | 'allow'; reason?: string }
   PreToolUse: PreToolUseDecision
-  PostToolUse: Record<string, never>
+  PostToolUse: { completeRequest?: boolean; releaseToolPhase?: boolean }
   Stop: Record<string, never>
   PreCompact: { decision?: 'block' | 'allow'; reason?: string }
   PostCompact: PostCompactDecision

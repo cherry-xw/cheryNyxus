@@ -1,6 +1,6 @@
 # cheryNyxus 统一插件宿主契约
 
-**状态：** 通用宿主、QQ 与设置 Backend 包已实现接口版本 2 并通过定向离线测试；Manager 迁移、整体集成、部署或用户验收尚未完成。
+**状态：** 通用宿主、QQ 与设置 Backend 包已实现接口版本 2 并通过定向离线测试；QQ 真实发送与媒体的验收结论见[QQ 模块说明](../../../plugins/qq/README.md#当前限制与验证边界)。Manager、其他集成和部署场景分别验证，不随 QQ 验收自动完成。
 
 本文唯一负责统一插件包、宿主公开类型、可信请求身份、请求视图、生命周期和 Backend 管理 RPC/schema。入站只是能力之一，不新建平行插件系统。阶段字段和结果处理由 [Hooks](../../backend/agent/hooks.md) 拥有；Manager 动态资源、HTTP 路径和双端状态由 [Manager 插件](manager-plugins.md) 拥有；业务资源保存仍由 [Manager 管理](manager-management.md) 拥有。QQ 业务见 [QQ 架构](qqbot-platform.md)，NapCat 传输见 [QQ 协议](../protocol/qqbot-plugin.md)，认证见 [Manager 认证](../protocol/manager-auth.md)。技能包 `apps/backend/src/service/plugin/` 与 MCP 仍按各自职责运行，不把它们改成第二套宿主。
 
@@ -59,6 +59,8 @@ status至少区分插件安装/启用/活动版本、配置保存/应用版本�
 公共类型唯一入口为 `packages/plugin-api/src/index.ts`，Backend `api.ts` 只提供宿主适配及重新导出，运行入口为 `IngressHost`，存储与本地维护为 `IngressStore`。包使用类型导入或独立声明构建，运行时只接收 `IngressContext`，不导入核心私有文件。API v1 的实例必须提供 `defaultConfig`、`validateConfig`、`applyConfig`、`start`、`stop`。宿主先校验配置、建立不可变快照，再调用 `start`；只有成功返回后才报告活动版本。启动失败会调用 `stop` 和释放宿主登记的订阅/方法。配置保存使用 revision 冲突保护；应用失败保留上一运行快照，保存版本与应用版本分别报告。实例自行判断配置变化是否需要重启。
 
 `context.core` 提供按预设创建/读取该包拥有的会话、提交核心输入、停止运行、只读预设解析及有明确会话归属的事件订阅。会话所有权由宿主持有，不接受任意核心会话ID。执行沿核心真实的 chat.create/chat.input.submit/chat.abort 服务，不另造模型执行器；QQ身份、记忆等业务适配由QQ卡通过公共执行适配点完成。`context.connections` 只提供连接存活、定向发送与关闭通知；`context.rpc.register` 必须同时提供请求/响应schema及权限判断，禁止覆盖核心方法。宿主登记的释放函数在停止或启动失败时执行。`context.runtimeOptions` 是启动时明确传入的只读选项，宿主不解释QQ含义。
+
+`context.core.internalText({preset,instruction,content,signal?})` 使用指定预设的模型生成无工具的内部文本，受插件活动状态、取消信号、输入大小和模型超时限制。`conversationHistory(key)` 只读取本包拥有的会话，保留最近压缩边界后的历史；`commitSummary(key,summary)` 仅向空闲的自有会话提交非空且有长度限制的压缩摘要，并清除对应运行时缓存。实现见 `createIngressCoreAdapter` 与 `IngressHost`，这些接口不直接向 QQ 发送消息。
 
 包交付格式为已独立构建的目录（清单及ESM入口/依赖在目录内；不接受归档解压或自动下载），维护入口 `pnpm ingress:cli -- <command>` 与 `node apps/backend/dist/index.js ingress <command>`；命令为 install/upgrade/enable/disable/uninstall/status。安装与升级只检查清单、文件安全、摘要及入口语法，不执行包；实例契约在显式启用后的启动阶段验证。升级发布失败保持旧注册及版本目录。已经安装的同一ID不能通过install覆盖，需显式upgrade；已有版本目录不可覆盖。卸载保留配置、数据及版本目录以供恢复，不清除历史包文件。CLI状态没有当前进程内活动证据时以unknown报告，不推断已活动。
 

@@ -4,9 +4,9 @@
 
 ## 原生入口与实现状态
 
-原生后端五方法（包含 qq.identity.bind）由 `cheryNyxus-extension-host` 加载的 `cherynyxus-qq-module`（源目录 `plugins/qq/`）提供，显式安装、启用并由 `cheryNyxus-runtime` 启动后注册；它不是独立服务。未安装或禁用时不提供业务处理器。生命周期与管理接口见[统一宿主](../architecture/ingress-plugins.md)。插件接口为宿主API版本2，QQ/NapCat 传输 protocolVersion 仍为1；版本与身份句柄以宿主owner为准；不提供旧格式迁移。部署、真实QQ与模型仍须另行验证，代码和合成测试不能证明生产已可用。
+原生后端通道方法（包括 `qq.identity.bind` 和目录回传 `qq.lookup.result`）由 `cheryNyxus-extension-host` 加载的 `cherynyxus-qq-module`（源目录 `plugins/qq/`）提供，显式安装、启用并由 `cheryNyxus-runtime` 启动后注册；它不是独立服务。未安装或禁用时不提供业务处理器。生命周期与管理接口见[统一宿主](../architecture/ingress-plugins.md)。插件接口为宿主API版本2，QQ/NapCat 传输 protocolVersion 仍为1；版本与身份句柄以宿主owner为准；不提供旧格式迁移。真实发送与媒体的用户验收结论及已知限制统一见[QQ 模块说明](../../../plugins/qq/README.md#当前限制与验证边界)，不能用合成测试推断其他生产场景已验收。
 
-原生入口为 `platform/napcat-plugin/src/index.ts`，NapCat 技术插件 ID固定为 `napcat-plugin-cherynyxus`，用户可见名称为 `NapCat Plugin Chery Nyxus`；其逻辑职责名称为 `cheryNyxus-qq-adapter-napcat`。构建入口为目录内 `pnpm build`，生成 `dist/index.mjs`、`dist/package.json` 和 ZIP 安装包。NapCat 调用 `plugin_init`、`plugin_onmessage`、`plugin_cleanup`；QQ Action 使用官方四参数调用，不另建 OneBot 连接。安装、重载及真实 QQ 验证仍需用户批准。
+原生入口为 `platform/napcat-plugin/src/index.ts`，NapCat 技术插件 ID固定为 `napcat-plugin-cherynyxus`，用户可见名称为 `NapCat Plugin Chery Nyxus`；其逻辑职责名称为 `cheryNyxus-qq-adapter-napcat`。构建入口为目录内 `pnpm build`，生成 `dist/index.mjs`、`dist/package.json` 和 ZIP 安装包。NapCat 调用 `plugin_init`、`plugin_onmessage`、`plugin_cleanup`；QQ Action 使用官方四参数调用，不另建 OneBot 连接。新的安装、重载和真实发送操作仍需用户授权，不因已有验收而自动操作真实账号。
 
 共享请求/响应类型和运行校验集中于 [`packages/protocol/src/qq.ts`](../../../packages/protocol/src/qq.ts) 的 `QQRequestSchemas`、`QQResponseSchemas` 与 `QQNotificationSchema`；Method、方法类型和后端两份schema表同时引用这些定义。`QQPlugin.start` 通过公共宿主注册受限处理器，router固定使用共享QQ schema，禁止覆盖核心方法。WebSocket在持久RPC缓存之前检查连接权限；QQ业务自身保存输入收件与发送结果，不复用普通聊天RPC重放。`qqbot.config.loaded` 是旧配置通知，不作为能力证据。
 
@@ -17,11 +17,11 @@
 - `qq.event.submit` 成功响应为 `{eventId,accepted:boolean}`，只表示收件结论，不等待模型结束。超时或断线后该输入处于未知状态，插件不自动重交。
 - `qq.request.recover` 请求 `{selfId}`，响应 `{events:[]}`；events 使用下文通知形状。后端须在返回后恢复该连接的实时通知，并保证回放与实时通知的 eventId 和每目标 seq 顺序一致。插件先补报已经知道的发送结果，再调用恢复；恢复完成前拒绝新输入。
 - 每条 QQ 输出通知的 data 至少有 `{eventId,requestId,selfId,conversationType,targetId,seq}`。seq 是每个 selfId/目标跨请求连续递增的发送序号，首条为 1；状态类不发送事件不占该序号。ACK 另有原消息 `messageId` 和 QQ 表情编号 `emojiId`；群聊不发送“收到”文字，尝试添加原消息表情回应，私聊仍发送“收到”，等待/正文/失败另有 `text`，工具另有 `icon`。`qq.reply.completed`、`qq.request.recovered`、`qq.connection.state` 只传状态，不产生 QQ 文本。失败终态使用固定文案 `刚才处理失败了，请稍后再试。`。
-- `qq.delivery.result` 请求 `{eventId,requestId,selfId,conversationType,targetId,seq,status,messageIds,sentAt?,activity,terminal}`；status 为 `sent` 或 `unknown`，响应必须为 `{eventId,recorded:true}`。activity 仅在 ACK、等待、工具实际发送成功后为 true；terminal 仅在最后正文片段或失败时为 true。正文另带 `partIndex`（从 1 开始）及 `totalParts`，最后一片才为终态。超时、发送异常或结果回报丢失均停止该目标继续发送，不自行重发；已知 sent 仅补报结果，unknown 不能靠重连自动解除。
+- `qq.delivery.result` 请求 `{eventId,requestId,selfId,conversationType,targetId,seq,status,messageIds,sentAt?,activity,terminal}`；status 为 `sent`、`unknown` 或 `failed`，响应必须为 `{eventId,recorded:true}`。`failed` 仅用于明确的原生操作拒绝，超时或发送结果不明使用 `unknown`，不能据此重发动作。activity 仅在 ACK、等待、工具实际发送成功后为 true；最后正文片段、媒体、失败通知及 `completeReply:true` 的原生动作标记 terminal。正文另带 `partIndex`（从 1 开始）及 `totalParts`。已知 sent 仅补报结果，unknown 不能靠重连自动解除。
 
 当前使用项目实际帧编码：请求 `{kind:'request',id,method,params}`，响应以 requestId 关联，通知 `{kind:'notification',type,data}`；支持纯 JSON 和以 0x02 开头的 JSON 通知。本文早期推荐帧仅说明语义，不是当前服务已支持的 API。
 
-群名单、私聊名单、群 @ 后同成员可配置条数的后续（默认5条，0禁用）、私聊无需 @、群/私聊上下文和记忆隔离、目标与预设 1:1、请求快照、真实工具调用事件、可设置的等待间隔（默认60秒）与终态清理由后端包和核心执行适配负责；thinking/reasoning仍由核心大脑配置管理。插件只负责字段适配、身份发现、收发及发送结果保存，不持有业务副本。没有人工审批入口的QQ请求不能自动批准需要审批的工具；拒绝调用不发图标。
+群名单、私聊名单、群讨论参与判断、连续输入合并、私聊无需 @、群/私聊上下文和记忆隔离、目标与预设 1:1、请求快照、真实工具调用事件、可设置的等待间隔（默认60秒）与终态清理由后端包和核心执行适配负责；thinking/reasoning仍由核心大脑配置管理。群 @ 唤醒后，普通接话由请求内的 `qq_participation_decide` 判断 reply/wait/end；wait/end 不发送空正文。业务规则和群事实、提醒的实现入口见[QQ 模块](../../../plugins/qq/README.md)。插件只负责字段适配、身份发现、收发及发送结果保存，不持有业务副本。没有人工审批入口的QQ请求不能自动批准需要审批的工具；拒绝调用不发图标。
 
 插件仅从 NapCat 的 `ctx.configPath` 读取 `{backendUrl,backendToken}`；没有默认真实地址或凭据。Manager 登录后生成的 QQ 连接凭据持久化在共享 `.chery/qq-connection-token.json`，运行服务启动时从同一路径读取为 `QQBOT_PLATFORM_TOKEN`；NapCat 设置页仍需在其认证页面填入同一个值。Token 不属于 Manager 登录密钥，重新生成会使旧连接失效。URL 必须为 ws/wss，不含用户名、密码、查询或片段；远程部署应使用 wss。配置修改后需要重载插件，目前不提供业务设置页面或热更新。`plugin_status(ctx)` 仅返回状态、ready 和阻断目标数，不返回凭据、QQ 号或消息。`ctx.dataPath/delivery-journal.json` 保存输入收件状态和发送结果，写入权限 0600；发送之前先写未知状态，防止卸载/崩溃后盲目重发。日志文件损坏时拒绝启动；单类记录达到 10000 时安全拒绝新增，不静默删除旧记录。未知发送没有自动解除入口，需后端与用户确认处理，不能通过删文件强行继续。
 
@@ -59,6 +59,9 @@ NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含�
 - `qq.waiting`：后端计时产生的等待提示，带策略版本和序号。
 - `qq.tool.icon`：一次真实工具调用一个事件，含调用序号、工具名安全标签和 icon；未调用不发送。
 - `qq.reply.part`：回复拆分后的一个正文片段，含顺序和总数。
+- `qq.reply.video` / `qq.reply.images`：受限媒体文件名，由原生适配器发送并报告结果。
+- `qq.reply.action`：原生 mention/reaction/poke/voice/quote 动作；引用与成员身份须来自当前群背景，`completeReply` 表示是否结束正文回复。
+- `qq.lookup.request`：查询当前群成员或声音目录，原生适配器通过 `qq.lookup.result` 返回实际目录或明确失败，不生成目录数据。该辅助请求不表示 QQ 消息投递。
 - `qq.reply.completed`：本次回复结束。
 - `qq.request.failed`：失败、取消或超时，使用固定用户可见文案。
 - `qq.request.recovered`：断线恢复后重新可观察的请求状态。

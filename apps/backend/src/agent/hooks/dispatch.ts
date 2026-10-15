@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { getSenseOrigin } from '@/core/sense/senseRegistry.js'
 import { logger, LogLevel } from '@/utils/logger/index.js'
 import { trackRestartActivity } from '@/service/restartCoordinator.js'
 import { ClassifiedError } from '@/utils/error.js'
@@ -32,6 +33,18 @@ export async function dispatch<E extends HookEvent>(
     const decision = validateDecision(event, raw, mutable)
     if (decision.decision === 'block' || decision.decision === 'deny')
       throw failure('HOOK_DENIED', decision.reason as string | undefined)
+    if (decision.toolPhase) {
+      merged.toolPhase = (decision.toolPhase as string[]).filter(name => getSenseOrigin(name)?.pluginId === ownerId)
+      delete decision.toolPhase
+    }
+    if (decision.excludedTools) {
+      merged.excludedTools = (decision.excludedTools as string[]).filter(name => getSenseOrigin(name)?.pluginId === ownerId)
+      delete decision.excludedTools
+    }
+    if (decision.tools) {
+      merged.tools = [...((merged.tools ?? []) as string[]), ...(decision.tools as string[]).filter(name => getSenseOrigin(name)?.pluginId === ownerId)]
+      delete decision.tools
+    }
     if (decision.contexts) {
       merged.contexts = [
         ...((merged.contexts ?? []) as unknown[]),

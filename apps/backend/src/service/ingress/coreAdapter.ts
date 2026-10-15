@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
 import config from '@/utils/config.js'
+import { getLLMAdapter } from '@/core/llm/adapter.js'
+import { getMessageAdapter } from '@/core/message/adapter.js'
+import { resolveBrainAdapterKey, resolveBrainProtocol } from '@/core/llm/routing.js'
+import { resolveLlmProviderDefaultUrl } from '@chery/protocol'
 import { resolvePresetSelection } from '@/agent/runtimeResolver.js'
 import { getChat } from '@/db/chat.js'
+import { addMessage, getMessages } from '@/db/message.js'
+import { clearChatRuntime } from '../chat/runtime.js'
+import { getActiveChatRunId } from '../chat/runtimeCache.js'
 import { onPreparedChatEvent } from '@/db/delivery.js'
 import { handleChatCreate } from '../chat/handler.js'
 import { handleChatInputSubmit } from '../chat/input.js'
@@ -32,6 +39,30 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
     return chatId
   }
   return {
+    internalText: async (_owner, input) => {
+      const selection = resolvePresetSelection(input.preset)
+      const brain = config.llm.brain[selection.selection.brain]
+      if (!brain) throw new Error('Internal text model unavailable')
+      const key = resolveBrainAdapterKey(brain)
+      const llm = getLLMAdapter(key), messages = getMessageAdapter(key)
+      if (!llm || !messages) throw new Error('Internal text adapter unavailable')
+      const now = Date.now()
+      const history = [
+        { id: randomUUID(), role: 'system' as const, content: input.instruction, createdAt: now, updateAt: now },
+        { id: randomUUID(), role: 'user' as const, content: input.content, createdAt: now, updateAt: now },
+      ]
+      const protocol = resolveBrainProtocol(brain)
+      const response = await llm.chat(messages.buildMessages(history), [], {
+        model: brain.model, provider: brain.provider, protocol,
+        url: brain.url ?? resolveLlmProviderDefaultUrl(brain.provider, protocol), key: brain.key,
+        fullUrl: brain.fullUrl === true, brain: selection.selection.brain,
+        signal: input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
+        thinking: 'off',
+      })
+      const text = messages.content(response)
+      if (!text || text.length > 100000) throw new Error('Invalid internal text output')
+      return text
+    },
     listPresets: () =>
       immutableSnapshot(
         Object.entries(config.presets ?? {}).map(([name, preset]) => ({
@@ -93,6 +124,21 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
         },
         () => handleChatInputSubmit(context(owner), { ...params, chatId }),
       )
+    },
+    conversationHistory: async (owner, key) => {
+      const messages = getMessages(requireOwned(owner, key)).filter(m => !m.revoked && !m.model_excluded)
+      let boundary = -1
+      for (let i = 0; i < messages.length; i++) if (messages[i]!.context_compaction) boundary = i
+      const selected = boundary >= 0 ? messages.slice(boundary) : messages
+      const text = JSON.stringify(selected.map(m => ({ id: m.id, role: m.role, content: m.content, time: m.created_at })))
+      if (text.length > 180000) throw new Error('Discussion history exceeds maintenance budget; original history retained')
+      return text
+    },
+    commitSummary: async (owner, key, summary) => {
+      const chatId = requireOwned(owner, key)
+      if (!summary.trim() || summary.length > 12000 || getActiveChatRunId(chatId)) throw new Error('Summary commit requires an idle conversation and validated text')
+      addMessage(randomUUID(), chatId, { role: 'assistant', content: summary, contextCompaction: true })
+      clearChatRuntime(chatId)
     },
     abort: async (owner, key) => {
       await handleChatAbort(context(owner), { chatId: requireOwned(owner, key) })

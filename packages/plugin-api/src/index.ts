@@ -109,11 +109,15 @@ export interface IngressPreset {
   senseGroup: string
   mcpServers: readonly string[]
 }
+export interface IngressInternalTextInput { preset: string; instruction: string; content: string; signal?: AbortSignal }
 export interface IngressCore {
+  internalText?(input: IngressInternalTextInput): Promise<string>
   listPresets(): readonly { name: string; presetId: string }[]
   resolvePreset(name: string): Readonly<IngressPreset>
   ensureConversation(key: string, preset: string): Promise<{ chatId: string }>
   submit(input: IngressSubmit): Promise<ChatInputSubmitResponseData>
+  conversationHistory?(conversationKey: string): Promise<string>
+  commitSummary?(conversationKey: string, summary: string): Promise<void>
   abort(conversationKey: string): Promise<void>
   onEvent(
     listener: (conversationKey: string, event: Readonly<Record<string, unknown>>) => void,
@@ -121,6 +125,7 @@ export interface IngressCore {
 }
 /** Host adapters are injectable without giving a plugin access to arbitrary RPCs. */
 export interface IngressCoreAdapter {
+  internalText?(ownerId: string, input: IngressInternalTextInput): Promise<string>
   listPresets(): readonly { name: string; presetId: string }[]
   resolvePreset(name: string): Readonly<IngressPreset>
   ensureConversation(ownerId: string, key: string, preset: string): Promise<{ chatId: string }>
@@ -132,6 +137,8 @@ export interface IngressCoreAdapter {
       validateIdentity(): void
     },
   ): Promise<ChatInputSubmitResponseData>
+  conversationHistory?(ownerId: string, key: string): Promise<string>
+  commitSummary?(ownerId: string, key: string, summary: string): Promise<void>
   abort(ownerId: string, key: string): Promise<void>
   onEvent(
     ownerId: string,

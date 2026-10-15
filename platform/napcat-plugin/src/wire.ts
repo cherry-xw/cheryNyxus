@@ -75,7 +75,8 @@ export class BackendWire {
     if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error('backend disconnected')
     const id = randomUUID()
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('backend request timeout')) }, 10000)
+      this.pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value) }, reject: error => { clearTimeout(timer); reject(error) } })
       socket.send(JSON.stringify({ kind: 'request', id, method, params }))
     })
   }

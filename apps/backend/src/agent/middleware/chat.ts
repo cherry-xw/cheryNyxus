@@ -317,7 +317,7 @@ async function* handleRequestLocal(
     try {
       if (ctx.global.stream) {
         const assembler = new SenseCallAssembler()
-        const stream = await llmAdapter.chatStream(messages, runtime.builtSenses, options)
+        const stream = await llmAdapter.chatStream(messages, ctx.requestToolPhase ? runtime.builtSenses.filter(t => ctx.requestToolPhase!.includes(t.function.name)) : runtime.builtSenses, options)
         for await (const raw of stream) {
           options.observation?.response(raw)
           content += messageAdapter.extractStreamDelta(raw) || ''
@@ -327,7 +327,7 @@ async function* handleRequestLocal(
         }
         calls = assembler.toArray()
       } else {
-        const response = await llmAdapter.chat(messages, runtime.builtSenses, options)
+        const response = await llmAdapter.chat(messages, ctx.requestToolPhase ? runtime.builtSenses.filter(t => ctx.requestToolPhase!.includes(t.function.name)) : runtime.builtSenses, options)
         options.observation?.response(response)
         content = messageAdapter.content(response) || ''
         thinking = messageAdapter.thinking?.(response) || ''
@@ -355,6 +355,11 @@ async function* handleRequestLocal(
       })
     }
     options.signal?.throwIfAborted()
+    if (ctx.requestToolPhase?.length && (calls.length !== 1 || !ctx.requestToolPhase.includes(calls[0]!.name ?? ''))) {
+      if (turn > 0) throw new Error('Required request decision was not returned')
+      history.push({ id: randomUUID(), role: 'user', content: '本轮仅允许工具决策。请单独调用当前提供的决策工具，参数严格依据当前上下文；不要输出正文，不要调用其他工具。', createdAt: Date.now(), updateAt: Date.now() })
+      continue
+    }
     await dispatchPostLLMResponse(ctx, {
       provider: runtime.brain.provider,
       content,
@@ -398,6 +403,9 @@ async function* handleRequestLocal(
         createdAt: now,
         updateAt: Date.now(),
       })
+      // A plugin may normally complete this request after its tool result is recorded.
+      // Do not start another provider turn or execute remaining calls.
+      if (ctx.requestComplete || ctx.soul.yieldTurn) return
     }
   }
   throw new Error('Request tool iteration limit reached')
