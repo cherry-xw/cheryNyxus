@@ -1,5 +1,5 @@
 id: cherynyxus-qq-module
-version: 0.1.7
+version: 0.1.19
 apiVersion: 2
 entry: index.mjs
 rpcNamespace: qq
@@ -8,6 +8,12 @@ resources:
     kind: skill
     path: skills/douyin-download-send/SKILL.md
     channel: qq
+  - id: bilibili-download-script
+    kind: script
+    path: skills/douyin-download-send/scripts/bilibili.mjs
+  - id: download-limits-script
+    kind: script
+    path: skills/douyin-download-send/scripts/limits.mjs
   - id: douyin-download-script
     kind: script
     path: skills/douyin-download-send/scripts/download.mjs
@@ -26,4 +32,4 @@ ui:
     title: QQ
     entry: ui/index.html
     apiPrefix: /api/modules/qq/
-    resourceVersion: 0.1.7
+    resourceVersion: 0.1.19

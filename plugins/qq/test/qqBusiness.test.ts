@@ -16,6 +16,17 @@ beforeEach(async () => {
   root = await mkdtemp(path.join(scratch, 'qq-business-'))
 })
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
+test('file results expose trusted personal absolute paths and only share-relative URLs', async () => {
+  const result = await writeQQFile(root, privateSubject, { path: 'share/hello world.html', content: 'hello' })
+  expect(result.absolutePath).toBe(path.join(root, '12345/share/hello world.html'))
+  expect(result.sharePath).toBe('/qq/12345/share/hello%20world.html')
+  expect((await readQQFile(root, groupSubject, { path: 'share/hello world.html' })).absolutePath).toBe(result.absolutePath)
+  expect(await readFile(result.absolutePath, 'utf8')).toBe('hello')
+  const ordinary = await writeQQFile(root, privateSubject, { path: 'private.txt', content: 'private' })
+  expect(ordinary.sharePath).toBeNull()
+  await expect(readFile(path.join(root, 'private.txt'))).rejects.toThrow()
+})
+
 const save = (scope: 'personal' | 'group' | 'member', name: string, content: string) => ({ scope, save: [{ name, content }] })
 const memoryFile = (scope: string, key: string) => path.join(root, 'memory', scope, `${textVersion(key)}.json`)
 
@@ -65,7 +76,7 @@ test('memory writes preserve existing context and identity; corrupt files are ne
   const target = memoryFile('personal', privateSubject.userId)
   await mkdir(path.dirname(target), { recursive: true })
   const identity = { platform: 'qq', ...privateSubject, nickname: 'sender' }
-  await writeFile(target, JSON.stringify({ memories: { old: 'old value' }, context: ['retained context'], identity, updatedAt: 1 }))
+  await writeFile(target, JSON.stringify({ schemaVersion: 1, revision: 0, memories: { old: 'old value' }, context: ['retained context'], identity, updatedAt: 1 }))
   expect(await store.manage(privateSubject, { ...save('personal', 'new', 'new value'), delete: ['old', 'missing'] })).toEqual({ saved: 1, deleted: 1 })
   const updated = JSON.parse(await readFile(target, 'utf8'))
   expect(updated).toMatchObject({ memories: { new: 'new value' }, context: ['retained context'], identity, schemaVersion: 1, revision: 1 })
@@ -85,9 +96,9 @@ test('memory batches are atomic, capacity bounded, and concurrent stores retain 
   await Promise.all(Array.from({ length: 30 }, (_, i) => (i % 2 ? store : other).manage(privateSubject, save('personal', `n${i}`, `value${i}`))))
   const target = memoryFile('personal', privateSubject.userId)
   expect(Object.keys(JSON.parse(await readFile(target, 'utf8')).memories)).toHaveLength(30)
-  await store.manage(privateSubject, { scope: 'personal', save: Array.from({ length: 70 }, (_, i) => ({ name: `more${i}`, content: 'value' })) })
+  await store.manage(privateSubject, { scope: 'personal', save: Array.from({ length: 50 }, (_, i) => ({ name: `more${i}`, content: 'value' })) })
   const before = await readFile(target, 'utf8')
-  await expect(store.manage(privateSubject, save('personal', 'overflow', 'bad'))).rejects.toThrow('100')
+  await expect(store.manage(privateSubject, save('personal', 'overflow', 'bad'))).rejects.toThrow('80')
   expect(await readFile(target, 'utf8')).toBe(before)
   await store.manage(privateSubject, { ...save('personal', 'replacement', 'ok'), delete: ['n0'] })
   const snapshot = await store.prepareSnapshot(privateSubject)
@@ -132,9 +143,9 @@ test('files and memory reject symlinks at leaf, within root, and above configure
   await expect(writeQQFile(root, privateSubject, { path: 'leaf', content: 'bad' })).rejects.toThrow('符号')
 })
 
-test('tools require plugin QQ request identity, expose only three tools, and use request memory revisions', async () => {
+test('tools require plugin QQ request identity, register scoped memory and file tools, and use request memory revisions', async () => {
   const tools = createQQTools(root, path.join(root, 'files'))
-  expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_memory_manage', 'qq_read_file', 'qq_write_file'])
+  expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_group_memory_search', 'qq_group_memory_manage', 'qq_memory_manage', 'qq_read_file', 'qq_write_file'])
   for (const registration of tools) {
     expect(registration.sense.supervisionLevel).toBe(0)
     expect(registration.sense.definition.function.parameters.additionalProperties).toBe(false)
@@ -148,13 +159,13 @@ test('tools require plugin QQ request identity, expose only three tools, and use
   const store = new QQMemoryStore(root)
   const prepared = await store.prepare(privateSubject)
   const ctx = { chatId: 'chat', requestView: view({ source: 'plugin' as const, channel: 'qq', subject: privateSubject }, prepared) }
-  const memoryTool = tools[0]!.sense.executor.execute
+  const memoryTool = tools.find(t => t.sense.definition.function.name === 'qq_memory_manage')!.sense.executor.execute
   expect((await memoryTool(save('personal', 'x', 'fresh'), new Map(), ctx)).status).toBe('ok')
   const stale = await memoryTool(save('personal', 'x', 'stale'), new Map(), ctx)
   expect(stale.status).toBe('provider_error')
   expect(stale.content).toContain('版本')
   expect(await store.prepare(privateSubject)).toContain('fresh')
   const fileCtx = { chatId: 'chat', requestView: view({ source: 'plugin', channel: 'qq', subject: privateSubject }) }
-  expect((await tools[2]!.sense.executor.execute({ path: 'note', content: 'text' }, new Map(), fileCtx)).status).toBe('ok')
-  expect((await tools[1]!.sense.executor.execute({ path: 'note' }, new Map(), fileCtx)).content).toContain('text')
+  expect((await tools.find(t => t.sense.definition.function.name === 'qq_write_file')!.sense.executor.execute({ path: 'note', content: 'text' }, new Map(), fileCtx)).status).toBe('ok')
+  expect((await tools.find(t => t.sense.definition.function.name === 'qq_read_file')!.sense.executor.execute({ path: 'note' }, new Map(), fileCtx)).content).toContain('text')
 })

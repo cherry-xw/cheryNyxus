@@ -52,6 +52,9 @@ export async function saveMedia(address, dest, headers, {request = fetch, signal
       url = validateMediaUrl(new URL(response.headers.get('location'), url).href)
     }
     if (!response.ok || !response.headers.get('content-type')?.includes(image ? 'image' : 'video') || !response.body) throw new Error('Unexpected media response')
+    const length = Number(response.headers.get('content-length'))
+    if (!length || !Number.isSafeInteger(length)) throw new Error('SIZE_UNKNOWN')
+    if (length > (image ? 30 : 150) * 1024 * 1024) throw new Error('SIZE_LIMIT')
     file = await open(temporary, 'wx', 0o600)
     let size = 0, first = Buffer.alloc(0)
     for await (const chunk of response.body) {
@@ -59,7 +62,7 @@ export async function saveMedia(address, dest, headers, {request = fetch, signal
       const bytes = Buffer.from(chunk)
       if (first.length < 32) first = Buffer.concat([first, bytes.subarray(0, 32 - first.length)])
       size += bytes.length
-      if (size > (image ? 30 : 200) * 1024 * 1024) throw new Error('Media too large')
+      if (size > (image ? 30 : 150) * 1024 * 1024) throw new Error('SIZE_LIMIT')
       await file.writeFile(bytes)
     }
     if (image ? !(first.subarray(0,3).equals(Buffer.from([255,216,255])) || first.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || /^GIF8[79]a/.test(first.toString('ascii')) || (first.subarray(0,4).toString() === 'RIFF' && first.subarray(8,12).toString() === 'WEBP')) : (size < 32 || !first.includes(Buffer.from('ftyp')))) throw new Error('Invalid media file')
@@ -132,6 +135,16 @@ export async function download(url, output, {chromium, request = fetch} = {}) {
       let address = addresses[0]
       if (address && typeof address === 'object') address = address.src ?? address.url
       if (!address) throw new Error('No video address')
+      const headers = {'User-Agent': await page.evaluate('navigator.userAgent'), Referer: 'https://www.douyin.com/'}
+      const variants = video.bitRateList ?? video.bit_rate ?? []
+      const candidates = variants.map(v => { const a = v.playAddr ?? v.play_addr; return { height: a?.height ?? 0, rate: v.bitRate ?? v.bit_rate ?? 0, url: (a?.urlList ?? a?.url_list ?? [])[0] } }).filter(v => v.url && v.height <= 1080).sort((a,b) => b.height-a.height || b.rate-a.rate)
+      if (!candidates.length) candidates.push({url:address})
+      let selected
+      for (const candidate of candidates) {
+        try { const u = validateMediaUrl(typeof candidate.url === 'object' ? candidate.url.src ?? candidate.url.url : candidate.url); const response = await request(u, { method: 'HEAD', headers, redirect: 'manual', signal: controller.signal }); const size = Number(response.headers.get('content-length')); if (response.ok && size > 0 && size <= 150*1024*1024) { selected = u.href; break } } catch {}
+      }
+      if (!selected) throw new Error('SIZE_LIMIT_OR_UNKNOWN')
+      address = selected
       const dest = path.join(root, `${target}.mp4`)
       const bytes = await saveMedia(address, dest, {'User-Agent': await page.evaluate('navigator.userAgent'), Referer: 'https://www.douyin.com/'}, {request, signal: controller.signal})
       return {id: target, file: dest, bytes, durationMs: video.duration}

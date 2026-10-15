@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, rename, unlink } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
@@ -9,6 +9,30 @@ import type { IngressSubject } from '@chery/plugin-api'
 export type QQSubject = IngressSubject
 const MAX_BYTES = 1024 * 1024
 const locks = new Map<string, Promise<unknown>>()
+
+/**
+ * 读取历史持久数据：仅剥离 zod `unrecognized_keys`（任意深度、迭代重试），
+ * 其余校验错误保持 fail loud（不掩盖真实损坏）。
+ * 用于对 .strict() schema 的历史数据容错：已废弃字段（如早期迁移标记）
+ * 会在读取时自动清除，下一次写入自然写出干净文件；同时未知键之外的
+ * 类型/格式错误仍照常报错，避免把损坏数据当可自愈。
+ */
+export function parseStored<T extends z.ZodTypeAny>(schema: T, value: unknown, label = 'stored'): z.infer<T> {
+  let current: unknown = typeof value === 'string' ? JSON.parse(value) : value
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const result = schema.safeParse(current)
+    if (result.success) return result.data
+    const unknown = result.error.issues.filter(issue => issue.code === 'unrecognized_keys')
+    if (!unknown.length) throw result.error
+    for (const issue of unknown) {
+      let target: any = current
+      for (const key of issue.path) target = target?.[key]
+      if (target && typeof target === 'object')
+        for (const key of issue.keys ?? []) delete target[key]
+    }
+  }
+  throw new Error(`${label}: 历史数据清理失败`)
+}
 export const qqSubjectSchema = z.object({
   selfId: z.string().regex(/^[1-9]\d{0,19}$/),
   userId: z.string().regex(/^[1-9]\d{0,19}$/),
@@ -96,13 +120,13 @@ export async function withFileLock<T>(target: string, action: () => Promise<T>, 
   try { return await task } finally { if (locks.get(target) === task) locks.delete(target) }
 }
 
-export async function atomicText(target: string, text: string, signal?: AbortSignal): Promise<void> {
+export async function atomicText(target: string, text: string, signal?: AbortSignal, publicFile = false): Promise<void> {
   signal?.throwIfAborted()
   await safePath(target, true)
   const temporary = path.join(path.dirname(target), `.${randomUUID()}.tmp`)
   try {
     const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
-    try { await file.writeFile(text, 'utf8'); await file.sync() } finally { await file.close() }
+    try { await file.writeFile(text, 'utf8'); if (publicFile) await file.chmod(0o644); await file.sync() } finally { await file.close() }
     signal?.throwIfAborted()
     await safePath(target)
     await rename(temporary, target)
@@ -125,7 +149,7 @@ export async function readQQFile(root: string, subject: QQSubject, input: z.infe
   const parsed = qqReadFileSchema.parse(input)
   const text = await readSafeText(fileTarget(root, subject, parsed.path))
   const lines = text.split('\n'), offset = parsed.offset ?? 0
-  return { path: parsed.path, version: textVersion(text), totalLines: lines.length, offset,
+  return { path: parsed.path, absolutePath: fileTarget(root, subject, parsed.path), version: textVersion(text), totalLines: lines.length, offset,
     content: lines.slice(offset, offset + (parsed.limit ?? 200)).join('\n').slice(0, 30000) }
 }
 
@@ -140,7 +164,20 @@ export async function writeQQFile(root: string, subject: QQSubject, input: z.inf
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
     }
     if (existing !== parsed.expectedVersion) throw new Error('文件已存在或版本发生变化；请先读取，再提供expectedVersion更新')
-    await atomicText(target, parsed.content, signal)
-    return { path: parsed.path, version: textVersion(parsed.content), bytes: Buffer.byteLength(parsed.content) }
+    const shared = parsed.path.startsWith('share/')
+    if (shared) {
+      await safePath(target, true)
+      await chmod(root, 0o711)
+      const personal = path.join(root, subject.userId)
+      await chmod(personal, 0o711)
+      let directory = path.join(personal, 'share')
+      await chmod(directory, 0o755)
+      for (const segment of parsed.path.split('/').slice(1, -1)) {
+        directory = path.join(directory, segment)
+        await chmod(directory, 0o755)
+      }
+    }
+    await atomicText(target, parsed.content, signal, shared)
+    return { path: parsed.path, absolutePath: target, sharePath: parsed.path.startsWith('share/') ? `/qq/${subject.userId}/${parsed.path.split('/').map(encodeURIComponent).join('/')}` : null, version: textVersion(parsed.content), bytes: Buffer.byteLength(parsed.content) }
   }, signal)
 }

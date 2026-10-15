@@ -178,13 +178,32 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
               min="10"
               max="3600" /></label
           ><label
-            >同一成员免 @ 续聊条数<input
-              v-model.number="state.config.continuationMaxMessages"
-              type="number"
-              min="0"
-              max="100" /></label
+            >连续消息合并等待（毫秒）<input v-model.number="state.config.messageMergeMs" type="number" min="0" max="10000" /></label
           ><label
-            >群续聊有效期（毫秒）<input
+            >背景文字上限<input v-model.number="state.config.backgroundMaxChars" type="number" min="1000" max="100000" /></label
+          ><label
+            >背景有效期（毫秒）<input v-model.number="state.config.backgroundMaxAgeMs" type="number" min="1000" max="604800000" /></label
+          ><label
+            >表情回复<input v-model="state.config.reactionEnabled" type="checkbox" /></label
+          ><label>戳一戳<input v-model="state.config.pokeEnabled" type="checkbox" /></label
+          ><label>戳一戳冷却（毫秒）<input v-model.number="state.config.pokeCooldownMs" type="number" min="10000" max="3600000" /></label
+          ><label>语音回复<input v-model="state.config.voiceEnabled" type="checkbox" /></label
+          ><label>默认声音ID（须从真实声音目录选取）<input v-model="state.config.voiceDefaultCharacter" /></label
+          ><label>语音字数上限<input v-model.number="state.config.voiceMaxChars" type="number" min="10" max="200" /></label
+          ><label
+            >记忆条数上限<input v-model.number="state.config.memoryMaxEntries" type="number" min="10" max="100" /></label
+          ><label
+            >每条记忆字数<input v-model.number="state.config.memoryMaxChars" type="number" min="40" max="300" /></label
+          ><label
+            >记忆整理触发比例<input v-model.number="state.config.memoryConsolidateRatio" type="number" min="0.5" max="0.95" step="0.05" /></label
+          ><label
+            >记忆整理目标比例<input v-model.number="state.config.memoryTargetRatio" type="number" min="0.2" max="0.8" step="0.05" /></label
+          ><label
+            >讨论摘要提示词<textarea v-model="state.config.summaryPrompt" rows="4"></textarea></label
+          ><label
+            >记忆注入字数预算<input v-model.number="state.config.memoryContextChars" type="number" min="500" max="30000" /></label
+          ><label
+            >活跃讨论超时（毫秒）<input
               v-model.number="state.config.continuationTtlMs"
               type="number"
               min="1" /></label

@@ -2,15 +2,25 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { z } from 'zod'
+import { parseStored } from './files.js'
 import {
   QQConfigSchema,
   QQEventSubmitRequestSchema,
   QQNotificationSchema,
 } from '../../../packages/protocol/src/qq.js'
 
+// Stored background includes assistant outputs; ingress input remains strict.
+export const QQBackgroundSchema = z.object(QQEventSubmitRequestSchema.shape).superRefine((event, ctx) => {
+  if (event.senderId !== event.selfId && !QQEventSubmitRequestSchema.safeParse(event).success)
+    ctx.addIssue({ code: 'custom', message: 'Invalid background input identity' })
+})
+export type QQBackground = z.infer<typeof QQBackgroundSchema>
+
 export const JobSchema = z.object({
   requestId: z.string(),
   coreRequestId: z.string().optional(),
+  coreRunId: z.string().optional(),
+  replyActionComplete: z.boolean().optional(),
   input: QQEventSubmitRequestSchema,
   target: z.string(),
   conversationKey: z.string(),
@@ -26,6 +36,9 @@ export const JobSchema = z.object({
   acceptedAt: z.number(),
   reason: z.string().optional(),
   reply: z.string(),
+  decisionRequired: z.boolean().default(false),
+  participation: z.enum(['reply', 'wait', 'end']).optional(),
+  background: z.array(QQBackgroundSchema).default([]),
   toolIds: z.array(z.string()),
   douyinUrl: z.string().optional(),
   pendingIcons: z.array(z.string()).default([]),
@@ -37,7 +50,7 @@ export const JobSchema = z.object({
 export type Job = z.infer<typeof JobSchema>
 export const OutboxSchema = z.object({
   frame: QQNotificationSchema,
-  status: z.enum(['pending', 'inflight', 'sent', 'unknown']),
+  status: z.enum(['pending', 'inflight', 'sent', 'unknown', 'failed']),
   issuedAt: z.number().optional(),
   confirmedAt: z.number().optional(),
   resultHash: z.string().optional(),
@@ -50,11 +63,11 @@ export const StateSchema = z
     outbox: z.array(OutboxSchema),
     seq: z.record(z.string(), z.number().int().nonnegative()),
     receipts: z.record(z.string(), z.object({ hash: z.string(), accepted: z.boolean() })),
+    discussions: z.record(z.string(), z.object({ active: z.boolean(), lastActivity: z.number(), startedAt: z.number().default(0), closedAt: z.number().default(0), summary: z.string().default(''), summaryPending: z.boolean().default(false), summaryRetryAt: z.number().default(0), messages: z.array(QQBackgroundSchema) })).default({}),
     windows: z.record(
       z.string(),
       z.object({ remaining: z.number().int().min(0).max(5), expiresAt: z.number() }),
     ),
-    migrated: z.array(z.unknown()).default([]),
     configWrites: z
       .record(z.string(), z.object({ hash: z.string(), response: z.unknown() }))
       .default({}),
@@ -70,7 +83,7 @@ export function emptyState(): State {
     seq: {},
     receipts: {},
     windows: {},
-    migrated: [],
+    discussions: {},
     configWrites: {},
   }
 }
@@ -114,7 +127,7 @@ export function readState(file: string): State {
   safePath(file)
   if (!fs.existsSync(file)) return emptyState()
   try {
-    return StateSchema.parse(JSON.parse(fs.readFileSync(file, 'utf8')))
+    return parseStored(StateSchema, JSON.parse(fs.readFileSync(file, 'utf8')), 'state')
   } catch {
     // Corrupt queue state must isolate this plugin rather than drop deliveries.
     throw new Error('Invalid QQ plugin state')
