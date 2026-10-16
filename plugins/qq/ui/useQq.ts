@@ -4,7 +4,7 @@ import { managerRequest, ManagerApiError } from '../../../packages/manager-ui/sr
 import { QQConfigSchema } from '../../../packages/protocol/src/qq'
 
 export function useQq(request = managerRequest) {
-  const state = reactive({ config: null as any, original: '', revision: 0, apply: null as any, ready: false, reading: false, saving: false, uncertain: false, error: '', message: '', catalog: null as any, catalogError: '', status: null as any, statusError: '', queue: null as any, queueError: '', history: null as any, historyError: '', selected: '', summary: '', summaryError: '' })
+  const state = reactive({ config: null as any, original: '', revision: 0, apply: null as any, ready: false, reading: false, saving: false, uncertain: false, error: '', message: '', catalog: null as any, catalogError: '', status: null as any, statusError: '', queue: null as any, queueError: '', history: null as any, historyError: '', voiceGroup: '', voices: [] as Array<{id: string; name: string}>, voicesLoading: false, voicesError: '', selected: '', summary: '', summaryError: '' })
   const dirty = computed(() => state.config !== null && JSON.stringify(state.config) !== state.original)
   const targets = computed(() => state.config ? [...state.config.groups.map((id: string) => `group:${id}`), ...state.config.users.map((id: string) => `private:user:${id}`)] : [])
   let summaryGeneration = 0
@@ -67,6 +67,19 @@ export function useQq(request = managerRequest) {
       if (generation === summaryGeneration) state.summary = `预设：${data.name} · 模型配置：${data.value.brain || '未配置'} · 工具组：${data.value.senseGroup || '无'}`
     } catch (e) { if (generation === summaryGeneration) state.summaryError = e instanceof Error ? e.message : '预设读取失败' }
   }
+  let voiceGeneration = 0
+  async function voices() {
+    const generation = ++voiceGeneration, group = state.voiceGroup
+    state.voices = []; state.voicesError = ''
+    if (!group || !state.config?.groups.includes(group)) { state.voicesLoading = false; return }
+    state.voicesLoading = true
+    try {
+      const { data } = await request<any>(`/api/modules/qq/voices?groupId=${encodeURIComponent(group)}`)
+      if (!Array.isArray(data?.items) || !data.items.every((v: any) => typeof v.id === 'string' && typeof v.name === 'string')) throw new Error('声音目录响应不完整')
+      if (generation === voiceGeneration && group === state.voiceGroup) state.voices = data.items
+    } catch (e) { if (generation === voiceGeneration && group === state.voiceGroup) state.voicesError = e instanceof Error ? e.message : '声音目录读取失败' }
+    finally { if (generation === voiceGeneration) state.voicesLoading = false }
+  }
   async function load() { await Promise.allSettled([read(), catalog(), refresh('status'), refresh('queue'), refresh('history')]) }
-  return { state, dirty, targets, read, catalog, refresh, save, add, remove, summary, load }
+  return { state, dirty, targets, read, catalog, refresh, save, add, remove, summary, voices, load }
 }

@@ -1,5 +1,5 @@
 id: cherynyxus-qq-module
-version: 0.1.20
+version: 0.1.21
 apiVersion: 2
 entry: index.mjs
 rpcNamespace: qq
@@ -39,4 +39,4 @@ ui:
     title: QQ
     entry: ui/index.html
     apiPrefix: /api/modules/qq/
-    resourceVersion: 0.1.20
+    resourceVersion: 0.1.21

@@ -36,6 +36,7 @@ export const JobSchema = z.object({
   acceptedAt: z.number(),
   reason: z.string().optional(),
   reply: z.string(),
+  mergedInputs: z.array(QQEventSubmitRequestSchema).max(16).optional(),
   decisionRequired: z.boolean().default(false),
   participation: z.enum(['reply', 'wait', 'end']).optional(),
   background: z.array(QQBackgroundSchema).default([]),
@@ -52,6 +53,7 @@ export const OutboxSchema = z.object({
   frame: QQNotificationSchema,
   status: z.enum(['pending', 'inflight', 'sent', 'unknown', 'failed']),
   issuedAt: z.number().optional(),
+  notBefore: z.number().optional(),
   confirmedAt: z.number().optional(),
   resultHash: z.string().optional(),
 })
@@ -59,6 +61,7 @@ export type Outbox = z.infer<typeof OutboxSchema>
 export const StateSchema = z
   .object({
     schemaVersion: z.literal(1),
+    contextEpoch: z.string().max(100).default(''),
     jobs: z.array(JobSchema),
     outbox: z.array(OutboxSchema),
     seq: z.record(z.string(), z.number().int().nonnegative()),
@@ -78,6 +81,7 @@ export type State = z.infer<typeof StateSchema>
 export function emptyState(): State {
   return {
     schemaVersion: 1,
+    contextEpoch: '',
     jobs: [],
     outbox: [],
     seq: {},

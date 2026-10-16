@@ -10,28 +10,12 @@ export type QQSubject = IngressSubject
 const MAX_BYTES = 1024 * 1024
 const locks = new Map<string, Promise<unknown>>()
 
-/**
- * 读取历史持久数据：仅剥离 zod `unrecognized_keys`（任意深度、迭代重试），
- * 其余校验错误保持 fail loud（不掩盖真实损坏）。
- * 用于对 .strict() schema 的历史数据容错：已废弃字段（如早期迁移标记）
- * 会在读取时自动清除，下一次写入自然写出干净文件；同时未知键之外的
- * 类型/格式错误仍照常报错，避免把损坏数据当可自愈。
- */
+/** 严格校验持久数据；不删除未知字段，不自动覆盖损坏记录。 */
 export function parseStored<T extends z.ZodTypeAny>(schema: T, value: unknown, label = 'stored'): z.infer<T> {
-  let current: unknown = typeof value === 'string' ? JSON.parse(value) : value
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const result = schema.safeParse(current)
-    if (result.success) return result.data
-    const unknown = result.error.issues.filter(issue => issue.code === 'unrecognized_keys')
-    if (!unknown.length) throw result.error
-    for (const issue of unknown) {
-      let target: any = current
-      for (const key of issue.path) target = target?.[key]
-      if (target && typeof target === 'object')
-        for (const key of issue.keys ?? []) delete target[key]
-    }
-  }
-  throw new Error(`${label}: 历史数据清理失败`)
+  const current: unknown = typeof value === 'string' ? JSON.parse(value) : value
+  const result = schema.safeParse(current)
+  if (!result.success) throw new Error(`${label}: 数据校验失败`, { cause: result.error })
+  return result.data
 }
 export const qqSubjectSchema = z.object({
   selfId: z.string().regex(/^[1-9]\d{0,19}$/),
@@ -142,6 +126,7 @@ function fileTarget(root: string, subject: QQSubject, relative: string): string 
   if (!root || !path.isAbsolute(root) || root.includes('\0')) throw new Error('QQ个人文件持久目录未配置')
   if (!relative || relative.length > 512 || path.isAbsolute(relative) || relative.includes('\\') || relative.includes('\0') || relative.split('/').some(p => !p || p === '..' || p === '.'))
     throw new Error('请提供个人目录内的相对文件路径')
+  if (relative.split('/')[0] === 'apps') throw new Error('受管应用文件必须通过 managed_app 在工作容器内操作')
   return path.join(root, subject.userId, ...relative.split('/'))
 }
 

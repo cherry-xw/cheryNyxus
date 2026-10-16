@@ -6,7 +6,7 @@ import { resolveBrainAdapterKey, resolveBrainProtocol } from '@/core/llm/routing
 import { resolveLlmProviderDefaultUrl } from '@chery/protocol'
 import { resolvePresetSelection } from '@/agent/runtimeResolver.js'
 import { getChat } from '@/db/chat.js'
-import { addMessage, getMessages } from '@/db/message.js'
+import { addMessage, getMessages, getRecentConversationMessages } from '@/db/message.js'
 import { clearChatRuntime } from '../chat/runtime.js'
 import { getActiveChatRunId } from '../chat/runtimeCache.js'
 import { onPreparedChatEvent } from '@/db/delivery.js'
@@ -125,6 +125,7 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
         () => handleChatInputSubmit(context(owner), { ...params, chatId }),
       )
     },
+    recentConversationMessages: async (owner, key, count) => JSON.stringify(getRecentConversationMessages(requireOwned(owner, key), count)),
     conversationHistory: async (owner, key) => {
       const messages = getMessages(requireOwned(owner, key)).filter(m => !m.revoked && !m.model_excluded)
       let boundary = -1

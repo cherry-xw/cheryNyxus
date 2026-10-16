@@ -1,3 +1,4 @@
+import { createManagedAppGateway } from '../managedApp/gateway.js'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -74,8 +75,12 @@ export function createHttpServer({
     )
   }
 
+  const managedApps = createManagedAppGateway()
   const server = createServer((req, res) => {
-    handleRequest(req, res, root, sessionToken, auth, listener, wsPort).catch((err) => {
+    (async () => {
+      if (listener === 'local' && await managedApps.handle(req, res)) return
+      await handleRequest(req, res, root, sessionToken, auth, listener, wsPort)
+    })().catch((err) => {
       logger.info(`HTTP 错误: ${(err as Error).message}`)
       if (!res.headersSent) {
         res.writeHead(500)
@@ -84,6 +89,15 @@ export function createHttpServer({
     })
   })
 
+  const closeServer = server.close.bind(server)
+  server.close = ((callback?: (error?: Error) => void) => {
+    managedApps.drain()
+    return closeServer(callback)
+  }) as typeof server.close
+  server.on('upgrade', (req, socket, head) => {
+    if (listener !== 'local') { socket.destroy(); return }
+    void managedApps.upgrade(req, socket, head).then(handled => { if (!handled) socket.destroy() }).catch(() => socket.destroy())
+  })
   server.listen(webPort, host)
   // 端口监听失败（EADDRINUSE）→ fatal 上报（guardian 停止重试，见 docs/backend/service/README.md）。
   // 无监听会直接崩溃 worker；挂上后 EADDRINUSE 走报告路径，其他错误仅日志。

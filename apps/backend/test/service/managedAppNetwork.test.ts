@@ -1,0 +1,48 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+const run = vi.hoisted(() => vi.fn())
+vi.mock('node:child_process', () => ({ execFile: Object.assign(vi.fn(), { [Symbol.for('nodejs.util.promisify.custom')]: run }) }))
+import { applicationNetworkCommands, initializeApplicationNetworkLimits, limitApplicationNetwork } from '../../src/service/managedApp/networkLimits.ts'
+describe('managed application network limits', () => {
+  beforeEach(() => run.mockReset())
+  it('never generates commands for shared or injected interface names', () => {
+    for (const device of ['br-chery-apps', 'eth0', 'vethabc;id', '../vethabc']) expect(() => applicationNetworkCommands(device)).toThrow()
+    const commands = applicationNetworkCommands('vethabc123')
+    expect(commands).toHaveLength(3)
+    expect(commands[0]).toContain('16777216bit')
+    expect(commands[1]).toContain('290001')
+    expect(commands[2]).toContain('290002')
+  })
+  it('uses separate aggregate upload and download counters', async () => {
+    run.mockResolvedValue({ stdout: '' })
+    await initializeApplicationNetworkLimits()
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(run.mock.calls[0]![1]).toContain('41943040bit')
+  })
+  it('rejects containers without the managed label before namespace access', async () => {
+    run.mockResolvedValue({ stdout: '12345|false' })
+    await expect(limitApplicationNetwork('chery-app-12345-demo')).rejects.toThrow('非受管')
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+  it('resolves the exact veth peer and installs per-app and shared limits', async () => {
+    run.mockResolvedValueOnce({ stdout: '12345|true' })
+      .mockResolvedValueOnce({ stdout: '[{"link_index":42}]' })
+      .mockResolvedValueOnce({ stdout: '[{"ifindex":42,"ifname":"vethabc123"}]' })
+      .mockResolvedValueOnce({ stdout: 'qdisc noqueue' }).mockResolvedValue({ stdout: '' })
+    await limitApplicationNetwork('chery-app-12345-demo')
+    expect(run.mock.calls.slice(4).every(call => call[1].includes('vethabc123'))).toBe(true)
+    expect(run).toHaveBeenCalledTimes(10)
+  })
+  it('reuses an existing private police action on repeated reconciliation', async () => {
+    run.mockResolvedValueOnce({ stdout: '12345|true' })
+      .mockResolvedValueOnce({ stdout: '[{"link_index":42}]' })
+      .mockResolvedValueOnce({ stdout: '[{"ifindex":42,"ifname":"vethabc123"}]' })
+      .mockResolvedValueOnce({ stdout: 'qdisc clsact' })
+      .mockResolvedValueOnce({ stdout: '[{"pref":10,"kind":"matchall","options":{"handle":1,"actions":[{"kind":"police","index":7},{"kind":"police","index":290001}]}}]' })
+      .mockResolvedValueOnce({ stdout: '[{"pref":10,"kind":"matchall","options":{"handle":1,"actions":[{"kind":"police","index":290002}]}}]' })
+      .mockResolvedValue({ stdout: '' })
+    await limitApplicationNetwork('chery-app-12345-demo')
+    const commands = run.mock.calls.map(call => call[1])
+    expect(commands).toContainEqual(expect.arrayContaining(['actions', 'replace', 'index', '7']))
+    expect(commands.some(args => args[0] === 'filter' && args[1] === 'replace')).toBe(false)
+  })
+})

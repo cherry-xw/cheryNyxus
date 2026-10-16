@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import type { IngressRequestIdentity } from '@chery/plugin-api'
+import { managedToolDenied } from './managedRequest.js'
 import { directContainerExecution } from './executionMode.js'
 import { existsSync, realpathSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
@@ -202,8 +204,14 @@ export function authorizeToolCall(input: {
   filesystemRead?: 'workspace' | 'any'
   /** 角色验收专用的冻结覆盖层；存在时路径基准强制取其临时工作区。 */
   acceptance?: AcceptanceExecutionPolicy
+  requestIdentity?: Readonly<IngressRequestIdentity>
 }): ToolAuthorization {
   const { security, name, args } = input
+  if (managedToolDenied(name, input.requestIdentity)) {
+    return { decision: 'deny', roleType: security.roleType, policyHash: security.policyHash,
+      findings: [{ code: 'managed.backend-denied', category: 'system', severity: 'high', message: '受管请求不得访问 Backend 执行与配置通道，请使用 managed_app' }],
+      assessmentHash: hashAuthorization({ name, args, identity: input.requestIdentity, policyHash: security.policyHash }) }
+  }
   if (name === 'execute_command' && directContainerExecution()) {
     const valid =
       (args.shell === 'bash' || args.shell === 'powershell') && typeof args.command === 'string'

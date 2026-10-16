@@ -10,7 +10,7 @@ describe('QQ native reply tools', () => {
     const bridge = { lookup: vi.fn(async () => ({ items: [] })), reply: vi.fn(async () => ({ status: 'queued' })) }
     const tools = createReplyTools(bridge)
     const voice = tools.find(t => t.sense.definition.function.name === 'qq_voice_reply')!.sense.executor
-    const input = { text: '你好', character: 'verified', completeReply: true }
+    const input = { text: '你好', completeReply: true }
     await expect(voice.execute(input, {} as any, {} as any)).rejects.toThrow('trusted group')
     await voice.execute(input, {} as any, { requestView: { requestId: 'r', identity: { channel: 'qq', subject: { conversationType: 'group' } } } } as any)
     expect(bridge.reply).toHaveBeenCalledWith('r', { ...input, kind: 'voice' })

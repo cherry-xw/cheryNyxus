@@ -2,6 +2,12 @@
 
 `senseGroup` 只决定角色能看到哪些工具；`roles.<name>.permissions` 决定该角色每次调用工具时是允许、要求人工审核，还是直接拒绝。检查位于统一工具中间件，因此内置 Sense、MCP 和子角色工具都不能通过直接持有写工具来绕过。
 
+## 受管请求
+
+插件来源的终端请求在角色权限之外另有不可放宽的限制：隐藏并拒绝 Backend 命令、通用文件读写和搜索、MCP、系统配置、技能安装与角色验收工具，即使开启 `CHERY_COMMAND_DIRECT=1` 或使用 trusted 角色也不例外。项目文件与命令改用 `managed_app.exec` 在工作容器内处理。子角色继承父请求的受管身份，不允许向既有子角色追加任务来绕过该限制。
+
+`managed_app` 从可信请求的 QQ `subject.userId` 确认个人归属，不使用插件 `ownerId`，不接受模型指定用户、宿主路径或容器参数；无法确认真实 QQ 号时拒绝调用。群聊返回值不包含管理员激活链接。源码入口为 `core/security/managedRequest.ts`、`agent/sense/managedApp.ts` 与 `agent/hooks/request.ts`。自动验证入口为 `test/agent/sense/managedApp.test.ts`。运行服务是否已加载另行验证，源码完成不代表部署完成。
+
 ## 策略模板
 
 - `read-only`：禁止写工具，命令只允许只读沙箱，MCP 与派遣默认拒绝。

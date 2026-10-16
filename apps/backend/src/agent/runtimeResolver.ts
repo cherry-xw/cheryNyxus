@@ -1,3 +1,4 @@
+import { assertManagedToolAllowed } from '@/core/security/managedRequest.js'
 import type { AdaptersGroup, RuntimeConfig, SenseEntry } from '@/core/middleware/types'
 import type { Sense, SenseFunction } from '@/core/sense'
 import type { SenseAdapter } from '@/core/sense/adapter'
@@ -429,6 +430,7 @@ export class RuntimeResolver {
       senseTable.set(name, {
         supervisionLevel: s.supervisionLevel ?? config.global.supervision,
         execute: (args, sharedData, ctx) => {
+          assertManagedToolAllowed(name, ctx?.requestView?.identity)
           const origin = getSenseOrigin(name)
           if (
             !registeredExecutor ||

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
+import { assertManagedToolAllowed } from '../security/managedRequest.js'
 import { SupervisionLevel } from '../config'
 import type { ToolAuthorization } from '../security/rolePolicy.js'
 
@@ -413,7 +414,10 @@ export function sense<T extends z.ZodType>(
 
   const executor: SenseExecutor<T> = {
     schema,
-    execute: handler,
+    execute: async (input, sharedData, ctx) => {
+      assertManagedToolAllowed(name, ctx?.requestView?.identity)
+      return handler(input, sharedData, ctx)
+    },
   }
 
   return {

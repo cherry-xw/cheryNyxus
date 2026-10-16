@@ -18,7 +18,7 @@ export default defineConfig({
       fileName: () => 'index.mjs',
     },
     rollupOptions: {
-      external: ['node:fs', 'node:path', 'node:crypto', 'ws'],
+      external: [/^node:/, 'ws'],
     },
     minify: false,
   },

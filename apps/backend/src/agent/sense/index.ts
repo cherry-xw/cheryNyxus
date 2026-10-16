@@ -12,6 +12,7 @@ import { SupervisionLevel } from '@/core/config'
 
 // 显式导入所有感官模块
 import bashSense from './bash'
+import managedAppSense from './managedApp'
 import readSense from './read'
 
 import writeSense from './write'
@@ -55,6 +56,7 @@ export interface BuiltinSenseTool {
  * 新增内置 sense 时须同步追加此处（name 与模块一致）。icon 用 glyph/emoji（pet bar 运行中工具显示）。
  */
 export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
+  { name: 'managed_app', label: '小应用', description: '在受限工作容器内创建和运行当前用户的应用', icon: '📦', doc: '【作用】创建、执行、发布、停止、续期、查询、备份小应用。\n【能力】提供受限命令执行、任务状态与取消、固定模板发布、停止、续期和一致性备份。\n【边界】真实身份来自可信请求，不接收宿主路径或容器参数；工作环境与 Backend 隔离。\n【注意】发布成功不等于公网链路已部署；激活链接仅交付本人私聊。' },
   {
     name: 'web_search',
     label: '网络搜索',
@@ -262,6 +264,7 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
 function builtinSenses(): Sense<ZodType>[] {
   return [
     bashSense,
+    managedAppSense,
     readSense,
 
     writeSense,

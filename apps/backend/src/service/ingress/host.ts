@@ -320,6 +320,14 @@ export class IngressHost {
           this.saveConfig(id, config, expectedBaseRevision),
       },
       core: {
+        recentConversationMessages: async (key: string, count: number) => {
+          requireActive()
+          if (!active.conversations.has(key) || !core.recentConversationMessages) throw ingressError('IDENTITY_REJECTED')
+          if (!Number.isInteger(count) || count < 1 || count > 100) throw ingressError('INVALID_PARAMS')
+          const result = await core.recentConversationMessages(id, key, count)
+          requireActive()
+          return result
+        },
         conversationHistory: async (key: string) => {
           requireActive()
           if (!active.conversations.has(key) || !core.conversationHistory) throw ingressError('IDENTITY_REJECTED')
@@ -524,6 +532,16 @@ export class IngressHost {
           )
         },
       },
+      appNotifications: id === 'qq' ? {
+        claim: async (selfId: string) => {
+          const { ControllerSocketClient } = await import('../managedApp/socketRpc.js')
+          return new ControllerSocketClient().call<Awaited<ReturnType<NonNullable<IngressContext['appNotifications']>['claim']>>>('claimAppNotifications', { selfId }, 5000)
+        },
+        report: async (selfId: string, notificationId: string, status: 'sent' | 'failed' | 'unknown') => {
+          const { ControllerSocketClient } = await import('../managedApp/socketRpc.js')
+          await new ControllerSocketClient().call('reportAppNotification', { selfId, notificationId, status }, 5000)
+        },
+      } : undefined,
       management: {
         register: (definition: ManagementDefinition) => {
           requireCapability('manager.ui')

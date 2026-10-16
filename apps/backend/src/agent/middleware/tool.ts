@@ -423,7 +423,7 @@ export async function* executeRequestTool(
     yield step.value
     step = await execution.next()
   }
-  return step.value.rejected ? '工具调用被拒绝。' : step.value.content
+  return step.value.content || step.value.rejected || '工具未返回执行结果。'
 }
 
 function buildSenseTrigger(
@@ -504,6 +504,7 @@ function buildSenseTrigger(
     filesystemRead:
       !ctx.runtime.acceptance && isConfigManager(ctx.runtime.senseTable) ? 'any' : undefined,
     acceptance: ctx.runtime.acceptance,
+    requestIdentity: ctx.requestView?.identity,
   })
   const preDenied = authorization.decision === 'deny'
   const effectiveLevel =
@@ -675,6 +676,7 @@ async function* doExecuteSense(
       // 与 buildSenseTrigger 同源（isConfigManager(ctx.runtime.senseTable)）→ override 一致 → hash 恒等
       filesystemRead: !ctx.runtime.acceptance && configManager ? 'any' : undefined,
       acceptance: ctx.runtime.acceptance,
+      requestIdentity: ctx.requestView?.identity,
     })
     if (
       currentAuthorization.policyHash !== authorization.policyHash ||

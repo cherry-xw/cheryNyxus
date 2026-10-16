@@ -9,7 +9,7 @@ async function readMemory() {
   try { memory.value = (await managerRequest<any>('/api/modules/qq/memory')).data; memoryError.value = '' }
   catch (error) { memoryError.value = error instanceof Error ? error.message : '统计读取失败' }
 }
-const { state, dirty, targets, read, catalog, refresh, save, add, remove, summary, load } = useQq()
+const { state, dirty, targets, read, catalog, refresh, save, add, remove, summary, voices, load } = useQq()
 const groups = ref(''),
   users = ref('')
 const emit = defineEmits<{ dirty: [value: boolean] }>()
@@ -18,6 +18,8 @@ watch(
   () => [state.selected, state.config?.bindings[state.selected]],
   () => void summary(state.config?.bindings[state.selected] || ''),
 )
+watch(() => state.voiceGroup, () => { void voices() })
+watch(() => state.config?.groups.join(','), () => { if (!state.config?.groups.includes(state.voiceGroup)) { state.voiceGroup = ''; void voices() } })
 const flag = (v: unknown) => (v === true ? '是' : v === false ? '否' : '未读取')
 const applyLabel = (v: string) =>
   ({
@@ -187,8 +189,9 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
             >表情回复<input v-model="state.config.reactionEnabled" type="checkbox" /></label
           ><label>戳一戳<input v-model="state.config.pokeEnabled" type="checkbox" /></label
           ><label>戳一戳冷却（毫秒）<input v-model.number="state.config.pokeCooldownMs" type="number" min="10000" max="3600000" /></label
-          ><label>语音回复<input v-model="state.config.voiceEnabled" type="checkbox" /></label
-          ><label>默认声音ID（须从真实声音目录选取）<input v-model="state.config.voiceDefaultCharacter" /></label
+          ><label>语音使用方式<Dropdown v-model="state.config.voiceMode"><option value="off">关闭</option><option value="requested">仅用户明确要求时使用</option><option value="auto">AI 可以自主选择</option></Dropdown></label>
+                    ><label>声音目录来源群<Dropdown v-model="state.voiceGroup"><option value="">请选择允许的群</option><option v-for="id in state.config.groups" :key="id" :value="id">{{ id }}</option></Dropdown></label>
+                    ><label>固定声音<Dropdown v-model="state.config.voiceDefaultCharacter" :disabled="!state.voiceGroup || state.voicesLoading || !!state.voicesError"><option value="">未设置</option><option v-if="state.config.voiceDefaultCharacter && !state.voices.some(v => v.id === state.config.voiceDefaultCharacter)" :value="state.config.voiceDefaultCharacter" disabled>当前声音未验证：{{ state.config.voiceDefaultCharacter }}</option><option v-for="voice in state.voices" :key="voice.id" :value="voice.id">{{ voice.name }}</option></Dropdown><button :disabled="!state.voiceGroup || state.voicesLoading" @click="voices">{{ state.voicesLoading ? '读取中…' : '刷新声音目录' }}</button><span v-if="state.voicesError" class="error" role="alert">{{ state.voicesError }}</span><span v-else-if="state.voiceGroup && !state.voicesLoading && !state.voices.length">该群没有可用声音</span></label>
           ><label>语音字数上限<input v-model.number="state.config.voiceMaxChars" type="number" min="10" max="200" /></label
           ><label
             >记忆条数上限<input v-model.number="state.config.memoryMaxEntries" type="number" min="10" max="100" /></label

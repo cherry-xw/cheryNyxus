@@ -8,6 +8,12 @@
 
 > 命名澄清：CLAUDE.md 中的 `execute_skill` 是历史名，**实际 sense 函数名是 `skill`**（[skill.ts](../../../apps/backend/src/agent/sense/skill.ts) 第一参数）；bash 感官名是 `execute_command`，不是 `bash`（bash.ts 是文件名）。
 
+## 受管小应用工具
+
+`managed_app` 以 `action` 提供 create、exec、task_status、task_cancel、publish、stop、delete、renew、status、backup。stop 保留持久数据；delete 仅在用户明确要求时彻底清理本人指定应用，拒绝活动任务，不删除公共镜像或其他用户项目。create 必须同时提供 appId 与 title；appId 为 3–32 位小写字母、数字或连字符，首尾不能为连字符，后续操作复用该 ID。缺参返回可修正的 INVALID_INPUT，不代表授权拒绝。身份与不可放宽权限见[角色安全](role-security.md#受管请求)。注册入口是 `agent/sense/index.ts`，执行入口是 `agent/sense/managedApp.ts`，控制器通信使用 `service/managedApp/socketRpc.ts`。项目文件可以通过 exec 调用容器内 Node 标准库编辑，不把通用文件工具指向 Backend 挂载目录。
+
+受管命令的进程隔离由宿主控制器负责；不允许依靠任务可修改的环境变量确定清理范围。当前隔离实现仍在验证中，未通过独立审查前不得启用模型命令入口。验证必须覆盖清空环境、后台派生、脱离进程组，以及任务主动修改父进程死亡信号的情况。
+
 ## 文件清单
 
 | 文件 | 一句话 |

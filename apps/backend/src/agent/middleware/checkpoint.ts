@@ -31,6 +31,9 @@ export async function* checkpointMiddleware(
   if (newInput) {
     await finishRequest(ctx, 'completed')
     await prepareRequest(ctx, newInput)
+  } else if (!ctx.requestView) {
+    // Empty-input resume must restore the persisted permission ceiling too.
+    await prepareRequest(ctx, { content: '', time: Date.now() })
   }
   const { messages: consumedMessages, consumedCount } = ctx.journal.appendUserMessages()
   if (consumedCount > 0)

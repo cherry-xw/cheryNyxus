@@ -47,6 +47,17 @@ describe('request-local tool loop', () => {
     expect(await generator.next()).toMatchObject({ done: true, value: expect.stringContaining('人工审批') })
     expect(execute).not.toHaveBeenCalled()
   })
+  it('preserves failed tool observations so the model can correct arguments', async () => {
+    const execute = vi.fn(async () => ({ content: '{"ok":false,"error":{"code":"INVALID_INPUT","message":"create 必须提供 appId"}}', status: 'provider_error' as const, errorCode: 'provider_error' as const }))
+    const ctx = createMockContext({ runtime: createMockRuntime({ senses: [createTestSense('test_tool', execute)] }), global: { supervision: SupervisionLevel.auto } })
+    const generator = executeRequestTool(ctx, 'test_tool', '{}', 'invalid1')
+    let step = await generator.next()
+    while (!step.done) step = await generator.next()
+    expect(step.value).toContain('INVALID_INPUT')
+    expect(step.value).toContain('appId')
+    expect(step.value).not.toBe('工具调用被拒绝。')
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
   it('never restarts a failed request chain', async () => {
     const ctx = createMockContext({})
     ctx.requestExecution = execution

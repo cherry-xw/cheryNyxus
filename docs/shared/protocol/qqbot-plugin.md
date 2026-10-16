@@ -21,11 +21,29 @@
 
 当前使用项目实际帧编码：请求 `{kind:'request',id,method,params}`，响应以 requestId 关联，通知 `{kind:'notification',type,data}`；支持纯 JSON 和以 0x02 开头的 JSON 通知。本文早期推荐帧仅说明语义，不是当前服务已支持的 API。
 
+原生传输接口使用 `connect`、`onMessage`、`request` 和 `close`。连接断开时取消在途调用并通知适配器；重连后重新握手、绑定身份、补报已知回执，然后恢复通知。同一目标按序执行通知，其他目标不受其未知发送影响。原生调用有时间限制，超时不能重发；停止后丢弃排队发送和迟到结果。输入提交前持久化未知记录，断线或重启不自动重复提交。
+
 群名单、私聊名单、群讨论参与判断、连续输入合并、私聊无需 @、群/私聊上下文和记忆隔离、目标与预设 1:1、请求快照、真实工具调用事件、可设置的等待间隔（默认60秒）与终态清理由后端包和核心执行适配负责；thinking/reasoning仍由核心大脑配置管理。群 @ 唤醒后，普通接话由请求内的 `qq_participation_decide` 判断 reply/wait/end；wait/end 不发送空正文。业务规则和群事实、提醒的实现入口见[QQ 模块](../../../plugins/qq/README.md)。插件只负责字段适配、身份发现、收发及发送结果保存，不持有业务副本。没有人工审批入口的QQ请求不能自动批准需要审批的工具；拒绝调用不发图标。
 
 插件仅从 NapCat 的 `ctx.configPath` 读取 `{backendUrl,backendToken}`；没有默认真实地址或凭据。Manager 登录后生成的 QQ 连接凭据持久化在共享 `.chery/qq-connection-token.json`，运行服务启动时从同一路径读取为 `QQBOT_PLATFORM_TOKEN`；NapCat 设置页仍需在其认证页面填入同一个值。Token 不属于 Manager 登录密钥，重新生成会使旧连接失效。URL 必须为 ws/wss，不含用户名、密码、查询或片段；远程部署应使用 wss。配置修改后需要重载插件，目前不提供业务设置页面或热更新。`plugin_status(ctx)` 仅返回状态、ready 和阻断目标数，不返回凭据、QQ 号或消息。`ctx.dataPath/delivery-journal.json` 保存输入收件状态和发送结果，写入权限 0600；发送之前先写未知状态，防止卸载/崩溃后盲目重发。日志文件损坏时拒绝启动；单类记录达到 10000 时安全拒绝新增，不静默删除旧记录。未知发送没有自动解除入口，需后端与用户确认处理，不能通过删文件强行继续。
 
 NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含在入口中；开发工具使用仓库已有依赖。经批准后才可把 ZIP 解压到 NapCat 的 `plugins/napcat-plugin-cherynyxus/`，填写受限通道配置并重载。实际安装、握手和运行地址以部署任务证据为准，不能由本协议推断。QQ后端包是另一个完整目录，不能用此ZIP替代。
+
+### NapCat 插件安装与加载检查
+
+插件启用与加载许可是两项不同检查，不能仅修改 JSON 后反复重启：
+
+- **启用配置**：NapCat 的 `config/plugins.json` 使用技术包 ID 作为键，例如 `{"napcat-plugin-cherynyxus":true}`。本机持久路径为 `/home/chery/docker/napcatqq/napcat/config/plugins.json`，挂载到 `/app/napcat/config/plugins.json`。`true` 只表示请求启用，不保证加载器接受该插件。
+- **加载许可**：NapCat 上游 `packages/napcat-onebot/network/plugin/loader.ts` 的 `OFFICIAL_PLUGIN_IDS` 决定哪些插件可被扫描。`scanDirectoryPlugin` 在读取启用状态之前执行 `getRejectReason`；不在名单中的插件会记录 `not in official plugin whitelist`，且不会出现在插件列表。该版本的名单位于源码，不是 `plugins.json` 中的另一个开关。升级 NapCat 时须重新核对官方实现，不假定所有版本相同。
+- **本机现有插件**：部署使用 `napcat-cherynyxus:region-fork`，源码位于 `/home/chery/dev/NapCatQQ` 的 `local/deployment-region` 分支。`/home/chery/docker/napcatqq/custom/build-info.txt` 记录额外允许的 ID 为 `napcat-plugin-cherynyxus`；同目录 `Dockerfile` 将定制 NapCat 产物复制进镜像。此许可不自动覆盖其他插件 ID，也不代表任意诊断插件可加载。定制产物不是推荐的源码修改入口；后续调整应依据对应版本的官方源码与获准构建流程，不直接修改打包代码。
+
+安装、升级或临时诊断前按以下顺序检查：
+
+1. 核对插件包 `package.json.name`、部署目录、`plugins.json` 启用键和加载许可使用相同 ID；保留其他插件、登录、凭据及业务配置。
+2. 先检查所用镜像及其构建记录是否允许该 ID。仅缺启用项时修改对应 JSON；遇到白名单拒绝时停止重启尝试，不关闭全部限制、不冒用已有插件 ID。
+3. 新增允许 ID 或修改现有业务插件须明确操作范围；只有文件或包摘要确有变化才构建、安装。不要为一个未获许可的临时插件直接重建在线镜像。
+4. 获准加载后，通过认证的 `GET /api/Plugin/List` 确认目标为 `active`，并检查其初始化日志。文件存在、JSON 为 `true` 或容器运行均不能代替加载成功。
+5. 涉及 QQ 查询的诊断另设单次执行、明确目标、最小字段与不自动重试限制；插件初始化只注册入口，不自动查询、发送消息或触发恢复。测试结束卸载诊断插件，移除仅本测试新增的启用项，并核对原业务插件及 QQ 在线状态。
 
 验证入口：[原生插件适配测试](../../../apps/backend/test/service/qqPluginWire.test.ts)和[共享协议契约测试](../../../apps/backend/test/service/qqProtocolContract.test.ts)。在仓库根目录执行 `pnpm --dir platform/napcat-plugin typecheck && pnpm --dir platform/napcat-plugin build && pnpm qq-ingress:test`。测试使用回环随机端口、合成 NapCat Action、共享 schema 和离线 mock provider，不连接真实 NapCat、QQ 或模型；安装包的独立检查仍以获准部署任务为准。
 

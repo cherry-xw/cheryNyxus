@@ -22,6 +22,10 @@
 
 `chatMiddleware` 在 [chat.ts](../../../apps/backend/src/agent/middleware/chat.ts) 编排模型请求；[mediaEnrichment.ts](../../../apps/backend/src/agent/middleware/mediaEnrichment.ts) 负责媒体标记解析、前置工具处理与多轮原生媒体保留。两者只影响本轮模型输入，不改写已保存消息；相关校验见 `apps/backend/test/agent/middleware/mediaPreprocess.test.ts` 与 `mediaRetention.test.ts`。
 
+### 请求内工具错误
+
+QQ 等请求内工具循环使用 `executeRequestTool`，执行失败时保留工具返回的结构化错误正文，供模型区分参数错误、资源不足和访问拒绝并决定下一步。不得把所有非成功状态改写成“工具调用被拒绝”。人工审批不可用时仍拒绝自动批准；身份校验与角色策略不因错误透传而放宽。
+
 ### 单次模型请求超时
 
 `chatMiddleware` 在真正调用模型前读取 `global.llm_request_timeout_ms`（缺省 600000 毫秒；0 = 不限制），每次模型调用独立计时，输出增量不重置截止时间；审批及工具等待不计入。到时取消本次 provider 请求并抛出 `ModelRequestTimeoutError`，`retryMiddleware` 不再自动重复该请求。`checkpointMiddleware` 将已收到的部分内容标记为 `modelExcluded` 并附“超时截断”说明；`observer` 将该标志保存为 `messages.model_excluded`，`runtime.loadHistory` 恢复标志，下一次 `chatMiddleware` 构建 provider 消息时跳过这些内容。用户仍能从历史查看截断内容。手动停止属于独立取消，不误标超时。

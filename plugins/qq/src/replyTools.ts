@@ -7,7 +7,7 @@ export const replyActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('mention'), userId: z.string().regex(/^[1-9]\d{0,19}$/), text: z.string().min(1).max(500), completeReply: z.boolean() }).strict(),
   z.object({ kind: z.literal('reaction'), emojiId: z.string().regex(/^\d+$/), completeReply: z.boolean() }).strict(),
   z.object({ kind: z.literal('poke'), userId: z.string().regex(/^[1-9]\d{0,19}$/), completeReply: z.boolean() }).strict(),
-  z.object({ kind: z.literal('voice'), text: z.string().min(1).max(200), character: z.string().min(1).max(100), completeReply: z.boolean() }).strict(),
+  z.object({ kind: z.literal('voice'), text: z.string().min(1).max(200), completeReply: z.boolean() }).strict(),
 ])
 export type ReplyAction = z.infer<typeof replyActionSchema>
 export interface QQReplyBridge {
@@ -28,7 +28,7 @@ export function createReplyTools(bridge: QQReplyBridge): Registration[] {
     { kind: 'mention', name: 'qq_mention', description: '原生@当前群已核实成员并发送文字，不支持@全体。', properties: { userId: { type: 'string' }, text: { type: 'string' } } },
     { kind: 'reaction', name: 'qq_react', description: '用已核实的QQ表情回应本轮消息；可作为完整回复，不另发文字。', properties: { emojiId: { type: 'string' } } },
     { kind: 'poke', name: 'qq_poke', description: '戳当前群已核实成员一次；不能随机选人或连续骚扰。', properties: { userId: { type: 'string' } } },
-    { kind: 'voice', name: 'qq_voice_reply', description: '用真实可用声音发送简短语音回复。链接和代码优先文字。', properties: { text: { type: 'string' }, character: { type: 'string' } } },
+    { kind: 'voice', name: 'qq_voice_reply', description: '使用系统固定声音发送一次简短语音，不能选择或更换声音。仅在本轮允许语音时使用，链接和代码优先文字。', properties: { text: { type: 'string' } } },
   ] as const
   for (const action of actions) {
     const shape = replyActionSchema.options.find(s => s.shape.kind.value === action.kind)!

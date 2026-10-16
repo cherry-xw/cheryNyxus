@@ -116,6 +116,7 @@ export interface IngressCore {
   resolvePreset(name: string): Readonly<IngressPreset>
   ensureConversation(key: string, preset: string): Promise<{ chatId: string }>
   submit(input: IngressSubmit): Promise<ChatInputSubmitResponseData>
+  recentConversationMessages?(conversationKey: string, count: number): Promise<string>
   conversationHistory?(conversationKey: string): Promise<string>
   commitSummary?(conversationKey: string, summary: string): Promise<void>
   abort(conversationKey: string): Promise<void>
@@ -137,6 +138,7 @@ export interface IngressCoreAdapter {
       validateIdentity(): void
     },
   ): Promise<ChatInputSubmitResponseData>
+  recentConversationMessages?(ownerId: string, key: string, count: number): Promise<string>
   conversationHistory?(ownerId: string, key: string): Promise<string>
   commitSummary?(ownerId: string, key: string, summary: string): Promise<void>
   abort(ownerId: string, key: string): Promise<void>
@@ -222,6 +224,11 @@ export interface IngressContext {
       eventId: string
       subject: IngressSubject
     }): Promise<IngressIdentityHandle>
+  }
+  /** Trusted QQ lifecycle notification transport; absent for other plugins. */
+  readonly appNotifications?: {
+    claim(selfId: string): Promise<Array<{ id: string; userId: string; appId: string; text: string; creatorChannel: { selfId: string; userId: string; conversationType: 'private' | 'group'; groupId?: string } }>>
+    report(selfId: string, notificationId: string, status: 'sent' | 'failed' | 'unknown'): Promise<void>
   }
   readonly channels: {
     reportSendResult(input: {

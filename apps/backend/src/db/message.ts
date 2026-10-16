@@ -219,6 +219,17 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
 /**
  * 获取消息（路由到月份文件）
  */
+export function getRecentConversationMessages(chatId: string, count: number) {
+  if (!Number.isInteger(count) || count < 1 || count > 100) throw new Error('Invalid history count')
+  const db = getChatMonthlyDb(chatId)
+  if (!db) return []
+  return (db.prepare(`SELECT id, role, substr(COALESCE(replace_content, content), 1, 400) AS content, created_at AS time
+    FROM messages WHERE chat_id = ? AND revoked = 0 AND model_excluded = 0
+    AND role IN ('user', 'assistant') AND COALESCE(context_compaction, 0) = 0
+    AND COALESCE(replace_content, content) IS NOT NULL
+    ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(chatId, count) as Array<{id:string;role:string;content:string;time:number}>).reverse()
+}
+
 export function getMessages(chatId: string, epochId?: string): MessageRow[] {
   const monthlyDb = getChatMonthlyDb(chatId)
   if (!monthlyDb) return []

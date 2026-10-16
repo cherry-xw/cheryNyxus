@@ -4,7 +4,8 @@ import { immutableSnapshot, type IngressRequestContext } from '@/service/ingress
 import { getSense, getSenseOrigin, getSenseRegistryVersion } from '@/core/sense/senseRegistry.js'
 import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 import { getRequestPluginSkills } from '@/agent/prompt/loadSkill.js'
-import { getChatSkillFilter } from '@/db/chat.js'
+import { getChatSkillFilter, getChat, updateChatMetadata } from '@/db/chat.js'
+import { managedToolDenied } from '@/core/security/managedRequest.js'
 
 import { dispatch } from './dispatch.js'
 import type { HookDispatchContext } from './types.js'
@@ -33,12 +34,41 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
   const runtime = ctx.runtime!
   const requestId = input.requestId ?? randomUUID()
   const inputId = input.inputId ?? input.messageId ?? randomUUID()
-  const identity = input.requestIdentity ?? { source: 'web' as const }
+  const chat = getChat(ctx.soul.chatId)
+  let current = chat
+  let storedIdentity
+  const visited = new Set<string>()
+  while (current) {
+    let metadata
+    try { metadata = current.metadata ? JSON.parse(current.metadata) : {} }
+    catch { throw new Error('APP_ACCESS_DENIED: 会话身份记录损坏') }
+    const saved = metadata.managedRequestIdentity
+    if (saved !== undefined) {
+      if (saved?.source !== 'plugin' || typeof saved.ownerId !== 'string') {
+        throw new Error('APP_ACCESS_DENIED: 受管身份记录无效')
+      }
+      storedIdentity = saved
+      break
+    }
+    if (!current.parent_chat_id) break
+    if (visited.has(current.parent_chat_id)) throw new Error('APP_ACCESS_DENIED: 会话父链无效')
+    visited.add(current.parent_chat_id)
+    current = getChat(current.parent_chat_id)
+    if (!current) throw new Error('APP_ACCESS_DENIED: 无法恢复父会话身份')
+  }
+  const identity = storedIdentity ?? (chat?.parent_chat_id ? undefined : input.requestIdentity) ?? { source: 'web' as const }
+  if (chat && !chat.parent_chat_id && input.requestIdentity?.source === 'plugin') {
+    updateChatMetadata(ctx.soul.chatId, { managedRequestIdentity: identity })
+  }
   const requestPluginSkills = getRequestPluginSkills(identity, getChatSkillFilter(ctx.soul.chatId))
   const unavailable = [...(runtime.unavailableTools ?? [])]
   runtime.builtSenses = runtime.builtSenses.filter((definition) => {
     const name = definition.function.name
     const origin = getSenseOrigin(name)
+    if (managedToolDenied(name, identity)) {
+      runtime.senseTable.delete(name)
+      return false
+    }
     if (
       origin?.pluginId &&
       origin.channels?.length &&
@@ -127,7 +157,7 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
   ctx.requestToolPhase = prepared?.toolPhase
   for (const name of prepared?.tools ?? []) {
     const sense = getSense(name), origin = getSenseOrigin(name)
-    if (!sense || !origin || origin.pluginId !== identity.ownerId || origin.available?.() === false) continue
+    if (!sense || !origin || origin.pluginId !== identity.ownerId || origin.available?.() === false || managedToolDenied(name, identity)) continue
     if (!runtime.builtSenses.some(s => s.function.name === name)) runtime.builtSenses.push(sense.definition)
     runtime.senseTable.set(name, { supervisionLevel: sense.supervisionLevel ?? 0,
       schema: sense.executor.schema, execute: (args, shared, context) => sense.executor.execute(args, shared, context) })
