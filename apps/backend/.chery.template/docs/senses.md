@@ -2,7 +2,7 @@
 
 > 模板目录：`.chery.template/senses/` ｜ 运行位置：`.chery/senses/`
 > 编译命令：`pnpm compile:senses`（开发期 `--watch`）
-> 编译入口：[apps/backend/src/core/sense/compiler/](../../apps/backend/src/core/sense/compiler) ｜ 详细文档：[../../docs/backend/core/sense.md](../../docs/backend/core/sense.md)、[../../docs/core/compiler.md](../../docs/backend/core/compiler.md)
+> 编译入口：[compiler](../../src/core/sense/compiler) ｜ 详细文档：[Sense](../../../../docs/backend/core/sense.md)、[编译器](../../../../docs/backend/core/compiler.md)
 
 ## 用途
 
@@ -188,6 +188,6 @@ execute_command:
 
 ## 关联
 
-- Sense 框架文档：[../../docs/backend/core/sense.md](../../docs/backend/core/sense.md)
-- 外部编译器：[../../docs/core/compiler.md](../../docs/backend/core/compiler.md)
+- Sense 框架文档：[Sense](../../../../docs/backend/core/sense.md)
+- 外部编译器：[编译器](../../../../docs/backend/core/compiler.md)
 - 模板示例：[../senses/echo_text.ts](../senses/echo_text.ts)

@@ -28,7 +28,7 @@
 |---|---|---|
 | 仓库文档中心 | `docs/` | 由 `docs/README.md`、领域 README 和模块入口导航；`archive/` 与 `quality/verification/` 按各自规则排除当前事实检查 |
 | 根入口 | `AGENTS.md`、根 `README.md` | 维护项目入口、启动和全局规则；不承载模块正文 |
-| cheryNyxus 模板/运行文档 | `.chery/docs/`、`.chery.template/docs/` | 由各自目录的 README 和模板 owner 维护，不复制到 `docs/README.md`；模板与运行副本的同步关系由模板工具维护；其链接按安装后的模板环境解析，不参加仓库相对路径检查 |
+| cheryNyxus 模板/运行文档 | `apps/backend/.chery/docs/`、`apps/backend/.chery.template/docs/` | 由各自目录的 README 和模板 owner 维护，不复制到 `docs/README.md`；模板与运行副本的同步关系由模板工具维护；其链接按安装后的模板环境解析，不参加仓库相对路径检查 |
 | 计划和验证 | `docs/plan/`、`docs/quality/verification/` | 由计划规范和验证证据规范维护，不当作普通模块文档 |
 | 开发工具文档 | `tools/plan-viewer/README.md` | 由工具自身维护；工具只读 `docs/plan/`，不承担全仓文档检查 |
 

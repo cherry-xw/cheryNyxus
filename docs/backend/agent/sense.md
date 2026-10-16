@@ -43,7 +43,7 @@
 
 > ⚠ sense **函数名**（首参数）才是注册 key，与文件名无关。bash.ts → "execute_command"、skill.ts → "skill"。
 
-生成类媒体工具（旧的 `generate_image` / `generate_video` / `generate_audio` 内置 sense）已随破坏性收尾删除，改由自定义 sense 承担（`.chery/senses/` 或 CherryNexus 生成），工具声明 `capabilities.produces` / `accepts` / `preprocess`。详见 [../model-capabilities.md](model-capabilities.md) 与 [.chery.template/docs/senses.md](../../../.chery.template/docs/senses.md)。
+文件生成通过文件服务、自定义工具或 MCP 执行；自定义 sense 位于 `.chery/senses/`，工具声明 `capabilities.produces` / `accepts` / `preprocess`。详见 [模型能力](model-capabilities.md) 与 [感官手册](../../../apps/backend/.chery.template/docs/senses.md)。
 
 ### 监管等级（[core/config.ts](../../../apps/backend/src/core/config.ts)）
 

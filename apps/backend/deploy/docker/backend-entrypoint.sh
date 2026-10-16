@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-: "${CHERY_DIR:=/app/platform/qqbot}"
+: "${CHERY_DIR:=/app/apps/backend}"
 : "${CHERY_ENV_FILE:=$CHERY_DIR/.env}"
 : "${DB_DIR:=$CHERY_DIR/.chery/data}"
 : "${WEB_PORT:=8283}"

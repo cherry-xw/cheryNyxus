@@ -29,18 +29,20 @@ COPY apps/backend/deploy/docker/runtime/node /usr/local/bin/node
 COPY apps/backend/deploy/docker/runtime/etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY package.json pnpm-workspace.yaml /app/
 COPY node_modules /app/node_modules
-COPY apps/backend/dist /app/dist
-COPY .chery.template /app/.chery.template
+COPY apps/backend/dist /app/apps/backend/dist
+COPY apps/backend/.chery.template /app/apps/backend/.chery.template
+COPY apps/manager/server-dist /app/apps/manager/server-dist
+COPY apps/manager/dist/ui /app/apps/manager/dist/ui
 COPY plugins/qq/dist /app/opt/qq-plugin
 COPY plugins/settings/dist /app/opt/settings-plugin
 COPY apps/backend/deploy/docker/config.example.yaml /app/opt/backend.config.example.yaml
 COPY apps/backend/deploy/docker/backend-entrypoint.sh /usr/local/bin/backend-entrypoint
 
 RUN chmod 0755 /usr/local/bin/supercronic /usr/local/bin/crontab /usr/local/bin/node /usr/local/bin/backend-entrypoint \
-    && mkdir -p /app/platform/qqbot/.chery/data \
-       /app/platform/qqbot/.chery/qq-personal-memory \
-       /app/platform/qqbot/.chery/ingress \
-       /app/platform/qqbot/data \
+    && mkdir -p /app/apps/backend/.chery/data \
+       /app/apps/backend/.chery/qq-personal-memory \
+       /app/apps/backend/.chery/ingress \
+       /app/apps/backend/data \
     && chown -R 1000:1000 /app /usr/local/bin/node /usr/local/bin/backend-entrypoint
 
 USER 1000:1000

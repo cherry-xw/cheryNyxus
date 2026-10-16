@@ -8,7 +8,7 @@
 
 service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket 上的 RPC 请求路由到对应 handler，把 agent 的流式 `MiddlewareChunk` 流映射成协议层 Chunk/Notification 推回客户端，并集中处理 DB 持久化与审批副作用。
 
-- **启动装配**（[apps/backend/src/index.ts](../../../apps/backend/src/index.ts)、[worker.ts](../../../apps/backend/src/worker.ts)、[index.ts](../../../apps/backend/src/service/index.ts)）：`node dist/index.js` 是唯一正式 Backend 常驻入口；guardian/worker 创建 Agent Runtime，再由 `startService({port, webPort, staticDir})` 注册 Router、启动 WebSocket/HTTP，并启动同进程 `IngressHost`。配置 `remote` 时再启动两个仅 loopback 的远程入口，并从 `ready` 取得实际端口。
+- **启动装配**（[apps/backend/src/index.ts](../../../apps/backend/src/index.ts)、[worker.ts](../../../apps/backend/src/worker.ts)、[index.ts](../../../apps/backend/src/service/index.ts)）：常规入口由 Manager 启动 Backend guardian/worker；内部创建 Agent Runtime，再由 `startService({port, webPort, staticDir})` 注册 Router、启动 WebSocket/HTTP，并启动同进程 `IngressHost`。配置 `remote` 时再启动两个仅 loopback 的远程入口，并从 `ready` 取得实际端口。配套启动与目录见[运行指南](../../guides/backend-runtime.md)。
 - **独立运行边界**：Electron 不参与启动；本地管理器、Docker 或 systemd 只负责 Backend 进程生命周期。Runtime QQPlugin 必须由 `IngressHost` 从受管包目录注入和启动，不存在独立 QQ 后端生命周期。
 - **管理器状态摘要**：worker 通过 `CHERY_BACKEND_STATUS_FILE` 写入监听地址和非敏感 Agent 运行统计，管理器读取这些摘要（可选），并自行探测 `server.port` 端口判断后端是否运行，不从后端状态接口转发凭据或会话秘密。
 - **RPC 路由**（[message/](../../../apps/backend/src/service/message)）：Request/Response/Chunk/Notification 四象限类型 + `RpcRouter` 分发。详见 [./message.md](message.md)。

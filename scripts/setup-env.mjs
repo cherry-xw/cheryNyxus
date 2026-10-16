@@ -4,6 +4,7 @@ import { ensureEnvSeed, syncCheryTemplate } from './lib/chery-template-sync.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const root = resolve(scriptDir, '..')
+const backendRoot = resolve(root, 'apps/backend')
 
 /**
  * `pnpm install` 后初始化或升级开发 workspace：
@@ -12,13 +13,13 @@ const root = resolve(scriptDir, '..')
  *   用户修改和主动删除都会保留，现有结构化配置不自动改写。
  */
 try {
-  const env = ensureEnvSeed({ envExamplePath: resolve(root, '.env.example'), runtimeRoot: root })
+  const env = ensureEnvSeed({ envExamplePath: resolve(backendRoot, '.env.example'), runtimeRoot: backendRoot })
   if (env.warning) console.warn(`[setup] ${env.warning}`)
   else console.log(`[setup] .env ${env.created ? 'created' : 'already exists, preserved'}`)
 
   const report = syncCheryTemplate({
-    templateDir: resolve(root, '.chery.template'),
-    runtimeRoot: root,
+    templateDir: resolve(backendRoot, '.chery.template'),
+    runtimeRoot: backendRoot,
   })
   for (const warning of report.warnings) console.warn(`[setup] ${warning}`)
   console.log(

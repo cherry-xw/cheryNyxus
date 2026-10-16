@@ -175,11 +175,11 @@ presets:
     roles: [cheryNyxus, roleArchitect, curator, explanation]   # 加入固定预设，主 agent 可 spawn
 ```
 
-persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../../.chery.template/prompt/cheryNyxus/cheryNyxus.md)：双职责——**配置管理核心**（`config_manage` 感官 get/patch/rollback + 强类型候选与备份回滚，详见 [./config-manage.md](config-manage.md)）+ **技能安装**（install_skill stage → ask_user 逐项确认 → commit → 回报）。所有 `.chery/` 写操作集中在 cheryNyxus，结构化感官（config_manage / install_skill）天然不触发路径守卫。
+persona [默认提示词](../../../apps/backend/.chery.template/prompt/cheryNyxus/cheryNyxus.md)：双职责——**配置管理核心**（`config_manage` 感官 get/patch/rollback + 强类型候选与备份回滚，详见 [./config-manage.md](config-manage.md)）+ **技能安装**（install_skill stage → ask_user 逐项确认 → commit → 回报）。所有 `.chery/` 写操作集中在 cheryNyxus，结构化感官（config_manage / install_skill）天然不触发路径守卫。
 
 **编制锁定**：cheryNyxus 加入预设 `roles` 后，主 agent（leader）可 `spawn_role({type:"cheryNyxus", wait:true})` 派出（roster gate 自动生效，详见 [Agent 编排架构](../../shared/architecture/agent-orchestration.md)）。
 
-## 默认 Skill（[`.chery.template/skills/install-skill/SKILL.md`](../../../.chery.template/skills/install-skill/SKILL.md)）
+## 默认 Skill（[安装技能](../../../apps/backend/.chery.template/skills/install-skill/SKILL.md)）
 
 frontmatter `name/description/trigger`（trigger = 「用户请求安装/导入技能、skill 包、商店时」）。正文：识别安装意图 → `spawn_role({type:"cheryNyxus", prompt:<需求>, wait:true})` → 等 cheryNyxus 回报。主 agent 不直接装（无 install_skill 感官，被 senseGroup 隔离）。
 
@@ -197,9 +197,9 @@ frontmatter `name/description/trigger`（trigger = 「用户请求安装/导入�
 | [apps/backend/src/agent/sense/index.ts](../../../apps/backend/src/agent/sense/index.ts) | import + `registerBuiltinSenses` + `BUILTIN_SENSE_TOOLS` |
 | [apps/backend/src/service/skill/importShared.ts](../../../apps/backend/src/service/skill/importShared.ts) | `stagingRoot()` → `/tmp` |
 | [apps/backend/src/service/skill/import.ts](../../../apps/backend/src/service/skill/import.ts) | export `analyzeSkillStaging` + 加 `sourceUrl` 参数（感官复用） |
-| [.chery.template/skills/install-skill/SKILL.md](../../../.chery.template/skills/install-skill/SKILL.md) | 默认 Skill 提示词 |
-| [.chery.template/prompt/cheryNyxus/cheryNyxus.md](../../../.chery.template/prompt/cheryNyxus/cheryNyxus.md) | cheryNyxus persona（配置管理 + 技能安装） |
-| [.chery.template/config.yaml](../../../.chery.template/config.yaml) | sense_groups.cheryNyxus（含 install_skill/config_manage）+ roles.cheryNyxus + presets |
+| [安装技能](../../../apps/backend/.chery.template/skills/install-skill/SKILL.md) | 默认 Skill 提示词 |
+| [默认提示词](../../../apps/backend/.chery.template/prompt/cheryNyxus/cheryNyxus.md) | cheryNyxus persona（配置管理 + 技能安装） |
+| [默认配置](../../../apps/backend/.chery.template/config.yaml) | sense_groups.cheryNyxus（含 install_skill/config_manage）+ roles.cheryNyxus + presets |
 
 ## 依赖与关联
 

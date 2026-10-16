@@ -33,13 +33,13 @@ build/
 .DS_Store
 Thumbs.db
 
-# 运行时配置（用户本地），模板见 .chery.template/
+# 运行时配置（用户本地），模板见 apps/backend/.chery.template/
 .chery/
 !apps/backend/test/protocol-completeness/fixtures/.chery/
 !apps/backend/test/protocol-completeness/fixtures/.chery/config.yaml
 !apps/backend/test/protocol-completeness/fixtures/.chery/mock/
 !apps/backend/test/protocol-completeness/fixtures/.chery/mock/*.yaml
-# flow fixtures 的 smart 监管规则基准（flowStandard S3-S6 依赖；与 .chery.template/rule/base.yaml 同步）。
+# flow fixtures 的 smart 监管规则基准（与 apps/backend/.chery.template/rule/base.yaml 同步）。
 # 先反白名单目录本身（父目录被 .chery/ 排除时子级反白名单无效），再显式重新忽略含密钥的 .env。
 !apps/backend/test/flows/fixtures/.chery/
 apps/backend/test/flows/fixtures/.chery/.env

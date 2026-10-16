@@ -52,6 +52,11 @@ sense_groups:
     - install_skill
     - config_manage
     - role_acceptance
+    - file_capabilities
+    - file_assets_list
+    - file_asset_read
+    - file_operation
+    - select_task_deliverables
   detail_diagnostics:
     - read_file
     - search_codebase
@@ -74,7 +79,7 @@ roles:
   cheryNyxus:
     brain: default
     avatar: 🐈
-    description: Chery Nyxus：系统配置管理核心角色（管理所有角色配置）+ 桌宠组长
+    description: cheryNyxus：系统配置管理核心角色（管理所有角色配置）+ 桌宠组长
     senseGroup: cheryNyxus
     mcpServers: []
     systemPrompt: prompt/cheryNyxus/cheryNyxus.md

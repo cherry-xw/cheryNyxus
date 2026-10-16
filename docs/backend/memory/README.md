@@ -255,7 +255,7 @@ memory:
 | **Extract**（提取任务） | 当前未发现对话完成后的自动触发接线 | 维护角色的提取指令见 [curator](../agent/curator.md)，自动触发需求待确认 |
 | **Dream**（定期整理） | 「维护」预设 `schedule.cron` 到点 | `apps/backend/src/service/schedule/scheduler.ts` Cron → `runMaintenanceChat`（独立主 chat） |
 
-curator 通过 `memory_manage` sense 写记忆（路径由 sense 内部 scope 参数收敛，无需 cheryNyxus 的 config_manage 权限）。角色 prompt 见 [.chery.template/prompt/curator/curator.md](../../../.chery.template/prompt/curator/curator.md)；角色文档见 [docs/backend/agent/curator.md](../agent/curator.md)。
+curator 通过 `memory_manage` sense 写记忆（路径由 sense 内部 scope 参数收敛，无需 cheryNyxus 的 config_manage 权限）。角色 prompt 见 [默认提示词](../../../apps/backend/.chery.template/prompt/curator/curator.md)；角色文档见 [curator](../agent/curator.md)。
 
 **互斥**：curator Extract prompt 指示「主 agent 本轮已写记忆则跳过」+ 调 `memory_manage list` 比对 manifest 判断重复。
 

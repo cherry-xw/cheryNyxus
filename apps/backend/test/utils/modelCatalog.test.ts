@@ -24,7 +24,7 @@ describe('modelCatalog', () => {
   }
 
   async function loadDefaultCatalog() {
-    return await loadProjectCatalog(readFileSync('.chery.template/model-catalog.yaml', 'utf8'))
+    return await loadProjectCatalog(readFileSync('apps/backend/.chery.template/model-catalog.yaml', 'utf8'))
   }
 
   it('separates facts, recommendations, and wire mappings', async () => {

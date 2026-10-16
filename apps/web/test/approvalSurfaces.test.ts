@@ -26,7 +26,7 @@ describe('approval presentation surfaces', () => {
   })
 
   it('keeps the runtime and reusable template defaults at five minutes', () => {
-    expect(source('.chery.template/config.yaml')).toContain('approval_timeout: 300000')
+    expect(source('apps/backend/.chery.template/config.yaml')).toContain('approval_timeout: 300000')
     expect(source('apps/backend/src/utils/config.ts')).toMatch(
       /approval_timeout\s*!==\s*undefined\s*\?\s*config\.global\.approval_timeout\s*:\s*300000/,
     )

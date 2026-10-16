@@ -8,7 +8,7 @@
 
 所有可改的字段定义在 `.chery.template/docs/`（与运行时目录同级，模板化的字段参考表）。修改前必读：
 - 总索引：[.chery.template/docs/README.md](../../docs/README.md)（含「AI 自动修改配置」章节）
-- 字段参考：[config.md](../../docs/config.md) / [docs/backend/agent/model-capabilities.md](../../../docs/backend/agent/model-capabilities.md) / [hooks.md](../../docs/hooks.md) 等
+- 字段参考：[config.md](../../docs/config.md) / [模型能力](../../../../../docs/backend/agent/model-capabilities.md) / [hooks.md](../../docs/hooks.md) 等
 
 ### `model-catalog.yaml` 规则
 

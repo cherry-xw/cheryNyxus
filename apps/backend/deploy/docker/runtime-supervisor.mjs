@@ -5,7 +5,7 @@ import path from 'node:path'
 import {spawn} from 'node:child_process'
 import {pathToFileURL} from 'node:url'
 
-export async function supervise({home = process.env.HOME, scheduler = process.env.CHERY_SUPERCRONIC || '/usr/local/bin/supercronic', backend = '/app/dist/index.js', graceMs = 30000} = {}) {
+export async function supervise({home = process.env.HOME, scheduler = process.env.CHERY_SUPERCRONIC || '/usr/local/bin/supercronic', manager = '/app/apps/manager/server-dist/index.js', graceMs = 30000} = {}) {
   if (!home) throw new Error('HOME is required')
   const root = path.join(home, 'scheduler')
   await mkdir(root, {recursive: true, mode: 0o700})
@@ -38,7 +38,7 @@ export async function supervise({home = process.env.HOME, scheduler = process.en
         child.once('close', () => { stop(); resolve() })
       })
     }
-    const pending = [launch(scheduler, ['-inotify', crontab]), launch(process.execPath, [backend])]
+    const pending = [launch(scheduler, ['-inotify', crontab]), launch(process.execPath, [manager])]
     await Promise.all(pending)
     return exitCode
   } finally {

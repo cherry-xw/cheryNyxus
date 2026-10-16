@@ -8,15 +8,15 @@ export const docsConfig = Object.freeze({
   managedRoots: [
     { path: 'docs', entry: 'docs/README.md', navigation: 'indexed' },
     {
-      path: '.chery/docs',
-      entry: '.chery/docs/README.md',
+      path: 'apps/backend/.chery/docs',
+      entry: 'apps/backend/.chery/docs/README.md',
       navigation: 'indexed',
       linkCheck: false,
       note: '运行时模板文档的相对路径在模板安装后解析，不按仓库相对路径检查',
     },
     {
-      path: '.chery.template/docs',
-      entry: '.chery.template/docs/README.md',
+      path: 'apps/backend/.chery.template/docs',
+      entry: 'apps/backend/.chery.template/docs/README.md',
       navigation: 'indexed',
       linkCheck: false,
       note: '模板文档的相对路径由模板同步和安装环境解析，不按仓库相对路径检查',

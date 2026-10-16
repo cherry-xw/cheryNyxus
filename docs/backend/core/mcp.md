@@ -27,7 +27,7 @@
 
 ## 配置
 
-config.yaml 顶层 `mcp_servers`（[.chery/config.yaml](../../../.chery/config.yaml) 有注释示例）：
+config.yaml 顶层 `mcp_servers`（[配置模板](../../../apps/backend/.chery.template/config.yaml) 有注释示例）：
 
 ```yaml
 mcp_servers:

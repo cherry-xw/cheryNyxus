@@ -34,7 +34,7 @@ QQ ↔ NapCatQQ ↔ NapCat 兼容插件 ID `napcat-plugin-cherynyxus`
            → Backend 管理认证 / Core RPC → 核心资源或后端插件
 ```
 
-关闭 Manager 不应停止 QQ 实时消息处理。Backend 插件由统一宿主管理，不增加独立 QQ 后端服务。
+关闭 Manager 网页不停止 QQ 实时处理。Manager 与 Backend 的配套进程生命周期见[后端运行](../../guides/backend-runtime.md)；Backend 插件由统一宿主管理，不增加独立 QQ 后端服务。
 
 ## 命名目标与尚未迁移的现状
 

@@ -154,7 +154,7 @@ roles:
     lock: true # 锁定禁止前端删除/改名（保护配置管理能力）
 ```
 
-persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../../.chery.template/prompt/cheryNyxus/cheryNyxus.md)：配置管理核心角色 + 桌宠组长。核心任务 = 管理所有角色配置相关任务；也作为组长派发业务子任务。
+persona [默认提示词](../../../apps/backend/.chery.template/prompt/cheryNyxus/cheryNyxus.md)：配置管理核心角色 + 桌宠组长。核心任务 = 管理所有角色配置相关任务；也作为组长派发业务子任务。
 
 ## 文件清单
 
@@ -166,8 +166,8 @@ persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../../.chery.temp
 | [apps/backend/src/agent/sense/index.ts](../../../apps/backend/src/agent/sense/index.ts)                                               | import + `registerBuiltinSenses` + `BUILTIN_SENSE_TOOLS`                                                           |
 | [apps/backend/src/utils/config.ts](../../../apps/backend/src/utils/config.ts)                                                         | `saveRawConfig` 写盘前自动备份（保留最近 10 份）+ `redactConfigSecrets`/`restoreRedactedSecrets` 敏感字段脱敏/还原 |
 | [apps/backend/test/utils/configSecretRedact.test.ts](../../../apps/backend/test/utils/configSecretRedact.test.ts)                     | 脱敏（`$ENV` 保留 / 明文→`[REDACTED]`）与还原（`[REDACTED]`→盘上原值 / 新明文覆盖）测试                            |
-| [.chery.template/prompt/cheryNyxus/cheryNyxus.md](../../../.chery.template/prompt/cheryNyxus/cheryNyxus.md) | cheryNyxus persona                                                                                               |
-| [.chery.template/config.yaml](../../../.chery.template/config.yaml)                                         | sense_groups.cheryNyxus（含 config_manage）+ roles.cheryNyxus                                                     |
+| [默认提示词](../../../apps/backend/.chery.template/prompt/cheryNyxus/cheryNyxus.md) | cheryNyxus persona |
+| [默认配置](../../../apps/backend/.chery.template/config.yaml) | sense_groups.cheryNyxus（含 config_manage）+ roles.cheryNyxus |
 
 ## 依赖与关联
 

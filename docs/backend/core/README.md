@@ -91,5 +91,5 @@ core/ 本身不扩展，扩展发生在 agent/，但**契约写在这里**：
 - 接新 Provider → 实现 [`LLMAdapter`](llm.md) + [`MessageProviderAdapterConfig`](message.md) + [`SenseAdapter`](sense.md)，调三个 `register*`。
 - 加内置感官 → 调 [`sense()`](sense.md) 工厂，再 `registerSenses([...])`。
 - 加外部感官 → 在 `.chery/senses/<name>.ts` 写源码，由 [compiler.md](compiler.md) 编译。
-- 接 MCP server → 在 [config.yaml](../../../.chery/config.yaml) 配 `mcp_servers`，由 [mcp.md](mcp.md) 注入为 Sense。
+- 接 MCP server → 在运行配置中配 `mcp_servers`（[配置模板](../../../apps/backend/.chery.template/config.yaml)），由 [mcp.md](mcp.md) 注入为 Sense。
 - 加中间件 → 实现 [`MiddlewareHandler`](middleware.md)，在 agent 的 `defaultHandlers` 中按序插入。

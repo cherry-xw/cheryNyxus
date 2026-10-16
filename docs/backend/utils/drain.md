@@ -237,7 +237,7 @@ drain 的输出 `compressionRatio` 还会写进 `read_file` 返回给 LLM 的压
 
 - `read_file` 感官的压缩决策（auto/truncate/drain/none）与 `config.global.file_compression`：[./README.md#config](README.md)、[../../src/agent/sense/read.ts](../../../apps/backend/src/agent/sense/read.ts)
 - drain 打印调试树时用到的 logger：[./logger.md](logger.md)
-- config.yaml 的 `file_compression.log_file_extensions`（决定 auto 模式何时判定为日志）：[.chery/config.yaml](../../../.chery/config.yaml)
+- config.yaml 的 `file_compression.log_file_extensions`（决定 auto 模式何时判定为日志）：[配置模板](../../../apps/backend/.chery.template/config.yaml)
 
 ## 扩展点
 

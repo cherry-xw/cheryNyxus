@@ -11,7 +11,7 @@
 
 ## 角色定义
 
-- prompt：[.chery.template/prompt/curator/curator.md](../../../.chery.template/prompt/curator/curator.md)
+- prompt：[默认提示词](../../../apps/backend/.chery.template/prompt/curator/curator.md)
 - senseGroup：`curator`（含 `memory_manage` / `read_file` / `search_codebase` / `ask_user_question`）
 - brain：与 cheryNyxus 同（用户在 config.yaml 配置）
 - `lock: true` 禁止删除（保护记忆维护能力）
@@ -75,5 +75,5 @@
 ## 关联文档
 
 - 记忆模块：[docs/backend/memory/README.md](../memory/README.md)（存储结构 / 类型 / 漂移防护 / 定时触发器）
-- 配置管理角色（对比）：[.chery.template/docs/README.md](../../../.chery.template/docs/README.md)
+- 配置管理角色（对比）：[模板手册](../../../apps/backend/.chery.template/docs/README.md)
 - spawn_role sense：[apps/backend/src/agent/sense/spawn.ts](../../../apps/backend/src/agent/sense/spawn.ts)

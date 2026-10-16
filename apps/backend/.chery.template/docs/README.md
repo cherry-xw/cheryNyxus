@@ -2,7 +2,7 @@
 
 > 本目录是 `.chery.template/` 的**字段参考手册**——每个子模块（子目录 / 配置文件）对应一份独立文档，按「字段参考表 + 关联」的格式组织，**机器可读**（供 AI 自动解析/修改配置）。
 >
-> 同步规则：`.chery.template/` 是新 workspace 的发行基线；已有 `.chery/config.yaml` 由用户与 CheryNyxus 独立管理，不反向改写模板。
+> 同步规则：`.chery.template/` 是新 workspace 的发行基线；已有 `.chery/config.yaml` 由用户与 cheryNyxus 独立管理，不反向改写模板。
 
 ## 文件清单
 
@@ -45,22 +45,22 @@ cherryNyxus 角色：
 
 | 修改目标 | 必读 | 关联 |
 |----------|------|------|
-| 改 LLM brain | [./config.md#llmbrain-字段](./config.md#llmbrain-字段) + [./model-catalog.md](./model-catalog.md) | [../../docs/agent/provider.md](../../docs/backend/agent/provider.md) |
-| 改感官监管等级 | [./config.md#sensegroups-字段](./config.md#sensegroups-字段) | [../../docs/backend/core/sense.md](../../docs/backend/core/sense.md) |
-| 加 / 改角色 | [./config.md#roles-字段](./config.md#roles-字段) + [./prompt.md](./prompt.md) | [../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md) |
-| 研究任意岗位并创建角色 | [./role-design.md](./role-design.md) + [./config.md#roles-字段](./config.md#roles-字段) | [../../docs/backend/agent/role-design.md](../../docs/backend/agent/role-design.md) |
-| 对已激活角色做端到端验收 | [./role-acceptance.md](./role-acceptance.md) | [../../docs/backend/agent/role-acceptance.md](../../docs/backend/agent/role-acceptance.md) |
+| 改 LLM brain | [配置](config.md) + [模型目录](model-catalog.md) | [Provider](../../../../docs/backend/agent/provider.md) |
+| 改感官监管等级 | [配置](config.md) | [Sense](../../../../docs/backend/core/sense.md) |
+| 加 / 改角色 | [配置](config.md) + [提示词](prompt.md) | [提示词机制](../../../../docs/backend/agent/system-prompt.md) |
+| 研究任意岗位并创建角色 | [角色设计](role-design.md) | [后端设计](../../../../docs/backend/agent/role-design.md) |
+| 对已激活角色做端到端验收 | [角色验收](role-acceptance.md) | [后端验收机制](../../../../docs/backend/agent/role-acceptance.md) |
 | 改预设 | [./config.md#presets-字段](./config.md#presets-字段) | — |
-| 创建、重建或删除完整预设 | [../skills/preset-lifecycle/SKILL.md](../skills/preset-lifecycle/SKILL.md) | [../../docs/agent/config-manage.md](../../docs/backend/agent/config-manage.md) |
-| 改服务端口 | [./config.md#server-字段](./config.md#server-字段) | [../../docs/shared/protocol/websocket.md](../../docs/shared/protocol/websocket.md) |
-| 改文件夹浏览白名单 / 文件可见性 | [./config.md#workspacebrowse-字段文件夹浏览协议](./config.md#workspacebrowse-字段文件夹浏览协议) | [../../docs/shared/protocol/websocket.md](../../docs/shared/protocol/websocket.md) |
+| 创建、重建或删除完整预设 | [预设技能](../skills/preset-lifecycle/SKILL.md) | [配置管理](../../../../docs/backend/agent/config-manage.md) |
+| 改服务端口 | [配置](config.md) | [协议](../../../../docs/shared/protocol/websocket.md) |
+| 改文件夹浏览白名单 / 文件可见性 | [配置](config.md) | [协议](../../../../docs/shared/protocol/websocket.md) |
 | 加模型规则或 thinking 映射 | [./model-catalog.md](./model-catalog.md) | — |
-| 加 / 改钩子 | [./hooks.md](./hooks.md) | [../../docs/backend/agent/hooks.md](../../docs/backend/agent/hooks.md) |
-| 排查错误 / 用户报错 | [./error-troubleshooting.md](./error-troubleshooting.md) | [../../docs/shared/protocol/errors.md](../../docs/shared/protocol/errors.md) |
-| 加 mock 脚本 | [./mock.md](./mock.md) | [docs/backend/agent/provider.md](../../docs/backend/agent/provider.md) |
-| 加自定义感官 | [./senses.md](./senses.md) | [../../docs/backend/core/sense.md](../../docs/backend/core/sense.md) + [../../docs/core/compiler.md](../../docs/backend/core/compiler.md) |
-| 加 / 改技能 | [./skills.md](./skills.md) | [../../docs/backend/agent/prompt.md](../../docs/backend/agent/prompt.md) |
-| 加 / 改指令 | [./command.md](./command.md) | [../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md) |
+| 加 / 改钩子 | [钩子](hooks.md) | [后端钩子](../../../../docs/backend/agent/hooks.md) |
+| 排查错误 / 用户报错 | [错误排查](error-troubleshooting.md) | [错误协议](../../../../docs/shared/protocol/errors.md) |
+| 加 mock 脚本 | [Mock](mock.md) | [Provider](../../../../docs/backend/agent/provider.md) |
+| 加自定义感官 | [感官](senses.md) | [Sense](../../../../docs/backend/core/sense.md) + [编译器](../../../../docs/backend/core/compiler.md) |
+| 加 / 改技能 | [技能](skills.md) | [提示词](../../../../docs/backend/agent/prompt.md) |
+| 加 / 改指令 | [指令](command.md) | [提示词机制](../../../../docs/backend/agent/system-prompt.md) |
 
 ### 前置条件
 
@@ -98,6 +98,6 @@ cherryNyxus 角色：
 ## 关联
 
 - 项目根：[../README.md](README.md)
-- 配置加载：[../../docs/backend/agent/config-manage.md](../../docs/backend/agent/config-manage.md)
-- 提示词系统：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)
+- 配置加载：[配置管理](../../../../docs/backend/agent/config-manage.md)
+- 提示词系统：[提示词机制](../../../../docs/backend/agent/system-prompt.md)
 - 同步规则：[.chery.template/](../) 单向初始化/升级内置资产；已有 [`.chery/config.yaml`](../../.chery/config.yaml) 不做整文件覆盖

@@ -4,7 +4,7 @@
 
 ## 职责与入口
 
-Manager 本体保留登录、认证、Session、可信 Backend 连接、基础状态与最小插件管理。连接凭据通过显式配置的 `connectionCredentials` 映射提供通用受保护接口 `/api/connections/<moduleId>/credential`（GET）与 `/rotate`（POST/PUT）；只允许已安装并登记管理页面的模块，未配置不创建文件。部署提供既有凭据文件路径，读取不轮换，写入原子替换并回读。QQ 说明、复制和重建提示归 QQ 页面。实际复用的页面请求、页面外壳、下拉框和样式归 `packages/manager-ui`，插件不引用 Manager 私有源码。QQ/设置完整页面随 Backend 包构建；本体不静态导入业务面板或服务端工厂，不提供旧固定页面兜底。无业务包仍可登录和管理插件。Manager 离线不影响 Backend 实时业务。
+Manager 本体保留登录、认证、Session、可信 Backend 连接、基础状态与最小插件管理。连接凭据通过显式配置的 `connectionCredentials` 映射提供通用受保护接口 `/api/connections/<moduleId>/credential`（GET）与 `/rotate`（POST/PUT）；只允许已安装并登记管理页面的模块，未配置不创建文件。部署提供既有凭据文件路径，读取不轮换，写入原子替换并回读。QQ 说明、复制和重建提示归 QQ 页面。实际复用的页面请求、页面外壳、下拉框和样式归 `packages/manager-ui`，插件不引用 Manager 私有源码。QQ/设置完整页面随 Backend 包构建；本体不静态导入业务面板或服务端工厂，不提供旧固定页面兜底。无业务包仍可登录和管理插件。关闭管理网页不影响实时业务；整体进程关系见[后端运行](../../guides/backend-runtime.md)。
 
 | 修改意图 | 实现入口 | 验证入口 |
 | --- | --- | --- |

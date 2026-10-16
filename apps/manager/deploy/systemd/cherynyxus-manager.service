@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 WorkingDirectory=%h/.cherynyxus
 ExecStart=/usr/bin/node %h/.cherynyxus/apps/manager/server-dist/index.js
-Environment=CHERY_DIR=%h/.cherynyxus
+Environment=CHERY_DIR=%h/.cherynyxus/apps/backend
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true

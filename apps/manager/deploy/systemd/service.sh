@@ -17,7 +17,7 @@ After=network.target
 Type=simple
 WorkingDirectory=$root
 ExecStart=$(command -v node) $root/apps/manager/server-dist/index.js
-Environment=CHERY_DIR=$root
+Environment=CHERY_DIR=$root/apps/backend
 Environment=CHERY_MANAGER_HOST=0.0.0.0
 Restart=on-failure
 RestartSec=2

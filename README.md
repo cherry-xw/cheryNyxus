@@ -22,9 +22,9 @@ CheryNyxus 采用拟人化隐喻设计：
 
 | 指令 | 功能 |
 |------|------|
-| `pnpm dev` | 开发模式，热重载，监听 `ws://localhost:8182` |
-| `pnpm build` | 构建产物到 `dist/` |
-| `node dist/index.js` | 运行守护进程；它管理实际后端 worker，并在配置保存后空闲重启 worker。 |
+| `pnpm dev` | 先启动 Manager，再启动 Backend 开发构建与热重载；默认管理端口 39980、后端 WS 8182 |
+| `pnpm build` | 后端构建产物到 `apps/backend/dist/` |
+| `pnpm manager:cli` | 启动已构建的 Manager，并由它启动 Backend；Backend guardian 管理实际 worker |
 | `pnpm compile:senses` | 编译 `.chery/senses/` 下的外部感官 |
 | `pnpm test` | 运行测试 |
 
@@ -41,16 +41,16 @@ CheryNyxus 采用拟人化隐喻设计：
 
 ## 配置文件
 
-`.env` 与 `.chery/` 由 `pnpm install` 的 `postinstall` 钩子（[scripts/setup-env.mjs](scripts/setup-env.mjs)）自动从仓库内的 `.env.example` / `.chery.template/` 拷贝初始化；目标已存在则跳过，不覆盖用户编辑。手动初始化：`node scripts/setup-env.mjs`。
+后端的环境、模板与开发运行数据都位于 `apps/backend/`。`pnpm install` 的 [初始化脚本](scripts/setup-env.mjs) 从该目录的 `.env.example` 和 `.chery.template/` 初始化 `.env`、`.chery/`，保留已有配置、用户修改及删除。手动初始化：`node scripts/setup-env.mjs`。Manager 使用同一运行根；部署可通过 `CHERY_DIR` 指定其他数据位置，启动方式见[后端运行](docs/guides/backend-runtime.md)。
 
 | 文件 | 说明 |
 |------|------|
-| `.env` | 环境变量：API Key（`OLLAMA_HOST`、`OPENAI_API_KEY` 等） |
-| [.chery/config.yaml](.chery/config.yaml) | LLM 客户端配置、Sense 分组、全局配置、服务端口（`server.port`/`server.web_port`/`server.transport`） |
-| [.chery/prompt/system.md](.chery/prompt/system.md) | 系统 prompt 模板（全局 base） |
-| [.chery/skills/](.chery/skills/) | 技能定义目录，每个技能包含 `SKILL.md` |
-| [.chery/senses/](.chery/senses/) | 外部自定义感官目录，`.ts` 文件自动编译注入 |
-| [.chery/db/](.chery/db/) | 数据库存储目录（自动创建） |
+| `apps/backend/.env` | Backend 与 Manager 使用的本地环境变量，不入库 |
+| `apps/backend/.chery/config.yaml` | 模型、角色、工具、服务端口与 Manager 设置 |
+| `apps/backend/.chery/prompt/` | 运行时提示词 |
+| `apps/backend/.chery/skills/` | 技能目录 |
+| `apps/backend/.chery/senses/` | 自定义感官目录 |
+| `apps/backend/.chery/db/` | 默认数据库目录 |
 
 ## 文档
 

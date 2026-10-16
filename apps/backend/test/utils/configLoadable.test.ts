@@ -37,7 +37,7 @@ describe('validateLoadable 重启前预检', () => {
   })
 
   it('发行模板只缺真实大脑参数时仍可启动', () => {
-    cpSync('.chery.template', join(tempDir, '.chery'), { recursive: true })
+    cpSync('apps/backend/.chery.template', join(tempDir, '.chery'), { recursive: true })
     const raw = yaml.load(readFileSync(join(tempDir, '.chery', 'config.yaml'), 'utf8')) as ConfigRaw
     const previousKey = process.env.LLM_API_KEY
     delete process.env.LLM_API_KEY

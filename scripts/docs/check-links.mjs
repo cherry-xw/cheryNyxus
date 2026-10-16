@@ -25,7 +25,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 
 function configuredLinkRoots() {
-  return [...new Set([...docsConfig.rootEntries, ...docsConfig.managedRoots.filter((root) => root.linkCheck !== false).map((root) => root.path), '.chery.template/docs', 'apps/manager/src/modules', 'packages', 'deployment'])];
+  return [...new Set([...docsConfig.rootEntries, ...docsConfig.managedRoots.filter((root) => root.linkCheck !== false).map((root) => root.path), 'apps/backend/.chery.template/docs', 'apps/manager/src/modules', 'packages', 'deployment'])];
 }
 
 function parseArgs(argv) {

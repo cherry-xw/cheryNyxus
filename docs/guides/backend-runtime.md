@@ -1,6 +1,16 @@
-# 独立后端运行
+# 后端与 Manager 配套运行
 
-后端以独立 Node 进程运行。正式 Backend 的唯一常驻入口是 `apps/backend/src/index.ts` 构建出的 `node dist/index.js`：入口负责 guardian/worker 生命周期，worker 在启动服务前创建核心运行时并由 `startService()` 装配 WebSocket、HTTP 和 Ingress Plugin Host。Runtime QQPlugin 只能由该 Host 注入和启动，不单独运行 QQ 后端服务。开发环境可使用 `pnpm build` 后运行 `node dist/index.js`；正式环境由本地管理器、Docker 或 Linux systemd 启动。已删除的 Electron 壳不参与启动。
+Manager 与 Backend 属于同一产品的配套服务，保持两个进程和各自源码目录。常规入口先启动 Manager，监听成功后由 Manager 启动 Backend guardian，再由 guardian 管理 worker。Backend 停止、构建失败或启动失败时 Manager 仍可用；可通过现有认证管理接口恢复 Backend。整体关闭 Manager 进程会清理其拥有的 Backend 进程树；关闭管理网页不停止任何服务。
+
+开发运行 `pnpm dev`：Manager 使用源码入口，Backend 由开发脚本构建并热重载。正式本机先运行 `pnpm build` 和 `pnpm manager:build`，再运行 `pnpm manager:cli`。systemd、Windows 启动与 Docker 都以 Manager 为配套服务入口，不再另起第二份 Backend。直接 Backend 入口保留给显式维护和诊断，不是常规整套启动方式。
+
+Backend 内部入口为 `apps/backend/src/index.ts` 构建出的 `apps/backend/dist/index.js`，负责 guardian/worker；worker 创建核心运行时并由 `startService()` 装配 HTTP、WebSocket 和扩展宿主。QQ 模块仅由扩展宿主加载，不单独运行 QQ 后端服务。隧道仍由 Backend 设备客户端负责，Manager 不能另起副本。
+
+## 配置与目录
+
+开发环境默认运行根为 `apps/backend/`，不随当前工作目录变化。该目录内 `.env` 是 Backend 和 Manager 的环境文件，`.chery.template/` 是发行模板，`.chery/` 保存配置、数据库、文件、账号、凭据和备份。Manager 设置仍在同一 `.chery/config.yaml` 的 `manager` 段；账号与机器凭据继续是受限独立文件，不混同两类登录身份。
+
+`CHERY_DIR` 可显式指定其他运行根，其下再放 `.chery/`；`CHERY_ENV_FILE` 指定环境文件，系统环境变量优先于文件；`CHERY_TEMPLATE_DIR` 可指定发行模板位置。初始化和两个服务都不自动读取或重新创建仓库根目录的旧环境/数据目录。生产数据的真实位置由部署配置决定，不能因源码移动而擅自迁移。
 
 ## Manager 登录与机器控制
 

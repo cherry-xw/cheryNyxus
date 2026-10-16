@@ -138,7 +138,7 @@ export function validateLoadable(raw: ConfigRaw): { ok: true; warnings: string[]
 - `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP
 - **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）。前端 `env.list` 返回的密钥下拉**不做业务过滤**——凡 `.env` 中合法变量名（`listEnvVarNames` 按 `/^[A-Za-z_][A-Za-z0-9_]*$/` 校验）原样透出（2026-09 取消旧的后缀白名单：`API_KEY1` 这类数字尾缀命名此前会被吞掉）；运行时配置变量（`CHERY_DIR` / `*_HOST` / `*_URL` 等）也会出现在下拉，属预期行为。
 
-业务保存和备份回滚通过共享事务，仅替换 Backend 业务根字段，保留盘上其他端及未知分区；写入和失败恢复均比较文本修订，非法 YAML 不整文件覆盖。分区及 watcher 恢复规则见 [Manager 共享配置事务](../../shared/architecture/manager-management.md#共享配置事务)，测试见 [配置归属](../../../apps/backend/test/service/configOwnership.test.ts)、[备份回滚](../../../apps/backend/test/utils/configBackup.test.ts)及 [watcher 恢复](../../../apps/backend/test/service/config/watcherRecovery.test.ts)。`js-yaml` dump 无注释；完整字段说明见 [.chery.template/docs/config.md](../../../.chery.template/docs/config.md)。
+业务保存和备份回滚通过共享事务，仅替换 Backend 业务根字段，保留盘上其他端及未知分区；写入和失败恢复均比较文本修订，非法 YAML 不整文件覆盖。分区及 watcher 恢复规则见 [Manager 共享配置事务](../../shared/architecture/manager-management.md#共享配置事务)，测试见 [配置归属](../../../apps/backend/test/service/configOwnership.test.ts)、[备份回滚](../../../apps/backend/test/utils/configBackup.test.ts)及 [watcher 恢复](../../../apps/backend/test/service/config/watcherRecovery.test.ts)。`js-yaml` dump 无注释；完整字段说明见 [配置手册](../../../apps/backend/.chery.template/docs/config.md)。
 
 ### hash.ts
 
@@ -249,7 +249,7 @@ provider.openai → limitByRpm(url, options)
 
 ### 横切参考
 
-- 配置初始样例：[.chery.template/config.yaml](../../../.chery.template/config.yaml)；实际运行配置位于运行目录的 `.chery/config.yaml`，不入库。
+- 配置初始样例：[默认配置](../../../apps/backend/.chery.template/config.yaml)；实际运行配置位于运行目录的 `.chery/config.yaml`，不入库。
 - mock provider（依赖 config.ts 的 `MockConfig` 类型）：[../mock.md](../../quality/testing/mock-provider.md)
 - `read_file` 感官如何调用 `compressLog` / 读 `file_compression`：[../../src/agent/sense/read.ts](../../../apps/backend/src/agent/sense/read.ts)
 - OpenAI provider 如何调用 `getRateLimiter`：[../../src/agent/provider/openai.ts](../../../apps/backend/src/agent/provider/openai.ts)

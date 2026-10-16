@@ -15,12 +15,12 @@ unknown:
     thinking: off
     capabilities:
       toolCall: true
-      input: { image: false, video: false, audio: false }
-      generate: { image: false, video: false, audio: false }
+      input: { image: unknown, video: unknown, audio: unknown, pdf: unknown }
+      output: { image: unknown, video: unknown, audio: unknown }
   capabilities:
     toolCall: true
-    input: { image: false, video: false, audio: false }
-    generate: { image: false, video: false, audio: false }
+    input: { image: unknown, video: unknown, audio: unknown, pdf: unknown }
+    output: { image: unknown, video: unknown, audio: unknown }
 
 models:
   - id: minimax-m3
@@ -33,7 +33,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: minimax
       protocol: openai-chat-completions
@@ -42,11 +42,11 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommendByProtocol:
-      openai-chat-completions: { protocol: openai-chat-completions, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, generate: { image: true } } }
-      openai-responses: { protocol: openai-responses, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, generate: { image: true } } }
-      anthropic-messages: { protocol: anthropic-messages, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, generate: { image: true } } }
+      openai-chat-completions: { protocol: openai-chat-completions, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, output: { image: false } } }
+      openai-responses: { protocol: openai-responses, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, output: { image: false } } }
+      anthropic-messages: { protocol: anthropic-messages, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, output: { image: false } } }
     wire:
       openai-chat-completions:
         thinking:
@@ -71,7 +71,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: minimax
       protocol: openai-chat-completions
@@ -80,7 +80,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommendByProtocol:
       openai-chat-completions: { protocol: openai-chat-completions, contextLimit: 250000, thinking: on, capabilities: { toolCall: true } }
       openai-responses: { protocol: openai-responses, contextLimit: 250000, thinking: on, capabilities: { toolCall: true } }
@@ -109,7 +109,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: deepseek
       protocol: openai-chat-completions
@@ -118,7 +118,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommendByProtocol:
       openai-chat-completions: { protocol: openai-chat-completions, contextLimit: 250000, thinking: high, capabilities: { toolCall: true } }
       openai-responses: { protocol: openai-responses, contextLimit: 250000, thinking: high, capabilities: { toolCall: true } }
@@ -159,7 +159,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: deepseek
       protocol: openai-chat-completions
@@ -168,7 +168,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
@@ -186,7 +186,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: deepseek
       protocol: openai-chat-completions
@@ -195,7 +195,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
@@ -211,7 +211,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: bigmodel
       protocol: openai-chat-completions
@@ -220,7 +220,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
@@ -237,7 +237,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: bigmodel
       protocol: openai-chat-completions
@@ -246,7 +246,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommendByProtocol:
       anthropic-messages:
         protocol: anthropic-messages
@@ -277,7 +277,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: bigmodel
       protocol: openai-chat-completions
@@ -286,7 +286,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommendByProtocol:
       anthropic-messages:
         protocol: anthropic-messages
@@ -318,7 +318,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: bigmodel
       protocol: openai-chat-completions
@@ -327,7 +327,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: false, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommendByProtocol:
       anthropic-messages:
         protocol: anthropic-messages
@@ -358,7 +358,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: true, video: false, audio: false }
     recommend:
       provider: openai
       protocol: openai-responses
@@ -367,7 +367,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: true, video: false, audio: false }
     recommendByProtocol:
       openai-responses:
         protocol: openai-responses
@@ -376,7 +376,7 @@ models:
         capabilities:
           toolCall: true
           input: { image: true }
-          generate: { image: true }
+          output: { image: true }
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
@@ -384,7 +384,7 @@ models:
         capabilities:
           toolCall: true
           input: { image: true }
-          generate: { image: true }
+          output: { image: true }
     wire:
       openai-responses:
         thinking:
@@ -410,7 +410,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: true, video: false, audio: false }
     recommend:
       provider: openai
       protocol: openai-responses
@@ -419,7 +419,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: true, video: false, audio: false }
     recommendByProtocol:
       openai-responses:
         protocol: openai-responses
@@ -428,7 +428,7 @@ models:
         capabilities:
           toolCall: true
           input: { image: true }
-          generate: { image: true }
+          output: { image: true }
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
@@ -436,7 +436,7 @@ models:
         capabilities:
           toolCall: true
           input: { image: true }
-          generate: { image: true }
+          output: { image: true }
     wire:
       openai-responses:
         thinking:
@@ -464,7 +464,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: true, video: false, audio: false }
     recommend:
       provider: openai
       protocol: openai-responses
@@ -473,7 +473,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: true, video: false, audio: false }
     recommendByProtocol:
       openai-responses:
         protocol: openai-responses
@@ -482,7 +482,7 @@ models:
         capabilities:
           toolCall: true
           input: { image: true }
-          generate: { image: true }
+          output: { image: true }
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
@@ -490,7 +490,7 @@ models:
         capabilities:
           toolCall: true
           input: { image: true }
-          generate: { image: true }
+          output: { image: true }
     wire:
       openai-responses:
         reasoningHistory: reasoning-item
@@ -518,7 +518,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: true, video: false, audio: false }
     recommend:
       provider: openai
       protocol: openai-responses
@@ -527,7 +527,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: true, video: false, audio: false }
+        output: { image: true, video: false, audio: false }
     recommendByProtocol:
       openai-responses:
         protocol: openai-responses
@@ -536,7 +536,7 @@ models:
         capabilities:
           toolCall: true
           input: { image: true }
-          generate: { image: true }
+          output: { image: true }
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
@@ -544,7 +544,7 @@ models:
         capabilities:
           toolCall: true
           input: { image: true }
-          generate: { image: true }
+          output: { image: true }
     wire:
       openai-responses:
         reasoningHistory: reasoning-item
@@ -574,7 +574,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 256000
@@ -582,7 +582,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
@@ -600,7 +600,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 256000
@@ -608,7 +608,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
@@ -625,14 +625,14 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 1000000
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
 
   - id: xiaomi-mimo-v2
     match:
@@ -643,14 +643,14 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: true }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 256000
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: true }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
 
   - id: xai-grok-4.7
     match:
@@ -661,7 +661,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 500000
@@ -669,7 +669,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
@@ -688,7 +688,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 1000000
@@ -696,7 +696,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
@@ -714,7 +714,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       provider: anthropic
       protocol: anthropic-messages
@@ -723,7 +723,7 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: false, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     wire:
       anthropic-messages:
         reasoningHistory: thinking-block
@@ -742,14 +742,14 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: true }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 1000000
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: true }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
 
   - id: alibaba-qwen3-vl
     match:
@@ -760,14 +760,94 @@ models:
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
     recommend:
       protocol: openai-chat-completions
       contextLimit: 256000
       capabilities:
         toolCall: true
         input: { image: true, video: true, audio: false }
-        generate: { image: false, video: false, audio: false }
+        output: { image: false, video: false, audio: false }
+
+  - id: google-gemini-image
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])gemini[-_.]?(?:2[._-]?5|3(?:[._-]?1)?)[-_.]?(?:pro|flash(?:[-_.]?lite)?)[-_.]?image(?:$|[-_/:])', flags: i }
+    facts:
+      protocols: [openai-chat-completions]
+      capabilities:
+        toolCall: true
+        input: { image: supported, video: unsupported, audio: unsupported, pdf: supported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 128000
+      capabilities:
+        toolCall: true
+        input: { image: supported, video: unsupported, audio: unsupported, pdf: supported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+
+  - id: google-imagen-4
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])imagen[-_.]?4[._-]?0(?:[-_.](?:fast|ultra))?[-_.]?generate[-_.]?001(?:$|[-_/:])', flags: i }
+    facts:
+      capabilities:
+        toolCall: false
+        input: { image: unsupported, video: unsupported, audio: unsupported, pdf: unsupported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+    recommend:
+      capabilities:
+        toolCall: false
+        input: { image: unsupported, video: unsupported, audio: unsupported, pdf: unsupported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+
+  - id: openai-gpt-image
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])gpt[-_.]?image[-_.]?(?:1(?:[._-]?5|[-_.]?mini)?|2(?:[._-]?5[-_.](?:sunburst|flare))?)(?:$|[-_/:])', flags: i }
+    facts:
+      capabilities:
+        toolCall: false
+        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+    recommend:
+      provider: openai
+      capabilities:
+        toolCall: false
+        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+
+  - id: minimax-image-01
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])image[-_.]?01(?:[-_.]?live)?(?:$|[-_/:])', flags: i }
+    facts:
+      capabilities:
+        toolCall: false
+        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+    recommend:
+      provider: minimax
+      capabilities:
+        toolCall: false
+        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+
+  - id: doubao-seedream-5
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])doubao[-_.]?seedream[-_.]?5[._-]?0[-_.](?:pro|flash)(?:$|[-_/:0-9])', flags: i }
+    facts:
+      capabilities:
+        toolCall: false
+        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
+        output: { image: supported, video: unsupported, audio: unsupported }
+    recommend:
+      capabilities:
+        toolCall: false
+        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
+        output: { image: supported, video: unsupported, audio: unsupported }
 
 # 自定义规则示例（取消注释后追加到上面的 models 列表）：
 #   - id: private-model

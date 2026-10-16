@@ -5,6 +5,9 @@ import path from 'node:path'
 import yaml from 'js-yaml'
 import { recoverStartupConfig } from './utils/configStartupRecovery.js'
 import { syncCheryTemplate } from '../../../scripts/lib/chery-template-sync.mjs'
+import { initializeBackendEnvironment } from '../../../scripts/lib/backend-layout.mjs'
+
+const layout = initializeBackendEnvironment(import.meta.url)
 
 const WORKER_FLAG = '--worker'
 const MAX_BACKOFF_MS = 10_000
@@ -20,9 +23,7 @@ function configRoot(): string {
 }
 
 function templateRoot(): string {
-  if (process.env.CHERY_TEMPLATE_DIR) return path.resolve(process.env.CHERY_TEMPLATE_DIR)
-  const parent = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  return path.join(path.basename(parent) === 'backend' ? path.resolve(parent, '../..') : parent, '.chery.template')
+  return layout.templateDir
 }
 
 /** Template upgrades are best-effort: an existing workspace must remain bootable on sync failure. */

@@ -22,18 +22,20 @@ services:
     environment:
       QQBOT_ROLE: backend
       CHERY_COMMAND_DIRECT: "${CHERY_COMMAND_DIRECT:-1}"
-      HOME: /app/platform/qqbot/.chery/tool-home
-      NPM_CONFIG_PREFIX: /app/platform/qqbot/.chery/tool-home/npm
-      NPM_CONFIG_CACHE: /app/platform/qqbot/.chery/tool-home/cache/npm
-      XDG_CACHE_HOME: /app/platform/qqbot/.chery/tool-home/cache
-      PLAYWRIGHT_BROWSERS_PATH: /app/platform/qqbot/.chery/tool-home/browsers
-      PIP_CACHE_DIR: /app/platform/qqbot/.chery/tool-home/cache/pip
+      HOME: /app/apps/backend/.chery/tool-home
+      NPM_CONFIG_PREFIX: /app/apps/backend/.chery/tool-home/npm
+      NPM_CONFIG_CACHE: /app/apps/backend/.chery/tool-home/cache/npm
+      XDG_CACHE_HOME: /app/apps/backend/.chery/tool-home/cache
+      PLAYWRIGHT_BROWSERS_PATH: /app/apps/backend/.chery/tool-home/browsers
+      PIP_CACHE_DIR: /app/apps/backend/.chery/tool-home/cache/pip
       PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
-      PATH: /app/platform/qqbot/.chery/tool-home/venv/bin:/app/platform/qqbot/.chery/tool-home/npm/bin:/usr/local/bin:/usr/bin:/bin
-      CHERY_DIR: /app/platform/qqbot
-      CHERY_ENV_FILE: /app/platform/qqbot/.chery/runtime.env
-      DB_DIR: /app/platform/qqbot/.chery/data
-      QQBOT_CONNECTION_TOKEN_FILE: /app/platform/qqbot/.chery/qq-connection-token.json
+      PATH: /app/apps/backend/.chery/tool-home/venv/bin:/app/apps/backend/.chery/tool-home/npm/bin:/usr/local/bin:/usr/bin:/bin
+      CHERY_DIR: /app/apps/backend
+      CHERY_ENV_FILE: /app/apps/backend/.env
+      DB_DIR: /app/apps/backend/.chery/data
+      QQBOT_CONNECTION_TOKEN_FILE: /app/apps/backend/.chery/qq-connection-token.json
+      CHERY_MANAGER_HOST: 0.0.0.0
+      CHERY_MANAGER_PORT: "39980"
       WEB_PORT: "8283"
       QQ_INGRESS_PAUSED: ${QQ_INGRESS_PAUSED:-1}
       CHERY_INGRESS_INSTALL_ROOT: /app/opt
@@ -48,10 +50,11 @@ services:
     ports:
       - "${QQBOT_RPC_BIND:-0.0.0.0}:${QQBOT_RPC_PORT:-8282}:8282"
       - "${QQBOT_WEB_BIND:-0.0.0.0}:${WEB_PORT:-8283}:8283"
+      - "${NYXUS_MANAGER_BIND:-127.0.0.1}:${NYXUS_MANAGER_PORT:-39980}:39980"
     volumes:
-      - ${QQBOT_ENV_FILE:-./qqbot.env}:/app/platform/qqbot/.chery/runtime.env
-      - ${QQBOT_DATA_DIR:-./qqbot-data}/.chery:/app/platform/qqbot/.chery
-      - ${QQBOT_DATA_DIR:-./qqbot-data}/data:/app/platform/qqbot/data
+      - ${QQBOT_ENV_FILE:-./qqbot.env}:/app/apps/backend/.env
+      - ${QQBOT_DATA_DIR:-./qqbot-data}/.chery:/app/apps/backend/.chery
+      - ${QQBOT_DATA_DIR:-./qqbot-data}/data:/app/apps/backend/data
       - ${QQ_USER_FILES_DIR:-./user-files}:/app/user-files
     networks: [backend]
     logging: *logging
@@ -59,14 +62,10 @@ services:
       test:
         - CMD-SHELL
         - >-
-          node -e "const net=require('net'),http=require('http');
-          const tcp=new Promise((ok,fail)=>{const s=net.connect(8282,'127.0.0.1');
-          s.setTimeout(3000,()=>s.destroy(new Error('timeout')));
-          s.once('connect',()=>{s.destroy();ok()});s.once('error',fail)});
-          const web=new Promise((ok,fail)=>{const r=http.get('http://127.0.0.1:8283/api/config',r=>{
-          r.resume();(r.statusCode===200||r.statusCode===401)?ok():fail()});
-          r.setTimeout(3000,()=>r.destroy(new Error('timeout')));r.once('error',fail)});
-          Promise.all([tcp,web]).then(()=>process.exit(0),()=>process.exit(1))"
+          node -e "const k=JSON.parse(require('fs').readFileSync('/app/apps/backend/.chery/manager-token.json','utf8')).token;
+          const r=require('http').get({hostname:'127.0.0.1',port:39980,path:'/api/machine/status',headers:{'x-chery-manager-machine-key':k}},r=>{
+          r.resume();process.exit(r.statusCode===200?0:1)});
+          r.setTimeout(3000,()=>r.destroy(new Error('timeout')));r.once('error',()=>process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 6
@@ -96,36 +95,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-  manager:
-    profiles: [management]
-    build:
-      context: ..
-      dockerfile: apps/manager/deploy/docker/Dockerfile
-    image: cherynyxus-manager:local
-    network_mode: host
-    restart: unless-stopped
-    init: true
-    read_only: true
-    tmpfs: ["/tmp:mode=1777,size=64m"]
-    security_opt: ["no-new-privileges:true"]
-    environment:
-      CHERY_DIR: /app/platform/qqbot
-      CHERY_MANAGER_HOST: ${NYXUS_MANAGER_BIND:-0.0.0.0}
-      CHERY_MANAGER_PORT: ${NYXUS_MANAGER_PORT:-39980}
-      CHERY_MANAGER_BACKEND_MODE: external
-
-      HTTP_PROXY: ""
-      HTTPS_PROXY: ""
-      ALL_PROXY: ""
-    volumes:
-      - ${QQBOT_DATA_DIR:-./qqbot-data}/.chery:/app/platform/qqbot/.chery
-    logging: *logging
-    healthcheck:
-      test: [CMD-SHELL, 'node -e "require(''http'').get({hostname:''127.0.0.1'',port:${NYXUS_MANAGER_PORT:-39980},path:''/'',headers:{Host:''10.2.3.6:${NYXUS_MANAGER_PORT:-39980}''}},r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"']
-      interval: 10s
-      timeout: 5s
-      retries: 6
-
 networks:
   backend: {}
 

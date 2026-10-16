@@ -1,7 +1,7 @@
 # skills — 技能包
 
 > 模板目录：`.chery.template/skills/` ｜ 运行位置：`.chery/skills/`
-> 加载入口：[apps/backend/src/agent/prompt/loadSkill.ts](../../apps/backend/src/agent/prompt/loadSkill.ts) ｜ 详细文档：[../../docs/backend/agent/prompt.md](../../docs/backend/agent/prompt.md)
+> 加载入口：[loadSkill.ts](../../src/agent/prompt/loadSkill.ts) ｜ 详细文档：[提示词](../../../../docs/backend/agent/prompt.md)
 
 ## 用途
 
@@ -96,6 +96,6 @@ skill(name: string) → string    // 加载技能正文，注入当前对话上�
 
 ## 关联
 
-- 技能加载：[apps/backend/src/agent/prompt/loadSkill.ts](../../apps/backend/src/agent/prompt/loadSkill.ts)
+- 技能加载：[loadSkill.ts](../../src/agent/prompt/loadSkill.ts)
 - 安装技能：由 `cheryNyxus` 角色的 `install_skill` 感官负责（详见 [./prompt.md](./prompt.md)）
 - 模板示例：[../skills/haveFun/SKILL.md](../skills/haveFun/SKILL.md)、[../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)、[../skills/preset-lifecycle/SKILL.md](../skills/preset-lifecycle/SKILL.md)、[../skills/role-design/SKILL.md](../skills/role-design/SKILL.md)、[../skills/role-acceptance/SKILL.md](../skills/role-acceptance/SKILL.md)

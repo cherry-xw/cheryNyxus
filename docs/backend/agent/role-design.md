@@ -1,7 +1,7 @@
 # 任意岗位角色设计
 
-> 模板资产：[.chery.template/skills/role-design/](../../../.chery.template/skills/role-design/) 与 [.chery.template/prompt/roleArchitect/](../../../.chery.template/prompt/roleArchitect/)
-> 配置入口：[.chery.template/config.yaml](../../../.chery.template/config.yaml) 的 `role_architect`、`roleArchitect` 与 `presets.cheryNyxus.roles`
+> 模板资产：[默认技能](../../../apps/backend/.chery.template/skills/role-design/) 与 [角色提示词](../../../apps/backend/.chery.template/prompt/roleArchitect/)
+> 配置入口：[默认配置](../../../apps/backend/.chery.template/config.yaml) 的 `role_architect`、`roleArchitect` 与 `presets.cheryNyxus.roles`
 
 ## 设计目标
 
@@ -58,7 +58,7 @@ tool_decisions:
 - 自然语言能力诉求及其必要性和风险；
 - 同时覆盖允许行为与禁止行为的 `acceptance_scenarios`。
 
-完整 YAML 结构见 [.chery.template/docs/role-design.md](../../../.chery.template/docs/role-design.md)。
+完整 YAML 结构见 [角色设计手册](../../../apps/backend/.chery.template/docs/role-design.md)。
 
 ## 创建与生效
 
@@ -74,4 +74,4 @@ tool_decisions:
 - 配置管理：[config-manage.md](config-manage.md)
 - 角色安全：[role-security.md](role-security.md)
 - 技能加载：[prompt.md](prompt.md)
-- 配置模板手册：[../../.chery.template/docs/role-design.md](../../../.chery.template/docs/role-design.md)
+- 配置模板手册：[角色设计](../../../apps/backend/.chery.template/docs/role-design.md)

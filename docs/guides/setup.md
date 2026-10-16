@@ -1,6 +1,6 @@
 # 开发环境搭建
 
-> 面向新接手项目的开发者（或 AI 协作者）。目标：从空仓库到 `pnpm dev` 跑起后端、浏览器看到前端。
+> 面向新接手项目的开发者（或 AI 协作者）。目标：安装后通过 `pnpm dev` 配套启动 Manager 与 Backend，按需另启 Web。
 >
 > 阅读约定：标注 **🔧 人工必做** 的步骤无法被 AI / 脚本自动完成（系统级依赖、密钥、本机路径），是卡点，必须人来；标注 **🤖 AI 可执行** 的步骤可交给 AI 或脚本一键完成。
 
@@ -59,14 +59,14 @@ pnpm install
 
 | 来源 | 目标 | 说明 |
 |------|------|------|
-| `.env.example` | `.env` | 仅目标缺失时创建，已有密钥永不覆盖 |
-| `.chery.template/` | `.chery/` | 全新 workspace 整体初始化；已有 workspace 按官方文件哈希增量同步 |
+| `apps/backend/.env.example` | `apps/backend/.env` | 仅目标缺失时创建，已有密钥永不覆盖 |
+| `apps/backend/.chery.template/` | `apps/backend/.chery/` | 全新 workspace 整体初始化；已有 workspace 按官方文件哈希增量同步 |
 
 > `.chery/.template-manifest.json` 记录上一版官方文件哈希。升级只替换仍保持官方原版的文件；用户修改或主动删除的资产保持不变。被替换的旧版资产会先备份到 `.chery/backups/template/<timestamp>/`。已有 `.chery/` 的 `config.yaml` 不参与同步，也不自动补入角色、感官组或预设；只有全新目录初始化时才复制模板配置。同步使用与配置保存相同的文件锁，锁冲突时拒绝同步。实现见 [syncCheryTemplate](../../scripts/lib/chery-template-sync.mjs)，验证见 [模板同步测试](../../apps/backend/test/scripts/cheryTemplateSync.test.ts)。
 >
 > 若种子没生成（比如模板当时未就绪），可手动运行 `node scripts/setup-env.mjs`。后端 guardian 正常启动和执行维护命令前也会做同样的增量同步；同步失败只告警，并继续尝试使用原 workspace 启动。
 >
-> `.env` 与 `.chery/` 都在 [.gitignore](../../.gitignore) 中（运行时配置不入库），所以这一步是本地配置的**唯一起点**。
+> `apps/backend/.env` 与 `apps/backend/.chery/` 都在 [.gitignore](../../.gitignore) 中（运行时配置不入库）；安装不会在仓库根目录创建环境或运行数据。
 
 ---
 
@@ -76,7 +76,7 @@ pnpm install
 
 ### 3.1 配置 LLM API Key
 
-编辑运行目录的 `.env`（由 [.env.example](../../.env.example) 首次复制，已有文件不会覆盖）：
+编辑 `apps/backend/.env`（由 [环境模板](../../apps/backend/.env.example) 首次复制，已有文件不会覆盖）：
 
 ```bash
 LLM_API_KEY=你的真实密钥
@@ -93,11 +93,11 @@ LLM_API_KEY=你的真实密钥
 3. 模型：可手填模型 id，或先填写地址与密钥后刷新模型列表选择。
 4. 密钥：选择 `LLM_API_KEY`，测试连接成功后保存。
 
-模板中的 `<YOUR_LLM_URL>` 与 `<YOUR_MODEL_NAME>` 在设置页按空值显示，不会冒充真实配置。保存后服务受控重启，`cheryNyxus` 以及其内置辅助角色统一使用这颗大脑。
+模板中的 `<YOUR_LLM_URL>` 与 `<YOUR_MODEL_NAME>` 在设置页按空值显示，不会冒充真实配置。保存后的应用与受控重启以配置结果为准，`cheryNyxus` 以及其内置辅助角色统一使用这颗大脑。
 
 ### 3.3 后续配置
 
-大脑可用后，直接告诉 CheryNyxus 修改角色、预设、感官组、监管等级等配置。它通过 `config_manage` 完成候选校验、备份和受控重启；字段参考见 [.chery.template/docs/config.md](../../.chery.template/docs/config.md)。Mock 调试仍受支持，但不再进入发行默认配置，使用方法见 [mock.md](../quality/testing/mock-provider.md)。
+大脑可用后，直接告诉 cheryNyxus 修改角色、预设、感官组、监管等级等配置。它通过 `config_manage` 完成候选校验、备份和受控重启；字段参考见 [配置手册](../../apps/backend/.chery.template/docs/config.md)。Mock 调试仍受支持，但不再进入发行默认配置，使用方法见 [mock.md](../quality/testing/mock-provider.md)。
 
 ---
 
@@ -109,7 +109,7 @@ LLM_API_KEY=你的真实密钥
 pnpm dev
 ```
 
-SSR 构建 + nodemon 热重载，监听 `ws://127.0.0.1:8182`（端口见 `config.yaml` 的 `server.port`）。
+先开放 Manager（默认 39980），再由它启动 Backend 的 SSR 构建和 nodemon 热重载，后端默认监听 `ws://127.0.0.1:8182`。配置来自 `apps/backend/.chery/config.yaml`。Backend 构建或启动失败时 Manager 仍可用；停止整个开发入口会清理其受管进程。
 
 ### 4.2 前端（浏览器模式，推荐开发期）
 
@@ -137,9 +137,9 @@ pnpm dev:all      # concurrently 同时拉起 backend + web
 | 命令 | 作用 |
 |------|------|
 | `pnpm install` | 装依赖 + postinstall 钟子初始化 `.env` / `.chery/` |
-| `pnpm dev` | 后端开发（SSR + nodemon 热重载） |
-| `pnpm build` | 后端构建到 `dist/`（先跑 `type-check`） |
-| `node dist/index.js` | 运行编译产物 |
+| `pnpm dev` | 配套启动 Manager 和 Backend 开发热重载 |
+| `pnpm build` | 后端构建到 `apps/backend/dist/`（先跑 `type-check`） |
+| `pnpm manager:cli` | 启动构建后的 Manager，再由它启动 Backend；需先完成两者构建 |
 | `pnpm compile:senses` | 编译 `.chery/senses/` 外部感官 |
 | `pnpm web:dev` | 前端浏览器开发模式 |
 | `pnpm electron:dev` | 前端 Electron 开发模式（注意 §1.4 ABI 坑） |

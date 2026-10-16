@@ -11,19 +11,25 @@ $manager = Join-Path $Root 'apps\manager\server-dist\index.js'
 $node = (Get-Command node.exe -ErrorAction Stop).Source
 $process = Start-Process -FilePath $node -ArgumentList "`"$manager`"" -WorkingDirectory $Root -WindowStyle Hidden -PassThru
 
+function Stop-ManagerTree {
+  if (!$script:process.HasExited) {
+    & taskkill.exe /PID $script:process.Id /T /F | Out-Null
+    $script:process.WaitForExit()
+  }
+}
+
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $open = $menu.Items.Add('Open local manager')
 $open.Add_Click({ Start-Process 'http://127.0.0.1:39980' })
 $restart = $menu.Items.Add('Restart manager')
 $restart.Add_Click({
-  if (!$process.HasExited) { $process.CloseMainWindow() | Out-Null }
-  if (!$process.HasExited) { $process.Kill() }
+  Stop-ManagerTree
   $script:process = Start-Process -FilePath $node -ArgumentList "`"$manager`"" -WorkingDirectory $Root -WindowStyle Hidden -PassThru
 })
 $menu.Items.Add('-')
 $exit = $menu.Items.Add('Exit')
 $exit.Add_Click({
-  if (!$process.HasExited) { $process.Kill() }
+  Stop-ManagerTree
   $notify.Visible = $false
   $notify.Dispose()
   [System.Windows.Forms.Application]::Exit()

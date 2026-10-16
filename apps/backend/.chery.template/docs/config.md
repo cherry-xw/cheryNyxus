@@ -1,8 +1,8 @@
 # config.yaml — 主配置参考表
 
 > 模板文件：`.chery.template/config.yaml` ｜ 运行位置：`.chery/config.yaml`（gitignored）
-> 加载入口与类型：[apps/backend/src/utils/config.ts](../../apps/backend/src/utils/config.ts)
-> 相关文档：[../../docs/backend/utils/README.md](../../docs/backend/utils/README.md)（加载/校验流程）
+> 加载入口与类型：[config.ts](../../src/utils/config.ts)
+> 相关文档：[配置工具](../../../../docs/backend/utils/README.md)（加载/校验流程）
 
 ## 用途
 
@@ -77,7 +77,7 @@
 | `mock` | object | ❌ | — | mock provider 专用（`provider: mock` 时必填） |
 | `hooks` | string | ❌ | — | brain 级 hooks.json 路径（相对 `.chery/`，如 `hooks/anthropic-main.json`）；与全局 `.chery/hooks/hooks.json` 合并（全局在前，brain 级在后；brain 级覆盖全局） |
 
-初始模板仅保留 `default`：在设置页填写地址、模型并选择 `LLM_API_KEY` 后保存，即可使用 CheryNyxus；其他 brain 由设置页或 CheryNyxus 按需创建。
+初始模板仅保留 `default`：在设置页填写地址、模型并选择 `LLM_API_KEY` 后保存，即可使用 cheryNyxus；其他 brain 由设置页或 cheryNyxus 按需创建。
 
 ### llm.brain.<name>.capabilities 子字段
 
@@ -173,7 +173,7 @@ sense_groups:
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
 | `port` | number | 8182 | WebSocket 监听端口 |
-| `transport` | enum | `binary` | 传输格式：`binary` / `json`（详见 [docs/shared/protocol/websocket.md](../../docs/shared/protocol/websocket.md)） |
+| `transport` | enum | `binary` | 传输格式：`binary` / `json`（详见 [协议](../../../../docs/shared/protocol/websocket.md)） |
 | `host` | string | `127.0.0.1` | 监听地址 |
 | `workspace_browse` | object | — | 文件夹浏览协议（`config.workspace.browse.*`）配置，见下 |
 
@@ -189,7 +189,7 @@ sense_groups:
 | `rpm` | number | 60 | 每会话每分钟请求上限 |
 | `max_sessions` | number | 20 | 并发浏览会话上限 |
 
-> ⚠ `workspace_browse` 是 **server 侧专属**：被 `config.get` 剥离（设置面板不可编辑）、`config.save` 原样保留；改配置需直接编辑 `.chery/config.yaml` 后重启生效。载荷加密为混淆级（协议见 [docs/shared/protocol/websocket.md](../../docs/shared/protocol/websocket.md) `config.workspace.browse.*`）。
+> ⚠ `workspace_browse` 是 **server 侧专属**：被 `config.get` 剥离（设置面板不可编辑）、`config.save` 原样保留；改配置需直接编辑 `.chery/config.yaml` 后重启生效。载荷加密为混淆级（协议见 [协议](../../../../docs/shared/protocol/websocket.md) `config.workspace.browse.*`）。
 
 > ⚠ Web 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定。
 
@@ -253,9 +253,9 @@ llm:
 
 ## 关联
 
-- 模板加载：[apps/backend/src/utils/config.ts](../../apps/backend/src/utils/config.ts) `loadConfig()`
-- 类型定义：[apps/backend/src/utils/config.ts](../../apps/backend/src/utils/config.ts#L55-L132)
-- 校验逻辑：[apps/backend/src/utils/config.ts](../../apps/backend/src/utils/config.ts) `validateRawConfig()`
+- 模板加载：[config.ts](../../src/utils/config.ts) `loadConfig()`
+- 类型定义：[config.ts](../../src/utils/config.ts)
+- 校验逻辑：[config.ts](../../src/utils/config.ts) `validateRawConfig()`
 - RPC：`config.get` / `config.save` / `config.workspace.validate`（设置面板读写）
 - 同步规则：模板只初始化全新 workspace；已有 `.chery/config.yaml` 不做整文件覆盖
 - AI 修改入口：见 [`./README.md`](./README.md)「AI 自动修改配置」章节

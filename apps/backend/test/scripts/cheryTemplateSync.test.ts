@@ -83,7 +83,7 @@ describe('syncCheryTemplate', () => {
     expect(saved.manager).toEqual({ identity: 'latest' }); expect(saved.otherEnd).toEqual({ revision: 42 })
   })
   it('ships one generic setup brain and an empty matching env key', () => {
-    const template = yaml.load(readFileSync('.chery.template/config.yaml', 'utf8')) as any
+    const template = yaml.load(readFileSync('apps/backend/.chery.template/config.yaml', 'utf8')) as any
     const brains = template.llm.brain
 
     expect(Object.keys(brains)).toEqual(['default'])
@@ -100,7 +100,7 @@ describe('syncCheryTemplate', () => {
       }),
     )
 
-    const envExample = readFileSync('.env.example', 'utf8')
+    const envExample = readFileSync('apps/backend/.env.example', 'utf8')
     expect(envExample).toMatch(/^LLM_API_KEY=\s*$/m)
     expect(envExample).not.toMatch(/LONGCAT_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY/)
   })

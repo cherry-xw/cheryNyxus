@@ -40,6 +40,6 @@ global:
     output: [console]
 manager:
   connectionCredentials:
-    qq: /app/platform/qqbot/.chery/qq-connection-token.json
+    qq: /app/apps/backend/.chery/qq-connection-token.json
   plugins:
     packageSourceRoot: /app/opt

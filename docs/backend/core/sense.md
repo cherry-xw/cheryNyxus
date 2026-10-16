@@ -371,7 +371,7 @@ chatMiddleware yield StreamChunk（含 senseDelta）
 
 - `list_generations` → 每代一行：`第N代 [手动|自动] <时间> <节点数>节点 <摘要前200字>` + 当前代提示。
 - `search` → 数据源为 **root chat + 全部后代 chat** 的持久化消息（`collectDescendantsChatIds`，按 `createdAt` 排序）；默认范围「全部已定稿代」（即最近一次 compact 边界之前的消息），也可用 `scope=current` 检索当前代，或 `scope=all` 检索两者；命中返回 `消息角色 + 前后各 ~150 字符上下文 + 所在代 index`。
-- **硬字符上限**：结果总文本超过 `global.history_recall.max_output_chars`（默认 4000，见 [config 文档](../../../.chery.template/docs/config.md)）时截断，尾部注明「已截断，请缩小 query / 指定 generation」。
+- **硬字符上限**：结果总文本超过 `global.history_recall.max_output_chars`（默认 4000，见 [config 文档](../../../apps/backend/.chery.template/docs/config.md)）时截断，尾部注明「已截断，请缩小 query / 指定 generation」。
 - 代归属按 `createdAt` 与各代边界时间窗（`(上一代边界时间, 本代边界时间]`）判定——root 与后代 chat 的消息共用时间坐标（orderKey 仅 root 图内有意义）。
 - 错误显式返回（query 为空 / generation 不存在 / 未命中 → 友好中文说明，不抛崩）。
 

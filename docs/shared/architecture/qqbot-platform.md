@@ -68,7 +68,7 @@ QQ 包入口为 [`createPlugin`](../../../plugins/qq/src/index.ts)，清单为 [
 
 ## Docker 拓扑
 
-Backend、Web、Manager 独立部署。Backend 使用可出站的容器网络（真实模型需要出站），仅显式发布 RPC/HTTP；Web 反代 Backend 的 HTTP/WS，Manager 通过认证 RPC 管理 Backend。Linux 部署模板中 Web/Manager 使用宿主网络与受限监听地址，不挂 Docker socket，不自行启动 Backend；Manager 的 external 模式拒绝后端进程操作。数据持久化和迁移回滚操作由[运行环境迁移](../../guides/nyxus-deployment.md)维护。NapCat 本体部署不由本任务修改。
+默认部署中 Manager 与 Backend 配套运行于同一镜像，先启动 Manager 再由它启动 Backend；Web 可独立部署并反代 Backend 的 HTTP/WS。配套容器使用可出站网络，显式发布所需端口，不挂 Docker socket；Manager 管理自身 Backend 子进程，资源操作仍通过认证接口。显式 external 模式不启动第二个 Backend。数据持久化和迁移回滚操作由[运行环境迁移](../../guides/nyxus-deployment.md)维护；NapCat 本体部署保持独立。
 
 开发环境和常驻 Docker 是同一新架构的两种启动方式：开发环境允许本机进程和 mock/wire；常驻环境使用 Docker 和持久卷。二者都禁止恢复旧 relay 作为运行层。
 

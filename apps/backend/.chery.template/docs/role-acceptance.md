@@ -2,7 +2,7 @@
 
 > 运行资产：`.chery/skills/role-acceptance/SKILL.md`、`.chery/prompt/roleAcceptance/roleAcceptance.md`
 > 配置入口：`sense_groups.cheryNyxus`、`roles.roleAcceptance`、`presets.cheryNyxus.roles`
-> 后端设计：[../../docs/backend/agent/role-acceptance.md](../../docs/backend/agent/role-acceptance.md)
+> 后端设计：[角色验收](../../../../docs/backend/agent/role-acceptance.md)
 
 cheryNyxus 在目标配置成为当前激活修订后，激活 `role-acceptance` 技能并调用 `role_acceptance` 感官。验收器为每个场景创建新的系统临时目录和进程内临时 Agent，用目标角色真实大脑、提示词和安全工具执行，再由隐藏的 `roleAcceptance` 角色独立判定。
 

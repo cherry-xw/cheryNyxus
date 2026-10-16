@@ -132,7 +132,7 @@ Assistant: <按 compact 指令生成的摘要 contextCompaction=true>           
 
 ## 摘要提取（summary 块）
 
-压缩回复按 [compact.md](../../../.chery/command/compact.md) 约定为 `<analysis>…</analysis>` + `<summary>…</summary>` 两块。注入后续 LLM 上下文时仅取 `<summary>` 块正文（`extractSummaryBlock`，正则 `<summary>([\s\S]*?)</summary>` 大小写不敏感），丢弃 analysis 中间过程；模型未按格式输出（无标签）→ 用整个 content（容错）。
+压缩回复按 [compact.md](../../../apps/backend/.chery.template/command/compact.md) 约定为 `<analysis>…</analysis>` + `<summary>…</summary>` 两块。注入后续 LLM 上下文时仅取 `<summary>` 块正文（`extractSummaryBlock`，正则 `<summary>([\s\S]*?)</summary>` 大小写不敏感），丢弃 analysis 中间过程；模型未按格式输出（无标签）→ 用整个 content（容错）。
 
 - **DB 存完整**：observer 落库原始 content（analysis+summary），前端 `chat.get` 可见完整过程。
 - **仅上下文注入提取**：[compactToLatestSummary](../../../apps/backend/src/core/middleware/messageJournal.ts)（热路径内存裁剪）+ [loadHistory](../../../apps/backend/src/service/chat/runtime.ts)（冷路径重建）两处注入时提取，冷热对齐。

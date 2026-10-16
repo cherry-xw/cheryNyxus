@@ -38,11 +38,11 @@ unknown:
     capabilities:
       toolCall: true
       input: { image: false, video: false, audio: false }
-      generate: { image: false, video: false, audio: false }
+      output: { image: false, video: false, audio: false }
   capabilities:
     toolCall: true
     input: { image: false, video: false, audio: false }
-    generate: { image: false, video: false, audio: false }
+    output: { image: false, video: false, audio: false }
 
 models:
   - id: private-model

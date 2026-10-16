@@ -1,7 +1,7 @@
 # prompt — System Prompt 与角色提示词
 
 > 模板目录：`.chery.template/prompt/` ｜ 运行位置：`.chery/prompt/`
-> 加载入口：[apps/backend/src/agent/prompt/](../../apps/backend/src/agent/prompt) ｜ 详细文档：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)
+> 加载入口：[prompt](../../src/agent/prompt) ｜ 详细文档：[提示词机制](../../../../docs/backend/agent/system-prompt.md)
 
 ## 用途
 
@@ -104,10 +104,10 @@ prompt/
 ## 关联
 
 - 角色配置：[./config.md#roles-字段](./config.md#roles-字段)
-- 提示词系统：[../../docs/system-prompt.md](../../docs/backend/agent/system-prompt.md)
+- 提示词系统：[提示词机制](../../../../docs/backend/agent/system-prompt.md)
 - cheryNyxus 提示词：[../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md)（配置管理 + 组长）
 - Role Architect 提示词：[../prompt/roleArchitect/roleArchitect.md](../prompt/roleArchitect/roleArchitect.md)（岗位研究 + 蓝图，不授权工具）
 - Role Acceptance 提示词：[../prompt/roleAcceptance/roleAcceptance.md](../prompt/roleAcceptance/roleAcceptance.md)（隔离证据独立评估，无工具）
 - 任意岗位角色设计：[./role-design.md](./role-design.md)
 - 角色端到端验收：[./role-acceptance.md](./role-acceptance.md)
-- 配置管理感官：[../../docs/backend/agent/config-manage.md](../../docs/backend/agent/config-manage.md)（get/patch/backup/rollback）
+- 配置管理感官：[配置管理](../../../../docs/backend/agent/config-manage.md)（get/patch/backup/rollback）

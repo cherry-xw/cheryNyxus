@@ -1,5 +1,5 @@
 **
-!.chery.template/**
+!apps/backend/.chery.template/**
 !package.json
 !pnpm-workspace.yaml
 !node_modules/**
