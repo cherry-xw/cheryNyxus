@@ -1,7 +1,7 @@
-import type { MediaKind } from '@/service/media/index.js'
 import type { ToolAuthorization } from '@/core/security/index.js'
 import type { ObservationEnvelope } from '@/core/sense/senseCreator.js'
-import type { LlmProtocol } from '@chery/protocol'
+import type { AssetKind, AssetVariant, LlmProtocol, MessagePart } from '@chery/protocol'
+export type { MessagePart }
 
 /**
  * Role 类型
@@ -17,7 +17,72 @@ export interface SenseCallInfo {
   arguments: string
   /** 该工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
   security?: ToolAuthorization
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行）。 */
+  executionOwner?: 'local' | 'server'
+  /** 当同一响应已由服务端工具完成且以 end_turn 结束时，未在本地执行的普通调用状态。 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 未在本地执行的说明或结果摘要。 */
+  result?: string
 }
+
+export interface ServerToolSource {
+  url: string
+  title?: string
+  snippet?: string
+  refer?: string
+}
+
+/**
+ * 服务端执行的工具调用记录（Anthropic server_tool_use/tool_result、OpenAI Responses web_search_call 等）。
+ * 展示与审计独立保存，不进入本地 sense 调度或审批。
+ */
+export interface ServerToolCallInfo {
+  id: string
+  name: string
+  arguments: string
+  executionOwner: 'server'
+  status: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  result?: string
+  error?: string
+  sources?: ServerToolSource[]
+  protocol?: string
+  responseId?: string
+  index?: number
+  truncated?: boolean
+}
+
+export type ServerToolCallDelta =
+  | {
+      kind: 'start'
+      index: number
+      id: string
+      name: string
+      arguments?: string
+      status?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+      protocol?: string
+      responseId?: string
+    }
+  | {
+      kind: 'arguments_delta'
+      index: number
+      id?: string
+      argumentsDelta: string
+    }
+  | {
+      kind: 'result'
+      index: number
+      callId: string
+      name?: string
+      result?: string
+      error?: string
+      status?: 'completed' | 'failed' | 'unknown' | 'skipped-local'
+      sources?: ServerToolSource[]
+      truncated?: boolean
+    }
+  | {
+      kind: 'citations'
+      sources: ServerToolSource[]
+    }
 
 /**
  * Anthropic 扩展思考完整块（Anthropic 专属；其它 provider 仍走 thinking 字符串）。
@@ -59,11 +124,18 @@ export interface LLMResponse {
   id: string
   role: Role
   content: string
+  /** 有序消息部分（text/asset/directive/role_mention/workspace_ref），权威结构；content 为文本边界派生投影 */
+  parts?: MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   /** 拼接的思考文本（UI 展示 + token 估算用；非 Anthropic provider 也可填写） */
   thinking?: string
   /** Anthropic 扩展思考完整块（含 signature / redacted_thinking）— 供 Anthropic provider 原样回传 */
   thinkingBlocks?: ThinkingBlock[]
+  /** 供应商多轮编辑/工具续接上下文（如 OpenAI previous_response_id 或 Gemini thoughtSignature） */
+  providerContinuation?: Record<string, unknown>
   senseCalls?: SenseCallInfo[]
+  /** 服务端已执行的工具调用记录（与本地 senseCalls 分离，不阻塞 loop/canResume） */
+  serverToolCalls?: ServerToolCallInfo[]
   createdAt: number
   updateAt: number
   /** 感官执行结果的 hash（仅 sense 消息有） */
@@ -88,20 +160,21 @@ export interface LLMResponse {
 
 /**
  * 多模态附件：buildMessages 临时参数（不进 LLMResponse/DB）。
- * 由 enrichMediaInputs 在 chat.ts 内据脑 capabilities + [[media:]] marker 现场构造，
- * provider 调用前同步 readMediaAsset → base64；provider 调用后丢弃。
- * 支持 image/video/audio 类型，provider 据 mimeType/kind 决定 content part 格式。
- * messageId：该附件应挂到 buildMessages 第一参 history 中消息 id 与之相同的消息上
- * （多模态按消息归属，历史轮图片可挂回其原本位置）；缺省/undefined = 挂到最后一条 user 消息
- * （兼容既有调用与旧数据）。
+ * 由上下文请求计划按模型原生能力 + 资产版本现场构造，provider 调用后丢弃。
  */
 export interface LLMAttachment {
   mimeType: string
   data: Buffer
-  /** 媒体类型（image/video/audio），供 provider 区分处理 */
-  kind?: MediaKind
+  /** 资产或媒体类型（image/video/audio/document/file），供 provider 区分处理 */
+  kind?: AssetKind
   /** 该附件归属的消息 id（history 中 LLMResponse.id）；缺省 = 最后一条 user 消息。 */
   messageId?: string
+  /** 对应的有序 partId（保持同一消息内图文交错位置） */
+  partId?: string
+  /** 资产 ID 与固定版本标识（预算与审计追踪用） */
+  assetId?: string
+  assetVersionId?: string
+  variant?: AssetVariant
 }
 
 /**
@@ -125,6 +198,26 @@ export function groupAttachmentsByMessage(
   return grouped
 }
 
+/** 保留固定 parts 顺序；没有结构化部分的消息才使用整段文字加附件。 */
+export function orderedMessageInputs(message: LLMResponse, attachments: readonly LLMAttachment[]): Array<{ type: 'text'; text: string } | { type: 'attachment'; attachment: LLMAttachment }> {
+  if (!message.parts?.length) return [
+    ...(message.content ? [{ type: 'text' as const, text: message.content }] : []),
+    ...attachments.map(attachment => ({ type: 'attachment' as const, attachment })),
+  ]
+  const output: Array<{ type: 'text'; text: string } | { type: 'attachment'; attachment: LLMAttachment }> = []
+  const used = new Set<LLMAttachment>()
+  for (const part of message.parts) {
+    if (part.type === 'asset') {
+      for (const attachment of attachments.filter(item => item.partId === part.partId)) { used.add(attachment); output.push({ type: 'attachment', attachment }) }
+    } else {
+      const text = part.type === 'text' ? part.text : part.type === 'directive' ? `/${part.command}${part.args ? ` ${part.args}` : ''}` : part.type === 'role_mention' ? `@${part.roleName}` : part.path
+      if (text) output.push({ type: 'text', text })
+    }
+  }
+  for (const attachment of attachments) if (!used.has(attachment) && !attachment.partId) output.push({ type: 'attachment', attachment })
+  return output
+}
+
 /** buildMessages 可选的 provider 级选项（如 Anthropic 的 anthropicOfficial 开关）。
  *  非 Anthropic provider 可忽略此参数。 */
 export interface BuildMessagesOptions {
@@ -143,11 +236,19 @@ export type MessageProviderAdapterConfig<T = unknown, TStream = unknown, TMessag
   thinking?: (raw: T) => string | undefined
   /** Anthropic 扩展：完整 thinking blocks（含 signature）。非 Anthropic provider 不实现。 */
   thinkingBlocks?: (raw: T) => ThinkingBlock[] | undefined
+  /** 提取非流式响应中的服务端工具调用记录 */
+  serverToolCalls?: (raw: T) => ServerToolCallInfo[] | undefined
+  /** 提取非流式响应的结束原因（如 end_turn / tool_use / completed） */
+  stopReason?: (raw: T) => string | undefined
   extractStreamDelta: (chunk: TStream) => string
   extractStreamThinking?: (chunk: TStream) => string | undefined
   /** Anthropic 扩展：流式 blocks 增量（每次返回该 chunk 触发的 blocks 增量）。
    *  由 middleware 累积器聚合成完整 blocks；非 Anthropic provider 不实现。 */
   extractStreamThinkingBlocks?: (chunk: TStream) => ThinkingBlockDelta[] | undefined
+  /** 提取流式事件中的服务端工具调用/结果增量 */
+  extractStreamServerToolDeltas?: (chunk: TStream) => ServerToolCallDelta[] | undefined
+  /** 提取流式事件中的结束原因（如 message_delta.delta.stop_reason 或 response.completed） */
+  extractStreamStopReason?: (chunk: TStream) => string | undefined
   /** P5b：attachments 为可选多模态附件，provider 据 mimeType/类型决定走原生多模态（image）还是忽略。
    *  buildOptions：provider 级开关（Anthropic 官方模式等），默认 undefined 即用 provider 默认行为。 */
   buildMessages: (

@@ -3,7 +3,7 @@ export interface HandlerContext { requestId?: string; connectionId: string; cred
 import type { ChatInputSubmitRequest as ChatInputSubmitRequestData, ChatInputSubmitResponse as ChatInputSubmitResponseData } from '@chery/protocol'
 import type { Sense, SenseFunction } from './sense.js'
 import type { IngressHookRegistration } from './hooks.js'
-import type { IngressCapability, IngressStatus, IngressUiDescriptor } from '@chery/protocol'
+import type { AssetRecord, IngressCapability, IngressStatus, IngressUiDescriptor } from '@chery/protocol'
 export type { IngressCapability, IngressStatus, IngressUiDescriptor, IngressHookRegistration }
 
 export interface IngressResource {
@@ -110,7 +110,35 @@ export interface IngressPreset {
   mcpServers: readonly string[]
 }
 export interface IngressInternalTextInput { preset: string; instruction: string; content: string; signal?: AbortSignal }
+export interface IngressFileContext {
+  conversationKey: string
+  entryId: string
+  identity: IngressIdentityHandle
+  signal?: AbortSignal
+}
+export interface IngressFileImport extends IngressFileContext {
+  originalName: string
+  mimeType: string
+  source: { data: Uint8Array } | { url: string }
+}
+export interface IngressFileRead extends IngressFileContext {
+  assetId: string
+  assetVersionId: string
+  offset: number
+}
+export interface IngressFileChunk {
+  asset: AssetRecord
+  offset: number
+  dataBase64: string
+  eof: boolean
+}
+export interface IngressFileAuthorization {
+  requestIdentity: IngressRequestIdentity
+  validateIdentity(): void
+}
 export interface IngressCore {
+  importFile?(input: IngressFileImport): Promise<AssetRecord>
+  readFileChunk?(input: IngressFileRead): Promise<IngressFileChunk>
   internalText?(input: IngressInternalTextInput): Promise<string>
   listPresets(): readonly { name: string; presetId: string }[]
   resolvePreset(name: string): Readonly<IngressPreset>
@@ -126,6 +154,8 @@ export interface IngressCore {
 }
 /** Host adapters are injectable without giving a plugin access to arbitrary RPCs. */
 export interface IngressCoreAdapter {
+  importFile?(ownerId: string, key: string, input: Omit<IngressFileImport, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<AssetRecord>
+  readFileChunk?(ownerId: string, key: string, input: Omit<IngressFileRead, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressFileChunk>
   internalText?(ownerId: string, input: IngressInternalTextInput): Promise<string>
   listPresets(): readonly { name: string; presetId: string }[]
   resolvePreset(name: string): Readonly<IngressPreset>

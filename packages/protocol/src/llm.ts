@@ -205,3 +205,179 @@ export function legacyProtocolForProvider(provider: string): LlmProtocol | undef
 export function adapterKeyForProtocol(protocol: LlmProtocol): string {
   return protocol
 }
+
+// ── 模型原生能力与文件服务适配器公共契约（C01—C06 / D01—D03） ──
+
+export const CapabilityState = {
+  SUPPORTED: 'supported',
+  UNSUPPORTED: 'unsupported',
+  UNKNOWN: 'unknown',
+} as const
+export type CapabilityState = (typeof CapabilityState)[keyof typeof CapabilityState]
+export const CAPABILITY_STATES = Object.values(CapabilityState) as CapabilityState[]
+
+export const FileCapabilityOperation = {
+  IMAGE_INSPECT: 'image.inspect',
+  IMAGE_GENERATE: 'image.generate',
+  IMAGE_REFERENCE: 'image.reference',
+  IMAGE_EDIT: 'image.edit',
+  DOCUMENT_EXTRACT: 'document.extract',
+  AUDIO_TRANSCRIBE: 'audio.transcribe',
+  VIDEO_INSPECT: 'video.inspect',
+} as const
+export type FileCapabilityOperation =
+  (typeof FileCapabilityOperation)[keyof typeof FileCapabilityOperation]
+export const FILE_CAPABILITY_OPERATIONS = Object.values(
+  FileCapabilityOperation,
+) as FileCapabilityOperation[]
+
+export const FileServiceAdapterId = {
+  VISION_BRAIN: 'vision-brain',
+  MINIMAX_IMAGES: 'minimax-images',
+  OPENAI_IMAGES: 'openai-images',
+  OPENAI_RESPONSES_IMAGE: 'openai-responses-image',
+  GOOGLE_GEMINI_IMAGE: 'google-gemini-image',
+  GOOGLE_IMAGEN: 'google-imagen',
+  DOUBAO_SEEDREAM: 'doubao-seedream',
+  CUSTOM_SENSE_MCP: 'custom-sense-mcp',
+} as const
+export type FileServiceAdapterId = (typeof FileServiceAdapterId)[keyof typeof FileServiceAdapterId]
+export const FILE_SERVICE_ADAPTER_IDS = Object.values(
+  FileServiceAdapterId,
+) as FileServiceAdapterId[]
+
+export interface FileServiceAdapterDefinition {
+  id: FileServiceAdapterId
+  label: string
+  vendor?: string
+  supportedOperations: readonly FileCapabilityOperation[]
+  representativeModels?: readonly string[]
+}
+
+export const FILE_SERVICE_ADAPTER_CATALOG: readonly FileServiceAdapterDefinition[] = [
+  {
+    id: FileServiceAdapterId.VISION_BRAIN,
+    label: '视觉对话模型（复用已有大脑）',
+    supportedOperations: [FileCapabilityOperation.IMAGE_INSPECT],
+  },
+  {
+    id: FileServiceAdapterId.MINIMAX_IMAGES,
+    label: 'MiniMax 图像生成 API',
+    vendor: 'minimax',
+    supportedOperations: [
+      FileCapabilityOperation.IMAGE_GENERATE,
+      FileCapabilityOperation.IMAGE_REFERENCE,
+    ],
+    representativeModels: ['image-01', 'image-01-live'],
+  },
+  {
+    id: FileServiceAdapterId.OPENAI_IMAGES,
+    label: 'OpenAI Images 兼容 API',
+    vendor: 'openai',
+    supportedOperations: [
+      FileCapabilityOperation.IMAGE_GENERATE,
+      FileCapabilityOperation.IMAGE_REFERENCE,
+      FileCapabilityOperation.IMAGE_EDIT,
+    ],
+    representativeModels: [
+      'gpt-image-1',
+      'gpt-image-1-mini',
+      'gpt-image-1.5',
+      'gpt-image-2',
+      'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-flare',
+    ],
+  },
+  {
+    id: FileServiceAdapterId.OPENAI_RESPONSES_IMAGE,
+    label: 'OpenAI Responses 图片生成工具',
+    vendor: 'openai',
+    supportedOperations: [
+      FileCapabilityOperation.IMAGE_GENERATE,
+      FileCapabilityOperation.IMAGE_REFERENCE,
+      FileCapabilityOperation.IMAGE_EDIT,
+    ],
+    representativeModels: ['gpt-5.5'],
+  },
+  {
+    id: FileServiceAdapterId.GOOGLE_GEMINI_IMAGE,
+    label: 'Google Gemini 原生图像输出',
+    vendor: 'google',
+    supportedOperations: [
+      FileCapabilityOperation.IMAGE_GENERATE,
+      FileCapabilityOperation.IMAGE_REFERENCE,
+      FileCapabilityOperation.IMAGE_EDIT,
+    ],
+    representativeModels: [
+      'gemini-2.5-flash-image',
+      'gemini-3-pro-image',
+      'gemini-3.1-flash-image',
+      'gemini-3.1-flash-lite-image',
+    ],
+  },
+  {
+    id: FileServiceAdapterId.GOOGLE_IMAGEN,
+    label: 'Google Vertex AI Imagen（完整端点）',
+    vendor: 'google',
+    supportedOperations: [FileCapabilityOperation.IMAGE_GENERATE],
+    representativeModels: [
+      'imagen-4.0-generate-001',
+      'imagen-4.0-fast-generate-001',
+      'imagen-4.0-ultra-generate-001',
+    ],
+  },
+  {
+    id: FileServiceAdapterId.DOUBAO_SEEDREAM,
+    label: '豆包 Seedream（火山方舟）',
+    vendor: 'volcengine',
+    supportedOperations: [
+      FileCapabilityOperation.IMAGE_GENERATE,
+      FileCapabilityOperation.IMAGE_REFERENCE,
+      FileCapabilityOperation.IMAGE_EDIT,
+    ],
+    representativeModels: ['doubao-seedream-5-0-pro-260628', 'doubao-seedream-5-0-flash-260915'],
+  },
+  {
+    id: FileServiceAdapterId.CUSTOM_SENSE_MCP,
+    label: '自定义工具 / MCP 结构化映射',
+    supportedOperations: [
+      FileCapabilityOperation.IMAGE_INSPECT,
+      FileCapabilityOperation.IMAGE_GENERATE,
+      FileCapabilityOperation.IMAGE_REFERENCE,
+      FileCapabilityOperation.IMAGE_EDIT,
+      FileCapabilityOperation.DOCUMENT_EXTRACT,
+      FileCapabilityOperation.AUDIO_TRANSCRIBE,
+      FileCapabilityOperation.VIDEO_INSPECT,
+    ],
+  },
+]
+
+export function isCapabilityState(value: unknown): value is CapabilityState {
+  return typeof value === 'string' && (CAPABILITY_STATES as string[]).includes(value)
+}
+
+export function isFileCapabilityOperation(value: unknown): value is FileCapabilityOperation {
+  return typeof value === 'string' && (FILE_CAPABILITY_OPERATIONS as string[]).includes(value)
+}
+
+export function isFileServiceAdapterId(value: unknown): value is FileServiceAdapterId {
+  return typeof value === 'string' && (FILE_SERVICE_ADAPTER_IDS as string[]).includes(value)
+}
+
+export function findFileServiceAdapterDefinition(
+  adapter: string | undefined,
+): FileServiceAdapterDefinition | undefined {
+  return FILE_SERVICE_ADAPTER_CATALOG.find((entry) => entry.id === adapter)
+}
+
+/**
+ * 生成文件服务操作对应的稳定工具标识（仅含字母、数字、下划线，避免点号在 LLM 工具协议中不合法）。
+ */
+export function buildFileServiceToolName(
+  serviceId: string,
+  operation: FileCapabilityOperation,
+): string {
+  const safeService = serviceId.replace(/[^a-zA-Z0-9_]/g, '_')
+  const safeOp = operation.replace(/\./g, '_')
+  return `file_${safeService}_${safeOp}`
+}

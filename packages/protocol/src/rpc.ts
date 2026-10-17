@@ -181,6 +181,16 @@ export const ErrorId = {
   BRAIN_CONFIG_KEY_MISSING: 'BRAIN_CONFIG_KEY_MISSING',
   BRAIN_CONFIG_KEY_ENV_UNRESOLVED: 'BRAIN_CONFIG_KEY_ENV_UNRESOLVED',
   BRAIN_CONFIG_KEY_ENV_INVALID: 'BRAIN_CONFIG_KEY_ENV_INVALID',
+  ASSET_NOT_FOUND: 'asset.not_found',
+  ASSET_UNAVAILABLE: 'asset.unavailable',
+  ASSET_TOO_LARGE: 'asset.too_large',
+  ASSET_FORMAT_UNSUPPORTED: 'asset.format_unsupported',
+  CAPABILITY_UNAVAILABLE: 'capability.unavailable',
+  CAPABILITY_SELECTION_REQUIRED: 'capability.selection_required',
+  CAPABILITY_DELEGATION_CYCLE: 'capability.delegation_cycle',
+  FILE_SERVICE_INVALID_CONFIG: 'file_service.invalid_config',
+  FILE_OPERATION_RESULT_UNKNOWN: 'file_operation.result_unknown',
+  FILE_OPERATION_DELIVERY_FAILED: 'file_operation.delivery_failed',
 } as const
 
 export type ErrorId = (typeof ErrorId)[keyof typeof ErrorId]

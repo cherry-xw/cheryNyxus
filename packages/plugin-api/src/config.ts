@@ -1,6 +1,12 @@
-import type { LlmProtocol } from '@chery/protocol'
+import type {
+  CapabilityState,
+  FileCapabilityOperation,
+  FileServiceAdapterId,
+  LlmProtocol,
+} from '@chery/protocol'
 import type { SupervisionLevel } from './sense.js'
 import type { ThinkingLevel } from './hooks.js'
+export type { CapabilityState, FileCapabilityOperation, FileServiceAdapterId }
 export interface OAuth2Config { enabled?: boolean; trustedOrigins?: string[]; username?: string; password?: string; allowLoopback?: boolean }
 export type MockScriptError =
   | string
@@ -49,23 +55,136 @@ export interface MockConfig {
   preRespondMs?: number
 }
 
+export type CapabilityValue = CapabilityState | boolean
+
 export interface MediaCapabilities {
-  image?: boolean
-  video?: boolean
-  audio?: boolean
+  image?: CapabilityValue
+  video?: CapabilityValue
+  audio?: CapabilityValue
+  pdf?: CapabilityValue
+}
+
+export interface OutputCapabilities {
+  image?: CapabilityValue
+  video?: CapabilityValue
+  audio?: CapabilityValue
 }
 
 export interface BrainCapabilities {
   toolCall?: boolean
   input?: MediaCapabilities
-  generate?: MediaCapabilities
+  output?: OutputCapabilities
+}
+
+export interface FileServiceConnection {
+  /** 引用已有 llm.brain.<name> 连接；与独立 baseUrl/keyRef 互斥 */
+  brainRef?: string
+  /** 独立服务地址（支持 $ENV 占位符） */
+  baseUrl?: string
+  /** 独立模型或接入点 ID（如 image-01、gpt-image-1、doubao-seedream-5-0-pro-260628） */
+  model?: string
+  /** 独立密钥引用（支持 $ENV 占位符） */
+  keyRef?: string
+  /** 认证方式（默认 bearer；本地服务可設 none） */
+  authType?: 'bearer' | 'x-api-key' | 'query-key' | 'none'
+  /** 按操作覆盖完整请求端点 URL（配置后不再拼接默认路径） */
+  endpointOverrides?: Partial<Record<FileCapabilityOperation, string>>
+}
+
+export interface FileServiceConfig {
+  toolMapping?: {
+    toolName: string
+    inputAssetField: string
+    questionField: string
+    transferMode: 'base64' | 'data-url' | 'asset-id'
+    constantParams?: Record<string, unknown>
+    resultPath?: string
+  }
+  /** 用户可见显示名 */
+  name: string
+  /** 是否启用（默认 true） */
+  enabled?: boolean
+  /** 已注册适配器 ID */
+  adapter: FileServiceAdapterId
+  /** 连接与认证配置 */
+  connection: FileServiceConnection
+  /** 启用的操作列表（必须为 adapter 支持操作的子集） */
+  operations: FileCapabilityOperation[]
+  /** 适配器类型化默认参数（如 n、aspect_ratio、size、quality、style 等） */
+  defaults?: Record<string, unknown>
+  /** 单次外部操作超时毫秒数（默认 600000） */
+  timeoutMs?: number
+  /** 排队等待最长毫秒数（默认 600000） */
+  queueTimeoutMs?: number
+  /** 服务级最大并发数（默认 2） */
+  maxConcurrent?: number
+}
+
+export type RoleFileCapabilityMode = 'auto' | 'native' | 'tool' | 'role' | 'disabled'
+
+export interface RoleFileCapabilityBinding {
+  mode: RoleFileCapabilityMode
+  /** mode 为 tool 或 role 时必填稳定工具名或角色 ID；native/auto/disabled 禁止填写 */
+  targetId?: string
+  /** 失败策略，默认 none（不静默切换其他付费服务） */
+  fallback?: 'none'
+}
+
+export type RoleFileCapabilitiesMap = Partial<
+  Record<FileCapabilityOperation, RoleFileCapabilityBinding>
+>
+
+export interface PresetRoleOverride {
+  fileCapabilities?: RoleFileCapabilitiesMap
+}
+
+export interface FilesContextConfig {
+  /** 其他文件的用户轮数；图片独立使用 imageContext。0 表示仅当前轮。 */
+  recentUserTurns?: number
+  /** 单次请求携带的不同资产版本上限（正整数，默认 10） */
+  maxAssets?: number
+  /** 单次请求二进制附件字节预算上限（正整数，默认 16 MiB） */
+  maxBinaryBytes?: number
+  /** 单文件最大提取字符数（正整数，默认 20000） */
+  maxExtractedCharsPerAsset?: number
+  /** 单次请求累计最大提取字符数（正整数，默认 80000） */
+  maxExtractedChars?: number
+  /** 默认图片版本选择（默认 adapted） */
+  defaultImageVariant?: 'original' | 'adapted'
+}
+
+export interface FilesImageAdaptationConfig {
+  /** 适配图最大边像素（正整数，默认 2048，不放大小图） */
+  maxEdge?: number
+  /** 有损编码质量 1-100（默认 85） */
+  quality?: number
+}
+
+export interface FilesConfig {
+  /** 上传单文件字节上限（正整数，默认 100 MiB） */
+  maxUploadBytes?: number
+  context?: FilesContextConfig
+  imageContext?: {
+    mode?: 'current' | 'recent' | 'unlimited'
+    recentUserTurns?: number
+    replacement?: 'description' | 'keywords'
+    missingDescription?: 'existing' | 'inspect'
+    serviceId?: string
+    maxDescriptionChars?: number
+    maxTotalDescriptionChars?: number
+  }
+  imageAdaptation?: FilesImageAdaptationConfig
+  /** 未提交且无引用的暂存上传保留小时数（正整数，默认 24） */
+  unreferencedUploadRetentionHours?: number
+  /** 解除最后引用后的持久资产延迟清理小时数（正整数，默认 24） */
+  unreferencedAssetRetentionHours?: number
 }
 
 export interface BrainConfig {
   url?: string
   model: string
   key?: string
-  /** 思考强度档位（ThinkingLevel）：off=关闭，low/medium/high/xhigh=强度递增。legacy boolean 兼容（loadConfig/readRawConfig 归一）。 */
+  /** 思考强度档位（ThinkingLevel）：off=关闭，low/medium/high/xhigh=强度递增。仅接受非空字符串显示词。 */
   thinking?: ThinkingLevel
   /** 服务入口预设（官方厂商、中转站或 custom）。旧配置中也兼作 adapter 名。 */
   provider: string
@@ -178,6 +297,8 @@ export interface RoleConfig {
    * 缺省或 `private` 为预设内私有角色（归属单一预设）。
    */
   scope?: 'public' | 'private'
+  /** 角色级文件能力绑定（操作 ID → 处理模式与首选目标） */
+  fileCapabilities?: RoleFileCapabilitiesMap
 }
 
 export interface PresetConfig {
@@ -194,6 +315,8 @@ export interface PresetConfig {
   leader: string
   /** 选中的角色 type 名（引用 config.roles 已定义的键，不在预设内重定义） */
   roles?: string[]
+  /** 预设成员级覆盖（如公共角色在不同预设使用不同文件能力目标） */
+  roleOverrides?: Record<string, PresetRoleOverride>
   /**
    * 项目工作目录绝对路径（提示词层注入：buildFirstSystemPrompt 注入 <workspace> 段声明本会话专属该项目）。
    * 仅 system prompt 提示，不约束 sense 实际行为（无 cwd 收束/路径沙箱）。缺省 → 不注入该段。
@@ -411,6 +534,10 @@ export interface Config {
   presets?: Record<string, PresetConfig>
   /** 项目记忆配置（条数/字数限制）；缺省 → max_count=15, max_chars=500 */
   memory?: MemoryConfig
+  /** 文件服务配置（serviceId → 连接与启用操作） */
+  file_services?: Record<string, FileServiceConfig>
+  /** 全局文件与上下文策略配置 */
+  files?: FilesConfig
 }
 
 export interface GlobalConfigRaw extends Omit<GlobalConfig, 'supervision'> {
@@ -429,6 +556,8 @@ export interface ConfigRaw {
   roles?: Record<string, RoleConfig>
   presets?: Record<string, PresetConfig>
   memory?: MemoryConfig
+  file_services?: Record<string, FileServiceConfig>
+  files?: FilesConfig
   /** 本地管理器监听配置（server 侧专属，设置面板不可编辑；见 .chery.template/docs/config.md）。 */
   manager?: ManagerConfig
 }

@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { ConfigApplyStateSchema, ConfigSaveResultSchema } from './configApply.js'
-import { LLM_PROTOCOLS } from './llm.js'
+import {
+  CAPABILITY_STATES,
+  FILE_CAPABILITY_OPERATIONS,
+  FILE_SERVICE_ADAPTER_IDS,
+  LLM_PROTOCOLS,
+} from './llm.js'
 
 /** Settings management data. Keys are accepted on writes, never on resource reads. */
 export const SettingsNameSchema = z.string().min(1).max(128).refine(
@@ -11,9 +16,77 @@ export const SettingsResourceKindSchema = z.enum(['brains', 'sense-groups', 'pre
 const revision = z.string().min(1)
 const requestId = z.string().min(1).max(128)
 const protocol = z.enum(LLM_PROTOCOLS)
-const media = z.object({ image: z.boolean().optional(), video: z.boolean().optional(), audio: z.boolean().optional() }).strict()
+export const SettingsCapabilityValueSchema = z.union([z.enum(CAPABILITY_STATES), z.boolean()])
+export const SettingsInputMediaCapabilitiesSchema = z.object({
+  image: SettingsCapabilityValueSchema.optional(),
+  video: SettingsCapabilityValueSchema.optional(),
+  audio: SettingsCapabilityValueSchema.optional(),
+  pdf: SettingsCapabilityValueSchema.optional(),
+}).strict()
+export const SettingsOutputMediaCapabilitiesSchema = z.object({
+  image: SettingsCapabilityValueSchema.optional(),
+  video: SettingsCapabilityValueSchema.optional(),
+  audio: SettingsCapabilityValueSchema.optional(),
+}).strict()
 export const SettingsBrainCapabilitiesSchema = z.object({
-  toolCall: z.boolean().optional(), input: media.optional(), generate: media.optional(),
+  toolCall: z.boolean().optional(),
+  input: SettingsInputMediaCapabilitiesSchema.optional(),
+  output: SettingsOutputMediaCapabilitiesSchema.optional(),
+}).strict()
+export const SettingsFileCapabilityBindingSchema = z.object({
+  mode: z.enum(['auto', 'native', 'tool', 'role', 'disabled']),
+  targetId: z.string().min(1).optional(),
+  fallback: z.literal('none').optional(),
+}).strict()
+export const SettingsRoleFileCapabilitiesSchema = z.partialRecord(
+  z.enum(FILE_CAPABILITY_OPERATIONS),
+  SettingsFileCapabilityBindingSchema,
+)
+export const SettingsFileServiceConnectionSchema = z.object({
+  brainRef: z.string().min(1).optional(),
+  baseUrl: z.string().optional(),
+  model: z.string().optional(),
+  keyRef: z.string().optional(),
+  authType: z.enum(['bearer', 'x-api-key', 'query-key', 'none']).optional(),
+  endpointOverrides: z.partialRecord(z.enum(FILE_CAPABILITY_OPERATIONS), z.string().min(1)).optional(),
+}).strict()
+export const SettingsFileServiceSchema = z.object({
+  toolMapping: z.object({ toolName: z.string().min(1), inputAssetField: z.string().min(1), questionField: z.string().min(1), transferMode: z.enum(['base64', 'data-url', 'asset-id']), constantParams: z.record(z.string(), z.unknown()).optional(), resultPath: z.string().optional() }).strict().optional(),
+  name: z.string().min(1),
+  enabled: z.boolean().optional(),
+  adapter: z.enum(FILE_SERVICE_ADAPTER_IDS),
+  connection: SettingsFileServiceConnectionSchema,
+  operations: z.array(z.enum(FILE_CAPABILITY_OPERATIONS)).min(1),
+  defaults: z.record(z.string(), z.unknown()).optional(),
+  timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+  queueTimeoutMs: z.number().int().positive().max(3_600_000).optional(),
+  maxConcurrent: z.number().int().positive().optional(),
+}).strict()
+export const SettingsFilesPolicySchema = z.object({
+  maxUploadBytes: z.number().int().positive().optional(),
+  imageContext: z.object({
+    mode: z.enum(['current', 'recent', 'unlimited']).optional(),
+    recentUserTurns: z.number().int().min(1).max(10000).optional(),
+    replacement: z.enum(['description', 'keywords']).optional(),
+    missingDescription: z.enum(['existing', 'inspect']).optional(),
+    serviceId: z.string().min(1).optional(),
+    maxDescriptionChars: z.number().int().min(100).max(4000).optional(),
+    maxTotalDescriptionChars: z.number().int().min(100).max(40000).optional(),
+  }).strict().optional(),
+  context: z.object({
+    recentUserTurns: z.number().int().nonnegative().optional(),
+    maxAssets: z.number().int().positive().optional(),
+    maxBinaryBytes: z.number().int().positive().optional(),
+    maxExtractedCharsPerAsset: z.number().int().positive().optional(),
+    maxExtractedChars: z.number().int().positive().optional(),
+    defaultImageVariant: z.enum(['original', 'adapted']).optional(),
+  }).strict().optional(),
+  imageAdaptation: z.object({
+    maxEdge: z.number().int().positive().optional(),
+    quality: z.number().int().min(1).max(100).optional(),
+  }).strict().optional(),
+  unreferencedUploadRetentionHours: z.number().int().positive().optional(),
+  unreferencedAssetRetentionHours: z.number().int().positive().optional(),
 }).strict()
 export const SettingsBrainSchema = z.object({
   url: z.string().optional(), model: z.string().refine(v => !!v.trim()),
@@ -29,6 +102,7 @@ export const SettingsSenseGroupSchema = z.array(z.string().refine(v => !!v.trim(
 export const SettingsPresetSchema = z.object({
   id: z.string().optional(), shadows: z.object({ conversationRouting: z.string().optional() }).strict().optional(),
   detailRole: z.string().optional(), leader: z.string().optional(), roles: z.array(z.string()).optional(),
+  roleOverrides: z.record(z.string(), z.object({ fileCapabilities: SettingsRoleFileCapabilitiesSchema.optional() }).strict()).optional(),
   workspace: z.string().optional(), schedule: z.object({ cron: z.string(), task: z.string(), enabled: z.boolean().optional() }).strict().optional(),
   rule: z.string().optional(), brain: z.string().optional(), senseGroup: z.string().optional(),
 }).strict()
@@ -36,7 +110,8 @@ export const SettingsToolSchema = z.object({
   name: z.string(), label: z.string(), description: z.string(), icon: z.string(),
   source: z.enum(['builtin', 'custom', 'mcp', 'plugin']).optional(),
   pluginId: z.string().optional(), pluginVersion: z.string().optional(), unavailableReason: z.string().optional(),
-  accepts: z.array(z.string()).optional(), produces: z.array(z.string()).optional(), preprocess: z.boolean().optional(),
+  operations: z.array(z.enum(FILE_CAPABILITY_OPERATIONS)).optional(),
+  accepts: z.array(z.string()).optional(),
 }).strict()
 export const SettingsCatalogSchema = z.object({
   brains: z.array(z.string()), senseGroups: z.array(z.string()), presets: z.array(z.string()),

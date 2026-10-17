@@ -4,16 +4,21 @@ import type { ChatRow } from './chat.js'
 import { defaultMessageLink, upsertMessageLink } from './messageLink.js'
 import type { MessageLinkData } from './messageLink.js'
 import { safeJsonParse } from '@/utils/json.js'
-import type { ThinkingBlock } from '@/core/message/adapter.js'
-import type { ToolAuthorization } from '@/core/security/index.js'
+import type { SenseCallInfo, ServerToolCallInfo, ThinkingBlock } from '@/core/message/adapter.js'
 import type { ObservationEnvelope } from '@/core/sense/senseCreator.js'
 import { assertChanged, getChatMonthlyDb } from './chatStorage.js'
+import type { MessagePart, FileOperationRecord } from '@chery/protocol'
+import { normalizeMessageParts, normalizeFileOperations, parseStoredParts, parseStoredFileOperations } from '@/utils/messageParts.js'
+import { persistAssetReferences } from './assets.js'
 
 export interface MessageRow {
   id: string
   chat_id: string
   role: string
   content: string | null
+  parts?: string | null
+  file_operations?: string | null
+  provider_continuation?: string | null
   thinking: string | null
   /** JSON 序列化的 ThinkingBlock[]（Anthropic 扩展思考完整块） */
   thinking_blocks: string | null
@@ -36,19 +41,16 @@ export interface MessageRow {
 }
 
 export interface MessageData {
+  parts?: MessagePart[]
+  fileOperations?: FileOperationRecord[]
+  providerContinuation?: Record<string, unknown>
   role: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent' // role=新（子 pet 回复）；subagent 仅旧历史消息兼容读
   content?: string
   thinking?: string
   /** Anthropic 扩展：thinking 完整块（含 signature）；JSON 列反序列化 */
   thinkingBlocks?: ThinkingBlock[]
-  senseCall?: Array<{
-    index?: number
-    id: string
-    name: string
-    arguments: string
-    /** 该工具调用的安全授权判定（authorizeToolCall 输出原样 JSON round-trip；缺省 = 旧数据无判定） */
-    security?: ToolAuthorization
-  }>
+  senseCall?: Array<SenseCallInfo & { index?: number }>
+  serverToolCalls?: ServerToolCallInfo[]
   hash?: string
   observation?: ObservationEnvelope
   replace?: {
@@ -155,17 +157,31 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
   // 3. 路由到月份文件并插入 message
   const monthlyDb = getMonthlyDb(chat.messages_month)
   const now = Date.now()
+  const normalized = normalizeMessageParts(data.content, data.parts)
+  const partsJson = JSON.stringify(normalized.parts)
+  const operationsJson = data.fileOperations ? JSON.stringify(normalizeFileOperations(data.fileOperations)) : null
+  const mergedContinuation =
+    data.providerContinuation || (data.serverToolCalls && data.serverToolCalls.length > 0)
+      ? {
+          ...(data.providerContinuation ?? {}),
+          ...(data.serverToolCalls && data.serverToolCalls.length > 0
+            ? { serverToolCalls: data.serverToolCalls }
+            : {}),
+        }
+      : undefined
+  const continuationJson = mergedContinuation ? JSON.stringify(mergedContinuation) : null
+  persistAssetReferences(soulDb, chatId, 'message', messageId, normalized.parts, data.fileOperations)
 
   const stmt = monthlyDb.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, observation, replace_state, replace_by, replace_content, original_content, revoked, model_excluded, created_at, runtime, context_compaction, context_compaction_tokens, epoch_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, observation, replace_state, replace_by, replace_content, original_content, revoked, model_excluded, created_at, runtime, context_compaction, context_compaction_tokens, epoch_id, parts, file_operations, provider_continuation)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   stmt.run(
     finalMessageId,
     chatId,
     data.role,
-    data.content ?? null,
+    normalized.content,
     data.thinking ?? null,
     data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
     data.senseCall ? JSON.stringify(data.senseCall) : null,
@@ -182,6 +198,9 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     data.contextCompaction ? 1 : 0,
     data.contextCompactionTokens ?? null,
     chat.active_epoch_id,
+    partsJson,
+    operationsJson,
+    continuationJson,
   )
 
   // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
@@ -196,7 +215,10 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     id: finalMessageId,
     chat_id: chatId,
     role: data.role,
-    content: data.content ?? null,
+    content: normalized.content,
+    parts: partsJson,
+    file_operations: operationsJson,
+    provider_continuation: continuationJson,
     thinking: data.thinking ?? null,
     thinking_blocks: data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
     sense_calls: data.senseCall ? JSON.stringify(data.senseCall) : null,
@@ -267,16 +289,22 @@ export function getLastMessage(chatId: string): MessageRow | null {
 export function fillApprovalResult(
   chatId: string,
   messageId: string,
-  fields: { content?: string; hash?: string; observation?: ObservationEnvelope },
+  fields: { content?: string; parts?: MessagePart[]; fileOperations?: FileOperationRecord[]; hash?: string; observation?: ObservationEnvelope },
 ): void {
   const monthlyDb = getChatMonthlyDb(chatId)
   if (!monthlyDb) return
 
   const sets: string[] = []
   const vals: unknown[] = []
-  if (fields.content !== undefined) {
-    sets.push('content = ?')
-    vals.push(fields.content)
+  if (fields.content !== undefined || fields.parts !== undefined) {
+    const normalized = normalizeMessageParts(fields.content, fields.parts)
+    persistAssetReferences(getSoulDb(), chatId, 'message', messageId, normalized.parts, fields.fileOperations)
+    sets.push('content = ?', 'parts = ?')
+    vals.push(normalized.content, JSON.stringify(normalized.parts))
+  }
+  if (fields.fileOperations !== undefined) {
+    sets.push('file_operations = ?')
+    vals.push(JSON.stringify(normalizeFileOperations(fields.fileOperations)))
   }
   if (fields.hash !== undefined) {
     sets.push('hash = ?')
@@ -307,10 +335,26 @@ export function fillApprovalResult(
 export function updateAssistantSenseCalls(
   chatId: string,
   messageId: string,
-  senseCalls: Array<{ id: string; name: string; arguments: string }>,
+  senseCalls: SenseCallInfo[],
+  serverToolCalls?: ServerToolCallInfo[],
 ): void {
   const monthlyDb = getChatMonthlyDb(chatId)
   if (!monthlyDb) return
+  if (serverToolCalls !== undefined) {
+    const existing = monthlyDb
+      .prepare('SELECT provider_continuation FROM messages WHERE id = ?')
+      .get(messageId) as { provider_continuation: string | null } | undefined
+    const prevCont = existing?.provider_continuation
+      ? safeJsonParse<Record<string, unknown>>(existing.provider_continuation, {})
+      : {}
+    const nextCont = { ...prevCont, serverToolCalls }
+    const result = monthlyDb
+      .prepare('UPDATE messages SET sense_calls = ?, provider_continuation = ? WHERE id = ?')
+      .run(JSON.stringify(senseCalls), JSON.stringify(nextCont), messageId)
+    assertChanged(result, `updateAssistantSenseCalls(${chatId}/${messageId})`)
+    bumpTimelineRevision(chatId)
+    return
+  }
   const result = monthlyDb
     .prepare('UPDATE messages SET sense_calls = ? WHERE id = ?')
     .run(JSON.stringify(senseCalls), messageId)
@@ -390,8 +434,9 @@ export function markMessageReplaced(
     fields.originalContent ?? null,
   ]
   if (fields.content !== undefined) {
-    sets.push('content = ?')
-    vals.push(fields.content)
+    const normalized = normalizeMessageParts(fields.content)
+    sets.push('content = ?', 'parts = ?')
+    vals.push(normalized.content, JSON.stringify(normalized.parts))
   }
   const result = monthlyDb
     .prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`)
@@ -404,9 +449,20 @@ export function markMessageReplaced(
  * 解析消息行
  */
 export function parseMessageRow(row: MessageRow): MessageData {
+  const parts = parseStoredParts(row.parts)
+  const providerContinuation = row.provider_continuation
+    ? safeJsonParse<Record<string, unknown> | undefined>(row.provider_continuation, undefined)
+    : undefined
+  const serverToolCalls = Array.isArray(providerContinuation?.serverToolCalls)
+    ? (providerContinuation.serverToolCalls as ServerToolCallInfo[])
+    : undefined
   return {
     role: row.role as MessageData['role'],
-    content: row.content ?? undefined,
+    content: parts === undefined ? row.content ?? undefined : normalizeMessageParts(undefined, parts).content,
+    parts,
+    fileOperations: parseStoredFileOperations(row.file_operations),
+    providerContinuation,
+    ...(serverToolCalls && serverToolCalls.length > 0 ? { serverToolCalls } : {}),
     thinking: row.thinking ?? undefined,
     thinkingBlocks: row.thinking_blocks
       ? safeJsonParse<ThinkingBlock[] | undefined>(row.thinking_blocks, undefined)

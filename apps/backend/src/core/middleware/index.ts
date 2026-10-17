@@ -204,7 +204,7 @@ export default class AgentSession<T = unknown> {
    * @param options.silent deferred/barrier 暂存注入不置 roleReplyPending
    * @returns 新消息 id
    */
-  appendRoleReply(content: string, options?: { silent?: boolean }): string {
+  appendRoleReply(content: string, options?: Parameters<MessageJournal['appendRoleReply']>[1]): string {
     return this.journal.appendRoleReply(content, options).id
   }
 

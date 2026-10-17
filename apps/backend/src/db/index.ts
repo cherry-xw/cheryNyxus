@@ -3,6 +3,7 @@ import Database from 'better-sqlite3'
 import { join } from 'path'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import config from '@/utils/config.js'
+import { initAssetTables } from './assets.js'
 
 // 缓存管理
 const dbCache = {
@@ -72,6 +73,7 @@ export function getMonthlyDb(yearMonth: string): Database.Database {
  * 仅保留 chats 表，souls 表已废弃
  */
 function initSoulTables(db: Database.Database): void {
+  initAssetTables(db)
   db.exec(`
     CREATE TABLE IF NOT EXISTS model_request_usage (
       attempt_id TEXT PRIMARY KEY,
@@ -524,6 +526,7 @@ function initSoulTables(db: Database.Database): void {
     WHERE active_branch_id IS NULL`)
   ensureTableColumn(db, 'message_links', 'causation_node_id', 'TEXT')
   ensureTableColumn(db, 'pending_inputs', 'epoch_id', 'TEXT')
+  ensureTableColumn(db, 'pending_inputs', 'parts', 'TEXT')
   ensureTableColumn(db, 'execution_active_runs', 'epoch_id', 'TEXT')
 }
 
@@ -644,6 +647,9 @@ function initMonthlyTables(db: Database.Database): void {
   `)
 
   ensureMessageColumn(db, 'thinking_blocks', 'TEXT')
+  ensureMessageColumn(db, 'parts', 'TEXT')
+  ensureMessageColumn(db, 'file_operations', 'TEXT')
+  ensureMessageColumn(db, 'provider_continuation', 'TEXT')
   ensureMessageColumn(db, 'observation', 'TEXT')
   ensureMessageColumn(db, 'revoked', 'INTEGER DEFAULT 0')
   ensureMessageColumn(db, 'model_excluded', 'INTEGER DEFAULT 0')

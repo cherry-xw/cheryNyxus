@@ -44,6 +44,11 @@ export function createChat(
   const db = getSoulDb()
   const now = Date.now()
   const messagesMonth = formatYearMonth(now)
+  if (parentChatId && !metadata?.fileOwnerId) {
+    const parent = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(parentChatId) as { metadata: string | null } | undefined
+    const parentMetadata = safeJsonParse<Record<string, unknown>>(parent?.metadata ?? '{}', {})
+    if (typeof parentMetadata.fileOwnerId === 'string') metadata = { ...metadata, fileOwnerId: parentMetadata.fileOwnerId }
+  }
   const parentEpoch = parentChatId
     ? ((
         db.prepare('SELECT active_epoch_id FROM chats WHERE id = ?').get(parentChatId) as

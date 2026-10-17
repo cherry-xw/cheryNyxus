@@ -1,10 +1,16 @@
 import { randomUUID } from 'crypto'
-import type { LLMResponse, ReplaceInfo, ThinkingBlock } from '../message/adapter'
+import type {
+  LLMResponse,
+  ReplaceInfo,
+  SenseCallInfo,
+  ServerToolCallInfo,
+  ThinkingBlock,
+} from '../message/adapter'
 import type { Logger } from '@/utils/logger/types'
 import { LogLevel } from '@/utils/logger/types'
 import { estimateTokens } from '@/utils/token.js'
+import { normalizeMessageParts } from '@/utils/messageParts.js'
 import type { AgentMessage, AgentMessagePatch, SoulGroup, UserInputEntry } from './types'
-import type { ToolAuthorization } from '../security/rolePolicy.js'
 import type { ObservationEnvelope } from '../sense/senseCreator'
 
 /**
@@ -95,7 +101,7 @@ export class MessageJournal {
     metadata?: Omit<Partial<UserInputEntry>, 'content' | 'time'>,
   ): UserInputEntry | undefined {
     const trimmed = content.trim()
-    if (!trimmed) return undefined
+    if (!trimmed && !metadata?.parts?.length) return undefined
     if (this.soul.userInputs.length >= MAX_USER_INPUTS) {
       // V2 command inputs carry a commandId and must never be silently lost.
       // Legacy chat.send has historical drop-oldest backpressure semantics;
@@ -118,6 +124,7 @@ export class MessageJournal {
     }
     const entry: UserInputEntry = {
       content: trimmed,
+      ...(metadata?.parts ? { parts: structuredClone(metadata.parts) } : {}),
       time: Date.now(),
       ...(metadata?.inputId ? { inputId: metadata.inputId } : {}),
       ...(metadata?.requestIdentity ? { requestIdentity: metadata.requestIdentity } : {}),
@@ -155,6 +162,7 @@ export class MessageJournal {
         id: msgId,
         role: input.role ?? 'user',
         content: input.content,
+        ...(input.parts ? { parts: structuredClone(input.parts) } : {}),
         createdAt: input.time, // 用户发送时间
         updateAt, // 注入消息列表时间
         ...(input.ephemeral ? { ephemeral: true } : {}),
@@ -163,6 +171,7 @@ export class MessageJournal {
         id: msgId,
         role: input.role ?? 'user',
         content: input.persistedContent ?? input.content,
+        ...(input.parts ? { parts: structuredClone(input.parts) } : {}),
         createdAt: input.time,
         updateAt,
         ...(input.inputId ? { inputId: input.inputId } : {}),
@@ -215,14 +224,14 @@ export class MessageJournal {
     payload: {
       content: string
       thinking: string
+      parts?: import('@chery/protocol').MessagePart[]
+      fileOperations?: import('@chery/protocol').FileOperationRecord[]
+      providerContinuation?: Record<string, unknown>
       /** Anthropic 扩展：完整 thinking blocks（含 signature）。落库 + 下轮 buildMessages 原样回传。 */
       thinkingBlocks?: ThinkingBlock[]
-      senseCalls: Array<{
-        id: string
-        name: string
-        arguments: string
-        security?: ToolAuthorization
-      }>
+      senseCalls: SenseCallInfo[]
+      serverToolCalls?: ServerToolCallInfo[]
+      modelExcluded?: boolean
     },
     id?: string,
   ): AgentMessage {
@@ -241,17 +250,32 @@ export class MessageJournal {
             ) - estimateTokens(extractSummaryBlock(payload.content)),
         )
       : undefined
+    const continuation =
+      payload.providerContinuation || (payload.serverToolCalls && payload.serverToolCalls.length > 0)
+        ? {
+            ...(payload.providerContinuation ? structuredClone(payload.providerContinuation) : {}),
+            ...(payload.serverToolCalls && payload.serverToolCalls.length > 0
+              ? { serverToolCalls: structuredClone(payload.serverToolCalls) }
+              : {}),
+          }
+        : undefined
     const assistantMsg: LLMResponse = {
       id: id ?? randomUUID(),
       role: 'assistant' as const,
-      content: payload.content,
+      ...normalizeMessageParts(payload.content, payload.parts),
+      ...(payload.fileOperations ? { fileOperations: structuredClone(payload.fileOperations) } : {}),
+      ...(continuation ? { providerContinuation: continuation } : {}),
       thinking: payload.thinking,
       ...(payload.thinkingBlocks && payload.thinkingBlocks.length > 0
         ? { thinkingBlocks: payload.thinkingBlocks }
         : {}),
       senseCalls: payload.senseCalls,
+      ...(payload.serverToolCalls && payload.serverToolCalls.length > 0
+        ? { serverToolCalls: structuredClone(payload.serverToolCalls) }
+        : {}),
       createdAt: Date.now(),
       updateAt: Date.now(),
+      ...(payload.modelExcluded ? { modelExcluded: true } : {}),
       ...(contextCompaction ? { contextCompaction: true } : {}),
       ...(contextCompactionTokens !== undefined ? { contextCompactionTokens } : {}),
     }
@@ -260,12 +284,17 @@ export class MessageJournal {
     return {
       id: assistantMsg.id,
       role: 'assistant',
-      content: payload.content || undefined,
+      content: assistantMsg.content,
+      parts: assistantMsg.parts,
+      fileOperations: assistantMsg.fileOperations,
+      providerContinuation: assistantMsg.providerContinuation,
       thinking: payload.thinking || undefined,
       ...(payload.thinkingBlocks && payload.thinkingBlocks.length > 0
         ? { thinkingBlocks: payload.thinkingBlocks }
         : {}),
       senseCalls: payload.senseCalls,
+      ...(assistantMsg.serverToolCalls ? { serverToolCalls: assistantMsg.serverToolCalls } : {}),
+      ...(payload.modelExcluded ? { modelExcluded: true } : {}),
       ...(contextCompaction ? { contextCompaction: true } : {}),
       ...(contextCompactionTokens !== undefined ? { contextCompactionTokens } : {}),
     }
@@ -280,17 +309,20 @@ export class MessageJournal {
    */
   updateAssistantSenseCalls(
     id: string,
-    senseCalls: Array<{
-      id: string
-      name: string
-      arguments: string
-      security?: ToolAuthorization
-    }>,
+    senseCalls: SenseCallInfo[],
+    serverToolCalls?: ServerToolCallInfo[],
   ): void {
     const messages = this.soul.messages ?? []
     const existing = messages.find((message) => message.id === id)
     if (!existing) return
     existing.senseCalls = senseCalls
+    if (serverToolCalls && serverToolCalls.length > 0) {
+      existing.serverToolCalls = structuredClone(serverToolCalls)
+      existing.providerContinuation = {
+        ...(existing.providerContinuation ?? {}),
+        serverToolCalls: structuredClone(serverToolCalls),
+      }
+    }
     existing.updateAt = Date.now()
   }
 
@@ -321,12 +353,18 @@ export class MessageJournal {
    * @param options.silent true=deferred/barrier 暂存注入，不置 roleReplyPending（主停等态由 wakeScheduler 决定唤主时机）
    * @returns AgentMessage（供 wakeParent addMessage 落库用 id）
    */
-  appendRoleReply(content: string, options?: { silent?: boolean }): AgentMessage {
+  appendRoleReply(content: string, options?: {
+    silent?: boolean
+    id?: string
+    parts?: import('@chery/protocol').MessagePart[]
+    fileOperations?: import('@chery/protocol').FileOperationRecord[]
+  }): AgentMessage {
     const messages = this.soul.messages ?? []
     const msg: LLMResponse = {
-      id: randomUUID(),
+      id: options?.id ?? randomUUID(),
       role: 'role' as const,
-      content,
+      ...normalizeMessageParts(content, options?.parts),
+      ...(options?.fileOperations ? { fileOperations: structuredClone(options.fileOperations) } : {}),
       createdAt: Date.now(),
       updateAt: Date.now(),
     }
@@ -340,7 +378,9 @@ export class MessageJournal {
     return {
       id: msg.id,
       role: 'role',
-      content: content || undefined,
+      content: msg.content || undefined,
+      parts: msg.parts,
+      fileOperations: msg.fileOperations,
     }
   }
 
@@ -353,6 +393,8 @@ export class MessageJournal {
   completeSense(result: {
     id: string
     content: string
+    parts?: import('@chery/protocol').MessagePart[]
+    fileOperations?: import('@chery/protocol').FileOperationRecord[]
     hash?: string
     observation?: ObservationEnvelope
   }): MessageMutation {
@@ -360,20 +402,24 @@ export class MessageJournal {
     const existingIdx = messages.findIndex((m) => m.id === result.id)
     if (existingIdx !== -1) {
       const existing = messages[existingIdx]!
-      existing.content = result.content
+      const normalized = normalizeMessageParts(result.content, result.parts)
+      existing.content = normalized.content
+      existing.parts = normalized.parts
+      if (result.fileOperations) existing.fileOperations = structuredClone(result.fileOperations)
       if (result.hash) existing.hash = result.hash
       if (result.observation) existing.observation = result.observation
       existing.updateAt = Date.now()
       return {
         type: 'updated',
         id: result.id,
-        patch: { content: result.content, hash: result.hash, observation: result.observation },
+        patch: { ...normalized, fileOperations: result.fileOperations, hash: result.hash, observation: result.observation },
       }
     }
     const senseMsg: LLMResponse = {
       id: result.id,
       role: 'sense',
-      content: result.content,
+      ...normalizeMessageParts(result.content, result.parts),
+      fileOperations: result.fileOperations,
       hash: result.hash,
       observation: result.observation,
       createdAt: Date.now(),
@@ -386,7 +432,9 @@ export class MessageJournal {
       message: {
         id: result.id,
         role: 'sense',
-        content: result.content,
+        content: senseMsg.content,
+        parts: senseMsg.parts,
+        fileOperations: senseMsg.fileOperations,
         hash: result.hash,
         observation: result.observation,
       },
@@ -411,10 +459,12 @@ export class MessageJournal {
     }> = []
     for (const msg of messages) {
       if (msg.role === 'sense' && msg.hash === matcher.matchHash && !msg.replace?.state) {
+        if (msg.fileOperations?.length || msg.parts?.some((part) => part.type === 'asset')) continue
         const staleNote = `此条旧读取已被新读取结果取代（新记录 id:${matcher.newId}），长内容已折叠，以新记录为准。`
         const replaceInfo: ReplaceInfo = { state: true, by: matcher.newId, content: staleNote }
         msg.originalContent = msg.content
         msg.content = staleNote
+        msg.parts = normalizeMessageParts(staleNote).parts
         msg.replace = replaceInfo
         replaced.push({
           id: msg.id,

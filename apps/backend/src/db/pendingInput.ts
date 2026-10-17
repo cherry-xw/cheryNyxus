@@ -1,4 +1,6 @@
 import { getSoulDb } from './index.js'
+import type { MessagePart } from '@chery/protocol'
+import { normalizeMessageParts } from '@/utils/messageParts.js'
 
 export interface PendingInputRow {
   input_id: string
@@ -7,6 +9,7 @@ export interface PendingInputRow {
   client_message_id: string | null
   command_id: string
   content: string
+  parts?: string | null
   queue_sequence: number
   state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
   accepted_at: number
@@ -22,18 +25,20 @@ export function addPendingInput(input: {
   clientMessageId?: string
   commandId: string
   content: string
+  parts?: MessagePart[]
   queueSequence: number
   state: PendingInputRow['state']
   acceptedAt: number
 }): void {
+  const normalized = normalizeMessageParts(input.content, input.parts)
   const epoch = getSoulDb()
     .prepare('SELECT active_epoch_id FROM chats WHERE id = ?')
     .get(input.chatId) as { active_epoch_id: string | null } | undefined
   getSoulDb()
     .prepare(
       `INSERT INTO pending_inputs
-        (input_id, chat_id, message_id, client_message_id, command_id, content, queue_sequence, state, accepted_at, epoch_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (input_id, chat_id, message_id, client_message_id, command_id, content, queue_sequence, state, accepted_at, epoch_id, parts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.inputId,
@@ -41,11 +46,12 @@ export function addPendingInput(input: {
       input.messageId,
       input.clientMessageId ?? null,
       input.commandId,
-      input.content,
+      normalized.content,
       input.queueSequence,
       input.state,
       input.acceptedAt,
       epoch?.active_epoch_id ?? null,
+      JSON.stringify(normalized.parts),
     )
 }
 

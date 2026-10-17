@@ -31,6 +31,22 @@ describe('MessageJournal compact', () => {
 })
 
 describe('MessageJournal injected inputs', () => {
+  it('keeps fixed asset versions and reference-only usage in memory and persistence effects', () => {
+    const soul: SoulGroup = { chatId: 'chat', senseSharedData: new Map(), userInputs: [], messages: [] }
+    const journal = new MessageJournal(soul, logger)
+    const parts: import('@chery/protocol').MessagePart[] = [
+      { partId: 'before', type: 'text', text: '说明' },
+      { partId: 'file', type: 'asset', assetId: 'asset', assetVersionId: 'version', variant: 'original', usage: 'reference-only' },
+      { partId: 'after', type: 'text', text: '后文' },
+    ]
+    journal.appendUserInput('说明[文件: asset]后文', { parts, commandId: 'command' })
+    parts[0] = { partId: 'changed', type: 'text', text: '调用方后来修改' }
+    const result = journal.appendUserMessages()
+    expect(result.messages[0]?.parts?.map((part) => part.partId)).toEqual(['before', 'file', 'after'])
+    expect(journal.getMessages()[0]?.parts).toEqual(result.messages[0]?.parts)
+    expect(result.messages[0]?.parts?.[1]).toMatchObject({ assetVersionId: 'version', usage: 'reference-only' })
+  })
+
   it('keeps model-only instructions ephemeral and exposes the original user text', () => {
     const soul: SoulGroup = {
       chatId: 'chat',

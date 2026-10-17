@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { getMonthlyDb, getSoulDb } from './index.js'
 import { jsonRows } from './helpers.js'
+import type { MessagePart } from '@chery/protocol'
+import { getSpawnInputParts, setSpawnInputParts } from './fileDeliverables.js'
 
 const RETENTION_MS = 24 * 60 * 60 * 1000
 const RETENTION_EVENTS_PER_CHAT = 10_000
@@ -50,6 +52,7 @@ export interface SpawnTask {
   parentChatId: string
   type: string
   prompt: string
+  parts?: MessagePart[]
   brain: string
   senseGroup: string
   spawnCallId?: string
@@ -327,31 +330,34 @@ export function createSpawnTask(
 ): SpawnTask {
   const taskId = input.taskId ?? randomUUID()
   const now = Date.now()
-  getSoulDb()
-    .prepare(
-      `INSERT INTO spawn_tasks
+  getSoulDb().transaction(() => {
+    getSoulDb()
+      .prepare(
+        `INSERT INTO spawn_tasks
       (task_id, child_chat_id, parent_chat_id, type, prompt, brain, sense_group, spawn_call_id, owning_batch_id,
        delivery_chat_id, delivery_branch_id, delivery_generation, epoch_id, role_id, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-    )
-    .run(
-      taskId,
-      input.childChatId,
-      input.parentChatId,
-      input.type,
-      input.prompt,
-      input.brain,
-      input.senseGroup,
-      input.spawnCallId ?? null,
-      input.owningBatchId ?? null,
-      input.deliveryChatId ?? input.parentChatId,
-      input.deliveryBranchId ?? null,
-      input.deliveryGeneration ?? 0,
-      input.epochId ?? null,
-      input.roleId ?? null,
-      now,
-      now,
-    )
+      )
+      .run(
+        taskId,
+        input.childChatId,
+        input.parentChatId,
+        input.type,
+        input.prompt,
+        input.brain,
+        input.senseGroup,
+        input.spawnCallId ?? null,
+        input.owningBatchId ?? null,
+        input.deliveryChatId ?? input.parentChatId,
+        input.deliveryBranchId ?? null,
+        input.deliveryGeneration ?? 0,
+        input.epochId ?? null,
+        input.roleId ?? null,
+        now,
+        now,
+      )
+    if (input.parts) setSpawnInputParts(taskId, input.parts)
+  })()
   return {
     ...input,
     taskId,
@@ -368,6 +374,7 @@ function toSpawnTask(row: Record<string, unknown>): SpawnTask {
     parentChatId: String(row.parent_chat_id),
     type: String(row.type),
     prompt: String(row.prompt),
+    parts: getSpawnInputParts(String(row.task_id)),
     brain: String(row.brain),
     senseGroup: String(row.sense_group),
     ...(row.spawn_call_id ? { spawnCallId: String(row.spawn_call_id) } : {}),

@@ -1,9 +1,15 @@
 import type { z } from 'zod'
+import type { FileCapabilityOperation, MessagePart, FileOperationRecord } from '@chery/protocol'
 import type { IngressRequestView } from './index.js'
 export type SupervisionLevel = 0 | 1 | 2
 export interface ToolAuthorization { decision: 'allow' | 'ask' | 'deny'; roleType: string; policyHash: string; requiredSandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'; findings: Array<{ [key: string]: unknown }>; assessmentHash: string }
 export interface SenseResult {
+  fileOperations?: FileOperationRecord[]
   content: string
+  /** 结构化有序输出部分（文本/文件资产等），与 content 同步或作为主输出 */
+  parts?: MessagePart[]
+  /** 本次工具调用正式产出并落盘登记的资产 ID 列表 */
+  outputAssetIds?: string[]
   hash?: string
   /** Optional typed observation metadata; omitted for legacy results. */
   observation?: ObservationEnvelope
@@ -134,10 +140,28 @@ export interface SenseFunction {
 
 export type SenseSharedData = Map<string, Map<string, unknown>>
 
+export type SenseAssetTransferMode = 'base64' | 'data-url' | 'local-path' | 'asset-id'
+
+export interface SenseFileOperationMapping {
+  operation: FileCapabilityOperation
+  /** 输入资产填充的目标参数名（如 image、images、file） */
+  inputAssetField?: string
+  /** 输入资产传输格式（远程 MCP 禁止使用 local-path） */
+  transferMode?: SenseAssetTransferMode
+  /** 用户问题/指令填充的目标参数名（如 prompt、question） */
+  questionField?: string
+  /** 固定附加参数常量 */
+  constantParams?: Record<string, unknown>
+  /** 从返回结果提取输出资产或文本的路径说明 */
+  resultPath?: string
+}
+
 export interface SenseCapabilities {
+  /** 支持的文件操作 ID 列表 */
+  operations?: FileCapabilityOperation[]
+  /** 自定义工具 / MCP 的结构化文件操作映射 */
+  mappings?: SenseFileOperationMapping[]
   accepts?: string[]
-  produces?: string[]
-  preprocess?: boolean
   batchSize?: number
 }
 

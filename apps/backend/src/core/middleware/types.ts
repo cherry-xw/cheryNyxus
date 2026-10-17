@@ -2,6 +2,10 @@ import type {
   MessageProviderAdapterConfig,
   LLMResponse,
   ReplaceInfo,
+  SenseCallInfo,
+  ServerToolCallDelta,
+  ServerToolCallInfo,
+  ServerToolSource,
   ThinkingBlock,
   ThinkingBlockDelta,
 } from '../message/adapter'
@@ -31,6 +35,7 @@ export type { LLMAdapter } from '../llm/adapter'
  * 用户输入条目
  */
 export interface UserInputEntry {
+  parts?: import('@chery/protocol').MessagePart[]
   requestExecution?: {
     signal?: AbortSignal
     execution?: { toolHistory: 'request'; retry: 'never' }
@@ -145,13 +150,18 @@ export interface AdaptersGroup {
  * Agent 运行期消息快照（agent → service 事件载荷）
  */
 export interface AgentMessage {
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
+  providerContinuation?: Record<string, unknown>
   id: string
   role: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent' // role=新（子 pet 回复）；subagent=旧历史兼容
   content?: string
   thinking?: string
   /** Anthropic 扩展：thinking blocks 完整列表（含 signature / redacted）。UI 不读；仅供 provider round-trip。 */
   thinkingBlocks?: ThinkingBlock[]
-  senseCalls?: Array<{ id: string; name: string; arguments: string; security?: ToolAuthorization }>
+  senseCalls?: SenseCallInfo[]
+  /** 服务端已执行的工具调用记录（与本地 senseCalls 分离） */
+  serverToolCalls?: ServerToolCallInfo[]
   /** 消息创建时间（consumed 实时投影使用；内部 effect 可省略）。 */
   createdAt?: number
   /** 消息更新时间（内部 effect 可省略）。 */
@@ -185,13 +195,12 @@ export type AgentMessagePatch =
   | {
       kind?: 'content'
       content?: string
+      parts?: import('@chery/protocol').MessagePart[]
+      fileOperations?: import('@chery/protocol').FileOperationRecord[]
       thinking?: string
-      senseCalls?: Array<{
-        id: string
-        name: string
-        arguments: string
-        security?: ToolAuthorization
-      }>
+      senseCalls?: SenseCallInfo[]
+      serverToolCalls?: ServerToolCallInfo[]
+      providerContinuation?: Record<string, unknown>
       hash?: string
       observation?: ObservationEnvelope
     }
@@ -261,6 +270,10 @@ export interface StreamChunk {
   senseDelta?: SenseCallData[]
   /** Anthropic 扩展：thinking blocks 流式增量（每 chunk 触发 0..N 个 delta） */
   thinkingBlocksDelta?: ThinkingBlockDelta[]
+  /** 服务端工具调用/结果流式增量 */
+  serverToolDeltas?: ServerToolCallDelta[]
+  /** 流式结束原因（如 end_turn / tool_use / completed） */
+  stopReason?: string
   /** checkpoint 外层注入的本轮 assistant 消息 id；chat provider 内层产出时尚未附加。 */
   msgId?: string
   /** checkpoint 外层注入的本轮开始时间；chat provider 内层产出时尚未附加。 */
@@ -325,6 +338,9 @@ export interface SenseStartedChunk {
  * id 与 sense_end.id 一致
  */
 export interface SenseAcceptChunk {
+  parts?: import('@chery/protocol').MessagePart[]
+  outputAssetIds?: string[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   type: 'sense_accept'
   /** 与 sense_end.id 一致 */
   id: string
@@ -352,6 +368,9 @@ export interface SenseAcceptChunk {
  * id 与 sense_end.id 一致
  */
 export interface SenseRejectChunk {
+  parts?: import('@chery/protocol').MessagePart[]
+  outputAssetIds?: string[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   type: 'sense_reject'
   /** 与 sense_end.id 一致 */
   id: string
@@ -395,6 +414,14 @@ export interface StagedChunk {
   createdAt: number
   /** sense 调用的安全授权判定（仅 sense_end 携带；checkpoint 从 trigger.security 透传，供历史回放渲染风险徽章） */
   security?: ToolAuthorization
+  /** 工具执行归属（local / server） */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的标记 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具结果或跳过说明 */
+  result?: string
+  /** 服务端工具来源链接 */
+  sources?: ServerToolSource[]
 }
 
 /**

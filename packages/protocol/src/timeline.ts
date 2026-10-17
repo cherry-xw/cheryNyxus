@@ -14,7 +14,7 @@
  *   携带 config 派生依赖（CommandRiskCategory），结构兼容本镜像但不共用定义。
  */
 
-import type { TerminationFact } from './chat'
+import type { MessagePart, TerminationFact } from './chat'
 
 /** 思考等级档位（与 LLM adapter 的运行时档位同形；档位字符串可扩展）。 */
 export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | (string & {})
@@ -82,14 +82,26 @@ export interface TimelineSecurityFact {
 }
 
 export interface GraphToolCall {
+  parts?: import('./chat').MessagePart[]
+  fileOperations?: import('./chat').FileOperationRecord[]
   callId: string
   index: number
   name: string
   arguments: string
   result?: string
   status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行）。 */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的说明。 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具关联的外部来源/引用链接。 */
+  sources?: Array<{ url: string; title?: string; snippet?: string; refer?: string }>
   childChatId?: string
   targetChatId?: string
+  /** 工具或子任务产出的正式文件资产 ID 列表。 */
+  outputAssetIds?: string[]
+  /** 关联的文件操作 ID（fileOperations.get/retry/cancel 查询键）。 */
+  fileOperationId?: string
   /** update_todo 及其所属任务项的稳定归属；旧历史缺省。 */
   todoPlan?: TodoPlanRef
   /** 工具调用的安全授权判定；按 callId 独立保存，旧节点可省略。 */
@@ -186,6 +198,11 @@ export interface TimelineNode {
   direction: TimelineDirection
   visibility: 'conversation' | 'detail' | 'internal'
   content: string
+  /** 有序消息内容部分；存在时作为权威结构，content 为文本派生投影。 */
+  parts?: MessagePart[]
+  fileOperations?: import('./chat').FileOperationRecord[]
+  /** 节点关联的正式交付资产 ID 列表（子任务完成回传或生成结果）。 */
+  deliverableAssetIds?: string[]
   thinking?: string
   /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。 */
   runtime?: RuntimeProvenance
@@ -244,6 +261,7 @@ export interface PendingInputSnapshot {
   clientMessageId?: string
   messageId?: string
   content: string
+  parts?: MessagePart[]
   createdAt?: number
   state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
   queueSequence?: number

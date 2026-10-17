@@ -5,6 +5,8 @@ import { SupervisionLevel } from '../config'
 import type { ToolAuthorization } from '../security/rolePolicy.js'
 
 import type { SenseResult, SenseExecutionError, ObservationEnvelope, SenseResultStatus, SenseCheckpoint, SenseCheckpointStatus, SenseRecoveryState, SenseLifecycleEvent, SenseExecutionBudget } from '@chery/plugin-api/sense'
+import type { SenseCapabilities } from '@chery/plugin-api/sense'
+export type { SenseCapabilities } from '@chery/plugin-api/sense'
 export type { SenseResult, SenseExecutionError, ObservationEnvelope, ObservationSource, ObservationKind, SenseResultStatus, SenseErrorCode, SenseCheckpoint, SenseCheckpointStatus, SenseRecoveryState, SenseLifecycleEvent, SenseExecutionBudget } from '@chery/plugin-api/sense'
 
 export const MAX_OBSERVATION_CONTENT_CHARS = 100_000
@@ -57,7 +59,7 @@ export function getSenseRecoveryState(checkpoint?: SenseCheckpoint): SenseRecove
 }
 
 export const SENSE_EXECUTION_LIMITS = Object.freeze({
-  timeoutMs: 120_000,
+  timeoutMs: 7_201_000,
   maxOutputChars: 100_000,
   maxBytes: 400_000,
   maxConcurrent: 8,
@@ -72,7 +74,7 @@ export function normalizeSenseExecutionBudget(
   const limit = (value: number | undefined, maximum: number) =>
     Math.max(1, Math.min(Number.isFinite(value) ? Math.floor(value!) : maximum, maximum))
   return {
-    timeoutMs: limit(budget?.timeoutMs, SENSE_EXECUTION_LIMITS.timeoutMs),
+    timeoutMs: limit(budget?.timeoutMs ?? 120_000, SENSE_EXECUTION_LIMITS.timeoutMs),
     maxOutputChars: limit(budget?.maxOutputChars, SENSE_EXECUTION_LIMITS.maxOutputChars),
     maxBytes: limit(budget?.maxBytes, SENSE_EXECUTION_LIMITS.maxBytes),
     maxConcurrent: limit(budget?.maxConcurrent, SENSE_EXECUTION_LIMITS.maxConcurrent),
@@ -304,25 +306,6 @@ export interface SenseFunction {
 
 /** Sense间共享数据结构 */
 export type SenseSharedData = Map<string, Map<string, unknown>>
-
-/**
- * 工具能力声明：工具自己描述「接收什么、产出什么、是否前置执行、每批容量」。
- *
- * - `accepts`：接收的媒体类型（image/video/audio）或文件后缀（doc/docx/pdf…）。
- *   用于前置调度匹配（preprocess=true 时按实际媒体类型/后缀匹配）与发送门控判断。
- * - `produces`：产出的媒体类型（image/video/audio）或 text。生成类工具注入判断
- *   以工具自身 produces 声明为准（大脑 generate.* 标记不再作为注入门）。
- * - `preprocess`：是否前置执行（缺省 false = 普通后置工具，模型按需调用）。
- *   前置工具在发请求前执行，结果替换进消息（理解类媒体在非多模态模型下的处理路径）。
- * - `batchSize`：每批最多同时处理多少媒体项（缺省 = 一次性全量处理）。
- *   仅影响工具内部实现（分批调用外部接口），调度层永远全量传入。
- */
-export interface SenseCapabilities {
-  accepts?: string[]
-  produces?: string[]
-  preprocess?: boolean
-  batchSize?: number
-}
 
 /**
  * 感官运行时上下文（P2-11：注入边界，取代 sharedData 注入 chatId 的临时方案）。
