@@ -5,7 +5,7 @@
  * - registerOpenAIAdapter 注册 message/sense/llm adapter
  * - message adapter：content / thinking(reasoning_content) / extractStreamDelta/Thinking
  * - buildMessages：sense→tool / assistant+senseCalls→tool_calls / simple / user / 过滤 revoked / sense replaced→replace.content
- * - sense adapter：buildSenses(strict:true) / senseCalls(id 缺省 sense-${i}) / extractSenseCallDeltas
+ * - sense adapter：buildSenses(按参数规则设置 strict) / senseCalls(id 缺省 sense-${i}) / extractSenseCallDeltas
  * - LLM：chat / chatStream / thinking 选项 / model|url 缺失 throw
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -196,6 +196,26 @@ describe("OpenAI sense adapter", () => {
     const built = cfg.buildSenses(senses) as SenseFunction[];
     expect(built[0]!.function.name).toBe("t");
     expect((built[0]!.function as unknown as { strict: boolean }).strict).toBe(true);
+  });
+
+  it.each([
+    { label: "可选 content", parameters: { type: "object", properties: { action: { type: "string" }, content: { type: "string" } }, required: ["action"], additionalProperties: false }, strict: false },
+    { label: "未关闭的对象", parameters: { type: "object", properties: { action: { type: "string" } }, required: ["action"] }, strict: false },
+    { label: "嵌套可选属性", parameters: { type: "object", properties: { options: { type: "object", properties: { limit: { type: "number" } }, required: [], additionalProperties: false } }, required: ["options"], additionalProperties: false }, strict: false },
+    { label: "数组中的可选属性", parameters: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { limit: { type: "number" } }, required: [], additionalProperties: false } } }, required: ["items"], additionalProperties: false }, strict: false },
+    { label: "联合分支中的开放对象", parameters: { type: "object", properties: { value: { anyOf: [{ type: "string" }, { type: "object", properties: {} }] } }, required: ["value"], additionalProperties: false }, strict: false },
+    { label: "必填但允许 null", parameters: { type: "object", properties: { content: { anyOf: [{ type: "string" }, { type: "null" }] } }, required: ["content"], additionalProperties: false }, strict: true },
+  ])("buildSenses $label：保留参数定义并设置 strict=$strict", ({ parameters, strict }) => {
+    const cfg = getSenseAdapter("openai")!;
+    const original = structuredClone(parameters);
+    const senses = [{
+      definition: { type: "function", function: { name: "memory_manage", description: "test", parameters } },
+      executor: { schema: {} as ZodType, execute: async () => ({ content: "", hash: "" }) },
+    }] as unknown as Sense<ZodType>[];
+    const built = cfg.buildSenses(senses) as SenseFunction[];
+    expect((built[0]!.function as unknown as { strict: boolean }).strict).toBe(strict);
+    expect(built[0]!.function.parameters).toEqual(original);
+    expect(parameters).toEqual(original);
   });
 
   it("senseCalls: 提取 id/name；缺 id → sense-${index}", () => {

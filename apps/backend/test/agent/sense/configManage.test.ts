@@ -263,4 +263,52 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
     expect(result.content).toContain('仍被引用')
     expect(existsSync(prompt)).toBe(true)
   })
+
+  it('action="patch" 支持 putFileService / setFilePolicy / removeFileService', async () => {
+    const rev1 = getSavedBaseRevision()
+    const r1 = await exec(
+      {
+        action: 'patch',
+        baseRevision: rev1,
+        operations: [
+          {
+            op: 'putFileService',
+            name: 'openai_img',
+            service: {
+              name: 'OpenAI Images',
+              enabled: true,
+              adapter: 'openai-images',
+              connection: { brainRef: 'brain-a', model: 'gpt-image-1.5' },
+              operations: ['image.generate', 'image.edit'],
+            },
+          },
+          {
+            op: 'setFilePolicy',
+            policy: {
+              maxUploadBytes: 52428800,
+              context: { recentUserTurns: 2, maxAssets: 8 },
+            },
+          },
+        ],
+      } as never,
+      sharedData,
+    )
+    expect(r1.content).toContain('候选已通过完整校验')
+    const afterPut = readRawConfig()
+    expect(afterPut.file_services?.openai_img?.adapter).toBe('openai-images')
+    expect(afterPut.files?.maxUploadBytes).toBe(52428800)
+    expect(afterPut.files?.context?.recentUserTurns).toBe(2)
+
+    const rev2 = getSavedBaseRevision()
+    const r2 = await exec(
+      {
+        action: 'patch',
+        baseRevision: rev2,
+        operations: [{ op: 'removeFileService', name: 'openai_img' }],
+      } as never,
+      sharedData,
+    )
+    expect(r2.content).toContain('候选已通过完整校验')
+    expect(readRawConfig().file_services?.openai_img).toBeUndefined()
+  })
 })

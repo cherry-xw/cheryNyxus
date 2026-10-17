@@ -3,6 +3,10 @@ import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
 import { startService } from './service/index.js'
 import { getSoulDb, closeAllDbs } from './db/index.js'
+import { migrateFileStorage } from './service/media/migration.js'
+import { registerMcpFileResults } from './service/media/mcpResults.js'
+import { getAssetStore } from './service/media/store.js'
+import { recoverFileOperations } from './service/fileServices/operations.js'
 import { reconcileMessageCounts } from './db/message.js'
 import { compileSenses } from './core/sense/compiler/index.js'
 import {
@@ -190,6 +194,16 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
       `server.serve_frontend=true 但静态目录不存在: ${staticDir}（先 pnpm web:build；仅 API 模式生效）`,
     )
   }
+  await migrateFileStorage()
+  registerMcpFileResults()
+  recoverFileOperations()
+  const cleanupFiles = () => {
+    try { getAssetStore().cleanup(Date.now(), config.files?.unreferencedAssetRetentionHours ?? 24, config.files?.unreferencedUploadRetentionHours ?? 24) }
+    catch (error) { logger.warn(`文件清理失败：${(error as Error).message}`) }
+  }
+  cleanupFiles()
+  const fileCleanupTimer = setInterval(cleanupFiles, 60 * 60 * 1000)
+  fileCleanupTimer.unref()
   const service = startService({
     port: config.server.port,
     webPort: config.server.webPort,

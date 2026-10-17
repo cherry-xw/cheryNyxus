@@ -20,6 +20,8 @@ import { compileRoleSecurity } from '@/core/security/index.js'
 import type { AcceptanceExecutionPolicy } from '@/core/security/rolePolicy.js'
 import { getChatType } from '@/db/chat.js'
 import { getSenseOrigin, getUnavailableSense } from '@/core/sense/senseRegistry.js'
+import { buildFileServiceSenses } from '@/service/fileServices/senses.js'
+import { buildFileServiceToolName } from '@chery/protocol'
 
 export interface RuntimeSelection {
   brain: string
@@ -82,8 +84,32 @@ export function parseRuntimeSelection(
   // thinking 覆盖为可选透传：缺省不写字段，运行沿用大脑配置默认档位。
   const thinking = params.thinking
   if (brain.capabilities?.toolCall === false) {
-    if (params.senseGroup || mcpServers.length)
-      throw new Error(`大脑 "${params.brain}" 不支持工具调用，不能配感官组`)
+    if (mcpServers.length)
+      throw new Error(`大脑 "${params.brain}" 不支持工具调用，不能配 MCP server`)
+    if (params.senseGroup) {
+      const hasPreprocessRoleRef = Object.values(configSnapshot.roles ?? {}).some(
+        (role) =>
+          role.brain === params.brain &&
+          role.senseGroup === params.senseGroup &&
+          role.fileCapabilities &&
+          Object.entries(role.fileCapabilities).some(
+            ([op, b]) =>
+              b?.mode === 'tool' &&
+              ['image.inspect', 'document.extract', 'audio.transcribe', 'video.inspect'].includes(
+                op,
+              ),
+          ),
+      )
+      if (!hasPreprocessRoleRef) {
+        throw new Error(`大脑 "${params.brain}" 不支持工具调用，不能配感官组`)
+      }
+      return {
+        brain: params.brain,
+        senseGroup: params.senseGroup,
+        mcpServers: [],
+        ...(thinking !== undefined ? { thinking } : {}),
+      }
+    }
     return {
       brain: params.brain,
       senseGroup: '',
@@ -233,6 +259,9 @@ export class RuntimeResolver {
     )
     let { builtSenses, senseTable } = resolvedSenses
     const { unavailableTools } = resolvedSenses
+    if (brain.capabilities?.toolCall === false) {
+      builtSenses = []
+    }
 
     if (opts?.acceptance) {
       const allowed = new Set(opts.acceptance.allowedTools)
@@ -316,6 +345,7 @@ export class RuntimeResolver {
     unavailableTools?: import('@/service/ingress/api.js').IngressUnavailableTool[]
   } {
     const resolved = new Map<string, Sense<ZodType>>()
+    const fileSenses = new Map(buildFileServiceSenses(config).map(item => [item.definition.function.name, item as Sense<ZodType>]))
 
     if (!senseGroup) return { builtSenses: [], senseTable: new Map() }
     const group = config.sense_groups?.[senseGroup]
@@ -332,7 +362,7 @@ export class RuntimeResolver {
         )
       )
         continue
-      let original = getSense(senseName)
+      let original = fileSenses.get(senseName) ?? getSense(senseName)
       if (!original || getSenseOrigin(senseName)?.available?.() === false) continue
 
       // spawn_role：「可见即可选」——按当前 chat roster 裁剪工具定义（preset 编制 + self-spawn 排除）。
@@ -427,14 +457,14 @@ export class RuntimeResolver {
     for (const s of senses) {
       const name = s.definition.function.name
       const registeredExecutor = getSense(name)?.executor
+      const generatedFileTool = Object.entries(config.file_services ?? {}).some(([id, service]) => service.enabled !== false && service.operations.some(operation => buildFileServiceToolName(id, operation) === name))
       senseTable.set(name, {
         supervisionLevel: s.supervisionLevel ?? config.global.supervision,
         execute: (args, sharedData, ctx) => {
           assertManagedToolAllowed(name, ctx?.requestView?.identity)
           const origin = getSenseOrigin(name)
           if (
-            !registeredExecutor ||
-            getSense(name)?.executor !== registeredExecutor ||
+            !generatedFileTool && (!registeredExecutor || getSense(name)?.executor !== registeredExecutor) ||
             origin?.available?.() === false
           )
             return Promise.resolve({

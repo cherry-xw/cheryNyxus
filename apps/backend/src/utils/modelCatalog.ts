@@ -10,19 +10,41 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
-import { isLlmProtocol, type LlmProtocol as LlmProtocolValue } from '@chery/protocol'
+import {
+  isCapabilityState,
+  isLlmProtocol,
+  type CapabilityState,
+  type LlmProtocol as LlmProtocolValue,
+} from '@chery/protocol'
 import type { ThinkingLevel } from '@/core/llm/adapter.js'
 
+export type CatalogCapabilityValue = CapabilityState | boolean
+
 export interface CatalogMediaCapabilities {
-  image?: boolean
-  video?: boolean
-  audio?: boolean
+  image?: CatalogCapabilityValue
+  video?: CatalogCapabilityValue
+  audio?: CatalogCapabilityValue
+  pdf?: CatalogCapabilityValue
+}
+
+export interface CatalogOutputCapabilities {
+  image?: CatalogCapabilityValue
+  video?: CatalogCapabilityValue
+  audio?: CatalogCapabilityValue
+}
+
+export interface CatalogServerToolsCapabilities {
+  webSearch?: CapabilityState
+  webReader?: CapabilityState
+  imageInspect?: CapabilityState
 }
 
 export interface CatalogCapabilities {
   toolCall?: boolean
   input?: CatalogMediaCapabilities
-  generate?: CatalogMediaCapabilities
+  output?: CatalogOutputCapabilities
+  /** 按协议与服务观察/验证的服务端内置工具状态（与模型原生 input/output 区分） */
+  serverTools?: CatalogServerToolsCapabilities
 }
 
 export interface CatalogThinkingLevel {
@@ -105,8 +127,17 @@ export interface ResolvedModelCatalogEntry {
 
 const CONSERVATIVE_CAPABILITIES: CatalogCapabilities = {
   toolCall: true,
-  input: { image: false, video: false, audio: false },
-  generate: { image: false, video: false, audio: false },
+  input: {
+    image: 'unknown',
+    video: 'unknown',
+    audio: 'unknown',
+    pdf: 'unknown',
+  },
+  output: {
+    image: 'unknown',
+    video: 'unknown',
+    audio: 'unknown',
+  },
 }
 
 /** Safety fallback used only when the project catalog is missing or invalid. */
@@ -129,12 +160,41 @@ function positiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
 }
 
+function parseCapabilityValue(value: unknown): CatalogCapabilityValue | undefined {
+  if (typeof value === 'boolean') return value
+  if (isCapabilityState(value)) return value
+  return undefined
+}
+
 function parseMediaCapabilities(raw: unknown): CatalogMediaCapabilities | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const value = raw as Record<string, unknown>
   const result: CatalogMediaCapabilities = {}
+  for (const key of ['image', 'video', 'audio', 'pdf'] as const) {
+    const parsed = parseCapabilityValue(value[key])
+    if (parsed !== undefined) result[key] = parsed
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function parseOutputCapabilities(raw: unknown): CatalogOutputCapabilities | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const value = raw as Record<string, unknown>
+  const result: CatalogOutputCapabilities = {}
   for (const key of ['image', 'video', 'audio'] as const) {
-    if (typeof value[key] === 'boolean') result[key] = value[key]
+    const parsed = parseCapabilityValue(value[key])
+    if (parsed !== undefined) result[key] = parsed
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function parseServerToolsCapabilities(raw: unknown): CatalogServerToolsCapabilities | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const value = raw as Record<string, unknown>
+  const result: CatalogServerToolsCapabilities = {}
+  for (const key of ['webSearch', 'webReader', 'imageInspect'] as const) {
+    const parsed = normalizeCapabilityState(parseCapabilityValue(value[key]))
+    if (parsed !== undefined) result[key] = parsed
   }
   return Object.keys(result).length > 0 ? result : undefined
 }
@@ -145,10 +205,115 @@ function parseCapabilities(raw: unknown): CatalogCapabilities | undefined {
   const result: CatalogCapabilities = {}
   if (typeof value.toolCall === 'boolean') result.toolCall = value.toolCall
   const input = parseMediaCapabilities(value.input)
-  const generate = parseMediaCapabilities(value.generate)
+  const output = parseOutputCapabilities(value.output)
+  const serverTools = parseServerToolsCapabilities(value.serverTools)
   if (input) result.input = input
-  if (generate) result.generate = generate
+  if (output) result.output = output
+  if (serverTools) result.serverTools = serverTools
   return Object.keys(result).length > 0 ? result : undefined
+}
+
+export interface ResolvedCapabilityField {
+  state: CapabilityState
+  source: 'user' | 'catalog' | 'adapter' | 'default'
+}
+
+export interface ResolvedBrainCapabilities {
+  toolCall: { enabled: boolean; source: 'user' | 'catalog' | 'adapter' | 'default' }
+  input: Record<'image' | 'video' | 'audio' | 'pdf', ResolvedCapabilityField>
+  output: Record<'image' | 'video' | 'audio', ResolvedCapabilityField>
+  serverTools: Record<'webSearch' | 'webReader' | 'imageInspect', ResolvedCapabilityField>
+}
+
+export function normalizeCapabilityState(value: CatalogCapabilityValue | undefined): CapabilityState | undefined {
+  if (value === undefined) return undefined
+  if (value === true) return 'supported'
+  if (value === false) return 'unsupported'
+  return value
+}
+
+export function isCapabilitySupported(value: CatalogCapabilityValue | undefined): boolean {
+  return value === true || value === 'supported'
+}
+
+/**
+ * 解析大脑的有效原生能力及来源（user > catalog > default，并受协议适配器实际支持约束）。
+ * 省略某项表示继承目录推荐；显式 unknown 表示未确认。
+ */
+export function resolveEffectiveBrainCapabilities(input: {
+  model: string
+  provider?: string
+  protocol?: LlmProtocolValue
+  userCapabilities?: CatalogCapabilities
+}): ResolvedBrainCapabilities {
+  const catalogEntry = resolveModelCatalog({
+    model: input.model,
+    provider: input.provider,
+    protocol: input.protocol,
+  })
+  const recommendCaps = catalogEntry.recommend?.capabilities
+  const factsCaps = catalogEntry.facts?.capabilities
+  const userCaps = input.userCapabilities
+
+  const toolCallFromUser = userCaps?.toolCall
+  const toolCallFromCatalog = recommendCaps?.toolCall ?? factsCaps?.toolCall
+  const toolCallEnabled = toolCallFromUser ?? toolCallFromCatalog ?? true
+  const toolCallSource =
+    toolCallFromUser !== undefined
+      ? 'user'
+      : toolCallFromCatalog !== undefined
+        ? 'catalog'
+        : 'default'
+
+  const resolveInputField = (
+    key: 'image' | 'video' | 'audio' | 'pdf',
+  ): ResolvedCapabilityField => {
+    const u = normalizeCapabilityState(userCaps?.input?.[key])
+    if (u !== undefined) return { state: u, source: 'user' }
+    const c = normalizeCapabilityState(recommendCaps?.input?.[key] ?? factsCaps?.input?.[key])
+    if (c !== undefined) return { state: c, source: 'catalog' }
+    return { state: 'unknown', source: 'default' }
+  }
+
+  const resolveOutputField = (key: 'image' | 'video' | 'audio'): ResolvedCapabilityField => {
+    const u = normalizeCapabilityState(userCaps?.output?.[key])
+    if (u !== undefined) return { state: u, source: 'user' }
+    const c = normalizeCapabilityState(recommendCaps?.output?.[key] ?? factsCaps?.output?.[key])
+    if (c !== undefined) return { state: c, source: 'catalog' }
+    return { state: 'unknown', source: 'default' }
+  }
+
+  const resolveServerToolField = (
+    key: 'webSearch' | 'webReader' | 'imageInspect',
+  ): ResolvedCapabilityField => {
+    const u = normalizeCapabilityState(userCaps?.serverTools?.[key])
+    if (u !== undefined) return { state: u, source: 'user' }
+    const c = normalizeCapabilityState(
+      recommendCaps?.serverTools?.[key] ?? factsCaps?.serverTools?.[key],
+    )
+    if (c !== undefined) return { state: c, source: 'catalog' }
+    return { state: 'unknown', source: 'default' }
+  }
+
+  return {
+    toolCall: { enabled: toolCallEnabled, source: toolCallSource },
+    input: {
+      image: resolveInputField('image'),
+      video: resolveInputField('video'),
+      audio: resolveInputField('audio'),
+      pdf: resolveInputField('pdf'),
+    },
+    output: {
+      image: resolveOutputField('image'),
+      video: resolveOutputField('video'),
+      audio: resolveOutputField('audio'),
+    },
+    serverTools: {
+      webSearch: resolveServerToolField('webSearch'),
+      webReader: resolveServerToolField('webReader'),
+      imageInspect: resolveServerToolField('imageInspect'),
+    },
+  }
 }
 
 function parseThinking(raw: unknown): CatalogThinkingLevel[] | undefined {

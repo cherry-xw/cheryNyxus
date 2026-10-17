@@ -31,6 +31,14 @@ global:
     timestamp: true
     location: true
     format: plain
+files:
+  imageContext:
+    mode: recent
+    recentUserTurns: 3
+    replacement: description
+    missingDescription: existing
+    maxDescriptionChars: 600
+    maxTotalDescriptionChars: 6000
 llm:
   brain:
     default:
@@ -55,6 +63,8 @@ sense_groups:
     - file_capabilities
     - file_assets_list
     - file_asset_read
+    - file_images_find
+    - file_image_read
     - file_operation
     - select_task_deliverables
   detail_diagnostics:

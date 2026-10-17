@@ -9,6 +9,11 @@ import {
   ChatCloseRequestSchema,
   ChatOpenRequestSchema,
   ChatRunResumeRequestSchema,
+  MessagePartSchema,
+  SettingsBrainCapabilitiesSchema,
+  SettingsFileServiceSchema,
+  SettingsFilesPolicySchema,
+  SettingsRoleFileCapabilitiesSchema,
 } from '@chery/protocol'
 import { InternalCommand } from './internalCommand.js'
 import {
@@ -85,8 +90,8 @@ const brainSchema = z.looseObject({
   url: z.string().optional(),
   model: z.string(),
   key: z.string().optional(),
-  /** thinking 显示词（任意非空字符串，由 model-catalog wire 翻译）；兼容 legacy boolean。 */
-  thinking: z.union([z.string().min(1), z.boolean()]).optional(),
+  /** thinking 显示词，由 model catalog 翻译；不接受旧布尔值。 */
+  thinking: z.string().trim().min(1).optional(),
   provider: z.string(),
   protocol: z
     .enum([
@@ -108,25 +113,7 @@ const brainSchema = z.looseObject({
     })
     .optional(),
   contextLimit: z.number().optional(),
-  capabilities: z
-    .object({
-      toolCall: z.boolean().optional(),
-      input: z
-        .object({
-          image: z.boolean().optional(),
-          video: z.boolean().optional(),
-          audio: z.boolean().optional(),
-        })
-        .optional(),
-      generate: z
-        .object({
-          image: z.boolean().optional(),
-          video: z.boolean().optional(),
-          audio: z.boolean().optional(),
-        })
-        .optional(),
-    })
-    .optional(),
+  capabilities: SettingsBrainCapabilitiesSchema.optional(),
   hooks: z.string().optional(),
   anthropicCompat: z.looseObject({ official: z.boolean().optional() }).optional(),
 })
@@ -243,6 +230,7 @@ export const configRawSchema = z
           permissions: rolePermissionSchema.optional(),
           lock: z.boolean().optional(),
           scope: z.enum(['public', 'private']).optional(),
+          fileCapabilities: SettingsRoleFileCapabilitiesSchema.optional(),
         }),
       )
       .optional(),
@@ -262,6 +250,14 @@ export const configRawSchema = z
           detailRole: z.string().optional(),
           leader: z.string(),
           roles: z.array(z.string()).optional(),
+          roleOverrides: z
+            .record(
+              z.string(),
+              z.looseObject({
+                fileCapabilities: SettingsRoleFileCapabilitiesSchema.optional(),
+              }),
+            )
+            .optional(),
           /** 项目工作目录绝对路径（对齐 PresetConfig.workspace；缺省 → 不注入 <workspace> 段） */
           workspace: z.string().optional(),
           /** smart 监管规则覆盖文件名（对齐 PresetConfig.rule；缺省 → 仅用基准 base.yaml） */
@@ -277,6 +273,8 @@ export const configRawSchema = z
       )
       .optional(),
     memory: memorySchema,
+    file_services: z.record(z.string(), SettingsFileServiceSchema).optional(),
+    files: SettingsFilesPolicySchema.optional(),
   })
   .strict()
 
@@ -426,6 +424,7 @@ export const requestSchemas = {
     anchorNodeId: z.string().min(1),
     branchType: z.enum(['continuation', 'detail']),
     prompt: z.string().trim().min(1),
+    parts: z.array(MessagePartSchema).optional(),
     commandId: z.string().min(1),
     clientMessageId: z.string().min(1),
     messageId: z.string().min(1),

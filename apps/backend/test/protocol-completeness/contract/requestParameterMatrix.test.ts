@@ -175,13 +175,13 @@ const chatMatrices: MethodMatrix[] = [
         messageId: 'message-1',
         content: 'hello',
       }),
-      value('bad attachment enum', {
+      value('bad ordered file kind', {
         chatId: 'chat-1',
         commandId: 'command-1',
         clientMessageId: 'client-1',
         messageId: 'message-1',
         content: 'hello',
-        attachments: [{ assetId: 'asset-1', kind: 'file', mimeType: 'text/plain' }],
+        parts: [{ partId: 'file-1', type: 'asset', assetId: 'asset-1', assetVersionId: 'version-1', kind: 'unsupported', mimeType: 'text/plain', variant: 'original', usage: 'content' }],
       }),
     ],
   },

@@ -2,22 +2,22 @@
  * service/sense docs 测试：sense.tools.docs handler（handleSenseToolDocs）。
  *
  * 覆盖：
- * - 不传 tools / 空数组 = 全量返回，且与 BUILTIN_SENSE_TOOLS 一一对应（doc 非空）
+ * - 不传 tools / 空数组 = 全量返回，且与已注册工具一一对应（doc 非空）
  * - 传 tools = 按 name 列表过滤，未知 name 自动忽略
  */
 import { beforeAll, describe, it, expect } from 'vitest'
 import { bootstrapForTests } from '../../agent/helpers/agentHarness.js'
 beforeAll(bootstrapForTests)
 import { handleSenseToolDocs } from '@/service/sense/list.js'
-import { BUILTIN_SENSE_TOOLS } from '@/agent/sense/index.js'
+import { listRegisteredSenses } from '@/core/sense/senseRegistry.js'
 
 /** handler 未使用 ctx，用最小桩即可。 */
 const ctx = {} as never
 
 describe('sense.tools.docs', () => {
-  it('不传 tools → 全量返回，name 与 BUILTIN_SENSE_TOOLS 一致且 doc 非空', async () => {
+  it('不传 tools → 全量返回，name 与已注册工具一致且 doc 非空', async () => {
     const res = await handleSenseToolDocs(ctx, {})
-    expect(res.docs.map((d) => d.name).sort()).toEqual(BUILTIN_SENSE_TOOLS.map((t) => t.name).sort())
+    expect(res.docs.map((d) => d.name).sort()).toEqual(listRegisteredSenses().map((t) => t.name).sort())
     for (const d of res.docs) {
       expect(d.doc.length).toBeGreaterThan(0)
       // 完整说明应包含作用/能力/边界/注意分节
@@ -30,7 +30,7 @@ describe('sense.tools.docs', () => {
 
   it('tools=[] → 等价全量返回', async () => {
     const res = await handleSenseToolDocs(ctx, { tools: [] })
-    expect(res.docs).toHaveLength(BUILTIN_SENSE_TOOLS.length)
+    expect(res.docs).toHaveLength(listRegisteredSenses().length)
   })
 
   it('传 tools 列表 → 只返回对应工具，未知 name 自动忽略', async () => {
@@ -42,6 +42,6 @@ describe('sense.tools.docs', () => {
     const { handleSenseTools } = await import('@/service/sense/list.js')
     const res = await handleSenseTools(ctx, {})
     expect(res.tools.every((t) => !('doc' in t))).toBe(true)
-    expect(res.tools).toHaveLength(BUILTIN_SENSE_TOOLS.length)
+    expect(res.tools).toHaveLength(listRegisteredSenses().length)
   })
 })

@@ -6,6 +6,7 @@ import { prepareChatEventForDelivery } from '@/db/delivery.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import type { Chunk, Notification } from '../message/types.js'
+import { getChat, getRootChatId } from '@/db/chat.js'
 
 /**
  * 子 agent 后台启动（fire-and-forget）。
@@ -85,6 +86,10 @@ export async function runChildTaskInBackground(
   // 构造脱离 RPC 的 minimal ctx。requestId 用 eager-{taskId} 区分流（与 wsClient 收 chunk 时
   //   该 idx 不匹配 → 走 seq path 而非 response path 派发 chunk,符合 chat.send 同语义）。
   const ctx = {
+    authenticatedUserId: (() => {
+      const metadata = JSON.parse(getChat(getRootChatId(parentChatId))?.metadata ?? '{}') as { fileOwnerId?: string }
+      return metadata.fileOwnerId
+    })(),
     requestId: `eager-${taskId}`,
     connectionId,
     log: logger,

@@ -52,7 +52,7 @@ export function resources(image: ConfigImage): Map<string, ConfigResource> {
       // resource whose removal could erase newly added members in the same batch.
       if (
         !Object.keys(entries).length &&
-        !['llm', 'roles', 'presets', 'sense_groups'].includes(root)
+        !['llm', 'roles', 'presets', 'sense_groups', 'file_services'].includes(root)
       )
         result.set(JSON.stringify(prefix), { path: prefix, value: entries })
       for (const [name, entry] of Object.entries(entries)) {
@@ -143,8 +143,38 @@ const fields: Record<string, string[]> = {
     'permissions',
     'lock',
     'scope',
+    'fileCapabilities',
   ],
-  presets: ['id', 'shadows', 'detailRole', 'leader', 'roles', 'workspace', 'rule', 'schedule'],
+  presets: [
+    'id',
+    'shadows',
+    'detailRole',
+    'leader',
+    'roles',
+    'roleOverrides',
+    'workspace',
+    'rule',
+    'schedule',
+  ],
+  file_services: [
+    'name',
+    'enabled',
+    'adapter',
+    'connection',
+    'operations',
+    'defaults',
+    'timeoutMs',
+    'queueTimeoutMs',
+    'maxConcurrent',
+  ],
+  files: [
+    'maxUploadBytes',
+    'context',
+    'imageContext',
+    'imageAdaptation',
+    'unreferencedUploadRetentionHours',
+    'unreferencedAssetRetentionHours',
+  ],
   mcp_servers: ['transport', 'command', 'args', 'env', 'url', 'supervision'],
   memory: ['max_count', 'max_chars'],
 }
@@ -159,7 +189,18 @@ const nested: Record<string, string[]> = {
   history_recall: ['max_output_chars'],
   watchdog: ['timeout_ms', 'wake_on_timeout'],
   command: ['warn', 'auto', 'min_context_limit', 'safety_margin', 'unit', 'value'],
-  capabilities: ['toolCall', 'input', 'generate', 'image', 'video', 'audio'],
+  capabilities: ['toolCall', 'input', 'output', 'image', 'video', 'audio', 'pdf'],
+  connection: ['brainRef', 'baseUrl', 'model', 'keyRef', 'authType', 'endpointOverrides'],
+  context: [
+    'recentUserTurns',
+    'maxAssets',
+    'maxBinaryBytes',
+    'maxExtractedCharsPerAsset',
+    'maxExtractedChars',
+    'defaultImageVariant',
+  ],
+  imageAdaptation: ['maxEdge', 'quality'],
+  imageContext: ['mode', 'recentUserTurns', 'replacement', 'missingDescription', 'serviceId', 'maxDescriptionChars', 'maxTotalDescriptionChars'],
   mock: ['enabled', 'file', 'chunkDelayMs', 'preRespondMs'],
   anthropicCompat: ['official'],
   shadows: ['conversationRouting'],
@@ -198,7 +239,7 @@ function boundary(path: string[]): { boundary: ConfigImpact['boundary']; semanti
   if (root === 'presets' && path[2] === 'schedule') return { boundary: 'resource', semantic: false }
   if (root === 'server') return { boundary: 'restart', semantic: false }
   if (root === 'sense_groups') return { boundary: 'tree', semantic: true }
-  const offset = root === 'global' ? 1 : root === 'llm' ? 3 : 2
+  const offset = root === 'global' || root === 'files' ? 1 : root === 'llm' ? 3 : 2
   const field = path[offset]
   const known = fields[root]
   if (
@@ -211,9 +252,18 @@ function boundary(path: string[]): { boundary: ConfigImpact['boundary']; semanti
     const rest = path.slice(offset + 1)
     const dynamic =
       field === 'env' ||
+      field === 'defaults' ||
+      field === 'fileCapabilities' ||
+      field === 'roleOverrides' ||
+      (field === 'connection' && rest[0] === 'endpointOverrides') ||
       (field === 'permissions' && rest.some((k) => ['tools', 'categories'].includes(k)))
     if (!dynamic && (!nested[field] || rest.some((k) => !nested[field]!.includes(k))))
       return { boundary: 'unsupported', semantic: true }
+  }
+  if (root === 'files') return { boundary: 'operation', semantic: false }
+  if (root === 'file_services') {
+    const semantic = !field || ['enabled', 'adapter', 'operations'].includes(field)
+    return { boundary: semantic ? 'tree' : 'operation', semantic }
   }
   if (root === 'global')
     return {

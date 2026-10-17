@@ -24,7 +24,9 @@ import {
   getChatMetadata,
 } from '@/db/chat.js'
 import { getMessages, parseMessageRow } from '@/db/message.js'
+import { getConversationBranchByChat } from '@/db/conversationBranch.js'
 import { listPendingInputs, markPendingInputsConsumed } from '@/db/pendingInput.js'
+import { parseStoredParts, normalizeMessageParts } from '@/utils/messageParts.js'
 import config from '@/utils/config'
 import { ErrorCode } from '@/service/message/types.js'
 import type { LLMResponse } from '@/core/message/adapter'
@@ -214,8 +216,26 @@ export async function setSessionRoleRuntimes(
  */
 export function loadHistory(chatId: string, epoch: ChatEpochRecord): LLMResponse[] | undefined {
   const rows = getMessages(chatId)
+  const branch = getConversationBranchByChat(chatId)
+  const snapshot = Array.isArray(branch?.contextSnapshot) ? branch.contextSnapshot as import('@chery/protocol').TimelineNode[] : []
+  const seenCalls = new Set<string>()
+  const snapshotMessages: LLMResponse[] = snapshot.filter(node => node.status !== 'revoked').flatMap(node => [{
+    id: `branch-context:${branch!.branchId}:${node.sourceChatId}:${node.id}`,
+    role: node.actor.kind === 'user' ? 'user' : 'role',
+    content: node.content, parts: node.parts, fileOperations: node.fileOperations,
+    createdAt: node.createdAt, updateAt: node.updatedAt,
+   } as LLMResponse, ...(node.toolCalls ?? []).flatMap(call => {
+     const key = `${node.sourceChatId}:${call.callId}`
+     if (seenCalls.has(key)) return []
+     seenCalls.add(key)
+     const heading = `[历史工具 ${call.name}；状态 ${call.status}] 参数: ${call.arguments}\n`
+     const body = normalizeMessageParts(call.result, call.parts)
+     return [{ id: `branch-context:${branch!.branchId}:tool:${key}`, role: 'role' as const,
+       content: `${heading}${body.content}`, parts: [{ partId: 'tool-heading', type: 'text' as const, text: heading }, ...body.parts],
+       fileOperations: call.fileOperations, createdAt: node.createdAt, updateAt: node.updatedAt }]
+   })])
   const branchContext = getChatBranchContext(chatId)
-  const contextMessage: LLMResponse | undefined = branchContext
+  const contextMessage: LLMResponse | undefined = branchContext && !snapshotMessages.length
     ? {
         id: `branch-context:${chatId}`,
         role: 'system',
@@ -238,7 +258,7 @@ export function loadHistory(chatId: string, epoch: ChatEpochRecord): LLMResponse
         updateAt: epoch.createdAt,
       }
     : undefined
-  const prefix = [contextMessage, handoffMessage].filter(
+  const prefix = [...snapshotMessages, contextMessage, handoffMessage].filter(
     (message): message is LLMResponse => !!message,
   )
   if (rows.length === 0) return prefix.length > 0 ? prefix : undefined
@@ -249,8 +269,13 @@ export function loadHistory(chatId: string, epoch: ChatEpochRecord): LLMResponse
         id: row.id,
         role: parsed.role,
         content: parsed.content ?? '',
+        parts: parsed.parts,
+        fileOperations: parsed.fileOperations,
+        providerContinuation: parsed.providerContinuation,
         thinking: parsed.thinking,
+        thinkingBlocks: parsed.thinkingBlocks,
         senseCalls: parsed.senseCall,
+        ...(parsed.serverToolCalls ? { serverToolCalls: parsed.serverToolCalls } : {}),
         hash: parsed.hash,
         replace: parsed.replace,
         originalContent: parsed.originalContent,
@@ -482,6 +507,7 @@ function initializeChatRuntime(
         consumedIds.push(pending.input_id)
       } else {
         builder.enqueueInput(pending.content, {
+          parts: parseStoredParts(pending.parts),
           inputId: pending.input_id,
           messageId: pending.message_id,
           clientMessageId: pending.client_message_id ?? undefined,

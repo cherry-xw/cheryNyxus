@@ -52,10 +52,10 @@ export function buildCanonicalTimeline(chatId: string): CanonicalMessage[] {
   // child_return 链接的消息（wakeParent 注入的子返回/超时）-> 标 childReturn，
   // 前端 canonicalToChatMessage 据此设 mergedView=child-to-master 从主轴过滤（与 live 一致）。
   const childReturnIds = getChildReturnMessageIds(chatId)
-  const senseResults = new Map<string, { content: string; revoked: boolean }>()
+  const senseResults = new Map<string, ReturnType<typeof parseMessageRow>>()
   for (const row of rows) {
     if (row.role === 'sense') {
-      senseResults.set(row.id, { content: row.content ?? '', revoked: row.revoked === 1 })
+      senseResults.set(row.id, parseMessageRow(row))
     }
   }
   let lastRuntime: RuntimeSelection | undefined
@@ -68,11 +68,13 @@ export function buildCanonicalTimeline(chatId: string): CanonicalMessage[] {
     const projection = projectMessageRuntime(parsed.role, parsed.runtime, lastRuntime)
     lastRuntime = projection.next
     const runtime = projection.current
-    const senseCalls = (parsed.senseCall ?? []).map((call) => {
+    const localSenseCalls = (parsed.senseCall ?? []).map((call) => {
       const result = senseResults.get(call.id)
       return {
         ...call,
         ...(result && result.content ? { result: result.content } : {}),
+        ...(result?.parts ? { parts: result.parts } : {}),
+        ...(result?.fileOperations ? { fileOperations: result.fileOperations } : {}),
         status: result?.revoked
           ? ('rejected' as const)
           : result?.content
@@ -80,6 +82,28 @@ export function buildCanonicalTimeline(chatId: string): CanonicalMessage[] {
             : ('pending' as const),
       }
     })
+    const serverSenseCalls: NonNullable<CanonicalMessage['senseCalls']> = (
+      parsed.serverToolCalls ?? []
+    ).map((stc) => ({
+      id: stc.id,
+      name: stc.name,
+      arguments: stc.arguments,
+      ...(stc.result !== undefined
+        ? { result: stc.result }
+        : stc.error !== undefined
+          ? { result: stc.error }
+          : {}),
+      executionOwner: 'server' as const,
+      serverState: stc.status,
+      ...(stc.sources && stc.sources.length > 0 ? { sources: stc.sources } : {}),
+      status:
+        stc.status === 'failed'
+          ? ('error' as const)
+          : stc.status === 'started'
+            ? ('pending' as const)
+            : ('completed' as const),
+    }))
+    const senseCalls = [...localSenseCalls, ...serverSenseCalls]
     const origin = parentChatId ? { parentChatId, childChatId: chatId } : undefined
     return {
       id: row.id,
@@ -91,6 +115,8 @@ export function buildCanonicalTimeline(chatId: string): CanonicalMessage[] {
             ? 'role'
             : (parsed.role as CanonicalMessage['role']),
       content: parsed.content ?? '',
+      parts: parsed.parts,
+      fileOperations: parsed.fileOperations,
       ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
       createdAt: row.created_at,
       updatedAt: row.created_at,
@@ -317,9 +343,10 @@ function buildTimelineCandidates(
         actor = actorForAgent(rootChatId)
         direction = 'agent-to-user'
       }
-      const senseCalls: GraphToolCall[] = (parsed.senseCall ?? [])
-        .map((call, fallbackIndex) => {
+      const localSenseCalls: GraphToolCall[] = (parsed.senseCall ?? []).map(
+        (call, fallbackIndex) => {
           const result = rows.find((candidate) => candidate.id === call.id)
+          const parsedResult = result ? parseMessageRow(result) : undefined
           const childMatches = childBySpawnCall.get(call.id) ?? []
           return {
             callId: call.id,
@@ -327,6 +354,17 @@ function buildTimelineCandidates(
             name: call.name ?? '',
             arguments: call.arguments,
             ...(result ? { result: result.content ?? '' } : {}),
+            ...(parsedResult?.parts ? { parts: parsedResult.parts } : {}),
+            ...(parsedResult?.fileOperations
+              ? { fileOperations: parsedResult.fileOperations }
+              : {}),
+            ...(parsedResult?.parts
+              ? {
+                  outputAssetIds: parsedResult.parts
+                    .filter((part) => part.type === 'asset')
+                    .map((part) => part.assetId),
+                }
+              : {}),
             ...(childMatches.length === 1 ? { childChatId: childMatches[0] } : {}),
             ...(call.security ? { security: call.security } : {}),
             status:
@@ -338,8 +376,33 @@ function buildTimelineCandidates(
                     ? ('completed' as const)
                     : ('pending' as const),
           }
-        })
-        .sort((a, b) => a.index - b.index || a.callId.localeCompare(b.callId))
+        },
+      )
+      const serverToolCalls: GraphToolCall[] = (parsed.serverToolCalls ?? []).map(
+        (stc, idx): GraphToolCall => ({
+          callId: stc.id,
+          index: stc.index ?? localSenseCalls.length + idx,
+          name: stc.name,
+          arguments: stc.arguments,
+          executionOwner: 'server',
+          serverState: stc.status,
+          ...(stc.result !== undefined
+            ? { result: stc.result }
+            : stc.error !== undefined
+              ? { result: stc.error }
+              : {}),
+          ...(stc.sources && stc.sources.length > 0 ? { sources: stc.sources } : {}),
+          status:
+            stc.status === 'failed'
+              ? 'error'
+              : stc.status === 'started'
+                ? 'pending'
+                : 'completed',
+        }),
+      )
+      const senseCalls: GraphToolCall[] = [...localSenseCalls, ...serverToolCalls].sort(
+        (a, b) => a.index - b.index || a.callId.localeCompare(b.callId),
+      )
       const node: Omit<TimelineNode, 'orderKey'> = {
         id: row.id,
         rootChatId,
@@ -351,6 +414,8 @@ function buildTimelineCandidates(
         direction,
         visibility: 'conversation',
         content: parsed.content ?? '',
+        parts: parsed.parts,
+        fileOperations: parsed.fileOperations,
         ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
         ...(runtime ? { runtime } : {}),
         ...(senseCalls.length > 0 ? { toolCalls: senseCalls } : {}),

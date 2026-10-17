@@ -2,7 +2,17 @@ import fs from 'node:fs'
 import yaml from 'js-yaml'
 import { replaceConfigText, withConfigTransactionSync } from './configTransaction.js'
 
-export const BACKEND_CONFIG_KEYS = ['global', 'llm', 'sense_groups', 'mcp_servers', 'roles', 'presets', 'memory'] as const
+export const BACKEND_CONFIG_KEYS = [
+  'global',
+  'llm',
+  'sense_groups',
+  'mcp_servers',
+  'roles',
+  'presets',
+  'memory',
+  'file_services',
+  'files',
+] as const
 export function configRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Configuration root must be a mapping')
   return value as Record<string, unknown>

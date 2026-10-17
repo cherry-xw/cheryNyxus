@@ -35,8 +35,9 @@ import { computeContextBreakdown } from './contextUsage.js'
 import { maybeAutoCompactAfterDone } from './autoCompact.js'
 import { computeContextUsage } from '@/utils/token.js'
 import { getChat, getTimelineRevision } from '@/db/chat.js'
-import { getLastMessage } from '@/db/message.js'
+import { getLastMessage, parseMessageRow } from '@/db/message.js'
 import { markPendingInputsConsumed } from '@/db/pendingInput.js'
+import { getAssetStore } from '../media/store.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { computeCanResume } from './canResume.js'
 import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
@@ -220,6 +221,10 @@ function handleStagedChunk(staged: StagedChunk, { rid, chatId, runId }: StreamCo
   if (staged.role) stagedData.role = staged.role as StagedChunkData['role']
   if (staged.createdAt) stagedData.createdAt = staged.createdAt
   if (staged.security) stagedData.security = staged.security
+  if (staged.executionOwner) stagedData.executionOwner = staged.executionOwner
+  if (staged.serverState) stagedData.serverState = staged.serverState
+  if (staged.result !== undefined) stagedData.result = staged.result
+  if (staged.sources && staged.sources.length > 0) stagedData.sources = staged.sources
   logger.event('staged', {
     stagedType: staged.stagedType,
     senseName: staged.senseName,
@@ -246,6 +251,7 @@ function* handleConsumedChunk(
       id: message.id,
       role: message.role,
       content: message.content,
+      parts: message.parts,
       createdAt: message.createdAt,
       updateAt: message.updateAt ?? message.createdAt,
       ...(message.inputId ? { inputId: message.inputId } : {}),
@@ -258,6 +264,7 @@ function* handleConsumedChunk(
     chatId,
     messages.flatMap((message) => (message.inputId ? [message.inputId] : [])),
   )
+  for (const message of messages) if (message.inputId) getAssetStore().release(chatId, 'pending', message.inputId)
   logger.event('input.consumed', { count: consumed.count })
   yield createNotification('consumed', rid, { count: consumed.count, messages }, { chatId, runId })
   for (const message of messages) {
@@ -423,7 +430,7 @@ function* handleErrorChunk(
   yield* completePendingTurns(context, completedAt)
 }
 
-function* handleDoneChunk(context: StreamContext, requestComplete = false): Generator<Notification> {
+function* handleDoneChunk(context: StreamContext, requestComplete = false, waitingForChild = false): Generator<Notification> {
   const { rid, chatId, runId } = context
   // done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
   const ctxBd = computeContextBreakdown(chatId)
@@ -464,6 +471,7 @@ function* handleDoneChunk(context: StreamContext, requestComplete = false): Gene
           msgId: lastMsg.id,
           role: 'assistant' as const,
           content: lastMsg.content ?? '',
+          ...(parseMessageRow(lastMsg).parts ? { parts: parseMessageRow(lastMsg).parts } : {}),
           ...(lastMsg.thinking ? { thinking: lastMsg.thinking } : {}),
           createdAt: lastMsg.created_at,
           agentChatId: chatId,
@@ -476,7 +484,7 @@ function* handleDoneChunk(context: StreamContext, requestComplete = false): Gene
       : undefined
   const canResume = !requestComplete && computeCanResume(chatId)
   const completedAt = Date.now()
-  recordRunFact({ chatId, runId, status: canResume ? 'paused' : 'completed' })
+  recordRunFact({ chatId, runId, status: waitingForChild ? 'waiting' : canResume ? 'paused' : 'completed' })
   // Canonical 与 Lite 共用同一时钟校准点；与 completion 同时取值，
   // 避免 reducer 的总计时封口与 deadline 校准观察到不同服务器时刻。
   const doneData = {
@@ -597,6 +605,8 @@ function* handleSenseChunk(
         approvalId: sc.id,
         senseName: sc.name,
         result: sc.result,
+        parts: sc.parts,
+        fileOperations: sc.fileOperations,
         completedAt: Date.now(),
       },
       { chatId, runId },
@@ -615,6 +625,8 @@ function* handleSenseChunk(
         approvalId: sc.id,
         senseName: sc.name,
         reason: sc.reason,
+        parts: sc.parts,
+        fileOperations: sc.fileOperations,
         completedAt: Date.now(),
       },
       { chatId, runId },
@@ -833,7 +845,7 @@ export async function* streamAgentChunks(
           continue
         }
         context.terminated = true
-        yield* handleDoneChunk(context, chunk.requestComplete === true)
+        yield* handleDoneChunk(context, chunk.requestComplete === true, chunk.waitingForChild === true)
       } else if (chunk.type === 'message_updated') {
         // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
         // 转 "replaced" notification 通知 web 实时更新历史 sense block；content kind 不传 web。

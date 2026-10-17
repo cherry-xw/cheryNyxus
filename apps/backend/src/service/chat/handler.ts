@@ -90,6 +90,7 @@ import { handleChatResumeTree } from './treeControl.js'
 import { getActiveChatEpoch, getChatEpochStats } from '@/db/epoch.js'
 import { abandonChatSubtree } from '@/service/config/roleLifecycle.js'
 import { getConversationBranchByChat } from '@/db/conversationBranch.js'
+import { persistSpawnTaskResult } from './spawnFinalize.js'
 
 /**
  * 创建聊天（chatId 可选由前端指定）
@@ -164,6 +165,7 @@ export async function handleChatCreate(
     selection = parseRuntimeSelection(p, 'chat.create')
   }
 
+  if (_ctx.authenticatedUserId) metadata.fileOwnerId = _ctx.authenticatedUserId
   createChat(chatId, Object.keys(metadata).length > 0 ? metadata : undefined, p.parentChatId)
   try {
     // 原子配置 runtime，并一次性加载历史到 agent。
@@ -595,7 +597,7 @@ export async function* handleChatStartSpawn(
   if (claimed.firstStart) {
     const result = yield* handleChatSend(
       ctx,
-      { chatId: task.childChatId, prompt: task.prompt },
+      { chatId: task.childChatId, prompt: task.prompt, parts: task.parts },
       true,
     )
     // A yielded child can end this RPC without producing its own assistant
@@ -604,7 +606,8 @@ export async function* handleChatStartSpawn(
     // only an actual child terminal message makes the launch irrecoverable.
     if (!('success' in result) || result.success !== false) {
       const last = getLastMessage(task.childChatId)
-      if (last?.role === 'assistant') {
+      if (last?.role === 'assistant' && !safeJsonParse<unknown[]>(last.sense_calls ?? '[]', []).length) {
+        persistSpawnTaskResult(task.childChatId)
         finishSpawnTask(task.taskId)
         updateChatMetadata(task.childChatId, { finished: true })
         return { ...result, finished: true }
@@ -617,7 +620,8 @@ export async function* handleChatStartSpawn(
   // alreadyRunning in that case, otherwise it continues an interrupted child
   // from its persisted user message without inserting that message again.
   const last = getLastMessage(task.childChatId)
-  if (last?.role === 'assistant') {
+  if (last?.role === 'assistant' && !safeJsonParse<unknown[]>(last.sense_calls ?? '[]', []).length) {
+    persistSpawnTaskResult(task.childChatId)
     finishSpawnTask(task.taskId)
     updateChatMetadata(task.childChatId, { finished: true })
     return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true }
@@ -625,7 +629,8 @@ export async function* handleChatStartSpawn(
   const result = yield* handleChatResume(ctx, { chatId: task.childChatId })
   if (!('success' in result) || result.success !== false) {
     const finalLast = getLastMessage(task.childChatId)
-    if (finalLast?.role === 'assistant') {
+    if (finalLast?.role === 'assistant' && !safeJsonParse<unknown[]>(finalLast.sense_calls ?? '[]', []).length) {
+      persistSpawnTaskResult(task.childChatId)
       finishSpawnTask(task.taskId)
       updateChatMetadata(task.childChatId, { finished: true })
       return { ...result, finished: true }

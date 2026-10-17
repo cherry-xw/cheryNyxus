@@ -1,4 +1,5 @@
 import { enrichMediaInputs } from './mediaEnrichment.js'
+import { saveFileRequestPlan, patchFileRequestPlan } from '@/service/fileServices/inputObservations.js'
 
 import { executeRequestTool } from './tool.js'
 import { randomUUID } from 'node:crypto'
@@ -17,7 +18,12 @@ import {
 import { resolveLlmProviderDefaultUrl } from '@chery/protocol'
 import { resolveBrainProtocol } from '@/core/llm/routing.js'
 import { logger, LogLevel } from '@/utils/logger/index.js'
-import type { LLMResponse, LLMAttachment, ThinkingBlockDelta } from '@/core/message/adapter'
+import type {
+  LLMResponse,
+  LLMAttachment,
+  ServerToolCallDelta,
+  ThinkingBlockDelta,
+} from '@/core/message/adapter'
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
 import config from '@/utils/config.js'
 import { dispatch } from '@/agent/hooks/index.js'
@@ -53,10 +59,12 @@ export async function* chatMiddleware(
   })
 
   // 从 ctx.soul.messages 构建 provider 格式消息
-  // P5b：enrichMediaInputs 改为双轨——脑 input.image=true 时走多模态（marker 移除 + 临时 attachments），
-  // 否则保留现有文本转写路径（marker 文本拼接）。attachments 不进 LLMResponse/DB，provider 调用后丢弃。
-  // capabilitiesHint：有 [[media:]] marker 时生成 <self-capabilities> system message（运行时注入，不持久化）。
-  const { historyForBuild, attachments } = await prepareModelHistory(ctx)
+  // 固定版本文件按本次能力和预算逐项规划；临时附件不改变持久历史。
+  const fileRequestId = randomUUID()
+  let requestWasSent = false
+  try {
+  if (ctx.soul.messages?.some(message => message.parts?.some(part => part.type === 'asset'))) saveFileRequestPlan(ctx.soul.chatId, { requestId: fileRequestId, phase: 'prepared', plan: [], usage: null, policy: config.files?.imageContext })
+  const { historyForBuild, attachments, fileProjection } = await prepareModelHistory(ctx, fileRequestId)
 
   // 使用预构建的 senses（runtime.builtSenses）
   const senses = ctx.runtime.builtSenses
@@ -99,6 +107,10 @@ export async function* chatMiddleware(
     signal: requestSignal(ctx),
     brain: ctx.runtime.brainName,
     requestView: ctx.requestView,
+    ...(fileProjection.plan?.length ? { inputPreflight: {
+      contextLimit: ctx.runtime.brain.contextLimit,
+      report: (result: import('@/core/llm/adapter.js').InputTokenPreflight) => patchFileRequestPlan(ctx.soul.chatId, fileRequestId, result as unknown as Record<string, unknown>),
+    } } : {}),
   }
 
   const messages = messageAdapter.buildMessages(
@@ -114,6 +126,13 @@ export async function* chatMiddleware(
       }),
     },
   )
+  const serializedBytes = Buffer.byteLength(JSON.stringify({ messages, tools: senses }))
+  if (serializedBytes > 32 * 1024 * 1024) throw new ClassifiedError({ message: '序列化请求超过 32 MiB', userMessage: '本次请求内容过大，请减少文件内容输入', category: 'validation', source: 'chat' })
+  const textChars = historyForBuild.filter(message => !message.modelExcluded && !message.revoked).reduce((total, message) => total + message.content.length + (message.thinking?.length ?? 0), 0)
+  // 二进制大小不等于收费 token；未知的媒体计量不伪造为 0，也不套用某厂商公式。
+  const conservativeTokens = Math.ceil(textChars / 2)
+  const contextLimit = ctx.runtime.brain.contextLimit
+  if (!options.inputPreflight && contextLimit && conservativeTokens > contextLimit) throw new ClassifiedError({ message: '保守文字上下文估算超过模型上限', userMessage: '本次文字内容可能超过模型上下文上限。请缩短历史后重试。图片等内容的收费 token 尚未确认，此值不是服务方收费量。', category: 'validation', source: 'chat' })
 
   // ========== 空上下文守卫 ==========
   // 纪元切换后 loadHistory 可能只有 system 内容（frozen prompt / epoch handoff / carryover 重构失败时），
@@ -176,6 +195,18 @@ export async function* chatMiddleware(
       limit: ctx.runtime.brain.contextLimit ?? null,
     },
   })
+  const observation = options.observation
+  options.observation = {
+    ...observation,
+    start(model) {
+      requestSignal(ctx)?.throwIfAborted()
+      ctx.requestExecution?.validate()
+      fileProjection.commit?.()
+      requestWasSent = true
+      if (fileProjection.plan?.length) patchFileRequestPlan(ctx.soul.chatId, fileRequestId, { phase: 'sent' })
+      observation.start(model)
+    },
+  }
   if (options.provider === 'mock' || options.protocol === 'mock') options.observation.start()
   // Deadline starts at the provider boundary, not while preparing context or waiting for tools.
   const timeoutMs = config.global.llm_request_timeout_ms ?? 10 * 60 * 1000
@@ -205,7 +236,7 @@ export async function* chatMiddleware(
   try {
     if (ctx.requestExecution?.execution?.toolHistory === 'request') {
       yield* withModelDeadline(
-        handleRequestLocal(ctx, options, historyForBuild, attachments),
+        handleRequestLocal(ctx, options, historyForBuild, attachments, fileRequestId),
         deadline,
         timeoutMs > 0,
       )
@@ -226,6 +257,7 @@ export async function* chatMiddleware(
     }
     if (timedOut) throw new ModelRequestTimeoutError(timeoutMs)
     completed = true
+    if (fileProjection.plan?.length) patchFileRequestPlan(ctx.soul.chatId, fileRequestId, { phase: 'completed' })
   } catch (error) {
     if (timedOut && !parentSignal?.aborted) throw new ModelRequestTimeoutError(timeoutMs)
     throw error
@@ -239,21 +271,29 @@ export async function* chatMiddleware(
 
   // 执行下游
   yield* next()
+  } catch (error) {
+    // An old request must not rewrite a newer request's file detail record.
+    try { patchFileRequestPlan(ctx.soul.chatId, fileRequestId, { phase: requestWasSent ? 'result_unknown' : 'failed_before_send' }) } catch { /* Original request failure takes precedence. */ }
+    throw error
+  }
 }
 
 /** Prepare this request's media and temporary prompts without mutating stored history. */
-async function prepareModelHistory(ctx: MiddlewareContext): Promise<{
+async function prepareModelHistory(ctx: MiddlewareContext, requestId: string): Promise<{
   historyForBuild: LLMResponse[]
   attachments?: LLMAttachment[]
+  fileProjection: Awaited<ReturnType<typeof enrichMediaInputs>>
 }> {
   const enriched = await enrichMediaInputs(ctx, ctx.soul.messages || [])
+  if (enriched.plan?.length) saveFileRequestPlan(ctx.soul.chatId, { requestId, phase: 'prepared', policy: config.files?.imageContext, plan: enriched.plan, usage: enriched.usage, officialPreflight: 'pending' })
 
-  // 运行时注入 <self-capabilities> system message（仅当有 [[media:]] marker 时生成）。
+  // 本次文件处理限制只用于请求，不写回历史。
   // 浅拷贝 history 避免污染 soul（checkpoint 中间件不持久化此段）。
   let historyForBuild = enriched.history
   if (enriched.capabilitiesHint) {
     historyForBuild = [
       {
+        id: 'file-input-capabilities',
         role: 'system',
         content: enriched.capabilitiesHint,
         createdAt: Date.now(),
@@ -290,7 +330,7 @@ async function prepareModelHistory(ctx: MiddlewareContext): Promise<{
       })),
       ...historyForBuild,
     ]
-  return { historyForBuild, attachments: enriched.attachments }
+  return { historyForBuild, attachments: enriched.attachments, fileProjection: enriched }
 }
 
 /** Only the final answer leaves this request-local model/tool history. */
@@ -299,20 +339,36 @@ async function* handleRequestLocal(
   options: LLMOptions,
   initial: LLMResponse[],
   attachments?: LLMAttachment[],
+  fileRequestId?: string,
 ): AsyncGenerator<MiddlewareChunk> {
   const runtime = ctx.runtime!
   const { llmAdapter, messageAdapter, senseAdapter } = runtime.adapters
-  const history = [...initial]
+  const history = [...(ctx.soul.messages ?? [])]
+  const temporaryPrompts = initial.filter(message => message.id !== 'file-input-capabilities' && !history.some(original => original.id === message.id) && message.role === 'system')
+  const parentObservation = options.observation
   for (let turn = 0; turn < (ctx.global.maxLoopCount ?? 30); turn++) {
     if (options.signal?.aborted) throw new Error('Request cancelled')
+    const enriched = turn > 0 ? await enrichMediaInputs(ctx, history) : undefined
+    if (enriched) {
+      attachments = enriched.attachments
+      if (enriched.plan?.length && fileRequestId) patchFileRequestPlan(ctx.soul.chatId, fileRequestId, { phase: 'prepared', plan: enriched.plan, usage: enriched.usage })
+      options.observation = parentObservation ? { ...parentObservation, start(model) { enriched.commit?.(); parentObservation.start(model) } } : undefined
+    }
     const messages = messageAdapter.buildMessages(
-      history.filter((m) => !m.modelExcluded && !m.revoked),
+      (enriched ? [
+        ...temporaryPrompts,
+        ...(enriched.capabilitiesHint ? [{ id: 'file-input-capabilities', role: 'system' as const, content: enriched.capabilitiesHint, createdAt: Date.now(), updateAt: Date.now() }] : []),
+        ...enriched.history,
+      ] : initial).filter((m) => !m.modelExcluded && !m.revoked),
       attachments,
       { anthropicOfficial: options.anthropicOfficial, protocol: options.protocol },
     )
+    if (Buffer.byteLength(JSON.stringify({ messages, tools: runtime.builtSenses })) > 32 * 1024 * 1024) throw new ClassifiedError({ message: '序列化请求超过 32 MiB', userMessage: '本次请求内容过大，请减少文件内容输入', category: 'validation', source: 'chat' })
     let content = '',
       thinking = ''
     let calls: SenseCallData[]
+    let stopReason: string | undefined
+    let hasCompletedServerTool = false
     const blocks = new ThinkingBlockAssembler()
     try {
       if (ctx.global.stream) {
@@ -324,6 +380,11 @@ async function* handleRequestLocal(
           thinking += messageAdapter.extractStreamThinking?.(raw) || ''
           for (const op of messageAdapter.extractStreamThinkingBlocks?.(raw) ?? []) blocks.push(op)
           for (const delta of senseAdapter.extractSenseCallDeltas(raw)) assembler.push(delta)
+          const sr = messageAdapter.extractStreamStopReason?.(raw)
+          if (sr) stopReason = sr
+          for (const sd of messageAdapter.extractStreamServerToolDeltas?.(raw) ?? []) {
+            if (sd.kind === 'result' && sd.status === 'completed') hasCompletedServerTool = true
+          }
         }
         calls = assembler.toArray()
       } else {
@@ -332,6 +393,10 @@ async function* handleRequestLocal(
         content = messageAdapter.content(response) || ''
         thinking = messageAdapter.thinking?.(response) || ''
         calls = senseAdapter.senseCalls(response)
+        stopReason = messageAdapter.stopReason?.(response)
+        hasCompletedServerTool = (messageAdapter.serverToolCalls?.(response) ?? []).some(
+          (c) => c.status === 'completed',
+        )
       }
     } catch (error) {
       if (options.signal?.aborted) throw error
@@ -357,7 +422,7 @@ async function* handleRequestLocal(
     options.signal?.throwIfAborted()
     if (ctx.requestToolPhase?.length && (calls.length !== 1 || !ctx.requestToolPhase.includes(calls[0]!.name ?? ''))) {
       if (turn > 0) throw new Error('Required request decision was not returned')
-      history.push({ id: randomUUID(), role: 'user', content: '本轮仅允许工具决策。请单独调用当前提供的决策工具，参数严格依据当前上下文；不要输出正文，不要调用其他工具。', createdAt: Date.now(), updateAt: Date.now() })
+      history.push({ id: randomUUID(), role: 'user', content: '本轮仅允许工具决策。请单独调用当前提供的决策工具，参数严格依据当前上下文；不要输出正文，不要调用其他工具。', createdAt: Date.now(), updateAt: Date.now(), ephemeral: true })
       continue
     }
     await dispatchPostLLMResponse(ctx, {
@@ -372,8 +437,8 @@ async function* handleRequestLocal(
       })),
     })
     options.signal?.throwIfAborted()
-    if (!calls.length) {
-      await dispatchStop(ctx, { chatId: ctx.soul.chatId, message: content, stopReason: 'end_turn' })
+    if (!calls.length || (stopReason === 'end_turn' && hasCompletedServerTool)) {
+      await dispatchStop(ctx, { chatId: ctx.soul.chatId, message: content, stopReason: stopReason ?? 'end_turn' })
       yield { type: 'stream', contentDelta: content, thinkingDelta: '' }
       return
     }
@@ -479,6 +544,9 @@ async function* handleStream(
     const contentDelta = messageAdapter.extractStreamDelta?.(rawChunk) || ''
     const thinkingBlocksDelta: ThinkingBlockDelta[] =
       messageAdapter.extractStreamThinkingBlocks?.(rawChunk) ?? []
+    const serverToolDeltas: ServerToolCallDelta[] =
+      messageAdapter.extractStreamServerToolDeltas?.(rawChunk) ?? []
+    const stopReason = messageAdapter.extractStreamStopReason?.(rawChunk)
 
     // 提取 sense call 增量
     const senseDelta = senseAdapter.extractSenseCallDeltas(rawChunk)
@@ -491,14 +559,23 @@ async function* handleStream(
     }
     for (const op of thinkingBlocksDelta) thinkingAssembler.push(op)
 
-    // yield stream chunk（包含 senseDelta）
-    if (thinkingDelta || contentDelta || senseDelta.length > 0 || thinkingBlocksDelta.length > 0) {
+    // yield stream chunk（包含 senseDelta / serverToolDeltas / stopReason）
+    if (
+      thinkingDelta ||
+      contentDelta ||
+      senseDelta.length > 0 ||
+      thinkingBlocksDelta.length > 0 ||
+      serverToolDeltas.length > 0 ||
+      stopReason
+    ) {
       const chunk: StreamChunk = {
         type: 'stream',
         thinkingDelta,
         contentDelta,
         senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
         thinkingBlocksDelta: thinkingBlocksDelta.length > 0 ? thinkingBlocksDelta : undefined,
+        serverToolDeltas: serverToolDeltas.length > 0 ? serverToolDeltas : undefined,
+        ...(stopReason ? { stopReason } : {}),
       }
       if (holdOutput) pending.push(chunk)
       else yield chunk
@@ -563,6 +640,34 @@ async function* handleNonStream(
   // 提取内容和思考
   const content = messageAdapter.content(response)
   const thinking = messageAdapter.thinking?.(response)
+  const stopReason = messageAdapter.stopReason?.(response)
+  const serverToolCalls = messageAdapter.serverToolCalls?.(response) ?? []
+  const serverToolDeltas: ServerToolCallDelta[] = serverToolCalls.flatMap((c): ServerToolCallDelta[] => [
+    {
+      kind: 'start',
+      index: c.index ?? 0,
+      id: c.id,
+      name: c.name,
+      arguments: c.arguments,
+      status: c.status,
+      ...(c.protocol ? { protocol: c.protocol } : {}),
+      ...(c.responseId ? { responseId: c.responseId } : {}),
+    },
+    ...(c.result !== undefined || c.error !== undefined || c.sources
+      ? [
+          {
+            kind: 'result' as const,
+            index: c.index ?? 0,
+            callId: c.id,
+            name: c.name,
+            result: c.result,
+            ...(c.error ? { error: c.error } : {}),
+            status: c.status === 'failed' ? ('failed' as const) : ('completed' as const),
+            ...(c.sources ? { sources: c.sources } : {}),
+          },
+        ]
+      : []),
+  ])
 
   // 提取 sense calls（非流式为完整数据）
   const senseDelta = senseAdapter.senseCalls(response)
@@ -573,6 +678,7 @@ async function* handleNonStream(
     thinkingLen: thinking?.length ?? 0,
     contentLen: content?.length ?? 0,
     senseCalls: senseDelta.length,
+    serverToolCalls: serverToolCalls.length,
   })
 
   // PostLLMResponse + Stop hook（非流式末尾）
@@ -592,14 +698,16 @@ async function* handleNonStream(
     await dispatchStop(ctx, {
       chatId: ctx.soul.chatId,
       message: content,
-      stopReason: 'end_turn',
+      stopReason: stopReason ?? 'end_turn',
     })
-  if (content || thinking || senseDelta.length > 0)
+  if (content || thinking || senseDelta.length > 0 || serverToolDeltas.length > 0 || stopReason)
     yield {
       type: 'stream',
       thinkingDelta: thinking || '',
       contentDelta: content || '',
       senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
+      serverToolDeltas: serverToolDeltas.length > 0 ? serverToolDeltas : undefined,
+      ...(stopReason ? { stopReason } : {}),
     }
 }
 

@@ -1,5 +1,6 @@
 import type { PendingInputSnapshot } from '../message/types.js'
 import type { listPendingInputs } from '@/db/pendingInput.js'
+import { parseStoredParts } from '@/utils/messageParts.js'
 
 /** Preserve the single-chat and root-snapshot shapes, including optional source chat identity. */
 export function pendingInputSnapshot(
@@ -12,6 +13,7 @@ export function pendingInputSnapshot(
     ...(entry.client_message_id ? { clientMessageId: entry.client_message_id } : {}),
     messageId: entry.message_id,
     content: entry.content,
+    parts: parseStoredParts(entry.parts),
     createdAt: entry.accepted_at,
     state: entry.state,
     queueSequence: entry.queue_sequence,

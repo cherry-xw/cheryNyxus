@@ -67,9 +67,17 @@ function scrub(value: unknown, secrets: string[]): unknown {
   return value
 }
 function secretValues(config: CoreConfig): string[] {
-  return Object.values(config.llm.brain).flatMap((brain) =>
+  const brainKeys = Object.values(config.llm.brain).flatMap((brain) =>
     typeof brain.key === 'string' && brain.key ? [brain.key] : [],
   )
+  const fileServiceKeys = Object.values(config.file_services ?? {}).flatMap((svc) =>
+    typeof svc.connection?.keyRef === 'string' &&
+    svc.connection.keyRef &&
+    !/^\$[A-Z_][A-Z0-9_]*$/.test(svc.connection.keyRef)
+      ? [svc.connection.keyRef]
+      : [],
+  )
+  return [...brainKeys, ...fileServiceKeys]
 }
 function safeApply(state: ResourceView['apply']): ResourceView['apply'] {
   const copy = structuredClone(state)
@@ -232,7 +240,23 @@ export class SettingsService {
         const references = Object.entries(config.roles ?? {}).filter(([, role]) =>
           kind === 'brains' ? role.brain === body.name : role.senseGroup === body.name,
         )
-        if (references.length) throw new CapabilityError('reference_protected', 409, `此资源仍被以下角色引用：${references.map(([name]) => name).join('、')}；请先更换引用或删除对应预设`)
+        const serviceRefs =
+          kind === 'brains'
+            ? Object.entries(config.file_services ?? {}).filter(
+                ([, svc]) => svc.connection?.brainRef === body.name,
+              )
+            : []
+        if (references.length || serviceRefs.length) {
+          const refNames = [
+            ...references.map(([name]) => name),
+            ...serviceRefs.map(([name]) => `文件服务:${name}`),
+          ]
+          throw new CapabilityError(
+            'reference_protected',
+            409,
+            `此资源仍被以下对象引用：${refNames.join('、')}；请先更换引用或删除对应资源`,
+          )
+        }
         delete map[body.name]
       }
       const { baseRevision: _base, ...candidate } = config
@@ -310,6 +334,11 @@ export class SettingsService {
       for (const role of Object.values(config.roles ?? {})) {
         if (kind === 'brains' && role.brain === originalName) role.brain = body.name
         if (kind === 'sense-groups' && role.senseGroup === originalName) role.senseGroup = body.name
+      }
+      if (kind === 'brains') {
+        for (const svc of Object.values(config.file_services ?? {})) {
+          if (svc.connection?.brainRef === originalName) svc.connection.brainRef = body.name
+        }
       }
     }
     const exists = has(mapFor(config, kind), body.name)

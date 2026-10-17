@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { fileAccessForChat } from '../media/access.js'
+import { getAssetStore } from '../media/store.js'
 import type { HandlerContext } from '../message/router.js'
 import {
   Method,
@@ -292,9 +294,13 @@ export async function handleChatBranchCreate(
     previousActiveBranchId = getConversationTask(preview.taskId)?.activeBranchId
     const sourceChat = getChat(data.rootChatId)
     if (!sourceChat) throw new Error('来源会话不存在')
+    if (ctx.authenticatedUserId) fileAccessForChat(data.rootChatId, ctx.authenticatedUserId)
     const timeline = buildRootTimeline(data.rootChatId, 'tree')
     const anchor = timeline.nodes.find((node) => node.id === data.anchorNodeId)!
     const path = ancestors(timeline.nodes, timeline.edges, anchor.id)
+    const previousSnapshot = getConversationBranchByChat(data.rootChatId)?.contextSnapshot
+    const contextNodes = [...(Array.isArray(previousSnapshot) ? previousSnapshot as TimelineNode[] : []), ...path]
+      .filter((node, index, all) => all.findIndex(item => item.id === node.id && item.sourceChatId === node.sourceChatId) === index)
     const sourceMeta = getChatMetadata(data.rootChatId)
     const fallback = getChatRuntimeSelection(data.rootChatId)
     if (!fallback) throw new Error('来源会话缺少运行时快照')
@@ -329,6 +335,13 @@ export async function handleChatBranchCreate(
       lastUserActivityAt: Date.now(),
     }
     createChat(chatId, metadata)
+    for (const node of contextNodes) {
+      const parts = [...(node.parts ?? []), ...(node.fileOperations ?? []).flatMap(operation => operation.outputParts ?? []), ...(node.toolCalls ?? []).flatMap(call => [...(call.parts ?? []), ...(call.fileOperations ?? []).flatMap(operation => operation.outputParts ?? [])])]
+      if (!parts.some(part => part.type === 'asset')) continue
+      const sourceAccess = fileAccessForChat(node.sourceChatId, ctx.authenticatedUserId)
+      getAssetStore().grantToChat(parts, sourceAccess, chatId)
+      getAssetStore().reference(parts, fileAccessForChat(chatId, sourceAccess.ownerId), 'branch', branchId)
+    }
     const inherited = data.branchType === 'continuation' ? inheritedTasks(timeline, anchor) : []
     inheritedForRollback = inherited
     insertConversationBranch(
@@ -340,7 +353,7 @@ export async function handleChatBranchCreate(
         sourceBranchId: source.branchId,
         anchorRootChatId: data.rootChatId,
         anchorNodeId: anchor.id,
-        contextSnapshot: path,
+        contextSnapshot: contextNodes,
         runtimeSnapshot: {
           metadata,
           runtime: selection,

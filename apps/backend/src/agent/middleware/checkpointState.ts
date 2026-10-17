@@ -7,10 +7,18 @@ import type {
   SenseRejectChunk,
 } from '@/core/middleware/types'
 import type { SenseCallData } from '@/core/sense/adapter'
-import type { ThinkingBlock, ThinkingBlockDelta } from '@/core/message/adapter'
+import type {
+  SenseCallInfo,
+  ServerToolCallDelta,
+  ServerToolCallInfo,
+  ServerToolSource,
+  ThinkingBlock,
+  ThinkingBlockDelta,
+} from '@/core/message/adapter'
 import type { ToolAuthorization } from '@/core/security/index.js'
 import { SenseCallAssembler } from './senseCallAssembler.js'
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
+import { sanitizeServerToolArgs, sanitizeServerToolText } from '@/agent/provider/anthropic.js'
 
 /**
  * Checkpoint 状态管理
@@ -41,6 +49,9 @@ export class CheckpointState {
   private turnStartedAt = Date.now()
   /** 最近一次已写入 assistant 的 senseCalls 快照（增量 reconcile 与最终兜底共用） */
   private flushedAssistantSenseCalls: NonNullable<AgentMessage['senseCalls']> = []
+  private flushedAssistantServerToolCalls: ServerToolCallInfo[] = []
+  private serverToolDeltas: ServerToolCallDelta[] = []
+  private stopReason: string | undefined
   /** callId → 安全授权判定（checkpoint 在 sense_end 收到 trigger 时注入；构造 senseCalls 落库用）。
    *  callId 与 senseDelta 合并产出的 sc.id 同源（同一 SenseCallAssembler 处理同一条 delta 流）。 */
   private readonly securityByCallId = new Map<string, ToolAuthorization>()
@@ -59,12 +70,15 @@ export class CheckpointState {
    * 安全判定按 callId 从 securityByCallId 查（与 sense_end 触发同源 id），省略模式保证
    * 无判定时字段不出现，现有 toEqual 全等断言不因新增可选字段而失败。
    */
-  private buildSenseCalls(): Array<{
-    id: string
-    name: string
-    arguments: string
-    security?: ToolAuthorization
-  }> {
+  private buildSenseCalls(): SenseCallInfo[] {
+    const serverCalls = this.buildServerToolCalls()
+    const skipLocal =
+      this.stopReason === 'end_turn' && serverCalls.some((c) => c.status === 'completed')
+    if (skipLocal) {
+      // 当同一响应已由服务端工具完成且以 end_turn 结束时，未在本地执行的普通调用不保留在 senseCalls
+      // 中（避免阻塞 loop/canResume/spawnFinalize），改为并入 serverToolCalls 展示为 skipped-local。
+      return []
+    }
     return mergeSenseDeltas(this.senseDeltas)
       .filter((sc) => sc.name)
       .map((sc) => {
@@ -78,6 +92,29 @@ export class CheckpointState {
       })
   }
 
+  buildServerToolCalls(): ServerToolCallInfo[] {
+    const calls = mergeServerToolDeltas(this.serverToolDeltas)
+    const skipLocal =
+      this.stopReason === 'end_turn' && calls.some((c) => c.status === 'completed')
+    if (skipLocal) {
+      const skippedLocals = mergeSenseDeltas(this.senseDeltas)
+        .filter((sc) => sc.name)
+        .map(
+          (sc, idx): ServerToolCallInfo => ({
+            id: sc.id || `skipped-${idx}`,
+            name: sc.name!,
+            arguments: sanitizeServerToolText(sc.arguments ?? '{}'),
+            executionOwner: 'server',
+            status: 'skipped-local',
+            result: '已由同一响应中的服务端工具完成，未在本地重复执行。',
+            index: calls.length + idx,
+          }),
+        )
+      return [...calls, ...skippedLocals]
+    }
+    return calls
+  }
+
   /**
    * 摄入 chunk，更新内部状态
    */
@@ -87,6 +124,8 @@ export class CheckpointState {
     contentDelta?: string
     senseDelta?: SenseCallData[]
     thinkingBlocksDelta?: ThinkingBlockDelta[]
+    serverToolDeltas?: ServerToolCallDelta[]
+    stopReason?: string
     id?: string
     name?: string
     arguments?: string
@@ -105,6 +144,12 @@ export class CheckpointState {
         if (chunk.senseDelta) {
           this.senseDeltas.push(...chunk.senseDelta)
         }
+        if (chunk.serverToolDeltas && chunk.serverToolDeltas.length > 0) {
+          this.serverToolDeltas.push(...chunk.serverToolDeltas)
+        }
+        if (chunk.stopReason) {
+          this.stopReason = chunk.stopReason
+        }
         break
 
       case 'sense_accept':
@@ -121,12 +166,15 @@ export class CheckpointState {
     this.content = ''
     this.senseDeltas = []
     this.senseResults = []
+    this.serverToolDeltas = []
+    this.stopReason = undefined
     this.thinkingBlockAssembler = new ThinkingBlockAssembler()
     this.thinkingBlocks = []
     this.assistantFlushed = false
     this.timeoutMs = null
     this.flushedAssistantId = null
     this.flushedAssistantSenseCalls = []
+    this.flushedAssistantServerToolCalls = []
     this.securityByCallId.clear()
     this.assistantId = randomUUID()
     this.turnStartedAt = Date.now()
@@ -149,7 +197,14 @@ export class CheckpointState {
   flushAssistant(ctx: MiddlewareContext): AgentMessage | null {
     if (this.assistantFlushed) return null
     const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas)
-    if (!this.content && !this.thinking && mergedSenseCalls.length === 0) return null
+    const serverToolCalls = this.buildServerToolCalls()
+    if (
+      !this.content &&
+      !this.thinking &&
+      mergedSenseCalls.length === 0 &&
+      serverToolCalls.length === 0
+    )
+      return null
 
     const senseCalls = this.buildSenseCalls()
     // 快照思考块（flush 后不再变化，供 reconcile 时引用）
@@ -160,38 +215,48 @@ export class CheckpointState {
         thinking: this.thinking,
         thinkingBlocks: this.thinkingBlocks.length > 0 ? this.thinkingBlocks : undefined,
         senseCalls,
+        ...(serverToolCalls.length > 0 ? { serverToolCalls } : {}),
       },
       this.assistantId,
     )
     this.assistantFlushed = true
     this.flushedAssistantId = message.id
     this.flushedAssistantSenseCalls = senseCalls
+    this.flushedAssistantServerToolCalls = serverToolCalls
     return message
   }
 
   /**
-   * reconcile 已 flush assistant 的 senseCalls 字段。
+   * reconcile 已 flush assistant 的 senseCalls / serverToolCalls 字段。
    *
    * 流式多 sense_call 场景：第一次 sense_end flushAssistant 时 senseDeltas 可能未累积完整，
    * 后续 sense_end 到达时需要立即把新增调用写回 assistant，保证审批等待期间前端也能看到完整
    * 的待审批工具。流结束时仍可再次调用此方法，作为最后一轮 delta 合并的兜底。
-   * 比对「最近一次已写入的 senseCalls」与当前 mergeSenseDeltas，有变化则返回 updated mutation
-   * （patch.kind="content" + senseCalls），由 observer 落库。
+   * 比对「最近一次已写入的 senseCalls/serverToolCalls」与当前合并结果，有变化则返回 updated mutation
+   * （patch.kind="content" + senseCalls/serverToolCalls），由 observer 落库。
    *
    * @returns updated mutation（含 senseCalls 增量）或 null（无需补充）
    */
   reconcileAssistantSenseCalls(): CheckpointMessageMutation | null {
     if (!this.assistantFlushed || !this.flushedAssistantId) return null
     const finalSenseCalls = this.buildSenseCalls()
+    const finalServerCalls = this.buildServerToolCalls()
     // 同批多个工具调用时，首个 sense_end 可能已经 flush 了完整 call 数组，
     // 后续 sense_end 只会补齐各自的 security。不能只比较长度，否则第 2 个及之后
     // 的授权判定不会写回 assistant.senseCalls。
-    if (sameSenseCalls(finalSenseCalls, this.flushedAssistantSenseCalls)) return null
+    const sameSense = sameSenseCalls(finalSenseCalls, this.flushedAssistantSenseCalls)
+    const sameServer =
+      JSON.stringify(finalServerCalls) === JSON.stringify(this.flushedAssistantServerToolCalls)
+    if (sameSense && sameServer) return null
     this.flushedAssistantSenseCalls = finalSenseCalls
+    this.flushedAssistantServerToolCalls = finalServerCalls
     return {
       type: 'updated',
       id: this.flushedAssistantId,
-      patch: { senseCalls: finalSenseCalls },
+      patch: {
+        senseCalls: finalSenseCalls,
+        ...(finalServerCalls.length > 0 ? { serverToolCalls: finalServerCalls } : {}),
+      },
     }
   }
 
@@ -202,14 +267,19 @@ export class CheckpointState {
    */
   appendResponseMessages(ctx: MiddlewareContext): CheckpointMessageMutation[] {
     const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas)
+    const serverToolCalls = this.buildServerToolCalls()
     const mutations: CheckpointMessageMutation[] = []
 
-    // assistant 响应（包含 thinking 和 senseCalls）
+    // assistant 响应（包含 thinking、senseCalls、serverToolCalls）
     // sense_call 流已在 sense_end 时 flush（assistantFlushed=true），此处跳过避免重复 push；
-    // 仅纯 content/thinking 流（未触发 sense_end）在此构建。
+    // 仅纯 content/thinking/serverToolCalls 流（未触发 sense_end）在此构建。
     if (
       !this.assistantFlushed &&
-      (this.content || this.thinking || mergedSenseCalls.length > 0 || this.timeoutMs !== null)
+      (this.content ||
+        this.thinking ||
+        mergedSenseCalls.length > 0 ||
+        serverToolCalls.length > 0 ||
+        this.timeoutMs !== null)
     ) {
       const senseCalls = this.buildSenseCalls()
       this.thinkingBlocks = this.thinkingBlockAssembler.toArray()
@@ -222,6 +292,8 @@ export class CheckpointState {
           thinking: this.thinking,
           thinkingBlocks: this.thinkingBlocks.length > 0 ? this.thinkingBlocks : undefined,
           senseCalls,
+          ...(serverToolCalls.length > 0 ? { serverToolCalls } : {}),
+          ...(this.timeoutMs !== null ? { modelExcluded: true } : {}),
         },
         this.assistantId,
       )
@@ -230,6 +302,7 @@ export class CheckpointState {
       this.assistantFlushed = true
       this.flushedAssistantId = message.id
       this.flushedAssistantSenseCalls = senseCalls
+      this.flushedAssistantServerToolCalls = serverToolCalls
       mutations.push({ type: 'created', message })
     }
 
@@ -239,7 +312,7 @@ export class CheckpointState {
       const hash = r.type === 'sense_accept' ? r.hash : undefined
       const observation = r.type === 'sense_accept' ? r.observation : undefined
       const content = r.type === 'sense_accept' ? r.result : `被拒绝: ${r.reason}`
-      mutations.push(ctx.journal.completeSense({ id: r.id, content, hash, observation }))
+      mutations.push(ctx.journal.completeSense({ id: r.id, content, hash, observation, parts: r.parts, fileOperations: r.fileOperations }))
     }
 
     return mutations
@@ -303,6 +376,114 @@ function mergeSenseDeltas(deltas: SenseCallData[]): SenseCallData[] {
   const asm = new SenseCallAssembler()
   for (const d of deltas) asm.push(d)
   return asm.toArray()
+}
+
+export function mergeServerToolDeltas(deltas: ServerToolCallDelta[]): ServerToolCallInfo[] {
+  const byId = new Map<string, ServerToolCallInfo>()
+  const indexToId = new Map<number, string>()
+  const looseCitations: ServerToolSource[] = []
+
+  for (const d of deltas) {
+    if (d.kind === 'start') {
+      indexToId.set(d.index, d.id)
+      const existing = byId.get(d.id)
+      if (existing) {
+        if (d.name) existing.name = d.name
+        if (d.arguments && d.arguments !== '{}') existing.arguments = d.arguments
+        if (d.status && existing.status === 'started') existing.status = d.status
+        if (d.protocol) existing.protocol = d.protocol
+        if (d.responseId) existing.responseId = d.responseId
+      } else {
+        byId.set(d.id, {
+          id: d.id,
+          name: d.name || 'server_tool',
+          arguments: d.arguments ?? '',
+          executionOwner: 'server',
+          status: d.status ?? 'started',
+          ...(d.protocol ? { protocol: d.protocol } : {}),
+          ...(d.responseId ? { responseId: d.responseId } : {}),
+          index: d.index,
+        })
+      }
+      continue
+    }
+
+    if (d.kind === 'arguments_delta') {
+      const targetId = d.id ?? indexToId.get(d.index)
+      if (!targetId) continue
+      const existing = byId.get(targetId)
+      if (!existing) continue
+      existing.arguments = (existing.arguments || '') + d.argumentsDelta
+      continue
+    }
+
+    if (d.kind === 'result') {
+      const existing = byId.get(d.callId)
+      if (existing) {
+        if (d.name && existing.name === 'server_tool') existing.name = d.name
+        if (d.status) existing.status = d.status
+        if (d.result !== undefined) existing.result = d.result
+        if (d.error !== undefined) existing.error = d.error
+        if (d.truncated !== undefined) existing.truncated = d.truncated
+        if (d.sources && d.sources.length > 0) {
+          const merged = [...(existing.sources ?? [])]
+          for (const s of d.sources) {
+            if (!merged.some((m) => m.url === s.url)) merged.push(s)
+          }
+          existing.sources = merged
+        }
+      } else {
+        byId.set(d.callId, {
+          id: d.callId,
+          name: d.name ?? 'server_tool',
+          arguments: '{}',
+          executionOwner: 'server',
+          status: d.status === 'failed' ? 'failed' : 'unknown',
+          ...(d.result !== undefined ? { result: d.result } : {}),
+          ...(d.error !== undefined ? { error: d.error } : {}),
+          ...(d.sources && d.sources.length > 0 ? { sources: d.sources } : {}),
+          ...(d.truncated !== undefined ? { truncated: d.truncated } : {}),
+          index: d.index,
+        })
+      }
+      continue
+    }
+
+    if (d.kind === 'citations') {
+      for (const s of d.sources) {
+        if (!looseCitations.some((c) => c.url === s.url)) {
+          looseCitations.push(s)
+        }
+      }
+    }
+  }
+
+  const result = [...byId.values()]
+  for (const call of result) {
+    if (!call.arguments || call.arguments.trim() === '') {
+      call.arguments = '{}'
+    } else {
+      try {
+        const parsed = JSON.parse(call.arguments) as Record<string, unknown>
+        call.arguments = sanitizeServerToolArgs(parsed)
+      } catch {
+        call.arguments = sanitizeServerToolText(call.arguments)
+      }
+    }
+  }
+
+  if (looseCitations.length > 0 && result.length > 0) {
+    const target =
+      [...result].reverse().find((c) => c.name === 'web_search_call' || c.name.includes('search')) ??
+      result[result.length - 1]!
+    const merged = [...(target.sources ?? [])]
+    for (const s of looseCitations) {
+      if (!merged.some((m) => m.url === s.url)) merged.push(s)
+    }
+    target.sources = merged
+  }
+
+  return result
 }
 
 function sameSenseCalls(

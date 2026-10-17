@@ -18,6 +18,11 @@ import { transport } from '../websocket/transport.js'
 import { logger } from '@/utils/logger/index.js'
 import { ingressExecution } from './request.js'
 import { immutableSnapshot, type IngressConnections, type IngressCoreAdapter } from './api.js'
+import { getAssetStore } from '../media/store.js'
+import { fileAccessForChat } from '../media/access.js'
+import { identifyFile } from '../media/fileFormat.js'
+import { downloadProviderResult } from '../fileServices/download.js'
+import { boundedBody } from '../fileServices/adapters/http.js'
 
 function conversationId(owner: string, key: string): string {
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(owner) || !key || key.length > 512)
@@ -29,6 +34,7 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
   const owned = new Map<string, Map<string, string>>()
   const pending = new Map<string, Promise<{ chatId: string }>>()
   const context = (owner: string) => ({
+    authenticatedUserId: owner,
     connectionId: `ingress:${owner}`,
     requestId: randomUUID(),
     log: logger,
@@ -39,6 +45,44 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
     return chatId
   }
   return {
+    importFile: async (owner, key, input) => {
+      const chatId = requireOwned(owner, key)
+      input.validateIdentity()
+      const access = fileAccessForChat(chatId, owner)
+      const limit = config.files?.maxUploadBytes ?? 100 * 1024 * 1024
+      let declaredMime = input.mimeType
+      let data: Buffer
+      if ('data' in input.source) {
+        if (!input.source.data.byteLength || input.source.data.byteLength > limit) throw new Error('文件为空或超过上传大小限制')
+        data = Buffer.from(input.source.data)
+      }
+      else {
+        const response = await downloadProviderResult(input.source.url, input.signal)
+        data = await boundedBody(response, limit, input.signal ?? new AbortController().signal)
+        if (declaredMime === 'application/octet-stream') declaredMime = response.headers.get('content-type') ?? declaredMime
+      }
+      input.signal?.throwIfAborted()
+      input.validateIdentity()
+      fileAccessForChat(chatId, owner)
+      const format = identifyFile(data, declaredMime)
+      const store = getAssetStore()
+      const asset = await store.save(data, { ownerId: owner, originalName: input.originalName, ...format, source: 'upload', maxBytes: limit })
+      input.validateIdentity()
+      input.signal?.throwIfAborted()
+      fileAccessForChat(chatId, owner)
+      store.attachOwned([{ type: 'asset', partId: `ingress:${asset.id}`, assetId: asset.id, assetVersionId: asset.versionId, variant: 'original', usage: 'content' }], access, 'branch', chatId)
+      return asset
+    },
+    readFileChunk: async (owner, key, input) => {
+      input.validateIdentity()
+      input.signal?.throwIfAborted()
+      const chatId = requireOwned(owner, key)
+      const result = await getAssetStore().readChunk(input.assetId, fileAccessForChat(chatId, owner), input.assetVersionId, input.offset)
+      input.validateIdentity()
+      input.signal?.throwIfAborted()
+      fileAccessForChat(chatId, owner)
+      return result
+    },
     internalText: async (_owner, input) => {
       const selection = resolvePresetSelection(input.preset)
       const brain = config.llm.brain[selection.selection.brain]

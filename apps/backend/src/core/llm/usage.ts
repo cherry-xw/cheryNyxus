@@ -6,6 +6,9 @@ export interface ModelUsage {
   cacheReadTokens?: number
   cacheWriteTokens?: number
   reasoningTokens?: number
+  serverToolUse?: {
+    webSearchRequests?: number
+  }
 }
 
 export interface ModelRequestEvent {

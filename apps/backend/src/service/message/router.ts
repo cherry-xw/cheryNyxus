@@ -29,6 +29,8 @@ import type { IngressRpcRegistration } from '../ingress/api.js'
  * Handler 上下文
  */
 export interface HandlerContext {
+  /** 来自已鉴权连接，不接受请求参数中的身份声明。 */
+  authenticatedUserId?: string
   requestId?: string
   connectionId: string
   credentialKind?: string

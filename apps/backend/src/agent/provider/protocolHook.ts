@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { LLMOptions } from '@/core/llm/adapter.js'
 import { dispatch } from '@/agent/hooks/dispatch.js'
 import { ClassifiedError } from '@/utils/error.js'
+import { preflightModelInput } from './inputPreflight.js'
 
 const count = z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
 const stop = z.union([z.string(), z.array(z.string()).max(4)])
@@ -127,6 +128,7 @@ export async function applyProtocolHook<T extends Record<string, unknown>>(
     signal: options?.signal,
   })
   validateProtocolParameters(original, payload.body, protocol)
+  await preflightModelInput(payload.body, options, protocol)
   return payload.body as T
 }
 

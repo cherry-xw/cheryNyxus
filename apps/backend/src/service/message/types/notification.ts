@@ -1,4 +1,5 @@
 import type { SupervisionLevel } from '@/core/config.js'
+import type { ToolFileResult } from '@chery/protocol'
 import type { ContextBreakdown } from '@/utils/token.js'
 import type {
   RunErrorNotificationData as ProtocolRunErrorNotificationData,
@@ -101,7 +102,7 @@ export interface SenseStartedNotificationData {
   security?: ToolAuthorization
 }
 
-export interface AcceptNotificationData {
+export interface AcceptNotificationData extends ToolFileResult {
   approvalId: string
   senseName: string
   result: string
@@ -109,7 +110,7 @@ export interface AcceptNotificationData {
   completedAt?: number
 }
 
-export interface RejectedNotificationData {
+export interface RejectedNotificationData extends ToolFileResult {
   approvalId: string
   senseName: string
   reason: string

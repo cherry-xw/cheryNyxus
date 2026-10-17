@@ -51,6 +51,7 @@ export function getChatRuntimeProvenance(chatId: string): RuntimeProvenance | un
 
 /** Read-only queued user input snapshot for chat.open session hydration. */
 export function getPendingChatInputs(chatId: string): Array<{
+  parts?: import('@chery/protocol').MessagePart[]
   content: string
   time: number
   inputId?: string
@@ -59,7 +60,10 @@ export function getPendingChatInputs(chatId: string): Array<{
   commandId?: string
 }> {
   const runtime = chatRuntimes.get(chatId)
-  return runtime?.builder.getPendingInputs().map((entry) => ({ ...entry })) ?? []
+  return runtime?.builder.getPendingInputs().map((entry) => ({
+    ...entry,
+    ...(entry.parts ? { parts: structuredClone(entry.parts) } : {}),
+  })) ?? []
 }
 
 /**

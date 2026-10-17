@@ -49,8 +49,7 @@ export async function handleSenseTools(
             pluginId,
             pluginVersion,
             ...(capabilities?.accepts?.length ? { accepts: capabilities.accepts } : {}),
-            ...(capabilities?.produces?.length ? { produces: capabilities.produces } : {}),
-            ...(capabilities?.preprocess ? { preprocess: true } : {}),
+            ...(capabilities?.operations?.length ? { operations: capabilities.operations } : {}),
           }
         },
       ),

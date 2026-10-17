@@ -7,6 +7,9 @@
           "arguments": "{\"type\": \"protocol_reader\", \"prompt\": \"synthetic child task\", \"wake\": \"immediate\"}"
         }
       ]
+    },
+    {
+      "content": "The child result has been received."
     }
   ]
 }

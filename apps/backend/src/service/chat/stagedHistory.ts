@@ -30,7 +30,7 @@ export function messagesToStagedEvents(chatId: string): Chunk[] {
         ),
       )
     }
-    if (parsedMsg.content) {
+    if (parsedMsg.content || parsedMsg.parts?.length || parsedMsg.fileOperations?.length) {
       // History replay resets attribution on a content-bearing user row without a selection.
       const projection = projectMessageRuntime(
         parsedMsg.role,
@@ -48,6 +48,8 @@ export function messagesToStagedEvents(chatId: string): Chunk[] {
             type: 'content_end',
             role: parsedMsg.role,
             content: parsedMsg.content,
+            parts: parsedMsg.parts,
+            fileOperations: parsedMsg.fileOperations,
             createdAt: msg.created_at,
             msgId: msg.id,
             agentChatId: chatId,
@@ -79,6 +81,37 @@ export function messagesToStagedEvents(chatId: string): Chunk[] {
               id: sc.id,
               agentChatId: chatId,
               ...(sc.security ? { security: sc.security } : {}),
+            },
+            { chatId },
+          ),
+        )
+      }
+    }
+    if (
+      parsedMsg.role !== 'sense' &&
+      parsedMsg.serverToolCalls &&
+      parsedMsg.serverToolCalls.length > 0
+    ) {
+      for (const stc of parsedMsg.serverToolCalls) {
+        chunks.push(
+          createChunk(
+            'staged',
+            '',
+            {
+              type: 'sense_end',
+              role: parsedMsg.role,
+              senseName: stc.name,
+              arguments: stc.arguments,
+              id: stc.id,
+              agentChatId: chatId,
+              executionOwner: 'server',
+              serverState: stc.status,
+              ...(stc.result !== undefined
+                ? { result: stc.result }
+                : stc.error !== undefined
+                  ? { result: stc.error }
+                  : {}),
+              ...(stc.sources && stc.sources.length > 0 ? { sources: stc.sources } : {}),
             },
             { chatId },
           ),

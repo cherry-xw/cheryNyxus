@@ -27,6 +27,22 @@ import { recordSpawnTerminationFact, recordTerminationFact } from './executionFa
 import { transitionInteraction } from '@/db/interaction.js'
 import { broadcastInteractionChanged } from '../interaction/events.js'
 import { finishActiveWorkflowSteps, recordWorkflowStep } from './workflowStepWriter.js'
+import { persistSpawnTaskResult } from './spawnFinalize.js'
+import { launchDetachedResume } from './send.js'
+import { getAssetStore } from '@/service/media/store.js'
+import { fileAccessForChat } from '@/service/media/access.js'
+import { randomUUID } from 'node:crypto'
+import { deriveTextContentFromParts, type MessagePart } from '@chery/protocol'
+import { listLatestExecutionRuns } from '@/db/executionGraph.js'
+import { getActiveTreeControl } from '@/db/treeControl.js'
+
+function parentRequiresManualResume(chatId: string): boolean {
+  const rootId = getRootChatId(chatId)
+  const control = getActiveTreeControl(rootId)
+  if (control && ['pausing', 'paused', 'partial'].includes(control.status)) return true
+  const run = listLatestExecutionRuns(rootId).find((entry) => entry.chatId === chatId)
+  return run?.status === 'paused' || run?.status === 'failed'
+}
 
 /** 向该 chat 的全部仍在线订阅者广播持久化 notification。 */
 function broadcastChatNotification(chatId: string, notification: unknown): boolean {
@@ -62,16 +78,20 @@ export async function wakeParent(
   content: string,
   opts?: { silent?: boolean; causationNodeId?: string },
 ): Promise<void> {
-  const silent = opts?.silent ?? false
+  let silent = opts?.silent ?? false
   const initialSpawnTask = getSpawnTaskByChild(childChatId)
+  // Completion belongs to the child even when the delivery target is unavailable.
+  const result = persistSpawnTaskResult(childChatId, content,
+    initialSpawnTask?.status === 'timed_out' ? 'timed_out' : initialSpawnTask?.status === 'abandoned' ? 'abandoned' : 'completed')
   // parent_chat_id remains immutable dispatch ownership; delivery_chat_id is
   // the mutable mainline target selected by continuation/activation.
   parentChatId = initialSpawnTask?.deliveryChatId ?? parentChatId
   // 来源说明：注入主 chat 的 role 消息统一带 [角色 type] 前缀（主 LLM 据此识别子来源）。
   // idempotent：caller 已格式化（看门狗超时、rebuild 空结果、旧记录带 [type]/[角色 type]）则不重复拼。
   const prefix = `[角色 ${type}]`
+  const summaryContent = result ? deriveTextContentFromParts(result.summaryParts) : content
   const formattedContent =
-    content.startsWith(prefix) || content.startsWith(`[${type}]`) ? content : `${prefix} ${content}`
+    summaryContent.startsWith(prefix) || summaryContent.startsWith(`[${type}]`) ? summaryContent : `${prefix} ${summaryContent}`
 
   // 主 chat 已删除（用户删会话）→ 无处唤醒，仅清理（子结果丢弃）
   if (!getChat(parentChatId)) {
@@ -79,6 +99,7 @@ export async function wakeParent(
     logger.event('wake.parent-gone', { parentChatId, childChatId })
     return
   }
+  silent ||= parentRequiresManualResume(parentChatId)
 
   let spawnTask = getSpawnTaskByChild(childChatId)
   const spawnTaskId = spawnTask?.taskId
@@ -112,13 +133,34 @@ export async function wakeParent(
     return wakeParent(latestSpawnTask.deliveryChatId, childChatId, type, content, opts)
   }
   spawnTask = latestSpawnTask ?? spawnTask
+  silent ||= parentRequiresManualResume(parentChatId)
+  // Another completion can have committed while ensureChat awaited initialization.
+  if (spawnTaskId && getMessageLinksForRoot(getRootChatId(parentChatId)).some(
+    (link) => link.relation === 'child_return' && link.spawnId === spawnTaskId,
+  )) {
+    updateChatMetadata(childChatId, { roleInjected: true })
+    clearWaitedChild(childChatId)
+    return
+  }
+  const parts: MessagePart[] = [
+    { type: 'text', partId: `role-summary:${spawnTaskId ?? childChatId}`, text: formattedContent },
+    ...(result?.summaryParts.filter((part) => part.type === 'asset') ?? []),
+  ]
+  const replyId = randomUUID()
+  // Only the selected outputs cross the task boundary; source authorization is mandatory.
+  if (parts.some((part) => part.type === 'asset')) {
+    const store = getAssetStore()
+    store.grantToChat(parts, fileAccessForChat(childChatId), parentChatId)
+    store.reference(parts, fileAccessForChat(parentChatId), 'message', replyId)
+  }
   const parentWasRunning = builder.isRunning()
-  const msgId = builder.appendRoleReply(formattedContent, { silent })
+  const msgId = replyId
   const childLastMessage = getLastMessage(childChatId)
   const baseRevision = getTimelineRevision(parentChatId)
   addMessage(msgId, parentChatId, {
     role: 'role',
     content: formattedContent,
+    parts,
     link: {
       relation: 'child_return',
       sourceChatId: childChatId,
@@ -128,6 +170,7 @@ export async function wakeParent(
       causationNodeId: opts?.causationNodeId ?? childLastMessage?.id,
     },
   })
+  builder.appendRoleReply(formattedContent, { silent, id: msgId, parts })
   const parentRunId = getActiveChatRunId(parentChatId)
   recordWorkflowStep(parentChatId, {
     kind: 'parent-receive',
@@ -189,6 +232,11 @@ export async function wakeParent(
       childChatId,
       type,
       content: formattedContent,
+      summaryParts: parts,
+      deliverableAssetIds: result?.deliverableAssetIds ?? [],
+      operationIds: result?.operationIds ?? [],
+      resultStatus: result?.status,
+      selection: result?.selection,
       msgId,
       spawnSenseCallId,
     },
@@ -201,6 +249,10 @@ export async function wakeParent(
     logger.event('wake.offline', { parentChatId, childChatId, type })
   }
   logger.event('wake.parent', { parentChatId, childChatId, type, contentLen: content.length })
+  if (!parentWasRunning) {
+    void launchDetachedResume({ connectionId: `backend-wake:${parentChatId}`, authenticatedUserId: JSON.parse(getChat(getRootChatId(parentChatId))?.metadata ?? '{}').fileOwnerId, log: logger }, parentChatId, `wake-${msgId}`)
+      .catch(error => logger.warn(`父会话后台恢复失败：${(error as Error).message}`))
+  }
 }
 
 /**

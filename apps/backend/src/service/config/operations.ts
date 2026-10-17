@@ -1,16 +1,16 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import {
+  SettingsBrainCapabilitiesSchema,
+  SettingsFileServiceSchema,
+  SettingsFilesPolicySchema,
+  SettingsRoleFileCapabilitiesSchema,
+} from '@chery/protocol'
 import { readRawConfig, type ConfigRaw } from '@/utils/config.js'
 
 const nonEmptyString = z.string().min(1)
 const stableId = (prefix: 'role' | 'preset') =>
   z.string().regex(new RegExp(`^${prefix}-[a-zA-Z0-9_-]{8,}$`), `必须是合法的 ${prefix} 稳定 ID`)
-
-const mediaCapabilitiesSchema = z.object({
-  image: z.boolean().optional(),
-  video: z.boolean().optional(),
-  audio: z.boolean().optional(),
-})
 
 /** AI 可写的完整 brain 资源。所有已支持字段都有明确类型，禁止 unknown 值穿透。 */
 export const brainConfigOperationSchema = z.object({
@@ -39,13 +39,7 @@ export const brainConfigOperationSchema = z.object({
     })
     .optional(),
   contextLimit: z.number().positive().optional(),
-  capabilities: z
-    .object({
-      toolCall: z.boolean().optional(),
-      input: mediaCapabilitiesSchema.optional(),
-      generate: mediaCapabilitiesSchema.optional(),
-    })
-    .optional(),
+  capabilities: SettingsBrainCapabilitiesSchema.optional(),
   hooks: z.string().optional(),
   anthropicCompat: z.object({ official: z.boolean().optional() }).optional(),
 })
@@ -96,6 +90,8 @@ export const roleConfigOperationSchema = z.object({
   plugins: z.array(z.string()).optional(),
   permissions: rolePermissionSchema.optional(),
   lock: z.boolean().optional(),
+  scope: z.enum(['public', 'private']).optional(),
+  fileCapabilities: SettingsRoleFileCapabilitiesSchema.optional(),
 })
 
 /** AI 可写的完整 preset 资源。 */
@@ -105,6 +101,9 @@ export const presetConfigOperationSchema = z.object({
   detailRole: z.string().optional(),
   leader: nonEmptyString,
   roles: z.array(z.string()).optional(),
+  roleOverrides: z
+    .record(z.string(), z.object({ fileCapabilities: SettingsRoleFileCapabilitiesSchema.optional() }))
+    .optional(),
   workspace: z.string().optional(),
   schedule: z
     .object({
@@ -115,6 +114,9 @@ export const presetConfigOperationSchema = z.object({
     .optional(),
   rule: z.string().optional(),
 })
+
+export const fileServiceOperationSchema = SettingsFileServiceSchema
+export const filesPolicyOperationSchema = SettingsFilesPolicySchema
 
 // ---- 表驱动操作工厂：4 对 put/remove 由同一套工厂生成（schema 与 apply 共用资源描述） ----
 
@@ -214,6 +216,15 @@ const RESOURCE_OPS: ResourceOpSpec[] = [
     removeErrorPath: 'sense_groups',
     missingErrorPath: 'sense_groups',
   },
+  {
+    resource: 'fileService',
+    payloadField: 'service',
+    getContainer: (c) => c.file_services,
+    ensureContainer: (c) => (c.file_services ??= {}),
+    takePutValue: (payload) => structuredClone(payload),
+    removeErrorPath: 'file_services',
+    missingErrorPath: 'file_services',
+  },
 ]
 
 const putBrainSchema = makePutSchema('brain', { brain: brainConfigOperationSchema })
@@ -224,6 +235,12 @@ const putPresetSchema = makePutSchema('preset', { preset: presetConfigOperationS
 const removePresetSchema = makeRemoveSchema('preset', { expectedId: stableId('preset').optional() })
 const putSenseGroupSchema = makePutSchema('senseGroup', { senses: z.array(nonEmptyString) })
 const removeSenseGroupSchema = makeRemoveSchema('senseGroup')
+const putFileServiceSchema = makePutSchema('fileService', { service: fileServiceOperationSchema })
+const removeFileServiceSchema = makeRemoveSchema('fileService')
+const setFilePolicySchema = z.object({
+  op: z.literal('setFilePolicy'),
+  policy: filesPolicyOperationSchema,
+})
 
 /** 增量操作使用资源级 put/remove，不开放任意 JSON path，避免越界字段与类型退化。 */
 export const configOperationSchema = z.discriminatedUnion('op', [
@@ -235,6 +252,9 @@ export const configOperationSchema = z.discriminatedUnion('op', [
   removePresetSchema,
   putSenseGroupSchema,
   removeSenseGroupSchema,
+  putFileServiceSchema,
+  removeFileServiceSchema,
+  setFilePolicySchema,
 ])
 
 export const configOperationsSchema = z.array(configOperationSchema).min(1).max(50)
@@ -271,6 +291,24 @@ export function applyConfigOperations(
   const errors: string[] = []
 
   for (const operation of operations) {
+    if (operation.op === 'setFilePolicy') {
+      candidate.files = {
+        ...candidate.files,
+        ...structuredClone(operation.policy),
+        ...(operation.policy.context
+          ? { context: { ...candidate.files?.context, ...structuredClone(operation.policy.context) } }
+          : {}),
+        ...(operation.policy.imageAdaptation
+          ? {
+              imageAdaptation: {
+                ...candidate.files?.imageAdaptation,
+                ...structuredClone(operation.policy.imageAdaptation),
+              },
+            }
+          : {}),
+      }
+      continue
+    }
     const verb = operation.op.startsWith('put') ? 'put' : 'remove'
     const resource = operation.op.slice(verb.length)
     const spec = RESOURCE_OPS.find(

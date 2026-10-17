@@ -1,9 +1,11 @@
 import { z } from 'zod'
 import { sense, type SenseResult } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
-import { formatSkillActivationContent, getSkillRealtime, matchSkillFilter } from '@/agent/prompt/loadSkill'
+import { getSkillRealtime, matchSkillFilter } from '@/agent/prompt/loadSkill'
 import { hashGenerator } from '@/utils/hash.js'
 import { getChatSkillFilter } from '@/db/chat.js'
+import { prepareSkillActivation } from '@/agent/prompt/loadSkill'
+import { resolveChatFileCapability } from '@/service/fileServices/runtime.js'
 
 /**
  * 加载 skill content 的 sense
@@ -35,7 +37,9 @@ export default sense(
 
     // 使用文件状态生成 hash，确保内容变化时 hash 也变化
     const hash = hashGenerator('skill', name, size.toString(), mtimeMs.toString())
-    const content = formatSkillActivationContent(skill)
+    const activation = prepareSkillActivation(skill, ctx ? operation => resolveChatFileCapability(ctx.chatId, operation) : undefined)
+    if (!activation.check.canActivate) return { content: activation.content, hash: '' }
+    const content = activation.content
 
     return { content, hash }
   },

@@ -28,6 +28,20 @@ function makeRaw(): ConfigRaw {
       },
       http: { transport: 'streamable-http', url: 'https://user:pass@example.com/mcp' },
     },
+    file_services: {
+      svcEnv: {
+        name: 'Env Service',
+        adapter: 'openai-images',
+        connection: { baseUrl: 'https://api.openai.com/v1', keyRef: '$OPENAI_KEY' },
+        operations: ['image.generate'],
+      },
+      svcPlain: {
+        name: 'Plain Service',
+        adapter: 'custom-sense-mcp',
+        connection: { baseUrl: 'https://svc:secret@example.com/api', keyRef: 'plain-file-key' },
+        operations: ['image.generate'],
+      },
+    },
   }
 }
 
@@ -60,6 +74,15 @@ describe('redactConfigSecrets 脱敏', () => {
     expect(redacted.mcp_servers?.http?.url).toBe('https://example.com/mcp')
   })
 
+  it('file_services.*.connection.keyRef 与 baseUrl 脱敏', () => {
+    const redacted = redactConfigSecrets(makeRaw())
+    expect(redacted.file_services?.svcEnv?.connection.keyRef).toBe('$OPENAI_KEY')
+    expect(redacted.file_services?.svcPlain?.connection.keyRef).toBe('[REDACTED]')
+    expect(redacted.file_services?.svcPlain?.connection.baseUrl).toBe(
+      'https://[REDACTED]@example.com/api',
+    )
+  })
+
   it('深拷贝返回，不改入参', () => {
     const raw = makeRaw()
     const redacted = redactConfigSecrets(raw)
@@ -72,12 +95,16 @@ describe('redactConfigSecrets 脱敏', () => {
 describe('restoreRedactedSecrets 还原', () => {
   const disk = makeRaw() // 盘上原值（含真实明文 key）
 
-  it('[REDACTED] key → 盘上原值（llm / mcp env / mcp url）', () => {
+  it('[REDACTED] key → 盘上原值（llm / mcp env / mcp url / file_services）', () => {
     const partial = redactConfigSecrets(makeRaw())
     const restored = restoreRedactedSecrets(partial, disk)
     expect(restored.llm?.brain?.['brain-b']?.key).toBe('sk-literal-secret-123')
     expect(restored.mcp_servers?.fs?.env?.OTHER).toBe('plain-secret')
     expect(restored.mcp_servers?.http?.url).toBe('https://user:pass@example.com/mcp')
+    expect(restored.file_services?.svcPlain?.connection.keyRef).toBe('plain-file-key')
+    expect(restored.file_services?.svcPlain?.connection.baseUrl).toBe(
+      'https://svc:secret@example.com/api',
+    )
   })
 
   it('显式新明文（非 [REDACTED]）以新值为准（允许换 key）', () => {

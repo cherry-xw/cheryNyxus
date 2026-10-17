@@ -10,6 +10,8 @@ import { safeJsonParse } from '@/utils/json.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { ModelRequestTimeoutError } from './requestTimeout.js'
 import { prepareRequest, finishRequest } from '@/agent/hooks/request.js'
+import { saveImageDescription } from '@/service/fileServices/imageContext.js'
+import type { MessageAssetPart } from '@chery/protocol'
 
 /**
  * Checkpoint Middleware
@@ -206,6 +208,7 @@ export async function* checkpointMiddleware(
           ctx.journal.updateAssistantSenseCalls(
             incrementalReconcile.id,
             incrementalReconcile.patch.senseCalls ?? [],
+            incrementalReconcile.patch.serverToolCalls,
           )
           yield {
             type: 'message_updated',
@@ -302,6 +305,52 @@ export async function* checkpointMiddleware(
       } as StagedChunk
       contentActive = false
     }
+    // 服务端工具（如 server_tool_use / web_search_call）也在 staged 中投递，保证流式期间实时可见
+    const completedServerTools = state.buildServerToolCalls()
+    for (const stc of completedServerTools) {
+      yield {
+        type: 'staged',
+        stagedType: 'sense_end',
+        content: '',
+        thinking: '',
+        senseName: stc.name,
+        senseArguments: stc.arguments,
+        id: stc.id,
+        msgId: state.getAssistantId(),
+        createdAt: state.getTurnStartedAt(),
+        executionOwner: 'server',
+        serverState: stc.status,
+        result: stc.result ?? stc.error,
+        sources: stc.sources,
+      } as StagedChunk
+    }
+    // ST08：当服务端工具完成单图分析（analyze_image 等）且关联唯一图片版本时，写入图片观察描述
+    const analyzeCalls = completedServerTools.filter(
+      (c) =>
+        c.status === 'completed' &&
+        c.result &&
+        (c.name === 'analyze_image' || c.name.includes('image')),
+    )
+    if (analyzeCalls.length === 1) {
+      const latestUser = [...(ctx.soul.messages ?? [])]
+        .reverse()
+        .find((m) => m.role === 'user' && !m.revoked && !m.modelExcluded && !m.ephemeral)
+      const imageParts = (latestUser?.parts ?? []).filter(
+        (p): p is MessageAssetPart =>
+          p.type === 'asset' &&
+          p.usage === 'content' &&
+          Boolean(p.mimeType?.startsWith('image/')),
+      )
+      if (latestUser && imageParts.length === 1) {
+        saveImageDescription(ctx.soul.chatId, imageParts[0]!, {
+          source: 'observation',
+          text: analyzeCalls[0]!.result!.slice(0, 600),
+          operationId: analyzeCalls[0]!.id,
+          sourceMessageId: latestUser.id,
+          scope: '服务端工具针对当时用户问题的观察，并非完整图像记录',
+        })
+      }
+    }
   } catch (error) {
     if (error instanceof ModelRequestTimeoutError) state.markModelExcluded(error.timeoutMs)
     throw error
@@ -330,7 +379,11 @@ export async function* checkpointMiddleware(
     if (reconcile && reconcile.type === 'updated' && 'senseCalls' in reconcile.patch) {
       // 双写①：回写内存 journal——loop 下一轮 buildMessages 从内存 journal 组装 tool_calls，
       // 只落库不回写会让 tool result 成"孤儿"（上游 400 2013，见 docs/backend/agent/middleware.md reconcile 段）。
-      ctx.journal.updateAssistantSenseCalls(reconcile.id, reconcile.patch.senseCalls ?? [])
+      ctx.journal.updateAssistantSenseCalls(
+        reconcile.id,
+        reconcile.patch.senseCalls ?? [],
+        reconcile.patch.serverToolCalls,
+      )
       // 双写②：yield effect 由 observer 落库（DB sense_calls 列）。
       yield {
         type: 'message_updated',

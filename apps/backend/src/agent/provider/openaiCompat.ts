@@ -14,10 +14,10 @@ import type {
 } from 'openai/resources/chat/completions'
 import type { ZodType } from 'zod'
 import type { LLMResponse, LLMAttachment, BuildMessagesOptions } from '@/core/message/adapter'
-import { groupAttachmentsByMessage } from '@/core/message/adapter'
+import { groupAttachmentsByMessage, orderedMessageInputs } from '@/core/message/adapter'
 import { ClassifiedError } from '@/utils/error.js'
 import type { Sense, SenseCallData, SenseFunction } from '@/core/sense'
-import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
+import { buildBaseSenseFunction, supportsStrictToolSchema } from '@/core/sense/compiler/utils.js'
 import { getRateLimiter } from '@/utils/rateLimiter.js'
 
 // ========== RPM 限流 ==========
@@ -95,8 +95,10 @@ export function buildOpenAICompatibleMessages(
     // user 消息携带归属附件 → 构造 OpenAI vision content array（多模态）
     const myAttachments = role === 'user' ? attachmentsByMessage.get(m.id) : undefined
     if (myAttachments && myAttachments.length > 0) {
-      const parts: ChatCompletionContentPart[] = [{ type: 'text', text: m.content }]
-      for (const att of myAttachments) {
+      const parts: ChatCompletionContentPart[] = []
+      for (const segment of orderedMessageInputs(m, myAttachments)) {
+        if (segment.type === 'text') { parts.push({ type: 'text', text: segment.text }); continue }
+        const att = segment.attachment
         if (att.mimeType.startsWith('image/')) {
           parts.push({
             type: 'image_url',
@@ -220,7 +222,7 @@ export const openaiMessageAdapterConfig = {
 
 /**
  * OpenAI 兼容的 Sense Provider Adapter：
- * - buildSenses：转成 OpenAI tool 格式（加 strict:true）
+ * - buildSenses：转成 OpenAI tool 格式（仅符合严格参数规则时开启 strict）
  * - senseCalls：从完整响应提取 tool_calls
  * - extractSenseCallDeltas：从流式 chunk 提取 tool_calls 增量
  */
@@ -230,7 +232,7 @@ export const openaiSenseAdapterConfig = {
       type: 'function',
       function: {
         ...buildBaseSenseFunction(s),
-        strict: true,
+        strict: supportsStrictToolSchema(s.definition.function.parameters),
       },
     }))
   },

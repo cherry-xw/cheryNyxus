@@ -1,0 +1,82 @@
+{
+  "provenance": {
+    "date": "2026-10-17",
+    "glmRawResponseSha256": "324f486a4a17023c29c7f19f73bd6180b83637512b529074671132c76b598f51",
+    "gptRawResponseSha256": "ac64f414ffe5e34c279169e5ea7a4c66d9ddcdce0b283b91e9ebd9a6dfd441cf",
+    "selection": "Selected fields from recorded GLM server-search blocks and the GPT search final event. Requests, headers, images, thinking, final-answer text and account metadata are excluded. No new model calls."
+  },
+  "glm": [
+    {
+      "type": "content_block_start",
+      "index": 2,
+      "content_block": {
+        "type": "server_tool_use",
+        "id": "call_c1e48af4e3b2495b96a2a47b",
+        "name": "web_search_prime",
+        "input": {
+          "search_query": "智谱 GLM-5.3 官方 模型说明 输入类型",
+          "location": "cn"
+        }
+      }
+    },
+    {
+      "type": "content_block_start",
+      "index": 4,
+      "content_block": {
+        "type": "tool_result",
+        "tool_use_id": "call_c1e48af4e3b2495b96a2a47b",
+        "content": "[[{\"title\": \"GLM-5.3 - 智谱AI开放文档 - 平台介绍\", \"link\": \"https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3\", \"content\": \"GLM - 5.3 是 智谱 最新旗舰 模型 ，复杂软件工程与Agent 任务能力全面进阶。它使用与GLM-5.2 相同的基础 模型 ——所有提升均来自后训练。与GLM-5.2 相比，它在复杂编程 ...\", \"refer\": \"ref_1\"}, {\"title\": \"模型概览- 智谱AI开放文档\", \"link\": \"https://docs.bigmodel.cn/cn/guide/start/model-overview\", \"content\": \"GLM - 5.3 -Flash, 普惠的全球前沿多模态 模型 能够原生理解图片视频，生成可交互代码等 ... 免费文本 模型 延续GLM-4.7 基座的通用能力, 200K, 128K. GLM-4.5-Flash, 免费 ...\", \"refer\": \"ref_2\"}, {\"title\": \"模型与产品发布记录\", \"link\": \"https://docs.bigmodel.cn/cn/update/new-releases\", \"content\": \"GLM - 5.3 -Flash. 原生融入视觉能力，使 模型 能够主动观察界面、渲染与交互反馈并持续迭代改进，实现代码、浏览器与图形界面的协同闭环。 极致高效混合架构：采用线性注意 ...\", \"refer\": \"ref_3\"}, {\"title\": \"GLM5.3来了：大模型的疯狂八月\", \"link\": \"https://zhuanlan.zhihu.com/p/2071707711306216661\", \"content\": \"2026年8月14日 — GLM - 5.3 是 智谱 AI在GLM-5.2基座之上，完全通过后训练Scaling实现能力跃迁的新一代 模型 。其核心突破在于两个方向：编程能力（开源 模型 第一，接近Claude ...\", \"refer\": \"ref_4\"}, {\"title\": \"GLM-5.3_百度百科\", \"link\": \"https://baike.baidu.com/item/GLM-5.3/68244961\", \"content\": \"智谱 公司具备多模态技术储备，于2026年04月发布了 GLM -5V-Turbo原生多模态编程基座，并自研CogVLM视觉编码器，但该视觉编码器未整合进其旗舰文本 模型 。 1. 2026年08月，一款 ...\", \"refer\": \"ref_5\"}, {\"title\": \"智譜推新模型GLM-5.3 程式設計與網安能力顯著提升兩周後\", \"link\": \"https://hk.finance.yahoo.com/news/%E6%99%BA%E8%AD%9C%E6%8E%A8%E6%96%B0%E6%A8%A1%E5%9E%8Bglm-5-3-%E7%A8%8B%E5%BC%8F%E8%A8%AD%E8%A8%88%E8%88%87%E7%B6%B2%E5%AE%89%E8%83%BD%E5%8A%9B%E9%A1%AF%E8%91%97%E6%8F%90%E5%8D%87%E5%85%A9%E5%91%A8%E5%BE%8C%E9%96%8B%E6%BA%90-071857892.html\", \"content\": \"2026年8月14日 — 在編碼能力方面， GLM - 5.3 是目前功能最強大的開源權重 模型 。其在內部「Z.ai Code Bench」測試中，效能較GLM-5.2大幅提升50%，並在多個公開基準測試 ...\", \"refer\": \"ref_6\"}, {\"title\": \"智谱丨BigModel 平台\", \"link\": \"https://bigmodel.cn\", \"content\": \"智谱 大 模型 开放平台-新一代国产自主通用AI大 模型 开放平台，是国内大 模型 排名前列的大 模型 网站，研发了多款LLM 模型 ，多模态视觉 模型 产品，致力于将AI产品技术与行业场景 ...\", \"refer\": \"ref_7\"}, {\"title\": \"https://mp.weixin.qq.com/s/JdBx3B12L7Mhxruf4Nfr4g\", \"link\": \"https://mp.weixin.qq.com/s/JdBx3B12L7Mhxruf4Nfr4g\", \"content\": \"没有此网页的信息。 了解原因\", \"refer\": \"ref_8\"}, {\"title\": \"如何切换模型\", \"link\": \"https://docs.bigmodel.cn/cn/coding-plan/latest-model\", \"content\": \"模型 ：选择”使用自定义”，并 输入模型 名称（如： glm - 5.3 或 glm - 5.3 -flash ）; 其他配置：. GLM - 5.3 为文本 模型 需要取消勾选Support Images， GLM - 5.3 -FLASH 为多模态 模型 ...\", \"refer\": \"ref_9\"}]]"
+      }
+    }
+  ],
+  "gpt": {
+    "type": "response.completed",
+    "response": {
+      "id": "resp_0c066885564063b2016ad2bdb6fa4487d088c4d898c045c120",
+      "status": "completed",
+      "output": [
+        {
+          "id": "ws_0c066885564063b2016ad2bdb823e087d0b9d5687fa6f4ddf1",
+          "type": "web_search_call",
+          "status": "completed",
+          "action": {
+            "type": "search",
+            "queries": ["智谱 GLM-5.3 官方 模型说明 输入类型"],
+            "query": "智谱 GLM-5.3 官方 模型说明 输入类型"
+          }
+        },
+        {
+          "type": "message",
+          "content": [
+            {
+              "type": "output_text",
+              "annotations": [
+                {
+                  "type": "url_citation",
+                  "end_index": 407,
+                  "start_index": 301,
+                  "title": "ZHIPU/GLM-5.3 模型信息 - 大模型服务平台百炼 - 阿里云",
+                  "url": "https://www.alibabacloud.com/help/zh/model-studio/glm-5-3-by-zhipu?utm_source=openai"
+                },
+                {
+                  "type": "url_citation",
+                  "end_index": 706,
+                  "start_index": 605,
+                  "title": "ZHIPU/GLM-5.3-Flash 模型信息-大模型服务平台百炼(Model Studio)-阿里云帮助中心",
+                  "url": "https://help.aliyun.com/zh/model-studio/glm-5-3-flash-by-zhipu?utm_source=openai"
+                },
+                {
+                  "type": "url_citation",
+                  "end_index": 1033,
+                  "start_index": 927,
+                  "title": "ZHIPU/GLM-5.3 模型信息 - 大模型服务平台百炼 - 阿里云",
+                  "url": "https://www.alibabacloud.com/help/zh/model-studio/glm-5-3-by-zhipu?utm_source=openai"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

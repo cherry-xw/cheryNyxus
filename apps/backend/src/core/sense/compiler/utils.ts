@@ -13,3 +13,26 @@ export function buildBaseSenseFunction(sense: Sense<ZodType>): SenseFunction['fu
     parameters: sense.definition.function.parameters,
   }
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Strict tools require closed objects with all properties required, including nested schemas. */
+export function supportsStrictToolSchema(schema: unknown): boolean {
+  if (!isRecord(schema)) return true
+  const objectSchema = schema.type === 'object' || isRecord(schema.properties)
+  if (objectSchema) {
+    if (schema.additionalProperties !== false) return false
+    const properties = isRecord(schema.properties) ? schema.properties : {}
+    const required = new Set(Array.isArray(schema.required) ? schema.required.filter((name): name is string => typeof name === 'string') : [])
+    if (Object.keys(properties).some(name => !required.has(name))) return false
+    if (!Object.values(properties).every(supportsStrictToolSchema)) return false
+  }
+  if (schema.items !== undefined && !supportsStrictToolSchema(schema.items)) return false
+  for (const key of ['anyOf', 'oneOf', 'allOf']) {
+    const variants = schema[key]
+    if (Array.isArray(variants) && !variants.every(supportsStrictToolSchema)) return false
+  }
+  return true
+}

@@ -48,16 +48,26 @@ export interface ChatTimelineGetRequestData extends ChatTimelineGetRequest {
 }
 
 export interface CanonicalSenseCall {
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   id: string
   name: string
   arguments: string
   result?: string
-  status?: 'pending' | 'accepted' | 'rejected'
+  status?: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行）。 */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的说明。 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具关联的外部来源/引用链接。 */
+  sources?: Array<{ url: string; title?: string; snippet?: string; refer?: string }>
   /** 工具调用的安全授权判定；按 call id 独立保存，旧数据可省略。 */
   security?: ToolAuthorization
 }
 
 export interface CanonicalMessage {
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   id: string
   chatId: string
   runId?: string
@@ -298,6 +308,7 @@ export interface TurnCompletedNotificationData {
 export type TurnCancelledNotificationData = ProtocolTurnCancelledNotificationData
 
 export interface InputUpdatedNotificationData {
+  parts?: import('@chery/protocol').MessagePart[]
   inputId: string
   clientMessageId?: string
   messageId?: string

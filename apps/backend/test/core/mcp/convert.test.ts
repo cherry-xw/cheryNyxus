@@ -129,7 +129,7 @@ describe('toolToSense', () => {
     expect(result.content).toContain('[resource: file:///a]')
   })
 
-  it('executor handles unsupported content type', async () => {
+  it('executor fails closed when file persistence is unavailable', async () => {
     const client = {
       callTool: vi.fn().mockResolvedValue({
         content: [{ type: 'image', data: '...' }],
@@ -138,7 +138,7 @@ describe('toolToSense', () => {
     const execCtx = mockContext({ client })
     const sense = toolToSense({ name: 'read' }, execCtx)
     const result = await sense.executor.execute({})
-    expect(result.content).toContain('[unsupported content type: image]')
+    expect(result.content).toContain('文件结果保存服务尚未加载')
   })
 
   it('extractText returns empty string for non-array content', async () => {

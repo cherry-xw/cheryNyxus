@@ -1,8 +1,49 @@
 import { getChat, updateChatMetadata } from '@/db/chat.js'
-import { getLastMessage } from '@/db/message.js'
+import { getLastMessage, parseMessageRow } from '@/db/message.js'
 import { finishSpawnTask, getSpawnTaskByChild } from '@/db/delivery.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { logger } from '@/utils/logger/index.js'
+import { collectTaskOutputs, getSpawnDeliverableSelection, getSpawnTaskResult, saveSpawnTaskResult,
+  type SpawnTaskResult } from '@/db/fileDeliverables.js'
+import { getAssetStore } from '@/service/media/store.js'
+import { fileAccessForChat } from '@/service/media/access.js'
+import type { MessagePart } from '@chery/protocol'
+
+/** Freeze the completion before any parent delivery, including crash recovery. */
+export function persistSpawnTaskResult(chatId: string, content?: string,
+  status: SpawnTaskResult['status'] = 'completed'): SpawnTaskResult | undefined {
+  const task = getSpawnTaskByChild(chatId)
+  if (!task) return undefined
+  const existing = getSpawnTaskResult(task.taskId)
+  if (existing) return existing
+  const outputs = collectTaskOutputs(chatId)
+  const explicit = getSpawnDeliverableSelection(task.taskId)
+  const ids = explicit ?? outputs.defaultAssetIds
+  const incompleteInspection = outputs.operations.filter(operation =>
+    ['succeeded', 'partial'].includes(operation.executionStatus) && operation.inspectionStatus !== 'not_requested' && operation.inspectionStatus !== 'passed' &&
+    (explicit === undefined || operation.outputParts?.some(part => part.type === 'asset' && ids.includes(part.assetId))))
+  if (status === 'completed' && incompleteInspection.length) status = 'failed'
+  const last = getLastMessage(chatId)
+  const summary = last?.role === 'assistant' ? parseMessageRow(last).parts ?? [] : []
+  const text: MessagePart[] = content !== undefined
+    ? [{ type: 'text', partId: `summary:${task.taskId}`, text: content }]
+    : summary.filter((part) => part.type !== 'asset')
+  if (incompleteInspection.length) text.unshift({ type: 'text', partId: `inspection:${task.taskId}`, text: `任务未完整成功：必需的文件检查尚未通过。${incompleteInspection.map(operation => `${operation.operationId}：${operation.inspectionStatus}${operation.inspectionSummary ? `（${operation.inspectionSummary}）` : ''}`).join('；')}\n` })
+  const selected: MessagePart[] = []
+  for (const id of ids) {
+    const part = outputs.assets.find((asset) => asset.assetId === id)
+    if (!part) throw new Error('正式成果不属于本任务的已保存输出')
+    const asset = getAssetStore().get(id, fileAccessForChat(chatId), part.assetVersionId)
+    if (asset.availability !== 'available') throw new Error('正式成果文件不可用')
+    selected.push({ ...part, usage: 'reference-only' })
+  }
+  if (selected.length) getAssetStore().reference(selected, fileAccessForChat(chatId), 'branch', task.taskId)
+  return saveSpawnTaskResult(task.taskId, {
+    summaryParts: [...text, ...selected], deliverableAssetIds: ids,
+    operationIds: outputs.operations.map((op) => op.operationId), status,
+    selection: explicit === undefined ? 'system' : 'explicit',
+  })
+}
 
 /**
  * 幂等终态化 spawn 子 chat（防御性兜底，见 docs/backend/service/chat.md chat.resume 流程）。
@@ -38,6 +79,7 @@ export function finalizeSpawnChildIfDone(chatId: string): boolean {
   if (Array.isArray(senseCalls) && senseCalls.length > 0) return false
 
   const task = getSpawnTaskByChild(chatId)
+  persistSpawnTaskResult(chatId)
   if (task && task.status !== 'finished') finishSpawnTask(task.taskId)
   updateChatMetadata(chatId, { finished: true })
   logger.event('spawn.finalize', { chatId, parentChatId: chat.parent_chat_id })

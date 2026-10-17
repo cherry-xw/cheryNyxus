@@ -169,6 +169,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
       return
     }
     const state = connectionManager.create(ws, liteProfile ?? undefined)
+    state.authenticatedUserId = auth?.getUser(req, { allowLoopback: listener === 'local' })?.sub ?? (listener === 'local' && !auth?.enabled ? 'local' : undefined)
     state.credentialKind = 'control'
     const platformToken = channelAuth?.token
     const presentedPlatformToken = channelAuth && req.headers[channelAuth.header.toLowerCase()]
@@ -371,6 +372,7 @@ async function handleRequest(
 
   // 创建 handler context
   const ctx = {
+    authenticatedUserId: state.authenticatedUserId,
     requestId: request.id,
     connectionId: state.id,
     credentialKind: state.credentialKind,

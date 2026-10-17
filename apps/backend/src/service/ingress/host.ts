@@ -320,6 +320,34 @@ export class IngressHost {
           this.saveConfig(id, config, expectedBaseRevision),
       },
       core: {
+        importFile: async (input: Parameters<NonNullable<IngressContext['core']['importFile']>>[0]) => {
+          requireActive()
+          if (!core.importFile || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
+          const { conversationKey, identity, signal, ...params } = input
+          this.authority.validate(id, params.entryId, identity)
+          const requestIdentity = this.authority.project(id, params.entryId, identity)
+          const combined = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal
+          combined.throwIfAborted()
+          const result = await core.importFile(id, conversationKey, { ...params, requestIdentity, signal: combined,
+            validateIdentity: () => { requireActive(); this.authority.project(id, params.entryId, identity) } })
+          requireActive()
+          this.authority.project(id, params.entryId, identity)
+          return result
+        },
+        readFileChunk: async (input: Parameters<NonNullable<IngressContext['core']['readFileChunk']>>[0]) => {
+          requireActive()
+          if (!core.readFileChunk || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
+          const { conversationKey, identity, signal, ...params } = input
+          this.authority.validate(id, params.entryId, identity)
+          const requestIdentity = this.authority.project(id, params.entryId, identity)
+          const combined = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal
+          combined.throwIfAborted()
+          const result = await core.readFileChunk(id, conversationKey, { ...params, requestIdentity, signal: combined,
+            validateIdentity: () => { requireActive(); this.authority.project(id, params.entryId, identity) } })
+          requireActive()
+          this.authority.project(id, params.entryId, identity)
+          return result
+        },
         recentConversationMessages: async (key: string, count: number) => {
           requireActive()
           if (!active.conversations.has(key) || !core.recentConversationMessages) throw ingressError('IDENTITY_REJECTED')

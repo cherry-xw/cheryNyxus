@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { getSoulDb } from '@/db/index.js'
 import { ingressExecution } from '../ingress/request.js'
 
 import type { HandlerContext } from '../message/router.js'
@@ -35,7 +36,7 @@ import { deliverToSockets } from '../websocket/deliver.js'
 import { assertChatExists } from './guards.js'
 import { ensureChat } from './runtime.js'
 import { getActiveChatRunId, getPendingChatInputs, removeQueuedChatInput } from './runtimeCache.js'
-import { handleChatSend, attachmentsToPromptMarkers } from './send.js'
+import { handleChatSend } from './send.js'
 import { recordWorkflowStep, finishActiveWorkflowSteps } from './workflowStepWriter.js'
 import { buildTreeInterruptionNotice } from './treeInterruption.js'
 import {
@@ -44,6 +45,9 @@ import {
   childDispatchOutcome,
 } from './childControl.js'
 import { recordDispatchFact } from './executionFacts.js'
+import { normalizeMessageParts } from '@/utils/messageParts.js'
+import { getAssetStore } from '../media/store.js'
+import { bindNewChatFileOwner, requireFileOwner } from '../media/access.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 /**
  * Command-plane input submission. The command is acknowledged immediately;
@@ -55,7 +59,9 @@ export async function handleChatInputSubmit(
   ctx: HandlerContext,
   data: ChatInputSubmitRequestData,
 ): Promise<ChatInputSubmitResponseData> {
-  if (!data.content.trim()) throw new Error('输入内容不能为空')
+  const normalized = normalizeMessageParts(data.content, data.parts)
+  const resolvedContent = normalized.content
+  if (!resolvedContent.trim()) throw new Error('输入内容不能为空')
   if ('platformIdentity' in data || 'contextLimit' in data) throw new Error('IDENTITY_REJECTED')
   ingressExecution.getStore()?.validate()
   const claimed = claimRequest(data.commandId, Method.CHAT_INPUT_SUBMIT, data)
@@ -65,6 +71,8 @@ export async function handleChatInputSubmit(
   if (claimed.state === 'active') throw new Error('该输入命令正在处理中')
   if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
 
+  const undoEnqueue: Array<() => void> = []
+  let accepted = false
   try {
     assertRestartAdmission()
     const chat = assertChatExists(data.chatId)
@@ -84,14 +92,22 @@ export async function handleChatInputSubmit(
     const messageId = data.messageId
     const runId = getActiveChatRunId(data.chatId) ?? ctx.requestId ?? randomUUID()
     const acceptedAt = Date.now()
+    const prompt = resolvedContent
+    const response = getSoulDb().transaction(() => {
     updateChatMetadata(data.chatId, {
       lastUserActivityAt: acceptedAt,
     })
     // The active input has already left builder.pending when a later command
     // arrives, but it remains sequence 1 in the current run.
     const queueSequence = pending.length + (running ? 2 : 1)
-    const prompt = attachmentsToPromptMarkers(data.attachments, data.content)
+    if (data.attachments?.length) throw new Error('附件协议已更新，请使用包含固定版本的 parts')
+    const fileParts = normalized.parts.filter((part) => part.type === 'asset')
+    if (fileParts.length) {
+      const access = bindNewChatFileOwner(data.chatId, requireFileOwner(ctx))
+      getAssetStore().attachOwned(fileParts, access, 'pending', inputId)
+    }
     const entry = agent.enqueueInput(prompt, {
+      parts: normalized.parts,
       inputId,
       messageId,
       clientMessageId: data.clientMessageId,
@@ -101,6 +117,7 @@ export async function handleChatInputSubmit(
       requestId: running ? randomUUID() : runId,
     })
     if (!entry) throw new Error('输入内容不能为空')
+    undoEnqueue.push(() => agent.removeInput({ inputId }))
 
     // A new root instruction resumes only the root. Interrupted children remain
     // paused and are exposed to the main Agent as one durable, auditable notice.
@@ -108,10 +125,12 @@ export async function handleChatInputSubmit(
       const notice = buildTreeInterruptionNotice(data.chatId, data.commandId)
       if (notice) {
         agent.enqueueInput(notice.content, {
+          inputId: notice.messageId,
           messageId: notice.messageId,
           role: 'role',
           linkRelation: 'system',
         })
+        undoEnqueue.push(() => agent.removeInput({ inputId: notice.messageId }))
       }
       markActiveTreeTargetDelegated(data.chatId, data.chatId)
     }
@@ -123,6 +142,7 @@ export async function handleChatInputSubmit(
       clientMessageId: data.clientMessageId,
       commandId: data.commandId,
       content: prompt,
+      parts: normalized.parts,
       queueSequence,
       state: running ? 'queued' : 'started',
       acceptedAt,
@@ -163,6 +183,10 @@ export async function handleChatInputSubmit(
       acceptedAt,
     }
     completeRequest(data.commandId, response)
+    return response
+    })()
+    accepted = true
+    undoEnqueue.length = 0
 
     // Session-plane lifecycle event: consumers can render the optimistic input
     // without coupling it to the command RPC's requestId.
@@ -173,14 +197,16 @@ export async function handleChatInputSubmit(
         inputId,
         clientMessageId: data.clientMessageId,
         messageId,
-        content: data.content,
+        content: resolvedContent,
+        parts: normalized.parts,
         state: response.state,
-        queueSequence,
+        queueSequence: response.queueSequence,
         acceptedAt,
       },
       { chatId: data.chatId, runId },
     )
-    inputUpdated.seq = appendChatEvent(
+    try {
+      inputUpdated.seq = appendChatEvent(
       data.chatId,
       inputUpdated as unknown as Record<string, unknown>,
     )
@@ -189,6 +215,9 @@ export async function handleChatInputSubmit(
       inputUpdated,
       'chat.input.submit.ack_output_failed',
     )
+    } catch (error) {
+      logger.event('chat.input.submit.ack_output_failed', { chatId: data.chatId, message: (error as Error).message })
+    }
 
     // Start the normal stream out-of-band. Existing chat.send remains unchanged;
     // this path only feeds the pre-enqueued, ID-bearing input into that runner.
@@ -234,7 +263,10 @@ export async function handleChatInputSubmit(
     // Queue/full/runtime validation failures happen after the journal claim.
     // Release that claim so a user retry with the same idempotency key can be
     // evaluated again instead of being permanently reported as active.
-    abandonRequest(data.commandId)
+    if (!accepted) {
+      for (const undo of undoEnqueue.reverse()) undo()
+      abandonRequest(data.commandId)
+    }
     throw cause
   }
 }
@@ -294,6 +326,7 @@ export async function handleChatInputWithdraw(
     if (!cancelQueuedPendingInput(data.chatId, pending.input_id)) {
       throw new Error('排队消息不存在或已撤回')
     }
+    getAssetStore().release(data.chatId, 'pending', pending.input_id)
     // 终态化 workflow queue 步骤（撤回即排队结束）
     finishActiveWorkflowSteps(data.chatId, {
       kind: 'queue',

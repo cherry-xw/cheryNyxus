@@ -245,7 +245,7 @@ export class AgentBuilder {
    * @param options.silent deferred/barrier 暂存注入不置 roleReplyPending
    * @returns 新消息 id（供 wakeParent addMessage 落库）
    */
-  appendRoleReply(content: string, options?: { silent?: boolean }): string {
+  appendRoleReply(content: string, options?: Parameters<AgentSession['appendRoleReply']>[1]): string {
     return this.requireAgent().appendRoleReply(content, options)
   }
 

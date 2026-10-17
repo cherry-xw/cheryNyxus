@@ -29,6 +29,12 @@ import { getToolCallOwner } from '@/db/executionGraph.js'
 import { recordSpawnEdgeFact, recordSpawnTargetFact } from '@/service/chat/executionFacts.js'
 import { getActiveChatEpoch } from '@/db/epoch.js'
 import { recordWorkflowStep } from '@/service/chat/workflowStepWriter.js'
+import { MessagePartSchema, deriveTextContentFromParts, type MessagePart } from '@chery/protocol'
+import { getAssetStore } from '@/service/media/store.js'
+import { fileAccessForChat } from '@/service/media/access.js'
+import { collectTaskOutputs, saveSpawnDeliverableSelection } from '@/db/fileDeliverables.js'
+import { resolveEffectiveBrainCapabilities } from '@/utils/modelCatalog.js'
+import { resolveBrainProtocol } from '@/core/llm/routing.js'
 
 // tool 暴露面：让主 agent LLM 可见可用角色及能力（非盲串 type）。
 // - catalog = config.roles 全集（单一源，模块加载期冻结；预设按 type 引用，不在预设内重定义）。
@@ -43,8 +49,10 @@ const roleCatalog = new Map<
 for (const [name, cfg] of Object.entries(config.roles ?? {})) {
   if (!isOrdinaryRole(cfg)) continue
   const brainCfg = config.llm.brain[cfg.brain]
-  const inputCaps = Object.entries(brainCfg?.capabilities?.input ?? {})
-    .filter(([, v]) => v === true)
+  const capabilities = brainCfg ? resolveEffectiveBrainCapabilities({ model: brainCfg.model,
+    provider: brainCfg.provider, protocol: resolveBrainProtocol(brainCfg), userCapabilities: brainCfg.capabilities }) : undefined
+  const inputCaps = Object.entries(capabilities?.input ?? {})
+    .filter(([, value]) => value.state === 'supported')
     .map(([k]) => k)
   roleCatalog.set(name, {
     brain: cfg.brain,
@@ -80,6 +88,7 @@ const SPAWN_DESC_SUFFIX = `
 必填参数：
 - type: 角色类型名（上方枚举的可用键）
 - prompt: 交付角色的任务描述
+- parts: 有序任务内容和固定文件版本引用；文件必须来自当前会话已获授权的资产，不要拼接文字文件标记
 - wake: 唤醒策略（控制子完成后是否/何时唤主）
   - immediate: 子完成立即唤主（聚合所有已完成子结果）。适合关键路径任务
   - deferred: 子完成结果暂存不唤主；全 deferred 集最后一个完成隐式唤主。适合后台任务
@@ -130,7 +139,8 @@ function buildSpawnRoleSenseFromRoster(roster: string[]): Sense<z.ZodType> {
     buildSpawnDescription(roster),
     z.object({
       type: schema.describe('角色类型名（上方枚举的可用键）'),
-      prompt: z.string().describe('交付角色执行的任务描述'),
+      prompt: z.string().default('').describe('纯文字任务描述；提供 parts 时以 parts 为准'),
+      parts: z.array(MessagePartSchema).optional().describe('完整有序任务内容，包含文字及明确选定的文件版本引用'),
       wake: z
         .enum(['immediate', 'deferred', 'barrier'])
         .default('immediate')
@@ -158,14 +168,17 @@ export default buildSpawnRoleSenseFromRoster(
 
 /** spawn_role 执行器（含执行期 roster gate + self-spawn 禁止，纵深防御）。 */
 async function spawnHandler(
-  input: { type: string; prompt: string; wake: 'immediate' | 'deferred' | 'barrier' },
+  input: { type: string; prompt: string; parts?: MessagePart[]; wake: 'immediate' | 'deferred' | 'barrier' },
   senseSharedData: SenseSharedData,
   ctx?: SenseRuntimeContext,
 ): Promise<SenseResult> {
   // senseSharedData 在 spawn_role 中无业务用途（子 agent 独立 chat，不继承主 sense 共享状态）；
   // 保留参数为 sense() 工厂签名契约。void 显式标记"已用但为空实现"，避免 TS strict unused 检查告警。
   void senseSharedData
-  const { type, prompt, wake } = input
+  const { type, wake } = input
+  const parts: MessagePart[] = input.parts ?? [{ type: 'text', partId: randomUUID(), text: input.prompt }]
+  const prompt = deriveTextContentFromParts(parts)
+  if (!prompt.trim() && !parts.some((part) => part.type === 'asset')) throw new Error('子任务内容不能为空')
 
   // ctx.chatId 是主 agent 当前 chatId（spawn 调用方）；缺省（异常调用场景）→ 抛错
   // 不静默兜底 chatId，避免子 chat 漂浮无 parent 溯源。先取 parentChatId 供预设解析。
@@ -231,7 +244,12 @@ async function spawnHandler(
   //   - promptHash 相同:不同 prompt 是不同任务(典型 fire-and-forget 多任务派发),即使 type 相同也不能复用
   //     —— 此前仅按 finished 匹配导致多任务全部挤到同一未完成子 chat,行为退化(见对话 90ecacf2)
   // 注:ChatRow 不含 type/prompt 字段,从 metadata 读(metadata.type / metadata.spawnPromptHash 在创建时写入)
-  const inputPromptHash = hashGenerator('prompt', type, prompt)
+  const inputPromptHash = hashGenerator('prompt', type, JSON.stringify(parts.map(({ partId: _partId, ...part }) => part)))
+  // Validate before creating a child. Knowing an asset ID never grants access.
+  if (parts.some((part) => part.type === 'asset')) {
+    const access = fileAccessForChat(parentChatId)
+    for (const part of parts) if (part.type === 'asset') getAssetStore().get(part.assetId, access, part.assetVersionId)
+  }
   const existingChildren = findChatsByParent(parentChatId)
   const reusableChild = existingChildren.find((c) => {
     const metadata = c.metadata ? JSON.parse(c.metadata) : {}
@@ -304,6 +322,11 @@ async function spawnHandler(
   if (temporaryRuntime) setEphemeralChatRuntime(childChatId, temporaryRuntime)
 
   const spawnSenseCallId = ctx?.messageId
+  if (parts.some((part) => part.type === 'asset')) {
+    const store = getAssetStore()
+    store.grantToChat(parts, fileAccessForChat(parentChatId), childChatId)
+    store.reference(parts, fileAccessForChat(childChatId), 'branch', childChatId)
+  }
 
   // task 是 role_created 的持久化权威载体：重连/事件重放不再依赖瞬时 notification。
   // 旧 child（创建于该表引入前）首次复用时补建任务，保持向后兼容。
@@ -314,6 +337,7 @@ async function spawnHandler(
       parentChatId,
       type,
       prompt,
+      parts,
       brain,
       senseGroup,
       ...(getActiveChatEpoch(parentChatId)?.epochId
@@ -401,3 +425,29 @@ async function spawnHandler(
     content: `角色 "${type}" 已派发（chatId=${childChatId}，唤醒策略=${wake}），本轮结束后等待子结果。`,
   }
 }
+
+/** Explicit task deliverables are chosen from output facts, never arbitrary accessible inputs. */
+export const selectTaskDeliverablesSense = sense(
+  'select_task_deliverables',
+  '选择当前任务正式交付的文件。assetIds 只能来自本任务已保存、可访问的输出；可选择多个方案。不重新生成文件。',
+  z.object({ assetIds: z.array(z.string().min(1)) }),
+  async ({ assetIds }, _sharedData, ctx) => {
+    if (!ctx?.chatId) throw new Error('选择成果需要当前任务会话')
+    const task = getSpawnTaskByChild(ctx.chatId)
+    if (!task) throw new Error('当前会话不是角色子任务')
+    const outputs = collectTaskOutputs(ctx.chatId)
+    const selected = [...new Set(assetIds)]
+    const access = selected.length ? fileAccessForChat(ctx.chatId) : undefined
+    const parts: MessagePart[] = selected.map((id) => {
+      const part = outputs.assets.find((asset) => asset.assetId === id)
+      if (!part) throw new Error('所选文件不是本任务输出')
+      const asset = getAssetStore().get(id, access!, part.assetVersionId)
+      if (asset.availability !== 'available') throw new Error('所选成果文件不可用')
+      return part
+    })
+    if (parts.length) getAssetStore().reference(parts, access!, 'branch', task.taskId)
+    saveSpawnDeliverableSelection(task.taskId, selected)
+    return { content: `已选择 ${selected.length} 个正式成果文件。` }
+  },
+  SupervisionLevel.auto,
+)

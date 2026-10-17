@@ -48,6 +48,18 @@ export interface LLMOptions {
   fullUrl?: boolean
   /** 当前 chat run 的取消信号。watchdog/用户 abort 时 provider 应立即终止请求流。 */
   signal?: AbortSignal
+  inputPreflight?: {
+    contextLimit?: number
+    report(result: InputTokenPreflight): void
+  }
+}
+
+export interface InputTokenPreflight {
+  tokenSource: 'official-preflight' | 'conservative-local-estimate'
+  officialPreflight: 'succeeded' | 'unavailable' | 'unsupported'
+  inputTokens?: number
+  estimatedTextTokens: number
+  mediaTokens: null
 }
 
 /**

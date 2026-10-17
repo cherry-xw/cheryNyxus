@@ -22,10 +22,14 @@ import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import {
   registerMessageAdapter,
   groupAttachmentsByMessage,
+  orderedMessageInputs,
   type BuildMessagesOptions,
   type LLMResponse,
   type LLMAttachment,
   type MessageProviderAdapterConfig,
+  type ServerToolCallDelta,
+  type ServerToolCallInfo,
+  type ServerToolSource,
   type ThinkingBlock,
   type ThinkingBlockDelta,
 } from '@/core/message/adapter'
@@ -66,8 +70,167 @@ type AnthropicContentBlock =
   | { type: 'thinking'; thinking: string; signature?: string }
   | { type: 'redacted_thinking'; data: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string | AnthropicContentBlock[] }
+  | { type: 'server_tool_use'; id: string; name: string; input?: Record<string, unknown> }
+  | {
+      type: 'tool_result'
+      tool_use_id: string
+      content?: string | AnthropicContentBlock[] | unknown
+      is_error?: boolean
+    }
+  | {
+      type: 'web_search_tool_result'
+      tool_use_id: string
+      content?: unknown
+      is_error?: boolean
+    }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
+
+const SENSITIVE_URL_QUERY_KEY = /^(token|signature|sig|sign|x-(?:amz|goog|oss|tos)-[a-z0-9-]+|access_token|api_key|key|secret|auth|auth_key|awsaccesskeyid|ossaccesskeyid|key-pair-id|policy)$/i
+const SENSITIVE_FIELD = /^(?:authorization|proxy-authorization|x-api-key|api[_-]?key|access[_-]?token|token|password|secret|cookie|set-cookie|signature|sig)$/i
+
+export function sanitizeDisplayUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    let modified = false
+    if (parsed.username || parsed.password) {
+      parsed.username = '[REDACTED]'
+      parsed.password = ''
+      modified = true
+    }
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (SENSITIVE_URL_QUERY_KEY.test(key)) {
+        parsed.searchParams.set(key, '[REDACTED]')
+        modified = true
+      }
+    }
+    return modified ? parsed.toString() : rawUrl
+  } catch {
+    return rawUrl
+  }
+}
+
+export function sanitizeServerToolArgs(input: Record<string, unknown> | undefined): string {
+  if (!input || typeof input !== 'object') return '{}'
+  return JSON.stringify(sanitizeServerToolValue(input))
+}
+
+function sanitizeServerToolValue(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizeServerToolText(value)
+  if (Array.isArray(value)) return value.map(sanitizeServerToolValue)
+  if (!value || typeof value !== 'object') return value
+  const isBase64 = 'type' in value && value.type === 'base64'
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key, SENSITIVE_FIELD.test(key) || (isBase64 && key === 'data')
+      ? '[REDACTED]' : sanitizeServerToolValue(entry),
+  ]))
+}
+
+export function sanitizeServerToolText(text: string): string {
+  if (/^[\s]*[\[{]/.test(text)) {
+    try {
+      const parsed: unknown = JSON.parse(text)
+      const clean = sanitizeServerToolValue(parsed)
+      return JSON.stringify(parsed) === JSON.stringify(clean) ? text : JSON.stringify(clean)
+    } catch {
+      // 不完整参数仍需去除已经收到的凭据。
+    }
+  }
+  return text
+    .replace(/data:[^\s"'<>]*?;base64,[a-z0-9+/=]+/gi, (value) => `${value.slice(0, value.indexOf(';base64,') + 8)}[REDACTED]`)
+    .replace(/https?:\/\/[^\s"'<>\\]+/gi, sanitizeDisplayUrl)
+    .replace(/("(?:authorization|proxy-authorization|x-api-key|api[_-]?key|access[_-]?token|token|password|secret|cookie|signature|sig)"\s*:\s*")[^"\r\n]*/gi, '$1[REDACTED]')
+}
+
+function extractSourcesFromParsed(value: unknown, out: ServerToolSource[]): void {
+  if (Array.isArray(value)) {
+    for (const item of value) extractSourcesFromParsed(item, out)
+    return
+  }
+  if (!value || typeof value !== 'object') return
+  const rec = value as Record<string, unknown>
+  const rawUrl = typeof rec.url === 'string' ? rec.url : typeof rec.link === 'string' ? rec.link : undefined
+  if (rawUrl && /^https?:\/\//i.test(rawUrl)) {
+    out.push({
+      url: sanitizeDisplayUrl(rawUrl),
+      ...(typeof rec.title === 'string' && rec.title ? { title: sanitizeServerToolText(rec.title) } : {}),
+      ...(typeof rec.content === 'string' && rec.content
+        ? { snippet: sanitizeServerToolText(rec.content).slice(0, 240) }
+        : typeof rec.snippet === 'string' && rec.snippet
+          ? { snippet: sanitizeServerToolText(rec.snippet).slice(0, 240) }
+          : {}),
+      ...(typeof rec.refer === 'string' && rec.refer ? { refer: sanitizeServerToolText(rec.refer) } : {}),
+    })
+  }
+  for (const entry of Object.values(rec)) {
+    if (typeof entry === 'object') extractSourcesFromParsed(entry, out)
+    else if (typeof entry === 'string' && /^[\s]*[\[{]/.test(entry)) {
+      try { extractSourcesFromParsed(JSON.parse(entry), out) } catch { /* 普通文字不是来源结构。 */ }
+    }
+  }
+}
+
+export function formatAnthropicServerToolResult(content: unknown): {
+  text: string
+  sources?: ServerToolSource[]
+  error?: string
+} {
+  const isToolError = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(isToolError)
+    return !!value && typeof value === 'object' && 'type' in value &&
+      typeof value.type === 'string' && value.type.endsWith('_tool_result_error')
+  }
+  if (isToolError(content)) {
+    const text = sanitizeServerToolText(JSON.stringify(content))
+    return { text, error: text }
+  }
+  const sources: ServerToolSource[] = []
+  if (typeof content === 'string') {
+    const trimmed = content.trim()
+    if ((trimmed.startsWith('[') || trimmed.startsWith('{')) && trimmed.length > 1) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        extractSourcesFromParsed(parsed, sources)
+      } catch {
+        // Not valid JSON, keep as plain string
+      }
+    }
+    return {
+      text: sanitizeServerToolText(content),
+      ...(sources.length > 0 ? { sources } : {}),
+    }
+  }
+  if (Array.isArray(content)) {
+    extractSourcesFromParsed(content, sources)
+    const textParts: string[] = []
+    for (const item of content) {
+      if (item && typeof item === 'object' && 'type' in item) {
+        const block = item as { type?: string; text?: string; title?: string; url?: string }
+        if (block.type === 'text' && typeof block.text === 'string') {
+          textParts.push(block.text)
+        } else {
+          textParts.push(JSON.stringify(item))
+        }
+      } else if (typeof item === 'string') {
+        textParts.push(item)
+      } else {
+        textParts.push(JSON.stringify(item))
+      }
+    }
+    return {
+      text: textParts.map(sanitizeServerToolText).join('\n'),
+      ...(sources.length > 0 ? { sources } : {}),
+    }
+  }
+  if (content !== undefined && content !== null) {
+    extractSourcesFromParsed(content, sources)
+    return {
+      text: sanitizeServerToolText(JSON.stringify(content)),
+      ...(sources.length > 0 ? { sources } : {}),
+    }
+  }
+  return { text: '' }
+}
 
 /** Anthropic message */
 interface AnthropicMsg {
@@ -89,11 +252,13 @@ interface AnthropicBody {
   stream?: boolean
 }
 
-/** Anthropic tool 定义 */
+/** Anthropic tool 定义（普通工具或内置服务端工具如 web_search_20250305） */
 interface AnthropicTool {
+  type?: string
   name: string
   description?: string
-  input_schema: { type: 'object'; properties?: Record<string, unknown>; required?: string[] }
+  input_schema?: { type: 'object'; properties?: Record<string, unknown>; required?: string[] }
+  max_uses?: number
 }
 
 /** Anthropic 非流式响应 */
@@ -161,6 +326,118 @@ const anthropicMessageAdapterConfig = {
       }
     }
     return blocks.length > 0 ? blocks : undefined
+  },
+
+  stopReason: (raw: AnthropicResponse): string | undefined => raw.stop_reason ?? undefined,
+
+  serverToolCalls: (raw: AnthropicResponse): ServerToolCallInfo[] | undefined => {
+    const calls = new Map<string, ServerToolCallInfo>()
+    const orphans: ServerToolCallInfo[] = []
+    for (const [index, b] of raw.content.entries()) {
+      if (b.type === 'server_tool_use') {
+        const call: ServerToolCallInfo = {
+          id: b.id,
+          name: b.name,
+          arguments: sanitizeServerToolArgs(b.input),
+          executionOwner: 'server',
+          status: 'started',
+          protocol: 'anthropic-messages',
+          responseId: raw.id,
+          index,
+        }
+        calls.set(b.id, call)
+      } else if (b.type === 'tool_result' || b.type === 'web_search_tool_result') {
+        const formatted = formatAnthropicServerToolResult(b.content)
+        const failed = b.is_error || formatted.error !== undefined
+        const existing = calls.get(b.tool_use_id)
+        if (existing) {
+          existing.status = failed ? 'failed' : 'completed'
+          existing.result = formatted.text
+          if (failed) existing.error = formatted.text
+          if (formatted.sources && formatted.sources.length > 0) {
+            existing.sources = formatted.sources
+          }
+        } else {
+          orphans.push({
+            id: b.tool_use_id || `orphan-${index}`,
+            name: b.type === 'web_search_tool_result' ? 'web_search' : 'server_tool',
+            arguments: '{}',
+            executionOwner: 'server',
+            status: failed ? 'failed' : 'unknown',
+            result: formatted.text,
+            ...(failed ? { error: formatted.text } : {}),
+            ...(formatted.sources && formatted.sources.length > 0
+              ? { sources: formatted.sources }
+              : {}),
+            protocol: 'anthropic-messages',
+            responseId: raw.id,
+            index,
+          })
+        }
+      }
+    }
+    const all = [...calls.values(), ...orphans]
+    return all.length > 0 ? all : undefined
+  },
+
+  extractStreamStopReason: (chunk: AnthropicSSEEvent): string | undefined => {
+    if (chunk.type === 'message_delta' && chunk.delta.stop_reason) {
+      return chunk.delta.stop_reason
+    }
+    return undefined
+  },
+
+  extractStreamServerToolDeltas: (chunk: AnthropicSSEEvent): ServerToolCallDelta[] | undefined => {
+    const tagged = chunk as AnthropicSSEEvent & { _blockType?: string }
+    if (chunk.type === 'content_block_start') {
+      const cb = chunk.content_block
+      if (cb.type === 'server_tool_use') {
+        const hasInitialInput = cb.input && Object.keys(cb.input).length > 0
+        return [
+          {
+            kind: 'start',
+            index: chunk.index,
+            id: cb.id,
+            name: cb.name,
+            arguments: hasInitialInput ? sanitizeServerToolArgs(cb.input) : '',
+            status: 'started',
+            protocol: 'anthropic-messages',
+          },
+        ]
+      }
+      if (cb.type === 'tool_result' || cb.type === 'web_search_tool_result') {
+        const formatted = formatAnthropicServerToolResult(cb.content)
+        const failed = cb.is_error || formatted.error !== undefined
+        return [
+          {
+            kind: 'result',
+            index: chunk.index,
+            callId: cb.tool_use_id,
+            ...(cb.type === 'web_search_tool_result' ? { name: 'web_search' } : {}),
+            result: formatted.text,
+            ...(failed ? { error: formatted.text } : {}),
+            status: failed ? 'failed' : 'completed',
+            ...(formatted.sources && formatted.sources.length > 0
+              ? { sources: formatted.sources }
+              : {}),
+          },
+        ]
+      }
+    }
+    if (
+      chunk.type === 'content_block_delta' &&
+      chunk.delta.type === 'input_json_delta' &&
+      tagged._blockType === 'server_tool_use'
+    ) {
+      return [
+        {
+          kind: 'arguments_delta',
+          index: chunk.index,
+          argumentsDelta: chunk.delta.partial_json,
+        },
+      ]
+    }
+    return undefined
   },
 
   extractStreamDelta: (chunk: AnthropicSSEEvent): string => {
@@ -238,12 +515,20 @@ const anthropicMessageAdapterConfig = {
     const official = buildOptions?.anthropicOfficial === true
     const lastUser = [...normalized].reverse().find((m) => m.role === 'user')
     const attachmentsByMessage = groupAttachmentsByMessage(attachments, lastUser?.id)
-    const messages = normalized.map((m) =>
+    const unmerged = normalized.map((m) =>
       buildAnthropicMessage(m, attachmentsByMessage.get(m.id), {
         official,
         includeReasoning: buildOptions?.reasoningHistory !== 'omit',
       }),
     )
+    const messages: AnthropicMsg[] = []
+    for (const message of unmerged) {
+      const previous = messages.at(-1)
+      if (previous?.role === message.role) {
+        const blocks = (value: AnthropicMsg['content']): AnthropicContentBlock[] => typeof value === 'string' ? [{ type: 'text', text: value }] : value
+        previous.content = [...blocks(previous.content), ...blocks(message.content)]
+      } else messages.push(message)
+    }
     return { system, messages }
   },
 }
@@ -272,18 +557,7 @@ function ensureAlternatingUserFirst(history: LLMResponse[]): LLMResponse[] {
   }
 
   // 连续同 role 合并 content（Anthropic 拒非交替）
-  const merged: LLMResponse[] = [norm[0]!]
-  for (let i = 1; i < norm.length; i++) {
-    const prev = merged[merged.length - 1]!
-    const cur = norm[i]!
-    if (prev.role === cur.role) {
-      prev.content = `${prev.content}\n\n${cur.content}`
-      // senseCalls/tools：合并时保留最后一个（实际场景极少连续 assistant）
-    } else {
-      merged.push(cur)
-    }
-  }
-  return merged
+  return norm
 }
 
 /** 把 LLMResponse 上的 thinking 块原样 emit 到 Anthropic content blocks
@@ -342,12 +616,15 @@ function buildAnthropicMessage(
   }
 
   // case 2: assistant 带 senseCalls → content blocks
-  if (m.role === 'assistant' && m.senseCalls && m.senseCalls.length > 0) {
+  const localSenseCalls = (m.senseCalls ?? []).filter(
+    (sc) => sc.executionOwner !== 'server' && sc.serverState !== 'skipped-local',
+  )
+  if (m.role === 'assistant' && localSenseCalls.length > 0) {
     const blocks: AnthropicContentBlock[] = []
     // thinking 必须在 text/tool_use 之前（Anthropic 约束）
     pushThinkingBlocks(blocks, m, buildOptions)
     if (m.content) blocks.push({ type: 'text', text: m.content })
-    for (const sc of m.senseCalls) {
+    for (const sc of localSenseCalls) {
       let input: Record<string, unknown> = {}
       if (sc.arguments) {
         try {
@@ -378,8 +655,14 @@ function buildAnthropicMessage(
 
   // case 4: user + image attachments → 多模态
   if (m.role === 'user' && attachments && attachments.length > 0) {
-    const blocks: AnthropicContentBlock[] = [{ type: 'text', text: m.content }]
-    for (const att of attachments) {
+    const blocks: AnthropicContentBlock[] = []
+    for (const segment of orderedMessageInputs(m, attachments)) {
+      if (segment.type === 'text') { blocks.push({ type: 'text', text: segment.text }); continue }
+      const att = segment.attachment
+      if (att.mimeType === 'application/pdf') {
+        blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: att.data.toString('base64') } })
+        continue
+      }
       if (att.mimeType.startsWith('image/')) {
         blocks.push({
           type: 'image',
@@ -431,22 +714,25 @@ const anthropicSenseAdapterConfig: SenseAdapter<AnthropicResponse> = {
    * - 其它事件：返回 []
    */
   extractSenseCallDeltas(chunk: unknown): SenseCallData[] {
-    const ev = chunk as AnthropicSSEEvent
+    const ev = chunk as AnthropicSSEEvent & { _blockType?: string }
     switch (ev.type) {
       case 'content_block_start': {
         const cb = ev.content_block
         if (cb.type !== 'tool_use') return []
+        const hasInitialInput = cb.input && Object.keys(cb.input).length > 0
         return [
           {
             index: ev.index,
             id: cb.id,
             name: cb.name,
-            arguments: '',
+            arguments: hasInitialInput ? JSON.stringify(cb.input) : '',
           },
         ]
       }
       case 'content_block_delta': {
         if (ev.delta.type !== 'input_json_delta') return []
+        // 若已知该 block 是 server_tool_use 等非本地 tool_use，不得混入本地 senseDelta
+        if (ev._blockType && ev._blockType !== 'tool_use') return []
         return [
           {
             index: ev.index,
@@ -462,13 +748,27 @@ const anthropicSenseAdapterConfig: SenseAdapter<AnthropicResponse> = {
   },
 }
 
-/** OpenAI 形状 → Anthropic tool 形状（chat() 内调用）*/
-function transformSensesToAnthropic(senses: SenseFunction[]): AnthropicTool[] {
-  return senses.map((s) => ({
-    name: s.function.name,
-    description: s.function.description,
-    input_schema: s.function.parameters as AnthropicTool['input_schema'],
-  }))
+function isGlmModel(model: string): boolean {
+  return /(?:^|[/_.:-])glm[-_.]?\d/i.test(model)
+}
+
+/** OpenAI 形状 → Anthropic tool 形状（chat() 内调用）。
+ *  若当前模型为 GLM Messages 且角色开启了 web_search，转换或保留服务端搜索声明 web_search_20250305。 */
+function transformSensesToAnthropic(senses: SenseFunction[], model?: string): AnthropicTool[] {
+  const useServerSearch = model ? isGlmModel(model) : false
+  return senses.map((s) => {
+    if (useServerSearch && s.function.name === 'web_search') {
+      return {
+        type: 'web_search_20250305',
+        name: 'web_search',
+      }
+    }
+    return {
+      name: s.function.name,
+      description: s.function.description,
+      input_schema: s.function.parameters as AnthropicTool['input_schema'],
+    }
+  })
 }
 
 // ========== LLM Adapter ==========
@@ -482,7 +782,7 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
     ): Promise<AnthropicResponse> {
       const { model, url, key } = assertChatOptions(options)
       await acquireRpm(options)
-      const sensesAsAnthropic = transformSensesToAnthropic(senses)
+      const sensesAsAnthropic = transformSensesToAnthropic(senses, model)
 
       let body: AnthropicBody = {
         model,
@@ -515,7 +815,7 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
     ): Promise<AsyncIterable<AnthropicSSEEvent>> {
       const { model, url, key } = assertChatOptions(options)
       await acquireRpm(options)
-      const sensesAsAnthropic = transformSensesToAnthropic(senses)
+      const sensesAsAnthropic = transformSensesToAnthropic(senses, model)
 
       let body: AnthropicBody = {
         model,
@@ -677,6 +977,7 @@ async function* anthropicStreamSSE(
   const decoder = new TextDecoder()
   let buffer = ''
   let yielded = 0
+  const blockTypes = new Map<number, string>()
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -695,7 +996,13 @@ async function* anthropicStreamSSE(
         const payload = line.slice(5).trim()
         if (!payload) continue
         try {
-          const ev = JSON.parse(payload) as AnthropicSSEEvent
+          const ev = JSON.parse(payload) as AnthropicSSEEvent & { _blockType?: string }
+          if (ev.type === 'content_block_start' && ev.content_block?.type) {
+            blockTypes.set(ev.index, ev.content_block.type)
+          } else if (ev.type === 'content_block_delta') {
+            const bt = blockTypes.get(ev.index)
+            if (bt) ev._blockType = bt
+          }
           observation?.response(ev)
           yield ev
           yielded++

@@ -7,7 +7,8 @@ import config, { DEFAULT_PRESET_NAME } from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
 import { OAuth2Auth } from '../auth/index.js'
 import { reportFatalStartupError } from '../fatalStartup.js'
-import { readMediaAsset, saveMediaAsset } from '../media/index.js'
+import { handleAssetHttp } from '../media/http.js'
+import { handleFileServiceHttp } from '../fileServices/http.js'
 import { stageSkillZipBuffer } from '../skill/import.js'
 
 /**
@@ -149,8 +150,7 @@ async function handleRequest(
     return
   }
 
-  const isMediaRequest = url.startsWith('/api/media/')
-  if (isMediaRequest) {
+  if (url.startsWith('/api/assets/') || url.startsWith('/api/file-services/') || url.startsWith('/api/file-operations/')) {
     const authorized =
       listener === 'remote'
         ? !!auth?.getUser(req, authOptions)
@@ -162,34 +162,10 @@ async function handleRequest(
       res.end('Unauthorized')
       return
     }
-    if (req.method === 'POST' && url === '/api/media/upload') {
-      const chunks: Buffer[] = []
-      for await (const chunk of req)
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-      const asset = await saveMediaAsset(
-        Buffer.concat(chunks),
-        String(req.headers['content-type'] ?? ''),
-        String(req.headers['x-filename'] ?? 'upload'),
-      )
-      res.writeHead(201, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ...asset, path: undefined, url: `/api/media/${asset.filename}` }))
-      return
-    }
-    if (req.method === 'GET') {
-      const file = url.split('?')[0]?.slice('/api/media/'.length) ?? ''
-      const asset = await readMediaAsset(file)
-      if (!asset) {
-        res.writeHead(404)
-        res.end('Not Found')
-        return
-      }
-      res.writeHead(200, {
-        'Content-Type': asset.mimeType,
-        'Cache-Control': 'private, max-age=3600',
-      })
-      res.end(asset.data)
-      return
-    }
+    const ownerId = auth?.getUser(req, authOptions)?.sub ?? (listener === 'local' ? 'local' : undefined)
+    if (!ownerId) { res.writeHead(401); res.end('Unauthorized'); return }
+    if (await handleAssetHttp(req, res, ownerId)) return
+    if (await handleFileServiceHttp(req, res, ownerId)) return
   }
 
   // POST /api/skills/import —— ZIP 上传导入（raw bytes，鉴权同 media）→ stage 候选 + 冲突

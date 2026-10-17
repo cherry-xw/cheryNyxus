@@ -258,6 +258,66 @@ const RUN_PRESENTATION_BY_ERROR_ID: Record<ErrorIdValue, RunPresentation> = {
     guidance: '请将占位符改成 $API_KEY 这类全大写格式后，再重新发送。',
     actions: [{ type: 'open_settings', section: 'provider' }],
   },
+  [ErrorId.ASSET_NOT_FOUND]: {
+    title: '找不到引用的文件',
+    description: '消息或工具引用的文件不存在或已被清理。',
+    guidance: '请重新上传或选择可用文件后再试。',
+    actions: [{ type: 'resend_input' }],
+  },
+  [ErrorId.ASSET_UNAVAILABLE]: {
+    title: '文件当前不可访问',
+    description: '当前会话或角色无权访问该文件，或文件无法读取。',
+    guidance: '请检查文件来源并重新附加后再试。',
+    actions: [{ type: 'resend_input' }],
+  },
+  [ErrorId.ASSET_TOO_LARGE]: {
+    title: '文件超出大小限制',
+    description: '上传或处理的文件超出了当前策略或接口允许的上限。',
+    guidance: '请缩小文件体积或在全局文件设置中调整大小限制。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.ASSET_FORMAT_UNSUPPORTED]: {
+    title: '文件格式不受支持',
+    description: '当前模型或文件服务不支持该文件格式的处理。',
+    guidance: '请转换文件格式或在设置中配置支持该格式的文件服务。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.CAPABILITY_UNAVAILABLE]: {
+    title: '当前缺少所需的文件处理能力',
+    description: '当前角色既没有对应的模型原生能力，也没有可用的文件服务工具或可委派角色。',
+    guidance: '请在设置中配置对应的文件服务或角色文件能力后再试。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.CAPABILITY_SELECTION_REQUIRED]: {
+    title: '需要指定文件处理方式',
+    description: '存在多个可用的文件服务或角色候选，系统无法自动唯一决定。',
+    guidance: '请在角色设置中指定默认处理对象，或在本次消息中明确指定。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.CAPABILITY_DELEGATION_CYCLE]: {
+    title: '角色文件委派存在循环',
+    description: '角色之间的文件能力委派形成了循环链路。',
+    guidance: '请在角色设置中修改文件能力的委派目标，解除循环引用。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.FILE_SERVICE_INVALID_CONFIG]: {
+    title: '文件服务配置有误',
+    description: '所选文件服务的地址、模型或密钥配置不完整或无效。',
+    guidance: '请在设置中检查并修正文件服务配置后再试。',
+    actions: [{ type: 'open_settings', section: 'provider' }],
+  },
+  [ErrorId.FILE_OPERATION_RESULT_UNKNOWN]: {
+    title: '远端生成结果尚未确认',
+    description: '请求已发出但连接中断，远端是否已完成尚不明确。',
+    guidance: '请先刷新状态或等待确认，避免盲目重新扣费提交。',
+    actions: [{ type: 'resume_run' }],
+  },
+  [ErrorId.FILE_OPERATION_DELIVERY_FAILED]: {
+    title: '远端已生成但本地保存失败',
+    description: '远端操作已成功返回，但下载或写入本地资产库时失败。',
+    guidance: '请重试保存步骤，无需重新发起远端生成。',
+    actions: [{ type: 'resume_run' }],
+  },
 }
 
 export function runFailureFeedback(input: {

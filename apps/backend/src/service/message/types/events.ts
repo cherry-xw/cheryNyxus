@@ -144,6 +144,8 @@ export interface SenseCallDelta {
 
 export interface StagedChunkData {
   type: 'thinking_end' | 'content_end' | 'sense_end' | 'reverse'
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   /** 消息角色，用于区分消息来源（chat.get历史返回时使用） */
   role?: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent' // role=新（子 pet 回复）；subagent 仅旧历史消息兼容
   thinking?: string
@@ -175,4 +177,12 @@ export interface StagedChunkData {
   contextCompactionTokens?: number
   /** sense_end 携带：工具调用的安全授权判定（checkpoint 从 trigger 透传，供历史回放渲染风险徽章） */
   security?: ToolAuthorization
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行） */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的说明 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具结果或跳过说明 */
+  result?: string
+  /** 服务端工具来源链接 */
+  sources?: Array<{ url: string; title?: string; snippet?: string; refer?: string }>
 }

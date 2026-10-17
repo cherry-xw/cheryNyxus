@@ -31,6 +31,7 @@ import {
 } from '@/core/security/index.js'
 import { getChatWorkspace } from '@/db/chat.js'
 import config from '@/utils/config.js'
+import { buildFileServiceToolName, type MessagePart, type FileOperationRecord } from '@chery/protocol'
 
 import {
   approvalPreview,
@@ -109,14 +110,28 @@ export async function* senseMiddleware(
   // 收集步骤: 收集 sense calls + yield sense_end 触发器
   // SenseCallAssembler 统一 tool.ts（流式 index 切换触发 sense_end）与 checkpointState.ts（批量合并落库）的 delta 合并语义。
   const assembler = new SenseCallAssembler()
+  // 能返回服务端执行结果的协议需先知道结束原因，不能提前为伴随的普通调用创建审批。
+  const deferLocalTriggers = !!ctx.runtime?.adapters.messageAdapter.extractStreamServerToolDeltas
+  let stopReason: string | undefined
+  let hasCompletedServerTool = false
 
   for await (const chunk of next()) {
     if (chunk.type === 'stream') {
       const streamChunk = chunk as StreamChunk
+      if (streamChunk.stopReason) {
+        stopReason = streamChunk.stopReason
+      }
+      if (streamChunk.serverToolDeltas && streamChunk.serverToolDeltas.length > 0) {
+        for (const sd of streamChunk.serverToolDeltas) {
+          if (sd.kind === 'result' && sd.status === 'completed') {
+            hasCompletedServerTool = true
+          }
+        }
+      }
       if (streamChunk.senseDelta && streamChunk.senseDelta.length > 0) {
         for (const delta of streamChunk.senseDelta) {
           // index 切换：上一项 arguments 已完整，触发 sense_end
-          const completed = assembler.flushCompletedOnIndexChange(delta)
+          const completed = deferLocalTriggers ? null : assembler.flushCompletedOnIndexChange(delta)
           if (completed) {
             const { trigger, call } = buildSenseTrigger(
               ctx,
@@ -135,17 +150,23 @@ export async function* senseMiddleware(
     yield chunk
   }
 
+  // 当同一响应已由服务端工具完成（如 server_tool_use(webReader) + tool_result）且模型以 end_turn 结束时，
+  // 伴随的普通工具调用（如 WebFetch）不在本地执行或发起审批。
+  const skipLocalBecauseServerCompleted = stopReason === 'end_turn' && hasCompletedServerTool
+
   // 流结束后，处理剩余的 sense calls
-  for (const sc of assembler.toArray()) {
-    if (sc.name) {
-      const { trigger, call } = buildSenseTrigger(ctx, sc.id ?? '', sc.name!, sc.arguments)
-      collectedCalls.push(call)
-      yield trigger
+  if (!skipLocalBecauseServerCompleted) {
+    for (const sc of assembler.toArray()) {
+      if (sc.name) {
+        const { trigger, call } = buildSenseTrigger(ctx, sc.id ?? '', sc.name!, sc.arguments)
+        collectedCalls.push(call)
+        yield trigger
+      }
     }
   }
 
   // 执行步骤: 批量执行
-  if (collectedCalls.length > 0) {
+  if (collectedCalls.length > 0 && !skipLocalBecauseServerCompleted) {
     yield* executeCollectedCalls(ctx, collectedCalls)
   }
 }
@@ -197,6 +218,9 @@ async function* executeCollectedCalls(
       content,
       hash,
       observation,
+      parts,
+      outputAssetIds,
+      fileOperations,
       status,
       errorCode,
       error,
@@ -219,6 +243,13 @@ async function* executeCollectedCalls(
         id: call.id,
         name: call.name,
         reason: rejected,
+        parts,
+        outputAssetIds,
+        fileOperations,
+        operationId,
+        durationMs,
+        truncated,
+        error,
         status,
         errorCode,
       }
@@ -229,6 +260,9 @@ async function* executeCollectedCalls(
       id: call.id,
       name: call.name,
       result: content,
+      parts,
+      outputAssetIds,
+      fileOperations,
       hash,
       observation,
       status,
@@ -288,6 +322,9 @@ async function* executeCollectedCalls(
           content,
           hash,
           observation,
+          parts,
+          outputAssetIds,
+          fileOperations,
           status,
           errorCode,
           error,
@@ -310,6 +347,9 @@ async function* executeCollectedCalls(
             id: call.id,
             name: call.name,
             reason: rejected,
+            parts,
+            outputAssetIds,
+            fileOperations,
             status,
             errorCode,
             error,
@@ -324,6 +364,9 @@ async function* executeCollectedCalls(
           id: call.id,
           name: call.name,
           result: content,
+          parts,
+          outputAssetIds,
+          fileOperations,
           hash,
           observation,
           status,
@@ -423,6 +466,8 @@ export async function* executeRequestTool(
     yield step.value
     step = await execution.next()
   }
+  // Execution failures are observations, not permission denials. Preserve the
+  // actionable result so the request-local model can correct invalid arguments.
   return step.value.content || step.value.rejected || '工具未返回执行结果。'
 }
 
@@ -566,6 +611,9 @@ async function* doExecuteSense(
   SenseStartedChunk | SenseTriggerChunk,
   {
     content: string
+    parts?: MessagePart[]
+    outputAssetIds?: string[]
+    fileOperations?: FileOperationRecord[]
     hash?: string
     observation?: import('@/core/sense/senseCreator.js').ObservationEnvelope
     status?: import('@/core/sense/senseCreator.js').SenseResultStatus
@@ -709,6 +757,14 @@ async function* doExecuteSense(
       description: `等待工具 ${name} 完成`,
       chatId: ctx.soul.chatId,
     })
+    // Queue waiting and remote execution have separate service budgets. The outer
+    // tool boundary must not abort a live generation at the generic two-minute limit.
+    const fileService = Object.entries(config.file_services ?? {}).find(([serviceId, service]) =>
+      service.operations.some((operation) => buildFileServiceToolName(serviceId, operation) === name),
+    )?.[1]
+    const timeoutMs = fileService
+      ? Math.min(2_147_483_647, (fileService.timeoutMs ?? 600_000) + (fileService.queueTimeoutMs ?? 600_000) + 1_000)
+      : 120_000
     const result = await Promise.resolve()
       .then(() => {
         ctx.requestExecution?.validate()
@@ -719,9 +775,9 @@ async function* doExecuteSense(
           chatId: ctx.soul.chatId,
           signal: requestSignal(ctx),
           requestView: ctx.requestView,
-          deadlineAt: Date.now() + 120_000,
+          deadlineAt: ctx.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq' ? undefined : Date.now() + timeoutMs,
           budget: {
-            timeoutMs: 120_000,
+            timeoutMs,
             maxOutputChars: 100_000,
             maxBytes: 400_000,
             maxConcurrent: 8,
@@ -759,6 +815,15 @@ async function* doExecuteSense(
 
     // 环境变量脱敏：在返回前替换所有 .env 中定义的敏感变量名
     const redactedContent = redactEnvKeys(result.content)
+    // Only redact public text. Fixed file references and provider continuation
+    // signatures must not be flattened into, or rewritten as, ordinary text.
+    const parts = result.parts?.map((part) => part.type === 'text'
+      ? { ...part, text: redactEnvKeys(part.text) } : part)
+    const fileOperations = result.fileOperations?.map((operation) => ({
+      ...operation,
+      outputParts: operation.outputParts?.map((part) => part.type === 'text'
+        ? { ...part, text: redactEnvKeys(part.text) } : part),
+    }))
     let observation = result.observation
     if (observation) {
       try {
@@ -811,6 +876,9 @@ async function* doExecuteSense(
       )
     return {
       content: redactedContent,
+      parts,
+      outputAssetIds: result.outputAssetIds,
+      fileOperations,
       hash: result.hash,
       observation,
       status: result.status,

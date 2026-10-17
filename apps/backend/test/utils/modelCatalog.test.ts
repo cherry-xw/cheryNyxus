@@ -447,4 +447,32 @@ models:
       thinkingLevels: [],
     })
   })
+
+  it('separates native media capabilities from protocol-specific serverTools capabilities', async () => {
+    const catalog = await loadDefaultCatalog()
+
+    const glmAnthropic = catalog.resolveEffectiveBrainCapabilities({
+      model: 'co-glm-5.3',
+      protocol: LlmProtocol.ANTHROPIC_MESSAGES,
+    })
+    expect(glmAnthropic.input.image).toEqual({ state: 'unsupported', source: 'catalog' })
+    expect(glmAnthropic.serverTools.webSearch).toEqual({ state: 'supported', source: 'catalog' })
+    expect(glmAnthropic.serverTools.webReader).toEqual({ state: 'supported', source: 'catalog' })
+    expect(glmAnthropic.serverTools.imageInspect).toEqual({ state: 'supported', source: 'catalog' })
+
+    const glmChat = catalog.resolveEffectiveBrainCapabilities({
+      model: 'co-glm-5.3',
+      protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
+    })
+    expect(glmChat.input.image).toEqual({ state: 'unsupported', source: 'catalog' })
+    expect(glmChat.serverTools.webSearch).toEqual({ state: 'unsupported', source: 'catalog' })
+    expect(glmChat.serverTools.imageInspect).toEqual({ state: 'unsupported', source: 'catalog' })
+
+    const gptResponses = catalog.resolveEffectiveBrainCapabilities({
+      model: 'gpt-6-sol',
+      protocol: LlmProtocol.OPENAI_RESPONSES,
+    })
+    expect(gptResponses.input.image).toEqual({ state: 'supported', source: 'catalog' })
+    expect(gptResponses.serverTools.webSearch).toEqual({ state: 'supported', source: 'catalog' })
+  })
 })

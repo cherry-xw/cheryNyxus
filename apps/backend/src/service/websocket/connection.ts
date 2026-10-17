@@ -76,6 +76,7 @@ function backgroundControlEvent(
  * 连接状态
  */
 export interface ConnectionState {
+  authenticatedUserId?: string
   credentialKind?: string
   id: string
   ws: WebSocket

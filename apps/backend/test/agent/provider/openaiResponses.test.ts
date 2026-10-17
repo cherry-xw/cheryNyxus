@@ -174,4 +174,97 @@ describe('OpenAI Responses adapter', () => {
       { role: 'user', content: '继续' },
     ])
   })
+
+  it('GPT 模型在 Responses 协议下将 web_search 映射为内置 web_search 工具，并解析 web_search_call 与 url_citation', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: 'resp_ws_1',
+            status: 'completed',
+            output: [
+              {
+                id: 'ws_01',
+                type: 'web_search_call',
+                status: 'completed',
+                action: {
+                  type: 'search',
+                  query: 'OpenAI Responses API web_search_call',
+                  queries: ['OpenAI Responses API web_search_call'],
+                },
+              },
+              {
+                type: 'message',
+                content: [
+                  {
+                    type: 'output_text',
+                    text: '根据官方文档说明……',
+                    annotations: [
+                      {
+                        type: 'url_citation',
+                        url: 'https://developers.openai.com/api/docs/guides/tools-web-search?api_key=secret',
+                        title: 'Web search | OpenAI API',
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const llm = getLLMAdapter(LlmProtocol.OPENAI_RESPONSES)!
+    const raw = await llm.chat(
+      [{ role: 'user', content: 'search' }],
+      [
+        {
+          type: 'function',
+          function: {
+            name: 'web_search',
+            description: 'search',
+            parameters: { type: 'object', properties: { query: { type: 'string' } } },
+          },
+        },
+      ],
+      {
+        model: 'gpt-6.1-sol',
+        url: 'https://example.com/v1',
+        key: 'k',
+      },
+    )
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as { tools: unknown[] }
+    expect(body.tools).toEqual([{ type: 'web_search', external_web_access: true }])
+
+    const messages = getMessageAdapter(LlmProtocol.OPENAI_RESPONSES)!
+    expect(messages.stopReason?.(raw)).toBe('completed')
+    expect(messages.serverToolCalls?.(raw)).toEqual([
+      {
+        id: 'ws_01',
+        name: 'web_search_call',
+        arguments: JSON.stringify({
+          type: 'search',
+          query: 'OpenAI Responses API web_search_call',
+          queries: ['OpenAI Responses API web_search_call'],
+        }),
+        executionOwner: 'server',
+        status: 'completed',
+        protocol: 'openai-responses',
+        responseId: 'resp_ws_1',
+        index: 0,
+        result:
+          '搜索查询：OpenAI Responses API web_search_call\n来源引用（1）：\n1. Web search | OpenAI API - https://developers.openai.com/api/docs/guides/tools-web-search?api_key=%5BREDACTED%5D',
+        sources: [
+          {
+            url: 'https://developers.openai.com/api/docs/guides/tools-web-search?api_key=%5BREDACTED%5D',
+            title: 'Web search | OpenAI API',
+          },
+        ],
+      },
+    ])
+  })
 })

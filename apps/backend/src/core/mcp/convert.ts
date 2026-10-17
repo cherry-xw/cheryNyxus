@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ZodType } from 'zod'
 import type { Sense, SenseFunction, SenseResult } from '@/core/sense'
+import type { SenseRuntimeContext } from '@/core/sense'
 import type { McpSenseContext } from './types.js'
 import { MCP_PREFIX, RESOURCE_SENSE_SUFFIX, PROMPT_SENSE_SUFFIX } from './types.js'
 
@@ -25,6 +26,13 @@ type PromptLike = {
   name: string
   description?: string
   arguments?: Array<{ name: string; description?: string; required?: boolean }>
+}
+
+type ToolResultHandler = (result: { content?: unknown; structuredContent?: unknown }, runtime?: SenseRuntimeContext) => Promise<SenseResult>
+let toolResultHandler: ToolResultHandler | undefined
+/** 文件保存由运行服务提供，核心转换器不访问资产库。 */
+export function setMcpToolResultHandler(handler?: ToolResultHandler): void {
+  toolResultHandler = handler
 }
 
 /** 占位 schema（运行期不 parse，仅满足 SenseExecutor 结构） */
@@ -72,19 +80,27 @@ export function toolToSense(tool: ToolLike, ctx: McpSenseContext): Sense<ZodType
     },
     executor: {
       schema: PLACEHOLDER_SCHEMA,
-      execute: async (input): Promise<SenseResult> => {
+      execute: async (input, _shared, runtime): Promise<SenseResult> => {
         try {
           const result = await ctx.client.callTool({
             name: tool.name,
             arguments: input as Record<string, unknown>,
           })
           const text = extractText((result as { content?: unknown }).content)
-          if ((result as { isError?: boolean }).isError) {
-            return { content: `MCP tool "${tool.name}" 返回错误:\n${text}`, hash: '' }
+          if (toolResultHandler) {
+            const saved = await toolResultHandler(result as { content?: unknown; structuredContent?: unknown }, runtime)
+            return (result as { isError?: boolean }).isError
+              ? { ...saved, content: `MCP tool "${tool.name}" 返回错误:\n${saved.content}`, status: 'provider_error' }
+              : saved
           }
-          return { content: text, hash: '' }
+          if ((result as { isError?: boolean }).isError) {
+            return { content: `MCP tool "${tool.name}" 返回错误:\n${text}`, hash: '', status: 'provider_error' }
+          }
+          const content = (result as { content?: unknown }).content
+          if (Array.isArray(content) && content.some(item => item?.type === 'image' || item?.type === 'audio' || item?.resource?.blob)) throw new Error('文件结果保存服务尚未加载')
+          return { content: text, hash: '', status: 'ok' }
         } catch (err) {
-          return { content: `MCP call failed: ${(err as Error).message}`, hash: '' }
+          return { content: `MCP call failed: ${(err as Error).message}`, hash: '', status: 'provider_error' }
         }
       },
     },

@@ -4,7 +4,7 @@
  * 用临时 skills 目录（运行时改 config.global.skills_dir），不依赖 fixtures。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { getSkillMetas, getSkillRealtime } from "@/agent/prompt/loadSkill.js";
+import { getSkillMetas, getSkillRealtime, loadSkillFromFolder, prepareSkillActivation } from "@/agent/prompt/loadSkill.js";
 import config from "@/utils/config.js";
 import { createTempDir, cleanupTempDir } from "../../helpers/tempDir.js";
 import { mkdirSync, writeFileSync } from "fs";
@@ -80,6 +80,41 @@ describe("loadSkill", () => {
   });
 
   describe("frontmatter 解析", () => {
+    it("loads typed required/optional capabilities through full and catalog loaders without changing the body", () => {
+      writeSkill("drawing", "name: drawing\nrequires:\n  capabilities: [image.generate]\noptional:\n  capabilities: [image.inspect]", "original steps");
+      const realtime = getSkillRealtime("drawing")!.skill;
+      expect(realtime.requires).toEqual({ capabilities: ["image.generate"] });
+      expect(realtime.optional).toEqual({ capabilities: ["image.inspect"] });
+      expect(realtime.extra?.requires).toEqual({ capabilities: ["image.generate"] });
+      expect(realtime.content).toBe("original steps");
+      expect(loadSkillFromFolder(join(dir, "drawing"))?.requires).toEqual(realtime.requires);
+      expect(getSkillMetas().find(skill => skill.name === "drawing")?.requires).toEqual(realtime.requires);
+      const blocked = prepareSkillActivation(realtime);
+      expect(blocked.check.canActivate).toBe(false);
+      expect(blocked.content).toContain("image.generate");
+      expect(blocked.content).not.toContain("original steps");
+      const ready = prepareSkillActivation(realtime, operation => ({ operation, availability: operation === "image.generate" ? "requires_approval" : "unavailable", source: "role", mode: "tool", inputConstraints: {}, outputKinds: ["image"], reasonCode: "test", reason: "test", configRevision: "r1" }));
+      expect(ready.check.canActivate).toBe(true);
+      expect(ready.content).toContain("original steps");
+      expect(ready.content).toContain("可选操作：image.inspect");
+      expect(ready.content).toContain("执行前仍需审批：image.generate");
+    });
+
+    it("preserves invalid capability declarations for activation diagnostics", () => {
+      writeSkill("invalid-deps", "name: invalid-deps\nrequires:\n  capabilities: [not.real]", "must not execute");
+      const skill = getSkillRealtime("invalid-deps")!.skill;
+      expect(skill.capabilityDependencyErrors).toHaveLength(1);
+      expect(prepareSkillActivation(skill).check.canActivate).toBe(false);
+      expect(prepareSkillActivation(skill).content).not.toContain("must not execute");
+    });
+
+    it("does not turn malformed dependency YAML into an undeclared skill", () => {
+      writeSkill("broken-deps", "name: broken-deps\nrequires: [", "must not execute");
+      const skill = getSkillRealtime("broken-deps")!.skill;
+      expect(skill.capabilityDependencyErrors).toHaveLength(1);
+      expect(prepareSkillActivation(skill).check.canActivate).toBe(false);
+    });
+
     it("无 frontmatter → 用目录名做 name，整段做 content", () => {
       const skillDir = join(dir, "plain");
       mkdirSync(skillDir);

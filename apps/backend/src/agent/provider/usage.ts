@@ -31,6 +31,10 @@ export function extractModelUsage(
     set('outputTokens', usage.output_tokens)
     set('cacheReadTokens', usage.cache_read_input_tokens)
     set('cacheWriteTokens', usage.cache_creation_input_tokens)
+    const webSearchRequests = count(object(usage.server_tool_use).web_search_requests)
+    if (webSearchRequests !== undefined) {
+      result.serverToolUse = { ...result.serverToolUse, webSearchRequests }
+    }
   } else if (protocol === 'openai-responses') {
     set('inputTokens', usage.input_tokens)
     set('outputTokens', usage.output_tokens)

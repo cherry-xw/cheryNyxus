@@ -335,6 +335,34 @@ models:
         thinking: max
         capabilities:
           toolCall: true
+          serverTools:
+            webSearch: supported
+            webReader: supported
+            imageInspect: supported
+      openai-chat-completions:
+        protocol: openai-chat-completions
+        contextLimit: 128000
+        thinking: max
+        capabilities:
+          toolCall: true
+          input: { image: false, video: false, audio: false }
+          output: { image: false, video: false, audio: false }
+          serverTools:
+            webSearch: unsupported
+            webReader: unknown
+            imageInspect: unsupported
+      openai-responses:
+        protocol: openai-responses
+        contextLimit: 128000
+        thinking: max
+        capabilities:
+          toolCall: true
+          input: { image: false, video: false, audio: false }
+          output: { image: false, video: false, audio: false }
+          serverTools:
+            webSearch: unsupported
+            webReader: unknown
+            imageInspect: unsupported
     wire:
       anthropic-messages:
         reasoningHistory: thinking-block
@@ -537,6 +565,10 @@ models:
           toolCall: true
           input: { image: true }
           output: { image: true }
+          serverTools:
+            webSearch: supported
+            webReader: unknown
+            imageInspect: unknown
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000

@@ -704,3 +704,96 @@ describe('ThinkingBlockAssembler + extractStreamThinkingBlocks 端到端', () =>
     // （通过同 chunk 类型，但由 senseAdapter 处理；此处只验证 thinking 不会误提取）
   })
 })
+
+describe('Anthropic server_tool_use / tool_result 与 GLM web_search_20250305', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', fetchMock)
+    registerAnthropicAdapter()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('非流式响应解析 server_tool_use + tool_result，不进入本地 senseCalls，且脱敏 URL 参数', () => {
+    const messageAdapter = getMessageAdapter('anthropic')!
+    const raw = {
+      id: 'msg_srv_1',
+      type: 'message',
+      role: 'assistant',
+      stop_reason: 'end_turn',
+      content: [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_01',
+          name: 'webReader',
+          input: { url: 'https://example.com/doc?token=abc123&lang=zh' },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'srvtoolu_01',
+          content: [{ type: 'text', text: '{"title":"Example Doc","content":"Hello"}' }],
+        },
+        {
+          type: 'text',
+          text: '文档标题是 Example Doc。',
+        },
+      ],
+    }
+
+    expect(messageAdapter.stopReason?.(raw as never)).toBe('end_turn')
+    const serverCalls = messageAdapter.serverToolCalls?.(raw as never)
+    expect(serverCalls).toEqual([
+      {
+        id: 'srvtoolu_01',
+        name: 'webReader',
+        arguments: '{"url":"https://example.com/doc?token=%5BREDACTED%5D&lang=zh"}',
+        executionOwner: 'server',
+        status: 'completed',
+        protocol: 'anthropic-messages',
+        responseId: 'msg_srv_1',
+        index: 0,
+        result: '{"title":"Example Doc","content":"Hello"}',
+      },
+    ])
+  })
+
+  it('GLM 模型在 Anthropic 协议下将 web_search 映射为 web_search_20250305', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'msg_glm',
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    const llm = getLLMAdapter('anthropic')!
+    await llm.chat(
+      buildProbeMessages(),
+      [
+        {
+          type: 'function',
+          function: {
+            name: 'web_search',
+            description: 'search',
+            parameters: { type: 'object', properties: { query: { type: 'string' } } },
+          },
+        },
+      ],
+      {
+        ...options,
+        model: 'co-glm-5.3',
+        skipHooks: true,
+      },
+    )
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as { tools: unknown[] }
+    expect(body.tools).toEqual([{ type: 'web_search_20250305', name: 'web_search' }])
+  })
+})

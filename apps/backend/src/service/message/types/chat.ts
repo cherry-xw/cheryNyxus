@@ -296,17 +296,16 @@ export interface ChatBranchActivateResponseData {
 /**
  * chat.send 入参
  * - prompt：用户文本（与 attachments 并存；纯文本 prompt 也允许）
- * - attachments：上传到 `/api/media/upload` 后的资产引用数组（结构化协议，替代旧的 `[[media:filename]]` 文本标记）。
- *   后端 chatMiddleware enrichMediaInputs 据 assetId 走 readMediaAsset → provider 多模态 buildMessages。
- *   旧文本 marker 仍兼容（旧 marker = 历史消息遗留；新客户端不再发 marker）。
- *   资产未通过 brain.capabilities.input[kind] 检查时不下发，附文本提示。
+ * - parts：按顺序携带文字与固定资产版本；用途、预算和处理方式在模型请求前逐项检查。
+ * - attachments：不再接收旧附件结构，调用方必须使用 parts。
  */
 export interface ChatSendRequestData {
+  parts?: import('@chery/protocol').MessagePart[]
   chatId: string
   prompt: string
   attachments?: ChatSendAttachment[]
   /** Internal command-plane handoff; legacy clients must omit these fields. */
-  inputMeta?: { inputId?: string; messageId?: string; clientMessageId?: string; commandId?: string }
+  inputMeta?: { inputId?: string; messageId?: string; clientMessageId?: string; commandId?: string; parts?: import('@chery/protocol').MessagePart[] }
   inputAlreadyQueued?: boolean
 }
 
@@ -330,13 +329,17 @@ export interface ChatInputWithdrawResponseData {
   withdrawnAt: number
 }
 
-export type ChatAttachmentKind = 'image' | 'video' | 'audio'
+export type ChatAttachmentKind = import('@chery/protocol').AssetKind
 
 export interface ChatSendAttachment {
-  /** 上传后服务端生成的 asset id（与 /api/media/upload 返回 UploadedMediaAsset.id 对应）。 */
+  /** 服务端生成的资产 ID。新提交使用有序 parts 中的固定版本。 */
   assetId: string
+  assetVersionId?: string
   kind: ChatAttachmentKind
   mimeType: string
+  variant?: import('@chery/protocol').AssetVariant
+  usage?: import('@chery/protocol').AssetUsage
+  originalName?: string
 }
 
 export interface RuntimeSetRequestData {

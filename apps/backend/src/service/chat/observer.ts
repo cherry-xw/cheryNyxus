@@ -105,10 +105,14 @@ export async function* observeAgentChunks(
           addMessage(chunk.message.id, chatId, {
             role: chunk.message.role,
             content: chunk.message.content,
+            parts: chunk.message.parts,
+            fileOperations: chunk.message.fileOperations,
+            providerContinuation: chunk.message.providerContinuation,
             thinking: chunk.message.thinking,
             modelExcluded: chunk.message.modelExcluded,
             thinkingBlocks: chunk.message.thinkingBlocks,
             senseCall: chunk.message.senseCalls,
+            serverToolCalls: chunk.message.serverToolCalls,
             hash: chunk.message.hash,
             observation: chunk.message.observation,
             contextCompaction: chunk.message.contextCompaction,
@@ -168,6 +172,8 @@ export async function* observeAgentChunks(
         // （旧实现仅判 content 丢 hash → smart pending sense hash 永远 NULL → 重启去重失效）
         fillApprovalResult(chatId, chunk.id, {
           content: chunk.patch.content,
+          parts: chunk.patch.parts,
+          fileOperations: chunk.patch.fileOperations,
           hash: chunk.patch.hash,
           observation: chunk.patch.observation,
         })
@@ -181,14 +187,20 @@ export async function* observeAgentChunks(
           hash: chunk.patch.hash,
         })
 
-        // 流式多 sense_call reconcile：patch 仅含 senseCalls 时调 updateAssistantSenseCalls（独立 UPDATE）
-        if (chunk.patch.senseCalls) {
+        // 流式多 sense_call reconcile：patch 含 senseCalls 或 serverToolCalls 时调 updateAssistantSenseCalls（独立 UPDATE）
+        if (chunk.patch.senseCalls || chunk.patch.serverToolCalls) {
           const senseBaseRevision = getTimelineRevision(chatId)
-          updateAssistantSenseCalls(chatId, chunk.id, chunk.patch.senseCalls)
+          updateAssistantSenseCalls(
+            chatId,
+            chunk.id,
+            chunk.patch.senseCalls ?? [],
+            chunk.patch.serverToolCalls,
+          )
           emitTimelinePatch(chatId, senseBaseRevision)
           logger.event('message.updated.sense_calls', {
             messageId: chunk.id,
-            senseCalls: chunk.patch.senseCalls.length,
+            senseCalls: chunk.patch.senseCalls?.length ?? 0,
+            serverToolCalls: chunk.patch.serverToolCalls?.length ?? 0,
           })
         }
         continue
@@ -372,6 +384,9 @@ export async function* observeAgentChunks(
       addMessage(m.id, chatId, {
         role: m.role,
         content: m.content,
+        parts: m.parts,
+        fileOperations: m.fileOperations,
+        providerContinuation: m.providerContinuation,
         thinking: m.thinking,
         modelExcluded: m.modelExcluded,
         thinkingBlocks: m.thinkingBlocks,

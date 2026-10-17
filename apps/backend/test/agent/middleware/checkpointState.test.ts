@@ -41,12 +41,16 @@ function stream(opts: {
   thinking?: string
   content?: string
   senseDelta?: StreamChunk['senseDelta']
+  serverToolDeltas?: StreamChunk['serverToolDeltas']
+  stopReason?: string
 }): StreamChunk {
   return {
     type: 'stream',
     thinkingDelta: opts.thinking ?? '',
     contentDelta: opts.content ?? '',
     senseDelta: opts.senseDelta,
+    serverToolDeltas: opts.serverToolDeltas,
+    ...(opts.stopReason ? { stopReason: opts.stopReason } : {}),
   }
 }
 
@@ -359,5 +363,74 @@ describe('mergeSenseDeltas（经 flushAssistant 验证）', () => {
     const ctx = createMockContext({ messages: [] })
     const msg = s.flushAssistant(ctx)
     expect(msg!.senseCalls?.map((sc) => sc.name)).toEqual(['read_file', 'write_file'])
+  })
+
+  it('累积 serverToolDeltas 并脱敏参数，在 end_turn 伴随已完成服务端工具时跳过普通调用', () => {
+    const s = new CheckpointState()
+    s.ingest(
+      stream({
+        content: '网页摘要',
+        senseDelta: [
+          {
+            index: 0,
+            id: 'call_webfetch',
+            name: 'web_fetch',
+            arguments: '{"url":"https://example.com/page"}',
+          },
+        ],
+        serverToolDeltas: [
+          {
+            kind: 'start',
+            index: 1,
+            id: 'srvtoolu_1',
+            name: 'webReader',
+            arguments: '',
+            status: 'started',
+            protocol: 'anthropic-messages',
+          },
+          {
+            kind: 'arguments_delta',
+            index: 1,
+            id: 'srvtoolu_1',
+            argumentsDelta: '{"url":"https://example.com/page?token=secret123"}',
+          },
+          {
+            kind: 'result',
+            index: 2,
+            callId: 'srvtoolu_1',
+            name: 'webReader',
+            result: 'Example Domain',
+            status: 'completed',
+            sources: [{ url: 'https://example.com/page', title: 'Example' }],
+          },
+        ],
+        stopReason: 'end_turn',
+      }),
+    )
+    const ctx = createMockContext({ messages: [] })
+    const msg = s.flushAssistant(ctx)
+    expect(msg!.senseCalls).toEqual([])
+    expect(msg!.serverToolCalls).toEqual([
+      {
+        id: 'srvtoolu_1',
+        name: 'webReader',
+        arguments: '{"url":"https://example.com/page?token=%5BREDACTED%5D"}',
+        executionOwner: 'server',
+        status: 'completed',
+        protocol: 'anthropic-messages',
+        index: 1,
+        result: 'Example Domain',
+        sources: [{ url: 'https://example.com/page', title: 'Example' }],
+      },
+      {
+        id: 'call_webfetch',
+        name: 'web_fetch',
+        arguments: '{"url":"https://example.com/page"}',
+        executionOwner: 'server',
+        status: 'skipped-local',
+        result: '已由同一响应中的服务端工具完成，未在本地重复执行。',
+        index: 1,
+      },
+    ])
   })
 })

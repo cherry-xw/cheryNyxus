@@ -65,40 +65,6 @@ import { finishActiveWorkflowSteps } from './workflowStepWriter.js'
 // runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
 // 调用方（handler.ts/runtime set.ts）直接 import runtime.js，不再经 send 转发。
 
-// P4：mimeType → 扩展名映射（与服务端 media/index.ts MIME_KIND 对齐，标 marker 供 enrichMediaInputs 解析）。
-const MIME_EXT: Record<string, string> = {
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/webp': '.webp',
-  'image/gif': '.gif',
-  'video/mp4': '.mp4',
-  'video/webm': '.webm',
-  'video/quicktime': '.mov',
-  'audio/mpeg': '.mp3',
-  'audio/wav': '.wav',
-  'audio/ogg': '.ogg',
-  'audio/mp4': '.m4a',
-}
-
-/**
- * P4：将结构化 attachments 转为 [[media:<filename>]] 文本标记，附加到 prompt 末尾。
- * enrichMediaInputs 仍以文本标记为解析入口；前端不再发 marker，服务端补 marker 保持向后兼容。
- * 当 mimeType 不在映射中时使用 .bin（MIME_KIND 已先在 saveMediaAsset 校验）。
- */
-export function attachmentsToPromptMarkers(
-  attachments: ChatSendRequestData['attachments'],
-  basePrompt: string,
-): string {
-  if (!attachments || attachments.length === 0) return basePrompt
-  const markers = attachments
-    .map((a) => {
-      const ext = MIME_EXT[a.mimeType.toLowerCase()] ?? '.bin'
-      return `[[media:${a.assetId}${ext}]]`
-    })
-    .join('\n')
-  return basePrompt ? `${basePrompt}\n${markers}` : markers
-}
-
 /**
  * 发送聊天消息（流式）
  * runtime 由 chat.create/runtime.set 设置，send 只携带 chatId + prompt。
@@ -129,16 +95,16 @@ export async function* handleChatSend(
   assertRestartAdmission(existingWork)
   const rid = ctx.requestId ?? runId
 
-  // P4：结构化 attachments → [[media:<filename>]] 文本标记追加到 prompt。
-  // enrichMediaInputs 仍以文本标记解析；P5 provider 多模态直接读 LLMResponse.attachments 时可省此步。
-  const promptWithAttachments = attachmentsToPromptMarkers(data.attachments, data.prompt)
+  // 文件仅通过固定版本的有序 parts 接收，不把附件转为正文标记。
+  if (data.attachments?.length) throw new Error('附件协议已更新，请使用固定版本的 parts')
+  const promptWithAttachments = data.prompt
 
   // 运行中 send：仅入队（迭代触发 send body push userInputs），不绑定连接、不走流。
   // 避免空 generator（isRunning 时 send return 空 gen）立即结束而 finally 误释放当前活跃连接绑定（P0-1）。
   // 新输出跟随当前活跃流发出，客户端无需此流响应。
   if (agent.isRunning()) {
     for await (const _ of agent.run(promptWithAttachments, {
-      inputMeta: data.inputMeta,
+      inputMeta: { ...data.inputMeta, ...(data.parts ? { parts: data.parts } : {}) },
       inputAlreadyQueued: data.inputAlreadyQueued,
     })) {
       /* 运行中 send 不产出 chunk，迭代仅为触发 send body 入队 */
@@ -210,8 +176,7 @@ export async function* handleChatSend(
   try {
     // history 已在 chat.create 时一次性加载到内存。
     // 若当前 chat 正在运行，send 只入队输入；新输出会跟随已有运行流发出。
-    // P4：传 promptWithAttachments（含 [[media:]] 标记）供 enrichMediaInputs 解析。
-    // P5：injectCommands 改造后的 prompt + extraUserMessages（命令正文）经 AgentSession.send
+    // injectCommands 改造后的 prompt + extraUserMessages（命令正文）经 AgentSession.send
     //     顺序入队，LLM 看到「先命令正文、再主 prompt」。命令正文不污染 system prompt cache。
     const generator = observeAgentChunks(
       agent.run(cmdInjection.userPrompt, {
@@ -219,6 +184,7 @@ export async function* handleChatSend(
           cmdInjection.extraUserMessages.length > 0 ? cmdInjection.extraUserMessages : undefined,
         inputMeta: {
           ...data.inputMeta,
+          ...(data.parts ? { parts: data.parts } : {}),
           ...(cmdInjection.userPrompt !== promptWithAttachments
             ? { persistedContent: promptWithAttachments }
             : {}),

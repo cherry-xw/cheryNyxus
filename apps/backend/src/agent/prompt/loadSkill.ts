@@ -15,8 +15,15 @@ import { logger } from '@/utils/logger/index.js'
 import { estimateTokens } from '@/utils/token.js'
 import type { IngressRequestIdentity } from '@/service/ingress/api.js'
 import { pluginSkillLocations } from '@/service/ingress/resources.js'
+import {
+  parseSkillCapabilityDependencies,
+  checkSkillCapabilities,
+  type SkillCapabilityDependencies,
+  type SkillCapabilityResolver,
+  type SkillCapabilityCheck,
+} from './skillCapabilities.js'
 
-export interface SkillData {
+export interface SkillData extends SkillCapabilityDependencies {
   name: string
   description: string
   content: string
@@ -49,7 +56,32 @@ export function formatSkillActivationContent(skill: Pick<SkillData, 'name' | 'co
   return `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：\n\n${skill.content}`
 }
 
-interface SkillMeta {
+/** Explicit skill invocation must use this check before returning its instructions. */
+export function prepareSkillActivation(
+  skill: SkillData,
+  resolve?: SkillCapabilityResolver,
+): { check: SkillCapabilityCheck; content: string } {
+  const check = checkSkillCapabilities(skill, resolve)
+  if (!check.canActivate) {
+    const missing = check.missingRequired.map(operation => {
+      const capability = check.required.find(value => value.operation === operation)
+      return `${operation}：${capability?.reason ?? '尚未提供当前角色的能力检查结果'}`
+    })
+    return {
+      check,
+      content: `技能「${skill.name}」未激活。${[...check.errors, ...missing].join('；')}。请在设置中检查当前预设的角色文件能力、工具组及文件服务。普通聊天不受影响。`,
+    }
+  }
+  const skipped = check.skippedOptional.length
+    ? `\n\n本次不可用的可选操作：${check.skippedOptional.join('、')}。跳过依赖这些操作的步骤，不以其他对象自动替换。`
+    : ''
+  const approval = check.requiresApproval.length
+    ? `\n\n以下操作执行前仍需审批：${check.requiresApproval.join('、')}。加载技能不代表批准调用。`
+    : ''
+  return { check, content: formatSkillActivationContent(skill) + skipped + approval }
+}
+
+interface SkillMeta extends SkillCapabilityDependencies {
   name: string
   description: string
   content: string
@@ -88,6 +120,7 @@ function parseSkillFrontmatter(content: string, defaultName: string): SkillMeta 
       trigger: (frontmatter.trigger as string) || undefined,
       content: bodyContent,
       extra: Object.keys(rest).length > 0 ? rest : undefined,
+      ...parseSkillCapabilityDependencies(frontmatter),
     }
   } catch {
     return {
@@ -96,6 +129,9 @@ function parseSkillFrontmatter(content: string, defaultName: string): SkillMeta 
       content: content.trim(),
       trigger: undefined,
       extra: undefined,
+      ...(/(?:^|\r?\n)(?:requires|optional)\s*:/.test(match[1]!)
+        ? { capabilityDependencyErrors: ['技能能力依赖的 frontmatter 无法解析'] }
+        : {}),
     }
   }
 }
@@ -109,7 +145,7 @@ interface SkillLocation {
   plugin?: string
 }
 
-interface SkillCatalogEntry {
+interface SkillCatalogEntry extends SkillCapabilityDependencies {
   filePath: string
   defaultName: string
   name: string
@@ -152,9 +188,16 @@ function parseSkillHeader(content: string, defaultName: string): Omit<SkillMeta,
       description: (frontmatter.description as string) || '',
       trigger: (frontmatter.trigger as string) || undefined,
       extra: Object.keys(rest).length > 0 ? rest : undefined,
+      ...parseSkillCapabilityDependencies(frontmatter),
     }
   } catch {
-    return { name: defaultName, description: '' }
+    return {
+      name: defaultName,
+      description: '',
+      ...(/(?:^|\r?\n)(?:requires|optional)\s*:/.test(match[1]!)
+        ? { capabilityDependencyErrors: ['技能能力依赖的 frontmatter 无法解析'] }
+        : {}),
+    }
   }
 }
 
@@ -260,6 +303,9 @@ function scanSkillCatalog(identity?: IngressRequestIdentity): SkillCatalogEntry[
         description: header.description,
         trigger: header.trigger,
         extra: header.extra,
+        requires: header.requires,
+        optional: header.optional,
+        capabilityDependencyErrors: header.capabilityDependencyErrors,
         plugin: loc.plugin,
         size: stat.size,
         mtimeMs: stat.mtimeMs,
@@ -283,6 +329,9 @@ function loadCatalogEntry(entry: SkillCatalogEntry): SkillData | undefined {
       content: meta.content,
       trigger: meta.trigger,
       extra: meta.extra,
+      requires: meta.requires,
+      optional: meta.optional,
+      capabilityDependencyErrors: meta.capabilityDependencyErrors,
       plugin: entry.plugin,
     }
   } catch {
@@ -376,6 +425,9 @@ export function loadSkillFromFolder(
       content: meta.content,
       trigger: meta.trigger,
       extra: meta.extra,
+      requires: meta.requires,
+      optional: meta.optional,
+      capabilityDependencyErrors: meta.capabilityDependencyErrors,
       plugin: opts?.plugin,
     }
   } catch {

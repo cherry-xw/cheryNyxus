@@ -1,7 +1,64 @@
-import type { RoleConfig, PresetConfig, Threshold, CommandConfig, ServerConfig, McpServerConfig, Config, ConfigRaw } from '@chery/plugin-api'
-export type { MockScriptError, MockScriptChunk, MockScriptResponse, MockConfig, MediaCapabilities, BrainCapabilities, BrainConfig, LLMConfig, RolePermissionTemplate, RolePermissionEffect, CommandRiskCategory, RolePermissionPolicy, RoleConfig, PresetConfig, PresetSchedule, MemoryLimits, MemoryConfig, FileCompressionConfig, LoggerConfig, Threshold, CommandConfig, HistoryRecallConfig, GlobalConfig, ServerConfig, ManagerConfig, WorkspaceBrowseConfig, McpServerConfig, ExtendedGlobalConfig, Config, GlobalConfigRaw, McpServerConfigRaw, ConfigRaw } from '@chery/plugin-api'
+import type {
+  RoleConfig,
+  PresetConfig,
+  Threshold,
+  CommandConfig,
+  ServerConfig,
+  McpServerConfig,
+  Config,
+  ConfigRaw,
+  FilesConfig,
+  RoleFileCapabilitiesMap,
+  RoleFileCapabilityBinding,
+} from '@chery/plugin-api'
+export type {
+  MockScriptError,
+  MockScriptChunk,
+  MockScriptResponse,
+  MockConfig,
+  CapabilityValue,
+  MediaCapabilities,
+  OutputCapabilities,
+  BrainCapabilities,
+  BrainConfig,
+  LLMConfig,
+  FileServiceConnection,
+  FileServiceConfig,
+  RoleFileCapabilityMode,
+  RoleFileCapabilityBinding,
+  RoleFileCapabilitiesMap,
+  PresetRoleOverride,
+  FilesContextConfig,
+  FilesImageAdaptationConfig,
+  FilesConfig,
+  RolePermissionTemplate,
+  RolePermissionEffect,
+  CommandRiskCategory,
+  RolePermissionPolicy,
+  RoleConfig,
+  PresetConfig,
+  PresetSchedule,
+  MemoryLimits,
+  MemoryConfig,
+  FileCompressionConfig,
+  LoggerConfig,
+  Threshold,
+  CommandConfig,
+  HistoryRecallConfig,
+  GlobalConfig,
+  ServerConfig,
+  ManagerConfig,
+  WorkspaceBrowseConfig,
+  McpServerConfig,
+  ExtendedGlobalConfig,
+  Config,
+  GlobalConfigRaw,
+  McpServerConfigRaw,
+  ConfigRaw,
+} from '@chery/plugin-api'
 import dotenv from 'dotenv'
 import yaml from 'js-yaml'
+import { migrateFileConfigOnDiskSync } from './fileConfigMigration.js'
 import { validateFixedPresetEdits, validateLockedRoleEdits } from './lockedRole.js'
 import {
   ENV_PLACEHOLDER_RE,
@@ -18,7 +75,18 @@ import { resolveEnvFile, loadEnvFile, ensureSessionSecret } from './envFile.js'
 import { SupervisionLevel } from '@/core/config'
 import type { ThinkingLevel } from '@/core/llm/adapter'
 import { validateRoleAvatar } from '@/utils/roleAvatar.js'
-import { findLlmProviderDefinition, isLlmProtocol } from '@chery/protocol'
+import {
+  findFileServiceAdapterDefinition,
+  findLlmProviderDefinition,
+  isCapabilityState,
+  isFileCapabilityOperation,
+  isFileServiceAdapterId,
+  isLlmProtocol,
+  FILE_CAPABILITY_OPERATIONS,
+  FILE_SERVICE_ADAPTER_PARAM_SCHEMAS,
+  SettingsFileServiceSchema,
+  SettingsFilesPolicySchema,
+} from '@chery/protocol'
 
 // Explicit file selection is fixed at startup; loading preserves inherited variables.
 const inheritedEnvironment = { ...process.env }
@@ -91,20 +159,17 @@ export { SupervisionLevel } from '@/core/config'
 
 /**
  * 把 brain.thinking 归一化为 ThinkingLevel（档位「显示词」）。
- * - legacy boolean：true→"on"、false→"off"
  * - undefined/缺省 → "off"（模型目录未声明 wire 时一律不发思考参数）
  * - 任意非空字符串（显示词，含自定义档位如 `max`）→ 原样；请求参数由 model-catalog.yaml 翻译
- * - 空串/其他非法值 → "off"（兜底）
+ * - 空串/其他非法值拒绝。
  *
  * 在 loadConfig（运行时）和 readRawConfig（RPC 读，前端拿到的就是显示词）两处调用，
  * 保证 ctx.runtime.brain.thinking 与前端 DTO 都规范化。
  */
 function normalizeBrainThinking(v: unknown): ThinkingLevel {
-  if (v === true) return 'on'
-  if (v === false || v === null) return 'off'
   if (v === undefined) return 'off'
   if (typeof v === 'string' && v.trim() !== '') return v as ThinkingLevel
-  return 'off'
+  throw new Error('brain.thinking 必须为非空档位字符串')
 }
 
 
@@ -233,9 +298,24 @@ export const DEFAULT_COMMAND_CONFIG = {
 } as const satisfies Required<Omit<CommandConfig, 'warn' | 'auto'>> &
   Record<'warn' | 'auto', Threshold>
 
-/**
- * history_recall 感官（长会话历史回忆，只读）配置。
- */
+export const DEFAULT_FILES_CONFIG = {
+  maxUploadBytes: 100 * 1024 * 1024,
+  imageContext: { mode: 'recent', recentUserTurns: 3, replacement: 'description', missingDescription: 'existing', maxDescriptionChars: 600, maxTotalDescriptionChars: 6000 },
+  context: {
+    recentUserTurns: 3,
+    maxAssets: 10,
+    maxBinaryBytes: 16 * 1024 * 1024,
+    maxExtractedCharsPerAsset: 20_000,
+    maxExtractedChars: 80_000,
+    defaultImageVariant: 'adapted' as const,
+  },
+  imageAdaptation: {
+    maxEdge: 2048,
+    quality: 85,
+  },
+  unreferencedUploadRetentionHours: 24,
+  unreferencedAssetRetentionHours: 24,
+} as const satisfies Required<FilesConfig>
 
 
 /**
@@ -389,7 +469,7 @@ export function normalizeRuntimeConfig(
     }
   }
 
-  // brain.thinking 归一化为 ThinkingLevel（legacy boolean → level；非法 → "off"）。
+  // brain.thinking 仅接受当前字符串档位。
   // 运行时 ctx.runtime.brain.thinking 必为 level，provider 据 level 映射请求参数。
   if (config.llm?.brain) {
     for (const cfg of Object.values(config.llm.brain)) {
@@ -430,6 +510,40 @@ export function normalizeRuntimeConfig(
       max_count: config.memory?.workspace?.max_count ?? 15,
       max_chars: config.memory?.workspace?.max_chars ?? 500,
     },
+  }
+
+  // 全局文件与上下文策略默认值（C06）
+  config.files = {
+    maxUploadBytes: config.files?.maxUploadBytes ?? DEFAULT_FILES_CONFIG.maxUploadBytes,
+    imageContext: { ...DEFAULT_FILES_CONFIG.imageContext, ...config.files?.imageContext },
+    context: {
+      recentUserTurns:
+        config.files?.context?.recentUserTurns ?? DEFAULT_FILES_CONFIG.context.recentUserTurns,
+      maxAssets: config.files?.context?.maxAssets ?? DEFAULT_FILES_CONFIG.context.maxAssets,
+      maxBinaryBytes:
+        config.files?.context?.maxBinaryBytes ?? DEFAULT_FILES_CONFIG.context.maxBinaryBytes,
+      maxExtractedCharsPerAsset:
+        config.files?.context?.maxExtractedCharsPerAsset ??
+        DEFAULT_FILES_CONFIG.context.maxExtractedCharsPerAsset,
+      maxExtractedChars:
+        config.files?.context?.maxExtractedChars ??
+        DEFAULT_FILES_CONFIG.context.maxExtractedChars,
+      defaultImageVariant:
+        config.files?.context?.defaultImageVariant ??
+        DEFAULT_FILES_CONFIG.context.defaultImageVariant,
+    },
+    imageAdaptation: {
+      maxEdge:
+        config.files?.imageAdaptation?.maxEdge ?? DEFAULT_FILES_CONFIG.imageAdaptation.maxEdge,
+      quality:
+        config.files?.imageAdaptation?.quality ?? DEFAULT_FILES_CONFIG.imageAdaptation.quality,
+    },
+    unreferencedUploadRetentionHours:
+      config.files?.unreferencedUploadRetentionHours ??
+      DEFAULT_FILES_CONFIG.unreferencedUploadRetentionHours,
+    unreferencedAssetRetentionHours:
+      config.files?.unreferencedAssetRetentionHours ??
+      DEFAULT_FILES_CONFIG.unreferencedAssetRetentionHours,
   }
 
   // 命令系统配置默认值（缺省 → warn=60%, auto=80%, min=32000, safety=1024）
@@ -481,6 +595,7 @@ function readStartupConfigSource(): RuntimeConfigSource {
   const cheryDir = process.env.CHERY_DIR || process.cwd()
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
   try {
+    migrateFileConfigOnDiskSync(configPath)
     return readRuntimeConfigSource(cheryDir)
   } catch (error) {
     if (!fs.existsSync(configPath)) {
@@ -692,23 +807,175 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         errors.push(`llm.brain.${name}.provider(${cfg.provider}) 不支持 protocol(${cfg.protocol})`)
       }
     }
-    // thinking：接受 legacy boolean（true/false）或任意非空字符串显示词（由 model-catalog wire 翻译）；非法 fail loud
-    // cfg.thinking 类型已为 ThinkingLevel，运行时值可能是 legacy boolean/字符串，用 unknown 比较避开类型冲突
+    // thinking 仅接受非空字符串显示词，由 model catalog 翻译。
     const t = cfg?.thinking as unknown
     if (
       t !== undefined &&
-      t !== true &&
-      t !== false &&
       !(typeof t === 'string' && t.trim() !== '')
     ) {
-      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或任意非空显示词）`)
+      errors.push(`llm.brain.${name}.thinking 非法（合法：任意非空显示词）`)
     }
-    if (
-      cfg?.capabilities?.generate &&
-      cfg.capabilities.toolCall === false &&
-      Object.values(cfg.capabilities.generate).some(Boolean)
-    ) {
-      errors.push(`llm.brain.${name}.capabilities.generate 需要 Tool Call 能力`)
+    const rawCaps = cfg?.capabilities as Record<string, unknown> | undefined
+    if (rawCaps && 'generate' in rawCaps && rawCaps.generate !== undefined) {
+      errors.push(
+        `llm.brain.${name}.capabilities.generate 已移除，请使用 capabilities.output 与 file_services`,
+      )
+    }
+    if (cfg?.capabilities?.input) {
+      for (const [k, v] of Object.entries(cfg.capabilities.input)) {
+        if (v !== undefined && typeof v !== 'boolean' && !isCapabilityState(v)) {
+          errors.push(
+            `llm.brain.${name}.capabilities.input.${k} 非法（合法：supported/unsupported/unknown 或 boolean）`,
+          )
+        }
+      }
+    }
+    if (cfg?.capabilities?.output) {
+      for (const [k, v] of Object.entries(cfg.capabilities.output)) {
+        if (v !== undefined && typeof v !== 'boolean' && !isCapabilityState(v)) {
+          errors.push(
+            `llm.brain.${name}.capabilities.output.${k} 非法（合法：supported/unsupported/unknown 或 boolean）`,
+          )
+        }
+      }
+    }
+  }
+
+  // file_services 校验（C02 / C03）
+  if (raw.file_services) {
+    for (const [serviceId, svc] of Object.entries(raw.file_services)) {
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(serviceId)) {
+        errors.push(`file_services.${serviceId} 键名非法（仅允许字母、数字、下划线或连字符）`)
+      }
+      if (!svc || typeof svc !== 'object') {
+        errors.push(`file_services.${serviceId} 必须为对象`)
+        continue
+      }
+      if (typeof svc.name !== 'string' || !svc.name.trim()) {
+        errors.push(`file_services.${serviceId}.name 必填`)
+      }
+      if (!isFileServiceAdapterId(svc.adapter)) {
+        errors.push(`file_services.${serviceId}.adapter 不受支持：${String(svc.adapter)}`)
+      }
+      const adapterDef = findFileServiceAdapterDefinition(svc.adapter)
+      const serviceSchema = SettingsFileServiceSchema.safeParse(svc)
+      if (!serviceSchema.success) errors.push(...serviceSchema.error.issues.map(issue => `file_services.${serviceId}.${issue.path.join('.')}: ${issue.message}`))
+      if (svc.adapter === 'custom-sense-mcp' && !svc.toolMapping) errors.push(`file_services.${serviceId}.toolMapping 自定义服务必须配置工具映射`)
+      const paramsSchema = FILE_SERVICE_ADAPTER_PARAM_SCHEMAS[svc.adapter as keyof typeof FILE_SERVICE_ADAPTER_PARAM_SCHEMAS]
+      if (paramsSchema) {
+        const params = paramsSchema.safeParse({ prompt: '配置检查', ...svc.defaults })
+        if (!params.success) errors.push(...params.error.issues.map(issue => `file_services.${serviceId}.defaults.${issue.path.join('.')}: ${issue.message}`))
+      }
+      if (!Array.isArray(svc.operations) || svc.operations.length === 0) {
+        errors.push(`file_services.${serviceId}.operations 至少选择一个操作`)
+      } else {
+        for (const op of svc.operations) {
+          if (!isFileCapabilityOperation(op)) {
+            errors.push(`file_services.${serviceId}.operations 包含未知操作：${String(op)}`)
+          } else if (adapterDef && !adapterDef.supportedOperations.includes(op)) {
+            errors.push(
+              `file_services.${serviceId}.operations "${op}" 不被适配器 "${svc.adapter}" 支持`,
+            )
+          }
+        }
+      }
+      const conn = svc.connection
+      if (!conn || typeof conn !== 'object') {
+        errors.push(`file_services.${serviceId}.connection 必填`)
+      } else {
+        const hasBrainRef = typeof conn.brainRef === 'string' && conn.brainRef.trim() !== ''
+        const hasDirect =
+          (typeof conn.baseUrl === 'string' && conn.baseUrl.trim() !== '') ||
+          (typeof conn.keyRef === 'string' && conn.keyRef.trim() !== '')
+        if (hasBrainRef && hasDirect) {
+          errors.push(
+            `file_services.${serviceId}.connection.brainRef 与独立 baseUrl/keyRef 互斥，不能同时配置`,
+          )
+        }
+        if (hasBrainRef && !brainNames.includes(conn.brainRef!)) {
+          errors.push(
+            `file_services.${serviceId}.connection.brainRef "${conn.brainRef}" 不在 llm.brain 列表`,
+          )
+        }
+        if (svc.adapter === 'vision-brain' && !hasBrainRef) {
+          errors.push(
+            `file_services.${serviceId} 使用 vision-brain 适配器时必须配置 connection.brainRef`,
+          )
+        }
+        if (
+          conn.authType !== undefined &&
+          !['bearer', 'x-api-key', 'query-key', 'none'].includes(conn.authType)
+        ) {
+          errors.push(`file_services.${serviceId}.connection.authType 非法：${String(conn.authType)}`)
+        }
+      }
+      for (const field of ['timeoutMs', 'queueTimeoutMs', 'maxConcurrent'] as const) {
+        const val = svc[field]
+        if (val !== undefined && (typeof val !== 'number' || !Number.isFinite(val) || val < 1)) {
+          errors.push(`file_services.${serviceId}.${field} 必须为正整数（当前：${String(val)}）`)
+        }
+      }
+    }
+  }
+
+  const validateRoleFileCapabilities = (
+    prefix: string,
+    roleName: string,
+    roleCfg: RoleConfig | undefined,
+    fileCaps: RoleFileCapabilitiesMap | undefined,
+  ): void => {
+    if (!fileCaps) return
+    const brain = roleCfg ? raw.llm?.brain?.[roleCfg.brain] : undefined
+    const noToolCall = brain?.capabilities?.toolCall === false
+    const senseEntries = (raw.sense_groups?.[roleCfg?.senseGroup ?? ''] ?? []).map((e) => {
+      const idx = e.indexOf(':')
+      return (idx >= 0 ? e.slice(0, idx) : e).trim()
+    })
+    const preprocessOps = new Set([
+      'image.inspect',
+      'document.extract',
+      'audio.transcribe',
+      'video.inspect',
+    ])
+    for (const [op, binding] of Object.entries(fileCaps)) {
+      if (!isFileCapabilityOperation(op)) {
+        errors.push(`${prefix}.${op} 操作名非法`)
+        continue
+      }
+      if (!binding || typeof binding !== 'object') {
+        errors.push(`${prefix}.${op} 必须为对象`)
+        continue
+      }
+      const { mode, targetId, fallback } = binding
+      if (!['auto', 'native', 'tool', 'role', 'disabled'].includes(mode)) {
+        errors.push(`${prefix}.${op}.mode "${String(mode)}" 非法（合法：auto/native/tool/role/disabled）`)
+        continue
+      }
+      if (fallback !== undefined && fallback !== 'none') {
+        errors.push(`${prefix}.${op}.fallback 非法（仅支持 none）`)
+      }
+      if (mode === 'tool' || mode === 'role') {
+        if (typeof targetId !== 'string' || !targetId.trim()) {
+          errors.push(`${prefix}.${op} mode="${mode}" 时 targetId 必填`)
+        }
+      } else if (targetId !== undefined) {
+        errors.push(`${prefix}.${op} mode="${mode}" 时不能配置 targetId`)
+      }
+      if (mode === 'role' && targetId && !Object.entries(raw.roles ?? {}).some(([name, role]) => name === targetId || role.id === targetId)) errors.push(`${prefix}.${op} 委派角色不存在`)
+      if (mode === 'tool' && targetId && !senseEntries.includes(targetId) && !roleCfg?.mcpServers?.some(name => targetId.startsWith(`mcp__${name}__`))) errors.push(`${prefix}.${op} 工具未分配给角色`)
+      if (noToolCall) {
+        if (mode === 'role') {
+          errors.push(`${prefix}.${op} 无 Tool Call 的角色不能使用 role 委派模式`)
+        } else if (mode === 'tool') {
+          if (!preprocessOps.has(op)) {
+            errors.push(`${prefix}.${op} 无 Tool Call 的角色仅允许为输入理解操作绑定前置工具`)
+          } else if (targetId && !senseEntries.includes(targetId)) {
+            errors.push(
+              `${prefix}.${op} 绑定的前置工具 "${targetId}" 不在角色 ${roleName} 的 senseGroup 中`,
+            )
+          }
+        }
+      }
     }
   }
 
@@ -736,11 +1003,24 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         )
       }
       const brain = raw.llm?.brain?.[cfg.brain]
-      if (brain?.capabilities?.toolCall === false && (cfg.senseGroup || cfg.mcpServers?.length)) {
-        errors.push(
-          `roles.${name} 使用不支持 Tool Call 的 brain 时不能配置 senseGroup 或 mcpServers`,
+      const hasPreprocessBinding =
+        cfg.fileCapabilities &&
+        Object.entries(cfg.fileCapabilities).some(
+          ([op, b]) =>
+            b?.mode === 'tool' &&
+            ['image.inspect', 'document.extract', 'audio.transcribe', 'video.inspect'].includes(op),
         )
+      if (brain?.capabilities?.toolCall === false) {
+        if (cfg.mcpServers?.length) {
+          errors.push(`roles.${name} 使用不支持 Tool Call 的 brain 时不能配置 mcpServers`)
+        }
+        if (cfg.senseGroup && !hasPreprocessBinding) {
+          errors.push(
+            `roles.${name} 使用不支持 Tool Call 的 brain 时不能配置 senseGroup 或 mcpServers`,
+          )
+        }
       }
+      validateRoleFileCapabilities(`roles.${name}.fileCapabilities`, name, cfg, cfg.fileCapabilities)
       if (cfg.systemPrompt) {
         const p = path.isAbsolute(cfg.systemPrompt)
           ? cfg.systemPrompt
@@ -798,6 +1078,21 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         if (!ordinaryRoleNames.includes(type)) {
           errors.push(
             `presets.${pname}.roles 只能引用普通角色，收到 "${type}"（可用：${ordinaryRoleNames.join(', ') || '（未配置任何普通角色）'}）`,
+          )
+        }
+      }
+      if (pcfg.roleOverrides) {
+        for (const [overrideRole, overrideCfg] of Object.entries(pcfg.roleOverrides)) {
+          if (!members.includes(overrideRole)) {
+            errors.push(
+              `presets.${pname}.roleOverrides.${overrideRole} 必须引用本预设的成员角色`,
+            )
+          }
+          validateRoleFileCapabilities(
+            `presets.${pname}.roleOverrides.${overrideRole}.fileCapabilities`,
+            overrideRole,
+            raw.roles?.[overrideRole],
+            overrideCfg?.fileCapabilities,
           )
         }
       }
@@ -861,6 +1156,64 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         (typeof limits.max_chars !== 'number' || limits.max_chars < 1)
       ) {
         errors.push(`memory.${layer}.max_chars 必须为正整数（当前：${String(limits.max_chars)}）`)
+      }
+    }
+  }
+
+  // files 全局策略校验（C06）
+  if (raw.files) {
+    const f = raw.files
+    const policy = SettingsFilesPolicySchema.safeParse(f)
+    if (!policy.success) errors.push(...policy.error.issues.map(issue => `files.${issue.path.join('.')}: ${issue.message}`))
+    const image = f.imageContext
+    if ((image?.maxTotalDescriptionChars ?? 6000) < (image?.maxDescriptionChars ?? 600)) errors.push('files.imageContext.maxTotalDescriptionChars 不能小于单图描述上限')
+    if (image?.missingDescription === 'inspect') {
+      const service = raw.file_services?.[image.serviceId ?? '']
+      if (!service || service.enabled === false || !service.operations.includes('image.inspect')) errors.push('files.imageContext.serviceId 必须选择启用的图片理解服务')
+    }
+    const checkPosInt = (label: string, val: unknown): void => {
+      if (val !== undefined && (typeof val !== 'number' || !Number.isInteger(val) || val < 1)) {
+        errors.push(`${label} 必须为正整数（当前：${String(val)}）`)
+      }
+    }
+    checkPosInt('files.maxUploadBytes', f.maxUploadBytes)
+    checkPosInt('files.unreferencedUploadRetentionHours', f.unreferencedUploadRetentionHours)
+    checkPosInt('files.unreferencedAssetRetentionHours', f.unreferencedAssetRetentionHours)
+    if (f.context) {
+      const c = f.context
+      if (
+        c.recentUserTurns !== undefined &&
+        (typeof c.recentUserTurns !== 'number' ||
+          !Number.isInteger(c.recentUserTurns) ||
+          c.recentUserTurns < 0)
+      ) {
+        errors.push(`files.context.recentUserTurns 必须为非负整数（当前：${String(c.recentUserTurns)}）`)
+      }
+      checkPosInt('files.context.maxAssets', c.maxAssets)
+      checkPosInt('files.context.maxBinaryBytes', c.maxBinaryBytes)
+      checkPosInt('files.context.maxExtractedCharsPerAsset', c.maxExtractedCharsPerAsset)
+      checkPosInt('files.context.maxExtractedChars', c.maxExtractedChars)
+      if (
+        c.defaultImageVariant !== undefined &&
+        c.defaultImageVariant !== 'original' &&
+        c.defaultImageVariant !== 'adapted'
+      ) {
+        errors.push(
+          `files.context.defaultImageVariant 非法（合法：original/adapted，当前：${String(c.defaultImageVariant)}）`,
+        )
+      }
+    }
+    if (f.imageAdaptation) {
+      const ia = f.imageAdaptation
+      checkPosInt('files.imageAdaptation.maxEdge', ia.maxEdge)
+      if (
+        ia.quality !== undefined &&
+        (typeof ia.quality !== 'number' ||
+          !Number.isInteger(ia.quality) ||
+          ia.quality < 1 ||
+          ia.quality > 100)
+      ) {
+        errors.push(`files.imageAdaptation.quality 必须为 1–100 的整数（当前：${String(ia.quality)}）`)
       }
     }
   }
@@ -983,6 +1336,21 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     }
   }
 
+  const scopes = [[undefined, undefined], ...Object.entries(raw.presets ?? {})] as Array<[string | undefined, PresetConfig | undefined]>
+  for (const [presetName, preset] of scopes) for (const operation of FILE_CAPABILITY_OPERATIONS) {
+    for (const name of preset?.roles ?? Object.keys(raw.roles ?? {})) {
+      const visited = new Set<string>()
+      let current: string | undefined = name
+      while (current) {
+        if (visited.has(current)) { errors.push(`${presetName ? `presets.${presetName}` : 'roles'}.${name}.fileCapabilities.${operation} 存在同操作委派循环`); break }
+        visited.add(current)
+        const role: RoleConfig | undefined = raw.roles?.[current]
+        const binding: RoleFileCapabilityBinding | undefined = preset?.roleOverrides?.[current]?.fileCapabilities?.[operation] ?? role?.fileCapabilities?.[operation]
+        if (binding?.mode !== 'role') break
+        current = Object.entries(raw.roles ?? {}).find(([candidate, target]) => target.id === binding.targetId || candidate === binding.targetId)?.[0]
+      }
+    }
+  }
   return errors
 }
 
@@ -999,6 +1367,11 @@ function validateCredentialEnvPlaceholders(raw: unknown): string[] {
   for (const [name, cfg] of Object.entries(config?.llm?.brain ?? {})) {
     if (isMalformedEnvPlaceholder(cfg?.key)) {
       errors.push(envPlaceholderFormatError(`llm.brain.${name}.key`))
+    }
+  }
+  for (const [serviceId, svc] of Object.entries(config?.file_services ?? {})) {
+    if (isMalformedEnvPlaceholder(svc?.connection?.keyRef)) {
+      errors.push(envPlaceholderFormatError(`file_services.${serviceId}.connection.keyRef`))
     }
   }
   return errors
@@ -1049,7 +1422,7 @@ export function readRawConfig(): ConfigRaw {
   for (const preset of Object.values(rest.presets ?? {})) {
     delete (preset as PresetConfig & { routingBrain?: string }).routingBrain
   }
-  // brain.thinking 归一化为 ThinkingLevel（前端 config.get 拿到的就是 level，无需再处理 legacy boolean）
+  // brain.thinking 校验为当前字符串档位。
   if (rest.llm?.brain) {
     for (const cfg of Object.values(rest.llm.brain)) {
       cfg.thinking = normalizeBrainThinking(cfg.thinking)
@@ -1084,6 +1457,16 @@ export function redactConfigSecrets(raw: ConfigRaw): ConfigRaw {
       if (cfg.key !== undefined) cfg.key = redactSecretValue(cfg.key)
     }
   }
+  if (copy.file_services) {
+    for (const svc of Object.values(copy.file_services)) {
+      if (svc.connection?.keyRef !== undefined) {
+        svc.connection.keyRef = redactSecretValue(svc.connection.keyRef)
+      }
+      if (typeof svc.connection?.baseUrl === 'string') {
+        svc.connection.baseUrl = redactUrlSecret(svc.connection.baseUrl)
+      }
+    }
+  }
   if (copy.mcp_servers) {
     for (const srv of Object.values(copy.mcp_servers)) {
       if (srv.env) {
@@ -1114,6 +1497,23 @@ export function restoreRedactedSecrets(partial: ConfigRaw, disk: ConfigRaw): Con
     for (const [name, cfg] of Object.entries(copy.llm.brain)) {
       const diskCfg = disk.llm.brain[name]
       if (cfg.key === '[REDACTED]' && diskCfg?.key !== undefined) cfg.key = diskCfg.key
+    }
+  }
+  if (copy.file_services && disk.file_services) {
+    for (const [serviceId, svc] of Object.entries(copy.file_services)) {
+      const diskSvc = disk.file_services[serviceId]
+      if (
+        svc.connection?.keyRef === '[REDACTED]' &&
+        diskSvc?.connection?.keyRef !== undefined
+      ) {
+        svc.connection.keyRef = diskSvc.connection.keyRef
+      }
+      if (
+        typeof svc.connection?.baseUrl === 'string' &&
+        typeof diskSvc?.connection?.baseUrl === 'string'
+      ) {
+        svc.connection.baseUrl = restoreUrlSecret(svc.connection.baseUrl, diskSvc.connection.baseUrl)
+      }
     }
   }
   if (copy.mcp_servers && disk.mcp_servers) {

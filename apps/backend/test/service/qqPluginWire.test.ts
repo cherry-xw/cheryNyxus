@@ -200,7 +200,7 @@ describe('native adapter and real installed backend wire', () => {
       await n.adapter.start()
       await vi.waitFor(() => expect(n.adapter.status().ready).toBe(true))
       await n.adapter.receive(event(kind, 1))
-      await vi.waitFor(() => expect(n.sends).toHaveLength(2), { timeout: 5000 })
+      await vi.waitFor(() => expect(n.sends).toHaveLength(2), { timeout: 8000 })
       const texts = n.sends.filter((c) => c[0] === 'send_msg')
       expect(texts.map((c) => c[1].message[0].data.text)).toEqual(
         kind === 'group'
@@ -350,7 +350,8 @@ describe('native adapter and real installed backend wire', () => {
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect(s.calls).toHaveLength(0)
     await n.adapter.receive(event('group', 22))
-    await vi.waitFor(() => expect(s.calls).toHaveLength(1), { timeout: 3000 })
+    // 群确认的持久延迟最多 5 秒，需同时留出 tick、回执与消息合并时间。
+    await vi.waitFor(() => expect(s.calls).toHaveLength(1), { timeout: 8000 })
     expect(s.calls[0]).toMatchObject({
       content: expect.stringContaining('hello'),
       requestIdentity: { source: 'plugin', channel: 'qq', subject: {
