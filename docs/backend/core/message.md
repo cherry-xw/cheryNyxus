@@ -33,8 +33,11 @@ export interface LLMResponse {
   id: string;
   role: Role;
   content: string;
+  /** 有序消息部分（text/asset/directive/role_mention/workspace_ref），权威结构；content 为文本边界派生值 */
+  parts?: MessagePart[];
   thinking?: string;
-  senseCalls?: SenseCallInfo[];   // assistant 发起的感官调用
+  senseCalls?: SenseCallInfo[];        // assistant 发起的本地感官调用
+  serverToolCalls?: ServerToolCallInfo[]; // assistant 响应中由模型服务执行的内置工具记录
   createdAt: number;
   updateAt: number;
   hash?: string;                  // 感官执行结果 hash（仅 sense 消息），用于历史去重
@@ -46,14 +49,26 @@ export interface LLMResponse {
 
 - **`revoked`**：由 [`Middleware.revokeTrailingCycle`](middleware.md) 在 `chat.send` 恢复场景打标，`buildMessages` 构建给 LLM 的上下文时过滤掉。详见 [interaction.md](../../shared/protocol/interactions.md)。
 - **`hash` + `replace`**：感官执行结果按内容算 hash；若新读取命中历史相同 hash（文件未变动），旧 sense 消息被替换为短说明，长内容移到 `originalContent`。去重逻辑在 [`agent/middleware/tool.ts`](../../../apps/backend/src/agent/middleware/tool.ts) `doExecuteSense`。
+- **`serverToolCalls`**：服务端已执行的工具调用记录（如 Anthropic `server_tool_use`/`tool_result`、OpenAI Responses `web_search_call`），持久化在 `messages.provider_continuation.serverToolCalls`，与本地 `senseCalls` 分离，不阻塞 `loop` / `canResume` / `spawnFinalize`，并在时间线与 UI 投影为 `executionOwner: 'server'`。
 
-### SenseCallInfo
+### SenseCallInfo / ServerToolCallInfo
 
 ```ts
 export interface SenseCallInfo {
   id: string;
   name: string;
   arguments: string;   // JSON 字符串
+}
+
+export interface ServerToolCallInfo {
+  id: string;
+  name: string;
+  arguments: string;
+  executionOwner: 'server';
+  status: 'started' | 'completed' | 'failed' | 'unknown';
+  result?: string;
+  error?: string;
+  sources?: ServerToolSource[];
 }
 ```
 
@@ -75,8 +90,12 @@ provider 实现这组函数交给框架，框架据此做归一。泛型 `T`=完
 export type MessageProviderAdapterConfig<T, TStream = unknown, TMessage = unknown> = {
   content: (raw: T) => string;                                       // 完整响应正文
   thinking?: (raw: T) => string | undefined;                         // 完整响应思考
+  serverToolCalls?: (raw: T) => ServerToolCallInfo[] | undefined;    // 完整响应中的服务端工具调用
+  stopReason?: (raw: T) => string | undefined;                       // 完整响应结束原因
   extractStreamDelta: (chunk: TStream) => string;                    // 正文流式增量
   extractStreamThinking?: (chunk: TStream) => string | undefined;    // 思考流式增量
+  extractStreamServerToolDeltas?: (chunk: TStream) => ServerToolCallDelta[] | undefined; // 服务端工具流式增量
+  extractStreamStopReason?: (chunk: TStream) => string | undefined;  // 流式结束原因
   buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]) => TMessage[];  // 反向构建（含多模态附件）
 };
 ```
@@ -96,9 +115,9 @@ export interface LLMAttachment {
 }
 ```
 
-由 [`chatMiddleware`](../../../apps/backend/src/agent/middleware/chat.ts) `enrichMediaInputs` 据脑 `capabilities.input` + 消息正文里的 `[[media:<filename>]]` marker 现场构造（`readMediaAsset` 同步读 base64），provider 调用后丢弃。多模态走**原生旁路**（多轮保留）还是**旧路径**（仅最后一条 user 消息 + 文本转写），由 `chatMiddleware` 据 `capabilities.input` gate，见 [model-capabilities.md](../agent/model-capabilities.md)。
+由 [`fileInputPlanning.ts`](../../../apps/backend/src/agent/middleware/fileInputPlanning.ts) 的 `planFileInputs` 根据有序 `parts` 中的固定文件版本、会话文件权限、模型能力和实际协议支持构造；附件通过 `messageId` 与 `partId` 保持位置。`reference-only` 不读取内容、不触发外部工具。旧文本标记只由一次性迁移识别，不再作为模型输入入口。
 
-**多轮保留形态（多模态旁路）**：`enrichMediaInputsMultimodal` 解析全历史 `[[media:...]]` 标记，近 3 轮用户消息的图片全程重发（压缩版，挂回原消息位置，`attachments` 带 `messageId`），更早的转一行文字占位；上限总数≤10 / 单轮≤5 / 图片字节≤16MB，超限按「新→旧」保留最新、最旧转占位。三个 provider 的 `buildMessages` 用 [`groupAttachmentsByMessage`](../../../apps/backend/src/core/message/adapter.ts) 把附件按 `messageId` 归组，只把归属附件挂到对应 user 消息。已知局限：anthropic 协议下连续 user 消息合并时，被合并消息的图归属会丢失（MiniMax 走 openaiCompat，非关键路径）。
+历史保留范围和请求预算取 `files.context`；当前显式输入超限会拒绝，不静默丢弃。历史文件可以退出模型输入，但历史消息和原始文件不因此改变。Provider 使用 `orderedMessageInputs` 按部分顺序构建内容；Anthropic 在各消息内容构建完成后再合并相同角色，保留原消息附件。
 
 ### 注册表
 

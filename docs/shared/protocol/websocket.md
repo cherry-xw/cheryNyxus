@@ -10,6 +10,16 @@ QQ 专用连接的启动配置确认通知 `qqbot.config.loaded` 只向本机 QQ
 
 `workspace.files.list/read`、`terminal.create/input/resize/close` 与所属连接的 `terminal.event` 见[工作区文件与 Terminal 协议](workspace-files-terminal.md)。文件接口只读且限定于当前会话工作区，引用只携带路径；Terminal 是显式打开的交互 Shell。
 
+## 工具文件结果
+
+工具结果在历史与时间线中保留 `parts` 和 `fileOperations`：`GraphToolCall` 以及单会话 `CanonicalSenseCall` 均携带相应字段。文件卡片读取固定资产版本，不从 `result` 文字中的 URL 推断文件。消费者合并工具调用结果时必须同时保留这些字段，不能只保留文字；保存失败、执行失败与检查结果分别取操作记录，不因文字存在就认定成功。
+
+实时 `accept` / `rejected` 通知和 `content_end` 回放携带同样字段，由 `ToolFileResultSchema` 定义；消费者按工具调用 ID 精确合并，不把未匹配结果分配给其他工具。只有文件、没有文字的结果也必须回放。
+
+用户消息、角色回复与 assistant 的 `content_end` 同样保留有序 `parts`；`done.finalMessage` 携带最终 assistant 的 `parts`。实时文本与最终消息按 `msgId` 合并时须补齐文件，即使已收到非空文字。普通 URL 保持普通链接，不从正文创建资产或继续消费旧媒体标记。
+
+`consumed.messages[].parts` 和 `role_reply.summaryParts` 在对应用户、角色消息中保留同一顺序和固定版本。角色回传的文字取已冻结任务结果，包括必需检查未通过的说明；不能用调用方的最后一句回复覆盖任务结果中的失败原因。
+
 ## 上下文与用量只读查询
 
 请求、响应字段与校验由 [usage.ts](../../../packages/protocol/src/usage.ts) 定义。所有查询只读，沿用已认证工作区的会话访问范围，不触发模型、工具、配置修订或纪元初始化。

@@ -8,7 +8,8 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 
 - `GET /api/config` → 本地返回旧端口字段以及 `httpBaseUrl`、`wsUrl`、`httpPath`、`wsPath`；远程专用入口只返回 `remote`、路径和传输格式，不泄露 loopback 端口
 - `GET /api/auth/capabilities` → 返回非敏感的 `{password}` 后端密码登录能力；Pocket ID/OIDC 由公共中转负责
-- `POST /api/media/upload` / `GET /api/media/:filename` → 上传和读取 `.chery/media/` 下的受控媒体资产
+- `/api/assets/` → 认证上传、固定版本读取/适配、草稿引用和会话文件请求详情；文件所有者与会话授权分别核对
+- `/api/file-services/` / `/api/file-operations/` → 能力解析、显式试用、操作查询/取消/重试；配置检查不调用模型，执行与保存状态分别记录
 - 其余路径 → 默认静态 serve 前端构建产物(`apps/web/dist/`),SPA fallback 到 `index.html`
 - `server.serve_frontend=false` 或 `apps/web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
 

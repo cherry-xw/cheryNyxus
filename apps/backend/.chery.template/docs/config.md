@@ -20,6 +20,7 @@
 | `server` | object | ❌ | WebSocket 服务监听配置（默认 port 8182 / transport binary / host 127.0.0.1） |
 | `manager` | object | ❌ | 本地管理器监听配置（`apps/manager/` 独立进程，默认 host 127.0.0.1；见 [manager 字段](#manager-字段)） |
 | `memory` | object | ❌ | 长期记忆参数（`max_count` / `max_chars`） |
+| `files` | object | ❌ | 文件上传、上下文及图片独立保留策略，见[模型与文件能力](../../../../docs/backend/agent/model-capabilities.md) |
 
 ## global 字段
 

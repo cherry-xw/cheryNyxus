@@ -71,9 +71,9 @@ interface WorkbenchWindowState {
 
 ### 分支创建后的工作台切换契约（2026-08-24）
 
-输入草稿由 [useAgentDialogOptions.ts](../../apps/web/src/features/agent/composer/useAgentDialogOptions.ts) 按输入面板与会话保存在当前浏览器内存中；切换会话、收起和重新打开面板不清空文本或已上传附件。刷新页面前提示未提交内容，草稿不写入服务器或持久存储。上传绑定当前草稿代次，切换后迟到结果不进入新会话；发送期间及上传期间禁止重复提交，只有输入 ACK 成功才移除本次提交的文本和附件，失败可直接重试。
+输入草稿由 [useAgentDialogOptions.ts](../../apps/web/src/features/agent/composer/useAgentDialogOptions.ts) 按后端身份、输入面板与会话保存在当前浏览器内存中。工作台树、对话和嵌入精简视图共用文字及文件引用；对话局部会话使用自身草稿，不写入窗口根草稿。刷新页面前提示未提交内容，草稿不写入服务器或持久存储。上传先插入稳定引用，再回填固定资产版本，完成顺序不改变插入顺序；迟到结果只更新原文件对象。只有输入 ACK 成功才移除本次提交快照，失败保留文件与草稿。上传失败项可单独重试或移除；只有文件也可发送。
 
-composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat（`WorkbenchDialog.sendFromComposer`）；现有分支协议不接收附件，因此分支模式禁用附件添加，已有附件必须移除或返回普通输入后发送。创建 ACK 与后续时间线刷新分开处理，刷新失败不可提示重新创建。创建成功后的切换行为**按分支类型区分**：
+composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat（`WorkbenchDialog.sendFromComposer`），提交有序 `parts`，包括固定文件版本；服务端需采用同一分支契约。创建 ACK 与后续时间线刷新分开处理，刷新失败不可提示重新创建。创建成功后的切换行为**按分支类型区分**：
 
 - **`continuation`（从此处继续）**：切换工作台到新分支——`setWorkbenchWindowChat(windowId, created.chatId)` + `treeRootChatId = created.chatId`，新分支成为当前主流程，后续发送/交互落在新分支。
 - **`detail`（解释该节点）**：**不切换**工作台会话/树——`setWorkbenchWindowChat` 与 `treeRootChatId` 均不更新，解释分支只作为轻量子分支渲染在当前树上（与子分支同级），核心主流程保持不变。
@@ -125,6 +125,14 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
 **空态新建会话**：窗口 `chatId` 为空且无任何会话时渲染空态「新建会话」按钮（`WorkbenchDialog.createSession`）。该场景下 `presetName`/`isNyxus` 不再推导不到——2026-08-21 起入口随窗携带 `presetName`（`win.presetName` 打开即定），预设判定优先用 `win.presetName`：等于 `'cheryNyxus'`（Nyxus 窗口以预设名开窗）→ `createNyxusSession()`；普通预设窗口（稳定 id）→ 复用空白会话或 `createMasterPet({ preset })`，无 preset 名可解析时明确报错而非静默失败（`props.presetId` 与 `win.presetName` 双保险，仍以窗口自身为准而非会话推导）。空白会话匹配键同样按窗口形态区分（Nyxus 用 `preset` 名、普通预设用 `presetId`），避免 Nyxus 空白会话永不命中而重复新建。
 
 ## 通知与待处理交互
+
+### 通用文件消息
+
+文件选择支持多选和任意文件，不以大脑能力限制上传。浏览器直接上传原始字节到资产接口，不压缩所谓“原图”；已有真实派生版本才显示版本切换。输入条显示原名、大小、上传状态及“本次使用内容 / 仅附文件”。仅附文件的 `usage` 随引用提交，不能在 Web 将其转换成读取请求。
+
+[`composeMessageParts`](../../apps/web/src/domain/chat/messageParts.ts) 将编辑器引用转换为共享 `MessagePart`，保留文字、指令、角色、工作区及文件顺序；内部编辑记号不作为附件协议发送。历史由 [`MessageParts.vue`](../../apps/web/src/features/agent/chat/MessageParts.vue) 顺序展示，资产卡按原名呈现，缺失或无权读取显式报错。读取与下载经当前身份认证获取 Blob，不在链接附带令牌；预览关闭、切文件及卸载时释放对象 URL。不支持的预览格式仍可下载。
+
+“用于下一条消息”依赖所属输入面提供的明确目标，不广播给全局活动窗口。加入前重新校验权限及版本，目标变化则失败，已有相同版本不重复加入。无明确目标的归档或全局历史暂不提供此按钮，不能猜测一个窗口。真实界面、焦点和多窗口行为由用户人工验收。
 
 审批与提问事实由交互状态模块维护。树视图通过节点和标题栏待处理指示器展示，对话视图在消息内处理，精简视图通过工具详情处理。窗口焦点、最小化和提醒显示不改变审批权限，也不替代提交结果。
 

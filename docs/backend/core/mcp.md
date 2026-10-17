@@ -66,7 +66,9 @@ mcp_servers:
 
 - `definition`：用 MCP 的 inputSchema 补全为 `SenseFunction.parameters`（`additionalProperties:false`）。
 - `executor.schema`：占位 `z.record(z.string(), z.unknown())`——运行期 [`doExecuteSense`](../../../apps/backend/src/agent/middleware/tool.ts) 用 `safeJsonParse` 得 args 直传 execute，**不 parse schema**；参数校验由 MCP server 侧负责。
-- `executor.execute`：调 `client.callTool({name, arguments})`，提取返回 content 中的 text；非 text（图片/二进制）降级为占位说明。
+- `executor.execute`：调 `client.callTool({name, arguments})`。由运行服务注册的结果处理器按返回顺序保存图片、音频及内嵌二进制资源，输出固定资产版本；没有处理器时遇到二进制明确失败，不伪装成文字成功。资源链接仅展示，不自动下载或读取本地路径。`structuredContent` 保留为 JSON 文字供结果路径映射，普通文本和文件保留在 `parts`。
+- MCP 的 `isError` 与调用异常均返回失败状态，不能被文件服务当作成功理解结果；`isError` 响应中同时返回的有效内嵌文件仍保存和交付，不因错误标记丢弃。结果格式依据 [MCP Tools 规范](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-result)，文件保存仍受当前会话所有者和大小限制约束。
+- 同批结果在后续文件处理失败或取消时，已保存的文件仍随失败结果交付，不丢失其固定版本。文件服务把有已保存文件的此类结果记为部分执行，不能当作完整成功；未收到的文件不通过重新生成偷偷补齐。
 - `hash`：恒空字符串——MCP 调用无"内容未变"语义，不参与历史去重（与 write_file 一致）。
 - `supervisionLevel`：server 级默认值。
 

@@ -37,6 +37,9 @@ z.object({
         removePresetSchema,
         putSenseGroupSchema,
         removeSenseGroupSchema,
+        putFileServiceSchema,
+        removeFileServiceSchema,
+        setFilePolicySchema,
       ]),
     )
     .optional(),
@@ -157,6 +160,8 @@ roles:
 persona [默认提示词](../../../apps/backend/.chery.template/prompt/cheryNyxus/cheryNyxus.md)：配置管理核心角色 + 桌宠组长。核心任务 = 管理所有角色配置相关任务；也作为组长派发业务子任务。
 
 ## 文件清单
+
+图片保留策略可通过 `config_manage` 的 `files.imageContext` 修改，与 Web 共用 `SettingsFilesPolicySchema` 及服务可用性校验；字段、默认和自动补描述费用规则见[模型与文件能力](model-capabilities.md)。其他文件仍用 `files.context.recentUserTurns`。保存配置不执行识图，实际采用时间沿用配置提交结果。
 
 | 文件                                                                                                     | 职责                                                                                                               |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |

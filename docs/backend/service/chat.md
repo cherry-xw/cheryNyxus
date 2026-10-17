@@ -19,6 +19,10 @@ service 层的核心枢纽。把 RPC 请求（`chat.*` / `interaction.*`）转�
 - **任务分支**（conversationBranch.ts）：一个用户任务可包含多个独立根 Chat，但任一时刻只有一个 `active_branch_id` 主干。`continuation` 从历史节点继承因果闭包并接管主干，`detail` 只用于解释；二者都不使用 `parent_chat_id`。
 - **会话路由 Shadow**（conversationRouter.ts + shadowRunner.ts）：`chat.route.suggest` 在真正发送用户消息前启动一次临时 Shadow Agent，由 `select_conversation` 终止工具选择历史根会话或新对话。Shadow 只复用 Agent loop，不创建 Chat/Pet、不写 DB、不发送流式事件。
 
+## 会话配置的安全检查
+
+`session.runtime.set` 通过 `runtime.ts` 与 `service/config/treeBoundary.ts` 检查整个节点树：内存中的运行预留、未完成子任务、待处理问答和审批均阻止切换。持久运行状态按每个会话最新一条记录判断；历史等待记录不覆盖后续运行的完成状态。拒绝时返回实际等待原因，不把所有情况都描述为主 Agent 正在运行。验证入口为 `test/service/config/sessionLifecycle.test.ts` 和协议场景 `subAgentEpochLifecycle.test.ts`。
+
 ## 会话路由 Shadow
 
 - 预设通过 `presets.<name>.shadows.conversationRouting` 绑定一个 `kind: shadow` 角色；未绑定即关闭自动会话路由。路由候选最多取最近 10 个根会话。

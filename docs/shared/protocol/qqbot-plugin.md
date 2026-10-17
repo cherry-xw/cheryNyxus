@@ -63,11 +63,23 @@ NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含�
 
 ## 插件到后端
 
+文件消息使用有序 `parts`（文字段或附件序号），`attachments` 保留类型、名称、MIME 和 HTTPS 下载地址；缺少可用下载地址时保留明确的不可读取说明，不读取任意本地路径。只有附件的输入也可提交。后端仅在渠道名单与预设验证通过后下载、保存和加入模型输入；下载拒绝私网地址，不把第三方 URL 直接当成已保存资产。
+
+通用文件结果使用 `qq.reply.file`，携带固定 `assetId`、`assetVersionId`、名称、MIME、字节数和 SHA-256。原生适配器通过已认证 `qq.file.read` 按 256 KiB 读取，只能读取该条待发送通知对应的资产；核对长度和摘要后交给 NapCat 原生发送。图片/音频/视频发送原生消息段，其他文件使用原生上传。临时文件不是公开链接，完成或失败后删除；不支持或不确定发送时按既有回执规则报告，不能把本地保存成功当作 QQ 发送成功。`qq.reply.file` 仅在 `completeReply:true` 时为末条发送。
+
+文件上传回执中的 `fileIds` 与原生消息回执的 `messageIds` 分开；文件 ID 不要求是数字，不能塞入消息 ID。原生上传明确返回成功但没有文件 ID 时可回空 `fileIds`，同时以 `fileUploaded:true` 记录上传确认；没有明确成功响应且无标识时仍为未知。依据 [群文件](https://napcat.apifox.cn/226658753e0.md)和[私聊文件](https://napcat.apifox.cn/226658883e0.md)接口，上传返回的 `file_id` 可为空。
+
+文件传输在读取每段、调用原生发送前和记录回执前核对适配器当前连接；停止或重新建立连接后，旧传输不得继续发送或记录新回执。已经交给原生接口的发送不能保证撤回，重启后按未知发送处理，不自动重发。
+
+只有文件、没有正文的成功结果由最后一条待发文件通知承担 `completeReply:true`，不追加“没有内容”之类相反说明；只有文件确认发送后才完成请求。
+
 `qq.event.submit` 至少包含：`eventId`、`selfId`、`conversationType`、`targetId`、`senderId`、`senderName`、`messageId`、`content`、`mentionedBot`、`occurredAt`。群目标使用 `conversationType=group` 和群号；私聊使用 `conversationType=private` 和用户号，私聊不得携带群号。
 
 后端先校验插件连接、`selfId`、发送者和目标，再决定是否接受。插件不得在本地复制群名单、私聊名单、预设、记忆或队列规则。拒绝也要返回稳定错误码，不返回内部诊断。
 
 后端成功接受后发送 `qq.message.ack`，数据含 `eventId`、`requestId`、`state` 和可选 `queuePosition`。插件将群聊确认转换为原消息上的表情回应，私聊仍发送“收到”。群聊表情失败静默跳过，不发送失败提示，不阻断正文发送；确认处理回报允许空 messageIds，activity 在群聊表情操作成功或私聊“收到”发送成功时为 true；群聊表情从用户指定的列表随机选取，并随输出记录持久化，重放不重新选取。正文仍在 Backend 累积到执行结束后按长度拆分发送，不在 NapCat 暂存。
+
+群聊确认的 1.5–5 秒延迟保存为发送记录的 `notBefore`，先登记再等待，重启继续使用同一条记录与原顺序。离线通信测试须覆盖这段实际等待时间，不用小于正常最大延迟的等待上限判断失败。
 
 ## 后端到插件
 

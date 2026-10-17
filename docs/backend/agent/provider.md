@@ -24,6 +24,8 @@ thinking: on
 
 协议 Adapter 仍注册 LLM + Message + Sense 三件套；官方 Provider 数量增加不会复制 Adapter。
 
+有文件的模型请求在请求钩子处理后进行用量预检。Anthropic Messages 使用 `/messages/count_tokens`，OpenAI Responses 使用 `/responses/input_tokens`，沿同一已配置连接、认证和实际输入（包括工具）计算；完整端点不能识别时不猜测地址。预检最长等待 3 秒，不执行生成或工具。接口不可用时降为 UTF-8 文字与工具结构的保守估算，媒体 token 保持未知；记录来源和不可用原因，不填虚假 0。已知输入超过配置上下文上限时拒绝，预检不是最终收费 usage。依据 [Anthropic token counting](https://platform.claude.com/docs/en/build-with-claude/token-counting) 与 [OpenAI token counting](https://developers.openai.com/api/docs/guides/token-counting)。
+
 每个 Provider 文件导出一个 `register<Name>Adapter()` 函数，调用 core 的三个 registry：
 
 ```text
@@ -37,7 +39,7 @@ registerSenseAdapter<Msg, Raw>(name, cfg)      ← core/sense/adapter
 | 文件                                                              | 一句话                                                                                                  |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | [index.ts](../../../apps/backend/src/agent/provider/index.ts)                     | `registerBuiltinProviders()`：幂等注册 openai/deepseek/ollama/mock/bigmodel/anthropic                   |
-| [openai.ts](../../../apps/backend/src/agent/provider/openai.ts)                   | OpenAI（含兼容服务）三件套，含 RPM 限流、`thinkingParams` 直传、`reasoning_content` 提取、`strict:true` |
+| [openai.ts](../../../apps/backend/src/agent/provider/openai.ts)                   | OpenAI（含兼容服务）三件套，含 RPM 限流、`thinkingParams` 直传、`reasoning_content` 提取、按参数定义决定 `strict` |
 | [openaiResponses.ts](../../../apps/backend/src/agent/provider/openaiResponses.ts) | OpenAI Responses 三件套，使用 `input/output` item、Responses 流事件与扁平 function tools                |
 | [ollama.ts](../../../apps/backend/src/agent/provider/ollama.ts)                   | Ollama 三件套，含 `tool_calls` 处理与流式不可靠警告                                                     |
 | [mock.ts](../../../apps/backend/src/agent/provider/mock.ts)                       | 脚本回放 provider（离线测试），按 LLM 调用序逐条回放                                                    |
@@ -106,7 +108,7 @@ Provider 目录按 protocol 解析默认地址，显式配置的 `brain.url` 仍
 | ----------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------- | ----------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------- |
 | thinking 请求参数                         | 直传 `thinkingParams` 片段（YAML 定义，如 `reasoning_effort`） | 直传 `thinkingParams` 片段（如 `thinking.type` + `reasoning_effort`） | 无（不传）                | N/A                     | 直传 `thinkingParams` 片段（同 openai）      | 直传 `thinkingParams` 片段（如 `thinking:{type:'adaptive'}` + `output_config.effort`） |
 | thinking 响应字段                         | `reasoning_content`                                            | `reasoning_content`                                                   | `message.thinking`        | `thinking`              | `reasoning_content`                          | `content[].thinking` / `redacted_thinking` blocks（含 signature）                      |
-| `buildSenses` 加 `strict:true`            | ✓                                                              | ✗                                                                     | ✗                         | ✓                       | ✗（Anthropic 不支持）                        |
+| `buildSenses` 加 `strict:true`            | 参数定义满足严格规则时开启                                      | ✗                                                                     | ✗                         | ✓                       | ✗（Anthropic 不支持）                        |
 | tool_call.id                              | 有（`call_xxx`）                                               | 无（randomUUID 占位）                                                 | 缺省 randomUUID           | 有                      | 有（`toolu_xxx`）                            |
 | 流式 tool_call 稳定                       | 稳定                                                           | 不稳定（P1-2）                                                        | 稳定（自拆 delta）        | 稳定（OpenAI 协议）     | 稳定（typed SSE）                            |
 | RPM 限流                                  | ✓（`brain.rpm`）                                               | ✗                                                                     | ✗                         | ✓（`brain.rpm`）        | ✓（`brain.rpm`）                             |
@@ -401,10 +403,12 @@ buildMessages 关键转换（[openai.ts](../../../apps/backend/src/agent/provide
 **Sense Adapter：**
 
 ```ts
-buildSenses(senses) { return senses.map(s => ({ type:"function", function: { ...buildBaseSenseFunction(s), strict: true } })); }
+buildSenses(senses) { /* 构造工具定义，按 supportsStrictToolSchema 检查结果设置 strict */ }
 senseCalls(response) { /* 从 response.choices[0].message.tool_calls 提取 */ }
 extractSenseCallDeltas(chunk) { /* 从 chunk.choices[0].delta.tool_calls 提取，index 定位 */ }
 ```
+
+Chat Completions 和 Responses 共用 `supportsStrictToolSchema`：对象必须禁止额外属性，且所有属性均列入 `required`，嵌套对象、数组元素及联合分支也须满足。保留业务上的可选参数，不为严格模式强行改成必填；不满足时显式传 `strict:false`。规则依据 [OpenAI Function calling](https://developers.openai.com/api/docs/guides/function-calling)，接口拒绝工具定义不代表图片理解失败。
 
 ### Ollama（[ollama.ts](../../../apps/backend/src/agent/provider/ollama.ts)）
 
@@ -608,7 +612,16 @@ extractSenseCallDeltas(chunk):
   content_block_delta(input_json_delta) → [{ index, id: 'sense-${i}', arguments: partial_json }]  // 累加
 ```
 
-`SenseCallAssembler.push` 按 `index` 累积、`id`/`name` 取首非空不覆盖 → 与 OpenAI 路径等价。
+`SenseCallAssembler.push` 按 `index` 累积、`id`/`name` 取首非空不覆盖 → 与 OpenAI 路径等价。`anthropicStreamSSE` 按 `index` 记录 `content_block_start.content_block.type`，只有 `tool_use` 块的 `input_json_delta` 才进入 `extractSenseCallDeltas`；`server_tool_use` 的 `input_json_delta` 归入 `extractStreamServerToolDeltas`。
+
+**服务端内置工具（`server_tool_use` / `tool_result` 与 Responses `web_search_call`）：**
+
+- **Anthropic Messages**：解析非流式与流式的 `server_tool_use`、`tool_result`、`web_search_tool_result` 及 `usage.server_tool_use.web_search_requests`，生成独立的 `ServerToolCallInfo`（`executionOwner: 'server'`），不进入本地 `senseMiddleware` 调度或审批。当同一响应已由服务端工具完成（`status: 'completed'`）且 `stop_reason === 'end_turn'` 时，伴随的普通工具调用（如 `WebFetch`）不在本地重复执行，转为服务端工具展示记录。GLM 系列在 Messages 协议下启用 `web_search` 时，工具声明转换为 `{ type: 'web_search_20250305', name: 'web_search' }`。
+- **OpenAI Responses**：GPT 系列在 Responses 协议下启用 `web_search` 时，工具声明转换为 `{ type: 'web_search', external_web_access: true }`（不附带 `max_tool_calls`）；解析 `web_search_call`（`search`、`open_page`、`find_in_page`）与消息 `url_citation` 注释为 `ServerToolCallInfo`。
+- **历史回传隔离**：`buildMessages`（Anthropic / OpenAI Responses）仅将本地 `senseCalls` 构造为 `tool_use` / `function_call`；保存在 `provider_continuation.serverToolCalls` 中的服务端工具展示记录不伪造为普通本地工具调用回传给模型。
+- **展示数据保护**：服务端参数、结果和来源中的嵌套对象、数组、JSON 字符串及正文链接均去除凭据与 Base64 图片内容；断流留下的部分参数也需脱敏。此副本只用于保存和展示，不替代供应商需要的受保护续接数据。
+- **完成状态**：Responses 的输出项结束或整个响应结束，不代表工具执行成功；保留工具自身报告的状态。Anthropic 结构化工具错误即使没有 `is_error` 也标为失败；缺少调用开始的结果保留为未知，不补造成功调用。相关离线入口为 `test/agent/provider/anthropic.test.ts`、`openaiResponses.test.ts` 与 `test/agent/middleware/checkpointState.test.ts`。
+- **混合响应审批**：支持服务端事件的协议先收齐响应和结束原因，再为确需本地执行的普通调用创建审批；不在参数块切换时提前申请审批。没有服务端完成证据的普通调用仍走既有授权与执行流程。
 
 **SSE 解析（anthropicStreamSSE）：** 仿 `fetchBase.ts:210-270` 行缓冲骨架，改：
 

@@ -20,7 +20,7 @@
 
 ## 核心概念
 
-`chatMiddleware` 在 [chat.ts](../../../apps/backend/src/agent/middleware/chat.ts) 编排模型请求；[mediaEnrichment.ts](../../../apps/backend/src/agent/middleware/mediaEnrichment.ts) 负责媒体标记解析、前置工具处理与多轮原生媒体保留。两者只影响本轮模型输入，不改写已保存消息；相关校验见 `apps/backend/test/agent/middleware/mediaPreprocess.test.ts` 与 `mediaRetention.test.ts`。
+`chatMiddleware` 在 [chat.ts](../../../apps/backend/src/agent/middleware/chat.ts) 编排模型请求；[mediaEnrichment.ts](../../../apps/backend/src/agent/middleware/mediaEnrichment.ts) 调用 `planFileInputs`，按有序文件 parts 选择原生读取、文字提取或前置工具。两者只影响本轮模型输入，不改写已保存消息；相关校验见 [fileInputPlanning.test.ts](../../../apps/backend/test/agent/fileInputPlanning.test.ts)，能力与保留规则见[模型能力与媒体处理](model-capabilities.md)。
 
 ### 请求内工具错误
 

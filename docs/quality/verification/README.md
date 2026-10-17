@@ -25,6 +25,7 @@
 - [上下文与使用统计验证](context-usage-analytics.md)：数据与真实使用分别判断。
 - [文档检查](docs-capability-upgrade.md)：检查器与业务事实校验的区别。
 - [配置热应用](config-hot-apply.md)：配置应用的验证条件。
+- [文件能力](file-capabilities.md)：资产、模型输入、服务端工具、Web 草稿及 QQ 文件交付的验证入口与边界。
 
 ## 人工核对
 
