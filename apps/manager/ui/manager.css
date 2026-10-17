@@ -1,5 +1,6 @@
 .manager {
   position: relative;
+  min-height: 0;
 }
 .manager.manager-login {
   width: min(100%, 560px);
@@ -30,9 +31,7 @@
 }
 .plugin-window {
   position: absolute;
-  width: min(960px, calc(100% - 32px));
-  height: min(740px, calc(100% - 32px));
-  min-height: 240px;
+  min-width: 0;
   background: #c0c0c0;
   border: 2px solid;
   border-color: #fff #404040 #404040 #fff;
@@ -50,6 +49,8 @@
   align-items: center;
   padding: 3px 6px;
 }
+.plugin-window-title strong { min-width: 0; overflow-wrap: anywhere; }
+.window-actions { display: flex; flex: none; gap: 4px; }
 .plugin-window-title button {
   min-height: 22px;
   margin: 0;
@@ -69,6 +70,7 @@
   overflow: auto;
 }
 .plugin-page {
+  min-height: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -79,7 +81,7 @@
 }
 .plugin-page iframe {
   flex: 1;
-  min-height: 160px;
+  min-height: 0;
   width: 100%;
   border: 2px inset #fff;
   background: #d4d0c8;
@@ -87,12 +89,21 @@
 .plugin-window textarea {
   width: 100%;
 }
+.plugin-window-footer { display: flex; flex: none; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; }
+.window-resize { margin: 0; padding: 2px 6px; min-height: 28px; cursor: nwse-resize; touch-action: none; }
+.plugin-card h3 { margin: 0 0 6px; }
+.plugin-card code { overflow-wrap: anywhere; }
+.plugin-badges, .plugin-grants { display: flex; flex-wrap: wrap; gap: 12px; }
+.plugin-badges span { padding: 4px 8px; border: 1px solid #808080; background: #fff; }
+.plugin-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.plugin-facts > div { min-width: 0; }
+.plugin-facts dt { color: #454545; margin-bottom: 4px; }
+.plugin-facts dd { margin: 0; overflow-wrap: anywhere; }
+.plugin-card-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 8px; border-top: 1px solid #808080; }
+.plugin-grants { padding: 8px; }
 @media (max-width: 600px) {
   body {
     padding: 8px;
-  }
-  .manager {
-    min-height: calc(100vh - 16px);
   }
   .manager header {
     flex-wrap: wrap;
@@ -100,7 +111,5 @@
   .manager nav {
     flex-wrap: wrap;
   }
-  .plugin-window {
-    width: calc(100% - 16px);
-  }
+  .plugin-facts { grid-template-columns: 1fr; }
 }

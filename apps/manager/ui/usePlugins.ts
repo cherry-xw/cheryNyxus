@@ -121,7 +121,7 @@ export function usePlugins(request = managerRequest) {
             expectedDigest: state.digest,
             grantedCapabilities: [...state.grants],
             channelGrants:
-              state.channel || state.credentialKind
+              state.grants.includes('channel.identity') && (state.channel || state.credentialKind)
                 ? [{ channel: state.channel, credentialKind: state.credentialKind }]
                 : [],
           }),

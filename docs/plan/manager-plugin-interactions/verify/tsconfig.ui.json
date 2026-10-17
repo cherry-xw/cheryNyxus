@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ESNext", "DOM"],
+    "types": []
+  },
+  "include": [
+    "../../../../apps/manager/ui/**/*.vue",
+    "../../../../apps/manager/ui/**/*.ts",
+    "../../../../plugins/qq/ui/**/*.vue",
+    "../../../../plugins/qq/ui/**/*.ts",
+    "../../../../plugins/settings/ui/**/*.vue",
+    "../../../../packages/manager-ui/src/**/*.vue",
+    "../../../../packages/manager-ui/src/**/*.ts"
+  ]
+}

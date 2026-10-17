@@ -44,6 +44,8 @@ QQ moduleId 为 `qq`，设置 moduleId 为 `capabilities`，既有业务 HTTP �
 
 Manager 在 HTML head 中加入唯一 `<base href="/modules/<moduleId>/assets/<resourceVersion>/">`，包不自带 base，资源使用相对 URL，不硬编码公开 `/assets/`。业务 API 使用绝对同源 apiPrefix。拒绝跨模块资源、点段、双重编码、反斜杠、符号链接及 config/data 读取；资源只能来自声明目录。
 
+管理主窗口按内容增高，不强制占满屏幕。安装与更新构建包使用已安装列表上方的统一入口，来源目录与权限限制不变。插件列表分开显示运行状态、保存和活动版本、配置应用状态及操作；依赖和能力详情可展开。插件内部窗口可拖动、调整尺寸和最大化，受当前可见范围限制；页面自身负责设置分类、保存操作及记录浏览，不由 Manager 识别 QQ 字段。
+
 HTML、后续资产及 API 全部先校验 Session、Host；带 Origin 必须可信同源，拒绝 Sec-Fetch-Site=cross-site，写入继续要求 Origin。不开放 CORS。响应 no-store、nosniff；机器密钥不能代替 Session。基础 `/api/auth/`、`/api/machine/`、状态/连接/凭据、进程/relay、本体 `/`/`index.html`/`assets/` 不可覆盖；重复 moduleId、路径或前缀拒绝。
 
 Backend 离线503 unavailable，接口版本不同409 api_version_mismatch，未安装模块404 not_found，未登录401，Host/Origin拒绝403，revision冲突409。Backend认证失败502 backend_auth_failed，不能解释为 Manager 登出。服务端仍完成 Backend challenge/login，不因 Session 跳过认证。

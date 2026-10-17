@@ -222,7 +222,6 @@ async function loadAll() {
       relay.value.status = result.status
     }),
     loadAuthorization(),
-    plugins.read(),
   ])
 }
 async function loadAuthorization() {
@@ -285,6 +284,7 @@ async function requestRelayBinding() {
 }
 
 watch(tab, () => {
+  if (tab.value === 'plugins' && authenticated.value) void plugins.read()
   credentialPassword.value = ''
   newPassword.value = ''
   confirmPassword.value = ''
@@ -435,7 +435,7 @@ onManagerSessionExpired(() => {
           </article>
         </div>
       </section>
-      <PluginsPanel v-show="tab === 'plugins'" :controller="plugins" />
+      <PluginsPanel v-if="tab === 'plugins'" :controller="plugins" />
       <nav v-show="tab === 'connection'" aria-label="连接设置">
         <button
           v-for="item in [

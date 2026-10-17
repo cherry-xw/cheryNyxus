@@ -1,8 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parse, compileScript, compileTemplate } from 'vue/compiler-sfc'
 import { useWindowDrag } from '../ui/useWindowDrag'
+vi.mock('vue', async (importOriginal) => ({
+  ...await importOriginal<typeof import('vue')>(),
+  onMounted: vi.fn(),
+  onUnmounted: vi.fn(),
+}))
+afterEach(() => vi.unstubAllGlobals())
 const source = (name: string) => readFileSync(resolve(import.meta.dirname, '../ui', name), 'utf8')
 describe('Manager internal plugin windows and login', () => {
   it('compiles all changed templates and controllers', () => {
@@ -48,15 +54,19 @@ describe('Manager internal plugin windows and login', () => {
     expect(child).toContain('@click="saveConfig"')
     expect(child).toContain('@pointercancel="end"')
     expect(child).toContain('@lostpointercapture="end"')
-    expect(panel).toContain('config.dirty && !window.confirm')
+    expect(panel).toContain('!pluginWindow.value.confirmDiscard()')
+    expect(child).toContain('Object.values(dirtyModules.value).some(Boolean)')
+    expect(child).toContain('config.dirty ||')
+    expect(child).toContain('event.origin !== window.location.origin')
+    expect(child).toContain('item.contentWindow === event.source')
   })
-  it('drags with pointer capture, clamps to parent, ignores buttons and releases on cancel', () => {
+  it('drags with pointer capture, clamps to the visible area, ignores buttons and releases on cancel', () => {
+    vi.stubGlobal('window', { innerWidth: 1000, innerHeight: 800 })
     const drag = useWindowDrag()
-    const host = { clientWidth: 1000, clientHeight: 800 }
+    Object.assign(drag.position, { width: 600, height: 400 })
     const target = { closest: vi.fn(() => null) }
     const currentTarget = {
       setPointerCapture: vi.fn(),
-      parentElement: { offsetWidth: 600, offsetHeight: 400, parentElement: host },
     }
     const event = (x: number, y: number, id = 1) =>
       ({
@@ -71,19 +81,39 @@ describe('Manager internal plugin windows and login', () => {
     drag.start(event(100, 100))
     expect(currentTarget.setPointerCapture).toHaveBeenCalledWith(1)
     drag.move(event(150, 180))
-    expect(drag.position).toEqual({ x: 66, y: 96 })
+    expect(drag.position).toEqual({ x: 66, y: 96, width: 600, height: 400 })
     drag.move(event(9000, 9000, 2))
-    expect(drag.position).toEqual({ x: 66, y: 96 })
+    expect(drag.position).toEqual({ x: 66, y: 96, width: 600, height: 400 })
     drag.move(event(9000, 9000))
-    expect(drag.position).toEqual({ x: 400, y: 400 })
+    expect(drag.position).toEqual({ x: 392, y: 392, width: 600, height: 400 })
     drag.move(event(-9000, -9000))
-    expect(drag.position).toEqual({ x: 0, y: 0 })
+    expect(drag.position).toEqual({ x: 8, y: 8, width: 600, height: 400 })
     drag.end(event(0, 0))
     drag.move(event(300, 300))
-    expect(drag.position).toEqual({ x: 0, y: 0 })
+    expect(drag.position).toEqual({ x: 8, y: 8, width: 600, height: 400 })
     target.closest.mockReturnValue({} as never)
     drag.start(event(0, 0))
     drag.move(event(100, 100))
-    expect(drag.position).toEqual({ x: 0, y: 0 })
+    expect(drag.position).toEqual({ x: 8, y: 8, width: 600, height: 400 })
+  })
+  it('resizes with the pointer and keyboard, then restores after maximizing', () => {
+    vi.stubGlobal('window', { innerWidth: 1200, innerHeight: 900 })
+    const drag = useWindowDrag()
+    Object.assign(drag.position, { x: 16, y: 16, width: 600, height: 400 })
+    const pointer = (x: number, y: number) => ({ button: 0, pointerId: 1, clientX: x, clientY: y,
+      currentTarget: { setPointerCapture: vi.fn() }, preventDefault: vi.fn() }) as unknown as PointerEvent
+    drag.resizeStart(pointer(100, 100))
+    drag.move(pointer(180, 140))
+    expect(drag.position).toEqual({ x: 16, y: 16, width: 680, height: 440 })
+    drag.end(pointer(180, 140))
+    drag.resizeKey({ key: 'ArrowRight', shiftKey: true, preventDefault: vi.fn() } as unknown as KeyboardEvent)
+    expect(drag.position.width).toBe(720)
+    drag.toggleMaximize()
+    expect(drag.position).toEqual({ x: 8, y: 8, width: 1184, height: 884 })
+    drag.resizeStart(pointer(100, 100))
+    drag.move(pointer(200, 200))
+    expect(drag.position.width).toBe(1184)
+    drag.toggleMaximize()
+    expect(drag.position).toEqual({ x: 16, y: 16, width: 720, height: 440 })
   })
 })
