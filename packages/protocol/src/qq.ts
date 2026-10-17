@@ -203,7 +203,7 @@ export const QQEventSubmitRequestSchema = z
   })
   .strict()
   .superRefine((e, ctx) => {
-    if (!e.content.trim() && !e.attachments?.length) ctx.addIssue({ code: 'custom', message: 'Empty input' })
+    if (!e.content.trim() && !e.attachments?.length && !(e.conversationType === 'group' && e.mentionedBot)) ctx.addIssue({ code: 'custom', message: 'Empty input' })
     for (const part of e.parts ?? []) if (part.type === 'attachment' && !e.attachments?.[part.index]) ctx.addIssue({ code: 'custom', message: 'Invalid attachment index' })
     if (
       e.senderId === e.selfId ||
@@ -257,6 +257,9 @@ export const QQNotificationSchema = z
         lookupKind: z.enum(['members', 'voices']).optional(),
         mediaFile: z.string().regex(/^\d+\.mp4$/).max(64).optional(),
         mediaFiles: z.array(z.string().regex(/^\d+-\d+\.(?:jpg|png|gif)$/).max(64)).min(1).max(30).optional(),
+        mediaScope: z.string().regex(/^(?:group|user)-[1-9]\d{0,19}$/).optional(),
+        uploadAsFile: z.boolean().optional(),
+        fileName: z.string().min(1).max(180).optional(),
         icon: z.string().max(32).optional(),
         messageId: z
           .string()

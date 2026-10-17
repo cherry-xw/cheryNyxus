@@ -26,16 +26,71 @@ const live: Adapter[] = []
 const dirs: string[] = []
 afterEach(() => { for (const a of live.splice(0)) a.close(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); vi.useRealTimers() })
 const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve() }
-function fixture(path?: string, timeout?: number) {
+function fixture(path?: string) {
   const dir = path ?? mkdtempSync('/tmp/opencode/native-qq-')
   if (!path) dirs.push(dir)
   const ctx: PluginContext = { dataPath: dir, configPath: join(dir, 'config.json'), adapterName: 'test', pluginManager: { config: { test: true } }, logger: { info: vi.fn(), warn: vi.fn() }, actions: { call: vi.fn(async (name: string) => name === 'get_login_info' ? { user_id: '123' } : name === 'get_status' ? { online: true, good: true } : { message_id: '789' }) } }
-  const wire = new Mock(); const adapter = new Adapter(ctx, wire, timeout); live.push(adapter)
+  const wire = new Mock(); const adapter = new Adapter(ctx, wire); live.push(adapter)
   return { dir, ctx, wire, adapter }
 }
 const input = (extra = {}) => ({ post_type: 'message', self_id: 123, user_id: 789, group_id: 456, message_type: 'group', message_id: -42, time: 10, sender: { user_id: 789, nickname: 'synthetic' }, message: [{ type: 'text', data: { text: 'hello' } }, { type: 'at', data: { qq: '123' } }], ...extra })
 
 describe('native adapter (mock consumers only, no backend business proof)', () => {
+  it('accepts a late native result after a month and lets progress pass a slow content send', async () => {
+    vi.useFakeTimers();const {adapter,wire,ctx}=fixture();await adapter.start();await settle()
+    const original=ctx.actions.call;let resolve!: (value:any)=>void
+    ctx.actions.call=vi.fn((name,params,a,c)=> name==='send_msg' && (params as any).message?.[0]?.data?.text==='slow' ? new Promise(r=>{resolve=r}) : original(name,params,a,c))
+    wire.emit('qq.reply.part',1,{text:'slow',partIndex:1,totalParts:1});await settle()
+    await vi.advanceTimersByTimeAsync(32*86400000);await settle()
+    expect(wire.request.mock.calls.filter(c=>c[0]==='qq.delivery.result')).toHaveLength(0)
+    wire.emit('qq.waiting',2,{text:'still running'});await settle()
+    expect(wire.request.mock.calls.some(c=>c[0]==='qq.delivery.result' && c[1].eventId==='e2' && c[1].status==='sent')).toBe(true)
+    resolve({message_id:'900'});await settle()
+    expect(wire.request.mock.calls.some(c=>c[0]==='qq.delivery.result' && c[1].eventId==='e1' && c[1].status==='sent')).toBe(true)
+  })
+  it('bounds confirmed progress history and does not replay compacted progress', async () => {
+    const {adapter,wire,ctx,dir}=fixture();await adapter.start();await settle()
+    for(let seq=1;seq<=270;seq++){wire.emit('qq.waiting',seq,{text:'working'});await settle()}
+    const journal=JSON.parse(readFileSync(join(dir,'delivery-journal.json'),'utf8'))
+    expect(Object.keys(journal.outputs).length).toBeLessThanOrEqual(256)
+    const before=(ctx.actions.call as any).mock.calls.length
+    wire.emit('qq.waiting',1,{text:'working'});await settle()
+    expect((ctx.actions.call as any).mock.calls.length).toBe(before)
+  })
+  it('persists failed reactions, continues replies, and retries the same reaction after reload', async () => {
+    const f=fixture();await f.adapter.start();await settle()
+    const original=f.ctx.actions.call
+    f.ctx.actions.call=vi.fn(async(name,params,adapterName,config)=>name==='set_msg_emoji_like'?{retcode:1}:original(name,params,adapterName,config))
+    f.wire.emit('qq.message.ack',1,{messageId:'100',emojiId:'178'});await settle()
+    f.wire.emit('qq.reply.part',2,{text:'still replies',partIndex:1,totalParts:1});await settle()
+    const journal=JSON.parse(readFileSync(join(f.dir,'delivery-journal.json'),'utf8'))
+    expect(journal.outputs.e1.status).toBe('unknown');expect(journal.outputs.e1.retryEvent).toBeDefined()
+    expect(journal.outputs.e2.status).toBe('sent');expect(f.adapter.status().blockedTargets).toBe(0)
+    f.adapter.close();const next=fixture(f.dir);await next.adapter.start();await settle()
+    ;(next.adapter as any).journal.outputs.e1.retryAt=0
+    await (next.adapter as any).retryAcknowledgements();await settle()
+    const restored=JSON.parse(readFileSync(join(f.dir,'delivery-journal.json'),'utf8'))
+    expect(restored.outputs.e1.status).toBe('sent');expect(restored.outputs.e1.retryEvent).toBeUndefined()
+    expect(next.ctx.actions.call).toHaveBeenCalledWith('set_msg_emoji_like',{message_id:'100',emoji_id:'178',set:true},'test',next.ctx.pluginManager.config)
+    expect((next.ctx.actions.call as any).mock.calls.filter((c:any)=>c[0]==='send_msg')).toHaveLength(0)
+  })
+  it('allows a new request after a recorded unknown without replaying the old event', async () => {
+    const {adapter,wire}=fixture();await adapter.start();await settle()
+    const a=adapter as any,key='123:group:456'
+    a.journal.seq[key]=1;a.journal.blocked[key]=true
+    a.journal.outputs.old={status:'unknown',confirmation:{selfId:'123',conversationType:'group',targetId:'456',seq:1,status:'unknown',requestId:'old'}}
+    wire.emit('qq.reply.part',2,{requestId:'new',text:'test',partIndex:1,totalParts:1})
+    await settle();await settle()
+    expect(a.journal.outputs.old.status).toBe('unknown')
+    expect(a.journal.outputs.e2.status).toBe('sent')
+  })
+  it('submits a bare bot mention but ignores empty messages without a mention', async () => {
+    const {adapter,wire}=fixture();await adapter.start();await settle()
+    await adapter.receive(input({message:[{type:'at',data:{qq:'123'}}]}))
+    await adapter.receive(input({message_id:51,message:[{type:'text',data:{text:' '}}]}))
+    expect(wire.request.mock.calls.filter(c=>c[0]==='qq.event.submit')).toHaveLength(1)
+    expect(wire.request.mock.calls.find(c=>c[0]==='qq.event.submit')?.[1]).toMatchObject({content:'',mentionedBot:true})
+  })
   it('normalizes group/private and rejects forged identity and private group fields', () => {
     expect(normalize(input(), '123')).toMatchObject({ selfId: '123', targetId: '456', senderId: '789', messageId: '-42', content: 'hello', mentionedBot: true, occurredAt: 10 })
     const privateEvent = input({ group_id: undefined, message_type: 'private' })
@@ -89,12 +144,15 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     wire.emit('qq.waiting', 4, { text: '合成等待' }); wire.emit('qq.reply.part', 5, { text: '😀'.repeat(4001), partIndex: 1, totalParts: 1 }); wire.emit('qq.request.failed', 6, { text: 'must not leak' })
     for (let i = 0; i < 8; i++) await settle()
     const calls = (ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg')
-    expect(calls.map((c: any) => c[1].message[0].data.text)).toEqual(['🔎', '🔧', '合成等待', '😀'.repeat(4000), '😀', '刚才处理失败了，请稍后再试。'])
+    const texts = calls.map((c: any) => c[1].message[0].data.text)
+    expect(texts.filter((text: string) => ['🔎','🔧','合成等待'].includes(text))).toEqual(['🔎','🔧','合成等待'])
+    expect(texts.filter((text: string) => !['🔎','🔧','合成等待'].includes(text))).toEqual(['😀'.repeat(4000),'😀','刚才处理失败了，请稍后再试。'])
     expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'set_msg_emoji_like')).toHaveLength(1)
     expect(calls.every((c: any) => c[1].group_id === '456' && !('user_id' in c[1]) && c[2] === ctx.adapterName && c[3] === ctx.pluginManager.config)).toBe(true)
     const reports = wire.request.mock.calls.filter(c => c[0] === 'qq.delivery.result').map(c => c[1] as any)
     const uniqueReports = [...new Map(reports.map(report => [report.eventId, report])).values()]
-    expect(uniqueReports.map(r => r.activity)).toEqual([true, true, true, true, false, false]); expect(uniqueReports[4].terminal).toBe(true)
+    expect(uniqueReports.filter(r => r.activity)).toHaveLength(4)
+    expect(uniqueReports.find(r => r.eventId === 'e5').terminal).toBe(true)
     expect(readFileSync(join(ctx.dataPath, 'delivery-journal.json'), 'utf8')).not.toContain('合成等待')
   })
   it('continues a reconciled durable sequence without replaying historical unknown ACKs after reload', async () => {
@@ -116,11 +174,11 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     expect(journal.outputs.oldAck).toEqual({ status: 'unknown' })
     expect(next.adapter.status().blockedTargets).toBe(0)
   })
-  it('blocks malformed ACK/sequence and isolates another private target', async () => {
+  it('rejects malformed ACK without blocking later valid traffic', async () => {
     const { adapter, wire, ctx } = fixture(); await adapter.start(); await settle()
     wire.emit('qq.message.ack', 1, { text: '收到！' }); await settle(); wire.emit('qq.tool.icon', 2, { icon: '🔎' })
     wire.emit('qq.message.ack', 1, { conversationType: 'private', targetId: '789', eventId: 'private1', text: '收到' }); await settle()
-    expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg')).toHaveLength(1)
+    expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg')).toHaveLength(2)
     expect((ctx.actions.call as any).mock.calls.at(-1)[1]).toHaveProperty('user_id', '789')
   })
   it('reconnect and reload replay never resends; lost result is re-reported before recovery', async () => {
@@ -137,24 +195,23 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     adapter.close(); const next = fixture(dir); await next.adapter.start(); await settle(); next.wire.emit('qq.message.ack', 1, { text: '收到' }); await settle()
     expect(next.ctx.actions.call).toHaveBeenCalledTimes(2)
   })
-  it('unknown sends remain blocked after reconnect; timeout never retries and other targets work', async () => {
-    vi.useFakeTimers(); const { adapter, wire, ctx } = fixture(undefined, 10); await adapter.start(); await settle()
+  it('unknown sends are not replayed and later events proceed after reconnect', async () => {
+    vi.useFakeTimers(); const { adapter, wire, ctx } = fixture(); await adapter.start(); await settle()
     const original = ctx.actions.call
     ctx.actions.call = vi.fn((name, params, adapterName, config) => name === 'send_msg' && (params as any).user_id === '789' ? new Promise(() => {}) : original(name, params, adapterName, config))
-    wire.emit('qq.message.ack', 1, { text: '收到', conversationType: 'private', targetId: '789' }); await settle(); await vi.advanceTimersByTimeAsync(11); await settle()
-    const report = wire.request.mock.calls.find(c => c[0] === 'qq.delivery.result')![1] as any
-    expect(report.status).toBe('unknown'); expect(report.activity).toBe(false)
+    wire.emit('qq.message.ack', 1, { text: '收到', conversationType: 'private', targetId: '789' }); await settle(); await vi.advanceTimersByTimeAsync(60000); await settle()
+    expect(wire.request.mock.calls.filter(c => c[0] === 'qq.delivery.result')).toHaveLength(0)
     wire.disconnect?.(); wire.ready?.(); await settle()
     wire.emit('qq.tool.icon', 2, { icon: '🔧', conversationType: 'private', targetId: '789' })
     wire.emit('qq.tool.icon', 1, { icon: '🔧', eventId: 'other-target' }); await settle()
-    expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg' && c[1].user_id === '789')).toHaveLength(1); expect(adapter.status().blockedTargets).toBe(1)
+    expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg' && c[1].user_id === '789')).toHaveLength(2); expect(adapter.status().blockedTargets).toBe(0)
     expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg' && c[1].group_id === '456')).toHaveLength(1)
   })
   it('unload cancels action deadlines, drops queued sends and prevents late report', async () => {
     vi.useFakeTimers(); const { adapter, wire, ctx } = fixture(); await adapter.start(); await settle()
     let resolve!: (v: any) => void
     ctx.actions.call = vi.fn(() => new Promise(r => { resolve = r }))
-    wire.emit('qq.message.ack', 1, { text: '收到', conversationType: 'private', targetId: '789' }); wire.emit('qq.tool.icon', 2, { icon: '🔧', conversationType: 'private', targetId: '789' }); await settle()
+    wire.emit('qq.message.ack', 1, { text: '收到', conversationType: 'private', targetId: '789' }); wire.emit('qq.reply.part', 2, { text: 'queued', partIndex: 1, totalParts: 1, conversationType: 'private', targetId: '789' }); await settle()
     adapter.close(); resolve({ message_id: 1 }); await settle()
     expect(wire.close).toHaveBeenCalled(); expect(ctx.actions.call).toHaveBeenCalledTimes(1)
     expect(wire.request.mock.calls.filter(c => c[0] === 'qq.delivery.result')).toHaveLength(0); expect(vi.getTimerCount()).toBe(0)
@@ -173,7 +230,7 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     vi.useFakeTimers(); const { adapter, wire, ctx } = fixture(); await adapter.start(); await settle()
     wire.emit('qq.tool.icon', 1, { icon: '🔧' }); await settle(); await vi.advanceTimersByTimeAsync(90000)
     expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg')).toHaveLength(1)
-    expect(vi.getTimerCount()).toBe(0)
+    expect(vi.getTimerCount()).toBe(1) // durable acknowledgement maintenance only
   })
 
   it('reconnect reports known delivery before recovery and never trusts notifications before authentication', async () => {
@@ -188,7 +245,7 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg')).toHaveLength(1)
     wire.ready?.(); await settle()
     const reconnect = wire.request.mock.calls.slice(before).map(([method]) => method)
-    expect(reconnect).toEqual(['qq.plugin.hello', 'qq.identity.bind', 'qq.delivery.result', 'qq.request.recover'])
+    expect(reconnect).toEqual(['qq.plugin.hello', 'qq.identity.bind', 'qq.request.recover']) // confirmed receipts already durably reported
     expect(adapter.status().ready).toBe(true)
   })
 
@@ -212,5 +269,17 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     await starting
     expect(adapter.status().state).toBe('stopped')
     expect(wire.request).not.toHaveBeenCalled()
+  })
+
+  it('classifies explicit native video failure as failed and unconfirmed send as unknown', async () => {
+    const { adapter, wire, ctx } = fixture()
+    await adapter.start(); await settle()
+    ctx.actions.call = vi.fn().mockRejectedValueOnce(new Error('Action send_msg failed: Native message send failed: correlationId=1'))
+      .mockRejectedValueOnce(new Error('Action send_msg failed: Native message unconfirmed: SUCCESS_NOSEQ correlationId=2'))
+    wire.emit('qq.reply.video', 1, { mediaFile: '100.mp4' }); await settle()
+    wire.emit('qq.reply.video', 2, { mediaFile: '200.mp4' }); await settle()
+    const results = wire.request.mock.calls.filter(([m]) => m === 'qq.delivery.result').map(([, p]) => p)
+    expect(results).toContainEqual(expect.objectContaining({ eventId: 'e1', status: 'failed', terminal: true }))
+    expect(results).toContainEqual(expect.objectContaining({ eventId: 'e2', status: 'unknown', terminal: true }))
   })
 })

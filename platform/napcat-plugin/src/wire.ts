@@ -30,7 +30,7 @@ export class BackendWire {
   private readonly pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>()
   private connecting?: Promise<void>
   private reconnect?: ReturnType<typeof setTimeout>
-  constructor(private readonly url: string, private readonly token: string, private readonly timeoutMs = 10000) {}
+  constructor(private readonly url: string, private readonly token: string, private readonly handshakeTimeoutMs = 10000) {}
 
   onMessage(listener: Listener): () => void {
     this.listeners.add(listener)
@@ -47,7 +47,7 @@ export class BackendWire {
     this.connecting = new Promise<void>((resolve, reject) => {
       const origin = new URL(this.url)
       origin.protocol = origin.protocol === 'wss:' ? 'https:' : 'http:'
-      const socket = new WebSocket(this.url, { headers: { 'X-QQBot-Token': this.token, Origin: origin.origin }, handshakeTimeout: this.timeoutMs })
+      const socket = new WebSocket(this.url, { headers: { 'X-QQBot-Token': this.token, Origin: origin.origin }, handshakeTimeout: this.handshakeTimeoutMs })
       this.socket = socket
       let opened = false
       socket.once('open', () => {
@@ -98,8 +98,8 @@ export class BackendWire {
     if (!socket || socket.readyState !== WebSocket.OPEN) throw Object.assign(new Error('backend disconnected'), { code: 'DISCONNECTED' })
     const id = randomUUID()
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(Object.assign(new Error('backend request timeout'), { code: 'RPC_TIMEOUT' })) }, this.timeoutMs)
-      this.pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value) }, reject: error => { clearTimeout(timer); reject(error) } })
+      // Transport failure rejects pending RPCs; elapsed time is not a business result.
+      this.pending.set(id, { resolve, reject })
       socket.send(JSON.stringify({ kind: 'request', id, method, params }), error => {
         if (error) { const request = this.pending.get(id); this.pending.delete(id); request?.reject(new Error('backend send failed')) }
       })

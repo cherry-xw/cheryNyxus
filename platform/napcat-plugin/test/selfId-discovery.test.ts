@@ -40,10 +40,10 @@ const live: Adapter[] = []
 const dirs: string[] = []
 afterEach(() => { for (const a of live.splice(0)) a.close(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); vi.useRealTimers() })
 const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve() }
-function fixture(actions: (name: string) => unknown, dir = mkdtempSync('/tmp/opencode/native-qq-selfid-'), timeout?: number) {
+function fixture(actions: (name: string) => unknown, dir = mkdtempSync('/tmp/opencode/native-qq-selfid-')) {
   dirs.push(dir)
   const ctx: PluginContext = { dataPath: dir, configPath: join(dir, 'config.json'), adapterName: 'test', pluginManager: { config: { test: true } }, logger: { info: vi.fn(), warn: vi.fn() }, actions: { call: vi.fn(async (name: string) => actions(name)) } }
-  const wire = new Mock(); const adapter = new Adapter(ctx, wire, timeout); live.push(adapter)
+  const wire = new Mock(); const adapter = new Adapter(ctx, wire); live.push(adapter)
   return { dir, ctx, wire, adapter }
 }
 const input = (extra = {}) => ({ post_type: 'message', self_id: 123, user_id: 789, group_id: 456, message_type: 'group', message_id: -42, time: 10, sender: { user_id: 789, nickname: 'synthetic' }, message: [{ type: 'text', data: { text: 'hello' } }, { type: 'at', data: { qq: '123' } }], ...extra })
@@ -162,9 +162,9 @@ describe('selfId discovery trust boundaries (synthetic fixtures only, no real Na
     assertNoIdentityLeak(failing.adapter.status()); assertNoIdentityLeak((failing.ctx.logger.warn as any).mock.calls)
 
     vi.useFakeTimers()
-    const slow = fixture(() => new Promise(() => {}), undefined, 10)
+    const slow = fixture(() => new Promise(() => {}))
     void slow.adapter.start()
-    await vi.advanceTimersByTimeAsync(11); await settle()
+    await vi.advanceTimersByTimeAsync(60000); await settle()
     expect(slow.adapter.status()).toMatchObject({ state: 'identity-unavailable', ready: false })
     expect(slow.wire.connect).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)

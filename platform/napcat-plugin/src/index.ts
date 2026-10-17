@@ -3,7 +3,7 @@ import path from 'node:path'
 import { Adapter } from './adapter.js'
 import { BackendWire } from './wire.js'
 
-const PLUGIN_VERSION = '0.2.6'
+const PLUGIN_VERSION = '0.2.9'
 type Settings = { backendUrl?: string; backendToken?: string }
 const instances = new WeakMap<object, Adapter>()
 const operations = new WeakMap<object, Promise<void>>()

@@ -36,6 +36,24 @@ async function setup() {
 }
 
 describe('当前适配器文件交付（纯模拟）', () => {
+  it('按当前群媒体范围上传大视频并返回独立文件回执', async () => {
+    const { action, request, deliver } = await setup()
+    const frame: QQNotification = { kind: 'notification', type: 'qq.reply.video', data: {
+      selfId: '123', conversationType: 'group', targetId: '456', requestId: 'request', eventId: 'video', seq: 1,
+      mediaScope: 'group-456', mediaFile: '123456.mp4', uploadAsFile: true, fileName: 'fixture.mp4',
+    } }
+    await deliver(frame)
+    expect(action.mock.calls.find(([name]) => name === 'upload_group_file')?.[1]).toMatchObject({ file: '/app/cherynyxus-media/scoped/group-456/123456.mp4' })
+    expect(request.mock.calls.find(([name]) => name === 'qq.delivery.result')?.[1]).toMatchObject({ status: 'sent', fileUploaded: true, terminal: true })
+  })
+  it('拒绝其他群媒体范围，不调用原生上传', async () => {
+    const { action, deliver } = await setup()
+    await deliver({ kind: 'notification', type: 'qq.reply.video', data: {
+      selfId: '123', conversationType: 'group', targetId: '456', requestId: 'request', eventId: 'video', seq: 1,
+      mediaScope: 'group-789', mediaFile: '123456.mp4', uploadAsFile: true,
+    } })
+    expect(action.mock.calls.some(([name]) => name === 'upload_group_file')).toBe(false)
+  })
   it('认证分段读取后上传并回传独立文件回执，重放只补回执不再上传', async () => {
     const { action, request, deliver } = await setup()
     await deliver(event())

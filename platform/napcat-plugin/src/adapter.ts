@@ -32,11 +32,12 @@ type Status = {
 }
 type Journal = {
   events: Record<string, { hash: string; accepted: boolean }>
-  outputs: Record<string, { status: 'unknown' | 'sent'; hash?: string; confirmation?: Record<string, unknown> }>
+  outputs: Record<string, { status: 'unknown' | 'sent'; hash?: string; confirmation?: Record<string, unknown>; retryEvent?: WireNotification; retryAt?: number; reported?: boolean; progress?: boolean }>
   seq: Record<string, number>
   blocked: Record<string, boolean>
+  progressSeq?: Record<string, number>
 }
-const VERSION = '0.2.6'
+const VERSION = '0.2.9'
 const idPattern = /^[1-9]\d{0,19}$/
 function qqId(value: unknown): string {
   if (typeof value === 'number') {
@@ -63,6 +64,7 @@ function readJournal(file: string): Journal {
       value.confirmation !== undefined && !QQDeliveryResultRequestSchema.safeParse(value.confirmation).success)
   )
     throw new Error('invalid journal')
+  if (parsed.progressSeq !== undefined && (!parsed.progressSeq || typeof parsed.progressSeq !== 'object' || Array.isArray(parsed.progressSeq) || Object.values(parsed.progressSeq).some(value => !Number.isSafeInteger(value) || Number(value) < 0))) throw new Error('invalid progress sequence')
   parsed.seq ??= {}
   parsed.blocked ??= {}
   if (typeof parsed.seq !== 'object' || !parsed.seq || Array.isArray(parsed.seq) || Object.values(parsed.seq).some(value => !Number.isSafeInteger(value) || Number(value) < 0) ||
@@ -71,6 +73,15 @@ function readJournal(file: string): Journal {
   return parsed as Journal
 }
 function saveJournal(file: string, journal: Journal): void {
+  // Only confirmed, reported heartbeat receipts are disposable; never prune unknown sends.
+  const progress = Object.entries(journal.outputs).filter(([, o]) => o.progress && o.status === 'sent' && o.reported)
+  journal.progressSeq ??= {}
+  for (const [id, output] of progress.slice(0, Math.max(0, progress.length - 256))) {
+    const receipt = output.confirmation!
+    const key = `${receipt.selfId}:${receipt.conversationType}:${receipt.targetId}`
+    journal.progressSeq[key] = Math.max(journal.progressSeq[key] ?? 0, Number(receipt.seq))
+    delete journal.outputs[id]
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   const temp = `${file}.next`
   fs.writeFileSync(temp, JSON.stringify(journal), { mode: 0o600 })
@@ -145,10 +156,21 @@ export class Adapter {
   private authenticated = false
   private lifetime = new AbortController()
   private queues = new Map<string, Promise<void>>()
+  private retrying = false
+  private retryTimer?: ReturnType<typeof setInterval>
+  private async retryAcknowledgements(): Promise<void> {
+    if (this.retrying || this.stopped || !this.authenticated) return
+    this.retrying = true
+    try {
+      for (const output of Object.values(this.journal.outputs).filter(o => o.retryEvent || (o.confirmation && !o.reported)).slice(0,16)) {
+        if (output.confirmation && !output.reported) output.reported = await this.confirmDelivery(output.confirmation)
+        if (output.retryEvent && (output.retryAt ?? 0) <= Date.now()) await this.enqueueNotification(output.retryEvent)
+      }
+    } finally { this.retrying = false }
+  }
   constructor(
     private readonly ctx: PluginContext,
     wire: BackendChannel,
-    private readonly actionTimeoutMs = 15000,
   ) {
     this.wire = wire
     this.journalFile = path.join(ctx.dataPath, 'delivery-journal.json')
@@ -178,11 +200,14 @@ export class Adapter {
     signal.throwIfAborted()
     return new Promise((resolve, reject) => {
       const abort = () => finish(() => reject(new Error('adapter stopped')))
-      const timer = setTimeout(() => finish(() => reject(new Error('action timeout'))), this.actionTimeoutMs)
-      const finish = (done: () => void) => { clearTimeout(timer); signal.removeEventListener('abort', abort); done() }
+      const finish = (done: () => void) => { signal.removeEventListener('abort', abort); done() }
       signal.addEventListener('abort', abort, { once: true })
       Promise.resolve().then(() => { signal.throwIfAborted(); return this.ctx.actions.call(name, params, this.ctx.adapterName, this.ctx.pluginManager.config) })
-        .then(value => finish(() => resolve(value)), () => finish(() => reject(new Error('action unavailable'))))
+        .then(value => finish(() => resolve(value)), (err: unknown) => {
+          const msg = err instanceof Error ? err.message : ''
+          const definitelyFailed = /Native message send failed:|EventChecker Failed:|文件异常|获取视频缩略图失败|消息体无法解析|语音转换失败|请求参数错误/.test(msg)
+          finish(() => reject(Object.assign(new Error('action unavailable'), definitelyFailed ? { definitelyFailed: true } : {})))
+        })
     })
   }
   async start(): Promise<void> {
@@ -257,10 +282,11 @@ export class Adapter {
       if (!bindData.success || bindData.data.selfId !== this.selfId)
         throw new Error('identity rejected')
       for (const output of Object.values(this.journal.outputs)) {
-        if (output.confirmation?.selfId === this.selfId && !await this.confirmDelivery(output.confirmation)) throw new Error('confirmation unavailable')
+        if (output.confirmation?.selfId === this.selfId && !output.reported) output.reported = await this.confirmDelivery(output.confirmation)
         validate()
       }
       this.authenticated = true
+      this.retryTimer ??= setInterval(() => { void this.retryAcknowledgements().catch(() => this.ctx.logger.warn?.('QQ recovery retry failed')) }, 5000)
       const recover = await this.wire.request('qq.request.recover', { selfId: this.selfId })
       validate()
       const recoverData = recover.success
@@ -300,7 +326,7 @@ export class Adapter {
     if (!this.current?.ready || !this.selfId) return
     try {
       const input = normalize(event, this.selfId)
-       if (!input || !input.content && !(input.attachments as unknown[])?.length) return
+       if (!input || !input.content && !(input.attachments as unknown[])?.length && !input.mentionedBot) return
       const previous = this.journal.events[String(input.eventId)]
       if (previous) return
       if (Object.keys(this.journal.events).length >= 10000) { this.current = { ...this.status(), state: 'journal-full', ready: false }; return }
@@ -323,7 +349,7 @@ export class Adapter {
       saveJournal(this.journalFile, this.journal)
       const response = await this.wire.request('qq.event.submit', input)
       if (this.stopped || generation !== this.fileGeneration) return
-      if (!response.success) return
+      if (!response.success) { this.ctx.logger.warn?.('QQ input submission rejected', {eventId: input.eventId, code: response.error?.code ?? 'unknown'}); return }
       this.journal.events[String(input.eventId)] = {
         hash: hash(input),
         accepted: Boolean((response.data as any)?.accepted),
@@ -340,6 +366,8 @@ export class Adapter {
       try {
         const response = await this.wire.request('qq.delivery.result', receipt)
         if (!response.success) throw new Error(`Confirmation rejected: ${response.error?.code ?? 'unknown'} ${response.error?.message ?? ''}`)
+        const output=this.journal.outputs[String(receipt.eventId)]
+        if(output && output.confirmation === receipt) {output.reported=true;saveJournal(this.journalFile,this.journal)}
         return true
       } catch {
         this.ctx.logger.warn?.('QQ confirmation retry', { eventId: receipt.eventId, attempt })
@@ -350,7 +378,7 @@ export class Adapter {
   private async enqueueNotification(event: WireNotification): Promise<void> {
     if (this.stopped) return
     if (event?.type === 'qq.connection.state') { await this.notification(event); return }
-    const key = `${event?.data?.selfId}:${event?.data?.conversationType}:${event?.data?.targetId}`
+    const key = `${event?.data?.selfId}:${event?.data?.conversationType}:${event?.data?.targetId}${event?.type === 'qq.message.ack' && event?.data?.conversationType === 'group' ? ':ack' : ['qq.waiting','qq.tool.icon'].includes(event?.type) ? ':progress' : ''}`
     const generation = this.fileGeneration
     const task = (this.queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
       if (!this.stopped && generation === this.fileGeneration) await this.notification(event)
@@ -419,30 +447,30 @@ export class Adapter {
     const target = event.data.targetId as string
     const outputId = String(event.data.eventId)
     const previous = this.journal.outputs[outputId]
-    if (previous) {
+    const retryAck = !!previous?.retryEvent && previous.status !== 'sent' && (event.type === 'qq.message.ack' || event.type === 'qq.request.failed')
+    if (previous && !retryAck) {
       if (previous.hash && previous.hash !== hash(event)) return
       if (previous.confirmation) await this.confirmDelivery(previous.confirmation)
       return
     }
     const key = `${this.selfId}:${event.data.conversationType}:${target}`
-    if (this.journal.blocked[key]) return
-    if (!QQNotificationSchema.safeParse(event).success || event.data.seq !== (this.journal.seq[key] ?? 0) + 1) {
-      this.journal.blocked[key] = true
-      saveJournal(this.journalFile, this.journal)
-      this.current = { ...this.status(), blockedTargets: Object.values(this.journal.blocked).filter(Boolean).length }
+    if (!previous && ['qq.waiting','qq.tool.icon'].includes(event.type) && Number(event.data.seq) <= (this.journal.progressSeq?.[key] ?? 0)) return
+    if (!QQNotificationSchema.safeParse(event).success) {
+      this.ctx.logger.warn?.('QQ invalid notification rejected', { eventId: outputId })
       return
     }
-    if (Object.keys(this.journal.outputs).length >= 10000) { this.current = { ...this.status(), state: 'journal-full', ready: false }; return }
-    if (event.type === 'qq.message.ack' && event.data.text !== undefined && event.data.text !== '收到') {
-      this.journal.blocked[key] = true; saveJournal(this.journalFile, this.journal); return
-    }
+    if (previous?.hash && previous.hash !== hash(event)) return
+    // Event identity prevents repeats. Sequence gaps are diagnostic, not a group lock.
+    if (!retryAck && event.data.seq !== (this.journal.seq[key] ?? 0) + 1)
+      this.ctx.logger.warn?.('QQ sequence discontinuity', { eventId: outputId, seq: event.data.seq })
+    if (Object.keys(this.journal.outputs).length >= 10000 && !previous) { this.current = { ...this.status(), state: 'journal-full', ready: false }; return }
     const payload =
       event.type === 'qq.tool.icon'
         ? (/^[\p{Extended_Pictographic}\uFE0F\u200D]{1,12}$/u.test(String(event.data.icon ?? '')) ? String(event.data.icon) : '🔧')
-        : event.type === 'qq.request.failed' ? '刚才处理失败了，请稍后再试。' : String(event.data.text ?? '')
-    this.journal.outputs[outputId] = { status: 'unknown', hash: hash(event) }
-    this.journal.seq[key] = Number(event.data.seq)
-    this.journal.blocked[key] = true
+        : event.type === 'qq.request.failed' ? (/^(这次|刚才|服务|处理|已收到|文件|请求)/.test(String(event.data.text ?? '')) && !/[\r\n]/.test(String(event.data.text ?? '')) ? String(event.data.text).slice(0,300) : '刚才处理失败了，请稍后再试。') : String(event.data.text ?? '')
+    this.journal.outputs[outputId] = { status: 'unknown', hash: hash(event), ...((event.type === 'qq.message.ack' && event.data.conversationType === 'group') ? { retryEvent: event, retryAt: Date.now() + 60000 } : {}) }
+    this.journal.seq[key] = Math.max(this.journal.seq[key] ?? 0, Number(event.data.seq))
+    delete this.journal.blocked[key]
     saveJournal(this.journalFile, this.journal)
     const fileGeneration = this.fileGeneration
     try {
@@ -458,7 +486,7 @@ export class Adapter {
         validate()
         const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: event.data.conversationType,
           targetId: target, seq: event.data.seq, status: 'sent', ...delivery, sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
-        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
         delete this.journal.blocked[key]
         saveJournal(this.journalFile, this.journal)
         await this.confirmDelivery(receipt)
@@ -480,7 +508,7 @@ export class Adapter {
         const messageId = result?.message_id ?? result?.data?.message_id
         if (['voice', 'mention', 'quote'].includes(String(kind)) && messageId === undefined) throw new Error('Delivery unknown')
         const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: 'group', targetId: target, seq: event.data.seq, status: 'sent', messageIds: messageId === undefined ? [] : [String(messageId)], sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
-        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
         delete this.journal.blocked[key]
         saveJournal(this.journalFile, this.journal)
         await this.confirmDelivery(receipt)
@@ -522,9 +550,10 @@ export class Adapter {
             activity = true
             this.ctx.logger.info?.('QQ acknowledgement reaction applied')
           } catch {
-            this.ctx.logger.warn?.('QQ acknowledgement reaction unavailable; continuing reply')
+            throw new Error('acknowledgement reaction unavailable')
           }
         }
+        if (event.data.conversationType === 'group' && !activity) throw new Error('Invalid acknowledgement target')
         if (this.stopped || fileGeneration !== this.fileGeneration) return
         const receipt = {
           eventId: outputId,
@@ -539,18 +568,54 @@ export class Adapter {
           activity,
           terminal: false,
         }
-        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
         delete this.journal.blocked[key]
         saveJournal(this.journalFile, this.journal)
         await this.confirmDelivery(receipt)
         return
       }
       if (event.type === 'qq.reply.video' && !/^\d+\.mp4$/.test(String(event.data.mediaFile ?? ''))) throw new Error('Invalid media file')
+      if (event.type === 'qq.reply.video' && event.data.mediaScope && event.data.mediaScope !== `${event.data.conversationType === 'group' ? 'group' : 'user'}-${target}`) throw new Error('Invalid media scope')
+      if (event.type === 'qq.reply.video' && event.data.uploadAsFile === true) {
+        const isGroup = event.data.conversationType === 'group'
+        const rawName = String(event.data.fileName ?? event.data.mediaFile).replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180)
+        const name = rawName && rawName !== '.' && rawName !== '..' ? rawName : String(event.data.mediaFile)
+        const result = await this.action(isGroup ? 'upload_group_file' : 'upload_private_file', {
+          ...(isGroup ? { group_id: target } : { user_id: target }),
+          file: `/app/cherynyxus-media/${event.data.mediaScope ? `scoped/${event.data.mediaScope}/` : ''}${event.data.mediaFile}`,
+          name,
+          upload_file: true,
+        })
+        if (this.stopped || fileGeneration !== this.fileGeneration) return
+        if ((result?.retcode !== undefined && result.retcode !== 0) || result?.status === 'failed') throw Object.assign(new Error('File action rejected'), { definitelyFailed: true })
+        const fileId = result?.file_id ?? result?.data?.file_id
+        if (!(typeof fileId === 'string' && fileId.length && fileId.length <= 512) && !(result?.status === 'ok' && result.retcode === 0)) throw new Error('File delivery unknown')
+        const receipt = {
+          eventId: outputId,
+          requestId: event.data.requestId,
+          selfId: this.selfId,
+          conversationType: event.data.conversationType,
+          targetId: target,
+          seq: event.data.seq,
+          status: 'sent',
+          messageIds: [],
+          fileIds: typeof fileId === 'string' && fileId.length ? [fileId] : [],
+          fileUploaded: true,
+          sentAt: Date.now(),
+          activity: false,
+          terminal: true,
+        }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: false }
+        delete this.journal.blocked[key]
+        saveJournal(this.journalFile, this.journal)
+        await this.confirmDelivery(receipt)
+        return
+      }
       if (event.type === 'qq.reply.images' && (!Array.isArray(event.data.mediaFiles) || !event.data.mediaFiles.length || event.data.mediaFiles.length > 30 || event.data.mediaFiles.some((f: string) => !/^\d+-\d+\.(?:jpg|png|gif)$/.test(f)))) throw new Error('Invalid image files')
       const segments = event.type === 'qq.reply.images'
         ? (event.data.mediaFiles as string[]).map(file => ({type: 'image', data: {file: `file:///app/cherynyxus-media/${file}`}}))
         : event.type === 'qq.reply.video'
-        ? [{type: 'video', data: {file: `file:///app/cherynyxus-media/${event.data.mediaFile}`}}]
+        ? [{type: 'video', data: {file: `file:///app/cherynyxus-media/${event.data.mediaScope ? `scoped/${event.data.mediaScope}/` : ''}${event.data.mediaFile}`}}]
         : [{type: 'text', data: {text: payload}}]
       const message =
         event.data.conversationType === 'group'
@@ -571,6 +636,7 @@ export class Adapter {
       for (const batch of batches) {
         const result = await this.action('send_msg', batch)
         if (this.stopped || fileGeneration !== this.fileGeneration) return
+        if (result?.retcode !== undefined && result.retcode !== 0) throw Object.assign(new Error('Action rejected'),{definitelyFailed:true})
         const id = result?.message_id ?? result?.data?.message_id
         if (!/^-?\d{1,100}$/.test(String(id))) throw new Error('delivery unknown')
         ids.push(String(id))
@@ -594,7 +660,7 @@ export class Adapter {
         activity,
         terminal,
       }
-      this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt }
+      this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
       delete this.journal.blocked[key]
       saveJournal(this.journalFile, this.journal)
       await this.confirmDelivery(receipt)
@@ -602,7 +668,7 @@ export class Adapter {
       this.ctx.logger.warn?.('QQ delivery stage failed', { eventId: outputId, type: event.type, stage: this.journal.outputs[outputId]?.status === 'sent' ? 'confirmation' : 'action' })
       if (this.stopped || fileGeneration !== this.fileGeneration) return
       if (this.journal.outputs[outputId]?.status === 'sent') return
-      const definitelyFailed = ['qq.reply.action', 'qq.reply.file'].includes(event.type) && (error as { definitelyFailed?: boolean })?.definitelyFailed === true
+      const definitelyFailed = ['qq.reply.action', 'qq.reply.file', 'qq.reply.video', 'qq.reply.images', 'qq.reply.part', 'qq.request.failed'].includes(event.type) && (error as { definitelyFailed?: boolean })?.definitelyFailed === true
       const receipt = {
           eventId: outputId,
           requestId: event.data.requestId,
@@ -616,6 +682,11 @@ export class Adapter {
           terminal: (['qq.reply.action', 'qq.reply.file'].includes(event.type) && event.data.completeReply === true) || event.type === 'qq.request.failed' || event.type === 'qq.reply.video' || event.type === 'qq.reply.images' || (event.type === 'qq.reply.part' && event.data.partIndex === event.data.totalParts),
       }
       this.journal.outputs[outputId]!.confirmation = receipt
+      if ((event.type === 'qq.message.ack' && event.data.conversationType === 'group') || (event.type === 'qq.request.failed' && definitelyFailed)) {
+        this.journal.outputs[outputId]!.retryEvent = event
+        this.journal.outputs[outputId]!.retryAt = Date.now() + 60000
+      }
+      delete this.journal.blocked[key]
       if (definitelyFailed) delete this.journal.blocked[key]
       if (!definitelyFailed) this.current = {
         ...this.status(),
@@ -633,6 +704,7 @@ export class Adapter {
     this.stopped = true
     this.fileGeneration++
     this.lifetime.abort()
+    clearInterval(this.retryTimer)
     this.queues.clear()
     this.unsubscribe?.()
     this.wire.close()

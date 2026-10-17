@@ -35,12 +35,15 @@ it('backend wire uses real project envelopes, header auth, binary notifications 
   expect(frames[0]).toMatchObject({ kind: 'request', method: 'qq.plugin.hello' }); expect(typeof frames[0].id).toBe('string'); expect(frames[0]).not.toHaveProperty('requestId')
   expect(headers[0]['x-qqbot-token']).toBe('synthetic-token-123'); expect(headers[0].origin).toMatch(/^http:\/\/127.0.0.1:/)
 })
-it('wire times out pending RPC and close rejects pending requests', async () => {
+it('wire keeps pending RPC alive until transport closes', async () => {
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' }); await once(server, 'listening')
   resources.push(() => new Promise<void>(resolve => server.close(() => resolve())))
   const wire = new BackendWire(`ws://127.0.0.1:${(server.address() as AddressInfo).port}`, 'synthetic-token-123', 30)
   resources.push(() => wire.close()); await wire.connect()
-  await expect(wire.request('qq.plugin.hello', {})).rejects.toMatchObject({ code: 'RPC_TIMEOUT' })
-  const pending = wire.request('qq.delivery.result', {}); wire.close()
+  const pending = wire.request('qq.delivery.result', {})
+  let settled = false; void pending.then(() => { settled = true }, () => { settled = true })
+  await new Promise(resolve => setTimeout(resolve, 100))
+  expect(settled).toBe(false)
+  wire.close()
   await expect(pending).rejects.toMatchObject({ code: 'DISCONNECTED' })
 })

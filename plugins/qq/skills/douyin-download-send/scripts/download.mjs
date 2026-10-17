@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** Download a single public video; JSON stdout, coordinated with host cleanup. */
-import {mkdir, realpath, open, rename, unlink} from 'node:fs/promises'
+import {mkdir, realpath, open, rename, unlink, stat} from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import {randomUUID} from 'node:crypto'
@@ -45,7 +45,7 @@ export async function saveMedia(address, dest, headers, {request = fetch, signal
   try {
     let url = validateMediaUrl(address)
     for (let redirects = 0; ; redirects++) {
-      response = await request(url, {headers, redirect: 'manual', signal: AbortSignal.any([AbortSignal.timeout(60000), ...(signal ? [signal] : [])])})
+      response = await request(url, {headers, redirect: 'manual', ...(signal ? {signal} : {})})
       if (![301, 302, 303, 307, 308].includes(response.status)) break
       await response.body?.cancel()
       if (redirects >= 5) throw new Error('Too many media redirects')
@@ -65,14 +65,44 @@ export async function saveMedia(address, dest, headers, {request = fetch, signal
       if (size > (image ? 30 : 150) * 1024 * 1024) throw new Error('SIZE_LIMIT')
       await file.writeFile(bytes)
     }
+    if (size !== length) throw new Error('Incomplete media')
     if (image ? !(first.subarray(0,3).equals(Buffer.from([255,216,255])) || first.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || /^GIF8[79]a/.test(first.toString('ascii')) || (first.subarray(0,4).toString() === 'RIFF' && first.subarray(8,12).toString() === 'WEBP')) : (size < 32 || !first.includes(Buffer.from('ftyp')))) throw new Error('Invalid media file')
     await file.sync(); await file.close(); file = undefined
+    if (!image) await normalizeVideoFile(temporary, {signal})
+    const finalSize = (await stat(temporary)).size
+    if (finalSize > (image ? 30 : 150) * 1024 * 1024) throw new Error('SIZE_LIMIT')
     await rename(temporary, dest)
-    return size
+    return finalSize
   } finally {
     await file?.close()
     await response?.body?.cancel().catch(() => {})
     await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error })
+  }
+}
+export async function normalizeVideoFile(filePath, {signal} = {}) {
+  const {stdout} = await runFile('ffprobe', ['-v', 'error', '-show_entries', 'stream=index,codec_type,codec_name,profile:format=duration', '-of', 'json', filePath], {maxBuffer: 65536, ...(signal ? {signal} : {})})
+  const media = JSON.parse(stdout)
+  const streams = media.streams ?? []
+  const videoStream = streams.find(s => s.codec_type === 'video')
+  if (!videoStream || !(Number(media.format?.duration) > 0)) throw new Error('Invalid media file')
+  const audioStream = streams.find(s => s.codec_type === 'audio')
+  const needsAudioTranscode = !!audioStream && (audioStream.codec_name !== 'aac' || audioStream.profile !== 'LC')
+  const needsReorder = !!audioStream && (videoStream.index ?? 0) > (audioStream.index ?? 0)
+  if (!needsAudioTranscode && !needsReorder) return false
+  const converted = `${filePath}.${randomUUID()}.mp4`
+  try {
+    await runFile('ffmpeg', [
+      '-nostdin', '-v', 'error', '-threads', '2', '-y', '-i', filePath,
+      '-map', '0:v:0', ...(audioStream ? ['-map', '0:a:0'] : []),
+      '-c:v', 'copy',
+      ...(audioStream ? (needsAudioTranscode ? ['-c:a', 'aac', '-profile:a', 'aac_low', '-b:a', '128k', '-ar', '48000', '-ac', '2'] : ['-c:a', 'copy']) : []),
+      '-movflags', '+faststart', converted,
+    ], {...(signal ? {signal} : {})})
+    if ((await stat(converted)).size > 150 * 1024 * 1024) throw new Error('SIZE_LIMIT')
+    await rename(converted, filePath)
+    return true
+  } finally {
+    await unlink(converted).catch(error => { if (error.code !== 'ENOENT') throw error })
   }
 }
 export async function download(url, output, {chromium, request = fetch} = {}) {
@@ -95,10 +125,10 @@ export async function download(url, output, {chromium, request = fetch} = {}) {
       const page = await context.newPage()
       const idPattern = /(?:\/video\/|\/share\/video\/|\/note\/|modal_id=)(\d+)/
       let target = url.match(idPattern)?.[1]
-      if (!target) { await page.goto(url, {waitUntil: 'domcontentloaded', timeout: 45000}); validateShareUrl(page.url()); target = page.url().match(idPattern)?.[1] }
+      if (!target) { await page.goto(url, {waitUntil: 'domcontentloaded', timeout: 0}); validateShareUrl(page.url()); target = page.url().match(idPattern)?.[1] }
       if (!target) throw new Error('Could not resolve video ID')
-      await page.goto(`https://www.douyin.com/jingxuan?modal_id=${target}`, {waitUntil: 'domcontentloaded', timeout: 60000})
-      await page.waitForSelector('#RENDER_DATA', {state: 'attached', timeout: 45000})
+      await page.goto(`https://www.douyin.com/jingxuan?modal_id=${target}`, {waitUntil: 'domcontentloaded', timeout: 0})
+      await page.waitForSelector('#RENDER_DATA', {state: 'attached', timeout: 0})
       const item = findItem(JSON.parse(decodeURIComponent(await page.locator('#RENDER_DATA').textContent())), target)
       if (!item) throw new Error('Target video data missing; login or verification may be required')
       // Image posts may expose background music as item.video: never send that as video.
@@ -116,12 +146,12 @@ export async function download(url, output, {chromium, request = fetch} = {}) {
           if (!address) throw new Error('Image address missing')
           try {
             await saveMedia(address, raw, headers, {request, signal: controller.signal, image: true})
-            const {stdout} = await runFile('identify', ['-ping', '-format', '%n ', raw], {timeout: 15000, maxBuffer: 65536, signal: controller.signal})
+            const {stdout} = await runFile('identify', ['-ping', '-format', '%n ', raw], {maxBuffer: 65536, signal: controller.signal})
             const animated = Number(stdout.trim().split(/\s+/)[0]) > 1
             const dest = path.join(root, `${target}-${index}.${animated ? 'gif' : 'png'}`)
             const temporary = path.join(root, `.${target}-${index}-${randomUUID()}.part`)
             try {
-              await runFile('convert', ['-limit', 'memory', '128MiB', '-limit', 'map', '128MiB', raw, ...(animated ? ['-coalesce', '-loop', '0'] : []), `${animated ? 'gif' : 'png'}:${temporary}`], {timeout: 60000, signal: controller.signal})
+              await runFile('convert', ['-limit', 'memory', '128MiB', '-limit', 'map', '128MiB', raw, ...(animated ? ['-coalesce', '-loop', '0'] : []), `${animated ? 'gif' : 'png'}:${temporary}`], {signal: controller.signal})
               await rename(temporary, dest)
             } finally { await unlink(temporary).catch(e => { if (e.code !== 'ENOENT') throw e }) }
             files.push(dest)
