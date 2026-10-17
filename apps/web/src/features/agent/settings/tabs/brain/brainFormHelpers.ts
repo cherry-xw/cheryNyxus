@@ -1,4 +1,9 @@
-import type { BrainConfigDto, MediaCapabilitiesDto } from '@/application/backend/public'
+import type {
+  BrainConfigDto,
+  CapabilityValueDto,
+  MediaCapabilitiesDto,
+  OutputCapabilitiesDto,
+} from '@/application/backend/public'
 
 // ── info tip 文案（结构化多行，.label-tip-popper pre-line 渲染，\n 分点） ──
 export const PROVIDER_TIP = [
@@ -32,27 +37,35 @@ export function updateContextLimit(cfg: { contextLimit?: number }, value: unknow
   if (!Number.isFinite(limit) || limit <= 0) return
   cfg.contextLimit = limit * 1000
 }
+export function isCapabilitySupported(value: CapabilityValueDto | undefined): boolean {
+  return value === true || value === 'supported'
+}
 export function capabilities(cfg: BrainConfigDto) {
   return (cfg.capabilities ??= {})
 }
-export function mediaCapabilities(cfg: BrainConfigDto, key: 'input' | 'generate') {
+export function mediaCapabilities(cfg: BrainConfigDto, key: 'input' | 'output') {
   const caps = capabilities(cfg)
   return (caps[key] ??= {})
 }
 export function toggleMediaCapability(
   cfg: BrainConfigDto,
-  group: 'input' | 'generate',
+  group: 'input' | 'output',
   kind: keyof MediaCapabilitiesDto,
 ): void {
-  const media = mediaCapabilities(cfg, group)
-  media[kind] = media[kind] !== true
+  if (group === 'input') {
+    const media = mediaCapabilities(cfg, 'input') as MediaCapabilitiesDto
+    media[kind] = isCapabilitySupported(media[kind]) ? 'unsupported' : 'supported'
+    return
+  }
+  const media = mediaCapabilities(cfg, 'output') as OutputCapabilitiesDto
+  const outKind = kind as keyof OutputCapabilitiesDto
+  media[outKind] = isCapabilitySupported(media[outKind]) ? 'unsupported' : 'supported'
 }
 export function toolCallEnabled(cfg: BrainConfigDto): boolean {
   return cfg.capabilities?.toolCall !== false
 }
 export function setToolCall(cfg: BrainConfigDto, value: unknown): void {
   capabilities(cfg).toolCall = value as boolean
-  if (value === false) capabilities(cfg).generate = {}
 }
 
 /** 当前 brain 是否官方 Anthropic（影响 redacted_thinking 回传策略）；

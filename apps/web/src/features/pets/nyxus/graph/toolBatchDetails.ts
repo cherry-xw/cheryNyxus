@@ -148,6 +148,8 @@ export function graphToolCallToSenseCall(call: GraphToolCall): SenseCallRecord {
     name: call.name,
     args: call.arguments,
     ...(call.result === undefined ? {} : { result: call.result }),
+    parts: call.parts,
+    fileOperations: call.fileOperations,
     security: call.security,
     status:
       call.status === 'completed'

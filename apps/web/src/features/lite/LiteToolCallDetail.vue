@@ -219,16 +219,20 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
         :tool-key="call.name"
         :chat-id="rootChatId"
         :trigger-label="'简介'"
+        :execution-owner="call.executionOwner"
       />
+      <span v-if="call.executionOwner === 'server'" class="lite-server-owner-badge">
+        {{ call.serverState === 'skipped-local' ? '已由云端完成（跳过本地）' : '由模型服务执行' }}
+      </span>
       <!-- 工具调用的安全判定徽章（compact；缺省 = 未知）。
            标题 / 工具类型 / 执行状态已由抽屉顶部标题栏承担，此处不再重复展示（用户需求 2026-11）。 -->
-      <RiskBadge :auth="call.security" compact />
+      <RiskBadge v-if="call.executionOwner !== 'server'" :auth="call.security" compact />
     </header>
 
     <!-- 有待处理交互（审批/提问）：渲染交互区，代替下方只读展示；
          交互完成后 interaction 消失，卡片自动回到只读内容（v2026-11 交互入口迁入抽屉）。 -->
     <LiteInteractionView
-      v-if="interaction"
+      v-if="interaction && call.executionOwner !== 'server'"
       :window-id="windowId"
       :root-chat-id="rootChatId"
       :interaction="interaction"
@@ -307,6 +311,23 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
       <!-- 结果区：提问工具已把结果渲染进选项，不再单列结果。
            内置工具（配置管理等）直接全量展示结果，不做预览折叠（通用展示只留给外部工具）。 -->
       <template v-if="!selectPattern">
+        <section v-if="call.sources?.length" class="lite-tool-call-sources">
+          <h5>来源引用（{{ call.sources.length }}）</h5>
+          <ul class="lite-sources-list">
+            <li v-for="(src, idx) in call.sources" :key="idx" class="lite-source-item">
+              <a
+                :href="src.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="lite-source-link"
+              >
+                {{ src.title || src.url }}
+              </a>
+              <span v-if="src.refer" class="lite-source-refer">[{{ src.refer }}]</span>
+              <p v-if="src.snippet" class="lite-source-snippet">{{ src.snippet }}</p>
+            </li>
+          </ul>
+        </section>
         <section class="lite-tool-call-result">
           <h5>执行结果</h5>
           <div
@@ -410,6 +431,50 @@ const resultDisplay = computed(() => (resultExpanded.value ? resultRaw.value : r
 }
 .lite-tool-call-head :deep(.risk-dot) {
   display: none;
+}
+.lite-server-owner-badge {
+  flex: none;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+.lite-tool-call-sources {
+  margin-top: 8px;
+}
+.lite-tool-call-sources > h5 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-text-color-secondary);
+}
+.lite-sources-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.lite-source-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+  word-break: break-all;
+}
+.lite-source-link:hover {
+  text-decoration: underline;
+}
+.lite-source-refer {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.lite-source-snippet {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
 }
 .lite-tool-call-args > summary {
   display: flex;

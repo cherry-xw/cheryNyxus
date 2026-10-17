@@ -1,4 +1,5 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
+import { COMPOSER_FILE_DRAFT } from '@/features/agent/composer/public'
 import { useLiteStore } from './liteStore'
 import { useLiteCanonicalView } from './useLiteCanonicalView'
 import { useLiteInteractions } from './useLiteInteractions'
@@ -38,11 +39,13 @@ import {
 import { useChatSessionsStore } from '@/application/public'
 import { ElMessage, type UploadFile } from 'element-plus'
 import type { MediaAttachment, MediaKind } from '@/features/agent/composables/useComposerMedia'
+import { composeMessageParts, displayDraftFiles, encodeDraftFiles } from '@/domain/chat/messageParts'
 import { useComposerMedia } from '@/features/agent/composables/useComposerMedia'
 
 export type LiteViewControllerProps = { windowId: string; rootChatId: string; presetName?: string; modelRequestTimeoutMs?: number }
 
 export function useLiteViewController(props: LiteViewControllerProps) {
+  const sharedDraft = inject(COMPOSER_FILE_DRAFT, undefined)
   const liteUi = useLiteStore()
   const chatSessions = useChatSessionsStore()
   const lite = useLiteCanonicalView(
@@ -326,21 +329,18 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     scrollToBottom,
   )
   const inputText = computed({
-    get: () => rootUi.value.inputDraft,
+    get: () => sharedDraft ? displayDraftFiles(sharedDraft.text.value, sharedDraft.files.value) : rootUi.value.inputDraft,
     set: (value: string) =>
-      liteUi.patchRootUi(props.windowId, props.rootChatId, { inputDraft: value }),
+      sharedDraft ? sharedDraft.text.value = encodeDraftFiles(value, sharedDraft.files.value) : liteUi.patchRootUi(props.windowId, props.rootChatId, { inputDraft: value }),
   })
   const sending = ref(false)
   async function onSend(): Promise<void> {
+    if (sharedDraft) { await sharedDraft.send(props.rootChatId); return }
     const content = inputText.value.trim()
-    if (!content || sending.value) return
-    // 媒体附件：可压缩图片按 useCompressed 选择发送「压缩版」还是「原图版（基本压缩）」
-    const attachments = mediaAttachments.value.map((m) => {
-      const chosen = m.useCompressed && m.compressed ? m.compressed : m
-      return { assetId: chosen.assetId, kind: m.kind, mimeType: chosen.mimeType }
-    })
+    if ((!content && !mediaAttachments.value.length) || sending.value || uploading.value) return
     sending.value = true
     try {
+      const attachments = composeMessageParts(content, mediaAttachments.value)
       const sent = await lite.submitInput(content, attachments)
       if (sent) {
         // 新运行已开始：清掉可能残留的命令错误 banner（成功发送是新一轮开始）
@@ -353,6 +353,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
         await nextTick()
         autoGrowInput()
       }
+    } catch (cause) {
+      mediaHint.value = cause instanceof Error ? cause.message : '消息发送失败'
     } finally {
       sending.value = false
     }
@@ -728,9 +730,9 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     }
     return config.value
   }
-  const mediaAttachments = ref<MediaAttachment[]>([])
-  const uploading = ref(false)
-  const mediaHint = ref('')
+  const mediaAttachments = sharedDraft?.files ?? ref<MediaAttachment[]>([])
+  const uploading = sharedDraft?.uploading ?? ref(false)
+  const mediaHint = sharedDraft?.hint ?? ref('')
   /** 当前会话主角色 brain（取最近一条带 runtime 的用户/助手消息的发送配置）。 */
   function currentBrain(): string | undefined {
     const session = chatSessions.sessionsById[props.rootChatId]
@@ -773,8 +775,9 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     const result: Record<string, string | null> = { image: null, video: null, audio: null }
     const capability = brainCapability()
     for (const kind of ['image', 'video', 'audio'] as const) {
+      const capVal = capability?.[kind]
       if (hasToolCapability(kind)) result[kind] = '感官组工具'
-      else if (capability?.[kind]) result[kind] = '模型原生支持'
+      else if (capVal === true || capVal === 'supported') result[kind] = '模型原生支持'
     }
     return result as Record<MediaKind, string | null>
   })
@@ -784,35 +787,42 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     return ''
   })
   function removeMedia(attachment: MediaAttachment): void {
+    if (sharedDraft) { sharedDraft.remove(attachment); return }
+    attachment.cancelled = true
     URL.revokeObjectURL(attachment.previewUrl)
     mediaAttachments.value = mediaAttachments.value.filter((item) => item !== attachment)
     mediaHint.value = mediaAttachments.value.length
       ? `已附加 ${mediaAttachments.value.length} 个媒体文件`
       : ''
   }
-  function toggleMediaVariant(attachment: MediaAttachment): void {
+  function toggleMediaVariant(attachment: MediaAttachment, field: 'variant' | 'usage' = 'variant'): void {
+    if (sharedDraft) { sharedDraft.toggle(attachment, field); return }
+    if (field === 'usage') {
+      attachment.usage = attachment.usage === 'reference-only' ? 'content' : 'reference-only'
+      return
+    }
     if (!attachment.compressed) return
-    const next = { ...attachment, useCompressed: !attachment.useCompressed }
-    const index = mediaAttachments.value.indexOf(attachment)
-    if (index >= 0) mediaAttachments.value[index] = next
-    else mediaAttachments.value = mediaAttachments.value.map((m) => (m === attachment ? next : m))
+    attachment.useCompressed = !attachment.useCompressed
   }
   // 媒体上传编排与 AgentDialog 共用（composables/useComposerMedia.ts）：
   // 能力探测走会话历史回扫（hasToolCapability/brainCapability），无过期守卫（恒真）。
   const { onMediaSelected: sharedOnMediaSelected } = useComposerMedia({
+    defaultImageVariant: () => config.value?.files?.context?.defaultImageVariant ?? 'adapted',
     attachments: mediaAttachments,
     uploading,
     mediaHint,
     sending: () => sending.value,
-    hasCapability: (category) =>
-      hasToolCapability(category) || brainCapability()?.[category] === true,
+    hasCapability: (category) => {
+      const capVal = brainCapability()?.[category]
+      return hasToolCapability(category) || capVal === true || capVal === 'supported'
+    },
     generation: () => 0,
     isCurrent: () => true,
     prepare: () => ensureConfig(),
   })
 
   async function onMediaSelected(uploadFile: UploadFile): Promise<void> {
-    await sharedOnMediaSelected(uploadFile)
+    await (sharedDraft ? sharedDraft.upload(uploadFile) : sharedOnMediaSelected(uploadFile))
   }
 
   return {

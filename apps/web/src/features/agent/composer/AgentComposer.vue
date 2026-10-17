@@ -64,10 +64,8 @@ const mediaKinds = [
   { kind: 'audio', label: '音频' },
 ] as const
 const mediaDisabledReason = computed(() => {
-  if (props.attachmentsDisabled) return '分支暂不支持附件'
   if (props.sending) return '消息正在发送'
   if (props.uploading) return '附件正在上传'
-  if (!props.primarySelection?.brain) return '请先选择主角色大脑'
   return ''
 })
 const sendDisabledReason = computed(() => {
@@ -77,9 +75,8 @@ const sendDisabledReason = computed(() => {
   if (!props.primarySelection?.brain) return '请先选择主角色大脑'
   if (props.supportsTools(props.primarySelection.brain) && !props.primarySelection.senseGroup)
     return '请先选择感官组'
-  if (props.attachmentsDisabled && props.mediaAttachments.length)
-    return '分支不支持附件，请移除后再发送'
-  if (!props.text.trim()) return '请输入消息'
+  if (props.mediaAttachments.some(a => a.status === 'failed')) return '请重试或移除上传失败的文件'
+  if (!props.text.trim() && !props.mediaAttachments.length) return '请输入消息或添加文件'
   return ''
 })
 
@@ -105,7 +102,7 @@ function setRoleMenuRef(value: TemplateRefValue): void {
 
 const emit = defineEmits<{
   removeMedia: [attachment: MediaAttachment]
-  toggleMediaVariant: [attachment: MediaAttachment]
+  toggleMediaVariant: [attachment: MediaAttachment, field?: 'variant' | 'usage']
   editorInput: []
   editorKeydown: [event: KeyboardEvent]
   editorSelectionChange: []
@@ -270,7 +267,7 @@ const emit = defineEmits<{
           <template #reference>
             <span class="add-media-wrap">
               <ElTooltip
-                :content="mediaDisabledReason || '添加媒体'"
+                :content="mediaDisabledReason || '添加文件'"
                 popper-class="label-tip-popper"
               >
                 <span>
@@ -278,7 +275,7 @@ const emit = defineEmits<{
                     type="button"
                     class="add-media-btn"
                     :disabled="!!mediaDisabledReason"
-                    aria-label="添加媒体附件"
+                    aria-label="添加文件"
                   >
                     <Plus width="16" height="16" />
                   </button>
@@ -287,14 +284,13 @@ const emit = defineEmits<{
             </span>
           </template>
           <div class="add-media-menu" @click.stop>
+            <ElUpload :auto-upload="false" :show-file-list="false" multiple :disabled="!!mediaDisabledReason" :on-change="(file: UploadFile) => emit('mediaSelected', file)"><button type="button" :disabled="!!mediaDisabledReason">添加任意文件</button></ElUpload>
             <ElTooltip
               v-for="item in mediaKinds"
               :key="item.kind"
               :content="
                 mediaDisabledReason ||
-                (mediaServicesByType[item.kind]
-                  ? item.label
-                  : `当前大脑及媒体服务均不支持${item.label}`)
+                item.label
               "
               popper-class="label-tip-popper"
             >
@@ -303,7 +299,8 @@ const emit = defineEmits<{
                   :auto-upload="false"
                   :show-file-list="false"
                   :accept="`${item.kind}/*`"
-                  :disabled="!!mediaDisabledReason || !mediaServicesByType[item.kind]"
+                  multiple
+                  :disabled="!!mediaDisabledReason"
                   :on-change="(file: UploadFile) => emit('mediaSelected', file)"
                   class="add-media-upload"
                 >
@@ -312,7 +309,7 @@ const emit = defineEmits<{
                     ><span
                       class="media-svc-tag"
                       :class="{ missing: !mediaServicesByType[item.kind] }"
-                      >{{ mediaServicesByType[item.kind] || '不可用' }}</span
+                      >{{ mediaServicesByType[item.kind] || '可仅附文件' }}</span
                     >
                   </div>
                 </ElUpload>
@@ -340,7 +337,7 @@ const emit = defineEmits<{
       <MediaThumbStrip
         :attachments="mediaAttachments"
         @remove="(a) => emit('removeMedia', a)"
-        @toggle="(a) => emit('toggleMediaVariant', a)"
+        @toggle="(a, field) => emit('toggleMediaVariant', a, field)"
       />
       <span class="composer-media-hint" :class="{ 'is-pushed': mediaAttachments.length > 0 }">
         / 指令 · @ 角色 · &amp; 文件引用

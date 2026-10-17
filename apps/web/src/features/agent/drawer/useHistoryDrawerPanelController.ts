@@ -119,7 +119,17 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       name: c.name,
       args: c.arguments,
       result: c.result,
-      status: c.status === 'rejected' ? 'error' : c.status === 'pending' ? 'running' : 'done',
+      parts: c.parts,
+      fileOperations: c.fileOperations,
+      status:
+        c.status === 'rejected' || c.status === 'error' || c.serverState === 'failed'
+          ? 'error'
+          : c.status === 'pending' || c.serverState === 'started'
+            ? 'running'
+            : 'done',
+      ...(c.executionOwner ? { executionOwner: c.executionOwner } : {}),
+      ...(c.serverState ? { serverState: c.serverState } : {}),
+      ...(c.sources ? { sources: c.sources } : {}),
       security: c.security,
     }
   }
@@ -143,6 +153,8 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
     return {
       role,
       content: node.content,
+      ...(node.parts ? { parts: node.parts.map(part => ({ ...part })) } : {}),
+      ...(node.fileOperations ? { fileOperations: node.fileOperations } : {}),
       ...(node.thinking ? { thinking: node.thinking } : {}),
       ...(node.runtime ? { runtime: node.runtime } : {}),
       ...(node.toolCalls?.length

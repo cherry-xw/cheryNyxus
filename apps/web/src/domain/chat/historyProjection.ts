@@ -7,9 +7,8 @@ export function dedupHistoryByMsgId(items: readonly HistoryItem[]): HistoryItem[
     const item: HistoryItem = {
       ...source,
       ...(source.senseCalls ? { senseCalls: source.senseCalls.map((call) => ({ ...call })) } : {}),
-      ...(source.mediaAssets
-        ? { mediaAssets: source.mediaAssets.map((asset) => ({ ...asset })) }
-        : {}),
+      ...(source.parts ? { parts: source.parts.map(part => ({ ...part })) } : {}),
+      ...(source.fileOperations ? { fileOperations: source.fileOperations.map(operation => ({ ...operation })) } : {}),
     }
     if (!item.msgId) {
       result.push(item)
@@ -27,8 +26,8 @@ export function dedupHistoryByMsgId(items: readonly HistoryItem[]): HistoryItem[
     if (item.content.length > existing.content.length) existing.content = item.content
     if (!existing.runtime && item.runtime) existing.runtime = item.runtime
     if (!existing.agentChatId && item.agentChatId) existing.agentChatId = item.agentChatId
-    if (!existing.mediaAssets?.length && item.mediaAssets?.length)
-      existing.mediaAssets = item.mediaAssets
+    if (!existing.parts?.length && item.parts?.length) existing.parts = item.parts
+    if (item.fileOperations) existing.fileOperations = item.fileOperations
     if (item.contextCompaction) existing.contextCompaction = true
     if (item.contextCompactionTokens !== undefined) {
       existing.contextCompactionTokens = item.contextCompactionTokens
@@ -47,6 +46,8 @@ export function dedupHistoryByMsgId(items: readonly HistoryItem[]): HistoryItem[
         const existingCall = callByFingerprint.get(fingerprint)
         if (existingCall) {
           if (!existingCall.security && call.security) existingCall.security = call.security
+          if (call.parts) existingCall.parts = call.parts
+          if (call.fileOperations) existingCall.fileOperations = call.fileOperations
           continue
         }
         callByFingerprint.set(fingerprint, call)

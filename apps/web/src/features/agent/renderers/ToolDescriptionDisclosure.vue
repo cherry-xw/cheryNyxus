@@ -21,6 +21,8 @@ const props = defineProps<{
   /** 触发按钮显示文案；缺省显示 toolName。部分宿主已把工具名单独展示（如 lite 工具链分割线），
    *  触发按钮只需显示「简介」。 */
   triggerLabel?: string
+  /** 工具执行归属（server=由模型服务执行） */
+  executionOwner?: 'local' | 'server'
 }>()
 
 const open = ref(false)
@@ -194,7 +196,11 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p v-if="!doc && !fields.length" class="tool-description-muted">
-            当前工具没有可用的固定说明，仅显示本次调用参数。
+            {{
+              executionOwner === 'server'
+                ? '此工具由模型服务内置并在云端执行（暂无公开固定目录说明），仅展示本次实际调用的参数、结果与来源。'
+                : '当前工具没有可用的固定说明，仅显示本次调用参数。'
+            }}
           </p>
         </template>
       </section>

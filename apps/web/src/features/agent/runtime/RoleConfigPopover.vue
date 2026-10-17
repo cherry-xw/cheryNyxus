@@ -79,6 +79,10 @@ function formatContextLimit(limit: number | undefined): string {
   return String(limit)
 }
 
+function isCapSupported(val: unknown): boolean {
+  return val === true || val === 'supported'
+}
+
 function formatTokens(value: number): string {
   if (value >= 1000) return `${Math.round(value / 1000)}k`
   return String(value)
@@ -159,43 +163,43 @@ const nameIsBig = ref(true)
             <span class="brain-fact-icon">🔧</span>
           </el-tooltip>
           <el-tooltip
-            v-if="brainConfig(selection.brain)?.capabilities?.input?.image"
+            v-if="isCapSupported(brainConfig(selection.brain)?.capabilities?.input?.image)"
             content="模型支持图像输入"
             placement="top"
           >
             <span class="brain-fact-icon cap-input">🖼️</span>
           </el-tooltip>
           <el-tooltip
-            v-if="brainConfig(selection.brain)?.capabilities?.input?.video"
+            v-if="isCapSupported(brainConfig(selection.brain)?.capabilities?.input?.video)"
             content="模型支持视频输入"
             placement="top"
           >
             <span class="brain-fact-icon cap-input">🎞️</span>
           </el-tooltip>
           <el-tooltip
-            v-if="brainConfig(selection.brain)?.capabilities?.input?.audio"
+            v-if="isCapSupported(brainConfig(selection.brain)?.capabilities?.input?.audio)"
             content="模型支持音频输入"
             placement="top"
           >
             <span class="brain-fact-icon cap-input">🔊</span>
           </el-tooltip>
           <el-tooltip
-            v-if="brainConfig(selection.brain)?.capabilities?.generate?.image"
-            content="模型支持图像生成"
+            v-if="isCapSupported(brainConfig(selection.brain)?.capabilities?.output?.image)"
+            content="模型原生支持图像输出"
             placement="top"
           >
             <span class="brain-fact-icon cap-generate">🎨</span>
           </el-tooltip>
           <el-tooltip
-            v-if="brainConfig(selection.brain)?.capabilities?.generate?.video"
-            content="模型支持视频生成"
+            v-if="isCapSupported(brainConfig(selection.brain)?.capabilities?.output?.video)"
+            content="模型原生支持视频输出"
             placement="top"
           >
             <span class="brain-fact-icon cap-generate">🎬</span>
           </el-tooltip>
           <el-tooltip
-            v-if="brainConfig(selection.brain)?.capabilities?.generate?.audio"
-            content="模型支持音频生成"
+            v-if="isCapSupported(brainConfig(selection.brain)?.capabilities?.output?.audio)"
+            content="模型原生支持音频输出"
             placement="top"
           >
             <span class="brain-fact-icon cap-generate">🎵</span>

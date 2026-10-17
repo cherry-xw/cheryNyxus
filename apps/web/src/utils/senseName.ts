@@ -22,6 +22,12 @@ export const SENSE_NAME_ZH: Record<string, string> = {
   update_todo: '更新任务',
   todo: '任务清单',
   complete: '完成',
+  web_search: '网络搜索',
+  web_search_prime: '云端网络搜索',
+  web_search_call: '云端网络搜索',
+  webReader: '云端网页读取',
+  web_fetch: '读取网页',
+  analyze_image: '云端图像分析',
 }
 
 /** 取 sense 中文显示名；raw 为空 → 「工具调用」，未收录 → 原名。 */

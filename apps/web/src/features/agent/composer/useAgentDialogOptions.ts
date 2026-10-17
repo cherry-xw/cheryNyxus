@@ -1,10 +1,14 @@
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
+import { fileApi, fileDraftLeases, type AssetRecord } from '@/application/files/public'
+import { COMPOSER_FILE_DRAFT, FILE_REFERENCE_TARGET, registerFileReferenceTarget } from './fileReferenceTarget'
+import { composeMessageParts } from '@/domain/chat/messageParts'
+import { createDraftTextHistory } from './model/draftTextHistory'
 import type { Ref } from 'vue'
-import { httpUrl } from '@/application/platform/public'
 import { useAgentsStore, useChatSessionsStore, useConfigApplyStore } from '@/application/public'
 import { wsClient } from '@/application/transport/public'
 import {
   useComposerMedia,
+  configureImageAdaptation,
   mediaKindOf,
   type MediaAttachment,
   type MediaKind,
@@ -86,6 +90,7 @@ export interface FileMentionOption extends FileMention { name: string }
 
 export interface UseAgentDialogOptionsOptions {
   draftScope?: string
+  draftChatId?: () => string | null
   /** 本实例的 chatId 来源。传入时优先使用（Ref 直接复用，函数包成 computed）；未传入回退全局单例 activeDialogChatId。 */
   chatId?: Ref<string | null> | (() => string | null)
   /** 本实例的 presetName 入口来源（工作台窗口携带的预设名；空白工作台/会话未水合时据此解析）。
@@ -111,7 +116,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   const pet = computed<PetInstance | undefined>(() =>
     chatId.value ? agents.petForChat(chatId.value) : undefined,
   )
-  // Cherry Nyxus 会话不建 PetInstance；琴键切到尚未水合的会话时，historyList 先提供 preset，
+  // cheryNyxus 会话不建 PetInstance；琴键切到尚未水合的会话时，historyList 先提供 preset，
   // 避免上方树在 hydrate 期间被误判为非 Nyxus 而卸载。
   // 入口 presetName（工作台窗口打开时携带）优先——空白工作台/会话未水合时不依赖推导链。
   const presetName = computed<string | undefined>(() => {
@@ -133,6 +138,9 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   const roleSelections = ref<Record<string, RuntimeSelection>>({})
   const primaryRole = ref('主角色')
   const text = ref('')
+  const textHistory = createDraftTextHistory()
+  let replayingText = false
+  watch(text, value => { if (!replayingText) textHistory.record(value) }, { flush: 'sync' })
   /** 光标前内容序列化串；指令/角色菜单据此触发（支持句中输入 / 或 @）。 */
   const caretPrefix = ref('')
   const workspaceFiles = ref<FileMentionOption[]>([])
@@ -143,8 +151,13 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   const mediaHint = ref('')
   const uploadQueue = ref<import('element-plus').UploadUserFile[]>([])
   const mediaAttachments = ref<MediaAttachment[]>([])
+  watch(() => mediaAttachments.value.map(a => a.status), () => {
+    uploading.value = mediaAttachments.value.some(a => a.status === 'uploading')
+    stashDraft()
+  })
   let draftGeneration = 0
   let activeDraftKey = ''
+  let activeDraftContext = ''
   const runtimeHint = ref('')
   const runtimeError = ref(false)
   const sending = ref(false)
@@ -279,16 +292,19 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   // immediate watcher 只能在重连守卫完成初始化后注册。真实 chatId 会在注册时同步执行回调；
   // 若它位于上方，armRetryOnConnect 会读取仍处于 TDZ 的 connectResumed，导致整个原生窗首屏渲染中断。
   watch(
-    chatId,
-    (v) => {
+    () => [options?.draftChatId?.() ?? chatId.value, fileApi.contextKey()] as const,
+    ([v, backend]) => {
       stashDraft()
       draftGeneration += 1
       uploading.value = false
       uploadQueue.value = []
-      activeDraftKey = `${options?.draftScope ?? 'quick'}:${v ?? entryPresetName.value ?? 'new'}`
+      activeDraftKey = `${backend}:${options?.draftScope ?? 'quick'}:${v ?? entryPresetName.value ?? 'new'}`
+      activeDraftContext = backend
       const saved = composerDrafts.get(activeDraftKey)
       text.value = saved?.text ?? ''
+      textHistory.reset(text.value)
       mediaAttachments.value = saved?.media.slice() ?? []
+      uploading.value = mediaAttachments.value.some(a => a.status === 'uploading')
       mediaHint.value = ''
       runtimeHint.value = ''
       void nextTick(restoreEditor)
@@ -546,28 +562,39 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   function stashDraft(): void {
     if (!activeDraftKey) return
     if (text.value || mediaAttachments.value.length) {
-      composerDrafts.set(activeDraftKey, {
+      const draft = {
         text: text.value,
         media: mediaAttachments.value.slice(),
-      })
-    } else composerDrafts.delete(activeDraftKey)
+      }
+      composerDrafts.set(activeDraftKey, draft)
+      if (draft.media.length) fileDraftLeases.set(`composer:${activeDraftKey}`, activeDraftContext, () => draft.media
+        .filter(file => file.status === 'ready' && !file.cancelled && file.assetVersionId)
+        .flatMap(file => [{ assetId: file.assetId, assetVersionId: file.assetVersionId },
+          ...(file.compressed ? [{ assetId: file.compressed.assetId, assetVersionId: file.compressed.assetVersionId }] : [])]))
+      else fileDraftLeases.drop(`composer:${activeDraftKey}`)
+    } else {
+      composerDrafts.delete(activeDraftKey)
+      fileDraftLeases.drop(`composer:${activeDraftKey}`)
+    }
   }
 
   function restoreEditor(): void {
     const editor = editorRef.value
     if (!editor) return
-    const nodes = text.value.split(/(\[\[(?:command:|role:@|file:)[^\]]+\]\])/g).map((part) => {
+    const nodes = text.value.split(/(\[\[(?:command:|role:@|file:|attachment:)[^\]]+\]\])/g).map((part) => {
       const command = /^\[\[command:(.+)\]\]$/.exec(part)?.[1]
       const role = /^\[\[role:@(.+)\]\]$/.exec(part)?.[1]
       const file = /^\[\[file:(.+)\]\]$/.exec(part)?.[1]
-      if (!command && !role && !file) return document.createTextNode(part)
+      const attachment = /^\[\[attachment:(.+)\]\]$/.exec(part)?.[1]
+      if (!command && !role && !file && !attachment) return document.createTextNode(part)
       const token = document.createElement('span')
       token.className = `instruction-token${role ? ' role-mention-token' : ''}${file ? ' file-mention-token' : ''}`
       token.contentEditable = 'false'
       if (command) token.dataset.commandName = command
       if (role) token.dataset.roleName = role
       if (file) token.dataset.filePath = file
-      token.textContent = role ? `@${role}` : file ? `&${file}` : command!.replace(/^\//, '')
+      if (attachment) token.dataset.attachmentId = attachment
+      token.textContent = attachment ? `附件 · ${mediaAttachments.value.find(a => a.referenceId === attachment)?.filename ?? '引用已失效'}` : role ? `@${role}` : file ? `&${file}` : command!.replace(/^\//, '')
       return token
     })
     editor.replaceChildren(...nodes)
@@ -575,8 +602,15 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   }
   watch(
     editorRef,
-    () => {
+    (editor, _, cleanup) => {
       if (text.value) restoreEditor()
+      const beforeInput = (event: InputEvent) => {
+        if (event.inputType !== 'historyUndo' && event.inputType !== 'historyRedo') return
+        event.preventDefault()
+        replayText(event.inputType === 'historyUndo' ? -1 : 1)
+      }
+      editor?.addEventListener('beforeinput', beforeInput)
+      cleanup(() => editor?.removeEventListener('beforeinput', beforeInput))
     },
     { flush: 'post' },
   )
@@ -665,7 +699,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     options: { keepOpen?: boolean } = {},
   ): Promise<boolean> {
     const targetChatId = targetOverride ?? chatId.value
-    if (!targetChatId || !text.value.trim() || sending.value || uploading.value || loading.value)
+    if (!targetChatId || (!text.value.trim() && !mediaAttachments.value.length) || sending.value || uploading.value || loading.value)
       return false
     const submittedText = text.value
     const submittedMedia = mediaAttachments.value.slice()
@@ -711,15 +745,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
             ? `（已应用到 ${applied.length} 个已派发的子）`
             : ''
       if (propagationHint) console.info('[AgentDialog] session.runtime.set 回灌:', propagationHint)
-      const attachments = submittedMedia.map((m) => {
-        // 预压缩双版本：按 useCompressed 选择发送压缩版还是原图
-        const chosen = m.useCompressed && m.compressed ? m.compressed : m
-        return {
-          assetId: chosen.assetId,
-          kind: m.kind,
-          mimeType: chosen.mimeType,
-        }
-      })
+      const attachments = composeMessageParts(prompt, submittedMedia)
       // V2 command plane: ACK the input independently from the agent run. Opening
       // the session first guarantees the subsequent input.updated/turn events are
       // observed by the authoritative ChatSession reducer. Nyxus additionally
@@ -750,9 +776,10 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
         if (draft) {
           if (draft.text === submittedText) draft.text = ''
           draft.media = draft.media.filter(
-            (item) => !submittedMedia.some((sent) => sent.assetId === item.assetId),
+            (item) => !submittedMedia.includes(item),
           )
           if (!draft.text && !draft.media.length) composerDrafts.delete(submittedKey)
+          if (!draft.media.length) fileDraftLeases.drop(`composer:${submittedKey}`)
         }
         for (const attachment of submittedMedia) URL.revokeObjectURL(attachment.previewUrl)
       }
@@ -793,6 +820,11 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
 
   function onEditorKeydown(e: KeyboardEvent, send?: () => void): void {
     if (e.isComposing) return
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+      e.preventDefault()
+      replayText(e.shiftKey || e.key.toLowerCase() === 'y' ? 1 : -1)
+      return
+    }
     if (removeAdjacentInstructionToken(e)) return
     if (e.key === 'Escape' && (showFileMenu.value || showCommandMenu.value || showRoleMenu.value)) {
       e.preventDefault(); e.stopPropagation(); caretPrefix.value = ''; return
@@ -892,6 +924,12 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   }
 
   function onEditorPaste(e: ClipboardEvent): void {
+    const files = Array.from(e.clipboardData?.files ?? [])
+    if (files.length) {
+      e.preventDefault()
+      for (const file of files) void onMediaSelected({ raw: file } as import('element-plus').UploadFile)
+      return
+    }
     e.preventDefault()
     const pasted = e.clipboardData?.getData('text/plain')
     if (pasted) {
@@ -902,8 +940,27 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
 
   function resetEditor(): void {
     text.value = ''
+    textHistory.reset('')
     stashDraft()
     if (editorRef.value) editorRef.value.replaceChildren()
+  }
+
+  function replayText(direction: -1 | 1): void {
+    if (sending.value) return
+    const value = textHistory.move(direction)
+    if (value === undefined) return
+    replayingText = true
+    try { text.value = value } finally { replayingText = false }
+    restoreEditor()
+    const editor = editorRef.value
+    if (editor) {
+      editor.focus()
+      const range = document.createRange()
+      range.selectNodeContents(editor); range.collapse(false)
+      const selection = window.getSelection()
+      selection?.removeAllRanges(); selection?.addRange(range)
+    }
+    stashDraft()
   }
 
   function syncEditorText(): void {
@@ -919,6 +976,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     if (element.dataset.commandName) return `[[command:${element.dataset.commandName}]]`
     if (element.dataset.roleName) return `[[role:@${element.dataset.roleName}]]`
     if (element.dataset.filePath) return serializeFileMention({ path: element.dataset.filePath })
+    if (element.dataset.attachmentId) return `[[attachment:${element.dataset.attachmentId}]]`
     if (element.tagName === 'BR') return '\n'
     const content = [...element.childNodes].map(serializeNode).join('')
     return element.tagName === 'DIV' || element.tagName === 'P' ? `${content}\n` : content
@@ -975,7 +1033,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     const parent = range.startContainer
     const offset = range.startOffset
     const isToken = (node: Node | undefined): node is HTMLElement =>
-      node instanceof HTMLElement && (!!node.dataset.filePath || !!node.dataset.commandName || !!node.dataset.roleName)
+      node instanceof HTMLElement && (!!node.dataset.filePath || !!node.dataset.commandName || !!node.dataset.roleName || !!node.dataset.attachmentId)
     const candidate: Node | undefined = (parent.nodeType === Node.TEXT_NODE
       ? event.key === 'Backspace' && offset === 0 ? parent.previousSibling : event.key === 'Delete' && offset === (parent.textContent ?? '').length ? parent.nextSibling : undefined
       : event.key === 'Backspace' ? parent.childNodes[offset - 1] : parent.childNodes[offset]) ?? undefined
@@ -1201,51 +1259,135 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   }
 
   function removeMedia(attachment: MediaAttachment): void {
+    attachment.cancelled = true
+    if (attachment.referenceId) {
+      text.value = text.value.replaceAll(`[[attachment:${attachment.referenceId}]]`, '')
+      void nextTick(restoreEditor)
+    }
     URL.revokeObjectURL(attachment.previewUrl)
     mediaAttachments.value = mediaAttachments.value.filter((item) => item !== attachment)
+    uploading.value = mediaAttachments.value.some(a => a.status === 'uploading')
     stashDraft()
     mediaHint.value = mediaAttachments.value.length
       ? `已附加 ${mediaAttachments.value.length} 个媒体文件`
       : ''
   }
 
-  /** 切换某图片使用「原图」还是「压缩图」（仅可压缩图片有双版本时生效）。 */
-  function toggleMediaVariant(attachment: MediaAttachment): void {
-    if (!attachment.compressed) return
-    const next = { ...attachment, useCompressed: !attachment.useCompressed }
-    const index = mediaAttachments.value.indexOf(attachment)
-    if (index >= 0) mediaAttachments.value[index] = next
-    else mediaAttachments.value = mediaAttachments.value.map((m) => (m === attachment ? next : m))
+  function insertDraftFile(attachment: MediaAttachment): void {
+    attachment.copy = async () => {
+      if (attachment.status !== 'ready' || attachment.cancelled || sending.value) return
+      const generation = draftGeneration
+      const context = fileApi.contextKey()
+      try {
+        const blob = await fileApi.read(attachment.assetId, attachment.assetVersionId)
+        if (generation !== draftGeneration || context !== fileApi.contextKey() || referenceTargetDisposed) throw new Error('目标会话或身份已改变，请重新复制引用')
+        const copy = reactive<MediaAttachment>({ ...attachment, compressed: attachment.compressed ? { ...attachment.compressed } : undefined,
+          referenceId: crypto.randomUUID(), previewUrl: URL.createObjectURL(blob), adapt: undefined, retry: undefined, copy: undefined, adapting: false, error: undefined })
+        configureImageAdaptation(copy)
+        mediaAttachments.value.push(copy)
+        insertDraftFile(copy)
+        mediaHint.value = '已复制文件引用；两份引用的版本和使用方式可分别设置'
+      } catch (cause) { if (generation === draftGeneration && context === fileApi.contextKey()) mediaHint.value = cause instanceof Error ? cause.message : '复制文件引用失败' }
+    }
+    const notation = `[[attachment:${attachment.referenceId}]]`
+    const editor = editorRef.value
+    const selection = window.getSelection()
+    if (editor && selection?.rangeCount && editor.contains(selection.anchorNode)) {
+      const range = selection.getRangeAt(0)
+      range.deleteContents()
+      const node = document.createElement('span')
+      node.className = 'instruction-token'
+      node.contentEditable = 'false'
+      node.dataset.attachmentId = attachment.referenceId
+      node.textContent = `附件 · ${attachment.filename}`
+      range.insertNode(node); range.setStartAfter(node); range.collapse(true)
+      selection.removeAllRanges(); selection.addRange(range)
+      syncEditorText()
+    } else {
+      text.value += `${text.value ? ' ' : ''}${notation} `
+      void nextTick(restoreEditor)
+    }
     stashDraft()
   }
 
-  /**
-   * 历史/生成媒体「重新带进上下文」：按 filename 构造附件加入待发送列表。
-   * 文件已在服务器（不重新上传），发送时按 assetId 携带。去重 + 无活跃 chat/忙时忽略。
-   */
-  function addMediaAttachment(filename: string, kind: MediaKind, mimeType: string): void {
-    if (!chatId.value || sending.value || uploading.value) return
-    const assetId = filename.replace(/\.[a-z0-9]+$/i, '')
-    if (mediaAttachments.value.some((m) => m.assetId === assetId)) return
-    mediaAttachments.value.push({
-      assetId,
-      filename,
-      kind,
-      mimeType,
-      size: 0,
-      previewUrl: httpUrl(`/api/media/${filename}`),
-    })
-    stashDraft()
-    mediaHint.value = `已附加 ${mediaAttachments.value.length} 个媒体文件`
+  let referenceTargetDisposed = false
+  const pendingReferences = new Set<string>()
+  async function referenceAsset(asset: AssetRecord) {
+    const targetKey = activeDraftKey
+    const targetChat = options?.draftChatId?.() ?? chatId.value
+    const context = fileApi.contextKey()
+    const assertTarget = () => {
+      if (referenceTargetDisposed || targetKey !== activeDraftKey || targetChat !== (options?.draftChatId?.() ?? chatId.value) || context !== fileApi.contextKey()) throw new Error('目标会话或身份已改变，请重新添加')
+    }
+    assertTarget()
+    if (!targetChat) throw new Error('请先选择目标会话')
+    const pendingKey = JSON.stringify([targetKey, asset.id, asset.versionId])
+    if (pendingReferences.has(pendingKey)) return
+    if (mediaAttachments.value.some(item => item.status === 'ready' && item.assetId === asset.id &&
+      (item.assetVersionId === asset.versionId || item.compressed?.assetVersionId === asset.versionId))) {
+      mediaHint.value = '此文件已在当前草稿中；需要另一份独立设置时请使用“复制引用”'
+      return
+    }
+    pendingReferences.add(pendingKey)
+    try {
+    // 草稿只读取所有者文件；发送时再为选定会话建立固定版本授权。
+    const response = await fileApi.get([{ assetId: asset.id, assetVersionId: asset.versionId }])
+    assertTarget()
+    let record = response.assets[0]
+    if (!record || 'missing' in record) throw new Error('文件缺失或当前目标无权引用')
+    const selected = record
+    if (record.transform?.variant === 'adapted') {
+      const original = (await fileApi.get([{ assetId: record.id }])).assets[0]
+      assertTarget()
+      if (!original || 'missing' in original) throw new Error('图片原版缺失或当前目标无权引用')
+      record = original
+    }
+    const blob = await fileApi.read(record.id, record.versionId)
+    assertTarget()
+    const attachment = reactive<MediaAttachment>({ assetId:record.id, assetVersionId:record.versionId,
+      filename:record.originalName, mimeType:record.mimeType, kind:record.kind, size:record.sizeBytes,
+      previewUrl:URL.createObjectURL(blob), referenceId:crypto.randomUUID(), usage:'content', status:'ready', variant:'original',
+      width: record.transform?.width, height: record.transform?.height,
+      ...(selected.transform?.variant === 'adapted' ? { compressed: { assetId: selected.id, assetVersionId: selected.versionId,
+        filename: selected.originalName, mimeType: selected.mimeType, size: selected.sizeBytes,
+        width: selected.transform.width, height: selected.transform.height }, useCompressed: true } : {}) })
+    configureImageAdaptation(attachment)
+    mediaAttachments.value.push(attachment)
+    insertDraftFile(attachment)
+    if (!attachment.compressed && attachment.kind === 'image' && (config.value?.files?.context?.defaultImageVariant ?? 'adapted') === 'adapted') await attachment.adapt?.()
+    assertTarget()
+    mediaHint.value = '已加入当前会话的下一条消息，尚未发送'
+    } finally { pendingReferences.delete(pendingKey) }
   }
+  provide(FILE_REFERENCE_TARGET, referenceAsset)
+  const unregisterReferenceTarget = registerFileReferenceTarget({ id: crypto.randomUUID(), identity: () => JSON.stringify([options?.draftChatId?.() ?? chatId.value, fileApi.contextKey()]), label: () => {
+    const id = options?.draftChatId?.() ?? chatId.value
+    return id ? `${presetName.value ?? '会话'} · ${id}${options?.draftScope ? ` · 窗口 ${options.draftScope}` : ''}` : '新会话草稿（请先打开会话）'
+  }, reference: referenceAsset })
+  onBeforeUnmount(() => { referenceTargetDisposed = true; unregisterReferenceTarget() })
+
+  /** Only an existing server-provided derivative can be selected. */
+  function toggleMediaVariant(attachment: MediaAttachment, field: 'variant' | 'usage' = 'variant'): void {
+    if (field === 'usage') {
+      attachment.usage = attachment.usage === 'reference-only' ? 'content' : 'reference-only'
+      stashDraft()
+      return
+    }
+    if (!attachment.compressed) return
+    attachment.useCompressed = !attachment.useCompressed
+    stashDraft()
+  }
+
 
   // 媒体上传编排与 Lite 视图共用（composables/useComposerMedia.ts）：
   // 能力探测走主角色 selection，draftGeneration 作过期守卫。
   const { onMediaSelected } = useComposerMedia({
+    defaultImageVariant: () => config.value?.files?.context?.defaultImageVariant ?? 'adapted',
     attachments: mediaAttachments,
     uploading,
     mediaHint,
     sending: () => sending.value,
+    inserted: insertDraftFile,
     hasCapability: (category) => {
       // 检查感官组工具 accepts 命中 OR brain 原生能力，任一满足即可上传
       const groupName = primarySelection.value?.senseGroup
@@ -1255,7 +1397,8 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       const inputCaps: MediaCapabilitiesDto | undefined = primarySelection.value
         ? brainConfig(primarySelection.value.brain)?.capabilities?.input
         : undefined
-      const hasBrainCapability = inputCaps?.[category] === true
+      const capVal = inputCaps?.[category]
+      const hasBrainCapability = capVal === true || capVal === 'supported'
       return hasToolCapability || hasBrainCapability
     },
     generation: () => draftGeneration,
@@ -1264,6 +1407,9 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       uploadQueue.value = []
     },
   })
+
+  provide(COMPOSER_FILE_DRAFT, { text, files:mediaAttachments, uploading, hint:mediaHint,
+    send: (target) => handleSend(target, { keepOpen:true }), upload:onMediaSelected, remove:removeMedia, toggle:toggleMediaVariant })
 
   // === role config helpers（共享实现见 runtime/roleConfigModel.ts） ===
   const {
@@ -1310,7 +1456,10 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       ? brainConfig(primarySelection.value.brain)?.capabilities?.input
       : undefined
     for (const kind of ['image', 'video', 'audio'] as const) {
-      if (!result[kind] && capability?.[kind]) result[kind] = '模型原生支持'
+      const capVal = capability?.[kind]
+      if (!result[kind] && (capVal === true || capVal === 'supported')) {
+        result[kind] = '模型原生支持'
+      }
     }
     return result as Record<MediaKind, string | null>
   })
@@ -1373,7 +1522,6 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     resetEditor,
     removeMedia,
     toggleMediaVariant,
-    addMediaAttachment,
     onMediaSelected,
     brainInfo,
     brainConfig,

@@ -8,19 +8,20 @@ export interface RuntimeSelection {
   mcpServers?: string[]
 }
 
-export interface MediaAssetRef {
-  filename: string
-  kind: 'image' | 'video' | 'audio'
-  mimeType: string
-}
-
 export interface SenseCallRecord {
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   id?: string
   name: string
   args?: unknown
   result?: unknown
   status: 'running' | 'done' | 'error'
-  mediaAssets?: MediaAssetRef[]
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行） */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的说明 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具关联的外部来源/引用链接 */
+  sources?: Array<{ url: string; title?: string; snippet?: string; refer?: string }>
   /** 工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
   security?: ToolAuthorization
 }
@@ -36,11 +37,12 @@ export type { TerminationFact } from '@chery/protocol'
 import type { TerminationFact } from '@chery/protocol'
 
 export interface HistoryItem {
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   role: 'user' | 'assistant' | 'role' | 'subagent' | 'master'
   content: string
+  parts?: import('@chery/protocol').MessagePart[]
   thinking?: string
   senseCalls?: SenseCallRecord[]
-  mediaAssets?: MediaAssetRef[]
   petName?: string
   subPetChatId?: string
   callerSubPetChatId?: string
@@ -143,6 +145,8 @@ export interface StreamChunkData {
 }
 
 export interface StagedChunkData {
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   type: 'thinking_end' | 'content_end' | 'sense_end' | 'reverse'
   role?: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent'
   thinking?: string
@@ -159,6 +163,14 @@ export interface StagedChunkData {
   agentChatId?: string
   /** sense_end 携带：工具调用的安全授权判定（历史回放渲染风险徽章） */
   security?: ToolAuthorization
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行） */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的说明 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具结果或跳过说明 */
+  result?: string
+  /** 服务端工具关联的外部来源/引用链接 */
+  sources?: Array<{ url: string; title?: string; snippet?: string; refer?: string }>
 }
 
 export interface ChunkMessage {

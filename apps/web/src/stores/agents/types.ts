@@ -12,26 +12,22 @@ import type {
   StagedReverseChunkData as ProtocolStagedReverseChunkData,
 } from '@chery/protocol'
 
-/** 消息内嵌媒体引用（从 content/result 解析 `/api/media/` URL）。 */
-export interface MediaAssetRef {
-  /** 媒体文件名（如 `uuid.mp4`），对应 `/api/media/<filename>` */
-  filename: string
-  /** 媒体类型 */
-  kind: 'image' | 'video' | 'audio'
-  /** MIME 类型（如 `video/mp4`） */
-  mimeType: string
-}
-
 /** 历史 sense 调用记录（累积到 assistant HistoryItem）。staged 回放一律 done；running/error 留给实时流 CP。 */
 export interface SenseCallRecord {
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   /** sense message 主键（与后端 LLMResponse.id 对齐）；旧 staged 缺省。 */
   id?: string
   name: string
   args?: unknown
   result?: unknown
   status: 'running' | 'done' | 'error'
-  /** sense 执行结果内嵌的媒体资产（从 result 字符串解析） */
-  mediaAssets?: MediaAssetRef[]
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行） */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的说明 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具关联的外部来源/引用链接 */
+  sources?: Array<{ url: string; title?: string; snippet?: string; refer?: string }>
   /** 工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
   security?: ToolAuthorizationDto
 }
@@ -54,12 +50,12 @@ export interface RunningTool {
  * petName：role(b) 注入式 = agentType；其余 UI 按 subPetChatId 从 pets 查真实 face/name。
  */
 export interface HistoryItem {
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   role: 'user' | 'assistant' | 'role' | 'subagent' | 'master'
   content: string
   thinking?: string
   senseCalls?: SenseCallRecord[]
-  /** 消息内嵌媒体资产（从 content 中的 `/api/media/<filename>` URL 解析） */
-  mediaAssets?: MediaAssetRef[]
   /** 标注消息归属的 pet name（role(b)注入式=agentType；其余=pet.name 由 UI 查 pets） */
   petName?: string
   /** master/role(合并式) 关联的子 pet chatId；UI 据此从 pets 查真实 face.calm + name。注入式 role(b) 无此字段。 */
@@ -253,6 +249,8 @@ export interface StreamChunkData {
 
 /** staged chunk 携带的 data（历史回放，对齐后端 StagedChunkData）。 */
 export interface StagedChunkData {
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   type: 'thinking_end' | 'content_end' | 'sense_end' | 'reverse'
   role?: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent' // role=新（子 pet 回复）；subagent 仅旧历史兼容
   thinking?: string
@@ -284,6 +282,14 @@ export interface StagedChunkData {
   agentChatId?: string
   /** sense_end 携带：工具调用的安全授权判定（历史回放渲染风险徽章） */
   security?: ToolAuthorizationDto
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行） */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的说明 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具结果或跳过说明 */
+  result?: string
+  /** 服务端工具关联的外部来源/引用链接 */
+  sources?: Array<{ url: string; title?: string; snippet?: string; refer?: string }>
 }
 
 export interface ChunkMessage {

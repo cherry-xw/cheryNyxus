@@ -7,6 +7,7 @@ import { classifyToolType, toolTypeGlyph } from './executionMonitor'
 import { toolCallIcon } from './clusterIcons'
 import { splitCommandPrompt } from '../agent/composables/commands'
 import { useLiteViewBindings } from './useLiteViewBindings'
+import { MessageParts } from '@/features/agent/chat/public'
 
 const props = defineProps<LiteViewControllerProps>()
 const {
@@ -381,7 +382,8 @@ defineExpose({
                 :class="{ 'is-plain': isPlainRowContent(row.node) }"
               >
                 <!-- 用户指令性消息：[[command:…]] / [[role:@…]] token 样式化（与对话模式 MessageBubble 同源） -->
-                <template v-if="isPlainRowContent(row.node)">
+                <MessageParts v-if="row.node.parts?.length" :parts="row.node.parts" :chat-id="row.node.sourceChatId" :markdown="!isPlainRowContent(row.node)" />
+                <template v-else-if="isPlainRowContent(row.node)">
                   <template v-for="(segment, index) in userSegments(row.node)" :key="index">
                     <span v-if="segment.type === 'command'" class="lite-instruction-token">{{
                       segment.value
@@ -571,7 +573,7 @@ defineExpose({
               <template #reference>
                 <span class="lite-add-media-wrap">
                   <ElTooltip
-                    :content="mediaDisabledReason || '添加媒体'"
+                    :content="mediaDisabledReason || '添加文件'"
                     popper-class="label-tip-popper"
                   >
                     <span>
@@ -579,7 +581,7 @@ defineExpose({
                         type="button"
                         class="lite-add-media-btn"
                         :disabled="!!mediaDisabledReason"
-                        aria-label="添加媒体附件"
+                        aria-label="添加文件"
                       >
                         <Plus width="16" height="16" />
                       </button>
@@ -588,14 +590,13 @@ defineExpose({
                 </span>
               </template>
               <div class="add-media-menu" @click.stop>
+                <ElUpload :auto-upload="false" :show-file-list="false" multiple :disabled="!!mediaDisabledReason" :on-change="(file: UploadFile) => onMediaSelected(file)"><button type="button" :disabled="!!mediaDisabledReason">添加任意文件</button></ElUpload>
                 <ElTooltip
                   v-for="item in mediaKinds"
                   :key="item.kind"
                   :content="
                     mediaDisabledReason ||
-                    (mediaServicesByType[item.kind]
-                      ? item.label
-                      : `当前感官组无处理${item.label}的工具，且模型不支持原生${item.label}`)
+                    item.label
                   "
                   popper-class="label-tip-popper"
                 >
@@ -604,7 +605,8 @@ defineExpose({
                       :auto-upload="false"
                       :show-file-list="false"
                       :accept="`${item.kind}/*`"
-                      :disabled="!!mediaDisabledReason || !mediaServicesByType[item.kind]"
+                      multiple
+                      :disabled="!!mediaDisabledReason"
                       :on-change="(file: UploadFile) => onMediaSelected(file)"
                       class="add-media-upload"
                     >
@@ -613,7 +615,7 @@ defineExpose({
                         ><span
                           class="media-svc-tag"
                           :class="{ missing: !mediaServicesByType[item.kind] }"
-                          >{{ mediaServicesByType[item.kind] || '不可用' }}</span
+                          >{{ mediaServicesByType[item.kind] || '可仅附文件' }}</span
                         >
                       </div>
                     </ElUpload>
@@ -672,7 +674,7 @@ defineExpose({
           <button
             type="button"
             class="lite-send-btn"
-            :disabled="sending || uploading || !inputText.trim() || connectionBlocked"
+            :disabled="sending || uploading || (!inputText.trim() && !mediaAttachments.length) || mediaAttachments.some(a => a.status === 'failed') || connectionBlocked"
             @click="onSend"
           >
             发送

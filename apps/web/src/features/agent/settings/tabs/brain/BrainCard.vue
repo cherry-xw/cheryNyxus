@@ -13,10 +13,7 @@ import ThinkingLevelKnob from '../../controls/ThinkingLevelKnob.vue'
 import MediaCapabilityGrid from '../config/MediaCapabilityGrid.vue'
 import { useModelRecommendation } from './useModelRecommendation'
 import {
-  PROVIDER_TIP,
-  PROTOCOL_TIP,
-  KEY_TIP,
-  URL_TIP,
+  PROVIDER_TIP, PROTOCOL_TIP, KEY_TIP, URL_TIP,
   displayContextLimit,
   updateContextLimit,
   mediaCapabilities,
@@ -406,10 +403,15 @@ function renameBrain(newName: string): void {
     else rebuilt[k] = v
   }
   props.draft.llm.brain = rebuilt
-  // 迁移角色引用，避免 roles 指向已改名 brain 触发校验失败。
+  // 迁移角色与文件服务引用，避免 roles / file_services 指向已改名 brain 触发校验失败。
   if (props.draft.roles) {
     for (const sa of Object.values(props.draft.roles)) {
       if (sa.brain === props.name) sa.brain = newName
+    }
+  }
+  if (props.draft.file_services) {
+    for (const svc of Object.values(props.draft.file_services)) {
+      if (svc.connection?.brainRef === props.name) svc.connection.brainRef = newName
     }
   }
   emit('error', '')
@@ -786,8 +788,7 @@ async function openModelRuleFile(): Promise<void> {
         </div>
         <MediaCapabilityGrid
           :input="mediaCapabilities(cfg, 'input')"
-          :generate="mediaCapabilities(cfg, 'generate')"
-          :disabled="!toolCallEnabled(cfg)"
+          :output="mediaCapabilities(cfg, 'output')"
           @toggle="(group, kind) => toggleMediaCapability(cfg, group, kind)"
         />
       </section>

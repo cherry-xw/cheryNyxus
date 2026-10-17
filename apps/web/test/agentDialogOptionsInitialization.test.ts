@@ -10,7 +10,7 @@ describe('agent dialog option initialization', () => {
     )
     const normalized = source.replace(/\r\n/g, '\n')
     const reconnectGuard = normalized.indexOf('let connectResumed = false')
-    const immediateChatWatcher = normalized.indexOf('watch(\n    chatId,')
+    const immediateChatWatcher = normalized.indexOf('watch(\n    () => [options?.draftChatId?.() ?? chatId.value, fileApi.contextKey()] as const,')
 
     expect(reconnectGuard).toBeGreaterThan(-1)
     expect(immediateChatWatcher).toBeGreaterThan(-1)

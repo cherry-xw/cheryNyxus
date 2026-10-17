@@ -6,29 +6,38 @@
  */
 import { Microphone, Picture, VideoCamera } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
-import type { MediaCapabilitiesDto } from '@/application/backend/public'
+import type {
+  CapabilityValueDto,
+  MediaCapabilitiesDto,
+  OutputCapabilitiesDto,
+} from '@/application/backend/public'
 
 type Kind = keyof MediaCapabilitiesDto
+type OutputKind = keyof OutputCapabilitiesDto
 
 const MEDIA_CAPS: readonly {
-  key: Kind
+  key: OutputKind
   inputEmoji: string
-  generateEmoji: string
+  outputEmoji: string
   icon: Component
 }[] = [
-  { key: 'image', inputEmoji: '🖼️', generateEmoji: '🎨', icon: Picture },
-  { key: 'video', inputEmoji: '🎞️', generateEmoji: '🎬', icon: VideoCamera },
-  { key: 'audio', inputEmoji: '🔊', generateEmoji: '🎵', icon: Microphone },
+  { key: 'image', inputEmoji: '🖼️', outputEmoji: '🎨', icon: Picture },
+  { key: 'video', inputEmoji: '🎞️', outputEmoji: '🎬', icon: VideoCamera },
+  { key: 'audio', inputEmoji: '🔊', outputEmoji: '🎵', icon: Microphone },
 ]
+
+function isSupported(val: CapabilityValueDto | undefined): boolean {
+  return val === true || val === 'supported'
+}
 
 defineProps<{
   input: MediaCapabilitiesDto
-  generate: MediaCapabilitiesDto
+  output: OutputCapabilitiesDto
   disabled?: boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'toggle', group: 'input' | 'generate', kind: Kind): void
+  (e: 'toggle', group: 'input' | 'output', kind: Kind): void
 }>()
 </script>
 
@@ -44,9 +53,9 @@ const emit = defineEmits<{
         :key="`input-${cap.key}`"
         type="button"
         class="cap-item"
-        :class="{ active: input[cap.key] === true }"
+        :class="{ active: isSupported(input[cap.key]) }"
         :aria-label="`切换${cap.key}理解能力`"
-        :aria-pressed="input[cap.key] === true"
+        :aria-pressed="isSupported(input[cap.key])"
         @click="emit('toggle', 'input', cap.key)"
       >
         <span class="cap-face cap-front">
@@ -58,24 +67,24 @@ const emit = defineEmits<{
 
     <div class="cap-group">
       <div class="cap-group-head">
-        <strong>生成</strong>
-        <small>输出</small>
+        <strong>输出</strong>
+        <small>原生</small>
       </div>
       <button
         v-for="cap in MEDIA_CAPS"
-        :key="`generate-${cap.key}`"
+        :key="`output-${cap.key}`"
         type="button"
         class="cap-item"
-        :class="{ active: generate[cap.key] === true }"
+        :class="{ active: isSupported(output[cap.key]) }"
         :disabled="disabled"
-        :aria-label="`切换${cap.key}生成与编辑能力`"
-        :aria-pressed="generate[cap.key] === true"
-        @click="emit('toggle', 'generate', cap.key)"
+        :aria-label="`切换${cap.key}原生输出能力`"
+        :aria-pressed="isSupported(output[cap.key])"
+        @click="emit('toggle', 'output', cap.key)"
       >
         <span class="cap-face cap-front">
           <component :is="cap.icon" class="cap-icon" />
         </span>
-        <span class="cap-face cap-back">{{ cap.generateEmoji }}</span>
+        <span class="cap-face cap-back">{{ cap.outputEmoji }}</span>
       </button>
     </div>
   </div>

@@ -114,8 +114,7 @@ export const chatApi = {
       commandId: params.commandId,
       clientMessageId: params.clientMessageId,
       messageId: params.messageId,
-      content: params.content,
-      ...(params.attachments?.length ? { attachments: params.attachments } : {}),
+      parts: params.parts,
     })
   },
 
@@ -238,7 +237,7 @@ export const chatApi = {
     rootChatId: string
     anchorNodeId: string
     branchType: 'continuation' | 'detail'
-    prompt: string
+    parts: import('@chery/protocol').MessagePart[]
     commandId: string
     clientMessageId: string
     messageId: string

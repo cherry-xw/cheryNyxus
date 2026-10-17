@@ -161,9 +161,10 @@ export function toHistoryItem(msg: ChatMessage): HistoryItem {
   return {
     role: msg.role,
     content: msg.content,
+    ...(msg.parts ? { parts: msg.parts.map((part) => ({ ...part })) } : {}),
     ...(msg.thinking ? { thinking: msg.thinking } : {}),
     ...(msg.senseCalls?.length ? { senseCalls: msg.senseCalls.map((c) => ({ ...c })) } : {}),
-    ...(msg.mediaAssets?.length ? { mediaAssets: msg.mediaAssets.map((m) => ({ ...m })) } : {}),
+    ...(msg.fileOperations ? { fileOperations: msg.fileOperations.map(operation => ({ ...operation })) } : {}),
     ...(msg.petName ? { petName: msg.petName } : {}),
     ...(msg.subPetChatId ? { subPetChatId: msg.subPetChatId } : {}),
     ...(msg.callerSubPetChatId ? { callerSubPetChatId: msg.callerSubPetChatId } : {}),

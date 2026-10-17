@@ -25,7 +25,7 @@ import type {
 } from '@/domain/chat/projectionTypes'
 import type {
   ChatSummary,
-  ChatSendAttachment,
+  MessagePart,
   ChatSessionEvent,
   ChatOpenResponse,
   PendingInput,
@@ -91,6 +91,7 @@ interface RoleReplyData {
   childChatId: string
   type: string
   content: string
+  summaryParts?: MessagePart[]
   spawnSenseCallId?: string
   msgId: string
 }
@@ -98,7 +99,7 @@ interface RoleReplyData {
 export interface PreparedChatInput {
   chatId: string
   content: string
-  attachments?: ChatSendAttachment[]
+  parts?: MessagePart[]
   clientMessageId: string
   commandId: string
   messageId: string
@@ -1042,10 +1043,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
   }
 
-  function cloneAttachments(
-    attachments: ChatSendAttachment[] | undefined,
-  ): ChatSendAttachment[] | undefined {
-    return attachments?.map((attachment) => ({ ...attachment }))
+  function cloneParts(
+    parts: MessagePart[] | undefined,
+  ): MessagePart[] | undefined {
+    return parts?.map((part) => ({ ...part }))
   }
 
   /** Synchronously transfer the editor draft into the root queue projection.
@@ -1144,7 +1145,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   async function retryInput(
     chatId: string,
     messageId: string,
-    attachments?: ChatSendAttachment[],
+    parts?: MessagePart[],
   ): Promise<PendingInput> {
     const session = sessionsById.value[chatId]
     const message = session?.messagesById[messageId]
@@ -1156,11 +1157,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const startedRun = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
     message.delivery.status = 'sending'
     delete message.delivery.error
-    const retryAttachments = cloneAttachments(attachments ?? message.delivery.attachments)
+    const retryParts = cloneParts(parts ?? message.delivery.parts ?? message.parts)
     const prepared: PreparedChatInput = {
       chatId,
       content: message.content,
-      ...(retryAttachments ? { attachments: cloneAttachments(retryAttachments) } : {}),
+      ...(retryParts ? { parts: cloneParts(retryParts) } : {}),
       clientMessageId: message.delivery.clientMessageId,
       commandId: message.delivery.commandId,
       messageId,
@@ -1179,7 +1180,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         acceptedAt: Date.now(),
       })
     }
-    return submitInput(chatId, message.content, retryAttachments, prepared)
+    return submitInput(chatId, message.content, retryParts, prepared)
   }
 
   /** Failed local messages have no durable server entity and may be removed safely. */
@@ -1204,15 +1205,16 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   async function submitInput(
     chatId: string,
     content: string,
-    attachments?: ChatSendAttachment[],
+    parts?: MessagePart[],
     preparedInput?: PreparedChatInput,
   ): Promise<PendingInput> {
     const prepared = preparedInput ?? prepareInput(chatId, content)
-    const submittedAttachments = cloneAttachments(attachments ?? prepared.attachments)
-    prepared.attachments = cloneAttachments(submittedAttachments)
+    const submittedParts = cloneParts(parts ?? prepared.parts)
+    prepared.parts = cloneParts(submittedParts)
     const preparedMessage = sessionsById.value[chatId]?.messagesById[prepared.messageId]
     if (preparedMessage?.delivery?.commandId === prepared.commandId) {
-      preparedMessage.delivery.attachments = cloneAttachments(submittedAttachments)
+      preparedMessage.delivery.parts = cloneParts(submittedParts)
+      preparedMessage.parts = cloneParts(submittedParts) ?? [{ partId: 'text-0', type: 'text', text: content }]
     }
     const gate = commandAvailability(chatId)
     if (!gate.allowed) {
@@ -1228,6 +1230,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const session = ensureEntity(chatId)
     const rootState = rootTimelineStates.value[rootIdOf(chatId)]
 
+    const provisional = rootState?.pendingInputs.find(input => input.inputId === prepared.provisionalInputId)
+    if (provisional) provisional.parts = cloneParts(submittedParts)
+
     let accepted: Awaited<ReturnType<typeof agentApi.submitChatInput>>
     try {
       accepted = await agentApi.submitChatInput({
@@ -1235,8 +1240,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         commandId,
         clientMessageId,
         messageId,
-        content,
-        attachments: submittedAttachments,
+        parts: submittedParts ?? [{ partId: 'text-0', type: 'text', text: content }],
       })
     } catch (error) {
       rollbackPreparedInput(prepared, error)
@@ -1247,6 +1251,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       clientMessageId: accepted.clientMessageId || clientMessageId,
       messageId: accepted.messageId,
       content,
+      parts: cloneParts(submittedParts),
       state: accepted.state === 'started' ? 'accepted' : accepted.state,
       queueSequence: accepted.queueSequence,
       acceptedAt: accepted.acceptedAt,

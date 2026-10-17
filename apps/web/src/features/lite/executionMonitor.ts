@@ -12,6 +12,7 @@ import type {
 } from '@/application/backend/public'
 import { executionStepKey } from '@/application/chat/public'
 import { toSenseNameZh } from '@/utils/senseName'
+import type { MessagePart } from '@chery/protocol'
 
 export interface LiteExecutionStepView {
   key: string
@@ -350,6 +351,7 @@ export interface LiteRunNode {
   /** 节点图标（cluster 小按钮 / 抽屉头部显示） */
   icon: string
   content: string
+  parts?: MessagePart[]
   /** 合并自同一次 LLM 响应的思考（message 事实并入 tool-batch 节点，见 projectLiteHistory）。 */
   thinking?: string
   /** 工具中文名（原名为 key，展示用 label） */
@@ -691,6 +693,7 @@ export function projectLiteHistory(
         kind === 'tool' ? toolNames.join(', ') || LITE_NODE_LABELS.tool : LITE_NODE_LABELS[kind],
       icon: kind === 'tool' ? toolTypeGlyph(toolType) : LITE_NODE_GLYPHS[kind],
       content: kind === 'tool' ? (merge?.content ?? '') : node.content,
+      ...(kind !== 'tool' && node.parts ? { parts: node.parts.map(part => ({ ...part })) } : {}),
       // 工具节点：思考来自合并的 message 事实（同一次 LLM 响应的 thinking/content 并入 tool-batch）；
       // 其余节点（主/子 Agent 消息等）直接透出节点自身 thinking——供正文行内「思考」折叠展示（）。
       ...(kind === 'tool'
@@ -821,7 +824,7 @@ export function projectLiteHistory(
       (input) =>
         input.state !== 'cancelled' &&
         input.state !== 'rejected' &&
-        !!input.content &&
+        (!!input.content || !!input.parts?.length) &&
         !committedNodeIds.has(input.messageId ?? input.inputId),
     )
     .slice()
@@ -849,6 +852,7 @@ export function projectLiteHistory(
       label: LITE_NODE_LABELS.user,
       icon: LITE_NODE_GLYPHS.user,
       content: input.content,
+      ...(input.parts ? { parts: input.parts.map(part => ({ ...part })) } : {}),
       toolNames: [],
       status: 'completed',
       active: false,

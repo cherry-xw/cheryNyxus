@@ -117,4 +117,87 @@ describe('工具风险前端投影', () => {
     expect(session.interaction.approval?.security).toEqual(security)
     expect(selectCurrentState(session)?.pendingApproval?.security).toEqual(security)
   })
+
+  it('服务端工具调用在 staged 与 V2 canonical timeline 中保留 executionOwner、serverState、result 与 sources', () => {
+    const session = createEmptySession('chat-1')
+    reduce(
+      session,
+      {
+        kind: 'chunk',
+        type: 'staged',
+        requestId: 'request-1',
+        data: { type: 'content_end', role: 'assistant', msgId: 'assistant-1', content: 'ok' },
+      },
+      { now: 1 },
+    )
+    reduce(
+      session,
+      {
+        kind: 'chunk',
+        type: 'staged',
+        requestId: 'request-1',
+        data: {
+          type: 'sense_end',
+          id: 'srv-1',
+          senseName: 'webReader',
+          arguments: '{"url":"https://example.com"}',
+          executionOwner: 'server',
+          serverState: 'completed',
+          result: 'Example content',
+          sources: [{ url: 'https://example.com', title: 'Example' }],
+        },
+      },
+      { now: 2 },
+    )
+
+    expect(session.messagesById['assistant-1']?.senseCalls[0]).toEqual({
+      id: 'srv-1',
+      name: 'webReader',
+      args: '{"url":"https://example.com"}',
+      result: 'Example content',
+      status: 'done',
+      executionOwner: 'server',
+      serverState: 'completed',
+      sources: [{ url: 'https://example.com', title: 'Example' }],
+      security: undefined,
+    })
+
+    const session2 = createEmptySession('chat-2')
+    replaceTimeline(session2, {
+      chatId: 'chat-2',
+      revision: 1,
+      messages: [
+        {
+          id: 'assistant-2',
+          chatId: 'chat-2',
+          role: 'assistant',
+          content: 'done',
+          createdAt: 1,
+          updatedAt: 1,
+          status: 'committed',
+          senseCalls: [
+            {
+              id: 'ws-1',
+              name: 'web_search_call',
+              arguments: '{"query":"test"}',
+              result: 'found',
+              status: 'completed',
+              executionOwner: 'server',
+              serverState: 'completed',
+              sources: [{ url: 'https://example.org', title: 'Example Org' }],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(session2.messagesById['assistant-2']?.senseCalls[0]).toMatchObject({
+      id: 'ws-1',
+      name: 'web_search_call',
+      executionOwner: 'server',
+      serverState: 'completed',
+      status: 'done',
+      sources: [{ url: 'https://example.org', title: 'Example Org' }],
+    })
+  })
 })

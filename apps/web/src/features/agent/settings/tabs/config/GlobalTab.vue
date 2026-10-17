@@ -13,6 +13,7 @@ import CompressionCard from './cards/CompressionCard.vue'
 import MemoryCard from './cards/MemoryCard.vue'
 import MotionCard from './cards/MotionCard.vue'
 import ClickFxCard from './cards/ClickFxCard.vue'
+import FilesPolicyCard from './cards/FilesPolicyCard.vue'
 
 const props = defineProps<{ draft: ConfigDto }>()
 
@@ -49,7 +50,7 @@ const visibleAnchors = computed<GlobalCardAnchor[]>(() => {
   const out: GlobalCardAnchor[] = ['default', 'editor', 'limits']
   if (props.draft.global.logger) out.push('logger')
   if (props.draft.global.file_compression) out.push('compression')
-  out.push('memory-global', 'memory-workspace', 'motion', 'click-fx')
+  out.push('memory-global', 'memory-workspace', 'motion', 'click-fx', 'files')
   return out
 })
 
@@ -113,6 +114,9 @@ const { ready, isActive, activeAnchor, cardNumber, raise } = scatter
       </ScatterCard>
       <ScatterCard v-slot="{ no }" anchor="click-fx" accent="var(--accent)">
         <ClickFxCard :no="no" />
+      </ScatterCard>
+      <ScatterCard v-slot="{ no }" anchor="files" accent="var(--accent)">
+        <FilesPolicyCard :draft="draft" :no="no" />
       </ScatterCard>
     </div>
 

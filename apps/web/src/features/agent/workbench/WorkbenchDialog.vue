@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FileContextDetails from './FileContextDetails.vue'
 import type { WorkbenchDialogControllerProps } from './useWorkbenchDialogController'
 import { useWorkbenchDialogViewController } from './useWorkbenchDialogViewController'
 
@@ -701,6 +702,7 @@ defineExpose({
               </header>
               <div class="workbench-context-drawer-body">
                 <ContextUsageBar :usage="treeUsage" :breakdown="treeBreakdown" variant="inline" />
+                <FileContextDetails v-if="treeRootChatId" :chat-id="treeRootChatId" />
                 <PromptSnapshotTip
                   v-if="treePromptSnap"
                   :system-prompt="treePromptSnap.systemPrompt"

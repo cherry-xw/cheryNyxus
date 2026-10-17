@@ -1,8 +1,8 @@
-import { call, callList, uploadFile, clearServerConfigCache } from './agentApiTransport'
+import { call, callList, clearServerConfigCache } from './agentApiTransport'
 import { skillsApi } from './skillsApi'
 import { pluginsApi } from './pluginsApi'
 import { chatApi } from './chatApi'
-import type { WorkspaceFilesList, WorkspaceFileContent, WorkspaceGitStatus, TerminalSessionInfo, InteractionRecord, TaskCatalogItem, TaskCatalogQuery, TaskOverviewSubscription, ModelRecommendationDto, BrainListResponse, SenseToolInfo, SenseToolDocInfo, CommandInfo, UploadedMediaAsset, EditorInfo, ConfigDto, ConfigWorkspaceBrowseStart, HookHandlerDTO, HooksGetResult, HookEventMeta } from './agentApiTypes'
+import type { WorkspaceFilesList, WorkspaceFileContent, WorkspaceGitStatus, TerminalSessionInfo, InteractionRecord, TaskCatalogItem, TaskCatalogQuery, TaskOverviewSubscription, ModelRecommendationDto, BrainListResponse, SenseToolInfo, SenseToolDocInfo, CommandInfo, EditorInfo, ConfigDto, ConfigWorkspaceBrowseStart, HookHandlerDTO, HooksGetResult, HookEventMeta } from './agentApiTypes'
 import type { LlmProtocol } from '@chery/protocol'
 
 export type * from './agentApiTypes'
@@ -258,11 +258,6 @@ export const agentApi = {
    */
   async listRules(): Promise<string[]> {
     return callList<string>('rules.list', 'rules')
-  },
-  async uploadMedia(file: File): Promise<UploadedMediaAsset> {
-    return uploadFile<UploadedMediaAsset>('/api/media/upload', file, {
-      errorMessage: '媒体上传失败',
-    })
   },
 
   /** utils.models：基于 provider/url/key 拉取可用模型列表。 */

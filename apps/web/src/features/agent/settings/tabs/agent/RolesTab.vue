@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RoleFileCapabilities from './RoleFileCapabilities.vue'
 import {
   useRolesTabController,
   type RolesTabControllerProps,
@@ -426,7 +427,7 @@ const {
                 v-for="name in senseNames"
                 :key="name"
                 type="button"
-                :disabled="readOnly || isFixedRole || !supportsTools(current.brain)"
+                :disabled="readOnly || isFixedRole"
                 :class="{ active: current.senseGroup === name }"
                 @click="current.senseGroup = name"
               >
@@ -659,6 +660,7 @@ const {
           </div>
         </section>
 
+        <RoleFileCapabilities :draft="draft" :role-name="selectedRole" :preset="preset" :disabled="isFixedRole || readOnly" />
         <section class="detail-section">
           <h3>装备栏</h3>
           <div class="equipment-grid">

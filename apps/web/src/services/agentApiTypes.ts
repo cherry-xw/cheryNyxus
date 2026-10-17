@@ -1,10 +1,19 @@
 import type { ServerConfig } from './platform'
 import type {
   ActiveRunFact as ProtocolActiveRunFact,
+  AssetKind,
+  AssetRecord,
+  AssetUsage,
+  AssetVariant,
+  CapabilityState,
   ConversationBranchSummary as ProtocolConversationBranchSummary,
   ExecutionEdgeFact as ProtocolExecutionEdgeFact,
+  FileCapabilityOperation,
+  FileOperationRecord,
+  FileServiceAdapterId,
   GenerationEntry as ProtocolGenerationEntry,
   GraphToolCall as ProtocolGraphToolCall,
+  MessagePart,
   PendingInputSnapshot as ProtocolPendingInputSnapshot,
   RootTimelineSnapshot as ProtocolRootTimelineSnapshot,
   TimelineActor as ProtocolTimelineActor,
@@ -19,6 +28,17 @@ import type {
   TerminationFact as ProtocolTerminationFact,
   LlmProtocol,
 } from '@chery/protocol'
+export type {
+  AssetKind,
+  AssetRecord,
+  AssetUsage,
+  AssetVariant,
+  CapabilityState,
+  FileCapabilityOperation,
+  FileOperationRecord,
+  FileServiceAdapterId,
+  MessagePart,
+}
 import type { ContextBreakdown } from '@/domain/chat/context'
 import type {
   RuntimeProvenance,
@@ -390,15 +410,91 @@ export interface BrainInfo {
   [k: string]: unknown
 }
 
+export type CapabilityValueDto = CapabilityState | boolean
+
 export interface MediaCapabilitiesDto {
-  image?: boolean
-  video?: boolean
-  audio?: boolean
+  image?: CapabilityValueDto
+  video?: CapabilityValueDto
+  audio?: CapabilityValueDto
+  pdf?: CapabilityValueDto
+}
+export interface OutputCapabilitiesDto {
+  image?: CapabilityValueDto
+  video?: CapabilityValueDto
+  audio?: CapabilityValueDto
 }
 export interface BrainCapabilitiesDto {
   toolCall?: boolean
   input?: MediaCapabilitiesDto
-  generate?: MediaCapabilitiesDto
+  output?: OutputCapabilitiesDto
+}
+
+export type RoleFileCapabilityModeDto = 'auto' | 'native' | 'tool' | 'role' | 'disabled'
+
+export interface RoleFileCapabilityBindingDto {
+  mode: RoleFileCapabilityModeDto
+  targetId?: string
+  fallback?: 'none'
+}
+
+export type RoleFileCapabilitiesMapDto = Partial<
+  Record<FileCapabilityOperation, RoleFileCapabilityBindingDto>
+>
+
+export interface FileServiceConnectionDto {
+  brainRef?: string
+  baseUrl?: string
+  model?: string
+  keyRef?: string
+  authType?: 'bearer' | 'x-api-key' | 'query-key' | 'none'
+  endpointOverrides?: Partial<Record<FileCapabilityOperation, string>>
+}
+
+export interface FileServiceConfigDto {
+  toolMapping?: {
+    toolName: string
+    inputAssetField: string
+    questionField: string
+    transferMode: 'base64' | 'data-url' | 'asset-id'
+    constantParams?: Record<string, unknown>
+    resultPath?: string
+  }
+  name: string
+  enabled?: boolean
+  adapter: FileServiceAdapterId
+  connection: FileServiceConnectionDto
+  operations: FileCapabilityOperation[]
+  defaults?: Record<string, unknown>
+  timeoutMs?: number
+  queueTimeoutMs?: number
+  maxConcurrent?: number
+}
+
+export interface FilesConfigDto {
+  maxUploadBytes?: number
+  imageContext?: {
+    mode?: 'current' | 'recent' | 'unlimited'
+    recentUserTurns?: number
+    replacement?: 'description' | 'keywords'
+    missingDescription?: 'existing' | 'inspect'
+    serviceId?: string
+    maxDescriptionChars?: number
+    maxTotalDescriptionChars?: number
+  }
+  context?: {
+    recentUserTurns?: number
+    maxAssets?: number
+    maxBinaryBytes?: number
+    maxExtractedCharsPerAsset?: number
+    maxExtractedChars?: number
+    defaultImageVariant?: 'original' | 'adapted'
+  }
+  imageAdaptation?: {
+    maxEdge?: number
+    quality?: number
+  }
+  unreferencedUploadRetentionHours?: number
+  unreferencedAssetRetentionHours?: number
 }
 
 export interface ModelRecommendationDto {
@@ -435,7 +531,7 @@ export interface BrainListResponse {
   mcpServers: string[]
 }
 
-/** sense.tools 响应单项：内置工具元信息（name=原名/key，label=中文名/显示，description=解释/tooltip，icon=glyph/emoji 供 pet bar 运行中工具显示；accepts/produces/preprocess 为工具能力声明）。 */
+/** sense.tools 响应单项：工具元信息与明确声明的文件操作。 */
 export interface SenseToolInfo {
   name: string
   label: string
@@ -443,10 +539,8 @@ export interface SenseToolInfo {
   icon: string
   /** 接收的媒体类型（image/video/audio）或文件后缀（doc/docx/pdf…）；供发送门控判断。 */
   accepts?: string[]
-  /** 产出的媒体类型（image/video/audio）或 text */
-  produces?: string[]
-  /** 是否前置执行（缺省 false = 普通后置工具） */
-  preprocess?: boolean
+  /** 支持的文件操作 ID 列表 */
+  operations?: FileCapabilityOperation[]
 }
 
 /** sense.tools.docs 响应单项：内置工具完整说明文档（【作用】【能力】【边界】【注意】分节，换行分隔，hover 展示）。 */
@@ -702,29 +796,21 @@ export interface ConfigDefault extends ServerConfig {
   sessionToken?: string
 }
 
-export interface UploadedMediaAsset {
-  id: string
-  kind: 'image' | 'video' | 'audio'
-  mimeType: string
-  filename: string
-  size: number
-  url: string
-}
-
-/** P4：chat.send 结构化附件（与后端 ChatSendAttachment 对齐）。assetId=UploadedMediaAsset.id。 */
-export interface ChatSendAttachment {
-  assetId: string
-  kind: 'image' | 'video' | 'audio'
-  mimeType: string
-}
-
 /** Chat Protocol V2：后端已构建完成的权威时间线消息。 */
 export interface CanonicalSenseCall {
+  parts?: MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   id: string
   name: string
   arguments?: string
   result?: string
-  status?: 'pending' | 'accepted' | 'rejected' | 'completed'
+  status?: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
+  /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行） */
+  executionOwner?: 'local' | 'server'
+  /** 服务端工具状态或普通调用被跳过的说明 */
+  serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
+  /** 服务端工具关联的外部来源/引用链接 */
+  sources?: Array<{ url: string; title?: string; snippet?: string; refer?: string }>
   /** 工具调用的安全授权判定（历史时间线渲染风险徽章；缺省 = 无判定） */
   security?: ToolAuthorizationDto
   [key: string]: unknown
@@ -736,6 +822,7 @@ export interface CanonicalMessage {
   runId?: string
   role: 'user' | 'assistant' | 'sense' | 'role' | 'master'
   content: string
+  parts?: MessagePart[]
   thinking?: string
   createdAt: number
   updatedAt: number
@@ -1084,6 +1171,8 @@ export interface PresetDto {
   leader: string
   /** 选中的角色 type 名 */
   roles?: string[]
+  /** 预设成员级文件能力覆盖 */
+  roleOverrides?: Record<string, { fileCapabilities?: RoleFileCapabilitiesMapDto }>
   /** 项目工作目录绝对路径（system prompt 提示词注入 <workspace> 段；不约束 sense 行为）。缺省 → 不注入 */
   workspace?: string
   /** smart 监管规则覆盖文件名（.chery/rule/ 下，不含 base.yaml；与基准深合并）。缺省 → 仅用基准 */
@@ -1114,6 +1203,8 @@ export interface ConfigDto {
       lock?: boolean
       /** 角色归属域：public 公共角色（全局共享、可被任意预设引用，组长不能是公共角色）；缺省/private 为预设内私有角色 */
       scope?: 'public' | 'private'
+      /** 角色默认文件能力绑定 */
+      fileCapabilities?: RoleFileCapabilitiesMapDto
     }
   >
   presets?: Record<string, PresetDto>
@@ -1122,6 +1213,8 @@ export interface ConfigDto {
     global?: { max_count?: number; max_chars?: number }
     workspace?: { max_count?: number; max_chars?: number }
   }
+  file_services?: Record<string, FileServiceConfigDto>
+  files?: FilesConfigDto
 }
 
 /** config.workspace.browse.start 响应：服务端文件夹浏览会话。 */

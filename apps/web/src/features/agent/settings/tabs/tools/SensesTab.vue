@@ -24,6 +24,8 @@ import EditableTitle from '@/features/agent/settings/controls/EditableTitle.vue'
 import SenseIcon from './SenseIcon.vue'
 import ToolInfoTip from './ToolInfoTip.vue'
 import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
+import FileServicesPanel from './FileServicesPanel.vue'
+import { fileServiceTools } from '../../model/fileServices'
 
 const props = withDefaults(
   defineProps<{ draft: ConfigDto; senseTools: SenseToolInfo[]; senseDocs?: SenseToolDocInfo[] }>(),
@@ -32,6 +34,8 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'error', msg: string): void }>()
 
 const newGroupName = ref('')
+const fileServicesOpen = ref(false)
+const allTools = computed(() => [...props.senseTools.filter(t => !fileServiceTools(props.draft).some(f => f.name === t.name)), ...fileServiceTools(props.draft)])
 
 function onError(msg: string): void {
   emit('error', msg)
@@ -116,11 +120,11 @@ function cycleLevel(group: string, idx: number): void {
 function availableTools(group: string): SenseToolInfo[] {
   const arr = props.draft.sense_groups?.[group] ?? []
   const used = new Set(arr.map((e) => toolName(e)))
-  return props.senseTools.filter((t) => !used.has(t.name))
+  return allTools.value.filter((t) => !used.has(t.name))
 }
 // tag 短描述：命中内置工具返回其 description，自定义工具返回空
 function toolDesc(entry: string): string {
-  return matchedTool(entry, props.senseTools)?.description ?? ''
+  return matchedTool(entry, allTools.value)?.description ?? ''
 }
 
 // sense.tools.docs 全量文档 → name→doc 映射（一次拉取缓存，hover 按需取用）。
@@ -139,7 +143,7 @@ function toolDoc(entry: string): string {
 }
 // tag 显示名：命中内置工具显中文 label，自定义工具回退原名
 function toolLabel(entry: string): string {
-  return matchedTool(entry, props.senseTools)?.label ?? toolName(entry)
+  return matchedTool(entry, allTools.value)?.label ?? toolName(entry)
 }
 
 function levelLabel(level: string): string {
@@ -270,7 +274,11 @@ watch(
       </div>
     </template>
     <template #toolbar>
-      <div class="senses-toolbar">
+      <div class="senses-toolbar" role="group" aria-label="器官设置内容">
+        <button type="button" class="ghost-btn" :aria-pressed="!fileServicesOpen" @click="fileServicesOpen = false; nextTick(layout)">工具组</button>
+        <button type="button" class="ghost-btn" :aria-pressed="fileServicesOpen" @click="fileServicesOpen = true">文件服务</button>
+      </div>
+      <div v-if="!fileServicesOpen" class="senses-toolbar">
         <el-input
           v-model="newGroupName"
           placeholder="新器官组名"
@@ -280,7 +288,9 @@ watch(
         <button type="button" class="ghost-btn" @click="addGroup">+ 新增组</button>
       </div>
     </template>
+    <FileServicesPanel v-if="fileServicesOpen" :draft="draft" />
     <div
+      v-show="!fileServicesOpen"
       ref="gridRef"
       class="senses-grid"
       :class="{ 'is-ready': ready }"

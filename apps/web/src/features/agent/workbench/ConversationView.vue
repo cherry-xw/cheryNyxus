@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayDraftFiles, encodeDraftFiles } from '@/domain/chat/messageParts'
 /**
  * ConversationView：工作台「对话模式」整屏会话视图。
  * 直接复用 HistoryDrawerPanel 的完整会话能力（消息气泡、分支级联切换、设为主流程、
@@ -61,7 +62,7 @@ const emit = defineEmits<{
   dropBranch: []
   mediaSelected: [file: UploadFile]
   removeMedia: [attachment: MediaAttachment]
-  toggleMediaVariant: [attachment: MediaAttachment]
+  toggleMediaVariant: [attachment: MediaAttachment, field?: 'variant' | 'usage']
   stopTask: []
 }>()
 
@@ -71,7 +72,6 @@ const mediaKinds = [
   { kind: 'audio', label: '音频' },
 ] as const
 const mediaDisabledReason = computed(() => {
-  if (props.branchActive) return '分支暂不支持附件'
   if (props.sending) return '消息正在发送'
   if (props.uploading) return '附件正在上传'
   return ''
@@ -161,7 +161,7 @@ function onInputKeydown(event: KeyboardEvent): void {
 }
 function onInput(event: Event): void {
   const value = (event.target as HTMLTextAreaElement).value
-  emit('draftInput', value)
+  emit('draftInput', encodeDraftFiles(value, props.mediaAttachments))
   void nextTick(menu.refresh)
   refreshInput()
 }
@@ -258,7 +258,7 @@ onMounted(() => {
           <MediaThumbStrip
             :attachments="mediaAttachments"
             @remove="(a) => emit('removeMedia', a)"
-            @toggle="(a) => emit('toggleMediaVariant', a)"
+            @toggle="(a, field) => emit('toggleMediaVariant', a, field)"
           />
           <div class="conversation-input-hint">/ 指令 · @ 角色 · &amp; 文件引用</div>
         </div>
@@ -273,7 +273,7 @@ onMounted(() => {
             <template #reference>
               <span class="conversation-add-media-wrap">
                 <ElTooltip
-                  :content="mediaDisabledReason || '添加媒体'"
+                  :content="mediaDisabledReason || '添加文件'"
                   popper-class="label-tip-popper"
                 >
                   <span>
@@ -281,7 +281,7 @@ onMounted(() => {
                       type="button"
                       class="conversation-add-media-btn"
                       :disabled="!!mediaDisabledReason"
-                      aria-label="添加媒体附件"
+                      aria-label="添加文件"
                     >
                       <Plus width="16" height="16" />
                     </button>
@@ -290,14 +290,13 @@ onMounted(() => {
               </span>
             </template>
             <div class="add-media-menu" @click.stop>
+              <ElUpload :auto-upload="false" :show-file-list="false" multiple :disabled="!!mediaDisabledReason" :on-change="(file: UploadFile) => emit('mediaSelected', file)"><button type="button" :disabled="!!mediaDisabledReason">添加任意文件</button></ElUpload>
               <ElTooltip
                 v-for="item in mediaKinds"
                 :key="item.kind"
                 :content="
                   mediaDisabledReason ||
-                  (mediaServicesByType[item.kind]
-                    ? item.label
-                    : `当前大脑及媒体服务均不支持${item.label}`)
+                  item.label
                 "
                 popper-class="label-tip-popper"
               >
@@ -306,7 +305,8 @@ onMounted(() => {
                     :auto-upload="false"
                     :show-file-list="false"
                     :accept="`${item.kind}/*`"
-                    :disabled="!!mediaDisabledReason || !mediaServicesByType[item.kind]"
+                    multiple
+                    :disabled="!!mediaDisabledReason"
                     :on-change="(file: UploadFile) => emit('mediaSelected', file)"
                     class="add-media-upload"
                   >
@@ -315,7 +315,7 @@ onMounted(() => {
                       ><span
                         class="media-svc-tag"
                         :class="{ missing: !mediaServicesByType[item.kind] }"
-                        >{{ mediaServicesByType[item.kind] || '不可用' }}</span
+                        >{{ mediaServicesByType[item.kind] || '可仅附文件' }}</span
                       >
                     </div>
                   </ElUpload>
@@ -345,7 +345,7 @@ onMounted(() => {
       <div class="conversation-input-row" :class="{ 'is-expanded': expandedInput }">
         <textarea
           ref="inputRef"
-          :value="text"
+          :value="displayDraftFiles(text, mediaAttachments)"
           class="conversation-input-box"
           rows="1"
           :placeholder="'发送消息（Enter 发送 / Shift+Enter 换行）'"
@@ -370,7 +370,7 @@ onMounted(() => {
         <button
           type="button"
           class="conversation-send-btn"
-          :disabled="sending || uploading || loading || !text.trim()"
+          :disabled="sending || uploading || loading || (!text.trim() && !mediaAttachments.length) || mediaAttachments.some(a => a.status === 'failed')"
           :aria-label="sending ? '消息正在发送' : '发送消息'"
           @click="emit('send')"
         >

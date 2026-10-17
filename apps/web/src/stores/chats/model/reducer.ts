@@ -15,6 +15,7 @@
  */
 
 import type { ChatSession, ChatMessage, ChatEvent, ChatInteractionState } from '../types'
+import { ToolFileResultSchema, type MessagePart } from '@chery/protocol'
 import type {
   StreamChunkData,
   StagedChunkData,
@@ -34,7 +35,6 @@ import type {
   ChatSessionEvent,
   ToolAuthorizationDto,
 } from '@/services/agentApi'
-import { extractMediaUrls } from '@/utils/mediaUrls'
 import type { QuestionBatchPayload } from '@/domain/chat/projectionTypes'
 import { applyExecutionTimingEvent } from '../read-model/executionTiming'
 import type { TurnCancelledNotificationData } from '@chery/protocol'
@@ -75,13 +75,14 @@ function upsertMessage(session: ChatSession, item: Partial<ChatMessage> & { msgI
       role: item.role ?? 'assistant',
       thinking: item.thinking ?? '',
       content: item.content ?? '',
+      ...(item.parts ? { parts: item.parts.map(part => ({ ...part })) } : {}),
       senseCalls: item.senseCalls ? item.senseCalls.map((c) => ({ ...c })) : [],
       status: item.status ?? 'sealed',
       createdAt: item.createdAt ?? 0,
       updatedAt: item.updatedAt ?? item.createdAt ?? 0,
       agentChatId: item.agentChatId ?? session.chatId,
       ...(item.runtime ? { runtime: item.runtime } : {}),
-      ...(item.mediaAssets ? { mediaAssets: item.mediaAssets.map((m) => ({ ...m })) } : {}),
+      ...(item.fileOperations ? { fileOperations: item.fileOperations.map(operation => ({ ...operation })) } : {}),
       ...(item.contextCompaction ? { contextCompaction: true } : {}),
       ...(item.contextCompactionTokens !== undefined
         ? { contextCompactionTokens: item.contextCompactionTokens }
@@ -99,11 +100,10 @@ function upsertMessage(session: ChatSession, item: Partial<ChatMessage> & { msgI
   // 命中：补空字段（不覆盖已有非空）
   if (!existing.content && item.content) existing.content = item.content
   if (!existing.thinking && item.thinking) existing.thinking = item.thinking
+  if (!existing.parts?.length && item.parts?.length) existing.parts = item.parts.map(part => ({ ...part }))
   if (!existing.agentChatId && item.agentChatId) existing.agentChatId = item.agentChatId
   if (!existing.runtime && item.runtime) existing.runtime = item.runtime
-  if (!existing.mediaAssets?.length && item.mediaAssets?.length) {
-    existing.mediaAssets = item.mediaAssets.map((m) => ({ ...m }))
-  }
+  if (item.fileOperations) existing.fileOperations = item.fileOperations.map(operation => ({ ...operation }))
   if (item.contextCompaction) existing.contextCompaction = true
   if (item.contextCompactionTokens !== undefined) {
     existing.contextCompactionTokens = item.contextCompactionTokens
@@ -159,17 +159,17 @@ function sealActive(session: ChatSession, status: ChatMessage['status'] = 'seale
 
 /**
  * 实时把工具结果写入对应 senseCall（accept/rejected/replaced 触发）。
- * 镜像 [fillSenseResultInHistory](../agents/data/streamAccumulator.ts)：倒序找 id 匹配项填 result + mediaAssets。
+ * 镜像 fillSenseResultInHistory：按调用 ID 匹配并保留文字、文件及操作状态。
  */
-function fillSenseResult(session: ChatSession, senseId: string, result: string): void {
+function fillSenseResult(session: ChatSession, senseId: string, result: string, files?: import('@chery/protocol').ToolFileResult): void {
   for (let i = session.messageOrder.length - 1; i >= 0; i--) {
     const msg = session.messagesById[session.messageOrder[i]!]
     if (!msg?.senseCalls) continue
     const sc = msg.senseCalls.find((s) => s.id === senseId)
     if (sc) {
       sc.result = result
-      const mediaAssets = extractMediaUrls(result)
-      if (mediaAssets.length > 0) sc.mediaAssets = mediaAssets
+      if (files?.parts) sc.parts = files.parts.map(part => ({ ...part }))
+      if (files?.fileOperations) sc.fileOperations = files.fileOperations.map(operation => ({ ...operation }))
       return
     }
   }
@@ -208,7 +208,6 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
     if (role === 'user') {
       const content = d.content ?? ''
       const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content)
-      const mediaAssets = extractMediaUrls(content)
       upsertMessage(session, {
         msgId: d.msgId ?? `unknown-${session.messageOrder.length}`,
         role: m ? 'role' : 'user',
@@ -218,21 +217,22 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
         agentChatId: d.agentChatId ?? session.chatId,
         ...(d.runtime ? { runtime: d.runtime } : {}),
         ...(m ? { petName: m[1] } : {}),
-        ...(mediaAssets.length > 0 ? { mediaAssets } : {}),
+        ...(d.parts ? { parts: d.parts } : {}),
+        ...(d.fileOperations ? { fileOperations: d.fileOperations } : {}),
       })
       return
     }
     if (role === 'assistant') {
       const content = d.content ?? ''
-      const mediaAssets = extractMediaUrls(content)
       if (d.msgId) {
         const existing = session.messagesById[d.msgId]
         if (existing) {
+          if (d.parts) existing.parts = d.parts
+          if (d.fileOperations) existing.fileOperations = d.fileOperations
           if (!existing.content) {
             existing.content = content
             existing.runtime = d.runtime
             existing.createdAt = d.createdAt ?? existing.createdAt
-            if (mediaAssets.length > 0) existing.mediaAssets = mediaAssets
             if (d.contextCompaction) existing.contextCompaction = true
             if (d.contextCompactionTokens !== undefined) {
               existing.contextCompactionTokens = d.contextCompactionTokens
@@ -253,13 +253,14 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
         ...(d.contextCompactionTokens !== undefined
           ? { contextCompactionTokens: d.contextCompactionTokens }
           : {}),
-        ...(mediaAssets.length > 0 ? { mediaAssets } : {}),
+        ...(d.parts ? { parts: d.parts } : {}),
+        ...(d.fileOperations ? { fileOperations: d.fileOperations } : {}),
       })
       return
     }
     if (role === 'sense') {
       if (!d.id) return
-      fillSenseResult(session, d.id, d.content ?? '')
+      fillSenseResult(session, d.id, d.content ?? '', d)
       return
     }
     if (role === 'role' || role === 'subagent') {
@@ -269,6 +270,8 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
         msgId: d.msgId ?? `unknown-${session.messageOrder.length}`,
         role: 'role',
         content,
+        ...(d.parts ? { parts: d.parts } : {}),
+        ...(d.fileOperations ? { fileOperations: d.fileOperations } : {}),
         status: 'sealed',
         createdAt: d.createdAt ?? 0,
         agentChatId: d.agentChatId ?? session.chatId,
@@ -286,6 +289,10 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
         const existing = session.messagesById[messageId]?.senseCalls?.find((s) => s.id === d.id)
         if (!existing) continue
         if (!existing.security && d.security) existing.security = d.security
+        if (!existing.executionOwner && d.executionOwner) existing.executionOwner = d.executionOwner
+        if (!existing.serverState && d.serverState) existing.serverState = d.serverState
+        if (!existing.result && d.result !== undefined) existing.result = d.result
+        if (!existing.sources && d.sources) existing.sources = d.sources
         return
       }
     }
@@ -306,7 +313,16 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
       id: d.id,
       name: d.senseName ?? '',
       args: d.arguments,
-      status: 'done',
+      ...(d.result !== undefined ? { result: d.result } : {}),
+      status:
+        d.serverState === 'failed'
+          ? 'error'
+          : d.serverState === 'started'
+            ? 'running'
+            : 'done',
+      ...(d.executionOwner ? { executionOwner: d.executionOwner } : {}),
+      ...(d.serverState ? { serverState: d.serverState } : {}),
+      ...(d.sources ? { sources: d.sources } : {}),
       security: d.security,
     })
     return
@@ -376,8 +392,6 @@ function reduceChunk(
   if (data.thinking) active.thinking += data.thinking
   if (data.content) {
     active.content += data.content
-    const mediaAssets = extractMediaUrls(active.content)
-    if (mediaAssets.length > 0) active.mediaAssets = mediaAssets
   }
   active.updatedAt = ctx.now
   session.run.status = 'running'
@@ -469,9 +483,9 @@ function reduceNotification(
       session.interaction.runningTools = session.interaction.runningTools.filter((t) => t.id !== id)
     }
     if (type === 'accept' && typeof d.result === 'string') {
-      fillSenseResult(session, id ?? '', d.result)
+      fillSenseResult(session, id ?? '', d.result, ToolFileResultSchema.parse(d))
     } else if (type === 'rejected' && typeof d.reason === 'string') {
-      fillSenseResult(session, id ?? '', `被拒绝: ${d.reason}`)
+      fillSenseResult(session, id ?? '', `被拒绝: ${d.reason}`, ToolFileResultSchema.parse(d))
     } else if (type === 'replaced' && typeof d.content === 'string' && typeof d.id === 'string') {
       fillSenseResult(session, d.id, d.content)
     }
@@ -540,6 +554,7 @@ export function reduceRoleReply(
     childChatId: string
     type: string
     content: string
+    summaryParts?: MessagePart[]
     spawnSenseCallId?: string
     msgId: string
   },
@@ -549,6 +564,7 @@ export function reduceRoleReply(
     msgId: data.msgId,
     role: 'role',
     content: data.content ?? '',
+    ...(data.summaryParts ? { parts: data.summaryParts } : {}),
     status: 'sealed',
     createdAt: ctx.now,
     updatedAt: ctx.now,
@@ -568,6 +584,7 @@ export function reduceConsumed(
     id: string
     role: 'user'
     content: string
+    parts?: MessagePart[]
     createdAt: number
     updateAt: number
   }>,
@@ -577,6 +594,7 @@ export function reduceConsumed(
       msgId: m.id,
       role: 'user',
       content: m.content,
+      ...(m.parts ? { parts: m.parts } : {}),
       status: 'sealed',
       createdAt: m.createdAt,
       updatedAt: m.updateAt,
@@ -591,6 +609,7 @@ export function upsertHistoryItem(session: ChatSession, item: HistoryItem): void
     msgId: item.msgId ?? `legacy-${session.messageOrder.length}`,
     role: item.role === 'subagent' ? 'role' : item.role,
     content: item.content,
+    ...(item.parts ? { parts: item.parts.map((part) => ({ ...part })) } : {}),
     thinking: item.thinking ?? '',
     status: 'sealed',
     createdAt: item.createdAt ?? 0,
@@ -598,7 +617,7 @@ export function upsertHistoryItem(session: ChatSession, item: HistoryItem): void
     agentChatId: item.agentChatId ?? session.chatId,
     senseCalls: item.senseCalls,
     ...(item.runtime ? { runtime: item.runtime } : {}),
-    ...(item.mediaAssets ? { mediaAssets: item.mediaAssets } : {}),
+    ...(item.fileOperations ? { fileOperations: item.fileOperations } : {}),
     ...(item.contextCompaction ? { contextCompaction: true } : {}),
     ...(item.contextCompactionTokens !== undefined
       ? { contextCompactionTokens: item.contextCompactionTokens }
@@ -612,4 +631,3 @@ export function upsertHistoryItem(session: ChatSession, item: HistoryItem): void
 }
 
 export { replaceQuestionBatches, upsertQuestionBatch, removeQuestionBatch } from './reducers/interaction'
-

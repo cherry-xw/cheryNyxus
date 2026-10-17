@@ -1,168 +1,136 @@
-/**
- * 媒体上传编排（AgentDialog 与 Lite 视图共用）。
- *
- * 职责：能力门控 → 预览 → 图片双版本压缩 → 并行上传 → 附件对象落列。
- * 两端差异通过钩子注入：
- * - 能力探测（Agent 用主角色 selection；Lite 用会话历史回扫）；
- * - 过期守卫（Agent 的 draftGeneration；Lite 无此概念传恒真）；
- * - 前置准备（Agent 清空上传队列；Lite ensureConfig）。
- */
+/** Shared file upload flow. Original bytes are never transformed in the browser. */
 import type { UploadFile } from 'element-plus'
-import {
-  COMPRESS_MAX_EDGE,
-  COMPRESS_QUALITY,
-  ORIGINAL_MAX_EDGE,
-  ORIGINAL_QUALITY,
-  compressImage,
-  loadImageDims,
-  shouldCompressImage,
-} from '@/utils/imageCompress'
-import { agentApi } from '@/application/backend/public'
+import { reactive, watch, onBeforeUnmount } from 'vue'
+import { fileApi } from '@/application/files/public'
+import type { AssetRecord } from '@/application/files/public'
 
 export type MediaKind = 'image' | 'video' | 'audio'
-
 export interface MediaAttachment {
   assetId: string
+  assetVersionId: string
   filename: string
-  kind: MediaKind
+  kind: AssetRecord['kind']
   mimeType: string
   size: number
   previewUrl: string
+  referenceId?: string
+  cancelled?: boolean
+  usage?: 'content' | 'reference-only'
+  variant?: 'original' | 'adapted'
+  status?: 'uploading' | 'ready' | 'failed'
+  error?: string
+  retry?: () => Promise<void>
+  adapt?: () => Promise<void>
+  adapting?: boolean
+  copy?: () => Promise<void>
   width?: number
   height?: number
-  compressed?: {
-    assetId: string
-    filename: string
-    mimeType: string
-    size: number
-    width: number
-    height: number
-  }
+  compressed?: { assetId: string; assetVersionId: string; filename: string; mimeType: string; size: number; width?: number; height?: number }
   useCompressed?: boolean
 }
-
-/** 媒体类型判定（按 MIME 前缀；不识别 → undefined）。 */
-export function mediaKindOf(file: File): MediaKind | undefined {
+export function mediaKindOf(file: File): AssetRecord['kind'] {
   if (file.type.startsWith('image/')) return 'image'
   if (file.type.startsWith('video/')) return 'video'
   if (file.type.startsWith('audio/')) return 'audio'
-  return undefined
+  return file.type === 'application/pdf' || file.type.startsWith('text/') ? 'document' : 'file'
 }
 
-export interface ComposerMediaOptions {
-  /** 附件目标列表（响应式引用，由调用方持有）。 */
-  attachments: { value: MediaAttachment[] }
-  /** 上传中状态（由调用方持有；守卫放行时才置 true/复位）。 */
-  uploading: { value: boolean }
-  /** 提示文案（由调用方持有）。 */
-  mediaHint: { value: string }
-  /** 发送中标志（忙时不接受新上传）。 */
-  sending: () => boolean
-  /** 能力门控：当前类别是否可上传（工具命中或模型原生）。 */
-  hasCapability: (category: MediaKind) => boolean
-  /** 过期守卫：返回当前代序；上传各阶段比对代序决定是否继续/回写（不需要时传恒等函数）。 */
-  generation: () => number
-  /** 过期判断：代序是否仍是当前。 */
-  isCurrent: (generation: number) => boolean
-  /** 前置准备（进入上传前的钩子；返回值会被等待，内容忽略）。 */
-  prepare?: () => unknown
-}
-
-export function useComposerMedia(options: ComposerMediaOptions) {
-  const {
-    attachments,
-    uploading,
-    mediaHint,
-    sending,
-    hasCapability,
-    generation,
-    isCurrent,
-    prepare,
-  } = options
-
-  async function onMediaSelected(uploadFile: UploadFile): Promise<void> {
-    const file = uploadFile.raw
-    if (!file || uploading.value || sending()) return
-    if (prepare) await prepare()
-    const category = mediaKindOf(file)
-    if (!category) return
-    if (!hasCapability(category)) {
-      const typeLabel = category === 'image' ? '图片' : category === 'video' ? '视频' : '音频'
-      mediaHint.value = `当前感官组无处理${typeLabel}的工具，且模型不支持原生${typeLabel}`
-      return
-    }
-    const currentGeneration = generation()
-    uploading.value = true
-    mediaHint.value = '上传媒体中…'
+/** 每个引用单独保存所选版本，不改动历史或同文件的其他引用。 */
+export function configureImageAdaptation(attachment: MediaAttachment, chatId?: string): void {
+  if (attachment.kind !== 'image' || attachment.variant === 'adapted') return
+  const context = fileApi.contextKey()
+  attachment.adapt = async () => {
+    if (attachment.cancelled || attachment.status !== 'ready' || attachment.adapting || context !== fileApi.contextKey()) return
+    attachment.adapting = true
+    attachment.error = undefined
     try {
-      const previewUrl = URL.createObjectURL(file)
-      const dims = category === 'image' ? await loadImageDims(file) : null
-      if (!isCurrent(currentGeneration)) return
-      // 图片预压缩：超阈值（最长边>1280 或 >1MB）→ 上传「原图版(2048/90) + 压缩版(1280/85)」双版本，
-      // 默认发压缩版；「原图」tag 开启时发原图版（已基本压缩，非原始大图）。压缩失败回退原始文件。
-      if (category === 'image' && shouldCompressImage(file, dims)) {
-        const [origTier, compTier] = await Promise.all([
-          compressImage(file, { maxEdge: ORIGINAL_MAX_EDGE, quality: ORIGINAL_QUALITY }),
-          compressImage(file, { maxEdge: COMPRESS_MAX_EDGE, quality: COMPRESS_QUALITY }),
-        ])
-        if (!isCurrent(currentGeneration)) return
-        if (origTier && compTier) {
-          const [origAsset, compAsset] = await Promise.all([
-            agentApi.uploadMedia(
-              new File([origTier.blob], `original-${file.name}`, { type: origTier.blob.type }),
-            ),
-            agentApi.uploadMedia(
-              new File([compTier.blob], `compressed-${file.name}`, { type: compTier.blob.type }),
-            ),
-          ])
-          if (!isCurrent(currentGeneration)) return
-          attachments.value.push({
-            assetId: origAsset.id,
-            filename: origAsset.filename,
-            kind: 'image',
-            mimeType: origAsset.mimeType,
-            size: origAsset.size,
-            previewUrl,
-            width: origTier.dims.width,
-            height: origTier.dims.height,
-            useCompressed: true,
-            compressed: {
-              assetId: compAsset.id,
-              filename: compAsset.filename,
-              mimeType: compAsset.mimeType,
-              size: compAsset.size,
-              width: compTier.dims.width,
-              height: compTier.dims.height,
-            },
-          })
-          mediaHint.value = `${file.name} 已附加`
-          return
-        }
-      }
-      // 小图 / 非图片 / 压缩失败 → 上传原始文件
-      const asset = await agentApi.uploadMedia(file)
-      if (!isCurrent(currentGeneration)) return
-      const base: MediaAttachment = {
-        assetId: asset.id,
-        filename: asset.filename,
-        kind: asset.kind,
-        mimeType: asset.mimeType,
-        size: asset.size,
-        previewUrl,
-        useCompressed: false,
-      }
-      if (category === 'image' && dims) {
-        base.width = dims.width
-        base.height = dims.height
-      }
-      attachments.value.push(base)
-      mediaHint.value = `${file.name} 已附加`
-    } catch (err) {
-      if (isCurrent(currentGeneration)) mediaHint.value = (err as Error).message
-    } finally {
-      if (isCurrent(currentGeneration)) uploading.value = false
-    }
+      const adapted = await fileApi.adapt(attachment.assetId, chatId)
+      if (attachment.cancelled || context !== fileApi.contextKey()) return
+      attachment.compressed = { assetId: adapted.id, assetVersionId: adapted.versionId,
+        filename: adapted.originalName, mimeType: adapted.mimeType, size: adapted.sizeBytes,
+        width: adapted.transform?.width, height: adapted.transform?.height }
+      attachment.useCompressed = true
+    } catch (cause) {
+      if (!attachment.cancelled && context === fileApi.contextKey()) attachment.error = `适配失败，原始文件仍可使用：${cause instanceof Error ? cause.message : '未知错误'}`
+    } finally { attachment.adapting = false }
   }
-
+}
+export interface ComposerMediaOptions {
+  defaultImageVariant?: () => 'original' | 'adapted'
+  attachments: { value: MediaAttachment[] }
+  uploading: { value: boolean }
+  mediaHint: { value: string }
+  sending: () => boolean
+  hasCapability?: (category: MediaKind) => boolean
+  generation: () => number
+  isCurrent: (generation: number) => boolean
+  prepare?: () => unknown
+  inserted?: (attachment: MediaAttachment) => void
+}
+export function useComposerMedia(options: ComposerMediaOptions) {
+  let draftId = crypto.randomUUID()
+  let leaseContext = fileApi.contextKey()
+  let disposed = false
+  let leaseTimer: ReturnType<typeof setInterval> | undefined
+  const retain = () => {
+    if (disposed) return
+    const contextKey = fileApi.contextKey()
+    if (leaseContext !== contextKey) { draftId = crypto.randomUUID(); leaseContext = contextKey }
+    const assets = options.attachments.value.filter(item => item.status !== 'failed' && item.assetVersionId).flatMap(item => [
+      { assetId: item.assetId, assetVersionId: item.assetVersionId },
+      ...(item.compressed ? [{ assetId: item.compressed.assetId, assetVersionId: item.compressed.assetVersionId }] : []),
+    ])
+    void fileApi.retainDraft(draftId, assets).catch(cause => { if (!disposed && contextKey === fileApi.contextKey()) options.mediaHint.value = `草稿文件保留失败：${cause instanceof Error ? cause.message : '请稍后重试'}` })
+  }
+  watch(() => options.attachments.value.map(item => `${item.assetVersionId}:${item.compressed?.assetVersionId ?? ''}`).join(','), () => {
+    clearInterval(leaseTimer)
+    retain()
+    if (options.attachments.value.length) leaseTimer = setInterval(retain, 60_000)
+  })
+  onBeforeUnmount(() => { disposed = true; clearInterval(leaseTimer) })
+  async function onMediaSelected(upload: UploadFile): Promise<void> {
+    const file = upload.raw
+    if (!file || options.sending()) return
+    const generation = options.generation()
+    const uploadContext = fileApi.contextKey()
+    const attachment = reactive<MediaAttachment>({
+      assetId: `upload-${crypto.randomUUID()}`, assetVersionId: '', filename: file.name,
+      kind: mediaKindOf(file), mimeType: file.type || 'application/octet-stream', size: file.size,
+      previewUrl: URL.createObjectURL(file), usage: 'content', status: 'uploading',
+      referenceId: crypto.randomUUID(),
+    })
+    options.attachments.value.push(attachment)
+    if (!options.inserted) attachment.referenceId = undefined
+    options.inserted?.(attachment)
+    let running = false
+    const run = async () => {
+      if (attachment.cancelled || running || uploadContext !== fileApi.contextKey()) return
+      running = true
+      options.uploading.value = true
+      attachment.status = 'uploading'
+      attachment.error = undefined
+      try {
+        const asset = await fileApi.upload(file)
+        if (attachment.cancelled || uploadContext !== fileApi.contextKey()) return
+        Object.assign(attachment, { assetId: asset.id, assetVersionId: asset.versionId,
+          filename: asset.originalName, mimeType: asset.mimeType, kind: asset.kind, size: asset.sizeBytes,
+          width: asset.transform?.width, height: asset.transform?.height, status: 'ready' })
+        configureImageAdaptation(attachment)
+        if (asset.kind === 'image' && (options.defaultImageVariant?.() ?? 'adapted') === 'adapted') await attachment.adapt?.()
+        if (options.isCurrent(generation)) options.mediaHint.value = `${file.name} 已上传；发送后按所选方式使用`
+      } catch (cause) {
+        if (!attachment.cancelled && uploadContext === fileApi.contextKey()) {
+          attachment.status = 'failed'
+          attachment.error = cause instanceof Error ? cause.message : '文件上传失败'
+          if (options.isCurrent(generation)) options.mediaHint.value = attachment.error
+        }
+      } finally {
+        running = false
+        if (options.isCurrent(generation)) options.uploading.value = options.attachments.value.some(a => a.status === 'uploading')
+      }
+    }
+    attachment.retry = run
+    await run()
+  }
   return { onMediaSelected }
 }

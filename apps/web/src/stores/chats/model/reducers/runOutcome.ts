@@ -1,6 +1,6 @@
 import type { ChatSession, ChatMessage, ChatEvent } from '../../types'
 import type { ContextBreakdown } from '@/services/agentApi'
-import { extractMediaUrls } from '@/utils/mediaUrls'
+import { ToolFileResultSchema } from '@chery/protocol'
 import { legacyErrorOutcome, parseRunOutcome } from '@/domain/chat/runOutcome'
 
 export interface OutcomeContext { now: number }
@@ -62,10 +62,12 @@ function applyOutcomeResultData(
       }
     | undefined
   if (fm) {
+    const files = ToolFileResultSchema.parse(fm)
     upsertMessage(session, {
       msgId: fm.msgId,
       role: 'assistant',
       content: fm.content,
+      ...files,
       status: 'sealed',
       createdAt: fm.createdAt,
       agentChatId: fm.agentChatId ?? session.chatId,
@@ -80,8 +82,7 @@ function applyOutcomeResultData(
       sealed.content = fm.content
       if (fm.thinking !== undefined) sealed.thinking = fm.thinking
       sealed.status = 'sealed'
-      const mediaAssets = extractMediaUrls(sealed.content)
-      if (mediaAssets.length > 0) sealed.mediaAssets = mediaAssets
+      Object.assign(sealed, files)
     }
     if (session.activeMessageId === fm.msgId) session.activeMessageId = undefined
   }
@@ -200,10 +201,12 @@ export function reduceRunOutcome(
           }
         | undefined
       if (fm) {
+        const files = ToolFileResultSchema.parse(fm)
         upsertMessage(session, {
           msgId: fm.msgId,
           role: 'assistant',
           content: fm.content,
+          ...files,
           status: 'sealed',
           createdAt: fm.createdAt,
           agentChatId: fm.agentChatId ?? session.chatId,
@@ -219,8 +222,7 @@ export function reduceRunOutcome(
           sealed.content = fm.content
           if (fm.thinking !== undefined) sealed.thinking = fm.thinking
           sealed.status = 'sealed'
-          const mediaAssets = extractMediaUrls(sealed.content)
-          if (mediaAssets.length > 0) sealed.mediaAssets = mediaAssets
+          Object.assign(sealed, files)
         }
         if (session.activeMessageId === fm.msgId) session.activeMessageId = undefined
       }

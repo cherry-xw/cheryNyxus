@@ -730,11 +730,6 @@ export function useRolesTabController(
 
     cfg.brain = brain
 
-    if (!supportsTools(brain)) {
-      cfg.senseGroup = ''
-
-      cfg.mcpServers = []
-    }
   }
 
   function openEquipment(kind: EquipmentKind): void {

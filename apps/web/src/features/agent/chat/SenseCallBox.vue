@@ -12,10 +12,10 @@
 import { computed, ref } from 'vue'
 import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 import { formatArgValue, formatValue, parseArgs } from '@/utils/parseArgs'
-import { extractMediaUrls } from '@/utils/mediaUrls'
 import { toSenseNameZh } from '@/utils/senseName'
-import { MediaInlineRenderer } from '../composer/public'
 import ToolDescriptionDisclosure from '../renderers/ToolDescriptionDisclosure.vue'
+import MessageParts from './MessageParts.vue'
+import FileOperationSummary from './FileOperationSummary.vue'
 
 const props = defineProps<{
   call: SenseCallRecord
@@ -40,13 +40,11 @@ const hasArgs = computed(() => {
 })
 
 const resultText = computed(() => formatValue(props.call.result))
-
-const resultMediaAssets = computed(() => {
-  const text = typeof props.call.result === 'string' ? props.call.result : ''
-  return extractMediaUrls(text)
-})
+const isServerExecuted = computed(() => props.call.executionOwner === 'server')
+const showSources = ref(props.defaultExpanded ?? false)
 
 const statusGlyph = computed(() => {
+  if (props.call.serverState === 'unknown' || props.call.serverState === 'skipped-local') return '—'
   switch (props.call.status) {
     case 'running':
       return '⋯'
@@ -59,20 +57,28 @@ const statusGlyph = computed(() => {
   }
 })
 
-const statusClass = computed(() => `status-${props.call.status}`)
+const statusClass = computed(() =>
+  props.call.serverState === 'unknown' || props.call.serverState === 'skipped-local'
+    ? 'status-unknown'
+    : `status-${props.call.status}`,
+)
 </script>
 
 <template>
-  <div class="sense-box">
+  <div class="sense-box" :class="{ 'is-server-tool': isServerExecuted }">
     <div class="sense-head">
-      <span class="sense-icon" aria-hidden="true">⚙</span>
+      <span class="sense-icon" aria-hidden="true">{{ isServerExecuted ? '☁' : '⚙' }}</span>
       <ToolDescriptionDisclosure
         class="sense-name"
         :tool-name="toSenseNameZh(props.call.name)"
         :tool-key="props.call.name"
         :chat-id="chatId"
+        :execution-owner="props.call.executionOwner"
       />
-      <slot name="risk" />
+      <span v-if="isServerExecuted" class="server-owner-badge">
+        {{ props.call.serverState === 'skipped-local' ? '已由云端完成（跳过本地）' : '由模型服务执行' }}
+      </span>
+      <slot v-if="!isServerExecuted" name="risk" />
       <span class="sense-status" :class="statusClass" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
     <div v-if="hasArgs" class="sense-section">
@@ -91,7 +97,28 @@ const statusClass = computed(() => `status-${props.call.status}`)
         <span v-else class="arg-empty">(无其他参数)</span>
       </div>
     </div>
-    <div v-if="resultText" class="sense-section">
+    <FileOperationSummary v-if="call.fileOperations?.length" :operations="call.fileOperations" />
+    <div v-if="call.sources?.length" class="sense-section">
+      <button
+        type="button"
+        class="toggle"
+        :aria-expanded="showSources"
+        @click="showSources = !showSources"
+      >
+        <span class="caret" :class="{ open: showSources }">▸</span>
+        来源（{{ call.sources.length }}）
+      </button>
+      <ul v-if="showSources" class="sense-sources">
+        <li v-for="(src, idx) in call.sources" :key="idx" class="sense-source-item">
+          <a :href="src.url" target="_blank" rel="noopener noreferrer" class="sense-source-link">
+            {{ src.title || src.url }}
+          </a>
+          <span v-if="src.refer" class="sense-source-refer">[{{ src.refer }}]</span>
+          <p v-if="src.snippet" class="sense-source-snippet">{{ src.snippet }}</p>
+        </li>
+      </ul>
+    </div>
+    <div v-if="resultText || call.parts?.length" class="sense-section">
       <button
         type="button"
         class="toggle"
@@ -99,11 +126,10 @@ const statusClass = computed(() => `status-${props.call.status}`)
         @click="showResult = !showResult"
       >
         <span class="caret" :class="{ open: showResult }">▸</span>
-        result
+        结果{{ call.parts?.some(part => part.type === 'asset') ? `（${call.parts.filter(part => part.type === 'asset').length} 个文件）` : '' }}
       </button>
-      <pre v-if="showResult" class="sense-pre">{{ resultText }}</pre>
-      <!-- sense 结果内联媒体预览 -->
-      <MediaInlineRenderer v-if="resultMediaAssets.length > 0" :assets="resultMediaAssets" />
+      <MessageParts v-if="showResult && call.parts?.length" :parts="call.parts" :chat-id="chatId" />
+      <pre v-else-if="showResult" class="sense-pre">{{ resultText }}</pre>
     </div>
   </div>
 </template>
@@ -161,7 +187,54 @@ const statusClass = computed(() => `status-${props.call.status}`)
     &.status-error {
       color: #dc2626;
     }
+    &.status-unknown {
+      color: color-mix(in srgb, var(--ink) 50%, transparent);
+    }
   }
+
+  .server-owner-badge {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ink) 10%, transparent);
+    color: color-mix(in srgb, var(--ink) 74%, transparent);
+    white-space: nowrap;
+  }
+}
+
+.sense-sources {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.sense-source-item {
+  line-height: 1.4;
+}
+
+.sense-source-link {
+  color: var(--accent, #2563eb);
+  text-decoration: none;
+  word-break: break-all;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.sense-source-refer {
+  margin-left: 4px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+
+.sense-source-snippet {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
 
 .sense-section {

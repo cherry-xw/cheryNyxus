@@ -16,10 +16,6 @@ import {
   useComposerMenuPosition,
   type RouteStatus,
 } from '../composer/public'
-import {
-  BRING_MEDIA_INTO_CONTEXT_EVENT,
-  type BringMediaPayload,
-} from './bringMediaEvent'
 import { WorkspaceSessionBrowser } from '../attention/public'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
@@ -102,7 +98,6 @@ export function useAgentDialogViewController(props: Readonly<{ embedded?: boolea
     selectFileMention,
     removeMedia,
     toggleMediaVariant,
-    addMediaAttachment,
     onMediaSelected,
     senseEntries,
     senseTool,
@@ -110,18 +105,6 @@ export function useAgentDialogViewController(props: Readonly<{ embedded?: boolea
     supportsTools,
   } = useAgentDialogOptions()
 
-  // 历史/生成媒体「重新带进上下文」：接收 MediaInlineRenderer 广播，加入本 composer 待发送附件
-  function onBringMediaIntoContext(event: Event): void {
-    const payload = (event as CustomEvent<BringMediaPayload>).detail
-    if (!payload?.filename) return
-    addMediaAttachment(payload.filename, payload.kind, payload.mimeType)
-  }
-
-  onMounted(() => window.addEventListener(BRING_MEDIA_INTO_CONTEXT_EVENT, onBringMediaIntoContext))
-
-  onUnmounted(() =>
-    window.removeEventListener(BRING_MEDIA_INTO_CONTEXT_EVENT, onBringMediaIntoContext),
-  )
 
   /** 快速发送 composer 单例面板：仅有活跃 chatId 时可见（Pet 单击/PetStage 打开）。 */
   interface QuickTargetSelection {
@@ -421,7 +404,7 @@ export function useAgentDialogViewController(props: Readonly<{ embedded?: boolea
   }
 
   async function sendFromComposer(): Promise<void> {
-    if (!text.value.trim() || sending.value || quickRoutingPending.value) return
+    if ((!text.value.trim() && !mediaAttachments.value.length) || sending.value || quickRoutingPending.value) return
     let targetSelection = quickTarget.value
     if (quickTargetRequired.value && targetSelection?.source !== 'user') {
       if (!quickRoutingEnabled.value || !quickAutoMode.value) {
@@ -549,7 +532,6 @@ export function useAgentDialogViewController(props: Readonly<{ embedded?: boolea
     AgentComposer,
     ConversationTargetPicker,
     RoutingTraceWindow,
-    BRING_MEDIA_INTO_CONTEXT_EVENT,
     WorkspaceSessionBrowser,
     ContextBreakdownTip,
     shellless,
@@ -607,13 +589,11 @@ export function useAgentDialogViewController(props: Readonly<{ embedded?: boolea
     selectFileMention,
     removeMedia,
     toggleMediaVariant,
-    addMediaAttachment,
     onMediaSelected,
     senseEntries,
     senseTool,
     brainConfig,
     supportsTools,
-    onBringMediaIntoContext,
     targetPickerRef,
     quickTarget,
     quickRoutingPending,

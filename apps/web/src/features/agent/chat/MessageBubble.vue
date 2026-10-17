@@ -20,11 +20,11 @@ import { formatTime } from '@/utils/formatTime'
 import { splitCommandPrompt } from '../composables/commands'
 import { SenseCallRenderer } from '../renderers/index'
 import MessageAvatar from './MessageAvatar.vue'
-import { MediaInlineRenderer } from '../composer/public'
-import { stripMediaMarkers } from '@/utils/mediaUrls'
 import { terminationDisplay } from '@/features/pets/nyxus/graph/termination'
 import { toSenseNameZh } from '@/utils/senseName'
 import RiskBadge from '@/components/RiskBadge.vue'
+import MessageParts from './MessageParts.vue'
+import FileOperationSummary from './FileOperationSummary.vue'
 
 const props = defineProps<{
   item: HistoryItem
@@ -94,8 +94,7 @@ const senseStatusGlyph = (call: NonNullable<HistoryItem['senseCalls']>[number]):
       return '?'
   }
 }
-// 展示用文本：剥离 [[media:...]] 内部标记（图由 MediaInlineRenderer 按 mediaAssets 渲染，不露原文）
-const displayContent = computed(() => stripMediaMarkers(props.item.content ?? ''))
+const displayContent = computed(() => props.item.content ?? '')
 const { html: renderedContent } = useRenderedMarkdown(() => displayContent.value, {
   mode: 'full',
 })
@@ -235,7 +234,9 @@ function withdrawQueuedInput(): void {
           <span>等待首个响应片段…</span>
         </div>
         <pre v-if="hasThinking && showThinking" class="thinking-pre">{{ props.item.thinking }}</pre>
-        <div v-if="props.item.content" class="content">
+        <FileOperationSummary v-if="item.fileOperations?.length" :operations="item.fileOperations" />
+        <MessageParts v-if="item.parts?.length" :parts="item.parts" :chat-id="item.agentChatId" :markdown="isMarkdown" />
+        <div v-else-if="props.item.content" class="content">
           <!-- eslint-disable-next-line vue/no-v-html -- markdown-it html:false 已转义，XSS 安全 -->
           <span v-if="isMarkdown" class="md" v-html="renderedContent" />
           <template v-else>
@@ -255,12 +256,6 @@ function withdrawQueuedInput(): void {
               <template v-else>{{ segment.value }}</template>
             </template>
           </template>
-          <!-- 内联媒体预览（历史图片可「重新带进上下文」） -->
-          <MediaInlineRenderer
-            v-if="props.item.mediaAssets && props.item.mediaAssets.length > 0"
-            :assets="props.item.mediaAssets"
-            bring-back
-          />
         </div>
         <div v-if="item.pendingInputState === 'queued'" class="queued-actions">
           <span>排队等待处理</span>

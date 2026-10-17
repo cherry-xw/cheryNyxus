@@ -7,7 +7,7 @@ import { computed } from 'vue'
 import { ElImageViewer } from 'element-plus'
 
 const props = defineProps<{
-  /** 单图（向后兼容：MediaInlineRenderer 等传此值）；提供 urls 时忽略 */
+  /** 单图入口；提供 urls 时忽略。 */
   src?: string
   /** 同批次多图预览列表（提供时优先于 src） */
   urls?: string[]

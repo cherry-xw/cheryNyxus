@@ -23,11 +23,10 @@ import type {
   RunSnapshot,
   ChatSessionEvent,
   ExecutionStep,
-  ChatSendAttachment,
+  MessagePart,
 } from '@/services/agentApi'
 import type {
   SenseCallRecord,
-  MediaAssetRef,
   ApprovalState,
   QuestionBatchState,
   RunningTool,
@@ -60,6 +59,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'role' | 'master'
   thinking: string
   content: string
+  parts?: import('@chery/protocol').MessagePart[]
+  fileOperations?: import('@chery/protocol').FileOperationRecord[]
   senseCalls: SenseCallRecord[]
   status: 'streaming' | 'sealed' | 'paused' | 'error' | 'revoked'
   createdAt: number
@@ -68,8 +69,6 @@ export interface ChatMessage {
   agentChatId: string
   /** user=发送时配置；assistant=前一条 user runtime（后端关联）。缺失显「-」。 */
   runtime?: RuntimeSelection
-  /** content 内嵌媒体资产（从 `/api/media/<filename>` URL 解析）。 */
-  mediaAssets?: MediaAssetRef[]
   /** 此 assistant 消息是 /compact 生成的上下文摘要。 */
   contextCompaction?: boolean
   /** 该次压缩释放的估算 token 数，历史分割线提示。 */
@@ -98,7 +97,7 @@ export interface ChatMessage {
     clientMessageId: string
     provisionalInputId: string
     /** Immutable copy of the canonical submit payload, reused by failed-message retry. */
-    attachments?: ChatSendAttachment[]
+    parts?: MessagePart[]
     error?: CanonicalCommandError
   }
 }

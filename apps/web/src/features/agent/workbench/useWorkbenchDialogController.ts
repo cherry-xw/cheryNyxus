@@ -12,6 +12,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { advanceComposerTurn, type ComposerTurnState } from './composerTurnState'
 import { RoleConfigPopover } from '../runtime/public'
 import { AgentComposer, useAgentDialogOptions, useComposerMenuPosition } from '../composer/public'
+import { composeMessageParts } from '@/domain/chat/messageParts'
 import ContextUsageBar from '../drawer/ContextUsageBar.vue'
 import WorkbenchAgentUsageBar from './WorkbenchAgentUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
@@ -154,6 +155,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     supportsTools,
   } = useAgentDialogOptions({
     draftScope: `workbench:${props.windowId}`,
+    draftChatId: () => (viewMode.value === 'conversation' ? conversationRootChatId.value : null) ?? win.value?.chatId ?? null,
     chatId: () => win.value?.chatId ?? null,
     // 入口携带的预设名：空白工作台/会话未水合时角色编制、Nyxus 判定据此解析（不靠会话推导）
     presetName: () => win.value?.presetName ?? null,
@@ -509,14 +511,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     nyxusDraftActive.value = false
     userClosedAfterTurn.value = false
     if (branchTarget.value) {
-      if (mediaAttachments.value.length) {
-        error.value = '分支暂不支持附件，请移除附件或返回普通输入后发送。'
-        nyxusDraftActive.value = true
-        return
-      }
       const target = branchTarget.value
       const prompt = text.value.trim()
-      if (!prompt) {
+      if (!prompt && !mediaAttachments.value.length) {
         error.value = '请输入要在新分支中继续的内容'
         nyxusDraftActive.value = true
         return
@@ -527,7 +524,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
           rootChatId: target.sourceRootChatId,
           anchorNodeId: target.nodeId,
           branchType: target.type,
-          prompt,
+          parts: composeMessageParts(prompt, mediaAttachments.value),
           commandId: crypto.randomUUID(),
           clientMessageId: crypto.randomUUID(),
           messageId: crypto.randomUUID(),

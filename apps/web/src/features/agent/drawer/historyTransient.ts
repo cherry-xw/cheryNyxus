@@ -15,6 +15,7 @@ export function pendingInputHistory(inputs: readonly PendingInput[], fallbackCha
     .map((input) => ({
       role: 'user',
       content: input.content,
+      ...(input.parts ? { parts: input.parts.map(part => ({ ...part })) } : {}),
       createdAt: input.acceptedAt ?? input.createdAt ?? Date.now(),
       msgId: input.messageId ?? `pending:${input.inputId}`,
       agentChatId: input.chatId ?? fallbackChatId,

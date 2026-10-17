@@ -43,11 +43,16 @@ function canonicalToChatMessage(m: CanonicalMessage, chatId: string): ChatMessag
     name: c.name,
     args: c.arguments,
     result: c.result,
-    status: (c.status === 'rejected'
+    parts: c.parts,
+    fileOperations: c.fileOperations,
+    status: (c.status === 'rejected' || c.status === 'error' || c.serverState === 'failed'
       ? 'error'
-      : c.status === 'pending'
+      : c.status === 'pending' || c.serverState === 'started'
         ? 'running'
         : 'done') as SenseCallRecord['status'],
+    ...(c.executionOwner ? { executionOwner: c.executionOwner } : {}),
+    ...(c.serverState ? { serverState: c.serverState } : {}),
+    ...(c.sources ? { sources: c.sources } : {}),
     security: c.security,
   }))
   return {
@@ -55,6 +60,7 @@ function canonicalToChatMessage(m: CanonicalMessage, chatId: string): ChatMessag
     role,
     thinking: m.thinking ?? '',
     content: m.content ?? '',
+    ...(m.parts ? { parts: m.parts.map((part) => ({ ...part })) } : {}),
     senseCalls,
     status: m.status === 'revoked' ? 'revoked' : 'sealed',
     createdAt: m.createdAt,

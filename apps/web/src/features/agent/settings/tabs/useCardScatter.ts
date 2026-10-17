@@ -26,6 +26,7 @@ export type GlobalCardAnchor =
   | 'memory-workspace'
   | 'motion'
   | 'click-fx'
+  | 'files'
 const ANCHORS: GlobalCardAnchor[] = [
   'default',
   'editor',
@@ -36,6 +37,7 @@ const ANCHORS: GlobalCardAnchor[] = [
   'memory-workspace',
   'motion',
   'click-fx',
+  'files',
 ]
 
 /** 长按阈值（ms）：按下保持超过此时长才进入拖拽；短按只置顶，避免一点即拖。 */

@@ -9,7 +9,6 @@
 import type { RuntimeSelection } from '@/services/agentApi'
 import type { StageBounds } from '@/domain/pets/types'
 import type { HistoryItem, StreamState, StagedChunkData } from '../types'
-import { extractMediaUrls } from '@/utils/mediaUrls'
 
 export function defaultBounds(): StageBounds {
   return {
@@ -78,9 +77,8 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
     if (role === 'user') {
       const content = d.content ?? ''
       const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content)
-      const mediaAssets = extractMediaUrls(content)
       if (m) {
-        history.push({
+        pushHistoryItem(stream, {
           role: 'role',
           content,
           petName: m[1],
@@ -88,24 +86,25 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
           createdAt: d.createdAt,
           msgId: d.msgId,
           ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}),
-          ...(mediaAssets.length > 0 && { mediaAssets }),
+          ...(d.parts ? { parts: d.parts } : {}),
+          ...(d.fileOperations ? { fileOperations: d.fileOperations } : {}),
         })
       } else {
-        history.push({
+        pushHistoryItem(stream, {
           role: 'user',
           content,
           runtime: d.runtime,
           createdAt: d.createdAt,
           msgId: d.msgId,
           ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}),
-          ...(mediaAssets.length > 0 && { mediaAssets }),
+          ...(d.parts ? { parts: d.parts } : {}),
+          ...(d.fileOperations ? { fileOperations: d.fileOperations } : {}),
         })
       }
       return
     }
     if (role === 'assistant') {
       const content = d.content ?? ''
-      const mediaAssets = extractMediaUrls(content)
       // 同一消息（同 msgId）：thinking_end 已 push 过 item（或 done.finalMessage 已 push）→ 合并 content 进既有 item。
       // F4：done.finalMessage 经 pushHistoryItem 统一入口；pushHistoryItem 与 accumulateStaged 共享 msgId 幂等轴。
       // 不做跨行合并：多 loop turn 每个 loop 是独立消息（loop1=技能调用/thinking+senseCalls，loop2=正文），
@@ -113,11 +112,12 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       if (d.msgId) {
         const existing = history.find((h) => h.msgId === d.msgId)
         if (existing) {
+          if (d.parts) existing.parts = d.parts
+          if (d.fileOperations) existing.fileOperations = d.fileOperations
           if (!existing.content) {
             existing.content = content
             existing.runtime = d.runtime
             existing.createdAt = d.createdAt ?? existing.createdAt
-            if (mediaAssets.length > 0) existing.mediaAssets = mediaAssets
             if (d.agentChatId) existing.agentChatId = d.agentChatId
             if (d.contextCompaction) existing.contextCompaction = true
             if (d.contextCompactionTokens !== undefined)
@@ -137,30 +137,14 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
         ...(d.contextCompactionTokens !== undefined
           ? { contextCompactionTokens: d.contextCompactionTokens }
           : {}),
-        ...(mediaAssets.length > 0 && { mediaAssets }),
+        ...(d.parts ? { parts: d.parts } : {}),
+        ...(d.fileOperations ? { fileOperations: d.fileOperations } : {}),
       })
       return
     }
     if (role === 'sense') {
-      // sense 执行结果（content_end role=sense id=X）→ 优先按 id 精确匹配；旧 staged 无 id 时退化为最近 result=undefined 项
       if (!d.id) return
-      for (let i = history.length - 1; i >= 0; i--) {
-        const item = history[i]
-        if (!item?.senseCalls) continue
-        // 优先按 id 精确匹配；缺 id 项退化为 result=undefined（向后兼容旧 staged）
-        let sc = item.senseCalls.find((s) => s.id === d.id && s.result === undefined)
-        if (!sc) sc = item.senseCalls.find((s) => s.id === undefined && s.result === undefined)
-        if (!sc) sc = item.senseCalls.find((s) => s.result === undefined)
-        if (sc) {
-          sc.result = d.content
-          // 从 result 提取媒体资产
-          if (typeof d.content === 'string') {
-            const mediaAssets = extractMediaUrls(d.content)
-            if (mediaAssets.length > 0) sc.mediaAssets = mediaAssets
-          }
-          return
-        }
-      }
+      fillSenseResultInHistory(stream, d.id, d.content ?? '', d)
       return
     }
     if (role === 'role' || role === 'subagent') {
@@ -170,10 +154,12 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content)
       // role reply 实际由子 chat 生成：agentChatId = childChatId 才是真正的源头
       // （当前 StagedChunkData.agentChatId = 当前回放 chatId 即主 chat，故此处覆盖）
-      history.push({
+      pushHistoryItem(stream, {
         role: 'role',
         content,
         petName: m?.[1],
+        ...(d.parts ? { parts: d.parts } : {}),
+        ...(d.fileOperations ? { fileOperations: d.fileOperations } : {}),
         runtime: d.runtime,
         createdAt: d.createdAt,
         msgId: d.msgId,
@@ -193,6 +179,10 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
         const existing = item.senseCalls?.find((call) => call.id === d.id)
         if (!existing) continue
         if (!existing.security && d.security) existing.security = d.security
+        if (!existing.executionOwner && d.executionOwner) existing.executionOwner = d.executionOwner
+        if (!existing.serverState && d.serverState) existing.serverState = d.serverState
+        if (!existing.result && d.result !== undefined) existing.result = d.result
+        if (!existing.sources && d.sources) existing.sources = d.sources
         return
       }
     }
@@ -213,7 +203,16 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       id: d.id, // sense message.id（与后端 LLMResponse.id 对齐）
       name: d.senseName ?? '',
       args: d.arguments,
-      status: 'done',
+      ...(d.result !== undefined ? { result: d.result } : {}),
+      status:
+        d.serverState === 'failed'
+          ? 'error'
+          : d.serverState === 'started'
+            ? 'running'
+            : 'done',
+      ...(d.executionOwner ? { executionOwner: d.executionOwner } : {}),
+      ...(d.serverState ? { serverState: d.serverState } : {}),
+      ...(d.sources ? { sources: d.sources } : {}),
       security: d.security,
     })
     return
@@ -231,7 +230,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
  *
  * 实时轮打字机不走本函数（由 stream.thinking/content 暂存，双气泡契约；不并入 history 末项）。
  *
- * 媒体抽取（extractMediaUrls）由调用方在构造 item 前完成，本函数不重复抽取。
+ * 文件仅使用结构化 parts，不从正文 URL 推断。
  */
 export function pushHistoryItem(stream: StreamState, item: HistoryItem): void {
   const history = stream.history
@@ -241,6 +240,8 @@ export function pushHistoryItem(stream: StreamState, item: HistoryItem): void {
       // 就地补空字段（已存在的不覆盖）
       if (!existing.content && item.content) existing.content = item.content
       if (!existing.thinking && item.thinking) existing.thinking = item.thinking
+      if (item.parts) existing.parts = item.parts
+      if (item.fileOperations) existing.fileOperations = item.fileOperations
       // msgId 已命中即一致，无需补；agentChatId 缺则补（兜底）
       if (!existing.agentChatId && item.agentChatId) existing.agentChatId = item.agentChatId
       // senseCalls 合并（按 id 去重）
@@ -252,7 +253,12 @@ export function pushHistoryItem(stream: StreamState, item: HistoryItem): void {
         }
         for (const sc of item.senseCalls) {
           const fp = sc.id ? `id:${sc.id}` : `name:${sc.name}:${String(sc.args ?? '')}`
-          if (fingerprints.has(fp)) continue
+          if (fingerprints.has(fp)) {
+            const existingCall = calls.find(candidate => candidate.id ? `id:${candidate.id}` === fp : `name:${candidate.name}:${String(candidate.args ?? '')}` === fp)
+            if (existingCall && sc.parts) existingCall.parts = sc.parts
+            if (existingCall && sc.fileOperations) existingCall.fileOperations = sc.fileOperations
+            continue
+          }
           fingerprints.add(fp)
           calls.push({ ...sc })
         }
@@ -266,7 +272,7 @@ export function pushHistoryItem(stream: StreamState, item: HistoryItem): void {
 
 /**
  * 实时把工具执行结果写入 stream.history 中对应 id 的 senseCall（accept/rejected notification 触发）。
- * 与 accumulateStaged 的 content_end role=sense 回放路径一致：倒序找 id 匹配项，填 result + mediaAssets；
+ * 与 content_end role=sense 回放路径一致：按调用 ID 匹配文字、文件及操作状态；
  * 不改 status（与回放一致——回放只填 result，status 保持 sense_end 加入时的 'done'）。
  * 找不到（sense_end staged 未到 / 已 reload）→ 静默返回（reload 后权威结果补齐）。
  */
@@ -274,6 +280,7 @@ export function fillSenseResultInHistory(
   stream: StreamState,
   senseId: string,
   result: string,
+  files?: import('@chery/protocol').ToolFileResult,
 ): void {
   for (let i = stream.history.length - 1; i >= 0; i--) {
     const item = stream.history[i]
@@ -281,8 +288,8 @@ export function fillSenseResultInHistory(
     const sc = item.senseCalls.find((s) => s.id === senseId)
     if (sc) {
       sc.result = result
-      const mediaAssets = extractMediaUrls(result)
-      if (mediaAssets.length > 0) sc.mediaAssets = mediaAssets
+      if (files?.parts) sc.parts = files.parts.map(part => ({ ...part }))
+      if (files?.fileOperations) sc.fileOperations = files.fileOperations.map(operation => ({ ...operation }))
       return
     }
   }
