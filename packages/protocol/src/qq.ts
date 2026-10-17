@@ -11,6 +11,8 @@ export const QQCapabilities = [
   'qq.waiting',
   'qq.tool.icon',
   'qq.reply.part',
+  'qq.reply.file',
+  'qq.file.read',
       'qq.reply.video',
       'qq.reply.images',
       'qq.reply.action',
@@ -27,6 +29,7 @@ export const QQTransportMethods = [
   'qq.event.submit',
   'qq.delivery.result',
   'qq.request.recover',
+  'qq.file.read',
 ] as const
 export const QQConfigSchema = z
   .object({
@@ -186,17 +189,22 @@ export const QQEventSubmitRequestSchema = z
     senderId: QQIdSchema,
     senderName: z.string().max(100),
     replyToMessageId: z.string().max(100).optional(),
-    attachments: z.array(z.object({ type: z.string().max(30), name: z.string().max(200).optional() }).strict()).max(30).optional(),
+    attachments: z.array(z.object({ type: z.string().max(30), name: z.string().max(200).optional(), mimeType: z.string().max(200).optional(),
+      url: z.string().url().max(8192).refine(value => { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password }).optional() }).strict()).max(30).optional(),
+    parts: z.array(z.union([z.object({ type: z.literal('text'), text: z.string().max(100000) }).strict(),
+      z.object({ type: z.literal('attachment'), index: z.number().int().min(0).max(29) }).strict()])).max(200).optional(),
     messageId: z
       .string()
       .regex(/^-?\d+$/)
       .max(100),
-    content: z.string().min(1).max(100000),
+    content: z.string().max(100000),
     mentionedBot: z.boolean(),
     occurredAt: z.number().finite().nonnegative(),
   })
   .strict()
   .superRefine((e, ctx) => {
+    if (!e.content.trim() && !e.attachments?.length) ctx.addIssue({ code: 'custom', message: 'Empty input' })
+    for (const part of e.parts ?? []) if (part.type === 'attachment' && !e.attachments?.[part.index]) ctx.addIssue({ code: 'custom', message: 'Invalid attachment index' })
     if (
       e.senderId === e.selfId ||
       (e.conversationType === 'private' && e.senderId !== e.targetId) ||
@@ -223,6 +231,7 @@ export const QQNotificationSchema = z
       'qq.waiting',
       'qq.tool.icon',
       'qq.reply.part',
+      'qq.reply.file',
       'qq.reply.video',
       'qq.reply.images',
       'qq.reply.action',
@@ -237,6 +246,8 @@ export const QQNotificationSchema = z
       .object({
         ...outputIdentity,
         text: z.string().max(100000).optional(),
+        asset: z.object({ assetId: identifier, assetVersionId: identifier, originalName: z.string().max(500), mimeType: z.string().max(200),
+          sizeBytes: z.number().int().positive(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional(),
         actionKind: z.enum(['mention', 'reaction', 'poke', 'voice', 'quote']).optional(),
         userId: QQIdSchema.optional(),
         character: z.string().max(100).optional(),
@@ -268,6 +279,8 @@ export const QQDeliveryResultRequestSchema = z
   .object({
     ...outputIdentity,
     status: z.enum(['sent', 'unknown', 'failed']),
+    fileIds: z.array(z.string().min(1).max(512)).max(30).optional(),
+    fileUploaded: z.boolean().optional(),
     messageIds: z
       .array(
         z
@@ -351,6 +364,7 @@ export type QQNotification = z.infer<typeof QQNotificationSchema>
 export type QQStatus = z.infer<typeof QQStatusSchema>
 export type QQEntry = z.infer<typeof QQEntrySchema>
 export const QQRequestSchemas = {
+  'qq.file.read': z.object({ selfId: QQIdSchema, eventId: identifier, offset: z.number().int().nonnegative() }).strict(),
   'qq.information.result': z.object({ selfId: QQIdSchema, lookupId: identifier, targetId: QQIdSchema, success: z.boolean(), result: z.string().max(60000) }).strict(),
   'qq.lookup.result': z.object({ selfId: QQIdSchema, lookupId: identifier, groupId: QQIdSchema, kind: z.enum(['members', 'voices']), items: z.array(z.object({ id: z.string().max(100), name: z.string().max(200), card: z.string().max(200).optional() }).strict()).max(5000), success: z.boolean() }).strict(),
   'qq.plugin.hello': QQHelloRequestSchema,
@@ -365,6 +379,7 @@ export const QQRequestSchemas = {
   'qq.history.get': QQEmptyRequestSchema,
 } as const
 export const QQResponseSchemas = {
+  'qq.file.read': z.object({ offset: z.number().int().nonnegative(), dataBase64: z.string().max(349528), eof: z.boolean() }).strict(),
   'qq.information.result': z.object({ recorded: z.literal(true) }).strict(),
   'qq.lookup.result': z.object({ recorded: z.literal(true) }).strict(),
   'qq.plugin.hello': QQHelloResponseSchema,

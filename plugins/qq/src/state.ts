@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { z } from 'zod'
+import { MessagePartSchema, FileOperationRecordSchema } from '@chery/protocol'
 import { parseStored } from './files.js'
 import {
   QQConfigSchema,
@@ -36,7 +37,11 @@ export const JobSchema = z.object({
   acceptedAt: z.number(),
   reason: z.string().optional(),
   reply: z.string(),
+  inputParts: z.array(MessagePartSchema).optional(),
   mergedInputs: z.array(QQEventSubmitRequestSchema).max(16).optional(),
+  outputParts: z.array(MessagePartSchema).optional(),
+  outputOperations: z.array(FileOperationRecordSchema).optional(),
+  filePreparationPending: z.boolean().optional(),
   decisionRequired: z.boolean().default(false),
   participation: z.enum(['reply', 'wait', 'end']).optional(),
   background: z.array(QQBackgroundSchema).default([]),

@@ -1,4 +1,6 @@
 import { queryInformation } from './information.js'
+import { sendAssetFile } from './files.js'
+import type { QQNotification } from '@chery/protocol'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
@@ -97,7 +99,17 @@ function normalizedEvent(event: any, selfId: string): Record<string, unknown> | 
   const senderId = qqId(event.user_id)
   const messageId = String(event.message_id)
   const conversationType = group ? 'group' : 'private'
-
+  const attachments: Array<{ type: string; name?: string; url?: string; mimeType?: string }> = []
+  const parts: Array<{ type: 'text'; text: string } | { type: 'attachment'; index: number }> = []
+  for (const segment of Array.isArray(event.message) ? event.message : []) {
+    if (segment?.type === 'text') parts.push({ type: 'text', text: String(segment.data?.text ?? '') })
+    else if (['image', 'video', 'file', 'record'].includes(segment?.type) && attachments.length < 30) {
+      let url: string | undefined
+      try { const parsed = new URL(String(segment.data?.url ?? '')); if (parsed.protocol === 'https:' && !parsed.username && !parsed.password) url = parsed.href } catch {}
+      parts.push({ type: 'attachment', index: attachments.length })
+      attachments.push({ type: segment.type, ...(segment.data?.name ? { name: String(segment.data.name).slice(0, 200) } : {}), ...(url ? { url } : {}) })
+    } else if (segment?.type === 'json') { const text = textOf([segment]); if (text) parts.push({ type: 'text', text }) }
+  }
   return {
     eventId: `qq:${selfId}:${conversationType}:${targetId}:${messageId}`,
     selfId,
@@ -106,7 +118,8 @@ function normalizedEvent(event: any, selfId: string): Record<string, unknown> | 
     senderId,
     senderName: String(event.sender?.card || event.sender?.nickname || ''),
     ...(Array.isArray(event.message) && event.message.some((x: any) => x?.type === 'reply') ? { replyToMessageId: String(event.message.find((x: any) => x?.type === 'reply').data?.id ?? '') } : {}),
-    attachments: (Array.isArray(event.message) ? event.message : []).filter((s: any) => ['image', 'video', 'file', 'record'].includes(s.type)).map((s: any) => ({ type: s.type })),
+    attachments,
+    ...(Array.isArray(event.message) ? { parts } : {}),
     messageId,
     content: textOf(event.message).trim(),
     mentionedBot:
@@ -292,6 +305,20 @@ export class Adapter {
       if (previous) return
       if (Object.keys(this.journal.events).length >= 10000) { this.current = { ...this.status(), state: 'journal-full', ready: false }; return }
       const generation = this.fileGeneration
+      const raw = event as { message?: Array<{ type: string; data?: Record<string, unknown> }> }
+      const segments = raw.message?.filter(segment => ['image', 'video', 'file', 'record'].includes(segment.type)).slice(0, 30) ?? []
+      const attachments = input.attachments as Array<{ url?: string }>
+      for (const [index, segment] of segments.entries()) {
+        if (attachments[index]?.url) continue
+        const fileId = segment.data?.file_id ?? segment.data?.file
+        if (typeof fileId !== 'string' || !/^[a-zA-Z0-9._-]{1,512}$/.test(fileId) || ['.', '..'].includes(fileId)) continue
+        try {
+          const result = await this.action('get_file', { file_id: fileId })
+          const url = new URL(String((result?.data ?? result)?.url ?? ''))
+          if (url.protocol === 'https:' && !url.username && !url.password) attachments[index]!.url = url.href
+        } catch { /* 缺少安全下载地址时，后端保留不可读取说明。 */ }
+      }
+      if (this.stopped || generation !== this.fileGeneration || this.journal.events[String(input.eventId)]) return
       this.journal.events[String(input.eventId)] = { hash: hash(input), accepted: false }
       saveJournal(this.journalFile, this.journal)
       const response = await this.wire.request('qq.event.submit', input)
@@ -382,6 +409,7 @@ export class Adapter {
         'qq.waiting',
         'qq.tool.icon',
         'qq.reply.part',
+        'qq.reply.file',
         'qq.reply.video',
         'qq.reply.images',
         'qq.request.failed',
@@ -418,6 +446,46 @@ export class Adapter {
     saveJournal(this.journalFile, this.journal)
     const fileGeneration = this.fileGeneration
     try {
+      if (event.type === 'qq.reply.file') {
+        const validate = () => { if (fileGeneration !== this.fileGeneration) throw new Error('File delivery stopped') }
+        const delivery = await sendAssetFile({ dataPath: this.ctx.dataPath, event: event.data as QQNotification['data'],
+          validate,
+          read: async offset => {
+            const result = await this.wire.request('qq.file.read', { selfId: this.selfId, eventId: outputId, offset })
+            if (!result.success) throw new Error('File read rejected')
+            return result.data as { offset: number; dataBase64: string; eof: boolean }
+          }, action: (name, params) => this.action(name, params) })
+        validate()
+        const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: event.data.conversationType,
+          targetId: target, seq: event.data.seq, status: 'sent', ...delivery, sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt }
+        delete this.journal.blocked[key]
+        saveJournal(this.journalFile, this.journal)
+        await this.confirmDelivery(receipt)
+        return
+      }
+      if (event.type === 'qq.reply.action') {
+        if (event.data.conversationType !== 'group') throw new Error('Group reply only')
+        let result: any
+        const kind = event.data.actionKind
+        if (kind === 'quote') result = await this.action('send_msg', { group_id: target, message_type: 'group', message: [{ type: 'reply', data: { id: event.data.messageId } }, ...(event.data.userId ? [{ type: 'at', data: { qq: event.data.userId } }] : []), { type: 'text', data: { text: payload } }] })
+        else if (kind === 'reaction') result = await this.action('set_msg_emoji_like', { message_id: event.data.messageId, emoji_id: event.data.emojiId, set: true })
+        else if (kind === 'poke') result = await this.action('group_poke', { group_id: target, user_id: event.data.userId })
+        else if (kind === 'voice') result = await this.action('send_group_ai_record', { group_id: target, character: event.data.character, text: payload })
+        else if (kind === 'mention') result = await this.action('send_msg', { group_id: target, message_type: 'group', message: [{ type: 'at', data: { qq: event.data.userId } }, { type: 'text', data: { text: payload } }] })
+        else throw new Error('Unknown reply action')
+        if (this.stopped || fileGeneration !== this.fileGeneration) return
+        if (result?.retcode !== undefined && result.retcode !== 0) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
+        if (result?.result !== undefined && typeof result.result === 'number' && result.result !== 0) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
+        const messageId = result?.message_id ?? result?.data?.message_id
+        if (['voice', 'mention', 'quote'].includes(String(kind)) && messageId === undefined) throw new Error('Delivery unknown')
+        const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: 'group', targetId: target, seq: event.data.seq, status: 'sent', messageIds: messageId === undefined ? [] : [String(messageId)], sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt }
+        delete this.journal.blocked[key]
+        saveJournal(this.journalFile, this.journal)
+        await this.confirmDelivery(receipt)
+        return
+      }
       if (event.type === 'qq.message.ack') {
         let activity = false
         const messageIds: string[] = []
@@ -534,7 +602,7 @@ export class Adapter {
       this.ctx.logger.warn?.('QQ delivery stage failed', { eventId: outputId, type: event.type, stage: this.journal.outputs[outputId]?.status === 'sent' ? 'confirmation' : 'action' })
       if (this.stopped || fileGeneration !== this.fileGeneration) return
       if (this.journal.outputs[outputId]?.status === 'sent') return
-      const definitelyFailed = event.type === 'qq.reply.action' && (error as { definitelyFailed?: boolean })?.definitelyFailed === true
+      const definitelyFailed = ['qq.reply.action', 'qq.reply.file'].includes(event.type) && (error as { definitelyFailed?: boolean })?.definitelyFailed === true
       const receipt = {
           eventId: outputId,
           requestId: event.data.requestId,
@@ -545,7 +613,7 @@ export class Adapter {
           status: definitelyFailed ? 'failed' : 'unknown',
           messageIds: [],
           activity: false,
-          terminal: (event.type === 'qq.reply.action' && event.data.completeReply === true) || event.type === 'qq.request.failed' || event.type === 'qq.reply.video' || event.type === 'qq.reply.images' || (event.type === 'qq.reply.part' && event.data.partIndex === event.data.totalParts),
+          terminal: (['qq.reply.action', 'qq.reply.file'].includes(event.type) && event.data.completeReply === true) || event.type === 'qq.request.failed' || event.type === 'qq.reply.video' || event.type === 'qq.reply.images' || (event.type === 'qq.reply.part' && event.data.partIndex === event.data.totalParts),
       }
       this.journal.outputs[outputId]!.confirmation = receipt
       if (definitelyFailed) delete this.journal.blocked[key]
