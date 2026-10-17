@@ -13,15 +13,27 @@ export type ReplyAction = z.infer<typeof replyActionSchema>
 export interface QQReplyBridge {
   lookup(requestId: string, kind: 'members' | 'voices', query: string): Promise<unknown>
   reply(requestId: string, action: ReplyAction): Promise<unknown>
+  deliverMedia?(requestId: string, input: { mediaFile: string; fileName?: string; forceUploadAsFile?: boolean }): Promise<unknown>
 }
 
 /** Transport and target authorization remain owned by the QQ runtime. */
 export function createReplyTools(bridge: QQReplyBridge): Registration[] {
   const lookup = z.object({ kind: z.enum(['members', 'voices']), query: z.string().max(100) }).strict()
-  const tools: Array<{ name: string; description: string; schema: z.ZodType; parameters: Registration['sense']['definition']['function']['parameters']; run: (requestId: string, input: any) => Promise<unknown> }> = [
+  const deliverSchema = z.object({
+    mediaFile: z.string().regex(/^\d+\.mp4$/).max(64),
+    fileName: z.string().min(1).max(180).optional(),
+    forceUploadAsFile: z.boolean().optional(),
+  }).strict()
+  const tools: Array<{ name: string; allowPrivate?: boolean; description: string; schema: z.ZodType; parameters: Registration['sense']['definition']['function']['parameters']; run: (requestId: string, input: any) => Promise<unknown> }> = [
     { name: 'qq_lookup', description: 'QQ群专用：按需查询当前群成员或真实语音角色。重名须确认，不猜QQ号和声音ID。', schema: lookup,
       parameters: { type: 'object', properties: { kind: { type: 'string', enum: ['members', 'voices'] }, query: { type: 'string' } }, required: ['kind', 'query'], additionalProperties: false },
       run: (id, input) => bridge.lookup(id, input.kind, input.query) },
+    { name: 'qq_deliver_media', allowPrivate: true, description: '向当前QQ群或私聊投递已下载到共享media目录(/workspace/media)的兼容MP4视频文件(文件名形如1792200000.mp4)。体积超过气泡上限时会自动转为群文件/私聊文件上传。', schema: deliverSchema,
+      parameters: { type: 'object', properties: { mediaFile: { type: 'string' }, fileName: { type: 'string' }, forceUploadAsFile: { type: 'boolean' } }, required: ['mediaFile'], additionalProperties: false },
+      run: (id, input) => {
+        if (!bridge.deliverMedia) throw new Error('Media delivery not configured')
+        return bridge.deliverMedia(id, input)
+      } },
   ]
   const actions = [
     { kind: 'quote', name: 'qq_quote_reply', description: '引用当前群背景中的真实消息并回复，不猜消息ID，不跨群引用。', properties: { messageId: { type: 'string' }, text: { type: 'string' }, userId: { type: 'string' } } },
@@ -41,7 +53,7 @@ export function createReplyTools(bridge: QQReplyBridge): Registration[] {
     sense: { definition: { type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } }, supervisionLevel: 0,
       executor: { schema: tool.schema, execute: async (input, _shared, ctx) => {
         const view = ctx?.requestView
-        if (!view || view.identity.channel !== 'qq' || view.identity.subject?.conversationType !== 'group') throw new Error('QQ reply requires a trusted group request')
+        if (!view || view.identity.channel !== 'qq' || (!tool.allowPrivate && view.identity.subject?.conversationType !== 'group')) throw new Error('QQ reply requires a trusted group request')
         const result = await tool.run(view.requestId, tool.schema.parse(input))
         return { content: JSON.stringify(result), status: 'ok' }
       } } },

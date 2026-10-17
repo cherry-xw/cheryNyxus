@@ -26,6 +26,7 @@ COPY apps/backend/deploy/docker/runtime/supercronic /usr/local/bin/supercronic
 COPY apps/backend/deploy/docker/runtime-supervisor.mjs /usr/local/bin/runtime-supervisor.mjs
 COPY apps/backend/deploy/docker/crontab.mjs /usr/local/bin/crontab
 COPY apps/backend/deploy/docker/runtime/node /usr/local/bin/node
+COPY apps/backend/deploy/docker/runtime/N_m3u8DL-RE /usr/local/bin/N_m3u8DL-RE
 COPY apps/backend/deploy/docker/runtime/etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY package.json pnpm-workspace.yaml /app/
 COPY node_modules /app/node_modules
@@ -38,7 +39,7 @@ COPY plugins/settings/dist /app/opt/settings-plugin
 COPY apps/backend/deploy/docker/config.example.yaml /app/opt/backend.config.example.yaml
 COPY apps/backend/deploy/docker/backend-entrypoint.sh /usr/local/bin/backend-entrypoint
 
-RUN chmod 0755 /usr/local/bin/supercronic /usr/local/bin/crontab /usr/local/bin/node /usr/local/bin/backend-entrypoint \
+RUN chmod 0755 /usr/local/bin/supercronic /usr/local/bin/crontab /usr/local/bin/node /usr/local/bin/N_m3u8DL-RE /usr/local/bin/backend-entrypoint \
     && mkdir -p /app/apps/backend/.chery/data \
        /app/apps/backend/.chery/qq-personal-memory \
        /app/apps/backend/.chery/ingress \

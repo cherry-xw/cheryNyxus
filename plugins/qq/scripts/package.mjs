@@ -4,6 +4,8 @@ cpSync(new URL('../skills/qq-information', import.meta.url),
   new URL('../dist/skills/qq-information', import.meta.url), { recursive: true })
 cpSync(new URL('../skills/douyin-download-send', import.meta.url),
   new URL('../dist/skills/douyin-download-send', import.meta.url), { recursive: true })
+cpSync(new URL('../skills/video-download', import.meta.url),
+  new URL('../dist/skills/video-download', import.meta.url), { recursive: true })
 cpSync(new URL('../ui-built', import.meta.url), new URL('../dist/ui', import.meta.url), {
   recursive: true,
 })

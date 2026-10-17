@@ -130,6 +130,16 @@ function fileTarget(root: string, subject: QQSubject, relative: string): string 
   return path.join(root, subject.userId, ...relative.split('/'))
 }
 
+function groupFileTarget(root: string, subject: QQSubject, relative: string): string {
+  qqSubjectSchema.parse(subject)
+  if (subject.conversationType !== 'group' || !subject.groupId) throw new Error('群共享文件仅限可信QQ群会话访问')
+  if (!root || !path.isAbsolute(root) || root.includes('\0')) throw new Error('QQ文件持久目录未配置')
+  if (!relative || relative.length > 512 || path.isAbsolute(relative) || relative.includes('\\') || relative.includes('\0') || relative.split('/').some(p => !p || p === '..' || p === '.'))
+    throw new Error('请提供当前群共享目录内的相对文件路径')
+  if (relative.split('/')[0] === 'apps') throw new Error('受管应用文件必须通过 managed_app 在工作容器内操作')
+  return path.join(root, 'groups', subject.groupId, ...relative.split('/'))
+}
+
 export async function readQQFile(root: string, subject: QQSubject, input: z.infer<typeof qqReadFileSchema>) {
   const parsed = qqReadFileSchema.parse(input)
   const text = await readSafeText(fileTarget(root, subject, parsed.path))
@@ -164,5 +174,30 @@ export async function writeQQFile(root: string, subject: QQSubject, input: z.inf
     }
     await atomicText(target, parsed.content, signal, shared)
     return { path: parsed.path, absolutePath: target, sharePath: parsed.path.startsWith('share/') ? `/qq/${subject.userId}/${parsed.path.split('/').map(encodeURIComponent).join('/')}` : null, version: textVersion(parsed.content), bytes: Buffer.byteLength(parsed.content) }
+  }, signal)
+}
+
+export async function readQQGroupFile(root: string, subject: QQSubject, input: z.infer<typeof qqReadFileSchema>) {
+  const parsed = qqReadFileSchema.parse(input)
+  const target = groupFileTarget(root, subject, parsed.path)
+  const text = await readSafeText(target)
+  const lines = text.split('\n'), offset = parsed.offset ?? 0
+  return { path: parsed.path, groupId: subject.groupId, absolutePath: target, workerPath: `/workspace/files/${parsed.path}`, version: textVersion(text), totalLines: lines.length, offset,
+    content: lines.slice(offset, offset + (parsed.limit ?? 200)).join('\n').slice(0, 30000) }
+}
+
+export async function writeQQGroupFile(root: string, subject: QQSubject, input: z.infer<typeof qqWriteFileSchema>, signal?: AbortSignal) {
+  const parsed = qqWriteFileSchema.parse(input)
+  if (Buffer.byteLength(parsed.content) > MAX_BYTES || parsed.content.includes('\0'))
+    throw new Error('仅支持不超过1MiB的文本内容')
+  const target = groupFileTarget(root, subject, parsed.path)
+  return withFileLock(target, async () => {
+    let existing: string | undefined
+    try { existing = textVersion(await readSafeText(target)) } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    }
+    if (existing !== parsed.expectedVersion) throw new Error('群文件已存在或版本发生变化；请先读取，再提供expectedVersion更新')
+    await atomicText(target, parsed.content, signal, false)
+    return { path: parsed.path, groupId: subject.groupId, absolutePath: target, workerPath: `/workspace/files/${parsed.path}`, version: textVersion(parsed.content), bytes: Buffer.byteLength(parsed.content) }
   }, signal)
 }

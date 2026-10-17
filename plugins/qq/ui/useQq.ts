@@ -1,13 +1,14 @@
 import { requestId } from '../../../packages/manager-ui/src/requestId'
 import { computed, reactive } from 'vue'
 import { managerRequest, ManagerApiError } from '../../../packages/manager-ui/src/api'
-import { QQConfigSchema } from '../../../packages/protocol/src/qq'
+import { QQConfigSchema, QQEntriesSchema, QQEntryDetailSchema, type QQEntry, type QQEntryDetail } from '../../../packages/protocol/src/qq'
 
 export function useQq(request = managerRequest) {
-  const state = reactive({ config: null as any, original: '', revision: 0, apply: null as any, ready: false, reading: false, saving: false, uncertain: false, error: '', message: '', catalog: null as any, catalogError: '', status: null as any, statusError: '', queue: null as any, queueError: '', history: null as any, historyError: '', voiceGroup: '', voices: [] as Array<{id: string; name: string}>, voicesLoading: false, voicesError: '', selected: '', summary: '', summaryError: '' })
+  const state = reactive({ config: null as any, original: '', revision: 0, apply: null as any, ready: false, reading: false, saving: false, uncertain: false, error: '', message: '', catalog: null as any, catalogError: '', status: null as any, statusError: '', queue: null as { entries: QQEntry[] } | null, queueError: '', history: null as { entries: QQEntry[] } | null, historyError: '', queueLoading: false, historyLoading: false, statusLoading: false, recordsRevision: 0, details: {} as Record<string, QQEntryDetail>, detailErrors: {} as Record<string, string>, detailsLoading: {} as Record<string, boolean>, voiceGroup: '', voices: [] as Array<{id: string; name: string}>, voicesLoading: false, voicesError: '', selected: '', summary: '', summaryError: '' })
   const dirty = computed(() => state.config !== null && JSON.stringify(state.config) !== state.original)
   const targets = computed(() => state.config ? [...state.config.groups.map((id: string) => `group:${id}`), ...state.config.users.map((id: string) => `private:user:${id}`)] : [])
   let summaryGeneration = 0
+  const detailRevisions = new Map<string, number>()
   async function read(discard = false) {
     if (state.saving || state.reading) return
     state.reading = true; state.error = ''
@@ -26,8 +27,32 @@ export function useQq(request = managerRequest) {
     catch (e) { state.catalogError = e instanceof Error ? e.message : '预设目录读取失败' }
   }
   async function refresh(kind: 'status' | 'queue' | 'history') {
-    try { state[kind] = (await request<any>(`/api/modules/qq/${kind}`)).data; state[`${kind}Error`] = '' }
+    if (state[`${kind}Loading`]) return
+    state[`${kind}Loading`] = true
+    try {
+      const { data } = await request<any>(`/api/modules/qq/${kind}`)
+      if (kind === 'status') state.status = data
+      else {
+        state[kind] = QQEntriesSchema.parse(data)
+        state.details = {}; state.detailErrors = {}; state.recordsRevision++
+      }
+      state[`${kind}Error`] = ''
+    }
     catch (e) { state[kind] = null; state[`${kind}Error`] = e instanceof Error ? e.message : '读取失败' }
+    finally { state[`${kind}Loading`] = false }
+  }
+  async function detail(id: string) {
+    const revision = state.recordsRevision
+    if ((state.detailsLoading[id] && detailRevisions.get(id) === revision) || state.details[id]) return
+    detailRevisions.set(id, revision)
+    state.detailsLoading[id] = true; state.detailErrors[id] = ''
+    try {
+      const { data } = await request<any>(`/api/modules/qq/entry?requestId=${encodeURIComponent(id)}`)
+      const checked = QQEntryDetailSchema.parse(data)
+      if (checked.requestId !== id) throw new Error('记录详情不匹配，请重新读取。')
+      if (revision === state.recordsRevision) state.details[id] = checked
+    } catch (error) { if (revision === state.recordsRevision) state.detailErrors[id] = error instanceof Error ? error.message : '详情读取失败' }
+    finally { if (detailRevisions.get(id) === revision) { state.detailsLoading[id] = false; detailRevisions.delete(id) } }
   }
   async function save() {
     if (!state.ready || !dirty.value || state.saving || state.reading || state.uncertain) return
@@ -80,6 +105,6 @@ export function useQq(request = managerRequest) {
     } catch (e) { if (generation === voiceGeneration && group === state.voiceGroup) state.voicesError = e instanceof Error ? e.message : '声音目录读取失败' }
     finally { if (generation === voiceGeneration) state.voicesLoading = false }
   }
-  async function load() { await Promise.allSettled([read(), catalog(), refresh('status'), refresh('queue'), refresh('history')]) }
-  return { state, dirty, targets, read, catalog, refresh, save, add, remove, summary, voices, load }
+  async function load() { await Promise.allSettled([read(), catalog(), refresh('status')]) }
+  return { state, dirty, targets, read, catalog, refresh, detail, save, add, remove, summary, voices, load }
 }

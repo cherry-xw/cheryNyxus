@@ -145,7 +145,7 @@ test('files and memory reject symlinks at leaf, within root, and above configure
 
 test('tools require plugin QQ request identity, register scoped memory and file tools, and use request memory revisions', async () => {
   const tools = createQQTools(root, path.join(root, 'files'))
-  expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_group_memory_search', 'qq_group_memory_manage', 'qq_memory_manage', 'qq_read_file', 'qq_write_file'])
+  expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_group_memory_search', 'qq_group_memory_manage', 'qq_memory_manage', 'qq_read_file', 'qq_write_file', 'qq_group_read_file', 'qq_group_write_file', 'qq_container_exec'])
   for (const registration of tools) {
     expect(registration.sense.supervisionLevel).toBe(0)
     expect(registration.sense.definition.function.parameters.additionalProperties).toBe(false)

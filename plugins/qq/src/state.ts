@@ -22,6 +22,7 @@ export const JobSchema = z.object({
   coreRequestId: z.string().optional(),
   coreRunId: z.string().optional(),
   replyActionComplete: z.boolean().optional(),
+  videoResendSource: z.string().optional(),
   input: QQEventSubmitRequestSchema,
   target: z.string(),
   conversationKey: z.string(),
@@ -48,6 +49,8 @@ export const JobSchema = z.object({
   toolIds: z.array(z.string()),
   douyinUrl: z.string().optional(),
   pendingIcons: z.array(z.string()).default([]),
+  pendingActivity: z.array(z.string()).default([]),
+  activityReplyOffset: z.number().int().nonnegative().default(0),
   sentIcons: z.array(z.string()).default([]),
   waits: z.number().int().nonnegative(),
   nextWaitAt: z.number().optional(),
@@ -57,10 +60,12 @@ export type Job = z.infer<typeof JobSchema>
 export const OutboxSchema = z.object({
   frame: QQNotificationSchema,
   status: z.enum(['pending', 'inflight', 'sent', 'unknown', 'failed']),
+  activityReplyThrough: z.number().int().nonnegative().optional(),
   issuedAt: z.number().optional(),
   notBefore: z.number().optional(),
   confirmedAt: z.number().optional(),
   resultHash: z.string().optional(),
+  messageIds: z.array(z.string().max(100)).max(100).optional(),
 })
 export type Outbox = z.infer<typeof OutboxSchema>
 export const StateSchema = z

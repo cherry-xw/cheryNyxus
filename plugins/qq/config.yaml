@@ -1,5 +1,5 @@
 id: cherynyxus-qq-module
-version: 0.1.21
+version: 0.1.32
 apiVersion: 2
 entry: index.mjs
 rpcNamespace: qq
@@ -25,6 +25,14 @@ resources:
     kind: script
     path: skills/douyin-download-send/scripts/download.mjs
     channel: qq
+  - id: video-download
+    kind: skill
+    path: skills/video-download/SKILL.md
+    channel: qq
+  - id: video-download-script
+    kind: script
+    path: skills/video-download/scripts/video.mjs
+    channel: qq
 dependencies: []
 capabilities:
   - ingress
@@ -39,4 +47,4 @@ ui:
     title: QQ
     entry: ui/index.html
     apiPrefix: /api/modules/qq/
-    resourceVersion: 0.1.21
+    resourceVersion: 0.1.32

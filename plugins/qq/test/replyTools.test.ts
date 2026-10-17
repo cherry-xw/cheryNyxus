@@ -14,6 +14,6 @@ describe('QQ native reply tools', () => {
     await expect(voice.execute(input, {} as any, {} as any)).rejects.toThrow('trusted group')
     await voice.execute(input, {} as any, { requestView: { requestId: 'r', identity: { channel: 'qq', subject: { conversationType: 'group' } } } } as any)
     expect(bridge.reply).toHaveBeenCalledWith('r', { ...input, kind: 'voice' })
-    expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_lookup', 'qq_quote_reply', 'qq_mention', 'qq_react', 'qq_poke', 'qq_voice_reply'])
+    expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_lookup', 'qq_deliver_media', 'qq_quote_reply', 'qq_mention', 'qq_react', 'qq_poke', 'qq_voice_reply'])
   })
 })

@@ -42,11 +42,11 @@ QQ端复用 [原生协议](../protocol/qqbot-plugin.md) 既有五个方法（包
 
 ## QQ 管理API
 
-由QQ后端插件提供管理员限定RPC：`qq.config.get`、`qq.config.save`、`qq.status.get`、`qq.queue.get`、`qq.history.get`；NapCat token禁止调用。共享schema已集中于 [`packages/protocol/src/qq.ts`](../../../packages/protocol/src/qq.ts)，前后端不得自造第二份DTO。记忆统计已迁入 QQ 包的管理路由 `qq.memory.stats`，HTTP `/api/modules/qq/memory` 保持不变。
+由QQ后端插件提供管理员限定RPC：`qq.config.get`、`qq.config.save`、`qq.status.get`、`qq.queue.get`、`qq.history.get`、`qq.entry.get`；NapCat token禁止调用。共享schema已集中于 [`packages/protocol/src/qq.ts`](../../../packages/protocol/src/qq.ts)，前后端不得自造第二份DTO。记忆统计已迁入 QQ 包的管理路由 `qq.memory.stats`，HTTP `/api/modules/qq/memory` 保持不变。
 
 Manager路径 `/api/modules/qq/config` GET/PUT、`status` GET、`queue` GET、`history` GET；PUT body `{config,expectedBaseRevision,requestId}`，成功为 `{data:{config,baseRevision,saved:true,apply:{state,revision,reason?}}}`；GET config为同形读取视图但不带saved；apply.state取 applied/pending/failed/restart_required。失败沿 `{error:{code,message}}`，冲突409、非法400、禁用/离线503，未登录401与Origin403遵守既有认证。保存后回读同配置并区分未知写入结果，不自动重试写。
 
-status至少区分插件安装/启用/活动版本、配置保存/应用版本、NapCat连接/可信身份、QQ在线（无可靠证据为null）、渠道许可与资源缺失原因、暂停目标数量；不回显token、正文、昵称、个人记忆。queue/history仅安全标识与状态。使用既有Manager服务端认证客户端并仅增加这些显式方法；浏览器不能提交目标地址或任意方法。Manager不开本地QQ存储，不导入业务执行器，禁用Manager模块或关闭Manager不停止QQ聊天。
+status至少区分插件安装/启用/活动版本、配置保存/应用版本、NapCat连接/可信身份、QQ在线（无可靠证据为null）、渠道许可与资源缺失原因、暂停目标数量；不回显token、正文、昵称、个人记忆。管理员限定的queue/history额外提供时间、目标号码、发送者、预设、输入与回复摘要、合并消息和附件数量、投递状态计数。GET `/api/modules/qq/entry?requestId=...` 经 `qq.entry.get` 按需读取对应原始消息、已有回复及投递记录；文本有明确长度限制与截断标记，附件只返回类型和名称。页面按当前结果分页，不扩大持久历史保留范围。不返回配置快照、秘密、内部提示词、私人记忆、附件URL或本地路径；原文只以文本展示。任务完成不等于发送成功，投递记录按实际pending/inflight/sent/unknown/failed分别展示，失败通知的成功不代表原回复成功。使用既有Manager服务端认证客户端并仅增加这些显式方法；浏览器不能提交目标地址或任意方法。Manager不开本地QQ存储，不导入业务执行器，禁用Manager模块或关闭Manager不停止QQ聊天。
 
 ## 部署验证暂停
 
