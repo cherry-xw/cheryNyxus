@@ -16,6 +16,7 @@
 | 我需要确认什么 | 先读 |
 | --- | --- |
 | 文档怎么定位、归属、迁移和检查 | [通用文档规则](./documentation/README.md) |
+| 设计怎样逐层问清、何时可以开工、实施遇到新问题怎么办 | [设计确认与连续实施](./global/ai-collaboration.md#0-设计确认与连续实施) |
 | 项目路径、计划审批、证据和人工验收边界 | [全局规范](./global/README.md) |
 | 前端依赖方向、页面结构和视觉交互 | [前端规范](./frontend/README.md) |
 | Agent 模块的特殊强制约束 | [模块规范](./modules/README.md) |

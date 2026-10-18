@@ -7,7 +7,7 @@
 | 规范 | 内容 |
 | --- | --- |
 | [project-documentation.md](./project-documentation.md) | 本项目目录映射、计划审批、产物保留和验证边界 |
-| [ai-collaboration.md](./ai-collaboration.md) | AI 协作、验证和交付约束 |
+| [ai-collaboration.md](./ai-collaboration.md) | 逐层设计与提问、全链路检查、开工条件、连续实施与整项暂停，以及验证和交付约束 |
 | [documentation-hierarchy.md](./documentation-hierarchy.md) | 文档分类、层级、生命周期和维护规则 |
 | [llm-readable-documentation.md](./llm-readable-documentation.md) | 大型项目文档的任务路由、代码定位、内容压缩与维护要求 |
 | [plan-operation.md](./plan-operation.md) | 小型即时任务豁免、计划导航、执行、验收、生命周期与版本控制边界 |
