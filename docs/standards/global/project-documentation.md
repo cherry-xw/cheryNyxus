@@ -16,7 +16,7 @@
 4. 必须由用户完成的真实界面、视觉、交互和主观体验确认，属于人工验收边界；执行人是用户，除非用户明确授权 AI 查看或操作。
 5. 计划采用显式用户审批关口，审批人为当前任务用户；审批和收口规则见本文件第 2 节。
 6. 计划入口和未完成恢复文档纳入 Git，`verify/out/` 与运行产物忽略；长期证据迁入 `docs/quality/verification/`。
-7. 项目协作规范为[ai-collaboration.md](./ai-collaboration.md)，需求设计、实施、任务恢复、提交、图片验证和协作流程变化前读取；设计确认与连续实施规则由该文件第 0 节唯一维护。
+7. 项目协作规范为[ai-collaboration.md](./ai-collaboration.md)，需求设计、实施、任务恢复、提交、图片验证和协作流程变化前读取；项目授权、开工、暂停与恢复政策由其第 0 节维护。场景方法、主动调研、技术比较、检查点和交接要求由[需求设计规范](../documentation/requirements-design.md)维护，需求审核与交接也须读取。实验、其他模型和独立执行者的权限以协作规范为准。
 8. 文档检查命令为 `pnpm docs:test`、`pnpm docs:check-links`、`pnpm docs:check-structure`、`pnpm docs:check-plan`、`pnpm docs:check-metadata` 和综合入口 `pnpm docs:check`；检查器实现位于 `scripts/docs/`。
 9. 自动检查入口为 [`.github/workflows/docs.yml`](../../../.github/workflows/docs.yml)，在文档、规则、检查器、计划工具或命令配置变化时运行 `pnpm docs:test` 和 `pnpm docs:check`。检查结论以当前工作区的实际执行结果为准；必须完整报告阻断错误与待核对项，不得把历史通过写成永久事实。
 

@@ -15,7 +15,7 @@ def build_kit(output: Path) -> None:
     subprocess.run(['node', str(tool / 'build.mjs')], cwd=repo, check=True)
     files = {}
     rules = repo / 'docs/standards/documentation'
-    for name in ['README.md', 'content.md', 'structure.md', 'plans.md', 'plan-checks.md', 'entry-template.md', 'adoption-guide.md', 'existing-project-guide.md', 'tools/README.md', 'tools/plan-viewer.mjs', 'tools/lint.mjs']:
+    for name in ['README.md', 'requirements-design.md', 'content.md', 'structure.md', 'plans.md', 'plan-checks.md', 'entry-template.md', 'adoption-guide.md', 'existing-project-guide.md', 'tools/README.md', 'tools/plan-viewer.mjs', 'tools/lint.mjs']:
         source = rules / name
         files[source.relative_to(repo).as_posix()] = source.read_bytes()
     for name in ['README.md', 'package.json', 'audit.mjs', 'server.mjs', 'lint-source.mjs', 'build.mjs', 'package-kit.py']:
@@ -28,6 +28,8 @@ def build_kit(output: Path) -> None:
     files['README.md'] = '''# 通用文档与 Plan 管理包
 
 从 [采用指南](docs/standards/documentation/adoption-guide.md) 开始；工具运行见 [独立工具](docs/standards/documentation/tools/README.md)。
+
+需求讨论、技术方案选择、项目需求审核与开发交接见 [需求设计规范](docs/standards/documentation/requirements-design.md)。它提供按场景选方法、主动调研、结果检查点和终版交接要求；具体执行权限由采用项目配置。
 
 需要 Node.js 20 以上，无需安装依赖。在此目录执行：
 

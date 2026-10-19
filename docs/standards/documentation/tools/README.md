@@ -4,7 +4,7 @@
 
 ## 解压后使用
 
-通用 ZIP 保留规则的 `docs/standards/documentation/` 路径、工具源码 `tools/plan-viewer/` 和一个可检查的样例计划。不要用样例覆盖已有项目的计划；采用步骤见[采用指南](../adoption-guide.md)。
+通用 ZIP 保留规则的 `docs/standards/documentation/` 路径、工具源码 `tools/plan-viewer/` 和一个可检查的样例计划，包含[需求调查与设计方法](../requirements-design.md)。不要用样例覆盖已有项目的计划；采用步骤见[采用指南](../adoption-guide.md)。工具只检查明确的结构和记录，不能替代场景、技术适配或需求满足情况的审核。
 
 在解压目录运行：
 
