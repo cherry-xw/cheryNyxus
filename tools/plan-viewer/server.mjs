@@ -8,7 +8,7 @@
  *   GET /api/file?p=     读取 docs/plan 下单个 Markdown 文件原文
  *
  * 用法：
- *   node server.mjs [--port=4173] [--plan-dir=<docs/plan 目录>]
+ *   node server.mjs [--host=<地址>] [--port=4173] [--plan-dir=<docs/plan 目录>]
  *
  * docs/plan 定位优先级：--plan-dir 参数 > 环境变量 PLAN_DIR > 从脚本位置向上逐级查找。
  *
@@ -16,6 +16,7 @@
  */
 
 import http from 'node:http';
+import os from 'node:os';
 import { auditPlans } from './audit.mjs';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -70,7 +71,8 @@ if (args.includes('--help') || args.includes('-h')) {
   node ${path.basename(process.argv[1] || 'server.mjs')} [选项]
 
 选项:
-  --port=<n>          服务端口（默认 4173，或环境变量 PLAN_VIEWER_PORT）
+  --host=<地址>       监听地址（默认 127.0.0.1，或环境变量 PLAN_VIEWER_HOST；0.0.0.0 允许局域网访问）
+  --port=<n>          服务端口（默认 4173，或环境变量 PLAN_VIEWER_PORT；0 表示随机空闲端口）
   --plan-dir=<dir>    docs/plan 数据目录
   -h, --help          显示本帮助
 
@@ -78,7 +80,7 @@ docs/plan 定位优先级: --plan-dir > 环境变量 PLAN_DIR > 从脚本位置�
 
 环境依赖: Node.js >= 20（仅内置模块，无需 npm install），跨平台，仅访问 localhost
 
-页面: 启动后访问 http://127.0.0.1:<port>；刷新页面即读取最新文档。`);
+页面: 启动后访问 http://<host>:<port>（默认 http://127.0.0.1:4173）；刷新页面即读取最新文档。`);
   process.exit(0);
 }
 
@@ -111,6 +113,16 @@ const PORT = Number(optValue('--port') ?? process.env.PLAN_VIEWER_PORT ?? 4173);
 if (!Number.isInteger(PORT) || PORT < 0 || PORT > 65535) {
   console.error('端口必须是 0 至 65535 的整数');
   process.exit(1);
+}
+
+const HOST = optValue('--host') || process.env.PLAN_VIEWER_HOST || '127.0.0.1';
+const LAN_ACCESS = HOST === '0.0.0.0' || HOST === '::';
+
+/** 列出本机非内部 IPv4 地址，供 0.0.0.0 监听时直接复制访问 */
+function lanAddresses(port) {
+  const entries = Object.values(os.networkInterfaces()).flat().filter((n) => n && n.family === 'IPv4' && !n.internal);
+  const base = entries.map((n) => `http://${n.address}:${port}`);
+  return base.length ? base : ['（未找到局域网 IPv4 地址）'];
 }
 
 /* ---------------- 路径工具 ---------------- */
@@ -383,13 +395,26 @@ server.on('error', (err) => {
     console.error(`  可先执行 pnpm kill:ports，或换端口启动：pnpm plan -- --port=${PORT + 1}`);
     process.exit(1);
   }
+  if (err && err.code === 'EADDRNOTAVAIL') {
+    console.error(`启动失败：地址 ${HOST} 不可用（本机没有这个网络地址）。`);
+    console.error(`  可用 --host=0.0.0.0 监听所有网卡，或不传 --host 保持默认 127.0.0.1。`);
+    process.exit(1);
+  }
   throw err;
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, HOST, () => {
+  const bound = server.address();
+  const port = typeof bound === 'object' && bound ? bound.port : PORT;
+  const rawHost = typeof bound === 'object' && bound ? bound.address : HOST;
+  const displayHost = rawHost.includes(':') ? `[${rawHost}]` : rawHost;
   console.log('Plan Viewer 已启动（仅开发环境使用）');
   console.log(`  模式:   ${EMBEDDED ? '单文件产物（内嵌压缩页面）' : '源码模式（读取 public/）'}`);
-  console.log(`  地址:   http://127.0.0.1:${server.address().port}`);
+  console.log(`  地址:   http://${displayHost}:${port}`);
+  if (LAN_ACCESS) {
+    for (const addr of lanAddresses(port)) console.log(`  局域网: ${addr}`);
+    console.log('  注意:   服务对局域网开放，请确认所在网络安全。');
+  }
   console.log(`  数据源: ${PLAN_DIR}`);
   console.log('  说明:   刷新页面即读取最新文档；Ctrl+C 停止');
 });

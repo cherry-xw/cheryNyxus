@@ -50,18 +50,18 @@ for (const entry of [path.join(tool, 'lint-source.mjs'), path.join(tool, 'lint.m
   });
 }
 
-async function startServer(t, entry, dir) {
+async function startServer(t, entry, dir, hostArgs = ['--port=0']) {
   const wrapper = `import http from 'node:http';
     const listen = http.Server.prototype.listen;
     http.Server.prototype.listen = function(...args) {
       this.once('listening', () => console.log('BOUND ' + JSON.stringify(this.address())));
       return listen.apply(this, args);
     };
-    process.argv = ['node', process.env.PLAN_TEST_ENTRY, '--port=0', '--plan-dir=' + process.env.PLAN_TEST_DIR];
+    process.argv = ['node', process.env.PLAN_TEST_ENTRY, ...process.env.PLAN_TEST_ARGS.split(' '), '--plan-dir=' + process.env.PLAN_TEST_DIR];
     await import(process.env.PLAN_TEST_ENTRY);`;
   const child = spawn(process.execPath, ['--input-type=module', '--eval', wrapper], {
     windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PLAN_TEST_ENTRY: pathToFileURL(entry).href, PLAN_TEST_DIR: dir },
+    env: { ...process.env, PLAN_TEST_ENTRY: pathToFileURL(entry).href, PLAN_TEST_DIR: dir, PLAN_TEST_ARGS: hostArgs.join(' ') },
   });
   t.after(async () => {
     if (child.exitCode === null && child.signalCode === null) { const closed = once(child, 'close'); child.kill(); await closed; }
@@ -78,8 +78,18 @@ async function startServer(t, entry, dir) {
       if (match) { clearTimeout(timer); resolve(JSON.parse(match[1])); }
     });
   });
-  assert.equal(bound.address, '127.0.0.1');
+  assert.equal(bound.address, hostArgs.some((a) => a.startsWith('--host=')) ? '0.0.0.0' : '127.0.0.1');
   return `http://127.0.0.1:${bound.port}`;
+}
+
+for (const entry of [path.join(tool, 'server.mjs'), path.join(tool, 'plan-viewer.mjs'), path.join(portable, 'plan-viewer.mjs')]) {
+  test(`LAN host binding: ${path.relative(tool, entry)}`, { timeout: 15000 }, async (t) => {
+    const dir = fixture(t, table('[A](a/README.md)'), '状态：规划中');
+    const base = await startServer(t, entry, dir, ['--host=0.0.0.0', '--port=0']);
+    // 0.0.0.0 监听时可经本机回环访问；真实局域网可达性由网络环境决定，不由服务端保证
+    const data = await (await fetch(base + '/api/health')).json();
+    assert.deepEqual(data, { ok: true });
+  });
 }
 
 for (const entry of [path.join(tool, 'server.mjs'), path.join(tool, 'plan-viewer.mjs'), path.join(portable, 'plan-viewer.mjs')]) {

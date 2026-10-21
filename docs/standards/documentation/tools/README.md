@@ -13,7 +13,7 @@ node docs/standards/documentation/tools/lint.mjs --plan-dir=docs/plan
 node docs/standards/documentation/tools/plan-viewer.mjs --plan-dir=docs/plan
 ```
 
-页面默认 `http://127.0.0.1:4173`，可用 `--port=5000` 更换。也可以只复制两个单文件工具，通过 `--plan-dir` 指向目标项目计划目录。`lint.mjs --json` 输出机器可读差异，`--strict` 也将待核对项作为失败。执行权限、审批、业务测试仍由采用项目配置。
+页面默认 `http://127.0.0.1:4173`，可用 `--port=5000` 更换端口（`--port=0` 随机空闲端口）、`--host=0.0.0.0` 开放局域网访问。也可以只复制两个单文件工具，通过 `--plan-dir` 指向目标项目计划目录。`lint.mjs --json` 输出机器可读差异，`--strict` 也将待核对项作为失败。执行权限、审批、业务测试仍由采用项目配置。
 
 ## 集成与维护
 

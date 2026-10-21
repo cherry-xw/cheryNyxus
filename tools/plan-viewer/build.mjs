@@ -76,4 +76,4 @@ for (const [file, content] of outputs) {
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
 console.log(`${check ? '产物一致性检查通过' : '构建完成'}: ${outputs.length} 个文件`);
 console.log(`  server.mjs ${kb(readFileSync(SRC_FILE).length)} + Web 压缩注入 → plan-viewer.mjs ${kb(out.length)}`);
-console.log('运行: node plan-viewer.mjs [--port=4173] [--plan-dir=<docs/plan 目录>]');
+console.log('运行: node plan-viewer.mjs [--host=<地址>] [--port=4173] [--plan-dir=<docs/plan 目录>]');
