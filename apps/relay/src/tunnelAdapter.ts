@@ -1,3 +1,4 @@
+import { drain } from './streamFlow.js'
 import { request as httpRequest } from 'node:http'
 import { WebSocket } from 'ws'
 import type { RelayTargetAdapter, RelayHttpRequest, RelayHttpResponse, RelayWebSocketRequest } from './adapter.js'
@@ -21,7 +22,7 @@ export class LoopbackTunnelAdapter implements RelayTargetAdapter {
       request.once('error', reject)
       void (async () => {
         try {
-          for await (const chunk of input.body) request.write(chunk)
+          for await (const chunk of input.body) if (!request.write(chunk)) await drain(request)
           request.end()
         } catch (error) {
           request.destroy(error as Error)
@@ -34,14 +35,30 @@ export class LoopbackTunnelAdapter implements RelayTargetAdapter {
   acceptWebSocket(input: RelayWebSocketRequest): void {
     const address = this.registry.tunnelAddresses(input.backendId).websocketBindAddr
     const upstream = new WebSocket(`ws://${address}${input.path}`, {
+      handshakeTimeout: 5000,
+      maxPayload: 16 * 1024 * 1024,
       headers: input.headers as Record<string, string | string[]>,
     })
+    const queued: Array<{ data: import('ws').RawData; isBinary: boolean }> = []
+    let queuedBytes = 0
+    input.client.on('message', (data, isBinary) => {
+      if (upstream.readyState === WebSocket.OPEN) {
+        if (upstream.bufferedAmount > 1024 * 1024) return input.client.close(1009, 'Backpressure limit')
+        upstream.send(data, { binary: isBinary })
+      } else if (upstream.readyState === WebSocket.CONNECTING) {
+        queuedBytes += Buffer.byteLength(data as Buffer)
+        if (queuedBytes > 1024 * 1024) { input.client.close(1009, 'Queue limit'); upstream.terminate(); return }
+        queued.push({ data, isBinary })
+      }
+    })
     upstream.once('open', () => {
-      input.client.on('message', (data, isBinary) => {
-        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary })
-      })
+      for (const item of queued) upstream.send(item.data, { binary: item.isBinary })
+      queued.length = 0
       upstream.on('message', (data, isBinary) => {
-        if (input.client.readyState === WebSocket.OPEN) input.client.send(data, { binary: isBinary })
+        if (input.client.readyState === WebSocket.OPEN) {
+          if (input.client.bufferedAmount > 1024 * 1024) { input.client.close(1009, 'Backpressure limit'); upstream.terminate(); return }
+          input.client.send(data, { binary: isBinary })
+        }
       })
     })
     const closeBoth = (code = 1011, reason = 'Backend unavailable') => {
@@ -54,6 +71,7 @@ export class LoopbackTunnelAdapter implements RelayTargetAdapter {
     })
     input.client.once('close', () => {
       if (upstream.readyState === WebSocket.OPEN) upstream.close(1000, 'Browser disconnected')
+      else if (upstream.readyState === WebSocket.CONNECTING) upstream.terminate()
     })
   }
 }
