@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   test: {
+    setupFiles: ['apps/manager/test/setup.ts'],
     include: [
       'apps/manager/test/**/*.test.ts',
     ],

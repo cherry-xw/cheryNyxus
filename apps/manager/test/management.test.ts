@@ -173,8 +173,7 @@ beforeAll(async () => {
   expect(ingress.status()[0]?.state).toBe('active')
   const auth = new OAuth2Auth({
     enabled: true,
-    username: 'synthetic-backend',
-    password: hashPassword('synthetic-backend-password'),
+    machine: { username: 'synthetic-backend', password: hashPassword('synthetic-backend-password') },
     allowLoopback: false,
   })
   const http = createServer((req, res) => {
@@ -186,7 +185,7 @@ beforeAll(async () => {
     })
   })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
-  const ws = createWebSocketServer({ port: 0, host: '127.0.0.1', router, auth, listener: 'remote' })
+  const ws = createWebSocketServer({ port: 0, host: '127.0.0.1', router, auth, listener: 'local' })
   if (!ws.address()) await new Promise<void>((resolve) => ws.once('listening', resolve))
   const raw = yaml.load(await readFile(configFile, 'utf8')) as any
   raw.server = {
@@ -238,6 +237,7 @@ describe('mounted Manager Session → capability HTTP → real authenticated cor
       '/api/modules',
       '/api/modules/capabilities/catalog',
       '/api/modules/qq/status',
+      '/api/modules/qq/entry?requestId=synthetic',
     ]) {
       expect((await request(path, 'GET', undefined, {})).status).toBe(401)
       expect(

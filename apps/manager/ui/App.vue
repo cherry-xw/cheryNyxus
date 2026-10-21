@@ -6,10 +6,12 @@ import { lanAccess } from './main'
 import { managerRequest, onManagerSessionExpired } from '../../../packages/manager-ui/src/api'
 import PluginsPanel from './PluginsPanel.vue'
 import { usePlugins } from './usePlugins'
+import { BACKEND_PLUGIN_ID, BACKEND_PLUGIN_TITLE, backendStateLabels, useBackendPlugin } from './useBackendPlugin'
 
 type Tab = 'overview' | 'plugins' | 'connection'
 const plugins = usePlugins()
-const managerModules = computed(() => plugins.state.modules.map((item) => item.descriptor.id))
+const backendPlugin = useBackendPlugin()
+const managerModules = computed(() => ['backend', ...plugins.state.modules.map((item) => item.descriptor.id)])
 const connectionTab = ref('credentials')
 const businessLogin = ref({ username: '', passwordConfigured: false, businessPreset: 'full', browserOrigin: '', browserBasePath: '', remoteEnabled: false, proofIssuer: '', proofBackendId: '', proofKeys: {} as Record<string, string> })
 const proofKeysText = ref('{}')
@@ -239,6 +241,12 @@ async function loadAll() {
     loadSection('overview', async () => {
       backend.value = await managerRequest<any>('/api/status')
     }),
+    loadSection('backendPlugin', async () => {
+      await backendPlugin.read()
+    }),
+    loadSection('plugins', async () => {
+      await plugins.read()
+    }),
     loadSection('relay', async () => {
       relay.value = { ...relay.value, ...(await managerRequest<any>('/api/relay/config')) }
     }),
@@ -246,12 +254,12 @@ async function loadAll() {
       const result = await managerRequest<any>('/api/relay/status')
       relay.value.status = result.status
     }),
-    loadAuthorization(),
   ])
 }
 async function loadAuthorization() {
   await loadSection('authorization', async () => {
-    authorization.value = await managerRequest<any>('/api/relay/bindings')
+    const result = await deviceOperation('authorization.list')
+    authorization.value = { ...authorization.value, bindings: result.authorizations, status: 'read-back' }
   })
 }
 async function saveCredentials() {
@@ -289,18 +297,54 @@ async function saveRelay() {
     })
     const saved = await managerRequest<any>('/api/relay/config')
     relay.value = { ...relay.value, ...saved }
-    message.value = '中转配置已保存并回读确认'
+    message.value = '本地配置已保存并读回；尚未应用到 Backend，隧道状态未验证'
   } catch (e) {
     message.value = e instanceof Error ? e.message : '保存失败'
   } finally {
     saving.value = false
   }
 }
+async function applyRelayPolicy() {
+  saving.value = true
+  try {
+    const saved = await managerRequest<any>('/api/relay/config')
+    await deviceOperation('policy.set', { publicDiscovery: saved.publicDiscovery, remotePasswordEnabled: saved.remotePasswordEnabled })
+    const readback = await deviceOperation('policy.get')
+    if (readback.publicDiscovery !== saved.publicDiscovery || readback.remotePasswordEnabled !== saved.remotePasswordEnabled)
+      throw new Error('Backend 政策读回不一致，请核对；不自动重试')
+    message.value = 'Backend 政策已应用并读回；隧道状态需单独核验'
+  } catch (e) { message.value = e instanceof Error ? e.message : 'Backend 政策未确认' }
+  finally { saving.value = false }
+}
+async function deviceOperation(type: string, input: Record<string, unknown> = {}) {
+  return managerRequest<any>('/api/relay/device-operation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, input }) })
+}
+async function refreshDeviceAuthorization() {
+  saving.value = true
+  try {
+    const list = await deviceOperation('authorization.list')
+    const request = authorization.value?.request
+    const state = request?.requestId ? await deviceOperation('binding.status', { bindingRequestId: request.requestId }) : undefined
+    authorization.value = { ...authorization.value, bindings: list.authorizations, ...(state ? { request: state } : {}) }
+    message.value = '已从本设备控制通道读回授权'
+  } catch (error) { message.value = error instanceof Error ? error.message : '读回失败' } finally { saving.value = false }
+}
+async function cancelDeviceBinding() {
+  const requestId = authorization.value?.request?.requestId
+  if (!requestId) return
+  await deviceOperation('binding.cancel', { bindingRequestId: requestId })
+  await refreshDeviceAuthorization()
+}
+async function revokeDeviceBinding(bindingId: string) {
+  await deviceOperation('authorization.revoke', { bindingId })
+  await refreshDeviceAuthorization()
+}
 async function requestRelayBinding() {
   saving.value = true
   try {
-    await managerRequest('/api/relay/bindings/request', { method: 'POST', body: '{}' })
-    message.value = '绑定申请已提交'
+    const result = await managerRequest<any>('/api/relay/bindings/request', { method: 'POST', body: '{}' })
+    authorization.value = { ...authorization.value, request: result.request ?? result }
+    message.value = '设备申请已创建，请打开确认地址核对账号与指纹；尚未授权'
   } catch (e) {
     message.value = e instanceof Error ? e.message : '中转绑定不可用'
   } finally {
@@ -372,7 +416,7 @@ onManagerSessionExpired(() => {
       </p>
       <div v-if="firstAccountAllowed && !accountInitialized" class="first-account">
         <h2>首次创建 Manager 账号</h2>
-        <p class="muted">当前后端允许创建一次账号。创建成功后入口会自动关闭。</p>
+        <p class="muted">当前 Manager 允许创建一次账号。创建成功后入口会自动关闭。</p>
         <input
           v-model="firstAccountUsername"
           placeholder="新 Manager 用户名"
@@ -395,7 +439,7 @@ onManagerSessionExpired(() => {
     </section>
     <template v-else>
       <p class="notice">
-        当前管理会话统一授权所有管理功能。<span>{{ message }}</span
+        当前已登录 Manager；Backend 维护操作还需可用的独立机器连接。<span>{{ message }}</span
         ><button @click="logout">退出登录</button>
       </p>
       <nav role="tablist">
@@ -433,22 +477,28 @@ onManagerSessionExpired(() => {
                 backend.backendMode === 'external' ? '外部服务管理' : backend.backendMode || '未知'
               }}
             </p>
-            <p class="muted">此处仅展示状态，不提供后端启停操作。</p>
+            <p>维护连接：{{ backend.maintenance?.status === 'available' ? '最后一次操作成功' : backend.maintenance?.status === 'unavailable' ? '不可用' : '尚未检查' }}</p>
+            <p v-if="backend.maintenance?.message" class="error">{{ backend.maintenance.message }}</p>
+            <p class="muted">维护连接可选，不影响 Manager 登录和本地设置。此处不提供后端启停操作。</p>
           </article>
           <article>
             <h2>已安装插件</h2>
             <p v-if="plugins.state.error" class="error">{{ plugins.state.error }}</p>
-            <ul v-if="plugins.state.list?.plugins.length">
-              <li v-for="plugin in plugins.state.list.plugins" :key="plugin.id">
-                {{ plugin.id }} · {{ plugin.savedVersion || '无版本' }} · {{ plugin.state }}
+            <ul>
+              <li>
+                {{ BACKEND_PLUGIN_TITLE }}（<code>{{ BACKEND_PLUGIN_ID }}</code>） · 默认预装 ·
+                {{ backendStateLabels[backendPlugin.state.status?.state ?? 'inactive'] }}
+              </li>
+              <li v-for="plugin in plugins.state.list?.plugins || []" :key="plugin.id">
+                {{ plugin.id }} · {{ plugin.savedVersion || '无版本' }} ·
+                {{ plugin.backendUnavailable ? '依赖 Backend 运行，当前不可用' : plugin.state }}
               </li>
             </ul>
-            <p v-else-if="plugins.state.reading">正在读取插件…</p>
-            <p v-else-if="!plugins.state.error">尚未安装插件。</p>
+            <p v-if="plugins.state.reading">正在读取平级业务插件…</p>
           </article>
           <article>
             <h2>中转与隧道</h2>
-            <p>中转连接：{{ sectionErrors.relayStatus ? '读取失败' : relay.status || '未知' }}</p>
+            <p>中转服务可达性：{{ sectionErrors.relayStatus ? '读取失败' : relay.status || '未知' }}</p>
             <p>
               隧道：{{
                 backend.processes?.find((p: any) => p.name === 'rathole')?.running
@@ -460,11 +510,12 @@ onManagerSessionExpired(() => {
           </article>
         </div>
       </section>
-      <PluginsPanel v-if="tab === 'plugins'" :controller="plugins" />
+      <PluginsPanel v-if="tab === 'plugins'" :controller="plugins" :backend-plugin="backendPlugin" />
       <nav v-show="tab === 'connection'" aria-label="连接设置">
         <button
           v-for="item in [
             ['credentials', '账号与密码'],
+            ['business', '后端业务登录'],
             ['relay', '中转连接'],
             ['authorization', '授权'],
             ['oidc', '身份服务'],
@@ -485,16 +536,30 @@ onManagerSessionExpired(() => {
         </p>
         <p v-else-if="!authorization">尚未读取授权状态。</p>
         <button
-          :disabled="saving || !authorization || authorization.status === 'unavailable'"
+          :disabled="saving || !relay.url || !relay.backendId"
           @click="requestRelayBinding"
         >
           申请授权
         </button>
+        <section v-if="authorization?.request" aria-label="设备绑定申请">
+          <p>设备：{{ authorization.request.displayName }} / {{ authorization.request.backendId }}</p>
+          <p>指纹：{{ authorization.request.publicKeyFingerprint }}</p>
+          <p>期限：{{ authorization.request.expiresAt }}</p>
+          <a :href="authorization.request.confirmationUrl" target="_blank" rel="noopener noreferrer">打开Pocket ID确认页</a>
+          <p>申请状态：{{ authorization.request.status }}</p>
+          <button :disabled="saving || authorization.request.status !== 'pending'" @click="cancelDeviceBinding">取消未确认申请</button>
+          <p>打开页面不代表已授权；请确认账号、设备与指纹后明确提交。</p>
+        </section>
+        <button :disabled="saving" @click="refreshDeviceAuthorization">读回本设备授权</button>
+        <section v-for="binding in authorization?.bindings || []" :key="binding.bindingId">
+          <p>{{ binding.identity.issuer }} / {{ binding.identity.subject }}：{{ binding.status }}</p>
+          <button :disabled="saving" @click="revokeDeviceBinding(binding.bindingId)">撤销此账号的设备授权</button>
+        </section>
       </section>
       <section v-show="tab === 'connection' && connectionTab === 'credentials'" class="panel">
         <h1>账号与密码</h1>
         <p>
-          登录 Manager 即可管理所有已启用功能，无需再次登录 Backend。这里仅用于修改 Manager
+          Manager 登录独立于 Backend；远程维护需要受限机器连接。这里仅用于修改 Manager
           登录密码。
         </p>
         <form @submit.prevent="saveCredentials">

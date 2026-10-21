@@ -1,4 +1,5 @@
 import { posix, isAbsolute } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { isDeepStrictEqual } from 'node:util'
 import {
   IngressRequestSchemas,
@@ -23,6 +24,90 @@ export function safePluginPath(value: string): string {
     throw fail('invalid_params', 400)
   return value
 }
+export const BACKEND_UNAVAILABLE_REASON = '依赖 Backend 运行，当前不可用'
+
+export interface OfflinePluginList {
+  contractVersion: 2
+  hostApiVersion: 2
+  registryRevision: number
+  backendUnavailable: true
+  reason: string
+  plugins: Array<Record<string, unknown>>
+}
+
+const pluginIdPattern = /^[a-z][a-z0-9-]{0,63}$/
+const capabilityValues = new Set([
+  'tools',
+  'hooks',
+  'rpc.business',
+  'rpc.management',
+  'ingress',
+  'manager.ui',
+  'channel.identity',
+])
+
+/**
+ * Backend 离线时的平级插件列表兜底：只读本地 `.chery/ingress/registry.json`，
+ * 已安装插件保留在列表中并标记为依赖 Backend 运行，避免整个插件页报错。
+ */
+export async function offlinePluginList(registryFile: string): Promise<OfflinePluginList> {
+  const empty: OfflinePluginList = {
+    contractVersion: 2,
+    hostApiVersion: 2,
+    registryRevision: 0,
+    backendUnavailable: true,
+    reason: BACKEND_UNAVAILABLE_REASON,
+    plugins: [],
+  }
+  let raw: string
+  try {
+    raw = await readFile(registryFile, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty
+    throw error
+  }
+  const parsed = JSON.parse(raw) as unknown
+  if (!isRecord(parsed) || parsed.schemaVersion !== 2) throw new Error('registry.json 结构无效')
+  const revision = Number.isInteger(parsed.revision) && (parsed.revision as number) >= 0 ? (parsed.revision as number) : 0
+  const entries = Array.isArray(parsed.plugins) ? parsed.plugins : []
+  const plugins: Array<Record<string, unknown>> = []
+  for (const entry of entries) {
+    if (!isRecord(entry) || typeof entry.id !== 'string' || !pluginIdPattern.test(entry.id)) continue
+    if (entry.apiVersion !== 2) continue
+    const dependencies = (Array.isArray(entry.dependencies) ? entry.dependencies : [])
+      .filter(
+        (item): item is { id: string; version: string } =>
+          isRecord(item) && typeof item.id === 'string' && typeof item.version === 'string',
+      )
+      .map((item) => ({ id: item.id, version: item.version }))
+    const grantedCapabilities = (Array.isArray(entry.grantedCapabilities) ? entry.grantedCapabilities : []).filter(
+      (item): item is string => typeof item === 'string' && capabilityValues.has(item),
+    )
+    plugins.push({
+      id: entry.id,
+      apiVersion: 2,
+      installed: true,
+      enabled: entry.enabled === true,
+      savedVersion: typeof entry.version === 'string' ? entry.version : null,
+      activeVersion: null,
+      state: 'unknown',
+      requiresRestart: false,
+      savedRevision: revision,
+      appliedRevision: null,
+      apply: 'pending',
+      reason: BACKEND_UNAVAILABLE_REASON,
+      grantedCapabilities,
+      dependencies,
+      backendUnavailable: true,
+    })
+  }
+  return { ...empty, registryRevision: revision, plugins }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 export class DynamicModules {
   private readonly loaded = new Map<string, string>()
   constructor(

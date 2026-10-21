@@ -6,6 +6,8 @@ import { readAuthOptions } from './authConfig.js'
 import { readManagerPlugins, readConnectionCredentials } from './pluginConfig.js'
 
 export * from './processController.js'
+export * from './backendSupervisor.js'
+export * from './backendPluginConfig.js'
 export * from './server.js'
 export * from './credentials.js'
 
@@ -52,6 +54,9 @@ async function startManager(): Promise<void> {
   )
   process.once('SIGINT', () => void manager.close().then(() => process.exit(0)))
   process.once('SIGTERM', () => void manager.close().then(() => process.exit(0)))
+  // 只有持久化开关为 true 且非外部托管模式时，才由 Manager 自动拉起 Backend；运行状态变化不写回该开关。
+  const autoStart = await manager.autoStartBackend()
+  process.stdout.write(JSON.stringify({ event: 'manager_backend_autostart', ...autoStart }) + '\n')
 }
 
 function readBackendMode(value: string | undefined): 'child' | 'external' {

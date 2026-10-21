@@ -22,7 +22,7 @@ import { verifyLogin } from './verifyLogin.js'
 import { writeManagerPage as writeRetroManagerPage } from './page.js'
 
 import { createManagerCoreRpc } from './modules/capabilities/rpc.js'
-import { DynamicModules } from './modules/dynamic.js'
+import { DynamicModules, offlinePluginList } from './modules/dynamic.js'
 import { CapabilityError } from './modules/capabilities/errors.js'
 import {
   disableInitialSetup,
@@ -37,8 +37,12 @@ export interface ManagerOptions {
   backendMode?: 'child' | 'external'
   host?: string
   port?: number
+  cheryDir?: string
   backendCommand?: string
   backendArgs?: string[]
+  /** 后端监管器覆盖项（重试退避、稳定清零时长、就绪探测等），主要供测试与部署微调。 */
+  backendSupervisor?: Partial<BackendSupervisorOptions>
+  ingressRegistryFile?: string
   ratholeCommand?: string
   ratholeArgs?: string[]
   controlToken?: string
@@ -60,7 +64,7 @@ export function createManager(options: ManagerOptions = {}) {
   if (options.backendMode !== undefined && !['child', 'external'].includes(options.backendMode))
     throw new Error('backendMode 无效')
   const controller = new ProcessController()
-  const cheryDir = process.env.CHERY_DIR ?? process.cwd()
+  const cheryDir = options.cheryDir ?? process.env.CHERY_DIR ?? process.cwd()
   // 既有文件仅保留为机器密钥；不再授权浏览器或普通 API。
   const tokenState = loadOrCreateToken(
     options.tokenFile ?? `${cheryDir}/.chery/manager-token.json`,
@@ -165,6 +169,8 @@ export function createManager(options: ManagerOptions = {}) {
     createManagerCoreRpc(configFile, credentialStore),
     options.plugins?.packageSourceRoot,
   )
+  // supervisor 拉起的受管 Backend 纳入 controller 统一视图（isManaged/stop/stopAll），单层管理。
+  controller.adopt('backend', supervisor.bridge())
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -195,7 +201,7 @@ export function createManager(options: ManagerOptions = {}) {
           return
         }
         if (
-          !/^\/api\/machine\/(status|connection|(?:backend|rathole)\/(?:start|stop|restart))$/.test(
+            !/^\/api\/machine\/(status|connection|(?:backend|rathole)\/(?:start|stop|restart)|backend\/stop\/(?:cancel|force))$/.test(
             path,
           )
         ) {
@@ -296,6 +302,23 @@ main.manager > header { display: none; }
         res.end(bytes)
         return
       }
+      // Backend 离线时仍展示本地已安装的平级插件，避免插件页整体报错。
+      if (path === '/api/plugins' && req.method === 'GET') {
+        try {
+          const result = await modules.plugins({
+            method: 'GET',
+            url: new URL(req.url ?? '/', origin),
+          })
+          json(res, result?.status ?? 200, result?.body ?? { data: {} })
+        } catch (error) {
+          // 只有后端不可用（无响应或 5xx）才退回本地只读列表；参数/协议错误照旧返回。
+          if (error instanceof CapabilityError && error.status < 500) throw error
+          const offline = await offlinePluginList(ingressRegistryFile).catch(() => undefined)
+          if (!offline) throw error
+          json(res, 200, { data: offline })
+        }
+        return
+      }
       if (
         path === '/api/plugins' ||
         path.startsWith('/api/plugins/') ||
@@ -326,6 +349,7 @@ main.manager > header { display: none; }
           manager: 'running',
           backendMode: options.backendMode ?? 'child',
           processes: controller.state(),
+          backendPlugin: await readBackendPluginStatus(false),
           backend: await detectBackendStatus(options.backendStatusFile, options.configFile),
           relay: await readRelayStatus(options.relayStatusFile),
           system: readSystemMetrics(),
@@ -441,28 +465,49 @@ main.manager > header { display: none; }
           return
         }
         const action = match[2]
+        if (name === 'backend') {
+          // Browser and machine requests share the same process owner and stop semantics.
+          if (action === 'stop') await supervisor.stop()
+          else if (action === 'restart') await supervisor.restart()
+          else await supervisor.start()
+          const snapshot = await supervisor.snapshot({ logs: false })
+          json(res, 200, {
+            name: 'backend',
+            state: snapshot.state,
+            running: snapshot.running,
+            pid: snapshot.pid ?? undefined,
+            managed: snapshot.running,
+            lifecycle: snapshot.lifecycle,
+          })
+          return
+        }
         const result =
           action === 'stop'
             ? await controller.stopExclusive(name)
             : action === 'restart'
-              ? await controller.restartExclusive(
-                  name,
-                  name === 'backend' ? backendCommand : ratholeCommand,
-                  name === 'backend' ? backendArgs : ratholeArgs,
-                )
-              : await controller.startExclusive(
-                  name,
-                  name === 'backend' ? backendCommand : ratholeCommand,
-                  name === 'backend' ? backendArgs : ratholeArgs,
-                )
+              ? await controller.restartExclusive(name, ratholeCommand, ratholeArgs)
+              : await controller.startExclusive(name, ratholeCommand, ratholeArgs)
         json(res, 200, result)
         return
       }
       if (path === '/api/connection' && req.method === 'GET') {
+        const backendSnapshot = await supervisor.snapshot({ logs: false })
         json(res, 200, {
-          processes: controller.state(),
-          backend: controller.state().find((process) => process.name === 'backend') ?? {
-            status: 'unknown',
+          processes: [
+            ...controller.state(),
+            {
+              name: 'backend',
+              state: backendSnapshot.state,
+              running: backendSnapshot.running,
+              pid: backendSnapshot.pid ?? undefined,
+            },
+          ],
+          backend: {
+            name: 'backend',
+            state: backendSnapshot.state,
+            running: backendSnapshot.running,
+            managed: backendSnapshot.running,
+            pid: backendSnapshot.pid,
           },
           backendListener: await readBackendStatus(options.backendStatusFile),
           tunnel: await readRelayStatus(options.relayStatusFile),
@@ -497,11 +542,17 @@ main.manager > header { display: none; }
         })
         // 后端是管理器子进程 → 真正重启；否则（外部启动，如 dev / nodemon / systemd）不拉起
         // 会因端口占用而立刻崩溃的副本，交由后端自身的配置监听器自动重载新凭据（通常 1 秒内）。
-        const managed = controller.isManaged('backend')
-        const backendState = managed
-          ? await controller.restart('backend', backendCommand, backendArgs)
+        const managed = supervisor.isManaged()
+        const backendState = managed ? await supervisor.restart() : undefined
+        const backend = managed
+          ? {
+              name: 'backend' as const,
+              state: backendState!.state,
+              running: backendState!.running,
+              pid: backendState!.pid ?? undefined,
+              managed,
+            }
           : { name: 'backend' as const, managed: false }
-        const backend = { ...backendState, managed }
         // 用新凭据对后端做登录自检，确认已生效才提示成功，避免「以为生效了其实没有」。
         const network = await readBackendNetworkFromConfig(options.configFile)
         const verification = await verifyLogin(
@@ -614,6 +665,7 @@ main.manager > header { display: none; }
     address: () => server.address() as AddressInfo | null,
     close: async () => {
       await modules.close()
+      await supervisor.shutdown()
       await controller.stopAll()
       await new Promise<void>((resolve) => server.close(() => resolve()))
     },

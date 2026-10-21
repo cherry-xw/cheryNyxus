@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import { AccountStore } from '../src/accountStore.js'
 
@@ -11,6 +11,8 @@ it('exercises manager:dev entry without backend and never logs a URL credential'
   await writeFile(join(dir, '.chery/config.yaml'), 'server:\n  port: 1\n  webPort: 1\n')
   await new AccountStore(join(dir, '.chery/manager-auth.json')).save('owner', 'manager-test-password')
   const child = spawn(process.execPath, ['--import', 'tsx', 'apps/manager/src/index.ts'], {
+    // 与 manager:dev 脚本一致：从仓库根目录解析相对入口路径。
+    cwd: resolve(import.meta.dirname, '../../..'),
     env: { ...process.env, CHERY_DIR: dir, CHERY_MANAGER_HOST: '127.0.0.1', CHERY_MANAGER_PORT: '0', CHERY_MANAGER_TOKEN: 'entry-machine-key' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

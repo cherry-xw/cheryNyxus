@@ -12,7 +12,7 @@ Manager 是独立的统一管理入口；核心聊天仍在后端执行。管理
 | 动态描述、资源与有限分发 | [dynamic.ts](../../../apps/manager/src/modules/dynamic.ts) 的 DynamicModules | [动态插件测试](../../../apps/manager/test/dynamicPlugins.test.ts) |
 | 核心资源保存与同名回读 | [设置服务](../../../plugins/settings/src/service.ts) 的 SettingsService | [真实核心测试](../../../apps/manager/test/modules/capabilities.test.ts) |
 | 管理页面和草稿 | [useCapabilities.ts](../../../plugins/settings/ui/useCapabilities.ts)、[useQq.ts](../../../plugins/qq/ui/useQq.ts) | [能力页面测试](../../../apps/manager/test/capabilitiesUi.test.ts)、[动态插件测试](../../../apps/manager/test/dynamicPlugins.test.ts) |
-| 启动设置 | [index.ts](../../../apps/manager/src/index.ts) 的启动入口 | pnpm manager:type-check、pnpm manager:build |
+| 独立启动、维护失败隔离与本地保存 | [index.ts](../../../apps/manager/src/index.ts) 的启动入口、[server.ts](../../../apps/manager/src/server.ts) 的 createManager | [独立性测试](../../../apps/manager/test/independence.test.ts)、pnpm manager:type-check、pnpm manager:build |
 
 能力管理拥有大脑、感官组和预设的创建、查看、编辑；复用核心资源字段、目录、版本校验、秘密保存和应用状态，不维护第二份业务配置。QQ 管理只消费已有预设和只读摘要，不提供模型或资源编辑副本。
 
@@ -50,7 +50,7 @@ Manager 是独立的统一管理入口；核心聊天仍在后端执行。管理
 ## 保存流程与失败语义
 
 1. Manager 授权 Session、Origin，再把有限资源请求交给注册模块。
-2. 使用现有 CredentialStore 和后端网络来源完成真实 challenge/login 与认证 WS 连接；浏览器业务请求不能指定后端目标或 RPC 方法。
+2. 通过独立`server.auth.machine`和`/api/machine/login`取得短时机器凭据，建立无Origin/Cookie的管理WS；业务密码槽位不被机器轮换覆盖。浏览器业务请求不能指定后端目标或 RPC 方法。
 3. 能力服务获取完整核心配置，比对 revision，只修改目标资源，保留其他已声明配置字段。
 4. 核心 config.save v2 负责校验、秘密保存、持久保存和逐项应用。
 5. 同名回读后返回脱敏对象与核心保存/应用状态；共享角色不被简化预设编辑覆盖。
@@ -60,7 +60,7 @@ Manager 是独立的统一管理入口；核心聊天仍在后端执行。管理
 页面区分已保存、待应用、失败、需重启，非秘密草稿可在标签页内跨页面保留，Key 不进入草稿存储。不会自动重启服务。正在运行的请求保持原核心快照，后续请求使用应用后的版本。
 `/modules/capabilities` 返回设置包页面。能力页面复用 [CapabilitiesPanel.vue](../../../plugins/settings/ui/CapabilitiesPanel.vue) 与 [useCapabilities](../../../plugins/settings/ui/useCapabilities.ts) 管理三个平级区域：模型、工具组、预设。三个全宽区域上下排列，区域内部横向排版并在窄屏换行。协议与思考等级允许手动选择，推荐不可用不禁用编辑。普通工具组保留 auto/smart/manual 下拉选择；QQ 正在使用的工具组须为 auto。明确的校验失败允许继续编辑，版本冲突或未知写入后必须重新读取，目录刷新不改变旧草稿版本。预设只引用已保存资源并保留未编辑字段。离开能力页面清除 Key；不把 Key 写入浏览器存储。
 
-模块接口的 401 只表示 Manager 未登录或会话失效。后端凭据缺失、不一致、challenge/login 拒绝（包括 401、403、429）、WS 认证连接拒绝及 RPC 权限拒绝统一返回 502、`backend_auth_failed`；提示检查后端凭据或权限，不返回上游原文或凭据，不触发 Manager 登录跳转。后端离线仍返回 503、`unavailable`。
+模块接口的 401 只表示 Manager 未登录或会话失效。后端机器凭据缺失、不一致、无法读取、机器登录拒绝（包括 401、403、429）、WS 认证连接拒绝及 RPC 权限拒绝统一返回 502、`backend_auth_failed`；提示检查后端凭据或权限，不返回上游原文或凭据，不触发 Manager 登录跳转。后端离线仍返回 503、`unavailable`。
 
 保存调用明确被后端拒绝认证或权限时，可返回 `backend_auth_failed`；保存响应不明、断线或超时仍按未知写入处理。已经收到保存成功响应后，回读认证失败不能解释为“未保存”：QQ 保持 `save_unconfirmed`，能力模块保持 `saved_readback_failed`，均要求回读核对，不自动重试保存。边界验证见[认证失败测试](../../../apps/manager/test/backendAuthBoundary.test.ts)、[RPC 测试](../../../apps/manager/test/modules/rpc.test.ts)及[QQ 页面保存测试](../../../apps/manager/test/workspace.test.ts)。
 
@@ -68,7 +68,13 @@ Manager 是独立的统一管理入口；核心聊天仍在后端执行。管理
 
 QQ 管理的固定 HTTP 路径、共享数字版本与状态类型见[接入插件](ingress-plugins.md#qq-管理api)。已安装 `cherynyxus-qq-module` 即保留管理页面；停用不撤配置诊断，卸载后页面与专用 API 返回404。运行服务离线返回503。页面只查看已有预设摘要，不复制能力编辑器。不读取旧平台业务文件，不启动旧QQ中转，不伪造保存成功。保存结果不确定时返回明确的未知写入错误，要求回读而非重试。
 
-旧QQ独立管理和生产中转入口退出后，仅保留旧数据供显式离线迁移；通用relay网关不属于旧QQ中转。Manager 本体离线不影响 Backend QQ 运行；插件页的停用按钮是明确的 Backend 插件操作，不是隐藏页面的开关。设置包不依赖 QQ。QQ 实际业务验收结论见[QQ 模块说明](../../../plugins/qq/README.md#当前限制与验证边界)，不代表 Manager 页面或其他部署操作已验收。
+旧QQ独立管理和生产中转入口退出后，仅保留旧数据供显式离线迁移；通用relay网关不属于旧QQ中转。关闭 Manager 网页不影响 Backend QQ 运行；整体进程退出遵守配套服务生命周期。插件页的停用按钮是明确的 Backend 插件操作，不是隐藏页面的开关。设置包不依赖 QQ。QQ 实际业务验收结论见[QQ 模块说明](../../../plugins/qq/README.md#当前限制与验证边界)，不代表 Manager 页面或其他部署操作已验收。
+
+## 文件策略消费者
+
+设置包的 `GET/PUT files` 对应 Manager `/api/modules/capabilities/files`，通过核心配置事务保存并读回。服务和模块 UI 必须使用同一 `SettingsFilesPolicySchema`；严格接纳已生产的 `imageGeneration.defaultCount`（可选正安全整数，核心默认1），其他未知字段仍拒绝。图片输入能力与文件策略全量读回、编辑、保存时保留，不能为适配旧消费者删除字段或使用宽松透传。配置生产端新增有效字段时，部署检查必须覆盖已安装消费者的真实认证读取及无变更保存读回，不能只检查 HTML/JS200。
+
+模块 UI 资源按安装包 `resourceVersion` 读取并对照构建摘要；认证 RPC 读取模块资源不等于 Manager 浏览器登录后操作或视觉验收。定向回归见 [`imageGenerationCompatibility.test.ts`](../../../plugins/settings/test/imageGenerationCompatibility.test.ts)。
 
 ## 验证与部署
 
@@ -76,4 +82,4 @@ QQ 管理的固定 HTTP 路径、共享数字版本与状态类型见[接入插�
 
 构建生成 apps/manager/server-dist/index.js；使现有 Manager 进程使用新产物需要重新启动 Manager，本实现不重启用户服务。核心协议未变，不要求为接入另造或重启 QQ 运行层。已实现、自动验证、部署和用户验收必须分别报告。
 
-Backend 由 Docker 等外部方式运行时设置 `CHERY_MANAGER_BACKEND_MODE=external`。Manager 仍可认证、查看状态、保存资源和 QQ 策略，但所有 backend start/stop/restart 请求返回 409 `backend_externally_managed`，不启动第二个后端。未设置时保持原子进程管理方式；未知模式拒绝启动。外部服务由其部署工具维护，不能把 Manager 的子进程状态当成 Docker 状态。
+显式连接由外部工具运行的 Backend 时，可设置 `CHERY_MANAGER_BACKEND_MODE=external`；它是受限外管模式，不是默认配套启动方式。该模式不自动启动 Backend，所有启停请求返回 409 `backend_externally_managed`，避免重复实例。当前配套 Docker 镜像内由 Manager 拥有 Backend；不能把 Manager 的子进程状态当成任意外部容器的状态。

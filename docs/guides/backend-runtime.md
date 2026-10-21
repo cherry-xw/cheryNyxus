@@ -1,10 +1,16 @@
 # 后端与 Manager 配套运行
 
-Manager 与 Backend 属于同一产品的配套服务，保持两个进程和各自源码目录。常规入口先启动 Manager，监听成功后由 Manager 启动 Backend guardian，再由 guardian 管理 worker。Backend 停止、构建失败或启动失败时 Manager 仍可用；可通过现有认证管理接口恢复 Backend。整体关闭 Manager 进程会清理其拥有的 Backend 进程树；关闭管理网页不停止任何服务。
+Manager 与 Backend 属于同一产品的配套服务，始终遵循“同环境一体运行（同进同退）”边界——要么同在一个 Docker 容器内，要么同在宿主系统内。常规启动顺序固定为：**项目启动 → Manager 先启动 → 加载插件 → 由默认预装的 Backend 管理插件按持久化开关（`manager.backendPlugin.autoStart`，默认 `true`）以本地子进程拉起并监控 Backend**。Manager 管理登录与 AI Web 业务登录为两套完全独立的使用体系，不共享会话、不相互转授权限。Backend 未启动、构建失败或崩溃时 Manager 仍始终可用；整体关闭 Manager 进程会按进程组清理其拥有的 Backend 进程树；关闭管理网页不停止任何服务。
+
+当 Backend 由 Manager 作为受管子进程拉起时（注入 `CHERY_MANAGED_BY_MANAGER=1`），崩溃恢复统一由 Manager 的 `BackendSupervisor` 单层执行：**最多自动重试 3 次，退避间隔依次为 5s、15s、30s**；仅当 Backend 监听就绪且**连续稳定运行满 5 分钟**后才清零连续失败计数；重试等待期间支持手动“取消重试”，达到 3 次上限后停留在 `failed` 状态保留日志与错误原因，等待管理员手动点击“启动 Backend”开启新一轮尝试（guardian 内部无限重试循环在受管模式下自动让出，防止多层重试绕过 3 次上限）。第一阶段仅开放启动、取消重试、状态/资源/日志监控与配置，不开放运行中 Backend 的停止操作（停止流程与 Agent 指令监控归入第二阶段专项计划）。
 
 开发运行 `pnpm dev`：Manager 使用源码入口，Backend 由开发脚本构建并热重载。正式本机先运行 `pnpm build` 和 `pnpm manager:build`，再运行 `pnpm manager:cli`。systemd、Windows 启动与 Docker 都以 Manager 为配套服务入口，不再另起第二份 Backend。直接 Backend 入口保留给显式维护和诊断，不是常规整套启动方式。
 
 Backend 内部入口为 `apps/backend/src/index.ts` 构建出的 `apps/backend/dist/index.js`，负责 guardian/worker；worker 创建核心运行时并由 `startService()` 装配 HTTP、WebSocket 和扩展宿主。QQ 模块仅由扩展宿主加载，不单独运行 QQ 后端服务。隧道仍由 Backend 设备客户端负责，Manager 不能另起副本。
+
+## 当前 Docker 运行入口
+
+部署 Compose 使用单个 `backend` 服务承载 Manager 与受管 Backend，镜像从 `apps/backend/deploy/docker/Dockerfile` 完整构建，命令为 `node /app/apps/manager/server-dist/index.js`，`CHERY_MANAGER_BACKEND_MODE=child`。保留 Backend 运行初始化入口以加载 secrets、渠道认证和插件运行选项；Manager 继承环境并启动 Backend。发布端口为 39980、8282、8283；健康检查只检查 Manager，使 Backend 故障时管理入口仍可用，不借容器重启绕过有限重试。PID 是容器内进程 ID。NapCat 维持独立运行。
 
 ## 配置与目录
 

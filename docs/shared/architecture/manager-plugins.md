@@ -4,7 +4,7 @@
 
 ## 职责与入口
 
-Manager 本体保留登录、认证、Session、可信 Backend 连接、基础状态与最小插件管理。连接凭据通过显式配置的 `connectionCredentials` 映射提供通用受保护接口 `/api/connections/<moduleId>/credential`（GET）与 `/rotate`（POST/PUT）；只允许已安装并登记管理页面的模块，未配置不创建文件。部署提供既有凭据文件路径，读取不轮换，写入原子替换并回读。QQ 说明、复制和重建提示归 QQ 页面。实际复用的页面请求、页面外壳、下拉框和样式归 `packages/manager-ui`，插件不引用 Manager 私有源码。QQ/设置完整页面随 Backend 包构建；本体不静态导入业务面板或服务端工厂，不提供旧固定页面兜底。无业务包仍可登录和管理插件。关闭管理网页不影响实时业务；整体进程关系见[后端运行](../../guides/backend-runtime.md)。
+Manager 本体保留登录、认证、Session、受控本地进程监管、基础状态与插件容器管理。**Backend 管理插件（`cherynyxus-backend-manager`）作为默认预装插件随 Manager 内置提供**（无需依赖 Backend 在线即可展示运行状态、CPU/内存/运行时长、stdout/stderr 环形日志、切换“随插件启动 Backend”开关、手动触发启动、在 5s/15s/30s 最多 3 次异常重试等待期取消重试，以及维护 AI Web 独立业务登录参数；接口为 `/api/backend-plugin/{status,start,cancel-retry,config}` 与 `/api/business-login/config`）。QQ、设置（`capabilities`）等依赖 Backend 的业务插件与 Backend 管理插件**平级展示**；当 Backend 未启动或离线时，`/api/plugins` 从本地 `.chery/ingress/registry.json` 安全只读已安装插件列表并标记 `backendUnavailable: true`（原因：`依赖 Backend 运行，当前不可用`），前端卡片置灰操作按钮而不报错。连接凭据通过显式配置的 `connectionCredentials` 映射提供通用受保护接口 `/api/connections/<moduleId>/credential`（GET）与 `/rotate`（POST/PUT）；只允许已安装并登记管理页面的模块，未配置不创建文件。部署提供既有凭据文件路径，读取不轮换，写入原子替换并回读。QQ 说明、复制和重建提示归 QQ 页面。实际复用的页面请求、页面外壳、下拉框和样式归 `packages/manager-ui`，插件不引用 Manager 私有源码。QQ/设置完整页面随 Backend 包构建；本体不静态导入业务面板或服务端工厂，不提供旧固定页面兜底。无业务包仍可登录和管理插件。关闭管理网页不影响实时业务；整体进程关系见[后端运行](../../guides/backend-runtime.md)。
 
 | 修改意图 | 实现入口 | 验证入口 |
 | --- | --- | --- |

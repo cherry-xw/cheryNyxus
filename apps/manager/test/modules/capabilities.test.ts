@@ -102,7 +102,7 @@ beforeAll(async () => {
     method: 'qq.config.get',
     request: z.object({}),
     response: z.unknown(),
-    authorize: (ctx) => ctx.credentialKind === 'control',
+    authorize: (ctx) => ctx.credentialKind === 'control' || ctx.credentialKind === 'machine',
     handler: async () => ({
       config: QQDefaultConfig,
       baseRevision: 0,
@@ -115,8 +115,7 @@ beforeAll(async () => {
   await (await import('../../../backend/src/agent/sense/index.js')).reloadSenses()
   const auth = new OAuth2Auth({
     enabled: true,
-    username: 'synthetic-manager',
-    password: hashPassword('synthetic-manager-password'),
+    machine: { username: 'synthetic-manager', password: hashPassword('synthetic-manager-password') },
     allowLoopback: false,
   })
   const http = createServer((req, res) => {
@@ -129,7 +128,7 @@ beforeAll(async () => {
   })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
   const webPort = (http.address() as AddressInfo).port
-  const ws = createWebSocketServer({ port: 0, host: '127.0.0.1', router, auth, listener: 'remote' })
+  const ws = createWebSocketServer({ port: 0, host: '127.0.0.1', router, auth, listener: 'local' })
   if (!ws.address()) await new Promise<void>((resolve) => ws.once('listening', resolve))
   const wsPort = (ws.address() as AddressInfo).port
   rpc = new BackendRpcClient({
@@ -157,6 +156,21 @@ afterAll(async () => {
     else process.env[name] = value
 })
 describe('capabilities over authenticated wire to real core handlers', () => {
+  it('图片策略经管理路由与认证 RPC 保存到真实隔离 YAML，回读并拒绝过期 revision', async () => {
+    const before = await request('GET', 'files')
+    expect(before.status).toBe(200)
+    const view = (before.body as any).data
+    const policy = { ...view.policy, imageAdaptation: { ...view.policy.imageAdaptation, maxBytes: 1234567, maxEdge: 1024, quality: 80 } }
+    const body = { policy, expectedBaseRevision: view.baseRevision, requestId: crypto.randomUUID() }
+    const saved = await request('PUT', 'files', body)
+    expect(saved.status).toBe(200)
+    expect((await request('GET', 'files')).body).toMatchObject({ data: { policy } })
+    const disk = yaml.load(readFileSync(join(root, '.chery/config.yaml'), 'utf8')) as any
+    expect(disk.files.imageAdaptation).toEqual(policy.imageAdaptation)
+    expect(disk.llm.brain.base.key).toBe(key)
+    expect((await request('PUT', 'files', { ...body, requestId: crypto.randomUUID() })).status).toBe(409)
+    expect((await request('PUT', 'files', { ...body, policy: { imageAdaptation: { maxBytes: 0 } } })).status).toBe(400)
+  })
   it('deletes unused models and tool groups with persistent readback, while protecting references', async () => {
     for (const [kind, name, value] of [
       ['brains', 'delete-test-model', { provider: 'openai', model: 'synthetic-delete' }],
