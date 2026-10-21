@@ -37,6 +37,15 @@ export function brainInvalidStream(summary: string): ClassifiedError {
 }
 
 /** 流正常结束但 0 个有效事件 → 端点/模型服务异常：provider 类可重试，仍空则报前端。 */
+export function assertProviderEnvelope(value: Record<string, unknown>): void {
+  if (value.error || value.type === 'error' || value.type === 'response.failed' || value.type === 'response.incomplete' || value.status === 'failed' || value.status === 'incomplete') {
+    const error = value.error as {message?:unknown;code?:unknown} | undefined
+    if (error?.code === 'context_length_exceeded' || error?.code === 'context_window_exceeded') throw brainHttpError(400, JSON.stringify({ error }))
+    const message = typeof error?.message === 'string' ? error.message : ''
+    if (/\binput new_sensitive\b/.test(message) && /\bimage is sensitive\b/.test(message) && (error?.code === 1026 || error?.code === '1026' || /\(1026\)/.test(message))) throw brainHttpError(422, JSON.stringify({error}))
+    throw new ClassifiedError({ message: 'provider response rejected or incomplete', userMessage: 'AI 服务返回失败或不完整结果，已有部分输出不代表任务完成。', category: 'provider', source: 'brain', errorId: ErrorId.BRAIN_HTTP_SERVICE_FAILED })
+  }
+}
 export function brainEmptyStream(): ClassifiedError {
   return new ClassifiedError({
     message: 'empty stream: 0 SSE events before close',
@@ -50,11 +59,27 @@ export function brainEmptyStream(): ClassifiedError {
  *  4xx（除 401/403/429）归 validation 不归 provider（确定性请求错误重试无意义，retryable=false，
  *  前端不显"继续"按钮）；detail 携带上游 body 摘要供前端折叠展示（error-conventions.md「错误详情通道」）。 */
 export function brainHttpError(status: number, logMessage: string): ClassifiedError {
+  // A 422 alone is not a moderation verdict. Recognize the provider's exact
+  // image-rejection marker and code together, never arbitrary sensitive text.
+  let upstream: unknown
+  try { upstream = JSON.parse(logMessage) } catch { /* SDK errors may be plain text. */ }
+  const envelope = upstream as { error?: { message?: unknown; code?: unknown }; message?: unknown; code?: unknown } | undefined
+  const payload = envelope?.error ?? envelope
+  if ((status === 400 || status === 413) && (payload?.code === 'context_length_exceeded' || payload?.code === 'context_window_exceeded')) {
+    return new ClassifiedError({ errorId: ErrorId.BRAIN_CONTEXT_OVERFLOW, message: 'Provider declared context overflow', userMessage: 'AI 服务明确拒绝了超出上下文窗口的输入。', category: 'validation', source: 'brain' })
+  }
+  const text = typeof payload?.message === 'string' ? payload.message : logMessage
+  const imageRejected = status === 422 && /\binput new_sensitive\b/.test(text) &&
+    /\bimage is sensitive\b/.test(text) &&
+    (payload?.code === 1026 || payload?.code === '1026' || /\(1026\)(?:\s|$)/.test(text))
   let category: ErrorCategory
   let userMessage: string
   if (status === 401 || status === 403) {
     category = 'auth'
     userMessage = '大脑的钥匙不对，请在设置里检查 key'
+  } else if (status === 408) {
+    category = 'timeout'
+    userMessage = 'AI 服务等待请求超时，请检查连接与服务状态'
   } else if (status === 429) {
     category = 'provider'
     userMessage = '脑子忙不过来了，稍后再试'
@@ -66,23 +91,22 @@ export function brainHttpError(status: number, logMessage: string): ClassifiedEr
     userMessage = '脑子拒绝了这个请求，请检查 brain 配置'
   }
   return new ClassifiedError({
-    message: `upstream ${status}: ${logMessage}`,
-    userMessage,
+    errorId: imageRejected ? ErrorId.BRAIN_IMAGE_REVIEW_REJECTED : status === 401 || status === 403 ? ErrorId.BRAIN_HTTP_AUTH_REJECTED : status === 429 ? ErrorId.BRAIN_HTTP_RATE_LIMITED : status >= 500 ? ErrorId.BRAIN_HTTP_SERVICE_FAILED : ErrorId.BRAIN_HTTP_REQUEST_REJECTED,
+    message: `upstream HTTP ${status}${imageRejected ? '; provider code 1026; image_review_rejected' : ''}`,
+    userMessage: imageRejected ? '上游图片审核拒绝了本次请求，可能存在误判；这不代表已确认图片违规，也无法据此确定是哪张图。' : userMessage,
     category,
     source: 'brain',
-    detail: `upstream ${status}: ${logMessage}`,
+    detail: `HTTP ${status}${imageRejected ? '; provider code 1026; image_review_rejected' : ''}`,
   })
 }
 
 /** 网络/DNS/连接失败 → 可重试，友好"连不上我的脑子了"。 */
-export function brainNetworkError(logMessage: string, cause: unknown): ClassifiedError {
+export function brainNetworkError(_logMessage: string, _cause: unknown): ClassifiedError {
   return new ClassifiedError({
-    message: `fetch failed: ${logMessage}`,
+    message: 'fetch failed: network transport unavailable',
     userMessage: '连不上我的脑子了',
     category: 'network',
     source: 'brain',
-    detail: logMessage,
-    cause,
   })
 }
 
@@ -93,20 +117,25 @@ export function brainNetworkError(logMessage: string, cause: unknown): Classifie
  * openai.ts / ollama.ts 捕 SDK 错误后调用，避免裸抛漏到 compose 兜底。
  */
 export function classifyBrainError(err: unknown): ClassifiedError {
-  const status = (err as { status?: number })?.status
+  if (err instanceof ClassifiedError) return err
+  const recoverable = err as { code?: unknown; error?: { code?: unknown }; status?: unknown; statusCode?: unknown }
+  if (recoverable?.code === 'context_length_exceeded' || recoverable?.code === 'context_window_exceeded' || recoverable?.error?.code === 'context_length_exceeded' || recoverable?.error?.code === 'context_window_exceeded') {
+    return new ClassifiedError({ errorId: ErrorId.BRAIN_CONTEXT_OVERFLOW, message: 'Provider declared context overflow', userMessage: 'AI 服务明确报告输入超过上下文窗口。', category: 'validation', source: 'brain' })
+  }
+  const shape = err as { status?: unknown; statusCode?: unknown }
+  const rawStatus = shape?.status ?? shape?.statusCode
+  const status = typeof rawStatus === 'number' ? rawStatus : typeof rawStatus === 'string' && /^[1-5][0-9]{2}$/.test(rawStatus) ? Number(rawStatus) : undefined
   if (typeof status === 'number') {
     const msg = err instanceof Error ? err.message : String(err)
     return brainHttpError(status, msg)
   }
   const category = classifyError(err)
-  const rawMessage = err instanceof Error ? err.message : String(err)
   return new ClassifiedError({
-    message: rawMessage,
+    message: `brain ${category} failure`,
     userMessage: brainFriendly(category),
     category,
     source: 'brain',
-    detail: rawMessage.slice(0, 200),
-    cause: err,
+
   })
 }
 
@@ -270,7 +299,7 @@ function authHeaders(key: string): Record<string, string> {
 /** 从 !res.ok 响应体提取短摘要（≤200 字符），供日志面 message。 */
 export async function readErrorSnippet(res: Response): Promise<string> {
   const text = await res.text().catch(() => '')
-  return text.slice(0, 200) || res.statusText
+  return text.slice(0, 16384) || res.statusText
 }
 
 /**
@@ -318,10 +347,13 @@ export async function jsonRequest(
     )
   }
   try {
-    return (await res.json()) as Record<string, unknown>
+    const value = (await res.json()) as Record<string, unknown>
+    assertProviderEnvelope(value)
+    return value
   } catch (err) {
+    if (err instanceof ClassifiedError) throw err
     throw brainInvalidStream(
-      `响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`,
+      '响应体不是合法 JSON，请检查服务协议和地址',
     )
   }
 }
@@ -398,6 +430,8 @@ export async function* streamSSE(
   const decoder = new TextDecoder()
   let buffer = ''
   let yielded = 0
+  let terminal = false
+  const responsesFamily = opts?.hookOptions?.protocol === 'openai-responses' || opts?.endpoint === '/responses'
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -415,20 +449,22 @@ export async function* streamSSE(
         if (payload === '[DONE]') {
           controller.abort()
           if (yielded === 0) throw brainEmptyStream()
+          if (responsesFamily && !terminal) throw brainInvalidStream('Responses 响应缺少 completed 终态')
           return
         }
-        try {
-          const parsed = JSON.parse(payload) as Record<string, unknown>
-          opts?.observation?.response(parsed)
-          yield parsed
-          yielded++
-        } catch {
-          // 单行 JSON 解析失败不致命，跳过该事件
-        }
+        let parsed: Record<string, unknown>
+        try { parsed = JSON.parse(payload) as Record<string, unknown> } catch { continue }
+        assertProviderEnvelope(parsed)
+        const choices = parsed.choices as {finish_reason?: unknown}[] | undefined
+        terminal ||= responsesFamily ? parsed.type === 'response.completed' : !!choices?.some(c => typeof c.finish_reason === 'string' && c.finish_reason.length > 0)
+        opts?.observation?.response(parsed)
+        yield parsed
+        yielded++
       }
     }
-    // 流正常关闭但 0 有效事件（连 [DONE] 都未收到）→ 空流
+    // A valid family-specific terminal event permits EOF without [DONE].
     if (yielded === 0) throw brainEmptyStream()
+    if (!terminal) throw brainInvalidStream('响应流在完成标记前中断，已有部分输出不代表本次请求完成')
   } finally {
     // 正常结束或 generator.throw() 注入的 abort，都切断 HTTP 连接
     controller.abort()

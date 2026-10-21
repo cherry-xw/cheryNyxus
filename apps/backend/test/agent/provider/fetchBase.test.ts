@@ -5,6 +5,8 @@ import {
   jsonRequest,
   resolveProviderUrl,
   streamSSE,
+  brainHttpError,
+  classifyBrainError,
 } from '@/agent/provider/fetchBase.js'
 import { registerProviderUrlPattern } from '@/core/llm/urlPattern.js'
 import { ClassifiedError } from '@/utils/error.js'
@@ -88,6 +90,15 @@ describe('assertChatOptions 密钥占位符校验', () => {
 })
 
 describe('buildEndpointUrl', () => {
+  it.each([400,401,403,408,413,422,429,500,503])('HTTP %s retains safe category without body canary',status=>{
+    const e=brainHttpError(status,'secret /private/path https://invalid?key=secret')
+    expect(JSON.stringify(e)).not.toContain('secret')
+    expect(e.detail).toBe(`HTTP ${status}`)
+    expect(classifyBrainError(Object.assign(new Error('secret'),{statusCode:String(status)})).category).toBe(e.category)
+  })
+  it.each(['input new_sensitive image is sensitive (1026)','input new_sensitive image is sensitive (1027)','unrelated (1026)'])('moderation requires exact combined markers: %s',text=>{
+    expect(brainHttpError(422,text).errorId).toBe(text.endsWith('(1026)')&&text.startsWith('input')?ErrorId.BRAIN_IMAGE_REVIEW_REJECTED:ErrorId.BRAIN_HTTP_REQUEST_REJECTED)
+  })
   it('无版本段 → base + endpoint（版本段由用户填写，不自动补 /v1）', () => {
     expect(buildEndpointUrl('https://gw:11411', { endpoint: '/chat/completions' })).toBe(
       'https://gw:11411/chat/completions',
@@ -228,6 +239,23 @@ describe('streamSSE 流完整性校验', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
+  it.each([{error:{message:'secret'}},{type:'response.failed',response:{error:{message:'secret'}}},{type:'response.incomplete'}])('rejects business failure SSE %j even after content',async failure=>{
+    fetchMock.mockResolvedValue(sseResponse(['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',`data: ${JSON.stringify(failure)}\n\n`]))
+    const stream=streamSSE('https://fixture.invalid',{},'fixture');await stream.next();await expect(stream.next()).rejects.toBeInstanceOf(ClassifiedError)
+  })
+  it.each([false,true])('malformed SSE cannot swallow a subsequent business failure; partial=%s',async partial=>{
+    fetchMock.mockResolvedValue(sseResponse(['data: not-json\n\n',...(partial?['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n']:[]),'data: {"error":{"message":"SECRET /private/path"}}\n\n']))
+    const events:unknown[]=[]
+    const read=async()=>{for await(const chunk of streamSSE('https://fixture.invalid',{},'fixture'))events.push(chunk)}
+    await expect(read()).rejects.toMatchObject({errorId:ErrorId.BRAIN_HTTP_SERVICE_FAILED,category:'provider'})
+    expect(events).toHaveLength(partial?1:0)
+  })
+  it('rejects partial EOF but accepts finish_reason without DONE',async()=>{
+    fetchMock.mockResolvedValueOnce(sseResponse(['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n']))
+    const bad=streamSSE('https://fixture.invalid',{},'fixture');await bad.next();await expect(bad.next()).rejects.toBeInstanceOf(ClassifiedError)
+    fetchMock.mockResolvedValueOnce(sseResponse(['data: {"choices":[{"finish_reason":"stop"}]}\n\n']))
+    const good=streamSSE('https://fixture.invalid',{},'fixture');await good.next();expect((await good.next()).done).toBe(true)
+  })
   it('伪 200（text/html 网关 SPA 回退）→ validation 配置错误', async () => {
     fetchMock.mockResolvedValue(
       new Response('<!doctype html><html></html>', {
@@ -265,6 +293,20 @@ describe('streamSSE 流完整性校验', () => {
     })
   })
 
+  it.each([
+    ['/responses',{type:'response.completed'},true],
+    ['/responses',{choices:[{finish_reason:'stop'}]},false],
+    ['/responses',{type:'message_stop'},false],
+    ['/chat/completions',{choices:[{finish_reason:'stop'}]},true],
+    ['/chat/completions',{type:'response.completed'},false],
+    ['/chat/completions',{done:true},false],
+  ] as const)('family %s validates only its own terminal %j',async(endpoint,event,accepted)=>{
+    fetchMock.mockResolvedValue(sseResponse([`data: ${JSON.stringify(event)}\n\n`]))
+    const read=async()=>{for await(const _ of streamSSE('https://fixture.invalid',{},'fixture',undefined,{endpoint})) {/* consume */}}
+    if(accepted) await expect(read()).resolves.toBeUndefined()
+    else await expect(read()).rejects.toBeInstanceOf(ClassifiedError)
+  })
+
   it('正常事件流 → yield 解析后 JSON 并在 [DONE] 结束', async () => {
     fetchMock.mockResolvedValue(
       sseResponse(['data: {"delta":"你"}\n\n', 'data: {"delta":"好"}\n\n', 'data: [DONE]\n\n']),
@@ -281,6 +323,26 @@ describe('jsonRequest 流完整性校验', () => {
     vi.stubGlobal('fetch', fetchMock)
   })
   afterEach(() => vi.unstubAllGlobals())
+
+  it.each([
+    {error:{message:'SECRET /private/path'}},
+    {type:'error',error:{message:'SECRET /private/path'}},
+    {type:'response.failed',response:{error:{message:'SECRET /private/path'}}},
+    {type:'response.incomplete'},
+  ])('HTTP200 business error keeps typed failure rather than becoming parse/config error %j',async envelope=>{
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(envelope),{headers:{'content-type':'application/json'}}))
+    await expect(jsonRequest('https://fixture.invalid',{},'fixture')).rejects.toSatisfy((error:unknown)=>{
+      const classified=asClassified(error)
+      expect(classified.errorId).toBe(ErrorId.BRAIN_HTTP_SERVICE_FAILED)
+      expect(classified.category).toBe('provider')
+      expect(JSON.stringify(classified)).not.toContain('SECRET')
+      return true
+    })
+  })
+  it.each([1026,'1026'])('HTTP200 image business rejection retains exact code %s',async code=>{
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({error:{code,message:'input new_sensitive image is sensitive SECRET'}}),{headers:{'content-type':'application/json'}}))
+    await expect(jsonRequest('https://fixture.invalid',{},'fixture')).rejects.toMatchObject({errorId:ErrorId.BRAIN_IMAGE_REVIEW_REJECTED,category:'validation'})
+  })
 
   it('content-type 非 JSON（网关 SPA 回退）→ validation 配置错误', async () => {
     fetchMock.mockResolvedValue(

@@ -5,7 +5,6 @@ import {
   ClassifiedError,
   classifyError,
   friendlyMessage,
-  throwUserFacing,
 } from '@/utils/error.js'
 
 /**
@@ -99,24 +98,14 @@ async function* executeChain<T>(
     //   会丢失分类身份，retry 只能判 unknown/不可恢复，429 限流将一次失败即整轮报错。
     // - 最外层（index=0，已无任何中间件可处理）兜底取其友好文案转用户面。
     if (err instanceof ClassifiedError) {
-      if (index > 0) throw err
-      throwUserFacing('compose.unhandled', err.userMessage, {
-        source: err.source,
-        category: err.category,
-        handlerIndex: index,
-        originalError: message,
-        stack: err.stack,
-      })
+      // The transport owns the user-facing trace. Do not erase the typed
+      // failure here, including in request-local execution with retry=never.
+      throw err
     }
 
     // 未合规裸抛（第三方库裸抛 / 业务未规范化）：compose 层无业务上下文 →
     // 按 classifyError 兜底分类 + friendlyMessage(category, "系统") 出用户面，详细落 logger。
     const category = classifyError(err)
-    throwUserFacing('compose.unhandled', friendlyMessage(category, 'system'), {
-      category,
-      handlerIndex: index,
-      originalError: message,
-      stack: err instanceof Error ? err.stack : undefined,
-    })
+    throw new ClassifiedError({ message: `middleware ${category} failure`, category, source: 'system', userMessage: friendlyMessage(category, 'system') })
   }
 }

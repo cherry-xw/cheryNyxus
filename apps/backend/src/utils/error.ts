@@ -97,11 +97,15 @@ export class ClassifiedError extends Error {
  */
 export function classifyError(error: unknown): ErrorCategory {
   if (error instanceof ClassifiedError) return error.category
+  const shape = error as { status?: unknown; statusCode?: unknown } | null
+  const status = shape?.status ?? shape?.statusCode
+  if (status === 401 || status === 403 || status === '401' || status === '403') return 'auth'
+  if (status === 408 || status === '408') return 'timeout'
+  if (status === 429 || status === '429' || typeof status === 'number' && status >= 500 && status <= 599) return 'provider'
+  if (typeof status === 'number' && status >= 400 && status <= 499) return 'validation'
   if (error instanceof Error) {
     const msg = error.message.toLowerCase()
     if (
-      msg.includes('401') ||
-      msg.includes('403') ||
       msg.includes('unauthorized') ||
       msg.includes('forbidden') ||
       msg.includes('invalid access token') ||

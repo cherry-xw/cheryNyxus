@@ -202,7 +202,7 @@ describe("compose middleware", () => {
       // throwUserFacing 前置 [tracingId]
       await expect(
         drain(compose([handler]).run(createMockContext())),
-      ).rejects.toThrow(/^\[[0-9a-f]{8}\] 系统出了点小问题$/);
+      ).rejects.toMatchObject({ category: "unknown", source: "system", userMessage: "系统出了点小问题" });
     });
 
     it("内层 ClassifiedError 原样上浮（保分类身份，不转用户面）", async () => {
@@ -230,7 +230,7 @@ describe("compose middleware", () => {
       // outer(内层 ClassifiedError) → outer catch 收到 ClassifiedError 本体 → 再 throw → 最外层兜底转用户面
       await expect(
         drain(compose([outer, inner]).run(createMockContext())),
-      ).rejects.toThrow(/^\[[0-9a-f]{8}\] 脑子忙不过来了，稍后再试$/);
+      ).rejects.toMatchObject({ category: "provider", source: "brain", userMessage: "脑子忙不过来了，稍后再试" });
       expect(caught[0]).toBeInstanceOf(ClassifiedError);
       expect((caught[0] as ClassifiedError).category).toBe("provider");
     });
@@ -248,7 +248,7 @@ describe("compose middleware", () => {
 
       await expect(
         drain(compose([handler]).run(createMockContext())),
-      ).rejects.toThrow(/^\[[0-9a-f]{8}\] 脑子忙不过来了，稍后再试$/);
+      ).rejects.toMatchObject({ category: "provider", source: "brain", userMessage: "脑子忙不过来了，稍后再试" });
     });
   });
 
