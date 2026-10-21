@@ -268,8 +268,15 @@ export abstract class DrainBase {
       this.clustersCounter += 1
       const clusterId = this.clustersCounter
       matchCluster = new LogCluster(contentTokens, clusterId)
+      const full = this.maxClusters !== null && this.idToCluster.size >= this.maxClusters
       this.idToCluster.set(clusterId, matchCluster)
-      this.addSeqToPrefixTree(this.rootNode, matchCluster)
+      if (full) {
+        // Cluster eviction must also release old token-count branches and leaf IDs.
+        this.rootNode = new Node()
+        for (const cluster of this.clusters) this.addSeqToPrefixTree(this.rootNode, cluster)
+      } else {
+        this.addSeqToPrefixTree(this.rootNode, matchCluster)
+      }
       updateType = DrainUpdateType.CLUSTER_CREATED
     } else {
       this.profiler.startSection('cluster_exist')

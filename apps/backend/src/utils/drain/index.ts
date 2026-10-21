@@ -1,6 +1,6 @@
-// drain 日志压缩：仅暴露 compressLog 业务入口。
-// TemplateMiner/Drain 等内部构件不从 barrel 导出，避免应用层绕过 compressLog 直连底层实现。
+// 只公开批量与流式摘要入口，内部算法构件不直接供业务调用。
 export type { DrainResult } from './types'
+export { StreamingDrain } from './streaming'
 
 // 导入内部依赖（用于compressLog函数）
 import { TemplateMiner } from './templateMiner'

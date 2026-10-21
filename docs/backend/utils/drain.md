@@ -9,7 +9,11 @@
 - 输入：一坨原始日志行。
 - 输出：每行归类到一个「**模板**」（token 序列，可变部分用通配 `<*>` 表示），如 `"User <*> logged in from <*>:<*>"`。
 
-在 CheryNyxus 中的**唯一消费场景**：[`agent/sense/read.ts`](../../../apps/backend/src/agent/sense/read.ts) 读取大日志文件时，若 `compression: "drain"`（或 `auto` 且判定为日志），调用本模块导出的 `compressLog()` 把海量重复日志行归纳成「模板摘要 + 前若干实例」，大幅缩减喂给 LLM 的 token 数。
+[`agent/sense/read.ts`](../../../apps/backend/src/agent/sense/read.ts) 读取大日志文件时，若 `compression: "drain"`（或 `auto` 且判定为日志），调用 `compressLog()` 生成模板摘要。命令日志基础模块使用公开的 `StreamingDrain` 逐块分析；它只提供附加摘要，不改变 Agent 工具结果，不代替原始输出存储。命令执行器与界面接入仍在实施。
+
+流式入口按 stdout/stderr 分开解码与归类，最多合计 200 个模板，每个模板只保存前三条样例；统计键使用稳定的模板 ID。模板淘汰同时清理算法树的旧索引，避免模板数有限而索引持续增长。超长行、处理预算不足、模板淘汰和输入缺失均在摘要统计中说明；摘要失败不影响原始日志。原始日志的保留与缺失规则见[命令监控契约](../../shared/protocol/websocket.md#agent-命令监控已批准实施中)。
+
+实现入口：[`streaming.ts`](../../../apps/backend/src/utils/drain/streaming.ts) 的 `StreamingDrain`；验证入口：[`streamingDrain.test.ts`](../../../apps/backend/test/utils/streamingDrain.test.ts)。
 
 > 这是一个自包含、零业务依赖的纯算法模块（除 drainBase.ts 内部用 logger 打印调试树）。可独立测试、独立复用。
 
