@@ -237,6 +237,12 @@ export interface IngressContext {
   readonly configDir: string
   readonly dataDir: string
   readonly runtimeOptions: Readonly<Record<string, string | boolean | number>>
+  /** Read-only Backend lifecycle. Providers describe actual unfinished work, not queued new tasks. */
+  readonly lifecycle?: {
+    snapshot(): import('@chery/protocol').BackendStopSnapshot
+    subscribe(listener: (state: import('@chery/protocol').BackendStopSnapshot) => void): () => void
+    blockers(provider: () => import('@chery/protocol').BackendStopBlocker[]): () => void
+  }
   /** Saved registry state; may differ from the still-running package until restart. */
   readonly isEnabled: () => boolean
   readonly core: IngressCore

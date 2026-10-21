@@ -21,6 +21,7 @@ export function pendingInputHistory(inputs: readonly PendingInput[], fallbackCha
       agentChatId: input.chatId ?? fallbackChatId,
       pendingInputState: input.state,
       pendingInputId: input.inputId,
+      ...(input.reason ? { pendingInputReason: input.reason } : {}),
       ...(input.queueSequence !== undefined
         ? { pendingInputQueueSequence: input.queueSequence }
         : {}),

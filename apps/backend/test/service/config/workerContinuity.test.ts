@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url'
 import yaml from 'js-yaml'
 import { expect, it } from 'vitest'
 import { Method } from '@chery/protocol'
+import { hashPassword } from '@/utils/password.js'
 import { RpcClient } from '@test/helpers/rpcClient.js'
 import type { RuntimeConfigSource } from '@/utils/config.js'
 import type {
@@ -63,7 +64,7 @@ it('preserves a real worker and two sockets across a save during HTTP LLM stream
     key: 'test-old-key',
     url: `http://127.0.0.1:${providerPort}/v1`,
   }
-  config.server = { host: '127.0.0.1', port: wsPort, webPort, serve_frontend: false }
+  config.server = { host: '0.0.0.0', port: wsPort, webPort, serve_frontend: false, auth: { username: 'continuity', password: hashPassword('synthetic-continuity-password') } }
   writeFileSync(configPath, yaml.dump(config))
   const child = fork(resolve('apps/backend/src/index.ts'), ['--worker'], {
     execArgv: ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href],
@@ -90,16 +91,14 @@ it('preserves a real worker and two sockets across a save during HTTP LLM stream
   child.on('message', (message) => ipc.push(message))
   const clients: RpcClient[] = []
   try {
-    let sessionToken = ''
     await expect
       .poll(
         async () => {
           if (child.exitCode !== null) throw new Error(`worker exited: ${output}`)
           try {
-            const response = await fetch(`http://127.0.0.1:${webPort}/api/config`)
-            const data = (await response.json()) as { sessionToken?: string }
-            sessionToken = data.sessionToken ?? ''
-            return !!sessionToken
+            const response = await fetch(`http://10.2.3.6:${webPort}/api/auth/capabilities`)
+            const data = await response.json() as { service?: string }
+            return response.ok && data.service === 'backend'
           } catch {
             return false
           }
@@ -108,9 +107,19 @@ it('preserves a real worker and two sockets across a save during HTTP LLM stream
       )
       .toBe(true)
     for (let index = 0; index < 2; index++) {
+      const base = `http://10.2.3.6:${webPort}`
+      const discovery = await fetch(base + '/api/auth/capabilities'); const context = await discovery.json() as any
+      const login = await fetch(base + '/api/browser-session/password', { method: 'POST', headers: { Cookie: discovery.headers.get('set-cookie')!.split(';')[0]!, Origin: base, 'Content-Type': 'application/json', 'X-CSRF-Token': context.csrfToken }, body: JSON.stringify({ username: 'continuity', password: 'synthetic-continuity-password', operationId: randomUUID().replaceAll('-', '') }) })
+      const session = await login.json() as any
+      const ticketResponse = await fetch(base + '/api/browser-session/ws-ticket', { method: 'POST', headers: { Cookie: login.headers.get('set-cookie')!.split(';')[0]!, Origin: base, 'Content-Type': 'application/json', 'X-CSRF-Token': session.csrfToken }, body: JSON.stringify({ expectedRevision: session.revision }) })
+      const ticket = await ticketResponse.json() as any
+      const configResponse = await fetch(base + '/api/config', { headers: { Cookie: login.headers.get('set-cookie')!.split(';')[0]! } })
+      if (!configResponse.ok) throw new Error(`Config rejected: ${configResponse.status}`)
+      const discovered = await configResponse.json() as any
+      const selected = (await import('@chery/protocol')).selectBusinessProtocols(discovered.bootstrap)
       const client = new RpcClient({
-        url: `ws://127.0.0.1:${wsPort}/?token=${sessionToken}`,
-        origin: `http://127.0.0.1:${webPort}`,
+        url: `ws://10.2.3.6:${wsPort}/?` + new URLSearchParams({ ticket: ticket.ticket, ...Object.fromEntries(Object.entries(selected).map(([key, value]) => [key, String(value)])) }),
+        origin: base,
       })
       await client.connect()
       clients.push(client)

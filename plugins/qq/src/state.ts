@@ -79,6 +79,7 @@ export type Outbox = z.infer<typeof OutboxSchema>
 export const StateSchema = z
   .object({
     schemaVersion: z.literal(1),
+    serviceVersion: z.number().int().nonnegative().safe().default(0),
     contextEpoch: z.string().max(100).default(''),
     imageSources: z.record(z.string(), z.record(z.string(), MessagePartSchema)).default({}),
     jobs: z.array(JobSchema),
@@ -100,6 +101,7 @@ export type State = z.infer<typeof StateSchema>
 export function emptyState(): State {
   return {
     schemaVersion: 1,
+    serviceVersion: 0,
     contextEpoch: '',
     imageSources: {},
     jobs: [],

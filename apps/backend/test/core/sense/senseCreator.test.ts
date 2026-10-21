@@ -12,6 +12,23 @@ import { SupervisionLevel } from '@/core/config'
 import { z } from 'zod'
 
 describe('sense factory function', () => {
+  it('QQ retains an unresolved tool after 32 days and accepts its late result', async () => {
+    vi.useFakeTimers()
+    try {
+      let done!: (value: SenseResult) => void
+      let signal: AbortSignal | undefined
+      const operation = executeSenseWithControl(async (_args, _shared, ctx) => {
+        signal=ctx?.signal
+        expect(ctx?.deadlineAt).toBeUndefined()
+        return new Promise<SenseResult>(resolve => { done=resolve })
+      }, {}, new Map(), {requestView:{identity:{source:'plugin',channel:'qq'}} as any, budget:{timeoutMs:1}})
+      let settled=false;void operation.then(()=>{settled=true})
+      await vi.advanceTimersByTimeAsync(32*86400000)
+      expect(signal?.aborted).toBe(false);expect(settled).toBe(false)
+      done({content:'late success'})
+      expect(await operation).toMatchObject({content:'late success',status:'ok'})
+    } finally {vi.useRealTimers()}
+  })
   describe('structured observation', () => {
     it('defaults observations to untrusted and preserves source metadata', () => {
       const observation = normalizeObservation({
@@ -37,6 +54,21 @@ describe('sense factory function', () => {
     })
   })
   describe('checkpoint and lifecycle contract', () => {
+    it('observes the handler settlement, not the timeout/cancellation race result', async () => {
+      vi.useFakeTimers()
+      try {
+        let finish!: (value: SenseResult) => void
+        const onExecutionSettled = vi.fn()
+        const waiting = executeSenseWithControl(() => new Promise(resolve => { finish = resolve }), {}, new Map(),
+          { budget: { timeoutMs: 10 }, onExecutionSettled })
+        await vi.advanceTimersByTimeAsync(20)
+        expect(await waiting).toMatchObject({ status: 'timeout' })
+        expect(onExecutionSettled).not.toHaveBeenCalled()
+        finish({ content: 'late result' })
+        await vi.advanceTimersByTimeAsync(0)
+        expect(onExecutionSettled).toHaveBeenCalledOnce()
+      } finally { vi.useRealTimers() }
+    })
     it('requires recovery when a checkpoint is missing or incomplete', () => {
       expect(getSenseRecoveryState()).toMatchObject({ required: true, reason: 'process_restart' })
       const checkpoint = createSenseCheckpoint({

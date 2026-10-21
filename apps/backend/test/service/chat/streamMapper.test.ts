@@ -251,20 +251,17 @@ describe('streamAgentChunks run lifecycle', () => {
 
     const error = terminalEvents.find((event) => event.type === 'error')!
     const outcome = terminalEvents.find((event) => event.type === 'run.outcome')!
-    const detail = error.data.detail as string
-    expect(detail).toHaveLength(200)
-    expect(detail).not.toContain('\n')
-    expect(detail).toMatch(/…$/)
-    expect((outcome.data.feedback as { detail?: string }).detail).toBe(detail)
+    expect(error.data.detail).toBeUndefined()
+    expect((outcome.data.feedback as { detail?: string }).detail).toBeUndefined()
     expect(outcome.data.feedback).toMatchObject({
-      guidance: '请在设置中修正模型地址、模型或密钥配置后，再继续运行。',
-      actions: [{ type: 'open_settings', section: 'provider' }, { type: 'view_details' }],
+      guidance: '请检查最后一条输入和当前配置后重新发送。',
+      actions: [{ type: 'resend_input' }, { type: 'view_details' }],
     })
     const termination = listExecutionNodes(chatId).find(
       (node) => node.id === 'termination:run-long-detail:error',
     )
     expect(termination).toMatchObject({
-      content: expect.stringContaining('AI 服务拒绝了这个请求'),
+      content: expect.stringContaining('本轮请求无法继续'),
       termination: { detail: 'upstream request failed' },
     })
   })

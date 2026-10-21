@@ -4,6 +4,7 @@ import { sense, type SenseRuntimeContext } from '@/core/sense/senseCreator.js'
 import { SupervisionLevel } from '@/core/config.js'
 import { ControllerSocketClient } from '@/service/managedApp/socketRpc.js'
 import { appIdSchema, qqRealUserIdSchema, relativeCwdSchema, ManagedAppError } from '@/service/managedApp/types.js'
+import { runManagedCommand } from '@/service/managedCommands.js'
 
 export const managedAppSchema = z.object({
   action: z.enum(['create', 'exec', 'task_status', 'task_cancel', 'publish', 'stop', 'delete', 'renew', 'status', 'backup']),
@@ -68,20 +69,13 @@ export function createManagedAppSense(client = new ControllerSocketClient()) {
             if (!input.command) throw new ManagedAppError('INVALID_INPUT', 'exec 必须提供 command')
             {
               const taskId = `task_${randomUUID().replace(/-/g, '').slice(0, 16)}`
-              let cancellation: Promise<unknown> | undefined
-              let cancellationError: unknown
-              const cancel = () => {
-                cancellation = client.cancelAppCommand({ ...owned, taskId }).catch(error => { cancellationError = error })
-              }
-              ctx?.signal?.addEventListener('abort', cancel, { once: true })
-              try {
-                result = await client.runAppCommand({ ...owned, taskId, command: input.command, cwd: input.cwd, profile: input.profile, timeoutSec: Math.min(input.timeoutSec ?? 60, input.profile === 'build' ? 300 : 180) })
-                ctx?.signal?.throwIfAborted()
-              } finally {
-                ctx?.signal?.removeEventListener('abort', cancel)
-                await cancellation
-                if (cancellationError) throw new ManagedAppError('COMMAND_EXEC_FAILED', '取消请求未获控制器确认，请查询任务状态')
-              }
+              result = await runManagedCommand({ client, context: ctx, task: { ...owned, taskId },
+                sourceKind: 'managed_exec', command: input.command, workdir: input.cwd,
+                execute: (output) => client.runAppCommand({ ...owned, taskId, command: input.command!, cwd: input.cwd,
+                  profile: input.profile, timeoutSec: Math.min(input.timeoutSec ?? 60, input.profile === 'build' ? 300 : 180) }, output),
+                evidence: (value) => value,
+              })
+              ctx?.signal?.throwIfAborted()
             }
             break
           case 'task_status':
@@ -91,20 +85,12 @@ export function createManagedAppSense(client = new ControllerSocketClient()) {
             break
           case 'publish': {
             const taskId = `task_${randomUUID().replace(/-/g, '').slice(0, 16)}`
-            let cancellation: Promise<unknown> | undefined
-              let cancellationError: unknown
-              const cancel = () => {
-                cancellation = client.cancelAppCommand({ ...owned, taskId }).catch(error => { cancellationError = error })
-              }
-            ctx?.signal?.addEventListener('abort', cancel, { once: true })
-            try {
-              result = await client.startAppService({ ...owned, taskId, buildFirst: input.buildFirst })
-              ctx?.signal?.throwIfAborted()
-            } finally {
-              ctx?.signal?.removeEventListener('abort', cancel)
-              await cancellation
-              if (cancellationError) throw new ManagedAppError('COMMAND_EXEC_FAILED', '取消请求未获控制器确认，请查询任务状态')
-            }
+            result = await runManagedCommand({ client, context: ctx, task: { ...owned, taskId },
+              sourceKind: 'managed_publish', command: input.buildFirst === false ? 'publish: start' : 'publish: build and start',
+              execute: (output) => client.startAppService({ ...owned, taskId, buildFirst: input.buildFirst }, output),
+              evidence: () => ({ status: 'completed', exitCode: 0 }),
+            })
+            ctx?.signal?.throwIfAborted()
             break
           }
           case 'stop': result = await client.stopAppService(owned); break
@@ -114,8 +100,11 @@ export function createManagedAppSense(client = new ControllerSocketClient()) {
         }
         const output = publicResult(result) as Record<string, unknown>
         if (principal.creatorChannel.conversationType === 'group' && output && !Array.isArray(output)) delete output.activationUrl
-        return { content: JSON.stringify({ ok: true, result: output }) }
+        return { content: JSON.stringify({ ok: true, result: output }),
+          ...(output?.status === 'cancelled' ? { status: 'cancelled' as const, errorCode: 'cancelled' as const } : {}) }
       } catch (error) {
+        if ((error as { managedCommandCancelled?: boolean })?.managedCommandCancelled)
+          return { content: '该命令已取消；所属 Agent 任务可以继续。', status: 'cancelled' as const, errorCode: 'cancelled' as const }
         if (ctx?.signal?.aborted && !(error instanceof ManagedAppError)) return { content: '', status: 'cancelled' as const, errorCode: 'cancelled' as const }
         const code = error instanceof ManagedAppError ? error.code : 'INVALID_INPUT'
         return { content: JSON.stringify({ ok: false, error: { code, message: error instanceof ManagedAppError ? error.message : '参数无效或操作未完成' } }), status: 'provider_error' as const, errorCode: 'provider_error' as const }

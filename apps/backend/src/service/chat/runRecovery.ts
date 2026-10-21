@@ -35,7 +35,7 @@ export function reconcileOrphanedExecutionRuns(
       runId: run.runId,
       actor: 'system',
       code: 'system_stop',
-      detail: 'service restarted before this run completed',
+      detail: '因服务关闭中断；已保存内容保留，点击“继续”恢复，结果未知的外部操作不会自动重放。',
     })
     recovered.push({ ...run, status: 'paused' })
   }

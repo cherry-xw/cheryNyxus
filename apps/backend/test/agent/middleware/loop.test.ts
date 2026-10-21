@@ -62,6 +62,18 @@ function firstPause(chunks: MiddlewareChunk[]): RunPausedChunk | undefined {
 }
 
 describe('createLoopHandler 停止条件', () => {
+  it('QQ survives fixed loop limits and a disconnected observer, and still honors user abort', async () => {
+    const ctx = createMockContext({ messages: [], global: { maxLoopCount: 1 } })
+    ctx.requestView = { identity: { source: 'plugin', channel: 'qq' } } as typeof ctx.requestView
+    let calls = 0, cancelled = false
+    ctx.pipeline = { consumeParkAfterTurn: () => true, isAbortRequested: () => cancelled, getAbortSignal: () => undefined }
+    const run = async function* (): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      calls++; ctx.soul.messages.push(senseMsg('working'))
+      if (calls === 75) cancelled = true
+    }
+    await expect(collectChunks(createLoopHandler(1)(ctx, run))).rejects.toBeInstanceOf(AgentAbortError)
+    expect(calls).toBe(75)
+  })
   it('watchdog abort 后本轮自然返回，也不得按末尾 sense 开启下一轮', async () => {
     const ctx = createMockContext({ messages: [] })
     let aborted = false

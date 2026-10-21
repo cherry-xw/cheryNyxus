@@ -55,6 +55,7 @@ export interface HistoryItem {
   /** Pending input lifecycle state, present only while the canonical user node has not replaced it. */
   pendingInputState?: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
   pendingInputId?: string
+  pendingInputReason?: string
   pendingClientMessageId?: string
   pendingInputQueueSequence?: number
   contextCompaction?: boolean

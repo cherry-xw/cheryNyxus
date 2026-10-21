@@ -5,6 +5,10 @@ import { extname, resolve } from 'node:path'
 import { freemem, loadavg, totalmem, uptime } from 'node:os'
 import yaml from 'js-yaml'
 import { ProcessController, ProcessStartError } from './processController.js'
+import { BackendSupervisor, type BackendSupervisorOptions } from './backendSupervisor.js'
+import { BackendPluginConfigStore } from './backendPluginConfig.js'
+import { BackendIntentStore } from './backendIntent.js'
+import { BackendControlConflict } from './backendControl.js'
 import { CredentialStore } from './credentials.js'
 import { RelayConfigStore } from './relayConfig.js'
 import { loadOrCreateToken } from './tokenStore.js'
@@ -49,6 +53,7 @@ export interface ManagerOptions {
   tokenFile?: string
   relayStatusFile?: string
   backendStatusFile?: string
+  backendIntentFile?: string
   configFile?: string
   credentialsFile?: string
   connectionCredentials?: Record<string, string>
@@ -627,6 +632,10 @@ main.manager > header { display: none; }
       res.writeHead(404)
       res.end('Not Found')
     } catch (error) {
+      if (error instanceof BackendControlConflict && !res.headersSent) {
+        json(res, 409, { error: { code: error.code, message: error.message } })
+        return
+      }
       if (error instanceof CapabilityError && !res.headersSent) {
         json(res, error.status, { error: { code: error.code, message: error.message } })
         return
@@ -656,6 +665,13 @@ main.manager > header { display: none; }
   server.headersTimeout = 10_000
   return {
     controller,
+    supervisor,
+    backendPluginConfig,
+    backendIntent,
+
+    /** 按 `manager.backendPlugin.autoStart` 决定是否在启动时拉起 Backend。 */
+    autoStartBackend,
+    startBackend: () => supervisor.start(),
 
     listen: () =>
       new Promise<void>((resolve, reject) => {

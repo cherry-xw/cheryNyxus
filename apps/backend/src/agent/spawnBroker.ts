@@ -165,6 +165,7 @@ export interface WaitedChild {
   type: string
   /** 唤醒策略（spawn 时声明，wakeScheduler.onChildDone 据此决定 silent 暂存 / resume 唤主） */
   wakePolicy: WakePolicy
+  continuous?: boolean
 }
 
 /** 看门狗超时回调（service 注入：按 config.wake_on_timeout 决定唤主或仅 abort 子） */
@@ -199,6 +200,7 @@ export function setAsyncWakeHandler(fn: AsyncWakeHandler): void {
  * timeout_ms 内无 feed（chunk）/完成/清除 → 触发 asyncWakeHandler。
  */
 function startWatchdog(childChatId: string): void {
+  if (waitedChildren.get(childChatId)?.continuous) return
   const timeoutMs = getWatchdogTimeoutMs()
   const wakeOnTimeout = config.global.watchdog?.wake_on_timeout ?? false
   const timer = setTimeout(() => {
@@ -248,6 +250,15 @@ export function registerWaitedChild(
  * 子仍在产出 chunk = generator 活着 = 未卡死；每次 feed 重新计时（取代旧的固定 5min 一次性超时）。
  * 非子 chat / 已清除 → 忽略（幂等）。
  */
+/** QQ children inherit the ongoing task lifetime; silence is not failure. */
+export function retainContinuousChild(childChatId: string): void {
+  const child = waitedChildren.get(childChatId)
+  if (!child) return
+  child.continuous = true
+  const timer = asyncWatchdogs.get(childChatId)
+  if (timer) clearTimeout(timer)
+  asyncWatchdogs.delete(childChatId)
+}
 export function feedWatchdog(childChatId: string): void {
   if (!waitedChildren.has(childChatId)) return
   const existing = asyncWatchdogs.get(childChatId)

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -6,17 +7,45 @@ import yaml from 'js-yaml'
 import { recoverStartupConfig } from './utils/configStartupRecovery.js'
 import { syncCheryTemplate } from '../../../scripts/lib/chery-template-sync.mjs'
 import { initializeBackendEnvironment } from '../../../scripts/lib/backend-layout.mjs'
+import { GuardianLifecycle } from './service/guardianLifecycle.js'
+import { ControllerSocketClient } from './service/managedApp/socketRpc.js'
 
 const layout = initializeBackendEnvironment(import.meta.url)
 
 const WORKER_FLAG = '--worker'
 const MAX_BACKOFF_MS = 10_000
+/**
+ * Manager 以子进程方式拉起后端时注入；此时崩溃恢复的唯一执行层是 Manager，
+ * guardian 只报告非零退出码，禁止内部无限重启绕过 Manager 的 3 次重试上限。
+ */
+const MANAGED_BY_MANAGER = process.env.CHERY_MANAGED_BY_MANAGER === '1'
 let healthPort = 8183
 let worker: ChildProcess | undefined
-let stopping = false
+let fatal = false
 let intentionalRestart = false
 let restartDelayMs = 500
 let maintenanceReason: string | undefined
+let instanceId = process.env.CHERY_BACKEND_INSTANCE_ID || randomUUID()
+const managedController = new ControllerSocketClient()
+const lifecycle = new GuardianLifecycle(instanceId, {
+  cleanupManaged: async (entry) => {
+    const task = { userId: entry.userId, appId: entry.appId, taskId: entry.taskId }
+    await managedController.cancelAppCommand(task).catch(() => {})
+    const result = await managedController.getTaskStatus(task)
+    return result.taskId === entry.taskId && result.userId === entry.userId && result.appId === entry.appId &&
+      result.status !== 'running' && result.finishedAt !== null
+  },
+  publish: (message) => {
+    if (!process.connected) return
+    try { process.send?.(message, () => {}) } catch { /* Parent control loss is not permission to resume. */ }
+  },
+  complete: (state) => {
+    const exit = () => process.exit(0)
+    if (process.connected) {
+      try { process.send?.({ type: 'stop-state', state }, exit) } catch { exit() }
+    } else exit()
+  },
+})
 
 function configRoot(): string {
   return path.resolve(process.env.CHERY_DIR || process.cwd(), '.chery')
@@ -64,18 +93,23 @@ function workerArgs(): string[] {
 }
 
 function startWorker(): void {
+  if (fatal || lifecycle.isStopping()) return
   const child = spawn(process.execPath, workerArgs(), {
     env: {
       ...process.env,
       ...(maintenanceReason ? { CHERY_MAINTENANCE_REASON: maintenanceReason } : {}),
+      CHERY_BACKEND_INSTANCE_ID: instanceId,
     },
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
     // Windows: guardian 无控制台，worker 是控制台子进程，隐藏避免闪 cmd 窗
     windowsHide: true,
+    detached: process.platform !== 'win32',
   })
   worker = child
+  lifecycle.attach(child, instanceId)
   void waitForWorkerHealth(child)
   child.on('message', (message: unknown) => {
+    if (lifecycle.receiveWorker(child, message)) return
     const m = message as { type?: string; code?: string; port?: number } | null
     if (!m) return
     if (m.type === 'restart-ready') {
@@ -95,7 +129,8 @@ function startWorker(): void {
     // worker 报告不可重试的启动失败（如端口被占用）→ 停止守护循环并提示。
     // 端口占用属环境问题，重试无效：不进入重启循环（见 docs/backend/service/README.md）。
     if (m.type === 'fatal') {
-      stopping = true
+      if (lifecycle.isStopping()) return
+      fatal = true
       if (m.code === 'EADDRINUSE') {
         console.error(`[guardian] 后端启动失败：端口 ${m.port} 已被其他进程占用。`)
         console.error('[guardian] 请释放该端口后重新启动（guardian 不再自动重试）。')
@@ -107,20 +142,29 @@ function startWorker(): void {
   })
   child.once('exit', (code, signal) => {
     if (worker === child) worker = undefined
-    if (stopping) return
+    if (lifecycle.exited(child, code, signal) || fatal) return
     if (intentionalRestart) {
       intentionalRestart = false
       restartDelayMs = 500
+      instanceId = randomUUID()
       startWorker()
       return
+    }
+    if (MANAGED_BY_MANAGER) {
+      // 非预期崩溃：把恢复交给 Manager，单层重试才能保证 3 次上限不被绕过。
+      console.error(
+        `[guardian] worker exited (code=${code ?? 'null'}, signal=${signal ?? 'none'}); handing recovery to Manager`,
+      )
+      process.exit(code === null || code === 0 ? 1 : code)
     }
     const delay = restartDelayMs
     restartDelayMs = Math.min(restartDelayMs * 2, MAX_BACKOFF_MS)
     console.error(
       `[guardian] worker exited (code=${code ?? 'null'}, signal=${signal ?? 'none'}); retrying in ${delay}ms`,
     )
-    setTimeout(startWorker, delay)
+    setTimeout(() => { instanceId = randomUUID(); startWorker() }, delay)
   })
+  child.once('disconnect', () => lifecycle.disconnected(child))
 }
 
 function recoverConfigForMaintenance(reason: string): boolean {
@@ -142,31 +186,23 @@ function recoverConfigForMaintenance(reason: string): boolean {
 
 function restartWorker(): void {
   const child = worker
-  if (!child || intentionalRestart || stopping) return
+  if (!child || intentionalRestart || fatal || lifecycle.isStopping()) return
   intentionalRestart = true
   // Node on Windows cannot deliver SIGTERM gracefully; use the existing IPC channel.
-  child.send({ type: 'shutdown' })
-  setTimeout(() => {
-    if (worker === child && child.exitCode === null) child.kill('SIGKILL')
-  }, 5000).unref()
+  child.send({ type: 'restart-close' }, (error) => {
+    if (error) { intentionalRestart = false; lifecycle.disconnected(child) }
+  })
 }
 
 function shutdown(signal: string): void {
-  if (stopping) return
-  stopping = true
   console.log(`[guardian] received ${signal}, stopping worker`)
-  const child = worker
-  if (!child) process.exit(0)
-  child.once('exit', () => process.exit(0))
-  child.kill('SIGTERM')
-  setTimeout(() => {
-    if (worker === child && child.exitCode === null) child.kill('SIGKILL')
-  }, 5000).unref()
+  intentionalRestart = false
+  lifecycle.externalStop(randomUUID())
 }
 
 /** worker 的 HTTP 服务可用后才重置崩溃退避，避免启动即崩时高频循环。 */
 async function waitForWorkerHealth(child: ChildProcess): Promise<void> {
-  while (!stopping && worker === child && child.exitCode === null) {
+  while (!fatal && !lifecycle.isStopping() && worker === child && child.exitCode === null) {
     try {
       const response = await fetch(`http://127.0.0.1:${healthPort}/api/config`)
       if (response.ok) {
@@ -204,8 +240,13 @@ async function main(): Promise<void> {
     await runWorker(process.argv.slice(2))
     return
   }
-  process.once('SIGINT', () => shutdown('SIGINT'))
-  process.once('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('SIGINT', () => shutdown('SIGINT'))
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('message', (message: unknown) => {
+    if (lifecycle.receive(message)) { if (lifecycle.isStopping()) intentionalRestart = false; return }
+    if ((message as { type?: string } | null)?.type === 'restart-schedule' && !lifecycle.isStopping() && worker?.connected)
+      worker.send({ type: 'restart-schedule' }, () => {})
+  })
   startWorker()
 }
 

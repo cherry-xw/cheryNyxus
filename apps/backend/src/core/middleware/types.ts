@@ -116,6 +116,10 @@ export interface SenseEntry {
  * 由 builder 层构建摊平后注入，ctx 运行期不再依赖 SenseManager。
  */
 export interface RuntimeConfig {
+  configSnapshot?: import('@/utils/config.js').Config
+  selectionSnapshot?: import('@/agent/runtimeResolver.js').RuntimeSelection
+  /** Private configured-connection digest; never used as a capability approval. */
+  serverToolScopeId?: string
   brainName?: string
   unavailableTools?: import('@/service/ingress/api.js').IngressUnavailableTool[]
   /** Brain 服务配置（model/url/key/thinking/provider） */
@@ -329,6 +333,8 @@ export interface SenseStartedChunk {
   /** 真正开始执行的时间戳（ms） */
   startedAt: number
   operationId?: string
+  /** Request-local tool history is not part of the conversation journal. */
+  requestLocal?: boolean
   /** 本次执行的最终安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧调用方） */
   security?: ToolAuthorization
 }
@@ -566,6 +572,7 @@ export interface ChildDoneChunk {
  * 中间件 chunk 联合类型
  */
 export type MiddlewareChunk =
+  | { type: 'sense_execution_completed'; id: string }
   | StreamChunk
   | RetryResetChunk
   | SenseTriggerChunk

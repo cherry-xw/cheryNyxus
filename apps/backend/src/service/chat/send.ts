@@ -1,9 +1,9 @@
 import type { HandlerContext } from '../message/router.js'
 import { ingressExecution } from '../ingress/request.js'
+import { assertNewBackendWork, assertBackendContinuation, backendContinuationResumeRequired, releaseBackendResume } from '../backendWork.js'
 import {
   createChunk,
   createError,
-  createNotification,
   createResponse,
   ErrorCode,
   Method,
@@ -45,8 +45,6 @@ import { observeAgentChunks } from './observer.js'
 import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
 import { streamAgentChunks } from './streamMapper.js'
 import { injectCommands } from './autoCompact.js'
-import { recordAutoCompactTrigger } from './generations.js'
-import { computeContextUsage } from '@/utils/token.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { isAgentAbortError } from '@/core/middleware/errors.js'
@@ -74,6 +72,8 @@ export async function* handleChatSend(
   data: ChatSendRequestData,
   existingWork = false,
 ): AsyncGenerator<Chunk | Notification, ChatSendResponseData | RpcResponse, unknown> {
+  if (existingWork) assertBackendContinuation(data.chatId)
+  else assertNewBackendWork()
   assertRestartAdmission(existingWork)
   const chatId = data.chatId
   // runId 与启动该运行的 RPC id 同源；脱离 WS 的单元调用使用 UUID 兜底。
@@ -92,6 +92,8 @@ export async function* handleChatSend(
   })
 
   const agent = await ensureChat(chatId)
+  if (existingWork) assertBackendContinuation(chatId)
+  else assertNewBackendWork()
   assertRestartAdmission(existingWork)
   const rid = ctx.requestId ?? runId
 
@@ -129,30 +131,8 @@ export async function* handleChatSend(
 
   activateChatRun(chatId, runId)
 
-  // P5 命令注入 + 自动压缩：send 预检。
-  // 1) 扫描 userPrompt 中的 [[command:/<name>]] tokens：skill 类跳过，builtin 类加载对应 .md 正文作为
-  //    独立 user message 入队（顺序：extra → 主 prompt，LLM 按 FIFO 消费）。
-  // 2) shouldAutoCompact 命中 → 主 prompt 头部注入 [[command:/compact]] token，
-  //    compact 正文 unshift 到 extra 顶部（优先级最高）。
-  // 3) 流首推 auto_compacted notification（前端 toast）。
-  const usageBefore = computeContextUsage(chatId)
+  // Builtin commands remain explicit; automatic maintenance runs at each model boundary.
   const cmdInjection = injectCommands(chatId, promptWithAttachments)
-  if (cmdInjection.triggered) {
-    // 自动压缩代际标记（computeGenerations 消费；重启后重算一律 manual，best-effort）
-    recordAutoCompactTrigger(chatId)
-    logger.event('chat.send.autoCompact', {
-      chatId,
-      reason: cmdInjection.reason,
-      usedBefore: usageBefore.used,
-      total: usageBefore.total,
-      extraCount: cmdInjection.extraUserMessages.length,
-    })
-  } else if (cmdInjection.extraUserMessages.length > 0) {
-    logger.event('chat.send.commandInjection', {
-      chatId,
-      extraCount: cmdInjection.extraUserMessages.length,
-    })
-  }
 
   // 恢复场景撤回：仅 idle 时触发（运行中 send 只入队，不撤回）。
   // 撤回末尾整个当前周期 AI 响应（assistant think/content/tool + 整个 sense 群），
@@ -197,21 +177,6 @@ export async function* handleChatSend(
         userMsgId = msgId
       },
     )
-
-    // autoCompact 命中 → 流首推 auto_compacted notification（前端 toast + context bar 预期下行）。
-    // 此 notification 在 streamMapper 任何 chunk 之前发出，前端可靠顺序消费。
-    if (cmdInjection.triggered && cmdInjection.reason) {
-      yield createNotification(
-        'auto_compacted',
-        rid,
-        {
-          reason: cmdInjection.reason,
-          usedBefore: usageBefore.used,
-          total: usageBefore.total,
-        },
-        { chatId, runId },
-      )
-    }
 
     yield* streamAgentChunks(generator, rid, chatId, runId)
   } catch (err) {
@@ -258,6 +223,8 @@ export async function* handleChatResume(
   data: ChatResumeRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatResumeResponseData | RpcResponse, unknown> {
   const chatId = data.chatId
+  assertBackendContinuation(chatId)
+  if (backendContinuationResumeRequired(chatId)) throw new Error('服务重启后的任务已暂停，请点击“继续”')
   const runId = ctx.requestId ?? randomUUID()
   const rid = ctx.requestId ?? runId
 
@@ -315,7 +282,9 @@ export async function* handleChatResume(
     // 仅消费本次已持久化的待恢复标记；运行期间新到的角色结果会由 wakeParent 再次置 true。
     if (resumeWasPending) updateChatMetadata(chatId, { resumePending: false })
     // resume 内部据末尾状态决定 Case1/Case2（见 builder.resume）
-    const generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages())
+    const execution = ingressExecution.getStore()
+    const generator = observeAgentChunks(agent.resume({ requestId: runId, inputId: `resume:${runId}`,
+      ...(execution ? { requestIdentity: execution.identity, requestExecution: execution } : {}) }), chatId, () => agent.getMessages())
     yield* streamAgentChunks(generator, rid, chatId, runId)
   } catch (err) {
     const error = err as Error
@@ -423,6 +392,7 @@ export async function handleChatRunResume(
   if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
 
   assertChatExists(data.chatId)
+  releaseBackendResume(data.chatId)
   const activeRunId = getActiveChatRunId(data.chatId)
   const runId = activeRunId ?? randomUUID()
   const response = {

@@ -43,10 +43,7 @@ function sendToWss(targets: readonly WebSocket[], item: unknown): void {
 const resolveOutputWss = resolveOutputTargets
 
 /**
- * 取父 chat 所属 ws + connectionId（用于子 agent 后台启动 stream 输出目标）。
- * 父 chat 流活跃期间（chat.send/chat.resume 入口 bindChatConnection）必定可解析。
- * spawn_role sense 期间 parent 流必然活跃（子 agent 不会在父未启动时 spawn）→ 此查找
- *   按设计 100% 命中；异常竞态返回 undefined → 上层 warn + 不阻塞（fallback to chat.startSpawn RPC）。
+ * 取父 chat 的实时输出目标；它不是子任务执行身份，缺失不影响运行。
  */
 function resolveParentWs(
   parentChatId: string,
@@ -63,7 +60,7 @@ function resolveParentWs(
  * 错误隔离：try/catch 包外层，失败仅记 logger.error，不回传 spawn_role 主流程。
  *
  * 不与 spawn_role sense 同步等待（避免阻塞 sense_end 返回），故调用方用 `void runChildTaskInBackground(...)`。
- * 若父 ws 异常竞态无可用 → 仅 warn 让 chat.startSpawn RPC 兜底；不抛错。
+ * 无在线连接也执行；连接仅决定实时事件投递目标。
  *
  * 终态 Response（yield*.value）：含 success/data（runId / finished / alreadyFinished）。前端 chat.startSpawn RPC
  *   走 recovery 分支消费（同时调用将命中 alreadyFinished / alreadyRunning / 中途 resume）。
@@ -72,26 +69,21 @@ export async function runChildTaskInBackground(
   taskId: string,
   parentChatId: string,
 ): Promise<void> {
-  // 同步解析 ws（脱 ws 在 sense 同帧关闭/迁移时仍报 1-shot 失败，能早暴露）
+  // Execution ownership must not depend on a browser connection.
   const resolved = resolveParentWs(parentChatId)
-  if (!resolved) {
-    logger.event('spawn.eager.no_parent_ws', { taskId, parentChatId }, 3)
-    console.warn(
-      `[spawnEager] parent ${parentChatId} 无活跃 ws，跳过 eager 启动（fallback to chat.startSpawn RPC）`,
-    )
-    return
-  }
-  const { ws: parentWs, connectionId } = resolved
+  const parentWs = resolved?.ws
+  // Never bind execution to a browser: its disconnect cleanup would park the child.
+  const connectionId = `backend-spawn:${taskId}`
 
   // 构造脱离 RPC 的 minimal ctx。requestId 用 eager-{taskId} 区分流（与 wsClient 收 chunk 时
   //   该 idx 不匹配 → 走 seq path 而非 response path 派发 chunk,符合 chat.send 同语义）。
   const ctx = {
+    requestId: `eager-${taskId}`,
+    connectionId,
     authenticatedUserId: (() => {
       const metadata = JSON.parse(getChat(getRootChatId(parentChatId))?.metadata ?? '{}') as { fileOwnerId?: string }
       return metadata.fileOwnerId
     })(),
-    requestId: `eager-${taskId}`,
-    connectionId,
     log: logger,
   }
 
@@ -112,7 +104,8 @@ export async function runChildTaskInBackground(
         break
       }
       const item = prepareChatEvent('chat.startSpawn', iter.value as Chunk | Notification)
-      sendToWss(resolveOutputWss(item, parentWs), item)
+      sendToWss(parentWs ? resolveOutputWss(item, parentWs) : item.chatId
+        ? connectionManager.getChatOutputs(item.chatId) : [], item)
     }
   } catch (error) {
     logger.event(

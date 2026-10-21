@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { LiteViewControllerProps } from './useLiteViewController'
-import { nextTick } from 'vue'
+import { inject, nextTick } from 'vue'
+import { DRAWING_DRAFT } from '../agent/composer/useDrawingDraft'
+import DrawingPanel from '../agent/composer/DrawingPanel.vue'
 import type { UploadFile } from 'element-plus'
 import { durationColor, durationSeverity } from '@/domain/chat/executionDuration'
 import { classifyToolType, toolTypeGlyph } from './executionMonitor'
@@ -10,6 +12,7 @@ import { useLiteViewBindings } from './useLiteViewBindings'
 import { MessageParts } from '@/features/agent/chat/public'
 
 const props = defineProps<LiteViewControllerProps>()
+const drawing = inject(DRAWING_DRAFT, undefined)
 const {
   Plus,
   Top,
@@ -324,7 +327,7 @@ defineExpose({
                   <strong>{{ row.node.label }}</strong>
                   <span class="lite-history-status">
                     {{
-                      row.node.pendingInputState === 'queued'
+                      row.node.pendingInputReason ? '因服务关闭未处理' : row.node.pendingInputState === 'queued'
                         ? '排队中'
                         : runStatusLabel(row.node.status)
                     }}
@@ -553,6 +556,7 @@ defineExpose({
       <!-- 顶部行：提示信息居左 + 「展开输入框」按钮居右（与对话模式同款结构）；
            下行：输入框 + 发送按钮同行贴底对齐，发送按钮不再被挤到下一行。 -->
       <div class="lite-input" :class="{ 'is-expanded': expandedInput }">
+        <DrawingPanel />
         <div class="lite-input-top">
           <div class="lite-media-group">
             <MediaThumbStrip
@@ -677,7 +681,7 @@ defineExpose({
             :disabled="sending || uploading || (!inputText.trim() && !mediaAttachments.length) || mediaAttachments.some(a => a.status === 'failed') || connectionBlocked"
             @click="onSend"
           >
-            发送
+            {{ drawing?.sendLabel.value ?? '发送' }}
           </button>
         </div>
         <div

@@ -23,7 +23,13 @@ import { closeAllConnections } from '@/service/websocket/index.js'
 import { initLogger, logger, LogLevel } from '@/utils/logger/index.js'
 import config, { readRawConfig } from '@/utils/config.js'
 import { hashPassword, isHashed } from '@/utils/password.js'
+import { randomBytes } from 'node:crypto'
 import { getAgentRuntimeStats, hasRunningChats } from '@/service/chat/runtimeCache.js'
+import { createWorkerLifecycle } from '@/service/workerLifecycle.js'
+import { initializeCommands, closeCommandLogs } from '@/service/commands.js'
+import { closeAllTerminals } from '@/service/terminal/manager.js'
+import { launchDetachedResume } from '@/service/chat/send.js'
+import { getChat, getRootChatId } from '@/db/chat.js'
 import { reconcileOrphanedExecutionRuns } from '@/service/chat/runRecovery.js'
 import { sweepOrphanQuestionBatchesAcrossRoots } from '@/db/question.js'
 import {
@@ -132,6 +138,27 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   }
 
   getSoulDb()
+  const commands = initializeCommands(statusInstanceId)
+  let closeResources: (() => Promise<void>) | undefined
+  let resourcesReady: () => void = () => {}
+  const readyToClose = new Promise<void>((resolve) => { resourcesReady = resolve })
+  const lifecycle = createWorkerLifecycle({
+    db: getSoulDb(), backendInstanceId: statusInstanceId,
+    configApplying: () => restartEngine?.isApplying() ?? false,
+    commandBlockers: () => commands.blockers(),
+    forceCommands: () => commands.cancelAll(),
+    close: async () => { await readyToClose; await closeResources?.() },
+    wakeQueued: async (chatId) => {
+      const metadata = JSON.parse(getChat(getRootChatId(chatId))?.metadata ?? '{}') as { fileOwnerId?: string }
+      await launchDetachedResume({ connectionId: `backend-cancel-stop:${chatId}`, authenticatedUserId: metadata.fileOwnerId, log: logger }, chatId, `cancel-stop:${randomBytes(12).toString('hex')}`)
+    },
+    publish: (state) => {
+      if (!process.connected) return
+      try { process.send?.({ type: 'stop-state', state }, () => {}) } catch { /* Parent must retain its saved stop intent. */ }
+    },
+    error: (error) => logger.warn(`停止控制失败：${(error as Error).message}`),
+  })
+  lifecycle.recover()
   const previousRevision = getActiveConfigRevision()
   const currentRaw = readRawConfig()
   const activeRevision = ensureCurrentConfigRevision()
@@ -205,6 +232,7 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   const fileCleanupTimer = setInterval(cleanupFiles, 60 * 60 * 1000)
   fileCleanupTimer.unref()
   const service = startService({
+    businessPreset: config.server.businessPreset,
     port: config.server.port,
     webPort: config.server.webPort,
     staticDir,
@@ -247,48 +275,41 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
 
   const configWatcher = startConfigRevisionWatcher()
 
-  let shuttingDown = false
-  async function gracefulShutdown(signal: string): Promise<void> {
-    if (shuttingDown) return
-    shuttingDown = true
-    logger.info(`\n收到 ${signal}，正在关闭服务...`)
-    await service.stopIngress()
+  let closing: Promise<void> | undefined
+  closeResources = () => closing ??= (async () => {
+    logger.info('正在关闭服务；正常关闭不设隐藏强制退出时限')
     service.stopSchedule()
-    closeAllConnections(wss)
-    clearAllApprovals()
-    clearAllWaitedChildren()
     configWatcher.close()
     clearInterval(statusTimer)
+    clearInterval(fileCleanupTimer)
     stopScheduleService()
-    try {
-      await Promise.race([
-        Promise.all([
-          new Promise<void>((resolve) => wss.close(() => resolve())),
-          new Promise<void>((resolve) => httpServer.close(() => resolve())),
-          ...(remoteWss ? [new Promise<void>((resolve) => remoteWss.close(() => resolve()))] : []),
-          ...(remoteHttpServer
-            ? [new Promise<void>((resolve) => remoteHttpServer.close(() => resolve()))]
-            : []),
-          closeMcpClients(),
-        ]),
-        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('关闭超时')), 5000)),
-      ])
-    } catch {
-      logger.warn('关闭超时，强制退出')
-    }
+    await service.stopIngress()
+    closeAllTerminals()
+    await commands.cancelAll()
+    if (lifecycle.coordinator.snapshot().phase !== 'force_stopping') await commands.waitForCompletion()
+    await closeCommandLogs()
+    clearAllApprovals()
+    clearAllWaitedChildren()
+    closeAllConnections(wss)
+    if (remoteWss) closeAllConnections(remoteWss)
+    await Promise.all([
+      new Promise<void>((resolve) => wss.close(() => resolve())),
+      new Promise<void>((resolve) => httpServer.close(() => resolve())),
+      ...(remoteWss ? [new Promise<void>((resolve) => remoteWss.close(() => resolve()))] : []),
+      ...(remoteHttpServer ? [new Promise<void>((resolve) => remoteHttpServer.close(() => resolve()))] : []),
+      closeMcpClients(),
+    ])
+    lifecycle.syncUnknown()
     closeAllDbs()
+    lifecycle.dispose()
     process.exit(0)
-  }
-
-  process.once('SIGINT', () => {
-    void gracefulShutdown('SIGINT')
-  })
-  process.once('SIGTERM', () => {
-    void gracefulShutdown('SIGTERM')
-  })
+  })()
+  resourcesReady()
   process.on('message', (message: unknown) => {
-    if ((message as { type?: string } | null)?.type === 'shutdown')
-      void gracefulShutdown('guardian')
+    const type = (message as { type?: string } | null)?.type
+    if (type === 'restart-schedule' && lifecycle.coordinator.canConsumeInput()) requestRestartWhenIdle()
+    if (type === 'restart-close' && lifecycle.coordinator.canConsumeInput())
+      void closeResources?.().catch((error) => logger.warn(`配置重启收尾失败：${(error as Error).message}`))
   })
 }
 
@@ -301,6 +322,7 @@ function ensurePasswordHashedOnDisk(original: string, hashed: string): void {
   persistStartupPasswordHash(configPath, original, hashed)
 }
 
+const statusInstanceId = process.env.CHERY_BACKEND_INSTANCE_ID || randomBytes(24).toString('base64url')
 function writeBackendStatus(addresses: unknown): void {
   const file = process.env.CHERY_BACKEND_STATUS_FILE
   if (!file) return
@@ -308,7 +330,7 @@ function writeBackendStatus(addresses: unknown): void {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(
       file,
-      `${JSON.stringify({ status: 'running', addresses, agents: getAgentRuntimeStats(), updatedAt: new Date().toISOString() })}\n`,
+      `${JSON.stringify({ protocolVersion: 1, instanceId: statusInstanceId, status: 'running', addresses, agents: getAgentRuntimeStats(), updatedAt: new Date().toISOString() })}\n`,
       { mode: 0o600 },
     )
     if (process.platform !== 'win32') fs.chmodSync(file, 0o600)

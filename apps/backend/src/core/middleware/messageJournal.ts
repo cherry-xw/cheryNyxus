@@ -8,10 +8,10 @@ import type {
 } from '../message/adapter'
 import type { Logger } from '@/utils/logger/types'
 import { LogLevel } from '@/utils/logger/types'
-import { estimateTokens } from '@/utils/token.js'
 import { normalizeMessageParts } from '@/utils/messageParts.js'
 import type { AgentMessage, AgentMessagePatch, SoulGroup, UserInputEntry } from './types'
 import type { ObservationEnvelope } from '../sense/senseCreator'
+import { canAdoptInput, reserveInputs, isReservedInput, releaseReservedInputs } from './inputAdoption.js'
 
 /**
  * 消息变更结果（Journal 写操作的返回，供 checkpoint yield message_created/message_updated effect）。
@@ -85,6 +85,7 @@ export class MessageJournal {
       return false
     })
     if (index === -1) return false
+    if (isReservedInput(this.soul.chatId, this.soul.userInputs[index]!)) return false
     this.soul.userInputs.splice(index, 1)
     return true
   }
@@ -152,6 +153,8 @@ export class MessageJournal {
   appendUserMessages(): { messages: AgentMessage[]; consumedCount: number } {
     const inputs = this.soul.userInputs
     if (inputs.length === 0) return { messages: [], consumedCount: 0 }
+    if (!isReservedInput(this.soul.chatId, inputs[0]!) && !canAdoptInput(this.soul.chatId))
+      return { messages: [], consumedCount: 0 }
     const messages = this.soul.messages ?? []
     const created: AgentMessage[] = []
     for (const input of inputs) {
@@ -183,7 +186,16 @@ export class MessageJournal {
     }
     this.soul.messages = messages
     inputs.splice(0, created.length)
+    releaseReservedInputs(this.soul.chatId)
     return { messages: created, consumedCount: created.length }
+  }
+
+  /** Checkpoint must call before awaiting request hooks. */
+  reserveNextInput(): UserInputEntry | undefined {
+    if (!canAdoptInput(this.soul.chatId)) return undefined
+    const next = this.soul.userInputs.find((input) => !input.ephemeral)
+    if (next) reserveInputs(this.soul.chatId, this.soul.userInputs)
+    return next
   }
 
   /**
@@ -236,20 +248,6 @@ export class MessageJournal {
     id?: string,
   ): AgentMessage {
     const messages = this.soul.messages ?? []
-    const previousUser = [...messages].reverse().find((message) => message.role === 'user')
-    const contextCompaction = /\[\[command:\/compact\]\]/.test(previousUser?.content ?? '')
-    const contextCompactionTokens = contextCompaction
-      ? Math.max(
-          0,
-          messages
-            .filter((message) => message.role !== 'system' && !message.revoked)
-            .reduce(
-              (total, message) =>
-                total + estimateTokens(message.content) + estimateTokens(message.thinking),
-              0,
-            ) - estimateTokens(extractSummaryBlock(payload.content)),
-        )
-      : undefined
     const continuation =
       payload.providerContinuation || (payload.serverToolCalls && payload.serverToolCalls.length > 0)
         ? {
@@ -276,8 +274,6 @@ export class MessageJournal {
       createdAt: Date.now(),
       updateAt: Date.now(),
       ...(payload.modelExcluded ? { modelExcluded: true } : {}),
-      ...(contextCompaction ? { contextCompaction: true } : {}),
-      ...(contextCompactionTokens !== undefined ? { contextCompactionTokens } : {}),
     }
     messages.push(assistantMsg)
     this.soul.messages = messages
@@ -295,8 +291,6 @@ export class MessageJournal {
       senseCalls: payload.senseCalls,
       ...(assistantMsg.serverToolCalls ? { serverToolCalls: assistantMsg.serverToolCalls } : {}),
       ...(payload.modelExcluded ? { modelExcluded: true } : {}),
-      ...(contextCompaction ? { contextCompaction: true } : {}),
-      ...(contextCompactionTokens !== undefined ? { contextCompactionTokens } : {}),
     }
   }
 

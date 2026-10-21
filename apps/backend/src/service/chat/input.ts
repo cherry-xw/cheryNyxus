@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { getSoulDb } from '@/db/index.js'
 import { ingressExecution } from '../ingress/request.js'
+import { assertNewBackendWork, backendResumeRequired } from '../backendWork.js'
 
 import type { HandlerContext } from '../message/router.js'
 import {
@@ -74,6 +75,7 @@ export async function handleChatInputSubmit(
   const undoEnqueue: Array<() => void> = []
   let accepted = false
   try {
+    assertNewBackendWork()
     assertRestartAdmission()
     const chat = assertChatExists(data.chatId)
     if (chat.parent_chat_id && data.controlRootChatId !== getRootChatId(data.chatId)) {
@@ -81,8 +83,9 @@ export async function handleChatInputSubmit(
     }
 
     const agent = await ensureChat(data.chatId)
+    assertNewBackendWork()
     assertRestartAdmission()
-    const running = agent.isRunning()
+    const running = agent.isRunning() || backendResumeRequired(data.chatId)
     if (ingressExecution.getStore()?.execution?.toolHistory === 'request' && running)
       throw new Error('Request-local inputs must wait for the previous run')
     const pending = getPendingChatInputs(data.chatId)

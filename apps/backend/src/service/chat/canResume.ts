@@ -3,6 +3,7 @@ import { getLastMessage } from '@/db/message.js'
 import { listPendingInputs } from '@/db/pendingInput.js'
 import { hasPendingQuestionBatches } from '@/db/question.js'
 import { safeJsonParse } from '@/utils/json.js'
+import { backendResumeRequired } from '../backendWork.js'
 
 /**
  * 判定 chat 是否可 resume（统一暂停语义：非 ended 态皆可 resume）。
@@ -25,6 +26,7 @@ export function computeCanResume(chatId: string): boolean {
     if (meta.abandoned === true) return false
   }
   if (hasPendingQuestionBatches(chatId)) return false
+  if (backendResumeRequired(chatId)) return true
   if (listPendingInputs(chatId).length > 0) return true
   const last = getLastMessage(chatId)
   if (!last) return false

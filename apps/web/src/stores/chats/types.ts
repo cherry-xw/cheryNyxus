@@ -98,6 +98,7 @@ export interface ChatMessage {
     provisionalInputId: string
     /** Immutable copy of the canonical submit payload, reused by failed-message retry. */
     parts?: MessagePart[]
+    drawing?: import('@chery/protocol').DrawingIntent
     error?: CanonicalCommandError
   }
 }

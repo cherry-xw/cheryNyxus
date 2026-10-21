@@ -27,6 +27,7 @@ import {
   relativeCwdSchema,
   type AppRuntimeStatus,
   type CommandTaskResult,
+  type ControllerCommandOutput,
   type ControllerRpcRequest,
   type ManagedAppRecord,
   type ParentResourceSnapshot,
@@ -154,20 +155,20 @@ export class ManagedAppController {
     return this.ledger
   }
 
-  async dispatchRpc(req: ControllerRpcRequest): Promise<unknown> {
+  async dispatchRpc(req: ControllerRpcRequest, onOutput?: ControllerCommandOutput): Promise<unknown> {
     switch (req.method) {
       case 'claimAppNotifications': return this.claimAppNotifications(req.params.selfId)
       case 'reportAppNotification': return this.reportAppNotification(req.params)
       case 'ensureAppWorkspace':
         return this.ensureAppWorkspace(req.params)
       case 'runAppCommand':
-        return this.runAppCommand(req.params)
+        return this.trackExecution(registered => this.runAppCommand(req.params, onOutput, registered))
       case 'getTaskStatus':
         return this.getTaskStatus(req.params)
       case 'cancelAppCommand':
         return this.cancelAppCommand(req.params)
       case 'startAppService':
-        return this.startAppService(req.params)
+        return this.trackExecution(registered => this.startAppService(req.params, onOutput, registered))
       case 'stopAppService':
         return this.stopAppService(req.params)
       case 'deleteApp': return this.deleteApp(req.params)
@@ -190,6 +191,16 @@ export class ManagedAppController {
 
   static buildAppUrl(userId: string, appId: string): string {
     return `https://mini.xcherry.top/qq/${encodeURIComponent(userId)}/apps/${encodeURIComponent(appId)}/`
+  }
+
+  private async trackExecution<T>(run: (registered: () => void) => Promise<T>): Promise<T> {
+    let registered = false
+    try { return await run(() => { registered = true }) }
+    catch (error) {
+      if (registered) throw error
+      const failure = error instanceof ManagedAppError ? error : new ManagedAppError('INVALID_INPUT', '命令参数无效，未启动执行')
+      throw new ManagedAppError(failure.code, failure.message, { ...failure.details, executionNotStarted: true })
+    }
   }
 
   static buildContainerName(userId: string, appId: string): string {
@@ -450,7 +461,7 @@ export class ManagedAppController {
     cwd?: string
     profile?: 'standard' | 'build'
     timeoutSec?: number
-  }): Promise<CommandTaskResult> {
+  }, onOutput?: ControllerCommandOutput, onRegistered?: () => void): Promise<CommandTaskResult> {
     const userId = qqRealUserIdSchema.parse(params.userId)
     const appId = appIdSchema.parse(params.appId)
     const cwdRel = relativeCwdSchema.parse(params.cwd ?? '.')
@@ -501,6 +512,7 @@ export class ManagedAppController {
 
     // Register before asynchronous startup/admission so abort cannot race task registration.
     this.tasks.set(taskId, { result: taskResult, cancel: async () => { cancelled = true; abort.abort(); await cleanup?.() } })
+    onRegistered?.()
     try {
       if (cancelled) abort.abort()
       abort.signal.throwIfAborted()
@@ -544,8 +556,10 @@ export class ManagedAppController {
         }
 
         child.once('error', error => { clearTimeout(timeoutTimer); closed(); reject(error) })
-        child.stdout.on('data', (chunk: Buffer) => appendChunk(stdoutChunks, chunk))
-        child.stderr.on('data', (chunk: Buffer) => appendChunk(stderrChunks, chunk))
+        for (const stream of ['stdout', 'stderr'] as const) child[stream].on('data', (chunk: Buffer) => {
+          try { onOutput?.(stream, chunk) } catch { /* Log transport failure must not stop the isolated command. */ }
+          appendChunk(stream === 'stdout' ? stdoutChunks : stderrChunks, chunk)
+        })
 
         const timeoutTimer = setTimeout(async () => {
           timedOut = true
@@ -646,7 +660,7 @@ export class ManagedAppController {
     appId: string
     buildFirst?: boolean
     taskId?: string
-  }) {
+  }, onOutput?: ControllerCommandOutput, onRegistered?: () => void) {
     const record = this.requireOwnedApp(params.userId, params.appId)
     const appKey = `${record.userId}:${record.appId}`
 
@@ -666,6 +680,7 @@ export class ManagedAppController {
         await this.cancelAppCommand({ userId: record.userId, appId: record.appId, taskId: buildTaskId })
       }
     } })
+    onRegistered?.()
     const check = () => abort.signal.throwIfAborted()
     return this.withAppLock(appKey, async () => {
       try {
@@ -693,7 +708,7 @@ export class ManagedAppController {
             taskId: buildTaskId,
             profile: 'build',
             timeoutSec: 180,
-          })
+          }, onOutput)
           if (buildRes.status !== 'completed') {
             throw new ManagedAppError(
               'COMMAND_EXEC_FAILED',
@@ -721,7 +736,7 @@ export class ManagedAppController {
 
       check()
       serviceStarting = true
-      await execFileAsync('docker', [
+      const launch = await execFileAsync('docker', [
         'exec',
         '-d',
         '-w',
@@ -733,6 +748,11 @@ export class ManagedAppController {
         '-c',
         'mkdir -p /data/logs && exec node server/index.mjs >>/data/logs/server.log 2>&1',
       ])
+      // The detached application's ongoing logs stay with that app, not this temporary publish step.
+      try {
+        if (launch.stdout) onOutput?.('stdout', Buffer.from(launch.stdout))
+        if (launch.stderr) onOutput?.('stderr', Buffer.from(launch.stderr))
+      } catch { /* Publishing does not depend on a log viewer. */ }
 
       const refreshed = await this.inspectDockerContainer(record.containerName)
       record.containerIp = refreshed?.ip ?? record.containerIp
@@ -790,9 +810,6 @@ export class ManagedAppController {
         idleTimeoutHours: this.limits.defaultIdleTimeoutHours,
       }
       } catch (error) {
-      result.status = abort.signal.aborted ? 'cancelled' : 'failed'
-      result.finishedAt = Date.now()
-      result.durationMs = result.finishedAt - result.startedAt
       if (serviceStarting) {
         await this.stopAppServiceLocked(record, 'manual_stop')
       } else if (record.state === 'starting') {
@@ -800,6 +817,9 @@ export class ManagedAppController {
         record.serviceReady = false
         await this.store.upsertApp(record)
       }
+      result.status = abort.signal.aborted ? 'cancelled' : 'failed'
+      result.finishedAt = Date.now()
+      result.durationMs = result.finishedAt - result.startedAt
       throw error
       }
     })

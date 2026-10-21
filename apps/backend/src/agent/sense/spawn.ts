@@ -16,7 +16,7 @@ import {
   getRootChatId,
   updateChatMetadata,
 } from '@/db/chat.js'
-import { emitRoleCreated, registerWaitedChild, startChildEager } from '@/agent/spawnBroker.js'
+import { emitRoleCreated, registerWaitedChild, retainContinuousChild, startChildEager } from '@/agent/spawnBroker.js'
 import { logger } from '@/utils/logger/index.js'
 import { getActiveChatRunId } from '@/service/chat/runtimeCache.js'
 import {
@@ -176,7 +176,7 @@ async function spawnHandler(
   // 保留参数为 sense() 工厂签名契约。void 显式标记"已用但为空实现"，避免 TS strict unused 检查告警。
   void senseSharedData
   const { type, wake } = input
-  const parts: MessagePart[] = input.parts ?? [{ type: 'text', partId: randomUUID(), text: input.prompt }]
+  let parts: MessagePart[] = input.parts ?? [{ type: 'text', partId: randomUUID(), text: input.prompt }]
   const prompt = deriveTextContentFromParts(parts)
   if (!prompt.trim() && !parts.some((part) => part.type === 'asset')) throw new Error('子任务内容不能为空')
 
@@ -260,6 +260,7 @@ async function spawnHandler(
       metadata.finished !== true &&
       metadata.type === type &&
       metadata.spawnPromptHash === inputPromptHash &&
+      JSON.stringify(metadata.managedRequestIdentity ?? null) === JSON.stringify(isManagedRequest(ctx?.requestView?.identity) ? ctx!.requestView!.identity : null) &&
       (!activeEpochId || taskEpochId === activeEpochId)
     )
   })
@@ -297,6 +298,7 @@ async function spawnHandler(
         ...(parentRule ? { rule: parentRule } : {}),
         // 重启容错：wake+type 持久化，rebuildWaitedChildren 扫 metadata.wake 按策略重建唤醒链
         wake,
+        ...(isManagedRequest(ctx?.requestView?.identity) ? { managedRequestIdentity: ctx!.requestView!.identity } : {}),
         type,
         // 角色稳定身份 id（getChatType ID 优先反查当前名；config.save 改名迁移同步更新）
         ...(roleCfg.id ? { roleId: roleCfg.id } : {}),
@@ -407,6 +409,7 @@ async function spawnHandler(
   // 4. 注册唤醒链 + 启动看门狗（带唤醒策略 wake）。子完成后经 child_done → wakeScheduler 按 wake 策略
   //    决定 silent 暂存（deferred/barrier）/ resume 唤主（immediate/策略满足），见 docs/shared/architecture/agent-orchestration.md §5.4。
   registerWaitedChild(childChatId, parentChatId, type, wake)
+  if (ctx?.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq') retainContinuousChild(childChatId)
 
   // 5. eager 启动子 chat 后台运行（fire-and-forget）：用户原设计要求「子 agent 与主 agent 走同一 API」，
   //    原 chat.startSpawn 由前端驱动——若前端 RPC 失败（requestMap 时序 / 网络抖动 / 页面关闭），子 agent

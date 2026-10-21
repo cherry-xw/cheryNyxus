@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createChat, deleteChat } from '@/db/chat.js'
 import { addMessage } from '@/db/message.js'
 import { appendChatEvent, prepareChatEventForDelivery } from '@/db/delivery.js'
-import { buildTaskOverview } from '@/service/chat/overview.js'
+import { registerChatOverviewHandlers, buildTaskOverview } from '@/service/chat/overview.js'
+import { createRouter } from '@/service/message/router.js'
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -38,6 +39,7 @@ describe('task overview projection', () => {
     const root = randomUUID()
     cleanup.push(root)
     createChat(root)
+    registerChatOverviewHandlers(createRouter())
     for (let index = 0; index < 25; index += 1) {
       prepareChatEventForDelivery(root, {
         kind: 'notification',

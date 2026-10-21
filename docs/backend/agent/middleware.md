@@ -24,6 +24,8 @@
 
 ### 请求内工具错误
 
+Backend 重启恢复不能重放已经开始、但没有持久结果的工具。`observeAgentChunks` 在 `sense_started` 的真实执行边界先保存执行登记与空结果位置；保存失败时不推进工具。启动时 `recoverInterruptedTools` 将这些空位置写为“执行结果未确认”，保留已有结果和未执行的审批。点击“继续”只继续后续判断，不重新调用原操作；命令是否退出仍由命令记录独立表示。此保护也覆盖远程 MCP 和文件工具，不代表远端已经停止。执行登记保存在 `tool_execution_starts`，已保存结果后释放；问题等待不属于外部执行，不按未知结果结束。请求内部工具只登记开始和 `sense_execution_completed` 结束，不把私有工具历史插入普通会话；中断恢复仅追加不可执行的结果未知说明。
+
 QQ 等请求内工具循环使用 `executeRequestTool`，执行失败时保留工具返回的结构化错误正文，供模型区分参数错误、资源不足和访问拒绝并决定下一步。不得把所有非成功状态改写成“工具调用被拒绝”。人工审批不可用时仍拒绝自动批准；身份校验与角色策略不因错误透传而放宽。
 
 ### 单次模型请求超时
@@ -286,6 +288,12 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts 收集步骤](../../../apps/
 **特殊：** `error.message === "approval aborted"` 直接 re-throw 传播——这是 compose abort（chat.abort 注入的 throw），必须保证「在任意挂起点都直接退出」，由 service 层 `handleChatSend` 静默 catch。
 
 > 已 yield 的 StreamChunk 无法撤回（retry 固有表现），仅回滚内存 messages。
+
+## QQ 持续执行
+
+执行遵循「主动停止只有一种情况：用户发起要求」。外层循环和请求内工具循环均不按固定轮数主动暂停，仅在显式取消或让出时停止；模型请求、通用工具执行边界、文件服务排队/操作/下载、审批等待与 bash/web/managedApp 内部操作不设置主动时钟截止，观察连接断开不主动中断执行。子任务不启用无输出沉默看门狗，不以沉默时间判定失败。用户取消、明确错误、工具权限与输出/体积/并发资源保护仍生效。渠道投递与计算结果分离，详细语义以 [QQ 协议](../../shared/protocol/qqbot-plugin.md#持续运行与周期反馈) 为准。
+
+验证入口：`test/agent/qqContinuousChild.test.ts`、`test/agent/middleware/qqRequest.test.ts`、`test/agent/middleware/loop.test.ts`、`test/agent/middleware/chat.test.ts`、`test/core/sense/senseCreator.test.ts` 和 `test/service/fileServiceAdapters.test.ts`，覆盖多轮循环、断线标记、32天迟到返回、64天子任务沉默和显式取消。时间推进测试不代表真实持续运行一个月。
 
 ## 依赖与关联 ⭐
 

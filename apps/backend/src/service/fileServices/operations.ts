@@ -163,16 +163,17 @@ async function execute(record: FileOperationRecord, input: FileOperationInput): 
   let started = false
   let received = false
   try {
+    const continuous = input.requestView?.identity.source === 'plugin' && input.requestView.identity.channel === 'qq' || input.ownerId === 'cherynyxus-qq-module'
     const queuedAt = Date.now()
     while ((serviceCounts.get(input.serviceId) ?? 0) >= (service.maxConcurrent ?? 2)) {
       signal.throwIfAborted()
-      if (Date.now() - queuedAt > (service.queueTimeoutMs ?? 600_000)) throw new Error('文件服务排队超时')
+      if (!continuous && Date.now() - queuedAt > (service.queueTimeoutMs ?? 600_000)) throw new Error('文件服务排队超时')
       await new Promise<void>(resolveWait => { const timer = setTimeout(resolveWait, 100); timer.unref?.() })
     }
     signal.throwIfAborted()
     serviceCounts.set(input.serviceId, (serviceCounts.get(input.serviceId) ?? 0) + 1)
     acquired = true
-    signal = AbortSignal.any([signal, AbortSignal.timeout(service.timeoutMs ?? 600_000)])
+    if (!continuous) signal = AbortSignal.any([signal, AbortSignal.timeout(service.timeoutMs ?? 600_000)])
     if (!input.serviceOverride) {
       const latest = captureRuntimeConfig().file_services?.[input.serviceId]
       const current = captureRuntimeConfig()
@@ -201,7 +202,18 @@ async function execute(record: FileOperationRecord, input: FileOperationInput): 
     const adapterInput = { adapter: service.adapter, operation: input.operation,
       connection: { baseUrl: baseUrl ?? '', model: model ?? '', key, authType: service.connection.authType, endpoints: service.connection.endpointOverrides }, params: { ...service.defaults, ...input.params }, assets,
       providerContinuation: input.providerContinuation, signal }
-    const output = local ? await executeLocalFileAdapter(adapterInput, service, snapshot, input.chatId, input.requestView, record.operationId, () => { started = true }) : await executeFileServiceAdapter(adapterInput, { timeoutMs: service.timeoutMs,
+    if (isImageOutputOperation(input.operation)) {
+      const resolution = resolveImageOutput({ service, operation: input.operation, desiredCount: record.imageCount?.desiredCount ?? input.desiredCount,
+        params: input.params, inputImages: assets.filter(asset => asset.assetId !== input.params.maskAssetId).length, config: snapshot })
+      if (record.imageCount && record.imageConfigRevision !== resolution.configRevision) throw new Error('绘图型号或张数限制已经变化，请重新确认后生成')
+      record.imageCount = resolution.count
+      record.imageConfigRevision = resolution.configRevision
+      record.imageModel = resolution.imageModel
+      adapterInput.params = imageCountParams(service, resolution, adapterInput.params)
+      record.params = adapterInput.params
+      update(record)
+    }
+    const output = local ? await executeLocalFileAdapter(adapterInput, service, snapshot, input.chatId, input.requestView, record.operationId, () => { started = true }) : await executeFileServiceAdapter(adapterInput, { timeoutMs: continuous ? 0 : service.timeoutMs,
       fetch: async (url, options) => {
         started = true
         const response = await fetch(url, { ...options, redirect: 'error' })

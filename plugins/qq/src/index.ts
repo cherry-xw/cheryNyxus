@@ -11,7 +11,9 @@ export function douyinLink(content: string): string | undefined {
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import fs from 'node:fs'
-import { MessagePartSchema, ToolFileResultSchema, defaultDeliverableAssetIds } from '@chery/protocol'
+import { MessagePartSchema, ToolFileResultSchema, defaultDeliverableAssetIds, publicOutcomeText } from '@chery/protocol'
+import type { BackendStopSnapshot, BackendStopBlocker, QQServiceState } from '@chery/protocol'
+import { closeQQQueues } from './backendLifecycle.js'
 import type {
   IngressContext,
   IngressPlugin,
@@ -74,6 +76,12 @@ export class QQPlugin implements IngressPlugin {
   private nextAppNotificationPoll = 0
   private recovered = false
   private stopped = true
+  private backendState?: BackendStopSnapshot
+  private readonly adoptedJobs = new Set<string>()
+  private readonly closingCoreKeys = new Set<string>()
+  private readonly lifecycleInstanceId = randomUUID()
+  private serviceVersion = 0
+  private lastServiceHash = ''
   private timer?: ReturnType<typeof setInterval>
   private readonly busy = new Set<string>()
   private readonly cleanups: Array<() => void> = []
@@ -97,9 +105,27 @@ export class QQPlugin implements IngressPlugin {
     }
     this.snapshot = structuredClone({ ...next, config })
     this.apply = { state: 'applied', revision: next.revision }
+    for (const discussion of Object.values(this.state.discussions)) {
+      if (discussion.summaryPending && discussion.maintenance?.status === 'failed' && ['AUTH_REQUIRED', 'INVALID_PARAMS', 'PERMISSION_DENIED', 'IDENTITY_REJECTED', 'MODEL_UNAVAILABLE', 'SUMMARY_DESTINATION_CHANGED'].includes(discussion.maintenance.reason ?? '')) discussion.summaryRetryAt = 0
+    }
+    this.persist()
+    this.nativeImages.refresh(this.verifiedConnection)
+    this.publishServiceState()
+    if(this.context.core.restrictSources && this.state.identityBinding) {
+      const keys=Object.entries(config.bindings).flatMap(([target,preset])=>{try{return [this.conversationKey(this.state.identityBinding!.selfId,target,this.context.core.resolvePreset(preset).presetId)]}catch{return []}})
+      await this.context.core.restrictSources(keys)
+    }
   }
   start(): void {
     this.stopped = false
+    // A new Backend process never dispatches old QQ inputs or pending deliveries.
+    closeQQQueues(this.state)
+    this.persist()
+    if (this.context.lifecycle) {
+      this.backendState = this.context.lifecycle.snapshot()
+      this.cleanups.push(this.context.lifecycle.subscribe(state => this.backendChanged(state)))
+      this.cleanups.push(this.context.lifecycle.blockers(() => this.stopBlockers()))
+    }
     this.cleanups.push(this.context.ingress.register({ id: 'qq' }))
     this.cleanups.push(this.context.identity.registerChannel({
       channel: 'qq',
@@ -307,7 +333,12 @@ export class QQPlugin implements IngressPlugin {
     if (!this.paused) this.timer = setInterval(() => this.tick(), 250)
   }
   async stop(): Promise<void> {
+    const activeKeys = new Set([...this.closingCoreKeys, ...this.state.jobs.filter(job => job.state === 'running').map(job => job.conversationKey)])
     this.stopped = true
+    this.publishServiceState(true)
+    closeQQQueues(this.state)
+    this.persist()
+    this.nativeImages.invalidate()
     for (const pending of this.informationPending.values()) pending.reject(new Error('QQ runtime stopped'))
     this.informationPending.clear()
     for (const pending of this.lookups.values()) pending.reject(new Error('QQ runtime stopped'))
@@ -319,19 +350,15 @@ export class QQPlugin implements IngressPlugin {
     this.timer = undefined
     this.recovered = false
     for (const cleanup of this.cleanups.splice(0).reverse()) cleanup()
-    for (const job of this.state.jobs)
-      if (job.state === 'running') {
-        job.state = 'paused'
-        job.reason = 'PROCESS_STOPPED'
-        delete job.nextWaitAt
-        this.persist()
+    for (const key of activeKeys) {
         try {
-          await this.context.core.abort(job.conversationKey)
+          await this.context.core.abort(key)
         } catch {
           /* The queue is closed even when local cancellation cannot be confirmed. */
         }
     }
     await Promise.allSettled([...this.operations])
+    closeQQQueues(this.state)
     this.persist()
   }
   prepareManagement(): void {
@@ -387,6 +414,71 @@ export class QQPlugin implements IngressPlugin {
         body: QQRequestSchemas['qq.config.save'] }).strict(), responseSchema: QQResponseSchemas['qq.config.save'],
       handler: async input => this.saveConfiguration(QQRequestSchemas['qq.config.save'].parse(input.body)) })
     this.context.management.register({ moduleId: 'qq', routes })
+  }
+  private accepting(): boolean { return !this.backendState || this.backendState.phase === 'running' }
+  private closing(): boolean { return this.stopped || !!this.backendState && !['running', 'requesting', 'draining'].includes(this.backendState.phase) }
+  private mayDeliver(output: Outbox): boolean {
+    return !this.closing() && (this.accepting() || this.adoptedJobs.has(output.frame.data.requestId))
+  }
+  private backendChanged(state: BackendStopSnapshot): void {
+    const previous = this.backendState
+    this.backendState = state
+    if (state.phase === 'running') this.adoptedJobs.clear()
+    else if (!previous || previous.phase === 'running') {
+      for (const job of this.state.jobs) if (job.state === 'running' || job.state === 'sending' ||
+        job.state === 'paused' && ['WAITING_FOR_ANSWER', 'WAITING_FOR_APPROVAL', 'QUESTION_RESUME_UNCONFIRMED'].includes(job.reason ?? '') ||
+        this.state.outbox.some(o => o.frame.data.requestId === job.requestId && ['pending', 'inflight'].includes(o.status) && job.state !== 'queued'))
+        this.adoptedJobs.add(job.requestId)
+    }
+    if (this.closing()) {
+      for (const job of this.state.jobs) if (job.state === 'running') this.closingCoreKeys.add(job.conversationKey)
+      closeQQQueues(this.state)
+      this.persist()
+    }
+    this.publishServiceState()
+  }
+  private stopBlockers(): BackendStopBlocker[] {
+    if (this.accepting() || this.closing()) return []
+    const blockers: BackendStopBlocker[] = []
+    for (const job of this.state.jobs) if (this.adoptedJobs.has(job.requestId) &&
+      (!terminal(job) || this.state.outbox.some(o => o.frame.data.requestId === job.requestId && ['pending', 'inflight'].includes(o.status))))
+      blockers.push({ id: `qq:${job.requestId}`, kind: job.questions ? 'question' : 'external', description: '等待当前 QQ 任务及必要回复、问答或投递结束' })
+    if (this.operations.size) blockers.push({ id: 'qq:operations', kind: 'external', description: '等待已开始的 QQ 操作收尾' })
+    return blockers
+  }
+  private serviceState(): QQServiceState {
+    const config = this.snapshot.config
+    const targets: QQServiceState['targets'] = []
+    if (!this.paused && this.context.isEnabled()) for (const [target, preset] of Object.entries(config.bindings)) {
+      try { this.context.core.resolvePreset(preset) } catch { continue }
+      const group = target.startsWith('group:')
+      const targetId = target.slice(group ? 6 : 13)
+      if ((group ? config.groups : config.users).includes(targetId)) targets.push({ conversationType: group ? 'group' : 'private', targetId })
+    }
+    const questions: QQServiceState['questions'] = []
+    for (const job of this.state.jobs) if (job.questions && job.reason === 'WAITING_FOR_ANSWER' &&
+      (this.accepting() || this.adoptedJobs.has(job.requestId))) {
+      const messageIds = job.questions.items.filter(q => q.answer === undefined).flatMap(q =>
+        this.state.outbox.filter(o => o.frame.data.eventId === q.eventId && o.status === 'sent').flatMap(o => o.messageIds ?? []))
+      if (messageIds.length) questions.push({ conversationType: job.input.conversationType, targetId: job.input.targetId,
+        senderId: job.input.senderId, messageIds })
+    }
+    return { selfId: this.state.identityBinding!.selfId, backendInstanceId: this.backendState?.backendInstanceId ?? this.lifecycleInstanceId,
+      operationId: this.backendState?.operationId ?? (this.closing() ? `${this.lifecycleInstanceId}:close` : null), version: this.serviceVersion,
+      phase: this.closing() ? 'closing' : this.accepting() ? 'running' : 'draining', targets, questions }
+  }
+  private publishServiceState(force = false): void {
+    if (!this.verifiedConnection || !this.state.identityBinding || !this.snapshot) return
+    const state = this.serviceState()
+    const value = digest({ ...state, version: 0 })
+    if (!force && value === this.lastServiceHash) return
+    this.serviceVersion++
+    this.state.serviceVersion = this.serviceVersion
+    this.persist()
+    state.version = this.serviceVersion
+    try {
+      if (this.context.connections.send(this.verifiedConnection, { kind: 'notification', type: 'qq.service.state', data: state })) this.lastServiceHash = value
+    } catch { /* A revoked connection must not interrupt queue cleanup or leave the timer running. */ }
   }
   private persist(): void {
     atomicJson(this.file, this.state)
@@ -559,7 +651,8 @@ export class QQPlugin implements IngressPlugin {
       setImmediate(() => {
         if (!this.stopped && this.connection === id) this.tick()
       })
-      return { events }
+      const service = this.serviceState()
+      return { events: events.filter(event => this.accepting() || this.adoptedJobs.has(event.data.requestId)), service }
     })
     register('qq.event.submit', async (id, p) => {
       this.assertChannel(id, p.selfId)
@@ -1061,6 +1154,7 @@ export class QQPlugin implements IngressPlugin {
     data: Partial<QQNotification['data']>,
     notBefore?: number,
   ): void {
+    if (this.closing() || !this.accepting() && !this.adoptedJobs.has(job.requestId)) return
     const key = `${job.input.selfId}:${job.target}`
     const seq = (this.state.seq[key] ?? 0) + 1
     this.state.seq[key] = seq
@@ -1267,7 +1361,8 @@ export class QQPlugin implements IngressPlugin {
     this.persist()
   }
   private tick(): void {
-    if (Date.now() >= this.nextAppNotificationPoll && !this.appNotificationBusy && !this.stopped && !this.paused && this.recovered && this.connection && this.context.appNotifications) {
+    this.publishServiceState()
+    if (this.accepting() && Date.now() >= this.nextAppNotificationPoll && !this.appNotificationBusy && !this.stopped && !this.paused && this.recovered && this.connection && this.context.appNotifications) {
       this.nextAppNotificationPoll = Date.now() + 60000
       this.appNotificationBusy = true
       const operation = this.enqueueAppNotifications().catch(() => {}).finally(() => { this.appNotificationBusy = false; this.operations.delete(operation) })
@@ -1279,7 +1374,7 @@ export class QQPlugin implements IngressPlugin {
       this.operations.add(operation)
     }
     if (
-      this.stopped ||
+      this.closing() ||
       this.paused ||
       !this.connection ||
       !this.recovered ||
@@ -1323,7 +1418,7 @@ export class QQPlugin implements IngressPlugin {
         this.operations.add(operation)
       }
     }
-    for (const ack of this.state.outbox.filter(o => o.frame.type === 'qq.message.ack' && (o.status === 'pending' || o.status === 'inflight'))) {
+    for (const ack of this.state.outbox.filter(o => this.mayDeliver(o) && o.frame.type === 'qq.message.ack' && (o.status === 'pending' || o.status === 'inflight'))) {
       if (ack.status === 'inflight') {
         continue
       }
@@ -1332,7 +1427,7 @@ export class QQPlugin implements IngressPlugin {
     }
     // Transport progresses independently of model job state, including terminal jobs.
     for (const target of new Set(this.state.outbox.filter(o => o.status === 'pending' || o.status === 'inflight').map(o => this.job(o)?.target).filter((t): t is string => !!t))) {
-      const outputs = this.state.outbox.filter(o => this.job(o)?.target === target && o.frame.type !== 'qq.message.ack')
+      const outputs = this.state.outbox.filter(o => this.mayDeliver(o) && this.job(o)?.target === target && o.frame.type !== 'qq.message.ack')
       // Progress uses its own lane: slow content must not suppress heartbeats.
       const progress = (o: Outbox) => ['qq.waiting','qq.tool.icon'].includes(o.frame.type)
       const candidates = outputs.filter(o => o.status === 'pending' &&
@@ -1350,7 +1445,8 @@ export class QQPlugin implements IngressPlugin {
     )) {
       const job = this.state.jobs.find((j) => j.target === target && !terminal(j) && j.state !== 'paused')
       if (!job) continue
-      if (job.state === 'paused') { this.failureNotice(job, '这次处理已中断，未完成。请重新提出请求。'); continue }
+      if (!this.accepting() && !this.adoptedJobs.has(job.requestId)) continue
+      if (job.state === 'paused') continue
       if (this.busy.has(target) && job.state !== 'running') continue
       if (job.state === 'sending' && job.filePreparationPending && !this.preparingReplies.has(job.requestId)) {
         this.finish(job, job.outcome ?? 'failed')
@@ -1471,7 +1567,7 @@ export class QQPlugin implements IngressPlugin {
       }
     }
     await this.context.core.ensureConversation(job.conversationKey, job.snapshot.preset)
-    if (this.stopped || this.paused || job.state !== 'queued') return
+    if (this.closing() || this.paused || job.state !== 'queued' || !this.accepting() && !this.adoptedJobs.has(job.requestId)) return
     job.state = 'running'
     job.nextWaitAt ??= Date.now() + job.snapshot.config.waitIntervalSeconds * 1000
     this.persist()

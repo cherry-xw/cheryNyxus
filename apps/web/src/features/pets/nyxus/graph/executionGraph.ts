@@ -44,6 +44,7 @@ export interface ExecutionNode {
   branchId?: string
   sourceFact?: TimelineNode
   inputState?: VirtualInputNode['state']
+  inputReason?: string
   fold?: ExecutionFold
   /** kind === 'round' 时携带：轮次开头用户消息与主 Agent 最终回复锚点。 */
   round?: ExecutionRound
@@ -109,6 +110,7 @@ export interface VirtualInputNode {
   createdAt: number
   state: 'editing' | 'pending' | 'consuming'
   queueSequence?: number
+  reason?: string
 }
 
 /** Common boundary for future fold and other UI-only graph projections. */
@@ -467,6 +469,7 @@ export function projectInputNodes(
       orderKey: null,
       activeRuns: [],
       inputState: input.state,
+      ...(input.reason ? { inputReason: input.reason } : {}),
     }
     nodes.push(node)
     edges.push({

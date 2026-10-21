@@ -251,16 +251,19 @@ export function publishOverviewForChat(
   for (const [id, subscription] of subscriptions) sendChange(id, subscription, rootChatId)
 }
 
-onPreparedChatEvent((chatId, event) => {
-  const projected = eventProjection(chatId, event)
-  if (!projected) return
-  const list = recentEvents.get(projected.rootChatId) ?? []
-  list.push(projected)
-  recentEvents.set(projected.rootChatId, list.slice(-RECENT_EVENT_LIMIT))
-  for (const [id, subscription] of subscriptions) {
-    sendChange(id, subscription, projected.rootChatId)
-  }
-})
+let preparedHookRegistered = false
+function initializeOverviewEvents(): void {
+  if (preparedHookRegistered) return
+  preparedHookRegistered = true
+  onPreparedChatEvent((chatId, event) => {
+    const projected = eventProjection(chatId, event)
+    if (!projected) return
+    const list = recentEvents.get(projected.rootChatId) ?? []
+    list.push(projected)
+    recentEvents.set(projected.rootChatId, list.slice(-RECENT_EVENT_LIMIT))
+    for (const [id, subscription] of subscriptions) sendChange(id, subscription, projected.rootChatId)
+  })
+}
 
 async function handleOpen(
   ctx: HandlerContext,
@@ -283,6 +286,7 @@ async function handleClose(
 }
 
 export function registerChatOverviewHandlers(router: RpcRouter): void {
+  initializeOverviewEvents()
   if (!resultViewHookRegistered) {
     resultViewHookRegistered = true
     onTaskResultViewChanged((taskKey) => {

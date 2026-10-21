@@ -15,7 +15,20 @@ let options:
   | undefined
 const listeners = new Set<(state: RestartState) => void>()
 const activities = new Set<RestartBlocker>()
+const activityIds = new WeakMap<RestartBlocker, string>()
+let activitySequence = 0
 let poll: ReturnType<typeof setInterval> | undefined
+let stopPriority = false
+
+export function setBackendStopPriority(active: boolean): void {
+  stopPriority = active
+  if (!active) setImmediate(notifyIfReady)
+}
+
+export function getRestartActivities(): RestartBlocker[] { return [...activities].map((item) => ({ ...item })) }
+export function getRestartActivityEntries() {
+  return [...activities].map(item => ({ id: activityIds.get(item)!, description: item.description ?? '已开始的操作尚未结束' }))
+}
 
 export function configureRestartCoordinator(input: NonNullable<typeof options>): void {
   options = input
@@ -42,6 +55,8 @@ export function isRestartDraining(): boolean {
   return ['pending', 'blocked', 'ready'].includes(state.status)
 }
 export function assertRestartAdmission(existingWork = false): void {
+  // Stop admission owns this boundary without discarding the pending restart.
+  if (stopPriority) return
   if (state.status === 'ready' || (isRestartDraining() && !existingWork))
     throw new Error('系统正在等待安全重启，暂不能开始新任务；可继续处理待办或管理后台进程')
 }
@@ -49,6 +64,7 @@ export function assertRestartAdmission(existingWork = false): void {
 export function trackRestartActivity(blocker: RestartBlocker): () => void {
   assertRestartAdmission(true)
   activities.add(blocker)
+  activityIds.set(blocker, `activity:${++activitySequence}`)
   notifyRestartActivityChanged()
   return () => {
     activities.delete(blocker)
@@ -93,6 +109,7 @@ export function notifyRestartActivityChanged(): void {
   if (isRestartDraining()) setImmediate(notifyIfReady)
 }
 function notifyIfReady(): void {
+  if (stopPriority) return
   if (!isRestartDraining() || state.status === 'ready') return
   try {
     const pending = blockers()

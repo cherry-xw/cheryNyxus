@@ -532,7 +532,7 @@ export function useExecutionNodePopoverController(
   }
 
   const nodeStatus = computed(() =>
-    statusLabel(props.node.inputState ?? props.node.sourceFact?.status ?? props.node.status),
+    props.node.inputReason ?? statusLabel(props.node.inputState ?? props.node.sourceFact?.status ?? props.node.status),
   )
 
   const nodeTime = computed(() => formatTime(props.node.createdAt))

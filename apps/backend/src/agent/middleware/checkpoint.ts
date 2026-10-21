@@ -12,6 +12,8 @@ import { ModelRequestTimeoutError } from './requestTimeout.js'
 import { prepareRequest, finishRequest } from '@/agent/hooks/request.js'
 import { saveImageDescription } from '@/service/fileServices/imageContext.js'
 import type { MessageAssetPart } from '@chery/protocol'
+import { canContinueInstruction } from '@/core/middleware/inputAdoption.js'
+import { AgentParkError } from '@/core/middleware/errors.js'
 
 /**
  * Checkpoint Middleware
@@ -29,7 +31,9 @@ export async function* checkpointMiddleware(
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   // === 先处理 userInputs：转为 messages（在 next() 调用前）===
-  const newInput = ctx.soul.userInputs.find((input) => !input.ephemeral)
+  const newInput = ctx.journal.reserveNextInput()
+  if (!newInput && !ctx.requestView && ctx.soul.userInputs.length && !canContinueInstruction(ctx.soul.chatId))
+    throw new AgentParkError()
   if (newInput) {
     await finishRequest(ctx, 'completed')
     await prepareRequest(ctx, newInput)

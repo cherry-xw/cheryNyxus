@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ConfigApplyStateSchema } from './configApply'
 import { ChatLifecycleChangedSchema } from './archive'
 import { AgentCommandUpdatedSchema, AgentCommandLogEventSchema } from './agentCommand'
+import { QQServiceStateSchema } from './qq'
 
 /**
  * Canonical public RPC surface.
@@ -168,6 +169,7 @@ export const ErrorCode = {
   INTERACTION_ALREADY_RESOLVED: 'INTERACTION_ALREADY_RESOLVED',
   COMMAND_CONFLICT: 'COMMAND_CONFLICT',
   INPUT_QUEUE_FULL: 'INPUT_QUEUE_FULL',
+  BACKEND_STOPPING: 'BACKEND_STOPPING',
   PROFILE_VERSION_UNSUPPORTED: 'PROFILE_VERSION_UNSUPPORTED',
   RATE_LIMITED: 'RATE_LIMITED',
   API_VERSION_MISMATCH: 'API_VERSION_MISMATCH',

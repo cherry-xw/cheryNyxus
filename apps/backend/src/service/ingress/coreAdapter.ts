@@ -213,7 +213,8 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
         model: brain.model, provider: brain.provider, protocol,
         url: brain.url ?? resolveLlmProviderDefaultUrl(brain.provider, protocol), key: brain.key,
         fullUrl: brain.fullUrl === true, brain: selection.selection.brain,
-        signal: input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
+        signal: input.signal,
+        continuous: _owner === 'cherynyxus-qq-module',
         thinking: 'off',
         })
       } catch (cause) {

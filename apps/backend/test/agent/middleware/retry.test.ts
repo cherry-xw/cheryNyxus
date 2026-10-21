@@ -16,6 +16,8 @@ import {
   configureRetryTimingForTests,
   retryMiddleware,
 } from "@/agent/middleware/retry.js";
+import { registerAnthropicAdapter } from "@/agent/provider/anthropic.js";
+import { getLLMAdapter } from "@/core/llm/adapter.js";
 import { AgentAbortError } from "@/core/middleware/errors.js";
 import { ModelRequestTimeoutError } from "@/agent/middleware/requestTimeout.js";
 import { ClassifiedError } from "@/utils/error.js";
@@ -299,6 +301,64 @@ describe("retryMiddleware 错误分类", () => {
 
   it("unknown: 其他", async () => {
     expect(await classifyOnce("something weird")).toBe("unknown");
+  });
+});
+
+describe("retryMiddleware 混合失败保留最后决定原因（真实 Anthropic fetch 路径）", () => {
+  it.each([
+    [401, "auth", ErrorId.BRAIN_HTTP_AUTH_REJECTED, "大脑的钥匙不对，请在设置里检查 key"],
+    [403, "auth", ErrorId.BRAIN_HTTP_AUTH_REJECTED, "大脑的钥匙不对，请在设置里检查 key"],
+    [400, "validation", ErrorId.BRAIN_HTTP_REQUEST_REJECTED, "脑子拒绝了这个请求，请检查 brain 配置"],
+    [422, "validation", ErrorId.BRAIN_HTTP_REQUEST_REJECTED, "脑子拒绝了这个请求，请检查 brain 配置"],
+  ] as const)("network → HTTP %i：立即停止并保留最终错误所有字段", async (status, category, errorId, userMessage) => {
+    const sleep = vi.fn(async () => undefined);
+    const restoreTiming = configureRetryTimingForTests({ sleep, random: () => 0.5 });
+    const fetch = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed: ECONNRESET"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        type: "error", error: { type: "invalid_request_error", message: "controlled final refusal" },
+      }), { status, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetch);
+    registerAnthropicAdapter();
+    const ctx = createMockContext({ messages: [] });
+    const caught: ClassifiedError[] = [];
+    const next = async function* (): AsyncGenerator<MiddlewareChunk> {
+      try {
+        await getLLMAdapter("anthropic")!.chat(
+          { messages: [{ role: "user", content: "offline probe" }] }, [],
+          { model: "claude-test", key: "offline-test-key", url: "https://offline.invalid/v1", skipHooks: true },
+        );
+      } catch (error) {
+        expect(error).toBeInstanceOf(ClassifiedError);
+        caught.push(error as ClassifiedError);
+        throw error;
+      }
+    };
+    try {
+      const out = await collectChunks(retryMiddleware(ctx, next));
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(sleep.mock.calls).toEqual([[1000]]);
+      expect(out.map((chunk) => chunk.type)).toEqual(["error"]);
+      const failure = firstError(out)!;
+      expect(failure.errors).toHaveLength(2);
+      expect(failure.errors.map((error) => ({
+        attempt: error.attempt, category: error.category, recoverable: error.recoverable,
+      }))).toEqual([
+        { attempt: 1, category: "network", recoverable: true },
+        { attempt: 2, category, recoverable: false },
+      ]);
+      expect(failure.errors[0]).toMatchObject({ source: "brain", userMessage: "连不上我的脑子了" });
+      expect(failure.errors.at(-1)).toMatchObject({
+        errorId, category, source: "brain", userMessage, recoverable: false,
+        message: `upstream HTTP ${status}`, detail: `HTTP ${status}`,
+        stack: caught[1]!.stack,
+      });
+      expect(caught).toHaveLength(2);
+      expect(failure.errors.at(-1)!.message).not.toBe(caught[0]!.message);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreTiming();
+    }
   });
 });
 

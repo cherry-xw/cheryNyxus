@@ -13,6 +13,7 @@ import { getWaitedParent } from '@/agent/spawnBroker.js'
 import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { finishRequest, requestSignal } from '@/agent/hooks/request.js'
+import { canAdoptInput } from '@/core/middleware/inputAdoption.js'
 
 /**
  * 创建 agent 层循环策略
@@ -23,6 +24,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
     ctx: MiddlewareContext,
     runChain: () => AsyncGenerator<MiddlewareChunk, void, unknown>,
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
+    const continuous = ctx.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq'
     const runLimit = maxLoop ?? ctx.global.maxLoopCount ?? 30
     let times = 0
     let stopped = false // 区分 break（正常停止）vs while 条件耗尽（避免误报）
@@ -36,7 +38,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
 
     logger.event('loop.start', { max: runLimit })
 
-    while (times < runLimit) {
+    while (continuous || times < runLimit) {
       requestSignal(ctx)?.throwIfAborted()
       // watchdog/user abort 的 durable fence：即使 compose.throw 在前一轮 stream 的
       // yield* 边界被吞掉，旧 run 也绝不能据 last-sense 开启下一轮 LLM。
@@ -75,7 +77,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
       // 断连宽限期到期 → 标记安全边界。当前 `runChain` 输出已结束，
       // 在本轮决策前抛 `AgentParkError`，让 observer 归 paused 并在 finally 释放 runtime/connection。
       const parkRequested = ctx.pipeline?.consumeParkAfterTurn() ?? false
-      if (parkRequested) {
+      if (parkRequested && !continuous) {
         logger.event('loop.decision', { decision: 'park', reason: 'disconnect-grace-expired' })
         throw new AgentParkError()
       }
@@ -88,7 +90,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
       // 检查 loop 停止条件（基于 ctx.soul.messages）
       const messages = ctx.soul.messages
       if (!messages || messages.length === 0) {
-        if (ctx.soul.userInputs.length > 0) {
+        if (canAdoptInput(ctx.soul.chatId) && ctx.soul.userInputs.length > 0) {
           logger.event('loop.decision', {
             decision: 'continue',
             reason: 'residual-userInputs-empty-messages',
@@ -106,7 +108,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
 
       // 全部 revoked 或无可判定消息 → 残留输入则继续，否则停止
       if (!lastVisible) {
-        if (ctx.soul.userInputs.length > 0) {
+        if (canAdoptInput(ctx.soul.chatId) && ctx.soul.userInputs.length > 0) {
           logger.event('loop.decision', {
             decision: 'continue',
             reason: 'residual-userInputs-no-visible',
@@ -154,7 +156,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
       }
 
       // 3. 其他情况（assistant 无 senseCall / user / system）→ 检查残留输入后再停止
-      if (ctx.soul.userInputs.length > 0) {
+      if (canAdoptInput(ctx.soul.chatId) && ctx.soul.userInputs.length > 0) {
         logger.event('loop.decision', { decision: 'continue', reason: 'residual-userInputs' })
         continue
       }

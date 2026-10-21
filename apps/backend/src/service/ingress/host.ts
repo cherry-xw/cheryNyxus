@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { registerPluginResources } from './resources.js'
 import { z } from 'zod'
+import { getBackendLifecycle } from '../backendWork.js'
 import {
   IngressRequestSchemas,
   IngressResponseSchemas,
@@ -289,6 +290,16 @@ export class IngressHost {
       configDir: store.safe('config'),
       dataDir: store.directory(`data/${id}`),
       runtimeOptions: immutableSnapshot(this.options.runtimeOptions ?? {}),
+      lifecycle: (() => {
+        const lifecycle = getBackendLifecycle()
+        if (!lifecycle) return undefined
+        return {
+          snapshot: lifecycle.snapshot,
+          subscribe: (listener: Parameters<typeof lifecycle.subscribe>[0]) => track(lifecycle.subscribe(listener)),
+          blockers: (provider: Parameters<typeof lifecycle.blockers>[0]) => track(lifecycle.blockers(() =>
+            provider().map((item) => ({ ...item, id: `${id}:${item.id}` })))),
+        }
+      })(),
       isEnabled: () =>
         this.options.store.readRegistry().plugins.some((entry) => entry.id === id && entry.enabled),
       defer: (cleanup: Release) => {
@@ -910,8 +921,7 @@ export class IngressHost {
     active.pending = []
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      await Promise.race([
-        (async () => {
+      const cleanup = (async () => {
           await Promise.all(
             [...active.conversations].map((key) =>
               this.options.core.abort(active.registration.id, key).catch(() => {}),
@@ -922,14 +932,15 @@ export class IngressHost {
           } finally {
             await this.release(active.cleanup)
           }
-        })(),
-        new Promise<never>((_, reject) => {
+        })()
+      // Ordinary Backend cleanup has no hidden kill/timeout. User force-stop is bounded by its parents.
+      if (getBackendLifecycle()?.snapshot().desiredState === 'stopped') await cleanup
+      else await Promise.race([cleanup, new Promise<never>((_, reject) => {
           timer = setTimeout(
             () => reject(ingressError('STOP_TIMEOUT')),
             Math.min(30000, this.options.stopTimeoutMs ?? 30000),
           )
-        }),
-      ])
+        })])
       active.state = 'stopped'
     } catch {
       active.state = 'failed'

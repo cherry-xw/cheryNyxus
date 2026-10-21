@@ -14,7 +14,8 @@ import type { GlobalConfig } from '@/utils/config'
 import { logger } from '@/utils/logger/index.js'
 import { getSenseRegistryVersion } from '../sense/senseRegistry.js'
 import { dispatch } from '@/agent/hooks/dispatch.js'
-import { requestHookContext, finishRequest } from '@/agent/hooks/request.js'
+import { requestHookContext, finishRequest, prepareRequest } from '@/agent/hooks/request.js'
+import { releaseReservedInputs } from './inputAdoption.js'
 
 export * from './types'
 export type { MiddlewareHandler, LoopHandler }
@@ -176,6 +177,7 @@ export default class AgentSession<T = unknown> {
         )
       }
     } finally {
+      releaseReservedInputs(this.ctx.soul.chatId)
       await finishRequest(this.ctx, this.pipeline.isAbortRequested() ? 'cancelled' : 'failed')
       this.journal.pruneEphemeralMessages()
     }

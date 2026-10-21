@@ -4,6 +4,7 @@ import { resolvePresetSelection } from '@/agent/runtimeResolver.js'
 import { runMaintenanceChat } from './maintenanceChat.js'
 import { logger } from '@/utils/logger/index.js'
 import { isRestartDraining, trackRestartActivity } from '@/service/restartCoordinator.js'
+import { isBackendStopping } from '@/service/backendWork.js'
 
 const cronJobs = new Map<string, Cron>()
 const runningPresets = new Set<string>()
@@ -15,7 +16,7 @@ async function triggerMaintenance(
   schedule: PresetSchedule,
   resolved: ExecutionSnapshot,
 ): Promise<void> {
-  if (isRestartDraining()) return
+  if (isRestartDraining() || isBackendStopping()) return
   if (runningPresets.has(presetName)) {
     logger.event('schedule.skip-running', { preset: presetName })
     return

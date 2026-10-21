@@ -12,6 +12,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { chatMiddleware } from "@/agent/middleware/chat.js";
 import { ModelRequestTimeoutError } from "@/agent/middleware/requestTimeout.js";
+import { ClassifiedError } from '@/utils/error.js'
+import { cpSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { resetModelCatalogCache } from '@/utils/modelCatalog.js'
+import type { LLMOptions } from '@/core/llm/adapter.js'
 import config from "@/utils/config.js";
 import type { MiddlewareChunk, StreamChunk } from "@/core/middleware/types.js";
 import { SupervisionLevel } from "@/core/config.js";
@@ -25,6 +30,20 @@ import {
 } from "../helpers/fakeContext.js";
 import { collectChunks, collectContent, collectThinking } from "../helpers/chunkAssert.js";
 
+const fileReferenceDescription = vi.hoisted(() => vi.fn(async () => undefined as string | undefined))
+vi.mock('@/service/workspace/handler.js', () => ({ describeFileReferences: fileReferenceDescription }))
+
+it('file reference context has a stable identity at the recovery boundary', async () => {
+  fileReferenceDescription.mockResolvedValueOnce('Referenced text file: evidence')
+  const buildMessages = vi.fn((history) => history)
+  const runtime = createMockRuntime({ adapters: { messageAdapter: mockMessageAdapter({ buildMessages }) } })
+  const messages = [{ ...userMessages()[0]!, content: 'Read [[file:evidence.txt]]' }]
+  const ctx = createMockContext({ messages, runtime, global: { stream: false, thinking: false, supervision: SupervisionLevel.auto } })
+  await collectChunks(chatMiddleware(ctx, makeNext([])))
+  expect(buildMessages.mock.calls.some(([history]) => history.some((m: { id?: string; content: string }) => m.id === 'file-references:u' && m.content === 'Referenced text file: evidence'))).toBe(true)
+  expect(messages).toHaveLength(1)
+})
+
 function asyncIter<T>(items: T[]): AsyncIterable<T> {
   return {
     [Symbol.asyncIterator]: async function* () {
@@ -37,6 +56,48 @@ function userMessages() {
   return [{ id: "u", role: "user" as const, content: "hello", createdAt: 0, updateAt: 0 }];
 }
 
+describe('chatMiddleware thinking and diagnostics', () => {
+  it.each([false, true])('tool-effort conflict stops GPT Sol before transport on stream=%s', async stream => {
+    cpSync(resolve('apps/backend/.chery.template/model-catalog.yaml'), join(process.env.CHERY_DIR!, '.chery', 'model-catalog.yaml'))
+    resetModelCatalogCache()
+    const chat = vi.fn(async () => ({}))
+    const chatStream = vi.fn(async () => asyncIter([]))
+    const runtime = createMockRuntime({ brain: { model: 'gpt-6-sol', provider: 'custom', thinking: 'high' }, adapters: { llmAdapter: mockLLMAdapter({ chat, chatStream }) } })
+    runtime.brain.protocol = 'openai-chat-completions'
+    runtime.builtSenses = [{ type: 'function', function: { name: 'synthetic', parameters: { type: 'object', properties: {} } } }]
+    const ctx = createMockContext({ messages: userMessages(), runtime, global: { stream, thinking: true, supervision: SupervisionLevel.auto } })
+    await expect(collectChunks(chatMiddleware(ctx, makeNext([])))).rejects.toMatchObject({ category: 'validation' })
+    expect(chat).not.toHaveBeenCalled()
+    expect(chatStream).not.toHaveBeenCalled()
+    expect(runtime.brain.thinking).toBe('high')
+    expect(runtime.builtSenses).toHaveLength(1)
+  })
+  it.each([false, true])('global off stops M3.1 before transport on stream=%s without changing saved preference', async stream => {
+    cpSync(resolve('apps/backend/.chery.template/model-catalog.yaml'), join(process.env.CHERY_DIR!, '.chery', 'model-catalog.yaml'))
+    resetModelCatalogCache()
+    let sent: LLMOptions | undefined
+    const llm = mockLLMAdapter({
+      chat: async (_m, _s, options) => { sent = options; return {} },
+      chatStream: async (_m, _s, options) => { sent = options; return asyncIter([]) },
+    })
+    const runtime = createMockRuntime({ brain: { model: 'minimax-m3.1-flash-preview', provider: 'custom', thinking: 'high' }, adapters: { llmAdapter: llm } })
+    runtime.brain.protocol = 'openai-chat-completions'
+    const ctx = createMockContext({ messages: userMessages(), runtime, global: { stream, thinking: false, supervision: SupervisionLevel.auto } })
+    await expect(collectChunks(chatMiddleware(ctx, makeNext([])))).rejects.toMatchObject({ category: 'validation' })
+    expect(sent).toBeUndefined()
+    expect(runtime.brain.thinking).toBe('high')
+    expect(ctx.global.thinking).toBe(false)
+  })
+
+  it('request-local plugin preserves already classified upstream error identity and detail', async () => {
+    const failure = new ClassifiedError({ message: 'upstream HTTP 400', userMessage: '模型参数被拒绝', category: 'validation', source: 'brain', detail: 'HTTP 400: thinking requires adaptive' })
+    const runtime = createMockRuntime({ adapters: { llmAdapter: mockLLMAdapter({ chat: async () => { throw failure } }) } })
+    const ctx = createMockContext({ messages: userMessages(), runtime, global: { stream: false, thinking: false, supervision: SupervisionLevel.auto } })
+    ctx.requestView = { identity: { source: 'plugin', channel: 'qq' }, contexts: [], tools: [], unavailableTools: [], execution: { toolHistory: 'request' } } as unknown as typeof ctx.requestView
+    await expect(collectChunks(chatMiddleware(ctx, makeNext([])))).rejects.toBe(failure)
+  })
+})
+
 describe("chatMiddleware runtime 校验", () => {
   it("runtime 未配置 → throw", async () => {
     const ctx = createMockContext({});
@@ -48,6 +109,19 @@ describe("chatMiddleware runtime 校验", () => {
 });
 
 describe("chatMiddleware 流式分支", () => {
+  it("QQ model remains pending after 32 days despite global deadline and accepts late output", async () => {
+    const previous=config.global.llm_request_timeout_ms;config.global.llm_request_timeout_ms=1
+    vi.useFakeTimers()
+    try {
+      let release!:()=>void
+      const llm=mockLLMAdapter({chatStream:async()=>({async *[Symbol.asyncIterator](){await new Promise<void>(r=>{release=r});yield {d:'late-answer'}}})})
+      const ctx=createMockContext({messages:userMessages(),runtime:createMockRuntime({adapters:{llmAdapter:llm,messageAdapter:mockMessageAdapter({extractStreamDelta:(r:{d:string})=>r.d}),senseAdapter:mockSenseAdapter()}}),global:{stream:true,thinking:false,supervision:SupervisionLevel.auto}})
+      ctx.requestView={identity:{source:'plugin',channel:'qq'},contexts:[],tools:[],unavailableTools:[]} as unknown as typeof ctx.requestView
+      let settled=false;const operation=collectChunks(chatMiddleware(ctx,makeNext([])));void operation.then(()=>{settled=true})
+      await vi.advanceTimersByTimeAsync(32*86400000);expect(settled).toBe(false)
+      release();expect(JSON.stringify(await operation)).toContain('late-answer')
+    } finally {vi.useRealTimers();config.global.llm_request_timeout_ms=previous}
+  });
   it("provider 忽略取消信号时仍在截止时间返回", async () => {
     const previous = config.global.llm_request_timeout_ms;
     config.global.llm_request_timeout_ms = 20;

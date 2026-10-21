@@ -189,7 +189,8 @@ const nested: Record<string, string[]> = {
   history_recall: ['max_output_chars'],
   watchdog: ['timeout_ms', 'wake_on_timeout'],
   command: ['warn', 'auto', 'min_context_limit', 'safety_margin', 'unit', 'value'],
-  capabilities: ['toolCall', 'input', 'output', 'image', 'video', 'audio', 'pdf'],
+  capabilities: ['toolCall', 'input', 'output', 'image', 'video', 'audio', 'pdf', 'imageInput'],
+  imageInput: ['formats', 'animation', 'maxBytes', 'maxBase64Bytes'],
   connection: ['brainRef', 'baseUrl', 'model', 'keyRef', 'authType', 'endpointOverrides'],
   context: [
     'recentUserTurns',
@@ -199,7 +200,7 @@ const nested: Record<string, string[]> = {
     'maxExtractedChars',
     'defaultImageVariant',
   ],
-  imageAdaptation: ['maxEdge', 'quality'],
+  imageAdaptation: ['maxEdge', 'quality', 'maxBytes'],
   imageContext: ['mode', 'recentUserTurns', 'replacement', 'missingDescription', 'serviceId', 'maxDescriptionChars', 'maxTotalDescriptionChars'],
   mock: ['enabled', 'file', 'chunkDelayMs', 'preRespondMs'],
   anthropicCompat: ['official'],

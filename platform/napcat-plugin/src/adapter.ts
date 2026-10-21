@@ -1,7 +1,7 @@
 import { NativeImages } from './nativeImages.js'
 import { queryInformation } from './information.js'
 import { sendAssetFile } from './files.js'
-import type { QQNotification } from '@chery/protocol'
+import type { QQNotification, QQServiceState } from '@chery/protocol'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
@@ -12,6 +12,8 @@ import {
   QQRecoverResponseSchema,
   QQNotificationSchema,
   QQDeliveryResultRequestSchema,
+  QQServiceStateSchema,
+  QQServiceStateNotificationSchema,
 } from '@chery/protocol'
 import type { BackendChannel, WireNotification } from './wire.js'
 
@@ -33,6 +35,7 @@ type Status = {
   identity: { state: string; sourceType: string; validation: string; diagnostic: string }
 }
 type Journal = {
+  service?: QQServiceState
   events: Record<string, { hash: string; accepted: boolean }>
   outputs: Record<string, { status: 'unknown' | 'sent' | 'failed'; hash?: string; confirmation?: Record<string, unknown>; retryEvent?: WireNotification; retryAt?: number; reported?: boolean; progress?: boolean }>
   seq: Record<string, number>
@@ -59,6 +62,7 @@ function hash(value: unknown): string {
 function readJournal(file: string): Journal {
   if (!fs.existsSync(file)) return { events: Object.create(null), outputs: Object.create(null), seq: {}, blocked: {} }
   const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+  if (parsed && typeof parsed === 'object' && parsed.service !== undefined) parsed.service = QQServiceStateSchema.parse(parsed.service)
   if (
     !parsed ||
     typeof parsed !== 'object' ||
@@ -159,6 +163,10 @@ export class Adapter {
   private unsubscribe?: () => void
   private starting?: Promise<void>
   private fileGeneration = 0
+  private deliveryEpoch = 0
+  private serviceInstance?: string
+  private pendingService?: QQServiceState
+  private readonly closedNotices = new Set<string>()
   private stopped = false
   private authenticated = false
   private lifetime = new AbortController()
@@ -167,7 +175,7 @@ export class Adapter {
   private retrying = false
   private retryTimer?: ReturnType<typeof setInterval>
   private async retryAcknowledgements(): Promise<void> {
-    if (this.retrying || this.stopped || !this.authenticated) return
+    if (this.retrying || this.stopped || !this.authenticated || this.journal.service?.phase === 'closing') return
     this.retrying = true
     try {
       for (const output of Object.values(this.journal.outputs).filter(o => o.retryEvent || (o.confirmation && !o.reported)).slice(0,16)) {
@@ -203,6 +211,62 @@ export class Adapter {
         },
       }
     )
+  }
+  private clearPendingDelivery(preserveImageScope = false): void {
+    this.deliveryEpoch++
+    if (!preserveImageScope) this.images.reset()
+    this.queues.clear()
+    this.activeDeliveries.clear()
+    this.lifetime.abort()
+    this.lifetime = new AbortController()
+    for (const output of Object.values(this.journal.outputs)) {
+      delete output.retryAt
+      delete output.retryEvent
+      // Receipt history remains readable, but is not replayed into a new/closed Backend queue.
+      if (output.confirmation) output.reported = true
+    }
+    this.journal.blocked = {}
+  }
+  private acceptServiceState(input: QQServiceState, recovery = false): void {
+    if (!this.authenticated || input.selfId !== this.selfId) return
+    if (!recovery && !this.serviceInstance) {
+      if (!this.pendingService || this.pendingService.backendInstanceId !== input.backendInstanceId || input.version > this.pendingService.version)
+        this.pendingService = input
+      return
+    }
+    if (!recovery && input.backendInstanceId !== this.serviceInstance) return
+    const previous = this.journal.service
+    if (previous?.backendInstanceId === input.backendInstanceId && input.version < previous.version) return
+    if (!recovery && previous?.backendInstanceId === input.backendInstanceId && input.version === previous.version) return
+    if (recovery) this.serviceInstance = input.backendInstanceId
+    if (previous?.backendInstanceId !== input.backendInstanceId || input.phase === 'closing' && previous?.phase !== 'closing')
+      this.clearPendingDelivery(recovery && input.phase !== 'closing')
+    this.journal.service = structuredClone(input)
+    saveJournal(this.journalFile, this.journal)
+  }
+  /** Only an authenticated, explicit service state grants these offline replies. No input is queued. */
+  private async closedInput(event: unknown): Promise<boolean> {
+    const service = this.journal.service
+    if (!service || service.phase === 'running' || !this.selfId || service.selfId !== this.selfId ||
+      this.status().identity.validation !== 'accepted') return false
+    const input = normalize(event, this.selfId)
+    if (!input) return true
+    if (!service.targets.some(target => target.conversationType === input.conversationType && target.targetId === input.targetId)) return true
+    const answer = service.phase === 'draining' && this.authenticated && this.status().ready && input.replyToMessageId &&
+      service.questions.some(question => question.conversationType === input.conversationType && question.targetId === input.targetId &&
+        question.senderId === input.senderId && question.messageIds.includes(String(input.replyToMessageId)))
+    if (answer) return false
+    if (!input.content && !(input.attachments as unknown[])?.length && !input.mentionedBot) return true
+    const id = String(input.eventId)
+    if (this.closedNotices.has(id)) return true
+    this.closedNotices.add(id)
+    if (this.closedNotices.size > 256) this.closedNotices.delete(this.closedNotices.values().next().value!)
+    try {
+      await this.action('send_msg', { message_type: input.conversationType,
+        ...(input.conversationType === 'group' ? { group_id: input.targetId } : { user_id: input.targetId }),
+        message: [{ type: 'text', data: { text: '服务已关闭' } }] })
+    } catch { /* A physical send may be unknown; never save or automatically retry the new input. */ }
+    return true
   }
   async action(name: string, params: unknown): Promise<any> {
     const signal = this.lifetime.signal
@@ -294,12 +358,25 @@ export class Adapter {
         throw new Error('identity rejected')
       this.authenticated = true
       this.retryTimer ??= setInterval(() => { void this.retryAcknowledgements().catch(() => this.ctx.logger.warn?.('QQ recovery retry failed')) }, 5000)
+      for (const output of Object.values(this.journal.outputs)) {
+        if (output.confirmation?.selfId === this.selfId && !output.reported && this.journal.service?.phase !== 'closing') {
+          output.reported = await this.confirmDelivery(output.confirmation)
+          validate()
+        }
+      }
+      this.images.attach()
+      const scope = await this.wire.request('qq.image.scope.get', { selfId: this.selfId })
+      if (!scope.success) throw new Error('scope rejected')
+      await this.images.accept(scope.data)
+      validate()
       const recover = await this.wire.request('qq.request.recover', { selfId: this.selfId })
       validate()
       const recoverData = recover.success
         ? QQRecoverResponseSchema.safeParse(recover.data)
         : { success: false as const }
       if (!recoverData.success) throw new Error('recover rejected')
+      this.acceptServiceState(recoverData.data.service, true)
+      if (this.pendingService) { this.acceptServiceState(this.pendingService); this.pendingService = undefined }
       for (const event of recoverData.data.events) { await this.enqueueNotification(event); validate() }
       this.current = { ...this.current, state: 'ready', ready: true }
     } catch {
@@ -385,6 +462,8 @@ export class Adapter {
     }
   }
   private async confirmDelivery(receipt: Record<string, unknown>): Promise<boolean> {
+    if (this.journal.service?.phase === 'closing') return false
+    if (receipt.status === 'unknown' && this.activeDeliveries.has(String(receipt.eventId))) return false
     const generation = this.fileGeneration
     const deliveryEpoch = this.deliveryEpoch
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -404,12 +483,18 @@ export class Adapter {
   }
   private async enqueueNotification(event: WireNotification): Promise<void> {
     if (this.stopped) return
+    if (event?.type === 'qq.service.state') {
+      const parsed = QQServiceStateNotificationSchema.safeParse(event)
+      if (parsed.success) this.acceptServiceState(parsed.data.data)
+      return
+    }
+    if (event?.type === 'qq.image.scope') { await this.images.accept(event.data); return }
     if (event?.type === 'qq.connection.state') { await this.notification(event); return }
     const key = `${event?.data?.selfId}:${event?.data?.conversationType}:${event?.data?.targetId}${event?.type === 'qq.message.ack' && event?.data?.conversationType === 'group' ? ':ack' : ['qq.waiting','qq.tool.icon'].includes(event?.type) ? ':progress' : ''}`
     const generation = this.fileGeneration
     const deliveryEpoch = this.deliveryEpoch
     const task = (this.queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
-      if (!this.stopped && generation === this.fileGeneration) await this.notification(event)
+      if (!this.stopped && generation === this.fileGeneration && deliveryEpoch === this.deliveryEpoch && this.journal.service?.phase !== 'closing') await this.notification(event)
     })
     this.queues.set(key, task)
     try { await task } finally { if (this.queues.get(key) === task) this.queues.delete(key) }
@@ -436,6 +521,7 @@ export class Adapter {
     if (
       !event ||
       !this.authenticated ||
+      this.journal.service?.phase === 'closing' ||
       event.kind !== 'notification' ||
       !this.selfId ||
       event.data?.selfId !== this.selfId

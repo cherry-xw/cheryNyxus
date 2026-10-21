@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 /**
  * Custom Sense artifacts belong to the Backend, not the launcher's cwd.
  * Source execution uses apps/backend/dist; the single-file bundle uses its own
- * directory (including /app/dist in the Backend image).
+ * directory (apps/backend/dist in the Backend image).
  */
 export function resolveSenseArtifactPaths(moduleUrl: string = import.meta.url): {
   distDir: string

@@ -4,9 +4,11 @@ import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, unlink } from 'node:fs/promises'
 import {
   ManagedAppError,
+  ControllerOutputFrameSchema,
   controllerRpcRequestSchema,
   type AppRuntimeStatus,
   type CommandTaskResult,
+  type ControllerCommandOutput,
   type ControllerRpcRequest,
   type ControllerRpcResponse,
   type ParentResourceSnapshot,
@@ -30,10 +32,13 @@ export async function startControllerSocketServer(
   await unlink(socketPath).catch(() => {})
 
   const server = net.createServer(socket => {
+    socket.on('error', () => { /* A lost output viewer must not terminate controller execution. */ })
     let buffer = ''
+    let accepted = false
     socket.setEncoding('utf8')
 
     socket.on('data', async chunk => {
+      if (accepted) return
       buffer += chunk
       if (buffer.length > 512 * 1024) {
         const resp: ControllerRpcResponse = {
@@ -53,6 +58,7 @@ export async function startControllerSocketServer(
 
       const rawLine = buffer.slice(0, newlineIdx).trim()
       buffer = buffer.slice(newlineIdx + 1)
+      accepted = true
 
       let reqId = 'unknown'
       try {
@@ -61,7 +67,16 @@ export async function startControllerSocketServer(
           reqId = parsedJson.id
         }
         const validated = controllerRpcRequestSchema.parse(parsedJson)
-        const result = await controller.dispatchRpc(validated)
+        const result = await controller.dispatchRpc(validated, (stream, chunk) => {
+          for (let offset = 0; offset < chunk.length; offset += 64 * 1024) {
+            if (socket.destroyed) return
+            // Drop the connection, not command output or execution, if the receiver cannot keep up.
+            // Backend records transport loss and queries the existing task rather than replaying it.
+            if (socket.writableLength > 1024 * 1024) { socket.destroy(); return }
+            socket.write(JSON.stringify({ id: validated.id, type: 'command-output', stream,
+              dataBase64: chunk.subarray(offset, offset + 64 * 1024).toString('base64') }) + '\n')
+          }
+        })
         const resp: ControllerRpcResponse = {
           id: validated.id,
           ok: true,
@@ -131,6 +146,7 @@ export class ControllerSocketClient {
     method: ControllerRpcRequest['method'],
     params: Record<string, unknown>,
     timeoutMs = 320_000,
+    onOutput?: ControllerCommandOutput,
   ): Promise<T> {
     const id = `rpc_${randomUUID().replace(/-/g, '').slice(0, 16)}`
     const payload = JSON.stringify({ id, method, params }) + '\n'
@@ -166,33 +182,47 @@ export class ControllerSocketClient {
 
       socket.on('data', chunk => {
         buffer += chunk
-        const idx = buffer.indexOf('\n')
-        if (idx === -1) return
-        const line = buffer.slice(0, idx).trim()
-        finish(() => {
+        if (buffer.length > 8 * 1024 * 1024) {
+          finish(() => reject(new ManagedAppError('CONTROLLER_UNAVAILABLE', '控制器响应过大，执行结果需另行查询')))
+          return
+        }
+        let idx: number
+        while (!settled && (idx = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, idx).trim()
+          buffer = buffer.slice(idx + 1)
           try {
-            const parsed = JSON.parse(line) as ControllerRpcResponse<T>
+            const parsed = JSON.parse(line) as ControllerRpcResponse<T> & { type?: string }
+            if (parsed.id !== id) throw new Error('响应身份不匹配')
+            if (parsed.type === 'command-output') {
+              const frame = ControllerOutputFrameSchema.parse(parsed)
+              try { onOutput?.(frame.stream, Buffer.from(frame.dataBase64, 'base64')) }
+              catch { /* Collector failure is not command failure. */ }
+              continue
+            }
             if (parsed.ok) {
-              resolve(parsed.result)
+              finish(() => resolve(parsed.result))
             } else {
-              reject(
+              finish(() => reject(
                 new ManagedAppError(
                   parsed.error.code,
                   parsed.error.message,
                   parsed.error.details,
                 ),
-              )
+              ))
             }
           } catch (err) {
-            reject(
+            finish(() => reject(
               new ManagedAppError(
                 'CONTROLLER_UNAVAILABLE',
-                `解析控制器响应失败: ${err instanceof Error ? err.message : String(err)}`,
+                '解析控制器响应失败，执行结果需另行查询',
               ),
-            )
+            ))
           }
-        })
+        }
       })
+
+      socket.once('close', () => finish(() => reject(new ManagedAppError('CONTROLLER_UNAVAILABLE',
+        '控制器连接已关闭，执行结果需另行查询'))))
 
       socket.once('error', err => {
         finish(() =>
@@ -242,18 +272,19 @@ export class ControllerSocketClient {
     cwd?: string
     profile?: 'standard' | 'build'
     timeoutSec?: number
-  }) {
-    return this.call<CommandTaskResult>('runAppCommand', params)
+  }, onOutput?: ControllerCommandOutput) {
+    return this.call<CommandTaskResult>('runAppCommand', params, 320_000, onOutput)
   }
 
   getTaskStatus(params: { userId: string; appId: string; taskId: string }) {
-    return this.call<CommandTaskResult>('getTaskStatus', params)
+    return this.call<CommandTaskResult>('getTaskStatus', params, 5000)
   }
 
   cancelAppCommand(params: { userId: string; appId: string; taskId: string }) {
     return this.call<{ taskId: string; status: 'cancelled' }>(
       'cancelAppCommand',
       params,
+      5000,
     )
   }
 
@@ -262,7 +293,7 @@ export class ControllerSocketClient {
     appId: string
     buildFirst?: boolean
     taskId?: string
-  }) {
+  }, onOutput?: ControllerCommandOutput) {
     return this.call<{
       appId: string
       userId: string
@@ -273,7 +304,7 @@ export class ControllerSocketClient {
       health: 'ok'
       leaseExpiresAt: number
       idleTimeoutHours: number
-    }>('startAppService', params)
+    }>('startAppService', params, 320_000, onOutput)
   }
 
   stopAppService(params: {

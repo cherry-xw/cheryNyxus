@@ -211,7 +211,8 @@ function withdrawQueuedInput(): void {
         <div v-if="isCompactTrigger" class="compact-label">上下文压缩</div>
         <div v-if="isCompactSummary" class="compact-label">压缩后的上下文摘要</div>
         <div v-if="hasThinking || timeText" class="bubble-head">
-          <span v-if="item.pendingInputState === 'queued'" class="queued-state">排队中</span>
+          <el-tooltip v-if="item.pendingInputReason" :content="item.pendingInputReason" placement="top"><span class="queued-state" tabindex="0">因服务关闭未处理</span></el-tooltip>
+          <span v-else-if="item.pendingInputState === 'queued'" class="queued-state">排队中</span>
           <button
             v-if="hasThinking"
             type="button"

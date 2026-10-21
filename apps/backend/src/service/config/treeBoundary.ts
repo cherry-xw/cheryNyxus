@@ -1,3 +1,4 @@
+import { listLatestExecutionRuns } from '@/db/executionGraph.js'
 import { getMonthlyDb, getSoulDb } from '@/db/index.js'
 import { getChat, getChatMetadata } from '@/db/chat.js'
 import { getRootChatIdForEpoch } from '@/db/epoch.js'
@@ -80,6 +81,14 @@ export function treeUsesImpacts(rootId: string, raw: ConfigRaw, impacts: ConfigI
     if (root === 'llm') return !brain || brains.has(brain)
     if (root === 'sense_groups') return !name || groups.has(name)
     if (root === 'mcp_servers') return !name || servers.has(name)
+    if (root === 'file_services') {
+      if (!name) return true
+      const prefix = `file_${name.replace(/[^a-zA-Z0-9_]/g, '_')}_`
+      for (const group of groups) {
+        if ((raw.sense_groups?.[group] ?? []).some((s) => s.startsWith(prefix))) return true
+      }
+      return false
+    }
     // File resources can be transitively referenced by prompts and tool source.
     return true
   })
@@ -88,6 +97,7 @@ export function treeUsesImpacts(rootId: string, raw: ConfigRaw, impacts: ConfigI
 /** Read both live reservations and durable work; a yielded generator is not an idle tree. */
 export function treeBoundaryReason(rootId: string, deleting = false): string | undefined {
   const db = getSoulDb()
+  const latestRuns = new Map(listLatestExecutionRuns(getRootChatIdForEpoch(rootId)).map(run => [run.chatId, run]))
   for (const id of treeChatIds(rootId)) {
     if (isChatRunning(id) || getActiveChatRunId(id)) return '等待受影响节点树当前运行结束'
     if (getWaitedParent(id)) return '等待子任务完成并唤醒父任务'
@@ -107,13 +117,8 @@ export function treeBoundaryReason(rootId: string, deleting = false): string | u
         .get(id)
     )
       return '等待受影响节点树的问题或审批处理完成；配置尚未生效'
-    if (
-      db
-        .prepare(
-          "SELECT 1 FROM execution_active_runs WHERE chat_id = ? AND status IN ('running', 'waiting') LIMIT 1",
-        )
-        .get(id)
-    )
+    const latestRun = latestRuns.get(id)
+    if (latestRun?.status === 'running' || latestRun?.status === 'waiting')
       return '等待受影响节点树运行或恢复完成'
     if (
       db

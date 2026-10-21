@@ -19,6 +19,14 @@
 
 ## 0. 三层模型
 
+### Agent 命令监控
+
+全局“命令监控”窗口和工作台会话入口共用 [`CommandMonitorPanel`](../../apps/web/src/features/agent/commands/CommandMonitorPanel.vue) / [`CommandDetails`](../../apps/web/src/features/agent/commands/CommandDetails.vue)。界面通过 `application/commands/public.ts` 使用 [`agentCommands` store](../../apps/web/src/stores/agentCommands.ts)，由 [`agentCommandsApi`](../../apps/web/src/services/agentCommandsApi.ts) 调用 `agent.command.*`；协议与保存规则统一见[共享契约](../shared/protocol/websocket.md#agent-命令监控已批准实施中)。
+
+列表按服务端授权查询，不在浏览器猜子会话归属；详情共享单条日志订阅，最后一个查看者离开时释放。先订阅再读快照，以版本与块序号去重；重连从持久读取位置补读，不把已收到的实时尾部当作落盘确认。单视图保留最近 1 MiB 或 512 块，旧内容分页读取，缺失字节和换行区间单独显示。账号或目标变化清空命令与日志，迟到响应不得写回，也不把旧订阅 ID 发给新目标。停止单条命令不调用会话中断。
+
+服务关闭留下的排队输入通过 `PendingInputSnapshot.reason` 显示原因；对话、精简列表与节点详情保留同一说明。现有“继续”调用 `chat.run.resume` / `chat.resumeTree`，不重新发送文本；重启后的自动恢复回调不能解除后端的持久暂停限制。
+
 ```
 后端 API 字段 ──wire (ws.ts) ──▶ store 字段 ──▶ 组件 props / computed
                   ▲                                          │

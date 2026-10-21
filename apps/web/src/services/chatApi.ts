@@ -234,6 +234,7 @@ export const chatApi = {
   },
 
   async createBranch(params: {
+    drawing?: import('@chery/protocol').DrawingIntent
     rootChatId: string
     anchorNodeId: string
     branchType: 'continuation' | 'detail'
@@ -243,7 +244,7 @@ export const chatApi = {
     messageId: string
     effectDigest?: string
   }): Promise<ConversationBranchSummary & { input: InputAccepted }> {
-    return call<ConversationBranchSummary & { input: InputAccepted }>('chat.branch.create', params)
+    return call<ConversationBranchSummary & { input: InputAccepted }>('chat.branch.create', { ...params, prompt: deriveTextContentFromParts(params.parts) })
   },
 
   async activateBranch(
@@ -410,3 +411,4 @@ export const chatApi = {
    * 后端 Agent 1 契约保证 brains[].contextLimit。返回形状容错（缺字段 → 空数组）。
    */
 }
+import { deriveTextContentFromParts } from '@chery/protocol'

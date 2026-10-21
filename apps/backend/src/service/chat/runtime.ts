@@ -6,6 +6,7 @@ import {
 import { chatRuntimes, type ChatRuntime } from './runtimeCache.js'
 import { prepareTreeRuntimeRefresh } from './treeRuntimeRefresh.js'
 import { AgentBuilder, type AgentChatInitOptions } from '@/agent/builder.js'
+import { assertBackendContinuation } from '../backendWork.js'
 import { hasWorkflowObserver, reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { effectiveSkillCount, memoryRows } from './workflowEvidence.js'
 import { workflowResources, workflowStageId } from './workflowHistory.js'
@@ -172,8 +173,9 @@ export async function setSessionRoleRuntimes(
   options: SessionRoleRuntimeOptions = {},
 ): Promise<SessionRoleRuntimeResult> {
   const current = await ensureChat(chatId)
-  if (current.isRunning() || treeBoundaryReason(chatId)) {
-    throw new Error('主 Agent 正在运行，必须先到达安全检查点再修改角色编制')
+  const boundaryReason = treeBoundaryReason(chatId)
+  if (current.isRunning() || boundaryReason) {
+    throw new Error(boundaryReason ?? '主 Agent 正在运行，必须先到达安全检查点再修改角色编制')
   }
   const previous = sessionRoleRuntimes.get(chatId)
   sessionRoleRuntimes.set(chatId, { primary, roles })
@@ -412,6 +414,7 @@ export async function ensureChat(
 ): Promise<AgentBuilder> {
   assertAgentExecutionAllowed()
   await awaitTreeConfigBoundary(chatId)
+  assertBackendContinuation(chatId)
   assertRestartAdmission(isRestartDraining() && !!treeBoundaryReason(chatId, true))
   const { epoch, revision } = resolveExecutableEpoch(chatId)
   const reused = reuseChatRuntime(chatId, epoch, selection)

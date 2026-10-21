@@ -78,6 +78,7 @@ export function useTreeGraphProjection(
         content: input.content,
         createdAt: input.acceptedAt ?? latest + index + 1,
         state: pendingInputPhase(input),
+        ...(input.reason ? { reason: input.reason } : {}),
         ...(input.queueSequence === undefined ? {} : { queueSequence: input.queueSequence }),
       }))
       .sort(
@@ -139,6 +140,7 @@ export function useTreeGraphProjection(
       node.id,
       node.status,
       node.inputState ?? '',
+      node.inputReason ?? '',
       paperTextHash(node.content),
       paperTextHash(node.thinking),
       fact?.updatedAt ?? '',

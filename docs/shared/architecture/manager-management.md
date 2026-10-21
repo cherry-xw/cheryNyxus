@@ -1,10 +1,26 @@
 # Manager 管理模块
 
-Manager 是独立的统一管理入口；核心聊天仍在后端执行。管理登录和机器接口只由 [Manager 认证](../protocol/manager-auth.md)定义；QQ 运行职责仍由 [QQ 平台架构](qqbot-platform.md)定义。本说明负责管理页面、资源保存、模块启用和失败边界，不授权 QQ 核心配置迁移。
+Manager 是与 Backend 同环境一体运行（同容器或同宿主机）的纯净插件容器管理平台，管理登录与 AI Web 业务登录完全独立、不共享会话；常规启动顺序为 **Manager 先启动 → 加载插件 → 由默认预装的 Backend 管理插件（`cherynyxus-backend-manager`）按 `manager.backendPlugin.autoStart`、插件启用状态和持久运行意图，以本地子进程拉起、监控与有限重试恢复 Backend**，核心聊天与业务仍在 Backend 独立承载。Backend 未启动或异常退出时 Manager 始终可用；整体进程关闭清理自己拥有的服务，关闭网页不停止服务。管理页提供启动、取消重试、停止与插件停用；停止的等待、取消、强制结束和独立保存边界见下节，源码验证状态不等于已部署。启动和目录唯一说明见[后端运行](../../guides/backend-runtime.md)。管理登录和机器接口只由 [Manager 认证](../protocol/manager-auth.md)定义；QQ 运行职责仍由 [QQ 平台架构](qqbot-platform.md)定义。本说明负责管理页面、资源保存、模块启用和失败边界，不授权 QQ 核心配置迁移。
 
 设置 Backend 业务位于 [`设置包`](../../../plugins/settings/src/index.ts) 的 `SettingsService`，共享请求与响应由 [`settings.ts`](../../../packages/protocol/src/settings.ts) 定义；管理注册提供 capabilities 路径，通过公开 `coreCall` 保存并回读核心资源。QQ/设置包均提供完整预构建页面；Manager 本体不再导入业务面板或构造静态业务工厂。动态加载与宿主管理 HTTP 由 [Manager 插件](manager-plugins.md#动态资源边界) 定义。旧静态工厂和内联页面已删除，不提供运行兜底。
 
+## 外部 Backend 状态展示
+
+显式 external 模式不接管外部进程生命周期。预装卡片使用当前配置连接地址探测端口，端口可连接不代表业务健康；PID、进程资源、运行时长和日志未采集时不得显示为停止或零时长。自动启动设置仅对受管子进程有效，外部模式置灰并注明由外部服务管理；系统资源来自 Manager。验证入口为 `apps/manager/test/backendPlugin.test.ts`。
+
 ## 职责与入口
+
+### 已批准的停止控制约定（实施中）
+
+停止功能的实现与验证尚未完成，不能从下列约定推断现有接口已经可用。Manager 持有 Backend 期望状态和停止操作；guardian 负责 worker 退出及父层登记的命令组，worker 负责关闭准入、暂存下一条输入及分类清理。默认等待没有倒计时，当前已采用任务可继续；实际关闭或强制取消开始后不能撤销。强制关闭及外部停止信号共享 10 秒总预算，进程退出和外部操作结果未知分别记录。
+
+控制消息关联运行实例、操作 ID 与版本；旧操作不能取消新一轮关闭。控制失联保留停止意图，不自动恢复或强杀。取消须获实际确认，不能只改 Manager 页面。Manager 重启按持久期望状态恢复，明确的停止意图阻止自动启动；既有插件启用和自动启动开关仍保留。配置待重启遇停止时暂停派发，取消关闭后恢复未生效的待重启意图。
+
+guardian 将普通命令组与受管任务的登记转给 Manager，两个父层分别保存，释放消息不能把仍存活的普通命令组当作退出。等待期间 worker 崩溃后不重启，父层继续请求清理，不创建强制期限；仅用户中断关闭或外部退出信号授权强杀。Manager 的受管任务清理只调用本地控制器固定的取消和状态查询，不执行命令、不停止已发布应用，也不把取消确认当作结束。失去执行结果时保留未知项；Backend 进程退出与这些项分别展示。
+
+前端只请求和显示状态，不拥有唯一倒计时或唯一操作状态。只有持有进程句柄的组件观察退出后才可报告进程已停止；信号发送成功、端口关闭均不足以代替。受管容器、SSH 和其他远端结果单列，已发布应用不随 Backend 停止。
+
+控制接线入口为 Manager [`BackendControl`](../../../apps/manager/src/backendControl.ts) / [`BackendSupervisor`](../../../apps/manager/src/backendSupervisor.ts)、guardian [`GuardianLifecycle`](../../../apps/backend/src/service/guardianLifecycle.ts)、worker [`createWorkerLifecycle`](../../../apps/backend/src/service/workerLifecycle.ts) 和[生命周期消息定义](../../../packages/protocol/src/backendLifecycle.ts)。[`BackendIntentStore`](../../../apps/manager/src/backendIntent.ts) 保存独立停止意图，状态文件损坏时不退回自动启动默认值；正常缺失文件沿用现有自动启动偏好。页面入口为 [`BackendPluginPanel.vue`](../../../apps/manager/ui/BackendPluginPanel.vue)，从服务端读取关闭进度、工作标识、未知结果和插件停用保存结果，不以刷新或关闭页面撤销操作。相关测试为 [`backendIntent.test.ts`](../../../apps/manager/test/backendIntent.test.ts)、[`backendControl.test.ts`](../../../apps/manager/test/backendControl.test.ts) 和 [`backendStopCoordinator.test.ts`](../../../apps/backend/test/service/backendStopCoordinator.test.ts)。待生产部署与人工审核项见[后续审核清单](../../quality/verification/qq-safe-outcomes.md)，不据此推断已经部署。
 
 | 修改意图 | 实现入口与符号 | 验证入口 |
 | --- | --- | --- |
@@ -38,6 +54,18 @@ Manager 是独立的统一管理入口；核心聊天仍在后端执行。管理
 选中已有预设后分别读取全局 `system.md` 与主角色关联的补充提示词，使用独立多行输入框与保存入口。全局保存须明确确认影响所有预设；主角色提示词须展示共用该角色或文件的预设。文件内容经 Backend 受保护的 `prompts.preset.get/save` 接口操作，不由 Manager 直接修改业务文件。保存采用配置版本冲突校验与原子文件替换，回读后报告结果；运行中请求保留冻结快照，保存不等于已运行会话立即更新。
 
 删除使用核心 `config.preview` 获取影响预览并以 `wait` 策略提交 `config.save`，保留引用保护，不绕过核心删除检查。
+
+## 设备与隧道控制边界
+
+设备Manager不持全局Relay管理密钥；旧bindings读/撤销路由返回退役错误，只使用Backend的受限设备控制操作。Relay健康检查不携带秘密且不跟随重定向。rathole唯一进程owner是Backend设备客户端；Manager所有rathole启停路径明确拒绝，不能另spawn副本。保存配置不代表运行已应用。
+
+## 独立维护服务边界
+
+Manager 启动只读取自身监听、账号、OIDC 与本地设置，不检查、创建、写入或迁移 Backend 认证。Backend 连接是可选的；内部机器凭据缺失、不一致、旧格式或无法读取均不得阻止 Manager 启动、登录、改密、OIDC 和本地配置保存读回。`CredentialStore.status` 只返回脱敏诊断，读取失败按安全拒绝处理。
+
+`/api/status` 分别返回 Manager 运行状态、Backend 存活性和 `maintenance` 维护连接状态。维护状态起始为 `not_checked`；仅实际请求维护操作时校验受限机器凭据及所需接口，并记录最后结果，不把端口开放或本地文件保存当成管理往返成功。机器登录接口 404/405 返回 503 `backend_version_unsupported`；凭据不可用返回 502 `backend_auth_failed`；连接失败返回 503 `unavailable`。这些响应不改变 Manager Session，也不返回机器密码或 token。
+
+本地 `/api/relay/config` 保存只写入并读回配置；远程政策应用是单独、显式的维护操作。本地配置保存不代表 Backend 已应用或隧道就绪。外管 Backend 永不由 Manager 擅自启动、停止或重启。管理调用不使用旧业务 token、业务密码槽、兼容代理或磁盘业务兜底。
 
 ## 共享配置事务
 

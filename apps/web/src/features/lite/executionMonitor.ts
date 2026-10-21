@@ -359,6 +359,7 @@ export interface LiteRunNode {
   status: LiteRunNodeStatus
   /** Present on transient user rows until a canonical timeline node replaces them. */
   pendingInputState?: PendingInput['state']
+  pendingInputReason?: string
   pendingInputId?: string
   pendingClientMessageId?: string
   pendingInputQueueSequence?: number
@@ -866,6 +867,7 @@ export function projectLiteHistory(
       agentLabel: agentLabelOf(input.chatId ?? model.rootChatId),
       pendingInputState: input.state,
       pendingInputId: input.inputId,
+      ...(input.reason ? { pendingInputReason: input.reason } : {}),
       ...(input.queueSequence !== undefined
         ? { pendingInputQueueSequence: input.queueSequence }
         : {}),

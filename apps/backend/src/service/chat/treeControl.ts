@@ -19,6 +19,7 @@ import { listLatestExecutionRuns } from '@/db/executionGraph.js'
 import { computeCanResume } from './canResume.js'
 import { getActiveChatRunId } from './runtimeCache.js'
 import { launchDetachedResume } from './send.js'
+import { releaseBackendResume } from '../backendWork.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 
 /** A single service process owns chat runtimes; fence overlapping tree resumes. */
@@ -163,6 +164,7 @@ export async function handleChatResumeTree(
       const resumeRunId = `tree-resume:${data.commandId}:${target.chatId}`
       updateTreeControlTarget(data.pauseId, target.chatId, 'resuming', { resumeRunId })
       try {
+        releaseBackendResume(target.chatId)
         await launchDetachedResume(ctx, target.chatId, resumeRunId)
         updateTreeControlTarget(data.pauseId, target.chatId, 'resumed', { resumeRunId })
       } catch (error) {

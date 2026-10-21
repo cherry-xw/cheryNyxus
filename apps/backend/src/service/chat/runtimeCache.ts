@@ -7,6 +7,7 @@ import {
   notifyRestartActivityChanged,
 } from '@/service/restartCoordinator.js'
 import { notifyTreeConfigBoundary, treeBoundaryReason } from '@/service/config/treeBoundary.js'
+import { assertBackendContinuation } from '../backendWork.js'
 
 /**
  * Chat 运行时缓存：chatId → builder + runtime 选择（单 chat 绑定，跨轮不重建）
@@ -123,6 +124,7 @@ export function peekChatMessages(chatId: string) {
 
 /** 在启动 send/resume 前登记运行；同一 chat 同时至多一个活跃运行。 */
 export function activateChatRun(chatId: string, runId: string): void {
+  assertBackendContinuation(chatId)
   assertRestartAdmission(isRestartDraining() && !!treeBoundaryReason(chatId, true))
   const runtime = chatRuntimes.get(chatId)
   if (!runtime) {

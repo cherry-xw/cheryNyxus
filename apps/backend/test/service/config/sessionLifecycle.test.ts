@@ -391,6 +391,19 @@ describe('tree semantic publication', () => {
     expect(getChat(id)!.lifecycle).toBe('active')
   })
 
+  it('uses the latest durable run at a configuration boundary without ignoring live reservations', async () => {
+    const id = await root()
+    upsertExecutionActiveRun({ rootChatId: id, chatId: id, runId: 'historical-wait', status: 'waiting', updatedAt: 1 })
+    expect(treeBoundaryReason(id)).toBe('等待受影响节点树运行或恢复完成')
+    upsertExecutionActiveRun({ rootChatId: id, chatId: id, runId: 'resumed-complete', status: 'completed', updatedAt: 2 })
+    expect(treeBoundaryReason(id)).toBeUndefined()
+    activateChatRun(id, 'live-reservation')
+    expect(treeBoundaryReason(id)).toBe('等待受影响节点树当前运行结束')
+    releaseChatRun(id, 'live-reservation')
+    upsertExecutionActiveRun({ rootChatId: id, chatId: id, runId: 'new-wait', status: 'waiting', updatedAt: 3 })
+    expect(treeBoundaryReason(id)).toBe('等待受影响节点树运行或恢复完成')
+  })
+
   it('rolls back metadata, revision and epoch when replacement initialization fails', async () => {
     const id = await root()
     const oldConfig = captureRuntimeConfig()

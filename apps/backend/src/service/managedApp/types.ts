@@ -208,6 +208,13 @@ export interface CommandTaskResult {
   finishedAt: number | null
 }
 
+/** Local controller transport only; original bytes precede the truncated tool preview. */
+export type ControllerCommandOutput = (stream: 'stdout' | 'stderr', chunk: Buffer) => void
+export const ControllerOutputFrameSchema = z.object({
+  id: z.string().min(1), type: z.literal('command-output'), stream: z.enum(['stdout', 'stderr']),
+  dataBase64: z.string().max(88_000).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+}).strict()
+
 export interface AppRuntimeStatus {
   userId: string
   appId: string

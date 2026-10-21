@@ -20,6 +20,8 @@ it('reports a transport close without reconnecting or issuing any RPC', async ()
   try {
     await wire.connect()
     expect(connections).toBe(1)
+    expect(notices).toEqual([{ kind: 'notification', type: 'qq.connection.state', data: { state: 'connected' } }])
+    notices.length = 0
     for (const socket of server.clients) socket.close(1001, 'isolated backend replacement')
     await expect.poll(() => notices.length).toBe(1)
     expect(notices[0]).toEqual({ kind: 'notification', type: 'qq.connection.state', data: { state: 'disconnected' } })

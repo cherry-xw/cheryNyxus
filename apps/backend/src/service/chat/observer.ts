@@ -29,6 +29,8 @@ import { skillActivation } from './workflowEvidence.js'
 import { ModelRequestTimeoutError } from '@/agent/middleware/requestTimeout.js'
 import { startWorkflowRunRecorder, type WorkflowRunRecorder } from './workflowRecorder.js'
 import { startUsageRecorder } from './usageRecorder.js'
+import { publicOutcomeText } from '@chery/protocol'
+import { recordToolStart, releaseToolStart } from './toolRecovery.js'
 
 function annotateWorkflow(id: string, workflow: Record<string, unknown>): void {
   try {
@@ -78,6 +80,7 @@ export async function* observeAgentChunks(
     (message) => message.role === 'system' && message.contextCompaction,
   )?.id
   const injectedCommands: string[] = []
+  const executionPlaceholders = new Set<string>()
   const usageRecorder = startUsageRecorder(chatId)
   try {
     for await (const chunk of generator) {
@@ -86,6 +89,16 @@ export async function* observeAgentChunks(
       // feed-dog：每条 chunk 到达 = 子 agent generator 仍活着 = 未卡死，重置看门狗计时。
       // 主 chat（非注册唤醒子）feedWatchdog 内部自动忽略（waitedChildren 无此 chatId）。
       feedWatchdog(chatId)
+      if (chunk.type === 'sense_started') {
+        if (recordToolStart(chatId, chunk.id, chunk.name, chunk.arguments, chunk.requestLocal)) {
+          executionPlaceholders.add(chunk.id)
+          syncedIds.add(chunk.id)
+        }
+      }
+      if (chunk.type === 'sense_execution_completed') {
+        releaseToolStart(chatId, chunk.id)
+        continue
+      }
       if (chunk.type === 'message_created') {
         if (chunk.message.ephemeral) {
           const command = /^以下是 `\[\[command:\/([^\]]+)\]\]` 的完整指令正文/.exec(
@@ -94,6 +107,18 @@ export async function* observeAgentChunks(
           if (command) injectedCommands.push(command)
           // 命令正文等模型专用上下文不属于用户历史，也不应产生 timeline fact。
           syncedIds.add(chunk.message.id)
+          continue
+        }
+        if (executionPlaceholders.has(chunk.message.id) && chunk.message.role === 'sense') {
+          const baseRevision = getTimelineRevision(chatId)
+          fillApprovalResult(chatId, chunk.message.id, { content: chunk.message.content ?? '', parts: chunk.message.parts,
+            fileOperations: chunk.message.fileOperations, hash: chunk.message.hash, observation: chunk.message.observation })
+          if (chunk.message.content) releaseToolStart(chatId, chunk.message.id)
+          executionPlaceholders.delete(chunk.message.id)
+          syncedIds.add(chunk.message.id)
+          workflowRecorder.recordCommittedMessage(chunk.message)
+          emitTimelinePatch(chatId, baseRevision)
+          yield chunk
           continue
         }
         if (!syncedIds.has(chunk.message.id)) {
@@ -173,6 +198,7 @@ export async function* observeAgentChunks(
           hash: chunk.patch.hash,
           observation: chunk.patch.observation,
         })
+        if (chunk.patch.content) releaseToolStart(chatId, chunk.id)
         if (chunk.patch.content !== undefined && !chunk.patch.senseCalls)
           workflowRecorder.recordCommittedMessage({ id: chunk.id, role: 'sense' })
         syncedIds.add(chunk.id)

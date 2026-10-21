@@ -1,5 +1,6 @@
 import { handleChatArchive, handleArchiveList, handleChatDelete } from './archive.js'
 import { assertChatExists } from './guards.js'
+import { permitBackendChildInput, backendContinuationResumeRequired } from '../backendWork.js'
 import { buildActiveTurns } from './activeTurns.js'
 import { buildRootTimeline } from './timeline.js'
 import { handleChatTimelineGet } from './timelineGet.js'
@@ -570,6 +571,8 @@ export async function* handleChatStartSpawn(
     }
   }
   const child = getChat(pendingTask.childChatId)
+  if (backendContinuationResumeRequired(pendingTask.childChatId)) throw new Error('服务重启后的子任务已暂停，请点击“继续”')
+  permitBackendChildInput(pendingTask.childChatId, pendingTask.parentChatId)
   const activeEpochId = child ? getActiveChatEpoch(child.id)?.epochId : undefined
   const staleEpoch = !pendingTask.epochId || pendingTask.epochId !== activeEpochId
   if (child?.lifecycle !== 'active' || staleEpoch) {

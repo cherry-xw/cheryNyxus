@@ -204,7 +204,8 @@ export async function* chatMiddleware(
   }
   if (options.provider === 'mock' || options.protocol === 'mock') options.observation.start()
   // Deadline starts at the provider boundary, not while preparing context or waiting for tools.
-  const timeoutMs = config.global.llm_request_timeout_ms ?? 10 * 60 * 1000
+  const qqTask = ctx.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq'
+  const timeoutMs = qqTask ? 0 : config.global.llm_request_timeout_ms ?? 10 * 60 * 1000
   const parentSignal = options.signal
   const controller = new AbortController()
   const abortFromParent = () => controller.abort()
@@ -341,7 +342,8 @@ async function* handleRequestLocal(
   const history = [...(ctx.soul.messages ?? [])]
   const temporaryPrompts = initial.filter(message => message.id !== 'file-input-capabilities' && !history.some(original => original.id === message.id) && message.role === 'system')
   const parentObservation = options.observation
-  for (let turn = 0; turn < (ctx.global.maxLoopCount ?? 30); turn++) {
+  const continuous = ctx.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq'
+  for (let turn = 0; continuous || turn < (ctx.global.maxLoopCount ?? 30); turn++) {
     if (options.signal?.aborted) throw new Error('Request cancelled')
     const enriched = turn > 0 ? await enrichMediaInputs(ctx, history) : undefined
     if (enriched) {

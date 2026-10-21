@@ -6,6 +6,9 @@ import { sense, type SenseRuntimeContext } from '@/core/sense/senseCreator.js'
 import { managedToolDenied } from '@/core/security/managedRequest.js'
 import { z } from 'zod'
 
+// This suite tests the tool's identity/format boundary; command ownership has its own runtime tests.
+vi.mock('@/service/commands.js', () => ({ getCommandRuntime: () => undefined }))
+
 function context(group = false): SenseRuntimeContext {
   return { chatId: 'test', requestView: { requestId: 'test', inputId: 'test', chatId: 'test', preparedAt: 0, configRevision: 'test', registryVersion: 0, tools: [], unavailableTools: [], contexts: [], identity: { source: 'plugin', ownerId: 'qq-module', channel: 'qq', subject: { selfId: '123456789', userId: '649207438', conversationType: group ? 'group' : 'private', ...(group ? { groupId: '987654321' } : {}) } } } }
 }
@@ -75,6 +78,6 @@ describe('managed_app trusted identity and execution boundary', () => {
     const { tool, client } = fixture()
     const run = vi.spyOn(client, 'runAppCommand').mockResolvedValue({} as never)
     await tool.executor.execute({ action: 'exec', appId: 'test-app', command: 'node --version', timeoutSec: 300 }, new Map(), context())
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({ userId: '649207438', taskId: expect.stringMatching(/^task_[a-f0-9]{16}$/), timeoutSec: 180 }))
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ userId: '649207438', taskId: expect.stringMatching(/^task_[a-f0-9]{16}$/), timeoutSec: 180 }), expect.any(Function))
   })
 })

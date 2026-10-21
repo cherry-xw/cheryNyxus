@@ -8,7 +8,7 @@ import { abortChatRuntime, getActiveChatRunId } from './runtimeCache.js'
 import { connectionManager } from '../websocket/connection.js'
 import { transport } from '../websocket/transport.js'
 import { createNotification } from '../message/types.js'
-import { clearWaitedChild, registerWaitedChild, type WakePolicy } from '@/agent/spawnBroker.js'
+import { clearWaitedChild, registerWaitedChild, retainContinuousChild, type WakePolicy } from '@/agent/spawnBroker.js'
 import config from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
 import {
@@ -29,6 +29,7 @@ import { broadcastInteractionChanged } from '../interaction/events.js'
 import { finishActiveWorkflowSteps, recordWorkflowStep } from './workflowStepWriter.js'
 import { persistSpawnTaskResult } from './spawnFinalize.js'
 import { launchDetachedResume } from './send.js'
+import { backendResumeRequired } from '../backendWork.js'
 import { getAssetStore } from '@/service/media/store.js'
 import { fileAccessForChat } from '@/service/media/access.js'
 import { randomUUID } from 'node:crypto'
@@ -461,6 +462,8 @@ export async function handleAsyncWakeTimeout(child: {
 export async function rebuildWaitedChildren(): Promise<void> {
   const tasks = listSpawnTasksNeedingWakeRecovery()
   for (const spawnTask of tasks) {
+    // Do not rebuild watchdogs or wake parents until explicit recovery is authorized.
+    if (backendResumeRequired(spawnTask.childChatId) || backendResumeRequired(spawnTask.parentChatId)) continue
     const row = getChat(spawnTask.childChatId)
     if (!row?.parent_chat_id) continue
     const meta = row.metadata
@@ -531,6 +534,7 @@ export async function rebuildWaitedChildren(): Promise<void> {
     } else {
       // interrupted → 重建唤醒链 + 看门狗（前端重连 chat.resume 续跑子，完成唤主）
       registerWaitedChild(childChatId, parentChatId, type, policy)
+      if (getRootChatId(parentChatId).startsWith('ingress-cherynyxus-qq-module-')) retainContinuousChild(childChatId)
       logger.event('rebuild.wait-interrupted', { childChatId, parentChatId, type, policy })
     }
   }

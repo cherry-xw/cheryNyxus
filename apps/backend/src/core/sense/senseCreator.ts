@@ -92,16 +92,22 @@ async function executeControlledSense(
   sharedData: SenseSharedData,
   context: SenseRuntimeContext,
 ): Promise<SenseResult> {
+  const settled = () => { try { context.onExecutionSettled?.() } catch { /* Completion observation cannot alter the tool. */ } }
   const budget = normalizeSenseExecutionBudget(context.budget)
-  if (context.signal?.aborted) return { content: '', status: 'cancelled', errorCode: 'cancelled' }
-  if (context.deadlineAt !== undefined && context.deadlineAt <= Date.now())
+  if (context.signal?.aborted) { settled(); return { content: '', status: 'cancelled', errorCode: 'cancelled' } }
+  const continuous = context.requestView?.identity.source === 'plugin' && context.requestView.identity.channel === 'qq'
+  if (!continuous && context.deadlineAt !== undefined && context.deadlineAt <= Date.now()) {
+    settled()
     return { content: '', status: 'timeout', errorCode: 'timeout' }
-  if (inFlightSenseCalls >= budget.maxConcurrent)
+  }
+  if (inFlightSenseCalls >= budget.maxConcurrent) {
+    settled()
     return {
       content: '感官并发调用已达到服务端上限，请稍后重试。',
       status: 'budget_exceeded',
       errorCode: 'budget_exceeded',
     }
+  }
 
   inFlightSenseCalls++
   let terminalStatus: SenseResultStatus = 'provider_error'
@@ -128,14 +134,14 @@ async function executeControlledSense(
     context.deadlineAt === undefined
       ? budget.timeoutMs
       : Math.max(1, Math.min(budget.timeoutMs, context.deadlineAt - Date.now()))
-  const timer = setTimeout(() => controller.abort(), deadlineMs)
+  const timer = continuous ? undefined : setTimeout(() => controller.abort(), deadlineMs)
   let operation: Promise<SenseResult> | undefined
   try {
     operation = Promise.resolve(
       execute(input, sharedData, {
         ...context,
         budget,
-        deadlineAt: Date.now() + deadlineMs,
+        deadlineAt: continuous ? undefined : Date.now() + deadlineMs,
         signal: controller.signal,
         yieldTurn: context.yieldTurn
           ? () => {
@@ -146,6 +152,7 @@ async function executeControlledSense(
     ).finally(() => {
       // A detached/uncooperative handler retains its slot until it settles.
       inFlightSenseCalls--
+      settled()
     })
     const result = await Promise.race([stopped, operation])
     if (controller.signal.aborted) return stoppedResult()
@@ -219,7 +226,7 @@ async function executeControlledSense(
   } finally {
     acceptingResult = false
     // Synchronous throws have no promise whose finally can release the slot.
-    if (!operation) inFlightSenseCalls--
+    if (!operation) { inFlightSenseCalls--; settled() }
     clearTimeout(timer)
     controller.signal.removeEventListener('abort', onStopped)
     context.signal?.removeEventListener('abort', onAbort)
@@ -325,6 +332,8 @@ export interface SenseRuntimeContext {
   operationId?: string
   /** Optional non-blocking observer for durable lifecycle projections. */
   onLifecycleEvent?: (event: SenseLifecycleEvent) => void
+  /** Internal owner notification for the actual handler, not its timeout/cancel race. */
+  onExecutionSettled?: () => void
   /** Detached execution is intentionally not part of the generic Sense contract. */
   detached?: false
   /** 当前 chatId（bash 等需按会话归属的 sense 读取） */

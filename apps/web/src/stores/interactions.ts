@@ -83,6 +83,8 @@ function isAlreadyResolved(code: string): boolean {
 }
 
 export const useInteractionsStore = defineStore('interactions', () => {
+  let targetGeneration = 0
+  function resetTarget(): void { targetGeneration++; records.value = {}; errorsById.value = {}; questionErrorsById.value = {}; commandIds.clear(); inFlight.clear(); error.value = undefined; loading.value = false }
   const records = ref<Record<string, InteractionRecord>>({})
   const loading = ref(false)
   const error = ref<string>()
@@ -121,19 +123,22 @@ export const useInteractionsStore = defineStore('interactions', () => {
   }
 
   async function refresh(): Promise<void> {
+    const generation = targetGeneration
     loading.value = true
     try {
       const receivedAt = Date.now()
       const page = await agentApi.listInteractionPage({ includeActivity: true })
+      if (generation !== targetGeneration) return
       install(page.interactions)
       if (typeof page.serverNow === 'number')
         serverClockOffsetMs.value = page.serverNow - receivedAt
       error.value = undefined
     } catch (cause) {
+      if (generation !== targetGeneration) return
       error.value = cause instanceof Error ? cause.message : '待处理交互加载失败'
       throw cause
     } finally {
-      loading.value = false
+      if (generation === targetGeneration) loading.value = false
     }
   }
 
@@ -173,10 +178,11 @@ export const useInteractionsStore = defineStore('interactions', () => {
   }
 
   async function refreshAfterFailure(item: InteractionRecord): Promise<void> {
+    const generation = targetGeneration
     try {
       await refresh()
     } catch {
-      records.value[item.interactionId] = { ...item }
+      if (generation === targetGeneration) records.value[item.interactionId] = { ...item }
     }
   }
 
@@ -185,6 +191,7 @@ export const useInteractionsStore = defineStore('interactions', () => {
   }
 
   async function decide(item: InteractionRecord, action: 'accept' | 'reject'): Promise<void> {
+    const generation = targetGeneration
     return singleFlight(item.interactionId, async () => {
       const current = records.value[item.interactionId] ?? item
       if (!['pending', 'blocked'].includes(current.status)) return
@@ -203,11 +210,14 @@ export const useInteractionsStore = defineStore('interactions', () => {
           expectedRevision: current.revision,
           commandId: commandIdFor(current, `approval:${action}`),
         })
+        if (generation !== targetGeneration) return
         records.value[next.interactionId] = next
       } catch (cause) {
+        if (generation !== targetGeneration) return
         const fact = commandErrorFact(cause, '审批提交失败')
         if (isAlreadyResolved(fact.code)) {
           await refreshAfterFailure(current)
+          if (generation !== targetGeneration) return
           const refreshed = records.value[current.interactionId]
           if (!refreshed || ['pending', 'resolving', 'blocked'].includes(refreshed.status)) {
             records.value[current.interactionId] = terminalFallback(current)
@@ -216,6 +226,7 @@ export const useInteractionsStore = defineStore('interactions', () => {
           return
         }
         await refreshAfterFailure(current)
+        if (generation !== targetGeneration) return
         setObjectError(current, cause, '审批提交失败')
         throw cause
       }
@@ -223,6 +234,7 @@ export const useInteractionsStore = defineStore('interactions', () => {
   }
 
   async function answer(item: InteractionRecord, answers: InteractionAnswer[]): Promise<void> {
+    const generation = targetGeneration
     // A second view joins the authoritative submission before inspecting its
     // local draft. Otherwise an incomplete stale draft could overwrite the
     // first view's valid in-flight state with synthetic validation errors.
@@ -267,12 +279,15 @@ export const useInteractionsStore = defineStore('interactions', () => {
             ...(answer.freeText ? { freeText: answer.freeText.trim() } : {}),
           })),
         })
+        if (generation !== targetGeneration) return
         records.value[next.interactionId] = next
         questionErrorsById.value = { ...questionErrorsById.value, [current.interactionId]: {} }
       } catch (cause) {
+        if (generation !== targetGeneration) return
         const fact = commandErrorFact(cause, '回答提交失败')
         if (isAlreadyResolved(fact.code)) {
           await refreshAfterFailure(current)
+          if (generation !== targetGeneration) return
           const refreshed = records.value[current.interactionId]
           if (!refreshed || ['pending', 'resolving', 'blocked'].includes(refreshed.status)) {
             records.value[current.interactionId] = terminalFallback(current)
@@ -281,6 +296,7 @@ export const useInteractionsStore = defineStore('interactions', () => {
           return
         }
         await refreshAfterFailure(current)
+        if (generation !== targetGeneration) return
         setObjectError(current, cause, '回答提交失败')
         throw cause
       }
@@ -292,6 +308,7 @@ export const useInteractionsStore = defineStore('interactions', () => {
   }
 
   return {
+    resetTarget,
     records,
     all,
     pending,

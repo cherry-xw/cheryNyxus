@@ -454,7 +454,7 @@ export async function* executeRequestTool(
   name: string,
   argsJson: string,
   id: string,
-): AsyncGenerator<SenseStartedChunk | SenseTriggerChunk, string> {
+): AsyncGenerator<SenseStartedChunk | SenseTriggerChunk | { type: 'sense_execution_completed'; id: string }, string> {
   if (ctx.requestToolPhase && !ctx.requestToolPhase.includes(name)) return '工具不属于当前请求阶段。'
   const { call } = buildSenseTrigger(ctx, id, name, argsJson, true)
   if (call.preDenied) return '工具调用被拒绝。'
@@ -463,9 +463,10 @@ export async function* executeRequestTool(
   const execution = doExecuteSense(ctx, name, argsJson, id, call.authorization)
   let step = await execution.next()
   while (!step.done) {
-    yield step.value
+    yield step.value.type === 'sense_started' ? { ...step.value, requestLocal: true } : step.value
     step = await execution.next()
   }
+  yield { type: 'sense_execution_completed', id }
   // Execution failures are observations, not permission denials. Preserve the
   // actionable result so the request-local model can correct invalid arguments.
   return step.value.content || step.value.rejected || '工具未返回执行结果。'
@@ -767,11 +768,13 @@ async function* doExecuteSense(
       : 120_000
     const result = await Promise.resolve()
       .then(() => {
-        ctx.requestExecution?.validate()
-        requestSignal(ctx)?.throwIfAborted()
-        if (origin?.pluginId && (!getSense(name) || origin.available?.() === false))
-          throw new Error('TOOL_UNAVAILABLE')
+        try {
+          ctx.requestExecution?.validate()
+          requestSignal(ctx)?.throwIfAborted()
+          if (origin?.pluginId && (!getSense(name) || origin.available?.() === false)) throw new Error('TOOL_UNAVAILABLE')
+        } catch (error) { release(); throw error }
         return executeSenseWithControl(senseEntry.execute, args, ctx.soul.senseSharedData, {
+          onExecutionSettled: release,
           chatId: ctx.soul.chatId,
           signal: requestSignal(ctx),
           requestView: ctx.requestView,
@@ -793,7 +796,6 @@ async function* doExecuteSense(
             ctx.runtime?.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId),
         })
       })
-      .finally(release)
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
     // 旧 sense 内容重复且冗长 → 替换为短说明（告知 AI 已被新读取取代），长内容移至 originalContent 折叠溯源。
@@ -814,7 +816,8 @@ async function* doExecuteSense(
     }
 
     // 环境变量脱敏：在返回前替换所有 .env 中定义的敏感变量名
-    const redactedContent = redactEnvKeys(result.content)
+    const redactedContent = redactEnvKeys(result.content || (['cancelled', 'timeout', 'recovery_required'].includes(result.status ?? '')
+      ? '本地工具等待已结束，实际执行结果未确认。不会自动重放此操作；请先查询执行方状态。' : ''))
     // Only redact public text. Fixed file references and provider continuation
     // signatures must not be flattened into, or rewritten as, ordinary text.
     const parts = result.parts?.map((part) => part.type === 'text'

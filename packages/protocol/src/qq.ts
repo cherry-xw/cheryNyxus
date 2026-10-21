@@ -25,6 +25,7 @@ export const QQCapabilities = [
   'qq.request.failed',
   'qq.request.recovered',
   'qq.connection.state',
+  'qq.service.state',
 ] as const
 export const QQTransportMethods = [
   ...QQImageTransportMethods,
@@ -346,7 +347,17 @@ export const QQDeliveryResultResponseSchema = z
   .object({ eventId: identifier, recorded: z.literal(true) })
   .strict()
 export const QQRecoverRequestSchema = z.object({ selfId: QQIdSchema }).strict()
-export const QQRecoverResponseSchema = z.object({ events: z.array(QQNotificationSchema) }).strict()
+export const QQServiceStateSchema = z.object({
+  selfId: QQIdSchema, backendInstanceId: identifier, operationId: identifier.nullable(),
+  version: z.number().int().nonnegative().safe(), phase: z.enum(['running', 'draining', 'closing']),
+  targets: z.array(z.object({ conversationType: z.enum(['group', 'private']), targetId: QQIdSchema }).strict()).max(1100),
+  questions: z.array(z.object({ conversationType: z.enum(['group', 'private']), targetId: QQIdSchema,
+    senderId: QQIdSchema, messageIds: z.array(z.string().regex(/^-?\d{1,100}$/)).max(1000) }).strict()).max(1100),
+}).strict()
+export type QQServiceState = z.infer<typeof QQServiceStateSchema>
+export const QQServiceStateNotificationSchema = z.object({ kind: z.literal('notification'),
+  type: z.literal('qq.service.state'), data: QQServiceStateSchema }).strict()
+export const QQRecoverResponseSchema = z.object({ events: z.array(QQNotificationSchema), service: QQServiceStateSchema }).strict()
 export const QQEmptyRequestSchema = z.object({}).strict()
 export const QQConfigSaveRequestSchema = z
   .object({

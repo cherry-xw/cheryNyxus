@@ -6,6 +6,10 @@
 
 ## 职责
 
+`AssetStore` 的 `asset_staging_publications` 在复制前持久登记暂存文件 ID、写者 PID、Linux 进程启动标识和摘要，独立于最终资产事务。来源启动恢复先核对此表，只删除已经死亡写者的受管普通暂存文件及无版本引用的摘要；仍活跃写者、无登记文件和符号链接均不删除。`ingress_image_sources` 的块暂存保留持久偏移以便重试，完成或取消后释放；两个暂存层不能互相代替。旧版无登记资产暂存没有可靠归属，不自动扫描删除。此恢复针对进程崩溃，不宣称断电文件系统一致性证明。
+
+QQ 原图来源发布由 [`SourcePublicationStore`](../../../apps/backend/src/service/media/sourcePublication.ts) 管理主库 `ingress_image_sources`：来源唯一键、不可变身份、额度预留、暂存偏移和固定资产映射同库保存。`AssetStore.publishSource` 在同一事务写资产、授权、引用和来源结果；QQ 原件设置 `retain_original`，不参与自动过期清理。当前来源读取许可由生效关联更新，撤权保留文件。通道协议和验证边界见[QQ 图片采集](../../shared/protocol/qqbot-plugin.md#原生图片采集)。
+
 新消息通过 `normalizeMessageParts` 保存原始顺序和固定文件版本，`content` 由其派生；`file_operations` 保存处理结果，`provider_continuation` 保存供应商续接信息，不改写思考块和工具调用。排队输入同样保存 `parts`。尚未迁移的历史行仍可能缺少这些字段。
 
 文件仓库的表定义由 [assets.ts](../../../apps/backend/src/db/assets.ts) 维护，读写实现在 [assetStore.ts](../../../apps/backend/src/service/media/assetStore.ts)。元信息、不可变版本、会话授权和持久引用位于主库，二进制内容按 SHA-256 保存，物理去重不合并访问权限。存储接口要求显式身份；用户提交、已有会话引用和跨会话授权为不同方法，调用方须先验证请求者的会话权限。清理排除有持久引用或迁移归属未明的文件。旧上传入口尚未切换到此仓库，迁移及完整切换范围见[当前任务](../../plan/file-capabilities-and-model-collaboration/README.md)。
@@ -13,6 +17,8 @@
 上下文统计的请求记录独立于短期事件保存，不受事件保留期限影响。请求开始、供应商用量更新和结束按同一请求身份更新；重试产生新的身份。历史缺少记录不补零、不按当前配置回填。所有时间以 UTC 毫秒保存，日期归属由查询指定的时区计算。
 
 `model_request_usage` 保存实际请求 attempt 及输入组成估算，`usage_operations` 保存工具开始、结束和结果状态；两表均以 `task_key` 建索引，汇总在读取时重建。请求、工具和正文查询使用稳定游标，默认 30、最大 100 条。迁移由 `initSoulTables` 幂等创建，删除会话时随外键清理对应记录。
+
+`server_tool_observations` 保存按连接摘要与工具名称汇总的最近观察状态和 UTC 毫秒时间，不保存凭据或工具内容，不为旧消息补造观察。生命周期独立于会话，供设置与 AI 读取当前连接的已知工具；隔离及验证含义见[模型能力](../agent/model-capabilities.md#当前连接的能力来源)。
 
 多文件 SQLite 持久化层，为 service 层提供 chat 与 message 的 CRUD：
 
