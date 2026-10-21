@@ -26,6 +26,8 @@
 
 ## 结束，已归档
 
+- 需求设计与实施协作流程：**结束，已归档**。正式规范见[需求设计规范](../standards/documentation/requirements-design.md)与[项目协作规范](../standards/global/ai-collaboration.md)，分发入口见[文档工具](../standards/documentation/tools/README.md)。实际跨模型效果与成本不属于本次文档交付的验证范围。
+
 - 当前视频下载相关：**结束，已归档**。正式说明见[QQ模块](../../plugins/qq/README.md#媒体下载与清理)。
 - QQ对话理解与语音设置：**结束，已归档**。正式说明见[QQ对话与语音](../../plugins/qq/README.md#对话与语音)。
 - Manager管理插件与管理交互：**结束，已归档**。正式说明见[Manager插件](../shared/architecture/manager-plugins.md)。
