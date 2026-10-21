@@ -1,4 +1,5 @@
-import { chmod, mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, open, rename, rm } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { dirname } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -56,8 +57,12 @@ export function renderRatholeClientConfig(config: RatholeClientConfig): string {
 }
 
 export function renderRatholeServerConfig(config: RatholeServerConfig): string {
-  assertPrivateRatholeServices(config.services.map((service) => ({ ...service, localAddr: service.bindAddr })))
+    for (const service of config.services) {
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(service.name) || service.token.length < 16 || !isLoopbackAddress(service.bindAddr) || portOf(service.bindAddr) === 39980) throw new Error('Invalid private rathole service')
+    }
+    if (new Set(config.services.map((s) => s.name)).size !== config.services.length || new Set(config.services.map((s) => s.bindAddr)).size !== config.services.length || config.services.length % 2 !== 0) throw new Error('Invalid global rathole snapshot')
   const lines = [`[server]`, `bind_addr = ${toml(config.bindAddr)}`, '']
+  if (!config.services.length) lines.push('[server.services]', '')
   for (const service of config.services) {
     lines.push(
       `[server.services.${service.name}]`,
@@ -71,8 +76,16 @@ export function renderRatholeServerConfig(config: RatholeServerConfig): string {
 
 export async function writePrivateRatholeConfig(path: string, contents: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, contents, { mode: 0o600 })
-  if (process.platform !== 'win32') await chmod(path, 0o600)
+  try {
+    const existing = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    try { const stat = await existing.stat(); if (!stat.isFile() || (process.platform !== 'win32' && stat.uid !== process.getuid?.())) throw new Error('Tunnel configuration must be an owned regular file') } finally { await existing.close() }
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+  const temporary = `${path}.${randomBytes(16).toString('hex')}.tmp`
+  try {
+    const handle = await open(temporary, 'wx', 0o600)
+    try { await handle.writeFile(contents); await handle.sync() } finally { await handle.close() }
+    await rename(temporary, path)
+  } finally { await rm(temporary, { force: true }) }
 }
 
 export function createPrivateServices(input: {
@@ -144,12 +157,15 @@ export interface RatholeProcess {
 export type RatholeProcessFactory = (binary: string, configPath: string) => RatholeProcess
 
 export function startRathole(binary: string, configPath: string, env?: NodeJS.ProcessEnv): RatholeProcess {
-  const child = spawn(binary, ['--config', configPath], {
+  const child = spawn(binary, [configPath], {
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
-  return {
+    if (child.stdout) child.stdout.resume()
+    if (child.stderr) child.stderr.resume()
+    child.on('error', () => {})
+    return {
     process: child,
     stop: async () => {
       if (child.exitCode !== null) return

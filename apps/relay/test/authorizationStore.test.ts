@@ -8,11 +8,11 @@ const identity = { issuer: 'https://pocket.example', subject: 'user-1' }
 
 describe('AuthorizationStore', () => {
   it('creates a one-time binding request and grants stable issuer/subject authorization', async () => {
-    const store = new AuthorizationStore()
+    const store = new AuthorizationStore(undefined, { confirmationBaseUrl: 'https://relay.example' })
     const request = await store.createBindingRequest({
       backendId: 'home-nyxus',
       displayName: 'Home',
-      publicKeyFingerprint: 'fingerprint',
+      publicKeyFingerprint: 'f'.repeat(43),
       now: new Date('2026-01-01T00:00:00.000Z'),
     })
     expect(request.status).toBe('pending')
@@ -26,15 +26,14 @@ describe('AuthorizationStore', () => {
     expect(authorization.identity).toEqual(identity)
     expect(store.isAuthorized(identity, 'home-nyxus')).toBe(true)
     expect(store.listAuthorizationsForUser(identity)).toHaveLength(1)
-    await expect(store.confirmBindingRequest(request.requestId, identity)).rejects.toMatchObject({
-      code: 'BINDING_REQUEST_USED',
-    })
+    expect((await store.confirmBindingRequest(request.requestId, identity)).bindingId).toBe(authorization.bindingId)
+    await expect(store.confirmBindingRequest(request.requestId, { ...identity, subject: 'other-user' })).rejects.toMatchObject({ code: 'BINDING_REQUEST_USED' })
   })
 
   it('expires requests and supports policy defaults, persistence, and revocation', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'chery-relay-auth-'))
     const file = join(directory, 'authorizations.json')
-    const store = new AuthorizationStore(file, { defaultRequestTtlMs: 1000 })
+    const store = new AuthorizationStore(file, { defaultRequestTtlMs: 1000, confirmationBaseUrl: 'https://relay.example' })
     const policy = await store.setBackendPolicy({
       backendId: 'private',
       publicDiscovery: true,
@@ -45,7 +44,7 @@ describe('AuthorizationStore', () => {
     const request = await store.createBindingRequest({
       backendId: 'private',
       displayName: 'Private',
-      publicKeyFingerprint: 'key',
+      publicKeyFingerprint: 'k'.repeat(43),
       now: new Date('2026-01-01T00:00:00.000Z'),
     })
     await store.expire(new Date('2026-01-01T00:00:02.000Z'))
@@ -54,7 +53,7 @@ describe('AuthorizationStore', () => {
     const activeRequest = await store.createBindingRequest({
       backendId: 'private',
       displayName: 'Private',
-      publicKeyFingerprint: 'key',
+      publicKeyFingerprint: 'k'.repeat(43),
       now: new Date('2026-01-01T00:00:00.000Z'),
     })
     const binding = await store.confirmBindingRequest(
@@ -69,6 +68,6 @@ describe('AuthorizationStore', () => {
     await restored.load()
     expect(restored.getBackendPolicy('private').publicDiscovery).toBe(true)
     expect(restored.getAuthorization(binding.bindingId)?.status).toBe('revoked')
-    expect(JSON.parse(await readFile(file, 'utf8')).version).toBe(1)
+    expect(JSON.parse(await readFile(file, 'utf8')).version).toBe(2)
   })
 })

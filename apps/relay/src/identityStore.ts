@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { DeviceIdentityRegistrySchema } from '@chery/protocol'
 import { RelayError } from './errors.js'
 import type { RelayBackendCapabilities } from '@chery/protocol/relay'
 
@@ -14,7 +15,7 @@ export interface KnownBackendIdentity {
 }
 
 interface IdentityFile {
-  version: 1
+  version: 2
   backends: KnownBackendIdentity[]
 }
 
@@ -30,10 +31,7 @@ export class IdentityStore {
       throw error
     })
     if (!raw) return
-    const parsed = JSON.parse(raw) as IdentityFile
-    if (parsed.version !== 1 || !Array.isArray(parsed.backends)) {
-      throw new Error('Unsupported relay identity file')
-    }
+    const parsed = DeviceIdentityRegistrySchema.parse(JSON.parse(raw))
     for (const identity of parsed.backends) this.identities.set(identity.backendId, identity)
   }
 
@@ -85,11 +83,13 @@ export class IdentityStore {
     return removed
   }
 
-  private async save(): Promise<void> {
+  private saveQueue: Promise<void> = Promise.resolve()
+  private save(): Promise<void> { const work = this.saveQueue.then(() => this.saveNow()); this.saveQueue = work.catch(() => {}); return work }
+  private async saveNow(): Promise<void> {
     if (!this.file) return
     await mkdir(dirname(this.file), { recursive: true })
-    const temporary = `${this.file}.${process.pid}.tmp`
-    const payload: IdentityFile = { version: 1, backends: this.list() }
+    const temporary = `${this.file}.${process.pid}.${randomBytes(12).toString('hex')}.tmp`
+    const payload: IdentityFile = { version: 2, backends: this.list() }
     await writeFile(temporary, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 })
     await rename(temporary, this.file)
   }

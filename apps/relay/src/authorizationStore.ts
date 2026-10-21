@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
+import { RelayAuthorizationRegistrySchema } from '@chery/protocol'
 import type {
   RelayBindingRequest,
   RelayBindingStatus,
@@ -17,6 +18,8 @@ export interface RelayBackendPolicy {
 }
 
 export interface RelayAuthorization {
+  publicKeyFingerprint?: string
+  revision?: number
   bindingId: string
   backendId: string
   identity: RelayUserIdentity
@@ -28,11 +31,13 @@ export interface RelayAuthorization {
 }
 
 export interface RelayBindingRequestRecord extends RelayBindingRequest {
+  confirmedIdentity?: RelayUserIdentity
+  authorizationId?: string
   authorizationExpiresAt?: string
 }
 
 interface AuthorizationFile {
-  version: 1
+  version: 2
   policies: RelayBackendPolicy[]
   requests: RelayBindingRequestRecord[]
   authorizations: RelayAuthorization[]
@@ -41,6 +46,7 @@ interface AuthorizationFile {
 export interface AuthorizationStoreOptions {
   confirmationBaseUrl?: string
   defaultRequestTtlMs?: number
+  currentFingerprint?: (backendId: string) => string | undefined
 }
 
 function nowIso(now: Date): string {
@@ -71,7 +77,7 @@ export class AuthorizationStore {
 
   constructor(
     private readonly file?: string,
-    options: AuthorizationStoreOptions = {},
+    private readonly options: AuthorizationStoreOptions = {},
   ) {
     this.confirmationBaseUrl = options.confirmationBaseUrl ?? ''
     this.defaultRequestTtlMs = options.defaultRequestTtlMs ?? 10 * 60 * 1000
@@ -87,11 +93,7 @@ export class AuthorizationStore {
       throw error
     })
     if (!raw) return
-    const parsed = JSON.parse(raw) as AuthorizationFile
-    if (parsed.version !== 1 || !Array.isArray(parsed.policies) ||
-        !Array.isArray(parsed.requests) || !Array.isArray(parsed.authorizations)) {
-      throw new Error('Unsupported relay authorization file')
-    }
+    const parsed = RelayAuthorizationRegistrySchema.parse(JSON.parse(raw))
     for (const policy of parsed.policies) this.policies.set(policy.backendId, { ...policy })
     for (const request of parsed.requests) this.requests.set(request.requestId, { ...request })
     for (const authorization of parsed.authorizations) {
@@ -135,6 +137,7 @@ export class AuthorizationStore {
   }
 
   async createBindingRequest(input: {
+    requestId?: string
     backendId: string
     displayName: string
     publicKeyFingerprint: string
@@ -151,7 +154,12 @@ export class AuthorizationStore {
     if (expiresAt.getTime() <= now.getTime()) {
       throw new RelayError('INVALID_REQUEST', 'Binding request must not already be expired')
     }
-    const requestId = randomId('br')
+    const requestId = input.requestId ?? randomId('br')
+    const previous = this.requests.get(requestId)
+    if (previous) {
+      if (previous.backendId !== input.backendId || previous.publicKeyFingerprint !== input.publicKeyFingerprint) throw new RelayError('INVALID_REQUEST', 'Operation identity conflict')
+      return { ...previous }
+    }
     const request: RelayBindingRequestRecord = {
       requestId,
       backendId: input.backendId,
@@ -191,6 +199,11 @@ export class AuthorizationStore {
       await this.save()
     }
     if (request.status === 'expired') throw new RelayError('BINDING_REQUEST_EXPIRED', 'Binding request has expired')
+    if (this.options.currentFingerprint && this.options.currentFingerprint(request.backendId) !== request.publicKeyFingerprint) throw new RelayError('BACKEND_AUTH_FAILED', 'Device fingerprint changed')
+    if (request.status === 'confirmed' && request.confirmedIdentity && identityKey(request.confirmedIdentity) === identityKey(identity) && request.authorizationId) {
+      const committed = this.authorizations.get(request.authorizationId)
+      if (committed?.status === 'active') return { ...committed, identity: { ...committed.identity } }
+    }
     if (request.status !== 'pending') throw new RelayError('BINDING_REQUEST_USED', 'Binding request has already been used')
 
     const existing = this.findAuthorization(identity, request.backendId)
@@ -212,7 +225,11 @@ export class AuthorizationStore {
           updatedAt: timestamp,
           ...(request.authorizationExpiresAt ? { expiresAt: request.authorizationExpiresAt } : {}),
         }
+    authorization.publicKeyFingerprint = request.publicKeyFingerprint
+    authorization.revision = (existing?.revision ?? 0) + 1
     request.status = 'confirmed'
+    request.confirmedIdentity = { ...identity }
+    request.authorizationId = authorization.bindingId
     this.authorizations.set(authorization.bindingId, authorization)
     await this.save()
     return { ...authorization, identity: { ...authorization.identity } }
@@ -255,7 +272,7 @@ export class AuthorizationStore {
     assertIdentity(identity)
     this.expireAuthorizations(now)
     return [...this.authorizations.values()].some((value) =>
-      value.backendId === backendId && value.status === 'active' && identityKey(value.identity) === identityKey(identity))
+      value.backendId === backendId && value.status === 'active' && (!this.options.currentFingerprint || value.publicKeyFingerprint === this.options.currentFingerprint(backendId)) && identityKey(value.identity) === identityKey(identity))
   }
 
   async revokeAuthorization(bindingId: string, now = new Date()): Promise<boolean> {
@@ -312,12 +329,18 @@ export class AuthorizationStore {
     return changed
   }
 
-  private async save(): Promise<void> {
+  private saveQueue: Promise<void> = Promise.resolve()
+  private save(): Promise<void> {
+    const work = this.saveQueue.then(() => this.saveNow())
+    this.saveQueue = work.catch(() => {})
+    return work
+  }
+  private async saveNow(): Promise<void> {
     if (!this.file) return
     await mkdir(dirname(this.file), { recursive: true })
-    const temporary = `${this.file}.${process.pid}.tmp`
+    const temporary = `${this.file}.${process.pid}.${randomBytes(12).toString('hex')}.tmp`
     const payload: AuthorizationFile = {
-      version: 1,
+      version: 2,
       policies: [...this.policies.values()],
       requests: [...this.requests.values()],
       authorizations: [...this.authorizations.values()],
