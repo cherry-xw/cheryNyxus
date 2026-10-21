@@ -46,32 +46,45 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
   }
   return {
     importFile: async (owner, key, input) => {
-      const chatId = requireOwned(owner, key)
-      input.validateIdentity()
-      const access = fileAccessForChat(chatId, owner)
-      const limit = config.files?.maxUploadBytes ?? 100 * 1024 * 1024
-      let declaredMime = input.mimeType
-      let data: Buffer
-      if ('data' in input.source) {
-        if (!input.source.data.byteLength || input.source.data.byteLength > limit) throw new Error('文件为空或超过上传大小限制')
-        data = Buffer.from(input.source.data)
+      let stage = 'permission'
+      try {
+        const chatId = requireOwned(owner, key)
+        input.validateIdentity()
+        const access = fileAccessForChat(chatId, owner)
+        const limit = config.files?.maxUploadBytes ?? 100 * 1024 * 1024
+        let declaredMime = input.mimeType
+        let data: Buffer
+        stage = 'invalid'
+        if ('data' in input.source) {
+          if (!input.source.data.byteLength || input.source.data.byteLength > limit) throw new Error('文件为空或超过上传大小限制')
+          data = Buffer.from(input.source.data)
+        }
+        else {
+          stage = 'download'
+          const response = await downloadProviderResult(input.source.url, input.signal)
+          data = await boundedBody(response, limit, input.signal ?? new AbortController().signal)
+          if (declaredMime === 'application/octet-stream') declaredMime = response.headers.get('content-type') ?? declaredMime
+        }
+        stage = 'permission'
+        input.signal?.throwIfAborted()
+        input.validateIdentity()
+        fileAccessForChat(chatId, owner)
+        stage = 'invalid'
+        const format = identifyFile(data, declaredMime)
+        const store = getAssetStore()
+        const asset = await store.save(data, { ownerId: owner, originalName: input.originalName, ...format, source: 'upload', maxBytes: limit })
+        stage = 'permission'
+        input.validateIdentity()
+        input.signal?.throwIfAborted()
+        fileAccessForChat(chatId, owner)
+        store.attachOwned([{ type: 'asset', partId: `ingress:${asset.id}`, assetId: asset.id, assetVersionId: asset.versionId, variant: 'original', usage: 'content' }], access, 'branch', chatId)
+        return asset
+      } catch (cause) {
+        input.signal?.throwIfAborted()
+        const transportCode = (cause as { code?: unknown } | null)?.code
+        const code = stage === 'download' && (/^HTTP_[45][0-9]{2}$/.test(String(transportCode)) || ['REMOTE_ADDRESS_REJECTED', 'EAI_ADDRFAMILY', 'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ERR_INVALID_IP_ADDRESS'].includes(String(transportCode))) ? String(transportCode) : stage === 'download' ? 'FILE_DOWNLOAD_FAILED' : stage === 'invalid' ? 'FILE_INVALID' : 'FILE_PERMISSION_DENIED'
+        throw Object.assign(new Error('附件导入失败', { cause }), { stage, code })
       }
-      else {
-        const response = await downloadProviderResult(input.source.url, input.signal)
-        data = await boundedBody(response, limit, input.signal ?? new AbortController().signal)
-        if (declaredMime === 'application/octet-stream') declaredMime = response.headers.get('content-type') ?? declaredMime
-      }
-      input.signal?.throwIfAborted()
-      input.validateIdentity()
-      fileAccessForChat(chatId, owner)
-      const format = identifyFile(data, declaredMime)
-      const store = getAssetStore()
-      const asset = await store.save(data, { ownerId: owner, originalName: input.originalName, ...format, source: 'upload', maxBytes: limit })
-      input.validateIdentity()
-      input.signal?.throwIfAborted()
-      fileAccessForChat(chatId, owner)
-      store.attachOwned([{ type: 'asset', partId: `ingress:${asset.id}`, assetId: asset.id, assetVersionId: asset.versionId, variant: 'original', usage: 'content' }], access, 'branch', chatId)
-      return asset
     },
     readFileChunk: async (owner, key, input) => {
       input.validateIdentity()
@@ -96,13 +109,22 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
         { id: randomUUID(), role: 'user' as const, content: input.content, createdAt: now, updateAt: now },
       ]
       const protocol = resolveBrainProtocol(brain)
-      const response = await llm.chat(messages.buildMessages(history), [], {
+      let response
+      try {
+        response = await llm.chat(messages.buildMessages(history), [], {
         model: brain.model, provider: brain.provider, protocol,
         url: brain.url ?? resolveLlmProviderDefaultUrl(brain.provider, protocol), key: brain.key,
         fullUrl: brain.fullUrl === true, brain: selection.selection.brain,
         signal: input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
         thinking: 'off',
-      })
+        })
+      } catch (cause) {
+        input.signal?.throwIfAborted()
+        const code = cause instanceof ClassifiedError
+          ? ({ auth: 'AUTH_REQUIRED', validation: 'INVALID_PARAMS', network: 'ECONNRESET', timeout: 'ETIMEDOUT', provider: 'MODEL_UNAVAILABLE', unknown: 'SUMMARY_MODEL_FAILED' } as const)[cause.category]
+          : 'SUMMARY_MODEL_FAILED'
+        throw Object.assign(new Error('Internal text generation failed', { cause }), { code })
+      }
       const text = messages.content(response)
       if (!text || text.length > 100000) throw new Error('Invalid internal text output')
       return text

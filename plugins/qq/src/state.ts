@@ -4,6 +4,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { z } from 'zod'
 import { MessagePartSchema, FileOperationRecordSchema } from '@chery/protocol'
 import { parseStored } from './files.js'
+import { FailureSchema } from './failure.js'
 import {
   QQConfigSchema,
   QQEventSubmitRequestSchema,
@@ -55,6 +56,13 @@ export const JobSchema = z.object({
   waits: z.number().int().nonnegative(),
   nextWaitAt: z.number().optional(),
   outcome: z.string().optional(),
+  failureText: z.string().optional(),
+  failure: FailureSchema.optional(),
+  questions: z.object({
+    batchId: z.string(), runId: z.string(),
+    items: z.array(z.object({ questionId: z.string(), question: z.string(), options: z.array(z.object({ label: z.string(), description: z.string().optional() })), multiSelect: z.boolean(), eventId: z.string(), answer: z.string().optional() })),
+    replies: z.array(QQEventSubmitRequestSchema).default([]), commandId: z.string().optional(),
+  }).optional(),
 })
 export type Job = z.infer<typeof JobSchema>
 export const OutboxSchema = z.object({

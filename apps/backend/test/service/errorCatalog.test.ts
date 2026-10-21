@@ -5,6 +5,7 @@ import { runFailureFeedback } from '@/service/errorCatalog.js'
 describe('runFailureFeedback', () => {
   it('大脑配置校验错误 → 直接引导用户进入服务设置', () => {
     const result = runFailureFeedback({
+      errorId: ErrorId.BRAIN_CONFIG_KEY_ENV_INVALID,
       category: 'validation',
       source: 'brain',
       description: 'AI 服务密钥 环境变量占位符格式错误：仅支持 $API_KEY 这类全大写格式。',
@@ -16,7 +17,7 @@ describe('runFailureFeedback', () => {
       reasonCode: 'RUN_VALIDATION_FAILED',
       feedback: {
         title: 'AI 服务配置有误',
-        guidance: '请在设置中修正模型地址、模型或密钥配置后，再继续运行。',
+        guidance: '请将占位符改成 $API_KEY 这类全大写格式后，再重新发送。',
         actions: expect.arrayContaining([{ type: 'open_settings', section: 'provider' }]),
       },
     })

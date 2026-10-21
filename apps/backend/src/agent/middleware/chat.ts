@@ -127,12 +127,7 @@ export async function* chatMiddleware(
     },
   )
   const serializedBytes = Buffer.byteLength(JSON.stringify({ messages, tools: senses }))
-  if (serializedBytes > 32 * 1024 * 1024) throw new ClassifiedError({ message: '序列化请求超过 32 MiB', userMessage: '本次请求内容过大，请减少文件内容输入', category: 'validation', source: 'chat' })
-  const textChars = historyForBuild.filter(message => !message.modelExcluded && !message.revoked).reduce((total, message) => total + message.content.length + (message.thinking?.length ?? 0), 0)
-  // 二进制大小不等于收费 token；未知的媒体计量不伪造为 0，也不套用某厂商公式。
-  const conservativeTokens = Math.ceil(textChars / 2)
-  const contextLimit = ctx.runtime.brain.contextLimit
-  if (!options.inputPreflight && contextLimit && conservativeTokens > contextLimit) throw new ClassifiedError({ message: '保守文字上下文估算超过模型上限', userMessage: '本次文字内容可能超过模型上下文上限。请缩短历史后重试。图片等内容的收费 token 尚未确认，此值不是服务方收费量。', category: 'validation', source: 'chat' })
+  if (serializedBytes > 32 * 1024 * 1024) throw new ClassifiedError({ errorId: ErrorId.REQUEST_INPUT_TOO_LARGE, message: '序列化请求超过 32 MiB', userMessage: '本次请求内容过大，请减少文件内容输入', category: 'validation', source: 'chat' })
 
   // ========== 空上下文守卫 ==========
   // 纪元切换后 loadHistory 可能只有 system 内容（frozen prompt / epoch handoff / carryover 重构失败时），
@@ -363,7 +358,7 @@ async function* handleRequestLocal(
       attachments,
       { anthropicOfficial: options.anthropicOfficial, protocol: options.protocol },
     )
-    if (Buffer.byteLength(JSON.stringify({ messages, tools: runtime.builtSenses })) > 32 * 1024 * 1024) throw new ClassifiedError({ message: '序列化请求超过 32 MiB', userMessage: '本次请求内容过大，请减少文件内容输入', category: 'validation', source: 'chat' })
+    if (Buffer.byteLength(JSON.stringify({ messages, tools: runtime.builtSenses })) > 32 * 1024 * 1024) throw new ClassifiedError({ errorId: ErrorId.REQUEST_INPUT_TOO_LARGE, message: '序列化请求超过 32 MiB', userMessage: '本次请求内容过大，请减少文件内容输入', category: 'validation', source: 'chat' })
     let content = '',
       thinking = ''
     let calls: SenseCallData[]
@@ -407,16 +402,26 @@ async function* handleRequestLocal(
         Number.isInteger(error.status)
           ? Number(error.status)
           : undefined
+      const diagnostic = error instanceof ClassifiedError ? error : undefined
       logger.event(
         'plugin.model.failed',
-        { category: classifyError(error), ...(status ? { status } : {}) },
+        {
+          category: classifyError(error),
+          ...(status ? { status } : {}),
+          ...(diagnostic?.errorId ? { errorId: diagnostic.errorId } : {}),
+        },
         LogLevel.error,
       )
+      // Provider errors already carry a sanitized detail and stable identity.
+      // Do not replace them with a generic error or log raw SDK bodies/requests.
+      if (diagnostic) throw diagnostic
       throw new ClassifiedError({
-        message: 'Plugin model request failed',
+        message: status ? `Plugin model request failed (HTTP ${status})` : 'Plugin model request failed',
         category: classifyError(error),
         source: 'brain',
         userMessage: '请求后端模型失败，请稍后再试。',
+        ...(status ? { detail: `upstream HTTP ${status}` } : {}),
+        cause: error,
       })
     }
     options.signal?.throwIfAborted()

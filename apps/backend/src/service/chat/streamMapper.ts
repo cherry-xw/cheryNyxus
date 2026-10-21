@@ -32,8 +32,6 @@ import {
 } from '@/utils/error.js'
 import { breakdownUsed } from '@/utils/token.js'
 import { computeContextBreakdown } from './contextUsage.js'
-import { maybeAutoCompactAfterDone } from './autoCompact.js'
-import { computeContextUsage } from '@/utils/token.js'
 import { getChat, getTimelineRevision } from '@/db/chat.js'
 import { getLastMessage, parseMessageRow } from '@/db/message.js'
 import { markPendingInputsConsumed } from '@/db/pendingInput.js'
@@ -43,6 +41,7 @@ import { computeCanResume } from './canResume.js'
 import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
 import { isAgentAbortError, isAgentParkError } from '@/core/middleware/errors.js'
 import config from '@/utils/config.js'
+import { hasPendingQuestionBatches } from '@/db/question.js'
 import { recordRunFact, recordTerminationFact } from './executionFacts.js'
 import { appendLiveTurnDelta, clearLiveRun, completeLiveTurn, startLiveTurn } from './liveTurns.js'
 import { loopLimitFeedback, runFailureFeedback } from '../errorCatalog.js'
@@ -346,7 +345,7 @@ function* handleErrorChunk(
   context: StreamContext,
 ): Generator<Notification> {
   const { rid, chatId, runId } = context
-  const info = errorChunk.errors[0]
+  const info = errorChunk.errors.at(-1)
   // 原始 message 进日志；用户面按友好文案出。
   const raw = info?.message
   logger.event(

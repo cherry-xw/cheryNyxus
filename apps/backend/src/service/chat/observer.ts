@@ -43,11 +43,7 @@ function unexpectedTerminationContent(error: unknown): string {
     return `本轮运行未完成。\n\n${error.userMessage}\n\n下一步：可在全局设置中调整单次模型请求超时，或尝试降低思考档位、缩小任务范围、切换模型后再继续。`
   }
   if (error instanceof ClassifiedError) {
-    const guidance =
-      error.category === 'validation' && error.source === 'brain'
-        ? '请在设置中修正模型地址、模型或密钥配置后，再继续运行。'
-        : '可以尝试继续运行；若持续出现，请检查服务设置或查看日志。'
-    return `本轮运行未完成。\n\n${error.userMessage}\n\n下一步：${guidance}`
+    return publicOutcomeText({status:'failed', feedback:{code:error.errorId}})
   }
   return '本轮运行意外中断。\n\n下一步：可以尝试继续运行；若持续出现，请检查服务设置或查看日志。'
 }

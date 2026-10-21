@@ -40,6 +40,7 @@ import { participationTool } from './participation.js'
 import { informationTool } from './information.js'
 import { findVideoSource, videoResendTool } from './videoResend.js'
 import os from 'node:os'
+import { mergeFailure } from './failure.js'
 import { createReplyTools, type ReplyAction } from './replyTools.js'
 import { prepareQQFileInputs } from './assetMessages.js'
 import { recordDetail, recordEntry } from './managementRecords.js'
@@ -673,7 +674,7 @@ export class QQPlugin implements IngressPlugin {
       currentMessages: current,
       quotedMessages: current.filter(m => m.replyToMessageId).map(m => ({ requestedMessageId: m.replyToMessageId,
         message: [...job.background, ...(this.state.discussions[job.target]?.messages ?? [])].find(q => q.messageId === m.replyToMessageId && q.targetId === job.input.targetId) ?? null })),
-      recentRequests: recent.map(j => ({ requestId: j.requestId, messageId: j.input.messageId, senderId: j.input.senderId, text: j.input.content, state: j.state, outcome: j.outcome, replyClaim: j.reply.slice(0, 500) })),
+      recentRequests: recent.map(j => ({ requestId: j.requestId, messageId: j.input.messageId, senderId: j.input.senderId, text: j.input.content, state: j.state, outcome: j.outcome, failure: j.failure, replyClaim: j.reply.slice(0, 500) })),
       deliveries: this.state.outbox.filter(o => ids.has(o.frame.data.requestId)).slice(-40).map(o => {
         const owner = this.job(o), d = o.frame.data
         return { eventId: d.eventId, requestId: d.requestId, sourceMessageId: owner?.input.messageId,
@@ -683,7 +684,7 @@ export class QQPlugin implements IngressPlugin {
           isFailureNotice: o.frame.type === 'qq.request.failed' }
       }),
       actions: this.state.outbox.filter(o => ids.has(o.frame.data.requestId) && o.frame.type === 'qq.reply.action').slice(-8).map(o => ({ requestId: o.frame.data.requestId, kind: o.frame.data.actionKind, character: o.frame.data.character, userId: o.frame.data.userId, text: o.frame.data.text, status: o.status })),
-      rule: '当前输入与引用优先；recentRequests仅供承接对象和形式，replyClaim是AI自述，不是完成证据。deliveries包含相关请求的文字、视频、图片、文件、互动和程序失败通知的真实发送状态，优先于历史中的成功声明。sent只证明对应输出取得成功回执，不证明同请求其他输出成功；程序失败通知sent不代表原视频成功。failed是明确失败，pending/inflight未确认，unknown是结果不确定而非确定未送达；历史查不到也不证明未送达。actions是互动记录的补充。unknown不能自动重试旧事件；用户根据上下文催发视频时用qq_video_resend创建新发送。引用未找到时不编造。不同发送者的请求不自动视为同一任务。',
+      rule: '当前输入与引用优先；recentRequests.failure是对应运行的安全故障事实，优先于AI自述。inputImageReferences只表示输入资产引用数，不表示模型成功看图；本轮图片到期或占位不能推断上轮没收到。没有故障证据时说明无法确定，不猜下载失败或审核具体内容。recentRequests仅供承接对象和形式，replyClaim是AI自述，不是完成证据。deliveries包含相关请求的文字、视频、图片、文件、互动和程序失败通知的真实发送状态，优先于历史中的成功声明。sent只证明对应输出取得成功回执，不证明同请求其他输出成功；程序失败通知sent不代表原视频成功。failed是明确失败，pending/inflight未确认，unknown是结果不确定而非确定未送达；历史查不到也不证明未送达。actions是互动记录的补充。unknown不能自动重试旧事件；用户根据上下文催发视频时用qq_video_resend创建新发送。引用未找到时不编造。不同发送者的请求不自动视为同一任务。',
     }
   }
   private snapshotBackground(discussion: { messages: QQBackground[] }, excludeEventIds: Set<string>): QQBackground[] {
@@ -1437,6 +1438,18 @@ export class QQPlugin implements IngressPlugin {
     if (!d) return
     const eventRunId = d.runId ?? d.requestId
     if (typeof eventRunId === 'string' && job.coreRunId && eventRunId !== job.coreRunId && eventRunId !== job.coreRequestId) return
+    if (job.state !== 'running' && job.outcome !== 'failed') return
+    if (event.type === 'error' || (event.type === 'run.outcome' && d.status === 'failed')) {
+      job.failure = mergeFailure(job.failure, String(job.coreRunId ?? job.coreRequestId ?? job.requestId), d,
+        (job.inputParts ?? []).filter(p => p.type === 'asset' && (p.kind === 'image' || p.mimeType?.startsWith('image/'))).length)
+      job.failureText = job.failure.text
+      job.reason = job.failure.code ?? 'RUN_UNKNOWN_FAILED'
+      const pendingNotice = this.state.outbox.find(o => o.frame.data.requestId === job.requestId && o.frame.type === 'qq.request.failed' && o.status === 'pending')
+      if (pendingNotice) pendingNotice.frame.data.text = job.failureText
+      this.persist()
+      if (job.state !== 'running') return
+    }
+    if (job.state !== 'running') return
     const fileResult = ToolFileResultSchema.safeParse(d.result)
     const directResult = ToolFileResultSchema.safeParse({ parts: d.parts, fileOperations: d.fileOperations })
     const operations = (directResult.success ? directResult.data.fileOperations : undefined) ?? (fileResult.success ? fileResult.data.fileOperations : undefined)
@@ -1498,8 +1511,10 @@ export class QQPlugin implements IngressPlugin {
           : String(d.status),
       )
     else if (event.type === 'done' && job.state === 'running') this.finish(job, 'completed')
-    else if (event.type === 'error' && job.state === 'running')
-      this.finish(job, JSON.stringify(d).includes('请求后端模型失败') ? 'model_failed' : 'failed')
+    else if (event.type === 'error' && job.state === 'running') {
+      job.failureText = job.failure?.text ?? publicOutcomeText({ status: 'failed', feedback: { code: typeof d.code === 'string' ? d.code : undefined, tracingId: typeof d.tracingId === 'string' ? d.tracingId : undefined } })
+      this.finish(job, 'failed')
+    }
     this.persist()
   }
   private finish(job: Job, outcome: string): void {
@@ -1581,9 +1596,9 @@ export class QQPlugin implements IngressPlugin {
     if (outcome !== 'completed')
       this.output(job, 'qq.request.failed', {
         text:
-          outcome === 'model_failed'
+          job.failureText ?? (outcome === 'model_failed'
             ? '请求后端模型失败，请稍后再试。'
-            : '刚才处理失败了，请稍后再试。',
+            : '刚才处理失败了，请稍后再试。'),
         state: outcome,
       })
     else {
