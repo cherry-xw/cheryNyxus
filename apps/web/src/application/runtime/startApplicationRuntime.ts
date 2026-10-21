@@ -1,3 +1,6 @@
+import { clearServerConfigCache } from '@/services/agentApiTransport'
+import { useAuthStore } from '@/stores/auth'
+import { capabilityEnabled, currentCapabilities } from '@/services/platform'
 import { watch } from 'vue'
 import {
   useAgentsStore,
@@ -84,7 +87,7 @@ export function startApplicationRuntime(): () => void {
           .catch((cause) => console.warn('[runtime] refresh interactions failed:', cause))
       }
     }
-    if (event?.type === 'chat.overview.changed') {
+    if (event?.type === 'chat.overview.changed' && capabilityEnabled('task.overview')) {
       const previousPending = taskOverview.pendingCount
       taskOverview.applyChanged(event.data as TaskOverviewChangedData)
       if (taskOverview.pendingCount > previousPending) {
@@ -149,8 +152,8 @@ export function startApplicationRuntime(): () => void {
     commands.connectionChanged(status)
     if (status === 'connected') {
       invalidateArchives()
-      void configApply.refresh()
-      void taskOverview
+      if (capabilityEnabled('settings.manage') && workspace.settingsOpen) void configApply.refresh()
+      if (capabilityEnabled('task.overview') && workspace.workspaceWindows['window:task-center']) void taskOverview
         .reopen()
         .catch((cause) => console.warn('[taskOverview] open failed:', cause))
       void interactions

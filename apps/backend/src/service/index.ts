@@ -1,3 +1,6 @@
+import { startBackendRelay } from './relayLifecycle.js'
+import type { RelayBackendClient } from '../../../relay/src/client.js'
+import { BackendCapabilities } from './capabilities.js'
 import { createRouter } from './message/router.js'
 import { createWebSocketServer } from './websocket/index.js'
 import { createHttpServer } from './http/index.js'
@@ -54,7 +57,8 @@ export { createRouter } from './message/router.js'
 export * from './message/types.js'
 
 /** Register the complete public RPC surface without opening sockets or workers. */
-export function registerAllHandlers(router: ReturnType<typeof createRouter>): void {
+export function registerAllHandlers(router: ReturnType<typeof createRouter>, preset: 'basic' | 'full' = 'full', optional?: (capability: import('@chery/protocol').BootstrapCapability, register: () => void) => void): void {
+  const registerOptional = optional ?? ((_capability, register) => register())
   registerBrainHandlers(router)
   registerSenseHandlers(router)
   registerSkillHandlers(router)
@@ -68,7 +72,7 @@ export function registerAllHandlers(router: ReturnType<typeof createRouter>): vo
   registerSessionRuntimeHandlers(router)
   registerChatHandlers(router)
   registerChatManageHandlers(router)
-  registerChatOverviewHandlers(router)
+  if (preset === 'full') registerOptional('task.overview', () => registerChatOverviewHandlers(router))
   registerTaskCatalogHandlers(router)
   registerConversationRouterHandlers(router)
   registerConversationBranchHandlers(router)
@@ -80,8 +84,10 @@ export function registerAllHandlers(router: ReturnType<typeof createRouter>): vo
   registerUtilsHandlers(router)
   registerBrowseHandlers(router)
   registerCommandHandlers(router)
-  registerWorkspaceHandlers(router)
-  registerTerminalHandlers(router)
+  registerCommandMonitorHandlers(router)
+  registerOptional('workspace.files', () => registerWorkspaceHandlers(router))
+  // Terminal handlers have no background initialization; explicit requests remain capability-gated.
+  registerOptional('terminal.session', () => registerTerminalHandlers(router))
 }
 
 export interface StartServiceOptions {
@@ -142,9 +148,16 @@ export interface ServiceHandle {
  */
 export function startService(options: StartServiceOptions): ServiceHandle {
   const router = createRouter()
+  const capabilities = new BackendCapabilities(options.businessPreset ?? 'full')
+  router.setCapabilityGate((method) => capabilities.allows(method))
 
   // 注册 handlers
-  registerAllHandlers(router)
+  const optionalRegistration = (capability: import('@chery/protocol').BootstrapCapability, register: () => void) => {
+    if (!capabilities.has(capability)) return
+    try { register() } catch { capabilities.disable(capability); logger.warn(`可选服务未启用：${capability}`) }
+  }
+  // Core registrations are required and fail startup; optional public services advertise only after registration.
+  registerAllHandlers(router, options.businessPreset ?? 'full', optionalRegistration)
   const ingressStore = new IngressStore(options.ingress?.cheryDir)
   const ingress = new IngressHost({
     store: ingressStore,
@@ -209,6 +222,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   ]
   const wss = createWebSocketServer({
     port: options.port,
+    bootstrap: () => capabilities.snapshot(),
     host: options.host ?? '127.0.0.1',
     router,
     authToken: sessionToken,
@@ -220,6 +234,9 @@ export function startService(options: StartServiceOptions): ServiceHandle {
 
   // 创建 HTTP 服务器（静态 serve + /api/config）
   const httpServer = createHttpServer({
+    capabilities,
+    relayOperation: async (type, input) => { const client = await relayClient; if (!client || !['binding.cancel', 'binding.status', 'authorization.list', 'authorization.revoke', 'policy.get', 'policy.set'].includes(type)) throw new Error('Relay operation unavailable'); return client.deviceOperation(type as Parameters<RelayBackendClient['deviceOperation']>[0], input) },
+    relayBinding: async () => { const client = await relayClient; if (!client) throw new Error('Relay client unavailable'); return client.requestBinding() },
     webPort: options.webPort,
     ...(options.staticDir ? { staticDir: options.staticDir } : {}),
     sessionToken,
@@ -232,6 +249,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   const remoteWss = options.remote
     ? createWebSocketServer({
         port: options.remote.websocketPort ?? 0,
+        bootstrap: () => capabilities.snapshot(),
         host: '127.0.0.1',
         router,
         allowedOrigins,
@@ -242,6 +260,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     : undefined
   const remoteHttpServer = options.remote
     ? createHttpServer({
+        capabilities,
         webPort: options.remote.httpPort ?? 0,
         host: '127.0.0.1',
         auth,

@@ -20,6 +20,7 @@ import {
   useChatSessionsStore,
   useWorkspaceStore,
 } from '@/stores'
+import { capabilityEnabled } from '@/services/platform'
 import { startApplicationRuntime } from '@/application/runtime/startApplicationRuntime'
 import { renderQualityTier } from '@/composables/renderQuality'
 import { useClickFxLayer } from '@/composables/useClickFxLayer'
@@ -343,7 +344,8 @@ async function bootstrap(): Promise<void> {
         :window="browserTaskCenterWindow"
         :focus="focusTaskCenterWindow"
       >
-        <TaskCenterPanel />
+        <TaskCenterPanel v-if="capabilityEnabled('task.overview')" />
+        <p v-else>当前服务未启用任务概览</p>
       </WorkspaceCyberWindow>
       <WorkspaceCyberWindow
         v-if="browserHistoryWindow && workspace.historyDrawerMode === 'overlay'"
@@ -359,7 +361,8 @@ async function bootstrap(): Promise<void> {
         :window="browserSettingsWindow"
         :focus="workspace.focusWorkspaceWindow"
       >
-        <SettingsDialog v-if="workspace.settingsOpen" ref="settingsDialogRef" embedded />
+        <SettingsDialog v-if="workspace.settingsOpen && capabilityEnabled('settings.manage')" ref="settingsDialogRef" embedded />
+        <p v-else>当前服务未启用设置管理</p>
       </WorkspaceCyberWindow>
       <WorkspaceCyberWindow
         v-for="terminalWindow in browserTerminalWindows"
@@ -370,6 +373,7 @@ async function bootstrap(): Promise<void> {
       >
         <template #title-actions>
           <TerminalTitleActions
+            v-if="capabilityEnabled('terminal.session')"
             :meta="browserTerminalHeader(terminalWindow.id)"
             @connect="browserTerminalRefs.get(terminalWindow.id)?.connect()"
             @disconnect="browserTerminalRefs.get(terminalWindow.id)?.disconnect()"
@@ -377,7 +381,7 @@ async function bootstrap(): Promise<void> {
           />
         </template>
         <TerminalSurface
-          v-if="terminalWindow.context.kind === 'terminal'"
+          v-if="terminalWindow.context.kind === 'terminal' && capabilityEnabled('terminal.session')"
           :ref="(instance) => setBrowserTerminalRef(terminalWindow.id, instance)"
           :preset-id="terminalWindow.context.presetId"
           @meta="updateBrowserTerminalHeader(terminalWindow.id, $event)"
@@ -418,7 +422,7 @@ async function bootstrap(): Promise<void> {
             @before-expand="() => browserWorkbenchRefs.get(entry.workbench.id)?.closeFilesWorkspace()"
           />
           <button
-            v-if="hasPresetWorkspace(entry.workbench.presetId, entry.workbench.presetName ?? undefined)"
+            v-if="capabilityEnabled('workspace.files') && hasPresetWorkspace(entry.workbench.presetId, entry.workbench.presetName ?? undefined)"
             type="button"
             class="workbench-files-title-action"
             aria-label="打开文件工作区"

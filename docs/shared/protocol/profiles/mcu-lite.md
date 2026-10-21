@@ -4,6 +4,10 @@
 
 当前执行计时契约包含可选时间字段、`chat.open.executionStepLimit` 与可重建的 `state.executionSteps`；活动步骤优先，并受数量与帧预算共同约束。具体字段以正文和实际协议实现为准。
 
+## 连接安全边界
+
+显式profile只能为lite；未知、空值或重复profile、v、maxFrameBytes、turnDelta拒绝连接，不能回落全量。Lite版本省略仍选1；显式v须为支持的整数版本。预算省略为4096，显式预算须为512–65536的十进制整数；turnDelta省略为false，显式仅接受0/1/false/true。没有profile时不得携带Lite专用参数。该选择不替代身份认证，也不改变业务运行档；外部固件认证另行实施。
+
 ## 0. 结论速览
 
 **推荐方案 A：连接级 lite profile 投影**——单片机复用现有 WebSocket RPC（binary 帧），连接时声明 `?profile=lite&v=1`，服务端在发送端按白名单事件 + 精简字段集 + 文本截断做**设备投影**；命令面直接复用 `chat.input.submit` / `interaction.approval.decide` / `interaction.question.answer`；历史面复用 `chat.timeline.get` conversation view + `knownRevision` 短路 + generations 窗口，节点投影为 LeanTimelineNode；详情按需拉取（node.get）。
