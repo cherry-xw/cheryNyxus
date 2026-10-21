@@ -3,6 +3,7 @@ import yaml from 'js-yaml'
 import type { AuthOptions } from './auth.js'
 import { oidcConfigured, safeEndpoint, type OidcOptions } from './oidc.js'
 import { writeYaml } from './credentials.js'
+import { withConfigTransaction } from '../../backend/src/utils/configTransaction.js'
 
 export interface OidcConfigView {
   issuer: string
@@ -47,6 +48,7 @@ export async function readInitialSetup(configFile: string): Promise<InitialSetup
 }
 
 export async function disableInitialSetup(configFile: string): Promise<void> {
+  return withConfigTransaction(configFile, async () => {
   const root = await readConfig(configFile)
   const manager = asRecord(root.manager)
   const auth = asRecord(manager.auth)
@@ -54,6 +56,7 @@ export async function disableInitialSetup(configFile: string): Promise<void> {
   manager.auth = auth
   root.manager = manager
   await writeYaml(configFile, root)
+  })
 }
 
 export async function readOidcConfig(configFile: string): Promise<OidcConfigView> {
@@ -95,6 +98,7 @@ export function validateOidcInput(input: Record<string, unknown>, trustedOrigins
 }
 
 export async function saveOidcConfig(configFile: string, input: Record<string, unknown>): Promise<OidcConfigView> {
+  return withConfigTransaction(configFile, async () => {
   const current = await readAuthOptions(configFile)
   const existing = current.oidc
   const merged: Record<string, unknown> = {
@@ -115,10 +119,15 @@ export async function saveOidcConfig(configFile: string, input: Record<string, u
   else auth.oidc = merged
   await writeYaml(configFile, root)
   return readOidcConfig(configFile)
+  })
 }
 
 async function readConfig(file: string): Promise<Record<string, unknown>> {
-  try { return asRecord(yaml.load(await readFile(file, 'utf8'))) }
+  try {
+    const parsed = yaml.load(await readFile(file, 'utf8'))
+    if (parsed !== undefined && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) throw new Error('Configuration root must be a mapping')
+    return asRecord(parsed)
+  }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}; throw new Error('Manager 配置不可读取') }
 }
 function asRecord(value: unknown): Record<string, any> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {} }

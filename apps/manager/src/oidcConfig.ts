@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import yaml from 'js-yaml'
 import { writeYaml } from './credentials.js'
+import { withConfigTransaction } from '../../backend/src/utils/configTransaction.js'
 import type { OidcOptions } from './oidc.js'
 
 export interface OidcConfigView {
@@ -30,6 +31,10 @@ export class OidcConfigStore {
   }
 
   async save(input: Record<string, unknown>, origin: string): Promise<OidcConfigView> {
+    return withConfigTransaction(this.configFile, () => this.saveLocked(input, origin))
+  }
+
+  private async saveLocked(input: Record<string, unknown>, origin: string): Promise<OidcConfigView> {
     const config = await this.readConfig()
     const manager = record(config.manager)
     const auth = record(manager.auth)
@@ -60,6 +65,7 @@ export class OidcConfigStore {
   private async readConfig(): Promise<Record<string, unknown>> {
     try {
       const parsed = yaml.load(await readFile(this.configFile, 'utf8'))
+      if (parsed !== undefined && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) throw new Error('Configuration root must be a mapping')
       return record(parsed)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
