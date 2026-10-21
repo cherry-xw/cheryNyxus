@@ -4,7 +4,7 @@ import { digest, type Job, type Outbox } from './state.js'
 // Only user-facing deliveries belong in the record; internal lookups are not messages.
 function deliveries(job: Job, outbox: Outbox[]): Outbox[] {
   return outbox.filter(output => output.frame.data.requestId === job.requestId && (
-    output.frame.type === 'qq.message.ack' || output.frame.type === 'qq.request.failed' ||
+    output.frame.type === 'qq.message.ack' || output.frame.type === 'qq.request.failed' || (output.frame.type === 'qq.waiting' && !!output.frame.data.state) ||
     ['qq.reply.part', 'qq.reply.file', 'qq.reply.video', 'qq.reply.images', 'qq.reply.action'].includes(output.frame.type)
   ))
 }

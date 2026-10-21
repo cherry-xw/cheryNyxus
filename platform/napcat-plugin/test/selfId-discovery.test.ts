@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Adapter, type PluginContext } from '../src/adapter.js'
 import { QQCapabilities as capabilities } from '@chery/protocol'
 import type { BackendChannel } from '../src/wire.js'
+import { serviceFixture } from './serviceFixture.js'
 
 // Fully synthetic fixtures: no real NapCat socket, no backend service, no QQ traffic, no real credentials.
 class Mock implements BackendChannel {
@@ -15,7 +16,8 @@ class Mock implements BackendChannel {
   request = vi.fn(async (method: string, params: any): Promise<any> => {
     const data = method === 'qq.plugin.hello' ? { protocolVersion: 1, backendVersion: 'mock', selfId: this.selfId, authenticated: true, capabilities }
       : method === 'qq.identity.bind' ? { bound: true, selfId: params.selfId, sourceType: 'napcat-action', validation: 'accepted' }
-      : method === 'qq.request.recover' ? { events: [] }
+      : method === 'qq.image.scope.get' ? {schemaVersion:1,backendEpoch:'epoch',connectionGeneration:'generation',sessionId:'session',selfId:'123',appliedRevision:0,scopeDigest:'0'.repeat(64),enabled:true,allowedTargets:[{conversationType:'group',targetId:'456'},{conversationType:'private',targetId:'789'},{conversationType:'private',targetId:'999'}],targets:[],limits:{}}
+      : method === 'qq.request.recover' ? { events: [], service: serviceFixture({ selfId: this.selfId }) }
       : method === 'qq.event.submit' ? { eventId: params.eventId, accepted: true } : { eventId: params.eventId, recorded: true }
     return { success: true, data }
   })

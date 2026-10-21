@@ -62,6 +62,7 @@ export class BackendWire {
         reject(error instanceof Error ? error : new Error('backend connection failed'))
       })
       socket.on('message', (raw) => {
+        if (this.closed || this.socket !== socket) return
         try {
           const bytes = Buffer.from(raw as Buffer)
           const parsed = JSON.parse((bytes[0] === 2 ? bytes.subarray(1) : bytes).toString())
@@ -96,10 +97,13 @@ export class BackendWire {
     await this.connect()
     const socket = this.socket
     if (!socket || socket.readyState !== WebSocket.OPEN) throw Object.assign(new Error('backend disconnected'), { code: 'DISCONNECTED' })
+    const bulk = method.startsWith('qq.image.ingest.')
+    if (this.pending.size >= (bulk ? 24 : 64) || bulk && socket.bufferedAmount > 524288) throw Object.assign(new Error('backend busy'), {code:'BACKPRESSURE'})
     const id = randomUUID()
     return new Promise((resolve, reject) => {
       // Transport failure rejects pending RPCs; elapsed time is not a business result.
-      this.pending.set(id, { resolve, reject })
+      const timer = method.startsWith('qq.image.') ? setTimeout(() => {this.pending.delete(id);reject(Object.assign(new Error('image RPC acknowledgement unknown'),{code:'ACK_UNKNOWN'}))},15000) : undefined
+      this.pending.set(id, { resolve:value=>{clearTimeout(timer);resolve(value)}, reject:error=>{clearTimeout(timer);reject(error)} })
       socket.send(JSON.stringify({ kind: 'request', id, method, params }), error => {
         if (error) { const request = this.pending.get(id); this.pending.delete(id); request?.reject(new Error('backend send failed')) }
       })

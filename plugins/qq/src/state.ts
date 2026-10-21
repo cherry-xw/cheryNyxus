@@ -35,7 +35,7 @@ export const JobSchema = z.object({
     senseGroup: z.string(),
     presetId: z.string(),
   }),
-  state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused']),
+  state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused', 'cancelled']),
   acceptedAt: z.number(),
   reason: z.string().optional(),
   reply: z.string(),

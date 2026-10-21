@@ -16,6 +16,7 @@ import {
 import type { BackendChannel, WireNotification } from './wire.js'
 
 export type PluginContext = {
+  core?: unknown
   configPath: string
   dataPath: string
   adapterName: string
@@ -33,12 +34,12 @@ type Status = {
 }
 type Journal = {
   events: Record<string, { hash: string; accepted: boolean }>
-  outputs: Record<string, { status: 'unknown' | 'sent'; hash?: string; confirmation?: Record<string, unknown>; retryEvent?: WireNotification; retryAt?: number; reported?: boolean; progress?: boolean }>
+  outputs: Record<string, { status: 'unknown' | 'sent' | 'failed'; hash?: string; confirmation?: Record<string, unknown>; retryEvent?: WireNotification; retryAt?: number; reported?: boolean; progress?: boolean }>
   seq: Record<string, number>
   blocked: Record<string, boolean>
   progressSeq?: Record<string, number>
 }
-const VERSION = '0.2.9'
+const VERSION = '0.2.15'
 const idPattern = /^[1-9]\d{0,19}$/
 function qqId(value: unknown): string {
   if (typeof value === 'number') {
@@ -47,6 +48,10 @@ function qqId(value: unknown): string {
   }
   if (typeof value !== 'string' || !idPattern.test(value)) throw new Error('invalid self id')
   return value
+}
+function nativeMessageId(value: unknown): string | undefined {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? String(value) : undefined
+  return typeof value === 'string' && /^-?\d{1,100}$/.test(value) ? value : undefined
 }
 function hash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -61,7 +66,7 @@ function readJournal(file: string): Journal {
     typeof parsed.outputs !== 'object' || !parsed.events || !parsed.outputs || Array.isArray(parsed.events) || Array.isArray(parsed.outputs) ||
     Object.keys(parsed.events).length > 10000 || Object.keys(parsed.outputs).length > 10000 ||
     Object.values(parsed.events).some((value: any) => !value || typeof value.hash !== 'string' || typeof value.accepted !== 'boolean') ||
-    Object.values(parsed.outputs).some((value: any) => !value || !['unknown', 'sent'].includes(value.status) ||
+    Object.values(parsed.outputs).some((value: any) => !value || !['unknown', 'sent', 'failed'].includes(value.status) ||
       value.confirmation !== undefined && !QQDeliveryResultRequestSchema.safeParse(value.confirmation).success)
   )
     throw new Error('invalid journal')
@@ -117,7 +122,7 @@ function normalizedEvent(event: any, selfId: string): Record<string, unknown> | 
     if (segment?.type === 'text') parts.push({ type: 'text', text: String(segment.data?.text ?? '') })
     else if (['image', 'video', 'file', 'record'].includes(segment?.type) && attachments.length < 30) {
       let url: string | undefined
-      try { const parsed = new URL(String(segment.data?.url ?? '')); if (parsed.protocol === 'https:' && !parsed.username && !parsed.password) url = parsed.href } catch {}
+      if (segment.type !== 'image') try { const parsed = new URL(String(segment.data?.url ?? '')); if (parsed.protocol === 'https:' && !parsed.username && !parsed.password) url = parsed.href } catch {}
       parts.push({ type: 'attachment', index: attachments.length })
       attachments.push({ type: segment.type, ...(segment.data?.name ? { name: String(segment.data.name).slice(0, 200) } : {}), ...(url ? { url } : {}) })
     } else if (segment?.type === 'json') { const text = textOf([segment]); if (text) parts.push({ type: 'text', text }) }
@@ -158,6 +163,7 @@ export class Adapter {
   private authenticated = false
   private lifetime = new AbortController()
   private queues = new Map<string, Promise<void>>()
+  private activeDeliveries = new Set<string>()
   private retrying = false
   private retryTimer?: ReturnType<typeof setInterval>
   private async retryAcknowledgements(): Promise<void> {
@@ -223,6 +229,8 @@ export class Adapter {
   }
   private async startInternal(): Promise<void> {
     this.authenticated = false
+    this.serviceInstance = undefined
+    this.pendingService = undefined
     const generation = ++this.fileGeneration
     const validate = () => { if (this.stopped || generation !== this.fileGeneration) throw new Error('stale connection') }
     let diagnostic = 'action-error'
@@ -284,10 +292,6 @@ export class Adapter {
       validate()
       if (!bindData.success || bindData.data.selfId !== this.selfId)
         throw new Error('identity rejected')
-      for (const output of Object.values(this.journal.outputs)) {
-        if (output.confirmation?.selfId === this.selfId && !output.reported) output.reported = await this.confirmDelivery(output.confirmation)
-        validate()
-      }
       this.authenticated = true
       this.retryTimer ??= setInterval(() => { void this.retryAcknowledgements().catch(() => this.ctx.logger.warn?.('QQ recovery retry failed')) }, 5000)
       const recover = await this.wire.request('qq.request.recover', { selfId: this.selfId })
@@ -324,20 +328,29 @@ export class Adapter {
     }
   }
   async receive(event: unknown): Promise<void> {
+    if (this.stopped) return
+    if (await this.closedInput(event)) return
     if (this.stopped || this.current && !['ready', 'disconnected', 'delivery-unknown'].includes(this.current.state)) return
     if (!this.current?.ready) await this.start()
+    if (await this.closedInput(event)) return
     if (!this.current?.ready || !this.selfId) return
     try {
+      if (!this.images.allows(event)) return
+      await this.images.admit(event)
+      if (await this.closedInput(event)) return
+      if (!this.images.allows(event)) return
       const input = normalize(event, this.selfId)
        if (!input || !input.content && !(input.attachments as unknown[])?.length && !input.mentionedBot) return
       const previous = this.journal.events[String(input.eventId)]
       if (previous) return
       if (Object.keys(this.journal.events).length >= 10000) { this.current = { ...this.status(), state: 'journal-full', ready: false }; return }
       const generation = this.fileGeneration
+      const deliveryEpoch = this.deliveryEpoch
       const raw = event as { message?: Array<{ type: string; data?: Record<string, unknown> }> }
       const segments = raw.message?.filter(segment => ['image', 'video', 'file', 'record'].includes(segment.type)).slice(0, 30) ?? []
       const attachments = input.attachments as Array<{ url?: string }>
       for (const [index, segment] of segments.entries()) {
+        if (segment.type === 'image') { delete attachments[index]?.url; continue }
         if (attachments[index]?.url) continue
         const fileId = segment.data?.file_id ?? segment.data?.file
         if (typeof fileId !== 'string' || !/^[a-zA-Z0-9._-]{1,512}$/.test(fileId) || ['.', '..'].includes(fileId)) continue
@@ -347,27 +360,38 @@ export class Adapter {
           if (url.protocol === 'https:' && !url.username && !url.password) attachments[index]!.url = url.href
         } catch { /* 缺少安全下载地址时，后端保留不可读取说明。 */ }
       }
-      if (this.stopped || generation !== this.fileGeneration || this.journal.events[String(input.eventId)]) return
+      if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch || this.journal.events[String(input.eventId)]) return
+      if (await this.closedInput(event)) return
+      if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
       this.journal.events[String(input.eventId)] = { hash: hash(input), accepted: false }
       saveJournal(this.journalFile, this.journal)
       const response = await this.wire.request('qq.event.submit', input)
-      if (this.stopped || generation !== this.fileGeneration) return
-      if (!response.success) { this.ctx.logger.warn?.('QQ input submission rejected', {eventId: input.eventId, code: response.error?.code ?? 'unknown'}); return }
+      if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
+      if (!response.success) {
+        if (response.error?.code === 'BACKEND_STOPPING') {
+          delete this.journal.events[String(input.eventId)]
+          saveJournal(this.journalFile, this.journal)
+          await this.closedInput(event)
+        }
+        this.ctx.logger.warn?.('QQ input submission rejected', {eventId: input.eventId, code: response.error?.code ?? 'unknown'}); return
+      }
       this.journal.events[String(input.eventId)] = {
         hash: hash(input),
         accepted: Boolean((response.data as any)?.accepted),
       }
       saveJournal(this.journalFile, this.journal)
     } catch {
-      // Rejected or malformed events have no side effects.
+      this.ctx.logger.warn?.('QQ input admission unavailable')
     }
   }
   private async confirmDelivery(receipt: Record<string, unknown>): Promise<boolean> {
     const generation = this.fileGeneration
+    const deliveryEpoch = this.deliveryEpoch
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (this.stopped || generation !== this.fileGeneration) return false
+      if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return false
       try {
         const response = await this.wire.request('qq.delivery.result', receipt)
+        if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return false
         if (!response.success) throw new Error(`Confirmation rejected: ${response.error?.code ?? 'unknown'} ${response.error?.message ?? ''}`)
         const output=this.journal.outputs[String(receipt.eventId)]
         if(output && output.confirmation === receipt) {output.reported=true;saveJournal(this.journalFile,this.journal)}
@@ -383,6 +407,7 @@ export class Adapter {
     if (event?.type === 'qq.connection.state') { await this.notification(event); return }
     const key = `${event?.data?.selfId}:${event?.data?.conversationType}:${event?.data?.targetId}${event?.type === 'qq.message.ack' && event?.data?.conversationType === 'group' ? ':ack' : ['qq.waiting','qq.tool.icon'].includes(event?.type) ? ':progress' : ''}`
     const generation = this.fileGeneration
+    const deliveryEpoch = this.deliveryEpoch
     const task = (this.queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
       if (!this.stopped && generation === this.fileGeneration) await this.notification(event)
     })
@@ -393,7 +418,12 @@ export class Adapter {
     if (this.stopped) return
     if (event?.type === 'qq.connection.state' && event.data?.state === 'disconnected') {
       this.fileGeneration++
+      this.images.reset()
       this.authenticated = false
+      this.serviceInstance = undefined
+      this.pendingService = undefined
+      this.activeDeliveries.clear()
+      this.queues.clear()
       this.lifetime.abort()
       this.lifetime = new AbortController()
       this.current = { ...this.status(), state: 'disconnected', ready: false }
@@ -413,7 +443,15 @@ export class Adapter {
       return
     if (event.type === 'qq.information.request') {
       let success=false, result='{}'
-      try { result=JSON.stringify(await queryInformation((name,params)=>this.action(name,params),event.data));success=true } catch { /* explicit failure without profile/error disclosure */ }
+      const generation = this.fileGeneration
+      try {
+        const data = QQNotificationSchema.parse(event).data
+        const call = (name: string, params: unknown) => this.action(name, params)
+        result = JSON.stringify(await queryInformation(call, data))
+        if (!this.authenticated || generation !== this.fileGeneration || this.selfId !== data.selfId) return
+        success = true
+      } catch { /* explicit failure without profile/error disclosure */ }
+      if (!this.authenticated || generation !== this.fileGeneration) return
       await this.wire.request('qq.information.result',{selfId:this.selfId,lookupId:event.data.lookupId,targetId:String(event.data.targetId),success,result})
       return
     }
@@ -450,7 +488,7 @@ export class Adapter {
     const target = event.data.targetId as string
     const outputId = String(event.data.eventId)
     const previous = this.journal.outputs[outputId]
-    const retryAck = !!previous?.retryEvent && previous.status !== 'sent' && (event.type === 'qq.message.ack' || event.type === 'qq.request.failed')
+    const retryAck = !!previous?.retryEvent && previous.status === 'failed' && (event.type === 'qq.message.ack' || event.type === 'qq.request.failed')
     if (previous && !retryAck) {
       if (previous.hash && previous.hash !== hash(event)) return
       if (previous.confirmation) await this.confirmDelivery(previous.confirmation)
@@ -470,15 +508,24 @@ export class Adapter {
     const payload =
       event.type === 'qq.tool.icon'
         ? (/^[\p{Extended_Pictographic}\uFE0F\u200D]{1,12}$/u.test(String(event.data.icon ?? '')) ? String(event.data.icon) : '🔧')
-        : event.type === 'qq.request.failed' ? (/^(这次|刚才|服务|处理|已收到|文件|请求)/.test(String(event.data.text ?? '')) && !/[\r\n]/.test(String(event.data.text ?? '')) ? String(event.data.text).slice(0,300) : '刚才处理失败了，请稍后再试。') : String(event.data.text ?? '')
-    this.journal.outputs[outputId] = { status: 'unknown', hash: hash(event), ...((event.type === 'qq.message.ack' && event.data.conversationType === 'group') ? { retryEvent: event, retryAt: Date.now() + 60000 } : {}) }
+        : String(event.data.text ?? '')
+    // Persist a reportable unknown receipt before native work. Disconnect and
+    // restart can settle the old transport without replaying physical sends.
+    this.journal.outputs[outputId] = { status: 'unknown', hash: hash(event), confirmation: {
+      eventId: outputId, requestId: event.data.requestId, selfId: this.selfId,
+      conversationType: event.data.conversationType, targetId: target, seq: event.data.seq,
+      status: 'unknown', messageIds: [], activity: false,
+      terminal: (['qq.reply.action', 'qq.reply.file'].includes(event.type) && event.data.completeReply === true) || event.type === 'qq.request.failed' || event.type === 'qq.reply.video' || event.type === 'qq.reply.images' || (event.type === 'qq.reply.part' && event.data.partIndex === event.data.totalParts),
+    } }
+    this.activeDeliveries.add(outputId)
     this.journal.seq[key] = Math.max(this.journal.seq[key] ?? 0, Number(event.data.seq))
     delete this.journal.blocked[key]
     saveJournal(this.journalFile, this.journal)
     const fileGeneration = this.fileGeneration
+    const deliveryEpoch = this.deliveryEpoch
     try {
       if (event.type === 'qq.reply.file') {
-        const validate = () => { if (fileGeneration !== this.fileGeneration) throw new Error('File delivery stopped') }
+        const validate = () => { if (fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) throw new Error('File delivery stopped') }
         const delivery = await sendAssetFile({ dataPath: this.ctx.dataPath, event: event.data as QQNotification['data'],
           validate,
           read: async offset => {
@@ -496,21 +543,21 @@ export class Adapter {
         return
       }
       if (event.type === 'qq.reply.action') {
-        if (event.data.conversationType !== 'group') throw new Error('Group reply only')
+        if (event.data.conversationType !== 'group' && event.data.actionKind !== 'quote') throw Object.assign(new Error('Group reply only'), { definitelyFailed: true })
         let result: any
         const kind = event.data.actionKind
-        if (kind === 'quote') result = await this.action('send_msg', { group_id: target, message_type: 'group', message: [{ type: 'reply', data: { id: event.data.messageId } }, ...(event.data.userId ? [{ type: 'at', data: { qq: event.data.userId } }] : []), { type: 'text', data: { text: payload } }] })
+        if (kind === 'quote') result = await this.action('send_msg', { ...(event.data.conversationType === 'group' ? {group_id:target,message_type:'group'} : {user_id:target,message_type:'private'}), message: [{ type: 'reply', data: { id: event.data.messageId } }, ...(event.data.conversationType === 'group' && event.data.userId ? [{ type: 'at', data: { qq: event.data.userId } }] : []), { type: 'text', data: { text: payload } }] })
         else if (kind === 'reaction') result = await this.action('set_msg_emoji_like', { message_id: event.data.messageId, emoji_id: event.data.emojiId, set: true })
         else if (kind === 'poke') result = await this.action('group_poke', { group_id: target, user_id: event.data.userId })
         else if (kind === 'voice') result = await this.action('send_group_ai_record', { group_id: target, character: event.data.character, text: payload })
         else if (kind === 'mention') result = await this.action('send_msg', { group_id: target, message_type: 'group', message: [{ type: 'at', data: { qq: event.data.userId } }, { type: 'text', data: { text: payload } }] })
         else throw new Error('Unknown reply action')
-        if (this.stopped || fileGeneration !== this.fileGeneration) return
-        if (result?.retcode !== undefined && result.retcode !== 0) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
+        if (this.stopped || fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
+        if (result?.result === false || result?.status === 'failed' || (result?.retcode !== undefined && result.retcode !== 0)) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
         if (result?.result !== undefined && typeof result.result === 'number' && result.result !== 0) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
-        const messageId = result?.message_id ?? result?.data?.message_id
+        const messageId = nativeMessageId(result?.message_id ?? result?.data?.message_id)
         if (['voice', 'mention', 'quote'].includes(String(kind)) && messageId === undefined) throw new Error('Delivery unknown')
-        const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: 'group', targetId: target, seq: event.data.seq, status: 'sent', messageIds: messageId === undefined ? [] : [String(messageId)], sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
+        const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: event.data.conversationType, targetId: target, seq: event.data.seq, status: 'sent', messageIds: messageId === undefined ? [] : [String(messageId)], sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
         this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
         delete this.journal.blocked[key]
         saveJournal(this.journalFile, this.journal)
@@ -526,8 +573,9 @@ export class Adapter {
             message_type: 'private',
             message: [{ type: 'text', data: { text: '收到' } }],
           })
-          if (result?.message_id === undefined) throw new Error('delivery unknown')
-          messageIds.push(String(result.message_id))
+          const id = nativeMessageId(result?.message_id ?? result?.data?.message_id)
+          if (id === undefined) throw new Error('delivery unknown')
+          messageIds.push(id)
           activity = true
         }
         if (
@@ -535,29 +583,25 @@ export class Adapter {
           /^-?\d+$/.test(String(event.data.messageId ?? '')) &&
           /^\d+$/.test(String(event.data.emojiId ?? ''))
         ) {
-          try {
-            const result = await this.action('set_msg_emoji_like', {
-              message_id: event.data.messageId,
-              emoji_id: event.data.emojiId,
-              set: true,
-            })
-            if (result?.retcode !== undefined && result.retcode !== 0)
-              throw new Error('reaction rejected')
-            if (
-              result?.result !== undefined &&
-              typeof result.result === 'number' &&
-              result.result !== 0
-            )
-              throw new Error('reaction rejected')
-            if (result?.result === false) throw new Error('reaction rejected')
-            activity = true
-            this.ctx.logger.info?.('QQ acknowledgement reaction applied')
-          } catch {
-            throw new Error('acknowledgement reaction unavailable')
-          }
+          const result = await this.action('set_msg_emoji_like', {
+            message_id: event.data.messageId,
+            emoji_id: event.data.emojiId,
+            set: true,
+          })
+          if (result?.retcode !== undefined && result.retcode !== 0)
+            throw Object.assign(new Error('reaction rejected'), { definitelyFailed: true })
+          if (
+            result?.result !== undefined &&
+            typeof result.result === 'number' &&
+            result.result !== 0
+          )
+            throw Object.assign(new Error('reaction rejected'), { definitelyFailed: true })
+          if (result?.result === false || result?.status === 'failed') throw Object.assign(new Error('reaction rejected'), { definitelyFailed: true })
+          activity = true
+          this.ctx.logger.info?.('QQ acknowledgement reaction applied')
         }
         if (event.data.conversationType === 'group' && !activity) throw new Error('Invalid acknowledgement target')
-        if (this.stopped || fileGeneration !== this.fileGeneration) return
+        if (this.stopped || fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
         const receipt = {
           eventId: outputId,
           requestId: event.data.requestId,
@@ -589,7 +633,7 @@ export class Adapter {
           name,
           upload_file: true,
         })
-        if (this.stopped || fileGeneration !== this.fileGeneration) return
+        if (this.stopped || fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
         if ((result?.retcode !== undefined && result.retcode !== 0) || result?.status === 'failed') throw Object.assign(new Error('File action rejected'), { definitelyFailed: true })
         const fileId = result?.file_id ?? result?.data?.file_id
         if (!(typeof fileId === 'string' && fileId.length && fileId.length <= 512) && !(result?.status === 'ok' && result.retcode === 0)) throw new Error('File delivery unknown')
@@ -638,9 +682,9 @@ export class Adapter {
         : Array.from({ length: Math.max(1, Math.ceil(pieces.length / 4000)) }, (_, index) => ({ ...message, message: [{ type: 'text', data: { text: pieces.slice(index * 4000, (index + 1) * 4000).join('') } }] }))
       for (const batch of batches) {
         const result = await this.action('send_msg', batch)
-        if (this.stopped || fileGeneration !== this.fileGeneration) return
+        if (this.stopped || fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
         if (result?.retcode !== undefined && result.retcode !== 0) throw Object.assign(new Error('Action rejected'),{definitelyFailed:true})
-        const id = result?.message_id ?? result?.data?.message_id
+        const id = nativeMessageId(result?.message_id ?? result?.data?.message_id)
         if (!/^-?\d{1,100}$/.test(String(id))) throw new Error('delivery unknown')
         ids.push(String(id))
       }
@@ -669,9 +713,9 @@ export class Adapter {
       await this.confirmDelivery(receipt)
     } catch (error) {
       this.ctx.logger.warn?.('QQ delivery stage failed', { eventId: outputId, type: event.type, stage: this.journal.outputs[outputId]?.status === 'sent' ? 'confirmation' : 'action' })
-      if (this.stopped || fileGeneration !== this.fileGeneration) return
+      if (this.stopped || fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
       if (this.journal.outputs[outputId]?.status === 'sent') return
-      const definitelyFailed = ['qq.reply.action', 'qq.reply.file', 'qq.reply.video', 'qq.reply.images', 'qq.reply.part', 'qq.request.failed'].includes(event.type) && (error as { definitelyFailed?: boolean })?.definitelyFailed === true
+      const definitelyFailed = (error as { definitelyFailed?: boolean })?.definitelyFailed === true
       const receipt = {
           eventId: outputId,
           requestId: event.data.requestId,
@@ -685,7 +729,8 @@ export class Adapter {
           terminal: (['qq.reply.action', 'qq.reply.file'].includes(event.type) && event.data.completeReply === true) || event.type === 'qq.request.failed' || event.type === 'qq.reply.video' || event.type === 'qq.reply.images' || (event.type === 'qq.reply.part' && event.data.partIndex === event.data.totalParts),
       }
       this.journal.outputs[outputId]!.confirmation = receipt
-      if ((event.type === 'qq.message.ack' && event.data.conversationType === 'group') || (event.type === 'qq.request.failed' && definitelyFailed)) {
+      this.journal.outputs[outputId]!.status = receipt.status as 'failed' | 'unknown'
+      if (definitelyFailed && ((event.type === 'qq.message.ack' && event.data.conversationType === 'group') || event.type === 'qq.request.failed')) {
         this.journal.outputs[outputId]!.retryEvent = event
         this.journal.outputs[outputId]!.retryAt = Date.now() + 60000
       }
@@ -698,11 +743,15 @@ export class Adapter {
         blockedTargets: Object.values(this.journal.blocked).filter(Boolean).length,
       }
       saveJournal(this.journalFile, this.journal)
+      this.activeDeliveries.delete(outputId)
       await this.confirmDelivery(receipt)
+    } finally {
+      this.activeDeliveries.delete(outputId)
     }
     saveJournal(this.journalFile, this.journal)
   }
   close(): void {
+    this.images.close()
     this.authenticated = false
     this.stopped = true
     this.fileGeneration++

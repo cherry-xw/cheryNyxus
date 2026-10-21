@@ -433,19 +433,6 @@ function* handleDoneChunk(context: StreamContext, requestComplete = false, waiti
   const { rid, chatId, runId } = context
   // done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
   const ctxBd = computeContextBreakdown(chatId)
-  // P5：loop done 后复检——若本轮又让上下文逼近阈值，下一次 send 出发自动压缩；
-  // 推送 auto_compacted 让前端可亮 compact 按钮或做 toast 提示（本轮已结束，不改 prompt）。
-  const postReason = maybeAutoCompactAfterDone(chatId)
-  if (postReason) {
-    const post = computeContextUsage(chatId)
-    logger.event('chat.run.autoCompact.next', { chatId, reason: postReason })
-    yield createNotification(
-      'auto_compacted',
-      rid,
-      { reason: postReason, usedBefore: post.used, total: post.total },
-      { chatId, runId },
-    )
-  }
   // 子 agent finished 标记由 observer.ts 在 child_done chunk 时设置，不再在 done chunk 时设置
   // 原因：子 agent yield turn 时会 done，但不应设 finished（需等孙 agent 完成后才设）
   // child_yield → 不设 finished（子保持活跃）
@@ -481,9 +468,10 @@ function* handleDoneChunk(context: StreamContext, requestComplete = false, waiti
             : {}),
         }
       : undefined
-  const canResume = !requestComplete && computeCanResume(chatId)
+  const awaitingQuestions = hasPendingQuestionBatches(chatId)
+  const canResume = !requestComplete && !awaitingQuestions && computeCanResume(chatId)
   const completedAt = Date.now()
-  recordRunFact({ chatId, runId, status: waitingForChild ? 'waiting' : canResume ? 'paused' : 'completed' })
+  recordRunFact({ chatId, runId, status: waitingForChild ? 'waiting' : canResume || awaitingQuestions ? 'paused' : 'completed' })
   // Canonical 与 Lite 共用同一时钟校准点；与 completion 同时取值，
   // 避免 reducer 的总计时封口与 deadline 校准观察到不同服务器时刻。
   const doneData = {
@@ -498,7 +486,7 @@ function* handleDoneChunk(context: StreamContext, requestComplete = false, waiti
     completedAt,
     serverNow: completedAt,
   }
-  const pausedFeedback = canResume
+  const pausedFeedback = canResume || awaitingQuestions
     ? {
         code: RunOutcomeReasonCode.PAUSED,
         severity: 'info' as const,
@@ -515,8 +503,8 @@ function* handleDoneChunk(context: StreamContext, requestComplete = false, waiti
     rid,
     {
       ...doneData,
-      status: canResume ? 'paused' : 'completed',
-      reasonCode: canResume ? RunOutcomeReasonCode.PAUSED : RunOutcomeReasonCode.COMPLETED,
+      status: canResume || awaitingQuestions ? 'paused' : 'completed',
+      reasonCode: canResume || awaitingQuestions ? RunOutcomeReasonCode.PAUSED : RunOutcomeReasonCode.COMPLETED,
       canResume,
       retryable: false,
       occurredAt: completedAt,
@@ -528,7 +516,7 @@ function* handleDoneChunk(context: StreamContext, requestComplete = false, waiti
   yield createNotification(
     'run.updated',
     rid,
-    { runId, status: canResume ? 'paused' : 'completed', at: completedAt },
+    { runId, status: canResume || awaitingQuestions ? 'paused' : 'completed', at: completedAt },
     { chatId, runId },
   )
   yield* completePendingTurns(context, completedAt)

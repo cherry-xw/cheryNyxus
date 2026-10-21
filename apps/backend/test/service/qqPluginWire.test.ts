@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, type WebSocketServer } from 'ws'
 import { IngressHost } from '@/service/ingress/host.js'
+import { startService, type ServiceHandle } from '@/service/index.js'
 import { IngressStore } from '@/service/ingress/store.js'
 import { createRouter } from '@/service/message/router.js'
 import { createWebSocketServer } from '@/service/websocket/index.js'
@@ -149,7 +150,7 @@ async function request(ws: WebSocket, method: string, params: unknown) {
     ws.send(JSON.stringify({ kind: 'request', id, method, params }))
   })
 }
-function native(port: number, reactionFailure = false) {
+function native(port: number, reactionFailure = false, getMessage?: () => unknown) {
   const sends: any[][] = []
   const dir = temp()
   const adapter = new Adapter(
@@ -163,6 +164,7 @@ function native(port: number, reactionFailure = false) {
         call: async (...args: any[]) => {
           if (args[0] === 'get_login_info') return { user_id: '123' }
           if (args[0] === 'get_status') return { online: true, good: true }
+          if (args[0] === 'get_msg' && getMessage) return getMessage()
           sends.push(args)
           if (args[0] === 'set_msg_emoji_like') {
             if (reactionFailure) throw new Error('unsupported')
@@ -192,6 +194,51 @@ const event = (kind: 'private' | 'group', id: number) => ({
   ],
 })
 describe('native adapter and real installed backend wire', () => {
+  it('installed QQ attachment failure crosses production startService host filter and actual JSON logger', async () => {
+    process.env.QQBOT_PLATFORM_TOKEN = TOKEN
+    const root = temp(), store = new IngressStore(root)
+    store.install(path.resolve('plugins/qq/dist'), false, undefined, {
+      grantedCapabilities: ['ingress', 'rpc.business', 'rpc.management', 'tools', 'hooks', 'channel.identity', 'manager.ui'],
+      channelGrants: [{ channel: 'qq', credentialKind: 'qq' }],
+    })
+    store.setEnabled('cherynyxus-qq-module', true)
+    store.saveConfig('cherynyxus-qq-module', { ...structuredClone(QQDefaultConfig), selfId: '123', groups: ['456'], bindings: { 'group:456': 'p' } }, 0)
+    const previous = logger.getConfig(), lines: string[] = []
+    logger.setConfig({ level: 'info', output: ['console'], format: 'json', location: false })
+    const output = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => { lines.push(String(chunk)); return true }) as any)
+    let service: ServiceHandle | undefined
+    let image: any, refreshCount = 0, importCount = 0
+    try {
+      const core: IngressCoreAdapter = {
+        listPresets: () => [], resolvePreset: () => ({ name: 'p', presetId: 'p-id', leaderName: 'l', brain: 'b', senseGroup: 's', mcpServers: [] }),
+        ensureConversation: async () => ({ chatId: 'synthetic' }),
+        importFile: async () => { importCount++; throw Object.assign(new Error('https://secret.invalid/?token=credential'), { stage: 'download', code: 'HTTP_400' }) },
+        submit: async () => ({} as any), abort: async () => {}, onEvent: () => () => {},
+      }
+      service = startService({ port: 0, webPort: 0, ingress: { cheryDir: root, core }, channelAuth: { token: TOKEN, credentialKind: 'qq', header: 'x-qqbot-token' } })
+      const addresses = await service.ready
+      const n = native(addresses.local.websocketPort, false, () => { refreshCount++; return { ...image, sender: { user_id: 789 }, message: [{ type: 'image', data: { url: 'https://secret.invalid/?token=credential&rkey=new' } }] } })
+      await n.adapter.start()
+      await vi.waitFor(() => expect(n.adapter.status().ready).toBe(true))
+      image = event('group', 1691784683)
+      image.time = Math.floor(Date.now() / 1000)
+      image.message = [{ type: 'image', data: { file: 'fixture', url: 'https://secret.invalid/?token=credential&rkey=old' } }] as any
+      await n.adapter.receive(image)
+      const trigger = event('group', 905662704); trigger.time = image.time
+      await n.adapter.receive(trigger)
+      await vi.waitFor(() => expect(lines.some(line => line.includes('qq.attachment.unavailable'))).toBe(true), { timeout: 10000 })
+      const logged = lines.flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } }).find(row => row.type === 'qq.attachment.unavailable')
+      expect(logged.data).toMatchObject({ pluginId: 'cherynyxus-qq-module', stage: 'import', code: 'UNAVAILABLE', messageId: '1691784683', attachmentIndex: 0 })
+      expect(refreshCount).toBe(0); expect(importCount).toBe(0)
+      expect(logged.scope.requestId).toMatch(/^[0-9a-f-]{36}$/)
+      expect(logged.scope.requestId).toBe(logged.data.requestId)
+      expect(JSON.stringify(logged)).not.toMatch(/secret.invalid|credential|token|fixture/)
+    } finally {
+      for (const adapter of adapters.splice(0)) adapter.close()
+      if (service) { await service.stopIngress(); service.stopSchedule(); for (const client of service.wss.clients) client.terminate(); await new Promise<void>(r => service!.wss.close(() => r())); await new Promise<void>(r => service!.httpServer.close(() => r())) }
+      output.mockRestore(); logger.setConfig({ ...previous, level: 'silent' })
+    }
+  })
   it.each(['private', 'group'] as const)(
     'real %s RPC produces exact ACK, ordered real tool icons, body and confirmations',
     async (kind) => {
@@ -284,13 +331,16 @@ describe('native adapter and real installed backend wire', () => {
     const n = native(s.port, true)
     await n.adapter.start()
     await n.adapter.receive(event('group', 9))
-    await vi.waitFor(() => expect(n.sends.filter((c) => c[0] === 'send_msg')).toHaveLength(1), { timeout: 5000 })
+    // The failure notice can precede the normal reply; it is not evidence of completion.
     await vi.waitFor(() =>
       expect(
         JSON.parse(fs.readFileSync(s.store.safe('data/cherynyxus-qq-module/state.json'), 'utf8'))
           .jobs[0].state,
       ).toBe('completed'),
+      { timeout: 10000 },
     )
+    expect(s.calls).toHaveLength(1)
+    expect(n.sends.filter((c) => c[0] === 'send_msg').length).toBeGreaterThanOrEqual(2)
     expect(n.adapter.status().ready).toBe(true)
   })
   it('real verifyClient rejects wrong token and foreign Origin, control auth cannot call transport', async () => {
@@ -372,7 +422,7 @@ describe('native adapter and real installed backend wire', () => {
     expect(JSON.stringify(s.store.readConfig('cherynyxus-qq-module') ?? '')).not.toContain(TOKEN)
   })
 
-  it('keeps rejected duplicate event decisions stable and exposes only digests in queue views', async () => {
+  it('keeps rejected duplicate event decisions stable and leaves no message record', async () => {
     const s = await start(false, false, { groups: [], users: [], bindings: {} })
     const n = native(s.port)
     await n.adapter.start()
@@ -393,6 +443,30 @@ describe('native adapter and real installed backend wire', () => {
     expect(JSON.stringify({ queue, history })).not.toContain(TOKEN)
     expect(s.calls).toHaveLength(0)
     control.close()
+  })
+
+  it('only administrators can read accepted message summaries and details over the real wire', async () => {
+    const s = await start()
+    const n = native(s.port)
+    await n.adapter.start()
+    await vi.waitFor(() => expect(n.adapter.status().ready).toBe(true))
+    await n.adapter.receive(event('private', 71))
+    const control = await connect(s.port, { Origin: `http://127.0.0.1:${s.port}` }, '?token=control-token')
+    let entry: any
+    await vi.waitFor(async () => {
+      const queue = await request(control, 'qq.queue.get', {})
+      const history = await request(control, 'qq.history.get', {})
+      entry = [...queue.data.entries, ...history.data.entries][0]
+      expect(entry).toMatchObject({ senderId: '789', senderName: 'synthetic', targetId: '789', inputPreview: 'hello' })
+    })
+    const details = await request(control, 'qq.entry.get', { requestId: entry.requestId })
+    expect(details.success).toBe(true)
+    expect(details.data.messages[0]).toMatchObject({ content: 'hello', senderId: '789' })
+    expect(JSON.stringify(details)).not.toContain(TOKEN)
+    const qq = await connect(s.port, { 'X-QQBot-Token': TOKEN })
+    expect((await request(qq, 'qq.entry.get', { requestId: entry.requestId })).success).toBe(false)
+    expect((await request(qq, 'qq.history.get', {})).success).toBe(false)
+    qq.close(); control.close()
   })
 
   it('QQ header remains independent when core authentication is enabled', async () => {

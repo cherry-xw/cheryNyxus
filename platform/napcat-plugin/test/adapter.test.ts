@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Adapter, normalize, type PluginContext } from '../src/adapter.js'
 import { QQCapabilities as capabilities } from '@chery/protocol'
 import type { BackendChannel } from '../src/wire.js'
+import { serviceFixture } from './serviceFixture.js'
 
 class Mock implements BackendChannel {
   connected = true
@@ -13,7 +14,8 @@ class Mock implements BackendChannel {
   request = vi.fn(async (method: string, params: any): Promise<any> => {
     const data = method === 'qq.plugin.hello' ? { protocolVersion: 1, backendVersion: 'mock', selfId: '123', authenticated: true, capabilities }
       : method === 'qq.identity.bind' ? { bound: true, selfId: params.selfId, sourceType: 'napcat-action', validation: 'accepted' }
-      : method === 'qq.request.recover' ? { events: [] }
+      : method === 'qq.image.scope.get' ? {schemaVersion:1,backendEpoch:'epoch',connectionGeneration:'generation',sessionId:'session',selfId:'123',appliedRevision:0,scopeDigest:'0'.repeat(64),enabled:true,allowedTargets:[{conversationType:'group',targetId:'456'},{conversationType:'private',targetId:'789'},{conversationType:'private',targetId:'999'}],targets:[],limits:{}}
+      : method === 'qq.request.recover' ? { events: [], service: serviceFixture() }
       : method === 'qq.event.submit' ? { eventId: params.eventId, accepted: true } : { eventId: params.eventId, recorded: true }
     return { success: true, data }
   })
@@ -36,6 +38,38 @@ function fixture(path?: string) {
 const input = (extra = {}) => ({ post_type: 'message', self_id: 123, user_id: 789, group_id: 456, message_type: 'group', message_id: -42, time: 10, sender: { user_id: 789, nickname: 'synthetic' }, message: [{ type: 'text', data: { text: 'hello' } }, { type: 'at', data: { qq: '123' } }], ...extra })
 
 describe('native adapter (mock consumers only, no backend business proof)', () => {
+  it('replies closed only to authorized targets after explicit state, not ordinary disconnect', async () => {
+    const { adapter, wire, ctx } = fixture()
+    await adapter.start(); await settle()
+    wire.disconnect?.(); await settle()
+    expect((ctx.actions.call as any).mock.calls.some(([name, params]: any[]) => name === 'send_msg' && params.message?.[0]?.data?.text === '服务已关闭')).toBe(false)
+    await adapter.start(); await settle()
+    wire.listener?.({ kind: 'notification', type: 'qq.service.state', data: serviceFixture({ phase: 'closing', operationId: 'stop', version: 2 }) })
+    await settle()
+    const submitted = wire.request.mock.calls.filter(([method]) => method === 'qq.event.submit').length
+    await adapter.receive(input())
+    await adapter.receive(input({ group_id: 999, message_id: -43 }))
+    expect(wire.request.mock.calls.filter(([method]) => method === 'qq.event.submit')).toHaveLength(submitted)
+    expect((ctx.actions.call as any).mock.calls.filter(([name, params]: any[]) => name === 'send_msg' && params.message?.[0]?.data?.text === '服务已关闭')).toHaveLength(1)
+  })
+  it('fences queued sends at shutdown and rejects stale or unauthenticated instance changes', async () => {
+    const { adapter, wire, ctx } = fixture()
+    await adapter.start(); await settle()
+    let finish!: (result: unknown) => void
+    const original = ctx.actions.call
+    ctx.actions.call = vi.fn((name, params, a, c) => name === 'send_msg' && (params as any).message?.[0]?.data?.text === 'slow'
+      ? new Promise(resolve => { finish = resolve }) : original(name, params, a, c))
+    wire.emit('qq.reply.part', 1, { text: 'slow', partIndex: 1, totalParts: 1 }); await settle()
+    wire.emit('qq.reply.part', 2, { text: 'must not send', partIndex: 1, totalParts: 1 })
+    wire.listener?.({ kind: 'notification', type: 'qq.service.state', data: serviceFixture({ phase: 'closing', operationId: 'stop', version: 3 }) })
+    wire.listener?.({ kind: 'notification', type: 'qq.service.state', data: serviceFixture({ version: 2 }) })
+    wire.listener?.({ kind: 'notification', type: 'qq.service.state', data: serviceFixture({ backendInstanceId: 'untrusted', version: 100 }) })
+    await settle(); finish({ message_id: '900' }); await settle()
+    expect((adapter as any).journal.service.phase).toBe('closing')
+    expect((adapter as any).journal.service.backendInstanceId).toBe('backend-fixture')
+    expect((ctx.actions.call as any).mock.calls.some(([name, params]: any[]) => name === 'send_msg' && params.message?.[0]?.data?.text === 'must not send')).toBe(false)
+    expect((adapter as any).journal.outputs.e1.status).toBe('unknown')
+  })
   it('accepts a late native result after a month and lets progress pass a slow content send', async () => {
     vi.useFakeTimers();const {adapter,wire,ctx}=fixture();await adapter.start();await settle()
     const original=ctx.actions.call;let resolve!: (value:any)=>void
@@ -64,7 +98,7 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     f.wire.emit('qq.message.ack',1,{messageId:'100',emojiId:'178'});await settle()
     f.wire.emit('qq.reply.part',2,{text:'still replies',partIndex:1,totalParts:1});await settle()
     const journal=JSON.parse(readFileSync(join(f.dir,'delivery-journal.json'),'utf8'))
-    expect(journal.outputs.e1.status).toBe('unknown');expect(journal.outputs.e1.retryEvent).toBeDefined()
+    expect(journal.outputs.e1.status).toBe('failed');expect(journal.outputs.e1.retryEvent).toBeDefined()
     expect(journal.outputs.e2.status).toBe('sent');expect(f.adapter.status().blockedTargets).toBe(0)
     f.adapter.close();const next=fixture(f.dir);await next.adapter.start();await settle()
     ;(next.adapter as any).journal.outputs.e1.retryAt=0
@@ -141,12 +175,12 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
   it('sends exact ACK, one icon per event, waiting, unicode parts and fixed failure in order', async () => {
     const { adapter, wire, ctx } = fixture(); await adapter.start(); await settle()
     wire.emit('qq.message.ack', 1, { text: '收到', messageId: '1', emojiId: '268' }); wire.emit('qq.tool.icon', 2, { icon: '🔎' }); wire.emit('qq.tool.icon', 2, { icon: '🔎' }); wire.emit('qq.tool.icon', 3, { icon: '[unsafe]' })
-    wire.emit('qq.waiting', 4, { text: '合成等待' }); wire.emit('qq.reply.part', 5, { text: '😀'.repeat(4001), partIndex: 1, totalParts: 1 }); wire.emit('qq.request.failed', 6, { text: 'must not leak' })
+    wire.emit('qq.waiting', 4, { text: '合成等待' }); wire.emit('qq.reply.part', 5, { text: '😀'.repeat(4001), partIndex: 1, totalParts: 1 }); wire.emit('qq.request.failed', 6, { text: '上游图片审核拒绝，追踪码：1234abcd' })
     for (let i = 0; i < 8; i++) await settle()
     const calls = (ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg')
     const texts = calls.map((c: any) => c[1].message[0].data.text)
     expect(texts.filter((text: string) => ['🔎','🔧','合成等待'].includes(text))).toEqual(['🔎','🔧','合成等待'])
-    expect(texts.filter((text: string) => !['🔎','🔧','合成等待'].includes(text))).toEqual(['😀'.repeat(4000),'😀','刚才处理失败了，请稍后再试。'])
+    expect(texts.filter((text: string) => !['🔎','🔧','合成等待'].includes(text))).toEqual(['😀'.repeat(4000),'😀','上游图片审核拒绝，追踪码：1234abcd'])
     expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'set_msg_emoji_like')).toHaveLength(1)
     expect(calls.every((c: any) => c[1].group_id === '456' && !('user_id' in c[1]) && c[2] === ctx.adapterName && c[3] === ctx.pluginManager.config)).toBe(true)
     const reports = wire.request.mock.calls.filter(c => c[0] === 'qq.delivery.result').map(c => c[1] as any)
@@ -245,7 +279,7 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     expect((ctx.actions.call as any).mock.calls.filter((c: any) => c[0] === 'send_msg')).toHaveLength(1)
     wire.ready?.(); await settle()
     const reconnect = wire.request.mock.calls.slice(before).map(([method]) => method)
-    expect(reconnect).toEqual(['qq.plugin.hello', 'qq.identity.bind', 'qq.request.recover']) // confirmed receipts already durably reported
+    expect(reconnect).toEqual(['qq.plugin.hello', 'qq.identity.bind', 'qq.image.scope.get', 'qq.image.scope.ack', 'qq.request.recover']) // confirmed receipts already durably reported
     expect(adapter.status().ready).toBe(true)
   })
 

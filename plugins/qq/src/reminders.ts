@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { IngressContext } from '@chery/plugin-api'
 import { atomicText, parseStored, readSafeText, withFileLock } from './files.js'
-const itemSchema = z.object({ id: z.string(), selfId: z.string(), groupId: z.string(), userId: z.string(), dueAt: z.number(), text: z.string(), mention: z.boolean(), state: z.enum(['pending', 'claimed', 'sent', 'cancelled', 'unknown']), createdAt: z.number() }).strict()
+const itemSchema = z.object({ id: z.string(), selfId: z.string(), groupId: z.string(), userId: z.string(), dueAt: z.number(), text: z.string(), mention: z.boolean(), state: z.enum(['pending', 'claimed', 'sent', 'cancelled', 'unknown', 'failed']), createdAt: z.number() }).strict()
 export type Reminder = z.infer<typeof itemSchema>
 export class ReminderStore {
   private file: string
@@ -11,7 +11,7 @@ export class ReminderStore {
   private async read() { try { return parseStored(z.array(itemSchema).max(1000), JSON.parse(await readSafeText(this.file)), 'reminders') } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []; throw e } }
   async change<T>(fn: (items: Reminder[]) => T): Promise<T> { return withFileLock(this.file, async () => { const items = await this.read(); const before = JSON.stringify(items); const result = fn(items); const after = JSON.stringify(items); if (after !== before) await atomicText(this.file, after); return result }) }
   async due(now: number) { return this.change(items => items.filter(i => (i.state === 'pending' || i.state === 'claimed') && i.dueAt <= now).map(i => { i.state = 'claimed'; return { ...i } })) }
-  async result(id: string, state: 'sent' | 'unknown') { await this.change(items => { const item = items.find(i => i.id === id); if (item) item.state = state }) }
+  async result(id: string, state: 'sent' | 'unknown' | 'failed') { await this.change(items => { const item = items.find(i => i.id === id); if (item) item.state = state }) }
 }
 type Registration = Parameters<IngressContext['tools']['register']>[0]
 export function reminderTools(store: ReminderStore): Registration[] {

@@ -234,6 +234,7 @@ export const Method = {
   QQ_STATUS_GET: ProtocolMethod.QQ_STATUS_GET,
   QQ_QUEUE_GET: ProtocolMethod.QQ_QUEUE_GET,
   QQ_HISTORY_GET: ProtocolMethod.QQ_HISTORY_GET,
+  QQ_ENTRY_GET: ProtocolMethod.QQ_ENTRY_GET,
   // Brain / Sense 列表
   BRAIN_LIST: 'brain.list',
   SENSE_LIST: 'sense.list',

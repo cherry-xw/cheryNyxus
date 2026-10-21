@@ -302,6 +302,27 @@ export const QQNotificationSchema = z
       .strict(),
   })
   .strict()
+  .superRefine((frame, ctx) => {
+    const d = frame.data
+    const need = (ok: boolean, field: string) => { if (!ok) ctx.addIssue({code:'custom',path:['data',field],message:'Required output field'}) }
+    if (frame.type === 'qq.reply.action') {
+      need(!!d.actionKind, 'actionKind'); need(typeof d.completeReply === 'boolean','completeReply')
+      if (d.actionKind === 'reaction' || d.actionKind === 'quote') need(!!d.messageId,'messageId')
+      if (d.actionKind === 'reaction') need(!!d.emojiId,'emojiId')
+      if (d.actionKind === 'poke' || d.actionKind === 'mention') need(!!d.userId,'userId')
+      if (d.actionKind === 'voice') need(!!d.character,'character')
+      if (['quote','mention','voice'].includes(d.actionKind ?? '')) need(typeof d.text === 'string' && !!d.text.trim(),'text')
+    }
+    if (frame.type === 'qq.message.ack' && d.conversationType === 'group') {need(!!d.messageId,'messageId');need(!!d.emojiId,'emojiId')}
+    if (frame.type === 'qq.tool.icon') need(!!d.icon,'icon')
+    if (frame.type === 'qq.lookup.request') {need(!!d.lookupId,'lookupId');need(!!d.lookupKind,'lookupKind')}
+    if (frame.type === 'qq.information.request') {need(!!d.lookupId,'lookupId');need(!!d.information,'information')}
+    if (frame.type === 'qq.reply.part') { need(!!d.partIndex && !!d.totalParts && d.partIndex <= d.totalParts,'partIndex'); need(typeof d.text === 'string','text') }
+    if (frame.type === 'qq.reply.file') need(!!d.asset,'asset')
+    if (frame.type === 'qq.reply.video') need(!!d.mediaFile,'mediaFile')
+    if (frame.type === 'qq.reply.images') need(!!d.mediaFiles?.length,'mediaFiles')
+    if (frame.type === 'qq.request.failed' || frame.type === 'qq.waiting') need(typeof d.text === 'string' && !!d.text.trim(),'text')
+  })
 export const QQDeliveryResultRequestSchema = z
   .object({
     ...outputIdentity,
@@ -378,7 +399,7 @@ export const QQEntrySchema = z
     eventId: identifier,
     target: z.string().regex(/^[a-f0-9]{64}$/),
     conversationType: z.enum(['group', 'private']),
-    state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused']),
+    state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused', 'cancelled']),
     acceptedAt: z.number(),
     policyRevision: z.number().int().nonnegative(),
     reason: z.string().optional(),

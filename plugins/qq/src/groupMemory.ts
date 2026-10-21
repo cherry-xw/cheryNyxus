@@ -20,7 +20,7 @@ export const groupMemoryBatchSchema = z.object({
   delete: z.array(id).max(80).default([]),
   expectedRevision: z.number().int().nonnegative(),
 }).strict().refine(b => b.save.length + b.delete.length > 0, 'Empty memory update')
-const storeSchema = z.object({ schemaVersion: z.literal(2), groupId: qq, revision: z.number().int().nonnegative(), records: z.array(groupFactSchema), updatedAt: z.number() }).strict()
+const storeSchema = z.object({ schemaVersion: z.literal(2), groupId: qq, revision: z.number().int().nonnegative(), records: z.array(groupFactSchema), updatedAt: z.number(), operations: z.record(z.string(), z.object({ fingerprint: z.string(), revision: z.number(), saved: z.number(), deleted: z.number() })).default({}) }).strict()
 export interface GroupSource { messageId: string; senderId: string; occurredAt: number; content: string }
 
 /** All public-in-group facts belong to the group, never the current sender. */
@@ -61,12 +61,21 @@ export class QQGroupMemoryStore {
       return { revision: data.revision, total: data.records.length, records }
     })
   }
-  async manage(subject: QQSubject, input: unknown, sources: GroupSource[], signal?: AbortSignal) {
+  async operationStatus(subject: QQSubject, operationId: string) {
+    return withFileLock(this.target(subject), async () => (await this.read(subject)).operations[operationId])
+  }
+  async manage(subject: QQSubject, input: unknown, sources: GroupSource[], signal?: AbortSignal, operationId?: string) {
     const batch = groupMemoryBatchSchema.parse(input)
     const names = batch.save.map(r => r.id)
     if (new Set(names).size !== names.length || new Set(batch.delete).size !== batch.delete.length || names.some(n => batch.delete.includes(n))) throw new Error('Conflicting memory operations')
     return withFileLock(this.target(subject), async () => {
       const data = await this.read(subject)
+      const fingerprint = textVersion(JSON.stringify(batch))
+      if (operationId && data.operations[operationId]) {
+        const receipt = data.operations[operationId]!
+        if (receipt.fingerprint !== fingerprint) throw new Error('Group memory operation conflict')
+        return { revision: receipt.revision, saved: receipt.saved, deleted: receipt.deleted }
+      }
       if (data.revision !== batch.expectedRevision) throw new Error('Group memory revision changed; search again')
       const records = new Map(data.records.map(r => [r.id, r]))
       for (const key of batch.delete) records.delete(key)
@@ -100,7 +109,7 @@ export class QQGroupMemoryStore {
         candidate = merged
       }
       if (candidate.length > this.limits.maxEntries && candidate.length > data.records.length) throw new Error('Group memory capacity reached; merge existing facts first')
-      const next = storeSchema.parse({ ...data, records: candidate, revision: data.revision + 1, updatedAt: Date.now() })
+      const next = storeSchema.parse({ ...data, records: candidate, revision: data.revision + 1, updatedAt: Date.now(), operations: { ...data.operations, ...(operationId ? { [operationId]: { fingerprint, revision: data.revision + 1, saved: batch.save.length, deleted: batch.delete.length } } : {}) } })
       signal?.throwIfAborted()
       await atomicText(this.target(subject), JSON.stringify(next), signal)
       return { revision: next.revision, saved: batch.save.length, deleted: batch.delete.length }

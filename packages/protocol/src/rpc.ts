@@ -39,6 +39,7 @@ export const Method = {
   QQ_STATUS_GET: 'qq.status.get',
   QQ_QUEUE_GET: 'qq.queue.get',
   QQ_HISTORY_GET: 'qq.history.get',
+  QQ_ENTRY_GET: 'qq.entry.get',
   BRAIN_LIST: 'brain.list',
   SENSE_LIST: 'sense.list',
   SENSE_TOOLS: 'sense.tools',

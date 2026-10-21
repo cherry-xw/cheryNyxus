@@ -10,6 +10,19 @@ import { registerFunctionHook } from '@/agent/hooks/functions.js'
 
 const execution = { execution: { toolHistory: 'request' as const, retry: 'never' as const }, validate() {} }
 describe('request-local tool loop', () => {
+  it('QQ executes beyond the configured tool-turn count until a real final answer', async () => {
+    let calls = 0
+    const execute = vi.fn(async () => ({content:'still working'}))
+    const chat = vi.fn(async () => ({content: ++calls > 40 ? 'finished' : '', calls: calls > 40 ? [] : [{id:`t${calls}`,name:'test_tool',arguments:'{}'}]}))
+    const ctx = createMockContext({messages:[{id:'u',role:'user',content:'long task',createdAt:0,updateAt:0}],
+      runtime:createMockRuntime({senses:[createTestSense('test_tool',execute)],adapters:{llmAdapter:mockLLMAdapter({chat}),messageAdapter:mockMessageAdapter({content:(r:any)=>r.content}),senseAdapter:mockSenseAdapter({senseCalls:(r:any)=>r.calls})}}),
+      global:{stream:false,thinking:false,supervision:SupervisionLevel.auto,maxLoopCount:1}})
+    ctx.requestExecution=execution
+    ctx.requestView={identity:{source:'plugin',channel:'qq'},contexts:[],tools:[],unavailableTools:[]} as unknown as typeof ctx.requestView
+    const chunks=await collectChunks(chatMiddleware(ctx,makeNext([])))
+    expect(execute).toHaveBeenCalledTimes(40);expect(chat).toHaveBeenCalledTimes(41)
+    expect(JSON.stringify(chunks)).toContain('finished')
+  })
   it('normally completes after a decision tool without another provider call', async () => {
     const ctx = createMockContext({ messages: [{ id: 'u', role: 'user', content: 'decide', createdAt: 0, updateAt: 0 }], global: { stream: false, thinking: false, supervision: SupervisionLevel.auto } })
     const execute = vi.fn(async () => { ctx.requestComplete = true; return { content: '{"action":"wait"}' } })

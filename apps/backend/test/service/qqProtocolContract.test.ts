@@ -39,6 +39,8 @@ describe('QQ shared transport contract', () => {
     ).toMatchObject({ bound: true, selfId: '123' })
     expect(
       QQRecoverResponseSchema.parse({
+        service: { selfId: '123', backendInstanceId: 'instance', operationId: null, version: 1,
+          phase: 'running', targets: [], questions: [] },
         events: [
           QQNotificationSchema.parse({
             kind: 'notification',
@@ -71,7 +73,7 @@ describe('QQ shared transport contract', () => {
         type: 'qq.reply.part',
         data: { ...outputIdentity, partIndex: 2 },
       }),
-    ).not.toThrow()
+    ).toThrow()
     expect(() =>
       QQDeliveryResultRequestSchema.parse({
         ...outputIdentity,

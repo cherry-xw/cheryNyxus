@@ -4,9 +4,11 @@
 
 ## 原生入口与实现状态
 
+无 URL 原生图片采集契约见下文[原生图片采集](#原生图片采集)。匹配 Backend、QQ 0.1.40 与 NapCat 0.2.14 已部署，LAN 认证、原生 scope/ACK 与真实群自动采集/资产提交已验证；模型视觉理解及外围边界见[验证后续清单](../../quality/verification/qq-safe-outcomes.md)。采集范围来自 Backend 当前生效配置及有效关联，不新增独立名单。
+
 原生后端通道方法（包括 `qq.identity.bind` 和目录回传 `qq.lookup.result`）由 `cheryNyxus-extension-host` 加载的 `cherynyxus-qq-module`（源目录 `plugins/qq/`）提供，显式安装、启用并由 `cheryNyxus-runtime` 启动后注册；它不是独立服务。未安装或禁用时不提供业务处理器。生命周期与管理接口见[统一宿主](../architecture/ingress-plugins.md)。插件接口为宿主API版本2，QQ/NapCat 传输 protocolVersion 仍为1；版本与身份句柄以宿主owner为准；不提供旧格式迁移。真实发送与媒体的用户验收结论及已知限制统一见[QQ 模块说明](../../../plugins/qq/README.md#当前限制与验证边界)，不能用合成测试推断其他生产场景已验收。
 
-原生入口为 `platform/napcat-plugin/src/index.ts`，NapCat 技术插件 ID固定为 `napcat-plugin-cherynyxus`，用户可见名称为 `NapCat Plugin Chery Nyxus`；其逻辑职责名称为 `cheryNyxus-qq-adapter-napcat`。构建入口为目录内 `pnpm build`，生成 `dist/index.mjs`、`dist/package.json` 和 ZIP 安装包。NapCat 调用 `plugin_init`、`plugin_onmessage`、`plugin_cleanup`；QQ Action 使用官方四参数调用，不另建 OneBot 连接。新的安装、重载和真实发送操作仍需用户授权，不因已有验收而自动操作真实账号。
+原生入口为 `platform/napcat-plugin/src/index.ts`，NapCat 技术插件 ID固定为 `napcat-plugin-cherynyxus`，用户可见名称为 `NapCat Plugin Chery Nyxus`；其逻辑职责名称为 `cheryNyxus-qq-adapter-napcat`。构建入口为目录内 `pnpm build`，生成 `dist/index.mjs`；部署时保留现有插件目录、页面与配置，并同步插件包版本。NapCat 调用 `plugin_init`、`plugin_onmessage`、`plugin_cleanup`；QQ Action 使用官方四参数调用，不另建 OneBot 连接。新的安装、重载和真实发送操作仍需用户授权，不因已有验收而自动操作真实账号。
 
 共享请求/响应类型和运行校验集中于 [`packages/protocol/src/qq.ts`](../../../packages/protocol/src/qq.ts) 的 `QQRequestSchemas`、`QQResponseSchemas` 与 `QQNotificationSchema`；Method、方法类型和后端两份schema表同时引用这些定义。`QQPlugin.start` 通过公共宿主注册受限处理器，router固定使用共享QQ schema，禁止覆盖核心方法。WebSocket在持久RPC缓存之前检查连接权限；QQ业务自身保存输入收件与发送结果，不复用普通聊天RPC重放。`qqbot.config.loaded` 是旧配置通知，不作为能力证据。
 
@@ -16,13 +18,13 @@
 - `qq.identity.bind` 紧接握手执行，只接受插件从 NapCat 原生 Action 验证得到的 `{selfId,sourceType:'napcat-action',validation:'accepted',verifiedAt,sourceVersion}`。后端持久化首次绑定，重复绑定必须保持同一 selfId；身份变化、过期来源、配置身份不一致或绑定缺失均拒绝业务激活，不回退到 hello、连接自报或旧配置猜测。
 - 群内明确 @ 允许空正文，原文保持为空，不补造用户话语；发送者、@ 标志、引用和近期讨论共同提供意图，只有影响执行且无法确定时才澄清。无 @、无正文且无附件的空输入仍拒绝。
 - `qq.event.submit` 成功响应为 `{eventId,accepted:boolean}`，只表示收件结论，不等待模型结束。超时或断线后该输入处于未知状态，插件不自动重交。
-- `qq.request.recover` 请求 `{selfId}`，响应 `{events:[]}`；events 使用下文通知形状。后端须在返回后恢复该连接的实时通知，并保证回放与实时通知的 eventId 和每目标 seq 顺序一致。插件先补报已经知道的发送结果，再调用恢复；恢复完成前拒绝新输入。
+- `qq.request.recover` 请求 `{selfId}`，响应 `{events:[],service}`；events 使用下文通知形状，service 见[停止与恢复](#服务停止与空队列恢复)。后端须在返回后恢复该连接的实时通知，并保证回放与实时通知的 eventId 和每目标 seq 顺序一致。插件先取得并应用服务快照，再补报仍属于同实例的已知发送结果并处理恢复事件；恢复完成前拒绝新输入。
 - 每条 QQ 输出通知的 data 至少有 `{eventId,requestId,selfId,conversationType,targetId,seq}`。seq 是每个 selfId/目标跨请求连续递增的发送序号，首条为 1；状态类不发送事件不占该序号。ACK 另有原消息 `messageId` 和 QQ 表情编号 `emojiId`；群聊不发送“收到”文字，尝试添加原消息表情回应，私聊仍发送“收到”，等待/正文/失败另有 `text`，工具另有 `icon`。`qq.reply.completed`、`qq.request.recovered`、`qq.connection.state` 只传状态，不产生 QQ 文本。失败终态使用固定文案 `刚才处理失败了，请稍后再试。`。
 - `qq.delivery.result` 请求 `{eventId,requestId,selfId,conversationType,targetId,seq,status,messageIds,sentAt?,activity,terminal}`；status 为 `sent`、`unknown` 或 `failed`，响应必须为 `{eventId,recorded:true}`。`failed` 仅用于明确的原生操作拒绝，超时或发送结果不明使用 `unknown`，不能据此重发动作。activity 仅在 ACK、等待、工具实际发送成功后为 true；最后正文片段、媒体、失败通知及 `completeReply:true` 的原生动作标记 terminal。正文另带 `partIndex`（从 1 开始）及 `totalParts`。已知 sent 仅补报结果，unknown 不能靠重连自动解除。
 
 当前使用项目实际帧编码：请求 `{kind:'request',id,method,params}`，响应以 requestId 关联，通知 `{kind:'notification',type,data}`；支持纯 JSON 和以 0x02 开头的 JSON 通知。本文早期推荐帧仅说明语义，不是当前服务已支持的 API。
 
-原生传输接口使用 `connect`、`onMessage`、`request` 和 `close`。连接断开时取消在途调用并通知适配器；重连后重新握手、绑定身份、补报已知回执，然后恢复通知。同一目标按序执行通知，其他目标不受其未知发送影响。本端原生调用不加固定截止，NapCat自身超时如实报告且不自动重发；停止后丢弃排队发送和迟到结果。输入提交前持久化未知记录，断线或重启不自动重复提交。
+原生传输接口使用 `connect`、`onMessage`、`request` 和 `close`。连接断开时取消在途调用并通知适配器；重连后重新握手、绑定身份、读取恢复服务快照，再补报同实例已知回执及恢复通知。同一目标按序执行通知，其他目标不受其未知发送影响。本端原生调用不加固定截止，NapCat自身超时如实报告且不自动重发；停止后丢弃排队发送和迟到结果。输入提交前持久化未知记录，断线或重启不自动重复提交；输入去重记录不是可执行队列，关闭不通过删除它们解除去重。
 
 群名单、私聊名单、群讨论参与判断、连续输入合并、私聊无需 @、群/私聊上下文和记忆隔离、目标与预设 1:1、请求快照、真实工具调用事件、可设置的反馈间隔（默认180秒）与终态清理由后端包和核心执行适配负责；thinking/reasoning仍由核心大脑配置管理。群 @ 唤醒后，普通接话由请求内的 `qq_participation_decide` 判断 reply/wait/end；wait/end 不发送空正文。业务规则和群事实、提醒的实现入口见[QQ 模块](../../../plugins/qq/README.md)。插件只负责字段适配、身份发现、收发及发送结果保存，不持有业务副本。没有人工审批入口的QQ请求不能自动批准需要审批的工具；拒绝调用不发图标。
 
@@ -64,6 +66,20 @@ NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含�
 
 ## 插件到后端
 
+### 原生图片采集
+
+来源准入与原件下载队列分离：同实例 raw 对象取得精确短 ID 后立即并发登记，OneBot 仅等待账户、目标、发送者、短 ID 全部相同的消息准入结果，不等待同目标其他消息。登记未确认时不提交该图片事件，不能超时放行后让迟到登记继续成功。每个来源在准入时声明绝对工程截止 `deadlineAt`，最长为 33 × 120 秒（32 个排队位置加一次采集）；省略时 Backend 使用同一上限。实际采集仍最多 120 秒，队列轮转且最多 32 个位置；满队列来源先登记再明确取消，保留可追踪终态。Backend 明示 queued/uploading/committed/aborted；截止先撤销来源发布资格并中止上传，再允许固定输入。该预算不是模型任务超时，不修改业务设置或图片轮次。scope/reset/断线使旧来源及等待退出，底层原生物理调用未必可取消，迟到结果不得继续发布。固定输入只等待当前消息及已选背景窗口的精确来源终态，不另设比来源截止更早的等待超时；无来源普通文字不等待、不补采历史。该等待只协调程序组装，不替模型选图或刷新历史图片的一轮寿命。
+
+源码契约由 `packages/protocol/src/qqImages.ts` 定义，尚未部署。握手能力包含 `qq.image.ingest`；绑定后读取 `qq.image.scope.get`，或接收独立 `qq.image.scope` 控制通知，再以 `qq.image.scope.ack` 确认。范围包含 Backend 启动代数、连接代数、身份会话、生效版本、摘要、普通消息允许目标、具有有效预设的图片采集目标和原件额度。空目标明确拒绝。普通消息允许范围和图片有效关联范围均来自同一 Backend 配置，不是另建名单。
+
+`qq.image.source.register` 只接受精确账户、目标、发送者、原生消息、元素位置、元素 ID、UUID、大小和原生 MD5；先预留来源逻辑额度，再返回 Backend 产生的来源及许可句柄。来源身份由宿主 WeakMap 签发，只能发布该来源，不能提交模型请求或调用一般文件导入。所有方法仅允许当前专用 QQ 凭据连接，不接受控制端冒充。
+
+`qq.image.ingest.begin/chunk/status/commit/cancel` 复用现有认证 WebSocket。块为规范 base64，最大 65536 字节；偏移必须连续，重复已写块仅字节相同时返回原确认。`status` 返回持久偏移或已发布的固定资产。`commit` 核对整长、SHA-256、图片格式和当前授权；资产、会话授权、持久引用和来源映射在同一主库事务发布后确认。确认丢失不代表失败，不重建资产。scope ACK、来源登记、begin、status 和 commit 仅对 `ACK_UNKNOWN` 有界重试一次相同请求；chunk 确认未知先查持久偏移，若同一上传偏移未推进则仅重试原块一次。断线必须重新取得并确认 scope、重新登记来源，旧许可与旧上传句柄不能直接续用；已提交来源返回同固定资产，未提交来源重新预留。并发相同来源登记共用正在完成的登记，再检查完整来源身份，不产生互相替换的许可。原件默认单张 20971520 字节、总计 2147483648 字节、每目标 268435456 字节；按来源计费，不因物理去重减免。满额停止新采集，原件不自动过期或清理。设置入口复用 QQ 管理页的消息分类。
+
+原生适配器在读取正文和元素前检查同步范围，使用单生命周期订阅及有界目标轮转队列；完整本地缓存优先，仅自然缺失时调用精确 `downloadRichMedia` 一次，不调用 URL、文件名搜索或 `get_file` 获取图片。Linux 逐级目录 FD 和 nofollow、普通文件、硬大小、前后 fstat 及原生 MD5 检查用于安全读取。根目录、原生字段或权限无法确定时拒绝。现实现仍整体 Buffer 读取和导入，不是零拷贝。硬链接、同 UID 恶意改写、已开始的 QQ 原生传输及网络分区撤权存在边界；原生监听物理注销仍需真实事件证据，不把受控测试说成实机证明。
+
+取消关联停止采集、发布和新读取，保留文件；不自动补旧图。未采集或不可用图片仅保留原发言和占位，不回退图片 URL。现有历史采用轮次、文字图片顺序、native/role/tool/未知/审批规则及模型输入 5000000 字节、质量 85 均独立保留。自动验证入口为 `qqImageIngress.test.ts`、`qqImagePublication.test.ts`、`qqNativeAcquisition.test.ts`；真实 QQ 与模型验收需另行授权。
+
 文件消息使用有序 `parts`（文字段或附件序号），`attachments` 保留类型、名称、MIME 和 HTTPS 下载地址；缺少可用下载地址时保留明确的不可读取说明，不读取任意本地路径。只有附件的输入也可提交。后端仅在渠道名单与预设验证通过后下载、保存和加入模型输入；下载拒绝私网地址，不把第三方 URL 直接当成已保存资产。
 
 通用文件结果使用 `qq.reply.file`，携带固定 `assetId`、`assetVersionId`、名称、MIME、字节数和 SHA-256。原生适配器通过已认证 `qq.file.read` 按 256 KiB 读取，只能读取该条待发送通知对应的资产；核对长度和摘要后交给 NapCat 原生发送。图片/音频/视频发送原生消息段，其他文件使用原生上传。临时文件不是公开链接，完成或失败后删除；不支持或不确定发送时按既有回执规则报告，不能把本地保存成功当作 QQ 发送成功。`qq.reply.file` 仅在 `completeReply:true` 时为末条发送。
@@ -80,7 +96,7 @@ NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含�
 
 后端成功接受后发送 `qq.message.ack`，数据含 `eventId`、`requestId`、`state` 和可选 `queuePosition`。插件将群聊确认转换为原消息上的表情回应，私聊仍发送“收到”。群聊表情失败静默跳过，不发送失败提示，不阻断正文发送；确认处理回报允许空 messageIds，activity 在群聊表情操作成功或私聊“收到”发送成功时为 true；群聊表情从用户指定的列表随机选取，并随输出记录持久化，重放不重新选取。公开正文可随周期反馈发送；执行结束后只对尚未确认送达的剩余正文拆分发送，不在 NapCat 暂存。
 
-群聊确认的 1.5–5 秒延迟保存为发送记录的 `notBefore`，先登记再等待，重启继续使用同一条记录与原顺序。离线通信测试须覆盖这段实际等待时间，不用小于正常最大延迟的等待上限判断失败。
+群聊确认的 1.5–5 秒延迟保存为发送记录的 `notBefore`，先登记再等待；同实例普通断线保留原记录和顺序，实际关闭及新进程启动不补发。离线通信测试须覆盖这段实际等待时间，不用小于正常最大延迟的等待上限判断失败。
 
 ## 对话和声音设置
 
@@ -89,6 +105,14 @@ QQ 配置使用 voiceMode=off/requested/auto 和 voiceDefaultCharacter，默认�
 受保护的模块 GET /api/modules/qq/voices?groupId=群号 只查询当前允许群的声音目录，返回 items[{id,name,card?}]；通过现有 qq.lookup.request/result 使用 get_ai_characters，不发送QQ消息、不保存伪造列表。离线、超时或群未允许时明确失败。Manager仅展示查询和选择，不成为实时消息依赖。
 
 ## 后端到插件
+
+### 服务停止与空队列恢复
+
+`qq.service.state` 为受认证 QQ 连接的独立控制通知，不占业务发送序号。`data` 包含 `selfId`、`backendInstanceId`、`operationId`（运行时可为 null）、单实例递增 `version`、`phase:running|draining|closing`、当前有权接收关闭提示的 `targets[{conversationType,targetId}]` 和等待期间可继续回答的 `questions[{conversationType,targetId,senderId,messageIds}]`。目标仍由当前允许名单与有效预设产生，不接受 NapCat 自报名单。`qq.request.recover` 的响应同时返回 `service` 快照，消费者先应用它，再处理恢复事件；只有完成认证、身份绑定和本次恢复请求的连接能接受新实例。当前连接的通知不能切换实例，旧版本或迟到通知忽略。
+
+等待期间只允许明确引用已送达问题、且属于原目标原发起者的答案继续进入 Backend；新输入不保存、不补发，并向授权目标回复固定文字“服务已关闭”。进入 `closing` 后停止业务输出和已排队原生发送，尽力取消尚未发出的调用；已交给 QQ 的原生操作不能保证撤回。Backend 与 NapCat 将未执行输入和待投递队列结束，不把未知发送改为成功，不删除配置、身份凭据、记忆或已完成历史。Backend 新进程使用空业务队列，不自动执行旧 QQ 任务或补发旧输出；普通断线重连仍可处理同进程当前任务。
+
+NapCat 持久保存明确关闭状态及授权范围，仅在收到上述通知或本次恢复响应后启用关闭提示；普通连接断开不生成关闭事实。运行快照解除关闭标记；新实例先清理旧队列，再进入可接收状态。此功能正在源码实施，未部署或完成真实 QQ 验收。
 
 标准事件包括：
 
@@ -100,6 +124,7 @@ QQ 配置使用 voiceMode=off/requested/auto 和 voiceDefaultCharacter，默认�
 - `qq.reply.action`：原生 mention/reaction/poke/voice/quote 动作；引用与成员身份须来自当前群背景，`completeReply` 表示是否结束正文回复。
 - `qq.lookup.request`：查询当前群成员或声音目录，原生适配器通过 `qq.lookup.result` 返回实际目录或明确失败，不生成目录数据。该辅助请求不表示 QQ 消息投递。
 - `qq.information.request`：当前可信任务发起的只读查询，data.information 使用固定 kind、count（1–100）与可选资源ID，目标由任务决定。NapCat 通过 `qq.information.result` 返回 `{selfId,lookupId,targetId,success,result}`，result 为最多60000字符的JSON；只接受当前连接和待处理ID对应的目标。不作为发送事件、不记录投递ACK、不重放查询。断开或30秒无结果明确失败。
+- QQ 图片不再使用 `image_refresh` 查询；共享 strict schema 拒绝该旧 kind。旧存储地址不会被用于回退下载。
 - `qq.reply.completed`：本次回复结束。
 - `qq.request.failed`：失败、取消或超时，使用固定用户可见文案。
 - `qq.request.recovered`：断线恢复后重新可观察的请求状态。

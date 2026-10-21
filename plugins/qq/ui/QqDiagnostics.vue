@@ -25,6 +25,7 @@ onMounted(() => void readMemory())
       <article><h3>插件与身份</h3><p>已安装：{{ flag(state.status.installed) }} · 已启用：{{ flag(state.status.enabled) }}</p><p>活动版本：{{ state.status.activeVersion || '未读取' }}</p><p>NapCat 已连接：{{ flag(state.status.napcatConnected) }}</p><p>身份已验证：{{ flag(state.status.trustedIdentity) }}</p><p>QQ 在线：{{ flag(state.status.qqOnline) }}</p></article>
       <article><h3>业务准备情况</h3><p>业务暂停：{{ flag(state.status.paused) }}</p><p>保存版本：{{ state.status.savedRevision ?? '未知' }} · 应用版本：{{ state.status.appliedRevision ?? '未知' }}</p><p>{{ applyLabel(state.status.apply?.state) }}</p><p>缺少绑定：{{ state.status.missingBindings?.join('、') || '无' }}</p><p>资源缺失：{{ state.status.missingResources?.join('、') || '无' }}</p><p v-for="reason in state.status.reasons" :key="reason">{{ reason }}</p></article>
     </div>
+    <article v-if="state.status?.summaries?.length"><h3>讨论总结</h3><p v-for="item in state.status.summaries" :key="item.target">{{ item.target }} · {{ ({ pending: '等待整理', running: '正在整理', completed: '已完成', failed: '未完成', cancelled: '已让位给新请求' } as Record<string,string>)[item.status] }} · {{ ({history:'读取历史',memory:'保存群记忆',summary:'生成摘要',commit:'保存摘要'} as Record<string,string>)[item.phase] || item.phase }}<span v-if="item.lastSummaryAt"> · 上次完成 {{ new Date(item.lastSummaryAt).toLocaleString() }}</span><span v-if="item.throughEventId"> · 覆盖消息 {{ item.throughEventId }}</span><span v-if="item.reason"> · {{ item.reason }}</span></p></article>
     <p class="muted">Manager 不启停 NapCat，不负责实时 QQ 消息。连接成功不等于目标已允许或模型可用。</p>
   </section>
   <slot name="token" />

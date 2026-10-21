@@ -134,6 +134,7 @@ export default class AgentSession<T = unknown> {
       extraUserMessages?: string[]
       inputMeta?: Omit<Partial<UserInputEntry>, 'content' | 'time'>
       inputAlreadyQueued?: boolean
+      resumeMeta?: Omit<Partial<UserInputEntry>, 'content' | 'time'>
     },
   ): AsyncGenerator<T, void, unknown> {
     this.requireInitialized()
@@ -150,6 +151,7 @@ export default class AgentSession<T = unknown> {
     }
     if (!options?.inputAlreadyQueued) this.journal.appendUserInput(input, options?.inputMeta)
     try {
+      if (options?.resumeMeta) await prepareRequest(this.ctx, { content: '', time: Date.now(), ...options.resumeMeta })
       yield* this.pipeline.run()
       if (compactRequested) {
         const tokenCount = this.journal

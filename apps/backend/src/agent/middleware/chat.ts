@@ -453,6 +453,16 @@ async function* handleRequestLocal(
       name: call.name || '',
       arguments: call.arguments,
     }))
+    // Questions leave request-local history: the durable checkpoint must own
+    // their assistant/tool placeholders so the existing batch answer contract
+    // can replace them and resume without replaying any preceding tool.
+    const questions = complete.filter(call => call.name === 'ask_user_question')
+    if (questions.length) {
+      yield { type: 'stream', contentDelta: content, thinkingDelta: '', senseDelta: complete.map((call, index) => ({ ...call, index })) }
+      // The normal tool middleware executes these calls once and checkpoint
+      // persists their results; do not also execute them in this local loop.
+      return
+    }
     history.push({
       id: randomUUID(),
       role: 'assistant',

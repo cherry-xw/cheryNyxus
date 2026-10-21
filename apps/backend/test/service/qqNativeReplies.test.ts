@@ -10,15 +10,33 @@ function fixture() {
   const request = vi.fn(async () => ({ success: true }))
   const adapter = new Adapter({ dataPath: root, actions: { call }, logger: {}, pluginManager: { config: {} } } as any, { request } as any)
   ;(adapter as any).selfId = '123'
+  ;(adapter as any).authenticated = true
   return { adapter, call, request }
 }
 function event(kind: string, extra: object = {}) { return { kind: 'notification', type: 'qq.reply.action', data: { selfId: '123', targetId: '456', conversationType: 'group', requestId: 'r', eventId: kind, seq: 1, actionKind: kind, completeReply: true, text: '你好', ...extra } } }
 describe('native QQ adapter actions', () => {
+  it.each(['reaction','poke'].flatMap(kind=>[{result:false},{status:'failed'},{retcode:1400}].map(result=>({kind,result}))))('persists explicit native failure %j rather than sent',async ({kind,result})=>{
+    const f=fixture();f.call.mockResolvedValue(result as any)
+    await (f.adapter as any).notification(event(kind,{emojiId:'4',messageId:'11',userId:'789'}))
+    expect(f.request).toHaveBeenCalledWith('qq.delivery.result',expect.objectContaining({status:'failed'}))
+    expect((f.adapter as any).journal.outputs[kind].status).toBe('failed')
+  })
+  it.each([undefined,null,'abc','',1.5,Number.MAX_SAFE_INTEGER+1])('does not confirm invalid native message ID %s',async id=>{
+    const f=fixture();f.call.mockResolvedValue({message_id:id} as any)
+    await (f.adapter as any).notification(event('quote',{messageId:'11'}))
+    expect(f.request).toHaveBeenCalledWith('qq.delivery.result',expect.objectContaining({status:'unknown'}))
+  })
+  it('delivers a private question quote without group-only actions',async()=>{
+    const f=fixture()
+    await (f.adapter as any).notification(event('quote',{conversationType:'private',messageId:'11',completeReply:false}))
+    expect(f.call).toHaveBeenCalledWith('send_msg',expect.objectContaining({user_id:'456',message_type:'private',message:[{type:'reply',data:{id:'11'}},{type:'text',data:{text:'你好'}}]}),undefined,{})
+    expect(f.request).toHaveBeenCalledWith('qq.delivery.result',expect.objectContaining({conversationType:'private',status:'sent',terminal:false}))
+  })
   it('sends native mention and voice, without an extra text response', async () => {
     const f = fixture()
     await (f.adapter as any).notification(event('mention', { userId: '789' }))
     expect(f.call).toHaveBeenCalledWith('send_msg', expect.objectContaining({ message: [{ type: 'at', data: { qq: '789' } }, { type: 'text', data: { text: '你好' } }] }), undefined, {})
-    await (f.adapter as any).notification(event('voice', { character: 'voice-1' }))
+    await (f.adapter as any).notification(event('voice', { character: 'voice-1', seq: 2 }))
     expect(f.call).toHaveBeenCalledWith('send_group_ai_record', { group_id: '456', character: 'voice-1', text: '你好' }, undefined, {})
     expect(f.call).toHaveBeenCalledTimes(2)
     expect(f.request).toHaveBeenLastCalledWith('qq.delivery.result', expect.objectContaining({ messageIds: ['42'], terminal: true, status: 'sent' }))

@@ -4,6 +4,7 @@ import { QQCapabilities, QQDeliveryResultRequestSchema, type QQNotification } fr
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Adapter } from '../src/adapter.js'
 import type { BackendWire } from '../src/wire.js'
+import { serviceFixture } from './serviceFixture.js'
 
 let root: string
 let adapter: Adapter | undefined
@@ -22,7 +23,8 @@ async function setup() {
   const request = vi.fn(async (method: string, _params: unknown): Promise<any> => {
     const data = method === 'qq.plugin.hello' ? { protocolVersion: 1, backendVersion: 'test', selfId: '123', authenticated: true, capabilities: [...QQCapabilities] }
       : method === 'qq.identity.bind' ? { bound: true, selfId: '123', sourceType: 'napcat-action', validation: 'accepted' }
-      : method === 'qq.request.recover' ? { events: [] }
+      : method === 'qq.image.scope.get' ? {schemaVersion:1,backendEpoch:'epoch',connectionGeneration:'generation',sessionId:'session',selfId:'123',appliedRevision:0,scopeDigest:'0'.repeat(64),enabled:true,allowedTargets:[{conversationType:'group',targetId:'456'},{conversationType:'private',targetId:'789'},{conversationType:'private',targetId:'999'}],targets:[],limits:{}}
+      : method === 'qq.request.recover' ? { events: [], service: serviceFixture() }
       : method === 'qq.file.read' ? { offset: 0, dataBase64: bytes.toString('base64'), eof: true } : { recorded: true }
     return { success: true, data }
   })
