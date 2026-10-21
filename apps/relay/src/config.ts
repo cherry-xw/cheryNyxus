@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export interface RelayLimits {
@@ -18,7 +19,6 @@ export interface RelayConfig {
   publicOrigin: string
   identityFile?: string
   authorizationFile?: string
-  sessionSecret: string
   /** Secret used only by the loopback manager to mutate relay policy. */
   adminSecret?: string
   sessionTtlSeconds: number
@@ -30,6 +30,8 @@ export interface RelayConfig {
   tunnelWebsocketPortStart?: number
   limits: RelayLimits
   oidc?: { issuer: string; clientId: string; clientSecret?: string; redirectUri: string }
+  rathole?: { configFile: string; bindAddr: string; transport: string }
+  userProof?: { issuer: string; kid: string; privateKeyPem: string }
 }
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -41,34 +43,30 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
 export function normalizeBasePath(value: string | undefined): string {
   if (!value || value === '/') return ''
   const normalized = `/${value.replace(/^\/+|\/+$/g, '')}`
-  if (normalized.includes('..') || normalized.includes('\\')) {
+  if (!/^\/[A-Za-z0-9/_-]*$/.test(normalized) || normalized.split('/').some((part) => part === '.' || part === '..')) {
     throw new Error('RELAY_PUBLIC_BASE_PATH must not contain traversal segments')
   }
   return normalized
 }
 
 export function loadRelayConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
-  const sessionSecret = env.RELAY_SESSION_SECRET ?? ''
-  if (Buffer.byteLength(sessionSecret) < 32) {
-    throw new Error('RELAY_SESSION_SECRET must contain at least 32 bytes')
-  }
-  const publicOrigin = env.RELAY_PUBLIC_ORIGIN ?? 'http://127.0.0.1:4080'
+  const publicOrigin = env.RELAY_PUBLIC_ORIGIN
+  if (!publicOrigin) throw new Error('RELAY_PUBLIC_ORIGIN is required')
   const parsedOrigin = new URL(publicOrigin)
-  if (parsedOrigin.protocol !== 'http:' && parsedOrigin.protocol !== 'https:') {
+  if (parsedOrigin.origin !== publicOrigin || parsedOrigin.username || parsedOrigin.password || (parsedOrigin.protocol !== 'http:' && parsedOrigin.protocol !== 'https:')) {
     throw new Error('RELAY_PUBLIC_ORIGIN must use http or https')
   }
   const oidcIssuer = env.RELAY_OIDC_ISSUER?.trim()
   const oidc = oidcIssuer && env.RELAY_OIDC_CLIENT_ID
-    ? { issuer: new URL(oidcIssuer).origin, clientId: env.RELAY_OIDC_CLIENT_ID, ...(env.RELAY_OIDC_CLIENT_SECRET ? { clientSecret: env.RELAY_OIDC_CLIENT_SECRET } : {}), redirectUri: env.RELAY_OIDC_REDIRECT_URI ?? `${parsedOrigin.origin}${normalizeBasePath(env.RELAY_PUBLIC_BASE_PATH)}/api/auth/oidc/callback` }
+    ? { issuer: oidcIssuer, clientId: env.RELAY_OIDC_CLIENT_ID, ...(env.RELAY_OIDC_CLIENT_SECRET ? { clientSecret: env.RELAY_OIDC_CLIENT_SECRET } : {}), redirectUri: env.RELAY_OIDC_REDIRECT_URI ?? `${parsedOrigin.origin}${normalizeBasePath(env.RELAY_PUBLIC_BASE_PATH)}/api/auth/oidc/callback` }
     : undefined
   return {
-    host: env.RELAY_HOST ?? '127.0.0.1',
+  host: env.RELAY_HOST ?? '0.0.0.0',
     port: positiveInteger(env.RELAY_PORT, 4080, 'RELAY_PORT'),
     publicBasePath: normalizeBasePath(env.RELAY_PUBLIC_BASE_PATH),
     publicOrigin: parsedOrigin.origin,
     identityFile: resolve(env.RELAY_IDENTITY_FILE ?? './relay-data/identities.json'),
     authorizationFile: resolve(env.RELAY_AUTHORIZATION_FILE ?? './relay-data/authorizations.json'),
-    sessionSecret,
     ...(env.RELAY_ADMIN_SECRET ? { adminSecret: env.RELAY_ADMIN_SECRET } : {}),
     sessionTtlSeconds: positiveInteger(env.RELAY_SESSION_TTL_SECONDS, 8 * 60 * 60, 'RELAY_SESSION_TTL_SECONDS'),
     challengeTtlMs: positiveInteger(env.RELAY_CHALLENGE_TTL_MS, 30_000, 'RELAY_CHALLENGE_TTL_MS'),
@@ -88,5 +86,7 @@ export function loadRelayConfig(env: NodeJS.ProcessEnv = process.env): RelayConf
       upstreamTimeoutMs: positiveInteger(env.RELAY_UPSTREAM_TIMEOUT_MS, 30_000, 'RELAY_UPSTREAM_TIMEOUT_MS'),
     },
     oidc,
+    ...(env.RELAY_RATHOLE_CONFIG_FILE && env.RELAY_RATHOLE_TRANSPORT_FILE ? { rathole: { configFile: resolve(env.RELAY_RATHOLE_CONFIG_FILE), bindAddr: env.RELAY_RATHOLE_BIND_ADDR ?? '0.0.0.0:2333', transport: readFileSync(resolve(env.RELAY_RATHOLE_TRANSPORT_FILE), 'utf8') } } : {}),
+    ...(env.RELAY_USER_PROOF_KEY_FILE && env.RELAY_USER_PROOF_KID ? { userProof: { issuer: env.RELAY_USER_PROOF_ISSUER ?? parsedOrigin.origin, kid: env.RELAY_USER_PROOF_KID, privateKeyPem: readFileSync(resolve(env.RELAY_USER_PROOF_KEY_FILE), 'utf8') } } : {}),
   }
 }

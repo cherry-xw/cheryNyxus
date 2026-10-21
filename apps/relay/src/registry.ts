@@ -17,6 +17,7 @@ interface ActiveBackend {
   leaseId: string
   leaseExpiresAt: number
   configVersion: number
+  ready: boolean
   tunnel: { httpBindAddr: string; websocketBindAddr: string }
 }
 
@@ -24,6 +25,8 @@ export class BackendRegistry {
   private readonly active = new Map<string, ActiveBackend>()
   private readonly websocketCounts = new Map<string, number>()
   private totalBrowserWebSockets = 0
+  private readonly retiredPorts = new Map<string, number[]>()
+  releaseRetiredLease(leaseId: string): void { this.retiredPorts.delete(leaseId) }
 
   constructor(
     private readonly identities: IdentityStore,
@@ -50,9 +53,10 @@ export class BackendRegistry {
     const leaseId = randomBytes(18).toString('base64url')
     const opaque = randomBytes(18).toString('base64url')
     const token = randomBytes(32).toString('base64url')
-    const usedHttpPorts = new Set([...this.active.values()].map((item) => Number(item.tunnel.httpBindAddr.split(':').pop())))
-    const usedWsPorts = new Set([...this.active.values()].map((item) => Number(item.tunnel.websocketBindAddr.split(':').pop())))
+    const usedHttpPorts = new Set([...this.active.values()].flatMap((item) => [Number(item.tunnel.httpBindAddr.split(':').pop()), Number(item.tunnel.websocketBindAddr.split(':').pop())]).concat([...this.retiredPorts.values()].flat()))
+    const usedWsPorts = usedHttpPorts
     const httpPort = findFreePort(this.config.tunnelHttpPortStart ?? 42000, usedHttpPorts)
+    usedWsPorts.add(httpPort)
     const websocketPort = findFreePort(this.config.tunnelWebsocketPortStart ?? 43000, usedWsPorts)
     const tunnel = {
       httpBindAddr: `${this.config.tunnelBindHost ?? '127.0.0.1'}:${httpPort}`,
@@ -61,6 +65,7 @@ export class BackendRegistry {
     const leaseExpiresAt = Date.now() + this.config.leaseTtlMs
     this.active.set(input.identity.backendId, {
       ...input,
+      ready: false,
       leaseId,
       leaseExpiresAt,
       tunnel,
@@ -82,6 +87,12 @@ export class BackendRegistry {
     }
   }
 
+  authorizationSocket(backendId: string): WebSocket | undefined { return this.active.get(backendId)?.socket }
+  markReady(backendId: string, leaseId: string): void {
+    const active = this.active.get(backendId)
+    if (!active || active.leaseId !== leaseId || active.leaseExpiresAt <= Date.now()) throw new RelayError('BACKEND_AUTH_FAILED', 'Lease inactive')
+    active.ready = true
+  }
   heartbeat(backendId: string, leaseId: string): string {
     const active = this.active.get(backendId)
     if (!active || active.leaseId !== leaseId || active.leaseExpiresAt <= Date.now()) {
@@ -93,12 +104,13 @@ export class BackendRegistry {
 
   disconnect(backendId: string, socket: WebSocket): void {
     const active = this.active.get(backendId)
-    if (active?.socket === socket) this.active.delete(backendId)
+    if (active?.socket === socket) { this.retiredPorts.set(active.leaseId, [Number(active.tunnel.httpBindAddr.split(':').pop()), Number(active.tunnel.websocketBindAddr.split(':').pop())]); this.active.delete(backendId) }
   }
 
   expire(now = Date.now()): void {
     for (const [backendId, active] of this.active) {
       if (active.leaseExpiresAt <= now) {
+        this.retiredPorts.set(active.leaseId, [Number(active.tunnel.httpBindAddr.split(':').pop()), Number(active.tunnel.websocketBindAddr.split(':').pop())])
         this.active.delete(backendId)
         active.socket.close(4001, 'Lease expired')
       }
@@ -150,7 +162,7 @@ export class BackendRegistry {
 
   private summary(identity: KnownBackendIdentity): RelayBackendSummary {
     const active = this.active.get(identity.backendId)
-    const online = Boolean(active && active.leaseExpiresAt > Date.now())
+    const online = Boolean(active && active.ready && active.leaseExpiresAt > Date.now())
     return {
       backendId: identity.backendId,
       displayName: identity.displayName,

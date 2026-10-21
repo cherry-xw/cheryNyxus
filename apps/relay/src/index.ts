@@ -14,6 +14,8 @@ export * from './client.js'
 
 async function main(): Promise<void> {
   const config = loadRelayConfig()
+  if (!config.rathole || !config.identityFile || !config.authorizationFile) throw new Error('Relay production requires encrypted rathole and persistent device stores')
+  if (config.oidc && !config.userProof) throw new Error('Business OIDC requires a user-proof signing identity')
   const service = await createRelayService({ config })
   const address = await service.listen()
   process.stdout.write(

@@ -1,4 +1,10 @@
-import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
+import { RatholeLeaseManager, confirmPrivateListeners, verifyPrivateListeners } from './ratholeLeaseManager.js'
+import { RelayBrowserSessions } from './browserSessions.js'
+import { readSessionCookie } from './browserSessionStore.js'
+import { UserProofSigner } from './userProof.js'
+import { BusinessOidc } from './oidc.js'
+import { BootstrapSchema, readBusinessSelection, DeviceBindingRequestSchema, DeviceControlMessageSchema, RelayHelloSchema } from '@chery/protocol'
+import { createPublicKey, randomBytes, verify } from 'node:crypto'
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocket, WebSocketServer } from 'ws'
@@ -16,11 +22,6 @@ import type { RelayAuditLogger } from './logger.js'
 import { jsonAuditLogger } from './logger.js'
 import { FixedWindowRateLimiter } from './rateLimit.js'
 import { BackendRegistry } from './registry.js'
-import {
-  backendSessionCookie,
-  createBackendSession,
-  readBackendSessionPayload,
-} from './session.js'
 import { AuthorizationStore } from './authorizationStore.js'
 import { LoopbackTunnelAdapter } from './tunnelAdapter.js'
 
@@ -41,6 +42,7 @@ export interface CreateRelayServiceOptions {
   adapter?: RelayTargetAdapter
   identityStore?: IdentityStore
   logger?: RelayAuditLogger
+  leaseManager?: Pick<RatholeLeaseManager, 'initialize' | 'add' | 'remove'>
 }
 
 export interface RelayService {
@@ -54,14 +56,27 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
   const audit = options.logger ?? jsonAuditLogger
   const identities = options.identityStore ?? new IdentityStore(config.identityFile)
   await identities.load()
-  const authorizations = new AuthorizationStore(config.authorizationFile, { confirmationBaseUrl: config.publicOrigin + config.publicBasePath })
+  const authorizations = new AuthorizationStore(config.authorizationFile, { confirmationBaseUrl: config.publicOrigin + config.publicBasePath, currentFingerprint: (id) => identities.get(id)?.fingerprint })
   await authorizations.load()
   const registry = new BackendRegistry(identities, config)
+  const authorizationSync = new Map<string, string>()
+  const authorizationDirty = new Set<string>()
+  function synchronizeAuthorizations(backendId: string): void {
+    const socket = registry.authorizationSocket(backendId)
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    if (authorizationSync.has(backendId)) { authorizationDirty.add(backendId); return }
+    const revision = randomBytes(24).toString('base64url'); authorizationSync.set(backendId, revision)
+    socket.send(JSON.stringify({ type: 'authorizations.snapshot', revision, authorizations: authorizations.listAuthorizationsForBackend(backendId).map((a) => ({ id: a.bindingId, revision: a.revision ?? 1, subject: a.identity.subject })) }))
+  }
   const adapter = options.adapter ?? new LoopbackTunnelAdapter(registry)
+  const signer = config.userProof ? new UserProofSigner(config.userProof.issuer, config.userProof.kid, config.userProof.privateKeyPem) : undefined
+  const browser = new RelayBrowserSessions(config, registry, authorizations, adapter, signer, authorizationSync)
+  const tunnels = options.leaseManager ?? (config.rathole ? new RatholeLeaseManager(config.rathole.configFile, config.rathole.bindAddr, confirmPrivateListeners, config.rathole.transport) : undefined)
+  await tunnels?.initialize()
   const limiter = new FixedWindowRateLimiter(config.limits.requestsPerMinutePerIp)
   const controlWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
   const browserWss = new WebSocketServer({ noServer: true, maxPayload: config.limits.maxRequestBytes })
-  const oidcStates = new Map<string, { verifier: string; expiresAt: number }>()
+  const oidc = config.oidc ? new BusinessOidc(config.oidc, config.publicBasePath) : undefined
   let activeHttp = 0
 
   const server = createServer((req, res) => {
@@ -113,25 +128,28 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       if (!match?.[1]) throw new RelayError('INVALID_REQUEST', 'WebSocket path is not allowed')
       const backendId = match[1]
       assertBackendId(backendId)
-       const session = requireBoundBackend(req, backendId)
-       if (session.kind === 'oidc' && (!session.issuer || !session.subject || !authorizations.isAuthorized({ issuer: session.issuer, subject: session.subject }, backendId))) {
-         throw new RelayError('USER_BACKEND_FORBIDDEN', 'User is not authorized for this backend')
-       }
-       if (session.kind === 'password' && !authorizations.getBackendPolicy(backendId).remotePasswordEnabled) {
-         throw new RelayError('PASSWORD_LOGIN_DISABLED', 'Remote password login is disabled')
-       }
+       if (req.headers.origin !== config.publicOrigin) throw new RelayError('USER_BACKEND_FORBIDDEN', 'Origin rejected')
+       const incoming = new URL(req.url ?? '/', config.publicOrigin)
+       const allowed = new Set(['ticket', 'profile', 'v', 'maxFrameBytes', 'turnDelta', 'protocolVersion', 'bootstrapVersion', 'instanceId', 'capabilityRevision'])
+       if (incoming.search.length > 8192 || [...incoming.searchParams.keys()].some((key) => !allowed.has(key) || incoming.searchParams.getAll(key).length !== 1)) throw new RelayError('INVALID_REQUEST', 'Invalid WebSocket query')
+       readBusinessSelection(incoming)
+       const ticket = incoming.searchParams.get('ticket') ?? ''
+       incoming.searchParams.delete('ticket')
+       const upstreamPath = '/ws' + incoming.search
+       const businessSession = browser.store.consume(ticket, { backendId, origin: config.publicOrigin, basePath: config.publicBasePath, httpBasePath: `${config.publicBasePath}/backend/${backendId}`, wsPath: `${config.publicBasePath}/backend/${backendId}/ws` })
+       browser.validate(businessSession, backendId)
       registry.requireOnline(backendId)
       const release = registry.acquireBrowserWebSocket(backendId)
       browserWss.handleUpgrade(req, socket, head, (client) => {
         client.once('close', release)
-        const headers = forwardedHeaders(req.headers, requestId)
+        const detach = browser.store.attach(businessSession.id, client)
+        client.once('close', detach)
+        const headers = { ...forwardedHeaders(req.headers, requestId), ...browser.headers(businessSession, 'GET', upstreamPath) }
         Promise.resolve(
           adapter.acceptWebSocket({
             requestId,
             backendId,
-            path: new URL(req.url ?? '/ws', config.publicOrigin).search
-              ? `/ws${new URL(req.url ?? '/ws', config.publicOrigin).search}`
-              : '/ws',
+            path: upstreamPath,
             headers,
             client,
           }),
@@ -157,7 +175,17 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
     }
   })
 
-  const sweep = setInterval(() => registry.expire(), Math.min(config.heartbeatIntervalMs, 5_000))
+  const sweep = setInterval(() => {
+    registry.expire(); browser.store.sweep()
+    browser.store.revokeWhere((session) => {
+      const target = session.view.target?.backendId
+      if (!target) return false
+      if (registry.get(target)?.status !== 'online') return true
+      if (session.view.mode === 'relay-oidc') return !session.view.identity.issuer || !authorizations.isAuthorized({ issuer: session.view.identity.issuer, subject: session.view.identity.subject }, target)
+      return !authorizations.getBackendPolicy(target).remotePasswordEnabled
+    })
+    void authorizations.expire().catch(() => {})
+  }, Math.min(config.heartbeatIntervalMs, 5_000))
   sweep.unref()
 
   async function handleHttp(
@@ -171,19 +199,9 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       return { category: 'health' }
     }
     limiter.consume(clientIp(req))
+    if (await browser.handle(req, res, route)) return { category: 'binding' }
     if (route === '/api/auth/capabilities' && req.method === 'GET') {
-      writeJson(res, 200, { password: true, oidc: Boolean(config.oidc) })
-      return { category: 'binding' }
-    }
-    if (route === '/api/auth/logout' && (req.method === 'POST' || req.method === 'GET')) {
-      res.setHeader('Set-Cookie', backendSessionCookie({
-        value: '',
-        basePath: config.publicBasePath,
-        secure: new URL(config.publicOrigin).protocol === 'https:',
-        maxAge: 0,
-      }))
-      res.writeHead(204, { 'Cache-Control': 'no-store' })
-      res.end()
+      writeJson(res, 200, { password: true, oidc: Boolean(config.oidc && signer), service: 'relay', ...browser.context(req, res) })
       return { category: 'binding' }
     }
     if (route === '/api/admin/backends/policy' && (req.method === 'PUT' || req.method === 'POST')) {
@@ -226,70 +244,64 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       requireAdmin(req)
       const body = await readJsonBody<{ bindingId?: unknown }>(req, 16 * 1024)
       if (typeof body.bindingId !== 'string') throw new RelayError('INVALID_REQUEST', 'bindingId is required')
+      const binding = authorizations.getAuthorization(body.bindingId)
       const changed = await authorizations.revokeAuthorization(body.bindingId)
+      if (binding) browser.store.revokeWhere((session) => session.view.identity.provider === 'oidc' && session.view.identity.issuer === binding.identity.issuer && session.view.identity.subject === binding.identity.subject && session.view.target?.backendId === binding.backendId)
+      if (binding) synchronizeAuthorizations(binding.backendId)
       writeJson(res, 200, { revoked: changed })
       return { category: 'binding' }
     }
     if (route === '/api/auth/oidc/start' && req.method === 'GET') {
-      if (!config.oidc) throw new RelayError('OIDC_LOGIN_UNAVAILABLE', 'Pocket ID is not configured on this relay')
-      const state = randomBytes(24).toString('base64url')
-      const verifier = randomBytes(32).toString('base64url')
-      oidcStates.set(state, { verifier, expiresAt: Date.now() + 5 * 60_000 })
-      const challenge = createHash('sha256').update(verifier).digest('base64url')
-      const url = new URL('/authorize', config.oidc.issuer)
-      url.searchParams.set('client_id', config.oidc.clientId); url.searchParams.set('redirect_uri', config.oidc.redirectUri)
-      url.searchParams.set('response_type', 'code'); url.searchParams.set('scope', 'openid profile'); url.searchParams.set('state', state)
-      url.searchParams.set('code_challenge', challenge); url.searchParams.set('code_challenge_method', 'S256')
-      res.writeHead(302, {
-        Location: url.toString(),
-        'Set-Cookie': `chery_oidc_state=${encodeURIComponent(state)}; HttpOnly; SameSite=Lax; Path=${config.publicBasePath || '/'}`,
-      }); res.end()
+      if (!oidc) throw new RelayError('OIDC_LOGIN_UNAVAILABLE', 'Pocket ID is not configured on this relay')
+      const returnTo = new URL(req.url ?? '/', config.publicOrigin).searchParams.get('returnTo') ?? `${config.publicBasePath}/`
+      const started = await oidc.begin(returnTo)
+      res.writeHead(302, { Location: started.url, 'Cache-Control': 'no-store', 'Set-Cookie': `chery_oidc_state=${started.binding}; HttpOnly; SameSite=Lax; Max-Age=300; Path=${config.publicBasePath || '/'}${new URL(config.publicOrigin).protocol === 'https:' ? '; Secure' : ''}` }); res.end()
       return { category: 'binding' }
     }
     if (route === '/api/auth/oidc/callback' && req.method === 'GET') {
-      if (!config.oidc) throw new RelayError('OIDC_LOGIN_UNAVAILABLE', 'Pocket ID is not configured on this relay')
-      const query = new URL(req.url ?? '/', config.publicOrigin).searchParams
-      const state = query.get('state') ?? ''; const code = query.get('code') ?? ''
-      const saved = oidcStates.get(state); oidcStates.delete(state)
-      const stateCookie = readCookie(req.headers.cookie, 'chery_oidc_state')
-      if (!saved || saved.expiresAt < Date.now() || !code || stateCookie !== state) throw new RelayError('AUTH_REQUIRED', 'OIDC callback is invalid or expired')
-      const tokenResponse = await fetch(new URL('/token', config.oidc.issuer), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: config.oidc.redirectUri, client_id: config.oidc.clientId, ...(config.oidc.clientSecret ? { client_secret: config.oidc.clientSecret } : {}), code_verifier: saved.verifier }) })
-      if (!tokenResponse.ok) throw new RelayError('AUTH_REQUIRED', 'OIDC token exchange failed')
-      const tokens = await tokenResponse.json() as { access_token?: string }
-      if (!tokens.access_token) throw new RelayError('AUTH_REQUIRED', 'OIDC token response is invalid')
-      const userResponse = await fetch(new URL('/userinfo', config.oidc.issuer), { headers: { Authorization: `Bearer ${tokens.access_token}` } })
-      if (!userResponse.ok) throw new RelayError('AUTH_REQUIRED', 'OIDC user information request failed')
-      const user = await userResponse.json() as { sub?: string }
-      if (!user.sub) throw new RelayError('AUTH_REQUIRED', 'OIDC user identity is missing')
-      const value = createBackendSession('*', config.sessionSecret, config.sessionTtlSeconds, { kind: 'oidc', issuer: config.oidc.issuer, subject: user.sub, sessionId: randomUUID() })
-      res.setHeader('Set-Cookie', [
-        backendSessionCookie({ value, basePath: config.publicBasePath, secure: new URL(config.publicOrigin).protocol === 'https:', maxAge: config.sessionTtlSeconds }),
-        `chery_oidc_state=; Max-Age=0; HttpOnly; SameSite=Lax; Path=${config.publicBasePath || '/'}`,
-      ])
-      res.writeHead(302, { Location: `${config.publicBasePath || ''}/` }); res.end()
+      if (!oidc || !config.oidc) throw new RelayError('OIDC_LOGIN_UNAVAILABLE', 'Pocket ID is not configured on this relay')
+      const cleared = `chery_oidc_state=; HttpOnly; SameSite=Lax; Max-Age=0; Path=${config.publicBasePath || '/'}${new URL(config.publicOrigin).protocol === 'https:' ? '; Secure' : ''}`
+      res.setHeader('Set-Cookie', cleared)
+      const user = await oidc.finish(new URL(req.url ?? '/', config.publicOrigin), readCookie(req.headers.cookie, 'chery_oidc_state') ?? '')
+      browser.oidc(res, user, readSessionCookie(req.headers.cookie))
+      const businessCookie = res.getHeader('Set-Cookie')
+      res.setHeader('Set-Cookie', [String(businessCookie), cleared])
+      res.writeHead(302, { Location: user.returnTo, 'Cache-Control': 'no-store' }); res.end()
       return { category: 'binding' }
     }
     const bindingConfirmation = /^\/bindings\/([^/]+)$/.exec(route)
     if (bindingConfirmation?.[1] && (req.method === 'GET' || req.method === 'POST')) {
-      const session = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
-      if (session?.kind !== 'oidc' || !session.issuer || !session.subject) {
-        throw new RelayError('AUTH_REQUIRED', 'Pocket ID login is required to confirm a binding')
+      let session
+      try { session = browser.read(req) } catch {
+        if (req.method !== 'GET') throw new RelayError('AUTH_REQUIRED', 'Pocket ID login required')
+        res.writeHead(302, { Location: `${config.publicBasePath}/api/auth/oidc/start?returnTo=${encodeURIComponent(config.publicBasePath + route)}`, 'Cache-Control': 'no-store' }); res.end(); return { category: 'binding' }
       }
+      if (session.view.identity.provider !== 'oidc' || !session.view.identity.issuer) throw new RelayError('AUTH_REQUIRED', 'Pocket ID login required')
       const request = authorizations.getBindingRequest(bindingConfirmation[1])
       if (!request) throw new RelayError('BINDING_NOT_FOUND', 'Binding request was not found')
       if (req.method === 'GET') {
-        writeJson(res, 200, { request })
+        const escape = (v: string) => v.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+        const csrf = session.view.csrfToken
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'" })
+        res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>确认设备授权</title><body><main><h1>允许当前Pocket ID账号访问这台后端</h1><p>账号：${escape(session.view.identity.subject)}</p><p>来源：${escape(session.view.identity.issuer)}</p><p>设备：${escape(request.displayName)} / ${escape(request.backendId)}</p><p>指纹：${escape(request.publicKeyFingerprint)}</p><p>有效期：${escape(request.expiresAt)}</p><p>权限：后端业务使用，不包含Manager管理权限</p><button id="confirm">确认授权</button><button id="cancel">取消</button><p id="result" role="status"></p></main><script>async function submit(cancel){let r=await fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':${JSON.stringify(csrf)}},body:JSON.stringify({cancel})});document.getElementById('result').textContent=r.ok?'操作已完成':'操作未完成，请刷新核对申请';}document.getElementById('confirm').onclick=()=>submit(false);document.getElementById('cancel').onclick=()=>submit(true);</script></body></html>`)
       } else {
-        const authorization = await authorizations.confirmBindingRequest(bindingConfirmation[1], { issuer: session.issuer, subject: session.subject })
-        writeJson(res, 200, { authorization })
+        browser.writeGuard(req); browser.store.checkCsrf(session.id, String(req.headers['x-csrf-token'] ?? ''))
+        const body = await readJsonBody<{ cancel?: boolean }>(req, 16384)
+        if (body.cancel) writeJson(res, 200, { cancelled: await authorizations.cancelBindingRequest(bindingConfirmation[1]) })
+        else {
+          const authorization = await authorizations.confirmBindingRequest(bindingConfirmation[1], { issuer: session.view.identity.issuer, subject: session.view.identity.subject })
+          synchronizeAuthorizations(request.backendId)
+          writeJson(res, 200, { authorization, applyState: 'pending-device-ack' })
+        }
       }
       return { category: 'binding', backendId: request.backendId }
     }
     if (route === '/api/backends' && req.method === 'GET') {
-      const session = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
-      const backends = registry.list().filter((item) => item.status === 'online' && (session?.kind === 'oidc'
-        ? Boolean(session.subject && session.issuer && authorizations.isAuthorized({ issuer: session.issuer, subject: session.subject }, item.backendId))
-        : authorizations.getBackendPolicy(item.backendId).publicDiscovery))
+      let session
+      try { session = browser.read(req) } catch { session = undefined }
+      const backends = registry.list().filter((item) => session?.view.mode === 'relay-oidc'
+        ? Boolean(session.view.identity.issuer && authorizations.isAuthorized({ issuer: session.view.identity.issuer, subject: session.view.identity.subject }, item.backendId))
+        : item.status === 'online' && authorizations.getBackendPolicy(item.backendId).publicDiscovery)
       writeJson(res, 200, { backends })
       return { category: 'list' }
     }
@@ -298,56 +310,25 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       const backendId = discovery[1]
       assertBackendId(backendId)
       const summary = registry.requireOnline(backendId)
-      const session = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
-      if (!authorizations.getBackendPolicy(backendId).publicDiscovery && !(session?.kind === 'oidc' && session.issuer && session.subject && authorizations.isAuthorized({ issuer: session.issuer, subject: session.subject }, backendId))) {
+      let session
+      try { session = browser.read(req) } catch { session = undefined }
+      if (!authorizations.getBackendPolicy(backendId).publicDiscovery && !(session?.view.identity.provider === 'oidc' && session.view.identity.issuer && authorizations.isAuthorized({ issuer: session.view.identity.issuer, subject: session.view.identity.subject }, backendId))) {
         throw new RelayError('PUBLIC_DISCOVERY_DISABLED', 'Backend discovery is disabled')
       }
       writeJson(res, 200, discoveryFor(summary))
       return { category: 'discovery', backendId }
-    }
-    if (route === '/api/session/backend' && req.method === 'POST') {
-      const body = await readJsonBody<{ backendId?: unknown }>(req, Math.min(config.limits.maxRequestBytes, 16 * 1024))
-      if (typeof body.backendId !== 'string') throw new RelayError('INVALID_REQUEST', 'backendId is required')
-      assertBackendId(body.backendId)
-      const summary = registry.requireOnline(body.backendId)
-      const userSession = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
-      if (userSession?.kind === 'oidc' && userSession.issuer && userSession.subject) {
-        if (!authorizations.isAuthorized({ issuer: userSession.issuer, subject: userSession.subject }, body.backendId)) throw new RelayError('USER_BACKEND_FORBIDDEN', 'User is not authorized for this backend')
-      } else {
-        if (!authorizations.getBackendPolicy(body.backendId).remotePasswordEnabled) throw new RelayError('PASSWORD_LOGIN_DISABLED', 'Remote password login is disabled')
-      }
-      const value = createBackendSession(body.backendId, config.sessionSecret, config.sessionTtlSeconds, userSession?.kind === 'oidc' ? { kind: 'oidc', issuer: userSession.issuer, subject: userSession.subject, sessionId: randomUUID() } : { kind: 'password' })
-      res.setHeader('Set-Cookie', backendSessionCookie({
-        value,
-        basePath: config.publicBasePath,
-        secure: new URL(config.publicOrigin).protocol === 'https:',
-        maxAge: config.sessionTtlSeconds,
-      }))
-      writeJson(res, 200, discoveryFor(summary))
-      return { category: 'binding', backendId: body.backendId }
-    }
-    if (route === '/api/session/backend' && req.method === 'DELETE') {
-      res.setHeader('Set-Cookie', backendSessionCookie({
-        value: '',
-        basePath: config.publicBasePath,
-        secure: new URL(config.publicOrigin).protocol === 'https:',
-        maxAge: 0,
-      }))
-      res.writeHead(204, { 'Cache-Control': 'no-store' })
-      res.end()
-      return { category: 'binding' }
     }
     const proxy = /^\/backend\/([^/]+)(\/api(?:\/.*)?)$/.exec(route)
     if (!proxy?.[1] || !proxy[2]) throw new RelayError('INVALID_REQUEST', 'Path is not allowed')
     const backendId = proxy[1]
     assertBackendId(backendId)
     assertSafeProxyUrl(req.url)
-    const session = requireBoundBackend(req, backendId)
-    if (session.kind === 'oidc' && (!session.issuer || !session.subject || !authorizations.isAuthorized({ issuer: session.issuer, subject: session.subject }, backendId))) {
-      throw new RelayError('USER_BACKEND_FORBIDDEN', 'User is not authorized for this backend')
-    }
-    if (session.kind === 'password' && !authorizations.getBackendPolicy(backendId).remotePasswordEnabled) {
-      throw new RelayError('PASSWORD_LOGIN_DISABLED', 'Remote password login is disabled')
+    if (/^\/api\/(?:machine|browser-session|auth)(?:\/|$)/.test(proxy[2])) throw new RelayError('INVALID_REQUEST', 'Proxy authentication and machine paths are forbidden')
+    const businessSession = browser.read(req)
+    browser.validate(businessSession, backendId)
+    if (!['GET', 'HEAD'].includes(req.method ?? 'GET')) {
+      if (req.headers.origin !== config.publicOrigin) throw new RelayError('USER_BACKEND_FORBIDDEN', 'Origin rejected')
+      browser.store.checkCsrf(businessSession.id, typeof req.headers['x-csrf-token'] === 'string' ? req.headers['x-csrf-token'] : undefined)
     }
     registry.requireOnline(backendId)
     if (activeHttp >= config.limits.maxConcurrentHttp) {
@@ -359,6 +340,8 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
     }
     activeHttp += 1
     const controller = new AbortController()
+    const abortClient = () => { if (!res.writableEnded) controller.abort() }
+    res.once('close', abortClient)
     const timer = setTimeout(() => controller.abort(), config.limits.upstreamTimeoutMs)
     try {
       const response = await adapter.forwardHttp({
@@ -366,14 +349,26 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
         backendId,
         method: req.method ?? 'GET',
         path: proxy[2] + queryOf(req.url),
-        headers: forwardedHeaders(req.headers, requestId),
+        headers: { ...forwardedHeaders(req.headers, requestId), ...browser.headers(businessSession, req.method ?? 'GET', proxy[2] + queryOf(req.url)) },
         body: limitedBody(req, config.limits.maxRequestBytes, controller),
         signal: controller.signal,
       })
+      if (proxy[2] === '/api/config' && response.status === 200 && response.body) {
+        const chunks: Uint8Array[] = []; let bytes = 0
+        if (Symbol.asyncIterator in Object(response.body)) for await (const chunk of response.body as AsyncIterable<Uint8Array>) { bytes += chunk.byteLength; if (bytes > 65536) throw new RelayError('BACKEND_UNAVAILABLE', 'Invalid startup response'); chunks.push(chunk) }
+        else { const body = response.body as Uint8Array; if (body.byteLength > 65536) throw new RelayError('BACKEND_UNAVAILABLE', 'Invalid startup response'); chunks.push(body) }
+        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+        const bootstrap = BootstrapSchema.parse(payload.bootstrap)
+        payload.bootstrap = { ...bootstrap, software: { ...bootstrap.software, relay: { version: '1.0.0' } } }
+        writeJson(res, 200, payload)
+        return { category: 'backend-api', backendId }
+      }
       writeProxyResponse(res, response.status, response.headers)
       if (response.body) {
         if (Symbol.asyncIterator in Object(response.body)) {
-          for await (const chunk of response.body as AsyncIterable<Uint8Array>) res.write(chunk)
+          for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
+            if (!res.write(chunk)) await new Promise<void>((resolve, reject) => { const done = () => { cleanup(); resolve() }; const failed = () => { cleanup(); reject(new Error('Client disconnected')) }; const cleanup = () => { res.off('drain', done); res.off('close', failed) }; res.once('drain', done); res.once('close', failed) })
+          }
         } else {
           res.write(response.body)
         }
@@ -384,6 +379,7 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
       if (controller.signal.aborted) throw new RelayError('BACKEND_TIMEOUT', 'Backend response timed out')
       throw error
     } finally {
+      res.off('close', abortClient)
       clearTimeout(timer)
       activeHttp -= 1
     }
@@ -395,6 +391,9 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
     const expiresAt = Date.now() + config.challengeTtlMs
     let backendId: string | undefined
     let accepted = false
+    let closed = false
+    const current = () => !closed && socket.readyState === WebSocket.OPEN
+    let leaseId: string | undefined
     socket.send(JSON.stringify({
       type: 'challenge',
       protocolVersion: RELAY_PROTOCOL_VERSION,
@@ -404,11 +403,17 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
     const timeout = setTimeout(() => socket.close(4003, 'Challenge expired'), config.challengeTtlMs)
     timeout.unref()
 
+    let controlQueue = Promise.resolve()
     socket.on('message', (data, isBinary) => {
-      void (async () => {
+      controlQueue = controlQueue.then(async () => {
+        if (!current()) return
         try {
           if (isBinary) throw new RelayError('INVALID_REQUEST', 'Control messages must be JSON text')
-          const message = JSON.parse(data.toString()) as Record<string, unknown>
+          const raw = JSON.parse(data.toString()) as Record<string, unknown>
+          if (!accepted && raw.protocolVersion !== RELAY_PROTOCOL_VERSION) throw new RelayError('PROTOCOL_VERSION_UNSUPPORTED', 'Unsupported control protocol')
+          const parsedMessage = (accepted ? DeviceControlMessageSchema : RelayHelloSchema).safeParse(raw)
+          if (!parsedMessage.success) throw new RelayError('INVALID_REQUEST', 'Invalid control message')
+          const message = parsedMessage.data as Record<string, unknown>
           if (!accepted) {
             if (Date.now() > expiresAt) throw new RelayError('BACKEND_AUTH_FAILED', 'Challenge expired')
             const hello = parseHello(message)
@@ -438,15 +443,85 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
               capabilities: hello.capabilities,
               now: new Date(),
             })
+            if (!current()) return
             const result = registry.register({
               identity,
               capabilities: hello.capabilities,
               socket,
               configVersion: hello.configVersion,
             })
+            leaseId = result.leaseId
+            await tunnels?.add(result)
+            if (!current() || registry.authorizationSocket(backendId) !== socket) {
+              registry.disconnect(backendId, socket)
+              await tunnels?.remove(result.leaseId)
+              registry.releaseRetiredLease(result.leaseId)
+              return
+            }
             accepted = true
             clearTimeout(timeout)
             socket.send(JSON.stringify(result))
+            if (signer) synchronizeAuthorizations(backendId)
+            return
+          }
+          if (message.type === 'authorizations.ack' && backendId) {
+            if (registry.authorizationSocket(backendId) !== socket) return
+            if (message.revision !== authorizationSync.get(backendId)) return
+            authorizationSync.delete(backendId)
+            if (authorizationDirty.delete(backendId)) synchronizeAuthorizations(backendId)
+            return
+          }
+          if (message.type === 'tunnel.applied' && backendId && message.leaseId === leaseId) {
+            const proof = typeof message.probeToken === 'string' ? message.probeToken : ''
+            if (!proof) throw new RelayError('BACKEND_AUTH_FAILED', 'Authenticated tunnel probe required')
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 5000)
+            try {
+              if (config.rathole) { const addresses = registry.tunnelAddresses(backendId); await verifyPrivateListeners({ bindAddr: config.rathole.bindAddr, services: [{ name: 'http-probe', token: 'unused-probe-token', bindAddr: addresses.httpBindAddr }, { name: 'ws-probe', token: 'unused-probe-token', bindAddr: addresses.websocketBindAddr }] }) }
+              const response = await adapter.forwardHttp({ requestId, backendId, method: 'GET', path: '/api/auth/me', headers: { 'x-chery-relay-authorization': `Bearer ${proof}` }, body: (async function* () {})(), signal: controller.signal })
+              if (response.status !== 200) throw new RelayError('BACKEND_AUTH_FAILED', 'Tunnel authentication probe failed')
+              if (response.body && Symbol.asyncIterator in Object(response.body)) for await (const _chunk of response.body as AsyncIterable<Uint8Array>) { void _chunk }
+              if (!current() || registry.authorizationSocket(backendId) !== socket) return
+              registry.markReady(backendId, leaseId!)
+              socket.send(JSON.stringify({ type: 'tunnel.ready', leaseId }))
+            } catch {
+              if (current() && registry.authorizationSocket(backendId) === socket) socket.send(JSON.stringify({ type: 'tunnel.pending', leaseId }))
+            } finally { clearTimeout(timer) }
+            return
+          }
+          if (message.type === 'binding.request' && backendId) {
+            const parsed = DeviceBindingRequestSchema.safeParse(message)
+            if (!parsed.success) throw new RelayError('INVALID_REQUEST', 'Invalid binding request')
+            const identity = identities.get(backendId)
+            if (!identity || message.backendId !== backendId || message.deviceFingerprint !== identity.fingerprint || message.requestedPermission !== 'business') throw new RelayError('BACKEND_AUTH_FAILED', 'Device binding identity rejected')
+            const request = await authorizations.createBindingRequest({ requestId: parsed.data.requestId, backendId, displayName: identity.displayName, publicKeyFingerprint: identity.fingerprint })
+            socket.send(JSON.stringify({ type: 'binding.result', requestId: message.requestId, request }))
+            return
+          }
+          if (backendId && ['binding.cancel', 'binding.status', 'authorization.list', 'authorization.revoke', 'policy.get', 'policy.set'].includes(String(message.type))) {
+            if (typeof message.requestId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(message.requestId)) throw new RelayError('INVALID_REQUEST', 'Operation ID required')
+            let result: unknown
+            if (message.type === 'binding.cancel' || message.type === 'binding.status') {
+              if (typeof message.bindingRequestId !== 'string') throw new RelayError('INVALID_REQUEST', 'Binding ID required')
+              const request = authorizations.getBindingRequest(message.bindingRequestId)
+              if (!request || request.backendId !== backendId || request.publicKeyFingerprint !== identities.get(backendId)?.fingerprint) throw new RelayError('BINDING_NOT_FOUND', 'Device request not found')
+              if (message.type === 'binding.cancel') await authorizations.cancelBindingRequest(request.requestId)
+              result = authorizations.getBindingRequest(request.requestId)
+            } else if (message.type === 'authorization.list') result = { authorizations: authorizations.listAuthorizationsForBackend(backendId) }
+            else if (message.type === 'authorization.revoke') {
+              if (typeof message.bindingId !== 'string') throw new RelayError('INVALID_REQUEST', 'Binding ID required')
+              const binding = authorizations.getAuthorization(message.bindingId)
+              if (!binding || binding.backendId !== backendId) throw new RelayError('BINDING_NOT_FOUND', 'Device authorization not found')
+              await authorizations.revokeAuthorization(binding.bindingId)
+              browser.store.revokeWhere((s) => s.view.target?.backendId === backendId && s.view.identity.issuer === binding.identity.issuer && s.view.identity.subject === binding.identity.subject)
+              synchronizeAuthorizations(backendId)
+              result = authorizations.getAuthorization(binding.bindingId)
+            } else if (message.type === 'policy.set') {
+              if (typeof message.publicDiscovery !== 'boolean' || typeof message.remotePasswordEnabled !== 'boolean') throw new RelayError('INVALID_REQUEST', 'Policy booleans required')
+              result = await authorizations.setBackendPolicy({ backendId, publicDiscovery: message.publicDiscovery, remotePasswordEnabled: message.remotePasswordEnabled })
+              if (!message.remotePasswordEnabled) browser.store.revokeWhere((s) => s.view.target?.backendId === backendId && s.view.mode === 'relay-password')
+            } else result = authorizations.getBackendPolicy(backendId)
+            socket.send(JSON.stringify({ type: 'binding.result', requestId: message.requestId, request: result }))
             return
           }
           if (message.type !== 'heartbeat' || typeof message.leaseId !== 'string' || !backendId) {
@@ -455,31 +530,31 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
           const leaseExpiresAt = registry.heartbeat(backendId, message.leaseId)
           socket.send(JSON.stringify({ type: 'heartbeat_ack', leaseId: message.leaseId, leaseExpiresAt }))
         } catch (error) {
+          if (!current()) return
           const relayError = error instanceof SyntaxError
             ? new RelayError('INVALID_REQUEST', 'Control message is not valid JSON')
             : asRelayError(error)
           socket.send(JSON.stringify({ type: 'error', ...relayErrorBody(relayError, requestId) }))
           socket.close(relayError.code === 'PROTOCOL_VERSION_UNSUPPORTED' ? 4006 : 4003, relayError.code)
         }
-      })()
+      })
     })
     socket.once('close', () => {
+      closed = true
       clearTimeout(timeout)
-      if (backendId) registry.disconnect(backendId, socket)
+      if (backendId && registry.authorizationSocket(backendId) === socket) {
+        registry.disconnect(backendId, socket)
+        authorizationSync.delete(backendId)
+        authorizationDirty.delete(backendId)
+        browser.store.revokeWhere((session) => session.view.target?.backendId === backendId)
+      }
+      if (leaseId) void tunnels?.remove(leaseId).then(() => registry.releaseRetiredLease(leaseId!)).catch(() => audit({ requestId, pathCategory: 'control', status: 502, durationMs: 0, failureCategory: 'TUNNEL_REMOVE_FAILED' }))
     })
   }
 
   function discoveryFor(summary: ReturnType<BackendRegistry['requireOnline']>): RelayDiscovery {
     const root = `${config.publicBasePath}/backend/${summary.backendId}`
     return { ...summary, transport: 'binary', httpBasePath: root, wsPath: `${root}/ws` }
-  }
-
-  function requireBoundBackend(req: IncomingMessage, backendId: string) {
-    const session = readBackendSessionPayload(req.headers.cookie, config.sessionSecret)
-    if (!session || session.backendId !== backendId) {
-      throw new RelayError('SESSION_BACKEND_MISMATCH', 'Session is not bound to this backend')
-    }
-    return session
   }
 
   function requireAdmin(req: IncomingMessage): void {
@@ -498,6 +573,7 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
         HOP_BY_HOP.has(lower) ||
         lower === 'host' ||
         lower === 'cookie' ||
+        lower === 'authorization' ||
         lower === 'forwarded' ||
         lower.startsWith('x-forwarded-') ||
         lower.startsWith('x-chery-relay-')
@@ -507,8 +583,6 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
     // Browser requests cannot send a second header for the backend token.
     // Keep the relay cookie private and carry the backend bearer token in a
     // relay-owned header that the remote backend explicitly understands.
-    const authorization = headers.authorization
-    if (authorization) result['x-chery-relay-authorization'] = authorization
     const origin = new URL(config.publicOrigin)
     result.host = origin.host
     result['x-forwarded-host'] = origin.host
@@ -530,6 +604,8 @@ export async function createRelayService(options: CreateRelayServiceOptions): Pr
     }),
     close: async () => {
       clearInterval(sweep)
+      oidc?.clear()
+      browser.store.clear()
       for (const client of controlWss.clients) client.close(1001, 'Relay shutting down')
       for (const client of browserWss.clients) client.close(1001, 'Relay shutting down')
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))

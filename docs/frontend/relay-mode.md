@@ -1,22 +1,19 @@
 # 中转连接模式
 
-## 当前入口
+首次入口为[PreloadRoot](../../apps/web/src/PreloadRoot.vue)与[PreloadLoginShell](../../apps/web/src/features/auth/PreloadLoginShell.vue)。认证状态由[auth store](../../apps/web/src/stores/auth.ts)唯一维护，HTTP适配为[BrowserSessionApi](../../apps/web/src/services/browserSession.ts)。正式身份与接口见[业务会话](../shared/protocol/browser-session.md)及[中转协议](../shared/protocol/relay.md)，不在本文重复字段。
 
-浏览器预加载登录由 [PreloadRoot.vue](../../apps/web/src/PreloadRoot.vue) 和 [PreloadLoginShell.vue](../../apps/web/src/features/auth/PreloadLoginShell.vue) 处理。认证状态由 [auth.ts](../../apps/web/src/stores/auth.ts) 维护，中转服务代码位于 `apps/relay/src/`。
+## 用户流程
 
-当前前端直接在登录组件中请求中转接口，不存在独立的 `relay.ts` 或 `listRelayBackends`、`bindRelayBackend` 等函数。这些名称不能作为代码定位入口。
+1. 在当前同源业务入口检查服务；普通直连不要求Backend ID。异源目标先导航到该目标同源工作台，不能跨域发送旧凭据。
+2. 根据真实capabilities显示密码、Pocket或本机信任方式。本机信任由实际来源确认，不能由输入localhost冒充。
+3. Pocket可无ID发起登录，Relay回调建立目标为空的内存会话；重新读身份与本人设备，空列表显示绑定指引，错误与空列表分开。
+4. 选择获准设备后通过CAS更新目标，读取并校验bootstrap、取得单次票据、连接WS及chat.list业务读回，成功后才动态加载App。
+5. 密码在同源POST提交给服务器适配层，直连/Relay服务器内存持双token；Web不存密码、Bearer、Pocket token或用户证明。
 
-## 实际调用关系
+## 同浏览器与恢复
 
-- 组件挂载时，已选择 `relay-oidc`、有服务地址且没有 Backend ID，才请求 `GET /api/backends`；请求携带 `credentials: include`，失败不填充列表。
-- `relay-password` 提交调用 `auth.loginRelayPassword`；该方法保存所选 Backend ID 后调用通用 `login`。密码登录先向中转建立目标会话，再经受限路由登录后端；Backend ID 的保存本身不等同于已完成中转会话绑定。
-- 组件的 OIDC 分支在没有 Backend ID 时包含跳转 `/api/auth/oidc/start` 的代码；有 Backend ID 时向 `POST /api/session/backend` 提交绑定，请求携带 Cookie，成功后使用 `/backend/<backendId>` 作为服务地址。
-- 后续必须等待 `connection.reconnect({ waitUntilConnected: true })` 成功才发出 `ready`；仅保存目标或绑定响应成功不等于 WebSocket 已连接。
+所有页签共享安全目标摘要、唯一身份和目标，通过BroadcastChannel/storage通知后核验服务器；Web Locks减少同源并发，服务器CAS最终裁决。切换/退出先锁定旧目标、关闭WS和清缓存，不重发旧pending；旧socket与迟到请求响应不得写入新目标。相同目标断线重取bootstrap及快照，不自动重复未知写入。资源加载失败可重新加载，不要求重复密码登录。
 
-## 接线限制与待确认项
+## 验证
 
-提交按钮的 `canSubmit` 对非本地模式要求 Backend ID；因此组件中“无 Backend ID 时启动 OIDC”的分支不能仅凭存在代码认定可从当前表单触发。该入口与条件是否符合已确认登录需求，需要单独核实，不把偏差写成新的业务规则。
-
-认证 store 提供 `configureRelayOidc` 与 `loginRelayOidc`，后者要求注入适配器。当前 Web 源码未发现适配器注册调用；组件的直接绑定路径与该适配器路径不能混称为同一个已经完成的流程。
-
-中转列表、认证、Backend 绑定和实际连接是不同步骤。服务端路由与 Cookie 安全以中转模块实现和认证契约为准；本说明只记录已核对的前端调用，不能据此宣称真实 OIDC 登录、远端绑定或部署验证通过。
+行为测试见`apps/web/test/auth/activeConnection.test.ts`、`browserSessionSync.test.ts`、WS生命周期测试和Backend/Relay LAN测试。真实Pocket、浏览器多页签/子路径/视觉及生产部署须用户独立验收；接口存在、类型/构建通过和health不能替代业务往返。

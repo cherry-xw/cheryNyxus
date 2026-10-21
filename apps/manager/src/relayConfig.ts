@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import yaml from 'js-yaml'
 import { writeYaml } from './credentials.js'
+import { withConfigTransaction } from '../../backend/src/utils/configTransaction.js'
 
 export interface RelayManagerConfig {
   url: string
@@ -34,6 +35,7 @@ export class RelayConfigStore {
   }
 
   async save(input: Record<string, unknown>): Promise<RelayManagerConfig> {
+    return withConfigTransaction(this.configFile, async () => {
     const current = await this.view()
     const next: RelayManagerConfig = {
       url: readString(input.url, current.url, 2048),
@@ -48,17 +50,19 @@ export class RelayConfigStore {
       } catch {
         throw new Error('url must be an absolute HTTP(S) URL')
       }
+      if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Relay URL cannot contain credentials, query or fragment')
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         throw new Error('url must be an absolute HTTP(S) URL')
       }
     }
-    if (next.backendId && !/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/.test(next.backendId)) {
+    if (next.backendId && !/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$/.test(next.backendId)) {
       throw new Error('backendId must contain 3-63 lowercase letters, numbers or hyphens')
     }
     const config = await this.readConfig()
-    config.relay = next
+    config.relay = { ...asRecord(config.relay), ...next }
     await writeYaml(this.configFile, config)
-    return next
+    return this.view()
+    })
   }
 
   private async readConfig(): Promise<Record<string, unknown>> {

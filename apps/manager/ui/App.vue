@@ -553,7 +553,26 @@ onManagerSessionExpired(() => {
         <p>
           连接状态：{{ relay.status === 'not_connected' ? '未连接' : relay.status || '尚未读取' }}
         </p>
-        <button :disabled="saving" @click="saveRelay">保存配置</button>
+        <button :disabled="saving" @click="saveRelay">保存本地配置并读回</button>
+        <button :disabled="saving" @click="applyRelayPolicy">应用到 Backend 并读回</button>
+        <h2>设备控制与加密隧道客户端</h2>
+        <button :disabled="saving" @click="loadRelayClient">读取设备客户端配置</button>
+        <p v-if="relayClient.available === false">部署尚未提供CHERY_RELAY_CLIENT_CONFIG_FILE，不能保存。该文件由Backend读取，不由Manager启动客户端。</p>
+        <form v-else @submit.prevent="saveRelayClient">
+          <label>WSS控制地址<input v-model="relayClient.url" required placeholder="wss://relay.example/control/backend" /></label>
+          <label>设备Backend ID<input v-model="relayClient.backendId" required /></label>
+          <label>设备显示名<input v-model="relayClient.displayName" required /></label>
+          <label>设备私钥文件路径<input v-model="relayClient.keyFile" required /></label>
+          <label>本机授权文件路径<input v-model="relayClient.authorizationFile" required /></label>
+          <label>rathole服务端地址<input v-model="relayClient.ratholeServerAddr" required placeholder="relay.example:2333" /></label>
+          <label>客户端TOML文件路径<input v-model="relayClient.ratholeConfigPath" required /></label>
+          <label>证明Issuer<input v-model="relayClient.proofIssuer" required placeholder="https://relay.example" /></label>
+          <label>rathole二进制绝对路径<input v-model="relayClient.ratholeBinary" /></label>
+          <label>状态文件绝对路径<input v-model="relayClient.statusFile" /></label>
+          <label>替换Noise/TLS客户端传输节<textarea v-model="relayTransport" autocomplete="off" spellcheck="false" /></label>
+          <p>传输配置：{{ relayClient.encryptedTransportConfigured ? '已配置，留空保留' : '首次必填；Noise须固定对端公钥，TLS须可信根与主机名' }}</p>
+          <button type="submit" :disabled="saving">保存并读回（Backend安全重启后生效）</button>
+        </form>
         <p class="muted">保存配置不代表已建立连接，授权状态见“授权”。</p>
       </section>
       <section v-show="tab === 'connection' && connectionTab === 'oidc'" class="panel oidc-panel">

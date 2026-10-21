@@ -13,13 +13,12 @@ describe('relay backend client', () => {
     const root = await mkdtemp(join(tmpdir(), 'chery-relay-client-'))
     const service = await createRelayService({
       config: {
-        host: '127.0.0.1',
+        host: '0.0.0.0',
         port: 0,
         publicBasePath: '',
         publicOrigin: 'http://127.0.0.1:4080',
-        sessionSecret: 'x'.repeat(32),
         challengeTtlMs: 2_000,
-        heartbeatIntervalMs: 50,
+        heartbeatIntervalMs: 100,
         leaseTtlMs: 500,
         sessionTtlSeconds: 300,
         limits: {
@@ -33,6 +32,7 @@ describe('relay backend client', () => {
           upstreamTimeoutMs: 500,
         },
       },
+      adapter: { async forwardHttp() { return { status: 200, headers: {}, body: Buffer.from(JSON.stringify({ authenticated: true, purpose: 'tunnel-probe' })) } }, acceptWebSocket() {} },
       identityStore: new IdentityStore(),
       logger: () => undefined,
     })
@@ -40,7 +40,7 @@ describe('relay backend client', () => {
     const configPath = join(root, 'rathole-client.toml')
     const statuses: string[] = []
     const client = new RelayBackendClient({
-      url: `ws://127.0.0.1:${address.port}/control/backend`,
+      url: `ws://10.2.3.6:${address.port}/control/backend`,
       backendId: 'client-test',
       displayName: 'Client test',
       configVersion: 1,
@@ -49,6 +49,8 @@ describe('relay backend client', () => {
       ratholeConfigPath: configPath,
       tunnelAddresses: { httpLocalAddr: '127.0.0.1:8183', websocketLocalAddr: '127.0.0.1:8182' },
       tunnelBindAddresses: { httpBindAddr: '127.0.0.1:48081', wsBindAddr: '127.0.0.1:48082' },
+      probeToken: () => 'synthetic-probe-token',
+      encryptedTransport: '[client.transport]\ntype = "noise"\n[client.transport.noise]\nremote_public_key = "' + Buffer.alloc(32, 7).toString('base64') + '"\n',
       reconnectMinMs: 10,
       ratholeProcessFactory: () => ({
         process: new EventEmitter() as ChildProcess,

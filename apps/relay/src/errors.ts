@@ -1,3 +1,4 @@
+import { SessionError } from './browserSessionStore.js'
 import type { RelayErrorBody, RelayErrorCode } from '@chery/protocol/relay'
 
 const STATUS_BY_CODE: Record<RelayErrorCode, number> = {
@@ -56,5 +57,10 @@ export function relayErrorBody(error: RelayError, requestId: string): RelayError
 
 export function asRelayError(error: unknown): RelayError {
   if (error instanceof RelayError) return error
+  if (error instanceof SessionError) {
+    const translated = new RelayError('AUTH_REQUIRED', 'Business session rejected')
+    Object.assign(translated, { code: error.code, status: error.status })
+    return translated
+  }
   return new RelayError('BACKEND_UNAVAILABLE', 'Backend is temporarily unavailable')
 }

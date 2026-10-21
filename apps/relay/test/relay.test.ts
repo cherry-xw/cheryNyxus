@@ -14,11 +14,10 @@ import { RelayError } from '../src/errors.js'
 import { AuthorizationStore } from '../src/authorizationStore.js'
 
 const config = {
-  host: '127.0.0.1',
+  host: '0.0.0.0',
   port: 0,
   publicBasePath: '/nyxus',
-  publicOrigin: 'http://127.0.0.1:4080',
-  sessionSecret: 'x'.repeat(32),
+  publicOrigin: 'http://10.2.3.6:4080',
   sessionTtlSeconds: 300,
   challengeTtlMs: 2_000,
   heartbeatIntervalMs: 500,
@@ -45,7 +44,7 @@ describe('relay control service', () => {
     let socket: WebSocket | undefined
     try {
       const address = await service.listen()
-      socket = new WebSocket(`ws://127.0.0.1:${address.port}/nyxus/control/backend`)
+      socket = new WebSocket(`ws://10.2.3.6:${address.port}/nyxus/control/backend`)
       const [challengeRaw] = await once(socket, 'message')
       const challenge = JSON.parse(String(challengeRaw)) as { nonce: string; protocolVersion: number }
       expect(challenge.protocolVersion).toBe(RELAY_PROTOCOL_VERSION)
@@ -97,6 +96,8 @@ describe('relay control service', () => {
       identityStore: new IdentityStore(),
       adapter: {
         async forwardHttp(input) {
+          if (input.path === '/api/auth/challenge') return { status: 200, headers: {}, body: Buffer.from(JSON.stringify({ challengeId: 'synthetic-challenge', nonce: 'synthetic-nonce' })) }
+          if (input.path === '/api/auth/login') return { status: 200, headers: {}, body: Buffer.from(JSON.stringify({ accessToken: 'synthetic-access', refreshToken: 'synthetic-refresh' })) }
           const chunks: Buffer[] = []
           for await (const chunk of input.body) chunks.push(chunk)
           return {
@@ -111,7 +112,7 @@ describe('relay control service', () => {
     })
     const address = await service.listen()
     onTestFinished(() => service.close())
-    const base = `http://127.0.0.1:${address.port}`
+    const base = `http://10.2.3.6:${address.port}`
     const { publicKey, privateKey } = generateKeyPairSync('ed25519')
     const publicKeyDer = publicKey.export({ format: 'der', type: 'spki' }).toString('base64url')
 
@@ -144,6 +145,11 @@ describe('relay control service', () => {
       backendId,
     })
 
+    const ready = once(socket, 'message')
+    const lease = JSON.parse(String(acceptedRaw))
+    socket.send(JSON.stringify({ type: 'tunnel.applied', leaseId: lease.leaseId, probeToken: 'synthetic-probe-token' }))
+    expect(JSON.parse(String((await ready)[0])).type).toBe('tunnel.ready')
+
     const list = await getJson(`${base}/nyxus/api/backends`)
     expect(list.status).toBe(200)
     if (enabled) {
@@ -158,22 +164,18 @@ describe('relay control service', () => {
     }
 
     const unauthenticated = await postJson(`${base}/nyxus/backend/${backendId}/api/echo`, 'x')
-    expect(unauthenticated.status).toBe(403)
-    expect(unauthenticated.body.error.code).toBe('SESSION_BACKEND_MISMATCH')
-    const bound = await postJson(`${base}/nyxus/api/session/backend`, JSON.stringify({ backendId }))
-    if (!enabled) {
-      expect(bound.status).toBe(403)
-      expect(bound.body.error.code).toBe('PASSWORD_LOGIN_DISABLED')
-      expect(bound.headers['set-cookie']).toBeUndefined()
-      return
-    }
-    expect(bound.status).toBe(200)
-    const cookie = String(bound.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? ''
-    const proxied = await postJson(
-      `${base}/nyxus/backend/${backendId}/api/echo`,
-      'hello',
-      { cookie },
-    )
+    expect(unauthenticated.status).toBe(401)
+    expect(unauthenticated.body.error.code).toBe('SESSION_EXPIRED')
+    // Old route-only cookies are deliberately removed; only authenticated sessions proxy.
+    const old = await postJson(`${base}/nyxus/api/session/backend`, JSON.stringify({ backendId }))
+    expect(old.status).toBe(400)
+    const capabilities = await getJson(`${base}/nyxus/api/auth/capabilities`)
+    const cookie = String(capabilities.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? ''
+    const login = await postJson(`${base}/nyxus/api/browser-session/password`, JSON.stringify({ backendId, username: 'synthetic-user', password: 'synthetic-password', operationId: 'o'.repeat(32) }), { cookie, origin: config.publicOrigin, 'x-csrf-token': capabilities.body.csrfToken })
+    expect(login.status).toBe(enabled ? 200 : 403)
+    if (!enabled) return
+    const sessionCookie = String(login.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? ''
+    const proxied = await postJson(`${base}/nyxus/backend/${backendId}/api/echo`, 'hello', { cookie: sessionCookie, origin: config.publicOrigin, 'x-csrf-token': login.body.csrfToken })
     expect(proxied.status).toBe(200)
     expect(proxied.body).toBe('hello')
   })
