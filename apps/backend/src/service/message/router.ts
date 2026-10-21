@@ -141,6 +141,7 @@ export class RpcRouter {
             undefined,
             createError('FORBIDDEN', '此连接没有操作权限'),
           )
+        if(extension.admitHeader && !extension.admitHeader(ctx,request.params)) return createResponse(request.id,false,undefined,createError('IDENTITY_REJECTED','目标未获许可'))
         const params = extension.request.safeParse(request.params)
         if (!params.success)
           return createResponse(

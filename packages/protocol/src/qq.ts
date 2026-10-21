@@ -1,9 +1,12 @@
 import { z } from 'zod'
+import { QQImageLimitsSchema, QQImagePolicyDefault, QQImageRequestSchemas, QQImageResponseSchemas, QQImageTransportMethods } from './qqImages.js'
+export * from './qqImages.js'
 
 export const QQIdSchema = z.string().regex(/^[1-9]\d{0,19}$/)
 const identifier = z.string().min(1).max(256)
 const target = z.string().regex(/^(group:[1-9]\d{0,19}|private:user:[1-9]\d{0,19})$/)
 export const QQCapabilities = [
+  'qq.image.ingest',
   'qq.event.submit',
   'qq.delivery.result',
   'qq.request.recover',
@@ -24,6 +27,7 @@ export const QQCapabilities = [
   'qq.connection.state',
 ] as const
 export const QQTransportMethods = [
+  ...QQImageTransportMethods,
   'qq.plugin.hello',
   'qq.identity.bind',
   'qq.event.submit',
@@ -34,6 +38,7 @@ export const QQTransportMethods = [
 export const QQConfigSchema = z
   .object({
     selfId: z.union([QQIdSchema, z.literal('')]),
+    imageStorage: QQImageLimitsSchema.default(QQImagePolicyDefault),
     groups: z.array(QQIdSchema).max(100),
     users: z.array(QQIdSchema).max(1000),
     bindings: z.record(target, z.string().min(1).max(100)),
@@ -101,6 +106,7 @@ export const QQConfigSchema = z
   })
 export type QQConfig = z.infer<typeof QQConfigSchema>
 export const QQDefaultConfig: QQConfig = {
+  imageStorage: QQImagePolicyDefault,
   selfId: '',
   groups: [],
   users: [],
@@ -416,6 +422,7 @@ export type QQStatus = z.infer<typeof QQStatusSchema>
 export type QQEntry = z.infer<typeof QQEntrySchema>
 export type QQEntryDetail = z.infer<typeof QQEntryDetailSchema>
 export const QQRequestSchemas = {
+  ...QQImageRequestSchemas,
   'qq.file.read': z.object({ selfId: QQIdSchema, eventId: identifier, offset: z.number().int().nonnegative() }).strict(),
   'qq.information.result': z.object({ selfId: QQIdSchema, lookupId: identifier, targetId: QQIdSchema, success: z.boolean(), result: z.string().max(60000) }).strict(),
   'qq.lookup.result': z.object({ selfId: QQIdSchema, lookupId: identifier, groupId: QQIdSchema, kind: z.enum(['members', 'voices']), items: z.array(z.object({ id: z.string().max(100), name: z.string().max(200), card: z.string().max(200).optional() }).strict()).max(5000), success: z.boolean() }).strict(),
@@ -432,6 +439,7 @@ export const QQRequestSchemas = {
   'qq.entry.get': QQEntryRequestSchema,
 } as const
 export const QQResponseSchemas = {
+  ...QQImageResponseSchemas,
   'qq.file.read': z.object({ offset: z.number().int().nonnegative(), dataBase64: z.string().max(349528), eof: z.boolean() }).strict(),
   'qq.information.result': z.object({ recorded: z.literal(true) }).strict(),
   'qq.lookup.result': z.object({ recorded: z.literal(true) }).strict(),

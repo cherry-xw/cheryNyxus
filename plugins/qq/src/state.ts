@@ -80,6 +80,7 @@ export const StateSchema = z
   .object({
     schemaVersion: z.literal(1),
     contextEpoch: z.string().max(100).default(''),
+    imageSources: z.record(z.string(), z.record(z.string(), MessagePartSchema)).default({}),
     jobs: z.array(JobSchema),
     outbox: z.array(OutboxSchema),
     seq: z.record(z.string(), z.number().int().nonnegative()),
@@ -100,6 +101,7 @@ export function emptyState(): State {
   return {
     schemaVersion: 1,
     contextEpoch: '',
+    imageSources: {},
     jobs: [],
     outbox: [],
     seq: {},

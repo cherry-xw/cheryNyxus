@@ -103,4 +103,5 @@ export function initAssetTables(db: Database.Database): void {
   const columns = new Set((db.prepare('PRAGMA table_info(assets)').all() as { name: string }[]).map((row) => row.name))
   if (!columns.has('availability')) db.exec("ALTER TABLE assets ADD COLUMN availability TEXT NOT NULL DEFAULT 'available'")
   if (!columns.has('was_referenced')) db.exec('ALTER TABLE assets ADD COLUMN was_referenced INTEGER NOT NULL DEFAULT 0')
+  if (!columns.has('retain_original')) db.exec('ALTER TABLE assets ADD COLUMN retain_original INTEGER NOT NULL DEFAULT 0')
 }

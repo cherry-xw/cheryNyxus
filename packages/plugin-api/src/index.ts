@@ -136,7 +136,28 @@ export interface IngressFileAuthorization {
   requestIdentity: IngressRequestIdentity
   validateIdentity(): void
 }
+export interface IngressSourcePublication extends IngressFileContext {
+  sourceKey: string; sourceIdentity: string; targetKey: string
+  limits: { singleBytes: number; totalBytes: number; perTargetBytes: number }
+  operation: 'reserve' | 'begin' | 'chunk' | 'status' | 'commit' | 'cancel'
+  size?: number; sha256?: string; mimeType?: string; uploadId?: string; offset?: number; dataBase64?: string
+}
+export interface IngressSourceResult {
+  state?: 'registered' | 'uploading' | 'committed' | 'aborted'
+  nextOffset?: number; uploadId?: string; assetId?: string; assetVersionId?: string; cancelled?: boolean
+}
+export interface IngressQuestionAnswer extends IngressFileContext {
+  runId: string
+  batchId: string
+  commandId: string
+  answers: Array<{ questionId: string; selectedLabels: string[]; freeText?: string; cancelled?: boolean }>
+}
 export interface IngressCore {
+  answerQuestions?(input: IngressQuestionAnswer): Promise<{ runId: string }>
+  sourceReferences?(conversationKey:string): Promise<Record<string, import('@chery/protocol').MessagePart>>
+  abortSources?(sourceKeys:readonly string[]): Promise<void>
+  restrictSources?(conversationKeys: readonly string[]): Promise<void>
+  publishSource?(input: IngressSourcePublication): Promise<IngressSourceResult>
   importFile?(input: IngressFileImport): Promise<AssetRecord>
   readFileChunk?(input: IngressFileRead): Promise<IngressFileChunk>
   internalText?(input: IngressInternalTextInput): Promise<string>
@@ -154,6 +175,11 @@ export interface IngressCore {
 }
 /** Host adapters are injectable without giving a plugin access to arbitrary RPCs. */
 export interface IngressCoreAdapter {
+  answerQuestions?(ownerId: string, key: string, input: Omit<IngressQuestionAnswer, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<{ runId: string }>
+  sourceReferences?(ownerId:string,key:string): Promise<Record<string, import('@chery/protocol').MessagePart>>
+  abortSources?(ownerId:string,sourceKeys:readonly string[]): Promise<void>
+  restrictSources?(ownerId:string,conversationKeys:readonly string[]): Promise<void>
+  publishSource?(ownerId: string, key: string, input: Omit<IngressSourcePublication, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressSourceResult>
   importFile?(ownerId: string, key: string, input: Omit<IngressFileImport, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<AssetRecord>
   readFileChunk?(ownerId: string, key: string, input: Omit<IngressFileRead, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressFileChunk>
   internalText?(ownerId: string, input: IngressInternalTextInput): Promise<string>
@@ -183,6 +209,7 @@ export interface IngressRpcRegistration<P, R> {
   request: z.ZodType<P>
   response: z.ZodType<R>
   authorize(ctx: HandlerContext): boolean | Promise<boolean>
+  admitHeader?(ctx: HandlerContext, params: unknown): boolean
   handler(ctx: HandlerContext, params: P): Promise<R>
 }
 export interface IngressConnections {
@@ -246,6 +273,8 @@ export interface IngressContext {
           subject: IngressSubject
         }>,
       ): Promise<boolean>
+      verifySource?(input: Readonly<{ connectionId: string; entryId: string; eventId: string; subject: IngressSubject }>): Promise<boolean>
+      validateSource?(input: Readonly<{ connectionId: string; entryId: string; eventId: string; subject: IngressSubject }>): boolean
     }): () => void
     bind(input: {
       connectionId: string
@@ -253,6 +282,7 @@ export interface IngressContext {
       channel: string
       eventId: string
       subject: IngressSubject
+      purpose?: 'source'
     }): Promise<IngressIdentityHandle>
   }
   /** Trusted QQ lifecycle notification transport; absent for other plugins. */

@@ -1,3 +1,4 @@
+import { NativeImages } from './nativeImages.js'
 import { queryInformation } from './information.js'
 import { sendAssetFile } from './files.js'
 import type { QQNotification } from '@chery/protocol'
@@ -144,6 +145,7 @@ export function normalize(event: unknown, selfId: string): Record<string, unknow
   try { return normalizedEvent(event, selfId) } catch { return undefined }
 }
 export class Adapter {
+  private images: NativeImages
   private selfId?: string
   private wire: BackendChannel
   private journalFile: string
@@ -173,6 +175,7 @@ export class Adapter {
     wire: BackendChannel,
   ) {
     this.wire = wire
+    this.images = new NativeImages(ctx.core, wire, () => this.selfId, undefined, nativeMsgId => this.action('get_msg', {message_id:nativeMsgId}), (stage,code)=>ctx.logger.warn?.('QQ image '+stage+' '+code))
     this.journalFile = path.join(ctx.dataPath, 'delivery-journal.json')
     try { this.journal = readJournal(this.journalFile) }
     catch {

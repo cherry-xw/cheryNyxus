@@ -174,6 +174,8 @@ export const MessageAssetPartSchema = z
     originalName: z.string().optional(),
     mimeType: z.string().optional(),
     kind: AssetKindSchema.optional(),
+    /** Mechanical provenance; historical adoption must not refresh the image turn. */
+    inputOrigin: z.enum(['history', 'quote']).optional(),
   })
   .strict()
 

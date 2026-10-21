@@ -18,6 +18,10 @@
 
 安装、升级、启用、禁用、卸载及状态查询提供本地维护命令；卸载默认保留配置与数据。启停和包版本变更保存后标记 requiresRestart，重启后生效；不做复杂热卸载。禁用在下次启动时不导入包、不读其业务配置、不注册其业务入口；当前进程仍活动时准确显示待重启。普通QQ策略保存可热应用，运行请求保持旧快照。独立只读命名空间 `extensions.qq` 由宿主持有，不塞入 ConfigRaw/config.yaml，也不让核心配置保存覆盖插件文件。
 
+### 受管应用通知适配
+
+`IngressContext.appNotifications` 是宿主只提供给 QQ 业务包的可选领取/确认接口，不是公开管理 RPC，也不暴露给模型。宿主负责调用受限控制器，QQ 包负责当前允许名单、已有可信目标与原生 Outbox 投递。缺少该接口时 QQ 其他业务仍可运行。确认结果为 `sent/failed/unknown`；不确定投递不得自动重发。实现为 `service/ingress/host.ts` 的上下文装配与 QQ 模块 `enqueueAppNotifications`，测试见 QQ 模块 `test/appNotifications.test.ts`。
+
 ### Skill 声明与作用范围
 
 Skill 来源、请求身份筛选和撤销由统一宿主管理。QQ 源码、页面、Skill 和脚本归 plugins/qq，完整包由组件构建；公共结构类型归 packages/plugin-api，插件不导入 Backend 私有实现。生命周期验证见正式资源与宿主测试；部署和用户验收分别判断。
@@ -35,6 +39,8 @@ QQ文件封装为 `{schemaVersion:1,revision,config}`。实际字段以 [`QQConf
 迁移不改变QQ账号、NapCat WebUI/OneBot token或管理账号。专用QQ通道token沿已有受限来源使用，不进入业务JSON/页面/日志。selfId须由现有可信NapCat身份只读发现并在后端显式绑定，不相信客户端首次自报。安装和握手不要求模型可用或名单非空；握手成功不等于可以聊天。
 
 ## 协议与安全
+
+被动 QQ 图片不创建模型任务。宿主 `IngressIdentityAuthority` 的 `purpose:source` 句柄由已注册渠道的 `verifySource` 签发，每次使用同步调用 `validateSource` 复核；仅允许 `core.publishSource`，不能用于 `core.submit` 或一般 `importFile`。发布方法保留 active、已登记入口、当前连接和 owned conversation 校验；`restrictSources` 只能修改当前模块自有来源读取许可。持久化与传输规则分别见[数据库](../../backend/db/README.md)及[QQ 图片协议](../protocol/qqbot-plugin.md#原生图片采集)。
 
 QQ端复用 [原生协议](../protocol/qqbot-plugin.md) 既有五个方法（包含 qq.identity.bind）和通知编码；QQ实施必须同时注册 Method、请求/响应schema、handler和事件，不能只给router塞handler。QQ专用凭据仅授权这些传输方法，不授权config/chat/管理方法；管理员普通认证不能冒充QQ连接。selfId、目标、requestId/eventId/seq、发送事件归属均在后端验证。开启后端密码/OIDC时仍有独立QQ认证分支，不以关闭核心认证换取握手成功。
 
@@ -101,6 +107,8 @@ status至少区分插件安装/启用/活动版本、配置保存/应用版本�
 包声明不得含用户业务配置或秘密。`defaultConfig` 仍由 `createPlugin(context)` 返回的实例提供；安装包、`config/<id>.json`、`data/<id>/`、`backups/` 继续分离。既有根和 config 文件 schemaVersion=1 保持；registry schemaVersion 升为2，条目除清单及摘要、enabled 外含 grants；旧注册表经受限一次性迁移后才读入，不永久尝试旧 JSON 清单。apiVersion、宿主跨进程 contractVersion、Manager 加载能力 managerApiVersion 均为2，版本不符显式拒绝，不静默降级。QQ/NapCat 传输 protocolVersion 仍为1，不能把插件 API 版本混作传输版本。
 
 ### 注册与生命周期
+
+Backend 的停止等待通过宿主公开的 `context.lifecycle` 传递：只读 `snapshot()`、`subscribe(listener)` 与 `blockers(provider)` 共用同一停止协调器，业务包不能借此取消关闭或放宽准入。订阅和等待项提供者随包释放；等待项由宿主附加所属包标识。QQ 在等待开始时固定当前已采用任务与必要投递，阻止其余排队任务开始；实际关闭才清理未执行输入和待投递输出。此接入正在实施，不能推断已部署；消息字段和恢复约定见[QQ 停止与恢复](../protocol/qqbot-plugin.md#服务停止与空队列恢复)。
 
 沿用 `IngressHost`、`IngressContext`、`createPlugin`、`IngressPlugin` 与实例配置方法。新增实例可选 `prepareManagement():void|Promise<void>`，仅注册配置、状态、诊断和 UI，不提交模型工作。首次安装停用包也可加载其可信工厂、校验配置并准备管理能力；坏配置保留宿主状态和安全错误，不伪装业务活动。工厂和 prepareManagement 不得启动定时器/连接/业务；持续资源必须在 start 内创建并经 `defer` 登记。v1 “停用从不导入包/不读配置”测试须迁移为“停用不启动业务，管理仍可用”。
 

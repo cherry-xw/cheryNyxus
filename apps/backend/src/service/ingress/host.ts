@@ -320,11 +320,25 @@ export class IngressHost {
           this.saveConfig(id, config, expectedBaseRevision),
       },
       core: {
+        sourceReferences: async key=>{requireActive();if(!active.conversations.has(key))throw ingressError('IDENTITY_REJECTED');return core.sourceReferences?core.sourceReferences(id,key):{}},
+        abortSources: async keys=>{if(core.abortSources)await core.abortSources(id,keys)},
+        restrictSources: async keys => {if(core.restrictSources)await core.restrictSources(id,keys)},
+        publishSource: async (input) => {
+          requireActive()
+          if (!core.publishSource || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
+          const {conversationKey,identity,signal,...params}=input
+          const record=this.authority.validate(id,params.entryId,identity)
+          if(record.purpose!=='source' || record.eventId!==params.sourceKey) throw ingressError('IDENTITY_REJECTED')
+          const requestIdentity=this.authority.project(id,params.entryId,identity)
+          return core.publishSource(id,conversationKey,{...params,requestIdentity,signal,
+            validateIdentity:()=>{requireActive();this.authority.validate(id,params.entryId,identity)}})
+        },
         importFile: async (input: Parameters<NonNullable<IngressContext['core']['importFile']>>[0]) => {
           requireActive()
           if (!core.importFile || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
           const { conversationKey, identity, signal, ...params } = input
           this.authority.validate(id, params.entryId, identity)
+          if (this.authority.validate(id,params.entryId,identity).purpose === 'source') throw ingressError('IDENTITY_REJECTED')
           const requestIdentity = this.authority.project(id, params.entryId, identity)
           const combined = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal
           combined.throwIfAborted()
@@ -339,6 +353,7 @@ export class IngressHost {
           if (!core.readFileChunk || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
           const { conversationKey, identity, signal, ...params } = input
           this.authority.validate(id, params.entryId, identity)
+          if(this.authority.validate(id,params.entryId,identity).purpose==='source')throw ingressError('IDENTITY_REJECTED')
           const requestIdentity = this.authority.project(id, params.entryId, identity)
           const combined = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal
           combined.throwIfAborted()
@@ -384,6 +399,24 @@ export class IngressHost {
           active.conversations.add(key)
           return result
         },
+        answerQuestions: async (input) => {
+          requireActive()
+          input = z.object({conversationKey:z.string().min(1).max(512),entryId:z.string().min(1),identity:z.custom<import('./api.js').IngressIdentityHandle>(),
+            runId:z.string().min(1).max(200),batchId:z.string().min(1).max(200),commandId:z.string().uuid(),signal:z.custom<AbortSignal>().optional(),
+            answers:z.array(z.object({questionId:z.string().min(1).max(200),selectedLabels:z.array(z.string().max(1000)).max(4),freeText:z.string().max(20000).optional(),cancelled:z.boolean().optional()}).strict()).min(1).max(16)}).strict().parse(input)
+          if (!core.answerQuestions || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
+          const record = this.authority.validate(id, input.entryId, input.identity)
+          const original = active.requests.get(input.runId)
+          if (record.purpose === 'source' || record.channel !== 'qq' || original?.channel !== 'qq' ||
+            original.entryId !== input.entryId || !original.subject || ['selfId','userId','conversationType','groupId'].some(field => original.subject![field as keyof typeof original.subject] !== record.subject[field as keyof typeof record.subject])) throw ingressError('IDENTITY_REJECTED')
+          const { conversationKey, identity, ...params } = input
+          const requestIdentity = this.authority.project(id, input.entryId, identity)
+          const result = await core.answerQuestions(id, conversationKey, { ...params, requestIdentity,
+            validateIdentity: () => { requireActive(); this.authority.validate(id, input.entryId, identity) } })
+          active.requests.set(result.runId, original)
+          this.persistDelivery(active)
+          return result
+        },
         submit: async (input: Parameters<IngressContext['core']['submit']>[0]) => {
           requireActive()
           if (
@@ -404,6 +437,7 @@ export class IngressHost {
           const record = identity
             ? this.authority.validate(id, params.entryId, identity)
             : undefined
+          if (record?.purpose === 'source') throw ingressError('IDENTITY_REJECTED')
           const combined = signal
             ? AbortSignal.any([signal, active.controller.signal])
             : active.controller.signal
@@ -715,6 +749,7 @@ export class IngressHost {
     for (const active of [...this.active.values()]
       .filter((item) => affected.has(item.registration.id))
       .sort((a, b) => b.order - a.order)) {
+      await this.options.core.restrictSources?.(active.registration.id,[])
       await this.stopBusiness(active)
       if (active.registration.id !== id) active.reason = 'DEPENDENCY_UNAVAILABLE'
     }

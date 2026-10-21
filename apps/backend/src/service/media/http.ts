@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { publicFileHttpFailure } from '@chery/protocol'
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 import config from '@/utils/config.js'
@@ -13,13 +14,13 @@ import { getFileRequestPlan } from '../fileServices/inputObservations.js'
 import { getImageDescription, imageDescriptionIssue } from '../fileServices/imageContext.js'
 
 export async function readBoundedBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
-  if (Number(req.headers['content-length'] ?? 0) > maxBytes) throw new Error('文件超过大小限制')
+  if (Number(req.headers['content-length'] ?? 0) > maxBytes) throw Object.assign(new Error('文件超过大小限制'),{code:'PAYLOAD_TOO_LARGE'})
   const chunks: Buffer[] = []
   let total = 0
   for await (const item of req) {
     const chunk = Buffer.isBuffer(item) ? item : Buffer.from(item)
     total += chunk.length
-    if (total > maxBytes) throw new Error('文件超过大小限制')
+    if (total > maxBytes) throw Object.assign(new Error('文件超过大小限制'),{code:'PAYLOAD_TOO_LARGE'})
     chunks.push(chunk)
   }
   return Buffer.concat(chunks)
@@ -130,8 +131,8 @@ export async function handleAssetHttp(req: IncomingMessage, res: ServerResponse,
     }
     jsonResponse(res, 404, { error: { code: 'asset.not_found', message: '文件操作入口不存在' } })
   } catch (error) {
-    const unavailable = (error as { code?: string }).code === 'ASSET_UNAVAILABLE'
-    jsonResponse(res, unavailable ? 404 : 400, { error: { code: unavailable ? 'asset.unavailable' : 'INVALID_PARAMS', message: unavailable ? '文件不存在或无权访问' : (error as Error).message } })
+    const failure=publicFileHttpFailure(error)
+    jsonResponse(res,failure.status,{error:failure.error})
   }
   return true
 }

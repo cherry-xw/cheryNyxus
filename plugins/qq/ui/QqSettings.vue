@@ -90,6 +90,13 @@ watch(() => state.config?.groups.join(','), () => {
         </section>
         <section v-show="category === 'messages'">
           <h3>消息处理与等待反馈</h3>
+          <h3>QQ 原图存储</h3>
+          <div class="grid">
+            <label>单张原图上限（字节）<input v-model.number="state.config.imageStorage.singleBytes" type="number" min="1" max="20971520" /></label>
+            <label>全部目标总额度（字节）<input v-model.number="state.config.imageStorage.totalBytes" type="number" min="1" max="2147483648" /></label>
+            <label>每个目标额度（字节）<input v-model.number="state.config.imageStorage.perTargetBytes" type="number" min="1" max="268435456" /></label>
+          </div>
+          <p class="muted">默认单张 20 MiB、全部 2 GiB、每目标 256 MiB。满额停止新采集，不自动删除；移除关联后停止采集和新读取，保留原件。只采集已允许且预设有效的目标，不补收旧图。模型图片输入大小单独管理。</p>
           <p class="muted">运行中的请求保留原设置。模型、工具组和预设内容在对应设置插件中管理。</p>
         </section>
         <section v-show="category === 'memory'"><h3>记忆与讨论摘要</h3></section>

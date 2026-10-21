@@ -23,6 +23,11 @@ import { fileAccessForChat } from '../media/access.js'
 import { identifyFile } from '../media/fileFormat.js'
 import { downloadProviderResult } from '../fileServices/download.js'
 import { boundedBody } from '../fileServices/adapters/http.js'
+import { SourcePublicationStore } from '../media/sourcePublication.js'
+import { getSoulDb } from '@/db/index.js'
+import { ClassifiedError } from '@/utils/error.js'
+import path from 'node:path'
+import fs from 'node:fs'
 
 function conversationId(owner: string, key: string): string {
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(owner) || !key || key.length > 512)
@@ -33,6 +38,9 @@ function conversationId(owner: string, key: string): string {
 export function createIngressCoreAdapter(): IngressCoreAdapter {
   const owned = new Map<string, Map<string, string>>()
   const pending = new Map<string, Promise<{ chatId: string }>>()
+  const answering = new Set<string>()
+  const submitting = new Map<string, number>()
+  let publications: SourcePublicationStore | undefined
   const context = (owner: string) => ({
     authenticatedUserId: owner,
     connectionId: `ingress:${owner}`,
@@ -45,6 +53,53 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
     return chatId
   }
   return {
+    sourceReferences: async (owner,key)=>{
+      const chatId=requireOwned(owner,key),db=getSoulDb()
+      if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_image_sources'").get())return {}
+      const rows=db.prepare("SELECT source_key,identity_json,asset_id,version_id FROM ingress_image_sources WHERE owner_id=? AND chat_id=? AND permitted=1 AND state='committed'").all(owner,chatId) as {source_key:string;identity_json:string;asset_id:string;version_id:string}[]
+      const refs:Record<string,import('@chery/protocol').MessagePart>={}
+      for(const r of rows){try{const [self,s]=JSON.parse(r.identity_json);const asset=getAssetStore().get(r.asset_id,fileAccessForChat(chatId,owner),r.version_id);refs[JSON.stringify([self,s.conversationType,s.targetId,s.messageId,s.elementOrdinal])]={type:'asset',partId:r.source_key,assetId:asset.id,assetVersionId:asset.versionId,variant:'original',usage:'content',kind:'image',mimeType:asset.mimeType}}catch{/* Missing or revoked sources remain unavailable; unrelated text still proceeds. */}}
+      return refs
+    },
+    abortSources: async (owner,keys)=>{
+      const db=getSoulDb()
+      if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_image_sources'").get())return
+      for(const key of keys){const r=db.prepare("SELECT upload_id FROM ingress_image_sources WHERE owner_id=? AND source_key=? AND state='uploading'").get(owner,key) as {upload_id:string}|undefined;if(!r)continue
+        db.prepare("UPDATE ingress_image_sources SET state='aborted' WHERE owner_id=? AND source_key=? AND state='uploading'").run(owner,key)
+        if(/^[0-9a-f-]{36}$/.test(r.upload_id)){const filename=path.resolve(process.env.CHERY_DIR||process.cwd(),'.chery','image-staging',r.upload_id);try{const s=fs.lstatSync(filename);if(s.isFile()&&!s.isSymbolicLink())fs.unlinkSync(filename)}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e}}
+      }
+    },
+    restrictSources: async (owner,keys) => {
+      const db=getSoulDb()
+      if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_image_sources'").get())return
+      const allowed=new Set(keys.map(key=>conversationId(owner,key)))
+      db.transaction(()=>{
+        const rows=db.prepare('SELECT source_key,chat_id,upload_id,state FROM ingress_image_sources WHERE owner_id=?').all(owner) as {source_key:string;chat_id:string;upload_id:string;state:string}[]
+        for(const r of rows) {
+          db.prepare("UPDATE ingress_image_sources SET permitted=?,state=CASE WHEN ?=0 AND state='uploading' THEN 'aborted' ELSE state END WHERE source_key=?").run(allowed.has(r.chat_id)?1:0,allowed.has(r.chat_id)?1:0,r.source_key)
+          if(!allowed.has(r.chat_id) && r.state==='uploading' && /^[0-9a-f-]{36}$/.test(r.upload_id)) {
+            const filename=path.resolve(process.env.CHERY_DIR||process.cwd(),'.chery','image-staging',r.upload_id)
+            try{const s=fs.lstatSync(filename);if(s.isFile()&&!s.isSymbolicLink())fs.unlinkSync(filename)}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e}
+          }
+        }
+      })()
+    },
+    publishSource: async (owner,key,input) => {
+      const chatId=requireOwned(owner,key)
+      const validate=()=>{input.validateIdentity();input.signal?.throwIfAborted();fileAccessForChat(chatId,owner)}
+      validate()
+      if (!publications) { publications=new SourcePublicationStore(getSoulDb(),path.resolve(process.env.CHERY_DIR || process.cwd(),'.chery','image-staging'),getAssetStore());publications.recover() }
+      const store=publications
+      const c={ownerId:owner,chatId,sourceKey:input.sourceKey,sourceIdentity:input.sourceIdentity,targetKey:input.targetKey,limits:input.limits,validate}
+      switch(input.operation) {
+        case 'reserve': return store.reserve(c,input.size!)
+        case 'begin': return store.begin(c,{size:input.size!,sha256:input.sha256!,mimeType:input.mimeType!})
+        case 'chunk': return store.chunk(c,{uploadId:input.uploadId!,offset:input.offset!,dataBase64:input.dataBase64!})
+        case 'commit': return store.commit(c,{uploadId:input.uploadId!,size:input.size!,sha256:input.sha256!})
+        case 'cancel': return store.cancel(c,input.uploadId!)
+        case 'status': return store.status(c)
+      }
+    },
     importFile: async (owner, key, input) => {
       let stage = 'permission'
       try {

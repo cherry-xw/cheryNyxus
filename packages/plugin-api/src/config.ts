@@ -7,7 +7,7 @@ import type {
 import type { SupervisionLevel } from './sense.js'
 import type { ThinkingLevel } from './hooks.js'
 export type { CapabilityState, FileCapabilityOperation, FileServiceAdapterId }
-export interface OAuth2Config { enabled?: boolean; trustedOrigins?: string[]; username?: string; password?: string; allowLoopback?: boolean }
+export interface OAuth2Config { enabled?: boolean; trustedOrigins?: string[]; username?: string; password?: string; allowLoopback?: boolean; machine?: { username: string; password: string } }
 export type MockScriptError =
   | string
   | {
@@ -71,12 +71,20 @@ export interface OutputCapabilities {
 }
 
 export interface BrainCapabilities {
+  imageOutput?: import('@chery/protocol').ImageOutputCapabilities
+  imageInput?: {
+    formats?: Array<'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'>
+    animation?: 'supported' | 'first-frame' | 'unsupported' | 'unknown'
+    maxBytes?: number
+    maxBase64Bytes?: number
+  }
   toolCall?: boolean
   input?: MediaCapabilities
   output?: OutputCapabilities
 }
 
 export interface FileServiceConnection {
+  capabilities?: { imageOutput?: import('@chery/protocol').ImageOutputCapabilities }
   /** 引用已有 llm.brain.<name> 连接；与独立 baseUrl/keyRef 互斥 */
   brainRef?: string
   /** 独立服务地址（支持 $ENV 占位符） */
@@ -110,7 +118,7 @@ export interface FileServiceConfig {
   connection: FileServiceConnection
   /** 启用的操作列表（必须为 adapter 支持操作的子集） */
   operations: FileCapabilityOperation[]
-  /** 适配器类型化默认参数（如 n、aspect_ratio、size、quality、style 等） */
+  /** 默认画面参数；张数只使用全局默认与当次请求，不在这里保存。 */
   defaults?: Record<string, unknown>
   /** 单次外部操作超时毫秒数（默认 600000） */
   timeoutMs?: number
@@ -154,13 +162,16 @@ export interface FilesContextConfig {
 }
 
 export interface FilesImageAdaptationConfig {
+  /** 单张模型输入图片硬上限，默认 5 MB = 5,000,000 字节；不是目标体积。 */
+  maxBytes?: number
   /** 适配图最大边像素（正整数，默认 2048，不放大小图） */
   maxEdge?: number
-  /** 有损编码质量 1-100（默认 85） */
+  /** JPEG/WebP 转换或压缩的编码质量上限 1-100（默认 85）；合规原图复用，PNG 不使用有损 quality。 */
   quality?: number
 }
 
 export interface FilesConfig {
+  imageGeneration?: { defaultCount?: number }
   /** 上传单文件字节上限（正整数，默认 100 MiB） */
   maxUploadBytes?: number
   context?: FilesContextConfig
@@ -443,6 +454,8 @@ export interface GlobalConfig {
 }
 
 export interface ServerConfig {
+  /** Startup business profile; authentication is never disabled by this field. */
+  businessPreset?: 'basic' | 'full'
   port: number // WebSocket 服务端口
   /** HTTP 静态服务 + /api/auth 登录端口；优先级 WEB_PORT 环境变量 > 本字段 > 默认 8183。 */
   webPort: number

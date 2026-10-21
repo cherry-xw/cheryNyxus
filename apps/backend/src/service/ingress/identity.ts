@@ -84,7 +84,7 @@ export class IngressIdentityAuthority {
     )
     if (
       connection?.selfId !== subject.selfId ||
-      !(await channel!.definition.verifyEvent(immutableSnapshot(input)))
+      !(await (input.purpose === 'source' ? channel!.definition.verifySource?.(immutableSnapshot(input)) : channel!.definition.verifyEvent(immutableSnapshot(input))))
     )
       throw ingressError('IDENTITY_REJECTED')
     assert()
@@ -112,7 +112,16 @@ export class IngressIdentityAuthority {
       this.channels.get(record.channel)?.ownerId !== ownerId
     )
       throw ingressError('IDENTITY_REJECTED')
+    if (record.purpose === 'source' && !this.channels.get(record.channel)?.definition.validateSource?.(record)) throw ingressError('IDENTITY_REJECTED')
     return record
+  }
+  /** Execution keeps the accepted event authority across transport loss, not owner revocation. */
+  validateExecution(ownerId: string, entryId: string, handle: IngressIdentityHandle): void {
+    const record = this.handles.get(handle)
+    if (!record || record.ownerId !== ownerId || record.entryId !== entryId ||
+      !this.isActive(ownerId) || record.generation !== (this.generations.get(ownerId) ?? 0) ||
+      this.channels.get(record.channel)?.ownerId !== ownerId)
+      throw ingressError('IDENTITY_REJECTED')
   }
   project(
     ownerId: string,

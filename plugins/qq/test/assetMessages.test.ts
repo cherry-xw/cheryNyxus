@@ -22,6 +22,7 @@ function setup() {
   const plugin = new QQPlugin({ dataDir: root, runtimeOptions: {}, core, identity: { bind: vi.fn().mockResolvedValue({}) }, log: vi.fn() } as unknown as IngressContext)
   const internal = plugin as any
   internal.stopped = false; internal.connection = 'connection'
+  internal.state.identityBinding = { selfId:'999' }
   const job = JobSchema.parse({ requestId: 'request', input: { eventId: 'qq:999:private:123:1', selfId: '999', conversationType: 'private', targetId: '123', senderId: '123', senderName: 'user', messageId: '1', content: '前后', mentionedBot: false, occurredAt: 1,
     attachments: [{ type: 'file', name: 'fixture.txt', url: 'https://files.example/fixture' }],
     parts: [{ type: 'text', text: '前' }, { type: 'attachment', index: 0 }, { type: 'text', text: '后' }] },
@@ -31,6 +32,31 @@ function setup() {
 }
 
 describe('QQ 有序资产消息', () => {
+  it('passive image does not wake AI; selected background image precedes arbitrary mention text', async () => {
+    const { internal, core, job, asset } = setup()
+    const now = Math.floor(Date.now() / 1000)
+    internal.snapshot = structuredClone(job.snapshot)
+    internal.snapshot.config.groups = ['456']; internal.snapshot.config.bindings = { 'group:456': 'p' }
+    const source = { ...job.input, conversationType: 'group' as const, targetId: '456', messageId: 'passive', eventId: 'passive', mentionedBot: false, content: '', parts: undefined, occurredAt: now,
+      attachments: [{ type: 'image', mimeType: 'image/png', url: 'https://files.example/?signature=secret' }] }
+    internal.state.discussions['group:456'] = { active: true, lastActivity: Date.now(), startedAt: Date.now(), closedAt: 0, summary: '', summaryPending: false, summaryRetryAt: 0, messages: [] }
+    const count = internal.state.jobs.length
+    expect((await internal.submit(source)).accepted).toBe(false)
+    expect(internal.state.jobs).toHaveLength(count)
+    internal.paused = true
+    expect((await internal.submit({ ...source, messageId: 'ask', eventId: 'ask', mentionedBot: true, content: '前面这图讲什么的？', attachments: undefined })).accepted).toBe(true)
+    const accepted = internal.state.jobs.at(-1)
+    internal.state.imageSources[accepted.conversationKey] = { [JSON.stringify(['999','group','456','passive',0])]: {type:'asset',partId:'image',assetId:asset.id,assetVersionId:asset.versionId,variant:'original',usage:'content',kind:'image'} }
+    expect(accepted.background.map((message: any) => message.messageId)).toContain('passive')
+    core.importFile.mockResolvedValue({ ...asset, kind: 'image', mimeType: 'image/png' })
+    internal.paused = false
+    await internal.execute(accepted)
+    const submitted = core.submit.mock.calls.at(-1)![0]
+    expect(submitted.parts.filter((part: any) => part.type === 'asset')).toHaveLength(1)
+    expect(submitted.parts.findIndex((part: any) => part.type === 'asset')).toBeLessThan(submitted.parts.findIndex((part: any) => part.text === accepted.input.content))
+    expect(core.importFile).not.toHaveBeenCalled()
+    expect(JSON.stringify(submitted)).not.toContain('signature')
+  })
   it('只有文件也可入站，越界附件位置仍拒绝', () => {
     const { job } = setup()
     expect(QQEventSubmitRequestSchema.safeParse({ ...job.input, content: '', parts: [{ type: 'attachment', index: 0 }] }).success).toBe(true)
@@ -47,6 +73,29 @@ describe('QQ 有序资产消息', () => {
     expect(JSON.stringify(submitted)).not.toContain('files.example')
   })
 
+  it('群 A 图片进入核心，B 引用跨重启复用同一版本且不重复下载', async () => {
+    const { internal, core, job, asset } = setup()
+    job.input = { ...job.input, eventId: 'qq:999:group:456:1', conversationType: 'group', targetId: '456', senderId: '123', attachments: [{ type: 'image', mimeType: 'image/png', url: 'https://files.example/image' }] }
+    job.target = 'group:456'
+    const imageAsset = { ...asset, kind: 'image', mimeType: 'image/png' }
+    core.importFile.mockResolvedValue(imageAsset)
+    internal.state.imageSources[job.conversationKey] = { [JSON.stringify(['999','group','456','1',0])]: {type:'asset',partId:'image',assetId:asset.id,assetVersionId:asset.versionId,variant:'original',usage:'content',kind:'image'} }
+    await internal.execute(job)
+    const state = JSON.parse(JSON.stringify(internal.state))
+    internal.state = state
+    const b = JobSchema.parse({ ...job, requestId: 'request-b', state: 'queued', inputParts: undefined,
+      input: { ...job.input, eventId: 'qq:999:group:456:2', messageId: '2', senderId: '789', senderName: 'B', replyToMessageId: '1', content: '引用原图', parts: undefined, attachments: undefined } })
+    internal.state.jobs.push(b)
+    await internal.execute(b)
+    expect(core.importFile).not.toHaveBeenCalled()
+    expect(core.readFileChunk).toHaveBeenCalledWith(expect.objectContaining({ assetId: asset.id, assetVersionId: asset.versionId, conversationKey: job.conversationKey }))
+    const submitted = core.submit.mock.calls.at(-1)![0]
+    expect(submitted.parts.filter((part: { type: string }) => part.type === 'asset')).toEqual([expect.objectContaining({ assetId: asset.id, assetVersionId: asset.versionId })])
+    expect(JSON.stringify(submitted.parts)).toContain('引用原图')
+    expect(JSON.stringify(submitted.parts)).toContain('789')
+    expect(JSON.stringify(submitted.parts)).toContain('123')
+  })
+
   it('导入失败保留不可读取说明，不编造资产', async () => {
     const { internal, core, job } = setup()
     core.importFile.mockRejectedValueOnce(new Error('unavailable'))
@@ -54,6 +103,17 @@ describe('QQ 有序资产消息', () => {
     const parts = core.submit.mock.calls[0]![0].parts
     expect(parts.some((part: { type: string }) => part.type === 'asset')).toBe(false)
     expect(JSON.stringify(parts)).toContain('不能读取其内容')
+  })
+
+  it.each(['download', 'invalid', 'permission', 'unknown'])('附件 %s 诊断不泄漏错误、cause、下载地址或正文', async stage => {
+    const { job } = setup()
+    const diagnostic = vi.fn()
+    const failure = Object.assign(new Error('https://files.example/?token=secret body-secret'), { stage, code: stage === 'download' ? 'FILE_DOWNLOAD_FAILED' : 'arbitrary-secret', cause: new Error('cause-secret') })
+    const parts = await prepareQQFileInputs([job.input], async () => { throw failure }, new AbortController().signal, { known: {}, messages: [], validate: async () => {}, save() {}, diagnostic })
+    expect(diagnostic).toHaveBeenCalledWith({ stage: stage === 'unknown' ? 'import' : stage, code: stage === 'download' ? 'FILE_DOWNLOAD_FAILED' : 'UNAVAILABLE', messageId: job.input.messageId, attachmentIndex: 0 })
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('secret')
+    expect(JSON.stringify(parts)).not.toContain('secret')
+    expect(JSON.stringify(parts)).toContain(stage === 'download' ? '下载失败' : stage === 'invalid' ? '格式或大小无效' : stage === 'permission' ? '无权读取' : '不可用')
   })
 
   it('工具文件与最终正文分别入发送队列，未取得回执不标发送成功', async () => {

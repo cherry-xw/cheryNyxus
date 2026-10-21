@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { linkSync, existsSync, unlinkSync } from 'node:fs'
+import { linkSync, existsSync, unlinkSync, lstatSync, readFileSync, constants } from 'node:fs'
 import { mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
@@ -35,11 +35,42 @@ function unavailable(): never {
 
 /** 单个后端主库的文件仓库。公开结果不含内部路径或存储键。 */
 export class AssetStore {
-  constructor(private readonly db: Database.Database, private readonly root: string) {}
+  constructor(private readonly db: Database.Database, private readonly root: string) {
+    db.exec(`CREATE TABLE IF NOT EXISTS asset_staging_publications (
+      file_id TEXT PRIMARY KEY, pid INTEGER NOT NULL, process_start TEXT NOT NULL, digest TEXT NOT NULL)`)
+  }
+
+  private processStart(pid:number):string {
+    try{return readFileSync(`/proc/${pid}/stat`,'utf8').split(') ').pop()!.split(' ')[19]!}catch{return ''}
+  }
+  /** Only journal-owned dead-process copies; live writers and unrelated staging are untouched. */
+  recoverPublications():void {
+    const rows=this.db.prepare('SELECT * FROM asset_staging_publications').all() as {file_id:string;pid:number;process_start:string;digest:string}[]
+    for(const row of rows) {
+      const start=this.processStart(row.pid)
+      if(start===row.process_start && start)continue
+      if(!start || !row.process_start){try{process.kill(row.pid,0);continue}catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')continue}}
+      if(!/^[0-9a-f-]{36}$/.test(row.file_id)||!/^[a-f0-9]{64}$/.test(row.digest))throw Error('Invalid publication journal')
+      const dir=join(this.root,'staging')
+      if(existsSync(dir)&&lstatSync(dir).isSymbolicLink())throw Error('Invalid staging directory')
+      const filename=join(dir,row.file_id)
+      try{const stat=lstatSync(filename);if(stat.isFile()&&!stat.isSymbolicLink())unlinkSync(filename)}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error}
+      this.discardUnpublishedBlob(row.digest)
+      this.db.prepare('DELETE FROM asset_staging_publications WHERE file_id=?').run(row.file_id)
+    }
+  }
 
   private blobPath(sha256: string) {
     if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('文件摘要无效')
     return join(this.root, 'blobs', sha256)
+  }
+  /** Startup source recovery may discard only an exact known unpublished digest. */
+  discardUnpublishedBlob(sha256:string):void {
+    this.db.transaction(()=>{
+      if(this.db.prepare('SELECT 1 FROM asset_versions WHERE sha256=?').get(sha256))return
+      const filename=this.blobPath(sha256)
+      try{const stat=lstatSync(filename);if(stat.isFile()&&!stat.isSymbolicLink())unlinkSync(filename)}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error}
+    }).immediate()
   }
 
   private row(assetId: string, versionId?: string): VersionRow | undefined {
@@ -51,6 +82,8 @@ export class AssetStore {
 
   private authorize(row: VersionRow | undefined, access: AssetAccess): VersionRow {
     if (!row || !access.ownerId || row.owner_id !== access.ownerId) unavailable()
+    if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_image_sources'").get() &&
+      this.db.prepare('SELECT 1 FROM ingress_image_sources WHERE asset_id=? AND permitted=0').get(row.asset_id)) unavailable()
     if (access.chatId && !this.db.prepare('SELECT 1 FROM asset_chat_grants WHERE asset_id = ? AND chat_id = ?')
       .get(row.asset_id, access.chatId)) unavailable()
     return row
@@ -126,7 +159,7 @@ export class AssetStore {
     const parent = this.authorize(this.row(original.id, original.versionId), access)
     if (!body.length) throw new Error('不能保存空的适配版本')
     if (parent.variant !== 'original') throw new Error('适配版本必须从原版产生')
-    const transformKey = JSON.stringify([transform.maxEdge, transform.quality, mimeType])
+    const transformKey = JSON.stringify([transform.maxEdge, transform.quality, mimeType, createHash('sha256').update(body).digest('hex')])
     const existing = this.db.prepare("SELECT id FROM asset_versions WHERE asset_id = ? AND variant = 'adapted' AND transform_key = ?")
       .get(original.id, transformKey) as { id: string } | undefined
     if (existing) return this.get(original.id, access, existing.id)
@@ -136,18 +169,39 @@ export class AssetStore {
     }, () => { this.authorize(this.row(original.id, parent.id), access) })
   }
 
+  /** Asset, grant, reference and host source mapping share the same SQLite transaction. */
+  async publishSource(body: Buffer, options: { ownerId: string; chatId: string; originalName: string; mimeType: string; kind: AssetKind;
+    sourceKey: string; validate(): void; published(asset: AssetRecord): void }): Promise<AssetRecord> {
+    const id = randomUUID()
+    return this.writeVersion(body, { assetId: id, variant: 'original', mimeType: options.mimeType, kind: options.kind,
+      transform: { variant: 'original', ...imageDimensions(body) }, transformKey: 'original' }, () => {
+      options.validate()
+      this.db.prepare(`INSERT INTO assets(id,owner_id,original_name,source,created_at,unreferenced_at,migration_unresolved)
+        VALUES (?,?,?,'upload',?,?,0)`).run(id,options.ownerId,options.originalName,Date.now(),Date.now())
+      this.db.prepare('UPDATE assets SET retain_original=1 WHERE id=?').run(id)
+    }, asset => {
+      const part = { type: 'asset' as const, partId: options.sourceKey, assetId: asset.id, assetVersionId: asset.versionId, variant: 'original' as const, usage: 'content' as const }
+      this.attachOwned([part], {ownerId:options.ownerId,chatId:options.chatId}, 'branch', options.sourceKey)
+      options.published(asset)
+    })
+  }
+
   private async writeVersion(body: Buffer, version: {
     assetId: string; variant: 'original' | 'adapted'; parentVersionId?: string
     mimeType: string; kind: AssetKind; transform: AssetRecord['transform']; transformKey: string
-  }, beforeInsert: () => void): Promise<AssetRecord> {
+  }, beforeInsert: () => void, afterInsert?: (asset: AssetRecord) => void): Promise<AssetRecord> {
     const sha256 = createHash('sha256').update(body).digest('hex')
     const tempDir = join(this.root, 'staging')
     await mkdir(tempDir, { recursive: true })
     await mkdir(join(this.root, 'blobs'), { recursive: true })
-    const temp = join(tempDir, randomUUID())
+    if(lstatSync(tempDir).isSymbolicLink())throw Error('Invalid staging directory')
+    const fileId=randomUUID(),temp = join(tempDir, fileId)
+    // Persist ownership before creating bytes, independently of the publication transaction.
+    this.db.prepare('INSERT INTO asset_staging_publications(file_id,pid,process_start,digest) VALUES (?,?,?,?)')
+      .run(fileId,process.pid,this.processStart(process.pid),sha256)
     const versionId = randomUUID()
     try {
-      const file = await open(temp, 'wx', 0o600)
+      const file = await open(temp, constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW, 0o600)
       try {
         await file.writeFile(body)
         await file.sync()
@@ -166,9 +220,15 @@ export class AssetStore {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(versionId, version.assetId,
             version.variant, version.parentVersionId ?? null, sha256, version.mimeType,
             version.kind, body.length, Date.now(), JSON.stringify(version.transform), version.transformKey)
-        return this.record(this.row(version.assetId, versionId)!)
+        const asset = this.record(this.row(version.assetId, versionId)!)
+        afterInsert?.(asset)
+        return asset
       }).immediate()
-    } finally { await unlink(temp).catch(() => undefined) }
+    } finally {
+      await unlink(temp).catch(error=>{if(error.code!=='ENOENT')throw error})
+      this.discardUnpublishedBlob(sha256)
+      this.db.prepare('DELETE FROM asset_staging_publications WHERE file_id=?').run(fileId)
+    }
   }
 
   /** 仅用于已鉴权的用户提交，不用于子任务。会话权限必须由请求处理器预先验证。 */
@@ -244,7 +304,7 @@ export class AssetStore {
     const { count, hashes } = this.db.transaction(() => {
       this.db.prepare('UPDATE assets SET unreferenced_at = ? WHERE id IN (SELECT v.asset_id FROM asset_draft_references r JOIN asset_versions v ON v.id = r.asset_version_id WHERE r.expires_at <= ?)').run(now, now)
       this.db.prepare('DELETE FROM asset_draft_references WHERE expires_at <= ?').run(now)
-      const expired = this.db.prepare(`SELECT id FROM assets a WHERE migration_unresolved = 0
+      const expired = this.db.prepare(`SELECT id FROM assets a WHERE migration_unresolved = 0 AND retain_original = 0
         AND unreferenced_at <= CASE WHEN was_referenced = 0 AND source = 'upload' THEN ? ELSE ? END AND NOT EXISTS (
           SELECT 1 FROM asset_references r JOIN asset_versions v ON v.id = r.asset_version_id WHERE v.asset_id = a.id)
         AND NOT EXISTS (SELECT 1 FROM asset_operation_references r JOIN asset_versions v ON v.id = r.asset_version_id WHERE v.asset_id = a.id)
