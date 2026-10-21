@@ -45,6 +45,7 @@ const WorkbenchDialog = defineAsyncComponent(
 const TerminalSurface = defineAsyncComponent(
   () => import('@/features/agent/workbench/terminal/TerminalSurface.vue'),
 )
+const CommandMonitorPanel = defineAsyncComponent(() => import('@/features/agent/commands/CommandMonitorPanel.vue'))
 const TerminalTitleActions = defineAsyncComponent(
   () => import('@/features/agent/workbench/terminal/TerminalTitleActions.vue'),
 )
@@ -216,6 +217,12 @@ const browserHistoryWindow = computed(() =>
     ),
 )
 const browserTaskCenterWindow = computed(() => workspace.workspaceWindows['window:task-center'])
+const browserCommandWindows = computed(() => workspace.workspaceWindowsList.filter(window => window.context.kind === 'commands'))
+function openSessionCommands(chatId: string | null): void {
+  if (!chatId) return
+  workspace.openOrFocusWindow({ resourceKey: `commands:${chatId}`, title: '会话命令监控', context: { kind: 'commands', chatId },
+    geometry: { width: 1080, height: 720 } })
+}
 const browserWorkbenchWindows = computed(() =>
   workspace.workbenchWindowsList.flatMap((workbench) => {
     const window = workspace.workspaceWindows[`window:graph:${workbench.id}`]
@@ -375,6 +382,16 @@ async function bootstrap(): Promise<void> {
           :preset-id="terminalWindow.context.presetId"
           @meta="updateBrowserTerminalHeader(terminalWindow.id, $event)"
         />
+        <p v-if="!capabilityEnabled('terminal.session')">当前服务未启用终端</p>
+      </WorkspaceCyberWindow>
+      <WorkspaceCyberWindow
+        v-for="commandWindow in browserCommandWindows"
+        :key="commandWindow.id"
+        :handlers="cyberWindowHandlers"
+        :window="commandWindow"
+        :focus="workspace.focusWorkspaceWindow"
+      >
+        <CommandMonitorPanel v-if="commandWindow.context.kind === 'commands'" :chat-id="commandWindow.context.chatId" />
       </WorkspaceCyberWindow>
       <WorkspaceCyberWindow
         v-for="entry in browserWorkbenchWindows"
@@ -387,6 +404,7 @@ async function bootstrap(): Promise<void> {
           <!-- 树模式待处理提示：标题栏内不可点击图标（hover 显示数量），与 WorkbenchDialog 内部标题栏同一组件 -->
           <WorkbenchAttentionIndicator :window-id="entry.workbench.id" @click="browserWorkbenchRefs.get(entry.workbench.id)?.toggleWorkspaceBrowser()" />
           <ConnectionStatusChip />
+          <button type="button" class="workbench-files-title-action" :disabled="!entry.workbench.chatId" @click="openSessionCommands(entry.workbench.chatId)">会话命令</button>
           <!-- 标题栏稳定任务快捷位：浏览器面工作台窗由 CyberWindow 承载
                标题栏（WorkbenchDialog embedded 自绘 titlebar 不渲染），strip 挂此 slot；
                senseTool 不注入，strip 内部自拉 sense.tools 兜底 -->

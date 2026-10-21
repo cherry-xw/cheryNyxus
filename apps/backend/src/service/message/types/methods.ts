@@ -1,6 +1,7 @@
 import { Method as ProtocolMethod } from '@chery/protocol'
 import type { QQMethodMap as importQQMethodMap } from '@chery/protocol'
 import type { IngressMethodMap } from '@chery/protocol'
+import type { AgentCommandMethodMap } from '@chery/protocol'
 import { InternalCommand } from '../internalCommand.js'
 import type { ConfigRaw } from '@/utils/config.js'
 import type {
@@ -318,6 +319,12 @@ export const Method = {
 
   // Bash 进程管理（挂起子进程的查询 / 显式杀死）
   BASH_LIST: 'bash.list',
+  AGENT_COMMAND_LIST: ProtocolMethod.AGENT_COMMAND_LIST,
+  AGENT_COMMAND_GET: ProtocolMethod.AGENT_COMMAND_GET,
+  AGENT_COMMAND_LOGS_READ: ProtocolMethod.AGENT_COMMAND_LOGS_READ,
+  AGENT_COMMAND_STOP: ProtocolMethod.AGENT_COMMAND_STOP,
+  AGENT_COMMAND_SUBSCRIBE: ProtocolMethod.AGENT_COMMAND_SUBSCRIBE,
+  AGENT_COMMAND_UNSUBSCRIBE: ProtocolMethod.AGENT_COMMAND_UNSUBSCRIBE,
   BASH_KILL: 'bash.kill',
 
   // MCP 管理（连接层热重载：list/get/connect/disconnect/reload）
@@ -397,7 +404,7 @@ export type Method = (typeof Method)[keyof typeof Method]
  * RPC 方法级契约：Method 与 params/result 保持一一对应。
  * RequestData/ResponseData 仅是动态传输边界的派生联合；业务 handler 使用 ParamsOf/ResultOf。
  */
-export interface RpcMethodMap extends importQQMethodMap, IngressMethodMap {
+export interface RpcMethodMap extends importQQMethodMap, IngressMethodMap, AgentCommandMethodMap {
   [Method.BRAIN_LIST]: { params: BrainListRequestData; result: BrainListResponseData }
   [Method.SENSE_LIST]: { params: SenseListRequestData; result: SenseListResponseData }
   [Method.SENSE_TOOLS]: { params: SenseToolsRequestData; result: SenseToolsResponseData }

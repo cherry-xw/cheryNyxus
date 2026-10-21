@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { IngressResponseSchemas } from '@chery/protocol'
 import {
+  AgentCommandListResponseSchema, AgentCommandGetResponseSchema, CommandLogPageSchema,
+  AgentCommandStopResponseSchema, AgentCommandSubscribeResponseSchema, AgentCommandUnsubscribeResponseSchema,
+} from '@chery/protocol'
+import {
   TaskUsageDetailSchema,
   UsageBatchResponseSchema,
   UsageRequestsResponseSchema,
@@ -515,6 +519,12 @@ const schemas = {
   [Method.INTERACTION_APPROVAL_DECIDE]: z.looseObject({ interaction: interactionSchema }),
   [Method.INTERACTION_QUESTION_ANSWER]: z.looseObject({ interaction: interactionSchema }),
   [Method.BASH_LIST]: z.looseObject({ chatId: id, processes: objectArray }),
+  [Method.AGENT_COMMAND_LIST]: AgentCommandListResponseSchema,
+  [Method.AGENT_COMMAND_GET]: AgentCommandGetResponseSchema,
+  [Method.AGENT_COMMAND_LOGS_READ]: CommandLogPageSchema,
+  [Method.AGENT_COMMAND_STOP]: AgentCommandStopResponseSchema,
+  [Method.AGENT_COMMAND_SUBSCRIBE]: AgentCommandSubscribeResponseSchema,
+  [Method.AGENT_COMMAND_UNSUBSCRIBE]: AgentCommandUnsubscribeResponseSchema,
   [Method.BASH_KILL]: z.looseObject({ chatId: id, pid: positiveInt, killed: z.boolean() }),
   [Method.MCP_LIST]: z.looseObject({ servers: objectArray }),
   [Method.MCP_GET]: z.looseObject({ server: object }),

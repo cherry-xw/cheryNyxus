@@ -5,6 +5,7 @@ import {
 } from './useHistoryDrawerPanelController'
 import UserFeedbackCard from '@/features/feedback/UserFeedbackCard.vue'
 import TaskPlanMarker from '@/features/agent/task-plan/TaskPlanMarker.vue'
+import DrawingHistory from '../composer/DrawingHistory.vue'
 const props = defineProps<HistoryDrawerPanelControllerProps>()
 const controller = useHistoryDrawerPanelController(props)
 const {
@@ -231,6 +232,7 @@ const {
         </button>
       </div>
     </header>
+    <DrawingHistory :chat-id="props.chatId" />
     <ContextUsageBar
       v-if="pet?.contextBreakdown?.total"
       :usage="pet?.contextUsage ?? 0"

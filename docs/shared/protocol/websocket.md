@@ -10,6 +10,18 @@ QQ 专用连接的启动配置确认通知 `qqbot.config.loaded` 只向本机 QQ
 
 `workspace.files.list/read`、`terminal.create/input/resize/close` 与所属连接的 `terminal.event` 见[工作区文件与 Terminal 协议](workspace-files-terminal.md)。文件接口只读且限定于当前会话工作区，引用只携带路径；Terminal 是显式打开的交互 Shell。
 
+## Agent 命令监控（已批准，实施中）
+
+本能力覆盖 Agent 普通命令及受管容器 exec/publish 的命令步骤，不含人工终端、普通文件读写或 MCP 通用调用。实现与验证尚未完成，不表示线上 RPC 已开放。命令身份独立于 PID，关联所属会话、根会话、运行与工具调用；单条停止仅取消命令，Agent 可以继续任务。取消请求、实际退出、结果未知分别记录，工具超时转后台不算进程退出。
+
+指令详情与日志查询、订阅和停止使用同一会话授权；全局列表仅汇总当前身份可访问的会话，不通过猜命令 ID 绕过授权。刷新先取快照，推送携版本和单调日志序号；客户端按序号去重，断线按位置补读。保留区间已淘汰或写入失败时返回明确缺失，不能承诺所有日志可补齐。
+
+监控方法为 `agent.command.list/get/logs.read/stop/subscribe/unsubscribe`，更新及日志事件为 `agent.command.updated` / `agent.command.log.chunk`；不占用斜杠指令菜单的 `command.list`。共享类型与参数边界由 [`agentCommand.ts`](../../../packages/protocol/src/agentCommand.ts) 维护。列表按启动时间和命令 ID 倒序分页；省略会话为当前身份可访问会话的汇总，可选包含该会话的子任务。订阅属于当前连接，关闭连接即释放；日志仅向明确订阅该命令的连接发送。创建订阅后再查询快照，合并期间的推送并按版本/日志序号去重；订阅本身不恢复业务任务或重放执行。
+
+服务关闭暂存的 Web 输入仍保留原输入身份、内容和顺序；`PendingInputSnapshot.reason` 说明“因服务关闭未处理”。重启快照保留该说明，只有用户明确继续才放行。当前任务的中断由 `system_stop` 事实说明，不将未知外部结果写成成功。
+
+原始输出按 stdout/stderr 来源及接收顺序分块无损压缩，两个流的接收顺序不承诺等同进程内部写入顺序。日志最多保留到结束后 7 天，压缩后单条 10 MiB（开头 20%、最新 80%）、全局 200 MiB；全局先清过期再清最早结束日志，仅活跃日志占满则暂停新增保存。日志异常或额度限制不中断命令，指令详情独立保留。Drain 只提供附加的相似日志摘要，不代替原文，不改变 Agent 工具输出；摘要省略与原文缺失分开展示。
+
 ## 工具文件结果
 
 工具结果在历史与时间线中保留 `parts` 和 `fileOperations`：`GraphToolCall` 以及单会话 `CanonicalSenseCall` 均携带相应字段。文件卡片读取固定资产版本，不从 `result` 文字中的 URL 推断文件。消费者合并工具调用结果时必须同时保留这些字段，不能只保留文字；保存失败、执行失败与检查结果分别取操作记录，不因文字存在就认定成功。

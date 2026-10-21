@@ -1,11 +1,15 @@
 import { z } from 'zod'
+import { StringDecoder } from 'node:string_decoder'
 import { directContainerExecution } from '@/core/security/executionMode.js'
-import { writeFileSync } from 'fs'
 import { sense, type SenseResult } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
 import config from '@/utils/config'
-import { logger, type BashLogInfo } from '@/utils/logger/index.js'
-import { registerBashProcess, unregisterBashProcess } from './processRegistry.js'
+import { getCommandRuntime } from '@/service/commands.js'
+import { registerHostCommand, releaseHostCommand, requestHostCommandStop } from '@/service/hostCommands.js'
+import type { RunningCommand } from '@/service/commandRuntime.js'
+import { getRootChatId } from '@/db/chat.js'
+import { getActiveChatRunId } from '@/service/chat/runtimeCache.js'
+import { createEnvLogRedactor } from '@/utils/envGuard.js'
 import {
   resolveShellExecutable,
   resolveCommandWorkdir,
@@ -21,7 +25,6 @@ interface BashResult {
   command: string
   description: string
   output: string
-  logPath?: string
   message?: string
 }
 
@@ -33,9 +36,6 @@ function formatBashResult(result: BashResult): string {
     content += `退出码: ${result.exitCode}\n`
   }
   content += `执行时长: ${result.duration}ms\n`
-  if (result.logPath) {
-    content += `日志路径: ${result.logPath}（详细信息使用 read_file 读取）\n`
-  }
   if (result.message) {
     content += `说明: ${result.message}\n`
   }
@@ -74,13 +74,8 @@ export default sense(
     const startTime = Date.now()
     const hash = ''
     const timeoutMs = config.global.sense_execute_timeout ?? 30000
-    const logRetentionHours = config.global.bash_log_retention_hours ?? 24
-
-    logger.tools.cleanOldBashLogs(logRetentionHours)
-
-    // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案）；
-    // 测试场景（无 ctx）为 undefined → register 跳过，执行不受影响
     const chatId = senseCtx?.chatId
+    senseCtx?.signal?.throwIfAborted()
 
     if (!directContainerExecution() && !senseCtx?.security?.requiredSandboxMode) {
       return {
@@ -91,9 +86,21 @@ export default sense(
 
     let cwd: string
     let sandboxed: ReturnType<typeof spawnSandboxedCommand>
+    let monitored: RunningCommand | undefined
+    let instanceId = ''
+    let cancellationRequested = false
     try {
       cwd = resolveCommandWorkdir(workdir)
       const shellCommand = resolveShellExecutable(shell)
+      if (chatId) {
+        const runtime = getCommandRuntime()
+        instanceId = runtime.options.backendInstanceId
+        monitored = runtime.start({ chatId, rootChatId: getRootChatId(chatId), runId: getActiveChatRunId(chatId) ?? null,
+          toolCallId: senseCtx?.messageId ?? null, sourceKind: 'host_bash', command, description, workdir: cwd }, () => {
+          cancellationRequested = true
+          if (sandboxed?.process.pid) requestHostCommandStop(sandboxed.process.pid)
+        })
+      }
       sandboxed = spawnSandboxedCommand({
         executable: shellCommand.executable,
         args: [...shellCommand.args, command],
@@ -104,26 +111,43 @@ export default sense(
           : senseCtx!.security!.requiredSandboxMode!,
       })
     } catch (error) {
+      await monitored?.finish({ status: 'exited', exitCode: null })
       return { content: `状态: error\n说明: ${(error as Error).message}` }
     }
 
     return new Promise((resolve) => {
       let timedOut = false
-      let outputBuffer = '' // 实时累积 stdout/stderr
+      let outputOpening = ''
+      let outputLatest = ''
+      let omitted = false
+      let spawnError: Error | undefined
+      const redactors = { stdout: createEnvLogRedactor(), stderr: createEnvLogRedactor() }
+      const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') }
+      const preview = (text: string) => {
+        const room = 32_768 - outputOpening.length
+        outputOpening += text.slice(0, Math.max(0, room))
+        outputLatest += text.slice(Math.max(0, room))
+        if (outputLatest.length > 32_768) { outputLatest = outputLatest.slice(-32_768); omitted = true }
+      }
+      const output = () => outputOpening + (omitted ? '\n[输出过长，已省略中间内容；完整保留范围请查看命令日志]\n' : '') + outputLatest
 
       const proc = sandboxed.process
 
-      const processPid = proc.pid!
-
-      // 注册到进程表（挂起保留）：运行结束/杀死均由下方 close handler unregister 清除
-      registerBashProcess(chatId, proc, { command, description, startedAt: startTime })
-
-      proc.stdout.on('data', (data) => {
-        outputBuffer += data.toString()
-      })
-
-      proc.stderr.on('data', (data) => {
-        outputBuffer += data.toString()
+      const processPid = proc.pid ?? 0
+      if (chatId && monitored && proc.pid) {
+        registerHostCommand(chatId, proc, monitored, instanceId)
+        monitored.started(String(proc.pid))
+      }
+      const cancel = () => {
+        cancellationRequested = true
+        if (monitored) void monitored.requestCancel().catch(() => {})
+        else { try { proc.kill('SIGTERM') } catch { /* Wait for close, not a signal ACK. */ } }
+      }
+      senseCtx?.signal?.addEventListener('abort', cancel, { once: true })
+      if (senseCtx?.signal?.aborted) cancel()
+      for (const stream of ['stdout', 'stderr'] as const) proc[stream].on('data', (data: Buffer) => {
+        monitored?.write(stream, data)
+        preview(decoders[stream].write(redactors[stream].write(data)))
       })
 
       const timer = setTimeout(() => {
@@ -131,17 +155,7 @@ export default sense(
         const endTime = Date.now()
         const duration = endTime - startTime
 
-        // 超时场景：创建日志文件，进程进入后台运行
-        const logPath = logger.tools.createBashLogPath(startTime, endTime)
-        const logInfo: BashLogInfo = {
-          pid: processPid,
-          command,
-          startTime,
-          logPath,
-          description,
-          status: 'running',
-        }
-        writeFileSync(logPath, logger.tools.formatBashLogHeader(logInfo) + outputBuffer)
+        monitored?.background()
 
         const result: BashResult = {
           status: 'timeout',
@@ -149,20 +163,28 @@ export default sense(
           duration,
           command,
           description,
-          output: outputBuffer,
-          logPath,
+          output: output(),
           message: '进程进入后台运行',
         }
 
         resolve({ content: formatBashResult(result), hash })
       }, timeoutMs)
 
-      proc.on('close', (code) => {
+      proc.once('close', (code, signal) => {
         clearTimeout(timer)
+        senseCtx?.signal?.removeEventListener('abort', cancel)
         sandboxed.cleanup()
-        // 运行结束清除 / 杀死后清除：kill 亦触发 close，统一在此注销（超时挂起项此时才清除）
-        unregisterBashProcess(chatId, processPid)
-        if (!timedOut) {
+        for (const stream of ['stdout', 'stderr'] as const) {
+          preview(decoders[stream].write(redactors[stream].end()))
+          preview(decoders[stream].end())
+        }
+        const cancelled = cancellationRequested || monitored?.snapshot().status === 'cancel_requested'
+        const finalized = (async () => {
+          if (proc.pid) await releaseHostCommand(proc.pid, instanceId)
+          await monitored?.finish({ status: cancelled && signal ? 'killed' : 'exited', exitCode: code, signal })
+        })()
+        void Promise.resolve(finalized).then(() => {
+          if (timedOut) return
           const endTime = Date.now()
           const duration = endTime - startTime
 
@@ -173,33 +195,19 @@ export default sense(
             duration,
             command,
             description,
-            output: outputBuffer,
+            output: output(),
+            ...(spawnError ? { message: spawnError.message } : {}),
           }
 
-          resolve({ content: formatBashResult(result), hash })
-        }
+          resolve({ content: formatBashResult(result), hash,
+            ...(cancelled ? { status: 'cancelled' as const, errorCode: 'cancelled' as const } : {}) })
+        })
       })
 
       proc.on('error', (err) => {
         clearTimeout(timer)
-        sandboxed.cleanup()
-        unregisterBashProcess(chatId, processPid)
-        if (!timedOut) {
-          const endTime = Date.now()
-          const duration = endTime - startTime
-
-          const result: BashResult = {
-            status: 'error',
-            pid: processPid,
-            duration,
-            command,
-            description,
-            output: outputBuffer,
-            message: err.message,
-          }
-
-          resolve({ content: formatBashResult(result), hash })
-        }
+        // Node emits close after error; a kill/send error alone is not exit evidence.
+        spawnError = err
       })
     })
   },

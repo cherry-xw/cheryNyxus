@@ -4,6 +4,10 @@
 
 ## 职责
 
+命令监控（实施中）由 [`commands.ts`](../../../apps/backend/src/service/commands.ts) 装配，核心 [`CommandRuntime`](../../../apps/backend/src/service/commandRuntime.ts) 保存活跃取消句柄，`RunningCommand.finish` 仅由执行方观察实际结束后调用；取消请求不直接完成命令。普通 `execute_command` 经 [`hostCommands.ts`](../../../apps/backend/src/service/hostCommands.ts) 登记父层进程组；原始输出先经 [`SensitiveLogStream`](../../../apps/backend/src/utils/sensitiveLogStream.ts) 遮蔽敏感值，再进入 [`CommandLogStore`](../../../apps/backend/src/service/commandLogs.ts) 和[流式 Drain](../utils/drain.md)。[`CommandMonitor`](../../../apps/backend/src/service/commandMonitor.ts) 注册 `agent.command.*`，逐次按已认证身份核对根会话所有者，先授权再分页或推送；斜杠指令菜单 `command.list` 独立保留。日志订阅随连接释放，慢连接不无限缓存，须重连补读。相关测试位于 [`commandRuntime.test.ts`](../../../apps/backend/test/service/commandRuntime.test.ts)、[`commandLogs.test.ts`](../../../apps/backend/test/service/commandLogs.test.ts) 和 [`commandMonitor.test.ts`](../../../apps/backend/test/service/commandMonitor.test.ts)。受管命令、QQ 双端及界面仍在接入，整项尚未验证可用；共同约定见[命令监控契约](../../shared/protocol/websocket.md#agent-命令监控已批准实施中)。
+
+受管命令控制器的本机 Socket 协议由 [`socketRpc.ts`](../../../apps/backend/src/service/managedApp/socketRpc.ts) 与 [`types.ts`](../../../apps/backend/src/service/managedApp/types.ts) 共同维护：命令执行可在最终响应前返回带请求 ID 的有界 stdout/stderr 原文帧，Backend 将其送入同一命令日志写者，不拿截断工具预览冒充原文。传输失败不中止执行；执行状态须另查原 taskId，取消确认仍不等于最终退出。此接入正在实施，不能推断现有部署已支持流式帧。
+
 主 Agent 执行观察的记录器写者、恢复与失败边界见[执行观察](workflow.md)，跨端字段见[workflow 契约](../../shared/protocol/workflow.md)。
 
 service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket 上的 RPC 请求路由到对应 handler，把 agent 的流式 `MiddlewareChunk` 流映射成协议层 Chunk/Notification 推回客户端，并集中处理 DB 持久化与审批副作用。

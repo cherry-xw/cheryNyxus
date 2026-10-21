@@ -1,5 +1,9 @@
 import { z } from 'zod'
 import { IngressRequestSchemas } from '@chery/protocol'
+import {
+  AgentCommandListRequestSchema, AgentCommandGetRequestSchema, AgentCommandLogsReadRequestSchema,
+  AgentCommandSubscribeRequestSchema, AgentCommandUnsubscribeRequestSchema,
+} from '@chery/protocol'
 import { ArchiveListRequestSchema } from '@chery/protocol'
 import { CONFIG_APPLY_VERSION, HooksDraftSchema } from '@chery/protocol'
 import { Method, type Method as MethodName, type ParamsOf } from './types.js'
@@ -587,6 +591,12 @@ export const requestSchemas = {
   }),
   [InternalCommand.CHAT_ATTACH]: chatIdSchema,
   [Method.BASH_LIST]: chatIdSchema,
+  [Method.AGENT_COMMAND_LIST]: AgentCommandListRequestSchema,
+  [Method.AGENT_COMMAND_GET]: AgentCommandGetRequestSchema,
+  [Method.AGENT_COMMAND_LOGS_READ]: AgentCommandLogsReadRequestSchema,
+  [Method.AGENT_COMMAND_STOP]: AgentCommandGetRequestSchema,
+  [Method.AGENT_COMMAND_SUBSCRIBE]: AgentCommandSubscribeRequestSchema,
+  [Method.AGENT_COMMAND_UNSUBSCRIBE]: AgentCommandUnsubscribeRequestSchema,
   [Method.BASH_KILL]: z.object({
     chatId: nonEmptyString,
     pid: z.number().int().positive(),

@@ -32,6 +32,8 @@
 
 ## 约束
 
+命令监控（源码实施中）使用 `commands` 功能窗口：系统栏的“命令监控”查看当前身份有权访问的全局命令；工作台标题栏的“会话命令”只查看当前会话及其子会话。二者复用 `features/agent/commands/CommandMonitorPanel.vue` 与 `application/commands/public.ts`，不使用人工终端或斜杠指令菜单的数据源。窗口可最小化和关闭，关闭只释放查看订阅，不取消执行。状态和日志由独立命令状态模块统一维护，账号或服务身份改变立即清空，断线后重新订阅并按已读序号补读保留日志。日志分页和浏览器显示均有界，缺失区间、存储状态和未知尾部必须显示；原文与有损摘要分别呈现。
+
 共享 `OVERLAY_Z_INDEX.tooltip` 为最高提示层；用于工作台 info 的短暂只读悬浮说明，不接收指针、不固定显示。其他窗口、审批与 owner 菜单层级保持原契约。
 
 桌面只拥有窗口与可见状态，不拥有业务草稿；设置关闭先经 [App.vue](../../apps/web/src/App.vue) 的 `requestCyberWindowClose` 调用内容的 `confirmClose`，具体保存与丢弃语义归 [settings.md](settings.md)。非模态内嵌内容不声明 `aria-modal`。

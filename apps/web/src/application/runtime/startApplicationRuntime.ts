@@ -13,6 +13,7 @@ import type { TaskOverviewChangedData } from '@/stores/taskOverview'
 import { wsClient } from '@/services/ws'
 import { ChatLifecycleChangedSchema } from '@chery/protocol'
 import { invalidateArchives } from '../archiveChanges'
+import { useAgentCommandsStore } from '@/stores/agentCommands'
 
 /** Composition root for transport subscriptions and application projections. */
 export function startApplicationRuntime(): () => void {
@@ -23,6 +24,9 @@ export function startApplicationRuntime(): () => void {
   const interactions = useInteractionsStore()
   const taskOverview = useTaskOverviewStore()
   const workspace = useWorkspaceStore()
+  const commands = useAgentCommandsStore()
+  commands.connectionChanged(wsClient.getStatus())
+  const commandPoll = setInterval(() => commands.poll(), 2000)
 
   chats.bindWsClient()
   chats.bindEffects({
@@ -48,6 +52,7 @@ export function startApplicationRuntime(): () => void {
   )
 
   const offNotification = wsClient.onNotification((notification) => {
+    commands.apply(notification)
     const event = notification as {
       background?: boolean
       type?: string
@@ -118,6 +123,7 @@ export function startApplicationRuntime(): () => void {
 
   let previousStatus: string | null = null
   const offStatus = wsClient.onStatus((status) => {
+    commands.connectionChanged(status)
     if (status === 'connected') {
       invalidateArchives()
       void configApply.refresh()

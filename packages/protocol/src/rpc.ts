@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ConfigApplyStateSchema } from './configApply'
 import { ChatLifecycleChangedSchema } from './archive'
+import { AgentCommandUpdatedSchema, AgentCommandLogEventSchema } from './agentCommand'
 
 /**
  * Canonical public RPC surface.
@@ -99,6 +100,12 @@ export const Method = {
   INTERACTION_APPROVAL_DECIDE: 'interaction.approval.decide',
   INTERACTION_QUESTION_ANSWER: 'interaction.question.answer',
   BASH_LIST: 'bash.list',
+  AGENT_COMMAND_LIST: 'agent.command.list',
+  AGENT_COMMAND_GET: 'agent.command.get',
+  AGENT_COMMAND_LOGS_READ: 'agent.command.logs.read',
+  AGENT_COMMAND_STOP: 'agent.command.stop',
+  AGENT_COMMAND_SUBSCRIBE: 'agent.command.subscribe',
+  AGENT_COMMAND_UNSUBSCRIBE: 'agent.command.unsubscribe',
   BASH_KILL: 'bash.kill',
   MCP_LIST: 'mcp.list',
   MCP_GET: 'mcp.get',
@@ -400,7 +407,11 @@ export const NotificationEnvelopeSchema = z
                 ? ConfigApplyStateSchema
                 : notification.type === 'chat.lifecycle.changed'
                   ? ChatLifecycleChangedSchema
-                  : undefined
+                   : notification.type === 'agent.command.updated'
+                     ? AgentCommandUpdatedSchema
+                     : notification.type === 'agent.command.log.chunk'
+                       ? AgentCommandLogEventSchema
+                        : notification.type === 'qq.service.state' ? QQServiceStateSchema : undefined
     if (schema) {
       const parsed = schema.safeParse(notification.data)
       if (parsed.success) return

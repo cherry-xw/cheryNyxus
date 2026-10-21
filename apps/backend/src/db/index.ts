@@ -4,6 +4,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import config from '@/utils/config.js'
 import { initAssetTables } from './assets.js'
+import { initAgentCommandTables } from './agentCommands.js'
 
 // 缓存管理
 const dbCache = {
@@ -74,6 +75,7 @@ export function getMonthlyDb(yearMonth: string): Database.Database {
  */
 function initSoulTables(db: Database.Database): void {
   initAssetTables(db)
+  initAgentCommandTables(db)
   db.exec(`
     CREATE TABLE IF NOT EXISTS model_request_usage (
       attempt_id TEXT PRIMARY KEY,

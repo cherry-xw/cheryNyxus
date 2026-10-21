@@ -38,9 +38,14 @@ const desktopStyle = computed(() => ({
     renderQualityProfile(renderQualityTier.value).desktopNoiseOpacity,
   ),
 }))
-function openCapability(kind: 'settings' | 'task-center'): void {
+function openCapability(kind: 'settings' | 'task-center' | 'commands'): void {
   if (kind === 'settings') {
     workspace.settingsOpen = true
+    return
+  }
+  if (kind === 'commands') {
+    workspace.openOrFocusWindow({ resourceKey: 'commands', title: 'Agent 命令监控', context: { kind: 'commands' },
+      geometry: { width: 1080, height: 720 } })
     return
   }
   workspace.openOrFocusWindow({
@@ -266,6 +271,7 @@ function activate(window: WorkspaceWindowState): void {
       >
       <nav class="cyber-launcher" aria-label="系统功能">
         <button type="button" @click="openCapability('task-center')">任务中心</button>
+        <button type="button" @click="openCapability('commands')">命令监控</button>
         <button type="button" @click="openCapability('settings')">设置</button>
         <button
           type="button"

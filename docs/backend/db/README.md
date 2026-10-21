@@ -32,6 +32,10 @@
 
 ## 文件清单
 
+命令监控的 `agent_commands` 元信息和 `agent_command_log_blocks` 压缩分块由 [`agentCommands.ts`](../../../apps/backend/src/db/agentCommands.ts) 的 `AgentCommandRepository` 管理；命令真实结束、日志完整度和保留状态互不替代。日志清理保留命令详情，删除会话随外键清理所属记录。分块写入、压缩配额及缺失区间读取由 [`commandLogs.ts`](../../../apps/backend/src/service/commandLogs.ts) 的 `CommandLogStore` 管理，配额针对压缩内容总量，不等于 SQLite 文件及 WAL 的实际大小。普通命令和公开查询已写入接线，受管执行及整项验证未完成；配额和权限约定见[命令监控契约](../../shared/protocol/websocket.md#agent-命令监控已批准实施中)。
+
+[`BackendResumeRepository`](../../../apps/backend/src/db/backendResume.ts) 管理 `backend_resume_gates`，按会话保存必须显式继续的限制和关闭操作前状态。等待关闭时暂存，取消关闭恢复该操作前状态，不解除更早重启留下的暂停限制；新进程恢复后须由显式“继续”解除，不重发输入。该限制与 `pending_inputs` 的正文、顺序及消费状态分开保存，不能仅凭重建内存队列自动开始执行。测试见 [`backendResume.test.ts`](../../../apps/backend/test/service/backendResume.test.ts)。
+
 现行粗粒度运行流程复用冻结资源清单及执行节点 JSON，不增加表；`upsertExecutionNode` 保留独立 workflow 结果附注。已采纳的详细步骤目标改用独立追加事实（workflow journal 与步骤事件表，已落地）；存储生命周期与写者见[执行观察](../service/workflow.md)，跨端定义见[workflow 契约](../../shared/protocol/workflow.md)。
 
 | 文件 | 一句话 |
