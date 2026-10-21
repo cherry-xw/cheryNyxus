@@ -1,70 +1,53 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { hostOf, isLoopbackHost, normalizeAddress } from '@/domain/auth/serverAddress'
-import { useAuthStore, type AuthError, type AuthMode } from '@/application/auth/public'
-import { useConnectionStore } from '@/application/auth/public'
-
+import { computed, onMounted, ref, watch } from 'vue'
+import { useAuthStore, useConnectionStore, normalizeAddress, type AuthMode } from '@/application/auth/public'
 const emit = defineEmits<{ ready: [] }>()
-const auth = useAuthStore()
-const connection = useConnectionStore()
-
-const address = ref(auth.serverAddress || (typeof window !== 'undefined' ? window.location.origin : ''))
-const mode = ref<AuthMode>(auth.mode)
-const backendId = ref(auth.backendId)
-const availableBackends = ref<Array<{ backendId: string; displayName: string }>>([])
-const username = ref(auth.savedUsername)
-const password = ref('')
-const busy = ref(false)
-const error = ref<AuthError | null>(null)
-
-const localTarget = computed(() => mode.value === 'local' && isLoopbackHost(hostOf(normalizeAddress(address.value))))
-const needsPassword = computed(() => mode.value === 'relay-password')
-const canSubmit = computed(
-  () => Boolean(normalizeAddress(address.value)) &&
-    (mode.value === 'local'
-      ? localTarget.value
-      : Boolean(backendId.value) && (!needsPassword.value || Boolean(username.value && password.value))),
-)
-
-onMounted(() => {
-  if (mode.value === 'relay-oidc' && address.value && !backendId.value) {
-    void fetch(`${normalizeAddress(address.value)}/api/backends`, { credentials: 'include' }).then(async (response) => {
-      if (!response.ok) return
-      const data = await response.json() as { backends?: Array<{ backendId: string; displayName: string }> }
-      availableBackends.value = data.backends ?? []
-    }).catch(() => undefined)
-  }
-})
-
+const props = defineProps<{ loadError?: string }>()
+const auth = useAuthStore(); const connection = useConnectionStore()
+const address = ref(auth.serverAddress); const mode = ref<AuthMode>('direct-password'); const backendId = ref('')
+const username = ref(auth.savedUsername); const password = ref(''); const busy = ref(false); const error = ref<{ detail: string; title?: string } | null>(null)
+const availableBackends = ref<Array<{ backendId: string; displayName: string; status: string }>>([])
+const discovered = ref<{ password: boolean; oidc: boolean; service: string; trustedLocal?: boolean } | null>(null)
+const localTarget = computed(() => mode.value === 'local' && discovered.value?.trustedLocal === true)
+const needsPassword = computed(() => mode.value !== 'relay-oidc' && mode.value !== 'local' && !(auth.loggedIn && auth.session?.target))
+const canSubmit = computed(() => Boolean(discovered.value && !busy.value && (auth.loggedIn && auth.session?.target ? true : mode.value === 'local' ? discovered.value.trustedLocal : mode.value === 'relay-oidc' ? discovered.value.oidc : discovered.value.password && username.value && password.value && (mode.value !== 'relay-password' || backendId.value))))
+let generation = 0
+async function discover(): Promise<void> {
+  const current = ++generation; discovered.value = null; availableBackends.value = []; error.value = null
+  try {
+    auth.setServerAddress(normalizeAddress(address.value))
+    const value = await auth.discover(); if (current !== generation) return
+    discovered.value = value
+    const oidcReturn = sessionStorage.getItem('chery.oidc.pending.v1') === auth.serverAddress
+    if (oidcReturn) sessionStorage.removeItem('chery.oidc.pending.v1')
+    await auth.restore(oidcReturn); if (current !== generation) return
+    if (value.service === 'relay') {
+      mode.value = value.oidc ? 'relay-oidc' : 'relay-password'
+      const list = await auth.listBackends(); if (current !== generation) return
+      availableBackends.value = list
+    } else mode.value = value.trustedLocal && !value.password ? 'local' : 'direct-password'
+  } catch (cause) { if (current === generation) error.value = { detail: cause instanceof Error ? cause.message : '服务发现失败，请重试' } }
+}
+onMounted(async () => { await discover(); if (auth.loggedIn && auth.session?.target) { try { await connection.reconnect({ waitUntilConnected: true }); emit('ready') } catch (cause) { error.value = { detail: String(cause) } } } })
+watch(address, () => { generation++; discovered.value = null; availableBackends.value = []; connection.disconnect(); auth.clearSession() })
 async function submit(): Promise<void> {
-  if (!canSubmit.value || busy.value) return
-  busy.value = true
-  error.value = null
+  if (!canSubmit.value) return
+  busy.value = true; error.value = null; connection.disconnect()
   try {
     const target = normalizeAddress(address.value)
-    auth.selectTarget({ address: target, backendId: backendId.value, mode: mode.value })
-    connection.disconnect()
-    if (localTarget.value) {
-      auth.setServerAddress(target)
-    } else if (mode.value === 'relay-password') {
-      await auth.loginRelayPassword(target, username.value, password.value, backendId.value, false)
-    } else {
-      if (!backendId.value) {
-        window.location.assign(`${target}/api/auth/oidc/start`)
-        return
-      }
-      const response = await fetch(`${target}/api/session/backend`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backendId: backendId.value }) })
-      if (!response.ok) throw new Error('Pocket ID 会话无法绑定到所选后端')
-      auth.setServerAddress(`${target}/backend/${backendId.value}`)
+    if (auth.loggedIn && auth.session?.target && (mode.value !== 'relay-oidc' || auth.session.identity.provider === 'oidc' && (!backendId.value || backendId.value === auth.backendId))) {
+      await connection.reconnect({ waitUntilConnected: true }); emit('ready'); return
     }
-    await connection.reconnect({ waitUntilConnected: true })
-    emit('ready')
-  } catch (cause) {
-    error.value = cause as AuthError
-    connection.disconnect()
-  } finally {
-    busy.value = false
-  }
+    if (mode.value === 'local') await auth.loginLocal()
+    else if (mode.value === 'relay-oidc') {
+      if (!auth.loggedIn || auth.session?.identity.provider !== 'oidc') { sessionStorage.setItem('chery.oidc.pending.v1', target); window.location.assign(`${target}/api/auth/oidc/start`); return }
+      if (!backendId.value) throw new Error('请选择获准设备；没有设备时请在设备Manager申请绑定')
+      await auth.chooseBackend(backendId.value)
+    } else if (mode.value === 'relay-password') await auth.loginRelayPassword(target, username.value, password.value, backendId.value)
+    else await auth.login(target, username.value, password.value)
+    password.value = ''
+    await connection.reconnect({ waitUntilConnected: true }); emit('ready')
+  } catch (cause) { error.value = { detail: cause instanceof Error ? cause.message : '连接失败，请重试' }; connection.disconnect() } finally { busy.value = false }
 }
 </script>
 
@@ -76,23 +59,26 @@ async function submit(): Promise<void> {
       <label>
         <span>登录方式</span>
         <select v-model="mode" name="mode">
-          <option value="local">本机直连</option>
-          <option value="relay-password">中转 + 后端用户名密码</option>
-          <option value="relay-oidc">中转 + Pocket ID</option>
+          <option v-if="!discovered || (discovered.service === 'backend' && discovered.password)" value="direct-password">直接连接后端</option>
+          <option v-if="!discovered || (discovered.service === 'relay' && discovered.password)" value="relay-password">中转 + 后端用户名密码</option>
+          <option v-if="!discovered || discovered.oidc" value="relay-oidc">中转 + Pocket ID</option>
+          <option v-if="discovered?.trustedLocal" value="local">本机信任连接</option>
         </select>
       </label>
-      <label v-if="mode !== 'local'">
+      <label v-if="mode === 'relay-password' || (mode === 'relay-oidc' && auth.loggedIn)">
         <span>Backend ID</span>
         <select v-if="mode === 'relay-oidc' && availableBackends.length" v-model="backendId" name="backendId" required>
           <option value="" disabled>选择已授权后端</option>
-          <option v-for="item in availableBackends" :key="item.backendId" :value="item.backendId">{{ item.displayName }} ({{ item.backendId }})</option>
+          <option v-for="item in availableBackends" :key="item.backendId" :value="item.backendId">{{ item.displayName }} ({{ item.backendId }}) · {{ item.status === 'online' ? '在线' : '离线' }}</option>
         </select>
-        <input v-else v-model="backendId" name="backendId" autocomplete="off" required />
+        <input v-else-if="mode === 'relay-password'" v-model="backendId" name="backendId" autocomplete="off" required />
+        <p v-else role="status">尚无获准设备；请在设备Manager发起绑定，再刷新列表。</p>
       </label>
       <label>
-        <span>后端地址</span>
+        <span>{{ mode.startsWith('relay') ? '中转服务地址' : '后端工作台地址' }}</span>
         <input v-model="address" name="address" autocomplete="url" inputmode="url" required />
       </label>
+      <button type="button" :disabled="busy" @click="discover">检查服务 / 刷新设备</button>
       <label v-if="needsPassword">
         <span>用户名</span>
         <input v-model="username" name="username" autocomplete="username" required />
@@ -103,9 +89,10 @@ async function submit(): Promise<void> {
       </label>
       <p v-if="localTarget" class="preload-note">本机地址将使用本地连接。</p>
       <p v-else-if="mode === 'relay-oidc'" class="preload-note">Pocket ID 登录需要中转公共配置。</p>
+      <p v-if="props.loadError" class="preload-error" role="alert">{{ props.loadError }}；可重新连接并加载工作台。</p>
       <p v-if="error" class="preload-error" role="alert">{{ error.detail || error.title || '连接失败，请重试。' }}</p>
       <button type="submit" :disabled="!canSubmit || busy">
-        {{ busy ? '正在连接…' : '继续' }}
+        {{ busy ? '正在连接…' : auth.loggedIn && auth.session?.target ? '恢复连接' : mode === 'relay-oidc' ? (auth.loggedIn ? '连接所选设备' : '登录Pocket ID') : mode === 'local' ? '确认本机连接' : '登录后端' }}
       </button>
     </form>
   </main>

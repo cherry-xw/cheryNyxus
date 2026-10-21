@@ -1,5 +1,5 @@
 import { encodeRequest, decodeMessage } from './transport'
-import { getServerConfig, wsUrl, type ServerConfig } from './platform'
+import { clearCapabilities, getServerConfig, wsUrl, type ServerConfig } from './platform'
 import { serviceAuth } from './authContext'
 import type { ProtocolError } from '@chery/protocol'
 
@@ -88,6 +88,7 @@ export class WsClient {
   private eventHandlers = new Set<EventHandler>()
   private statusHandlers = new Set<StatusHandler>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private lifecycleGeneration = 0
   private shouldReconnect = false
   private connectionGeneration = 0
   private reconnectWaiters: Array<{ generation: number; resolve: () => void }> = []
@@ -159,10 +160,11 @@ export class WsClient {
   ): Promise<void> {
     // query：附加 URL 查询参数，随实例持久、重连自动携带。仅供独立 lite
     // 实例使用——主 UI 单例不得传（lite 连接信封最小化会破坏主 UI gap-buffer/replay 协议）。
+    const generation = ++this.lifecycleGeneration
     if (options.query) this.extraQuery = options.query
-    if (!this.serverConfig || options.refresh) {
-      this.serverConfig = await getServerConfig({ refresh: options.refresh ?? false })
-    }
+    const config = await getServerConfig({ refresh: true })
+    if (generation !== this.lifecycleGeneration) return
+    this.serverConfig = config
     this.shouldReconnect = true
     this.open()
   }
@@ -208,6 +210,7 @@ export class WsClient {
       this.heartbeatPending = setTimeout(() => {
         // 超时只清标记：不立即 close，等下一次心跳检查（避免正常抖动的误杀）。
         this.heartbeatPending = null
+        if (this.ws === ws) ws.close()
       }, HEARTBEAT_TIMEOUT_MS)
     }, HEARTBEAT_INTERVAL_MS)
   }
@@ -231,18 +234,18 @@ export class WsClient {
 
   private open(): void {
     if (!this.serverConfig) return
+    const old = this.ws; this.ws = null; old?.close()
     this.setStatus('connecting')
     const baseUrl = wsUrl(this.serverConfig)
     // 远端走 access token（browser WS 无法设 Authorization 头 → URL ?token=）；本地走进程 sessionToken。
-    const auth = serviceAuth()
-    const token = auth.isRemote() ? auth.accessToken() : this.serverConfig.sessionToken
+    const token = this.serverConfig.wsTicket
     const extra = this.extraQuery
       ? Object.entries(this.extraQuery)
           .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
           .join('&')
       : ''
     const url = token
-      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}${extra ? `&${extra}` : ''}`
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(token)}&${new URLSearchParams(Object.entries(this.serverConfig.selection ?? {}).map(([key, value]) => [key, String(value)])).toString()}${extra ? `&${extra}` : ''}`
       : extra
         ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${extra}`
         : baseUrl
@@ -251,20 +254,17 @@ export class WsClient {
     this.ws = ws
 
     ws.onopen = () => {
+      if (this.ws !== ws) return
+      this.rejectAll(new Error('连接中断，已发送操作结果待原目标核对；不会自动重发'))
       this.setStatus('connected')
       this.startHeartbeat()
-      // Reuse the original Request.id after a disconnect. The server either
-      // joins the in-flight execution or returns its stored terminal response.
-      // 非流式 rpc 重连重发：重置超时窗口（断连期已耗去部分时间，给重发请求新窗口）。
-      for (const pending of this.pending.values()) {
-        this.armRpcTimeout(pending)
-        ws.send(encodeRequest(pending.request))
-      }
+      // Reconnection re-reads authoritative state; unknown writes are never replayed.
     }
     ws.onclose = (ev: CloseEvent) => {
       // 旧 socket 的迟到 close 不能覆盖新连接或重复安排重连。
       if (this.ws !== ws) return
       this.ws = null
+      this.rejectAll(new Error('连接中断，已发送操作结果未知；请在原目标核对'))
       this.stopHeartbeat()
       this.setStatus('disconnected', { closeCode: ev.code, closeReason: ev.reason })
       if (this.shouldReconnect) {
@@ -277,7 +277,7 @@ export class WsClient {
       // 出错后 onclose 会触发，不在此重复处理
       ws.close()
     }
-    ws.onmessage = (ev: MessageEvent) => this.handleMessage(ev)
+    ws.onmessage = (ev: MessageEvent) => { if (this.ws === ws) this.handleMessage(ev) }
   }
 
   private handleMessage(ev: MessageEvent): void {
@@ -374,6 +374,7 @@ export class WsClient {
     params: unknown = {},
     options?: { timeoutMs?: number },
   ): Promise<RpcResponse> {
+    try { serviceAuth().assertCurrent?.() } catch (error) { this.disconnect(); return Promise.reject(error) }
     if (!this.ws || this.status !== 'connected') {
       return Promise.reject(new Error('还没连上服务器'))
     }
@@ -395,7 +396,7 @@ export class WsClient {
     if (pending.timer) clearTimeout(pending.timer)
     pending.timer = setTimeout(() => {
       if (this.pending.delete(pending.request.id)) {
-        pending.reject(new Error('请求超时，连接可能已断开，请重试'))
+        pending.reject(new Error('请求超时，结果未知；请在原目标核对后再决定是否提交'))
       }
     }, pending.timeoutMs ?? RPC_TIMEOUT_MS)
   }
@@ -408,6 +409,7 @@ export class WsClient {
     method: string,
     params: unknown = {},
   ): { requestId: string; response: Promise<RpcResponse> } {
+    try { serviceAuth().assertCurrent?.() } catch (error) { this.disconnect(); return { requestId: '', response: Promise.reject(error) } }
     if (!this.ws || this.status !== 'connected') {
       return { requestId: '', response: Promise.reject(new Error('还没连上服务器')) }
     }
@@ -421,6 +423,8 @@ export class WsClient {
   }
 
   disconnect(): void {
+    clearCapabilities()
+    this.lifecycleGeneration++
     this.shouldReconnect = false
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
@@ -428,6 +432,12 @@ export class WsClient {
     }
     this.ws?.close()
     this.ws = null
+    this.stopHeartbeat()
+    this.rejectAll(new Error('目标已切换或连接已停止；旧请求不会重发'))
+    this.chatSeq.clear()
+    this.pendingChatEvents.clear()
+    this.serverConfig = null
+    this.setStatus('disconnected')
   }
 
   private setStatus(
@@ -458,19 +468,20 @@ export class WsClient {
   }
 
   private async reconnect(): Promise<void> {
+    const generation = this.lifecycleGeneration
     try {
       // 每次重连刷新 token/端口/transport；worker 重启后旧 token 必然失效。
-      this.serverConfig = await getServerConfig({ refresh: true })
-      // 远端：重连前用 refresh token 续期 access（过期则自动重新登录；失败登出）。
-      // 仅当已登录（有 access token）才续期，未登录连接不触发。
       const auth = serviceAuth()
-      if (auth.isRemote() && auth.accessToken()) {
-        await auth.refresh()
-      }
+      if (auth.ticket && !await auth.refresh()) throw new Error('SESSION_EXPIRED')
+      const config = await getServerConfig({ refresh: true })
+      if (generation !== this.lifecycleGeneration) return
+      this.serverConfig = config
       if (this.shouldReconnect) this.open()
     } catch (e) {
       // 重连准备失败显性化：worker 重启/网络抖动时 fetch（getServerConfig）或
       // refresh 抛错。静默吞错会让「重连卡住」无任何日志，难以排查。
+      if (generation !== this.lifecycleGeneration) return
+      if (e instanceof Error && e.message === 'SESSION_EXPIRED') { this.disconnect(); return }
       console.warn('[ws] 重连准备失败，2s 后重试:', e instanceof Error ? e.message : e)
       this.setStatus('disconnected')
       this.scheduleReconnect()

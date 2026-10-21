@@ -6,9 +6,8 @@
  * + rift-light（面板级手电光束覆盖层，光源 = 手电 icon 灯头口）。
  * 三键（弹窗自包含）：最小化 = 卷帘收缩（标题栏恢复）；最大化 = 铺满视口；关闭 = close()。
  * 输入后端服务地址 + 用户名/密码。
- * 授权规则：本地 loopback 直连不鉴权（隐藏用户名/密码）；远端地址需登录（签发双 token）。
- * 安全：远端登录凭据经「挑战式 AES-256-GCM 加密」传输（先取 challenge，再加密信封）。
- * 存储：服务地址 + 用户名始终默认记住；「记住密码」默认关，勾选后密码 AES-GCM 加密存本地并预填。
+ * 授权由服务发现与同源内存浏览器会话决定，不凭地址判本机信任。
+ * 浏览器不保存密码或双token；公开部署要求TLS，长期凭据仅服务端持有。
  * 地址默认使用当前页面 origin，可手动修改。
  *
  * 浮动窗形态（工作台弹窗一致）：无全屏遮罩、标题区可拖动、ESC 关闭、`data-desktop-hit`
@@ -16,8 +15,6 @@
  */
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
-  hostOf,
-  isLoopbackHost,
   normalizeAddress,
   useAuthStore,
   useConnectionStore,
@@ -99,10 +96,8 @@ const stateCode = computed(() => {
 /** 信息面板展示的服务地址（远端已登录 / 本地已连接共用）。 */
 const displayServer = computed(() => auth.serverAddress || address.value || defaultAddress.value)
 
-const isLocal = computed(() => {
-  const host = hostOf(normalizeAddress(address.value))
-  return host !== '' ? isLoopbackHost(host) : true
-})
+const discoveredLocal = ref(false)
+const isLocal = computed(() => discoveredLocal.value)
 
 // 密码字段离开界面时恢复安全默认值，避免再次切回远端地址后仍以明文类型挂载。
 watch(isLocal, (local) => {
@@ -203,6 +198,10 @@ watch(
       password.value = ''
       return
     }
+    discoveredLocal.value = false
+    const methods = await auth.discover().catch(() => undefined)
+    if (seq !== passwordLoadSeq || !props.visible) return
+    discoveredLocal.value = methods?.trustedLocal === true
     address.value = auth.serverAddress || defaultAddress.value
     username.value = auth.savedUsername
     password.value = ''
@@ -264,8 +263,8 @@ async function submit(): Promise<void> {
   error.value = null
   try {
     if (isLocal.value) {
-      // 本地直连：不鉴权，仅设置目标地址。
       auth.setServerAddress(base)
+      await auth.loginLocal()
     } else {
       await auth.login(base, username.value, password.value, rememberPw.value)
     }
@@ -295,10 +294,9 @@ async function submit(): Promise<void> {
 }
 
 /** 登出：清 token + 停 WS（远端无 token 再连必 401），视图切回登录表单。 */
-function logout(): void {
+async function logout(): Promise<void> {
   conn.disconnect()
-  auth.logout()
-  notify('已登出')
+  try { await auth.logout(); notify('已登出') } catch (error) { notify(error instanceof Error ? error.message : '本浏览器已锁定，服务端退出尚未确认') }
 }
 
 /** 本地已连接 → 断开 WS 回表单（允许改地址 / 重新连接）。 */
@@ -532,18 +530,7 @@ onBeforeUnmount(stopLight)
                     @update:model-value="passwordLoadSeq += 1"
                   />
 
-                  <label class="remember">
-                    <span class="switch" :class="{ 'switch--on': rememberPw }">
-                      <span class="switch-knob" />
-                    </span>
-                    <input
-                      v-model="rememberPw"
-                      :disabled="busy"
-                      class="remember-input"
-                      type="checkbox"
-                    />
-                    <span class="remember-label">记住密码（本地加密存储）</span>
-                  </label>
+                  <p class="remember-label">应用不保存密码；登录状态由同源服务器会话管理。</p>
                 </template>
 
                 <div v-if="error" class="rift-error">

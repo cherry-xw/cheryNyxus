@@ -14,7 +14,8 @@ configureServiceAuth({
   accessToken: () => auth.accessToken,
   headers: () => auth.authHeader(),
   refresh: () => auth.refresh(),
-  contextKey: () => JSON.stringify([auth.getBaseUrl(), auth.backendId, auth.mode, auth.username, auth.loggedIn]),
-  assertCurrent: () => { if (!auth.loggedIn) throw new Error('请先登录当前后端') },
+  ticket: () => auth.ticket(),
+  contextKey: () => auth.contextKey(),
+  assertCurrent: () => auth.assertCurrent(),
 })
 app.mount('#app')

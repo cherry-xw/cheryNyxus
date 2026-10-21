@@ -8,6 +8,7 @@ const mock = vi.hoisted(() => ({
 }))
 vi.mock('@/services/ws', () => ({
   wsClient: {
+    rpc: vi.fn().mockResolvedValue({ success: true }),
     connect: mock.connect,
     disconnect: mock.disconnect,
     onStatus: (fn: (status: string) => void) => {
@@ -45,8 +46,9 @@ describe('explicit connection completion', () => {
     vi.useFakeTimers()
     const conn = useConnectionStore()
     const promise = conn.reconnect({ waitUntilConnected: true })
+    const rejected = expect(promise).rejects.toThrow('超时')
     await vi.advanceTimersByTimeAsync(15_000)
-    await promise
+    await rejected
     expect(conn.error).toContain('超时')
     expect(conn.status).toBe('disconnected')
     expect(mock.disconnect).toHaveBeenCalledOnce()

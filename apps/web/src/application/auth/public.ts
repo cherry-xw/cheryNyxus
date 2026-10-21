@@ -1,4 +1,5 @@
-export { useAuthStore, useConnectionStore } from '@/stores'
-export { configureRelayOidc } from '@/stores/auth'
+export { useAuthStore } from '@/stores/auth'
+export { useConnectionStore } from '@/stores/connection'
 export { hostOf, isLoopbackHost, normalizeAddress } from '@/domain/auth/serverAddress'
-export type { AuthError, AuthMode, AuthTarget, RelayOidcAdapter, RelayOidcLoginInput } from '@/stores/auth'
+export type { AuthError, AuthMode } from '@/stores/auth'
+export { capabilityEnabled } from '@/services/platform'

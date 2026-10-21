@@ -4,10 +4,15 @@
  * 详细：[docs/frontend/env.md](../../../docs/frontend/env.md)
  */
 
+import { shallowRef } from 'vue'
+import { BootstrapSchema, selectBusinessProtocols, type Bootstrap, type BusinessSelectionSchema } from '@chery/protocol'
 import { serviceAuth } from './authContext'
 
 /** Backend connection fields returned by `/api/config`. */
 export interface ServerConfig {
+  bootstrap?: Bootstrap
+  selection?: import('zod').infer<typeof BusinessSelectionSchema>
+  wsTicket?: string
   wsPort: number
   webPort: number
   transport: 'binary' | 'json'
@@ -19,6 +24,12 @@ export interface ServerConfig {
   httpBaseUrl?: string
   wsUrl?: string
 }
+
+const currentBootstrap = shallowRef<Bootstrap>()
+let configGeneration = 0
+export function clearCapabilities(): void { configGeneration++; currentBootstrap.value = undefined }
+export function currentCapabilities(): Bootstrap | undefined { return currentBootstrap.value }
+export function capabilityEnabled(capability: string): boolean { return currentBootstrap.value?.capabilities.includes(capability as import('@chery/protocol').BootstrapCapability) ?? false }
 
 /**
  * `/api/config` 拉取超时（ms）。worker 重启瞬间 Chromium 连接池可能把请求复用到
@@ -52,7 +63,7 @@ async function fetchConfig(path: string): Promise<Response> {
  */
 export function httpUrl(path: string): string {
   const auth = serviceAuth()
-  if (auth.isRemote()) return `${auth.baseUrl().replace(/\/$/, '')}${path}`
+  if (auth.baseUrl()) return `${auth.baseUrl().replace(/\/$/, '')}${path}`
   return path
 }
 
@@ -65,6 +76,12 @@ export function httpUrl(path: string): string {
  * - 浏览器 / prod（后端静态 serve）：`<ws/wss>://<host>:<wsPort>`
  */
 export function wsUrl(cfg: ServerConfig): string {
+  if (cfg.wsTicket && cfg.wsPath) {
+    const url = new URL(cfg.wsPath, window.location.origin)
+    url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    if (cfg.wsUrl && !import.meta.env.DEV && !cfg.httpBasePath) return cfg.wsUrl
+    return url.href
+  }
   const auth = serviceAuth()
   if (auth.isRemote()) {
     // 远端访问：WS 必须跟随用户填写的地址主机——/api 能通、同源 /ws 就能通
@@ -102,10 +119,9 @@ export function wsUrl(cfg: ServerConfig): string {
  * 参数仅需 `sessionToken`（本地分支用）；传 `ServerConfig` 或
  * `ConfigDefault`（agentApi 的 /api/config 结果）均可。
  */
-export function sessionHeaders(server: { sessionToken?: string }): Record<string, string> {
+export function sessionHeaders(_server: { sessionToken?: string }): Record<string, string> {
   const auth = serviceAuth()
-  if (auth.isRemote()) return auth.headers()
-  return server.sessionToken ? { 'X-Chery-Session-Token': server.sessionToken } : {}
+  return auth.headers()
 }
 
 /**
@@ -115,14 +131,29 @@ export function sessionHeaders(server: { sessionToken?: string }): Record<string
  */
 export async function getServerConfig(_options: { refresh?: boolean } = {}): Promise<ServerConfig> {
   const auth = serviceAuth()
-  // 远端：必须向目标后端拉取配置。
-  // 远端需鉴权，附 Bearer token（本地分支 sessionHeaders 返回空 {}，靠后端 loopback 豁免）。
-  if (auth.isRemote()) {
-    const res = await fetchConfig(httpUrl('/api/config'))
-    if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`)
-    return (await res.json()) as ServerConfig
+  const generation = ++configGeneration
+  const base = auth.baseUrl()
+  const context = auth.contextKey?.()
+  const assertRequest = () => {
+    if (generation !== configGeneration || serviceAuth() !== auth || auth.baseUrl() !== base || auth.contextKey?.() !== context) throw new Error('连接配置响应已过期')
+    auth.assertCurrent?.()
   }
-  const res = await fetchConfig(httpUrl('/api/config'))
+  let res = await fetchConfig(`${base.replace(/\/$/, '')}/api/config`)
+  assertRequest()
+  if (res.status === 401 && await auth.refresh()) {
+    assertRequest()
+    res = await fetchConfig(`${base.replace(/\/$/, '')}/api/config`)
+    assertRequest()
+  }
   if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`)
-  return (await res.json()) as ServerConfig
+  const config = await res.json() as ServerConfig
+  assertRequest()
+  const parsed = BootstrapSchema.safeParse(config.bootstrap)
+  if (!parsed.success) throw new Error('后端启动协议不兼容，请更新后端')
+  config.selection = selectBusinessProtocols(parsed.data)
+  config.bootstrap = parsed.data
+  if (auth.ticket) { const ticket = await auth.ticket(); assertRequest(); config.wsTicket = ticket.ticket; config.wsPath = ticket.wsPath }
+  assertRequest()
+  currentBootstrap.value = parsed.data
+  return config
 }

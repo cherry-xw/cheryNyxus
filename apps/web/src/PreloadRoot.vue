@@ -1,16 +1,24 @@
 <script setup lang="ts">
-import { getCurrentInstance, shallowRef } from 'vue'
+import { getCurrentInstance, shallowRef, watch } from 'vue'
+import { useAuthStore, useConnectionStore } from '@/application/auth/public'
 import './styles/theme.css'
 import type { Component, Ref } from 'vue'
 import PreloadLoginShell from '@/features/auth/PreloadLoginShell.vue'
 
 const businessApp: Ref<Component | null> = shallowRef(null)
 const loadingBusiness = shallowRef(false)
+const loadError = shallowRef('')
+let loadGeneration = 0
+const auth = useAuthStore()
+const connection = useConnectionStore()
+watch(() => auth.locked, (locked) => { if (locked) { loadGeneration++; connection.disconnect(); businessApp.value = null } }, { flush: 'sync' })
 const appInstance = getCurrentInstance()?.appContext.app
 
 async function loadBusinessApp(): Promise<void> {
   if (businessApp.value || loadingBusiness.value) return
   loadingBusiness.value = true
+  const generation = loadGeneration
+  loadError.value = ''
   try {
     await Promise.all([
       import('./styles/element/index.scss'),
@@ -53,8 +61,9 @@ async function loadBusinessApp(): Promise<void> {
     ])
     setupGsapCore()
     setupMermaidAutoRender()
+    if (generation !== loadGeneration || !auth.loggedIn || !auth.session?.target) return
     businessApp.value = businessComponent as Component
-  } finally {
+  } catch { loadError.value = '工作台资源加载失败，身份仍由服务端核验' } finally {
     loadingBusiness.value = false
   }
 }
@@ -63,7 +72,7 @@ async function loadBusinessApp(): Promise<void> {
 <template>
   <component :is="businessApp" v-if="businessApp" />
   <div v-else-if="loadingBusiness" class="business-loading" role="status">正在加载工作台…</div>
-  <PreloadLoginShell v-else @ready="loadBusinessApp" />
+  <PreloadLoginShell v-else :load-error="loadError" @ready="loadBusinessApp" />
 </template>
 
 <style>
