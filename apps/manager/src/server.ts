@@ -31,6 +31,7 @@ import {
   saveOidcConfig,
   validateOidcInput,
 } from './authConfig.js'
+import { BusinessLoginConfigStore } from './businessLoginConfig.js'
 
 export interface ManagerOptions {
   backendMode?: 'child' | 'external'
@@ -90,6 +91,75 @@ export function createManager(options: ManagerOptions = {}) {
   })
   const relayConfig = new RelayConfigStore(configFile)
   const relayAdminToken = options.relayAdminToken ?? process.env.CHERY_RELAY_ADMIN_TOKEN ?? ''
+
+  const resolveBackendListener = async (): Promise<{ host: string; port: number }> => {
+    const network = await readBackendNetworkFromConfig(configFile)
+    return {
+      host: network.host === '0.0.0.0' || network.host === '::' ? '127.0.0.1' : network.host,
+      port: network.wsPort,
+    }
+  }
+  // Manager 是后端子进程的唯一所有者：启动、有限重试与稳定清零都在此监管器内完成。
+  const backendIntent = new BackendIntentStore(options.backendIntentFile ?? `${cheryDir}/.chery/manager-backend-intent.json`)
+  const supervisor = new BackendSupervisor({
+    command: backendCommand,
+    args: backendArgs,
+    ...options.backendSupervisor,
+    intent: backendIntent,
+    resolveListener: options.backendSupervisor?.resolveListener ?? resolveBackendListener,
+    isReady:
+      options.backendSupervisor?.isReady ??
+      ((listener) => (listener ? isPortOpen(listener.host, listener.port) : Promise.resolve(false))),
+    isPortOpen: options.backendSupervisor?.isPortOpen ?? ((listener) => isPortOpen(listener.host, listener.port)),
+  })
+  const backendPluginConfig = new BackendPluginConfigStore(configFile)
+  const businessLoginConfig = new BusinessLoginConfigStore(configFile)
+  const ingressRegistryFile =
+    options.ingressRegistryFile ?? `${cheryDir}/.chery/ingress/registry.json`
+  let pluginDisable: { operationId: string | null; status: 'waiting' | 'saved' | 'failed'; error?: string } | null = null
+  const readBackendPluginStatus = async (withLogs: boolean) => ({
+    ...(await (async () => {
+      const snapshot = await supervisor.snapshot({ logs: withLogs })
+      if (options.backendMode !== 'external') return snapshot
+      const listener = await resolveBackendListener()
+      const ready = await isPortOpen(listener.host, listener.port)
+      return { ...snapshot, state: ready ? 'running' : 'inactive', running: ready,
+        pid: null, uptimeSeconds: null, stableSince: null, lastError: null,
+        retryCount: 0, nextRetryAt: null, nextRetryInMs: null, logs: [],
+        listener: { ...listener, ready },
+        resources: { system: snapshot.resources.system, process: {pid:null,uptimeSeconds:null,cpuPercent:null,memoryBytes:null} },
+      }
+    })()),
+    autoStart: (await backendPluginConfig.view()).autoStart,
+    managedBy: options.backendMode === 'external' ? 'external' : 'manager',
+    intent: await supervisor.control.readIntent(),
+    pluginDisable,
+  })
+  /** 按持久化开关决定是否在 Manager 启动时拉起 Backend；端口已被占用时视为外部运行，不重复拉起。 */
+  const autoStartBackend = async (): Promise<{
+    started: boolean
+    reason?: string
+    error?: string
+  }> => {
+    if (options.backendMode === 'external') return { started: false, reason: 'external_mode' }
+    const { autoStart } = await backendPluginConfig.view()
+    if (!autoStart) return { started: false, reason: 'auto_start_disabled' }
+    try {
+      const intent = await supervisor.control.readIntent()
+      if (!intent.pluginEnabled) return { started: false, reason: 'plugin_disabled' }
+      if (intent.desiredState === 'stopped') return { started: false, reason: 'stop_intent_saved' }
+    } catch (error) {
+      return { started: false, reason: 'intent_unreadable', error: (error as Error).message }
+    }
+    const listener = await resolveBackendListener()
+    if (await isPortOpen(listener.host, listener.port)) return { started: false, reason: 'listener_already_open' }
+    try {
+      await supervisor.start()
+    } catch (error) {
+      return { started: false, reason: 'start_failed', error: (error as Error).message }
+    }
+    return { started: true }
+  }
 
   const modules = new DynamicModules(
     createManagerCoreRpc(configFile, credentialStore),
@@ -260,6 +330,102 @@ main.manager > header { display: none; }
           relay: await readRelayStatus(options.relayStatusFile),
           system: readSystemMetrics(),
         })
+        return
+      }
+      if (path === '/api/backend-plugin/status' && req.method === 'GET') {
+        json(res, 200, { data: await readBackendPluginStatus(true) })
+        return
+      }
+      if (path === '/api/backend-plugin/start' && req.method === 'POST') {
+        if (options.backendMode === 'external') {
+          json(res, 409, {
+            error: {
+              code: 'backend_externally_managed',
+              message: '后端由外部部署工具管理，请使用该工具启停',
+            },
+          })
+          return
+        }
+        await supervisor.start()
+        json(res, 200, { data: await readBackendPluginStatus(true) })
+        return
+      }
+      if (path === '/api/backend-plugin/enabled' && req.method === 'PUT') {
+        if (options.backendMode === 'external') throw new BackendControlConflict('后端由外部工具管理，不能在此停用')
+        const { enabled } = await readJsonBody(req)
+        if (typeof enabled !== 'boolean') throw new SyntaxError('enabled 必须为布尔值')
+        if (enabled) {
+          await supervisor.control.setPluginEnabled(true)
+          pluginDisable = null
+        } else {
+          await supervisor.stop()
+          const operationId = supervisor.control.snapshot()?.operationId ?? null
+          pluginDisable = { operationId, status: 'waiting' }
+          // No HTTP handler or state-transition lock waits for current Agent work.
+          void supervisor.control.waitForExit().then(async () => {
+            const state = supervisor.control.snapshot()
+            if (state && (state.operationId !== operationId || state.phase !== 'stopped')) return
+            if ((await supervisor.control.readIntent()).desiredState !== 'stopped') return
+            await supervisor.control.setPluginEnabled(false)
+            if (pluginDisable?.operationId === operationId) pluginDisable = { operationId, status: 'saved' }
+          }).catch((error: unknown) => {
+            if (pluginDisable?.operationId === operationId) pluginDisable = { operationId, status: 'failed', error: (error as Error).message }
+          })
+        }
+        json(res, 200, { data: await readBackendPluginStatus(false) })
+        return
+      }
+      if (/^\/api\/backend\/stop\/(cancel|force)$/.test(path) && req.method === 'POST') {
+        if (options.backendMode === 'external') throw new BackendControlConflict('后端由外部工具管理，请使用该工具启停')
+        const body = await readJsonBody(req)
+        if (typeof body.backendInstanceId !== 'string' || typeof body.operationId !== 'string')
+          throw new SyntaxError('请提供当前实例与关闭操作标识')
+        if (path.endsWith('/cancel')) {
+          await supervisor.control.cancel(body.backendInstanceId, body.operationId)
+          pluginDisable = null
+        } else await supervisor.control.force(body.backendInstanceId, body.operationId)
+        json(res, 200, { data: await readBackendPluginStatus(false) })
+        return
+      }
+      if (path === '/api/backend-plugin/cancel-retry' && req.method === 'POST') {
+        // 只有在自动重试等待期才允许取消；运行中的后端不存在该阶段。
+        if (!supervisor.cancelRetry()) {
+          json(res, 409, {
+            error: { code: 'not_retrying', message: '当前不在自动重试等待期，无需取消' },
+          })
+          return
+        }
+        json(res, 200, { data: await readBackendPluginStatus(true) })
+        return
+      }
+      if (path === '/api/backend-plugin/config' && req.method === 'PUT') {
+        try {
+          json(res, 200, { data: await backendPluginConfig.save(await readJsonBody(req)) })
+        } catch (error) {
+          json(res, 400, {
+            error: {
+              code: 'invalid_backend_plugin_config',
+              message: (error as Error).message,
+            },
+          })
+        }
+        return
+      }
+      if (path === '/api/business-login/config' && (req.method === 'GET' || req.method === 'PUT')) {
+        try {
+          const result =
+            req.method === 'GET'
+              ? await businessLoginConfig.view()
+              : await businessLoginConfig.save(await readJsonBody(req))
+          json(res, 200, result)
+        } catch (error) {
+          json(res, 400, {
+            error: {
+              code: 'invalid_business_login_config',
+              message: (error as Error).message,
+            },
+          })
+        }
         return
       }
       const match = /^\/api\/(backend|rathole)\/(start|stop|restart)$/.exec(path)

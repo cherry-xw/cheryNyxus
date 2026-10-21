@@ -11,6 +11,31 @@ type Tab = 'overview' | 'plugins' | 'connection'
 const plugins = usePlugins()
 const managerModules = computed(() => plugins.state.modules.map((item) => item.descriptor.id))
 const connectionTab = ref('credentials')
+const businessLogin = ref({ username: '', passwordConfigured: false, businessPreset: 'full', browserOrigin: '', browserBasePath: '', remoteEnabled: false, proofIssuer: '', proofBackendId: '', proofKeys: {} as Record<string, string> })
+const proofKeysText = ref('{}')
+const businessPassword = ref('')
+const relayClient = ref<Record<string, any>>({ protocolVersion: 1, url: '', backendId: '', displayName: '', keyFile: '', authorizationFile: '', ratholeServerAddr: '', ratholeConfigPath: '', proofIssuer: '' })
+const relayTransport = ref('')
+async function loadRelayClient() {
+  const value = await managerRequest<any>('/api/relay/client-config')
+  relayClient.value = { ...relayClient.value, ...value }
+}
+async function saveRelayClient() {
+  saving.value = true
+  try {
+    const { configured: _c, available: _a, encryptedTransportConfigured: _t, restartRequired: _r, desiredRevision: _d, ...fields } = relayClient.value
+    for (const key of ['ratholeBinary', 'statusFile']) if (!fields[key]) delete fields[key]
+    await managerRequest('/api/relay/client-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...fields, ...(relayTransport.value ? { encryptedTransport: relayTransport.value } : {}) }) })
+    await loadRelayClient()
+    message.value = '设备客户端配置已保存并读回；Backend安全重启后连接，未验证隧道就绪'
+  } catch (e) { message.value = e instanceof Error ? e.message : '设备配置未保存' }
+  finally { saving.value = false; relayTransport.value = '' }
+}
+async function loadBusinessLogin() { businessLogin.value = await managerRequest<any>('/api/business-login/config'); proofKeysText.value = JSON.stringify(businessLogin.value.proofKeys, null, 2) }
+async function saveBusinessLogin() {
+  saving.value = true
+  try { await managerRequest('/api/business-login/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...businessLogin.value, proofKeys: JSON.parse(proofKeysText.value), ...(businessPassword.value ? { password: businessPassword.value } : {}) }) }); businessPassword.value = ''; await loadBusinessLogin(); message.value = '业务登录配置已保存并读回，安全重启Backend后生效；不改变Manager账号或机器凭据' } catch (e) { message.value = e instanceof Error ? e.message : '保存失败' } finally { saving.value = false; businessPassword.value = '' }
+}
 const sectionErrors = ref<Record<string, string>>({})
 const authorization = ref<any>(null)
 
@@ -499,6 +524,23 @@ onManagerSessionExpired(() => {
           <p>修改成功后所有旧会话失效，需要使用新密码重新登录。</p>
           <button :disabled="saving" type="submit">修改密码</button>
         </form>
+      </section>
+      <section v-show="tab === 'connection' && connectionTab === 'business'" class="panel">
+        <h1>后端业务登录与启动能力</h1>
+        <p>业务密码用户与获准Pocket用户具有相同业务权限，不是Manager管理账号。</p>
+        <button :disabled="saving" @click="loadBusinessLogin">读取当前配置</button>
+        <label>业务用户名<input v-model="businessLogin.username" autocomplete="off" /></label>
+        <label>替换业务密码<input v-model="businessPassword" type="password" autocomplete="new-password" /></label>
+        <p>密码：{{ businessLogin.passwordConfigured ? '已配置；留空保留' : '未配置' }}</p>
+        <label>业务档<select v-model="businessLogin.businessPreset"><option value="basic">基础会话与历史</option><option value="full">完整业务</option></select></label>
+        <label>反向代理公开Origin<input v-model="businessLogin.browserOrigin" placeholder="https://workbench.example" /></label>
+        <label>公开路径前缀<input v-model="businessLogin.browserBasePath" placeholder="/nyxus（无前缀留空）" /></label>
+        <label><input v-model="businessLogin.remoteEnabled" type="checkbox" />启用仅供加密隧道的专用远程监听</label>
+        <label>Relay证明Issuer<input v-model="businessLogin.proofIssuer" placeholder="https://relay.example" /></label>
+        <label>证明唯一Backend ID<input v-model="businessLogin.proofBackendId" /></label>
+        <label>受信Ed25519公钥（JSON：kid对应PEM公钥）<textarea v-model="proofKeysText" spellcheck="false" /></label>
+        <p>这里只接受公钥，不填写私钥。授权关系由设备控制连接同步；配置保存不代表Pocket登录或隧道通过。</p>
+        <button :disabled="saving" @click="saveBusinessLogin">保存并读回（需安全重启Backend）</button>
       </section>
       <section v-show="tab === 'connection' && connectionTab === 'relay'" class="panel">
         <h1>中转连接</h1>
