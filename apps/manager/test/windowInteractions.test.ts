@@ -12,7 +12,13 @@ afterEach(() => vi.unstubAllGlobals())
 const source = (name: string) => readFileSync(resolve(import.meta.dirname, '../ui', name), 'utf8')
 describe('Manager internal plugin windows and login', () => {
   it('compiles all changed templates and controllers', () => {
-    for (const name of ['App.vue', 'PluginsPanel.vue', 'PluginWindow.vue', 'PasswordField.vue']) {
+    for (const name of [
+      'App.vue',
+      'PluginsPanel.vue',
+      'BackendPluginPanel.vue',
+      'PluginWindow.vue',
+      'PasswordField.vue',
+    ]) {
       const { descriptor, errors } = parse(source(name))
       expect(errors).toEqual([])
       const script = compileScript(descriptor, { id: name })

@@ -99,7 +99,13 @@
 .plugin-facts > div { min-width: 0; }
 .plugin-facts dt { color: #454545; margin-bottom: 4px; }
 .plugin-facts dd { margin: 0; overflow-wrap: anywhere; }
-.plugin-card-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 8px; border-top: 1px solid #808080; }
+.plugin-card-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 8px; border-top: 1px solid #808080; align-items: center; }
+.inline-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px; border: 1px solid #808080; background: #fff; cursor: pointer; }
+.plugin-card-offline { opacity: 0.78; background: #dad6ce; }
+.badge-offline { background: #fff4ce !important; border-color: #a66f00 !important; color: #5c3c00; font-weight: bold; }
+.backend-failure-box { margin: 8px 0; padding: 8px; border: 1px solid #a00; background: #fff5f5; }
+.backend-plugin-detail { margin-top: 8px; }
+.backend-log-viewer { max-height: 240px; overflow: auto; padding: 8px; background: #1e1e1e; color: #e8e8e8; border: 2px inset #808080; font-size: 12px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; }
 .plugin-grants { padding: 8px; }
 @media (max-width: 600px) {
   body {

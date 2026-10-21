@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { usePlugins } from './usePlugins'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import PluginWindow from './PluginWindow.vue'
-const props = defineProps<{ controller: ReturnType<typeof usePlugins> }>()
+import BackendPluginPanel from './BackendPluginPanel.vue'
+import { useBackendPlugin } from './useBackendPlugin'
+const props = defineProps<{
+  controller: ReturnType<typeof usePlugins>
+  backendPlugin?: ReturnType<typeof useBackendPlugin>
+}>()
 const { state, ready, read, mutate, config } = props.controller
+const backendController = props.backendPlugin ?? useBackendPlugin()
+const backendOffline = computed(() => state.list?.backendUnavailable === true)
 const opened = ref('')
 const pluginWindow = ref<InstanceType<typeof PluginWindow>>()
 const stateLabels: Record<string, string> = { inactive: '未启动', starting: '启动中', active: '运行中', stopping: '停止中', stopped: '已停止', failed: '运行失败', unknown: '状态未知' }
@@ -47,21 +54,33 @@ function uninstall(id: string) {
 }
 onMounted(() => {
   if (!state.list) void read()
+  if (!backendController.state.status) void backendController.read()
 })
 </script>
 <template>
   <section class="panel">
     <div class="section-heading">
       <h1>插件管理</h1>
-      <button :disabled="state.reading || state.writing" @click="read">重新读取</button>
+      <button
+        :disabled="state.reading || state.writing"
+        @click="
+          read();
+          backendController.read()
+        "
+      >
+        重新读取
+      </button>
     </div>
     <p v-if="state.error" class="error" role="alert">{{ state.error }}</p>
     <p v-if="state.message" role="status">{{ state.message }}</p>
     <p v-if="state.uncertain" class="warning">操作结果尚未确认，先重新读取，不要重复提交。</p>
+    <p v-if="backendOffline" class="notice" role="status">
+      当前 Backend 未启动或不可用；平级业务插件已切换为本地只读摘要（依赖 Backend 运行，当前不可用），您可通过下方默认预装的 Backend 管理插件启动并诊断 Backend。
+    </p>
     <details class="package-install panel">
       <summary>安装 / 更新构建包</summary>
       <p class="muted">
-        由管理员预置到服务端安装来源目录；不下载URL、不上传文件。未配置来源目录时操作不可用。
+        由管理员预置到服务端安装来源目录；不下载URL、不上传文件。未配置来源目录或 Backend 未启动时操作不可用。
       </p>
       <div class="grid">
         <label>来源目录内相对路径<input v-model="state.packagePath" autocomplete="off" /></label>
@@ -80,25 +99,43 @@ onMounted(() => {
         <label>渠道凭据类型<input v-model="state.credentialKind" /></label>
       </div>
       <button
-        :disabled="!ready || !state.packagePath || !/^[a-f0-9]{64}$/.test(state.digest)"
+        :disabled="!ready || backendOffline || !state.packagePath || !/^[a-f0-9]{64}$/.test(state.digest)"
         @click="mutate('install')"
       >
         安装
       </button>
       <button
-        :disabled="!ready || !state.packagePath || !/^[a-f0-9]{64}$/.test(state.digest)"
+        :disabled="!ready || backendOffline || !state.packagePath || !/^[a-f0-9]{64}$/.test(state.digest)"
         @click="mutate('upgrade')"
       >
         更新包（需重启）
       </button>
     </details>
-    <div class="section-heading"><h2>已安装插件</h2><span v-if="state.list">{{ state.list.plugins.length }} 个</span></div>
-    <p v-if="state.reading && !state.list">正在读取插件…</p>
-    <p v-if="state.list && !state.list.plugins.length">尚未安装插件。登录与连接功能仍可使用。</p>
-    <article v-for="plugin in state.list?.plugins" :key="plugin.id" class="panel plugin-card">
+    <div class="section-heading">
+      <h2>已安装插件（含默认预装与平级业务插件）</h2>
+      <span>{{ 1 + (state.list?.plugins.length ?? 0) }} 个</span>
+    </div>
+    <BackendPluginPanel :controller="backendController" />
+    <p v-if="state.reading && !state.list">正在读取平级业务插件…</p>
+    <p v-if="state.list && !state.list.plugins.length" class="muted">
+      尚未安装其他平级业务插件；默认预装的 Backend 管理插件与本地管理功能始终可用。
+    </p>
+    <article
+      v-for="plugin in state.list?.plugins"
+      :key="plugin.id"
+      class="panel plugin-card"
+      :class="{ 'plugin-card-offline': plugin.backendUnavailable || backendOffline }"
+      :data-plugin-id="plugin.id"
+    >
       <div class="section-heading">
         <div><h3>{{ pluginName(plugin.id) }}</h3><code class="muted">{{ plugin.id }}</code></div>
-        <div class="plugin-badges"><span>{{ stateLabels[plugin.state] || plugin.state }}</span><span>{{ plugin.enabled ? '业务已启用' : '业务已停用' }}</span></div>
+        <div class="plugin-badges">
+          <span v-if="plugin.backendUnavailable || backendOffline" class="badge-offline">
+            依赖 Backend 运行，当前不可用
+          </span>
+          <span>{{ stateLabels[plugin.state] || plugin.state }}</span>
+          <span>{{ plugin.enabled ? '业务已启用' : '业务已停用' }}</span>
+        </div>
       </div>
       <dl class="plugin-facts">
         <div><dt>已安装版本</dt><dd>{{ plugin.savedVersion || '无' }}</dd></div>
@@ -109,10 +146,35 @@ onMounted(() => {
       <p v-if="plugin.requiresRestart" class="notice">新代码需重启 Backend 后生效；本页不会自动重启。</p>
       <p v-if="plugin.reason" class="error">原因：{{ plugin.reason }}</p>
       <div class="plugin-card-actions">
-        <button @click="open(plugin.id)">打开设置</button>
-        <button :disabled="!ready || plugin.enabled" @click="mutate('enable', plugin.id)">启用业务</button>
-        <button :disabled="!ready || !plugin.enabled" @click="mutate('disable', plugin.id)">停用业务</button>
-        <button :disabled="!ready || plugin.enabled || plugin.state === 'failed'" @click="uninstall(plugin.id)">卸载（保留数据）</button>
+        <button
+          :disabled="Boolean(plugin.backendUnavailable || backendOffline)"
+          @click="open(plugin.id)"
+        >
+          打开设置
+        </button>
+        <button
+          :disabled="!ready || Boolean(plugin.backendUnavailable || backendOffline) || plugin.enabled"
+          @click="mutate('enable', plugin.id)"
+        >
+          启用业务
+        </button>
+        <button
+          :disabled="!ready || Boolean(plugin.backendUnavailable || backendOffline) || !plugin.enabled"
+          @click="mutate('disable', plugin.id)"
+        >
+          停用业务
+        </button>
+        <button
+          :disabled="
+            !ready ||
+            Boolean(plugin.backendUnavailable || backendOffline) ||
+            plugin.enabled ||
+            plugin.state === 'failed'
+          "
+          @click="uninstall(plugin.id)"
+        >
+          卸载（保留数据）
+        </button>
       </div>
       <details>
         <summary>依赖与权限详情</summary>

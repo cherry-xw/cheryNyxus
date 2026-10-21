@@ -89,8 +89,15 @@ export function usePlugins(request = managerRequest) {
     state.error = ''
     try {
       const list = IngressHttpResponseSchemas.list.parse(await request('/api/plugins')).data
-      const modules = IngressHttpResponseSchemas.modules.parse(await request('/api/modules')).data
-        .modules
+      let modules: ManagerUiRegistration[] = []
+      if (!list.backendUnavailable) {
+        try {
+          modules = IngressHttpResponseSchemas.modules.parse(await request('/api/modules')).data
+            .modules
+        } catch {
+          modules = []
+        }
+      }
       state.list = list
       state.modules = modules
       state.uncertain = false
