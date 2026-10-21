@@ -1,5 +1,7 @@
 # WebSocket 协议规范
 
+开发实测只以当前契约为目标，不承诺旧版兼容。本文仍描述源码中尚未清理的旧通知/流式或工作流字段；这些共用业务分支已列入兼容清理结果的待确认清单，不能据此声称已全量删除。
+
 ## QQ 启动配置确认
 
 QQ 输入的 `platformIdentity` 有两种身份：群为 `{platform:'qq',conversationType?:'group',groupId,userId,nickname}`（旧身份省略 conversationType 仍为群）；私聊为 `{platform:'qq',conversationType:'private',userId,nickname}`，严格禁止 groupId。两种身份均只允许 QQ 专用认证连接提交，且 Chat 必须分别精确为 `qq-group-<groupId>` 或 `qq-private-<userId>`。私聊不是虚拟群；渠道资料边界见[平台记忆契约](../architecture/qqbot-platform.md)。

@@ -1,5 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import { initAssetTables } from '@/db/assets.js'
@@ -16,7 +17,7 @@ import { adaptAssetImage } from '@/service/media/adaptImage.js'
 
 describe('文件存储与消息', () => {
   it('真实编码的透明图片适配保留原版，固定版本重开仍可读取', async () => {
-    const root = await mkdtemp('/tmp/opencode/image-adaptation-')
+    const root = await mkdtemp(join(tmpdir(), 'image-adaptation-'))
     const db = new Database(join(root, 'assets.db'))
     db.exec('CREATE TABLE chats (id TEXT PRIMARY KEY)')
     initAssetTables(db)
@@ -24,6 +25,11 @@ describe('文件存储与消息', () => {
     try {
       const original = await sharp({ create: { width: 64, height: 32, channels: 4, background: { r: 20, g: 40, b: 60, alpha: 0.5 } } }).png().toBuffer()
       const asset = await store.save(original, { ownerId: 'owner', originalName: 'transparent.png', mimeType: 'image/png', kind: 'image', source: 'upload' })
+      const before = db.prepare('SELECT count(*) AS n FROM asset_versions').get()
+      const reused = await adaptAssetImage(store, asset.id, { ownerId: 'owner' }, { quality: 1 })
+      expect(reused.versionId).toBe(asset.versionId)
+      expect(db.prepare('SELECT count(*) AS n FROM asset_versions').get()).toEqual(before)
+      expect((await store.read(reused.id, { ownerId: 'owner' }, reused.versionId)).data).toEqual(original)
       const adapted = await adaptAssetImage(store, asset.id, { ownerId: 'owner' }, { maxEdge: 16, quality: 85 })
       expect(adapted.id).toBe(asset.id)
       expect(adapted.versionId).not.toBe(asset.versionId)
@@ -32,6 +38,10 @@ describe('文件存储与消息', () => {
       const metadata = await sharp((await reopened.read(asset.id, { ownerId: 'owner' }, adapted.versionId)).data).metadata()
       expect(metadata).toMatchObject({ width: 16, height: 8, hasAlpha: true, format: 'png' })
       await expect(adaptAssetImage(store, asset.id, { ownerId: 'other' })).rejects.toThrow('无权访问')
+      const count = db.prepare('SELECT count(*) AS n FROM asset_versions').get()
+      await expect(adaptAssetImage(store, asset.id, { ownerId: 'owner' }, { maxBytes: 1 })).rejects.toThrow('硬上限')
+      expect(db.prepare('SELECT count(*) AS n FROM asset_versions').get()).toEqual(count)
+      expect((await store.read(asset.id, { ownerId: 'owner' }, asset.versionId)).data).toEqual(original)
     } finally { db.close(); await rm(root, { recursive: true, force: true }) }
   })
 

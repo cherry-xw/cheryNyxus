@@ -112,6 +112,7 @@ export interface Segment {
  * used = 各段 tokens 之和；usage = clamp(used / total, 0, 1)；total = brain.contextLimit。
  */
 export interface ContextBreakdown {
+  inputBudget?: import('@/core/llm/adapter.js').InputTokenPreflight & { model?: string; protocol?: string }
   system: Segment
   userSystem: Segment
   memory: Segment
@@ -124,6 +125,8 @@ export interface ContextBreakdown {
 
 /** 各段 tokens 之和（= 已用 token 总数，与 breakdown.usage * breakdown.total 一致）。 */
 export function breakdownUsed(bd: ContextBreakdown): number {
+  const measured = bd.inputBudget?.inputTokens ?? bd.inputBudget?.estimatedTextTokens
+  if (measured !== undefined) return measured
   return (
     bd.system.tokens +
     bd.userSystem.tokens +

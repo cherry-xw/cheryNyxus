@@ -1,4 +1,7 @@
 import { createManagedAppGateway } from '../managedApp/gateway.js'
+import { MachineRelayOperationSchema, MachineMaintenanceSchema } from '@chery/protocol'
+import { randomUUID } from 'node:crypto'
+import type { BackendCapabilities } from '../capabilities.js'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -32,6 +35,7 @@ const MIME: Record<string, string> = {
 }
 
 export interface CreateHttpServerOptions {
+  capabilities?: BackendCapabilities
   webPort: number
   /**
    * 前端静态产物目录。省略或磁盘不存在时：
@@ -48,6 +52,8 @@ export interface CreateHttpServerOptions {
   /** Local keeps the existing loopback behavior; remote is tunnel-only. */
   listener?: 'local' | 'remote'
   /** The paired WebSocket port for local discovery. */
+  relayOperation?: (type: string, input: Record<string, unknown>) => Promise<unknown>
+  relayBinding?: () => Promise<unknown>
   wsPort?: number | (() => number)
 }
 
@@ -60,6 +66,9 @@ export interface CreateHttpServerOptions {
  * 协议规范见 docs/shared/protocol/websocket.md「HTTP API」段。
  */
 export function createHttpServer({
+  relayBinding,
+  relayOperation,
+  capabilities,
   webPort,
   staticDir,
   sessionToken,
@@ -77,10 +86,33 @@ export function createHttpServer({
   }
 
   const managedApps = createManagedAppGateway()
+  const maintenanceInstance = randomUUID()
   const server = createServer((req, res) => {
+    const operationPath = new URL(req.url ?? '/', 'http://internal.invalid').pathname
+    if (operationPath === '/api/machine/capabilities' && req.method === 'GET') {
+      if (listener !== 'local' || !auth?.getMachineUser(req)) { res.writeHead(403); res.end(); return }
+      const value = MachineMaintenanceSchema.parse({ protocolVersion: 1, instanceId: maintenanceInstance, protocolRange: { min: 1, max: 1 }, operations: [...(relayBinding ? ['relay.binding'] : []), ...(relayOperation ? ['relay.operation'] : [])], listener: 'local', diagnostic: auth.maintenanceDiagnostic() })
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); return
+    }
+    if (operationPath === '/api/machine/relay/operation' && req.method === 'POST') {
+      if (listener !== 'local' || !auth?.getMachineUser(req) || !relayOperation) { res.writeHead(403); res.end(); return }
+      void (async () => {
+        const chunks: Buffer[] = []; let size = 0
+        for await (const value of req) { const chunk = Buffer.from(value); size += chunk.length; if (size > 16384) throw new Error('body_too_large'); chunks.push(chunk) }
+        const body = MachineRelayOperationSchema.parse(JSON.parse(Buffer.concat(chunks).toString()))
+        const result = await relayOperation(body.type, body.input ?? {})
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(result))
+      })().catch(() => { if (!res.headersSent) res.writeHead(503); res.end() })
+      return
+    }
+    if (new URL(req.url ?? '/', 'http://internal.invalid').pathname === '/api/machine/relay/binding' && req.method === 'POST') {
+      if (listener !== 'local' || !auth?.getMachineUser(req) || !relayBinding) { res.writeHead(403); res.end(); return }
+      void relayBinding().then((request) => { res.writeHead(201, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ request })) }).catch(() => { res.writeHead(503); res.end() })
+      return
+    }
     (async () => {
       if (listener === 'local' && await managedApps.handle(req, res)) return
-      await handleRequest(req, res, root, sessionToken, auth, listener, wsPort)
+      await handleRequest(req, res, root, sessionToken, auth, listener, wsPort, capabilities)
     })().catch((err) => {
       logger.info(`HTTP 错误: ${(err as Error).message}`)
       if (!res.headersSent) {
@@ -127,8 +159,16 @@ async function handleRequest(
   auth?: OAuth2Auth,
   listener: 'local' | 'remote' = 'local',
   wsPort?: number | (() => number),
+  capabilities?: BackendCapabilities,
 ): Promise<void> {
+  if (listener === 'local' && auth?.browserDeployment() && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method ?? '') && req.headers['sec-fetch-site'] === 'cross-site') { res.writeHead(403); res.end(); return }
+  const publicPrefix = listener === 'local' ? auth?.browserDeployment()?.basePath ?? '' : ''
+  if (publicPrefix && req.url?.startsWith(publicPrefix + '/')) req.url = req.url.slice(publicPrefix.length)
   const url = req.url ?? '/'
+  if (auth && listener === 'local' && !url.startsWith('/api/browser-session') && !['GET', 'HEAD'].includes(req.method ?? 'GET') && req.headers.cookie?.includes('chery_business_session=')) {
+    if (!auth.isTrustedOrigin(req.headers.origin, req)) { res.writeHead(403); res.end('Origin rejected'); return }
+    try { auth.browser.store.checkCsrf(req.headers.cookie.split(/;\s*/).find((s) => s.startsWith('chery_business_session='))?.slice('chery_business_session='.length), String(req.headers['x-csrf-token'] ?? '')) } catch { res.writeHead(403); res.end('CSRF rejected'); return }
+  }
   const authOptions =
     listener === 'remote'
       ? { allowLoopback: false, trustForwardedPrefix: true }
@@ -136,6 +176,7 @@ async function handleRequest(
 
   // Auth endpoints and the SPA shell remain public so the client can render a
   // login overlay. The control-plane bootstrap is never issued anonymously.
+  if (auth && listener === 'local' && await auth.browser.handle(req, res, typeof wsPort === 'function' ? wsPort() : (wsPort ?? config.server.port))) return
   if (auth && (await auth.handle(req, res, authOptions))) return
   if (
     (listener === 'remote' || auth?.enabled) &&
@@ -162,6 +203,8 @@ async function handleRequest(
       res.end('Unauthorized')
       return
     }
+    if (capabilities && !capabilities.has('media.attach')) { res.writeHead(403); res.end('当前服务未启用文件操作'); return }
+    if ((url.startsWith('/api/assets/claim-history') || url.startsWith('/api/file-services/try')) && capabilities && !capabilities.has('settings.manage')) { res.writeHead(403); res.end('当前服务未启用设置管理'); return }
     const ownerId = auth?.getUser(req, authOptions)?.sub ?? (listener === 'local' ? 'local' : undefined)
     if (!ownerId) { res.writeHead(401); res.end('Unauthorized'); return }
     if (await handleAssetHttp(req, res, ownerId)) return
@@ -231,8 +274,9 @@ async function handleRequest(
     const remote = listener === 'remote'
     const requestHost = req.headers.host ?? '127.0.0.1'
     const wsHost = formatHost(new URL(`http://${requestHost}`).hostname)
+    const deployment = !remote ? auth?.browserDeployment() : undefined
     const forwardedProto =
-      String(req.headers['x-forwarded-proto'] ?? 'http')
+      String(remote ? req.headers['x-forwarded-proto'] ?? 'http' : deployment?.origin.startsWith('https:') ? 'https' : 'http')
         .split(',')[0]
         ?.trim() || 'http'
     const discovery = remote
@@ -250,16 +294,17 @@ async function handleRequest(
           webPort: config.server.webPort,
           transport: config.server.transport,
           httpBaseUrl: `${forwardedProto}://${requestHost}`,
-          wsUrl: `${forwardedProto === 'https' ? 'wss' : 'ws'}://${wsHost}:${typeof wsPort === 'function' ? wsPort() : (wsPort ?? config.server.port)}`,
+          ...(deployment ? { httpBasePath: deployment.basePath, wsUrl: deployment.origin.replace(/^http/, 'ws') + deployment.basePath + '/ws' } : { wsUrl: `${forwardedProto === 'https' ? 'wss' : 'ws'}://${wsHost}:${typeof wsPort === 'function' ? wsPort() : (wsPort ?? config.server.port)}` }),
           httpPath: '/api',
           wsPath: '/ws',
         }
     res.end(
       JSON.stringify({
         ...discovery,
+        ...(capabilities ? { bootstrap: capabilities.snapshot() } : {}),
         // Legacy local capability is not issued when OAuth2 is enabled: the
         // WebSocket authenticates with the HttpOnly browser session instead.
-        ...(sessionToken && !auth?.enabled && !remote ? { sessionToken } : {}),
+        // Browser authentication never exposes a long-lived local token.
         senseGroups: senseGroupsList,
         presets: presetsList,
         ...(defaultCfg ? { default: defaultCfg } : {}),

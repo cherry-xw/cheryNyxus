@@ -3,7 +3,9 @@ import { stat, readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-export function createWebServer({ root, backendHttp, backendWs }) {
+export function createWebServer({ root, backendHttp, backendWs, basePath = '' }) {
+  if (basePath && (!/^\/[A-Za-z0-9/_-]+$/.test(basePath) || basePath.endsWith('/') || basePath.includes('//'))) throw new Error('Invalid public prefix')
+  const localPath = (pathname) => basePath ? (pathname.startsWith(basePath + '/') ? pathname.slice(basePath.length) : null) : pathname
   root = resolve(root)
   const http = new URL(backendHttp)
   const ws = new URL(backendWs)
@@ -18,7 +20,9 @@ export function createWebServer({ root, backendHttp, backendWs }) {
   }
   const server = createServer(async (req, res) => {
     try {
-      const pathname = new URL(req.url, 'http://localhost').pathname
+      const incoming = new URL(req.url, 'http://localhost')
+      const pathname = localPath(incoming.pathname)
+      if (pathname === null) { res.writeHead(404); res.end(); return }
       if (pathname === '/healthz') {
         res.writeHead(200)
         res.end('ok')
@@ -29,7 +33,7 @@ export function createWebServer({ root, backendHttp, backendWs }) {
           {
             hostname: http.hostname,
             port: http.port,
-            path: req.url,
+            path: http.pathname.replace(/\/$/, '') + incoming.pathname + incoming.search,
             method: req.method,
             headers: headers(req),
             timeout: 10000,
@@ -97,11 +101,16 @@ export function createWebServer({ root, backendHttp, backendWs }) {
     }
   })
   server.on('upgrade', (req, socket, head) => {
-    if (new URL(req.url, 'http://localhost').pathname !== '/ws') {
+    let incoming
+    try { incoming = new URL(req.url, 'http://localhost') } catch { socket.destroy(); return }
+    const allowed = new Set(['ticket', 'profile', 'v', 'maxFrameBytes', 'turnDelta', 'protocolVersion', 'bootstrapVersion', 'instanceId', 'capabilityRevision'])
+    if (localPath(incoming.pathname) !== '/ws' || [...incoming.searchParams.keys()].some((key) => !allowed.has(key) || incoming.searchParams.getAll(key).length !== 1) || incoming.search.length > 8192) {
       socket.destroy()
       return
     }
-    const upstream = request(new URL('/', ws), { headers: headers(req), timeout: 10000 })
+    const targetUrl = new URL(ws)
+    targetUrl.search = incoming.search
+    const upstream = request(targetUrl, { headers: headers(req), timeout: 10000 })
     upstream.on('upgrade', (response, target, extra) => {
       target.setTimeout(0)
       socket.write(
@@ -130,6 +139,7 @@ export function createWebServer({ root, backendHttp, backendWs }) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const server = createWebServer({
     root: process.env.NYXUS_WEB_ROOT ?? '/app/web',
+    basePath: process.env.NYXUS_WEB_BASE_PATH ?? '',
     backendHttp: process.env.NYXUS_BACKEND_HTTP ?? 'http://127.0.0.1:8283',
     backendWs: process.env.NYXUS_BACKEND_WS ?? 'http://127.0.0.1:8282',
   })

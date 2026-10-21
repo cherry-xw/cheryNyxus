@@ -26,9 +26,6 @@ describe('backend authentication failures are not Manager session failures', () 
   })
 
   const cases = [
-    { stage: 'challenge', status: 401 },
-    { stage: 'challenge', status: 403 },
-    { stage: 'challenge', status: 429 },
     { stage: 'login', status: 401 },
     { stage: 'login', status: 403 },
     { stage: 'login', status: 429 },
@@ -46,7 +43,7 @@ describe('backend authentication failures are not Manager session failures', () 
       let calls = 0
       const server = createServer((req, res) => {
         req.resume()
-        const stage = req.url === '/api/auth/challenge' ? 'challenge' : 'login'
+        const stage = req.url === '/api/machine/login' ? 'login' : 'unknown'
         if (stage === 'challenge') challenges++
         else logins++
         if (stage === failure.stage && 'status' in failure) {
@@ -104,8 +101,8 @@ describe('backend authentication failures are not Manager session failures', () 
           expect(String(error)).not.toContain('synthetic-secret')
           expect(String(error)).not.toContain('private-upstream-diagnostic')
         }
-        expect(challenges).toBe(2)
-        expect(logins).toBe(failure.stage === 'challenge' ? 0 : 2)
+        expect(challenges).toBe(0)
+        expect(logins).toBe(2)
         expect(upgrades).toBe(['ws', 'rpc'].includes(failure.stage) ? 2 : 0)
         expect(calls).toBe(failure.stage === 'rpc' ? 2 : 0)
       } finally {

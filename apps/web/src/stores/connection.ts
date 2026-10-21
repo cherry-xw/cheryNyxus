@@ -60,9 +60,13 @@ export const useConnectionStore = defineStore('connection', () => {
           })
         : Promise.resolve()
       await Promise.all([wsClient.connect({ refresh: true }), connected])
+      if (options.waitUntilConnected) {
+        const response = await wsClient.rpc('chat.list', {})
+        if (response.error) throw new Error('已登录但业务读取失败，请检查后端配置')
+      }
     } catch (e) {
       error.value = (e as Error).message
-      if (options.waitUntilConnected) disconnect()
+      if (options.waitUntilConnected) { disconnect(); throw e }
     } finally {
       stopWaiting?.()
       if (timeout) clearTimeout(timeout)

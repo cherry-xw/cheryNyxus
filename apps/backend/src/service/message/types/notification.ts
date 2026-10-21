@@ -24,6 +24,8 @@ import type {
 // ========== Notification Data ==========
 
 export type NotificationData =
+  | import('zod').infer<typeof import('@chery/protocol').AgentCommandUpdatedSchema>
+  | import('zod').infer<typeof import('@chery/protocol').AgentCommandLogEventSchema>
   | import('@chery/protocol').ChatLifecycleChanged
   | import('@chery/protocol').ConfigApplyState
   | InterruptNotificationData

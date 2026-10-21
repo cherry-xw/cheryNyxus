@@ -6,6 +6,7 @@
  */
 
 import { listEnvVarMap } from './config.js'
+import { SensitiveLogStream } from './sensitiveLogStream.js'
 
 /** 敏感 key 判定（key 名匹配，大小写不敏感）。 */
 const SENSITIVE_KEY_RE = /KEY|SECRET|TOKEN|PASSWORD|AUTH/i
@@ -113,4 +114,9 @@ export function redactSensitiveValues(
  */
 export function redactEnvKeys(content: string, placeholder = '[REDACTED]'): string {
   return redactSensitiveValues(content, getEnvVarMap(), placeholder)
+}
+
+/** Create one independent state per stdout/stderr source before any log consumer. */
+export function createEnvLogRedactor(): SensitiveLogStream {
+  return new SensitiveLogStream(getEnvVarMap(), MIN_BARE_VALUE_LENGTH)
 }

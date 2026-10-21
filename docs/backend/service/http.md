@@ -10,8 +10,9 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 - `GET /api/auth/capabilities` → 返回非敏感的 `{password}` 后端密码登录能力；Pocket ID/OIDC 由公共中转负责
 - `/api/assets/` → 认证上传、固定版本读取/适配、草稿引用和会话文件请求详情；文件所有者与会话授权分别核对
 - `/api/file-services/` / `/api/file-operations/` → 能力解析、显式试用、操作查询/取消/重试；配置检查不调用模型，执行与保存状态分别记录
+- 本地业务入口的 `/qq/{userId}/apps/{appId}/` → `createManagedAppGateway` 转发已发布且健康的小应用 HTTP/SSE/WebSocket；内部健康路径不公开，平台认证头与非当前应用 Cookie 不透传。应用自行鉴权，不继承 Backend 管理登录。远程控制专用入口不开放应用代理。
 - 其余路径 → 默认静态 serve 前端构建产物(`apps/web/dist/`),SPA fallback 到 `index.html`
-- `server.serve_frontend=false` 或 `apps/web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
+- 除受管应用代理外，`server.serve_frontend=false` 或 `apps/web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
 
 本地服务端口由 `config.server.webPort`（默认 8183）和 `config.server.port`（默认 8182）配置；可选的
 `config.server.remote` 会额外创建两个仅绑定 `127.0.0.1` 的远程专用入口，端口为 `0` 时由系统动态分配。

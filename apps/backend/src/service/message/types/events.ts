@@ -85,6 +85,8 @@ export interface EventContext {
 }
 
 export type NotificationType =
+  | 'agent.command.updated'
+  | 'agent.command.log.chunk'
   | 'config.apply.changed'
   | 'interrupt' // 感官审批请求（sense_end，仅 smart/manual）
   | 'sense_started' // 感官开始执行（sense_end，仅 auto；前端维护「运行中工具」列表）

@@ -32,9 +32,11 @@ global:
     location: true
     format: plain
 files:
+  imageGeneration:
+    defaultCount: 1
   imageContext:
     mode: recent
-    recentUserTurns: 3
+    recentUserTurns: 1
     replacement: description
     missingDescription: existing
     maxDescriptionChars: 600

@@ -403,8 +403,27 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   /** Refresh catalog facts without opening timelines or creating transport subscriptions. */
+  let targetGeneration = 0
+  function resetTarget(): void {
+    targetGeneration++
+    for (const id of Object.keys(sessionsById.value)) deleteSession(id)
+    catalogSummaries.value = []
+    catalogReady.value = false
+    started = false
+    rootSubscriptions.value = {}
+    rootTimelines.value = {}
+    rootTimelineStates.value = {}
+    for (const timer of rootDeltaTimers.values()) clearTimeout(timer)
+    rootDeltaTimers.clear(); pendingRootDeltas.clear()
+    rootSubscriptionOwners.clear(); rootResyncing.clear(); rootSubscriptionOpening.clear(); rootViewOpening.clear()
+    generationsCache.clear(); generationsOpening.clear(); inactiveRootTimelineLru.clear(); evictedRoots.clear()
+    opening.clear(); hydrating.clear(); requestMap.clear(); resumingChats.clear(); resumingTrees.clear()
+    bumpHydration()
+  }
   async function refreshCatalog(): Promise<ChatSummary[]> {
+    const generation = targetGeneration
     const summaries = await agentApi.listChats({ scope: 'stage' })
+    if (generation !== targetGeneration) return []
     initCatalog(summaries)
     return summaries
   }
@@ -596,6 +615,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (rootSubscriptions.value[rootChatId]) return { opened: false }
     const existing = rootSubscriptionOpening.get(rootChatId)
     if (existing) return existing
+    const generation = targetGeneration
     const promise = (async () => {
       // A different view may have installed the shared subscription while this
       // call was waiting for the previous observed root to close.
@@ -608,6 +628,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         knownTimelineRevision: conversation?.revision,
         knownEventSeq: conversation?.capturedEventSeq,
       })
+      if (generation !== targetGeneration) throw new Error('旧目标订阅响应已过期')
       if (evictedRoots.has(rootChatId)) {
         await agentApi.closeChat(opened.subscriptionId).catch(() => undefined)
         throw new Error(`root timeline ${rootChatId} was deleted`)
@@ -669,6 +690,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     view: 'conversation' | 'tree' | 'audit' = 'conversation',
   ): Promise<RootTimelineSnapshot> {
     const key = `${rootChatId}:${view}`
+    const generation = targetGeneration
     return runSingleFlight(rootViewOpening, key, async () => {
       const current = rootTimeline(rootChatId, view)
       const snapshot = await agentApi.getRootTimeline({
@@ -676,6 +698,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         view,
         ...(current ? { knownRevision: current.revision } : {}),
       })
+      if (generation !== targetGeneration) throw new Error('旧目标时间线响应已过期')
       if (evictedRoots.has(rootChatId)) throw new Error(`root timeline ${rootChatId} was deleted`)
       // knownRevision 短路：服务端确认客户端快照仍最新，保留现有缓存不覆盖。
       if (!snapshot) {
@@ -697,11 +720,13 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     generationIndex: number,
   ): Promise<GenerationPayload> {
     const cacheKey = `${rootChatId}:${generationIndex}`
+    const generation = targetGeneration
     return runSingleFlight(generationsOpening, cacheKey, async () => {
       const cache = generationsCache.get(rootChatId) ?? new GenerationLruCache()
       const cached = cache.get(generationIndex)
       if (cached) return cached
       const payload = await agentApi.getTimelineGeneration({ rootChatId, generationIndex })
+      if (generation !== targetGeneration) throw new Error('旧目标代际响应已过期')
       if (evictedRoots.has(rootChatId)) throw new Error(`root timeline ${rootChatId} was deleted`)
       cache.set(generationIndex, {
         generation: payload.generation,
@@ -1011,6 +1036,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   async function openSessionOnce(chatId: string): Promise<void> {
+    const generation = targetGeneration
     const session = ensureEntity(chatId)
     const response = await agentApi.openChat({
       scope: 'chat',
@@ -1018,12 +1044,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       knownTimelineRevision: session.sync.timelineRevision,
       knownEventSeq: session.sync.eventSeq ?? wsClient.getLastSeq(chatId),
     })
+    if (generation !== targetGeneration) throw new Error('旧目标会话响应已过期')
     applyOpenSnapshot(chatId, response)
     if (response.timelineChanged || session.sync.timelineRevision === undefined) {
       const timeline = await agentApi.getTimeline({
         chatId,
         knownRevision: session.sync.timelineRevision,
       })
+      if (generation !== targetGeneration) throw new Error('旧目标历史响应已过期')
       replaceTimelineSnapshot(chatId, timeline)
     }
   }
@@ -1828,6 +1856,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     ensureCatalogEntity,
     initCatalog,
     upsertCatalog,
+    resetTarget,
     replacePresetCatalog,
     refreshCatalog,
     deleteSession,

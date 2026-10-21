@@ -266,7 +266,7 @@ export interface PendingInputSnapshot {
   state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
   queueSequence?: number
   acceptedAt?: number
-  /** rejected 时的人读原因（通知侧携带）。 */
+  /** 拒绝或因服务关闭暂存的人读原因；不是新的可执行状态。 */
   reason?: string
 }
 

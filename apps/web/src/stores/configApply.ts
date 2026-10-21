@@ -5,6 +5,8 @@ import { agentApi } from '@/services/agentApi'
 import { runSingleFlight } from '@/utils/asyncGuards'
 
 export const useConfigApplyStore = defineStore('configApply', () => {
+  let generation = 0
+  function resetTarget(): void { generation++; state.value = undefined; error.value = undefined; refreshFlights.clear() }
   const state = ref<ConfigApplyState>()
   const error = ref<string>()
   const refreshFlights = new Map<string, Promise<void>>()
@@ -24,17 +26,19 @@ export const useConfigApplyStore = defineStore('configApply', () => {
   }
 
   function refresh(): Promise<void> {
+    const current = generation
     return runSingleFlight(refreshFlights, 'refresh', () =>
       agentApi
         .getConfigApplyState()
         .then((next) => {
-          apply(next)
+          if (current === generation) apply(next)
         })
         .catch((cause: unknown) => {
+          if (current !== generation) return
           error.value = cause instanceof Error ? cause.message : '无法读取设置生效状态'
         }),
     )
   }
 
-  return { state, savedRevision, error, apply, refresh }
+  return { resetTarget, state, savedRevision, error, apply, refresh }
 })

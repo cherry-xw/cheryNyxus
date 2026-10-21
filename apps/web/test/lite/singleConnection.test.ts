@@ -198,7 +198,7 @@ describe('workbench Lite single-connection integration', () => {
       'const liteViewVisible = computed(() => viewMode.value === \'lite\' && !!treeRootChatId.value)',
     )
     expect(workbench).toContain(
-      'const conversationViewVisible = computed(\n    () => viewMode.value === \'conversation\' && !!treeRootChatId.value,\n  )',
+      "const conversationViewVisible = computed(\n    () => (!capabilityEnabled('timeline.graph') || viewMode.value === 'conversation') && !!treeRootChatId.value,\n  )",
     )
   })
 })

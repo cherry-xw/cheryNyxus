@@ -21,6 +21,7 @@ import type {
   ChatTimelineGetResponseData,
 } from '@/service/message/types.js'
 import type { ChatRunResumeResponse } from '@chery/protocol'
+import { selectBusinessProtocols } from '@chery/protocol'
 import { RpcClient, type RequestHandle } from '../../helpers/rpcClient.js'
 
 let runtimeBootstrapped = false
@@ -76,7 +77,8 @@ export async function bootFlowService(options?: BootFlowOptions): Promise<FlowSe
     webPort: 0,
     staticDir,
     sessionToken: token,
-    host: '127.0.0.1',
+    host: '0.0.0.0',
+    auth: { username: 'flow-user', password: (await import('@/utils/password.js')).hashPassword('synthetic-flow-password') },
   })
 
   // port:0 由 OS 分配；await 'listening' 拿实际端口（构造后同步挂监听器可捕获尚未完成的 listen）。
@@ -97,6 +99,8 @@ export async function bootFlowService(options?: BootFlowOptions): Promise<FlowSe
       await new Promise<void>((resolve) => {
         handle.httpServer.close(() => resolve())
       })
+      handle.stopSchedule()
+      await handle.stopIngress()
       closeAllDbs()
     },
   }
@@ -104,9 +108,24 @@ export async function bootFlowService(options?: BootFlowOptions): Promise<FlowSe
 
 /** 建立已连接的 RpcClient（url 带 token、Origin 落入 allowedOrigins）。 */
 export async function connectClient(svc: FlowService): Promise<RpcClient> {
+  const base = `http://10.2.3.6:${svc.webPort}`
+  const discovery = await fetch(base + '/api/auth/capabilities'); const context = await discovery.json() as any
+  const login = await fetch(base + '/api/browser-session/password', { method: 'POST', headers: { Cookie: discovery.headers.get('set-cookie')!.split(';')[0]!, Origin: base, 'Content-Type': 'application/json', 'X-CSRF-Token': context.csrfToken }, body: JSON.stringify({ username: 'flow-user', password: 'synthetic-flow-password', operationId: 'f'.repeat(32) }) })
+  const session = await login.json() as any
+  const connectionUrl = async () => {
+    const ticketResponse = await fetch(base + '/api/browser-session/ws-ticket', { method: 'POST', headers: { Cookie: login.headers.get('set-cookie')!.split(';')[0]!, Origin: base, 'Content-Type': 'application/json', 'X-CSRF-Token': session.csrfToken }, body: JSON.stringify({ expectedRevision: session.revision }) })
+    if (!ticketResponse.ok) throw new Error(`Ticket rejected: ${ticketResponse.status}`)
+    const ticket = await ticketResponse.json() as { ticket: string }
+    const configResponse = await fetch(base + '/api/config', { headers: { Cookie: login.headers.get('set-cookie')!.split(';')[0]! } })
+    if (!configResponse.ok) throw new Error(`Config rejected: ${configResponse.status}`)
+    const discovered = await configResponse.json() as any
+    const selected = selectBusinessProtocols(discovered.bootstrap)
+    return `ws://10.2.3.6:${svc.wsPort}/?` + new URLSearchParams({ ticket: ticket.ticket, ...Object.fromEntries(Object.entries(selected).map(([key, value]) => [key, String(value)])) })
+  }
   const client = new RpcClient({
-    url: `ws://127.0.0.1:${svc.wsPort}/?token=${svc.token}`,
-    origin: `http://127.0.0.1:${svc.webPort}`,
+    url: `ws://10.2.3.6:${svc.wsPort}/`,
+    connectionUrl,
+    origin: base,
   })
   await client.connect()
   return client

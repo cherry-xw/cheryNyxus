@@ -118,6 +118,14 @@ const qqConfig = { config: QQDefaultConfig, baseRevision: 0, apply: { state: 'pe
 const responseFor = (method: Method) => responseSchemas[method] ?? QQResponseSchemas[method as keyof typeof QQResponseSchemas]
 
 const validResponses: Record<Method, unknown> = {
+  [Method.QQ_IMAGE_SCOPE_GET]: {schemaVersion:1,backendEpoch:'epoch',connectionGeneration:'gen',sessionId:'session',selfId:'123',appliedRevision:1,scopeDigest:'a'.repeat(64),enabled:false,allowedTargets:[],targets:[],limits:QQDefaultConfig.imageStorage},
+  [Method.QQ_IMAGE_SCOPE_ACK]: {acknowledged:true},
+  [Method.QQ_IMAGE_SOURCE_REGISTER]: {sourceEventId:'source',permitId:'permit'},
+  [Method.QQ_IMAGE_INGEST_BEGIN]: {state:'uploading',nextOffset:0,uploadId:'upload'},
+  [Method.QQ_IMAGE_INGEST_CHUNK]: {nextOffset:1},
+  [Method.QQ_IMAGE_INGEST_STATUS]: {state:'registered',nextOffset:0},
+  [Method.QQ_IMAGE_INGEST_COMMIT]: {state:'committed',nextOffset:1,uploadId:'upload',assetId:'asset',assetVersionId:'version'},
+  [Method.QQ_IMAGE_INGEST_CANCEL]: {cancelled:true},
   [Method.INGRESS_LIST]: { contractVersion: 2, hostApiVersion: 2, registryRevision: 0, plugins: [] },
   [Method.INGRESS_INSTALL]: mutation,
   [Method.INGRESS_UPGRADE]: mutation,
@@ -139,6 +147,7 @@ const validResponses: Record<Method, unknown> = {
   [Method.QQ_STATUS_GET]: { installed: true, enabled: false, activeVersion: null, savedVersion: '1.0.0', savedRevision: 0, appliedRevision: 0, apply: { state: 'pending', revision: 0 }, napcatConnected: false, trustedIdentity: false, qqOnline: null, paused: true, pausedTargets: 0, reasons: [], channels: { group: { enabled: false }, private: { enabled: false } }, missingBindings: [], missingResources: [] },
   [Method.QQ_QUEUE_GET]: { entries: [] },
   [Method.QQ_HISTORY_GET]: { entries: [] },
+  [Method.QQ_ENTRY_GET]: { requestId: 'request', eventId: 'event', target: 'a'.repeat(64), targetId: '456', senderId: '789', senderName: 'synthetic', conversationType: 'group', state: 'completed', acceptedAt: 1, policyRevision: 0, preset: 'p', inputPreview: 'hello', replyPreview: '', messageCount: 1, attachmentCount: 0, delivery: { pending: 0, inflight: 0, sent: 0, unknown: 0, failed: 0 }, messages: [], reply: '', replyTruncated: false, deliveries: [], deliveriesTruncated: false },
   [Method.CHAT_INPUT_WITHDRAW]: { chatId: 'chat', inputId: 'input', clientMessageId: 'client', messageId: 'message', state: 'cancelled', withdrawnAt: 1 },
   [Method.WORKSPACE_GIT_STATUS]: { chatId: 'chat', branch: 'main', branches: [], dirty: false, files: [] },
   [Method.WORKSPACE_GIT_CHECKOUT]: { chatId: 'chat', branch: 'main' },

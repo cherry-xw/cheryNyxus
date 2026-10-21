@@ -23,6 +23,8 @@ const FRAME_JSON = 0x02
 
 export interface RpcClientOptions {
   url: string
+  /** Issue a fresh single-use ticket for every connection, including reconnect. */
+  connectionUrl?: () => Promise<string>
   /** verifyClient 要求 Origin 在 allowedOrigins 内（harness 注入 http://127.0.0.1:<webPort>）。 */
   origin: string
   connectTimeoutMs?: number
@@ -75,7 +77,8 @@ export class RpcClient {
   }
 
   async connect(): Promise<void> {
-    const ws = new WebSocket(this.options.url, {
+    const url = this.options.connectionUrl ? await this.options.connectionUrl() : this.options.url
+    const ws = new WebSocket(url, {
       headers: { Origin: this.options.origin },
     })
     this.ws = ws

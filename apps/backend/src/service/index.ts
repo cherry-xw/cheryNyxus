@@ -85,6 +85,7 @@ export function registerAllHandlers(router: ReturnType<typeof createRouter>): vo
 }
 
 export interface StartServiceOptions {
+  businessPreset?: 'basic' | 'full'
   /** WebSocket 服务端口（config.server.port） */
   port: number
   /** HTTP 静态服务端口（config.server.web_port） */
@@ -151,6 +152,10 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     core: options.ingress?.core ?? createIngressCoreAdapter(),
     connections: options.ingress?.connections ?? createIngressConnections(),
     runtimeOptions: options.ingress?.runtimeOptions,
+    log: (event, fields) => logger.run(
+      typeof fields?.requestId === 'string' ? { requestId: fields.requestId } : {},
+      () => logger.event(event, fields),
+    ),
     coreCall: async (method, params) => {
       const response = await router.handle(
         { kind: 'request', id: 'ingress-management', method, params } as Request,
@@ -269,6 +274,8 @@ export function startService(options: StartServiceOptions): ServiceHandle {
       : {}),
   }))
 
+  const relayClient = ready.then((addresses) => startBackendRelay(addresses, () => auth.tunnelProbeToken(), async (values) => auth.updateAuthorizations(values)))
+  void relayClient.catch(() => logger.warn('设备中转客户端未启动，请检查独立配置'))
   return {
     wss,
     httpServer,
@@ -276,7 +283,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     remoteHttpServer,
     ready,
     ingress,
-    stopIngress: () => ingress.stop(),
+    stopIngress: async () => { await (await relayClient.catch(() => undefined))?.stop(); auth.browser.store.clear(); await ingress.stop() },
     stopSchedule: () => {
       closeAllTerminals()
       stopInteractionLifecycle()

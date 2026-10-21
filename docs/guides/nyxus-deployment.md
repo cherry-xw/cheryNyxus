@@ -4,31 +4,33 @@
 
 ## 部署入口
 
-[Compose](../../deployment/compose.yaml) 只定义一个 Backend。独立 Web、Manager 用 `--profile management` 启动；Linux 上二者使用 host 网络以保留正确的 Host/Origin 和同机回环地址。Backend 使用普通 bridge 网络允许模型出站，不以 internal 网络阻断所有出站。所有容器显式清空 Docker daemon 注入的代理变量；需要代理时由部署者明确设置可访问的代理地址。
+[Compose](../../deployment/compose.yaml) 的 Backend 镜像包含 Manager 与 Backend，先启动 Manager，再由它管理唯一 Backend。可选 Web 用 `--profile management` 启动并使用 host 网络。Backend 配套容器使用普通 bridge 网络允许模型出站，Manager 在容器内通过回环访问 Backend，不挂 Docker socket。所有容器显式清空 Docker daemon 注入的代理变量；需要代理时由部署者明确设置可访问的代理地址。
 
-1. 显式设置 `CHERY_ENV_FILE` 指向独立空文件再构建，避免构建加载根 `.env`：`CHERY_ENV_FILE=/绝对路径/空文件 pnpm build:prod`、`pnpm qq-ingress:build`、`pnpm settings-ingress:build`、`pnpm web:build`、`pnpm manager:build`。Manager 服务端另运行 `pnpm exec vite build --ssr apps/manager/src/index.ts --outDir apps/manager/server-dist --emptyOutDir --config apps/manager/vite.config.ts`。
+1. 构建 `pnpm build:prod`、`pnpm qq-ingress:build`、`pnpm settings-ingress:build`、`pnpm web:build`、`pnpm manager:build`。后者同时构建 Manager 页面与服务器。构建不启动运行服务；本地环境文件和 `.chery/` 不进入镜像，默认模板来自 `apps/backend/.chery.template/`。
 2. `sh apps/backend/deploy/docker/prepare-runtime.sh` 复制当前 Node 和 CA，必须与构建原生模块的 Node/CPU ABI 一致。镜像基于 Debian trixie；不同宿主 libc 的构建需在匹配环境进行。
-3. 参考 [环境样例](../../deployment/qqbot.env.example)，本地创建 `/home/chery/docker/cherynyxus/qqbot.env` 与三个 secrets 文件，权限 0600。不要复制根 `.env`。持久目录 `/home/chery/docker/cherynyxus/qqbot-data/.chery` 权限 0700，保留完整核心配置、数据库、记忆、插件 registry/config/data/backups、Manager 账号/Session/凭据。
+3. 参考 [环境样例](../../deployment/qqbot.env.example)，本地创建 `/home/chery/docker/cherynyxus/qqbot.env` 与三个 secrets 文件，权限 0600，不复制开发密钥。持久目录 `/home/chery/docker/cherynyxus/qqbot-data/.chery` 权限 0700，保留核心配置、数据库、记忆、插件 registry/config/data/backups 和 Manager 账号/凭据；Manager Session 仅存进程内存。
 4. 核心配置必须 `server.host: 0.0.0.0`、`port: 8282`、`webPort: 8283`、`serve_frontend: false`，开启后端认证。独立 Web 默认回环 8080，Manager 默认回环 39980。需要 LAN 时在 Compose 环境设置 `NYXUS_WEB_BIND`、`NYXUS_MANAGER_BIND`，并在配置 `manager.auth.trustedOrigins` 登记实际 Manager URL；防火墙限可信来源，非可信网络使用 HTTPS。RPC 若供现有 NapCat 连接，显式设置宿主可访问的 `QQBOT_RPC_BIND`，不猜地址、不改 NapCat 网络。
-5. `docker compose -f deployment/compose.yaml config --quiet`；`docker compose -f deployment/compose.yaml --profile management up -d --build --wait`。Web 使用本项目 Node 静态/反代服务，不需要外部 nginx 镜像。Manager 的账号初始化用容器交互 CLI `docker compose -f deployment/compose.yaml run --rm -it manager auth setup`；密码不作为命令参数。
+5. `docker compose -f deployment/compose.yaml config --quiet`；`docker compose -f deployment/compose.yaml --profile management up -d --build --wait`。Web 使用本项目 Node 静态/反代服务，不需要外部 nginx 镜像。Manager 账号初始化用 `docker compose -f deployment/compose.yaml run --rm --no-deps -it backend node /app/apps/manager/server-dist/index.js auth setup`；密码不作为命令参数。不要启动单独 Manager 容器。
 
-运行服务入口不自动启用扩展。维护时使用同一受限挂载运行 `docker compose -f deployment/compose.yaml run --rm --no-deps backend node /app/dist/index.js ingress install /app/opt/qq-plugin`，设置包源为 `/app/opt/settings-plugin`；明确授予能力及 QQ 渠道后，再运行 `... ingress enable cherynyxus-qq-module`，最后经批准重启运行服务；升级使用 upgrade，不能覆盖版本目录。无 registry 时也不擅自启用业务。
+图片适配使用后端生产依赖 `sharp`，构建保留为外部包，不内嵌原生二进制。部署必须携带该包及其与目标系统、CPU 和 libc 匹配的可选二进制依赖；当前 Docker 入口从根生产依赖一起复制，不能只拷贝 `dist` 后省略它们。
+
+运行服务入口不自动启用扩展。维护时使用同一受限挂载运行 `docker compose -f deployment/compose.yaml run --rm --no-deps backend node /app/apps/backend/dist/index.js ingress install /app/opt/qq-plugin`，设置包源为 `/app/opt/settings-plugin`；明确授予能力及 QQ 渠道后，再运行 `... ingress enable cherynyxus-qq-module`，最后经批准重启运行服务；升级使用 upgrade，不能覆盖版本目录。无 registry 时也不擅自启用业务。
 
 两端包安装源由 `CHERY_INGRESS_INSTALL_ROOT=/app/opt` 限定。QQ 渠道须明确授予 `channel: qq` 与 `credentialKind: qq`，迁移不自动授予权限。入口脚本将已配置凭据转换为通用 `CHERY_CHANNEL_AUTH`（header、credentialKind、readyNotification），将暂停及个人文件路径转换为 `CHERY_PLUGIN_RUNTIME_OPTIONS`；核心 worker 不读取 QQ 专用认证变量。缺少凭据不等于通过握手。
 
-Manager 默认使用同一个 `.chery/config.yaml` 和受限凭据文件，容器以 host 网络访问宿主映射的 127.0.0.1:8282/8283。`CHERY_MANAGER_BACKEND_MODE=external` 禁止 Manager 启停第二 Backend；部署重启由 Compose 完成。关闭 Manager 或 Web 不停止 Backend。Manager 镜像不含 Backend 启动产物，不挂 Docker socket。
+Manager 与 Backend 共用容器内 `/app/apps/backend/.chery/config.yaml` 和受限数据目录，环境文件挂到 `/app/apps/backend/.env`；实际宿主持久数据位置保持原配置，不因源码迁移改名。Manager 控制自己的 Backend 子进程，Backend 停止时仍可管理；关闭整个容器会清理两者。关闭管理网页或可选 Web 不停止 Backend。仅对明确外管的特殊部署使用 `CHERY_MANAGER_BACKEND_MODE=external`，默认 Compose 不使用该模式。
 
 ## 容器基础工具与定时执行
 
-Backend 使用普通用户及只读根目录，不运行 systemd，不提供宿主服务管理权限。定时执行由 Supercronic v0.2.49 与 Backend 一起受启动监督，任一退出则容器重启；定时配置持久化在 `$HOME/scheduler/crontab`，通过 `crontab -l`、`crontab FILE`、`crontab -`、`crontab -r` 管理，保存先校验语法并原子替换。任务以 Backend 同一普通用户执行，输出进入容器日志；不保证停机期间漏执行任务的补跑，不自动把结果送回 QQ。运行中更改配置由调度器检测重载。
+容器使用普通用户及只读根目录，不运行 systemd，不提供宿主服务管理权限。Supercronic v0.2.49 与 Manager 一起受入口监督；任一退出会关闭整组，交给容器重启策略处理。Backend 由 Manager 管理，单独停止不关闭管理入口。定时配置持久化在 `$HOME/scheduler/crontab`，通过 `crontab -l`、`crontab FILE`、`crontab -`、`crontab -r` 管理，保存先校验语法并原子替换。任务以同一普通用户执行，输出进入容器日志；不保证停机期间漏执行任务的补跑，不自动把结果送回 QQ。
 
 镜像基础工具覆盖 SSH/SCP/rsync、DNS查询与端口诊断、7z、中文OCR、图片处理，以及原有Python/Node、FFmpeg、PDF提取、SQLite和浏览器依赖。安装工具不等于授予远程主机凭据或额外网络权限。Node Playwright 安装在持久 `$HOME/browser-tools`，Chromium 位于 `$PLAYWRIGHT_BROWSERS_PATH`（默认 `$HOME/browsers`）。保留通用 Python venv，不安装 Python Playwright。启动监督与 crontab 使用 Node `.mjs`；监督进程向子进程组转发信号，宽限期后强制退出。未提供 at/systemctl、Office完整转换、个人浏览器登录态；不得声称这些能力存在。
 
 ## 健康与持久化
 
-Backend 健康只证明 HTTP `/api/config` 返回 200/401 且 RPC 可连接，不证明插件活动、QQ 在线或模型可用。Web 健康检查 `/healthz`；Manager 检查登录外壳 `/`。启动后还需认证读取 QQ status，核对 installed/enabled/activeVersion、保存/应用版本和 `QQ_INGRESS_PAUSED=1`。未知或损坏 registry 不自动重置。
+配套容器健康检查从受限文件读取机器密钥，在回环地址访问 Manager `/api/machine/status`，不依赖浏览器可信 Host 配置、不输出密钥。Backend 健康须单独确认 HTTP `/api/config` 返回 200/401 且 RPC 可连接，仍不证明插件活动、QQ 在线或模型可用。Web 检查 `/healthz`。启动后还需认证读取 QQ status，核对 installed/enabled/activeVersion、保存/应用版本和 `QQ_INGRESS_PAUSED=1`。未知或损坏 registry 不自动重置。
 
-持久化路径由 [Compose](../../deployment/compose.yaml) 的 volumes 唯一维护。`WEB_PORT` 只改宿主 HTTP 发布端口，容器固定 8283；Web/Manager host 网络连接目标须与其配置一致。日志设置 json-file 大小/数量限制。重建不得 `down -v`，不得删除旧卷。先停 Backend、Manager 再完整备份数据目录（包括 SQLite WAL/SHM、包版本和秘密），校验备份可恢复后才做迁移。
+持久化路径由 [Compose](../../deployment/compose.yaml) 的 volumes 唯一维护。`WEB_PORT` 只改宿主 HTTP 发布端口，容器固定 8283；Manager 容器端口固定 39980，映射端口与可信 origin 必须一致。日志设置 json-file 大小/数量限制。重建不得 `down -v`，不得删除旧卷。先停止配套服务，再完整备份数据目录（包括 SQLite WAL/SHM、包版本和秘密），校验备份可恢复后才做迁移。
 
 ## 迁移与旧服务退出
 

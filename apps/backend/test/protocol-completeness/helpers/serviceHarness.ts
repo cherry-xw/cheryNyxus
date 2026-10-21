@@ -5,6 +5,7 @@ import {
   type ServiceHandle,
 } from '@/service/index.js'
 import { closeAllConnections } from '@/service/websocket/index.js'
+import { selectBusinessProtocols } from '@chery/protocol'
 import { RpcClient } from '@test/helpers/rpcClient.js'
 
 let bootstrapped = false
@@ -26,14 +27,26 @@ export async function bootProtocolService(): Promise<ProtocolService> {
     webPort: 0,
     staticDir: process.env.CHERY_DIR,
     sessionToken: token,
-    host: '127.0.0.1',
+    host: '0.0.0.0',
+    auth: { username: 'protocol-user', password: (await import('@/utils/password.js')).hashPassword('synthetic-protocol-password') },
   })
   await waitForListening(handle)
   const wsPort = addressedPort(handle.wss.address())
+  const webPort = addressedPort(handle.httpServer.address())
+  const base = `http://10.2.3.6:${webPort}`
+  const discovery = await fetch(base + '/api/auth/capabilities'); const context = await discovery.json() as any
+  const login = await fetch(base + '/api/browser-session/password', { method: 'POST', headers: { Cookie: discovery.headers.get('set-cookie')!.split(';')[0]!, Origin: base, 'Content-Type': 'application/json', 'X-CSRF-Token': context.csrfToken }, body: JSON.stringify({ username: 'protocol-user', password: 'synthetic-protocol-password', operationId: 'p'.repeat(32) }) })
+  const session = await login.json() as any
+  const ticketResponse = await fetch(base + '/api/browser-session/ws-ticket', { method: 'POST', headers: { Cookie: login.headers.get('set-cookie')!.split(';')[0]!, Origin: base, 'Content-Type': 'application/json', 'X-CSRF-Token': session.csrfToken }, body: JSON.stringify({ expectedRevision: session.revision }) })
+  const ticket = await ticketResponse.json() as any
+  const configResponse = await fetch(base + '/api/config', { headers: { Cookie: login.headers.get('set-cookie')!.split(';')[0]! } })
+  if (!configResponse.ok) throw new Error(`Config rejected: ${configResponse.status}`)
+  const discovered = await configResponse.json() as any
+  const selected = selectBusinessProtocols(discovered.bootstrap)
   const client = new RpcClient({
-    url: `ws://127.0.0.1:${wsPort}/?token=${token}`,
+    url: `ws://10.2.3.6:${wsPort}/?` + new URLSearchParams({ ticket: ticket.ticket, ...Object.fromEntries(Object.entries(selected).map(([key, value]) => [key, String(value)])) }),
     // startService builds its allow-list before an ephemeral port is assigned.
-    origin: 'http://127.0.0.1:0',
+    origin: base,
   })
   await client.connect()
 

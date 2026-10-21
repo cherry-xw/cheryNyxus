@@ -208,7 +208,7 @@ describe('canonical command and interaction lifecycle', () => {
 
   it('keeps outgoing input sending, failed, retryable and committed without a fake commit', async () => {
     const chats = readyRoot()
-    const attachments = [{ assetId: 'asset-1', kind: 'image' as const, mimeType: 'image/png' }]
+    const parts = [{ partId: 'file-1', type: 'asset' as const, assetId: 'asset-1', assetVersionId: 'version-1', variant: 'original' as const, usage: 'content' as const, kind: 'image' as const, mimeType: 'image/png' }]
     const firstFailure = Object.assign(new Error('socket lost'), { code: 'NETWORK' })
     const submit = vi
       .spyOn(agentApi, 'submitChatInput')
@@ -227,14 +227,14 @@ describe('canonical command and interaction lifecycle', () => {
     const prepared = chats.prepareInput('root', 'hello')
     const message = chats.sessionsById.root!.messagesById[prepared.messageId]!
 
-    await expect(chats.submitInput('root', 'hello', attachments, prepared)).rejects.toThrow(
+    await expect(chats.submitInput('root', 'hello', parts, prepared)).rejects.toThrow(
       'socket lost',
     )
-    attachments[0]!.assetId = 'mutated-after-submit'
+    parts[0]!.assetId = 'mutated-after-submit'
     expect(message.delivery).toMatchObject({
       status: 'failed',
       commandId: prepared.commandId,
-      attachments: [{ assetId: 'asset-1', kind: 'image', mimeType: 'image/png' }],
+      parts: [{ partId: 'file-1', type: 'asset', assetId: 'asset-1', assetVersionId: 'version-1', variant: 'original', usage: 'content', kind: 'image', mimeType: 'image/png' }],
       error: { code: 'NETWORK' },
     })
 
@@ -247,7 +247,7 @@ describe('canonical command and interaction lifecycle', () => {
         commandId: prepared.commandId,
         clientMessageId: prepared.clientMessageId,
         messageId: prepared.messageId,
-        attachments: [{ assetId: 'asset-1', kind: 'image', mimeType: 'image/png' }],
+        parts: [{ partId: 'file-1', type: 'asset', assetId: 'asset-1', assetVersionId: 'version-1', variant: 'original', usage: 'content', kind: 'image', mimeType: 'image/png' }],
       }),
     )
     expect(message.delivery).toMatchObject({ status: 'committed' })
@@ -257,6 +257,35 @@ describe('canonical command and interaction lifecycle', () => {
     expect(chats.sessionsById.root!.run.status).toBe('running')
     expect(submit).toHaveBeenCalledTimes(2)
     expect(chats.removeFailedInput('root', prepared.messageId)).toBe(false)
+  })
+
+  it('retries drawing submissions with the original intent and command after a lost response', async () => {
+    const chats = readyRoot()
+    const drawing = { serviceId: 'drawing-service', operation: 'image.edit' as const, desiredCount: 6,
+      params: { size: '1024x1024' }, configRevision: 'fixed-revision', taskId: 'drawing-task', sourceCandidateId: 'round:part' }
+    const expected = structuredClone(drawing)
+    const submit = vi.spyOn(agentApi, 'submitChatInput').mockRejectedValueOnce(new Error('response lost'))
+      .mockImplementationOnce(async params => ({ chatId: 'root', inputId: 'drawing-input', messageId: params.messageId,
+        clientMessageId: params.clientMessageId, runId: 'drawing-run', state: 'started', queueSequence: 1, acceptedAt: 50,
+        drawing: { taskId: 'drawing-task', roundId: 'drawing-round' } }))
+    const prepared = chats.prepareInput('root', 'change the selected image')
+    await expect(chats.submitInput('root', prepared.content, undefined, prepared, drawing)).rejects.toThrow('response lost')
+    drawing.desiredCount = 1; drawing.params.size = 'auto'
+    expect(chats.sessionsById.root!.messagesById[prepared.messageId]!.delivery?.drawing).toEqual(expected)
+    await chats.retryInput('root', prepared.messageId)
+    expect(submit).toHaveBeenNthCalledWith(2, expect.objectContaining({ drawing: expected, commandId: prepared.commandId, messageId: prepared.messageId }))
+    expect(submit).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps drawing intent when preparation fails before the submit call', async () => {
+    const chats = readyRoot()
+    const prepared = chats.prepareInput('root', 'draw this')
+    prepared.drawing = { serviceId: 'drawing-service', operation: 'image.generate', desiredCount: 3, params: {}, configRevision: 'revision' }
+    chats.rollbackPreparedInput(prepared, new Error('attachment preparation failed'))
+    const submit = vi.spyOn(agentApi, 'submitChatInput').mockImplementationOnce(async params => ({ chatId: 'root', inputId: 'drawing-input',
+      messageId: params.messageId, clientMessageId: params.clientMessageId, runId: 'drawing-run', state: 'started', queueSequence: 1, acceptedAt: 50 }))
+    await chats.retryInput('root', prepared.messageId)
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ drawing: prepared.drawing, commandId: prepared.commandId }))
   })
 
   it('preserves sending and failed messages across timeline replacement without replaying RPCs', () => {

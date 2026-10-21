@@ -1,4 +1,3 @@
-import { xorEncrypt } from '../../backend/src/utils/obfuscate.js'
 
 export type VerifyStatus = 'verified' | 'stale' | 'unreachable'
 
@@ -33,36 +32,14 @@ async function attemptOnce(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    let challenge: Response
-    try {
-      challenge = await fetch(`${base}/api/auth/challenge`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
-        signal: controller.signal,
-      })
-    } catch {
-      return 'error'
-    }
-    // 认证未启用 / 账号锁定 / 后端未就绪等，一律视为「尚未确认」。
-    if (!challenge.ok) return 'denied'
-    const body = (await challenge.json().catch(() => null)) as {
-      challengeId?: string
-      nonce?: string
-    } | null
-    if (!body?.challengeId || !body?.nonce) return 'denied'
-    const cipher = xorEncrypt(body.nonce, JSON.stringify({ username, password }))
     let login: Response
     try {
-      login = await fetch(`${base}/api/auth/login`, {
-        method: 'POST',
+      login = await fetch(`${base}/api/machine/login`, {
+        method: 'POST', redirect: 'error',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challengeId: body.challengeId, cipher }),
-        signal: controller.signal,
+        body: JSON.stringify({ username, password }), signal: controller.signal,
       })
-    } catch {
-      return 'error'
-    }
+    } catch { return 'error' }
     return login.ok ? 'verified' : 'denied'
   } finally {
     clearTimeout(timer)

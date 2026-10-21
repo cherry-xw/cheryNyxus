@@ -287,15 +287,10 @@ export const useAgentsStore = defineStore('agents', () => {
   async function initFromChats(): Promise<void> {
     if (initialized) return
     if (chats.catalogSummaries.length === 0) await chats.refreshCatalog()
-    const config = await agentApi.getConfig().catch((cause) => {
-      console.warn('[agents] failed to load presentation config:', cause)
-      return undefined
-    })
-    globalConfig.value = config ?? null
+    // Startup uses the shared catalog only. Editable configuration and tool
+    // metadata are loaded on demand by the settings/workbench consumers.
+    const config = globalConfig.value
     initialized = true
-    void loadSenseMeta().catch((cause) =>
-      console.warn('[agents] failed to load sense metadata:', cause),
-    )
 
     const summaries = [...chats.catalogSummaries]
     const activePresetIds = config
@@ -395,7 +390,16 @@ export const useAgentsStore = defineStore('agents', () => {
     return chatId
   }
 
+  function resetTarget(): void {
+    initialized = false
+    globalConfig.value = null
+    senseTools.value = []
+    senseGroupsResolved.value = []
+    pets.value = []
+  }
+
   return {
+    resetTarget,
     pets,
     streams,
     historyList,

@@ -1,19 +1,21 @@
 import { chmod, link, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import yaml from 'js-yaml'
+import { withConfigTransaction, replaceConfigText, transactionExpectedText } from '../../backend/src/utils/configTransaction.js'
 import { hashPassword, isHashed, verifyPassword } from '../../backend/src/utils/password.js'
 
 export interface ManagerCredentialView {
   username: string
   consistent: boolean
-  source: 'file' | 'missing'
+  source: 'file' | 'missing' | 'unavailable'
+  reason?: 'credentials_missing' | 'credentials_inconsistent' | 'credentials_unreadable'
   updatedAt?: string
 }
 
 interface StoredCredentials {
-  version: 1 | 2
+  version: 2
   username: string
   passwordHash: string
   passwordCipher: string
@@ -28,7 +30,7 @@ export interface RotatedCredentials {
 export interface CredentialStoreOptions {
   configFile: string
   credentialsFile: string
-  /** Legacy v1 override only; v2 always uses the independent random key file. */
+  /** Reserved caller option; current credentials always use the independent key file. */
   encryptionKey?: string
 }
 
@@ -44,9 +46,11 @@ export class CredentialStore {
         if ((await this.viewStored(stored)).consistent) return
         throw new Error('内部管理凭据不一致，拒绝自动覆盖已有凭据')
       }
-      const auth = readAuth(await this.readConfig())
-      if (auth?.username || auth?.password) throw new Error('已有后端认证需要部署迁移，拒绝覆盖')
-      await this.rotateUnlocked({ username: 'manager-internal' })
+      await withConfigTransaction(this.options.configFile, async () => {
+        const auth = readAuth(await this.readConfig())
+        if (auth?.username || auth?.password) throw new Error('已有后端认证需要部署迁移，拒绝覆盖')
+        await this.rotateUnlocked({ username: 'manager-internal' })
+      })
     })
   }
 
@@ -55,24 +59,21 @@ export class CredentialStore {
   }
 
   async status(): Promise<ManagerCredentialView> {
-    return this.withLock(async () => {
+    try {
       const view = await this.viewStored(await this.readStored())
-      if (view.source === 'file') return view
-      const auth = readAuth(await this.readConfig())
-      return {
-        username: auth?.username ?? '',
-        consistent: Boolean(auth?.username && auth.password && isHashed(auth.password)),
-        source: 'missing',
-      }
-    })
+      return { ...view, ...(view.consistent ? {} : {
+        reason: view.source === 'missing' ? 'credentials_missing' as const : 'credentials_inconsistent' as const,
+      }) }
+    } catch {
+      return { username: '', consistent: false, source: 'unavailable', reason: 'credentials_unreadable' }
+    }
   }
 
   async auth(): Promise<{ username: string; password?: string; consistent?: boolean }> {
     return this.withLock(async () => {
       const stored = await this.readStored()
       if (!stored) {
-        const auth = readAuth(await this.readConfig())
-        return { username: auth?.username ?? '', password: auth?.password, consistent: false }
+        return { username: '', consistent: false }
       }
       const password = await this.decryptStored(stored)
       const view = await this.viewStored(stored)
@@ -81,7 +82,7 @@ export class CredentialStore {
   }
 
   async rotate(input: { username?: string; password?: string }): Promise<RotatedCredentials> {
-    return this.withLock(() => this.rotateUnlocked(input))
+    return this.withLock(() => withConfigTransaction(this.options.configFile, () => this.rotateUnlocked(input)))
   }
 
   private async viewStored(stored?: StoredCredentials): Promise<ManagerCredentialView> {
@@ -108,8 +109,8 @@ export class CredentialStore {
     if (previous) await this.decryptStored(previous)
     const config = await this.readConfig()
     const currentAuth = readAuth(config)
-    const username = input.username?.trim() || previous?.username || currentAuth?.username || 'nyxus'
-    const password = input.password?.trim() || randomPassword()
+    const username = input.username?.trim() || previous?.username || currentAuth?.username || 'manager-internal'
+    const password = input.password ?? randomPassword()
     if (!username || !password) throw new Error('username and password are required')
     const passwordHash = hashPassword(password)
     const updatedAt = new Date().toISOString()
@@ -126,9 +127,7 @@ export class CredentialStore {
     const auth = isRecord(server.auth) ? server.auth : {}
     nextConfig.server = server
     server.auth = auth
-    auth.enabled = true
-    auth.username = username
-    auth.password = passwordHash
+    auth.machine = { username, password: passwordHash }
 
     await writeProtectedJson(this.options.credentialsFile, next)
     await writeYaml(this.options.configFile, nextConfig)
@@ -144,7 +143,7 @@ export class CredentialStore {
       throw error
     }
     const parsed: unknown = JSON.parse(contents)
-    if (!isRecord(parsed) || (parsed.version !== 1 && parsed.version !== 2) ||
+    if (!isRecord(parsed) || parsed.version !== 2 ||
       typeof parsed.username !== 'string' || typeof parsed.passwordHash !== 'string' ||
       typeof parsed.passwordCipher !== 'string' || typeof parsed.updatedAt !== 'string') {
       throw new Error('内部管理凭据格式无效，拒绝覆盖')
@@ -156,23 +155,12 @@ export class CredentialStore {
       passwordCipher: parsed.passwordCipher,
       updatedAt: parsed.updatedAt,
     }
-    if (stored.version === 1) {
-      const legacyKey = createHash('sha256').update(this.options.encryptionKey ?? this.options.credentialsFile).digest()
-      const password = decrypt(stored.passwordCipher, legacyKey)
-      if (password === undefined || !verifyPassword(password, stored.passwordHash)) {
-        throw new Error('旧内部管理凭据无法验证，拒绝迁移或覆盖')
-      }
-      stored.passwordCipher = encrypt(password, await this.readKey(true))
-      stored.version = 2
-      // Keep identity, hash, timestamp and backend config; remove legacy plaintext.
-      await writeProtectedJson(this.options.credentialsFile, stored)
-    } else {
-      // Never create a replacement key for existing v2 ciphertext.
-      await this.decryptStored(stored)
-      if (Object.prototype.hasOwnProperty.call(parsed, 'password')) {
-        await writeProtectedJson(this.options.credentialsFile, stored)
-      }
+    if (Object.keys(parsed).some((key) => !['version', 'username', 'passwordHash', 'passwordCipher', 'updatedAt'].includes(key)) ||
+        !stored.username || !isHashed(stored.passwordHash) || !Number.isFinite(Date.parse(stored.updatedAt))) {
+      throw new Error('内部管理凭据需要当前独立格式，拒绝迁移或覆盖')
     }
+    // Existing ciphertext never creates a replacement key or rewrites data.
+    await this.decryptStored(stored)
     return stored
   }
 
@@ -248,7 +236,8 @@ export class CredentialStore {
   private async readConfig(): Promise<Record<string, unknown>> {
     try {
       const parsed = yaml.load(await readFile(this.options.configFile, 'utf8'))
-      return isRecord(parsed) ? parsed : {}
+      if (parsed !== undefined && !isRecord(parsed)) throw new Error('Configuration root must be a mapping')
+      return parsed ?? {}
     } catch (error) {
       if (hasCode(error, 'ENOENT')) return {}
       throw error
@@ -258,7 +247,8 @@ export class CredentialStore {
 
 function readAuth(config: Record<string, unknown>): { username?: string; password?: string } | undefined {
   const server = isRecord(config.server) ? config.server : undefined
-  const auth = server && isRecord(server.auth) ? server.auth : undefined
+  const domain = server && isRecord(server.auth) ? server.auth : undefined
+  const auth = domain && isRecord(domain.machine) ? domain.machine : undefined
   if (!auth) return undefined
   return {
     ...(typeof auth.username === 'string' ? { username: auth.username } : {}),
@@ -279,7 +269,8 @@ async function writeProtectedJson(file: string, value: StoredCredentials): Promi
 }
 
 export async function writeYaml(file: string, value: Record<string, unknown>): Promise<void> {
-  await writeProtected(file, yaml.dump(value, { lineWidth: -1 }))
+  const expected = transactionExpectedText(file)
+  replaceConfigText(file, yaml.dump(value, { lineWidth: -1 }), expected)
 }
 
 async function writeProtected(file: string, contents: string): Promise<void> {

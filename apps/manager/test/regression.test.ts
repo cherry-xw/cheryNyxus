@@ -8,6 +8,7 @@ import { createManager, isPortOpen } from '../src/server.js'
 import { readAuthOptions } from '../src/authConfig.js'
 import { OidcLogin } from '../src/oidc.js'
 import { runManagerCli } from '../src/cli.js'
+import { withBackendLifecycle } from './backendFixture.js'
 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { vi.restoreAllMocks(); for (const action of cleanup.splice(0).reverse()) await action() })
@@ -15,7 +16,7 @@ async function root() {
   const value = await mkdtemp(join(tmpdir(), 'manager-regression-'))
   cleanup.push(() => rm(value, { recursive: true, force: true })); return value
 }
-it('restarts only owned mock backend after credential rotation and verifies challenge/login', async () => {
+it('rejects machine credential mutation without restarting an owned backend', async () => {
   const dir = await root()
   const probe = createServer()
   await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve))
@@ -24,8 +25,8 @@ it('restarts only owned mock backend after credential rotation and verifies chal
   const configFile = join(dir, 'config.yaml'), authFile = join(dir, 'auth.json')
   await writeFile(configFile, `server:\n  port: ${port}\n  webPort: ${port}\n`)
   await new AccountStore(authFile).save('owner', 'manager-test-password')
-  const mockBackend = `const http=require('node:http');http.createServer((req,res)=>{res.setHeader('Content-Type','application/json');if(req.url==='/api/auth/challenge'){res.end(JSON.stringify({challengeId:'test',nonce:'0'.repeat(48)}));}else if(req.url==='/api/auth/login'){res.end('{}')}else{res.writeHead(404);res.end('{}')}}).listen(${port},'127.0.0.1')`
-  const manager = createManager({ port: 0, authFile, configFile, credentialsFile: join(dir, 'credentials.json'), controlToken: 'machine-key', backendCommand: process.execPath, backendArgs: ['-e', mockBackend] })
+  const mockBackend = `const http=require('node:http');http.createServer((req,res)=>{res.setHeader('Content-Type','application/json');if(req.url==='/api/machine/login'){res.end(JSON.stringify({accessToken:'synthetic-machine-token'}))}else{res.writeHead(404);res.end('{}')}}).listen(${port},'127.0.0.1')`
+  const manager = createManager({ port: 0, authFile, configFile, credentialsFile: join(dir, 'credentials.json'), controlToken: 'machine-key', backendCommand: process.execPath, backendArgs: ['-e', withBackendLifecycle(mockBackend)] })
   await manager.listen(); cleanup.push(() => manager.close())
   const base = `http://127.0.0.1:${manager.address()!.port}`
   const login = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'owner', password: 'manager-test-password' }) })
@@ -35,10 +36,9 @@ it('restarts only owned mock backend after credential rotation and verifies chal
   for (let i = 0; i < 50 && !await isPortOpen('127.0.0.1', port); i++) await new Promise((resolve) => setTimeout(resolve, 20))
   expect(await isPortOpen('127.0.0.1', port)).toBe(true)
   const rotated = await fetch(`${base}/api/credentials/rotate`, { method: 'POST', headers, body: JSON.stringify({ username: 'backend-owner', password: 'backend-new-password' }) })
-  const data = await rotated.json() as { backend: { pid: number }; verification: unknown }
-  expect(data).toMatchObject({ backend: { managed: true }, verification: { status: 'verified' } })
-  expect(data).not.toHaveProperty('credentials.password')
-  expect(data.backend.pid).not.toBe(first.pid)
+  expect(rotated.status).toBe(409)
+  expect(await rotated.json()).toMatchObject({ error: { code: 'machine_credentials_deployment_required' } })
+  expect(manager.controller.state().find(item => item.name === 'backend')?.pid).toBe(first.pid)
 })
 it('CLI migrates status/info/control to dedicated machine paths without creating secrets', async () => {
   const old = process.env.CHERY_MANAGER_TOKEN

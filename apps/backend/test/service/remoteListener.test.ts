@@ -54,7 +54,7 @@ describe('remote listener authentication boundary', () => {
 
     const capabilities = await fetch(`http://127.0.0.1:${port}/api/auth/capabilities`)
     expect(capabilities.status).toBe(200)
-    expect(await capabilities.json()).toEqual({ password: true })
+    expect(await capabilities.json()).toEqual({ password: true, oidc: false, service: 'backend' })
 
     const tokens = auth.authenticate('admin', 'secret')
     expect(tokens).not.toBeNull()

@@ -69,8 +69,12 @@ interface HandlerDefinition {
 /**
  * RPC 路由器
  */
+const MACHINE_METHODS = new Set(['ingress.list', 'ingress.install', 'ingress.upgrade', 'ingress.enable', 'ingress.disable', 'ingress.uninstall', 'ingress.config.get', 'ingress.config.save', 'ingress.ui.list', 'ingress.ui.read', 'ingress.management.call', 'search.test', 'search.settings.get', 'search.settings.save', 'prompts.preset.get', 'prompts.preset.save', 'config.preview', 'config.get', 'config.save', 'config.apply.status', 'brain.list', 'sense.list', 'sense.tools', 'utils.models', 'utils.modelRecommendation'])
+
 export class RpcRouter {
   private handlers = new Map<Method, HandlerDefinition>()
+  private capabilityGate?: (method: string) => boolean
+  setCapabilityGate(gate: (method: string) => boolean): void { this.capabilityGate = gate }
   private extensions = new Map<string, IngressRpcRegistration<unknown, unknown>>()
 
   /** Dynamic packages must supply both schemas and an explicit permission check. */
@@ -119,9 +123,14 @@ export class RpcRouter {
     request: Request,
     ctx: HandlerContext,
   ): Promise<Response | AsyncGenerator<Chunk | Notification, Response, unknown>> {
+    // Machine credentials may use only the fixed management surface, never package business RPCs.
+    if (ctx.credentialKind === 'machine' && !MACHINE_METHODS.has(request.method)) {
+      return createResponse(request.id, false, undefined, createError('FORBIDDEN', '此机器身份没有操作权限'))
+    }
     if (
       ctx.credentialKind &&
       ctx.credentialKind !== 'control' &&
+      !(ctx.credentialKind === 'machine' && MACHINE_METHODS.has(request.method)) &&
       !this.extensions.has(request.method)
     ) {
       return createResponse(
@@ -130,6 +139,9 @@ export class RpcRouter {
         undefined,
         createError(ErrorCode.INVALID_PARAMS, '此连接没有操作权限'),
       )
+    }
+    if (ctx.connectionId !== 'ingress-management' && ctx.credentialKind !== 'machine' && this.capabilityGate && !this.capabilityGate(request.method)) {
+      return createResponse(request.id, false, undefined, createError('CAPABILITY_DISABLED', '当前服务未启用此功能'))
     }
     const extension = this.extensions.get(request.method)
     if (extension) {

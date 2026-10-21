@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
-import { xorEncrypt } from '../../../../backend/src/utils/obfuscate.js'
 import { readBackendNetworkFromConfig } from '../../server.js'
 import type { CredentialStore } from '../../credentials.js'
 import type { CoreMethod, CoreRpc } from '../contracts.js'
@@ -72,34 +71,17 @@ export class BackendRpcClient implements CoreRpc {
         (http.protocol === 'https:') !== (ws.protocol === 'wss:')
       )
         throw unavailable()
-      const credentials = await this.options.credentials()
+      const credentials = await this.options.credentials().catch(() => {
+        throw new CapabilityError('backend_auth_failed', 502, '后端机器凭据无法读取；Manager 本地功能仍可使用')
+      })
       if (!credentials.username || !credentials.password)
         throw new CapabilityError('backend_auth_failed', 502, '后端管理凭据未配置或已失效')
       if (credentials.consistent === false)
         throw new CapabilityError('backend_auth_failed', 502, '后端管理凭据未配置或已失效')
-      const challenge = await this.post(
-        http.origin,
-        '/api/auth/challenge',
-        { username: credentials.username },
-        abort.signal,
-      )
-      if (
-        !record(challenge) ||
-        typeof challenge.challengeId !== 'string' ||
-        typeof challenge.nonce !== 'string' ||
-        !/^[a-f0-9]{48}$/.test(challenge.nonce)
-      )
-        throw unavailable()
       const login = await this.post(
         http.origin,
-        '/api/auth/login',
-        {
-          challengeId: challenge.challengeId,
-          cipher: xorEncrypt(
-            challenge.nonce,
-            JSON.stringify({ username: credentials.username, password: credentials.password }),
-          ),
-        },
+        '/api/machine/login',
+        { username: credentials.username, password: credentials.password },
         abort.signal,
       )
       if (
@@ -112,7 +94,6 @@ export class BackendRpcClient implements CoreRpc {
       if (this.closed || abort.signal.aborted) throw unavailable()
       return await this.request(
         ws.href,
-        http.origin,
         login.accessToken,
         method,
         params,
@@ -141,6 +122,8 @@ export class BackendRpcClient implements CoreRpc {
     })
     if ([401, 403, 429].includes(response.status))
       throw new CapabilityError('backend_auth_failed', 502, '后端认证失败，请检查服务端凭据')
+    if ([404, 405].includes(response.status))
+      throw new CapabilityError('backend_version_unsupported', 503, 'Backend 版本不支持所需机器维护接口；Manager 本地功能仍可使用')
     if (!response.ok) throw unavailable()
     const chunks: Uint8Array[] = []
     let size = 0
@@ -157,7 +140,6 @@ export class BackendRpcClient implements CoreRpc {
   }
   private request(
     url: string,
-    origin: string,
     token: string,
     method: CoreMethod,
     params: unknown,
@@ -165,7 +147,6 @@ export class BackendRpcClient implements CoreRpc {
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url, {
-        origin,
         headers: { Authorization: `Bearer ${token}` },
         followRedirects: false,
         maxPayload: 4 * 1024 * 1024,

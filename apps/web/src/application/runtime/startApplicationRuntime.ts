@@ -121,6 +121,29 @@ export function startApplicationRuntime(): () => void {
     }
   })
 
+  let needsFreshStartup = false
+  const stopCapabilities = watch(() => {
+    const value = currentCapabilities()
+    return value ? `${value.instanceId}:${value.revision}` : ''
+  }, (next, previous) => {
+    if (!next || next === previous) return
+    needsFreshStartup = true
+    clearServerConfigCache()
+    chats.resetTarget()
+    commands.resetTarget()
+    interactions.resetTarget()
+    taskOverview.resetTarget()
+    configApply.resetTarget()
+    agents.resetTarget()
+    invalidateArchives()
+    workspace.activeDialogChatId = null
+    workspace.activeNyxusChatId = null
+    workspace.activeRootByPreset = {}
+    workspace.closeAllHistory()
+    workspace.settingsOpen = false
+    for (const window of [...workspace.workbenchWindowsList]) workspace.closeWorkbenchWindow(window.id)
+    for (const window of [...workspace.workspaceWindowsList]) workspace.removeWorkspaceWindow(window.id)
+  }, { flush: 'sync' })
   let previousStatus: string | null = null
   const offStatus = wsClient.onStatus((status) => {
     commands.connectionChanged(status)
@@ -133,11 +156,12 @@ export function startApplicationRuntime(): () => void {
       void interactions
         .refresh()
         .catch((cause) => console.warn('[interactions] refresh failed:', cause))
-      if (previousStatus === 'disconnected') {
+      if (previousStatus === 'disconnected' && !needsFreshStartup) {
         void Promise.all([chats.refreshCatalog(), chats.reconnect()]).catch((cause) =>
           console.warn('[chatSessions] reconnect failed:', cause),
         )
       } else {
+        needsFreshStartup = false
         void chats
           .startup()
           .then(() => agents.initFromChats())
@@ -147,8 +171,40 @@ export function startApplicationRuntime(): () => void {
     previousStatus = status
   })
 
+  const stopIdentity = watch(() => useAuthStore().locked, (locked) => {
+    if (!locked) return
+    clearServerConfigCache()
+    chats.resetTarget()
+    commands.resetTarget()
+    interactions.resetTarget()
+    taskOverview.resetTarget()
+    configApply.resetTarget()
+    invalidateArchives()
+    agents.resetTarget()
+    workspace.activeDialogChatId = null
+    workspace.activeNyxusChatId = null
+    workspace.activeRootByPreset = {}
+    workspace.closeAllHistory()
+    workspace.settingsOpen = false
+    for (const window of [...workspace.workbenchWindowsList]) workspace.closeWorkbenchWindow(window.id)
+    for (const window of [...workspace.workspaceWindowsList]) workspace.removeWorkspaceWindow(window.id)
+  }, { flush: 'sync' })
+  const stopOptional = watch(
+    [() => workspace.settingsOpen, () => Boolean(workspace.workspaceWindows['window:task-center']), () => connection.status],
+    ([settings, overview, status]) => {
+      if (status !== 'connected') return
+      if (settings && capabilityEnabled('settings.manage')) void configApply.refresh()
+      if (overview && capabilityEnabled('task.overview')) void taskOverview.reopen().catch(() => undefined)
+      else void taskOverview.close().catch(() => undefined)
+    },
+  )
   connection.init()
   return () => {
+    clearInterval(commandPoll)
+    commands.resetTarget()
+    stopCapabilities()
+    stopOptional()
+    stopIdentity()
     stopPetProjection()
     offNotification()
     offStatus()

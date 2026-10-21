@@ -34,7 +34,7 @@ export function registerIngressHandlers(
   const receipts = new Map<string, { params: unknown; work: Promise<unknown> }>()
   let serial: Promise<unknown> = Promise.resolve()
   const control = (ctx: HandlerContext) => {
-    if (ctx.credentialKind !== 'control') throw ingressError('CAPABILITY_DENIED')
+    if (ctx.credentialKind !== 'control' && ctx.credentialKind !== 'machine') throw ingressError('CAPABILITY_DENIED')
   }
   const once = async <T>(
     method: string,

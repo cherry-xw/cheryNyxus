@@ -100,7 +100,7 @@ export function registerPresetPromptHandlers(router: RpcRouter) {
       method: save ? 'prompts.preset.save' : 'prompts.preset.get',
       request: save ? saveInput : input,
       response: z.unknown(),
-      authorize: (ctx) => !ctx.credentialKind || ctx.credentialKind === 'control',
+      authorize: (ctx) => !ctx.credentialKind || (ctx.credentialKind === 'control' || ctx.credentialKind === 'machine'),
       handler: async (_ctx, args) =>
         save ? savePresetPrompt(saveInput.parse(args)) : getPresetPrompts(args.preset),
     })

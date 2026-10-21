@@ -71,6 +71,7 @@ import { configRecord, mergeBackendConfig } from './configOwnership.js'
 import path from 'path'
 import { createHash } from 'node:crypto'
 import { resolveEnvFile, loadEnvFile, ensureSessionSecret } from './envFile.js'
+import { initializeBackendEnvironment } from '../../../../scripts/lib/backend-layout.mjs'
 
 import { SupervisionLevel } from '@/core/config'
 import type { ThinkingLevel } from '@/core/llm/adapter'
@@ -86,10 +87,13 @@ import {
   FILE_SERVICE_ADAPTER_PARAM_SCHEMAS,
   SettingsFileServiceSchema,
   SettingsFilesPolicySchema,
+  SettingsBrainCapabilitiesSchema,
 } from '@chery/protocol'
 
 // Explicit file selection is fixed at startup; loading preserves inherited variables.
 const inheritedEnvironment = { ...process.env }
+// Config is also imported by maintenance commands without the guardian.
+initializeBackendEnvironment(import.meta.url)
 const rootEnvPath = resolveEnvFile(import.meta.url)
 // Channel transport credentials are deployment-only, not general configuration.
 const deploymentKeys = new Set(
@@ -117,7 +121,7 @@ let managedEnvFileValues = listEnvVarMap()
  * - 进程环境已设置：直接复用，不改文件。
  * - .env 已含该键：读入注入进程环境。
  * - 否则生成 32 字节随机 hex 并追加写入。
- * CHERY_ENV_FILE 可指定独立文件；CHERY_DIR 指项目根，不再使用 .chery/.env。
+ * CHERY_ENV_FILE 可指定独立文件；CHERY_DIR 指运行根，默认 apps/backend，不使用 .chery/.env。
  * 失效/轮换方案：删除 .env 中该行（或整文件）后重启，即重新生成新密钥，
  * 所有已签发 access/refresh token 立即失效（HMAC 验签失败），需重新登录。
  */
@@ -300,7 +304,7 @@ export const DEFAULT_COMMAND_CONFIG = {
 
 export const DEFAULT_FILES_CONFIG = {
   maxUploadBytes: 100 * 1024 * 1024,
-  imageContext: { mode: 'recent', recentUserTurns: 3, replacement: 'description', missingDescription: 'existing', maxDescriptionChars: 600, maxTotalDescriptionChars: 6000 },
+  imageContext: { mode: 'recent', recentUserTurns: 1, replacement: 'description', missingDescription: 'existing', maxDescriptionChars: 600, maxTotalDescriptionChars: 6000 },
   context: {
     recentUserTurns: 3,
     maxAssets: 10,
@@ -563,7 +567,9 @@ export function normalizeRuntimeConfig(
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 server.webPort，
   // 优先级 WEB_PORT 环境变量 > server.webPort > 默认 8183）
   const serverRaw = context.server ?? config.server
+  if (serverRaw?.businessPreset !== undefined && !['basic', 'full'].includes(serverRaw.businessPreset)) throw new Error('server.businessPreset must be basic or full')
   config.server = {
+    businessPreset: serverRaw?.businessPreset ?? 'full',
     port: serverRaw?.port ?? 8182,
     webPort: Number(context.webPort ?? serverRaw?.webPort ?? 8183),
     transport: serverRaw?.transport === 'json' ? 'json' : 'binary',
@@ -600,7 +606,7 @@ function readStartupConfigSource(): RuntimeConfigSource {
   } catch (error) {
     if (!fs.existsSync(configPath)) {
       console.error(`✗ 配置文件不存在: ${configPath}`)
-      console.error(`  请确认 CHERY_DIR 环境变量指向正确的项目根目录（当前: ${cheryDir}）`)
+      console.error(`  请确认 CHERY_DIR 环境变量指向正确的运行根目录（当前: ${cheryDir}）`)
       process.exit(1)
     }
     throw error
@@ -1836,7 +1842,7 @@ export function applyEnvFileSnapshot(
 }
 
 /**
- * 获取 .chery 目录路径（从环境变量 CHERY_DIR 或默认 process.cwd()）。
+ * 获取运行根目录（启动时从 CHERY_DIR 或 Backend 目录确定，其下保存 .chery）。
  * 供 utils.openFile 等 handler 使用。
  */
 export function getCheryDir(): string {

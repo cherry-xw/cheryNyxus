@@ -22,7 +22,7 @@ async function fixture(extra: Parameters<typeof createManager>[0] = {}, configur
   const configFile = join(root, 'config.yaml')
   await writeFile(configFile, 'server:\n  port: 1\n  webPort: 1\n')
   const manager = createManager({ port: 0, authFile, configFile, credentialsFile: join(root, 'credentials.json'),
-    controlToken: 'machine-test-key', backendCommand: process.execPath, backendArgs: ['-e', 'setInterval(()=>{},1000)'], ...extra })
+    controlToken: 'machine-test-key', backendCommand: process.execPath, backendArgs: ['-e', `process.on('message', m => { if (m.type === 'stop-force' || m.type === 'stop-drain') process.exit(0) }); setInterval(()=>{},1000)`], ...extra })
   managers.push(manager); await manager.listen()
   const base = `http://127.0.0.1:${manager.address()!.port}`
   const request = (path: string, init?: RequestInit) => fetch(`${base}${path}`, init)
@@ -89,10 +89,10 @@ describe('Manager authentication HTTP', () => {
     for (const action of ['start', 'restart', 'stop']) expect((await f.request(`/api/backend/${action}`, { method: 'POST', headers })).status).toBe(200)
     const rotated = await f.request('/api/credentials/rotate', { method: 'POST', headers, body: JSON.stringify({ username: 'backend-owner', password: 'backend-test-password' }) })
     const rotatedBody = await rotated.json()
-    expect(rotatedBody).toMatchObject({ credentials: { username: 'backend-owner', consistent: true }, backend: { managed: false }, verification: { status: 'unreachable' } })
-    expect(rotatedBody.credentials).not.toHaveProperty('password')
+    expect(rotated.status).toBe(409)
+    expect(rotatedBody).toMatchObject({ error: { code: 'machine_credentials_deployment_required' } })
     const credentialBody = await (await f.request('/api/credentials', { headers })).json()
-    expect(credentialBody).toMatchObject({ username: 'backend-owner' })
+    expect(credentialBody).toMatchObject({ username: '', consistent: false, source: 'missing' })
     expect(credentialBody).not.toHaveProperty('password')
     const saved = await f.request('/api/relay/config', { method: 'PUT', headers, body: JSON.stringify({ url: 'https://relay.example', backendId: 'test-home', publicDiscovery: false, remotePasswordEnabled: false }) })
     expect(saved.status).toBe(200)

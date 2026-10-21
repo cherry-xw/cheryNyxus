@@ -90,9 +90,9 @@ describe('utils.models anthropic 双尝试', () => {
       key: 'test-key',
     })
     expect(res.models).toEqual([])
-    expect(res.error).toContain('Anthropic 接口返回 404')
+    expect(res.error).toContain('Anthropic 接口返回 HTTP 404')
     expect(res.error).toContain('OpenAI 兼容回退（GET /models + Bearer）亦失败')
-    expect(res.error).toContain('接口返回 401')
+    expect(res.error).toContain('HTTP 401')
   })
 
   it('fullUrl=true：主尝试失败也不回退（完全自负责）', async () => {
@@ -105,7 +105,7 @@ describe('utils.models anthropic 双尝试', () => {
     })
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(res.models).toEqual([])
-    expect(res.error).toContain('Anthropic 接口返回 401')
+    expect(res.error).toContain('Anthropic 接口返回 HTTP 401')
   })
 
   it('密钥占位符未替换 → 直接短路，不发请求', async () => {
@@ -140,7 +140,7 @@ describe('utils.models openai SDK 路径空列表提示', () => {
     expect(res.models).toEqual([])
     expect(res.error).toContain('未获取到任何模型')
     expect(res.error).toContain('/v1')
-    expect(res.error).toContain('实际请求地址：https://gw.example.com/models')
+    expect(res.error).not.toContain('https://gw.example.com')
   })
 
   it('地址已包含 /models 且 fullUrl=false → 原样请求，不重复拼接端点', async () => {
@@ -176,9 +176,8 @@ describe('utils.models openai SDK 路径空列表提示', () => {
       key: 'sk-test',
     })
     expect(res.models).toEqual([])
-    expect(res.error).toContain(
-      '请求发生错误: 分组 智眸 已被弃用 (request id: 202609040608370991724578268d9d6XpdAVxH3)',
-    )
+    expect(res.error).toContain('模型目录服务返回错误')
+    expect(res.error).not.toContain('202609040608370991724578268d9d6XpdAVxH3')
     expect(res.error).toContain('排查建议：未获取到任何模型')
     expect(res.error).toContain('/v1')
   })
@@ -235,9 +234,8 @@ describe('utils.models 错误透传（猜测说明 + 原始错误）', () => {
     expect(res.models).toEqual([])
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(res.error).toContain('大脑的钥匙不对')
-    expect(res.error).toContain('原始错误')
-    expect(res.error).toContain('接口返回 401')
-    expect(res.error).toContain('Incorrect API key')
+    expect(res.error).not.toContain('原始错误')
+        expect(res.error).not.toContain('Incorrect API key')
     expect(res.error).not.toContain('\n')
   })
 
@@ -252,7 +250,7 @@ describe('utils.models 错误透传（猜测说明 + 原始错误）', () => {
     })
     expect(res.models).toEqual([])
     expect(res.error).toContain('大脑的钥匙不对')
-    expect(res.error).toContain('原始错误：401 Incorrect API key provided')
+    expect(res.error).not.toContain('Incorrect API key provided')
   })
 })
 

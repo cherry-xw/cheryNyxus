@@ -1,12 +1,12 @@
 # 登录窗（auth / ServerLoginDialog）
 
-> 源码 `apps/web/src/features/auth/` ｜ 相关 [设计语言规范](../standards/frontend/design-language.md)；登录先行改造见[实施计划](../plan/login-first-capabilities/README.md)。
+> 源码 `apps/web/src/features/auth/` ｜ 相关 [设计语言规范](../standards/frontend/design-language.md)；跨端登录流程见[登录、发现与转发](../shared/architecture/authentication-flows.md)。
 
 ## 定位
 
-当前后端服务对接入口是 `NyxusCore.vue` 工具环的「连接」按钮，打开应用内可拖动的 `ServerLoginDialog`。登录前置及服务选择尚按[计划](../plan/login-first-capabilities/README.md)实施。
+首次入口由 `main.ts → PreloadRoot → PreloadLoginShell` 提供同源登录壳，服务端会话、bootstrap与chat.list业务读回成功后才动态加载App。无Backend ID也可发起Pocket登录，回调后选择本人获准设备；本机信任只由实际来源发现，LAN不能由输入localhost冒充。重型设置、文件及分析页面按打开状态动态加载。
 
-状态与提交逻辑走 `stores/auth.ts`（`login` / `savedPasswordPlain` / `logout` 等），本模块只负责视图与动效；本地 loopback 直连不鉴权（只设地址），远端需用户名/密码。
+状态与提交逻辑走 `stores/auth.ts`；浏览器不保存密码或双token，仅保存经严格校验的安全目标摘要。会话、切换与恢复的唯一协议见[业务浏览器会话](../shared/protocol/browser-session.md)。本机信任也创建服务端内存会话，不能只设地址直接进入业务。
 
 ## 设计规格
 
@@ -36,12 +36,12 @@
 
 - 输入框：直角、`--surface` 底、1px `--border`（深色模式提为 `--border-strong`，避免深底上框体过淡）；聚焦 = "点亮"：border 变 `--accent` + 内侧丝状辉光。密码字段只有一个原生 input，以 `v-model` 更新 property，不声明密码 `value` 属性；灯灭为 `password`、灯亮为 `text`，不渲染密码文本副本。
 - 按钮：全直角、字重 400。主按钮 `--accent` 实底（深色配 `--bg` 深字 / 浅色白字）；次按钮 1px 描边透明底，hover 亮 accent；危险（登出）红色系经 `color-mix` 派生。hover 统一"光扫"高光从左到右掠过（reduced-motion 关闭）。
-- 记住密码：直角滑块，开 = `--accent` 底亮灯方块。
+- 浏览器不支持记住密码；仅保存安全目标及显示摘要，HttpOnly会话由服务端核验。
 - 中文文本字号 ≥12px；600 仅用于标题。
 
 ## 状态机
 
-`地址 → (非 loopback: 用户名/密码/记住密码) → 鉴权 → WebSocket 连接完成`；只有实际连接成功才关闭或进入已连接态。鉴权成功但连接失败仍保留表单与重试入口，不能仅凭 token 或地址保存提示成功。提交期禁止重复提交、编辑及内部关闭。
+`同源地址 → 实际方式发现 → 密码/Pocket/本机信任 → 会话/能力校验 → WebSocket与业务读回`；只有实际连接成功才关闭或进入已连接态。鉴权成功但连接失败仍保留表单与重试入口，不能仅凭 token 或地址保存提示成功。提交期禁止重复提交、编辑及内部关闭。
 
 ### 登录状态与 Nyxus 视觉契约
 
@@ -57,7 +57,7 @@
 
 黑洞是完整的外围场景，不是单独的黑色中心点。修改未登录或登录中渲染时，必须保留外围星云、星点和黑洞前景层；不能因为关闭已登录星系调度而提前返回并删除外围粒子。统一状态计算位于 [`apps/web/src/domain/auth/loginState.ts`](../../apps/web/src/domain/auth/loginState.ts) 的 `resolveLoginState()`，认证过程由 [`apps/web/src/stores/auth.ts`](../../apps/web/src/stores/auth.ts) 持有，Nyxus 输入和绘制分别见 [`apps/web/src/features/pets/nyxus/composables/useNyxusParticleInput.ts`](../../apps/web/src/features/pets/nyxus/composables/useNyxusParticleInput.ts) 与 [`apps/web/src/features/pets/nyxus/particles/nyxusRenderer.ts`](../../apps/web/src/features/pets/nyxus/particles/nyxusRenderer.ts)。
 
-首次挂载即为可见的原生面和后续打开的浮动面共用初始化；记住密码的异步读取在关闭、切地址、重新打开或用户开始输入后失效。浮动面为非模态窗口，不声明 `aria-modal`。错误卡片保留 kind、backendMessage、HTTP status 和原始错误。
+首次入口与后续浮动面共用服务端会话；密码不写浏览器存储，切地址与迟到响应必须隔离。浮动面为非模态窗口，不声明 `aria-modal`。错误卡片保留 kind、backendMessage、HTTP status 和原始错误。
 
 | 修改意图 | 稳定入口与关键符号 | 验证 |
 | --- | --- | --- |
@@ -74,7 +74,7 @@
 - [ ] 深色暖黄光 / 浅色黑光白字，两态几何动态一致
 - [ ] 出错：面板描边转红 + 错误卡片
 - [ ] 全直角、正文 400、中文 ≥12px、无新增硬编码色
-- [ ] 浏览器浮动窗、ESC、记住密码、已连接态（登出/断开）、错误展开均可用
+- [ ] 浏览器浮动窗、ESC、已连接态（登出/断开）和错误展开均可用；密码不会进入浏览器存储
 
 ### 氛围布局
 

@@ -297,13 +297,22 @@ export class IngressHost {
       log: (event: string, fields?: Record<string, string | number | boolean | null>) => {
         if (!/^[a-zA-Z0-9_.-]{1,100}$/.test(event)) return
         const metadata: Record<string, string | number | boolean | null> = { pluginId: id, version }
-        for (const key of ['revision', 'count', 'enabled', 'paused', 'success'])
-          if (
-            typeof fields?.[key] === 'number' ||
-            typeof fields?.[key] === 'boolean' ||
-            fields?.[key] === null
-          )
-            metadata[key] = fields[key]
+        for (const key of ['revision', 'count']) {
+          const value = fields?.[key]
+          if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) metadata[key] = value
+        }
+        for (const key of ['enabled', 'paused', 'success']) {
+          const value = fields?.[key]
+          if (typeof value === 'boolean') metadata[key] = value
+        }
+        // Attachment diagnostics are an explicit contract, not arbitrary plugin strings.
+        if (event === 'qq.attachment.unavailable' && id === 'cherynyxus-qq-module') {
+          if (typeof fields?.stage === 'string' && ['import', 'validate', 'refresh', 'download', 'invalid', 'permission'].includes(fields.stage)) metadata.stage = fields.stage
+          if (typeof fields?.code === 'string' && (/^HTTP_[45][0-9]{2}$/.test(fields.code) || ['UNAVAILABLE', 'REMOTE_ADDRESS_REJECTED', 'EAI_ADDRFAMILY', 'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ERR_INVALID_IP_ADDRESS', 'IDENTITY_REJECTED', 'FILE_DOWNLOAD_FAILED', 'FILE_INVALID', 'FILE_PERMISSION_DENIED'].includes(fields.code))) metadata.code = fields.code
+          if (typeof fields?.messageId === 'string' && /^(?:[0-9]{1,20}|redacted)$/.test(fields.messageId)) metadata.messageId = fields.messageId
+          if (typeof fields?.requestId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(fields.requestId)) metadata.requestId = fields.requestId
+          if (typeof fields?.attachmentIndex === 'number' && Number.isSafeInteger(fields.attachmentIndex) && fields.attachmentIndex >= 0 && fields.attachmentIndex <= 10000) metadata.attachmentIndex = fields.attachmentIndex
+        }
         this.options.log?.(event, metadata)
       },
       config: {
@@ -374,7 +383,9 @@ export class IngressHost {
         conversationHistory: async (key: string) => {
           requireActive()
           if (!active.conversations.has(key) || !core.conversationHistory) throw ingressError('IDENTITY_REJECTED')
-          return core.conversationHistory(id, key)
+          const result = await core.conversationHistory(id, key)
+          requireActive()
+          return result
         },
         commitSummary: async (key: string, summary: string) => {
           requireActive()
@@ -448,7 +459,9 @@ export class IngressHost {
             signal: combined,
             validateIdentity: () => {
               requireActive()
-              this.authority.project(id, params.entryId, identity)
+              if (record?.channel === 'qq' && identity)
+                this.authority.validateExecution(id, params.entryId, identity)
+              else this.authority.project(id, params.entryId, identity)
             },
           })
           requireActive()
@@ -826,7 +839,7 @@ export class IngressHost {
     input: import('zod').infer<(typeof IngressRequestSchemas)['ingress.management.call']>,
     ctx: HandlerContext,
   ) {
-    if (ctx.credentialKind !== 'control') throw ingressError('CAPABILITY_DENIED')
+    if (ctx.credentialKind !== 'control' && ctx.credentialKind !== 'machine') throw ingressError('CAPABILITY_DENIED')
     const module = this.modules.get(input.moduleId)
     if (!module) throw ingressError('UNAVAILABLE')
     const route = module.definition.routes.find(

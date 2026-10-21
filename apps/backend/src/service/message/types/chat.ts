@@ -262,6 +262,8 @@ export interface BranchInheritedTask {
   content?: string
 }
 export interface ChatBranchCreateRequestData {
+  parts?: import('@chery/protocol').MessagePart[]
+  drawing?: import('@chery/protocol').DrawingIntent
   rootChatId: string
   anchorNodeId: string
   branchType: 'continuation' | 'detail'

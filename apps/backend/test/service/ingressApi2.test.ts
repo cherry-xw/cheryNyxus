@@ -77,6 +77,44 @@ afterEach(async () => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
 })
 describe('API2 published host', () => {
+  it('attachment logging permits only typed diagnostic values, never arbitrary strings or nonfinite numbers', async () => {
+    const store = new IngressStore(temp()), log = vi.fn()
+    const source = pkg('cherynyxus-qq-module', `
+      ctx.log('qq.attachment.unavailable', {stage:'download',code:'HTTP_400',messageId:'1691784683',requestId:'e362d7bf-ffe5-45db-8f16-f9cda0df3e32',attachmentIndex:0,url:'https://secret.invalid',error:'secret',headers:'secret',token:'secret'});
+      ctx.log('qq.attachment.unavailable', {stage:'https://secret.invalid',code:'HTTP_400 secret',messageId:'secret',requestId:'secret',attachmentIndex:NaN,count:Infinity,revision:-1,success:1,enabled:'true',paused:null});
+      ctx.log('other.event', {stage:'download',code:'HTTP_400',messageId:'1691784683',requestId:'e362d7bf-ffe5-45db-8f16-f9cda0df3e32',attachmentIndex:0,count:2,success:true});
+    `)
+    store.install(source, false, undefined, {grantedCapabilities:['hooks','rpc.business'],channelGrants:[]})
+    store.setEnabled('cherynyxus-qq-module', true)
+    const host = new IngressHost({store, router:createRouter(), log, connections, core:{listPresets:()=>[],resolvePreset:vi.fn(),ensureConversation:vi.fn(),submit:vi.fn(),abort:vi.fn(),onEvent:()=>()=>{}}})
+    cleanup.push(()=>host.stop()); await host.start()
+    const base={pluginId:'cherynyxus-qq-module',version:'1.0.0'}
+    expect(log.mock.calls).toEqual([
+      ['qq.attachment.unavailable',{...base,stage:'download',code:'HTTP_400',messageId:'1691784683',requestId:'e362d7bf-ffe5-45db-8f16-f9cda0df3e32',attachmentIndex:0}],
+      ['qq.attachment.unavailable',base],['other.event',{...base,count:2,success:true}],
+    ])
+  })
+  it('文件设置依赖的核心配置读写允许受保护管理能力调用，业务身份拒绝', async () => {
+    const store = new IngressStore(temp())
+    const coreCall = vi.fn(async (method: string) => ({ method }))
+    const host = new IngressHost({ store, router: createRouter(), connections, coreCall,
+      core: { listPresets: () => [], resolvePreset: vi.fn(), ensureConversation: vi.fn(), submit: vi.fn(), abort: vi.fn(), onEvent: () => () => {} } })
+    cleanup.push(() => host.stop())
+    const schema = `const s = {safeParse: x => ({success:true,data:x}), parse: x => x};`
+    const source = pkg('file-policy-host', '', ['rpc.management', 'manager.ui'], `${schema} ctx.management.register({moduleId:'file-policy-test',routes:[{method:'GET',path:'files',rpcMethod:'file-policy-host.get',requestSchema:s,responseSchema:s,handler:async()=>{const results=[];for(const method of ['config.get','config.preview','config.save']) results.push(await ctx.management.coreCall(method,{}));return results}}]});`)
+    const manifest = JSON.parse(fs.readFileSync(path.join(source, 'config.yaml'), 'utf8'))
+    manifest.ui = [{ id: 'file-policy-test', title: 'Files', entry: 'ui.html', apiPrefix: '/api/modules/file-policy-test/', resourceVersion: '1' }]
+    fs.writeFileSync(path.join(source, 'config.yaml'), JSON.stringify(manifest))
+    fs.writeFileSync(path.join(source, 'ui.html'), '<html></html>')
+    store.install(source, false, undefined, { grantedCapabilities: ['rpc.management', 'manager.ui'], channelGrants: [] })
+    await host.start()
+    const input = { moduleId: 'file-policy-test', method: 'GET' as const, path: 'files', pathParams: {}, query: {} }
+    await expect(host.managementCall(input, { credentialKind: 'business' } as any)).rejects.toThrow('CAPABILITY_DENIED')
+    expect(coreCall).not.toHaveBeenCalled()
+    const result = await host.managementCall(input, { credentialKind: 'machine', log: logger } as any)
+    expect(result.status).toBe(200)
+    expect(coreCall.mock.calls.map(call => call[0])).toEqual(['config.get', 'config.preview', 'config.save'])
+  })
   it('persists send ownership across restart and rejects forged subjects and duplicate receipts', async () => {
     const store = new IngressStore(temp())
     const source = pkg('delivery', `
@@ -362,6 +400,8 @@ it('identity handles cannot be forged and expire on revocation', async () => {
   expect(() => authority.project('other', 'input', handle)).toThrow('IDENTITY_REJECTED')
   expect(() => authority.project(owner.id, 'other', handle)).toThrow('IDENTITY_REJECTED')
   authority.revokeConnection('c')
+  expect(() => authority.validateExecution(owner.id, 'input', handle)).not.toThrow()
+  expect(() => authority.validateExecution('other', 'input', handle)).toThrow()
   expect(() => authority.project(owner.id, 'input', handle)).toThrow('IDENTITY_REJECTED')
   const reconnected = await authority.bind(owner, {
     connectionId: 'c',
@@ -372,5 +412,6 @@ it('identity handles cannot be forged and expire on revocation', async () => {
   })
   expect(authority.project(owner.id, 'input', reconnected).subject?.userId).toBe('user')
   authority.revoke(owner.id)
+  expect(() => authority.validateExecution(owner.id, 'input', handle)).toThrow()
   expect(() => authority.project(owner.id, 'input', reconnected)).toThrow()
 })

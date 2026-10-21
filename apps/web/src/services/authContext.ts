@@ -6,6 +6,7 @@ export interface ServiceAuthPort {
   headers: () => Record<string, string>
   contextKey?: () => string
   assertCurrent?: () => void
+  ticket?: () => Promise<{ ticket: string; wsPath: string }>
   refresh: () => Promise<boolean>
 }
 

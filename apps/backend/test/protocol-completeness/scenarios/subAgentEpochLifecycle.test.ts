@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Method } from '@chery/protocol'
 import { getMockProviderTranscript, resetMockProviderState } from '@/agent/provider/mock.js'
 import { getChat } from '@/db/chat.js'
@@ -27,12 +27,14 @@ function installReplacementMockFixture(): void {
   writeFileSync(
     resolve(process.env.CHERY_DIR!, '.chery/mock/spawn-replacement.yaml'),
     [
-      'repeat: last',
       'script:',
+      '  - content: historical dispatch',
+      '  - content: historical child summary',
       '  - content: dispatching replacement protocol child',
       '    senseCalls:',
       '      - name: spawn_role',
       `        arguments: '{"type":"protocol_replacement","prompt":"run in the new epoch","wake":"immediate"}'`,
+      '  - content: replacement child summary',
       '',
     ].join('\n'),
     'utf8',
@@ -263,6 +265,17 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     await waitForDone(service, chatId, firstHandle)
     await waitForDone(service, oldChild.chatId)
     await waitForRoleReply(service, chatId, oldChild.chatId)
+    // role_reply precedes the parent's resumed run finishing; change runtime only at its safe boundary.
+    await vi.waitFor(async () => {
+      const response = await service.client.call(Method.CHAT_TIMELINE_GET, { rootChatId: chatId, view: 'tree' })
+      expect(response.success).toBe(true)
+      const timeline = (response.data as ChatTimelineGetResponseData).rootTimeline!
+      expect(timeline.activeRuns.some((run: { status: string }) => run.status === 'running')).toBe(false)
+      const listed = await service.client.call(Method.CHAT_LIST, { scope: 'stage' })
+      const root = (listed.data as ChatListResponseData).chats.find(chat => chat.chatId === chatId)
+      expect(root).toBeDefined()
+      expect(root!.running).toBe(false)
+    }, { timeout: 10000 })
 
     const beforeEpochsResponse = await service.client.call(Method.CHAT_EPOCH_LIST, { chatId })
     const beforeEpochs = beforeEpochsResponse.data as ChatEpochListResponseData
@@ -328,6 +341,12 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
     await waitForDone(service, chatId, nextHandle)
     await waitForDone(service, replacement.chatId)
     await waitForRoleReply(service, chatId, replacement.chatId)
+    await vi.waitFor(async () => {
+      const response = await service.client.call(Method.CHAT_LIST, { scope: 'stage' })
+      const root = (response.data as ChatListResponseData).chats.find(chat => chat.chatId === chatId)
+      expect(root?.running).toBe(false)
+      expect(getMockProviderTranscript().filter(entry => entry.chatId === chatId)).toHaveLength(2)
+    })
 
     expect(replacement.chatId).not.toBe(oldChild.chatId)
     expect(getChat(replacement.chatId)?.lifecycle).toBe('active')
@@ -335,10 +354,11 @@ describe('sub-Agent and epoch lifecycle through the public protocol', () => {
       expect.objectContaining({
         model: 'protocol_spawn_replacement',
         // Epoch changes preserve the complete conversation history, so the
-        // stateless mock sees the historical root assistant as turn 0.
-        turn: 1,
+        // stateless mock counts the historical dispatch and completed summary.
+        turn: 2,
         toolNames: ['spawn_role'],
       }),
+      expect.objectContaining({ model: 'protocol_spawn_replacement', turn: 3, toolNames: [] }),
     ])
     const currentPrompt = await service.client.call(Method.CHAT_PROMPT_SNAPSHOT, { chatId })
     expect(currentPrompt.success).toBe(true)

@@ -32,6 +32,7 @@ import config from '@/utils/config.js'
 import {
   resolveCatalogReasoningHistory,
   resolveCatalogThinkingParams,
+  resolveCatalogThinkingSelection,
   resolveModelCatalog,
 } from '@/utils/modelCatalog.js'
 import {
@@ -51,6 +52,7 @@ import {
 import { ANTHROPIC_VERSION } from '@/agent/provider/anthropic.js'
 import { LlmProtocol } from '@chery/protocol'
 import { resolveBrainAdapterKey, resolveBrainProtocol } from '@/core/llm/routing.js'
+import { readBrainServiceCapabilities } from '@/service/config/brainCapabilities.js'
 
 const exec = promisify(execCallback)
 
@@ -109,7 +111,7 @@ export async function handleUtilsModels(
     logger.event('utils.models.error', { provider, url, error: message, category }, LogLevel.warn)
     return {
       models: [],
-      error: message ? `${userMessage}（原始错误：${message}）` : userMessage,
+      error: userMessage,
     }
   }
 }
@@ -147,6 +149,8 @@ export async function handleUtilsTestConnection(
   }
 
   try {
+    const selection = resolveCatalogThinkingSelection({ model, provider, protocol, display: 'off' })
+    if (selection.cannotDisable) return { ok: false, error: '当前型号不支持关闭思考；连接测试不会省略参数后使用服务方默认等级。本次未发送请求，请先确认思考等级和测试费用。' }
     const messages = messageAdapter.buildMessages([probeMessage], undefined, {
       protocol,
       reasoningHistory: resolveCatalogReasoningHistory({
@@ -226,8 +230,7 @@ async function fetchOpenAIModels(
     })
     if (!res.ok) {
       // 非 2xx：带上响应体摘要再抛（此前只抛 status、丢弃上游错误响应体），外层 catch 统一拼装透传
-      const snippet = await readErrorSnippet(res)
-      throw new Error(`接口返回 ${res.status}：${snippet}`)
+      throw Object.assign(new Error(`模型目录 HTTP ${res.status}`), {status:res.status})
     }
     return await parseOpenAIModelsResponse(res, url)
   }
@@ -261,12 +264,9 @@ async function parseOpenAIModelsResponse(
   try {
     payload = JSON.parse(raw)
   } catch {
-    const original = raw.replace(/\s+/g, ' ').trim().slice(0, 200)
     return {
       models: [],
-      error: original
-        ? combineModelsError(`接口返回了非 JSON 内容：${original}`, requestedUrl)
-        : emptyModelsSuggestion(requestedUrl),
+      error: combineModelsError('接口返回了非 JSON 内容', requestedUrl),
     }
   }
 
@@ -316,13 +316,12 @@ function extractModelsResponseError(payload: unknown): string | undefined {
   return message ? normalizeModelsError(message) : undefined
 }
 
-function normalizeModelsError(message: string): string {
-  const normalized = message.replace(/\s+/g, ' ').trim()
-  return /^请求发生错误\s*[:：]/.test(normalized) ? normalized : `请求发生错误: ${normalized}`
+function normalizeModelsError(_message: string): string {
+  return '模型目录服务返回错误，请检查服务状态、权限及地址。'
 }
 
-function emptyModelsSuggestion(requestedUrl: string): string {
-  return `${EMPTY_MODELS_SUGGESTION}；实际请求地址：${requestedUrl}`
+function emptyModelsSuggestion(_requestedUrl: string): string {
+  return EMPTY_MODELS_SUGGESTION
 }
 
 function combineModelsError(original: string, requestedUrl: string): string {
@@ -422,7 +421,7 @@ async function fetchAnthropicModelsNative(
     )
     return {
       models: [],
-      error: `连接 Anthropic 失败：${msg}（请检查 url 是否可达：${url}）`,
+      error: '连接 Anthropic 失败，请检查服务连接。',
     }
   }
   if (!res.ok) {
@@ -438,7 +437,7 @@ async function fetchAnthropicModelsNative(
     )
     return {
       models: [],
-      error: `Anthropic 接口返回 ${status}：${snippet}`,
+      error: `Anthropic 接口返回 HTTP ${status}，请检查服务权限、额度及配置。`,
     }
   }
 
@@ -458,9 +457,10 @@ async function fetchAnthropicModelsNative(
     )
     return {
       models: [],
-      error: `Anthropic 返回了非 JSON 内容：url 可能缺版本段（如 /v1，请在地址末尾补上后重试）或未指向 API（当前：${url}）`,
+      error: 'Anthropic 返回了非 JSON 内容，请检查服务协议及地址版本段。',
     }
   }
+  if (extractModelsResponseError(json) && !json.data?.length) return {models:[],error:'模型目录服务返回错误，请检查服务权限及配置。'}
   // has_more=true 表示超过 limit 被截断（Anthropic 模型目录远小于 1000，仅兜底可见性，不静默丢弃）
   if (json.has_more) {
     logger.event(
@@ -500,7 +500,7 @@ async function fetchOpenAICompatModelsFallback(
       { provider: 'anthropic', url, error: `fallback network: ${msg}`, category: 'network' },
       LogLevel.warn,
     )
-    return { models: [], error: `连接失败：${msg}（GET ${modelsUrl}）` }
+    return { models: [], error: '模型目录连接失败，请检查服务连接。' }
   }
   if (!res.ok) {
     const snippet = await readErrorSnippet(res)
@@ -516,7 +516,7 @@ async function fetchOpenAICompatModelsFallback(
       },
       LogLevel.warn,
     )
-    return { models: [], error: `接口返回 ${status}：${snippet}` }
+    return { models: [], error: `模型目录接口返回 HTTP ${status}，请检查服务权限、额度及配置。` }
   }
   let json: { data?: Array<{ id: string; owned_by?: string }> }
   try {
@@ -530,16 +530,11 @@ async function fetchOpenAICompatModelsFallback(
     )
     return {
       models: [],
-      error: `返回了非 JSON 内容（GET ${modelsUrl}；url 可能缺版本段，请在地址末尾补上（如 /v1）后重试）`,
+      error: '模型目录返回非 JSON 内容，请检查服务协议及地址版本段。',
     }
   }
-  return {
-    models: (json.data ?? []).map((m) => ({
-      id: m.id,
-      name: m.id,
-      ownedBy: m.owned_by,
-    })),
-  }
+  if (extractModelsResponseError(json) && !json.data?.length) return {models:[],error:'模型目录服务返回错误，请检查服务权限及配置。'}
+  return {models:(json.data ?? []).map(m=>({id:m.id,name:m.id,ownedBy:m.owned_by}))}
 }
 
 /**
@@ -704,7 +699,13 @@ export async function handleUtilsModelRecommendation(
       provider: data.provider,
       protocol: data.protocol,
     })
-    return { ...resolved, thinkingLevels: [...resolved.thinkingLevels] }
+    return {
+      ...resolved,
+      thinkingLevels: [...resolved.thinkingLevels],
+      ...(data.connection && data.provider ? { serviceCapabilities: readBrainServiceCapabilities({
+        ...data.connection, model: data.model, provider: data.provider, protocol: data.protocol,
+      }) } : {}),
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.event('utils.modelRecommendation.error', { error: message }, LogLevel.warn)

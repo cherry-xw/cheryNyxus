@@ -70,7 +70,7 @@
 ## 代码和测试入口
 
 - 身份发现与状态转换：[`platform/napcat-plugin/src/adapter.ts`](../../../platform/napcat-plugin/src/adapter.ts) 的 `Adapter.start()`、`Adapter.action()`、`qqId()`。
-- 连接握手与能力校验：同文件 `Adapter.handshake()`；传输边界：[`platform/napcat-plugin/src/wire.ts`](../../../platform/napcat-plugin/src/wire.ts) 的 `BackendWire`。
+- 连接握手与能力校验：同文件 `Adapter.startInternal()`；传输边界：[`platform/napcat-plugin/src/wire.ts`](../../../platform/napcat-plugin/src/wire.ts) 的 `BackendChannel` 与 `BackendWire`。
 - 事件身份校验：同文件 `normalize()`；共享协议 ID：[`packages/protocol/src/qq.ts`](../../../packages/protocol/src/qq.ts) 的 `QQIdSchema`。
 - 原生插件入口和失败脱敏：[`platform/napcat-plugin/src/index.ts`](../../../platform/napcat-plugin/src/index.ts) 的 `plugin_init()`、`plugin_onmessage()`、`plugin_status()`。
 - 现有定向测试：[`qqPluginWire.test.ts`](../../../apps/backend/test/service/qqPluginWire.test.ts) 覆盖 Action 四参数调用、成功身份发现、握手缺失/能力不匹配、断线隔离、事件身份伪造拒绝和损坏状态隔离；运行 `pnpm --dir platform/napcat-plugin typecheck && pnpm --dir platform/napcat-plugin build && pnpm qq-ingress:test`。

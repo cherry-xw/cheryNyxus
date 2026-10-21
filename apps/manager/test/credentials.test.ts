@@ -65,18 +65,16 @@ describe('independent persistent internal credential key', () => {
   })
 
   for (const override of [undefined, 'synthetic-legacy-override']) {
-    it(`migrates authenticated v1 (${override ? 'explicit key' : 'path key'}) without changing service config`, async () => {
+    it(`rejects v1 without migration or any file change (${override ?? 'default'})`, async () => {
       const { options, keyFile } = await fixture()
-      const { stored, config } = await legacy(options, override)
+      const { config } = await legacy(options, override)
+      const before = await readFile(options.credentialsFile, 'utf8')
       const store = new CredentialStore({ ...options, encryptionKey: override })
-      expect((await store.auth()).password).toBe('synthetic-password')
-      const migrated = JSON.parse(await readFile(options.credentialsFile, 'utf8'))
-      expect(migrated).toMatchObject({ version: 2, username: stored.username, passwordHash: stored.passwordHash, updatedAt: stored.updatedAt })
-      expect(migrated).not.toHaveProperty('password')
-      expect(migrated.passwordCipher).not.toBe(stored.passwordCipher)
+      await expect(store.auth()).rejects.toThrow()
+      await expect(store.ensureInternal()).rejects.toThrow()
+      expect(await readFile(options.credentialsFile, 'utf8')).toBe(before)
       expect(await readFile(options.configFile, 'utf8')).toBe(config)
-      expect(unpack(migrated.passwordCipher, await readFile(keyFile))).toBe('synthetic-password')
-      expect((await new CredentialStore(options).auth()).consistent).toBe(true)
+      await expect(stat(keyFile)).rejects.toMatchObject({ code: 'ENOENT' })
     })
   }
 
@@ -90,12 +88,16 @@ describe('independent persistent internal credential key', () => {
     expect((await readFile(keyFile)).length).toBe(32)
   })
 
-  it('does not let concurrent migration overwrite a rotation', async () => {
+  it('preserves independent business account during concurrent machine provisioning', async () => {
     const { options } = await fixture()
-    await legacy(options)
+    const business = { username: 'business-user', password: hashPassword('synthetic-business-password') }
+    await writeFile(options.configFile, yaml.dump({ server: { auth: business } }))
     const stores = Array.from({ length: 6 }, () => new CredentialStore(options))
-    await Promise.all([...stores.map((store) => store.view()), new CredentialStore(options).rotate({ password: 'synthetic-rotated' })])
-    expect(await new CredentialStore(options).auth()).toMatchObject({ password: 'synthetic-rotated', consistent: true })
+    await Promise.all(stores.map((store) => store.ensureInternal()))
+    const config = yaml.load(await readFile(options.configFile, 'utf8')) as any
+    expect(config.server.auth.username).toBe(business.username)
+    expect(config.server.auth.password).toBe(business.password)
+    expect(config.server.auth.machine.username).toBe('manager-internal')
   })
 
   for (const damage of ['missing', 'short', 'wrong', 'permissions', 'symlink'] as const) {

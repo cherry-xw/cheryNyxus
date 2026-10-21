@@ -42,6 +42,7 @@ export const IngressStatusSchema = z
     reason: text.optional(),
     grantedCapabilities: z.array(IngressCapabilitySchema),
     dependencies: z.array(IngressDependencySchema),
+    backendUnavailable: z.boolean().optional(),
   })
   .strict()
 export type IngressStatus = z.infer<typeof IngressStatusSchema>
@@ -143,6 +144,8 @@ export const IngressResponseSchemas = {
       hostApiVersion: version,
       registryRevision: revision,
       plugins: z.array(IngressStatusSchema),
+      backendUnavailable: z.boolean().optional(),
+      reason: text.optional(),
     })
     .strict(),
   'ingress.install': mutation,

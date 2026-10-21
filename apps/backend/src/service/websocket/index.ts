@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws'
+import { assertBusinessSelection, type Bootstrap } from '@chery/protocol'
 import { timingSafeEqual } from 'node:crypto'
 
 import {
@@ -61,6 +62,7 @@ const resolveOutputWss = resolveOutputTargets
  */
 interface WebSocketServerConfig {
   port: number
+  bootstrap?: () => Bootstrap
   router: RpcRouter
   /** Binding is supplied by the service entrypoint. */
   host?: string
@@ -96,6 +98,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
     channelAuth,
   } = config
   const allowLoopback = listener === 'local'
+  const browserSessions = new WeakMap<object, string>()
   const wss = new WebSocketServer({
     port,
     ...(host ? { host } : {}),
@@ -103,6 +106,12 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
       authToken || auth?.enabled || channelAuth?.token
         ? (info, done) => {
             const origin = info.origin
+            const machineUser = listener === 'local' ? auth?.getMachineUser(info.req) : null
+            if (machineUser) { done(true); return }
+            if (listener === 'local' && auth && new URL(info.req.url ?? '/', 'http://internal.invalid').searchParams.has('ticket')) {
+              try { if (!config.bootstrap) { done(false, 400, 'Business selection unavailable'); return }; assertBusinessSelection(new URL(info.req.url ?? '/', 'http://internal.invalid'), config.bootstrap()); const session = auth.browser.consumeTicket(info.req); browserSessions.set(info.req, session.id); done(true) } catch { done(false, 401, 'WebSocket ticket or selection rejected') }
+              return
+            }
             const channelToken = channelAuth?.token
             const channelHeader = channelAuth && info.req.headers[channelAuth.header.toLowerCase()]
             const validChannelCredential =
@@ -125,6 +134,10 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
             if (channelHeader !== undefined) {
               done(validChannelCredential, 401, 'WebSocket authentication failed')
               return
+            }
+            if (origin && listener === 'local' && auth) { done(false, 401, 'Browser ticket required'); return }
+            if (listener === 'remote' && new URL(info.req.url ?? '/', 'http://internal.invalid').searchParams.has('protocolVersion')) {
+              try { if (!config.bootstrap) throw new Error('Selection unavailable'); assertBusinessSelection(new URL(info.req.url ?? '/', 'http://internal.invalid'), config.bootstrap()) } catch { done(false, 400, 'Business selection rejected'); return }
             }
             if (auth?.enabled) {
               if (!auth.getUser(info.req, { allowLoopback }))
@@ -160,6 +173,12 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
   })
 
   wss.on('connection', (ws, req) => {
+    if (listener === 'remote' && auth) ws.once('close', auth.attachProofSocket(req, ws))
+    const browserSessionId = browserSessions.get(req)
+    if (browserSessionId && auth) {
+      const detach = auth.browser.store.attach(browserSessionId, ws)
+      ws.once('close', detach)
+    }
     // lite profile 声明（canonical §3.6.1）：?profile=lite&v=1（与 ?token= 同风格）。
     // 未知版本按 D14 在握手期拒绝——close frame 携带 JSON{supportedVersions}，设备可机读判定。
     const liteProfile = parseLiteProfile(req?.url)
@@ -170,7 +189,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
     }
     const state = connectionManager.create(ws, liteProfile ?? undefined)
     state.authenticatedUserId = auth?.getUser(req, { allowLoopback: listener === 'local' })?.sub ?? (listener === 'local' && !auth?.enabled ? 'local' : undefined)
-    state.credentialKind = 'control'
+    state.credentialKind = listener === 'local' && auth?.getMachineUser(req) ? 'machine' : 'control'
     const platformToken = channelAuth?.token
     const presentedPlatformToken = channelAuth && req.headers[channelAuth.header.toLowerCase()]
     if (
@@ -196,6 +215,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
     ws.on('message', async (data) => {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
       try {
+        if (browserSessionId && auth) auth.browser.store.get(browserSessionId)
         await handleMessage(ws, state, buffer, router)
       } catch (err) {
         const error = err as Error
@@ -525,14 +545,20 @@ export function parseLiteProfile(url: string | undefined): LiteProfile | 'unsupp
   } catch {
     return undefined
   }
-  if (query.get('profile') !== 'lite') return undefined
+  const names = ['profile', 'v', 'maxFrameBytes', 'turnDelta']
+  if (names.some((name) => query.getAll(name).length > 1)) return 'unsupported'
+  if (!query.has('profile')) return names.slice(1).some((name) => query.has(name)) ? 'unsupported' : undefined
+  if (query.get('profile') !== 'lite') return 'unsupported'
   const vRaw = query.get('v') ?? '1'
   const v = Number(vRaw)
-  if (!Number.isInteger(v) || !(SUPPORTED_LITE_VERSIONS as readonly number[]).includes(v)) {
+  if (!/^[1-9][0-9]*$/.test(vRaw) || !Number.isSafeInteger(v) || !(SUPPORTED_LITE_VERSIONS as readonly number[]).includes(v)) {
     return 'unsupported'
   }
-  const maxFrameRaw = Number(query.get('maxFrameBytes'))
+  const budget = query.get('maxFrameBytes')
+  const maxFrameRaw = budget === null ? 4096 : Number(budget)
   const turnDeltaRaw = query.get('turnDelta')
+  if (budget !== null && (!/^[1-9][0-9]*$/.test(budget) || !Number.isSafeInteger(maxFrameRaw) || maxFrameRaw < 512 || maxFrameRaw > 65536)) return 'unsupported'
+  if (turnDeltaRaw !== null && !['0', '1', 'false', 'true'].includes(turnDeltaRaw)) return 'unsupported'
   return {
     kind: 'lite',
     v,

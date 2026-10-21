@@ -1,3 +1,6 @@
+import type { DirectBrowserSessions } from './browserSessions.js'
+import { UserProofVerifier } from '../../../../relay/src/userProof.js'
+import { DirectBrowserSessions as BrowserSessions } from './browserSessions.js'
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isHashed, verifyPassword } from '@/utils/password.js'
@@ -13,6 +16,10 @@ export interface OAuth2Config {
   password?: string
   /** Remote-only listeners set this false; local loopback compatibility remains default true. */
   allowLoopback?: boolean
+  /** Independent internal identity; cannot be used at business login endpoints. */
+  browserDeployment?: { origin: string; basePath: string }
+  userProof?: { issuer: string; backendId: string; keys: Record<string, string>; authorizations: Array<{ id: string; revision: number; subject: string }> }
+  machine?: { username: string; password: string }
 }
 
 export interface AuthenticatedUser {
@@ -50,11 +57,25 @@ interface PasswordFailureState {
  */
 export class OAuth2Auth {
   readonly enabled: boolean
+  readonly browser: DirectBrowserSessions = new BrowserSessions(this)
   private readonly cfg: Required<Pick<OAuth2Config, 'trustedOrigins'>> & OAuth2Config
   private readonly secret: string
+  private readonly proof?: UserProofVerifier
+  private readonly proofUsers = new WeakMap<IncomingMessage, AuthenticatedUser>()
+  private readonly authorizationSockets = new Map<{ close(code?: number, reason?: string): void }, { id: string; revision: number; subject: string }>()
+  private readonly proofAuthorization = new WeakMap<IncomingMessage, { id: string; revision: number; subject: string }>()
+  attachProofSocket(req: IncomingMessage, socket: { close(code?: number, reason?: string): void }): () => void {
+    const authorization = this.proofAuthorization.get(req)
+    if (authorization) this.authorizationSockets.set(socket, authorization)
+    return () => this.authorizationSockets.delete(socket)
+  }
   /** 一次性登录挑战：challengeId → nonce + 过期时间。解密后即删除（防重放）。 */
   private readonly challenges = new Map<string, { nonce: string; exp: number }>()
+  private readonly machineAttempts = new Map<string, { count: number; reset: number }>()
   private readonly passwordFailures = new Map<string, PasswordFailureState>()
+
+  private machineState: 'configured' | 'not_configured' | 'invalid' = 'not_configured'
+  maintenanceDiagnostic() { return { status: this.machineState, ...(this.machineState === 'invalid' ? { code: 'MACHINE_CONFIG_INVALID' as const } : {}) } }
 
   constructor(config: OAuth2Config | undefined) {
     this.cfg = {
@@ -65,7 +86,23 @@ export class OAuth2Auth {
     // 根 .env（CHERY_AUTH_SESSION_SECRET）跨重启复用；未注入时动态生成兜底。
     this.secret = process.env.CHERY_AUTH_SESSION_SECRET || randomBytes(32).toString('hex')
     // 密码认证开启鉴权门禁；OIDC 只在中转处理。
-    this.enabled = config?.enabled === true || !!config?.username
+    this.enabled = config?.enabled === true || !!config?.username || !!config?.machine || !!config?.userProof || !!config?.browserDeployment
+    if (config?.userProof) {
+      const trusted = config.userProof
+      this.cfg.userProof = { ...trusted, authorizations: [] }
+      this.proof = new UserProofVerifier(trusted.issuer, trusted.backendId, trusted.keys, (claims) => this.cfg.userProof!.authorizations.some((a) => a.id === claims.authorizationId && a.revision === claims.authorizationRevision && a.subject === claims.sub))
+    }
+    if (this.cfg.browserDeployment && !this.cfg.username) throw new Error('Public browser deployment requires a business account')
+    if (this.cfg.browserDeployment) {
+      const { origin, basePath } = this.cfg.browserDeployment
+      if (new URL(origin).origin !== origin || !/^https?:/.test(origin) || (basePath !== '' && (!basePath.startsWith('/') || basePath.startsWith('//') || basePath.endsWith('/'))) || /[\\?#%\x00-\x20]/.test(basePath) || basePath.split('/').some((x) => x === '.' || x === '..')) throw new Error('Invalid browser deployment')
+    }
+    if (this.cfg.machine) this.machineState = 'configured'
+    if (this.cfg.machine && (typeof this.cfg.machine.username !== 'string' || !this.cfg.machine.username || this.cfg.machine.username.length > 256 || typeof this.cfg.machine.password !== 'string' || !isHashed(this.cfg.machine.password))) {
+      // A broken optional maintenance identity never disables the business gate.
+      this.cfg.machine = undefined
+      this.machineState = 'invalid'
+    }
     if (!this.enabled) return
     if (this.cfg.username) {
       // 密码认证模式：password 必须是已哈希值（明文由 worker 启动自检改写后重启）。
@@ -78,7 +115,20 @@ export class OAuth2Auth {
   }
 
   getUser(req: IncomingMessage, options?: AuthRequestOptions): AuthenticatedUser | null {
-    if (!this.enabled) return { sub: 'local', username: 'local', isAdmin: true }
+    if (options?.allowLoopback === false && this.proof) {
+      const cached = this.proofUsers.get(req)
+      if (cached) return cached
+      const token = req.headers['x-chery-relay-user-proof']
+      if (typeof token === 'string') {
+        try { const claims = this.proof.consume(token, req.method ?? 'GET', req.url ?? '/'); const user = { sub: claims.sub, username: claims.sub, isAdmin: true as const }; this.proofUsers.set(req, user); this.proofAuthorization.set(req, { id: claims.authorizationId, revision: claims.authorizationRevision, subject: claims.sub }); return user } catch { return null }
+      }
+    }
+    if (options?.allowLoopback !== false) {
+      const browserUser = this.browser.user(req)
+      if (browserUser) return browserUser
+    }
+    if (!this.enabled && options?.allowLoopback !== false && isLoopback(req)) return { sub: 'local', username: 'local', isAdmin: true }
+    if (options?.allowLoopback !== false && this.cfg.browserDeployment && !this.browser.user(req)) return null
     // 本地 loopback 信任豁免：直连不鉴权。
     const allowLoopback = options?.allowLoopback ?? this.cfg.allowLoopback !== false
     if (allowLoopback && isLoopback(req)) return { sub: 'local', username: 'local', isAdmin: true }
@@ -168,7 +218,7 @@ export class OAuth2Auth {
     try {
       const plain = xorDecrypt(challenge.nonce, cipher)
       const parsed = JSON.parse(plain) as { username?: unknown; password?: unknown }
-      if (typeof parsed.username !== 'string' || typeof parsed.password !== 'string') return null
+      if (typeof parsed.username !== 'string' || !parsed.username || parsed.username.length > 256 || typeof parsed.password !== 'string' || !parsed.password || parsed.password.length > 1024 || Object.keys(parsed).some((key) => !['username', 'password'].includes(key))) return null
       return { username: parsed.username, password: parsed.password }
     } catch {
       return null
@@ -199,13 +249,37 @@ export class OAuth2Auth {
   }
 
   private verifyAuthToken(token: string): SessionPayload | null {
-    const payload = this.verify<SessionPayload & { type?: string }>(token)
-    return payload && payload.exp > nowSeconds() ? payload : null
+    const payload = this.verifyToken(token, 'access')
+    return payload && !(payload as SessionPayload & { domain?: string }).domain ? payload : null
   }
 
-  private verifyToken(token: string, type: 'access' | 'refresh'): SessionPayload | null {
+  private verifyToken(token: string, type: 'access' | 'refresh' | 'probe'): SessionPayload | null {
     const payload = this.verify<SessionPayload & { type?: string }>(token)
     return payload && payload.exp > nowSeconds() && payload.type === type ? payload : null
+  }
+
+  updateAuthorizations(values: Array<{ id: string; revision: number; subject: string }>): void {
+    if (!this.cfg.userProof) {
+      if (values.length) throw new Error('User proof trust is not configured')
+      return
+    }
+    if (values.length > 10000 || values.some((a) => !a || typeof a.id !== 'string' || typeof a.subject !== 'string' || !Number.isSafeInteger(a.revision) || a.revision < 1)) throw new Error('Invalid authorization snapshot')
+    this.cfg.userProof.authorizations.splice(0, this.cfg.userProof.authorizations.length, ...structuredClone(values))
+    for (const [socket, previous] of this.authorizationSockets) {
+      if (!values.some((a) => a.id === previous.id && a.revision === previous.revision && a.subject === previous.subject)) {
+        socket.close(4003, 'Authorization revoked')
+        this.authorizationSockets.delete(socket)
+      }
+    }
+  }
+  tunnelProbeToken(): string {
+    return this.sign({ sub: 'tunnel-probe', username: 'tunnel-probe', isAdmin: true, type: 'probe', exp: nowSeconds() + 30 })
+  }
+  getMachineUser(req: IncomingMessage): AuthenticatedUser | null {
+    if (req.headers.origin || req.headers.cookie || req.headers['x-forwarded-host'] || req.headers['x-forwarded-for'] || req.headers['x-chery-relay-authorization'] || req.headers['x-chery-relay-user-proof']) return null
+    const token = readBearer(req)
+    const payload = token ? this.verify<SessionPayload & { type?: string; domain?: string }>(token) : null
+    return payload && payload.domain === 'machine' && payload.type === 'machine-access' && payload.exp > nowSeconds() && payload.username === this.cfg.machine?.username ? payload : null
   }
 
   async handle(
@@ -214,7 +288,23 @@ export class OAuth2Auth {
     options?: AuthRequestOptions,
   ): Promise<boolean> {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname
+    if (path === '/api/machine/login' && req.method === 'POST') {
+      if (options?.allowLoopback === false || req.headers.origin || req.headers.cookie || req.headers['x-forwarded-host'] || req.headers['x-forwarded-for']) { writeJson(res, 403, { error: 'Machine source rejected' }); return true }
+      const now = Date.now()
+      for (const [key, value] of this.machineAttempts) if (value.reset <= now) this.machineAttempts.delete(key)
+      const source = req.socket.remoteAddress ?? 'unknown'
+      const attempts = this.machineAttempts.get(source) ?? { count: 0, reset: now + 60000 }
+      if (this.machineAttempts.size >= 1000 || ++attempts.count > 600) { res.setHeader('Retry-After', '60'); writeJson(res, 429, { error: 'Machine login rate limited' }); return true }
+      this.machineAttempts.set(source, attempts)
+      const body = await readJsonBody<{ username?: string; password?: string }>(req)
+      const machine = this.cfg.machine
+      if (!machine || !body || Object.keys(body).some((key) => !['username', 'password'].includes(key)) || body.username !== machine.username || typeof body.password !== 'string' || body.password.length > 1024 || !verifyPassword(body.password, machine.password)) { writeJson(res, 401, { error: 'Invalid credentials' }); return true }
+      writeJson(res, 200, { accessToken: this.sign({ sub: machine.username, username: machine.username, isAdmin: true, domain: 'machine', type: 'machine-access', exp: nowSeconds() + 60 }), expiresIn: 60 })
+      return true
+    }
     if (path === '/api/auth/me') {
+      const probeToken = options?.allowLoopback === false ? readRelayBearer(req) : undefined
+      if (probeToken && req.method === 'GET' && this.verifyToken(probeToken, 'probe')) { writeJson(res, 200, { authenticated: true, purpose: 'tunnel-probe' }); return true }
       const user = this.getUser(req, options)
       writeJson(
         res,
@@ -226,6 +316,9 @@ export class OAuth2Auth {
     if (path === '/api/auth/capabilities' && req.method === 'GET') {
       writeJson(res, 200, {
         password: Boolean(this.cfg.username),
+        oidc: false,
+        service: 'backend',
+        ...(options?.allowLoopback !== false ? this.browser.capabilities(req, res) : {}),
       })
       return true
     }
@@ -247,6 +340,7 @@ export class OAuth2Auth {
         return true
       }
       this.pruneChallenges()
+      if (this.challenges.size >= 1000) { writeJson(res, 429, { error: 'Challenge capacity reached' }); return true }
       const challengeId = randomBytes(16).toString('base64url')
       const nonce = randomBytes(24).toString('hex')
       this.challenges.set(challengeId, { nonce, exp: nowSeconds() + CHALLENGE_TTL_SECONDS })
@@ -300,21 +394,15 @@ export class OAuth2Auth {
     return false
   }
 
+  browserDeployment(): { origin: string; basePath: string } | undefined { return this.cfg.browserDeployment }
   isTrustedOrigin(origin: string | undefined, req: IncomingMessage): boolean {
-    if (!this.enabled) return true
+    if (this.cfg.browserDeployment) return origin === this.cfg.browserDeployment.origin
     if (!origin) return false
     if (this.cfg.trustedOrigins.includes(origin)) return true
     try {
-      const originUrl = new URL(origin)
-      const forwardedHost =
-        String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '')
-          .split(',')[0]
-          ?.trim() ?? ''
-      const host = forwardedHost ? new URL(`http://${forwardedHost}`).hostname.toLowerCase() : ''
-      return Boolean(host) && originUrl.hostname.toLowerCase() === host
-    } catch {
-      return false
-    }
+      const protocol = (req.socket as { encrypted?: boolean }).encrypted ? 'https:' : 'http:'
+      return origin === `${protocol}//${req.headers.host ?? ''}` && new URL(origin).origin === origin
+    } catch { return false }
   }
 
   private sign<T>(payload: T): string {
@@ -372,7 +460,13 @@ function isLoopback(req: IncomingMessage): boolean {
 }
 async function readJsonBody<T>(req: IncomingMessage): Promise<T | null> {
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  let size = 0
+  for await (const chunk of req) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    size += bytes.length
+    if (size > 16384) return null
+    chunks.push(bytes)
+  }
   const raw = Buffer.concat(chunks).toString('utf8')
   if (!raw) return null
   try {

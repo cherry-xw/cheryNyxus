@@ -26,6 +26,8 @@ const STATUS_PRIORITY: Record<TaskOverview['status'], number> = {
 }
 
 export const useTaskOverviewStore = defineStore('taskOverview', () => {
+  let targetGeneration = 0
+  function resetTarget(): void { targetGeneration++; tasksByRoot.value = {}; pinnedRootIds.value = []; resetSubscription(); openFlights.clear(); error.value = undefined; loading.value = false }
   const sessionStartedAt = Date.now()
   const tasksByRoot = ref<Record<string, TaskOverview>>({})
   const subscriptionId = ref<string>()
@@ -52,10 +54,12 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
   )
 
   async function open(): Promise<void> {
+    const generation = targetGeneration
     return runSingleFlight(openFlights, 'open', async () => {
       loading.value = true
       try {
         const snapshot = await agentApi.openTaskOverview(sessionStartedAt)
+        if (generation !== targetGeneration) return
         subscriptionId.value = snapshot.subscriptionId
         revision.value = snapshot.revision
         tasksByRoot.value = Object.fromEntries(
@@ -63,10 +67,11 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
         )
         error.value = undefined
       } catch (cause) {
+        if (generation !== targetGeneration) return
         error.value = cause instanceof Error ? cause.message : '任务概览加载失败'
         throw cause
       } finally {
-        loading.value = false
+        if (generation === targetGeneration) loading.value = false
       }
     })
   }
@@ -128,6 +133,7 @@ export const useTaskOverviewStore = defineStore('taskOverview', () => {
   }
 
   return {
+    resetTarget,
     tasksByRoot,
     tasks,
     pinnedRootIds,

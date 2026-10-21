@@ -742,7 +742,7 @@ export const requestSchemas = {
   [Method.UTILS_OPEN_CONFIG_DIR]: emptySchema,
   // 编辑器列表：空参，返回系统可用的文本编辑器
   [Method.UTILS_EDITORS]: emptySchema,
-  // 模型档位查询：1~N 个模型名，返回每模型支持的 ThinkingLevel 列表
+  // 模型目录及可选的当前连接只读能力说明。
   [Method.UTILS_MODEL_RECOMMENDATION]: z.object({
     model: z.string().min(1),
     provider: z.string().min(1).optional(),

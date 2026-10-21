@@ -1,10 +1,15 @@
 # Manager 认证与机器接口
 
-Manager 登录独立于后端。入口为 `apps/manager/src/index.ts`，HTTP 实现在 `apps/manager/src/server.ts`；账号、会话和 OIDC 分别由 `accountStore.ts`、`auth.ts`、`oidc.ts` 负责。本说明是页面、CLI 和部署共同遵守的唯一认证契约，不定义聊天后端登录。
+## Backend维护发现
+
+机器认证后GET `/api/machine/capabilities`返回strict、有界、独立的protocolVersion=1、instanceId、协议范围[1,1]、local监听域、维护诊断及当前支持的relay.binding/relay.operation。来源检查、机器权限、实际操作能力与业务档分别判断；Backend机器来源规则仍按现行实现，LAN限制决断未定。Manager没有该接口或无法解析时仅维护操作不可用，不撤管理会话，不从业务basic/full推断维护权限。设备操作参数按共享MachineRelayOperationSchema校验；权限仍由机器认证决定。Backend状态文件采用strict版本1，包含每进程instanceId、实际监听、有限运行统计及更新时间；Manager不信任旧shape/陈旧摘要，不将TCP端口打开当作认证或业务ready。监听来源仍按现行规则，不擅自将LAN机器维护改为仅回环。
+
+
+Manager 登录独立于 Backend 业务认证，不以 Backend 在线为前提。常规入口先启动 Manager 再启动 Backend，运行根与配置位置见[后端运行](../../guides/backend-runtime.md)。入口为 `apps/manager/src/index.ts`，HTTP 实现在 `apps/manager/src/server.ts`；账号、会话和 OIDC 分别由 `accountStore.ts`、`auth.ts`、`oidc.ts` 负责。本说明是页面、CLI 和部署共同遵守的唯一认证契约，不定义聊天后端登录。
 
 ## 账号与配置
 
-本机运行 `pnpm manager:dev auth setup` 首次设置，运行 `pnpm manager:dev auth reset` 恢复账号。两者必须在交互终端输入用户名及两次隐藏密码；不接受密码参数，不输出密码。密码长度 12–1024 字符，不裁剪密码。受限文件 `.chery/manager-auth.json` 仅存版本、用户名、随机盐、scrypt 派生值和随机账号版本。Unix 权限为 0600；Windows 需由部署者限制目录 ACL。首次设置不覆盖已有文件，恢复替换账号版本，所有旧 Session 和待完成 OIDC 登录失效。不提供远程初始化/重置 API。
+本机运行 `pnpm manager:dev auth setup` 首次设置，运行 `pnpm manager:dev auth reset` 恢复账号。两者必须在交互终端输入用户名及两次隐藏密码；不接受密码参数，不输出密码。密码长度 12–1024 字符，不裁剪密码。受限文件 `.chery/manager-auth.json` 仅存版本、用户名、随机盐、scrypt 派生值和随机账号版本。Unix 权限为 0600；Windows 需由部署者限制目录 ACL。首次设置不覆盖已有文件，恢复替换账号版本，所有旧 Session 和待完成 OIDC 登录失效。首次网页创建按下方同源setup接口开放；不提供远程重置API。
 
 网页登录后的改密通过 [`AccountStore.save`](../../../apps/manager/src/accountStore.ts) 保存：取得账号文件锁后，重新核对已验证账号的用户名、盐、密码派生值和版本；不一致返回 409 `account_changed`。保存前还比较文件原文，拒绝覆盖未使用文件锁的其他写入。并发保护验证见 [`accountTransactions.test.ts`](../../../apps/manager/test/accountTransactions.test.ts)，共享文件锁验证见 [`configTransaction.test.ts`](../../../apps/backend/test/service/configTransaction.test.ts)。
 
@@ -41,7 +46,7 @@ Cookie `chery-manager-session` 为随机不透明 ID，HttpOnly、SameSite=Lax�
 
 普通 API 的 POST/PUT/DELETE/PATCH（包括登录和登出）必须提供与当前请求 origin 完全相同、且可信的 `Origin`；拒绝缺失 Origin、跨来源 Origin 和 `Sec-Fetch-Site: cross-site`。JSON 请求限 16 KiB，错误 JSON 返回 400。认证及会话响应 no-store；无 CORS 放行。按 socket IP 限制密码/OIDC 登录启动，每分钟最多 10 次，并有全局每分钟 100 次上限；同时进行的密码校验最多 4 个。可信代理并不授权客户端自报 IP。
 
-已有 `/api/status`、`/api/connection`、进程 start/stop/restart、`/api/credentials`、凭据轮换及 relay 接口全部须 Session。后端离线时仍可登录、查状态、控制 Manager 的子进程、持久保存后端凭据；后端登录自检不可达必须如实返回，不伪报生效。
+已有 `/api/status`、`/api/connection`、进程 start/stop/restart、`/api/credentials` 及 relay 接口全部须 Session。Backend 不存在、机器凭据缺失/不一致/旧格式时，Manager 启动、账号登录与改密、独立 OIDC 及本地设置保存读回仍可用。启动不创建、迁移或写入 Backend 认证。`/api/credentials` 只返回脱敏诊断，读取失败返回 `consistent:false`、`source:unavailable`、`reason:credentials_unreadable`；不能授权维护。`/api/credentials/rotate` 返回409 `machine_credentials_deployment_required`，机器身份必须由部署者显式配置，不通过浏览器轮换。维护连接与失败契约见 [Manager 独立维护服务边界](../architecture/manager-management.md#独立维护服务边界)。
 
 ## 本机机器 HTTP
 

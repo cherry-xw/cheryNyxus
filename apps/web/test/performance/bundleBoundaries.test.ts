@@ -24,7 +24,7 @@ describe('frontend cold-start bundle boundaries', () => {
       /<WorkspaceCyberWindow[\s\S]*?v-if="browserHistoryWindow && workspace\.historyDrawerMode === 'overlay'"[\s\S]*?<HistoryDrawer embedded \/>[\s\S]*?<\/WorkspaceCyberWindow>/,
     )
     expect(source).toMatch(
-      /<WorkspaceCyberWindow[\s\S]*?v-if="browserSettingsWindow"[\s\S]*?<SettingsDialog\b[^>]*v-if="workspace\.settingsOpen"[^>]*embedded\s*\/>[\s\S]*?<\/WorkspaceCyberWindow>/,
+      /<WorkspaceCyberWindow[\s\S]*?v-if="browserSettingsWindow"[\s\S]*?<SettingsDialog\b[^>]*v-if="workspace\.settingsOpen && capabilityEnabled\('settings.manage'\)"[^>]*embedded\s*\/>[\s\S]*?<\/WorkspaceCyberWindow>/,
     )
     expect(source).toContain("workspace.historyDrawerMode === 'overlay'")
     expect(source).not.toContain("'workbench-docked'")

@@ -1163,8 +1163,8 @@ describe('parseLiteProfile', () => {
       parseLiteProfile('/?foo=1&profile=lite&v=1&bar=2')?.kind ??
         parseLiteProfile('/?foo=1&profile=lite&v=1&bar=2'),
     ).toBe('lite' as const)
-    // PROFILE 大小写不同视为不同参数名（URLSearchParams 精确匹配）→ 非 lite
-    expect(parseLiteProfile('/?PROFILE=lite&v=1')).toBeUndefined()
+    // 未明确选中profile而携带Lite参数必须拒绝，不能落回全量。
+    expect(parseLiteProfile('/?PROFILE=lite&v=1')).toBe('unsupported')
   })
 })
 
