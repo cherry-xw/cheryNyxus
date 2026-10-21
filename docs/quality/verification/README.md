@@ -20,11 +20,14 @@
 
 ## 专题入口
 
+- [已完成开发部分的延期审核](deferred-development-audit.md)：受管小应用、文件能力的未验证边界和仍在开发的任务状态；延期测试不阻塞已完成部分提交。
+
 - [运行图验证](main-agent-runtime-diagram.md)：运行隔离、回放与视觉核对边界。
 - [标题栏与任务切换验证](workbench-session-strip.md)：窗口、任务与共享会话核对。
 - [上下文与使用统计验证](context-usage-analytics.md)：数据与真实使用分别判断。
 - [文档检查](docs-capability-upgrade.md)：检查器与业务事实校验的区别。
 - [配置热应用](config-hot-apply.md)：配置应用的验证条件。
+- [QQ 图片、错误与 Manager 平台后续审核清单](qq-safe-outcomes.md)：归档已结项的 QQ 群图片上下文、QQ 安全错误与问答续接、Manager 平台化与 Backend 启动监控（第一阶段）中尚未执行的生产边界与人工审核项。
 - [文件能力](file-capabilities.md)：资产、模型输入、服务端工具、Web 草稿及 QQ 文件交付的验证入口与边界。
 
 ## 人工核对
