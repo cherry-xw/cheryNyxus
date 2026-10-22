@@ -24,7 +24,9 @@ thinking: on
 
 协议 Adapter 仍注册 LLM + Message + Sense 三件套；官方 Provider 数量增加不会复制 Adapter。
 
-有文件的模型请求在请求钩子处理后进行用量预检。Anthropic Messages 使用 `/messages/count_tokens`，OpenAI Responses 使用 `/responses/input_tokens`，沿同一已配置连接、认证和实际输入（包括工具）计算；完整端点不能识别时不猜测地址。预检最长等待 3 秒，不执行生成或工具。接口不可用时降为 UTF-8 文字与工具结构的保守估算，媒体 token 保持未知；记录来源和不可用原因，不填虚假 0。已知输入超过配置上下文上限时拒绝，预检不是最终收费 usage。依据 [Anthropic token counting](https://platform.claude.com/docs/en/build-with-claude/token-counting) 与 [OpenAI token counting](https://developers.openai.com/api/docs/guides/token-counting)。
+每次正式模型请求在请求钩子处理后进行用量预检，普通消息、工具续轮与问答续接共用实际请求体。Anthropic Messages 使用 `/messages/count_tokens`，OpenAI Responses 使用 `/responses/input_tokens`，沿同一已配置连接、认证和实际输入（包括工具）计算；完整端点不能识别时不猜测地址。预检最长等待 3 秒，不执行生成或工具。接口不可用时使用明确标注的本地文字估算，媒体 token 保持未知；UTF-8 请求字节与 token 分开记录，32 MiB 大小保护独立执行。预算包含请求指纹、计量来源、实际请求输出预留、安全余量和可用输入上限。相同快照用于容量判断与最近请求显示，不冒充最终收费 usage。
+
+容量达到现有 Backend 配置的整理条件时，在发送前转入独立历史整理；候选摘要必须经重建后的实际请求预检才发布为有效边界。摘要保留原始历史，按来源标识分块，保留未完成工具组、问题和附件对应整组，不把摘要当作系统授权。每个模型步骤最多一次自动整理恢复；服务方超限只认已声明代码，不根据任意 400/422 或错误文字猜测。已经返回的流不自动重试。实现入口为 `middleware/contextCheckpoint.ts`、`contextRecovery.ts`、`provider/inputPreflight.ts`；离线回归为相应同名测试。依据 [Anthropic token counting](https://platform.claude.com/docs/en/build-with-claude/token-counting) 与 [OpenAI token counting](https://developers.openai.com/api/docs/guides/token-counting)。
 
 每个 Provider 文件导出一个 `register<Name>Adapter()` 函数，调用 core 的三个 registry：
 
@@ -33,6 +35,8 @@ registerLLMAdapter(name, llmAdapter)           ← core/llm/adapter
 registerMessageAdapter<Raw, Stream, Msg>(...)  ← core/message/adapter
 registerSenseAdapter<Msg, Raw>(name, cfg)      ← core/sense/adapter
 ```
+
+QQ持续请求（或宿主内部 `continuous` 文本调用）的 OpenAI Chat Completions 使用现有 fetch 通路，避免 SDK 隐含的请求截止；完整地址不改写，基础地址仍按同一规则拼接。取消信号与协议钩子继续传递，不向模型请求体增加内部标记。验证见 `test/agent/provider/openai.test.ts`。
 
 ## 文件清单
 
