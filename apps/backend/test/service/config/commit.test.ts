@@ -341,4 +341,55 @@ describe('serialized config commit', () => {
     expect(parsed.success).toBe(true)
     if (parsed.success) expect(parsed.data.candidate.global.futureOption).toBe(true)
   })
+  it('enforces savedBrain revision and full target URL matching before reusing stored keys in utils.models', async () => {
+    const { handleUtilsModels } = await import('@/service/utils/handler.js')
+    const config = await import('@/utils/config.js')
+    const disk = config.readRawConfig()
+    disk.llm.brain['saved-openai'] = {
+      provider: 'openai',
+      protocol: 'openai-chat-completions',
+      model: 'gpt-5',
+      key: 'sk-stored-secret-999',
+      contextLimit: 128000,
+    }
+    expect(config.saveRawConfig(disk).ok).toBe(true)
+    const rev = api.getSavedBaseRevision()
+    const ctx = {} as never
+
+    await expect(
+      handleUtilsModels(ctx, {
+        provider: 'openai',
+        savedBrain: 'saved-openai',
+        expectedBaseRevision: 'stale-rev',
+      }),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+
+    await expect(
+      handleUtilsModels(ctx, {
+        provider: 'openai',
+        url: 'https://evil.example.com/v1',
+        savedBrain: 'saved-openai',
+        expectedBaseRevision: rev,
+      }),
+    ).rejects.toThrow('connection.url 目标已修改')
+
+    await expect(
+      handleUtilsModels(ctx, {
+        provider: 'anthropic',
+        protocol: 'anthropic-messages',
+        savedBrain: 'saved-openai',
+        expectedBaseRevision: rev,
+      }),
+    ).rejects.toThrow('connection.url 目标已修改')
+
+    await expect(
+      handleUtilsModels(ctx, {
+        provider: 'openai',
+        key: '',
+        savedBrain: 'saved-openai',
+        expectedBaseRevision: rev,
+      }),
+    ).rejects.toThrow('connection.key 请填写密钥')
+  })
+
 })

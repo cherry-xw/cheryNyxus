@@ -15,11 +15,15 @@ import { FileServiceAdapterError } from './adapters/types.js'
 import { getAssetStore } from '../media/store.js'
 import { fileAccessForChat } from '../media/access.js'
 import { resolveEffectiveBrainCapabilities } from '@/utils/modelCatalog.js'
+import { resolveConfiguredLlmConnection } from '@/utils/llmConnection.js'
+import { readRuntimeEnvironment } from '@/utils/config.js'
 
 export async function executeLocalFileAdapter(input: FileServiceAdapterInput, service: FileServiceConfig, config: Config, chatId?: string, requestView?: SenseRuntimeContext['requestView'], operationId?: string, onStart?: () => void): Promise<FileServiceAdapterOutput> {
   if (service.adapter === 'vision-brain') {
     const brain = config.llm.brain[service.connection.brainRef ?? '']
     if (!brain || input.operation !== 'image.inspect') throw new Error('理解服务需要明确的视觉大脑连接')
+    const connection = resolveConfiguredLlmConnection(brain, readRuntimeEnvironment())
+    if (connection.errors.length) throw new Error(connection.errors.join('\n'))
     const protocol = resolveBrainProtocol(brain)
     const effective = resolveEffectiveBrainCapabilities({ ...brain, protocol, userCapabilities: brain.capabilities })
     if (effective.input.image.state !== 'supported') throw new Error('目标大脑尚未声明支持图片输入')
@@ -34,7 +38,7 @@ export async function executeLocalFileAdapter(input: FileServiceAdapterInput, se
     input.signal?.throwIfAborted()
     onStart?.()
     const raw = await llm.chat(messages.buildMessages(history, input.assets.map(asset => ({ ...asset, kind: 'image' as const, messageId: 'file-question' }))), [], {
-      model: brain.model, provider: brain.provider, protocol, url: brain.url, key: brain.key, fullUrl: brain.fullUrl, brain: service.connection.brainRef, signal: input.signal, thinking: 'off',
+      model: connection.model!, provider: brain.provider, protocol, url: connection.url, key: connection.key, fullUrl: brain.fullUrl, brain: service.connection.brainRef, signal: input.signal, continuous: requestView?.identity.source === 'plugin' && requestView.identity.channel === 'qq', thinking: 'off',
     })
     const text = messages.content(raw)
     if (!text?.trim()) throw new Error('理解服务没有返回有效文字')

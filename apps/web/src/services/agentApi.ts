@@ -266,7 +266,7 @@ export const agentApi = {
   /** utils.models：基于 provider/url/key 拉取可用模型列表。 */
   async fetchModels(
     provider: string,
-    url: string,
+    url: string | undefined,
     key?: string,
     fullUrl?: boolean,
     protocol?: LlmProtocol,
@@ -280,7 +280,7 @@ export const agentApi = {
   /** utils.testConnection：用未保存的连接字段执行真实最小 Provider 请求。 */
   async testConnection(
     provider: string,
-    url: string,
+    url: string | undefined,
     key: string | undefined,
     model: string,
     fullUrl?: boolean,

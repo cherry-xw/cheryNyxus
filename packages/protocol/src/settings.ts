@@ -194,8 +194,9 @@ export const SettingsSaveResourceBodySchema = z.object({ ...saveBody,
 export const SettingsDeleteResourceBodySchema = z.object({ name: SettingsNameSchema, expectedBaseRevision: revision, requestId }).strict()
 export const SettingsDeleteResourceResultSchema = z.object({ deleted: z.literal(true), name: SettingsNameSchema, baseRevision: revision }).strict()
 export const SettingsModelsBodySchema = z.object({
-  provider: z.string().min(1).max(64).refine(v => !!v.trim()), url: z.string().max(2048),
+  provider: z.string().min(1).max(64).refine(v => !!v.trim()), url: z.string().max(2048).optional(),
   key: z.string().max(8192).optional(), savedBrain: SettingsNameSchema.optional(),
+  expectedBaseRevision: revision.optional(),
   protocol: protocol.optional(), fullUrl: z.boolean().optional(),
 }).strict()
 export const SettingsModelsResultSchema = z.object({ models: z.array(z.object({ id: z.string(), name: z.string().optional(), ownedBy: z.string().optional() }).strict()) }).strict()

@@ -25,7 +25,10 @@ import {
 } from '../message/types.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
-import { replaceEnvVars, listEnvVarNames, reloadEnvFile, getCheryDir } from '@/utils/config.js'
+import { replaceEnvVars, listEnvVarNames, reloadEnvFile, getCheryDir, readRuntimeEnvironment } from '@/utils/config.js'
+import { resolveConfiguredLlmConnection } from '@/utils/llmConnection.js'
+import { getSavedBaseRevision } from '@/service/config/commit.js'
+import { ErrorCode } from '../message/types.js'
 import { resetEnvVarCache } from '@/utils/envGuard.js'
 import { readConfigImage, submitEnvironmentRefresh } from '@/service/config/commit.js'
 import config from '@/utils/config.js'
@@ -66,8 +69,37 @@ export async function handleUtilsModels(
 ): Promise<UtilsModelsResponseData> {
   const provider = data.provider
   const protocol = resolveBrainProtocol(data)
-  const url = replaceEnvVars(data.url) as string
-  const key = data.key ? (replaceEnvVars(data.key) as string) : undefined
+  const environment = readRuntimeEnvironment()
+  let connection = resolveConfiguredLlmConnection(data, environment, 'connection', false)
+  let rawKey = data.key
+  if (data.key === undefined && data.savedBrain) {
+    const image = readConfigImage()
+    if (!data.expectedBaseRevision || getSavedBaseRevision(image) !== data.expectedBaseRevision)
+      throw Object.assign(new Error('配置已变化，请重新读取'), { code: ErrorCode.REVISION_CONFLICT })
+    const saved = image.config.llm.brain[data.savedBrain]
+    if (!saved) throw Object.assign(new Error('已保存的大脑不存在'), { code: ErrorCode.INVALID_PARAMS })
+    const stored = resolveConfiguredLlmConnection(saved, environment, `llm.brain.${data.savedBrain}`, false)
+    const target = (entry: typeof connection) => {
+      if (!entry.url || !entry.protocol) return undefined
+      if (entry.protocol === 'ollama-chat') return new URL('/api/tags', entry.url).href
+      const base = entry.provider === 'deepseek' && entry.protocol === 'anthropic-messages' && !entry.fullUrl ? entry.url.replace(/\/anthropic\/?$/i, '') : entry.url
+      if (entry.fullUrl || isModelsEndpointUrl(base)) return new URL(base).href
+      if (entry.protocol === 'anthropic-messages' && entry.provider !== 'deepseek') return new URL(resolveProviderUrl('anthropic', base, { kind: 'models' })).href
+      return new URL(buildEndpointUrl(base, { endpoint: '/models' })).href
+    }
+    let sameTarget = false
+    try { const destination = target(connection); sameTarget = !!destination && destination === target(stored) } catch { /* Invalid addresses are rejected below. */ }
+    if (saved.provider !== provider || stored.protocol !== protocol || !!saved.fullUrl !== !!data.fullUrl || !sameTarget)
+      throw Object.assign(new Error('connection.url 目标已修改，请先保存连接或明确输入新目标的密钥'), { code: ErrorCode.INVALID_PARAMS })
+    rawKey = saved.key
+    connection = resolveConfiguredLlmConnection({ ...data, key: saved.key }, environment, 'connection', false)
+  }
+  const urlErrors = connection.errors.filter(item => !item.startsWith('connection.key'))
+  if (urlErrors.length) throw Object.assign(new Error(urlErrors.join('\n')), { code: ErrorCode.INVALID_PARAMS })
+  if (data.savedBrain && connection.errors.length)
+    throw Object.assign(new Error(connection.errors.join('\n')), { code: ErrorCode.INVALID_PARAMS })
+  const url = connection.url!
+  const key = connection.key ?? rawKey?.trim()
 
   try {
     switch (protocol) {
@@ -137,8 +169,10 @@ export async function handleUtilsTestConnection(
     return { ok: false, error: `不支持的 provider: ${provider}` }
   }
 
-  const url = replaceEnvVars(data.url) as string
-  const key = data.key ? (replaceEnvVars(data.key) as string) : undefined
+  const connection = resolveConfiguredLlmConnection(data, readRuntimeEnvironment())
+  if (connection.errors.length) throw Object.assign(new Error(connection.errors.join('\n')), { code: ErrorCode.INVALID_PARAMS })
+  const url = connection.url!
+  const key = connection.key
   const now = Date.now()
   const probeMessage: LLMResponse = {
     id: 'connection-test',

@@ -169,8 +169,10 @@ export interface HooksEventsResponseData {
 export interface UtilsModelsRequestData {
   provider: string
   protocol?: import('@chery/protocol').LlmProtocol
-  url: string
+  url?: string
   key?: string
+  savedBrain?: string
+  expectedBaseRevision?: string
   /** true=URL 已含完整端点，后端不补全、原样访问（与正式 chat 同规则） */
   fullUrl?: boolean
 }
@@ -182,7 +184,7 @@ export interface UtilsModelsRequestData {
 export interface UtilsTestConnectionRequestData {
   provider: string
   protocol?: import('@chery/protocol').LlmProtocol
-  url: string
+  url?: string
   key?: string
   model: string
   /** true=URL 已含完整端点，后端不补全、原样访问（与正式 chat 同规则） */
