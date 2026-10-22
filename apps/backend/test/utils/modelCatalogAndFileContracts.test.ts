@@ -30,6 +30,16 @@ describe('modelCatalog 三态能力与输出能力解析', () => {
     resetModelCatalogCache()
   })
 
+  it('目录区分动画语义与字节计量，未知模型格式可覆盖但不从协议猜测', () => {
+    const resolveImage = (model: string) => resolveEffectiveBrainCapabilities({ model, protocol: 'openai-chat-completions' }).imageInput
+    expect(resolveImage('MiniMax-M3').animation).toBe('unknown')
+    expect(resolveImage('MiniMax-M3.1-Flash-Preview').maxBytes).toBe(10000000)
+    expect(resolveImage('gpt-5.6').animation).toBe('unsupported')
+    expect(resolveEffectiveBrainCapabilities({ model: 'claude-opus-4.7', protocol: 'anthropic-messages' }).imageInput).toMatchObject({ animation: 'first-frame', maxBase64Bytes: 10000000 })
+    expect(resolveImage('custom-not-known')).toEqual({})
+    expect(resolveEffectiveBrainCapabilities({ model: 'custom-not-known', userCapabilities: { input: { image: 'supported' }, imageInput: { formats: ['image/png'], maxBytes: 1234 } } }).imageInput).toEqual({ formats: ['image/png'], maxBytes: 1234 })
+  })
+
   it('normalize capability state helper', () => {
     expect(normalizeCapabilityState(true)).toBe('supported')
     expect(normalizeCapabilityState(false)).toBe('unsupported')
@@ -44,7 +54,7 @@ describe('modelCatalog 三态能力与输出能力解析', () => {
     expect(isCapabilitySupported('unknown')).toBe(false)
   })
 
-  it('已收录 Gemini 生图模型具备 input.image/pdf 与 output.image', () => {
+  it('已收录 Gemini 生图模型具备 image 输入输出但 PDF 保持未知', () => {
     const entry = resolveModelCatalog({
       model: 'gemini-3-pro-image',
       provider: 'google',
@@ -56,7 +66,7 @@ describe('modelCatalog 三态能力与输出能力解析', () => {
       provider: 'google',
     })
     expect(resolved.input.image).toEqual({ state: 'supported', source: 'catalog' })
-    expect(resolved.input.pdf).toEqual({ state: 'supported', source: 'catalog' })
+    expect(resolved.input.pdf).toEqual({ state: 'unknown', source: 'catalog' })
     expect(resolved.output.image).toEqual({ state: 'supported', source: 'catalog' })
   })
 

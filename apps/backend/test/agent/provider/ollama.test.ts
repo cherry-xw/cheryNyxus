@@ -174,6 +174,14 @@ describe("Ollama LLM adapter", () => {
     registerOllamaAdapter();
   });
 
+  it.each([false, true])('passes explicit catalog think wire on stream=%s', async stream => {
+    const llm = getLLMAdapter('ollama')!
+    const options = { model: 'configured-local', thinkingParams: { think: 'low' }, skipHooks: true }
+    if (stream) await llm.chatStream([], [], options)
+    else await llm.chat([], [], options)
+    expect(mockChat).toHaveBeenCalledWith(expect.objectContaining({ think: 'low', stream }))
+  })
+
   it("chat 使用配置 URL 并返回响应", async () => {
     const llm = getLLMAdapter("ollama")!;
     const r = await llm.chat([], [], { model: "llama", url: "http://remote:11434" });

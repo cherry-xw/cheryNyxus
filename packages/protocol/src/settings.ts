@@ -44,6 +44,19 @@ export const SettingsBrainCapabilitiesSchema = z.object({
   input: SettingsInputMediaCapabilitiesSchema.optional(),
   output: SettingsOutputMediaCapabilitiesSchema.optional(),
 }).strict()
+/** Catalog-only descriptions are never persisted as brain configuration. */
+export const SettingsCatalogCapabilitiesSchema = SettingsBrainCapabilitiesSchema.extend({
+  serverTools: z.object({
+    webSearch: z.enum(CAPABILITY_STATES).optional(),
+    webReader: z.enum(CAPABILITY_STATES).optional(),
+    imageInspect: z.enum(CAPABILITY_STATES).optional(),
+  }).strict().optional(),
+  serverToolDefinitions: z.array(z.object({
+    name: z.string().min(1).max(128),
+    description: z.string().optional(),
+    documentationUrl: z.string().optional(),
+  }).strict()).optional(),
+}).strict()
 export const SettingsFileCapabilityBindingSchema = z.object({
   mode: z.enum(['auto', 'native', 'tool', 'role', 'disabled']),
   targetId: SettingsRequiredTextSchema.optional(),
@@ -190,12 +203,12 @@ export const SettingsModelRecommendationBodySchema = z.object({
   model: z.string().min(1).max(512).refine(v => !!v.trim()), provider: z.string().optional(), protocol: protocol.optional(),
 }).strict()
 const recommendation = z.object({ provider: z.string().optional(), protocol: protocol.optional(),
-  contextLimit: z.number().positive().optional(), thinking: z.string().min(1).optional(), capabilities: SettingsBrainCapabilitiesSchema.optional() }).strict()
+  contextLimit: z.number().positive().optional(), thinking: z.string().min(1).optional(), capabilities: SettingsCatalogCapabilitiesSchema.optional() }).strict()
 export const SettingsModelRecommendationResultSchema = z.object({
   matched: z.boolean(), id: z.string().optional(), confidence: z.enum(['exact', 'pattern', 'unknown']),
-  facts: z.object({ contextWindow: z.number().positive().optional(), protocols: z.array(protocol).optional(), capabilities: SettingsBrainCapabilitiesSchema.optional() }).strict().optional(),
+  facts: z.object({ contextWindow: z.number().positive().optional(), protocols: z.array(protocol).optional(), capabilities: SettingsCatalogCapabilitiesSchema.optional() }).strict().optional(),
   recommend: recommendation.optional(), thinkingLevels: z.array(z.string().min(1)),
-  unknown: z.object({ recommend: recommendation.optional(), capabilities: SettingsBrainCapabilitiesSchema.optional() }).strict(),
+  unknown: z.object({ recommend: recommendation.optional(), capabilities: SettingsCatalogCapabilitiesSchema.optional() }).strict(),
 }).strict()
 export const SettingsPromptsSaveBodySchema = z.object({
   preset: SettingsNameSchema, scope: z.enum(['global', 'role']), content: z.string().max(100000),

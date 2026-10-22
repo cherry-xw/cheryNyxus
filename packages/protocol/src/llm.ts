@@ -216,6 +216,42 @@ export const CapabilityState = {
 export type CapabilityState = (typeof CapabilityState)[keyof typeof CapabilityState]
 export const CAPABILITY_STATES = Object.values(CapabilityState) as CapabilityState[]
 
+export type ServerToolCapability = 'webSearch' | 'webReader' | 'imageInspect'
+export type CapabilitySource = 'user' | 'catalog' | 'adapter' | 'default'
+export interface CapabilityField {
+  state: CapabilityState
+  source: CapabilitySource
+}
+
+/** 目录说明不是当前连接的执行证据，不包含推测的参数结构。 */
+export interface ServerToolDefinition {
+  name: string
+  description?: string
+  documentationUrl?: string
+}
+
+export interface ServerToolObservation {
+  name: string
+  status: 'started' | 'completed' | 'failed' | 'unknown'
+  observedAt: number
+}
+
+/** 只读能力说明；观察到调用不会自动变成完整任务验证通过。 */
+export interface BrainServiceCapabilities {
+  nativeInput: Record<'image' | 'video' | 'audio' | 'pdf', CapabilityField>
+  serverTools: Record<ServerToolCapability, CapabilityField>
+  connectionIdentified: boolean
+  verification: { status: 'not-verified' }
+  catalogComplete: false
+  observationsTruncated: boolean
+  knownTools: Array<ServerToolDefinition & {
+    sources: Array<'catalog' | 'observed'>
+    observation?: ServerToolObservation
+  }>
+  /** 读取失败与没有观察记录不同。 */
+  observationError?: string
+}
+
 export const FileCapabilityOperation = {
   IMAGE_INSPECT: 'image.inspect',
   IMAGE_GENERATE: 'image.generate',

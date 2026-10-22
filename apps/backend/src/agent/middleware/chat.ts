@@ -13,9 +13,10 @@ import type { SenseFunction, SenseCallData } from '@/core/sense/adapter'
 import type { LLMOptions, ThinkingLevel } from '@/core/llm/adapter'
 import {
   resolveCatalogReasoningHistory,
-  resolveCatalogThinkingParams,
+  resolveCatalogThinkingSelection,
+  catalogToolCallsAllowed,
 } from '@/utils/modelCatalog.js'
-import { resolveLlmProviderDefaultUrl } from '@chery/protocol'
+import { resolveLlmProviderDefaultUrl, ErrorId } from '@chery/protocol'
 import { resolveBrainProtocol } from '@/core/llm/routing.js'
 import { logger, LogLevel } from '@/utils/logger/index.js'
 import type {
@@ -64,18 +65,31 @@ export async function* chatMiddleware(
   let requestWasSent = false
   try {
   if (ctx.soul.messages?.some(message => message.parts?.some(part => part.type === 'asset'))) saveFileRequestPlan(ctx.soul.chatId, { requestId: fileRequestId, phase: 'prepared', plan: [], usage: null, policy: config.files?.imageContext })
-  const { historyForBuild, attachments, fileProjection } = await prepareModelHistory(ctx, fileRequestId)
+  const prepared = await prepareModelHistory(ctx, fileRequestId)
+  let historyForBuild = prepared.historyForBuild
+  const { attachments, fileProjection } = prepared
 
   // 使用预构建的 senses（runtime.builtSenses）
   const senses = ctx.runtime.builtSenses
 
   // 构建请求选项（P1-6：LLMOptions 显式类型，替代 Record<string, unknown>）
-  // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 显示词。
-  // off 也过翻译：MiniMax/DeepSeek 等模型在 YAML 中为 off 声明了显式关闭片段（thinking:{type:disabled}）。
+  // Preserve global off; conflicting vendor constraints must not increase effort.
   const thinkingLevel: ThinkingLevel = ctx.global.thinking
     ? (ctx.runtime.brain.thinking ?? 'off')
     : 'off'
   const protocol = resolveBrainProtocol(ctx.runtime.brain)
+  const thinkingSelection = resolveCatalogThinkingSelection({
+    model: ctx.runtime.brain.model,
+    provider: ctx.runtime.brain.provider,
+    protocol,
+    display: thinkingLevel,
+  })
+  if (thinkingSelection.cannotDisable) {
+    throw new ClassifiedError({ errorId: ErrorId.REQUEST_THINKING_UNSUPPORTED, message: 'Configured model cannot disable thinking', userMessage: '当前型号在此协议不能关闭思考，但全局思考已关闭。请确认开启全局思考并选择合法等级，或选择支持关闭的型号；本次未发送模型请求。', category: 'validation', source: 'chat' })
+  }
+  if (senses.length > 0 && !catalogToolCallsAllowed({ model: ctx.runtime.brain.model, provider: ctx.runtime.brain.provider, protocol, display: thinkingLevel })) {
+    throw new ClassifiedError({ errorId: ErrorId.REQUEST_TOOLS_UNSUPPORTED, message: 'Configured protocol and reasoning level do not support function calling', userMessage: '当前型号、协议与思考等级不支持函数调用。请使用支持工具的协议或等级；本次未删除工具、未更换配置、未发送模型请求。', category: 'validation', source: 'chat' })
+  }
   const options: LLMOptions = {
     model: ctx.runtime.brain.model,
     provider: ctx.runtime.brain.provider,
@@ -84,14 +98,8 @@ export async function* chatMiddleware(
     url:
       ctx.runtime.brain.url ?? resolveLlmProviderDefaultUrl(ctx.runtime.brain.provider, protocol),
     key: ctx.runtime.brain.key,
-    thinking: thinkingLevel,
-    // 统一翻译点：显示词 → wire 参数片段；provider 只 spread 直传
-    thinkingParams: resolveCatalogThinkingParams({
-      model: ctx.runtime.brain.model,
-      provider: ctx.runtime.brain.provider,
-      protocol,
-      display: thinkingLevel,
-    }),
+    thinking: thinkingSelection.effective,
+    thinkingParams: thinkingSelection.params,
     ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
     // URL 完整性开关：true=url 已含版本段（/v1 等），provider 只拼 endpoint 不自动补全
     fullUrl: ctx.runtime.brain.fullUrl === true,
@@ -163,6 +171,8 @@ export async function* chatMiddleware(
     modelRule: 'auto',
     model: options.model,
     thinking: options.thinking ?? 'off',
+    requestedThinking: thinkingSelection.requested,
+    cannotDisableThinking: thinkingSelection.cannotDisable,
     thinkingParams: Object.keys(options.thinkingParams ?? {}),
     stream: !!ctx.global.stream,
     senseCount: senses.length,

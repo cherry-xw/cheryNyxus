@@ -430,6 +430,11 @@ export interface BrainCapabilitiesDto {
   input?: MediaCapabilitiesDto
   output?: OutputCapabilitiesDto
 }
+export interface CatalogCapabilitiesDto extends BrainCapabilitiesDto {
+  serverTools?: Partial<Record<import('@chery/protocol').ServerToolCapability, CapabilityState>>
+  serverToolDefinitions?: import('@chery/protocol').ServerToolDefinition[]
+}
+
 export type RoleFileCapabilityModeDto = 'auto' | 'native' | 'tool' | 'role' | 'disabled'
 
 export interface RoleFileCapabilityBindingDto {
@@ -508,14 +513,14 @@ export interface ModelRecommendationDto {
   facts?: {
     contextWindow?: number
     protocols?: LlmProtocol[]
-    capabilities?: BrainCapabilitiesDto
+    capabilities?: CatalogCapabilitiesDto
   }
   recommend?: {
     provider?: string
     protocol?: LlmProtocol
     contextLimit?: number
     thinking?: ThinkingLevel
-    capabilities?: BrainCapabilitiesDto
+    capabilities?: CatalogCapabilitiesDto
   }
   thinkingLevels: ThinkingLevel[]
   unknown: {
@@ -523,9 +528,9 @@ export interface ModelRecommendationDto {
       protocol?: LlmProtocol
       contextLimit?: number
       thinking?: ThinkingLevel
-      capabilities?: BrainCapabilitiesDto
+      capabilities?: CatalogCapabilitiesDto
     }
-    capabilities?: BrainCapabilitiesDto
+    capabilities?: CatalogCapabilitiesDto
   }
 }
 

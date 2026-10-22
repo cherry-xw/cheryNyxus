@@ -20,6 +20,11 @@ const valid: Record<HookProtocol, Record<string, unknown>> = {
   ollama: { temperature: 1, top_p: 1, top_k: 0, max_tokens: 10, stop: ['x'], thinking: true },
 }
 describe('protocol hook parameter boundaries', () => {
+  it('accepts current reasoning enum values without obsolete protocol-wide exclusions', () => {
+    expect(() => validateProtocolParameters({}, { reasoning_effort: 'max' }, 'openai')).not.toThrow()
+    expect(() => validateProtocolParameters({}, { reasoning: { effort: 'max' } }, 'openai-responses')).not.toThrow()
+    expect(() => validateProtocolParameters({}, { reasoning_effort: 'low' }, 'deepseek')).not.toThrow()
+  })
   for (const protocol of Object.keys(valid) as HookProtocol[]) {
     it(`${protocol}: accepts each supported field and rejects incorrect types`, () => {
       const base = { model: 'fixture', max_tokens: 4096 }

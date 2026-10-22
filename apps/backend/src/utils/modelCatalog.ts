@@ -8,6 +8,7 @@
  * metadata and are consulted only to serialize the selected thinking level.
  */
 import fs from 'node:fs'
+import { SettingsBrainCapabilitiesSchema, mergeBrainCapabilities } from '@chery/protocol'
 import path from 'node:path'
 import yaml from 'js-yaml'
 import {
@@ -15,6 +16,7 @@ import {
   isLlmProtocol,
   type CapabilityState,
   type LlmProtocol as LlmProtocolValue,
+  type ServerToolDefinition,
 } from '@chery/protocol'
 import type { ThinkingLevel } from '@/core/llm/adapter.js'
 
@@ -40,11 +42,14 @@ export interface CatalogServerToolsCapabilities {
 }
 
 export interface CatalogCapabilities {
+  imageOutput?: import('@chery/protocol').ImageOutputCapabilities
+  imageInput?: import('@chery/plugin-api').BrainCapabilities['imageInput']
   toolCall?: boolean
   input?: CatalogMediaCapabilities
   output?: CatalogOutputCapabilities
-  /** 按协议与服务观察/验证的服务端内置工具状态（与模型原生 input/output 区分） */
+  /** 按协议提供的目录推荐，不是当前地址及凭据的验证结论。 */
   serverTools?: CatalogServerToolsCapabilities
+  serverToolDefinitions?: ServerToolDefinition[]
 }
 
 export interface CatalogThinkingLevel {
@@ -57,6 +62,8 @@ export type ReasoningHistoryMode = 'assistant-field' | 'reasoning-item' | 'think
 export interface ModelWireRule {
   thinking?: CatalogThinkingLevel[]
   reasoningHistory?: ReasoningHistoryMode
+  /** Allowed reasoning levels for function calls; an empty list forbids them. */
+  toolCallThinkingLevels?: string[]
 }
 
 export interface ModelCatalogFacts {
@@ -203,14 +210,43 @@ function parseCapabilities(raw: unknown): CatalogCapabilities | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const value = raw as Record<string, unknown>
   const result: CatalogCapabilities = {}
+  const imageOutput = SettingsBrainCapabilitiesSchema.shape.imageOutput.safeParse(value.imageOutput)
+  if (imageOutput.success && imageOutput.data) result.imageOutput = imageOutput.data
   if (typeof value.toolCall === 'boolean') result.toolCall = value.toolCall
+  const imageInput = SettingsBrainCapabilitiesSchema.shape.imageInput.safeParse(value.imageInput)
+  if (imageInput.success && imageInput.data) result.imageInput = imageInput.data
   const input = parseMediaCapabilities(value.input)
   const output = parseOutputCapabilities(value.output)
   const serverTools = parseServerToolsCapabilities(value.serverTools)
+  const serverToolDefinitions = parseServerToolDefinitions(value.serverToolDefinitions)
   if (input) result.input = input
   if (output) result.output = output
   if (serverTools) result.serverTools = serverTools
+  if (serverToolDefinitions) result.serverToolDefinitions = serverToolDefinitions
   return Object.keys(result).length > 0 ? result : undefined
+}
+
+function parseServerToolDefinitions(raw: unknown): ServerToolDefinition[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const tools = new Map<string, ServerToolDefinition>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const { name, description, documentationUrl } = item as Record<string, unknown>
+    if (typeof name !== 'string' || !/^[a-zA-Z0-9_.:/-]{1,128}$/.test(name)) continue
+    const tool: ServerToolDefinition = { name }
+    if (typeof description === 'string') tool.description = description.slice(0, 1000)
+    if (typeof documentationUrl === 'string') {
+      try {
+        const url = new URL(documentationUrl)
+        if (url.protocol === 'https:' && !url.username && !url.password) {
+          url.search = ''
+          tool.documentationUrl = url.toString()
+        }
+      } catch { /* Invalid documentation links are not exposed. */ }
+    }
+    tools.set(name, tool)
+  }
+  return tools.size ? [...tools.values()] : undefined
 }
 
 export interface ResolvedCapabilityField {
@@ -219,6 +255,7 @@ export interface ResolvedCapabilityField {
 }
 
 export interface ResolvedBrainCapabilities {
+  imageInput: NonNullable<CatalogCapabilities['imageInput']>
   toolCall: { enabled: boolean; source: 'user' | 'catalog' | 'adapter' | 'default' }
   input: Record<'image' | 'video' | 'audio' | 'pdf', ResolvedCapabilityField>
   output: Record<'image' | 'video' | 'audio', ResolvedCapabilityField>
@@ -251,69 +288,7 @@ export function resolveEffectiveBrainCapabilities(input: {
     provider: input.provider,
     protocol: input.protocol,
   })
-  const recommendCaps = catalogEntry.recommend?.capabilities
-  const factsCaps = catalogEntry.facts?.capabilities
-  const userCaps = input.userCapabilities
-
-  const toolCallFromUser = userCaps?.toolCall
-  const toolCallFromCatalog = recommendCaps?.toolCall ?? factsCaps?.toolCall
-  const toolCallEnabled = toolCallFromUser ?? toolCallFromCatalog ?? true
-  const toolCallSource =
-    toolCallFromUser !== undefined
-      ? 'user'
-      : toolCallFromCatalog !== undefined
-        ? 'catalog'
-        : 'default'
-
-  const resolveInputField = (
-    key: 'image' | 'video' | 'audio' | 'pdf',
-  ): ResolvedCapabilityField => {
-    const u = normalizeCapabilityState(userCaps?.input?.[key])
-    if (u !== undefined) return { state: u, source: 'user' }
-    const c = normalizeCapabilityState(recommendCaps?.input?.[key] ?? factsCaps?.input?.[key])
-    if (c !== undefined) return { state: c, source: 'catalog' }
-    return { state: 'unknown', source: 'default' }
-  }
-
-  const resolveOutputField = (key: 'image' | 'video' | 'audio'): ResolvedCapabilityField => {
-    const u = normalizeCapabilityState(userCaps?.output?.[key])
-    if (u !== undefined) return { state: u, source: 'user' }
-    const c = normalizeCapabilityState(recommendCaps?.output?.[key] ?? factsCaps?.output?.[key])
-    if (c !== undefined) return { state: c, source: 'catalog' }
-    return { state: 'unknown', source: 'default' }
-  }
-
-  const resolveServerToolField = (
-    key: 'webSearch' | 'webReader' | 'imageInspect',
-  ): ResolvedCapabilityField => {
-    const u = normalizeCapabilityState(userCaps?.serverTools?.[key])
-    if (u !== undefined) return { state: u, source: 'user' }
-    const c = normalizeCapabilityState(
-      recommendCaps?.serverTools?.[key] ?? factsCaps?.serverTools?.[key],
-    )
-    if (c !== undefined) return { state: c, source: 'catalog' }
-    return { state: 'unknown', source: 'default' }
-  }
-
-  return {
-    toolCall: { enabled: toolCallEnabled, source: toolCallSource },
-    input: {
-      image: resolveInputField('image'),
-      video: resolveInputField('video'),
-      audio: resolveInputField('audio'),
-      pdf: resolveInputField('pdf'),
-    },
-    output: {
-      image: resolveOutputField('image'),
-      video: resolveOutputField('video'),
-      audio: resolveOutputField('audio'),
-    },
-    serverTools: {
-      webSearch: resolveServerToolField('webSearch'),
-      webReader: resolveServerToolField('webReader'),
-      imageInspect: resolveServerToolField('imageInspect'),
-    },
-  }
+  return mergeBrainCapabilities(input.userCapabilities, catalogEntry.recommend?.capabilities, catalogEntry.facts?.capabilities)
 }
 
 function parseThinking(raw: unknown): CatalogThinkingLevel[] | undefined {
@@ -343,7 +318,10 @@ function parseWire(raw: unknown): ModelCatalogRule['wire'] | undefined {
   const result: NonNullable<ModelCatalogRule['wire']> = {}
   for (const [protocol, protocolRaw] of Object.entries(raw)) {
     if (!isLlmProtocol(protocol) || !protocolRaw || typeof protocolRaw !== 'object') continue
-    const value = protocolRaw as { thinking?: unknown; reasoningHistory?: unknown }
+    const value = protocolRaw as { thinking?: unknown; reasoningHistory?: unknown; toolCallThinkingLevels?: unknown }
+    const toolCallThinkingLevels = Array.isArray(value.toolCallThinkingLevels)
+      ? value.toolCallThinkingLevels.filter((level): level is string => typeof level === 'string')
+      : undefined
     const thinking = parseThinking(value.thinking)
     const reasoningHistory = [
       'assistant-field',
@@ -353,10 +331,11 @@ function parseWire(raw: unknown): ModelCatalogRule['wire'] | undefined {
     ].includes(String(value.reasoningHistory))
       ? (value.reasoningHistory as ReasoningHistoryMode)
       : undefined
-    if (thinking || reasoningHistory) {
+    if (thinking || reasoningHistory || toolCallThinkingLevels) {
       result[protocol] = {
         ...(thinking ? { thinking } : {}),
         ...(reasoningHistory ? { reasoningHistory } : {}),
+        ...(toolCallThinkingLevels ? { toolCallThinkingLevels } : {}),
       }
     }
   }
@@ -647,6 +626,33 @@ export function resolveCatalogThinkingLevels(input: {
   protocol?: LlmProtocolValue
 }): readonly ThinkingLevel[] {
   return resolveModelCatalog(input).thinkingLevels
+}
+
+/** Resolve a requested level without claiming forced reasoning can be disabled. */
+export function resolveCatalogThinkingSelection(input: {
+  model: string
+  provider?: string
+  protocol?: LlmProtocolValue
+  display: string
+}): { requested: string; effective: string; cannotDisable: boolean; params?: Record<string, unknown> } {
+  const levels = resolveCatalogThinkingLevels(input)
+  const cannotDisable = input.display === 'off' && levels.length > 0 && !levels.includes('off')
+  const effective = input.display
+  return {
+    requested: input.display,
+    effective,
+    cannotDisable,
+    params: resolveCatalogThinkingParams({ ...input, display: effective }),
+  }
+}
+
+/** Undefined means the catalog has not declared an effort-specific restriction. */
+export function catalogToolCallsAllowed(input: {
+  model: string; provider?: string; protocol?: LlmProtocolValue; display: string
+}): boolean {
+  if (!input.protocol) return true
+  const allowed = resolveModelCatalogRule(input.model, input.provider)?.rule.wire?.[input.protocol]?.toolCallThinkingLevels
+  return allowed === undefined || allowed.includes(input.display)
 }
 
 export function resolveCatalogThinkingParams(input: {

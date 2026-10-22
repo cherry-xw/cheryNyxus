@@ -172,7 +172,7 @@ models: []
     expect(catalog.resolveModelCatalog({ model: 'apps/relay/MiniMax_M2-7-20260901' }).id).toBe(
       'minimax-m2.7',
     )
-    expect(catalog.resolveModelCatalog({ model: 'newapi-deepseek_v3_2-chat' }).id).toBe(
+    expect(catalog.resolveModelCatalog({ model: 'newapi-deepseek_v3_2-20251201' }).id).toBe(
       'deepseek-v3.2',
     )
     expect(catalog.resolveModelCatalog({ model: 'vendor:gpt_5_6-terra-2026-08-31' }).id).toBe(
@@ -196,7 +196,7 @@ models: []
     ).toMatchObject({
       id: 'zhipu-glm-5.2',
       recommend: { contextLimit: 128_000, thinking: 'max' },
-      thinkingLevels: ['low', 'high', 'max'],
+      thinkingLevels: ['off', 'low', 'high', 'max'],
     })
     expect(catalog.resolveModelCatalog({ model: 'glm5_1-relay' }).id).toBe('zhipu-glm-5.1')
     expect(catalog.resolveModelCatalog({ model: 'deepseek-v4.1' }).matched).toBe(false)
@@ -442,10 +442,10 @@ models:
         protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
       }),
     ).toMatchObject({
-      id: 'xiaomi-mimo-v2',
-      facts: { capabilities: { input: { image: true, video: true, audio: true } } },
-      thinkingLevels: [],
+      id: 'xiaomi-mimo-v2-thinking',
+      thinkingLevels: ['off', 'on'],
     })
+    expect(catalog.resolveEffectiveBrainCapabilities({ model: 'mimo-v2.6-flash' }).input.image.state).toBe('unknown')
   })
 
   it('separates native media capabilities from protocol-specific serverTools capabilities', async () => {

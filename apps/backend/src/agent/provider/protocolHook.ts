@@ -16,7 +16,7 @@ const parameters = {
     max_tokens: count,
     max_completion_tokens: count,
     stop,
-    reasoning_effort: effort.exclude(['max']),
+    reasoning_effort: effort,
   },
   'openai-responses': {
     temperature: z.number().min(0).max(2),
@@ -24,7 +24,7 @@ const parameters = {
     max_output_tokens: count,
     reasoning: z
       .object({
-        effort: effort.exclude(['max']).optional(),
+        effort: effort.optional(),
         summary: z.enum(['auto', 'concise', 'detailed']).nullable().optional(),
       })
       .strict(),
@@ -35,7 +35,7 @@ const parameters = {
     max_tokens: count.max(65536),
     stop,
     thinking,
-    reasoning_effort: z.enum(['high', 'max']),
+    reasoning_effort: z.enum(['low', 'high', 'max']),
   },
   bigmodel: {
     temperature: z.number().min(0).max(1),

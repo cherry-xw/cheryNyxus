@@ -26,90 +26,207 @@ models:
   - id: minimax-m3
     match:
       models:
-        - { regex: '(?:^|[/_.:-])minimax[-_.]?m3(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])minimax[-_.]?m3(?:$|[-_/:])
+          flags: i
     facts:
       contextWindow: 1000000
-      protocols: [openai-chat-completions, openai-responses, anthropic-messages]
+      protocols:
+        - openai-chat-completions
+        - openai-responses
+        - anthropic-messages
       capabilities:
+        imageInput:
+          formats:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+          animation: unknown
+          maxBytes: 10000000
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       provider: minimax
       protocol: openai-chat-completions
       contextLimit: 250000
-      thinking: on
+      thinking: 'on'
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
-      openai-chat-completions: { protocol: openai-chat-completions, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, output: { image: false } } }
-      openai-responses: { protocol: openai-responses, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, output: { image: false } } }
-      anthropic-messages: { protocol: anthropic-messages, contextLimit: 250000, thinking: on, capabilities: { toolCall: true, input: { image: true }, output: { image: false } } }
+      openai-chat-completions:
+        protocol: openai-chat-completions
+        contextLimit: 250000
+        thinking: 'on'
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+          output:
+            image: false
+      openai-responses:
+        protocol: openai-responses
+        contextLimit: 250000
+        thinking: 'on'
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+          output:
+            image: false
+      anthropic-messages:
+        protocol: anthropic-messages
+        contextLimit: 250000
+        thinking: 'on'
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+          output:
+            image: false
     wire:
       openai-chat-completions:
         thinking:
-          - { display: off, params: { thinking: { type: disabled }, reasoning_split: true } }
-          - { display: on, params: { thinking: { type: adaptive }, reasoning_split: true } }
+          - display: 'off'
+            params:
+              thinking:
+                type: disabled
+              reasoning_split: true
+          - display: 'on'
+            params:
+              thinking:
+                type: adaptive
+              reasoning_split: true
       openai-responses:
         thinking:
-          - { display: off, params: { reasoning: { effort: none } } }
-          - { display: on, params: { reasoning: { effort: medium } } }
+          - display: 'off'
+            params:
+              reasoning:
+                effort: none
+          - display: 'on'
+            params:
+              reasoning:
+                effort: medium
       anthropic-messages:
         thinking:
-          - { display: off, params: {} }
-          - { display: on, params: { thinking: { type: adaptive } } }
+          - display: 'off'
+            params: {}
+          - display: 'on'
+            params:
+              thinking:
+                type: adaptive
 
   - id: minimax-m2.7
     match:
       models:
-        - { regex: '(?:^|[/_.:-])minimax[-_.]?m2[._-]?7(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])minimax[-_.]?m2[._-]?7(?:$|[-_/:])
+          flags: i
     facts:
-      contextWindow: 1000000
-      protocols: [openai-chat-completions, openai-responses, anthropic-messages]
+      contextWindow: 204800
+      protocols:
+        - openai-chat-completions
+        - openai-responses
+        - anthropic-messages
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       provider: minimax
       protocol: openai-chat-completions
-      contextLimit: 250000
-      thinking: on
+      contextLimit: 200000
+      thinking: 'on'
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
-      openai-chat-completions: { protocol: openai-chat-completions, contextLimit: 250000, thinking: on, capabilities: { toolCall: true } }
-      openai-responses: { protocol: openai-responses, contextLimit: 250000, thinking: on, capabilities: { toolCall: true } }
-      anthropic-messages: { protocol: anthropic-messages, contextLimit: 250000, thinking: on, capabilities: { toolCall: true } }
+      openai-chat-completions:
+        protocol: openai-chat-completions
+        contextLimit: 200000
+        thinking: 'on'
+        capabilities:
+          toolCall: true
+      openai-responses:
+        protocol: openai-responses
+        contextLimit: 200000
+        thinking: 'on'
+        capabilities:
+          toolCall: true
+      anthropic-messages:
+        protocol: anthropic-messages
+        contextLimit: 200000
+        thinking: 'on'
+        capabilities:
+          toolCall: true
     wire:
       openai-chat-completions:
         thinking:
-          - { display: off, params: { thinking: { type: disabled }, reasoning_split: true } }
-          - { display: on, params: { thinking: { type: adaptive }, reasoning_split: true } }
+          - display: 'on'
+            params:
+              thinking:
+                type: adaptive
+              reasoning_split: true
       openai-responses:
         thinking:
-          - { display: off, params: { reasoning: { effort: none } } }
-          - { display: on, params: { reasoning: { effort: medium } } }
+          - display: 'on'
+            params:
+              reasoning:
+                effort: medium
       anthropic-messages:
         thinking:
-          - { display: off, params: {} }
-          - { display: on, params: { thinking: { type: adaptive } } }
+          - display: 'on'
+            params:
+              thinking:
+                type: adaptive
 
   - id: deepseek-v4
     match:
       models:
-        - { regex: '(?:^|[/_.:-])deepseek[-_.]?v4(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])deepseek[-_.]?v4(?:[-_.](?:flash|pro))?(?:$|[-_/:](?=[0-9]))
+          flags: i
     facts:
       contextWindow: 1000000
-      protocols: [openai-chat-completions, openai-responses, anthropic-messages]
+      protocols:
+        - openai-chat-completions
+        - openai-responses
+        - anthropic-messages
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       provider: deepseek
       protocol: openai-chat-completions
@@ -117,91 +234,184 @@ models:
       thinking: high
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
-      openai-chat-completions: { protocol: openai-chat-completions, contextLimit: 250000, thinking: high, capabilities: { toolCall: true } }
-      openai-responses: { protocol: openai-responses, contextLimit: 250000, thinking: high, capabilities: { toolCall: true } }
-      anthropic-messages: { protocol: anthropic-messages, contextLimit: 250000, thinking: high, capabilities: { toolCall: true } }
+      openai-chat-completions:
+        protocol: openai-chat-completions
+        contextLimit: 250000
+        thinking: high
+        capabilities:
+          toolCall: true
+      openai-responses:
+        protocol: openai-responses
+        contextLimit: 250000
+        thinking: high
+        capabilities:
+          toolCall: true
+      anthropic-messages:
+        protocol: anthropic-messages
+        contextLimit: 250000
+        thinking: high
+        capabilities:
+          toolCall: true
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: off, params: { thinking: { type: disabled } } }
-          - { display: on, params: { thinking: { type: enabled } } }
-          - { display: low, params: { thinking: { type: enabled }, reasoning_effort: low } }
-          - { display: high, params: { thinking: { type: enabled }, reasoning_effort: high } }
-          - { display: max, params: { thinking: { type: enabled }, reasoning_effort: max } }
+          - display: 'off'
+            params:
+              thinking:
+                type: disabled
+          - display: 'on'
+            params:
+              thinking:
+                type: enabled
+          - display: low
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: low
+          - display: high
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: high
+          - display: max
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: max
       openai-responses:
         reasoningHistory: reasoning-item
         thinking:
-          - { display: off, params: { reasoning: { effort: none } } }
-          - { display: on, params: { reasoning: { effort: high } } }
-          - { display: low, params: { reasoning: { effort: low } } }
-          - { display: high, params: { reasoning: { effort: high } } }
-          - { display: max, params: { reasoning: { effort: max } } }
+          - display: 'off'
+            params:
+              reasoning:
+                effort: none
+          - display: 'on'
+            params:
+              reasoning:
+                effort: high
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: max
+            params:
+              reasoning:
+                effort: max
       anthropic-messages:
         reasoningHistory: thinking-block
         thinking:
-          - { display: off, params: { thinking: { type: disabled } } }
-          - { display: on, params: { thinking: { type: enabled } } }
-          - { display: low, params: { thinking: { type: enabled }, output_config: { effort: low } } }
-          - { display: high, params: { thinking: { type: enabled }, output_config: { effort: high } } }
-          - { display: max, params: { thinking: { type: enabled }, output_config: { effort: max } } }
-
+          - display: 'off'
+            params:
+              thinking:
+                type: disabled
+          - display: 'on'
+            params:
+              thinking:
+                type: enabled
+          - display: low
+            params:
+              thinking:
+                type: enabled
+              output_config:
+                effort: low
+          - display: high
+            params:
+              thinking:
+                type: enabled
+              output_config:
+                effort: high
+          - display: max
+            params:
+              thinking:
+                type: enabled
+              output_config:
+                effort: max
   - id: deepseek-v3.2
     match:
       models:
-        - { regex: '(?:^|[/_.:-])deepseek[-_.]?v3[._-]?2(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])deepseek[-_.]?v3[._-]?2(?:$|[-_/:](?=[0-9]))
+          flags: i
     facts:
       contextWindow: 128000
-      protocols: [openai-chat-completions]
+      protocols:
+        - openai-chat-completions
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       provider: deepseek
       protocol: openai-chat-completions
       contextLimit: 128000
-      thinking: on
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
-        thinking:
-          - { display: off, params: { thinking: { type: disabled } } }
-          - { display: on, params: { thinking: { type: enabled } } }
-
   - id: deepseek-r1
     match:
       models:
-        - { regex: '(?:^|[/_.:-])deepseek[-_.]?(?:reasoner|r1)(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])deepseek[-_.]?r1(?:$|[-_/:](?=0?1(?:20)?(?:$|[-_/:])))
+          flags: i
     facts:
-      contextWindow: 128000
-      protocols: [openai-chat-completions]
+      protocols:
+        - openai-chat-completions
       capabilities:
-        toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       provider: deepseek
       protocol: openai-chat-completions
-      contextLimit: 128000
-      thinking: on
+      thinking: 'on'
       capabilities:
-        toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: on, params: {} }
-
+          - display: 'on'
+            params: {}
   - id: zhipu-glm-5.1
     match:
       models:
@@ -231,13 +441,22 @@ models:
   - id: zhipu-glm-5.2
     match:
       models:
-        - { regex: '(?:^|[/_.:-])glm[-_.]?5[._-]?2(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])glm[-_.]?5[._-]?2(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions]
+      protocols:
+        - openai-chat-completions
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1000000
     recommend:
       provider: bigmodel
       protocol: openai-chat-completions
@@ -245,8 +464,14 @@ models:
       thinking: max
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
       anthropic-messages:
         protocol: anthropic-messages
@@ -258,26 +483,70 @@ models:
       anthropic-messages:
         reasoningHistory: thinking-block
         thinking:
-          - { display: low, params: { thinking: { type: adaptive }, output_config: { effort: low } } }
-          - { display: high, params: { thinking: { type: adaptive }, output_config: { effort: high } } }
-          - { display: max, params: { thinking: { type: adaptive }, output_config: { effort: max } } }
+          - display: 'off'
+            params:
+              thinking:
+                type: disabled
+          - display: low
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: low
+          - display: high
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: high
+          - display: max
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: max
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: low, params: { thinking: { type: enabled }, reasoning_effort: low } }
-          - { display: high, params: { thinking: { type: enabled }, reasoning_effort: high } }
-          - { display: max, params: { thinking: { type: enabled }, reasoning_effort: max } }
+          - display: 'off'
+            params:
+              thinking:
+                type: disabled
+          - display: low
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: low
+          - display: high
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: high
+          - display: max
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: max
 
   - id: zhipu-glm-5.3-flash
     match:
       models:
-        - { regex: '(?:^|[/_.:-])glm[-_.]?5[._-]?3[-_.]?(?:flash|flashx)(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])glm[-_.]?5[._-]?3[-_.]?(?:flash|flashx)(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions]
+      protocols:
+        - openai-chat-completions
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1000000
     recommend:
       provider: bigmodel
       protocol: openai-chat-completions
@@ -285,8 +554,14 @@ models:
       thinking: max
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
       anthropic-messages:
         protocol: anthropic-messages
@@ -294,31 +569,68 @@ models:
         thinking: max
         capabilities:
           toolCall: true
-          input: { image: true }
+          input:
+            image: true
     wire:
       anthropic-messages:
         reasoningHistory: thinking-block
         thinking:
-          - { display: low, params: { thinking: { type: adaptive }, output_config: { effort: low } } }
-          - { display: high, params: { thinking: { type: adaptive }, output_config: { effort: high } } }
-          - { display: max, params: { thinking: { type: adaptive }, output_config: { effort: max } } }
+          - display: low
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: low
+          - display: high
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: high
+          - display: max
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: max
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: low, params: { thinking: { type: enabled }, reasoning_effort: low } }
-          - { display: high, params: { thinking: { type: enabled }, reasoning_effort: high } }
-          - { display: max, params: { thinking: { type: enabled }, reasoning_effort: max } }
+          - display: low
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: low
+          - display: high
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: high
+          - display: max
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: max
 
   - id: zhipu-glm-5.3
     match:
       models:
-        - { regex: '(?:^|[/_.:-])glm[-_.]?5[._-]?3(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])glm[-_.]?5[._-]?3(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions]
+      protocols:
+        - openai-chat-completions
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1000000
     recommend:
       provider: bigmodel
       protocol: openai-chat-completions
@@ -326,8 +638,14 @@ models:
       thinking: max
       capabilities:
         toolCall: true
-        input: { image: false, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
       anthropic-messages:
         protocol: anthropic-messages
@@ -339,14 +657,30 @@ models:
             webSearch: supported
             webReader: supported
             imageInspect: supported
+          serverToolDefinitions:
+            - name: analyze_image
+              description: 服务端图片分析；产品请求的最小触发条件尚未确认
+              documentationUrl: https://docs.bigmodel.cn/cn/coding-plan/mcp/vision-mcp-server
+            - name: web_search_prime
+              description: 服务端联网搜索；搜索摘要不等于页面原文
+              documentationUrl: https://docs.bigmodel.cn/cn/coding-plan/mcp/search-mcp-server
+            - name: webReader
+              description: 服务端网页读取；当前连接是否可读取仍需单独验证
+              documentationUrl: https://docs.bigmodel.cn/cn/coding-plan/mcp/reader-mcp-server
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
         thinking: max
         capabilities:
           toolCall: true
-          input: { image: false, video: false, audio: false }
-          output: { image: false, video: false, audio: false }
+          input:
+            image: false
+            video: false
+            audio: false
+          output:
+            image: false
+            video: false
+            audio: false
           serverTools:
             webSearch: unsupported
             webReader: unknown
@@ -357,8 +691,14 @@ models:
         thinking: max
         capabilities:
           toolCall: true
-          input: { image: false, video: false, audio: false }
-          output: { image: false, video: false, audio: false }
+          input:
+            image: false
+            video: false
+            audio: false
+          output:
+            image: false
+            video: false
+            audio: false
           serverTools:
             webSearch: unsupported
             webReader: unknown
@@ -367,26 +707,70 @@ models:
       anthropic-messages:
         reasoningHistory: thinking-block
         thinking:
-          - { display: low, params: { thinking: { type: adaptive }, output_config: { effort: low } } }
-          - { display: high, params: { thinking: { type: adaptive }, output_config: { effort: high } } }
-          - { display: max, params: { thinking: { type: adaptive }, output_config: { effort: max } } }
+          - display: low
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: low
+          - display: high
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: high
+          - display: max
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: max
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: low, params: { thinking: { type: enabled }, reasoning_effort: low } }
-          - { display: high, params: { thinking: { type: enabled }, reasoning_effort: high } }
-          - { display: max, params: { thinking: { type: enabled }, reasoning_effort: max } }
+          - display: low
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: low
+          - display: high
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: high
+          - display: max
+            params:
+              thinking:
+                type: enabled
+              reasoning_effort: max
 
   - id: openai-gpt-5.5
     match:
       models:
-        - { regex: '(?:^|[/_.:-])gpt[-_.]?5[._-]?5(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])gpt[-_.]?5[._-]?5(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-responses, openai-chat-completions]
+      protocols:
+        - openai-responses
+        - openai-chat-completions
       capabilities:
+        imageInput:
+          formats:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+          animation: unsupported
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: true, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1050000
     recommend:
       provider: openai
       protocol: openai-responses
@@ -394,8 +778,14 @@ models:
       thinking: medium
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: true, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
       openai-responses:
         protocol: openai-responses
@@ -403,42 +793,88 @@ models:
         thinking: medium
         capabilities:
           toolCall: true
-          input: { image: true }
-          output: { image: true }
+          input:
+            image: true
+          output:
+            image: false
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
         thinking: medium
         capabilities:
           toolCall: true
-          input: { image: true }
-          output: { image: true }
+          input:
+            image: true
+          output:
+            image: false
     wire:
       openai-responses:
         thinking:
-          - { display: off, params: { reasoning: { effort: none } } }
-          - { display: low, params: { reasoning: { effort: low } } }
-          - { display: medium, params: { reasoning: { effort: medium } } }
-          - { display: high, params: { reasoning: { effort: high } } }
-          - { display: xhigh, params: { reasoning: { effort: xhigh } } }
+          - display: 'off'
+            params:
+              reasoning:
+                effort: none
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: medium
+            params:
+              reasoning:
+                effort: medium
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: xhigh
+            params:
+              reasoning:
+                effort: xhigh
       openai-chat-completions:
         thinking:
-          - { display: off, params: { reasoning_effort: none } }
-          - { display: low, params: { reasoning_effort: low } }
-          - { display: medium, params: { reasoning_effort: medium } }
-          - { display: high, params: { reasoning_effort: high } }
-          - { display: xhigh, params: { reasoning_effort: xhigh } }
+          - display: 'off'
+            params:
+              reasoning_effort: none
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+          - display: xhigh
+            params:
+              reasoning_effort: xhigh
 
   - id: openai-gpt-5.6
     match:
       models:
-        - { regex: '(?:^|[/_.:-])gpt[-_.]?5[._-]?6(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])gpt[-_.]?5[._-]?6(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-responses, openai-chat-completions]
+      protocols:
+        - openai-responses
+        - openai-chat-completions
       capabilities:
+        imageInput:
+          formats:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+          animation: unsupported
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: true, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1050000
     recommend:
       provider: openai
       protocol: openai-responses
@@ -446,8 +882,14 @@ models:
       thinking: medium
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: true, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
       openai-responses:
         protocol: openai-responses
@@ -455,44 +897,95 @@ models:
         thinking: medium
         capabilities:
           toolCall: true
-          input: { image: true }
-          output: { image: true }
+          input:
+            image: true
+          output:
+            image: false
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
         thinking: medium
         capabilities:
           toolCall: true
-          input: { image: true }
-          output: { image: true }
+          input:
+            image: true
+          output:
+            image: false
     wire:
       openai-responses:
         thinking:
-          - { display: off, params: { reasoning: { effort: none } } }
-          - { display: low, params: { reasoning: { effort: low } } }
-          - { display: medium, params: { reasoning: { effort: medium } } }
-          - { display: high, params: { reasoning: { effort: high } } }
-          - { display: xhigh, params: { reasoning: { effort: xhigh } } }
-          - { display: max, params: { reasoning: { effort: max } } }
+          - display: 'off'
+            params:
+              reasoning:
+                effort: none
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: medium
+            params:
+              reasoning:
+                effort: medium
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: xhigh
+            params:
+              reasoning:
+                effort: xhigh
+          - display: max
+            params:
+              reasoning:
+                effort: max
       openai-chat-completions:
         thinking:
-          - { display: off, params: { reasoning_effort: none } }
-          - { display: low, params: { reasoning_effort: low } }
-          - { display: medium, params: { reasoning_effort: medium } }
-          - { display: high, params: { reasoning_effort: high } }
-          - { display: xhigh, params: { reasoning_effort: xhigh } }
-          - { display: max, params: { reasoning_effort: max } }
+          - display: 'off'
+            params:
+              reasoning_effort: none
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+          - display: xhigh
+            params:
+              reasoning_effort: xhigh
+          - display: max
+            params:
+              reasoning_effort: max
 
   - id: openai-gpt-6-astra
     match:
       models:
-        - { regex: '(?:^|[/_.:-])gpt[-_.]?6[-_.]?astra(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])gpt[-_.]?6[-_.]?astra(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-responses, openai-chat-completions]
+      protocols:
+        - openai-responses
+        - openai-chat-completions
       capabilities:
+        imageInput:
+          formats:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+          animation: unsupported
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: true, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1050000
     recommend:
       provider: openai
       protocol: openai-responses
@@ -500,8 +993,14 @@ models:
       thinking: medium
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: true, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
       openai-responses:
         protocol: openai-responses
@@ -509,44 +1008,94 @@ models:
         thinking: medium
         capabilities:
           toolCall: true
-          input: { image: true }
-          output: { image: true }
+          input:
+            image: true
+          output:
+            image: false
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
         thinking: medium
         capabilities:
-          toolCall: true
-          input: { image: true }
-          output: { image: true }
+          toolCall: false
+          input:
+            image: true
+            video: false
+            audio: false
+          output:
+            image: false
+            video: false
+            audio: false
     wire:
       openai-responses:
         reasoningHistory: reasoning-item
         thinking:
-          - { display: low, params: { reasoning: { effort: low } } }
-          - { display: medium, params: { reasoning: { effort: medium } } }
-          - { display: high, params: { reasoning: { effort: high } } }
-          - { display: xhigh, params: { reasoning: { effort: xhigh } } }
-          - { display: max, params: { reasoning: { effort: max } } }
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: medium
+            params:
+              reasoning:
+                effort: medium
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: xhigh
+            params:
+              reasoning:
+                effort: xhigh
+          - display: max
+            params:
+              reasoning:
+                effort: max
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: low, params: { reasoning_effort: low } }
-          - { display: medium, params: { reasoning_effort: medium } }
-          - { display: high, params: { reasoning_effort: high } }
-          - { display: xhigh, params: { reasoning_effort: xhigh } }
-          - { display: max, params: { reasoning_effort: max } }
-
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+          - display: xhigh
+            params:
+              reasoning_effort: xhigh
+          - display: max
+            params:
+              reasoning_effort: max
+        toolCallThinkingLevels: []
   - id: openai-gpt-6
     match:
       models:
-        - { regex: '(?:^|[/_.:-])gpt[-_.]?6(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])gpt[-_.]?6(?:[-_.](?:sol|luna))?(?:$|[-_/:](?=[0-9]))
+          flags: i
     facts:
-      protocols: [openai-responses, openai-chat-completions]
+      protocols:
+        - openai-responses
+        - openai-chat-completions
       capabilities:
+        imageInput:
+          formats:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+          animation: unsupported
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: true, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1050000
     recommend:
       provider: openai
       protocol: openai-responses
@@ -554,8 +1103,14 @@ models:
       thinking: medium
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: true, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommendByProtocol:
       openai-responses:
         protocol: openai-responses
@@ -563,190 +1118,467 @@ models:
         thinking: medium
         capabilities:
           toolCall: true
-          input: { image: true }
-          output: { image: true }
+          input:
+            image: true
+          output:
+            image: false
           serverTools:
             webSearch: supported
             webReader: unknown
             imageInspect: unknown
+          serverToolDefinitions:
+            - name: web_search
+              description: Responses 服务端搜索声明；响应中的真实调用名另行记录
+              documentationUrl: https://developers.openai.com/api/docs/guides/tools-web-search
       openai-chat-completions:
         protocol: openai-chat-completions
         contextLimit: 128000
         thinking: medium
         capabilities:
           toolCall: true
-          input: { image: true }
-          output: { image: true }
+          input:
+            image: true
+          output:
+            image: false
     wire:
       openai-responses:
         reasoningHistory: reasoning-item
         thinking:
-          - { display: off, params: { reasoning: { effort: none } } }
-          - { display: low, params: { reasoning: { effort: low } } }
-          - { display: medium, params: { reasoning: { effort: medium } } }
-          - { display: high, params: { reasoning: { effort: high } } }
-          - { display: xhigh, params: { reasoning: { effort: xhigh } } }
-          - { display: max, params: { reasoning: { effort: max } } }
+          - display: 'off'
+            params:
+              reasoning:
+                effort: none
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: medium
+            params:
+              reasoning:
+                effort: medium
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: xhigh
+            params:
+              reasoning:
+                effort: xhigh
+          - display: max
+            params:
+              reasoning:
+                effort: max
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: off, params: { reasoning_effort: none } }
-          - { display: low, params: { reasoning_effort: low } }
-          - { display: medium, params: { reasoning_effort: medium } }
-          - { display: high, params: { reasoning_effort: high } }
-          - { display: xhigh, params: { reasoning_effort: xhigh } }
-          - { display: max, params: { reasoning_effort: max } }
-
+          - display: 'off'
+            params:
+              reasoning_effort: none
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+          - display: xhigh
+            params:
+              reasoning_effort: xhigh
+          - display: max
+            params:
+              reasoning_effort: max
+        toolCallThinkingLevels:
+          - 'off'
   - id: step-3.7
     match:
       models:
-        - { regex: '(?:^|[/_.:-])step[-_.]?3[._-]?7(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])step[-_.]?3[._-]7[-_.]flash(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions, anthropic-messages]
+      protocols:
+        - openai-chat-completions
+        - anthropic-messages
       capabilities:
         toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       protocol: openai-chat-completions
       contextLimit: 256000
       thinking: medium
       capabilities:
         toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: low, params: { reasoning_effort: low } }
-          - { display: medium, params: { reasoning_effort: medium } }
-          - { display: high, params: { reasoning_effort: high } }
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+      anthropic-messages:
+        reasoningHistory: thinking-block
+        thinking:
+          - display: low
+            params:
+              output_config:
+                effort: low
+          - display: medium
+            params:
+              output_config:
+                effort: medium
+          - display: high
+            params:
+              output_config:
+                effort: high
 
   - id: step-3.5-flash-2603
     match:
       models:
-        - { regex: '(?:^|[/_.:-])step[-_.]?3[._-]?5[-_.]?flash[-_.]?2603(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])step[-_.]?3[._-]?5[-_.]?flash[-_.]?2603(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions, anthropic-messages]
+      protocols:
+        - openai-chat-completions
+        - anthropic-messages
       capabilities:
         toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       protocol: openai-chat-completions
       contextLimit: 256000
       thinking: high
       capabilities:
         toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: low, params: { reasoning_effort: low } }
-          - { display: high, params: { reasoning_effort: high } }
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: high
+            params:
+              reasoning_effort: high
 
   - id: step-5-preview
     match:
       models:
-        - { regex: '(?:^|[/_.:-])step[-_.]?5[-_.]?preview(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])step[-_.]?5[-_.]?preview(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions, anthropic-messages]
+      protocols:
+        - openai-chat-completions
+        - anthropic-messages
       capabilities:
         toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1000000
     recommend:
       protocol: openai-chat-completions
       contextLimit: 1000000
       capabilities:
         toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      thinking: medium
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+      anthropic-messages:
+        reasoningHistory: thinking-block
+        thinking:
+          - display: low
+            params:
+              output_config:
+                effort: low
+          - display: medium
+            params:
+              output_config:
+                effort: medium
+          - display: high
+            params:
+              output_config:
+                effort: high
 
   - id: xiaomi-mimo-v2
     match:
       models:
-        - { regex: '(?:^|[/_.:-])mimo[-_.]?v2(?:$|[-_./:])', flags: i }
+        - regex: (?:^|[/_.:-])mimo[-_.]?v2(?:[-_.](?:pro|flash|omni|tts))?(?:$|[-_/:](?=[0-9]))
+          flags: i
     facts:
-      protocols: [openai-chat-completions]
+      protocols:
+        - openai-chat-completions
       capabilities:
-        toolCall: true
-        input: { image: true, video: true, audio: true }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: unknown
+          video: unknown
+          audio: unknown
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       protocol: openai-chat-completions
-      contextLimit: 256000
       capabilities:
-        toolCall: true
-        input: { image: true, video: true, audio: true }
-        output: { image: false, video: false, audio: false }
-
+        input:
+          image: unknown
+          video: unknown
+          audio: unknown
+        output:
+          image: false
+          video: false
+          audio: false
   - id: xai-grok-4.7
     match:
       models:
-        - { regex: '(?:^|[/_.:-])grok[-_.]?4[._-]?7(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])grok[-_.]?4[._-]?7(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions, openai-responses]
+      protocols:
+        - openai-chat-completions
+        - openai-responses
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       protocol: openai-chat-completions
       contextLimit: 500000
       thinking: high
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: low, params: { reasoning_effort: low } }
-          - { display: medium, params: { reasoning_effort: medium } }
-          - { display: high, params: { reasoning_effort: high } }
-          - { display: xhigh, params: { reasoning_effort: xhigh } }
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+          - display: xhigh
+            params:
+              reasoning_effort: xhigh
+      openai-responses:
+        reasoningHistory: reasoning-item
+        thinking:
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: medium
+            params:
+              reasoning:
+                effort: medium
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: xhigh
+            params:
+              reasoning:
+                effort: xhigh
 
   - id: moonshot-kimi-k3
     match:
       models:
-        - { regex: '(?:^|[/_.:-])kimi[-_.]?k3(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])kimi[-_.]?k3(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions, anthropic-messages]
+      protocols:
+        - openai-chat-completions
+        - anthropic-messages
+        - openai-responses
       capabilities:
         toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       protocol: openai-chat-completions
       contextLimit: 1000000
       thinking: max
       capabilities:
         toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     wire:
       openai-chat-completions:
         reasoningHistory: assistant-field
         thinking:
-          - { display: low, params: { reasoning_effort: low } }
-          - { display: high, params: { reasoning_effort: high } }
-          - { display: max, params: { reasoning_effort: max } }
-
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: high
+            params:
+              reasoning_effort: high
+          - display: max
+            params:
+              reasoning_effort: max
+      anthropic-messages:
+        reasoningHistory: thinking-block
+        thinking:
+          - display: low
+            params:
+              output_config:
+                effort: low
+          - display: high
+            params:
+              output_config:
+                effort: high
+          - display: max
+            params:
+              output_config:
+                effort: max
+      openai-responses:
+        reasoningHistory: reasoning-item
+        thinking:
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: max
+            params:
+              reasoning:
+                effort: max
+    recommendByProtocol:
+      anthropic-messages:
+        protocol: anthropic-messages
+        thinking: low
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+            video: unknown
+            audio: false
+      openai-responses:
+        protocol: openai-responses
+        thinking: low
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+            video: unknown
+            audio: false
   - id: anthropic-claude-opus-4.7
     match:
       models:
-        - { regex: '(?:^|[/_.:-])claude[-_.]?opus[-_.]?4[._-]?7(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])claude[-_.]?opus[-_.]?4[._-]?7(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [anthropic-messages]
+      protocols:
+        - anthropic-messages
       capabilities:
+        imageInput:
+          formats:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+          animation: first-frame
+          maxBase64Bytes: 10000000
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     recommend:
       provider: anthropic
       protocol: anthropic-messages
@@ -754,71 +1586,144 @@ models:
       thinking: high
       capabilities:
         toolCall: true
-        input: { image: true, video: false, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
     wire:
       anthropic-messages:
         reasoningHistory: thinking-block
         thinking:
-          - { display: low, params: { thinking: { type: adaptive }, output_config: { effort: low } } }
-          - { display: medium, params: { thinking: { type: adaptive }, output_config: { effort: medium } } }
-          - { display: high, params: { thinking: { type: adaptive }, output_config: { effort: high } } }
-          - { display: max, params: { thinking: { type: adaptive }, output_config: { effort: max } } }
+          - display: 'off'
+            params:
+              thinking:
+                type: disabled
+          - display: low
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: low
+          - display: medium
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: medium
+          - display: high
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: high
+          - display: xhigh
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: xhigh
+          - display: max
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: max
 
   - id: google-gemini-3
     match:
       models:
-        - { regex: '(?:^|[/_.:-])gemini[-_.]?3(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])gemini[-_.]?3(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions]
+      protocols:
+        - openai-chat-completions
       capabilities:
-        toolCall: true
-        input: { image: true, video: true, audio: true }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: unknown
+          video: unknown
+          audio: unknown
+          pdf: unknown
+        output:
+          image: unknown
+          video: unknown
+          audio: unknown
     recommend:
       protocol: openai-chat-completions
-      contextLimit: 1000000
       capabilities:
-        toolCall: true
-        input: { image: true, video: true, audio: true }
-        output: { image: false, video: false, audio: false }
-
+        input:
+          image: unknown
+          video: unknown
+          audio: unknown
+          pdf: unknown
+        output:
+          image: unknown
+          video: unknown
+          audio: unknown
   - id: alibaba-qwen3-vl
     match:
       models:
-        - { regex: '(?:^|[/_.:-])qwen[-_.]?3[-_.]?vl(?:$|[-_/:])', flags: i }
+        - regex: (?:^|[/_.:-])qwen[-_.]?3[-_.]?vl(?:$|[-_/:])
+          flags: i
     facts:
-      protocols: [openai-chat-completions]
+      protocols:
+        - openai-chat-completions
       capabilities:
-        toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
+        input:
+          image: unknown
+          video: unknown
+          audio: unknown
+          pdf: unknown
+        output:
+          image: unknown
+          video: unknown
+          audio: unknown
     recommend:
       protocol: openai-chat-completions
-      contextLimit: 256000
       capabilities:
-        toolCall: true
-        input: { image: true, video: true, audio: false }
-        output: { image: false, video: false, audio: false }
-
+        input:
+          image: unknown
+          video: unknown
+          audio: unknown
+          pdf: unknown
+        output:
+          image: unknown
+          video: unknown
+          audio: unknown
   - id: google-gemini-image
     match:
       models:
-        - { regex: '(?:^|[/_.:-])gemini[-_.]?(?:2[._-]?5|3(?:[._-]?1)?)[-_.]?(?:pro|flash(?:[-_.]?lite)?)[-_.]?image(?:$|[-_/:])', flags: i }
+        - regex: >-
+            (?:^|[/_.:-])(?:gemini[-_.](?:2[._-]5[-_.]flash|3[-_.]pro|3[._-]1[-_.]flash(?:[-_.]lite)?)[-_.]image|gemini[-_.]nano[-_.]banana[-_.]2[._-]1)(?:[-_.]preview)?(?:$|[-_/:](?=[0-9]))
+          flags: i
     facts:
-      protocols: [openai-chat-completions]
       capabilities:
-        toolCall: true
-        input: { image: supported, video: unsupported, audio: unsupported, pdf: supported }
-        output: { image: supported, video: unsupported, audio: unsupported }
+        toolCall: false
+        input:
+          image: supported
+          video: unsupported
+          audio: unsupported
+          pdf: unknown
+        output:
+          image: supported
+          video: unsupported
+          audio: unsupported
     recommend:
-      protocol: openai-chat-completions
       contextLimit: 128000
       capabilities:
-        toolCall: true
-        input: { image: supported, video: unsupported, audio: unsupported, pdf: supported }
-        output: { image: supported, video: unsupported, audio: unsupported }
-
+        toolCall: false
+        input:
+          image: supported
+          video: unsupported
+          audio: unsupported
+          pdf: unknown
+        output:
+          image: supported
+          video: unsupported
+          audio: unsupported
   - id: google-imagen-4
     match:
       models:
@@ -837,25 +1742,46 @@ models:
   - id: openai-gpt-image
     match:
       models:
-        - { regex: '(?:^|[/_.:-])gpt[-_.]?image[-_.]?(?:1(?:[._-]?5|[-_.]?mini)?|2(?:[._-]?5[-_.](?:sunburst|flare))?)(?:$|[-_/:])', flags: i }
+        - regex: >-
+            (?:^|[/_.:-])gpt[-_.]image[-_.](?:1(?:[._-]5|[-_.]mini)?|2(?:[._-]5[-_.](?:sunburst|flare))?)(?:$|[-_/:](?=[0-9]))
+          flags: i
     facts:
       capabilities:
+        imageOutput:
+          image.generate: { adapter: openai-images, nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 10 }
+          image.reference: { adapter: openai-images, nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 10 }
+          image.edit: { adapter: openai-images, nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 10 }
         toolCall: false
-        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
-        output: { image: supported, video: unsupported, audio: unsupported }
+        input:
+          image: supported
+          video: unsupported
+          audio: unsupported
+          pdf: unsupported
+        output:
+          image: supported
+          video: unsupported
+          audio: unsupported
     recommend:
       provider: openai
       capabilities:
         toolCall: false
-        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
-        output: { image: supported, video: unsupported, audio: unsupported }
-
+        input:
+          image: supported
+          video: unsupported
+          audio: unsupported
+          pdf: unsupported
+        output:
+          image: supported
+          video: unsupported
+          audio: unsupported
   - id: minimax-image-01
     match:
       models:
-        - { regex: '(?:^|[/_.:-])image[-_.]?01(?:[-_.]?live)?(?:$|[-_/:])', flags: i }
+        - { regex: '(?:^|[/_.:-])image[-_.]?01(?:$|[-_/:](?!live))', flags: i }
     facts:
       capabilities:
+        imageOutput:
+          image.generate: { adapter: minimax-images, nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 9 }
         toolCall: false
         input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
         output: { image: supported, video: unsupported, audio: unsupported }
@@ -866,20 +1792,680 @@ models:
         input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
         output: { image: supported, video: unsupported, audio: unsupported }
 
-  - id: doubao-seedream-5
+  - id: minimax-image-01-live
     match:
       models:
-        - { regex: '(?:^|[/_.:-])doubao[-_.]?seedream[-_.]?5[._-]?0[-_.](?:pro|flash)(?:$|[-_/:0-9])', flags: i }
+        - { regex: '(?:^|[/_.:-])image[-_.]?01[-_.]?live(?:$|[-_/:])', flags: i }
     facts:
       capabilities:
         toolCall: false
         input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
         output: { image: supported, video: unsupported, audio: unsupported }
+  - id: doubao-seedream-5
+    match:
+      models:
+        - regex: >-
+            (?:^|[/_.:-])doubao[-_.]seedream[-_.]5[._-]0[-_.](?:pro(?:[-_.]260628)?|flash(?:[-_.]260915)?)(?:$|[/_:])
+          flags: i
+    facts:
+      capabilities:
+        imageOutput:
+          image.generate: { adapter: doubao-seedream, nativeMultiImage: unsupported, countControl: requested, maxImagesPerRequest: 1 }
+          image.reference: { adapter: doubao-seedream, nativeMultiImage: unsupported, countControl: requested, maxImagesPerRequest: 1 }
+          image.edit: { adapter: doubao-seedream, nativeMultiImage: unsupported, countControl: requested, maxImagesPerRequest: 1 }
+        toolCall: false
+        input:
+          image: supported
+          video: unsupported
+          audio: unsupported
+          pdf: unsupported
+        output:
+          image: supported
+          video: unsupported
+          audio: unsupported
     recommend:
       capabilities:
         toolCall: false
-        input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
-        output: { image: supported, video: unsupported, audio: unsupported }
+        input:
+          image: supported
+          video: unsupported
+          audio: unsupported
+          pdf: unsupported
+        output:
+          image: supported
+          video: unsupported
+          audio: unsupported
+  - id: doubao-seedream-groups
+    match:
+      models:
+        - { regex: '(?:^|[/_.:-])doubao[-_.]seedream[-_.](?:5[._-]0[-_.]lite|4[._-][05])(?:$|[-_/:])', flags: i }
+    facts:
+      capabilities:
+        imageOutput:
+          image.generate: { adapter: doubao-seedream, nativeMultiImage: supported, countControl: maximum, maxImagesPerRequest: 15, maxInputAndOutputImages: 15 }
+          image.reference: { adapter: doubao-seedream, nativeMultiImage: supported, countControl: maximum, maxImagesPerRequest: 15, maxInputAndOutputImages: 15 }
+          image.edit: { adapter: doubao-seedream, nativeMultiImage: supported, countControl: maximum, maxImagesPerRequest: 15, maxInputAndOutputImages: 15 }
+  - id: minimax-m3.1-flash-preview
+    match:
+      models:
+        - regex: (?:^|[/_.:-])minimax[-_.]?m3[._-]1[-_.]flash[-_.]preview(?:$|[-_/:])
+          flags: i
+    facts:
+      contextWindow: 1000000
+      protocols:
+        - openai-chat-completions
+        - openai-responses
+        - anthropic-messages
+      capabilities:
+        imageInput:
+          formats:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+          animation: unknown
+          maxBytes: 10000000
+        toolCall: true
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+    recommend:
+      provider: minimax
+      protocol: openai-chat-completions
+      contextLimit: 250000
+      thinking: max
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+    recommendByProtocol:
+      openai-chat-completions:
+        protocol: openai-chat-completions
+        contextLimit: 250000
+        thinking: max
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+          output:
+            image: false
+      openai-responses:
+        protocol: openai-responses
+        contextLimit: 250000
+        thinking: max
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+          output:
+            image: false
+      anthropic-messages:
+        protocol: anthropic-messages
+        contextLimit: 250000
+        thinking: max
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+          output:
+            image: false
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+          - display: xhigh
+            params:
+              reasoning_effort: xhigh
+          - display: max
+            params:
+              reasoning_effort: max
+      openai-responses:
+        reasoningHistory: reasoning-item
+        thinking:
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: medium
+            params:
+              reasoning:
+                effort: medium
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: xhigh
+            params:
+              reasoning:
+                effort: xhigh
+          - display: max
+            params:
+              reasoning:
+                effort: max
+      anthropic-messages:
+        reasoningHistory: thinking-block
+        thinking:
+          - display: low
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: low
+          - display: medium
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: medium
+          - display: high
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: high
+          - display: xhigh
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: xhigh
+          - display: max
+            params:
+              thinking:
+                type: adaptive
+              output_config:
+                effort: max
+
+  - id: openai-gpt-6.1-sol
+    match:
+      models:
+        - regex: (?:^|[/_.:-])gpt[-_.]?6[._-]1[-_.]sol(?:$|[-_/:])
+          flags: i
+    facts:
+      protocols:
+        - openai-responses
+        - openai-chat-completions
+      capabilities:
+        imageInput:
+          formats:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+          animation: unsupported
+        toolCall: true
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      contextWindow: 1050000
+    recommend:
+      provider: openai
+      protocol: openai-responses
+      contextLimit: 128000
+      thinking: medium
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+    recommendByProtocol:
+      openai-responses:
+        protocol: openai-responses
+        contextLimit: 128000
+        thinking: medium
+        capabilities:
+          toolCall: true
+          input:
+            image: true
+          output:
+            image: false
+      openai-chat-completions:
+        protocol: openai-chat-completions
+        contextLimit: 128000
+        thinking: medium
+        capabilities:
+          toolCall: false
+          input:
+            image: true
+            video: false
+            audio: false
+          output:
+            image: false
+            video: false
+            audio: false
+    wire:
+      openai-responses:
+        reasoningHistory: reasoning-item
+        thinking:
+          - display: low
+            params:
+              reasoning:
+                effort: low
+          - display: medium
+            params:
+              reasoning:
+                effort: medium
+          - display: high
+            params:
+              reasoning:
+                effort: high
+          - display: xhigh
+            params:
+              reasoning:
+                effort: xhigh
+          - display: max
+            params:
+              reasoning:
+                effort: max
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+          - display: xhigh
+            params:
+              reasoning_effort: xhigh
+          - display: max
+            params:
+              reasoning_effort: max
+        toolCallThinkingLevels: []
+  - id: xiaomi-mimo-v2-thinking
+    match:
+      models:
+        - regex: (?:^|[/_.:-])mimo[-_.]?v2[._-](?:5(?:[-_.]pro)?|6[-_.](?:flash|pro(?:[-_.]ultraspeed)?))(?:$|[-_/:])
+          flags: i
+    recommend:
+      thinking: 'on'
+      protocol: openai-chat-completions
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - display: 'off'
+            params:
+              thinking:
+                type: disabled
+          - display: 'on'
+            params:
+              thinking:
+                type: enabled
+
+  - id: alibaba-qwen3-vl-hybrid
+    match:
+      models:
+        - regex: (?:^|[/_.:-])qwen[-_.]?3[-_.]vl[-_.]plus(?:$|[-_/:](?=[0-9]))
+          flags: i
+    facts:
+      protocols:
+        - openai-chat-completions
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 256000
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      thinking: 'off'
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - display: 'off'
+            params:
+              enable_thinking: false
+          - display: 'on'
+            params:
+              enable_thinking: true
+  - id: alibaba-qwen3-vl-thinking
+    match:
+      models:
+        - regex: (?:^|[/_.:-])qwen[-_.]?3[-_.]vl[-_.][a-z0-9-]+[-_.]thinking(?:$|[-_/:])
+          flags: i
+    facts:
+      protocols:
+        - openai-chat-completions
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 256000
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+      thinking: 'on'
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - display: 'on'
+            params:
+              enable_thinking: true
+
+  - id: google-gemini-3-pro
+    match:
+      models:
+        - regex: (?:^|[/_.:-])gemini[-_.]?3[-_.]pro[-_.]preview(?:$|[-_/:])
+          flags: i
+    facts:
+      protocols:
+        - openai-chat-completions
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: true
+        output:
+          image: false
+          video: false
+          audio: false
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 1000000
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: true
+        output:
+          image: false
+          video: false
+          audio: false
+      thinking: low
+    wire:
+      openai-chat-completions:
+        thinking:
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: high
+            params:
+              reasoning_effort: high
+
+  - id: google-gemini-3-flash
+    match:
+      models:
+        - regex: (?:^|[/_.:-])gemini[-_.]?3[-_.]flash[-_.]preview(?:$|[-_/:])
+          flags: i
+    facts:
+      protocols:
+        - openai-chat-completions
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: true
+        output:
+          image: false
+          video: false
+          audio: false
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 1000000
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: true
+        output:
+          image: false
+          video: false
+          audio: false
+      thinking: minimal
+    wire:
+      openai-chat-completions:
+        thinking:
+          - display: minimal
+            params:
+              reasoning_effort: minimal
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+
+  - id: google-gemini-3.1-pro
+    match:
+      models:
+        - regex: (?:^|[/_.:-])gemini[-_.]?3[._-]1[-_.]pro[-_.]preview(?:$|[-_/:])
+          flags: i
+    facts:
+      protocols:
+        - openai-chat-completions
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: true
+        output:
+          image: false
+          video: false
+          audio: false
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 1000000
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: true
+        output:
+          image: false
+          video: false
+          audio: false
+      thinking: low
+    wire:
+      openai-chat-completions:
+        thinking:
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+
+  - id: google-gemini-3.1-flash-lite
+    match:
+      models:
+        - regex: (?:^|[/_.:-])gemini[-_.]?3[._-]1[-_.]flash[-_.]lite(?:$|[-_/:])
+          flags: i
+    facts:
+      protocols:
+        - openai-chat-completions
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: true
+        output:
+          image: false
+          video: false
+          audio: false
+    recommend:
+      protocol: openai-chat-completions
+      contextLimit: 1000000
+      capabilities:
+        toolCall: true
+        input:
+          image: true
+          video: true
+          audio: true
+        output:
+          image: false
+          video: false
+          audio: false
+      thinking: minimal
+    wire:
+      openai-chat-completions:
+        thinking:
+          - display: minimal
+            params:
+              reasoning_effort: minimal
+          - display: low
+            params:
+              reasoning_effort: low
+          - display: medium
+            params:
+              reasoning_effort: medium
+          - display: high
+            params:
+              reasoning_effort: high
+  - id: deepseek-r1-0528
+    match:
+      models:
+        - regex: (?:^|[/_.:-])deepseek[-_.]?r1[-_.]0528(?:$|[-_/:])
+          flags: i
+    facts:
+      protocols:
+        - openai-chat-completions
+      capabilities:
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+        toolCall: true
+    recommend:
+      provider: deepseek
+      protocol: openai-chat-completions
+      thinking: 'on'
+      capabilities:
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+        toolCall: true
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        thinking:
+          - display: 'on'
+            params: {}
+  - id: deepseek-v3.2-speciale
+    match:
+      models:
+        - regex: (?:^|[/_.:-])deepseek[-_.]?v3[._-]?2[-_.]speciale(?:$|[-_/:])
+          flags: i
+    facts:
+      contextWindow: 128000
+      protocols:
+        - openai-chat-completions
+      capabilities:
+        toolCall: false
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+    recommend:
+      provider: deepseek
+      protocol: openai-chat-completions
+      contextLimit: 128000
+      capabilities:
+        toolCall: false
+        input:
+          image: false
+          video: false
+          audio: false
+        output:
+          image: false
+          video: false
+          audio: false
+    wire:
+      openai-chat-completions:
+        reasoningHistory: assistant-field
+        toolCallThinkingLevels: []
 
 # 自定义规则示例（取消注释后追加到上面的 models 列表）：
 #   - id: private-model
