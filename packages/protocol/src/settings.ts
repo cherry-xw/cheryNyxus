@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ImageOutputCapabilitiesSchema, IMAGE_COUNT_PARAM_KEYS } from './imageGeneration.js'
 import { ConfigApplyStateSchema, ConfigSaveResultSchema } from './configApply.js'
 import {
   CAPABILITY_STATES,
@@ -29,6 +30,13 @@ export const SettingsOutputMediaCapabilitiesSchema = z.object({
   audio: SettingsCapabilityValueSchema.optional(),
 }).strict()
 export const SettingsBrainCapabilitiesSchema = z.object({
+  imageOutput: ImageOutputCapabilitiesSchema.optional(),
+  imageInput: z.object({
+    formats: z.array(z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])).refine(v => new Set(v).size === v.length).optional(),
+    animation: z.enum(['supported', 'first-frame', 'unsupported', 'unknown']).optional(),
+    maxBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    maxBase64Bytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  }).strict().optional(),
   toolCall: z.boolean().optional(),
   input: SettingsInputMediaCapabilitiesSchema.optional(),
   output: SettingsOutputMediaCapabilitiesSchema.optional(),
@@ -43,6 +51,7 @@ export const SettingsRoleFileCapabilitiesSchema = z.partialRecord(
   SettingsFileCapabilityBindingSchema,
 )
 export const SettingsFileServiceConnectionSchema = z.object({
+  capabilities: z.object({ imageOutput: ImageOutputCapabilitiesSchema.optional() }).strict().optional(),
   brainRef: z.string().min(1).optional(),
   baseUrl: z.string().optional(),
   model: z.string().optional(),
@@ -57,12 +66,13 @@ export const SettingsFileServiceSchema = z.object({
   adapter: z.enum(FILE_SERVICE_ADAPTER_IDS),
   connection: SettingsFileServiceConnectionSchema,
   operations: z.array(z.enum(FILE_CAPABILITY_OPERATIONS)).min(1),
-  defaults: z.record(z.string(), z.unknown()).optional(),
+  defaults: z.record(z.string(), z.unknown()).refine(value => !IMAGE_COUNT_PARAM_KEYS.some(key => Object.hasOwn(value, key)), '服务默认参数不保存张数；请使用全局默认或本次张数').optional(),
   timeoutMs: z.number().int().positive().max(3_600_000).optional(),
   queueTimeoutMs: z.number().int().positive().max(3_600_000).optional(),
   maxConcurrent: z.number().int().positive().optional(),
 }).strict()
 export const SettingsFilesPolicySchema = z.object({
+  imageGeneration: z.object({ defaultCount: z.number().int().positive().safe().optional() }).strict().optional(),
   maxUploadBytes: z.number().int().positive().optional(),
   imageContext: z.object({
     mode: z.enum(['current', 'recent', 'unlimited']).optional(),
@@ -82,7 +92,8 @@ export const SettingsFilesPolicySchema = z.object({
     defaultImageVariant: z.enum(['original', 'adapted']).optional(),
   }).strict().optional(),
   imageAdaptation: z.object({
-    maxEdge: z.number().int().positive().optional(),
+    maxBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    maxEdge: z.number().int().positive().max(16384).optional(),
     quality: z.number().int().min(1).max(100).optional(),
   }).strict().optional(),
   unreferencedUploadRetentionHours: z.number().int().positive().optional(),

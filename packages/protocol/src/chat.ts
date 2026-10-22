@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ImageCountPlanSchema, type ImageCountPlan } from './imageGeneration.js'
 import { Method } from './rpc'
 
 export const TerminationCode = {
@@ -246,6 +247,13 @@ export type FileOperationInspectionStatus =
   | 'inspection_error'
 
 export interface FileOperationRecord {
+  imageCount?: ImageCountPlan
+  imageConfigRevision?: string
+  imageModel?: string
+  receivedImageCount?: number
+  savedImageCount?: number
+  reportedFailedImageCount?: number
+  imageCountWarning?: string
   providerContinuation?: Record<string, unknown>
   operationId: string
   operation: import('./llm').FileCapabilityOperation
@@ -275,6 +283,9 @@ export interface FileOperationRecord {
 
 export const FileOperationRecordSchema = z
   .object({
+    imageCount: ImageCountPlanSchema.optional(), imageConfigRevision: z.string().optional(), imageModel: z.string().optional(),
+    receivedImageCount: z.number().int().nonnegative().optional(), savedImageCount: z.number().int().nonnegative().optional(),
+    reportedFailedImageCount: z.number().int().nonnegative().optional(), imageCountWarning: z.string().optional(),
     providerContinuation: z.record(z.string(), z.unknown()).optional(),
     operationId: z.string().min(1),
     operation: z.enum([
