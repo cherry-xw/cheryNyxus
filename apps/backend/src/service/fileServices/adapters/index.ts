@@ -43,9 +43,12 @@ export async function executeFileServiceAdapter(
       : ['minimax-images', 'openai-images'].includes(input.adapter) ? Number(params.n ?? 1) : undefined
     const returned = result.parts.filter(part => part.type === 'file').length
     if (!ctx.incomplete && requested !== undefined && returned < requested) {
-      ctx.incomplete = { code: 'file_service.output_incomplete', message: `请求 ${requested} 张图片，实际取得 ${returned} 张；不会自动重新生成缺失图片`, retryable: false }
+      ctx.incomplete = { code: 'file_service.output_incomplete', message: `请求 ${requested} 张图片，实际取得 ${returned} 张；${ctx.reportedFailedImageCount === undefined ? '服务未提供不足原因' : `服务报告失败 ${ctx.reportedFailedImageCount} 张`}。不会自动重新生成缺失图片`, retryable: false }
     }
-    return { ...result, ...(ctx.incomplete ? { incomplete: ctx.incomplete } : {}) }
+    return { ...result,
+      receivedImageCount: result.receivedImageCount ?? ctx.receivedImageCount ?? returned,
+      ...(ctx.reportedFailedImageCount === undefined ? {} : { reportedFailedImageCount: ctx.reportedFailedImageCount }),
+      ...(ctx.incomplete ? { incomplete: ctx.incomplete } : {}) }
   } catch (error) {
     // Never return an upstream fetch error with a possibly credential-bearing URL.
     const failure = controller.signal.aborted ? controller.signal.reason as FileServiceAdapterError
@@ -54,6 +57,8 @@ export async function executeFileServiceAdapter(
     if (ctx.outputParts.some(part => part.type === 'file')) {
       const response = ctx.response ?? {}
       failure.partialOutput = {
+        receivedImageCount: ctx.receivedImageCount,
+        reportedFailedImageCount: ctx.reportedFailedImageCount,
         parts: [...ctx.outputParts],
         incomplete: { code: failure.code, message: failure.message,
           retryable: ['file_operation.delivery_failed', 'file_operation.cancelled', 'file_operation.timeout'].includes(failure.code) },

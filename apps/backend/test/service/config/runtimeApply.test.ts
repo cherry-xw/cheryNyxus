@@ -105,6 +105,67 @@ describe('runtime config coordinator adapter', () => {
     })
   })
 
+  it.each(['create', 'edit', 'delete'] as const)('applies drawing default count %s for future drafts without changing captured settings', async action => {
+    const raw = getAppliedRawConfig()
+    raw.files ??= {}
+    if (action === 'create') delete raw.files.imageGeneration
+    else raw.files.imageGeneration = { defaultCount: 2 }
+    replaceRuntimeConfig(raw)
+    const before = image(), after = structuredClone(before)
+    const oldSnapshot = captureRuntimeConfig()
+    if (action === 'delete') delete after.config.files!.imageGeneration
+    else after.config.files!.imageGeneration = { defaultCount: 6 }
+    const coordinator = new ConfigApplyCoordinator(before)
+    registerRuntimeConfigAdapters(coordinator, after)
+    coordinator.submit(after)
+    await coordinator.retry()
+
+    expect(coordinator.getState()).toMatchObject({
+      status: 'applied', restart: { required: false },
+      impacts: [expect.objectContaining({ resource: '["files","imageGeneration"]', boundary: 'operation', status: 'applied' })],
+    })
+    expect(captureRuntimeConfig().files?.imageGeneration?.defaultCount).toBe(action === 'delete' ? 1 : 6)
+    expect(oldSnapshot.files?.imageGeneration?.defaultCount).toBe(action === 'create' ? 1 : 2)
+  })
+
+  it('applies per-operation file service image limits without changing the old connection snapshot', async () => {
+    const raw = getAppliedRawConfig()
+    const capability = { adapter: 'openai-images', nativeMultiImage: 'supported' as const, countControl: 'requested' as const, maxImagesPerRequest: 8 }
+    raw.file_services = { drawing: { name: '离线绘图', adapter: 'openai-images', operations: ['image.generate', 'image.edit'],
+      connection: { baseUrl: 'https://provider.example', model: 'gpt-image-1', keyRef: 'offline-secret',
+        capabilities: { imageOutput: { 'image.generate': capability } } } } }
+    replaceRuntimeConfig(raw)
+    const before = image(), after = structuredClone(before), oldSnapshot = captureRuntimeConfig()
+    after.config.file_services!.drawing!.connection.capabilities!.imageOutput = {
+      'image.generate': { ...capability, maxImagesPerRequest: 4, maxInputAndOutputImages: 12 },
+      'image.edit': { ...capability, maxImagesPerRequest: 3 },
+    }
+    const coordinator = new ConfigApplyCoordinator(before)
+    registerRuntimeConfigAdapters(coordinator, after)
+    coordinator.submit(after)
+    await coordinator.retry()
+
+    expect(coordinator.getState()).toMatchObject({ status: 'applied', restart: { required: false },
+      impacts: [expect.objectContaining({ boundary: 'operation', status: 'applied' })] })
+    expect(captureRuntimeConfig().file_services!.drawing!.connection.capabilities!.imageOutput).toEqual(after.config.file_services!.drawing!.connection.capabilities!.imageOutput)
+    expect(oldSnapshot.file_services!.drawing!.connection.capabilities!.imageOutput!['image.generate']!.maxImagesPerRequest).toBe(8)
+  })
+
+  it('applies native image output overrides at the existing brain tree boundary', async () => {
+    const before = image(), after = structuredClone(before)
+    const name = Object.keys(after.config.llm.brain)[0]!
+    after.config.llm.brain[name]!.capabilities = { ...after.config.llm.brain[name]!.capabilities,
+      imageOutput: { 'image.generate': { adapter: 'google-gemini-image', nativeMultiImage: 'unknown', countControl: 'uncontrolled' } } }
+    const coordinator = new ConfigApplyCoordinator(before)
+    registerRuntimeConfigAdapters(coordinator, after)
+    coordinator.submit(after)
+    await coordinator.retry()
+
+    expect(coordinator.getState()).toMatchObject({ status: 'applied', restart: { required: false },
+      impacts: [expect.objectContaining({ boundary: 'tree', status: 'applied' })] })
+    expect(captureRuntimeConfig().llm.brain[name]!.capabilities!.imageOutput).toEqual(after.config.llm.brain[name]!.capabilities!.imageOutput)
+  })
+
   it('applies semantic brain changes when no affected trees have active work', async () => {
     const before = image()
     const after = structuredClone(before)

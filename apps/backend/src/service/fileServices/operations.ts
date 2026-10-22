@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { mergeImageParameters } from '@chery/protocol'
 import { mkdir, readFile, rename, open, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { FileCapabilityOperation, FileOperationRecord, MessagePart } from '@chery/protocol'
-import { deriveTextContentFromParts, buildFileServiceToolName } from '@chery/protocol'
+import { deriveTextContentFromParts, buildFileServiceToolName, isImageOutputOperation, withoutImageCountParams, requestedImageCount } from '@chery/protocol'
 import { captureRuntimeConfig } from '@/utils/config.js'
 import { getSoulDb } from '@/db/index.js'
 import { imageRevision, stable } from '../config/impact.js'
@@ -20,9 +21,12 @@ import type { FileServiceConfig } from '@chery/plugin-api'
 import { executeLocalFileAdapter } from './localAdapters.js'
 import { assertFileServiceRoleAllowed } from './runtime.js'
 import type { SenseRuntimeContext } from '@/core/sense/senseCreator.js'
+import { resolveImageOutput, imageCountParams } from './imageOutput.js'
 
 interface OperationRow { operation_id: string; owner_id: string; chat_id: string | null; fingerprint: string; data_json: string; request_json: string }
 export interface FileOperationInput {
+  desiredCount?: number
+  expectedImageConfigRevision?: string
   ownerId: string; chatId?: string; requestId: string; serviceId: string; operation: FileCapabilityOperation
   params: Record<string, unknown>; assets: Array<{ assetId: string; assetVersionId: string }>
   providerContinuation?: Record<string, unknown>; signal?: AbortSignal; sourceCallId?: string
@@ -108,6 +112,7 @@ async function deliver(record: FileOperationRecord, input: FileOperationInput, o
     }
     record.outputParts = parts
     record.outputAssetIds = parts.filter(part => part.type === 'asset').map(part => part.assetId)
+    if (record.imageCount) record.savedImageCount = parts.filter(part => part.type === 'asset' && part.kind === 'image').length
     record.deliveryStatus = output.incomplete?.retryable
       ? parts.some(part => part.type === 'asset') ? 'partial_saved' : 'delivery_failed' : 'saved'
     if (record.executionStatus === 'succeeded') record.error = undefined
@@ -119,19 +124,31 @@ async function deliver(record: FileOperationRecord, input: FileOperationInput, o
   } catch (error) {
     record.outputParts = parts
     record.outputAssetIds = parts.filter(part => part.type === 'asset').map(part => part.assetId)
+    if (record.imageCount) record.savedImageCount = parts.filter(part => part.type === 'asset' && part.kind === 'image').length
     record.deliveryStatus = parts.some(part => part.type === 'asset') ? 'partial_saved' : 'delivery_failed'
-    record.error = { code: 'FILE_SAVE_FAILED', message: (error as Error).message, retryable: true }
+    record.error = { code: 'FILE_SAVE_FAILED', message: '远端结果本地保存失败，请检查存储与权限；重试保存不会重新生成。', retryable: true }
     return update(record)
   }
 }
 
 async function saveAdapterOutput(record: FileOperationRecord, input: FileOperationInput, output: FileServiceAdapterOutput) {
+  if (record.imageCount) {
+    record.receivedImageCount = output.receivedImageCount ?? output.parts.filter(part => part.type === 'file' && part.mimeType.startsWith('image/')).length
+    record.reportedFailedImageCount = output.reportedFailedImageCount
+    if (record.imageCount.effectiveCount !== undefined && record.receivedImageCount > record.imageCount.effectiveCount)
+      record.imageCountWarning = `服务返回 ${record.receivedImageCount} 张，超过本次 ${record.imageCount.effectiveCount} 张；全部已有结果均保留`
+  }
   const understanding = ['image.inspect', 'document.extract', 'audio.transcribe', 'video.inspect'].includes(input.operation)
   const usable = output.parts.some(part => understanding ? part.type === 'text' && !!part.text.trim() : part.type === 'file')
   record.executionStatus = usable ? output.incomplete ? 'partial' : 'succeeded' : 'failed'
   record.error = output.incomplete
     ? { code: output.incomplete.code, message: output.incomplete.message, retryable: output.incomplete.retryable }
     : !usable ? { code: 'FILE_OUTPUT_MISSING', message: understanding ? '服务未返回有效的理解文字' : '服务没有返回文件；文字结果不能视为图片生成成功' } : undefined
+  if (usable && record.imageCount?.countControl === 'requested' && record.imageCount.effectiveCount !== undefined &&
+      (record.receivedImageCount ?? 0) < record.imageCount.effectiveCount && !output.incomplete) {
+    record.executionStatus = 'partial'
+    record.error = { code: 'FILE_IMAGE_COUNT_SHORT', message: `请求 ${record.imageCount.effectiveCount} 张，实际收到 ${record.receivedImageCount} 张；${record.reportedFailedImageCount === undefined ? '服务未提供不足原因' : `服务报告失败 ${record.reportedFailedImageCount} 张`}。不会自动补图。`, retryable: false }
+  }
   record.remoteJobId = output.remoteJobId
   record.usage = output.usage
   update(record)
@@ -177,7 +194,7 @@ async function execute(record: FileOperationRecord, input: FileOperationInput): 
     if (!input.serviceOverride) {
       const latest = captureRuntimeConfig().file_services?.[input.serviceId]
       const current = captureRuntimeConfig()
-      if (!latest || latest.enabled === false || !latest.operations.includes(input.operation) || stable(latest) !== stable(service) || service.connection.brainRef && stable(current.llm.brain[service.connection.brainRef]) !== stable(snapshot.llm.brain[service.connection.brainRef])) throw new Error('文件服务或连接在排队期间改变，请重新确认后执行')
+      if (!latest || latest.enabled === false || !latest.operations.includes(input.operation) || stable(latest) !== stable(service) || service.connection.brainRef && stable(current.llm.brain[service.connection.brainRef]) !== stable(snapshot.llm.brain[service.connection.brainRef])) throw Object.assign(new Error('文件服务配置已改变'), {code:'FILE_CONFIG_CHANGED'})
     }
     if (input.enforceRolePolicy && input.chatId) assertFileServiceRoleAllowed(input.chatId, input.serviceId, input.operation)
     const access = input.chatId ? fileAccessForChat(input.chatId, input.ownerId) : { ownerId: input.ownerId }
@@ -192,15 +209,13 @@ async function execute(record: FileOperationRecord, input: FileOperationInput): 
       assets.push({ ...ref, mimeType: asset.asset.mimeType, data: asset.data })
     }
     const brain = service.connection.brainRef ? snapshot.llm.brain[service.connection.brainRef] : undefined
-    const baseUrl = brain?.url ?? service.connection.baseUrl
-    const model = service.connection.model ?? brain?.model
-    const key = brain?.key ?? service.connection.keyRef
+    const resolvedConnection = resolveFileServiceConnection(service, snapshot.llm.brain, readRuntimeEnvironment())
     const local = ['vision-brain', 'custom-sense-mcp'].includes(service.adapter)
-    if (!local && (!baseUrl || !model || key?.startsWith('$'))) throw new Error('文件服务连接或凭据尚未配置完整')
+    if (!local && resolvedConnection.errors.length) throw new Error(resolvedConnection.errors.join('\n'))
     record.executionStatus = 'running'
     update(record)
     const adapterInput = { adapter: service.adapter, operation: input.operation,
-      connection: { baseUrl: baseUrl ?? '', model: model ?? '', key, authType: service.connection.authType, endpoints: service.connection.endpointOverrides }, params: { ...service.defaults, ...input.params }, assets,
+      connection: resolvedConnection, params: mergeImageParameters(withoutImageCountParams(service.defaults ?? {}), input.params), assets,
       providerContinuation: input.providerContinuation, signal }
     if (isImageOutputOperation(input.operation)) {
       const resolution = resolveImageOutput({ service, operation: input.operation, desiredCount: record.imageCount?.desiredCount ?? input.desiredCount,
@@ -253,11 +268,11 @@ async function execute(record: FileOperationRecord, input: FileOperationInput): 
       record.deliveryStatus = 'saved'
     }
     if ((received || record.executionStatus === 'succeeded') && !rejected) record.deliveryStatus = 'delivery_failed'
-    record.error = rejected
-      ? { code: 'FILE_PROVIDER_REJECTED', message: (error as Error).message, retryable: false }
+    record.error = code === 'FILE_CONFIG_CHANGED' ? {code:'FILE_CONFIG_CHANGED',message:'文件服务或连接在排队期间改变，请重新确认后执行。',retryable:false} : rejected
+      ? { code: 'FILE_PROVIDER_REJECTED', message: '文件服务拒绝本次请求，请检查服务权限、额度及参数。', retryable: false }
       : record.executionStatus === 'succeeded'
         ? { code: 'FILE_SAVE_FAILED', message: '已收到远程结果，但本地保存失败。不会自动重新生成。', retryable: received }
-        : { code: started ? 'FILE_RESULT_UNKNOWN' : aborted ? 'FILE_CANCELLED' : 'FILE_EXECUTION_FAILED', message: started ? '请求已发出，但未能确认远程结果。再次执行可能重复计费。' : (error as Error).message, retryable: !started }
+        : { code: started ? 'FILE_RESULT_UNKNOWN' : aborted ? 'FILE_CANCELLED' : 'FILE_EXECUTION_FAILED', message: started ? '请求已发出，但未能确认远程结果。再次执行可能重复计费。' : aborted ? '文件操作已取消，未确认完成。' : '文件操作执行失败，请检查文件、权限及服务配置。', retryable: !started && !aborted }
     return update(record)
   } finally {
     active.delete(record.operationId)
@@ -269,7 +284,9 @@ export async function runFileOperation(input: FileOperationInput, wait = true): 
   if (!input.ownerId || !input.requestId) throw new Error('文件操作需要身份和唯一请求标识')
   if (input.chatId) fileAccessForChat(input.chatId, input.ownerId)
   if (input.enforceRolePolicy && input.chatId) assertFileServiceRoleAllowed(input.chatId, input.serviceId, input.operation)
-  const fingerprint = createHash('sha256').update(stable({ ...input, signal: undefined, requestId: undefined, requestView: input.requestView?.identity })).digest('hex')
+  const fingerprintInput = isImageOutputOperation(input.operation) ? { ...input,
+    params: withoutImageCountParams(input.params), desiredCount: requestedImageCount(input.params, input.desiredCount) } : input
+  const fingerprint = createHash('sha256').update(stable({ ...fingerprintInput, signal: undefined, requestId: undefined, requestView: input.requestView?.identity })).digest('hex')
   const existing = db().prepare('SELECT * FROM file_operations WHERE owner_id = ? AND request_id = ?').get(input.ownerId, input.requestId) as OperationRow | undefined
   if (existing) {
     authorize(existing, input.ownerId, input.chatId)
@@ -277,7 +294,14 @@ export async function runFileOperation(input: FileOperationInput, wait = true): 
     return wait ? executions.get(existing.operation_id) ?? JSON.parse(existing.data_json) : JSON.parse(existing.data_json)
   }
   const snapshot = captureRuntimeConfig()
+  const service = input.serviceOverride ?? snapshot.file_services?.[input.serviceId]
+  const image = service && isImageOutputOperation(input.operation)
+    ? resolveImageOutput({ service, operation: input.operation, params: input.params, desiredCount: input.desiredCount,
+      inputImages: input.assets.filter(asset => asset.assetId !== input.params.maskAssetId).length, config: snapshot }) : undefined
+  if (input.expectedImageConfigRevision && input.expectedImageConfigRevision !== image?.configRevision) throw new Error('绘图配置已变化，请重新确认后提交')
+  if (image && service) imageCountParams(service, image, input.params)
   const record: FileOperationRecord = { operationId: randomUUID(), operation: input.operation, inputAssets: input.assets,
+    ...(image ? { imageCount: image.count, imageConfigRevision: image.configRevision, imageModel: image.imageModel } : {}),
     params: input.params, targetKind: 'tool', targetId: buildFileServiceToolName(input.serviceId, input.operation), configRevision: imageRevision(snapshot), sourceCallId: input.sourceCallId,
     executionStatus: 'queued', deliveryStatus: 'pending_save', inspectionStatus: input.requireInspection ? 'pending_inspection' : 'not_requested', createdAt: Date.now(), updatedAt: Date.now() }
   db().transaction(() => {
@@ -382,3 +406,5 @@ export async function deleteTrialFileOperation(id: string, ownerId: string): Pro
 }
 
 export function fileOperationText(record: FileOperationRecord): string { return deriveTextContentFromParts(record.outputParts ?? []) || record.error?.message || record.executionStatus }
+import { resolveFileServiceConnection } from '@/utils/fileServiceConnection.js'
+import { readRuntimeEnvironment } from '@/utils/config.js'

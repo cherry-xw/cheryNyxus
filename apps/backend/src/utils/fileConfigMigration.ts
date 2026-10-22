@@ -3,10 +3,11 @@ import { chmod, mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import yaml from 'js-yaml'
 import fs from 'node:fs'
+import { IMAGE_COUNT_PARAM_KEYS } from '@chery/protocol'
 
 export interface FileConfigMigrationWarning {
   path: string
-  code: 'legacy_generate_removed' | 'legacy_file_declaration_removed' | 'image_context_separated' | 'image_tools_added'
+  code: 'legacy_generate_removed' | 'legacy_file_declaration_removed' | 'image_context_separated' | 'image_tools_added' | 'image_count_defaults_removed' | 'image_count_default_added'
   message: string
   /** 只供人工补配置，不参与运行；不包含连接或凭据。 */
   candidate?: Record<string, unknown>
@@ -34,6 +35,23 @@ export function migrateLegacyFileConfig<T>(raw: T): {
     if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) return value
     const source = value as Record<string, unknown>
     const result: Record<string, unknown> = {}
+    if (path.length === 3 && path[0] === 'file_services' && path[2] === 'defaults') {
+      for (const [key, item] of Object.entries(source)) {
+        if ((IMAGE_COUNT_PARAM_KEYS as readonly string[]).includes(key)) warnings.push({
+          path: [...path, key].join('.'), code: 'image_count_defaults_removed', message: '已移除服务张数默认；使用全局默认或本次明确张数，不影响历史请求与结果。',
+        })
+        else Object.defineProperty(result, key, { value: item, enumerable: true, writable: true, configurable: true })
+      }
+      return result
+    }
+    if (path.length === 0 && !Object.hasOwn(source, 'files')) {
+      result.files = { imageGeneration: { defaultCount: 1 } }
+      warnings.push({ path: 'files.imageGeneration', code: 'image_count_default_added', message: '全局绘图默认张数设为 1。' })
+    }
+    if (path.length === 1 && path[0] === 'files' && !Object.hasOwn(source, 'imageGeneration')) {
+      result.imageGeneration = { defaultCount: 1 }
+      warnings.push({ path: 'files.imageGeneration', code: 'image_count_default_added', message: '全局绘图默认张数设为 1。' })
+    }
     if (path.length === 1 && path[0] === 'files' && !Object.hasOwn(source, 'imageContext')) {
       const turns = (source.context as { recentUserTurns?: unknown } | undefined)?.recentUserTurns
       if (typeof turns === 'number' && Number.isSafeInteger(turns) && turns >= 0) {

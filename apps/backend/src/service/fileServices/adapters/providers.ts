@@ -43,6 +43,9 @@ export async function minimax(input: FileServiceAdapterInput, p: Record<string, 
   if (status.status_code === undefined) malformed('MiniMax 响应缺少 base_resp.status_code')
   if (status.status_code !== 0) providerFailure(status)
   const data = record(response.data)
+  ctx.receivedImageCount = array(data.image_base64).length || array(data.image_urls).length
+  const failedCount = record(response.metadata).failed_count
+  if (Number.isSafeInteger(failedCount) && Number(failedCount) >= 0) ctx.reportedFailedImageCount = Number(failedCount)
   const parts: FileServiceAdapterPart[] = []
   if (array(data.image_base64).length && array(data.image_urls).length) malformed('MiniMax 同时返回了两种图片集合，无法确定对应关系')
   for (const item of array(data.image_base64)) parts.push(ctx.file(item, 'image/jpeg', parts.length))
@@ -52,6 +55,9 @@ export async function minimax(input: FileServiceAdapterInput, p: Record<string, 
 
 async function imageData(response: Record<string, unknown>, p: Record<string, unknown>, ctx: AdapterHttpContext): Promise<FileServiceAdapterPart[]> {
   const parts: FileServiceAdapterPart[] = []
+  ctx.receivedImageCount = array(response.data).filter(value => { const item = record(value); return !item.error && (typeof item.b64_json === 'string' || typeof item.url === 'string') }).length
+  const failures = array(response.data).filter(value => record(value).error).length
+  if (failures) ctx.reportedFailedImageCount = failures
   for (const value of array(response.data)) {
     const item = record(value)
     if (item.error) {
@@ -111,12 +117,15 @@ export async function openaiResponses(input: FileServiceAdapterInput, p: Record<
     input: [{ role: 'user', content }],
     tools: [{ type: 'image_generation', ...(image_model ? { model: image_model } : {}), ...toolParams, action: p.action ?? action }],
     tool_choice: { type: 'image_generation' },
+    max_tool_calls: 1,
+    parallel_tool_calls: false,
     store: true,
     ...(previousId ? { previous_response_id: previousId } : {}),
   })
-  if (response.status !== undefined && response.status !== 'completed') {
-    providerFailure({ code: `response_${String(response.status)}` })
-  }
+  ctx.receivedImageCount = array(response.output).filter(value => {
+    const item = record(value)
+    return item.type === 'image_generation_call' && (!item.status || item.status === 'completed') && typeof item.result === 'string'
+  }).length
   const parts: FileServiceAdapterPart[] = []
   for (const value of array(response.output)) {
     const item = record(value)
@@ -131,7 +140,10 @@ export async function openaiResponses(input: FileServiceAdapterInput, p: Record<
       }
     }
   }
+  if (response.status !== undefined && response.status !== 'completed') providerFailure({ code: `response_${String(response.status)}` })
   if (typeof response.id !== 'string' || !response.id) malformed('Responses 响应缺少续接 ID')
+  ctx.receivedImageCount = parts.filter(part => part.type === 'file').length
+  if (ctx.receivedImageCount > 1) ctx.incomplete = { code: 'file_service.multiple_image_calls', message: '服务返回多个图片工具调用，不是单次原生多图；已有有效文件全部保留，不会继续生成。', retryable: false }
   return { ...output(parts, response), providerContinuation: { ...scope, responseId: response.id } }
 }
 
@@ -153,17 +165,18 @@ export async function gemini(input: FileServiceAdapterInput, p: Record<string, u
     contents,
     generationConfig: {
       responseModalities: p.responseModalities ?? ['TEXT', 'IMAGE'],
-      ...(p.imageConfig ? { imageConfig: p.imageConfig } : {}),
+      ...(p.imageConfig ? { responseFormat: { image: p.imageConfig } } : {}),
     },
   }, true)
   if (record(response.promptFeedback).blockReason) providerFailure({ code: record(response.promptFeedback).blockReason })
   const parts: FileServiceAdapterPart[] = []
   const candidates = array(response.candidates)
-  // There is one requested candidate. Multiple alternatives have no single edit history.
-  if (candidates.length > 1) malformed('Gemini 返回多个候选，无法确定连续编辑应使用哪一个')
+  ctx.receivedImageCount = candidates.flatMap(value => array(record(record(value).content).parts)).filter(value => record(value).thought !== true && record(value).inlineData).length
+  // 多个 candidate 没有共用的编辑历史；保留有效文件，后续只用选定本地版本重建。
+  if (candidates.length > 1) ctx.incomplete = { code: 'file_service.multiple_candidates', message: '服务返回多个 candidate，已有最终图片均保留；不能将它们当作可控张数或共用续接。', retryable: false }
   for (const candidate of candidates) {
     const c = record(candidate)
-    if (c.finishReason && c.finishReason !== 'STOP') providerFailure({ code: c.finishReason })
+    if (c.finishReason && c.finishReason !== 'STOP') { parts.push(ctx.failed('file_service.provider_error', `此候选未正常完成（${String(c.finishReason)}）`, parts.length)); continue }
     const content = record(c.content)
     for (const rawPart of array(content.parts)) {
       const part = record(rawPart)
@@ -181,9 +194,10 @@ export async function gemini(input: FileServiceAdapterInput, p: Record<string, u
   }
   return {
     ...output(parts, {}),
+    receivedImageCount: parts.filter(part => part.type === 'file').length,
     ...(response.usageMetadata ? { usage: record(response.usageMetadata) } : {}),
     ...(typeof response.responseId === 'string' ? { remoteJobId: response.responseId } : {}),
-    providerContinuation: { ...scope, contents },
+    ...(candidates.length === 1 ? { providerContinuation: { ...scope, contents } } : {}),
   }
 }
 
@@ -199,6 +213,7 @@ export async function imagen(input: FileServiceAdapterInput, p: Record<string, u
   for (const raw of array(response.predictions)) {
     const item = record(raw)
     if (item.raiFilteredReason) {
+      ctx.reportedFailedImageCount = (ctx.reportedFailedImageCount ?? 0) + 1
       parts.push(ctx.failed('file_service.provider_error', '此图片被服务商的内容检查阻止', parts.length))
       continue
     }
@@ -209,7 +224,8 @@ export async function imagen(input: FileServiceAdapterInput, p: Record<string, u
 }
 
 export async function seedream(input: FileServiceAdapterInput, p: Record<string, unknown>, ctx: AdapterHttpContext): Promise<FileServiceAdapterOutput> {
-  const modernSingle = /^doubao-seedream-5-0-(pro|flash)-/.test(input.connection.model)
+  const modernSingle = /^doubao-seedream-5-0-(pro|flash)(?:-|$)/.test(input.connection.model)
+  if (p.background === 'transparent' && (input.operation === 'image.generate' || input.assets.length !== 1 || input.assets[0]!.mimeType !== 'image/png')) invalid('Seedream 透明输出需要显式提供单张带透明通道的 PNG 参考图；透明通道由服务方校验')
   const maxInputs = modernSingle ? 10 : 14
   if (input.assets.length > maxInputs) invalid(`当前 Seedream 模式最多支持 ${maxInputs} 张参考图片`)
   if (p.sequential_image_generation === 'auto') {
@@ -217,14 +233,14 @@ export async function seedream(input: FileServiceAdapterInput, p: Record<string,
     if (input.assets.length + count > 15) invalid('Seedream 参考图片数与最大输出图片数之和不能超过 15')
   }
   for (const asset of input.assets) {
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(asset.mimeType) || asset.data.length > 10 * 1024 * 1024) invalid('Seedream 参考图必须为不超过 10 MiB 的 PNG/JPEG/WebP')
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(asset.mimeType) || asset.data.length > (modernSingle ? 30000000 : 10 * 1024 * 1024)) invalid('Seedream 参考图格式或大小超出本适配器支持范围（pro/flash 单图 30 MB；其他型号 10 MiB）')
   }
   const images = input.assets.map(dataUri)
   const response = await ctx.request(endpoint(input, 'images/generations', 'api/v3'), {
     response_format: 'b64_json', ...p, model: input.connection.model, stream: false,
     ...(images.length ? { image: images.length === 1 ? images[0] : images } : {}),
   })
-  return output(await imageData(response, { ...p, output_format: p.output_format ?? 'jpeg' }, ctx), response)
+  return output(await imageData(response, { ...p, output_format: p.output_format ?? (p.background === 'transparent' ? 'png' : 'jpeg') }, ctx), response)
 }
 
 export const providerExecutors = {

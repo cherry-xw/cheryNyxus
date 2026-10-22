@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { ConfigImpact, HooksDraft } from '@chery/protocol'
+import { isImageOutputOperation, type ConfigImpact, type HooksDraft, type ImageOutputCapability } from '@chery/protocol'
 import type { ConfigRaw } from '@/utils/config.js'
 
 export interface ConfigImage {
@@ -48,11 +48,11 @@ export function resources(image: ConfigImage): Map<string, ConfigResource> {
         }
     }
     if (entries && typeof entries === 'object' && !Array.isArray(entries)) {
-      // Named collections are represented by their members, not an empty parent
-      // resource whose removal could erase newly added members in the same batch.
+      // Collections and file policies are represented by their members, not an
+      // empty parent whose removal could erase newly added members in the same batch.
       if (
         !Object.keys(entries).length &&
-        !['llm', 'roles', 'presets', 'sense_groups', 'file_services'].includes(root)
+        !['llm', 'roles', 'presets', 'sense_groups', 'file_services', 'files'].includes(root)
       )
         result.set(JSON.stringify(prefix), { path: prefix, value: entries })
       for (const [name, entry] of Object.entries(entries)) {
@@ -104,7 +104,6 @@ const fields: Record<string, string[]> = {
     'approval_hard_timeout',
     'disconnect_grace_ms',
     'maxLoopCount',
-    'bash_log_retention_hours',
     'textEditor',
     'file_compression',
     'logger',
@@ -169,6 +168,7 @@ const fields: Record<string, string[]> = {
   ],
   files: [
     'maxUploadBytes',
+    'imageGeneration',
     'context',
     'imageContext',
     'imageAdaptation',
@@ -201,6 +201,7 @@ const nested: Record<string, string[]> = {
     'defaultImageVariant',
   ],
   imageAdaptation: ['maxEdge', 'quality', 'maxBytes'],
+  imageGeneration: ['defaultCount'],
   imageContext: ['mode', 'recentUserTurns', 'replacement', 'missingDescription', 'serviceId', 'maxDescriptionChars', 'maxTotalDescriptionChars'],
   mock: ['enabled', 'file', 'chunkDelayMs', 'preRespondMs'],
   anthropicCompat: ['official'],
@@ -223,6 +224,13 @@ const nested: Record<string, string[]> = {
     'effect',
   ],
 }
+const imageOutputFields: Array<keyof ImageOutputCapability> = [
+  'adapter',
+  'nativeMultiImage',
+  'countControl',
+  'maxImagesPerRequest',
+  'maxInputAndOutputImages',
+]
 function boundary(path: string[]): { boundary: ConfigImpact['boundary']; semantic: boolean } {
   const [root = '', name = ''] = path
   if (root === 'assets')
@@ -251,6 +259,14 @@ function boundary(path: string[]): { boundary: ConfigImpact['boundary']; semanti
     return { boundary: 'unsupported', semantic: true }
   if (field && path.length > offset + 1) {
     const rest = path.slice(offset + 1)
+    const imageOutputPath = field === 'capabilities' && rest[0] === 'imageOutput'
+      ? rest.slice(1)
+      : field === 'connection' && rest[0] === 'capabilities' && rest[1] === 'imageOutput'
+        ? rest.slice(2)
+        : undefined
+    const knownImageOutput = imageOutputPath !== undefined && imageOutputPath.length <= 2 &&
+      (imageOutputPath.length === 0 || isImageOutputOperation(imageOutputPath[0]!)) &&
+      (imageOutputPath.length < 2 || imageOutputFields.includes(imageOutputPath[1] as keyof ImageOutputCapability))
     const dynamic =
       field === 'env' ||
       field === 'defaults' ||
@@ -258,7 +274,7 @@ function boundary(path: string[]): { boundary: ConfigImpact['boundary']; semanti
       field === 'roleOverrides' ||
       (field === 'connection' && rest[0] === 'endpointOverrides') ||
       (field === 'permissions' && rest.some((k) => ['tools', 'categories'].includes(k)))
-    if (!dynamic && (!nested[field] || rest.some((k) => !nested[field]!.includes(k))))
+    if (!dynamic && !knownImageOutput && (!nested[field] || rest.some((k) => !nested[field]!.includes(k))))
       return { boundary: 'unsupported', semantic: true }
   }
   if (root === 'files') return { boundary: 'operation', semantic: false }
@@ -274,7 +290,6 @@ function boundary(path: string[]): { boundary: ConfigImpact['boundary']; semanti
         'history_recall',
         'logger',
         'command',
-        'bash_log_retention_hours',
       ].includes(name)
         ? 'operation'
         : 'run',

@@ -19,6 +19,8 @@ const inspections: Record<FileOperationRecord['inspectionStatus'], string> = {
         <div><dt>保存</dt><dd>{{ deliveries[operation.deliveryStatus] }}</dd></div>
         <div><dt>检查</dt><dd>{{ inspections[operation.inspectionStatus] }}</dd></div>
       </dl>
+      <p v-if="operation.imageCount">期望 {{ operation.imageCount.desiredCount }} 张 · {{ operation.imageCount.effectiveCount === undefined ? '返回张数不可控或未确认' : `${operation.imageCount.countControl === 'maximum' ? '最多' : '请求'} ${operation.imageCount.effectiveCount} 张` }}<template v-if="operation.receivedImageCount !== undefined"> · 收到 {{ operation.receivedImageCount }} 张</template><template v-if="operation.savedImageCount !== undefined"> · 已保存 {{ operation.savedImageCount }} 张</template><template v-if="operation.reportedFailedImageCount !== undefined"> · 服务报告失败 {{ operation.reportedFailedImageCount }} 张</template></p>
+      <p v-if="operation.imageCountWarning" role="status">{{ operation.imageCountWarning }}</p>
       <p v-if="operation.error" role="status">{{ operation.error.message }}</p>
       <p v-if="operation.inspectionSummary">检查结论：{{ operation.inspectionSummary }}</p>
       <p v-if="operation.executionStatus === 'result_unknown'">远端可能仍在处理，不能直接重试生成以免重复收费。</p>

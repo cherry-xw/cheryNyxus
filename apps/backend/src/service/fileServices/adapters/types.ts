@@ -28,6 +28,8 @@ export type FileServiceAdapterPart =
   | { type: 'file'; data: Buffer; mimeType: string; originalName: string }
 
 export interface FileServiceAdapterOutput {
+  receivedImageCount?: number
+  reportedFailedImageCount?: number
   parts: FileServiceAdapterPart[]
   /** 已收到部分输出；retryable 仅表示可重新取得原响应中的文件。 */
   incomplete?: { code: string; message: string; retryable: boolean }

@@ -17,7 +17,7 @@ describe('旧文件配置一次性迁移', () => {
 
   it('缺省使用运行默认，已迁移的策略不被旧字段覆盖', () => {
     expect(migrateLegacyFileConfig({ files: { context: {} } }).config.files).not.toHaveProperty('imageContext')
-    const raw = { files: { context: { recentUserTurns: 9 }, imageContext: { mode: 'current' } } }
+    const raw = { files: { context: { recentUserTurns: 9 }, imageContext: { mode: 'current' }, imageGeneration: { defaultCount: 1 } } }
     expect(migrateLegacyFileConfig(raw).config.files.imageContext.mode).toBe('current')
     expect(migrateLegacyFileConfig(raw).changed).toBe(false)
   })
@@ -43,6 +43,7 @@ describe('旧文件配置一次性迁移', () => {
 
   it('移除旧自动处理声明，候选只供补配置，普通工具继续保留', () => {
     const result = migrateLegacyFileConfig({
+      files: { imageGeneration: { defaultCount: 1 } },
       tools: { inspect: { enabled: true, endpoint: 'https://example.test', capabilities: {
         accepts: ['image'], produces: ['text'], preprocess: true, batchSize: 2,
       } } },

@@ -85,6 +85,8 @@ export function providerFailure(value: unknown, httpStatus?: number): never {
 }
 
 export interface AdapterHttpContext {
+  receivedImageCount?: number
+  reportedFailedImageCount?: number
   outputParts: FileServiceAdapterPart[]
   incomplete?: FileServiceAdapterOutput['incomplete']
   response?: Record<string, unknown>

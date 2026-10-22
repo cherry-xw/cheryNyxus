@@ -107,6 +107,21 @@ describe('config apply coordinator', () => {
     })
     expect(handler.prepare).not.toHaveBeenCalled()
   })
+  it.each([
+    ['files', 'imageGeneration', 'unexpected'],
+    ['llm', 'brain', 'a', 'capabilities', 'imageOutput', 'image.inspect'],
+    ['llm', 'brain', 'a', 'capabilities', 'imageOutput', 'image.generate', 'unexpected'],
+    ['llm', 'brain', 'a', 'capabilities', 'imageOutput', 'image.generate', 'countControl', 'unexpected'],
+    ['file_services', 'drawing', 'connection', 'capabilities', 'imageOutput', 'image.generate', 'unexpected'],
+  ])('keeps unknown drawing configuration paths unsupported: %j', (...path: string[]) => {
+    const before = image(), after = image()
+    let target = after.config as unknown as Record<string, unknown>
+    for (const key of path.slice(0, -1)) target = (target[key] ??= {}) as Record<string, unknown>
+    target[path.at(-1)!] = true
+    expect(diffResources(resources(before), resources(after), '')).toContainEqual(
+      expect.objectContaining({ boundary: 'unsupported' }),
+    )
+  })
   it.each(['create', 'edit', 'delete'] as const)(
     'classifies role scope %s at the tree boundary without accepting unknown fields',
     (operation) => {

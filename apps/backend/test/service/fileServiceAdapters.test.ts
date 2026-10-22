@@ -29,6 +29,40 @@ function requestBody(fetcher: ReturnType<typeof mockFetch>): Record<string, unkn
 afterEach(() => vi.useRealTimers())
 
 describe('文件服务 HTTP 适配器', () => {
+  it('Gemini maps saved imageConfig to current native responseFormat.image', async () => {
+    const fetcher = mockFetch({ candidates: [{ content: { parts: [{ inlineData: { data: first, mimeType: 'image/png' } }] } }] })
+    await executeFileServiceAdapter(input('google-gemini-image', { connection: { baseUrl: 'https://provider.example/v1beta', model: 'gemini-3.1-flash-image' }, params: { prompt: 'synthetic', imageConfig: { imageSize: '512', aspectRatio: '16:9' } } }), { fetch: fetcher })
+    expect(requestBody(fetcher).generationConfig).toEqual({ responseModalities: ['TEXT', 'IMAGE'], responseFormat: { image: { imageSize: '512', aspectRatio: '16:9' } } })
+    expect(() => validateFileServiceAdapterParams('google-gemini-image', { prompt: 'synthetic', imageConfig: { imageSize: '4K' } }, 'gemini-3.1-flash-lite-image')).toThrow()
+  })
+  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])('GPT Image 2.5 %s forwards explicit quality and custom dimensions without a paid request', async model => {
+    const fetcher = mockFetch({ data: [{ b64_json: first }] })
+    await executeFileServiceAdapter(input('openai-images', { connection: { baseUrl: 'https://provider.example/v1', model }, params: { prompt: 'synthetic', quality: 'xhigh', size: '3840x2160', output_format: 'png' } }), { fetch: fetcher })
+    expect(requestBody(fetcher)).toMatchObject({ model, quality: 'xhigh', size: '3840x2160' })
+    expect(() => validateFileServiceAdapterParams('openai-images', { prompt: 'synthetic', size: '3841x2160' }, model)).toThrow()
+    expect(() => validateFileServiceAdapterParams('openai-images', { prompt: 'synthetic', input_fidelity: 'high' }, model)).toThrow()
+  })
+
+  it('old GPT image models do not inherit new quality or size controls', () => {
+    expect(() => validateFileServiceAdapterParams('openai-images', { prompt: 'synthetic', quality: 'max' }, 'gpt-image-1.5')).toThrow()
+    expect(() => validateFileServiceAdapterParams('openai-images', { prompt: 'synthetic', size: '3840x2160' }, 'gpt-image-1.5')).toThrow()
+  })
+
+  it.each(['doubao-seedream-5-0-pro-260628', 'doubao-seedream-5-0-flash-260915'])('%s accepts 1.5K and rejects unsupported resolution/effort fields', async model => {
+    const fetcher = mockFetch({ data: [{ b64_json: first }] })
+    await executeFileServiceAdapter(input('doubao-seedream', { connection: { baseUrl: 'https://provider.example/api/v3', model }, params: { prompt: 'synthetic', size: '1.5K', optimize_prompt_options: { mode: 'standard' } } }), { fetch: fetcher })
+    expect(requestBody(fetcher)).toMatchObject({ size: '1.5K', optimize_prompt_options: { mode: 'standard' }, stream: false })
+    for (const params of [{ size: '4K' }, { size: '512x512' }, { seed: 1 }, { layer_decomposition: true }]) expect(() => validateFileServiceAdapterParams('doubao-seedream', { prompt: 'synthetic', ...params }, model)).toThrow()
+  })
+
+  it('Seedream pro fast is explicit; flash fast is rejected, transparency requires reference', async () => {
+    expect(validateFileServiceAdapterParams('doubao-seedream', { prompt: 'synthetic', optimize_prompt_options: { mode: 'fast' } }, 'doubao-seedream-5-0-pro-260628')).toHaveProperty('optimize_prompt_options')
+    expect(() => validateFileServiceAdapterParams('doubao-seedream', { prompt: 'synthetic', optimize_prompt_options: { mode: 'fast' } }, 'doubao-seedream-5-0-flash-260915')).toThrow()
+    const fetcher = mockFetch({ data: [{ b64_json: first }] })
+    await expect(executeFileServiceAdapter(input('doubao-seedream', { connection: { baseUrl: 'https://provider.example/api/v3', model: 'doubao-seedream-5-0-pro-260628' }, params: { prompt: 'synthetic', background: 'transparent' } }), { fetch: fetcher })).rejects.toMatchObject({ code: 'file_service.invalid_params' })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
   it('最小检查：MiniMax 保留全部图片并请求 base64', async () => {
     const fetcher = mockFetch({ base_resp: { status_code: 0 }, id: 'remote-1', data: { image_base64: [first, second] } })
     const result = await executeFileServiceAdapter(input(), { fetch: fetcher })
@@ -149,6 +183,28 @@ describe('文件服务 HTTP 适配器', () => {
       providerContinuation: { adapter: 'google-gemini-image', model: 'other-model', endpoint: 'https://provider.example/v1beta/models/other-model:generateContent', contents: [] },
     }), { fetch: fetcher })).rejects.toMatchObject({ code: 'file_service.invalid_params' })
     expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('Gemini 多 candidate 的最终图全部保存，思考图不计数，也不构造共用续接', async () => {
+    const fetcher = mockFetch({ candidates: [
+      { finishReason: 'STOP', content: { parts: [{ thought: true, inlineData: { data: first, mimeType: 'image/png' } }, { inlineData: { data: first, mimeType: 'image/png' } }] } },
+      { finishReason: 'STOP', content: { parts: [{ inlineData: { data: second, mimeType: 'image/png' } }] } },
+    ] })
+    const result = await executeFileServiceAdapter(input('google-gemini-image'), { fetch: fetcher })
+    expect(result.parts).toHaveLength(2)
+    expect(result.receivedImageCount).toBe(2)
+    expect(result.providerContinuation).toBeUndefined()
+    expect(result.incomplete?.code).toBe('file_service.multiple_candidates')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('MiniMax 单次返回不足时保留明确失败数，不用差值伪造失败', async () => {
+    const fetcher = mockFetch({ base_resp: { status_code: 0 }, data: { image_base64: [first] }, metadata: { failed_count: 1 } })
+    const result = await executeFileServiceAdapter(input('minimax-images', { params: { prompt: 'test', n: 3 } }), { fetch: fetcher })
+    expect(result.receivedImageCount).toBe(1)
+    expect(result.reportedFailedImageCount).toBe(1)
+    expect(result.incomplete).toMatchObject({ retryable: false })
+    expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
   it('Imagen 使用 predict 的 instances/parameters 并解析所有 predictions', async () => {
