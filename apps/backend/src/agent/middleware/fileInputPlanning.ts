@@ -1,3 +1,5 @@
+import { groupCurrentImages } from '@/service/fileServices/imageSimilarity.js'
+import { prepareImage, type PreparedImage } from '@/service/media/prepareImage.js'
 import { createHash } from 'node:crypto'
 import { imageKey, imageTurnView, commitImageInputs, getImageDescription, saveImageDescription, beginDescriptionAttempt, finishDescriptionAttempt, type ImageTurnView, type ImageDescription } from '@/service/fileServices/imageContext.js'
 import { buildFileServiceToolName } from '@chery/protocol'
@@ -9,7 +11,7 @@ import type { LLMResponse, LLMAttachment } from '@/core/message/adapter.js'
 import type { MiddlewareContext } from '@/core/middleware/types.js'
 import { resolveBrainProtocol } from '@/core/llm/routing.js'
 import { resolveEffectiveBrainCapabilities } from '@/utils/modelCatalog.js'
-import config from '@/utils/config.js'
+import liveConfig from '@/utils/config.js'
 import { getChatPreset, getChatType } from '@/db/chat.js'
 import { getAssetStore } from '@/service/media/store.js'
 import { fileAccessForChat } from '@/service/media/access.js'
@@ -51,6 +53,7 @@ export interface FileInputProjection {
 }
 
 interface Candidate {
+  preparedImage?: PreparedImage
   index: number
   part: MessageAssetPart
   explicit: boolean
@@ -84,10 +87,25 @@ function projectPart(part: MessagePart): string {
   }
 }
 
+function userDescription(message: LLMResponse, part: MessageAssetPart): string | undefined {
+  const parts = message.parts ?? []
+  const position = parts.findIndex(item => item.partId === part.partId)
+  const senderBoundary = (item: MessagePart) => item.type === 'text' && /^qq-input:.*:sender$/.test(item.partId)
+  let start = position
+  while (start > 0 && !senderBoundary(parts[start]!)) start--
+  if (!senderBoundary(parts[start]!)) return parts.filter(p => p.type === 'text').map(p => p.text).join('\n')
+  let end = start + 1
+  while (end < parts.length && !senderBoundary(parts[end]!)) end++
+  return parts.slice(start + 1, end).filter(p => p.type === 'text').map(p => p.text).join('\n')
+}
+
 export async function planFileInputs(ctx: MiddlewareContext, history: LLMResponse[]): Promise<FileInputProjection> {
   const runtime = ctx.runtime
   if (!runtime) return { history }
-  const policy = { mode: 'recent' as 'current' | 'recent' | 'unlimited', recentUserTurns: 3, replacement: 'description', missingDescription: 'existing', maxDescriptionChars: 600, maxTotalDescriptionChars: 6000, ...config.files?.imageContext }
+  const config = runtime.configSnapshot ?? liveConfig
+  const qqManaged = ctx.requestView?.identity.channel === 'qq'
+  const qqImageCapability = qqManaged ? ctx.requestView?.fileCapabilities?.find(item => item.operation === 'image.inspect') : undefined
+  const policy = { mode: 'recent' as 'current' | 'recent' | 'unlimited', recentUserTurns: 1, replacement: 'description', missingDescription: 'existing', maxDescriptionChars: 600, maxTotalDescriptionChars: 6000, ...config.files?.imageContext }
   let turnView: ImageTurnView | undefined
   try { turnView = imageTurnView(ctx.soul.chatId, history) } catch (error) {
     if (history.some(m => m.parts?.some(p => p.type === 'asset' && p.usage === 'content'))) throw error
@@ -132,12 +150,12 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
       const isImage = mimeType?.startsWith('image/')
       const sourceOrdinal = turnView?.turns.find(turn => turn.id === message.id)?.ordinal
       const lastRead = turnView?.images.find(item => imageKey(item.part) === imageKey(part))?.ordinal
-      const age = turnView ? ageSince(Math.max(sourceOrdinal ?? 0, lastRead ?? 0)) : current - index
-      const imageExpired = !explicitReads.has(imageKey(part)) && policy.mode !== 'unlimited' && age >= (policy.mode === 'current' ? 1 : policy.recentUserTurns)
+      const age = turnView ? ageSince(part.inputOrigin === 'history' ? lastRead ?? turnView.ordinal : Math.max(sourceOrdinal ?? 0, lastRead ?? 0)) : current - index
+      const imageExpired = !(part.inputOrigin === 'quote' && index === current) && !explicitReads.has(imageKey(part)) && policy.mode !== 'unlimited' && age >= (policy.mode === 'current' ? 1 : policy.recentUserTurns)
       const reason = part.usage === 'reference-only' ? '仅附文件，不读取内容'
         : !active ? '不是用户内容输入，不自动重发'
           : (isImage ? imageExpired : index !== current && (limits.recentUserTurns === 0 || !retained.has(index))) ? '超出最近用户轮范围，可重新引用' : ''
-      candidates.push({ index, part, explicit: index === current || explicitReads.has(imageKey(part)), decision: {
+      candidates.push({ index, part, explicit: (index === current && part.inputOrigin !== 'history') || explicitReads.has(imageKey(part)), decision: {
         messageId: message.id, partId: part.partId, assetId: part.assetId,
         originalName: part.originalName,
         assetVersionId: part.assetVersionId, variant: part.variant,
@@ -149,6 +167,39 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
   const active = candidates.filter((c) => !c.decision.reason)
   const access = active.length ? fileAccessForChat(ctx.soul.chatId) : undefined
   const store = active.length ? getAssetStore() : undefined
+  const imageItems = [...new Map(active.flatMap(c => {
+    try {
+      const asset = store!.get(c.part.assetId, access!, c.part.assetVersionId)
+      return asset.kind === 'image' && bindings['image.inspect']?.mode !== 'disabled' && roleBindings?.['image.inspect']?.mode !== 'disabled' && bindings['image.inspect']?.mode !== 'role' && asset.availability === 'available' && asset.transform?.variant === c.part.variant
+        ? [[imageKey(c.part), { key: imageKey(c.part), asset }] as const] : []
+    } catch { return [] }
+  })).values()]
+  const normalizedImages = new Map<string, PreparedImage>()
+  const imageErrors = new Map<string, Error>()
+  if (bindings['image.inspect']?.mode !== 'tool' && effective.input.image.state === 'supported' && ['openai-chat-completions', 'openai-responses', 'anthropic-messages'].includes(protocol ?? '')) {
+    for (const item of imageItems) {
+      try {
+        requestSignalForImage(ctx)
+        const { data } = await store!.read(item.asset.id, access!, item.asset.versionId)
+        normalizedImages.set(item.key, await prepareImage(data, config.files?.imageAdaptation, effective.imageInput))
+        requestSignalForImage(ctx)
+      } catch (error) {
+        requestSignalForImage(ctx)
+        imageErrors.set(item.key, error instanceof Error ? error : new Error('图片处理失败，原件保留'))
+      }
+    }
+  }
+  const comparableImages = imageItems.filter(item => !imageErrors.has(item.key)).map(item => {
+    const prepared = normalizedImages.get(item.key)
+    return prepared ? { ...item, asset: { ...item.asset, sizeBytes: prepared.data.length, sha256: createHash('sha256').update(prepared.data).digest('hex'), transform: { ...item.asset.transform!, width: prepared.width, height: prepared.height } } } : item
+  })
+  const imageAliases = await groupCurrentImages(comparableImages, async item => {
+    requestSignalForImage(ctx)
+    if (normalizedImages.has(item.key)) return normalizedImages.get(item.key)!.data
+    const result = await store!.read(item.asset.id, access!, item.asset.versionId)
+    requestSignalForImage(ctx)
+    return result.data
+  })
   const versions = new Set<string>()
   let binaryBytes = 0
   let textReserved = 0
@@ -162,13 +213,32 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
         throw fileInputError('asset.unavailable', '文件不可用或固定版本与所选版本类型不一致')
       const operation = operationFor(asset)
       const binding: RoleFileCapabilityBinding = bindings[operation] ?? { mode: 'auto' }
+      if (asset.kind === 'image' && qqManaged && (qqImageCapability?.availability !== 'available' || qqImageCapability?.mode !== 'native')) {
+        c.decision.reason = `图片固定引用 assetId=${c.part.assetId} assetVersionId=${c.part.assetVersionId}；image.inspect=${qqImageCapability?.availability ?? 'unknown'}/${qqImageCapability?.mode ?? 'auto'}${qqImageCapability?.targetId ? ` targetId=${qqImageCapability.targetId}` : ''}；${qqImageCapability?.reason ?? '本次能力未确认'}；由模型按已有授权路径按需调用，本次未携带图片`
+        continue
+      }
        if (binding.mode === 'disabled' || roleBindings?.[operation]?.mode === 'disabled')
          throw fileInputError('capability.unavailable', `${operation} 已被角色禁止`)
       if (binding.mode === 'role') throw fileInputError('capability.unavailable', '此文件需要明确委派后读取，前置处理不会自动派发角色')
+      if (imageErrors.has(imageKey(c.part))) {
+        c.decision.reason = imageErrors.get(imageKey(c.part))!.message
+        continue
+      }
+      c.preparedImage = normalizedImages.get(imageKey(c.part))
+      const representative = imageAliases.get(imageKey(c.part))
+      if (representative && representative !== imageKey(c.part)) {
+        if (c.explicit && !history[c.index]!.ephemeral) {
+          const userText = userDescription(history[c.index]!, c.part)
+          if (userText?.trim()) saveImageDescription(ctx.soul.chatId, c.part, { source: 'user', sourceMessageId: history[c.index]!.id, text: userText.slice(0, policy.maxDescriptionChars), scope: '用户随图说明，未经视觉核实' })
+        }
+        c.decision.action = 'omit'
+        c.decision.reason = `当前有效图片上下文内高相似或相同图片，原关联 ${imageKey(c.part)}，复用代表 ${representative}；此位置仍属于原发送者，不将代表观察当作本图已核实内容`
+        continue
+      }
       const kind = asset.mimeType === 'application/pdf' ? 'pdf' : asset.kind
       const native = ['image', 'audio', 'video', 'pdf'].includes(kind)
         && effective.input[kind as keyof typeof effective.input].state === 'supported'
-        && supportsNativeFile(protocol, asset.mimeType)
+        && supportsNativeFile(protocol, c.preparedImage?.mimeType ?? asset.mimeType)
       if ((binding.mode === 'auto' || binding.mode === 'native') && native) c.decision.action = 'native'
       else if ((binding.mode === 'auto' || binding.mode === 'native') && plainText(asset)) c.decision.action = 'extract'
       else {
@@ -192,7 +262,7 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
         c.decision.reason = '同一固定版本已在本次请求的其他位置携带'
         continue
       }
-      const bytes = c.decision.action === 'extract' ? 0 : asset.sizeBytes
+      const bytes = c.decision.action === 'extract' ? 0 : c.decision.action === 'native' && c.preparedImage ? c.preparedImage.data.length : asset.sizeBytes
       const chars = c.decision.action === 'extract' ? Math.min(asset.sizeBytes, limits.maxExtractedCharsPerAsset)
         : c.decision.action === 'tool' ? limits.maxExtractedCharsPerAsset : 0
       if ((!versions.has(key) && versions.size >= limits.maxAssets) || binaryBytes + bytes > limits.maxBinaryBytes || textReserved + chars > limits.maxExtractedChars)
@@ -203,13 +273,13 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
       c.decision.binaryBytes = bytes
       c.decision.reason = '已纳入本次请求'
       if (asset.kind === 'image' && c.explicit && !history[c.index]!.ephemeral) {
-        const userText = history[c.index]!.parts?.filter(p => p.type === 'text').map(p => p.text).join('\n')
+        const userText = userDescription(history[c.index]!, c.part)
         if (userText?.trim()) saveImageDescription(ctx.soul.chatId, c.part, { source: 'user', sourceMessageId: history[c.index]!.id, text: userText.slice(0, policy.maxDescriptionChars), scope: '用户随图说明，未经视觉核实' })
       }
     } catch (error) {
       if (c.explicit) throw error
       c.decision.action = 'omit'
-      c.decision.reason = error instanceof Error ? error.message : '历史文件不可读取'
+      c.decision.reason = (error as {code?:string})?.code === 'asset.too_large' ? '历史文件超过本轮上下文预算' : '历史文件不可读取，请检查文件和权限'
     }
   }
   const attachments: LLMAttachment[] = []
@@ -226,7 +296,11 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
       continue
     }
     let data: Buffer
-    try { ({ data } = await store!.read(c.part.assetId, access!, c.part.assetVersionId)) }
+    try {
+      ({ data } = await store!.read(c.part.assetId, access!, c.part.assetVersionId))
+      store!.get(c.part.assetId, access!, c.part.assetVersionId)
+      requestSignalForImage(ctx)
+    }
     catch (error) {
       if (c.explicit) throw error
       c.decision.action = 'omit'
@@ -235,7 +309,7 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
       continue
     }
     if (c.decision.action === 'native') attachments.push({
-      data, mimeType: c.asset!.mimeType, kind: c.asset!.kind,
+      data: c.preparedImage?.data ?? data, mimeType: c.preparedImage?.mimeType ?? c.asset!.mimeType, kind: c.asset!.kind,
       messageId: c.decision.messageId, partId: c.part.partId,
       assetId: c.part.assetId, assetVersionId: c.part.assetVersionId, variant: c.part.variant,
     })
@@ -321,7 +395,7 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
   let descriptionCalls = 0
   for (const c of candidates) {
     if (c.decision.action !== 'omit' || c.decision.ageUserTurns === undefined || c.part.usage === 'reference-only' || !history[c.index] || history[c.index]!.revoked || history[c.index]!.modelExcluded) continue
-    if (c.decision.reason === '同一固定版本已在本次请求的其他位置携带') continue
+    if (c.decision.reason === '同一固定版本已在本次请求的其他位置携带' || c.decision.reason.startsWith('当前有效图片上下文内')) continue
     try {
       const asset = getAssetStore().get(c.part.assetId, fileAccessForChat(ctx.soul.chatId), c.part.assetVersionId)
       if (asset.availability !== 'available') continue
@@ -330,7 +404,7 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
       if (binding?.mode === 'disabled' || roleBindings?.['image.inspect']?.mode === 'disabled') continue
       let description = getImageDescription(ctx.soul.chatId, c.part)
       if (description?.sourceMessageId && history.some(message => message.id === description!.sourceMessageId && (message.revoked || message.modelExcluded))) description = undefined
-      if (description?.source !== 'observation' && policy.missingDescription === 'inspect' && binding?.mode !== 'role' && history[c.index]!.role === 'user' && c.decision.reason === '超出最近用户轮范围，可重新引用') {
+      if ((!qqManaged || qqImageCapability?.availability === 'available' && qqImageCapability.mode === 'native') && description?.source !== 'observation' && policy.missingDescription === 'inspect' && binding?.mode !== 'role' && history[c.index]!.role === 'user' && c.decision.reason === '超出最近用户轮范围，可重新引用') {
         const id = config.files?.imageContext?.serviceId
         const name = id ? buildFileServiceToolName(id, 'image.inspect') : ''
         const tool = fileInputTools(ctx, 'image.inspect').find(item => item.name === name)
@@ -373,13 +447,20 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
       if (part.type !== 'asset') return part
       const c = candidates.find((item) => item.index === index && item.part.partId === part.partId)!
       if (c.decision.action === 'native') return part
-      return { type: 'text', partId: part.partId, text: textByPart.get(keyFor(c)) ?? `[文件 ${part.originalName ?? part.assetId}：${c.decision.action === 'tool' ? '见同组文件理解观察' : c.decision.reason}]` }
+      return { type: 'text', partId: part.partId, text: textByPart.get(keyFor(c)) ?? `[文件 ${part.originalName ?? part.assetId}；assetId=${part.assetId} assetVersionId=${part.assetVersionId}：${c.decision.action === 'tool' ? '见同组文件理解观察' : c.decision.reason}]` }
     })
     return { ...message, parts, content: parts.map(projectPart).filter(Boolean).join('\n') }
   })
+  // Only representative payloads participate in file budgets, but every adopted alias
+  // must consume its explicit reread and retain its own source/turn metadata.
+  const adoptedImages = candidates.filter(c => c.asset?.kind === 'image' && (
+    ['native', 'tool'].includes(c.decision.action) ||
+    (c.decision.reason.startsWith('当前有效图片上下文内') && candidates.some(rep =>
+      imageKey(rep.part) === imageAliases.get(imageKey(c.part)) && ['native', 'tool'].includes(rep.decision.action)))
+  ))
   return {
     history: projected, ...(attachments.length ? { attachments } : {}),
-    ...(turnView ? { commit: () => commitImageInputs(ctx.soul.chatId, turnView!, candidates.filter(c => c.asset?.kind === 'image' && ['native', 'tool'].includes(c.decision.action)).map(c => ({ part: { ...c.part, mimeType: c.asset!.mimeType }, refresh: c.explicit, ordinal: turnView!.turns.find(turn => turn.id === history[c.index]?.id)?.ordinal, sourceMessageId: history[c.index]?.ephemeral ? turnView!.requestSources?.[imageKey(c.part)] : history[c.index]?.id }))) } : {}),
+    ...(turnView ? { commit: () => commitImageInputs(ctx.soul.chatId, turnView!, adoptedImages.map(c => ({ part: { ...c.part, mimeType: c.asset!.mimeType }, refresh: c.explicit, ordinal: c.part.inputOrigin === 'history' ? turnView!.ordinal : turnView!.turns.find(turn => turn.id === history[c.index]?.id)?.ordinal, sourceMessageId: history[c.index]?.ephemeral ? turnView!.requestSources?.[imageKey(c.part)] : history[c.index]?.id }))) } : {}),
     capabilitiesHint: [
       '本次请求的文件输入状态以实际附件和下列清单为准；历史工具结果中的 image_read_prepared 只是登记状态，不是本次仍在等待图片的结论。',
       '“本次请求”指发送给模型的整组消息，不只是最后一条用户消息。实际附在较早用户消息中的图片也是本次图片输入；不要因为最新用户消息只有文字就说本次没有图片，也不要用旧回答中的未携图结论覆盖当前输入状态。只有旧文字描述而没有实际图片时，仍不算本次看图。',
@@ -389,7 +470,7 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
       ...(candidates.some(c => c.asset?.kind === 'image' && c.decision.action === 'tool') ? [
         `本次已提供以下图片的理解工具文字观察，不是模型直接看到原图；只能依据观察回答，未覆盖的细节应明确说明：${JSON.stringify(candidates.filter(c => c.asset?.kind === 'image' && c.decision.action === 'tool').map(c => ({ assetId: c.part.assetId, assetVersionId: c.part.assetVersionId })))}`,
       ] : []),
-      '图片文字说明只是先前观察或用户说明，不是本次看过图片。需要确认文字、细节、位置或编辑时，必须采用实际固定版本：用已分配的 file_images_find / file_assets_list 定位，再用 file_image_read 明确重新读取；没有这些工具时请用户重新引用或明确委派，不猜测，也不把路径当成图片。多个候选不明确时先询问用户。',
+      '图片文字说明只是先前观察或用户说明，不是本次看过图片。固定资产引用表示文件已保存，不是图片未传来；超出保留轮数只表示本轮未重新携带，不能据此声称下载失败或要求用户重复上传。需要确认文字、细节、位置或编辑时，必须采用实际固定版本：用已分配的 file_images_find / file_assets_list 定位，再用 file_image_read 明确重新读取。已有确切资产ID和版本时可直接调用 file_image_read；工具准备成功后以下一请求实际输入为准。没有这些工具时明确说明当前角色未获分配重读工具，请用户重新引用或明确委派，不猜测，也不把路径当成图片。多个候选不明确时先询问用户。',
       ...(groups.size && candidates.some((c) => c.decision.action === 'native') || groups.size > 1 ? ['本次文件使用不同读取方式。各工具观察没有联合读取全部文件，不能把独立摘要当作对全部文件细节的直接比较；需联合读取时明确报告限制。'] : []),
     ].join('\n'),
     plan: candidates.map((c) => c.decision),

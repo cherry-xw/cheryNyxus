@@ -40,16 +40,26 @@ beforeEach(() => {
 afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()) })
 
 describe('图片上下文设置', () => {
+  it('单图字节上限明确标示十进制 MB，输入校验只修改同一草稿', async () => {
+    const { wrapper, draft } = policy()
+    const limit = wrapper.find('input[id$="imageAdaptation.maxBytes"]')
+    expect((limit.element as HTMLInputElement).value).toBe('5000000')
+    expect(wrapper.text()).toContain('5 MB = 5,000,000')
+    await limit.setValue('2500000')
+    expect(draft.files?.imageAdaptation?.maxBytes).toBe(2500000)
+    await limit.setValue('0')
+    expect(limit.attributes('aria-invalid')).toBe('true')
+  })
   it('显示真实默认值，清空使用默认且不写成零，非法数字关联字段错误', async () => {
     const { wrapper, draft } = policy()
     const turns = wrapper.find('input[id$="imageContext.recentUserTurns"]')
-    expect((turns.element as HTMLInputElement).value).toBe('3')
+    expect((turns.element as HTMLInputElement).value).toBe('1')
     expect(wrapper.text()).toContain('默认')
     await turns.setValue('5')
     expect(draft.files?.imageContext?.recentUserTurns).toBe(5)
     await turns.setValue('')
     expect(draft.files?.imageContext?.recentUserTurns).toBeUndefined()
-    expect((turns.element as HTMLInputElement).value).toBe('3')
+    expect((turns.element as HTMLInputElement).value).toBe('1')
     await turns.setValue('1.5')
     expect(turns.attributes('aria-invalid')).toBe('true')
     expect(wrapper.find(`[id="${turns.attributes('aria-describedby')}"]`).text()).toContain('整数')

@@ -53,6 +53,20 @@ roles:
 
 ## Brain 能力契约
 
+QQ 历史图片沿已选背景窗口进入有序资产部分。统一文件能力解析器复用本次 `RuntimeConfig.configSnapshot`、实际运行选择、角色派发名单与临时角色覆盖；`IngressRequestView.fileCapabilities` 向插件提供解析结果，不新增预设 `hasVision`。明确不支持与协议不支持为 unavailable，未知保持 unknown。注册工具不等于本请求可调用：请求身份过滤后的工具表还要约束解析，真正执行继续检查参数、角色策略、审批和 PreToolUse。主模型仅在 available/native 时接收原生图片；role/tool 保留固定版本与关系供模型按需调用，不自动派发。历史 `inputOrigin: history` 使用第一次采用轮数，不因新消息重复带入而刷新；`quote` 只在当前明确引用轮刷新。轮数及来源按会话和所有者持久保存，工具循环不推进。
+
+### 图片格式与每图硬上限
+
+`capabilities.imageInput` 与 `input.image` 配合使用：`formats` 为模型实际接受的 MIME 列表（JPEG/PNG/WebP/GIF），`animation` 为 `supported / first-frame / unsupported / unknown`，可独立声明服务的 `maxBytes`（原始字节）和 `maxBase64Bytes`（编码后字节）。各字段按用户覆盖、模型目录、未知的顺序解析。协议格式表仅说明传输能力，不能充当模型支持证明；未知模型必须配置格式列表，空列表表示不接受图片。Web 模型设置可编辑。
+
+`files.imageAdaptation.maxBytes` 默认 **5 MB = 5,000,000 字节**，是每张模型输入的最大值，不是每图目标大小，也不改变上传上限或其他文件策略。`imageAdaptation.quality` 是转换或压缩时的 **JPEG/WebP 编码质量上限**（默认 85，保留用户显式值），不是原图视觉质量的估计或保证；不同格式的相同质量值不代表视觉效果相同。PNG 使用无损压缩，没有对应的有损 quality 参数。通过真实格式、完整解码、模型格式与动画支持、最长边和服务额外限制检查的原图直接复用原字节，不生成新版本；只有需要转换、缩小或压缩时才编码。编码先使用质量上限，仍超限时进一步降低编码质量或等比缩小；不读取原图质量估计，不按像素预算或小图曲线降低质量，不统一重编码合规原图，也不放大或补足体积。
+
+运行输入先通过 `service/media/prepareImage.ts` 验证、适配，再按处理后的字节做本次会话去重与总附件预算检查。解码可用但格式不在模型列表时，自动选择列表内可编码格式，保留透明通道。超过硬上限时在有限次数内调整编码和等比缩小，实际 buffer 达标才可使用或保存派生版本；失败不会回退超限原件。原件、发送者、权限与固定引用保持不变；压缩与缩小可能损失细节。每图服务限制、Base64 限制、整次附件预算分别检查。
+
+动画不自动取首帧或丢帧；服务仅首帧、明确不支持或未知时不携带，附原因并保留原件。完整动画支持需明确声明，重新编码后检查帧数、延时和循环次数；当前不能保证 APNG 保留动画，拒绝转换。MiniMax 文档列出的 GIF 格式不等于保证理解完整动画。
+
+格式来源：[OpenAI](https://developers.openai.com/api/docs/guides/images-vision)（JPEG/PNG/WebP/非动画 GIF）、[Claude](https://platform.claude.com/docs/en/build-with-claude/vision)（JPEG/PNG/GIF/WebP，动画只首帧，大小需区分 Base64 和原始字节）、[MiniMax](https://platform.minimax.io/docs/api-reference/text-openai-api)（M3 图片格式和 10 MB；动画语义未说明）。这些说明不是任意兼容地址的实测结论，未知型号不从协议或名称臆测限制。
+
 `BrainCapabilities`（[packages/plugin-api/src/config.ts](../../../packages/plugin-api/src/config.ts)）：
 
 | 字段 | 缺省 | 含义 |
@@ -64,6 +78,16 @@ roles:
 - **三态与继承**：媒体能力项取值 `'supported' | 'unsupported' | 'unknown'`。配置省略某项表示继承模型目录推荐（`source: 'catalog'`），显式填写 `'unknown'` 表示未确认，显式填写 `'supported' | 'unsupported'` 表示用户覆盖（`source: 'user'`）。协议适配器不支持的类别在最终解析中被限制（`source: 'adapter'`）。
 - **原生媒体能力与服务端内置工具分离**：模型目录按模型与协议分别记录原生媒体能力（`input` / `output`）和服务端内置工具能力（`serverTools.webSearch`、`serverTools.webReader`、`serverTools.imageInspect`）。例如 GLM-5.3 原生为纯文本模型（`input.image: false`），在 `anthropic-messages` 协议下可通过服务端工具 `analyze_image` 辅助看图，不能因此将所有 GLM-5.3 配置标为原生视觉模型；切回 `openai-chat-completions` 或 `openai-responses` 时不会沿用另一协议的成功结论。
 - **移除 `generate`**：旧 `capabilities.generate` 已移除，不再将“可调用外部生图工具”混同为大脑原生输出能力。关闭 `toolCall` 不会清除模型原生 `input` / `output` 声明。
+
+### 当前连接的能力来源
+
+`utils.modelRecommendation` 可携带 `connection`（当前草稿的地址、密钥引用及完整地址开关），返回 `serviceCapabilities`；`config_manage.get` 使用同一查询生成各大脑的能力说明。查询只读，不测试连接、不请求模型、不发现 MCP 工具。
+
+原生媒体及服务端能力的目录值保留来源，不代表当前连接已经验证。`knownTools` 分开记录目录说明和当前连接响应中观察到的真实名称；`catalogComplete=false` 表示完整列表未知，不把 MCP 列表混入模型服务目录。目录可以通过 `capabilities.serverToolDefinitions` 提供名称、说明和文档链接；不从调用参数猜输入结构。
+
+观察按服务、有效协议、地址、完整地址开关、请求模型、凭据引用及解析后的凭据隔离。更换任一项后不借用其他连接的记录；密钥轮换也不沿用旧记录。数据库只保存连接摘要和工具名称、最近状态及时间，不保存密钥、参数、图片、正文或结果。记录失败不改变模型执行结果，但读取失败必须显示为记录不可用，不能当作空目录。
+
+`verification.status=not-verified` 表示尚无当前配置完整任务验证；已观察到工具、工具 `completed`、普通连接成功和离线测试均不会将其改成验证通过。真实任务验证与 GLM 服务端图片输入开放仍须按[当前任务](../../plan/file-capabilities-and-model-collaboration/README.md)的授权和条件完成。
 
 ## 文件服务与适配器契约（`file_services`）
 
@@ -104,8 +128,9 @@ roles:
 `files` 配置维护上传、上下文携带、图片适配与未引用清理默认值（[packages/plugin-api/src/config.ts](../../../packages/plugin-api/src/config.ts) `FilesConfig`）：
 - `maxUploadBytes`：默认 100 MiB
 - `context.recentUserTurns`：其他文件默认 3（非负整数，0 表示仅携带当前显式内容引用）；图片独立使用 `imageContext`，不叠加此轮数。
-- `imageContext.mode`：`current / recent / unlimited`，默认 `recent`；`recentUserTurns` 默认 3，含首次采用图片的用户轮。仅当前轮和不按轮过滤仍受请求预算限制。
+- `imageContext.mode`：`current / recent / unlimited`，默认 `recent`；`recentUserTurns` 默认 1，含首次采用图片的用户轮。合并 QQ 消息算一个用户轮，工具循环不推进；下一次用户输入被采用后改为既有描述或无描述占位，明确引用或重读可恢复。仅当前轮和不按轮过滤仍受请求预算限制。
 - `imageContext.replacement`：`description / keywords`，默认描述与关键词；`missingDescription`：`existing / inspect`，默认仅复用已有信息。自动补描述必须选择启用的图片理解 `serviceId`，且通过本角色工具授权；仅保存设置不发起调用。
+- 图片在当前有效会话候选内先按 SHA 精确去重，再用感知哈希与颜色/细节差异检查静态图高相似；仅与稳定代表比较，不沿相似链扩展。优先像素较大的版本，再以固定 ID 排序，预算在分组后计算；所有原发言、位置和资产关联保留。GIF 与多帧图仅精确去重，解码失败回到普通文件处理。相似识别最多处理 64 个候选、单图 2400 万像素及 16 MiB、并发解码最多 2；没有全局图片候选或跨会话缓存。相似判断可能误合并细小文字变化，不能当作逐像素相同或转移视觉证据。入口为 `service/fileServices/imageSimilarity.ts`，验证为 `test/service/imageSimilarity.test.ts`。
 - `imageContext.maxDescriptionChars / maxTotalDescriptionChars`：默认 600 / 6000，单图与单次请求描述字符上限；分别允许 100–4000 / 100–40000，总上限不能小于单图上限。图片的基本标识单独受整体请求大小限制。
 - 自动补描述单次请求准备最多补一张，仅处理已到期用户内容图片；固定版本、服务配置及描述规则相同时不自动重试。失败或未知结果不阻断普通对话，可在图片说明详情查询状态；明确重新读图继续按权限执行。
 - 图片计数和读取记录由 `service/fileServices/imageContext.ts` 保存；准备和草稿不提交计数，provider 正式请求开始时采用。已采用的用户轮后来隐藏或撤回不让其他图片变年轻，来源撤回则不再复用其图片或描述。

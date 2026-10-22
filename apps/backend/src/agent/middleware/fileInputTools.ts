@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { FileCapabilityOperation, SenseFileOperationMapping } from '@chery/plugin-api'
-import type { AssetRecord, MessageAssetPart } from '@chery/protocol'
+import { ErrorId, type AssetRecord, type MessageAssetPart } from '@chery/protocol'
 import type { MiddlewareContext, SenseEntry } from '@/core/middleware/types.js'
 import { SupervisionLevel } from '@/core/config.js'
 import { executeSenseWithControl, isSafeSenseCall } from '@/core/sense/index.js'
@@ -19,9 +19,10 @@ export interface FileInputTool {
   mapping: SenseFileOperationMapping
 }
 
-export function fileInputError(code: string, message: string): Error {
+export function fileInputError(code: string, _message: string): Error {
   // 不让聊天请求重试重新执行付费文件操作；单项重试由文件操作入口负责。
-  return Object.assign(new ClassifiedError({ message, userMessage: message, category: 'validation', source: 'chat' }), { code })
+  const errorId = Object.values(ErrorId).find(id => id === code)
+  return Object.assign(new ClassifiedError({ errorId, message: errorId ?? 'file input rejected', userMessage: '文件处理未完成，请检查文件能力与权限。', category: 'validation', source: 'chat' }), { code })
 }
 
 /** 声明操作并提供完整映射才可前置调用，旧 accepts/preprocess 不构成执行契约。 */

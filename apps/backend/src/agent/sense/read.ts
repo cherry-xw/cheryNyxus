@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'
 import { readFile, stat } from 'fs/promises'
 import path from 'path'
 import { sense, type SenseResult, type SenseSharedData } from '@/core/sense'
@@ -18,12 +19,12 @@ const ReadSchema = z.object({
     .default('auto'),
 })
 
-const LARGE_FILE_THRESHOLD = 100 * 1024 // 100KB
+const defaults = DEFAULT_GLOBAL_OPTIONS.file_compression
 
 /**
  * 判断是否为日志文件（基于扩展名）
  */
-function isLogFile(path: string, extensions: string[]): boolean {
+function isLogFile(path: string, extensions: readonly string[]): boolean {
   return extensions.some((ext) => path.toLowerCase().endsWith(ext))
 }
 
@@ -76,15 +77,10 @@ export default sense(
 
       // 获取压缩配置（如果配置不存在则使用默认值）
       const compressionConfig = config.global.file_compression
-      const truncateThreshold = compressionConfig?.truncate_threshold ?? LARGE_FILE_THRESHOLD
-      const truncatePreviewLines = compressionConfig?.truncate_preview_lines ?? 100
-      const logExtensions = compressionConfig?.log_file_extensions ?? [
-        '.log',
-        '.txt',
-        '.out',
-        '.err',
-      ]
-      const drainPreviewCount = compressionConfig?.drain_preview_count ?? 3
+      const truncateThreshold = compressionConfig?.truncate_threshold ?? defaults.truncate_threshold
+      const truncatePreviewLines = compressionConfig?.truncate_preview_lines ?? defaults.truncate_preview_lines
+      const logExtensions = compressionConfig?.log_file_extensions ?? defaults.log_file_extensions
+      const drainPreviewCount = compressionConfig?.drain_preview_count ?? defaults.drain_preview_count
 
       // 确定压缩策略
       let compressionStrategy = input.compression

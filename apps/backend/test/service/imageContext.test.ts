@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import sharp from 'sharp'
+let pngFixture: Buffer
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetRecord, MessageAssetPart } from '@chery/protocol'
 import type { LLMResponse } from '@/core/message/adapter.js'
@@ -26,24 +28,106 @@ const msg = (id: string, parts: LLMResponse['parts'] = [], role: LLMResponse['ro
 const previousFiles = structuredClone(config.files)
 let chatId: string
 function ctx() {
-  const context = createMockContext({ runtime: createMockRuntime({ brain: { provider: 'openai', protocol: 'openai-chat-completions', capabilities: { input: { image: 'supported' } } } }) })
+  const context = createMockContext({ runtime: createMockRuntime({ brain: { provider: 'openai', protocol: 'openai-chat-completions', capabilities: { imageInput: { formats: ['image/png'] }, input: { image: 'supported' } } } }) })
   context.soul.chatId = chatId
   return context
 }
-beforeEach(() => {
+beforeEach(async () => {
+  pngFixture = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#246898' } }).png().toBuffer()
   chatId = randomUUID()
   createChat(chatId, { fileOwnerId: 'image-owner' })
   config.files = { context: { maxAssets: 10 }, imageContext: { mode: 'recent', recentUserTurns: 3 } }
   mocks.blocked.clear()
   mocks.get.mockImplementation((id: string, _access: unknown, version = `v-${id}`): AssetRecord => {
     if (mocks.blocked.has(id)) throw new Error('无权访问')
-    return { id, versionId: version, originalName: `${id}.png`, kind: 'image', mimeType: 'image/png', sizeBytes: 4, sha256: 'a'.repeat(64), createdAt: 1, source: 'upload', ownerId: 'image-owner', availability: 'available', transform: { variant: 'original' } } as AssetRecord
+    return { id, versionId: version, originalName: `${id}.png`, kind: 'image', mimeType: 'image/png', sizeBytes: pngFixture.length, sha256: id.padEnd(64, '0'), createdAt: 1, source: 'upload', ownerId: 'image-owner', availability: 'available', transform: { variant: 'original' } } as AssetRecord
   })
-  mocks.read.mockImplementation(async (id: string, access: unknown, version: string) => ({ asset: mocks.get(id, access, version), data: Buffer.from('test') }))
+  mocks.read.mockImplementation(async (id: string, access: unknown, version: string) => ({ asset: mocks.get(id, access, version), data: id === 'photo' ? pngFixture : await sharp({ create: { width: 10 + id.length, height: 8, channels: 3, background: id === 'first' ? '#ff0000' : '#0000ff' } }).png().toBuffer() }))
 })
 afterEach(() => { deleteChat(chatId); config.files = structuredClone(previousFiles); vi.clearAllMocks() })
 
 describe('图片轮数与描述持久记录', () => {
+  it('selected QQ history precedes current text, is adopted once and cannot refresh on rebuild or restart', async () => {
+    const { prepareQQFileInputs } = await import('../../../../plugins/qq/src/assetMessages.js')
+    config.files!.imageContext = {}
+    const background = [{ eventId: 'passive', selfId: '123', targetId: '456', conversationType: 'group' as const, senderId: '111', senderName: 'A', messageId: '1691784683', content: '原文字', mentionedBot: false, occurredAt: 1, attachments: [{ type: 'image', mimeType: 'image/png', url: 'https://example.com/synthetic.png' }] }]
+    const known = { [JSON.stringify(['123','group','456','1691784683',0])]:part() }
+    const current = { ...background[0]!, eventId: 'mention', senderId: '222', messageId: '426449310', content: '任意措辞', mentionedBot: true, occurredAt: 9001, attachments: [] }
+    const importer = vi.fn(async () => mocks.get('photo', null))
+    const prepare = () => prepareQQFileInputs([current], importer, new AbortController().signal, { messages: background, background, known, validate: async () => {}, save() {} })
+    const parts = await prepare()
+    const first = msg('qq-accepted-1', parts)
+    const one = await planFileInputs(ctx(), [first])
+    const payload = buildOpenAICompatibleMessages(one.history, one.attachments)
+    const content = payload[0]!.content as Array<{ type: string; text?: string; image_url?: { url: string } }>
+    expect(content.filter(p => p.type === 'image_url')).toHaveLength(1)
+    const { registerOpenAIAdapter } = await import('@/agent/provider/openai.js')
+    const { getLLMAdapter } = await import('@/core/llm/adapter.js')
+    registerOpenAIAdapter()
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'offline' } }] }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      await getLLMAdapter('openai')!.chat(payload, [], { model: 'MiniMax-M3.1-Flash-Preview', url: 'https://offline.invalid/v1', key: 'synthetic', continuous: true, skipHooks: true, thinkingParams: { reasoning_effort: 'low' } })
+      const body = JSON.parse((fetchMock.mock.calls as unknown as Array<[string, RequestInit]>)[0]![1].body as string)
+      expect(body.messages[0].content.filter((part: { type: string }) => part.type === 'image_url')).toHaveLength(1)
+      expect(body.reasoning_effort).toBe('low')
+      expect(body.messages[0].content.findIndex((p: { type: string }) => p.type === 'image_url')).toBeLessThan(body.messages[0].content.findIndex((p: { text?: string }) => p.text === '任意措辞'))
+    } finally { vi.unstubAllGlobals() }
+    expect(content.findIndex(p => p.type === 'image_url')).toBeLessThan(content.findIndex(p => p.text === '任意措辞'))
+    one.commit?.()
+    ;(await planFileInputs(ctx(), [first, msg('tool', [], 'sense')])).commit?.()
+    const rebuilt = msg('qq-accepted-2', await prepare())
+    const next = await planFileInputs(ctx(), [first, rebuilt])
+    expect(next.attachments).toBeUndefined()
+    expect(next.capabilitiesHint).toContain('固定资产引用表示文件已保存')
+    expect(next.capabilitiesHint).toContain('file_image_read')
+    next.commit?.()
+    expect((await planFileInputs(ctx(), [msg('qq-accepted-3', await prepare())])).attachments).toBeUndefined()
+    expect(imageTurnView(chatId, []).images[0]!.ordinal).toBe(1)
+    expect(importer).not.toHaveBeenCalled()
+  })
+
+  it.each(['role', 'tool', 'unknown', 'requires_approval', 'unavailable'] as const)('QQ history %s keeps a fixed reference without native payload or automatic execution', async mode => {
+    const context = ctx()
+    context.requestView = { identity: { channel: 'qq' }, fileCapabilities: [{ operation: 'image.inspect', mode: mode === 'role' || mode === 'tool' ? mode : 'native', availability: mode === 'role' || mode === 'tool' ? 'available' : mode, reason: 'test', reasonCode: 'test', configRevision: 'snapshot', inputConstraints: {} }] } as typeof context.requestView
+    const result = await planFileInputs(context, [msg('qq-history', [{ ...part(), inputOrigin: 'history' }])])
+    expect(result.attachments).toBeUndefined()
+    expect(JSON.stringify(result.history)).toContain('assetVersionId=v-photo')
+    expect(result.plan?.[0]?.action).not.toBe('tool')
+  })
+
+  it('two distinct background images both enter the native payload in order without forced clarification', async () => {
+    const result = await planFileInputs(ctx(), [msg('qq-two', [
+      { type: 'text', partId: 'a', text: 'A 在先' }, { ...part('first'), inputOrigin: 'history' },
+      { type: 'text', partId: 'b', text: 'B 在后' }, { ...part('second'), inputOrigin: 'history' },
+      { type: 'text', partId: 'now', text: '任意问题' },
+    ])])
+    expect(result.attachments).toHaveLength(2)
+    const wire = buildOpenAICompatibleMessages(result.history, result.attachments)[0]!.content as Array<{ type: string; text?: string }>
+    expect(wire.map(part => part.type)).toEqual(['text', 'image_url', 'text', 'image_url', 'text'])
+    expect(wire.at(-1)?.text).toBe('任意问题')
+  })
+
+  it('默认一轮持久计数、重建上下文不返老，删除会话清理图片轮数', async () => {
+    config.files!.imageContext = {}
+    const first = msg(randomUUID(), [part()])
+    const one = await planFileInputs(ctx(), [first])
+    expect(one.attachments).toHaveLength(1)
+    one.commit?.()
+    const toolLoop = await planFileInputs(ctx(), [first, msg(randomUUID(), [], 'sense')])
+    expect(toolLoop.attachments).toHaveLength(1)
+    toolLoop.commit?.()
+    const next = await planFileInputs(ctx(), [first, msg(randomUUID())])
+    expect(next.attachments).toBeUndefined()
+    expect(next.capabilitiesHint).toContain('固定资产引用表示文件已保存')
+    expect(next.capabilitiesHint).toContain('file_image_read')
+    next.commit?.()
+    // A fresh history projection still uses the database's adopted turn ordinal.
+    expect((await planFileInputs(ctx(), [msg(randomUUID())])).attachments).toBeUndefined()
+    deleteChat(chatId)
+    expect(getSoulDb().prepare('SELECT count(*) AS n FROM image_context_turns WHERE chat_id=?').get(chatId)).toEqual({ n: 0 })
+  })
+
   it('补描述返回前请求已取消时，晚到文字不保存为新描述，也不重置轮数', async () => {
     config.files!.imageContext = { mode: 'current', missingDescription: 'inspect', serviceId: 'late-description' }
     const controller = new AbortController()
@@ -52,7 +136,7 @@ describe('图片轮数与描述持久记录', () => {
       return { content: '取消后的晚到观察' }
     }, SupervisionLevel.auto, z.object({ assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() })), prompt: z.string() }), { operations: ['image.inspect'], mappings: [{ operation: 'image.inspect', inputAssetField: 'assets', questionField: 'prompt', transferMode: 'asset-id' }] })
     const context = ctx()
-    context.runtime = createMockRuntime({ brain: { provider: 'openai', protocol: 'openai-chat-completions', capabilities: { input: { image: 'supported' } } }, senses: [tool] })
+    context.runtime = createMockRuntime({ brain: { provider: 'openai', protocol: 'openai-chat-completions', capabilities: { imageInput: { formats: ['image/png'] }, input: { image: 'supported' } } }, senses: [tool] })
     context.requestExecution = { execution: { toolHistory: 'request', retry: 'never' }, signal: controller.signal, validate() {} }
     const history = [msg(randomUUID(), [part()])]
     ;(await planFileInputs(context, history)).commit?.()
@@ -78,7 +162,7 @@ describe('图片轮数与描述持久记录', () => {
     })
     const adapter = mockMessageAdapter({ content: (response: { content: string }) => response.content })
     const build = vi.spyOn(adapter, 'buildMessages')
-    context.runtime = createMockRuntime({ brain: { provider: 'openai', protocol: 'openai-chat-completions', capabilities: { input: { image: 'supported' } } }, senses: [read], adapters: {
+    context.runtime = createMockRuntime({ brain: { provider: 'openai', protocol: 'openai-chat-completions', capabilities: { imageInput: { formats: ['image/png'] }, input: { image: 'supported' } } }, senses: [read], adapters: {
       llmAdapter: mockLLMAdapter({ chat }), messageAdapter: adapter, senseAdapter: mockSenseAdapter({ senseCalls: (response: { calls: [] }) => response.calls }),
     } })
     context.soul.messages = history
@@ -88,7 +172,7 @@ describe('图片轮数与描述持久记录', () => {
     await collectChunks(chatMiddleware(context, makeNext([])))
     expect(chat).toHaveBeenCalledTimes(2)
     expect(build.mock.calls[0]?.[1]).toBeUndefined()
-    expect(build.mock.calls.at(-1)?.[1]?.[0]).toMatchObject({ assetId: 'photo', assetVersionId: 'v-photo', data: Buffer.from('test') })
+    expect(build.mock.calls.at(-1)?.[1]?.[0]).toMatchObject({ assetId: 'photo', assetVersionId: 'v-photo', data: pngFixture })
     const firstHints = build.mock.calls[0]![0].filter(m => m.id === 'file-input-capabilities')
     expect(firstHints).toHaveLength(1)
     expect(firstHints[0]!.content).toContain('本次请求没有原生图片输入')
@@ -111,7 +195,7 @@ describe('图片轮数与描述持久记录', () => {
     const name = buildFileServiceToolName('description-test', 'image.inspect')
     const tool = createTestSense(name, execute, SupervisionLevel.auto, z.object({ assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() })), prompt: z.string() }), { operations: ['image.inspect'], mappings: [{ operation: 'image.inspect', inputAssetField: 'assets', questionField: 'prompt', transferMode: 'asset-id' }] })
     const context = ctx()
-    context.runtime = createMockRuntime({ brain: { provider: 'openai', protocol: 'openai-chat-completions', capabilities: { input: { image: 'supported' } } }, senses: [tool] })
+    context.runtime = createMockRuntime({ brain: { provider: 'openai', protocol: 'openai-chat-completions', capabilities: { imageInput: { formats: ['image/png'] }, input: { image: 'supported' } } }, senses: [tool] })
     const history = [msg(randomUUID(), [part()])]
     ;(await planFileInputs(context, history)).commit?.()
     history.push(msg(randomUUID()))
@@ -174,7 +258,7 @@ describe('图片轮数与描述持久记录', () => {
     const result = await planFileInputs(ctx(), reading)
     expect(result.attachments).toHaveLength(1)
     const wire = JSON.stringify(buildOpenAICompatibleMessages(result.history, result.attachments))
-    expect(wire).toContain('data:image/png;base64,dGVzdA==')
+    expect(wire).toContain(`data:image/png;base64,${pngFixture.toString('base64')}`)
     expect(wire).toContain('image_url')
     expect(imageTurnView(chatId, reading).images[0]?.ordinal).toBe(1)
     result.commit?.()
@@ -202,7 +286,7 @@ describe('图片轮数与描述持久记录', () => {
     const history = [msg(randomUUID(), [part(), { ...part(), partId: 'duplicate' }])]
     const first = await planFileInputs(ctx(), history)
     expect(first.attachments).toHaveLength(1)
-    expect(first.usage?.binaryBytes).toBe(4)
+    expect(first.usage?.binaryBytes).toBe(pngFixture.length)
     first.commit?.()
     history.push(msg(randomUUID()))
     expect((await planFileInputs(ctx(), history)).attachments).toBeUndefined()

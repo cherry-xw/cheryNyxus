@@ -141,7 +141,7 @@ export function imageTurnView(chatId: string, history: LLMResponse[]): ImageTurn
   const latest = Math.max(ordinal, ...turns.map(turn => turn.ordinal))
   // Already adopted turns remain counted even if later hidden/revoked; only unadopted ones are skipped.
   const activeOrdinals = [...new Set([...rows.map(row => row.ordinal), ...turns.map(turn => turn.ordinal)])]
-  const images = (db().prepare('SELECT ordinal,part_json,source_message_id FROM image_context_reads WHERE chat_id=? AND owner_id=? ORDER BY ordinal DESC LIMIT 100')
+  const images = (db().prepare('SELECT ordinal,part_json,source_message_id FROM image_context_reads WHERE chat_id=? AND owner_id=? ORDER BY ordinal DESC')
     .all(chatId, access.ownerId) as Array<{ ordinal: number; part_json: string; source_message_id?: string }>).filter(row => {
       if (!row.source_message_id) return true
       const source = getChatMonthlyDb(chatId)?.prepare('SELECT revoked,model_excluded FROM messages WHERE id=? AND chat_id=?').get(row.source_message_id, chatId) as { revoked?: number; model_excluded?: number } | undefined
