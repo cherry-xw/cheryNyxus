@@ -1,4 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
+import { uuid } from '@/utils/uuid'
 import { fileApi, fileDraftLeases, type AssetRecord } from '@/application/files/public'
 import { COMPOSER_FILE_DRAFT, FILE_REFERENCE_TARGET, registerFileReferenceTarget } from './fileReferenceTarget'
 import { composeMessageParts } from '@/domain/chat/messageParts'
@@ -271,7 +272,6 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     if (connectResumed) return
     if (wsClient.getStatus() === 'connected') {
       connectResumed = true
-      void refreshForChat()
       return
     }
     connectRetryUnsub?.()
@@ -1282,7 +1282,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
         const blob = await fileApi.read(attachment.assetId, attachment.assetVersionId)
         if (generation !== draftGeneration || context !== fileApi.contextKey() || referenceTargetDisposed) throw new Error('目标会话或身份已改变，请重新复制引用')
         const copy = reactive<MediaAttachment>({ ...attachment, compressed: attachment.compressed ? { ...attachment.compressed } : undefined,
-          referenceId: crypto.randomUUID(), previewUrl: URL.createObjectURL(blob), adapt: undefined, retry: undefined, copy: undefined, adapting: false, error: undefined })
+          referenceId: uuid(), previewUrl: URL.createObjectURL(blob), adapt: undefined, retry: undefined, copy: undefined, adapting: false, error: undefined })
         configureImageAdaptation(copy)
         mediaAttachments.value.push(copy)
         insertDraftFile(copy)
@@ -1346,7 +1346,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     assertTarget()
     const attachment = reactive<MediaAttachment>({ assetId:record.id, assetVersionId:record.versionId,
       filename:record.originalName, mimeType:record.mimeType, kind:record.kind, size:record.sizeBytes,
-      previewUrl:URL.createObjectURL(blob), referenceId:crypto.randomUUID(), usage:'content', status:'ready', variant:'original',
+      previewUrl:URL.createObjectURL(blob), referenceId:uuid(), usage:'content', status:'ready', variant:'original',
       width: record.transform?.width, height: record.transform?.height,
       ...(selected.transform?.variant === 'adapted' ? { compressed: { assetId: selected.id, assetVersionId: selected.versionId,
         filename: selected.originalName, mimeType: selected.mimeType, size: selected.sizeBytes,
@@ -1360,7 +1360,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     } finally { pendingReferences.delete(pendingKey) }
   }
   provide(FILE_REFERENCE_TARGET, referenceAsset)
-  const unregisterReferenceTarget = registerFileReferenceTarget({ id: crypto.randomUUID(), identity: () => JSON.stringify([options?.draftChatId?.() ?? chatId.value, fileApi.contextKey()]), label: () => {
+  const unregisterReferenceTarget = registerFileReferenceTarget({ id: uuid(), identity: () => JSON.stringify([options?.draftChatId?.() ?? chatId.value, fileApi.contextKey()]), label: () => {
     const id = options?.draftChatId?.() ?? chatId.value
     return id ? `${presetName.value ?? '会话'} · ${id}${options?.draftScope ? ` · 窗口 ${options.draftScope}` : ''}` : '新会话草稿（请先打开会话）'
   }, reference: referenceAsset })

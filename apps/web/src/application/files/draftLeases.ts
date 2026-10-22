@@ -1,4 +1,5 @@
 import { fileApi } from '@/services/fileApi'
+import { uuid } from '@/utils/uuid'
 
 type AssetRef = { assetId: string; assetVersionId: string }
 interface DraftLease {
@@ -27,7 +28,7 @@ export function createFileDraftLeases(api: Pick<typeof fileApi, 'contextKey' | '
     set(key: string, context: string, refs: () => AssetRef[], onError?: (cause: unknown) => void) {
       let lease = leases.get(key)
       if (!lease || lease.context !== context) {
-        lease = { id: crypto.randomUUID(), context, refs, onError }
+        lease = { id: uuid(), context, refs, onError }
         leases.set(key, lease)
       } else { lease.refs = refs; lease.onError = onError }
       renew(lease)

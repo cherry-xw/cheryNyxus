@@ -1,4 +1,5 @@
 import { useEpochSnapshotLoader } from './useEpochSnapshotLoader'
+import { uuid } from '@/utils/uuid'
 import {
   activeTurnHistory,
   appendQueuedInputsAfterHistory,
@@ -590,7 +591,7 @@ export function useHistoryDrawerPanelController(props: HistoryDrawerPanelControl
       return
     activatingBranch.value = true
     try {
-      await agentApi.activateBranch(branch.branchId, crypto.randomUUID())
+      await agentApi.activateBranch(branch.branchId, uuid())
       if (taskId.value)
         taskTimeline.value = await agentApi.getTaskTimeline({
           taskId: taskId.value,

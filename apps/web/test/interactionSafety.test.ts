@@ -7,15 +7,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as applyPresentation from '../src/features/agent/settings/config/applyPresentation'
 // 媒体编排与角色编制模型是纯逻辑模块（无组件/浏览器依赖），作为真实实现注入被测模块。
 import * as useComposerMediaModule from '../src/features/agent/composables/useComposerMedia'
+import * as fileReferences from '../src/features/agent/composer/fileReferenceTarget'
+import * as messageParts from '../src/domain/chat/messageParts'
+import * as draftHistory from '../src/features/agent/composer/model/draftTextHistory'
+import * as fileServices from '../src/application/files/public'
 import { createRoleConfigModel } from '../src/features/agent/runtime/roleConfigModel'
+import * as uuidModule from '../src/utils/uuid'
 
-// 真实 useComposerMedia 直接 import @/services/agentApi（不走被测模块的 require 注入面），
+// 真实 useComposerMedia 使用文件服务；只隔离上传和草稿保留 I/O。
 // 用 vi.mock 拦截并转发到 composerFixture 注入的 deferred（mediaUpload.impl）。
-const mediaUpload = vi.hoisted(() => ({ impl: null as null | (() => Promise<unknown>) }))
-vi.mock('@/services/agentApi', () => ({
-  agentApi: {
-    uploadMedia: () => mediaUpload.impl?.() ?? Promise.reject(new Error('upload not wired')),
-  },
+const mediaUpload = vi.hoisted(() => ({ impl: null as null | (() => Promise<unknown>), adapt: null as null | ((assetId: string, chatId?: string) => Promise<unknown>) }))
+vi.mock('@/application/files/public', () => ({
+  fileApi: { contextKey: () => 'test-context', upload: () => mediaUpload.impl?.() ?? Promise.reject(new Error('upload not wired')), retainDraft: async () => {}, adapt: (assetId: string, chatId?: string) => mediaUpload.adapt?.(assetId, chatId) ?? Promise.reject(new Error('not configured')) },
+  fileDraftLeases: { set() {}, drop() {} },
 }))
 
 function deferred<T = any>() {
@@ -29,7 +33,7 @@ function deferred<T = any>() {
 }
 
 // Execute the complete controller with real Vue refs/computed and isolated I/O.
-function loadController(path: string, imports: Record<string, any>) {
+function loadController(path: string, imports: Record<string, any>, immediate = false) {
   const watchers: Array<{ source: any; callback: any }> = []
   const hooks: Array<() => void> = []
   const module = { exports: {} as any }
@@ -45,8 +49,9 @@ function loadController(path: string, imports: Record<string, any>) {
         onMounted() {},
         onUnmounted: (fn: () => void) => hooks.push(fn),
         onBeforeUnmount: (fn: () => void) => hooks.push(fn),
-        watch: (source: any, callback: any) => {
+        watch: (source: any, callback: any, options?: { immediate?: boolean }) => {
           watchers.push({ source, callback })
+          if (immediate && options?.immediate) callback(source())
           return () => {}
         },
       }
@@ -58,7 +63,9 @@ function loadController(path: string, imports: Record<string, any>) {
   return { exports: module.exports, watchers, hooks }
 }
 
+const cleanupHooks: Array<() => void> = []
 afterEach(() => {
+  cleanupHooks.splice(0).reverse().forEach(fn => fn())
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -190,8 +197,8 @@ describe('settings save and close safety', () => {
   })
 })
 
-function composerFixture() {
-  vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} })
+function composerFixture(connected = false) {
+  vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {}, getSelection: () => null })
   // node 测试环境无 URL.createObjectURL/revokeObjectURL（媒体预览用），补最小 stub。
   class URLWithObjectRefs extends URL {
     static createObjectURL(): string {
@@ -202,9 +209,12 @@ function composerFixture() {
   vi.stubGlobal('URL', URLWithObjectRefs)
   const upload = deferred()
   mediaUpload.impl = () => upload.promise
+  mediaUpload.adapt = null
   const submit = vi.fn().mockResolvedValue(undefined)
   const runtime = vi.fn().mockResolvedValue({ applied: [], deferredRunning: [] })
+  const listBrains = vi.fn(() => new Promise(() => {}))
   const module = loadController('apps/web/src/features/agent/composer/useAgentDialogOptions.ts', {
+    '@/utils/uuid': uuidModule,
     '@/application/public': {
       useAgentsStore: () => ({
         activeDialogChatId: 'chat-a',
@@ -216,11 +226,15 @@ function composerFixture() {
       useConfigApplyStore: () => ({ savedRevision: '' }),
     },
     '@/application/transport/public': {
-      wsClient: { getStatus: () => 'disconnected', onStatus: () => () => {} },
+      wsClient: { getStatus: () => connected ? 'connected' : 'disconnected', onStatus: () => () => {} },
     },
     '@/application/backend/public': {
-      agentApi: { uploadMedia: () => upload.promise, listBrains: () => new Promise(() => {}) },
+      agentApi: { uploadMedia: () => upload.promise, listBrains },
     },
+    '@/application/files/public': fileServices,
+    './fileReferenceTarget': fileReferences,
+    '@/domain/chat/messageParts': messageParts,
+    './model/draftTextHistory': draftHistory,
     '@/application/platform/public': { httpUrl: (path: string) => path },
     '@/domain/pets/presets': { CHERY_NYXUS_PRESET: 'nyxus' },
     '@/styles/overlayLayers': { ownerOverlayZIndex: () => 501 },
@@ -231,21 +245,33 @@ function composerFixture() {
     // 媒体链路与角色编制模型为纯逻辑模块，直接使用真实实现（与产品行为一致）。
     '@/features/agent/composables/useComposerMedia': useComposerMediaModule,
     '@/features/agent/runtime/roleConfigModel': { createRoleConfigModel },
-  })
+  }, connected)
   const chatId = vue.ref('chat-a')
   const c = module.exports.useAgentDialogOptions({ chatId })
+  cleanupHooks.push(...module.hooks)
   c.roleSelections.value = { 主角色: { brain: 'brain', senseGroup: 'default' } }
   c.config.value = {
     llm: { brain: { brain: { capabilities: { input: { image: true } } } } },
     media: { images: { type: 'image', enabled: true, url: 'test' } },
   }
   c.text.value = 'message'
-  return { c, upload, submit, runtime, chatId, module }
+  return { c, upload, submit, runtime, chatId, module, listBrains }
 }
 
 describe('composer draft and attachment safety', () => {
+  it('initializes the connected workbench without randomUUID and loads options once', () => {
+    const cryptoApi = globalThis.crypto
+    vi.stubGlobal('crypto', { getRandomValues: (bytes: Uint8Array) => cryptoApi.getRandomValues(bytes) })
+    const { c, listBrains } = composerFixture(true)
+    expect(c).toBeDefined()
+    expect(listBrains).toHaveBeenCalledTimes(1)
+  })
   const attachment = {
     assetId: 'image-a',
+    assetVersionId: 'version-a',
+    filename: 'image.png',
+    status: 'ready',
+    size: 12,
     kind: 'image',
     mimeType: 'image/png',
     previewUrl: 'blob:test',
@@ -269,8 +295,8 @@ describe('composer draft and attachment safety', () => {
     expect(c.mediaAttachments.value).toEqual([])
     c.text.value = 'second'
     await c.handleSend(undefined, { keepOpen: true })
-    expect(submit.mock.calls[0]![2]).toHaveLength(1)
-    expect(submit.mock.calls[1]![2]).toEqual([])
+    expect(submit.mock.calls[0]![2].filter((part: any) => part.type === 'asset')).toHaveLength(1)
+    expect(submit.mock.calls[1]![2]).toEqual([{ partId: 'part-0', type: 'text', text: 'second' }])
   })
 
   it('keeps text and attachments after a failed ACK', async () => {
@@ -301,15 +327,15 @@ describe('composer draft and attachment safety', () => {
 
   it('restores a conversation draft after switching away and back', async () => {
     const { c, chatId, module } = composerFixture()
-    const watcher = module.watchers.find((watcher) => watcher.source === chatId)!
-    watcher.callback('chat-a')
+    const watcher = module.watchers.find((watcher) => typeof watcher.source === 'function' && Array.isArray(watcher.source()) && watcher.source()[0] === 'chat-a')!
+    watcher.callback(['chat-a', 'test-context'])
     c.text.value = 'draft A'
     c.mediaAttachments.value = [attachment]
     chatId.value = 'chat-b'
-    watcher.callback('chat-b')
+    watcher.callback(['chat-b', 'test-context'])
     c.text.value = 'draft B'
     chatId.value = 'chat-a'
-    watcher.callback('chat-a')
+    watcher.callback(['chat-a', 'test-context'])
     expect(c.text.value).toBe('draft A')
     expect(c.mediaAttachments.value[0].assetId).toBe('image-a')
   })

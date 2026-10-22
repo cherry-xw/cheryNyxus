@@ -1,6 +1,7 @@
 /** Shared file upload flow. Original bytes are never transformed in the browser. */
 import type { UploadFile } from 'element-plus'
 import { reactive, watch, onBeforeUnmount } from 'vue'
+import { uuid } from '@/utils/uuid'
 import { fileApi } from '@/application/files/public'
 import type { AssetRecord } from '@/application/files/public'
 
@@ -68,14 +69,14 @@ export interface ComposerMediaOptions {
   inserted?: (attachment: MediaAttachment) => void
 }
 export function useComposerMedia(options: ComposerMediaOptions) {
-  let draftId = crypto.randomUUID()
+  let draftId = uuid()
   let leaseContext = fileApi.contextKey()
   let disposed = false
   let leaseTimer: ReturnType<typeof setInterval> | undefined
   const retain = () => {
     if (disposed) return
     const contextKey = fileApi.contextKey()
-    if (leaseContext !== contextKey) { draftId = crypto.randomUUID(); leaseContext = contextKey }
+    if (leaseContext !== contextKey) { draftId = uuid(); leaseContext = contextKey }
     const assets = options.attachments.value.filter(item => item.status !== 'failed' && item.assetVersionId).flatMap(item => [
       { assetId: item.assetId, assetVersionId: item.assetVersionId },
       ...(item.compressed ? [{ assetId: item.compressed.assetId, assetVersionId: item.compressed.assetVersionId }] : []),
@@ -94,10 +95,10 @@ export function useComposerMedia(options: ComposerMediaOptions) {
     const generation = options.generation()
     const uploadContext = fileApi.contextKey()
     const attachment = reactive<MediaAttachment>({
-      assetId: `upload-${crypto.randomUUID()}`, assetVersionId: '', filename: file.name,
+      assetId: `upload-${uuid()}`, assetVersionId: '', filename: file.name,
       kind: mediaKindOf(file), mimeType: file.type || 'application/octet-stream', size: file.size,
       previewUrl: URL.createObjectURL(file), usage: 'content', status: 'uploading',
-      referenceId: crypto.randomUUID(),
+      referenceId: uuid(),
     })
     options.attachments.value.push(attachment)
     if (!options.inserted) attachment.referenceId = undefined
