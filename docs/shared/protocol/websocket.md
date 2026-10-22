@@ -2,6 +2,18 @@
 
 开发实测只以当前契约为目标，不承诺旧版兼容。本文仍描述源码中尚未清理的旧通知/流式或工作流字段；这些共用业务分支已列入兼容清理结果的待确认清单，不能据此声称已全量删除。
 
+## 设置原始值与保存校验
+
+以下为当前契约。设置默认显示与保存已完成本轮发布和实际验收，结果与未完成边界见[文件能力验证](../../quality/verification/file-capabilities.md#设置与常规文件交互的当前验收范围)。
+
+- 配置读取不补运行默认，仍返回原始环境引用；不完整配置可以读取并定位错误。完整候选的预览、保存、AI patch、回滚及运行采用复用相同字段、分支与引用检查。必要字段的环境引用解析为空时拒绝保存，返回字段路径，不回填或泄露环境值，不发送连接请求。
+- Manager 资源保存增加 `unset?: string[]`，仅删除该资源允许的顶层可选字段。先合并 `value`、再执行 `unset`、最后完整校验；省略字段保留旧值，包括未回显密钥。赋值与删除重叠、重复项、未知项、点路径、斜杠路径和原型字段均按 `invalid_params` 拒绝且不写入。请求指纹包含 `unset`。
+- brains 可删除 url、protocol、key、thinking、rpm、fullUrl、mock、capabilities、hooks、anthropicCompat；无默认的 model、provider、contextLimit 不可删除。presets 可删除 detailRole、workspace、rule、schedule、shadows、roleOverrides；sense-groups 不能使用非空 unset，空组明确提交 `[]`。删除后仍必须符合分支必填规则。
+- `utils.models` 与 `utils.testConnection` 的 url 可省略，仅在非完整地址且服务有实际默认地址时有效。显式空白或无效地址不按省略处理；fullUrl 原样用于本次用途，不猜模型列表或绘图端点。
+- Manager 模型目录请求携带 `savedBrain` 与 `expectedBaseRevision` 交核心处理。仅请求未提供 key 时可复用；要求相同修订、服务、有效协议、fullUrl 与按用途解析的完整目标地址（含路径和查询）。改变目标或修订冲突时零传输，不由插件读取并转发已存密钥；显式空 key 不触发兜底。
+
+读取、写入和 Manager 局部请求的结构分别维护；局部请求不能在合并前按完整资源拒绝，也不能绕过合并后的完整候选检查。现有权限、版本冲突、预览快照和保存采用状态保持不变。
+
 ## QQ 启动配置确认
 
 QQ 输入的 `platformIdentity` 有两种身份：群为 `{platform:'qq',conversationType?:'group',groupId,userId,nickname}`（旧身份省略 conversationType 仍为群）；私聊为 `{platform:'qq',conversationType:'private',userId,nickname}`，严格禁止 groupId。两种身份均只允许 QQ 专用认证连接提交，且 Chat 必须分别精确为 `qq-group-<groupId>` 或 `qq-private-<userId>`。私聊不是虚拟群；渠道资料边界见[平台记忆契约](../architecture/qqbot-platform.md)。
@@ -25,6 +37,43 @@ QQ 专用连接的启动配置确认通知 `qqbot.config.loaded` 只向本机 QQ
 原始输出按 stdout/stderr 来源及接收顺序分块无损压缩，两个流的接收顺序不承诺等同进程内部写入顺序。日志最多保留到结束后 7 天，压缩后单条 10 MiB（开头 20%、最新 80%）、全局 200 MiB；全局先清过期再清最早结束日志，仅活跃日志占满则暂停新增保存。日志异常或额度限制不中断命令，指令详情独立保留。Drain 只提供附加的相似日志摘要，不代替原文，不改变 Agent 工具输出；摘要省略与原文缺失分开展示。
 
 ## 工具文件结果
+
+### 会话绘图请求与记录（已批准，实施中）
+
+普通输入仍沿用 `chat.input.submit`；可选 `drawing` 保存结构化绘图意图，不由关键词触发，不替换聊天大脑。绘图字段使用既有 commandId/messageId 去重；查询、预览、修改草稿与用户定稿均不发生成请求。
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| `drawing.serviceId` | 必填，实际文件服务 ID，不是聊天大脑 |
+| `drawing.roleId` | 可选，明确委派的绘图角色；后端校验当前预设、权限和实际工具 |
+| `drawing.operation` | 必填，image.generate / image.reference / image.edit |
+| `drawing.desiredCount` | 必填，正的安全整数；保留用户期望，不能用收小值覆盖 |
+| `drawing.params` | 必填，适配器类型化的本次参数对象；厂商数量字段统一计算，不与另一份数量并存 |
+| `drawing.configRevision` | 必填，能力查询返回的版本；发送和排队执行前复核，变化时不偷换参数 |
+| `drawing.taskId` | 可选；修改已有绘图任务时必填，新任务由后端创建 |
+| `drawing.sourceCandidateId` | 可选；明确选择的来源图身份，与 taskId 配套，不从末图推断 |
+
+输入 parts 中的参考图仍用固定 assetId/assetVersionId，并沿原资产授权和预算校验。后端保存绘图任务、绘图轮与 operationId 的对应关系，ACK 在原字段之外返回 `drawing: { taskId, roundId }`。任务归原会话和所有者；候选 ID 对应固定资产版本、来源轮与操作输出位置，不使用文件名或临时 URL 作为身份。
+
+每轮保存实际服务、图片型号、接口、操作、配置版本、期望/有效张数、参考图、反馈和其他参数。`countControl` 为 requested 时不足标部分产出；maximum 的正常少返回不报每张失败；uncontrolled 不提供数字调节。收到、保存及厂商明确报告失败的数量分别保存，未知失败数不补零或按差值虚构。只有已保存且可访问的图片才能成为候选或用户定稿。
+
+选定修改对象属于窗口内草稿，不修改已提交轮；反馈提交后创建下一轮。用户定稿独立保存候选 ID 与选择版本，重复请求返回原结果，并发版本过期返回冲突且不覆盖。新轮成功或失败都不自动替换原定稿。续接按所选候选的来源操作恢复；跨连接不转发私有记录，不把整批图自动加入参考。
+
+未点击候选而用文字指代历史图片时，模型通过已有文件查询取得固定版本；图片工具可带 `drawingSourceCandidateId` 明确候选身份。后端只核对身份与权限，不按时间、数量或关键词选图。尚待模型明确输入的参考/编辑轮标记 `referencesResolved=false`；第一次合法执行前固定实际输入和相应张数，之后不可改换。明确提交的文件和候选始终保持固定。
+
+绘图私有续接独立于子会话保存，只能用于对应来源图、相同连接和型号。单份续接包含多个可选最终图而无法精确指定目标时，使用选定图的合法本地文件参考，不把其他候选带入。必要续接超出输入预算时同样改用本地参考；不支持参考或编辑则拒绝，不称为编辑成功。
+
+文件操作查询、试用响应与工具返回的公开操作记录均省略 `providerContinuation`，私有签名、思考及二进制历史只由后端保存和按原接口使用。
+
+正常提交示例（其余既有输入字段省略）：
+
+```json
+{"drawing":{"serviceId":"svc_image","operation":"image.generate","desiredCount":3,"params":{"size":"1024x1024"},"configRevision":"revision-from-capability-query"},"parts":[{"partId":"text-1","type":"text","text":"画三个候选方案"}]}
+```
+
+正常 ACK 的新增关联：`{"drawing":{"taskId":"task-id","roundId":"round-id"}}`。同 commandId 重发相同请求只返回同一轮；不同参数返回冲突。缺少权限、参考版本不可读、没有合法编辑方式、数量无效或配置版本变化时，在生成前拒绝，保留草稿；不能返回接受后静默换成另一模型。远端结果未知时只查原操作，不自动重新生成。定稿冲突保留已有候选及定稿，用户重新读取后决定是否再次提交。
+
+绘图记录使用已认证的文件 HTTP 入口：`POST /api/file-services/drawings` 接受 `{chatId}`，返回 `{tasks}`；每项含 taskId、chatId、selectionRevision、可选 finalCandidateId 和 rounds。每轮有 roundId、sourceMessageId、feedback、intent、固定 inputAssets、imageCount、imageConfigRevision、可选 operation 与 candidates。候选包含 candidateId、roundId、operationId、partIndex、assetId、assetVersionId。私有厂商续接不返回前端。`POST /api/file-services/drawing-finalize` 接受 `{chatId,taskId,candidateId,expectedSelectionRevision,requestId}`，返回更新后的任务；无权限返回拒绝，并发版本过期返回 HTTP 409。相同 requestId 与同样选择返回原结果；不同选择冲突。前端按需查询恢复与刷新，无须新建生成操作。用户选为修改对象时先使用同一查询取得且后端校验过的候选，再由下一次 input.submit 校验来源身份；选择与预览本身不调用生成。
 
 工具结果在历史与时间线中保留 `parts` 和 `fileOperations`：`GraphToolCall` 以及单会话 `CanonicalSenseCall` 均携带相应字段。文件卡片读取固定资产版本，不从 `result` 文字中的 URL 推断文件。消费者合并工具调用结果时必须同时保留这些字段，不能只保留文字；保存失败、执行失败与检查结果分别取操作记录，不因文字存在就认定成功。
 

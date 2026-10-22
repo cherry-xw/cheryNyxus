@@ -12,6 +12,7 @@ defineProps<{ label: string; tip: string }>()
 <template>
   <span class="lbl">
     {{ label }}
+    <slot />
     <el-tooltip :content="tip" placement="top" :show-after="120" popper-class="label-tip-popper">
       <InfoFilled class="info-ico" />
     </el-tooltip>

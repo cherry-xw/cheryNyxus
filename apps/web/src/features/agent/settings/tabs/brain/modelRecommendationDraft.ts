@@ -28,7 +28,14 @@ function valuesEqual(left: unknown, right: unknown): boolean {
 }
 
 function cloneCapabilities(value: BrainCapabilitiesDto): BrainCapabilitiesDto {
-  return structuredClone(value)
+  const { toolCall, input, output, imageInput, imageOutput } = value
+  return structuredClone({
+    ...(toolCall !== undefined ? { toolCall } : {}),
+    ...(input !== undefined ? { input } : {}),
+    ...(output !== undefined ? { output } : {}),
+    ...(imageInput !== undefined ? { imageInput } : {}),
+    ...(imageOutput !== undefined ? { imageOutput } : {}),
+  })
 }
 
 function shouldFollowRecommendation(
@@ -70,7 +77,7 @@ export function planModelRecommendationDraftUpdate(
   // 同一模型下只改协议/服务时不强制：用户手动调整不能被推荐悄悄改回。
   const forceSwitch = modelChanged
 
-  for (const key of ['provider', 'protocol', 'contextLimit', 'thinking', 'capabilities'] as const) {
+  for (const key of ['provider', 'protocol'] as const) {
     const current = draft[key]
     const previous = previousRecommendation?.[key]
     const override =
@@ -79,8 +86,7 @@ export function planModelRecommendationDraftUpdate(
 
     const next = recommendation?.[key]
     if (next !== undefined) {
-      if (key === 'capabilities') patch[key] = cloneCapabilities(next as BrainCapabilitiesDto)
-      else Object.assign(patch, { [key]: next })
+      Object.assign(patch, { [key]: next })
       continue
     }
 
@@ -89,16 +95,6 @@ export function planModelRecommendationDraftUpdate(
     // missing protocol-specific metadata means "unknown", not "off".
     // Provider/protocol are never cleared: without a vendor recommendation we
     // keep the current service and wire protocol instead of resetting them.
-    if (
-      modelChanged &&
-      !firstModelSelection &&
-      key !== 'provider' &&
-      key !== 'protocol' &&
-      previous !== undefined &&
-      valuesEqual(current, previous)
-    ) {
-      Object.assign(patch, { [key]: undefined })
-    }
   }
 
   return patch

@@ -10,14 +10,17 @@ import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/features/agent/settings/controls/EditableTitle.vue'
 import LabelTip from '../config/LabelTip.vue'
 import ThinkingLevelKnob from '../../controls/ThinkingLevelKnob.vue'
-import MediaCapabilityGrid from '../config/MediaCapabilityGrid.vue'
 import { useModelRecommendation } from './useModelRecommendation'
+import { useBrainConnection } from './useBrainConnection'
+import BrainServerTools from './BrainServerTools.vue'
+import BrainMediaCapabilities from './BrainMediaCapabilities.vue'
 import {
-  PROVIDER_TIP, PROTOCOL_TIP, KEY_TIP, URL_TIP,
+  PROVIDER_TIP,
+  PROTOCOL_TIP,
+  KEY_TIP,
+  URL_TIP,
   displayContextLimit,
   updateContextLimit,
-  mediaCapabilities,
-  toggleMediaCapability,
   toolCallEnabled,
   setToolCall,
   anthropicOfficial,
@@ -27,10 +30,10 @@ import {
   findLlmProviderDefinition,
   legacyProtocolForProvider,
   resolveLlmProviderDefaultUrl,
+  mergeBrainCapabilities,
   type LlmProtocol,
 } from '@chery/protocol'
 
-// Chevron icon (element-plus doesn't export a small one, use inline SVG)
 const ChevronIcon = {
   template: `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2l4 4-4 4"/></svg>`,
 }
@@ -63,21 +66,12 @@ const supportedProtocols = computed(() => providerDefinition.value?.protocols ??
 const effectiveProtocol = computed<LlmProtocol | undefined>(
   () =>
     props.cfg.protocol ??
-    legacyProtocolForProvider(props.cfg.provider) ??
-    providerDefinition.value?.defaultProtocol,
+    legacyProtocolForProvider(props.cfg.provider),
 )
 const protocolModel = computed<LlmProtocol | undefined>({
   get: () => effectiveProtocol.value,
   set: (value) => {
-    const previousDefault = resolveLlmProviderDefaultUrl(
-      props.cfg.provider,
-      effectiveProtocol.value,
-    )
-    const shouldReplaceUrl =
-      !props.cfg.url || isTemplatePlaceholder(props.cfg.url) || props.cfg.url === previousDefault
     props.cfg.protocol = value
-    const nextDefault = resolveLlmProviderDefaultUrl(props.cfg.provider, value)
-    if (shouldReplaceUrl && nextDefault) props.cfg.url = nextDefault
   },
 })
 function protocolLabel(protocol: LlmProtocol): string {
@@ -90,24 +84,12 @@ watch(
     if (provider === previous) return
     const definition = findLlmProviderDefinition(provider)
     if (!definition) return
-    const previousDefinition = findLlmProviderDefinition(previous)
-    const previousDefaults = new Set(
-      [
-        previousDefinition?.defaultUrl,
-        ...Object.values(previousDefinition?.protocolUrls ?? {}),
-      ].filter((url): url is string => typeof url === 'string'),
-    )
-    const shouldReplaceUrl =
-      !props.cfg.url || isTemplatePlaceholder(props.cfg.url) || previousDefaults.has(props.cfg.url)
     // 模型推荐可能在切换服务前已把协议设为新服务支持的有效协议；此时保留，
     // 避免这里用默认协议覆盖推荐协议。仅当当前协议不被新服务支持时才回退默认。
     const currentProtocol = effectiveProtocol.value
     if (!currentProtocol || !definition.protocols.includes(currentProtocol)) {
       props.cfg.protocol = definition.defaultProtocol
     }
-    const protocolAfter = props.cfg.protocol ?? definition.defaultProtocol
-    const nextDefault = resolveLlmProviderDefaultUrl(provider, protocolAfter)
-    if (shouldReplaceUrl && nextDefault) props.cfg.url = nextDefault
   },
 )
 
@@ -122,7 +104,6 @@ const removeImpact = computed(() => {
     : ['没有角色引用此大脑。']
 })
 
-// ── 折叠/展开 ────────────────────────────────────────────────────
 const expanded = ref(props.detailMode ?? false)
 
 /** 折叠态单行摘要：model / $KEY（provider 已由 avatar 上的 vendor logo 承载）。 */
@@ -133,9 +114,24 @@ const brainSummary = computed(() => {
   return parts.length ? parts.join(' / ') : '未配置'
 })
 
-// ── model 下拉刷新 ──────────────────────────────────────────────
-const modelOptions = ref<Array<{ id: string; name?: string }>>([])
-const modelLoading = ref(false)
+const {
+  modelOptions,
+  modelLoading,
+  connectionTestState,
+  connectionTestMessage,
+  isMockProvider,
+  connectionTestMessageView,
+  connectionTestDisabled,
+  connectionTestTip,
+  refreshModelsDisabled,
+  refreshTip,
+  refreshModels,
+  testConnection,
+} = useBrainConnection({
+  cfg: () => props.cfg,
+  protocol: () => effectiveProtocol.value,
+  isPlaceholder: isTemplatePlaceholder,
+})
 
 // ── 密钥下拉刷新 ────────────────────────────────────────────────
 /** 本地副本：初始来自父级 envVars，刷新按钮重拉 env.list 更新（用户改 .env 后立即可见）。 */
@@ -158,82 +154,9 @@ async function refreshKeyOptions(): Promise<void> {
   }
 }
 
-type ConnectionTestState = 'idle' | 'pending' | 'success' | 'error'
-const connectionTestState = ref<ConnectionTestState>('idle')
-const connectionTestMessage = ref('')
-const isMockProvider = computed(() => effectiveProtocol.value === 'mock')
-let connectionTestReqId = 0
-
-const MODELS_SUGGESTION_MARKER = '；排查建议：'
-const connectionTestMessageView = computed(() => {
-  const message = connectionTestMessage.value
-  const markerIndex = message.indexOf(MODELS_SUGGESTION_MARKER)
-  if (markerIndex < 0) return { original: message, suggestion: '' }
-  return {
-    original: message.slice(0, markerIndex),
-    suggestion: message.slice(markerIndex + MODELS_SUGGESTION_MARKER.length),
-  }
-})
-
-/**
- * 测试连接按钮禁用原因（null=可测）：前置字段缺失时按钮置灰 + 悬停引导缺什么，
- * 而非可点后报错——交互上先选后测。
- */
-const connectionBlockedBy = computed<string | null>(() => {
-  if (isMockProvider.value) return '离线模拟无需测试'
-  if (!props.cfg.provider) return '请先选择服务'
-  if (!effectiveProtocol.value) return '请先选择 API 协议'
-  // url/model 可能是模板占位符（<YOUR_...>）：UI 显示为空但字符串非空，须归一后判断
-  if (!props.cfg.url || isTemplatePlaceholder(props.cfg.url)) return '请先填写地址'
-  if (!props.cfg.key) return '请先填写密钥'
-  if (!props.cfg.model || isTemplatePlaceholder(props.cfg.model)) return '请先选择模型'
-  return null
-})
-/** 测试连接按钮禁用：pending 中或前置字段缺失。 */
-const connectionTestDisabled = computed(
-  () => connectionTestState.value === 'pending' || connectionBlockedBy.value !== null,
-)
-/** 按钮悬停提示：pending → 测试中；字段缺失 → 缺什么；否则 → 连通说明。 */
-const connectionTestTip = computed(() => {
-  if (connectionTestState.value === 'pending') return '正在测试连接…'
-  return connectionBlockedBy.value ?? '测试地址与密钥是否连通'
-})
-
-/** 刷新模型按钮禁用原因（null=可点）：mock 无需拉取模型；缺失前置字段置灰 + 悬停引导。 */
-const refreshModelsBlockedBy = computed<string | null>(() => {
-  if (isMockProvider.value) return '离线模拟无需刷新模型'
-  if (!props.cfg.provider) return '请先选择服务'
-  if (!effectiveProtocol.value) return '请先选择 API 协议'
-  if (!props.cfg.url || isTemplatePlaceholder(props.cfg.url)) return '请先填写地址'
-  if (!props.cfg.key) return '请先填写密钥'
-  return null
-})
-const refreshModelsDisabled = computed(
-  () => modelLoading.value || refreshModelsBlockedBy.value !== null,
-)
-const refreshTip = computed(() => {
-  if (modelLoading.value) return '正在获取模型列表…'
-  return refreshModelsBlockedBy.value ?? '获取最新模型列表；亦可测试连通'
-})
-
-watch(
-  () =>
-    [
-      props.cfg.provider,
-      props.cfg.protocol,
-      props.cfg.url,
-      props.cfg.key,
-      props.cfg.model,
-    ] as const,
-  () => {
-    connectionTestReqId += 1
-    connectionTestState.value = 'idle'
-    connectionTestMessage.value = ''
-  },
-)
-
 // ── 模型目录识别、推荐与 thinking wire 档位 ───────────────────────
-const { contextLimitTip, modelRuleNotice, modelUnmatched, thinkingLevels, thinkingTip } =
+const { contextLimitTip, modelRuleNotice, modelUnmatched, thinkingLevels, thinkingTip,
+  modelRecommendation, status: catalogStatus, recommendedContextLimit, adoptContextLimit } =
   useModelRecommendation({
     cfg: props.cfg,
     effectiveProtocol: () => effectiveProtocol.value,
@@ -247,76 +170,10 @@ const { contextLimitTip, modelRuleNotice, modelUnmatched, thinkingLevels, thinki
     isPlaceholderModel: isTemplatePlaceholder,
   })
 
-async function refreshModels(): Promise<void> {
-  const { provider, url, key } = props.cfg
-  if (!provider || !url) {
-    connectionTestState.value = 'error'
-    connectionTestMessage.value = '请先选择服务、协议并填写地址'
-    return
-  }
-  modelLoading.value = true
-  try {
-    const res = await agentApi.fetchModels(
-      provider,
-      url,
-      key || undefined,
-      props.cfg.fullUrl === true,
-      effectiveProtocol.value,
-    )
-    if (res.error) {
-      connectionTestState.value = 'error'
-      connectionTestMessage.value = res.error
-      return
-    }
-    modelOptions.value = res.models
-    // 刷新成功：清掉之前的错误提示（与测试连接共用同一消息区）
-    connectionTestState.value = 'idle'
-    connectionTestMessage.value = ''
-  } catch (err) {
-    connectionTestState.value = 'error'
-    connectionTestMessage.value = err instanceof Error ? err.message : String(err)
-  } finally {
-    modelLoading.value = false
-  }
-}
-
-async function testConnection(): Promise<void> {
-  const { provider, url, key, model } = props.cfg
-  if (provider === 'mock') return
-  if (!provider || !url || !model) {
-    connectionTestState.value = 'error'
-    connectionTestMessage.value = '请先选择服务、协议并填写地址和模型'
-    return
-  }
-
-  const reqId = ++connectionTestReqId
-  connectionTestState.value = 'pending'
-  connectionTestMessage.value = ''
-  try {
-    const result = await agentApi.testConnection(
-      provider,
-      url,
-      key || undefined,
-      model,
-      props.cfg.fullUrl === true,
-      effectiveProtocol.value,
-    )
-    if (reqId !== connectionTestReqId) return
-    if (result.ok) {
-      connectionTestState.value = 'success'
-      connectionTestMessage.value = '连接成功'
-    } else {
-      connectionTestState.value = 'error'
-      connectionTestMessage.value = result.error
-    }
-  } catch (err) {
-    if (reqId !== connectionTestReqId) return
-    connectionTestState.value = 'error'
-    connectionTestMessage.value = err instanceof Error ? err.message : String(err)
-  }
-}
-
 // ── helpers ───────────────────────────────────────────────────────
+const effectiveCapabilities = computed(() => mergeBrainCapabilities(props.cfg.capabilities,
+  modelRecommendation.value?.recommend?.capabilities, modelRecommendation.value?.facts?.capabilities))
+const contextError = computed(() => !Number.isInteger(props.cfg.contextLimit) || (props.cfg.contextLimit ?? 0) <= 0 ? '请填写正整数上下文容量（K 按 1000 换算）' : '')
 
 function onError(msg: string): void {
   emit('error', msg)
@@ -326,7 +183,8 @@ function onError(msg: string): void {
 const urlModel = computed({
   get: () => (isTemplatePlaceholder(props.cfg.url) ? '' : (props.cfg.url ?? '')),
   set: (v: string) => {
-    props.cfg.url = v
+    if (v === '') delete props.cfg.url
+    else props.cfg.url = v
   },
 })
 /** 模型输入框模型：占位符（<YOUR_MODEL_NAME>）显示为空，placeholder 呈现；写入落草稿。 */
@@ -366,6 +224,8 @@ function setAnthropicOfficial(cfg: BrainConfigDto, value: unknown): void {
 
 /** 地址输入框示例（随 provider 变化）：未勾选填 base（须含版本段，端点自动拼接）；勾选「完整 URL」填完整请求地址 */
 const urlPlaceholder = computed(() => {
+  const defaultUrl = props.cfg.fullUrl ? undefined : resolveLlmProviderDefaultUrl(props.cfg.provider, effectiveProtocol.value)
+  if (defaultUrl) return `${defaultUrl} · 默认地址`
   if (effectiveProtocol.value === 'ollama-chat') return 'http://localhost:11434'
   if (effectiveProtocol.value === 'mock') return 'mock 无需真实地址'
   if (props.cfg.fullUrl === true) {
@@ -753,13 +613,32 @@ async function openModelRuleFile(): Promise<void> {
         </div>
         <div class="runtime-controls">
           <label class="field">
-            <LabelTip label="上下文上限" :tip="contextLimitTip" />
+            <LabelTip label="上下文上限" :tip="contextLimitTip">
+              <el-tooltip
+                v-if="recommendedContextLimit"
+                :content="`点击填入推荐值 ${recommendedContextLimit / 1000}K`"
+                placement="top"
+                :show-after="0"
+                popper-class="label-tip-popper"
+              >
+                <button
+                  type="button"
+                  class="context-recommendation-btn"
+                  :aria-label="`采用推荐上下文上限 ${recommendedContextLimit / 1000}K`"
+                  @click="adoptContextLimit"
+                >
+                  （推荐）
+                </button>
+              </el-tooltip>
+            </LabelTip>
             <el-select
               filterable
               allow-create
               default-first-option
               :model-value="displayContextLimit(cfg.contextLimit)"
-              placeholder="未设置（未知）"
+               placeholder="必填（单位 K）"
+               :aria-invalid="!!contextError"
+               :aria-describedby="`brain-${name}-context-error`"
               @update:model-value="(value: unknown) => updateContextLimit(cfg, value)"
             >
               <el-option
@@ -769,6 +648,7 @@ async function openModelRuleFile(): Promise<void> {
                 :value="limit"
               />
             </el-select>
+            <small v-if="contextError" :id="`brain-${name}-context-error`" role="alert">{{ contextError }}</small>
           </label>
           <label class="field">
             <LabelTip label="每分钟限额" tip="rpm：每分钟请求上限，空 = 不限" />
@@ -777,7 +657,7 @@ async function openModelRuleFile(): Promise<void> {
           <div class="compact-toggle">
             <div><span class="lbl">工具调用</span><span class="hint">允许调用工具</span></div>
             <el-switch
-              :model-value="toolCallEnabled(cfg)"
+               :model-value="effectiveCapabilities.toolCall.enabled"
               @change="(v: unknown) => setToolCall(cfg, v)"
             />
           </div>
@@ -786,12 +666,15 @@ async function openModelRuleFile(): Promise<void> {
             <ThinkingLevelKnob v-model="cfg.thinking" :levels="thinkingLevels" />
           </div>
         </div>
-        <MediaCapabilityGrid
-          :input="mediaCapabilities(cfg, 'input')"
-          :output="mediaCapabilities(cfg, 'output')"
-          @toggle="(group, kind) => toggleMediaCapability(cfg, group, kind)"
+        <BrainMediaCapabilities
+          :key="name"
+          :model-value="cfg.capabilities"
+          :catalog="modelRecommendation"
+          :catalog-status="catalogStatus"
+          @update:model-value="cfg.capabilities = $event"
         />
       </section>
+      <BrainServerTools :cfg="cfg" :protocol="effectiveProtocol" />
     </div>
   </article>
 </template>

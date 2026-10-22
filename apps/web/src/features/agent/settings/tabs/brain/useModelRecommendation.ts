@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onScopeDispose } from 'vue'
 import {
   agentApi,
   type BrainConfigDto,
@@ -25,6 +25,9 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
   const modelRecommendation = ref<ModelRecommendationDto | null>(null)
   const thinkingLevels = ref<readonly ThinkingLevel[]>([])
   let requestId = 0
+  const owner = agentApi.contextKey()
+  const status = ref<'loading' | 'ready' | 'error'>('loading')
+  onScopeDispose(() => { requestId++ })
 
   function applyRecommendation(
     recommendation: ModelRecommendationDto['recommend'],
@@ -53,6 +56,8 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
     previousRecommendation?: ModelRecommendationDto['recommend'],
   ): Promise<void> {
     const currentRequest = ++requestId
+    status.value = 'loading'
+    modelRecommendation.value = null
     const model = options.cfg.model
     if (!model || options.isPlaceholderModel(model)) {
       modelRecommendation.value = null
@@ -67,8 +72,9 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
         options.cfg.provider,
         options.effectiveProtocol(),
       )
-      if (currentRequest !== requestId) return
+      if (currentRequest !== requestId || agentApi.contextKey() !== owner) return
       modelRecommendation.value = resolved
+      status.value = 'ready'
       thinkingLevels.value = resolved.thinkingLevels
       if (applyToDraft) {
         applyRecommendation(resolved.recommend, previousModel, previousRecommendation)
@@ -76,6 +82,7 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
     } catch {
       if (currentRequest !== requestId) return
       modelRecommendation.value = null
+      status.value = 'error'
       thinkingLevels.value = []
     }
   }
@@ -84,9 +91,8 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
     () => [options.cfg.model, options.cfg.provider, options.cfg.protocol] as const,
     (current, previous) => {
       const modelChanged = !!previous && current[0] !== previous[0]
-      const protocolChanged = !!previous && current[2] !== previous[2]
       const previousRecommendation = modelRecommendation.value?.recommend
-      void refresh(modelChanged || protocolChanged, previous?.[0], previousRecommendation)
+      void refresh(modelChanged, previous?.[0], previousRecommendation)
     },
     { immediate: true },
   )
@@ -102,14 +108,17 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
       return '模型规则由 model-catalog.yaml 管理，不在此处选择。'
     }
     if (!resolved.matched) {
-      return '当前模型未匹配任何目录规则：已填入 unknown 保守推荐，深度思考无可用档位。可编辑规则文件追加匹配规则（精确/glob/正则，中转站别名适用，模板文件底部有示例）。'
+      return '当前模型未匹配目录规则；能力按未知处理，不修改配置。可编辑规则文件补充该型号。'
     }
     return `模型规则由 model-catalog.yaml 管理，不在此处选择。已匹配 ${resolved.id ?? '目录规则'}；推荐值可修改，保存后才生效。`
   })
   const thinkingTip = computed(() => {
     const lines = [
-      '推理模型的思考强度档位（按当前 model 暴露不同档位）。off=关闭；on=由模型决定；low/medium/high/xhigh 由 provider 映射，需在「⚙ 全局」开启思考总闸。',
+      '思考档位按具体型号和 API 协议提供：off=明确关闭，on=启用模型思考，low/medium/high/xhigh/max=对应思考强度。全局开关不能关闭强制思考型号。',
     ]
+    if (thinkingLevels.value.length > 0 && !thinkingLevels.value.includes('off')) {
+      lines.push('当前型号在此协议不能关闭思考；全局关闭时会提示配置冲突且不发送请求，不会自动提高档位或更换型号。请确认开启全局思考并选择合法等级，或选择支持关闭的型号。')
+    }
     if (modelUnmatched.value) {
       lines.push(
         '档位来自模型目录 wire 映射；当前模型未匹配任何目录规则，无可用档位，需在规则文件中补充。',
@@ -130,10 +139,13 @@ export function useModelRecommendation(options: UseModelRecommendationOptions) {
       lines.push(`目录推荐值：${recommend.contextLimit / 1000}K，可手动修改。`)
     }
     if (!facts?.contextWindow && !recommend?.contextLimit) {
-      lines.push('目录信息未知时留空；工作台不显示虚假的百分比。')
+      lines.push('容量无运行默认，必须明确填写正整数；目录未知时请核对服务说明。')
     }
     return lines.join('\n')
   })
 
-  return { contextLimitTip, modelRuleNotice, modelUnmatched, thinkingTip, thinkingLevels }
+  const recommendedContextLimit = computed(() => modelRecommendation.value?.recommend?.contextLimit)
+  function adoptContextLimit() { if (recommendedContextLimit.value) options.cfg.contextLimit = recommendedContextLimit.value }
+  return { contextLimitTip, modelRuleNotice, modelUnmatched, thinkingTip, thinkingLevels,
+    modelRecommendation, status, recommendedContextLimit, adoptContextLimit }
 }

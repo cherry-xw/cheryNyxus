@@ -1,91 +1,83 @@
 <script setup lang="ts">
-/**
- * MediaCapabilityGrid：一行横排媒体能力选择。
- * 两个标题组（理解 / 生成），每组 3 个 icon。
- * 每项默认 element-plus icon，active 切 emoji（3D flip 卡翻转动画）。
- */
-import { Microphone, Picture, VideoCamera } from '@element-plus/icons-vue'
-import type { Component } from 'vue'
+/** 理解输入与原生输出入口；文件输出仅选择尚无配置的空白面板。 */
 import type {
   CapabilityValueDto,
   MediaCapabilitiesDto,
   OutputCapabilitiesDto,
 } from '@/application/backend/public'
+import type { CapabilityField } from '@chery/protocol'
 
-type Kind = keyof MediaCapabilitiesDto
-type OutputKind = keyof OutputCapabilitiesDto
-
-const MEDIA_CAPS: readonly {
-  key: OutputKind
-  inputEmoji: string
-  outputEmoji: string
-  icon: Component
-}[] = [
-  { key: 'image', inputEmoji: '🖼️', outputEmoji: '🎨', icon: Picture },
-  { key: 'video', inputEmoji: '🎞️', outputEmoji: '🎬', icon: VideoCamera },
-  { key: 'audio', inputEmoji: '🔊', outputEmoji: '🎵', icon: Microphone },
-]
+import {
+  BRAIN_MEDIA_OPTIONS,
+  type BrainMediaGroup,
+  type BrainMediaKind,
+} from '../brain/brainMediaOptions'
 
 function isSupported(val: CapabilityValueDto | undefined): boolean {
   return val === true || val === 'supported'
 }
 
-defineProps<{
+const props = defineProps<{
   input: MediaCapabilitiesDto
   output: OutputCapabilitiesDto
+  fileOutputSelected?: boolean
   disabled?: boolean
+  sources?: { input: Record<string, CapabilityField>; output: Record<string, CapabilityField> }
+  catalogStatus?: 'loading' | 'ready' | 'error'
 }>()
 
 const emit = defineEmits<{
-  (e: 'toggle', group: 'input' | 'output', kind: Kind): void
+  (e: 'toggle', group: BrainMediaGroup, kind: BrainMediaKind): void
 }>()
+
+function selected(group: BrainMediaGroup, kind: BrainMediaKind): boolean {
+  if (group === 'input') return isSupported(props.input[kind === 'file' ? 'pdf' : kind])
+  return kind === 'file' ? !!props.fileOutputSelected : isSupported(props.output[kind])
+}
+function baseLabel(group: BrainMediaGroup, kind: BrainMediaKind, name: string): string {
+  if (kind === 'file')
+    return group === 'input' ? '文件输入（PDF）' : '文件输出（未实现，仅空白页，不保存）'
+  return `${name}${group === 'input' ? '输入' : '输出'}`
+}
+function tooltipLabel(group: BrainMediaGroup, kind: BrainMediaKind, name: string): string {
+  if (kind === 'file') return baseLabel(group, kind, name)
+  const field = props.sources?.[group]?.[kind]
+  const status = field?.state === 'supported' ? '支持' : field?.state === 'unsupported' ? '不支持' : '未确认'
+  const source = field?.source === 'user' ? '手动设置' : props.catalogStatus === 'loading' ? '目录读取中' : props.catalogStatus === 'error' ? '目录读取失败' : field?.source === 'catalog' ? '目录' : '默认处理'
+  return `${baseLabel(group, kind, name)} · ${status} · ${source}`
+}
 </script>
 
 <template>
   <div class="cap-row" role="group" aria-label="媒体能力">
-    <div class="cap-group">
+    <div v-for="group in ['input', 'output'] as const" :key="group" class="cap-group">
       <div class="cap-group-head">
-        <strong>理解</strong>
-        <small>输入</small>
+        <strong>{{ group === 'input' ? '理解输入' : '原生输出' }}</strong>
       </div>
-      <button
-        v-for="cap in MEDIA_CAPS"
-        :key="`input-${cap.key}`"
-        type="button"
-        class="cap-item"
-        :class="{ active: isSupported(input[cap.key]) }"
-        :aria-label="`切换${cap.key}理解能力`"
-        :aria-pressed="isSupported(input[cap.key])"
-        @click="emit('toggle', 'input', cap.key)"
+      <el-tooltip
+        v-for="cap in BRAIN_MEDIA_OPTIONS"
+        :key="cap.key"
+        :content="tooltipLabel(group, cap.key, cap.label)"
+        :show-after="0"
+        placement="top"
       >
-        <span class="cap-face cap-front">
-          <component :is="cap.icon" class="cap-icon" />
-        </span>
-        <span class="cap-face cap-back">{{ cap.inputEmoji }}</span>
-      </button>
-    </div>
-
-    <div class="cap-group">
-      <div class="cap-group-head">
-        <strong>输出</strong>
-        <small>原生</small>
-      </div>
-      <button
-        v-for="cap in MEDIA_CAPS"
-        :key="`output-${cap.key}`"
-        type="button"
-        class="cap-item"
-        :class="{ active: isSupported(output[cap.key]) }"
-        :disabled="disabled"
-        :aria-label="`切换${cap.key}原生输出能力`"
-        :aria-pressed="isSupported(output[cap.key])"
-        @click="emit('toggle', 'output', cap.key)"
-      >
-        <span class="cap-face cap-front">
-          <component :is="cap.icon" class="cap-icon" />
-        </span>
-        <span class="cap-face cap-back">{{ cap.outputEmoji }}</span>
-      </button>
+        <button
+          type="button"
+          class="cap-item"
+          :class="{ active: selected(group, cap.key) }"
+          :disabled="disabled"
+          :aria-label="baseLabel(group, cap.key, cap.label)"
+          :aria-pressed="selected(group, cap.key)"
+          @click="emit('toggle', group, cap.key)"
+        >
+          <span class="cap-face cap-front" aria-hidden="true">
+            <component :is="cap.icon" class="cap-icon" />
+          </span>
+          <span class="cap-face cap-back" aria-hidden="true">{{
+            group === 'input' ? cap.inputEmoji : cap.outputEmoji
+          }}</span>
+        </button>
+      </el-tooltip>
     </div>
   </div>
 </template>

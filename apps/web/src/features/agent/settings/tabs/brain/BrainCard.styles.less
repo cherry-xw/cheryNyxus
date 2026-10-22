@@ -1,4 +1,4 @@
-@import '../../config/shared.less';
+@import './brainSections.less';
 
 .brain-head {
   cursor: pointer;
@@ -12,34 +12,8 @@
   gap: 10px;
 }
 
-.brain-section {
-  padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
-  border-radius: 8px;
-  background: var(--surface-soft);
-}
-
-.section-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-bottom: 8px;
-
-  > span {
-    color: color-mix(in srgb, var(--ink) 80%, transparent);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  small {
-    color: color-mix(in srgb, var(--ink) 62%, transparent);
-    font-size: 12px;
-  }
-}
-
-.brain-fields {
+.brain-detail {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -505,6 +479,28 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
+}
+
+.context-recommendation-btn {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--tab-color, @accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 1px solid currentColor;
+    outline-offset: 2px;
+  }
 }
 
 .compact-toggle {

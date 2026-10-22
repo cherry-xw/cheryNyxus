@@ -27,7 +27,16 @@ function recommendation(
 }
 
 describe('model recommendation draft updates', () => {
-  it('writes every recommendation into the UI draft on first model selection', () => {
+  it('目录推荐不把 contextLimit、thinking 或 capabilities 自动写进大脑草稿', () => {
+    const previous = { capabilities: { toolCall: true, input: { image: false }, serverTools: { imageInspect: 'supported' as const }, serverToolDefinitions: [{ name: 'analyze_image' }] } }
+    const draft: BrainConfigDto = { provider: 'newapi', model: 'co-glm-5.3' }
+    const first = planModelRecommendationDraftUpdate({ draft, recommendation: previous })
+    expect(first).toEqual({})
+    const next = planModelRecommendationDraftUpdate({ draft, previousModel: draft.model, previousRecommendation: previous,
+      recommendation: { capabilities: { toolCall: true, input: { image: true } } } })
+    expect(next).toEqual({})
+  })
+  it('首次选模型只写推荐的服务与协议，不自动填容量、思考或能力覆盖', () => {
     const draft: BrainConfigDto = {
       provider: 'newapi',
       model: 'MiniMax-M3',
@@ -46,14 +55,10 @@ describe('model recommendation draft updates', () => {
 
     expect(patch).toEqual({
       protocol: LlmProtocol.OPENAI_RESPONSES,
-      contextLimit: 250_000,
-      thinking: 'on',
-      capabilities: textCapabilities,
     })
-    expect(patch.capabilities).not.toBe(textCapabilities)
   })
 
-  it('replaces values that still equal the previous model recommendation', () => {
+  it('切换模型时更新推荐协议，保留显式容量、思考与能力覆盖', () => {
     const previous = recommendation({
       protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
       contextLimit: 128_000,
@@ -80,9 +85,6 @@ describe('model recommendation draft updates', () => {
       }),
     ).toEqual({
       protocol: LlmProtocol.OPENAI_RESPONSES,
-      contextLimit: 250_000,
-      thinking: 'high',
-      capabilities: visionCapabilities,
     })
   })
 
@@ -117,7 +119,7 @@ describe('model recommendation draft updates', () => {
     ).toEqual({ protocol: LlmProtocol.OPENAI_RESPONSES })
   })
 
-  it('replaces old automatic values with conservative unknown-model recommendations', () => {
+  it('切换到未知模型时只更新保守协议推荐，不改写已有容量、思考或能力', () => {
     const previous = recommendation({
       protocol: LlmProtocol.OPENAI_RESPONSES,
       contextLimit: 250_000,
@@ -143,9 +145,6 @@ describe('model recommendation draft updates', () => {
 
     expect(patch).toEqual({
       protocol: LlmProtocol.OPENAI_CHAT_COMPLETIONS,
-      contextLimit: 128_000,
-      thinking: 'off',
-      capabilities: textCapabilities,
     })
   })
 
@@ -199,10 +198,10 @@ describe('model recommendation draft updates', () => {
       },
       () => [LlmProtocol.OPENAI_RESPONSES],
     )
-    expect(draft).toMatchObject({
+    expect(draft).toEqual({
+      provider: 'newapi',
+      model: 'MiniMax-M3',
       protocol: LlmProtocol.OPENAI_RESPONSES,
-      contextLimit: 250_000,
-      thinking: 'on',
     })
   })
 
@@ -252,7 +251,7 @@ describe('model recommendation draft updates', () => {
     expect(draft).toMatchObject({
       provider: 'openai',
       protocol: LlmProtocol.OPENAI_RESPONSES,
-      thinking: 'medium',
+      thinking: 'on',
     })
   })
 
@@ -282,34 +281,7 @@ describe('model recommendation draft updates', () => {
           capabilities: textCapabilities,
         }),
       }),
-    ).toMatchObject({
-      contextLimit: 128_000,
-      thinking: 'off',
-    })
-    expect(
-      planModelRecommendationDraftUpdate({
-        draft,
-        previousModel: 'known-model',
-        previousRecommendation: previous,
-        recommendation: recommendation({
-          contextLimit: 128_000,
-          thinking: 'off',
-          capabilities: textCapabilities,
-        }),
-      }).provider,
-    ).toBeUndefined()
-    expect(
-      planModelRecommendationDraftUpdate({
-        draft,
-        previousModel: 'known-model',
-        previousRecommendation: previous,
-        recommendation: recommendation({
-          contextLimit: 128_000,
-          thinking: 'off',
-          capabilities: textCapabilities,
-        }),
-      }).protocol,
-    ).toBeUndefined()
+    ).toEqual({})
   })
 
   it('forces name-inferred provider and protocol when the new model misses the catalog', () => {
