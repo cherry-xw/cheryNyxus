@@ -144,6 +144,7 @@ export interface UtilsModelRecommendationResponseData {
   recommend?: ModelCatalogRecommendation
   thinkingLevels: import('@/core/llm/adapter.js').ThinkingLevel[]
   unknown: ModelCatalogUnknownPolicy
+  serviceCapabilities?: import('@chery/protocol').BrainServiceCapabilities
 }
 
 /** utils.openFile 响应：空（成功即打开，失败返 RpcError） */

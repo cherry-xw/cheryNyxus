@@ -33,6 +33,7 @@ import { loadHookRegistry } from '@/agent/hooks/registry.js'
 import { ClassifiedError, classifyError } from '@/utils/error.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { createRequestObservation } from '@/agent/provider/requestObservation.js'
+import { observeServerTools } from '@/agent/provider/serverToolObservation.js'
 import { estimateTokens } from '@/utils/token.js'
 import { describeFileReferences } from '@/service/workspace/handler.js'
 import { ModelRequestTimeoutError } from './requestTimeout.js'
@@ -200,7 +201,10 @@ export async function* chatMiddleware(
       limit: ctx.runtime.brain.contextLimit ?? null,
     },
   })
-  const observation = options.observation
+  const observation = observeServerTools(
+    options.observation, ctx.runtime.serverToolScopeId, messageAdapter, !!ctx.global.stream,
+    ctx.runtime.brain.model,
+  )
   options.observation = {
     ...observation,
     start(model) {

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { BrainServiceCapabilitiesSchema } from '@chery/protocol'
 import { IngressResponseSchemas } from '@chery/protocol'
 import {
   AgentCommandListResponseSchema, AgentCommandGetResponseSchema, CommandLogPageSchema,
@@ -611,6 +612,7 @@ const schemas = {
     confidence: z.enum(['exact', 'pattern', 'unknown']),
     thinkingLevels: stringArray,
     unknown: object,
+    serviceCapabilities: BrainServiceCapabilitiesSchema.optional(),
   }),
   [Method.COMMAND_LIST]: z.looseObject({ commands: objectArray }),
   [Method.PLUGINS_LIST]: z.looseObject({ plugins: z.array(pluginInfoSchema) }),

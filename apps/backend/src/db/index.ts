@@ -79,6 +79,15 @@ function initSoulTables(db: Database.Database): void {
   initAgentCommandTables(db)
   initBackendResumeTables(db)
   db.exec(`
+    CREATE TABLE IF NOT EXISTS server_tool_observations (
+      scope_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('started', 'completed', 'failed', 'unknown')),
+      observed_at INTEGER NOT NULL,
+      PRIMARY KEY (scope_id, tool_name)
+    );
+  `)
+  db.exec(`
     CREATE TABLE IF NOT EXISTS model_request_usage (
       attempt_id TEXT PRIMARY KEY,
       task_key TEXT NOT NULL,

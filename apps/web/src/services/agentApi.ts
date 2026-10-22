@@ -3,12 +3,15 @@ import { skillsApi } from './skillsApi'
 import { pluginsApi } from './pluginsApi'
 import { chatApi } from './chatApi'
 import type { WorkspaceFilesList, WorkspaceFileContent, WorkspaceGitStatus, TerminalSessionInfo, InteractionRecord, TaskCatalogItem, TaskCatalogQuery, TaskOverviewSubscription, ModelRecommendationDto, BrainListResponse, SenseToolInfo, SenseToolDocInfo, CommandInfo, EditorInfo, ConfigDto, ConfigWorkspaceBrowseStart, HookHandlerDTO, HooksGetResult, HookEventMeta } from './agentApiTypes'
+import { serviceAuth } from './authContext'
 import type { LlmProtocol } from '@chery/protocol'
 
 export type * from './agentApiTypes'
 export { fail, fetchServerConfig } from './agentApiTransport'
 
 export const agentApi = {
+  /** Current backend/account identity for discarding stale query results. */
+  contextKey: () => serviceAuth().contextKey?.() ?? serviceAuth().baseUrl(),
   async getContextUsageDetail(taskKey: string): Promise<import('@chery/protocol').TaskUsageDetail> {
     return call('chat.taskUsage.detail', { taskKey })
   },
@@ -322,11 +325,13 @@ export const agentApi = {
     model: string,
     provider?: string,
     protocol?: LlmProtocol,
+    connection?: Pick<import('./agentApiTypes').BrainConfigDto, 'url' | 'key' | 'fullUrl' | 'capabilities'>,
   ): Promise<ModelRecommendationDto> {
     return await call<ModelRecommendationDto>('utils.modelRecommendation', {
       model,
       provider,
       protocol,
+      ...(connection ? { connection } : {}),
     })
   },
 

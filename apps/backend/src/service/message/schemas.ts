@@ -764,6 +764,10 @@ export const requestSchemas = {
         'mock',
       ])
       .optional(),
+    connection: z.object({
+      url: z.string().optional(), key: z.string().optional(), fullUrl: z.boolean().optional(),
+      capabilities: SettingsBrainCapabilitiesSchema.optional(),
+    }).strict().optional(),
   }),
   // 内置命令管理（settings 「指令」tab 后端；只读枚举）
   [Method.COMMAND_LIST]: emptySchema,

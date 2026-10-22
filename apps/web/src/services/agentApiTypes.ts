@@ -523,6 +523,7 @@ export interface ModelRecommendationDto {
     capabilities?: CatalogCapabilitiesDto
   }
   thinkingLevels: ThinkingLevel[]
+  serviceCapabilities?: import('@chery/protocol').BrainServiceCapabilities
   unknown: {
     recommend?: {
       protocol?: LlmProtocol

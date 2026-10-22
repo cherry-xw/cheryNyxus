@@ -196,6 +196,13 @@ export interface UtilsModelRecommendationRequestData {
   model: string
   provider?: string
   protocol?: import('@chery/protocol').LlmProtocol
+  /** 只读查询当前连接的观察记录；省略时仍只查询模型目录。 */
+  connection?: {
+    url?: string
+    key?: string
+    fullUrl?: boolean
+    capabilities?: import('@/utils/modelCatalog.js').CatalogCapabilities
+  }
 }
 
 // ---------- Env 环境变量 ----------

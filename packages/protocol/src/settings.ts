@@ -204,11 +204,23 @@ export const SettingsModelRecommendationBodySchema = z.object({
 }).strict()
 const recommendation = z.object({ provider: z.string().optional(), protocol: protocol.optional(),
   contextLimit: z.number().positive().optional(), thinking: z.string().min(1).optional(), capabilities: SettingsCatalogCapabilitiesSchema.optional() }).strict()
+const capabilityField = z.object({ state: z.enum(CAPABILITY_STATES), source: z.enum(['user', 'catalog', 'adapter', 'default']) }).strict()
+export const BrainServiceCapabilitiesSchema = z.object({
+  nativeInput: z.object({ image: capabilityField, video: capabilityField, audio: capabilityField, pdf: capabilityField }).strict(),
+  serverTools: z.object({ webSearch: capabilityField, webReader: capabilityField, imageInspect: capabilityField }).strict(),
+  connectionIdentified: z.boolean(), verification: z.object({ status: z.literal('not-verified') }).strict(),
+  catalogComplete: z.literal(false), observationsTruncated: z.boolean(), observationError: z.string().optional(),
+  knownTools: z.array(z.object({ name: z.string().min(1), description: z.string().optional(), documentationUrl: z.string().optional(),
+    sources: z.array(z.enum(['catalog', 'observed'])),
+    observation: z.object({ name: z.string().min(1), status: z.enum(['started', 'completed', 'failed', 'unknown']), observedAt: z.number().int().nonnegative() }).strict().optional(),
+  }).strict()),
+}).strict()
 export const SettingsModelRecommendationResultSchema = z.object({
   matched: z.boolean(), id: z.string().optional(), confidence: z.enum(['exact', 'pattern', 'unknown']),
   facts: z.object({ contextWindow: z.number().positive().optional(), protocols: z.array(protocol).optional(), capabilities: SettingsCatalogCapabilitiesSchema.optional() }).strict().optional(),
   recommend: recommendation.optional(), thinkingLevels: z.array(z.string().min(1)),
   unknown: z.object({ recommend: recommendation.optional(), capabilities: SettingsCatalogCapabilitiesSchema.optional() }).strict(),
+  serviceCapabilities: BrainServiceCapabilitiesSchema.optional(),
 }).strict()
 export const SettingsPromptsSaveBodySchema = z.object({
   preset: SettingsNameSchema, scope: z.enum(['global', 'role']), content: z.string().max(100000),

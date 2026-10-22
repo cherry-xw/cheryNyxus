@@ -20,6 +20,7 @@ import {
 } from '@/service/config/commit.js'
 import fs from 'node:fs'
 import path from 'node:path'
+import { readBrainServiceCapabilities } from '@/service/config/brainCapabilities.js'
 
 /**
  * config_manage 感官：配置管理核心角色（cheryNyxus）专用，读写 .chery/config.yaml。
@@ -198,10 +199,15 @@ function doGet(): SenseResult {
   const config = redactConfigSecrets(raw)
   const baseRevision = getSavedBaseRevision(image)
   const backups = listConfigBackups()
+  const brainCapabilities = Object.fromEntries(Object.entries(raw.llm?.brain ?? {}).map(
+    ([name, brain]) => [name, readBrainServiceCapabilities(brain)],
+  ))
   return {
     content:
       `当前 .chery/config.yaml 配置（完整、已脱敏，仅用于定位目标资源）：\n` +
       JSON.stringify(config, null, 2) +
+      `\n大脑能力来源与模型服务工具（只读，不代表完整任务验证通过）：\n` +
+      JSON.stringify(brainCapabilities, null, 2) +
       `\nbaseRevision（patch 时必须原样传回）：${baseRevision}` +
       `\n回滚点（.chery/backups/，最近在前）：\n` +
       (backups.length ? backups.join('\n') : '（无）') +

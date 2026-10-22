@@ -1,0 +1,131 @@
+@import '../../config/shared.less';
+
+.brain-section {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 8px;
+
+  > span,
+  > h3 {
+    margin: 0;
+    color: color-mix(in srgb, var(--ink) 80%, transparent);
+    font-size: 14px;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  small {
+    color: color-mix(in srgb, var(--ink) 62%, transparent);
+    font-size: 12px;
+  }
+}
+
+.brain-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.brain-capability-section {
+  container: brain-capability / inline-size;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  --el-color-primary: var(--tab-color, var(--accent));
+  --el-border-radius-base: 0;
+  --el-border-radius-small: 0;
+
+  .section-heading {
+    align-items: center;
+    flex-wrap: wrap;
+
+    h3 :deep(.lbl) {
+      font: inherit;
+      color: inherit;
+    }
+  }
+
+  .section-action {
+    margin-left: auto;
+  }
+
+  .capability-content,
+  .capability-group {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .capability-group + .capability-group {
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .capability-group-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+
+    h4 {
+      margin: 0;
+      font: inherit;
+      color: color-mix(in srgb, var(--ink) 80%, transparent);
+      text-wrap: balance;
+    }
+  }
+
+  .field {
+    min-width: 0;
+  }
+
+  .field-wide {
+    grid-column: 1 / -1;
+  }
+
+  .capability-formats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 12px;
+  }
+
+  :deep(.el-checkbox) {
+    margin-right: 0;
+  }
+
+  :deep(.el-input__inner) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  p {
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  .capability-note,
+  .capability-state {
+    color: color-mix(in srgb, var(--ink) 66%, transparent);
+    font-size: 12px;
+  }
+
+  .capability-error {
+    color: var(--danger);
+  }
+}
+
+@container brain-capability (max-width: 420px) {
+  .brain-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

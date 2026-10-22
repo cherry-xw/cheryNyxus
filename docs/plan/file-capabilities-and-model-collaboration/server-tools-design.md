@@ -11,7 +11,7 @@
 3. **网页读取与联网搜索均已取得独立成功证据**：网页返回 `server_tool_use(webReader)` 和对应正文；搜索仅声明专用 `web_search_20250305`，返回 `server_tool_use(web_search_prime)`、匹配结果及带来源的答案。搜索结果也已真实交回原主会话，主模型随后要求读取官方页面；该原问题的最终回答尚未完成，不能把搜索成功扩大为完整任务已完成。
 4. **未找到 Messages 内置工具完整目录的公开查询接口。** 标准 MCP 的工具列表、Chat Completions 的 MCP 发现结果、Messages 已观察到的调用，是不同来源，不能混成一份“全部可用工具”。
 5. 图片最小触发条件仍未确定；搜索已有不依赖 Claude Code 说明、普通工具列表或身份头的独立请求。不能把搜索条件推广到图片，也不能靠假工具或图片内容提示宣布产品接入完成。
-6. 产品已接通独立服务端工具记录、协议解析、保存和工具卡展示；不能据此宣布 ST01—ST13 全部完成。按配置隔离的验证状态、图片触发与输入选择、完整事件顺序恢复、目录展示及真实多轮仍有缺口，见 §5。无本地素材的视频不测试、不生成素材；仓库、专项视觉及其他 MCP/API 不纳入本次实测。
+6. 产品已接通独立服务端工具记录、协议解析、保存、工具卡，以及按连接隔离的观察记录和设置/AI 共用的能力来源查询；不能据此宣布 ST01—ST13 全部完成。真实任务成功/失败的验证管理、图片触发与输入选择、完整事件顺序恢复及真实多轮仍有缺口，见 §5。当前配置状态仍为“尚未验证”，调用结束不会自动建立验证成功。无本地素材的视频不测试、不生成素材；仓库、专项视觉及其他 MCP/API 不纳入本次实测。
 7. 当前入口的 Chat Completions / Responses 尚未取得相同 GLM 能力的成功证据：搜索分别在请求转换、云端工具输出转换处失败，纯图片输入均拒绝查看；网页读取没有明确声明而未测，详见 §2.6。GPT Responses 已完成首批 4 次、1 次 Codex 风格搜索及 1 次用户明确批准的重试：首次搜索被 max_tool_calls 参数拒绝；去除该参数的 Codex 风格搜索首次遇到瞬时 HTTP 429 `model_cooldown / usage_limit_reached`（上游凭据配额冷却），明确重试后成功返回 `web_search_call(action=search)`、3 条 `url_citation` 引用和有依据的最终回答；Python/Shell 工具类型不支持；指定网页出现真实 open_page 和正常结束，但正文报告抓取失败，未取得页面内容。不能归因于 IP/域名封禁，也不能把工具完成状态当成内容读取成功，见 §2.7。
 
 ## 2. 已验证的调用流程与边界
@@ -287,15 +287,16 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 | 位置与关键符号 | 已有行为 | 待补内容 |
 | --- | --- | --- |
 | [`anthropic.ts`](../../../apps/backend/src/agent/provider/anthropic.ts)、[`openaiResponses.ts`](../../../apps/backend/src/agent/provider/openaiResponses.ts) | 已分开解析服务端调用、结果与普通调用；支持搜索声明转换 | 真实产品请求、多轮与异常完整流程待验收 |
-| `anthropicStreamSSE`、`extractSenseCallDeltas` | 按 block index 分开服务端与普通调用参数 | 使用脱敏离线事件验证交错、错误与孤立结果 |
+| `anthropicStreamSSE`、`extractSenseCallDeltas` | 按 block index 分开服务端与普通调用参数；脱敏离线事件覆盖交错、错误与孤立结果 | 真实产品异常与完整多轮仍待验证 |
 | [`core/message/adapter.ts`](../../../apps/backend/src/core/message/adapter.ts) `LLMResponse`、`MessageProviderAdapterConfig` | 已有独立 `serverToolCalls` 和增量接口，不伪造成本地结果 | 正文、思考和工具统一顺序未完整保存；私有块续接未实测 |
-| [`chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts)、[`checkpointState.ts`](../../../apps/backend/src/agent/middleware/checkpointState.ts) | 服务端增量合并与 `end_turn` 混合调用停止本地执行已接通 | 不完整事件、重复快照、审批时机及结果状态需离线覆盖；不能声称全部恢复场景已通过 |
+| [`chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts)、[`checkpointState.ts`](../../../apps/backend/src/agent/middleware/checkpointState.ts) | 服务端增量合并与 `end_turn` 混合调用停止本地执行已接通；已有不完整事件、重复快照、审批时机及结果状态的离线覆盖 | 正文/思考/工具完整顺序与全部恢复场景未完成 |
 | [`fileInputPlanning.ts`](../../../apps/backend/src/agent/middleware/fileInputPlanning.ts) `planFileInputs` | 按原生媒体支持或本地映射工具选择 | 区分模型原生视觉与已验证入口的服务端视觉；不能硬改模型原生声明 |
 | [`imageContext.ts`](../../../apps/backend/src/service/fileServices/imageContext.ts) | 已接通单图分析结果写入观察描述，沿用图片保留规则 | 产品看图路径与多图可靠关联未验证 |
-| [`db/message.ts`](../../../apps/backend/src/db/message.ts)、[`observer.ts`](../../../apps/backend/src/service/chat/observer.ts) | `provider_continuation.serverToolCalls` 与本地调用分开保存 | 验证增量更新、清空和独立续接字段不丢失；真实重启全流程待验收 |
+| [`db/message.ts`](../../../apps/backend/src/db/message.ts)、[`observer.ts`](../../../apps/backend/src/service/chat/observer.ts) | `provider_continuation.serverToolCalls` 与本地调用分开保存；增量更新、清空和独立续接字段保留已有离线覆盖 | 真实重启全流程与受保护原始续接仍待完成及验收 |
 | [`types.ts`](../../../apps/backend/src/core/middleware/types.ts)、[`timeline.ts`](../../../packages/protocol/src/timeline.ts) | 已传递执行归属、状态、结果与来源 | 跨端完整恢复仍需验收 |
-| [`SenseCallBox.vue`](../../../apps/web/src/features/agent/chat/SenseCallBox.vue) | 已接通服务端徽章、来源与本地操作隐藏 | 用户界面验收未完成；设置能力来源与完整性目录尚未交付 |
-| [`modelCatalog.ts`](../../../apps/backend/src/utils/modelCatalog.ts) | 区分原生媒体与按协议推荐的 `serverTools` | 型号推荐不是当前地址/凭据的成功记录；尚无按服务配置隔离的验证状态 |
+| [`SenseCallBox.vue`](../../../apps/web/src/features/agent/chat/SenseCallBox.vue)、[`BrainServerTools.vue`](../../../apps/web/src/features/agent/settings/tabs/brain/BrainServerTools.vue) | 工具卡隐藏本地操作；设置按需只读展示能力来源、目录说明、此连接观察记录及完整列表未知，支持刷新 | 用户界面验收未完成；真实任务验证状态管理未完成 |
+| [`modelCatalog.ts`](../../../apps/backend/src/utils/modelCatalog.ts)、[`brainCapabilities.ts`](../../../apps/backend/src/service/config/brainCapabilities.ts) `readBrainServiceCapabilities` | 区分原生媒体、按协议推荐的 `serverTools`、目录工具说明与已观察记录；Web/AI 共用读取；目录附加说明不写入大脑配置 | 型号推荐与已观察调用均不是当前地址/凭据的成功验证；`verification.status` 固定为 `not-verified` |
+| [`serverToolScope.ts`](../../../apps/backend/src/utils/serverToolScope.ts)、[`serverToolObservation.ts`](../../../apps/backend/src/agent/provider/serverToolObservation.ts)、[`serverToolObservations.ts`](../../../apps/backend/src/db/serverToolObservations.ts) | 按服务商/有效协议/地址/完整 URL/模型/凭据引用及实际凭据隔离；运行配置保存摘要；只保存名称/状态/时间，调用结束与整次请求失败分开，最多查询 200 种且标记截断 | 观察记录不是验证记录；成功/失败的真实任务验证保存、失效和读取尚未实现 |
 | [`loader.ts`](../../../apps/backend/src/core/mcp/loader.ts) `buildSensesForServer` | 已知 MCP 工具发现和注册 | 若纳入目录功能，补分页/变更刷新及完整性状态 |
 
 权威说明归属：模型与文件选择见[模型能力](../../backend/agent/model-capabilities.md)，Provider 见[协议适配](../../backend/agent/provider.md)，消息契约见[Core 消息](../../backend/core/message.md)，MCP 见[MCP 接入](../../backend/core/mcp.md)，Web 见[工具渲染](../../frontend/renderer.md)。实施改变这些事实前先同步相应说明，本文不提前把设计写成已实现行为。
@@ -329,7 +330,7 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 
 - 模型原生能力保持原义；新增的服务入口能力应有验证状态和适用协议，不能仅凭型号名启用。
 - 只有完成最小条件确认并验证 cheryNyxus 自有工具请求后，才为 GLM Messages 启用服务端看图路径。不要塞入不会执行的 Claude Code 工具充数；若名字映射确有必要，必须对应真实可执行工具并同步参数、授权与历史回传。
-- 保留用户图片所在消息及顺序，沿用固定版本、预算、默认 3 个用户轮、过期替代和显式重读；服务内部分析不增加用户轮数。
+- 保留用户图片所在消息及顺序，沿用固定版本、预算、默认 1 个用户轮、过期替代和显式重读；服务内部分析不增加用户轮数。
 - 描述来源区分用户文字、模型最终回答、实际视觉工具结果。只有关联可靠的分析结果才能记入该资产的视觉描述；多图无法一一关联时保存请求级分析，不能随机挂到其中一张图。
 - 不以签名 URL 作为资产主键，不自动下载服务上传的副本代替原图；文件版本和请求内图片对应关系由本地记录维护。
 - 继承角色已有禁用规则。若某入口无法禁用单项服务端工具，需要如实表示这一限制，而不是用不存在的本地审批声称能阻止服务内部执行。
@@ -385,9 +386,9 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 | --- | --- | --- | --- |
 | S1 | 固定成功样本，逐步缩减工具，核对是否与工具名/结构有关 | 最小请求可复现；再验证使用真实 cheryNyxus 工具，不借用虚假定义 | 待验证，真实调用需新额度 |
 | S2 | 确定服务端事件、能力来源、历史回传契约 | 更新权威说明；明确下面两种结构调整方式 | 已确认（使用一方案：保留本地执行结构，新增服务端记录） |
-| S3 | Provider 解析、累积、保存与恢复 | 服务端事件不触发本地执行；流式/非流式/混合调用一致 | 已实现，离线测试验证通过 |
+| S3 | Provider 解析、累积、保存与恢复 | 服务端事件不触发本地执行；流式/非流式/混合调用一致 | 独立记录与连接隔离观察已有实现和离线覆盖；完整顺序与受保护续接仍未完成 |
 | S4 | 图片输入选择、分析关联、保留与重读 | 原生与服务入口能力不混用；多图/过期/重启正确 | 已实现服务端单图分析观察描述写入；S1 最小触发条件仍待真实额度 |
-| S5 | Web 结果展示、设置能力来源与已知工具目录 | 用户看清谁执行、是否完成、目录是否完整；不重复展示和伪造可用性 | 工具卡已有实现；设置验证状态和已知工具目录未完成，界面待用户验收 |
+| S5 | Web 结果展示、设置能力来源与已知工具目录 | 用户看清谁执行、是否完成、目录是否完整；不重复展示和伪造可用性 | 工具卡、设置能力来源/已知目录及连接观察已有实现；当前始终“尚未验证”，真实任务验证管理未完成，界面待用户验收 |
 | S6 | 搜索与网页读取验证，必要时补 MCP 发现能力 | 真实确认名称、参数、结果、错误；发现列表与 Messages 能力分开 | GLM 独立网页读取、专用搜索、真实结果交付主会话通过；GPT Responses `web_search`（Codex 配置重试）搜索通过，open_page 事件通过但抓取失败；产品代码已接通声明与解析；真实多轮待新额度 |
 | S7 | 需求逐项核对后集中验证、更新使用说明 | 下方验收项完成，未验证项明确保留 | 离线测试与构建已完成，真实额度与人工界面验收待执行 |
 
@@ -411,7 +412,7 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 | 搜索结果交付 | 专用搜索结果按原普通调用 ID 交付；未执行查询明确标记；搜索摘要与页面全文分开，能继续读原文后给出最终答案；单次/总次数限制和取消不造成重复搜索 |
 | 回归 | 既有本地执行、授权、普通 MCP、原生视觉与其他供应商保持正确 |
 
-离线入口为 [`anthropic.test.ts`](../../../apps/backend/test/agent/provider/anthropic.test.ts)、[`serverTools.test.ts`](../../../apps/backend/test/agent/provider/serverTools.test.ts)、[混合调用测试](../../../apps/backend/test/agent/middleware/serverTools.test.ts)、[持久化测试](../../../apps/backend/test/db/serverToolCalls.test.ts)及 [Web 投影测试](../../../apps/web/test/chats/toolRiskProjection.test.ts)。先完成本次实现核对，再集中类型检查、相关测试与构建。界面查看按项目约定由用户完成；文档检查通过不代表这些验收通过。
+离线入口为 [`anthropic.test.ts`](../../../apps/backend/test/agent/provider/anthropic.test.ts)、[`serverTools.test.ts`](../../../apps/backend/test/agent/provider/serverTools.test.ts)、[混合调用测试](../../../apps/backend/test/agent/middleware/serverTools.test.ts)、[持久化测试](../../../apps/backend/test/db/serverToolCalls.test.ts)、[连接能力查询测试](../../../apps/backend/test/service/brainServiceCapabilities.test.ts)、[观察状态测试](../../../apps/backend/test/agent/provider/serverToolObservation.test.ts)、[请求流程观察测试](../../../apps/backend/test/agent/middleware/serverToolObservation.test.ts)及 [Web 能力读取测试](../../../apps/web/test/settings/brainServiceCapabilities.test.ts)。可复用命令归[文件能力验证](../../quality/verification/file-capabilities.md)。先完成本次实现核对，再集中类型检查、相关测试与构建。界面查看按项目约定由用户完成；文档检查通过不代表这些验收通过。
 
 仍需回答的核心问题：具体哪类工具声明触发图片分析；是否支持明确启用/禁用；无工具模型如何表示该能力；非流式与多轮怎样回传；多图如何关联；搜索在产品中的声明位置、次数限制异常行为与后续读原文循环；混合普通调用与服务端调用是否存在官方关联字段；未知结果与引用如何保存。搜索声明、真实名称、结果字段与网页读取名称/参数已有实测，不再作为完全未知项。未得到证据前不固化为供应商规则。
 

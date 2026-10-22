@@ -2,7 +2,8 @@ import { assertManagedToolAllowed } from '@/core/security/managedRequest.js'
 import type { AdaptersGroup, RuntimeConfig, SenseEntry } from '@/core/middleware/types'
 import type { Sense, SenseFunction } from '@/core/sense'
 import type { SenseAdapter } from '@/core/sense/adapter'
-import { captureRuntimeConfig, isOrdinaryRole, type BrainConfig, type Config } from '@/utils/config'
+import { captureRuntimeConfig, getAppliedRawConfig, isOrdinaryRole, type BrainConfig, type Config } from '@/utils/config'
+import { createServerToolScope } from '@/utils/serverToolScope.js'
 import type { ZodType } from 'zod'
 import { SupervisionLevel } from '@/core/config'
 import { getLLMAdapter } from '@/core/llm/adapter'
@@ -270,8 +271,16 @@ export class RuntimeResolver {
     }
 
     const roleType = opts?.roleName ?? (opts?.chatId ? getChatType(opts.chatId) : undefined)
+    const rawKey = config === captureRuntimeConfig()
+      ? getAppliedRawConfig().llm?.brain?.[selection.brain]?.key
+      : undefined
     return {
+      ...(config === captureRuntimeConfig() ? {
+        serverToolScopeId: createServerToolScope(brain, rawKey?.startsWith('$') ? rawKey : undefined),
+      } : {}),
       brainName: selection.brain,
+      configSnapshot: config,
+      selectionSnapshot: { ...selection, mcpServers: [...selection.mcpServers] },
       unavailableTools,
       brain,
       adapters,
