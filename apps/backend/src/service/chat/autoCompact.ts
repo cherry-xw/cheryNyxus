@@ -21,10 +21,7 @@
  */
 import { getSystemCommand } from '@/agent/prompt/loadCommand.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
-import { computeContextUsage } from '@/utils/token.js'
-import { resolveChatRuntimeSelection } from '@/service/chat/sessionRoleRuntime.js'
 import { getSkillMetas } from '@/agent/prompt/loadSkill.js'
-import config, { type Threshold, DEFAULT_COMMAND_CONFIG } from '@/utils/config'
 
 /** 触发原因：usage 达强制门 / 估算会溢出。 */
 export type AutoCompactReason = 'usage' | 'overflow'
@@ -42,54 +39,6 @@ export interface CommandInjection {
   extraUserMessages: string[]
   triggered: boolean
   reason?: AutoCompactReason
-}
-
-/**
- * compact 功能启用的判断（无开关）。
- * - brain 未配置 / contextLimit < min_context_limit → 不启用。
- * - 临时换模型（含 ephemeral 子角色覆盖）按当次发送的实际 brain 判定（resolveChatRuntimeSelection）。
- */
-function isCompactEnabled(chatId: string): boolean {
-  const cmd = config.global.command
-
-  const selection = resolveChatRuntimeSelection(chatId)
-  const brainName = selection?.brain
-  // 无 brain（罕见：DB 行 metadata.runtime 缺失）→ 视为不可用。
-  if (!brainName) return false
-
-  // contextLimit 缺省时保持未知（0），不伪造模型容量；这里直接读取显式 brain 配置。
-  const brain = config.llm.brain[brainName]
-  const limit = brain?.contextLimit ?? 0
-  if (limit <= 0) return false
-  return limit >= (cmd?.min_context_limit ?? 0)
-}
-
-/**
- * 阈值命中判定：auto 支持 tokens（绝对）或 percent（占 total 比）两种单位。
- * total <= 0（无 contextLimit）→ 永不命中。
- */
-function thresholdReached(t: Threshold, used: number, total: number): boolean {
-  if (total <= 0) return false
-  return t.unit === 'percent' ? used / total >= t.value : used >= t.value
-}
-
-/**
- * 自动压缩触发条件判定。任一满足返回触发原因。
- * 本函数不判 compact 是否启用；调用方需先经 isCompactEnabled 守门（brain 上下文门槛）。
- */
-function shouldAutoCompact(chatId: string): AutoCompactReason | undefined {
-  const cmd = config.global.command
-  const usage = computeContextUsage(chatId)
-  const { used, total } = usage
-  if (total <= 0) return undefined
-
-  const auto = cmd?.auto ?? DEFAULT_COMMAND_CONFIG.auto
-  const safety = cmd?.safety_margin ?? DEFAULT_COMMAND_CONFIG.safety_margin
-
-  // 用量精确等于 total - safety 时不应触发（≤, safetyMargin 名义是「缓冲后再溢」）。
-  if (used + safety > total) return 'overflow'
-  if (thresholdReached(auto, used, total)) return 'usage'
-  return undefined
 }
 
 /**
@@ -150,6 +99,7 @@ export function injectCommands(chatId: string, userPrompt: string): CommandInjec
   // 1. 提取 userPrompt 中的 builtin commands → 加载正文 → 入队
   const builtinNames = extractBuiltinCommandNames(userPrompt)
   for (const name of builtinNames) {
+    if (name === 'compact') continue // Dedicated maintenance, never a model user instruction.
     const body = loadCommandBody(name)
     if (!body) {
       reportWorkflow(chatId, {
@@ -168,53 +118,5 @@ export function injectCommands(chatId: string, userPrompt: string): CommandInjec
     })
   }
 
-  // 2. 自动 compact 触发判定（独立于 userPrompt 是否含 compact token）
-  let triggered = false
-  let reason: AutoCompactReason | undefined
-  let finalPrompt = userPrompt
-
-  if (isCompactEnabled(chatId)) {
-    const r = shouldAutoCompact(chatId)
-    if (r) {
-      reason = r
-      triggered = true
-      // 头部注入 token：保留原 user prompt（即便用户也写了 [[command:/compact]]，
-      // 重复 token 在 context_compaction 判定上幂等）。
-      if (!/\[\[command:\/compact\]\]/.test(userPrompt)) {
-        finalPrompt = `[[command:/compact]]\n\n${userPrompt}`
-      }
-      // compact 正文：unshift 到 extra 顶部（compact 优先于其他 command）。
-      const compactBody = loadCommandBody('compact')
-      if (compactBody) {
-        extraUserMessages.unshift(formatCommandBody('compact', compactBody))
-        reportWorkflow(chatId, { activeNodeId: 'command', phaseLabel: 'compact 正文已加载' })
-      } else {
-        reportWorkflow(chatId, { activeNodeId: 'command', phaseLabel: 'compact 正文加载失败' })
-        console.warn(
-          `[injectCommands] .chery/command/compact.md 缺失或为空，自动触发 ${r} 但无 compact 指令正文（chat=${chatId}）`,
-        )
-      }
-    }
-  }
-
-  return {
-    userPrompt: finalPrompt,
-    extraUserMessages,
-    triggered,
-    reason,
-  }
-}
-
-/**
- * loop done 后复检：若当前上下文再次越线、但本轮已无法改造 prompt，则仅推一道
- * `auto_compacted` 事件让前端知道「下次 send 出发自动压缩」。
- *
- * 本函数只生成触发事件，**不** 入站 prompt（本轮 generator 已结束）。
- * 前端 pet 元数据可据此高亮 compact 按钮。
- *
- * @returns 触发原因或 undefined（未触发时调用方不发 notification）。
- */
-export function maybeAutoCompactAfterDone(chatId: string): AutoCompactReason | undefined {
-  if (!isCompactEnabled(chatId)) return undefined
-  return shouldAutoCompact(chatId)
+  return { userPrompt, extraUserMessages, triggered: false }
 }
