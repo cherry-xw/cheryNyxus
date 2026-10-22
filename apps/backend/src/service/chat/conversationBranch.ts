@@ -326,6 +326,12 @@ export async function handleChatBranchCreate(
       : localContext
     const metadata = {
       ...sourceMeta,
+      contextCheckpoint: null,
+      contextMaintenance: null,
+      contextOverflowRecovery: null,
+      modelInputBudget: null,
+      drawingRoundId: null,
+      drawingSourceChatId: data.rootChatId,
       runtime: selection,
       branchContext: context,
       branchKind: data.branchType,
@@ -379,6 +385,8 @@ export async function handleChatBranchCreate(
       clientMessageId: data.clientMessageId,
       messageId: data.messageId,
       content: data.prompt,
+      parts: data.parts,
+      drawing: data.drawing,
     })
     const response: ChatBranchCreateResponseData = {
       branchId,

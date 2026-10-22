@@ -1,8 +1,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { uuid } from '@/utils/uuid'
 import type { FileServiceConfigDto } from '@/application/backend/public'
 import { fileApi, fileDraftLeases, type FileOperationRecord, type AssetRecord } from '@/application/files/public'
+import { isImageOutputOperation, withoutImageCountParams, imageParameterErrors, mergeImageParameters } from '@chery/protocol'
 
 interface TrialDraft {
+  desiredCount?: number
   operation: FileServiceConfigDto['operations'][number]
   prompt: string
   params: Record<string, unknown>
@@ -21,6 +24,26 @@ export function useFileServiceTrial(props: { serviceId: string; service: FileSer
   const operation = ref(saved?.operation ?? props.service.operations[0]!)
   const prompt = ref(saved?.prompt ?? '')
   const trialParams = ref<Record<string, unknown>>(saved?.params ?? {})
+  const desiredCount = ref(saved?.desiredCount ?? 1)
+  const countInitialized = ref(saved?.desiredCount !== undefined)
+  const imageOutput = ref<Awaited<ReturnType<typeof fileApi.imageOutput>>>()
+  const countError = ref('')
+  let countQuery = 0
+  async function refreshImageOutput() {
+    const token = ++countQuery
+    countError.value = ''
+    if (!isImageOutputOperation(operation.value)) { imageOutput.value = undefined; return }
+    if (!Number.isSafeInteger(desiredCount.value) || desiredCount.value < 1) { countError.value = '请输入 1 或更大的整数'; return }
+    try {
+      const result = await fileApi.imageOutput({ serviceId: props.serviceId, service: props.service, operation: operation.value,
+        desiredCount: countInitialized.value ? desiredCount.value : undefined, params: trialParams.value, inputImages: assets.value.filter(asset => asset.id !== trialParams.value.maskAssetId).length })
+      if (current() && token === countQuery) {
+        imageOutput.value = result
+        if (!countInitialized.value) { desiredCount.value = result.count.desiredCount; countInitialized.value = true }
+        if (result.availability !== 'available') countError.value = result.reason ?? '所选绘图方式不可用'
+      }
+    } catch (cause) { if (current() && token === countQuery) countError.value = cause instanceof Error ? cause.message : '无法读取张数限制' }
+  }
   const assets = ref<AssetRecord[]>(saved?.assets ?? [])
   const record = ref<FileOperationRecord>()
   const previousTrials = ref<FileOperationRecord[]>([])
@@ -36,12 +59,12 @@ export function useFileServiceTrial(props: { serviceId: string; service: FileSer
   const current = () => !disposed && context === fileApi.contextKey()
   const active = computed(() => !!record.value && ['waiting_approval', 'queued', 'running', 'cancel_requested'].includes(record.value.executionStatus))
   const saving = computed(() => record.value?.deliveryStatus === 'saving')
-  const inputSignature = () => JSON.stringify({ operation: operation.value, params: { ...props.service.defaults, ...trialParams.value, prompt: prompt.value }, assets: assets.value.map(asset => ({ assetId: asset.id, assetVersionId: asset.versionId })) })
+  const inputSignature = () => JSON.stringify({ desiredCount: desiredCount.value, operation: operation.value, params: { ...mergeImageParameters(props.service.defaults, trialParams.value), prompt: prompt.value }, assets: assets.value.map(asset => ({ assetId: asset.id, assetVersionId: asset.versionId })) })
   const stale = computed(() => restoredHistory.value || !!record.value && (fingerprint.value !== JSON.stringify(props.service) || testedInput.value !== inputSignature()))
 
   function stash() {
     if (!current()) return
-    drafts.set(key, { operation: operation.value, prompt: prompt.value, params: JSON.parse(JSON.stringify(trialParams.value)), assets: assets.value.map(asset => ({ ...asset })), selectedId: record.value?.operationId, fingerprint: fingerprint.value, testedInput: testedInput.value, attempt })
+    drafts.set(key, { desiredCount: countInitialized.value ? desiredCount.value : undefined, operation: operation.value, prompt: prompt.value, params: JSON.parse(JSON.stringify(trialParams.value)), assets: assets.value.map(asset => ({ ...asset })), selectedId: record.value?.operationId, fingerprint: fingerprint.value, testedInput: testedInput.value, attempt })
     const draft = drafts.get(key)!
     if (draft.assets.length) fileDraftLeases.set(`trial:${key}`, context,
       () => draft.assets.map(asset => ({ assetId: asset.id, assetVersionId: asset.versionId })),
@@ -103,7 +126,9 @@ export function useFileServiceTrial(props: { serviceId: string; service: FileSer
       operation.value = source.operation
       const { prompt: question, ...params } = source.params ?? {}
       prompt.value = typeof question === 'string' ? question : source.question ?? ''
-      trialParams.value = params
+      trialParams.value = withoutImageCountParams(params)
+      desiredCount.value = source.imageCount?.desiredCount ?? 1
+      countInitialized.value = true
       assets.value = restored
       attempt = undefined
     } catch (cause) { if (current()) error.value = cause instanceof Error ? cause.message : '无法恢复试用输入' }
@@ -118,10 +143,14 @@ export function useFileServiceTrial(props: { serviceId: string; service: FileSer
       if (action === 'try') {
         if (active.value || saving.value) throw new Error('请先等待或停止当前操作')
         if (!props.service.operations.includes(operation.value)) throw new Error('当前服务已不支持所选操作，请重新选择')
+        const parameterErrors = imageParameterErrors(props.service.adapter, { ...mergeImageParameters(props.service.defaults, trialParams.value), prompt: prompt.value }, imageOutput.value?.model ?? props.service.connection.model ?? '')
+        if (parameterErrors.length) throw new Error(parameterErrors.join('\n'))
         const service = JSON.parse(JSON.stringify(props.service)) as FileServiceConfigDto
-        const request = { serviceId: props.serviceId, service, operation: operation.value, params: { ...service.defaults, ...trialParams.value, prompt: prompt.value }, assets: assets.value.map(asset => ({ assetId: asset.id, assetVersionId: asset.versionId })) }
+        if (isImageOutputOperation(operation.value) && (!imageOutput.value || countError.value)) throw new Error(countError.value || '请先等待绘图限制查询完成')
+        const request = { serviceId: props.serviceId, service, operation: operation.value, params: { ...mergeImageParameters(service.defaults, trialParams.value), prompt: prompt.value }, assets: assets.value.map(asset => ({ assetId: asset.id, assetVersionId: asset.versionId })),
+          ...(isImageOutputOperation(operation.value) ? { desiredCount: desiredCount.value, expectedImageConfigRevision: imageOutput.value!.configRevision } : {}) }
         const signature = JSON.stringify(request)
-        if (attempt?.signature !== signature) attempt = { signature, requestId: crypto.randomUUID() }
+        if (attempt?.signature !== signature) attempt = { signature, requestId: uuid() }
         const requestInput = inputSignature()
         stash()
         result = await fileApi.tryService({ ...request, requestId: attempt.requestId })
@@ -134,7 +163,7 @@ export function useFileServiceTrial(props: { serviceId: string; service: FileSer
       } else {
         const id = record.value?.operationId
         if (!id) return
-        result = action === 'refresh' ? await fileApi.operation(id) : action === 'cancel' ? await fileApi.cancel(id) : await fileApi.retry(id, 'save', crypto.randomUUID())
+        result = action === 'refresh' ? await fileApi.operation(id) : action === 'cancel' ? await fileApi.cancel(id) : await fileApi.retry(id, 'save', uuid())
       }
       if (current() && token === selection) apply(result)
     } catch (cause) { if (current()) error.value = cause instanceof Error ? cause.message : '操作失败，请先查询状态，不要重复生成' }
@@ -160,8 +189,10 @@ export function useFileServiceTrial(props: { serviceId: string; service: FileSer
     timer = setTimeout(async () => { await run('refresh'); poll() }, 1500)
   }
   watch(() => [record.value?.operationId, record.value?.executionStatus, record.value?.deliveryStatus], poll)
-  watch([operation, prompt, trialParams, assets], stash, { deep: true })
+  watch([operation, prompt, trialParams, assets, desiredCount], stash, { deep: true })
+  watch([operation, trialParams, assets, desiredCount, () => props.service], () => void refreshImageOutput(), { deep: true, immediate: true })
   onMounted(() => { void loadTrials(); stash() })
   onBeforeUnmount(() => { stash(); disposed = true; selection++; clearTimeout(timer) })
-  return { operation, prompt, trialParams, assets, record, error, busy, previousTrials, stale, active, saving, upload, run, selectTrial, restoreRequest, removeTrial }
+  return { operation, prompt, trialParams, assets, record, error, busy, previousTrials, stale, active, saving, upload, run, selectTrial, restoreRequest, removeTrial,
+    desiredCount, imageOutput, countError, setCount: (value: number) => { countInitialized.value = true; desiredCount.value = value } }
 }

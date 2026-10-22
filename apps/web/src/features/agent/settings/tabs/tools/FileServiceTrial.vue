@@ -7,7 +7,7 @@ import FileServiceParameterFields from './FileServiceParameterFields.vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import { useFileServiceTrial } from './useFileServiceTrial'
 const props = defineProps<{ serviceId: string; service: FileServiceConfigDto }>()
-const { operation, prompt, trialParams, assets, record, error, busy, previousTrials, stale, active, saving, upload, run, selectTrial, restoreRequest, removeTrial } = useFileServiceTrial(props)
+const { operation, prompt, trialParams, assets, record, error, busy, previousTrials, stale, active, saving, upload, run, selectTrial, restoreRequest, removeTrial, desiredCount, imageOutput, countError, setCount } = useFileServiceTrial(props)
 </script>
 <template>
   <section class="trial" aria-label="文件服务试用" :aria-busy="busy">
@@ -15,7 +15,13 @@ const { operation, prompt, trialParams, assets, record, error, busy, previousTri
     <label v-if="previousTrials.length">历史试用<select :value="record?.operationId" :disabled="busy" @change="selectTrial(($event.target as HTMLSelectElement).value)"><option v-for="item in previousTrials" :key="item.operationId" :value="item.operationId">{{ new Date(item.createdAt).toLocaleString() }} · {{ FILE_OPERATION_LABELS[item.operation] }}</option></select></label>
     <label>操作<select v-model="operation" :disabled="busy"><option v-for="op in service.operations" :key="op" :value="op">{{ FILE_OPERATION_LABELS[op] }}</option></select></label>
     <label>提示或问题<textarea v-model="prompt" rows="3" :disabled="busy" /></label>
-    <details><summary>本次参数（不修改默认值）</summary><FileServiceParameterFields v-model="trialParams" :adapter="service.adapter" /></details>
+    <label v-if="imageOutput?.count.effectiveCount !== undefined">本次张数
+      <input type="number" min="1" step="1" :disabled="busy || imageOutput.count.effectiveMaximum === 1" :value="countError ? desiredCount : imageOutput.count.effectiveCount" :aria-invalid="!!countError" @change="setCount(Number(($event.target as HTMLInputElement).value))" />
+      <span>{{ imageOutput.count.countControl === 'maximum' ? '最多' : '本次请求' }} {{ imageOutput.count.effectiveCount }} 张</span>
+    </label>
+    <p v-if="imageOutput?.count.reason" role="status">{{ imageOutput.count.reason }}</p>
+    <p v-if="countError" role="alert">{{ countError }}</p>
+    <details><summary>本次参数（不修改默认值）</summary><FileServiceParameterFields v-model="trialParams" :inherited="service.defaults" :operation="operation" :adapter="service.adapter" :model="imageOutput?.imageModel || service.connection.model" /></details>
     <label>参考文件<input type="file" multiple :disabled="busy" @change="upload" /></label>
     <ul><li v-for="(asset, index) in assets" :key="`${asset.versionId}:${index}`">{{ asset.originalName }} <button type="button" :disabled="busy" :aria-label="`移除参考文件 ${asset.originalName}`" @click="assets.splice(index, 1)">移除</button></li></ul>
     <p>测试使用当前表单配置并调用真实服务，可能产生费用。关闭面板不会停止操作，重新打开可以查询记录。</p>

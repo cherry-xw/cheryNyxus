@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { drawingRoundFromView, assertDrawingDelegation, bindDrawingDelegate } from '@/service/fileServices/drawings.js'
+import { isManagedRequest } from '@/core/security/managedRequest.js'
 import { randomUUID } from 'crypto'
 import { sense, type Sense, type SenseResult, type SenseSharedData } from '@/core/sense'
 import type { SenseRuntimeContext } from '@/core/sense/senseCreator.js'
@@ -188,6 +190,18 @@ async function spawnHandler(
       'spawn_role 缺少主 chatId（SenseRuntimeContext.chatId 未注入，无法关联主 agent）',
     )
   }
+  const drawing = drawingRoundFromView(ctx?.requestView)
+  if (drawing) assertDrawingDelegation(drawing.roundId, parentChatId, type)
+  if (drawing) {
+    const access = fileAccessForChat(parentChatId)
+    const requested = parts.filter(part => part.type === 'asset')
+    if (drawing.referencesResolved !== false && requested.some(part => !drawing.inputAssets.some(ref => ref.assetId === part.assetId && ref.assetVersionId === part.assetVersionId))) throw new Error('委派不能改换本轮绘图的固定参考图')
+    const references = drawing.referencesResolved === false ? requested : drawing.inputAssets
+    parts = [...parts.filter(part => part.type !== 'asset'), ...references.map((ref, index): MessagePart => {
+      const asset = getAssetStore().get(ref.assetId, access, ref.assetVersionId)
+      return { type: 'asset', partId: `drawing-reference-${index}`, ...ref, variant: asset.transform?.variant ?? 'original', usage: 'content', kind: 'image' }
+    })]
+  }
 
   // 1. 角色定义恒从 config.roles[type] 单一源解析（fail loud，规则12）。
   //    roster gate：preset chat 限 metadata.spawnTypes 选中集（未选中 → fail loud）；
@@ -321,6 +335,7 @@ async function spawnHandler(
   }
 
   // 新建与复用子角色都使用当前会话的内存覆盖；不触碰其持久化默认编制。
+  if (drawing) bindDrawingDelegate(drawing.roundId, childChatId)
   if (temporaryRuntime) setEphemeralChatRuntime(childChatId, temporaryRuntime)
 
   const spawnSenseCallId = ctx?.messageId

@@ -1,5 +1,6 @@
 import { computed, nextTick, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
 import { uuid } from '@/utils/uuid'
+import { useDrawingDraft } from './useDrawingDraft'
 import { fileApi, fileDraftLeases, type AssetRecord } from '@/application/files/public'
 import { COMPOSER_FILE_DRAFT, FILE_REFERENCE_TARGET, registerFileReferenceTarget } from './fileReferenceTarget'
 import { composeMessageParts } from '@/domain/chat/messageParts'
@@ -710,6 +711,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     error.value = null
     let preparedInput: ReturnType<typeof chatSessions.prepareInput> | undefined
     try {
+      const drawingIntent = drawing.prepare(targetChatId)
       if (!primarySelection.value) throw new ComposerLocalValidationError('主角色编制未加载完成')
       const safeRoles: Record<string, RuntimeSelection> = {}
       for (const [k, v] of Object.entries(roleSelections.value)) {
@@ -730,6 +732,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       const prompt = composeCommandPrompt(submittedText)
       if (submittedPreset === CHERY_NYXUS_PRESET) {
         preparedInput = chatSessions.prepareInput(targetChatId, prompt)
+        preparedInput.drawing = drawingIntent
       }
       // session.runtime.set 返回 applied/deferredRunning：回灌已存在子 chat 的反馈。
       // - applied：所有子（含 running）已即时切换 ctx.runtime + 持久化 metadata.runtime。
@@ -756,7 +759,8 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       } else {
         await chatSessions.openSession(targetChatId)
       }
-      await chatSessions.submitInput(targetChatId, prompt, attachments, preparedInput)
+      const acceptedInput = await chatSessions.submitInput(targetChatId, prompt, attachments, preparedInput, drawingIntent)
+      if (drawingIntent && submittedKey === activeDraftKey && submittedGeneration === draftGeneration) drawing.submitted(drawingIntent, acceptedInput.drawing)
       // The server has acknowledged this command. From this point onward a UI
       // cleanup failure must never roll the committed message back to failed.
       preparedInput = undefined
@@ -1312,7 +1316,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
 
   let referenceTargetDisposed = false
   const pendingReferences = new Set<string>()
-  async function referenceAsset(asset: AssetRecord) {
+  async function referenceAsset(asset: AssetRecord, fixedVersion = false) {
     const targetKey = activeDraftKey
     const targetChat = options?.draftChatId?.() ?? chatId.value
     const context = fileApi.contextKey()
@@ -1323,8 +1327,10 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     if (!targetChat) throw new Error('请先选择目标会话')
     const pendingKey = JSON.stringify([targetKey, asset.id, asset.versionId])
     if (pendingReferences.has(pendingKey)) return
-    if (mediaAttachments.value.some(item => item.status === 'ready' && item.assetId === asset.id &&
-      (item.assetVersionId === asset.versionId || item.compressed?.assetVersionId === asset.versionId))) {
+    const existingReference = mediaAttachments.value.find(item => item.status === 'ready' && item.assetId === asset.id &&
+      (item.assetVersionId === asset.versionId || item.compressed?.assetVersionId === asset.versionId))
+    if (existingReference) {
+      if (fixedVersion) { existingReference.useCompressed = existingReference.compressed?.assetVersionId === asset.versionId; existingReference.usage = 'content' }
       mediaHint.value = '此文件已在当前草稿中；需要另一份独立设置时请使用“复制引用”'
       return
     }
@@ -1354,12 +1360,19 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     configureImageAdaptation(attachment)
     mediaAttachments.value.push(attachment)
     insertDraftFile(attachment)
-    if (!attachment.compressed && attachment.kind === 'image' && (config.value?.files?.context?.defaultImageVariant ?? 'adapted') === 'adapted') await attachment.adapt?.()
+    if (!fixedVersion && !attachment.compressed && attachment.kind === 'image' && (config.value?.files?.context?.defaultImageVariant ?? 'adapted') === 'adapted') await attachment.adapt?.()
     assertTarget()
     mediaHint.value = '已加入当前会话的下一条消息，尚未发送'
     } finally { pendingReferences.delete(pendingKey) }
   }
   provide(FILE_REFERENCE_TARGET, referenceAsset)
+  const drawing = useDrawingDraft({ key: () => `${options?.draftScope ?? 'quick'}:${options?.draftChatId?.() ?? chatId.value ?? 'new'}`,
+    chatId: () => options?.draftChatId?.() ?? chatId.value, config: () => config.value, preset: () => presetName.value,
+    reference: asset => referenceAsset(asset, true), parts: () => composeMessageParts(text.value, mediaAttachments.value),
+    draftParts: () => composeMessageParts('', mediaAttachments.value
+      .filter(file => (!file.status || file.status === 'ready') && file.assetVersionId)
+      .map(file => ({ ...file, referenceId: undefined }))),
+    removeReference: candidate => { const attachment = mediaAttachments.value.find(item => item.assetId === candidate.assetId && (item.assetVersionId === candidate.assetVersionId || item.compressed?.assetVersionId === candidate.assetVersionId)); if (attachment) removeMedia(attachment) } })
   const unregisterReferenceTarget = registerFileReferenceTarget({ id: uuid(), identity: () => JSON.stringify([options?.draftChatId?.() ?? chatId.value, fileApi.contextKey()]), label: () => {
     const id = options?.draftChatId?.() ?? chatId.value
     return id ? `${presetName.value ?? '会话'} · ${id}${options?.draftScope ? ` · 窗口 ${options.draftScope}` : ''}` : '新会话草稿（请先打开会话）'
@@ -1465,6 +1478,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   })
 
   return {
+    drawing,
     chatId,
     pet,
     presetName,

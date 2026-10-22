@@ -4,7 +4,7 @@ import { SupervisionLevel } from '@/core/config'
 import { getSoulDb } from '@/db/index.js'
 import { getAssetStore } from '../media/store.js'
 import { fileAccessForChat } from '../media/access.js'
-import { getFileOperation, listFileOperations, retryFileOperationSave, cancelFileOperation, recordFileInspection } from './operations.js'
+import { getFileOperation, listFileOperations, retryFileOperationSave, cancelFileOperation, recordFileInspection, publicFileOperation } from './operations.js'
 import { resolveChatFileCapabilities, resolveChatFileCapability } from './runtime.js'
 import { listImageDescriptions, requestImageRead } from './imageContext.js'
 import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
@@ -29,14 +29,14 @@ export const assetReadSense = sense('file_asset_read', '按固定版本读取普
 export const fileOperationSense = sense('file_operation', '查询、停止、重新保存或记录文件检查。重新保存不重新生成。record-inspection 需要读取全部输出固定版本的理解操作作为依据，不能用文字声明代替实际读取。', z.object({ action: z.enum(['list', 'get', 'cancel', 'retry-save', 'record-inspection']), operationId: z.string().optional(), inspectionOperationId: z.string().optional(), passed: z.boolean().optional(), summary: z.string().min(1).max(20000).optional() }).strict(), async (input, _shared, ctx) => {
   if (!ctx) throw new Error('文件操作需要会话')
   const access = fileAccessForChat(ctx.chatId)
-  if (input.action === 'list') return { content: JSON.stringify(listFileOperations(ctx.chatId, access.ownerId)) }
+  if (input.action === 'list') return { content: JSON.stringify(listFileOperations(ctx.chatId, access.ownerId).map(publicFileOperation)) }
   if (!input.operationId) throw new Error('此操作需要 operationId')
   if (input.action === 'record-inspection') {
     if (!input.inspectionOperationId || input.passed === undefined || !input.summary) throw new Error('记录检查需要 inspectionOperationId、passed 和 summary')
-    const record = recordFileInspection(input.operationId, input.inspectionOperationId, input.passed, input.summary, access.ownerId, ctx.chatId)
+    const record = publicFileOperation(recordFileInspection(input.operationId, input.inspectionOperationId, input.passed, input.summary, access.ownerId, ctx.chatId))
     return { content: JSON.stringify(record), fileOperations: [record] }
   }
-  const record = input.action === 'get' ? getFileOperation(input.operationId, access.ownerId, ctx.chatId) : input.action === 'cancel' ? cancelFileOperation(input.operationId, access.ownerId, ctx.chatId) : await retryFileOperationSave(input.operationId, access.ownerId, ctx.chatId)
+  const record = publicFileOperation(input.action === 'get' ? getFileOperation(input.operationId, access.ownerId, ctx.chatId) : input.action === 'cancel' ? cancelFileOperation(input.operationId, access.ownerId, ctx.chatId) : await retryFileOperationSave(input.operationId, access.ownerId, ctx.chatId))
   return { content: JSON.stringify(record), parts: record.outputParts, outputAssetIds: record.outputAssetIds, fileOperations: [record] }
 }, SupervisionLevel.smart)
 

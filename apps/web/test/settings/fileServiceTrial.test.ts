@@ -5,12 +5,13 @@ import type { FileServiceConfigDto } from '@/application/backend/public'
 import type { FileOperationRecord } from '@chery/protocol'
 
 const lifecycle = vi.hoisted(() => ({ mount: [] as (() => void)[], unmount: [] as (() => void)[] }))
-const api = vi.hoisted(() => ({ context: 'identity', tryService: vi.fn(), trials: vi.fn(), retainDraft: vi.fn(), operation: vi.fn(), get: vi.fn() }))
+const api = vi.hoisted(() => ({ context: 'identity', tryService: vi.fn(), imageOutput: vi.fn(), trials: vi.fn(), retainDraft: vi.fn(), operation: vi.fn(), get: vi.fn() }))
 vi.mock('vue', async original => ({ ...await original<typeof import('vue')>(),
   onMounted: (fn: () => void) => lifecycle.mount.push(fn),
   onBeforeUnmount: (fn: () => void) => lifecycle.unmount.push(fn),
 }))
 vi.mock('@/application/files/public', () => ({ fileApi: { ...api, contextKey: () => api.context }, fileDraftLeases: { set: vi.fn(), drop: vi.fn() } }))
+vi.mock('@/application/backend/public', () => ({ agentApi: { getConfig: async () => ({ files: { imageGeneration: { defaultCount: 1 } } }) } }))
 const scopes: ReturnType<typeof effectScope>[] = []
 const service: FileServiceConfigDto = { name: '测试', adapter: 'minimax-images', enabled: true,
   connection: { baseUrl: 'https://example.com', model: 'image-01' }, operations: ['image.generate'] }
@@ -29,12 +30,14 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); api.context = crypto.randomUUID()
   api.trials.mockResolvedValue({ operations: [] }); api.retainDraft.mockResolvedValue({})
   api.tryService.mockResolvedValue(result())
+  api.imageOutput.mockResolvedValue({ configRevision: 'revision', availability: 'available', count: { desiredCount: 1, effectiveCount: 1, countControl: 'requested' } })
 })
 afterEach(() => { close(); vi.useRealTimers() })
 
 describe('文件服务试用恢复', () => {
   it('网络失败重试沿用标识，已接受后的新调用使用新标识，改输入标记旧结果', async () => {
     const trial = open()
+    await nextTick()
     trial.prompt.value = '画一座桥'
     api.tryService.mockRejectedValueOnce(new Error('网络中断'))
     await trial.run('try')

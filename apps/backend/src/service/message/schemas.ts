@@ -433,6 +433,7 @@ export const requestSchemas = {
     anchorNodeId: z.string().min(1),
   }),
   [Method.CHAT_BRANCH_CREATE]: z.object({
+    drawing: ChatInputSubmitRequestSchema.shape.drawing,
     rootChatId: z.string().min(1),
     anchorNodeId: z.string().min(1),
     branchType: z.enum(['continuation', 'detail']),

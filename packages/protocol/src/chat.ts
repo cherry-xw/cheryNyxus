@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ImageCountPlanSchema, type ImageCountPlan } from './imageGeneration.js'
+import { DrawingIntentSchema, ImageCountPlanSchema, type ImageCountPlan } from './imageGeneration.js'
 import { Method } from './rpc'
 
 export const TerminationCode = {
@@ -401,6 +401,7 @@ export type ChatAttachment = z.infer<typeof ChatAttachmentSchema>
 
 export const ChatInputSubmitRequestSchema = z
   .object({
+    drawing: DrawingIntentSchema.optional(),
     chatId: z.string().min(1),
     commandId: z.string().min(1),
     clientMessageId: z.string().min(1),
@@ -416,6 +417,7 @@ export const ChatInputSubmitRequestSchema = z
 export type ChatInputSubmitRequest = z.infer<typeof ChatInputSubmitRequestSchema>
 
 export interface ChatInputSubmitResponse {
+  drawing?: { taskId: string; roundId: string }
   chatId: string
   inputId: string
   clientMessageId: string

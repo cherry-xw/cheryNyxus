@@ -97,6 +97,7 @@ interface RoleReplyData {
 }
 
 export interface PreparedChatInput {
+  drawing?: import('@chery/protocol').DrawingIntent
   chatId: string
   content: string
   parts?: MessagePart[]
@@ -1148,6 +1149,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       return
     }
     if (message?.delivery?.commandId === prepared.commandId) {
+      if (prepared.drawing) message.delivery.drawing = JSON.parse(JSON.stringify(prepared.drawing))
       message.delivery.status = 'failed'
       message.delivery.error = commandErrorFact(error, '发送失败')
       message.updatedAt = Date.now()
@@ -1208,7 +1210,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         acceptedAt: Date.now(),
       })
     }
-    return submitInput(chatId, message.content, retryParts, prepared)
+    return submitInput(chatId, message.content, retryParts, prepared, message.delivery.drawing)
   }
 
   /** Failed local messages have no durable server entity and may be removed safely. */
@@ -1235,13 +1237,17 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     content: string,
     parts?: MessagePart[],
     preparedInput?: PreparedChatInput,
-  ): Promise<PendingInput> {
+    drawing?: import('@chery/protocol').DrawingIntent,
+  ): Promise<PendingInput & { drawing?: import('@chery/protocol').ChatInputSubmitResponse['drawing'] }> {
     const prepared = preparedInput ?? prepareInput(chatId, content)
+    drawing ??= prepared.drawing
+    prepared.drawing = drawing ? JSON.parse(JSON.stringify(drawing)) : undefined
     const submittedParts = cloneParts(parts ?? prepared.parts)
     prepared.parts = cloneParts(submittedParts)
     const preparedMessage = sessionsById.value[chatId]?.messagesById[prepared.messageId]
     if (preparedMessage?.delivery?.commandId === prepared.commandId) {
       preparedMessage.delivery.parts = cloneParts(submittedParts)
+      preparedMessage.delivery.drawing = prepared.drawing
       preparedMessage.parts = cloneParts(submittedParts) ?? [{ partId: 'text-0', type: 'text', text: content }]
     }
     const gate = commandAvailability(chatId)
@@ -1264,6 +1270,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     let accepted: Awaited<ReturnType<typeof agentApi.submitChatInput>>
     try {
       accepted = await agentApi.submitChatInput({
+        ...(drawing ? { drawing } : {}),
         chatId,
         commandId,
         clientMessageId,
@@ -1274,7 +1281,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       rollbackPreparedInput(prepared, error)
       throw error
     }
-    const pending: PendingInput = {
+    const pending: PendingInput & { drawing?: import('@chery/protocol').ChatInputSubmitResponse['drawing'] } = {
+      ...(accepted.drawing ? { drawing: accepted.drawing } : {}),
       inputId: accepted.inputId,
       clientMessageId: accepted.clientMessageId || clientMessageId,
       messageId: accepted.messageId,

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { uuid } from '@/utils/uuid'
 import { FILE_SERVICE_ADAPTER_CATALOG, SettingsFileServiceSchema, buildFileServiceToolName } from '@chery/protocol'
 import type { ConfigDto, FileServiceConfigDto, FileServiceAdapterId, FileCapabilityOperation } from '@/application/backend/public'
 import { FILE_OPERATION_LABELS } from '../../model/fileServices'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import FileServiceTrial from './FileServiceTrial.vue'
 import FileServiceParameterFields from './FileServiceParameterFields.vue'
+import ImageOutputSettings from './ImageOutputSettings.vue'
 
 const props = defineProps<{ draft: ConfigDto }>()
 const selected = ref('')
@@ -17,7 +19,7 @@ const catalog = computed(() => FILE_SERVICE_ADAPTER_CATALOG.find(a => a.id === c
 const entries = computed(() => Object.entries(props.draft.file_services ?? {}).filter(([, s]) => `${s.name} ${s.adapter} ${s.connection.model} ${s.operations.map(o => FILE_OPERATION_LABELS[o]).join(' ')}`.toLowerCase().includes(search.value.toLowerCase())))
 const usedBy = computed(() => Object.entries(props.draft.sense_groups ?? {}).filter(([, tools]) => current.value?.operations.some(op => tools.some(t => t.split(':')[0] === buildFileServiceToolName(selected.value, op)))).map(([name]) => name))
 function add(adapter: FileServiceAdapterId = 'openai-images') {
-  const id = `svc_${crypto.randomUUID().replaceAll('-', '_')}`
+  const id = `svc_${uuid().replaceAll('-', '_')}`
   const definition = FILE_SERVICE_ADAPTER_CATALOG.find(a => a.id === adapter)!
   props.draft.file_services ??= {}
   props.draft.file_services[id] = { name: '新文件服务', enabled: true, adapter, connection: {}, operations: [definition.supportedOperations[0]!], defaults: {} }
@@ -127,7 +129,8 @@ function assign(group: string) {
       <label v-for="op in catalog?.supportedOperations" :key="op"><input type="checkbox" :checked="current.operations.includes(op)" @change="operation(op, ($event.target as HTMLInputElement).checked)" />{{ current.adapter === 'minimax-images' && op === 'image.reference' ? '人物参考生成' : FILE_OPERATION_LABELS[op] }}</label>
       <details><summary>高级完整端点覆盖</summary><label v-for="op in current.operations" :key="op">{{ FILE_OPERATION_LABELS[op] }} 完整地址<input type="url" :value="current.connection.endpointOverrides?.[op]" @change="current.connection.endpointOverrides = { ...current.connection.endpointOverrides, [op]: ($event.target as HTMLInputElement).value || undefined }" /></label><p>填写后此操作不再拼接基础地址路径。</p></details>
       <h3>默认参数</h3>
-      <FileServiceParameterFields :adapter="current.adapter" :model-value="current.defaults ?? {}" @update:model-value="current.defaults = $event" />
+      <ImageOutputSettings :model-value="current.connection.capabilities?.imageOutput" :operations="current.operations" @update:model-value="current.connection.capabilities = { ...current.connection.capabilities, imageOutput: $event }" />
+      <FileServiceParameterFields :adapter="current.adapter" :model="current.connection.model" :model-value="current.defaults ?? {}" @update:model-value="current.defaults = $event" />
       <details><summary>直接编辑参数（JSON）</summary><label>仅填写该接口及型号支持的参数<textarea :value="JSON.stringify(current.defaults ?? {}, null, 2)" rows="6" spellcheck="false" @change="updateDefaults" /></label><p>未填写的参数由服务决定；未知字段会在保存或调用时报告。</p></details>
       <h3>执行限制</h3>
       <label>排队最长等待（分钟）<input type="number" min="0.01" :value="(current.queueTimeoutMs ?? 600000) / 60000" @change="current.queueTimeoutMs = Number(($event.target as HTMLInputElement).value) * 60000" /></label>

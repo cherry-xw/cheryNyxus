@@ -45,6 +45,7 @@ const runtimeSchema = z.looseObject({
 })
 
 const inputAcceptedSchema = z.looseObject({
+  drawing: z.object({ taskId: id, roundId: id }).strict().optional(),
   chatId: id,
   inputId: id,
   clientMessageId: id,

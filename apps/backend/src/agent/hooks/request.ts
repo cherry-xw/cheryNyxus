@@ -8,6 +8,7 @@ import { getChatSkillFilter, getChat, updateChatMetadata } from '@/db/chat.js'
 import { managedToolDenied } from '@/core/security/managedRequest.js'
 import { fileCapabilityContext } from '@/service/fileServices/runtime.js'
 import { resolveFileCapabilities } from '@/service/fileServices/capabilityResolver.js'
+import { drawingRoundForInput, drawingModelContext } from '@/service/fileServices/drawings.js'
 
 
 import { dispatch } from './dispatch.js'
@@ -120,6 +121,8 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
   })
   const context = requestHookContext(ctx)
   const contexts: IngressRequestContext[] = []
+  const drawing = drawingRoundForInput(ctx.soul.chatId, input)
+  if (drawing) contexts.push({ ownerId: 'drawing', key: 'round', content: drawingModelContext(drawing), configRevision: 0 })
   for (const skill of requestPluginSkills) {
     contexts.push({
       ownerId: skill.plugin!,

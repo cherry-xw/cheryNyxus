@@ -22,9 +22,13 @@ import { executeLocalFileAdapter } from './localAdapters.js'
 import { assertFileServiceRoleAllowed } from './runtime.js'
 import type { SenseRuntimeContext } from '@/core/sense/senseCreator.js'
 import { resolveImageOutput, imageCountParams } from './imageOutput.js'
+import { assertDrawingExecution, claimDrawingOperation, attachDrawingOutputs, recordDrawingOperation, drawingRoundFromView, drawingContinuation, grantDrawingInputs } from './drawings.js'
 
 interface OperationRow { operation_id: string; owner_id: string; chat_id: string | null; fingerprint: string; data_json: string; request_json: string }
 export interface FileOperationInput {
+  drawingRoundId?: string
+  drawingSourceCandidateId?: string
+  continuationConnectionRevision?: string
   desiredCount?: number
   expectedImageConfigRevision?: string
   ownerId: string; chatId?: string; requestId: string; serviceId: string; operation: FileCapabilityOperation
@@ -60,6 +64,7 @@ function authorize(stored: OperationRow, ownerId: string, chatId?: string): void
 function update(record: FileOperationRecord): FileOperationRecord {
   record.updatedAt = Date.now()
   db().prepare('UPDATE file_operations SET data_json = ? WHERE operation_id = ?').run(JSON.stringify(record), record.operationId)
+  recordDrawingOperation(record)
   return record
 }
 function spoolRoot() { return resolve(process.env.CHERY_DIR || process.cwd(), '.chery', 'file-operation-results') }
@@ -82,6 +87,10 @@ export function getFileOperation(id: string, ownerId: string, chatId?: string): 
   authorize(stored, ownerId, chatId)
   return JSON.parse(stored.data_json)
 }
+export function publicFileOperation(record: FileOperationRecord): FileOperationRecord {
+  const { providerContinuation: _private, ...result } = record
+  return result
+}
 export function listFileOperations(chatId: string, ownerId: string): FileOperationRecord[] {
   fileAccessForChat(chatId, ownerId)
   return (db().prepare('SELECT data_json FROM file_operations WHERE chat_id = ? AND owner_id = ? ORDER BY rowid').all(chatId, ownerId) as { data_json: string }[]).map(item => JSON.parse(item.data_json))
@@ -89,6 +98,7 @@ export function listFileOperations(chatId: string, ownerId: string): FileOperati
 
 async function deliver(record: FileOperationRecord, input: FileOperationInput, output: FileServiceAdapterOutput): Promise<FileOperationRecord> {
   record.providerContinuation = output.providerContinuation
+  recordDrawingOperation(record, input.continuationConnectionRevision)
   record.deliveryStatus = 'saving'
   update(record)
   const parts: MessagePart[] = []
@@ -108,6 +118,7 @@ async function deliver(record: FileOperationRecord, input: FileOperationInput, o
         parts.push(saved)
       }
       record.outputParts = [...parts]
+      if (input.drawingRoundId) attachDrawingOutputs(input.drawingRoundId, parts, input.ownerId)
       update(record)
     }
     record.outputParts = parts
@@ -209,6 +220,7 @@ async function execute(record: FileOperationRecord, input: FileOperationInput): 
       assets.push({ ...ref, mimeType: asset.asset.mimeType, data: asset.data })
     }
     const brain = service.connection.brainRef ? snapshot.llm.brain[service.connection.brainRef] : undefined
+    input.continuationConnectionRevision = imageRevision({ service, brain })
     const resolvedConnection = resolveFileServiceConnection(service, snapshot.llm.brain, readRuntimeEnvironment())
     const local = ['vision-brain', 'custom-sense-mcp'].includes(service.adapter)
     if (!local && resolvedConnection.errors.length) throw new Error(resolvedConnection.errors.join('\n'))
@@ -284,6 +296,7 @@ export async function runFileOperation(input: FileOperationInput, wait = true): 
   if (!input.ownerId || !input.requestId) throw new Error('文件操作需要身份和唯一请求标识')
   if (input.chatId) fileAccessForChat(input.chatId, input.ownerId)
   if (input.enforceRolePolicy && input.chatId) assertFileServiceRoleAllowed(input.chatId, input.serviceId, input.operation)
+  if (isImageOutputOperation(input.operation)) input = { ...input, drawingRoundId: input.drawingRoundId ?? drawingRoundFromView(input.requestView)?.roundId }
   const fingerprintInput = isImageOutputOperation(input.operation) ? { ...input,
     params: withoutImageCountParams(input.params), desiredCount: requestedImageCount(input.params, input.desiredCount) } : input
   const fingerprint = createHash('sha256').update(stable({ ...fingerprintInput, signal: undefined, requestId: undefined, requestView: input.requestView?.identity })).digest('hex')
@@ -294,6 +307,12 @@ export async function runFileOperation(input: FileOperationInput, wait = true): 
     return wait ? executions.get(existing.operation_id) ?? JSON.parse(existing.data_json) : JSON.parse(existing.data_json)
   }
   const snapshot = captureRuntimeConfig()
+  const drawing = input.drawingRoundId ? assertDrawingExecution(input.drawingRoundId, input) : undefined
+  if (drawing) {
+    input = { ...input, assets: drawing.inputAssets, desiredCount: drawing.intent.desiredCount,
+      expectedImageConfigRevision: drawing.imageConfigRevision, params: { ...drawing.intent.params, prompt: input.params.prompt },
+      providerContinuation: drawingContinuation(drawing, snapshot.file_services![input.serviceId]!, snapshot) }
+  }
   const service = input.serviceOverride ?? snapshot.file_services?.[input.serviceId]
   const image = service && isImageOutputOperation(input.operation)
     ? resolveImageOutput({ service, operation: input.operation, params: input.params, desiredCount: input.desiredCount,
@@ -305,10 +324,13 @@ export async function runFileOperation(input: FileOperationInput, wait = true): 
     params: input.params, targetKind: 'tool', targetId: buildFileServiceToolName(input.serviceId, input.operation), configRevision: imageRevision(snapshot), sourceCallId: input.sourceCallId,
     executionStatus: 'queued', deliveryStatus: 'pending_save', inspectionStatus: input.requireInspection ? 'pending_inspection' : 'not_requested', createdAt: Date.now(), updatedAt: Date.now() }
   db().transaction(() => {
+    if (input.drawingRoundId) claimDrawingOperation(input.drawingRoundId, record.operationId, drawing)
+    if (drawing && input.chatId) grantDrawingInputs(drawing, input.chatId, input.ownerId)
     db().prepare('INSERT INTO file_operations (operation_id,owner_id,chat_id,request_id,fingerprint,data_json,request_json) VALUES (?,?,?,?,?,?,?)')
       .run(record.operationId, input.ownerId, input.chatId ?? null, input.requestId, fingerprint, JSON.stringify(record), JSON.stringify({ ...input, signal: undefined, requestView: undefined, serviceOverride: input.serviceOverride ? { ...input.serviceOverride, connection: { ...input.serviceOverride.connection, keyRef: undefined } } : undefined }))
     getAssetStore().referenceOperation(input.assets, input.chatId ? fileAccessForChat(input.chatId, input.ownerId) : { ownerId: input.ownerId }, record.operationId)
   })()
+  recordDrawingOperation(record)
   const promise = execute(record, input).finally(() => executions.delete(record.operationId))
   executions.set(record.operationId, promise)
   return wait ? promise : structuredClone(record)

@@ -5,11 +5,13 @@
  * 本组件仅 UI + emit；3 个 DOM ref 经函数 ref 桥接回 composable（selectCommand/commandMenuStyle 等依赖）。
  */
 import type { ComponentPublicInstance, CSSProperties } from 'vue'
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
+import { DRAWING_DRAFT } from './useDrawingDraft'
 import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
 import { Plus, Promotion } from '@element-plus/icons-vue'
 import type { UploadFile } from 'element-plus'
 import MediaThumbStrip from './media/MediaThumbStrip.vue'
+import DrawingPanel from './DrawingPanel.vue'
 import {
   type MediaAttachment,
   type MediaKind,
@@ -63,6 +65,8 @@ const mediaKinds = [
   { kind: 'video', label: '视频' },
   { kind: 'audio', label: '音频' },
 ] as const
+const drawing = inject(DRAWING_DRAFT, undefined)
+const sendLabel = computed(() => drawing?.sendLabel.value ?? '发送消息')
 const mediaDisabledReason = computed(() => {
   if (props.sending) return '消息正在发送'
   if (props.uploading) return '附件正在上传'
@@ -131,6 +135,7 @@ const emit = defineEmits<{
     <div v-if="runtimeHint && runtimeError && !runtimeGlobal" class="error-row" role="status">
       {{ runtimeHint }}
     </div>
+    <DrawingPanel :disabled="sending || loading || uploading" />
     <div class="textarea-row">
       <div
         :ref="setEditorRef"
@@ -317,13 +322,13 @@ const emit = defineEmits<{
             </ElTooltip>
           </div>
         </ElPopover>
-        <ElTooltip :content="sendDisabledReason || '发送消息'" popper-class="label-tip-popper">
+        <ElTooltip :content="sendDisabledReason || sendLabel" popper-class="label-tip-popper">
           <span>
             <button
               type="button"
               class="send-btn"
               :disabled="!!sendDisabledReason"
-              aria-label="发送消息"
+              :aria-label="sendLabel"
               @click="emit('send')"
             >
               <Promotion class="send-icon" aria-hidden="true" />

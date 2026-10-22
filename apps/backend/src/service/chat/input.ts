@@ -50,6 +50,7 @@ import { normalizeMessageParts } from '@/utils/messageParts.js'
 import { getAssetStore } from '../media/store.js'
 import { bindNewChatFileOwner, requireFileOwner } from '../media/access.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
+import { createDrawingRound } from '../fileServices/drawings.js'
 /**
  * Command-plane input submission. The command is acknowledged immediately;
  * execution is detached from the RPC response and uses the same live output
@@ -109,6 +110,8 @@ export async function handleChatInputSubmit(
       const access = bindNewChatFileOwner(data.chatId, requireFileOwner(ctx))
       getAssetStore().attachOwned(fileParts, access, 'pending', inputId)
     }
+    const drawing = data.drawing ? createDrawingRound({ ownerId: bindNewChatFileOwner(data.chatId, requireFileOwner(ctx)).ownerId,
+      chatId: data.chatId, inputId, messageId, feedback: resolvedContent, intent: data.drawing, parts: normalized.parts }) : undefined
     const entry = agent.enqueueInput(prompt, {
       parts: normalized.parts,
       inputId,
@@ -176,6 +179,7 @@ export async function handleChatInputSubmit(
     })
 
     const response: ChatInputSubmitResponseData = {
+      ...(drawing ? { drawing: { taskId: drawing.taskId, roundId: drawing.roundId } } : {}),
       chatId: data.chatId,
       inputId,
       clientMessageId: data.clientMessageId,

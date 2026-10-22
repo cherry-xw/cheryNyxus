@@ -44,13 +44,17 @@ async function request<T>(path: string, body?: unknown, method?: string): Promis
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   assertCurrent()
-  if (!response.ok) throw new Error(`文件请求失败 (${response.status})：${await response.text()}`)
+  if (!response.ok) throw Object.assign(new Error(`文件请求未完成 (HTTP ${response.status})，请检查权限、输入及当前操作状态；不要重复提交结果未知的生成请求。`), { status: response.status })
   const result = await response.json() as T
   assertCurrent()
   return result
 }
 
 export const fileApi = {
+  drawings: (chatId: string) => request<{ tasks: import('@chery/protocol').DrawingTask[] }>('/api/file-services/drawings', { chatId }),
+  finalizeDrawing: (body: { chatId: string; taskId: string; candidateId: string; expectedSelectionRevision: number; requestId: string }) => request<import('@chery/protocol').DrawingTask>('/api/file-services/drawing-finalize', body),
+  imageOutput: (body: unknown) => request<{ model: string; imageModel: string; adapter: string; configRevision: string;
+    capability: import('@chery/protocol').ImageOutputCapability; source: string; availability: string; reason?: string; count: import('@chery/protocol').ImageCountPlan }>('/api/file-services/image-output', body),
   contextKey: () => serviceAuth().contextKey?.() ?? serviceAuth().baseUrl(),
   upload: (file: File) => uploadFile<AssetRecord>('/api/assets/upload', file, { contentType: file.type || 'application/octet-stream', errorMessage: '文件上传失败' }),
   get: (assets: Array<{ assetId: string; assetVersionId?: string }>, chatId?: string) =>

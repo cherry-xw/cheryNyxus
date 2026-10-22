@@ -11,6 +11,7 @@ import * as fileReferences from '../src/features/agent/composer/fileReferenceTar
 import * as messageParts from '../src/domain/chat/messageParts'
 import * as draftHistory from '../src/features/agent/composer/model/draftTextHistory'
 import * as fileServices from '../src/application/files/public'
+import * as protocol from '@chery/protocol'
 import { createRoleConfigModel } from '../src/features/agent/runtime/roleConfigModel'
 import * as uuidModule from '../src/utils/uuid'
 
@@ -18,7 +19,7 @@ import * as uuidModule from '../src/utils/uuid'
 // 用 vi.mock 拦截并转发到 composerFixture 注入的 deferred（mediaUpload.impl）。
 const mediaUpload = vi.hoisted(() => ({ impl: null as null | (() => Promise<unknown>), adapt: null as null | ((assetId: string, chatId?: string) => Promise<unknown>) }))
 vi.mock('@/application/files/public', () => ({
-  fileApi: { contextKey: () => 'test-context', upload: () => mediaUpload.impl?.() ?? Promise.reject(new Error('upload not wired')), retainDraft: async () => {}, adapt: (assetId: string, chatId?: string) => mediaUpload.adapt?.(assetId, chatId) ?? Promise.reject(new Error('not configured')) },
+  fileApi: { contextKey: () => 'test-context', upload: () => mediaUpload.impl?.() ?? Promise.reject(new Error('upload not wired')), retainDraft: async () => {}, adapt: (assetId: string, chatId?: string) => mediaUpload.adapt?.(assetId, chatId) ?? Promise.reject(new Error('not configured')), drawings: async () => ({ tasks: [] }) },
   fileDraftLeases: { set() {}, drop() {} },
 }))
 
@@ -212,6 +213,11 @@ function composerFixture(connected = false) {
   mediaUpload.adapt = null
   const submit = vi.fn().mockResolvedValue(undefined)
   const runtime = vi.fn().mockResolvedValue({ applied: [], deferredRunning: [] })
+  const drawing = loadController('apps/web/src/features/agent/composer/useDrawingDraft.ts', {
+    '@chery/protocol': protocol,
+    '@/application/files/public': fileServices,
+    '@/utils/uuid': uuidModule,
+  })
   const listBrains = vi.fn(() => new Promise(() => {}))
   const module = loadController('apps/web/src/features/agent/composer/useAgentDialogOptions.ts', {
     '@/utils/uuid': uuidModule,
@@ -235,6 +241,7 @@ function composerFixture(connected = false) {
     './fileReferenceTarget': fileReferences,
     '@/domain/chat/messageParts': messageParts,
     './model/draftTextHistory': draftHistory,
+    './useDrawingDraft': drawing.exports,
     '@/application/platform/public': { httpUrl: (path: string) => path },
     '@/domain/pets/presets': { CHERY_NYXUS_PRESET: 'nyxus' },
     '@/styles/overlayLayers': { ownerOverlayZIndex: () => 501 },
@@ -248,14 +255,14 @@ function composerFixture(connected = false) {
   }, connected)
   const chatId = vue.ref('chat-a')
   const c = module.exports.useAgentDialogOptions({ chatId })
-  cleanupHooks.push(...module.hooks)
+  cleanupHooks.push(...module.hooks, ...drawing.hooks)
   c.roleSelections.value = { 主角色: { brain: 'brain', senseGroup: 'default' } }
   c.config.value = {
     llm: { brain: { brain: { capabilities: { input: { image: true } } } } },
     media: { images: { type: 'image', enabled: true, url: 'test' } },
   }
   c.text.value = 'message'
-  return { c, upload, submit, runtime, chatId, module, listBrains }
+  return { c, upload, submit, runtime, chatId, module, listBrains, drawing }
 }
 
 describe('composer draft and attachment safety', () => {
@@ -323,6 +330,41 @@ describe('composer draft and attachment safety', () => {
     await pending
     expect(c.mediaAttachments.value).toEqual([])
     expect(c.uploading.value).toBe(false)
+  })
+
+  it('observes an uploading GIF without running send validation and updates fixed-version draft parts when ready', async () => {
+    const { c, upload, submit, drawing } = composerFixture()
+    c.config.value.files = { context: { defaultImageVariant: 'original' } }
+    const file = new File(['gif-bytes'], 'image-1785288018370.gif', { type: 'image/gif' })
+    const pending = c.onMediaSelected({ raw: file })
+    await vi.waitFor(() => expect(c.uploading.value).toBe(true))
+    const observe = drawing.watchers.at(-1)!.source
+    expect(observe()).toBe('[]')
+    expect(await c.handleSend()).toBe(false)
+    expect(submit).not.toHaveBeenCalled()
+    upload.resolve({ id: 'gif', versionId: 'gif-v1', originalName: file.name, kind: 'image', mimeType: file.type, sizeBytes: file.size })
+    await pending
+    expect(JSON.parse(observe())).toEqual([expect.objectContaining({ type: 'asset', assetId: 'gif', assetVersionId: 'gif-v1', usage: 'content', variant: 'original' })])
+    c.mediaAttachments.value[0].compressed = { assetId: 'adapted', assetVersionId: 'adapted-v1', mimeType: 'image/webp' }
+    c.mediaAttachments.value[0].useCompressed = true
+    c.mediaAttachments.value[0].usage = 'reference-only'
+    expect(JSON.parse(observe())).toEqual([expect.objectContaining({ assetId: 'adapted', assetVersionId: 'adapted-v1', usage: 'reference-only', variant: 'adapted' })])
+    expect(c.mediaAttachments.value[0].referenceId).toBeTruthy()
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('keeps failed attachments visible without throwing in draft observation and still blocks sending them', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { c, upload, submit, drawing } = composerFixture()
+    const pending = c.onMediaSelected({ raw: new File(['text'], 'draft.txt', { type: 'text/plain' }) })
+    await vi.waitFor(() => expect(c.uploading.value).toBe(true))
+    upload.reject(new Error('上传失败')); await pending
+    expect(drawing.watchers.at(-1)!.source()).toBe('[]')
+    expect(c.mediaAttachments.value[0].status).toBe('failed')
+    expect(await c.handleSend()).toBe(false)
+    expect(submit).not.toHaveBeenCalled()
+    expect(c.mediaAttachments.value).toHaveLength(1)
+    expect(c.text.value).toContain('message')
   })
 
   it('restores a conversation draft after switching away and back', async () => {
