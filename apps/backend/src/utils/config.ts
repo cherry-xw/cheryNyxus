@@ -1,16 +1,22 @@
 import type {
   RoleConfig,
   PresetConfig,
-  Threshold,
-  CommandConfig,
   ServerConfig,
   McpServerConfig,
   Config,
   ConfigRaw,
-  FilesConfig,
   RoleFileCapabilitiesMap,
   RoleFileCapabilityBinding,
 } from '@chery/plugin-api'
+import {
+  DEFAULT_COMMAND_CONFIG, DEFAULT_FILES_CONFIG, DEFAULT_GLOBAL_OPTIONS, DEFAULT_MEMORY_CONFIG,
+  SettingsBrainSchema, SettingsGlobalSchema, SettingsMemorySchema, SettingsMcpServerSchema,
+  SettingsSenseGroupSchema,
+  imageParameterErrors,
+} from '@chery/protocol'
+export { DEFAULT_COMMAND_CONFIG, DEFAULT_FILES_CONFIG } from '@chery/protocol'
+import { resolveConfiguredLlmConnection, requiredEnvironmentValue } from './llmConnection.js'
+import { resolveFileServiceConnection } from './fileServiceConnection.js'
 export type {
   MockScriptError,
   MockScriptChunk,
@@ -56,6 +62,7 @@ export type {
   McpServerConfigRaw,
   ConfigRaw,
 } from '@chery/plugin-api'
+import { Cron } from 'croner'
 import dotenv from 'dotenv'
 import yaml from 'js-yaml'
 import { migrateFileConfigOnDiskSync } from './fileConfigMigration.js'
@@ -294,33 +301,6 @@ export const DEFAULT_PRESET_NAME = '默认'
  */
 
 
-export const DEFAULT_COMMAND_CONFIG = {
-  warn: { unit: 'percent', value: 0.6 } as const,
-  auto: { unit: 'percent', value: 0.8 } as const,
-  min_context_limit: 32000,
-  safety_margin: 1024,
-} as const satisfies Required<Omit<CommandConfig, 'warn' | 'auto'>> &
-  Record<'warn' | 'auto', Threshold>
-
-export const DEFAULT_FILES_CONFIG = {
-  maxUploadBytes: 100 * 1024 * 1024,
-  imageContext: { mode: 'recent', recentUserTurns: 1, replacement: 'description', missingDescription: 'existing', maxDescriptionChars: 600, maxTotalDescriptionChars: 6000 },
-  context: {
-    recentUserTurns: 3,
-    maxAssets: 10,
-    maxBinaryBytes: 16 * 1024 * 1024,
-    maxExtractedCharsPerAsset: 20_000,
-    maxExtractedChars: 80_000,
-    defaultImageVariant: 'adapted' as const,
-  },
-  imageAdaptation: {
-    maxEdge: 2048,
-    quality: 85,
-  },
-  unreferencedUploadRetentionHours: 24,
-  unreferencedAssetRetentionHours: 24,
-} as const satisfies Required<FilesConfig>
-
 
 /**
  * 全局配置
@@ -402,7 +382,7 @@ function resolveEnvVars(
   return value
 }
 
-function readRuntimeEnvironment(): Record<string, string | undefined> {
+export function readRuntimeEnvironment(): Record<string, string | undefined> {
   let fileEnvironment: Record<string, string> = {}
   try {
     fileEnvironment = dotenv.parse(fs.readFileSync(rootEnvPath, 'utf8'))
@@ -424,6 +404,8 @@ export interface RuntimeConfigNormalizationContext {
   webPort?: string
   environment: Readonly<Record<string, string | undefined>>
   server?: Partial<ServerConfig>
+  /** Startup must leave settings available for repairing incomplete resources. */
+  allowIncomplete?: boolean
 }
 
 export interface PreparedRuntimeConfig {
@@ -438,7 +420,7 @@ export function normalizeRuntimeConfig(
   context: RuntimeConfigNormalizationContext,
 ): Config {
   const source = structuredClone(raw)
-  const rawErrors = validateRawConfig(source)
+  const rawErrors = validateRawConfig(source, context.environment, !context.allowIncomplete)
   if (rawErrors.length > 0) throw new Error(`配置校验失败:\n${rawErrors.join('\n')}`)
 
   const config = resolveEnvVars(source, context.environment, new Set()) as Config
@@ -492,33 +474,34 @@ export function normalizeRuntimeConfig(
 
   // 断连宽限期默认值：15000ms（与 .chery.template 同步；缺省 15s）
   config.global.disconnect_grace_ms =
-    config.global.disconnect_grace_ms !== undefined ? config.global.disconnect_grace_ms : 15000
+    config.global.disconnect_grace_ms ?? DEFAULT_GLOBAL_OPTIONS.disconnect_grace_ms
 
   // 审批业务截止时间默认值：300000ms（5min）。0 仍显式表示不设业务截止时间。
   config.global.approval_timeout =
-    config.global.approval_timeout !== undefined ? config.global.approval_timeout : 300000
+    config.global.approval_timeout ?? DEFAULT_GLOBAL_OPTIONS.approval_timeout
 
   // 审批 runtime 资源上限默认值：1800000ms（30min；approval_timeout=0 时生效，与 .chery.template 同步）
   config.global.approval_hard_timeout =
     config.global.approval_hard_timeout !== undefined
       ? config.global.approval_hard_timeout
-      : 1800000
+      : DEFAULT_GLOBAL_OPTIONS.approval_hard_timeout
 
   // 项目记忆配置默认值（缺省 → global{30,500} · workspace{15,500}）
   config.memory = {
     global: {
-      max_count: config.memory?.global?.max_count ?? 30,
-      max_chars: config.memory?.global?.max_chars ?? 500,
+      max_count: config.memory?.global?.max_count ?? DEFAULT_MEMORY_CONFIG.global.max_count,
+      max_chars: config.memory?.global?.max_chars ?? DEFAULT_MEMORY_CONFIG.global.max_chars,
     },
     workspace: {
-      max_count: config.memory?.workspace?.max_count ?? 15,
-      max_chars: config.memory?.workspace?.max_chars ?? 500,
+      max_count: config.memory?.workspace?.max_count ?? DEFAULT_MEMORY_CONFIG.workspace.max_count,
+      max_chars: config.memory?.workspace?.max_chars ?? DEFAULT_MEMORY_CONFIG.workspace.max_chars,
     },
   }
 
   // 全局文件与上下文策略默认值（C06）
   config.files = {
     maxUploadBytes: config.files?.maxUploadBytes ?? DEFAULT_FILES_CONFIG.maxUploadBytes,
+    imageGeneration: { ...DEFAULT_FILES_CONFIG.imageGeneration, ...config.files?.imageGeneration },
     imageContext: { ...DEFAULT_FILES_CONFIG.imageContext, ...config.files?.imageContext },
     context: {
       recentUserTurns:
@@ -537,6 +520,7 @@ export function normalizeRuntimeConfig(
         DEFAULT_FILES_CONFIG.context.defaultImageVariant,
     },
     imageAdaptation: {
+      maxBytes: config.files?.imageAdaptation?.maxBytes ?? DEFAULT_FILES_CONFIG.imageAdaptation.maxBytes,
       maxEdge:
         config.files?.imageAdaptation?.maxEdge ?? DEFAULT_FILES_CONFIG.imageAdaptation.maxEdge,
       quality:
@@ -561,7 +545,7 @@ export function normalizeRuntimeConfig(
 
   // history_recall 感官输出上限默认值：4000 字符（与 .chery.template 同步）
   config.global.history_recall = {
-    max_output_chars: config.global.history_recall?.max_output_chars ?? 4000,
+    max_output_chars: config.global.history_recall?.max_output_chars ?? DEFAULT_GLOBAL_OPTIONS.history_recall.max_output_chars,
   }
 
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 server.webPort，
@@ -635,6 +619,7 @@ if (unresolvedStartupEnvVars.length > 0) {
 const initialConfig = normalizeRuntimeConfig(startupSource, {
   ...runtimeContext,
   environment: startupEnvironment,
+  allowIncomplete: true,
 })
 runtimeContext.server = structuredClone(initialConfig.server)
 const { server: _startupServer, ...initialRawConfig } = structuredClone(startupSource)
@@ -642,7 +627,7 @@ let appliedRawConfig = initialRawConfig
 let appliedConfig = initialConfig
 
 /** Build without publishing. Server/root/database values always come from startup context. */
-export function prepareRuntimeConfig(raw: ConfigRaw): PreparedRuntimeConfig {
+export function prepareRuntimeConfig(raw: ConfigRaw, allowIncomplete = true): PreparedRuntimeConfig {
   const workspace = validateCandidateWorkspaces(raw)
   if (workspace.errors.length > 0) throw new Error(`配置校验失败:\n${workspace.errors.join('\n')}`)
   const source = structuredClone(raw)
@@ -651,6 +636,7 @@ export function prepareRuntimeConfig(raw: ConfigRaw): PreparedRuntimeConfig {
     config: normalizeRuntimeConfig(source, {
       ...runtimeContext,
       environment: readRuntimeEnvironment(),
+      allowIncomplete,
     }),
   }
 }
@@ -754,8 +740,30 @@ function isSupervisionName(v: unknown): v is SupervisionName {
  * supervision 值必须显式校验，非法字符串不得静默转为undefined；
  * 本函数显式校验 supervision 合法值，fail loud（规则12）。
  */
-export function validateRawConfig(raw: ConfigRaw): string[] {
+export function validateRawConfig(raw: ConfigRaw, environment = readRuntimeEnvironment(), complete = false): string[] {
   const errors: string[] = []
+  const check = (schema: { safeParse(value: unknown): { success: boolean; error?: { issues: Array<{ path: PropertyKey[]; message: string }> } } }, value: unknown, prefix: string) => {
+    const result = schema.safeParse(value)
+    if (!result.success) for (const issue of result.error?.issues ?? []) errors.push(`${prefix}${issue.path.length ? '.' + issue.path.join('.') : ''}: ${issue.message}`)
+  }
+  if (complete) check(SettingsGlobalSchema, raw.global, 'global')
+  else if (raw.global && typeof raw.global === 'object') check(SettingsGlobalSchema.partial(), raw.global, 'global')
+  if (raw.memory !== undefined) check(SettingsMemorySchema, raw.memory, 'memory')
+  for (const [name, server] of Object.entries(raw.mcp_servers ?? {})) check(SettingsMcpServerSchema, server, `mcp_servers.${name}`)
+  for (const [name, group] of Object.entries(raw.sense_groups ?? {})) check(SettingsSenseGroupSchema, group, `sense_groups.${name}`)
+  if (complete) for (const [name, brain] of Object.entries(raw.llm?.brain ?? {})) {
+    check(SettingsBrainSchema.passthrough(), brain, `llm.brain.${name}`)
+    errors.push(...resolveConfiguredLlmConnection(brain, environment, `llm.brain.${name}`).errors)
+  }
+  if (complete) for (const [name, server] of Object.entries(raw.mcp_servers ?? {})) {
+    const field = server.transport === 'stdio' ? 'command' : 'url'
+    const value = requiredEnvironmentValue(server[field], environment)
+    if (!value?.trim() || value.startsWith('$')) errors.push(`mcp_servers.${name}.${field} 请填写内容或配置引用的环境变量`)
+    else if (field === 'url') {
+      try { if (!['http:', 'https:'].includes(new URL(value).protocol)) throw new Error() }
+      catch { errors.push(`mcp_servers.${name}.url 请填写有效的 HTTP(S) 地址`) }
+    }
+  }
 
   // supervision 合法值（global + mcp_servers）
   const gsup = raw.global?.supervision
@@ -822,6 +830,10 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       errors.push(`llm.brain.${name}.thinking 非法（合法：任意非空显示词）`)
     }
     const rawCaps = cfg?.capabilities as Record<string, unknown> | undefined
+    if (rawCaps?.imageInput !== undefined) {
+      const result = SettingsBrainCapabilitiesSchema.shape.imageInput.safeParse(rawCaps.imageInput)
+      if (!result.success) errors.push(`llm.brain.${name}.capabilities.imageInput 格式或限制无效`)
+    }
     if (rawCaps && 'generate' in rawCaps && rawCaps.generate !== undefined) {
       errors.push(
         `llm.brain.${name}.capabilities.generate 已移除，请使用 capabilities.output 与 file_services`,
@@ -866,11 +878,11 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       const adapterDef = findFileServiceAdapterDefinition(svc.adapter)
       const serviceSchema = SettingsFileServiceSchema.safeParse(svc)
       if (!serviceSchema.success) errors.push(...serviceSchema.error.issues.map(issue => `file_services.${serviceId}.${issue.path.join('.')}: ${issue.message}`))
+      if (complete && serviceSchema.success) errors.push(...resolveFileServiceConnection(svc, raw.llm?.brain ?? {}, environment).errors.map(error => `file_services.${serviceId}.${error}`))
       if (svc.adapter === 'custom-sense-mcp' && !svc.toolMapping) errors.push(`file_services.${serviceId}.toolMapping 自定义服务必须配置工具映射`)
       const paramsSchema = FILE_SERVICE_ADAPTER_PARAM_SCHEMAS[svc.adapter as keyof typeof FILE_SERVICE_ADAPTER_PARAM_SCHEMAS]
       if (paramsSchema) {
-        const params = paramsSchema.safeParse({ prompt: '配置检查', ...svc.defaults })
-        if (!params.success) errors.push(...params.error.issues.map(issue => `file_services.${serviceId}.defaults.${issue.path.join('.')}: ${issue.message}`))
+        errors.push(...imageParameterErrors(svc.adapter, { prompt: '配置检查', ...svc.defaults }, svc.connection?.model ?? raw.llm?.brain?.[svc.connection?.brainRef ?? '']?.model ?? '').map(error => `file_services.${serviceId}.defaults.${error}`))
       }
       if (!Array.isArray(svc.operations) || svc.operations.length === 0) {
         errors.push(`file_services.${serviceId}.operations 至少选择一个操作`)
@@ -1132,6 +1144,12 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       if (sched) {
         if (typeof sched.cron !== 'string' || sched.cron.trim() === '') {
           errors.push(`presets.${pname}.schedule.cron 不能为空`)
+        } else {
+          try {
+            new Cron(sched.cron, { paused: true }).stop()
+          } catch (error) {
+            errors.push(`presets.${pname}.schedule.cron 表达式非法：${(error as Error).message}`)
+          }
         }
         if (typeof sched.task !== 'string' || sched.task.trim() === '') {
           errors.push(`presets.${pname}.schedule.task 不能为空`)
@@ -1428,13 +1446,17 @@ export function readRawConfig(): ConfigRaw {
   for (const preset of Object.values(rest.presets ?? {})) {
     delete (preset as PresetConfig & { routingBrain?: string }).routingBrain
   }
-  // brain.thinking 校验为当前字符串档位。
-  if (rest.llm?.brain) {
-    for (const cfg of Object.values(rest.llm.brain)) {
-      cfg.thinking = normalizeBrainThinking(cfg.thinking)
-    }
-  }
   return rest
+}
+
+/** Read-only draft inspection: resolve references without adopting or fully validating the candidate. */
+export function prepareConfigDisplay(raw: ConfigRaw): Config {
+  const result = resolveEnvVars(structuredClone(raw), readRuntimeEnvironment(), new Set()) as Config
+  if (typeof result.global.supervision === 'string') result.global.supervision = SupervisionLevel[result.global.supervision as keyof typeof SupervisionLevel]
+  for (const server of Object.values(result.mcp_servers ?? {})) {
+    if (typeof server.supervision === 'string') server.supervision = SupervisionLevel[server.supervision as keyof typeof SupervisionLevel]
+  }
+  return result
 }
 
 /**
@@ -1674,7 +1696,10 @@ export function validateConfigCandidate(
   candidate: ConfigRaw,
   disk: ConfigRaw = readRawConfig(),
 ): { ok: true; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] } {
-  const errors = [...validateRawConfig(candidate), ...validateCredentialEnvPlaceholders(candidate)]
+  const errors = [
+    ...validateRawConfig(candidate, readRuntimeEnvironment(), true),
+    ...validateCredentialEnvPlaceholders(candidate),
+  ]
   const workspace = validateCandidateWorkspaces(candidate)
   errors.push(...workspace.errors)
   const warnings = workspace.warnings
@@ -1724,7 +1749,10 @@ export function validateLoadable(
 ): { ok: true; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] } {
   const copy = structuredClone(raw)
   // 1) 核心业务校验（loadConfig 阶段 throw 的唯一来源；systemPrompt 存在性在其内为硬错误）
-  const errors = [...validateRawConfig(copy), ...validateCredentialEnvPlaceholders(copy)]
+  const errors = [
+    ...validateRawConfig(copy, readRuntimeEnvironment(), false),
+    ...validateCredentialEnvPlaceholders(copy),
+  ]
   // 2) $ENV 占位符缺失变量 → 软警告（占位符匹配规则与 replaceEnvVars 一致；不阻塞重启）
   const warnings: string[] = []
   const missing = new Set<string>()

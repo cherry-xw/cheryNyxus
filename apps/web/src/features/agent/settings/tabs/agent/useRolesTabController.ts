@@ -479,7 +479,7 @@ export function useRolesTabController(
 
         props.skillCatalog.pluginTokens,
       ) +
-      computeSelectionTokens(cfg.mcpServers, mcpNames.value, mcpTokens.value)
+      computeSelectionTokens(cfg.mcpServers ?? [], mcpNames.value, mcpTokens.value)
     )
   }
 

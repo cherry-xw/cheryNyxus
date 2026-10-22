@@ -281,8 +281,8 @@ function doRollback(baseRevision: string, backup: string | undefined): SenseResu
 
 const configManageDescription = `管理 .chery/config.yaml 配置（配置管理核心角色 cheryNyxus 专用）。配置采用强类型增量候选流程（get 读 / patch 改 / rollback 恢复）。
 ⚠️ action 参数必填。配置操作取 get / patch / rollback；旧 action="save" 已停用；资产操作取 asset_get / asset_save / asset_archive：
-1. action="get"：读取完整脱敏配置、baseRevision 和回滚点。任何配置变更的第一步，必须先调用。
-2. action="patch" + baseRevision + operations：只提交目标 brain/role/preset/senseGroup 的强类型 put/remove 操作。服务端基于当前磁盘配置构造候选，全量校验通过后才写盘；revision 过期或任一校验失败均不落盘。成功后返回实际生效状态。
+1. action="get"：读取完整脱敏原始配置、baseRevision 和回滚点。get 不会把运行默认值补入未填写的可选字段；任何配置变更的第一步，必须先调用。
+2. action="patch" + baseRevision + operations：只提交目标 brain/role/preset/senseGroup/fileService/filesPolicy 的强类型 put/remove 操作。put 资源省略可选字段即恢复运行缺省；brain 的 model/provider/contextLimit 等必填项不可省略，未改动的已有 key 需保留合法 $ENV 引用或 [REDACTED] 标记。服务端基于当前磁盘配置构造候选，全量校验通过后才写盘；revision 过期或任一校验失败均不落盘。成功后返回实际生效状态。
 3. action="rollback" + baseRevision（+ 可选 backup 文件名）：将 .chery/backups/ 中指定（或缺省最近）备份作为候选校验并应用。
 4. asset_get/asset_save/asset_archive + assetPath：管理角色提示词、技能和规则文件。archive 会先检查当前引用并移动到 backups/assets，不做不可恢复删除；仍被引用时严格拒绝。
 使用流程：先 get → 核对字段与稳定 id → 用 ask_user_question 向用户确认变更（含前后对比、影响范围）→ patch。不得猜测类型，不得回传完整配置。

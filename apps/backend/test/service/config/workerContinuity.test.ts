@@ -63,6 +63,7 @@ it('preserves a real worker and two sockets across a save during HTTP LLM stream
     model: 'controlled-model',
     key: 'test-old-key',
     url: `http://127.0.0.1:${providerPort}/v1`,
+    contextLimit: 128000,
   }
   config.server = { host: '0.0.0.0', port: wsPort, webPort, serve_frontend: false, auth: { username: 'continuity', password: hashPassword('synthetic-continuity-password') } }
   writeFileSync(configPath, yaml.dump(config))

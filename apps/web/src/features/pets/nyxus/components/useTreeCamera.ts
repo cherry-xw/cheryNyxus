@@ -101,12 +101,11 @@ export function useTreeCamera({
   )
   const executionViewportIndex = computed(() => createExecutionViewportIndex(layout.value))
   /** 全量渲染默认阈值（config 未配置时兜底）：节点数≤此值跳过视口裁剪。 */
-  const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 150
   const fullRenderThreshold = computed(() => {
-    const configured = props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT
+    const configured = props.fullRenderThreshold ?? DEFAULT_GLOBAL_OPTIONS.tree_full_render_threshold
     // 卡牌模式打开右侧抽屉后画布被遮罩覆盖，收紧全量渲染阈值节省软件渲染纹理；
     // 流程图/阅读器抽屉同样覆盖画布、不改变视口尺寸，保持默认阈值。
-    return props.paperMode ? Math.min(configured, 120) : configured
+    return props.paperMode ? Math.min(configured, TREE_CARD_RENDER_LIMIT) : configured
   })
   const fullRenderActive = computed(() => layout.value.nodes.length <= fullRenderThreshold.value)
   const visibleExecutionItems = computed(() =>
@@ -357,3 +356,4 @@ export function useTreeCamera({
     resetCameraLayout,
   }
 }
+import { DEFAULT_GLOBAL_OPTIONS, TREE_CARD_RENDER_LIMIT } from '@chery/protocol'

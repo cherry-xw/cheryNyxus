@@ -1,48 +1,20 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import {
-  SettingsBrainCapabilitiesSchema,
+  SettingsBrainSchema,
+  SettingsRequiredTextSchema,
   SettingsFileServiceSchema,
   SettingsFilesPolicySchema,
   SettingsRoleFileCapabilitiesSchema,
 } from '@chery/protocol'
 import { readRawConfig, type ConfigRaw } from '@/utils/config.js'
 
-const nonEmptyString = z.string().min(1)
+const nonEmptyString = SettingsRequiredTextSchema
 const stableId = (prefix: 'role' | 'preset') =>
   z.string().regex(new RegExp(`^${prefix}-[a-zA-Z0-9_-]{8,}$`), `必须是合法的 ${prefix} 稳定 ID`)
 
 /** AI 可写的完整 brain 资源。所有已支持字段都有明确类型，禁止 unknown 值穿透。 */
-export const brainConfigOperationSchema = z.object({
-  url: z.string().optional(),
-  model: nonEmptyString,
-  key: z.string().optional(),
-  thinking: nonEmptyString.optional(),
-  provider: nonEmptyString,
-  protocol: z
-    .enum([
-      'openai-chat-completions',
-      'openai-responses',
-      'anthropic-messages',
-      'ollama-chat',
-      'mock',
-    ])
-    .optional(),
-  rpm: z.number().positive().optional(),
-  fullUrl: z.boolean().optional(),
-  mock: z
-    .object({
-      enabled: z.boolean().optional(),
-      file: nonEmptyString,
-      chunkDelayMs: z.number().nonnegative().optional(),
-      preRespondMs: z.number().nonnegative().optional(),
-    })
-    .optional(),
-  contextLimit: z.number().positive().optional(),
-  capabilities: SettingsBrainCapabilitiesSchema.optional(),
-  hooks: z.string().optional(),
-  anthropicCompat: z.object({ official: z.boolean().optional() }).optional(),
-})
+export const brainConfigOperationSchema = SettingsBrainSchema
 
 const permissionEffectSchema = z.enum(['inherit', 'allow', 'ask', 'deny'])
 const rolePermissionSchema = z.object({
@@ -83,7 +55,7 @@ export const roleConfigOperationSchema = z.object({
   avatar: z.string().max(24).optional(),
   description: z.string().optional(),
   mentionable: z.boolean().optional(),
-  senseGroup: nonEmptyString,
+  senseGroup: z.string(),
   mcpServers: z.array(z.string()).optional(),
   systemPrompt: z.string().optional(),
   skills: z.array(z.string()).optional(),

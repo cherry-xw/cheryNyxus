@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /** LoggerCard：应用日志等级 / 格式 / 输出信号开关。 */
 import type { GlobalConfigDto } from '@/application/backend/public'
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'
 
 type LoggerCfg = NonNullable<GlobalConfigDto['logger']>
 
 const props = defineProps<{ logger: LoggerCfg; no: number }>()
 
 function toggleLoggerOutput(value: 'console' | 'file'): void {
-  const current = props.logger.output ?? []
+  const current = props.logger.output ?? [...DEFAULT_GLOBAL_OPTIONS.logger.output]
   props.logger.output = current.includes(value)
     ? current.filter((item) => item !== value)
     : [...current, value]
@@ -28,7 +29,7 @@ function toggleLoggerOutput(value: 'console' | 'file'): void {
           v-for="level in ['debug', 'info', 'warn', 'error', 'silent'] as const"
           :key="level"
           type="button"
-          :class="{ active: logger.level === level }"
+           :class="{ active: (logger.level ?? DEFAULT_GLOBAL_OPTIONS.logger.level) === level }"
           @click="logger.level = level"
         >
           {{ level }}
@@ -42,7 +43,7 @@ function toggleLoggerOutput(value: 'console' | 'file'): void {
           v-for="format in ['plain', 'json'] as const"
           :key="format"
           type="button"
-          :class="{ active: logger.format === format }"
+           :class="{ active: (logger.format ?? DEFAULT_GLOBAL_OPTIONS.logger.format) === format }"
           @click="logger.format = format"
         >
           {{ format }}
@@ -54,32 +55,33 @@ function toggleLoggerOutput(value: 'console' | 'file'): void {
       <div class="signal-deck">
         <button
           type="button"
-          :class="{ active: logger.output?.includes('console') }"
+          :class="{ active: (logger.output ?? DEFAULT_GLOBAL_OPTIONS.logger.output).includes('console') }"
           @click="toggleLoggerOutput('console')"
         >
           终端</button
         ><button
           type="button"
-          :class="{ active: logger.output?.includes('file') }"
+          :class="{ active: logger.output?.includes('file') === true }"
           @click="toggleLoggerOutput('file')"
         >
           文件</button
         ><button
           type="button"
-          :class="{ active: logger.timestamp }"
-          @click="logger.timestamp = !logger.timestamp"
+          :class="{ active: logger.timestamp ?? DEFAULT_GLOBAL_OPTIONS.logger.timestamp }"
+          @click="logger.timestamp = !(logger.timestamp ?? DEFAULT_GLOBAL_OPTIONS.logger.timestamp)"
         >
           时间</button
         ><button
           type="button"
-          :class="{ active: logger.location }"
-          @click="logger.location = !logger.location"
+          :class="{ active: logger.location ?? DEFAULT_GLOBAL_OPTIONS.logger.location }"
+          @click="logger.location = !(logger.location ?? DEFAULT_GLOBAL_OPTIONS.logger.location)"
         >
           位置
         </button>
       </div>
     </div>
   </div>
+  <button type="button" @click="delete logger.level; delete logger.format; delete logger.output; delete logger.timestamp; delete logger.location">恢复日志默认</button>
 </template>
 
 <style scoped lang="less">

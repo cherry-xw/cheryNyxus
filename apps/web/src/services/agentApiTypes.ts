@@ -424,11 +424,12 @@ export interface OutputCapabilitiesDto {
   audio?: CapabilityValueDto
 }
 export interface BrainCapabilitiesDto {
+  imageOutput?: import('@chery/protocol').ImageOutputCapabilities
+  imageInput?: { formats?: Array<'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'>; animation?: 'supported' | 'first-frame' | 'unsupported' | 'unknown'; maxBytes?: number; maxBase64Bytes?: number }
   toolCall?: boolean
   input?: MediaCapabilitiesDto
   output?: OutputCapabilitiesDto
 }
-
 export type RoleFileCapabilityModeDto = 'auto' | 'native' | 'tool' | 'role' | 'disabled'
 
 export interface RoleFileCapabilityBindingDto {
@@ -442,6 +443,7 @@ export type RoleFileCapabilitiesMapDto = Partial<
 >
 
 export interface FileServiceConnectionDto {
+  capabilities?: { imageOutput?: import('@chery/protocol').ImageOutputCapabilities }
   brainRef?: string
   baseUrl?: string
   model?: string
@@ -471,6 +473,7 @@ export interface FileServiceConfigDto {
 }
 
 export interface FilesConfigDto {
+  imageGeneration?: { defaultCount?: number }
   maxUploadBytes?: number
   imageContext?: {
     mode?: 'current' | 'recent' | 'unlimited'
@@ -490,6 +493,7 @@ export interface FilesConfigDto {
     defaultImageVariant?: 'original' | 'adapted'
   }
   imageAdaptation?: {
+    maxBytes?: number
     maxEdge?: number
     quality?: number
   }
@@ -1134,7 +1138,6 @@ export interface GlobalConfigDto {
   /** 单次模型请求硬限时（毫秒）；默认 600000，0 = 不限制。 */
   llm_request_timeout_ms?: number
   maxLoopCount?: number
-  bash_log_retention_hours?: number
   textEditor?: string // 文本编辑器路径
   file_compression?: {
     truncate_threshold?: number

@@ -24,12 +24,15 @@ let tempCheryDir: string
 
 function minimalConfigYaml(): string {
   return `global:
+  thinking: true
   supervision: smart
+  stream: true
 llm:
   brain:
     brain-a:
       provider: mock
       model: mock_test
+      contextLimit: 128000
 `
 }
 
@@ -121,7 +124,7 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
           {
             op: 'putBrain',
             name: 'brain-a',
-            brain: { provider: 'mock', model: 'mock_test', fullUrl: true },
+            brain: { provider: 'mock', model: 'mock_test', contextLimit: 128000, fullUrl: true },
           },
         ],
       } as never,
@@ -278,7 +281,11 @@ describe('config_manage 执行（缺 action 回归 / get / save / rollback）', 
               name: 'OpenAI Images',
               enabled: true,
               adapter: 'openai-images',
-              connection: { brainRef: 'brain-a', model: 'gpt-image-1.5' },
+              connection: {
+                baseUrl: 'https://api.openai.com/v1',
+                model: 'gpt-image-1.5',
+                keyRef: 'sk-test',
+              },
               operations: ['image.generate', 'image.edit'],
             },
           },

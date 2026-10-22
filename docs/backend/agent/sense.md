@@ -228,7 +228,7 @@ chatId → (pid → BashProcessRecord)
 | [core/sense/compiler/index](../../../apps/backend/src/core/sense/compiler/index.ts) | `CompiledSenseInfo`/`SenseCompileSummary`（compileToolsReporter） |
 | [core/message/adapter](../../../apps/backend/src/core/message/adapter.ts) | `ReplaceInfo`（[index.ts TestResultDetail](../../../apps/backend/src/agent/sense/index.ts) 间接，retry/read 等） |
 | [agent/prompt/loadSkill](../../../apps/backend/src/agent/prompt/loadSkill.ts) | `getSkillRealtime`（[skill.ts](../../../apps/backend/src/agent/sense/skill.ts)） |
-| [utils/config](../../../apps/backend/src/utils/config.ts) | `config.global` 各项（sense_execute_timeout、bash_log_retention_hours、file_compression、skills_dir） |
+| [utils/config](../../../apps/backend/src/utils/config.ts) | `config.global` 各项（sense_execute_timeout、file_compression、skills_dir） |
 | [utils/hash](../../../apps/backend/src/utils/hash.ts) | `hashGenerator`（read/write/skill） |
 | [utils/drain](../../../apps/backend/src/utils/drain) | `compressLog`（read_file 大日志去重） |
 | [utils/logger](../../../apps/backend/src/utils/logger) | `logger`、`logger.tools.*`（bash 日志：createBashLogPath/formatBashLogHeader/cleanOldBashLogs、`BashLogInfo` 类型） |

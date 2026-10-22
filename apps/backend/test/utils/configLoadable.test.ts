@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import yaml from 'js-yaml'
-import { validateLoadable } from '@/utils/config.js'
+import { validateLoadable, validateRawConfig } from '@/utils/config.js'
 import type { ConfigRaw } from '@/utils/config.js'
 
 let tempDir: string
@@ -236,5 +236,41 @@ describe('validateLoadable 重启前预检', () => {
     if (!bad.ok) {
       expect(bad.errors.join('\n')).toContain('无 Tool Call 的角色不能使用 role 委派模式')
     }
+  })
+
+  it('完整候选校验要求 contextLimit 与所选分支环境引用可解析，且校验 schedule.cron 语法', () => {
+    const raw: ConfigRaw = {
+      global: { thinking: true, supervision: 'smart', stream: true },
+      llm: {
+        brain: {
+          'brain-a': {
+            provider: 'openai',
+            protocol: 'openai-chat-completions',
+            model: 'gpt-5',
+            key: `$${ENV_NAME}`,
+          },
+        },
+      },
+      roles: {
+        leader: { id: 'role-leader123', brain: 'brain-a', senseGroup: 'default' },
+      },
+      sense_groups: { default: ['read_file'] },
+      presets: {
+        p1: {
+          id: 'preset-p1234567',
+          leader: 'leader',
+          roles: ['leader'],
+          schedule: { cron: 'not a cron', task: 'run' },
+        },
+      },
+    }
+    const errors = validateRawConfig(raw, {}, true)
+    expect(errors.join('\n')).toContain('llm.brain.brain-a.contextLimit')
+    expect(errors.join('\n')).toContain('llm.brain.brain-a.key 请填写密钥或配置引用的环境变量')
+    expect(errors.join('\n')).toContain('presets.p1.schedule.cron 表达式非法')
+
+    raw.llm.brain['brain-a']!.contextLimit = 128000
+    raw.presets!.p1!.schedule!.cron = '0 3 * * *'
+    expect(validateRawConfig(raw, { [ENV_NAME]: 'sk-live' }, true)).toEqual([])
   })
 })

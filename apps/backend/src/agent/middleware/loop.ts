@@ -25,7 +25,7 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
     runChain: () => AsyncGenerator<MiddlewareChunk, void, unknown>,
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
     const continuous = ctx.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq'
-    const runLimit = maxLoop ?? ctx.global.maxLoopCount ?? 30
+    const runLimit = maxLoop ?? ctx.global.maxLoopCount ?? DEFAULT_GLOBAL_OPTIONS.maxLoopCount
     let times = 0
     let stopped = false // 区分 break（正常停止）vs while 条件耗尽（避免误报）
     let failed = false // runChain 内 yield ErrorChunk（retry 重试耗尽等）→ 跳过末尾 done yield
@@ -254,3 +254,4 @@ export function createLoopHandler(maxLoop?: number): LoopHandler<MiddlewareChunk
     }
   }
 }
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'

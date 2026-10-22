@@ -3,6 +3,8 @@
 import { ref } from 'vue'
 import type { GlobalConfigDto } from '@/application/backend/public'
 import NeonNumberControl from '../../../controls/NeonNumberControl.vue'
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'
+const defaults = DEFAULT_GLOBAL_OPTIONS.file_compression
 
 type CompressionCfg = NonNullable<GlobalConfigDto['file_compression']>
 
@@ -13,12 +15,12 @@ const newLogExtension = ref('')
 function addLogExtension(): void {
   const value = newLogExtension.value.trim()
   if (!value) return
-  const current = props.compression.log_file_extensions ?? []
+  const current = props.compression.log_file_extensions ?? [...defaults.log_file_extensions]
   if (!current.includes(value)) props.compression.log_file_extensions = [...current, value]
   newLogExtension.value = ''
 }
 function removeLogExtension(value: string): void {
-  props.compression.log_file_extensions = (props.compression.log_file_extensions ?? []).filter(
+  props.compression.log_file_extensions = (props.compression.log_file_extensions ?? defaults.log_file_extensions).filter(
     (item) => item !== value,
   )
 }
@@ -36,7 +38,7 @@ function removeLogExtension(value: string): void {
       v-model="compression.truncate_threshold"
       label="大文件阈值"
       tip="超过此字节数只返回预览"
-      placeholder="102400"
+      :default-value="defaults.truncate_threshold"
       unit="B"
       :step="10240"
       :min="1"
@@ -45,7 +47,7 @@ function removeLogExtension(value: string): void {
       v-model="compression.truncate_preview_lines"
       label="截断预览"
       tip="超大普通文件保留的开头行数"
-      placeholder="100"
+      :default-value="defaults.truncate_preview_lines"
       unit="行"
       :step="20"
       :min="1"
@@ -54,7 +56,7 @@ function removeLogExtension(value: string): void {
       v-model="compression.drain_preview_count"
       label="日志样例"
       tip="每种重复格式保留的样例数"
-      placeholder="3"
+      :default-value="defaults.drain_preview_count"
       unit="条"
       :step="1"
       :min="1"
@@ -63,7 +65,7 @@ function removeLogExtension(value: string): void {
       <span class="lbl">日志扩展名</span>
       <div>
         <button
-          v-for="ext in compression.log_file_extensions ?? []"
+          v-for="ext in compression.log_file_extensions ?? defaults.log_file_extensions"
           :key="ext"
           type="button"
           title="点击移除"
@@ -85,6 +87,7 @@ function removeLogExtension(value: string): void {
       </div>
     </div>
   </div>
+  <button type="button" @click="delete compression.log_file_extensions">恢复默认扩展名</button>
 </template>
 
 <style scoped lang="less">

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SettingsBrainSchema, SettingsGlobalSchema, SettingsMemorySchema, SettingsMcpServerSchema, SettingsFileServiceDraftSchema } from '@chery/protocol'
 import { IngressRequestSchemas } from '@chery/protocol'
 import {
   AgentCommandListRequestSchema, AgentCommandGetRequestSchema, AgentCommandLogsReadRequestSchema,
@@ -90,7 +91,7 @@ const rolePermissionSchema = z.looseObject({
     .optional(),
 })
 
-const brainSchema = z.looseObject({
+const brainReadSchema = z.looseObject({
   url: z.string().optional(),
   model: z.string(),
   key: z.string().optional(),
@@ -190,7 +191,6 @@ const globalSchema = z.looseObject({
     })
     .optional(),
   maxLoopCount: z.number().optional(),
-  bash_log_retention_hours: z.number().optional(),
   textEditor: z.string().optional(), // 文本编辑器路径
   file_compression: fileCompressionSchema.optional(),
   logger: loggerSchema.optional(),
@@ -207,10 +207,10 @@ const mcpServerConfigSchema = z.looseObject({
 })
 
 /** config.save 入参：除 server 外全部字段；顶层 strict 拒 server 等多余键 */
-export const configRawSchema = z
+export const configReadSchema = z
   .looseObject({
-    global: globalSchema,
-    llm: z.looseObject({ brain: z.record(z.string(), brainSchema) }),
+    global: globalSchema.partial(),
+    llm: z.looseObject({ brain: z.record(z.string(), brainReadSchema.partial()) }),
     sense_groups: z.record(z.string(), z.array(z.string())).optional(),
     mcp_servers: z.record(z.string(), mcpServerConfigSchema).optional(),
     roles: z
@@ -277,10 +277,19 @@ export const configRawSchema = z
       )
       .optional(),
     memory: memorySchema,
-    file_services: z.record(z.string(), SettingsFileServiceSchema).optional(),
+    file_services: z.record(z.string(), SettingsFileServiceDraftSchema).optional(),
     files: SettingsFilesPolicySchema.optional(),
   })
   .strict()
+
+/** Full writes use the same constraints as Manager and AI configuration. */
+export const configRawSchema = configReadSchema.extend({
+  global: SettingsGlobalSchema,
+  llm: z.looseObject({ brain: z.record(z.string(), SettingsBrainSchema.passthrough()) }),
+  memory: SettingsMemorySchema.optional(),
+  mcp_servers: z.record(z.string(), SettingsMcpServerSchema).optional(),
+  file_services: z.record(z.string(), SettingsFileServiceSchema).optional(),
+})
 
 export const configPreviewSchema = z
   .object({

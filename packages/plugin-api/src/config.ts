@@ -435,7 +435,6 @@ export interface GlobalConfig {
    * 校验：必须为有限且 >= 0 的数字。
    */
   disconnect_grace_ms?: number
-  bash_log_retention_hours?: number // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig // 文件压缩配置
   logger?: LoggerConfig // 日志配置
   textEditor?: string // 文本编辑器路径（如 vscode、notepad、记事本等），用于打开配置文件

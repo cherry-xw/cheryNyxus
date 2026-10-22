@@ -4,6 +4,8 @@
 
 ## 职责
 
+配置的原始读取与完整写入约束分开：`readRawConfig` 不为显示补入 thinking 或其他运行默认，`normalizeRuntimeConfig` 才展开运行值；默认常量由 protocol 共享。完整候选统一检查字段、所选分支及必填环境引用，失败不写盘、不采用、不调用远端。读取不完整配置仍可定位修正，不自动填目录推荐容量。共同接口见[设置保存契约](../../shared/protocol/websocket.md#设置原始值与保存校验)，验证范围见[文件能力验证](../../quality/verification/file-capabilities.md#设置与常规文件交互的当前验收范围)。
+
 `utils/` 是 cheryNyxus 的**基础工具层**，为 `core/` / `agent/` / `service/` / `db/` / `apps/web/` 所有上层提供：
 
 - **配置加载**：解析 `.chery/config.yaml`，做 `$ENV` 替换、路径补全、默认值兜底，产出全局 `Config` 单例。
@@ -134,9 +136,9 @@ export function validateLoadable(raw: ConfigRaw): { ok: true; warnings: string[]
 - `global.disconnect_grace_ms` 必须是有限且 `>= 0` 的毫秒值；缺省为 `15000`，`0` 表示断连后立即请求当前输出结束时暂停
 - `global.history_recall.max_output_chars`（如配置）必须是 `> 0` 的数字；缺省 `4000` 由 utils/config 兜底（`history_recall` 感官单次返回硬字符上限）
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
-- `llm.brain.*` 的 `model` / `provider` 必填
-- `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP
-- **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）。前端 `env.list` 返回的密钥下拉**不做业务过滤**——凡 `.env` 中合法变量名（`listEnvVarNames` 按 `/^[A-Za-z_][A-Za-z0-9_]*$/` 校验）原样透出（2026-09 取消旧的后缀白名单：`API_KEY1` 这类数字尾缀命名此前会被吞掉）；运行时配置变量（`CHERY_DIR` / `*_HOST` / `*_URL` 等）也会出现在下拉，属预期行为。
+- `llm.brain.*` 的 `model` / `provider` / `contextLimit` 必填；所选协议与连接分支要求的 `url` / `key` 必填
+- 无 Tool Call brain 的角色不得配置 MCP；`senseGroup` 仅允许显式绑定前置理解工具时保留
+- **完整保存与启动读取分离**：启动加载允许未完成的模板占位以便打开设置修复；完整候选保存严格检查所选分支必填项及 `$ENV` 引用是否非空，未使用分支的缺失环境变量继续作为软警告提示（见 [../agent/provider.md](../agent/provider.md)）。前端 `env.list` 返回的密钥下拉**不做业务过滤**——凡 `.env` 中合法变量名（`listEnvVarNames` 按 `/^[A-Za-z_][A-Za-z0-9_]*$/` 校验）原样透出（2026-09 取消旧的后缀白名单：`API_KEY1` 这类数字尾缀命名此前会被吞掉）；运行时配置变量（`CHERY_DIR` / `*_HOST` / `*_URL` 等）也会出现在下拉，属预期行为。
 
 业务保存和备份回滚通过共享事务，仅替换 Backend 业务根字段，保留盘上其他端及未知分区；写入和失败恢复均比较文本修订，非法 YAML 不整文件覆盖。分区及 watcher 恢复规则见 [Manager 共享配置事务](../../shared/architecture/manager-management.md#共享配置事务)，测试见 [配置归属](../../../apps/backend/test/service/configOwnership.test.ts)、[备份回滚](../../../apps/backend/test/utils/configBackup.test.ts)及 [watcher 恢复](../../../apps/backend/test/service/config/watcherRecovery.test.ts)。`js-yaml` dump 无注释；完整字段说明见 [配置手册](../../../apps/backend/.chery.template/docs/config.md)。
 

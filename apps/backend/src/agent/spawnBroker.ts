@@ -179,7 +179,7 @@ export type AsyncWakeHandler = (child: {
 
 /** 看门狗超时阈值：读 config.global.watchdog.timeout_ms（默认 5min；feed-dog 每条 chunk 重置） */
 function getWatchdogTimeoutMs(): number {
-  return config.global.watchdog?.timeout_ms ?? 5 * 60 * 1000
+  return config.global.watchdog?.timeout_ms ?? DEFAULT_GLOBAL_OPTIONS.watchdog.timeout_ms
 }
 
 /** 唤醒链：childChatId → {parentChatId, type, wakePolicy} */
@@ -202,7 +202,7 @@ export function setAsyncWakeHandler(fn: AsyncWakeHandler): void {
 function startWatchdog(childChatId: string): void {
   if (waitedChildren.get(childChatId)?.continuous) return
   const timeoutMs = getWatchdogTimeoutMs()
-  const wakeOnTimeout = config.global.watchdog?.wake_on_timeout ?? false
+  const wakeOnTimeout = config.global.watchdog?.wake_on_timeout ?? DEFAULT_GLOBAL_OPTIONS.watchdog.wake_on_timeout
   const timer = setTimeout(() => {
     const entry = waitedChildren.get(childChatId)
     if (!entry) return // 已被正常消费清除（clearWaitedChild）
@@ -314,3 +314,4 @@ export function clearAllWaitedChildren(): void {
   }
   waitedChildren.clear()
 }
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'

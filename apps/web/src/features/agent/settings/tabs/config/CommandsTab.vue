@@ -16,6 +16,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
+import { DEFAULT_COMMAND_CONFIG } from '@chery/protocol'
 import { agentApi, type CommandInfo, type ConfigDto } from '@/application/backend/public'
 import {
   formatThreshold,
@@ -23,11 +24,38 @@ import {
   parseThreshold,
   parseTokenCount,
 } from '@/features/agent/composables/commands'
+import { optionalDraftSection } from '../../model/optionalDraftSection'
 import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import LabelTip from './LabelTip.vue'
 
 const props = defineProps<{ draft: ConfigDto }>()
 const emit = defineEmits<{ (e: 'error', msg: string): void }>()
+const command = optionalDraftSection(
+  () => props.draft.global.command,
+  value => {
+    if (value === undefined) delete props.draft.global.command
+    else props.draft.global.command = value
+  },
+)
+
+/** compact.md 是否存在（决定 compact 是否可用）。 */
+const compactAvailable = computed(() => commands.value.some((c) => c.name === 'compact'))
+
+/** 除 compact 外的其它指令（只读展示，无配置项）。 */
+const otherCommands = computed(() => commands.value.filter((c) => c.name !== 'compact'))
+
+const indexItems = computed<IndexItem[]>(() => [
+  {
+    label: 'compact',
+    anchor: 'compact',
+    description: '上下文过长时整理关键事实与进度，避免信息丢失',
+  },
+  ...otherCommands.value.map((c) => ({
+    label: c.name,
+    anchor: c.name,
+    description: c.description || '无描述',
+  })),
+])
 
 const commands = ref<CommandInfo[]>([])
 const loadingList = ref(false)
@@ -83,37 +111,12 @@ async function loadCommands(): Promise<void> {
   }
 }
 
-/** draft.global.command 缺省时补空对象，供字段写入。 */
-function ensureCommand(): NonNullable<ConfigDto['global']['command']> {
-  if (!props.draft.global.command) props.draft.global.command = {}
-  return props.draft.global.command
-}
-
-/** compact.md 是否存在（决定 compact 是否可用）。 */
-const compactAvailable = computed(() => commands.value.some((c) => c.name === 'compact'))
-
-/** 除 compact 外的其它指令（只读展示，无配置项）。 */
-const otherCommands = computed(() => commands.value.filter((c) => c.name !== 'compact'))
-
-const indexItems = computed<IndexItem[]>(() => [
-  {
-    label: 'compact',
-    anchor: 'compact',
-    description: '上下文过长时整理关键事实与进度，避免信息丢失',
-  },
-  ...otherCommands.value.map((c) => ({
-    label: c.name,
-    anchor: c.name,
-    description: c.description || '无描述',
-  })),
-])
-
 /** 从 draft 播种文本输入（draft 在 mount 前已由 SettingsDialog 加载）。 */
 function syncTextFromDraft(): void {
   const cmd = props.draft.global.command
-  warnText.value = formatThreshold(cmd?.warn ?? { unit: 'percent', value: 0.6 })
-  autoText.value = formatThreshold(cmd?.auto ?? { unit: 'percent', value: 0.8 })
-  minText.value = formatTokenCount(cmd?.min_context_limit ?? 32000)
+  warnText.value = formatThreshold(cmd?.warn ?? DEFAULT_COMMAND_CONFIG.warn)
+  autoText.value = formatThreshold(cmd?.auto ?? DEFAULT_COMMAND_CONFIG.auto)
+  minText.value = formatTokenCount(cmd?.min_context_limit ?? DEFAULT_COMMAND_CONFIG.min_context_limit)
   // 同步 lastValid 锚点（与初始展示一致）
   warnLastValid.value = warnText.value
   autoLastValid.value = autoText.value
@@ -121,35 +124,52 @@ function syncTextFromDraft(): void {
 }
 
 function applyWarn(): void {
+  if (!warnText.value.trim()) {
+    delete command.warn
+    syncTextFromDraft()
+    return
+  }
   const parsed = parseThreshold(warnText.value)
   if (!parsed) {
     onError('warn 阈值必须为 数字 + % 或 k（如 60% 或 96k）')
     warnText.value = formatThreshold(
-      props.draft.global.command?.warn ?? { unit: 'percent', value: 0.6 },
+      props.draft.global.command?.warn ?? DEFAULT_COMMAND_CONFIG.warn,
     )
     return
   }
-  ensureCommand().warn = parsed
+  command.warn = parsed
 }
 function applyAuto(): void {
+  if (!autoText.value.trim()) {
+    delete command.auto
+    syncTextFromDraft()
+    return
+  }
   const parsed = parseThreshold(autoText.value)
   if (!parsed) {
     onError('auto 阈值必须为 数字 + % 或 k（如 80% 或 100k）')
     autoText.value = formatThreshold(
-      props.draft.global.command?.auto ?? { unit: 'percent', value: 0.8 },
+      props.draft.global.command?.auto ?? DEFAULT_COMMAND_CONFIG.auto,
     )
     return
   }
-  ensureCommand().auto = parsed
+  command.auto = parsed
 }
 function applyMin(): void {
+  if (!minText.value.trim()) {
+    delete command.min_context_limit
+    syncTextFromDraft()
+    return
+  }
   const parsed = parseTokenCount(minText.value)
   if (parsed == null) {
     onError('min_context_limit 必须为 数字 + k（如 32k）')
-    minText.value = formatTokenCount(props.draft.global.command?.min_context_limit ?? 32000)
+    minText.value = formatTokenCount(
+      props.draft.global.command?.min_context_limit ?? DEFAULT_COMMAND_CONFIG.min_context_limit,
+    )
     return
   }
-  ensureCommand().min_context_limit = parsed
+  command.min_context_limit = parsed
 }
 
 /** 输入合法性（标红）。 */

@@ -29,19 +29,22 @@ function setupConfigYaml(content: string): string {
 
 function minimalConfigYaml(): string {
   return `global:
+  thinking: true
   supervision: smart
+  stream: true
 llm:
   brain:
     brain-a:
       provider: mock
       model: mock_test
+      contextLimit: 128000
 `
 }
 
 function validConfigRaw(): Record<string, unknown> {
   return {
-    global: { supervision: 'smart' },
-    llm: { brain: { 'brain-a': { provider: 'mock', model: 'mock_test' } } },
+    global: { thinking: true, supervision: 'smart', stream: true },
+    llm: { brain: { 'brain-a': { provider: 'mock', model: 'mock_test', contextLimit: 128000 } } },
   }
 }
 

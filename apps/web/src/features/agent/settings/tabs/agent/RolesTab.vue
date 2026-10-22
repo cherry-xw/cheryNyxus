@@ -685,6 +685,8 @@ const {
             <EquipmentPicker
               v-model="current.mcpServers"
               label="MCP 服务"
+              inherit-label="默认不启用"
+              :inherit-all="false"
               :options="mcpNames"
               :token-map="mcpTokens"
               :disabled="isFixedRole || readOnly"
@@ -727,7 +729,7 @@ const {
             </div>
             <div class="roster-row">
               <span class="roster-k">MCP</span>
-              <span v-if="!current.mcpServers" class="roster-empty">继承全部</span>
+              <span v-if="!current.mcpServers" class="roster-empty">默认不启用</span>
               <span v-else-if="!current.mcpServers.length" class="roster-empty">已关闭</span>
               <span v-for="name in current.mcpServers" :key="`mc-${name}`" class="roster-tag"
                 >{{ name }}<small v-if="mcpTokens[name]"> ≈{{ mcpTokens[name] }}</small></span

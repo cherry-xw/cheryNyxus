@@ -3,18 +3,25 @@
 import { computed } from 'vue'
 import type { GlobalConfigDto } from '@/application/backend/public'
 import NeonNumberControl from '../../../controls/NeonNumberControl.vue'
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'
+import { optionalDraftSection } from '../../../model/optionalDraftSection'
 
 const props = defineProps<{ global: GlobalConfigDto; no: number }>()
+const defaults = DEFAULT_GLOBAL_OPTIONS
+const watchdog = optionalDraftSection(() => props.global.watchdog, value => {
+  if (value === undefined) delete props.global.watchdog
+  else props.global.watchdog = value
+})
 
 const modelTimeoutMinutes = computed<number | undefined>({
   get: () => props.global.llm_request_timeout_ms === undefined
     ? undefined
     : props.global.llm_request_timeout_ms / 60000,
   set: (minutes) => {
-    if (minutes === undefined || minutes === null || Number.isNaN(minutes)) {
+    if (minutes === undefined || minutes === null) {
       delete props.global.llm_request_timeout_ms
     } else {
-      props.global.llm_request_timeout_ms = Math.round(minutes * 60000)
+      props.global.llm_request_timeout_ms = minutes * 60000
     }
   },
 })
@@ -27,10 +34,10 @@ const modelTimeoutMinutes = computed<number | undefined>({
 const approvalTimeoutSeconds = computed<number | undefined>({
   get: () => {
     const ms = props.global.approval_timeout
-    return ms === undefined ? undefined : Math.round(ms / 1000)
+    return ms === undefined ? undefined : ms / 1000
   },
   set: (sec) => {
-    if (sec === undefined || sec === null || Number.isNaN(sec)) {
+    if (sec === undefined || sec === null) {
       delete props.global.approval_timeout
     } else {
       props.global.approval_timeout = sec * 1000
@@ -46,12 +53,11 @@ const approvalTimeoutSeconds = computed<number | undefined>({
 const watchdogTimeoutSeconds = computed<number | undefined>({
   get: () => {
     const ms = props.global.watchdog?.timeout_ms
-    return ms === undefined ? undefined : Math.round(ms / 1000)
+    return ms === undefined ? undefined : ms / 1000
   },
   set: (sec) => {
-    const wd = props.global.watchdog
-    if (!wd) return
-    if (sec === undefined || sec === null || Number.isNaN(sec)) {
+    const wd = watchdog
+    if (sec === undefined || sec === null) {
       delete wd.timeout_ms
     } else {
       wd.timeout_ms = sec * 1000
@@ -70,7 +76,8 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
       v-model="modelTimeoutMinutes"
       label="单次模型请求超时"
       tip="从本次模型请求开始计时，持续收到内容也不会重置。默认 10 分钟；0 = 不限时。到时截断，已收到内容可查看，但不会加入后续模型上下文；工具和审批等待不计入。"
-      placeholder="10"
+      :default-value="defaults.llm_request_timeout_ms / 60000"
+      :integer="false"
       unit="分钟"
       :step="1"
       :min="0"
@@ -79,7 +86,8 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
       v-model="global.sense_execute_timeout"
       label="工具执行超时"
       tip="超过此时间将进入后台执行"
-      placeholder="30000"
+      :default-value="defaults.sense_execute_timeout"
+      :integer="false"
       unit="ms"
       :step="5000"
       :min="0"
@@ -88,7 +96,8 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
       v-model="approvalTimeoutSeconds"
       label="审批等待"
       tip="默认 300 秒；0 = 不设置截止时间；到期拒绝该工具，Agent 继续执行；用户提问不受影响"
-      placeholder="300"
+      :default-value="defaults.approval_timeout / 1000"
+      :integer="false"
       unit="秒"
       :step="10"
       :min="0"
@@ -97,34 +106,26 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
       v-model="global.maxLoopCount"
       label="工具调用上限"
       tip="单轮可连续调用工具的次数"
-      placeholder="30"
+      :default-value="defaults.maxLoopCount"
       :step="5"
       :min="1"
     />
     <NeonNumberControl
-      v-model="global.bash_log_retention_hours"
-      label="命令日志保留"
-      tip="只清理 execute_command 日志"
-      placeholder="24"
-      unit="小时"
-      :step="6"
-      :min="0"
-    />
-    <NeonNumberControl
       v-model="global.tree_full_render_threshold"
       label="节点树全量渲染阈值"
-      tip="节点数≤此值跳过视口裁剪，消除平移卡顿；0 = 始终裁剪"
-      placeholder="500"
+      tip="节点数不大于基础阈值时跳过视口裁剪；默认 150，卡牌模式最多 120；0 = 始终裁剪"
+      :default-value="defaults.tree_full_render_threshold"
       :step="50"
       :min="0"
     />
   </div>
-  <div v-if="global.watchdog" class="watchdog-row">
+  <div class="watchdog-row">
     <NeonNumberControl
       v-model="watchdogTimeoutSeconds"
       label="看门狗超时"
       tip="子 agent 无产出超过此时间判定卡死（每次产出重置计时）"
-      placeholder="300"
+      :default-value="defaults.watchdog.timeout_ms / 1000"
+      :integer="false"
       unit="秒"
       :step="30"
       :min="0"
@@ -132,15 +133,15 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
     <button
       type="button"
       class="stream-chip"
-      :class="{ active: global.watchdog.wake_on_timeout === true }"
-      :aria-pressed="global.watchdog.wake_on_timeout === true"
+      :class="{ active: watchdog.wake_on_timeout ?? defaults.watchdog.wake_on_timeout }"
+      :aria-pressed="watchdog.wake_on_timeout ?? defaults.watchdog.wake_on_timeout"
       :title="
-        global.watchdog.wake_on_timeout ? '超时将通知主 agent' : '超时仅暂停子 agent（主不受影响）'
+        watchdog.wake_on_timeout ? '超时将通知主 agent' : '超时仅暂停子 agent（主不受影响）'
       "
-      @click="global.watchdog.wake_on_timeout = !global.watchdog.wake_on_timeout"
+      @click="watchdog.wake_on_timeout = !(watchdog.wake_on_timeout ?? defaults.watchdog.wake_on_timeout)"
     >
       <span>⏰</span><b>超时唤主</b
-      ><small>{{ global.watchdog.wake_on_timeout ? '通知主' : '仅暂停子' }}</small>
+      ><small>{{ watchdog.wake_on_timeout ? '通知主' : '仅暂停子' }}</small>
     </button>
   </div>
 </template>

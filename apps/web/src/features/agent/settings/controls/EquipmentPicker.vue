@@ -9,9 +9,10 @@ const props = withDefaults(
     tokenMap?: Record<string, number>
     label: string
     inheritLabel?: string
+    inheritAll?: boolean
     disabled?: boolean
   }>(),
-  { tokenMap: () => ({}), inheritLabel: '继承全部' },
+  { tokenMap: () => ({}), inheritLabel: '继承全部', inheritAll: true },
 )
 
 const emit = defineEmits<{
@@ -24,7 +25,7 @@ const mode = computed(() =>
   props.modelValue === undefined ? 'inherit' : props.modelValue.length ? 'custom' : 'none',
 )
 const tokens = computed(() =>
-  computeSelectionTokens(props.modelValue, props.options, props.tokenMap),
+  computeSelectionTokens(props.modelValue, props.inheritAll ? props.options : [], props.tokenMap),
 )
 
 function setMode(value: string[] | undefined): void {
@@ -56,7 +57,7 @@ function setMode(value: string[] | undefined): void {
         :class="{ active: mode === 'inherit' }"
         @click="setMode(undefined)"
       >
-        继承全部
+        {{ inheritLabel }}
       </button>
       <button
         type="button"

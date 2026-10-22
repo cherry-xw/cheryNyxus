@@ -5,84 +5,98 @@ llm:
     mock_content:                # 流程A：单轮纯 content
       model: mock_content
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/content_only.yaml
     mock_auto:                   # 流程B：auto sense 两轮
       model: mock_auto
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/auto_sense.yaml
     mock_confirm:                # 流程C：confirm sense（accept / reject 由 client 控制）
       model: mock_confirm
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/confirm_sense.yaml
     mock_confirm_reject:         # 流程C-reject 独立脚本（id 隔离避免跨 chat 冲突）
       model: mock_confirm_reject
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/confirm_reject.yaml
     mock_recover_2:              # 恢复流程：resume Case1（id recover-wf-2）
       model: mock_recover_2
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/recover_2.yaml
     mock_recover_3:              # 恢复流程：send staged.reverse（id recover-wf-3）
       model: mock_recover_3
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/recover_3.yaml
     mock_multiloop:              # 多轮 sense 链（loop）
       model: mock_multiloop
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/multiloop.yaml
     mock_userloop:               # user in loop 测试（confirm 窗口给第二条 send 入队）
       model: mock_userloop
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/userloop.yaml
     mock_todo:                   # 流程S7：todo list（update_todo:auto 自动执行）
       model: mock_todo
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/todo_flow.yaml
     mock_flow_stream:            # 流程S8：流式中断刷新续跑（chunkDelayMs=2000 造断连窗口）
       model: mock_flow_stream
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/flow_stream.yaml
     mock_spawn:                  # 流程S14：父派发 spawn_role(immediate)，子完成唤主后续跑
       model: mock_spawn
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/spawn_immediate.yaml
     mock_spawn_deferred:         # 流程S15：父一轮派发 2 个 spawn_role(deferred)，验静默批量唤主
       model: mock_spawn_deferred
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/spawn_deferred.yaml
     mock_spawn_stream:          # 流程S16：父派发 spawn_role(reviewer_stream)，子流式造刷新重连窗口
       model: mock_spawn_stream
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/spawn_stream.yaml
     mock_child_stream:           # 流程S16：子 agent 流式（chunkDelayMs=2000 造刷新重连窗口）
       model: mock_child_stream
       provider: mock
+      contextLimit: 128000
       mock:
         enabled: true
         file: mock/child_stream.yaml

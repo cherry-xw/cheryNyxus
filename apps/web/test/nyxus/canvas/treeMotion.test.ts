@@ -86,7 +86,7 @@ describe('Nyxus tree motion contract', () => {
 
     expect(controller).toContain('Math.max(480, Math.min(960')
     expect(controller).toContain('viewportRetentionOverscan.value,')
-    expect(controller).toContain('const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 150')
+    expect(controller).toContain('DEFAULT_GLOBAL_OPTIONS.tree_full_render_threshold')
     expect(controller).not.toContain('canvas.dragging.value ? DRAG_VIEWPORT_OVERSCAN')
     expect(component).not.toContain(`:class="{ 'is-panning': canvas.dragging.value }"`)
     expect(dragStart).not.toContain('viewportSelectionCamera.value =')

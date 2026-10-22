@@ -61,6 +61,7 @@ import OpenConfigDirButton from './components/OpenConfigDirButton.vue'
 import type { SettingsSection } from '@/domain/shell/settingsSection'
 import { externalRevisionAction, isRevisionConflict } from './config/revisionSync'
 import { previewConfirmationMessage, previewRequiresConfirmation } from './config/applyPresentation'
+import { SETTINGS_INPUT_ERRORS, settingsDraftErrors } from './model/settingsValidation'
 
 export type SettingsDialogControllerProps = {
   embedded?: boolean
@@ -80,6 +81,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const isEmbedded = computed(() => !!props.embedded)
   const isShellless = isEmbedded
   const draft = ref<ConfigDto | null>(null)
+  const inputErrors = reactive<Record<string, string>>({})
+  provide(SETTINGS_INPUT_ERRORS, inputErrors)
   const configBaseline = ref('')
   let settingsLoadSeq = 0
   let closeConfirmation: Promise<boolean> | null = null
@@ -347,6 +350,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       }
       baseRevision = revision
       draft.value = structuredClone(data)
+      for (const path of Object.keys(inputErrors)) delete inputErrors[path]
       configBaseline.value = JSON.stringify(draft.value)
       if (resetHooks) resetHooksState()
       externalChange.value = false
@@ -529,6 +533,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     mcp_servers: 'mcp',
     global: 'global',
     memory: 'global',
+    files: 'global',
+    file_services: 'senses',
   }
   /** 单行错误 → 结构化条目：首段 `xxx.` 前缀命中映射时带 tab 信息（图标/名称取自 TABS）。 */
   interface ErrorLine {
@@ -599,6 +605,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     revisionConflict.value = false
     try {
       await nextTick()
+      const invalid = [...Object.entries(inputErrors).map(([path, message]) => `${path}: ${message}`), ...settingsDraftErrors(draft.value)]
+      if (invalid.length) throw new Error(invalid.join('\n'))
       sanitizeSenseGroups(draft.value)
       const payload = {
         protocolVersion: 2 as const,

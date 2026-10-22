@@ -38,18 +38,21 @@ function loadRaw(): ConfigRaw {
 
 function candidateWithoutManager(): ConfigRaw {
   return {
-    global: { supervision: 'smart' },
-    llm: { brain: { 'brain-a': { provider: 'mock', model: 'mock_test' } } },
+    global: { thinking: true, supervision: 'smart', stream: true },
+    llm: { brain: { 'brain-a': { provider: 'mock', model: 'mock_test', contextLimit: 128000 } } },
   }
 }
 
 const minimalWithManager = `global:
+  thinking: true
   supervision: smart
+  stream: true
 llm:
   brain:
     brain-a:
       provider: mock
       model: mock_test
+      contextLimit: 128000
 manager:
   host: 0.0.0.0
 `

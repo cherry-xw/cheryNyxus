@@ -21,6 +21,7 @@
       "protocol_content": {
         "model": "protocol_content",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/content.yaml"
@@ -29,6 +30,7 @@
       "protocol_read_file": {
         "model": "protocol_read_file",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/read-file.yaml"
@@ -37,6 +39,7 @@
       "protocol_retry": {
         "model": "protocol_retry",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/retry.yaml"
@@ -45,6 +48,7 @@
       "protocol_auth_failure": {
         "model": "protocol_auth_failure",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/auth-failure.yaml"
@@ -53,6 +57,7 @@
       "protocol_approval": {
         "model": "protocol_approval",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/approval.yaml"
@@ -61,6 +66,7 @@
       "protocol_question": {
         "model": "protocol_question",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/question.yaml"
@@ -69,6 +75,7 @@
       "protocol_abort": {
         "model": "protocol_abort",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/abort.yaml"
@@ -77,6 +84,7 @@
       "protocol_stream": {
         "model": "protocol_stream",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/stream.yaml"
@@ -85,6 +93,7 @@
       "protocol_queue": {
         "model": "protocol_queue",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/queue.yaml"
@@ -93,6 +102,7 @@
       "protocol_retry_partial": {
         "model": "protocol_retry_partial",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/retry-partial.yaml"
@@ -101,6 +111,7 @@
       "protocol_spawn_reader": {
         "model": "protocol_spawn_reader",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/spawn-reader.yaml"
@@ -109,6 +120,7 @@
       "protocol_spawn_failure": {
         "model": "protocol_spawn_failure",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/spawn-failure.yaml"
@@ -117,6 +129,7 @@
       "protocol_spawn_slow": {
         "model": "protocol_spawn_slow",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/spawn-slow.yaml"
@@ -125,6 +138,7 @@
       "protocol_spawn_replacement": {
         "model": "protocol_spawn_replacement",
         "provider": "mock",
+        "contextLimit": 128000,
         "mock": {
           "enabled": true,
           "file": "mock/spawn-replacement.yaml"

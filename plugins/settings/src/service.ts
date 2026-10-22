@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { settingsUnsetErrors } from '../../../packages/protocol/src/settingsValues.js'
 import {
   ConfigApplyStateSchema,
   ConfigSaveResultSchema,
@@ -106,16 +107,6 @@ export class SettingsService {
     for (const field of ['sense_groups', 'roles', 'presets'])
       if (config[field] !== undefined && !record(config[field])) throw unavailable()
     return structuredClone(config) as unknown as CoreConfig
-  }
-  async modelKey(name: unknown, url: string): Promise<string | undefined> {
-    nameCheck(name)
-    const config = await this.config()
-    const brain = config.llm.brain[name]
-    if (!brain) throw new CapabilityError('not_found', 404, '模型配置不存在')
-    // Do not send a stored secret to a newly edited destination.
-    if (typeof brain.url !== 'string' || new URL(brain.url).href !== url)
-      invalid('URL 已修改，请先保存新地址或显式输入用于该地址的 Key')
-    return typeof brain.key === 'string' ? brain.key : undefined
   }
   async apply() {
     const result = ConfigApplyStateSchema.safeParse(await this.rpc.call('config.apply.status', {}))
@@ -295,7 +286,7 @@ export class SettingsService {
       !record(body) ||
       Object.keys(body).some(
         (key) =>
-          !['name', 'originalName', 'value', 'expectedBaseRevision', 'requestId'].includes(key),
+          !['name', 'originalName', 'value', 'unset', 'expectedBaseRevision', 'requestId'].includes(key),
       )
     )
       invalid()
@@ -310,6 +301,10 @@ export class SettingsService {
     )
       invalid()
     safeTree(body.value)
+    if (body.unset !== undefined && (!Array.isArray(body.unset) || body.unset.some(field => typeof field !== 'string'))) invalid('unset 必须是字段名数组')
+    const unset = (body.unset ?? []) as string[]
+    const unsetErrors = settingsUnsetErrors(kind, body.value, unset)
+    if (unsetErrors.length) invalid(unsetErrors.join('\n'))
     const fingerprint = createHash('sha256')
       .update(JSON.stringify({ kind, create, body }))
       .digest('hex')
@@ -349,7 +344,8 @@ export class SettingsService {
       if (!record(body.value)) invalid()
       if (Object.hasOwn(body.value, 'key') && typeof body.value.key !== 'string')
         invalid('密钥必须为字符串')
-      const merged = { ...(config.llm.brain[body.name] ?? {}), ...body.value }
+      const merged: Record<string, unknown> = { ...(config.llm.brain[body.name] ?? {}), ...body.value }
+      for (const field of unset) delete merged[field]
       if (
         typeof merged.model !== 'string' ||
         !merged.model.trim() ||
@@ -357,7 +353,7 @@ export class SettingsService {
         !merged.provider.trim()
       )
         invalid('大脑必须填写服务和模型')
-      config.llm.brain[body.name] = merged as CoreConfig['llm']['brain'][string]
+      config.llm.brain[body.name] = merged as unknown as CoreConfig['llm']['brain'][string]
     } else if (kind === 'sense-groups') {
       if (
         !Array.isArray(body.value) ||
@@ -368,7 +364,7 @@ export class SettingsService {
       config.sense_groups[body.name] = body.value as string[]
     } else {
       if (!record(body.value)) invalid()
-      this.preset(config, body.name, body.value as PresetValue)
+      this.preset(config, body.name, body.value as PresetValue, unset)
     }
     const { baseRevision: _base, ...candidate } = config
     // Reference checks belong to the public core preview, not another package's config.
@@ -442,11 +438,12 @@ export class SettingsService {
     this.saved.set(body.requestId, { fingerprint, result: structuredClone(result) })
     return result
   }
-  private preset(config: CoreConfig, name: string, value: PresetValue): void {
+  private preset(config: CoreConfig, name: string, value: PresetValue, unset: string[] = []): void {
     const old = config.presets?.[name]
     if (old?.id && value.id !== undefined && value.id !== old.id) invalid('不能修改预设的稳定身份')
     const { brain, senseGroup, ...fields } = value
     const preset = { ...old, ...fields } as PresetConfig
+    for (const field of unset) delete (preset as unknown as Record<string, unknown>)[field]
     config.roles ??= {}
     if (brain !== undefined || senseGroup !== undefined) {
       const source = config.roles[preset.leader]

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
+import { useSettingsInputError } from '../model/settingsValidation'
 
 const props = withDefaults(
   defineProps<{
@@ -10,20 +11,39 @@ const props = withDefaults(
     unit?: string
     step?: number
     min?: number
+    max?: number
+    defaultValue?: number
+    integer?: boolean
   }>(),
-  { tip: '', placeholder: '默认', unit: '', step: 1, min: Number.NEGATIVE_INFINITY },
+  { tip: '', placeholder: '默认', unit: '', step: 1, min: Number.NEGATIVE_INFINITY, max: Infinity, integer: true },
 )
 const emit = defineEmits<{ (e: 'update:modelValue', value: number | undefined): void }>()
 const editing = ref(false)
 const draft = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
+const errorId = useId()
+const setInputError = useSettingsInputError()
+const shown = computed(() => props.modelValue ?? props.defaultValue)
+const error = computed(() => {
+  const value = props.modelValue
+  if (value === undefined) return ''
+  if (!Number.isFinite(value)) return '请填写有效数字'
+  if (props.integer && !Number.isInteger(value)) return '请填写整数'
+  if (value < props.min || value > props.max) return `请填写 ${props.min} 至 ${props.max === Infinity ? '无上限' : props.max} 范围内的数值`
+  return ''
+})
+watch(error, message => setInputError(`global.${props.label}:${errorId}`, message), { immediate: true })
+onBeforeUnmount(() => setInputError(`global.${props.label}:${errorId}`, ''))
+let initialText = ''
 
 function change(delta: number): void {
-  const base = props.modelValue ?? 0
-  emit('update:modelValue', Math.max(props.min, base + delta))
+  const base = shown.value
+  if (base === undefined || !Number.isFinite(base)) return
+  emit('update:modelValue', base + delta)
 }
 function startEdit(): void {
-  draft.value = props.modelValue === undefined ? '' : String(props.modelValue)
+  draft.value = shown.value === undefined ? '' : String(shown.value)
+  initialText = draft.value
   editing.value = true
   nextTick(() => {
     inputRef.value?.focus()
@@ -31,36 +51,38 @@ function startEdit(): void {
   })
 }
 function commit(): void {
+  if (!editing.value) return
   const text = draft.value.trim()
-  if (!text) emit('update:modelValue', undefined)
-  else {
-    const value = Number(text)
-    if (Number.isFinite(value)) emit('update:modelValue', Math.max(props.min, value))
-  }
+  if (draft.value !== initialText) emit('update:modelValue', text ? Number(text) : undefined)
   editing.value = false
 }
 </script>
 
 <template>
-  <div class="neon-number" :title="tip">
-    <span class="neon-number-label">{{ label }}</span>
+  <div class="neon-number">
+    <el-tooltip :content="tip" :disabled="!tip" :show-after="0"><span class="neon-number-label">{{ label }}</span></el-tooltip>
     <div class="neon-number-console">
-      <button type="button" aria-label="减少" @click="change(-step)">−</button>
+      <button type="button" :aria-label="`减少${label}`" :disabled="shown === undefined" @click="change(-step)">−</button>
       <input
         v-if="editing"
         ref="inputRef"
         v-model="draft"
         inputmode="decimal"
+        :aria-label="label"
+        :aria-invalid="!!error"
+        :aria-describedby="error ? errorId : undefined"
         @blur="commit"
         @keydown.enter="commit"
         @keydown.esc="editing = false"
       />
-      <button v-else type="button" class="number-readout" @click="startEdit">
-        <b>{{ modelValue ?? placeholder }}</b
-        ><small v-if="modelValue !== undefined && unit">{{ unit }}</small>
+      <button v-else type="button" class="number-readout" :aria-label="`${label}：${shown ?? placeholder}${unit}`" :aria-describedby="error ? errorId : undefined" @click="startEdit">
+        <b>{{ shown ?? placeholder }}</b
+        ><small v-if="shown !== undefined && unit">{{ unit }}</small>
       </button>
-      <button type="button" aria-label="增加" @click="change(step)">＋</button>
+      <button type="button" :aria-label="`增加${label}`" :disabled="shown === undefined" @click="change(step)">＋</button>
     </div>
+    <small v-if="error" :id="errorId" role="alert">{{ error }}</small>
+    <button v-if="modelValue !== undefined && defaultValue !== undefined" type="button" @click="emit('update:modelValue', undefined)">恢复默认</button>
   </div>
 </template>
 

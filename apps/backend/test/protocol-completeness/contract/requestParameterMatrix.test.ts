@@ -452,7 +452,7 @@ const minimalConfig = {
       auto: { unit: 'tokens', value: 1000 },
     },
   },
-  llm: { brain: { mock: { model: 'mock-model', provider: 'mock' } } },
+  llm: { brain: { mock: { model: 'mock-model', provider: 'mock', contextLimit: 128000 } } },
 }
 
 const externalBoundaryMatrices: MethodMatrix[] = [

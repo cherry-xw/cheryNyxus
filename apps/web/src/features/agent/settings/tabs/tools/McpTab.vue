@@ -9,11 +9,16 @@ import type { ConfigDto } from '@/application/backend/public'
 import { SUPERVISIONS, SUPERVISION_LABEL } from '../../config/constants'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
+import { SettingsMcpServerSchema } from '@chery/protocol'
 
 const props = defineProps<{ draft: ConfigDto }>()
 const emit = defineEmits<{ (e: 'error', msg: string): void }>()
 
 const newMcpName = ref('')
+function errors(name: string) {
+  const result = SettingsMcpServerSchema.safeParse(props.draft.mcp_servers?.[name])
+  return result.success ? '' : result.error.issues.map(issue => `mcp_servers.${name}.${issue.path.join('.')}: ${issue.message}`).join('\n')
+}
 
 function addMcp(): void {
   const name = newMcpName.value.trim()
@@ -36,7 +41,7 @@ const indexItems = computed<IndexItem[]>(() => {
   const servers = props.draft.mcp_servers ?? {}
   return Object.entries(servers).map(([mname, cfg]) => ({
     label: mname,
-    transport: cfg.transport ?? 'stdio',
+    transport: cfg.transport ?? '必填：请选择传输方式',
     target: cfg.transport === 'streamable-http' ? (cfg.url ?? '') : (cfg.command ?? ''),
   }))
 })
@@ -46,7 +51,7 @@ const indexItems = computed<IndexItem[]>(() => {
   <TabShell tab-key="mcp" :index-items="indexItems">
     <template #hints>
       <p class="sect-hint">外挂工具站。stdio=本地起子进程；streamable-http=连远程。</p>
-      <p class="warn-hint">⚠️ env 注入与远程 server 网络可达性需自行确认。</p>
+      <p class="warn-hint">stdio 环境未设置时的默认未核实；显式 env 仍按现有配置传递，不代表完整继承主进程环境。不会在查看时启动或连接 MCP。</p>
     </template>
     <template #popper="{ item }">
       <div class="index-card">
@@ -83,7 +88,7 @@ const indexItems = computed<IndexItem[]>(() => {
       <div class="card-grid">
         <label class="field">
           <span class="lbl">transport 传输</span>
-          <el-select v-model="cfg.transport">
+          <el-select v-model="cfg.transport" placeholder="必填：请选择传输方式" :aria-invalid="!!errors(mname)" :aria-describedby="`mcp-${mname}-error`">
             <el-option label="stdio（本地子进程）" value="stdio" />
             <el-option label="streamable-http（远程）" value="streamable-http" />
           </el-select>
@@ -103,7 +108,7 @@ const indexItems = computed<IndexItem[]>(() => {
         <template v-if="cfg.transport === 'stdio'">
           <label class="field">
             <span class="lbl">command 命令</span>
-            <el-input v-model="cfg.command" placeholder="npx" />
+            <el-input v-model="cfg.command" placeholder="必填，例如 npx" :aria-invalid="!!errors(mname)" :aria-describedby="`mcp-${mname}-error`" />
           </label>
           <label class="field">
             <span class="lbl">args 参数（逗号分隔）</span>
@@ -119,11 +124,12 @@ const indexItems = computed<IndexItem[]>(() => {
             />
           </label>
         </template>
-        <label v-else class="field">
+        <label v-else-if="cfg.transport === 'streamable-http'" class="field">
           <span class="lbl">url 远程地址</span>
-          <el-input v-model="cfg.url" placeholder="http://localhost:8081/mcp" />
+          <el-input v-model="cfg.url" placeholder="必填：http://localhost:8081/mcp" :aria-invalid="!!errors(mname)" :aria-describedby="`mcp-${mname}-error`" />
         </label>
       </div>
+      <p v-if="errors(mname)" :id="`mcp-${mname}-error`" role="alert">{{ errors(mname) }}</p>
     </article>
     <div class="add-row">
       <el-input v-model="newMcpName" placeholder="新 server 名" @keydown.enter="addMcp" />

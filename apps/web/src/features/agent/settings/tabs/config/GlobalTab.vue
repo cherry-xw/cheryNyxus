@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** Global settings cards share a measured scatter layout and draft. */
-import { computed, provide, ref, watch } from 'vue'
+import { computed, provide, ref } from 'vue'
+import { optionalDraftSection } from '../../model/optionalDraftSection'
 import type { ConfigDto } from '@/application/backend/public'
 import TabShell from '@/features/agent/settings/components/TabShell.vue'
 import { SCATTER_KEY, useCardScatter, type GlobalCardAnchor } from '../useCardScatter'
@@ -17,39 +18,25 @@ import FilesPolicyCard from './cards/FilesPolicyCard.vue'
 
 const props = defineProps<{ draft: ConfigDto }>()
 
-/** memory 段可能未在 config.yaml 中定义（config.get 返回 undefined），初始化双层空白对象供 v-model 绑定。 */
-watch(
-  () => props.draft.memory,
-  (mem) => {
-    if (!mem) {
-      props.draft.memory = { global: {}, workspace: {} }
-    } else {
-      if (!mem.global) mem.global = {}
-      if (!mem.workspace) mem.workspace = {}
-    }
-  },
-  { immediate: true },
-)
-
-/** 模块墙需要每个拼图区都有内容；缺省段初始化为空配置，仍由各字段 placeholder 表达系统默认值。 */
-watch(
-  () => props.draft.global,
-  (global) => {
-    if (!global.logger) global.logger = {}
-    if (!global.file_compression) global.file_compression = {}
-    if (!global.watchdog) global.watchdog = {}
-  },
-  { immediate: true },
-)
+const logger = optionalDraftSection(() => props.draft.global.logger, value => {
+  if (value === undefined) delete props.draft.global.logger
+  else props.draft.global.logger = value
+})
+const compression = optionalDraftSection(() => props.draft.global.file_compression, value => {
+  if (value === undefined) delete props.draft.global.file_compression
+  else props.draft.global.file_compression = value
+})
+const memory = optionalDraftSection(() => props.draft.memory, value => {
+  if (value === undefined) delete props.draft.memory
+  else props.draft.memory = value
+})
 
 /** 画布容器（.global-canvas）。 */
 const canvasRef = ref<HTMLElement | null>(null)
 
 /** 当前实际渲染的卡 anchor 顺序（logger / compression 按配置 v-if 动态出现）。决定 cardNumber 编号 + entry 顺序。 */
 const visibleAnchors = computed<GlobalCardAnchor[]>(() => {
-  const out: GlobalCardAnchor[] = ['default', 'editor', 'limits']
-  if (props.draft.global.logger) out.push('logger')
-  if (props.draft.global.file_compression) out.push('compression')
+  const out: GlobalCardAnchor[] = ['default', 'editor', 'limits', 'logger', 'compression']
   out.push('memory-global', 'memory-workspace', 'motion', 'click-fx', 'files')
   return out
 })
@@ -85,29 +72,27 @@ const { ready, isActive, activeAnchor, cardNumber, raise } = scatter
       </ScatterCard>
 
       <ScatterCard
-        v-if="draft.global.logger"
         v-slot="{ no }"
         anchor="logger"
         accent="var(--accent)"
       >
-        <LoggerCard :logger="draft.global.logger!" :no="no" />
+        <LoggerCard :logger="logger" :no="no" />
       </ScatterCard>
 
       <ScatterCard
-        v-if="draft.global.file_compression"
         v-slot="{ no }"
         anchor="compression"
         accent="var(--accent)"
       >
-        <CompressionCard :compression="draft.global.file_compression!" :no="no" />
+        <CompressionCard :compression="compression" :no="no" />
       </ScatterCard>
 
       <ScatterCard v-slot="{ no }" anchor="memory-global" accent="var(--accent)">
-        <MemoryCard scope="global" :memory="draft.memory!" :no="no" />
+        <MemoryCard scope="global" :memory="memory" :no="no" />
       </ScatterCard>
 
       <ScatterCard v-slot="{ no }" anchor="memory-workspace" accent="var(--accent)">
-        <MemoryCard scope="workspace" :memory="draft.memory!" :no="no" />
+        <MemoryCard scope="workspace" :memory="memory" :no="no" />
       </ScatterCard>
       <ScatterCard v-slot="{ no }" anchor="motion" accent="var(--accent)">
         <MotionCard :no="no" />

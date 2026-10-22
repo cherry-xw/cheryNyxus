@@ -96,6 +96,10 @@ function settingsFixture(requiresConfirmation = false) {
       externalRevisionAction: () => 'ignore',
       isRevisionConflict: () => false,
     },
+    './model/settingsValidation': {
+      SETTINGS_INPUT_ERRORS: Symbol('settings-input-errors'),
+      settingsDraftErrors: () => [],
+    },
     'element-plus': { ElMessageBox: { confirm } },
   })
   const controller = module.exports.useSettingsDialogController({})

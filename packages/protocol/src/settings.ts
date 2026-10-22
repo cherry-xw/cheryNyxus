@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import { SettingsRequiredTextSchema, settingsUnsetErrors } from './settingsValues.js'
+import { DEFAULT_FILES_CONFIG } from './settingsDefaults.js'
+import { httpAddressError } from './llmConnection.js'
 import { ImageOutputCapabilitiesSchema, IMAGE_COUNT_PARAM_KEYS } from './imageGeneration.js'
 import { ConfigApplyStateSchema, ConfigSaveResultSchema } from './configApply.js'
 import {
@@ -43,7 +46,7 @@ export const SettingsBrainCapabilitiesSchema = z.object({
 }).strict()
 export const SettingsFileCapabilityBindingSchema = z.object({
   mode: z.enum(['auto', 'native', 'tool', 'role', 'disabled']),
-  targetId: z.string().min(1).optional(),
+  targetId: SettingsRequiredTextSchema.optional(),
   fallback: z.literal('none').optional(),
 }).strict()
 export const SettingsRoleFileCapabilitiesSchema = z.partialRecord(
@@ -60,8 +63,8 @@ export const SettingsFileServiceConnectionSchema = z.object({
   endpointOverrides: z.partialRecord(z.enum(FILE_CAPABILITY_OPERATIONS), z.string().min(1)).optional(),
 }).strict()
 export const SettingsFileServiceSchema = z.object({
-  toolMapping: z.object({ toolName: z.string().min(1), inputAssetField: z.string().min(1), questionField: z.string().min(1), transferMode: z.enum(['base64', 'data-url', 'asset-id']), constantParams: z.record(z.string(), z.unknown()).optional(), resultPath: z.string().optional() }).strict().optional(),
-  name: z.string().min(1),
+  toolMapping: z.object({ toolName: SettingsRequiredTextSchema, inputAssetField: SettingsRequiredTextSchema, questionField: SettingsRequiredTextSchema, transferMode: z.enum(['base64', 'data-url', 'asset-id']), constantParams: z.record(z.string(), z.unknown()).optional(), resultPath: z.string().optional() }).strict().optional(),
+  name: SettingsRequiredTextSchema,
   enabled: z.boolean().optional(),
   adapter: z.enum(FILE_SERVICE_ADAPTER_IDS),
   connection: SettingsFileServiceConnectionSchema,
@@ -70,6 +73,29 @@ export const SettingsFileServiceSchema = z.object({
   timeoutMs: z.number().int().positive().max(3_600_000).optional(),
   queueTimeoutMs: z.number().int().positive().max(3_600_000).optional(),
   maxConcurrent: z.number().int().positive().optional(),
+}).strict().superRefine((service, ctx) => {
+  const add = (field: string, message: string) => ctx.addIssue({ code: 'custom', path: field.split('.'), message })
+  const local = service.adapter === 'vision-brain' || service.adapter === 'custom-sense-mcp'
+  const connection = service.connection
+  if (service.adapter === 'vision-brain' && !connection.brainRef?.trim()) add('connection.brainRef', '请选择视觉大脑')
+  if (service.adapter === 'custom-sense-mcp' && !service.toolMapping) add('toolMapping', '请填写已有工具映射')
+  if (connection.brainRef !== undefined && !connection.brainRef.trim()) add('connection.brainRef', '请选择大脑')
+  if (connection.brainRef !== undefined && (connection.baseUrl !== undefined || connection.keyRef !== undefined)) add('connection.brainRef', '复用大脑不能同时填写独立地址或密钥')
+  if (!local && connection.brainRef === undefined) {
+    if (!connection.baseUrl?.startsWith('$')) { const error = httpAddressError(connection.baseUrl); if (error) add('connection.baseUrl', error) }
+    if (!connection.model?.trim() || /^<[^>]*>$/.test(connection.model.trim())) add('connection.model', '请填写型号')
+    if (connection.authType !== 'none' && !connection.keyRef?.trim()) add('connection.keyRef', '请填写密钥或环境引用')
+  }
+  for (const [operation, endpoint] of Object.entries(connection.endpointOverrides ?? {})) {
+    if (endpoint && !endpoint.startsWith('$')) { const error = httpAddressError(endpoint); if (error) add(`connection.endpointOverrides.${operation}`, error) }
+  }
+})
+/** Editing and read-only capability queries accept an incomplete connection. */
+export const SettingsFileServiceDraftSchema = z.object({
+  name: z.string(), adapter: z.enum(FILE_SERVICE_ADAPTER_IDS), enabled: z.boolean().optional(),
+  connection: SettingsFileServiceConnectionSchema, operations: z.array(z.enum(FILE_CAPABILITY_OPERATIONS)),
+  defaults: z.record(z.string(), z.unknown()).optional(), toolMapping: SettingsFileServiceSchema.shape.toolMapping,
+  timeoutMs: z.number().optional(), queueTimeoutMs: z.number().optional(), maxConcurrent: z.number().optional(),
 }).strict()
 export const SettingsFilesPolicySchema = z.object({
   imageGeneration: z.object({ defaultCount: z.number().int().positive().safe().optional() }).strict().optional(),
@@ -98,17 +124,26 @@ export const SettingsFilesPolicySchema = z.object({
   }).strict().optional(),
   unreferencedUploadRetentionHours: z.number().int().positive().optional(),
   unreferencedAssetRetentionHours: z.number().int().positive().optional(),
-}).strict()
+}).strict().superRefine((policy, ctx) => {
+  const image = policy.imageContext
+  if ((image?.maxTotalDescriptionChars ?? DEFAULT_FILES_CONFIG.imageContext.maxTotalDescriptionChars) <
+    (image?.maxDescriptionChars ?? DEFAULT_FILES_CONFIG.imageContext.maxDescriptionChars))
+    ctx.addIssue({ code: 'custom', path: ['imageContext', 'maxTotalDescriptionChars'], message: '描述总字数不能小于单图字数' })
+  const context = policy.context
+  if ((context?.maxExtractedChars ?? DEFAULT_FILES_CONFIG.context.maxExtractedChars) <
+    (context?.maxExtractedCharsPerAsset ?? DEFAULT_FILES_CONFIG.context.maxExtractedCharsPerAsset))
+    ctx.addIssue({ code: 'custom', path: ['context', 'maxExtractedChars'], message: '提取总字符上限不能小于单文件上限' })
+})
 export const SettingsBrainSchema = z.object({
-  url: z.string().optional(), model: z.string().refine(v => !!v.trim()),
-  provider: z.string().refine(v => !!v.trim()), protocol: protocol.optional(),
+  url: z.string().optional(), model: SettingsRequiredTextSchema,
+  provider: SettingsRequiredTextSchema, protocol: protocol.optional(),
   key: z.string().optional(), thinking: z.string().min(1).optional(),
   rpm: z.number().positive().optional(), fullUrl: z.boolean().optional(),
-  mock: z.object({ enabled: z.boolean().optional(), file: z.string(), chunkDelayMs: z.number().optional(), preRespondMs: z.number().optional() }).strict().optional(),
-  contextLimit: z.number().positive().optional(), capabilities: SettingsBrainCapabilitiesSchema.optional(),
+  mock: z.object({ enabled: z.boolean().optional(), file: SettingsRequiredTextSchema, chunkDelayMs: z.number().nonnegative().optional(), preRespondMs: z.number().nonnegative().optional() }).strict().optional(),
+  contextLimit: z.number().int().positive('请填写正整数上下文容量'), capabilities: SettingsBrainCapabilitiesSchema.optional(),
   hooks: z.string().optional(), anthropicCompat: z.object({ official: z.boolean().optional() }).strict().optional(),
 }).strict()
-export const SettingsBrainViewSchema = SettingsBrainSchema.omit({ key: true })
+export const SettingsBrainViewSchema = SettingsBrainSchema.omit({ key: true }).partial()
 export const SettingsSenseGroupSchema = z.array(z.string().refine(v => !!v.trim()))
 export const SettingsPresetSchema = z.object({
   id: z.string().optional(), shadows: z.object({ conversationRouting: z.string().optional() }).strict().optional(),
@@ -141,6 +176,7 @@ export const SettingsSaveResourceResultSchema = z.discriminatedUnion('kind', [
 const saveBody = { name: SettingsNameSchema, originalName: SettingsNameSchema.optional(), expectedBaseRevision: revision, requestId }
 export const SettingsSaveResourceBodySchema = z.object({ ...saveBody,
   value: z.union([SettingsBrainSchema.partial(), SettingsSenseGroupSchema, SettingsPresetSchema]),
+  unset: z.array(z.string()).optional(),
 }).strict()
 export const SettingsDeleteResourceBodySchema = z.object({ name: SettingsNameSchema, expectedBaseRevision: revision, requestId }).strict()
 export const SettingsDeleteResourceResultSchema = z.object({ deleted: z.literal(true), name: SettingsNameSchema, baseRevision: revision }).strict()
@@ -205,6 +241,8 @@ export const SettingsResourceSaveRequestSchema = z.object({
 }).strict().superRefine((v, ctx) => {
   const result = SettingsRequestSchemas.resourceSave.safeParse({ kind: v.pathParams.kind, value: v.body.value })
   if (!result.success) for (const issue of result.error.issues) ctx.addIssue({ ...issue, path: ['body', ...issue.path] })
+  for (const message of settingsUnsetErrors(v.pathParams.kind, v.body.value, v.body.unset))
+    ctx.addIssue({ code: 'custom', path: ['body', 'unset'], message })
 })
 export const SettingsResponseSchemas = {
   catalog: SettingsCatalogSchema, apply: ConfigApplyStateSchema,

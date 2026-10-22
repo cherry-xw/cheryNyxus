@@ -12,6 +12,7 @@ import { createWriteStream, mkdirSync, existsSync, statSync, readdirSync, unlink
 import { join } from 'path'
 import { tmpdir } from 'os'
 import dayjs from 'dayjs'
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'
 import type { WriteStream } from 'fs'
 import type { LoggerConfig as ConfigLoggerConfig } from '@/utils/config.js'
 import { LogLevel } from './types.js'
@@ -44,10 +45,10 @@ function parseLogLevel(level?: string): LogLevel {
 function loadLoggerConfig(globalLoggerConfig?: ConfigLoggerConfig): InternalLoggerConfig {
   return {
     level: parseLogLevel(globalLoggerConfig?.level),
-    output: globalLoggerConfig?.output ?? ['console'],
-    timestamp: globalLoggerConfig?.timestamp ?? true,
-    location: globalLoggerConfig?.location ?? true,
-    format: globalLoggerConfig?.format ?? 'json',
+    output: globalLoggerConfig?.output ?? [...DEFAULT_GLOBAL_OPTIONS.logger.output],
+    timestamp: globalLoggerConfig?.timestamp ?? DEFAULT_GLOBAL_OPTIONS.logger.timestamp,
+    location: globalLoggerConfig?.location ?? DEFAULT_GLOBAL_OPTIONS.logger.location,
+    format: globalLoggerConfig?.format ?? DEFAULT_GLOBAL_OPTIONS.logger.format,
   }
 }
 

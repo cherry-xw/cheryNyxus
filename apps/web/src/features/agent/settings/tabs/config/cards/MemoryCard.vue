@@ -3,6 +3,8 @@
 import { computed } from 'vue'
 import type { ConfigDto } from '@/application/backend/public'
 import NeonNumberControl from '../../../controls/NeonNumberControl.vue'
+import { optionalDraftSection } from '../../../model/optionalDraftSection'
+import { DEFAULT_MEMORY_CONFIG } from '@chery/protocol'
 
 type MemoryCfg = NonNullable<ConfigDto['memory']>
 type Scope = 'global' | 'workspace'
@@ -11,8 +13,10 @@ const props = defineProps<{ scope: Scope; memory: MemoryCfg; no: number }>()
 
 const isGlobal = computed(() => props.scope === 'global')
 
-// GlobalTab watch 保证 memory[scope] 已初始化为 {}（非 undefined）；?? {} 仅为 TS 收窄类型。
-const scopeCfg = computed(() => props.memory[props.scope] ?? {})
+const scopeCfg = optionalDraftSection(() => props.memory[props.scope], value => {
+  if (value === undefined) delete props.memory[props.scope]
+  else props.memory[props.scope] = value
+})
 </script>
 
 <template>
@@ -31,7 +35,7 @@ const scopeCfg = computed(() => props.memory[props.scope] ?? {})
       v-model="scopeCfg.max_count"
       label="活跃条数"
       :tip="isGlobal ? '跨 chat 共享的活跃记忆上限' : '当前项目的活跃记忆上限'"
-      :placeholder="isGlobal ? '30' : '15'"
+      :default-value="DEFAULT_MEMORY_CONFIG[scope].max_count"
       unit="条"
       :step="5"
       :min="1"
@@ -40,7 +44,7 @@ const scopeCfg = computed(() => props.memory[props.scope] ?? {})
       v-model="scopeCfg.max_chars"
       label="单条字数"
       tip="单条正文软性字数建议"
-      placeholder="500"
+      :default-value="DEFAULT_MEMORY_CONFIG[scope].max_chars"
       unit="字"
       :step="100"
       :min="1"

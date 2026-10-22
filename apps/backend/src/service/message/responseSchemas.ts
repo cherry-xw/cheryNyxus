@@ -20,7 +20,7 @@ import {
   ConfigPreviewSchema,
 } from '@chery/protocol'
 import { Method, type Method as MethodName } from '@chery/protocol'
-import { configRawSchema } from './schemas.js'
+import { configReadSchema } from './schemas.js'
 import type { ResultOf } from './types.js'
 
 // Response schemas intentionally keep objects loose so additive server fields
@@ -536,7 +536,7 @@ const schemas = {
     failed: nonNegativeInt,
     totalSenses: nonNegativeInt,
   }),
-  [Method.CONFIG_GET]: configRawSchema.extend({ baseRevision: z.string() }),
+  [Method.CONFIG_GET]: configReadSchema.extend({ baseRevision: z.string() }),
   [Method.CONFIG_WORKSPACE_VALIDATE]: z.looseObject({ valid: z.boolean() }),
   [Method.CONFIG_WORKSPACE_BROWSE_START]: z.looseObject({
     sessionId: id,

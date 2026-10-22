@@ -56,7 +56,7 @@ describe('strongly typed config operations', () => {
       {
         op: 'putBrain',
         name: 'main',
-        brain: { provider: 'mock', model: 'mock_test', rpm: 60, fullUrl: true },
+        brain: { provider: 'mock', model: 'mock_test', contextLimit: 128000, rpm: 60, fullUrl: true },
       },
       {
         op: 'putRole',

@@ -1,24 +1,29 @@
 <script setup lang="ts">
-import { computed, reactive, useId } from 'vue'
+import { computed, onBeforeUnmount, reactive, useId, watch } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import type { ConfigDto } from '@/application/backend/public'
 import { SettingsFilesPolicySchema } from '@chery/protocol'
+import { useSettingsInputError } from '../../../model/settingsValidation'
 
 const props = defineProps<{ draft: ConfigDto; no: number }>()
 const id = useId()
+const setInputError = useSettingsInputError()
 const invalidInputs = reactive<Record<string, string>>({})
 const tipOpen = reactive({ turns: false })
 const image = computed(() => props.draft.files?.imageContext ?? {})
 const services = computed(() => Object.entries(props.draft.file_services ?? {}).filter(([, service]) => service.enabled !== false && service.operations.includes('image.inspect')))
 const serviceError = computed(() => image.value.missingDescription !== 'inspect' ? '' : !image.value.serviceId ? '请选择已启用图片理解操作的文件服务。' : !services.value.some(([key]) => key === image.value.serviceId) ? '所选服务已停用、已删除或未启用图片理解；请重新选择。' : '')
 const groups = [
+  { key: 'drawing', label: '绘图', fields: [
+    { path: 'imageGeneration.defaultCount', label: '新绘图草稿的默认张数', fallback: 1, scale: 1, min: 1 },
+  ] },
   { key: 'upload', label: '上传与保存', fields: [
     { path: 'maxUploadBytes', label: '单文件上传上限（MiB）', fallback: 100, scale: 1048576, min: 1 },
     { path: 'unreferencedUploadRetentionHours', label: '未提交且无引用的上传保留（小时）', fallback: 24, scale: 1, min: 1 },
     { path: 'unreferencedAssetRetentionHours', label: '最后引用解除后保留（小时）', fallback: 24, scale: 1, min: 1 },
   ] },
   { key: 'image', label: '图片上下文', fields: [
-    { path: 'imageContext.recentUserTurns', label: '保留轮数（含首次发送轮）', fallback: 3, scale: 1, min: 1 },
+    { path: 'imageContext.recentUserTurns', label: '保留轮数（含首次发送轮）', fallback: 1, scale: 1, min: 1 },
     { path: 'imageContext.maxDescriptionChars', label: '单图说明字符上限', fallback: 600, scale: 1, min: 100 },
     { path: 'imageContext.maxTotalDescriptionChars', label: '单次请求说明字符总上限', fallback: 6000, scale: 1, min: 100 },
   ] },
@@ -32,8 +37,9 @@ const groups = [
     { path: 'context.maxBinaryBytes', label: '单次请求附件预算（MiB）', fallback: 16, scale: 1048576, min: 1 },
   ] },
   { key: 'adapt', label: '图片适配', fields: [
+    { path: 'imageAdaptation.maxBytes', label: '单图硬上限（字节；默认 5 MB = 5,000,000 字节，不是目标体积）', fallback: 5000000, scale: 1, min: 1 },
     { path: 'imageAdaptation.maxEdge', label: '适配图片最长边（像素）', fallback: 2048, scale: 1, min: 1 },
-    { path: 'imageAdaptation.quality', label: 'JPEG/WebP 有损编码质量（1—100）', fallback: 85, scale: 1, min: 1 },
+    { path: 'imageAdaptation.quality', label: 'JPEG/WebP 编码质量上限（1—100）', fallback: 85, scale: 1, min: 1 },
   ] },
 ]
 function read(path: string): unknown {
@@ -42,18 +48,31 @@ function read(path: string): unknown {
   return key ? (files?.[section!] as Record<string, unknown> | undefined)?.[key] : files?.[section!]
 }
 function write(path: string, value: unknown) {
+  const [section, key] = path.split('.')
+  if (value === undefined || value === '') {
+    const files = props.draft.files as Record<string, unknown> | undefined
+    if (!files) return
+    const owner = key ? files[section!] as Record<string, unknown> | undefined : files
+    if (!owner) return
+    delete owner[key ?? section!]
+    if (key && !Object.keys(owner).length) delete files[section!]
+    if (!Object.keys(files).length) delete props.draft.files
+    return
+  }
   props.draft.files ??= {}
   const files = props.draft.files as Record<string, unknown>
-  const [section, key] = path.split('.')
   const owner = key ? (files[section!] ??= {}) as Record<string, unknown> : files
-  if (value === undefined || value === '') delete owner[key ?? section!]
-  else owner[key ?? section!] = value
+  owner[key ?? section!] = value
 }
 function writeNumber(path: string, value: string, scale: number) {
   delete invalidInputs[path]
+  setInputError(`files.${path}`, '')
   if (!value.trim()) { write(path, undefined); return }
   const number = Number(value)
-  if (!Number.isFinite(number)) invalidInputs[path] = value
+  if (!Number.isFinite(number)) {
+    invalidInputs[path] = value
+    setInputError(`files.${path}`, '请输入此字段允许范围内的整数。')
+  }
   write(path, number * scale)
 }
 function displayNumber(field: { path: string; fallback: number; scale: number }) {
@@ -71,7 +90,7 @@ const errors = computed(() => {
   return result
 })
 const turnsTip = computed(() => {
-  const n = image.value.recentUserTurns ?? 3
+  const n = image.value.recentUserTurns ?? 1
   return `含首次发送轮。${Number.isInteger(n) && n > 0 ? `设为 ${n} 时，第 ${n + 1} 轮起改用文字说明；` : ''}仍可重新引用图片。不会删除历史文件。设为 1 相当于仅当前轮。`
 })
 function select(path: string, event: Event) {
@@ -79,9 +98,15 @@ function select(path: string, event: Event) {
   if (path === 'imageContext.mode' && value !== 'recent' && errors.value['imageContext.recentUserTurns']) {
     write('imageContext.recentUserTurns', undefined)
     delete invalidInputs['imageContext.recentUserTurns']
+    setInputError('files.imageContext.recentUserTurns', '')
   }
   write(path, value)
 }
+watch(serviceError, message => setInputError('files.imageContext.serviceId', message), { immediate: true })
+onBeforeUnmount(() => {
+  setInputError('files.imageContext.serviceId', '')
+  for (const key of Object.keys(invalidInputs)) setInputError(`files.${key}`, '')
+})
 function numericError(field: { path: string; min: number }) {
   if (!errors.value[field.path]) return ''
   const max = ({ 'imageContext.recentUserTurns': 10000, 'imageContext.maxDescriptionChars': 4000, 'imageContext.maxTotalDescriptionChars': 40000, 'imageAdaptation.quality': 100 } as Record<string, number>)[field.path]
@@ -97,6 +122,9 @@ function leaveTip(event: MouseEvent) {
   <div class="policy-fields" @pointerdown.stop @wheel.stop>
     <fieldset v-for="group in groups" :key="group.key">
       <legend>{{ group.label }}</legend>
+      <el-tooltip v-if="group.key === 'adapt'" content="合规原图直接复用；仅转换或压缩时使用编码质量上限，仍超限会继续降质或等比缩小。它不是原图视觉质量；JPEG/WebP 同值不表示视觉等价，PNG 无有损 quality 参数。不放大小图补体积。" placement="top" popper-class="label-tip-popper">
+        <button type="button" class="info" aria-label="了解编码质量上限"><InfoFilled aria-hidden="true" /></button>
+      </el-tooltip>
       <template v-if="group.key === 'image'">
         <label>自动携带 <span v-if="image.mode === undefined" class="default">默认</span>
           <select :value="image.mode ?? 'recent'" @change="select('imageContext.mode', $event)"><option value="current">仅当前轮</option><option value="recent">最近若干轮</option><option value="unlimited">不按轮数过滤</option></select>

@@ -73,7 +73,7 @@ export default sense(
 
     const startTime = Date.now()
     const hash = ''
-    const timeoutMs = config.global.sense_execute_timeout ?? 30000
+    const timeoutMs = config.global.sense_execute_timeout ?? DEFAULT_GLOBAL_OPTIONS.sense_execute_timeout
     const chatId = senseCtx?.chatId
     senseCtx?.signal?.throwIfAborted()
 
@@ -213,3 +213,4 @@ export default sense(
   },
   SupervisionLevel.smart,
 )
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'
