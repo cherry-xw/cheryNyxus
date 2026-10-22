@@ -4,7 +4,7 @@
 
 ## 职责
 
-原始读取、必填字段与完整候选保存遵守[设置保存契约](../../shared/protocol/websocket.md#设置原始值与保存校验)。大脑容量由用户明确设置，目录推荐不自动写入；省略可选字段恢复缺省，显式值即使等于默认也保留。必填环境引用必须能解析为非空值，错误返回字段路径，不泄露值。当前同步实施状态见[设置修复方案](../../plan/file-capabilities-and-model-collaboration/settings-defaults-design.md)。
+原始读取、必填字段与完整候选保存遵守[设置保存契约](../../shared/protocol/websocket.md#设置原始值与保存校验)。大脑容量由用户明确设置，目录推荐不自动写入；省略可选字段恢复缺省，显式值即使等于默认也保留。必填环境引用必须能解析为非空值，错误返回字段路径，不泄露值。设置保存已完成的适用范围见[文件能力验证](../../quality/verification/file-capabilities.md#设置与常规文件交互的当前验收范围)，四项外部默认仍由[独立任务](../../plan/external-setting-defaults/README.md)核实。
 
 cheryNyxus（`cheryNyxus`）是**唯一**被授权直接管理 `.chery/` 配置的角色。AI 不再回传整份配置，而是提交带 `baseRevision` 的强类型资源级增量操作。服务端从当前磁盘快照构造候选，完成全量校验后才备份、写盘，再由统一协调器按资源边界采用；只有进程级影响才进入受控重启流程。
 

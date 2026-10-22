@@ -12,7 +12,7 @@ QQ 原图来源发布由 [`SourcePublicationStore`](../../../apps/backend/src/se
 
 新消息通过 `normalizeMessageParts` 保存原始顺序和固定文件版本，`content` 由其派生；`file_operations` 保存处理结果，`provider_continuation` 保存供应商续接信息，不改写思考块和工具调用。排队输入同样保存 `parts`。尚未迁移的历史行仍可能缺少这些字段。
 
-文件仓库的表定义由 [assets.ts](../../../apps/backend/src/db/assets.ts) 维护，读写实现在 [assetStore.ts](../../../apps/backend/src/service/media/assetStore.ts)。元信息、不可变版本、会话授权和持久引用位于主库，二进制内容按 SHA-256 保存，物理去重不合并访问权限。存储接口要求显式身份；用户提交、已有会话引用和跨会话授权为不同方法，调用方须先验证请求者的会话权限。清理排除有持久引用或迁移归属未明的文件。旧上传入口尚未切换到此仓库，迁移及完整切换范围见[当前任务](../../plan/file-capabilities-and-model-collaboration/README.md)。
+文件仓库的表定义由 [assets.ts](../../../apps/backend/src/db/assets.ts) 维护，读写实现在 [assetStore.ts](../../../apps/backend/src/service/media/assetStore.ts)。元信息、不可变版本、会话授权和持久引用位于主库，二进制内容按 SHA-256 保存，物理去重不合并访问权限。存储接口要求显式身份；用户提交、已有会话引用和跨会话授权为不同方法，调用方须先验证请求者的会话权限。清理排除有持久引用或迁移归属未明的文件。迁移检查入口见[文件能力验证](../../quality/verification/file-capabilities.md#自动检查入口)，真实跨账号权限与引用恢复仍归[文件权限与交付验收](../../plan/file-access-and-delivery/README.md)，不以自动检查代替真实身份验收。
 
 上下文统计的请求记录独立于短期事件保存，不受事件保留期限影响。请求开始、供应商用量更新和结束按同一请求身份更新；重试产生新的身份。历史缺少记录不补零、不按当前配置回填。所有时间以 UTC 毫秒保存，日期归属由查询指定的时区计算。
 
