@@ -6,6 +6,9 @@ import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 import { getRequestPluginSkills } from '@/agent/prompt/loadSkill.js'
 import { getChatSkillFilter, getChat, updateChatMetadata } from '@/db/chat.js'
 import { managedToolDenied } from '@/core/security/managedRequest.js'
+import { fileCapabilityContext } from '@/service/fileServices/runtime.js'
+import { resolveFileCapabilities } from '@/service/fileServices/capabilityResolver.js'
+
 
 import { dispatch } from './dispatch.js'
 import type { HookDispatchContext } from './types.js'
@@ -85,6 +88,12 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
     }
     return true
   })
+  const fileContext = runtime.configSnapshot ? fileCapabilityContext(ctx.soul.chatId, { config: runtime.configSnapshot, runtimeSelection: runtime.selectionSnapshot }) : undefined
+  if (fileContext?.runtime) {
+    const visible = new Set(runtime.builtSenses.map(tool => tool.function.name))
+    if (fileContext.roleName) fileContext.runtime.executableTools = { [fileContext.roleName]: [...visible] }
+    if (!visible.has('spawn_role') && fileContext.roleName && fileContext.runtime.dispatchRoster) fileContext.runtime.dispatchRoster[fileContext.roleName] = []
+  }
   ctx.requestView = immutableSnapshot({
     requestId,
     inputId,
@@ -93,6 +102,7 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
     configRevision: ensureCurrentConfigRevision().revisionId,
     registryVersion: getSenseRegistryVersion(),
     identity,
+    fileCapabilities: fileContext ? resolveFileCapabilities({ ...fileContext, explicit: undefined }) : undefined,
     tools: runtime.builtSenses.map((definition) => {
       const name = definition.function.name
       const origin = getSenseOrigin(name)

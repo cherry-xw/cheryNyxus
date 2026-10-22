@@ -46,6 +46,24 @@ function fixture(): ResolveFileCapabilityInput {
 }
 
 describe('file capability resolution', () => {
+  it('uses captured child runtime overrides and actual execution roster, not only configured membership', () => {
+    const input = fixture()
+    input.operation = 'image.inspect'
+    input.explicit = { mode: 'role', targetId: 'artist' }
+    input.runtime!.dispatchRoster = { planner: ['artist'], artist: [] }
+    expect(resolveFileCapability(input)).toMatchObject({ mode: 'role', availability: 'available' })
+    input.runtime!.roleSelections = { artist: { brain: 'plain', senseGroup: '' } }
+    expect(resolveFileCapability(input).availability).toBe('unavailable')
+    delete input.runtime!.roleSelections
+    input.runtime!.dispatchRoster.planner = []
+    expect(resolveFileCapability(input).reasonCode).toBe('capability.dispatch_not_allowed')
+  })
+  it('registered service absent from request execution table is not executable', () => {
+    const input = fixture()
+    input.roleName = 'artist'
+    input.runtime!.executableTools = { artist: [] }
+    expect(resolveFileCapability(input)).toMatchObject({ availability: 'unavailable', reasonCode: 'capability.tool_unavailable' })
+  })
   it('resolves a stable role ID through the current preset and preserves revision and limits without mutation', () => {
     const input = fixture()
     input.roleId = 'role-planner_01'

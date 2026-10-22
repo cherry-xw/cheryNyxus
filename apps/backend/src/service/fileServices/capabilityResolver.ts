@@ -83,6 +83,8 @@ export interface FileCapabilityRuntime {
   }[]
   /** Captured execution roster, keyed by role ID or name. Omitted uses current preset members. */
   dispatchRoster?: Record<string, readonly string[]>
+  roleSelections?: Record<string, ResolveFileCapabilityInput['runtimeSelection']>
+  executableTools?: Record<string, readonly string[]>
 }
 
 export interface ResolveFileCapabilityInput {
@@ -209,6 +211,8 @@ export function resolveFileCapability(input: ResolveFileCapabilityInput): FileCa
   if (binding.mode === 'native') return native()
 
   const resolveTool = (name: string, explicitlyBound: boolean): FileCapabilityResolution => {
+    const executable = input.runtime?.executableTools?.[roleName]
+    if (executable && !executable.includes(name)) return emit('unavailable', 'capability.tool_unavailable', '目标工具不在本请求的实际执行表中', { mode: 'tool', targetId: name })
     const entry = toolEntry(config, group, name)
     if (!entry) return emit('unavailable', 'capability.tool_not_assigned', '目标工具不在本次角色的工具组中', { mode: 'tool', targetId: name })
     if (toolCall !== true && !(toolCall === false && explicitlyBound && UNDERSTANDING.has(operation))) {
@@ -244,12 +248,12 @@ export function resolveFileCapability(input: ResolveFileCapabilityInput): FileCa
     if (!foundTarget || foundTarget[1].kind === 'shadow') return emit('unavailable', 'capability.target_role_missing', '目标角色不存在或不是普通角色', { mode: 'role', targetId: target })
     const [targetName, targetRole] = foundTarget
     const roster = input.runtime?.dispatchRoster?.[identity] ?? input.runtime?.dispatchRoster?.[roleName] ?? preset?.roles ?? []
-    if (!preset || !preset.roles?.includes(targetName) || !roster.some(id => findRole(config, id)?.[0] === targetName) || Object.values(config.presets ?? {}).some(p => p.detailRole === targetName)) {
+    if ((!input.runtime?.dispatchRoster && (!preset || !preset.roles?.includes(targetName))) || !roster.some(id => findRole(config, id)?.[0] === targetName) || Object.values(config.presets ?? {}).some(p => p.detailRole === targetName)) {
       return emit('unavailable', 'capability.dispatch_not_allowed', '当前预设或执行名单不允许派发该角色', { mode: 'role', targetId: targetRole.id ?? targetName })
     }
     const decision = permission(role, 'spawn_role', targetName)
     if (decision === 'deny') return emit('unavailable', 'capability.permission_denied', '角色权限禁止派发该角色', { mode: 'role', targetId: targetRole.id ?? targetName })
-    const child = resolveFileCapability({ ...input, roleId: targetRole.id, roleName: targetName, explicit: undefined, runtimeSelection: undefined, delegationPath: [...path, identity] })
+    const child = resolveFileCapability({ ...input, preset: input.runtime?.dispatchRoster ? undefined : input.preset, roleId: targetRole.id, roleName: targetName, explicit: undefined, runtimeSelection: input.runtime?.roleSelections?.[targetRole.id ?? targetName] ?? input.runtime?.roleSelections?.[targetName], delegationPath: [...path, identity] })
     const spawnLevel = toolEntry(config, group, 'spawn_role')?.level ?? String(config.global?.supervision ?? 0)
     const approval = decision === 'ask' || !['auto', '0'].includes(spawnLevel)
     return emit(child.availability === 'available' && approval ? 'requires_approval' : child.availability, child.reasonCode, child.reason, {

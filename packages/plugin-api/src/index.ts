@@ -80,6 +80,18 @@ export interface IngressRequestContext {
   configRevision: number
 }
 export interface IngressRequestView {
+  fileCapabilities?: readonly {
+    operation: string
+    availability: 'available' | 'requires_approval' | 'selection_required' | 'unavailable' | 'unknown'
+    mode: 'auto' | 'native' | 'tool' | 'role' | 'disabled'
+    targetId?: string
+    inputConstraints: { mimeTypes?: readonly string[]; maxBytes?: number; maxAssets?: number; maxPages?: number }
+    delegationPath?: readonly string[]
+    candidates?: readonly { mode: 'native' | 'tool' | 'role'; targetId: string }[]
+    configRevision: string
+    reasonCode: string
+    reason: string
+  }[]
   requestId: string
   inputId: string
   chatId: string
