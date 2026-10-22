@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { SettingsFilesPolicySchema, SettingsFilesSaveBodySchema } from '../../../packages/protocol/src/settings.js'
 import { settingsUnsetErrors } from '../../../packages/protocol/src/settingsValues.js'
 import {
   ConfigApplyStateSchema,
@@ -90,6 +91,29 @@ function safeApply(state: ResourceView['apply']): ResourceView['apply'] {
   return copy
 }
 export class SettingsService {
+  async files() {
+    const config = await this.config()
+    return { policy: SettingsFilesPolicySchema.parse(config.files ?? {}), baseRevision: config.baseRevision }
+  }
+  async saveFiles(input: unknown) {
+    const body = SettingsFilesSaveBodySchema.parse(input)
+    const config = await this.config()
+    if (config.baseRevision !== body.expectedBaseRevision)
+      throw new CapabilityError('revision_conflict', 409, '配置已变化，请重新读取')
+    const { baseRevision: _base, ...candidate } = config
+    candidate.files = body.policy
+    const preview = ConfigPreviewSchema.parse(await this.rpc.call('config.preview', {
+      protocolVersion: 2, expectedBaseRevision: body.expectedBaseRevision, candidate,
+    }))
+    const saved = ConfigSaveResultSchema.parse(await this.rpc.call('config.save', {
+      protocolVersion: 2, expectedBaseRevision: body.expectedBaseRevision,
+      requestId: body.requestId, previewToken: preview.previewToken, policy: 'wait', candidate,
+    }))
+    const after = await this.files()
+    if (after.baseRevision !== saved.baseRevision || JSON.stringify(after.policy) !== JSON.stringify(body.policy))
+      throw new CapabilityError('saved_revision_changed', 409, '保存回读未确认，请重新读取')
+    return { ...after, saved: true as const }
+  }
   private tail: Promise<unknown> = Promise.resolve()
   private readonly saved = new Map<string, { fingerprint: string; result: SaveResourceResult }>()
   constructor(private readonly rpc: CoreRpc) {}

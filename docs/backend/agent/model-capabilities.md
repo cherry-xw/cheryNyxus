@@ -57,7 +57,7 @@ QQ 历史图片沿已选背景窗口进入有序资产部分。统一文件能�
 
 ### 图片格式与每图硬上限
 
-`capabilities.imageInput` 与 `input.image` 配合使用：`formats` 为模型实际接受的 MIME 列表（JPEG/PNG/WebP/GIF），`animation` 为 `supported / first-frame / unsupported / unknown`，可独立声明服务的 `maxBytes`（原始字节）和 `maxBase64Bytes`（编码后字节）。各字段按用户覆盖、模型目录、未知的顺序解析。协议格式表仅说明传输能力，不能充当模型支持证明；未知模型必须配置格式列表，空列表表示不接受图片。Web 模型设置可编辑。
+`capabilities.imageInput` 与 `input.image` 配合使用：`formats` 为模型实际接受的 MIME 列表（JPEG/PNG/WebP/GIF），`animation` 为 `supported / first-frame / unsupported / unknown`，可独立声明服务的 `maxBytes`（原始字节）和 `maxBase64Bytes`（编码后字节）。各字段按用户覆盖、模型目录、未知的顺序解析。协议格式表仅说明传输能力，不能充当模型支持证明；未知模型必须配置格式列表，空列表表示不接受图片。Web 模型设置及 Manager 设置模块均可编辑。
 
 `files.imageAdaptation.maxBytes` 默认 **5 MB = 5,000,000 字节**，是每张模型输入的最大值，不是每图目标大小，也不改变上传上限或其他文件策略。`imageAdaptation.quality` 是转换或压缩时的 **JPEG/WebP 编码质量上限**（默认 85，保留用户显式值），不是原图视觉质量的估计或保证；不同格式的相同质量值不代表视觉效果相同。PNG 使用无损压缩，没有对应的有损 quality 参数。通过真实格式、完整解码、模型格式与动画支持、最长边和服务额外限制检查的原图直接复用原字节，不生成新版本；只有需要转换、缩小或压缩时才编码。编码先使用质量上限，仍超限时进一步降低编码质量或等比缩小；不读取原图质量估计，不按像素预算或小图曲线降低质量，不统一重编码合规原图，也不放大或补足体积。
 
@@ -66,6 +66,8 @@ QQ 历史图片沿已选背景窗口进入有序资产部分。统一文件能�
 动画不自动取首帧或丢帧；服务仅首帧、明确不支持或未知时不携带，附原因并保留原件。完整动画支持需明确声明，重新编码后检查帧数、延时和循环次数；当前不能保证 APNG 保留动画，拒绝转换。MiniMax 文档列出的 GIF 格式不等于保证理解完整动画。
 
 格式来源：[OpenAI](https://developers.openai.com/api/docs/guides/images-vision)（JPEG/PNG/WebP/非动画 GIF）、[Claude](https://platform.claude.com/docs/en/build-with-claude/vision)（JPEG/PNG/GIF/WebP，动画只首帧，大小需区分 Base64 和原始字节）、[MiniMax](https://platform.minimax.io/docs/api-reference/text-openai-api)（M3 图片格式和 10 MB；动画语义未说明）。这些说明不是任意兼容地址的实测结论，未知型号不从协议或名称臆测限制。
+
+Web 的“文件与上下文 → 图片适配”和 Manager 设置模块的“图片输入设置”共用后端 `files`。Manager 经受保护的设置管理路由读取、校验、预览、按 revision 保存并回读，不维护第二份配置。
 
 `BrainCapabilities`（[packages/plugin-api/src/config.ts](../../../packages/plugin-api/src/config.ts)）：
 

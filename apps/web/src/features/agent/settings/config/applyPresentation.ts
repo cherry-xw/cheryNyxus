@@ -2,6 +2,8 @@ import type { ConfigApplyState, ConfigImpact, ConfigPreview } from '@chery/proto
 
 const ROOT_LABELS: Record<string, string> = {
   assets: '资源文件',
+  file_services: '文件服务',
+  files: '文件与上下文',
   global: '全局设置',
   hooks: 'Hooks',
   llm: '大脑',
@@ -25,6 +27,7 @@ export function impactLabel(impact: ConfigImpact): string {
 export function impactNextStep(impact: ConfigImpact): string {
   if (impact.status === 'applied') return '无需操作'
   if (impact.status === 'failed') return '修正相关设置后再次保存；当前任务继续使用最后可用设置'
+  if (impact.boundary === 'operation') return '新操作将立即采用新设置'
   if (impact.boundary === 'run') return '新任务会使用新设置，正在运行的任务结束前保持原设置'
   if (impact.boundary === 'tree') return '等待受影响任务到达可安全切换的位置'
   if (impact.boundary === 'resource') return '等待相关资源完成切换'

@@ -82,8 +82,9 @@ export async function handleConfigSave(
     candidateRevisionId: result.candidateRevisionId,
     baseRevision: result.baseRevision,
   })
+  await getConfigApplyCoordinator().retry()
   const { ok: _ok, ...response } = result
-  return response
+  return { ...response, ...getConfigApplyCoordinator().getState() }
 }
 
 export function registerConfigHandlers(router: RpcRouter): void {

@@ -6,7 +6,7 @@ import {
   SettingsModelRecommendationBodySchema, SettingsResourceKindSchema,
   SettingsPromptsSaveBodySchema, SettingsSearchSaveBodySchema,
 } from '../../../packages/protocol/src/settings.js'
-import { CapabilityError, invalidHttpUrl, record } from './errors.js'
+import { CapabilityError, record } from './errors.js'
 import { SettingsService } from './service.js'
 export { SettingsService } from './service.js'
 export { CapabilityError } from './errors.js'
@@ -45,6 +45,8 @@ export function createPlugin(context: IngressContext): IngressPlugin {
     prepareManagement() {
       if (prepared) return
       context.management.register({ moduleId: 'capabilities', routes: [
+        make('GET', 'files', 'files.get', request.filesGet, response.filesGet, async () => service.files()),
+        make('PUT', 'files', 'files.save', request.filesSave, response.filesSave, async input => service.saveFiles(input.body)),
         make('GET', 'catalog', 'catalog.get', request.catalog, response.catalog, async () => service.catalog()),
         make('GET', 'apply', 'apply.get', request.apply, response.apply, async () => service.apply()),
         make('GET', 'resources/:kind', 'resources.get', request.resourceGet, response.resourceGet,
@@ -56,11 +58,7 @@ export function createPlugin(context: IngressContext): IngressPlugin {
           async input => service.remove(SettingsResourceKindSchema.parse(input.pathParams.kind), input.body)),
         make('POST', 'models', 'models.list', request.models, response.models, async input => {
           const body = SettingsModelsBodySchema.parse(input.body)
-          const url = invalidHttpUrl(body.url)
-          const stored = body.savedBrain && body.key === undefined ? await service.modelKey(body.savedBrain, url.href) : undefined
-          const { savedBrain: _savedBrain, ...params } = body
-          const result = await call('utils.models', { ...params, url: url.href,
-            ...(body.key === undefined && stored !== undefined ? { key: stored } : {}) })
+           const result = await call('utils.models', body)
           if (!record(result) || result.error || !response.models.safeParse({ models: result.models }).success)
             throw new CapabilityError('models_failed', 502, '获取模型列表失败，请检查 URL 和 Key')
           return { models: result.models }

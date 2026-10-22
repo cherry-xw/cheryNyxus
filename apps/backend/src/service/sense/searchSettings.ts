@@ -8,7 +8,7 @@ import {
 } from '@/agent/sense/web/searchService.js'
 export function registerSearchSettingsHandlers(router: RpcRouter) {
   const control = (ctx: { credentialKind?: string }) =>
-    !ctx.credentialKind || ctx.credentialKind === 'control'
+    !ctx.credentialKind || (ctx.credentialKind === 'control' || ctx.credentialKind === 'machine')
   router.registerExtension({
     method: 'search.test',
     request: z.object({ query: z.string().min(1).max(600) }).strict(),

@@ -391,5 +391,36 @@ describe('serialized config commit', () => {
       }),
     ).rejects.toThrow('connection.key 请填写密钥')
   })
+  it('previewing a single file adaptation quality edit produces only /files/imageAdaptation/quality impact', () => {
+    const config = readRawConfig()
+    config.files = { imageAdaptation: { quality: 85 } }
+    expect(api.commitConfigCandidate({ ...input(), candidate: config }).ok).toBe(true)
 
+    const next = readRawConfig()
+    expect(next.llm.brain.mock_content?.thinking).toBeUndefined()
+    next.files = { imageAdaptation: { quality: 84 } }
+    const preview = api.previewConfigCandidate({
+      candidate: next,
+      expectedBaseRevision: api.getSavedBaseRevision(),
+      requestId: 'quality-84',
+    })
+    expect('previewToken' in preview).toBe(true)
+    if ('previewToken' in preview) {
+      expect(preview.impacts.flatMap((i) => i.paths)).toEqual(['/files/imageAdaptation/quality'])
+      return import('@/service/config/handler.js').then(async ({ handleConfigSave }) => {
+        const saved = await handleConfigSave({ requestId: 'save-84' } as never, {
+          protocolVersion: 2,
+          candidate: next,
+          expectedBaseRevision: api.getSavedBaseRevision(),
+          previewToken: preview.previewToken,
+          policy: 'wait',
+          requestId: 'quality-84-save',
+        })
+        expect(saved).toMatchObject({
+          status: 'applied',
+          impacts: [expect.objectContaining({ status: 'applied', paths: ['/files/imageAdaptation/quality'] })],
+        })
+      })
+    }
+  })
 })

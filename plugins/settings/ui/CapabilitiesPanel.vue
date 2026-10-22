@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import SearchSettings from './SearchSettings.vue'
+import FilesSettings from './FilesSettings.vue'
+import ImageInputSettings from '../../../packages/manager-ui/src/ImageInputSettings.vue'
 import Dropdown from '../../../packages/manager-ui/src/Dropdown.vue'
 import PresetPrompts from './PresetPrompts.vue'
 import { onMounted, onUnmounted, watch, ref } from 'vue'
@@ -23,6 +25,7 @@ const {
   identify,
   addTool,
   clearSecrets,
+  effectiveCapabilities, effectiveProtocol, defaultAddress, modelBlockedBy, resetField, adoptContextLimit,
 } = useCapabilities()
 const props = defineProps<{ active?: boolean }>()
 watch(
@@ -53,6 +56,7 @@ onUnmounted(clearSecrets)
     <p v-if="state.error" class="error" role="alert">{{ state.error }}</p>
     <p v-else-if="state.loading" role="status">正在读取已保存资源和工具目录…</p>
     <div class="capability-grid">
+      <FilesSettings />
       <article
         v-for="kind in kinds"
         :key="kind"
@@ -96,15 +100,18 @@ onUnmounted(clearSecrets)
           <fieldset :disabled="busy(kind) || !state.ready || editors[kind].uncertain">
             <label>名称<input v-model="editors[kind].name" required maxlength="128" /></label>
             <template v-if="kind === 'brains'">
+              <ImageInputSettings :brain="editors.brains.value" :inherited="effectiveCapabilities" :catalog-status="model.identifying ? 'loading' : model.recommendation ? 'ready' : 'error'" />
               <div class="field-stack">
                 <label
                   >模型 URL<input
-                    v-model="editors.brains.value.url"
-                    type="url"
-                    placeholder="https://服务地址/v1"
-                    required
+                    :value="editors.brains.value.url ?? ''"
+                    type="text"
+                    :placeholder="defaultAddress"
+                    @input="($event.target as HTMLInputElement).value ? editors.brains.value.url = ($event.target as HTMLInputElement).value : resetField('brains', 'url')"
                     autocomplete="off"
                 /></label>
+                <small v-if="editors.brains.value.url === undefined">{{ defaultAddress }} · 实际默认地址</small>
+                <button v-if="editors.brains.value.url !== undefined" type="button" @click="resetField('brains', 'url')">恢复默认地址</button>
                 <label class="check-label"
                   ><input v-model="editors.brains.value.fullUrl" type="checkbox" />完整请求
                   URL（已包含端点）</label
@@ -125,16 +132,20 @@ onUnmounted(clearSecrets)
                 <button
                   type="button"
                   :disabled="
-                    model.loading ||
-                    !editors.brains.value.url ||
-                    (!editors.brains.key && !editors.brains.keyConfigured)
+                    model.loading || !!modelBlockedBy
                   "
                   @click="fetchModels"
                 >
                   {{ model.loading ? '获取中…' : '获取模型列表' }}
                 </button>
+                <small v-if="modelBlockedBy">{{ modelBlockedBy }}</small>
+                <button v-if="editors.brains.keyConfigured" type="button" @click="resetField('brains', 'key')">清除已存密钥</button>
               </div>
               <p v-if="model.error" class="error" role="alert">{{ model.error }}</p>
+              <label>服务<input v-model="editors.brains.value.provider" required /></label>
+              <label>上下文容量（K，1K = 1000 token）<input type="number" step="any" min="0.001" :value="editors.brains.value.contextLimit === undefined ? '' : editors.brains.value.contextLimit / 1000" required :aria-invalid="!Number.isInteger(editors.brains.value.contextLimit) || editors.brains.value.contextLimit <= 0" aria-describedby="manager-context-error" @input="editors.brains.value.contextLimit = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) * 1000 : undefined" /></label>
+              <small v-if="!Number.isInteger(editors.brains.value.contextLimit) || editors.brains.value.contextLimit <= 0" id="manager-context-error" role="alert">请填写正整数 token 容量；目录推荐不会自动写入。</small>
+              <button v-if="model.recommendation?.recommend?.contextLimit" type="button" @click="adoptContextLimit">采用推荐值 {{ model.recommendation.recommend.contextLimit / 1000 }}K</button>
               <label
                 >模型<Dropdown
                   v-model="editors.brains.value.model"
@@ -162,9 +173,11 @@ onUnmounted(clearSecrets)
               <div class="field-stack">
                 <label
                   >协议<Dropdown
-                    v-model="editors.brains.value.protocol"
+                    :model-value="editors.brains.value.protocol ?? ''"
+                    @update:model-value="(value: string) => value ? editors.brains.value.protocol = value : resetField('brains', 'protocol')"
                     @change="model.automatic = false"
                   >
+                    <option value="">{{ effectiveProtocol ?? '必填：无法确定实际协议' }} · 运行缺省</option>
                     <option
                       v-if="!protocols.some((item) => item.id === editors.brains.value.protocol)"
                       :value="editors.brains.value.protocol"
@@ -180,7 +193,7 @@ onUnmounted(clearSecrets)
                   ><input
                     v-model="model.automatic"
                     type="checkbox"
-                    @change="identify"
+                    @change="identify(true)"
                   />使用后端推荐协议</label
                 >
               </div>
@@ -189,14 +202,16 @@ onUnmounted(clearSecrets)
               </p>
               <label
                 >思考等级<Dropdown
-                  v-model="editors.brains.value.thinking"
+                    :model-value="editors.brains.value.thinking ?? ''"
+                    @update:model-value="(value: string) => value ? editors.brains.value.thinking = value : resetField('brains', 'thinking')"
                   :disabled="model.identifying || !thinkingLevels.length"
                 >
+                  <option value="">off · 运行默认（仍受型号与全局开关限制）</option>
                   <option
-                    v-if="!thinkingLevels.includes(editors.brains.value.thinking)"
+                    v-if="editors.brains.value.thinking && !thinkingLevels.includes(editors.brains.value.thinking)"
                     :value="editors.brains.value.thinking"
                   >
-                    {{ editors.brains.value.thinking || '未设置' }}（当前值）
+                    {{ editors.brains.value.thinking }}（当前值）
                   </option>
                   <option v-for="level in thinkingLevels" :key="level" :value="level">
                     {{ level }}
@@ -309,6 +324,10 @@ onUnmounted(clearSecrets)
                 <p v-if="editors.presets.value.leader">
                   组长角色：{{ editors.presets.value.leader }}
                 </p>
+                <p>解释角色：{{ editors.presets.value.detailRole || '未启用解释角色' }}</p>
+                <button v-if="editors.presets.value.detailRole !== undefined" type="button" @click="resetField('presets', 'detailRole')">恢复未启用解释角色</button>
+                <p>工作区：{{ editors.presets.value.workspace || '未限定工作区' }}</p>
+                <button v-if="editors.presets.value.workspace !== undefined" type="button" @click="resetField('presets', 'workspace')">恢复不限定工作区</button>
               </div>
             </template>
             <div class="form-actions">

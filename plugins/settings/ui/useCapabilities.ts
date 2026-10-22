@@ -1,4 +1,9 @@
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, watch, onScopeDispose } from 'vue'
+import { SettingsBrainSchema } from '../../../packages/protocol/src/settings'
+import { SETTINGS_UNSET_FIELDS } from '../../../packages/protocol/src/settingsValues'
+import { effectiveLlmBaseUrl, effectiveLlmProtocol, httpAddressError, llmRequiresKey } from '../../../packages/protocol/src/llmConnection'
+import { mergeBrainCapabilities } from '../../../packages/protocol/src/brainCapabilities'
+import { LLM_PROTOCOL_CATALOG } from '../../../packages/protocol/src/llm'
 import { managerRequest, ManagerApiError } from '../../../packages/manager-ui/src/api'
 import { requestId } from '../../../packages/manager-ui/src/requestId'
 import type { CapabilityCatalog, ResourceKind, ResourceView } from '../src/contracts'
@@ -7,19 +12,13 @@ import type { SettingsModelsResultSchema, SettingsModelRecommendationResultSchem
 type UtilsModelsResponseData = z.infer<typeof SettingsModelsResultSchema>
 type UtilsModelRecommendationResponseData = z.infer<typeof SettingsModelRecommendationResultSchema>
 
-export const protocols = [
-  { id: 'openai-chat-completions', label: 'chat completion' },
-  { id: 'anthropic-messages', label: 'message' },
-  { id: 'openai-responses', label: 'response' },
-]
+export const protocols = LLM_PROTOCOL_CATALOG
 const defaults = (kind: ResourceKind): any =>
   kind === 'brains'
     ? {
         provider: 'custom',
         protocol: 'openai-chat-completions',
         model: '',
-        url: '',
-        thinking: 'off',
       }
     : kind === 'sense-groups'
       ? []
@@ -36,6 +35,8 @@ const newEditor = (kind: ResourceKind) => ({
   message: '',
   uncertain: false,
   keyConfigured: false,
+  baseline: {} as Record<string, unknown>,
+  keyRemoved: false,
   generation: 0,
 })
 
@@ -85,6 +86,25 @@ export function useCapabilities(request = managerRequest) {
     ),
   )
   const thinkingLevels = computed(() => model.recommendation?.thinkingLevels ?? [])
+  const effectiveCapabilities = computed(() => mergeBrainCapabilities(undefined, model.recommendation?.recommend?.capabilities, model.recommendation?.facts?.capabilities))
+  const effectiveProtocol = computed(() => effectiveLlmProtocol(editors.brains.value))
+  const defaultAddress = computed(() => effectiveLlmBaseUrl({ ...editors.brains.value, url: undefined }) ?? '无默认地址，必须填写')
+  const modelBlockedBy = computed(() => {
+    const brain = editors.brains.value
+    const url = effectiveLlmBaseUrl(brain)
+    if (!effectiveProtocol.value) return '请先选择有效协议'
+    if (!url?.startsWith('$') && httpAddressError(url)) return '请填写有效地址'
+    if (llmRequiresKey(brain) && !editors.brains.key.trim() && (!editors.brains.keyConfigured || editors.brains.keyRemoved)) return '请填写密钥'
+    return ''
+  })
+  function resetField(kind: ResourceKind, field: string) {
+    if (field === 'key' && kind === 'brains') { editors.brains.key = ''; editors.brains.keyRemoved = true; return }
+    delete editors[kind].value[field]
+  }
+  function adoptContextLimit() {
+    const recommended = model.recommendation?.recommend?.contextLimit
+    if (recommended) editors.brains.value.contextLimit = recommended
+  }
   const toolName = (entry: string) => entry.split(':')[0]?.trim() ?? entry
   const toolInfo = (entry: string) =>
     state.catalog.tools.find((tool) => tool.name === toolName(entry))
@@ -113,6 +133,8 @@ export function useCapabilities(request = managerRequest) {
   function accept(kind: ResourceKind, view: ResourceView) {
     const editor = editors[kind]
     editor.value = view.value
+    editor.baseline = JSON.parse(JSON.stringify(view.value))
+    editor.keyRemoved = false
     editor.name = view.name
     editor.selected = view.name
     editor.revision = view.baseRevision
@@ -138,6 +160,7 @@ export function useCapabilities(request = managerRequest) {
     editor.uncertain = false
     if (kind === 'brains') {
       modelGeneration++
+      recommendationGeneration++
       model.options = []
       model.error = ''
       model.recommendation = null
@@ -146,6 +169,8 @@ export function useCapabilities(request = managerRequest) {
     if (!selected) {
       editor.name = ''
       editor.value = defaults(kind)
+      editor.baseline = {}
+      editor.keyRemoved = false
       editor.revision = state.catalog.baseRevision
       editor.keyConfigured = false
       if (kind === 'brains') model.automatic = true
@@ -179,9 +204,10 @@ export function useCapabilities(request = managerRequest) {
       editor.error = '同名资源已存在，请从上方选择编辑'
       return
     }
-    if (kind === 'brains' && !editor.value.model) {
-      editor.error = '请获取列表并选择模型'
-      return
+    if (kind === 'brains') {
+      const result = SettingsBrainSchema.safeParse(editor.value)
+      if (!result.success) { editor.error = result.error.issues.map(issue => `llm.brain.${editor.name}.${issue.path.join('.')}: ${issue.message}`).join('\n'); return }
+      if (modelBlockedBy.value && effectiveProtocol.value !== 'mock') { editor.error = modelBlockedBy.value; return }
     }
     if (
       kind === 'presets' &&
@@ -198,7 +224,9 @@ export function useCapabilities(request = managerRequest) {
       const value =
         kind === 'sense-groups'
           ? [...editor.value]
-          : { ...editor.value, ...(kind === 'brains' && editor.key ? { key: editor.key } : {}) }
+           : { ...editor.value, ...(kind === 'brains' && editor.key ? { key: editor.key } : {}) }
+      const unset = (SETTINGS_UNSET_FIELDS[kind] as readonly string[]).filter(field => Object.hasOwn(editor.baseline, field) && !Object.hasOwn(value, field))
+      if (kind === 'brains' && editor.keyRemoved && !editor.key) unset.push('key')
       const result = await request<{ data: ResourceView }>(
         `/api/modules/capabilities/resources/${kind}`,
         {
@@ -207,6 +235,7 @@ export function useCapabilities(request = managerRequest) {
             name: editor.name.trim(),
             ...(editor.selected ? { originalName: editor.selected } : {}),
             value,
+            ...(unset.length ? { unset } : {}),
             expectedBaseRevision: editor.revision,
             requestId: requestId(),
           }),
@@ -224,8 +253,8 @@ export function useCapabilities(request = managerRequest) {
       editor.error = error instanceof Error ? error.message : '保存失败，请回读核对'
       editor.uncertain =
         !(error instanceof ManagerApiError) || ![400, 401, 403, 404, 422].includes(error.status)
+      if (kind === 'brains') editor.key = ''
     } finally {
-      editor.key = ''
       editor.saving = false
       state.writing = false
     }
@@ -278,8 +307,8 @@ export function useCapabilities(request = managerRequest) {
   }
   async function fetchModels() {
     const editor = editors.brains
-    if (!editor.value.url) {
-      model.error = '请填写 URL 和 Key'
+    if (modelBlockedBy.value) {
+      model.error = modelBlockedBy.value
       return
     }
     const generation = ++modelGeneration
@@ -292,8 +321,8 @@ export function useCapabilities(request = managerRequest) {
         {
           method: 'POST',
           body: JSON.stringify({
-            ...(editor.selected && editor.keyConfigured && !editor.key
-              ? { savedBrain: editor.selected }
+             ...(editor.selected && editor.keyConfigured && !editor.key && !editor.keyRemoved
+               ? { savedBrain: editor.selected, expectedBaseRevision: editor.revision }
               : {}),
             provider: editor.value.provider,
             protocol: editor.value.protocol,
@@ -316,7 +345,7 @@ export function useCapabilities(request = managerRequest) {
       if (generation === modelGeneration) model.loading = false
     }
   }
-  async function identify() {
+   async function identify(applyProtocol = false) {
     const generation = ++recommendationGeneration
     model.recommendation = null
     model.notice = ''
@@ -340,7 +369,7 @@ export function useCapabilities(request = managerRequest) {
       model.recommendation = result.data
       const recommended = result.data.recommend?.protocol
       if (
-        model.automatic &&
+         applyProtocol && model.automatic &&
         recommended &&
         protocols.some((protocol) => protocol.id === recommended) &&
         recommended !== value.protocol
@@ -367,11 +396,12 @@ export function useCapabilities(request = managerRequest) {
       editors.brains.value.model,
       editors.brains.value.protocol,
       editors.brains.value.provider,
+      editors.brains.value,
     ],
-    () => void identify(),
+    (current, previous) => void identify(!!previous && current[3] === previous[3] && current[0] !== previous[0] && !editors.brains.loading),
   )
   watch(
-    () => [editors.brains.value.url, editors.brains.value.provider],
+    () => [editors.brains.value, editors.brains.value.url, editors.brains.value.provider, editors.brains.value.protocol, editors.brains.value.fullUrl, editors.brains.key, editors.brains.revision, editors.brains.selected],
     () => {
       modelGeneration++
       model.options = []
@@ -381,7 +411,10 @@ export function useCapabilities(request = managerRequest) {
   )
   function clearSecrets() {
     editors.brains.key = ''
+    modelGeneration++; recommendationGeneration++
+    model.recommendation = null; model.options = []
   }
+  onScopeDispose(() => { modelGeneration++; recommendationGeneration++ })
   return {
     state,
     editors,
@@ -401,5 +434,6 @@ export function useCapabilities(request = managerRequest) {
     identify,
     addTool,
     clearSecrets,
+    effectiveCapabilities, effectiveProtocol, defaultAddress, modelBlockedBy, resetField, adoptContextLimit,
   }
 }

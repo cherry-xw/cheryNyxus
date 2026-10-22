@@ -71,6 +71,20 @@ describe('configuration apply state', () => {
       appliedRevision: 'config-1',
     }
     expect(impactLabel(impact)).toBe('角色 / reviewer')
+    expect(
+      impactLabel({
+        ...impact,
+        resource: '["files","imageAdaptation"]',
+        boundary: 'operation',
+      }),
+    ).toBe('文件与上下文 / imageAdaptation')
+    expect(
+      impactNextStep({
+        ...impact,
+        resource: '["files","imageAdaptation"]',
+        boundary: 'operation',
+      }),
+    ).toBe('新操作将立即采用新设置')
     expect(destructiveTargetLabel('presets/team-a')).toBe('预设 / team-a')
     expect(
       previewRequiresConfirmation({

@@ -244,9 +244,13 @@ export const SettingsSearchViewSchema = z.object({ settings: SettingsSearchConfi
 export const SettingsSearchSaveBodySchema = z.object({ settings: SettingsSearchConfigSchema, expectedRevision: revision }).strict()
 export const SettingsSearchSaveResultSchema = SettingsSearchViewSchema.extend({ saved: z.literal(true) })
 const empty = z.object({}).strict()
+export const SettingsFilesViewSchema = z.object({ policy: SettingsFilesPolicySchema, baseRevision: revision }).strict()
+export const SettingsFilesSaveBodySchema = z.object({ policy: SettingsFilesPolicySchema, expectedBaseRevision: revision, requestId }).strict()
 const resourcePath = z.object({ kind: SettingsResourceKindSchema }).strict()
 const route = <B extends z.ZodType>(body: B) => z.object({ pathParams: empty, query: empty, body }).strict()
 export const SettingsRequestSchemas = {
+  filesGet: z.object({ pathParams: empty, query: empty }).strict(),
+  filesSave: route(SettingsFilesSaveBodySchema),
   catalog: z.object({ pathParams: empty, query: empty }).strict(),
   apply: z.object({ pathParams: empty, query: empty }).strict(),
   resourceGet: z.object({ pathParams: resourcePath, query: z.object({ name: SettingsNameSchema }).strict() }).strict(),
@@ -271,6 +275,8 @@ export const SettingsResourceSaveRequestSchema = z.object({
     ctx.addIssue({ code: 'custom', path: ['body', 'unset'], message })
 })
 export const SettingsResponseSchemas = {
+  filesGet: SettingsFilesViewSchema,
+  filesSave: SettingsFilesViewSchema.extend({ saved: z.literal(true) }),
   catalog: SettingsCatalogSchema, apply: ConfigApplyStateSchema,
   resourceGet: SettingsResourceViewSchema, resourceSave: SettingsSaveResourceResultSchema,
   resourceDelete: SettingsDeleteResourceResultSchema, models: SettingsModelsResultSchema,
