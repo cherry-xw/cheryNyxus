@@ -26,7 +26,7 @@ export interface MediaAttachment {
   copy?: () => Promise<void>
   width?: number
   height?: number
-  compressed?: { assetId: string; assetVersionId: string; filename: string; mimeType: string; size: number; width?: number; height?: number }
+  compressed?: { assetId: string; assetVersionId: string; filename: string; mimeType: string; size: number; width?: number; height?: number; variant?: 'original' | 'adapted' }
   useCompressed?: boolean
 }
 export function mediaKindOf(file: File): AssetRecord['kind'] {
@@ -47,9 +47,14 @@ export function configureImageAdaptation(attachment: MediaAttachment, chatId?: s
     try {
       const adapted = await fileApi.adapt(attachment.assetId, chatId)
       if (attachment.cancelled || context !== fileApi.contextKey()) return
+      if (adapted.transform?.variant !== 'adapted' || adapted.versionId === attachment.assetVersionId) {
+        attachment.compressed = undefined
+        attachment.useCompressed = false
+        return
+      }
       attachment.compressed = { assetId: adapted.id, assetVersionId: adapted.versionId,
         filename: adapted.originalName, mimeType: adapted.mimeType, size: adapted.sizeBytes,
-        width: adapted.transform?.width, height: adapted.transform?.height }
+        width: adapted.transform?.width, height: adapted.transform?.height, variant: 'adapted' }
       attachment.useCompressed = true
     } catch (cause) {
       if (!attachment.cancelled && context === fileApi.contextKey()) attachment.error = `适配失败，原始文件仍可使用：${cause instanceof Error ? cause.message : '未知错误'}`

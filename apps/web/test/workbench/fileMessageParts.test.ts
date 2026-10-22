@@ -22,6 +22,7 @@ describe('ordered file message parts', () => {
   it('allows file-only inputs and only an existing adapted version', () => {
     expect(composeMessageParts('', [{ ...file, referenceId:undefined }])[0]?.type).toBe('asset')
     expect(composeMessageParts('[[attachment:ref-1]]', [{ ...file, useCompressed:true, compressed:{ assetId:'adapted', assetVersionId:'version-2', mimeType:'application/pdf' } }])[0]).toMatchObject({ assetVersionId:'version-2', variant:'adapted' })
+    expect(composeMessageParts('[[attachment:ref-1]]', [{ ...file, useCompressed:true, compressed:{ assetId:'asset-1', assetVersionId:'version-1', mimeType:'image/png' } }])[0]).toMatchObject({ assetVersionId:'version-1', variant:'original' })
   })
   it('preserves an adapted historical version when it is referenced again', () => {
     expect(composeMessageParts('[[attachment:ref-1]]', [{ ...file, variant:'adapted' }])[0]).toMatchObject({ assetVersionId:'version-1', variant:'adapted' })

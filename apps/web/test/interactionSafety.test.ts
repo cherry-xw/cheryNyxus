@@ -353,6 +353,34 @@ describe('composer draft and attachment safety', () => {
     expect(submit).not.toHaveBeenCalled()
   })
 
+  it('keeps original variant when image adaptation reuses the compliant original version', async () => {
+    const { c, upload, submit } = composerFixture()
+    const file = new File(['png-bytes'], 'qqbot-1905619972.png', { type: 'image/png' })
+    const originalRecord = {
+      id: 'png-asset',
+      versionId: 'png-v1',
+      originalName: file.name,
+      kind: 'image' as const,
+      mimeType: 'image/png',
+      sizeBytes: 147438,
+      transform: { variant: 'original' as const, width: 480, height: 480 },
+    }
+    mediaUpload.adapt = vi.fn().mockResolvedValue(originalRecord)
+    const pending = c.onMediaSelected({ raw: file })
+    upload.resolve(originalRecord)
+    await pending
+    expect(mediaUpload.adapt).toHaveBeenCalledWith('png-asset', undefined)
+    expect(c.mediaAttachments.value[0].compressed).toBeUndefined()
+    expect(c.mediaAttachments.value[0].useCompressed).toBe(false)
+    expect(await c.handleSend(undefined, { keepOpen: true })).toBe(true)
+    expect(submit.mock.calls[0]![2]).toContainEqual(expect.objectContaining({
+      type: 'asset',
+      assetId: 'png-asset',
+      assetVersionId: 'png-v1',
+      variant: 'original',
+    }))
+  })
+
   it('keeps failed attachments visible without throwing in draft observation and still blocks sending them', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const { c, upload, submit, drawing } = composerFixture()

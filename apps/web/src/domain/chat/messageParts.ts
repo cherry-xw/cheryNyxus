@@ -11,7 +11,7 @@ export interface DraftFileReference {
   status?: 'uploading' | 'ready' | 'failed'
   referenceId?: string
   useCompressed?: boolean
-  compressed?: { assetId: string; assetVersionId: string; mimeType: string }
+  compressed?: { assetId: string; assetVersionId: string; mimeType: string; variant?: 'original' | 'adapted' }
 }
 
 export function displayDraftFiles(text: string, files: DraftFileReference[]): string {
@@ -28,10 +28,11 @@ export function composeMessageParts(text: string, files: DraftFileReference[] = 
   const id = () => `part-${parts.length}`
   const addFile = (file: DraftFileReference) => {
     if (file.status && file.status !== 'ready') throw new Error(`请先重试或移除未上传完成的文件：${file.filename}`)
-    const chosen = file.useCompressed && file.compressed ? file.compressed : file
+    const hasDistinctCompressed = !!file.compressed && file.compressed.assetVersionId !== file.assetVersionId && file.compressed.variant !== 'original'
+    const chosen = file.useCompressed && hasDistinctCompressed ? file.compressed! : file
     if (!chosen.assetVersionId) throw new Error(`文件版本缺失，请重新选择：${file.filename}`)
     parts.push({ partId: id(), type: 'asset', assetId: chosen.assetId, assetVersionId: chosen.assetVersionId,
-      variant: chosen === file ? file.variant ?? 'original' : 'adapted', usage: file.usage ?? 'content',
+      variant: chosen === file ? file.variant ?? 'original' : chosen.variant ?? 'adapted', usage: file.usage ?? 'content',
       originalName: file.filename, mimeType: chosen.mimeType, kind: file.kind })
   }
   for (const match of text.matchAll(/\[\[(command|role|file|attachment):([^\]\r\n]+)\]\]/g)) {
