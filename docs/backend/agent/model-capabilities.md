@@ -93,6 +93,8 @@ Web 的“文件与上下文 → 图片适配”和 Manager 设置模块的“�
 
 ## 文件服务与适配器契约（`file_services`）
 
+远程结果与 QQ URL 导入共用 [`downloadProviderResult`](../../../apps/backend/src/service/fileServices/download.ts)：只允许无凭据 HTTPS，每跳重新验证全部解析结果为公网地址，再固定该次地址集合供连接使用，禁止传输层二次解析。自定义 lookup 遵守 [Node DNS 契约](https://nodejs.org/docs/latest-v24.x/api/dns.html#dnslookuphostname-options-callback)：`all:true` 回调地址对象数组，其他情况回调单地址与 family，并按请求 family 筛选；保持 Node 自动地址族选择。空解析、地址与 family 不符、混入内网地址均拒绝，不以关闭校验绕过错误。验证入口：`apps/backend/test/service/providerDownload.test.ts` 使用真实 Node HTTPS/TCP 与隔离传输映射，覆盖下载、逐跳验证、大小限制及 URL 导入至原生图片序列化，不调用模型。
+
 多图响应按原顺序保留已取得的文字和文件。单项被服务商拒绝、内容无效或后续下载失败时，整批不能标为完整成功；已有文件照常保存和交付。下载未完成而原响应仍在本地时，“重试保存”只重新解析原响应并下载缺失结果，不调用生成接口。已保存的前序文件沿用固定版本；服务商拒绝的单项不能通过保存重试变成新一轮生成。
 
 `file_services.<serviceId>` 将连接、认证与可执行的文件操作组合成可配置资源，开启的操作生成稳定工具名 `file_<serviceId>_<operation_with_underscores>`（仅含字母、数字、下划线），通过 `sense_groups` 授权给角色。
