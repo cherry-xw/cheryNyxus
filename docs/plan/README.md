@@ -8,7 +8,7 @@
 | [ADV 客户端](adv-client/README.md) | 执行中 | 输入、显示、存储与联网底座部分实现；音频、业务通信及实机验收未完成，本次不提交固件改动 |
 | [万象台](wanxiangtai/README.md)                                                | 规划中     | 多 Agent 团队协作、独立工作区、交付集成与桌面呈现              |
 | [上下文统计、待办进度与连续消息交互](conversation-observability-and-input/README.md) | 规划中 | 上下文统计、待办进度与连续消息交互的设计初稿；另含已确认的上下文预算与 QQ 讨论总结专题及其实施状态。 |
-| [文件能力与多模型协作](file-capabilities-and-model-collaboration/README.md) | 执行中 | 原范围继续验收；服务端记录、解析、保存与工具卡已接通，配置验证状态、图片输入选择及完整恢复仍需完成 |
+| [文件能力与多模型协作](file-capabilities-and-model-collaboration/README.md) | 执行中 | 设置与常规文件交互本轮已收尾；仅继续跟进跨账号权限、真实服务/绘图与 QQ 文件验收、外部默认、Imagen 及服务端工具缺口 |
 
 ## 使用规则
 
