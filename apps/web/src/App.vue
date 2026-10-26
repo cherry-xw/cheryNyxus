@@ -541,7 +541,8 @@ body {
 .terminal-window-frame .window-frame-titlebar .window-frame-title-actions > * {
   pointer-events: auto;
 }
-.cyber-window.is-terminal .cyber-window-title-actions {
+.cyber-window.is-terminal .cyber-window-title-actions,
+.cyber-window.is-graph .cyber-window-title-actions {
   flex: 1;
   pointer-events: none;
 }

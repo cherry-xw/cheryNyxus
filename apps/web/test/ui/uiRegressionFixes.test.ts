@@ -58,4 +58,12 @@ describe('UI regression fixes (2026-09-21)', () => {
     // signal 不再承担右对齐（避免窄窗口隐藏 signal 后按钮贴标题）。
     expect(windowSource).not.toMatch(/\.cyber-window-signal\s*\{[^}]*margin-left: auto;/s)
   })
+
+  it('gives the graph workbench title-actions flex space so session strip placeholders do not collapse', async () => {
+    const appSource = await readComponentSource(resolve('src/App.vue'), 'utf8')
+
+    expect(appSource).toMatch(
+      /\.cyber-window\.is-terminal\s+\.cyber-window-title-actions,\s*\.cyber-window\.is-graph\s+\.cyber-window-title-actions\s*\{[^}]*flex:\s*1;[^}]*pointer-events:\s*none;/s,
+    )
+  })
 })
