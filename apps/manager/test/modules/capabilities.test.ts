@@ -59,12 +59,12 @@ beforeAll(async () => {
   process.env.DB_DIR = join(root, 'db')
   process.env.CHERY_AUTH_SESSION_SECRET = 'synthetic-session-secret-for-core-tests'
   mkdirSync(join(root, '.chery'), { recursive: true })
-  writeFileSync(process.env.CHERY_ENV_FILE, '')
+  writeFileSync(process.env.CHERY_ENV_FILE, 'SYNTHETIC_MODEL_KEY=env-resolved-secret\n')
   writeFileSync(
     join(root, '.chery/config.yaml'),
     yaml.dump({
       global: { thinking: false, stream: false, supervision: 'auto', textEditor: 'untouched' },
-      llm: { brain: { base: { provider: 'openai', model: 'synthetic', key, thinking: 'high' } } },
+      llm: { brain: { base: { provider: 'openai', model: 'synthetic', key, contextLimit: 128000, thinking: 'high' } } },
       sense_groups: { empty: [] },
       roles: {
         shared: {
@@ -173,7 +173,7 @@ describe('capabilities over authenticated wire to real core handlers', () => {
   })
   it('deletes unused models and tool groups with persistent readback, while protecting references', async () => {
     for (const [kind, name, value] of [
-      ['brains', 'delete-test-model', { provider: 'openai', model: 'synthetic-delete' }],
+      ['brains', 'delete-test-model', { provider: 'openai', model: 'synthetic-delete', key: 'synthetic-delete-key', contextLimit: 128000 }],
       ['sense-groups', 'delete-test-tools', []],
     ] as const) {
       expect((await save(kind, name, value)).status).toBe(201)
@@ -245,7 +245,7 @@ describe('capabilities over authenticated wire to real core handlers', () => {
     expect(
       (await save('brains', 'new-model', { thinking: 'low' }, false, draft.baseRevision)).status,
     ).toBe(409)
-    expect((await save('brains', 'new-model', { model: 'other', provider: 'openai' })).status).toBe(
+    expect((await save('brains', 'new-model', { model: 'other', provider: 'openai', key: 'k', contextLimit: 128000 })).status).toBe(
       409,
     )
     expect(
@@ -288,6 +288,8 @@ describe('capabilities over authenticated wire to real core handlers', () => {
         await save('brains', 'text-only', {
           provider: 'openai',
           model: 'text-only',
+          key: 'synthetic-text-key',
+          contextLimit: 128000,
           capabilities: { toolCall: false },
         })
       ).status,
@@ -337,7 +339,7 @@ describe('capabilities over authenticated wire to real core handlers', () => {
     expect(JSON.stringify(await read('brains', 'new-model'))).not.toContain('$SYNTHETIC_MODEL_KEY')
   })
   it('clearing a key is explicit, invalid workspace preserves disk and parallel stale saves cannot overwrite', async () => {
-    expect((await save('brains', 'new-model', { key: '' }, false)).status).toBe(200)
+    expect((await save('brains', 'new-model', { provider: 'ollama', protocol: 'ollama-chat', key: '' }, false)).status).toBe(200)
     expect((await read('brains', 'new-model')).secrets).toEqual({ keyConfigured: false })
     const before = readFileSync(join(root, '.chery/config.yaml'), 'utf8')
     expect(
