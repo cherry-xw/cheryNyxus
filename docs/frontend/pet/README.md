@@ -27,3 +27,7 @@
 | [apps/web/src/stores/pets/](../../../apps/web/src/stores/pets) | Pet 展示状态 |
 
 新增主题先判断是否能并入现有专题；只有形成独立职责后才新增文件，并同步更新本索引。
+
+## 验证入口
+
+`pnpm test:web` 包含[入口命名检查](../../../apps/web/test/nyxusEntryNaming.test.ts)，核对 Web 页面标题及 `NyxusCore.vue` 的全部无障碍名称、错误提示和日志使用正式项目名称。该检查不启动浏览器，不证明工作台界面或节点树渲染通过。

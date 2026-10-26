@@ -7,6 +7,7 @@
  * 历史抽屉（overlay）仍为全局单例（HistoryDrawer 单例渲染）；工作台自身不再打开 docked 抽屉，
  * 原「档案」能力并入整屏「对话模式」（ConversationView 复用 HistoryDrawerPanel，分支切换同步窗口会话）。
  */
+import { capabilityEnabled } from '@/application/auth/public'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { advanceComposerTurn, type ComposerTurnState } from './composerTurnState'
@@ -910,7 +911,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
   const liteViewVisible = computed(() => viewMode.value === 'lite' && !!treeRootChatId.value)
   /** 对话模式可见：整屏会话视图（ConversationView）替代节点树主画布。 */
   const conversationViewVisible = computed(
-    () => viewMode.value === 'conversation' && !!treeRootChatId.value,
+    () => (!capabilityEnabled('timeline.graph') || viewMode.value === 'conversation') && !!treeRootChatId.value,
   )
   /** 对话模式注入的任务分支摘要（面板级联切换与任务身份解析用；与旧 openHistory 注入同源）。 */
   // 对话模式的下拉必须读取任务级快照；当前根实时时间线只包含一个根，

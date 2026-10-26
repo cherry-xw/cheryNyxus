@@ -265,7 +265,7 @@ export function createPetLifecycle(
    */
   async function getActiveNyxus(): Promise<string> {
     // preset scope 轻量取 recent root（不需 preview），避免打开节点树时阻塞在所有会话的
-    // preview 计算上；已有 active id 时也刷新目录，保证从 Cherry Nyxus 直接进入工作台后钢琴能渲染当前全部根会话。
+    // preview 计算上；已有 active id 时也刷新目录，保证从 cheryNyxus 直接进入工作台后钢琴能渲染当前全部根会话。
     // 轻量目录缺 preview 等 includePreview 扩展字段；覆盖前合并旧目录中同 chatId 的 preview，
     // 否则钢琴键提示/路由选择器标题（nyxus 与 pet 共用 historyList）会退化为「无消息」。
     const chats = await agentApi.listChats({

@@ -5,6 +5,7 @@ import {
   type ContextBreakdown,
   type PromptSnapshotTool,
 } from '@/application/backend/public'
+import { capabilityEnabled } from '@/application/auth/public'
 import { useChatSessionData } from '@/application/chat/public'
 
 type RoleSelection = { brain: string }
@@ -30,7 +31,7 @@ export function useWorkbenchContextInspector(options: {
   let treeCtxUsageChatId = ''
 
   async function loadTreeContextUsage(chatId: string): Promise<void> {
-    if (treeCtxUsageChatId === chatId) return
+    if (!capabilityEnabled('timeline.graph') || treeCtxUsageChatId === chatId) return
     treeCtxUsageChatId = chatId
     try {
       const result = await agentApi.contextUsage(chatId)
@@ -86,6 +87,7 @@ export function useWorkbenchContextInspector(options: {
   let treePromptSnapKey = ''
 
   async function loadTreePromptSnapshot(chatId: string, epochId?: string): Promise<void> {
+    if (!capabilityEnabled('timeline.graph')) return
     const key = `${chatId}:${epochId ?? 'active'}`
     if (treePromptSnapKey === key && treePromptSnap.value?.status !== 'error') return
     treePromptSnapKey = key
