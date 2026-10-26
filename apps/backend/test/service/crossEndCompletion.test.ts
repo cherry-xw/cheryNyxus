@@ -77,6 +77,9 @@ describe('F13 strict bounded discovery and state shape', () => {
     const maintenance = { protocolVersion: 1, instanceId: 'machine-instance', protocolRange: { min: 1, max: 1 }, operations: [], listener: 'local', diagnostic: { status: 'invalid', code: 'MACHINE_CONFIG_INVALID' } }
     expect(MachineMaintenanceSchema.safeParse(maintenance).success).toBe(true)
     for (const v of [{ ...maintenance, instanceId: 'x'.repeat(129) }, { ...maintenance, operations: ['relay.binding', 'relay.binding'] }, { ...maintenance, permission: 'business' }, { ...maintenance, protocolRange: { min: 1, max: 2 } }]) expect(MachineMaintenanceSchema.safeParse(v).success).toBe(false)
-    expect(RelayClientStatusSchema.safeParse({ protocolVersion: 2, instanceId: 'i'.repeat(32), backendId: 'test-device', status: 'online', configVersion: 1, desiredRevision: 'new', appliedRevision: 'old', updatedAt: new Date().toISOString() }).success).toBe(false)
+    const state = { protocolVersion: 3, instanceId: 'i'.repeat(32), backendId: 'test-device', status: 'online', configVersion: 1, desiredRevision: 'new', appliedRevision: 'old', leaseId: 'l'.repeat(32), leaseExpiresAt: new Date(Date.now() + 45_000).toISOString(), updatedAt: new Date().toISOString() }
+    expect(RelayClientStatusSchema.safeParse(state).success).toBe(false)
+    expect(RelayClientStatusSchema.safeParse({ ...state, appliedRevision: 'new' }).success).toBe(true)
+    expect(RelayClientStatusSchema.safeParse({ ...state, appliedRevision: 'new', leaseExpiresAt: undefined }).success).toBe(false)
   })
 })

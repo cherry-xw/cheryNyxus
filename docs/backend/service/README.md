@@ -14,7 +14,7 @@ service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket �
 
 - **启动装配**（[apps/backend/src/index.ts](../../../apps/backend/src/index.ts)、[worker.ts](../../../apps/backend/src/worker.ts)、[index.ts](../../../apps/backend/src/service/index.ts)）：常规入口由 Manager 启动 Backend guardian/worker；内部创建 Agent Runtime，再由 `startService({port, webPort, staticDir})` 注册 Router、启动 WebSocket/HTTP，并启动同进程 `IngressHost`。配置 `remote` 时再启动两个仅 loopback 的远程入口，并从 `ready` 取得实际端口。配套启动与目录见[运行指南](../../guides/backend-runtime.md)。
 - **独立运行边界**：Electron 不参与启动；本地管理器、Docker 或 systemd 只负责 Backend 进程生命周期。Runtime QQPlugin 必须由 `IngressHost` 从受管包目录注入和启动，不存在独立 QQ 后端生命周期。
-- **管理器状态摘要**：worker 通过 `CHERY_BACKEND_STATUS_FILE` 写入监听地址和非敏感 Agent 运行统计，管理器读取这些摘要（可选），并自行探测 `server.port` 端口判断后端是否运行，不从后端状态接口转发凭据或会话秘密。
+- **管理器状态摘要**：worker 通过 [`writeBackendStatusFile`](../../../apps/backend/src/service/runtimeStatus.ts) 向 `CHERY_BACKEND_STATUS_FILE` 原子写入运行实例、实际监听、上报周期和非敏感 Agent 运行统计。Manager 结合有效记录与实际端口判断，不把端口可连接或旧记录当作当前运行事实；唯一规则见[运行状态记录约定](../../shared/protocol/manager-auth.md#运行状态记录约定)。写入与状态边界回归见 [`runtimeStatus.test.ts`](../../../apps/backend/test/service/runtimeStatus.test.ts) 和 [Manager 状态测试](../../../apps/manager/test/runtimeStatus.test.ts)。
 - **RPC 路由**（[message/](../../../apps/backend/src/service/message)）：Request/Response/Chunk/Notification 四象限类型 + `RpcRouter` 分发。详见 [./message.md](message.md)。
 - **接入插件**（[ingress/](../../../apps/backend/src/service/ingress)）：`IngressHost` 装载显式安装启用的ESM包，保存独立配置和请求快照；`startService().ready` 等待启动，worker关闭先 `stopIngress()`。包/API/维护命令与验证唯一说明见[接入插件契约](../../shared/architecture/ingress-plugins.md)，不与技能包混用。
 - **传输实现**（[websocket/](../../../apps/backend/src/service/websocket)）：ws 封装、连接状态、二进制帧编解码。详见 [./websocket.md](websocket.md)。
