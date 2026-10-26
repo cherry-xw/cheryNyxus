@@ -29,6 +29,7 @@ guardian 将普通命令组与受管任务的登记转给 Manager，两个父层
 | 核心资源保存与同名回读 | [设置服务](../../../plugins/settings/src/service.ts) 的 SettingsService | [真实核心测试](../../../apps/manager/test/modules/capabilities.test.ts) |
 | 管理页面和草稿 | [useCapabilities.ts](../../../plugins/settings/ui/useCapabilities.ts)、[useQq.ts](../../../plugins/qq/ui/useQq.ts) | [能力页面测试](../../../apps/manager/test/capabilitiesUi.test.ts)、[动态插件测试](../../../apps/manager/test/dynamicPlugins.test.ts) |
 | 独立启动、维护失败隔离与本地保存 | [index.ts](../../../apps/manager/src/index.ts) 的启动入口、[server.ts](../../../apps/manager/src/server.ts) 的 createManager | [独立性测试](../../../apps/manager/test/independence.test.ts)、pnpm manager:type-check、pnpm manager:build |
+| 受限设备维护与状态有效性 | [backendMaintenance.ts](../../../apps/manager/src/backendMaintenance.ts) 的 `BackendMaintenance`、[runtimeStatus.ts](../../../apps/manager/src/runtimeStatus.ts) 的 `readBackendStatus/readRelayStatus` | [维护调用测试](../../../apps/manager/test/backendMaintenance.test.ts)、[状态记录测试](../../../apps/manager/test/runtimeStatus.test.ts)；状态规则见[认证契约](../protocol/manager-auth.md#运行状态记录约定) |
 
 能力管理拥有大脑、感官组和预设的创建、查看、编辑；复用核心资源字段、目录、版本校验、秘密保存和应用状态，不维护第二份业务配置。QQ 管理只消费已有预设和只读摘要，不提供模型或资源编辑副本。
 
@@ -58,6 +59,8 @@ guardian 将普通命令组与受管任务的登记转给 Manager，两个父层
 ## 设备与隧道控制边界
 
 设备Manager不持全局Relay管理密钥；旧bindings读/撤销路由返回退役错误，只使用Backend的受限设备控制操作。Relay健康检查不携带秘密且不跟随重定向。rathole唯一进程owner是Backend设备客户端；Manager所有rathole启停路径明确拒绝，不能另spawn副本。保存配置不代表运行已应用。
+
+设备客户端配置经 `RelayClientConfigStore` 保存到部署指定的固定文件，页面不能指定该文件位置；`GET/PUT /api/relay/client-config` 保存并返回脱敏读回结果，不重启 Backend。`POST /api/relay/device-operation` 只接收共享 schema 允许的操作；绑定申请经 `POST /api/relay/bindings/request` 调用固定的 Backend 机器绑定接口。维护调用先机器登录、校验能力发现，再发一次操作；不提供任意 URL 或方法代理，不向可编辑 Relay 地址发送机器凭据、用户会话或全局密钥。响应有大小和时间限制，认证请求禁止重定向；写操作结果未知时要求读回，不自动重发。
 
 ## 独立维护服务边界
 

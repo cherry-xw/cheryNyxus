@@ -83,7 +83,11 @@ for (const failure of ['absent', '404', 'missing', 'inconsistent', 'legacy', 'in
     const credentialView = await diagnostic.json()
     expect(credentialView).not.toHaveProperty('password')
     if (['legacy', 'invalid-json', 'unreadable'].includes(failure)) expect(credentialView).toMatchObject({ consistent: false, source: 'unavailable' })
-    const remote = await request('/api/plugins')
+    // Installed plugins remain visible offline; remote UI discovery must still fail explicitly.
+    const offline = await request('/api/plugins')
+    expect(offline.status).toBe(200)
+    expect(await offline.json()).toMatchObject({ data: { backendUnavailable: true, reason: '依赖 Backend 运行，当前不可用' } })
+    const remote = await request('/api/modules')
     expect(remote.status).toBe(['absent', '404'].includes(failure) ? 503 : 502)
     expect(await remote.json()).toMatchObject({ error: { code: failure === '404' ? 'backend_version_unsupported' : failure === 'absent' ? 'unavailable' : 'backend_auth_failed' } })
     const device = await request('/api/relay/device-operation', 'POST', { type: 'authorization.list' })

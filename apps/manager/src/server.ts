@@ -22,7 +22,10 @@ import {
   readBody,
   type AuthOptions,
 } from './auth.js'
-import { verifyLogin } from './verifyLogin.js'
+import { BackendMaintenance } from './backendMaintenance.js'
+import { RelayClientConfigStore } from './relayClientConfig.js'
+import { relayReachable } from './boundedHttp.js'
+import { readBackendStatus, readRelayStatus } from './runtimeStatus.js'
 import { writeManagerPage as writeRetroManagerPage } from './page.js'
 
 import { createManagerCoreRpc } from './modules/capabilities/rpc.js'
@@ -47,11 +50,10 @@ export interface ManagerOptions {
   /** 后端监管器覆盖项（重试退避、稳定清零时长、就绪探测等），主要供测试与部署微调。 */
   backendSupervisor?: Partial<BackendSupervisorOptions>
   ingressRegistryFile?: string
-  ratholeCommand?: string
-  ratholeArgs?: string[]
   controlToken?: string
   tokenFile?: string
   relayStatusFile?: string
+  relayClientConfigFile?: string
   backendStatusFile?: string
   backendIntentFile?: string
   configFile?: string
@@ -61,7 +63,6 @@ export interface ManagerOptions {
   auth?: AuthOptions
   now?: () => number
 
-  relayAdminToken?: string
   plugins?: { packageSourceRoot?: string }
 }
 
@@ -92,14 +93,29 @@ export function createManager(options: ManagerOptions = {}) {
   })
   const backendCommand = options.backendCommand ?? process.execPath
   const backendArgs = options.backendArgs ?? ['apps/backend/dist/index.js']
-  const ratholeCommand = options.ratholeCommand ?? 'rathole'
-  const ratholeArgs = options.ratholeArgs ?? ['--config', 'rathole-client.toml']
   const credentialStore = new CredentialStore({
     configFile,
     credentialsFile: options.credentialsFile ?? `${cheryDir}/.chery/manager-credentials.json`,
   })
   const relayConfig = new RelayConfigStore(configFile)
-  const relayAdminToken = options.relayAdminToken ?? process.env.CHERY_RELAY_ADMIN_TOKEN ?? ''
+  const relayClientConfig = new RelayClientConfigStore(options.relayClientConfigFile ?? process.env.CHERY_RELAY_CLIENT_CONFIG_FILE)
+  const now = options.now ?? Date.now
+  const maintenance = new BackendMaintenance({
+    now,
+    credentials: () => credentialStore.auth(),
+    target: async () => {
+      const network = await readBackendNetworkFromConfig(configFile)
+      const host = network.host === '0.0.0.0' || network.host === '::' ? '127.0.0.1' : network.host
+      if (/[\/@?#]/.test(host) || !Number.isInteger(network.webPort) || network.webPort < 1 || network.webPort > 65535)
+        throw new CapabilityError('unavailable', 503, '后端维护地址无效')
+      return `http://${host.includes(':') ? `[${host}]` : host}:${network.webPort}`
+    },
+  })
+  const relayStatus = async () => {
+    const desired = await relayClientConfig.view().catch(() => ({}))
+    const file = options.relayStatusFile ?? ('statusFile' in desired && typeof desired.statusFile === 'string' ? desired.statusFile : undefined)
+    return readRelayStatus(file, desired, now())
+  }
 
   const resolveBackendListener = async (): Promise<{ host: string; port: number }> => {
     const network = await readBackendNetworkFromConfig(configFile)
@@ -355,8 +371,9 @@ main.manager > header { display: none; }
           backendMode: options.backendMode ?? 'child',
           processes: controller.state(),
           backendPlugin: await readBackendPluginStatus(false),
-          backend: await detectBackendStatus(options.backendStatusFile, options.configFile),
-          relay: await readRelayStatus(options.relayStatusFile),
+          backend: await detectBackendStatus(options.backendStatusFile, configFile, now(), supervisor.control.snapshot()?.backendInstanceId),
+          relay: await relayStatus(),
+          maintenance: maintenance.snapshot(),
           system: readSystemMetrics(),
         })
         return
@@ -460,6 +477,10 @@ main.manager > header { display: none; }
       const match = /^\/api\/(backend|rathole)\/(start|stop|restart)$/.exec(path)
       if (match && (req.method === 'POST' || req.method === 'PUT')) {
         const name = match[1] as 'backend' | 'rathole'
+        if (name === 'rathole') {
+          json(res, 409, { error: { code: 'rathole_owned_by_backend', message: '隧道由 Backend 设备客户端管理，Manager 不单独启停' } })
+          return
+        }
         if (name === 'backend' && options.backendMode === 'external') {
           json(res, 409, {
             error: {
@@ -486,14 +507,6 @@ main.manager > header { display: none; }
           })
           return
         }
-        const result =
-          action === 'stop'
-            ? await controller.stopExclusive(name)
-            : action === 'restart'
-              ? await controller.restartExclusive(name, ratholeCommand, ratholeArgs)
-              : await controller.startExclusive(name, ratholeCommand, ratholeArgs)
-        json(res, 200, result)
-        return
       }
       if (path === '/api/connection' && req.method === 'GET') {
         const backendSnapshot = await supervisor.snapshot({ logs: false })
@@ -514,8 +527,8 @@ main.manager > header { display: none; }
             managed: backendSnapshot.running,
             pid: backendSnapshot.pid,
           },
-          backendListener: await readBackendStatus(options.backendStatusFile),
-          tunnel: await readRelayStatus(options.relayStatusFile),
+          backendListener: await detectBackendStatus(options.backendStatusFile, configFile, now(), supervisor.control.snapshot()?.backendInstanceId),
+          tunnel: await relayStatus(),
         })
         return
       }
@@ -540,32 +553,19 @@ main.manager > header { display: none; }
         return
       }
       if (path === '/api/credentials/rotate' && (req.method === 'POST' || req.method === 'PUT')) {
-        const body = await readJsonBody(req)
-        const rotated = await credentialStore.rotate({
-          username: typeof body.username === 'string' ? body.username : undefined,
-          password: typeof body.password === 'string' ? body.password : undefined,
-        })
-        // 后端是管理器子进程 → 真正重启；否则（外部启动，如 dev / nodemon / systemd）不拉起
-        // 会因端口占用而立刻崩溃的副本，交由后端自身的配置监听器自动重载新凭据（通常 1 秒内）。
-        const managed = supervisor.isManaged()
-        const backendState = managed ? await supervisor.restart() : undefined
-        const backend = managed
-          ? {
-              name: 'backend' as const,
-              state: backendState!.state,
-              running: backendState!.running,
-              pid: backendState!.pid ?? undefined,
-              managed,
-            }
-          : { name: 'backend' as const, managed: false }
-        // 用新凭据对后端做登录自检，确认已生效才提示成功，避免「以为生效了其实没有」。
-        const network = await readBackendNetworkFromConfig(options.configFile)
-        const verification = await verifyLogin(
-          `http://127.0.0.1:${network.webPort}`,
-          rotated.credentials.username,
-          rotated.password,
-        )
-        json(res, 200, { credentials: rotated.credentials, backend, verification })
+        json(res, 409, { error: { code: 'machine_credentials_deployment_required', message: '机器凭据须由部署者显式配置，不能通过浏览器轮换' } })
+        return
+      }
+      if (path === '/api/relay/client-config' && (req.method === 'GET' || req.method === 'PUT')) {
+        try {
+          json(res, 200, req.method === 'GET' ? await relayClientConfig.view() : await relayClientConfig.save(await readJsonBody(req)))
+        } catch {
+          json(res, 400, { error: { code: 'invalid_relay_client_config', message: '设备配置无法读取或保存，请检查字段与部署文件位置' } })
+        }
+        return
+      }
+      if (path === '/api/relay/device-operation' && req.method === 'POST') {
+        json(res, 200, await maintenance.call(false, await readJsonBody(req)))
         return
       }
       if (path === '/api/relay/config' && (req.method === 'GET' || req.method === 'PUT')) {
@@ -574,9 +574,6 @@ main.manager > header { display: none; }
             req.method === 'GET'
               ? await relayConfig.view()
               : await relayConfig.save(await readJsonBody(req))
-          if (req.method === 'PUT' && result.url && result.backendId && relayAdminToken) {
-            await relayRequest(result, '/api/admin/backends/policy', { method: 'PUT', body: JSON.stringify({ backendId: result.backendId, publicDiscovery: result.publicDiscovery, remotePasswordEnabled: result.remotePasswordEnabled }) }, relayAdminToken)
-          }
           json(res, 200, result)
         } catch (error) {
           json(res, 400, { error: (error as Error).message })
@@ -585,39 +582,24 @@ main.manager > header { display: none; }
       }
       if (path === '/api/relay/status' && req.method === 'GET') {
         const config = await relayConfig.view()
-        const health = config.url ? await relayRequest(config, '/healthz', { method: 'GET' }, relayAdminToken).catch(() => null) : null
+        const health = config.url ? await relayReachable(config.url) : false
         json(res, 200, {
           ...config,
           configured: Boolean(config.url && config.backendId),
-          status: health ? 'online' : 'not_connected',
-          connection: health ? 'online' : 'not_connected',
-          binding: health ? 'available' : { status: 'unavailable', reason: 'relay_unreachable' },
+          status: health ? 'reachable-not-verified' : 'not_connected',
+          connection: health ? 'reachable-not-verified' : 'not_connected',
+          binding: { status: 'unavailable', reason: 'device_maintenance_not_checked' },
           cooldown: { status: 'unavailable', reason: 'backend_cooldown_api_not_connected' },
         })
         return
       }
-      if (path === '/api/relay/bindings' && req.method === 'GET') {
-        const config = await relayConfig.view()
-        if (!config.url || !config.backendId) {
-          json(res, 200, { status: 'unavailable', reason: 'relay_not_configured', bindings: [] })
-          return
-        }
-        const result = await relayRequest(config, `/api/admin/bindings?backendId=${encodeURIComponent(config.backendId)}`, { method: 'GET' }, relayAdminToken)
-        json(res, result.status, await result.json())
+      if (path === '/api/relay/bindings' || path === '/api/relay/bindings/revoke') {
+        json(res, 410, { error: 'relay_global_management_retired' })
         return
       }
       if (path === '/api/relay/bindings/request' && req.method === 'POST') {
-        const config = await relayConfig.view()
-        if (!config.url || !config.backendId) { json(res, 400, { error: 'relay_not_configured' }); return }
-        const result = await relayRequest(config, '/api/admin/bindings/request', { method: 'POST', body: JSON.stringify({ backendId: config.backendId }) }, relayAdminToken)
-        json(res, result.status, await result.json())
-        return
-      }
-      if (path === '/api/relay/bindings/revoke' && req.method === 'POST') {
-        const config = await relayConfig.view()
-        if (!config.url || !config.backendId) { json(res, 400, { error: 'relay_not_configured' }); return }
-        const result = await relayRequest(config, '/api/admin/bindings/revoke', { method: 'POST', body: JSON.stringify({ bindingId: (await readJsonBody(req)).bindingId }) }, relayAdminToken)
-        json(res, result.status, await result.json())
+        await readJsonBody(req)
+        json(res, 201, await maintenance.call(true))
         return
       }
       if (path === '/api/relay/password-cooldown' && req.method === 'GET') {
@@ -680,6 +662,7 @@ main.manager > header { display: none; }
       }),
     address: () => server.address() as AddressInfo | null,
     close: async () => {
+      maintenance.close()
       await modules.close()
       await supervisor.shutdown()
       await controller.stopAll()
@@ -728,61 +711,10 @@ function unauthorized(res: import('node:http').ServerResponse): void {
   res.end('Unauthorized')
 }
 
-async function relayRequest(config: { url: string }, path: string, init: RequestInit, adminToken: string): Promise<Response> {
-  if (!adminToken) throw new Error('CHERY_RELAY_ADMIN_TOKEN is required for relay management')
-  const response = await fetch(`${config.url.replace(/\/$/, '')}${path}`, {
-    ...init,
-    signal: AbortSignal.timeout(10000),
-    headers: { 'Content-Type': 'application/json', 'X-Chery-Relay-Admin-Token': adminToken, ...(init.headers ?? {}) },
-  })
-  if (!response.ok) throw new Error('relay_management_unavailable')
-  return response
-}
-
 async function readJsonBody(
   req: import('node:http').IncomingMessage,
 ): Promise<Record<string, unknown>> {
   return readBody(req)
-}
-
-async function readRelayStatus(file: string | undefined): Promise<unknown> {
-  if (!file) return { status: 'unknown' }
-  try {
-    const parsed = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
-    return {
-      status: typeof parsed.status === 'string' ? parsed.status : 'unknown',
-      ...(typeof parsed.backendId === 'string' ? { backendId: parsed.backendId } : {}),
-      ...(typeof parsed.error === 'string' ? { error: parsed.error } : {}),
-      ...(typeof parsed.updatedAt === 'string' ? { updatedAt: parsed.updatedAt } : {}),
-    }
-  } catch {
-    return { status: 'unknown' }
-  }
-}
-
-/** 后端状态文件（CHERY_BACKEND_STATUS_FILE）的解析结果。 */
-interface BackendStatusData {
-  status: string
-  addresses?: unknown
-  agents?: unknown
-  updatedAt?: string
-}
-
-async function readBackendStatus(file: string | undefined): Promise<BackendStatusData> {
-  if (!file) return { status: 'unknown' }
-  try {
-    const parsed = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
-    return {
-      status: typeof parsed.status === 'string' ? parsed.status : 'unknown',
-      ...(parsed.addresses && typeof parsed.addresses === 'object'
-        ? { addresses: parsed.addresses }
-        : {}),
-      ...(parsed.agents && typeof parsed.agents === 'object' ? { agents: parsed.agents } : {}),
-      ...(typeof parsed.updatedAt === 'string' ? { updatedAt: parsed.updatedAt } : {}),
-    }
-  } catch {
-    return { status: 'unknown' }
-  }
 }
 
 /** Manager 所在主机的只读压力快照；load average 在 Windows 上通常不可用。 */
@@ -845,29 +777,27 @@ export function isPortOpen(host: string, port: number, timeoutMs = 500): Promise
 }
 
 /**
- * 后端运行状态：状态文件优先（含 agents 统计），缺失时探测 config.yaml 的 server.port。
- * 地址回退到 config.yaml 的 server.webPort / server.port，供页面构造后端访问 URL。
+ * Current statistics require both a valid observation and matching open listener.
+ * Missing evidence or a closed port cannot establish an external process exit.
  */
 async function detectBackendStatus(
   statusFile: string | undefined,
   configFile: string | undefined,
+  now: number,
+  expectedInstanceId?: string,
 ): Promise<unknown> {
   const network = await readBackendNetworkFromConfig(configFile)
   const probeHost = network.host === '0.0.0.0' || network.host === '::' ? '127.0.0.1' : network.host
-  const fileData = await readBackendStatus(statusFile)
+  const fileData = await readBackendStatus(statusFile, now, expectedInstanceId)
   const listening = await isPortOpen(probeHost, network.wsPort)
   const fallbackAddresses = {
     local: { httpPort: network.webPort, websocketPort: network.wsPort },
   }
-  if (listening || fileData.status === 'running') {
-    return {
-      status: 'running',
-      addresses: fileData.addresses ?? fallbackAddresses,
-      ...(fileData.agents ? { agents: fileData.agents } : {}),
-      ...(typeof fileData.updatedAt === 'string' ? { updatedAt: fileData.updatedAt } : {}),
-    }
-  }
-  return { status: 'stopped', addresses: fallbackAddresses }
+  if (listening && fileData.status === 'running' &&
+      fileData.addresses.local.httpPort === network.webPort && fileData.addresses.local.websocketPort === network.wsPort)
+    return fileData
+  return { status: listening ? 'reachable-not-verified' : 'unknown', addresses: fallbackAddresses,
+    reason: fileData.status === 'unknown' ? fileData.reason : 'listener_not_verified' }
 }
 
 function json(res: import('node:http').ServerResponse, status: number, body: unknown): void {
