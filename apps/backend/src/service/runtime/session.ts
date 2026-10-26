@@ -26,9 +26,6 @@ export async function handleSessionRuntimeSet(
       parseRuntimeSelection(selection, `session.runtime.set.roles.${role}`),
     ]),
   )
-  if (isChatRunning(data.chatId)) {
-    throw new Error('主 Agent 正在运行，必须先到达安全检查点再修改角色编制')
-  }
   const previousSession = getSessionRoleConfiguration(data.chatId)
   const currentPrimary =
     previousSession?.primary ??
@@ -51,6 +48,9 @@ export async function handleSessionRuntimeSet(
   })
 
   const semanticChange = primaryChanged || changedRoles.length > 0
+  if (semanticChange && isChatRunning(data.chatId)) {
+    throw new Error('主 Agent 正在运行，必须先到达安全检查点再修改角色编制')
+  }
   const result = await setSessionRoleRuntimes(data.chatId, primary, roles, {
     rotateEpoch: semanticChange,
   })

@@ -77,6 +77,8 @@ fingerprint 分两面，只有语义面参与指纹计算；连接面变更不�
 2. `runtime.set` 实际改变主 Agent 的 brain 或工具运行配置（brain **名称**属语义面——切换人格/编制，但对话历史原样延续）；
 3. `session.runtime.set` 实际改变主 Agent 或任一子角色的会话级编制。
 
+发送前重复提交相同选择不切换纪元，运行中也允许；实际改变角色或模型的请求仍须等待安全检查点，不能借无变更提交放宽。入口为 `service/runtime/session.ts` 的 `handleSessionRuntimeSet`，回归见 `apps/backend/test/service/chat/sessionEpoch.test.ts`。
+
 重复提交完全相同的会话级编制不会切纪元。这一点很重要，因为前端在每次发送前都会提交当前编制；无变化时必须继续使用同一上下文。
 
 新纪元加载**全部历史消息**（跨纪元，含旧纪元只读消息），并注入轻量 `<epoch_transition>` 说明。历史中的旧工具调用仍是历史事实，但不得假定相关角色或工具在当前纪元存在。

@@ -173,13 +173,16 @@ export async function setSessionRoleRuntimes(
   options: SessionRoleRuntimeOptions = {},
 ): Promise<SessionRoleRuntimeResult> {
   const current = await ensureChat(chatId)
+  if (!options.rotateEpoch) {
+    sessionRoleRuntimes.set(chatId, { primary, roles })
+    return { applied: [], deferredRunning: [] }
+  }
   const boundaryReason = treeBoundaryReason(chatId)
   if (current.isRunning() || boundaryReason) {
     throw new Error(boundaryReason ?? '主 Agent 正在运行，必须先到达安全检查点再修改角色编制')
   }
   const previous = sessionRoleRuntimes.get(chatId)
   sessionRoleRuntimes.set(chatId, { primary, roles })
-  if (!options.rotateEpoch) return { applied: [], deferredRunning: [] }
   let prepared: ReturnType<typeof prepareTreeRuntimeRefresh>
   let epoch: ChatEpochRecord
   try {
