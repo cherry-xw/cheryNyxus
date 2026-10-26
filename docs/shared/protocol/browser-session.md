@@ -19,6 +19,8 @@ GET `/api/browser-session`返回经过验证的会话视图，不返回access/re
 | DELETE `/api/browser-session` | expectedRevision、operationId；撤销当前浏览器并关闭关联WS |
 | POST `/api/browser-session/ws-ticket` | expectedRevision、可选backendId；票据30秒、单次、绑定会话/目标/修订 |
 
+Backend 本地 HTTP 入口接收公开前缀下精确 `/ws` 路径的升级请求，并交给同一业务 WebSocketServer 完成票据与协议选择校验、身份绑定和消息处理；没有单独的免认证连接。受管小应用代理、独立渠道端口及远程专用入口的职责保持分离。登录完成须实际握手并通过有效参数的业务读回，不以 HTTP 密码校验或 101 响应替代。
+
 修订为正整数；过期写返回SESSION_REVISION_CONFLICT。同operationId仅同会话、同操作、同请求摘要幂等，内容不同返回OPERATION_CONFLICT。摘要不包含可恢复的明文密码，操作记录不保存请求秘密。未知写入先读回，不自动重复副作用。
 
 用户证明固定Ed25519标准JWS，固定受信issuer与kid、公钥，不接受请求提供的JWKS地址。aud为唯一backendId；有效期不超过60秒，包含iat/nbf/exp/jti、sessionId、authorizationId、authorizationRevision及business权限，验证算法、受众、时效、重放与请求绑定。Pocket与密码使用相同业务权限计算，不可因此进入Manager。撤销必须关闭关联WS，不能仅等待证明过期。

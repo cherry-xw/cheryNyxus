@@ -61,8 +61,8 @@ export const useConnectionStore = defineStore('connection', () => {
         : Promise.resolve()
       await Promise.all([wsClient.connect({ refresh: true }), connected])
       if (options.waitUntilConnected) {
-        const response = await wsClient.rpc('chat.list', {})
-        if (response.error) throw new Error('已登录但业务读取失败，请检查后端配置')
+        const response = await wsClient.rpc('chat.list', { scope: 'stage', limit: 1, includePreview: false })
+        if (!response.success || response.error) throw new Error('已登录但业务读取失败，请检查后端配置')
       }
     } catch (e) {
       error.value = (e as Error).message

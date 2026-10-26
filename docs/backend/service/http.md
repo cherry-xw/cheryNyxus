@@ -7,6 +7,7 @@
 HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口):
 
 - `GET /api/config` → 本地返回旧端口字段以及 `httpBaseUrl`、`wsUrl`、`httpPath`、`wsPath`；远程专用入口只返回 `remote`、路径和传输格式，不泄露 loopback 端口
+- 本地公开前缀下的 `/ws` → 交给配套的同一业务 WebSocketServer；认证与路径边界见[浏览器会话契约](../../shared/protocol/browser-session.md)。流程回归入口为 [`browserConnection.test.ts`](../../../apps/backend/test/service/browserConnection.test.ts)。
 - `GET /api/auth/capabilities` → 返回非敏感的 `{password}` 后端密码登录能力；Pocket ID/OIDC 由公共中转负责
 - `/api/assets/` → 认证上传、固定版本读取/适配、草稿引用和会话文件请求详情；文件所有者与会话授权分别核对
 - `/api/file-services/` / `/api/file-operations/` → 能力解析、显式试用、操作查询/取消/重试；配置检查不调用模型，执行与保存状态分别记录

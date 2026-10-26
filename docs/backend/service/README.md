@@ -57,7 +57,7 @@ export function startService(options: { port: number; webPort: number; staticDir
   registerBashHandlers(router);         // bash.list / bash.kill
   registerMcpHandlers(router);          // mcp.list / mcp.get / mcp.connect / mcp.disconnect / mcp.reload
   const wss = createWebSocketServer({ port: options.port, router });
-  const httpServer = createHttpServer({ webPort: options.webPort, staticDir: options.staticDir });
+  const httpServer = createHttpServer({ webPort: options.webPort, staticDir: options.staticDir, webSocketServer: wss });
   return { wss, httpServer };
 }
 ```
