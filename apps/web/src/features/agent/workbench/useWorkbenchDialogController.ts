@@ -8,6 +8,7 @@
  * 原「档案」能力并入整屏「对话模式」（ConversationView 复用 HistoryDrawerPanel，分支切换同步窗口会话）。
  */
 import { capabilityEnabled } from '@/application/auth/public'
+import { uuid } from '@/utils/uuid'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { advanceComposerTurn, type ComposerTurnState } from './composerTurnState'
@@ -526,9 +527,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
           anchorNodeId: target.nodeId,
           branchType: target.type,
           parts: composeMessageParts(prompt, mediaAttachments.value),
-          commandId: crypto.randomUUID(),
-          clientMessageId: crypto.randomUUID(),
-          messageId: crypto.randomUUID(),
+          commandId: uuid(),
+          clientMessageId: uuid(),
+          messageId: uuid(),
           ...(target.type === 'continuation' ? { effectDigest: target.effectDigest } : {}),
         })
         branchTarget.value = undefined

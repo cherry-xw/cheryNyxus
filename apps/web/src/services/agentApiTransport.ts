@@ -85,26 +85,51 @@ export async function uploadFile<T>(
  * AgentFab（presets）+ AgentDialog（senseGroups/default）共享同一缓存，避免重复 fetch。
  */
 let serverConfigGeneration = 0
-let serverConfigCache: ConfigDefault | null | undefined
+interface ServerConfigRequest {
+  id: symbol
+  auth: ReturnType<typeof serviceAuth>
+  base: string
+  context: string | undefined
+  generation: number
+  promise: Promise<ConfigDefault>
+}
+let serverConfigRequest: ServerConfigRequest | undefined
 
 export function clearServerConfigCache(): void {
   serverConfigGeneration++
-  serverConfigCache = null
+  serverConfigRequest = undefined
 }
 
 export async function fetchServerConfig(): Promise<ConfigDefault> {
-  if (serverConfigCache) return serverConfigCache
+  const auth = serviceAuth()
+  auth.assertCurrent?.()
+  const base = auth.baseUrl()
+  const context = auth.contextKey?.()
   const generation = serverConfigGeneration
-  try {
-    // 浏览器与远端由 platform 门面选择同源请求或带认证的请求。
-    // refresh=true 保证设置保存并重启 worker 后拿到最新预设与 sessionToken。
-    const value = (await getServerConfig({ refresh: true })) as ConfigDefault
-    if (generation !== serverConfigGeneration) throw new Error('目标已改变，丢弃旧配置响应')
-    serverConfigCache = value
-    return value
-  } catch (e) {
-    // 失败置 null；调用方可显式重试，不能把加载失败伪装成空配置。
-    if (generation === serverConfigGeneration) serverConfigCache = null
-    throw e
+  if (serverConfigRequest?.auth === auth && serverConfigRequest.base === base &&
+      serverConfigRequest.context === context && serverConfigRequest.generation === generation) {
+    return serverConfigRequest.promise
   }
+  const id = Symbol('server-config-read')
+  const request: ServerConfigRequest = {
+    id, auth, base, context, generation,
+    promise: (async () => {
+      try {
+        // 合并当前身份的读取；清缓存后仍获取最新预设与连接配置。
+        const value = (await getServerConfig({ refresh: true })) as ConfigDefault
+        if (serverConfigRequest?.id !== id || generation !== serverConfigGeneration ||
+            serviceAuth() !== auth || auth.baseUrl() !== base || auth.contextKey?.() !== context) {
+          throw new Error('目标已改变，丢弃旧配置响应')
+        }
+        auth.assertCurrent?.()
+        return value
+      } catch (error) {
+        // 旧读取失败不得清除当前读取；失败不缓存，下次允许显式重试。
+        if (serverConfigRequest?.id === id) serverConfigRequest = undefined
+        throw error
+      }
+    })(),
+  }
+  serverConfigRequest = request
+  return request.promise
 }

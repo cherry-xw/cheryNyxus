@@ -1,4 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { uuid } from '@/utils/uuid'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { agentApi, type CredentialListItemDTO } from '@/application/backend/public'
@@ -93,7 +94,7 @@ export function useWorkbenchTerminal(chatId: () => string) {
         return
       }
       const preset: TerminalPreset = {
-        id: selectedPresetId.value || crypto.randomUUID(),
+        id: selectedPresetId.value || uuid(),
         label: name,
         kind: form.kind as TerminalPreset['kind'],
         host: form.host.trim(),
