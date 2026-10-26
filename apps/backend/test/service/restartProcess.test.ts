@@ -1,11 +1,13 @@
 import { fork } from 'node:child_process'
 import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 import { expect, it } from 'vitest'
 
 it('retains a real background process until it exits, then performs one guardian IPC shutdown', async () => {
   const child = fork(fileURLToPath(new URL('../helpers/restartWorker.ts', import.meta.url)), {
     execArgv: ['--import', 'tsx'],
+    env: { ...process.env, TSX_TSCONFIG_PATH: path.resolve('apps/backend/tsconfig.json') },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
   })

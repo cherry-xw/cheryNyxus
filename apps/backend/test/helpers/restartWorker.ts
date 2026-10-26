@@ -4,23 +4,32 @@ import {
   requestRestartWhenIdle,
   subscribeRestartState,
 } from '../../src/service/restartCoordinator.js'
-import {
-  getBashProcessActivity,
-  registerBashProcess,
-  unregisterBashProcess,
-} from '../../src/agent/sense/processRegistry.js'
+import { getBashProcessActivity } from '../../src/agent/sense/processRegistry.js'
+import { registerHostCommand, releaseHostCommand } from '../../src/service/hostCommands.js'
+import { CommandRuntime } from '../../src/service/commandRuntime.js'
+import { AgentCommandRepository, initAgentCommandTables } from '../../src/db/agentCommands.js'
+import Database from 'better-sqlite3'
+
+const db = new Database(':memory:')
+db.exec("CREATE TABLE chats(id TEXT PRIMARY KEY); INSERT INTO chats VALUES('isolated-chat')")
+initAgentCommandTables(db)
+const runtime = new CommandRuntime(new AgentCommandRepository(db), {
+  backendInstanceId: 'isolated', environment: {}, minimumBareSecretLength: 8,
+})
+const handle = runtime.start({ chatId: 'isolated-chat', rootChatId: 'isolated-chat', runId: null,
+  toolCallId: null, sourceKind: 'host_bash', command: 'node controlled background task',
+  description: 'isolated background task', workdir: null }, () => {})
 
 const command = spawn(
   process.execPath,
   ['-e', "process.stdin.once('data',()=>process.exit(0)); setTimeout(()=>process.exit(0),10000)"],
-  { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true },
+  { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true, detached: process.platform !== 'win32' },
 )
-registerBashProcess('isolated-chat', command, {
-  command: 'node controlled background task',
-  description: 'isolated background task',
-  startedAt: Date.now(),
+registerHostCommand('isolated-chat', command, handle, 'isolated')
+command.once('close', async (exitCode, signal) => {
+  await releaseHostCommand(command.pid!, 'isolated')
+  await handle.finish({ status: 'exited', exitCode, signal })
 })
-command.once('close', () => unregisterBashProcess('isolated-chat', command.pid!))
 configureRestartCoordinator({
   isIdle: () => true,
   blockers: () =>
