@@ -29,6 +29,7 @@
 - [配置热应用](config-hot-apply.md)：配置应用的验证条件。
 - [QQ 图片、错误与 Manager 平台后续审核清单](qq-safe-outcomes.md)：归档已结项的 QQ 群图片上下文、QQ 安全错误与问答续接、Manager 平台化与 Backend 启动监控（第一阶段）中尚未执行的生产边界与人工审核项。
 - [文件能力](file-capabilities.md)：资产、模型输入、服务端工具、Web 草稿及 QQ 文件交付的验证入口与边界。
+- [受管小应用](managed-apps.md)：Agent 基本开发与运行能力的结束范围、验证方法及已知限制。
 
 ## 人工核对
 
