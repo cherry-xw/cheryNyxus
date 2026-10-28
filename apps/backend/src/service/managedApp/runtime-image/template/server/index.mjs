@@ -10,10 +10,12 @@ import Busboy from 'busboy'
 import Papa from 'papaparse'
 import { z } from 'zod'
 import { getDb, runMigrations } from './db.mjs'
+import { clearActivationToken, ensureActivationToken, validActivationToken } from './activation.mjs'
 
 const PORT = Number(process.env.PORT || 3000)
 const APP_ID = process.env.APP_ID || 'local-app'
 const APP_OWNER_ID = process.env.APP_OWNER_ID || '0'
+const APP_VISIBILITY = process.env.APP_VISIBILITY === 'public_read' ? 'public_read' : 'private'
 const APP_BASE = (process.env.APP_BASE || `/qq/${APP_OWNER_ID}/apps/${APP_ID}/`).replace(
   /\/?$/,
   '/',
@@ -54,29 +56,7 @@ function sanitizeCsvCell(val) {
   return str
 }
 
-function ensureActivationTokenIfNoUsers() {
-  const countRow = db.prepare('SELECT COUNT(*) as cnt FROM users').get()
-  if (Number(countRow?.cnt || 0) > 0) {
-    return null
-  }
-  const existing = db
-    .prepare("SELECT value FROM app_kv WHERE key = 'activation_token_plain'")
-    .get()
-  if (existing?.value) {
-    return existing.value
-  }
-  const token = crypto.randomBytes(24).toString('base64url')
-  const now = Date.now()
-  db.prepare(
-    "INSERT OR REPLACE INTO app_kv (key, value, updated_at) VALUES ('activation_token_hash', ?, ?)",
-  ).run(hashToken(token), now)
-  db.prepare(
-    "INSERT OR REPLACE INTO app_kv (key, value, updated_at) VALUES ('activation_token_plain', ?, ?)",
-  ).run(token, now)
-  return token
-}
-
-ensureActivationTokenIfNoUsers()
+ensureActivationToken(db)
 
 const app = express()
 app.disable('x-powered-by')
@@ -90,6 +70,10 @@ app.use(
 )
 app.use(cookieParser())
 app.use(express.json({ limit: '1mb' }))
+app.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store')
+  next()
+})
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -171,17 +155,17 @@ function issueSessionCookie(res, userId) {
   return csrfToken
 }
 
+const requireAppLogin = requireAuth()
+function requireReadAccess(req, res, next) {
+  return APP_VISIBILITY === 'public_read' ? next() : requireAppLogin(req, res, next)
+}
+
 // 1. 网关与控制器固定健康检查入口
 app.get('/__app_health', (_req, res) => {
   const userCount = Number(
     db.prepare('SELECT COUNT(*) as cnt FROM users').get()?.cnt || 0,
   )
-  const pendingToken =
-    userCount === 0
-      ? db
-          .prepare("SELECT value FROM app_kv WHERE key = 'activation_token_plain'")
-          .get()?.value || null
-      : null
+  const pendingToken = userCount === 0 ? ensureActivationToken(db) : null
 
   res.json({
     ok: true,
@@ -204,6 +188,7 @@ app.get('/api/auth/me', (req, res) => {
     csrfToken: req.csrfToken,
     appId: APP_ID,
     appBase: APP_BASE,
+    visibility: APP_VISIBILITY,
   })
 })
 
@@ -228,29 +213,24 @@ app.post('/api/auth/activate', (req, res) => {
     })
   }
 
-  const storedHashRow = db
-    .prepare("SELECT value FROM app_kv WHERE key = 'activation_token_hash'")
-    .get()
-  if (
-    !storedHashRow?.value ||
-    storedHashRow.value !== hashToken(parsed.data.activationToken)
-  ) {
+  if (!validActivationToken(db, parsed.data.activationToken)) {
     return res.status(403).json({
       error: { code: 'INVALID_ACTIVATION_TOKEN', message: '一次性激活令牌无效或已过期' },
     })
   }
 
   const now = Date.now()
-  const info = db
-    .prepare(
-      'INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
-    )
-    .run(parsed.data.username, hashPassword(parsed.data.password), 'owner', now)
-
-  // 用后即焚：立即销毁明文与哈希激活令牌
-  db.prepare(
-    "DELETE FROM app_kv WHERE key IN ('activation_token_hash', 'activation_token_plain')",
-  ).run()
+  let info
+  db.exec('BEGIN IMMEDIATE;')
+  try {
+    info = db.prepare('INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)')
+      .run(parsed.data.username, hashPassword(parsed.data.password), 'owner', now)
+    clearActivationToken(db)
+    db.exec('COMMIT;')
+  } catch (error) {
+    db.exec('ROLLBACK;')
+    throw error
+  }
 
   const csrfToken = issueSessionCookie(res, Number(info.lastInsertRowid))
   res.json({
@@ -306,7 +286,7 @@ app.post('/api/auth/logout', requireAuth(), (req, res) => {
 })
 
 // 3. 业务记录 CRUD + ECharts 聚合统计
-app.get('/api/records', (req, res) => {
+app.get('/api/records', requireReadAccess, (req, res) => {
   const category = req.query.category ? String(req.query.category) : null
   const q = req.query.q ? `%${String(req.query.q)}%` : null
 
@@ -374,7 +354,7 @@ app.delete('/api/records/:id', requireAuth(['owner', 'admin']), (req, res) => {
 })
 
 // 4. CSV 导入与安全导出（自动转义 =,+,-,@ 防公式注入）
-app.get('/api/records/export.csv', (req, res) => {
+app.get('/api/records/export.csv', requireReadAccess, (req, res) => {
   const rows = db.prepare('SELECT id, title, category, amount, status, note_md, created_at FROM records ORDER BY id ASC').all()
   const safeRows = rows.map(r => ({
     id: r.id,
@@ -501,7 +481,7 @@ app.post('/api/attachments', requireAuth(['owner', 'admin', 'member']), (req, re
   req.pipe(bb)
 })
 
-app.get('/api/attachments/:id', (req, res) => {
+app.get('/api/attachments/:id', requireReadAccess, (req, res) => {
   const row = db
     .prepare('SELECT * FROM attachments WHERE id = ?')
     .get(String(req.params.id))
@@ -531,7 +511,7 @@ function broadcastEvent(event, data) {
   }
 }
 
-app.get('/events', (req, res) => {
+app.get('/events', requireReadAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
   res.setHeader('Cache-Control', 'no-cache, no-transform')
   res.setHeader('Connection', 'keep-alive')

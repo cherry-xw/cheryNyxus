@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, lstat } from 'node:fs/promises'
 import path from 'node:path'
+import os from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 // @ts-expect-error Fixed runtime entry is shipped as JavaScript.
 import { snapshotApplication } from '../../src/service/managedApp/runtime-image/bin/backup.mjs'
 
 describe('managed app SQLite backup', () => {
   it('restores committed WAL data, attachments and project without copying dependencies or following symlinks', async () => {
-    const root = await mkdtemp(path.join(process.env.TMPDIR!, 'app-backup-'))
+    const root = await mkdtemp(path.join(os.tmpdir(), 'app-backup-'))
     const data = path.join(root, 'data'), project = path.join(root, 'project')
     await mkdir(data); await mkdir(project)
     const db = new DatabaseSync(path.join(data, 'app.sqlite'))
