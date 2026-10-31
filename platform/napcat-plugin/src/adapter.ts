@@ -1,6 +1,7 @@
 import { NativeImages } from './nativeImages.js'
 import { queryInformation } from './information.js'
 import { sendAssetFile } from './files.js'
+import { reactionResult } from './reactionResult.js'
 import { acquireSourceZips } from './sourceFiles.js'
 import { QQEventSubmitResponseSchema, type SourcePart, type QQEventSubmitRequest } from '@chery/protocol'
 import type { QQNotification, QQServiceState } from '@chery/protocol'
@@ -659,8 +660,13 @@ export class Adapter {
         else if (kind === 'mention') result = await this.action('send_msg', { group_id: target, message_type: 'group', message: [{ type: 'at', data: { qq: event.data.userId } }, { type: 'text', data: { text: payload } }] })
         else throw new Error('Unknown reply action')
         if (this.stopped || fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
-        if (result?.result === false || result?.status === 'failed' || (result?.retcode !== undefined && result.retcode !== 0)) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
-        if (result?.result !== undefined && typeof result.result === 'number' && result.result !== 0) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
+        if (kind === 'reaction') {
+          const reaction = reactionResult(result)
+          this.ctx.logger.info?.('QQ reaction setting confirmed', { alreadySet: reaction.alreadySet })
+        } else {
+          if (result?.result === false || result?.status === 'failed' || (result?.retcode !== undefined && result.retcode !== 0)) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
+          if (result?.result !== undefined && typeof result.result === 'number' && result.result !== 0) throw Object.assign(new Error('Action rejected'), { definitelyFailed: true })
+        }
         const messageId = nativeMessageId(result?.message_id ?? result?.data?.message_id)
         if (['voice', 'mention', 'quote'].includes(String(kind)) && messageId === undefined) throw new Error('Delivery unknown')
         const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: event.data.conversationType, targetId: target, seq: event.data.seq, status: 'sent', messageIds: messageId === undefined ? [] : [String(messageId)], sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
@@ -694,17 +700,9 @@ export class Adapter {
             emoji_id: event.data.emojiId,
             set: true,
           })
-          if (result?.retcode !== undefined && result.retcode !== 0)
-            throw Object.assign(new Error('reaction rejected'), { definitelyFailed: true })
-          if (
-            result?.result !== undefined &&
-            typeof result.result === 'number' &&
-            result.result !== 0
-          )
-            throw Object.assign(new Error('reaction rejected'), { definitelyFailed: true })
-          if (result?.result === false || result?.status === 'failed') throw Object.assign(new Error('reaction rejected'), { definitelyFailed: true })
+          const reaction = reactionResult(result)
           activity = true
-          this.ctx.logger.info?.('QQ acknowledgement reaction applied')
+          this.ctx.logger.info?.('QQ acknowledgement reaction setting confirmed', { alreadySet: reaction.alreadySet })
         }
         if (event.data.conversationType === 'group' && !activity) throw new Error('Invalid acknowledgement target')
         if (this.stopped || fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
@@ -818,7 +816,11 @@ export class Adapter {
       saveJournal(this.journalFile, this.journal)
       await this.confirmDelivery(receipt)
     } catch (error) {
-      this.ctx.logger.warn?.('QQ delivery stage failed', { eventId: outputId, type: event.type, stage: this.journal.outputs[outputId]?.status === 'sent' ? 'confirmation' : 'action' })
+      const diagnostic = error as { nativeRetcode?: unknown; nativeResult?: unknown }
+      this.ctx.logger.warn?.('QQ delivery stage failed', { eventId: outputId, type: event.type,
+        stage: this.journal.outputs[outputId]?.status === 'sent' ? 'confirmation' : 'action',
+        ...(Number.isSafeInteger(diagnostic?.nativeRetcode) ? { nativeRetcode: diagnostic.nativeRetcode } : {}),
+        ...(Number.isSafeInteger(diagnostic?.nativeResult) ? { nativeResult: diagnostic.nativeResult } : {}) })
       if (this.stopped || fileGeneration !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
       if (this.journal.outputs[outputId]?.status === 'sent') return
       const definitelyFailed = (error as { definitelyFailed?: boolean })?.definitelyFailed === true

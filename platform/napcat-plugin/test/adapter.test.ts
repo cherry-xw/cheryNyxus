@@ -91,6 +91,21 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     wire.emit('qq.waiting',1,{text:'working'});await settle()
     expect((ctx.actions.call as any).mock.calls.length).toBe(before)
   })
+  it('accepts already-set reactions without cancelling or replaying them', async () => {
+    const f=fixture();await f.adapter.start();await settle()
+    const original=f.ctx.actions.call
+    f.ctx.actions.call=vi.fn(async(name,params,adapterName,config)=>name==='set_msg_emoji_like'
+      ?{result:65002,errMsg:'已经设置过该表情'}:original(name,params,adapterName,config))
+    f.wire.emit('qq.message.ack',1,{messageId:'100',emojiId:'178'});await settle()
+    f.wire.emit('qq.reply.action',2,{actionKind:'reaction',messageId:'100',emojiId:'178',completeReply:false});await settle()
+    f.wire.emit('qq.reply.action',2,{actionKind:'reaction',messageId:'100',emojiId:'178',completeReply:false});await settle()
+    const journal=JSON.parse(readFileSync(join(f.dir,'delivery-journal.json'),'utf8'))
+    expect(journal.outputs.e1.status).toBe('sent');expect(journal.outputs.e2.status).toBe('sent')
+    expect(journal.outputs.e1.retryEvent).toBeUndefined()
+    const calls=(f.ctx.actions.call as any).mock.calls.filter((call:any)=>call[0]==='set_msg_emoji_like')
+    expect(calls).toHaveLength(2)
+    expect(calls.every((call:any)=>call[1].set===true&&call[1].emoji_id==='178')).toBe(true)
+  })
   it('persists failed reactions, continues replies, and retries the same reaction after reload', async () => {
     const f=fixture();await f.adapter.start();await settle()
     const original=f.ctx.actions.call
