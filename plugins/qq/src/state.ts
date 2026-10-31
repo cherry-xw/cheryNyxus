@@ -92,7 +92,7 @@ export type Job = z.infer<typeof JobSchema>
 export function currentQuestions(job: Job): QuestionBatch | undefined { return job.questionBatches.at(-1) }
 export function nextTargetJob(jobs: Job[], target: string): Job | undefined {
   return jobs.find(job => job.target === target && job.state === 'running') ?? jobs
-    .filter(job => job.target === target && ['queued', 'sending'].includes(job.state))
+    .filter(job => job.target === target && job.state === 'queued')
     .sort((a, b) => a.queueSequence - b.queueSequence)[0]
 }
 export const OutboxSchema = z.object({

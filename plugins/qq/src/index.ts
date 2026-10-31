@@ -1646,6 +1646,8 @@ export class QQPlugin implements IngressPlugin {
       if (!next || (next.notBefore !== undefined && Date.now() < next.notBefore)) continue
       this.deliverOutput(next)
     }
+    for (const job of this.state.jobs) if (job.state === 'sending' && job.filePreparationPending && !this.preparingReplies.has(job.requestId))
+      this.finish(job, job.outcome ?? 'failed')
     for (const target of new Set(
       this.state.jobs.filter((j) => !terminal(j) && j.state !== 'paused').map((j) => j.target),
     )) {
@@ -1654,10 +1656,6 @@ export class QQPlugin implements IngressPlugin {
       if (!this.accepting() && !this.adoptedJobs.has(job.requestId)) continue
       if (job.state === 'paused') continue
       if (this.busy.has(target) && job.state !== 'running') continue
-      if (job.state === 'sending' && job.filePreparationPending && !this.preparingReplies.has(job.requestId)) {
-        this.finish(job, job.outcome ?? 'failed')
-        continue
-      }
       if (job.state === 'queued') {
         const resume = currentQuestions(job)?.status === 'saved'
         if (!resume && job.sourceRecords && !(job.mergedInputs ?? [job.input]).every(input => this.sources.ready(input.eventId))) continue

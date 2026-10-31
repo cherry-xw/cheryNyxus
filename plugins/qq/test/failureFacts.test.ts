@@ -4,7 +4,7 @@ import { mergeFailure, FailureSchema, entryFailure, EntryFailureSchema } from '.
 
 const detail = { status:'failed', retryable:false, feedback:{code:'BRAIN_IMAGE_REVIEW_REJECTED',tracingId:'6486dd90',description:'secret URL'}, detail:'secret-key' }
 function fixture() {
-  const job:any={requestId:'request',coreRunId:'run',conversationKey:'key',target:'group:2',state:'running',acceptedAt:1000,input:{messageId:'10',selfId:'1',senderId:'3',targetId:'2',conversationType:'group'},snapshot:{config:{backgroundMaxAgeMs:10000}},inputParts:[{type:'asset',kind:'image'}],reply:'',toolIds:[],background:[]}
+  const job:any={requestId:'request',queueSequence:1,questionBatches:[],coreRunId:'run',conversationKey:'key',target:'group:2',state:'running',acceptedAt:1000,input:{messageId:'10',selfId:'1',senderId:'3',targetId:'2',conversationType:'group'},snapshot:{config:{backgroundMaxAgeMs:10000}},inputParts:[{type:'asset',kind:'image'}],reply:'',toolIds:[],background:[]}
   const plugin:any=Object.create(QQPlugin.prototype)
   Object.assign(plugin,{state:{jobs:[job],outbox:[],seq:{},discussions:{}},stopped:false,paused:false,persist:vi.fn(),preparingReplies:new Set(),operations:new Set(),context:{}})
   return {plugin,job}

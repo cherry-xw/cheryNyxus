@@ -62,7 +62,7 @@ describe('normal conversation and fixed voice policy', () => {
     plugin.state.jobs=[]
     const register=()=>()=>{}
     plugin.context={id:'qq-fixture',dataDir:'/tmp/opencode',runtimeOptions:{},config:{snapshot:()=>({revision:1,config:job.snapshot.config})},
-      core:{sourceConversations:{},onEvent:register},identity:{registerChannel:register},ingress:{register},connections:{onClose:register},
+      core:{sourceConversations:{},onEvent:register,answerQuestions:vi.fn(),questionResumeStatus:vi.fn(),resumeQuestions:vi.fn()},identity:{registerChannel:register},ingress:{register},connections:{onClose:register},
       hooks:{register:(hook:any)=>{hooks.push(hook);return ()=>{}}},tools:{register}}
     plugin.register=vi.fn()
     plugin.start()

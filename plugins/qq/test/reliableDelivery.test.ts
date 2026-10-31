@@ -10,7 +10,7 @@ import path from 'node:path'
 import os from 'node:os'
 const sourceRef = { recordId: 'record-1', revision: 1 }
 function fixture(){
- const job:any={requestId:'r',target:'group:2',state:'running',acceptedAt:Date.now(),input:{selfId:'1',targetId:'2',conversationType:'group'},snapshot:{revision:1,config:{continuationTtlMs:100000,waitIntervalSeconds:30}},toolIds:[]}
+ const job:any={requestId:'r',queueSequence:1,questionBatches:[],target:'group:2',state:'running',acceptedAt:Date.now(),input:{selfId:'1',targetId:'2',conversationType:'group'},snapshot:{revision:1,config:{continuationTtlMs:100000,waitIntervalSeconds:30}},toolIds:[]}
  const p:any=Object.create(QQPlugin.prototype)
  Object.assign(p,{state:{jobs:[job],outbox:[],seq:{},discussions:{},sourceScopes:{'group:2':{scopeId:'scope-2',conversationId:'conv-2',selfId:'1',conversationType:'group',targetId:'2',presetId:'p',generation:1,state:'active',qqContextEpoch:'',permissionRevision:1,selectionRevision:0,createdAt:1}},sourceReceipts:{}},snapshot:{revision:1,config:{continuationTtlMs:100000,waitIntervalSeconds:30,groups:['2'],users:[],bindings:{'group:2':'preset'}}},persist:vi.fn(),context:{log:vi.fn(),isEnabled:()=>true,core:{resolvePreset:()=>({presetId:'p'}),sourceConversations:{recordDelivery:vi.fn(async()=>({}))}},connections:{isOpen:()=>true,send:vi.fn(()=>true)}},connection:'c',verifiedConnection:'c',recovered:true,stopped:false,paused:false,busy:new Set(),summaryOperations:new Map(),operations:new Set(),aborters:new Map(),preparingReplies:new Set(),publishingDeliveries:new Set(),answering:new Set(),adoptedJobs:new Set(),reminderBusy:true,nextAppNotificationPoll:Infinity})
  return {p,job}
