@@ -8,7 +8,7 @@ describe('voice catalog settings', () => {
   it('queries only allowed groups with verified identity and propagates transport errors', async () => {
     const plugin = Object.create(QQPlugin.prototype) as any
     let routes: any[]=[]
-    plugin.context={config:{snapshot:()=>({config:{...QQDefaultConfig,groups:['456']}})}, management:{register:(value:any)=>{routes=value.routes}}}
+    plugin.context={config:{snapshot:()=>({config:{...QQDefaultConfig,groups:['456']}})}, rpc:{register:vi.fn(()=>()=>{})}, management:{register:(value:any)=>{routes=value.routes}}}
     plugin.register=vi.fn(); plugin.state={...emptyState(),identityBinding:{selfId:'123'}}
     plugin.queryDirectory=vi.fn(async()=>[{id:'actual',name:'真实声音'}]);plugin.stopped=false;plugin.paused=false
     plugin.prepareManagement()

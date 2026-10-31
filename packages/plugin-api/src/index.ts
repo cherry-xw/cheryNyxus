@@ -76,6 +76,7 @@ export interface IngressRequestTool {
   supervisionLevel: number
 }
 export interface IngressRequestContext {
+  kind?: 'rules' | 'data'
   ownerId: string
   key: string
   content: string
@@ -114,7 +115,11 @@ export type IngressSubmit = Omit<
   identity?: IngressIdentityHandle
   signal?: AbortSignal
   execution?: { toolHistory: 'request'; retry: 'never' }
+  sourceInput?: import('@chery/protocol').SourceInput
+  sourceCapacity?: IngressSourceCapacity
 }
+/** In-process maintenance continuation, never a public chat field or a stored authority. */
+export type IngressSourceCapacity = (input: { operationId: string; parentSnapshotId: string }, signal?: AbortSignal) => Promise<void>
 export interface IngressPreset {
   name: string
   presetId: string
@@ -279,13 +284,17 @@ export interface IngressSourceResult {
   nextOffset?: number; uploadId?: string; assetId?: string; assetVersionId?: string; cancelled?: boolean
 }
 export interface IngressQuestionAnswer extends IngressFileContext {
+  sourceCapacity?: IngressSourceCapacity
   runId: string
   batchId: string
   commandId: string
   answers: Array<{ questionId: string; selectedLabels: string[]; freeText?: string; cancelled?: boolean }>
+  sourceAnswers?: { snapshotId: string; records: Array<{ questionId: string; record: SourceRecordRef }> }
 }
+export interface IngressQuestionAnswerResult { runId: string; sourceSnapshot?: SourceSnapshot }
 export interface IngressCore {
-  answerQuestions?(input: IngressQuestionAnswer): Promise<{ runId: string }>
+  sourceConversations?: IngressSourceConversations
+  answerQuestions?(input: IngressQuestionAnswer): Promise<IngressQuestionAnswerResult>
   sourceReferences?(conversationKey:string): Promise<Record<string, import('@chery/protocol').MessagePart>>
   abortSources?(sourceKeys:readonly string[]): Promise<void>
   restrictSources?(conversationKeys: readonly string[]): Promise<void>

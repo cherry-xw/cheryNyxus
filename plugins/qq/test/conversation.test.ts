@@ -34,7 +34,7 @@ describe('normal conversation and fixed voice policy', () => {
     const {plugin,job}=fixture(text)
     await expect(plugin.enqueueReplyAction(job,{kind:'voice',text:'解释',completeReply:true})).rejects.toThrow('not authorized')
   })
-  it('inherits voice only for a same-sender modification after confirmed send', () => {
+  it('inherits voice only for a same-sender modification after confirmed send', async () => {
     const {plugin,job}=fixture('不够犀利')
     const old={...job,requestId:'old',acceptedAt:1000}
     const output={status:'sent',frame:{type:'qq.reply.action',data:{requestId:'old',actionKind:'voice'}}}
@@ -42,9 +42,8 @@ describe('normal conversation and fixed voice policy', () => {
     expect(voiceRequested(job as any,[{...old,input:{...old.input,senderId:'888'}}] as any,[output] as any)).toBe(false)
     expect(voiceRequested(job as any,[old] as any,[{...output,status:'unknown'}] as any)).toBe(false)
     plugin.state.jobs.unshift(old); plugin.state.outbox.push(output)
-    const facts=plugin.conversationFacts(job)
-    expect(facts.recentRequests[0].text).toBe('不够犀利')
-    expect(facts.actions[0].status).toBe('sent')
+    await plugin.enqueueReplyAction(job,{kind:'voice',text:'继续修改后的语音',completeReply:true})
+    expect(plugin.output).toHaveBeenCalledWith(job,'qq.reply.action',expect.objectContaining({character:'fixed',text:'继续修改后的语音'}))
   })
   it('respects off mode and unavailable configured voices without switching', async () => {
     const {plugin,job}=fixture(undefined,'off')
@@ -53,14 +52,31 @@ describe('normal conversation and fixed voice policy', () => {
     await expect(plugin.enqueueReplyAction(job,{kind:'voice',text:'hi',completeReply:true})).rejects.toThrow('not available')
     expect(plugin.output).not.toHaveBeenCalled()
   })
-  it('keeps explicit current input and real quote independent from old assistant claims', () => {
+  it('prepares only trusted rules and references, never repeats current/old source text in the request hook', async () => {
     const {plugin,job}=fixture('锐评一下 @另一个人')
-    ;(job.input as any).replyToMessageId='42'
-    plugin.state.discussions[job.target]={messages:[{targetId:'456',messageId:'42',senderId:'555',content:'被引用内容'}]}
-    expect(plugin.conversationFacts(job).currentMessages[0].content).toContain('另一个人')
-    expect(plugin.conversationFacts(job).quotedMessages[0].message.senderId).toBe('555')
-    expect(conversationRules).toContain('明确新对象时切换')
-    expect(conversationRules).toContain('错了直接承认')
+    const hooks:any[]=[]
+    plugin.cleanups=[];plugin.paused=true
+    job.input.eventId='current-event';job.input.replyToMessageId='42'
+    job.sourceSnapshot={snapshotId:'fixed-snapshot'}
+    job.snapshot.config={...job.snapshot.config,memoryEnabled:false}
+    plugin.state.jobs=[]
+    const register=()=>()=>{}
+    plugin.context={id:'qq-fixture',dataDir:'/tmp/opencode',runtimeOptions:{},config:{snapshot:()=>({revision:1,config:job.snapshot.config})},
+      core:{sourceConversations:{},onEvent:register},identity:{registerChannel:register},ingress:{register},connections:{onClose:register},
+      hooks:{register:(hook:any)=>{hooks.push(hook);return ()=>{}}},tools:{register}}
+    plugin.register=vi.fn()
+    plugin.start()
+    plugin.state.jobs=[{...job,requestId:'old',input:{...job.input,eventId:'old-event',content:'旧成员原文'},reply:'旧机器人错误宣称'},job]
+    plugin.paused=false;plugin.connection='connection';plugin.recovered=true
+    const requestPrepare=hooks.find(hook=>hook.event==='RequestPrepare')
+    const identity={ownerId:'qq-fixture',channel:'qq',subject:{selfId:'123',userId:'789',conversationType:'group',groupId:'456'}}
+    const prepared=await requestPrepare.handler({inputId:'current-event',requestId:'core-new'},{requestView:{identity}})
+    const discussion=JSON.parse(prepared.contexts.find((item:any)=>item.key==='qq.discussion').content)
+    expect(discussion).toMatchObject({batchId:'new',snapshotId:'fixed-snapshot'})
+    expect(JSON.stringify(prepared.contexts)).not.toMatch(/锐评一下|旧成员原文|旧机器人错误宣称|currentMessages|recentRequests|replyClaim/)
+    expect(JSON.parse(prepared.contexts.find((item:any)=>item.key==='qq.identity').content).subject).toEqual(identity.subject)
+    expect(prepared.contexts.find((item:any)=>item.key==='qq.conversationRules').content).toBe(conversationRules)
+    expect(job.coreRequestId).toBe('core-new')
     expect(summaryEvidenceRules).toContain('未验证')
   })
   it('uses Shanghai time regardless of process timezone and rejects retired config', () => {
@@ -73,5 +89,44 @@ describe('normal conversation and fixed voice policy', () => {
     plugin.state.contextEpoch='new-context'
     expect(plugin.conversationKey('123','group:456','preset')).toBe('123:group:456:preset:new-context')
     expect(job.conversationKey).toBe('conversation')
+  })
+  it('resumes QUESTION_RESUME_UNCONFIRMED when the answer event is resubmitted', async () => {
+    const {plugin,job}=fixture('初始问题')
+    job.state='paused'; job.reason='QUESTION_RESUME_UNCONFIRMED'; job.sourceScopeId='scope-1'
+    job.sourceSnapshot={snapshotId:'snap-1',scopeId:'scope-1',requestId:job.requestId,turnId:job.requestId,createdAt:1,reason:'initial',qqConfigRevision:1,permissionRevision:1,selectionRevision:1,inputRecords:[],orderedItems:[]}
+    const answerInput={...job.input,eventId:'evt-ans-1',messageId:'99',replyToMessageId:'10',content:'原发起者回答',sourceParts:[{type:'text',partId:'p0',text:'原发起者回答'}]}
+    job.questions={batchId:'b1',runId:'run-1',commandId:'cmd-1',items:[{questionId:'q1',question:'问题?',options:[],multiSelect:false,eventId:'out-1',answer:'原发起者回答',answerRecord:{recordId:'rec-ans-1',revision:1}}],replies:[answerInput]}
+    plugin.state.sourceScopes={'group:456':{scopeId:'scope-1'}}
+    plugin.state.sourceReceipts={'evt-ans-1':{pendingReceipt:false,record:{recordId:'rec-ans-1',revision:1}}}
+    plugin.sources={
+      begin:vi.fn(async()=>({
+        receipt:{state:'completed',receiptId:'rcpt-1',version:1,record:{recordId:'rec-ans-1',revision:1},result:{receiptId:'rcpt-1',record:{recordId:'rec-ans-1',revision:1},handling:{kind:'question_answer',requestId:job.requestId,runId:'run-1',batchId:'b1',questionId:'q1'}}},
+        scope:{scopeId:'scope-1'}
+      })),
+      ready:vi.fn(()=>true),
+      validate:vi.fn(),
+    }
+    const answerQuestions=vi.fn(async()=>({runId:'run-1',sourceSnapshot:{...job.sourceSnapshot,snapshotId:'snap-2',parentSnapshotId:'snap-1'}}))
+    plugin.context={
+      core:{
+        resolvePreset:()=>({presetId:job.snapshot.presetId ?? 'fixed-preset'}),
+        ensureConversation:vi.fn(async()=>({})),
+        answerQuestions,
+      },
+      identity:{bind:vi.fn(async()=>({}))},
+    }
+    job.snapshot.presetId='fixed-preset'
+    job.snapshot.config.groups=['456']
+    job.snapshot.config.bindings={'group:456':'preset'}
+    plugin.connection='conn-1'; plugin.verifiedConnection='conn-1'
+    plugin.answering=new Set(); plugin.operations=new Set()
+    const res=await plugin.submit(answerInput)
+    expect(res.accepted).toBe(true)
+    await Promise.all([...plugin.operations])
+    expect(answerQuestions).toHaveBeenCalledOnce()
+    expect(answerQuestions.mock.calls[0]![0]).toMatchObject({commandId:'cmd-1',runId:'run-1',batchId:'b1'})
+    expect(job.sourceSnapshot.snapshotId).toBe('snap-2')
+    expect(job.questions).toBeUndefined()
+    expect(job.reason).toBeUndefined()
   })
 })
