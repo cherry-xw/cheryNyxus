@@ -8,7 +8,10 @@
 | [ADV 客户端](adv-client/README.md) | 执行中 | 输入、显示、存储与联网底座部分实现；音频、业务通信及实机验收未完成，本次不提交固件改动 |
 | [万象台](wanxiangtai/README.md)                                                | 规划中     | 多 Agent 团队协作、独立工作区、交付集成与桌面呈现              |
 | [上下文统计、待办进度与连续消息交互](conversation-observability-and-input/README.md) | 规划中 | 上下文统计、待办进度与连续消息交互的设计初稿；另含已确认的上下文预算与 QQ 讨论总结专题及其实施状态。 |
-| [文件能力与多模型协作](file-capabilities-and-model-collaboration/README.md) | 执行中 | 设置与常规文件交互本轮已收尾；仅继续跟进跨账号权限、真实服务/绘图与 QQ 文件验收、外部默认、Imagen 及服务端工具缺口 |
+| [文件权限与交付验收](file-access-and-delivery/README.md) | 待综合验证 | 跨账号与登录权限、QQ 文件/普通回复、工作区导入导出及交付恢复 |
+| [图片服务与会话绘图验收](image-services-and-drawing/README.md) | 执行中 | Imagen 可用接入、各厂商真实验证、多轮选图/定稿及首次查询 400 |
+| [服务端工具完整流程](server-tools-completion/README.md) | 执行中 | 真实任务验证管理、完整有序事件、受保护续接及 GLM/GPT 产品多轮 |
+| [外部设置默认核实](external-setting-defaults/README.md) | 规划中 | Gemini 比例/尺寸、Seedream seed、Images multipart moderation、MCP stdio env |
 
 ## 使用规则
 
