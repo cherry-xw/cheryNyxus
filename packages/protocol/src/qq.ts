@@ -532,7 +532,7 @@ export const QQResponseSchemas = {
   'qq.config.get': QQConfigViewSchema,
   'qq.policy.get': z.object({ target, savedRevision: z.number().int().nonnegative(), appliedRevision: z.number().int().nonnegative(),
     effective: z.object({ mode: z.enum(['followup','proactive']), initiative: z.enum(['quiet','balanced','lively']), style: z.enum(['concise','casual','playful']), customStyle: z.string() }),
-    origins: z.record(z.string(), z.string()), capabilities: z.array(z.object({ name: z.string(), configured: z.boolean(), allowed: z.boolean(), ready: z.boolean().nullable(), reason: z.string().nullable(), lastResult: z.string().nullable() })),
+    origins: z.record(z.string(), z.string()), capabilities: z.array(z.object({ name: z.string(), configured: z.boolean(), allowed: z.boolean(), ready: z.boolean().nullable(), reason: z.string().nullable(), lastResult: z.object({status:z.string(),at:z.number().int().nonnegative(),qqConfigRevision:z.number().int().nonnegative().nullable(),configRevision:z.string().nullable(),registryVersion:z.number().int().nonnegative().nullable(),current:z.boolean()}).strict().nullable() })),
     proactive: z.object({ usedChecks: z.number().int().nonnegative(), limit: z.number().int().positive(), nextCheckAt: z.number().nullable() }) }).strict(),
   'qq.config.save': QQConfigSaveResponseSchema,
   'qq.status.get': QQStatusSchema,

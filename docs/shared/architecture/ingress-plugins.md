@@ -68,6 +68,8 @@ status至少区分插件安装/启用/活动版本、配置保存/应用版本�
 
 `context.core` 提供按预设创建/读取该包拥有的会话、提交核心输入、停止运行、只读预设解析及有明确会话归属的事件订阅。会话所有权由宿主持有，不接受任意核心会话ID。执行沿核心真实的 chat.create/chat.input.submit/chat.abort 服务，不另造模型执行器；QQ身份、记忆等业务适配由QQ卡通过公共执行适配点完成。`context.connections` 只提供连接存活、定向发送与关闭通知；`context.rpc.register` 必须同时提供请求/响应schema及权限判断，禁止覆盖核心方法。宿主登记的释放函数在停止或启动失败时执行。`context.runtimeOptions` 是启动时明确传入的只读选项，宿主不解释QQ含义。
 
+预设读取的`toolStatus`按操作展开基础工具选择，合并重复选择的较严格监管，并核对注册可用性、基础和操作角色权限；`configRevision/registryVersion`用于判断旧调用记录是否仍适用，不授予执行权限。静态许可不证明外部服务可用，真实参数和当前请求身份仍在执行时校验。实现为`service/ingress/toolStatus.ts`的`ingressToolStatus`，反例见`apps/backend/test/service/ingressToolStatus.test.ts`。
+
 `context.core.internalText({preset,instruction,content,signal?})` 使用指定预设的模型生成无工具的内部文本，受插件活动状态、取消信号、输入大小和模型超时限制。`conversationHistory(key)` 只读取本包拥有的会话，保留最近压缩边界后的历史；`commitSummary(key,summary)` 仅向空闲的自有会话提交非空且有长度限制的压缩摘要，并清除对应运行时缓存。实现见 `createIngressCoreAdapter` 与 `IngressHost`，这些接口不直接向 QQ 发送消息。
 
 包交付格式为已独立构建的目录（清单及ESM入口/依赖在目录内；不接受归档解压或自动下载），维护入口 `pnpm ingress:cli -- <command>` 与 `node apps/backend/dist/index.js ingress <command>`；命令为 install/upgrade/enable/disable/uninstall/status。安装与升级只检查清单、文件安全、摘要及入口语法，不执行包；实例契约在显式启用后的启动阶段验证。升级发布失败保持旧注册及版本目录。已经安装的同一ID不能通过install覆盖，需显式upgrade；已有版本目录不可覆盖。卸载保留配置、数据及版本目录以供恢复，不清除历史包文件。CLI状态没有当前进程内活动证据时以unknown报告，不推断已活动。

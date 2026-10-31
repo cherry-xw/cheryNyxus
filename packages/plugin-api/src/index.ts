@@ -128,6 +128,8 @@ export interface IngressPreset {
   senseGroup: string
   tools?: readonly string[]
   toolStatus?: readonly { selection: string; available: boolean; allowed: boolean; reason?: string }[]
+  configRevision?: string
+  registryVersion?: number
   mcpServers: readonly string[]
 }
 export interface IngressInternalTextInput { preset: string; instruction: string; content: string; signal?: AbortSignal
