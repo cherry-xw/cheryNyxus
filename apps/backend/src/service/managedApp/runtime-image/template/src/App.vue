@@ -2,7 +2,7 @@
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <h1>CheryNyxus 应用工作台 ({{ auth.appId || 'App' }})</h1>
+        <h1>cheryNyxus 应用工作台 ({{ auth.appId || 'App' }})</h1>
         <p class="subtitle">Vue 3 + Express + SQLite + ECharts + 安全 Markdown + CSV 固定模板</p>
       </div>
       <div class="auth-box">
@@ -86,7 +86,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
@@ -95,12 +95,16 @@ import { apiFetch, setCsrfToken, resolveAppUrl, openAppEvents } from './api.js'
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 const chartEl = ref(null)
 let chartInstance = null
+let events = null
+let readGeneration = 0
 
 const auth = reactive({
   activated: true,
   user: null,
   appId: '',
+  visibility: 'private',
 })
+const canRead = computed(() => auth.visibility === 'public_read' || Boolean(auth.user))
 const errorMessage = ref('')
 const records = ref([])
 const stats = ref([])
@@ -121,6 +125,7 @@ async function loadInitial() {
     auth.activated = me.activated
     auth.user = me.user
     auth.appId = me.appId
+    auth.visibility = me.visibility
     setCsrfToken(me.csrfToken)
 
     const urlParams = new URLSearchParams(window.location.search)
@@ -128,15 +133,15 @@ async function loadInitial() {
     if (tokenFromUrl && !auth.activated) {
       activateForm.activationToken = tokenFromUrl
     }
-
-    await loadRecords()
   } catch (err) {
     errorMessage.value = err.message
   }
 }
 
 async function loadRecords() {
+  const generation = readGeneration
   const data = await apiFetch('api/records')
+  if (generation !== readGeneration || !canRead.value) return
   records.value = data.items || []
   stats.value = data.stats || []
   await nextTick()
@@ -174,7 +179,6 @@ async function handleActivate() {
     auth.activated = true
     auth.user = res.user
     setCsrfToken(res.csrfToken)
-    await loadRecords()
   } catch (err) {
     errorMessage.value = err.message
   }
@@ -189,16 +193,19 @@ async function handleLogin() {
     })
     auth.user = res.user
     setCsrfToken(res.csrfToken)
-    await loadRecords()
   } catch (err) {
     errorMessage.value = err.message
   }
 }
 
 async function handleLogout() {
-  await apiFetch('api/auth/logout', { method: 'POST' })
-  auth.user = null
-  setCsrfToken(null)
+  try {
+    await apiFetch('api/auth/logout', { method: 'POST' })
+    auth.user = null
+    setCsrfToken(null)
+  } catch (err) {
+    errorMessage.value = err.message
+  }
 }
 
 async function handleCreateRecord() {
@@ -226,13 +233,34 @@ async function triggerDemoTask() {
   }
 }
 
-onMounted(() => {
-  loadInitial()
-  const es = openAppEvents('events')
-  es.addEventListener('task_progress', e => {
-    const d = JSON.parse(e.data)
-    taskProgress.value = `${d.progress}% (${d.status})`
-  })
+watch(() => [auth.user, auth.visibility], async () => {
+  const generation = ++readGeneration
+  events?.close()
+  events = null
+  records.value = []
+  stats.value = []
+  taskProgress.value = '空闲'
+  if (!canRead.value) return
+  try {
+    await loadRecords()
+    if (generation !== readGeneration || !canRead.value) return
+    events = openAppEvents('events')
+    events.addEventListener('task_progress', e => {
+      if (generation !== readGeneration) return
+      const d = JSON.parse(e.data)
+      taskProgress.value = `${d.progress}% (${d.status})`
+    })
+  } catch (err) {
+    if (generation === readGeneration) errorMessage.value = err.message
+  }
+})
+
+onMounted(() => { loadInitial() })
+onUnmounted(() => {
+  ++readGeneration
+  events?.close()
+  chartInstance?.dispose()
+  chartInstance = null
 })
 
 watch(stats, () => updateChart())
