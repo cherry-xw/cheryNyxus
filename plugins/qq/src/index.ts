@@ -33,7 +33,7 @@ import {
   type QQEntry,
   type QQStatus,
 } from '../../../packages/protocol/src/qq.js'
-import { atomicJson, readState, digest, targetOf, type Job, type Outbox } from './state.js'
+import { atomicJson, readState, digest, targetOf, currentQuestions, nextTargetJob, type Job, type Outbox, type QuestionBatch } from './state.js'
 import { createQQTools, QQ_MEMORY_CONTEXT_KEY } from './tools.js'
 import { QQMemoryStore } from './memory.js'
 import { ReminderStore, reminderTools } from './reminders.js'
@@ -158,6 +158,8 @@ export class QQPlugin implements IngressPlugin {
   }
   start(): void {
     if (!this.context.core.sourceConversations) fail('SOURCE_CONTEXT_UNAVAILABLE', '宿主不支持来源上下文，不能启动QQ新接收路径')
+    if (!this.context.core.answerQuestions || !this.context.core.questionResumeStatus || !this.context.core.resumeQuestions)
+      fail('NOT_SUPPORTED', '宿主不支持答案保存、状态查询和原任务启动，不能使用旧问题恢复路径')
     this.stopped = false
     // A new Backend process never dispatches old QQ inputs or pending deliveries.
     closeQQQueues(this.state)
@@ -173,7 +175,7 @@ export class QQPlugin implements IngressPlugin {
       verifyRecord: async input => this.sources.verifies(input),
       validateRecord: input => this.sources.verifies(input),
       validateExecution: input => {
-        const job = this.state.jobs.find(job => job.input.eventId === input.eventId || job.questions?.replies.some(reply => reply.eventId === input.eventId))
+        const job = this.state.jobs.find(job => job.input.eventId === input.eventId || job.questionBatches.some(batch => batch.replies.some(reply => reply.eventId === input.eventId)))
         if (!job || job.programSource || input.entryId !== 'qq' || !job.sourceScopeId || input.subject.userId !== job.input.senderId ||
           input.subject.selfId !== job.input.selfId || input.subject.conversationType !== job.input.conversationType ||
           input.subject.groupId !== (job.input.conversationType === 'group' ? job.input.targetId : undefined)) return false
@@ -186,9 +188,9 @@ export class QQPlugin implements IngressPlugin {
         connectionId === this.verifiedConnection && this.state.identityBinding
           ? { selfId: this.state.identityBinding.selfId } : null,
       verifyEvent: async input => {
-        const job = this.state.jobs.find(j => j.input.eventId === input.eventId || j.questions?.replies.some(reply => reply.eventId === input.eventId))
+        const job = this.state.jobs.find(j => j.input.eventId === input.eventId || j.questionBatches.some(batch => batch.replies.some(reply => reply.eventId === input.eventId)))
         if (!job || job.programSource || input.entryId !== 'qq' || input.connectionId !== this.verifiedConnection) return false
-        const event = job.questions?.replies.find(reply => reply.eventId === input.eventId) ?? job.input, subject = input.subject, config = this.snapshot.config
+        const event = job.questionBatches.flatMap(batch => batch.replies).find(reply => reply.eventId === input.eventId) ?? job.input, subject = input.subject, config = this.snapshot.config
         return subject.selfId === event.selfId && subject.userId === event.senderId &&
           subject.conversationType === event.conversationType &&
           subject.groupId === (event.conversationType === 'group' ? event.targetId : undefined) &&
@@ -358,12 +360,12 @@ export class QQPlugin implements IngressPlugin {
     for (const job of this.state.jobs) {
       if (job.state === 'running') {
         job.state = 'paused'
-        job.reason = job.questions?.commandId ? 'QUESTION_RESUME_UNCONFIRMED' : 'PROCESS_INTERRUPTED'
+        job.reason = currentQuestions(job)?.commandId ? 'QUESTION_RESUME_UNCONFIRMED' : 'PROCESS_INTERRUPTED'
         delete job.nextWaitAt
       }
       if (
         this.state.outbox.some(
-          (o) => !terminal(job) && !job.questions && o.frame.data.requestId === job.requestId && o.status === 'unknown' && !['qq.message.ack', 'qq.waiting', 'qq.tool.icon'].includes(o.frame.type),
+          (o) => !terminal(job) && !currentQuestions(job) && o.frame.data.requestId === job.requestId && o.status === 'unknown' && !['qq.message.ack', 'qq.waiting', 'qq.tool.icon'].includes(o.frame.type),
         )
       ) {
         job.reason = 'DELIVERY_UNKNOWN'
@@ -526,7 +528,7 @@ export class QQPlugin implements IngressPlugin {
     const blockers: BackendStopBlocker[] = []
     for (const job of this.state.jobs) if (this.adoptedJobs.has(job.requestId) &&
       (!terminal(job) || this.state.outbox.some(o => o.frame.data.requestId === job.requestId && ['pending', 'inflight'].includes(o.status))))
-      blockers.push({ id: `qq:${job.requestId}`, kind: job.questions ? 'question' : 'external', description: '等待当前 QQ 任务及必要回复、问答或投递结束' })
+      blockers.push({ id: `qq:${job.requestId}`, kind: currentQuestions(job) ? 'question' : 'external', description: '等待当前 QQ 任务及必要回复、问答或投递结束' })
     if (this.operations.size) blockers.push({ id: 'qq:operations', kind: 'external', description: '等待已开始的 QQ 操作收尾' })
     return blockers
   }
@@ -540,9 +542,9 @@ export class QQPlugin implements IngressPlugin {
       if ((group ? config.groups : config.users).includes(targetId)) targets.push({ conversationType: group ? 'group' : 'private', targetId })
     }
     const questions: QQServiceState['questions'] = []
-    for (const job of this.state.jobs) if (job.questions && job.reason === 'WAITING_FOR_ANSWER' &&
+    for (const job of this.state.jobs) if (currentQuestions(job) && job.reason === 'WAITING_FOR_ANSWER' &&
       (this.accepting() || this.adoptedJobs.has(job.requestId))) {
-      const messageIds = job.questions.items.filter(q => q.answer === undefined).flatMap(q =>
+      const messageIds = currentQuestions(job)!.items.filter(q => q.answer === undefined).flatMap(q =>
         this.state.outbox.filter(o => o.frame.data.eventId === q.eventId && o.status === 'sent').flatMap(o => o.messageIds ?? []))
       if (messageIds.length) questions.push({ conversationType: job.input.conversationType, targetId: job.input.targetId,
         senderId: job.input.senderId, messageIds })
@@ -946,10 +948,11 @@ export class QQPlugin implements IngressPlugin {
       try {
         await this.decideInput(input, receipt, scope)
         const job = this.state.jobs.find(job => (job.mergedInputs ?? [job.input]).some(value => value.eventId === input.eventId))
-        const question = this.state.jobs.find(job => job.questions?.replies.some(value => value.eventId === input.eventId))
-        const item = question?.questions?.items.find(item => this.state.outbox.some(output => output.frame.data.eventId === item.eventId && output.messageIds?.includes(input.replyToMessageId!)))
-        handling = question && item ? { kind: 'question_answer', requestId: question.requestId, runId: question.questions!.runId,
-          batchId: question.questions!.batchId, questionId: item.questionId } : job
+        const question = this.state.jobs.find(job => job.questionBatches.some(batch => batch.replies.some(value => value.eventId === input.eventId)))
+        const batch = question?.questionBatches.find(batch => batch.replies.some(value => value.eventId === input.eventId))
+        const item = batch?.items.find(item => this.state.outbox.some(output => output.frame.data.eventId === item.eventId && output.messageIds?.includes(input.replyToMessageId!)))
+        handling = question && batch && item ? { kind: 'question_answer', requestId: question.requestId, runId: batch.runId,
+          batchId: batch.batchId, questionId: item.questionId } : job
           ? terminal(job) ? { kind: 'rejected', reasonCode: job.reason ?? 'NOT_EXECUTED' }
             : { kind: job.sourceRecords?.[0]?.recordId === receipt.record.recordId ? 'queued' : 'merged', requestId: job.requestId }
           : { kind: 'background' }
@@ -967,13 +970,14 @@ export class QQPlugin implements IngressPlugin {
   private continueAnswer(handling: SourceHandling, input: QQEventSubmitRequest): void {
     if (handling.kind !== 'question_answer') return
     const job = this.state.jobs.find(job => job.requestId === handling.requestId)
-    if (!job || this.answering.has(job.requestId) || job.state !== 'paused' ||
+    const batch = job?.questionBatches.find(batch => batch.batchId === handling.batchId)
+    if (!job || !batch || currentQuestions(job) !== batch || this.answering.has(job.requestId) || job.state !== 'paused' ||
       this.closing() || (!this.accepting() && !this.adoptedJobs.has(job.requestId)) ||
       !['WAITING_FOR_ANSWER', 'QUESTION_RESUME_UNCONFIRMED'].includes(job.reason ?? '') ||
-      !job.questions?.items.every(question => question.answer !== undefined) ||
-      !job.questions.replies.every(reply => this.sources.ready(reply.eventId))) return
+      !batch.items.every(question => question.answer !== undefined) ||
+      !batch.replies.every(reply => this.sources.ready(reply.eventId))) return
     this.answering.add(job.requestId)
-    const operation = this.resumeQuestions(job, input).catch(() => {}).finally(() => {
+    const operation = this.saveQuestions(job, batch, input).catch(() => {}).finally(() => {
       this.answering.delete(job.requestId); this.operations.delete(operation)
     })
     this.operations.add(operation)
@@ -988,13 +992,13 @@ export class QQPlugin implements IngressPlugin {
       receipt = this.state.receipts[input.eventId]
     if (receipt) {
       if (receipt.hash !== hash) fail('CONFLICT', 'QQ事件标识冲突')
-      const interrupted = this.state.jobs.find(job => job.reason === 'QUESTION_RESUME_UNCONFIRMED' && job.questions?.replies.some(reply => reply.eventId === input.eventId))
+      const interrupted = this.state.jobs.find(job => job.reason === 'QUESTION_RESUME_UNCONFIRMED' && job.questionBatches.some(batch => batch.replies.some(reply => reply.eventId === input.eventId)))
       if (!this.accepting() && (!interrupted || !this.adoptedJobs.has(interrupted.requestId))) fail('BACKEND_STOPPING', '服务已关闭')
       return { eventId: input.eventId, accepted: receipt.accepted }
     }
     if (Object.keys(this.state.receipts).length >= 10000) fail('INPUT_QUEUE_FULL', 'QQ收件记录已满')
-    const quotedQuestion = input.replyToMessageId ? this.state.jobs.find(job => job.target === targetOf(input) && job.questions?.items.some(item =>
-      this.state.outbox.some(out => out.frame.data.eventId === item.eventId && out.messageIds?.includes(input.replyToMessageId!)))) : undefined
+    const quotedQuestion = input.replyToMessageId ? this.state.jobs.find(job => job.target === targetOf(input) && job.questionBatches.some(batch => batch.items.some(item =>
+      this.state.outbox.some(out => out.frame.data.eventId === item.eventId && out.messageIds?.includes(input.replyToMessageId!))))) : undefined
     if (quotedQuestion && (quotedQuestion.input.senderId !== input.senderId || quotedQuestion.state !== 'paused' || quotedQuestion.reason !== 'WAITING_FOR_ANSWER'))
       fail('IDENTITY_REJECTED', '这条问题不能由当前身份回答，或原任务已不再等待答案')
     // Only an explicit quote of a confirmed question binds an answer. Never
@@ -1002,7 +1006,7 @@ export class QQPlugin implements IngressPlugin {
     const matches = input.replyToMessageId ? this.state.jobs.flatMap(job =>
       job.state === 'paused' && job.reason === 'WAITING_FOR_ANSWER' && job.target === targetOf(input) &&
       job.input.selfId === input.selfId && job.input.senderId === input.senderId ?
-        (job.questions?.items ?? []).filter(item => this.state.outbox.some(out => out.frame.data.eventId === item.eventId && out.status === 'sent' && out.messageIds?.includes(input.replyToMessageId!))).map(item => ({job,item})) : []) : []
+        (currentQuestions(job)?.status === 'pending' ? currentQuestions(job)!.items : []).filter(item => this.state.outbox.some(out => out.frame.data.eventId === item.eventId && out.status === 'sent' && out.messageIds?.includes(input.replyToMessageId!))).map(item => ({job,item})) : []) : []
     if (matches.length === 1) {
       const { job, item } = matches[0]!
       if (!this.accepting() && !this.adoptedJobs.has(job.requestId)) fail('BACKEND_STOPPING', '服务已关闭')
@@ -1012,7 +1016,7 @@ export class QQPlugin implements IngressPlugin {
         fail('IDENTITY_REJECTED', '原任务配置已变化')
       item.answer = input.content
       item.answerRecord = sourceReceipt.record
-      job.questions!.replies.push(input)
+      currentQuestions(job)!.replies.push(input)
       this.state.receipts[input.eventId] = { hash, accepted: true }
       this.persist()
       return { eventId: input.eventId, accepted: true }
@@ -1104,6 +1108,8 @@ export class QQPlugin implements IngressPlugin {
           senseGroup: resource.senseGroup,
         },
         state: 'queued',
+        queueSequence: this.state.nextQueueSequence++,
+        questionBatches: [],
         acceptedAt: now,
         lastInputAcceptedAt: now,
         reply: '',
@@ -1380,7 +1386,7 @@ export class QQPlugin implements IngressPlugin {
     if (p.status === 'sent' && output.activityReplyThrough !== undefined)
       job.activityReplyOffset = Math.max(job.activityReplyOffset ?? 0, output.activityReplyThrough)
     output.confirmedAt = Date.now()
-    if (p.status === 'sent' && job.questions?.items.some(item => item.eventId === d.eventId) && job.state === 'paused' && ['QUESTION_DELIVERY_UNKNOWN','QUESTION_DELIVERY_FAILED'].includes(job.reason ?? '')) job.reason = 'WAITING_FOR_ANSWER'
+    if (p.status === 'sent' && currentQuestions(job)?.items.some(item => item.eventId === d.eventId) && job.state === 'paused' && ['QUESTION_DELIVERY_UNKNOWN','QUESTION_DELIVERY_FAILED'].includes(job.reason ?? '')) job.reason = 'WAITING_FOR_ANSWER'
     if (job.requestId.startsWith('reminder:')) await new ReminderStore(this.context.dataDir).result(job.requestId.slice(9), p.status)
     if (p.status === 'failed' || p.status === 'unknown') {
       this.deliveryProblem(job, output)
@@ -1453,6 +1459,7 @@ export class QQPlugin implements IngressPlugin {
     const preset = this.snapshot.config.bindings[template.target]!, resource = this.context.core.resolvePreset(preset)
     return {
       requestId, version: 1, programSource, sourceScopeId: scope.scopeId, target: template.target,
+      queueSequence: this.state.nextQueueSequence++, questionBatches: [],
       conversationKey: this.conversationKey(selfId, template.target, resource.presetId),
       // These IDs identify the authorization's origin, not a new member message.
       input: { selfId, senderId, conversationType, targetId, messageId, eventId,
@@ -1519,7 +1526,7 @@ export class QQPlugin implements IngressPlugin {
     this.persist()
   }
   private deliveryProblem(job: Job, output: Outbox): void {
-    if (job.questions?.items.some(item => item.eventId === output.frame.data.eventId)) {
+    if (currentQuestions(job)?.items.some(item => item.eventId === output.frame.data.eventId)) {
       job.reason = output.status === 'unknown' ? 'QUESTION_DELIVERY_UNKNOWN' : 'QUESTION_DELIVERY_FAILED'
       // Question delivery never changes the Core's paused execution result.
       this.persist(); return
@@ -1642,7 +1649,7 @@ export class QQPlugin implements IngressPlugin {
     for (const target of new Set(
       this.state.jobs.filter((j) => !terminal(j) && j.state !== 'paused').map((j) => j.target),
     )) {
-      const job = this.state.jobs.find((j) => j.target === target && !terminal(j) && j.state !== 'paused')
+      const job = nextTargetJob(this.state.jobs, target)
       if (!job) continue
       if (!this.accepting() && !this.adoptedJobs.has(job.requestId)) continue
       if (job.state === 'paused') continue
@@ -1652,11 +1659,12 @@ export class QQPlugin implements IngressPlugin {
         continue
       }
       if (job.state === 'queued') {
-        if (job.sourceRecords && !(job.mergedInputs ?? [job.input]).every(input => this.sources.ready(input.eventId))) continue
-        if (!job.douyinUrl && job.input.conversationType === 'group' && Date.now() - (job.lastInputAcceptedAt ?? job.acceptedAt) < job.snapshot.config.messageMergeMs) continue
+        const resume = currentQuestions(job)?.status === 'saved'
+        if (!resume && job.sourceRecords && !(job.mergedInputs ?? [job.input]).every(input => this.sources.ready(input.eventId))) continue
+        if (!resume && !job.douyinUrl && job.input.conversationType === 'group' && Date.now() - (job.lastInputAcceptedAt ?? job.acceptedAt) < job.snapshot.config.messageMergeMs) continue
         if (job.decisionRequired && !this.state.discussions[job.target]?.active) { job.state = 'completed'; this.persist(); continue }
         this.busy.add(target)
-        const operation = this.execute(job)
+        const operation = (resume ? this.startQuestions(job) : this.execute(job))
           .finally(() => { this.busy.delete(target); this.operations.delete(operation); this.aborters.delete(job.requestId) })
         this.operations.add(operation)
       } else if (
@@ -1866,31 +1874,87 @@ export class QQPlugin implements IngressPlugin {
     job.coreRequestId ??= response.runId
     this.persist()
   }
-  private async resumeQuestions(job: Job, input: QQEventSubmitRequest): Promise<void> {
-    const questions = job.questions
-    if (!questions || !questions.items.every(q => q.answer !== undefined) || !this.context.core.answerQuestions || !this.connection) fail('NOT_SUPPORTED', '当前宿主不支持问题续接')
+  private async questionIdentity(job: Job, input: QQEventSubmitRequest): Promise<IngressIdentityHandle> {
+    if (!this.connection) fail('IDENTITY_REJECTED', 'QQ连接已关闭')
     const permission = this.snapshot.config, preset = permission.bindings[job.target]
     if (input.senderId !== job.input.senderId || input.selfId !== job.input.selfId || targetOf(input) !== job.target || !preset ||
       !(input.conversationType === 'group' ? permission.groups.includes(input.targetId) : permission.users.includes(input.senderId)) ||
       this.context.core.resolvePreset(preset).presetId !== job.snapshot.presetId ||
       this.state.sourceScopes[job.target]?.scopeId !== job.sourceScopeId) fail('IDENTITY_REJECTED', '问题续接权限已失效')
+    await this.context.core.ensureConversation(job.conversationKey, job.snapshot.preset)
+    return this.context.identity.bind({ connectionId: this.connection, entryId: 'qq', channel: 'qq', eventId: input.eventId,
+      subject: { selfId: input.selfId, userId: input.senderId, conversationType: input.conversationType,
+        ...(input.conversationType === 'group' ? { groupId: input.targetId } : {}) } })
+  }
+  private applyQuestionStatus(job: Job, batch: QuestionBatch, result: import('@chery/plugin-api').IngressQuestionResumeResult): void {
+    if (currentQuestions(job) !== batch || result.commandId !== batch.commandId || result.runId !== batch.runId || terminal(job) || batch.status === 'started') return
+    if (result.sourceSnapshot) job.sourceSnapshot = result.sourceSnapshot
+    if (result.status === 'saved' && result.canQueue) {
+      // Busy is proof of not-started, not permission to move ahead in the queue.
+      if (batch.status !== 'saved' && batch.status !== 'starting') job.queueSequence = this.state.nextQueueSequence++
+      batch.status = 'saved'; job.state = 'queued'; job.reason = 'QUESTION_ANSWER_SAVED'; delete job.outcome
+    } else if (result.status === 'started') {
+      batch.status = 'started'; job.state = 'running'; delete job.reason; delete job.outcome
+    } else if (['completed', 'failed', 'cancelled'].includes(result.status)) {
+      // Querying facts must not synthesize output or retry delivery.
+      batch.status = 'started'; job.state = result.status as 'completed' | 'failed' | 'cancelled'; job.outcome = result.status
+      job.reason = result.reasonCode ?? 'QUESTION_RUN_RECONCILED'
+    } else {
+      job.state = 'paused'; job.outcome = 'paused'; job.reason = 'QUESTION_RESUME_UNCONFIRMED'
+    }
+    this.persist()
+    if (result.reasonCode !== 'PREVIOUS_WORK_PENDING') setImmediate(() => this.tick())
+  }
+  private async saveQuestions(job: Job, questions: QuestionBatch, input: QQEventSubmitRequest): Promise<void> {
+    const core = this.context.core
+    if (!core.answerQuestions || !core.questionResumeStatus || !core.resumeQuestions) fail('NOT_SUPPORTED', '当前宿主不支持分离保存和启动')
+    const identity = await this.questionIdentity(job, input)
     questions.commandId ??= randomUUID()
-    job.reason = 'QUESTION_RESUME_UNCONFIRMED'; this.persist()
+    const params = { conversationKey: job.conversationKey, entryId: 'qq', identity, runId: questions.runId, commandId: questions.commandId }
     try {
-      await this.context.core.ensureConversation(job.conversationKey, job.snapshot.preset)
-      const identity = await this.context.identity.bind({connectionId:this.connection,entryId:'qq',channel:'qq',eventId:input.eventId,
-        subject:{selfId:input.selfId,userId:input.senderId,conversationType:input.conversationType,...(input.conversationType==='group'?{groupId:input.targetId}:{})}})
-      job.state='running'; delete job.outcome; this.persist()
+      if (questions.status !== 'pending') {
+        const status = await core.questionResumeStatus(params)
+        if (status.status !== 'saving') { this.applyQuestionStatus(job, questions, status); return }
+      }
+      questions.status = 'saving'; job.reason = 'QUESTION_RESUME_UNCONFIRMED'; this.persist()
       if (!job.sourceSnapshot || !questions.items.every(question => question.answerRecord)) fail('SOURCE_CONTEXT_UNAVAILABLE', '问题答案缺少来源记录')
-      const result = await this.context.core.answerQuestions({conversationKey:job.conversationKey,entryId:'qq',identity,runId:questions.runId,batchId:questions.batchId,commandId:questions.commandId,
-        sourceCapacity: (input, signal) => this.prepareSourceCapacity(job, input, signal),
+      const result = await core.answerQuestions({ ...params, batchId: questions.batchId,
         sourceAnswers: { snapshotId: job.sourceSnapshot.snapshotId, records: questions.items.map(question => ({ questionId: question.questionId, record: question.answerRecord! })) },
         answers:questions.items.map(q=>({questionId:q.questionId,selectedLabels:[],freeText:q.answer}))})
-      if (result.sourceSnapshot) job.sourceSnapshot = result.sourceSnapshot
-      if(job.questions===questions) delete job.questions
-      if(job.reason==='QUESTION_RESUME_UNCONFIRMED') delete job.reason
-      this.persist()
-    } catch(error) {job.state='paused';job.outcome='paused';job.reason='QUESTION_RESUME_UNCONFIRMED';this.persist();throw error}
+      this.applyQuestionStatus(job, questions, result)
+    } catch(error) {
+      if (currentQuestions(job) === questions && !terminal(job)) { job.state='paused'; job.outcome='paused'; job.reason='QUESTION_RESUME_UNCONFIRMED'; this.persist() }
+      try { this.applyQuestionStatus(job, questions, await core.questionResumeStatus(params)) } catch { /* Keep unconfirmed; never start here. */ }
+      throw error
+    }
+  }
+  private async startQuestions(job: Job): Promise<void> {
+    const batch = currentQuestions(job), core = this.context.core
+    if (!batch || batch.status !== 'saved' || !batch.commandId || !core.resumeQuestions || !core.questionResumeStatus) return
+    const controller = new AbortController()
+    this.aborters.set(job.requestId, controller)
+    try {
+      const identity = await this.questionIdentity(job, batch.replies.at(-1)!)
+      if (this.closing() || terminal(job) || job.state !== 'queued' || currentQuestions(job) !== batch) return
+      batch.status = 'starting'; job.state = 'running'; delete job.reason; delete job.outcome
+      job.nextWaitAt = Date.now() + job.snapshot.config.waitIntervalSeconds * 1000; this.persist()
+      const result = await core.resumeQuestions({ conversationKey: job.conversationKey, entryId: 'qq', identity,
+        runId: batch.runId, commandId: batch.commandId, signal: controller.signal,
+        sourceCapacity: (input, signal) => this.prepareSourceCapacity(job, input, signal) })
+      this.applyQuestionStatus(job, batch, result)
+    } catch {
+      if (currentQuestions(job) === batch && !terminal(job) && batch.status === 'saved') {
+        job.state = 'paused'; job.outcome = 'paused'; job.reason = 'QUESTION_PERMISSION_CHANGED'; this.persist()
+      }
+      if (currentQuestions(job) === batch && !terminal(job) && batch.status === 'starting') {
+        job.state = 'paused'; job.outcome = 'paused'; job.reason = 'QUESTION_RESUME_UNCONFIRMED'; delete job.nextWaitAt; this.persist()
+        try {
+          const identity = await this.questionIdentity(job, batch.replies.at(-1)!)
+          this.applyQuestionStatus(job, batch, await core.questionResumeStatus({ conversationKey: job.conversationKey,
+            entryId: 'qq', identity, runId: batch.runId, commandId: batch.commandId }))
+        } catch { /* Unknown startup never retries the model or tools. */ }
+      }
+    }
   }
   private bindIdentity(job: Job): Promise<IngressIdentityHandle> {
     if (!this.connection) fail('IDENTITY_REJECTED', 'QQ连接已关闭')
@@ -1976,6 +2040,8 @@ export class QQPlugin implements IngressPlugin {
     if (!job) return
     const d = event.data as Record<string, unknown> | undefined
     if (!d) return
+    const batch = currentQuestions(job)
+    if (event.type === 'run.updated' && d.status === 'running' && batch?.status === 'starting') batch.status = 'started'
     const eventRunId = event.runId ?? event.requestId ?? d.runId ?? d.requestId
     if (typeof eventRunId === 'string' && job.coreRunId && eventRunId !== job.coreRunId && eventRunId !== job.coreRequestId) return
     if (job.state !== 'running' && job.outcome !== 'failed') return
@@ -2046,20 +2112,21 @@ export class QQPlugin implements IngressPlugin {
         }
       }
     else if (event.type === 'question_batch_requested' && typeof d.batchId === 'string' && Array.isArray(d.questions)) {
-      if (job.questions?.batchId === d.batchId) return
+      if (job.questionBatches.some(batch => batch.batchId === d.batchId)) return
       const items = d.questions.map(raw => {
         const q = raw as { questionId: string; question: string; options: { label: string; description?: string }[]; multiSelect: boolean }
         const text = [q.question, ...q.options.map((o, i) => `${i + 1}. ${o.label}${o.description ? ` — ${o.description}` : ''}`), '请原发起者引用本条问题回复；答案原文交给模型理解，不会根据关键词自动执行。'].join('\n')
         this.output(job, 'qq.reply.action', { actionKind: 'quote', messageId: job.input.messageId, userId: job.input.senderId, completeReply: false, text })
         return { questionId: q.questionId, question: q.question, options: q.options, multiSelect: q.multiSelect, eventId: this.state.outbox.at(-1)!.frame.data.eventId }
       })
-      job.questions = { batchId: d.batchId, runId: String(event.runId ?? job.coreRunId ?? job.coreRequestId), items, replies: [] }
+      job.questionBatches.push({ batchId: d.batchId, runId: String(event.runId ?? job.coreRunId ?? job.coreRequestId), items, replies: [], status: 'pending' })
     }
     else if (event.type === 'run.outcome') {
       if (d.status === 'paused') {
-        job.outcome = 'paused'; job.state = 'paused'; job.reason = job.questions ? 'WAITING_FOR_ANSWER' : String(d.reasonCode ?? 'RUN_PAUSED')
+        const pending = currentQuestions(job)?.status === 'pending'
+        job.outcome = 'paused'; job.state = 'paused'; job.reason = pending ? 'WAITING_FOR_ANSWER' : String(d.reasonCode ?? 'RUN_PAUSED')
         delete job.nextWaitAt
-        if (!job.questions) this.output(job, 'qq.waiting', { text: publicOutcomeText(d), state: 'paused' })
+        if (!pending) this.output(job, 'qq.waiting', { text: publicOutcomeText(d), state: 'paused' })
         this.persist(); return
       }
       if (d.status === 'cancelled') {

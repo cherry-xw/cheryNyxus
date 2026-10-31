@@ -3,11 +3,11 @@ import { QQPlugin } from '../src/index.js'
 import { QQDefaultConfig, QQConfigSchema } from '../../../packages/protocol/src/qq.js'
 import { conversationRules, reactionOnly, shanghaiTime, summaryEvidenceRules, voiceRequested } from '../src/conversation.js'
 import { replyActionSchema } from '../src/replyTools.js'
-import { emptyState } from '../src/state.js'
+import { emptyState, nextTargetJob } from '../src/state.js'
 
 function fixture(text = '用语音锐评一下 @小明', mode = 'requested') {
   const plugin = Object.create(QQPlugin.prototype) as any
-  const job = { requestId: 'new', coreRequestId: 'core', conversationKey: 'conversation', target: 'group:456', acceptedAt: 2000, reply: '', state: 'running', input: { selfId: '123', senderId: '789', targetId: '456', conversationType: 'group', content: text, messageId: '2' }, background: [], snapshot: { config: { ...QQDefaultConfig, voiceMode: mode, voiceDefaultCharacter: 'fixed' } } }
+  const job = { requestId: 'new', queueSequence: 1, questionBatches: [] as any[], coreRequestId: 'core', conversationKey: 'conversation', target: 'group:456', acceptedAt: 2000, reply: '', state: 'running', input: { selfId: '123', senderId: '789', targetId: '456', conversationType: 'group', content: text, messageId: '2' }, background: [], snapshot: { config: { ...QQDefaultConfig, voiceMode: mode, voiceDefaultCharacter: 'fixed' } } }
   plugin.state = { ...emptyState(), jobs: [job] }; plugin.snapshot = job.snapshot
   plugin.persist = vi.fn(); plugin.queryDirectory = vi.fn(async () => [{id: 'fixed', name: '固定声音'}])
   plugin.output = vi.fn((_job, type, data) => plugin.state.outbox.push({ status: 'pending', frame: {type, data: {...data, requestId: job.requestId}} }))
@@ -101,7 +101,7 @@ describe('normal conversation and fixed voice policy', () => {
     job.state='paused'; job.reason='QUESTION_RESUME_UNCONFIRMED'; job.sourceScopeId='scope-1'
     job.sourceSnapshot={snapshotId:'snap-1',scopeId:'scope-1',requestId:job.requestId,turnId:job.requestId,createdAt:1,reason:'initial',qqConfigRevision:1,permissionRevision:1,selectionRevision:1,inputRecords:[],orderedItems:[]}
     const answerInput={...job.input,eventId:'evt-ans-1',messageId:'99',replyToMessageId:'10',content:'原发起者回答',sourceParts:[{type:'text',partId:'p0',text:'原发起者回答'}]}
-    job.questions={batchId:'b1',runId:'run-1',commandId:'cmd-1',items:[{questionId:'q1',question:'问题?',options:[],multiSelect:false,eventId:'out-1',answer:'原发起者回答',answerRecord:{recordId:'rec-ans-1',revision:1}}],replies:[answerInput]}
+    job.questionBatches=[{batchId:'b1',runId:'run-1',commandId:'cmd-1',status:'saving',items:[{questionId:'q1',question:'问题?',options:[],multiSelect:false,eventId:'out-1',answer:'原发起者回答',answerRecord:{recordId:'rec-ans-1',revision:1}}],replies:[answerInput]}]
     plugin.state.sourceScopes={'group:456':{scopeId:'scope-1'}}
     plugin.state.sourceReceipts={'evt-ans-1':{pendingReceipt:false,record:{recordId:'rec-ans-1',revision:1}}}
     plugin.sources={
@@ -112,12 +112,14 @@ describe('normal conversation and fixed voice policy', () => {
       ready:vi.fn(()=>true),
       validate:vi.fn(),
     }
-    const answerQuestions=vi.fn(async()=>({runId:'run-1',sourceSnapshot:{...job.sourceSnapshot,snapshotId:'snap-2',parentSnapshotId:'snap-1'}}))
+    const answerQuestions=vi.fn(async()=>({runId:'run-1',commandId:'cmd-1',status:'saved',canQueue:true,sourceSnapshot:{...job.sourceSnapshot,snapshotId:'snap-2',parentSnapshotId:'snap-1'}}))
     plugin.context={
       core:{
         resolvePreset:()=>({presetId:job.snapshot.presetId ?? 'fixed-preset'}),
         ensureConversation:vi.fn(async()=>({})),
         answerQuestions,
+        questionResumeStatus: vi.fn(async()=>({runId:'run-1',commandId:'cmd-1',status:'saving',canQueue:false})),
+        resumeQuestions: vi.fn(),
       },
       identity:{bind:vi.fn(async()=>({}))},
     }
@@ -125,14 +127,37 @@ describe('normal conversation and fixed voice policy', () => {
     job.snapshot.config.groups=['456']
     job.snapshot.config.bindings={'group:456':'preset'}
     plugin.connection='conn-1'; plugin.verifiedConnection='conn-1'
-    plugin.answering=new Set(); plugin.operations=new Set()
+    plugin.answering=new Set(); plugin.operations=new Set(); plugin.tick=vi.fn()
     const res=await plugin.submit(answerInput)
     expect(res.accepted).toBe(true)
     await Promise.all([...plugin.operations])
     expect(answerQuestions).toHaveBeenCalledOnce()
     expect(answerQuestions.mock.calls[0]![0]).toMatchObject({commandId:'cmd-1',runId:'run-1',batchId:'b1'})
     expect(job.sourceSnapshot.snapshotId).toBe('snap-2')
-    expect(job.questions).toBeUndefined()
-    expect(job.reason).toBeUndefined()
+    expect(job.questionBatches[0].status).toBe('saved')
+    expect(job.state).toBe('queued')
+    expect(job.reason).toBe('QUESTION_ANSWER_SAVED')
+    expect(plugin.context.core.resumeQuestions).not.toHaveBeenCalled()
+  })
+  it('puts answered A behind B, keeps its position on busy, and ignores a late startup acknowledgement', () => {
+    const { plugin, job: a } = fixture()
+    plugin.tick=vi.fn(); a.state='paused'; a.reason='WAITING_FOR_ANSWER'
+    const batch={batchId:'a',runId:'run-a',commandId:'command-a',status:'saving',items:[],replies:[]}
+    a.questionBatches=[batch]
+    const b={...a,requestId:'B',state:'queued',queueSequence:2,questionBatches:[]}
+    plugin.state.jobs.push(b); plugin.state.nextQueueSequence=3
+    const result={runId:'run-a',commandId:'command-a',status:'saved',canQueue:true}
+    plugin.applyQuestionStatus(a,batch,result)
+    expect(a.queueSequence).toBe(3)
+    expect(nextTargetJob(plugin.state.jobs,a.target)?.requestId).toBe('B')
+    batch.status='starting'
+    plugin.applyQuestionStatus(a,batch,{...result,reasonCode:'PREVIOUS_WORK_PENDING'})
+    expect(a.queueSequence).toBe(3)
+    b.state='running'
+    expect(nextTargetJob(plugin.state.jobs,a.target)?.requestId).toBe('B')
+    a.questionBatches.push({...batch,batchId:'new-a',status:'pending'})
+    a.state='paused';a.reason='WAITING_FOR_ANSWER'
+    plugin.applyQuestionStatus(a,batch,{...result,status:'started',canQueue:false})
+    expect(a.reason).toBe('WAITING_FOR_ANSWER')
   })
 })

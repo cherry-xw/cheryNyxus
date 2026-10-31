@@ -20,7 +20,14 @@ export const QQBackgroundSchema = z.object(QQEventSubmitRequestSchema.shape).sup
 })
 export type QQBackground = z.infer<typeof QQBackgroundSchema>
 
-export const JobSchema = z.object({
+export const QuestionBatchSchema = z.object({
+  batchId: z.string(), runId: z.string(),
+  items: z.array(z.object({ questionId: z.string(), question: z.string(), options: z.array(z.object({ label: z.string(), description: z.string().optional() })), multiSelect: z.boolean(), eventId: z.string(), answer: z.string().optional(), answerRecord: SourceRecordRefSchema.optional() })),
+  replies: z.array(QQEventSubmitRequestSchema), commandId: z.string().optional(),
+  status: z.enum(['pending', 'saving', 'saved', 'starting', 'started', 'unknown']),
+})
+export type QuestionBatch = z.infer<typeof QuestionBatchSchema>
+export const JobDataSchema = z.object({
   requestId: z.string(),
   coreRequestId: z.string().optional(),
   coreRunId: z.string().optional(),
@@ -40,6 +47,7 @@ export const JobSchema = z.object({
   }),
   state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused', 'cancelled']),
   acceptedAt: z.number(),
+  queueSequence: z.number().int().nonnegative().safe(),
   lastInputAcceptedAt: z.number().optional(),
   version: z.number().int().positive().default(1),
   sourceScopeId: z.string().optional(),
@@ -69,12 +77,9 @@ export const JobSchema = z.object({
   failureText: z.string().optional(),
   failure: FailureSchema.optional(),
   entryFailure: EntryFailureSchema.optional(),
-  questions: z.object({
-    batchId: z.string(), runId: z.string(),
-    items: z.array(z.object({ questionId: z.string(), question: z.string(), options: z.array(z.object({ label: z.string(), description: z.string().optional() })), multiSelect: z.boolean(), eventId: z.string(), answer: z.string().optional(), answerRecord: SourceRecordRefSchema.optional() })),
-    replies: z.array(QQEventSubmitRequestSchema).default([]), commandId: z.string().optional(),
-  }).optional(),
-}).superRefine((job, ctx) => {
+  questionBatches: z.array(QuestionBatchSchema),
+}).strict()
+export const JobSchema = JobDataSchema.superRefine((job, ctx) => {
   if (job.programSource) {
     if (job.input.content || job.input.sourceParts.length || job.input.attachments?.length || job.input.parts?.length ||
       job.input.replyToMessageId || job.sourceRecords?.length || job.sourceSnapshot || job.inputParts?.length || job.mergedInputs?.length)
@@ -84,6 +89,12 @@ export const JobSchema = z.object({
   }
 })
 export type Job = z.infer<typeof JobSchema>
+export function currentQuestions(job: Job): QuestionBatch | undefined { return job.questionBatches.at(-1) }
+export function nextTargetJob(jobs: Job[], target: string): Job | undefined {
+  return jobs.find(job => job.target === target && job.state === 'running') ?? jobs
+    .filter(job => job.target === target && ['queued', 'sending'].includes(job.state))
+    .sort((a, b) => a.queueSequence - b.queueSequence)[0]
+}
 export const OutboxSchema = z.object({
   frame: QQNotificationSchema,
   status: z.enum(['pending', 'inflight', 'sent', 'unknown', 'failed']),
@@ -122,7 +133,8 @@ export const SourceMaintenanceSchema = z.object({
 export type SourceMaintenance = z.infer<typeof SourceMaintenanceSchema>
 export const StateSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.literal(3),
+    nextQueueSequence: z.number().int().positive().safe(),
     serviceVersion: z.number().int().nonnegative().safe().default(0),
     contextEpoch: z.string().max(100).default(''),
     imageSources: z.record(z.string(), z.record(z.string(), MessagePartSchema)).default({}),
@@ -152,7 +164,8 @@ export const StateSchema = z
 export type State = z.infer<typeof StateSchema>
 export function emptyState(): State {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    nextQueueSequence: 1,
     serviceVersion: 0,
     contextEpoch: '',
     imageSources: {},
@@ -214,6 +227,8 @@ export function readState(file: string): State {
   }
   if (typeof raw === 'object' && raw !== null && (raw as { schemaVersion?: unknown }).schemaVersion === 1)
     throw new Error('Unsupported legacy QQ plugin state (schemaVersion 1); run the one-time source migration before starting')
+  if (typeof raw === 'object' && raw !== null && (raw as { schemaVersion?: unknown }).schemaVersion === 2)
+    throw new Error('Unsupported QQ question state (schemaVersion 2); run question maintenance before starting')
   try {
     return parseStored(StateSchema, raw, 'state')
   } catch {

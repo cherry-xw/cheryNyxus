@@ -54,7 +54,7 @@ function setup() {
     'private:user:123': { scopeId: 'scope-1', ownerId: 'qq', channel: 'qq', selfId: '999', conversationType: 'private', targetId: '123', presetId: 'p-id', qqContextEpoch: '', state: 'active', permissionRevision: 1, selectionRevision: 1, createdAt: 1, updatedAt: 1 },
     'group:456': { scopeId: 'scope-group', ownerId: 'qq', channel: 'qq', selfId: '999', conversationType: 'group', targetId: '456', presetId: 'p-id', qqContextEpoch: '', state: 'active', permissionRevision: 1, selectionRevision: 1, createdAt: 1, updatedAt: 1 },
   }
-  const job = JobSchema.parse({ requestId: 'request', sourceScopeId: 'scope-1', sourceRecords: [{ recordId: 'rec-1', revision: 1 }],
+  const job = JobSchema.parse({ requestId: 'request', queueSequence: 1, questionBatches: [], sourceScopeId: 'scope-1', sourceRecords: [{ recordId: 'rec-1', revision: 1 }],
     input: { eventId: 'qq:999:private:123:1', selfId: '999', conversationType: 'private', targetId: '123', senderId: '123', senderName: 'user', messageId: '1', content: '前后', mentionedBot: false, occurredAt: 1,
       sourceParts: [{ type: 'text', partId: 'p0', text: '前' }, { type: 'attachment', partId: 'p1', attachmentId: 'att-1' }, { type: 'text', partId: 'p2', text: '后' }],
       attachments: [{ partId: 'p1', type: 'file', name: 'fixture.txt', url: 'https://files.example/fixture' }],

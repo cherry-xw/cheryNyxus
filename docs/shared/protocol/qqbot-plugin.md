@@ -112,6 +112,14 @@ QQ 配置使用 voiceMode=off/requested/auto 和 voiceDefaultCharacter，默认�
 
 ## 后端到插件
 
+### QQ 原任务问答
+
+QQ 普通新消息不撤回未答问题。只有原发起者在原目标原生引用已确认送达的问题，才可保存答案；多个问题逐项收齐，含义由模型理解。保存答案不启动模型、不修改其他运行。原任务全部必需问题可靠完成后，QQ 使用与普通输入共用的持久递增序号，将该任务排到目标队尾；活动运行实际释放前不能启动下一任务。
+
+宿主内部的 `answerQuestions` 只保存；`questionResumeStatus` 只读核对 `saving/saved/started/paused/completed/failed/cancelled/unknown`；`resumeQuestions` 才明确启动。三者共同验证原任务身份、范围和绑定，不依赖会话最近身份或最新运行；缺少这些接口的宿主拒绝启动 QQ。busy 返回保存事实及 `PREVIOUS_WORK_PENDING`，表示未启动，不改变队列位置。响应丢失只查询同命令；无法证明是否开始时，不重试模型、工具或未知发送。
+
+Backend 的原归属由接入执行现场写入 `source_tasks`，问题批及稳定答案命令分别由 `source_question_bindings`、`source_answer_commands` 保存；模型只采用原快照、合法答案子快照和原请求成对工具记录。恢复沿用原 requestId/runId，不调用基于会话末尾的通用恢复，不移动其他任务的展示历史。普通 Web 的撤回、回答及显式继续规则不变。QQ 状态版本 3 保留历次问题批和队列序号，旧版本须通过停写维护转换，不在正常加载时补值；新版本部署和真实验收状态见[当前任务](../../plan/conversation-observability-and-input/README.md)。
+
 ### 服务停止与空队列恢复
 
 新 QQ 来源请求与旧任务继续分开处理。宿主已验证的新来源请求仅在当前命令与快照一致、采用请求内工具历史且不自动重试、Agent 和 Core 活动运行空闲、内存与持久输入队列均为空时，才可随新输入入队事务解除该会话的停机继续标记。入队失败回滚，旧输入非空则拒绝，不调用旧运行继续入口。普通 Web、非 QQ 输入及问答续接不获得这一许可；保存历史、未知外部操作及发送事实不因此改写。相关入口为 `handleChatInputSubmit` 与 `ingressExecution`。
