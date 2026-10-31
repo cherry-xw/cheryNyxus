@@ -618,7 +618,7 @@
     "declaration": "export type TreeControlOperationStatus =",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "047263d0e19b23c6c50ccefd14c574ad6d5501e879d11ee302cf3d087df07881"
+    "sourceSha256": "af59b3076dbf72939d15e67db8514ed7787f7f7747cfc192c6bd1069d18b6d0f"
   },
   {
     "id": "D070",
@@ -627,7 +627,7 @@
     "declaration": "export type TreeControlTargetStatus =",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "047263d0e19b23c6c50ccefd14c574ad6d5501e879d11ee302cf3d087df07881"
+    "sourceSha256": "af59b3076dbf72939d15e67db8514ed7787f7f7747cfc192c6bd1069d18b6d0f"
   },
   {
     "id": "D071",
@@ -1347,7 +1347,7 @@
     "declaration": "state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused', 'cancelled']),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "5e542f1a7395576342b624a5866c332ac173f6e884675f17158727eccc293ead"
+    "sourceSha256": "49a685ba7783730517ee77008957808c5db3b2441a122c0dfab2b5a393eb37ff"
   },
   {
     "id": "D151",
@@ -1356,7 +1356,7 @@
     "declaration": "participation: z.enum(['reply', 'wait', 'end']).optional(),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "5e542f1a7395576342b624a5866c332ac173f6e884675f17158727eccc293ead"
+    "sourceSha256": "49a685ba7783730517ee77008957808c5db3b2441a122c0dfab2b5a393eb37ff"
   },
   {
     "id": "D152",
@@ -1365,7 +1365,7 @@
     "declaration": "status: z.enum(['pending', 'inflight', 'sent', 'unknown', 'failed']),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "5e542f1a7395576342b624a5866c332ac173f6e884675f17158727eccc293ead"
+    "sourceSha256": "49a685ba7783730517ee77008957808c5db3b2441a122c0dfab2b5a393eb37ff"
   },
   {
     "id": "D153",
@@ -1410,7 +1410,7 @@
     "declaration": "const lookup = z.object({ kind: z.enum(['members', 'voices']), query: z.string().max(100) }).strict()",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "d66dedb949dc98c52c4d30069420d718cf3db1bb72feea95aacfaaf1c63c0535"
+    "sourceSha256": "c0ea9c8c7c451b90ab5fe17e1066088ee33c2f28c9c58fd320afbc0e850b4fd5"
   },
   {
     "id": "D158",
@@ -1437,7 +1437,7 @@
     "declaration": "type QQStatus,",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "a82212f3101d9da15a47db436c2f418eed437da08047e9fbad9f028fdd6ea521"
+    "sourceSha256": "d4b6a335f5b6aeb6e52a4140710175f34f358dd2722fa0653a3085d649366f11"
   },
   {
     "id": "D161",
@@ -1446,7 +1446,7 @@
     "declaration": "responseSchema: z.array(z.object({ scope: z.enum(['personal', 'group', 'member']),",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "a82212f3101d9da15a47db436c2f418eed437da08047e9fbad9f028fdd6ea521"
+    "sourceSha256": "d4b6a335f5b6aeb6e52a4140710175f34f358dd2722fa0653a3085d649366f11"
   },
   {
     "id": "D162",

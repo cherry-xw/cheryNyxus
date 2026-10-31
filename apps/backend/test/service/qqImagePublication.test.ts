@@ -65,7 +65,7 @@ describe('host image source publication',()=>{
  })
  it.each(['reserve','chunk','assetcopy','asset','source','ack'])('survives real SIGKILL at %s without duplicate publication',async stage=>{
   const f=fixture();f.db.close()
-  const child=spawnSync(process.execPath,['--import','tsx',path.resolve('docs/plan/qq-image-context/verify/crash-publication.mts'),f.root,stage],{cwd:process.cwd(),encoding:'utf8',env:process.env})
+   const child=spawnSync(process.execPath,['--import','tsx',path.resolve(import.meta.dirname,'fixtures/qqPublicationCrash.ts'),f.root,stage],{cwd:process.cwd(),encoding:'utf8',env:process.env})
   expect(child.signal,child.stderr).toBe('SIGKILL');expect(fs.readFileSync(path.join(f.root,'reached'),'utf8')).toBe(stage)
   const db=new Database(path.join(f.root,'db'));db.pragma('foreign_keys=ON');const assets=new AssetStore(db,path.join(f.root,'assets')),store=new SourcePublicationStore(db,path.join(f.root,'staging'),assets)
   try{store.recover();expect(fs.existsSync(path.join(f.root,'assets','staging'))?fs.readdirSync(path.join(f.root,'assets','staging')):[]).toEqual([]);expect(db.prepare('SELECT count(*) n FROM asset_staging_publications').get()).toEqual({n:0});const c={...f.c,sourceIdentity:'identity',targetKey:'group:1'};const state=store.status(c)
