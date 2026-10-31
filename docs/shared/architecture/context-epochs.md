@@ -36,7 +36,7 @@ fingerprint 分两面，只有语义面参与指纹计算；连接面变更不�
 | 面 | 字段（config.yaml）与资源 | 变更后果 |
 |---|---|---|
 | **语义面**（参与 fingerprint） | `roles.*` / `presets.*` / `sense_groups.*`；`llm.brain.<n>.provider / model / capabilities`；`prompt/ skills/ senses/ plugins/ rule/ command/ hooks/` 目录内容；`model-catalog.yaml` | 激活新修订 → 翻转纪元快照（仅系统提示词/工具契约切换，历史完整保留） |
-| **连接面**（不参与 fingerprint） | `llm.brain.<n>.url / key / rpm / fullUrl / contextLimit / thinking / anthropicCompat`；`global.supervision / stream / sense_execute_timeout / approval_* / disconnect_grace_ms / watchdog / history_recall / bash_log_retention_hours / textEditor / file_compression / logger.*`；`memory.* / media` | 热更新运行配置，会话无感 |
+| **连接面**（不参与 fingerprint） | `llm.brain.<n>.url / key / rpm / fullUrl / contextLimit / thinking / anthropicCompat`；`global.supervision / stream / sense_execute_timeout / approval_* / disconnect_grace_ms / watchdog / history_recall / textEditor / file_compression / logger.*`；`memory.* / media` | 热更新运行配置，会话无感 |
 
 归属裁决原则：**影响发往 LLM 的消息内容或工具契约的字段属语义面；只影响请求目标、请求参数或执行策略的字段属连接面**。`global.thinking` 总闸与 `global.stream` 属连接面（请求参数）；`brain.thinking` 档位随连接面。新增配置字段时必须在此表登记归属，未登记的字段默认按语义面处理（保守兜底）。
 
