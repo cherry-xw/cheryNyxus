@@ -1,4 +1,4 @@
-import type { State } from './state.js'
+import { terminalDelivery, type State } from './state.js'
 
 /** End queue entries, preserving finished history and the truth of unconfirmed physical sends. */
 export function closeQQQueues(state: State): void {
@@ -14,6 +14,12 @@ export function closeQQQueues(state: State): void {
   for (const output of state.outbox) {
     if (output.status === 'inflight') output.status = 'unknown'
     else if (output.status === 'pending') output.status = 'failed'
+    if (output.sourceScopeId && !output.result && ['unknown', 'failed'].includes(output.status)) {
+      output.confirmedAt = Date.now()
+      const { eventId, requestId, selfId, conversationType, targetId, seq } = output.frame.data
+      output.result = { eventId, requestId, selfId, conversationType, targetId, seq,
+        status: output.status as 'unknown' | 'failed', messageIds: [], activity: false, terminal: terminalDelivery(output) }
+    }
     delete output.notBefore
   }
   state.windows = {}

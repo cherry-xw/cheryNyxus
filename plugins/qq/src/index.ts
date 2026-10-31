@@ -1213,7 +1213,7 @@ export class QQPlugin implements IngressPlugin {
   }
   private async prepareReplyAction(job: Job, action: ReplyAction) {
     const cfg = job.snapshot.config
-    if (action.kind === 'quote' && ![job.input, ...job.background, ...(this.state.discussions[job.target]?.messages ?? [])].some(m => m.messageId === action.messageId && m.targetId === job.input.targetId)) throw new Error('Quote target outside current group background')
+    if (action.kind === 'quote' && ![...(job.mergedInputs ?? [job.input]), ...job.background].some(m => m.messageId === action.messageId && m.targetId === job.input.targetId)) throw new Error('Quote target outside current group background')
     if (action.kind === 'reaction' && !cfg.reactionEnabled) throw new Error('Reactions disabled')
     if (action.kind === 'poke' && !cfg.pokeEnabled) throw new Error('Pokes disabled')
     if (['voice', 'poke'].includes(action.kind) && reactionOnly((job.mergedInputs ?? [job.input]).map(m => m.content).join('\n'))) throw new Error('Emotional feedback is not action authorization')
@@ -1257,6 +1257,7 @@ export class QQPlugin implements IngressPlugin {
     this.state.seq[key] = seq
     this.state.outbox.push({
       status: 'pending',
+      sourceScopeId: job.sourceScopeId,
       ...(notBefore === undefined ? {} : { notBefore }),
       frame: {
         kind: 'notification',
@@ -1307,11 +1308,12 @@ export class QQPlugin implements IngressPlugin {
       fail('INVALID_PARAMS', 'QQ发送确认不匹配')
     const hash = digest(p)
     if (output.resultHash) {
-      if (output.resultHash === hash) return { eventId: p.eventId, recorded: true as const }
+      if (output.resultHash === hash) { await this.recordOutput(output); return { eventId: p.eventId, recorded: true as const } }
       if (!(['unknown','failed'].includes(output.status) && p.status === 'sent' && (output.status === 'unknown' || output.frame.type === 'qq.request.failed' || output.frame.type === 'qq.message.ack'))) fail('CONFLICT', 'QQ发送确认冲突')
     }
     output.resultHash = hash
     output.messageIds = [...p.messageIds]
+    output.result = structuredClone(p)
     output.status = p.status
     if (p.status === 'sent' && output.activityReplyThrough !== undefined)
       job.activityReplyOffset = Math.max(job.activityReplyOffset ?? 0, output.activityReplyThrough)
@@ -1322,25 +1324,6 @@ export class QQPlugin implements IngressPlugin {
       this.deliveryProblem(job, output)
     } else {
       if (job.reason === 'CONFIRMATION_PENDING') delete job.reason
-      if (output.frame.type === 'qq.reply.action' && p.status === 'sent') {
-        const text = d.actionKind === 'voice' ? `[语音；声音=${d.character}；状态=已发送；请求=${job.requestId}] ${d.text}` : d.actionKind === 'mention' ? `[@${d.userId}] ${d.text}` : d.actionKind === 'reaction' ? `[表情回应:${d.emojiId}]` : d.actionKind === 'poke' ? `[戳一戳:${d.userId}]` : `[引用回复:${d.text}]`
-        const discussion = this.state.discussions[job.target]
-        if (discussion && !discussion.messages.some(m => m.eventId === d.eventId)) {
-          discussion.messages.push({ ...job.input, eventId: d.eventId, senderId: job.input.selfId, senderName: 'AI助手', messageId: p.messageIds[0] ?? job.input.messageId, mentionedBot: false, occurredAt: Math.floor(Date.now() / 1000), content: text })
-          discussion.messages = discussion.messages.slice(-job.snapshot.config.historyLimit)
-        }
-      }
-      // AI 纯文本回复也回填 background：背景里的 AI 不再是「只戳人、只发语音、从不说话的幽灵」。
-      // 只回填最后一 part（totalParts 确认发送成功时），避免多 part 重复。
-      if (output.frame.type === 'qq.reply.part' && p.status === 'sent' && d.partIndex === d.totalParts) {
-        const discussion = this.state.discussions[job.target]
-        const eventId = `qq-ai-reply:${job.requestId}`
-        if (discussion && !discussion.messages.some(m => m.eventId === eventId)) {
-          const replyText = job.reply.trim() || '这次没有生成可发送的内容。'
-          discussion.messages.push({ ...job.input, eventId, senderId: job.input.selfId, senderName: 'AI助手', messageId: p.messageIds[0] ?? job.input.messageId, mentionedBot: false, occurredAt: Math.floor(Date.now() / 1000), content: `[AI回复] ${replyText}` })
-          discussion.messages = discussion.messages.slice(-job.snapshot.config.historyLimit)
-        }
-      }
       if (isTerminal && job.outcome !== undefined) {
         job.state = p.status === 'sent' && job.outcome === 'completed' ? 'completed' : 'failed'
         delete job.nextWaitAt
@@ -1348,6 +1331,7 @@ export class QQPlugin implements IngressPlugin {
       }
     }
     this.persist()
+    await this.recordOutput(output)
     if (job.coreRequestId && this.connection && p.status === 'sent' && !activity) {
       const identity = await this.bindIdentity(job)
       this.handles.set(job.requestId, identity)
@@ -1356,6 +1340,32 @@ export class QQPlugin implements IngressPlugin {
     }
     if (!this.paused) setImmediate(() => this.tick())
     return { eventId: p.eventId, recorded: true as const }
+  }
+  private async recordOutput(output: Outbox): Promise<void> {
+    if (!output.sourceScopeId) return // Legacy outputs do not acquire a guessed source range.
+    if (!this.connection || !this.context.core.sourceConversations) fail('SOURCE_CONTEXT_UNAVAILABLE', '发送事实保存不可用')
+    const result = output.result
+    const hash = digest({ frame: output.frame, result })
+    if (output.sourceRecordedHash === hash) return
+    await this.context.core.sourceConversations.recordDelivery({ entryId: 'qq', channel: 'qq', connectionId: this.connection,
+      scopeId: output.sourceScopeId, frame: output.frame, ...(result ? { result, confirmedAt: output.confirmedAt } : {}) })
+    output.sourceRecordedHash = hash
+    this.persist()
+  }
+  private deliverOutput(output: Outbox): void {
+    const eventId = output.frame.data.eventId
+    if (this.publishingDeliveries.has(eventId)) return
+    const connection = this.connection
+    this.publishingDeliveries.add(eventId)
+    const operation = this.recordOutput(output).then(() => {
+      if (!connection || connection !== this.connection || !this.mayDeliver(output) || output.status !== 'pending' || this.paused || this.stopped) return
+      output.status = 'inflight'; output.issuedAt = Date.now(); this.persist()
+      if (!this.context.connections.send(connection, output.frame)) {
+        output.status = 'pending'; output.notBefore = Date.now() + 2000; this.persist()
+      }
+    }).catch(() => this.context.log('qq.delivery.record.failed', { eventId }))
+      .finally(() => { this.publishingDeliveries.delete(eventId); this.operations.delete(operation) })
+    this.operations.add(operation)
   }
   private sendState(job: Job, type: QQNotification['type'], state: string): void {
     if (this.paused || !this.connection || !this.recovered) return
@@ -1373,6 +1383,24 @@ export class QQPlugin implements IngressPlugin {
       },
     })
   }
+  private programJob(template: Job, requestId: string, text: string, programSource: 'reminder' | 'app_notification'): Job {
+    const { selfId, senderId, conversationType, targetId, messageId, eventId } = template.input
+    const scope = this.state.sourceScopes[template.target]
+    if (!scope) fail('IDENTITY_REJECTED', '通知目标没有有效来源范围')
+    this.sources.validate(template.input, scope.scopeId)
+    const preset = this.snapshot.config.bindings[template.target]!, resource = this.context.core.resolvePreset(preset)
+    return {
+      requestId, version: 1, programSource, sourceScopeId: scope.scopeId, target: template.target,
+      conversationKey: this.conversationKey(selfId, template.target, resource.presetId),
+      // These IDs identify the authorization's origin, not a new member message.
+      input: { selfId, senderId, conversationType, targetId, messageId, eventId,
+        senderName: '', content: '', sourceParts: [], mentionedBot: false, occurredAt: Math.floor(Date.now() / 1000) },
+      snapshot: { revision: this.snapshot.revision, config: structuredClone(this.snapshot.config), preset,
+        presetId: resource.presetId, brain: resource.brain, senseGroup: resource.senseGroup },
+      state: 'sending', outcome: 'completed', reply: text, acceptedAt: Date.now(), replyActionComplete: true,
+      decisionRequired: false, background: [], toolIds: [], pendingIcons: [], pendingActivity: [], activityReplyOffset: 0, sentIcons: [], waits: 0,
+    }
+  }
   private async enqueueReminders(): Promise<void> {
     const store = new ReminderStore(this.context.dataDir)
     for (const item of await store.due(Date.now())) {
@@ -1380,10 +1408,9 @@ export class QQPlugin implements IngressPlugin {
       if (existing) { if (!this.state.outbox.some(o => o.frame.data.requestId === existing.requestId)) { existing.state = 'failed'; existing.reason = 'REMINDER_INCOMPLETE_COMMIT' } if (terminal(existing)) await store.result(item.id, existing.state === 'completed' ? 'sent' : 'unknown'); continue }
       const template = this.state.jobs.findLast(j => j.input.selfId === item.selfId && j.input.targetId === item.groupId && j.input.senderId === item.userId && j.input.conversationType === 'group')
       if (!template || !this.snapshot.config.groups.includes(item.groupId)) { await store.result(item.id, 'unknown'); continue }
-      const job = structuredClone(template)
-      job.requestId = `reminder:${item.id}`; job.state = 'sending'; job.outcome = 'completed'; job.reply = item.text; job.acceptedAt = Date.now()
-      delete job.coreRequestId; delete job.coreRunId; delete job.reason; job.replyActionComplete = true
-      job.input.senderId = item.userId; job.background = []; job.toolIds = []; job.pendingIcons = []; job.sentIcons = []; delete job.nextWaitAt
+      let job: Job
+      try { job = this.programJob(template, `reminder:${item.id}`, item.text, 'reminder') }
+      catch { await store.result(item.id, 'unknown'); continue }
       if (item.mention) { try { if (!(await this.queryDirectory(template, 'members')).some(m => m.id === item.userId)) item.mention = false } catch { item.mention = false } }
       this.state.jobs.push(job)
       if (item.mention) this.output(job, 'qq.reply.action', { actionKind: 'mention', userId: item.userId, text: `提醒：${item.text}`, completeReply: true })
@@ -1413,10 +1440,9 @@ export class QQPlugin implements IngressPlugin {
       const template = candidates.map(target => this.state.jobs.findLast(j => j.target === target && j.input.selfId === selfId && j.input.senderId === item.userId)).find(Boolean)
       const target = template?.target
       if (!template || !target) { await api.report(selfId, item.id, 'failed'); continue }
-      const job = structuredClone(template)
-      job.requestId = requestId; job.state = 'sending'; job.outcome = 'completed'; job.reply = item.text; job.acceptedAt = Date.now()
-      delete job.coreRequestId; delete job.coreRunId; delete job.reason; delete job.nextWaitAt
-      job.replyActionComplete = true; job.background = []; job.toolIds = []; job.pendingIcons = []; job.sentIcons = []
+      let job: Job
+      try { job = this.programJob(template, requestId, item.text, 'app_notification') }
+      catch { await api.report(selfId, item.id, 'failed'); continue }
       this.state.jobs.push(job)
       this.output(job, 'qq.reply.part', { text: item.text, partIndex: 1, totalParts: 1 })
       this.persist()
@@ -1519,8 +1545,7 @@ export class QQPlugin implements IngressPlugin {
       if (ack.status === 'inflight') {
         continue
       }
-      ack.status='inflight'; ack.issuedAt=Date.now(); this.persist()
-      if (!this.context.connections.send(this.connection,ack.frame)) {ack.status='pending';this.persist()}
+      this.deliverOutput(ack)
     }
     // Transport progresses independently of model job state, including terminal jobs.
     for (const target of new Set(this.state.outbox.filter(o => o.status === 'pending' || o.status === 'inflight').map(o => this.job(o)?.target).filter((t): t is string => !!t))) {
@@ -1528,14 +1553,10 @@ export class QQPlugin implements IngressPlugin {
       // Progress uses its own lane: slow content must not suppress heartbeats.
       const progress = (o: Outbox) => ['qq.waiting','qq.tool.icon'].includes(o.frame.type)
       const candidates = outputs.filter(o => o.status === 'pending' &&
-        !outputs.some(active => active.status === 'inflight' && progress(active) === progress(o)))
+        !outputs.some(active => (active.status === 'inflight' || this.publishingDeliveries.has(active.frame.data.eventId)) && progress(active) === progress(o)))
       const next = candidates.sort((a,b) => a.frame.data.seq-b.frame.data.seq)[0]
       if (!next || (next.notBefore !== undefined && Date.now() < next.notBefore)) continue
-      next.status = 'inflight'; next.issuedAt = Date.now(); this.persist()
-      if (!this.context.connections.send(this.connection, next.frame)) {
-        // No transport accepted the event: safe to attempt this exact event later.
-        next.status = 'pending'; next.notBefore = Date.now() + 2000; this.persist()
-      }
+      this.deliverOutput(next)
     }
     for (const target of new Set(
       this.state.jobs.filter((j) => !terminal(j) && j.state !== 'paused').map((j) => j.target),
@@ -1650,7 +1671,7 @@ export class QQPlugin implements IngressPlugin {
         job.reason = 'STATIC_TASK_FAILED'
         job.state = 'queued'
         job.decisionRequired = false
-        job.input = { ...job.input, content: diagnostic + '\n固定下载任务失败。请分析可能原因并简短告知结果；未完成下载或发送。不得编造重试，不得泄露日志或技术细节，不得修改配置、凭据或权限。原链接：' + job.input.content }
+        job.executionNotice = diagnostic + '\n固定下载任务失败。请分析可能原因并简短告知结果；未完成下载或发送。不得编造重试，不得泄露日志或技术细节，不得修改配置、凭据或权限。'
         this.persist()
         setImmediate(() => this.tick())
       }
@@ -1797,8 +1818,6 @@ export class QQPlugin implements IngressPlugin {
         (job.inputParts ?? []).filter(p => p.type === 'asset' && (p.kind === 'image' || p.mimeType?.startsWith('image/'))).length)
       job.failureText = job.failure.text
       job.reason = job.failure.code ?? 'RUN_UNKNOWN_FAILED'
-      const pendingNotice = this.state.outbox.find(o => o.frame.data.requestId === job.requestId && o.frame.type === 'qq.request.failed' && o.status === 'pending')
-      if (pendingNotice) pendingNotice.frame.data.text = job.failureText
       this.persist()
       if (job.state !== 'running') return
     }
@@ -1929,7 +1948,8 @@ export class QQPlugin implements IngressPlugin {
       ...(operation.outputAssetIds ?? []), ...(operation.outputParts ?? []).filter(part => part.type === 'asset').map(part => part.assetId),
     ]))
     const outputs = (job.outputParts ?? []).filter(part => part.type === 'asset' && (!registered.has(part.assetId) || selected.has(part.assetId)))
-    for (const part of job.decisionRequired && (job.participation === 'wait' || job.participation === 'end') ? [] : outputs) {
+    const deliverable = job.decisionRequired && (job.participation === 'wait' || job.participation === 'end') ? [] : outputs
+    for (const [index, part] of deliverable.entries()) {
       if (part.type !== 'asset') continue
       if (this.state.outbox.some(output => output.frame.data.requestId === job.requestId && output.frame.type === 'qq.reply.file' &&
         output.frame.data.asset?.assetId === part.assetId && output.frame.data.asset.assetVersionId === part.assetVersionId)) continue
@@ -1940,7 +1960,8 @@ export class QQPlugin implements IngressPlugin {
           assetId: part.assetId, assetVersionId: part.assetVersionId, offset: 0 })
         if (this.stopped || this.paused || job.state !== 'sending' || job.outcome !== outcome) return
         this.output(job, 'qq.reply.file', { asset: { assetId: asset.id, assetVersionId: asset.versionId, originalName: asset.originalName,
-          mimeType: asset.mimeType, sizeBytes: asset.sizeBytes, sha256: asset.sha256 }, completeReply: false })
+          mimeType: asset.mimeType, sizeBytes: asset.sizeBytes, sha256: asset.sha256 },
+          completeReply: outcome === 'completed' && index === deliverable.length - 1 && !job.reply.trim() && !job.replyActionComplete })
       } catch { job.reply += '\n文件已保留，但未能准备 QQ 发送；请在已登录的工作台查看和下载。' }
     }
     if (job.decisionRequired && (job.participation === 'wait' || job.participation === 'end')) {
@@ -1962,8 +1983,7 @@ export class QQPlugin implements IngressPlugin {
     }
     const lastFile = this.state.outbox.filter(output => output.frame.data.requestId === job.requestId && output.frame.type === 'qq.reply.file').at(-1)
     if (outcome === 'completed' && !job.reply.trim() && lastFile) {
-      if (lastFile.status === 'pending' || lastFile.frame.data.completeReply === true) {
-        lastFile.frame.data.completeReply = true
+      if (lastFile.frame.data.completeReply === true) {
         job.filePreparationPending = false
         if (lastFile.status === 'sent') job.state = 'completed'
         this.persist()

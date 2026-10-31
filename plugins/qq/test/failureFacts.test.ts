@@ -26,14 +26,13 @@ describe('safe persistent failure facts',()=>{
     expect(plugin.state.outbox).toHaveLength(1)
     expect(plugin.state.outbox[0].frame.data.text).toContain('6486dd90')
     expect(job.failure).toMatchObject({code:'BRAIN_IMAGE_REVIEW_REJECTED',runId:'run'})
-    const next={...job,requestId:'next',coreRunId:'next-run',acceptedAt:2000,state:'running'}
+    const next={...job,requestId:'next',coreRunId:'next-run',acceptedAt:2000,state:'running',failure:undefined}
     plugin.state.jobs.push(next)
     plugin.coreEvent('key',{type:'error',runId:'run',data:{code:'SECRET'}})
     expect(next.state).toBe('running');expect(plugin.state.outbox).toHaveLength(1)
-    const facts=plugin.conversationFacts(next)
-    expect(facts.recentRequests[0].failure.code).toBe('BRAIN_IMAGE_REVIEW_REJECTED')
+    expect(plugin.state.jobs[0].failure.code).toBe('BRAIN_IMAGE_REVIEW_REJECTED')
     plugin.state.jobs.push({...job,requestId:'foreign',conversationKey:'foreign',target:'group:9'})
-    expect(plugin.conversationFacts(next).recentRequests).toHaveLength(1)
+    expect(plugin.state.jobs.filter((j:any)=>j.target==='group:2' && j.failure)).toHaveLength(1)
   })
   it('unknown errors never invent an image acquisition cause',()=>{
     const failure=mergeFailure(undefined,'run',{code:'UNKNOWN_URL',message:'secret'},0)

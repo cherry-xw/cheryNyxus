@@ -5,9 +5,16 @@ function fixture(privateAllowed: boolean) {
   const claim = vi.fn(async () => [{ id: '649207438:demo:1:T_1H', userId: '649207438', appId: 'demo', text: '应用 demo 即将到期。', creatorChannel: { selfId: '123456', userId: '649207438', conversationType: 'group', groupId: '987654' } }])
   const report = vi.fn(async () => {})
   const plugin = Object.create(QQPlugin.prototype) as any
-  plugin.context = { appNotifications: { claim, report } }
-  plugin.state = { identityBinding: { selfId: '123456' }, jobs: [{ requestId: 'original', target: privateAllowed ? 'private:user:649207438' : 'group:987654', input: { selfId: '123456', senderId: '649207438' } }], outbox: [] }
-  plugin.snapshot = { config: { users: privateAllowed ? ['649207438'] : [], groups: ['987654'], bindings: { 'private:user:649207438': 'preset', 'group:987654': 'preset' } } }
+  plugin.context = { appNotifications: { claim, report }, core: { resolvePreset: () => ({ presetId: 'p1', brain: 'b1', senseGroup: 's1' }) } }
+  plugin.sources = { validate: vi.fn() }
+  const target = privateAllowed ? 'private:user:649207438' : 'group:987654'
+  plugin.state = {
+    identityBinding: { selfId: '123456' },
+    sourceScopes: { 'private:user:649207438': { scopeId: 'scope-private' }, 'group:987654': { scopeId: 'scope-group' } },
+    jobs: [{ requestId: 'original', target, input: { selfId: '123456', senderId: '649207438', conversationType: privateAllowed ? 'private' : 'group', targetId: privateAllowed ? '649207438' : '987654', messageId: '1', eventId: 'evt-1' } }],
+    outbox: [],
+  }
+  plugin.snapshot = { revision: 1, config: { users: privateAllowed ? ['649207438'] : [], groups: ['987654'], bindings: { 'private:user:649207438': 'preset', 'group:987654': 'preset' } } }
   plugin.output = vi.fn(); plugin.persist = vi.fn()
   return { plugin, claim, report }
 }
