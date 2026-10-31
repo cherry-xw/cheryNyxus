@@ -160,6 +160,8 @@ try {
   const stream = await fetch(`${endpoint}/events`, { headers: auth, signal: streamAbort.signal })
   assert.equal(stream.status, 200)
   assert.match(stream.headers.get('content-type'), /text\/event-stream/)
+  assert.match(stream.headers.get('cache-control') || '', /\bno-store\b/)
+  assert.match(stream.headers.get('cache-control') || '', /\bno-transform\b/)
   const reader = stream.body.getReader()
   const timeout = setTimeout(() => streamAbort.abort(), 5000)
   try {
@@ -201,6 +203,8 @@ try {
   const publicStreamAbort = new AbortController()
   const publicStream = await fetch(`${endpoint}/events`, { signal: publicStreamAbort.signal })
   assert.equal(publicStream.status, 200)
+  assert.match(publicStream.headers.get('cache-control') || '', /\bno-store\b/)
+  assert.match(publicStream.headers.get('cache-control') || '', /\bno-transform\b/)
   await publicStream.body.cancel(); publicStreamAbort.abort(); checks++
   await request('/api/records', 401, post({ title: 'forbidden' }))
   await request('/api/records/import-csv', 401, post({ csv: 'title\nforbidden' }))

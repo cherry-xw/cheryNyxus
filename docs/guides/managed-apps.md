@@ -47,4 +47,4 @@
 
 LAN 入口为 `http://10.2.3.6` 的 Nginx，公网为 `https://mini.xcherry.top`。Backend 的 8283 端口不直接提供原静态分享入口；不能用其返回的页面代替分享文件验证。应用无尾斜杠路径应跳转到带斜杠路径；停止页与 `APP_STOPPED` 的 503 是正常停止结果，不是必须重启的故障。
 
-已知续期回复和实时缓存问题见[独立维护计划](../plan/managed-app-maintenance/README.md)。修正涉及应用、镜像或控制器时，需要重新明确对象和生效方式，不能为复验而覆盖已有应用。
+仓库已补齐 `managed_app` 的 `leaseExpiresAtText` 可读到期时间和模板 `/events` 的 `no-store` 缓存头（见[验证说明](../quality/verification/managed-apps.md#当前限制与接手安排)）。后续同步到运行镜像、宿主模板或指定应用时，仍须明确更新对象与生效方式，不能自动覆盖已有用户应用代码。

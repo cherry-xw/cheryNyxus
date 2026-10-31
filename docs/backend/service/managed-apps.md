@@ -55,7 +55,7 @@
 - 空闲停止默认 24 小时。健康检查、静态文件、实时连接保活和标记为轮询的请求不作为真实操作续期；具体活跃请求判定由 `lifecycle.ts` 维护。
 - 周清理按 `Asia/Shanghai` 每周一 04:00 计算；恢复时只补处理清理时刻之前的实例，不误停之后新启动的实例。停止保留持久目录。
 - 到期前 24 小时、前 1 小时和自动停止产生通知，按应用、租期版本和通知阶段去重。续期作废旧租期的待发通知；未知投递不自动重复发送，通知失败不阻止按时停止。
-- 私聊和群聊通知目标取已验证来源，群内不得出现激活令牌。租期实际结果与模型解释是否一致分别检查，不能仅依据聊天回复判断已续期。
+- 私聊和群聊通知目标取已验证来源，群内不得出现激活令牌。`managed_app` 工具观察结果对正整数 `leaseExpiresAt` 同时提供 `Asia/Shanghai` 可读时间 `leaseExpiresAtText`（`YYYY-MM-DD HH:mm:ss +08:00`），避免模型自行换算毫秒时间戳偏差；租期实际结果与模型解释是否一致分别检查，不能仅依据聊天回复判断已续期。
 
 ## 模板读取权限
 
@@ -66,7 +66,7 @@
 - 页面、脚本、样式、登录与激活入口不因私密设置而被关闭；未登录页面不请求私密业务数据，退出后清空页面已有数据并关闭实时连接。
 - 控制器在发布时注入可信 `APP_VISIBILITY`，包括复用已有容器时的服务重启；调用方的请求头不能覆盖它。
 - 未知或缺失的可见性按私密处理。模板及网关不公开内部健康检查、源码和数据库。
-- 模板响应禁止缓存；网关保留应用的 `no-store`，不能在转发时放宽私密响应的缓存限制。
+- 模板响应（包括 `/events` SSE 实时流）禁止缓存（`Cache-Control: no-store, no-cache, no-transform`）；网关保留应用的 `no-store` 并确保包含单一 `no-transform`，不能在转发时放宽私密响应的缓存限制。
 - 路径模式只适用于本人和互信内容，不提供恶意同域应用之间的浏览器隔离。
 
 ## 管理员激活
@@ -83,4 +83,4 @@
 
 扩展模型动作时同时修改工具 schema、控制器 RPC schema、分发和调用方；增加读取入口时按上面的可见性规则接入，不只在页面隐藏按钮。
 
-本地回归使用根命令 `pnpm test:backend -- <测试路径> --no-file-parallelism`；完整模板 HTTP、Cookie、CSRF、CSV、附件、SSE 和重启数据验证由 `test/helpers/managedAppTemplateProbe.mjs` 在固定镜像的断网临时容器中执行。运行前提、验证命令和未验证范围见[验证说明](../../quality/verification/managed-apps.md)。离线验证不能替代部署或用户验收。已知回复与实时缓存问题由[独立维护计划](../../plan/managed-app-maintenance/README.md)接手，未完成不等于基本开发交付未通过。
+本地回归使用根命令 `pnpm test:backend -- <测试路径> --no-file-parallelism`；完整模板 HTTP、Cookie、CSRF、CSV、附件、SSE 和重启数据验证由 `test/helpers/managedAppTemplateProbe.mjs` 在固定镜像的断网临时容器中执行。运行前提、验证命令和未验证范围见[验证说明](../../quality/verification/managed-apps.md)。离线验证不能替代部署或用户验收。

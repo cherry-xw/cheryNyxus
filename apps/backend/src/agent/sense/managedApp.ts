@@ -36,13 +36,25 @@ export function managedAppPrincipal(ctx?: SenseRuntimeContext) {
   return { userId: subject.userId, creatorChannel: { channel: 'qq' as const, ...subject } }
 }
 
-/** Strip controller-only fields before inserting observations into model context. */
+/** Strip controller-only fields and add readable Shanghai lease time before inserting observations into model context. */
+function formatShanghaiDateTime(ms: unknown): string | undefined {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return undefined
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(ms).map(part => [part.type, part.value]))
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} +08:00`
+}
+
 function publicResult(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(publicResult)
   if (!value || typeof value !== 'object') return value
-  return Object.fromEntries(Object.entries(value).filter(([key]) =>
+  const record = Object.fromEntries(Object.entries(value).filter(([key]) =>
     !['userId', 'ownerId', 'containerIp', 'containerId', 'containerName', 'projectId', 'creatorChannel'].includes(key)
   ).map(([key, item]) => [key, publicResult(item)]))
+  const leaseExpiresAtText = formatShanghaiDateTime((value as Record<string, unknown>).leaseExpiresAt)
+  if (leaseExpiresAtText) record.leaseExpiresAtText = leaseExpiresAtText
+  return record
 }
 
 export function createManagedAppSense(client = new ControllerSocketClient()) {

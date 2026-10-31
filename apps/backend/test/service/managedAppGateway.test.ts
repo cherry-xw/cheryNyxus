@@ -79,14 +79,14 @@ describe('managed app gateway', () => {
     await gateway.handle({ url: '/qq/649207438/apps/demo/', headers: { accept: 'text/html' } } as IncomingMessage, res)
     expect(res.end).toHaveBeenCalledWith(expect.stringContaining('应用当前不可用'))
   })
-  it('preserves the application no-store directive when proxying private data', async () => {
+  it('preserves the application no-store directive when proxying private data and avoids duplicate no-transform on SSE', async () => {
     const upstream = Object.assign(new EventEmitter(), { setTimeout: vi.fn(), destroy: vi.fn() })
-    const incoming = Object.assign(new EventEmitter(), { headers: { 'cache-control': 'no-store' }, statusCode: 200, pipe: vi.fn() })
+    const incoming = Object.assign(new EventEmitter(), { headers: { 'cache-control': 'no-store, no-cache, no-transform' }, statusCode: 200, pipe: vi.fn() })
     upstreamRequest.mockImplementationOnce((_options, callback) => { callback(incoming); return upstream })
     const res = Object.assign(new EventEmitter(), { writeHead: vi.fn(), end: vi.fn(), destroy: vi.fn() }) as unknown as ServerResponse
     const gateway = createManagedAppGateway({ inspectAppStatus: async () => [{ userId: '649207438', appId: 'demo', state: 'running', serviceReady: true, containerIp: '172.29.0.3' }], touchAppActivity: async () => ({}) } as unknown as ControllerSocketClient)
-    await gateway.handle({ url: '/qq/649207438/apps/demo/api/records', headers: {}, pipe: vi.fn() } as unknown as IncomingMessage, res)
-    expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({ 'cache-control': 'no-store, no-transform' }))
+    await gateway.handle({ url: '/qq/649207438/apps/demo/events', headers: {}, pipe: vi.fn() } as unknown as IncomingMessage, res)
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({ 'cache-control': 'no-store, no-cache, no-transform' }))
     res.emit('close')
     expect(upstream.destroy).toHaveBeenCalled()
   })

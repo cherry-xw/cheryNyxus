@@ -36,13 +36,27 @@ describe('managed_app trusted identity and execution boundary', () => {
     await tool.executor.execute({ action: 'status' }, new Map(), context())
     expect(inspect).toHaveBeenCalledWith({ userId: '649207438', appId: undefined })
   })
-  it('redacts internal controller fields and group activation link', async () => {
+  it('redacts internal controller fields, group activation link, and formats Shanghai lease expiry text', async () => {
     const { tool, client } = fixture()
-    vi.spyOn(client, 'startAppService').mockResolvedValue({ appId: 'test-app', userId: '649207438', state: 'running', appUrl: 'https://example.org/', activationUrl: 'https://example.org/?activate_token=test-only', containerIp: '172.29.0.3', health: 'ok', leaseExpiresAt: 0, idleTimeoutHours: 24 })
+    vi.spyOn(client, 'startAppService').mockResolvedValue({ appId: 'test-app', userId: '649207438', state: 'running', appUrl: 'https://example.org/', activationUrl: 'https://example.org/?activate_token=test-only', containerIp: '172.29.0.3', health: 'ok', leaseExpiresAt: 1793870317058, idleTimeoutHours: 24 })
     const result = JSON.parse((await tool.executor.execute({ action: 'publish', appId: 'test-app' }, new Map(), context(true))).content)
     expect(result.result).not.toHaveProperty('activationUrl')
     expect(result.result).not.toHaveProperty('containerIp')
     expect(result.result).not.toHaveProperty('userId')
+    expect(result.result.leaseExpiresAt).toBe(1793870317058)
+    expect(result.result.leaseExpiresAtText).toBe('2026-11-05 17:18:37 +08:00')
+  })
+  it('returns readable Shanghai expiry time on renew without waking stopped service', async () => {
+    const { tool, client } = fixture()
+    vi.spyOn(client, 'renewAppLease').mockResolvedValue({ appId: 'accept-ledger-20261028', userId: '649207438', state: 'stopped', leaseVersion: 2, leaseExpiresAt: 1793870317058 } as never)
+    const result = JSON.parse((await tool.executor.execute({ action: 'renew', appId: 'accept-ledger-20261028', days: 7 }, new Map(), context())).content)
+    expect(result.result).toEqual({
+      appId: 'accept-ledger-20261028',
+      state: 'stopped',
+      leaseVersion: 2,
+      leaseExpiresAt: 1793870317058,
+      leaseExpiresAtText: '2026-11-05 17:18:37 +08:00',
+    })
   })
   it('returns actionable missing appId and accepts a corrected create', async () => {
     const { tool, client } = fixture()

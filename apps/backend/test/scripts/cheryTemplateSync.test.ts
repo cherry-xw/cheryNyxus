@@ -89,10 +89,12 @@ describe('syncCheryTemplate', () => {
     expect(Object.keys(brains)).toEqual(['default'])
     expect(brains.default).toMatchObject({
       provider: 'openai',
-      url: '<YOUR_LLM_URL>',
+      protocol: 'openai-chat-completions',
       model: '<YOUR_MODEL_NAME>',
       key: '$LLM_API_KEY',
+      contextLimit: 128000,
     })
+    expect(brains.default.url).toBeUndefined()
     expect(Object.values(template.roles).every((role: any) => role.brain === 'default')).toBe(true)
     expect(template.presets).toEqual(
       expect.objectContaining({
