@@ -13,6 +13,7 @@ import { reportFatalStartupError } from '../fatalStartup.js'
 import { handleAssetHttp } from '../media/http.js'
 import { handleFileServiceHttp } from '../fileServices/http.js'
 import { stageSkillZipBuffer } from '../skill/import.js'
+import type { WebSocketServer } from 'ws'
 
 /**
  * MIME 类型映射（自写 minimal static serve，无新依赖）
@@ -55,6 +56,8 @@ export interface CreateHttpServerOptions {
   relayOperation?: (type: string, input: Record<string, unknown>) => Promise<unknown>
   relayBinding?: () => Promise<unknown>
   wsPort?: number | (() => number)
+  /** Same authenticated business server, also reachable through the HTTP origin. */
+  webSocketServer?: WebSocketServer
 }
 
 /**
@@ -76,6 +79,7 @@ export function createHttpServer({
   auth,
   listener = 'local',
   wsPort,
+  webSocketServer,
 }: CreateHttpServerOptions) {
   // 静态目录解析：未提供 → null（不挂文件 handler，所有非 API 路径返回 JSON 404 提示）
   const root = staticDir ? resolve(staticDir) : null
@@ -129,6 +133,15 @@ export function createHttpServer({
   }) as typeof server.close
   server.on('upgrade', (req, socket, head) => {
     if (listener !== 'local') { socket.destroy(); return }
+    const businessPath = `${auth?.browserDeployment()?.basePath ?? ''}/ws`
+    if (webSocketServer && req.url?.split('?')[0] === businessPath) {
+      try {
+        webSocketServer.handleUpgrade(req, socket, head, (ws) => {
+          webSocketServer.emit('connection', ws, req)
+        })
+      } catch { socket.destroy() }
+      return
+    }
     void managedApps.upgrade(req, socket, head).then(handled => { if (!handled) socket.destroy() }).catch(() => socket.destroy())
   })
   server.listen(webPort, host)

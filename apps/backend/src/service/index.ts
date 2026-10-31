@@ -244,6 +244,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     auth,
     listener: 'local',
     wsPort: () => listeningPort(wss) ?? options.port,
+    webSocketServer: wss,
   })
 
   const remoteWss = options.remote

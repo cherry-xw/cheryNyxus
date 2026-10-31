@@ -10,6 +10,7 @@
 - **服务封装**（index.ts）：创建 `ws.WebSocketServer`、绑定 connection/message/close/error、把 Request 分发给 `RpcRouter`、迭代流式 handler 结果逐帧推送、interrupt 后记 approvalId（供 close park；限时超时由 core approvalRegistry 管，非本层）。服务入口可额外创建仅绑定 loopback 的远程 socket；远程 socket 使用认证但不允许 loopback 豁免。
 - **连接状态**（connection.ts）：`ConnectionManager` 维护 ws→state、chatId→connectionId 活跃绑定（拒绝跨连接并发同 chat）、pendingRequests（含审批 ID 映射）、关闭时 park pending approval 并释放 chat 绑定。
 - **帧编解码**（transport.ts）：`Transport` 单例，按 `config.server.transport`（`binary`/`json`）编码 Chunk/Notification；Request/Response 始终走 JSON。
+- **同源浏览器连接**：`startService` 将本地业务 WebSocketServer 同时交给 [HTTP 服务](http.md)接收升级，认证和消息处理只有一套；流程边界及回归见[浏览器会话契约](../../shared/protocol/browser-session.md)与 [`browserConnection.test.ts`](../../../apps/backend/test/service/browserConnection.test.ts)。
 - **精简设备投影**（liteProjection.ts）：只在 lite 连接发送端裁剪通知、时间线和 RPC 响应；字段与分页预算以[设备协议](../../shared/protocol/profiles/mcu-lite.md)为准，时间线归属以[权威时间线](../../shared/architecture/canonical-timeline.md)为准。
 
 ## 文件清单
