@@ -318,14 +318,16 @@ export interface IngressCore {
 }
 /** Host adapters are injectable without giving a plugin access to arbitrary RPCs. */
 export interface IngressCoreAdapter {
-  answerQuestions?(ownerId: string, key: string, input: Omit<IngressQuestionAnswer, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<{ runId: string }>
+  readSourceManagement?(ownerId: string, input: { principal: string; query: import('@chery/protocol').SourceManagementQuery; generatedReply?: string; validateIdentity(): void }): Promise<import('@chery/protocol').SourceManagementResult>
+  sourceConversations?: IngressSourceConversationsAdapter
+  answerQuestions?(ownerId: string, key: string, input: Omit<IngressQuestionAnswer, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressQuestionAnswerResult>
   sourceReferences?(ownerId:string,key:string): Promise<Record<string, import('@chery/protocol').MessagePart>>
   abortSources?(ownerId:string,sourceKeys:readonly string[]): Promise<void>
   restrictSources?(ownerId:string,conversationKeys:readonly string[]): Promise<void>
   publishSource?(ownerId: string, key: string, input: Omit<IngressSourcePublication, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressSourceResult>
   importFile?(ownerId: string, key: string, input: Omit<IngressFileImport, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<AssetRecord>
   readFileChunk?(ownerId: string, key: string, input: Omit<IngressFileRead, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressFileChunk>
-  internalText?(ownerId: string, input: IngressInternalTextInput): Promise<string>
+  internalText?(ownerId: string, input: IngressInternalTextAuthorization): Promise<string>
   listPresets(): readonly { name: string; presetId: string }[]
   resolvePreset(name: string): Readonly<IngressPreset>
   ensureConversation(ownerId: string, key: string, preset: string): Promise<{ chatId: string }>
@@ -451,6 +453,7 @@ export interface IngressContext {
     }): Promise<void>
   }
   readonly management: {
+    readSource?(query: import('@chery/protocol').SourceManagementQuery, generatedReply?: string): Promise<import('@chery/protocol').SourceManagementResult>
     register(definition: {
       moduleId: string
       routes: Array<{

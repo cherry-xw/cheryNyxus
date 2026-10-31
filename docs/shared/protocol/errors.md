@@ -159,6 +159,8 @@ throw new ClassifiedError({
 
 ## QQ 安全错误事实
 
+QQ 来源只读管理沿现有错误信封返回以下安全类别，不返回原始异常正文：`invalid_params`（400，选择关系或参数不符）、`permission_denied` / `identity_rejected`（403）、`not_found`（404）、`source_conflict` / `revision_conflict` / `summary_conflict` / `cursor_expired`（409）及 `response_too_large`（413）。游标失效只允许重新读取同一版本，不能自动换到最新输入；401/403 清理页面受限正文缓存并拒收此前的迟到响应。调用结果未知、采集失败及内容未读取分别展示，不能统一解释为未执行。
+
 QQ 插件只将协议认可的错误事实写入任务状态和用户通知：按 Core run ID 关联稳定错误码、追踪标识、可重试性、阶段和输入图片资产引用数。上游响应正文、任意异常消息、URL、凭据和未识别的 `error.code` 不进入持久状态或 QQ 回复。通用 `error` 与 `run.outcome` 到达顺序不应抹去同一 run 已确认的具体原因；迟到事件只能补充原任务，不能污染后续任务或重复通知。图片引用数只表示输入携带资产，不表示模型成功读取或理解图片；无法确认的终态应如实说明未知。
 
 实现、协议映射、自动测试和真实生产验收是不同证据。当前生产验收结论只适用于普通接续问答；外围错误矩阵、进程重启、审批和 unknown 投递边界仍列在 `docs/quality/verification/qq-safe-outcomes.md`，未据此宣称通过。

@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import fs from 'node:fs'
 import path from 'node:path'
 import { registerPluginResources } from './resources.js'
@@ -25,6 +26,7 @@ import {
   type IngressStatus,
 } from './api.js'
 import { IngressStore, ingressError } from './store.js'
+const managementReaderContext = new AsyncLocalStorage<{ctx: import('./api.js').HandlerContext; principal: string}>()
 import { IngressIdentityAuthority } from './identity.js'
 
 type Release = () => void | Promise<void>
@@ -605,6 +607,7 @@ export class IngressHost {
             () =>
               router.registerExtension({
                 ...definition,
+                handler: (ctx, params) => management ? managementReaderContext.run({ctx,principal:`control:${ctx.connectionId}`}, () => definition.handler(ctx, params)) : definition.handler(ctx, params),
                 authorize: (ctx) =>
                   (management
                     ? ctx.credentialKind === 'control'
@@ -712,6 +715,17 @@ export class IngressHost {
         },
       } : undefined,
       management: {
+        readSource: async (query, generatedReply) => {
+          requireCapability('rpc.management')
+          const reader = managementReaderContext.getStore(), ctx = reader?.ctx
+          const validateIdentity = () => {
+            if (!ctx || ctx.credentialKind !== 'control' || managementReaderContext.getStore() !== reader || this.stopped ||
+              !connections.isOpen(ctx.connectionId) || connections.credentialKind(ctx.connectionId) !== 'control') throw ingressError('CAPABILITY_DENIED')
+          }
+          validateIdentity()
+          if (!core.readSourceManagement) throw ingressError('UNAVAILABLE')
+          return core.readSourceManagement(id, { principal: reader!.principal, query, generatedReply, validateIdentity })
+        },
         register: (definition: ManagementDefinition) => {
           requireCapability('manager.ui')
           return stage(
@@ -948,7 +962,8 @@ export class IngressHost {
     if (!parsed.success) throw ingressError('INVALID_PARAMS')
     let result: unknown
     try {
-      result = await route.handler(parsed.data as Parameters<typeof route.handler>[0], ctx)
+      const principal = input.readerPrincipal ? `manager:${input.readerPrincipal}` : `control:${ctx.connectionId}`
+      result = await managementReaderContext.run({ctx,principal}, () => route.handler(parsed.data as Parameters<typeof route.handler>[0], ctx))
     } catch (error) {
       const failure = error as { code?: unknown; status?: unknown }
       if (

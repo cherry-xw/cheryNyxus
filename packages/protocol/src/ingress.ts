@@ -134,6 +134,7 @@ export const IngressRequestSchemas = {
       pathParams: z.record(z.string(), z.string()),
       query: z.record(z.string(), z.string()),
       body: z.unknown().optional(),
+      readerPrincipal: z.string().regex(/^[a-f0-9]{48}$/).optional(),
     })
     .strict(),
 } as const

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { readSourceManagement } from '@/db/sourceManagement.js'
 import config from '@/utils/config.js'
 import { getLLMAdapter } from '@/core/llm/adapter.js'
 import { getMessageAdapter } from '@/core/message/adapter.js'
@@ -65,6 +66,10 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
     return chatId
   }
   return {
+    readSourceManagement: async (ownerId, input) => readSourceManagement(new SourceContextRepository(getSoulDb()),
+      { ownerId, principal: input.principal, validate: input.validateIdentity }, input.query, input.generatedReply),
+    sourceConversations: createSourceConversationsAdapter(chatId => Boolean(submitting.has(chatId) || getActiveChatRunId(chatId) ||
+      chatRuntimes.get(chatId)?.builder.isRunning() || getPendingChatInputs(chatId).length || listPendingInputs(chatId).length)),
     answerQuestions: async (owner, key, input) => {
       const chatId = requireOwned(owner, key)
       input.validateIdentity()
