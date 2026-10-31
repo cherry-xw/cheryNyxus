@@ -24,6 +24,7 @@ import {
   QQDefaultConfig,
   QQConfigSchema,
   QQCapabilities,
+  resolveConversationPolicy,
   QQRequestSchemas,
   QQResponseSchemas,
   type QQConfig,
@@ -96,7 +97,7 @@ export class QQPlugin implements IngressPlugin {
   private readonly busy = new Set<string>()
   private readonly cleanups: Array<() => void> = []
   private readonly paused: boolean
-  private apply = { state: 'applied' as 'applied' | 'pending' | 'restart_required' | 'failed', revision: 0 }
+  private apply: { state: 'applied' | 'pending' | 'restart_required' | 'failed'; revision: number; reason?: string } = { state: 'applied', revision: 0 }
   constructor(private readonly context: IngressContext) {
     this.file = path.join(context.dataDir, 'state.json')
     this.state = readState(this.file)
@@ -452,7 +453,7 @@ export class QQPlugin implements IngressPlugin {
     for (const [name, rpcMethod] of [['config', 'qq.config.get'], ['status', 'qq.status.get'],
       ['queue', 'qq.queue.get'], ['history', 'qq.history.get']] as const) {
       const handler = async () => name === 'config' ? this.configView() : name === 'status' ? this.status() :
-        { entries: name === 'queue' ? this.entries(false) : this.entries(true).slice(-this.context.config.snapshot<QQConfig>().config.historyLimit) }
+        { entries: name === 'queue' ? this.entries(false) : this.entries(true).slice(-this.context.config.snapshot<QQConfig>().config.managementHistoryLimit) }
       routes.push({ method: 'GET', path: name, rpcMethod,
         requestSchema: z.object({ pathParams: z.object({}).strict(), query: z.object({}).strict() }).strict(),
         responseSchema: QQResponseSchemas[rpcMethod], handler })
@@ -461,6 +462,9 @@ export class QQPlugin implements IngressPlugin {
       requestSchema: z.object({ pathParams: z.object({}).strict(), query: QQRequestSchemas['qq.entry.get'] }).strict(),
       responseSchema: QQResponseSchemas['qq.entry.get'],
       handler: async input => this.entryDetail(QQRequestSchemas['qq.entry.get'].parse(input.query).requestId) })
+    routes.push({ method: 'GET', path: 'policy', rpcMethod: 'qq.policy.get',
+      requestSchema: z.object({ pathParams: z.object({}).strict(), query: QQRequestSchemas['qq.policy.get'] }).strict(),
+      responseSchema: QQResponseSchemas['qq.policy.get'], handler: async input => this.policyView(QQRequestSchemas['qq.policy.get'].parse(input.query).target) })
     routes.push({ method: 'GET', path: 'voices', rpcMethod: 'qq.voices.get',
       requestSchema: z.object({ pathParams: z.object({}).strict(), query: z.object({ groupId: z.string().regex(/^[1-9]\d{0,19}$/) }).strict() }).strict(),
       responseSchema: z.object({ items: z.array(z.object({ id: z.string(), name: z.string(), card: z.string().optional() }).strict()) }).strict(),
@@ -784,11 +788,12 @@ export class QQPlugin implements IngressPlugin {
       return this.confirm(p)
     })
     register('qq.config.get', async () => this.configView())
+    register('qq.policy.get', async (_, input) => this.policyView(input.target))
     register('qq.config.save', async (_, p) => this.saveConfiguration(p))
     register('qq.status.get', async () => this.status())
     register('qq.queue.get', async () => ({ entries: this.entries(false) }))
     register('qq.history.get', async () => ({
-      entries: this.entries(true).slice(-this.context.config.snapshot<QQConfig>().config.historyLimit),
+      entries: this.entries(true).slice(-this.context.config.snapshot<QQConfig>().config.managementHistoryLimit),
     }))
     register('qq.entry.get', async (_, params) => this.entryDetail(params.requestId))
   }
@@ -809,6 +814,7 @@ export class QQPlugin implements IngressPlugin {
       this.apply = {
         state: saved.apply.state,
         revision: saved.apply.revision,
+        reason: saved.apply.reason,
       }
       this.state.configWrites[p.requestId] = { hash, response }
       this.persist()
@@ -817,6 +823,20 @@ export class QQPlugin implements IngressPlugin {
   private configView() {
     const saved = this.context.config.saved<QQConfig>()
     return { config: saved.config, baseRevision: saved.revision, apply: { ...this.apply } }
+  }
+  private policyView(target: string) {
+    const config = this.snapshot.config, group = target.startsWith('group:'), targetId = target.slice(group ? 6 : 13)
+    if (!(group ? config.groups : config.users).includes(targetId)) fail('NOT_ALLOWED', '目标未获许可')
+    let tools: readonly string[] = [], missing = false
+    try { tools = this.context.core.resolvePreset(config.bindings[target]!).tools ?? [] } catch { missing = true }
+    const selected = tools.map(entry => entry.split(':')[0]!.trim())
+    return { target, savedRevision: this.context.config.saved().revision, appliedRevision: this.snapshot.revision,
+      ...resolveConversationPolicy(config, target), capabilities: ['web_search','web_fetch','qq_history','qq_memory_search','qq_interact','qq_container_exec'].map(name => {
+        const configured = selected.some(key => key === name || key.startsWith(name + '.'))
+        const disabled = name === 'qq_memory_search' && !config.memoryEnabled || name === 'qq_container_exec' && !config.workerEnabled
+        return { name, configured, allowed: configured && !disabled && !missing, ready: null,
+          reason: missing ? 'missing_preset' : !configured ? 'missing_tool' : disabled ? 'disabled' : !this.recovered ? 'not_connected' : 'unverified', lastResult: null }
+      }), proactive: { usedChecks: 0, limit: config.conversation.proactive.maxChecksPerHour, nextCheckAt: null } }
   }
   private entries(history: boolean): QQEntry[] {
     const outputs = new Map<string, Outbox[]>()
@@ -1803,7 +1823,7 @@ export class QQPlugin implements IngressPlugin {
       job.sourceSnapshot = await api.freeze({ entryId: 'qq', identity, scopeId, requestId: job.requestId,
         actorRecord: job.sourceRecords[0]!, inputRecords: job.sourceRecords,
         expectedSelectionRevision: scope.selectionRevision, policy: { qqConfigRevision: job.snapshot.revision,
-          historyLimit: job.snapshot.config.historyLimit, backgroundMaxAgeMs: job.snapshot.config.backgroundMaxAgeMs,
+          historyLimit: job.snapshot.config.backgroundMessageLimit, backgroundMaxAgeMs: job.snapshot.config.backgroundMaxAgeMs,
           backgroundMaxChars: job.snapshot.config.backgroundMaxChars } })
       job.version++; this.persist()
     }

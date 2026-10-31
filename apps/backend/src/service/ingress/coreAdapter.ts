@@ -237,6 +237,7 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
         presetId: resolved.presetId,
         leaderName: resolved.leaderName,
         ...resolved.selection,
+        tools: config.sense_groups?.[resolved.selection.senseGroup] ?? [],
       })
     },
     ensureConversation: (owner, key, preset) => {

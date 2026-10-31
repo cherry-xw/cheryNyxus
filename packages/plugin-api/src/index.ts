@@ -126,6 +126,7 @@ export interface IngressPreset {
   leaderName: string
   brain: string
   senseGroup: string
+  tools?: readonly string[]
   mcpServers: readonly string[]
 }
 export interface IngressInternalTextInput { preset: string; instruction: string; content: string; signal?: AbortSignal

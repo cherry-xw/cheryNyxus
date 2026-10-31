@@ -3,6 +3,8 @@ import { QQImageLimitsSchema, QQImagePolicyDefault, QQImageRequestSchemas, QQIma
 import { SourcePartsSchema, SourceReceiptResultSchema, SourceReceiptStatusSchema } from './sourceContext.js'
 import { QQFileRequestSchemas, QQFileResponseSchemas, QQFileTransportMethods } from './qqFiles.js'
 import { QQSourceRequestSchemas, QQSourceResponseSchemas, SourceContextIndexSchema, SourceEntryItemsSchema, SourceVisibleBodySchema } from './sourceManagement.js'
+import { QQConversationSchema, QQConversationDefault, QQLearningSchema } from './qqConversation.js'
+export * from './qqConversation.js'
 export * from './qqImages.js'
 export * from './qqFiles.js'
 
@@ -52,7 +54,13 @@ export const QQConfigSchema = z
     groups: z.array(QQIdSchema).max(100),
     users: z.array(QQIdSchema).max(1000),
     bindings: z.record(target, z.string().min(1).max(100)),
-    continuationMaxMessages: z.number().int().min(0).max(5).default(5),
+    schemaVersion: z.literal(2),
+    conversation: QQConversationSchema.default(QQConversationDefault),
+    learning: QQLearningSchema.default({ maxCallsPerHour: 60, maxPending: 100 }),
+    linkAutoDownloadEnabled: z.boolean().default(true),
+    learningEnabled: z.boolean().default(true),
+    publicTermsEnabled: z.boolean().default(true),
+    publicTermsMaxEntries: z.number().int().min(100).max(10000).default(2000),
     waitIntervalSeconds: z.number().int().min(10).max(3600).default(180),
     continuationTtlMs: z.number().int().min(1000).max(86400000),
     waitMessageMode: z.enum(['cycle', 'random']),
@@ -68,13 +76,15 @@ export const QQConfigSchema = z
     ),
     maxMessageChars: z.number().int().min(100).max(4000),
     queueLimit: z.number().int().min(1).max(100),
-    historyLimit: z.number().int().min(1).max(1000),
+    backgroundMessageLimit: z.number().int().min(1).max(1000),
+    managementHistoryLimit: z.number().int().min(1).max(1000),
     messageMergeMs: z.number().int().min(0).max(10000).default(1500),
     backgroundMaxChars: z.number().int().min(1000).max(100000).default(12000),
     backgroundMaxAgeMs: z.number().int().min(1000).max(604800000).default(86400000),
     reactionEnabled: z.boolean().default(true),
     pokeEnabled: z.boolean().default(true),
     pokeCooldownMs: z.number().int().min(10000).max(3600000).default(60000),
+    mentionCooldownMs: z.number().int().min(10000).max(3600000).default(60000),
     voiceMode: z.enum(['off', 'requested', 'auto']).default('requested'),
     voiceDefaultCharacter: z.string().max(100).default(''),
     voiceMaxChars: z.number().int().min(10).max(200).default(100),
@@ -98,6 +108,8 @@ export const QQConfigSchema = z
   })
   .strict()
   .superRefine((c, ctx) => {
+    for (const group of Object.keys(c.conversation.groups)) if (!c.groups.includes(group))
+      ctx.addIssue({ code: 'custom', path: ['conversation', 'groups', group], message: '群覆盖必须属于允许的群' })
     if (c.memoryTargetRatio >= c.memoryConsolidateRatio) ctx.addIssue({ code: 'custom', path: ['memoryTargetRatio'], message: '整理目标必须低于触发比例' })
     if (new Set(c.groups).size !== c.groups.length || new Set(c.users).size !== c.users.length)
       ctx.addIssue({ code: 'custom', message: 'Duplicate permission entries' })
@@ -121,7 +133,13 @@ export const QQDefaultConfig: QQConfig = {
   groups: [],
   users: [],
   bindings: {},
-  continuationMaxMessages: 5,
+  schemaVersion: 2,
+  conversation: QQConversationDefault,
+  learning: { maxCallsPerHour: 60, maxPending: 100 },
+  linkAutoDownloadEnabled: true,
+  learningEnabled: true,
+  publicTermsEnabled: true,
+  publicTermsMaxEntries: 2000,
   waitIntervalSeconds: 180,
   continuationTtlMs: 600000,
   waitMessageMode: 'cycle',
@@ -157,11 +175,12 @@ export const QQDefaultConfig: QQConfig = {
   },
   maxMessageChars: 2000,
   queueLimit: 16,
-  historyLimit: 100,
+  backgroundMessageLimit: 100,
+  managementHistoryLimit: 100,
   messageMergeMs: 1500,
   backgroundMaxChars: 12000,
   backgroundMaxAgeMs: 86400000,
-  reactionEnabled: true, pokeEnabled: true, pokeCooldownMs: 60000, voiceMode: 'requested', voiceDefaultCharacter: '', voiceMaxChars: 100,
+  reactionEnabled: true, pokeEnabled: true, pokeCooldownMs: 60000, mentionCooldownMs: 60000, voiceMode: 'requested', voiceDefaultCharacter: '', voiceMaxChars: 100,
   memoryEnabled: true,
   memoryMaxEntries: 80,
   memoryMaxChars: 160,
@@ -486,6 +505,7 @@ export const QQRequestSchemas = {
   'qq.delivery.result': QQDeliveryResultRequestSchema,
   'qq.request.recover': QQRecoverRequestSchema,
   'qq.config.get': QQEmptyRequestSchema,
+  'qq.policy.get': z.object({ target }).strict(),
   'qq.config.save': QQConfigSaveRequestSchema,
   'qq.status.get': QQEmptyRequestSchema,
   'qq.queue.get': QQEmptyRequestSchema,
@@ -506,6 +526,10 @@ export const QQResponseSchemas = {
   'qq.delivery.result': QQDeliveryResultResponseSchema,
   'qq.request.recover': QQRecoverResponseSchema,
   'qq.config.get': QQConfigViewSchema,
+  'qq.policy.get': z.object({ target, savedRevision: z.number().int().nonnegative(), appliedRevision: z.number().int().nonnegative(),
+    effective: z.object({ mode: z.enum(['followup','proactive']), initiative: z.enum(['quiet','balanced','lively']), style: z.enum(['concise','casual','playful']), customStyle: z.string() }),
+    origins: z.record(z.string(), z.string()), capabilities: z.array(z.object({ name: z.string(), configured: z.boolean(), allowed: z.boolean(), ready: z.boolean().nullable(), reason: z.string().nullable(), lastResult: z.null() })),
+    proactive: z.object({ usedChecks: z.number().int().nonnegative(), limit: z.number().int().positive(), nextCheckAt: z.number().nullable() }) }).strict(),
   'qq.config.save': QQConfigSaveResponseSchema,
   'qq.status.get': QQStatusSchema,
   'qq.queue.get': QQEntriesSchema,

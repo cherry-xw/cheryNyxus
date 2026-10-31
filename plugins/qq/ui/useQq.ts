@@ -6,7 +6,20 @@ import { useQqSources } from './useQqSources'
 
 export function useQq(request = managerRequest) {
   const state = reactive({ config: null as any, original: '', revision: 0, apply: null as any, ready: false, reading: false, saving: false, uncertain: false, error: '', message: '', catalog: null as any, catalogError: '', status: null as any, statusError: '', queue: null as { entries: QQEntry[] } | null, queueError: '', history: null as { entries: QQEntry[] } | null, historyError: '', queueLoading: false, historyLoading: false, statusLoading: false, recordsRevision: 0, details: {} as Record<string, QQEntryDetail>, detailErrors: {} as Record<string, string>, detailsLoading: {} as Record<string, boolean>, voiceGroup: '', voices: [] as Array<{id: string; name: string}>, voicesLoading: false, voicesError: '', selected: '', summary: '', summaryError: '' })
-  const dirty = computed(() => state.config !== null && JSON.stringify(state.config) !== state.original)
+  const normalized = (value: unknown) => { const result = QQConfigSchema.safeParse(value); return JSON.stringify(result.success ? result.data : value) }
+  const dirty = computed(() => state.config !== null && normalized(state.config) !== state.original)
+  let pendingSave: { requestId: string; config: unknown; expectedBaseRevision: number } | undefined
+  const policy = reactive({ value: null as any, loading: false, error: '' })
+  let policyGeneration = 0
+  async function readPolicy() {
+    const generation = ++policyGeneration, target = state.selected
+    policy.value = null; policy.error = ''
+    if (!target) return
+    policy.loading = true
+    try { const { data } = await request<any>(`/api/modules/qq/policy?target=${encodeURIComponent(target)}`); if (generation === policyGeneration) policy.value = data }
+    catch (error) { denied(error); if (generation === policyGeneration) policy.error = error instanceof Error ? error.message : '有效设置读取失败' }
+    finally { if (generation === policyGeneration) policy.loading = false }
+  }
   const targets = computed(() => state.config ? [...state.config.groups.map((id: string) => `group:${id}`), ...state.config.users.map((id: string) => `private:user:${id}`)] : [])
   let summaryGeneration = 0
   const detailRevisions = new Map<string, number>()
@@ -15,8 +28,8 @@ export function useQq(request = managerRequest) {
   function clearDetails(){readGeneration++;for(const controller of recordReads)controller.abort();recordReads.clear();state.recordsRevision++;state.details={};state.detailErrors={};state.detailsLoading={};state.queue=null;state.history=null;detailRevisions.clear()}
   const sources=useQqSources(request,clearDetails)
   const openRecords=reactive<Record<string,boolean>>({})
-  function dispose(){clearDetails();sources.clear();for(const id of Object.keys(openRecords))delete openRecords[id]}
-  function denied(error:unknown){if(error instanceof ManagerApiError&&[401,403].includes(error.status)){clearDetails();sources.clear()}}
+  function dispose(){policyGeneration++;policy.value=null;clearDetails();sources.clear();for(const id of Object.keys(openRecords))delete openRecords[id]}
+  function denied(error:unknown){if(error instanceof ManagerApiError&&[401,403].includes(error.status)){policyGeneration++;policy.value=null;clearDetails();sources.clear()}}
   async function read(discard = false) {
     if (state.saving || state.reading) return
     state.reading = true; state.error = ''
@@ -25,7 +38,7 @@ export function useQq(request = managerRequest) {
       const { data } = await request<any>('/api/modules/qq/config')
       if (!QQConfigSchema.safeParse(data?.config).success || !Number.isSafeInteger(data.baseRevision)) throw new Error('QQ 配置响应不完整，不能当作空配置。')
       if (JSON.stringify(state.config) !== draft || (dirty.value && !discard)) { state.message = '最新配置已读取；为保护草稿未覆盖，请明确选择重新读取。'; return }
-      state.config = data.config; state.original = JSON.stringify(data.config); state.revision = data.baseRevision; state.apply = data.apply; state.ready = true; state.uncertain = false
+      state.config = QQConfigSchema.parse(data.config); state.original = normalized(state.config); state.revision = data.baseRevision; state.apply = data.apply; state.ready = true; state.uncertain = false; pendingSave = undefined
       state.message = `已读取保存版本 ${data.baseRevision}`
     } catch (e) { denied(e);state.error = e instanceof Error ? e.message : 'QQ 配置读取失败'; state.ready = false }
     finally { state.reading = false }
@@ -72,17 +85,20 @@ export function useQq(request = managerRequest) {
     const checked = QQConfigSchema.safeParse(state.config)
     if (!checked.success) { state.error = checked.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('；'); return }
     state.saving = true; state.error = ''; state.message = ''
-    const submitted = JSON.stringify(state.config)
+    const submitted = JSON.stringify(checked.data)
+    const draft = JSON.stringify(state.config)
+    pendingSave = { requestId: requestId(), config: checked.data, expectedBaseRevision: state.revision }
     try {
-      const result = await request<any>('/api/modules/qq/config', { method: 'PUT', body: JSON.stringify({ config: state.config, expectedBaseRevision: state.revision, requestId: requestId() }) })
+      const result = await request<any>('/api/modules/qq/config', { method: 'PUT', body: JSON.stringify(pendingSave) })
       state.uncertain = true
       const readback = await request<any>('/api/modules/qq/config')
-      if (result.data?.saved !== true || readback.data?.baseRevision !== result.data.baseRevision || JSON.stringify(readback.data.config) !== submitted) throw new Error('保存后回读不一致，请重新读取核对，禁止重复提交。')
-      state.config = readback.data.config; state.original = JSON.stringify(state.config); state.revision = readback.data.baseRevision; state.apply = readback.data.apply; state.uncertain = false
-      state.message = '已保存并回读确认'; await refresh('status')
+      if (result.data?.saved !== true || readback.data?.baseRevision !== result.data.baseRevision || JSON.stringify(QQConfigSchema.parse(readback.data.config)) !== submitted) throw new Error('保存后回读不一致，请重新读取核对，禁止重复提交。')
+      if (JSON.stringify(state.config) === draft) state.config = QQConfigSchema.parse(readback.data.config)
+      state.original = submitted; state.revision = readback.data.baseRevision; state.apply = readback.data.apply; state.uncertain = false; pendingSave = undefined
+      state.message = state.apply?.state === 'applied' ? '已保存并生效' : `已保存，尚未生效：${state.apply?.reason || state.apply?.state || '状态未知'}`; await refresh('status'); await readPolicy()
     } catch (e) {
       denied(e)
-      state.error = e instanceof Error ? e.message : '保存失败'
+      state.error = (e instanceof Error ? e.message : '保存失败') + (pendingSave ? `（保存请求 ${pendingSave.requestId}，请先回读核对，不要重复提交）` : '')
       state.uncertain = state.uncertain || !(e instanceof ManagerApiError) || ![400, 401, 403, 503].includes(e.status)
     } finally { state.saving = false }
   }
@@ -95,6 +111,7 @@ export function useQq(request = managerRequest) {
     const group = target.startsWith('group:')
     state.config[group ? 'groups' : 'users'] = state.config[group ? 'groups' : 'users'].filter((id: string) => `${group ? 'group:' : 'private:user:'}${id}` !== target)
     delete state.config.bindings[target]
+    if (group) delete state.config.conversation.groups[target.slice(6)]
     if (state.selected === target) state.selected = ''
   }
   async function summary(name: string) {
@@ -119,5 +136,5 @@ export function useQq(request = managerRequest) {
     finally { if (generation === voiceGeneration) state.voicesLoading = false }
   }
   async function load() { await Promise.allSettled([read(), catalog(), refresh('status')]) }
-  return { state, dirty, targets, read, catalog, refresh, detail, save, add, remove, summary, voices, load, sources,openRecords,dispose }
+  return { state, dirty, targets, read, catalog, refresh, detail, save, add, remove, summary, voices, load, sources,openRecords,dispose, policy, readPolicy }
 }
