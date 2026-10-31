@@ -146,6 +146,8 @@ describe('web_search middleware integration probe', () => {
     restore()
     const accepts = chunks.filter((c) => c.type === 'sense_accept')
     expect(accepts).toHaveLength(1)
+    expect(accepts[0]?.status).toBe('provider_error')
+    expect(accepts[0]?.observation?.kind).toBe('error')
     const second = requests[1] as SenseMsg[]
     const senseMsg = second.find((m) => m.role === 'sense')
     expect(senseMsg).toBeTruthy()

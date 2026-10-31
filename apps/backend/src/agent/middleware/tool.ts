@@ -901,7 +901,9 @@ async function* doExecuteSense(
       operationId: result.operationId ?? id,
       durationMs: result.durationMs,
       truncated: result.truncated,
-      ...(result.status && result.status !== 'ok'
+      // A validated external error is still the tool's actual observation.
+      // Keep its content and failure status instead of replacing it with a denial.
+      ...(result.status && result.status !== 'ok' && observation?.kind !== 'error'
         ? { rejected: result.errorCode ?? result.status }
         : {}),
       replaced,

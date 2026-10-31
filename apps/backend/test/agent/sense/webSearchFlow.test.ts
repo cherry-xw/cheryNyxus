@@ -98,6 +98,10 @@ describe('web_search through real Agent middleware and next model request', () =
       })
       const agent = createAgent({ brain, senseGroup: 'web_search_test' })
       const chunks = await runSendAcceptAll(agent, 'Search using local fixtures')
+      const executed = chunks.filter((chunk) => chunk.type === 'sense_accept')
+      expect(executed).toHaveLength(2)
+      expect(executed.every((chunk) => chunk.status === (mode === 'success' ? 'ok' : 'provider_error'))).toBe(true)
+      expect(executed.every((chunk) => chunk.observation?.kind === (mode === 'success' ? 'observation' : 'error'))).toBe(true)
       expect(requests).toHaveLength(3)
       const last = requests[2] as { role: string; content: string; hash?: string }[]
       const observations = last.filter((m) => m.role === 'sense').map((m) => JSON.parse(m.content))
