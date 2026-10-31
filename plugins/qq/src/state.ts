@@ -149,6 +149,8 @@ export const StateSchema = z
     outbox: z.array(OutboxSchema),
     seq: z.record(z.string(), z.number().int().nonnegative()),
     receipts: z.record(z.string(), z.object({ hash: z.string(), accepted: z.boolean() })),
+    clearedEvents: z.array(z.string().regex(/^[a-f0-9]{64}$/)).default([]),
+    toolResults: z.record(z.string(),z.record(z.string(),z.object({status:z.string(),at:z.number()}).strict())).default({}),
     sourceScopes: z.record(z.string(), SourceScopeSchema).default({}),
     sourceReceipts: z.record(z.string(), z.object({
       scopeId: z.string(), receiptId: z.string(), version: z.number().int().positive(), record: SourceRecordRefSchema,
@@ -184,6 +186,8 @@ export function emptyState(): State {
     outbox: [],
     seq: {},
     receipts: {},
+    clearedEvents: [],
+    toolResults: {},
     sourceScopes: {},
     sourceReceipts: {},
     windows: {},

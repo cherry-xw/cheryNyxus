@@ -5,6 +5,9 @@ export const LearningTaskSchema = z.object({
   version: z.number(), nextAt: z.number(), retries: z.number(), reason: z.string().optional(),
   inputs: z.array(z.string()).optional(), index: z.number().default(0), results: z.array(z.string()).default([]),
   localReceipt: z.string().optional(), publicReceipt: z.string().optional(),
+  candidate: z.boolean().optional(),
+  localSnapshot: z.object({revision:z.number(),entries:z.array(z.unknown())}).optional(),
+  conflicts: z.number().int().nonnegative().default(0),
 }).strict()
 export const LearningStateSchema = z.object({ since: z.number().default(0), calls: z.array(z.number()).default([]),
   positions: z.record(z.string(), z.object({ ordinal: z.number(), run: z.number() }).strict()).default({}),
