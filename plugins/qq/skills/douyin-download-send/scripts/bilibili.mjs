@@ -17,7 +17,7 @@ const USER_AGENTS = [
  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
 ]
 export function allowedMediaUrl(value) {
- try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') && ['.bilivideo.com','.bilivideo.cn','.akamaized.net'].some(h=>u.hostname.endsWith(h)) } catch { return false }
+ try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443' || (u.port === '8082' && u.hostname.endsWith('.mcdn.bilivideo.cn'))) && ['.bilivideo.com','.bilivideo.cn','.akamaized.net'].some(h=>u.hostname.endsWith(h)) } catch { return false }
 }
 export function resolution(f) {
  return Number.isFinite(f.width) && f.width > 0 && Number.isFinite(f.height) && f.height > 0 ? Math.min(f.width, f.height) : 0
@@ -25,10 +25,11 @@ export function resolution(f) {
 export function selectFormats(formats) {
  const safe = formats.filter(f => allowedMediaUrl(f.url))
  const audio = safe.filter(f => f.vcodec === 'none' && f.acodec && f.acodec !== 'none').sort((a,b)=>(a.abr || a.tbr || 0)-(b.abr || b.tbr || 0))
+ const hasAudio = formats.some(f => f.vcodec === 'none' && f.acodec && f.acodec !== 'none')
  const codecRank = f => /^avc1|^h264/.test(f.vcodec) ? 0 : /^hvc1|^hev1|^hevc/.test(f.vcodec) ? 1 : 2
  return safe.filter(f => f.vcodec && f.vcodec !== 'none' && resolution(f) > 0 && resolution(f) <= 1080 && f.ext === 'mp4')
   .sort((a,b)=>resolution(b)-resolution(a) || codecRank(a)-codecRank(b) || (a.tbr||0)-(b.tbr||0))
-  .flatMap(v => v.acodec && v.acodec !== 'none' ? [[v]] : audio.map(a => [v,a]))
+  .flatMap(v => v.acodec && v.acodec !== 'none' ? [[v]] : hasAudio ? audio.map(a => [v,a]) : [[v]])
 }
 export async function size(f, headers, request = fetch, signal) {
  const u = new URL(f.url)
@@ -129,11 +130,11 @@ export async function main(url) {
    try {
     const {stdout}=await run('ffprobe',['-v','error','-show_entries','stream=codec_type,width,height:format=duration','-of','json',path.join(temp,'out.mp4')],{...options,maxBuffer:65536})
     const media=JSON.parse(stdout),v=media.streams?.find(s=>s.codec_type==='video')
-    if(!v || !media.streams.some(s=>s.codec_type==='audio') || v.width!==chosen[0].width || v.height!==chosen[0].height || !(Number(media.format?.duration)>0)) throw new Error()
+    if(!v || !!audioStream !== media.streams.some(s=>s.codec_type==='audio') || v.width!==chosen[0].width || v.height!==chosen[0].height || !(Number(media.format?.duration)>0)) throw new Error()
    } catch { throw new Error('MEDIA_INVALID') }
    const bytes=(await stat(path.join(temp,'out.mp4'))).size;if(bytes>LIMIT) throw new Error('SIZE_LIMIT')
    const file=path.join(root,`${Date.now()}${Math.floor(Math.random()*100000)}.mp4`);await rename(path.join(temp,'out.mp4'),file)
-   return {ok:true,file,bytes,width:chosen[0].width,height:chosen[0].height,resolution:resolution(chosen[0]),id:info.id}
+   return {ok:true,file,bytes,width:chosen[0].width,height:chosen[0].height,resolution:resolution(chosen[0]),id:info.id,hasAudio:!!audioStream}
   } finally {await rm(temp,{recursive:true,force:true})}
  },{signal,budget})
  } catch(e) {

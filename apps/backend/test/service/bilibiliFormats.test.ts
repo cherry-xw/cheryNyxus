@@ -31,6 +31,15 @@ describe('bounded Bilibili format selection',()=>{
  it('recognizes square videos and prefers AVC at the same resolution',()=>{
   expect(selectFormats([audio('a'),{...video('hevc',1080,1080),vcodec:'hvc1'},video('avc',1080,1080)])[0][0].format_id).toBe('avc')
  })
+ it('accepts only the observed Bilibili MCDN TLS port',()=>{
+  expect(allowedMediaUrl('https://xy1.mcdn.bilivideo.cn:8082/a')).toBe(true)
+  expect(allowedMediaUrl('https://x.bilivideo.cn:8082/a')).toBe(false)
+  expect(allowedMediaUrl('https://x.mcdn.bilivideo.cn.evil.test:8082/a')).toBe(false)
+ })
+ it.each([null,'none'])('permits video without a separate audio track (%s)',async acodec=>{
+  const attempt=vi.fn(async pair=>pair.length)
+  await expect(tryCandidates([{...video('v'),acodec}],{},attempt,{probe:async()=>1000})).resolves.toBe(1)
+ })
  it('rejects unsafe share redirects',()=>expect(()=>validateShareUrl('https://evil.test/video/BV1')).toThrow('INVALID_URL'))
  it('skips unsupported CDN audio and retains all safe alternatives',()=>{
   const pairs=selectFormats([audio('bad','x.edge.mountaintoys.cn'),audio('a'),audio('b'),video('v')])
@@ -40,7 +49,7 @@ describe('bounded Bilibili format selection',()=>{
   expect(selectFormats([audio('a'),video('720',720,1280),video('1080'),video('2k',1440,2560),video('unknown',0,0)]).map((p:any[])=>p[0].format_id)).toEqual(['1080','720'])
  })
  it.each(['http://x.bilivideo.cn/a','https://bilivideo.cn.evil.test/a','https://a:b@x.bilivideo.cn/a','https://x.bilivideo.cn:8443/a','https://127.0.0.1/a'])('rejects unsafe URL %s',url=>expect(allowedMediaUrl(url)).toBe(false))
- it('requires audio for video-only formats',()=>expect(selectFormats([video('v')])).toEqual([]))
+ it('accepts video-only media when no audio was advertised',()=>expect(selectFormats([video('v')])).toEqual([[video('v')]]))
  it('uses exact Range size, cancels response body and ignores estimates',async()=>{
   const cancel=vi.fn(async()=>{});const request=vi.fn().mockResolvedValueOnce({ok:false,headers:new Headers()}).mockResolvedValueOnce({status:206,headers:new Headers({'content-range':'bytes 0-0/12345'}),body:{cancel}})
   await expect(size({...audio('a'),filesize_approx:1},{},request as unknown as typeof fetch)).resolves.toBe(12345)
