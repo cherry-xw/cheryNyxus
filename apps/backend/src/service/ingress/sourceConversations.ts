@@ -18,9 +18,6 @@ function authority(ownerId: string, input: IngressSourceAuthorization): SourceAu
   if (identity.source !== 'plugin' || identity.ownerId !== ownerId || !identity.entryId || !identity.channel || !subject)
     sourceContextError('IDENTITY_REJECTED')
   return {
-    async deriveReply(ownerId, input) {
-      return repo().deriveReply(authority(ownerId, input), input.scopeId, input.observationRequestId, input.anchor)
-    },
     ownerId, channel: identity.channel, selfId: subject.selfId, conversationType: subject.conversationType,
     targetId: subject.conversationType === 'group' ? subject.groupId! : subject.userId,
     actorId: subject.userId, purpose: input.purpose, validate: input.validateIdentity,
@@ -72,6 +69,19 @@ export function createSourceConversationsAdapter(isChatBusy?: (chatId: string) =
   }
   return {
     history: async (ownerId, input) => readSourceHistory(repository(), authority(ownerId, input), input),
+    prepareLearning: async (ownerId, input) => {
+      const repo = repository(), auth = repo.maintenanceAuthority({ ownerId, channel: input.channel, selfId: input.selfId, validate: input.validateIdentity }, input.scopeId)
+      return repo.prepareLearning(auth, input.scopeId, input)
+    },
+    learningStatus: async (ownerId, input) => {
+      const repo = repository(), auth = repo.maintenanceAuthority({ ownerId, channel: input.channel, selfId: input.selfId, validate: input.validateIdentity }, input.scopeId)
+      return repo.learningStatus(auth, input.scopeId, input.operationId)
+    },
+    updateLearning: async (ownerId, input) => {
+      const repo = repository(), auth = repo.maintenanceAuthority({ ownerId, channel: input.channel, selfId: input.selfId, validate: input.validateIdentity }, input.scopeId)
+      return repo.updateLearning(auth, input.scopeId, input)
+    },
+    deriveReply: async (ownerId, input) => repository().deriveReply(authority(ownerId, input), input.scopeId, input.observationRequestId, input.anchor),
     readText: async (ownerId, input) => readSourceText(repository(), authority(ownerId, input), input),
     prepareSummary: async (ownerId, input) => {
       const repo = repository(), auth = repo.maintenanceAuthority({ ownerId, channel: input.channel,

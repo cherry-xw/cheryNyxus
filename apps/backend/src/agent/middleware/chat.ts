@@ -565,7 +565,9 @@ async function* handleRequestLocal(
     for (const call of complete) {
       if (options.signal?.aborted) throw new Error('Request cancelled')
       const toolMessage = toolMessages.get(call.id)!
-      const execution = executeRequestTool(ctx, call.name, call.arguments, call.id)
+      const execution = executeRequestTool(ctx, call.name, call.arguments, call.id, result => {
+        if (sourceRun && runId) sourceRun.repo.saveToolObservation(sourceRun.authority, sourceRun.input.scopeId, runId, call.id, call.name, result)
+      })
       let step = await execution.next()
       while (!step.done) {
         if (step.value.type === 'sense_started' && sourceRun && runId)

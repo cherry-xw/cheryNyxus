@@ -132,7 +132,7 @@ export const SourceSnapshotSchema = z.object({
   qqConfigRevision: ordinal, ordering: z.enum(['time_approximate', 'verified_sequence']),
   selectionStats: z.object({ recentRecordCount: ordinal, recentTextCodePoints: ordinal }).strict(),
   actorRecord: SourceRecordRefSchema.optional(), inputRecords: z.array(SourceRecordRefSchema).max(16),
-  maintenancePurpose: z.enum(['capacity', 'discussion']).optional(),
+  maintenancePurpose: z.enum(['capacity', 'discussion', 'learning']).optional(),
   orderedItems: z.array(SourceSnapshotItemSchema), quoteRelations: z.array(SourceQuoteSchema), parentSnapshotId: SourceIdSchema.optional(),
 }).strict().superRefine((snapshot, ctx) => {
   if (snapshot.maintenancePurpose ? snapshot.actorRecord !== undefined || snapshot.inputRecords.length > 0

@@ -316,6 +316,10 @@ export class IngressHost {
         validateIdentity: () => { requireActive(); connection.validate() } }
     }
     const sourceConversations: import('./api.js').IngressSourceConversations | undefined = core.sourceConversations ? {
+      prepareLearning: async input => core.sourceConversations!.prepareLearning(id, { ...await maintenanceAuthorization(input),
+        operationId: input.operationId, qqConfigRevision: input.qqConfigRevision, afterOrdinal: input.afterOrdinal, afterRun: input.afterRun, completedRequests: input.completedRequests, since: input.since }),
+      learningStatus: async input => core.sourceConversations!.learningStatus(id, { ...await maintenanceAuthorization(input), operationId: input.operationId }),
+      updateLearning: async input => core.sourceConversations!.updateLearning(id, { ...input, ...await maintenanceAuthorization(input) }),
       deriveReply: input => core.sourceConversations!.deriveReply(id, { ...sourceAuthorization(input, 'execution'),
         scopeId: input.scopeId, observationRequestId: input.observationRequestId, anchor: input.anchor }),
       prepareSummary: async input => core.sourceConversations!.prepareSummary(id, { ...await maintenanceAuthorization(input),
@@ -506,7 +510,7 @@ export class IngressHost {
           if (input.instruction.length > 20000 || input.content.length > 200000) throw ingressError('INVALID_PARAMS')
           const { sourceMaintenance, ...textInput } = input
           const text = await core.internalText(id, { ...textInput,
-            ...(sourceMaintenance ? { sourceMaintenance: { ...await maintenanceAuthorization(sourceMaintenance), operationId: sourceMaintenance.operationId } } : {}),
+            ...(sourceMaintenance ? { sourceMaintenance: { ...await maintenanceAuthorization(sourceMaintenance), operationId: sourceMaintenance.operationId, kind: sourceMaintenance.kind } } : {}),
             signal: input.signal ? AbortSignal.any([input.signal, active.controller.signal]) : active.controller.signal })
           requireActive()
           return text

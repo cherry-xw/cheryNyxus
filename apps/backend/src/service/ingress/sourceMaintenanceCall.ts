@@ -11,18 +11,19 @@ const object = (value: unknown): Record<string, unknown> => value && typeof valu
 export function sourceMaintenanceCall(repo: SourceContextRepository, authority: SourceAuthority, input: {
   scopeId: string; operationId: string; contentMessageId: string; content: string
   runtimeConfigRevision: string; registryVersion: number; signal?: AbortSignal
+  kind?: 'summary' | 'learning'
 }): Pick<LLMOptions, 'sourceCall' | 'observation'> {
   const check = () => {
     input.signal?.throwIfAborted()
     const scope = repo.scope(authority, input.scopeId, ['maintenance'])
-    const current = repo.summaryStatus(authority, input.scopeId, input.operationId)
+    const current = input.kind === 'learning' ? repo.learningStatus(authority, input.scopeId, input.operationId) : repo.summaryStatus(authority, input.scopeId, input.operationId)
     if (!['pending', 'running'].includes(current.status) || current.permissionRevision !== scope.permissionRevision ||
-      current.baseSelectionRevision !== scope.selectionRevision) sourceContextError('SUMMARY_CONFLICT')
+      ('baseSelectionRevision' in current && current.baseSelectionRevision !== scope.selectionRevision)) sourceContextError('SUMMARY_CONFLICT')
   }
   check()
-  const operation = repo.summaryStatus(authority, input.scopeId, input.operationId)
+  const operation = input.kind === 'learning' ? repo.learningStatus(authority, input.scopeId, input.operationId) : repo.summaryStatus(authority, input.scopeId, input.operationId)
   const snapshot = repo.snapshot(authority, input.scopeId, operation.snapshotId)
-  if (snapshot.maintenancePurpose !== operation.purpose || snapshot.requestId !== input.operationId || !['pending', 'running'].includes(operation.status)) sourceContextError('PERMISSION_DENIED')
+  if (snapshot.maintenancePurpose !== ('purpose' in operation ? operation.purpose : 'learning') || snapshot.requestId !== input.operationId || !['pending', 'running'].includes(operation.status)) sourceContextError('PERMISSION_DENIED')
   const modelStepId = `maintenance-step-${randomUUID()}`
   let attempt: SourceAttempt | undefined, complete: ReturnType<SourceContextRepository['attemptCompletion']> | undefined
   let budget: InputTokenPreflight | undefined, responseSeen = false, usage: SourceAttempt['usage'], protocol = ''

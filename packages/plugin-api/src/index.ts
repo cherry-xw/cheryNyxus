@@ -130,10 +130,10 @@ export interface IngressPreset {
   mcpServers: readonly string[]
 }
 export interface IngressInternalTextInput { preset: string; instruction: string; content: string; signal?: AbortSignal
-  sourceMaintenance?: IngressSourceMaintenanceContext & { operationId: string }
+  sourceMaintenance?: IngressSourceMaintenanceContext & { operationId: string; kind?: 'summary' | 'learning' }
 }
 export type IngressInternalTextAuthorization = Omit<IngressInternalTextInput, 'sourceMaintenance'> & {
-  sourceMaintenance?: IngressSourceMaintenanceAuthorization & { operationId: string }
+  sourceMaintenance?: IngressSourceMaintenanceAuthorization & { operationId: string; kind?: 'summary' | 'learning' }
 }
 export interface IngressFileContext {
   conversationKey: string
@@ -222,8 +222,32 @@ export interface IngressSourceSummaryProgress {
   operationId: string; expectedVersion: number; status: 'running' | 'failed' | 'cancelled'
   phase: IngressSourceSummaryOperation['phase']; reasonCode?: string
 }
+export interface IngressWebEvidence {
+  evidenceId: string; callId: string; runId: string; url: string; observedAt: string
+  contentHash: string; text: string; truncated: boolean; publicEligible: boolean
+}
+export interface IngressLearningOperation {
+  operationId: string; scopeId: string; snapshotId: string; permissionRevision: number; version: number
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; reason?: string
+  localReceipt?: string; publicReceipt?: string
+}
+export interface IngressLearningPreparation {
+  operation: IngressLearningOperation; records: SourceRecord[]; evidence: IngressWebEvidence[]
+  runs: Array<{ requestId: string; runId: string; messages: Array<{ body: { role: string; content: string }; state: string }> }>
+  deliveries: unknown[]; throughOrdinal: number; throughRun: number
+}
+export interface IngressLearningPrepare {
+  operationId: string; qqConfigRevision: number; afterOrdinal: number; afterRun: number; completedRequests: string[]; since?: number
+}
+export interface IngressLearningUpdate {
+  operationId: string; expectedVersion: number; status: IngressLearningOperation['status']; reason?: string
+  localReceipt?: string; publicReceipt?: string
+}
 /** No method here is a public RPC or accepts a caller-selected owner. */
 export interface IngressSourceConversations {
+  prepareLearning(input: IngressSourceMaintenanceContext & IngressLearningPrepare): Promise<IngressLearningPreparation | null>
+  learningStatus(input: IngressSourceMaintenanceContext & { operationId: string }): Promise<IngressLearningOperation>
+  updateLearning(input: IngressSourceMaintenanceContext & IngressLearningUpdate): Promise<IngressLearningOperation>
   deriveReply(input: IngressSourceContext & { observationRequestId: string; anchor: SourceRecordRef }): Promise<{ requestId: string; eventId: string; record: SourceRecord }>
   history(input: IngressSourceContext & { runId: string; count?: number; cursor?: string }): Promise<import('@chery/protocol').SourceHistoryResult>
   readText(input: IngressSourceContext & { runId: string; textRefId: string; cursor?: string }): Promise<import('@chery/protocol').SourceTextPage>
@@ -253,6 +277,9 @@ export interface IngressSourceConversations {
   readAttachmentChunk(input: IngressSourceContext & { attachmentId: string; version: number; offset: number }): Promise<IngressFileChunk>
 }
 export interface IngressSourceConversationsAdapter {
+  prepareLearning(ownerId: string, input: IngressSourceMaintenanceAuthorization & IngressLearningPrepare): Promise<IngressLearningPreparation | null>
+  learningStatus(ownerId: string, input: IngressSourceMaintenanceAuthorization & { operationId: string }): Promise<IngressLearningOperation>
+  updateLearning(ownerId: string, input: IngressSourceMaintenanceAuthorization & IngressLearningUpdate): Promise<IngressLearningOperation>
   deriveReply(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; observationRequestId: string; anchor: SourceRecordRef }): Promise<{ requestId: string; eventId: string; record: SourceRecord }>
   history(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; runId: string; count?: number; cursor?: string }): Promise<import('@chery/protocol').SourceHistoryResult>
   readText(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; runId: string; textRefId: string; cursor?: string }): Promise<import('@chery/protocol').SourceTextPage>

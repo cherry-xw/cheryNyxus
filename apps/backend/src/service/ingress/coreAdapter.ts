@@ -187,7 +187,7 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
       const auth = maintenance ? repo!.maintenanceAuthority({ ownerId: _owner, channel: maintenance.channel,
         selfId: maintenance.selfId, validate: maintenance.validateIdentity }, maintenance.scopeId) : undefined
       if (maintenance && repo!.scope(auth!, maintenance.scopeId).presetId !== selection.presetId) sourceContextError('SUMMARY_DESTINATION_CHANGED')
-      const tracking = maintenance ? sourceMaintenanceCall(repo!, auth!, { scopeId: maintenance.scopeId, operationId: maintenance.operationId,
+      const tracking = maintenance ? sourceMaintenanceCall(repo!, auth!, { scopeId: maintenance.scopeId, operationId: maintenance.operationId, kind: maintenance.kind,
         contentMessageId: history[1]!.id, content: input.content, runtimeConfigRevision: ensureCurrentConfigRevision().revisionId,
         registryVersion: getSenseRegistryVersion(), signal: input.signal }) : undefined
       const options: import('@/core/llm/adapter.js').LLMOptions = {

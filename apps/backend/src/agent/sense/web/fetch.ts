@@ -29,6 +29,8 @@ export type FetchErrorCode =
   | 'invalid_response'
 
 export interface FetchObservation {
+  /** Anonymous transport and final URL without credential-bearing parameters or private response policy. */
+  publicEligible?: boolean
   ok: boolean
   url: string
   observedAt: string
@@ -255,6 +257,8 @@ export class WebFetchRuntime {
         const truncated = text.length > maxOutput
         return {
           ok: true,
+          publicEligible: !url.search && !url.username && !url.password && !response.headers['set-cookie'] &&
+            !/private|no-store/i.test(String(response.headers['cache-control'] ?? '')),
           url: url.href,
           observedAt,
           contentType: type,

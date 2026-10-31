@@ -455,6 +455,7 @@ export async function* executeRequestTool(
   name: string,
   argsJson: string,
   id: string,
+  observed?: (result: { content: string; status?: string; observation?: import('@chery/plugin-api/sense').ObservationEnvelope; truncated?: boolean }) => void,
 ): AsyncGenerator<SenseStartedChunk | SenseTriggerChunk | { type: 'sense_execution_completed'; id: string }, string> {
   if (ctx.requestToolPhase && !ctx.requestToolPhase.includes(name)) return '工具不属于当前请求阶段。'
   const { call } = buildSenseTrigger(ctx, id, name, argsJson, true)
@@ -470,6 +471,7 @@ export async function* executeRequestTool(
     step = await execution.next()
   }
   yield { type: 'sense_execution_completed', id }
+  observed?.(step.value)
   // Execution failures are observations, not permission denials. Preserve the
   // actionable result so the request-local model can correct invalid arguments.
   return step.value.content || step.value.rejected || '工具未返回执行结果。'
