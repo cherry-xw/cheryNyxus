@@ -2188,7 +2188,7 @@ export class QQPlugin implements IngressPlugin {
     if (!(target.startsWith('group:') ? config.groups.includes(target.slice(6)) : config.users.includes(target.slice(13)))) fail('NOT_ALLOWED','目标未获许可')
     if (args.scope === 'public' && !config.publicTermsEnabled) fail('NOT_ALLOWED','公共词义已关闭')
     const subject = this.targetSubject(target), store = this.knowledge()
-    if (method === 'qq.knowledge.list') return store.list(subject,args.scope,args.cursor,args.revision,args.count)
+    if (method === 'qq.knowledge.list') return store.list(subject,args.scope,args.cursor,args.revision,args.count,{query:args.query,status:args.status})
     if (method === 'qq.knowledge.receipt') {
       const receipt=await store.receipt(subject,args.scope,args.operationId)
       return receipt?{state:'saved',receipt}:{state:'not_found'}

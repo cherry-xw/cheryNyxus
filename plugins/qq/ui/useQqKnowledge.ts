@@ -2,16 +2,21 @@ import { reactive } from 'vue'
 import { managerRequest, ManagerApiError } from '../../../packages/manager-ui/src/api'
 import { requestId } from '../../../packages/manager-ui/src/requestId'
 import { QQKnowledgeResponseSchemas as responses } from '../../../packages/protocol/src/qqKnowledge'
+import type { z } from 'zod'
+import type { QQTermInputSchema } from '../../../packages/protocol/src/qqKnowledge'
 
 type Change={save?:any[];delete?:string[];reject?:string[];restore?:string[]}
 type Pending={body:Change&{target:string;scope:'local'|'public';operationId:string;expectedRevision:number;adminNote:string};draft:string;note:string}
+type Status=''|z.infer<typeof QQTermInputSchema>['status']
 export function useQqKnowledge(request = managerRequest) {
   const state = reactive({target:'',scope:'local' as 'local'|'public',entries:[] as any[],revision:0,nextCursor:null as string|null,
+    query:'',status:'' as Status,appliedQuery:'',appliedStatus:'' as Status,total:0,
     rejected:[] as string[],loading:false,saving:false,error:'',message:'',learning:null as any,editing:null as any,note:'',uncertain:false,pendingId:'',retryAllowed:false})
   let generation=0, lifetime=0, learningGeneration=0, controller:AbortController|undefined, pending:Pending|undefined
   function clear() {
     lifetime++;generation++;learningGeneration++;controller?.abort();pending=undefined
     state.entries=[];state.rejected=[];state.learning=null;state.editing=null;state.note='';state.nextCursor=null
+    state.query='';state.status='';state.appliedQuery='';state.appliedStatus='';state.total=0
     state.loading=false;state.saving=false;state.uncertain=false;state.pendingId='';state.retryAllowed=false;state.error='';state.message=''
   }
   function denied(error:unknown) {if(error instanceof ManagerApiError&&[401,403].includes(error.status)){clear();return true}return false}
@@ -33,17 +38,21 @@ export function useQqKnowledge(request = managerRequest) {
   async function read(more=false) {
     if(!state.target||state.saving)return
     const version=++generation,epoch=lifetime,target=state.target,scope=state.scope
+    if(!more){state.appliedQuery=state.query.trim();state.appliedStatus=state.status}
+    const filter={query:state.appliedQuery,status:state.appliedStatus}
     controller?.abort();controller=new AbortController();state.loading=true;state.error=''
-    if(!more){state.entries=[];state.nextCursor=null}
+    if(!more){state.entries=[];state.nextCursor=null;state.total=0}
     try {
       if(state.uncertain)await recover()
       if(epoch!==lifetime||version!==generation)return
       const query=new URLSearchParams({target,scope})
+      if(filter.query)query.set('query',filter.query)
+      if(filter.status)query.set('status',filter.status)
       if(more&&state.nextCursor){query.set('cursor',state.nextCursor);query.set('revision',String(state.revision))}
       const {data}=await request<any>(`/api/modules/qq/knowledge/list?${query}`,{signal:controller.signal})
       if(epoch!==lifetime||version!==generation||target!==state.target||scope!==state.scope)return
       const value=responses['qq.knowledge.list'].parse(data)
-      state.entries=more?[...state.entries,...value.entries]:value.entries;state.revision=value.revision;state.nextCursor=value.nextCursor;state.rejected=value.rejected
+      state.entries=more?[...state.entries,...value.entries]:value.entries;state.revision=value.revision;state.nextCursor=value.nextCursor;state.rejected=value.rejected;state.total=value.total
     }catch(error){if(version===generation&&!denied(error))state.error=error instanceof Error?error.message:'记忆读取失败'}
     finally{if(version===generation)state.loading=false}
   }

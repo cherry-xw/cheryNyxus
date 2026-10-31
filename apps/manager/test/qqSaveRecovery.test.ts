@@ -83,6 +83,30 @@ describe('QQ memory save recovery without a browser',()=>{
     await ui.read(true)
     expect(request.mock.calls[0]![0]).toContain('cursor=frozen-cursor');expect(request.mock.calls[0]![0]).toContain('revision=7')
   })
+  it('keeps applied filters through pagination even while another search is being typed',async()=>{
+    const {ui,request}=knowledge()
+    ui.state.query='  术语  ';ui.state.status='disputed';await ui.read()
+    const first=new URL(request.mock.calls[0]![0],'https://example.invalid').searchParams
+    expect(first.get('query')).toBe('术语');expect(first.get('status')).toBe('disputed')
+    ui.state.nextCursor='fixed';ui.state.revision=7;ui.state.query='尚未提交';ui.state.status='active'
+    await ui.read(true)
+    const more=new URL(request.mock.calls[1]![0],'https://example.invalid').searchParams
+    expect(more.get('query')).toBe('术语');expect(more.get('status')).toBe('disputed');expect(more.get('cursor')).toBe('fixed')
+    expect(ui.state.query).toBe('尚未提交');expect(ui.state.appliedQuery).toBe('术语')
+    await ui.read()
+    const changed=new URL(request.mock.calls[2]![0],'https://example.invalid').searchParams
+    expect(changed.get('query')).toBe('尚未提交');expect(changed.has('cursor')).toBe(false)
+  })
+  it('ignores a response from a replaced search and clears filtered data after revocation',async()=>{
+    const {ui,request}=knowledge();let resolve!:(value:any)=>void
+    request.mockImplementationOnce(()=>new Promise(done=>{resolve=done}))
+    ui.state.query='旧查询';const reading=ui.read()
+    ui.state.query='新查询';await ui.read()
+    resolve({data:{...list().data,entries:[entry],total:1}});await reading
+    expect(ui.state.entries).toEqual([]);expect(ui.state.appliedQuery).toBe('新查询')
+    request.mockRejectedValueOnce(new ManagerApiError('permission_denied',403,'list','无权限'));await ui.read()
+    expect(ui.state.entries).toEqual([]);expect(ui.state.query).toBe('');expect(ui.state.total).toBe(0)
+  })
 })
 describe('QQ settings submitted snapshot recovery',()=>{
   it('confirms the submitted snapshot without replacing a newer draft',async()=>{

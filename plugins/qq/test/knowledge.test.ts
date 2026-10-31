@@ -4,6 +4,7 @@ import path from 'node:path'
 import { QQKnowledgeStore, TermInputSchema, type KnowledgeEvidence } from '../src/knowledge.js'
 import { QQKnowledgeCandidates } from '../src/knowledgeCandidates.js'
 import { textVersion } from '../src/files.js'
+import { QQKnowledgeRequestSchemas } from '../../../packages/protocol/src/qqKnowledge.js'
 
 const dirs:string[]=[]
 afterEach(async()=>{for(const dir of dirs.splice(0))await fs.rm(dir,{recursive:true,force:true})})
@@ -127,5 +128,26 @@ describe('QQ scoped knowledge',()=>{
     await store.manage(subject,'local',{operationId:'single',expectedRevision:0,save:[term('single','梗')],delete:[]},[web])
     expect((await store.search(subject,'梗')).entries).toHaveLength(1)
     expect((await store.search(subject,'梗概是什么')).entries).toEqual([])
+  })
+  it('filters the entire management scope before pagination and binds cursors to the filter',async()=>{
+    const {store}=await fixture()
+    const entries=[{...term('a','其他词'),aliases:['Other']},{...term('b','目标词'),aliases:['Alias'],status:'disputed' as const},
+      {...term('c','目标词二'),aliases:['ALIAS'],status:'disputed' as const}]
+    await store.manage(subject,'local',{operationId:'terms',expectedRevision:0,save:entries,delete:[]},[web])
+    const filter={query:'ａｌｉａｓ',status:'disputed' as const}
+    const page=await store.list(subject,'local',undefined,undefined,1,filter)
+    expect(page.total).toBe(2);expect(page.entries.map(entry=>entry.id)).toEqual(['b'])
+    const next=await store.list(subject,'local',page.nextCursor!,page.revision,1,{...filter,query:'ALIAS'})
+    expect(next.entries.map(entry=>entry.id)).toEqual(['c']);expect(next.nextCursor).toBeNull()
+    await expect(store.list(subject,'local',page.nextCursor!,page.revision,1,{query:'其他词'})).rejects.toThrow('VERSION_CONFLICT')
+    await expect(store.list(subject,'local',page.nextCursor!,page.revision,1,{...filter,status:'active'})).rejects.toThrow('VERSION_CONFLICT')
+    expect((await store.list({...subject,groupId:'998'},'local',undefined,undefined,20,filter)).entries).toEqual([])
+    expect((await store.list(subject,'local',undefined,undefined,20,{query:'不存在'})).total).toBe(0)
+    expect((await store.list(subject,'local')).total).toBe(3)
+  })
+  it('validates management filters without changing chat-search requirements',()=>{
+    const schema=QQKnowledgeRequestSchemas['qq.knowledge.list'],base={target:'group:999',scope:'local'}
+    expect(schema.parse({...base,query:'  测试  ',status:'inactive'})).toMatchObject({query:'测试',status:'inactive',count:20})
+    for(const invalid of [{query:'x'.repeat(501)},{status:'unknown'},{query:null}])expect(schema.safeParse({...base,...invalid}).success).toBe(false)
   })
 })

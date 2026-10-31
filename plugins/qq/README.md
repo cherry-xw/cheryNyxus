@@ -96,6 +96,8 @@ QQ 历次问题批保存在 `questionBatches`；答案保存、排队和启动�
 
 管理页面通过只读`qq.knowledge.receipt`核对保存编号。网络失败保留原请求和草稿；回执不存在时重试仍使用相同编号、内容及预期版本，不创建新修改。设置回读以实际提交快照核对，不覆盖保存期间的后续编辑。页面关闭或管理权限失效后清除受限内容，迟到响应不恢复它们。
 
+管理`qq.knowledge.list`在当前获准目标及local/public范围内支持`query`（最多500字符，空值列出全部）和`status`筛选；名称、别名、含义、用法和注意文字作规范化包含匹配，不改变聊天的相关性检索规则。先筛选整个范围，再按固定版本分页，游标同时绑定筛选条件；改变条件必须重读首页。界面显示已应用条件和匹配总数，尚未提交的新搜索文字不改变正在续读的清单。
+
 文件统一通过`qq_file_read`／`qq_file_write`的personal/group范围操作；个人仅`share/`公开，群文件限当前群目录。均不接受`apps/`路径；受管应用须通过`managed_app`操作，权限见[角色安全](../../docs/backend/agent/role-security.md#受管请求)，验证入口为`test/managedAppFiles.test.ts`与`test/videoDownloadSkill.test.ts`。
 
 ## 讨论总结与恢复

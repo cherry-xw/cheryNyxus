@@ -11,7 +11,8 @@ export const QQTermInputSchema = z.object({ id, term: label, aliases: z.array(la
 export const QQKnowledgeRequestSchemas = {
   'qq.knowledge.receipt':z.object({target,scope:z.enum(['local','public']),operationId:id}).strict(),
   'qq.knowledge.list': z.object({ target, scope:z.enum(['local','public']), cursor:z.string().max(4096).optional(),
-    revision:z.coerce.number().int().nonnegative().optional(),count:z.coerce.number().int().min(1).max(100).default(20) }).strict(),
+    revision:z.coerce.number().int().nonnegative().optional(),count:z.coerce.number().int().min(1).max(100).default(20),
+    query:z.string().trim().max(500).default(''),status:QQTermInputSchema.shape.status.removeDefault().optional() }).strict(),
   'qq.knowledge.edit': z.object({ target,scope:z.enum(['local','public']),operationId:id,expectedRevision:z.number().int().nonnegative(),
     save:z.array(QQTermInputSchema).max(20).default([]),delete:z.array(id).max(100).default([]),reject:z.array(id).max(100).default([]),restore:z.array(id).max(100).default([]),
     adminNote:z.string().trim().min(1).max(1000) }).strict(),

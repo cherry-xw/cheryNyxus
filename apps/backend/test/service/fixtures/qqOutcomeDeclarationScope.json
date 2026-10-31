@@ -1437,7 +1437,7 @@
     "declaration": "type QQStatus,",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "175b508a9ad4af370d0634b6a256a99f392f114c3448b8ebced223417cc4ca3e"
+    "sourceSha256": "2ba8eb2dc29d8285480d83f6163c5d6d6898dc3bd3094775c3c50975b624cccf"
   },
   {
     "id": "D161",
@@ -1446,7 +1446,7 @@
     "declaration": "'qq.knowledge.list': z.object({ target, scope:z.enum(['local','public']), cursor:z.string().max(4096).optional(),",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "8d0739d2b1c852078df55a92c812b5aa3ee425383a30945c464bfd59d53c2416"
+    "sourceSha256": "1a6867041d0c2577b05f3d0ee49ca2b457f6320909f33f4b2d6ed346f402e09e"
   },
   {
     "id": "D162",

@@ -19,8 +19,12 @@ const status=(value:string)=>({pending:'等待学习',running:'学习中',comple
       <label>范围<Dropdown v-model="state.scope" label="记忆范围" :disabled="state.saving||!!state.editing||state.uncertain"><option value="local">本群／本私聊</option><option value="public">同一机器人公共词义</option></Dropdown></label>
       <button type="button" :disabled="state.loading||state.saving||!state.target" @click="read()">{{state.loading?'读取中…':'刷新记忆'}}</button>
     </div>
+    <form class="controls" @submit.prevent="read()"><label>搜索名称、别名或内容<input v-model="state.query" type="search" maxlength="500" :disabled="state.saving||!!state.editing||state.uncertain" /></label>
+      <label>记忆状态<select v-model="state.status" :disabled="state.saving||!!state.editing||state.uncertain"><option value="">全部状态</option><option v-for="value in ['active','disputed','superseded','inactive']" :key="value" :value="value">{{status(value)}}</option></select></label>
+      <button type="submit" :disabled="state.loading||state.saving||!!state.editing||state.uncertain||!state.target">应用搜索与筛选</button>
+    </form>
     <p v-if="state.error" role="alert" class="error">{{state.error}}</p><p v-if="state.message" role="status">{{state.message}}</p>
-    <p v-if="!state.target">请先在设置中保存允许的群或私聊。</p><p v-else-if="!state.loading&&!state.entries.length&&!state.error">当前范围没有记忆。</p>
+    <p v-if="!state.target">请先在设置中保存允许的群或私聊。</p><p v-else-if="!state.loading&&!state.error" role="status">当前范围{{state.appliedQuery?`搜索“${state.appliedQuery}”`:''}} · {{state.appliedStatus?status(state.appliedStatus):'全部状态'}}：匹配 {{state.total}} 条，已读取 {{state.entries.length}} 条。<span v-if="!state.entries.length">没有符合条件的记忆。</span></p>
     <p v-if="state.uncertain" role="status">保存结果尚未确认，先刷新核对；原草稿保留。保存编号：{{state.pendingId}} <button v-if="state.retryAllowed" type="button" :disabled="state.saving||state.loading" @click="retrySave">用原编号重试保存</button></p>
     <label>本次修改依据<input v-model="state.note" maxlength="1000" :disabled="state.saving" placeholder="纠正或删除的原因" /></label>
     <p>修改以管理员说明为来源，不伪造聊天或网页。删除防止原证据再次导入；本群拒用公共词义后须明确恢复。</p>

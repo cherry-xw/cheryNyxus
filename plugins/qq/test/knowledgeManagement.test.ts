@@ -41,4 +41,13 @@ describe('QQ knowledge management receipts',()=>{
     plugin.snapshot.config.groups=['2']
     expect((await call('qq.knowledge.list',{target:'group:2',scope:'local'})).revision).toBe(0)
   })
+  it('forwards filters into the permitted target before pagination',async()=>{
+    const {call}=await fixture()
+    await call('qq.knowledge.edit',{target:'group:2',scope:'local',operationId:'terms',expectedRevision:0,
+      save:[{id:'one',term:'术语',meaning:'目标内容',status:'active',evidenceRefs:['admin']},{id:'two',term:'另一个词',meaning:'不同内容',status:'disputed',evidenceRefs:['admin']}],
+      delete:[],reject:[],restore:[],adminNote:'管理依据'})
+    const page=await call('qq.knowledge.list',{target:'group:2',scope:'local',query:'内容',status:'disputed',count:1})
+    expect(page.total).toBe(1);expect(page.entries.map((entry:any)=>entry.id)).toEqual(['two'])
+    await expect(call('qq.knowledge.list',{target:'group:3',scope:'local',query:'内容'})).rejects.toThrow('目标未获许可')
+  })
 })
