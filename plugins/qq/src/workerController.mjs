@@ -74,13 +74,16 @@ export function createWorkerController(options, runtime = { exec, spawn }) {
       const workspace = await safeDirectory(options.fileRoot, relative)
       // Reserve this mount point even for commands without source authority. No old shared copy is visible.
       await safeDirectory(workspace, 'incoming-zips')
-      let sourceMount
+      let sourceMount, sourceIdentity = null
       if (task.sourceScope) {
         for (const shared of [options.fileRoot, options.mediaRoot, options.skillsRoot]) separateSourceRoot(options.sourceRoot, shared)
         const directory = sourceDirectory(task.sourceScope)
         sourceHandle = await openSourceDirectory(options.sourceRoot, [directory, 'incoming-zips'])
-        // The host Docker daemon resolves this pinned descriptor, not a replaceable pathname.
-        sourceMount = `/proc/${process.pid}/fd/${sourceHandle.fd}`
+        const stat = await sourceHandle.stat({ bigint: true })
+        sourceIdentity = { device: String(stat.dev), inode: String(stat.ino) }
+        // Docker mounts a host path; the immutable image entrypoint checks the
+        // actual mounted inode against this still-open descriptor before any command.
+        sourceMount = path.join(options.sourceRoot, directory, 'incoming-zips')
       }
       if (task.cwd.split('/')[0] === 'incoming-zips') {
         if (!sourceMount) throw new Error('Source permission required')
@@ -94,7 +97,7 @@ export function createWorkerController(options, runtime = { exec, spawn }) {
         '--read-only', '--cpus', String(task.cpu), '--memory', `${task.memory}m`, '--memory-swap', `${task.memory}m`,
         '--pids-limit', String(task.pids), '--network', options.network || 'bridge',
         '--tmpfs', '/tmp:rw,nosuid,nodev,size=128m,mode=1777',
-        '--tmpfs', '/workspace/files/apps:rw,nosuid,nodev,noexec,size=1m,mode=000', '--workdir', `/workspace/files/${task.cwd}`,
+        '--tmpfs', '/workspace/files/apps:rw,nosuid,nodev,noexec,size=1m,mode=000', '--workdir', '/',
         '--mount', `type=bind,src=${workspace},dst=/workspace/files`,
         ...(sourceMount ? ['--mount', `type=bind,src=${sourceMount},dst=/workspace/files/incoming-zips`]
           : ['--tmpfs', '/workspace/files/incoming-zips:ro,nosuid,nodev,noexec,size=1m,mode=0555']),
@@ -106,7 +109,8 @@ export function createWorkerController(options, runtime = { exec, spawn }) {
         '--env', `QQ_MAX_DOWNLOAD_MB=${task.maxMb}`, '--env', `QQ_MAX_DOWNLOAD_BYTES=${task.maxMb * 1024 * 1024}`,
         '--env', `QQ_WORKER_THREADS=${task.threads}`, '--env', `QQ_BUBBLE_VIDEO_MAX_MB=${task.bubbleMb}`,
         '--env', 'QQ_SKILLS_SCRIPTS_DIR=/opt/qq-skills/video-download/scripts',
-        '--entrypoint', '/usr/bin/bash', options.image, '-c', task.command]
+        '--entrypoint', '/opt/qq-tools/bin/python3', options.image, '-I', '-S', '/opt/qq-worker/entrypoint.py',
+        JSON.stringify(sourceIdentity), task.cwd, task.command]
       if (cancelled) throw new Error('Cancelled')
       // A cancellation during create cannot be lost: wait for the created
       // container, recheck, and only then attach/start it. Its command has not run.

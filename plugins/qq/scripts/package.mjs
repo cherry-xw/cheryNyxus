@@ -10,6 +10,7 @@ cpSync(new URL('../skills/archive-inspect', import.meta.url),
   new URL('../dist/skills/archive-inspect', import.meta.url), { recursive: true })
 copyFileSync(new URL('../src/workerController.mjs', import.meta.url), new URL('../dist/workerController.mjs', import.meta.url))
 copyFileSync(new URL('../src/sourceWorkspace.mjs', import.meta.url), new URL('../dist/sourceWorkspace.mjs', import.meta.url))
+copyFileSync(new URL('../src/workerEntrypoint.py', import.meta.url), new URL('../dist/workerEntrypoint.py', import.meta.url))
 cpSync(new URL('../ui-built', import.meta.url), new URL('../dist/ui', import.meta.url), {
   recursive: true,
 })

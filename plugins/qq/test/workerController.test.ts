@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { createWorkerController } from '../src/workerController.mjs'
 import { executeQQWorker } from '../src/workerClient.js'
+import { sourceDirectory } from '../src/sourceWorkspace.mjs'
 
 const subject={selfId:'100',userId:'123',conversationType:'group',groupId:'999'}
 function deferred() { let resolve!:()=>void; const promise=new Promise<void>(r=>{resolve=r}); return {promise,resolve} }
@@ -50,8 +51,33 @@ describe('QQ worker creation and cancellation without Docker', () => {
       const create=runtime.exec.mock.calls.find(([,args])=>args[0]==='create')![1]
       expect(create).toEqual(expect.arrayContaining(['--memory','256m','--pids-limit','32','--cpus','0.5']))
       expect(create.some(v=>v.includes('/workspace/files/incoming-zips:ro'))).toBe(true)
+      expect(create.slice(create.indexOf('--entrypoint'))).toEqual([
+        '--entrypoint','/opt/qq-tools/bin/python3','offline-fixture','-I','-S','/opt/qq-worker/entrypoint.py','null','.','offline',
+      ])
+      expect(create[create.indexOf('--workdir')+1]).toBe('/')
       const name=create[create.indexOf('--name')+1]
       expect(runtime.spawn).toHaveBeenCalledWith('docker',['start','--attach',name],expect.anything())
+    } finally {await f.close()}
+  })
+  it('mounts only the authorized host path and passes its exact identity to the fixed image guard', async () => {
+    const child=new EventEmitter() as EventEmitter & {stdout:PassThrough;stderr:PassThrough}
+    child.stdout=new PassThrough();child.stderr=new PassThrough()
+    const runtime={exec:vi.fn(async(_bin:string,_args:string[])=>({stdout:'offline-container'})),spawn:vi.fn(()=>{
+      queueMicrotask(()=>child.emit('close',0));return child
+    })}
+    const f=await fixture(runtime)
+    const sourceScope={ownerId:'cherynyxus-qq-module',selfId:subject.selfId,conversationType:'group',targetId:subject.groupId,scopeId:'scope-1',permissionRevision:1}
+    const incoming=path.join(f.options.sourceRoot,sourceDirectory(sourceScope),'incoming-zips')
+    await mkdir(path.join(incoming,'slot-1'),{recursive:true})
+    try {
+      const result=await executeQQWorker(f.socket,{subject,sourceScope,cwd:'incoming-zips/slot-1',command:'unchanged command'})
+      expect(result.ok).toBe(true)
+      const create=runtime.exec.mock.calls.find(([,args]:any)=>args[0]==='create')![1] as string[]
+      expect(create).toContain(`type=bind,src=${incoming},dst=/workspace/files/incoming-zips`)
+      expect(create.some(v=>v.includes('/proc/'))).toBe(false)
+      const entry=create.slice(create.indexOf('/opt/qq-worker/entrypoint.py'))
+      const sourceStat=await stat(incoming,{bigint:true})
+      expect(entry).toEqual(['/opt/qq-worker/entrypoint.py',JSON.stringify({device:String(sourceStat.dev),inode:String(sourceStat.ino)}),'incoming-zips/slot-1','unchanged command'])
     } finally {await f.close()}
   })
 })

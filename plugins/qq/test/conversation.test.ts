@@ -52,13 +52,13 @@ describe('normal conversation and fixed voice policy', () => {
     await expect(plugin.enqueueReplyAction(job,{kind:'voice',text:'hi',completeReply:true})).rejects.toThrow('not available')
     expect(plugin.output).not.toHaveBeenCalled()
   })
-  it('prepares only trusted rules and references, never repeats current/old source text in the request hook', async () => {
+  it.each([true, false])('prepares source tools with workerEnabled=%s without repeating source text', async workerEnabled => {
     const {plugin,job}=fixture('锐评一下 @另一个人')
     const hooks:any[]=[]
     plugin.cleanups=[];plugin.paused=true
     job.input.eventId='current-event';job.input.replyToMessageId='42'
     job.sourceSnapshot={snapshotId:'fixed-snapshot'}
-    job.snapshot.config={...job.snapshot.config,memoryEnabled:false}
+    job.snapshot.config={...job.snapshot.config,memoryEnabled:false,workerEnabled}
     plugin.state.jobs=[]
     const register=()=>()=>{}
     plugin.context={id:'qq-fixture',dataDir:'/tmp/opencode',runtimeOptions:{},config:{snapshot:()=>({revision:1,config:job.snapshot.config})},
@@ -71,6 +71,12 @@ describe('normal conversation and fixed voice policy', () => {
     const requestPrepare=hooks.find(hook=>hook.event==='RequestPrepare')
     const identity={ownerId:'qq-fixture',channel:'qq',subject:{selfId:'123',userId:'789',conversationType:'group',groupId:'456'}}
     const prepared=await requestPrepare.handler({inputId:'current-event',requestId:'core-new'},{requestView:{identity}})
+    for (const tool of ['qq_container_exec', 'qq_source_file_read']) {
+      expect(prepared.tools.includes(tool)).toBe(workerEnabled)
+      expect(prepared.excludedTools.includes(tool)).toBe(!workerEnabled)
+    }
+    const unrelated=await requestPrepare.handler({inputId:'other',requestId:'web'},{requestView:{identity:{source:'web',channel:'web'}}})
+    expect(unrelated).toBeUndefined()
     const discussion=JSON.parse(prepared.contexts.find((item:any)=>item.key==='qq.discussion').content)
     expect(discussion).toMatchObject({batchId:'new',snapshotId:'fixed-snapshot'})
     expect(JSON.stringify(prepared.contexts)).not.toMatch(/锐评一下|旧成员原文|旧机器人错误宣称|currentMessages|recentRequests|replyClaim/)
