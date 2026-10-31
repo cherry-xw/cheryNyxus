@@ -1347,7 +1347,7 @@
     "declaration": "state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused', 'cancelled']),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "1f0855acfa73afc4a87c88e6431f16da8181ce26378dc80dfa8d91b5a914250b"
+    "sourceSha256": "0478035076abd4330e13e98507fd87a96153666e689316754e2deebe6f162386"
   },
   {
     "id": "D151",
@@ -1356,7 +1356,7 @@
     "declaration": "participation: z.enum(['reply', 'wait', 'end']).optional(),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "1f0855acfa73afc4a87c88e6431f16da8181ce26378dc80dfa8d91b5a914250b"
+    "sourceSha256": "0478035076abd4330e13e98507fd87a96153666e689316754e2deebe6f162386"
   },
   {
     "id": "D152",
@@ -1365,7 +1365,7 @@
     "declaration": "status: z.enum(['pending', 'inflight', 'sent', 'unknown', 'failed']),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "1f0855acfa73afc4a87c88e6431f16da8181ce26378dc80dfa8d91b5a914250b"
+    "sourceSha256": "0478035076abd4330e13e98507fd87a96153666e689316754e2deebe6f162386"
   },
   {
     "id": "D153",
