@@ -2172,10 +2172,18 @@ export class QQPlugin implements IngressPlugin {
     if (args.scope === 'public' && !config.publicTermsEnabled) fail('NOT_ALLOWED','公共词义已关闭')
     const subject = this.targetSubject(target), store = this.knowledge()
     if (method === 'qq.knowledge.list') return store.list(subject,args.scope,args.cursor,args.revision,args.count)
+    if (method === 'qq.knowledge.receipt') {
+      const receipt=await store.receipt(subject,args.scope,args.operationId)
+      return receipt?{state:'saved',receipt}:{state:'not_found'}
+    }
     this.learning.interrupt()
     const adminId = `admin:${args.operationId}`, save = args.save.map((term:any)=>({...term,evidenceRefs:[adminId]}))
     if (args.scope === 'public' && save.some((term:any)=>term.status === 'active')) fail('NOT_ALLOWED','没有新的公开证据，管理员纠正只能标记争议或停用')
-    return store.manage(subject,args.scope,{...args,save,explicit:true,admin:true},[{kind:'admin',evidenceId:adminId,note:args.adminNote}])
+    const validate=()=>{
+      const now=this.snapshot.config
+      if(!now.memoryEnabled||args.scope==='public'&&!now.publicTermsEnabled||this.targetSubject(target).selfId!==subject.selfId||!(target.startsWith('group:')?now.groups.includes(target.slice(6)):now.users.includes(target.slice(13))))fail('NOT_ALLOWED','记忆管理权限已变化')
+    }
+    return store.manage(subject,args.scope,{...args,save,explicit:true,admin:true},[{kind:'admin',evidenceId:adminId,note:args.adminNote}],undefined,validate)
   }
   private targetSubject(target: string): QQSubject {
     const selfId = this.state.identityBinding?.selfId ?? this.snapshot.config.selfId

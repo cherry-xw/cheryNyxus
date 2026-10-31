@@ -4,7 +4,7 @@ import Dropdown from '../../../packages/manager-ui/src/Dropdown.vue'
 import { useQqKnowledge } from './useQqKnowledge'
 const props=defineProps<{targets:string[];active:boolean}>()
 const emit=defineEmits<{dirty:[value:boolean]}>()
-const {state,read,learning,edit,adoption,retry,begin,saveEdit,clear}=useQqKnowledge()
+const {state,read,learning,edit,adoption,retry,retrySave,begin,saveEdit,clear}=useQqKnowledge()
 watch(()=>!!state.editing||state.saving||state.uncertain,value=>emit('dirty',value),{immediate:true})
 watch(()=>props.active,active=>{if(active){state.target ||= props.targets[0]??'';void read();void learning()}else clear()},{immediate:true})
 watch(()=>[state.target,state.scope],()=>{if(props.active){state.editing=null;void read()}})
@@ -21,7 +21,7 @@ const status=(value:string)=>({pending:'等待学习',running:'学习中',comple
     </div>
     <p v-if="state.error" role="alert" class="error">{{state.error}}</p><p v-if="state.message" role="status">{{state.message}}</p>
     <p v-if="!state.target">请先在设置中保存允许的群或私聊。</p><p v-else-if="!state.loading&&!state.entries.length&&!state.error">当前范围没有记忆。</p>
-    <p v-if="state.uncertain">保存结果尚未确认，先刷新核对；原草稿保留。</p>
+    <p v-if="state.uncertain" role="status">保存结果尚未确认，先刷新核对；原草稿保留。保存编号：{{state.pendingId}} <button v-if="state.retryAllowed" type="button" :disabled="state.saving||state.loading" @click="retrySave">用原编号重试保存</button></p>
     <label>本次修改依据<input v-model="state.note" maxlength="1000" :disabled="state.saving" placeholder="纠正或删除的原因" /></label>
     <p>修改以管理员说明为来源，不伪造聊天或网页。删除防止原证据再次导入；本群拒用公共词义后须明确恢复。</p>
     <ul class="entries"><li v-for="entry in state.entries" :key="entry.id">
@@ -31,9 +31,9 @@ const status=(value:string)=>({pending:'等待学习',running:'学习中',comple
         <ul><li v-for="(source,index) in entry.sources" :key="index"><template v-if="source.kind==='web'">网页 {{source.url}} · {{source.observedAt}}<span v-if="source.truncated"> · 已截断</span><p>{{source.excerpt}}</p></template>
           <template v-else-if="source.kind==='admin'">管理员说明：{{source.note}}</template><template v-else>消息 {{source.recordId}} · {{source.actorId}}<p>{{source.excerpt}}</p></template></li></ul>
       </details>
-      <div class="controls"><button type="button" :disabled="state.saving||state.uncertain" @click="begin(entry)">纠正</button>
-        <button type="button" :disabled="state.saving||state.uncertain||!state.note.trim()" @click="confirmDelete(entry.id)">删除</button>
-        <template v-if="state.scope==='public'"><button type="button" :disabled="state.saving||state.uncertain||!state.note.trim()" @click="adoption(entry.id,false)">本目标不采用</button><button type="button" :disabled="state.saving||state.uncertain||!state.note.trim()" @click="adoption(entry.id,true)">恢复本目标采用</button></template>
+      <div class="controls"><button type="button" :disabled="state.loading||state.saving||state.uncertain||!!state.editing" @click="begin(entry)">纠正</button>
+        <button type="button" :disabled="state.loading||state.saving||state.uncertain||!!state.editing||!state.note.trim()" @click="confirmDelete(entry.id)">删除</button>
+        <template v-if="state.scope==='public'"><button type="button" :disabled="state.loading||state.saving||state.uncertain||!!state.editing||!state.note.trim()" @click="adoption(entry.id,false)">本目标不采用</button><button type="button" :disabled="state.loading||state.saving||state.uncertain||!!state.editing||!state.note.trim()" @click="adoption(entry.id,true)">恢复本目标采用</button></template>
       </div>
     </li></ul>
     <button v-if="state.nextCursor" type="button" :disabled="state.loading||state.saving" @click="read(true)">继续读取</button>
@@ -42,7 +42,7 @@ const status=(value:string)=>({pending:'等待学习',running:'学习中',comple
       <label>用法<textarea v-model="state.editing.usage" maxlength="1000" :disabled="state.saving" /></label>
       <label>注意<textarea v-model="state.editing.caveat" maxlength="500" :disabled="state.saving" /></label>
       <label>状态<Dropdown v-model="state.editing.status" label="记忆状态" :disabled="state.saving"><option v-if="state.scope==='local'" value="active">有效</option><option value="disputed">有争议</option><option value="inactive">不采用</option><option value="superseded">已替代</option></Dropdown></label>
-      <button type="submit" :disabled="state.saving||state.uncertain||!state.note.trim()">{{state.saving?'保存中…':'保存纠正'}}</button><button type="button" :disabled="state.saving" @click="state.editing=null">取消</button>
+      <button type="submit" :disabled="state.loading||state.saving||state.uncertain||!state.note.trim()">{{state.saving?'保存中…':'保存纠正'}}</button><button type="button" :disabled="state.saving" @click="state.editing=null">取消</button>
     </form>
     <section><div class="controls"><h3>学习状态与额度</h3><button type="button" @click="learning">刷新学习状态</button></div>
       <template v-if="state.learning"><p>本小时 {{state.learning.usedCalls}} / {{state.learning.limit}} 次 · 待处理 {{state.learning.pending}}<span v-if="state.learning.reason"> · {{state.learning.reason}}</span></p>

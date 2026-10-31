@@ -90,6 +90,8 @@ QQ 历次问题批保存在 `questionBatches`；答案保存、排队和启动�
 
 记忆统一使用`qq_memory_search`和`qq_memory_manage`。`src/knowledge.ts`按机器人及群／私聊分别存本地事实，同一机器人公共词义单独保存；不读取旧个人、成员或群记忆文件。检索用完整词项与别名，空查询不注入全部，单字只匹配明确术语；本地与公共并列，合计受上下文预算限制。公共候选仅由已读公开网页形成，普通聊天不能直接改写公共定义。拒用标记按公共ID持续保存，更新公共版本不恢复采用。修改有预期版本、来源和操作回执；删除只留证据hash，自动导入不能复活原证据。
 
+管理页面通过只读`qq.knowledge.receipt`核对保存编号。网络失败保留原请求和草稿；回执不存在时重试仍使用相同编号、内容及预期版本，不创建新修改。设置回读以实际提交快照核对，不覆盖保存期间的后续编辑。页面关闭或管理权限失效后清除受限内容，迟到响应不恢复它们。
+
 文件统一通过`qq_file_read`／`qq_file_write`的personal/group范围操作；个人仅`share/`公开，群文件限当前群目录。均不接受`apps/`路径；受管应用须通过`managed_app`操作，权限见[角色安全](../../docs/backend/agent/role-security.md#受管请求)，验证入口为`test/managedAppFiles.test.ts`与`test/videoDownloadSkill.test.ts`。
 
 ## 讨论总结与恢复
