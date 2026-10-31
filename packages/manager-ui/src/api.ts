@@ -13,6 +13,13 @@ const messages: Record<string, string> = {
   origin_rejected: '请求来源未被允许，请检查 Manager 可信访问地址。',
   backend_auth_failed: '内部管理连接认证失败，请检查部署状态或联系管理员修复；无需再次登录或填写后端凭据。',
   unavailable: '后端管理接口不可用，请检查后端运行状态、连接地址和接口版本。',
+  permission_denied: '当前无权读取这项来源，已清除受限内容。',
+  capability_denied: '当前管理连接没有来源读取权限，已清除受限内容。',
+  identity_rejected: '来源访问身份已失效，请重新读取。',
+  cursor_expired: '当前分页位置已失效，请从这份输入的开头重新读取。',
+  source_conflict: '来源版本不匹配；没有切换到其他记录。',
+  summary_conflict: '摘要来源版本已变化，请重新读取核对。',
+  response_too_large: '这份内容超过单次读取上限，请减少每页条数。',
   request_failed: 'Manager 处理请求失败，请检查服务日志；提交过的修改须先回读核对。',
   backend_externally_managed: '后端由 Docker 或其他部署工具管理，不能在此启停。',
   revision_conflict: '配置已被其他操作修改。草稿已保留，请重新读取后再保存。',
@@ -38,9 +45,11 @@ export async function managerRequest<T>(path: string, init: RequestInit = {}): P
   try {
     let response: Response
     try {
-      response = await fetch(path, { ...init, credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: abort.signal,
+      init.signal?.throwIfAborted()
+      response = await fetch(path, { ...init, credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: init.signal ? AbortSignal.any([init.signal, abort.signal]) : abort.signal,
         headers: { Accept: 'application/json', ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...init.headers } })
     } catch {
+      if (init.signal?.aborted) throw init.signal.reason
       throw new ManagerApiError(abort.signal.aborted ? 'timeout' : 'network_error', 0, path,
         abort.signal.aborted ? '请求超时。若正在保存，请先回读核对，不要重复提交。' : '无法连接 Manager，请检查网络和访问地址。若正在保存，请先回读核对。')
     }

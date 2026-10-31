@@ -45,6 +45,8 @@ export interface SaveResourceResult<K extends ResourceKind = ResourceKind> exten
 }
 export type ApiResult<T> = { data: T } | { error: { code: string; message: string } }
 export interface ModuleRequest {
+  /** Server-owned, non-secret reading identity from the authenticated Manager session. */
+  readerPrincipal?: string
   method: string
   url: URL
   /** Parsed JSON after Manager Session/Origin authorization; no credentials accepted here. */

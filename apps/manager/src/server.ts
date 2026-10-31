@@ -352,6 +352,7 @@ main.manager > header { display: none; }
         )({
           method: req.method ?? 'GET',
           url: new URL(req.url ?? '/', origin),
+          readerPrincipal: auth.managementPrincipal(req),
           body: ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '')
             ? await readJsonBody(req)
             : undefined,

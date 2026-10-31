@@ -264,6 +264,7 @@ export class DynamicModules {
       path: registeredPath,
       pathParams,
       query,
+      ...(request.readerPrincipal ? {readerPrincipal: request.readerPrincipal} : {}),
       ...(request.body === undefined ? {} : { body: request.body }),
     })
     return { status: response.status, body: response.body }

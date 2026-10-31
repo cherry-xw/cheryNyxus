@@ -26,7 +26,7 @@ describe('QQ record loading and draft isolation', () => {
     expect(qq.state.ready).toBe(true)
     expect(request.mock.calls.map(([path]) => path).sort()).toEqual(['/api/modules/capabilities/catalog', '/api/modules/qq/config', '/api/modules/qq/status'])
   })
-  it('fetches details only on request, caches until refresh and preserves the settings draft', async () => {
+  it('fetches details on request and preserves loaded detail, expansion and the draft during list refresh', async () => {
     const { qq, request } = fixture()
     await qq.load()
     qq.state.config.pokeEnabled = !qq.state.config.pokeEnabled
@@ -38,7 +38,7 @@ describe('QQ record loading and draft isolation', () => {
     expect(qq.state.details[entry.requestId].reply).toBe('已有回复')
     expect(request.mock.calls.filter(([path]) => path.includes('/entry?'))).toHaveLength(1)
     await qq.refresh('queue')
-    expect(qq.state.details).toEqual({})
+    expect(qq.state.details[entry.requestId].reply).toBe('已有回复')
     expect(JSON.stringify(qq.state.config)).toBe(draft)
     expect(qq.dirty.value).toBe(true)
   })

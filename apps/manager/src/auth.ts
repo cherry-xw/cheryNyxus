@@ -13,7 +13,7 @@ export interface InitialSetupHooks {
   status: () => Promise<boolean>
   create: (username: string, password: string) => Promise<void>
 }
-interface Session { username: string; provider: 'password' | 'oidc'; expiresAt: number }
+interface Session { username: string; provider: 'password' | 'oidc'; expiresAt: number; readerPrincipal: string }
 export const SESSION_COOKIE = 'chery-manager-session'
 const BINDING_COOKIE = 'chery-manager-oidc'
 
@@ -120,7 +120,7 @@ export class ManagerAuth {
     this.sessions.delete(cookie(req, SESSION_COOKIE))
     if (this.sessions.size >= 1000) throw new Error('session_capacity')
     const id = randomBytes(32).toString('base64url')
-    this.sessions.set(id, { username, provider, expiresAt: this.now() + this.ttl })
+    this.sessions.set(id, { username, provider, expiresAt: this.now() + this.ttl, readerPrincipal: randomBytes(24).toString('hex') })
     this.setCookie(res, SESSION_COOKIE, id, origin, Math.ceil(this.ttl / 1000))
   }
   private allowedAttempt(req: IncomingMessage): boolean {
@@ -139,6 +139,10 @@ export class ManagerAuth {
     return limit.count <= 10 && this.globalLimit.count <= 100
   }
 
+  managementPrincipal(req: IncomingMessage): string | undefined {
+    const session = this.sessions.get(cookie(req, SESSION_COOKIE))
+    return session && session.expiresAt > this.now() ? session.readerPrincipal : undefined
+  }
   async authorize(req: IncomingMessage, res: ServerResponse, path: string, origin: string): Promise<boolean> {
     const account = await this.refresh()
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') &&
@@ -250,7 +254,7 @@ export class ManagerAuth {
       return false
     }
     if (path === '/api/auth/me' && req.method === 'GET') {
-      sendJson(res, 200, { authenticated: true, ...session }); return false
+      sendJson(res, 200, { authenticated: true, username: session.username, provider: session.provider, expiresAt: session.expiresAt }); return false
     }
     if (path === '/api/auth/logout' && req.method === 'POST') {
       this.sessions.delete(cookie(req, SESSION_COOKIE))
