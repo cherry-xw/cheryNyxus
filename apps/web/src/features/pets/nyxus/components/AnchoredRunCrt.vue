@@ -75,6 +75,7 @@ const statusLabel = computed(() => {
     waiting: '等待中',
     paused: '已暂停',
     failed: '执行失败',
+    cancelled: '已取消',
   }
   return labels[props.card.status]
 })

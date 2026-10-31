@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import Database from 'better-sqlite3'
 import { SourceInputSchema, SourceSnapshotSchema, SourceScopeSchema } from '@chery/protocol'
 import { StateSchema, JobDataSchema } from '../../../../../plugins/qq/src/state.js'
+import { closeQQQueues } from '../../../../../plugins/qq/src/backendLifecycle.js'
 import { initSourceTaskTables } from '@/db/sourceTaskSchema.js'
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
@@ -13,9 +14,19 @@ type Report = { operationId: string; stateVersion: number; tasks: number; bindin
   unresolved: Array<{ requestId: string; reasonCode: string }>; conflicts: Array<{ requestId?: string; reasonCode: string }>; phase: string }
 type Task = { runId: string; requestId: string; chatId: string; epochId: string; permissionRevision: number;
   identity: Json; input: Json; state: string; batch?: { batchId: string; assistantId: string; ids: string[] }; cancelWait: boolean }
-type Plan = { operationId: string; originalStateHash: string; stateJson: string; tasks: Task[]; report: Report; monthlyHashes: Record<string,string> }
+type Plan = { operationId: string; originalStateHash: string; stateJson: string; tasks: Task[]; report: Report; monthlyHashes: Record<string,string>;
+  recovery?: { manifest: string; manifestHash: string; database: string; data: string; assets: string } }
 const exists = (db: Database.Database, table: string) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)
 const row = (db: Database.Database, sql: string, ...params: string[]) => db.prepare(sql).get(...params) as Json | undefined
+
+function provenMessageOwner(db: Database.Database, chatId: string, messageId: string, runId: string): boolean {
+  if (!exists(db,'workflow_occurrences')) return false
+  const owners = db.prepare(`SELECT DISTINCT w.run_id FROM workflow_occurrences w,
+    json_each(w.payload_json,'$.anchors') a WHERE w.source_chat_id=? AND
+    json_extract(a.value,'$.kind')='message' AND json_extract(a.value,'$.chatId')=? AND json_extract(a.value,'$.id')=?`)
+    .all(chatId,chatId,messageId) as Array<{run_id:string|null}>
+  return owners.length === 1 && owners[0]!.run_id === runId
+}
 
 function prepare(db: Database.Database, stateFile: string, operationId: string, dbDirectory: string): Plan {
   const original = fs.readFileSync(stateFile, 'utf8'), state = JSON.parse(original) as Json
@@ -70,9 +81,8 @@ function prepare(db: Database.Database, stateFile: string, operationId: string, 
         const batch = row(month, 'SELECT * FROM question_batches WHERE batch_id=? AND chat_id=?', old.batchId, chatId)
         const items = month.prepare('SELECT question_id,status FROM question_items WHERE batch_id=? ORDER BY position').all(old.batchId) as Json[]
         const core = row(db, 'SELECT * FROM execution_active_runs WHERE chat_id=? AND run_id=?', chatId, job.coreRunId)
-        const owners = batch && (db.prepare('SELECT payload_json FROM execution_nodes WHERE source_chat_id=? AND source_message_id=?')
-          .all(chatId, batch.assistant_message_id) as Array<{payload_json:string}>).map(owner => JSON.parse(owner.payload_json))
-        if (!batch || old.runId !== job.coreRunId || !core || !owners?.some(owner => owner.runId === job.coreRunId) ||
+        if (!batch || old.runId !== job.coreRunId || !core || !provenMessageOwner(db,chatId,batch.assistant_message_id,job.coreRunId) ||
+          items.some(item => !provenMessageOwner(db,chatId,item.question_id,job.coreRunId!)) ||
           items.length !== old.items.length || items.some(item => !old.items.some((q: Json) => q.questionId === item.question_id))) {
           reject('QUESTION_ASSOCIATION_UNPROVEN'); continue
         }
@@ -80,9 +90,13 @@ function prepare(db: Database.Database, stateFile: string, operationId: string, 
           const output = state.outbox.find((output: Json) => output.frame?.data?.eventId === item.eventId)
           if (output?.status === 'sent' && (!output.messageIds?.length || output.frame.data.requestId !== job.requestId))
             report.conflicts.push({ requestId: job.requestId, reasonCode: 'QUESTION_RECEIPT_CONFLICT' })
-          if (output?.sourceDeliveryId) {
-            const fact = row(db,'SELECT data_json FROM source_delivery_facts WHERE delivery_id=? ORDER BY revision DESC LIMIT 1',output.sourceDeliveryId)
-            if (fact && JSON.parse(fact.data_json).status === 'sent' && output.status !== 'sent')
+          if (output?.sourceScopeId) {
+            const fact = row(db,'SELECT data_json FROM source_delivery_facts WHERE delivery_id=? ORDER BY revision DESC LIMIT 1',output.frame.data.eventId)
+            const result = fact && JSON.parse(fact.data_json)
+            if (result && (result.status !== output.status ||
+              result.requestId !== job.requestId || result.selfId !== job.input.selfId || result.targetId !== job.input.targetId ||
+              result.conversationType !== job.input.conversationType ||
+              result.status === 'sent' && JSON.stringify(result.messageIds) !== JSON.stringify(output.messageIds)))
               report.conflicts.push({ requestId: job.requestId, reasonCode: 'QUESTION_RECEIPT_CONFLICT' })
           }
         }
@@ -114,6 +128,7 @@ function prepare(db: Database.Database, stateFile: string, operationId: string, 
   }
   state.schemaVersion = 3; state.nextQueueSequence = sequence + 1
   const validated = StateSchema.parse(state)
+  closeQQQueues(validated)
   report.tasks = tasks.length
   return { operationId, originalStateHash: hash(original), stateJson: JSON.stringify(validated), tasks, report, monthlyHashes }
 }
@@ -125,6 +140,8 @@ function verifyBackup(manifestFile: string, roots: string[], allowChanged: Set<s
   for (const item of manifest.files) {
     if (!path.isAbsolute(item.originalPath) || !path.isAbsolute(item.backupPath) || item.originalPath === item.backupPath ||
       files.has(item.originalPath) || !/^[a-f0-9]{64}$/.test(item.sha256) || fileHash(item.backupPath) !== item.sha256) throw new Error('RECOVERY_BACKUP_INVALID')
+    const backup = fs.lstatSync(item.backupPath), original = fs.lstatSync(item.originalPath)
+    if (!backup.isFile() || backup.dev === original.dev && backup.ino === original.ino) throw new Error('RECOVERY_BACKUP_INVALID')
     files.set(item.originalPath, item.sha256)
   }
   const check = (file: string) => {
@@ -165,9 +182,13 @@ export function runQuestionMaintenance(args: readonly string[]) {
     if (currentHash !== plan.originalStateHash && currentHash !== finalHash) throw new Error('MAINTENANCE_STATE_CONFLICT')
     for (const [file, expected] of Object.entries(plan.monthlyHashes)) if (fileHash(file) !== expected) throw new Error('MAINTENANCE_MONTH_CONFLICT')
     if (mode === 'dry-run' || plan.report.conflicts.length) return { ...plan.report, phase: saved?.phase ?? 'preview' }
-    verifyBackup(absolute('--recovery-manifest'), [path.dirname(database), data, absolute('--assets-dir')],
+    const manifest = absolute('--recovery-manifest'), assets = absolute('--assets-dir')
+    const recovery = { manifest, manifestHash: fileHash(manifest), database, data, assets }
+    if (saved && JSON.stringify(plan.recovery) !== JSON.stringify(recovery)) throw new Error('MAINTENANCE_RECOVERY_CONFLICT')
+    verifyBackup(manifest, [path.dirname(database), data, assets],
       saved ? new Set([database, ...(currentHash === finalHash ? [stateFile] : [])]) : new Set())
     if (!saved) {
+      plan.recovery = recovery
       db.exec('CREATE TABLE IF NOT EXISTS source_question_maintenance(operation_id TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,plan_json TEXT NOT NULL,phase TEXT NOT NULL)')
       db.prepare("INSERT INTO source_question_maintenance VALUES (?,?,?,'prepared')").run(operationId, hash(JSON.stringify(plan)), JSON.stringify(plan))
     }

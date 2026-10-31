@@ -31,7 +31,7 @@ npm run qq-question:maintain -- --db /absolute/data/soul.db --data-dir /absolute
 npm run qq-question:maintain -- --db /absolute/data/soul.db --data-dir /absolute/qq --operation-id qq-questions-20261024 --stopped --mode apply --assets-dir /absolute/assets --recovery-manifest /absolute/backup/manifest.json
 ```
 
-默认只读预览仅输出数量、请求编号、阶段及许可原因码。关联不足保留历史并禁止恢复；矛盾阻止写入。已取消问题仅在原请求、Core 运行、问题批、消息归属和取消事实吻合时同步结束，不伪造用户取消，不动同会话其他运行。旧未结束任务按停止规则结束，不获得跨重启执行许可。未知发送保留未知，不创建输出；配置、凭据、附件、工具结果及原备份不删除。主库保存固定维护编号、指纹和阶段，最后才发布版本 3。中断后保持停写，用同编号和原备份清单补齐；不得启动业务或仅换回旧镜像。回退需恢复整套同一时点备份。验证入口为 `apps/backend/test/service/questionMaintenance.test.ts`。
+默认只读预览仅输出数量、请求编号、阶段及许可原因码。关联不足保留历史并禁止恢复；矛盾阻止写入。消息归属由 `workflow_occurrences` 中唯一运行的消息关联证明，成功问题回执按出站 `eventId` 核对。已取消问题仅在原请求、Core 运行、问题批、消息归属和取消事实吻合时同步结束，不伪造用户取消，不动同会话其他运行。旧未结束任务按停止规则结束，不获得跨重启执行许可。未知发送保留未知，不创建输出；配置、凭据、附件、工具结果及原备份不删除。主库保存固定维护编号、指纹和阶段，最后才发布版本 3。中断后保持停写，用同编号、同路径及内容不变的原备份清单补齐，备份不能与原件共用同一文件；不得启动业务或仅换回旧镜像。回退需恢复整套同一时点备份。验证入口为 `apps/backend/test/service/questionMaintenance.test.ts`。
 
 `ask_user_question` 使用 Core 持久问题批。请求内工具模式也将提问交回正常 checkpoint 保存，而不是只保留临时工具历史。QQ 只公开问题、选项及回答方式，不公开 rationale、思考或内部工具参数；群聊与私聊均通过已认证原生引用文字发送。
 

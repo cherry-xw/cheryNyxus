@@ -151,7 +151,7 @@ export interface ActiveRunFact {
   rootChatId: string
   chatId: string
   runId: string
-  status: 'running' | 'waiting' | 'paused' | 'completed' | 'failed'
+  status: 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | 'cancelled'
   turnId?: string
   nodeId?: string
   batchId?: string

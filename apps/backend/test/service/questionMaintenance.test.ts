@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import Database from 'better-sqlite3'
 import { afterEach, expect, it, vi } from 'vitest'
 import { sourceFixture } from '../helpers/sourceContext.js'
+import { initAssetTables } from '@/db/assets.js'
 import { emptyState, readState } from '../../../../plugins/qq/src/state.js'
 import { QQDefaultConfig } from '@chery/protocol'
 import { runQuestionMaintenance } from '@/service/ingress/questionMaintenance.js'
@@ -16,20 +17,24 @@ function fixture(status = 'cancelled') {
   const data = path.join(root,'qq'), databaseDir = path.join(root,'db'), assets = path.join(root,'assets'), backup = path.join(root,'backup')
   for (const directory of [data,databaseDir,assets,backup]) fs.mkdirSync(directory)
   const f = sourceFixture(), start = f.start('request-a','run-a')
-  f.repo.bindCore(f.authority,f.scope.scopeId,{chatId:'chat',epochId:'epoch'})
+  initAssetTables(f.db)
   f.db.exec(`CREATE TABLE chats(id TEXT PRIMARY KEY,messages_month TEXT);
     INSERT INTO chats VALUES ('chat','2026-10');
     CREATE TABLE execution_active_runs(chat_id TEXT,run_id TEXT,status TEXT);
     INSERT INTO execution_active_runs VALUES ('chat','run-a','waiting'),('chat','run-b','completed');
     CREATE TABLE execution_nodes(source_chat_id TEXT,source_message_id TEXT,payload_json TEXT);
-    INSERT INTO execution_nodes VALUES ('chat','assistant-a','{"runId":"run-a"}');`)
+    INSERT INTO execution_nodes VALUES ('chat','assistant-a','{}');
+    CREATE TABLE workflow_occurrences(source_chat_id TEXT,run_id TEXT,payload_json TEXT);
+    INSERT INTO workflow_occurrences VALUES ('chat','run-a','{"anchors":[{"kind":"message","id":"assistant-a","chatId":"chat"}]}'),
+      ('chat','run-a','{"anchors":[{"kind":"message","id":"question-a","chatId":"chat"}]}');`)
+  f.repo.bindCore(f.authority,f.scope.scopeId,{chatId:'chat',epochId:'epoch'})
   const database = path.join(databaseDir,'soul.db'); fs.writeFileSync(database,f.db.serialize()); f.db.close()
   const month = new Database(path.join(databaseDir,'2026-10.db'))
   month.exec(`CREATE TABLE question_batches(batch_id TEXT,chat_id TEXT,assistant_message_id TEXT,status TEXT);
     INSERT INTO question_batches VALUES ('batch-a','chat','assistant-a','completed');
     CREATE TABLE question_items(batch_id TEXT,question_id TEXT,status TEXT,position INTEGER);`)
   month.prepare('INSERT INTO question_items VALUES (?,?,?,0)').run('batch-a','question-a',status); month.close()
-  const input = { eventId:'qq:100:group:999:1',selfId:'100',senderId:'123',targetId:'999',conversationType:'group',messageId:'1',
+  const input = { eventId:'qq:100:group:999:1',selfId:'100',senderId:'123',senderName:'fixture',targetId:'999',conversationType:'group',messageId:'1',
     content:'private task',mentionedBot:true,occurredAt:1,sourceParts:[{partId:'p0',type:'text',text:'private task'}] }
   const stateFile = path.join(data,'state.json'), base = emptyState() as Record<string,any>
   delete base.nextQueueSequence
@@ -89,4 +94,28 @@ it('requires explicit stopped state and rejects normal version-2 loading', () =>
   const f=fixture()
   expect(()=>runQuestionMaintenance(f.args.filter(value=>value!=='--stopped'))).toThrow('STOPPED_BACKEND_REQUIRED')
   expect(()=>readState(f.stateFile)).toThrow('question maintenance')
+})
+it('requires the same recovery manifest on repeat and refuses hard-linked backups', () => {
+  const f=fixture()
+  expect(f.apply().phase).toBe('completed')
+  const copy=`${f.manifest}.other`; fs.copyFileSync(f.manifest,copy)
+  expect(()=>runQuestionMaintenance([...f.args,'--mode','apply',
+    '--recovery-manifest',copy])).toThrow('MAINTENANCE_RECOVERY_CONFLICT')
+  const other=fixture(), file=other.files[0]
+  fs.unlinkSync(file.backupPath);fs.linkSync(file.originalPath,file.backupPath)
+  expect(other.apply).toThrow('RECOVERY_BACKUP_INVALID')
+})
+it('checks the actual outbox event against the persisted sent receipt before writing', () => {
+  const f=fixture(), state=JSON.parse(fs.readFileSync(f.stateFile,'utf8')), scopeId=state.jobs[0].sourceScopeId
+  const frame={kind:'notification',type:'qq.reply.action',data:{eventId:'out-a',requestId:'request-a',selfId:'100',targetId:'999',conversationType:'group',seq:1,
+    actionKind:'quote',messageId:'1',text:'private question',completeReply:false}}
+  state.outbox=[{frame,status:'sent',messageIds:['700'],sourceScopeId:scopeId}]
+  fs.writeFileSync(f.stateFile,JSON.stringify(state))
+  const db=new Database(f.database)
+  db.prepare('INSERT INTO source_deliveries(delivery_id,scope_id,request_id,fingerprint,purpose,kind,frame_json,created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run('out-a',scopeId,'request-a','fixture','reply','message',JSON.stringify(frame),1)
+  db.prepare('INSERT INTO source_delivery_facts VALUES (?,?,?,?,?)').run('out-a',1,'fixture',1,JSON.stringify({...frame.data,status:'sent',messageIds:['701']}))
+  db.close()
+  expect(f.apply()).toMatchObject({phase:'preview',conflicts:[{requestId:'request-a',reasonCode:'QUESTION_RECEIPT_CONFLICT'}]})
+  expect(JSON.parse(fs.readFileSync(f.stateFile,'utf8')).schemaVersion).toBe(2)
 })
