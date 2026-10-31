@@ -49,7 +49,9 @@ import {
   brainNetworkError,
   resolveProviderUrl,
   readErrorSnippet,
+  assertProviderEnvelope,
 } from './fetchBase.js'
+import { ClassifiedError } from '@/utils/error.js'
 import { acquireRpm } from './openaiCompat.js'
 import { applyProtocolHook } from './protocolHook.js'
 import { inputOrigins, trackInput, trackTextInput } from '@/core/message/inputOrigins.js'
@@ -919,11 +921,13 @@ async function anthropicFetch(
   }
   try {
     const value = (await res.json()) as AnthropicResponse
+    assertProviderEnvelope(value as unknown as Record<string, unknown>)
     observation?.response(value)
     return value
   } catch (err) {
+    if (err instanceof ClassifiedError) throw err
     throw brainInvalidStream(
-      `响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`,
+      '响应体不是合法 JSON，请检查服务协议和地址',
     )
   }
 }
@@ -1001,8 +1005,9 @@ async function* anthropicStreamSSE(
         if (!line.startsWith('data:')) continue
         const payload = line.slice(5).trim()
         if (!payload) continue
-        try {
-          const ev = JSON.parse(payload) as AnthropicSSEEvent & { _blockType?: string }
+        let ev: AnthropicSSEEvent & { _blockType?: string }
+        try { ev = JSON.parse(payload) } catch { continue }
+        assertProviderEnvelope(ev as unknown as Record<string, unknown>)
           if (ev.type === 'content_block_start' && ev.content_block?.type) {
             blockTypes.set(ev.index, ev.content_block.type)
           } else if (ev.type === 'content_block_delta') {
@@ -1017,13 +1022,12 @@ async function* anthropicStreamSSE(
             controller.abort()
             return
           }
-        } catch {
-          // 单行 JSON 解析失败跳过
-        }
+
       }
     }
     // 流正常关闭但 0 有效事件（连 message_start 都没收到）→ 空流
     if (yielded === 0) throw brainEmptyStream()
+    throw brainInvalidStream('响应流在 message_stop 前中断，已有部分输出不代表请求完成')
   } finally {
     controller.abort()
     await reader.cancel().catch(() => {})

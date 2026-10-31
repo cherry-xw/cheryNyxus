@@ -4,6 +4,7 @@ import { getLLMAdapter } from '@/core/llm/adapter.js'
 import { getMessageAdapter, type LLMResponse } from '@/core/message/adapter.js'
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
 import { ClassifiedError } from '@/utils/error.js'
+import { ErrorId } from '@chery/protocol'
 
 const { mockDispatch } = vi.hoisted(() => ({
   mockDispatch: vi.fn(async () => undefined),
@@ -197,6 +198,120 @@ describe('Anthropic Provider URL 解析与流完整性', () => {
       'message_start',
       'message_stop',
     ])
+  })
+
+  it.each([
+    [400, 'validation', ErrorId.BRAIN_HTTP_REQUEST_REJECTED],
+    [401, 'auth', ErrorId.BRAIN_HTTP_AUTH_REJECTED],
+    [403, 'auth', ErrorId.BRAIN_HTTP_AUTH_REJECTED],
+    [408, 'timeout', ErrorId.BRAIN_HTTP_REQUEST_REJECTED],
+    [429, 'provider', ErrorId.BRAIN_HTTP_RATE_LIMITED],
+    [500, 'provider', ErrorId.BRAIN_HTTP_SERVICE_FAILED],
+    [503, 'provider', ErrorId.BRAIN_HTTP_SERVICE_FAILED],
+  ] as const)('HTTP %i 在 chat 和 chatStream 保留错误身份', async (status, category, errorId) => {
+    for (const streaming of [false, true]) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        type: 'error', error: { type: 'api_error', message: 'controlled upstream failure' },
+      }), { status, headers: { 'content-type': 'application/json' } }))
+      const request = streaming
+        ? consumeChatStream(options.url)
+        : getLLMAdapter('anthropic')!.chat(buildProbeMessages(), [], { ...options, skipHooks: true })
+      await expect(request).rejects.toMatchObject({
+        name: 'ClassifiedError', category, errorId, source: 'brain',
+        message: `upstream HTTP ${status}`, detail: `HTTP ${status}`,
+      })
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { type: 'api_error', message: 'upstream generation failed' },
+    { type: 'overloaded_error', message: 'overloaded' },
+  ])('HTTP 200 JSON error $type 不能成为成功响应', async (error) => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ type: 'error', error }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }))
+    await expect(getLLMAdapter('anthropic')!.chat(buildProbeMessages(), [], {
+      ...options, skipHooks: true,
+    })).rejects.toMatchObject({
+      category: 'provider', source: 'brain', errorId: ErrorId.BRAIN_HTTP_SERVICE_FAILED,
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  const partialEvents = [
+    { type: 'message_start', message: { id: 'partial', type: 'message', role: 'assistant', content: [], stop_reason: null, usage: { input_tokens: 1, output_tokens: 0 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'not finished' } },
+  ]
+  const encodeEvent = (event: unknown) => `data: ${JSON.stringify(event)}\n\n`
+
+  it.each([false, true])('SSE error（已有部分输出=%s）必须抛错且释放 reader', async (partial) => {
+    const events = partial ? partialEvents : []
+    const cancel = vi.fn()
+    const encoder = new TextEncoder()
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode([
+          ...events, { type: 'error', error: { type: 'overloaded_error', message: 'upstream failed' } },
+          { type: 'message_stop' },
+        ].map(encodeEvent).join('')))
+        // 保持传输打开：必须由适配器失败路径取消，而不是自然 EOF。
+      },
+      cancel,
+    }), { headers: { 'content-type': 'text/event-stream' } }))
+    const stream = await getLLMAdapter('anthropic')!.chatStream(buildProbeMessages(), [], {
+      ...options, skipHooks: true,
+    })
+    const seen: unknown[] = []
+    await expect((async () => {
+      for await (const event of stream) seen.push(event)
+    })()).rejects.toMatchObject({
+      category: 'provider', source: 'brain', errorId: ErrorId.BRAIN_HTTP_SERVICE_FAILED,
+    })
+    expect(seen).toHaveLength(events.length)
+    expect(seen).toMatchObject(events)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).signal!.aborted).toBe(true)
+  })
+
+  it.each([
+    ['message_start', partialEvents.slice(0, 1)],
+    ['部分文字', partialEvents],
+    ['message_delta 带 stop_reason 但无 message_stop', [
+      ...partialEvents,
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+    ]],
+  ])('EOF 在 %s 后关闭但无 message_stop 不能算完成', async (_label, events) => {
+    fetchMock.mockResolvedValueOnce(sseResponse(events.map(encodeEvent)))
+    await expect(consumeChatStream(options.url)).rejects.toMatchObject({
+      category: 'validation', source: 'brain',
+      detail: expect.stringContaining('message_stop'),
+    })
+  })
+
+  it('合法 message_stop 主动结束、取消打开的流，不消费其后错误帧', async () => {
+    const cancel = vi.fn()
+    const terminalEvents = [...partialEvents, { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+      { type: 'message_stop' }]
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream({
+      start(controller) {
+        const wire = [...terminalEvents, { type: 'error', error: { message: 'after terminal' } }]
+          .map(encodeEvent).join('')
+        // 刻意切开 data/JSON 边界，覆盖跨传输片段的行缓冲。
+        const bytes = new TextEncoder().encode(wire)
+        controller.enqueue(bytes.slice(0, 17))
+        controller.enqueue(bytes.slice(17))
+      },
+      cancel,
+    }), { headers: { 'content-type': 'text/event-stream' } }))
+    const events = await consumeChatStream(options.url)
+    expect(events.map((event) => (event as { type: string }).type))
+      .toEqual(terminalEvents.map((event) => event.type))
+    expect(cancel).toHaveBeenCalledOnce()
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).signal!.aborted).toBe(true)
   })
 
   it('非流式 content-type 非 JSON → validation 配置错误', async () => {
