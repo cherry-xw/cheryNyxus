@@ -77,6 +77,40 @@ afterEach(async () => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
 })
 describe('API2 published host', () => {
+  it('binds source reads to the current control call and the Manager reading session, never a business or machine caller', async () => {
+    const store=new IngressStore(temp()),router=createRouter()
+    let open=true
+    const link:IngressConnections={...connections,credentialKind:id=>id==='admin'?'control':'native',isOpen:()=>open}
+    const readSourceManagement=vi.fn(async (_owner:string,input:Parameters<NonNullable<IngressCoreAdapter['readSourceManagement']>>[1])=>{
+      input.validateIdentity();await Promise.resolve();input.validateIdentity()
+      return {requestId:input.query.params.requestId,observedAt:1,availability:'not_prepared' as const,associatedSummaryIds:[],items:[],nextCursor:null}
+    })
+    const core:IngressCoreAdapter={listPresets:()=>[],resolvePreset:vi.fn(),ensureConversation:vi.fn(),submit:vi.fn(),abort:vi.fn(),onEvent:()=>()=>{},readSourceManagement}
+    const host=new IngressHost({store,router,core,connections:link})
+    cleanup.push(async()=>{await host.stop();delete (globalThis as any).__sourceManagementContext})
+    const schema=`const s={safeParse:x=>({success:true,data:x}),parse:x=>x};`
+    const source=pkg('source-reader','',['rpc.management','manager.ui'],`${schema}
+      globalThis.__sourceManagementContext=ctx;
+      ctx.management.register({moduleId:'source-reader',routes:[{method:'GET',path:'context/index',rpcMethod:'source-reader.index',requestSchema:s,responseSchema:s,
+      handler:async input=>ctx.management.readSource({method:'qq.context.index',params:{requestId:input.query.requestId}})}]});`)
+    const manifest=JSON.parse(fs.readFileSync(path.join(source,'config.yaml'),'utf8'))
+    manifest.ui=[{id:'source-reader',title:'Source',entry:'ui.html',apiPrefix:'/api/modules/source-reader/',resourceVersion:'1'}]
+    fs.writeFileSync(path.join(source,'config.yaml'),JSON.stringify(manifest));fs.writeFileSync(path.join(source,'ui.html'),'<html></html>')
+    store.install(source,false,undefined,{grantedCapabilities:['rpc.management','manager.ui'],channelGrants:[]})
+    await host.start()
+    const input={contractVersion:2 as const,moduleId:'source-reader',method:'GET' as const,path:'context/index',pathParams:{},query:{requestId:'request'},readerPrincipal:'a'.repeat(48)}
+    const ctx={connectionId:'admin',credentialKind:'control',log:logger}
+    expect((await host.managementCall(input,ctx)).status).toBe(200)
+    expect(readSourceManagement.mock.calls[0][0]).toBe('source-reader')
+    expect(readSourceManagement.mock.calls[0][1].principal).toBe(`manager:${'a'.repeat(48)}`)
+    await expect(host.managementCall(input,{...ctx,credentialKind:'business'})).rejects.toThrow('CAPABILITY_DENIED')
+    await expect(host.managementCall(input,{...ctx,credentialKind:'machine'})).rejects.toThrow('CAPABILITY_DENIED')
+    const leaked=(globalThis as any).__sourceManagementContext as import('@/service/ingress/api.js').IngressContext
+    await expect(leaked.management.readSource!({method:'qq.context.index',params:{requestId:'request'}})).rejects.toThrow('CAPABILITY_DENIED')
+    open=false
+    await expect(host.managementCall(input,ctx)).rejects.toThrow('CAPABILITY_DENIED')
+    expect(readSourceManagement).toHaveBeenCalledTimes(1)
+  })
   it('attachment logging permits only typed diagnostic values, never arbitrary strings or nonfinite numbers', async () => {
     const store = new IngressStore(temp()), log = vi.fn()
     const source = pkg('cherynyxus-qq-module', `

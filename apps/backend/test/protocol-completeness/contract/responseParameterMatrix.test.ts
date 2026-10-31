@@ -117,7 +117,21 @@ const ingressConfig = { contractVersion: 2, id: 'sample', config: {}, baseRevisi
 const qqConfig = { config: QQDefaultConfig, baseRevision: 0, apply: { state: 'pending', revision: 0 } }
 const responseFor = (method: Method) => responseSchemas[method] ?? QQResponseSchemas[method as keyof typeof QQResponseSchemas]
 
+const command = {
+  commandId: 'command-1', backendInstanceId: 'instance-1', chatId: 'chat-1', rootChatId: 'chat-1',
+  runId: null, toolCallId: null, sourceKind: 'host_bash', command: 'printf fixture', description: 'fixture',
+  workdir: null, executionId: null, status: 'running', exitCode: null, signal: null, startedAt: 1,
+  endedAt: null, version: 1, logStatus: 'active', logIssues: [], logSequence: 0, totalRawBytes: 0,
+  totalNewlines: 0, storedCompressedBytes: 0, logTailUnconfirmed: false, drainSummary: null,
+}
+
 const validResponses: Record<Method, unknown> = {
+  [Method.AGENT_COMMAND_LIST]: { commands: [], nextCursor: null },
+  [Method.AGENT_COMMAND_GET]: { command },
+  [Method.AGENT_COMMAND_LOGS_READ]: { chunks: [], gaps: [], nextCursor: 0, hasMore: false, command },
+  [Method.AGENT_COMMAND_STOP]: { accepted: true, command },
+  [Method.AGENT_COMMAND_SUBSCRIBE]: { subscriptionId: 'subscription-1' },
+  [Method.AGENT_COMMAND_UNSUBSCRIBE]: { removed: true },
   [Method.QQ_IMAGE_SCOPE_GET]: {schemaVersion:1,backendEpoch:'epoch',connectionGeneration:'gen',sessionId:'session',selfId:'123',appliedRevision:1,scopeDigest:'a'.repeat(64),enabled:false,allowedTargets:[],targets:[],limits:QQDefaultConfig.imageStorage},
   [Method.QQ_IMAGE_SCOPE_ACK]: {acknowledged:true},
   [Method.QQ_IMAGE_SOURCE_REGISTER]: {sourceEventId:'source',permitId:'permit'},
@@ -139,9 +153,12 @@ const validResponses: Record<Method, unknown> = {
   [Method.INGRESS_MANAGEMENT_CALL]: { contractVersion: 2, status: 200, body: { data: {} } },
   [Method.QQ_PLUGIN_HELLO]: { protocolVersion: 1, backendVersion: '1.0.0', selfId: '12345', authenticated: true, capabilities: [] },
   [Method.QQ_IDENTITY_BIND]: { bound: true, selfId: '12345', sourceType: 'napcat-action', validation: 'accepted' },
-  [Method.QQ_EVENT_SUBMIT]: { eventId: 'fixture', accepted: true },
+  [Method.QQ_EVENT_SUBMIT]: { eventId: 'fixture', accepted: true,
+    receipt: { receiptId: 'receipt-fixture', version: 1, eventId: 'fixture', record: { recordId: 'record-fixture', revision: 1 },
+      storage: 'stored', handling: { kind: 'queued', requestId: 'request-fixture' } } },
   [Method.QQ_DELIVERY_RESULT]: { eventId: 'fixture', recorded: true },
-  [Method.QQ_REQUEST_RECOVER]: { events: [] },
+  [Method.QQ_REQUEST_RECOVER]: { events: [], service: { selfId: '12345', backendInstanceId: 'instance-1',
+    operationId: null, version: 1, phase: 'running', targets: [], questions: [] } },
   [Method.QQ_CONFIG_GET]: qqConfig,
   [Method.QQ_CONFIG_SAVE]: { ...qqConfig, saved: true },
   [Method.QQ_STATUS_GET]: { installed: true, enabled: false, activeVersion: null, savedVersion: '1.0.0', savedRevision: 0, appliedRevision: 0, apply: { state: 'pending', revision: 0 }, napcatConnected: false, trustedIdentity: false, qqOnline: null, paused: true, pausedTargets: 0, reasons: [], channels: { group: { enabled: false }, private: { enabled: false } }, missingBindings: [], missingResources: [] },

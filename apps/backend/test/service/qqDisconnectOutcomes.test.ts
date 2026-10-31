@@ -25,9 +25,9 @@ function pluginFixture() {
   let close!: (id: string) => void
   const registrations: any[] = []
   const register = () => () => {}
-  const context: any = { dataDir: root(), runtimeOptions: {}, id: 'cherynyxus-qq-module', version: 'test',
+  const context: any = { dataDir: root(), runtimeOptions: {}, id: 'cherynyxus-qq-module', version: 'test', isEnabled: () => true,
     ingress: { register }, identity: { registerChannel: register }, hooks: { register }, tools: { register },
-    core: { onEvent: register }, connections: { onClose: (fn: any) => { close = fn; return () => {} }, isOpen: () => true, send: vi.fn(() => true) },
+    core: { onEvent: register, sourceConversations: {} }, connections: { onClose: (fn: any) => { close = fn; return () => {} }, isOpen: () => true, send: vi.fn(() => true) },
     rpc: { register: (input: any) => { registrations.push(input); return () => {} } }, log: vi.fn(),
   }
   const p: any = new QQPlugin(context)
@@ -35,6 +35,7 @@ function pluginFixture() {
   p.start(); clearInterval(p.timer)
   p.paused = false
   p.connection = 'old'; p.verifiedConnection = 'old'; p.recovered = true
+  p.state.identityBinding = { selfId: '123' }
   p.reminderBusy = true; p.nextAppNotificationPoll = Infinity
   const job: any = { requestId: 'r', target: 'group:456', state: 'running', acceptedAt: Date.now(), input: { selfId: '123', conversationType: 'group', targetId: '456' }, snapshot: p.snapshot, toolIds: [], reply: '' }
   p.state.jobs.push(job)
@@ -161,8 +162,10 @@ describe('actual disconnect and independent delivery outcomes', () => {
     // The earlier disconnect notice takes the first scheduling turn; the
     // independent content lane must advance on the following turn.
     p.tick()
-    p.tick()
-    expect(p.state.outbox.at(-1).status).toBe('inflight')
+    await vi.waitFor(() => {
+      p.tick()
+      expect(p.state.outbox.at(-1).status).toBe('inflight')
+    })
     expect(p.context.connections.send).toHaveBeenCalledWith('new', expect.objectContaining({ type: 'qq.reply.part', data: expect.objectContaining({ text: 'new' }) }))
     p.stopped = true
   })
@@ -183,7 +186,7 @@ describe('actual disconnect and independent delivery outcomes', () => {
     p.output(job, 'qq.reply.part', { text: 'done', partIndex: 1, totalParts: 1 })
     p.state.outbox[0].status = 'inflight'
     p.start(); clearInterval(p.timer)
-    expect(job).toMatchObject({ state: 'completed', outcome: 'completed', reason: 'DELIVERY_UNKNOWN' })
+    expect(job).toMatchObject({ state: 'completed', outcome: 'completed', reason: 'BACKEND_STOPPED' })
     expect(p.state.outbox[0].status).toBe('unknown')
     expect(p.state.outbox.some((o: any) => o.frame.type === 'qq.request.failed')).toBe(false)
     p.stopped = true

@@ -6,15 +6,16 @@ import { IngressStore } from '../../../src/service/ingress/store.js'
 import { createRouter } from '../../../src/service/message/router.js'
 import { registerAllHandlers } from '../../../src/service/index.js'
 import { createWebSocketServer } from '../../../src/service/websocket/index.js'
-import { createIngressConnections } from '../../../src/service/ingress/coreAdapter.js'
+import { createIngressConnections, createIngressCoreAdapter } from '../../../src/service/ingress/coreAdapter.js'
 import { Adapter } from '../../../../../platform/napcat-plugin/src/adapter.js'
 import { BackendWire } from '../../../../../platform/napcat-plugin/src/wire.js'
 import { QQDefaultConfig } from '../../../../../packages/protocol/src/qq.js'
+import { StateSchema } from '../../../../../plugins/qq/src/state.js'
 
 const root = process.env.CHERY_DIR!
 const store = new IngressStore(root)
 if (!store.readRegistry().plugins.length) {
-  store.install(path.resolve('plugins/qq/dist'), false, undefined, {
+  store.install(path.resolve(import.meta.dirname, '../../../../../plugins/qq/dist'), false, undefined, {
     grantedCapabilities: ['ingress', 'rpc.business', 'rpc.management', 'tools', 'hooks', 'channel.identity', 'manager.ui'],
     channelGrants: [{ channel: 'qq', credentialKind: 'qq' }],
   })
@@ -32,11 +33,14 @@ const effects = fs.existsSync(effectsFile)
 const persist = () => fs.writeFileSync(effectsFile, JSON.stringify(effects))
 const router = createRouter()
 registerAllHandlers(router)
+const statePath = store.safe('data/cherynyxus-qq-module/state.json')
+if (fs.existsSync(statePath)) StateSchema.parse(JSON.parse(fs.readFileSync(statePath, 'utf8')))
 const host = new IngressHost({
   store,
   router,
   connections: createIngressConnections(),
   core: {
+    ...createIngressCoreAdapter(),
     listPresets: () => [{ name: 'p', presetId: 'p' }],
     resolvePreset: () => ({
       name: 'p',

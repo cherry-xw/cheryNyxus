@@ -9,26 +9,50 @@ import { createRouter } from '@/service/message/router.js'
 import { createWebSocketServer } from '@/service/websocket/index.js'
 import { createIngressConnections, createIngressCoreAdapter } from '@/service/ingress/coreAdapter.js'
 import { getAssetStore } from '@/service/media/store.js'
-import { getSoulDb } from '@/db/index.js'
+import { closeAllDbs, getSoulDb } from '@/db/index.js'
+import config from '@/utils/config.js'
 import { bootstrapAgentRuntime } from '@/agent/bootstrap.js'
 import { planFileInputs } from '@/agent/middleware/fileInputPlanning.js'
+import { prepareSourceHistory } from '@/agent/middleware/sourceHistory.js'
 import { buildOpenAICompatibleMessages } from '@/agent/provider/openaiCompat.js'
 import { createMockContext,createMockRuntime } from '../agent/helpers/fakeContext.js'
 import sharp from 'sharp'
 import { logger } from '@/utils/logger/index.js'
-import { QQCapabilities, QQDefaultConfig, QQImageResponseSchemas, type QQImageScope } from '@chery/protocol'
+import { QQCapabilities, QQDefaultConfig, QQImageResponseSchemas, type QQImageScope, type MessagePart } from '@chery/protocol'
 import { NativeImages } from '../../../../platform/napcat-plugin/src/nativeImages.js'
 import { BackendWire } from '../../../../platform/napcat-plugin/src/wire.js'
 import { prepareQQFileInputs } from '../../../../plugins/qq/src/assetMessages.js'
 let host:IngressHost|undefined,server:WebSocketServer|undefined,wire:BackendWire|undefined,root:string|undefined
 const token='isolated-image-ingress-token'
-afterEach(async()=>{wire?.close();await host?.stop();if(server){for(const c of server.clients)c.terminate();await new Promise<void>(r=>server!.close(()=>r()))}if(root)fs.rmSync(root,{recursive:true,force:true});delete process.env.QQBOT_PLATFORM_TOKEN})
+const databaseDirectory=config.global.db_dir
+afterEach(async()=>{
+ vi.restoreAllMocks();wire?.close();await host?.stop()
+ if(server){for(const c of server.clients)c.terminate();await new Promise<void>(r=>server!.close(()=>r()))}
+ closeAllDbs();config.global.db_dir=databaseDirectory
+ if(root)fs.rmSync(root,{recursive:true,force:true})
+ wire=undefined;host=undefined;server=undefined;root=undefined;delete process.env.QQBOT_PLATFORM_TOKEN
+})
+function sourceEvent(input:any,nativeSourceId?:string) {
+ const attachments=(input.attachments??[]).map((file:any,index:number)=>({...file,partId:`p${index+1}`,...(nativeSourceId?{nativeSourceId}:{})}))
+ return {...input,attachments,sourceParts:[{type:'text',partId:'p0',text:input.content},...attachments.map((file:any)=>({type:'attachment',partId:file.partId,attachmentId:`wire-${file.partId}`}))]}
+}
+function projectedParts(submit:ReturnType<typeof vi.fn>):MessagePart[] {
+ const data=submit.mock.calls[0]![2]
+ expect(data.sourceInput?.kind).toBe('source_snapshot')
+ expect(data.parts).toBeUndefined()
+ const ctx=createMockContext({})
+ ctx.requestExecution={sourceInput:data.sourceInput,validate:data.validateIdentity} as any
+ ctx.requestView={identity:data.requestIdentity,tools:[],registryVersion:1} as any
+ const prepared=prepareSourceHistory(ctx,[{id:'source-anchor',role:'user',content:'',sourceInput:data.sourceInput,createdAt:1,updateAt:1}])
+ return prepared.history.flatMap(message=>message.parts??[])
+}
 async function setup(submit?:any) {
  await bootstrapAgentRuntime()
  process.env.QQBOT_PLATFORM_TOKEN=token
- root=fs.mkdtempSync(path.join(process.env.CHERY_TEST_RUN_DIR!,'image-ingress-'))
+  root=fs.mkdtempSync(path.join(process.env.CHERY_TEST_RUN_DIR!,'image-ingress-'))
+ closeAllDbs();config.global.db_dir=path.join(root,'db')
  const store=new IngressStore(root),router=createRouter()
- store.install(path.resolve('plugins/qq/dist'),false,undefined,{grantedCapabilities:['ingress','rpc.business','rpc.management','tools','hooks','channel.identity','manager.ui'],channelGrants:[{channel:'qq',credentialKind:'qq'}]})
+ store.install(path.resolve(import.meta.dirname,'../../../../plugins/qq/dist'),false,undefined,{grantedCapabilities:['ingress','rpc.business','rpc.management','tools','hooks','channel.identity','manager.ui'],channelGrants:[{channel:'qq',credentialKind:'qq'}]})
  store.setEnabled('cherynyxus-qq-module',true)
  store.saveConfig('cherynyxus-qq-module',{...QQDefaultConfig,messageMergeMs:0,selfId:'123',groups:['456'],bindings:{'group:456':'detail-test'}},0)
  const core=createIngressCoreAdapter()
@@ -53,14 +77,14 @@ it.each([false,true])('merge zero waits for delayed admitted image commit, follo
  const source={conversationType:'group',targetId:'456',senderId:'789',nativeMsgId:`delayed-native-${following}`,elementOrdinal:0,elementId:'element',fileUuid:'uuid',messageId:following?'910':'900',occurredAt:Math.floor(Date.now()/1000),size:body.length,nativeMd5:createHash('md5').update(body).digest('hex')}
  const registration=await s.call('qq.image.source.register',{scope:s.scopeIdentity,source}),authority={scope:s.scopeIdentity,...registration}
  const input={eventId:`qq:123:group:456:${source.messageId}`,selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:source.messageId,occurredAt:source.occurredAt,mentionedBot:!following,content:'question',attachments:[{type:'image'}]}
- await s.call('qq.event.submit',input)
- if(following)await s.call('qq.event.submit',{...input,eventId:'qq:123:group:456:901',messageId:'901',mentionedBot:true,attachments:[],content:'arbitrary text'})
+  await s.call('qq.event.submit',sourceEvent(input,registration.sourceEventId))
+  if(following)await s.call('qq.event.submit',sourceEvent({...input,eventId:'qq:123:group:456:901',messageId:'901',mentionedBot:true,attachments:[],content:'arbitrary text'}))
  await new Promise(r=>setTimeout(r,80));expect(submit).not.toHaveBeenCalled()
  const begin=await s.call('qq.image.ingest.begin',{...authority,size:body.length,sha256,mimeType:'image/jpeg'})
  await s.call('qq.image.ingest.chunk',{...authority,uploadId:begin.uploadId,offset:0,dataBase64:body.toString('base64')})
  const committed=await s.call('qq.image.ingest.commit',{...authority,uploadId:begin.uploadId,size:body.length,sha256})
  await vi.waitFor(()=>expect(submit).toHaveBeenCalled())
- expect(submit.mock.calls[0]![2].parts).toContainEqual(expect.objectContaining({type:'asset',assetId:committed.assetId,assetVersionId:committed.assetVersionId,...(following?{inputOrigin:'history'}:{})}))
+  expect(projectedParts(submit)).toContainEqual(expect.objectContaining({type:'asset',assetId:committed.assetId,assetVersionId:committed.assetVersionId,...(following?{inputOrigin:'history'}:{})}))
 },20000)
 it.each(['cancel','unbound'])('merge zero %s source cannot deadlock input or ordinary text',async mode=>{
  const submit=vi.fn(async(..._args:any[])=>({runId:'isolated-no-model'})),s=await setup(submit)
@@ -69,10 +93,10 @@ it.each(['cancel','unbound'])('merge zero %s source cannot deadlock input or ord
  if(mode==='cancel'){
   const source={conversationType:'group',targetId:'456',senderId:'789',nativeMsgId:'cancel-native',elementOrdinal:0,elementId:'element',fileUuid:'uuid',messageId,occurredAt:input.occurredAt,size:10,nativeMd5:'a'.repeat(32)}
   const registration=await s.call('qq.image.source.register',{scope:s.scopeIdentity,source}),authority={scope:s.scopeIdentity,...registration}
-  await s.call('qq.event.submit',input);await new Promise(r=>setTimeout(r,50));expect(submit).not.toHaveBeenCalled()
+   await s.call('qq.event.submit',sourceEvent(input,registration.sourceEventId));await new Promise(r=>setTimeout(r,50));expect(submit).not.toHaveBeenCalled()
   const status=await s.call('qq.image.ingest.status',authority);await s.call('qq.image.ingest.cancel',{...authority,uploadId:status.uploadId,reason:'source_unavailable'})
- }else await s.call('qq.event.submit',input)
- await vi.waitFor(()=>expect(submit).toHaveBeenCalled());expect(submit.mock.calls[0]![2].parts?.some((p:any)=>p.type==='asset')??false).toBe(false)
+  }else await s.call('qq.event.submit',sourceEvent(input))
+  await vi.waitFor(()=>expect(submit).toHaveBeenCalled());expect(projectedParts(submit).some(p=>p.type==='asset')).toBe(false)
 },20000)
 it('real wire high-water mark rejects image data while control RPC remains responsive',async()=>{
  const s=await setup(),socket=(wire as any).socket
@@ -185,16 +209,18 @@ it.each([false,true])('queued raw admission fixes the third asset only after com
  const thirdBefore=getSoulDb().prepare('SELECT state FROM ingress_image_sources WHERE identity_json LIKE ?').get(`%queued-${following}-third%`)
  expect(thirdBefore).toMatchObject({state:'uploading'})
  expect(requests.filter(m=>m==='qq.image.source.register')).toHaveLength(3)
- await s.call('qq.event.submit',{eventId:'qq:123:group:456:1202',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1202',occurredAt:Math.floor(Date.now()/1000),mentionedBot:!following,content:'third cached image',attachments:[{type:'image'}]})
- if(following)await s.call('qq.event.submit',{eventId:'qq:123:group:456:1203',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1203',occurredAt:Math.floor(Date.now()/1000),mentionedBot:true,content:'arbitrary following text',attachments:[]})
+  const positions=await images.sourcePositions({message_id:1202,message_type:'group',group_id:456,user_id:789,message:[{type:'image'}]})
+  expect(positions.get(0)).toBeTruthy()
+  await s.call('qq.event.submit',sourceEvent({eventId:'qq:123:group:456:1202',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1202',occurredAt:Math.floor(Date.now()/1000),mentionedBot:!following,content:'third cached image',attachments:[{type:'image'}]},positions.get(0)))
+  if(following)await s.call('qq.event.submit',sourceEvent({eventId:'qq:123:group:456:1203',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1203',occurredAt:Math.floor(Date.now()/1000),mentionedBot:true,content:'arbitrary following text',attachments:[]}))
  await new Promise(r=>setTimeout(r,80));expect(submit).not.toHaveBeenCalled()
  await vi.waitFor(()=>expect(submit).toHaveBeenCalled(),{timeout:4000})
- const fixed=submit.mock.calls[0]![2].parts
+  const fixed=projectedParts(submit)
  const late=getSoulDb().prepare('SELECT state,asset_id,version_id,chat_id FROM ingress_image_sources WHERE identity_json LIKE ?').get(`%queued-${following}-third%`) as any
  expect(late.state).toBe('committed');expect(late.asset_id).toBeTruthy()
  expect(fixed).toContainEqual(expect.objectContaining({type:'asset',assetId:late.asset_id,assetVersionId:late.version_id}))
- expect((await getAssetStore().read(late.asset_id,{ownerId:'cherynyxus-qq-module',chatId:late.chat_id},late.version_id)).data).toEqual(body)
- console.log('QUEUED_REGRESSION',JSON.stringify({thirdBeforeAdmission:thirdBefore,fixedParts:fixed,finalThird:late,following}))
+  const scopeId=submit.mock.calls[0]![2].sourceInput.scopeId
+  expect((await getAssetStore().read(late.asset_id,{ownerId:'cherynyxus-qq-module',sourceScopeId:scopeId},late.version_id)).data).toEqual(body)
  }finally{images.close()}
 },20000)
 
@@ -204,10 +230,10 @@ it('admission deadline aborts queued source before fixation and rejects late upl
  const source={conversationType:'group',targetId:'456',senderId:'789',nativeMsgId:'deadline-source',elementOrdinal:0,elementId:'e',fileUuid:'u',messageId:'1400',occurredAt:Math.floor(Date.now()/1000),size:10,nativeMd5:'a'.repeat(32)}
  const registration=await s.call('qq.image.source.register',{scope:s.scopeIdentity,source,deadlineAt:Date.now()+250}),authority={scope:s.scopeIdentity,...registration}
  expect((await s.call('qq.image.ingest.status',authority)).state).toBe('queued')
- await s.call('qq.event.submit',{eventId:'qq:123:group:456:1400',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1400',occurredAt:source.occurredAt,mentionedBot:true,content:'deadline',attachments:[{type:'image'}]})
+  await s.call('qq.event.submit',sourceEvent({eventId:'qq:123:group:456:1400',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1400',occurredAt:source.occurredAt,mentionedBot:true,content:'deadline',attachments:[{type:'image'}]},registration.sourceEventId))
  await new Promise(r=>setTimeout(r,40));expect(submit).not.toHaveBeenCalled()
  await vi.waitFor(()=>expect(submit).toHaveBeenCalled())
- expect(submit.mock.calls[0]![2].parts.some((p:any)=>p.type==='asset')).toBe(false)
+  expect(projectedParts(submit).some(p=>p.type==='asset')).toBe(false)
  expect((await s.call('qq.image.ingest.status',authority)).state).toBe('aborted')
  expect(getSoulDb().prepare('SELECT state FROM ingress_image_sources WHERE source_key=?').get(registration.sourceEventId)).toEqual({state:'aborted'})
  expect((await wire!.request('qq.image.ingest.begin',{...authority,size:10,sha256:'a'.repeat(64),mimeType:'image/jpeg'})).success).toBe(false)
@@ -223,8 +249,10 @@ it('lost register ACK delayed past one acquisition still admits exact queued sou
  try{images.attach();await images.accept(s.scope);listener.onRecvMsg([{chatType:2,peerUid:'456',senderUin:'789',msgId:'register-ack-late',id:1500,msgTime:String(Math.floor(Date.now()/1000)),elements:[{elementType:2,elementId:'e',picElement:{fileUuid:'u',fileSize:body.length,md5HexStr:createHash('md5').update(body).digest('hex'),sourcePath:cache}}]}])
  let done=false;const wait=images.admit({message_id:1500,message_type:'group',group_id:456,user_id:789}).then(()=>{done=true;trace.push('event-admitted')})
  await new Promise(r=>setTimeout(r,100));expect(done).toBe(false);expect(submit).not.toHaveBeenCalled();await wait
- await s.call('qq.event.submit',{eventId:'qq:123:group:456:1500',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1500',occurredAt:Math.floor(Date.now()/1000),mentionedBot:true,content:'late ack',attachments:[{type:'image'}]})
- await vi.waitFor(()=>expect(submit).toHaveBeenCalled());expect(submit.mock.calls[0]![2].parts).toContainEqual(expect.objectContaining({type:'asset'}));expect(trace.indexOf('event-admitted')).toBeGreaterThan(trace.indexOf('host-registration-complete'));console.log('ACK_ORDER',trace)
+  const positions=await images.sourcePositions({message_id:1500,message_type:'group',group_id:456,user_id:789,message:[{type:'image'}]})
+  expect(positions.get(0)).toBeTruthy()
+  await s.call('qq.event.submit',sourceEvent({eventId:'qq:123:group:456:1500',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1500',occurredAt:Math.floor(Date.now()/1000),mentionedBot:true,content:'late ack',attachments:[{type:'image'}]},positions.get(0)))
+  await vi.waitFor(()=>expect(submit).toHaveBeenCalled());expect(projectedParts(submit)).toContainEqual(expect.objectContaining({type:'asset'}));expect(trace.indexOf('event-admitted')).toBeGreaterThan(trace.indexOf('host-registration-complete'))
  }finally{images.close()}
 },20000)
 it('revoking scope releases a pending fixed-input waiter without late publication',async()=>{
@@ -232,7 +260,7 @@ it('revoking scope releases a pending fixed-input waiter without late publicatio
  await s.call('qq.image.scope.ack',s.scopeIdentity);await s.call('qq.request.recover',{selfId:'123'})
  const source={conversationType:'group',targetId:'456',senderId:'789',nativeMsgId:'revoke-waiter',elementOrdinal:0,elementId:'e',fileUuid:'u',messageId:'1600',occurredAt:Math.floor(Date.now()/1000),size:10,nativeMd5:'b'.repeat(32)}
  const registration=await s.call('qq.image.source.register',{scope:s.scopeIdentity,source})
- await s.call('qq.event.submit',{eventId:'qq:123:group:456:1600',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1600',occurredAt:source.occurredAt,mentionedBot:true,content:'pending revoke',attachments:[{type:'image'}]})
+  await s.call('qq.event.submit',sourceEvent({eventId:'qq:123:group:456:1600',selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:'1600',occurredAt:source.occurredAt,mentionedBot:true,content:'pending revoke',attachments:[{type:'image'}]},registration.sourceEventId))
  await new Promise(r=>setTimeout(r,50));expect(submit).not.toHaveBeenCalled()
  const cfg=s.store.readConfig('cherynyxus-qq-module')!;await host!.saveConfig('cherynyxus-qq-module',{...cfg.config as any,groups:[],bindings:{}},cfg.revision)
  await vi.waitFor(()=>expect(getSoulDb().prepare('SELECT state FROM ingress_image_sources WHERE source_key=?').get(registration.sourceEventId)).toEqual({state:'aborted'}))

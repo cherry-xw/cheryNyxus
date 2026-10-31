@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fork, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const children: ChildProcess[] = []
@@ -29,10 +30,11 @@ function query(child: ChildProcess, action = 'status'): Promise<any> {
   })
 }
 async function launch(root: string, unknown: boolean) {
-  const child = fork(path.resolve('dist/qq-restart-fixture/worker.mjs'), [], {
-    execArgv: [],
+  const child = fork(fileURLToPath(new URL('./fixtures/qqRestartWorker.ts', import.meta.url)), [], {
+    execArgv: ['--import', 'tsx'],
     env: {
       ...process.env,
+      TSX_TSCONFIG_PATH: fileURLToPath(new URL('../../tsconfig.json', import.meta.url)),
       CHERY_DIR: root,
       DB_DIR: path.join(root, 'db'),
       CHERY_ENV_FILE: '/dev/null',
@@ -83,8 +85,11 @@ it.each([false, true])(
     await vi.waitFor(
       async () => {
         const view = await query(first)
-        expect(view.effects).toEqual({ sends: 1, submissions: unknown ? 0 : 1 })
-        expect(view.state.jobs[0].state).toBe(unknown ? 'paused' : 'running')
+        // An unconfirmed ACK does not cancel computation. It produces one
+        // independent progress notice; neither native operation may be replayed.
+        expect(view.effects).toEqual({ sends: unknown ? 2 : 1, submissions: 1 })
+        expect(view.state.jobs[0].state).toBe('running')
+        if (unknown) expect(view.state.outbox.filter((output: any) => output.status === 'unknown')).toHaveLength(2)
       },
       { timeout: 10000 },
     )
@@ -96,10 +101,9 @@ it.each([false, true])(
     expect(second.pid).not.toBe(first.pid)
     const recovered = await query(second)
     expect(recovered.effects).toEqual(before)
-    expect(recovered.state.jobs[0].state).toBe('paused')
-    expect(recovered.state.jobs[0].reason).toBe(
-      unknown ? 'DELIVERY_UNKNOWN' : 'PROCESS_INTERRUPTED',
-    )
+    expect(recovered.state.jobs[0].state).toBe('cancelled')
+    expect(recovered.state.jobs[0].reason).toBe('BACKEND_STOPPED')
+    expect(recovered.state.outbox.every((output: any) => !['pending', 'inflight'].includes(output.status))).toBe(true)
     await query(second, 'submit')
     await new Promise((resolve) => setTimeout(resolve, 750))
     const duplicate = await query(second)

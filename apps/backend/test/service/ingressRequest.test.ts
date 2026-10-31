@@ -24,74 +24,61 @@ function hook(
   )
 }
 describe('real request preparation and model history', () => {
-  it('real Core rejects stale summary snapshots and preserves newer history',async()=>{
-    const { createChat, deleteChat } = await import('@/db/chat.js')
-    const { addMessage, getMessages } = await import('@/db/message.js')
+  it('sourceConversations rejects stale summary snapshots, foreground conflicts, and conflicting retries while preserving idempotency',async()=>{
     const { createIngressCoreAdapter } = await import('@/service/ingress/coreAdapter.js')
-    const { createHash, randomUUID } = await import('node:crypto')
-    const owner='summary-fixture',key='summary-conversation'
-    const chatId=`ingress-${owner}-${createHash('sha256').update(key).digest('hex')}`
-    const { resolvePresetSelection } = await import('@/agent/runtimeResolver.js')
-    createChat(chatId, { presetId: resolvePresetSelection('detail-test').presetId })
-    const core=createIngressCoreAdapter()
-    try {
-      await core.ensureConversation(owner,key,'detail-test')
-      addMessage(randomUUID(),chatId,{role:'user',content:'first'})
-      const history=await core.conversationHistory!(owner,key)
-      addMessage(randomUUID(),chatId,{role:'user',content:'arrived later'})
-      await expect(core.commitSummary!(owner,key,'candidate',history,'conflict-attempt')).rejects.toMatchObject({code:'SUMMARY_CONFLICT'})
-      expect(getMessages(chatId).some(m=>m.context_compaction)).toBe(false)
-      const fresh=await core.conversationHistory!(owner,key)
-      await core.commitSummary!(owner,key,'validated summary',fresh,'successful-attempt')
-      expect(getMessages(chatId).filter(m=>m.context_compaction)).toHaveLength(1)
-      expect(await core.summaryCommitStatus!(owner,key,'successful-attempt')).toMatchObject({committed:true})
-      await core.commitSummary!(owner,key,'validated summary',fresh,'successful-attempt')
-      expect(getMessages(chatId).filter(m=>m.context_compaction)).toHaveLength(1)
-      await expect(core.commitSummary!(owner,key,'different',fresh,'successful-attempt')).rejects.toThrow('conflict')
-    } finally { deleteChat(chatId) }
-  })
-  it('real Core repairs cross-database partial writes and protects accepted idle builders',async()=>{
-    const { createChat, deleteChat, getChat, updateChatMetadata } = await import('@/db/chat.js')
-    const { addMessage, getMessages } = await import('@/db/message.js')
-    const { createIngressCoreAdapter } = await import('@/service/ingress/coreAdapter.js')
-    const { chatRuntimes } = await import('@/service/chat/runtimeCache.js')
+    const { SourceContextRepository } = await import('@/db/sourceContext.js')
     const { getSoulDb } = await import('@/db/index.js')
+    const { chatRuntimes } = await import('@/service/chat/runtimeCache.js')
+    const { createChat, deleteChat } = await import('@/db/chat.js')
     const { resolvePresetSelection } = await import('@/agent/runtimeResolver.js')
-    const { createHash } = await import('node:crypto')
-    const owner='summary-repair',key='partial',op='same-op'
-    const chatId=`ingress-${owner}-${createHash('sha256').update(key).digest('hex')}`
-    const messageId=`summary-${createHash('sha256').update(JSON.stringify([owner,key,op])).digest('hex')}`
-    createChat(chatId,{presetId:resolvePresetSelection('detail-test').presetId})
-    const core=createIngressCoreAdapter(),db=getSoulDb()
+    const { randomUUID } = await import('node:crypto')
+    const owner='summary-fixture',selfId='12345',targetId='67890',presetId=resolvePresetSelection('detail-test').presetId
+    const core=createIngressCoreAdapter(),source=core.sourceConversations!,chatId=`summary-chat-${randomUUID()}`
+    createChat(chatId,{presetId})
+    const validateIdentity=()=>{}
+    const [scope]=await source.configure(owner,{channel:'qq',selfId,revision:1,targets:[{conversationType:'group',targetId,presetId,qqContextEpoch:''}],validateIdentity})
+    new SourceContextRepository(getSoulDb()).bindCore({ownerId:owner,channel:'qq',selfId,conversationType:'group',targetId,actorId:'22222',purpose:'execution',validate:validateIdentity},scope!.scopeId,{chatId,epochId:'epoch-1'})
+    const ingest=async(eventId:string,messageId:string,text:string)=>{
+      const receipt=await source.beginReceipt(owner,{
+        scopeId:scope!.scopeId,eventId,purpose:'record',validateIdentity,
+        requestIdentity:{source:'plugin',ownerId:owner,entryId:'qq',channel:'qq',subject:{selfId,userId:'22222',conversationType:'group',groupId:targetId}},
+        message:{eventId,messageId,sender:{id:'22222',name:'Alice'},receivedAt:100,parts:[{partId:'p0',type:'text',text}]},
+      })
+      await source.completeReceipt(owner,{
+        scopeId:scope!.scopeId,eventId,purpose:'record',validateIdentity,receiptId:receipt.receiptId,expectedVersion:receipt.version,
+        requestIdentity:{source:'plugin',ownerId:owner,entryId:'qq',channel:'qq',subject:{selfId,userId:'22222',conversationType:'group',groupId:targetId}},
+        handling:{kind:'background'},
+      })
+      return receipt
+    }
     try {
-      await core.ensureConversation(owner,key,'detail-test')
-      addMessage('summary-source',chatId,{role:'user',content:'x'.repeat(190000)})
-      const history=await core.conversationHistory!(owner,key)
-      expect(history.length).toBeGreaterThan(180000)
-      updateChatMetadata(chatId,{contextCheckpoint:{kept:true},modelInputBudget:{stale:true}})
-      // Fail after monthly INSERT, rolling back the soul-side count/link/metadata.
-      db.exec(`CREATE TEMP TRIGGER fail_summary_link BEFORE INSERT ON message_links WHEN NEW.message_id='${messageId}' BEGIN SELECT RAISE(ABORT,'injected partial failure'); END`)
-      await expect(core.commitSummary!(owner,key,'summary',history,op)).rejects.toThrow('injected partial')
-      db.exec('DROP TRIGGER fail_summary_link')
-      expect(getMessages(chatId).filter(m=>m.id===messageId)).toHaveLength(1)
-      expect(await core.summaryCommitStatus!(owner,key,op)).toEqual({committed:false})
-      const dispose=vi.fn()
-      chatRuntimes.set(chatId,{builder:{isRunning:()=>false,getPendingInputs:()=>[{content:'accepted'}],dispose} as any})
-      await expect(core.commitSummary!(owner,key,'summary',history,op)).rejects.toMatchObject({code:'SUMMARY_FOREGROUND_PRIORITY'})
-      expect(dispose).not.toHaveBeenCalled()
+      await ingest('ev-1','101','first')
+      await source.prepareSummary(owner,{channel:'qq',selfId,scopeId:scope!.scopeId,operationId:'op-1',purpose:'discussion',qqConfigRevision:1,validateIdentity})
+      const later=await ingest('ev-2','102','arrived later')
+      await source.freeze(owner,{
+        scopeId:scope!.scopeId,eventId:'ev-2',purpose:'execution',validateIdentity,
+        requestIdentity:{source:'plugin',ownerId:owner,entryId:'qq',channel:'qq',subject:{selfId,userId:'22222',conversationType:'group',groupId:targetId}},
+        requestId:'req-2',actorRecord:later.record,inputRecords:[later.record],expectedSelectionRevision:0,
+        policy:{historyLimit:10,backgroundMaxAgeMs:60000,backgroundMaxChars:5000,qqConfigRevision:1},
+      })
+      await expect(source.commitSummary(owner,{channel:'qq',selfId,scopeId:scope!.scopeId,operationId:'op-1',
+        text:'stale',prerequisiteReceipt:'r1',validatePrerequisite:()=>true,validateIdentity})).rejects.toMatchObject({code:'SUMMARY_CONFLICT'})
+      await source.prepareSummary(owner,{channel:'qq',selfId,scopeId:scope!.scopeId,operationId:'op-2',purpose:'discussion',qqConfigRevision:1,validateIdentity})
+      chatRuntimes.set(chatId,{builder:{isRunning:()=>true,getPendingInputs:()=>[],dispose:vi.fn()} as any})
+      await expect(source.commitSummary(owner,{channel:'qq',selfId,scopeId:scope!.scopeId,operationId:'op-2',
+        text:'validated summary',prerequisiteReceipt:'r2',validatePrerequisite:()=>true,validateIdentity})).rejects.toMatchObject({code:'SUMMARY_FOREGROUND_PRIORITY'})
       chatRuntimes.delete(chatId)
-      const restored=createIngressCoreAdapter();await restored.ensureConversation(owner,key,'detail-test')
-      await restored.commitSummary!(owner,key,'summary',history,op)
-      expect(await restored.summaryCommitStatus!(owner,key,op)).toEqual({committed:true,messageId})
-      expect(getMessages(chatId).filter(m=>m.context_compaction)).toHaveLength(1)
-      expect(getChat(chatId)?.message_count).toBe(2)
-      expect(JSON.parse(getChat(chatId)!.metadata!)).toMatchObject({contextCheckpoint:null,modelInputBudget:null})
-      expect(db.prepare('SELECT 1 FROM message_links WHERE message_id=?').get(messageId)).toBeTruthy()
-      await restored.commitSummary!(owner,key,'summary',history,op)
-      expect(getChat(chatId)?.message_count).toBe(2)
+      const committed=await source.commitSummary(owner,{channel:'qq',selfId,scopeId:scope!.scopeId,operationId:'op-2',
+        text:'validated summary',prerequisiteReceipt:'r2',validatePrerequisite:()=>true,validateIdentity})
+      expect(committed.text).toBe('validated summary')
+      const replayed=await source.commitSummary(owner,{channel:'qq',selfId,scopeId:scope!.scopeId,operationId:'op-2',
+        text:'validated summary',prerequisiteReceipt:'r2',validatePrerequisite:()=>true,validateIdentity})
+      expect(replayed.summaryId).toBe(committed.summaryId)
+      await expect(source.commitSummary(owner,{channel:'qq',selfId,scopeId:scope!.scopeId,operationId:'op-2',
+        text:'different',prerequisiteReceipt:'r2',validatePrerequisite:()=>true,validateIdentity})).rejects.toMatchObject({code:'SOURCE_CONFLICT'})
     } finally {
-      db.exec('DROP TRIGGER IF EXISTS fail_summary_link');chatRuntimes.delete(chatId)
-      db.prepare('DELETE FROM ingress_summary_commits WHERE chat_id=?').run(chatId);deleteChat(chatId)
+      chatRuntimes.delete(chatId);deleteChat(chatId)
+      getSoulDb().prepare("DELETE FROM source_summaries WHERE scope_id=?").run(scope!.scopeId)
     }
   })
   it('resolves QQ image capability from the captured request config instead of later global state', async () => {
