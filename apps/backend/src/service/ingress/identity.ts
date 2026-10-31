@@ -84,7 +84,9 @@ export class IngressIdentityAuthority {
     )
     if (
       connection?.selfId !== subject.selfId ||
-      !(await (input.purpose === 'source' ? channel!.definition.verifySource?.(immutableSnapshot(input)) : channel!.definition.verifyEvent(immutableSnapshot(input))))
+      !(await (input.purpose === 'source' ? channel!.definition.verifySource?.(immutableSnapshot(input))
+        : input.purpose === 'record' ? channel!.definition.verifyRecord?.(immutableSnapshot(input))
+          : channel!.definition.verifyEvent(immutableSnapshot(input))))
     )
       throw ingressError('IDENTITY_REJECTED')
     assert()
@@ -113,15 +115,38 @@ export class IngressIdentityAuthority {
     )
       throw ingressError('IDENTITY_REJECTED')
     if (record.purpose === 'source' && !this.channels.get(record.channel)?.definition.validateSource?.(record)) throw ingressError('IDENTITY_REJECTED')
+    if (record.purpose === 'record' && !this.channels.get(record.channel)?.definition.validateRecord?.(record)) throw ingressError('IDENTITY_REJECTED')
     return record
   }
   /** Execution keeps the accepted event authority across transport loss, not owner revocation. */
-  validateExecution(ownerId: string, entryId: string, handle: IngressIdentityHandle): void {
+  validateExecution(ownerId: string, entryId: string, handle: IngressIdentityHandle): RecordIdentity {
     const record = this.handles.get(handle)
-    if (!record || record.ownerId !== ownerId || record.entryId !== entryId ||
+    if (!record || record.purpose !== undefined || record.ownerId !== ownerId || record.entryId !== entryId ||
       !this.isActive(ownerId) || record.generation !== (this.generations.get(ownerId) ?? 0) ||
       this.channels.get(record.channel)?.ownerId !== ownerId)
       throw ingressError('IDENTITY_REJECTED')
+    const channel = this.channels.get(record.channel)!
+    if (channel.definition.validateExecution && !channel.definition.validateExecution(record)) throw ingressError('IDENTITY_REJECTED')
+    return record
+  }
+  /** Used for policy configuration, without granting permission to execute an event. */
+  async connection(owner: IngressRegistration, channelName: string, connectionId: string): Promise<{ selfId: string; validate(): void }> {
+    const channel = this.channels.get(channelName)
+    const credentialKind = this.connections.credentialKind(connectionId)
+    const generation = this.generations.get(owner.id) ?? 0
+    const connectionGeneration = this.connectionGenerations.get(connectionId) ?? 0
+    const validate = () => {
+      if (!this.isActive(owner.id) || channel?.ownerId !== owner.id || !credentialKind || !this.connections.isOpen(connectionId) ||
+        this.connections.credentialKind(connectionId) !== credentialKind || !owner.grantedCapabilities.includes('channel.identity') ||
+        !owner.channelGrants.some(g => g.channel === channelName && g.credentialKind === credentialKind) ||
+        generation !== (this.generations.get(owner.id) ?? 0) || connectionGeneration !== (this.connectionGenerations.get(connectionId) ?? 0))
+        throw ingressError('IDENTITY_REJECTED')
+    }
+    validate()
+    const binding = await channel!.definition.verifyConnection({ connectionId, credentialKind: credentialKind! })
+    validate()
+    if (!binding) throw ingressError('IDENTITY_REJECTED')
+    return { selfId: binding.selfId, validate }
   }
   project(
     ownerId: string,

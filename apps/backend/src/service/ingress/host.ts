@@ -7,6 +7,7 @@ import { getBackendLifecycle } from '../backendWork.js'
 import {
   IngressRequestSchemas,
   IngressResponseSchemas,
+  SourceRecordRefSchema,
   type IngressCapability,
 } from '@chery/protocol'
 import type { RpcRouter, HandlerContext } from '../message/router.js'
@@ -274,6 +275,101 @@ export class IngressHost {
       }
     }
     store.directory('config')
+    const sourceAuthorization = (input: import('./api.js').IngressSourceContext | Omit<import('./api.js').IngressSourceContext, 'scopeId'>,
+      purpose: 'record' | 'execution'): import('./api.js').IngressSourceAuthorization => {
+      requireActive()
+      requireCapability('channel.identity')
+      if (!active.entries.has(input.entryId)) throw ingressError('IDENTITY_REJECTED')
+      const record = purpose === 'record' ? this.authority.validate(id, input.entryId, input.identity)
+        : this.authority.validateExecution(id, input.entryId, input.identity)
+      if (purpose === 'record' ? record.purpose !== 'record' : record.purpose !== undefined) throw ingressError('IDENTITY_REJECTED')
+      return {
+        requestIdentity: immutableSnapshot({ source: 'plugin', ownerId: id, entryId: input.entryId, channel: record.channel, subject: record.subject }),
+        eventId: record.eventId, purpose,
+        validateIdentity: () => { requireActive(); if (purpose === 'record') this.authority.validate(id, input.entryId, input.identity)
+          else this.authority.validateExecution(id, input.entryId, input.identity) },
+      }
+    }
+    const maintenanceAuthorization = async (input: import('./api.js').IngressSourceMaintenanceContext): Promise<import('./api.js').IngressSourceMaintenanceAuthorization> => {
+      requireActive(); requireCapability('channel.identity')
+      if (!active.entries.has(input.entryId)) throw ingressError('IDENTITY_REJECTED')
+      const connection = await this.authority.connection(active.registration, input.channel, input.connectionId)
+      return { channel: input.channel, selfId: connection.selfId, scopeId: input.scopeId,
+        validateIdentity: () => { requireActive(); connection.validate() } }
+    }
+    const sourceConversations: import('./api.js').IngressSourceConversations | undefined = core.sourceConversations ? {
+      prepareSummary: async input => core.sourceConversations!.prepareSummary(id, { ...await maintenanceAuthorization(input),
+        operationId: input.operationId, purpose: input.purpose, qqConfigRevision: input.qqConfigRevision, parentSnapshotId: input.parentSnapshotId }),
+      summaryStatus: async input => core.sourceConversations!.summaryStatus(id, { ...await maintenanceAuthorization(input), operationId: input.operationId }),
+      updateSummaryProgress: async input => core.sourceConversations!.updateSummaryProgress(id, { ...await maintenanceAuthorization(input),
+        operationId: input.operationId, expectedVersion: input.expectedVersion, status: input.status, phase: input.phase, reasonCode: input.reasonCode }),
+      commitSummary: async input => core.sourceConversations!.commitSummary(id, { ...await maintenanceAuthorization(input),
+        operationId: input.operationId, expectedBaseSummaryId: input.expectedBaseSummaryId, text: input.text,
+        prerequisiteReceipt: input.prerequisiteReceipt, validatePrerequisite: input.validatePrerequisite }),
+      recordDelivery: async input => {
+        requireActive(); requireCapability('channel.identity')
+        if (!active.entries.has(input.entryId)) throw ingressError('IDENTITY_REJECTED')
+        const connection = await this.authority.connection(active.registration, input.channel, input.connectionId)
+        return core.sourceConversations!.recordDelivery(id, { scopeId: input.scopeId, frame: input.frame,
+          result: input.result, confirmedAt: input.confirmedAt, channel: input.channel, selfId: connection.selfId,
+          validateIdentity: () => { requireActive(); connection.validate() } })
+      },
+      lookupReceipt: async input => {
+        requireActive(); requireCapability('channel.identity')
+        if (!active.entries.has(input.entryId)) throw ingressError('IDENTITY_REJECTED')
+        const connection = await this.authority.connection(active.registration, input.channel, input.connectionId)
+        return core.sourceConversations!.lookupReceipt(id, { channel: input.channel, selfId: connection.selfId,
+          eventId: input.eventId, validateIdentity: () => { requireActive(); connection.validate() } })
+      },
+      scope: input => core.sourceConversations!.scope(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId }),
+      receiptAttachments: input => core.sourceConversations!.receiptAttachments(id, { ...sourceAuthorization(input, 'record'), scopeId: input.scopeId }),
+      linkImage: input => core.sourceConversations!.linkImage(id, { ...sourceAuthorization(input, 'record'), scopeId: input.scopeId,
+        attachmentId: input.attachmentId, nativeSourceId: input.nativeSourceId }),
+      registerWorkspace: input => core.sourceConversations!.registerWorkspace(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId,
+        attachmentId: input.attachmentId, version: input.version, mount: input.mount }),
+      configure: async input => {
+        requireActive()
+        requireCapability('channel.identity')
+        if (!active.entries.has(input.entryId) || input.revision !== active.snapshot?.revision && input.revision !== active.savedRevision)
+          throw ingressError('REVISION_CONFLICT')
+        const connection = await this.authority.connection(active.registration, input.channel, input.connectionId)
+        const presets = new Set(core.listPresets().map(p => p.presetId))
+        if (input.targets.some(t => !presets.has(t.presetId))) throw ingressError('INVALID_PARAMS')
+        return core.sourceConversations!.configure(id, { channel: input.channel, selfId: connection.selfId, revision: input.revision,
+          targets: input.targets, validateIdentity: () => { requireActive(); connection.validate() } })
+      },
+      ensureScope: input => core.sourceConversations!.ensureScope(id, { ...sourceAuthorization(input, 'record'), presetId: input.presetId, qqContextEpoch: input.qqContextEpoch }),
+      beginReceipt: input => core.sourceConversations!.beginReceipt(id, { ...sourceAuthorization(input, 'record'), scopeId: input.scopeId, message: input.message }),
+      completeReceipt: input => core.sourceConversations!.completeReceipt(id, { ...sourceAuthorization(input, 'record'), scopeId: input.scopeId,
+        receiptId: input.receiptId, expectedVersion: input.expectedVersion, handling: input.handling }),
+      receiptStatus: input => {
+        const authorization = sourceAuthorization(input, 'record')
+        if (input.eventId !== authorization.eventId) throw ingressError('IDENTITY_REJECTED')
+        return core.sourceConversations!.receiptStatus(id, authorization)
+      },
+      freeze: input => core.sourceConversations!.freeze(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId,
+        requestId: input.requestId, actorRecord: input.actorRecord, inputRecords: input.inputRecords, expectedSelectionRevision: input.expectedSelectionRevision, policy: input.policy }),
+      history: input => core.sourceConversations!.history(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId,
+        runId: input.runId, count: input.count, cursor: input.cursor }),
+      readText: input => core.sourceConversations!.readText(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId,
+        runId: input.runId, textRefId: input.textRefId, cursor: input.cursor }),
+      read: input => core.sourceConversations!.read(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId, selection: input.selection }),
+      snapshot: input => core.sourceConversations!.snapshot(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId, snapshotId: input.snapshotId }),
+      attachment: input => core.sourceConversations!.attachment(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId,
+        attachmentId: input.attachmentId, version: input.version }),
+      updateAttachment: input => {
+        const record = this.authority.validate(id, input.entryId, input.identity)
+        return core.sourceConversations!.updateAttachment(id, { ...sourceAuthorization(input, record.purpose === 'record' ? 'record' : 'execution'),
+          scopeId: input.scopeId, attachmentId: input.attachmentId, expectedVersion: input.expectedVersion, state: input.state })
+      },
+      publishAttachment: input => core.sourceConversations!.publishAttachment(id, { ...sourceAuthorization(input, 'record'),
+        scopeId: input.scopeId, attachmentId: input.attachmentId, operation: input.operation, size: input.size,
+        sha256: input.sha256, uploadId: input.uploadId, offset: input.offset, dataBase64: input.dataBase64 }),
+      importAttachment: input => core.sourceConversations!.importAttachment(id, { ...sourceAuthorization(input, 'record'),
+        scopeId: input.scopeId, attachmentId: input.attachmentId, url: input.url, signal: input.signal }),
+      readAttachmentChunk: input => core.sourceConversations!.readAttachmentChunk(id, { ...sourceAuthorization(input, 'execution'),
+        scopeId: input.scopeId, attachmentId: input.attachmentId, version: input.version, offset: input.offset }),
+    } : undefined
     return Object.freeze({
       id,
       version,
@@ -340,6 +436,7 @@ export class IngressHost {
           this.saveConfig(id, config, expectedBaseRevision),
       },
       core: {
+        sourceConversations,
         sourceReferences: async key=>{requireActive();if(!active.conversations.has(key))throw ingressError('IDENTITY_REJECTED');return core.sourceReferences?core.sourceReferences(id,key):{}},
         abortSources: async keys=>{if(core.abortSources)await core.abortSources(id,keys)},
         restrictSources: async keys => {if(core.restrictSources)await core.restrictSources(id,keys)},
@@ -358,7 +455,7 @@ export class IngressHost {
           if (!core.importFile || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
           const { conversationKey, identity, signal, ...params } = input
           this.authority.validate(id, params.entryId, identity)
-          if (this.authority.validate(id,params.entryId,identity).purpose === 'source') throw ingressError('IDENTITY_REJECTED')
+            if (this.authority.validate(id,params.entryId,identity).purpose !== undefined) throw ingressError('IDENTITY_REJECTED')
           const requestIdentity = this.authority.project(id, params.entryId, identity)
           const combined = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal
           combined.throwIfAborted()
@@ -373,7 +470,7 @@ export class IngressHost {
           if (!core.readFileChunk || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
           const { conversationKey, identity, signal, ...params } = input
           this.authority.validate(id, params.entryId, identity)
-          if(this.authority.validate(id,params.entryId,identity).purpose==='source')throw ingressError('IDENTITY_REJECTED')
+            if(this.authority.validate(id,params.entryId,identity).purpose!==undefined)throw ingressError('IDENTITY_REJECTED')
           const requestIdentity = this.authority.project(id, params.entryId, identity)
           const combined = signal ? AbortSignal.any([signal, active.controller.signal]) : active.controller.signal
           combined.throwIfAborted()

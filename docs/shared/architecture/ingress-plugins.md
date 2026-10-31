@@ -50,6 +50,8 @@ QQ端复用 [原生协议](../protocol/qqbot-plugin.md) 既有五个方法（包
 
 由QQ后端插件提供管理员限定RPC：`qq.config.get`、`qq.config.save`、`qq.status.get`、`qq.queue.get`、`qq.history.get`、`qq.entry.get`；NapCat token禁止调用。共享schema已集中于 [`packages/protocol/src/qq.ts`](../../../packages/protocol/src/qq.ts)，前后端不得自造第二份DTO。记忆统计已迁入 QQ 包的管理路由 `qq.memory.stats`，HTTP `/api/modules/qq/memory` 保持不变。
 
+来源只读明细的共享规则位于 [`sourceManagement.ts`](../../../packages/protocol/src/sourceManagement.ts)：`qq.context.index/get/text/sources/locate` 和 `qq.entry.items` 同时注册管理员 RPC 与 `/api/modules/qq/` 下的 GET。`entry.get` 可带来源首段与生成文字引用；整份响应过大时标记 `itemsDeferred`，页面分别读取原始消息和发送页，不静默丢弃正文。消息与发送页使用稳定条目标识；正文引用按 Unicode 分段，游标绑定请求、来源范围、权限版本及[Manager 阅读身份](../protocol/manager-auth.md#普通浏览器-http)。请求归属保存在 Backend 来源表，不以最近任务列表决定原有明细是否可读。历史输入版本固定，不自动回退到最新版本；调用状态与新回执可显式刷新。普通用户、NapCat 及机器凭据不能调用来源阅读；停用业务仍可由获准管理员读取保留范围。详情不运行模型、不重发、不查询远端 QQ，不公开思考、原始工具输出或私人记忆。当前实现及离线用例尚未完成集中验证，界面验收仍由用户操作。
+
 Manager路径 `/api/modules/qq/config` GET/PUT、`status` GET、`queue` GET、`history` GET；PUT body `{config,expectedBaseRevision,requestId}`，成功为 `{data:{config,baseRevision,saved:true,apply:{state,revision,reason?}}}`；GET config为同形读取视图但不带saved；apply.state取 applied/pending/failed/restart_required。失败沿 `{error:{code,message}}`，冲突409、非法400、禁用/离线503，未登录401与Origin403遵守既有认证。保存后回读同配置并区分未知写入结果，不自动重试写。
 
 status至少区分插件安装/启用/活动版本、配置保存/应用版本、NapCat连接/可信身份、QQ在线（无可靠证据为null）、渠道许可与资源缺失原因、暂停目标数量；不回显token、正文、昵称、个人记忆。管理员限定的queue/history额外提供时间、目标号码、发送者、预设、输入与回复摘要、合并消息和附件数量、投递状态计数。GET `/api/modules/qq/entry?requestId=...` 经 `qq.entry.get` 按需读取对应原始消息、已有回复及投递记录；文本有明确长度限制与截断标记，附件只返回类型和名称。页面按当前结果分页，不扩大持久历史保留范围。不返回配置快照、秘密、内部提示词、私人记忆、附件URL或本地路径；原文只以文本展示。任务完成不等于发送成功，投递记录按实际pending/inflight/sent/unknown/failed分别展示，失败通知的成功不代表原回复成功。使用既有Manager服务端认证客户端并仅增加这些显式方法；浏览器不能提交目标地址或任意方法。Manager不开本地QQ存储，不导入业务执行器，禁用Manager模块或关闭Manager不停止QQ聊天。
@@ -129,6 +131,12 @@ Backend 的停止等待通过宿主公开的 `context.lifecycle` 传递：只读
 运行中的代码升级可保存新包并报告 `restart_required`，旧活动版本与新保存版本分别展示，重启才加载新代码；不承诺任意热更新。启用未加载新包也允许要求重启；停用撤业务的要求不得以“待重启”替代。配置保存沿 existing revision 原子保存、事务 apply、失败保留旧应用快照；停用时保存可完成但 apply=pending，启用后才应用。`config.saved()` 与 `snapshot()` 不互相冒充。
 
 ### 宿主认可的请求身份
+
+来源会话能力 `context.core.sourceConversations` 正在接入，尚未成为已部署能力。它独立保存来源、范围、收件及快照，使用宿主验证器限定 owner、入口、用途和当前范围；公共 Web 不接受 `sourceInput` 或身份句柄。来源后台接收不得假建执行任务，来源专用句柄不得提交模型。共享类型见 `packages/protocol/src/sourceContext.ts`，细则和实施状态见[QQ 来源方案](../../plan/conversation-observability-and-input/qq-context-contracts.md#31-受限接口)。
+
+来源摘要维护通过 `prepareSummary/summaryStatus/commitSummary` 使用单独的模块与连接授权，目标从已保存的 scope 归属推导，不使用群成员执行身份。准备结果固定来源集合、摘要头、附件元信息及真实发送事实；维护快照没有发起者，不可作为 `core.submit` 输入。提交须同时核验当前范围、原摘要头和前置记忆保存凭据；前台到达即取消本目标维护。容量整理同样保留父快照和当前输入，不改变旧采用记录。此路径正在实施，完整验证状态由任务入口维护。
+
+来源历史读取使用 `sourceConversations.history/readText`，仅当前运行的执行身份可用。历史页固定来源范围、接收序号上界、权限版本与运行；文字引用和游标不是权限，不能在其他运行或管理查询中复用。返回的附件只有元信息，正文按 Unicode 字符分段，查询不导入远端消息、不推进用户轮次。QQ 工具的本地/平台选择及分页规则见[来源查询约定](../../plan/conversation-observability-and-input/qq-context-contracts.md#84-模型查询旧消息)；此能力仍在实施中，尚未完成离线验证。
 
 新增公开类型 `IngressIdentityHandle` 为宿主签发的不透明内存对象，不可 JSON 序列化为有效授权。其内部记录 owner、连接、入口、channel、verified subject 与有效代数，只能宿主构造。`context.identity.bind({connectionId,entryId,channel,eventId,subject})` 返回 `Promise<IngressIdentityHandle>`：验证当前包的 channelGrants、已认证连接的 credentialKind 和可信绑定信息，不以参数本身作为验证。subject 固定 `{selfId:string,userId:string,conversationType:'private'|'group',groupId?:string}`；private 禁止 groupId，group 必填；QQ 数字格式继续用现有 QQIdSchema。连接可信 selfId 必须由既有 NapCat Action 绑定完成，发送者/群信息只能来自这条连接已校验的事件。宿主绑定入口同时核对事件归属，插件不能在聊天正文中制造身份。
 
