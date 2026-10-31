@@ -27,7 +27,7 @@ function pluginFixture() {
   const register = () => () => {}
   const context: any = { dataDir: root(), runtimeOptions: {}, id: 'cherynyxus-qq-module', version: 'test', isEnabled: () => true,
     ingress: { register }, identity: { registerChannel: register }, hooks: { register }, tools: { register },
-    core: { onEvent: register, sourceConversations: {} }, connections: { onClose: (fn: any) => { close = fn; return () => {} }, isOpen: () => true, send: vi.fn(() => true) },
+    core: { onEvent: register, sourceConversations: {}, answerQuestions: vi.fn(), questionResumeStatus: vi.fn(), resumeQuestions: vi.fn() }, connections: { onClose: (fn: any) => { close = fn; return () => {} }, isOpen: () => true, send: vi.fn(() => true) },
     rpc: { register: (input: any) => { registrations.push(input); return () => {} } }, log: vi.fn(),
   }
   const p: any = new QQPlugin(context)
@@ -37,7 +37,7 @@ function pluginFixture() {
   p.connection = 'old'; p.verifiedConnection = 'old'; p.recovered = true
   p.state.identityBinding = { selfId: '123' }
   p.reminderBusy = true; p.nextAppNotificationPoll = Infinity
-  const job: any = { requestId: 'r', target: 'group:456', state: 'running', acceptedAt: Date.now(), input: { selfId: '123', conversationType: 'group', targetId: '456' }, snapshot: p.snapshot, toolIds: [], reply: '' }
+  const job: any = { requestId: 'r', questionBatches: [], queueSequence: 1, target: 'group:456', state: 'running', acceptedAt: Date.now(), input: { selfId: '123', conversationType: 'group', targetId: '456' }, snapshot: p.snapshot, toolIds: [], reply: '' }
   p.state.jobs.push(job)
   return { p, job, close, registrations }
 }

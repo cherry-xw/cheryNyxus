@@ -1,5 +1,6 @@
 import type { HandlerContext } from '../message/router.js'
 import { ingressExecution } from '../ingress/request.js'
+import { getSourceTask, setSourceTaskState } from '@/db/sourceTasks.js'
 import { assertNewBackendWork, assertBackendContinuation, backendContinuationResumeRequired, releaseBackendResume } from '../backendWork.js'
 import {
   createChunk,
@@ -479,6 +480,7 @@ export async function handleChatAbort(
       childRunId = undefined
     }
     if (childRunId) {
+      setSourceTaskState(childRunId, 'cancelled')
       const baseRevision = getTimelineRevision(childId)
       recordTerminationFact({
         chatId: childId,
@@ -513,6 +515,8 @@ export async function handleChatAbort(
   }
 
   // 主 chat 自身
+  const targetSourceRun = activeRunId ?? data.runId
+  if (targetSourceRun && getSourceTask(targetSourceRun)?.chatId === data.chatId) setSourceTaskState(targetSourceRun, 'cancelled')
   if (activeRunId) {
     const baseRevision = getTimelineRevision(data.chatId)
     recordTerminationFact({

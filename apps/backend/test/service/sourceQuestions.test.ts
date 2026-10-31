@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type Database from 'better-sqlite3'
 import { sourceFixture } from '../helpers/sourceContext.js'
+import { initAssetTables } from '@/db/assets.js'
 import { initSourceTaskTables, registerSourceTask, bindSourceQuestions, sourceTaskSessionId, getSourceTask,
   getSourceAnswerCommand, setSourceTaskState } from '@/db/sourceTasks.js'
 import { saveSourceQuestions, sourceQuestionStatus, resumeSourceQuestions } from '@/service/ingress/sourceQuestions.js'
@@ -27,7 +28,9 @@ import { launchSourceQuestionRun } from '@/service/chat/sourceQuestionRun.js'
 beforeEach(() => { busy = false; failSave = false; facts.clear(); interactions.clear(); vi.clearAllMocks() })
 afterEach(() => db?.close())
 function fixture() {
-  const f = sourceFixture(); db = f.db; initSourceTaskTables(db)
+  const f = sourceFixture(); db = f.db; initSourceTaskTables(db); initAssetTables(db)
+  db.exec('CREATE TABLE execution_active_runs(chat_id TEXT,run_id TEXT,status TEXT)')
+  db.exec('CREATE TABLE chats(id TEXT PRIMARY KEY)')
   f.repo.bindCore(f.authority, f.scope.scopeId, { chatId: 'chat', epochId: 'epoch' })
   const identity = { source: 'plugin' as const, ownerId: 'qq-fixture', entryId: 'qq', channel: 'qq',
     subject: { selfId: '100', userId: '123', conversationType: 'group' as const, groupId: '999' } }
@@ -98,5 +101,15 @@ describe('request-owned saved answers and explicit startup', () => {
     db.prepare('UPDATE source_tasks SET session_id=? WHERE run_id=?').run('old-process', a.runId)
     expect(await resumeSourceQuestions('qq-fixture', 'chat', a.input)).toMatchObject({ status: 'cancelled', canQueue: false })
     expect(launchSourceQuestionRun).not.toHaveBeenCalled()
+  })
+  it('keeps two waiting tasks independent when answers arrive in reverse order', async () => {
+    const { task } = fixture(), a = task('A'), b = task('B')
+    expect(await saveSourceQuestions('qq-fixture','chat',b.input)).toMatchObject({status:'saved',canQueue:true})
+    expect(await resumeSourceQuestions('qq-fixture','chat',b.input)).toMatchObject({status:'started',runId:b.runId})
+    expect(getSourceTask(a.runId)?.state).toBe('waiting')
+    setSourceTaskState(b.runId,'completed')
+    expect(await saveSourceQuestions('qq-fixture','chat',a.input)).toMatchObject({status:'saved',canQueue:true})
+    expect(await resumeSourceQuestions('qq-fixture','chat',a.input)).toMatchObject({status:'started',runId:a.runId})
+    expect(getSourceTask(b.runId)?.state).toBe('completed')
   })
 })

@@ -14,12 +14,12 @@ import config from '@/utils/config.js'
 import { getMessages } from '@/db/message.js'
 import { getInteraction } from '@/db/interaction.js'
 import { closeAllDbs, getSoulDb } from '@/db/index.js'
-import { addSenseBrain, addContentBrain } from '../agent/helpers/mockScripts.js'
+import { addSenseBrain, addContentBrain, addMockBrain, scriptItem } from '../agent/helpers/mockScripts.js'
+import * as chatSend from '@/service/chat/send.js'
 import { BackendResumeRepository } from '@/db/backendResume.js'
 import { BackendStopCoordinator } from '@/service/backendStopCoordinator.js'
 import { configureBackendWork } from '@/service/backendWork.js'
 import { resetMockProviderState } from '@/agent/provider/mock.js'
-import * as chatSend from '@/service/chat/send.js'
 import { BackendWire } from '../../../../platform/napcat-plugin/src/wire.js'
 import { Adapter } from '../../../../platform/napcat-plugin/src/adapter.js'
 import { ErrorCode, ErrorId, RunOutcomeReasonCode, UserFeedbackSchema, QQCapabilities, QQDefaultConfig, publicOutcomeText, runFailureFeedback, feedbackForRpcError } from '@chery/protocol'
@@ -128,6 +128,63 @@ it('local provider HTTP422 reaches installed QQ safe failure outbox without unkn
   } finally {await new Promise<void>(r=>http.close(()=>r()))}
 },20000)
 
+it('two real waiting batches preserve original runs, accept partial answers and continue in answer order without preemption', async () => {
+  resetMockProviderState()
+  const brain=addMockBrain('qq-interleaved-questions',{repeat:'last',script:[
+    scriptItem({senseCalls:[{name:'ask_user_question',arguments:JSON.stringify({question:'第一个选择？',rationale:'需要用户选择',nextStep:'继续',options:[{label:'继续'},{label:'其他'}]})},
+      {name:'ask_user_question',arguments:JSON.stringify({question:'第二个选择？',rationale:'需要用户选择',nextStep:'继续',options:[{label:'继续'},{label:'其他'}]})}]}),
+    {...scriptItem({content:'isolated final'}),preRespondMs:1800},
+  ]})
+  config.roles.reviewer!.brain=brain; config.sense_groups.auto_senses=['ask_user_question:auto']
+  const s=await setup()
+  async function submit(id: string, text: string, quote?: string) {
+    return s.call('qq.event.submit',event(id,{content:text,...(quote?{replyToMessageId:quote}: {})}))
+  }
+  async function questions(index: number) {
+    await vi.waitFor(()=>expect(s.state().jobs[index]).toMatchObject({state:'paused',reason:'WAITING_FOR_ANSWER'}),{timeout:10000})
+    const job=s.state().jobs[index], outputs=s.state().outbox.filter((o:any)=>o.frame.data.requestId===job.requestId&&o.frame.type==='qq.reply.action')
+    expect(outputs).toHaveLength(2)
+    for (const [n,output] of outputs.entries()) {
+      await vi.waitFor(()=>expect(s.state().outbox.find((o:any)=>o.frame.data.eventId===output.frame.data.eventId).status).toBe('inflight'))
+      const d=output.frame.data
+      await s.call('qq.delivery.result',{eventId:d.eventId,requestId:d.requestId,selfId:d.selfId,targetId:d.targetId,conversationType:d.conversationType,
+        seq:d.seq,status:'sent',sentAt:Date.now(),messageIds:[String(10000+index*10+n)],activity:false,terminal:false})
+    }
+    return { job,quotes:outputs.map((_:any,n:number)=>String(10000+index*10+n)) }
+  }
+  await submit('301','A: independent task')
+  const a=await questions(0)
+  await submit('302','B: independent task')
+  const b=await questions(1)
+  expect(s.state().jobs[0]).toMatchObject({state:'paused',coreRunId:a.job.coreRunId})
+  expect(getInteraction(a.job.questionBatches[0].batchId)?.status).toBe('pending')
+  // B is answered first. The first answer alone cannot save the complete batch or start it.
+  await submit('303','B first answer',b.quotes[0])
+  expect(s.state().jobs[1].questionBatches[0].commandId).toBeUndefined()
+  expect(getInteraction(b.job.questionBatches[0].batchId)?.status).toBe('pending')
+  await submit('304','B second answer',b.quotes[1])
+  await vi.waitFor(()=>expect(s.state().jobs[1].state).toBe('running'),{timeout:6000})
+  await submit('305','A first answer',a.quotes[0])
+  await submit('306','A second answer',a.quotes[1])
+  await vi.waitFor(()=>expect(s.state().jobs[0]).toMatchObject({state:'queued',reason:'QUESTION_ANSWER_SAVED'}))
+  expect(s.state().jobs[1].state).toBe('running')
+  await submit('306','A second answer',a.quotes[1])
+  await vi.waitFor(()=>expect(s.state().jobs.every((job:any)=>job.outcome==='completed')).toBe(true),{timeout:12000})
+  const state=s.state()
+  expect(state.jobs).toHaveLength(2)
+  expect(state.jobs.map((job:any)=>job.coreRunId)).toEqual([a.job.coreRunId,b.job.coreRunId])
+  expect(state.outbox.filter((o:any)=>o.frame.type==='qq.reply.part')).toHaveLength(2)
+  const db=getSoulDb()
+  expect(db.prepare('SELECT state FROM source_answer_commands').all()).toEqual([{state:'started'},{state:'started'}])
+  const projections=db.prepare('SELECT request_id,reason FROM source_projections ORDER BY rowid').all() as any[]
+  for (const job of state.jobs) expect(projections.filter(p=>p.request_id===job.requestId).map(p=>p.reason)).toEqual(['initial','question_resume'])
+  const messages=db.prepare('SELECT run_id,data_json FROM source_run_messages').all() as any[]
+  const aTools=messages.filter(m=>m.run_id===a.job.coreRunId).map(m=>JSON.parse(m.data_json))
+  expect(aTools.filter(m=>m.role==='sense').map(m=>m.content).join(' ')).toContain('A first answer')
+  expect(JSON.stringify(aTools)).not.toContain('B first answer')
+  expect(s.executionErrors).toEqual([])
+},30000)
+
 it('installed QQ starts a new trusted source request behind an empty restart gate without explicit resume', async () => {
   config.roles.reviewer!.brain = addContentBrain('qq-restart-new-input', 'new request completed')
   const s = await setup(), submit = s.rawSubmit
@@ -168,6 +225,59 @@ it('installed QQ persists a safe entry failure when Core submit rejects before a
   expect(s.state().outbox.filter((out: any) => out.frame.type === 'qq.request.failed')).toHaveLength(1)
 }, 20000)
 
+it('A remains answerable after ordinary B completes, without changing B history or replaying A tools', async () => {
+  resetMockProviderState()
+  const question = {content:'need A answer',senseCalls:[{id:'a-question',name:'ask_user_question',arguments:JSON.stringify({
+    question:'选择？',rationale:'需要确认',nextStep:'完成 A',options:[{label:'继续'},{label:'其他'}]})}]}
+  config.roles.reviewer!.brain=addMockBrain('qq-a-wait-b-finish',{repeat:'last',script:[
+    {...question,attempts:[question,{content:'B completed independently',senseCalls:[]}]},scriptItem({content:'A completed after B'})]})
+  config.sense_groups.auto_senses=['ask_user_question:auto']
+  const s=await setup()
+  await s.call('qq.event.submit',event('401'))
+  await vi.waitFor(()=>expect(s.state().jobs[0]?.reason).toBe('WAITING_FOR_ANSWER'),{timeout:10000})
+  const a=s.state().jobs[0], output=s.state().outbox.find((o:any)=>o.frame.type==='qq.reply.action'), d=output.frame.data
+  await vi.waitFor(()=>expect(s.state().outbox.find((o:any)=>o.frame.data.eventId===d.eventId).status).toBe('inflight'))
+  await s.call('qq.delivery.result',{eventId:d.eventId,requestId:d.requestId,selfId:d.selfId,targetId:d.targetId,conversationType:d.conversationType,
+    seq:d.seq,status:'sent',sentAt:Date.now(),messageIds:['10401'],activity:false,terminal:false})
+  await s.call('qq.event.submit',event('402',{content:'ordinary B'}))
+  await vi.waitFor(()=>expect(s.state().jobs[1]?.outcome).toBe('completed'),{timeout:10000})
+  const b=s.state().jobs[1], db=getSoulDb()
+  expect(s.state().jobs[0]).toMatchObject({state:'paused',reason:'WAITING_FOR_ANSWER'})
+  expect(getInteraction(a.questionBatches[0].batchId)?.status).toBe('pending')
+  const before=db.prepare('SELECT * FROM workflow_occurrences WHERE run_id=? ORDER BY occurrence_id').all(b.coreRunId)
+  expect(before.length).toBeGreaterThan(0)
+  const chatId=(db.prepare('SELECT chat_id FROM source_tasks WHERE run_id=?').get(b.coreRunId) as {chat_id:string}).chat_id
+  const beforeReply=getMessages(chatId).find(m=>m.content==='B completed independently')
+  expect(beforeReply).toBeDefined()
+  await s.call('qq.event.submit',event('403',{content:'A answer',replyToMessageId:'10401'}))
+  await vi.waitFor(()=>expect(s.state().jobs[0]?.outcome).toBe('completed'),{timeout:10000})
+  expect(s.state().jobs.map((j:any)=>j.coreRunId)).toEqual([a.coreRunId,b.coreRunId])
+  expect(db.prepare('SELECT * FROM workflow_occurrences WHERE run_id=? ORDER BY occurrence_id').all(b.coreRunId)).toEqual(before)
+  expect(getMessages(chatId).find(m=>m.id===beforeReply!.id)).toEqual(beforeReply)
+  const replies=s.state().outbox.filter((o:any)=>o.frame.type==='qq.reply.part').map((o:any)=>o.frame.data.text)
+  expect(replies).toHaveLength(2)
+  expect(replies[0]).toBe('B completed independently')
+  expect(replies[1]).toContain('A completed after B')
+  expect(replies[1]).not.toContain('B completed independently')
+  expect(s.executionErrors).toEqual([])
+},20000)
+
+it('an invalid question reaches the next request-owned model step once, without an endless question replay',async()=>{
+  resetMockProviderState()
+  config.roles.reviewer!.brain=addSenseBrain('qq-invalid-question','ask_user_question','{}','parameters corrected with text')
+  config.sense_groups.auto_senses=['ask_user_question:auto']
+  const s=await setup()
+  await s.call('qq.event.submit',event('410'))
+  await vi.waitFor(()=>expect(s.state().jobs[0]?.outcome).toBe('completed'),{timeout:10000})
+  const job=s.state().jobs[0], db=getSoulDb()
+  expect(job.questionBatches).toHaveLength(0)
+  const messages=db.prepare('SELECT data_json FROM source_run_messages WHERE run_id=? ORDER BY sequence').all(job.coreRunId) as any[]
+  expect(messages.map(row=>JSON.parse(row.data_json).role)).toEqual(['assistant','sense'])
+  expect(JSON.parse(messages[1].data_json).content).toContain('参数校验失败')
+  expect((db.prepare('SELECT reason FROM source_projections WHERE request_id=? ORDER BY rowid').all(job.requestId) as any[]).map(row=>row.reason)).toEqual(['initial','tool_continue'])
+  expect(s.executionErrors).toEqual([])
+},20000)
+
 it('installed QQ keeps invalid reply parameters distinct from actual ordinary-text delivery', async () => {
   const final = '普通正文照常发送，不把执行前的参数拒绝当作 QQ 发送失败。'
   config.roles.reviewer!.brain = addSenseBrain('qq-invalid-reply-parameters', 'qq_quote_reply',
@@ -203,7 +313,7 @@ it.each([0,1,2])('real ask tool and original run question continuation; resume f
   config.sense_groups.auto_senses=['ask_user_question:auto']
   const s=await setup()
   const fixedTime=Math.floor(Date.now()/1000)
-  const input = (id:string, extra:object={}) => event(id,{occurredAt:fixedTime,...(lost?{conversationType:'private',targetId:'789',eventId:`qq:123:private:789:${id}`} : {}),...extra})
+   const input = (id:string, extra:object={}) => event(id,{occurredAt:fixedTime,...(lost?{conversationType:'private',targetId:'789',eventId:`qq:123:private:789:${id}`} : {}),...extra})
   await s.call('qq.event.submit',input('101'))
    await vi.waitFor(()=>{
      expect(s.executionErrors).toEqual([])
@@ -214,7 +324,7 @@ it.each([0,1,2])('real ask tool and original run question continuation; resume f
   expect(state.outbox.some((o:any)=>o.frame.type==='qq.request.failed')).toBe(false)
   const question=state.outbox.find((o:any)=>o.frame.type==='qq.reply.action')
   expect(question.frame.data.text).toContain('选择画质？');expect(question.frame.data.text).not.toContain('private rationale')
-  const run=job.coreRunId,batch=job.questions.batchId
+   const run=job.coreRunId,batch=job.questionBatches.at(-1).batchId
   expect(getInteraction(batch)?.status).toBe('pending')
   // Exercise the actual producer/schema/native Adapter/receipt chain; only
   // NapCat's action call is controlled, so this never reaches a real QQ account.
@@ -225,32 +335,26 @@ it.each([0,1,2])('real ask tool and original run question continuation; resume f
   await (adapter as any).notification(question.frame)
   expect(nativeCall).toHaveBeenCalledWith('send_msg',expect.objectContaining(lost?{message_type:'private',user_id:'789'}:{message_type:'group',group_id:'456'}),undefined,{})
   expect(s.state().outbox.find((o:any)=>o.frame.data.eventId===question.frame.data.eventId)).toMatchObject({status:'sent',messageIds:['9001']})
-  if (lost===2) vi.spyOn(chatSend,'launchDetachedResume').mockRejectedValueOnce(new Error('offline after durable answer'))
-  if (lost) {
-    const answer=s.core.answerQuestions!.bind(s.core)
-    let first=true
-    if(lost===1) s.core.answerQuestions=async(...args)=>{
-      if(first){first=false;throw new Error('offline resume temporarily unavailable')}
-      return answer(...args)
-    }
-    const accepted=await s.call('qq.event.submit',input('102',{content:'请继续原画',replyToMessageId:'9001'}))
-    expect(accepted.accepted).toBe(true)
-    expect(accepted.receipt.handling.kind).toBe('question_answer')
-    await vi.waitFor(()=>expect(s.state().jobs[0]).toMatchObject({state:'paused',reason:'QUESTION_RESUME_UNCONFIRMED'}))
-    if(lost===2) expect(getInteraction(batch)?.status).toBe('completed')
-  }
+   if (lost===1) {
+     const answer=s.core.answerQuestions!.bind(s.core)
+     vi.spyOn(s.core,'answerQuestions').mockImplementationOnce(async(...args)=>{ await answer(...args); throw new Error('saved response lost') })
+   }
+   if (lost===2) {
+     const resume=s.core.resumeQuestions!.bind(s.core)
+     vi.spyOn(s.core,'resumeQuestions').mockImplementationOnce(async(...args)=>{ await resume(...args); throw new Error('started response lost') })
+   }
   const answerSpy=vi.spyOn(s.core,'answerQuestions')
   const wrong=await wire!.request('qq.event.submit',input('199',{senderId:'790',content:'开始',replyToMessageId:'9001'}))
-  if (lost) {
-    expect(wrong.success).toBe(false)
-    expect(wrong.error.code).toBe('IDENTITY_REJECTED')
-  } else {
-    expect(wrong.success).toBe(true)
-    expect(wrong.data.accepted).toBe(false)
-    expect(wrong.data.receipt.handling).toMatchObject({kind:'rejected',reasonCode:'IDENTITY_REJECTED'})
-  }
+   if (lost) {
+     expect(wrong.success).toBe(false)
+     expect(wrong.error.code).toBe('IDENTITY_REJECTED')
+   } else {
+     expect(wrong.success).toBe(true)
+     expect(wrong.data.accepted).toBe(false)
+     expect(wrong.data.receipt.handling).toMatchObject({kind:'rejected',reasonCode:'IDENTITY_REJECTED'})
+   }
   expect(answerSpy).not.toHaveBeenCalled()
-  expect(getInteraction(batch)?.status).toBe(lost===2?'completed':'pending')
+   expect(getInteraction(batch)?.status).toBe('pending')
   await s.call('qq.event.submit',input('102',{content:'请继续原画',replyToMessageId:'9001'}))
   await vi.waitFor(()=>expect(s.state().jobs[0]?.outcome).toBe('completed'),{timeout:10000})
   state=s.state();job=state.jobs[0]

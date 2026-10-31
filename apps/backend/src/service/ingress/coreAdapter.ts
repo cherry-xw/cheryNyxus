@@ -36,7 +36,7 @@ import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 import { getSenseRegistryVersion } from '@/core/sense/senseRegistry.js'
 import { preflightModelInput } from '@/agent/provider/inputPreflight.js'
 import { ErrorId } from '@chery/protocol'
-import { SourceContextRepository } from '@/db/sourceContext.js'
+import { SourceContextRepository, sourceContextError } from '@/db/sourceContext.js'
 
 function conversationId(owner: string, key: string): string {
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(owner) || !key || key.length > 512)

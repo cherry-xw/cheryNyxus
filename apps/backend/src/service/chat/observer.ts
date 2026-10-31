@@ -94,7 +94,7 @@ export async function* observeAgentChunks(
   const saveSourceMessage = (message: LLMResponse): void => {
     if (!sourceTask || !sourceRepo || !sourceAuthority ||
       !(message.role === 'sense' || message.role === 'role' || message.role === 'assistant' && message.senseCalls?.length)) return
-    const question = message.role === 'sense' && getMessages().some(parent =>
+    const question = message.role === 'sense' && message.content === '(等待用户回答…)' && getMessages().some(parent =>
       parent.senseCalls?.some(call => call.id === message.id && call.name === 'ask_user_question'))
     sourceRepo.saveRunMessage(sourceAuthority, sourceTask.input.scopeId, sourceTask.runId, message, question ? 'planned' : 'completed')
   }
@@ -116,6 +116,11 @@ export async function* observeAgentChunks(
         continue
       }
       if (chunk.type === 'message_created') {
+        if (sourceTask && !chunk.message.ephemeral) {
+          const message = getMessages().find(message => message.id === chunk.message.id)
+          if (!message) throw new Error('SOURCE_TOOL_OUTCOME_UNKNOWN')
+          saveSourceMessage(message)
+        }
         if (chunk.message.ephemeral) {
           const command = /^以下是 `\[\[command:\/([^\]]+)\]\]` 的完整指令正文/.exec(
             chunk.message.content ?? '',
@@ -276,11 +281,6 @@ export async function* observeAgentChunks(
         if (!batch) continue
         if (sourceTask) {
           bindSourceQuestions(sourceTask.runId, batch.batchId, batch.questions.map(question => question.questionId), batch.assistantMessageId)
-          for (const id of [batch.assistantMessageId, ...batch.questions.map(question => question.questionId)]) {
-            const message = getMessages().find(message => message.id === id)
-            if (!message) throw new Error('SOURCE_TOOL_OUTCOME_UNKNOWN')
-            saveSourceMessage(message)
-          }
         }
         const interaction = upsertPendingInteraction({
           interactionId: batch.batchId,

@@ -42,10 +42,10 @@ export function sourceQuestionStatus(owner: string, chatId: string, input: Autho
   if (!command || command.runId !== input.runId) return { ...base, status: 'unknown', reasonCode: 'QUESTION_COMMAND_UNKNOWN' }
   if (['completed','failed','cancelled'].includes(task.state)) return { ...base, status: task.state as 'completed' | 'failed' | 'cancelled' }
   if (task.sessionId !== sourceTaskSessionId) return { ...base, status: 'cancelled', reasonCode: 'BACKEND_STOPPED' }
-  if (command.state === 'saving') return { ...base, status: 'saving' }
   const batches = sourceQuestionBatches(input.runId)
   if (batches.some(batch => questionBatchFacts(chatId, batch.batchId).some(fact => fact.status === 'cancelled')))
     return { ...base, status: 'cancelled', reasonCode: 'QUESTION_CANCELLED' }
+  if (command.state === 'saving') return { ...base, status: 'saving' }
   if (command.state === 'started') return { ...base, status: task.state === 'paused' || task.state === 'waiting' ? 'paused' : 'started' }
   return { ...base, status: 'saved', canQueue: task.state === 'waiting' && ready(task.runId, chatId),
     sourceSnapshot: repo.snapshot(authority, task.input.scopeId, command.sourceInput!.snapshotId) }
@@ -113,6 +113,7 @@ export async function resumeSourceQuestions(owner: string, chatId: string, input
       getSoulDb().transaction(() => {
         if (!startSourceAnswer(input.commandId)) sourceTaskError('SOURCE_CONFLICT')
         setSourceTaskState(task.runId, 'running')
+        getSoulDb().prepare("UPDATE execution_active_runs SET status='running' WHERE chat_id=? AND run_id=? AND status IN ('waiting','paused')").run(chatId,task.runId)
       })()
     }))
   return started ? { ...status, status: 'started', canQueue: false } : { ...status, reasonCode: 'PREVIOUS_WORK_PENDING' }
