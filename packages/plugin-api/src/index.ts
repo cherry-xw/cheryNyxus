@@ -4,6 +4,8 @@ import type { ChatInputSubmitRequest as ChatInputSubmitRequestData, ChatInputSub
 import type { Sense, SenseFunction } from './sense.js'
 import type { IngressHookRegistration } from './hooks.js'
 import type { AssetRecord, IngressCapability, IngressStatus, IngressUiDescriptor } from '@chery/protocol'
+import type { SourceRecord, SourceRecordRef, SourceScope, SourceReceipt, SourceReceiptResult, SourceReceiptStatus,
+  SourceHandling, SourceAttachmentVersion, SourceSnapshot, SourceReadSelection, SourceReadResult, SourceSummary, SourceSummaryEvidence } from '@chery/protocol'
 export type { IngressCapability, IngressStatus, IngressUiDescriptor, IngressHookRegistration }
 
 export interface IngressResource {
@@ -147,6 +149,124 @@ export interface IngressFileChunk {
 export interface IngressFileAuthorization {
   requestIdentity: IngressRequestIdentity
   validateIdentity(): void
+}
+export interface IngressSourceContext {
+  entryId: string
+  identity: IngressIdentityHandle
+  scopeId: string
+}
+export interface IngressSourceReceiptInput {
+  eventId: string; messageId: string; sender: SourceRecord['sender']; parts: SourceRecord['parts']
+  platformSentAt?: number; sourceOrder?: SourceRecord['sourceOrder']
+  attachments?: Array<Pick<SourceAttachmentVersion, 'originalName' | 'declaredMimeType' | 'mediaKind'> & { partId: string }>
+}
+export interface IngressSourcePolicy {
+  historyLimit: number; backgroundMaxAgeMs: number; backgroundMaxChars: number; qqConfigRevision: number
+}
+export interface IngressSourceTarget {
+  conversationType: 'group' | 'private'; targetId: string; presetId: string; qqContextEpoch: string
+}
+export interface IngressSourceAuthorization {
+  requestIdentity: IngressRequestIdentity
+  eventId: string
+  purpose: 'record' | 'execution'
+  validateIdentity(): void
+}
+export interface IngressSourceAttachmentPublication {
+  attachmentId: string; operation: 'reserve' | 'begin' | 'chunk' | 'status' | 'commit' | 'cancel'
+  size?: number; sha256?: string; uploadId?: string; offset?: number; dataBase64?: string
+}
+export interface IngressSourceAttachmentImport {
+  attachmentId: string; url: string; signal?: AbortSignal
+}
+export interface IngressSourceDelivery {
+  scopeId: string
+  frame: import('@chery/protocol').QQNotification
+  result?: import('@chery/protocol').QQDeliveryResultRequest
+  confirmedAt?: number
+}
+export interface IngressSourceMaintenanceContext {
+  entryId: string; channel: string; connectionId: string; scopeId: string
+}
+export interface IngressSourceMaintenanceAuthorization {
+  channel: string; selfId: string; scopeId: string; validateIdentity(): void
+}
+export interface IngressSourceSummaryOperation {
+  operationId: string; scopeId: string; purpose: 'capacity' | 'discussion'; snapshotId: string
+  baseSummaryId?: string; baseSelectionRevision: number; permissionRevision: number; evidence: SourceSummaryEvidence[]
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  phase: 'history' | 'memory' | 'summary' | 'commit'; version: number; summaryId?: string; reasonCode?: string
+}
+export interface IngressSourceSummaryPreparation {
+  operation: IngressSourceSummaryOperation; snapshot: SourceSnapshot; records: SourceRecord[]; baseSummary?: SourceSummary
+  attachments: SourceAttachmentVersion[]
+  deliveries: Array<{ deliveryId: string; purpose: string; kind: string; frame: import('@chery/protocol').QQNotification;
+    source?: SourceRecordRef; result?: import('@chery/protocol').QQDeliveryResultRequest; revision: number }>
+}
+export interface IngressSourceSummaryCommit {
+  operationId: string; expectedBaseSummaryId?: string; text: string; prerequisiteReceipt: string
+  validatePrerequisite(receipt: string, operationId: string): boolean
+}
+export interface IngressSourceSummaryProgress {
+  operationId: string; expectedVersion: number; status: 'running' | 'failed' | 'cancelled'
+  phase: IngressSourceSummaryOperation['phase']; reasonCode?: string
+}
+/** No method here is a public RPC or accepts a caller-selected owner. */
+export interface IngressSourceConversations {
+  history(input: IngressSourceContext & { runId: string; count?: number; cursor?: string }): Promise<import('@chery/protocol').SourceHistoryResult>
+  readText(input: IngressSourceContext & { runId: string; textRefId: string; cursor?: string }): Promise<import('@chery/protocol').SourceTextPage>
+  prepareSummary(input: IngressSourceMaintenanceContext & { operationId: string; purpose: 'capacity' | 'discussion'; qqConfigRevision: number; parentSnapshotId?: string }): Promise<IngressSourceSummaryPreparation>
+  summaryStatus(input: IngressSourceMaintenanceContext & { operationId: string }): Promise<IngressSourceSummaryOperation>
+  updateSummaryProgress(input: IngressSourceMaintenanceContext & IngressSourceSummaryProgress): Promise<IngressSourceSummaryOperation>
+  commitSummary(input: IngressSourceMaintenanceContext & IngressSourceSummaryCommit): Promise<SourceSummary>
+  recordDelivery(input: IngressSourceDelivery & { entryId: string; channel: string; connectionId: string }): Promise<void>
+  lookupReceipt(input: { entryId: string; channel: string; connectionId: string; eventId: string }): Promise<SourceReceiptStatus>
+  scope(input: IngressSourceContext): Promise<SourceScope>
+  receiptAttachments(input: IngressSourceContext): Promise<SourceAttachmentVersion[]>
+  configure(input: { entryId: string; channel: string; connectionId: string; revision: number; targets: IngressSourceTarget[] }): Promise<SourceScope[]>
+  ensureScope(input: Omit<IngressSourceContext, 'scopeId'> & { presetId: string; qqContextEpoch: string }): Promise<SourceScope>
+  beginReceipt(input: IngressSourceContext & { message: IngressSourceReceiptInput }): Promise<SourceReceipt>
+  completeReceipt(input: IngressSourceContext & { receiptId: string; expectedVersion: number; handling: SourceHandling }): Promise<SourceReceiptResult>
+  receiptStatus(input: Omit<IngressSourceContext, 'scopeId'> & { eventId: string }): Promise<SourceReceiptStatus>
+  freeze(input: IngressSourceContext & { requestId: string; actorRecord: SourceRecordRef; inputRecords: SourceRecordRef[];
+    expectedSelectionRevision: number; policy: IngressSourcePolicy }): Promise<SourceSnapshot>
+  read(input: IngressSourceContext & { selection: SourceReadSelection }): Promise<SourceReadResult>
+  snapshot(input: IngressSourceContext & { snapshotId: string }): Promise<SourceSnapshot>
+  attachment(input: IngressSourceContext & { attachmentId: string; version?: number }): Promise<SourceAttachmentVersion>
+  updateAttachment(input: IngressSourceContext & { attachmentId: string; expectedVersion: number; state: SourceAttachmentVersion['state'] }): Promise<SourceAttachmentVersion>
+  linkImage(input: IngressSourceContext & { attachmentId: string; nativeSourceId: string }): Promise<SourceAttachmentVersion>
+  registerWorkspace(input: IngressSourceContext & { attachmentId: string; version: number; mount: import('@chery/protocol').SourceWorkspaceMount }): Promise<void>
+  publishAttachment(input: IngressSourceContext & IngressSourceAttachmentPublication): Promise<IngressSourceResult>
+  importAttachment(input: IngressSourceContext & IngressSourceAttachmentImport): Promise<SourceAttachmentVersion>
+  readAttachmentChunk(input: IngressSourceContext & { attachmentId: string; version: number; offset: number }): Promise<IngressFileChunk>
+}
+export interface IngressSourceConversationsAdapter {
+  history(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; runId: string; count?: number; cursor?: string }): Promise<import('@chery/protocol').SourceHistoryResult>
+  readText(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; runId: string; textRefId: string; cursor?: string }): Promise<import('@chery/protocol').SourceTextPage>
+  prepareSummary(ownerId: string, input: IngressSourceMaintenanceAuthorization & { operationId: string; purpose: 'capacity' | 'discussion'; qqConfigRevision: number; parentSnapshotId?: string }): Promise<IngressSourceSummaryPreparation>
+  summaryStatus(ownerId: string, input: IngressSourceMaintenanceAuthorization & { operationId: string }): Promise<IngressSourceSummaryOperation>
+  updateSummaryProgress(ownerId: string, input: IngressSourceMaintenanceAuthorization & IngressSourceSummaryProgress): Promise<IngressSourceSummaryOperation>
+  commitSummary(ownerId: string, input: IngressSourceMaintenanceAuthorization & IngressSourceSummaryCommit): Promise<SourceSummary>
+  recordDelivery(ownerId: string, input: IngressSourceDelivery & { channel: string; selfId: string; validateIdentity(): void }): Promise<void>
+  lookupReceipt(ownerId: string, input: { channel: string; selfId: string; eventId: string; validateIdentity(): void }): Promise<SourceReceiptStatus>
+  scope(ownerId: string, input: IngressSourceAuthorization & { scopeId: string }): Promise<SourceScope>
+  receiptAttachments(ownerId: string, input: IngressSourceAuthorization & { scopeId: string }): Promise<SourceAttachmentVersion[]>
+  configure(ownerId: string, input: { channel: string; selfId: string; revision: number; targets: IngressSourceTarget[]; validateIdentity(): void }): Promise<SourceScope[]>
+  ensureScope(ownerId: string, input: IngressSourceAuthorization & { presetId: string; qqContextEpoch: string }): Promise<SourceScope>
+  beginReceipt(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; message: IngressSourceReceiptInput }): Promise<SourceReceipt>
+  completeReceipt(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; receiptId: string; expectedVersion: number; handling: SourceHandling }): Promise<SourceReceiptResult>
+  receiptStatus(ownerId: string, input: IngressSourceAuthorization & { eventId: string }): Promise<SourceReceiptStatus>
+  freeze(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; requestId: string; actorRecord: SourceRecordRef;
+    inputRecords: SourceRecordRef[]; expectedSelectionRevision: number; policy: IngressSourcePolicy }): Promise<SourceSnapshot>
+  read(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; selection: SourceReadSelection }): Promise<SourceReadResult>
+  snapshot(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; snapshotId: string }): Promise<SourceSnapshot>
+  attachment(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; attachmentId: string; version?: number }): Promise<SourceAttachmentVersion>
+  updateAttachment(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; attachmentId: string; expectedVersion: number; state: SourceAttachmentVersion['state'] }): Promise<SourceAttachmentVersion>
+  linkImage(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; attachmentId: string; nativeSourceId: string }): Promise<SourceAttachmentVersion>
+  registerWorkspace(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; attachmentId: string; version: number; mount: import('@chery/protocol').SourceWorkspaceMount }): Promise<void>
+  publishAttachment(ownerId: string, input: IngressSourceAuthorization & { scopeId: string } & IngressSourceAttachmentPublication): Promise<IngressSourceResult>
+  importAttachment(ownerId: string, input: IngressSourceAuthorization & { scopeId: string } & IngressSourceAttachmentImport): Promise<SourceAttachmentVersion>
+  readAttachmentChunk(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; attachmentId: string; version: number; offset: number }): Promise<IngressFileChunk>
 }
 export interface IngressSourcePublication extends IngressFileContext {
   sourceKey: string; sourceIdentity: string; targetKey: string
@@ -293,6 +413,9 @@ export interface IngressContext {
       ): Promise<boolean>
       verifySource?(input: Readonly<{ connectionId: string; entryId: string; eventId: string; subject: IngressSubject }>): Promise<boolean>
       validateSource?(input: Readonly<{ connectionId: string; entryId: string; eventId: string; subject: IngressSubject }>): boolean
+      verifyRecord?(input: Readonly<{ connectionId: string; entryId: string; eventId: string; subject: IngressSubject }>): Promise<boolean>
+      validateRecord?(input: Readonly<{ connectionId: string; entryId: string; eventId: string; subject: IngressSubject }>): boolean
+      validateExecution?(input: Readonly<{ connectionId: string; entryId: string; eventId: string; subject: IngressSubject }>): boolean
     }): () => void
     bind(input: {
       connectionId: string
@@ -300,7 +423,7 @@ export interface IngressContext {
       channel: string
       eventId: string
       subject: IngressSubject
-      purpose?: 'source'
+      purpose?: 'source' | 'record'
     }): Promise<IngressIdentityHandle>
   }
   /** Trusted QQ lifecycle notification transport; absent for other plugins. */

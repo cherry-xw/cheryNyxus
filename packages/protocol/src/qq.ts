@@ -1,11 +1,18 @@
 import { z } from 'zod'
 import { QQImageLimitsSchema, QQImagePolicyDefault, QQImageRequestSchemas, QQImageResponseSchemas, QQImageTransportMethods } from './qqImages.js'
+import { SourcePartsSchema, SourceReceiptResultSchema, SourceReceiptStatusSchema } from './sourceContext.js'
+import { QQFileRequestSchemas, QQFileResponseSchemas, QQFileTransportMethods } from './qqFiles.js'
+import { QQSourceRequestSchemas, QQSourceResponseSchemas, SourceContextIndexSchema, SourceEntryItemsSchema, SourceVisibleBodySchema } from './sourceManagement.js'
 export * from './qqImages.js'
+export * from './qqFiles.js'
 
 export const QQIdSchema = z.string().regex(/^[1-9]\d{0,19}$/)
 const identifier = z.string().min(1).max(256)
 const target = z.string().regex(/^(group:[1-9]\d{0,19}|private:user:[1-9]\d{0,19})$/)
 export const QQCapabilities = [
+  'qq.source.context.v2',
+  'qq.source.file.ingest',
+  'qq.event.receipt.get',
   'qq.image.ingest',
   'qq.event.submit',
   'qq.delivery.result',
@@ -28,10 +35,12 @@ export const QQCapabilities = [
   'qq.service.state',
 ] as const
 export const QQTransportMethods = [
+  ...QQFileTransportMethods,
   ...QQImageTransportMethods,
   'qq.plugin.hello',
   'qq.identity.bind',
   'qq.event.submit',
+  'qq.event.receipt.get',
   'qq.delivery.result',
   'qq.request.recover',
   'qq.file.read',
@@ -214,7 +223,8 @@ export const QQEventSubmitRequestSchema = z
     senderId: QQIdSchema,
     senderName: z.string().max(100),
     replyToMessageId: z.string().max(100).optional(),
-    attachments: z.array(z.object({ type: z.string().max(30), name: z.string().max(200).optional(), mimeType: z.string().max(200).optional(),
+    sourceParts: SourcePartsSchema,
+    attachments: z.array(z.object({ partId: z.string().regex(/^p\d+(?:\.\d+)?$/), nativeSourceId: identifier.optional(), type: z.string().max(30), name: z.string().max(200).optional(), mimeType: z.string().max(200).optional(),
       url: z.string().url().max(8192).refine(value => { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password }).optional() }).strict()).max(30).optional(),
     parts: z.array(z.union([z.object({ type: z.literal('text'), text: z.string().max(100000) }).strict(),
       z.object({ type: z.literal('attachment'), index: z.number().int().min(0).max(29) }).strict()])).max(200).optional(),
@@ -224,12 +234,17 @@ export const QQEventSubmitRequestSchema = z
       .max(100),
     content: z.string().max(100000),
     mentionedBot: z.boolean(),
-    occurredAt: z.number().finite().nonnegative(),
+    occurredAt: z.number().int().nonnegative().max(Math.floor(Number.MAX_SAFE_INTEGER / 1000)),
   })
   .strict()
   .superRefine((e, ctx) => {
     if (!e.content.trim() && !e.attachments?.length && !(e.conversationType === 'group' && e.mentionedBot)) ctx.addIssue({ code: 'custom', message: 'Empty input' })
     for (const part of e.parts ?? []) if (part.type === 'attachment' && !e.attachments?.[part.index]) ctx.addIssue({ code: 'custom', message: 'Invalid attachment index' })
+    const attachments = e.attachments ?? [], sourceAttachments = e.sourceParts.filter(p => p.type === 'attachment')
+    if (attachments.length !== sourceAttachments.length || new Set(attachments.map(a => a.partId)).size !== attachments.length ||
+      attachments.some(a => !sourceAttachments.some(p => p.partId === a.partId)) ||
+      e.sourceParts.filter(p => p.type === 'text').map(p => p.text).join('') !== e.content)
+      ctx.addIssue({ code: 'custom', message: 'Source message projection does not match original parts' })
     if (
       e.senderId === e.selfId ||
       (e.conversationType === 'private' && e.senderId !== e.targetId) ||
@@ -238,7 +253,7 @@ export const QQEventSubmitRequestSchema = z
       ctx.addIssue({ code: 'custom', message: 'Invalid input identity' })
   })
 export const QQEventSubmitResponseSchema = z
-  .object({ eventId: identifier, accepted: z.boolean() })
+  .object({ eventId: identifier, accepted: z.boolean(), receipt: SourceReceiptResultSchema })
   .strict()
 const outputIdentity = {
   eventId: identifier,
@@ -394,6 +409,7 @@ export const QQStatusSchema = z
     trustedIdentity: z.boolean(),
     qqOnline: z.boolean().nullable(),
     paused: z.boolean(),
+    summaries: z.array(z.object({ target: z.string(), status: z.enum(['pending','running','completed','failed','cancelled']), phase: z.string(), throughEventId: z.string().optional(), lastSummaryAt: z.number().optional(), reason: z.string().optional() }).strict()).optional(),
     pausedTargets: z.number().int().nonnegative(),
     reasons: z.array(z.string()),
     channels: z.object({
@@ -428,6 +444,9 @@ export const QQEntrySchema = z
 export const QQEntriesSchema = z.object({ entries: z.array(QQEntrySchema) }).strict()
 export const QQEntryRequestSchema = z.object({ requestId: identifier }).strict()
 export const QQEntryDetailSchema = QQEntrySchema.extend({
+  contextAvailability: SourceContextIndexSchema.shape.availability.optional(),
+  sourceContext: z.object({observedAt:z.number().int().nonnegative(),messages:SourceEntryItemsSchema.optional(),deliveries:SourceEntryItemsSchema.optional(),
+    replyBody:SourceVisibleBodySchema.optional(),itemsDeferred:z.boolean()}).strict().optional(),
   messages: z.array(z.object({
     eventId: identifier,
     senderId: QQIdSchema,
@@ -454,6 +473,9 @@ export type QQStatus = z.infer<typeof QQStatusSchema>
 export type QQEntry = z.infer<typeof QQEntrySchema>
 export type QQEntryDetail = z.infer<typeof QQEntryDetailSchema>
 export const QQRequestSchemas = {
+  ...QQSourceRequestSchemas,
+  ...QQFileRequestSchemas,
+  'qq.event.receipt.get': z.object({ eventId: identifier }).strict(),
   ...QQImageRequestSchemas,
   'qq.file.read': z.object({ selfId: QQIdSchema, eventId: identifier, offset: z.number().int().nonnegative() }).strict(),
   'qq.information.result': z.object({ selfId: QQIdSchema, lookupId: identifier, targetId: QQIdSchema, success: z.boolean(), result: z.string().max(60000) }).strict(),
@@ -471,6 +493,9 @@ export const QQRequestSchemas = {
   'qq.entry.get': QQEntryRequestSchema,
 } as const
 export const QQResponseSchemas = {
+  ...QQSourceResponseSchemas,
+  ...QQFileResponseSchemas,
+  'qq.event.receipt.get': SourceReceiptStatusSchema,
   ...QQImageResponseSchemas,
   'qq.file.read': z.object({ offset: z.number().int().nonnegative(), dataBase64: z.string().max(349528), eof: z.boolean() }).strict(),
   'qq.information.result': z.object({ recorded: z.literal(true) }).strict(),
