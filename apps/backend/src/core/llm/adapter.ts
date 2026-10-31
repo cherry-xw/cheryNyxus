@@ -14,6 +14,11 @@ export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' |
  * 各 provider 按需读取；model 必选，其余可选。
  */
 export interface LLMOptions {
+  /** Internal provenance boundary, never serialized into the provider body. */
+  sourceCall?: {
+    prepare(body: Record<string, unknown>, protocol: string): void
+    budget?(value: InputTokenPreflight): void
+  }
   /** Server-owned ongoing request; do not add SDK wall-clock deadlines. */
   continuous?: boolean
   requestView?: Readonly<import('@/service/ingress/api.js').IngressRequestView>
@@ -52,11 +57,25 @@ export interface LLMOptions {
   signal?: AbortSignal
   inputPreflight?: {
     contextLimit?: number
+    safetyMargin?: number
+    trigger?: { unit: 'percent' | 'tokens'; value: number }
+    compactIfNeeded?: boolean
+    forcePreparation?: boolean
+    afterCompaction?: boolean
+    accepted?(): void
     report(result: InputTokenPreflight): void
   }
 }
 
 export interface InputTokenPreflight {
+  /** Fingerprint of the exact provider body; never contains request content. */
+  projectionId?: string
+  payloadBytes?: number
+  contextLimit?: number
+  preparedAt?: number
+  outputReserve?: number
+  safetyMargin?: number
+  effectiveCeiling?: number
   tokenSource: 'official-preflight' | 'conservative-local-estimate'
   officialPreflight: 'succeeded' | 'unavailable' | 'unsupported'
   inputTokens?: number

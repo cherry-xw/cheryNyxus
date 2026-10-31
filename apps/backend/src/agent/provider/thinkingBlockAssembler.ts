@@ -1,5 +1,15 @@
 import type { ThinkingBlock, ThinkingBlockDelta } from '@/core/message/adapter.js'
 
+/** Preserve complete non-stream blocks through the same checkpoint accumulator as streaming. */
+export function completeThinkingBlockDeltas(blocks: readonly ThinkingBlock[] | undefined): ThinkingBlockDelta[] {
+  return (blocks ?? []).flatMap((block, index): ThinkingBlockDelta[] => [
+    { kind: 'start', index, type: block.type },
+    { kind: 'text', index, text: block.type === 'thinking' ? block.thinking : block.data },
+    ...(block.type === 'thinking' ? [{ kind: 'signature' as const, index, signature: block.signature }] : []),
+    { kind: 'stop', index },
+  ])
+}
+
 /**
  * Thinking block delta 组装器（Anthropic 扩展思考流式累积）。
  *

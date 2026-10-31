@@ -10,6 +10,7 @@
  *
  * 放 service 层（非 utils/token）：需依赖 agent/prompt + agent/runtimeResolver，避免 utils→agent 反向依赖。
  */
+import { getChatMetadata } from '@/db/chat.js'
 import { RuntimeResolver } from '@/agent/runtimeResolver.js'
 import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import { buildSystemPromptSegments } from '@/agent/prompt/index.js'
@@ -128,9 +129,12 @@ export function computeContextBreakdown(
     const brain = brainName ? config.llm.brain[brainName] : undefined
     const limitTokens = brain?.contextLimit ?? 0
     const total = limitTokens > 0 ? limitTokens : 0
-    const usage = total > 0 ? Math.min(1, used / total) : 0
+    const saved = getChatMetadata(chatId).modelInputBudget as ContextBreakdown['inputBudget']
+    const inputBudget = saved?.model === brain?.model ? saved : undefined
+    const measured = inputBudget?.inputTokens ?? inputBudget?.estimatedTextTokens
+    const usage = total > 0 ? Math.min(1, (measured ?? used) / total) : 0
 
-    return { system, userSystem, memory, skills, tools, conversation, total, usage }
+    return { system, userSystem, memory, skills, tools, conversation, total, usage, ...(inputBudget ? { inputBudget } : {}) }
   } catch (err) {
     console.warn(`[contextBreakdown](${chatId}) failed, fallback 0:`, (err as Error).message)
     return zeroBreakdown()
