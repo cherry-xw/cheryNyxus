@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { z } from 'zod'
-import { atomicText, parseStored, readSafeText, textVersion, withFileLock, qqSubjectSchema, type QQSubject } from './files.js'
+import { SourceRecordRefSchema, type SourceRecordRef } from '@chery/protocol'
+import { atomicText, parseStored, readSafeText, textVersion, withFileLock, type QQSubject } from './files.js'
 
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/)
 const qq = z.string().regex(/^[1-9]\d{0,19}$/)
@@ -10,7 +11,8 @@ export const groupFactSchema = z.object({
   content: z.string().min(1).refine(v => Array.from(v).length <= 300 && v.trim().length > 0),
   members: z.array(qq).max(20),
   evidence: z.enum(['statement', 'participation', 'confirmed_result']),
-  sources: z.array(z.object({ messageId: z.string().regex(/^-?\d+$/), userId: qq, occurredAt: z.number().finite().nonnegative() }).strict()).max(30),
+  sources: z.array(z.object({ source: SourceRecordRefSchema, partIds: z.array(z.string().regex(/^p\d+(?:\.\d+)?$/)).min(1).max(200),
+    messageId: z.string().regex(/^-?\d+$/), userId: qq, occurredAt: z.number().finite().nonnegative() }).strict()).max(30),
   status: z.enum(['active', 'superseded', 'disputed']),
   updatedAt: z.number().finite().nonnegative(),
 }).strict()
@@ -20,29 +22,37 @@ export const groupMemoryBatchSchema = z.object({
   delete: z.array(id).max(80).default([]),
   expectedRevision: z.number().int().nonnegative(),
 }).strict().refine(b => b.save.length + b.delete.length > 0, 'Empty memory update')
-const storeSchema = z.object({ schemaVersion: z.literal(2), groupId: qq, revision: z.number().int().nonnegative(), records: z.array(groupFactSchema), updatedAt: z.number(), operations: z.record(z.string(), z.object({ fingerprint: z.string(), revision: z.number(), saved: z.number(), deleted: z.number() })).default({}) }).strict()
-export interface GroupSource { messageId: string; senderId: string; occurredAt: number; content: string }
+const storeSchema = z.object({ schemaVersion: z.literal(3), groupId: qq, revision: z.number().int().nonnegative(), records: z.array(groupFactSchema), updatedAt: z.number(), operations: z.record(z.string(), z.object({ fingerprint: z.string(), revision: z.number(), saved: z.number(), deleted: z.number() })).default({}) }).strict()
+export interface GroupSource { source: SourceRecordRef; partIds: string[]; messageId: string; senderId: string; occurredAt: number; content: string }
+export type GroupMemorySubject = QQSubject | { selfId: string; conversationType: 'group'; groupId: string }
+const groupSubjectSchema = z.object({ selfId: qq, conversationType: z.literal('group'), groupId: qq, userId: qq.optional() }).strict()
+const sameSource = (a: { source: SourceRecordRef; partIds: string[]; messageId: string; userId: string; occurredAt: number }, b: GroupSource) =>
+  a.source.recordId === b.source.recordId && a.source.revision === b.source.revision &&
+  a.partIds.every(partId => b.partIds.includes(partId)) && a.messageId === b.messageId && a.userId === b.senderId && a.occurredAt === b.occurredAt
 
 /** All public-in-group facts belong to the group, never the current sender. */
 export class QQGroupMemoryStore {
   constructor(private readonly root: string, private readonly limits = { maxEntries: 80, maxChars: 160, contextChars: 6000 } as { maxEntries: number; maxChars: number; contextChars: number; triggerRatio?: number; targetRatio?: number }, private readonly consolidate?: (content: string, instruction: string) => Promise<string>) {}
-  private target(subject: QQSubject) {
-    qqSubjectSchema.parse(subject)
+  private target(subject: GroupMemorySubject) {
+    groupSubjectSchema.parse(subject)
     if (subject.conversationType !== 'group' || !subject.groupId) throw new Error('Group memory requires trusted group identity')
     return path.join(this.root, 'memory', 'topics', `${textVersion(subject.groupId)}.json`)
   }
-  private async read(subject: QQSubject) {
+  private async read(subject: GroupMemorySubject) {
     const target = this.target(subject)
     try {
-      const data = parseStored(storeSchema, JSON.parse(await readSafeText(target)), '群记忆文件')
+      const raw = JSON.parse(await readSafeText(target)) as { schemaVersion?: unknown }
+      if (typeof raw === 'object' && raw !== null && raw.schemaVersion === 2)
+        throw new Error('Unsupported legacy group memory format (schemaVersion 2); run the one-time source migration before use')
+      const data = parseStored(storeSchema, raw, '群记忆文件')
       if (data.groupId !== subject.groupId) throw new Error('Group memory identity mismatch')
       return data
     } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e }
-    const data = storeSchema.parse({ schemaVersion: 2, groupId: subject.groupId, revision: 0, records: [], updatedAt: Date.now() })
+    const data = storeSchema.parse({ schemaVersion: 3, groupId: subject.groupId, revision: 0, records: [], updatedAt: Date.now() })
     await atomicText(target, JSON.stringify(data))
     return data
   }
-  async search(subject: QQSubject, query: string, limit = 12) {
+  async search(subject: GroupMemorySubject, query: string, limit = 12) {
     return withFileLock(this.target(subject), async () => {
       const data = await this.read(subject)
       const terms = [...new Set(query.toLowerCase().match(/[a-z0-9_]+|[\u4e00-\u9fff]/g) ?? [])]
@@ -61,10 +71,21 @@ export class QQGroupMemoryStore {
       return { revision: data.revision, total: data.records.length, records }
     })
   }
-  async operationStatus(subject: QQSubject, operationId: string) {
+  async operationStatus(subject: GroupMemorySubject, operationId: string) {
     return withFileLock(this.target(subject), async () => (await this.read(subject)).operations[operationId])
   }
-  async manage(subject: QQSubject, input: unknown, sources: GroupSource[], signal?: AbortSignal, operationId?: string) {
+  async completeEmptyOperation(subject: GroupMemorySubject, operationId: string, signal?: AbortSignal) {
+    return withFileLock(this.target(subject), async () => {
+      const data = await this.read(subject), fingerprint = textVersion('no-new-facts')
+      const previous = data.operations[operationId]
+      if (previous) return previous
+      const receipt = { fingerprint, revision: data.revision, saved: 0, deleted: 0 }
+      signal?.throwIfAborted()
+      await atomicText(this.target(subject), JSON.stringify({ ...data, operations: { ...data.operations, [operationId]: receipt } }), signal)
+      return receipt
+    }, signal)
+  }
+  async manage(subject: GroupMemorySubject, input: unknown, sources: GroupSource[], signal?: AbortSignal, operationId?: string) {
     const batch = groupMemoryBatchSchema.parse(input)
     const names = batch.save.map(r => r.id)
     if (new Set(names).size !== names.length || new Set(batch.delete).size !== batch.delete.length || names.some(n => batch.delete.includes(n))) throw new Error('Conflicting memory operations')
@@ -82,16 +103,16 @@ export class QQGroupMemoryStore {
       for (const fact of batch.save) {
         if (!fact.sources.length) throw new Error('New facts require current group sources')
         const checked = fact.sources.map(s => {
-          const actual = sources.find(m => m.messageId === s.messageId && m.senderId === s.userId && m.occurredAt === s.occurredAt)
+          const actual = sources.find(m => sameSource(s, m))
           const prior = records.get(fact.id)
-          const retained = prior?.sources.some(old => old.messageId === s.messageId && old.userId === s.userId && old.occurredAt === s.occurredAt)
+          const retained = prior?.sources.some(old => sameSource(s, { ...old, senderId: old.userId, content: '' }))
           if (!actual && !retained) throw new Error('Memory source is outside current verified group messages')
-          return actual ?? { messageId: s.messageId, senderId: s.userId, occurredAt: s.occurredAt, content: '' }
+          return actual ?? { ...s, senderId: s.userId, content: '' }
         })
         if (fact.members.some(member => !checked.some(m => m.senderId === member))) throw new Error('Related member lacks a source message')
         if (Array.from(fact.content).length > this.limits.maxChars) throw new Error('Fact too long; merge or split without losing evidence')
         const prior = records.get(fact.id)
-        if (prior && fact.evidence !== prior.evidence && !fact.sources.some(s => sources.some(m => m.messageId === s.messageId && m.senderId === s.userId))) throw new Error('Evidence upgrade requires a new source')
+        if (prior && fact.evidence !== prior.evidence && !fact.sources.some(s => sources.some(m => sameSource(s, m)))) throw new Error('Evidence upgrade requires a new source')
         records.set(fact.id, { ...fact, updatedAt: Date.now() })
       }
       let candidate = [...records.values()]
@@ -101,11 +122,10 @@ export class QQGroupMemoryStore {
         if (candidate.length && !merged.length) throw new Error('Consolidation empty; originals retained')
         for (const fact of merged) {
           if (Array.from(fact.content).length > this.limits.maxChars || !candidate.some(old => old.kind === fact.kind && old.evidence === fact.evidence && JSON.stringify([...old.members].sort()) === JSON.stringify([...fact.members].sort()))) throw new Error('Invalid consolidation metadata')
-          if (fact.sources.some(s => !candidate.some(old => old.sources.some(v => v.messageId === s.messageId && v.userId === s.userId && v.occurredAt === s.occurredAt)))) throw new Error('Invented consolidation source')
+          if (fact.sources.some(s => !candidate.some(old => old.sources.some(v => sameSource(s, { ...v, senderId: v.userId, content: '' }))))) throw new Error('Invented consolidation source')
         }
         if (new Set(merged.map(r => r.id)).size !== merged.length || merged.length > this.limits.maxEntries) throw new Error('Invalid consolidation capacity')
-        const retainedSources = new Set(merged.flatMap(r => r.sources.map(s => `${s.messageId}:${s.userId}:${s.occurredAt}`)))
-        if (candidate.some(r => r.status === 'active' && r.sources.some(s => !retainedSources.has(`${s.messageId}:${s.userId}:${s.occurredAt}`)))) throw new Error('Consolidation dropped active evidence; originals retained')
+        if (candidate.some(r => r.status === 'active' && r.sources.some(s => !merged.some(fact => fact.sources.some(v => sameSource(s, { ...v, senderId: v.userId, content: '' })))))) throw new Error('Consolidation dropped active evidence; originals retained')
         candidate = merged
       }
       if (candidate.length > this.limits.maxEntries && candidate.length > data.records.length) throw new Error('Group memory capacity reached; merge existing facts first')
