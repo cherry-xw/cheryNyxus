@@ -21,7 +21,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
   if (dirty.value || state.saving) { event.preventDefault(); event.returnValue = '' }
 }
 onMounted(() => { void load(); window.addEventListener('beforeunload', beforeUnload) })
-onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
+onUnmounted(() => {window.removeEventListener('beforeunload', beforeUnload);controller.dispose()})
 </script>
 
 <template>

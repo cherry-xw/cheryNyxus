@@ -2,14 +2,15 @@
 import { computed, ref, watch } from 'vue'
 import type { useQq } from './useQq'
 import { deliveryLabel, deliverySummary, outputLabel, recordPage, taskLabel } from './qqPresentation'
+import QqSourceDetail from './QqSourceDetail.vue'
 const props = defineProps<{ kind: 'queue' | 'history'; active: boolean; controller: ReturnType<typeof useQq> }>()
-const { state, refresh, detail } = props.controller
+const { state, refresh, detail, sources, openRecords } = props.controller
 const page = ref(1)
 const result = computed(() => recordPage(state[props.kind]?.entries || [], page.value))
 const time = (value?: number) => value === undefined ? '未记录' : new Date(value).toLocaleString()
 watch(() => props.active, active => { if (active && !state[props.kind]) void refresh(props.kind) }, { immediate: true })
 watch(() => result.value.page, value => { page.value = value })
-function expand(event: Event, id: string) { if ((event.target as HTMLDetailsElement).open) void detail(id) }
+function expand(event: Event, id: string) { const open=(event.target as HTMLDetailsElement).open;openRecords[id]=open;if(open)void detail(id) }
 </script>
 
 <template>
@@ -33,21 +34,25 @@ function expand(event: Event, id: string) { if ((event.target as HTMLDetailsElem
             <p v-if="item.messageCount > 1 || item.attachmentCount" class="muted">合并输入 {{ item.messageCount }} 条 · 附件 {{ item.attachmentCount }} 个</p>
             <p v-if="item.replyPreview" class="record-preview">已有回复：{{ item.replyPreview }}</p>
             <p>投递记录：{{ deliverySummary(item) }}</p><p v-if="item.reason" class="warning">原因：{{ item.reason }}</p>
-            <details :key="`${item.requestId}:${state.recordsRevision}:${result.page}`" @toggle="expand($event, item.requestId)">
+            <details :open="openRecords[item.requestId]" @toggle="expand($event, item.requestId)">
               <summary>查看消息、回复与发送详情</summary>
               <p v-if="state.detailsLoading[item.requestId]" role="status">正在读取详情…</p>
               <p v-if="state.detailErrors[item.requestId]" class="error" role="alert">{{ state.detailErrors[item.requestId] }} <button type="button" @click="detail(item.requestId)">重试读取详情</button></p>
-              <template v-if="state.details[item.requestId]">
+               <template v-if="state.details[item.requestId]">
+                 <button type="button" :disabled="state.detailsLoading[item.requestId]" @click="detail(item.requestId,true)">刷新任务与发送状态</button>
+                 <template v-if="!state.details[item.requestId].sourceContext && (!sources.sessions[item.requestId]?.index || sources.sessions[item.requestId].index?.availability==='legacy_unrecorded')">
                 <h4>收到的消息</h4>
                 <article v-for="message in state.details[item.requestId].messages" :key="message.eventId" class="record-message">
                   <p>{{ message.senderName || '未记录昵称' }}（{{ message.senderId }}）</p><pre>{{ message.content || '无文字内容' }}</pre><p v-if="message.contentTruncated" class="warning">原文超过 20,000 字，此处仅显示前 20,000 字。</p>
                   <ul v-if="message.attachments.length"><li v-for="(attachment, index) in message.attachments" :key="index">附件：{{ attachment.type }} {{ attachment.name || '未提供名称' }}</li></ul>
                 </article>
-                <h4>已有回复文字</h4><pre>{{ state.details[item.requestId].reply || '没有回复文字；请同时查看下方媒体与互动的投递记录。' }}</pre><p v-if="state.details[item.requestId].replyTruncated" class="warning">回复超过 100,000 字，此处仅显示前 100,000 字。</p>
+                 <h4>生成的回复文字（不等于已发送）</h4><pre>{{ state.details[item.requestId].reply || '没有回复文字；请同时查看下方媒体与互动的投递记录。' }}</pre><p v-if="state.details[item.requestId].replyTruncated" class="warning">以下为部分内容；旧记录未保存完整正文读取入口。</p>
                 <h4>实际投递记录</h4><p v-if="!state.details[item.requestId].deliveries.length">尚无投递记录。</p><p v-if="state.details[item.requestId].deliveriesTruncated" class="warning">这里只显示最近 200 条投递记录；上方计数包含全部保留记录。</p>
-                <ul><li v-for="output in state.details[item.requestId].deliveries" :key="output.eventId">{{ outputLabel(output.type) }}：{{ deliveryLabel(output.status) }}<span v-if="output.confirmedAt !== undefined"> · 结果记录于 {{ time(output.confirmedAt) }}</span><span v-else-if="output.issuedAt !== undefined"> · 发起于 {{ time(output.issuedAt) }}</span></li></ul>
+                 <ul><li v-for="output in state.details[item.requestId].deliveries" :key="output.eventId">{{ outputLabel(output.type) }}：{{ deliveryLabel(output.status) }}<span v-if="output.confirmedAt !== undefined"> · 结果记录于 {{ time(output.confirmedAt) }}</span><span v-else-if="output.issuedAt !== undefined"> · 发起于 {{ time(output.issuedAt) }}</span></li></ul>
+                 </template>
                 <dl class="record-identifiers"><div><dt>请求 ID</dt><dd>{{ item.requestId }}</dd></div><div><dt>输入事件 ID</dt><dd>{{ item.eventId }}</dd></div><div><dt>使用的配置版本</dt><dd>{{ item.policyRevision }}</dd></div></dl>
               </template>
+              <QqSourceDetail v-if="openRecords[item.requestId]" :request-id="item.requestId" :reader="sources" />
             </details>
           </li>
         </ol>
