@@ -51,7 +51,7 @@ import { QQSourceIntake } from './sourceIntake.js'
 import { openSourceDirectory, sourceDirectory, stageSourceZip, type SourceWorkspaceAccess } from './sourceWorkspace.mjs'
 import { recordDetail, recordEntry } from './managementRecords.js'
 import { QQSourceRequestSchemas, QQSourceResponseSchemas, type SourceManagementQuery } from '@chery/protocol'
-import { conversationRules, reactionOnly, voiceRequested, voiceDeclined } from './conversation.js'
+import { conversationRules } from './conversation.js'
 import { runSourceDiscussionSummary } from './sourceMaintenance.js'
 import { QQSourceLearning, type LearningCommit } from './sourceLearning.js'
 import { QQKnowledgeStore, TermInputSchema, type KnowledgeEvidence } from './knowledge.js'
@@ -1021,7 +1021,7 @@ export class QQPlugin implements IngressPlugin {
     return `${selfId}:${target}:${presetId}${scopeId ? ':source:' + scopeId : this.state.contextEpoch ? ':' + this.state.contextEpoch : ''}`
   }
   private async submit(input: QQEventSubmitRequest) {
-    if (this.state.clearedEvents.includes(digest(input.eventId))) return {eventId:input.eventId,accepted:false}
+    if (this.state.clearedEvents.includes(digest(input.eventId))) return {eventId:input.eventId,accepted:false as const,alreadyProcessed:true as const,state:'deleted' as const}
     const { receipt, scope } = await this.sources.begin(this.verifiedConnection!, input)
     if (receipt.state === 'completed') {
       this.continueAnswer(receipt.result.handling, input)

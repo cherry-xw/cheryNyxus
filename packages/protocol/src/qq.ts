@@ -272,9 +272,10 @@ export const QQEventSubmitRequestSchema = z
     )
       ctx.addIssue({ code: 'custom', message: 'Invalid input identity' })
   })
-export const QQEventSubmitResponseSchema = z
-  .object({ eventId: identifier, accepted: z.boolean(), receipt: SourceReceiptResultSchema })
-  .strict()
+export const QQEventSubmitResponseSchema = z.union([
+  z.object({ eventId: identifier, accepted: z.boolean(), receipt: SourceReceiptResultSchema }).strict(),
+  z.object({ eventId: identifier, accepted: z.literal(false), alreadyProcessed: z.literal(true), state: z.literal('deleted') }).strict(),
+])
 const outputIdentity = {
   eventId: identifier,
   requestId: identifier,

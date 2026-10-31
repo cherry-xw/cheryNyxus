@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { QQPlugin } from '../src/index.js'
 import { QQDefaultConfig, QQConfigSchema } from '../../../packages/protocol/src/qq.js'
-import { conversationRules, reactionOnly, shanghaiTime, summaryEvidenceRules, voiceRequested } from '../src/conversation.js'
+import { conversationRules, shanghaiTime, summaryEvidenceRules } from '../src/conversation.js'
 import { replyActionSchema } from '../src/replyTools.js'
 import { emptyState, nextTargetJob } from '../src/state.js'
 
@@ -14,36 +14,30 @@ function fixture(text = '用语音锐评一下 @小明', mode = 'requested') {
   return { plugin, job }
 }
 describe('normal conversation and fixed voice policy', () => {
-  it.each(['好家伙', '哈哈哈哈😂', '确实', '😂'])('reaction %s is not a new voice request', async text => {
-    const { plugin, job } = fixture(text, 'auto')
-    expect(reactionOnly(text)).toBe(true)
-    expect(voiceRequested(job as any, [], [])).toBe(false)
-    await expect(plugin.enqueueReplyAction(job, {kind:'voice',text:'继续锐评',completeReply:true})).rejects.toThrow('authorization')
-    await expect(plugin.enqueueReplyAction(job, {kind:'poke',userId:'789',completeReply:true})).rejects.toThrow('authorization')
+   it.each(['好家伙', '哈哈哈哈😂', '确实', '😂'])('requires source authority rather than keywords for %s', async text => {
+    const { plugin, job } = fixture(text, 'requested')
+    await expect(plugin.enqueueReplyAction(job, {kind:'voice',text:'继续锐评',completeReply:true})).rejects.toThrow('not authorized')
     expect(plugin.output).not.toHaveBeenCalled()
   })
   it('accepts explicit requests, fixes the voice server-side and limits one voice', async () => {
     const {plugin,job} = fixture()
-    expect(voiceRequested(job as any, [], [])).toBe(true)
-    await plugin.enqueueReplyAction(job, {kind:'voice',text:'你好',completeReply:false})
+    job.sourceRecords=[{recordId:'current',revision:1}]
+    await plugin.enqueueReplyAction(job, {kind:'voice',text:'你好',requestSource:job.sourceRecords[0],completeReply:false})
     expect(plugin.output).toHaveBeenCalledWith(job,'qq.reply.action',expect.objectContaining({character:'fixed'}))
-    await expect(plugin.enqueueReplyAction(job, {kind:'voice',text:'再来',completeReply:false})).rejects.toThrow('Only one')
+    await expect(plugin.enqueueReplyAction(job, {kind:'voice',text:'再来',requestSource:job.sourceRecords[0],completeReply:false})).rejects.toThrow('Only one')
     expect(replyActionSchema.safeParse({kind:'voice',text:'你好',character:'other',completeReply:true}).success).toBe(false)
   })
   it.each(['声音怎么变了？','再看看其他人','为什么没完成','用文字回答，不要语音'])('does not turn %s into voice', async text => {
     const {plugin,job}=fixture(text)
     await expect(plugin.enqueueReplyAction(job,{kind:'voice',text:'解释',completeReply:true})).rejects.toThrow('not authorized')
   })
-  it('inherits voice only for a same-sender modification after confirmed send', async () => {
+  it('does not use an old send as authority for a requested voice', async () => {
     const {plugin,job}=fixture('不够犀利')
     const old={...job,requestId:'old',acceptedAt:1000}
     const output={status:'sent',frame:{type:'qq.reply.action',data:{requestId:'old',actionKind:'voice'}}}
-    expect(voiceRequested(job as any,[old] as any,[output] as any)).toBe(true)
-    expect(voiceRequested(job as any,[{...old,input:{...old.input,senderId:'888'}}] as any,[output] as any)).toBe(false)
-    expect(voiceRequested(job as any,[old] as any,[{...output,status:'unknown'}] as any)).toBe(false)
     plugin.state.jobs.unshift(old); plugin.state.outbox.push(output)
-    await plugin.enqueueReplyAction(job,{kind:'voice',text:'继续修改后的语音',completeReply:true})
-    expect(plugin.output).toHaveBeenCalledWith(job,'qq.reply.action',expect.objectContaining({character:'fixed',text:'继续修改后的语音'}))
+    await expect(plugin.enqueueReplyAction(job,{kind:'voice',text:'继续修改后的语音',requestSource:{recordId:'old',revision:1},completeReply:true})).rejects.toThrow('not authorized')
+    expect(plugin.output).not.toHaveBeenCalled()
   })
   it('respects off mode and unavailable configured voices without switching', async () => {
     const {plugin,job}=fixture(undefined,'off')
@@ -72,7 +66,7 @@ describe('normal conversation and fixed voice policy', () => {
     const identity={ownerId:'qq-fixture',channel:'qq',subject:{selfId:'123',userId:'789',conversationType:'group',groupId:'456'}}
     const prepared=await requestPrepare.handler({inputId:'current-event',requestId:'core-new'},{requestView:{identity}})
     for (const tool of ['qq_container_exec', 'qq_source_file_read']) {
-      expect(prepared.tools.includes(tool)).toBe(workerEnabled)
+      expect(prepared.tools.includes(tool)).toBe(false)
       expect(prepared.excludedTools.includes(tool)).toBe(!workerEnabled)
     }
     const unrelated=await requestPrepare.handler({inputId:'other',requestId:'web'},{requestView:{identity:{source:'web',channel:'web'}}})

@@ -7,7 +7,7 @@ import type { LearningState, LearningTask as Task } from './learningState.js'
 export interface LearningCommit {
   (input: { task: Task; prepared: IngressLearningPreparation; phase: 'local' | 'public'; index: number; raw: string; signal: AbortSignal; validate(): void }): Promise<string>
 }
-const fail = (code: string): never => { throw Object.assign(new Error(code), { code }) }
+function fail(code: string): never { throw Object.assign(new Error(code), { code }) }
 const transient = new Set(['ECONNRESET','ECONNREFUSED','ETIMEDOUT','EAI_AGAIN','provider_error','rate_limited','MODEL_UNAVAILABLE'])
 
 /** One background operation at a time; persisted fragments and commit receipts survive interruption. */

@@ -12,7 +12,7 @@ const sourceRef = { recordId: 'record-1', revision: 1 }
 function fixture(){
  const job:any={requestId:'r',queueSequence:1,questionBatches:[],target:'group:2',state:'running',acceptedAt:Date.now(),input:{selfId:'1',targetId:'2',conversationType:'group'},snapshot:{revision:1,config:{continuationTtlMs:100000,waitIntervalSeconds:30}},toolIds:[]}
  const p:any=Object.create(QQPlugin.prototype)
- Object.assign(p,{state:{jobs:[job],outbox:[],seq:{},discussions:{},sourceScopes:{'group:2':{scopeId:'scope-2',conversationId:'conv-2',selfId:'1',conversationType:'group',targetId:'2',presetId:'p',generation:1,state:'active',qqContextEpoch:'',permissionRevision:1,selectionRevision:0,createdAt:1}},sourceReceipts:{}},snapshot:{revision:1,config:{continuationTtlMs:100000,waitIntervalSeconds:30,groups:['2'],users:[],bindings:{'group:2':'preset'}}},persist:vi.fn(),context:{log:vi.fn(),isEnabled:()=>true,core:{resolvePreset:()=>({presetId:'p'}),sourceConversations:{recordDelivery:vi.fn(async()=>({}))}},connections:{isOpen:()=>true,send:vi.fn(()=>true)}},connection:'c',verifiedConnection:'c',recovered:true,stopped:false,paused:false,busy:new Set(),summaryOperations:new Map(),operations:new Set(),aborters:new Map(),preparingReplies:new Set(),publishingDeliveries:new Set(),answering:new Set(),adoptedJobs:new Set(),reminderBusy:true,nextAppNotificationPoll:Infinity})
+  Object.assign(p,{state:{...emptyState(),jobs:[job],sourceScopes:{'group:2':{scopeId:'scope-2',conversationId:'conv-2',selfId:'1',conversationType:'group',targetId:'2',presetId:'p',generation:1,state:'active',qqContextEpoch:'',permissionRevision:1,selectionRevision:0,createdAt:1}}},snapshot:{revision:1,config:{...QQDefaultConfig,continuationTtlMs:100000,waitIntervalSeconds:30,groups:['2'],users:[],bindings:{'group:2':'preset'}}},learning:{tick:vi.fn(),interrupt:vi.fn()},persist:vi.fn(),context:{log:vi.fn(),isEnabled:()=>true,core:{resolvePreset:()=>({presetId:'p'}),sourceConversations:{recordDelivery:vi.fn(async()=>({}))}},connections:{isOpen:()=>true,send:vi.fn(()=>true)}},connection:'c',verifiedConnection:'c',recovered:true,stopped:false,paused:false,busy:new Set(),summaryOperations:new Map(),operations:new Set(),aborters:new Map(),preparingReplies:new Set(),publishingDeliveries:new Set(),answering:new Set(),adoptedJobs:new Set(),reminderBusy:true,nextAppNotificationPoll:Infinity})
  return {p,job}
 }
 function sourceApi(overrides: Record<string, any> = {}) {
@@ -254,7 +254,7 @@ describe('delivery failures never silence future requests',()=>{
  })
  it('accepts bare mentions and gives every merged mention its own acknowledgement',async()=>{
   const {p}=fixture();p.state.identityBinding={selfId:'1'};p.state.jobs=[];p.state.receipts={};p.state.contextEpoch=''
-  p.snapshot={revision:1,config:{groups:['2'],users:[],bindings:{'group:2':'preset'},queueLimit:10,historyLimit:30,backgroundMaxAgeMs:100000,backgroundMaxChars:10000,continuationTtlMs:10000,messageMergeMs:1500}}
+   p.snapshot={revision:1,config:{...QQDefaultConfig,groups:['2'],users:[],bindings:{'group:2':'preset'},queueLimit:10,backgroundMessageLimit:30,backgroundMaxAgeMs:100000,backgroundMaxChars:10000,continuationTtlMs:10000,messageMergeMs:1500}}
   let nextRec=0
   const api=sourceApi({
    beginReceipt:vi.fn(async(input:any)=>({state:'pending',receiptId:`rcpt-${++nextRec}`,version:1,record:{recordId:`rec-${nextRec}`,revision:1}})),

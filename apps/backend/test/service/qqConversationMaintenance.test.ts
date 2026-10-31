@@ -4,7 +4,7 @@ import path from 'node:path'
 import { sourceFixture } from '../helpers/sourceContext.js'
 import { initAssetTables } from '@/db/assets.js'
 import { cleanupQQConversation,convertQQConversationBundle } from '@/service/ingress/qqConversationMaintenance.js'
-import { emptyState,atomicJson } from '../../../../../plugins/qq/src/state.js'
+import { emptyState,atomicJson } from '../../../../plugins/qq/src/state.js'
 import { QQDefaultConfig } from '@chery/protocol'
 const dirs:string[]=[]
 afterEach(()=>{for(const dir of dirs.splice(0))fs.rmSync(dir,{recursive:true,force:true})})

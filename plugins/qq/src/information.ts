@@ -6,13 +6,13 @@ const count = z.number().int().min(1).max(100).default(50)
 const userId = z.string().regex(/^[1-9]\d{0,19}$/)
 const resource = z.string().min(1).max(256).refine(value => !/[\x00-\x1f]/.test(value))
 export const informationSchema = z.discriminatedUnion('kind', [
-  ...(['profile','member'] as const).map(kind => z.object({ kind: z.literal(kind), count, userId }).strict()),
+  z.object({ kind: z.enum(['profile','member']), count, userId }).strict(),
   z.object({ kind: z.literal('members'), count, query: z.string().max(100).optional() }).strict(),
   z.object({ kind: z.literal('voices'), count, query: z.string().max(100).optional() }).strict(),
   z.object({ kind: z.literal('files'), count, folderId: resource.optional() }).strict(),
   z.object({ kind: z.literal('file_url'), count, fileId: resource }).strict(),
   z.object({ kind: z.literal('album_media'), count, albumId: resource }).strict(),
-  ...(['group','notices','file_space','essence','albums','honor'] as const).map(kind => z.object({ kind: z.literal(kind), count }).strict()),
+  z.object({ kind: z.enum(['group','notices','file_space','essence','albums','honor']), count }).strict(),
 ])
 export const historySchema = z.object({ source: z.enum(['retained','platform']).default('retained'), count,
   cursor: z.string().min(1).max(256).optional() }).strict().superRefine((input, ctx) => {

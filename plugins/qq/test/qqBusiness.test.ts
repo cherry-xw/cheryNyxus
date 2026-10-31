@@ -143,10 +143,10 @@ test('files and memory reject symlinks at leaf, within root, and above configure
   await expect(writeQQFile(root, privateSubject, { path: 'leaf', content: 'bad' })).rejects.toThrow('符号')
 })
 
-test('tools require plugin QQ request identity, register scoped memory and file tools, and use request memory revisions', async () => {
+test('file tools require plugin QQ identity and do not register retired memory tools', async () => {
   const tools = createQQTools(root, path.join(root, 'files'), undefined, undefined, undefined, undefined, undefined,
     async () => ({ sourceRoot: path.join(root, 'source'), scopeId: 'scope-1', validate: () => {} }))
-  expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_group_memory_search', 'qq_group_memory_manage', 'qq_memory_manage', 'qq_read_file', 'qq_write_file', 'qq_group_read_file', 'qq_group_write_file', 'qq_source_file_read', 'qq_container_exec'])
+  expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_file_read','qq_file_write','qq_source_file_read','qq_container_exec'])
   for (const registration of tools) {
     expect(registration.sense.supervisionLevel).toBe(0)
     expect(registration.sense.definition.function.parameters.additionalProperties).toBe(false)
@@ -158,16 +158,7 @@ test('tools require plugin QQ request identity, register scoped memory and file 
       expect((await handler(input, new Map(), { chatId: 'chat', requestView: view(identity) })).status).toBe('provider_error')
     }
   }
-  const store = new QQMemoryStore(root)
-  const prepared = await store.prepare(privateSubject)
-  const ctx = { chatId: 'chat', requestView: view({ source: 'plugin' as const, channel: 'qq', subject: privateSubject }, prepared) }
-  const memoryTool = tools.find(t => t.sense.definition.function.name === 'qq_memory_manage')!.sense.executor.execute
-  expect((await memoryTool(save('personal', 'x', 'fresh'), new Map(), ctx)).status).toBe('ok')
-  const stale = await memoryTool(save('personal', 'x', 'stale'), new Map(), ctx)
-  expect(stale.status).toBe('provider_error')
-  expect(stale.content).toContain('版本')
-  expect(await store.prepare(privateSubject)).toContain('fresh')
   const fileCtx = { chatId: 'chat', requestView: view({ source: 'plugin', channel: 'qq', subject: privateSubject }) }
-  expect((await tools.find(t => t.sense.definition.function.name === 'qq_write_file')!.sense.executor.execute({ path: 'note', content: 'text' }, new Map(), fileCtx)).status).toBe('ok')
-  expect((await tools.find(t => t.sense.definition.function.name === 'qq_read_file')!.sense.executor.execute({ path: 'note' }, new Map(), fileCtx)).content).toContain('text')
+  expect((await tools.find(t => t.sense.definition.function.name === 'qq_file_write')!.sense.executor.execute({scope:'personal',operationId:'write-one',path:'note',content:'text'}, new Map(), fileCtx)).status).toBe('ok')
+  expect((await tools.find(t => t.sense.definition.function.name === 'qq_file_read')!.sense.executor.execute({scope:'personal',path:'note'}, new Map(), fileCtx)).content).toContain('text')
 })

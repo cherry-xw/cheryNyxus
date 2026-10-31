@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { informationSchema, informationTool, sourceTextTool } from '../src/information.js'
+import { informationSchema, informationTools, sourceTextTool } from '../src/information.js'
 import { queryInformation } from '../../../platform/napcat-plugin/src/information.js'
 import { prepareQuery } from '../skills/qq-information/scripts/query.mjs'
 
@@ -31,10 +31,11 @@ describe('QQ read-only information', () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
   it('requires a trusted QQ execution identity',async()=>{
-    const run=vi.fn(async()=>({messages:[]})), tool=informationTool(run).sense.executor
-    await expect(tool.execute({kind:'history'},{ } as any,{} as any)).rejects.toThrow('Trusted')
-    const result=await tool.execute({kind:'history'},{} as any,{requestView:{requestId:'r',identity:{source:'plugin',channel:'qq',subject}}} as any)
-    expect(result.status).toBe('ok');expect(run).toHaveBeenCalledWith('r',expect.objectContaining({count:50}))
+    const run=vi.fn(async()=>({messages:[]})), tools=informationTools(run), tool=tools.find(tool=>tool.sense.definition.function.name==='qq_history')!.sense.executor
+    expect(tools.map(tool=>tool.sense.definition.function.name)).toEqual(['qq_information','qq_history'])
+    await expect(tool.execute({},{ } as any,{} as any)).rejects.toThrow('Trusted')
+    const result=await tool.execute({},{} as any,{requestView:{requestId:'r',identity:{source:'plugin',channel:'qq',subject}}} as any)
+    expect(result.status).toBe('ok');expect(run).toHaveBeenCalledWith('r',expect.objectContaining({kind:'history',historySource:'retained',count:50}))
   })
   it('checks membership before personal profiles and minimizes returned fields',async()=>{
     const call=vi.fn(async(name:string)=> name==='get_group_member_list'?{data:[{user_id:123}]}:{data:{user_id:123,country:'中国',phone:'secret',homeTown:'1-2-3'}})
