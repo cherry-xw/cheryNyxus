@@ -38,6 +38,7 @@ export interface UserInputEntry {
   sourceInput?: import('@chery/protocol').SourceInput
   parts?: import('@chery/protocol').MessagePart[]
   requestExecution?: {
+    sourceStartReason?: 'initial' | 'question_resume'
     signal?: AbortSignal
     execution?: { toolHistory: 'request'; retry: 'never' }
     sourceInput?: import('@chery/protocol').SourceInput
@@ -228,6 +229,7 @@ export interface MiddlewareContext {
   /** Finish this request normally after recording its tool result. */
   requestComplete?: boolean
   requestExecution?: {
+    sourceStartReason?: 'initial' | 'question_resume'
     signal?: AbortSignal
     execution?: { toolHistory: 'request'; retry: 'never' }
     sourceInput?: import('@chery/protocol').SourceInput

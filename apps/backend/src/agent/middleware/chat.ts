@@ -6,6 +6,7 @@ import { saveFileRequestPlan, patchFileRequestPlan } from '@/service/fileService
 
 import { executeRequestTool } from './tool.js'
 import { randomUUID } from 'node:crypto'
+import { sourceStepReason } from './sourceStepReason.js'
 import type {
   MiddlewareContext,
   MiddlewareChunk,
@@ -400,8 +401,7 @@ async function* handleRequestLocal(
       options.observation = parentObservation ? { ...parentObservation, start(model) { enriched.commit?.(); parentObservation.start(model) } } : undefined
     }
     let projectedHistory = prepared.historyForBuild.filter(m => !m.modelExcluded && !m.revoked)
-    const stepReason: 'initial' | 'tool_continue' | 'question_resume' = turn > 0 ? 'tool_continue'
-      : history.some(message => message.senseCalls?.some(call => call.name === 'ask_user_question')) ? 'question_resume' : 'initial'
+    const stepReason = sourceStepReason(ctx, turn)
     let sourceStep = prepared.source ? sourceModelStep(ctx, prepared.source, projectedHistory, enriched, options, parentObservation,
       stepReason) : undefined
     if (sourceStep) { options.sourceCall = sourceStep.boundary; options.observation = sourceStep.observation }

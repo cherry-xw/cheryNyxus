@@ -101,7 +101,7 @@ export async function resumeSourceQuestions(owner: string, chatId: string, input
   const status = sourceQuestionStatus(owner, chatId, input)
   if (status.status !== 'saved' || !status.canQueue) return status
   const { task } = authorize(owner, chatId, input)
-  const execution = { identity: immutableSnapshot(task.identity), signal: input.signal, sourceInput: task.input,
+  const execution = { identity: immutableSnapshot(task.identity), signal: input.signal, sourceInput: task.input, sourceStartReason: 'question_resume' as const,
     sourceCapacity: input.sourceCapacity, execution: { toolHistory: 'request' as const, retry: 'never' as const }, validate: input.validateIdentity }
   const started = await ingressExecution.run(execution, () => launchSourceQuestionRun({ authenticatedUserId: owner,
     connectionId: `ingress:${owner}`, requestId: task.runId, log: logger }, chatId, task.runId,
