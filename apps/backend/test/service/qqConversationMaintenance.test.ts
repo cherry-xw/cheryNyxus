@@ -5,7 +5,7 @@ import Database from 'better-sqlite3'
 import { sourceFixture } from '../helpers/sourceContext.js'
 import { initAssetTables } from '@/db/assets.js'
 import { cleanupQQConversation,convertQQConversationBundle,planQQCleanup } from '@/service/ingress/qqConversationMaintenance.js'
-import { emptyState,atomicJson,digest,readState } from '../../../../plugins/qq/src/state.js'
+import { emptyState,atomicJson,digest,readState,JobSchema,StateSchema } from '../../../../plugins/qq/src/state.js'
 import { QQKnowledgeStore,TermInputSchema } from '../../../../plugins/qq/src/knowledge.js'
 import { QQDefaultConfig } from '@chery/protocol'
 const dirs:string[]=[]
@@ -59,6 +59,30 @@ describe('offline QQ conversation maintenance',()=>{
     expect(result.bundle.toolGroups.qq).toEqual(['qq_interact.reaction:manual'])
     expect(result.bundle.roles.main.permissions.tools).toEqual({'qq_interact.reaction':'deny'})
     expect(result.bundle.config.backgroundMessageLimit).toBe(20)
+  })
+  it('converts historical configuration snapshots without changing task, question or unknown-send facts',()=>{
+    const config=structuredClone(QQDefaultConfig) as Record<string,any>
+    delete config.schemaVersion;delete config.backgroundMessageLimit;delete config.managementHistoryLimit
+    config.historyLimit=17;config.continuationMaxMessages=3
+    const state=emptyState(),input={eventId:'qq:100:group:999:1',selfId:'100',conversationType:'group',targetId:'999',senderId:'123',senderName:'成员',sourceParts:[{partId:'p0',type:'text',text:'保留原消息'}],messageId:'1',content:'保留原消息',mentionedBot:true,occurredAt:1}
+    const job=JobSchema.parse({requestId:'old-request',input,target:'group:999',conversationKey:'old-chat',snapshot:{revision:7,config:QQDefaultConfig,preset:'preset',brain:'brain',senseGroup:'qq',presetId:'preset'},state:'cancelled',acceptedAt:1,queueSequence:1,reply:'保留原回复',toolIds:[],waits:0,questionBatches:[{batchId:'batch',runId:'run',items:[],replies:[],status:'pending'}]})
+    job.snapshot.config=config as any;state.jobs.push(job)
+    state.outbox.push({status:'unknown',frame:{kind:'notification',type:'qq.reply.part',data:{eventId:'output',requestId:'old-request',selfId:'100',conversationType:'group',targetId:'999',seq:1,text:'发送状态不确定',partIndex:1,totalParts:1}}})
+    const before=structuredClone(state),result=convertQQConversationBundle({config,state,toolGroups:{qq:['qq_react:manual']}})
+    expect(StateSchema.safeParse(result.bundle.state).success).toBe(true)
+    const expected=structuredClone(before)
+    expected.jobs[0]!.snapshot.config=result.bundle.state.jobs[0].snapshot.config
+    expect(result.bundle.state).toEqual(expected)
+    expect(result.bundle.state.jobs[0].snapshot).toMatchObject({revision:7,config:{schemaVersion:2,backgroundMessageLimit:17,managementHistoryLimit:17}})
+    expect(result.bundle.state.outbox[0].status).toBe('unknown')
+    expect(result.bundle.state.jobs[0].questionBatches[0].status).toBe('pending')
+    expect(state).toEqual(before)
+    expect(convertQQConversationBundle(result.bundle).bundle).toEqual(result.bundle)
+  })
+  it.each([null,{schemaVersion:1,jobs:[]},{schemaVersion:3,jobs:[{snapshot:{config:QQDefaultConfig}}]}])('rejects invalid state without dropping records',state=>{
+    const before=structuredClone(state)
+    expect(()=>convertQQConversationBundle({config:QQDefaultConfig,state})).toThrow('INVALID_QQ_STATE')
+    expect(state).toEqual(before)
   })
   it('matches all composite foreign-key columns and clears only owned monthly bodies',()=>{
     const input=fixture(),db=new Database(input.db),monthFile=path.join(path.dirname(input.db),'2026-10.db')

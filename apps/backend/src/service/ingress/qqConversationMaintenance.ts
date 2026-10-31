@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
 import { textVersion } from '../../../../../plugins/qq/src/files.js'
-import { atomicJson, digest, safePath } from '../../../../../plugins/qq/src/state.js'
+import { atomicJson, digest, safePath, StateSchema } from '../../../../../plugins/qq/src/state.js'
 import { convertQQConfiguration } from '../../../../../plugins/qq/src/configConversion.js'
 import { convertQQToolGroups } from '../../../../../plugins/qq/src/toolConversion.js'
 
@@ -174,6 +174,21 @@ export function cleanupQQConversation(input:{db:string;dataDir:string;owner:stri
 /** Writes a new output bundle; credentials and prompts are copied unchanged, never logged. */
 export function convertQQConversationBundle(bundle:Row){
   const {config,changes}=convertQQConfiguration(bundle.config),converted=convertQQToolGroups(bundle.toolGroups??{})
+  let state: Row | undefined
+  if(Object.hasOwn(bundle,'state')){
+    const nextState=structuredClone(bundle.state) as Row
+    if(!nextState||nextState.schemaVersion!==3||!Array.isArray(nextState.jobs))fail('INVALID_QQ_STATE')
+    let snapshots=0
+    for(const job of nextState.jobs){
+      if(!job?.snapshot||!job.snapshot.config)fail('INVALID_QQ_STATE')
+      const legacy=job.snapshot.config.schemaVersion!==2
+      job.snapshot.config=convertQQConfiguration(job.snapshot.config).config
+      if(legacy)snapshots++
+    }
+    if(!StateSchema.safeParse(nextState).success)fail('INVALID_QQ_STATE')
+    state=nextState
+    if(snapshots)changes.push(`转换${snapshots}个历史任务配置快照；保留任务、发送及问答状态`)
+  }
   const roles=structuredClone(bundle.roles??{})
   const rank:Record<string,number>={allow:0,inherit:1,ask:2,deny:3}
   for(const role of Object.values(roles) as Row[]){if(!role.permissions?.tools)continue
@@ -182,5 +197,5 @@ export function convertQQConversationBundle(bundle:Row){
       for(const converted of convertQQToolGroups({policy:[name]}).groups.policy!){const old=rules[converted];if(!old||(rank[effect]??3)>(rank[old]??3))rules[converted]=effect}}
     role.permissions.tools=rules
   }
-  return {bundle:{...bundle,config,toolGroups:converted.groups,roles},changes:[...changes,...converted.changes,'角色权限仅转换原有选择；不增加授权。自定义提示和图标须人工核对。']}
+  return {bundle:{...bundle,config,toolGroups:converted.groups,roles,...(state?{state}:{})},changes:[...changes,...converted.changes,'角色权限仅转换原有选择；不增加授权。自定义提示和图标须人工核对。']}
 }
