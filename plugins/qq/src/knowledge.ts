@@ -97,7 +97,10 @@ export class QQKnowledgeStore {
         const sourceKeys = sources.map(source=>source.kind==='web'?'web:'+source.contentHash:source.kind==='message'?`message:${source.recordId}:${source.revision}`:'admin:'+source.evidenceId)
         if (!input.explicit && sourceKeys.every(key=>data.tombstones['deleted-evidence']?.includes(textVersion(key)))) continue
         const previous = data.entries[entryId], { evidenceRefs: _, ...content } = term
-        data.entries[entryId] = { ...content, id: entryId, sources, revision: (previous?.revision ?? 0)+1, createdAt: previous?.createdAt ?? Date.now(), updatedAt: Date.now() }; saved++
+        if (scope==='public'&&!input.admin&&previous?.sources.some(source=>source.kind==='admin')&&sources.every(source=>source.kind==='web'&&previous.sources.some(old=>old.kind==='web'&&old.contentHash===source.contentHash))) continue
+        const retained = scope==='public'&&input.admin ? previous?.sources.filter(source=>source.kind!=='admin').slice(0,19)??[] : []
+        const selectedSources=[...new Map([...retained,...sources].map(source=>[JSON.stringify(source),source])).values()]
+        data.entries[entryId] = { ...content, id: entryId, sources:selectedSources, revision: (previous?.revision ?? 0)+1, createdAt: previous?.createdAt ?? Date.now(), updatedAt: Date.now() }; saved++
       }
       for (const entryId of input.delete) {
         if (ids.has(entryId)) error('INVALID_ARGUMENT')

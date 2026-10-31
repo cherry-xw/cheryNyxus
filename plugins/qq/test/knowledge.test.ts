@@ -62,4 +62,27 @@ describe('QQ scoped knowledge',()=>{
     await store.manage(subject,'public',{operationId:'third',expectedRevision:2,save:[term('last','摆烂')],delete:[]},[web])
     await expect(store.list(subject,'public',page.nextCursor!,page.revision,1)).rejects.toThrow('VERSION_CONFLICT')
   })
+  it('keeps public admin corrections and provenance until genuinely new web evidence arrives',async()=>{
+    const {store}=await fixture()
+    await store.manage(subject,'public',{operationId:'initial',expectedRevision:0,save:[term()],delete:[]},[web])
+    const entry=(await store.list(subject,'public')).entries[0]!
+    const correction={...term(entry.id),status:'disputed' as const,meaning:'原解释存在争议',evidenceRefs:['admin-note']}
+    await store.manage(subject,'public',{operationId:'correct',expectedRevision:1,save:[correction],delete:[],admin:true,explicit:true},[{kind:'admin',evidenceId:'admin-note',note:'需要重新查证'}])
+    const corrected=(await store.list(subject,'public')).entries[0]!
+    expect(corrected.sources.map(source=>source.kind)).toEqual(['web','admin'])
+    expect((await store.manage(subject,'public',{operationId:'same',expectedRevision:2,save:[term()],delete:[]},[web])).saved).toBe(0)
+    expect((await store.list(subject,'public')).entries[0]!.status).toBe('disputed')
+    const fresh={...web,contentHash:'new-body'}
+    await store.manage(subject,'public',{operationId:'new',expectedRevision:3,save:[term()],delete:[]},[fresh])
+    expect((await store.list(subject,'public')).entries[0]!.status).toBe('active')
+  })
+  it('checks permission at candidate commit and adoption rather than only at queueing',async()=>{
+    const {dir,store}=await fixture(),candidates=new QQKnowledgeCandidates(dir,store)
+    const denied=()=>{throw new Error('PERMISSION_DENIED')}
+    await expect(candidates.save(subject.selfId,'blocked',0,[term()],[web],undefined,denied)).rejects.toThrow('PERMISSION_DENIED')
+    expect(await candidates.read(subject.selfId,'blocked')).toBeUndefined()
+    await candidates.save(subject.selfId,'allowed',0,[term()],[web]);await candidates.finish(subject.selfId,'allowed','completed')
+    await expect(candidates.adopt(subject,'allowed','adopt',undefined,denied)).rejects.toThrow('PERMISSION_DENIED')
+    expect((await store.list(subject,'public')).entries).toEqual([])
+  })
 })

@@ -56,11 +56,14 @@ export class QQSourceLearning {
     const { context, state, save } = this.input, api = context.core.sourceConversations!
     const active = this.input.current(), config = active.config
     const access = (scopeId: string) => ({ entryId: 'qq', channel: 'qq', connectionId: active.connectionId!, scopeId })
-    const check = (task: Task) => {
+    const check = (task: Task, publicPhase = false) => {
       signal.throwIfAborted()
       const now = this.input.current()
-      if (now.scopes[task.target]?.scopeId !== task.scopeId) {task.state='cancelled';task.reason='PERMISSION_DENIED';fail('LEARNING_INTERRUPTED')}
-      if (now.foreground || !now.config.memoryEnabled || !now.config.learningEnabled || task.state === 'cancelled') fail('LEARNING_INTERRUPTED')
+      const scope=now.scopes[task.target]
+      if (!scope || scope.scopeId !== task.scopeId || scope.state !== 'active' || scope.permissionRevision !== active.scopes[task.target]?.permissionRevision) {
+        task.state='cancelled';task.reason='PERMISSION_DENIED';fail('LEARNING_INTERRUPTED')
+      }
+      if (now.connectionId !== active.connectionId || now.foreground || !now.config.memoryEnabled || !now.config.learningEnabled || task.state === 'cancelled' || publicPhase && !now.config.publicTermsEnabled) fail('LEARNING_INTERRUPTED')
     }
     let task = state.tasks.find(task => ['pending','running'].includes(task.state) && task.nextAt <= Date.now())
     const pending = state.tasks.filter(task => ['pending','running','failed'].includes(task.state)).length
@@ -70,6 +73,9 @@ export class QQSourceLearning {
         const position = state.positions[scope.scopeId] ?? { ordinal: 0, run: 0 }, operationId = `qq-learning-${randomUUID()}`
         const prepared = await api.prepareLearning({ ...access(scope.scopeId), operationId, qqConfigRevision: active.revision,
           afterOrdinal: position.ordinal, afterRun: position.run, completedRequests: active.completedRequests, since: state.since })
+        signal.throwIfAborted()
+        const now=this.input.current()
+        if(now.foreground||!now.config.memoryEnabled||!now.config.learningEnabled||now.connectionId!==active.connectionId||now.scopes[target]?.scopeId!==scope.scopeId) return
         if (!prepared) continue
         state.positions[scope.scopeId] = { ordinal: prepared.throughOrdinal, run: prepared.throughRun }
         if (!prepared.records.length && !prepared.evidence.length && !prepared.runs.length) {
@@ -87,6 +93,7 @@ export class QQSourceLearning {
       const prepared = await api.prepareLearning({ ...access(task.scopeId), operationId: task.operationId, qqConfigRevision: task.revision,
         afterOrdinal: 0, afterRun: 0, completedRequests: [] })
       if (!prepared) fail('SOURCE_NOT_FOUND')
+      check(task)
       if (prepared.operation.status === 'completed') { task.state = 'completed'; save(); return }
       const operation = await api.updateLearning({ ...access(task.scopeId), operationId: task.operationId, expectedVersion: prepared.operation.version, status: 'running' })
       task.version = operation.version; task.state = 'running'; save()
@@ -99,9 +106,10 @@ export class QQSourceLearning {
           : { existing:task.localSnapshot,limits:{maxEntries:config.memoryMaxEntries,maxChars:config.memoryMaxChars,triggerRatio:config.memoryConsolidateRatio,targetRatio:config.memoryTargetRatio},records: prepared.records.map(record => ({ ...record, parts: record.parts.filter(part => part.type === 'text' || part.type === 'reply') })), runs: prepared.runs, deliveries: prepared.deliveries, evidence: prepared.evidence }
         task.inputs ??= discussionInputChunks(JSON.stringify(data)); save()
         while (task.index < task.inputs.length) {
-          check(task)
+          check(task,phase==='public')
           const cacheKey = phase === 'public' ? `public:${task.inputs[task.index]}` : undefined
           let raw = task.results[task.index] ?? (cacheKey ? await this.input.cache?.(cacheKey) : undefined)
+          check(task,phase==='public')
           if (!raw) {
             state.calls = state.calls.filter(at => at > Date.now() - 3600000)
             if (state.calls.length >= this.input.current().config.learning.maxCallsPerHour) { task.state = 'pending'; task.reason = state.reason = 'LEARNING_HOURLY_LIMIT'; task.nextAt = state.calls[0]! + 3600000; save(); return }
@@ -117,8 +125,9 @@ export class QQSourceLearning {
             }
             task.results[task.index] = raw; save()
           }
-          check(task); await api.learningStatus({ ...access(task.scopeId), operationId: task.operationId })
-          await this.input.commit({ task, prepared, phase, index: task.index, raw, signal, validate: () => check(selected) })
+          check(task,phase==='public'); await api.learningStatus({ ...access(task.scopeId), operationId: task.operationId })
+          check(task,phase==='public')
+          await this.input.commit({ task, prepared, phase, index: task.index, raw, signal, validate: () => check(selected,phase==='public') })
           if (cacheKey) await this.input.cache?.(cacheKey,raw)
           task.index++; save()
         }
@@ -137,14 +146,20 @@ export class QQSourceLearning {
       const code = (error as {code?:string}).code ?? (error instanceof SyntaxError ? 'INVALID_FORMAT' : 'LEARNING_FAILED')
       if (signal.aborted || code === 'LEARNING_INTERRUPTED') { if (task.state !== 'cancelled') { task.state = 'pending'; task.reason = 'FOREGROUND_PRIORITY' }; save(); return }
       task.reason = String(code)
+      if (['PERMISSION_DENIED','IDENTITY_REJECTED','SOURCE_NOT_FOUND','NOT_FOUND','REVISION_CONFLICT','SOURCE_CONFLICT'].includes(String(code))) {
+        task.state='cancelled';save();return
+      }
       if (code==='VERSION_CONFLICT'&&task.conflicts<1) {
         task.conflicts++;task.localSnapshot=await this.input.localSnapshot?.(task)
         if(task.inputs)task.inputs[task.index]=JSON.stringify({existing:task.localSnapshot,previousFragment:task.inputs[task.index]})
         task.results.splice(task.index);task.state='pending';save();return
       }
       if (transient.has(String(code)) && task.retries < 3) { task.nextAt = Date.now() + [60000,300000,1800000][task.retries++]!; task.state = 'pending' } else task.state = 'failed'
-      const op = await api.learningStatus({ ...access(task.scopeId), operationId: task.operationId })
-      await api.updateLearning({ ...access(task.scopeId), operationId: task.operationId, expectedVersion: op.version, status: 'failed', reason: String(code) }); save()
+      save()
+      try {
+        const op = await api.learningStatus({ ...access(task.scopeId), operationId: task.operationId })
+        await api.updateLearning({ ...access(task.scopeId), operationId: task.operationId, expectedVersion: op.version, status: 'failed', reason: String(code) })
+      } catch { state.reason='LEARNING_STATUS_UNCONFIRMED';save() }
     }
   }
 }

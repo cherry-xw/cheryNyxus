@@ -1106,13 +1106,26 @@ export class SourceContextRepository {
   }
   learningStatus(authority: SourceAuthority, scopeId: string, operationId: string): import('@chery/plugin-api').IngressLearningOperation {
     const scope = this.scope(authority, scopeId, ['maintenance'])
-    const row = this.db.prepare('SELECT data_json FROM source_learning_operations WHERE operation_id=? AND scope_id=?').get(operationId, scopeId) as JsonRow | undefined
+    const row = this.db.prepare('SELECT data_json,input_json FROM source_learning_operations WHERE operation_id=? AND scope_id=?').get(operationId, scopeId) as (JsonRow & { input_json: string }) | undefined
     if (!row) sourceContextError('SOURCE_NOT_FOUND')
     const operation = JSON.parse(row.data_json)
     if (operation.permissionRevision !== scope.permissionRevision) sourceContextError('PERMISSION_DENIED')
     // Summary selection changes deliberately do not invalidate a learning operation.
     const snapshot=this.snapshot(authority, scopeId, operation.snapshotId)
     this.read(authority,scopeId,snapshot.orderedItems.flatMap(item=>item.type==='message'?[{recordId:item.recordId,revision:item.revision}]:[]))
+    const prepared = JSON.parse(row.input_json) as import('@chery/plugin-api').IngressLearningPreparation
+    for (const run of prepared.runs) if (!this.db.prepare('SELECT 1 FROM source_runs WHERE request_id=? AND run_id=? AND scope_id=?')
+      .get(run.requestId, run.runId, scopeId)) sourceContextError('SOURCE_NOT_FOUND')
+    for (const evidence of prepared.evidence) {
+      const saved = this.db.prepare("SELECT data_json FROM source_tool_observations WHERE scope_id=? AND run_id=? AND call_id=? AND tool_name='web_fetch'")
+        .get(scopeId,evidence.runId,evidence.callId) as JsonRow | undefined
+      if (!saved) sourceContextError('SOURCE_NOT_FOUND')
+      const result = JSON.parse(saved.data_json)
+      if (result.status !== 'ok' || result.observation?.kind !== 'observation') sourceContextError('SOURCE_CONFLICT')
+      const body = JSON.parse(result.observation.content)
+      if (body.ok !== true || sourceFingerprint(body.text) !== evidence.contentHash || body.url !== evidence.url || body.observedAt !== evidence.observedAt)
+        sourceContextError('SOURCE_CONFLICT')
+    }
     return operation
   }
   updateLearning(authority: SourceAuthority, scopeId: string, input: import('@chery/plugin-api').IngressLearningUpdate): import('@chery/plugin-api').IngressLearningOperation {
@@ -1173,7 +1186,7 @@ export class SourceContextRepository {
     })()
   }
   runMessages(authority: SourceAuthority, scopeId: string, requestId: string): Array<{ ref: SourceToolMessageRef; state: string; body: LLMResponse }> {
-    this.scope(authority, scopeId, ['execution', 'management'])
+    this.scope(authority, scopeId, ['execution', 'management', 'maintenance'])
     const rows = this.db.prepare(`SELECT m.* FROM source_run_messages m JOIN source_runs r ON r.run_id=m.run_id AND r.scope_id=m.scope_id
       WHERE r.request_id=? AND m.scope_id=? ORDER BY m.sequence`).all(requestId, scopeId) as
       Array<{ run_id: string; message_id: string; sequence: number; state: string; body_hash: string; data_json: string }>

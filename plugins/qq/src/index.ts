@@ -115,7 +115,7 @@ export class QQPlugin implements IngressPlugin {
       localSnapshot: task=>this.knowledge().list(this.targetSubject(task.target),'local',undefined,undefined,1000),
       complete: async (task,signal,validate) => {
         const subject = this.targetSubject(task.target), candidates = new QQKnowledgeCandidates(context.dataDir,this.knowledge())
-        validate(); await candidates.finish(subject.selfId,task.operationId,'completed',signal)
+        validate(); await candidates.finish(subject.selfId,task.operationId,'completed',signal,validate)
         if (!task.candidate && this.snapshot.config.publicTermsEnabled && await candidates.read(subject.selfId,task.operationId))
           await candidates.adopt(subject,task.operationId,`${task.operationId}-adopt`,signal,validate)
       } })
@@ -147,6 +147,7 @@ export class QQPlugin implements IngressPlugin {
   }
   async applyConfig(next: Readonly<IngressConfigSnapshot>): Promise<void | 'restart_required'> {
     const config = this.validateConfig(next.config)
+    this.learning.interrupt()
     if (this.snapshot && (config.memoryEnabled !== this.snapshot.config.memoryEnabled || config.learningEnabled !== this.snapshot.config.learningEnabled)) this.learning.changed()
     if (this.snapshot && config.selfId !== this.snapshot.config.selfId) {
       this.apply = { state: 'restart_required', revision: next.revision }
@@ -2206,10 +2207,10 @@ export class QQPlugin implements IngressPlugin {
     if (phase === 'public') {
       if (!this.snapshot.config.publicTermsEnabled) fail('NOT_ALLOWED','公共词义已关闭')
       for (const term of terms) if (term.kind !== 'term' || term.members.length || term.evidenceRefs.some(key=>!web.some(item=>item.evidenceId === key))) fail('NOT_ALLOWED','公共条目必须引用已读公开网页')
-      return new QQKnowledgeCandidates(this.context.dataDir,store).save(subject.selfId,task.operationId,index,terms,web,signal)
+      return new QQKnowledgeCandidates(this.context.dataDir,store).save(subject.selfId,task.operationId,index,terms,web,signal,validate)
     }
     const old = await store.receipt(subject,'local',operationId)
-    if (old) return old.fingerprint
+    if (old) { task.localSnapshot=await store.list(subject,'local',undefined,undefined,1000); return old.fingerprint }
     const current = await store.list(subject,'local')
     if (task.localSnapshot && current.revision!==task.localSnapshot.revision) fail('VERSION_CONFLICT','记忆已变化，须重新比较')
     validate()
@@ -2222,7 +2223,7 @@ export class QQPlugin implements IngressPlugin {
     const job = this.state.jobs.find(job=>job.coreRequestId === id && job.state === 'running')
     if (!job?.sourceScopeId || !this.snapshot.config.memoryEnabled) fail('NOT_ALLOWED','没有活动的QQ记忆请求')
     const validate = () => { signal?.throwIfAborted(); this.sources.validate(job.input,job.sourceScopeId!)
-      if (!this.snapshot.config.memoryEnabled || job.state !== 'running') fail('NOT_ALLOWED','记忆操作已停止') }
+      if (!this.snapshot.config.memoryEnabled || job.state !== 'running' || args.scope === 'public' && (!this.snapshot.config.publicTermsEnabled || !this.snapshot.config.learningEnabled)) fail('NOT_ALLOWED','记忆操作已停止') }
     validate()
     const subject: QQSubject = {selfId:job.input.selfId,userId:job.input.senderId,conversationType:job.input.conversationType,
       ...(job.input.conversationType === 'group' ? {groupId:job.input.targetId} : {})}, store = this.knowledge()
@@ -2235,7 +2236,11 @@ export class QQPlugin implements IngressPlugin {
       const identity = this.handles.get(job.requestId) ?? await this.bindIdentity(job)
       const selected = await this.context.core.sourceConversations!.read({entryId:'qq',identity,scopeId:job.sourceScopeId,
         selection:{kind:'records',refs:job.sourceSnapshot!.orderedItems.flatMap(item=>item.type === 'message' && item.parts.some(part=>part.mode === 'expand') ? [{recordId:item.recordId,revision:item.revision}] : [])}})
-      const records = selected.items.flatMap(item=>item.state === 'available' ? [item.record] : [])
+      const records = selected.items.flatMap(item=>{
+        if(item.state!=='available')return []
+        const selection=job.sourceSnapshot!.orderedItems.find(part=>part.type==='message'&&part.recordId===item.record.recordId)
+        return [{...item.record,parts:item.record.parts.filter(part=>selection?.type==='message'&&selection.parts.some(selected=>selected.partId===part.partId&&selected.mode==='expand'))}]
+      })
       return store.manage(subject,'local',{...args,scope:undefined,operationId:`${job.requestId}:${args.operationId}`,explicit:true},this.recordEvidence(records,job.sourceScopeId),signal,validate)
     }
     if (!this.snapshot.config.publicTermsEnabled || !this.snapshot.config.learningEnabled) fail('NOT_ALLOWED','公共学习或公共词义已关闭')
