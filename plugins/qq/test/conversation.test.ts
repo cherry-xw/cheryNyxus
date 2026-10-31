@@ -78,6 +78,11 @@ describe('normal conversation and fixed voice policy', () => {
     expect(prepared.contexts.find((item:any)=>item.key==='qq.conversationRules').content).toBe(conversationRules)
     expect(job.coreRequestId).toBe('core-new')
     expect(summaryEvidenceRules).toContain('未验证')
+    job.snapshot.revision=1
+    const post=hooks.find(hook=>hook.event==='PostToolUse')
+    post.handler({name:'qq_interact',args:{action:'voice'},result:{status:'ok'}},{requestId:'core-new',requestView:{identity,configRevision:'core-config',registryVersion:7}})
+    expect(plugin.state.toolResults['group:456']['qq_interact.voice']).toMatchObject({status:'ok',qqConfigRevision:1,configRevision:'core-config',registryVersion:7})
+    expect(plugin.state.toolResults['group:456'].qq_interact).toBeUndefined()
   })
   it('uses Shanghai time regardless of process timezone and rejects retired config', () => {
     expect(shanghaiTime(0)).toContain('08:00')

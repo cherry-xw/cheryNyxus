@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import Dropdown from '../../../packages/manager-ui/src/Dropdown.vue'
 import type { useQq } from './useQq'
 import QqConversationSettings from './QqConversationSettings.vue'
+import { capabilityLabel, capabilityResultLabel } from './qqPresentation'
 const props = defineProps<{ controller: ReturnType<typeof useQq> }>()
 const { state, targets, catalog, add, remove, voices, summary } = props.controller
 const category = ref('targets')
@@ -82,7 +83,7 @@ watch(() => state.config?.groups.join(','), () => {
           <p v-if="state.summary">{{ state.summary }}</p><p v-if="state.summaryError" class="error">{{ state.summaryError }}</p>
           <button type="button" :disabled="!state.selected || controller.policy.loading" @click="controller.readPolicy">刷新已生效设置与能力</button>
           <p v-if="controller.policy.error" role="alert">{{ controller.policy.error }}</p>
-          <div v-if="controller.policy.value"><p>已保存版本 {{ controller.policy.value.savedRevision }}；已生效版本 {{ controller.policy.value.appliedRevision }}</p><ul><li v-for="cap in controller.policy.value.capabilities" :key="cap.name">{{ cap.name }}：{{ cap.allowed ? '已选择，实际可用性尚待调用确认' : cap.reason === 'missing_tool' ? '工具组未选择' : cap.reason === 'disabled' ? '已关闭' : '缺少有效预设' }}</li></ul></div>
+          <div v-if="controller.policy.value"><p>已保存版本 {{ controller.policy.value.savedRevision }}；已生效版本 {{ controller.policy.value.appliedRevision }}</p><ul><li v-for="cap in controller.policy.value.capabilities" :key="cap.name">{{ cap.name }}：{{ capabilityLabel(cap) }}<p class="muted">{{ capabilityResultLabel(cap.lastResult) }}</p></li></ul></div>
           <dl class="qq-targets"><div v-for="target in targets" :key="target"><dt>{{ target.startsWith('group:') ? '群 ' + target.slice(6) : '私聊 ' + target.slice(13) }}</dt><dd>{{ state.config.bindings[target] || '未绑定，不能聊天' }}</dd></div></dl>
           <p v-if="!targets.length">名单为空。</p>
         </section>

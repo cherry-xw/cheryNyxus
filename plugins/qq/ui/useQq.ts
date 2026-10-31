@@ -1,7 +1,7 @@
 import { requestId } from '../../../packages/manager-ui/src/requestId'
 import { computed, reactive } from 'vue'
 import { managerRequest, ManagerApiError } from '../../../packages/manager-ui/src/api'
-import { QQConfigSchema, QQEntriesSchema, QQEntryDetailSchema, type QQEntry, type QQEntryDetail } from '../../../packages/protocol/src/qq'
+import { QQConfigSchema, QQEntriesSchema, QQEntryDetailSchema, QQResponseSchemas, type QQEntry, type QQEntryDetail } from '../../../packages/protocol/src/qq'
 import { useQqSources } from './useQqSources'
 
 export function useQq(request = managerRequest) {
@@ -17,7 +17,13 @@ export function useQq(request = managerRequest) {
     policy.value = null; policy.error = ''
     if (!target) return
     policy.loading = true
-    try { const { data } = await request<any>(`/api/modules/qq/policy?target=${encodeURIComponent(target)}`); if (generation === policyGeneration) policy.value = data }
+    try {
+      const { data } = await request<any>(`/api/modules/qq/policy?target=${encodeURIComponent(target)}`)
+      if (generation !== policyGeneration) return
+      const parsed=QQResponseSchemas['qq.policy.get'].parse(data)
+      if(parsed.target!==target)throw new Error('有效设置目标不匹配')
+      policy.value = parsed
+    }
     catch (error) { denied(error); if (generation === policyGeneration) policy.error = error instanceof Error ? error.message : '有效设置读取失败' }
     finally { if (generation === policyGeneration) policy.loading = false }
   }

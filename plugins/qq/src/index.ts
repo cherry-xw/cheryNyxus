@@ -318,7 +318,15 @@ export class QQPlugin implements IngressPlugin {
       } }))
     this.cleanups.push(this.context.hooks.register({ event: 'PostToolUse', required: true,
       handler: (payload, ctx) => {
-        if(ctx.requestView?.identity.ownerId===this.context.id){const job=this.state.jobs.find(job=>job.coreRequestId===ctx.requestId);if(job){const results=this.state.toolResults[job.target]??={};results[payload.name]={status:payload.result.status??'unknown',at:Date.now()};this.persist()}}
+        if(ctx.requestView?.identity.ownerId===this.context.id){
+          const job=this.state.jobs.find(job=>job.coreRequestId===ctx.requestId)
+          if(job){
+            const results=this.state.toolResults[job.target]??={}
+            const name=payload.name==='qq_interact'&&typeof payload.args.action==='string'?`${payload.name}.${payload.args.action}`:payload.name
+            results[name]={status:payload.result.status??'unknown',at:Date.now(),qqConfigRevision:job.snapshot.revision,configRevision:ctx.requestView.configRevision,registryVersion:ctx.requestView.registryVersion}
+            this.persist()
+          }
+        }
         if (ctx.requestView?.identity.ownerId !== this.context.id || payload.name !== 'qq_participation_decide') return
         const job = this.state.jobs.find(j => j.coreRequestId === ctx.requestId && j.state === 'running')
         if (job?.observe || job?.participation === 'wait' || job?.participation === 'end') return { completeRequest: true }
@@ -890,18 +898,27 @@ export class QQPlugin implements IngressPlugin {
   private policyView(target: string) {
     const config = this.snapshot.config, group = target.startsWith('group:'), targetId = target.slice(group ? 6 : 13)
     if (!(group ? config.groups : config.users).includes(targetId)) fail('NOT_ALLOWED', '目标未获许可')
-    let tools: readonly string[] = [], status: import('@chery/plugin-api').IngressPreset['toolStatus'], missing = false
-    try { const preset=this.context.core.resolvePreset(config.bindings[target]!);tools = preset.tools ?? [];status=preset.toolStatus } catch { missing = true }
+    let preset: import('@chery/plugin-api').IngressPreset | undefined, missing = false
+    try { preset=this.context.core.resolvePreset(config.bindings[target]!) } catch { missing = true }
+    const tools=preset?.tools??[],status=preset?.toolStatus
     const selected = tools.map(entry => entry.split(':')[0]!.trim())
     return { target, savedRevision: this.context.config.saved().revision, appliedRevision: this.snapshot.revision,
       ...resolveConversationPolicy(config, target), capabilities: ['web_search','web_fetch','qq_history','qq_memory_search','qq_interact.voice','qq_container_exec'].map(name => {
-        const base=name.split('.')[0]!, configured = selected.some(key => key === name || key === base || key.startsWith(name + '.'))
+        const base=name.split('.')[0]!, configured = selected.some(key => key === name || key === base)
         const disabled = name === 'qq_memory_search' && !config.memoryEnabled || name === 'qq_container_exec' && !config.workerEnabled || name==='qq_interact.voice'&&config.voiceMode==='off'
-        const known=status?.filter(item=>item.selection===name||item.selection===base||item.selection.startsWith(name+'.'))
-        const allowed=configured&&!disabled&&!missing&&(known?.some(item=>item.allowed)??false)
-        const transport=!name.startsWith('qq_interact')||this.recovered
-        return { name, configured, allowed, ready: !allowed?false:known?.length?known.some(item=>item.available)&&transport:null,
-          reason: missing ? 'missing_preset' : !configured ? 'missing_tool' : disabled ? 'disabled' : !allowed?known?.[0]?.reason??'unverified':!transport?'not_connected':'unverified', lastResult: this.state.toolResults[target]?.[base]?.status??null }
+        const exact=status?.filter(item=>item.selection===name)
+        const known=exact?.length?exact:status?.filter(item=>item.selection===base)
+        const supported=name!=='qq_interact.voice'||group
+        const allowed=configured&&!disabled&&!missing&&supported&&(known?.some(item=>item.allowed)??false)
+        const transport=name!=='qq_interact.voice'||!!this.connection&&this.recovered&&!this.paused
+        const voiceConfigured=name!=='qq_interact.voice'||!!config.voiceDefaultCharacter
+        const saved=this.state.toolResults[target]?.[name]
+        const lastResult=saved?{status:saved.status,at:saved.at,qqConfigRevision:saved.qqConfigRevision??null,configRevision:saved.configRevision??null,registryVersion:saved.registryVersion??null,
+          current:saved.qqConfigRevision===this.snapshot.revision&&saved.configRevision!==undefined&&saved.configRevision===preset?.configRevision&&saved.registryVersion!==undefined&&saved.registryVersion===preset?.registryVersion}:null
+        const available=known?.some(item=>item.available)??false
+        const ready=!allowed||!available||!transport||!voiceConfigured?false:lastResult?.current&&lastResult.status==='ok'&&name!=='qq_interact.voice'?true:null
+        return { name, configured, allowed, ready,
+          reason: missing ? 'missing_preset' : !configured ? 'missing_tool' : disabled ? 'disabled' : !supported?'not_supported':!allowed?known?.[0]?.reason??'unverified':!available?'tool_unavailable':!transport?'not_connected':!voiceConfigured?'voice_unconfigured':ready===true?null:'unverified', lastResult }
       }), proactive: this.observationStatus(target) }
   }
   private observationStatus(target: string) {
