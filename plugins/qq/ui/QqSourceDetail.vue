@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { useQqSources } from './useQqSources'
 import { sourceSelectionKey } from './useQqSources'
+import { hasRangeSources, revealSourceTarget, sourceGapHeading } from './sourceNavigation'
 import SourceBody from './SourceBody.vue'
 import QqSourceParts from './QqSourceParts.vue'
 const props=defineProps<{requestId:string;reader:ReturnType<typeof useQqSources>}>()
@@ -10,6 +11,9 @@ const entries=computed(()=>props.reader.entries(props.requestId))
 const selectedKey=computed(()=>current.value?.selection?sourceSelectionKey(current.value.selection):'')
 const view=computed(()=>current.value?.views[selectedKey.value])
 const relationId=ref(''),navigationError=ref(''),returnTo=ref<HTMLButtonElement>()
+const relationTarget=ref<HTMLElement>()
+let navigationVersion=0
+function resetRelation(){navigationVersion++;relationId.value='';navigationError.value='';returnTo.value=undefined}
 const relation=computed(()=>current.value?.selection?current.value.relations[`${current.value.selection.snapshotId}:${relationId.value}`]:undefined)
 const time=(value?:number)=>value===undefined?'未记录':new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})
 const labels:Record<string,string>={not_prepared:'尚未准备上下文。',snapshot_only:'已选消息固定；尚无模型采用记录。',not_applicable:'此任务没有模型调用。',legacy_unrecorded:'旧任务没有保存来源明细。',preparation_failed:'准备失败；未发起模型调用。'}
@@ -18,13 +22,22 @@ const reasons:Record<string,string>={initial:'首次调用',tool_continue:'工�
 const purposes:Record<string,string>={reply:'普通回复',reminder:'提醒',app_notification:'应用通知',error_notice:'失败说明',ack:'收件确认',progress:'进度说明'}
 const deliveryStates:Record<string,string>={pending:'已登记待发送；尚无发送回执',inflight:'正在发送',sent:'发送已确认',failed:'发送失败',unknown:'发送结果未知，不自动重发'}
 const summaryStates:Record<string,string>={pending:'已固定来源，尚未提交',running:'维护中，尚未提交',completed:'已提交',failed:'未完成，不替换原文',cancelled:'已取消，不替换原文'}
-watch(()=>props.requestId,()=>{relationId.value='';returnTo.value=undefined;if(!props.reader.sessions[props.requestId]?.index)void props.reader.index(props.requestId)},{immediate:true})
-async function choose(event:Event){const key=(event.target as HTMLSelectElement).value,item=entries.value.find(e=>e.projectionId===key);if(item)await props.reader.select(props.requestId,{snapshotId:item.snapshotId,projectionId:item.projectionId,modelStepId:item.modelStepId,attemptId:item.attempt?.attemptId});relationId.value=''}
-async function relationOpen(id:string,event:Event){relationId.value=id;returnTo.value=event.currentTarget as HTMLButtonElement;await props.reader.sources(props.requestId,id)}
+watch(()=>props.requestId,()=>{resetRelation();if(!props.reader.sessions[props.requestId]?.index)void props.reader.index(props.requestId)},{immediate:true})
+watch(selectedKey,resetRelation,{flush:'sync'})
+onBeforeUnmount(resetRelation)
+async function choose(event:Event){const key=(event.target as HTMLSelectElement).value,item=entries.value.find(e=>e.projectionId===key);if(item)await props.reader.select(props.requestId,{snapshotId:item.snapshotId,projectionId:item.projectionId,modelStepId:item.modelStepId,attemptId:item.attempt?.attemptId})}
+async function relationOpen(id:string,event:Event){
+  const requestId=props.requestId,selection=selectedKey.value,version=++navigationVersion
+  if(!relationTarget.value?.contains(event.currentTarget as Node))returnTo.value=event.currentTarget as HTMLButtonElement
+  relationId.value=id;navigationError.value=''
+  const reading=props.reader.sources(requestId,id)
+  await revealSourceTarget(()=>relationTarget.value,()=>version===navigationVersion&&props.requestId===requestId&&selectedKey.value===selection&&relationId.value===id)
+  await reading
+}
 const targets=new Map<string,HTMLElement>()
 function target(id:string,value:unknown){if(value instanceof HTMLElement)targets.set(id,value);else targets.delete(id)}
-async function jump(itemId:string){navigationError.value='';try{const targetId=await props.reader.locate(props.requestId,{itemId});await nextTick();targets.get(targetId)?.focus()}catch(error){navigationError.value=error instanceof Error?error.message:'定位失败'}}
-function back(){returnTo.value?.focus();returnTo.value=undefined;relationId.value=''}
+async function jump(itemId:string){const version=++navigationVersion;navigationError.value='';try{const targetId=await props.reader.locate(props.requestId,{itemId});await revealSourceTarget(()=>targets.get(targetId),()=>version===navigationVersion)}catch(error){if(version===navigationVersion)navigationError.value=error instanceof Error?error.message:'定位失败'}}
+async function back(){const target=returnTo.value;resetRelation();const version=navigationVersion;await revealSourceTarget(()=>target,()=>version===navigationVersion)}
 async function refresh(){await props.reader.index(props.requestId);await props.reader.view(props.requestId,false,true)}
 </script>
 <template>
@@ -64,20 +77,20 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
           <p>本次返回用量：输入 {{ view.data.usage?.inputTokens??'未记录' }} · 输出 {{ view.data.usage?.outputTokens??'未记录' }}。不与预检估算混算。</p>
         </details>
         <ol class="source-items"><li v-for="item in view.data.items" :key="item.itemId">
-          <h5 :ref="element=>target(item.itemId,element)" tabindex="-1">{{ item.type==='message'?`${item.sender.name||'未记录昵称'}（${item.sender.id}）`:item.type==='summary'?'历史资料摘要':item.type==='gap'?'范围与省略说明':item.type==='data'?'附加资料':item.type==='restricted'?'内容受限':'本次工具过程' }}</h5>
+          <h5 :ref="element=>target(item.itemId,element)" tabindex="-1">{{ item.type==='message'?`${item.sender.name||'未记录昵称'}（${item.sender.id}）`:item.type==='summary'?'历史资料摘要':item.type==='gap'?sourceGapHeading(item.reason):item.type==='data'?'附加资料':item.type==='restricted'?'内容受限':'本次工具过程' }}</h5>
           <template v-if="item.type==='message'">
             <p>{{ time(item.time.at) }}（{{ item.time.basis==='platform_sent'?'平台发送时间':item.time.basis==='delivery_confirmed'?'发送确认时间':'接收时间' }}） · {{ item.origin==='member'?'成员消息':'机器人真实发送' }} · {{ item.selectionReasons.map(reason=>({current:'本次输入',recent:'近期背景',explicit_quote:'明确引用'}[reason])).join('、') }}</p>
             <QqSourceParts :request-id="requestId" :parts="item.parts" :selection="item.partSelection" :files="view.data.fileInputs" :record-id="item.source.recordId" :reader="reader" @relation="relationOpen" />
             <details><summary>来源信息</summary><p>{{ item.source.recordId }} / {{ item.source.revision }} · 平台消息 {{ item.platformMessageIds.join('、') }}</p></details>
           </template>
-          <template v-else-if="item.type==='summary'"><p>{{ item.purpose==='capacity'?'容量整理':'讨论总结' }} · 已提交 · 覆盖 {{ item.coveredRecordCount }} 条来源。</p><SourceBody :request-id="requestId" :body="item.body" :reader="reader" /><button type="button" @click="relationOpen(item.relationId,$event)">查看摘要覆盖来源</button></template>
-          <template v-else-if="item.type==='gap'"><p>{{ item.reason==='omitted_from_context'?`已保存、未纳入所选输入：${item.knownMessageCount} 条；其中 ${item.partiallySummarizedCount??0} 条部分内容已有摘要。`:item.reason==='history_start'?'本地记录从此范围起点开始；更早消息未必接收。':item.reason==='reception_unconfirmed'?'此区间接收情况未确认，数量未知。':'来源已删除。' }}</p><button type="button" @click="relationOpen(item.relationId,$event)">查看范围来源</button></template>
+          <template v-else-if="item.type==='summary'"><p>{{ item.purpose==='capacity'?'容量整理':'讨论总结' }} · 已提交 · 覆盖 {{ item.coveredRecordCount }} 条来源。</p><SourceBody :request-id="requestId" :body="item.body" :reader="reader" /><button type="button" :aria-expanded="relationId===item.relationId" :aria-controls="`source-relations-${requestId}`" @click="relationOpen(item.relationId,$event)">查看摘要覆盖来源</button></template>
+          <template v-else-if="item.type==='gap'"><p>{{ item.reason==='omitted_from_context'?`已保存、未纳入所选输入：${item.knownMessageCount} 条；其中 ${item.partiallySummarizedCount??0} 条部分内容已有摘要。`:item.reason==='history_start'?'本地记录从此范围起点开始；更早消息未必接收。':item.reason==='reception_unconfirmed'?'此区间接收情况未确认，数量未知。':'来源已删除。' }}</p><button v-if="hasRangeSources(item)" type="button" :aria-expanded="relationId===item.relationId" :aria-controls="`source-relations-${requestId}`" @click="relationOpen(item.relationId,$event)">查看范围来源</button></template>
           <SourceBody v-else-if="item.type==='data'" :request-id="requestId" :body="item.body" :reader="reader" />
           <p v-else-if="item.type==='tool_result'">{{ item.toolName }} · {{ item.status==='completed'?'已返回工具结果':'工具结果状态未知' }}。未登记可公开正文，不公开原始参数、思考或原始工具输出。</p>
           <p v-else>当前无权读取；不展示来源身份或文件名。</p>
         </li></ol>
         <button v-if="view.data.nextCursor" type="button" :disabled="view.loading" @click="reader.view(requestId,true)">继续读取所选输入</button>
-        <section v-if="relationId" aria-label="来源关系详情"><h5>来源关系</h5><button type="button" @click="back">返回原阅读位置</button>
+        <section v-if="relationId" :id="`source-relations-${requestId}`" ref="relationTarget" class="source-relations" tabindex="-1" aria-label="来源关系详情" :aria-busy="relation?.loading??false"><h5>来源关系</h5><button type="button" @click="back">返回原阅读位置</button>
           <p v-if="relation?.loading" role="status">正在读取来源关系…</p><p v-if="relation?.error" role="alert">{{ relation.error }} <button type="button" @click="reader.sources(requestId,relationId)">重试读取关系</button></p>
           <p v-if="relation?.data&&!relation.data.items.length">没有可读取的来源；不会自动查询远端 QQ。</p>
           <article v-for="item in relation?.data?.items??[]" :key="`${item.source.recordId}:${item.source.revision}`">
@@ -112,5 +125,5 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
   </section>
 </template>
 <style scoped>
-.source-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.source-controls select{max-width:100%}.source-items{padding-inline-start:24px}.source-items>li{padding:8px 0;border-bottom:1px solid #808080}h5{font:inherit;font-weight:bold;margin:8px 0}section,p,article{overflow-wrap:anywhere}button:focus-visible,select:focus-visible,h5:focus-visible{outline:2px solid #000;outline-offset:2px}
+.source-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.source-controls select{max-width:100%}.source-items{padding-inline-start:24px}.source-items>li{padding:8px 0;border-bottom:1px solid #808080}h5{font:inherit;font-weight:bold;margin:8px 0}section,p,article{overflow-wrap:anywhere}button:focus-visible,select:focus-visible,h5:focus-visible,.source-relations:focus-visible{outline:2px solid #000;outline-offset:2px}
 </style>

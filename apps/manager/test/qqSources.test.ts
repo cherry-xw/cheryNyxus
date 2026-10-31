@@ -97,4 +97,53 @@ describe('QQ fixed input detail reading',()=>{
     const loaded=reader.session('request').views[sourceSelectionKey(selection('1'))]
     expect(loaded.data?.projectionId).toBe('projection-1');expect(loaded.data?.nextCursor).toBe('page-2');expect(loaded.error).toContain('不匹配')
   })
+  it('exposes loading and an explicit empty range without changing the fixed input',async()=>{
+    const {reader,request}=fixture();await reader.index('request')
+    const selectionBefore={...reader.session('request').selection},slow=deferred<{data:unknown}>()
+    request.mockImplementationOnce(()=>slow.promise)
+    const pending=reader.sources('request','range-start')
+    const range=reader.session('request').relations['snapshot-1:range-start']
+    expect(range.loading).toBe(true);expect(range.error).toBe('')
+    slow.resolve({data:{requestId:'request',snapshotId:'snapshot-1',relationId:'range-start',observedAt:20,items:[],nextCursor:null}})
+    await pending
+    expect(range.loading).toBe(false);expect(range.data?.items).toEqual([])
+    expect(reader.session('request').selection).toEqual(selectionBefore)
+    expect(request.mock.calls.at(-1)?.[0]).toContain('/context/sources?')
+  })
+  it('keeps range errors visible and retries only the explicitly requested read',async()=>{
+    const {reader,request}=fixture();await reader.index('request')
+    request.mockRejectedValueOnce(new Error('offline'))
+    await reader.sources('request','omitted')
+    const range=reader.session('request').relations['snapshot-1:omitted']
+    expect(range.error).toBe('offline');expect(range.loading).toBe(false)
+    const failedPath=request.mock.calls.at(-1)?.[0]
+    request.mockResolvedValueOnce({data:{requestId:'request',snapshotId:'snapshot-1',relationId:'omitted',observedAt:20,
+      items:[{source:{recordId:'saved',revision:1},includedInSelectedInput:false,selectionReasons:[],unavailableReason:'not_retained'}],nextCursor:null}})
+    await reader.sources('request','omitted')
+    expect(request.mock.calls.at(-1)?.[0]).toBe(failedPath)
+    expect(range.error).toBe('');expect(range.data?.items).toHaveLength(1)
+    expect(range.data?.items[0]?.includedInSelectedInput).toBe(false)
+    expect(reader.session('request').selection).toEqual(selection('1'))
+  })
+  it('keeps late relation results in their own snapshot after a step change',async()=>{
+    const {reader,request}=fixture();await reader.index('request')
+    const slow=deferred<{data:unknown}>();request.mockImplementationOnce(()=>slow.promise)
+    const pending=reader.sources('request','old')
+    request.mockResolvedValueOnce({data:view('2')});await reader.select('request',selection('2'))
+    slow.resolve({data:{requestId:'request',snapshotId:'snapshot-1',relationId:'old',observedAt:20,items:[],nextCursor:null}})
+    await pending
+    expect(reader.session('request').selection).toEqual(selection('2'))
+    expect(reader.session('request').relations['snapshot-1:old'].data?.snapshotId).toBe('snapshot-1')
+    expect(reader.session('request').relations['snapshot-2:old']).toBeUndefined()
+  })
+  it('does not restore relation data after permission denial clears the reader',async()=>{
+    const {reader,request,denied}=fixture();await reader.index('request')
+    const slow=deferred<{data:unknown}>();request.mockImplementationOnce(()=>slow.promise)
+    const pending=reader.sources('request','late')
+    request.mockRejectedValueOnce(new ManagerApiError('permission_denied',403,'/api/modules/qq/context/sources','denied'))
+    await reader.sources('request','denied')
+    slow.resolve({data:{requestId:'request',snapshotId:'snapshot-1',relationId:'late',observedAt:20,items:[],nextCursor:null}})
+    await pending
+    expect(reader.sessions).toEqual({});expect(reader.texts).toEqual({});expect(denied).toHaveBeenCalledOnce()
+  })
 })
