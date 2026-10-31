@@ -249,15 +249,11 @@ export class BackendSupervisor {
 
   async snapshot(options: { logs?: boolean } = {}): Promise<BackendSnapshot> {
     const nowMs = this.now()
-    const pid = this.child?.pid ?? null
-    const processResources = await readProcessResources(
-      pid,
-      this.startedAt,
-      nowMs,
-      this.cpuSample,
-    )
-    if (processResources.sample) this.cpuSample = processResources.sample
-    return {
+    const child = this.child
+    const pid = child?.pid ?? null
+    const startedAt = this.startedAt
+    // Read lifecycle fields together before resource I/O can interleave with exit/restart.
+    const snapshot = {
       state: this.state,
       running: this.child !== undefined,
       pid,
@@ -275,18 +271,18 @@ export class BackendSupervisor {
         port: this.listener?.port ?? 0,
         ready: this.state === 'running',
       },
-      resources: {
-        system: {
-          memoryUsedRatio: totalmem() > 0 ? (totalmem() - freemem()) / totalmem() : 0,
-          load1: loadavg()[0] || undefined,
-          uptimeSeconds: uptime(),
-        },
-        process: processResources.value,
-      },
       versionCompatibility: { contractVersion: 1, compatible: true },
       lifecycle: this.control.snapshot(),
       ...(options.logs === false ? {} : { logs: this.logs.map((entry) => ({ ...entry })) }),
     }
+    const system = {
+      memoryUsedRatio: totalmem() > 0 ? (totalmem() - freemem()) / totalmem() : 0,
+      load1: loadavg()[0] || undefined,
+      uptimeSeconds: uptime(),
+    }
+    const processResources = await readProcessResources(pid, startedAt, nowMs, this.cpuSample)
+    if (this.child === child && processResources.sample) this.cpuSample = processResources.sample
+    return { ...snapshot, resources: { system, process: processResources.value } }
   }
 
   private exclusive<T>(operation: () => Promise<T>): Promise<T> {

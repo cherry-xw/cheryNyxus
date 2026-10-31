@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { afterEach, expect, it } from 'vitest'
+import * as fsPromises from 'node:fs/promises'
+import { afterEach, expect, it, vi } from 'vitest'
 import { withBackendLifecycle } from './backendFixture.js'
 import {
   BackendSupervisor,
@@ -10,9 +11,16 @@ import {
   type BackendSupervisorOptions,
 } from '../src/backendSupervisor.js'
 
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, readFile: vi.fn(actual.readFile) }
+})
+
 const supervisors: BackendSupervisor[] = []
 const roots: string[] = []
 afterEach(async () => {
+  vi.restoreAllMocks()
+  vi.mocked(fsPromises.readFile).mockReset()
   await Promise.all(supervisors.splice(0).map((supervisor) => supervisor.shutdown()))
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
@@ -202,4 +210,28 @@ it('脱敏规则覆盖等号/冒号写法和 Bearer 凭据', () => {
   expect(redactSecrets('apiKey=abcdef123')).toBe('apiKey=***')
   expect(redactSecrets('password: "quoted-value"')).toBe('password: ***')
   expect(redactSecrets('Authorization: Bearer abc.def.ghi')).toBe('Authorization: ***')
+})
+
+it('资源采集期间退出不把退出后状态与退出前 PID 混在同一快照', async () => {
+  const backend = supervisor('setInterval(() => {}, 1000)', { isReady: async () => true })
+  await backend.start()
+  const running = await waitForSnapshot(backend, current => current.state === 'running')
+  let release!: () => void
+  const delayed = new Promise<void>(resolve => { release = resolve })
+  const read = vi.mocked(fsPromises.readFile).mockImplementationOnce(async () => {
+    await delayed
+    throw new Error('Process exited during resource sampling')
+  })
+  const pending = backend.snapshot()
+  expect(read).toHaveBeenCalledWith(`/proc/${running.pid}/stat`, 'utf8')
+  try {
+    await backend.stop()
+    await backend.control.waitForExit()
+  } finally { release() }
+  const sampled = await pending
+  expect(sampled).toMatchObject({ state: 'running', running: true, pid: running.pid, lifecycle: { phase: 'running' } })
+  expect(sampled.resources.process.pid).toBe(running.pid)
+  const stopped = await backend.snapshot()
+  expect(stopped).toMatchObject({ state: 'inactive', running: false, pid: null, lifecycle: { phase: 'stopped' } })
+  expect(stopped.resources.process).toMatchObject({ pid: null, uptimeSeconds: 0 })
 })

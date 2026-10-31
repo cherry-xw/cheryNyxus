@@ -62,6 +62,8 @@ guardian 将普通命令组与受管任务的登记转给 Manager，两个父层
 
 设备客户端配置经 `RelayClientConfigStore` 保存到部署指定的固定文件，页面不能指定该文件位置；`GET/PUT /api/relay/client-config` 保存并返回脱敏读回结果，不重启 Backend。`POST /api/relay/device-operation` 只接收共享 schema 允许的操作；绑定申请经 `POST /api/relay/bindings/request` 调用固定的 Backend 机器绑定接口。维护调用先机器登录、校验能力发现，再发一次操作；不提供任意 URL 或方法代理，不向可编辑 Relay 地址发送机器凭据、用户会话或全局密钥。响应有大小和时间限制，认证请求禁止重定向；写操作结果未知时要求读回，不自动重发。
 
+运行状态、PID 和生命周期字段取自同一次观察；资源采集期间发生退出或重启，不混合前后两次状态，也不把旧进程的 CPU 采样用于新实例。验证见 `apps/manager/test/backendSupervisor.test.ts`。
+
 ## 独立维护服务边界
 
 Manager 启动只读取自身监听、账号、OIDC 与本地设置，不检查、创建、写入或迁移 Backend 认证。Backend 连接是可选的；内部机器凭据缺失、不一致、旧格式或无法读取均不得阻止 Manager 启动、登录、改密、OIDC 和本地配置保存读回。`CredentialStore.status` 只返回脱敏诊断，读取失败按安全拒绝处理。
