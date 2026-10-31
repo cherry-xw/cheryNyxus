@@ -69,7 +69,7 @@ function onNyxusDoubleClick(): void {
   clickIntent.double()
 }
 
-/** Cherry Nyxus 双击或工具环聊天按钮打开统一弹窗。 */
+/** cheryNyxus 双击或工具环聊天按钮打开统一弹窗。 */
 async function openNyxusDialog(): Promise<void> {
   if (loginState.value !== 'authenticated' || openingChat.value || creating.value) return
   openingChat.value = true
@@ -83,8 +83,8 @@ async function openNyxusDialog(): Promise<void> {
     agents.activeDialogChatId = chatId
     closeNyxusMenu()
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '打开 Cherry Nyxus 失败'
-    console.error('[CherryNyxus] open dialog failed:', cause)
+    error.value = cause instanceof Error ? cause.message : '打开 cheryNyxus 失败'
+    console.error('[cheryNyxus] open dialog failed:', cause)
   } finally {
     openingChat.value = false
   }
@@ -108,7 +108,7 @@ async function runCreate(opts: {
     closeNyxusMenu()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '创建失败'
-    console.error('[CherryNyxus] create master pet failed:', cause)
+    console.error('[cheryNyxus] create master pet failed:', cause)
   } finally {
     creating.value = false
   }
@@ -148,8 +148,8 @@ async function openWorkbench(): Promise<void> {
   try {
     await agents.getActiveNyxus()
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '加载 Cherry Nyxus 绘画列表失败'
-    console.error('[CherryNyxus] load workbench catalog failed:', cause)
+    error.value = cause instanceof Error ? cause.message : '加载 cheryNyxus 会话列表失败'
+    console.error('[cheryNyxus] load workbench catalog failed:', cause)
     return
   }
   // presetId 必须是配置稳定 ID，任务目录据此过滤会话。
@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
     type="button"
     class="nyxus-menu-dismiss"
     data-desktop-hit
-    aria-label="关闭 Cherry Nyxus 工具"
+    aria-label="关闭 cheryNyxus 工具"
     @click="closeNyxusMenu"
   />
   <aside
@@ -183,13 +183,13 @@ onBeforeUnmount(() => {
     class="nyxus-entry"
     :class="{ 'is-dragging': dragging, 'is-open': nyxusMenuOpen }"
     data-desktop-hit
-    aria-label="Cherry Nyxus 入口"
+    aria-label="cheryNyxus 入口"
   >
     <button
       type="button"
       class="nyxus-entry-button"
       :aria-disabled="openingChat || loginState !== 'authenticated'"
-      aria-label="打开 Cherry Nyxus"
+      aria-label="打开 cheryNyxus"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="endPointer"

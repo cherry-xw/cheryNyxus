@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import FileContextDetails from './FileContextDetails.vue'
+import { capabilityEnabled } from '@/application/auth/public'
 import type { WorkbenchDialogControllerProps } from './useWorkbenchDialogController'
 import { useWorkbenchDialogViewController } from './useWorkbenchDialogViewController'
 
@@ -292,7 +293,7 @@ defineExpose({
           :model-request-timeout-ms="config?.global?.llm_request_timeout_ms ?? 600000"
         />
         <WorkbenchFilesWorkspace
-          v-if="treeRootChatId && visitedFileChat === treeRootChatId"
+          v-if="treeRootChatId && visitedFileChat === treeRootChatId && capabilityEnabled('workspace.files')"
           v-show="filesOpen"
           :key="treeRootChatId"
           :chat-id="treeRootChatId"
@@ -672,7 +673,7 @@ defineExpose({
           @leave-cancelled="contextDrawerMotion.onLeaveCancelled"
         >
           <ContextAnalyticsPanel
-            v-if="contextDrawerOpen"
+            v-if="contextDrawerOpen && capabilityEnabled('timeline.graph')"
             key="context-analytics-panel"
             :initial-task-key="contextAnalyticsInitialTaskKey"
             :eligible="contextAnalyticsPanelEligible"
