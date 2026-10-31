@@ -280,8 +280,9 @@ it('an invalid question reaches the next request-owned model step once, without 
 
 it('installed QQ keeps invalid reply parameters distinct from actual ordinary-text delivery', async () => {
   const final = '普通正文照常发送，不把执行前的参数拒绝当作 QQ 发送失败。'
-  config.roles.reviewer!.brain = addSenseBrain('qq-invalid-reply-parameters', 'qq_quote_reply',
-    JSON.stringify({ messageId: '310', text: '字'.repeat(501), completeReply: true }), final)
+  config.roles.reviewer!.brain = addSenseBrain('qq-invalid-reply-parameters', 'qq_interact',
+    JSON.stringify({ action:'quote', messageId: '310', text: '字'.repeat(501), completeReply: true }), final)
+  config.sense_groups.auto_senses=['qq_interact.quote:auto']
   const s = await setup()
   await s.call('qq.event.submit', event('310'))
   await vi.waitFor(() => expect(s.state().outbox.some((out: any) => out.frame.type === 'qq.reply.part')).toBe(true), { timeout: 10000 })
