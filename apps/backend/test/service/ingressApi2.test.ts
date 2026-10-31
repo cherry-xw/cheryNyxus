@@ -80,7 +80,7 @@ describe('API2 published host', () => {
   it('binds source reads to the current control call and the Manager reading session, never a business or machine caller', async () => {
     const store=new IngressStore(temp()),router=createRouter()
     let open=true
-    const link:IngressConnections={...connections,credentialKind:id=>id==='admin'?'control':'native',isOpen:()=>open}
+    const link:IngressConnections={...connections,credentialKind:id=>id==='admin'?'control':id==='manager-proxy'?'machine':'native',isOpen:()=>open}
     const readSourceManagement=vi.fn(async (_owner:string,input:Parameters<NonNullable<IngressCoreAdapter['readSourceManagement']>>[1])=>{
       input.validateIdentity();await Promise.resolve();input.validateIdentity()
       return {requestId:input.query.params.requestId,observedAt:1,availability:'not_prepared' as const,associatedSummaryIds:[],items:[],nextCursor:null}
@@ -104,12 +104,13 @@ describe('API2 published host', () => {
     expect(readSourceManagement.mock.calls[0][0]).toBe('source-reader')
     expect(readSourceManagement.mock.calls[0][1].principal).toBe(`manager:${'a'.repeat(48)}`)
     await expect(host.managementCall(input,{...ctx,credentialKind:'business'})).rejects.toThrow('CAPABILITY_DENIED')
-    await expect(host.managementCall(input,{...ctx,credentialKind:'machine'})).rejects.toThrow('CAPABILITY_DENIED')
+    await expect(host.managementCall({...input,readerPrincipal:undefined},{...ctx,connectionId:'manager-proxy',credentialKind:'machine'})).rejects.toThrow('CAPABILITY_DENIED')
+    expect((await host.managementCall(input,{...ctx,connectionId:'manager-proxy',credentialKind:'machine'})).status).toBe(200)
     const leaked=(globalThis as any).__sourceManagementContext as import('@/service/ingress/api.js').IngressContext
     await expect(leaked.management.readSource!({method:'qq.context.index',params:{requestId:'request'}})).rejects.toThrow('CAPABILITY_DENIED')
     open=false
     await expect(host.managementCall(input,ctx)).rejects.toThrow('CAPABILITY_DENIED')
-    expect(readSourceManagement).toHaveBeenCalledTimes(1)
+    expect(readSourceManagement).toHaveBeenCalledTimes(2)
   })
   it('attachment logging permits only typed diagnostic values, never arbitrary strings or nonfinite numbers', async () => {
     const store = new IngressStore(temp()), log = vi.fn()

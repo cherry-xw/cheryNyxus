@@ -443,7 +443,7 @@ export class QQPlugin implements IngressPlugin {
         requestSchema: z.object({pathParams:z.object({}).strict(),query:QQSourceRequestSchemas[method]}).strict(),
         responseSchema: QQSourceResponseSchemas[method], handler: async input => this.readSourceDetail({method,params:input.query} as SourceManagementQuery) })
       this.context.rpc.register({scope:'management',method,request:QQSourceRequestSchemas[method] as z.ZodType,
-        response:QQSourceResponseSchemas[method] as z.ZodType,authorize:ctx=>ctx.credentialKind==='control',
+        response:QQSourceResponseSchemas[method] as z.ZodType,authorize:ctx=>ctx.credentialKind==='control'||ctx.credentialKind==='machine',
         handler:async (_ctx,params)=>this.readSourceDetail({method,params} as SourceManagementQuery)})
     }
     for (const [name, rpcMethod] of [['config', 'qq.config.get'], ['status', 'qq.status.get'],

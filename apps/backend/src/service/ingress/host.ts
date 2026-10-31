@@ -719,8 +719,8 @@ export class IngressHost {
           requireCapability('rpc.management')
           const reader = managementReaderContext.getStore(), ctx = reader?.ctx
           const validateIdentity = () => {
-            if (!ctx || ctx.credentialKind !== 'control' || managementReaderContext.getStore() !== reader || this.stopped ||
-              !connections.isOpen(ctx.connectionId) || connections.credentialKind(ctx.connectionId) !== 'control') throw ingressError('CAPABILITY_DENIED')
+            if (!ctx || (ctx.credentialKind !== 'control' && !(ctx.credentialKind === 'machine' && reader?.principal?.startsWith('manager:'))) || managementReaderContext.getStore() !== reader || this.stopped ||
+              !connections.isOpen(ctx.connectionId) || !['control', 'machine'].includes(connections.credentialKind(ctx.connectionId) ?? '')) throw ingressError('CAPABILITY_DENIED')
           }
           validateIdentity()
           if (!core.readSourceManagement) throw ingressError('UNAVAILABLE')
