@@ -121,6 +121,13 @@ export interface ReplaceInfo {
  * 统一 LLM 响应结构
  */
 export interface LLMResponse {
+  sourceInput?: import('@chery/protocol').SourceInput
+  /** Transient source rendering; never derived by parsing message content. */
+   sourceRecord?: { scopeId: string; recordId: string; revision: number; turnId: string;
+    origin: 'current' | 'history' | 'quote'; originalText: string }
+  sourcePartIds?: Record<string, string>
+  sourceItem?: import('@chery/protocol').SourceSnapshotItem
+  sourceData?: { key: string; kind: 'memory' | 'execution_notice'; revision: number }
   id: string
   role: Role
   content: string
@@ -199,19 +206,19 @@ export function groupAttachmentsByMessage(
 }
 
 /** 保留固定 parts 顺序；没有结构化部分的消息才使用整段文字加附件。 */
-export function orderedMessageInputs(message: LLMResponse, attachments: readonly LLMAttachment[]): Array<{ type: 'text'; text: string } | { type: 'attachment'; attachment: LLMAttachment }> {
+export function orderedMessageInputs(message: LLMResponse, attachments: readonly LLMAttachment[]): Array<{ type: 'text'; text: string; partId?: string } | { type: 'attachment'; attachment: LLMAttachment; partId?: string }> {
   if (!message.parts?.length) return [
     ...(message.content ? [{ type: 'text' as const, text: message.content }] : []),
     ...attachments.map(attachment => ({ type: 'attachment' as const, attachment })),
   ]
-  const output: Array<{ type: 'text'; text: string } | { type: 'attachment'; attachment: LLMAttachment }> = []
+  const output: Array<{ type: 'text'; text: string; partId?: string } | { type: 'attachment'; attachment: LLMAttachment; partId?: string }> = []
   const used = new Set<LLMAttachment>()
   for (const part of message.parts) {
     if (part.type === 'asset') {
-      for (const attachment of attachments.filter(item => item.partId === part.partId)) { used.add(attachment); output.push({ type: 'attachment', attachment }) }
+      for (const attachment of attachments.filter(item => item.partId === part.partId)) { used.add(attachment); output.push({ type: 'attachment', attachment, partId: part.partId }) }
     } else {
       const text = part.type === 'text' ? part.text : part.type === 'directive' ? `/${part.command}${part.args ? ` ${part.args}` : ''}` : part.type === 'role_mention' ? `@${part.roleName}` : part.path
-      if (text) output.push({ type: 'text', text })
+      if (text) output.push({ type: 'text', text, partId: part.partId })
     }
   }
   for (const attachment of attachments) if (!used.has(attachment) && !attachment.partId) output.push({ type: 'attachment', attachment })

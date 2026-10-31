@@ -6,6 +6,28 @@
 
 ## 职责
 
+QQ 来源保存的详细约定见[处理与数据细则](../../plan/conversation-observability-and-input/qq-context-contracts.md)，当前实现的离线结果与未完成验收见[验证记录](../../plan/conversation-observability-and-input/qq-context-verification.md)，不能视为部署可用。主库初始化入口为 `initSoulTables`，来源表与仓库由 `db/sourceContext.ts` 负责：原文、范围成员、收件、冻结快照、模型采用及摘要分别保存；删除 Core 会话不连带删除来源。仓库的授权由宿主产生，每次读写重新验证，不把正文中的身份、预设或路径当成许可；不新增自动来源清理。
+
+内部 QQ 来源输入在 `pending_inputs.source_input` 与月份库 `messages.source_input` 保存固定的 `SourceInput` 引用。正文仅供执行历史展示，模型输入按不可变快照读取来源；公共聊天请求不能提交该字段。恢复读取引用不授予执行权，也不允许新进程自动继续旧 QQ 前台任务。来源范围的 Core 绑定由已验证的宿主提交确定；资产仍检查当前范围和固定版本，Core 的文件授权不能替代来源许可。
+
+每步模型采用通过 `source_projections` 保存，调用尝试通过 `source_attempts` 保存；正文块保存在受限的 `source_rendered_texts`，不保存请求中的 Base64、临时 URL 或凭据。Provider 转换时在内存关联来源位置，最终参数和预算检查通过后才保存采用版本；位置无法对应时明确停止，不从正文反推来源。调用开始时同一主库事务登记采用轮和调用状态，工具续轮不增加用户轮。`source_run_messages` 独立保存当前请求内的工具调用及结果，开始后无终态的操作恢复为未知，只恢复记录，不重新执行工具。
+
+来源用户轮以 `source_turns` 的范围及输入批次为准，不按展开后的消息数量计数。`source_file_adoptions` 保存该范围内固定文件的首次及有效采用批次，`source_file_positions` 保留其原始消息段关系；普通背景再次选入不刷新文件年龄，明确引用或重读在实际调用时才刷新。普通 Web 图片继续使用自己的会话采用记录，不与来源范围混算。
+
+来源历史工具由 `db/sourceHistory.ts` 的 `readSourceHistory` / `readSourceText` 读取主库来源，固定本次分页的接收上界；不以 Core 消息副本或当前月份库代替来源历史。`source_tool_texts` 和 `source_tool_cursors` 只保存定位信息，读取仍重新核对范围、成员、运行和权限版本。运行必须关联完整收件的原始输入批次；跨成员、跨运行与旧预设的定位信息不能扩大访问。离线用例为 `apps/backend/test/service/sourceHistory.test.ts`。
+
+管理员只读来源查询由 `db/sourceManagement.ts` 处理，协议为 `packages/protocol/src/sourceManagement.ts`。收件完成时独立登记请求归属，不依赖 QQ 最近任务列表。目录、正文及关系的定位值保存在主库，绑定管理员连接、请求及权限版本；这些定位值不是执行许可。管理查询不启动模型、不采集附件、不读取图片、不公开原始工具结果或思考。所选准备版本从来源表读取，不使用最新文件计划代替历史；界面阅读体验仍需人工验收。
+
+阅读身份同时区分 Manager 登录会话；分页只保存一份固定条目集合，后续位置引用该集合，不在每个游标里复制全文。生成回复以请求与正文摘要值固定保存，与真实发送原文分开；后续生成不改变已有正文引用。摘要维护通过 `source_summary_request_links` 登记其实际来源涉及的请求，尚未提交的操作也可只读查询，不能当作有效摘要头。离线用例为 `apps/backend/test/service/sourceManagement.test.ts`、`apps/backend/test/service/ingressApi2.test.ts` 与 `apps/manager/test/qqSources.test.ts`。
+
+来源维护使用独立的会话维护权限，不带成员执行身份。维护的模型准备版本和调用状态归属维护快照，不能推进用户采用轮次、调用业务工具或取得个人文件权限；只有本次维护实际成功提供的附件表示才可作为内容证据。维护进度由来源操作记录保存，阶段、失败和取消不把旧摘要头清除。实现与验证状态见[当前任务](../../plan/conversation-observability-and-input/README.md#依赖与恢复检查点)。
+
+来源容量整理只从当前固定快照选择可整理的旧资料，不读取后来入站消息，不替换当前输入、明确引用和真实工具过程。QQ 完成群记忆保存及摘要候选后，Backend 创建候选子快照；最终请求通过预算和来源位置检查、获准调用时，才在调用登记事务中替换摘要头。准备失败或取消保持原摘要边界；原快照和过去采用版本始终不变。问答从该运行最近实际采用的后代快照继续，不能退回整理前的历史。请求内维护回调只在内存传递，不能通过公共聊天字段、保存的来源引用或管理读取取得。前台优先取消后可按操作版本恢复同一维护输入及已成功分块，不能把取消当作重新扫描全部资料的理由。离线用例为 `apps/backend/test/service/sourceCapacity.test.ts` 与 `sourceMaintenance.test.ts`。
+
+收件附件读取只允许当前已认证事件的原始记录，不把 record 用途临时改成 execution。调用终态由准备时创建、仅绑定该次 attempt 的内部完成回调保存；撤权后仍能记录已发生调用的结果，但该回调不能读取来源、重新采用文件或启动任务。
+
+QQ 每个出站事件的不可变内容由 `source_deliveries` 保存，回执在 `source_delivery_facts` 按版本追加。仅已确认且带原生消息 ID 的可见内容生成机器人来源；表情、戳人及仅文件上传保留独立事实，不伪造群消息。登记与补登记通过宿主验证的模块和机器人连接进行，不恢复成员执行身份。迟到回执只能补充该事件事实，不能扩大旧快照、重新发送或启动模型。
+
 `AssetStore` 的 `asset_staging_publications` 在复制前持久登记暂存文件 ID、写者 PID、Linux 进程启动标识和摘要，独立于最终资产事务。来源启动恢复先核对此表，只删除已经死亡写者的受管普通暂存文件及无版本引用的摘要；仍活跃写者、无登记文件和符号链接均不删除。`ingress_image_sources` 的块暂存保留持久偏移以便重试，完成或取消后释放；两个暂存层不能互相代替。旧版无登记资产暂存没有可靠归属，不自动扫描删除。此恢复针对进程崩溃，不宣称断电文件系统一致性证明。
 
 QQ 原图来源发布由 [`SourcePublicationStore`](../../../apps/backend/src/service/media/sourcePublication.ts) 管理主库 `ingress_image_sources`：来源唯一键、不可变身份、额度预留、暂存偏移和固定资产映射同库保存。`AssetStore.publishSource` 在同一事务写资产、授权、引用和来源结果；QQ 原件设置 `retain_original`，不参与自动过期清理。当前来源读取许可由生效关联更新，撤权保留文件。通道协议和验证边界见[QQ 图片采集](../../shared/protocol/qqbot-plugin.md#原生图片采集)。

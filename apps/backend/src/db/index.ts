@@ -6,6 +6,7 @@ import config from '@/utils/config.js'
 import { initAssetTables } from './assets.js'
 import { initAgentCommandTables } from './agentCommands.js'
 import { initBackendResumeTables } from './backendResume.js'
+import { initSourceContextTables } from './sourceContext.js'
 
 // 缓存管理
 const dbCache = {
@@ -78,6 +79,7 @@ function initSoulTables(db: Database.Database): void {
   initAssetTables(db)
   initAgentCommandTables(db)
   initBackendResumeTables(db)
+  initSourceContextTables(db)
   db.exec(`
     CREATE TABLE IF NOT EXISTS server_tool_observations (
       scope_id TEXT NOT NULL,
@@ -540,6 +542,7 @@ function initSoulTables(db: Database.Database): void {
   ensureTableColumn(db, 'message_links', 'causation_node_id', 'TEXT')
   ensureTableColumn(db, 'pending_inputs', 'epoch_id', 'TEXT')
   ensureTableColumn(db, 'pending_inputs', 'parts', 'TEXT')
+  ensureTableColumn(db, 'pending_inputs', 'source_input', 'TEXT')
   ensureTableColumn(db, 'execution_active_runs', 'epoch_id', 'TEXT')
 }
 
@@ -663,6 +666,7 @@ function initMonthlyTables(db: Database.Database): void {
   ensureMessageColumn(db, 'parts', 'TEXT')
   ensureMessageColumn(db, 'file_operations', 'TEXT')
   ensureMessageColumn(db, 'provider_continuation', 'TEXT')
+  ensureMessageColumn(db, 'source_input', 'TEXT')
   ensureMessageColumn(db, 'observation', 'TEXT')
   ensureMessageColumn(db, 'revoked', 'INTEGER DEFAULT 0')
   ensureMessageColumn(db, 'model_excluded', 'INTEGER DEFAULT 0')

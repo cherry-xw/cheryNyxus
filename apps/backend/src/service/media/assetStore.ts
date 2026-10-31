@@ -10,6 +10,8 @@ export interface AssetAccess {
   ownerId: string
   /** 子任务和会话读取必须提供，由已验证的请求上下文确定，不接受文件自己的声明。 */
   chatId?: string
+  /** Internal source authority. Public requests never choose this value. */
+  sourceScopeId?: string
 }
 
 interface VersionRow {
@@ -82,6 +84,23 @@ export class AssetStore {
 
   private authorize(row: VersionRow | undefined, access: AssetAccess): VersionRow {
     if (!row || !access.ownerId || row.owner_id !== access.ownerId) unavailable()
+    if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_asset_grants'").get() &&
+      this.db.prepare('SELECT 1 FROM source_asset_grants WHERE asset_id=?').get(row.asset_id)) {
+      const scopes = this.db.prepare(`SELECT s.data_json,g.asset_version_id FROM source_asset_grants g
+        JOIN source_scopes s USING(scope_id) JOIN source_scope_heads h ON h.scope_id=s.scope_id
+        JOIN source_scope_members m ON m.scope_id=g.scope_id AND m.record_id=g.record_id
+         JOIN source_conversations c ON c.conversation_id=s.conversation_id
+         JOIN source_owner_access o ON o.owner_id=c.owner_id AND o.enabled=1
+        WHERE g.asset_id=? AND s.state='active' AND h.state='active' AND c.owner_id=?
+          AND h.permission_revision=json_extract(s.data_json,'$.permissionRevision')`)
+        .all(row.asset_id, access.ownerId) as Array<{ data_json: string; asset_version_id: string }>
+      if (!scopes.some(item => {
+        const scope = JSON.parse(item.data_json)
+        return (access.sourceScopeId ? scope.scopeId === access.sourceScopeId :
+          access.chatId && scope.coreBinding?.chatId === access.chatId) &&
+          (row.variant === 'adapted' || item.asset_version_id === row.id)
+      })) unavailable()
+    }
     if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_image_sources'").get() &&
       this.db.prepare('SELECT 1 FROM ingress_image_sources WHERE asset_id=? AND permitted=0').get(row.asset_id)) unavailable()
     if (access.chatId && !this.db.prepare('SELECT 1 FROM asset_chat_grants WHERE asset_id = ? AND chat_id = ?')
@@ -170,18 +189,33 @@ export class AssetStore {
   }
 
   /** Asset, grant, reference and host source mapping share the same SQLite transaction. */
-  async publishSource(body: Buffer, options: { ownerId: string; chatId: string; originalName: string; mimeType: string; kind: AssetKind;
+  async publishSource(body: Buffer, options: { ownerId: string; chatId?: string; originalName: string; mimeType: string; kind: AssetKind;
+    source?: { scopeId: string; recordId: string; revision: number; partId: string };
     sourceKey: string; validate(): void; published(asset: AssetRecord): void }): Promise<AssetRecord> {
     const id = randomUUID()
     return this.writeVersion(body, { assetId: id, variant: 'original', mimeType: options.mimeType, kind: options.kind,
-      transform: { variant: 'original', ...imageDimensions(body) }, transformKey: 'original' }, () => {
+      transform: { variant: 'original', ...(options.kind === 'image' ? imageDimensions(body) : {}) }, transformKey: 'original' }, () => {
       options.validate()
       this.db.prepare(`INSERT INTO assets(id,owner_id,original_name,source,created_at,unreferenced_at,migration_unresolved)
         VALUES (?,?,?,'upload',?,?,0)`).run(id,options.ownerId,options.originalName,Date.now(),Date.now())
       this.db.prepare('UPDATE assets SET retain_original=1 WHERE id=?').run(id)
     }, asset => {
-      const part = { type: 'asset' as const, partId: options.sourceKey, assetId: asset.id, assetVersionId: asset.versionId, variant: 'original' as const, usage: 'content' as const }
-      this.attachOwned([part], {ownerId:options.ownerId,chatId:options.chatId}, 'branch', options.sourceKey)
+      if (options.source) {
+        if (options.chatId) unavailable()
+        const source = options.source
+        const row = this.db.prepare(`SELECT r.data_json FROM source_scope_members m JOIN source_records r USING(record_id)
+          JOIN source_scopes s USING(scope_id) JOIN source_conversations c ON c.conversation_id=s.conversation_id
+          JOIN source_scope_heads h ON h.scope_id=s.scope_id WHERE m.scope_id=? AND m.record_id=? AND r.revision=?
+            AND s.state='active' AND h.state='active' AND c.owner_id=?`).get(source.scopeId, source.recordId, source.revision, options.ownerId) as { data_json: string } | undefined
+        if (!row || !JSON.parse(row.data_json).parts.some((p: { type: string; partId: string }) => p.type === 'attachment' && p.partId === source.partId)) unavailable()
+        this.db.prepare(`INSERT INTO source_asset_grants(asset_id,asset_version_id,scope_id,record_id,part_id,record_revision) VALUES (?,?,?,?,?,?)`)
+          .run(asset.id, asset.versionId, source.scopeId, source.recordId, source.partId, source.revision)
+        this.db.prepare('UPDATE assets SET was_referenced=1 WHERE id=?').run(asset.id)
+      } else {
+        if (!options.chatId) unavailable()
+        const part = { type: 'asset' as const, partId: options.sourceKey, assetId: asset.id, assetVersionId: asset.versionId, variant: 'original' as const, usage: 'content' as const }
+        this.attachOwned([part], {ownerId:options.ownerId,chatId:options.chatId}, 'branch', options.sourceKey)
+      }
       options.published(asset)
     })
   }

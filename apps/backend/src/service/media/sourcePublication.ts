@@ -7,7 +7,9 @@ import { identifyFile } from './fileFormat.js'
 import { AssetStore } from './assetStore.js'
 
 export interface SourcePublicationContext {
-  ownerId: string; chatId: string; sourceKey: string; sourceIdentity: string; targetKey: string
+  ownerId: string; chatId?: string; sourceKey: string; sourceIdentity: string; targetKey: string
+  source?: { scopeId: string; recordId: string; revision: number; partId: string }
+  originalName?: string
   limits: { singleBytes: number; totalBytes: number; perTargetBytes: number }
   validate(): void
 }
@@ -18,15 +20,17 @@ function fail(code: string): never { throw Object.assign(new Error(code), { code
 export class SourcePublicationStore {
   private committing = new Map<string, Promise<ReturnType<SourcePublicationStore['status']>>>()
   private activeCommits=0
-  constructor(private db: Database.Database, private root: string, private assets: AssetStore) {
-    db.exec(`CREATE TABLE IF NOT EXISTS ingress_image_sources (
+  private readonly table: 'ingress_image_sources' | 'ingress_file_sources'
+  constructor(private db: Database.Database, private root: string, private assets: AssetStore, private format: 'image' | 'zip' = 'image') {
+    this.table = format === 'image' ? 'ingress_image_sources' : 'ingress_file_sources'
+    db.exec(`CREATE TABLE IF NOT EXISTS ${this.table} (
       source_key TEXT PRIMARY KEY, identity_json TEXT NOT NULL, owner_id TEXT NOT NULL, chat_id TEXT NOT NULL,
       target_key TEXT NOT NULL, size INTEGER NOT NULL, digest TEXT NOT NULL, mime TEXT NOT NULL,
       upload_id TEXT NOT NULL UNIQUE, received INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL,
       asset_id TEXT, version_id TEXT);
-      CREATE INDEX IF NOT EXISTS ingress_image_target ON ingress_image_sources(owner_id,target_key);`)
-    const columns=db.prepare('PRAGMA table_info(ingress_image_sources)').all() as {name:string}[]
-    if(!columns.some(c=>c.name==='permitted'))db.exec('ALTER TABLE ingress_image_sources ADD COLUMN permitted INTEGER NOT NULL DEFAULT 1')
+      CREATE INDEX IF NOT EXISTS ${this.table}_target ON ${this.table}(owner_id,target_key);`)
+    const columns=db.prepare(`PRAGMA table_info(${this.table})`).all() as {name:string}[]
+    if(!columns.some(c=>c.name==='permitted'))db.exec(`ALTER TABLE ${this.table} ADD COLUMN permitted INTEGER NOT NULL DEFAULT 1`)
     fs.mkdirSync(root, { recursive: true, mode: 0o700 })
     if (fs.lstatSync(root).isSymbolicLink()) fail('STORAGE_UNAVAILABLE')
   }
@@ -50,9 +54,9 @@ export class SourcePublicationStore {
   }
   private row(c: SourcePublicationContext): SourceRow | undefined {
     c.validate()
-    const row = this.db.prepare('SELECT * FROM ingress_image_sources WHERE source_key = ?').get(c.sourceKey) as SourceRow | undefined
-    if (row && (row.owner_id !== c.ownerId || row.chat_id !== c.chatId || row.target_key !== c.targetKey || row.identity_json !== c.sourceIdentity)) fail('SOURCE_CONFLICT')
-    if(row && (this.db.prepare('SELECT permitted FROM ingress_image_sources WHERE source_key=?').get(c.sourceKey) as {permitted:number}).permitted!==1)fail('IDENTITY_REJECTED')
+    const row = this.db.prepare(`SELECT * FROM ${this.table} WHERE source_key = ?`).get(c.sourceKey) as SourceRow | undefined
+    if (row && (row.owner_id !== c.ownerId || row.chat_id !== (c.chatId ?? '') || row.target_key !== c.targetKey || row.identity_json !== c.sourceIdentity)) fail('SOURCE_CONFLICT')
+    if(row && (this.db.prepare(`SELECT permitted FROM ${this.table} WHERE source_key=?`).get(c.sourceKey) as {permitted:number}).permitted!==1)fail('IDENTITY_REJECTED')
     return row
   }
   reserve(c:SourcePublicationContext,size:number) {
@@ -70,7 +74,7 @@ export class SourcePublicationStore {
     const existing = this.row(c)
     if (existing) {
       if(existing.state==='uploading' && !existing.digest && input.sha256 && existing.size===input.size) {
-        this.db.prepare('UPDATE ingress_image_sources SET digest=?,mime=? WHERE source_key=?').run(input.sha256,input.mimeType,c.sourceKey)
+        this.db.prepare(`UPDATE ${this.table} SET digest=?,mime=? WHERE source_key=?`).run(input.sha256,input.mimeType,c.sourceKey)
         return this.status(c)
       }
       if (existing.size !== input.size || existing.digest !== input.sha256 || existing.mime !== input.mimeType) fail('SOURCE_CONFLICT')
@@ -80,15 +84,15 @@ export class SourcePublicationStore {
     const uploadId = randomUUID(), filename = this.filename(uploadId)
     this.db.transaction(() => {
       c.validate()
-      const usage = this.db.prepare("SELECT COALESCE(SUM(size),0) total, COALESCE(SUM(CASE WHEN target_key = ? THEN size ELSE 0 END),0) target FROM ingress_image_sources WHERE owner_id = ? AND state != 'aborted'").get(c.targetKey, c.ownerId) as { total: number; target: number }
+      const usage = this.db.prepare(`SELECT COALESCE(SUM(size),0) total, COALESCE(SUM(CASE WHEN target_key = ? THEN size ELSE 0 END),0) target FROM ${this.table} WHERE owner_id = ? AND state != 'aborted'`).get(c.targetKey, c.ownerId) as { total: number; target: number }
       if (usage.total + input.size > c.limits.totalBytes || usage.target + input.size > c.limits.perTargetBytes) fail('QUOTA_EXCEEDED')
       const disk = fs.statfsSync(this.root)
       if (disk.bavail * disk.bsize < input.size * 2) fail('STORAGE_UNAVAILABLE')
       this.own(uploadId,true)
       const fd = fs.openSync(filename, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW, 0o600)
       try { fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
-      this.db.prepare(`INSERT INTO ingress_image_sources(source_key,identity_json,owner_id,chat_id,target_key,size,digest,mime,upload_id,received,state)
-        VALUES (?,?,?,?,?,?,?,?,?,0,'uploading') ON CONFLICT(source_key) DO UPDATE SET upload_id=excluded.upload_id, received=0,state='uploading'`).run(c.sourceKey,c.sourceIdentity,c.ownerId,c.chatId,c.targetKey,input.size,input.sha256,input.mimeType,uploadId)
+      this.db.prepare(`INSERT INTO ${this.table}(source_key,identity_json,owner_id,chat_id,target_key,size,digest,mime,upload_id,received,state)
+        VALUES (?,?,?,?,?,?,?,?,?,0,'uploading') ON CONFLICT(source_key) DO UPDATE SET upload_id=excluded.upload_id, received=0,state='uploading'`).run(c.sourceKey,c.sourceIdentity,c.ownerId,c.chatId ?? '',c.targetKey,input.size,input.sha256,input.mimeType,uploadId)
     }).immediate()
     return this.status(c)
   }
@@ -113,7 +117,7 @@ export class SourcePublicationStore {
       while (written < data.length) { const n = fs.writeSync(fd, data, written, data.length - written, input.offset + written); if (!n) fail('STORAGE_UNAVAILABLE'); written += n }
       fs.fsyncSync(fd)
       c.validate()
-      this.db.prepare('UPDATE ingress_image_sources SET received=? WHERE source_key=? AND received=?').run(input.offset + data.length,c.sourceKey,input.offset)
+      this.db.prepare(`UPDATE ${this.table} SET received=? WHERE source_key=? AND received=?`).run(input.offset + data.length,c.sourceKey,input.offset)
       return { nextOffset: input.offset + data.length }
     } finally { fs.closeSync(fd) }
   }
@@ -145,11 +149,12 @@ export class SourcePublicationStore {
     } finally { fs.closeSync(fd) }
     if (createHash('sha256').update(body).digest('hex') !== row.digest) fail('DIGEST_MISMATCH')
     const format = identifyFile(body, row.mime)
-    if (format.kind !== 'image') fail('FILE_INVALID')
+    if (this.format === 'image' ? format.kind !== 'image' : format.mimeType !== 'application/zip') fail('FILE_INVALID')
     c.validate()
-    const asset = await this.assets.publishSource(body, { ownerId:c.ownerId, chatId:c.chatId, originalName:'QQ image', ...format,
+    const asset = await this.assets.publishSource(body, { ownerId:c.ownerId, chatId:c.chatId, source:c.source,
+      originalName:c.originalName ?? (this.format === 'image' ? 'QQ image' : 'QQ archive'), ...format,
       sourceKey:c.sourceKey, validate:() => { c.validate(); const current=this.row(c);if(current?.state!=='uploading' || current.upload_id!==row.upload_id)fail('UPLOAD_ABORTED') },
-      published: (asset: AssetRecord) => { this.db.prepare("UPDATE ingress_image_sources SET state='committed',asset_id=?,version_id=? WHERE source_key=?").run(asset.id,asset.versionId,c.sourceKey) } })
+      published: (asset: AssetRecord) => { this.db.prepare(`UPDATE ${this.table} SET state='committed',asset_id=?,version_id=? WHERE source_key=?`).run(asset.id,asset.versionId,c.sourceKey) } })
     void asset
     this.remove(row.upload_id)
     return this.status(c)
@@ -158,7 +163,7 @@ export class SourcePublicationStore {
     const row=this.row(c)
     if (!row || row.upload_id!==uploadId) fail('UPLOAD_ABORTED')
     if(row.state==='committed') return {cancelled:false}
-    this.db.prepare("UPDATE ingress_image_sources SET state='aborted' WHERE source_key=?").run(c.sourceKey)
+    this.db.prepare(`UPDATE ${this.table} SET state='aborted' WHERE source_key=?`).run(c.sourceKey)
     this.remove(row.upload_id)
     return {cancelled:true}
   }
@@ -166,14 +171,14 @@ export class SourcePublicationStore {
   /** Only owned ledger entries; QQ caches and arbitrary directory files are never scanned. */
   recover() {
     this.assets.recoverPublications()
-    const rows=this.db.prepare('SELECT * FROM ingress_image_sources').all() as SourceRow[]
+    const rows=this.db.prepare(`SELECT * FROM ${this.table}`).all() as SourceRow[]
     const active=new Set(rows.filter(r=>r.state==='uploading').map(r=>r.upload_id))
     for(const id of this.manifest())if(!active.has(id))this.remove(id)
     for(const r of rows) {
       if(r.state!=='uploading') {this.remove(r.upload_id);continue}
       if(/^[a-f0-9]{64}$/.test(r.digest))this.assets.discardUnpublishedBlob(r.digest)
       try {const fd=fs.openSync(this.filename(r.upload_id),fs.constants.O_RDWR|fs.constants.O_NOFOLLOW|fs.constants.O_NONBLOCK);try{const s=fs.fstatSync(fd);if(!s.isFile()||s.size<r.received)throw Error();fs.ftruncateSync(fd,r.received);fs.fsyncSync(fd)}finally{fs.closeSync(fd)}}
-      catch {this.db.prepare("UPDATE ingress_image_sources SET state='aborted' WHERE source_key=?").run(r.source_key);this.remove(r.upload_id)}
+      catch {this.db.prepare(`UPDATE ${this.table} SET state='aborted' WHERE source_key=?`).run(r.source_key);this.remove(r.upload_id)}
     }
   }
 }
