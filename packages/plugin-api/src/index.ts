@@ -296,10 +296,25 @@ export interface IngressQuestionAnswer extends IngressFileContext {
   answers: Array<{ questionId: string; selectedLabels: string[]; freeText?: string; cancelled?: boolean }>
   sourceAnswers?: { snapshotId: string; records: Array<{ questionId: string; record: SourceRecordRef }> }
 }
-export interface IngressQuestionAnswerResult { runId: string; sourceSnapshot?: SourceSnapshot }
+export interface IngressQuestionResume extends IngressFileContext {
+  runId: string
+  commandId: string
+  sourceCapacity?: IngressSourceCapacity
+}
+export interface IngressQuestionResumeResult {
+  runId: string
+  commandId: string
+  status: 'saving' | 'saved' | 'started' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+  canQueue: boolean
+  reasonCode?: string
+  sourceSnapshot?: SourceSnapshot
+}
+export type IngressQuestionAnswerResult = IngressQuestionResumeResult
 export interface IngressCore {
   sourceConversations?: IngressSourceConversations
   answerQuestions?(input: IngressQuestionAnswer): Promise<IngressQuestionAnswerResult>
+  questionResumeStatus?(input: IngressQuestionResume): Promise<IngressQuestionResumeResult>
+  resumeQuestions?(input: IngressQuestionResume): Promise<IngressQuestionResumeResult>
   sourceReferences?(conversationKey:string): Promise<Record<string, import('@chery/protocol').MessagePart>>
   abortSources?(sourceKeys:readonly string[]): Promise<void>
   restrictSources?(conversationKeys: readonly string[]): Promise<void>
@@ -321,6 +336,8 @@ export interface IngressCoreAdapter {
   readSourceManagement?(ownerId: string, input: { principal: string; query: import('@chery/protocol').SourceManagementQuery; generatedReply?: string; validateIdentity(): void }): Promise<import('@chery/protocol').SourceManagementResult>
   sourceConversations?: IngressSourceConversationsAdapter
   answerQuestions?(ownerId: string, key: string, input: Omit<IngressQuestionAnswer, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressQuestionAnswerResult>
+  questionResumeStatus?(ownerId: string, key: string, input: Omit<IngressQuestionResume, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressQuestionResumeResult>
+  resumeQuestions?(ownerId: string, key: string, input: Omit<IngressQuestionResume, 'conversationKey' | 'identity'> & IngressFileAuthorization): Promise<IngressQuestionResumeResult>
   sourceReferences?(ownerId:string,key:string): Promise<Record<string, import('@chery/protocol').MessagePart>>
   abortSources?(ownerId:string,sourceKeys:readonly string[]): Promise<void>
   restrictSources?(ownerId:string,conversationKeys:readonly string[]): Promise<void>

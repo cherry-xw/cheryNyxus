@@ -6,6 +6,8 @@
 
 ## 职责
 
+QQ 原任务归属及答案命令由 [`sourceTasks.ts`](../../../apps/backend/src/db/sourceTasks.ts) 维护，独立建表入口为 `sourceTaskSchema.ts`；原文、快照及工具过程仍由 `sourceContext.ts` 唯一保存，不另存第二份执行历史。任务自身的问题批决定等待，不使用会话全部未答问题推断当前任务状态；跨月库答案与主库快照分阶段补齐，全部一致才允许排队。对外约定见[QQ 原任务问答](../../shared/protocol/qqbot-plugin.md#qq-原任务问答)。
+
 QQ 来源保存的详细约定见[处理与数据细则](../../plan/conversation-observability-and-input/qq-context-contracts.md)，当前实现的离线结果与未完成验收见[验证记录](../../plan/conversation-observability-and-input/qq-context-verification.md)，不能视为部署可用。主库初始化入口为 `initSoulTables`，来源表与仓库由 `db/sourceContext.ts` 负责：原文、范围成员、收件、冻结快照、模型采用及摘要分别保存；删除 Core 会话不连带删除来源。仓库的授权由宿主产生，每次读写重新验证，不把正文中的身份、预设或路径当成许可；不新增自动来源清理。
 
 内部 QQ 来源输入在 `pending_inputs.source_input` 与月份库 `messages.source_input` 保存固定的 `SourceInput` 引用。正文仅供执行历史展示，模型输入按不可变快照读取来源；公共聊天请求不能提交该字段。恢复读取引用不授予执行权，也不允许新进程自动继续旧 QQ 前台任务。来源范围的 Core 绑定由已验证的宿主提交确定；资产仍检查当前范围和固定版本，Core 的文件授权不能替代来源许可。

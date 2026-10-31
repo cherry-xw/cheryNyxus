@@ -267,6 +267,15 @@ export function hasPendingQuestionBatches(chatId: string): boolean {
   )
 }
 
+/** Read one batch without sweeping or changing any question state. */
+export function questionBatchFacts(chatId: string, batchId: string): Array<{ questionId: string; status: 'pending' | 'answered' | 'cancelled'; answerText?: string }> {
+  const db = monthlyDbForChat(chatId)
+  return (db.prepare(`SELECT i.question_id,i.status,i.answer_text FROM question_items i
+    JOIN question_batches b ON b.batch_id=i.batch_id WHERE b.chat_id=? AND b.batch_id=? ORDER BY i.position`)
+    .all(chatId, batchId) as Array<{ question_id: string; status: 'pending' | 'answered' | 'cancelled'; answer_text: string | null }>)
+    .map(row => ({ questionId: row.question_id, status: row.status, ...(row.answer_text !== null ? { answerText: row.answer_text } : {}) }))
+}
+
 export function getPendingQuestionAttention(chatId: string): Array<{
   batchId: string
   questionId: string

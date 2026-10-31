@@ -1027,6 +1027,23 @@ export class SourceContextRepository {
         kind: body.role === 'sense' ? 'tool_result' : body.role === 'role' ? 'role_return' : 'assistant_call', bodyHash: row.body_hash } }
     })
   }
+  completedRunMessages(authority: SourceAuthority, scopeId: string, requestId: string) {
+    const messages = this.runMessages(authority, scopeId, requestId)
+    const calls = new Set<string>(), results = new Set<string>()
+    for (const message of messages) {
+      if (message.state !== 'completed') sourceContextError('SOURCE_TOOL_OUTCOME_UNKNOWN')
+      if (message.body.role === 'assistant') for (const call of message.body.senseCalls ?? []) {
+        if (calls.has(call.id)) sourceContextError('SOURCE_TOOL_OUTCOME_UNKNOWN')
+        calls.add(call.id)
+      }
+      if (message.body.role === 'sense') {
+        if (!calls.has(message.body.id) || results.has(message.body.id)) sourceContextError('SOURCE_TOOL_OUTCOME_UNKNOWN')
+        results.add(message.body.id)
+      }
+    }
+    if (calls.size !== results.size) sourceContextError('SOURCE_TOOL_OUTCOME_UNKNOWN')
+    return messages
+  }
   prepareAttempt(authority: SourceAuthority, scopeId: string, projectionId: string, attemptId: string): SourceAttempt {
     return this.db.transaction(() => {
       this.scope(authority, scopeId, ['execution', 'maintenance'])

@@ -7,6 +7,7 @@ import { initAssetTables } from './assets.js'
 import { initAgentCommandTables } from './agentCommands.js'
 import { initBackendResumeTables } from './backendResume.js'
 import { initSourceContextTables } from './sourceContext.js'
+import { initSourceTaskTables } from './sourceTasks.js'
 
 // 缓存管理
 const dbCache = {
@@ -80,6 +81,7 @@ function initSoulTables(db: Database.Database): void {
   initAgentCommandTables(db)
   initBackendResumeTables(db)
   initSourceContextTables(db)
+  initSourceTaskTables(db)
   db.exec(`
     CREATE TABLE IF NOT EXISTS server_tool_observations (
       scope_id TEXT NOT NULL,
