@@ -304,6 +304,7 @@ describe('delivery failures never silence future requests',()=>{
  })
  it('combines tool icons and public text in the existing cycle without thinking or completion',()=>{
   const {p,job}=fixture();job.reply='';job.waits=0;job.conversationKey='k';job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle',toolIcons:{web:'🌐',bash:'🔧'}}
+  job.input.conversationType='private'
   p.coreEvent('k',{type:'sense_started',data:{id:'a',senseName:'web'}})
   p.coreEvent('k',{kind:'chunk',type:'staged',data:{type:'content_end',role:'assistant',content:'读取网页。'}})
   p.coreEvent('k',{type:'sense_started',data:{id:'b',senseName:'bash'}})
@@ -317,6 +318,7 @@ describe('delivery failures never silence future requests',()=>{
  })
  it('retains unsent text when replacing a pending feedback cycle',()=>{
   const {p,job}=fixture();job.reply='A';job.waits=0;job.pendingActivity=['🌐 A'];job.pendingIcons=['🌐'];job.activityReplyOffset=0
+  job.input.conversationType='private'
   job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'}
   p.context.connections.send=()=>false
   job.nextWaitAt=Date.now()-1;p.tick()
@@ -326,6 +328,7 @@ describe('delivery failures never silence future requests',()=>{
  })
  it('defers final reply preparation while public text feedback is in flight',async()=>{
   const {p,job}=fixture();job.reply='A';job.pendingActivity=['🌐 A'];job.pendingIcons=['🌐'];job.activityReplyOffset=0
+  job.input.conversationType='private'
   job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'}
   job.snapshot.config.maxMessageChars=1000
   job.nextWaitAt=Date.now()-1;p.tick();p.state.outbox.at(-1).status='inflight'
@@ -338,6 +341,7 @@ describe('delivery failures never silence future requests',()=>{
  })
  it('repeats icons and fallback every cycle even when the model target is busy',()=>{
   const {p,job}=fixture();p.busy.add(job.target);job.waits=0;job.pendingIcons=['🔧'];job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'sequence',toolIcons:{}}
+  job.input.conversationType='private'
   const cycle=()=>{job.nextWaitAt=Date.now()-1;p.tick();return p.state.outbox.at(-1)}
   expect(cycle().frame.data.text).toBe('🔧');expect(job.nextWaitAt).toBeGreaterThan(Date.now())
   expect(cycle().frame.data.text).toBe('working')
@@ -347,9 +351,65 @@ describe('delivery failures never silence future requests',()=>{
  })
  it('bounds heartbeat history over a month and stops producing after computation ends',()=>{
   const {p,job}=fixture();job.waits=0;job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'};p.busy.add(job.target)
+  job.input.conversationType='private'
   for(let i=0;i<15000;i++) {job.nextWaitAt=Date.now()-1;p.tick();for(const o of p.state.outbox)o.status='sent'}
   expect(job.state).toBe('running');expect(p.state.outbox.length).toBeLessThanOrEqual(258)
   job.state='completed';const before=p.state.outbox.length;p.tick();expect(p.state.outbox.length).toBe(before)
+ })
+ it.each([{observe:true,decisionRequired:true},{observe:false,decisionRequired:true}])('does not send periodic feedback before a participation decision: %j',mode=>{
+  const {p,job}=fixture();Object.assign(job,mode);job.input.messageId='10';job.reply='尚未获准';job.waits=0
+  job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'}
+  job.nextWaitAt=Date.now()-1;p.tick()
+  expect(p.state.outbox).toHaveLength(0)
+ })
+ it('does not send periodic feedback from an observation even after its reply decision',()=>{
+  const {p,job}=fixture();job.observe=true;job.decisionRequired=true;job.participation='reply';job.input.messageId='10';job.reply='尚未派生';job.waits=0
+  job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'}
+  job.nextWaitAt=Date.now()-1;p.tick()
+  expect(p.state.outbox).toHaveLength(0)
+ })
+ it('sends periodic reactions for each merged group input without tool icons or waiting text',()=>{
+  const {p,job}=fixture();job.input.messageId='10';job.mergedInputs=[job.input,{...job.input,messageId:'11'}];job.reply='有效正文';job.activityReplyOffset=0;job.waits=0
+  job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'}
+  p.output(job,'qq.message.ack',{messageId:'10',emojiId:'178'});p.output(job,'qq.message.ack',{messageId:'11',emojiId:'264'})
+  job.nextWaitAt=Date.now()-1;p.tick()
+  const reactions=p.state.outbox.filter((o:any)=>o.frame.data.state==='progress')
+  expect(reactions.map((o:any)=>[o.frame.data.messageId,o.frame.data.emojiId])).toEqual([['10','178'],['11','264']])
+  expect(p.state.outbox.filter((o:any)=>o.frame.type==='qq.waiting').map((o:any)=>o.frame.data.text)).toEqual(['有效正文'])
+  p.deliveryProblem(job,{...reactions[0],status:'failed'});expect(job.state).toBe('running')
+ })
+ it('chooses one stable reaction for a group message without acknowledgement and stops at pause',()=>{
+  const {p,job}=fixture();job.input.messageId='10';job.reply='';job.waits=0;job.conversationKey='k';job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'}
+  job.nextWaitAt=Date.now()-1;p.tick();const emoji=job.progressEmojis['10']
+  job.nextWaitAt=Date.now()-1;p.tick();expect(job.progressEmojis['10']).toBe(emoji)
+  expect(p.state.outbox.filter((o:any)=>o.frame.data.state==='progress')).toHaveLength(1)
+  p.coreEvent('k',{type:'interrupt',data:{needsApproval:true}})
+  expect(p.state.outbox.filter((o:any)=>o.frame.data.state==='progress'&&o.status==='pending')).toHaveLength(0)
+ })
+ it('preserves download updates while replacing pending group text without losing content',()=>{
+  const {p,job}=fixture();job.input.messageId='10';job.reply='A';job.activityReplyOffset=0;job.waits=0;job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'}
+  p.context.connections.send=()=>false
+  p.output(job,'qq.waiting',{text:'下载进度 20%'})
+  job.nextWaitAt=Date.now()-1;p.tick();job.reply='A\n\nB';job.nextWaitAt=Date.now()-1;p.tick()
+  const pending=p.state.outbox.filter((o:any)=>o.frame.type==='qq.waiting'&&o.status==='pending')
+  expect(pending.map((o:any)=>o.frame.data.text)).toEqual(['下载进度 20%','A\n\nB'])
+ })
+ it('does not deliver a stale reaction after disconnection or delayed source recording',()=>{
+  const {p,job}=fixture();job.input.messageId='10';job.reply='';job.waits=0;job.snapshot.config={...job.snapshot.config,waitMessages:['working'],toolIconsEnabled:true,waitMessageMode:'cycle'}
+  job.nextWaitAt=Date.now()-1;p.tick()
+  const old=p.state.outbox.find((o:any)=>o.frame.data.state==='progress')
+  job.nextWaitAt=Date.now()-1
+  expect(p.mayDeliver(old)).toBe(false)
+  p.tick()
+  expect(p.state.outbox).not.toContain(old)
+  expect(p.mayDeliver(old)).toBe(false)
+ })
+ it('does not treat a failed periodic reaction as a failed final reply',async()=>{
+  const {p,job}=fixture();job.input.messageId='10';job.reply='完成';job.snapshot.config={...job.snapshot.config,maxMessageChars:1000}
+  p.output(job,'qq.reply.action',{actionKind:'reaction',completeReply:false,messageId:'10',emojiId:'178',state:'progress'});p.state.outbox[0].status='failed'
+  await p.finishWithFiles(job,'completed')
+  expect(p.state.outbox.some((o:any)=>o.frame.type==='qq.request.failed')).toBe(false)
+  expect(p.state.outbox.some((o:any)=>o.frame.type==='qq.reply.part'&&o.frame.data.text==='完成')).toBe(true)
  })
  it('does not turn confirmation-pending computation into failure',()=>{
   const {p,job}=fixture();job.state='sending';job.outcome='completed';p.output(job,'qq.reply.video',{mediaFile:'1.mp4'});const output=p.state.outbox[0];output.status='unknown';p.deliveryProblem(job,output)

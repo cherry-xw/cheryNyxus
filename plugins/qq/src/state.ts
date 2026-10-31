@@ -76,6 +76,7 @@ export const JobDataSchema = z.object({
   toolIds: z.array(z.string()),
   douyinUrl: z.string().optional(),
   pendingIcons: z.array(z.string()).default([]),
+  progressEmojis: z.record(z.string(), z.string().regex(/^\d+$/)).optional(),
   pendingActivity: z.array(z.string()).default([]),
   activityReplyOffset: z.number().int().nonnegative().default(0),
   sentIcons: z.array(z.string()).default([]),

@@ -49,6 +49,16 @@ describe('native QQ adapter actions', () => {
     expect(f.call).toHaveBeenCalledWith('set_msg_emoji_like', { message_id: '-1', emoji_id: '4', set: true }, undefined, {})
     expect(f.request).toHaveBeenCalledWith('qq.delivery.result', expect.objectContaining({ messageIds: [], terminal: true, status: 'sent' }))
   })
+  it('sends distinct periodic reactions while deduplicating replay of each event', async () => {
+    const f = fixture(); f.call.mockResolvedValue({} as any)
+    const first = event('reaction', { eventId: 'progress-1', state: 'progress', emojiId: '4', messageId: '11', completeReply: false })
+    const second = event('reaction', { eventId: 'progress-2', seq: 2, state: 'progress', emojiId: '4', messageId: '11', completeReply: false })
+    await (f.adapter as any).notification(first); await (f.adapter as any).notification(first); await (f.adapter as any).notification(second)
+    expect(f.call).toHaveBeenCalledTimes(2)
+    expect(f.call).toHaveBeenCalledWith('set_msg_emoji_like', { message_id: '11', emoji_id: '4', set: true }, undefined, {})
+    expect((f.adapter as any).journal.outputs['progress-1'].progress).toBe(true)
+    expect(f.request).toHaveBeenCalledWith('qq.delivery.result', expect.objectContaining({ eventId: 'progress-2', terminal: false, status: 'sent' }))
+  })
   it('retries confirmation without repeating successful poke or reporting unknown', async () => {
     const f = fixture(); f.call.mockResolvedValue({} as any)
     f.request.mockRejectedValueOnce(new Error('confirmation disconnected'))

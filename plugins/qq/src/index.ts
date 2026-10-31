@@ -67,6 +67,9 @@ function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code })
 }
 const terminal = (job: Job) => job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled'
+const progressReaction = (output: Outbox) => output.frame.type === 'qq.reply.action' && output.frame.data.actionKind === 'reaction' && output.frame.data.state === 'progress'
+const ackEmojis = ['268','269','270','271','272','277','307','306','281','283','284','285','286','287','289','294','297','298','299','323','475','476','477','478','479','353','356','354','352','357','428','201','317','324','341','26','27','29','427','34','38','177','33','265','264','346','262','178']
+const randomAckEmoji = () => ackEmojis[Math.floor(Math.random() * ackEmojis.length)]!
 export function createPlugin(context: IngressContext): IngressPlugin {
   return new QQPlugin(context)
 }
@@ -432,7 +435,7 @@ export class QQPlugin implements IngressPlugin {
       }
       if (
         this.state.outbox.some(
-          (o) => !terminal(job) && !currentQuestions(job) && o.frame.data.requestId === job.requestId && o.status === 'unknown' && !['qq.message.ack', 'qq.waiting', 'qq.tool.icon'].includes(o.frame.type),
+          (o) => !terminal(job) && !currentQuestions(job) && o.frame.data.requestId === job.requestId && o.status === 'unknown' && !progressReaction(o) && !['qq.message.ack', 'qq.waiting', 'qq.tool.icon'].includes(o.frame.type),
         )
       ) {
         job.reason = 'DELIVERY_UNKNOWN'
@@ -583,6 +586,7 @@ export class QQPlugin implements IngressPlugin {
   private mayDeliver(output: Outbox): boolean {
     const job = this.job(output)
     return !job?.observe && (!job?.derivedFrom || resolveConversationPolicy(this.snapshot.config, job.target).effective.mode === 'proactive') &&
+      (!progressReaction(output) || this.state.outbox.includes(output) && job?.state === 'running' && job.reason !== 'WAITING_FOR_APPROVAL' && job.nextWaitAt !== undefined && Date.now() < job.nextWaitAt) &&
       (!job?.sourceRecords || (job.mergedInputs ?? [job.input]).every(input => this.sources.ready(input.eventId))) &&
       !this.closing() && (this.accepting() || this.adoptedJobs.has(output.frame.data.requestId))
   }
@@ -1263,56 +1267,7 @@ export class QQPlugin implements IngressPlugin {
       if (unavailable) this.failureNotice(job, '处理所需配置不可用，这次未执行，请联系管理员。')
       if (overloaded) { if (observe) { job.state = 'cancelled'; job.reason = 'QUEUE_FULL' } else this.failureNotice(job, '已收到，目前排队已满，这次未执行，请稍后重试。') }
       if (!job.decisionRequired) {
-        const ackEmoji = [
-          '268',
-          '269',
-          '270',
-          '271',
-          '272',
-          '277',
-          '307',
-          '306',
-          '281',
-          '283',
-          '284',
-          '285',
-          '286',
-          '287',
-          '289',
-          '294',
-          '297',
-          '298',
-          '299',
-          '323',
-          '475',
-          '476',
-          '477',
-          '478',
-          '479',
-          '353',
-          '356',
-          '354',
-          '352',
-          '357',
-          '428',
-          '201',
-          '317',
-          '324',
-          '341',
-          '26',
-          '27',
-          '29',
-          '427',
-          '34',
-          '38',
-          '177',
-          '33',
-          '265',
-          '264',
-          '346',
-          '262',
-          '178',
-        ][Math.floor(Math.random() * 48)]!
+        const ackEmoji = randomAckEmoji()
         this.output(job, 'qq.message.ack', {
           messageId: input.messageId,
           emojiId: ackEmoji,
@@ -1447,7 +1402,7 @@ export class QQPlugin implements IngressPlugin {
       const previous = this.state.outbox.filter(o => o.frame.type === 'qq.reply.action' && o.frame.data.actionKind === 'mention' && o.frame.data.targetId === job.input.targetId && o.frame.data.userId === action.userId).at(-1)
       if (previous && (['pending', 'inflight', 'unknown'].includes(previous.status) || Date.now() - (previous.confirmedAt ?? this.job(previous)?.acceptedAt ?? Date.now()) < job.snapshot.config.mentionCooldownMs)) throw new Error('Member invitation cooldown; do not repeatedly disturb this member')
     }
-    if (action.kind === 'reaction' && this.state.outbox.some(o => o.status !== 'failed' && o.frame.data.messageId === job.input.messageId && o.frame.data.emojiId === action.emojiId && ['qq.message.ack', 'qq.reply.action'].includes(o.frame.type))) throw new Error('Reaction already queued or sent')
+    if (action.kind === 'reaction' && this.state.outbox.some(o => !progressReaction(o) && o.status !== 'failed' && o.frame.data.messageId === job.input.messageId && o.frame.data.emojiId === action.emojiId && ['qq.message.ack', 'qq.reply.action'].includes(o.frame.type))) throw new Error('Reaction already queued or sent')
     this.replyJob(job.coreRequestId!)
     this.output(job, 'qq.reply.action', { actionKind: action.kind, completeReply: action.completeReply, messageId: action.kind === 'quote' || action.kind === 'reaction' ? action.messageId : job.input.messageId,
       ...('userId' in action ? { userId: action.userId } : {}), ...('text' in action ? { text: action.text } : {}), ...('emojiId' in action ? { emojiId: action.emojiId } : {}), ...(action.kind === 'voice' ? { character: cfg.voiceDefaultCharacter } : {}) })
@@ -1543,7 +1498,7 @@ export class QQPlugin implements IngressPlugin {
     if (p.status === 'failed' || p.status === 'unknown') {
       this.deliveryProblem(job, output)
     } else {
-      if (job.reason === 'CONFIRMATION_PENDING') delete job.reason
+      if (!progressReaction(output) && job.reason === 'CONFIRMATION_PENDING') delete job.reason
       if (isTerminal && job.outcome !== undefined) {
         job.state = p.status === 'sent' && job.outcome === 'completed' ? 'completed' : 'failed'
         delete job.nextWaitAt
@@ -1552,7 +1507,7 @@ export class QQPlugin implements IngressPlugin {
     }
     this.persist()
     await this.recordOutput(output)
-    if (job.coreRequestId && this.connection && p.status === 'sent' && !activity) {
+    if (job.coreRequestId && this.connection && p.status === 'sent' && !activity && !progressReaction(output)) {
       const identity = await this.bindIdentity(job)
       this.handles.set(job.requestId, identity)
       await this.context.channels.reportSendResult({ connectionId: this.connection, entryId: 'qq',
@@ -1678,6 +1633,7 @@ export class QQPlugin implements IngressPlugin {
     this.persist()
   }
   private deliveryProblem(job: Job, output: Outbox): void {
+    if (progressReaction(output)) return
     if (currentQuestions(job)?.items.some(item => item.eventId === output.frame.data.eventId)) {
       job.reason = output.status === 'unknown' ? 'QUESTION_DELIVERY_UNKNOWN' : 'QUESTION_DELIVERY_FAILED'
       // Question delivery never changes the Core's paused execution result.
@@ -1788,11 +1744,17 @@ export class QQPlugin implements IngressPlugin {
       }
       this.deliverOutput(ack)
     }
+    // Do not deliver an expired group heartbeat before scheduling the next cycle.
+    this.state.outbox = this.state.outbox.filter(o => {
+      if (o.status !== 'pending' || !progressReaction(o)) return true
+      const job = this.job(o)
+      return !!job && job.state === 'running' && job.reason !== 'WAITING_FOR_APPROVAL' && job.nextWaitAt !== undefined && Date.now() < job.nextWaitAt
+    })
     // Transport progresses independently of model job state, including terminal jobs.
     for (const target of new Set(this.state.outbox.filter(o => o.status === 'pending' || o.status === 'inflight').map(o => this.job(o)?.target).filter((t): t is string => !!t))) {
       const outputs = this.state.outbox.filter(o => this.mayDeliver(o) && this.job(o)?.target === target && o.frame.type !== 'qq.message.ack')
       // Progress uses its own lane: slow content must not suppress heartbeats.
-      const progress = (o: Outbox) => ['qq.waiting','qq.tool.icon'].includes(o.frame.type)
+      const progress = (o: Outbox) => ['qq.waiting','qq.tool.icon'].includes(o.frame.type) || progressReaction(o)
       const candidates = outputs.filter(o => o.status === 'pending' &&
         !outputs.some(active => (active.status === 'inflight' || this.publishingDeliveries.has(active.frame.data.eventId)) && progress(active) === progress(o)))
       const next = candidates.sort((a,b) => a.frame.data.seq-b.frame.data.seq)[0]
@@ -1829,6 +1791,7 @@ export class QQPlugin implements IngressPlugin {
         this.operations.add(operation)
       } else if (
         job.state === 'running' &&
+        !job.observe &&
         (!job.decisionRequired || job.participation === 'reply') &&
         job.nextWaitAt !== undefined &&
         Date.now() >= job.nextWaitAt
@@ -1839,6 +1802,32 @@ export class QQPlugin implements IngressPlugin {
             ? Math.floor(Math.random() * c.waitMessages.length)
             : job.waits % c.waitMessages.length
         job.waits++
+        if (job.input.conversationType === 'group') {
+          const obsolete = this.state.outbox.filter(o => o.frame.data.requestId === job.requestId && progressReaction(o) && (o.status === 'pending' || o.status === 'sent' || o.status === 'failed'))
+          const remove = new Set([...obsolete.filter(o => o.status === 'pending'), ...obsolete.filter(o => o.status !== 'pending').slice(0, -256)])
+          this.state.outbox = this.state.outbox.filter(o => !remove.has(o))
+          job.nextWaitAt = Date.now() + c.waitIntervalSeconds * 1000
+          job.progressEmojis ??= {}
+          for (const input of job.mergedInputs ?? [job.input]) {
+            const ack = this.state.outbox.find(o => o.frame.data.requestId === job.requestId && o.frame.type === 'qq.message.ack' && o.frame.data.messageId === input.messageId)
+            const emojiId = job.progressEmojis[input.messageId] ?? ack?.frame.data.emojiId ?? randomAckEmoji()
+            job.progressEmojis[input.messageId] = emojiId
+            this.output(job, 'qq.reply.action', { actionKind: 'reaction', completeReply: false, messageId: input.messageId, emojiId, state: 'progress' })
+          }
+          const previousText = this.state.outbox.filter(o => o.frame.data.requestId === job.requestId && o.activityReplyThrough !== undefined && o.activityReplyThrough > (job.activityReplyOffset ?? 0))
+          if (!previousText.some(o => o.status === 'inflight' || o.status === 'unknown')) {
+            const text = job.reply.slice(job.activityReplyOffset ?? 0).trim()
+            if (text) {
+              for (const old of previousText) if (old.status === 'pending') old.status = 'failed'
+              this.output(job, 'qq.waiting', { text, policyRevision: job.snapshot.revision })
+              this.state.outbox.at(-1)!.activityReplyThrough = job.reply.length
+            }
+          }
+          job.pendingIcons = []
+          job.pendingActivity = []
+          this.persist()
+          continue
+        }
         const oldProgress = this.state.outbox.filter(o => o.frame.data.requestId === job.requestId && ['qq.waiting','qq.tool.icon'].includes(o.frame.type) && ['sent','failed'].includes(o.status))
         const remove = new Set(oldProgress.slice(0, Math.max(0, oldProgress.length - 256)))
         this.state.outbox = this.state.outbox.filter(o => !remove.has(o))
@@ -2348,6 +2337,7 @@ export class QQPlugin implements IngressPlugin {
     }
     if ((job.observe || job.decisionRequired && job.participation !== 'reply') && event.type !== 'run.outcome' && event.type !== 'done' && event.type !== 'error') return
     if (event.type === 'interrupt' && d.needsApproval === true) {
+      this.state.outbox = this.state.outbox.filter(o => !(o.frame.data.requestId === job.requestId && o.status === 'pending' && progressReaction(o)))
       if (job.reason !== 'WAITING_FOR_APPROVAL') this.output(job, 'qq.waiting', { text: '本次任务正在等待人工审批，尚未执行待审批操作。请原发起者在已登录的工作台查看并决定；群内文字不会被当作批准。', state: 'paused' })
       job.reason = 'WAITING_FOR_APPROVAL'; delete job.nextWaitAt
     } else if (event.type === 'sense_started') {
@@ -2355,7 +2345,7 @@ export class QQPlugin implements IngressPlugin {
       const id = String(d.approvalId ?? d.id ?? '')
       if (!id || job.toolIds.includes(id)) return
       job.toolIds = [...job.toolIds.slice(-255), id]
-      if (job.snapshot.config.toolIconsEnabled) {
+      if (job.input.conversationType !== 'group' && job.snapshot.config.toolIconsEnabled) {
         const name =
           typeof d.senseName === 'string' && /^[a-zA-Z0-9_.-]{1,100}$/.test(d.senseName)
             ? d.senseName
@@ -2396,6 +2386,7 @@ export class QQPlugin implements IngressPlugin {
     }
     else if (event.type === 'run.outcome') {
       if (d.status === 'paused') {
+        this.state.outbox = this.state.outbox.filter(o => !(o.frame.data.requestId === job.requestId && o.status === 'pending' && progressReaction(o)))
         const pending = currentQuestions(job)?.status === 'pending'
         job.outcome = 'paused'; job.state = 'paused'; job.reason = pending ? 'WAITING_FOR_ANSWER' : String(d.reasonCode ?? 'RUN_PAUSED')
         delete job.nextWaitAt
@@ -2403,10 +2394,12 @@ export class QQPlugin implements IngressPlugin {
         this.persist(); return
       }
       if (d.status === 'cancelled') {
+        this.state.outbox = this.state.outbox.filter(o => !(o.frame.data.requestId === job.requestId && o.status === 'pending' && progressReaction(o)))
         job.state = 'cancelled'; job.outcome = 'cancelled'; delete job.nextWaitAt
         this.output(job, 'qq.waiting', { text: publicOutcomeText(d), state: 'cancelled' }); this.persist(); return
       }
       if (d.status !== 'completed' && d.status !== 'failed') {
+        this.state.outbox = this.state.outbox.filter(o => !(o.frame.data.requestId === job.requestId && o.status === 'pending' && progressReaction(o)))
         job.state = 'paused'; job.outcome = 'unknown'; job.reason = 'UNRECOGNIZED_OUTCOME'
         delete job.nextWaitAt; this.output(job, 'qq.waiting', { text: publicOutcomeText(d), state: 'unknown' }); this.persist(); return
       }
@@ -2465,7 +2458,7 @@ export class QQPlugin implements IngressPlugin {
       this.persist()
       return
     }
-    this.state.outbox = this.state.outbox.filter(o => !(o.frame.data.requestId === job.requestId && o.status === 'pending' && ['qq.waiting','qq.tool.icon'].includes(o.frame.type)))
+    this.state.outbox = this.state.outbox.filter(o => !(o.frame.data.requestId === job.requestId && o.status === 'pending' && (progressReaction(o) || o.activityReplyThrough !== undefined || (job.input.conversationType !== 'group' && ['qq.waiting','qq.tool.icon'].includes(o.frame.type)))))
     delete job.nextWaitAt
     if (job.outputParts?.some(part => part.type === 'asset')) { job.filePreparationPending = true; this.persist() }
     const selected = new Set(defaultDeliverableAssetIds(job.outputOperations ?? []))
@@ -2497,7 +2490,7 @@ export class QQPlugin implements IngressPlugin {
       setImmediate(() => this.tick())
       return
     }
-    const failedAction = this.state.outbox.some(o => o.frame.data.requestId === job.requestId && o.frame.type === 'qq.reply.action' && o.status === 'failed')
+    const failedAction = this.state.outbox.some(o => o.frame.data.requestId === job.requestId && o.frame.type === 'qq.reply.action' && !progressReaction(o) && o.status === 'failed')
     if (failedAction && !job.replyActionComplete) { this.output(job, 'qq.request.failed', { text: '这次没发成功，换个方式再试吧。', state: 'failed' }); return }
     if (job.replyActionComplete) {
       job.filePreparationPending = false

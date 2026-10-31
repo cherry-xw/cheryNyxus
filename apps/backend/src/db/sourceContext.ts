@@ -301,7 +301,7 @@ export class SourceContextRepository {
       if (previous && (previous.fingerprint !== fingerprint || previous.scope_id !== scopeId)) sourceContextError('SOURCE_CONFLICT')
       const purpose = data.requestId.startsWith('reminder:') ? 'reminder' : data.requestId.startsWith('app-notification:') ? 'app_notification'
         : frame.type === 'qq.request.failed' ? 'error_notice' : frame.type === 'qq.message.ack' ? 'ack'
-          : frame.type === 'qq.waiting' || frame.type === 'qq.tool.icon' ? 'progress' : 'reply'
+          : frame.type === 'qq.waiting' || frame.type === 'qq.tool.icon' || frame.type === 'qq.reply.action' && data.actionKind === 'reaction' && data.state === 'progress' ? 'progress' : 'reply'
       const kind = frame.type === 'qq.reply.action' && ['poke', 'reaction'].includes(data.actionKind ?? '') || frame.type === 'qq.message.ack'
         ? 'action' : frame.type === 'qq.reply.file' || frame.type === 'qq.reply.video' && data.uploadAsFile ? 'file_delivery' : 'message'
       if (!previous) this.db.prepare(`INSERT INTO source_deliveries

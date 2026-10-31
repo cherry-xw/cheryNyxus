@@ -45,7 +45,8 @@ type Journal = {
   blocked: Record<string, boolean>
   progressSeq?: Record<string, number>
 }
-const VERSION = '0.2.15'
+const VERSION = '0.2.16'
+const isProgress = (event: WireNotification) => ['qq.waiting', 'qq.tool.icon'].includes(event.type) || (event.type === 'qq.reply.action' && event.data?.actionKind === 'reaction' && event.data?.state === 'progress')
 const idPattern = /^[1-9]\d{0,19}$/
 function qqId(value: unknown): string {
   if (typeof value === 'number') {
@@ -511,7 +512,7 @@ export class Adapter {
     }
     if (event?.type === 'qq.image.scope') { await this.images.accept(event.data); return }
     if (event?.type === 'qq.connection.state') { await this.notification(event); return }
-    const key = `${event?.data?.selfId}:${event?.data?.conversationType}:${event?.data?.targetId}${event?.type === 'qq.message.ack' && event?.data?.conversationType === 'group' ? ':ack' : ['qq.waiting','qq.tool.icon'].includes(event?.type) ? ':progress' : ''}`
+    const key = `${event?.data?.selfId}:${event?.data?.conversationType}:${event?.data?.targetId}${event?.type === 'qq.message.ack' && event?.data?.conversationType === 'group' ? ':ack' : isProgress(event) ? ':progress' : ''}`
     const generation = this.fileGeneration
     const deliveryEpoch = this.deliveryEpoch
     const task = (this.queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
@@ -602,7 +603,7 @@ export class Adapter {
       return
     }
     const key = `${this.selfId}:${event.data.conversationType}:${target}`
-    if (!previous && ['qq.waiting','qq.tool.icon'].includes(event.type) && Number(event.data.seq) <= (this.journal.progressSeq?.[key] ?? 0)) return
+    if (!previous && isProgress(event) && Number(event.data.seq) <= (this.journal.progressSeq?.[key] ?? 0)) return
     if (!QQNotificationSchema.safeParse(event).success) {
       this.ctx.logger.warn?.('QQ invalid notification rejected', { eventId: outputId })
       return
@@ -643,7 +644,7 @@ export class Adapter {
         validate()
         const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: event.data.conversationType,
           targetId: target, seq: event.data.seq, status: 'sent', ...delivery, sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
-        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: isProgress(event) }
         delete this.journal.blocked[key]
         saveJournal(this.journalFile, this.journal)
         await this.confirmDelivery(receipt)
@@ -670,7 +671,7 @@ export class Adapter {
         const messageId = nativeMessageId(result?.message_id ?? result?.data?.message_id)
         if (['voice', 'mention', 'quote'].includes(String(kind)) && messageId === undefined) throw new Error('Delivery unknown')
         const receipt = { eventId: outputId, requestId: event.data.requestId, selfId: this.selfId, conversationType: event.data.conversationType, targetId: target, seq: event.data.seq, status: 'sent', messageIds: messageId === undefined ? [] : [String(messageId)], sentAt: Date.now(), activity: false, terminal: event.data.completeReply === true }
-        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: isProgress(event) }
         delete this.journal.blocked[key]
         saveJournal(this.journalFile, this.journal)
         await this.confirmDelivery(receipt)
@@ -719,7 +720,7 @@ export class Adapter {
           activity,
           terminal: false,
         }
-        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
+        this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: isProgress(event) }
         delete this.journal.blocked[key]
         saveJournal(this.journalFile, this.journal)
         await this.confirmDelivery(receipt)
@@ -811,7 +812,7 @@ export class Adapter {
         activity,
         terminal,
       }
-      this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: ['qq.waiting','qq.tool.icon'].includes(event.type) }
+      this.journal.outputs[outputId] = { status: 'sent', hash: hash(event), confirmation: receipt, progress: isProgress(event) }
       delete this.journal.blocked[key]
       saveJournal(this.journalFile, this.journal)
       await this.confirmDelivery(receipt)
