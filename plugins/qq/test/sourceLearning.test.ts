@@ -14,11 +14,38 @@ function fixture() {
   const prepared={operation,records:[{recordId:'message',parts:[{type:'text',text:'学习资料'}]}],runs:[],deliveries:[],evidence:[],throughOrdinal:1,throughRun:0} as unknown as IngressLearningPreparation
   const api={prepareLearning:vi.fn(async()=>({...prepared,operation:{...operation}})),learningStatus:vi.fn(async()=>({...operation})),updateLearning:vi.fn(async(input:any)=>Object.assign(operation,input,{version:operation.version+1}))}
   const internalText=vi.fn(async()=> '[]'),commit=vi.fn(async(input:any)=>{input.validate();return 'receipt'}),save=vi.fn()
-  const learning=new QQSourceLearning({context:{core:{sourceConversations:api,internalText}} as any,state,save,current:()=>current as any,commit})
+  const listPresets=vi.fn(()=>[{name:'named-preset',presetId:'preset'}])
+  const learning=new QQSourceLearning({context:{core:{sourceConversations:api,internalText,listPresets}} as any,state,save,current:()=>current as any,commit})
   const work=()=> (learning as any).work(new AbortController().signal)
-  return {state,config,current,task,operation,prepared,api,internalText,commit,save,learning,work}
+  return {state,config,current,task,operation,prepared,api,internalText,listPresets,commit,save,learning,work}
 }
 describe('QQ learning scheduling and recovery',()=>{
+  it('looks up the source preset name by stable ID when registering automatic learning',async()=>{
+    const f=fixture();f.state.tasks=[]
+    await f.work()
+    expect(f.state.tasks[0]?.preset).toBe('named-preset')
+    expect(f.internalText).toHaveBeenCalledWith(expect.objectContaining({preset:'named-preset'}))
+    expect(f.state.tasks[0]?.state).toBe('completed')
+  })
+  it('retries a persisted task whose preset field contains the source stable ID',async()=>{
+    const f=fixture();f.task.state='failed';f.task.reason='LEARNING_FAILED'
+    f.learning.retry(f.task.operationId);await f.work()
+    expect(f.internalText).toHaveBeenCalledWith(expect.objectContaining({preset:'named-preset'}))
+    expect(f.task.state).toBe('completed');expect(f.task.reason).toBeUndefined()
+  })
+  it('follows a preset rename without selecting a different preset that reused the old name',async()=>{
+    const f=fixture();f.task.preset='old-name'
+    f.listPresets.mockReturnValue([{name:'old-name',presetId:'different-preset'},{name:'renamed-preset',presetId:'preset'}])
+    await f.work()
+    expect(f.internalText).toHaveBeenCalledWith(expect.objectContaining({preset:'renamed-preset'}))
+    expect(f.task.state).toBe('completed')
+  })
+  it('does not charge or invoke a model when the original preset no longer exists',async()=>{
+    const f=fixture();f.listPresets.mockReturnValue([{name:'preset',presetId:'different-preset'}])
+    await f.work()
+    expect(f.internalText).not.toHaveBeenCalled();expect(f.state.calls).toEqual([])
+    expect(f.task).toMatchObject({state:'cancelled',reason:'NOT_FOUND'})
+  })
   it('resumes persisted fragments without another model call',async()=>{
     const f=fixture();f.task.inputs=['one','two'];f.task.index=1;f.task.results=['[]','[]']
     await f.work()
