@@ -10,7 +10,7 @@
 
 用户已批准本轮设置与常规文件交互结束，将剩余图片服务和绘图事项独立移交。已确认 D21—D23 的单次原生多图、统一全局默认与选图/反馈/定稿设计继续有效，用户选择其余先实施、Imagen 单独保留阻塞。目标是实际服务、发送前参数、请求、固定候选和用户定稿相符，而非只有入口和离线测试。
 
-已确认但仍需核对的完整设计见[绘图设计](design.md)；现行契约归[模型能力](../../backend/agent/model-capabilities.md)、[模型目录](../../backend/agent/model-catalog.md#图像服务参数与实现边界)、[会话绘图协议](../../shared/protocol/websocket.md#会话绘图请求与记录已批准实施中)与[工作台文件](../../frontend/workbench-files.md)。默认显示与保存已完成，四项未核实来源由[独立任务](../external-setting-defaults/README.md)维护，不重复实现设置。
+已确认但仍需核对的完整设计见[绘图设计](design.md)；现行契约归[模型能力](../../backend/agent/model-capabilities.md)、[模型目录](../../backend/agent/model-catalog.md#图像服务参数与实现边界)、[会话绘图协议](../../shared/protocol/websocket.md#会话绘图请求与记录已批准实施中)与[工作台文件](../../frontend/workbench-files.md)。默认显示与保存已完成，四项外部默认未核实字段的显示与原值保护归[设置中心](../../frontend/settings.md#默认显示与明确编辑)，不重复实现设置。
 
 接手人为恢复本任务的执行者，复杂度 4/5：厂商能力、持久轮次和双窗冲突相互依赖，需按接口核实与恢复分析能力；沿用已确认模型，不分配其他执行者。
 

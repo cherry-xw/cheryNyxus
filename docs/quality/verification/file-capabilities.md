@@ -36,7 +36,7 @@
 - [文件权限与交付验收](../../plan/file-access-and-delivery/README.md)：业务账号隔离、登录 HTTP 权限、QQ 文件/普通回复、工作区导入导出和异步交付/清理组合。
 - [图片服务与会话绘图验收](../../plan/image-services-and-drawing/README.md)：Imagen、各厂商实际服务、完整绘图与图片产品验证、首次绘图查询 400。
 - [服务端工具完整流程](../../plan/server-tools-completion/README.md)：真实任务验证管理、完整事件顺序、受保护续接及 GLM/GPT 多轮；其中仍有实现缺口。
-- [外部设置默认核实](../../plan/external-setting-defaults/README.md)：四项默认的官方依据与后续具体方案；继续显示未核实并保护原值。
+- 四项外部默认未核实字段（Gemini 图像比例/尺寸、Seedream 非 pro/flash `seed`、Images multipart `moderation`、MCP stdio `env`）已按用户确认接受现状结项：不把未核实缺省改成猜测默认，长期保护与展示规则归[设置中心](../../frontend/settings.md#默认显示与明确编辑)。
 
 已通过第 1—7 批的适用项不重测，7A3 保持跳过。下一执行者按各入口检查所缺条件和权限，不自动恢复已关闭的真实调用批次。
 
