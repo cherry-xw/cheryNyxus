@@ -65,6 +65,7 @@ node "$QQ_SKILLS_SCRIPTS_DIR/video.mjs" download "<URL>" --format "<formatId>"
 拿到 `mediaFile` 后，立即调用 **`qq_deliver_media`** 工具：
 - 参数：`{ "mediaFile": "<返回的mediaFile>", "fileName": "<视频标题>.mp4" }`
 - 工具会根据体积自动判断：小于气泡上限（默认 200 MB）发为聊天内嵌视频气泡；大于气泡上限（200 MB ~ 1 GB）自动切换为上传 QQ 群文件 / 私聊文件！
+- 返回`status=queued`仅代表加入发送队列，不能回复“已经上传／已经发到群里”。只说明下载完成、正在发送；实际发送以平台回执或另行查证的事实为准，unknown不自动重发。`media`提供成品宽高、时长和编码，向用户说明时使用实际尺寸，不把网页的720P等标签当作成品事实。
 
 ### 第六步：自动总结与沉淀脚本（供后续零调研复用）
 

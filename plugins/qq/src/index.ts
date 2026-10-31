@@ -52,6 +52,7 @@ import { openSourceDirectory, sourceDirectory, stageSourceZip, type SourceWorksp
 import { recordDetail, recordEntry } from './managementRecords.js'
 import { QQSourceRequestSchemas, QQSourceResponseSchemas, type SourceManagementQuery } from '@chery/protocol'
 import { conversationRules } from './conversation.js'
+import { inspectMedia } from './mediaFacts.js'
 import { runSourceDiscussionSummary } from './sourceMaintenance.js'
 import { QQSourceLearning, type LearningCommit } from './sourceLearning.js'
 import { QQKnowledgeStore, TermInputSchema, type KnowledgeEvidence } from './knowledge.js'
@@ -1381,6 +1382,12 @@ export class QQPlugin implements IngressPlugin {
     const maxBytes = (job.snapshot.config.workerMaxDownloadMb ?? 1024) * 1024 * 1024
     const bubbleMaxBytes = (job.snapshot.config.workerBubbleVideoMaxMb ?? 200) * 1024 * 1024
     if (!st.isFile() || st.isSymbolicLink() || st.size <= 0 || st.size > maxBytes) throw new Error('视频文件不存在或超出大小限制')
+    const media = await inspectMedia(fullPath)
+    if (this.closing() || !this.accepting() && !this.adoptedJobs.has(job.requestId) || this.paused || job.state !== 'running' ||
+      !this.connection || !this.recovered || this.state.jobs.find(j => j.coreRequestId === id && j.state === 'running') !== job)
+      throw new Error('请求已结束或QQ连接不可用，未加入发送队列')
+    if (!job.sourceScopeId) throw new Error('请求没有有效来源范围')
+    this.sources.validate(job.input, job.sourceScopeId)
     const uploadAsFile = input.forceUploadAsFile === true || st.size > bubbleMaxBytes
     this.output(job, 'qq.reply.video', {
       mediaFile: input.mediaFile,
@@ -1388,7 +1395,9 @@ export class QQPlugin implements IngressPlugin {
       ...(uploadAsFile ? { uploadAsFile: true, fileName: input.fileName || input.mediaFile } : {}),
     })
     this.persist()
-    return { status: 'queued', mediaFile: input.mediaFile, bytes: st.size, deliveryMode: uploadAsFile ? 'group_or_private_file' : 'video_bubble' }
+    return { status: 'queued', mediaFile: input.mediaFile, bytes: st.size, media,
+      deliveryMode: uploadAsFile ? 'group_or_private_file' : 'video_bubble',
+      rule: '视频已加入发送队列，尚未取得平台发送成功确认，不能声称已上传或已送达。media是成品实测信息，清晰度按实际宽高说明，不沿用请求或网页中的标签。' }
   }
   private replyJob(id: string): Job {
     const job = this.state.jobs.find(j => j.coreRequestId === id && j.state === 'running')

@@ -28,7 +28,7 @@ export function createReplyTools(bridge: QQReplyBridge): Registration[] {
     forceUploadAsFile: z.boolean().optional(),
   }).strict()
   const tools: Array<{ name: string; allowPrivate?: boolean; description: string; schema: z.ZodType; parameters: Registration['sense']['definition']['function']['parameters']; run: (requestId: string, input: any) => Promise<unknown> }> = [
-    { name: 'qq_deliver_media', allowPrivate: true, description: '向当前QQ群或私聊投递已下载到共享media目录(/workspace/media)的兼容MP4视频文件(文件名形如1792200000.mp4)。体积超过气泡上限时会自动转为群文件/私聊文件上传。', schema: deliverSchema,
+    { name: 'qq_deliver_media', allowPrivate: true, description: '向当前QQ群或私聊的发送队列加入已下载到共享media目录(/workspace/media)的兼容MP4视频文件(文件名形如1792200000.mp4)。体积超过气泡上限时转为群文件/私聊文件。返回queued仅证明入队，不证明上传或送达；media返回成品实际尺寸、时长及编码。', schema: deliverSchema,
       parameters: { type: 'object', properties: { mediaFile: { type: 'string' }, fileName: { type: 'string' }, forceUploadAsFile: { type: 'boolean' } }, required: ['mediaFile'], additionalProperties: false },
       run: (id, input) => {
         if (!bridge.deliverMedia) throw new Error('Media delivery not configured')

@@ -146,6 +146,8 @@ QQ 请求通过 `qq_information` 查询当前群或自己的私聊，不接受�
 
 ## 媒体下载与清理
 
+`qq_deliver_media`只返回发送入队结果，不承诺上传或送达；入队前由`src/mediaFacts.ts`读取成品ffprobe信息，返回实际宽高、时长、编码及文件字节数，不沿用网页画质标签。探测失败、请求结束或撤权不入队。验证入口为`test/mediaFacts.test.ts`与`test/mediaDelivery.test.ts`，原unknown不因成品存在改为成功。
+
 B站固定下载的地址和音轨规则见随包[技能说明](skills/douyin-download-send/SKILL.md)：仅 MCDN 允许 HTTPS 8082 端口；没有独立音轨的提取结果可下载并返回真实 `hasAudio`，已有音轨不因失败而被丢弃。
 
 一般附件由宿主资产接口保存固定版本，按原消息的文字/附件顺序提交。生成与工具结果的文件通过受认证分段接口送到 NapCat 临时目录，核对完整长度与摘要后原生发送，不建立永久公开链接；执行、保存与渠道发送分别判断。下载不安全或文件导入失败时明确告知未读取内容。协议及边界由[QQ 文件消息](../../docs/shared/protocol/qqbot-plugin.md#插件到后端)维护；新文件流程未作真实 QQ 发送验收，既有媒体下载验收不自动覆盖它。
