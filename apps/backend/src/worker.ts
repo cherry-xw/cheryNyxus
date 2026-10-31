@@ -24,6 +24,8 @@ import { initLogger, logger, LogLevel } from '@/utils/logger/index.js'
 import config, { readRawConfig } from '@/utils/config.js'
 import { hashPassword, isHashed } from '@/utils/password.js'
 import { randomBytes } from 'node:crypto'
+import { BACKEND_STATUS_INTERVAL_MS } from '@chery/protocol'
+import { writeBackendStatusFile } from '@/service/runtimeStatus.js'
 import { getAgentRuntimeStats, hasRunningChats } from '@/service/chat/runtimeCache.js'
 import { createWorkerLifecycle } from '@/service/workerLifecycle.js'
 import { initializeCommands, closeCommandLogs } from '@/service/commands.js'
@@ -43,7 +45,6 @@ import { activeRootIds, treeBoundaryReason } from '@/service/config/treeBoundary
 import { getConfigApplyCoordinator } from '@/service/config/commit.js'
 import { validateRestartCandidate } from '@/service/config/restartPreflight.js'
 import { stopScheduleService } from '@/service/schedule/scheduler.js'
-import fs from 'node:fs'
 import { persistStartupPasswordHash } from './utils/configOwnership.js'
 import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 import { startConfigRevisionWatcher } from '@/service/config/watcher.js'
@@ -264,7 +265,7 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   })
   const statusTimer = setInterval(() => {
     if (serviceAddresses) writeBackendStatus(serviceAddresses)
-  }, 2_000)
+  }, BACKEND_STATUS_INTERVAL_MS)
   statusTimer.unref()
   // 启动汇报：打印监听的服务地址（rule12 fail loud——端口监听可见）。
   const bindHost = config.server.host === '0.0.0.0' ? '0.0.0.0 (所有接口)' : config.server.host
@@ -327,13 +328,7 @@ function writeBackendStatus(addresses: unknown): void {
   const file = process.env.CHERY_BACKEND_STATUS_FILE
   if (!file) return
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(
-      file,
-      `${JSON.stringify({ protocolVersion: 1, instanceId: statusInstanceId, status: 'running', addresses, agents: getAgentRuntimeStats(), updatedAt: new Date().toISOString() })}\n`,
-      { mode: 0o600 },
-    )
-    if (process.platform !== 'win32') fs.chmodSync(file, 0o600)
+    writeBackendStatusFile({ file, instanceId: statusInstanceId, addresses, agents: getAgentRuntimeStats() })
   } catch (error) {
     logger.warn(`无法写入后端监听状态：${(error as Error).message}`)
   }

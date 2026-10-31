@@ -2,7 +2,16 @@
 
 ## Backend维护发现
 
-机器认证后GET `/api/machine/capabilities`返回strict、有界、独立的protocolVersion=1、instanceId、协议范围[1,1]、local监听域、维护诊断及当前支持的relay.binding/relay.operation。来源检查、机器权限、实际操作能力与业务档分别判断；Backend机器来源规则仍按现行实现，LAN限制决断未定。Manager没有该接口或无法解析时仅维护操作不可用，不撤管理会话，不从业务basic/full推断维护权限。设备操作参数按共享MachineRelayOperationSchema校验；权限仍由机器认证决定。Backend状态文件采用strict版本1，包含每进程instanceId、实际监听、有限运行统计及更新时间；Manager不信任旧shape/陈旧摘要，不将TCP端口打开当作认证或业务ready。监听来源仍按现行规则，不擅自将LAN机器维护改为仅回环。
+机器认证后GET `/api/machine/capabilities`返回strict、有界、独立的protocolVersion=1、instanceId、协议范围[1,1]、local监听域、维护诊断及当前支持的relay.binding/relay.operation。来源检查、机器权限、实际操作能力与业务档分别判断；Backend机器来源规则仍按现行实现，LAN限制决断未定。Manager没有该接口或无法解析时仅维护操作不可用，不撤管理会话，不从业务basic/full推断维护权限。设备操作参数按共享MachineRelayOperationSchema校验；权限仍由机器认证决定。监听来源仍按现行规则，不擅自将LAN机器维护改为仅回环。
+
+### 运行状态记录约定
+
+状态格式由共享 `BackendStatusSchema`、`RelayClientStatusSchema` 定义，旧格式不作为当前运行依据，不提供旧格式兼容分支。自动检查、实际部署及已接受的生产中转验证限制见[维护验收结论](../../quality/verification/qq-safe-outcomes.md#维护验收结论与适用范围)。
+
+- Backend 状态文件版本 2 包含运行实例标识、实际监听、有限运行统计、`heartbeatIntervalMs` 与 `updatedAt`；每个实际上报周期写入一次。记录达到 3 个周期未更新即失效，当前周期 2 秒、有效时间 6 秒。未来的更新时间、无效格式和错误监听不作为当前运行依据；新有效上报可恢复展示。
+- 中转状态文件版本 3 在原有设备身份及期望/已应用配置版本之外记录服务端确认的 `leaseExpiresAt`。仅实际收到当前连接的确认才能更新期限，发送心跳不延长期限；旧连接的确认不能更新新连接。在线还须实际就绪、配置一致且期限未到，Manager 不另设统一超时或延长服务端期限。
+- 状态时间比较要求部署主机时钟一致；不增加自动校时。文件过期只能表示无法确认，不表示进程退出；端口可连接但缺少有效记录时为 `reachable-not-verified`，端口不可连接也不证明外部进程退出。只有持有进程句柄的组件观察到退出，才可报告进程已经停止。
+- 这些判断只影响展示，不触发停止、重启、重连、隧道启动或任务取消。维护状态与管理 Session 独立。
 
 
 Manager 登录独立于 Backend 业务认证，不以 Backend 在线为前提。常规入口先启动 Manager 再启动 Backend，运行根与配置位置见[后端运行](../../guides/backend-runtime.md)。入口为 `apps/manager/src/index.ts`，HTTP 实现在 `apps/manager/src/server.ts`；账号、会话和 OIDC 分别由 `accountStore.ts`、`auth.ts`、`oidc.ts` 负责。本说明是页面、CLI 和部署共同遵守的唯一认证契约，不定义聊天后端登录。

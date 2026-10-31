@@ -1,4 +1,4 @@
-import { chmod, link, mkdir, open, rm, writeFile } from 'node:fs/promises'
+import { link, mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { validateEncryptedTransport } from './encryptedTransport.js'
 import { DeviceAuthorizationSnapshotSchema, DeviceIdentityFileSchema, RelayControlMessageSchema } from '@chery/protocol'
@@ -64,6 +64,7 @@ export class RelayBackendClient {
   private readonly instanceId = randomBytes(24).toString('base64url')
   private appliedRevision?: string
   private activeLeaseId?: string
+  private leaseExpiresAt?: string
   private ratholeProcess?: RatholeProcess
   private tunnelQueue: Promise<void> = Promise.resolve()
   private statusWrites: Promise<void> = Promise.resolve()
@@ -115,12 +116,14 @@ export class RelayBackendClient {
     this.socket?.close(1000, 'Client stopped')
     this.socket = undefined
     this.activeLeaseId = undefined
+    this.leaseExpiresAt = undefined
     this.appliedRevision = undefined
     await this.tunnelQueue.catch(() => {})
     await this.ratholeProcess?.stop()
     this.ratholeProcess = undefined
     this.socket = undefined
     this.setStatus('stopped')
+    await this.statusWrites
   }
 
   updateConfigVersion(configVersion: number): void {
@@ -185,7 +188,10 @@ export class RelayBackendClient {
     }
     if (message.type === 'tunnel.ready') { if (message.leaseId !== this.activeLeaseId) return; this.appliedRevision = this.options.desiredRevision ?? 'unknown'; this.setStatus('online'); return }
     if (message.type === 'heartbeat_ack') {
-      if (message.leaseId === this.activeLeaseId && this.status === 'online') this.setStatus('online')
+      if (message.leaseId === this.activeLeaseId && this.status === 'online') {
+        this.leaseExpiresAt = message.leaseExpiresAt as string
+        this.setStatus('online')
+      }
       return
     }
     if (message.type === 'error') {
@@ -240,6 +246,9 @@ export class RelayBackendClient {
       return this.fail('Relay accepted message is invalid')
     }
     this.activeLeaseId = accepted.leaseId
+    this.leaseExpiresAt = accepted.leaseExpiresAt
+    this.appliedRevision = undefined
+    this.setStatus('connecting')
     const services = servicesFromAccepted({
       accepted,
       addresses: this.options.tunnelAddresses,
@@ -263,7 +272,6 @@ export class RelayBackendClient {
       this.socket?.close(1011, 'rathole exited')
     })
     this.startHeartbeat(accepted)
-    this.setStatus('connecting')
     if (this.options.probeToken) {
       for (let attempt = 0; attempt < 10 && this.socket === acceptedSocket && this.socket?.readyState === WebSocket.OPEN && !this.stopped; attempt++) {
         this.socket.send(JSON.stringify({ type: 'tunnel.applied', leaseId: accepted.leaseId, probeToken: this.options.probeToken() }))
@@ -287,6 +295,7 @@ export class RelayBackendClient {
 
   private handleClose(): void {
     this.activeLeaseId = undefined
+    this.leaseExpiresAt = undefined
     this.appliedRevision = undefined
     this.disconnectAuthorization()
     for (const waiter of this.bindingWaiters.values()) { clearTimeout(waiter.timer); waiter.reject(new Error('Device control disconnected; request result unknown')) }
@@ -312,16 +321,20 @@ export class RelayBackendClient {
     this.status = status
     if (this.options.statusFile) {
       const file = this.options.statusFile
-      this.statusWrites = this.statusWrites.catch(() => {}).then(() => writeRelayStatus(file, {
-        protocolVersion: 2, instanceId: this.instanceId, configVersion: this.options.configVersion,
+      // Capture when observed, not when a delayed disk write finally starts.
+      const snapshot = {
+        protocolVersion: 3 as const, instanceId: this.instanceId, configVersion: this.options.configVersion,
         desiredRevision: this.options.desiredRevision ?? 'unknown',
         ...(this.appliedRevision ? { appliedRevision: this.appliedRevision } : {}),
         ...(this.activeLeaseId ? { leaseId: this.activeLeaseId } : {}),
+        ...(this.leaseExpiresAt ? { leaseExpiresAt: this.leaseExpiresAt } : {}),
         status,
         backendId: this.options.backendId,
         ...(error ? { error } : {}),
         updatedAt: new Date().toISOString(),
-      })).catch(() => this.options.onStatus?.('error', 'Device status file unavailable'))
+      }
+      this.statusWrites = this.statusWrites.catch(() => {}).then(() => writeRelayStatus(file, snapshot))
+        .catch(() => this.options.onStatus?.('error', 'Device status file unavailable'))
     }
     this.options.onStatus?.(status, error)
   }
@@ -329,8 +342,13 @@ export class RelayBackendClient {
 
 async function writeRelayStatus(file: string, status: import('zod').infer<typeof import('@chery/protocol').RelayClientStatusSchema>): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, `${JSON.stringify(status)}\n`, { mode: 0o600 })
-  if (process.platform !== 'win32') await chmod(file, 0o600)
+  const temporary = `${file}.${randomBytes(12).toString('hex')}.tmp`
+  try {
+    await writeFile(temporary, `${JSON.stringify(status)}\n`, { mode: 0o600, flag: 'wx' })
+    await rename(temporary, file)
+  } finally {
+    await rm(temporary, { force: true })
+  }
 }
 
 export async function loadOrCreatePrivateKey(file: string): Promise<KeyObject> {
