@@ -207,8 +207,9 @@ describe('one-time legacy QQ source migration', () => {
     expect(applied.backupManifestPath).toBeTruthy()
     expect(fs.existsSync(applied.backupManifestPath!)).toBe(true)
 
-    // Runtime state and group memory now pass strict schema validation
-    const migratedState = readState(path.join(dir, 'state.json'))
+    // Source migration publishes version 2. Question maintenance is a separate operation.
+    const migratedState = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'))
+    expect(() => readState(path.join(dir, 'state.json'))).toThrow('question maintenance')
     expect(migratedState.schemaVersion).toBe(2)
     expect(migratedState.jobs[0]?.sourceScopeId).toBeTruthy()
     expect(migratedState.jobs[0]?.sourceRecords).toHaveLength(1)
@@ -322,7 +323,7 @@ describe('one-time legacy QQ source migration', () => {
     state.outbox.push({...state.outbox[0],frame:{...state.outbox[0].frame,data:{...state.outbox[0].frame.data,eventId:'unknown-output',seq:2,text:'结果未知的正文'}},status:'unknown',messageIds:[]})
     fs.writeFileSync(file,JSON.stringify(state))
     expect(migrateLegacyQQSources({db,dataDir:dir,mode:'apply'}).conflicts).toEqual([])
-    const migrated=readState(file),questions=migrated.jobs[0]!.questions!
+    const migrated=JSON.parse(fs.readFileSync(file,'utf8')),questions=migrated.jobs[0]!.questions!
     expect(questions.replies[0]!.sourceParts).toContainEqual(expect.objectContaining({type:'text',text:'确认的答案'}))
     const reference=questions.items[0]!.answerRecord!
     expect(reference.recordId).toMatch(/^record-/)

@@ -22,6 +22,17 @@ QQ业务由本包负责，NapCat适配器只整理事件和收发，Manager仅�
 
 多任务保存、队尾调度与原任务恢复的正式约定见[QQ 原任务问答](../../docs/shared/protocol/qqbot-plugin.md#qq-原任务问答)。旧已取消等待状态仅在备份后的受控维护中同步结束，不执行、不发送。新版本实现、部署和验证状态见[当前任务](../../docs/plan/conversation-observability-and-input/README.md)。
 
+### 停写问题维护
+
+状态版本 2→3 使用独立的 `apps/backend/src/service/ingress/questionMaintenanceCli.ts`，不启动环境配置、宿主、模型或发送。先停止 Backend/NapCat 业务写入，确认无活动运行，正常关闭 SQLite 并检查 WAL 已写回；新增同一时点的主库/月库、QQ 数据、资产完整备份。备份清单沿用 `files[{originalPath,backupPath,sha256}]`，只接受绝对路径、独立备份及匹配摘要。
+
+```sh
+npm run qq-question:maintain -- --db /absolute/data/soul.db --data-dir /absolute/qq --operation-id qq-questions-20261024 --stopped
+npm run qq-question:maintain -- --db /absolute/data/soul.db --data-dir /absolute/qq --operation-id qq-questions-20261024 --stopped --mode apply --assets-dir /absolute/assets --recovery-manifest /absolute/backup/manifest.json
+```
+
+默认只读预览仅输出数量、请求编号、阶段及许可原因码。关联不足保留历史并禁止恢复；矛盾阻止写入。已取消问题仅在原请求、Core 运行、问题批、消息归属和取消事实吻合时同步结束，不伪造用户取消，不动同会话其他运行。旧未结束任务按停止规则结束，不获得跨重启执行许可。未知发送保留未知，不创建输出；配置、凭据、附件、工具结果及原备份不删除。主库保存固定维护编号、指纹和阶段，最后才发布版本 3。中断后保持停写，用同编号和原备份清单补齐；不得启动业务或仅换回旧镜像。回退需恢复整套同一时点备份。验证入口为 `apps/backend/test/service/questionMaintenance.test.ts`。
+
 `ask_user_question` 使用 Core 持久问题批。请求内工具模式也将提问交回正常 checkpoint 保存，而不是只保留临时工具历史。QQ 只公开问题、选项及回答方式，不公开 rationale、思考或内部工具参数；群聊与私聊均通过已认证原生引用文字发送。
 
 问题发送成功回执中的 QQ 消息 ID 绑定原问题。仅原发起者在原目标中明确引用该问题才能提交答案；答案按原文写入 Core 的自由文本字段，由模型理解，不以数字、关键词、唯一待办或其他成员文字猜测选项。多个问题分别引用回答，整批齐全后续接原任务与原运行。普通非引用文字仍走普通入口。现有群名单、预设绑定、宿主身份及原运行状态在续接时重新检查；已取消、过期、撤权或配置变更不自动续接。

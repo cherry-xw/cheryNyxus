@@ -36,7 +36,7 @@ export interface ExecutionActiveRunRow {
   rootChatId: string
   chatId: string
   runId: string
-  status: 'running' | 'waiting' | 'paused' | 'completed' | 'failed'
+  status: 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | 'cancelled'
   turnId?: string
   nodeId?: string
   batchId?: string
@@ -257,7 +257,7 @@ export function upsertExecutionActiveRun(run: ExecutionActiveRunRow): void {
        ON CONFLICT(chat_id, run_id) DO UPDATE SET
          root_chat_id=excluded.root_chat_id,
          status=CASE
-           WHEN execution_active_runs.status IN ('paused', 'completed', 'failed')
+            WHEN execution_active_runs.status IN ('paused', 'completed', 'failed', 'cancelled')
              THEN execution_active_runs.status
            ELSE excluded.status
          END,
